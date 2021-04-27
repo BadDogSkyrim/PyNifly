@@ -5,7 +5,7 @@ from math import asin, atan2, pi, sin, cos
 from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_float, c_uint8, c_uint16, create_string_buffer, Structure, cdll, pointer
 from niflytools import *
 
-nifly_path = r"D:\OneDrive\Dev\NiflyDLL\NiflyDLL\x64\Debug\NiflyDLL.dll"
+nifly_path = r"D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
 
 game_versions = ["FO3", "FONV", "SKYRIM", "FO4", "SKYRIMSE", "FO4VR", "SKYRIMVR", "FO76"]
 
