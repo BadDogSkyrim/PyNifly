@@ -1,0 +1,7 @@
+﻿  pch.cpp
+  dllmain.cpp
+  NiflyWrapper.cpp
+  NiflyFunctions.cpp
+  Generating Code...
+     Creating library D:\OneDrive\Dev\NiflyDLL\NiflyDLL\x64\Package\NiflyDLL.lib and object D:\OneDrive\Dev\NiflyDLL\NiflyDLL\x64\Package\NiflyDLL.exp
+  NiflyDLL.vcxproj -> D:\OneDrive\Dev\NiflyDLL\NiflyDLL\x64\Package\NiflyDLL.dll
