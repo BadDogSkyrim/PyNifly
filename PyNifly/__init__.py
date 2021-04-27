@@ -9,7 +9,7 @@ bl_info = {
     "description": "Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 4), 
+    "version": (0, 0, 5), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -372,7 +372,9 @@ def get_common_shapes(obj_list):
     """ Return the shape keys common to all the given objects """
     res = None
     for obj in obj_list:
-        o_shapes = set(obj.data.shape_keys.key_blocks.keys())
+        o_shapes = set()
+        if obj.data.shape_keys:
+            o_shapes = set(obj.data.shape_keys.key_blocks.keys())
         if res:
             res = res.intersection(o_shapes)
         else:
@@ -427,14 +429,14 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 if len(shape_keys) == 0:
                     shape_keys.append('') # just export the plain file
                 for sk in shape_keys:
+                    fn = os.path.splitext(os.path.basename(self.filepath))
+                    fp = os.path.join(os.path.dirname(self.filepath), fn[0] + sk + fn[1])
+                    print('Exporting to ' + self.target_game + ' ' + fp)
+                    exportf = NifFile()
+                    exportf.initialize(self.target_game, fp)
                     for obj in objs_to_export:
-                        fn = os.path.splitext(os.path.basename(self.filepath))
-                        fp = os.path.join(os.path.dirname(self.filepath), fn[0] + sk + fn[1])
-                        print('Exporting to ' + self.target_game + ' ' + fp)
-                        exportf = NifFile()
-                        exportf.initialize(self.target_game, fp)
                         res = export_shape(exportf, obj, sk)
-                        exportf.save()
+                    exportf.save()
         
         except:
             print("ERROR exporting nif")
