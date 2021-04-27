@@ -1,0 +1,12 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs
+/NiflyDLL/.vs/NiflyDLL/v16
+/NiflyDLL/Debug/NiflyDLL.tlog
+/PyNifly/tests/Out
+/PyNifly/__pycache__
+/TestNifly/.vs
+/TestNifly/Debug/TestNifly.tlog
+/TestNifly/x64/Test
