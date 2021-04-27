@@ -1,1 +1,8 @@
-﻿  NiflyDLL.vcxproj -> D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Test\NiflyDLL.dll
+﻿  pch.cpp
+  dllmain.cpp
+  NiflyWrapper.cpp
+  NiflyFunctions.cpp
+  TestDLL.cpp
+  Generating Code...
+     Creating library D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Test\NiflyDLL.lib and object D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Test\NiflyDLL.exp
+  NiflyDLL.vcxproj -> D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Test\NiflyDLL.dll
