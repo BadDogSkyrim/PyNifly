@@ -241,12 +241,12 @@
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>copy /y $(OutDir)NiflyDLL.dll  $(ProjectDir)..\..\io_scene_nifly\
-copy /y $(ProjectDir)..\..\pynifly\pynifly\pynifly.py  $(ProjectDir)..\..\io_scene_nifly\
-copy /y $(ProjectDir)..\..\pynifly\pynifly\niflytools.py  $(ProjectDir)..\..\io_scene_nifly\
-copy /y $(ProjectDir)..\..\pynifly\pynifly\pyniflywhereami.py  $(ProjectDir)..\..\io_scene_nifly\
-copy /y $(ProjectDir)..\..\pynifly\pynifly\__init__.py  $(ProjectDir)..\..\io_scene_nifly\
-copy /y $(ProjectDir)..\..\Nifly\out\build\x64-Debug\nifly.lib  $(ProjectDir)..\..\io_scene_nifly\</Command>
+      <Command>copy /y $(OutDir)NiflyDLL.dll  $(ProjectDir)..\io_scene_nifly\
+copy /y $(ProjectDir)..\pynifly\pynifly.py  $(ProjectDir)..\io_scene_nifly\
+copy /y $(ProjectDir)..\pynifly\niflytools.py  $(ProjectDir)..\io_scene_nifly\
+copy /y $(ProjectDir)..\pynifly\pyniflywhereami.py  $(ProjectDir)..\io_scene_nifly\
+copy /y $(ProjectDir)..\pynifly\__init__.py  $(ProjectDir)..\io_scene_nifly\
+copy /y $(ProjectDir)..\..\Nifly\out\build\x64-Debug\nifly.lib  $(ProjectDir)..\io_scene_nifly\</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Package|x64'">
