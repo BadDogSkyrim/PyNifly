@@ -35,7 +35,7 @@ if os.path.exists(pynifly_dev_path):
     nifly_path = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll")
 else:
     # Load from install location
-    py_addon_path = os.path.realpath(__file__)
+    py_addon_path = os.path.dirname(os.path.realpath(__file__))
     print(f"PyNifly addon path: {py_addon_path}")
     if py_addon_path not in sys.path:
         sys.path.append(py_addon_path)
