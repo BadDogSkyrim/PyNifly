@@ -2,7 +2,7 @@
 <Project>
   <ProjectOutputs>
     <ProjectOutput>
-      <FullPath>D:\OneDrive\Dev\NiflyDLL\NiflyDLL\x64\Debug\TestNifly.exe</FullPath>
+      <FullPath>D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\TestNifly.exe</FullPath>
     </ProjectOutput>
   </ProjectOutputs>
   <ContentFiles />

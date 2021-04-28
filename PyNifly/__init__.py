@@ -9,7 +9,7 @@ bl_info = {
     "description": "Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 6), 
+    "version": (0, 0, 7), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -36,10 +36,10 @@ if os.path.exists(pynifly_dev_path):
 else:
     # Load from install location
     py_addon_path = os.path.realpath(__file__)
-    print(f"PyNifly addon path: {pynifly_addon_path}")
+    print(f"PyNifly addon path: {py_addon_path}")
     if py_addon_path not in sys.path:
         sys.path.append(py_addon_path)
-    nifly_path = os.path.join(pynifly_addon_path, "NiflyDLL.dll")
+    nifly_path = os.path.join(py_addon_path, "NiflyDLL.dll")
 
 print(f"Nifly DLL at {nifly_path}")
 if not os.path.exists(nifly_path):
