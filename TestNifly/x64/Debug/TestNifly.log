@@ -1,1 +1,4 @@
 ﻿  0 File(s) copied
+  File not found - NiflyDLL.dll
+C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Microsoft\VC\v160\Microsoft.CppCommon.targets(155,5): error MSB3073: The command "xcopy /y /d "D:\OneDrive\Dev\NiflyDLL\NiflyDLL\x64\Debug\NiflyDLL.dll" "D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\"
+C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Microsoft\VC\v160\Microsoft.CppCommon.targets(155,5): error MSB3073: :VCEnd" exited with code 4.
