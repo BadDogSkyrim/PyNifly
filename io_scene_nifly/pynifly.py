@@ -5,7 +5,6 @@ from math import asin, atan2, pi, sin, cos
 from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_float, c_uint8, c_uint16, create_string_buffer, Structure, cdll, pointer
 from niflytools import *
 
-nifly_path = r"D:\OneDrive\Dev\NiflyDLL\NiflyDLL\x64\Debug\NiflyDLL.dll"
 
 game_versions = ["FO3", "FONV", "SKYRIM", "FO4", "SKYRIMSE", "FO4VR", "SKYRIMVR", "FO76"]
 
@@ -22,7 +21,7 @@ class VERTEX_WEIGHT_PAIR(Structure):
                 ("weight", c_float)]
 
 
-def load_nifly():
+def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
     nifly.load.argtypes = [c_char_p]
     nifly.load.restype = c_void_p
@@ -52,6 +51,8 @@ def load_nifly():
     nifly.getNodeParent.restype = c_void_p
     nifly.getNodeTransform.argtypes = [c_void_p, c_void_p]
     nifly.getNodeTransform.restype = None
+    nifly.getNodeXformToGlobal.argtypes = [c_void_p, c_char_p, c_void_p]
+    nifly.getNodeXformToGlobal.restype = None
     nifly.getNodes.argtypes = [c_void_p, c_void_p]
     nifly.getNodes.restype = None
     nifly.getNormalsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
@@ -301,9 +302,9 @@ class NiNode:
         return self._parent
 
     @property
-    def xform_to_global():
+    def xform_to_global(self):
         buf = (c_float * 13)()
-        NifFile.nifly.getNodeXformToGlobal(self.file._handle, self.name, buf)
+        NifFile.nifly.getNodeXformToGlobal(self.file._handle, self.name.encode('utf-8'), buf)
         mat = MatTransform()
         mat.from_array(buf)
         return mat
@@ -586,7 +587,10 @@ class NifFile:
     """ NifFile represents the file itself. Corresponds approximately to a NifFile in the 
         Nifly layer, but we've hidden the AnimInfo object in here too.
         """
-    nifly = load_nifly()
+    nifly = None
+
+    def Load(nifly_path):
+        NifFile.nifly = load_nifly(nifly_path)
     
     def __init__(self, filepath=None):
         self.filepath = filepath
@@ -763,7 +767,9 @@ def _test_export_shape(s_in, ftout):
         new_shape.setShapeWeights(bone_name, weights)
 
 if __name__ == "__main__":
-    print(os.getcwd())
+    nifly_path = r"D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
+    NifFile.Load(nifly_path)
+
 
     if TEST_ALL or TEST_XFORM_INVERSION:
         print("### Transform inversion works correctly")
@@ -1122,5 +1128,7 @@ if __name__ == "__main__":
         f = NifFile(testfile)
         n = f.nodes['Bone_Cloth_H_001']
         assert round(n.transform.rotation.euler_deg()[0], 0) == 87, "Error: Translations read correctly"
+        assert round(n.xform_to_global.rotation.euler_deg()[0], 0) == 87, "Error: Global transform read correctly"
         print(n.transform.invert()) # just make sure it works for now 
         print(n.transform.rotation.by_vector((5.0, 0.0, 0.0)))
+        print(n.xform_to_global)

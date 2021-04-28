@@ -34,7 +34,7 @@ class RotationMatrix:
     def __eq__(self, other):
         for i in range(0, 2):
             for j in range(0, 2):
-                if self.matrix[i][j] != other.matrix[i][j]:
+                if round(self.matrix[i][j], 4) != round(other.matrix[i][j], 4):
                     return False
         return True
 
@@ -300,7 +300,7 @@ def mesh_split_by_uv(verts, norms, loops, uvmap, weights):
             #      (vert_idx, i, str(uvmap[i]), str(vert_locs[vert_idx])))
             vert_key = vert_uv_key(vert_idx, this_vert_loc)
             if vert_key in change_table:
-                print("..found in change table at %d " % change_table[vert_key])
+                #print("..found in change table at %d " % change_table[vert_key])
                 loops[i] = change_table[vert_key]
             else:
                 #print("..not found, creating new vert")
@@ -1151,3 +1151,7 @@ if __name__ == "__main__":
     res_mat = RotationMatrix.from_vector(rot_vec)
     res_euler = res_mat.euler()
     
+    # Rotation vectors work to go from matrices and back again
+    r = RotationMatrix.from_euler(20, 30, 40)
+    r1 = RotationMatrix.from_vector(r.rotation_vector())
+    assert r == r1, "Error: Rotation vectors are reversable"
