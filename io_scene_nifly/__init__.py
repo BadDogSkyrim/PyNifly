@@ -9,7 +9,7 @@ bl_info = {
     "description": "Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 4), 
+    "version": (0, 0, 6), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -26,17 +26,30 @@ import math
 
 pynifly_dev_root = r"D:\OneDrive\Dev"
 pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
-if os.path.exists(pynifly_dev_path) and pynifly_dev_path not in sys.path:
-    sys.path.append(pynifly_dev_path)
-py_addon_path = os.path.realpath(__file__)
-if py_addon_path not in sys.path:
-    sys.path.append(py_addon_path)
+
+# Load from dev path if it exists
+if os.path.exists(pynifly_dev_path):
+    print(f"PyNifly dev path: {pynifly_dev_path}")
+    if pynifly_dev_path not in sys.path:
+        sys.path.append(pynifly_dev_path)
+    nifly_path = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll")
+else:
+    # Load from install location
+    py_addon_path = os.path.realpath(__file__)
+    print(f"PyNifly addon path: {pynifly_addon_path}")
+    if py_addon_path not in sys.path:
+        sys.path.append(py_addon_path)
+    nifly_path = os.path.join(pynifly_addon_path, "NiflyDLL.dll")
+
+print(f"Nifly DLL at {nifly_path}")
+if not os.path.exists(nifly_path):
+    print("ERROR: pynifly DLL not found")
 
 from pynifly import *
 from niflytools import *
 import pyniflywhereami
 
-pynifly_path = os.path.dirname(pyniflywhereami.__file__)
+NifFile.Load(nifly_path)
 
 import bpy
 from bpy.props import (
@@ -50,17 +63,8 @@ from bpy_extras.io_utils import (
         ExportHelper)
 import bmesh
 
-print(f"Current working directory: {os.getcwd()}")
-print(f"Module directory: {pynifly_path}")
 
-# Use the dev version if it exists
-nifly_path = os.path.join(pynifly_dev_root, "NiflyDLL/NiflyDLL/x64/Debug/NiflyDLL.dll")
-if not os.path.exists(nifly_path):
-    nifly_path = os.path.join(pynifly_path, "NiflyDLL.dll")
-
-print(f"DLL path: {nifly_path}")
-if not os.path.exists(nifly_path):
-    print("ERROR: pynifly DLL not found")
+# ### ---------------------------- IMPORT -------------------------------- ###
 
 def mesh_create_uv(the_mesh, uv_points):
     """ Create UV in Blender to match UVpoints from Nif
@@ -83,6 +87,7 @@ def mesh_create_groups(the_shape, the_object, skel_dict):
             new_vg.add((v,), w, 'ADD')
     
 def import_shape(the_shape: NiShape, skel_dict):
+    """ Import the shape to a Blender object, using skel_dict to translate bone names """
     v = the_shape.verts
     t = the_shape.tris
 
@@ -128,11 +133,15 @@ def make_armature(the_coll, the_nif, skel_dict, bone_names):
         bone =  arm_data.edit_bones.new(blend_name)
         bone_xform = the_nif.nodes[bone_game_name].transform
         bone.head = bone_xform.translation
+        #print(f"..Bone {bone_game_name} rotation is {bone_xform.rotation}")
         rot_vec = bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
+        #rot_vec = bone_xform.rotation.rotation_vector()
         bone.tail = (bone.head[0] + rot_vec[0], bone.head[1] + rot_vec[1], bone.head[2] + rot_vec[2])
         
     bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
     return arm_ob
+
+# ### ---------------------------- EXPORT -------------------------------- ###
 
 def extract_face_info(bm):
     uv_lay = bm.loops.layers.uv.active
@@ -148,7 +157,7 @@ def extract_face_info(bm):
     
     return loops, uvs
 
-def extract_vert_info(obj, bm):
+def extract_vert_info(obj, bm, target_key):
     """Returns 3 lists of equal length with one entry each for each vertex
         verts = [(x, y, z)... ] 
         norms = [(x, y, z)... ] 
@@ -158,9 +167,15 @@ def extract_vert_info(obj, bm):
     norms = []
     weights = []
     deform_layer = bm.verts.layers.deform.active
+    key_layer = None
+    if target_key != '':
+        key_layer = bm.verts.layers.shape[target_key]
     bm.verts.ensure_lookup_table()
     for v in bm.verts:
-        verts.append(v.co[:])
+        if target_key == '':
+            verts.append(v.co[:])
+        else:
+            verts.append(v[key_layer][:])
         norms.append(v.normal[:])
         if deform_layer:
             vert_weights = {}
@@ -179,11 +194,29 @@ def get_bone_locations(arma, bone_names):
     for b in arma.bones:
         mat = MatTransform()
         mat.translation = b.head
+        # Hard-code bone rotations in for bones not in the skeleton. 
+        # Todo: Figure out how to pass rotations through Blender
+        if b.name == 'Bone_Cloth_H_001':
+            mat.rotation = RotationMatrix([(-0.0072, 0.9995, -0.0313), 
+                                           (-0.0496, -0.0316, -0.9983),
+                                           (-0.9987, -0.0056, 0.0498)])
+        elif b.name == 'Bone_Cloth_H_002':
+            mat.rotation = RotationMatrix([(-0.0251, 0.9993, -0.0286),
+                                           (-0.0491, -0.0298, -0.9984),
+                                           (-0.9985, -0.0237, 0.0498)])
+        elif b.name == 'Bone_Cloth_H_003':
+            mat.rotation = RotationMatrix([(-0.0299, 0.9991, -0.0306),
+                                           (-0.0489, -0.0320, -0.998),
+                                           (-0.9984, -0.0283, 0.0498)])
         result[b.name] = mat
     return result
 
-def export_shape(nif, obj):
-    """Export given blender object to the given NIF file"""
+def export_shape(nif, obj, target_key=''):
+    """Export given blender object to the given NIF file
+        nif = target nif file
+        obj = blender object
+        target_key = shape key to export
+        """
     print("Exporting " + obj.name)
     exportSkel = gameSkeletons[nif.game]
     mesh = obj.data
@@ -198,7 +231,7 @@ def export_shape(nif, obj):
     
         bmesh.ops.triangulate(bm, faces=bm.faces[:])
 
-        verts, norms, weights_by_vert = extract_vert_info(obj, bm)
+        verts, norms, weights_by_vert = extract_vert_info(obj, bm, target_key)
         #loops, polyverts, uvs = extract_face_info(bm)
         loops, uvs = extract_face_info(bm)
     
@@ -222,7 +255,7 @@ def export_shape(nif, obj):
                                         obj.rotation_euler[1], 
                                         obj.rotation_euler[2])
         if rot is not None:
-            new_xform.rotation = RotationMatrix(rot)
+            new_xform.rotation = rot
         else:
             print(f"Warning: Invalid rotation matrix on {obj.name}")
 
@@ -248,6 +281,7 @@ def export_shape(nif, obj):
             for bone_name, bone_xform in arma_bones.items():
                 #print("  adding bone " + b)
                 if bone_name in weights_by_bone and len(weights_by_bone[bone_name]) > 0:
+                    #print(f"..Exporting bone {bone_name} with rotation {bone_xform.rotation.euler_deg()}")
                     new_shape.add_bone(exportSkel.nif_name(bone_name), bone_xform)
                     new_shape.setShapeWeights(exportSkel.nif_name(bone_name),
                                               weights_by_bone[bone_name])
@@ -334,6 +368,22 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 bpy.ops.view3d.view_selected(ctx)        
         return {'FINISHED'}
 
+def get_common_shapes(obj_list):
+    """ Return the shape keys common to all the given objects """
+    res = None
+    for obj in obj_list:
+        o_shapes = set()
+        if obj.data.shape_keys:
+            o_shapes = set(obj.data.shape_keys.key_blocks.keys())
+        if res:
+            res = res.intersection(o_shapes)
+        else:
+            res = o_shapes
+    return list(res)
+
+def get_with_uscore(str_list):
+    return list(filter((lambda x: x[0] == '_'), str_list))
+
 class ExportNIF(bpy.types.Operator, ExportHelper):
     """Save a NIF File"""
 
@@ -356,10 +406,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         print('NIFLY EXPORT')
-        print('Exporting to ' + self.target_game + ' ' + self.filepath)
         try:
-            exportf = NifFile()
-            exportf.initialize(self.target_game, self.filepath)
             res = {'FINISHED'}
         
             objs_to_export = set()
@@ -378,27 +425,19 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 print("Warning: Nothing to export")
                 return {"CANCELLED"}
             else:
-                for obj in objs_to_export:
-                    res = export_shape(exportf, obj)
+                shape_keys = get_with_uscore(get_common_shapes(objs_to_export))
+                if len(shape_keys) == 0:
+                    shape_keys.append('') # just export the plain file
+                for sk in shape_keys:
+                    fn = os.path.splitext(os.path.basename(self.filepath))
+                    fp = os.path.join(os.path.dirname(self.filepath), fn[0] + sk + fn[1])
+                    print('Exporting to ' + self.target_game + ' ' + fp)
+                    exportf = NifFile()
+                    exportf.initialize(self.target_game, fp)
+                    for obj in objs_to_export:
+                        res = export_shape(exportf, obj, sk)
+                    exportf.save()
         
-            bones_exported = []
-            for obj in objs_to_export:
-                pass
-                #export_bones(exportf, obj, gameSkeletons[self.target_game][0], bones_exported)
-       
-    #            if obj.type == 'ARMATURE':
-    #                for child in obj.children:
-    #                    if child.type == 'MESH':
-    #                        res = export_shape(exportf, child.data)
-    #                    if res == 'CANCELLED':
-    #                        return res
-    #            elif obj.type == 'MESH':
-    #                res = export_shape(exportf, obj.data)
-    #            else:
-    #                print("ERROR': Selected object is not exportable")
-    #                return {'CANCELLED'}
-    #            
-            exportf.save()
         except:
             print("ERROR exporting nif")
             traceback.print_exc()
