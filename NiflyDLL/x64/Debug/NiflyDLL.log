@@ -1,9 +1,4 @@
-﻿  pch.cpp
-  dllmain.cpp
-  NiflyWrapper.cpp
-  NiflyFunctions.cpp
-  Generating Code...
-     Creating library D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.lib and object D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.exp
+﻿     Creating library D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.lib and object D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.exp
   NiflyDLL.vcxproj -> D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll
           1 file(s) copied.
           1 file(s) copied.
@@ -18,16 +13,16 @@
   --
   Path = D:\OneDrive\Dev\PyNifly\NiflyDLL\..\io_scene_nifly.zip
   Type = zip
-  Physical Size = 10999279
+  Physical Size = 10999277
   
   Scanning the drive:
-  1 folder, 6 files, 97981791 bytes (94 MiB)
+  1 folder, 6 files, 97981808 bytes (94 MiB)
   
   Updating archive: D:\OneDrive\Dev\PyNifly\NiflyDLL\..\io_scene_nifly.zip
   
-  Add new data to archive: 1 folder, 6 files, 97981791 bytes (94 MiB)
+  Add new data to archive: 1 folder, 6 files, 97981808 bytes (94 MiB)
   
   
   Files read from disk: 6
-  Archive size: 10999277 bytes (11 MiB)
+  Archive size: 10999289 bytes (11 MiB)
   Everything is Ok
