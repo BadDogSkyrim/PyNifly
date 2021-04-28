@@ -14,6 +14,7 @@ My interest is primarily Skyrim, Skyrim SE, and Fallout 4 so I'll be focusing on
 This is very early days. What works:
 * Import/Export of basic models to and from Skyrim and FO4 nifs. 
 * Import/export of skinned models using standard skeleton bones.
+* Shape keys to export variants of a model (male and female, or Skyrim's 0 and 1 weights)
 
 What should work but doesn't:
 * Import/Export of models rigged to non-standard bones. Something to do with translations/rotations.
@@ -22,7 +23,6 @@ What should work but doesn't:
 Not yet implemented (but on deck):
 * Tri files
 * Partitions/segments
-* Shape variants (Skyrim's 0 and 1 body weights)
 * Fallout 4's facebones files. I want to support them, but there's a bunch of fancy nodes in there that I don't understand.
 
 Not yet implemented (and maybe never, unless I get a lot of help/advice):
