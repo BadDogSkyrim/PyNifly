@@ -246,7 +246,8 @@ copy /y $(ProjectDir)..\pynifly\pynifly.py  $(ProjectDir)..\io_scene_nifly\
 copy /y $(ProjectDir)..\pynifly\niflytools.py  $(ProjectDir)..\io_scene_nifly\
 copy /y $(ProjectDir)..\pynifly\pyniflywhereami.py  $(ProjectDir)..\io_scene_nifly\
 copy /y $(ProjectDir)..\pynifly\__init__.py  $(ProjectDir)..\io_scene_nifly\
-copy /y $(ProjectDir)..\..\Nifly\out\build\x64-Debug\nifly.lib  $(ProjectDir)..\io_scene_nifly\</Command>
+copy /y $(ProjectDir)..\..\Nifly\out\build\x64-Debug\nifly.lib  $(ProjectDir)..\io_scene_nifly\
+7z a -tzip $(ProjectDir)..\io_scene_nifly.zip $(ProjectDir)..\io_scene_nifly</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Package|x64'">
