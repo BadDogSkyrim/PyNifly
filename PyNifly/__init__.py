@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
+RUN_TESTS = True
 
 bl_info = {
     "name": "NIF format",
@@ -451,7 +451,7 @@ def unregister():
 def run_tests():
     print("######################### TESTING ##########################")
 
-    TEST_ALL = True
+    TEST_ALL = False
     TEST_EXPORT = False
     TEST_IMPORT_ARMATURE = False
     TEST_EXPORT_WEIGHTS = False
@@ -460,6 +460,7 @@ def run_tests():
     TEST_IMP_EXP_FO4 = False
     TEST_ROUND_TRIP = False
     TEST_UV_SPLIT = False
+    TEST_CUSTOM_BONES = True
 
     if TEST_ALL or TEST_UNIT:
         # Lower-level tests of individual routines for bug hunting
@@ -753,6 +754,27 @@ def run_tests():
         assert len(plane.uvs) == 8, "Error: Exported nif doesn't have correct UV"
         assert plane.verts[5] == plane.verts[7], "Error: Split vert at different locations"
         assert plane.uvs[5] != plane.uvs[7], "Error: Split vert has different UV locations"
+
+    if TEST_ALL or TEST_CUSTOM_BONES:
+        print('### Can handle custom bones correctly')
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\VulpineInariTailPhysics.nif")
+        nif_in = NifFile(testfile)
+        bone_xform = nif_in.nodes['Bone_Cloth_H_003'].xform_to_global
+        import_file(nif_in)
+
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\Tail01.nif")
+        nif_out = NifFile()
+        nif_out.initialize('FO4', outfile)
+        for obj in bpy.context.selected_objects:
+            if obj.type == 'MESH':
+                export_shape(nif_out, obj)
+        nif_out.save()
+
+        test_in = NifFile(outfile)
+        new_xform = test_in.nodes['Bone_Cloth_H_003'].xform_to_global
+        assert bone_xform == new_xform, \
+            f"Error: Bone transform should not change. Expected\n {bone_xform}, found\n {new_xform}"
 
 
     print("######################### TESTS DONE ##########################")

@@ -184,6 +184,16 @@ class MatTransform():
         self.rotation = RotationMatrix(init_rotation)
         self.scale = init_scale
 
+    def __eq__(self, other):
+        for v1, v2 in zip(self.translation, other.translation):
+            if round(v1, 4) != round(v2, 4):
+                return False
+        if self.rotation != other.rotation:
+            return False
+        if round(self.scale, 4) != round(other.scale, 4):
+            return False
+        return True
+        
     def __repr__(self):
         return "<" + repr(self.translation[:]) + ", " + \
             "(" + repr(self.rotation.matrix) + "), " + \
