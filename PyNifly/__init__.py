@@ -9,7 +9,7 @@ bl_info = {
     "description": "Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 8), 
+    "version": (0, 0, 9), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -131,12 +131,11 @@ def make_armature(the_coll, the_nif, skel_dict, bone_names):
         #print("%s: %s" % (bone_game_name, str(skel_dict.blender_name(bone_game_name))))
         blend_name = skel_dict.blender_name(bone_game_name)
         bone =  arm_data.edit_bones.new(blend_name)
-        bone_xform = the_nif.nodes[bone_game_name].transform
+        bone_xform = the_nif.nodes[bone_game_name].xform_to_global
         bone.head = bone_xform.translation
-        #print(f"..Bone {bone_game_name} rotation is {bone_xform.rotation}")
         rot_vec = bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
-        #rot_vec = bone_xform.rotation.rotation_vector()
         bone.tail = (bone.head[0] + rot_vec[0], bone.head[1] + rot_vec[1], bone.head[2] + rot_vec[2])
+        bone['pyxform'] = bone_xform.rotation.matrix
         
     bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
     return arm_ob
@@ -147,10 +146,8 @@ def extract_face_info(bm):
     uv_lay = bm.loops.layers.uv.active
     loops = []
     uvs = []
-    #polyloops = []
     bm.faces.ensure_lookup_table()
     for f in bm.faces:
-        # polyloops.append(len(loops))
         for seg in f.loops:
             loops.append(seg.vert.index)
             uvs.append(seg[uv_lay].uv[:])
@@ -194,20 +191,9 @@ def get_bone_locations(arma, bone_names):
     for b in arma.bones:
         mat = MatTransform()
         mat.translation = b.head
-        # Hard-code bone rotations in for bones not in the skeleton. 
-        # Todo: Figure out how to pass rotations through Blender
-        if b.name == 'Bone_Cloth_H_001':
-            mat.rotation = RotationMatrix([(-0.0072, 0.9995, -0.0313), 
-                                           (-0.0496, -0.0316, -0.9983),
-                                           (-0.9987, -0.0056, 0.0498)])
-        elif b.name == 'Bone_Cloth_H_002':
-            mat.rotation = RotationMatrix([(-0.0251, 0.9993, -0.0286),
-                                           (-0.0491, -0.0298, -0.9984),
-                                           (-0.9985, -0.0237, 0.0498)])
-        elif b.name == 'Bone_Cloth_H_003':
-            mat.rotation = RotationMatrix([(-0.0299, 0.9991, -0.0306),
-                                           (-0.0489, -0.0320, -0.998),
-                                           (-0.9984, -0.0283, 0.0498)])
+        mat.rotation = RotationMatrix((tuple(b['pyxform'][0]), 
+                                       tuple(b['pyxform'][1]), 
+                                       tuple(b['pyxform'][2])))
         result[b.name] = mat
     return result
 
