@@ -72,6 +72,7 @@
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
+    <UseOfMfc>Static</UseOfMfc>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Package|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
@@ -91,6 +92,7 @@
     <PlatformToolset>v142</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
+    <UseOfMfc>Static</UseOfMfc>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -228,10 +230,12 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>PROJECT_ROOT="D:/OneDrive/Dev/PyNifly/PyNifly/";NOMINMAX;NIFLYDLL_EXPORTS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -241,13 +245,8 @@
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>copy /y $(OutDir)NiflyDLL.dll  $(ProjectDir)..\io_scene_nifly\
-copy /y $(ProjectDir)..\pynifly\pynifly.py  $(ProjectDir)..\io_scene_nifly\
-copy /y $(ProjectDir)..\pynifly\niflytools.py  $(ProjectDir)..\io_scene_nifly\
-copy /y $(ProjectDir)..\pynifly\pyniflywhereami.py  $(ProjectDir)..\io_scene_nifly\
-copy /y $(ProjectDir)..\pynifly\__init__.py  $(ProjectDir)..\io_scene_nifly\
-copy /y $(ProjectDir)..\..\Nifly\out\build\x64-Debug\nifly.lib  $(ProjectDir)..\io_scene_nifly\
-7z a -tzip $(ProjectDir)..\io_scene_nifly.zip $(ProjectDir)..\io_scene_nifly</Command>
+      <Command>
+      </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Package|x64'">
@@ -260,6 +259,7 @@ copy /y $(ProjectDir)..\..\Nifly\out\build\x64-Debug\nifly.lib  $(ProjectDir)..\
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -279,6 +279,7 @@ copy /y $(ProjectDir)..\..\Nifly\out\build\x64-Debug\nifly.lib  $(ProjectDir)..\
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(VCInstallDir)Auxiliary\VS\UnitTest\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -299,10 +300,11 @@ copy /y $(ProjectDir)..\..\Nifly\out\build\x64-Debug\nifly.lib  $(ProjectDir)..\
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>PROJECT_ROOT="D:/OneDrive/Dev/PyNifly/PyNifly/";NOMINMAX;NIFLYDLL_EXPORTS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(VCInstallDir)Auxiliary\VS\UnitTest\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -310,11 +312,38 @@ copy /y $(ProjectDir)..\..\Nifly\out\build\x64-Debug\nifly.lib  $(ProjectDir)..\
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <AdditionalDependencies>..\..\Nifly\out\build\x64-Debug\nifly.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy /y $(OutDir)NiflyDLL.dll  $(OutDir)io_scene_nifly\
+copy /y $(ProjectDir)..\pynifly\pynifly.py  $(OutDir)io_scene_nifly\
+copy /y $(ProjectDir)..\pynifly\niflytools.py  $(OutDir)io_scene_nifly\
+copy /y $(ProjectDir)..\pynifly\pyniflywhereami.py  $(OutDir)io_scene_nifly\
+copy /y $(ProjectDir)..\pynifly\__init__.py  $(OutDir)io_scene_nifly\
+7z a -tzip $(OutDir)io_scene_nifly.zip $(OutDir)io_scene_nifly</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\Nifly\external\half.hpp" />
+    <ClInclude Include="..\..\Nifly\external\Miniball.hpp" />
+    <ClInclude Include="..\..\Nifly\include\Animation.hpp" />
+    <ClInclude Include="..\..\Nifly\include\BasicTypes.hpp" />
+    <ClInclude Include="..\..\Nifly\include\bhk.hpp" />
+    <ClInclude Include="..\..\Nifly\include\ExtraData.hpp" />
+    <ClInclude Include="..\..\Nifly\include\Factory.hpp" />
+    <ClInclude Include="..\..\Nifly\include\Geometry.hpp" />
+    <ClInclude Include="..\..\Nifly\include\KDMatcher.hpp" />
+    <ClInclude Include="..\..\Nifly\include\Keys.hpp" />
+    <ClInclude Include="..\..\Nifly\include\NifFile.hpp" />
+    <ClInclude Include="..\..\Nifly\include\NifUtil.hpp" />
+    <ClInclude Include="..\..\Nifly\include\Nodes.hpp" />
+    <ClInclude Include="..\..\Nifly\include\Object3d.hpp" />
+    <ClInclude Include="..\..\Nifly\include\Objects.hpp" />
+    <ClInclude Include="..\..\Nifly\include\Particles.hpp" />
+    <ClInclude Include="..\..\Nifly\include\Shaders.hpp" />
+    <ClInclude Include="..\..\Nifly\include\Skin.hpp" />
+    <ClInclude Include="..\..\Nifly\include\VertexData.hpp" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="NiflyFunctions.hpp" />
     <ClInclude Include="NiflyWrapper.hpp" />
@@ -322,6 +351,19 @@ copy /y $(ProjectDir)..\..\Nifly\out\build\x64-Debug\nifly.lib  $(ProjectDir)..\
     <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\Nifly\src\Animation.cpp" />
+    <ClCompile Include="..\..\Nifly\src\BasicTypes.cpp" />
+    <ClCompile Include="..\..\Nifly\src\bhk.cpp" />
+    <ClCompile Include="..\..\Nifly\src\ExtraData.cpp" />
+    <ClCompile Include="..\..\Nifly\src\Factory.cpp" />
+    <ClCompile Include="..\..\Nifly\src\Geometry.cpp" />
+    <ClCompile Include="..\..\Nifly\src\NifFile.cpp" />
+    <ClCompile Include="..\..\Nifly\src\Nodes.cpp" />
+    <ClCompile Include="..\..\Nifly\src\Object3d.cpp" />
+    <ClCompile Include="..\..\Nifly\src\Objects.cpp" />
+    <ClCompile Include="..\..\Nifly\src\Particles.cpp" />
+    <ClCompile Include="..\..\Nifly\src\Shaders.cpp" />
+    <ClCompile Include="..\..\Nifly\src\Skin.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="NiflyWrapper.cpp" />
     <ClCompile Include="pch.cpp">
@@ -338,6 +380,7 @@ copy /y $(ProjectDir)..\..\Nifly\out\build\x64-Debug\nifly.lib  $(ProjectDir)..\
     <ClCompile Include="TestDLL.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Package|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

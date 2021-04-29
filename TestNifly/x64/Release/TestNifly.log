@@ -1,3 +1,0 @@
-﻿  TestNifly.cpp
-D:\OneDrive\Dev\NiflyDLL\TestNifly\TestNifly.cpp(100,39): error C2660: 'addBoneToShape': function does not take 3 arguments
-D:\OneDrive\Dev\NiflyDLL\NiflyDLL\NiflyWrapper.hpp(71,27): message : see declaration of 'addBoneToShape'
