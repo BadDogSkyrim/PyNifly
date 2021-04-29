@@ -1,2 +1,0 @@
-D:\OneDrive\Dev\NiflyDLL\NiflyDLL\x64\Test\NiflyDLL.dll
-D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Test\NiflyDLL.dll
