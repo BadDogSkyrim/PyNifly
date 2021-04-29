@@ -7,7 +7,7 @@ Outfit Studio has working export/import for essentially all Bethesda games using
 
 BS/OS has separated much of their code to deal with nif files into a separate library, nifly. I've used this library and some additional OS code as the core of an export/import addon for Blender. 
 
-My interest is primarily Skyrim, Skyrim SE, and Fallout 4 so I'll be focusing on supporting those games. But the underlying code supports a bunch more games and I'll support them as I can.
+My interest is primarily Skyrim, Skyrim SE, and Fallout 4 so I'll be focusing on supporting those games. But the underlying code supports FO3 and FONV as well, and I'll support them as I can.
 
 **Status**
 
