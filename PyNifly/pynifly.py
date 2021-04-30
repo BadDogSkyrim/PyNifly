@@ -756,7 +756,8 @@ TEST_CREATE_WEIGHTS = False
 TEST_READ_WRITE = False
 TEST_XFORM_FO = False
 TEST_2_TAILS = False
-TEST_ROTATIONS = True
+TEST_ROTATIONS = False
+TEST_PARENT = True
 
 def _test_export_shape(s_in, ftout):
     """ Convenience routine to copy existing shape """
@@ -1134,7 +1135,7 @@ if __name__ == "__main__":
     if TEST_ALL or TEST_ROTATIONS:
         print("### Can handle rotations")
 
-        testfile = r"D:\OneDrive\Dev\PyNifly\PyNifly\tests\FO4\VulpineInariTailPhysics.nif"
+        testfile = r"tests\FO4\VulpineInariTailPhysics.nif"
         f = NifFile(testfile)
         n = f.nodes['Bone_Cloth_H_001']
         assert round(n.transform.rotation.euler_deg()[0], 0) == 87, "Error: Translations read correctly"
@@ -1142,3 +1143,9 @@ if __name__ == "__main__":
         print(n.transform.invert()) # just make sure it works for now 
         print(n.transform.rotation.by_vector((5.0, 0.0, 0.0)))
         print(n.xform_to_global)
+
+    if TEST_ALL or TEST_PARENT:
+        testfile = r"tests\FO4\bear_tshirt_turtleneck.nif"
+        f = NifFile(testfile)
+        n = f.nodes['RArm_Hand']
+        assert n.parent.name == 'RArm_ForeArm3', "Error: Parent node should be forearm"

@@ -38,16 +38,22 @@ def xlate(str):
         str = str.replace("AnimObjectR", "AnimObject") + ".R"
     elif "AnimObjectL" in str:
         str = str.replace("AnimObjectL", "AnimObject") + ".L"
-    str = str.replace("[LF", "[F")
-    str = str.replace("[RF", "[F")
-    str = str.replace("[LH", "[H")
-    str = str.replace("[RH", "[H")
-    str = str.replace("[LM", "[M")
-    str = str.replace("[RM", "[M")
+    elif "SkirtL" in str:
+        str = str.replace("SkirtL", "Skirt") + ".L"
+    elif "SkirtR" in str:
+        str = str.replace("SkirtR", "Skirt") + ".R"
+
+    s1 = str.split("[")
+    s2 = str.split("]")
+    if len(s2) > 1:
+        str = s1[0].strip() + s2[1]
     
     return str
 
-f = NifFile(r"D:\OneDrive\Dev\PyNifly\PyNifly\skeletons\Skyrim\skeletonbeast.nif")
+nifly_path = r"D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
+NifFile.Load(nifly_path)
+
+f = NifFile(r"D:\Games\ModOrganizer\SkyrimLE\mods\00 Vanilla Assets\meshes\actors\character\character assets\skeletonbeast.nif")
 
 ##for name, node in f.nodes.items():
 ##	print(f"{xlate(skyrimDict.blender_name(name))}, {name}, {xlate(skyrimDict.blender_name(ParentName(node)))}")
