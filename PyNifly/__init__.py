@@ -9,7 +9,7 @@ bl_info = {
     "description": "Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 9), 
+    "version": (0, 0, 10), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -137,6 +137,28 @@ def make_armature(the_coll, the_nif, skel_dict, bone_names):
         bone.tail = (bone.head[0] + rot_vec[0], bone.head[1] + rot_vec[1], bone.head[2] + rot_vec[2])
         bone['pyxform'] = bone_xform.rotation.matrix
         
+    # Hook them up
+    for arma_bone in arm_data.edit_bones:
+        #print("Parenting " + arma_bone.name)
+        parentname = None
+        skelbone = skel_dict.byBlender[arma_bone.name]
+        #print("Skelbone is " + skelbone.blender)
+        parentnibone = the_nif.nodes[skelbone.nif].parent
+        if parentnibone:
+            if parentnibone.name in skel_dict.byNif:
+                parentname = skel_dict.byNif[parentnibone.name].blender
+                #print("Parent bone from nif: " + parentname)
+        if not parentname:
+            if skelbone.parent:
+                parentname = skelbone.parent.blender
+                #print("Parent bone from skeleton: " + parentname)
+        if parentname:
+            if parentname in arm_data.edit_bones:
+                #print("---Found parent bone " + arm_data.edit_bones[parentname].name)
+                arma_bone.parent = arm_data.edit_bones[parentname]
+            #else:
+                #print("Parent bone not in skeleton: " + parentname)
+
     bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
     return arm_ob
 
@@ -451,7 +473,7 @@ def unregister():
 def run_tests():
     print("######################### TESTING ##########################")
 
-    TEST_ALL = False
+    TEST_ALL = True
     TEST_EXPORT = False
     TEST_IMPORT_ARMATURE = False
     TEST_EXPORT_WEIGHTS = False
@@ -460,7 +482,8 @@ def run_tests():
     TEST_IMP_EXP_FO4 = False
     TEST_ROUND_TRIP = False
     TEST_UV_SPLIT = False
-    TEST_CUSTOM_BONES = True
+    TEST_CUSTOM_BONES = False
+    TEST_PARENT = True
 
     if TEST_ALL or TEST_UNIT:
         # Lower-level tests of individual routines for bug hunting
@@ -624,7 +647,7 @@ def run_tests():
         assert 'NPC Foot.L' in the_armor.vertex_groups, f"ERROR: Left foot is in the groups: {the_armor.vertex_groups}"
         
         # Export armor
-        filepath_armor = os.path.join(pynifly_dev_path, "testArmorSkyrim02.nif")
+        filepath_armor = os.path.join(pynifly_dev_path, "tests/out/testArmorSkyrim02.nif")
         if os.path.exists(filepath_armor):
             os.remove(filepath_armor)
         f_out = NifFile()
@@ -775,6 +798,31 @@ def run_tests():
         new_xform = test_in.nodes['Bone_Cloth_H_003'].xform_to_global
         assert bone_xform == new_xform, \
             f"Error: Bone transform should not change. Expected\n {bone_xform}, found\n {new_xform}"
+
+    if TEST_ALL or TEST_PARENT:
+        print('### Maintain armature structure')
+
+        # Can intuit structure if it's not in the file
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\test.nif")
+        nif = NifFile(testfile)
+        import_file(nif)
+        for obj in bpy.context.selected_objects:
+            if obj.name.startswith("Scene Root"):
+                 assert obj.data.bones['NPC Hand.R'].parent.name == 'NPC Forearm.R', "Error: Should find forearm as parent"
+                 print(f"Found parent to hand: {obj.data.bones['NPC Hand.R'].parent.name}")
+
+        # This nif weights to skin bones and parents to not-skin bones so the test doesn't work
+        ## Can read structure if it comes from file
+        #bpy.ops.object.select_all(action='DESELECT')
+        #testfile = os.path.join(pynifly_dev_path, r"tests\FO4\bear_tshirt_turtleneck.nif")
+        #nif = NifFile(testfile)
+        #import_file(nif)
+        #for obj in bpy.context.selected_objects:
+        #    if obj.name.startswith("Scene Root"):
+        #        assert 'Arm_Hand.R' in obj.data.bones, "Error: Hand should be in armature"
+        #        assert obj.data.bones['Arm_Hand.R'].parent.name == 'Arm_ForeArm3_skin.R', "Error: Should find forearm as parent"
+        #        print(f"Found parent to hand: {obj.data.bones['Arm_Hand.R'].parent.name}")
 
 
     print("######################### TESTS DONE ##########################")
