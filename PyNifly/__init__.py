@@ -2,14 +2,14 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
+RUN_TESTS = True
 
 bl_info = {
     "name": "NIF format",
     "description": "Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 8), 
+    "version": (0, 0, 10), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -131,13 +131,34 @@ def make_armature(the_coll, the_nif, skel_dict, bone_names):
         #print("%s: %s" % (bone_game_name, str(skel_dict.blender_name(bone_game_name))))
         blend_name = skel_dict.blender_name(bone_game_name)
         bone =  arm_data.edit_bones.new(blend_name)
-        bone_xform = the_nif.nodes[bone_game_name].transform
+        bone_xform = the_nif.nodes[bone_game_name].xform_to_global
         bone.head = bone_xform.translation
-        #print(f"..Bone {bone_game_name} rotation is {bone_xform.rotation}")
         rot_vec = bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
-        #rot_vec = bone_xform.rotation.rotation_vector()
         bone.tail = (bone.head[0] + rot_vec[0], bone.head[1] + rot_vec[1], bone.head[2] + rot_vec[2])
+        bone['pyxform'] = bone_xform.rotation.matrix
         
+    # Hook them up
+    for arma_bone in arm_data.edit_bones:
+        #print("Parenting " + arma_bone.name)
+        parentname = None
+        skelbone = skel_dict.byBlender[arma_bone.name]
+        #print("Skelbone is " + skelbone.blender)
+        parentnibone = the_nif.nodes[skelbone.nif].parent
+        if parentnibone:
+            if parentnibone.name in skel_dict.byNif:
+                parentname = skel_dict.byNif[parentnibone.name].blender
+                #print("Parent bone from nif: " + parentname)
+        if not parentname:
+            if skelbone.parent:
+                parentname = skelbone.parent.blender
+                #print("Parent bone from skeleton: " + parentname)
+        if parentname:
+            if parentname in arm_data.edit_bones:
+                #print("---Found parent bone " + arm_data.edit_bones[parentname].name)
+                arma_bone.parent = arm_data.edit_bones[parentname]
+            #else:
+                #print("Parent bone not in skeleton: " + parentname)
+
     bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
     return arm_ob
 
@@ -147,10 +168,8 @@ def extract_face_info(bm):
     uv_lay = bm.loops.layers.uv.active
     loops = []
     uvs = []
-    #polyloops = []
     bm.faces.ensure_lookup_table()
     for f in bm.faces:
-        # polyloops.append(len(loops))
         for seg in f.loops:
             loops.append(seg.vert.index)
             uvs.append(seg[uv_lay].uv[:])
@@ -194,20 +213,9 @@ def get_bone_locations(arma, bone_names):
     for b in arma.bones:
         mat = MatTransform()
         mat.translation = b.head
-        # Hard-code bone rotations in for bones not in the skeleton. 
-        # Todo: Figure out how to pass rotations through Blender
-        if b.name == 'Bone_Cloth_H_001':
-            mat.rotation = RotationMatrix([(-0.0072, 0.9995, -0.0313), 
-                                           (-0.0496, -0.0316, -0.9983),
-                                           (-0.9987, -0.0056, 0.0498)])
-        elif b.name == 'Bone_Cloth_H_002':
-            mat.rotation = RotationMatrix([(-0.0251, 0.9993, -0.0286),
-                                           (-0.0491, -0.0298, -0.9984),
-                                           (-0.9985, -0.0237, 0.0498)])
-        elif b.name == 'Bone_Cloth_H_003':
-            mat.rotation = RotationMatrix([(-0.0299, 0.9991, -0.0306),
-                                           (-0.0489, -0.0320, -0.998),
-                                           (-0.9984, -0.0283, 0.0498)])
+        mat.rotation = RotationMatrix((tuple(b['pyxform'][0]), 
+                                       tuple(b['pyxform'][1]), 
+                                       tuple(b['pyxform'][2])))
         result[b.name] = mat
     return result
 
@@ -474,6 +482,8 @@ def run_tests():
     TEST_IMP_EXP_FO4 = False
     TEST_ROUND_TRIP = False
     TEST_UV_SPLIT = False
+    TEST_CUSTOM_BONES = False
+    TEST_PARENT = True
 
     if TEST_ALL or TEST_UNIT:
         # Lower-level tests of individual routines for bug hunting
@@ -637,7 +647,7 @@ def run_tests():
         assert 'NPC Foot.L' in the_armor.vertex_groups, f"ERROR: Left foot is in the groups: {the_armor.vertex_groups}"
         
         # Export armor
-        filepath_armor = os.path.join(pynifly_dev_path, "testArmorSkyrim02.nif")
+        filepath_armor = os.path.join(pynifly_dev_path, "tests/out/testArmorSkyrim02.nif")
         if os.path.exists(filepath_armor):
             os.remove(filepath_armor)
         f_out = NifFile()
@@ -767,6 +777,52 @@ def run_tests():
         assert len(plane.uvs) == 8, "Error: Exported nif doesn't have correct UV"
         assert plane.verts[5] == plane.verts[7], "Error: Split vert at different locations"
         assert plane.uvs[5] != plane.uvs[7], "Error: Split vert has different UV locations"
+
+    if TEST_ALL or TEST_CUSTOM_BONES:
+        print('### Can handle custom bones correctly')
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\VulpineInariTailPhysics.nif")
+        nif_in = NifFile(testfile)
+        bone_xform = nif_in.nodes['Bone_Cloth_H_003'].xform_to_global
+        import_file(nif_in)
+
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\Tail01.nif")
+        nif_out = NifFile()
+        nif_out.initialize('FO4', outfile)
+        for obj in bpy.context.selected_objects:
+            if obj.type == 'MESH':
+                export_shape(nif_out, obj)
+        nif_out.save()
+
+        test_in = NifFile(outfile)
+        new_xform = test_in.nodes['Bone_Cloth_H_003'].xform_to_global
+        assert bone_xform == new_xform, \
+            f"Error: Bone transform should not change. Expected\n {bone_xform}, found\n {new_xform}"
+
+    if TEST_ALL or TEST_PARENT:
+        print('### Maintain armature structure')
+
+        # Can intuit structure if it's not in the file
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\test.nif")
+        nif = NifFile(testfile)
+        import_file(nif)
+        for obj in bpy.context.selected_objects:
+            if obj.name.startswith("Scene Root"):
+                 assert obj.data.bones['NPC Hand.R'].parent.name == 'NPC Forearm.R', "Error: Should find forearm as parent"
+                 print(f"Found parent to hand: {obj.data.bones['NPC Hand.R'].parent.name}")
+
+        # This nif weights to skin bones and parents to not-skin bones so the test doesn't work
+        ## Can read structure if it comes from file
+        #bpy.ops.object.select_all(action='DESELECT')
+        #testfile = os.path.join(pynifly_dev_path, r"tests\FO4\bear_tshirt_turtleneck.nif")
+        #nif = NifFile(testfile)
+        #import_file(nif)
+        #for obj in bpy.context.selected_objects:
+        #    if obj.name.startswith("Scene Root"):
+        #        assert 'Arm_Hand.R' in obj.data.bones, "Error: Hand should be in armature"
+        #        assert obj.data.bones['Arm_Hand.R'].parent.name == 'Arm_ForeArm3_skin.R', "Error: Should find forearm as parent"
+        #        print(f"Found parent to hand: {obj.data.bones['Arm_Hand.R'].parent.name}")
 
 
     print("######################### TESTS DONE ##########################")
