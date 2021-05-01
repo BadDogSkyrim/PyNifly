@@ -187,8 +187,8 @@ NIFLY_API void getGlobalToSkin(void* nifRef, void* shapeRef, void* xform) {
     GetGlobalToSkin(&skin, static_cast<NiShape*>(shapeRef), 
         static_cast<MatTransform*>(xform));
 }
-NIFLY_API bool hasSkinInstance(void* shapeRef) {
-    return static_cast<NiShape*>(shapeRef)->HasSkinInstance();
+NIFLY_API int hasSkinInstance(void* shapeRef) {
+    return int(static_cast<NiShape*>(shapeRef)->HasSkinInstance()? 1: 0);
 }
 NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const  char* boneName, float* buf) {
     MatTransform xf;
@@ -250,6 +250,13 @@ NIFLY_API void getNodeXformToGlobal(void* theNif, char* boneName, float* xformBu
     MatTransform mat;
     static_cast<NifFile*>(theNif)->GetNodeTransformToGlobal(boneName, mat);
     XformToBuffer(xformBuf, mat);
+}
+NIFLY_API void getBoneSkinToBoneXform(void* animPtr, const char* shapeName,
+    const char* boneName, float* xform) {
+    AnimInfo* anim = static_cast<AnimInfo*>(animPtr);
+    int boneIdx = anim->GetShapeBoneIndex(shapeName, boneName);
+    AnimSkin* skin = &anim->shapeSkinning[boneName];
+    XformToBuffer(xform, skin->boneWeights[boneIdx].xformSkinToBone);
 }
 NIFLY_API void destroy(void* f) {
     NifFile* theNif = static_cast<NifFile*>(f);
@@ -435,10 +442,17 @@ NIFLY_API void* createSkinForNif(void* nifPtr, const char* gameName) {
 }
 
 NIFLY_API void setGlobalToSkinXform(void* animPtr, void* shapePtr, void* gtsXformPtr) {
-    SetGlobalToSkinXform(
-        static_cast<AnimInfo*>(animPtr), 
-        static_cast<NiShape*>(shapePtr), 
-        *static_cast<MatTransform*>(gtsXformPtr));
+    if (static_cast<NiShape*>(shapePtr)->HasSkinInstance()) {
+        SetShapeGlobalToSkinXform(static_cast<AnimInfo*>(animPtr),
+            static_cast<NiShape*>(shapePtr),
+            *static_cast<MatTransform*>(gtsXformPtr));
+    }
+    else {
+        SetGlobalToSkinXform(
+            static_cast<AnimInfo*>(animPtr),
+            static_cast<NiShape*>(shapePtr),
+            *static_cast<MatTransform*>(gtsXformPtr));
+    }
 }
 
 NIFLY_API void addBoneToShape(void* anim, void* theShape, const char* boneName, void* xformPtr) {
@@ -485,14 +499,6 @@ NIFLY_API int addNode(void* f, const char* name, const MatTransform* xf, void* p
 NIFLY_API void skinShape(void* nif, void* shapeRef)
 {
     static_cast<NifFile*>(nif)->CreateSkinning(static_cast<nifly::NiShape*>(shapeRef));
-}
-
-NIFLY_API void getBoneSkinToBoneXform(void* animPtr, const char* shapeName, 
-        const char* boneName, MatTransform* xform) {
-    AnimInfo* anim = static_cast<AnimInfo*>(animPtr);
-    int boneIdx = anim->GetShapeBoneIndex(shapeName, boneName);
-    AnimSkin* skin = &anim->shapeSkinning[boneName];
-    *xform = skin->boneWeights[boneIdx].xformSkinToBone;
 }
 
 NIFLY_API void setShapeVertWeights(void* theFile, void* theShape, 
