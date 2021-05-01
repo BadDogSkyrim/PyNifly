@@ -247,9 +247,20 @@ NIFLY_API void* getNodeParent(void* theNif, void* node) {
     return nif->GetParentNode(theNode);
 }
 NIFLY_API void getNodeXformToGlobal(void* theNif, char* boneName, float* xformBuf) {
+    // Get the transform from the nif if there, from the reference skeleton if not
+    NifFile* nif = static_cast<NifFile*>(theNif);
     MatTransform mat;
-    static_cast<NifFile*>(theNif)->GetNodeTransformToGlobal(boneName, mat);
-    XformToBuffer(xformBuf, mat);
+
+    if (nif->GetNodeTransformToGlobal(boneName, mat)) {
+        XformToBuffer(xformBuf, mat);
+    }
+    else {
+        AnimSkeleton* skel = &AnimSkeleton::getInstance();
+        AnimBone* thisBone = skel->GetBonePtr(boneName);
+        if (thisBone) {
+            XformToBuffer(xformBuf, thisBone->xformToGlobal);
+        }
+    }
 }
 NIFLY_API void getBoneSkinToBoneXform(void* animPtr, const char* shapeName,
     const char* boneName, float* xform) {

@@ -730,6 +730,14 @@ class NifFile:
                 self._nodes[this_node.name] = this_node
         return self._nodes
 
+    def get_node_xform_to_global(self, name):
+        """ Get the xform-to-global either from the nif or the reference skeleton """
+        buf = (c_float * 13)()
+        NifFile.nifly.getNodeXformToGlobal(self._handle, name.encode('utf-8'), buf)
+        mat = MatTransform()
+        mat.from_array(buf)
+        return mat
+
     def createSkin(self):
         if self._skin_handle is None:
             self._skin_handle = NifFile.nifly.createSkinForNif(self._handle, self.game.encode('utf-8'))
@@ -753,12 +761,12 @@ TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
 TEST_CREATE_TETRA = False
 TEST_CREATE_WEIGHTS = False
-TEST_READ_WRITE = False
+TEST_READ_WRITE = True
 TEST_XFORM_FO = False
 TEST_2_TAILS = False
 TEST_ROTATIONS = False
 TEST_PARENT = False
-TEST_PYBABY = True
+TEST_PYBABY = False
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
