@@ -338,6 +338,7 @@ class BoneDict:
             return self.byNif[nif_name].blender
         else:
             return nif_name
+    
     def nif_name(self, blender_name):
         if blender_name in self.byBlender:
             return self.byBlender[blender_name].nif
