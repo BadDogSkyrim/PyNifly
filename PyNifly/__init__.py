@@ -2,14 +2,14 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = True
+RUN_TESTS = False
 
 bl_info = {
     "name": "NIF format",
     "description": "Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 11), 
+    "version": (0, 0, 12), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
