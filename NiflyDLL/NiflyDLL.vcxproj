@@ -255,7 +255,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>PROJECT_ROOT="D:/OneDrive/Dev/PyNifly/PyNifly/";NOMINMAX;NIFLYDLL_EXPORTS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -275,7 +275,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>PROJECT_ROOT="D:/OneDrive/Dev/PyNifly/PyNifly/";TEST_ROOT="D:/OneDrive/Dev/PyNifly/PyNifly/tests";NOMINMAX;NIFLYDLL_EXPORTS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(VCInstallDir)Auxiliary\VS\UnitTest\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
