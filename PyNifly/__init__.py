@@ -2,14 +2,14 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
+RUN_TESTS = True
 
 bl_info = {
     "name": "NIF format",
     "description": "Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 12), 
+    "version": (0, 0, 13), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -48,8 +48,6 @@ if not os.path.exists(nifly_path):
 from pynifly import *
 from niflytools import *
 import pyniflywhereami
-
-NifFile.Load(nifly_path)
 
 import bpy
 from bpy.props import (
@@ -126,15 +124,11 @@ def add_bone_to_arma(armdata, name, nif, skel):
         skel = skeleton dictionary
         returns new bone
     """
-    if name in armdata.bones:
+    if name in armdata.edit_bones:
         return None
     
     # use the transform in the file if there is one
     bone_xform = nif.get_node_xform_to_global(skel.nif_name(name)) 
-    #if name in nif.nodes:
-    #    bone_xform = nif.nodes[name].xform_to_global
-    #else:
-    #    bone_xform = nif.skeleton_node_xform_to_global(name)
 
     bone = armdata.edit_bones.new(name)
     bone.head = bone_xform.translation
@@ -145,6 +139,7 @@ def add_bone_to_arma(armdata, name, nif, skel):
     bone.tail = (bone.head[0] + rot_vec[0], bone.head[1] + rot_vec[1], bone.head[2] + rot_vec[2])
     bone['pyxform'] = bone_xform.rotation.matrix # stash for later
 
+    #print(f"Added bone {name} at {bone.head[:]} - {bone.tail[:]}")
     return bone
 
 def connect_armature(arm_data, skel_dict, the_nif):
@@ -156,7 +151,9 @@ def connect_armature(arm_data, skel_dict, the_nif):
         """
     print("..Connecting armature")
     bones_to_parent = [b.name for b in arm_data.edit_bones]
-    for bonename in bones_to_parent:
+    i = 0
+    while i < len(bones_to_parent): # list will grow while iterating
+        bonename = bones_to_parent[i]
         arma_bone = arm_data.edit_bones[bonename]
 
         if arma_bone.parent is None:
@@ -167,7 +164,7 @@ def connect_armature(arm_data, skel_dict, the_nif):
             nifname = skel_dict.nif_name(bonename)
             if nifname in the_nif.nodes:
                 niparent = the_nif.nodes[nifname].parent
-                if niparent and niparent.name != the_nif.rootName:
+                if niparent and niparent._handle != the_nif.root:
                     parentname = skel_dict.blender_name(niparent.name)
                     #print("Parent bone from nif: " + parentname)
 
@@ -190,8 +187,10 @@ def connect_armature(arm_data, skel_dict, the_nif):
                 else:
                     #print(f"Parenting known {arma_bone.name} -> {parentname}")
                     arma_bone.parent = arm_data.edit_bones[parentname]
+        i += 1
 
 def make_armature(the_coll, the_nif, skel_dict, bone_names):
+    bpy.ops.object.select_all(action='DESELECT')
     arm_data = bpy.data.armatures.new(the_nif.rootName)
     arm_ob = bpy.data.objects.new(the_nif.rootName, arm_data)
     the_coll.objects.link(arm_ob)
@@ -202,20 +201,14 @@ def make_armature(the_coll, the_nif, skel_dict, bone_names):
     bpy.ops.object.mode_set(mode='EDIT', toggle=False)
     
     for bone_game_name in bone_names:
-        # TODO: Use add_bone_to_arma
-        # print("%s: %s" % (bone_game_name, str(skel_dict.blender_name(bone_game_name))))
-        add_bone_to_arma(arm_data, skel_dict.blender_name(bone_game_name), the_nif, skel_dict)
-        #bone =  arm_data.edit_bones.new(blend_name)
-        #bone_xform = the_nif.nodes[bone_game_name].xform_to_global
-        #bone.head = bone_xform.translation
-        #rot_vec = bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
-        #bone.tail = (bone.head[0] + rot_vec[0], bone.head[1] + rot_vec[1], bone.head[2] + rot_vec[2])
-        #bone['pyxform'] = bone_xform.rotation.matrix
+        add_bone_to_arma(arm_ob.data, skel_dict.blender_name(bone_game_name), the_nif, skel_dict)
         
     # Hook the armature bones up to a skeleton
-    connect_armature(arm_data, skel_dict, the_nif)
+    connect_armature(arm_ob.data, skel_dict, the_nif)
 
+    #print(f"***All armature edit bones: " + str(list(arm_ob.data.edit_bones.keys())))
     bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+    #print(f"***All armature '{arm_ob.name}' bones: " + str(list(arm_ob.data.bones.keys())))
     return arm_ob
 
 # ### ---------------------------- EXPORT -------------------------------- ###
@@ -400,6 +393,8 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
     def execute(self, context):
         print('Nifly Import')
+        NifFile.Load(nifly_path)
+
         bpy.ops.object.select_all(action='DESELECT')
         skel = None
         f = NifFile(self.filepath)
@@ -474,6 +469,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         print('NIFLY EXPORT')
+        NifFile.Load(nifly_path)
+
         try:
             res = {'FINISHED'}
         
@@ -536,7 +533,7 @@ def run_tests():
     TEST_BPY_ALL = True
     TEST_EXPORT = False
     TEST_IMPORT_ARMATURE = False
-    TEST_EXPORT_WEIGHTS = True
+    TEST_EXPORT_WEIGHTS = False
     TEST_UNIT = False
     TEST_IMP_EXP_SKY = False
     TEST_IMP_EXP_FO4 = False
@@ -545,6 +542,7 @@ def run_tests():
     TEST_CUSTOM_BONES = False
     TEST_BPY_PARENT = False
     TEST_BABY = False
+    TEST_CONNECTED_SKEL = True
 
     if TEST_BPY_ALL or TEST_UNIT:
         # Lower-level tests of individual routines for bug hunting
@@ -913,6 +911,22 @@ def run_tests():
         # TODO: Test that baby's unkown skeleton is connected
 
         print('### Can export baby parts PASSED')
+      
+    if TEST_BPY_ALL or TEST_CONNECTED_SKEL:
+        print('### Can import connected skeleton')
+
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\vanillaMaleBody.nif")
+        nif = NifFile(testfile)
+        import_file(nif)
+
+        #print("FO4 LArm_UpperTwist1: ", nif.get_node_xform_to_global('LArm_UpperTwist1') )
+        #print("FO4 LArm_UpperTwist1_skin: ", nif.get_node_xform_to_global('LArm_UpperTwist1_skin') )
+
+        for s in bpy.context.selected_objects:
+            if 'MaleBody.nif' in s.name:
+                assert 'Leg_Thigh.L' in s.data.bones.keys(), "Error: Should have left thigh"
+                assert s.data.bones['Leg_Thigh.L'].parent.name == 'Pelvis', "Error: Thigh should connect to pelvis"
 
     print("######################### TESTS DONE ##########################")
 

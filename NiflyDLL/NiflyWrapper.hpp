@@ -56,7 +56,7 @@ extern "C" NIFLY_API int getNodeCount(void* theNif);
 extern "C" NIFLY_API void getNodes(void* theNif, void** buf);
 extern "C" NIFLY_API int getNodeName(void* theNode, char* buf, int buflen);
 extern "C" NIFLY_API void* getNodeParent(void* theNif, void* node);
-extern "C" NIFLY_API void getNodeXformToGlobal(void* theNif, char* boneName, float* xformBuf);
+extern "C" NIFLY_API void getNodeXformToGlobal(void* anim, const char* boneName, float* xformBuf);
 extern "C" NIFLY_API void* createNif(const char* targetGame);
 extern "C" NIFLY_API void* createNifShapeFromData(void* parentNif, const char* shapeName, const float* verts, int verts_len, const int* tris, int tris_len, const float* uv_points, int uv_len, const float* norms, int norms_len);
 extern "C" NIFLY_API void setTransform(void* theShape, float* buf);

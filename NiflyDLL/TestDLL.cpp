@@ -14,6 +14,7 @@
 #include "CppUnitTest.h"
 #include "Object3d.hpp"
 #include "NiflyFunctions.hpp"
+#include "NiflyWrapper.hpp"
 
 using namespace nifly;
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -632,6 +633,35 @@ namespace NiflyDLLTests
 			testNif.GetShapeTransformSkinToBone(testBody, "NPC Spine1 [Spn1]", sstb);
 			// Is this correct? Nif looks okay
 			Assert::AreEqual(-81, int(sstb.translation.z), L"ERROR: Translation should move shape up");
+		}
+		TEST_METHOD(getXformFromSkel) {
+			float buf[13];
+			NifFile nif = NifFile(testRoot / "Skyrim/MaleHead.nif");
+			AnimInfo* anim = static_cast<AnimInfo*>(createSkinForNif(&nif, "SKYRIM"));
+
+			for (int i = 0; i < 13; i++) { buf[i] = 0.0f; };
+			getNodeXformToGlobal(anim, "NPC Spine2 [Spn2]", buf);
+			Assert::AreNotEqual(0.0f, buf[0], L"Error: Should not have null transform");
+
+			for (int i = 0; i < 13; i++) { buf[i] = 0.0f; };
+			getNodeXformToGlobal(anim, "NPC L Forearm [LLar]", buf);
+			Assert::AreNotEqual(0.0f, buf[0], L"Error: Should not have null transform");
+
+			NifFile nif2 = NifFile(testRoot / "FO4/BaseMaleHead.nif");
+			AnimInfo* anim2 = static_cast<AnimInfo*>(createSkinForNif(&nif2, "FO4"));
+
+			for (int i = 0; i < 13; i++) { buf[i] = 0.0f; };
+			getNodeXformToGlobal(anim2, "Neck", buf);
+			Assert::AreNotEqual(0.0f, buf[0], L"Error: Should not have null transform");
+
+			for (int i = 0; i < 13; i++) { buf[i] = 0.0f; };
+			getNodeXformToGlobal(anim2, "SPINE1", buf);
+			Assert::AreNotEqual(0.0f, buf[0], L"Error: Should not have null transform");
+
+			//print("FO4 LArm_UpperTwist1: ", nif.get_node_xform_to_global('LArm_UpperTwist1'))
+			//	print("FO4 LArm_UpperTwist1_skin: ", nif.get_node_xform_to_global('LArm_UpperTwist1_skin'))
+			//	print("SKYRIM NPC L Forearm [LLar]: ", nif.get_node_xform_to_global('NPC L Forearm [LLar]'))
+
 		}
 	};
 }

@@ -246,11 +246,14 @@ NIFLY_API void* getNodeParent(void* theNif, void* node) {
     nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
     return nif->GetParentNode(theNode);
 }
-NIFLY_API void getNodeXformToGlobal(void* theNif, char* boneName, float* xformBuf) {
-    // Get the transform from the nif if there, from the reference skeleton if not
-    NifFile* nif = static_cast<NifFile*>(theNif);
+NIFLY_API void getNodeXformToGlobal(void* anim, const char* boneName, float* xformBuf) {
+    // Get the transform from the nif if there, from the reference skeleton if not.
+    // Requires an AnimInfo because this is a skinned nif, after all. It's creating the 
+    // AnimInfo that loads the skeleton.
+    NifFile* nif = static_cast<AnimInfo*>(anim)->GetRefNif();
     MatTransform mat;
 
+    for (int i = 0; i < 13; i++) { xformBuf[i] = 0.0f; }
     if (nif->GetNodeTransformToGlobal(boneName, mat)) {
         XformToBuffer(xformBuf, mat);
     }
