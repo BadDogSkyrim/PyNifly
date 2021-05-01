@@ -25,7 +25,7 @@ def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
     nifly.load.argtypes = [c_char_p]
     nifly.load.restype = c_void_p
-    nifly.addBoneToShape.argtypes = [c_void_p, c_void_p, c_char_p, MAT_TRANSFORM]
+    nifly.addBoneToShape.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
     nifly.addBoneToShape.restype = None
     nifly.addNode.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p]
     nifly.addNode.restype = c_int
@@ -37,7 +37,7 @@ def load_nifly(nifly_path):
     nifly.destroy.restype = None
     nifly.getAllShapeNames.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getAllShapeNames.restype = c_int
-    nifly.getBoneSkinToBoneXform.argtypes = [c_void_p, c_char_p, c_char_p, MAT_TRANSFORM]
+    nifly.getBoneSkinToBoneXform.argtypes = [c_void_p, c_char_p, c_char_p, c_void_p]
     nifly.getBoneSkinToBoneXform.restype = None 
     nifly.getGameName.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getGameName.restype = c_int
@@ -88,7 +88,7 @@ def load_nifly(nifly_path):
     nifly.getVertsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
     nifly.getVertsForShape.restype = c_int
     nifly.hasSkinInstance.argtype = [c_void_p]
-    nifly.hasSkinInstance.restype = c_bool
+    nifly.hasSkinInstance.restype = c_int
     nifly.getShapeSkinToBone.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
     nifly.getShapeSkinToBone.restype = c_bool
     nifly.saveNif.argtypes = [c_void_p, c_char_p]
@@ -100,9 +100,9 @@ def load_nifly(nifly_path):
     nifly.setTransform.restype = None
     nifly.createSkinForNif.argtypes = [c_void_p, c_char_p]
     nifly.createSkinForNif.restype = c_void_p
-    nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, MAT_TRANSFORM]
+    nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p]
     nifly.setGlobalToSkinXform.restype = None
-    nifly.setShapeGlobalToSkinXform.argtypes = [c_void_p, c_void_p, MAT_TRANSFORM]
+    nifly.setShapeGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p] 
     nifly.setShapeGlobalToSkinXform.restype = None
     nifly.setShapeWeights.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
     nifly.setShapeWeights.restype = None
@@ -135,25 +135,16 @@ def to_euler_degrees(rm):
     return (angles[0] * 180.0/pi, angles[1] * 180.0/pi, angles[2] * 180.0/pi)
     
 def make_rotation_matrix(yaw, pitch, roll):
-	ch = cos(yaw);
-	sh = sin(yaw);
-	cp = cos(pitch);
-	sp = sin(pitch);
-	cb = cos(roll);
-	sb = sin(roll);
+	ch = cos(yaw)
+	sh = sin(yaw)
+	cp = cos(pitch)
+	sp = sin(pitch)
+	cb = cos(roll)
+	sb = sin(roll)
 
-	rot = [[0,0,0]] * 3
-	rot[0][0] = ch * cb + sh * sp * sb;
-	rot[0][1] = sb * cp;
-	rot[0][2] = -sh * cb + ch * sp * sb;
-
-	rot[1][0] = -ch * sb + sh * sp * cb;
-	rot[1][1] = cb * cp;
-	rot[1][2] = sb * sh + ch * sp * cb;
-
-	rot[2][0] = sh * cp;
-	rot[2][1] = -sp;
-	rot[2][2] = ch * cp;
+	rot = ((ch * cb + sh * sp * sb,    sb * cp,    -sh * cb + ch * sp * sb),
+           (-ch * sb + sh * sp * cb,      cb * cp,    sb * sh + ch * sp * cb),
+           (sh * cp -sp, ch * cp))
 
 	return rot
 
@@ -196,23 +187,28 @@ class MatTransform():
         
     def __repr__(self):
         return "<" + repr(self.translation[:]) + ", " + \
-            "(" + repr(self.rotation.matrix) + "), " + \
+            "(" + str(self.rotation.matrix) + "), " + \
             repr(self.scale) + ">"
+
+    def __str__(self):
+        return "<" + str(self.translation[:]) + ", " + \
+            "(" + str(self.rotation.matrix) + "), " + \
+            str(self.scale) + ">"
 
     def copy(self):
         the_copy = MatTransform(self.translation, self.rotation.copy(), self.scale)
         return the_copy
 
     def from_mat_xform(self, buf: MAT_TRANSFORM):
-        self.translation = buf.translation
-        self.rotation = RotationMatrix(buf.rotation)
+        self.translation = buf.translation[:]
+        self.rotation = RotationMatrix((buf.rotation[0][:], buf.rotation[1][:], buf.rotation[2][:]))
         self.scale = buf.scale
 
     def from_array(self, float_array):
         self.translation = (float_array[0], float_array[1], float_array[2])
-        self.rotation = RotationMatrix([(float_array[3], float_array[4], float_array[5]),
+        self.rotation = RotationMatrix(((float_array[3], float_array[4], float_array[5]),
                                       (float_array[6], float_array[7], float_array[8]),
-                                      (float_array[9], float_array[10], float_array[11])])
+                                      (float_array[9], float_array[10], float_array[11])))
         self.scale = float_array[12]
     
     def fill_buffer(self, buf):
@@ -240,23 +236,6 @@ class MatTransform():
         inverseXform.rotation = self.rotation.invert()
         return inverseXform
 
-
-def get_used_groups(group_names, weights):
-    """
-    Pare group_names down to just the groups that have weights
-    group_names = [name, ...]
-    weights = [dict{group-index: weight, ...},...] 1:1 with vertex list
-    """
-    print("Weights size " + str(len(weights)))
-    used_groups = set()
-    print("4th set of weights: " + str(weights[0].keys()))
-    print("4th set of weights: " + str(weights[5].keys()))
-    for wv in weights:
-        for group_index in wv.keys():
-            if round(wv[group_index], 4) > 0.0:
-                used_groups.add(group_names[group_index])
-    print("  Used groups: " + str(list(used_groups)))
-    return used_groups 
 
 def SeparateVertsByUV(verts, loops, polys, uvs):
     vertcount = [0] * len(verts)
@@ -443,7 +422,8 @@ class NiShape:
             if actualsize > bufsize:
                 buf = create_string_buffer(actualsize+1)
                 NifFile.nifly.getShapeBoneNames(self.parent._handle, self._handle, buf, actualsize+1)
-            self._bone_names = buf.value.decode('utf-8').split('\n')
+            bn = buf.value.decode('utf-8').split('\n')
+            self._bone_names = list(filter((lambda n: len(n) > 0), bn))
         return self._bone_names
         
     @property
@@ -476,6 +456,13 @@ class NiShape:
             for bone_idx, name in enumerate(self.bone_names):
                 self._weights[name] = self._bone_weights(bone_idx)
         return self._weights
+
+    def get_used_bones(self):
+        """
+        Return bones that have non-zero weights
+        NOTE not really filtering out non-zero weights rn
+        """
+        return list(self.bone_weights.keys())
 
     @property
     def has_skin_instance(self):
@@ -511,17 +498,18 @@ class NiShape:
 
     def get_skin_to_bone_xform(self, bone_name):
         """ Return the transform between the skin and bone it uses. Often used to 
-            reposition the mesh over the armature.
+            reposition the mesh over the armature. <<< IS THAT TRUE? WHAT IS THIS?
             """
         if self.parent._skin_handle is None:
             self.parent.createSkin()
-        buf = MAT_TRANSFORM()
+        self.skin()
+        buf = (c_float * 13)()
         NifFile.nifly.getBoneSkinToBoneXform(self.parent._skin_handle,
                                          self.name.encode('utf-8'),
                                          bone_name.encode('utf-8'),
                                          buf)
         res = MatTransform()
-        res.from_mat_xform(buf)
+        res.from_array(buf)
         return res
 
     def get_shape_skin_to_bone(self, bone_name):
@@ -546,13 +534,15 @@ class NiShape:
 
     def set_global_to_skin(self, transform: MatTransform):
         """ Sets the skin transform which offsets the vert locations. This allows a head
-            to have verts around the origin but to be positioned properly when skinned """
+            to have verts around the origin but to be positioned properly when skinned.
+            Works whether or not there is a SkinInstance block
+            """
         if self.parent._skin_handle is None:
             self.parent.createSkin()
         if not self._is_skinned:
             self.skin()
-        buf = MAT_TRANSFORM()
-        transform.fill_mat_xform(buf)
+        buf = (c_float * 13)()
+        transform.fill_buffer(buf)
         NifFile.nifly.setGlobalToSkinXform(self.parent._skin_handle, self._handle, buf)
 
     def add_bone(self, bone_name, xform=None):
@@ -560,9 +550,11 @@ class NiShape:
             self.parent.createSkin()
         if not self._is_skinned:
             self.skin()
-        buf = MAT_TRANSFORM()
+        buf = (c_float * 13)() 
         if xform:
-            xform.fill_mat_xform(buf)
+            xform.fill_buffer(buf)
+        else:
+            MatTransform().fill_buffer(buf)
         NifFile.nifly.addBoneToShape(self.parent._skin_handle, self._handle, 
                                      bone_name.encode('utf-8'), buf)
 
@@ -572,10 +564,10 @@ class NiShape:
             self.parent.createSkin()
         if not self._is_skinned:
             self.skin()
-        buf = MAT_TRANSFORM()
-        xform.fill_mat_xform(buf)
+        buf = (c_float * 13)()
+        xform.fill_buffer(buf)
         NifFile.nifly.setShapeGlobalToSkinXform(self.parent._skin_handle, self._handle, buf)
-
+        
     def setShapeWeights(self, bone_name, vert_weights):
         """ Set the weights for a shape. Note we pass a dummy transformation matrix that is not used.
             Bones should have been added to the shape already.
@@ -717,6 +709,13 @@ class NifFile:
                 self._shapes.append(new_shape) # not handling too many shapes yet
                 self._shape_dict[new_shape.name] = new_shape
         return self._shapes
+    
+    def shape_by_root(self, rootname):
+        """ Convenience routine to find a shape by the beginning part of its name """
+        for s in self.shapes:
+            if s.name.startswith(rootname):
+                return s
+        return None
 
     @property
     def nodes(self):
@@ -731,8 +730,17 @@ class NifFile:
                 self._nodes[this_node.name] = this_node
         return self._nodes
 
+    def get_node_xform_to_global(self, name):
+        """ Get the xform-to-global either from the nif or the reference skeleton """
+        buf = (c_float * 13)()
+        NifFile.nifly.getNodeXformToGlobal(self._handle, name.encode('utf-8'), buf)
+        mat = MatTransform()
+        mat.from_array(buf)
+        return mat
+
     def createSkin(self):
-        self._skin_handle = NifFile.nifly.createSkinForNif(self._handle, self.game.encode('utf-8'))
+        if self._skin_handle is None:
+            self._skin_handle = NifFile.nifly.createSkinForNif(self._handle, self.game.encode('utf-8'))
 
     def saveSkinnedNif(self, filepath):
         NifFile.nifly.saveSkinnedNif(self._skin_handle, filepath.encode('utf-8'))
@@ -753,28 +761,34 @@ TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
 TEST_CREATE_TETRA = False
 TEST_CREATE_WEIGHTS = False
-TEST_READ_WRITE = False
+TEST_READ_WRITE = True
 TEST_XFORM_FO = False
 TEST_2_TAILS = False
 TEST_ROTATIONS = False
-TEST_PARENT = True
+TEST_PARENT = False
+TEST_PYBABY = False
 
-def _test_export_shape(s_in, ftout):
+def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
     new_shape = ftout.createShapeFromData(s_in.name + ".Out", 
                                             s_in.verts,
                                             s_in.tris,
                                             s_in.uvs,
                                             s_in.normals)
-    new_shape.transform = s_in.transform
+    new_shape.transform = s_in.transform.copy()
     new_shape.skin()
-    new_shape_gts = s_in.transform.invert()
+    oldxform = s_in.global_to_skin_data
+    if oldxform is None:
+        oldxform = s_in.global_to_skin
+    new_shape_gts = oldxform # no inversion?
     new_shape.set_global_to_skin(new_shape_gts)
-    if s_in.parent.game == "SKYRIM":
-        new_shape.set_global_to_skindata(new_shape_gts) # only for skyrim
+    #if s_in.parent.game in ("SKYRIM", "SKYRIMSE"):
+    #    new_shape.set_global_to_skindata(new_shape_gts) # only for skyrim
+    #else:
+    #    new_shape.set_global_to_skin(new_shape_gts)
 
     for bone_name, weights in s_in.bone_weights.items():
-        new_shape.add_bone(bone_name)
+        new_shape.add_bone(bone_name, s_in.parent.nodes[bone_name].xform_to_global)
         new_shape.setShapeWeights(bone_name, weights)
 
 if __name__ == "__main__":
@@ -978,14 +992,17 @@ if __name__ == "__main__":
         shape4.set_global_to_skin(bodyPartXform)
         shape4.set_global_to_skindata(bodyPartXform)
 
-        xform = shape4.get_skin_to_bone_xform("BONE2")
-        print(f"BONE2 at {xform.translation[0]}, {xform.translation[1]}, {xform.translation[2]}")
-
         for bone_name, weights in weights_by_bone.items():
             if (len(weights) > 0):
                 shape4.setShapeWeights(bones.nif_name(bone_name), weights)
     
         newf4.save()
+
+        newf4in = NifFile("tests/out/testnew04.nif")
+        newshape = newf4in.shapes[0]
+        xform = newshape.get_shape_skin_to_bone("BONE2")
+        assert xform.translation != (0.0, 0.0, 0.0), "Error: Translation should not be null"
+
 
     if TEST_ALL or TEST_READ_WRITE:
         print("### Can read the armor nif and spit out armor and body separately")
@@ -1140,12 +1157,48 @@ if __name__ == "__main__":
         n = f.nodes['Bone_Cloth_H_001']
         assert round(n.transform.rotation.euler_deg()[0], 0) == 87, "Error: Translations read correctly"
         assert round(n.xform_to_global.rotation.euler_deg()[0], 0) == 87, "Error: Global transform read correctly"
-        print(n.transform.invert()) # just make sure it works for now 
-        print(n.transform.rotation.by_vector((5.0, 0.0, 0.0)))
-        print(n.xform_to_global)
+        # These checks are half-assed, replace with real checks sometime
+        assert n.transform == n.transform.invert().invert(), "Error: Inverting twice should give the original back" 
+        assert n.transform.rotation.by_vector((5.0, 0.0, 0.0)) != (5.0, 0.0, 0.0), "Error: Rotating a vector should do something"
+        assert n.xform_to_global != MatTransform(), "Error: xform to global should not be identity"
 
     if TEST_ALL or TEST_PARENT:
         testfile = r"tests\FO4\bear_tshirt_turtleneck.nif"
         f = NifFile(testfile)
         n = f.nodes['RArm_Hand']
         assert n.parent.name == 'RArm_ForeArm3', "Error: Parent node should be forearm"
+
+    if TEST_ALL or TEST_PYBABY:
+        print('### Can export multiple parts')
+
+        testfile = r"tests\FO4\baby.nif"
+        nif = NifFile(testfile)
+        head = nif.shape_dict['Baby_Head:0']
+        eyes = nif.shape_dict['Baby_Eyes:0']
+
+        outfile1 = r"tests\Out\baby02.nif"
+        outnif1 = NifFile()
+        outnif1.initialize("FO4", outfile1)
+        _test_export_shape(head, outnif1)
+        outnif1.save()
+
+        testnif1 = NifFile(outfile1)
+        testhead1 = testnif1.shape_by_root('Baby_Head:0')
+        stb1 = testhead1.get_shape_skin_to_bone('Skin_Baby_BN_C_Head')
+
+        assert stb1 != MatTransform(), "Error: Exported bone transforms should not be identity"
+        assert stb1.scale == 1.0, "Error: Scale should be one"
+
+        outfile2 = r"tests\Out\baby03.nif"
+        outnif2 = NifFile()
+        outnif2.initialize("FO4", outfile2)
+        _test_export_shape(head, outnif2)
+        _test_export_shape(eyes, outnif2)
+        outnif2.save()
+
+        testnif2 = NifFile(outfile2)
+        testhead2 = testnif2.shape_by_root('Baby_Head:0')
+        stb2 = testhead2.get_shape_skin_to_bone('Skin_Baby_BN_C_Head')
+
+        assert len(testhead1.bone_names) == len(testhead2.bone_names), "Error: Head should have bone weights"
+        assert stb1 == stb2, "Error: Bone transforms should stay the same"
