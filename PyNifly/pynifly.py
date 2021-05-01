@@ -272,8 +272,8 @@ class NiNode:
         self.transform = MatTransform()
 
         if not self._handle is None:
-            buf = create_string_buffer(51)
-            NifFile.nifly.getNodeName(self._handle, buf, 51)
+            buf = create_string_buffer(256)
+            NifFile.nifly.getNodeName(self._handle, buf, 256)
             self.name = buf.value.decode('utf-8')
             
             buf = (c_float * 13)()
@@ -292,8 +292,10 @@ class NiNode:
 
     @property
     def xform_to_global(self):
+        self.file.createSkin()
+
         buf = (c_float * 13)()
-        NifFile.nifly.getNodeXformToGlobal(self.file._handle, self.name.encode('utf-8'), buf)
+        NifFile.nifly.getNodeXformToGlobal(self.file._skin_handle, self.name.encode('utf-8'), buf)
         mat = MatTransform()
         mat.from_array(buf)
         return mat
@@ -315,8 +317,8 @@ class NiShape:
         self.parent = theNif
 
         if not theShapeRef is None:
-            buf = create_string_buffer(50)
-            NifFile.nifly.getShapeName(theShapeRef, buf, 50)
+            buf = create_string_buffer(256)
+            NifFile.nifly.getShapeName(theShapeRef, buf, 256)
             self.name = buf.value.decode('utf-8')
             
             xfbuf = (c_float * 13)()
@@ -666,8 +668,8 @@ class NifFile:
     @property
     def rootName(self):
         """Return name of root node"""
-        buf = create_string_buffer(50)
-        NifFile.nifly.getRootName(self._handle, buf, 50)
+        buf = create_string_buffer(256)
+        NifFile.nifly.getRootName(self._handle, buf, 256)
         return buf.value.decode('utf-8')
     
     @property
@@ -732,13 +734,16 @@ class NifFile:
 
     def get_node_xform_to_global(self, name):
         """ Get the xform-to-global either from the nif or the reference skeleton """
+        self.createSkin()
+
         buf = (c_float * 13)()
-        NifFile.nifly.getNodeXformToGlobal(self._handle, name.encode('utf-8'), buf)
+        NifFile.nifly.getNodeXformToGlobal(self._skin_handle, name.encode('utf-8'), buf)
         mat = MatTransform()
         mat.from_array(buf)
         return mat
 
     def createSkin(self):
+        self.game
         if self._skin_handle is None:
             self._skin_handle = NifFile.nifly.createSkinForNif(self._handle, self.game.encode('utf-8'))
 
@@ -761,12 +766,13 @@ TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
 TEST_CREATE_TETRA = False
 TEST_CREATE_WEIGHTS = False
-TEST_READ_WRITE = True
+TEST_READ_WRITE = False
 TEST_XFORM_FO = False
 TEST_2_TAILS = False
 TEST_ROTATIONS = False
 TEST_PARENT = False
 TEST_PYBABY = False
+TEST_BONE_XFORM = True
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1202,3 +1208,22 @@ if __name__ == "__main__":
 
         assert len(testhead1.bone_names) == len(testhead2.bone_names), "Error: Head should have bone weights"
         assert stb1 == stb2, "Error: Bone transforms should stay the same"
+
+    if TEST_ALL or TEST_BONE_XFORM:
+        print('### Can read bone transforms')
+
+        nif = NifFile(r"tests/Skyrim/MaleHead.nif")
+        #nif.game
+        #nif.createSkin()
+        #buf = (c_float * 13)()
+        #NifFile.nifly.getNodeXformToGlobal(nif._skin_handle, "NPC Spine2 [Spn2]".encode('utf-8'), buf)
+        mat = nif.get_node_xform_to_global("NPC Spine2 [Spn2]")
+        assert mat.translation[2] != 0, "Error: Translation should not be 0"
+        mat2 = nif.get_node_xform_to_global("NPC L Forearm [LLar]")
+        assert mat2.translation[2] != 0, "Error: Translation should not be 0"
+
+        nif = NifFile(r"tests/FO4/BaseMaleHead.nif")
+        mat3 = nif.get_node_xform_to_global("Neck")
+        assert mat3.translation[2] != 0, "Error: Translation should not be 0"
+        mat4 = nif.get_node_xform_to_global("SPINE1")
+        assert mat4.translation[2] != 0, "Error: Translation should not be 0"
