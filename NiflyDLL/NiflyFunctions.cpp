@@ -18,7 +18,7 @@ using namespace nifly;
 typedef std::string String;
 
 /* Yes, they're statics. And not a class in sight. Bite me. */
-static std::filesystem::path projectRoot(PROJECT_ROOT);
+static std::filesystem::path projectRoot;
 
 static String curSkeletonPath;
 static String curGameDataPath; // Get this from OS if it turns out we need it
@@ -55,11 +55,31 @@ void LogGet(char* buf, int len) {
 	buf[len - 1] = '\0';
 }
 
+void FindProjectRoot() {
+	char path[MAX_PATH];
+	HMODULE hm = NULL;
+
+	if (!projectRoot.empty()) return;
+
+	if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+			GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+			(LPCSTR)&SkeletonFile, &hm) == 0) {
+		int ret = GetLastError();
+		LogWrite("Failed to get a handle to the DLL module");
+	}
+	if (GetModuleFileName(hm, path, sizeof(path)) == 0)
+	{
+		int ret = GetLastError();
+		LogWrite("Failed to get the filename of the DLL");
+	}
+	
+	projectRoot = std::filesystem::path(path).parent_path();
+}
+
 String SkeletonFile(enum TargetGame game) {
-	CHAR modulePath[256];
 	String skeletonPath;
 
-	GetModuleFileNameA(nullptr, modulePath, 256);
+	FindProjectRoot();
 	switch (game) {
 	case FO3:
 	case FONV:
