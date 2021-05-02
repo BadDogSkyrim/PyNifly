@@ -281,6 +281,10 @@ class NiNode:
             self.transform.from_array(buf)
 
     @property
+    def blender_name(self):
+        return self.file.blender_name(self.name)
+
+    @property
     def parent(self):
         if self._parent is None:
             parent_handle = NifFile.nifly.getNodeParent(self.file._handle, self._handle)
@@ -607,6 +611,7 @@ class NifFile:
         self._shape_dict = {}
         self._nodes = None
         self._skin_handle = None
+        self.dict = None
 
     def __del__(self):
         NifFile.nifly.destroy(self._handle)
@@ -615,6 +620,7 @@ class NifFile:
         self.filepath = filepath
         self._game = target_game
         self._handle = NifFile.nifly.createNif(target_game.encode('utf-8'))
+        self.dict = gameSkeletons[target_game]
 
     def save(self):
         for sh in self.shapes:
@@ -686,7 +692,14 @@ class NifFile:
             buf = create_string_buffer(50)
             NifFile.nifly.getGameName(self._handle, buf, 50)
             self._game = buf.value.decode('utf-8')
+            self.dict = gameSkeletons[self._game]
         return self._game
+
+    def blender_name(self, nif_name):
+        return self.dict.blender_name(nif_name)
+
+    def nif_name(self, blender_name):
+        return self.dict.nif_name(blender_name)
     
     def getAllShapeNames(self):
         buf = create_string_buffer(300)

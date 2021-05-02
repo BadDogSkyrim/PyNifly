@@ -245,8 +245,7 @@
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>
-      </Command>
+      <Command>xcopy /y/s/i $(ProjectDir)..\pynifly\skeletons $(OutDir)skeletons</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Package|x64'">
@@ -291,6 +290,9 @@
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ResourceCompile>
+    <PostBuildEvent>
+      <Command>xcopy /y/s/i $(ProjectDir)..\pynifly\skeletons $(OutDir)skeletons</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -317,6 +319,7 @@
     </Link>
     <PostBuildEvent>
       <Command>xcopy /y $(OutDir)NiflyDLL.dll  $(OutDir)io_scene_nifly\
+xcopy /y/s/i $(ProjectDir)..\pynifly\skeletons $(OutDir)io_scene_nifly\skeletons
 copy /y $(ProjectDir)..\pynifly\pynifly.py  $(OutDir)io_scene_nifly\
 copy /y $(ProjectDir)..\pynifly\niflytools.py  $(OutDir)io_scene_nifly\
 copy /y $(ProjectDir)..\pynifly\pyniflywhereami.py  $(OutDir)io_scene_nifly\

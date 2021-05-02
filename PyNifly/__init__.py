@@ -9,7 +9,7 @@ bl_info = {
     "description": "Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 13), 
+    "version": (0, 0, 14), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -26,13 +26,12 @@ import math
 
 pynifly_dev_root = r"D:\OneDrive\Dev"
 pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
+nifly_path = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll")
 
-# Load from dev path if it exists
-if os.path.exists(pynifly_dev_path):
+if os.path.exists(nifly_path):
     print(f"PyNifly dev path: {pynifly_dev_path}")
     if pynifly_dev_path not in sys.path:
         sys.path.append(pynifly_dev_path)
-    nifly_path = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll")
 else:
     # Load from install location
     py_addon_path = os.path.dirname(os.path.realpath(__file__))
@@ -76,16 +75,16 @@ def mesh_create_uv(the_mesh, uv_points):
     for i, this_uv in enumerate(new_uv):
         new_uvlayer.data[i].uv = this_uv
 
-def mesh_create_groups(the_shape, the_object, skel_dict):
+def mesh_create_groups(the_shape, the_object):
     vg = the_object.vertex_groups
     for bone_name in the_shape.bone_names:
-        xlate_name = skel_dict.blender_name(bone_name)
+        xlate_name = the_shape.parent.blender_name(bone_name)
         new_vg = vg.new(name=xlate_name)
         for v, w in the_shape.bone_weights[bone_name]:
             new_vg.add((v,), w, 'ADD')
     
-def import_shape(the_shape: NiShape, skel_dict):
-    """ Import the shape to a Blender object, using skel_dict to translate bone names """
+def import_shape(the_shape: NiShape):
+    """ Import the shape to a Blender object, translating bone names """
     v = the_shape.verts
     t = the_shape.tris
 
@@ -108,7 +107,7 @@ def import_shape(the_shape: NiShape, skel_dict):
         = inv_xf.rotation.euler_deg()
 
     mesh_create_uv(new_object, the_shape.uvs)
-    mesh_create_groups(the_shape, new_object, skel_dict)
+    mesh_create_groups(the_shape, new_object)
     for f in new_mesh.polygons:
         f.use_smooth = True
 
@@ -116,19 +115,18 @@ def import_shape(the_shape: NiShape, skel_dict):
     new_mesh.validate(verbose=True)
     return new_object
 
-def add_bone_to_arma(armdata, name, nif, skel):
+def add_bone_to_arma(armdata, name, nif):
     """ Add bone to armature. Bone may come from nif or reference skeleton.
         armdata = armature data block
         name = blender name of the new bone
         nif = nif we're importing
-        skel = skeleton dictionary
         returns new bone
     """
     if name in armdata.edit_bones:
         return None
     
     # use the transform in the file if there is one
-    bone_xform = nif.get_node_xform_to_global(skel.nif_name(name)) 
+    bone_xform = nif.get_node_xform_to_global(nif.nif_name(name)) 
 
     bone = armdata.edit_bones.new(name)
     bone.head = bone_xform.translation
@@ -142,11 +140,10 @@ def add_bone_to_arma(armdata, name, nif, skel):
     #print(f"Added bone {name} at {bone.head[:]} - {bone.tail[:]}")
     return bone
 
-def connect_armature(arm_data, skel_dict, the_nif):
+def connect_armature(arm_data, the_nif):
     """ Connect up the bones in an armature to make a full skeleton.
         Use parent/child relationships in the nif if present, from the skel otherwise.
         arm_data: Data block of the armature
-        skel_dict: bone dictionary to use
         the_nif: Nif being imported
         """
     print("..Connecting armature")
@@ -161,17 +158,17 @@ def connect_armature(arm_data, skel_dict, the_nif):
             parentname = None
             skelbone = None
             # look for a parent in the nif
-            nifname = skel_dict.nif_name(bonename)
+            nifname = the_nif.nif_name(bonename)
             if nifname in the_nif.nodes:
                 niparent = the_nif.nodes[nifname].parent
                 if niparent and niparent._handle != the_nif.root:
-                    parentname = skel_dict.blender_name(niparent.name)
+                    parentname = niparent.blender_name
                     #print("Parent bone from nif: " + parentname)
 
             if parentname is None:
                 # No parent in the nif. If it's a known bone, get parent from skeleton
-                if arma_bone.name in skel_dict.byBlender:
-                    p = skel_dict.byBlender[bonename].parent
+                if arma_bone.name in the_nif.dict.byBlender:
+                    p = the_nif.dict.byBlender[bonename].parent
                     if p:
                         parentname = p.blender
                         #print("Parent bone from skeleton: " + parentname)
@@ -181,7 +178,7 @@ def connect_armature(arm_data, skel_dict, the_nif):
                 if parentname not in arm_data.edit_bones:
                     # Add parent bones and put on our list so we can get its parent
                     #print(f"Parenting new bone {arma_bone.name} -> {parentname}")
-                    new_parent = add_bone_to_arma(arm_data, parentname, the_nif, skel_dict)
+                    new_parent = add_bone_to_arma(arm_data, parentname, the_nif)
                     bones_to_parent.append(parentname)  
                     arma_bone.parent = new_parent
                 else:
@@ -189,7 +186,7 @@ def connect_armature(arm_data, skel_dict, the_nif):
                     arma_bone.parent = arm_data.edit_bones[parentname]
         i += 1
 
-def make_armature(the_coll, the_nif, skel_dict, bone_names):
+def make_armature(the_coll, the_nif, bone_names):
     bpy.ops.object.select_all(action='DESELECT')
     arm_data = bpy.data.armatures.new(the_nif.rootName)
     arm_ob = bpy.data.objects.new(the_nif.rootName, arm_data)
@@ -201,10 +198,10 @@ def make_armature(the_coll, the_nif, skel_dict, bone_names):
     bpy.ops.object.mode_set(mode='EDIT', toggle=False)
     
     for bone_game_name in bone_names:
-        add_bone_to_arma(arm_ob.data, skel_dict.blender_name(bone_game_name), the_nif, skel_dict)
+        add_bone_to_arma(arm_ob.data, the_nif.blender_name(bone_game_name), the_nif)
         
     # Hook the armature bones up to a skeleton
-    connect_armature(arm_ob.data, skel_dict, the_nif)
+    connect_armature(arm_ob.data, the_nif)
 
     #print(f"***All armature edit bones: " + str(list(arm_ob.data.edit_bones.keys())))
     bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
@@ -268,7 +265,7 @@ def get_bone_xforms(arma, bone_names):
         result[b.name] = mat
     return result
 
-def export_skin(obj, exportSkel, new_shape, new_xform, weights_by_vert):
+def export_skin(obj, new_shape, new_xform, weights_by_vert):
     print("..Parent is armature, skin the mesh")
     new_shape.skin()
     # if new_shape.has_skin_instance: 
@@ -288,10 +285,10 @@ def export_skin(obj, exportSkel, new_shape, new_xform, weights_by_vert):
         # print(f"  shape {obj.name} adding bone {bone_name}")
         if bone_name in weights_by_bone and len(weights_by_bone[bone_name]) > 0:
             # print(f"..Shape {obj.name} exporting bone {bone_name} with rotation {bone_xform.rotation.euler_deg()}")
-            new_shape.add_bone(exportSkel.nif_name(bone_name), bone_xform)
+            nifname = new_shape.parent.nif_name(bone_name)
+            new_shape.add_bone(nifname, bone_xform)
                 #nif.nodes[bone_name].xform_to_global)
-            new_shape.setShapeWeights(exportSkel.nif_name(bone_name),
-                                      weights_by_bone[bone_name])
+            new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
 
 def export_shape(nif, obj, target_key=''):
     """Export given blender object to the given NIF file
@@ -300,7 +297,6 @@ def export_shape(nif, obj, target_key=''):
         target_key = shape key to export
         """
     print("Exporting " + obj.name)
-    exportSkel = gameSkeletons[nif.game]
     mesh = obj.data
     is_skinned = (obj.parent and obj.parent.type == 'ARMATURE')
     
@@ -345,7 +341,7 @@ def export_shape(nif, obj, target_key=''):
         new_xform.scale = obj.scale[0]
         
         if is_skinned:
-            export_skin(obj, exportSkel, new_shape, new_xform, weights_by_vert)
+            export_skin(obj, new_shape, new_xform, weights_by_vert)
         else:
             new_shape.transform = new_xform
 
@@ -363,12 +359,11 @@ def import_file(f: NifFile):
     bpy.context.scene.collection.children.link(new_collection)
 
     print("..Importing " + f.game + " file")
-    sourceSkel = gameSkeletons[f.game]
     bones = set()
     new_objs = []
 
     for s in f.shapes:
-        obj = import_shape(s, sourceSkel)
+        obj = import_shape(s)
         new_objs.append(obj)
         new_collection.objects.link(obj)
 
@@ -378,8 +373,8 @@ def import_file(f: NifFile):
 
     for o in new_objs: o.select_set(True)
     if len(bones) > 0:
-        #print("Found bones, creating skeleton: " + str(bones))
-        skel = make_armature(new_collection, f, sourceSkel, bones)
+        #print("Found bones, creating armature: " + str(bones))
+        arma = make_armature(new_collection, f, bones)
         for o in new_objs: o.select_set(True)
         bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
 
@@ -396,32 +391,29 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         NifFile.Load(nifly_path)
 
         bpy.ops.object.select_all(action='DESELECT')
-        skel = None
+
         f = NifFile(self.filepath)
-        sourceGame = f.game
-        print('Importing ' + self.filepath + ' ' + sourceGame)
-        new_collection = bpy.data.collections.new(os.path.basename(f.filepath))
-        bpy.context.scene.collection.children.link(new_collection)
-#        if len(f.nodes) > 1:
-#            skel = make_armature(f)
-#            new_collection.objects.link(skel)
-        sourceSkel = gameSkeletons[sourceGame]
-        bones = set()
-        new_objs = []
+        import_file(f)
+#3        sourceGame = f.game
+#        print('Importing ' + self.filepath + ' ' + sourceGame)
+#        new_collection = bpy.data.collections.new(os.path.basename(f.filepath))
+#        bpy.context.scene.collection.children.link(new_collection)
 
-        for s in f.shapes:
-            obj = import_shape(s, sourceSkel)
-            new_objs.append(obj)
-            new_collection.objects.link(obj)
-            for n in s.bone_names: 
-                #if n in sourceSkel.byNif:
-                bones.add(n) 
+        #bones = set()
+        #new_objs = []
 
-        if len(bones) > 0:
-            #print("Found bones, creating skeleton: " + str(bones))
-            skel = make_armature(new_collection, f, sourceSkel, bones)
-            for o in new_objs: o.select_set(True)
-            bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+        #for s in f.shapes:
+        #    obj = import_shape(s)
+        #    new_objs.append(obj)
+        #    new_collection.objects.link(obj)
+        #    for n in s.bone_names: 
+        #        bones.add(n) 
+
+        #if len(bones) > 0:
+        #    #print("Found bones, creating armature: " + str(bones))
+        #    skel = make_armature(new_collection, f, sourceSkel, bones)
+        #    for o in new_objs: o.select_set(True)
+        #    bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
         
         for area in bpy.context.screen.areas:
             if area.type == 'VIEW_3D':
@@ -543,6 +535,9 @@ def run_tests():
     TEST_BPY_PARENT = False
     TEST_BABY = False
     TEST_CONNECTED_SKEL = True
+
+    NifFile.Load(nifly_path)
+
 
     if TEST_BPY_ALL or TEST_UNIT:
         # Lower-level tests of individual routines for bug hunting
