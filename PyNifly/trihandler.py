@@ -378,7 +378,7 @@ class TriFile():
         # version check
         if tri.header.str != VERSION_STRING:
             file.close()
-            log.error(f"TRI file is not of correct format. Format given as [{fileHeader.str}] when it should be [FRTRI003]")
+            log.error(f"File is not of correct format. Format given as [{tri.header.str}] when it should be [FRTRI003]")
             return {'CANCELLED'}
 
         try:
@@ -573,9 +573,9 @@ class TriFile():
             v0 = verts_reorder_mapping[f[0]]
             v1 = verts_reorder_mapping[f[1]]
             v2 = verts_reorder_mapping[f[2]]
-            uv_gather[v0] = self.uv_pos[f[0]]
-            uv_gather[v1] = self.uv_pos[f[1]]
-            uv_gather[v2] = self.uv_pos[f[2]]
+            uv_gather[v0] = (self.uv_pos[f[0]][0], 1-self.uv_pos[f[0]][1])
+            uv_gather[v1] = (self.uv_pos[f[1]][0], 1-self.uv_pos[f[1]][1])
+            uv_gather[v2] = (self.uv_pos[f[2]][0], 1-self.uv_pos[f[2]][1])
             uv_face_mapping[f_index] = (v0, v1, v2)
 
             #uv_face_mapping[f_index] = 
@@ -653,6 +653,7 @@ if __name__ == "__main__":
         assert len(t.face_uvs) == t.header.faceNum, "Error should have expected number of face UVs"
         assert len(t.morphs) > 0, "Error: Should have morphs"
 
+        log.info("Write tri back out again")
         t2 = TriFile()
         t2.vertices = t.vertices.copy()
         t2.faces = t.faces.copy()
@@ -663,6 +664,7 @@ if __name__ == "__main__":
 
         t2.write(os.path.join(test_path, "Out/CheetahMaleHead01.tri"))
 
+        log.info("And read what you wrote to prove it worked")
         t3 = TriFile.from_file(os.path.join(test_path, "Out/CheetahMaleHead01.tri"))
         assert len(t3.vertices) == len(t.vertices), "Error: Should have expected vertices"
         assert len(t3.faces) == len(t.faces), "Error should have expected polys"
@@ -670,5 +672,8 @@ if __name__ == "__main__":
         assert len(t3.face_uvs) == len(t.face_uvs), "Error should have expected number of face UVs"
         assert len(t3.morphs) == len(t.morphs), "Error: Morphs should not change"
         assert t3.vertices[5] == t.vertices[5], "Error: Vertices should not change"
+        assert t3.uv_pos[5] == t.uv_pos[5], "Error, UVs should not change"
+        assert t3.uv_pos[50] == t.uv_pos[50], "Error, UVs should not change"
+        assert t3.uv_pos[500] == t.uv_pos[500], "Error, UVs should not change"
 
         print("DONE")
