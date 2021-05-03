@@ -19,6 +19,7 @@ bl_info = {
 import sys
 import os.path
 import pathlib
+import logging
 from operator import or_
 from functools import reduce
 import traceback
@@ -46,6 +47,7 @@ if not os.path.exists(nifly_path):
 
 from pynifly import *
 from niflytools import *
+from trihandler import *
 import pyniflywhereami
 
 import bpy
@@ -61,17 +63,26 @@ from bpy_extras.io_utils import (
 import bmesh
 
 
+log = logging.getLogger("pynifly")
+#log.setLevel(logging.DEBUG)
+#pynifly_ch = logging.StreamHandler()
+#pynifly_ch.setLevel(logging.DEBUG)
+#formatter = logging.Formatter('%(name)s-%(levelname)s: %(message)s')
+#pynifly_ch.setFormatter(formatter)
+#log.addHandler(ch)
+
+
 # ### ---------------------------- IMPORT -------------------------------- ###
 
 def mesh_create_uv(the_mesh, uv_points):
     """ Create UV in Blender to match UVpoints from Nif
         uv_points = [(u, v)...] indexed by vertex index
         """
-    new_uv = [(0,0)] * len(the_mesh.data.loops)
-    for lp_idx, lp in enumerate(the_mesh.data.loops):
+    new_uv = [(0,0)] * len(the_mesh.loops)
+    for lp_idx, lp in enumerate(the_mesh.loops):
         vert_targeted = lp.vertex_index
         new_uv[lp_idx] = (uv_points[vert_targeted][0], 1-uv_points[vert_targeted][1])
-    new_uvlayer = the_mesh.data.uv_layers.new(do_init=False)
+    new_uvlayer = the_mesh.uv_layers.new(do_init=False)
     for i, this_uv in enumerate(new_uv):
         new_uvlayer.data[i].uv = this_uv
 
@@ -106,7 +117,7 @@ def import_shape(the_shape: NiShape):
     new_object.rotation_euler[0], new_object.rotation_euler[1], new_object.rotation_euler[2] \
         = inv_xf.rotation.euler_deg()
 
-    mesh_create_uv(new_object, the_shape.uvs)
+    mesh_create_uv(new_object.data, the_shape.uvs)
     mesh_create_groups(the_shape, new_object)
     for f in new_mesh.polygons:
         f.use_smooth = True
@@ -207,6 +218,73 @@ def make_armature(the_coll, the_nif, bone_names):
     bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
     #print(f"***All armature '{arm_ob.name}' bones: " + str(list(arm_ob.data.bones.keys())))
     return arm_ob
+
+# ### ---------------------------- TRI Files -------------------------------- ###
+
+def create_shape_keys(obj, tri:TriFile):
+    """Adds the shape keys in tri to obj 
+        """
+    mesh = obj.data
+    #if mesh.shape_keys is None:
+    #    log.debug(f"Adding first shape key to {obj.name}")
+    #    newsk = obj.shape_key_add()
+    #    mesh.shape_keys.use_relative=True
+    #    newsk.name = "Basis"
+    #    mesh.update()
+
+    for morph_name, morph_verts in tri.morphs.items():
+        newsk = obj.shape_key_add()
+        newsk.name = morph_name
+
+        obj.active_shape_key_index = len(mesh.shape_keys.key_blocks) - 1
+        #This is a pointer, not a copy
+        mesh_key_verts = mesh.shape_keys.key_blocks[obj.active_shape_key_index].data
+        #log.debug(f"Morph {morph_name} in tri file should have same number of verts as Blender shape: {len(mesh_key_verts)} != {len(morph_verts)}")
+        for key_vert, morph_vert in zip(mesh_key_verts, morph_verts):
+            key_vert.co[0] = morph_vert[0]
+            key_vert.co[1] = morph_vert[1]
+            key_vert.co[2] = morph_vert[2]
+        
+        mesh.update
+
+def import_tri(filepath):
+    tri = TriFile.from_file(filepath)
+
+    cobj = bpy.context.object
+    new_object = None
+
+    if cobj:
+        log.debug(f"Importing with selected object {cobj.name}, type {cobj.type}")
+        if cobj.type == "MESH":
+            log.debug(f"Selected mesh vertex match: {len(cobj.data.vertices)}/{len(tri.vertices)}")
+
+
+    # Check whether selected object should receive shape keys
+    if cobj and cobj.type == "MESH" and len(cobj.data.vertices) == len(tri.vertices):
+        new_object = cobj
+        new_mesh = new_object.data
+        log.info(f"Verts match, loading tri into existing shape {new_object.name}")
+
+    if new_object is None:
+        new_mesh = bpy.data.meshes.new(os.path.basename(filepath))
+        new_mesh.from_pydata(tri.vertices, [], tri.faces)
+        new_object = bpy.data.objects.new(new_mesh.name, new_mesh)
+
+        for f in new_mesh.polygons:
+            f.use_smooth = True
+
+        new_mesh.update(calc_edges=True, calc_edges_loose=True)
+        new_mesh.validate(verbose=True)
+
+        mesh_create_uv(new_mesh, tri.uv_pos)
+   
+        new_collection = bpy.data.collections.new(os.path.basename(os.path.basename(filepath) + ".Coll"))
+        bpy.context.scene.collection.children.link(new_collection)
+        new_collection.objects.link(new_object)
+
+    create_shape_keys(new_object, tri)
+
+    return new_object
 
 # ### ---------------------------- EXPORT -------------------------------- ###
 
@@ -522,7 +600,7 @@ def unregister():
 def run_tests():
     print("######################### TESTING ##########################")
 
-    TEST_BPY_ALL = True
+    TEST_BPY_ALL = False
     TEST_EXPORT = False
     TEST_IMPORT_ARMATURE = False
     TEST_EXPORT_WEIGHTS = False
@@ -534,10 +612,11 @@ def run_tests():
     TEST_CUSTOM_BONES = False
     TEST_BPY_PARENT = False
     TEST_BABY = False
-    TEST_CONNECTED_SKEL = True
+    TEST_CONNECTED_SKEL = False
+    TEST_TRI = True
 
     NifFile.Load(nifly_path)
-
+    #LoggerInit()
 
     if TEST_BPY_ALL or TEST_UNIT:
         # Lower-level tests of individual routines for bug hunting
@@ -923,6 +1002,35 @@ def run_tests():
                 assert 'Leg_Thigh.L' in s.data.bones.keys(), "Error: Should have left thigh"
                 assert s.data.bones['Leg_Thigh.L'].parent.name == 'Pelvis', "Error: Thigh should connect to pelvis"
 
+    if TEST_BPY_ALL or TEST_TRI:
+        print("### Can load a tri file into an existing mesh")
+
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\CheetahMaleHead.nif")
+        nif = NifFile(testfile)
+        import_file(nif)
+
+        obj = bpy.context.object
+        if obj.type == "ARMATURE":
+            obj = obj.children[0]
+            bpy.context.view_layer.objects.active = obj
+
+        testtri2 = os.path.join(pynifly_dev_path, r"tests\FO4\CheetahMaleHead.tri")
+        log.debug(f"Importing tri with {bpy.context.object.name} selected")
+        triobj2 = import_tri(testtri2)
+
+        assert len(obj.data.shape_keys.key_blocks) == 47, f"Error: {obj.name} should have enough keys ({len(obj.data.shape_keys.key_blocks)})"
+
+        print("### Can import a simple tri file")
+
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.context.view_layer.objects.active = None
+        testtri = os.path.join(pynifly_dev_path, r"tests\FO4\CheetahMaleHead.tri")
+        triobj = import_tri(testtri)
+        assert triobj.name.startswith("CheetahMaleHead.tri"), f"Error: Should be named like tri file, found {triobj.name}"
+        assert "LJaw" in triobj.data.shape_keys.key_blocks.keys(), "Error: Should be no keys missing"
+
+        
     print("######################### TESTS DONE ##########################")
 
 
@@ -935,6 +1043,10 @@ if __name__ == "__main__":
         do_run_tests == False
         
     if not do_run_tests:
+        try:
+            unregister()
+        except:
+            traceback.print_exc()
         register()
     else:
         try:
