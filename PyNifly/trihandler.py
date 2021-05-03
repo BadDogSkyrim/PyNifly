@@ -48,7 +48,7 @@ updated by anon (me) to work with newer blender ( version 2.63+), I hope
 #   name len (int)
 #   name (chars)
 #   base diff (float) -- scale factor applied to enitre morph
-#   (dx,xy,xz) * vertexNum -- offset for each vertex
+#   (dx,xy,xz) * vertexNum -- offset for each vertex in short ints
 #   ...
 # ModMorphs * modMorphNum:
 #   name len
@@ -119,16 +119,25 @@ class TRIHeader:
         s += "Mod Morphs:     " + str(self.addMorphNum) + " with " + str(self.addVertexNum) + " vertices\n"
         return s
 
-    def printCollectedData(self, errlog):
-        errlog.error(str(self))
+    def errlog_write(self):
+        self.errlog.error(str(self))
+
 
 class TriFile():
     def __init__(self):
         self.header = TRIHeader()
-        self.vertices = None    # [(x,y,z), ...]
-        self.faces = None       # [(p1, p2, p3), ...] where p# is an index into vertices
+        self._vertices = None    # [(x,y,z), ...]
+        self._faces = None       # [(p1, p2, p3), ...] where p# is an index into vertices
+        self.reorder_verts = False
+        self.morphs = {}        # Dictionary of morphs. Verts are absolute values.
+        self.modmorphs = {}
+        self.uv_pos = None      # [(u,v), ...] 1:1 with vertex list
+        self.face_uvs = None    # [(i1,i2,i3), ...]  1:1 with faces list; indices into UV_pos list
         self.log = logging.getLogger("pynifly")
 
+    def error_write(self, text):
+        self.error_write(text)
+        self.header.errlog_write()
 
     def read_morph(self, file):
         """ Reads a single morph from a tri file
@@ -138,54 +147,39 @@ class TriFile():
         morph_index = len(self.morphs) 
         tmp_data = file.read(INT_LEN)
         if len(tmp_data) < INT_LEN:
-            self.log.error("EOF reading morph header\nError on morph number " + str(morph_index) + "\nFile appears to be corrupt")
-            self.header.printCollectedData(self.log)
+            self.error_write("EOF reading morph header\nError on morph number " + str(morph_index) + "\nFile appears to be corrupt")
             raise ValueError("Error reading TRI file")
         
         data = unpack('<I', tmp_data)
         tmp_data = file.read(data[0])
         if len(tmp_data) < data[0]:
-            self.log.error("EOF reading morph header\nError on morph number " + str(morph_index) + "\nFile appears to be corrupt")
-            self.header.printCollectedData(self.log)
+            self.error_write("EOF reading morph header\nError on morph number " + str(morph_index) + "\nFile appears to be corrupt")
             raise ValueError("Error reading TRI file")
         
         data = unpack('<'+str(data[0]-1)+'sx', tmp_data)
         morphSubName = data[0].decode("iso-8859-15")
-#       newsk.name = morphName
         #self.log.debug(f"Read morph: {morphSubName}")
         
         tmp_data = file.read(FLOAT_LEN)
         
         if len(tmp_data) < FLOAT_LEN:
-            self.log.error("EOF reading morph header\nError on morph number " + str(morph_index) + "\n  \"" + morphSubName + "\"\nFile appears to be corrupt")
-            self.header.printCollectedData(self.log)
+            self.error_write("EOF reading morph header\nError on morph number " + str(morph_index) + "\n  \"" + morphSubName + "\"\nFile appears to be corrupt")
             raise ValueError("Error reading TRI file")
         data = unpack('<f', tmp_data)
         baseDiff = data[0]
         
         tmp_buffer = file.read(SHORT_LEN * 3 * self.header.vertexNum)
         if len(tmp_buffer) < SHORT_LEN * 3 * self.header.vertexNum:
-            self.log.error("EOF reading morph data vertices\nError on morph number " + str(morph_index) + "\n  \"" + morphSubName + "\"\nMorph has valid header, but appears to be corrupt\nFile appears to be corrupt")
-            self.header.printCollectedData(self.log)
+            self.error_write("EOF reading morph data vertices\nError on morph number " + str(morph_index) + "\n  \"" + morphSubName + "\"\nMorph has valid header, but appears to be corrupt\nFile appears to be corrupt")
             raise ValueError("Error reading TRI file")		
 
-#        lidx = 0
-#        for ii, nv in enumerate(mesh_key_verts):
-        # morph_verts = [ (x, y, z), ...] where x,y,z are absolute values
         morph_verts = [] 
         for lidx in range(self.header.vertexNum):
             data = unpack('<3h', tmp_buffer[SHORT_LEN * 3 * lidx : (SHORT_LEN*3*lidx) + (SHORT_LEN*3)]  )
-            morph_verts.append((self.vertices[lidx][0] + data[0] * baseDiff,
-                                self.vertices[lidx][1] + data[1] * baseDiff,
-                                self.vertices[lidx][2] + data[2] * baseDiff) )
+            morph_verts.append((self._vertices[lidx][0] + data[0] * baseDiff,
+                                self._vertices[lidx][1] + data[1] * baseDiff,
+                                self._vertices[lidx][2] + data[2] * baseDiff) )
 
-            #nv.co[0] = verts_list[ii][0] + data[0] * baseDiff
-            #nv.co[1] = verts_list[ii][1] + data[1] * baseDiff
-            #nv.co[2] = verts_list[ii][2] + data[2] * baseDiff
-            #lidx = lidx + 1
-        #ob.data.update()
-        
-        #tmp_buffer = ''
         return morphSubName, morph_verts
 
 
@@ -198,15 +192,13 @@ class TriFile():
 
         tmp_data = file.read(INT_LEN)
         if len(tmp_data) < INT_LEN:
-            self.log.error("EOF reading MOD-morph header\nError on MOD-morph number " + str(morph_index) + "\nFile appears to be corrupt")
-            self.header.printCollectedData(self.log)
+            self.error_write("EOF reading MOD-morph header\nError on MOD-morph number " + str(morph_index) + "\nFile appears to be corrupt")
             raise ValueError("Error reading TRI file")
         data = unpack('<I', tmp_data)
 
         tmp_data = file.read(data[0])
         if len(tmp_data) < data[0]:
-            self.log.error("EOF reading MOD-morph header\nError on MOD-morph number " + str(morph_index) + "\nFile appears to be corrupt")
-            self.header.printCollectedData(self.log)
+            self.error_write("EOF reading MOD-morph header\nError on MOD-morph number " + str(morph_index) + "\nFile appears to be corrupt")
             raise ValueError("Error reading TRI file")
         data = unpack('<'+str(data[0]-1)+'sx', tmp_data)
         morphSubName = data[0].decode("iso-8859-15")
@@ -214,8 +206,7 @@ class TriFile():
 
         tmp_data = file.read(INT_LEN)
         if len(tmp_data) < INT_LEN:
-            self.log.error("EOF reading MOD-morph header\nError on MOD-morph number " + str(morph_index) + "\n  \"" + morphSubName + "\"\nFile appears to be corrupt")
-            self.header.printCollectedData(self.log)
+            self.error_write("EOF reading MOD-morph header\nError on MOD-morph number " + str(morph_index) + "\n  \"" + morphSubName + "\"\nFile appears to be corrupt")
             raise ValueError("Error reading TRI file")
         data = unpack('<I', tmp_data)
         blockLength = data[0]
@@ -224,36 +215,32 @@ class TriFile():
             nextMorphVertIdx = 0
             tmp_buffer = file.read(INT_LEN*blockLength)
             if len(tmp_buffer) < INT_LEN*blockLength:
-                self.log.error("EOF reading MOD-morph data verticies\nError on MOD-morph number " + str(i+1) + "\n  \"" + morphSubName + "\"\nMorph has valid header, but appears to be corrupt\nFile appears to be corrupt")
-                self.header.printCollectedData(self.log)
+                self.error_write("EOF reading MOD-morph data verticies\nError on MOD-morph number " + str(i+1) + "\n  \"" + morphSubName + "\"\nMorph has valid header, but appears to be corrupt\nFile appears to be corrupt")
                 raise ValueError("Error reading TRI file")	
             data = unpack('<I', tmp_buffer[INT_LEN*nextMorphVertIdx:(INT_LEN*nextMorphVertIdx)+INT_LEN])
             
             nextMorphVertIdx += 1
             
-            #ii=int increment, nv=vert structure in the keyshape
             new_verts = []
-            for ii, nv in enumerate(self.vertices):
+            for ii, nv in enumerate(self._vertices):
                 if (data[0] == ii) and (blockLength >= 0) and (vertsAdd_Index < vertsAdd_listLength):
                     blockLength = blockLength - 1
                     new_verts.append((vertsAdd_list[vertsAdd_Index][0],
                                       vertsAdd_list[vertsAdd_Index][1],
                                       vertsAdd_list[vertsAdd_Index][2] ))
-#                    nv.co[0] = vertsAdd_list[vertsAdd_Index][0]
-#                    nv.co[1] = vertsAdd_list[vertsAdd_Index][1]
-#                    nv.co[2] = vertsAdd_list[vertsAdd_Index][2]
                     vertsAdd_Index += 1
                     if blockLength > 0:
                         data = unpack('<I', tmp_buffer[INT_LEN*nextMorphVertIdx:(INT_LEN*nextMorphVertIdx)+INT_LEN])
                         nextMorphVertIdx += 1
                 else:
-                    new_verts.append(self.vertices[ii])
+                    new_verts.append(self._vertices[ii])
         
         #Else, the morph is the same as the base mesh? I think.
         else:
             for ii, nv in enumerate(mesh_key_verts):
                 new_verts.append((verts_list[ii][0], verts_list[ii][1], verts_list[ii][2]))
         return morphName, new_verts
+
 
     def read(self, file):
         """ Read the given tri file 
@@ -270,24 +257,20 @@ class TriFile():
         tmp_buffer = file.read(FLOAT_LEN * 3 * self.header.vertexNum)
         if len(tmp_buffer) < FLOAT_LEN * 3 * self.header.vertexNum:
             errlog.error("EOF reading base model verticies - Should read " + str(header.vertexNum) + " verticies with\n" + str(FLOAT_LEN*3*header.vertexNum) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
-            self.header.printCollectedData(errlog)
             raise ValueError("Error reading TRI file")
         
         for i in range(self.header.vertexNum):
             data = unpack('<3f', tmp_buffer[FLOAT_LEN * 3 * i : (FLOAT_LEN*3*i) + (FLOAT_LEN*3)])
             verts_list.append((data[0], data[1], data[2]))
 
-        self.vertices = verts_list
-        # mesh.vertices.foreach_set("co", unpack_list(verts_list))
+        self._vertices = verts_list
 
-        # load modvertice data
         # "modvertice" = morph data sets, where each set need not contain data for every vertex in the mesh
         # Downside is that the structure must specify which vertices are in each set and which vertex each 3D point refers to
         vertsAdd_list = []
         tmp_buffer = file.read(FLOAT_LEN*3*self.header.addVertexNum)
         if len(tmp_buffer) < FLOAT_LEN*3*self.header.addVertexNum:
             errlog.error("\n----=| Tri Import Error |=----\nEOF reading mod-morph vertices\nShould read " + str(self.header.addVertexNum) + " mod verticies with\n" + str(FLOAT_LEN*3*header.addVertexNum) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
-            self.header.printCollectedData(errlog)
             raise ValueError("Error reading TRI file")
         
         for i in range(self.header.addVertexNum):
@@ -295,53 +278,22 @@ class TriFile():
             vertsAdd_list.append((data[0], data[1], data[2]))
 
         # loading faces
-        self.faces = []
+        self._faces = []
         tmp_buffer = file.read(INT_LEN*3*self.header.faceNum)
         if len(tmp_buffer) < INT_LEN*3*self.header.faceNum:
             errlog.error("\n----=| Tri Import Error |=----\nEOF reading model faces\nShould read " + str(self.header.faceNum) + " faces with\n" + str(INT_LEN*3*self.header.faceNum) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
-            self.header.printCollectedData(errlog)
             raise ValueError("Error reading TRI file")
 
         for i in range(self.header.faceNum):
             data = unpack('<3I', tmp_buffer[INT_LEN*3*i:(INT_LEN*3*i)+(INT_LEN*3)])
             self.faces.append((data[0], data[1], data[2]))
 
-        numFaces = len(self.faces)
-
-        #### Build shape data outside this routine
-        ##TRI file is always triangles. Otherwise, the hardcoded 3's below would be incorrect
-        #loops_vert_idx = []
-        #faces_loop_start = [0] * numFaces 
-        #faces_loop_total = [3] * numFaces  
-        #lidx = 0
-        #for f in faces:
-        #    #Even though f is a list of 3 item lists, blender stores 'loops' as per-vertex data in a 1D list, so the foreach_set down below expects them as a 1D list, not
-        #    #a 2D list. So the length of loops_vert_idx list should be len(faces)*3   "Extend" adds elements to the end of an array, "append" appends the object.
-        #    #So  a = [1,2,3] ----  a.append( (5,6,7) )  a = [1,2,3,(5,6,7)] and len(a)=4  | whereas | a.extend( (5,6,7) )  a = [1,2,3,5,6,7] and len(a) = 6
-        #    loops_vert_idx.extend(f)
-        #    faces_loop_start[lidx] = lidx * 3
-        #    lidx += 1
-
-    ##    mesh.polygons.add(numFaces)
-    ##    mesh.loops.add(numFaces*3)
-    ##    mesh.loops.foreach_set("vertex_index", loops_vert_idx)
-    ##    mesh.polygons.foreach_set("loop_start", faces_loop_start)
-    ##    mesh.polygons.foreach_set("loop_total", faces_loop_total)
-
-        # del faces
-
-        #self.loops_vert_idx = loops_vert_idx
-        #self.faces_loop_start = faces_loop_start
-        #self.faces_loop_total = faces_loop_total
-
-        # UV
-        # mesh.uv_textures.new()
+        numFaces = len(self._faces)
 
         self.uv_pos = []
         tmp_buffer = file.read(FLOAT_LEN*2 * self.header.uvNum)
         if len(tmp_buffer) < FLOAT_LEN*2*self.header.uvNum:
             errlog.error("\n----=| Tri Import Error |=----\nEOF reading UV Coordinates\nShould read " + str(self.header.uvNum) + " UVs with \n" + str(FLOAT_LEN*2*self.header.uvNum) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
-            self.header.printCollectedData(errlog)
             raise ValueError("Error reading TRI file")
 
         for i in range(self.header.uvNum):
@@ -353,7 +305,6 @@ class TriFile():
         #I'm assuming that tri files will always have 1 UV per vertex, but i wasn't able to conirm this for sure.. so:
         if numUV != len(verts_list):
             errlog.error("\n----=| Tri Import Error |=----\nNumber of verticies differs from number of UV coordinates\nTRI file has valid header, but file appears to be corrupt\n   !! Since \'Base Verticies\' != \'UV Coordinates\', file is probably corrupt.\nHowever, if TRI file is *not* corrupted, then it is possible that Author\'s\nassertion regarding TRI files always correlating V and UV array indices\nmight be wrong.\n   Probably should post if you see this error and are sure file is not corrupt")
-            self.header.printCollectedData(errlog)
             raise ValueError("Error reading TRI file")
 
         # NOTE --- For future reference. UV's are placed "on a vertex" but indirectly. Each loop contains one vertex index that is supposed to be tied into
@@ -370,47 +321,24 @@ class TriFile():
         tmp_buffer = file.read(INT_LEN * 3 * numFaces)
         if len(tmp_buffer) < INT_LEN * 3 * numFaces:
             errlog.error("EOF reading Face Vertex Index to UV Index array - should have " + str(len(mesh.polygons)) + " indicies with \n" + str(INT_LEN*3*len(mesh.polygons)) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
-            self.header.printCollectedData(errlog)
             raise ValueError("Error reading TRI file")
 
         # face_uvs array: For each face we have 3 (u,v) locations (3 cuz faces are triangles)
-        ### do we need this?
+        ### Not currently using this, but Blender can do it. Since nifs have 1:1 relationship between vert and UV, skipping it.
         self.face_uvs = [] 
         for lidx in range(numFaces):
-#        lidx = 0
-#        for i in mesh.polygons:
             data = unpack('<3I', tmp_buffer[INT_LEN*3*lidx:(INT_LEN*3*lidx)+(INT_LEN*3)])
-            self.face_uvs.append([(self.uv_pos[data[0]][0], self.uv_pos[data[0]][1]),
-                                  (self.uv_pos[data[1]][0], self.uv_pos[data[1]][1]),
-                                  (self.uv_pos[data[2]][0], self.uv_pos[data[2]][1]) ])
+            self.face_uvs.append((data[0], data[1], data[2]))
+            #self.face_uvs.append([(self.uv_pos[data[0]][0], self.uv_pos[data[0]][1]),
+            #                      (self.uv_pos[data[1]][0], self.uv_pos[data[1]][1]),
+            #                      (self.uv_pos[data[2]][0], self.uv_pos[data[2]][1]) ])
             
-        #    mesh.uv_layers[0].data[ i.loop_indices[0] ].uv = [ uv_pos[data[0]][0], uv_pos[data[0]][1] ]
-        #    mesh.uv_layers[0].data[ i.loop_indices[1] ].uv = [ uv_pos[data[1]][0], uv_pos[data[1]][1] ]
-        #    mesh.uv_layers[0].data[ i.loop_indices[2] ].uv = [ uv_pos[data[2]][0], uv_pos[data[2]][1] ]
-        #    lidx = lidx + 1
-
-        #del uv_pos
-
-        #Create base shape key
-#        newsk = ob.shape_key_add()
-        #Important for new blender! Default key is a temporal thing
-#        mesh.shape_keys.use_relative=True
-#        newsk.name = "Base Shape"
-#        ob.data.update()
-
         self.morphs = {}
-        self.morphs['Basis'] = self.vertices
+        self.morphs['Basis'] = self._vertices
 
         # read morph data
         if self.header.morphNum > 0:
             for i in range(self.header.morphNum):
-#                newsk = ob.shape_key_add()
-                #Early versions of blender seem to have a bug where the shape key isn't "applied" until it has been active once
-                #not doing this doesn't break anything, but if the user adjusts sliders without actually first highlighting a shape key, the sliders
-                #won't work
-#                ob.active_shape_key_index = len(mesh.shape_keys.key_blocks) - 1
-                #This is a pointer, not a copy
-#                mesh_key_verts = mesh.shape_keys.key_blocks[len(mesh.shape_keys.key_blocks) - 1].data
                 name, verts = self.read_morph(file)
                 self.morphs[name] = verts
 
@@ -422,14 +350,15 @@ class TriFile():
             vertsAdd_listLength = len(vertsAdd_list)
 
             for i in range(self.header.addMorphNum):
-                #vertsAdd_Index = self.read_modmorphs(errlog, file, i, vertsAdd_Index, vertsAdd_list, vertsAdd_listLength, verts_list)
                 name, verts = self.read_modmorph(file)
                 self.modmorphs[name] = verts
 
 
     @classmethod
     def from_file(cls, filepath):
-        """ Read tris from the given file """
+        """ Read tris from the given file.
+            Returns a new TriFile with the file conents.
+        """
         log = logging.getLogger("pynifly")
         log.level = logging.DEBUG
         log.info(f"Reading tris from {filepath}")
@@ -452,14 +381,6 @@ class TriFile():
             log.error(f"TRI file is not of correct format. Format given as [{fileHeader.str}] when it should be [FRTRI003]")
             return {'CANCELLED'}
 
-        # options
-        #importMenu()
-
-        ## import object
-        #scn= bpy.context.scene
-        #mesh = bpy.data.meshes.new(filename)
-        #ob = bpy.data.objects.new(mesh.name, mesh)
-
         try:
             tri.read(file)
         except ValueError:
@@ -469,261 +390,246 @@ class TriFile():
 
         file.close()
 
-        #If blender version is >= 2.74
-        #I'm not entirely sure what the consequence of the possible clearing of custom data might be. Potentially not working, heh.. Might also have no problem
-        #I think just losing custom normals and such, so in this case doesn't really matter
-        #mesh.validate()
-        #mesh.update()
-
-        #ob = bpy.context.scene.objects.link(ob)
-        #scn.update()
-        #return {'FINISHED'}
-
         return tri
 
+   
+    # ------------------- EXPORT ---------------------
 
-def write_mesh(ob, scn, filename, filepath, reorder_verts):
-    """ Write out an object's tris """
-    header = TRIHeader()
-    errlog = logging.getLogger("pynifly")
+    @property
+    def vertices(self):
+        return self._vertices
 
-    mesh = ob.to_mesh(scn, False, 'PREVIEW', False, False)
-
-    p = re.compile('(.*) \\[\\d+\\]$')	# extract the morph's name
-    q = re.compile('(.*) \\(\\d+\\)$')	# extract the modifier's name
-
-    # obtain the face data
-    faces = mesh.polygons
-
-    if (faces == None) or (len(faces) == 0):
-        errlog.error(f"Error exporting tris from {ob.name}: Mesh has no faces")
-        raise ValueError("Error creating tri file")
-
-    if mesh.shape_keys:
-        shapeKeys = mesh.shape_keys.key_blocks
-        verts = shapeKeys[0].data			#Base shape's data
-    else:
-        errlog.error(f"Error exporting tris from {ob.name}: Mesh has no shape keys")
-        raise ValueError("Error creating tri file")
-
-    if (verts == None) or (len(verts) == 0):
-        errlog.error(f"Error exporting tris from {ob.name}: Mesh has no vertices")
-        raise ValueError("Error creating tri file")
-
-    header.vertexNum = len(verts)
-    header.faceNum = len(faces)
-    header.str = VERSION_STRING
-
-    if (len(mesh.uv_layers) == 0):
-        errlog.error(f"Error exporting tris from {ob.name}: Mesh has no UV layer")
-        raise ValueError("Error creating tri file")
-    
-    if (len(mesh.uv_layers) > 1):
-        errlog.error(f"Error exporting tris from {ob.name}: Mesh has more than one UV layer")
-        raise ValueError("Error creating tri file")
-
-    #Mapping for re-order of vierts to  match a 'sequential face list' index = vertex index, value = index to remap to
-    #verts_reorder_mapping will be referenced everwhere in the script, just that only if re-rdering is selcted is the mapping not v#:v#
-    if reorder_verts:
-        verts_reorder_mapping = [-1 for v in verts]
-        current_v_position = 0
-        for f_index, f in enumerate(faces):
-            #f_vert is the 1st, 2nd, or 3rd index of the face
-            for f_vert, loop_index in enumerate(f.loop_indices):
-                if f_vert > 2:
-                    errlog.error(f"Error exporting tris from {ob.name}: Mesh has faces with more than 3 verts")
-                    raise ValueError("Error creating tri file")
-
-                vert_idx = mesh.loops[loop_index].vertex_index
-                #if this vertex has not already been remapped, remap it
-                if verts_reorder_mapping[vert_idx] == -1:
-                    verts_reorder_mapping[vert_idx] = current_v_position
-                    current_v_position = current_v_position + 1
-    else:
-        verts_reorder_mapping = [v_idx for v_idx, v in enumerate(verts)]
-
-    #Not a good idea to pack long strings repeatedly
-    modHeaderArrayToPack = []
-    modVerticeArrayToPack = []
-    morphKeysArrayToPack = []
-    morphKeysDiffValuesArrayToPack = []
-
-    modHeaderPacked		= b''	#string to collect the header data
-    modVerticePacked	= b''	#string to collect the vertice data
-    morphKeysPacked		= b''	#string to collect the morph key data to write
+    @vertices.setter
+    def vertices(self, val):
+        """ Sets the vertex list. Val is a list of triples. No copy is made """
+        self._vertices = val
+        self.header.vertexNum = len(val)
 
 
-    if shapeKeys: # Should always be true
+    @property
+    def faces(self):
+        return self._faces
+
+    @faces.setter
+    def faces(self, val):
+        """ Sets the face list. Faces must be triangles. Val is list of triples. No copy is made. """
+        self._faces = val
+        self.header.faceNum = len(val)
+
+
+    def write(self, filepath, export_morphs:set = None): # write(ob, scn, filename, filepath, reorder_verts):
+        """ Write the TriFile to a file 
+            filepath = name of file to write
+            export_morphs = subset of morph names to write
+        """
+       
+        self.header.str = VERSION_STRING
+
+        ### NOT WORKING because I have to pass in loops ###
+        #Mapping for re-order of verts to  match a 'sequential face list' index = vertex index, value = index to remap to
+        #verts_reorder_mapping will be referenced everwhere in the script, just that only if re-rdering is selcted is the mapping not v#:v#
+        if self.reorder_verts:
+            verts_reorder_mapping = [-1] * len(self._vertices)
+            current_v_position = 0
+            for f_index, f in enumerate(self._faces):
+                #f_vert is the 1st, 2nd, or 3rd index of the face
+                for f_vert, loop_index in enumerate(f.loop_indices):
+                    if f_vert > 2:
+                        self.write_error(f"Error exporting tris from {ob.name}: Mesh has faces with more than 3 verts")
+                        raise ValueError("Error creating tri file")
+
+                    vert_idx = mesh.loops[loop_index].vertex_index
+                    #if this vertex has not already been remapped, remap it
+                    if verts_reorder_mapping[vert_idx] == -1:
+                        verts_reorder_mapping[vert_idx] = current_v_position
+                        current_v_position = current_v_position + 1
+        else:
+            verts_reorder_mapping = range(len(self._vertices)) # [v_idx for v_idx, v in enumerate(verts)]
+
+        #Not a good idea to pack long strings repeatedly
+        modHeaderArrayToPack = []
+        modVerticeArrayToPack = []
+        morphKeysArrayToPack = []
+        morphKeysDiffValuesArrayToPack = []
+
+        modHeaderPacked		= b''	#string to collect the header data
+        modVerticePacked	= b''	#string to collect the vertice data
+        morphKeysPacked		= b''	#string to collect the morph key data to write
+
         morphNameList =[] #Holds a list of previously processed morph names to check for duplicates
         fullMorphNameList =[] #Only full morph names
         modMorphNameList =[] #Only mod-morph names
         
-        for i in range(len(shapeKeys) - 1):		#goes thru all shape keys
-            #Important! Loop index correction. Basis morph is key = 0, we want to work with 1 through length)
-            i = i + 1
-            morphName = shapeKeys[i].name		#gets the key's name
-            m = p.match(morphName)		#grabs the name and looks if it matches a regular morph
-            n = q.match(morphName)		#the same, just for modifiers ("add morph" or "mod morph")
-            shape_verts =  shapeKeys[i].data	#gets the shape key's data
-            verts_diff = [[] for v in verts]		#list to save vertices to
-            if m:
-                header.morphNum += 1
-                morphName = m.group(1)
-                max_diff = 0
-                for names in morphNameList:
-                    if morphName == names:
-                        errlog.error("\n----=| Tri Export Error |=----\nError exporting \'%s\' as TRI:\nDuplicate shape key name found:\n\"%s\"", ob.name, morphName)
-                        raise ValueError("Error creating TRI file")
-                fullMorphNameList.append(morphName)
-                #The TRI format saves the offset data in a 'normalized' form. The largets difference is used as a factor to apply to all the offset values
-                #So, the largest difference needs to be found
-                vert_idx = 0
-                for nv, bv in zip(shape_verts, verts):
-                    data = [nv.co[0] - bv.co[0], nv.co[1] - bv.co[1], nv.co[2] - bv.co[2]]
-                    if abs(data[0]) > max_diff:
-                        max_diff = abs(data[0])
-                    if abs(data[1]) > max_diff:
-                        max_diff = abs(data[1])
-                    if abs(data[2]) > max_diff:
-                        max_diff = abs(data[2])
-                    verts_diff[verts_reorder_mapping[vert_idx]] = data.copy()
-                    vert_idx = vert_idx + 1
+        morphlist = set(self.morphs.keys())
+        if export_morphs is not None:
+            morphlist = morphlist.intersection(export_morphs)
 
-                #7fff=max signed integer value for 16 bits = 32767. I guess, dunno why it was like this, but I like hex. Frogs everywhere.
-                diff_base = max_diff / 0x7fff
+        self.header.morphNum = len(morphlist)
+        for morphName in morphlist:
+            verts_diff = [[]] * len(self.vertices)		#list to save vertices to
+            max_diff = 0
+            fullMorphNameList.append(morphName)
+            #The TRI format saves the offset data in a 'normalized' form. The largets difference is used as a factor to apply to all the offset values
+            #So, the largest difference needs to be found
+            #self.log.debug(f"Writing shape verts for {morphName} value is {type(self.morphs[morphName])}")
+            shape_verts = self.morphs[morphName]
+            vert_idx = 0
+            #self.log.debug(f"First vertices from shape: {shape_verts[0]}, from object: {self.vertices[0]}")
+            for nv, bv in zip(shape_verts, self.vertices):
+                data = (nv[0] - bv[0], nv[1] - bv[1], nv[2] - bv[2])
+                max_diff = max(abs(data[0]), abs(data[1]), abs(data[2]), max_diff)
+                    #if abs(data[0]) > max_diff:
+                    #    max_diff = abs(data[0])
+                    #if abs(data[1]) > max_diff:
+                    #    max_diff = abs(data[1])
+                    #if abs(data[2]) > max_diff:
+                    #    max_diff = abs(data[2])
+                verts_diff[verts_reorder_mapping[vert_idx]] = data
+                vert_idx = vert_idx + 1
+
+            #7fff=max signed integer value for 16 bits = 32767.  I guess, dunno why it was like
+            #this, but I like hex.  Frogs everywhere.
+            diff_base = max_diff / 0x7fff
                 
-                #If the diff is 0, then the morph and the base are identical. That's fine, but the normalization factor shouldn't be 0!
-                #Another way to do this would be to just set all the diff values to 0 in the loop below. They should, indeed, all be 0
-                #since v[0-2] will all be 0 since the difference calculated above was all exactly 0 or below precision of float.
-                #This effectively adds a built-in floor to the amount of offset the export will allow, but I don't think rendering programs will
-                #genreally allow that level of precision anyway, heh
-                if diff_base == 0: 
-                    diff_base = 1
-                morphKeysDiffValuesArrayToPack.append( float(diff_base) )
+            #If the diff is 0, then the morph and the base are identical.  That's fine, but the
+            #normalization factor shouldn't be 0!  Another way to do this would be to just set all
+            #the diff values to 0 in the loop below.  They should, indeed, all be 0 since v[0-2]
+            #will all be 0 since the difference calculated above was all exactly 0 or below
+            #precision of float.  This effectively adds a built-in floor to the amount of offset
+            #the export will allow, but I don't think rendering programs will genreally allow that
+            #level of precision anyway, heh
+            if diff_base == 0: 
+                diff_base = 1
+            
+            morphKeysDiffValuesArrayToPack.append( float(diff_base) )
 
-                i = 0
-                while i < len(verts_diff):
-                    verts_diff[i][0] = int(verts_diff[i][0]/diff_base)
-                    verts_diff[i][1] = int(verts_diff[i][1]/diff_base)
-                    verts_diff[i][2] = int(verts_diff[i][2]/diff_base)
+            for i in range(len(verts_diff)):
+                verts_diff[i] = (int(verts_diff[i][0]/diff_base), 
+                                 int(verts_diff[i][1]/diff_base),
+                                 int(verts_diff[i][2]/diff_base))
 
-                    i = i + 1
+            morphKeysArrayToPack.append( verts_diff.copy() )
 
-                morphKeysArrayToPack.append( verts_diff.copy() )
+        morphlist = set(self.modmorphs.keys())
+        if export_morphs is not None:
+            morphlist = morphlist.intersection(export_morphs)
 
-            #The data structures and variables in this are redundant.. oh well
-            elif n:
-                header.addMorphNum += 1
-                morphName = n.group(1)
-                for names in morphNameList:
-                    if morphName == names:
-                        errlog.error("\n----=| Tri Export Error |=----\nError exporting \'%s\' as TRI:\nDuplicate shape key name found:\n\"%s\"", ob.name, morphName)
-                        raise ValueError("Error creating TRI file")
-                morphNameList.append(morphName)
-                modMorphNameList.append(morphName)
-                verticeCount 	= 0	#keeps track of the number of vertices
-                verticeAdded	= 0	#keeps track of the number of vertices which were actually added to the additional vertex list
-                for nv, mv in zip(shape_verts, verts):
-                    div = abs(nv.co[0] - mv.co[0]) + abs(nv.co[1] - mv.co[1]) + abs(nv.co[2] - mv.co[2]) / 3
-                    if div > 0.00033:		#filter out the vertices which are too similiar to the base mesh
-                        data = [nv.co[0], nv.co[1], nv.co[2], verts_reorder_mapping[verticeCount]]
-                        verts_diff[verts_reorder_mapping[verticeCount]] = data.copy()
-                        header.addVertexNum += 1
-                        verticeAdded += 1
-                    verticeCount += 1
+        self.header.addMorphNum = 0
+        self.header.addVertexNum = 0
+        for morphName in morphlist:
+            self.header.addMorphNum += 1
+            morphNameList.append(morphName)
+            modMorphNameList.append(morphName)
+            verticeCount 	= 0	 #keeps track of the number of vertices
+            verticeAdded	= 0	 #keeps track of the number of vertices which were actually added to the additional vertex list
+            
+            shape_verts = self.modmorphs[morphName]
+            for nv, mv in zip(shape_verts, self.vertices):
+                div = abs(nv[0] - mv[0]) + abs(nv[1] - mv[1]) + abs(nv[2] - mv[2]) / 3
+                if div > 0.00033:		#filter out the vertices which are too similiar to the base mesh
+                    data = [nv[0], nv[1], nv[2], verts_reorder_mapping[verticeCount]]
+                    verts_diff[verts_reorder_mapping[verticeCount]] = data.copy()
+                    self.header.addVertexNum += 1
+                    verticeAdded += 1
+                verticeCount += 1
 
-                modHeaderArrayToPack.append( [] )
-                modVerticeArrayToPack.append( [] )
+            modHeaderArrayToPack.append( [] )
+            modVerticeArrayToPack.append( [] )
 
-                modHeaderArrayToPack[header.addMorphNum-1].append( int(verticeAdded) )
+            modHeaderArrayToPack[self.header.addMorphNum-1].append( int(verticeAdded) )
 
-                #modHeaderPacked is the list of vertex indices referencing the base model array. The index into this list is the same as the index into
-                #the list of actual mod vertices (modVerticePacked). It indicates to which vertex in the base model the offset given in the modVerticePacked
-                #applies
-                for v in verts_diff:
-                    if v != []:
-                        modHeaderArrayToPack[header.addMorphNum-1].append( int(v[3]) )
-                        modVerticeArrayToPack[header.addMorphNum-1].append( [float(v[0]), float(v[1]), float(v[2])] )
-
-            #Else, the shapekey name did not have the correct format []'s or ()'s.
-            else:	
-                errlog.error("\n----=| Tri Export Error |=----\nError exporting \'%s\' as TRI:\nshape key does not have the correct name format:\n\"%s\"\nAll shapekey names must have the format:\n  Full Morph:  \"Name [#]\"\n  Mod Morph:   \"Name (#)\"\nSee the plugin header comments for details", ob.name, morphName)
-                raise ValueError("Error creating TRI file")
-
-    #Pack Morph
-    for morphNum, diffValue in enumerate(morphKeysDiffValuesArrayToPack):
-        morphKeysPacked += pack('<I'+ str(len(fullMorphNameList[morphNum])) +'sx', len(fullMorphNameList[morphNum])+1, fullMorphNameList[morphNum].encode("iso-8859-15") )
-        morphKeysPacked += pack('<f', diffValue)
-        morphKeysPacked += pack('<' + str(len(morphKeysArrayToPack[morphNum])*3) + 'h', *[k for j in morphKeysArrayToPack[morphNum] for k in j] )
-
-    #Pack Mod-Morph
-    for morphNum, headerArray in enumerate(modHeaderArrayToPack):
-        modHeaderPacked += pack('<I'+ str(len(modMorphNameList[morphNum])) +'sx', len(modMorphNameList[morphNum])+1, modMorphNameList[morphNum].encode("iso-8859-15") )
-        modHeaderPacked += pack('<I', headerArray[0] )
-        modHeaderPacked += pack('<' + str( len(headerArray)-1 ) + 'I', *headerArray[1:]  )
-        modVerticePacked += pack('<' + str(len(modVerticeArrayToPack[morphNum])*3) + 'f', *[k for j in modVerticeArrayToPack[morphNum] for k in j] )
+            #modHeaderPacked is the list of vertex indices referencing the base model array.  The
+            #index into this list is the same as the index into the list of actual mod vertices
+            #(modVerticePacked).  It indicates to which vertex in the base model the offset given
+            #in the modVerticePacked applies
+            for v in verts_diff:
+                if v != []:
+                    modHeaderArrayToPack[self.header.addMorphNum-1].append( int(v[3]) )
+                    modVerticeArrayToPack[self.header.addMorphNum-1].append( [float(v[0]), float(v[1]), float(v[2])] )
 
 
-    #anon says: I think I understand what the original script was doing, but not entirely. As far as I know, the uv should just be in the same order as the
-    #vertices, vertex 1 has uv at index 1, and so forth. The data will be constructed the same way here. There will always be numuv = num verts.. I hope.
-    uvDataPacked = b''
-    uv_face_mapping = [[0,0,0] for f in faces]
-    uv_gather = [[0.0, 0.0] for v in verts]
-    for f_index, f in enumerate(faces):
-        #mesh.uv_layers[0].data[ mesh.loops[f.loop_start].vertex_index
-        for uv_index, i in enumerate(f.loop_indices):
-            if uv_index > 2:
-                errlog.error("\n----=| Tri Export Error |=----\nError exporting \'%s\' as TRI:\nSelected mesh has faces with more than three vertices.\nTRI file requires only triangle polygons.", ob.name)
-                raise ValueError("Error creating TRI file")			
-            uv_face_mapping[f_index][uv_index] = verts_reorder_mapping[mesh.loops[i].vertex_index]
-            uv_gather[verts_reorder_mapping[mesh.loops[i].vertex_index]] = mesh.uv_layers[0].data[i].uv
+        #Pack Morph
+        for morphNum, diffValue in enumerate(morphKeysDiffValuesArrayToPack):
+            morphKeysPacked += pack('<I'+ str(len(fullMorphNameList[morphNum])) +'sx', len(fullMorphNameList[morphNum])+1, fullMorphNameList[morphNum].encode("iso-8859-15") )
+            morphKeysPacked += pack('<f', diffValue)
+            morphKeysPacked += pack('<' + str(len(morphKeysArrayToPack[morphNum])*3) + 'h', *[k for j in morphKeysArrayToPack[morphNum] for k in j] )
 
-    #It is not len-1, range already compensates for that. There are "5 items" so there are 5 iterations of 0 - 4. Not "go
-    #up to the number 5" as when just checking a loop index.
-    for i in range(len(uv_gather)):
-        uvDataPacked += pack('<2f', uv_gather[i][0], uv_gather[i][1])
+        #Pack Mod-Morph
+        for morphNum, headerArray in enumerate(modHeaderArrayToPack):
+            modHeaderPacked += pack('<I'+ str(len(modMorphNameList[morphNum])) +'sx', len(modMorphNameList[morphNum])+1, modMorphNameList[morphNum].encode("iso-8859-15") )
+            modHeaderPacked += pack('<I', headerArray[0] )
+            modHeaderPacked += pack('<' + str( len(headerArray)-1 ) + 'I', *headerArray[1:]  )
+            modVerticePacked += pack('<' + str(len(modVerticeArrayToPack[morphNum])*3) + 'f', *[k for j in modVerticeArrayToPack[morphNum] for k in j] )
 
 
-    header.uvNum = len(uv_gather)
-    del uv_gather
+        # anon says: I think I understand what the original script was doing, but not entirely.  As
+        # far as I know, the uv should just be in the same order as the vertices, vertex 1 has uv
+        # at index 1, and so forth.  The data will be constructed the same way here.  There will
+        # always be numuv = num verts..  I hope.
+        uvDataPacked = b''
+        uv_face_mapping = [(0,0,0) for f in self._faces]
+        uv_gather = [(0.0, 0.0) for v in self._vertices]
+        for f_index, f in enumerate(self._faces):
+            v0 = verts_reorder_mapping[f[0]]
+            v1 = verts_reorder_mapping[f[1]]
+            v2 = verts_reorder_mapping[f[2]]
+            uv_gather[v0] = self.uv_pos[f[0]]
+            uv_gather[v1] = self.uv_pos[f[1]]
+            uv_gather[v2] = self.uv_pos[f[2]]
+            uv_face_mapping[f_index] = (v0, v1, v2)
 
+            #uv_face_mapping[f_index] = 
+            ##mesh.uv_layers[0].data[ mesh.loops[f.loop_start].vertex_index
+            #for uv_index, i in enumerate(f.loop_indices):
+            #    if uv_index > 2:
+            #        errlog.error("\n----=| Tri Export Error |=----\nError exporting \'%s\' as TRI:\nSelected mesh has faces with more than three vertices.\nTRI file requires only triangle polygons.", ob.name)
+            #        raise ValueError("Error creating TRI file")			
+            #    uv_face_mapping[f_index][uv_index] = verts_reorder_mapping[mesh.loops[i].vertex_index]
+            #    uv_gather[verts_reorder_mapping[mesh.loops[i].vertex_index]] = mesh.uv_layers[0].data[i].uv
 
-    # vertex packing
-    vertexDataPacked = b''
-    verts_to_pack = [[] for v in verts]
-    i = 0
-    for v in verts:
-        verts_to_pack[verts_reorder_mapping[i]] = [v.co[0], v.co[1], v.co[2]]
-        i = i + 1
-    for vco in verts_to_pack:
-        tmp_data = pack('<3f', vco[0], vco[1], vco[2])
-        vertexDataPacked += tmp_data
+        for uv in uv_gather:
+            uvDataPacked += pack('<2f', uv[0], uv[1])
+
+        self.header.uvNum = len(uv_gather)
+
+        # vertex packing
+        vertexDataPacked = b''
+        verts_to_pack = [[]] * len(self._vertices)
+        
+        # Reorder verts per our mapping
+        for i, v in enumerate(self._vertices):
+            verts_to_pack[verts_reorder_mapping[i]] = (v[0], v[1], v[2])
+
+        # Pack them in the new order
+        for vco in verts_to_pack:
+            tmp_data = pack('<3f', vco[0], vco[1], vco[2])
+            vertexDataPacked += tmp_data
     
-    # face packing
-    faceDataPacked = b''
-    for f in faces:
-        faceDataPacked += pack('<3I', verts_reorder_mapping[mesh.loops[f.loop_indices[0]].vertex_index], verts_reorder_mapping[mesh.loops[f.loop_indices[1]].vertex_index], verts_reorder_mapping[mesh.loops[f.loop_indices[2]].vertex_index])
+        # face packing
+        faceDataPacked = b''
+        for f in self.faces:
+            faceDataPacked += pack('<3I', 
+                verts_reorder_mapping[f[0]], verts_reorder_mapping[f[1]], verts_reorder_mapping[f[2]])
 
+        faceNumDataPacked = b''
+        for uv in uv_face_mapping:
+            faceNumDataPacked +=  pack('<3I', uv[0], uv[1], uv[2])
 
-    faceNumDataPacked = b''
-    for i in range(header.faceNum):
-        faceNumDataPacked +=  pack('<3I', uv_face_mapping[i][0], uv_face_mapping[i][1], uv_face_mapping[i][2])
-
-    # start writing...
-    try:
-        file = open(filepath,'wb')
-    except:
-        errlog.error("\n----=| Tri Export Error |=----\nError exporting \'%s\' as TRI:\nFailed to create output file. Permission problems? Disk full?", ob.name)
-        raise ValueError("Error creating TRI file")
-    file.write(header.write()
-                    + vertexDataPacked
-                    + modVerticePacked
-                    + faceDataPacked
-                    + uvDataPacked
-                    + faceNumDataPacked
-                    + morphKeysPacked
-                    + modHeaderPacked)
-    file.close()
+        # start writing...
+        try:
+            file = open(filepath,'wb')
+        except:
+            self.error_write(f"Error opening '{filepath}' as output file")
+            raise
+        file.write(self.header.write()
+                        + vertexDataPacked
+                        + modVerticePacked
+                        + faceDataPacked
+                        + uvDataPacked
+                        + faceNumDataPacked
+                        + morphKeysPacked
+                        + modHeaderPacked)
+        file.close()
 
 if __name__ == "__main__":
     test_path = r"D:\OneDrive\Dev\PyNifly\PyNifly\Tests"
@@ -746,4 +652,23 @@ if __name__ == "__main__":
         assert len(t.uv_pos) == len(t.vertices), "Error: Should have expected number of UVs"
         assert len(t.face_uvs) == t.header.faceNum, "Error should have expected number of face UVs"
         assert len(t.morphs) > 0, "Error: Should have morphs"
+
+        t2 = TriFile()
+        t2.vertices = t.vertices.copy()
+        t2.faces = t.faces.copy()
+        t2.uv_pos = t.uv_pos.copy()
+        t2.face_uvs = t.face_uvs.copy()
+        for name, verts in t.morphs.items():
+            t2.morphs[name] = verts.copy()
+
+        t2.write(os.path.join(test_path, "Out/CheetahMaleHead01.tri"))
+
+        t3 = TriFile.from_file(os.path.join(test_path, "Out/CheetahMaleHead01.tri"))
+        assert len(t3.vertices) == len(t.vertices), "Error: Should have expected vertices"
+        assert len(t3.faces) == len(t.faces), "Error should have expected polys"
+        assert len(t3.uv_pos) == len(t.uv_pos), "Error: Should have expected number of UVs"
+        assert len(t3.face_uvs) == len(t.face_uvs), "Error should have expected number of face UVs"
+        assert len(t3.morphs) == len(t.morphs), "Error: Morphs should not change"
+        assert t3.vertices[5] == t.vertices[5], "Error: Vertices should not change"
+
         print("DONE")

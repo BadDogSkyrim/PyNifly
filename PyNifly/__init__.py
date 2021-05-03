@@ -286,6 +286,44 @@ def import_tri(filepath):
 
     return new_object
 
+
+def export_tris(nif, obj, verts, tris, loops, uvs, morphdict):
+    """ Export a tri file to go along with the given nif file, if there are shape keys 
+    """
+
+    if obj.data.shape_keys is None:
+        return
+
+    fpath = os.path.split(nif.filepath)
+    fname = os.path.splitext(fpath[1])
+    fname_tri = os.path.join(fpath[0], fname[0] + ".tri")
+    fname_chargen = os.path.join(fpath[0], fname[0] + "_chargen.tri")
+
+    # Don't export anything that starts with an underscore or asterisk
+    export_keys = set(filter((lambda n: n[0] != '_' and n[0] != '*'), 
+                             obj.data.shape_keys.key_blocks.keys()))
+    expression_morphs = nif.dict.expressions.intersection(export_keys)
+    chargen_morphs = export_keys.difference(expression_morphs)
+
+    if len(expression_morphs) == 0 and len(chargen_morphs) == 0:
+        return
+
+    tri = TriFile()
+    tri.vertices = verts
+    tri.faces = tris
+    tri.uv_pos = uvs
+    tri.face_uvs = tris # (because 1:1 with verts)
+    tri.morphs = morphdict
+    
+    if len(expression_morphs) > 0:
+        log.info(f"Generating tri file '{fname_tri}'")
+        tri.write(fname_tri, expression_morphs)
+
+    if len(chargen_morphs) > 0:
+        log.info(f"Generating tri file '{fname_chargen}'")
+        tri.write(fname_chargen, chargen_morphs)
+
+
 # ### ---------------------------- EXPORT -------------------------------- ###
 
 def extract_face_info(bm):
@@ -300,11 +338,12 @@ def extract_face_info(bm):
     
     return loops, uvs
 
-def extract_vert_info(obj, bm, target_key):
-    """Returns 3 lists of equal length with one entry each for each vertex
-        verts = [(x, y, z)... ] 
+def extract_vert_info(obj, bm, target_key=''):
+    """Returns 4 lists of equal length with one entry each for each vertex
+        verts = [(x, y, z)... ] - base or as modified by target-key if provided
         norms = [(x, y, z)... ] 
         weights = [{group-name: weight}... ]
+        dict = {shape-key: [verts...], ...} - if "target_key" is specified this will be empty
         """
     verts = []
     norms = []
@@ -325,7 +364,14 @@ def extract_vert_info(obj, bm, target_key):
             for g, w in v[deform_layer].items():
                 vert_weights[obj.vertex_groups[g].name] = w
             weights.append(vert_weights)
-    return verts, norms, weights
+    
+    morphdict = {}
+    if target_key == '' and len(bm.verts.layers.shape) > 0:
+        for name, morph in bm.verts.layers.shape.items():
+            if name != "Basis":
+                morphdict[name] = [v[morph][:] for v in bm.verts]
+
+    return verts, norms, weights, morphdict
 
 def get_bone_xforms(arma, bone_names):
     """Return transforms for the bones in list, getting rotation from what we stashed on import
@@ -368,6 +414,7 @@ def export_skin(obj, new_shape, new_xform, weights_by_vert):
                 #nif.nodes[bone_name].xform_to_global)
             new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
 
+
 def export_shape(nif, obj, target_key=''):
     """Export given blender object to the given NIF file
         nif = target nif file
@@ -385,12 +432,13 @@ def export_shape(nif, obj, target_key=''):
     
         bmesh.ops.triangulate(bm, faces=bm.faces[:])
 
-        verts, norms, weights_by_vert = extract_vert_info(obj, bm, target_key)
+        verts, norms, weights_by_vert, morphdict = extract_vert_info(obj, bm, target_key)
+
         #loops, polyverts, uvs = extract_face_info(bm)
         loops, uvs = extract_face_info(bm)
     
         print("..Splitting mesh along UV seams")
-        mesh_split_by_uv(verts, norms, loops, uvs, weights_by_vert)
+        mesh_split_by_uv(verts, norms, loops, uvs, weights_by_vert, morphdict)
         # Old UV map had dups were verts were split; new matches 1-1 with verts
         uvmap_new = [uvs[loops.index(i)] for i in range(0, len(verts))]
         tris = [(loops[i], loops[i+1], loops[i+2]) for i in range(0, len(loops), 3)]
@@ -415,7 +463,7 @@ def export_shape(nif, obj, target_key=''):
                                              obj.matrix_local[2][0:3]))
 
         if obj.scale[0] != obj.scale[1] or obj.scale[0] != obj.scale[2]:
-           print("Warning: Object scale not uniform, using x-value") # apply scale to verts?   
+           log.warning("Object scale not uniform, using x-value") # apply scale to verts?   
         new_xform.scale = obj.scale[0]
         
         if is_skinned:
@@ -423,14 +471,25 @@ def export_shape(nif, obj, target_key=''):
         else:
             new_shape.transform = new_xform
 
+        print(f"Export tris {obj.name}")
+        export_tris(nif, obj, verts, tris, loops, uvs, morphdict)
+
     except:
         bm.free()
         raise 
 
     bm.free()
     
-    print("..DONE")
+    print(f"..{obj.name} successfully exported")
     return {'FINISHED'}
+
+
+def export_shape_to(shape, filepath, game):
+    outnif = NifFile()
+    outnif.initialize(game, filepath)
+    export_shape(outnif, shape)
+    outnif.save()
+
 
 def import_file(f: NifFile):
     new_collection = bpy.data.collections.new(os.path.basename(f.filepath))
@@ -783,10 +842,7 @@ def run_tests():
         filepath_armor = os.path.join(pynifly_dev_path, "tests/out/testArmorSkyrim02.nif")
         if os.path.exists(filepath_armor):
             os.remove(filepath_armor)
-        f_out = NifFile()
-        f_out.initialize("SKYRIM", filepath_armor)
-        export_shape(f_out, the_armor)
-        f_out.save()
+        export_shape_to(the_armor, filepath_armor, "SKYRIM")
         assert os.path.exists(filepath_armor), "ERROR: File not created"
 
         # Check armor
@@ -799,10 +855,7 @@ def run_tests():
         filepath_armor_fo = os.path.join(pynifly_dev_path, r"tests\Out\testArmorFO02.nif")
         if os.path.exists(filepath_armor_fo):
             os.remove(filepath_armor_fo)
-        f_out = NifFile()
-        f_out.initialize("FO4", filepath_armor_fo)
-        export_shape(f_out, the_armor)
-        f_out.save()
+        export_shape_to(the_armor, filepath_armor_fo, "FO4")
         assert os.path.exists(filepath_armor_fo), f"ERROR: File {filepath_armor_fo} not created"
 
         # Write body 
@@ -810,9 +863,7 @@ def run_tests():
         body_out = NifFile()
         if os.path.exists(filepath_body):
             os.remove(filepath_body)
-        body_out.initialize("SKYRIM", filepath_body)
-        export_shape(body_out, the_body)
-        body_out.save()
+        export_shape_to(the_body, filepath_body, "SKYRIM")
         assert os.path.exists(filepath_body), f"ERROR: File {filepath_body} not created"
         # Should do some checking here
 
@@ -838,10 +889,7 @@ def run_tests():
         outfile1 = os.path.join(pynifly_dev_path, "tests/Out/testSkyrim03.nif")
         if os.path.exists(outfile1):
             os.remove(outfile1)
-        nif1 = NifFile()
-        nif1.initialize("SKYRIM", outfile1)
-        export_shape(nif1, armor1)
-        nif1.save()
+        export_shape_to(armor1, outfile1, "SKYRIM")
         assert os.path.exists(outfile1), "ERROR: Created output file"
 
         print("..Re-importing exported file")
@@ -899,10 +947,7 @@ def run_tests():
         bpy.context.collection.objects.link(new_object)
 
         filepath = os.path.join(pynifly_dev_path, "tests/Out/testUV01.nif")
-        nif_out = NifFile()
-        nif_out.initialize("SKYRIM", filepath)
-        export_shape(nif_out, new_object)
-        nif_out.save()
+        export_shape_to(new_object, filepath, "SKYRIM")
 
         nif_in = NifFile(filepath)
         plane = nif_in.shapes[0]
@@ -921,12 +966,9 @@ def run_tests():
         import_file(nif_in)
 
         outfile = os.path.join(pynifly_dev_path, r"tests\Out\Tail01.nif")
-        nif_out = NifFile()
-        nif_out.initialize('FO4', outfile)
         for obj in bpy.context.selected_objects:
             if obj.type == 'MESH':
-                export_shape(nif_out, obj)
-        nif_out.save()
+                export_shape_to(obj, outfile, "FO4")
 
         test_in = NifFile(outfile)
         new_xform = test_in.nodes['Bone_Cloth_H_003'].xform_to_global
@@ -1029,8 +1071,18 @@ def run_tests():
         triobj = import_tri(testtri)
         assert triobj.name.startswith("CheetahMaleHead.tri"), f"Error: Should be named like tri file, found {triobj.name}"
         assert "LJaw" in triobj.data.shape_keys.key_blocks.keys(), "Error: Should be no keys missing"
-
         
+        print('### Can export a shape with tris')
+
+        export_shape_to(triobj, os.path.join(pynifly_dev_path, r"tests\Out\CheetahMaleHead02.nif"), "FO4")
+        
+        print('### Exported shape and tri match')
+        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests\Out\CheetahMaleHead02.nif"))
+        tri2 = TriFile.from_file(os.path.join(pynifly_dev_path, r"tests\Out\CheetahMaleHead02.tri"))
+        assert len(nif2.shapes[0].verts) == len(tri2.vertices), f"Error vert count should match, {len(nif2.shapes[0].verts)} vs {len(tri2.vertices)}"
+        assert len(nif2.shapes[0].tris) == len(tri2.faces), f"Error vert count should match, {len(nif2.shapes[0].tris)} vs {len(tri2.faces)}"
+        assert tri2.header.morphNum == len(triobj.data.shape_keys.key_blocks)-1, f"Error: morph count should match, {tri2.header.morphNum} vs {len(triobj.data.shape_keys.key_blocks)-1}"
+
     print("######################### TESTS DONE ##########################")
 
 
