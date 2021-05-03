@@ -2,14 +2,14 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = True
+RUN_TESTS = False
 
 bl_info = {
     "name": "NIF format",
-    "description": "Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
+    "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 14), 
+    "version": (0, 0, 15), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -219,6 +219,66 @@ def make_armature(the_coll, the_nif, bone_names):
     #print(f"***All armature '{arm_ob.name}' bones: " + str(list(arm_ob.data.bones.keys())))
     return arm_ob
 
+def import_file(f: NifFile):
+    new_collection = bpy.data.collections.new(os.path.basename(f.filepath))
+    bpy.context.scene.collection.children.link(new_collection)
+
+    print("..Importing " + f.game + " file")
+    bones = set()
+    new_objs = []
+
+    for s in f.shapes:
+        obj = import_shape(s)
+        new_objs.append(obj)
+        new_collection.objects.link(obj)
+
+        for n in s.bone_names: 
+            # print(f"  --adding bone {n} for {s.name}")
+            bones.add(n) 
+
+    for o in new_objs: o.select_set(True)
+    if len(bones) > 0:
+        #print("Found bones, creating armature: " + str(bones))
+        arma = make_armature(new_collection, f, bones)
+        for o in new_objs: o.select_set(True)
+        bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+
+
+class ImportNIF(bpy.types.Operator, ImportHelper):
+    """Load a NIF File"""
+    bl_idname = "import_scene.nifly"
+    bl_label = "Import NIF (Nifly)"
+    bl_options = {'PRESET', 'UNDO'}
+
+    filename_ext = ".nif"
+
+    def execute(self, context):
+        print('Nifly Import')
+        status = {'FINISHED'}
+
+        try:
+            NifFile.Load(nifly_path)
+
+            bpy.ops.object.select_all(action='DESELECT')
+
+            f = NifFile(self.filepath)
+            import_file(f)
+        
+            for area in bpy.context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    ctx = bpy.context.copy()
+                    ctx['area'] = area
+                    ctx['region'] = area.regions[-1]
+                    bpy.ops.view3d.view_selected(ctx)
+
+        except:
+            log.exception("Import of nif failed")
+            self.report({"ERROR"}, "Import of nif failed, see console window for details")
+            status = {'CANCELLED'}
+                
+        return status
+
+
 # ### ---------------------------- TRI Files -------------------------------- ###
 
 def create_shape_keys(obj, tri:TriFile):
@@ -323,6 +383,34 @@ def export_tris(nif, obj, verts, tris, loops, uvs, morphdict):
         log.info(f"Generating tri file '{fname_chargen}'")
         tri.write(fname_chargen, chargen_morphs)
 
+class ImportTRI(bpy.types.Operator, ImportHelper):
+    """Load a TRI File"""
+    bl_idname = "import_scene.niflytri"
+    bl_label = "Import TRI (Nifly)"
+    bl_options = {'PRESET', 'UNDO'}
+
+    filename_ext = ".tri"
+
+    def execute(self, context):
+        log.info('Nifly Tri File Import')
+        status = {'FINISHED'}
+
+        try:
+            import_tri(self.filepath)
+        
+            for area in bpy.context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    ctx = bpy.context.copy()
+                    ctx['area'] = area
+                    ctx['region'] = area.regions[-1]
+                    bpy.ops.view3d.view_selected(ctx)
+
+        except:
+            log.exception("Import of tri failed")
+            self.report({"ERROR"}, "Import of tri failed, see console window for details")
+            status = {'CANCELLED'}
+                
+        return status
 
 # ### ---------------------------- EXPORT -------------------------------- ###
 
@@ -491,75 +579,6 @@ def export_shape_to(shape, filepath, game):
     outnif.save()
 
 
-def import_file(f: NifFile):
-    new_collection = bpy.data.collections.new(os.path.basename(f.filepath))
-    bpy.context.scene.collection.children.link(new_collection)
-
-    print("..Importing " + f.game + " file")
-    bones = set()
-    new_objs = []
-
-    for s in f.shapes:
-        obj = import_shape(s)
-        new_objs.append(obj)
-        new_collection.objects.link(obj)
-
-        for n in s.bone_names: 
-            # print(f"  --adding bone {n} for {s.name}")
-            bones.add(n) 
-
-    for o in new_objs: o.select_set(True)
-    if len(bones) > 0:
-        #print("Found bones, creating armature: " + str(bones))
-        arma = make_armature(new_collection, f, bones)
-        for o in new_objs: o.select_set(True)
-        bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
-
-class ImportNIF(bpy.types.Operator, ImportHelper):
-    """Load a NIF File"""
-    bl_idname = "import_scene.nifly"
-    bl_label = "Import NIF (Nifly)"
-    bl_options = {'PRESET', 'UNDO'}
-
-    filename_ext = ".nif"
-
-    def execute(self, context):
-        print('Nifly Import')
-        NifFile.Load(nifly_path)
-
-        bpy.ops.object.select_all(action='DESELECT')
-
-        f = NifFile(self.filepath)
-        import_file(f)
-#3        sourceGame = f.game
-#        print('Importing ' + self.filepath + ' ' + sourceGame)
-#        new_collection = bpy.data.collections.new(os.path.basename(f.filepath))
-#        bpy.context.scene.collection.children.link(new_collection)
-
-        #bones = set()
-        #new_objs = []
-
-        #for s in f.shapes:
-        #    obj = import_shape(s)
-        #    new_objs.append(obj)
-        #    new_collection.objects.link(obj)
-        #    for n in s.bone_names: 
-        #        bones.add(n) 
-
-        #if len(bones) > 0:
-        #    #print("Found bones, creating armature: " + str(bones))
-        #    skel = make_armature(new_collection, f, sourceSkel, bones)
-        #    for o in new_objs: o.select_set(True)
-        #    bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
-        
-        for area in bpy.context.screen.areas:
-            if area.type == 'VIEW_3D':
-                ctx = bpy.context.copy()
-                ctx['area'] = area
-                ctx['region'] = area.regions[-1]
-                bpy.ops.view3d.view_selected(ctx)        
-        return {'FINISHED'}
-
 def get_common_shapes(obj_list):
     """ Return the shape keys common to all the given objects """
     res = None
@@ -576,8 +595,9 @@ def get_common_shapes(obj_list):
 def get_with_uscore(str_list):
     return list(filter((lambda x: x[0] == '_'), str_list))
 
+
 class ExportNIF(bpy.types.Operator, ExportHelper):
-    """Save a NIF File"""
+    """Export Blender object(s) to a NIF File"""
 
     bl_idname = "export_scene.nifly"
     bl_label = 'Export NIF (Nifly)'
@@ -633,25 +653,33 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                     exportf.save()
         
         except:
-            print("ERROR exporting nif")
-            traceback.print_exc()
+            log.exception("Export of nif failed")
+            self.report({"ERROR"}, "Export of nif failed, see console window for details")
+            #print("ERROR exporting nif")
+            #traceback.print_exc()
             res = {"CANCELLED"}
+
         return res
 
 
 def menu_func_import(self, context):
     self.layout.operator(ImportNIF.bl_idname, text="Nif file with Nifly (.nif)")
+def menu_func_import_tri(self, context):
+    self.layout.operator(ImportTRI.bl_idname, text="Tri file with Nifly (.tri)")
 def menu_func_export(self, context):
     self.layout.operator(ExportNIF.bl_idname, text="Nif file with Nifly (.nif)")
 
 def register():
     bpy.utils.register_class(ImportNIF)
+    bpy.utils.register_class(ImportTRI)
     bpy.utils.register_class(ExportNIF)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
+    bpy.types.TOPBAR_MT_file_import.append(menu_func_import_tri)
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
 
 def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import_tri)
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
     bpy.utils.unregister_class(ImportNIF)
     bpy.utils.unregister_class(ExportNIF)
