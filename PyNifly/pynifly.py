@@ -607,6 +607,8 @@ class NifFile:
         self._root = None
         if not filepath is None:
             self._handle = NifFile.nifly.load(filepath.encode('utf-8'))
+            if not self._handle:
+                raise Exception(f"Could not open '{filepath}' as nif")
         self._shapes = None
         self._shape_dict = {}
         self._nodes = None
@@ -614,7 +616,8 @@ class NifFile:
         self.dict = None
 
     def __del__(self):
-        NifFile.nifly.destroy(self._handle)
+        if self._handle:
+            NifFile.nifly.destroy(self._handle)
 
     def initialize(self, target_game, filepath):
         self.filepath = filepath
@@ -991,7 +994,8 @@ if __name__ == "__main__":
             SkeletonBone('Bone', 'BONE1'),
             SkeletonBone("Bone.001", "BONE2"), 
             SkeletonBone("Bone.002", "BONE3"),
-            SkeletonBone("Bone.003", "BONE4") ])
+            SkeletonBone("Bone.003", "BONE4") ],
+            {})
 
         newf4 = NifFile()
         newf4.initialize("SKYRIM", "tests/out/testnew04.nif")
