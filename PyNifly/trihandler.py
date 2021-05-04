@@ -298,7 +298,7 @@ class TriFile():
 
         for i in range(self.header.uvNum):
             data = unpack('<2f', tmp_buffer[FLOAT_LEN*2*i:(FLOAT_LEN*2*i)+(FLOAT_LEN*2)])
-            self.uv_pos.append((data[0], 1-data[1])) # Inverting "V" to match what we get from nifs
+            self.uv_pos.append((data[0], data[1])) # Inverting "V" to match what we get from nifs
 
         numUV = len(self.uv_pos)
 
@@ -378,8 +378,9 @@ class TriFile():
         # version check
         if tri.header.str != VERSION_STRING:
             file.close()
-            log.error(f"File is not of correct format. Format given as [{tri.header.str}] when it should be [FRTRI003]")
-            return {'CANCELLED'}
+            raise ValueError(f"'{filepath}' is not formatted as a tri file. Format given as [{tri.header.str}] when it should be [FRTRI003]")
+            #log.error(f"File is not of correct format. Format given as [{tri.header.str}] when it should be [FRTRI003]")
+            #return {'CANCELLED'}
 
         try:
             tri.read(file)
