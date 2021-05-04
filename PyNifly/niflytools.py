@@ -270,13 +270,14 @@ def uv_location(uv):
 def vert_uv_key(vert_index, uv):
     return str(vert_index) + "_" + str(uv)
 
-def mesh_split_by_uv(verts, norms, loops, uvmap, weights):
+def mesh_split_by_uv(verts, norms, loops, uvmap, weights, morphdict):
     """Split a mesh represented by parameters and split verts to follow the UV map
         verts = [(x, y, z), ...] vertex locations
         norms = [(x, y, z), ...] normal associated with each vert
         loops = [int, ...] blender-style loops--elements are indices into verts
         uvmap = [(u, v), ...] uvmap--matches 1:1 with loops
         weights = [dict[group-name: weight], ...] vertex weights, 1:1 with verts
+        morphdict = {morph-name: [(x,y,z)...], ...} vertex list for each morph
     Returns
         verts = extended with additional verts where splits were required
         norms = extended to match verts
@@ -309,6 +310,8 @@ def mesh_split_by_uv(verts, norms, loops, uvmap, weights):
                 norms.append(norms[vert_idx])
                 if weights:
                     weights.append(weights[vert_idx])
+                for vlist in morphdict.values():
+                    vlist.append(vlist[vert_idx])
                 vert_locs.append(this_vert_loc)
                 loops[i] = new_index
                 change_table[vert_key] = new_index
@@ -323,7 +326,7 @@ class SkeletonBone:
         self.parent = None
 
 class BoneDict:
-    def __init__(self, bone_list):
+    def __init__(self, bone_list, morph_list):
         self.byNif = {}
         self.byBlender = {}
         for b in bone_list:
@@ -332,6 +335,7 @@ class BoneDict:
         for b in bone_list:
             if b.parent_name in self.byBlender:
                 b.parent = self.byBlender[b.parent_name]
+        self.expressions = set(morph_list)
 
     def blender_name(self, nif_name):
         if nif_name in self.byNif:
@@ -460,7 +464,15 @@ skyrimBones = [
     SkeletonBone('NPC Genitals05', 'NPC Genitals05 [Gen05]', 'NPC Genitals04'),
     SkeletonBone('NPC Genitals06', 'NPC Genitals06 [Gen06]', 'NPC Genitals05')]
 
-skyrimDict = BoneDict(skyrimBones)
+skyrimExpressions = ['Basis', 'Aah', 'BigAah', 'BlinkLeft', 'BlinkRight', 'BMP', 'BrowDownLeft', 
+    'BrowDownRight', 'BrowInLeft', 'BrowInRight', 'BrowUpLeft', 'BrowUpRight', 'ChJSh', 'CombatAnger', 
+    'CombatShout', 'DialogueAnger', 'DialogueDisgusted', 'DialogueFear', 'DialogueHappy', 
+    'DialoguePuzzled', 'DialogueSad', 'DialogueSurprise', 'DST', 'Eee', 'Eh', 'FV', 'I', 'K', 
+    'LookDown', 'LookLeft', 'LookRight', 'LookUp', 'MoodAnger', 'MoodDisgusted', 'MoodFear', 
+    'MoodHappy', 'MoodPuzzled', 'MoodSad', 'MoodSurprise', 'N', 'Oh', 'OohQ', 'R', 'SkinnyMorph', 
+    'SquintLeft', 'SquintRight', 'Th', 'W', 'VampireMorph']
+
+skyrimDict = BoneDict(skyrimBones, skyrimExpressions)
 
 fo4Bones = [
     SkeletonBone('COM', 'COM', 'Root'),
@@ -667,7 +679,16 @@ fo4Bones = [
     SkeletonBone('Bone_Cloth_H_002', 'Bone_Cloth_H_002', 'Bone_Cloth_H_001'),
     SkeletonBone('Bone_Cloth_H_003', 'Bone_Cloth_H_003', 'Bone_Cloth_H_002')]
 
-fo4Dict = BoneDict(fo4Bones)
+fo4Expressions = ['Basis', 'UprLipRollOut', 'UprLipRollIn', 'UprLipFunnel', 'StickyLips', 
+    'RUprLipUp', 'RUprLipDn', 'RUprLidUp', 'RUprLidDn', 'RSmile', 'ROutBrowDn', 
+    'RNoseUp', 'RMidBrowUp', 'RMidBrowDn', 'RLwrLipUp', 'RLwrLipDn', 'RLwrLidUp', 
+    'RLwrLidDn', 'RLipCornerOut', 'RLipCornerIn', 'RJaw', 'RFrown', 'RCheekUp', 
+    'RBrowOutUp', 'Pucker', 'JawOpen', 'JawFwd', 'BrowSqueeze', 'LUprLipUp', 
+    'LUprLipDn', 'LUprLidUp', 'LUprLidDn', 'LSmile', 'LOutBrowDn', 'LNoseUp', 
+    'LMidBrowUp', 'LMidBrowDn', 'LLwrLipUp', 'LLwrLipDn', 'LLwrLidUp', 'LLwrLidDn', 
+    'LLipCornerOut', 'LLipCornerIn', 'LJaw', 'LFrown', 'LCheekUp', 'LBrowOutUp']
+
+fo4Dict = BoneDict(fo4Bones, fo4Expressions)
 
 gameSkeletons = {
     'SKYRIM': skyrimDict,
@@ -700,21 +721,27 @@ if __name__ == "__main__":
            (0.4, 0.1), (0.1, 0.9), (0.1, 0.1),
            (0.9, 0.1), (0.9, 0.9), (0.6, 0.9),
            (0.4, 0.1), (0.4, 0.9), (0.1, 0.9)]
+
+    morphdict = {}
+    morphdict["by2"] = [(v[0]*2, v[1]*2, v[2]*2) for v in verts]
+    morphdict["by3"] = [(v[0]*3, v[1]*3, v[2]*3) for v in verts]
         
-    mesh_split_by_uv(verts, norms, loops, uvs, weights)
+    mesh_split_by_uv(verts, norms, loops, uvs, weights, morphdict)
 
     # Vert 5 got split into 5 & 7. Data should be the same.
     assert len(verts) == 8, "Error: wrong number of verts after edge splitting"
     assert len(norms) == 8, "Error: wrong number of normals after edge splitting"
     assert len(weights) == 8, "Error: wrong number of weights after edge splitting"
+    assert len(morphdict["by2"]) == 8, "Error wrong number of verts in morph after splitting"
+    assert len(morphdict["by3"]) == 8, "Error wrong number of verts in morph after splitting"
     assert verts.count((0.0, 1.0, 0.0)) == 2, "Error: Duplicating vert on seam"
     assert verts.count((0.0, -1.0, 0.0)) == 2, "Error: Duplicating vert on seam"
+    assert morphdict["by3"].count((0.0, -3.0, 0.0)) == 2, "Error: Duplicating vert on seam in morph"
     assert verts[5] == verts[7], "Error: Duplicating vert 5 to vert 7"
     assert norms[5] == norms[7], "Error: Duplicating norms correctly"
     assert weights[5] == weights[7], "Error: Duplicating weights correctly"
     # Any loop entry referencing vert 5 should have same UV location as one referencing 7
     assert loops[1] == 5 and loops[10] == 7 and uvs[1] != uvs[10], "Error: Duplicating UV locations correctly"
-    
 
     print("--Game skeletons translate to and from blender format")
     assert gameSkeletons["SKYRIM"].byBlender['NPC Finger11.L'].nif == 'NPC L Finger11 [LF11]', "Error: Bone not translated correctly"
