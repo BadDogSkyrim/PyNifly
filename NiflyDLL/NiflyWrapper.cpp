@@ -37,7 +37,15 @@ NIFLY_API void* nifCreate() {
 }
 
 NIFLY_API void* load(const char* filename) {
-    return new NifFile(std::filesystem::path(filename));
+    NifFile* nif = new NifFile();
+    int errval = nif->Load(std::filesystem::path(filename));
+
+    if (errval == 0) return nif;
+
+    if (errval == 1) LogWrite("File does not exist or is not a nif");
+    if (errval == 2) LogWrite("File is not a nif format we can read");
+
+    return nullptr;
 }
 
 NIFLY_API void* getRoot(void* f) {
