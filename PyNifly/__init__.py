@@ -9,7 +9,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 16), 
+    "version": (0, 0, 17), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -27,7 +27,7 @@ import math
 
 log = logging.getLogger("pynifly")
 
-pynifly_dev_root = r"D:\OneDrive\Dev"
+pynifly_dev_root = r"C:\Users\User\OneDrive\Dev"
 pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
 nifly_path = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll")
 
@@ -199,12 +199,22 @@ def connect_armature(arm_data, the_nif):
         i += 1
 
 def make_armature(the_coll, the_nif, bone_names):
-    bpy.ops.object.select_all(action='DESELECT')
-    arm_data = bpy.data.armatures.new(the_nif.rootName)
-    arm_ob = bpy.data.objects.new(the_nif.rootName, arm_data)
-    the_coll.objects.link(arm_ob)
-    arm_ob.select_set(True)
-    bpy.context.view_layer.objects.active = arm_ob
+    """ Make a Blender armature from the given info. 
+        the_coll = Collection to put the armature in. If the current active object is an
+            armature, they will be added to it instead of creating a new one.
+        the_nif = Nif file to read bone data from
+        bone_names = bones to include in the armature. Additional bones will be added from
+            the reference skeleton as needed to connect every bone to the skeleton root.
+        """
+    if bpy.context.object and bpy.context.object.type == "ARMATURE":
+        arm_ob = bpy.context.object
+    else:
+        bpy.ops.object.select_all(action='DESELECT')
+        arm_data = bpy.data.armatures.new(the_nif.rootName)
+        arm_ob = bpy.data.objects.new(the_nif.rootName, arm_data)
+        the_coll.objects.link(arm_ob)
+        arm_ob.select_set(True)
+        bpy.context.view_layer.objects.active = arm_ob
 
     bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
     bpy.ops.object.mode_set(mode='EDIT', toggle=False)
@@ -1171,7 +1181,7 @@ if __name__ == "__main__":
         try:
             unregister()
         except:
-            traceback.print_exc()
+            pass
         register()
     else:
         try:

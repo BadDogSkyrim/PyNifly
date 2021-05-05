@@ -73,3 +73,5 @@ ipch/
 # Visual Studio Trace Files
 *.e2e
 
+/NiflyDLL/Test/NiflyDLL.tlog
+/NiflyDLL/Test
