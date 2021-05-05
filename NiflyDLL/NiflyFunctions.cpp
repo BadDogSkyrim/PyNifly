@@ -67,7 +67,7 @@ void FindProjectRoot() {
 		int ret = GetLastError();
 		LogWrite("Failed to get a handle to the DLL module");
 	}
-	if (GetModuleFileName(hm, path, sizeof(path)) == 0)
+	if (GetModuleFileName(hm, (LPSTR)path, sizeof(path)) == 0)
 	{
 		int ret = GetLastError();
 		LogWrite("Failed to get the filename of the DLL");

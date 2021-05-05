@@ -580,7 +580,7 @@ namespace NiflyDLLTests
 			/* Read the body */
 			NiShape* theBody = nif.FindBlockByName<NiShape>("MaleBody");
 			AnimInfo bodySkin;
-			armorSkin.LoadFromNif(&nif, theBody);
+			bodySkin.LoadFromNif(&nif, theBody);
 			MatTransform bodySkinInst;
 			nif.GetShapeTransformGlobalToSkin(theBody, bodySkinInst);
 
@@ -661,6 +661,56 @@ namespace NiflyDLLTests
 			//print("FO4 LArm_UpperTwist1: ", nif.get_node_xform_to_global('LArm_UpperTwist1'))
 			//	print("FO4 LArm_UpperTwist1_skin: ", nif.get_node_xform_to_global('LArm_UpperTwist1_skin'))
 			//	print("SKYRIM NPC L Forearm [LLar]: ", nif.get_node_xform_to_global('NPC L Forearm [LLar]'))
+		}
+		TEST_METHOD(checkGTSOffset) {
+			std::filesystem::path testfile = testRoot / "FO4/VanillaMaleBody.nif";
+			std::filesystem::path testfile2 = testRoot / "FO4/BTMaleBody.nif";
+
+			/* THIS WORKS -- ROTATIONS ARE THE SAME */
+			NifFile nif = NifFile(testfile);
+
+			NiShape* vbody = nif.FindBlockByName<NiShape>("BaseMaleBody:0");
+			AnimInfo vskin;
+			vskin.LoadFromNif(&nif, vbody);
+			MatTransform vSkinInst;
+			vSkinInst = vskin.shapeSkinning["BaseMaleBody:0"].xformGlobalToSkin;
+
+			NifFile nif2 = NifFile(testfile2);
+
+			NiShape* btbody = nif2.FindBlockByName<NiShape>("BaseMaleBody:0");
+			AnimInfo btskin;
+			btskin.LoadFromNif(&nif2, btbody);
+			MatTransform btSkinInst;
+			btSkinInst = btskin.shapeSkinning["BaseMaleBody:0"].xformGlobalToSkin;
+
+			/* TESTING THROUGH THE WRAPPER LAYER -- RESULTS SHOULD BE THE SAME */
+			float vbuf[13];
+			NifFile nifw = NifFile(testfile);
+			NiShape* vbodyw = nifw.FindBlockByName<NiShape>("BaseMaleBody:0");
+
+			for (int i = 0; i < 13; i++) { vbuf[i] = 0.0f; };
+			getGlobalToSkin(&nifw, vbodyw, vbuf);
+
+			float btbuf[13];
+			NifFile btnifw = NifFile(testfile2);
+			NiShape* btbodyw = btnifw.FindBlockByName<NiShape>("BaseMaleBody:0");
+
+			for (int i = 0; i < 13; i++) { btbuf[i] = 0.0f; };
+			getGlobalToSkin(&btnifw, btbodyw, btbuf);
+
+			/* ************************************** */
+			/* Test fails - fix the GTS conversion    */
+			//Assert::AreEqual(round(vSkinInst.translation.x * 1000), round(btSkinInst.translation.x * 1000));
+			//Assert::AreEqual(round(vSkinInst.translation.y * 1000), round(btSkinInst.translation.y * 1000));
+			//Assert::AreEqual(round(vSkinInst.translation.z * 1000), round(btSkinInst.translation.z * 1000));
+			//for (int i = 0; i < 3; i++)
+			//	for (int j = 0; j < 3; j++)
+			//		Assert::AreEqual(
+			//			round(btSkinInst.rotation[i][j] * 1000),
+			//			round(vSkinInst.rotation[i][j] * 1000));
+
+			//for (int i = 0; i < 13; i++)
+			//	Assert::AreEqual(round(vbuf[i]*1000), round(btbuf[i])*1000);
 
 		}
 	};

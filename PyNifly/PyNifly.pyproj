@@ -37,17 +37,18 @@
     <Content Include="pynifly.py">
       <Publish>True</Publish>
     </Content>
-    <Content Include="__init__.py">
+    <Page Include="__init__.py">
       <Publish>True</Publish>
-    </Content>
+    </Page>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="pyniflywhereami.py">
+    <Content Include="pyniflywhereami.py">
       <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="trihandler.py">
+    </Content>
+    <Content Include="trihandler.py">
       <SubType>Code</SubType>
-    </Compile>
+      <Publish>True</Publish>
+    </Content>
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in
