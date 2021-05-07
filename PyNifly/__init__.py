@@ -2,14 +2,14 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = True
+RUN_TESTS = False
 
 bl_info = {
     "name": "NIF format",
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 17), 
+    "version": (0, 0, 20), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -551,6 +551,18 @@ def create_group_from_verts(obj, name, verts):
     g.add(verts, 1.0, 'REPLACE')
 
 
+def expected_game(nif, bonelist):
+    """ Check whether the nif's game is the best match for the given bonelist """
+    maxmatch = 0
+    matchgame = nif.game
+    for g, s in gameSkeletons.items():
+        n = s.matches(bonelist)
+        if n > maxmatch:
+            maxmatch = n
+            matchgame = g
+    return matchgame == nif.game
+
+
 def export_shape(nif, obj, target_key=''):
     """Export given blender object to the given NIF file
         nif = target nif file
@@ -561,6 +573,7 @@ def export_shape(nif, obj, target_key=''):
     mesh = obj.data
     is_skinned = (obj.parent and obj.parent.type == 'ARMATURE')
     unweighted = []
+    retval = {'FINISHED'}
     
     bm = bmesh.new()
     try:
@@ -569,6 +582,9 @@ def export_shape(nif, obj, target_key=''):
         if is_skinned:
             # Get unweighted bones before we muck up the list by splitting edges
             unweighted = tag_unweighted(obj, bm, obj.parent.data.bones.keys())
+            if not expected_game(nif, obj.parent.data.bones.keys()):
+                log.warning(f"Exporting to game that doesn't match armature: game={nif.game}, armature={obj.parent.name}")
+                retval.add('GAME')
 
         log.info("..Triangulating mesh")
         bmesh.ops.triangulate(bm, faces=bm.faces[:])
@@ -602,6 +618,7 @@ def export_shape(nif, obj, target_key=''):
 
         if obj.scale[0] != obj.scale[1] or obj.scale[0] != obj.scale[2]:
            log.warning("Object scale not uniform, using x-value") # apply scale to verts?   
+           retval.add('SCALE')
         new_xform.scale = obj.scale[0]
         
         if is_skinned:
@@ -609,6 +626,7 @@ def export_shape(nif, obj, target_key=''):
             if len(unweighted) > 0:
                 create_group_from_verts(obj, "*UNWEIGHTED*", unweighted)
                 log.warning("Some vertices are not weighted to the armature")
+                retval.add('UNWEIGHTED')
         else:
             new_shape.transform = new_xform
 
@@ -622,10 +640,7 @@ def export_shape(nif, obj, target_key=''):
     bm.free()
     
     log.info(f"..{obj.name} successfully exported")
-    if len(unweighted) > 0:
-        return {'FINISHED', 'UNWEIGHTED'}
-    else:
-        return {'FINISHED'}
+    return retval
 
 
 def export_shape_to(shape, filepath, game):
@@ -683,6 +698,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             objs_to_export = set()
             armatures_found = set()
             objs_unweighted = []
+            objs_scale = []
+            arma_game = []
         
             for obj in context.selected_objects:  
                 if obj.type == 'ARMATURE':
@@ -712,11 +729,19 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                         log.debug(f"Exported shape {obj.name} with result {str(r)}")
                         if 'UNWEIGHTED' in r:
                             objs_unweighted.append(obj.name)
-                        res.union(r)
+                        if 'SCALE' in r:
+                            objs_scale.append(obj.name)
+                        if 'GAME' in r:
+                            arma_game.append(obj.parent.name)
+                        res = res.union(r)
                     exportf.save()
             
-            if len(objs_unweighted) > 0:
+            if 'UNWEIGHTED' in res:
                 self.report({"ERROR"}, f"The following objects have unweighted vertices.\nSee the '*UNWEIGHTED*' vertex groups to find them: \n{objs_unweighted}")
+            if 'SCALE' in res:
+                self.report({"ERROR"}, f"The following objects have non-uniform scale, which nifs do not support.\nUsing the x scale value: \n{objs_scale}")
+            if 'GAME' in res:
+                self.report({'WARNING'}, f"The armature appears to be designed for a different game--check that it's correct\nArmature: {arma_game}, game: {exportf.game}")
         except:
             log.exception("Export of nif failed")
             self.report({"ERROR"}, "Export of nif failed, see console window for details")
@@ -724,10 +749,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             #traceback.print_exc()
             res.add("CANCELLED")
 
-        if "CANCELLED" in res:
-            return {"CANCELLED"}
-        else:
-            return {"FINISHED"}
+        return res.intersection({'CANCELLED'}, {'FINISHED'})
 
 
 def nifly_menu_import_nif(self, context):
