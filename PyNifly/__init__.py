@@ -26,6 +26,7 @@ import traceback
 import math
 
 log = logging.getLogger("pynifly")
+log.info(f"Loading pynifly version {bl_info['version']}")
 
 pynifly_dev_root = r"C:\Users\User\OneDrive\Dev"
 pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
@@ -43,6 +44,7 @@ else:
     if py_addon_path not in sys.path:
         sys.path.append(py_addon_path)
     nifly_path = os.path.join(py_addon_path, "NiflyDLL.dll")
+    log.setLevel(logging.INFO)
 
 log.info(f"Nifly DLL at {nifly_path}")
 if not os.path.exists(nifly_path):
@@ -557,10 +559,10 @@ def best_game_fit(bonelist):
     boneset = set([b.name for b in bonelist])
     maxmatch = 0
     matchgame = ""
-    print(f"Checking bonelist {[b.name for b in bonelist]}")
+    #print(f"Checking bonelist {[b.name for b in bonelist]}")
     for g, s in gameSkeletons.items():
         n = s.matches(boneset)
-        print(f"Checking against game {g} match is {n}")
+        #print(f"Checking against game {g} match is {n}")
         if n > maxmatch:
             maxmatch = n
             matchgame = g
