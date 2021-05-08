@@ -349,10 +349,12 @@ class BoneDict:
         else:
             return blender_name
 
-    def matches(self, aList):
+    def matches(self, boneset):
         """ Return count of entries in aList that match skeleton bones """
-        return sum([(1 if v in self.byBlender else 0) for v in aList]) + \
-                sum([(1 if v in self.byNif else 0) for v in aList])
+        return len(boneset.intersection(set(self.byBlender.keys()))) + \
+            len(boneset.intersection(set(self.byNif.keys())))
+        #return sum([(1 if v in self.byBlender else 0) for v in aList]) + \
+        #        sum([(1 if v in self.byNif else 0) for v in aList])
 
 skyrimBones = [
     SkeletonBone('NPC Root', 'NPC Root [Root]', None),
@@ -781,3 +783,7 @@ if __name__ == "__main__":
     r = RotationMatrix.from_euler(20, 30, 40)
     r1 = RotationMatrix.from_vector(r.rotation_vector())
     assert r == r1, "Error: Rotation vectors are reversable"
+
+
+    print("--Can get count of matching bones from skeleton")
+    assert gameSkeletons["FO4"].matches(set(['Leg_Calf.R', 'Leg_Calf_skin.R', 'Leg_Calf_Low_skin.R', 'FOO'])) == 3, "Error: Skeletons should return correct bone match"

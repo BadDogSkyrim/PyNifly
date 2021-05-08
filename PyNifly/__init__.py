@@ -35,6 +35,7 @@ if os.path.exists(nifly_path):
     log.debug(f"PyNifly dev path: {pynifly_dev_path}")
     if pynifly_dev_path not in sys.path:
         sys.path.append(pynifly_dev_path)
+    log.setLevel(logging.DEBUG)
 else:
     # Load from install location
     py_addon_path = os.path.dirname(os.path.realpath(__file__))
@@ -551,16 +552,25 @@ def create_group_from_verts(obj, name, verts):
     g.add(verts, 1.0, 'REPLACE')
 
 
-def expected_game(nif, bonelist):
-    """ Check whether the nif's game is the best match for the given bonelist """
+def best_game_fit(bonelist):
+    """ Find the game that best matches the skeleton """
+    boneset = set([b.name for b in bonelist])
     maxmatch = 0
-    matchgame = nif.game
+    matchgame = ""
+    print(f"Checking bonelist {[b.name for b in bonelist]}")
     for g, s in gameSkeletons.items():
-        n = s.matches(bonelist)
+        n = s.matches(boneset)
+        print(f"Checking against game {g} match is {n}")
         if n > maxmatch:
             maxmatch = n
             matchgame = g
-    return matchgame == nif.game
+    return matchgame
+
+
+def expected_game(nif, bonelist):
+    """ Check whether the nif's game is the best match for the given bonelist """
+    matchgame = best_game_fit(bonelist)
+    return matchgame == "" or matchgame == nif.game
 
 
 def export_shape(nif, obj, target_key=''):
@@ -582,7 +592,7 @@ def export_shape(nif, obj, target_key=''):
         if is_skinned:
             # Get unweighted bones before we muck up the list by splitting edges
             unweighted = tag_unweighted(obj, bm, obj.parent.data.bones.keys())
-            if not expected_game(nif, obj.parent.data.bones.keys()):
+            if not expected_game(nif, obj.parent.data.bones):
                 log.warning(f"Exporting to game that doesn't match armature: game={nif.game}, armature={obj.parent.name}")
                 retval.add('GAME')
 
@@ -687,6 +697,24 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ('FO3', "Fallout 3", ""),
                    ),
             )
+
+    def __init__(self):
+        print("Instance init")
+        obj = bpy.context.object
+        if obj:
+            self.filepath = obj.name
+        arma = None
+        if obj.type == "ARMATURE":
+            arma = obj
+        else:
+            if obj.parent and obj.parent.type == "ARMATURE":
+                arma = obj.parent
+        if arma:
+            g = best_game_fit(arma.data.bones)
+            print(f"Best fit for armature is {g}")
+            if g != "":
+                self.target_game = g
+        
 
     def execute(self, context):
         log.info('NIFLY EXPORT')
