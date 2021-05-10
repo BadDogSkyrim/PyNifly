@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
+RUN_TESTS = True
 
 bl_info = {
     "name": "NIF format",
@@ -269,7 +269,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
     filename_ext = ".nif"
 
     def execute(self, context):
-        log.info('Nifly Import')
+        log.info("Nifly Import NIF with bl_info['version']")
         status = {'FINISHED'}
 
         try:
@@ -410,7 +410,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
     filename_ext = ".tri"
 
     def execute(self, context):
-        log.info('Nifly Tri File Import')
+        log.info("Nifly Tri File Import with bl_info['version']")
         status = {'FINISHED'}
 
         try:
@@ -432,28 +432,38 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
 
 # ### ---------------------------- EXPORT -------------------------------- ###
 
-def extract_face_info(bm):
+def extract_face_info(bm, use_custom_normals):
+    """ Extract face info from the bmesh 
+        Return 
+        loops = [vert-index, ...] list of vert indices in loops (which are tris)
+        uvs = [(u,v), ...] list of uv coordinates 1:1 with loops
+        norms = [(x,y,z), ...] list of normal vectors 1:1 with loops
+        """
     uv_lay = bm.loops.layers.uv.active
     loops = []
     uvs = []
+    norms = []
     bm.faces.ensure_lookup_table()
     for f in bm.faces:
         for seg in f.loops:
             loops.append(seg.vert.index)
             uvs.append(seg[uv_lay].uv[:])
-    
-    return loops, uvs
+            if use_custom_normals:
+                x, y, z = seg.calc_normal()[:]
+                norms.append((-x, -y, -z))
+            else:
+                norms.append(seg.vert.normal[:])
+    return loops, uvs, norms
+
 
 def extract_vert_info(obj, bm, target_key=''):
     """Returns 5 lists of equal length with one entry each for each vertex
         verts = [(x, y, z)... ] - base or as modified by target-key if provided
-        norms = [(x, y, z)... ] 
         weights = [{group-name: weight}... ]
         dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
             if "target_key" is specified this will be empty
         """
     verts = []
-    norms = []
     weights = []
     deform_layer = bm.verts.layers.deform.active
     key_layer = None
@@ -465,7 +475,6 @@ def extract_vert_info(obj, bm, target_key=''):
             verts.append(v.co[:])
         else:
             verts.append(v[key_layer][:])
-        norms.append(v.normal[:])
         if deform_layer:
             vert_weights = {}
             for g, w in v[deform_layer].items():
@@ -478,7 +487,8 @@ def extract_vert_info(obj, bm, target_key=''):
             if name != "Basis":
                 morphdict[name] = [v[morph][:] for v in bm.verts]
 
-    return verts, norms, weights, morphdict
+    return verts, weights, morphdict
+
 
 def get_bone_xforms(arma, bone_names):
     """Return transforms for the bones in list, getting rotation from what we stashed on import
@@ -589,7 +599,11 @@ def export_shape(nif, obj, target_key=''):
     
     bm = bmesh.new()
     try:
-        bm.from_mesh(mesh)
+        if mesh.has_custom_normals:
+            mesh.calc_normals_split()
+        else:
+            mesh.calc_normals()
+        bm.from_mesh(mesh, face_normals=True)
     
         if is_skinned:
             # Get unweighted bones before we muck up the list by splitting edges
@@ -600,17 +614,19 @@ def export_shape(nif, obj, target_key=''):
 
         log.info("..Triangulating mesh")
         bmesh.ops.triangulate(bm, faces=bm.faces[:])
-        verts, norms, weights_by_vert, morphdict = extract_vert_info(obj, bm, target_key)
-        loops, uvs = extract_face_info(bm)
+        bm.normal_update()
+        verts, weights_by_vert, morphdict = extract_vert_info(obj, bm, target_key)
+        loops, uvs, norms = extract_face_info(bm, mesh.has_custom_normals)
     
         log.info("..Splitting mesh along UV seams")
         mesh_split_by_uv(verts, norms, loops, uvs, weights_by_vert, morphdict)
-        # Old UV map had dups were verts were split; new matches 1-1 with verts
-        uvmap_new = [uvs[loops.index(i)] for i in range(0, len(verts))]
+        # Old UV map had dups where verts were split; new matches 1-1 with verts
+        uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
+        norms_new = [norms[loops.index(i)] for i in range(len(verts))]
         tris = [(loops[i], loops[i+1], loops[i+2]) for i in range(0, len(loops), 3)]
     
         log.info("..Exporting to nif")
-        new_shape = nif.createShapeFromData(mesh.name, verts, tris, uvmap_new, norms)
+        new_shape = nif.createShapeFromData(mesh.name, verts, tris, uvmap_new, norms_new)
 
         if is_skinned:
             nif.createSkin()
@@ -701,7 +717,6 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             )
 
     def __init__(self):
-        print("Instance init")
         obj = bpy.context.object
         if obj:
             self.filepath = obj.name
@@ -713,13 +728,12 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 arma = obj.parent
         if arma:
             g = best_game_fit(arma.data.bones)
-            print(f"Best fit for armature is {g}")
             if g != "":
                 self.target_game = g
         
 
     def execute(self, context):
-        log.info('NIFLY EXPORT')
+        log.info(f"NIFLY EXPORT with {bl_info['version']}")
         NifFile.Load(nifly_path)
 
         try:
@@ -804,6 +818,24 @@ def unregister():
     bpy.utils.unregister_class(ImportNIF)
     bpy.utils.unregister_class(ExportNIF)
 
+
+def append_collection(objname, with_parent, filepath, innerpath, targetobj):
+    if objname in bpy.data.objects:
+        bpy.ops.object.select_all(action='DESELECT')
+        obj = bpy.data.objects[objname]
+        obj.select_set(True)
+        if with_parent:
+            obj.parent.select_set(True)
+        bpy.ops.object.delete() 
+    
+    file_path = os.path.join(pynifly_dev_path, filepath)
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.wm.append(filepath=file_path,
+                      directory=file_path + innerpath,
+                      filename=targetobj)
+    return bpy.data.objects[targetobj]
+
+
 def run_tests():
     print("######################### TESTING ##########################")
 
@@ -821,7 +853,8 @@ def run_tests():
     TEST_BABY = False
     TEST_CONNECTED_SKEL = False
     TEST_TRI = False
-    TEST_0_WEIGHTS = True
+    TEST_0_WEIGHTS = False
+    TEST_SPLIT_NORMAL = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -1276,23 +1309,18 @@ def run_tests():
     if TEST_BPY_ALL or TEST_0_WEIGHTS:
         print("### Gives warning on export with 0 weights")
 
-        if "TestBabyhead" in bpy.data.objects:
-            bpy.ops.object.select_all(action='DESELECT')
-            baby = bpy.data.objects["TestBabyhead"]
-            baby.select_set(True)
-            baby.parent.select_set(True)
-            bpy.ops.object.delete() 
-
-        file_path = os.path.join(pynifly_dev_path, r"tests\FO4\Test0Weights.blend")
-        bpy.ops.object.select_all(action='DESELECT')
-        bpy.ops.wm.append(filepath=file_path,
-                          directory=file_path + r"\Collection",
-                          filename="BabyCollection")
-        baby = bpy.data.objects["TestBabyhead"]
+        baby = append_collection("TestBabyhead", True, r"tests\FO4\Test0Weights.blend", r"\Collection", "BabyCollection")
         baby.parent.name == "BabyExportRoot", f"Error: Should have baby and armature"
         log.debug(f"Found object {baby.name}")
         export_shape_to(baby, os.path.join(pynifly_dev_path, r"tests\Out\weight0.nif"), "FO4")
         assert "*UNWEIGHTED*" in baby.vertex_groups, "Error: Should be unweighted vertices"
+
+
+    if TEST_BPY_ALL or TEST_SPLIT_NORMAL:
+        print("### Can handle meshes with split normals")
+
+        plane = append_collection("Plane", False, r"tests\skyrim\testSplitNormalPlane.blend", r"\Object", "Plane")
+        export_shape_to(plane, os.path.join(pynifly_dev_path, r"tests\Out\CustomNormals.nif"), "FO4")
 
 
     print("######################### TESTS DONE ##########################")
