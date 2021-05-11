@@ -2,14 +2,14 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = True
+RUN_TESTS = False
 
 bl_info = {
     "name": "NIF format",
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 21), 
+    "version": (0, 0, 22), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -269,7 +269,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
     filename_ext = ".nif"
 
     def execute(self, context):
-        log.info("Nifly Import NIF with bl_info['version']")
+        log.info("NIFLY IMPORT V%d.%d.%d" % bl_info['version'])
         status = {'FINISHED'}
 
         try:
@@ -329,9 +329,12 @@ def create_trip_shape_keys(obj, trip:TripFile):
     mesh = obj.data
     verts = mesh.vertices
 
+    newsk = obj.shape_key_add()
+    newsk.name = "Basis"
+
     for morph_name, morph_verts in trip.offsetmorphs.items():
         newsk = obj.shape_key_add()
-        newsk.name = morph_name
+        newsk.name = ">" + morph_name
 
         obj.active_shape_key_index = len(mesh.shape_keys.key_blocks) - 1
         #This is a pointer, not a copy
@@ -399,39 +402,54 @@ def import_tri(filepath):
 def export_tris(nif, obj, verts, tris, loops, uvs, morphdict):
     """ Export a tri file to go along with the given nif file, if there are shape keys 
     """
+    result = {'FINISHED'}
 
     if obj.data.shape_keys is None:
-        return
+        return result
 
     fpath = os.path.split(nif.filepath)
     fname = os.path.splitext(fpath[1])
     fname_tri = os.path.join(fpath[0], fname[0] + ".tri")
+    fname_trip = os.path.join(fpath[0], fname[0] + ".tri")
     fname_chargen = os.path.join(fpath[0], fname[0] + "_chargen.tri")
 
     # Don't export anything that starts with an underscore or asterisk
-    export_keys = set(filter((lambda n: n[0] != '_' and n[0] != '*'), 
-                             obj.data.shape_keys.key_blocks.keys()))
+    objkeys = obj.data.shape_keys.key_blocks.keys()
+    export_keys = set(filter((lambda n: n[0] not in ('_', '*') and n != 'Basis'), objkeys))
     expression_morphs = nif.dict.expressions.intersection(export_keys)
-    chargen_morphs = export_keys.difference(expression_morphs)
+    trip_morphs = set(filter((lambda n: n[0] == '>'), objkeys))
+    chargen_morphs = export_keys.difference(expression_morphs).difference(trip_morphs)
 
-    if len(expression_morphs) == 0 and len(chargen_morphs) == 0:
-        return
+    if len(expression_morphs) > 0 and len(trip_morphs) > 0:
+        log.warning(f"Found both expression morphs and BS tri morphs in shape {obj.name}. May be an error.")
+        result = {'WARNING'}
+        fname_trip =  os.path.join(fpath[0], fname[0] + "_bodyslide.tri")
 
-    tri = TriFile()
-    tri.vertices = verts
-    tri.faces = tris
-    tri.uv_pos = uvs
-    tri.face_uvs = tris # (because 1:1 with verts)
-    tri.morphs = morphdict
+    if len(expression_morphs) > 0 or len(chargen_morphs) > 0:
+        tri = TriFile()
+        tri.vertices = verts
+        tri.faces = tris
+        tri.uv_pos = uvs
+        tri.face_uvs = tris # (because 1:1 with verts)
+        tri.morphs = morphdict
     
-    if len(expression_morphs) > 0:
-        log.info(f"Generating tri file '{fname_tri}'")
-        #log.debug(f"Expression morphs: {expression_morphs}")
-        tri.write(fname_tri, expression_morphs)
+        if len(expression_morphs) > 0:
+            log.info(f"Generating tri file '{fname_tri}'")
+            #log.debug(f"Expression morphs: {expression_morphs}")
+            tri.write(fname_tri, expression_morphs)
 
-    if len(chargen_morphs) > 0:
-        log.info(f"Generating tri file '{fname_chargen}'")
-        tri.write(fname_chargen, chargen_morphs)
+        if len(chargen_morphs) > 0:
+            log.info(f"Generating tri file '{fname_chargen}'")
+            tri.write(fname_chargen, chargen_morphs)
+
+    if len(trip_morphs) > 0:
+        log.info(f"Generating BS tri file '{fname_trip}'")
+        trip = TripFile()
+        trip.shapename = obj.name
+        trip.set_morphs(morphdict, verts)
+        trip.write(fname_trip)
+
+    return result
 
 class ImportTRI(bpy.types.Operator, ImportHelper):
     """Load a TRI File"""
@@ -442,7 +460,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
     filename_ext = ".tri"
 
     def execute(self, context):
-        log.info("Nifly Tri File Import with bl_info['version']")
+        log.info("NIFLY IMPORT V%d.%d.%d" % bl_info['version'])
         status = {'FINISHED'}
 
         try:
@@ -463,6 +481,9 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
         return status
 
 # ### ---------------------------- EXPORT -------------------------------- ###
+
+def clean_filename(fn):
+    return "".join(c for c in fn.strip() if (c.isalnum() or c in "._- "))
 
 def select_all_faces(workingctx, mesh):
     bpy.ops.object.mode_set(mode = 'OBJECT')
@@ -703,8 +724,7 @@ def export_shape(nif, obj, target_key=''):
     else:
         new_shape.transform = new_xform
 
-    log.info(f"Export tris {obj.name}")
-    export_tris(nif, obj, verts, tris, loops, uvmap_new, morphdict)
+    retval.union(export_tris(nif, obj, verts, tris, loops, uvmap_new, morphdict))
 
     log.info(f"..{obj.name} successfully exported")
     return retval
@@ -758,7 +778,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     def __init__(self):
         obj = bpy.context.object
         if obj:
-            self.filepath = obj.name
+            self.filepath = clean_filename(obj.name)
         arma = None
         if obj.type == "ARMATURE":
             arma = obj
@@ -772,7 +792,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         
 
     def execute(self, context):
-        log.info(f"NIFLY EXPORT with {bl_info['version']}")
+        log.info("NIFLY EXPORT V%d.%d.%d" % bl_info['version'])
         NifFile.Load(nifly_path)
 
         try:
@@ -803,7 +823,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                     shape_keys.append('') # just export the plain file
                 for sk in shape_keys:
                     fn = os.path.splitext(os.path.basename(self.filepath))
-                    fp = os.path.join(os.path.dirname(self.filepath), fn[0] + sk + fn[1])
+                    fn = clean_filename(fn[0] + sk + fn[1])
+                    fp = os.path.join(os.path.dirname(self.filepath), fn)
                     log.info('..Exporting to ' + self.target_game + ' ' + fp)
                     exportf = NifFile()
                     exportf.initialize(self.target_game, fp)
@@ -819,12 +840,22 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                         res = res.union(r)
                     exportf.save()
             
+            rep = False
             if 'UNWEIGHTED' in res:
                 self.report({"ERROR"}, f"The following objects have unweighted vertices.\nSee the '*UNWEIGHTED*' vertex groups to find them: \n{objs_unweighted}")
+                rep = True
             if 'SCALE' in res:
                 self.report({"ERROR"}, f"The following objects have non-uniform scale, which nifs do not support.\nUsing the x scale value: \n{objs_scale}")
+                rep = True
             if 'GAME' in res:
                 self.report({'WARNING'}, f"The armature appears to be designed for a different game--check that it's correct\nArmature: {arma_game}, game: {exportf.game}")
+                rep = True
+            if 'WARNING' in res:
+                self.report({'WARNING'}, f"Export completed with warnings. Check the console window.")
+                rep = True
+            if not rep:
+                self.report({'INFO'}, f"Export successful")
+            
         except:
             log.exception("Export of nif failed")
             self.report({"ERROR"}, "Export of nif failed, see console window for details")

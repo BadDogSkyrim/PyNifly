@@ -661,11 +661,13 @@ class TriFile():
 
 class TripFile():
     def __init__(self):
-        self.offsetmorphs = {}
         self.is_valid = False
         self.type = 'TRIP'
+        self.shapename = '' # could be many of these; supporting only one for now
+        self.offsetmorphs = {} # { name-from-file: [[vert-index, (offs x, offs y, offs z)]... ], ... }
+        self.log = logging.getLogger("pynifly")
 
-    def _read_len_str(self, file):
+    def _read_count_str(self, file):
         """ Reads a string from the file, where the length is a single byte preceding
             the string. 
             Returns the string.
@@ -678,8 +680,18 @@ class TripFile():
         else:
             return ''
         
+    def _write_count_str(self, file, str):
+        file.write(pack('<B', len(str)))
+        file.write(pack(f'<{len(str)}s', str.encode("iso-8859-15")))
+        
     def _coord_nonzero(self, coords):
         return abs(coords[0]) > 0.0001 or abs(coords[1]) > 0.0001 or abs(coords[2]) > 0.0001 
+
+    def _calc_max_offset(self, offslist):
+        m = 0.0
+        for i, o in offslist:
+            m = max(m, abs(o[0]), abs(o[1]), abs(o[2]))
+        return m
 
     def read(self, file):
         """ Read TRIP file 
@@ -697,12 +709,14 @@ class TripFile():
         shapecount = unpack('<1H', rawdata)[0]
 
         for i in range(shapecount):
-            shapename = self._read_len_str(file)
+            self.shapename = self._read_count_str(file)
+            self.log.debug(f"..Found shape {self.shapename}")
 
             morphcount = unpack('<1H', file.read(2))[0]
             for j in range(morphcount):
-                morphname = self._read_len_str(file)
-                morphmult = unpack('<1f', file.read(4))[0]
+                morphname = self._read_count_str(file)
+                self.log.debug(f"....found morph {morphname}")
+                morphmult = unpack('<1f', file.read(4))[0] 
                 vertcount = unpack('<1H', file.read(2))[0]
                 morphverts = []
 
@@ -711,14 +725,59 @@ class TripFile():
 
                     v = (x * morphmult, y * morphmult, z * morphmult)
                     if self._coord_nonzero(v):
-                        morphverts.append([id, v])
+                        morphverts.append([id, v]) 
 
-                if len(morphverts) > 0:
-                    self.offsetmorphs[morphname] = morphverts
+                if True: # len(morphverts) > 0:
+                    self.offsetmorphs[morphname] = morphverts # keep them all, even null morphs
 
         # there might be UV information but ignore it
         self.is_valid = True
         return 0
+
+    def set_morphs(self, morphdict, vertlist):
+        """ Set the morphs property from a morph dictionary 
+            morphdict = { morph-name: [(x,y,z), ...], ...} - xyz coordinates are 1:1 with vertlist
+            vertlist = [(x,y,z), ...] - shape vertices
+            """
+        for name, coords in morphdict.items():
+            if name[0] == '>': name = name[1:]
+            offsetlist = []
+            for i, coordpair in enumerate(zip(coords, vertlist)):
+                co, v = coordpair
+                offsets = (co[0] - v[0], co[1] - v[1], co[2] - v[2])
+                if self._coord_nonzero(offsets):
+                    offsetlist.append([i, offsets])
+            if len(offsetlist) > 0:
+                self.offsetmorphs[name] = offsetlist
+
+    def write(self, filepath):
+        """ Write all morphs tagged as TRIP morphs (leading '>') """
+        self.log.info(f"..Writing TRIP file {filepath}")
+        file = open(filepath, 'wb')
+        try:
+            file.write(pack("<4s", b'PIRT'))
+
+            file.write(pack('<1H', 1)) # only one shape
+            self._write_count_str(file, self.shapename)
+
+            file.write(pack("<1H", len(self.offsetmorphs)))
+            for name, offslist in self.offsetmorphs.items():
+                self.log.debug(f"....Writing morph {name}")
+                self._write_count_str(file, name)
+            
+                scalefactor = 0x7fff / self._calc_max_offset(offslist) 
+                if scalefactor < 0.0001: scalefactor = 1
+
+                file.write(pack('<1f', 1/scalefactor))
+                file.write(pack('<1H', len(offslist)))
+
+                for vert_idx, offsets in offslist:
+                    file.write(pack('<1H', vert_idx))
+                    file.write(pack('<3h', int(offsets[0] * scalefactor), 
+                                    int(offsets[1] * scalefactor), 
+                                    int(offsets[2] * scalefactor)))
+        finally:
+            file.close()
 
     @classmethod
     def from_file(cls, filepath):
@@ -744,7 +803,7 @@ if __name__ == "__main__":
         return round(uv1[0], 4) == round(uv2[0], 4) and round(uv1[1], 4) == round(uv2[1], 4) 
 
     if TEST_ALL:
-        log.info("Read a BS tri file")
+        log.info("### Read a BS tri file")
         t4 = TripFile.from_file(os.path.join(test_path, "FO4/BodyTalk3.tri"))
         assert len(t4.offsetmorphs) > 0, f"Error: Expected offset morphs, found {len(t4.offsetmorphs)}"
 
@@ -781,5 +840,26 @@ if __name__ == "__main__":
         #assert uv_near_eq(t3.uv_pos[5], t.uv_pos[5]), f"Error, UVs should not change: expected {str(t.uv_pos[5])}, got {str(t3.uv_pos[5])}"
         #assert t3.uv_pos[50] == t.uv_pos[50], "Error, UVs should not change"
         #assert t3.uv_pos[500] == t.uv_pos[500], "Error, UVs should not change"
+
+        log.info("### TRIP file round trip")
+        log.info("Read the file")
+        t4 = TripFile.from_file(os.path.join(test_path, r"FO4\BodyTalk3.tri"))
+        assert t4.shapename == "BaseMaleBody:0", f"Error: Expected shape 'BaseMaleBody:0', have '{t4.shapename}'"
+        assert len(t4.offsetmorphs) == 50, f"Error: Expected 50 shapes, have {len(t4.offsetmorphs)}"
+        assert "BTTHinCalf" in t4.offsetmorphs, f"Error: Expected 'BTTHinCalf' morph, not found"
+
+        log.info("Write the file")
+        t4.write(os.path.join(test_path, r"Out\TripTest.tri"))
+
+        log.info("Re-read the file")
+        t5 = TripFile.from_file(os.path.join(test_path, r"Out\TripTest.tri"))
+        assert t5.shapename == "BaseMaleBody:0", f"Error: Expected shape 'BaseMaleBody:0', have '{t5.shapename}'"
+        assert len(t5.offsetmorphs) == 50, f"Error: Expected 50 shapes, have {len(t5.offsetmorphs)}"
+        assert "BTTHinCalf" in t5.offsetmorphs, f"Error: Expected 'BTTHinCalf' morph, not found"
+        assert t4.offsetmorphs['BTTHinCalf'][5][0] == t5.offsetmorphs['BTTHinCalf'][5][0], \
+            f"Error: Expected same vert indices: expected {t4.offsetmorphs['BTTHinCalf'][5][0]}, found {t5.offsetmorphs['BTTHinCalf'][5][0]}"
+        assert t4.offsetmorphs['BTTHinCalf'][5][1] == t5.offsetmorphs['BTTHinCalf'][5][1], \
+            f"Error: Expected same offsets: expected { t4.offsetmorphs['BTTHinCalf'][5][1]}, found {t5.offsetmorphs['BTTHinCalf'][5][1]}"
+
 
         print("DONE")
