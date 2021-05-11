@@ -9,7 +9,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 20), 
+    "version": (0, 0, 21), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -321,12 +321,41 @@ def create_shape_keys(obj, tri:TriFile):
             key_vert.co[1] = morph_vert[1]
             key_vert.co[2] = morph_vert[2]
         
-        mesh.update
+        mesh.update()
+
+def create_trip_shape_keys(obj, trip:TripFile):
+    """Adds the shape keys in trip to obj 
+        """
+    mesh = obj.data
+    verts = mesh.vertices
+
+    for morph_name, morph_verts in trip.offsetmorphs.items():
+        newsk = obj.shape_key_add()
+        newsk.name = morph_name
+
+        obj.active_shape_key_index = len(mesh.shape_keys.key_blocks) - 1
+        #This is a pointer, not a copy
+        mesh_key_verts = mesh.shape_keys.key_blocks[obj.active_shape_key_index].data
+        #log.debug(f"Morph {morph_name} in tri file should have same number of verts as Blender shape: {len(mesh_key_verts)} != {len(morph_verts)}")
+        for vert_index, offsets in morph_verts:
+            for i in range(3):
+                mesh_key_verts[vert_index].co[i] = verts[vert_index].co[i] + offsets[i]
+        
+        mesh.update()
 
 def import_tri(filepath):
+    cobj = bpy.context.object
+
+    trip = TripFile.from_file(filepath)
+    if trip.is_valid:
+        if cobj is None or cobj.type != "MESH":
+            log.info(f"Loading a Bodyslide TRI -- requires a matching selected mesh")
+            raise "Cannot import Bodyslide TRI file without a selected object"
+        create_trip_shape_keys(cobj, trip)
+        return cobj
+
     tri = TriFile.from_file(filepath)
 
-    cobj = bpy.context.object
     new_object = None
 
     if cobj:
@@ -334,12 +363,14 @@ def import_tri(filepath):
         if cobj.type == "MESH":
             log.debug(f"Selected mesh vertex match: {len(cobj.data.vertices)}/{len(tri.vertices)}")
 
-
     # Check whether selected object should receive shape keys
-    if cobj and cobj.type == "MESH" and len(cobj.data.vertices) == len(tri.vertices):
+    if cobj and cobj.type == "MESH" and (trip.is_valid or len(cobj.data.vertices) == len(tri.vertices)):
         new_object = cobj
         new_mesh = new_object.data
         log.info(f"Verts match, loading tri into existing shape {new_object.name}")
+    elif trip.is_valid:
+        log.info(f"Loading a Bodyslide TRI -- requires a matching selected mesh")
+        raise "Cannot import Bodyslide TRI file without a selected object"
 
     if new_object is None:
         new_mesh = bpy.data.meshes.new(os.path.basename(filepath))
@@ -395,6 +426,7 @@ def export_tris(nif, obj, verts, tris, loops, uvs, morphdict):
     
     if len(expression_morphs) > 0:
         log.info(f"Generating tri file '{fname_tri}'")
+        #log.debug(f"Expression morphs: {expression_morphs}")
         tri.write(fname_tri, expression_morphs)
 
     if len(chargen_morphs) > 0:
@@ -432,60 +464,65 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
 
 # ### ---------------------------- EXPORT -------------------------------- ###
 
-def extract_face_info(bm, use_custom_normals):
-    """ Extract face info from the bmesh 
+def select_all_faces(workingctx, mesh):
+    bpy.ops.object.mode_set(mode = 'OBJECT')
+    for f in mesh.polygons:
+        f.select = True
+
+
+def extract_face_info(ctxt, mesh):
+    """ Extract face info from the mesh. Mesh is triangularized. 
         Return 
         loops = [vert-index, ...] list of vert indices in loops (which are tris)
         uvs = [(u,v), ...] list of uv coordinates 1:1 with loops
         norms = [(x,y,z), ...] list of normal vectors 1:1 with loops
+        --Normal vectors come from the loops, because they reflect whether the edges
+        are sharp or the object has flat shading
         """
-    uv_lay = bm.loops.layers.uv.active
     loops = []
     uvs = []
     norms = []
-    bm.faces.ensure_lookup_table()
-    for f in bm.faces:
-        for seg in f.loops:
-            loops.append(seg.vert.index)
-            uvs.append(seg[uv_lay].uv[:])
-            if use_custom_normals:
-                x, y, z = seg.calc_normal()[:]
-                norms.append((-x, -y, -z))
-            else:
-                norms.append(seg.vert.normal[:])
+    uvlayer = mesh.uv_layers.active.data
+
+    bpy.ops.object.mode_set(mode='OBJECT') #required to get UVs
+    for f in mesh.polygons:
+        for i in f.loop_indices:
+            loopseg = mesh.loops[i]
+            loops.append(loopseg.vertex_index)
+            uvs.append(uvlayer[i].uv[:])
+            #if mesh.has_custom_normals:
+            norms.append(loopseg.normal[:])
+            #log.debug(f"LOOP NORMAL: {i} = {loopseg.normal[:]}")
+            #else:
+            #    norms.append(mesh.vertices[loopseg.vertex_index].normal[:])
+
     return loops, uvs, norms
 
 
-def extract_vert_info(obj, bm, target_key=''):
+def extract_vert_info(obj, mesh, target_key=''):
     """Returns 5 lists of equal length with one entry each for each vertex
         verts = [(x, y, z)... ] - base or as modified by target-key if provided
-        weights = [{group-name: weight}... ]
+        weights = [{group-name: weight}... ] - 1:1 with verts list
         dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
             if "target_key" is specified this will be empty
         """
-    verts = []
     weights = []
-    deform_layer = bm.verts.layers.deform.active
-    key_layer = None
-    if target_key != '':
-        key_layer = bm.verts.layers.shape[target_key]
-    bm.verts.ensure_lookup_table()
-    for v in bm.verts:
-        if target_key == '':
-            verts.append(v.co[:])
-        else:
-            verts.append(v[key_layer][:])
-        if deform_layer:
-            vert_weights = {}
-            for g, w in v[deform_layer].items():
-                vert_weights[obj.vertex_groups[g].name] = w
-            weights.append(vert_weights)
-    
     morphdict = {}
-    if target_key == '' and len(bm.verts.layers.shape) > 0:
-        for name, morph in bm.verts.layers.shape.items():
-            if name != "Basis":
-                morphdict[name] = [v[morph][:] for v in bm.verts]
+
+    if target_key != '' and mesh.shape_keys:
+        verts = [v.co[:] for v in mesh.shape_keys.key_blocks[target_key].data]
+    else:
+        verts = [v.co[:] for v in mesh.vertices]
+
+    for v in mesh.vertices:
+        vert_weights = {}
+        for vg in v.groups:
+            vert_weights[obj.vertex_groups[vg.group].name] = vg.weight
+        weights.append(vert_weights)
+    
+    if target_key == '' and mesh.shape_keys:
+        for sk in mesh.shape_keys.key_blocks:
+            morphdict[sk.name] = [v.co[:] for v in sk.data]
 
     return verts, weights, morphdict
 
@@ -532,26 +569,16 @@ def export_skin(obj, new_shape, new_xform, weights_by_vert):
             new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
 
 
-def tag_unweighted(obj, bm, bones):
-    """ Find and return verts that are not weighted to any given bone 
+def tag_unweighted(obj, bones):
+    """ Find and return verts that are not weighted to any of the given bones 
         result = (v_index, ...) list of indices into the vertex list
     """
-    log.debug("..Checking for unweighted verts")
-    bm.verts.ensure_lookup_table()
+    log.debug(f"..Checking for unweighted verts on {obj.name}")
     unweighted_verts = []
-    deform_layer = bm.verts.layers.deform.active
-    if deform_layer:
-        #log.debug("Have deform layer")
-        for v_index, v in enumerate(bm.verts):
-            max_weight = 0.0;
-            for g, w in v[deform_layer].items():
-                #if v_index==2945: log.debug(f"Vert 2945 in group {obj.vertex_groups[g].name} with weight {w}")
-                if obj.vertex_groups[g].name in bones:
-                    max_weight = max(max_weight, w)
-            if max_weight < 0.0001:
-                unweighted_verts.append(v_index)
-    #else:
-    #    log.debug("No deform layer")
+    for v in obj.data.vertices:
+        maxweight = max([g.weight for g in v.groups])
+        if maxweight < 0.0001:
+            unweighted_verts.append(v.index)
     log.debug(f"..Unweighted vert count: {len(unweighted_verts)}")
     return unweighted_verts
 
@@ -593,30 +620,53 @@ def export_shape(nif, obj, target_key=''):
         """
     log.info("Exporting " + obj.name)
     mesh = obj.data
+    workingctx = bpy.context # bpy.context.copy()
+    retval = {'FINISHED'}
+
     is_skinned = (obj.parent and obj.parent.type == 'ARMATURE')
     unweighted = []
-    retval = {'FINISHED'}
-    
-    bm = bmesh.new()
-    try:
-        if mesh.has_custom_normals:
-            mesh.calc_normals_split()
-        else:
-            mesh.calc_normals()
-        bm.from_mesh(mesh, face_normals=True)
-    
-        if is_skinned:
-            # Get unweighted bones before we muck up the list by splitting edges
-            unweighted = tag_unweighted(obj, bm, obj.parent.data.bones.keys())
-            if not expected_game(nif, obj.parent.data.bones):
-                log.warning(f"Exporting to game that doesn't match armature: game={nif.game}, armature={obj.parent.name}")
-                retval.add('GAME')
+        
+    if is_skinned:
+        # Get unweighted bones before we muck up the list by splitting edges
+        unweighted = tag_unweighted(obj, obj.parent.data.bones.keys())
+        if not expected_game(nif, obj.parent.data.bones):
+            log.warning(f"Exporting to game that doesn't match armature: game={nif.game}, armature={obj.parent.name}")
+            retval.add('GAME')
 
-        log.info("..Triangulating mesh")
-        bmesh.ops.triangulate(bm, faces=bm.faces[:])
-        bm.normal_update()
-        verts, weights_by_vert, morphdict = extract_vert_info(obj, bm, target_key)
-        loops, uvs, norms = extract_face_info(bm, mesh.has_custom_normals)
+    log.info("..Triangulating mesh")
+    originalmesh = mesh.copy()
+    try:
+        editmesh = mesh
+        #tempobj = bpy.data.objects.new("pynifly_tmp", editmesh)
+        #tempobj.data = editmesh
+        #workingctx.collection.objects.link(tempobj)
+        #workingctx.view_layer.objects.active = tempobj
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        #workingctx.scene.objects.active = ob
+
+        # Can't figure out how to get custom normals out of a bmesh. Can't figure out how to triangulate
+        # a copy of a regular mesh. So do this hack.
+        #bm = bmesh.new()
+        #bm.from_mesh(mesh)
+        #bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method='BEAUTY', ngon_method='BEAUTY')
+        #editmesh = mesh.copy()
+        #bm.to_mesh(editmesh)
+
+        select_all_faces(workingctx, editmesh)
+        bpy.ops.object.mode_set(mode = 'EDIT')
+        bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
+
+        editmesh.update()
+        bpy.ops.object.mode_set(mode = 'OBJECT')
+        log.debug("Done triangulation")
+        
+        # Calculate the normals--have to do this after triangularization and in object mode
+        editmesh.calc_normals()
+        editmesh.calc_normals_split()
+
+        verts, weights_by_vert, morphdict = extract_vert_info(obj, editmesh, target_key)
+        loops, uvs, norms = extract_face_info(workingctx, editmesh)
     
         log.info("..Splitting mesh along UV seams")
         mesh_split_by_uv(verts, norms, loops, uvs, weights_by_vert, morphdict)
@@ -624,49 +674,38 @@ def export_shape(nif, obj, target_key=''):
         uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
         norms_new = [norms[loops.index(i)] for i in range(len(verts))]
         tris = [(loops[i], loops[i+1], loops[i+2]) for i in range(0, len(loops), 3)]
+    finally:
+        obj.data = originalmesh
     
-        log.info("..Exporting to nif")
-        new_shape = nif.createShapeFromData(mesh.name, verts, tris, uvmap_new, norms_new)
+    log.info("..Exporting to nif")
+    new_shape = nif.createShapeFromData(mesh.name, verts, tris, uvmap_new, norms_new)
 
-        if is_skinned:
-            nif.createSkin()
+    if is_skinned:
+        nif.createSkin()
 
-        new_xform = MatTransform();
-        new_xform.translation = obj.location
-        #rot = RotationMatrix.from_euler(obj.rotation_euler[0], 
-        #                                obj.rotation_euler[1], 
-        #                                obj.rotation_euler[2])
-        #if rot is not None:
-        #    new_xform.rotation = rot
-        #else:
-        #    print(f"Warning: Invalid rotation matrix on {obj.name}")
-        new_xform.rotation = RotationMatrix((obj.matrix_local[0][0:3], 
-                                             obj.matrix_local[1][0:3], 
-                                             obj.matrix_local[2][0:3]))
+    new_xform = MatTransform();
+    new_xform.translation = obj.location
+    new_xform.rotation = RotationMatrix((obj.matrix_local[0][0:3], 
+                                            obj.matrix_local[1][0:3], 
+                                            obj.matrix_local[2][0:3]))
 
-        if obj.scale[0] != obj.scale[1] or obj.scale[0] != obj.scale[2]:
-           log.warning("Object scale not uniform, using x-value") # apply scale to verts?   
-           retval.add('SCALE')
-        new_xform.scale = obj.scale[0]
+    if obj.scale[0] != obj.scale[1] or obj.scale[0] != obj.scale[2]:
+        log.warning("Object scale not uniform, using x-value") # apply scale to verts?   
+        retval.add('SCALE')
+    new_xform.scale = obj.scale[0]
         
-        if is_skinned:
-            export_skin(obj, new_shape, new_xform, weights_by_vert)
-            if len(unweighted) > 0:
-                create_group_from_verts(obj, "*UNWEIGHTED*", unweighted)
-                log.warning("Some vertices are not weighted to the armature")
-                retval.add('UNWEIGHTED')
-        else:
-            new_shape.transform = new_xform
+    if is_skinned:
+        export_skin(obj, new_shape, new_xform, weights_by_vert)
+        if len(unweighted) > 0:
+            create_group_from_verts(obj, "*UNWEIGHTED*", unweighted)
+            log.warning("Some vertices are not weighted to the armature")
+            retval.add('UNWEIGHTED')
+    else:
+        new_shape.transform = new_xform
 
-        log.info(f"Export tris {obj.name}")
-        export_tris(nif, obj, verts, tris, loops, uvmap_new, morphdict)
+    log.info(f"Export tris {obj.name}")
+    export_tris(nif, obj, verts, tris, loops, uvmap_new, morphdict)
 
-    except:
-        bm.free()
-        raise 
-
-    bm.free()
-    
     log.info(f"..{obj.name} successfully exported")
     return retval
 
@@ -833,14 +872,14 @@ def append_collection(objname, with_parent, filepath, innerpath, targetobj):
     bpy.ops.wm.append(filepath=file_path,
                       directory=file_path + innerpath,
                       filename=targetobj)
-    return bpy.data.objects[targetobj]
+    return bpy.data.objects[objname]
 
 
 def run_tests():
     print("######################### TESTING ##########################")
 
-    TEST_BPY_ALL = False
-    TEST_EXPORT = False
+    TEST_BPY_ALL = True
+    TEST_EXPORT = True
     TEST_IMPORT_ARMATURE = False
     TEST_EXPORT_WEIGHTS = False
     TEST_UNIT = False
@@ -854,7 +893,7 @@ def run_tests():
     TEST_CONNECTED_SKEL = False
     TEST_TRI = False
     TEST_0_WEIGHTS = False
-    TEST_SPLIT_NORMAL = True
+    TEST_SPLIT_NORMAL = False
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -874,6 +913,8 @@ def run_tests():
         bpy.ops.mesh.primitive_cube_add()
         cube = bpy.context.selected_objects[0]
         cube.name = "TestCube"
+        log.debug("TODO: support objects with flat shading or autosmooth properly")
+        for f in cube.data.polygons: f.use_smooth = True
         filepath = os.path.join(pynifly_dev_path, r"tests\Out\testSkyrim01.nif")
         f = NifFile()
         f.initialize("SKYRIM", filepath)
@@ -892,10 +933,10 @@ def run_tests():
 
         new_cube = bpy.context.selected_objects[0]
         assert 'Cube' in new_cube.name, "ERROR: cube not named correctly"
-        assert len(new_cube.data.vertices) == 14, "ERROR: Cube doesn't have right number of verts"
+        assert len(new_cube.data.vertices) == 14, f"ERROR: Cube should have 14 verts, has {len(new_cube.data.vertices)}"
         assert len(new_cube.data.uv_layers) == 1, "ERROR: Cube doesn't have a UV layer"
-        assert len(new_cube.data.uv_layers[0].data) == 36, "ERROR: Cube doesn't have a UV locations"
-        assert len(new_cube.data.polygons) == 12, "ERROR: Cube doesn't have a UV locations"
+        assert len(new_cube.data.uv_layers[0].data) == 36, f"ERROR: Cube should have 36 UV locations, has {len(new_cube.data.uv_layers[0].data)}"
+        assert len(new_cube.data.polygons) == 12, f"ERROR: Cube should have 12 polygons, has {len(new_cube.data.polygons)}"
         # bpy.data.objects.remove(cube, do_unlink=True)
 
         print("## And can do the same for FO4")
@@ -903,6 +944,7 @@ def run_tests():
         bpy.ops.mesh.primitive_cube_add()
         cube = bpy.context.selected_objects[0]
         cube.name = "TestCube"
+        for f in cube.data.polygons: f.use_smooth = True
         filepath = os.path.join(pynifly_dev_path, r"tests\Out\testFO401.nif")
         f = NifFile()
         f.initialize("FO4", filepath)
@@ -921,10 +963,10 @@ def run_tests():
 
         new_cube = bpy.context.selected_objects[0]
         assert 'Cube' in new_cube.name, "ERROR: cube not named correctly"
-        assert len(new_cube.data.vertices) == 14, "ERROR: Cube doesn't have right number of verts"
+        assert len(new_cube.data.vertices) == 14, f"ERROR: Cube should have 14 verts, has {len(new_cube.data.vertices)}"
         assert len(new_cube.data.uv_layers) == 1, "ERROR: Cube doesn't have a UV layer"
-        assert len(new_cube.data.uv_layers[0].data) == 36, "ERROR: Cube doesn't have a UV locations"
-        assert len(new_cube.data.polygons) == 12, "ERROR: Cube doesn't have a UV locations"
+        assert len(new_cube.data.uv_layers[0].data) == 36, f"ERROR: Cube should have 36 UV locations, has {len(new_cube.data.uv_layers[0].data)}"
+        assert len(new_cube.data.polygons) == 12, f"ERROR: Cube should have 12 polygons, has {len(new_cube.data.polygons)}"
         # bpy.data.objects.remove(cube, do_unlink=True)
 
     if TEST_BPY_ALL or TEST_IMPORT_ARMATURE:
@@ -1274,7 +1316,8 @@ def run_tests():
         assert not os.path.exists(testout2chg), f"{testout2chg} should not have been created"
         assert len(nif2.shapes[0].verts) == len(tri2.vertices), f"Error vert count should match, {len(nif2.shapes[0].verts)} vs {len(tri2.vertices)}"
         assert len(nif2.shapes[0].tris) == len(tri2.faces), f"Error vert count should match, {len(nif2.shapes[0].tris)} vs {len(tri2.faces)}"
-        assert tri2.header.morphNum == len(triobj.data.shape_keys.key_blocks)-1, f"Error: morph count should match, {tri2.header.morphNum} vs {len(triobj.data.shape_keys.key_blocks)-1}"
+        assert tri2.header.morphNum == len(triobj.data.shape_keys.key_blocks), \
+            f"Error: morph count should match, file={tri2.header.morphNum} vs {triobj.name}={len(triobj.data.shape_keys.key_blocks)}"
         
         print('### Tri and chargen export as expected')
 
