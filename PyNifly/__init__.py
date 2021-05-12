@@ -332,7 +332,8 @@ def create_trip_shape_keys(obj, trip:TripFile):
     newsk = obj.shape_key_add()
     newsk.name = "Basis"
 
-    for morph_name, morph_verts in trip.offsetmorphs.items():
+    offsetmorphs = trip.shapes[obj.name]
+    for morph_name, morph_verts in offsetmorphs.items():
         newsk = obj.shape_key_add()
         newsk.name = ">" + morph_name
 
@@ -345,6 +346,29 @@ def create_trip_shape_keys(obj, trip:TripFile):
                 mesh_key_verts[vert_index].co[i] = verts[vert_index].co[i] + offsets[i]
         
         mesh.update()
+
+
+def import_trip(filepath, target_objs):
+    """ Import a BS Tri file. 
+        These TRI files do not have full shape data so they have to be matched to one of the 
+        objects in target_objs.
+        return = True if the file is a BS Tri file
+        """
+    result = {}
+    trip = TripFile.from_file(filepath)
+    if trip.is_valid:
+        for shapename, offsetmorphs in trip.shapes.items():
+            matchlist = [o for o in target_objs if o.name == shapename]
+            if len(matchlist) == 0:
+                log.warning("BS Tri file shape does not match any selected object: {shapename}")
+                result.add('WARNING')
+            else:
+                create_trip_shape_keys(matchlist[0], trip)
+    else:
+        result.add('WRONGTYPE')
+
+    return result
+
 
 def import_tri(filepath):
     cobj = bpy.context.object
@@ -399,7 +423,7 @@ def import_tri(filepath):
     return new_object
 
 
-def export_tris(nif, obj, verts, tris, loops, uvs, morphdict):
+def export_tris(nif, trip, obj, verts, tris, loops, uvs, morphdict):
     """ Export a tri file to go along with the given nif file, if there are shape keys 
     """
     result = {'FINISHED'}
@@ -410,7 +434,6 @@ def export_tris(nif, obj, verts, tris, loops, uvs, morphdict):
     fpath = os.path.split(nif.filepath)
     fname = os.path.splitext(fpath[1])
     fname_tri = os.path.join(fpath[0], fname[0] + ".tri")
-    fname_trip = os.path.join(fpath[0], fname[0] + ".tri")
     fname_chargen = os.path.join(fpath[0], fname[0] + "_chargen.tri")
 
     # Don't export anything that starts with an underscore or asterisk
@@ -423,7 +446,6 @@ def export_tris(nif, obj, verts, tris, loops, uvs, morphdict):
     if len(expression_morphs) > 0 and len(trip_morphs) > 0:
         log.warning(f"Found both expression morphs and BS tri morphs in shape {obj.name}. May be an error.")
         result = {'WARNING'}
-        fname_trip =  os.path.join(fpath[0], fname[0] + "_bodyslide.tri")
 
     if len(expression_morphs) > 0 or len(chargen_morphs) > 0:
         tri = TriFile()
@@ -443,11 +465,8 @@ def export_tris(nif, obj, verts, tris, loops, uvs, morphdict):
             tri.write(fname_chargen, chargen_morphs)
 
     if len(trip_morphs) > 0:
-        log.info(f"Generating BS tri file '{fname_trip}'")
-        trip = TripFile()
-        trip.shapename = obj.name
-        trip.set_morphs(morphdict, verts)
-        trip.write(fname_trip)
+        log.info(f"Generating BS tri shapes for '{obj.name}'")
+        trip.set_morphs(obj.name, morphdict, verts)
 
     return result
 
@@ -464,7 +483,11 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
         status = {'FINISHED'}
 
         try:
-            import_tri(self.filepath)
+            
+            v = import_trip(self.filepath, context.selected_objects)
+            if 'WRONGTYPE' in v:
+                import_tri(self.filepath)
+            status.union(v)
         
             for area in bpy.context.screen.areas:
                 if area.type == 'VIEW_3D':
@@ -473,12 +496,15 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
                     ctx['region'] = area.regions[-1]
                     bpy.ops.view3d.view_selected(ctx)
 
+            if 'WARNING' in status:
+                self.report({"ERROR"}, "Import completed with warnings, see console for details")
+
         except:
             log.exception("Import of tri failed")
             self.report({"ERROR"}, "Import of tri failed, see console window for details")
             status = {'CANCELLED'}
                 
-        return status
+        return status.intersection({'FINISHED', 'CANCELLED'})
 
 # ### ---------------------------- EXPORT -------------------------------- ###
 
@@ -633,9 +659,10 @@ def expected_game(nif, bonelist):
     return matchgame == "" or matchgame == nif.game
 
 
-def export_shape(nif, obj, target_key=''):
+def export_shape(nif, trip, obj, target_key=''):
     """Export given blender object to the given NIF file
         nif = target nif file
+        trip = target file for BS Tri shapes
         obj = blender object
         target_key = shape key to export
         """
@@ -699,7 +726,7 @@ def export_shape(nif, obj, target_key=''):
         obj.data = originalmesh
     
     log.info("..Exporting to nif")
-    new_shape = nif.createShapeFromData(mesh.name, verts, tris, uvmap_new, norms_new)
+    new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_new)
 
     if is_skinned:
         nif.createSkin()
@@ -724,7 +751,7 @@ def export_shape(nif, obj, target_key=''):
     else:
         new_shape.transform = new_xform
 
-    retval.union(export_tris(nif, obj, verts, tris, loops, uvmap_new, morphdict))
+    retval.union(export_tris(nif, trip, obj, verts, tris, loops, uvmap_new, morphdict))
 
     log.info(f"..{obj.name} successfully exported")
     return retval
@@ -732,8 +759,9 @@ def export_shape(nif, obj, target_key=''):
 
 def export_shape_to(shape, filepath, game):
     outnif = NifFile()
+    outtrip = TripFile()
     outnif.initialize(game, filepath)
-    ret = export_shape(outnif, shape)
+    ret = export_shape(outnif, outtrip, shape) 
     outnif.save()
     return ret
 
@@ -821,16 +849,22 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 shape_keys = get_with_uscore(get_common_shapes(objs_to_export))
                 if len(shape_keys) == 0:
                     shape_keys.append('') # just export the plain file
+                
                 for sk in shape_keys:
-                    fn = os.path.splitext(os.path.basename(self.filepath))
-                    fn = clean_filename(fn[0] + sk + fn[1])
-                    fp = os.path.join(os.path.dirname(self.filepath), fn)
-                    log.info('..Exporting to ' + self.target_game + ' ' + fp)
+                    fname_ext = os.path.splitext(os.path.basename(self.filepath))
+                    fbasename = fname_ext[0] + sk
+                    fnamefull = fbasename + fname_ext[1]
+                    fpath = os.path.join(os.path.dirname(self.filepath), fnamefull)
+
+                    log.info(f"..Exporting to {self.target_game} {fpath}")
                     exportf = NifFile()
-                    exportf.initialize(self.target_game, fp)
+                    exportf.initialize(self.target_game, fpath)
+
+                    trip = TripFile()
+
                     for obj in objs_to_export:
-                        r = export_shape(exportf, obj, sk)
-                        log.debug(f"Exported shape {obj.name} with result {str(r)}")
+                        r = export_shape(exportf, trip, obj, sk)
+                        #log.debug(f"Exported shape {obj.name} with result {str(r)}")
                         if 'UNWEIGHTED' in r:
                             objs_unweighted.append(obj.name)
                         if 'SCALE' in r:
@@ -838,7 +872,12 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                         if 'GAME' in r:
                             arma_game.append(obj.parent.name)
                         res = res.union(r)
+
                     exportf.save()
+
+                    if len(trip.shapes) > 0:
+                        trip.write(os.path.join(os.path.dirname(self.filepath), fname_ext[0]) 
+                                   + ".tri")
             
             rep = False
             if 'UNWEIGHTED' in res:
@@ -859,10 +898,9 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         except:
             log.exception("Export of nif failed")
             self.report({"ERROR"}, "Export of nif failed, see console window for details")
-            #print("ERROR exporting nif")
-            #traceback.print_exc()
             res.add("CANCELLED")
 
+        log.info("Export successful")
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 
 
@@ -947,10 +985,7 @@ def run_tests():
         log.debug("TODO: support objects with flat shading or autosmooth properly")
         for f in cube.data.polygons: f.use_smooth = True
         filepath = os.path.join(pynifly_dev_path, r"tests\Out\testSkyrim01.nif")
-        f = NifFile()
-        f.initialize("SKYRIM", filepath)
-        export_shape(f, cube)
-        f.save()
+        export_shape_to(cube, filepath, "SKYRIM")
 
         assert os.path.exists(filepath), "ERROR: Didn't create file"
         bpy.data.objects.remove(cube, do_unlink=True)
@@ -977,10 +1012,7 @@ def run_tests():
         cube.name = "TestCube"
         for f in cube.data.polygons: f.use_smooth = True
         filepath = os.path.join(pynifly_dev_path, r"tests\Out\testFO401.nif")
-        f = NifFile()
-        f.initialize("FO4", filepath)
-        export_shape(f, cube)
-        f.save()
+        export_shape_to(cube, filepath, "FO4")
 
         assert os.path.exists(filepath), "ERROR: Didn't create file"
         bpy.data.objects.remove(cube, do_unlink=True)
@@ -1269,8 +1301,8 @@ def run_tests():
         outfile = os.path.join(pynifly_dev_path, r"tests\Out\baby01.nif")
         outnif = NifFile()
         outnif.initialize("FO4", outfile)
-        export_shape(outnif, eyes)
-        export_shape(outnif, head)
+        export_shape(outnif, TripFile(), eyes)
+        export_shape(outnif, TripFile(), head)
         outnif.save()
 
         testnif = NifFile(outfile)
