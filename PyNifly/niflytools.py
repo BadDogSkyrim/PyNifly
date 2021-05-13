@@ -314,7 +314,6 @@ def mesh_split_by_uv(verts, norms, loops, uvmap, weights, morphdict):
                 #print("..not found, creating new vert")
                 new_index = len(verts)
                 verts.append(verts[vert_idx])
-                norms.append(norms[vert_idx])
                 if weights:
                     weights.append(weights[vert_idx])
                 for vlist in morphdict.values():
@@ -484,6 +483,7 @@ skyrimExpressions = ['Basis', 'Aah', 'BigAah', 'BlinkLeft', 'BlinkRight', 'BMP',
 skyrimDict = BoneDict(skyrimBones, skyrimExpressions)
 
 fo4Bones = [
+    SkeletonBone('Root', 'Root', None),
     SkeletonBone('COM', 'COM', 'Root'),
     SkeletonBone('Pelvis', 'Pelvis', 'COM'),
     SkeletonBone('Leg_Thigh.L', 'LLeg_Thigh', 'Pelvis'),
@@ -695,7 +695,9 @@ fo4Expressions = ['Basis', 'UprLipRollOut', 'UprLipRollIn', 'UprLipFunnel', 'Sti
     'RBrowOutUp', 'Pucker', 'JawOpen', 'JawFwd', 'BrowSqueeze', 'LUprLipUp', 
     'LUprLipDn', 'LUprLidUp', 'LUprLidDn', 'LSmile', 'LOutBrowDn', 'LNoseUp', 
     'LMidBrowUp', 'LMidBrowDn', 'LLwrLipUp', 'LLwrLipDn', 'LLwrLidUp', 'LLwrLidDn', 
-    'LLipCornerOut', 'LLipCornerIn', 'LJaw', 'LFrown', 'LCheekUp', 'LBrowOutUp']
+    'LLipCornerOut', 'LLipCornerIn', 'LJaw', 'LFrown', 'LCheekUp', 'LBrowOutUp',
+    'LwrLipRollOut', 'LwrLipFunnel', 'LwrLipRollIn'
+    ]
 
 fo4Dict = BoneDict(fo4Bones, fo4Expressions)
 
@@ -715,7 +717,6 @@ if __name__ == "__main__":
     print("--Can split verts of a triangularized plane")
     # Verts 4 & 5 are on a seam
     verts = [(-1.0, -1.0, 0.0), (1.0, -1.0, 0.0), (-1.0, 1.0, 0.0), (1.0, 1.0, 0.0), (0.0, -1.0, 0.0), (0.0, 1.0, 0.0)]
-    norms = [(0.0, 0.0, 1.0), (0.0, 0.0, 2.0), (0.0, 0.0, 3.0), (0.0, 0.0, 4.0), (0.0, 0.0, 5.0), (0.0, 0.0, 6.0)]
     weights = [{0: 0.4},
                {0: 0.6},
                {0: 1.0},
@@ -726,6 +727,13 @@ if __name__ == "__main__":
              4, 2, 0,
              1, 3, 5,
              4, 5, 2]
+    norms = [(0.0, 0.0, 2.0), (0.0, 0.0, 6.0), (0.0, 0.0, 5.0), 
+             (0.0, 0.0, 5.0), (0.0, 0.0, 3.0), (0.0, 0.0, 1.0), 
+             (0.0, 0.0, 2.0), (0.0, 0.0, 4.0), (0.0, 0.0, 6.0),
+             (0.0, 0.0, 5.0), (0.0, 0.0, 6.0), (0.0, 0.0, 3.0)]
+    #norms = [(0.0, 0.0, 1.0), (0.0, 0.0, 2.0), (0.0, 0.0, 3.0), 
+    #         (0.0, 0.0, 4.0), (0.0, 0.0, 5.0), (0.0, 0.0, 6.0)
+    #         ]
     uvs = [(0.9, 0.1), (0.6, 0.9), (0.6, 0.1),
            (0.4, 0.1), (0.1, 0.9), (0.1, 0.1),
            (0.9, 0.1), (0.9, 0.9), (0.6, 0.9),
@@ -739,7 +747,7 @@ if __name__ == "__main__":
 
     # Vert 5 got split into 5 & 7. Data should be the same.
     assert len(verts) == 8, "Error: wrong number of verts after edge splitting"
-    assert len(norms) == 8, "Error: wrong number of normals after edge splitting"
+    assert len(norms) == len(loops), "Error: Count of normals shouldn't change"
     assert len(weights) == 8, "Error: wrong number of weights after edge splitting"
     assert len(morphdict["by2"]) == 8, "Error wrong number of verts in morph after splitting"
     assert len(morphdict["by3"]) == 8, "Error wrong number of verts in morph after splitting"
@@ -747,7 +755,6 @@ if __name__ == "__main__":
     assert verts.count((0.0, -1.0, 0.0)) == 2, "Error: Duplicating vert on seam"
     assert morphdict["by3"].count((0.0, -3.0, 0.0)) == 2, "Error: Duplicating vert on seam in morph"
     assert verts[5] == verts[7], "Error: Duplicating vert 5 to vert 7"
-    assert norms[5] == norms[7], "Error: Duplicating norms correctly"
     assert weights[5] == weights[7], "Error: Duplicating weights correctly"
     # Any loop entry referencing vert 5 should have same UV location as one referencing 7
     assert loops[1] == 5 and loops[10] == 7 and uvs[1] != uvs[10], "Error: Duplicating UV locations correctly"

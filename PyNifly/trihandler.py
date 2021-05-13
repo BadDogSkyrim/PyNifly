@@ -16,7 +16,10 @@
 # ***** END GPL LICENCE BLOCK *****
 # --------------------------------------------------------------------------
 """
-For Blender 2.92 or greater. May work on eariler versions at your own risk.
+Imports & exports tri files and the Bodyslide variant of tri files.
+
+This module has no Blender dependencies. It just pulls the data out of the file and puts it 
+in a python-friendly format.
 
 Code adapted by Bad Dog from tri export/importer
 Original author listed as "Core script by kapaer, modvertice support by deedes"
@@ -143,7 +146,8 @@ class TriFile():
     def read_morph(self, file):
         """ Reads a single morph from a tri file
             file = file object positioned at start of morph
-            returns = (morph-name, [(x,y,z), ...]) list of new vert positions defined by the morph
+            returns = (morph-name, [(x,y,z), ...]) list of new vert positions defined by the 
+                morph
             """
         morph_index = len(self.morphs) 
         tmp_data = file.read(INT_LEN)
@@ -468,24 +472,21 @@ class TriFile():
 
         self.header.morphNum = len(morphlist)
         for morphName in morphlist:
+            self.log.debug(f"..exporting morph {morphName}")
             verts_diff = [[]] * len(self.vertices)		#list to save vertices to
             max_diff = 0
             fullMorphNameList.append(morphName)
-            #The TRI format saves the offset data in a 'normalized' form. The largets difference is used as a factor to apply to all the offset values
-            #So, the largest difference needs to be found
-            #self.log.debug(f"Writing shape verts for {morphName} value is {type(self.morphs[morphName])}")
+
+            #The TRI format saves the offset data in a 'normalized' form.  The largets
+            #difference is used as a factor to apply to all the offset values So, the
+            #largest difference needs to be found self.log.debug(f"Writing shape verts
+            #for {morphName} value is {type(self.morphs[morphName])}")
             shape_verts = self.morphs[morphName]
             vert_idx = 0
-            #self.log.debug(f"First vertices from shape: {shape_verts[0]}, from object: {self.vertices[0]}")
+
             for nv, bv in zip(shape_verts, self.vertices):
                 data = (nv[0] - bv[0], nv[1] - bv[1], nv[2] - bv[2])
                 max_diff = max(abs(data[0]), abs(data[1]), abs(data[2]), max_diff)
-                    #if abs(data[0]) > max_diff:
-                    #    max_diff = abs(data[0])
-                    #if abs(data[1]) > max_diff:
-                    #    max_diff = abs(data[1])
-                    #if abs(data[2]) > max_diff:
-                    #    max_diff = abs(data[2])
                 verts_diff[verts_reorder_mapping[vert_idx]] = data
                 vert_idx = vert_idx + 1
 
@@ -493,13 +494,14 @@ class TriFile():
             #this, but I like hex.  Frogs everywhere.
             diff_base = max_diff / 0x7fff
                 
-            #If the diff is 0, then the morph and the base are identical.  That's fine, but the
-            #normalization factor shouldn't be 0!  Another way to do this would be to just set all
-            #the diff values to 0 in the loop below.  They should, indeed, all be 0 since v[0-2]
-            #will all be 0 since the difference calculated above was all exactly 0 or below
-            #precision of float.  This effectively adds a built-in floor to the amount of offset
-            #the export will allow, but I don't think rendering programs will genreally allow that
-            #level of precision anyway, heh
+            #If the diff is 0, then the morph and the base are identical.  That's fine,
+            #but the normalization factor shouldn't be 0!  Another way to do this would
+            #be to just set all the diff values to 0 in the loop below.  They should,
+            #indeed, all be 0 since v[0-2] will all be 0 since the difference calculated
+            #above was all exactly 0 or below precision of float.  This effectively adds
+            #a built-in floor to the amount of offset the export will allow, but I don't
+            #think rendering programs will genreally allow that level of precision
+            #anyway, heh
             if diff_base == 0: 
                 diff_base = 1
             
@@ -540,10 +542,10 @@ class TriFile():
 
             modHeaderArrayToPack[self.header.addMorphNum-1].append( int(verticeAdded) )
 
-            #modHeaderPacked is the list of vertex indices referencing the base model array.  The
-            #index into this list is the same as the index into the list of actual mod vertices
-            #(modVerticePacked).  It indicates to which vertex in the base model the offset given
-            #in the modVerticePacked applies
+            # modHeaderPacked is the list of vertex indices referencing the base model
+            # array.  The index into this list is the same as the index into the list of
+            # actual mod vertices (modVerticePacked).  It indicates to which vertex in the
+            # base model the offset given in the modVerticePacked applies
             for v in verts_diff:
                 if v != []:
                     modHeaderArrayToPack[self.header.addMorphNum-1].append( int(v[3]) )
@@ -564,10 +566,11 @@ class TriFile():
             modVerticePacked += pack('<' + str(len(modVerticeArrayToPack[morphNum])*3) + 'f', *[k for j in modVerticeArrayToPack[morphNum] for k in j] )
 
 
-        # anon says: I think I understand what the original script was doing, but not entirely.  As
-        # far as I know, the uv should just be in the same order as the vertices, vertex 1 has uv
-        # at index 1, and so forth.  The data will be constructed the same way here.  There will
-        # always be numuv = num verts..  I hope.
+        # anon says: I think I understand what the original script was doing, but not
+        # entirely.  As far as I know, the uv should just be in the same order as the
+        # vertices, vertex 1 has uv at index 1, and so forth.  The data will be
+        # constructed the same way here.  There will always be numuv = num verts..  I
+        # hope.
         uvDataPacked = b''
         uv_face_mapping = [(0,0,0) for f in self._faces]
         #uv_gather = [(0.0, 0.0) for v in self._vertices]
@@ -575,22 +578,8 @@ class TriFile():
             v0 = verts_reorder_mapping[f[0]]
             v1 = verts_reorder_mapping[f[1]]
             v2 = verts_reorder_mapping[f[2]]
-            #uv_gather[v0] = (self.uv_pos[f[0]][0], 1-self.uv_pos[f[0]][1])
-            #uv_gather[v1] = (self.uv_pos[f[1]][0], 1-self.uv_pos[f[1]][1])
-            #uv_gather[v2] = (self.uv_pos[f[2]][0], 1-self.uv_pos[f[2]][1])
             uv_face_mapping[f_index] = (v0, v1, v2)
 
-            #uv_face_mapping[f_index] = 
-            ##mesh.uv_layers[0].data[ mesh.loops[f.loop_start].vertex_index
-            #for uv_index, i in enumerate(f.loop_indices):
-            #    if uv_index > 2:
-            #        errlog.error("\n----=| Tri Export Error |=----\nError exporting \'%s\' as TRI:\nSelected mesh has faces with more than three vertices.\nTRI file requires only triangle polygons.", ob.name)
-            #        raise ValueError("Error creating TRI file")			
-            #    uv_face_mapping[f_index][uv_index] = verts_reorder_mapping[mesh.loops[i].vertex_index]
-            #    uv_gather[verts_reorder_mapping[mesh.loops[i].vertex_index]] = mesh.uv_layers[0].data[i].uv
-
-        #for uv in uv_gather:
-        #    uvDataPacked += pack('<2f', uv[0], uv[1])
         for uv in self.uv_pos:
             uvDataPacked += pack('<2f', float(uv[0]), 1.0-uv[1])
 
@@ -663,12 +652,12 @@ class TripFile():
     def __init__(self):
         self.is_valid = False
         self.type = 'TRIP'
-        self.shapename = '' # could be many of these; supporting only one for now
-        self.offsetmorphs = {} # { name-from-file: [[vert-index, (offs x, offs y, offs z)]... ], ... }
+        self.shapes = {} # {shape-name: morph-dict, ...} where morph-dict =
+                             # { morph-name: [[vert-index, (offs x, offs y, offs z)]... ], ... }
         self.log = logging.getLogger("pynifly")
 
     def _read_count_str(self, file):
-        """ Reads a string from the file, where the length is a single byte preceding
+        """ Reads a string from the file, where the length is in a single byte preceding
             the string. 
             Returns the string.
             """
@@ -709,9 +698,10 @@ class TripFile():
         shapecount = unpack('<1H', rawdata)[0]
 
         for i in range(shapecount):
-            self.shapename = self._read_count_str(file)
-            self.log.debug(f"..Found shape {self.shapename}")
+            shapename = self._read_count_str(file)
+            self.log.debug(f"..Found shape {shapename}")
 
+            offsetmorphs = {}
             morphcount = unpack('<1H', file.read(2))[0]
             for j in range(morphcount):
                 morphname = self._read_count_str(file)
@@ -728,17 +718,21 @@ class TripFile():
                         morphverts.append([id, v]) 
 
                 if True: # len(morphverts) > 0:
-                    self.offsetmorphs[morphname] = morphverts # keep them all, even null morphs
+                    offsetmorphs[morphname] = morphverts # keep them all, even null morphs
+
+            self.shapes[shapename] = offsetmorphs
 
         # there might be UV information but ignore it
         self.is_valid = True
         return 0
 
-    def set_morphs(self, morphdict, vertlist):
+    def set_morphs(self, shapename, morphdict, vertlist):
         """ Set the morphs property from a morph dictionary 
-            morphdict = { morph-name: [(x,y,z), ...], ...} - xyz coordinates are 1:1 with vertlist
+        name of the shape the morphs are for    
+        morphdict = { morph-name: [(x,y,z), ...], ...} - xyz coordinates are 1:1 with vertlist
             vertlist = [(x,y,z), ...] - shape vertices
             """
+        offsetmorphs = {}
         for name, coords in morphdict.items():
             if name[0] == '>': name = name[1:]
             offsetlist = []
@@ -748,7 +742,9 @@ class TripFile():
                 if self._coord_nonzero(offsets):
                     offsetlist.append([i, offsets])
             if len(offsetlist) > 0:
-                self.offsetmorphs[name] = offsetlist
+                offsetmorphs[name] = offsetlist
+        
+        self.shapes[shapename] = offsetmorphs
 
     def write(self, filepath):
         """ Write all morphs tagged as TRIP morphs (leading '>') """
@@ -757,25 +753,26 @@ class TripFile():
         try:
             file.write(pack("<4s", b'PIRT'))
 
-            file.write(pack('<1H', 1)) # only one shape
-            self._write_count_str(file, self.shapename)
+            file.write(pack('<1H', len(self.shapes))) 
+            for shapename, offsetmorphs in self.shapes.items():
+                self._write_count_str(file, shapename)
 
-            file.write(pack("<1H", len(self.offsetmorphs)))
-            for name, offslist in self.offsetmorphs.items():
-                self.log.debug(f"....Writing morph {name}")
-                self._write_count_str(file, name)
+                file.write(pack("<1H", len(offsetmorphs)))
+                for name, offslist in offsetmorphs.items():
+                    self.log.debug(f"....Writing morph {name}")
+                    self._write_count_str(file, name)
             
-                scalefactor = 0x7fff / self._calc_max_offset(offslist) 
-                if scalefactor < 0.0001: scalefactor = 1
+                    scalefactor = 0x7fff / self._calc_max_offset(offslist) 
+                    if scalefactor < 0.0001: scalefactor = 1
 
-                file.write(pack('<1f', 1/scalefactor))
-                file.write(pack('<1H', len(offslist)))
+                    file.write(pack('<1f', 1/scalefactor))
+                    file.write(pack('<1H', len(offslist)))
 
-                for vert_idx, offsets in offslist:
-                    file.write(pack('<1H', vert_idx))
-                    file.write(pack('<3h', int(offsets[0] * scalefactor), 
-                                    int(offsets[1] * scalefactor), 
-                                    int(offsets[2] * scalefactor)))
+                    for vert_idx, offsets in offslist:
+                        file.write(pack('<1H', vert_idx))
+                        file.write(pack('<3h', int(offsets[0] * scalefactor), 
+                                        int(offsets[1] * scalefactor), 
+                                        int(offsets[2] * scalefactor)))
         finally:
             file.close()
 
@@ -805,7 +802,7 @@ if __name__ == "__main__":
     if TEST_ALL:
         log.info("### Read a BS tri file")
         t4 = TripFile.from_file(os.path.join(test_path, "FO4/BodyTalk3.tri"))
-        assert len(t4.offsetmorphs) > 0, f"Error: Expected offset morphs, found {len(t4.offsetmorphs)}"
+        assert len(t4.shapes['BaseMaleBody:0']) > 0, f"Error: Expected offset morphs, found {len(t4.offsetmorphs)}"
 
         log.info("Importing tri")
         t = TriFile.from_file(os.path.join(test_path, "FO4/CheetahMaleHead.tri"))
@@ -844,21 +841,21 @@ if __name__ == "__main__":
         log.info("### TRIP file round trip")
         log.info("Read the file")
         t4 = TripFile.from_file(os.path.join(test_path, r"FO4\BodyTalk3.tri"))
-        assert t4.shapename == "BaseMaleBody:0", f"Error: Expected shape 'BaseMaleBody:0', have '{t4.shapename}'"
-        assert len(t4.offsetmorphs) == 50, f"Error: Expected 50 shapes, have {len(t4.offsetmorphs)}"
-        assert "BTTHinCalf" in t4.offsetmorphs, f"Error: Expected 'BTTHinCalf' morph, not found"
+        assert "BaseMaleBody:0" in t4.shapes, f"Error: Expected shape 'BaseMaleBody:0' in shapes"
+        assert len(t4.shapes["BaseMaleBody:0"]) == 50, f"Error: Expected 50 morphs, have {len(t4.shapes['BaseMaleBody:0'])}"
+        assert "BTTHinCalf" in t4.shapes["BaseMaleBody:0"], f"Error: Expected 'BTTHinCalf' morph, not found"
 
         log.info("Write the file")
         t4.write(os.path.join(test_path, r"Out\TripTest.tri"))
 
         log.info("Re-read the file")
         t5 = TripFile.from_file(os.path.join(test_path, r"Out\TripTest.tri"))
-        assert t5.shapename == "BaseMaleBody:0", f"Error: Expected shape 'BaseMaleBody:0', have '{t5.shapename}'"
-        assert len(t5.offsetmorphs) == 50, f"Error: Expected 50 shapes, have {len(t5.offsetmorphs)}"
-        assert "BTTHinCalf" in t5.offsetmorphs, f"Error: Expected 'BTTHinCalf' morph, not found"
-        assert t4.offsetmorphs['BTTHinCalf'][5][0] == t5.offsetmorphs['BTTHinCalf'][5][0], \
-            f"Error: Expected same vert indices: expected {t4.offsetmorphs['BTTHinCalf'][5][0]}, found {t5.offsetmorphs['BTTHinCalf'][5][0]}"
-        assert t4.offsetmorphs['BTTHinCalf'][5][1] == t5.offsetmorphs['BTTHinCalf'][5][1], \
+        assert "BaseMaleBody:0" in t5.shapes, f"Error: Expected shape 'BaseMaleBody:0' in shapes"
+        assert len(t5.shapes["BaseMaleBody:0"]) == 50, f"Error: Expected 50 shapes, have {len(t5.shapes['BaseMaleBody:0'])}"
+        assert "BTTHinCalf" in t5.shapes["BaseMaleBody:0"], f"Error: Expected 'BTTHinCalf' morph, not found"
+        assert t4.shapes["BaseMaleBody:0"]['BTTHinCalf'][5][0] == t5.shapes["BaseMaleBody:0"]['BTTHinCalf'][5][0], \
+            f"Error: Expected same vert indices: expected {t4.shapes['BaseMaleBody:0']['BTTHinCalf'][5][0]}, found {t5.shapes['BaseMaleBody:0']['BTTHinCalf'][5][0]}"
+        assert t4.shapes["BaseMaleBody:0"]['BTTHinCalf'][5][1] == t5.shapes["BaseMaleBody:0"]['BTTHinCalf'][5][1], \
             f"Error: Expected same offsets: expected { t4.offsetmorphs['BTTHinCalf'][5][1]}, found {t5.offsetmorphs['BTTHinCalf'][5][1]}"
 
 
