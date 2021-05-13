@@ -814,7 +814,7 @@ def _test_export_shape(s_in: NiShape, ftout: NifFile):
         new_shape.setShapeWeights(bone_name, weights)
 
 if __name__ == "__main__":
-    nifly_path = r"D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
+    nifly_path = r"C:\Users\User\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
     NifFile.Load(nifly_path)
 
 
