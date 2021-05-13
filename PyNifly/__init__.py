@@ -9,7 +9,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 22), 
+    "version": (0, 0, 24), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -208,6 +208,7 @@ def make_armature(the_coll, the_nif, bone_names):
         the_nif = Nif file to read bone data from
         bone_names = bones to include in the armature. Additional bones will be added from
             the reference skeleton as needed to connect every bone to the skeleton root.
+        Returns: New armature, set as active object
         """
     if bpy.context.object and bpy.context.object.type == "ARMATURE":
         arm_ob = bpy.context.object
@@ -247,17 +248,27 @@ def import_nif(f: NifFile):
         new_collection.objects.link(obj)
 
         for n in s.bone_names: 
-            # print(f"  --adding bone {n} for {s.name}")
+            log.debug(f"....adding bone {n} for {s.name}")
             bones.add(n) 
 
     for o in new_objs: o.select_set(True)
-    if len(bones) > 0:
-        #print("Found bones, creating armature: " + str(bones))
+
+    if len(bones) > 0 or len(f.shapes) == 0:
+        if len(bones) == 0:
+            log.debug(f"....No shapes in nif, importing bones as skeleton")
+            bones = set(f.nodes.keys())
+        else:
+            log.debug(f"....Found bones, creating armature")
         arma = make_armature(new_collection, f, bones)
-        for o in new_objs: o.select_set(True)
-        bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+        
+        if len(new_objs) > 0:
+            for o in new_objs: o.select_set(True)
+            bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+        else:
+            arma.select_set(True)
     
-    bpy.context.view_layer.objects.active = new_objs[0]
+    if len(new_objs) > 0:
+        bpy.context.view_layer.objects.active = new_objs[0]
 
 
 class ImportNIF(bpy.types.Operator, ImportHelper):
@@ -308,7 +319,7 @@ def create_shape_keys(obj, tri:TriFile):
     #    newsk.name = "Basis"
     #    mesh.update()
 
-    for morph_name, morph_verts in tri.morphs.items():
+    for morph_name, morph_verts in sorted(tri.morphs.items()):
         newsk = obj.shape_key_add()
         newsk.name = morph_name
 
@@ -329,10 +340,12 @@ def create_trip_shape_keys(obj, trip:TripFile):
     mesh = obj.data
     verts = mesh.vertices
 
-    newsk = obj.shape_key_add()
-    newsk.name = "Basis"
+    if mesh.shape_keys is None or "Basis" not in mesh.shape_keys.key_blocks:
+        newsk = obj.shape_key_add()
+        newsk.name = "Basis"
 
-    for morph_name, morph_verts in trip.offsetmorphs.items():
+    offsetmorphs = trip.shapes[obj.name]
+    for morph_name, morph_verts in offsetmorphs.items():
         newsk = obj.shape_key_add()
         newsk.name = ">" + morph_name
 
@@ -346,16 +359,39 @@ def create_trip_shape_keys(obj, trip:TripFile):
         
         mesh.update()
 
+
+def import_trip(filepath, target_objs):
+    """ Import a BS Tri file. 
+        These TRI files do not have full shape data so they have to be matched to one of the 
+        objects in target_objs.
+        return = True if the file is a BS Tri file
+        """
+    result = set()
+    trip = TripFile.from_file(filepath)
+    if trip.is_valid:
+        for shapename, offsetmorphs in trip.shapes.items():
+            matchlist = [o for o in target_objs if o.name == shapename]
+            if len(matchlist) == 0:
+                log.warning("BS Tri file shape does not match any selected object: {shapename}")
+                result.add('WARNING')
+            else:
+                create_trip_shape_keys(matchlist[0], trip)
+    else:
+        result.add('WRONGTYPE')
+
+    return result
+
+
 def import_tri(filepath):
     cobj = bpy.context.object
 
-    trip = TripFile.from_file(filepath)
-    if trip.is_valid:
-        if cobj is None or cobj.type != "MESH":
-            log.info(f"Loading a Bodyslide TRI -- requires a matching selected mesh")
-            raise "Cannot import Bodyslide TRI file without a selected object"
-        create_trip_shape_keys(cobj, trip)
-        return cobj
+    #trip = TripFile.from_file(filepath)
+    #if trip.is_valid:
+    #    if cobj is None or cobj.type != "MESH":
+    #        log.info(f"Loading a Bodyslide TRI -- requires a matching selected mesh")
+    #        raise "Cannot import Bodyslide TRI file without a selected object"
+    #    create_trip_shape_keys(cobj, trip)
+    #    return cobj
 
     tri = TriFile.from_file(filepath)
 
@@ -367,13 +403,13 @@ def import_tri(filepath):
             log.debug(f"Selected mesh vertex match: {len(cobj.data.vertices)}/{len(tri.vertices)}")
 
     # Check whether selected object should receive shape keys
-    if cobj and cobj.type == "MESH" and (trip.is_valid or len(cobj.data.vertices) == len(tri.vertices)):
+    if cobj and cobj.type == "MESH" and len(cobj.data.vertices) == len(tri.vertices):
         new_object = cobj
         new_mesh = new_object.data
         log.info(f"Verts match, loading tri into existing shape {new_object.name}")
-    elif trip.is_valid:
-        log.info(f"Loading a Bodyslide TRI -- requires a matching selected mesh")
-        raise "Cannot import Bodyslide TRI file without a selected object"
+    #elif trip.is_valid:
+    #    log.info(f"Loading a Bodyslide TRI -- requires a matching selected mesh")
+    #    raise "Cannot import Bodyslide TRI file without a selected object"
 
     if new_object is None:
         new_mesh = bpy.data.meshes.new(os.path.basename(filepath))
@@ -399,7 +435,7 @@ def import_tri(filepath):
     return new_object
 
 
-def export_tris(nif, obj, verts, tris, loops, uvs, morphdict):
+def export_tris(nif, trip, obj, verts, tris, loops, uvs, morphdict):
     """ Export a tri file to go along with the given nif file, if there are shape keys 
     """
     result = {'FINISHED'}
@@ -410,7 +446,6 @@ def export_tris(nif, obj, verts, tris, loops, uvs, morphdict):
     fpath = os.path.split(nif.filepath)
     fname = os.path.splitext(fpath[1])
     fname_tri = os.path.join(fpath[0], fname[0] + ".tri")
-    fname_trip = os.path.join(fpath[0], fname[0] + ".tri")
     fname_chargen = os.path.join(fpath[0], fname[0] + "_chargen.tri")
 
     # Don't export anything that starts with an underscore or asterisk
@@ -423,7 +458,6 @@ def export_tris(nif, obj, verts, tris, loops, uvs, morphdict):
     if len(expression_morphs) > 0 and len(trip_morphs) > 0:
         log.warning(f"Found both expression morphs and BS tri morphs in shape {obj.name}. May be an error.")
         result = {'WARNING'}
-        fname_trip =  os.path.join(fpath[0], fname[0] + "_bodyslide.tri")
 
     if len(expression_morphs) > 0 or len(chargen_morphs) > 0:
         tri = TriFile()
@@ -443,11 +477,8 @@ def export_tris(nif, obj, verts, tris, loops, uvs, morphdict):
             tri.write(fname_chargen, chargen_morphs)
 
     if len(trip_morphs) > 0:
-        log.info(f"Generating BS tri file '{fname_trip}'")
-        trip = TripFile()
-        trip.shapename = obj.name
-        trip.set_morphs(morphdict, verts)
-        trip.write(fname_trip)
+        log.info(f"Generating BS tri shapes for '{obj.name}'")
+        trip.set_morphs(obj.name, morphdict, verts)
 
     return result
 
@@ -464,7 +495,11 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
         status = {'FINISHED'}
 
         try:
-            import_tri(self.filepath)
+            
+            v = import_trip(self.filepath, context.selected_objects)
+            if 'WRONGTYPE' in v:
+                import_tri(self.filepath)
+            status.union(v)
         
             for area in bpy.context.screen.areas:
                 if area.type == 'VIEW_3D':
@@ -473,12 +508,15 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
                     ctx['region'] = area.regions[-1]
                     bpy.ops.view3d.view_selected(ctx)
 
+            if 'WARNING' in status:
+                self.report({"ERROR"}, "Import completed with warnings, see console for details")
+
         except:
             log.exception("Import of tri failed")
             self.report({"ERROR"}, "Import of tri failed, see console window for details")
             status = {'CANCELLED'}
                 
-        return status
+        return status.intersection({'FINISHED', 'CANCELLED'})
 
 # ### ---------------------------- EXPORT -------------------------------- ###
 
@@ -633,9 +671,10 @@ def expected_game(nif, bonelist):
     return matchgame == "" or matchgame == nif.game
 
 
-def export_shape(nif, obj, target_key=''):
+def export_shape(nif, trip, obj, target_key=''):
     """Export given blender object to the given NIF file
         nif = target nif file
+        trip = target file for BS Tri shapes
         obj = blender object
         target_key = shape key to export
         """
@@ -680,7 +719,6 @@ def export_shape(nif, obj, target_key=''):
 
         editmesh.update()
         bpy.ops.object.mode_set(mode = 'OBJECT')
-        log.debug("Done triangulation")
         
         # Calculate the normals--have to do this after triangularization and in object mode
         editmesh.calc_normals()
@@ -699,7 +737,7 @@ def export_shape(nif, obj, target_key=''):
         obj.data = originalmesh
     
     log.info("..Exporting to nif")
-    new_shape = nif.createShapeFromData(mesh.name, verts, tris, uvmap_new, norms_new)
+    new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_new)
 
     if is_skinned:
         nif.createSkin()
@@ -724,7 +762,7 @@ def export_shape(nif, obj, target_key=''):
     else:
         new_shape.transform = new_xform
 
-    retval.union(export_tris(nif, obj, verts, tris, loops, uvmap_new, morphdict))
+    retval.union(export_tris(nif, trip, obj, verts, tris, loops, uvmap_new, morphdict))
 
     log.info(f"..{obj.name} successfully exported")
     return retval
@@ -732,8 +770,9 @@ def export_shape(nif, obj, target_key=''):
 
 def export_shape_to(shape, filepath, game):
     outnif = NifFile()
+    outtrip = TripFile()
     outnif.initialize(game, filepath)
-    ret = export_shape(outnif, shape)
+    ret = export_shape(outnif, outtrip, shape) 
     outnif.save()
     return ret
 
@@ -821,16 +860,22 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 shape_keys = get_with_uscore(get_common_shapes(objs_to_export))
                 if len(shape_keys) == 0:
                     shape_keys.append('') # just export the plain file
+                
                 for sk in shape_keys:
-                    fn = os.path.splitext(os.path.basename(self.filepath))
-                    fn = clean_filename(fn[0] + sk + fn[1])
-                    fp = os.path.join(os.path.dirname(self.filepath), fn)
-                    log.info('..Exporting to ' + self.target_game + ' ' + fp)
+                    fname_ext = os.path.splitext(os.path.basename(self.filepath))
+                    fbasename = fname_ext[0] + sk
+                    fnamefull = fbasename + fname_ext[1]
+                    fpath = os.path.join(os.path.dirname(self.filepath), fnamefull)
+
+                    log.info(f"..Exporting to {self.target_game} {fpath}")
                     exportf = NifFile()
-                    exportf.initialize(self.target_game, fp)
+                    exportf.initialize(self.target_game, fpath)
+
+                    trip = TripFile()
+
                     for obj in objs_to_export:
-                        r = export_shape(exportf, obj, sk)
-                        log.debug(f"Exported shape {obj.name} with result {str(r)}")
+                        r = export_shape(exportf, trip, obj, sk)
+                        #log.debug(f"Exported shape {obj.name} with result {str(r)}")
                         if 'UNWEIGHTED' in r:
                             objs_unweighted.append(obj.name)
                         if 'SCALE' in r:
@@ -838,7 +883,12 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                         if 'GAME' in r:
                             arma_game.append(obj.parent.name)
                         res = res.union(r)
+
                     exportf.save()
+
+                    if len(trip.shapes) > 0:
+                        trip.write(os.path.join(os.path.dirname(self.filepath), fname_ext[0]) 
+                                   + ".tri")
             
             rep = False
             if 'UNWEIGHTED' in res:
@@ -859,10 +909,9 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         except:
             log.exception("Export of nif failed")
             self.report({"ERROR"}, "Export of nif failed, see console window for details")
-            #print("ERROR exporting nif")
-            #traceback.print_exc()
             res.add("CANCELLED")
 
+        log.info("Export successful")
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 
 
@@ -907,10 +956,17 @@ def append_collection(objname, with_parent, filepath, innerpath, targetobj):
 
 
 def run_tests():
-    print("######################### TESTING ##########################")
+    print("""
+    ############################################################
+    ##                                                        ##
+    ##                        TESTING                         ##
+    ##                                                        ##
+    ############################################################
+    """)
 
     TEST_BPY_ALL = True
-    TEST_EXPORT = True
+
+    TEST_EXPORT = False
     TEST_IMPORT_ARMATURE = False
     TEST_EXPORT_WEIGHTS = False
     TEST_UNIT = False
@@ -925,13 +981,14 @@ def run_tests():
     TEST_TRI = False
     TEST_0_WEIGHTS = False
     TEST_SPLIT_NORMAL = False
+    TEST_SKEL = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
 
     if TEST_BPY_ALL or TEST_UNIT:
         # Lower-level tests of individual routines for bug hunting
-        print("--get_weights_by_bone converts from weights-by-vertex")
+        print("## TEST_UNIT get_weights_by_bone converts from weights-by-vertex")
         group_names = ("a", "b", "c", "d")
         wbv = [{"a": 0.1, "c": 0.5}, {"b": 0.2}, {"d": 0.0, "b": 0.6}, {"a": 0.4}]
         wbb = get_weights_by_bone(wbv)
@@ -940,17 +997,14 @@ def run_tests():
         assert wbb["c"] == [(0, 0.5)], "ERROR: get_weights_by_bone failed"
 
     if TEST_BPY_ALL or TEST_EXPORT:
-        print("## Can export the basic cube")
+        print("## TEST_EXPORT Can export the basic cube")
         bpy.ops.mesh.primitive_cube_add()
         cube = bpy.context.selected_objects[0]
         cube.name = "TestCube"
         log.debug("TODO: support objects with flat shading or autosmooth properly")
         for f in cube.data.polygons: f.use_smooth = True
         filepath = os.path.join(pynifly_dev_path, r"tests\Out\testSkyrim01.nif")
-        f = NifFile()
-        f.initialize("SKYRIM", filepath)
-        export_shape(f, cube)
-        f.save()
+        export_shape_to(cube, filepath, "SKYRIM")
 
         assert os.path.exists(filepath), "ERROR: Didn't create file"
         bpy.data.objects.remove(cube, do_unlink=True)
@@ -977,10 +1031,7 @@ def run_tests():
         cube.name = "TestCube"
         for f in cube.data.polygons: f.use_smooth = True
         filepath = os.path.join(pynifly_dev_path, r"tests\Out\testFO401.nif")
-        f = NifFile()
-        f.initialize("FO4", filepath)
-        export_shape(f, cube)
-        f.save()
+        export_shape_to(cube, filepath, "FO4")
 
         assert os.path.exists(filepath), "ERROR: Didn't create file"
         bpy.data.objects.remove(cube, do_unlink=True)
@@ -1001,7 +1052,7 @@ def run_tests():
         # bpy.data.objects.remove(cube, do_unlink=True)
 
     if TEST_BPY_ALL or TEST_IMPORT_ARMATURE:
-        print("## Can import a Skyrim head with armature")
+        print("## TEST_IMPORT_ARMATURE Can import a Skyrim head with armature")
         for o in bpy.context.selected_objects:
             o.select_set(False)
         filepath = os.path.join(pynifly_dev_path, "tests\Skyrim\malehead.nif")
@@ -1022,7 +1073,7 @@ def run_tests():
         assert male_head.parent.type == "ARMATURE", "ERROR: Didn't parent to armature"
 
     if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
-        print("### Can read the armor nif and spit it back out (no blender shape)")
+        print("## TEST_IMP_EXP_SKY Can read the armor nif and spit it back out (no blender shape)")
 
         testfile = os.path.join(pynifly_dev_path, "tests/Skyrim/test.nif")
         nif = NifFile(testfile)
@@ -1055,7 +1106,7 @@ def run_tests():
         new_nif.save()
             
     if TEST_BPY_ALL or TEST_IMP_EXP_FO4:
-        print("### TEST_IMP_EXP_FO4: Can read the body nif and spit it back out (no blender shape)")
+        print("## TEST_IMP_EXP_FO4 Can read the body nif and spit it back out (no blender shape)")
 
         nif = NifFile(os.path.join(pynifly_dev_path, "tests\FO4\BTMaleBody.nif"))
         assert "BaseMaleBody:0" in nif.getAllShapeNames(), "ERROR: Didn't read nif"
@@ -1084,7 +1135,7 @@ def run_tests():
             
 
     if TEST_BPY_ALL or TEST_EXPORT_WEIGHTS:
-        print("TEST_EXPORT_WEIGHTS: Import and export with weights")
+        print("## TEST_EXPORT_WEIGHTS Import and export with weights")
 
         # Import body and armor
         f_in = NifFile(os.path.join(pynifly_dev_path, r"tests\Skyrim\test.nif"))
@@ -1123,7 +1174,7 @@ def run_tests():
         # Should do some checking here
 
     if TEST_BPY_ALL or TEST_ROUND_TRIP:
-        print("### Can do the full round trip: nif -> blender -> nif -> blender")
+        print("## TEST_ROUND_TRIP Can do the full round trip: nif -> blender -> nif -> blender")
 
         print("..Importing original file")
         testfile = os.path.join(pynifly_dev_path, "tests/Skyrim/test.nif")
@@ -1162,7 +1213,7 @@ def run_tests():
         assert maxz < 0 and minz > -130, "Error: Vertices from exported armor are positioned below origin"
 
     if TEST_BPY_ALL or TEST_UV_SPLIT:
-        print("### Can split UVs properly")
+        print("## TEST_UV_SPLIT Can split UVs properly")
 
         verts = [(-1.0, -1.0, 0.0), 
                  (1.0, -1.0, 0.0), (-1.0, 1.0, 0.0), (1.0, 1.0, 0.0), (0.0, -1.0, 0.0), (0.0, 1.0, 0.0)]
@@ -1212,7 +1263,7 @@ def run_tests():
         assert plane.uvs[5] != plane.uvs[7], "Error: Split vert has different UV locations"
 
     if TEST_BPY_ALL or TEST_CUSTOM_BONES:
-        print('### Can handle custom bones correctly')
+        print('## TEST_CUSTOM_BONES Can handle custom bones correctly')
 
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests\FO4\VulpineInariTailPhysics.nif")
@@ -1256,7 +1307,7 @@ def run_tests():
         print('### Maintain armature structure PASSED')
 
     if TEST_BPY_ALL or TEST_BABY:
-        print('### Can export baby parts')
+        print('## TEST_BABY Can export baby parts')
 
         # Can intuit structure if it's not in the file
         bpy.ops.object.select_all(action='DESELECT')
@@ -1269,8 +1320,8 @@ def run_tests():
         outfile = os.path.join(pynifly_dev_path, r"tests\Out\baby01.nif")
         outnif = NifFile()
         outnif.initialize("FO4", outfile)
-        export_shape(outnif, eyes)
-        export_shape(outnif, head)
+        export_shape(outnif, TripFile(), eyes)
+        export_shape(outnif, TripFile(), head)
         outnif.save()
 
         testnif = NifFile(outfile)
@@ -1280,11 +1331,9 @@ def run_tests():
         assert len(testeyes.bone_names) > 2, "Error: Eyes should have bone weights"
 
         # TODO: Test that baby's unkown skeleton is connected
-
-        print('### Can export baby parts PASSED')
       
     if TEST_BPY_ALL or TEST_CONNECTED_SKEL:
-        print('### Can import connected skeleton')
+        print('## TEST_CONNECTED_SKEL Can import connected skeleton')
 
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests\FO4\vanillaMaleBody.nif")
@@ -1299,8 +1348,20 @@ def run_tests():
                 assert 'Leg_Thigh.L' in s.data.bones.keys(), "Error: Should have left thigh"
                 assert s.data.bones['Leg_Thigh.L'].parent.name == 'Pelvis', "Error: Thigh should connect to pelvis"
 
+    if TEST_BPY_ALL or TEST_SKEL:
+        print('## TEST_SKEL Can import skeleton file with no shapes')
+
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"skeletons\FO4\skeleton.nif")
+
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        arma = bpy.data.objects["skeleton.nif"]
+        assert 'Leg_Thigh.L' in arma.data.bones, "Error: Should have left thigh"
+
     if TEST_BPY_ALL or TEST_TRI:
-        print("### Can load a tri file into an existing mesh")
+        print("## TEST_TRI Can load a tri file into an existing mesh")
 
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests\FO4\CheetahMaleHead.nif")
@@ -1347,7 +1408,7 @@ def run_tests():
         assert not os.path.exists(testout2chg), f"{testout2chg} should not have been created"
         assert len(nif2.shapes[0].verts) == len(tri2.vertices), f"Error vert count should match, {len(nif2.shapes[0].verts)} vs {len(tri2.vertices)}"
         assert len(nif2.shapes[0].tris) == len(tri2.faces), f"Error vert count should match, {len(nif2.shapes[0].tris)} vs {len(tri2.faces)}"
-        assert tri2.header.morphNum == len(triobj.data.shape_keys.key_blocks), \
+        assert tri2.header.morphNum == len(triobj.data.shape_keys.key_blocks)-1, \
             f"Error: morph count should match, file={tri2.header.morphNum} vs {triobj.name}={len(triobj.data.shape_keys.key_blocks)}"
         
         print('### Tri and chargen export as expected')
@@ -1381,7 +1442,7 @@ def run_tests():
         
 
     if TEST_BPY_ALL or TEST_0_WEIGHTS:
-        print("### Gives warning on export with 0 weights")
+        print("## TEST_0_WEIGHTS Gives warning on export with 0 weights")
 
         baby = append_collection("TestBabyhead", True, r"tests\FO4\Test0Weights.blend", r"\Collection", "BabyCollection")
         baby.parent.name == "BabyExportRoot", f"Error: Should have baby and armature"
@@ -1391,13 +1452,19 @@ def run_tests():
 
 
     if TEST_BPY_ALL or TEST_SPLIT_NORMAL:
-        print("### Can handle meshes with split normals")
+        print("## TEST_SPLIT_NORMAL Can handle meshes with split normals")
 
         plane = append_collection("Plane", False, r"tests\skyrim\testSplitNormalPlane.blend", r"\Object", "Plane")
         export_shape_to(plane, os.path.join(pynifly_dev_path, r"tests\Out\CustomNormals.nif"), "FO4")
 
 
-    print("######################### TESTS DONE ##########################")
+    print("""
+    ############################################################
+    ##                                                        ##
+    ##                    TESTS DONE                          ##
+    ##                                                        ##
+    ############################################################
+    """)
 
 
 if __name__ == "__main__":
