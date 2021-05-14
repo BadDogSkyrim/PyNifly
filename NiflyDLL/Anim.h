@@ -9,10 +9,7 @@ See the included LICENSE file
 
 /* +++ NiflyDLL Changes +++ */
 //#include "../utils/ConfigurationManager.h"
-#include "NiflyFunctions.hpp"
-#define wxLogMessage LogWritef
-#define wxLogWarning LogWritef
-#define wxLogError LogWritef
+#include "logger.hpp"
 /* +++ NiflyDLL Changes +++ */
 
 #include <map>
