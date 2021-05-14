@@ -23,46 +23,7 @@ static std::filesystem::path projectRoot;
 
 static String curSkeletonPath;
 static String curGameDataPath; // Get this from OS if it turns out we need it
-static String curRootName;
-
-static std::vector<String> messageLog;
-
-void LogInit() {
-	messageLog.clear();
-}
-
-void LogWrite(std::string msg) {
-	//std::ostringstream stringStream;
-	//stringStream << "Hello";
-	//std::string copyOfStr = stringStream.str();
-
-	messageLog.push_back(msg);
-}
-
-void LogWritef(std::string fmt, ...)
-{
-	char buf[500];
-	va_list args;
-	va_start(args, fmt);
-	snprintf(buf, 500, fmt.c_str(), args);
-}
-
-int LogGetLen() {
-	int len = 0;
-	for (String s : messageLog) {
-		len += int(s.size() + 1);
-	}
-	return len;
-}
-
-void LogGet(char* buf, int len) {
-	String outStr;
-	for (String s : messageLog) {
-		outStr += s + '\n';
-	};
-	strcpy_s(buf, len - 1, outStr.c_str());
-	buf[len - 1] = '\0';
-}
+std::string curRootName;
 
 void FindProjectRoot() {
 	char path[MAX_PATH];

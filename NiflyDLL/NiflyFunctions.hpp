@@ -4,12 +4,12 @@
 
 	Copied from Outfit Studio, all their copywrite restrictions apply
 	*/
-#include "object3d.hpp"
-#include "geometry.hpp"
-#include "NifFile.hpp"
-#include "NifUtil.hpp"
-#include "Anim.h"
 #include <map>
+//#include "object3d.hpp"
+//#include "geometry.hpp"
+//#include "NifFile.hpp"
+//#include "NifUtil.hpp"
+#include "Anim.h"
 
 #pragma once
 
@@ -17,15 +17,8 @@ enum TargetGame {
 	FO3, FONV, SKYRIM, FO4, SKYRIMSE, FO4VR, SKYRIMVR, FO76
 };
 
+extern std::string curRootName;
 
-void LogInit();
-
-void LogWrite(std::string msg);
-void LogWritef(std::string msg, ...);
-
-int LogGetLen();
-
-void LogGet(char* buf, int len);
 
 std::string SkeletonFile(enum TargetGame game);
 

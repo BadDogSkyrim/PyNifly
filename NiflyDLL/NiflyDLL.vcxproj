@@ -329,10 +329,7 @@
     <PostBuildEvent>
       <Command>xcopy /y $(OutDir)NiflyDLL.dll  $(OutDir)io_scene_nifly\
 xcopy /y/s/i $(ProjectDir)..\pynifly\skeletons $(OutDir)io_scene_nifly\skeletons
-copy /y $(ProjectDir)..\pynifly\pynifly.py  $(OutDir)io_scene_nifly\
-copy /y $(ProjectDir)..\pynifly\niflytools.py  $(OutDir)io_scene_nifly\
-copy /y $(ProjectDir)..\pynifly\pyniflywhereami.py  $(OutDir)io_scene_nifly\
-copy /y $(ProjectDir)..\pynifly\__init__.py  $(OutDir)io_scene_nifly\
+copy /y $(ProjectDir)..\pynifly\*.py  $(OutDir)io_scene_nifly\
 7z a -tzip $(OutDir)io_scene_nifly.zip $(OutDir)io_scene_nifly</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -358,6 +355,7 @@ copy /y $(ProjectDir)..\pynifly\__init__.py  $(OutDir)io_scene_nifly\
     <ClInclude Include="..\..\Nifly\include\VertexData.hpp" />
     <ClInclude Include="Anim.h" />
     <ClInclude Include="framework.h" />
+    <ClInclude Include="Logger.hpp" />
     <ClInclude Include="NiflyFunctions.hpp" />
     <ClInclude Include="NiflyWrapper.hpp" />
     <ClInclude Include="pch.h" />
@@ -391,6 +389,7 @@ copy /y $(ProjectDir)..\pynifly\__init__.py  $(OutDir)io_scene_nifly\
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="NiflyFunctions.cpp" />
+    <ClCompile Include="Logger.cpp" />
     <ClCompile Include="TestDLL.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Package|x64'">true</ExcludedFromBuild>

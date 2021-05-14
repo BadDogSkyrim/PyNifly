@@ -8,6 +8,7 @@
 #include "pch.h"
 #include <iostream>
 #include <string>
+#include <vector>
 #include <unordered_map>
 #include <filesystem>
 #include <libloaderapi.h>
@@ -20,7 +21,7 @@
 using namespace nifly;
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
-static std::string curRootName;
+//static std::string curRootName;
 
 //std::filesystem::path testRoot(TEST_ROOT);
 std::filesystem::path testRoot = std::filesystem::current_path()
@@ -116,7 +117,7 @@ namespace NiflyDLLTests
 			NifFile nif = NifFile(testRoot / "Skyrim/test.nif");
 			std::vector<std::string> shapeNames = nif.GetShapeNames();
 			for (std::string s : shapeNames) std::cout << s;
-			Assert::IsFalse(find(shapeNames, "Armor") == shapeNames.end());
+			Assert::IsFalse(std::find(shapeNames.begin(), shapeNames.end(), "Armor") == shapeNames.end());
 
 			NiShape* theArmor = nif.FindBlockByName<NiShape>("Armor");
 			std::vector < Vector3 > verts;
@@ -275,7 +276,7 @@ namespace NiflyDLLTests
 			NifFile nif = NifFile(testRoot / "FO4/BTMaleBody.nif");
 			std::vector<std::string> shapeNames = nif.GetShapeNames();
 			for (std::string s : shapeNames) std::cout << s;
-			Assert::IsFalse(find(shapeNames, "BaseMaleBody:0") == shapeNames.end());
+			Assert::IsFalse(std::find(shapeNames.begin(), shapeNames.end(), "BaseMaleBody:0") == shapeNames.end());
 
 			NiShape* theBody = nif.FindBlockByName<NiShape>("BaseMaleBody:0");
 			std::vector < Vector3 > verts;
@@ -402,7 +403,7 @@ namespace NiflyDLLTests
 			/* Skyrim */
 			NifFile nifHead = NifFile(testRoot / "Skyrim/MaleHead.nif");
 			std::vector<std::string> shapeNames = nifHead.GetShapeNames();
-			Assert::IsFalse(find(shapeNames, "MaleHeadIMF") == shapeNames.end());
+			Assert::IsFalse(std::find(shapeNames.begin(), shapeNames.end(), "MaleHeadIMF") == shapeNames.end());
 
 			NiShape* theHead = nifHead.FindBlockByName<NiShape>("MaleHeadIMF");
 			AnimInfo headSkin;
