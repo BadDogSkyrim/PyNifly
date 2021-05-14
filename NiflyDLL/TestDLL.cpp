@@ -13,11 +13,14 @@
 #include <libloaderapi.h>
 #include "CppUnitTest.h"
 #include "Object3d.hpp"
+#include "Anim.h"
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
 using namespace nifly;
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
+
+static std::string curRootName;
 
 //std::filesystem::path testRoot(TEST_ROOT);
 std::filesystem::path testRoot = std::filesystem::current_path()
@@ -94,12 +97,12 @@ namespace NiflyDLLTests
 	public:
 		TEST_METHOD(LoadReferenceSkeleton) {
 			/* Can load a skeleton */
-			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(SKYRIM));
+			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(SKYRIM), curRootName);
 
 			AnimSkeleton skel = AnimSkeleton::getInstance();
 			std::string rootName = skel.GetRootBonePtr()->boneName;
 			Assert::AreEqual(std::string("NPC Root [Root]"), rootName);
-			int nodeCount = skel.refSkeletonNif.GetNodes().size();
+			int nodeCount = int(skel.refSkeletonNif.GetNodes().size());
 
 			NifFile nif = NifFile(SkeletonFile(FO4));
 			NiNode* node = nif.FindBlockByName<NiNode>("LArm_Hand");
@@ -127,12 +130,12 @@ namespace NiflyDLLTests
 			Assert::AreEqual(3195, int(tris.size()));
 			uv = nif.GetUvsForShape(theArmor);
 			Assert::AreEqual(2115, int(uv->size()));
-			norms = nif.GetNormalsForShape(theArmor, false);
+			norms = nif.GetNormalsForShape(theArmor);
 			Assert::AreEqual(2115, int(norms->size()));
 
 			NifFile newNif = NifFile();
 			SetNifVersion(&newNif, SKYRIM);
-			NiShape* newArmor = CreateShapeFromData(&newNif, "Armor", &verts, &tris, uv, norms);
+			NiShape* newArmor = newNif.CreateShapeFromData("Armor", &verts, &tris, uv, norms);
 			newNif.Save(testRoot / "Out/TestSaveUnskinned01.nif");
 			Assert::IsTrue(std::filesystem::exists(testRoot / "Out/TestSaveUnskinned01.nif"));
 
@@ -154,13 +157,13 @@ namespace NiflyDLLTests
 
 			/* >> Can save just the armor as a skinned object */
 			AnimInfo* anim;
-			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(SKYRIM));
+			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(SKYRIM), curRootName);
 
 			NifFile newNifSkind = NifFile();
 			SetNifVersion(&newNifSkind, SKYRIM);
 			anim = CreateSkinForNif(&newNifSkind, SKYRIM);
 
-			newArmor = CreateShapeFromData(&newNifSkind, "Armor", &verts, &tris, uv, norms);
+			newArmor = newNifSkind.CreateShapeFromData("Armor", &verts, &tris, uv, norms);
 			newNifSkind.CreateSkinning(newArmor);
 
 			/* Transform the global frame of reference to the skin's FoR.
@@ -191,7 +194,7 @@ namespace NiflyDLLTests
 			std::sort(armorBones.begin(), armorBones.end());
 			std::reverse(armorBones.begin(), armorBones.end());
 			for (auto b : armorBones) {
-				AddBoneToShape(anim, newArmor, b);
+				AddBoneToShape(anim, newArmor, b, nullptr);
 			};
 
 			MatTransform boneXform;
@@ -214,7 +217,7 @@ namespace NiflyDLLTests
 
 			/* Sets bone weights only. Doesn't set transforms. */
 			for (int i = 0; i < armorWeights.size(); i++) {
-				AddBoneToShape(anim, newArmor, armorBoneNames[i]);
+				AddBoneToShape(anim, newArmor, armorBoneNames[i], nullptr);
 				SetShapeWeights(anim, newArmor, armorBoneNames[i], armorWeights[i]);
 			}
 
@@ -228,7 +231,7 @@ namespace NiflyDLLTests
 			Assert::AreEqual(2024, int(verts.size()));
 			theBody->GetTriangles(tris);
 			uv = nif.GetUvsForShape(theBody);
-			norms = nif.GetNormalsForShape(theBody, false);
+			norms = nif.GetNormalsForShape(theBody);
 
 			std::vector<std::string> bodyBoneNames;
 			std::vector<int> bodyBoneIDs;
@@ -247,11 +250,11 @@ namespace NiflyDLLTests
 			SetNifVersion(&newNifSkind, SKYRIM);
 			anim = CreateSkinForNif(&newNifSkind, SKYRIM);
 
-			NiShape* newBody = CreateShapeFromData(&newNifSkind, "Body", &verts, &tris, uv, norms);
+			NiShape* newBody = newNifSkind.CreateShapeFromData("Body", &verts, &tris, uv, norms);
 			newNifSkind.CreateSkinning(newBody);
 
 			for (auto w : bodyWeights) {
-				AddBoneToShape(anim, newBody, w.first);
+				AddBoneToShape(anim, newBody, w.first, nullptr);
 				SetShapeWeights(anim, newBody, w.first, w.second);
 			}
 
@@ -276,32 +279,32 @@ namespace NiflyDLLTests
 
 			NiShape* theBody = nif.FindBlockByName<NiShape>("BaseMaleBody:0");
 			std::vector < Vector3 > verts;
-			const std::vector < Vector3 >* rawVerts;
+			//const std::vector < Vector3 >* rawVerts;
 			std::vector<Triangle> tris;
 			const std::vector<Vector2>* uv;
 			const std::vector<Vector3>* norms;
 
 			nif.GetVertsForShape(theBody, verts);
-			rawVerts = nif.GetRawVertsForShape(theBody);
-			Assert::AreEqual(8717, int(rawVerts->size()));
+			//rawVerts = nif.GetRawVertsForShape(theBody);
+			//Assert::AreEqual(8717, int(rawVerts->size()));
 			theBody->GetTriangles(tris);
 			Assert::AreEqual(16202, int(tris.size()));
 			uv = nif.GetUvsForShape(theBody);
 			Assert::AreEqual(8717, int(uv->size()));
-			norms = nif.GetNormalsForShape(theBody, false);
+			norms = nif.GetNormalsForShape(theBody);
 			Assert::AreEqual(8717, int(norms->size()));
 
 			AnimInfo oldBodySkin;
 			oldBodySkin.LoadFromNif(&nif, theBody);
 
 			AnimInfo* anim;
-			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(FO4));
+			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(FO4), curRootName);
 
 			NifFile newNif = NifFile();
 			SetNifVersion(&newNif, FO4);
 			anim = CreateSkinForNif(&newNif, FO4);
 
-			NiShape* newBody = CreateShapeFromData(&newNif, "Body", &verts, &tris, uv, norms);
+			NiShape* newBody = newNif.CreateShapeFromData("Body", &verts, &tris, uv, norms);
 			newNif.CreateSkinning(newBody);
 
 			/* Transform the global frame of reference to the skin's FoR.
@@ -345,7 +348,7 @@ namespace NiflyDLLTests
 			}
 			/* Sets bone weights only. Doesn't set transforms. */
 			for (auto w : bodyWeights) {
-				AddBoneToShape(anim, newBody, w.first);
+				AddBoneToShape(anim, newBody, w.first, nullptr);
 				SetShapeWeights(anim, newBody, w.first, w.second);
 			}
 
@@ -493,7 +496,7 @@ namespace NiflyDLLTests
 			nif.GetVertsForShape(shape, verts);
 			shape->GetTriangles(tris);
 			uv = nif.GetUvsForShape(shape);
-			norms = nif.GetNormalsForShape(shape, false);
+			norms = nif.GetNormalsForShape(shape);
 
 			AnimInfo oldSkin;
 			oldSkin.LoadFromNif(&nif, shape);
@@ -520,13 +523,13 @@ namespace NiflyDLLTests
 
 			/* We can export the shape with the bones in their locations as read */
 			AnimInfo* newSkin;
-			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(FO4));
+			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(FO4), curRootName);
 
 			NifFile newNif = NifFile();
 			SetNifVersion(&newNif, FO4);
 			newSkin = CreateSkinForNif(&newNif, FO4);
 
-			NiShape* newShape = CreateShapeFromData(&newNif, "Tail", &verts, &tris, uv, norms);
+			NiShape* newShape = newNif.CreateShapeFromData("Tail", &verts, &tris, uv, norms);
 			newNif.CreateSkinning(newShape);
 
 			SetGlobalToSkinXform(newSkin, newShape, shapeGTS);
@@ -566,7 +569,7 @@ namespace NiflyDLLTests
 			nif.GetVertsForShape(theArmor, aVerts);
 			theArmor->GetTriangles(aTris);
 			aUV= nif.GetUvsForShape(theArmor);
-			aNorms = nif.GetNormalsForShape(theArmor, false);
+			aNorms = nif.GetNormalsForShape(theArmor);
 
 			std::vector<std::string> armorBones;
 			nif.GetShapeBoneList(theArmor, armorBones);
@@ -592,7 +595,7 @@ namespace NiflyDLLTests
 			nif.GetVertsForShape(theBody, bVerts);
 			theBody->GetTriangles(bTris);
 			bUV = nif.GetUvsForShape(theBody);
-			bNorms = nif.GetNormalsForShape(theBody, false);
+			bNorms = nif.GetNormalsForShape(theBody);
 
 			std::vector<std::string> bodyBones;
 			nif.GetShapeBoneList(theBody, bodyBones);
@@ -607,7 +610,7 @@ namespace NiflyDLLTests
 			NifFile newNif = NifFile();
 			SetNifVersion(&newNif, SKYRIM);
 			AnimInfo* newSkin = CreateSkinForNif(&newNif, SKYRIM);
-			NiShape* newArmor = CreateShapeFromData(&newNif, "Armor", &aVerts, &aTris, aUV, aNorms);
+			NiShape* newArmor = newNif.CreateShapeFromData("Armor", &aVerts, &aTris, aUV, aNorms);
 			newNif.CreateSkinning(newArmor);
 			newNif.SetShapeTransformGlobalToSkin(newArmor, armorXform);
 			SetGlobalToSkinXform(newSkin, newArmor, armorSkinInst);
@@ -617,7 +620,7 @@ namespace NiflyDLLTests
 			}
 
 			/* Save the body */
-			NiShape* newBody = CreateShapeFromData(&newNif, "Body", &bVerts, &bTris, bUV, bNorms);
+			NiShape* newBody = newNif.CreateShapeFromData("Body", &bVerts, &bTris, bUV, bNorms);
 			newNif.CreateSkinning(newBody);
 			SetGlobalToSkinXform(newSkin, newBody, bodySkinInst);
 			for (auto w : bodyWeights) {

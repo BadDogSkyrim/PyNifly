@@ -356,6 +356,7 @@ copy /y $(ProjectDir)..\pynifly\__init__.py  $(OutDir)io_scene_nifly\
     <ClInclude Include="..\..\Nifly\include\Shaders.hpp" />
     <ClInclude Include="..\..\Nifly\include\Skin.hpp" />
     <ClInclude Include="..\..\Nifly\include\VertexData.hpp" />
+    <ClInclude Include="Anim.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="NiflyFunctions.hpp" />
     <ClInclude Include="NiflyWrapper.hpp" />
@@ -376,6 +377,7 @@ copy /y $(ProjectDir)..\pynifly\__init__.py  $(OutDir)io_scene_nifly\
     <ClCompile Include="..\..\Nifly\src\Particles.cpp" />
     <ClCompile Include="..\..\Nifly\src\Shaders.cpp" />
     <ClCompile Include="..\..\Nifly\src\Skin.cpp" />
+    <ClCompile Include="Anim.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="NiflyWrapper.cpp" />
     <ClCompile Include="pch.cpp">
