@@ -60,7 +60,7 @@ NIFLY_API int getRootName(void* f, char* buf, int len) {
     int copylen = std::min((int)len - 1, (int)name.length());
     name.copy(buf, copylen, 0);
     buf[copylen] = '\0';
-    return name.length();
+    return int(name.length());
 }
 
 NIFLY_API int getGameName(void* f, char* buf, int len) {
@@ -77,7 +77,7 @@ NIFLY_API int getGameName(void* f, char* buf, int len) {
     int copylen = std::min((int)len - 1, (int)name.length());
     name.copy(buf, copylen, 0);
     buf[copylen] = '\0';
-    return name.length();
+    return int(name.length());
 }
 
 int NIFLY_API getAllShapeNames(void* f, char* buf, int len) {
@@ -92,7 +92,7 @@ int NIFLY_API getAllShapeNames(void* f, char* buf, int len) {
     s.copy(buf, copylen, 0);
     buf[copylen] = '\0';
 
-    return names.size();
+    return int(names.size());
 }
 
 NIFLY_API int getShapeName(void* theShape, char* buf, int len) {
@@ -101,7 +101,7 @@ NIFLY_API int getShapeName(void* theShape, char* buf, int len) {
     int copylen = std::min((int)len - 1, (int)name.length());
     name.copy(buf, copylen, 0);
     buf[copylen] = '\0';
-    return name.length();
+    return int(name.length());
 }
 
 int NIFLY_API loadShapeNames(const char* filename, char* buf, int len) {
@@ -118,14 +118,14 @@ int NIFLY_API loadShapeNames(const char* filename, char* buf, int len) {
 
     theNif->Clear();
     delete theNif;
-    return names.size();
+    return int(names.size());
 }
 int NIFLY_API getShapes(void* f, void** buf, int len, int start) {
     NifFile* theNif = static_cast<NifFile*>(f);
     std::vector<nifly::NiShape*> shapes = theNif->GetShapes();
     for (int i=start, j=0; (i < start+len) && (i < shapes.size()); i++)
         buf[j++] = shapes[i];
-    return shapes.size();
+    return int(shapes.size());
 }
 NIFLY_API int getVertsForShape(void* theNif, void* theShape, float* buf, int len, int start)
 {
@@ -138,37 +138,37 @@ NIFLY_API int getVertsForShape(void* theNif, void* theShape, float* buf, int len
         buf[j++] = verts.at(i).y;
         buf[j++] = verts.at(i).z;
     }
-    return verts.size();
+    return int(verts.size());
 }
 NIFLY_API int getNormalsForShape(void* theNif, void* theShape, float* buf, int len, int start)
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     const std::vector<nifly::Vector3>* norms;
-    norms = nif->GetNormalsForShape(shape, false);
+    norms = nif->GetNormalsForShape(shape);
     if (norms) {
         for (int i = start, j = 0; i < start + len && i < norms->size(); i++) {
             buf[j++] = norms->at(i).x;
             buf[j++] = norms->at(i).y;
             buf[j++] = norms->at(i).z;
         }
-        return norms->size();
+        return int(norms->size());
     }
     else
         return 0;
 }
-NIFLY_API int getRawVertsForShape(void* theNif, void* theShape, float* buf, int len, int start)
-{
-    NifFile* nif = static_cast<NifFile*>(theNif);
-    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
-    const std::vector<nifly::Vector3>* verts = nif->GetRawVertsForShape(shape);
-    for (int i = start, j = 0; i < start + len && i < verts->size(); i++) {
-        buf[j++] = verts->at(i).x;
-        buf[j++] = verts->at(i).y;
-        buf[j++] = verts->at(i).z;
-    }
-    return verts->size();
-}
+//NIFLY_API int getRawVertsForShape(void* theNif, void* theShape, float* buf, int len, int start)
+//{
+//    NifFile* nif = static_cast<NifFile*>(theNif);
+//    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+//    const std::vector<nifly::Vector3>* verts = nif->GetRawVertsForShape(shape);
+//    for (int i = start, j = 0; i < start + len && i < verts->size(); i++) {
+//        buf[j++] = verts->at(i).x;
+//        buf[j++] = verts->at(i).y;
+//        buf[j++] = verts->at(i).z;
+//    }
+//    return verts->size();
+//}
 NIFLY_API int getTriangles(void* theNif, void* theShape, uint16_t* buf, int len, int start)
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
@@ -180,7 +180,7 @@ NIFLY_API int getTriangles(void* theNif, void* theShape, uint16_t* buf, int len,
         buf[j++] = shapeTris.at(i).p2;
         buf[j++] = shapeTris.at(i).p3;
     }
-    return shapeTris.size();
+    return int(shapeTris.size());
 }
 NIFLY_API bool getShapeGlobalToSkin(void* nifRef, void* shapeRef, float* xform) {
     NifFile* nif = static_cast<NifFile*>(nifRef);
@@ -227,12 +227,12 @@ NIFLY_API int getUVs(void* theNif, void* theShape, float* buf, int len, int star
         buf[j++] = uv->at(i).u;
         buf[j++] = uv->at(i).v;
     }
-    return uv->size();
+    return int(uv->size());
 }
 NIFLY_API int getNodeCount(void* theNif)
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
-    return nif->GetNodes().size();
+    return int(nif->GetNodes().size());
 }
 NIFLY_API void getNodes(void* theNif, void** buf)
 {
@@ -247,7 +247,7 @@ NIFLY_API int getNodeName(void* node, char* buf, int buflen) {
     int copylen = std::min((int)buflen - 1, (int)name.length());
     name.copy(buf, copylen, 0);
     buf[name.length()] = '\0';
-    return name.length();
+    return int(name.length());
 }
 NIFLY_API void* getNodeParent(void* theNif, void* node) {
     NifFile* nif = static_cast<NifFile*>(theNif);
@@ -298,7 +298,7 @@ NIFLY_API int getShapeBoneIDs(void* theNif, void* theShape, int* buf, int bufsiz
     nif->GetShapeBoneIDList(shape, bonelist);
     for (int i = 0; i < bufsize && i < bonelist.size(); i++)
         buf[i] = bonelist[i];
-    return bonelist.size();
+    return int(bonelist.size());
 }
 NIFLY_API int getShapeBoneNames(void* theNif, void* theShape, char* buf, int buflen) {
     NifFile* nif = static_cast<NifFile*>(theNif);
@@ -315,7 +315,7 @@ NIFLY_API int getShapeBoneNames(void* theNif, void* theShape, char* buf, int buf
     s.copy(buf, copylen, 0);
     buf[copylen] = '\0';
 
-    return(s.length());
+    return(int(s.length()));
 }
 NIFLY_API int getShapeBoneWeightsCount(void* theNif, void* theShape, int boneID) {
     NifFile* nif = static_cast<NifFile*>(theNif);
@@ -422,6 +422,7 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     const float* uv_points, int uv_len,
     const float* norms, int norms_len) {
 
+    NifFile *nif = static_cast<NifFile*>(parentNif);
     std::vector<Vector3> v;
     std::vector<Triangle> t;
     std::vector<Vector2> uv;
@@ -455,7 +456,7 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
         n.push_back(thisnorm);
     }
 
-    return CreateShapeFromData(static_cast<NifFile*>(parentNif), shapeName, &v, &t, &uv, &n);
+    return nif->CreateShapeFromData(shapeName, &v, &t, &uv, &n);
 }
 
 NIFLY_API void* createSkinForNif(void* nifPtr, const char* gameName) {

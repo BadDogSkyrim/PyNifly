@@ -345,7 +345,7 @@ def create_trip_shape_keys(obj, trip:TripFile):
         newsk.name = "Basis"
 
     offsetmorphs = trip.shapes[obj.name]
-    for morph_name, morph_verts in offsetmorphs.items():
+    for morph_name, morph_verts in sorted(offsetmorphs.items()):
         newsk = obj.shape_key_add()
         newsk.name = ">" + morph_name
 
