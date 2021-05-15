@@ -702,6 +702,11 @@ namespace NiflyDLLTests
 			for (int i = 0; i < 13; i++) { btbuf[i] = 0.0f; };
 			getGlobalToSkin(&btnifw, btbodyw, btbuf);
 
+			// Accessing the transform through the DLL gets the same results as going through 
+			// the wrapper layer
+			Assert::AreEqual(btbuf[2], btSkinInst.translation.z);
+			Assert::AreEqual(btbuf[5], btSkinInst.rotation[0].z);
+
 			/* ************************************** */
 			/* Test fails - fix the GTS conversion    */
 			//Assert::AreEqual(round(vSkinInst.translation.x * 1000), round(btSkinInst.translation.x * 1000));
@@ -717,7 +722,7 @@ namespace NiflyDLLTests
 			//	Assert::AreEqual(round(vbuf[i]*1000), round(btbuf[i])*1000);
 
 		};
-		TEST_METHOD(getPartition) {
+		TEST_METHOD(getPartitionSky) {
 			std::filesystem::path testfile = testRoot / "Skyrim/malehead.nif";
 
 			void* nif;
@@ -729,12 +734,61 @@ namespace NiflyDLLTests
 
 			nif = load(testfile.string().c_str());
 			getShapes(nif, shapes, 10, 0);
+
+			// Can check for segment count even on Skyrim nifs. 
+			Assert::AreEqual(0, segmentCount(nif, shapes[0]));
+
+			// getPartitions returns the count so you can alloc enough space.
 			partitionCount = getPartitions(nif, shapes[0], partitioninfo, 20);
 			Assert::AreEqual(3, partitionCount);
+
+			// Returned values are pairs, (flags, ID). 230 is the skyrim HEAD partition.
 			Assert::AreEqual(230, int(partitioninfo[1]));
 
+			// partition tris is a list of indices into the above partition list.
+			// This list is 1:1 with the shape's tris.
 			triCount = getPartitionTris(nif, shapes[0], tris, 2000);
 			Assert::AreEqual(1694, triCount);
+		};
+		TEST_METHOD(getPartitionFO4) {
+			std::filesystem::path testfile = testRoot / "FO4/VanillaMaleBody.nif";
+
+			void* nif;
+			void* shapes[10];
+			int segInfo[40]; // id, subseg count
+			int segCount;
+			int tris[3000];
+			int triCount;
+			char fname[256];
+			int namelen;
+
+			nif = load(testfile.string().c_str());
+			getShapes(nif, shapes, 10, 0);
+
+			// segmentCount returns the count of segments in the shape
+			// Vanilla body has 7 top-level segments
+			segCount = segmentCount(nif, shapes[0]);
+			Assert::AreEqual(7, segCount);
+
+			getSegments(nif, shapes[0], segInfo, 20);
+			// Segments don't have a real ID but nifly assigns one for reference.
+			Assert::AreNotEqual(0, int(segInfo[2]));
+			// This shape has 4 subsegments in its 3rd segment
+			Assert::AreEqual(4, segInfo[5]);
+
+			// 2698 tris in this shape
+			triCount = getPartitionTris(nif, shapes[0], tris, 3000);
+			Assert::AreEqual(2698, triCount);
+
+			// There's an external segment file
+			namelen = getSegmentFile(nif, shapes[0], fname, 256);
+			Assert::AreEqual("Meshes\\Actors\\Character\\CharacterAssets\\MaleBody.ssf", fname);
+			Assert::AreEqual(52, namelen);
+
+			// FO4 segments have subsegments
+			int subsegs[20 * 3];
+			int sscount = getSubsegments(nif, shapes[0], segInfo[4], subsegs, 20);
+			Assert::AreEqual(4, sscount);
 		};
 	};
 }

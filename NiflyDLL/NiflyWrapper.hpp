@@ -67,6 +67,10 @@ extern "C" NIFLY_API void setShapeVertWeights(void* theFile, void* theShape, int
 extern "C" NIFLY_API void setShapeBoneWeights(void* theFile, void* theShape, int boneIdx, VertexWeightPair * weights, int weightsLen);
 extern "C" NIFLY_API void setShapeBoneIDList(void* f, void* shapeRef, int* boneIDList, int listLen);
 extern "C" NIFLY_API int saveNif(void* the_nif, const char* filename);
+extern "C" NIFLY_API int segmentCount(void* nifref, void* shaperef);
+extern "C" NIFLY_API int getSegmentFile(void* nifref, void* shaperef, char* buf, int buflen);
+extern "C" NIFLY_API int getSegments(void* nifref, void* shaperef, int* segments, int segLen);
+extern "C" NIFLY_API int getSubsegments(void* nifref, void* shaperef, int segID, int* segments, int segLen);
 extern "C" NIFLY_API int getPartitions(void* nifref, void* shaperef, uint16_t* partitions, int partLen);
 extern "C" NIFLY_API int getPartitionTris(void* nifref, void* shaperef, int* tris, int triLen);
 extern "C" NIFLY_API void* createSkinForNif(void* nifPtr, const char* gameName);
