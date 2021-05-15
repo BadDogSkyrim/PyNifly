@@ -283,6 +283,26 @@ int SaveSkinnedNif(AnimInfo* anim, std::string filepath)
 	return theNif->Save(filepath);
 }
 
+void GetPartitions(
+	NifFile* workNif,
+	NiShape* shape,
+	NiVector<BSDismemberSkinInstance::PartitionInfo>& partitions,
+	std::vector<int>& indices) 
+{
+	NiVector<BSDismemberSkinInstance::PartitionInfo> partitionInfo;
+	std::vector<Triangle> tris;
+	shape->GetTriangles(tris);
+
+	std::vector<int> triParts;
+	NifSegmentationInfo inf;
+	if (!workNif->GetShapeSegments(shape, inf, triParts)) {
+		workNif->GetShapePartitions(shape, partitionInfo, triParts);
+	};
+
+	partitions = partitionInfo;
+	indices = triParts;
+}
+
 ///* ************************* AnimSkeleton **************************** */
 //
 //bool AnimInfo::LoadFromNif(NifFile* nif) {

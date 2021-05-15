@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
+RUN_TESTS = True
 
 bl_info = {
     "name": "NIF format",
@@ -90,13 +90,35 @@ def mesh_create_uv(the_mesh, uv_points):
     for i, this_uv in enumerate(new_uv):
         new_uvlayer.data[i].uv = this_uv
 
-def mesh_create_groups(the_shape, the_object):
+def mesh_create_bone_groups(the_shape, the_object):
+    """ Create groups to capture bone weights """
     vg = the_object.vertex_groups
     for bone_name in the_shape.bone_names:
         xlate_name = the_shape.parent.blender_name(bone_name)
         new_vg = vg.new(name=xlate_name)
         for v, w in the_shape.bone_weights[bone_name]:
             new_vg.add((v,), w, 'ADD')
+    
+
+def mesh_create_partition_groups(the_shape, the_object):
+    """ Create groups to capture partitions """
+    mesh = the_object.data
+    partdict = the_shape.parent.dict.parts
+    vg = the_object.vertex_groups
+    partn_groups = []
+    for p in the_shape.partitions:
+        if p[1] in partdict:
+            name = partdict[p[1]].name
+        else:
+            name = f"SBP_{p[1]}_UNKNOWN"
+        new_vg = vg.new(name=name)
+        partn_groups.append(new_vg)
+    for part_idx, face in zip(the_shape.partition_tris, mesh.polygons):
+        this_vg = partn_groups[part_idx]
+        for lp in face.loop_indices:
+            this_loop = mesh.loops[lp]
+            this_vg.add((this_loop.vertex_index,), 1.0, 'ADD')
+
     
 def import_shape(the_shape: NiShape):
     """ Import the shape to a Blender object, translating bone names """
@@ -122,7 +144,8 @@ def import_shape(the_shape: NiShape):
         = inv_xf.rotation.euler_deg()
 
     mesh_create_uv(new_object.data, the_shape.uvs)
-    mesh_create_groups(the_shape, new_object)
+    mesh_create_bone_groups(the_shape, new_object)
+    mesh_create_partition_groups(the_shape, new_object)
     for f in new_mesh.polygons:
         f.use_smooth = True
 
@@ -964,7 +987,7 @@ def run_tests():
     ############################################################
     """)
 
-    TEST_BPY_ALL = True
+    TEST_BPY_ALL = False
 
     TEST_EXPORT = False
     TEST_IMPORT_ARMATURE = False
@@ -981,7 +1004,8 @@ def run_tests():
     TEST_TRI = False
     TEST_0_WEIGHTS = False
     TEST_SPLIT_NORMAL = False
-    TEST_SKEL = True
+    TEST_SKEL = False
+    TEST_PARTITIONS = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -1456,6 +1480,14 @@ def run_tests():
 
         plane = append_collection("Plane", False, r"tests\skyrim\testSplitNormalPlane.blend", r"\Object", "Plane")
         export_shape_to(plane, os.path.join(pynifly_dev_path, r"tests\Out\CustomNormals.nif"), "FO4")
+
+
+    if TEST_BPY_ALL or TEST_PARTITIONS:
+        print("## TEST_PARTITIONS Can read partion")
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/MaleHead.nif")
+
+        nif = NifFile(testfile)
+        import_nif(nif)
 
 
     print("""

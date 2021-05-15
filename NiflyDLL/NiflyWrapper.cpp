@@ -565,3 +565,30 @@ NIFLY_API int saveNif(void* the_nif, const char* filename) {
     NifFile* nif = static_cast<NifFile*>(the_nif);
     return nif->Save(std::filesystem::path(filename));
 }
+
+NIFLY_API int getPartitions(void* nifref, void* shaperef, uint16_t *partitions, int partLen) {
+    NiVector<BSDismemberSkinInstance::PartitionInfo> partInfos;
+    std::vector<int> indices;
+
+    GetPartitions(static_cast<NifFile*>(nifref), 
+        static_cast<NiShape*>(shaperef), partInfos, indices);
+    
+    for (int i=0, j = 0; i < partLen * 2 && j < int(partInfos.size()); j++) {
+        partitions[i++] = partInfos[j].flags;
+        partitions[i++] = partInfos[j].partID;
+    }
+    return int(partInfos.size());
+}
+
+NIFLY_API int getPartitionTris(void* nifref, void* shaperef, int* tris, int triLen) {
+    NiVector<BSDismemberSkinInstance::PartitionInfo> partInfos;
+    std::vector<int> indices;
+
+    GetPartitions(static_cast<NifFile*>(nifref),
+        static_cast<NiShape*>(shaperef), partInfos, indices);
+
+    for (int i = 0; i < triLen && i < int(indices.size()); i++) {
+        tris[i] = indices[i];
+    }
+    return int(indices.size());
+}

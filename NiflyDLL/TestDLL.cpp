@@ -327,10 +327,10 @@ namespace NiflyDLLTests
 			Assert::AreEqual(-120, int(bodyGTS.translation.z), L"ERROR: Body nifs have a -120 z transform");
 			SetGlobalToSkinXform(anim, newBody, bodyGTS);
 
-			/* 
+			/*
 			This transform is applied to the NiSkinData block. It gives the
-			overall transform for the model when there's a NiSkinData block (Skyrim). 
-			It has to be set correctly so that the model can be put in skinned position 
+			overall transform for the model when there's a NiSkinData block (Skyrim).
+			It has to be set correctly so that the model can be put in skinned position
 			when read into blender, because if the block exists only this transform is used.
 			*/
 			if (theBody->HasSkinInstance()) {
@@ -487,7 +487,7 @@ namespace NiflyDLLTests
 			MatTransform boneXform;
 			nif.GetNodeTransformToGlobal("Bone_Cloth_H_002", boneXform);
 			Assert::AreNotEqual(0.0f, boneXform.translation.z, L"ERROR: Can read bone's transform");
-			
+
 			/* We read all the info we need about the shape */
 			std::vector < Vector3 > verts;
 			std::vector<Triangle> tris;
@@ -514,7 +514,7 @@ namespace NiflyDLLTests
 				nif.GetNodeTransformToGlobal(b, xform);
 				boneXforms[b] = xform;
 			};
-			 
+
 			std::unordered_map<std::string, AnimWeight> shapeWeights;
 			for (int i = 0; i < boneNames.size(); i++) {
 				AnimWeight w;
@@ -552,7 +552,7 @@ namespace NiflyDLLTests
 			/* We can save shapes with different transforms in the same file */
 			std::filesystem::path testfile = testRoot / "Skyrim/Test.nif";
 			NifFile nif = NifFile(testfile);
-			
+
 			/* Read the armor */
 			NiShape* theArmor = nif.FindBlockByName<NiShape>("Armor");
 			AnimInfo armorSkin;
@@ -569,7 +569,7 @@ namespace NiflyDLLTests
 
 			nif.GetVertsForShape(theArmor, aVerts);
 			theArmor->GetTriangles(aTris);
-			aUV= nif.GetUvsForShape(theArmor);
+			aUV = nif.GetUvsForShape(theArmor);
 			aNorms = nif.GetNormalsForShape(theArmor);
 
 			std::vector<std::string> armorBones;
@@ -716,6 +716,25 @@ namespace NiflyDLLTests
 			//for (int i = 0; i < 13; i++)
 			//	Assert::AreEqual(round(vbuf[i]*1000), round(btbuf[i])*1000);
 
-		}
+		};
+		TEST_METHOD(getPartition) {
+			std::filesystem::path testfile = testRoot / "Skyrim/malehead.nif";
+
+			void* nif;
+			void* shapes[10];
+			uint16_t partitioninfo[40]; // flags, id
+			int partitionCount;
+			int tris[2000];
+			int triCount;
+
+			nif = load(testfile.string().c_str());
+			getShapes(nif, shapes, 10, 0);
+			partitionCount = getPartitions(nif, shapes[0], partitioninfo, 20);
+			Assert::AreEqual(3, partitionCount);
+			Assert::AreEqual(230, int(partitioninfo[1]));
+
+			triCount = getPartitionTris(nif, shapes[0], tris, 2000);
+			Assert::AreEqual(1694, triCount);
+		};
 	};
 }

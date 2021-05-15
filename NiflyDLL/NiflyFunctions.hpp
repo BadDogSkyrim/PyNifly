@@ -6,7 +6,9 @@
 	*/
 #include <map>
 //#include "object3d.hpp"
-//#include "geometry.hpp"
+#include "BasicTypes.hpp"
+#include "geometry.hpp"
+#include "skin.hpp"
 //#include "NifFile.hpp"
 //#include "NifUtil.hpp"
 #include "Anim.h"
@@ -44,3 +46,7 @@ void SetShapeGlobalToSkinXform(AnimInfo* anim, nifly::NiShape* theShape, const n
 void SetShapeWeights(AnimInfo* anim, nifly::NiShape* theShape, std::string boneName, AnimWeight& theWeightSet);
 
 int SaveSkinnedNif(AnimInfo* anim, std::string filepath);
+
+void GetPartitions(nifly::NifFile* workNif, nifly::NiShape* shape, 
+	nifly::NiVector<nifly::BSDismemberSkinInstance::PartitionInfo>& partitions,
+	std::vector<int>& indices);

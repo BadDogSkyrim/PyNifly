@@ -57,8 +57,12 @@ def load_nifly(nifly_path):
     nifly.getNodes.restype = None
     nifly.getNormalsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
     nifly.getNormalsForShape.restype = c_int
-    nifly.getRawVertsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
-    nifly.getRawVertsForShape.restype = c_int
+    nifly.getPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
+    nifly.getPartitions.restype = c_int
+    nifly.getPartitionTris.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
+    nifly.getPartitionTris.restype = c_int
+    #nifly.getRawVertsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
+    #nifly.getRawVertsForShape.restype = c_int
     nifly.getRoot.argtypes = [c_void_p]
     nifly.getRoot.restype = c_void_p
     nifly.getRootName.argtypes = [c_void_p, c_char_p, c_int]
@@ -237,16 +241,6 @@ class MatTransform():
         return inverseXform
 
 
-def SeparateVertsByUV(verts, loops, polys, uvs):
-    vertcount = [0] * len(verts)
-    for l in loops:
-        if vertcount[l[0]] == 0:
-            vertcount[l[0]] = 1
-        else:
-            new_vert = len(verts)
-            verts.append(verts[vert_index])
-            l[0] = new_vert
-            
 def get_weights_by_bone(weights_by_vert):
     """ weights_by_vert = [dict[group-name: weight], ...]
         Result: {group_name: ((vert_index, weight), ...), ...}
@@ -262,6 +256,11 @@ def get_weights_by_bone(weights_by_vert):
                     result[name].append((vert_index, weight))
     return result
 
+
+class Partition:
+    def __init__(self, id=0, flags=0):
+        self.id = 0
+        self.flags = 0
 
 # --- NiNode --- #
 class NiNode:
@@ -319,6 +318,8 @@ class NiShape:
         self._weights = None
         self.name = None
         self.parent = theNif
+        self._partitions = None
+        self._partition_tris = None
 
         if not theShapeRef is None:
             buf = create_string_buffer(256)
@@ -334,25 +335,25 @@ class NiShape:
         self.transform.fill_buffer(buf)
         NifFile.nifly.setTransform(self._handle, buf)
 
-    @property
-    def rawVerts(self):
-        BUFSIZE = 1000
-        VERTBUF = c_float * 3 * BUFSIZE
-        verts = VERTBUF()
-        out = []
-        readSoFar = 0
-        remainingCount = 0
-        while (readSoFar == 0) or (remainingCount > 0):
-            totalCount = NifFile.nifly.getRawVertsForShape(
-                self.parent._handle, self._handle, verts, BUFSIZE, readSoFar)
-            if readSoFar == 0:
-                remainingCount = totalCount
-            if remainingCount > 0:
-                for i in range(0, min(remainingCount, BUFSIZE)):
-                    out.append((verts[i][0], verts[i][1], verts[i][2]))
-            remainingCount -= BUFSIZE
-            readSoFar += BUFSIZE
-        return out
+    #@property
+    #def rawVerts(self):
+    #    BUFSIZE = 1000
+    #    VERTBUF = c_float * 3 * BUFSIZE
+    #    verts = VERTBUF()
+    #    out = []
+    #    readSoFar = 0
+    #    remainingCount = 0
+    #    while (readSoFar == 0) or (remainingCount > 0):
+    #        totalCount = NifFile.nifly.getRawVertsForShape(
+    #            self.parent._handle, self._handle, verts, BUFSIZE, readSoFar)
+    #        if readSoFar == 0:
+    #            remainingCount = totalCount
+    #        if remainingCount > 0:
+    #            for i in range(0, min(remainingCount, BUFSIZE)):
+    #                out.append((verts[i][0], verts[i][1], verts[i][2]))
+    #        remainingCount -= BUFSIZE
+    #        readSoFar += BUFSIZE
+    #    return out
 
     @property
     def verts(self):
@@ -399,6 +400,30 @@ class NiShape:
                 readSoFar += BUFSIZE
         return self._tris
 
+    @property
+    def partitions(self):
+        if self._partitions is None:
+            self._partitions = []
+            buf = (c_uint16 * 2)()
+            pc = NifFile.nifly.getPartitions(self.parent._handle, self._handle, None, 0)
+            buf = (c_uint16 * 2 * pc)()
+            pc = NifFile.nifly.getPartitions(self.parent._handle, self._handle, buf, pc)
+            for i in range(pc):
+                self._partitions.append([buf[i][0], buf[i][1]])
+        return self._partitions
+
+    @property
+    def partition_tris(self):
+        if self._partition_tris is None:
+            buf = (c_int * 1)()
+            pc = NifFile.nifly.getPartitionTris(self.parent._handle, self._handle, None, 0)
+            buf = (c_int * pc)()
+            pc = NifFile.nifly.getPartitionTris(self.parent._handle, self._handle, buf, pc)
+            self._partition_tris = [0] * pc
+            for i in range(pc):
+                self._partition_tris[i] = buf[i]
+        return self._partition_tris
+    
     @property
     def uvs(self):
         BUFSIZE = (len(self._verts) if self._verts else 1000)
@@ -776,7 +801,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -788,7 +813,8 @@ TEST_2_TAILS = False
 TEST_ROTATIONS = False
 TEST_PARENT = False
 TEST_PYBABY = False
-TEST_BONE_XFORM = True
+TEST_BONE_XFORM = False
+TEST_PARTITIONS = True
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1244,3 +1270,13 @@ if __name__ == "__main__":
         assert mat3.translation[2] != 0, "Error: Translation should not be 0"
         mat4 = nif.get_node_xform_to_global("SPINE1")
         assert mat4.translation[2] != 0, "Error: Translation should not be 0"
+
+    if TEST_ALL or TEST_PARTITIONS:
+        print('### Can read partitions')
+
+        nif = NifFile(r"tests/Skyrim/MaleHead.nif")
+        assert len(nif.shapes[0].partitions) == 3
+        assert nif.shapes[0].partitions[0][1] == 230
+        assert len(nif.shapes[0].partition_tris) == 1694
+        
+
