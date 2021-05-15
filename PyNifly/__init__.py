@@ -103,21 +103,23 @@ def mesh_create_bone_groups(the_shape, the_object):
 def mesh_create_partition_groups(the_shape, the_object):
     """ Create groups to capture partitions """
     mesh = the_object.data
-    partdict = the_shape.parent.dict.parts
     vg = the_object.vertex_groups
     partn_groups = []
     for p in the_shape.partitions:
-        if p[1] in partdict:
-            name = partdict[p[1]].name
-        else:
-            name = f"SBP_{p[1]}_UNKNOWN"
-        new_vg = vg.new(name=name)
+        log.debug(f"..found partition {p.name}")
+        new_vg = vg.new(name=p.name)
         partn_groups.append(new_vg)
+        for sseg in p.subsegments:
+            new_vg = vg.new(name=sseg.name)
+            partn_groups.append(new_vg)
     for part_idx, face in zip(the_shape.partition_tris, mesh.polygons):
-        this_vg = partn_groups[part_idx]
-        for lp in face.loop_indices:
-            this_loop = mesh.loops[lp]
-            this_vg.add((this_loop.vertex_index,), 1.0, 'ADD')
+        if part_idx < len(partn_groups):
+            this_vg = partn_groups[part_idx]
+            for lp in face.loop_indices:
+                this_loop = mesh.loops[lp]
+                this_vg.add((this_loop.vertex_index,), 1.0, 'ADD')
+    if len(the_shape.segment_file) > 0:
+        the_object['FO4_SEGMENT_FILE'] = the_shape.segment_file
 
     
 def import_shape(the_shape: NiShape):
@@ -1472,7 +1474,7 @@ def run_tests():
         baby.parent.name == "BabyExportRoot", f"Error: Should have baby and armature"
         log.debug(f"Found object {baby.name}")
         export_shape_to(baby, os.path.join(pynifly_dev_path, r"tests\Out\weight0.nif"), "FO4")
-        assert "*UNWEIGHTED*" in baby.vertex_groups, "Error: Should be unweighted vertices"
+        assert "*UNWEIGHTED*" in baby.vertex_groups, "Unweighted vertex group captures vertices without weights"
 
 
     if TEST_BPY_ALL or TEST_SPLIT_NORMAL:
@@ -1489,6 +1491,17 @@ def run_tests():
         nif = NifFile(testfile)
         import_nif(nif)
 
+        obj = bpy.context.object
+        assert "SBP_130_HEAD" in obj.vertex_groups, "Skyrim body parts read in as vertex groups with sensible names"
+
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/VanillaMaleBody.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        obj = bpy.context.object
+        assert "SEG_1" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
+        assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == obj['FO4_SEGMENT_FILE'], "FO4 segment file read and saved for later use"
 
     print("""
     ############################################################

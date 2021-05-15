@@ -23,8 +23,8 @@ class VERTEX_WEIGHT_PAIR(Structure):
 
 def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
-    nifly.load.argtypes = [c_char_p]
-    nifly.load.restype = c_void_p
+    #nifly.getRawVertsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
+    #nifly.getRawVertsForShape.restype = c_int
     nifly.addBoneToShape.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
     nifly.addBoneToShape.restype = None
     nifly.addNode.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p]
@@ -33,6 +33,8 @@ def load_nifly(nifly_path):
     nifly.createNif.restype = c_void_p
     nifly.createNifShapeFromData.argtypes = [c_void_p, c_char_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int]
     nifly.createNifShapeFromData.restype = c_void_p
+    nifly.createSkinForNif.argtypes = [c_void_p, c_char_p]
+    nifly.createSkinForNif.restype = c_void_p
     nifly.destroy.argtypes = [c_void_p]
     nifly.destroy.restype = None
     nifly.getAllShapeNames.argtypes = [c_void_p, c_char_p, c_int]
@@ -49,24 +51,28 @@ def load_nifly(nifly_path):
     nifly.getNodeName.restype = c_int
     nifly.getNodeParent.argtypes = [c_void_p, c_void_p]
     nifly.getNodeParent.restype = c_void_p
+    nifly.getNodes.argtypes = [c_void_p, c_void_p]
+    nifly.getNodes.restype = None
     nifly.getNodeTransform.argtypes = [c_void_p, c_void_p]
     nifly.getNodeTransform.restype = None
     nifly.getNodeXformToGlobal.argtypes = [c_void_p, c_char_p, c_void_p]
     nifly.getNodeXformToGlobal.restype = None
-    nifly.getNodes.argtypes = [c_void_p, c_void_p]
-    nifly.getNodes.restype = None
     nifly.getNormalsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
     nifly.getNormalsForShape.restype = c_int
     nifly.getPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getPartitions.restype = c_int
     nifly.getPartitionTris.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getPartitionTris.restype = c_int
-    #nifly.getRawVertsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
-    #nifly.getRawVertsForShape.restype = c_int
     nifly.getRoot.argtypes = [c_void_p]
     nifly.getRoot.restype = c_void_p
     nifly.getRootName.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getRootName.restype = c_int
+    nifly.getSegmentFile.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
+    nifly.getSegmentFile.restype = c_int
+    nifly.getSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
+    nifly.getSegments.restype = c_int
+    nifly.getSubsegments.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
+    nifly.getSubsegments.restype = c_int
     nifly.getShapeBoneCount.argtypes = [c_void_p, c_void_p]
     nifly.getShapeBoneCount.restype = c_int
     nifly.getShapeBoneIDs.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
@@ -83,6 +89,8 @@ def load_nifly(nifly_path):
     nifly.getShapeName.restype = c_int
     nifly.getShapes.argtypes = [c_void_p, c_void_p, c_int, c_int]
     nifly.getShapes.restype = c_int
+    nifly.getShapeSkinToBone.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
+    nifly.getShapeSkinToBone.restype = c_bool
     nifly.getTransform.argtypes = [c_void_p, c_void_p]
     nifly.getTransform.restype = None
     nifly.getTriangles.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
@@ -93,28 +101,27 @@ def load_nifly(nifly_path):
     nifly.getVertsForShape.restype = c_int
     nifly.hasSkinInstance.argtype = [c_void_p]
     nifly.hasSkinInstance.restype = c_int
-    nifly.getShapeSkinToBone.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
-    nifly.getShapeSkinToBone.restype = c_bool
+    nifly.load.argtypes = [c_char_p]
+    nifly.load.restype = c_void_p
     nifly.saveNif.argtypes = [c_void_p, c_char_p]
     nifly.saveNif.restype = c_int
-    nifly.setShapeBoneIDList.argtypes = [c_void_p, c_void_p, c_void_p, c_int]  
-    nifly.setShapeBoneWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p]
-    nifly.setShapeVertWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
-    nifly.setTransform.argtypes = [c_void_p, c_void_p]
-    nifly.setTransform.restype = None
-    nifly.createSkinForNif.argtypes = [c_void_p, c_char_p]
-    nifly.createSkinForNif.restype = c_void_p
-    nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p]
-    nifly.setGlobalToSkinXform.restype = None
-    nifly.setShapeGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p] 
-    nifly.setShapeGlobalToSkinXform.restype = None
-    nifly.setShapeWeights.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
-    nifly.setShapeWeights.restype = None
     nifly.saveSkinnedNif.argtypes = [c_void_p, c_char_p]
     nifly.saveSkinnedNif.restype = None
+    nifly.segmentCount.argtypes = [c_void_p, c_void_p]
+    nifly.segmentCount.restype = c_int
+    nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p]
+    nifly.setGlobalToSkinXform.restype = None
+    nifly.setShapeBoneIDList.argtypes = [c_void_p, c_void_p, c_void_p, c_int]  
+    nifly.setShapeBoneWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p]
+    nifly.setShapeGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p] 
+    nifly.setShapeGlobalToSkinXform.restype = None
+    nifly.setShapeVertWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
+    nifly.setShapeWeights.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
+    nifly.setShapeWeights.restype = None
+    nifly.setTransform.argtypes = [c_void_p, c_void_p]
+    nifly.setTransform.restype = None
     nifly.skinShape.argtypes = [c_void_p, c_void_p]
     nifly.skinShape.restype = None
-
     return nifly
 
 # --- Helper Routines --- #
@@ -257,10 +264,44 @@ def get_weights_by_bone(weights_by_vert):
     return result
 
 
+class Subsegment:
+    def __init__(self, id, parent):
+        self.id = id
+        self.parent = parent
+
+    @property
+    def name(self):
+        return f"{self.parent.name}:{self.id}" 
+
 class Partition:
-    def __init__(self, id=0, flags=0):
-        self.id = 0
-        self.flags = 0
+    def __init__(self, id=0, flags=0, subsegments=0, namedict=None):
+        self.id = id
+        self.flags = flags
+        self.subseg_count = subsegments
+        self.subsegments = []
+        if namedict:
+            if id in namedict.parts:
+                self.name = namedict.parts[id].name
+            else:
+                 self.name = f"SBP_{id}_UNKNOWN"
+        else:
+            self.name = f"SEG_{id}"
+
+    def __eq__(self, other):
+        return self.name == other.name
+
+    def __lt__(self, other):
+        return self.name < other.name
+
+    def __le__(self, other):
+        return self.name <= other.name
+
+    def __gt__(self, other):
+        return self.name > other.name
+
+    def __ge__(self, other):
+        return self.name >= other.name
+
 
 # --- NiNode --- #
 class NiNode:
@@ -320,6 +361,7 @@ class NiShape:
         self.parent = theNif
         self._partitions = None
         self._partition_tris = None
+        self._segment_file = None
 
         if not theShapeRef is None:
             buf = create_string_buffer(256)
@@ -400,16 +442,36 @@ class NiShape:
                 readSoFar += BUFSIZE
         return self._tris
 
+    def _read_partitions(self):
+        self._partitions = []
+        buf = (c_uint16 * 2)()
+        pc = NifFile.nifly.getPartitions(self.parent._handle, self._handle, None, 0)
+        buf = (c_uint16 * 2 * pc)()
+        pc = NifFile.nifly.getPartitions(self.parent._handle, self._handle, buf, pc)
+        for i in range(pc):
+            self._partitions.append(Partition(buf[i][1], buf[i][0], namedict=self.parent.dict))
+    
+    def _read_segments(self, num):
+        self._partitions = []
+        buf = (c_int * 2 * num)()
+        pc = NifFile.nifly.getSegments(self.parent._handle, self._handle, buf, num)
+        for i in range(num):
+            p = Partition(buf[i][0], subsegments=buf[i][1])
+            self._partitions.append(p)
+            buf2 = (c_int * 60)()
+            ssn = NifFile.nifly.getSubsegments(self.parent._handle, self._handle, p.id, buf2, 20)
+            for i in range(ssn):
+                ss = Subsegment(buf2[i*3], p)
+                p.subsegments.append(ss)
+
     @property
     def partitions(self):
         if self._partitions is None:
-            self._partitions = []
-            buf = (c_uint16 * 2)()
-            pc = NifFile.nifly.getPartitions(self.parent._handle, self._handle, None, 0)
-            buf = (c_uint16 * 2 * pc)()
-            pc = NifFile.nifly.getPartitions(self.parent._handle, self._handle, buf, pc)
-            for i in range(pc):
-                self._partitions.append([buf[i][0], buf[i][1]])
+            segc = NifFile.nifly.segmentCount(self.parent._handle, self._handle)
+            if segc > 0:
+                self._read_segments(segc)
+            else:
+                self._read_partitions()
         return self._partitions
 
     @property
@@ -423,6 +485,15 @@ class NiShape:
             for i in range(pc):
                 self._partition_tris[i] = buf[i]
         return self._partition_tris
+
+    @property
+    def segment_file(self):
+        if self._segment_file is None:
+            buflen = NifFile.nifly.getSegmentFile(self.parent._handle, self._handle, None, 0)+1
+            buf = (c_char * buflen)()
+            buflen = NifFile.nifly.getSegmentFile(self.parent._handle, self._handle, buf, buflen)
+            self._segment_file = buf.value.decode('utf-8')
+        return self._segment_file
     
     @property
     def uvs(self):
@@ -638,7 +709,7 @@ class NifFile:
         self._shape_dict = {}
         self._nodes = None
         self._skin_handle = None
-        self.dict = None
+        self.dict = gameSkeletons[self.game]
 
     def __del__(self):
         if self._handle:
@@ -1275,8 +1346,31 @@ if __name__ == "__main__":
         print('### Can read partitions')
 
         nif = NifFile(r"tests/Skyrim/MaleHead.nif")
+        # partitions property holds partition info. Head has 3
         assert len(nif.shapes[0].partitions) == 3
-        assert nif.shapes[0].partitions[0][1] == 230
+        
+        # First of the partitions is the HEAD body part
+        assert nif.shapes[0].partitions[0].id == 230
+        assert nif.shapes[0].partitions[0].name == "SBP_230_NECK"
+
+        # Partition tri list is same as number of tris in shape
         assert len(nif.shapes[0].partition_tris) == 1694
         
+        print ("### Can read FO4 segments")
 
+        nif = NifFile(r"tests/FO4/VanillaMaleBody.nif")
+        # partitions property holds segment info for FO4 nifs. Body has 7 top-level segments
+        assert len(nif.shapes[0].partitions) == 7
+        
+        # IDs assigned by nifly for reference
+        assert nif.shapes[0].partitions[2].id != 0
+        assert nif.shapes[0].partitions[2].name.startswith("SEG_")
+
+        # Partition tri list gives the index of the associated partition for each tri in
+        # the shape, so it's the same size as number of tris in shape
+        assert len(nif.shapes[0].partition_tris) == 2698
+
+        # Shape has a segment file external to the nif
+        assert nif.shapes[0].segment_file == r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf"
+
+        assert len(nif.shapes[0].partitions[2].subsegments) > 0, "Shapes have subsegments"
