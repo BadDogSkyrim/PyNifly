@@ -331,10 +331,16 @@ class SkeletonBone:
         self.parent_name = parent
         self.parent = None
 
+class BodyPart:
+    def __init__(self, id, name):
+        self.id = id
+        self.name = name
+
 class BoneDict:
-    def __init__(self, bone_list, morph_list):
+    def __init__(self, bone_list, morph_list, part_list):
         self.byNif = {}
         self.byBlender = {}
+        self.parts = {}
         for b in bone_list:
             self.byNif[b.nif] = b
             self.byBlender[b.blender] = b
@@ -342,6 +348,8 @@ class BoneDict:
             if b.parent_name in self.byBlender:
                 b.parent = self.byBlender[b.parent_name]
         self.expressions = set(morph_list)
+        for p in part_list:
+            self.parts[p.id] = p
 
     def blender_name(self, nif_name):
         if nif_name in self.byNif:
@@ -480,7 +488,48 @@ skyrimExpressions = ['Basis', 'Aah', 'BigAah', 'BlinkLeft', 'BlinkRight', 'BMP',
     'MoodHappy', 'MoodPuzzled', 'MoodSad', 'MoodSurprise', 'N', 'Oh', 'OohQ', 'R', 'SkinnyMorph', 
     'SquintLeft', 'SquintRight', 'Th', 'W', 'VampireMorph']
 
-skyrimDict = BoneDict(skyrimBones, skyrimExpressions)
+skyrimParts = [
+    BodyPart(30, "SBP_30_HEAD"),
+    BodyPart(31, "SBP_31_HAIR"), 
+    BodyPart(32, "SBP_32_BODY"),
+    BodyPart(33, "SBP_33_HANDS"),
+    BodyPart(34, "SBP_34_FOREARMS"),
+    BodyPart(35, "SBP_35_AMULET"),
+    BodyPart(36, "SBP_36_RING"),
+    BodyPart(37, "SBP_37_FEET"),
+    BodyPart(38, "SBP_38_CALVES"),
+    BodyPart(39, "SBP_39_SHIELD"),
+    BodyPart(40, "SBP_40_TAIL"),
+    BodyPart(41, "SBP_41_LONGHAIR"),
+    BodyPart(42, "SBP_42_CIRCLET"),
+    BodyPart(43, "SBP_43_EARS"),
+    BodyPart(44, "SBP_44_DRAGON_BLOODHEAD_OR_MOD_MOUTH"),
+    BodyPart(45, "SBP_45_DRAGON_BLOODWINGL_OR_MOD_NECK"),
+    BodyPart(46, "SBP_46_DRAGON_BLOODWINGR_OR_MOD_CHEST_PRIMARY"),
+    BodyPart(47, "SBP_47_DRAGON_BLOODTAIL_OR_MOD_BACK"),
+    BodyPart(48, "SBP_48_MOD_MISC1"),
+    BodyPart(49, "SBP_49_MOD_PELVIS_PRIMARY"),
+    BodyPart(50, "SBP_50_DECAPITATEDHEAD"),
+    BodyPart(51, "SBP_51_DECAPITATE"),
+    BodyPart(52, "SBP_52_MOD_PELVIS_SECONDARY"),
+    BodyPart(53, "SBP_53_MOD_LEG_RIGHT"),
+    BodyPart(54, "SBP_54_MOD_LEG_LEFT"),
+    BodyPart(55, "SBP_55_MOD_FACE_JEWELRY"),
+    BodyPart(56, "SBP_56_MOD_CHEST_SECONDARY"),
+    BodyPart(57, "SBP_57_MOD_SHOULDER"),
+    BodyPart(58, "SBP_58_MOD_ARM_LEFT"),
+    BodyPart(59, "SBP_59_MOD_ARM_RIGHT"),
+    BodyPart(60, "SBP_60_MOD_MISC2"),
+    BodyPart(61, "SBP_61_FX01"),
+    BodyPart(130, "SBP_130_HEAD"),
+    BodyPart(131, "SBP_131_HAIR"),
+    BodyPart(141, "SBP_141_LONGHAIR"),
+    BodyPart(142, "SBP_142_CIRCLET"),
+    BodyPart(143, "SBP_143_EARS"),
+    BodyPart(150, "SBP_150_DECAPITATEDHEAD"),
+    BodyPart(230, "SBP_230_NECK") ]
+
+skyrimDict = BoneDict(skyrimBones, skyrimExpressions, skyrimParts)
 
 fo4Bones = [
     SkeletonBone('Root', 'Root', None),
@@ -699,7 +748,7 @@ fo4Expressions = ['Basis', 'UprLipRollOut', 'UprLipRollIn', 'UprLipFunnel', 'Sti
     'LwrLipRollOut', 'LwrLipFunnel', 'LwrLipRollIn'
     ]
 
-fo4Dict = BoneDict(fo4Bones, fo4Expressions)
+fo4Dict = BoneDict(fo4Bones, fo4Expressions, [])
 
 gameSkeletons = {
     'SKYRIM': skyrimDict,
