@@ -621,7 +621,7 @@ NIFLY_API int getSegments(void* nifref, void* shaperef, int* segments, int segLe
     }
     return 0;
 }
-NIFLY_API int getSubsegments(void* nifref, void* shaperef, int segID, int* segments, int segLen) {
+NIFLY_API int getSubsegments(void* nifref, void* shaperef, int segID, uint32_t* segments, int segLen) {
     /*
         Return subsegments associated with a shape. Only for FO4-style nifs.
         segments -> (int ID, userSlotID, material)...
@@ -688,6 +688,7 @@ NIFLY_API int getPartitionTris(void* nifref, void* shaperef, uint16_t* tris, int
 NIFLY_API void setPartitions(void* nifref, void* shaperef, 
     uint16_t* partData, int partDataLen, 
     uint16_t* tris, int triLen) 
+    // Needs to be called AFTER bone weights are set
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
@@ -706,4 +707,5 @@ NIFLY_API void setPartitions(void* nifref, void* shaperef,
     }
 
     nif->SetShapePartitions(shape, partInfos, triParts, true);
+    nif->UpdateSkinPartitions(shape);
 }

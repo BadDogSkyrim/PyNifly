@@ -72,7 +72,7 @@ extern "C" NIFLY_API int saveNif(void* the_nif, const char* filename);
 extern "C" NIFLY_API int segmentCount(void* nifref, void* shaperef);
 extern "C" NIFLY_API int getSegmentFile(void* nifref, void* shaperef, char* buf, int buflen);
 extern "C" NIFLY_API int getSegments(void* nifref, void* shaperef, int* segments, int segLen);
-extern "C" NIFLY_API int getSubsegments(void* nifref, void* shaperef, int segID, int* segments, int segLen);
+extern "C" NIFLY_API int getSubsegments(void* nifref, void* shaperef, int segID, uint32_t* segments, int segLen);
 extern "C" NIFLY_API int getPartitions(void* nifref, void* shaperef, uint16_t* partitions, int partLen);
 extern "C" NIFLY_API int getPartitionTris(void* nifref, void* shaperef, uint16_t* tris, int triLen);
 extern "C" NIFLY_API void setPartitions(void* nifref, void* shaperef, uint16_t * partData, int partDataLen, uint16_t * tris, int triLen);
