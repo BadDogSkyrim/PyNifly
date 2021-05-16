@@ -418,7 +418,7 @@ NIFLY_API void* createNif(const char* targetGameName) {
 NIFLY_API void* createNifShapeFromData(void* parentNif,
     const char* shapeName,
     const float* verts, int verts_len,
-    const int* tris, int tris_len,
+    const uint16_t* tris, int tris_len,
     const float* uv_points, int uv_len,
     const float* norms, int norms_len) {
 
@@ -667,7 +667,7 @@ NIFLY_API int getPartitions(void* nifref, void* shaperef, uint16_t* partitions, 
     return int(partInfos.size());
 }
 
-NIFLY_API int getPartitionTris(void* nifref, void* shaperef, int* tris, int triLen) {
+NIFLY_API int getPartitionTris(void* nifref, void* shaperef, uint16_t* tris, int triLen) {
 /* 
     Return a list of segment indices matching 1-1 with the shape's triangles.
     Used for both skyrim and fo4-style nifs
@@ -683,4 +683,27 @@ NIFLY_API int getPartitionTris(void* nifref, void* shaperef, int* tris, int triL
         tris[i] = indices[i];
     }
     return int(indices.size());
+}
+
+NIFLY_API void setPartitions(void* nifref, void* shaperef, 
+    uint16_t* partData, int partDataLen, 
+    uint16_t* tris, int triLen) 
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+    NiVector<BSDismemberSkinInstance::PartitionInfo> partInfos;
+    std::vector<int> triParts;
+
+    for (int i = 0; i < partDataLen; i++) {
+        BSDismemberSkinInstance::PartitionInfo p;
+        p.partID = partData[i];
+        p.flags = PF_EDITOR_VISIBLE;
+        partInfos.push_back(p);
+    }
+
+    for (int i = 0; i < triLen; i++) {
+        triParts.push_back(tris[i]);
+    }
+
+    nif->SetShapePartitions(shape, partInfos, triParts, true);
 }

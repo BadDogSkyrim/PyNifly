@@ -111,6 +111,8 @@ def load_nifly(nifly_path):
     nifly.segmentCount.restype = c_int
     nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p]
     nifly.setGlobalToSkinXform.restype = None
+    nifly.setPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int]
+    nifly.setPartitions.restype = None
     nifly.setShapeBoneIDList.argtypes = [c_void_p, c_void_p, c_void_p, c_int]  
     nifly.setShapeBoneWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p]
     nifly.setShapeGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p] 
@@ -274,12 +276,14 @@ class Subsegment:
         return f"{self.parent.name}:{self.id}" 
 
 class Partition:
-    def __init__(self, id=0, flags=0, subsegments=0, namedict=None):
+    def __init__(self, id=0, flags=0, subsegments=0, namedict=None, name=None):
         self.id = id
         self.flags = flags
         self.subseg_count = subsegments
         self.subsegments = []
-        if namedict:
+        if name:
+            self.name = name
+        elif namedict:
             if id in namedict.parts:
                 self.name = namedict.parts[id].name
             else:
@@ -477,9 +481,9 @@ class NiShape:
     @property
     def partition_tris(self):
         if self._partition_tris is None:
-            buf = (c_int * 1)()
+            buf = (c_uint16 * 1)()
             pc = NifFile.nifly.getPartitionTris(self.parent._handle, self._handle, None, 0)
-            buf = (c_int * pc)()
+            buf = (c_uint16 * pc)()
             pc = NifFile.nifly.getPartitionTris(self.parent._handle, self._handle, buf, pc)
             self._partition_tris = [0] * pc
             for i in range(pc):
@@ -686,6 +690,22 @@ class NiShape:
         NifFile.nifly.setShapeWeights(self.parent._skin_handle, self._handle, bone_name.encode('utf-8'),
                                       vert_buf, len(vert_weights), xfbuf)
        
+    def set_partitions(self, partitionlist, trilist):
+        """ Set the partitions for a shape
+            partitionlist = list of Partition objects
+            trilist = 1:1 with shape tris, gives the index in the above list of the tri's partitions
+            """
+        pbuf = (c_uint16 * len(partitionlist))()
+        for i, p in enumerate(partitionlist):
+            pbuf[i] = p.id
+        tbuf = (c_uint16 * len(trilist))()
+        for i, t in enumerate(trilist):
+            tbuf[i] = trilist[i]
+        NifFile.nifly.setPartitions(self.parent._handle, self._handle,
+                                    pbuf, len(partitionlist),
+                                    tbuf, len(trilist))
+
+
 # --- NifFile --- #
 class NifFile:
     """ NifFile represents the file itself. Corresponds approximately to a NifFile in the 
@@ -709,7 +729,8 @@ class NifFile:
         self._shape_dict = {}
         self._nodes = None
         self._skin_handle = None
-        self.dict = gameSkeletons[self.game]
+        if self.game is not None:
+            self.dict = gameSkeletons[self.game]
 
     def __del__(self):
         if self._handle:
@@ -749,7 +770,7 @@ class NifFile:
             norm_len = len(normals)
             for i in range(norm_len):
                 normbuf[i] = normals[i]
-        TRIBUFDEF = c_int * 3 * len(tris)
+        TRIBUFDEF = c_uint16 * 3 * len(tris)
         tribuf = TRIBUFDEF()
         for i, t in enumerate(tris): tribuf[i] = t
         UVBUFDEF = c_float * 2 * len(uvs)
@@ -886,6 +907,7 @@ TEST_PARENT = False
 TEST_PYBABY = False
 TEST_BONE_XFORM = False
 TEST_PARTITIONS = True
+TEST_SEGMENTS = False
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
@@ -955,10 +977,10 @@ if __name__ == "__main__":
         #assert not f2.shapes[0].has_skin_instance
 
     if TEST_ALL or TEST_MESH_QUERY:
-        print("### Shapes rawVerts property is a list of triples containing x,y,z position")
+        print("### Shapes verts property is a list of triples containing x,y,z position")
         f2 = NifFile("tests/skyrim/noblecrate01.nif")
         print(f2.getAllShapeNames())
-        verts = f2.shapes[0].rawVerts
+        verts = f2.shapes[0].verts
         assert len(verts) == 686, "ERROR: Did not import 686 verts"
         assert round(verts[0][0], 4) == -67.6339, "ERROR: First vert wrong"
         assert round(verts[0][1], 4) == -24.8498, "ERROR: First vert wrong"
@@ -966,7 +988,6 @@ if __name__ == "__main__":
         assert round(verts[685][0], 4) == -64.4469, "ERROR: Last vert wrong"
         assert round(verts[685][1], 4) == -16.3246, "ERROR: Last vert wrong"
         assert round(verts[685][2], 4) == 26.4362, "ERROR: Last vert wrong"
-  
 
         print("### Shapes tris property is a list of triples defining the triangles")
         tris = f2.shapes[0].tris
@@ -976,8 +997,8 @@ if __name__ == "__main__":
 
         print("### Can access verts and tris of second shape too;")
         print("###   Can access verts and tris from beyond the first buffer limit")
-        verts = f1.shape_dict["MaleBody"].rawVerts 
-        assert len(verts) == 2024, "ERROR: Wrong vert count for second shape - " + str(len(f1.shapes[1].rawVerts))
+        verts = f1.shape_dict["MaleBody"].verts 
+        assert len(verts) == 2024, "ERROR: Wrong vert count for second shape - " + str(len(f1.shapes[1].verts))
 
         assert round(verts[0][0], 4) == 0.0, "ERROR: First vert wrong"
         assert round(verts[0][1], 4) == 8.5051, "ERROR: First vert wrong"
@@ -1092,7 +1113,7 @@ if __name__ == "__main__":
             SkeletonBone("Bone.001", "BONE2"), 
             SkeletonBone("Bone.002", "BONE3"),
             SkeletonBone("Bone.003", "BONE4") ],
-            {})
+            {}, [])
 
         newf4 = NifFile()
         newf4.initialize("SKYRIM", "tests/out/testnew04.nif")
@@ -1349,13 +1370,29 @@ if __name__ == "__main__":
         # partitions property holds partition info. Head has 3
         assert len(nif.shapes[0].partitions) == 3
         
-        # First of the partitions is the HEAD body part
+        # First of the partitions is the neck body part
         assert nif.shapes[0].partitions[0].id == 230
         assert nif.shapes[0].partitions[0].name == "SBP_230_NECK"
 
         # Partition tri list is same as number of tris in shape
         assert len(nif.shapes[0].partition_tris) == 1694
-        
+
+        print("### Can write partitions back out")
+        nif2 = NifFile()
+        nif2.initialize('SKYRIM', r"tests/Out/PartitionsMaleHead.nif")
+        _test_export_shape(nif.shapes[0], nif2)
+        nif2.shapes[0].set_partitions(nif.shapes[0].partitions, 
+                                      nif.shapes[0].partition_tris)
+        nif2.save()
+
+        nif3 = NifFile(r"tests/Out/PartitionsMaleHead.nif")
+        assert len(nif3.shapes[0].partitions) == 3, "Have the same number of partitions as before"
+        assert nif3.shapes[0].partitions[0].id == 230, "Partition IDs same as before"
+        assert len(nif3.shapes[0].partition_tris) == 1694, "Same number of tri indices as before"
+        assert (nif3.shapes[0].partitions[0].flags and 1) == 1, "First partition has start-net-boneset set"
+        assert (nif3.shapes[0].partitions[2].flags and 1) == 0, "Last partition has start-net-boneset clear"
+
+    if TEST_ALL or TEST_SEGMENTS:
         print ("### Can read FO4 segments")
 
         nif = NifFile(r"tests/FO4/VanillaMaleBody.nif")
