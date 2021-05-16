@@ -729,7 +729,7 @@ namespace NiflyDLLTests
 			void* shapes[10];
 			uint16_t partitioninfo[40]; // flags, id
 			int partitionCount;
-			int tris[2000];
+			int partTris[2000];
 			int triCount;
 
 			nif = load(testfile.string().c_str());
@@ -747,8 +747,55 @@ namespace NiflyDLLTests
 
 			// partition tris is a list of indices into the above partition list.
 			// This list is 1:1 with the shape's tris.
-			triCount = getPartitionTris(nif, shapes[0], tris, 2000);
+			triCount = getPartitionTris(nif, shapes[0], partTris, 2000);
 			Assert::AreEqual(1694, triCount);
+
+			// Testing the writing of partitions at the pynifly level
+			// 
+			//// Can write the partitions back out
+			//std::filesystem::path testfileout = testRoot / "Out/partitionsSkyHead.nif";
+			//int vlen, nlen, tlen, ulen;
+			//float verts[6000];
+			//float norms[6000];
+			//uint16_t tris2[6000];
+			//float uvs[4000];
+			//vlen = getVertsForShape(nif, shapes[0], verts, 2000, 0);
+			//nlen = getNormalsForShape(nif, shapes[0], norms, 2000, 0);
+			//tlen = getTriangles(nif, shapes[0], tris2, 2000, 0);
+			//ulen = getUVs(nif, shapes[0], uvs, 2000, 0);
+
+			//void* nif2 = createNif("SKYRIM");
+			//void* newSkin = createSkinForNif(nif2, "SKYRIM");
+			//void* sh = createNifShapeFromData(nif2, "Head", verts, vlen, tris2, tlen, uvs, ulen,
+			//	norms, nlen);
+			//skinShape(nif2, sh);
+			//
+			//// On write, we don't send the partition flags
+			////int writeParts[40];
+			////for (int i = 0; i < partitionCount; i++) writeParts[i] = partitioninfo[i * 2 + 1];
+			////setPartitions(nif, shapes[0], writeParts, partitionCount, tris, triCount);
+			//saveSkinnedNif(newSkin, testfileout.string().c_str());
+
+			//// And on reading, should have same values
+			//void* nif3;
+			//void* shapes3[10];
+			//nif3 = load(testfileout.string().c_str());
+			//getShapes(nif3, shapes3, 10, 0);
+
+			//// Can check for segment count even on Skyrim nifs. 
+			//Assert::AreEqual(0, segmentCount(nif3, shapes3[0]));
+
+			//// getPartitions returns the count so you can alloc enough space.
+			//partitionCount = getPartitions(nif3, shapes3[0], partitioninfo, 20);
+			//Assert::AreEqual(3, partitionCount);
+
+			//// Returned values are pairs, (flags, ID). 230 is the skyrim HEAD partition.
+			//Assert::AreEqual(230, int(partitioninfo[1]));
+
+			//// partition tris is a list of indices into the above partition list.
+			//// This list is 1:1 with the shape's tris.
+			//triCount = getPartitionTris(nif3, shapes3[0], partTris, 2000);
+			//Assert::AreEqual(1694, triCount);
 		};
 		TEST_METHOD(getPartitionFO4) {
 			std::filesystem::path testfile = testRoot / "FO4/VanillaMaleBody.nif";

@@ -24,6 +24,7 @@ from operator import or_
 from functools import reduce
 import traceback
 import math
+import re
 
 log = logging.getLogger("pynifly")
 log.info(f"Loading pynifly version {bl_info['version']}")
@@ -696,6 +697,61 @@ def expected_game(nif, bonelist):
     return matchgame == "" or matchgame == nif.game
 
 
+def partitions_from_vert_groups(obj):
+    """ Return Partition objects for all vertex groups that match the partition name pattern """
+    val = []
+    if obj.vertex_groups:
+        for vg in obj.vertex_groups:
+            thematch = re.search('SBP_([0-9]+)_\w+', vg.name)
+            if thematch:
+                n = int(thematch.group(1))
+                val.append(Partition(n, 0, name=vg.name))
+    return val
+
+
+def all_vertex_groups(weightdict):
+    """ Return the set of group names that have non-zero weights """
+    val = set()
+    for g, w in weightdict.items():
+        if w > 0.0001:
+            val.add(g)
+    return val
+
+
+def export_partitions(obj, weights_by_vert, tris):
+    """ Export partitions described by vertex groups
+        weights = [dict[group-name: weight], ...] vertex weights, 1:1 with verts. For 
+            partitions, can assume the weights are 1.0
+        tris = [(v1, v2, v3)...] where v1-3 are indices into the vertex list
+    """
+    log.debug(f"..Exporting partitions")
+    partitions = partitions_from_vert_groups(obj)
+    log.debug(f"....Found partitions {[p.name for p in partitions]}")
+    partition_dict = {}
+    partition_set = set()
+    for i, p in enumerate(partitions):
+        partition_dict[p.name] = i
+        partition_set.add(p.name)
+
+    tri_indices = [0] * len(tris)
+
+    for i, t in enumerate(tris):
+        # All 3 have to be in the vertex group to count
+        vg0 = all_vertex_groups(weights_by_vert[t[0]])
+        vg1 = all_vertex_groups(weights_by_vert[t[1]])
+        vg2 = all_vertex_groups(weights_by_vert[t[2]])
+        tri_partitions = vg0.intersection(vg1).intersection(vg2).intersection(partition_set)
+        if len(tri_partitions) > 0:
+            #log.debug(f"....Found partition for tri {t}: {tri_partitions}")
+            for tp in tri_partitions:
+                part_index = partition_dict[tp]
+                tri_indices[i] = part_index
+        else:
+            tri_indices[i] = 0
+
+    return partitions, tri_indices
+
+
 def export_shape(nif, trip, obj, target_key=''):
     """Export given blender object to the given NIF file
         nif = target nif file
@@ -784,6 +840,9 @@ def export_shape(nif, trip, obj, target_key=''):
             create_group_from_verts(obj, "*UNWEIGHTED*", unweighted)
             log.warning("Some vertices are not weighted to the armature")
             retval.add('UNWEIGHTED')
+
+        partition, tri_indices = export_partitions(obj, weights_by_vert, tris)
+        new_shape.set_partitions(partitions, tri_indices)
     else:
         new_shape.transform = new_xform
 
@@ -1008,6 +1067,7 @@ def run_tests():
     TEST_SPLIT_NORMAL = False
     TEST_SKEL = False
     TEST_PARTITIONS = True
+    TEST_SEGMENTS = False
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -1485,7 +1545,7 @@ def run_tests():
 
 
     if TEST_BPY_ALL or TEST_PARTITIONS:
-        print("## TEST_PARTITIONS Can read partion")
+        print("## TEST_PARTITIONS Can read Skyrim partions")
         testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/MaleHead.nif")
 
         nif = NifFile(testfile)
@@ -1494,6 +1554,11 @@ def run_tests():
         obj = bpy.context.object
         assert "SBP_130_HEAD" in obj.vertex_groups, "Skyrim body parts read in as vertex groups with sensible names"
 
+        print("### Can write Skyrim partitions")
+        export_shape_to(obj, os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"), "SKYRIM")
+        
+    if TEST_BPY_ALL or TEST_SEGMENTS:
+        print("### Can read FO4 segments")
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/VanillaMaleBody.nif")
         nif = NifFile(testfile)
