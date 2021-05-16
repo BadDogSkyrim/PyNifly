@@ -2,7 +2,7 @@
 import os
 import struct
 from math import asin, atan2, pi, sin, cos
-from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_float, c_uint8, c_uint16, create_string_buffer, Structure, cdll, pointer
+from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer
 from niflytools import *
 
 
@@ -266,30 +266,10 @@ def get_weights_by_bone(weights_by_vert):
     return result
 
 
-class Subsegment:
-    def __init__(self, id, parent):
-        self.id = id
-        self.parent = parent
-
-    @property
-    def name(self):
-        return f"{self.parent.name}:{self.id}" 
-
 class Partition:
-    def __init__(self, id=0, flags=0, subsegments=0, namedict=None, name=None):
-        self.id = id
-        self.flags = flags
-        self.subseg_count = subsegments
-        self.subsegments = []
-        if name:
-            self.name = name
-        elif namedict:
-            if id in namedict.parts:
-                self.name = namedict.parts[id].name
-            else:
-                 self.name = f"SBP_{id}_UNKNOWN"
-        else:
-            self.name = f"SEG_{id}"
+    def __init__(self, part_id=0, namedict=None, name=None):
+        self.id = part_id
+        self.name = name
 
     def __eq__(self, other):
         return self.name == other.name
@@ -305,6 +285,34 @@ class Partition:
 
     def __ge__(self, other):
         return self.name >= other.name
+
+class SkyPartition(Partition):
+    def __init__(self, part_id=0, flags=0, namedict=None, name=None):
+        super().__init__(part_id, namedict, name)
+        self.flags = flags
+        if not self.name:
+            if namedict and part_id in namedict.parts:
+                self.name = namedict.parts[part_id].name
+            else:
+                self.name = f"SBP_{part_id}_UNKNOWN"
+
+class FO4Partition(Partition):
+    def __init__(self, part_id=0, subsegments=0, namedict=None, name=None):
+        super().__init__(part_id, namedict, name)
+        self.subseg_count = subsegments
+        self.subsegments = []
+        if not self.name:
+            self.name = f"Segment #{part_id}"
+
+class Subsegment(FO4Partition):
+    def __init__(self, part_id, user_slot, material, parent, namedict=None, name=None):
+        super().__init__(part_id, 0, namedict, name)
+        self.user_slot = user_slot
+        self.material = material
+        if namedict and material in namedict.parts:
+            self.name = f"{namedict.parts[material].name} | {part_id}"
+        self.parent = parent
+        parent.subsegments.append(self)
 
 
 # --- NiNode --- #
@@ -453,20 +461,23 @@ class NiShape:
         buf = (c_uint16 * 2 * pc)()
         pc = NifFile.nifly.getPartitions(self.parent._handle, self._handle, buf, pc)
         for i in range(pc):
-            self._partitions.append(Partition(buf[i][1], buf[i][0], namedict=self.parent.dict))
+            self._partitions.append(SkyPartition(buf[i][1], buf[i][0], namedict=self.parent.dict))
     
     def _read_segments(self, num):
         self._partitions = []
         buf = (c_int * 2 * num)()
         pc = NifFile.nifly.getSegments(self.parent._handle, self._handle, buf, num)
         for i in range(num):
-            p = Partition(buf[i][0], subsegments=buf[i][1])
+            p = FO4Partition(part_id=buf[i][0], subsegments=buf[i][1], namedict=self.parent.dict)
             self._partitions.append(p)
-            buf2 = (c_int * 60)()
-            ssn = NifFile.nifly.getSubsegments(self.parent._handle, self._handle, p.id, buf2, 20)
+            buf2 = (c_uint32 * 3 * p.subseg_count)()
+            ssn = NifFile.nifly.getSubsegments(self.parent._handle, self._handle, p.id, buf2, p.subseg_count)
             for i in range(ssn):
-                ss = Subsegment(buf2[i*3], p)
-                p.subsegments.append(ss)
+                ss = Subsegment(part_id=buf2[i][0], 
+                                user_slot=buf2[i][1], 
+                                material=buf2[i][2], 
+                                parent=p, 
+                                namedict=self.parent.dict)
 
     @property
     def partitions(self):
@@ -906,8 +917,8 @@ TEST_ROTATIONS = False
 TEST_PARENT = False
 TEST_PYBABY = False
 TEST_BONE_XFORM = False
-TEST_PARTITIONS = True
-TEST_SEGMENTS = False
+TEST_PARTITIONS = False
+TEST_SEGMENTS = True
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1390,18 +1401,18 @@ if __name__ == "__main__":
         assert nif3.shapes[0].partitions[0].id == 230, "Partition IDs same as before"
         assert len(nif3.shapes[0].partition_tris) == 1694, "Same number of tri indices as before"
         assert (nif3.shapes[0].partitions[0].flags and 1) == 1, "First partition has start-net-boneset set"
-        assert (nif3.shapes[0].partitions[2].flags and 1) == 0, "Last partition has start-net-boneset clear"
 
     if TEST_ALL or TEST_SEGMENTS:
         print ("### Can read FO4 segments")
 
         nif = NifFile(r"tests/FO4/VanillaMaleBody.nif")
+
         # partitions property holds segment info for FO4 nifs. Body has 7 top-level segments
         assert len(nif.shapes[0].partitions) == 7
         
         # IDs assigned by nifly for reference
         assert nif.shapes[0].partitions[2].id != 0
-        assert nif.shapes[0].partitions[2].name.startswith("SEG_")
+        assert nif.shapes[0].partitions[2].name == "Segment #2"
 
         # Partition tri list gives the index of the associated partition for each tri in
         # the shape, so it's the same size as number of tris in shape
@@ -1411,3 +1422,4 @@ if __name__ == "__main__":
         assert nif.shapes[0].segment_file == r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf"
 
         assert len(nif.shapes[0].partitions[2].subsegments) > 0, "Shapes have subsegments"
+        assert nif.shapes[0].partitions[2].subsegments[0].name == "Human 2 | R-Up Arm | 3", "Subsegments have human-readable names"

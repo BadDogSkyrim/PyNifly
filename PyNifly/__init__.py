@@ -110,9 +110,10 @@ def mesh_create_partition_groups(the_shape, the_object):
         log.debug(f"..found partition {p.name}")
         new_vg = vg.new(name=p.name)
         partn_groups.append(new_vg)
-        for sseg in p.subsegments:
-            new_vg = vg.new(name=sseg.name)
-            partn_groups.append(new_vg)
+        if type(p) == FO4Partition:
+            for sseg in p.subsegments:
+                new_vg = vg.new(name=sseg.name)
+                partn_groups.append(new_vg)
     for part_idx, face in zip(the_shape.partition_tris, mesh.polygons):
         if part_idx < len(partn_groups):
             this_vg = partn_groups[part_idx]
@@ -841,7 +842,7 @@ def export_shape(nif, trip, obj, target_key=''):
             log.warning("Some vertices are not weighted to the armature")
             retval.add('UNWEIGHTED')
 
-        partition, tri_indices = export_partitions(obj, weights_by_vert, tris)
+        partitions, tri_indices = export_partitions(obj, weights_by_vert, tris)
         new_shape.set_partitions(partitions, tri_indices)
     else:
         new_shape.transform = new_xform
@@ -1066,8 +1067,8 @@ def run_tests():
     TEST_0_WEIGHTS = False
     TEST_SPLIT_NORMAL = False
     TEST_SKEL = False
-    TEST_PARTITIONS = True
-    TEST_SEGMENTS = False
+    TEST_PARTITIONS = False
+    TEST_SEGMENTS = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -1565,7 +1566,7 @@ def run_tests():
         import_nif(nif)
 
         obj = bpy.context.object
-        assert "SEG_1" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
+        assert "Segment #2" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
         assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == obj['FO4_SEGMENT_FILE'], "FO4 segment file read and saved for later use"
 
     print("""
