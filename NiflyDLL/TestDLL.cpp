@@ -722,27 +722,27 @@ namespace NiflyDLLTests
 			//	Assert::AreEqual(round(vbuf[i]*1000), round(btbuf[i])*1000);
 
 		};
-		TEST_METHOD(getPartitionSky) {
+		TEST_METHOD(partitionsSky) {
 			std::filesystem::path testfile = testRoot / "Skyrim/malehead.nif";
 
 			void* nif;
 			void* shapes[10];
 			uint16_t partitioninfo[40]; // flags, id
 			int partitionCount;
-			int partTris[2000];
+			uint16_t partTris[2000];
 			int triCount;
 
 			nif = load(testfile.string().c_str());
 			getShapes(nif, shapes, 10, 0);
 
-			// Can check for segment count even on Skyrim nifs. 
+			// Asking for the segment count on Skyrim nifs is allowed, but always 0. 
 			Assert::AreEqual(0, segmentCount(nif, shapes[0]));
 
 			// getPartitions returns the count so you can alloc enough space.
 			partitionCount = getPartitions(nif, shapes[0], partitioninfo, 20);
 			Assert::AreEqual(3, partitionCount);
 
-			// Returned values are pairs, (flags, ID). 230 is the skyrim HEAD partition.
+			// Returned values are pairs, (flags, ID). 230 is the skyrim neck partition.
 			Assert::AreEqual(230, int(partitioninfo[1]));
 
 			// partition tris is a list of indices into the above partition list.
@@ -750,7 +750,8 @@ namespace NiflyDLLTests
 			triCount = getPartitionTris(nif, shapes[0], partTris, 2000);
 			Assert::AreEqual(1694, triCount);
 
-			// Testing the writing of partitions at the pynifly level
+			// This next test was being a bitch and we test the functionality at the
+			// Blender level anyway so...
 			// 
 			//// Can write the partitions back out
 			//std::filesystem::path testfileout = testRoot / "Out/partitionsSkyHead.nif";
@@ -804,7 +805,7 @@ namespace NiflyDLLTests
 			void* shapes[10];
 			int segInfo[40]; // id, subseg count
 			int segCount;
-			int tris[3000];
+			uint16_t tris[3000];
 			int triCount;
 			char fname[256];
 			int namelen;
@@ -833,7 +834,7 @@ namespace NiflyDLLTests
 			Assert::AreEqual(52, namelen);
 
 			// FO4 segments have subsegments
-			int subsegs[20 * 3];
+			uint32_t subsegs[20 * 3];
 			int sscount = getSubsegments(nif, shapes[0], segInfo[4], subsegs, 20);
 			Assert::AreEqual(4, sscount);
 		};
