@@ -60,7 +60,7 @@ NIFLY_API int getRootName(void* f, char* buf, int len) {
     int copylen = std::min((int)len - 1, (int)name.length());
     name.copy(buf, copylen, 0);
     buf[copylen] = '\0';
-    return name.length();
+    return int(name.length());
 }
 
 NIFLY_API int getGameName(void* f, char* buf, int len) {
@@ -77,7 +77,7 @@ NIFLY_API int getGameName(void* f, char* buf, int len) {
     int copylen = std::min((int)len - 1, (int)name.length());
     name.copy(buf, copylen, 0);
     buf[copylen] = '\0';
-    return name.length();
+    return int(name.length());
 }
 
 int NIFLY_API getAllShapeNames(void* f, char* buf, int len) {
@@ -92,7 +92,7 @@ int NIFLY_API getAllShapeNames(void* f, char* buf, int len) {
     s.copy(buf, copylen, 0);
     buf[copylen] = '\0';
 
-    return names.size();
+    return int(names.size());
 }
 
 NIFLY_API int getShapeName(void* theShape, char* buf, int len) {
@@ -101,7 +101,7 @@ NIFLY_API int getShapeName(void* theShape, char* buf, int len) {
     int copylen = std::min((int)len - 1, (int)name.length());
     name.copy(buf, copylen, 0);
     buf[copylen] = '\0';
-    return name.length();
+    return int(name.length());
 }
 
 int NIFLY_API loadShapeNames(const char* filename, char* buf, int len) {
@@ -118,14 +118,14 @@ int NIFLY_API loadShapeNames(const char* filename, char* buf, int len) {
 
     theNif->Clear();
     delete theNif;
-    return names.size();
+    return int(names.size());
 }
 int NIFLY_API getShapes(void* f, void** buf, int len, int start) {
     NifFile* theNif = static_cast<NifFile*>(f);
     std::vector<nifly::NiShape*> shapes = theNif->GetShapes();
     for (int i=start, j=0; (i < start+len) && (i < shapes.size()); i++)
         buf[j++] = shapes[i];
-    return shapes.size();
+    return int(shapes.size());
 }
 NIFLY_API int getVertsForShape(void* theNif, void* theShape, float* buf, int len, int start)
 {
@@ -138,37 +138,37 @@ NIFLY_API int getVertsForShape(void* theNif, void* theShape, float* buf, int len
         buf[j++] = verts.at(i).y;
         buf[j++] = verts.at(i).z;
     }
-    return verts.size();
+    return int(verts.size());
 }
 NIFLY_API int getNormalsForShape(void* theNif, void* theShape, float* buf, int len, int start)
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     const std::vector<nifly::Vector3>* norms;
-    norms = nif->GetNormalsForShape(shape, false);
+    norms = nif->GetNormalsForShape(shape);
     if (norms) {
         for (int i = start, j = 0; i < start + len && i < norms->size(); i++) {
             buf[j++] = norms->at(i).x;
             buf[j++] = norms->at(i).y;
             buf[j++] = norms->at(i).z;
         }
-        return norms->size();
+        return int(norms->size());
     }
     else
         return 0;
 }
-NIFLY_API int getRawVertsForShape(void* theNif, void* theShape, float* buf, int len, int start)
-{
-    NifFile* nif = static_cast<NifFile*>(theNif);
-    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
-    const std::vector<nifly::Vector3>* verts = nif->GetRawVertsForShape(shape);
-    for (int i = start, j = 0; i < start + len && i < verts->size(); i++) {
-        buf[j++] = verts->at(i).x;
-        buf[j++] = verts->at(i).y;
-        buf[j++] = verts->at(i).z;
-    }
-    return verts->size();
-}
+//NIFLY_API int getRawVertsForShape(void* theNif, void* theShape, float* buf, int len, int start)
+//{
+//    NifFile* nif = static_cast<NifFile*>(theNif);
+//    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+//    const std::vector<nifly::Vector3>* verts = nif->GetRawVertsForShape(shape);
+//    for (int i = start, j = 0; i < start + len && i < verts->size(); i++) {
+//        buf[j++] = verts->at(i).x;
+//        buf[j++] = verts->at(i).y;
+//        buf[j++] = verts->at(i).z;
+//    }
+//    return verts->size();
+//}
 NIFLY_API int getTriangles(void* theNif, void* theShape, uint16_t* buf, int len, int start)
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
@@ -180,7 +180,7 @@ NIFLY_API int getTriangles(void* theNif, void* theShape, uint16_t* buf, int len,
         buf[j++] = shapeTris.at(i).p2;
         buf[j++] = shapeTris.at(i).p3;
     }
-    return shapeTris.size();
+    return int(shapeTris.size());
 }
 NIFLY_API bool getShapeGlobalToSkin(void* nifRef, void* shapeRef, float* xform) {
     NifFile* nif = static_cast<NifFile*>(nifRef);
@@ -227,12 +227,12 @@ NIFLY_API int getUVs(void* theNif, void* theShape, float* buf, int len, int star
         buf[j++] = uv->at(i).u;
         buf[j++] = uv->at(i).v;
     }
-    return uv->size();
+    return int(uv->size());
 }
 NIFLY_API int getNodeCount(void* theNif)
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
-    return nif->GetNodes().size();
+    return int(nif->GetNodes().size());
 }
 NIFLY_API void getNodes(void* theNif, void** buf)
 {
@@ -247,7 +247,7 @@ NIFLY_API int getNodeName(void* node, char* buf, int buflen) {
     int copylen = std::min((int)buflen - 1, (int)name.length());
     name.copy(buf, copylen, 0);
     buf[name.length()] = '\0';
-    return name.length();
+    return int(name.length());
 }
 NIFLY_API void* getNodeParent(void* theNif, void* node) {
     NifFile* nif = static_cast<NifFile*>(theNif);
@@ -298,7 +298,7 @@ NIFLY_API int getShapeBoneIDs(void* theNif, void* theShape, int* buf, int bufsiz
     nif->GetShapeBoneIDList(shape, bonelist);
     for (int i = 0; i < bufsize && i < bonelist.size(); i++)
         buf[i] = bonelist[i];
-    return bonelist.size();
+    return int(bonelist.size());
 }
 NIFLY_API int getShapeBoneNames(void* theNif, void* theShape, char* buf, int buflen) {
     NifFile* nif = static_cast<NifFile*>(theNif);
@@ -315,7 +315,7 @@ NIFLY_API int getShapeBoneNames(void* theNif, void* theShape, char* buf, int buf
     s.copy(buf, copylen, 0);
     buf[copylen] = '\0';
 
-    return(s.length());
+    return(int(s.length()));
 }
 NIFLY_API int getShapeBoneWeightsCount(void* theNif, void* theShape, int boneID) {
     NifFile* nif = static_cast<NifFile*>(theNif);
@@ -418,10 +418,11 @@ NIFLY_API void* createNif(const char* targetGameName) {
 NIFLY_API void* createNifShapeFromData(void* parentNif,
     const char* shapeName,
     const float* verts, int verts_len,
-    const int* tris, int tris_len,
+    const uint16_t* tris, int tris_len,
     const float* uv_points, int uv_len,
     const float* norms, int norms_len) {
 
+    NifFile *nif = static_cast<NifFile*>(parentNif);
     std::vector<Vector3> v;
     std::vector<Triangle> t;
     std::vector<Vector2> uv;
@@ -455,7 +456,7 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
         n.push_back(thisnorm);
     }
 
-    return CreateShapeFromData(static_cast<NifFile*>(parentNif), shapeName, &v, &t, &uv, &n);
+    return nif->CreateShapeFromData(shapeName, &v, &t, &uv, &n);
 }
 
 NIFLY_API void* createSkinForNif(void* nifPtr, const char* gameName) {
@@ -563,4 +564,196 @@ NIFLY_API void setShapeBoneIDList(void* theFile, void* shapeRef, int* boneIDList
 NIFLY_API int saveNif(void* the_nif, const char* filename) {
     NifFile* nif = static_cast<NifFile*>(the_nif);
     return nif->Save(std::filesystem::path(filename));
+}
+
+NIFLY_API int segmentCount(void* nifref, void* shaperef) {
+    /*
+        Return count of segments associated with the shape.
+        If not FO4 nif or no segments returns 0
+    */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+    NifSegmentationInfo segInfo;
+    std::vector<int> triParts;
+    if (nif->GetShapeSegments(shape, segInfo, triParts))
+        return int(segInfo.segs.size());
+    else
+        return 0;
+}
+NIFLY_API int getSegmentFile(void* nifref, void* shaperef, char* buf, int buflen) {
+    /*
+        Return segment file associated with the shape
+        If not FO4 nif or no segments returns ''
+    */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+    NifSegmentationInfo segInfo;
+    std::vector<int> triParts;
+    if (nif->GetShapeSegments(shape, segInfo, triParts)) {
+        if (buflen > 0) {
+            int copylen = std::min((int)buflen - 1, (int)segInfo.ssfFile.size());
+            segInfo.ssfFile.copy(buf, copylen, 0);
+            buf[copylen] = '\0';
+        }
+        return int(segInfo.ssfFile.size());
+    }
+    else {
+        if (buflen > 0) buf[0] = '\0';
+        return 0;
+    }
+}
+NIFLY_API int getSegments(void* nifref, void* shaperef, int* segments, int segLen) {
+    /*
+        Return segments associated with a shape. Only for FO4-style nifs.
+        segments -> (int ID, int count_of_subsegments)...
+    */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+    NifSegmentationInfo segInfo;
+    std::vector<int> indices;
+
+    if (nif->GetShapeSegments(shape, segInfo, indices)) {
+        for (int i = 0, j = 0; i < segLen * 2 && j < int(segInfo.segs.size()); j++) {
+            segments[i++] = segInfo.segs[j].partID;
+            segments[i++] = int(segInfo.segs[j].subs.size());
+        }
+        return int(segInfo.segs.size());
+    }
+    return 0;
+}
+NIFLY_API int getSubsegments(void* nifref, void* shaperef, int segID, uint32_t* segments, int segLen) {
+    /*
+        Return subsegments associated with a shape. Only for FO4-style nifs.
+        segments -> (int ID, userSlotID, material)...
+    */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+    NifSegmentationInfo segInfo;
+    std::vector<int> indices;
+
+    if (nif->GetShapeSegments(shape, segInfo, indices)) {
+        for (auto& s: segInfo.segs) {
+            if (s.partID == segID) {
+                for (int i = 0, j = 0; i < segLen * 3 && j < int(s.subs.size()); j++) {
+                    segments[i++] = s.subs[j].partID;
+                    segments[i++] = s.subs[j].userSlotID;
+                    segments[i++] = s.subs[j].material;
+                }
+                return int(s.subs.size());
+            }
+        }
+        return 0;
+    }
+return 0;
+}
+
+NIFLY_API int getPartitions(void* nifref, void* shaperef, uint16_t* partitions, int partLen) {
+    /*
+        Return a list of partitions associated with the shape. Only for skyrim-style nifs.
+        partitions = (uint16 flags, uint16 partID)... where partID is the body part ID
+    */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+    NiVector<BSDismemberSkinInstance::PartitionInfo> partInfos;
+    NifSegmentationInfo segInfo;
+    std::vector<int> indices;
+
+    GetPartitions(nif, shape, partInfos, indices);
+
+    for (int i = 0, j = 0; i < partLen * 2 && j < int(partInfos.size()); j++) {
+        partitions[i++] = partInfos[j].flags;
+        partitions[i++] = partInfos[j].partID;
+    }
+    return int(partInfos.size());
+}
+
+NIFLY_API int getPartitionTris(void* nifref, void* shaperef, uint16_t* tris, int triLen) {
+    /*
+        Return a list of segment indices matching 1-1 with the shape's triangles.
+        Used for both skyrim and fo4-style nifs
+    */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+    NiVector<BSDismemberSkinInstance::PartitionInfo> partInfos;
+    std::vector<int> indices;
+
+    GetPartitions(nif, shape, partInfos, indices);
+
+    for (int i = 0; i < triLen && i < int(indices.size()); i++) {
+        tris[i] = indices[i];
+    }
+    return int(indices.size());
+}
+
+NIFLY_API void setPartitions(void* nifref, void* shaperef,
+    uint16_t* partData, int partDataLen,
+    uint16_t* tris, int triLen)
+    // Needs to be called AFTER bone weights are set
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+    NiVector<BSDismemberSkinInstance::PartitionInfo> partInfos;
+    std::vector<int> triParts;
+
+    for (int i = 0; i < partDataLen; i++) {
+        BSDismemberSkinInstance::PartitionInfo p;
+        p.partID = partData[i];
+        p.flags = PF_EDITOR_VISIBLE;
+        partInfos.push_back(p);
+    }
+
+    for (int i = 0; i < triLen; i++) {
+        triParts.push_back(tris[i]);
+    }
+
+    nif->SetShapePartitions(shape, partInfos, triParts, true);
+    nif->UpdateSkinPartitions(shape);
+}
+/*
+* Create segments and subsegments in the nif
+* segData = [part_id, ...] list of internal IDs for each segment
+* subsegData = [[part_id, parent_id, user_slot, material], ...]
+* tris = [part_id, ...] matches 1:1 with the shape's tris, indicates which subsegment
+*   it's a part of
+* filename = null-terminated filename
+*/
+NIFLY_API void setSegments(void* nifref, void* shaperef,
+    uint16_t* segData, int segDataLen,
+    uint32_t* subsegData, int subsegDataLen,
+    uint16_t* tris, int triLen,
+    const char* filename)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    NifSegmentationInfo inf;
+    inf.ssfFile = filename;
+
+    for (int i = 0; i < segDataLen; i++) {
+        NifSegmentInfo* seg = new NifSegmentInfo();
+        seg->partID = segData[i];
+        inf.segs.push_back(*seg);
+    }
+
+    for (int i = 0, j = 0; i < subsegDataLen; i++) {
+        NifSubSegmentInfo sseg;
+        sseg.partID = subsegData[j++];
+        uint32_t parentID = subsegData[j++];
+        sseg.userSlotID = subsegData[j++];
+        sseg.material = subsegData[j++];
+
+        for (auto& seg : inf.segs) {
+            if (seg.partID == parentID) {
+                seg.subs.push_back(sseg);
+                break;
+            }
+        }
+    }
+
+    std::vector<int> triParts;
+    for (int i = 0; i < triLen; i++) {
+        triParts.push_back(tris[i]);
+    }
+    nif->SetShapeSegments(shape, inf, triParts);
+    nif->UpdateSkinPartitions(shape);
 }

@@ -331,10 +331,16 @@ class SkeletonBone:
         self.parent_name = parent
         self.parent = None
 
+class BodyPart:
+    def __init__(self, id, name):
+        self.id = id
+        self.name = name
+
 class BoneDict:
-    def __init__(self, bone_list, morph_list):
+    def __init__(self, bone_list, morph_list, part_list):
         self.byNif = {}
         self.byBlender = {}
+        self.parts = {}
         for b in bone_list:
             self.byNif[b.nif] = b
             self.byBlender[b.blender] = b
@@ -342,6 +348,8 @@ class BoneDict:
             if b.parent_name in self.byBlender:
                 b.parent = self.byBlender[b.parent_name]
         self.expressions = set(morph_list)
+        for p in part_list:
+            self.parts[p.id] = p
 
     def blender_name(self, nif_name):
         if nif_name in self.byNif:
@@ -480,7 +488,48 @@ skyrimExpressions = ['Basis', 'Aah', 'BigAah', 'BlinkLeft', 'BlinkRight', 'BMP',
     'MoodHappy', 'MoodPuzzled', 'MoodSad', 'MoodSurprise', 'N', 'Oh', 'OohQ', 'R', 'SkinnyMorph', 
     'SquintLeft', 'SquintRight', 'Th', 'W', 'VampireMorph']
 
-skyrimDict = BoneDict(skyrimBones, skyrimExpressions)
+skyrimParts = [
+    BodyPart(30, "SBP_30_HEAD"),
+    BodyPart(31, "SBP_31_HAIR"), 
+    BodyPart(32, "SBP_32_BODY"),
+    BodyPart(33, "SBP_33_HANDS"),
+    BodyPart(34, "SBP_34_FOREARMS"),
+    BodyPart(35, "SBP_35_AMULET"),
+    BodyPart(36, "SBP_36_RING"),
+    BodyPart(37, "SBP_37_FEET"),
+    BodyPart(38, "SBP_38_CALVES"),
+    BodyPart(39, "SBP_39_SHIELD"),
+    BodyPart(40, "SBP_40_TAIL"),
+    BodyPart(41, "SBP_41_LONGHAIR"),
+    BodyPart(42, "SBP_42_CIRCLET"),
+    BodyPart(43, "SBP_43_EARS"),
+    BodyPart(44, "SBP_44_DRAGON_BLOODHEAD_OR_MOD_MOUTH"),
+    BodyPart(45, "SBP_45_DRAGON_BLOODWINGL_OR_MOD_NECK"),
+    BodyPart(46, "SBP_46_DRAGON_BLOODWINGR_OR_MOD_CHEST_PRIMARY"),
+    BodyPart(47, "SBP_47_DRAGON_BLOODTAIL_OR_MOD_BACK"),
+    BodyPart(48, "SBP_48_MOD_MISC1"),
+    BodyPart(49, "SBP_49_MOD_PELVIS_PRIMARY"),
+    BodyPart(50, "SBP_50_DECAPITATEDHEAD"),
+    BodyPart(51, "SBP_51_DECAPITATE"),
+    BodyPart(52, "SBP_52_MOD_PELVIS_SECONDARY"),
+    BodyPart(53, "SBP_53_MOD_LEG_RIGHT"),
+    BodyPart(54, "SBP_54_MOD_LEG_LEFT"),
+    BodyPart(55, "SBP_55_MOD_FACE_JEWELRY"),
+    BodyPart(56, "SBP_56_MOD_CHEST_SECONDARY"),
+    BodyPart(57, "SBP_57_MOD_SHOULDER"),
+    BodyPart(58, "SBP_58_MOD_ARM_LEFT"),
+    BodyPart(59, "SBP_59_MOD_ARM_RIGHT"),
+    BodyPart(60, "SBP_60_MOD_MISC2"),
+    BodyPart(61, "SBP_61_FX01"),
+    BodyPart(130, "SBP_130_HEAD"),
+    BodyPart(131, "SBP_131_HAIR"),
+    BodyPart(141, "SBP_141_LONGHAIR"),
+    BodyPart(142, "SBP_142_CIRCLET"),
+    BodyPart(143, "SBP_143_EARS"),
+    BodyPart(150, "SBP_150_DECAPITATEDHEAD"),
+    BodyPart(230, "SBP_230_NECK") ]
+
+skyrimDict = BoneDict(skyrimBones, skyrimExpressions, skyrimParts)
 
 fo4Bones = [
     SkeletonBone('Root', 'Root', None),
@@ -554,6 +603,8 @@ fo4Bones = [
     SkeletonBone('Face_skin', 'Face_skin', 'HEAD'),
     SkeletonBone('Neck_skin', 'Neck_skin', 'Neck'),
     SkeletonBone('Neck1_skin', 'Neck1_skin', 'Neck'),
+    SkeletonBone('skin_bone_Neckmuscle2.L', 'skin_bone_L_Neckmuscle2', 'Neck'),
+    SkeletonBone('skin_bone_Neckmuscle2.R', 'skin_bone_R_Neckmuscle2', 'Neck'),
     SkeletonBone('Arm_Collarbone.R', 'RArm_Collarbone', 'Chest'),
     SkeletonBone('Arm_UpperArm.R', 'RArm_UpperArm', 'Arm_Collarbone.R'),
     SkeletonBone('Arm_ForeArm1.R', 'RArm_ForeArm1', 'Arm_UpperArm.R'),
@@ -699,7 +750,102 @@ fo4Expressions = ['Basis', 'UprLipRollOut', 'UprLipRollIn', 'UprLipFunnel', 'Sti
     'LwrLipRollOut', 'LwrLipFunnel', 'LwrLipRollIn'
     ]
 
-fo4Dict = BoneDict(fo4Bones, fo4Expressions)
+fo4Parts = [
+    BodyPart(0x86b72980, "1 | Head/Hair"),
+    BodyPart(0x0155094f, "1 | Neck"),
+    BodyPart(0xb2e2764f, "Human 2 | R-Up Arm"),
+    BodyPart(0x6fc3fbb2, "Human 2 | R-Lo Arm"),
+    BodyPart(0xfc03dc25, "Human 4 | L-Up Arm"),
+    BodyPart(0x212251d8, "Human 4 | L-Lo Arm"),
+    BodyPart(0xbf3a3cc5, "Human 5 | R-Up Thi"),
+    BodyPart(0x22324321, "Human 5 | R-Kne-Clf"),
+    BodyPart(0xc7e6bc92, "Human 5 | R-Lo Ft.-Ank"),
+    BodyPart(0x865d8d9e, "Human 6 | L-Up Leg"),
+    BodyPart(0x4630dac2, "Human 6 | L-Kne-Clf"),
+    BodyPart(0xa3e42571, "Human 6 | L-Lo Ft.-Ank"),
+    BodyPart(0x2a549ee1, "Feral Ghoul 2 | R-Up Arm"),
+    BodyPart(0xf775131c, "Feral Ghoul 2 | R-Lo Arm"),
+    BodyPart(0x85342e3c, "Feral Ghoul 2 | R-Hand"),
+    BodyPart(0x4e560702, "Feral Ghoul 4 | L-Up Arm"),
+    BodyPart(0x93778aff, "Feral Ghoul 4 | L-Lo Arm"),
+    BodyPart(0x5ae407df, "Feral Ghoul 4 | L-Hand"),
+    BodyPart(0xc0f43cc3, "Death Claw 1 | Neck"),
+    BodyPart(0xf2ba1077, "Death Claw 2 | R-Up-Arm"),
+    BodyPart(0xf4e10d0d, "Death Claw 2 | R-Elbow-4Arm"),
+    BodyPart(0xe2da5319, "Death Claw 2 | R-Hand"),
+    BodyPart(0x17932e95, "Death Claw 4 | L-Up-Arm"),
+    BodyPart(0x0861e2c0, "Death Claw 4 | L-Elbow-4Arm"),
+    BodyPart(0x8beb7000, "Death Claw 4 | L-Hand"),
+    BodyPart(0x9af9d18c, "Death Claw, Feral Ghoul 5 | R-Up Thi"),
+    BodyPart(0x8e0daa93, "Death Claw, Feral Ghoul 5 | R-Lo Leg"),
+    BodyPart(0x6bd95520, "Death Claw, Feral Ghoul 5 | R-Lo Ft"),
+    BodyPart(0xa325b267, "Death Claw, Feral Ghoul 6 | L-Lo Thi"),
+    BodyPart(0x51dd8370, "Death Claw, Feral Ghoul 6 | L-Lo Leg"),
+    BodyPart(0xb4097cc3, "Death Claw, Feral Ghoul 6 | L-Lo Ft"),
+    BodyPart(0x99338c09, "Super Mutant Hound 3 | Fr-Lf Up Leg"),
+    BodyPart(0x7491a630, "Super Mutant Hound 3 | Fr-Lf Lo Leg"),
+    BodyPart(0x8a99ba3f, "Super Mutant Hound 3 | Fr-Lf Foot"),
+    BodyPart(0xa7860026, "Super Mutant Hound 4 | Bk-Lf Thigh"),
+    BodyPart(0xaf6a52d7, "Super Mutant Hound 4 | Bk-Lf Knee"),
+    BodyPart(0xb42c3610, "Super Mutant Hound 4 | Bk-Lf Ankle"),
+    BodyPart(0x6e284ec0, "Super Mutant Hound 4 | Bk-Lf Foot"),
+    BodyPart(0x0e97871c, "Super Mutant Hound 5 | Bk-Ri Thigh"),
+    BodyPart(0x02433b3b, "Super Mutant Hound 5 | Bk-Ri Knee"),
+    BodyPart(0x1d3db12a, "Super Mutant Hound 5 | Bk-Ri Ankle"),
+    BodyPart(0x20c9e4aa, "Super Mutant Hound 5 | Bk-Ri Foot"),
+    BodyPart(0x5f96443c, "Super Mutant Hound 6 | Fr-Ri Up Leg"),
+    BodyPart(0xdd80210a, "Super Mutant Hound 6 | Fr-Ri Lo Leg"),
+    BodyPart(0x4c3c720a, "Super Mutant Hound 6 | Fr-Ri Foot"),
+    BodyPart(0xa5f4be71, "Mirelurk 2 | Fr-Ri-Up Arm"),
+    BodyPart(0x99eb64eb, "Mirelurk 2 | Fr-Ri-Lo Arm"),
+    BodyPart(0x3c9df64f, "Mirelurk 2 | R Claw"),
+    BodyPart(0x40f66ca4, "Mirelurk 4 | L Shoulder"),
+    BodyPart(0xc1f62792, "Mirelurk 4 | L-Up Arm"),
+    BodyPart(0xf0da47f2, "Mirelurk 4 | L Elbow"),
+    BodyPart(0x55acd556, "Mirelurk 4 | L Claw"),
+    BodyPart(0x064f59cd, "Mirelurk 5 | Fr-Ri Hip"),
+    BodyPart(0x5b033df6, "Mirelurk 5 | Fr-Ri Thigh"),
+    BodyPart(0x15fc7bad, "Mirelurk 5 | Fr-Ri Calf"),
+    BodyPart(0xf028841e, "Mirelurk 5 | Fr-Ri Foot"),
+    BodyPart(0xf62a541a, "Mirelurk 6 | Fr-Lf Hip-Thigh"),
+    BodyPart(0x5b1dd1c7, "Mirelurk 6 | Fr-Lf Kne-Clf"),
+    BodyPart(0xbec92e74, "Mirelurk 6 | Fr-Lf Foot"),
+    BodyPart(0xfc5546b8, "Mirelurk 8 | Bk-Ri Hip-Thigh"),
+    BodyPart(0x24a15449, "Mirelurk 8 | Bk-Ri Kne-Clf"),
+    BodyPart(0xc175abfa, "Mirelurk 8 | Bk-Ri Foot"),
+    BodyPart(0xb2b4ecd2, "Mirelurk 9 | Bk-Lf Hip-Thigh"),
+    BodyPart(0xc1886aab, "Mirelurk 9 | Bk-Lf Kne-Clf"),
+    BodyPart(0x245c9518, "Mirelurk 9 | Bk-Lf Foot"),
+    BodyPart(0x5530c47b, "Dog 3 | Fr-Lf Knee"),
+    BodyPart(0xcc3995c1, "Dog 3 | Fr-Lf Calf"),
+    BodyPart(0xbd2750cf, "Dog 3 | Fr-Lf Heel+Arch"),
+    BodyPart(0x77fe1ec8, "Dog 3 | Fr-Lf Paw"),
+    BodyPart(0x52f7244b, "Dog 4 | Bk-Lf Knee"),
+    BodyPart(0xcbfe75f1, "Dog 4 | Bk-Lf Calf"),
+    BodyPart(0xfe31ace4, "Dog 4 | Bk-Lf Heel+Arch"),
+    BodyPart(0x08eb5fa0, "Dog 4 | Bk-Lf Paw"),
+    BodyPart(0x8d270da8, "Dog 5 | Bk-Ri Knee"),
+    BodyPart(0x142e5c12, "Dog 5 | Bk-Ri Calf+Heel"),
+    BodyPart(0x9a333507, "Dog 5 | Bk-Ri Arch"),
+    BodyPart(0x61da7cb9, "Dog 5 | Bk-Ri Paw"),
+    BodyPart(0x8ae0ed98, "Dog 6 | Fr-Ri Knee"),
+    BodyPart(0x13e9bc22, "Dog 6 | Fr-Ri Calf"),
+    BodyPart(0xd925c92c, "Dog 6 | Fr-Ri Heel+Arch"),
+    BodyPart(0x1ecf3dd1, "Dog 6 | Fr-Ri Paw"),
+    BodyPart(0x8c5ae189, "Behemoth 2 | R-Arm+Elbow"),
+    BodyPart(0x071dfd97, "Behemoth 2 | R-4 Arm"),
+    BodyPart(0xded0fadf, "Behemoth 2 | R-Hand"),
+    BodyPart(0xc2bb4be3, "Behemoth 4 | L-Arm+Elbow"),
+    BodyPart(0x3e7a4ccc, "Behemoth 4 | L-4 Arm"),
+    BodyPart(0xe7b74b84, "Behemoth 4 | L-Hand"),
+    BodyPart(0xa411c600, "Behemoth 5 | R-Calf"),
+    BodyPart(0xac900af3, "Behemoth 5 | R-Foot"),
+    BodyPart(0xc0135fe3, "Behemoth 6 | L-Calf"),
+    BodyPart(0x95f7bba8, "Behemoth 6 | R-Foot"),
+    BodyPart(0x3d6644aa, "Robot 3 | Torso")    
+    ]
+
+fo4Dict = BoneDict(fo4Bones, fo4Expressions, fo4Parts)
 
 gameSkeletons = {
     'SKYRIM': skyrimDict,
