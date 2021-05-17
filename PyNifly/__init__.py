@@ -3,13 +3,15 @@
 # Copyright © 2021, Bad Dog.
 
 RUN_TESTS = False
+TEST_BPY_ALL = False
+
 
 bl_info = {
     "name": "NIF format",
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 24), 
+    "version": (0, 0, 25), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -24,6 +26,7 @@ from operator import or_
 from functools import reduce
 import traceback
 import math
+import re
 
 log = logging.getLogger("pynifly")
 log.info(f"Loading pynifly version {bl_info['version']}")
@@ -90,13 +93,38 @@ def mesh_create_uv(the_mesh, uv_points):
     for i, this_uv in enumerate(new_uv):
         new_uvlayer.data[i].uv = this_uv
 
-def mesh_create_groups(the_shape, the_object):
+def mesh_create_bone_groups(the_shape, the_object):
+    """ Create groups to capture bone weights """
     vg = the_object.vertex_groups
     for bone_name in the_shape.bone_names:
         xlate_name = the_shape.parent.blender_name(bone_name)
         new_vg = vg.new(name=xlate_name)
         for v, w in the_shape.bone_weights[bone_name]:
             new_vg.add((v,), w, 'ADD')
+    
+
+def mesh_create_partition_groups(the_shape, the_object):
+    """ Create groups to capture partitions """
+    mesh = the_object.data
+    vg = the_object.vertex_groups
+    partn_groups = []
+    for p in the_shape.partitions:
+        log.debug(f"..found partition {p.name}")
+        new_vg = vg.new(name=p.name)
+        partn_groups.append(new_vg)
+        if type(p) == FO4Partition:
+            for sseg in p.subsegments:
+                new_vg = vg.new(name=sseg.name)
+                partn_groups.append(new_vg)
+    for part_idx, face in zip(the_shape.partition_tris, mesh.polygons):
+        if part_idx < len(partn_groups):
+            this_vg = partn_groups[part_idx]
+            for lp in face.loop_indices:
+                this_loop = mesh.loops[lp]
+                this_vg.add((this_loop.vertex_index,), 1.0, 'ADD')
+    if len(the_shape.segment_file) > 0:
+        the_object['FO4_SEGMENT_FILE'] = the_shape.segment_file
+
     
 def import_shape(the_shape: NiShape):
     """ Import the shape to a Blender object, translating bone names """
@@ -122,7 +150,8 @@ def import_shape(the_shape: NiShape):
         = inv_xf.rotation.euler_deg()
 
     mesh_create_uv(new_object.data, the_shape.uvs)
-    mesh_create_groups(the_shape, new_object)
+    mesh_create_bone_groups(the_shape, new_object)
+    mesh_create_partition_groups(the_shape, new_object)
     for f in new_mesh.polygons:
         f.use_smooth = True
 
@@ -345,7 +374,7 @@ def create_trip_shape_keys(obj, trip:TripFile):
         newsk.name = "Basis"
 
     offsetmorphs = trip.shapes[obj.name]
-    for morph_name, morph_verts in offsetmorphs.items():
+    for morph_name, morph_verts in sorted(offsetmorphs.items()):
         newsk = obj.shape_key_add()
         newsk.name = ">" + morph_name
 
@@ -671,6 +700,76 @@ def expected_game(nif, bonelist):
     return matchgame == "" or matchgame == nif.game
 
 
+def partitions_from_vert_groups(obj):
+    """ Return dictionary of Partition objects for all vertex groups that match the partition name 
+        pattern. These are all partition objects including subsegments.
+    """
+    val = {}
+    if obj.vertex_groups:
+        for vg in obj.vertex_groups:
+            skyid = SkyPartition.name_match(vg.name)
+            if skyid >= 0:
+                val[vg.name] = SkyPartition(part_id=skyid, flags=0, name=vg.name)
+            else:
+                segid = FO4Partition.name_match(vg.name)
+                if segid >= 0:
+                    val[vg.name] = FO4Partition(segid, 0, name=vg.name)
+        
+        # A second pass to pick up subsections
+        for vg in obj.vertex_groups:
+            parent_name, subseg_id, material = Subsegment.name_match(vg.name)
+            if subseg_id >= 0:
+                if not parent_name in val:
+                    # Create parent segments if not there
+                    parid = FO4Partition.name_match(parent_name)
+                    val[parent_name] = FOPartition(parid, 0, parent_name)
+                p = val[parent_name]
+                log.debug(f"....Found subsegment {vg.name} child of {parent_name}")
+                val[vg.name] = Subsegment(len(val)+1, 0, material, p, name=vg.name)
+    
+    return val
+
+
+def all_vertex_groups(weightdict):
+    """ Return the set of group names that have non-zero weights """
+    val = set()
+    for g, w in weightdict.items():
+        if w > 0.0001:
+            val.add(g)
+    return val
+
+
+def export_partitions(obj, weights_by_vert, tris):
+    """ Export partitions described by vertex groups
+        weights = [dict[group-name: weight], ...] vertex weights, 1:1 with verts. For 
+            partitions, can assume the weights are 1.0
+        tris = [(v1, v2, v3)...] where v1-3 are indices into the vertex list
+    """
+    log.debug(f"..Exporting partitions")
+    partitions = partitions_from_vert_groups(obj)
+    log.debug(f"....Found partitions {list(partitions.keys())}")
+
+    if len(partitions) == 0:
+        return [], []
+
+    partition_set = set(list(partitions.keys()))
+
+    tri_indices = [0] * len(tris)
+
+    for i, t in enumerate(tris):
+        # All 3 have to be in the vertex group to count
+        vg0 = all_vertex_groups(weights_by_vert[t[0]])
+        vg1 = all_vertex_groups(weights_by_vert[t[1]])
+        vg2 = all_vertex_groups(weights_by_vert[t[2]])
+        tri_partitions = vg0.intersection(vg1).intersection(vg2).intersection(partition_set)
+        if len(tri_partitions) > 0:
+            if len(tri_partitions) > 1:
+                log.warning(f"....Found multiple partitions for tri {t}: {tri_partitions}")
+            tri_indices[i] = partitions[next(iter(tri_partitions))].id
+
+    return list(partitions.values()), tri_indices
+
+
 def export_shape(nif, trip, obj, target_key=''):
     """Export given blender object to the given NIF file
         nif = target nif file
@@ -759,6 +858,10 @@ def export_shape(nif, trip, obj, target_key=''):
             create_group_from_verts(obj, "*UNWEIGHTED*", unweighted)
             log.warning("Some vertices are not weighted to the armature")
             retval.add('UNWEIGHTED')
+
+        partitions, tri_indices = export_partitions(obj, weights_by_vert, tris)
+        if len(partitions) > 0:
+            new_shape.set_partitions(partitions, tri_indices)
     else:
         new_shape.transform = new_xform
 
@@ -964,8 +1067,6 @@ def run_tests():
     ############################################################
     """)
 
-    TEST_BPY_ALL = True
-
     TEST_EXPORT = False
     TEST_IMPORT_ARMATURE = False
     TEST_EXPORT_WEIGHTS = False
@@ -981,7 +1082,9 @@ def run_tests():
     TEST_TRI = False
     TEST_0_WEIGHTS = False
     TEST_SPLIT_NORMAL = False
-    TEST_SKEL = True
+    TEST_SKEL = False
+    TEST_PARTITIONS = True
+    TEST_SEGMENTS = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -1448,7 +1551,7 @@ def run_tests():
         baby.parent.name == "BabyExportRoot", f"Error: Should have baby and armature"
         log.debug(f"Found object {baby.name}")
         export_shape_to(baby, os.path.join(pynifly_dev_path, r"tests\Out\weight0.nif"), "FO4")
-        assert "*UNWEIGHTED*" in baby.vertex_groups, "Error: Should be unweighted vertices"
+        assert "*UNWEIGHTED*" in baby.vertex_groups, "Unweighted vertex group captures vertices without weights"
 
 
     if TEST_BPY_ALL or TEST_SPLIT_NORMAL:
@@ -1457,6 +1560,40 @@ def run_tests():
         plane = append_collection("Plane", False, r"tests\skyrim\testSplitNormalPlane.blend", r"\Object", "Plane")
         export_shape_to(plane, os.path.join(pynifly_dev_path, r"tests\Out\CustomNormals.nif"), "FO4")
 
+
+    if TEST_BPY_ALL or TEST_PARTITIONS:
+        print("## TEST_PARTITIONS Can read Skyrim partions")
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/MaleHead.nif")
+
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        obj = bpy.context.object
+        assert "SBP_130_HEAD" in obj.vertex_groups, "Skyrim body parts read in as vertex groups with sensible names"
+
+        print("### Can write Skyrim partitions")
+        export_shape_to(obj, os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"), "SKYRIM")
+        
+        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"))
+        assert len(nif2.shapes[0].partitions) == 3, "Have all skyrim partitions"
+        assert nif2.shapes[0].partitions[2].id == 143, "Have ears"
+
+    if TEST_BPY_ALL or TEST_SEGMENTS:
+        print("### Can read FO4 segments")
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/VanillaMaleBody.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        obj = bpy.context.object
+        assert "FO4 Human 2" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
+        assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == obj['FO4_SEGMENT_FILE'], "FO4 segment file read and saved for later use"
+
+        print("### Can write FO4 segments")
+        export_shape_to(obj, os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"), "FO4")
+        
+        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"))
+        assert len(nif2.shapes[0].partitions) == 7, "Have all FO4 partitions"
 
     print("""
     ############################################################

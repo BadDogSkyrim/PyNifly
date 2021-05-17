@@ -8,16 +8,20 @@
 #include "pch.h"
 #include <iostream>
 #include <string>
+#include <vector>
 #include <unordered_map>
 #include <filesystem>
 #include <libloaderapi.h>
 #include "CppUnitTest.h"
 #include "Object3d.hpp"
+#include "Anim.h"
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
 using namespace nifly;
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
+
+//static std::string curRootName;
 
 //std::filesystem::path testRoot(TEST_ROOT);
 std::filesystem::path testRoot = std::filesystem::current_path()
@@ -94,12 +98,12 @@ namespace NiflyDLLTests
 	public:
 		TEST_METHOD(LoadReferenceSkeleton) {
 			/* Can load a skeleton */
-			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(SKYRIM));
+			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(SKYRIM), curRootName);
 
 			AnimSkeleton skel = AnimSkeleton::getInstance();
 			std::string rootName = skel.GetRootBonePtr()->boneName;
 			Assert::AreEqual(std::string("NPC Root [Root]"), rootName);
-			int nodeCount = skel.refSkeletonNif.GetNodes().size();
+			int nodeCount = int(skel.refSkeletonNif.GetNodes().size());
 
 			NifFile nif = NifFile(SkeletonFile(FO4));
 			NiNode* node = nif.FindBlockByName<NiNode>("LArm_Hand");
@@ -113,7 +117,7 @@ namespace NiflyDLLTests
 			NifFile nif = NifFile(testRoot / "Skyrim/test.nif");
 			std::vector<std::string> shapeNames = nif.GetShapeNames();
 			for (std::string s : shapeNames) std::cout << s;
-			Assert::IsFalse(find(shapeNames, "Armor") == shapeNames.end());
+			Assert::IsFalse(std::find(shapeNames.begin(), shapeNames.end(), "Armor") == shapeNames.end());
 
 			NiShape* theArmor = nif.FindBlockByName<NiShape>("Armor");
 			std::vector < Vector3 > verts;
@@ -127,12 +131,12 @@ namespace NiflyDLLTests
 			Assert::AreEqual(3195, int(tris.size()));
 			uv = nif.GetUvsForShape(theArmor);
 			Assert::AreEqual(2115, int(uv->size()));
-			norms = nif.GetNormalsForShape(theArmor, false);
+			norms = nif.GetNormalsForShape(theArmor);
 			Assert::AreEqual(2115, int(norms->size()));
 
 			NifFile newNif = NifFile();
 			SetNifVersion(&newNif, SKYRIM);
-			NiShape* newArmor = CreateShapeFromData(&newNif, "Armor", &verts, &tris, uv, norms);
+			NiShape* newArmor = newNif.CreateShapeFromData("Armor", &verts, &tris, uv, norms);
 			newNif.Save(testRoot / "Out/TestSaveUnskinned01.nif");
 			Assert::IsTrue(std::filesystem::exists(testRoot / "Out/TestSaveUnskinned01.nif"));
 
@@ -154,13 +158,13 @@ namespace NiflyDLLTests
 
 			/* >> Can save just the armor as a skinned object */
 			AnimInfo* anim;
-			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(SKYRIM));
+			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(SKYRIM), curRootName);
 
 			NifFile newNifSkind = NifFile();
 			SetNifVersion(&newNifSkind, SKYRIM);
 			anim = CreateSkinForNif(&newNifSkind, SKYRIM);
 
-			newArmor = CreateShapeFromData(&newNifSkind, "Armor", &verts, &tris, uv, norms);
+			newArmor = newNifSkind.CreateShapeFromData("Armor", &verts, &tris, uv, norms);
 			newNifSkind.CreateSkinning(newArmor);
 
 			/* Transform the global frame of reference to the skin's FoR.
@@ -191,7 +195,7 @@ namespace NiflyDLLTests
 			std::sort(armorBones.begin(), armorBones.end());
 			std::reverse(armorBones.begin(), armorBones.end());
 			for (auto b : armorBones) {
-				AddBoneToShape(anim, newArmor, b);
+				AddBoneToShape(anim, newArmor, b, nullptr);
 			};
 
 			MatTransform boneXform;
@@ -214,7 +218,7 @@ namespace NiflyDLLTests
 
 			/* Sets bone weights only. Doesn't set transforms. */
 			for (int i = 0; i < armorWeights.size(); i++) {
-				AddBoneToShape(anim, newArmor, armorBoneNames[i]);
+				AddBoneToShape(anim, newArmor, armorBoneNames[i], nullptr);
 				SetShapeWeights(anim, newArmor, armorBoneNames[i], armorWeights[i]);
 			}
 
@@ -228,7 +232,7 @@ namespace NiflyDLLTests
 			Assert::AreEqual(2024, int(verts.size()));
 			theBody->GetTriangles(tris);
 			uv = nif.GetUvsForShape(theBody);
-			norms = nif.GetNormalsForShape(theBody, false);
+			norms = nif.GetNormalsForShape(theBody);
 
 			std::vector<std::string> bodyBoneNames;
 			std::vector<int> bodyBoneIDs;
@@ -247,11 +251,11 @@ namespace NiflyDLLTests
 			SetNifVersion(&newNifSkind, SKYRIM);
 			anim = CreateSkinForNif(&newNifSkind, SKYRIM);
 
-			NiShape* newBody = CreateShapeFromData(&newNifSkind, "Body", &verts, &tris, uv, norms);
+			NiShape* newBody = newNifSkind.CreateShapeFromData("Body", &verts, &tris, uv, norms);
 			newNifSkind.CreateSkinning(newBody);
 
 			for (auto w : bodyWeights) {
-				AddBoneToShape(anim, newBody, w.first);
+				AddBoneToShape(anim, newBody, w.first, nullptr);
 				SetShapeWeights(anim, newBody, w.first, w.second);
 			}
 
@@ -272,36 +276,36 @@ namespace NiflyDLLTests
 			NifFile nif = NifFile(testRoot / "FO4/BTMaleBody.nif");
 			std::vector<std::string> shapeNames = nif.GetShapeNames();
 			for (std::string s : shapeNames) std::cout << s;
-			Assert::IsFalse(find(shapeNames, "BaseMaleBody:0") == shapeNames.end());
+			Assert::IsFalse(std::find(shapeNames.begin(), shapeNames.end(), "BaseMaleBody:0") == shapeNames.end());
 
 			NiShape* theBody = nif.FindBlockByName<NiShape>("BaseMaleBody:0");
 			std::vector < Vector3 > verts;
-			const std::vector < Vector3 >* rawVerts;
+			//const std::vector < Vector3 >* rawVerts;
 			std::vector<Triangle> tris;
 			const std::vector<Vector2>* uv;
 			const std::vector<Vector3>* norms;
 
 			nif.GetVertsForShape(theBody, verts);
-			rawVerts = nif.GetRawVertsForShape(theBody);
-			Assert::AreEqual(8717, int(rawVerts->size()));
+			//rawVerts = nif.GetRawVertsForShape(theBody);
+			//Assert::AreEqual(8717, int(rawVerts->size()));
 			theBody->GetTriangles(tris);
 			Assert::AreEqual(16202, int(tris.size()));
 			uv = nif.GetUvsForShape(theBody);
 			Assert::AreEqual(8717, int(uv->size()));
-			norms = nif.GetNormalsForShape(theBody, false);
+			norms = nif.GetNormalsForShape(theBody);
 			Assert::AreEqual(8717, int(norms->size()));
 
 			AnimInfo oldBodySkin;
 			oldBodySkin.LoadFromNif(&nif, theBody);
 
 			AnimInfo* anim;
-			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(FO4));
+			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(FO4), curRootName);
 
 			NifFile newNif = NifFile();
 			SetNifVersion(&newNif, FO4);
 			anim = CreateSkinForNif(&newNif, FO4);
 
-			NiShape* newBody = CreateShapeFromData(&newNif, "Body", &verts, &tris, uv, norms);
+			NiShape* newBody = newNif.CreateShapeFromData("Body", &verts, &tris, uv, norms);
 			newNif.CreateSkinning(newBody);
 
 			/* Transform the global frame of reference to the skin's FoR.
@@ -323,10 +327,10 @@ namespace NiflyDLLTests
 			Assert::AreEqual(-120, int(bodyGTS.translation.z), L"ERROR: Body nifs have a -120 z transform");
 			SetGlobalToSkinXform(anim, newBody, bodyGTS);
 
-			/* 
+			/*
 			This transform is applied to the NiSkinData block. It gives the
-			overall transform for the model when there's a NiSkinData block (Skyrim). 
-			It has to be set correctly so that the model can be put in skinned position 
+			overall transform for the model when there's a NiSkinData block (Skyrim).
+			It has to be set correctly so that the model can be put in skinned position
 			when read into blender, because if the block exists only this transform is used.
 			*/
 			if (theBody->HasSkinInstance()) {
@@ -345,7 +349,7 @@ namespace NiflyDLLTests
 			}
 			/* Sets bone weights only. Doesn't set transforms. */
 			for (auto w : bodyWeights) {
-				AddBoneToShape(anim, newBody, w.first);
+				AddBoneToShape(anim, newBody, w.first, nullptr);
 				SetShapeWeights(anim, newBody, w.first, w.second);
 			}
 
@@ -399,7 +403,7 @@ namespace NiflyDLLTests
 			/* Skyrim */
 			NifFile nifHead = NifFile(testRoot / "Skyrim/MaleHead.nif");
 			std::vector<std::string> shapeNames = nifHead.GetShapeNames();
-			Assert::IsFalse(find(shapeNames, "MaleHeadIMF") == shapeNames.end());
+			Assert::IsFalse(std::find(shapeNames.begin(), shapeNames.end(), "MaleHeadIMF") == shapeNames.end());
 
 			NiShape* theHead = nifHead.FindBlockByName<NiShape>("MaleHeadIMF");
 			AnimInfo headSkin;
@@ -483,7 +487,7 @@ namespace NiflyDLLTests
 			MatTransform boneXform;
 			nif.GetNodeTransformToGlobal("Bone_Cloth_H_002", boneXform);
 			Assert::AreNotEqual(0.0f, boneXform.translation.z, L"ERROR: Can read bone's transform");
-			
+
 			/* We read all the info we need about the shape */
 			std::vector < Vector3 > verts;
 			std::vector<Triangle> tris;
@@ -493,7 +497,7 @@ namespace NiflyDLLTests
 			nif.GetVertsForShape(shape, verts);
 			shape->GetTriangles(tris);
 			uv = nif.GetUvsForShape(shape);
-			norms = nif.GetNormalsForShape(shape, false);
+			norms = nif.GetNormalsForShape(shape);
 
 			AnimInfo oldSkin;
 			oldSkin.LoadFromNif(&nif, shape);
@@ -510,7 +514,7 @@ namespace NiflyDLLTests
 				nif.GetNodeTransformToGlobal(b, xform);
 				boneXforms[b] = xform;
 			};
-			 
+
 			std::unordered_map<std::string, AnimWeight> shapeWeights;
 			for (int i = 0; i < boneNames.size(); i++) {
 				AnimWeight w;
@@ -520,13 +524,13 @@ namespace NiflyDLLTests
 
 			/* We can export the shape with the bones in their locations as read */
 			AnimInfo* newSkin;
-			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(FO4));
+			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(FO4), curRootName);
 
 			NifFile newNif = NifFile();
 			SetNifVersion(&newNif, FO4);
 			newSkin = CreateSkinForNif(&newNif, FO4);
 
-			NiShape* newShape = CreateShapeFromData(&newNif, "Tail", &verts, &tris, uv, norms);
+			NiShape* newShape = newNif.CreateShapeFromData("Tail", &verts, &tris, uv, norms);
 			newNif.CreateSkinning(newShape);
 
 			SetGlobalToSkinXform(newSkin, newShape, shapeGTS);
@@ -548,7 +552,7 @@ namespace NiflyDLLTests
 			/* We can save shapes with different transforms in the same file */
 			std::filesystem::path testfile = testRoot / "Skyrim/Test.nif";
 			NifFile nif = NifFile(testfile);
-			
+
 			/* Read the armor */
 			NiShape* theArmor = nif.FindBlockByName<NiShape>("Armor");
 			AnimInfo armorSkin;
@@ -565,8 +569,8 @@ namespace NiflyDLLTests
 
 			nif.GetVertsForShape(theArmor, aVerts);
 			theArmor->GetTriangles(aTris);
-			aUV= nif.GetUvsForShape(theArmor);
-			aNorms = nif.GetNormalsForShape(theArmor, false);
+			aUV = nif.GetUvsForShape(theArmor);
+			aNorms = nif.GetNormalsForShape(theArmor);
 
 			std::vector<std::string> armorBones;
 			nif.GetShapeBoneList(theArmor, armorBones);
@@ -592,7 +596,7 @@ namespace NiflyDLLTests
 			nif.GetVertsForShape(theBody, bVerts);
 			theBody->GetTriangles(bTris);
 			bUV = nif.GetUvsForShape(theBody);
-			bNorms = nif.GetNormalsForShape(theBody, false);
+			bNorms = nif.GetNormalsForShape(theBody);
 
 			std::vector<std::string> bodyBones;
 			nif.GetShapeBoneList(theBody, bodyBones);
@@ -607,7 +611,7 @@ namespace NiflyDLLTests
 			NifFile newNif = NifFile();
 			SetNifVersion(&newNif, SKYRIM);
 			AnimInfo* newSkin = CreateSkinForNif(&newNif, SKYRIM);
-			NiShape* newArmor = CreateShapeFromData(&newNif, "Armor", &aVerts, &aTris, aUV, aNorms);
+			NiShape* newArmor = newNif.CreateShapeFromData("Armor", &aVerts, &aTris, aUV, aNorms);
 			newNif.CreateSkinning(newArmor);
 			newNif.SetShapeTransformGlobalToSkin(newArmor, armorXform);
 			SetGlobalToSkinXform(newSkin, newArmor, armorSkinInst);
@@ -617,7 +621,7 @@ namespace NiflyDLLTests
 			}
 
 			/* Save the body */
-			NiShape* newBody = CreateShapeFromData(&newNif, "Body", &bVerts, &bTris, bUV, bNorms);
+			NiShape* newBody = newNif.CreateShapeFromData("Body", &bVerts, &bTris, bUV, bNorms);
 			newNif.CreateSkinning(newBody);
 			SetGlobalToSkinXform(newSkin, newBody, bodySkinInst);
 			for (auto w : bodyWeights) {
@@ -698,6 +702,11 @@ namespace NiflyDLLTests
 			for (int i = 0; i < 13; i++) { btbuf[i] = 0.0f; };
 			getGlobalToSkin(&btnifw, btbodyw, btbuf);
 
+			// Accessing the transform through the DLL gets the same results as going through 
+			// the wrapper layer
+			Assert::AreEqual(btbuf[2], btSkinInst.translation.z);
+			Assert::AreEqual(btbuf[5], btSkinInst.rotation[0].z);
+
 			/* ************************************** */
 			/* Test fails - fix the GTS conversion    */
 			//Assert::AreEqual(round(vSkinInst.translation.x * 1000), round(btSkinInst.translation.x * 1000));
@@ -712,6 +721,122 @@ namespace NiflyDLLTests
 			//for (int i = 0; i < 13; i++)
 			//	Assert::AreEqual(round(vbuf[i]*1000), round(btbuf[i])*1000);
 
-		}
+		};
+		TEST_METHOD(partitionsSky) {
+			std::filesystem::path testfile = testRoot / "Skyrim/malehead.nif";
+
+			void* nif;
+			void* shapes[10];
+			uint16_t partitioninfo[40]; // flags, id
+			int partitionCount;
+			uint16_t partTris[2000];
+			int triCount;
+
+			nif = load(testfile.string().c_str());
+			getShapes(nif, shapes, 10, 0);
+
+			// Asking for the segment count on Skyrim nifs is allowed, but always 0. 
+			Assert::AreEqual(0, segmentCount(nif, shapes[0]));
+
+			// getPartitions returns the count so you can alloc enough space.
+			partitionCount = getPartitions(nif, shapes[0], partitioninfo, 20);
+			Assert::AreEqual(3, partitionCount);
+
+			// Returned values are pairs, (flags, ID). 230 is the skyrim neck partition.
+			Assert::AreEqual(230, int(partitioninfo[1]));
+
+			// partition tris is a list of indices into the above partition list.
+			// This list is 1:1 with the shape's tris.
+			triCount = getPartitionTris(nif, shapes[0], partTris, 2000);
+			Assert::AreEqual(1694, triCount);
+
+			// This next test was being a bitch and we test the functionality at the
+			// Blender level anyway so...
+			// 
+			//// Can write the partitions back out
+			//std::filesystem::path testfileout = testRoot / "Out/partitionsSkyHead.nif";
+			//int vlen, nlen, tlen, ulen;
+			//float verts[6000];
+			//float norms[6000];
+			//uint16_t tris2[6000];
+			//float uvs[4000];
+			//vlen = getVertsForShape(nif, shapes[0], verts, 2000, 0);
+			//nlen = getNormalsForShape(nif, shapes[0], norms, 2000, 0);
+			//tlen = getTriangles(nif, shapes[0], tris2, 2000, 0);
+			//ulen = getUVs(nif, shapes[0], uvs, 2000, 0);
+
+			//void* nif2 = createNif("SKYRIM");
+			//void* newSkin = createSkinForNif(nif2, "SKYRIM");
+			//void* sh = createNifShapeFromData(nif2, "Head", verts, vlen, tris2, tlen, uvs, ulen,
+			//	norms, nlen);
+			//skinShape(nif2, sh);
+			//
+			//// On write, we don't send the partition flags
+			////int writeParts[40];
+			////for (int i = 0; i < partitionCount; i++) writeParts[i] = partitioninfo[i * 2 + 1];
+			////setPartitions(nif, shapes[0], writeParts, partitionCount, tris, triCount);
+			//saveSkinnedNif(newSkin, testfileout.string().c_str());
+
+			//// And on reading, should have same values
+			//void* nif3;
+			//void* shapes3[10];
+			//nif3 = load(testfileout.string().c_str());
+			//getShapes(nif3, shapes3, 10, 0);
+
+			//// Can check for segment count even on Skyrim nifs. 
+			//Assert::AreEqual(0, segmentCount(nif3, shapes3[0]));
+
+			//// getPartitions returns the count so you can alloc enough space.
+			//partitionCount = getPartitions(nif3, shapes3[0], partitioninfo, 20);
+			//Assert::AreEqual(3, partitionCount);
+
+			//// Returned values are pairs, (flags, ID). 230 is the skyrim HEAD partition.
+			//Assert::AreEqual(230, int(partitioninfo[1]));
+
+			//// partition tris is a list of indices into the above partition list.
+			//// This list is 1:1 with the shape's tris.
+			//triCount = getPartitionTris(nif3, shapes3[0], partTris, 2000);
+			//Assert::AreEqual(1694, triCount);
+		};
+		TEST_METHOD(getPartitionFO4) {
+			std::filesystem::path testfile = testRoot / "FO4/VanillaMaleBody.nif";
+
+			void* nif;
+			void* shapes[10];
+			int segInfo[40]; // id, subseg count
+			int segCount;
+			uint16_t tris[3000];
+			int triCount;
+			char fname[256];
+			int namelen;
+
+			nif = load(testfile.string().c_str());
+			getShapes(nif, shapes, 10, 0);
+
+			// segmentCount returns the count of segments in the shape
+			// Vanilla body has 7 top-level segments
+			segCount = segmentCount(nif, shapes[0]);
+			Assert::AreEqual(7, segCount);
+
+			getSegments(nif, shapes[0], segInfo, 20);
+			// Segments don't have a real ID but nifly assigns one for reference.
+			Assert::AreNotEqual(0, int(segInfo[2]));
+			// This shape has 4 subsegments in its 3rd segment
+			Assert::AreEqual(4, segInfo[5]);
+
+			// 2698 tris in this shape
+			triCount = getPartitionTris(nif, shapes[0], tris, 3000);
+			Assert::AreEqual(2698, triCount);
+
+			// There's an external segment file
+			namelen = getSegmentFile(nif, shapes[0], fname, 256);
+			Assert::AreEqual("Meshes\\Actors\\Character\\CharacterAssets\\MaleBody.ssf", fname);
+			Assert::AreEqual(52, namelen);
+
+			// FO4 segments have subsegments
+			uint32_t subsegs[20 * 3];
+			int sscount = getSubsegments(nif, shapes[0], segInfo[4], subsegs, 20);
+			Assert::AreEqual(4, sscount);
+		};
 	};
 }

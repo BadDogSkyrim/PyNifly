@@ -2,7 +2,9 @@
 import os
 import struct
 from math import asin, atan2, pi, sin, cos
-from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_float, c_uint8, c_uint16, create_string_buffer, Structure, cdll, pointer
+import re
+import logging
+from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer
 from niflytools import *
 
 
@@ -23,8 +25,8 @@ class VERTEX_WEIGHT_PAIR(Structure):
 
 def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
-    nifly.load.argtypes = [c_char_p]
-    nifly.load.restype = c_void_p
+    #nifly.getRawVertsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
+    #nifly.getRawVertsForShape.restype = c_int
     nifly.addBoneToShape.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
     nifly.addBoneToShape.restype = None
     nifly.addNode.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p]
@@ -33,6 +35,8 @@ def load_nifly(nifly_path):
     nifly.createNif.restype = c_void_p
     nifly.createNifShapeFromData.argtypes = [c_void_p, c_char_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int]
     nifly.createNifShapeFromData.restype = c_void_p
+    nifly.createSkinForNif.argtypes = [c_void_p, c_char_p]
+    nifly.createSkinForNif.restype = c_void_p
     nifly.destroy.argtypes = [c_void_p]
     nifly.destroy.restype = None
     nifly.getAllShapeNames.argtypes = [c_void_p, c_char_p, c_int]
@@ -49,20 +53,28 @@ def load_nifly(nifly_path):
     nifly.getNodeName.restype = c_int
     nifly.getNodeParent.argtypes = [c_void_p, c_void_p]
     nifly.getNodeParent.restype = c_void_p
+    nifly.getNodes.argtypes = [c_void_p, c_void_p]
+    nifly.getNodes.restype = None
     nifly.getNodeTransform.argtypes = [c_void_p, c_void_p]
     nifly.getNodeTransform.restype = None
     nifly.getNodeXformToGlobal.argtypes = [c_void_p, c_char_p, c_void_p]
     nifly.getNodeXformToGlobal.restype = None
-    nifly.getNodes.argtypes = [c_void_p, c_void_p]
-    nifly.getNodes.restype = None
     nifly.getNormalsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
     nifly.getNormalsForShape.restype = c_int
-    nifly.getRawVertsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
-    nifly.getRawVertsForShape.restype = c_int
+    nifly.getPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
+    nifly.getPartitions.restype = c_int
+    nifly.getPartitionTris.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
+    nifly.getPartitionTris.restype = c_int
     nifly.getRoot.argtypes = [c_void_p]
     nifly.getRoot.restype = c_void_p
     nifly.getRootName.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getRootName.restype = c_int
+    nifly.getSegmentFile.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
+    nifly.getSegmentFile.restype = c_int
+    nifly.getSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
+    nifly.getSegments.restype = c_int
+    nifly.getSubsegments.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
+    nifly.getSubsegments.restype = c_int
     nifly.getShapeBoneCount.argtypes = [c_void_p, c_void_p]
     nifly.getShapeBoneCount.restype = c_int
     nifly.getShapeBoneIDs.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
@@ -79,6 +91,8 @@ def load_nifly(nifly_path):
     nifly.getShapeName.restype = c_int
     nifly.getShapes.argtypes = [c_void_p, c_void_p, c_int, c_int]
     nifly.getShapes.restype = c_int
+    nifly.getShapeSkinToBone.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
+    nifly.getShapeSkinToBone.restype = c_bool
     nifly.getTransform.argtypes = [c_void_p, c_void_p]
     nifly.getTransform.restype = None
     nifly.getTriangles.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
@@ -89,28 +103,31 @@ def load_nifly(nifly_path):
     nifly.getVertsForShape.restype = c_int
     nifly.hasSkinInstance.argtype = [c_void_p]
     nifly.hasSkinInstance.restype = c_int
-    nifly.getShapeSkinToBone.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
-    nifly.getShapeSkinToBone.restype = c_bool
+    nifly.load.argtypes = [c_char_p]
+    nifly.load.restype = c_void_p
     nifly.saveNif.argtypes = [c_void_p, c_char_p]
     nifly.saveNif.restype = c_int
-    nifly.setShapeBoneIDList.argtypes = [c_void_p, c_void_p, c_void_p, c_int]  
-    nifly.setShapeBoneWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p]
-    nifly.setShapeVertWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
-    nifly.setTransform.argtypes = [c_void_p, c_void_p]
-    nifly.setTransform.restype = None
-    nifly.createSkinForNif.argtypes = [c_void_p, c_char_p]
-    nifly.createSkinForNif.restype = c_void_p
-    nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p]
-    nifly.setGlobalToSkinXform.restype = None
-    nifly.setShapeGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p] 
-    nifly.setShapeGlobalToSkinXform.restype = None
-    nifly.setShapeWeights.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
-    nifly.setShapeWeights.restype = None
     nifly.saveSkinnedNif.argtypes = [c_void_p, c_char_p]
     nifly.saveSkinnedNif.restype = None
+    nifly.segmentCount.argtypes = [c_void_p, c_void_p]
+    nifly.segmentCount.restype = c_int
+    nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p]
+    nifly.setGlobalToSkinXform.restype = None
+    nifly.setPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int]
+    nifly.setPartitions.restype = None
+    nifly.setShapeBoneIDList.argtypes = [c_void_p, c_void_p, c_void_p, c_int]  
+    nifly.setShapeBoneWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p]
+    nifly.setShapeGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p] 
+    nifly.setShapeGlobalToSkinXform.restype = None
+    nifly.setShapeVertWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
+    nifly.setShapeWeights.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
+    nifly.setShapeWeights.restype = None
+    nifly.setTransform.argtypes = [c_void_p, c_void_p]
+    nifly.setTransform.restype = None
     nifly.skinShape.argtypes = [c_void_p, c_void_p]
     nifly.skinShape.restype = None
-
+    nifly.setSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_char_p]
+    nifly.setSegments.restype = None
     return nifly
 
 # --- Helper Routines --- #
@@ -237,16 +254,6 @@ class MatTransform():
         return inverseXform
 
 
-def SeparateVertsByUV(verts, loops, polys, uvs):
-    vertcount = [0] * len(verts)
-    for l in loops:
-        if vertcount[l[0]] == 0:
-            vertcount[l[0]] = 1
-        else:
-            new_vert = len(verts)
-            verts.append(verts[vert_index])
-            l[0] = new_vert
-            
 def get_weights_by_bone(weights_by_vert):
     """ weights_by_vert = [dict[group-name: weight], ...]
         Result: {group_name: ((vert_index, weight), ...), ...}
@@ -261,6 +268,117 @@ def get_weights_by_bone(weights_by_vert):
                 else:
                     result[name].append((vert_index, weight))
     return result
+
+
+class Partition:
+    def __init__(self, part_id=0, namedict=None, name=None):
+        self.id = part_id
+        self.name = name
+
+    def __eq__(self, other):
+        return self.name == other.name
+
+    def __lt__(self, other):
+        return self.name < other.name
+
+    def __le__(self, other):
+        return self.name <= other.name
+
+    def __gt__(self, other):
+        return self.name > other.name
+
+    def __ge__(self, other):
+        return self.name >= other.name
+
+class SkyPartition(Partition):
+    skymatch = re.compile('SBP_([0-9]+)_\w+')
+
+    def __init__(self, part_id=0, flags=0, namedict=None, name=None):
+        super().__init__(part_id, namedict, name)
+        self.flags = flags
+        if not self.name:
+            if namedict and part_id in namedict.parts:
+                self.name = namedict.parts[part_id].name
+            else:
+                self.name = f"SBP_{part_id}_UNKNOWN"
+
+    @classmethod
+    def name_match(cls, name):
+        m = SkyPartition.skymatch.match(name)
+        if m:
+            return int(m.group(1))
+        else:
+            return -1
+
+class FO4Partition(Partition):
+    fo4segmatch = re.compile('FO4 \w+ \#*([0-9]+)\Z')
+
+    def __init__(self, part_id=0, subsegments=0, namedict=None, name=None):
+        super().__init__(part_id, namedict=namedict, name=name)
+        self.subseg_count = subsegments
+        self.subsegments = []
+        self._name = name
+
+    @property
+    def name(self):
+        """ FO4 segments don't have proper names. So look at the subsegments and pull the 
+            name out of the first part of their name, which should be the 'name' of their parent.
+            In theory they'll all reference the same parent so the cruft with set() and join()
+            should be unnecessary.
+            """
+        if self._name:
+            return self._name
+        elif len(self.subsegments) > 0:
+            n = set()
+            for s in self.subsegments:
+                n.add(s.parent_name)
+            return "FO4 " + "+".join(n)
+        else:
+            return f"FO4 Segment #{self.id}"
+
+    @name.setter
+    def name(self, val):
+        if val:
+            self._name = val
+
+    @classmethod
+    def name_match(cls, name):
+        m = FO4Partition.fo4segmatch.match(name)
+        if m:
+            return int(m.group(1))
+        else:
+            return -1
+
+class Subsegment(FO4Partition):
+    fo4subsegm = re.compile('((\w+ [0-9]+) \| [\w\-\d\. ]+) \| ([0-9]+)')
+
+    def __init__(self, part_id, user_slot, material, parent, namedict=fo4Dict, name=None):
+        super().__init__(part_id, 0, namedict, name)
+        self.user_slot = user_slot
+        self.material = material
+        if namedict and material in namedict.parts:
+            self.name = f"{namedict.parts[material].name} | {part_id}"
+        self.parent = parent
+        parent.subsegments.append(self)
+
+    @property
+    def parent_name(self):
+        return fo4Dict.parts[self.material].name.split("|")[0].strip()
+
+    @classmethod
+    def name_match(cls, name):
+        m = Subsegment.fo4subsegm.match(name)
+        if m:
+            basename = m.group(1)
+            parent_name = f"FO4 {m.group(2)}"
+            subseg_id = int(m.group(3))
+            material = 0
+            for k, v in fo4Dict.parts.items():
+                if v.name == basename:
+                    material = k
+            return (parent_name, subseg_id, material)
+        else:
+            return ("", -1, -1)
 
 
 # --- NiNode --- #
@@ -319,6 +437,9 @@ class NiShape:
         self._weights = None
         self.name = None
         self.parent = theNif
+        self._partitions = None
+        self._partition_tris = None
+        self._segment_file = None
 
         if not theShapeRef is None:
             buf = create_string_buffer(256)
@@ -334,25 +455,25 @@ class NiShape:
         self.transform.fill_buffer(buf)
         NifFile.nifly.setTransform(self._handle, buf)
 
-    @property
-    def rawVerts(self):
-        BUFSIZE = 1000
-        VERTBUF = c_float * 3 * BUFSIZE
-        verts = VERTBUF()
-        out = []
-        readSoFar = 0
-        remainingCount = 0
-        while (readSoFar == 0) or (remainingCount > 0):
-            totalCount = NifFile.nifly.getRawVertsForShape(
-                self.parent._handle, self._handle, verts, BUFSIZE, readSoFar)
-            if readSoFar == 0:
-                remainingCount = totalCount
-            if remainingCount > 0:
-                for i in range(0, min(remainingCount, BUFSIZE)):
-                    out.append((verts[i][0], verts[i][1], verts[i][2]))
-            remainingCount -= BUFSIZE
-            readSoFar += BUFSIZE
-        return out
+    #@property
+    #def rawVerts(self):
+    #    BUFSIZE = 1000
+    #    VERTBUF = c_float * 3 * BUFSIZE
+    #    verts = VERTBUF()
+    #    out = []
+    #    readSoFar = 0
+    #    remainingCount = 0
+    #    while (readSoFar == 0) or (remainingCount > 0):
+    #        totalCount = NifFile.nifly.getRawVertsForShape(
+    #            self.parent._handle, self._handle, verts, BUFSIZE, readSoFar)
+    #        if readSoFar == 0:
+    #            remainingCount = totalCount
+    #        if remainingCount > 0:
+    #            for i in range(0, min(remainingCount, BUFSIZE)):
+    #                out.append((verts[i][0], verts[i][1], verts[i][2]))
+    #        remainingCount -= BUFSIZE
+    #        readSoFar += BUFSIZE
+    #    return out
 
     @property
     def verts(self):
@@ -399,6 +520,62 @@ class NiShape:
                 readSoFar += BUFSIZE
         return self._tris
 
+    def _read_partitions(self):
+        self._partitions = []
+        buf = (c_uint16 * 2)()
+        pc = NifFile.nifly.getPartitions(self.parent._handle, self._handle, None, 0)
+        buf = (c_uint16 * 2 * pc)()
+        pc = NifFile.nifly.getPartitions(self.parent._handle, self._handle, buf, pc)
+        for i in range(pc):
+            self._partitions.append(SkyPartition(buf[i][1], buf[i][0], namedict=self.parent.dict))
+    
+    def _read_segments(self, num):
+        self._partitions = []
+        buf = (c_int * 2 * num)()
+        pc = NifFile.nifly.getSegments(self.parent._handle, self._handle, buf, num)
+        for i in range(num):
+            p = FO4Partition(part_id=buf[i][0], subsegments=buf[i][1], namedict=self.parent.dict)
+            self._partitions.append(p)
+            buf2 = (c_uint32 * 3 * p.subseg_count)()
+            ssn = NifFile.nifly.getSubsegments(self.parent._handle, self._handle, p.id, buf2, p.subseg_count)
+            for i in range(ssn):
+                ss = Subsegment(part_id=buf2[i][0], 
+                                user_slot=buf2[i][1], 
+                                material=buf2[i][2], 
+                                parent=p, 
+                                namedict=self.parent.dict)
+
+    @property
+    def partitions(self):
+        if self._partitions is None:
+            segc = NifFile.nifly.segmentCount(self.parent._handle, self._handle)
+            if segc > 0:
+                self._read_segments(segc)
+            else:
+                self._read_partitions()
+        return self._partitions
+
+    @property
+    def partition_tris(self):
+        if self._partition_tris is None:
+            buf = (c_uint16 * 1)()
+            pc = NifFile.nifly.getPartitionTris(self.parent._handle, self._handle, None, 0)
+            buf = (c_uint16 * pc)()
+            pc = NifFile.nifly.getPartitionTris(self.parent._handle, self._handle, buf, pc)
+            self._partition_tris = [0] * pc
+            for i in range(pc):
+                self._partition_tris[i] = buf[i]
+        return self._partition_tris
+
+    @property
+    def segment_file(self):
+        if self._segment_file is None:
+            buflen = NifFile.nifly.getSegmentFile(self.parent._handle, self._handle, None, 0)+1
+            buf = (c_char * buflen)()
+            buflen = NifFile.nifly.getSegmentFile(self.parent._handle, self._handle, buf, buflen)
+            self._segment_file = buf.value.decode('utf-8')
+        return self._segment_file
+    
     @property
     def uvs(self):
         BUFSIZE = (len(self._verts) if self._verts else 1000)
@@ -590,12 +767,64 @@ class NiShape:
         NifFile.nifly.setShapeWeights(self.parent._skin_handle, self._handle, bone_name.encode('utf-8'),
                                       vert_buf, len(vert_weights), xfbuf)
        
+    def set_partitions(self, partitionlist, trilist):
+        """ Set the partitions for a shape
+            partitionlist = list of Partition objects, either Skyrim or FO. Any Subsegments in the
+                list are ignored.
+            trilist = 1:1 with shape tris, gives the ID of the tri's partition
+            """
+        if len(partitionlist) == 0:
+            return
+
+        parts = list(filter(lambda x: type(x) in [SkyPartition, FO4Partition], partitionlist))
+        if len(parts) == 0:
+            return
+
+        NifFile.log.debug(f"....Exporting partitions {[(type(p), p.name) for p in parts]}")
+
+        parts_lookup = {}
+        pbuf = (c_uint16 * len(parts))()
+        for i, p in enumerate(parts):
+            pbuf[i] = p.id
+            parts_lookup[p.id] = i
+        
+        tbuf = (c_uint16 * len(trilist))()
+
+        if type(parts[0]) == SkyPartition:
+            # the trilist passed in refers to partition IDs, but nifly wants indices into
+            # the given partition list.
+            for i, t in enumerate(trilist):
+                tbuf[i] = parts_lookup[trilist[i]]
+            NifFile.nifly.setPartitions(self.parent._handle, self._handle,
+                                        pbuf, len(parts),
+                                        tbuf, len(trilist))
+        else:
+            # For segments, the trilist has to refer to IDs becuase of referring to subsegments.
+            for i, t in enumerate(trilist):
+                tbuf[i] = trilist[i]
+            
+            sslist = []
+            for seg in parts:
+                for sseg in seg.subsegments:
+                    sslist.extend([sseg.id, seg.id, sseg.user_slot, sseg.material])
+            sbuf = (c_uint32 * len(sslist))()
+            for i, s in enumerate(sslist):
+                sbuf[i] = s
+
+            NifFile.nifly.setSegments(self.parent._handle, self._handle,
+                                      pbuf, len(parts),
+                                      sbuf, int(len(sslist)/4),
+                                      tbuf, len(trilist),
+                                      self.segment_file.encode('utf-8'))
+
+
 # --- NifFile --- #
 class NifFile:
     """ NifFile represents the file itself. Corresponds approximately to a NifFile in the 
         Nifly layer, but we've hidden the AnimInfo object in here too.
         """
     nifly = None
+    log = logging.getLogger("pynifly")
 
     def Load(nifly_path):
         NifFile.nifly = load_nifly(nifly_path)
@@ -613,7 +842,8 @@ class NifFile:
         self._shape_dict = {}
         self._nodes = None
         self._skin_handle = None
-        self.dict = None
+        if self.game is not None:
+            self.dict = gameSkeletons[self.game]
 
     def __del__(self):
         if self._handle:
@@ -653,7 +883,7 @@ class NifFile:
             norm_len = len(normals)
             for i in range(norm_len):
                 normbuf[i] = normals[i]
-        TRIBUFDEF = c_int * 3 * len(tris)
+        TRIBUFDEF = c_uint16 * 3 * len(tris)
         tribuf = TRIBUFDEF()
         for i, t in enumerate(tris): tribuf[i] = t
         UVBUFDEF = c_float * 2 * len(uvs)
@@ -788,7 +1018,10 @@ TEST_2_TAILS = False
 TEST_ROTATIONS = False
 TEST_PARENT = False
 TEST_PYBABY = False
-TEST_BONE_XFORM = True
+TEST_BONE_XFORM = False
+TEST_PARTITIONS = False
+TEST_SEGMENTS = True
+TEST_PARTITION_NAMES = True
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
@@ -830,25 +1063,29 @@ if __name__ == "__main__":
         ### Need to test euler -> matrix -> euler
 
     if TEST_ALL or TEST_SHAPE_QUERY:
-        print("### NifFile object gives access to a nif")
+        print("### TEST_SHAPE_QUERY: NifFile object gives access to a nif")
+
+        # NifFile can be read from a file. It provides game name and root node for that game.
+        # Root node is not from the file.
         f1 = NifFile("tests/skyrim/test.nif")
         print("### Toplevel node name is available")
         assert f1.game == "SKYRIM", "ERROR: Test file not Skyrim"
         assert f1.rootName == "Scene Root", "ERROR: Test file root name wrong: " + str(f.rootName)
 
+        # Same for FO4 nifs
         f2 = NifFile("tests/FO4/AlarmClock.nif")
         assert f2.game == "FO4", "ERROR: Test file not FO4"
 
-        print("### getAllShapeNames returns names of meshes within the nif")
+        # getAllShapeNames returns names of meshes within the nif
         all_shapes = f1.getAllShapeNames()
         print(all_shapes)
         assert "Armor" in all_shapes and 'MaleBody' in all_shapes, \
             f'ERROR: Test shape names expected in {str(all_shapes)}'
 
-        print("### Shapes property is a list of the shapes/meshes in the nif")
+        # The shapes property lists all the meshes in the nif, whatever the format, as NiShape
         assert len(f1.shapes) == 2, "ERROR: Test file does not have 2 shapes"
 
-        print("### Shapes have names")
+        # The shape name is the node name from the nif
         assert ["Armor", "MaleBody"].index(f1.shapes[0].name) >= 0, \
             f"ERROR: first shape name not expected: {f1.shapes[0].name}"
 
@@ -858,10 +1095,12 @@ if __name__ == "__main__":
         #assert not f2.shapes[0].has_skin_instance
 
     if TEST_ALL or TEST_MESH_QUERY:
-        print("### Shapes rawVerts property is a list of triples containing x,y,z position")
+        print("### TEST_MESH_QUERY: Can read mesh info")
+        
+        # A NiShape's verts property is a list of triples containing x,y,z position
         f2 = NifFile("tests/skyrim/noblecrate01.nif")
         print(f2.getAllShapeNames())
-        verts = f2.shapes[0].rawVerts
+        verts = f2.shapes[0].verts
         assert len(verts) == 686, "ERROR: Did not import 686 verts"
         assert round(verts[0][0], 4) == -67.6339, "ERROR: First vert wrong"
         assert round(verts[0][1], 4) == -24.8498, "ERROR: First vert wrong"
@@ -869,18 +1108,18 @@ if __name__ == "__main__":
         assert round(verts[685][0], 4) == -64.4469, "ERROR: Last vert wrong"
         assert round(verts[685][1], 4) == -16.3246, "ERROR: Last vert wrong"
         assert round(verts[685][2], 4) == 26.4362, "ERROR: Last vert wrong"
-  
 
-        print("### Shapes tris property is a list of triples defining the triangles")
+        # A NiShape's tris property is a list of triples defining the triangles. Each triangle
+        # is a triple of indices into the verts list.
         tris = f2.shapes[0].tris
         assert len(tris) == 258, "ERROR: Did not import 258 tris"
         assert tris[0] == (0, 1, 2), "ERROR: First tri incorrect"
         assert tris[1] == (2, 3, 0), "ERROR: Second tri incorrect"
 
-        print("### Can access verts and tris of second shape too;")
-        print("###   Can access verts and tris from beyond the first buffer limit")
-        verts = f1.shape_dict["MaleBody"].rawVerts 
-        assert len(verts) == 2024, "ERROR: Wrong vert count for second shape - " + str(len(f1.shapes[1].rawVerts))
+        # We're using fixed-length buffers to pass these lists back and forth, but that
+        # doesn't affect the caller.
+        verts = f1.shape_dict["MaleBody"].verts 
+        assert len(verts) == 2024, "ERROR: Wrong vert count for second shape - " + str(len(f1.shapes[1].verts))
 
         assert round(verts[0][0], 4) == 0.0, "ERROR: First vert wrong"
         assert round(verts[0][1], 4) == 8.5051, "ERROR: First vert wrong"
@@ -897,57 +1136,74 @@ if __name__ == "__main__":
         assert tris[3679][1] == 93, "ERROR: Last tri wrong"
         assert tris[3679][2] == 88, "ERROR: Last tri wrong"
 
-        print("### Shapes have translation and scale")
+        # The transformation on the nif is recorded as the transform property on the shape.
         assert f1.shape_dict["MaleBody"].transform.translation == (0.0, 0.0, 0.0), "ERROR: Body location not 0"
         assert f1.shape_dict["MaleBody"].transform.scale == 1.0, "ERROR: Body scale not 1"
         assert list(round(x, 4) for x in f1.shape_dict["Armor"].transform.translation) == [-0.0003, -1.5475, 120.3436], "ERROR: Armor location not correct"
 
-        print("### Shapes have UVs")
+        # Shapes have UVs. The UV map is a list of UV pairs, 1:1 with the list of verts. 
+        # Nifs don't allow one vert to have two UV locations.
         uvs = f2.shapes[0].uvs
         assert len(uvs) == 686, "ERROR: UV count not correct"
         assert list(round(x, 4) for x in uvs[0]) == [0.4164, 0.419], "ERROR: First UV wrong"
         assert list(round(x, 4) for x in uvs[685]) == [0.4621, 0.4327], "ERROR: First UV wrong"
     
-        print("### Nifs contain a set of bones (nodes with transforms)")
+        # Bones are represented as nodes on the NifFile. Bones don't have a special type
+        # in the nif, so we just bring in all NiNodes. Bones have names and transforms.
         assert len(f1.nodes) == 30, "ERROR: Number of bones incorrect"
         uatw = f1.nodes["NPC R UpperarmTwist2 [RUt2]"]
         assert uatw.name == "NPC R UpperarmTwist2 [RUt2]", "ERROR: Node name wrong"
         assert [round(x, 4) for x in uatw.transform.translation] == [15.8788, -5.1873, 100.1124], "ERROR: Location incorrect"
         assert [round(x, 2) for x in uatw.transform.rotation.euler_deg()] == [10.40, 65.25, -9.13], "ERROR: Rotation incorrect"
 
-        print("### Shapes reference bones")
+        # A skinned shape has a list of bones that influence the shape. The NifFile's shape_dict property
+        # makes it easy to find a shape by name. 
         try:
             assert f1.shape_dict["MaleBody"].bone_names.index('NPC Spine [Spn0]') >= 0, "ERROR: Wierd stuff just happened"
         except:
             print("ERROR: Did not find bone in list")
         print("### Bones have IDs")
+        
+        # A shape has a list of bone_ids in the shape.  Nifly uses this to reference the
+        # bones, but we don't use it.  (Yet.)
         assert len(f1.shape_dict["MaleBody"].bone_ids) == len(f1.shape_dict["MaleBody"].bone_names), "ERROR: Mismatch between names and IDs"
+
+        # The bone_weights dictionary captures weights for each bone that influences a shape. The value
+        # lists (vertex-index, weight) for each vertex it influences.
         assert len(f1.shape_dict["MaleBody"].bone_weights['NPC L Foot [Lft ]']) == 13, "ERRROR: Wrong number of bone weights"
 
     if TEST_ALL or TEST_CREATE_TETRA:
         print("### Can create new files with content: tetrahedron")
+        # Vertices are a list of triples defining the coordinates of each vertex
         verts = [(0.0, 0.0, 0.0),
                  (2.0, 0.0, 0.0),
                  (2.0, 2.0, 0.0),
                  (1.0, 1.0, 2.0),
                  (1.0, 1.0, 2.0),
                  (1.0, 1.0, 2.0)]
+        #Normals are 1:1 with vertices because nifs only allow one normal per vertex
         norms = [(-1.0, -1.0, -0.5),
                  (1.0, -1.0, -1.0),
                  (1.0, 2.0, -1.0),
                  (0.0, 0.0, 1.0),
                  (0.0, 0.0, 1.0),
                  (0.0, 0.0, 1.0)]
+        #Tris are a list of triples, indices into the vertex list
         tris = [(2, 1, 0),
                 (1, 3, 0),
                 (2, 4, 1),
                 (5, 2, 0)]
+        #UVs are 1:1 with vertices because only one UV point allowed per vertex.  Values
+        #are in the range 0-1.
         uvs = [(0.4370, 0.8090),
                (0.7460, 0.5000),
                (0.4370, 0.1910),
                (0.9369, 1.0),
                (0.9369, 0.0),
                (0.0, 0.5000) ]
+        
+        # Create a nif with an empty NifFile object, then initializing it with game and filepath.
+        # Can create a shape in one call by passing in these lists
         newf = NifFile()
         newf.initialize("SKYRIM", "tests/out/testnew01.nif")
         newf.createShapeFromData("FirstShape", verts, tris, uvs, norms)
@@ -956,6 +1212,7 @@ if __name__ == "__main__":
         newf_in = NifFile("tests/out/testnew01.nif")
         assert newf_in.shapes[0].name == "FirstShape", "ERROR: Didn't get expected shape back"
     
+        # Skyrim and FO4 work the same way
         newf2 = NifFile()
         newf2.initialize("FO4", "tests/out/testnew02.nif")
         newf2.createShapeFromData("FirstShape", verts, tris, uvs, norms)
@@ -964,7 +1221,7 @@ if __name__ == "__main__":
         newf2_in = NifFile("tests/out/testnew02.nif")
         assert newf2_in.shapes[0].name == "FirstShape", "ERROR: Didn't get expected shape back"
 
-        print("### Can set shape transforms")
+        #Transforms are set by putting them on the NiShape
         newf3 = NifFile()
         newf3.initialize("SKYRIM", "tests/out/testnew03.nif")
         shape = newf3.createShapeFromData("FirstShape", verts, tris, uvs, norms)
@@ -976,11 +1233,13 @@ if __name__ == "__main__":
         assert newf3_in.shapes[0].transform.scale == 1.5, "ERROR: Scale transform wrong"
     
     if TEST_ALL or TEST_CREATE_WEIGHTS:
-        print("### Can create tetrahedron with bone weights (Skyrim)")
+        print("### TEST_CREATE_WEIGHTS: Can create tetrahedron with bone weights (Skyrim)")
         verts = [(0.0, 1.0, -1.0), (0.866, -0.5, -1.0), (-0.866, -0.5, -1.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0)]
         norms = [(0.0, 0.9219, -0.3873), (0.7984, -0.461, -0.3873), (-0.7984, -0.461, -0.3873), (-0.8401, 0.4851, 0.2425), (0.8401, 0.4851, 0.2425), (0.0, -0.9701, 0.2425)]
         tris = [(0, 4, 1), (0, 1, 2), (1, 5, 2), (2, 3, 0)]
         uvs = [(0.46, 0.30), (0.80, 0.5), (0.46, 0.69), (0.0, 0.5), (0.86, 0.0), (0.86, 1.0)]
+        
+        # These weights are 1:1 with verts, listing the bones that influence the vert.
         weights = [{"Bone.001": 0.0974, "Bone.003": 0.9026},
                    {"Bone.002": 0.0715, "Bone.003": 0.9285},
                    {"Bone": 0.0000, "Bone.001": 0.0000, "Bone.002": 0.0000, "Bone.003": 1.0000},
@@ -995,32 +1254,46 @@ if __name__ == "__main__":
             SkeletonBone("Bone.001", "BONE2"), 
             SkeletonBone("Bone.002", "BONE3"),
             SkeletonBone("Bone.003", "BONE4") ],
-            {})
+            {}, [])
 
         newf4 = NifFile()
         newf4.initialize("SKYRIM", "tests/out/testnew04.nif")
+        # Need a skin to attach a mesh to an armature.  Can create the skin on the
+        # NifFile, then on the NiShape, but putting it on the NifFile is optional.  The
+        # shape will make sure its nif is set up.
         newf4.createSkin()
         shape4 = newf4.createShapeFromData("WeightedTetra", verts, tris, uvs, norms)
         shape4.transform.translation = (0,0,0)
         shape4.transform.scale = 1.0
         shape4.skin()
 
+        # It's sometimes convenient to have a bone and ask what verts it influences,
+        # other times to have a vert and ask what bones influence it.  weights_by_bone
+        # goes from weights by vert to by bone.
         weights_by_bone = get_weights_by_bone(weights)
         used_bones = weights_by_bone.keys()
 
+        # Need to add the bones to the shape before you can weight to them.
         for b in arma_bones:
             shape4.add_bone(bones.nif_name(b))
 
+        # Transforms position parts relative to their parent or absolute in the global
+        # reference frame.  The global to skin transform makes that translation.  Note
+        # the skindata transform uses a block that only Skyrim nifs have.
         bodyPartXform = MatTransform((0.000256, 1.547526, -120.343582))
         shape4.set_global_to_skin(bodyPartXform)
         shape4.set_global_to_skindata(bodyPartXform)
 
+        # SetShapeWeights sets the vertex weights fro a bone
         for bone_name, weights in weights_by_bone.items():
             if (len(weights) > 0):
                 shape4.setShapeWeights(bones.nif_name(bone_name), weights)
     
         newf4.save()
 
+        # The skin-to-bone transform is the local transform for the bone as it's used by
+        # the skin.  This lets the game move the verts relative to the bone as it's moved
+        # in animations.
         newf4in = NifFile("tests/out/testnew04.nif")
         newshape = newf4in.shapes[0]
         xform = newshape.get_shape_skin_to_bone("BONE2")
@@ -1028,7 +1301,7 @@ if __name__ == "__main__":
 
 
     if TEST_ALL or TEST_READ_WRITE:
-        print("### Can read the armor nif and spit out armor and body separately")
+        print("### TEST_READ_WRITE: Can read the armor nif and spit out armor and body separately")
 
         nif = NifFile("tests/Skyrim/test.nif")
         assert "Armor" in nif.getAllShapeNames(), "ERROR: Didn't read armor"
@@ -1064,7 +1337,9 @@ if __name__ == "__main__":
     
         new_nif.save()
 
-        # check that the armor is where it should be
+        # Armor and body nifs are generally positioned below ground level and lifted up with a transform, 
+        # approx 120 in the Z direction. The transform on the armor shape is actually irrelevant;
+        # it's the global_to_skin_data transform that matters.
         test_py01 = NifFile(testfile)
         test_py01_armor = test_py01.shapes[0]
         assert int(test_py01_armor.transform.translation[2]) == 120, f"ERROR: Armor shape should be set at 120 in '{testfile}'"
@@ -1077,11 +1352,11 @@ if __name__ == "__main__":
 
         print("### Can save body to Skyrim")
 
-        testfile = "tests/Out/TestSkinnedFromPy02.nif"
-        if os.path.exists(testfile):
-            os.remove(testfile)
+        test_py02_path = "tests/Out/TestSkinnedFromPy02.nif"
+        if os.path.exists(test_py02_path):
+            os.remove(test_py02_path)
         new_nif = NifFile()
-        new_nif.initialize("SKYRIM", testfile)
+        new_nif.initialize("SKYRIM", test_py02_path)
         new_nif.createSkin()
 
         new_body = new_nif.createShapeFromData("Body", 
@@ -1102,7 +1377,7 @@ if __name__ == "__main__":
         new_nif.save()
 
         # check that the body is where it should be
-        test_py02 = NifFile("tests/Out/TestSkinnedFromPy02.nif")
+        test_py02 = NifFile(test_py02_path)
         test_py02_body = test_py02.shapes[0]
         max_vert = max([v[2] for v in test_py02_body.verts])
         assert max_vert < 130, "ERROR: Body verts are all below 130"
@@ -1136,7 +1411,7 @@ if __name__ == "__main__":
             pass
 
     if TEST_ALL or TEST_XFORM_FO:
-        print("### Can read the FO4 body transforms")
+        print("### TEST_XFORM_FO: Can read the FO4 body transforms")
         f1 = NifFile("tests/FO4/BTMaleBody.nif")
         s1 = f1.shapes[0]
         xfshape = s1.global_to_skin
@@ -1152,7 +1427,7 @@ if __name__ == "__main__":
         assert int(xfshape.translation[2]) == -120, "ERROR: Skyrim head shape has a -120 z translation"
 
     if TEST_ALL or TEST_2_TAILS:
-        print("### Can export tails file with two tails")
+        print("### TEST_2_TAILS: Can export tails file with two tails")
 
         testfile_in = r"tests/Skyrim/maletaillykaios.nif"
         testfile_out = "tests/out/testtails01.nif"
@@ -1173,7 +1448,7 @@ if __name__ == "__main__":
             assert "TailBone01" in s.bone_names, f"ERROR: bone cloth not in bones: {s.name}, {s.bone_names}"
 
     if TEST_ALL or TEST_ROTATIONS:
-        print("### Can handle rotations")
+        print("### TEST_ROTATIONS: Can handle rotations")
 
         testfile = r"tests\FO4\VulpineInariTailPhysics.nif"
         f = NifFile(testfile)
@@ -1186,13 +1461,16 @@ if __name__ == "__main__":
         assert n.xform_to_global != MatTransform(), "Error: xform to global should not be identity"
 
     if TEST_ALL or TEST_PARENT:
+        print("### TEST_PARENT: Can handle nifs which show relationships between bones")
+
         testfile = r"tests\FO4\bear_tshirt_turtleneck.nif"
         f = NifFile(testfile)
         n = f.nodes['RArm_Hand']
+        # System accurately parents bones to each other bsaed on nif or reference skeleton
         assert n.parent.name == 'RArm_ForeArm3', "Error: Parent node should be forearm"
 
     if TEST_ALL or TEST_PYBABY:
-        print('### Can export multiple parts')
+        print('### TEST_PYBABY: Can export multiple parts')
 
         testfile = r"tests\FO4\baby.nif"
         nif = NifFile(testfile)
@@ -1227,7 +1505,7 @@ if __name__ == "__main__":
         assert stb1 == stb2, "Error: Bone transforms should stay the same"
 
     if TEST_ALL or TEST_BONE_XFORM:
-        print('### Can read bone transforms')
+        print('### TEST_BONE_XFORM: Can read bone transforms')
 
         nif = NifFile(r"tests/Skyrim/MaleHead.nif")
         #nif.game
@@ -1244,3 +1522,98 @@ if __name__ == "__main__":
         assert mat3.translation[2] != 0, "Error: Translation should not be 0"
         mat4 = nif.get_node_xform_to_global("SPINE1")
         assert mat4.translation[2] != 0, "Error: Translation should not be 0"
+
+    if TEST_ALL or TEST_PARTITIONS:
+        print('### TEST_PARTITIONS: Can read partitions')
+
+        nif = NifFile(r"tests/Skyrim/MaleHead.nif")
+        # partitions property holds partition info. Head has 3
+        assert len(nif.shapes[0].partitions) == 3
+        
+        # First of the partitions is the neck body part
+        assert nif.shapes[0].partitions[0].id == 230
+        assert nif.shapes[0].partitions[0].name == "SBP_230_NECK"
+
+        # Partition tri list matches tris 1:1, so has same as number of tris. Refers 
+        # to the partitions by index into the partitioin list.
+        assert len(nif.shapes[0].partition_tris) == 1694
+        assert max(nif.shapes[0].partition_tris) < len(nif.shapes[0].partitions), f"tri index out of range"
+
+        print("### Can write partitions back out")
+        nif2 = NifFile()
+        nif2.initialize('SKYRIM', r"tests/Out/PartitionsMaleHead.nif")
+        _test_export_shape(nif.shapes[0], nif2)
+
+        # set_partitions expects a list of partitions and a tri list.  The tri list references
+        # reference partitions by ID, because when there are segments and subsegments it
+        # gets very confusing.
+        trilist = [nif.shapes[0].partitions[t].id for t in nif.shapes[0].partition_tris]
+        nif2.shapes[0].set_partitions(nif.shapes[0].partitions, trilist)
+        nif2.save()
+
+        nif3 = NifFile(r"tests/Out/PartitionsMaleHead.nif")
+        assert len(nif3.shapes[0].partitions) == 3, "Have the same number of partitions as before"
+        assert nif3.shapes[0].partitions[0].id == 230, "Partition IDs same as before"
+        assert len(nif3.shapes[0].partition_tris) == 1694, "Same number of tri indices as before"
+        assert (nif3.shapes[0].partitions[0].flags and 1) == 1, "First partition has start-net-boneset set"
+
+    if TEST_ALL or TEST_SEGMENTS:
+        print ("### TEST_SEGMENTS: Can read FO4 segments")
+
+        nif = NifFile(r"tests/FO4/VanillaMaleBody.nif")
+
+        # partitions property holds segment info for FO4 nifs. Body has 7 top-level segments
+        assert len(nif.shapes[0].partitions) == 7
+        
+        # IDs assigned by nifly for reference
+        assert nif.shapes[0].partitions[2].id != 0
+        assert nif.shapes[0].partitions[2].name == "FO4 Human 2"
+
+        # Partition tri list gives the index of the associated partition for each tri in
+        # the shape, so it's the same size as number of tris in shape
+        assert len(nif.shapes[0].partition_tris) == 2698
+
+        # Shape has a segment file external to the nif
+        assert nif.shapes[0].segment_file == r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf"
+
+        # Subsegments hang of the segment/partition they are a part of.  They are given
+        # names based on their "material" property.  That name includes the name of their
+        # parent, so the parent figures out its own name from its subsegments.  This is
+        # magic figured out by OS.
+        assert len(nif.shapes[0].partitions[2].subsegments) > 0, "Shapes have subsegments"
+        assert nif.shapes[0].partitions[2].subsegments[0].name == "Human 2 | R-Up Arm | 3", "Subsegments have human-readable names"
+
+        print("### Can write segments back out")
+        # When writing segments, the tri list refers to segments/subsegments by ID *not*
+        # by index into the partitions list (becuase it only has segments, not
+        # subsegments, and it's the subsegments the tri list wants to reference).
+        nif2 = NifFile()
+        nif2.initialize('FO4', r"tests/Out/SegmentsMaleBody.nif")
+        _test_export_shape(nif.shapes[0], nif2)
+        nif2.shapes[0].set_partitions(nif.shapes[0].partitions, 
+                                      nif.shapes[0].partition_tris)
+        nif2.save()
+
+        nif3 = NifFile(r"tests/Out/SegmentsMaleBody.nif")
+        assert len(nif3.shapes[0].partitions) == 7, "Have the same number of partitions as before"
+        assert nif3.shapes[0].partitions[2].id != 0, "Partition IDs same as before"
+        assert nif3.shapes[0].partitions[2].name == "FO4 Human 2"
+        assert len(nif3.shapes[0].partitions[2].subsegments) > 0, "Shapes have subsegments"
+        assert nif3.shapes[0].partitions[2].subsegments[0].name == "Human 2 | R-Up Arm | 3", "Subsegments have human-readable names"
+
+    if TEST_ALL or TEST_PARTITION_NAMES:
+        print("### Can parse various forms of partition name")
+
+        # Blender vertex groups have magic names indicating they are nif partitions or
+        # segments.  We have to analyze the group name to see if it's something we have
+        # to care about.
+        assert SkyPartition.name_match("SBP_42_CIRCLET") == 42, "Match skyrim parts"
+        assert SkyPartition.name_match("FOOBAR") < 0, "Don't match random stuff"
+
+        assert FO4Partition.name_match("FO4 Segment #3") == 3, "Match FO4 parts"
+        assert FO4Partition.name_match("Segment 4") < 0, "Don't match bougs names"
+
+        sseg = Subsegment.name_match("Human 5 | R-Kne-Clf | 3")
+        assert sseg[0] == "FO4 Human 5", "Extract subseg parent name"
+        assert sseg[1] == 3, "Extract subseg ID"
+        assert sseg[2] == 0x22324321, "Extract material"
