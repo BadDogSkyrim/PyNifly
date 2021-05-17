@@ -2,14 +2,16 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = True
+RUN_TESTS = False
+TEST_BPY_ALL = False
+
 
 bl_info = {
     "name": "NIF format",
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 24), 
+    "version": (0, 0, 25), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -707,7 +709,7 @@ def partitions_from_vert_groups(obj):
         for vg in obj.vertex_groups:
             skyid = SkyPartition.name_match(vg.name)
             if skyid >= 0:
-                val[vg.name] = Partition(skyid, 0, name=vg.name)
+                val[vg.name] = SkyPartition(part_id=skyid, flags=0, name=vg.name)
             else:
                 segid = FO4Partition.name_match(vg.name)
                 if segid >= 0:
@@ -1065,8 +1067,6 @@ def run_tests():
     ############################################################
     """)
 
-    TEST_BPY_ALL = False
-
     TEST_EXPORT = False
     TEST_IMPORT_ARMATURE = False
     TEST_EXPORT_WEIGHTS = False
@@ -1083,7 +1083,7 @@ def run_tests():
     TEST_0_WEIGHTS = False
     TEST_SPLIT_NORMAL = False
     TEST_SKEL = False
-    TEST_PARTITIONS = False
+    TEST_PARTITIONS = True
     TEST_SEGMENTS = True
 
     NifFile.Load(nifly_path)

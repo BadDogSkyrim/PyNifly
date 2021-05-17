@@ -603,6 +603,8 @@ fo4Bones = [
     SkeletonBone('Face_skin', 'Face_skin', 'HEAD'),
     SkeletonBone('Neck_skin', 'Neck_skin', 'Neck'),
     SkeletonBone('Neck1_skin', 'Neck1_skin', 'Neck'),
+    SkeletonBone('skin_bone_Neckmuscle2.L', 'skin_bone_L_Neckmuscle2', 'Neck'),
+    SkeletonBone('skin_bone_Neckmuscle2.R', 'skin_bone_R_Neckmuscle2', 'Neck'),
     SkeletonBone('Arm_Collarbone.R', 'RArm_Collarbone', 'Chest'),
     SkeletonBone('Arm_UpperArm.R', 'RArm_UpperArm', 'Arm_Collarbone.R'),
     SkeletonBone('Arm_ForeArm1.R', 'RArm_ForeArm1', 'Arm_UpperArm.R'),
