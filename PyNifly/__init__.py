@@ -699,14 +699,32 @@ def expected_game(nif, bonelist):
 
 
 def partitions_from_vert_groups(obj):
-    """ Return Partition objects for all vertex groups that match the partition name pattern """
-    val = []
+    """ Return dictionary of Partition objects for all vertex groups that match the partition name 
+        pattern. These are all partition objects including subsegments.
+    """
+    val = {}
     if obj.vertex_groups:
         for vg in obj.vertex_groups:
-            thematch = re.search('SBP_([0-9]+)_\w+', vg.name)
-            if thematch:
-                n = int(thematch.group(1))
-                val.append(Partition(n, 0, name=vg.name))
+            skyid = SkyPartition.name_match(vg.name)
+            if skyid >= 0:
+                val[vg.name] = Partition(skyid, 0, name=vg.name)
+            else:
+                segid = FO4Partition.name_match(vg.name)
+                if segid >= 0:
+                    val[vg.name] = FO4Partition(segid, 0, name=vg.name)
+        
+        # A second pass to pick up subsections
+        for vg in obj.vertex_groups:
+            parent_name, subseg_id, material = Subsegment.name_match(vg.name)
+            if subseg_id >= 0:
+                if not parent_name in val:
+                    # Create parent segments if not there
+                    parid = FO4Partition.name_match(parent_name)
+                    val[parent_name] = FOPartition(parid, 0, parent_name)
+                p = val[parent_name]
+                log.debug(f"....Found subsegment {vg.name} child of {parent_name}")
+                val[vg.name] = Subsegment(len(val)+1, 0, material, p, name=vg.name)
+    
     return val
 
 
@@ -727,12 +745,12 @@ def export_partitions(obj, weights_by_vert, tris):
     """
     log.debug(f"..Exporting partitions")
     partitions = partitions_from_vert_groups(obj)
-    log.debug(f"....Found partitions {[p.name for p in partitions]}")
-    partition_dict = {}
-    partition_set = set()
-    for i, p in enumerate(partitions):
-        partition_dict[p.name] = i
-        partition_set.add(p.name)
+    log.debug(f"....Found partitions {list(partitions.keys())}")
+
+    if len(partitions) == 0:
+        return [], []
+
+    partition_set = set(list(partitions.keys()))
 
     tri_indices = [0] * len(tris)
 
@@ -743,14 +761,11 @@ def export_partitions(obj, weights_by_vert, tris):
         vg2 = all_vertex_groups(weights_by_vert[t[2]])
         tri_partitions = vg0.intersection(vg1).intersection(vg2).intersection(partition_set)
         if len(tri_partitions) > 0:
-            #log.debug(f"....Found partition for tri {t}: {tri_partitions}")
-            for tp in tri_partitions:
-                part_index = partition_dict[tp]
-                tri_indices[i] = part_index
-        else:
-            tri_indices[i] = 0
+            if len(tri_partitions) > 1:
+                log.warning(f"....Found multiple partitions for tri {t}: {tri_partitions}")
+            tri_indices[i] = partitions[next(iter(tri_partitions))].id
 
-    return partitions, tri_indices
+    return list(partitions.values()), tri_indices
 
 
 def export_shape(nif, trip, obj, target_key=''):
@@ -843,7 +858,8 @@ def export_shape(nif, trip, obj, target_key=''):
             retval.add('UNWEIGHTED')
 
         partitions, tri_indices = export_partitions(obj, weights_by_vert, tris)
-        new_shape.set_partitions(partitions, tri_indices)
+        if len(partitions) > 0:
+            new_shape.set_partitions(partitions, tri_indices)
     else:
         new_shape.transform = new_xform
 
@@ -1558,6 +1574,10 @@ def run_tests():
         print("### Can write Skyrim partitions")
         export_shape_to(obj, os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"), "SKYRIM")
         
+        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"))
+        assert len(nif2.shapes[0].partitions) == 3, "Have all skyrim partitions"
+        assert nif2.shapes[0].partitions[2].id == 143, "Have ears"
+
     if TEST_BPY_ALL or TEST_SEGMENTS:
         print("### Can read FO4 segments")
         bpy.ops.object.select_all(action='DESELECT')
@@ -1566,8 +1586,14 @@ def run_tests():
         import_nif(nif)
 
         obj = bpy.context.object
-        assert "Segment #2" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
+        assert "FO4 Human 2" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
         assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == obj['FO4_SEGMENT_FILE'], "FO4 segment file read and saved for later use"
+
+        print("### Can write FO4 segments")
+        export_shape_to(obj, os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"), "FO4")
+        
+        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"))
+        assert len(nif2.shapes[0].partitions) == 7, "Have all FO4 partitions"
 
     print("""
     ############################################################

@@ -644,14 +644,14 @@ NIFLY_API int getSubsegments(void* nifref, void* shaperef, int segID, uint32_t* 
         }
         return 0;
     }
-    return 0;
+return 0;
 }
 
 NIFLY_API int getPartitions(void* nifref, void* shaperef, uint16_t* partitions, int partLen) {
-/*
-    Return a list of partitions associated with the shape. Only for skyrim-style nifs.
-    partitions = (uint16 flags, uint16 partID)... where partID is the body part ID
-*/
+    /*
+        Return a list of partitions associated with the shape. Only for skyrim-style nifs.
+        partitions = (uint16 flags, uint16 partID)... where partID is the body part ID
+    */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
     NiVector<BSDismemberSkinInstance::PartitionInfo> partInfos;
@@ -668,10 +668,10 @@ NIFLY_API int getPartitions(void* nifref, void* shaperef, uint16_t* partitions, 
 }
 
 NIFLY_API int getPartitionTris(void* nifref, void* shaperef, uint16_t* tris, int triLen) {
-/* 
-    Return a list of segment indices matching 1-1 with the shape's triangles.
-    Used for both skyrim and fo4-style nifs
-*/
+    /*
+        Return a list of segment indices matching 1-1 with the shape's triangles.
+        Used for both skyrim and fo4-style nifs
+    */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
     NiVector<BSDismemberSkinInstance::PartitionInfo> partInfos;
@@ -685,9 +685,9 @@ NIFLY_API int getPartitionTris(void* nifref, void* shaperef, uint16_t* tris, int
     return int(indices.size());
 }
 
-NIFLY_API void setPartitions(void* nifref, void* shaperef, 
-    uint16_t* partData, int partDataLen, 
-    uint16_t* tris, int triLen) 
+NIFLY_API void setPartitions(void* nifref, void* shaperef,
+    uint16_t* partData, int partDataLen,
+    uint16_t* tris, int triLen)
     // Needs to be called AFTER bone weights are set
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -707,5 +707,53 @@ NIFLY_API void setPartitions(void* nifref, void* shaperef,
     }
 
     nif->SetShapePartitions(shape, partInfos, triParts, true);
+    nif->UpdateSkinPartitions(shape);
+}
+/*
+* Create segments and subsegments in the nif
+* segData = [part_id, ...] list of internal IDs for each segment
+* subsegData = [[part_id, parent_id, user_slot, material], ...]
+* tris = [part_id, ...] matches 1:1 with the shape's tris, indicates which subsegment
+*   it's a part of
+* filename = null-terminated filename
+*/
+NIFLY_API void setSegments(void* nifref, void* shaperef,
+    uint16_t* segData, int segDataLen,
+    uint32_t* subsegData, int subsegDataLen,
+    uint16_t* tris, int triLen,
+    const char* filename)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    NifSegmentationInfo inf;
+    inf.ssfFile = filename;
+
+    for (int i = 0; i < segDataLen; i++) {
+        NifSegmentInfo* seg = new NifSegmentInfo();
+        seg->partID = segData[i];
+        inf.segs.push_back(*seg);
+    }
+
+    for (int i = 0, j = 0; i < subsegDataLen; i++) {
+        NifSubSegmentInfo sseg;
+        sseg.partID = subsegData[j++];
+        uint32_t parentID = subsegData[j++];
+        sseg.userSlotID = subsegData[j++];
+        sseg.material = subsegData[j++];
+
+        for (auto& seg : inf.segs) {
+            if (seg.partID == parentID) {
+                seg.subs.push_back(sseg);
+                break;
+            }
+        }
+    }
+
+    std::vector<int> triParts;
+    for (int i = 0; i < triLen; i++) {
+        triParts.push_back(tris[i]);
+    }
+    nif->SetShapeSegments(shape, inf, triParts);
     nif->UpdateSkinPartitions(shape);
 }
