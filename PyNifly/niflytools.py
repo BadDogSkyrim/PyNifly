@@ -1,6 +1,9 @@
 """ Simple tools doing mesh operations to support import/export"""
 
 from math import asin, acos, atan2, pi, sin, cos, radians, sqrt
+import logging
+
+log = logging.getLogger("pynifly")
 
 def vector_normalize(v):
     d = sqrt(v[0]**2 + v[1]**2 + v[2]**2)
@@ -268,9 +271,9 @@ def uv_location(uv):
     return (round(uv[0], 4), round(uv[1], 4))
 
 def VNearEqual(v1, v2):
-    return round(v1[0], 4) == round(v2[0], 4) and \
-        round(v1[1], 4) == round(v2[1], 4) and \
-        round(v1[2], 4) == round(v2[2], 4)
+    return round(v1[0], 1) == round(v2[0], 1) and \
+        round(v1[1], 1) == round(v2[1], 1) and \
+        round(v1[2], 1) == round(v2[2], 1)
 
 def vert_uv_key(vert_index, uv):
     return str(vert_index) + "_" + str(uv)
@@ -303,10 +306,12 @@ def mesh_split_by_uv(verts, norms, loops, uvmap, weights, morphdict):
             # Not given this vert a location yet
             vert_uvs[vert_idx] = this_vert_loc
             vert_norms[vert_idx] = this_vert_norm
-        elif vert_uvs[vert_idx] != this_vert_loc or not VNearEqual(this_vert_norm, vert_norms[vert_idx]):
+        elif vert_uvs[vert_idx] != this_vert_loc: # or not VNearEqual(this_vert_norm, vert_norms[vert_idx]):
             # Found already at different location or with different normal
-            #print("Splitting vert #%d, referenced by loop #%d: %s != %s" % 
-            #      (vert_idx, i, str(uvmap[i]), str(vert_uvs[vert_idx])))
+            if vert_uvs[vert_idx] != this_vert_loc:
+                log.debug(f"Splitting vert #{vert_idx}, loop #{i}: UV {[round(uv, 4) for uv in uvmap[i]]} != {[round(uv, 4) for uv in vert_uvs[vert_idx]]}")
+            else:
+                log.debug(f"Splitting vert #{vert_idx}, loop #{i}: Norm {[round(n, 4) for n in this_vert_norm]} != {[round(n, 4) for n in vert_norms[vert_idx]]}")
             vert_key = vert_uv_key(vert_idx, this_vert_loc)
             if vert_key in change_table:
                 #print("..found in change table at %d " % change_table[vert_key])
