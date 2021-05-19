@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = True
+RUN_TESTS = False
 TEST_BPY_ALL = True
 
 
@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 25), 
+    "version": (0, 0, 26), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
