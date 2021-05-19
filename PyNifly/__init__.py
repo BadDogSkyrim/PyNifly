@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 RUN_TESTS = True
-TEST_BPY_ALL = False
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -558,34 +558,35 @@ def select_all_faces(workingctx, mesh):
         f.select = True
 
 
-def extract_face_info(ctxt, mesh):
+def extract_face_info(ctxt, mesh, uvlayer):
     """ Extract face info from the mesh. Mesh is triangularized. 
         Return 
         loops = [vert-index, ...] list of vert indices in loops (which are tris)
         uvs = [(u,v), ...] list of uv coordinates 1:1 with loops
         norms = [(x,y,z), ...] list of normal vectors 1:1 with loops
-        --Normal vectors come from the loops, because they reflect whether the edges
-        are sharp or the object has flat shading
+            --Normal vectors come from the loops, because they reflect whether the edges
+            are sharp or the object has flat shading
         """
     loops = []
     uvs = []
     norms = []
+    log.debug(f"....UV in object mode: {uvlayer[2].uv[:]}")
 
-    bpy.ops.object.mode_set(mode='OBJECT') #required to get UVs and accurate normals
+    # Calculating normals messes up the passed-in UV, so get the data out of it first
+    for f in mesh.polygons:
+        for i in f.loop_indices:
+            uvs.append(uvlayer[i].uv[:])
+            #log.debug(f"....Adding uv index {uvlayer[i].uv[:]}")
+
+    bpy.ops.object.mode_set(mode='OBJECT') #required to get accurate normals
     mesh.calc_normals()
     mesh.calc_normals_split()
-    uvlayer = mesh.uv_layers.active.data
 
     for f in mesh.polygons:
         for i in f.loop_indices:
             loopseg = mesh.loops[i]
             loops.append(loopseg.vertex_index)
-            uvs.append(uvlayer[i].uv[:])
-            #if mesh.has_custom_normals:
             norms.append(loopseg.normal[:])
-            #log.debug(f"LOOP NORMAL: {i} = {loopseg.normal[:]}")
-            #else:
-            #    norms.append(mesh.vertices[loopseg.vertex_index].normal[:])
 
     return loops, uvs, norms
 
@@ -601,6 +602,7 @@ def extract_vert_info(obj, mesh, target_key=''):
     morphdict = {}
 
     if target_key != '' and mesh.shape_keys:
+        log.debug(f"....exporting shape {target_key} only")
         verts = [v.co[:] for v in mesh.shape_keys.key_blocks[target_key].data]
     else:
         verts = [v.co[:] for v in mesh.vertices]
@@ -615,6 +617,7 @@ def extract_vert_info(obj, mesh, target_key=''):
         for sk in mesh.shape_keys.key_blocks:
             morphdict[sk.name] = [v.co[:] for v in sk.data]
 
+    #log.debug(f"....Vertex 18 at {[round(v,2) for v in verts[18]]}")
     return verts, weights, morphdict
 
 
@@ -773,6 +776,15 @@ def export_partitions(obj, weights_by_vert, tris):
     return list(partitions.values()), tri_indices
 
 
+def mesh_from_key(editmesh, verts, target_key):
+    faces = []
+    for p in editmesh.polygons:
+        faces.append([editmesh.loops[lpi].vertex_index for lpi in p.loop_indices])
+    log.debug(f"....Remaking mesh with shape {target_key}: {len(verts)} verts, {len(faces)} faces")
+    newmesh = bpy.data.meshes.new(editmesh.name)
+    newmesh.from_pydata(verts, [], faces)
+    return newmesh
+
 def export_shape(nif, trip, obj, target_key=''):
     """Export given blender object to the given NIF file
         nif = target nif file
@@ -823,16 +835,20 @@ def export_shape(nif, trip, obj, target_key=''):
         bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
 
         editmesh.update()
-        #bpy.ops.object.mode_set(mode = 'EDIT') # << Required for normal calc to be correct?
         
-        ## Calculate the normals--have to do this after triangularization and in object mode
-        #editmesh.calc_normals()
-        #editmesh.calc_normals_split()
-
         verts, weights_by_vert, morphdict = extract_vert_info(obj, editmesh, target_key)
-        loops, uvs, norms = extract_face_info(workingctx, editmesh)
+
+        # Apply shape key verts to the mesh so normals will be correct.  If the mesh has
+        # custom normals, fukkit -- use the custom normals and assume the deformation
+        # won't be so great that it looks bad.
+        bpy.ops.object.mode_set(mode = 'OBJECT') 
+        uvlayer = mesh.uv_layers.active.data
+        if target_key != '' and not mesh.has_custom_normals:
+            editmesh = mesh_from_key(editmesh, verts, target_key)
+
+        loops, uvs, norms = extract_face_info(workingctx, editmesh, uvlayer)
     
-        log.info("..Splitting mesh along UV seams and sharp edges")
+        log.info("..Splitting mesh along UV seams")
         mesh_split_by_uv(verts, norms, loops, uvs, weights_by_vert, morphdict)
         # Old UV map had dups where verts were split; new matches 1-1 with verts
         uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
@@ -1089,7 +1105,7 @@ def run_tests():
     TEST_IMP_EXP_SKY = False
     TEST_IMP_EXP_FO4 = False
     TEST_ROUND_TRIP = False
-    TEST_UV_SPLIT = False
+    TEST_UV_SPLIT = True
     TEST_CUSTOM_BONES = False
     TEST_BPY_PARENT = False
     TEST_BABY = False
@@ -1099,8 +1115,9 @@ def run_tests():
     TEST_SPLIT_NORMAL = False
     TEST_SKEL = False
     TEST_PARTITIONS = False
-    TEST_SEGMENTS = True
-    TEST_ROGUE01 = True
+    TEST_SEGMENTS = False
+    TEST_ROGUE01 = False
+    TEST_ROGUE02 = False
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -1369,7 +1386,9 @@ def run_tests():
         for i, this_uv in enumerate(uvs):
             newuv.data[i].uv = this_uv
         new_object = bpy.data.objects.new("TestUV", new_mesh)
+        new_object.data.uv_layers.active = newuv
         bpy.context.collection.objects.link(new_object)
+        bpy.context.view_layer.objects.active = new_object
 
         filepath = os.path.join(pynifly_dev_path, "tests/Out/testUV01.nif")
         export_shape_to(new_object, filepath, "SKYRIM")
@@ -1658,6 +1677,28 @@ def run_tests():
                 found = i
                 break
         assert found >= 0, "Triangle not in output mesh"
+
+    if TEST_BPY_ALL or TEST_ROGUE02:
+        print("### TEST_ROGUE02: Shape keys export normals correctly")
+
+        obj = append_from_file("Plane", False, r"tests\Skyrim\ROGUE02-normals.blend", r"\Object", "Plane")
+        assert obj.name == "Plane", "Got the right object"
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.mode_set(mode="OBJECT")
+        outnif = NifFile()
+        outtrip = TripFile()
+        outnif.initialize("SKYRIM", os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROGUE02_warp.nif"))
+        export_shape(outnif, outtrip, obj, "_warp") 
+        outnif.save()
+
+        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROGUE02_warp.nif"))
+        shape2 = nif2.shapes[0]
+        assert len(shape2.verts) == 25, f"Export shouldn't create extra vertices, found {len(shape2.verts)}"
+        v = [round(x, 1) for x in shape2.verts[18]]
+        assert v == [0.0, 0.0, 0.2], f"Vertex found at incorrect position: {v}"
+        n = [round(x, 1) for x in shape2.normals[8]]
+        assert n == [0, 1, 0], f"Normal should point along y axis, instead: {n}"
 
 
 
