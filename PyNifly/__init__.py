@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
+RUN_TESTS = True
 TEST_BPY_ALL = False
 
 
@@ -570,9 +570,12 @@ def extract_face_info(ctxt, mesh):
     loops = []
     uvs = []
     norms = []
+
+    bpy.ops.object.mode_set(mode='OBJECT') #required to get UVs and accurate normals
+    mesh.calc_normals()
+    mesh.calc_normals_split()
     uvlayer = mesh.uv_layers.active.data
 
-    bpy.ops.object.mode_set(mode='OBJECT') #required to get UVs
     for f in mesh.polygons:
         for i in f.loop_indices:
             loopseg = mesh.loops[i]
@@ -794,18 +797,21 @@ def export_shape(nif, trip, obj, target_key=''):
 
     log.info("..Triangulating mesh")
     originalmesh = mesh.copy()
+    saved_sk = obj.active_shape_key_index
     try:
+        # This next little dance ensures the mesh.vertices locations are correct
+        obj.active_shape_key_index = 0
+        bpy.ops.object.mode_set(mode = 'EDIT')
+        bpy.ops.object.mode_set(mode = 'OBJECT')
+        #log.debug(f"....Vertex 12 position: {mesh.vertices[12].co}")
+
         editmesh = mesh
-        #tempobj = bpy.data.objects.new("pynifly_tmp", editmesh)
-        #tempobj.data = editmesh
-        #workingctx.collection.objects.link(tempobj)
-        #workingctx.view_layer.objects.active = tempobj
+
         bpy.ops.object.select_all(action='DESELECT')
         obj.select_set(True)
-        #workingctx.scene.objects.active = ob
 
-        # Can't figure out how to get custom normals out of a bmesh. Can't figure out how to triangulate
-        # a copy of a regular mesh. So do this hack.
+        # Can't get custom normals out of a bmesh (known limitation). Can't triangulate
+        # a regular mesh except through the operator. 
         #bm = bmesh.new()
         #bm.from_mesh(mesh)
         #bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method='BEAUTY', ngon_method='BEAUTY')
@@ -813,28 +819,32 @@ def export_shape(nif, trip, obj, target_key=''):
         #bm.to_mesh(editmesh)
 
         select_all_faces(workingctx, editmesh)
-        bpy.ops.object.mode_set(mode = 'EDIT')
+        bpy.ops.object.mode_set(mode = 'EDIT') # Required to convert to tris
         bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
 
         editmesh.update()
-        bpy.ops.object.mode_set(mode = 'OBJECT')
+        #bpy.ops.object.mode_set(mode = 'EDIT') # << Required for normal calc to be correct?
         
-        # Calculate the normals--have to do this after triangularization and in object mode
-        editmesh.calc_normals()
-        editmesh.calc_normals_split()
+        ## Calculate the normals--have to do this after triangularization and in object mode
+        #editmesh.calc_normals()
+        #editmesh.calc_normals_split()
 
         verts, weights_by_vert, morphdict = extract_vert_info(obj, editmesh, target_key)
         loops, uvs, norms = extract_face_info(workingctx, editmesh)
     
-        log.info("..Splitting mesh along UV seams")
+        log.info("..Splitting mesh along UV seams and sharp edges")
         mesh_split_by_uv(verts, norms, loops, uvs, weights_by_vert, morphdict)
         # Old UV map had dups where verts were split; new matches 1-1 with verts
         uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
         norms_new = [norms[loops.index(i)] for i in range(len(verts))]
         tris = [(loops[i], loops[i+1], loops[i+2]) for i in range(0, len(loops), 3)]
+        #log.debug(f"..Vertex 44 loc: {verts[44]}")
+        #log.debug(f"..Vertex 44 normals: {[norms[i] for i, l in enumerate(loops) if l==44]}")
     finally:
         obj.data = originalmesh
-    
+        obj.active_shape_key_index = saved_sk
+
+    obj.data.update()
     log.info("..Exporting to nif")
     new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_new)
 
@@ -861,6 +871,9 @@ def export_shape(nif, trip, obj, target_key=''):
 
         partitions, tri_indices = export_partitions(obj, weights_by_vert, tris)
         if len(partitions) > 0:
+            if 'FO4_SEGMENT_FILE' in obj.keys():
+                log.debug(f"....Writing segment file {obj['FO4_SEGMENT_FILE']}")
+                new_shape.segment_file = obj['FO4_SEGMENT_FILE']
             new_shape.set_partitions(partitions, tri_indices)
     else:
         new_shape.transform = new_xform
@@ -877,6 +890,7 @@ def export_shape_to(shape, filepath, game):
     outnif.initialize(game, filepath)
     ret = export_shape(outnif, outtrip, shape) 
     outnif.save()
+    log.info(f"..Wrote {filepath}")
     return ret
 
 
@@ -988,6 +1002,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                         res = res.union(r)
 
                     exportf.save()
+                    log.info(f"..Wrote {fpath}")
 
                     if len(trip.shapes) > 0:
                         trip.write(os.path.join(os.path.dirname(self.filepath), fname_ext[0]) 
@@ -1041,7 +1056,7 @@ def unregister():
     bpy.utils.unregister_class(ExportNIF)
 
 
-def append_collection(objname, with_parent, filepath, innerpath, targetobj):
+def append_from_file(objname, with_parent, filepath, innerpath, targetobj):
     if objname in bpy.data.objects:
         bpy.ops.object.select_all(action='DESELECT')
         obj = bpy.data.objects[objname]
@@ -1083,8 +1098,9 @@ def run_tests():
     TEST_0_WEIGHTS = False
     TEST_SPLIT_NORMAL = False
     TEST_SKEL = False
-    TEST_PARTITIONS = True
+    TEST_PARTITIONS = False
     TEST_SEGMENTS = True
+    TEST_ROGUE01 = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -1547,7 +1563,7 @@ def run_tests():
     if TEST_BPY_ALL or TEST_0_WEIGHTS:
         print("## TEST_0_WEIGHTS Gives warning on export with 0 weights")
 
-        baby = append_collection("TestBabyhead", True, r"tests\FO4\Test0Weights.blend", r"\Collection", "BabyCollection")
+        baby = append_from_file("TestBabyhead", True, r"tests\FO4\Test0Weights.blend", r"\Collection", "BabyCollection")
         baby.parent.name == "BabyExportRoot", f"Error: Should have baby and armature"
         log.debug(f"Found object {baby.name}")
         export_shape_to(baby, os.path.join(pynifly_dev_path, r"tests\Out\weight0.nif"), "FO4")
@@ -1557,12 +1573,12 @@ def run_tests():
     if TEST_BPY_ALL or TEST_SPLIT_NORMAL:
         print("## TEST_SPLIT_NORMAL Can handle meshes with split normals")
 
-        plane = append_collection("Plane", False, r"tests\skyrim\testSplitNormalPlane.blend", r"\Object", "Plane")
+        plane = append_from_file("Plane", False, r"tests\skyrim\testSplitNormalPlane.blend", r"\Object", "Plane")
         export_shape_to(plane, os.path.join(pynifly_dev_path, r"tests\Out\CustomNormals.nif"), "FO4")
 
 
     if TEST_BPY_ALL or TEST_PARTITIONS:
-        print("## TEST_PARTITIONS Can read Skyrim partions")
+        print("## TEST_PARTITIONS: Can read Skyrim partions")
         testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/MaleHead.nif")
 
         nif = NifFile(testfile)
@@ -1579,7 +1595,7 @@ def run_tests():
         assert nif2.shapes[0].partitions[2].id == 143, "Have ears"
 
     if TEST_BPY_ALL or TEST_SEGMENTS:
-        print("### Can read FO4 segments")
+        print("### TEST_SEGMENTS: Can read FO4 segments")
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/VanillaMaleBody.nif")
         nif = NifFile(testfile)
@@ -1594,6 +1610,56 @@ def run_tests():
         
         nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"))
         assert len(nif2.shapes[0].partitions) == 7, "Have all FO4 partitions"
+        assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == nif2.shapes[0].segment_file, "Nif references segment file"
+
+    if TEST_BPY_ALL or TEST_ROGUE01:
+        print("### TEST_ROGUE01: Mesh with wonky normals exports correctly")
+
+        obj = append_from_file("MHelmetLight:0", False, r"tests\FO4\WonkyNormals.blend", r"\Object", "MHelmetLight:0")
+        assert obj.name == "MHelmetLight:0", "Got the right object"
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.mode_set(mode="OBJECT")
+        export_shape_to(obj, os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROGUE01.nif"), "FO4")
+
+        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROGUE01.nif"))
+        shape2 = nif2.shapes[0]
+
+        assert round(shape2.normals[44][0]) == 0, f"Normal should point sraight up, found {shape2.normals[44]}"
+        assert round(shape2.normals[44][1]) == 0, f"Normal should point sraight up, found {shape2.normals[44]}"
+        assert round(shape2.normals[44][2]) == 1, f"Normal should point sraight up, found {shape2.normals[44]}"
+
+        assert 6.82 == round(shape2.verts[12][0], 2), f"Vert location wrong: 6.82 != {shape2.verts[12][0]}"
+        assert 0.58 == round(shape2.verts[12][1], 2), f"Vert location wrong: 0.58 != {shape2.verts[12][0]}"
+        assert 9.05 == round(shape2.verts[12][2], 2), f"Vert location wrong: 9.05 != {shape2.verts[12][0]}"
+        assert 0.13 == round(shape2.verts[5][0], 2), f"Vert location wrong: 0.13 != {shape2.verts[5][0]}"
+        assert 9.24 == round(shape2.verts[5][1], 2), f"Vert location wrong: 9.24 != {shape2.verts[5][0]}"
+        assert 8.91 == round(shape2.verts[5][2], 2), f"Vert location wrong: 8.91 != {shape2.verts[5][0]}"
+        assert -3.21 == round(shape2.verts[33][0], 2), f"Vert location wrong: -3.21 != {shape2.verts[33][0]}"
+        assert -1.75 == round(shape2.verts[33][1], 2), f"Vert location wrong: -1.75 != {shape2.verts[33][0]}"
+        assert 12.94 == round(shape2.verts[33][2], 2), f"Vert location wrong: 12.94 != {shape2.verts[33][0]}"
+
+        # Original has a tri <12, 13, 14>. Find it in the original and then in the exported object
+
+        found = -1
+        target = set([12, 13, 14])
+        for p in obj.data.polygons:
+            ps = set([obj.data.loops[lp].vertex_index for lp in p.loop_indices])
+            if ps == target:
+                print(f"Found triangle in source mesh at {p.index}")
+                found = p.index
+                break
+        assert found >= 0, "Triangle not in source mesh"
+
+        found = -1
+        for i, t in enumerate(shape2.tris):
+            if set(t) == target:
+                print(f"Found triangle in target mesh at {i}")
+                found = i
+                break
+        assert found >= 0, "Triangle not in output mesh"
+
+
 
     print("""
     ############################################################

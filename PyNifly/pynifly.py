@@ -363,7 +363,10 @@ class Subsegment(FO4Partition):
 
     @property
     def parent_name(self):
-        return fo4Dict.parts[self.material].name.split("|")[0].strip()
+        if self.material in fo4Dict.parts:
+            return fo4Dict.parts[self.material].name.split("|")[0].strip()
+        else:
+            return f"Segment #{self.material}"
 
     @classmethod
     def name_match(cls, name):
@@ -439,7 +442,7 @@ class NiShape:
         self.parent = theNif
         self._partitions = None
         self._partition_tris = None
-        self._segment_file = None
+        self._segment_file = ''
 
         if not theShapeRef is None:
             buf = create_string_buffer(256)
@@ -569,12 +572,15 @@ class NiShape:
 
     @property
     def segment_file(self):
-        if self._segment_file is None:
-            buflen = NifFile.nifly.getSegmentFile(self.parent._handle, self._handle, None, 0)+1
-            buf = (c_char * buflen)()
-            buflen = NifFile.nifly.getSegmentFile(self.parent._handle, self._handle, buf, buflen)
-            self._segment_file = buf.value.decode('utf-8')
+        buflen = NifFile.nifly.getSegmentFile(self.parent._handle, self._handle, None, 0)+1
+        buf = (c_char * buflen)()
+        buflen = NifFile.nifly.getSegmentFile(self.parent._handle, self._handle, buf, buflen)
+        self._segment_file = buf.value.decode('utf-8')
         return self._segment_file
+
+    @segment_file.setter
+    def segment_file(self, val):
+        self._segment_file = val
     
     @property
     def uvs(self):
@@ -780,7 +786,7 @@ class NiShape:
         if len(parts) == 0:
             return
 
-        NifFile.log.debug(f"....Exporting partitions {[(type(p), p.name) for p in parts]}")
+        NifFile.log.debug(f"....Exporting partitions {[(type(p), p.name) for p in parts]}, ssf {self._segment_file}")
 
         parts_lookup = {}
         pbuf = (c_uint16 * len(parts))()
@@ -815,7 +821,7 @@ class NiShape:
                                       pbuf, len(parts),
                                       sbuf, int(len(sslist)/4),
                                       tbuf, len(trilist),
-                                      self.segment_file.encode('utf-8'))
+                                      self._segment_file.encode('utf-8'))
 
 
 # --- NifFile --- #

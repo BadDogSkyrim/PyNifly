@@ -277,7 +277,8 @@ def vert_uv_key(vert_index, uv):
 
 
 def mesh_split_by_uv(verts, norms, loops, uvmap, weights, morphdict):
-    """Split a mesh represented by parameters and split verts to follow the UV map
+    """Split a mesh represented by parameters and split verts if necessary because it
+        (1) maps to 2 UV locations or (2) has split normals.
         verts = [(x, y, z), ...] vertex locations
         norms = [(x, y, z), ...] normals 1:1 with loops
         loops = [int, ...] blender-style loops--elements are indices into verts
