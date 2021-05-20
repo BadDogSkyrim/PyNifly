@@ -1,6 +1,9 @@
 """ Simple tools doing mesh operations to support import/export"""
 
 from math import asin, acos, atan2, pi, sin, cos, radians, sqrt
+import logging
+
+log = logging.getLogger("pynifly")
 
 def vector_normalize(v):
     d = sqrt(v[0]**2 + v[1]**2 + v[2]**2)
@@ -268,16 +271,17 @@ def uv_location(uv):
     return (round(uv[0], 4), round(uv[1], 4))
 
 def VNearEqual(v1, v2):
-    return round(v1[0], 4) == round(v2[0], 4) and \
-        round(v1[1], 4) == round(v2[1], 4) and \
-        round(v1[2], 4) == round(v2[2], 4)
+    return round(v1[0], 1) == round(v2[0], 1) and \
+        round(v1[1], 1) == round(v2[1], 1) and \
+        round(v1[2], 1) == round(v2[2], 1)
 
 def vert_uv_key(vert_index, uv):
     return str(vert_index) + "_" + str(uv)
 
 
 def mesh_split_by_uv(verts, norms, loops, uvmap, weights, morphdict):
-    """Split a mesh represented by parameters and split verts to follow the UV map
+    """Split a mesh represented by parameters and split verts if necessary because it
+        (1) maps to 2 UV locations or (2) has split normals.
         verts = [(x, y, z), ...] vertex locations
         norms = [(x, y, z), ...] normals 1:1 with loops
         loops = [int, ...] blender-style loops--elements are indices into verts
@@ -302,10 +306,12 @@ def mesh_split_by_uv(verts, norms, loops, uvmap, weights, morphdict):
             # Not given this vert a location yet
             vert_uvs[vert_idx] = this_vert_loc
             vert_norms[vert_idx] = this_vert_norm
-        elif vert_uvs[vert_idx] != this_vert_loc or not VNearEqual(this_vert_norm, vert_norms[vert_idx]):
+        elif vert_uvs[vert_idx] != this_vert_loc: # or not VNearEqual(this_vert_norm, vert_norms[vert_idx]):
             # Found already at different location or with different normal
-            #print("Splitting vert #%d, referenced by loop #%d: %s != %s" % 
-            #      (vert_idx, i, str(uvmap[i]), str(vert_uvs[vert_idx])))
+            if vert_uvs[vert_idx] != this_vert_loc:
+                log.debug(f"Splitting vert #{vert_idx}, loop #{i}: UV {[round(uv, 4) for uv in uvmap[i]]} != {[round(uv, 4) for uv in vert_uvs[vert_idx]]}")
+            else:
+                log.debug(f"Splitting vert #{vert_idx}, loop #{i}: Norm {[round(n, 4) for n in this_vert_norm]} != {[round(n, 4) for n in vert_norms[vert_idx]]}")
             vert_key = vert_uv_key(vert_idx, this_vert_loc)
             if vert_key in change_table:
                 #print("..found in change table at %d " % change_table[vert_key])
@@ -337,10 +343,11 @@ class BodyPart:
         self.name = name
 
 class BoneDict:
-    def __init__(self, bone_list, morph_list, part_list):
+    def __init__(self, bone_list, morph_list, part_list, dismem_list=[]):
         self.byNif = {}
         self.byBlender = {}
         self.parts = {}
+        self.dismem = {}
         for b in bone_list:
             self.byNif[b.nif] = b
             self.byBlender[b.blender] = b
@@ -350,6 +357,8 @@ class BoneDict:
         self.expressions = set(morph_list)
         for p in part_list:
             self.parts[p.id] = p
+        for d in dismem_list:
+            self.dismem[d.id] = d
 
     def blender_name(self, nif_name):
         if nif_name in self.byNif:
@@ -750,7 +759,7 @@ fo4Expressions = ['Basis', 'UprLipRollOut', 'UprLipRollIn', 'UprLipFunnel', 'Sti
     'LwrLipRollOut', 'LwrLipFunnel', 'LwrLipRollIn'
     ]
 
-fo4Parts = [
+fo4Dismember = [
     BodyPart(0x86b72980, "1 | Head/Hair"),
     BodyPart(0x0155094f, "1 | Neck"),
     BodyPart(0xb2e2764f, "Human 2 | R-Up Arm"),
@@ -845,7 +854,40 @@ fo4Parts = [
     BodyPart(0x3d6644aa, "Robot 3 | Torso")    
     ]
 
-fo4Dict = BoneDict(fo4Bones, fo4Expressions, fo4Parts)
+fo4Parts = [
+	BodyPart(30, "FO4 30 - Hair Top"),
+    BodyPart(31, "FO4 31 - Hair Long"),
+    BodyPart(32, "FO4 32 - Head"),
+    BodyPart(33, "FO4 33 - Body"),
+    BodyPart(35, "FO4 35 - R Hand"),
+    BodyPart(36, "FO4 36 - [U] Torso"),
+    BodyPart(37, "FO4 37 - [U] L Arm"),
+    BodyPart(38, "FO4 38 - [U] R Arm"),
+    BodyPart(39, "FO4 39 - [U] L Leg"),
+    BodyPart(40, "FO4 40 - [U] R Leg"),
+    BodyPart(41, "FO4 41 - [A] Torso"),
+    BodyPart(42, "FO4 42 - [A] L Arm"),
+    BodyPart(43, "FO4 43 - [A] R Arm"),
+    BodyPart(44, "FO4 44 - [A] L Leg"),
+    BodyPart(45, "FO4 45 - [A] R Leg"),
+    BodyPart(46, "FO4 46 - Headband"),
+    BodyPart(47, "FO4 47 - Eyes"),
+    BodyPart(48, "FO4 48 - Beard"),
+    BodyPart(49, "FO4 49 - Mouth"),
+    BodyPart(50, "FO4 50 - Neck"),
+    BodyPart(51, "FO4 51 - Ring"),
+    BodyPart(52, "FO4 52 - Scalp"),
+    BodyPart(53, "FO4 53 - Decapitation"),
+    BodyPart(54, "FO4 54 - Unnamed"),
+    BodyPart(55, "FO4 55 - Unnamed"),
+    BodyPart(56, "FO4 56 - Unnamed"),
+    BodyPart(57, "FO4 57 - Unnamed"),
+    BodyPart(58, "FO4 58 - Unnamed"),
+    BodyPart(59, "FO4 59 - Shield"),
+    BodyPart(60, "FO4 60 - Pipboy"),
+    BodyPart(61, "FO4 61 - FX")]
+
+fo4Dict = BoneDict(fo4Bones, fo4Expressions, fo4Parts, fo4Dismember)
 
 gameSkeletons = {
     'SKYRIM': skyrimDict,
