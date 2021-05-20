@@ -343,10 +343,11 @@ class BodyPart:
         self.name = name
 
 class BoneDict:
-    def __init__(self, bone_list, morph_list, part_list):
+    def __init__(self, bone_list, morph_list, part_list, dismem_list=[]):
         self.byNif = {}
         self.byBlender = {}
         self.parts = {}
+        self.dismem = {}
         for b in bone_list:
             self.byNif[b.nif] = b
             self.byBlender[b.blender] = b
@@ -356,6 +357,8 @@ class BoneDict:
         self.expressions = set(morph_list)
         for p in part_list:
             self.parts[p.id] = p
+        for d in dismem_list:
+            self.dismem[d.id] = d
 
     def blender_name(self, nif_name):
         if nif_name in self.byNif:
@@ -756,7 +759,7 @@ fo4Expressions = ['Basis', 'UprLipRollOut', 'UprLipRollIn', 'UprLipFunnel', 'Sti
     'LwrLipRollOut', 'LwrLipFunnel', 'LwrLipRollIn'
     ]
 
-fo4Parts = [
+fo4Dismember = [
     BodyPart(0x86b72980, "1 | Head/Hair"),
     BodyPart(0x0155094f, "1 | Neck"),
     BodyPart(0xb2e2764f, "Human 2 | R-Up Arm"),
@@ -851,7 +854,40 @@ fo4Parts = [
     BodyPart(0x3d6644aa, "Robot 3 | Torso")    
     ]
 
-fo4Dict = BoneDict(fo4Bones, fo4Expressions, fo4Parts)
+fo4Parts = [
+	BodyPart(30, "FO4 30 - Hair Top"),
+    BodyPart(31, "FO4 31 - Hair Long"),
+    BodyPart(32, "FO4 32 - Head"),
+    BodyPart(33, "FO4 33 - Body"),
+    BodyPart(35, "FO4 35 - R Hand"),
+    BodyPart(36, "FO4 36 - [U] Torso"),
+    BodyPart(37, "FO4 37 - [U] L Arm"),
+    BodyPart(38, "FO4 38 - [U] R Arm"),
+    BodyPart(39, "FO4 39 - [U] L Leg"),
+    BodyPart(40, "FO4 40 - [U] R Leg"),
+    BodyPart(41, "FO4 41 - [A] Torso"),
+    BodyPart(42, "FO4 42 - [A] L Arm"),
+    BodyPart(43, "FO4 43 - [A] R Arm"),
+    BodyPart(44, "FO4 44 - [A] L Leg"),
+    BodyPart(45, "FO4 45 - [A] R Leg"),
+    BodyPart(46, "FO4 46 - Headband"),
+    BodyPart(47, "FO4 47 - Eyes"),
+    BodyPart(48, "FO4 48 - Beard"),
+    BodyPart(49, "FO4 49 - Mouth"),
+    BodyPart(50, "FO4 50 - Neck"),
+    BodyPart(51, "FO4 51 - Ring"),
+    BodyPart(52, "FO4 52 - Scalp"),
+    BodyPart(53, "FO4 53 - Decapitation"),
+    BodyPart(54, "FO4 54 - Unnamed"),
+    BodyPart(55, "FO4 55 - Unnamed"),
+    BodyPart(56, "FO4 56 - Unnamed"),
+    BodyPart(57, "FO4 57 - Unnamed"),
+    BodyPart(58, "FO4 58 - Unnamed"),
+    BodyPart(59, "FO4 59 - Shield"),
+    BodyPart(60, "FO4 60 - Pipboy"),
+    BodyPart(61, "FO4 61 - FX")]
+
+fo4Dict = BoneDict(fo4Bones, fo4Expressions, fo4Parts, fo4Dismember)
 
 gameSkeletons = {
     'SKYRIM': skyrimDict,
