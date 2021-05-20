@@ -838,5 +838,167 @@ namespace NiflyDLLTests
 			int sscount = getSubsegments(nif, shapes[0], segInfo[4], subsegs, 20);
 			Assert::AreEqual(4, sscount);
 		};
+
+		TEST_METHOD(geBPFO4) {
+			std::filesystem::path testfile = testRoot / "FO4/Helmet.nif";
+
+			void* nif;
+			void* shapes[10];
+			int segInfo[40]; // id, subseg count
+			int segCount;
+			uint16_t tris[3000];
+			int triCount;
+			char fname[256];
+			int namelen;
+			int seg1id;
+
+			nif = load(testfile.string().c_str());
+			getShapes(nif, shapes, 10, 0);
+
+			// segmentCount returns the count of segments in the shape
+			// Helmet has 2 top-level segments
+			segCount = segmentCount(nif, shapes[0]);
+			Assert::AreEqual(2, segCount);
+
+			void* theHelmet = shapes[1];
+			getSegments(nif, theHelmet, segInfo, 20);
+			// Segments don't have a real ID but nifly assigns one for reference.
+			Assert::AreEqual(0, int(segInfo[0]));
+			// This shape has 1 subsegments in its 1st segment
+			seg1id = segInfo[2];
+			Assert::AreEqual(1, seg1id);
+
+			// 2698 tris in this shape
+			triCount = getPartitionTris(nif, theHelmet, tris, 3000);
+			Assert::AreEqual(2878, triCount);
+
+			// There's an external segment file
+			namelen = getSegmentFile(nif, theHelmet, fname, 256);
+			Assert::AreEqual("Meshes\\Armor\\FlightHelmet\\Helmet.ssf", fname);
+
+			// FO4 segments have subsegments
+			uint32_t subsegs[20 * 3];
+			int sscount = getSubsegments(nif, theHelmet, seg1id, subsegs, 20);
+			Assert::AreEqual(1, sscount);
+			Assert::AreEqual(30, int(subsegs[1]));
+
+			// ------ Now show we can write the file back out -------
+			std::filesystem::path testfileout = testRoot / "Out/geBPFO4Helmet.nif";
+
+			float verts[2500*3];
+			uint16_t rawtris[3000*3];
+			float uv[2500*2];
+			float norms[2500*3];
+
+			int vlen = getVertsForShape(nif, theHelmet, verts, 2500, 0);
+			int tlen = getTriangles(nif, theHelmet, rawtris, 3000, 0);
+			int ulen = getUVs(nif, theHelmet, uv, 2500, 0);
+			int nlen = getNormalsForShape(nif, theHelmet, norms, 2500, 0);
+
+
+			//AnimInfo oldBodySkin;
+
+			//skin.LoadFromNif(&nif, theBody);
+
+			//AnimInfo* anim;
+			//AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(FO4), curRootName);
+
+			void* newNif = createNif("FO4");
+			void* newSkin = createSkinForNif(newNif, "FO4");
+
+			void* newHelm = createNifShapeFromData(newNif, "Helmet", 
+				verts, vlen*3,
+				rawtris, tlen*3,
+				uv, ulen*2,
+				norms, nlen*3);
+			skinShape(newNif, newHelm);
+
+			uint16_t segData[100];
+			uint32_t subsegData[100];
+			segData[0] = 1;
+			subsegData[0] = 2;	// subseg ID
+			subsegData[1] = 1;	// parent ID
+			subsegData[2] = 30; // user slot
+			subsegData[3] = -1; // material
+
+			uint16_t tripart[3000];
+			for (int i = 0; i < tlen; i++) { tripart[i] = 2; }
+			setSegments(newNif, newHelm, segData, 1, subsegData, 1,
+				tripart, tlen,
+				"Meshes\\Armor\\FlightHelmet\\HelmetOut.ssf");
+
+			/* Transform the global frame of reference to the skin's FoR.
+			* This transform lifts the whole shape *up* to normal position by changing the
+			* transforms on all the bones associated with the shape. With this transform
+			* NPC L Foot [Lft ]:
+				Rot  Y -124.31  P 0.11  R 164.37
+				Tra  X -13.2327  Y 94.8649  Z -63.7509
+			  Without:
+				Rot  Y -124.31  P 0.11  R 164.37
+				Tra  X -13.8866  Y -3.6996  Z 5.3110
+			*/
+			//MatTransform bodyGTS;
+			////armorGTS.translation = { 0.000256f, 1.547526f, -120.343582f };
+			//bool hasGTSkin = nif.GetShapeTransformGlobalToSkin(theBody, bodyGTS);
+			//Assert::IsFalse(hasGTSkin), L"ERROR: FO4 nifs do not have skin transforms";
+			//if (!hasGTSkin)
+			//	GetGlobalToSkin(&oldBodySkin, theBody, &bodyGTS);
+			//Assert::AreEqual(-120, int(bodyGTS.translation.z), L"ERROR: Body nifs have a -120 z transform");
+			//SetGlobalToSkinXform(anim, newBody, bodyGTS);
+
+			/*
+			This transform is applied to the NiSkinData block. It gives the
+			overall transform for the model when there's a NiSkinData block (Skyrim).
+			It has to be set correctly so that the model can be put in skinned position
+			when read into blender, because if the block exists only this transform is used.
+			*/
+			//if (theBody->HasSkinInstance()) {
+			//	MatTransform sourceXformGlobalToSkin;
+			//	if (nif.GetShapeTransformGlobalToSkin(theBody, sourceXformGlobalToSkin))
+			//		SetShapeGlobalToSkinXform(anim, theBody, sourceXformGlobalToSkin);
+			//}
+
+			//std::vector<std::string> bodyBoneNames;
+			//nif.GetShapeBoneList(theBody, bodyBoneNames);
+			//std::unordered_map<std::string, AnimWeight> bodyWeights;
+			//for (int i = 0; i < bodyBoneNames.size(); i++) {
+			//	AnimWeight w;
+			//	nif.GetShapeBoneWeights(theBody, i, w.weights);
+			//	bodyWeights[bodyBoneNames[i]] = w;
+			//}
+			///* Sets bone weights only. Doesn't set transforms. */
+			//for (auto w : bodyWeights) {
+			//	AddBoneToShape(anim, newBody, w.first, nullptr);
+			//	SetShapeWeights(anim, newBody, w.first, w.second);
+			//}
+			addBoneToShape(newSkin, newHelm, "HEAD", nullptr);
+
+			saveSkinnedNif(newSkin, testfileout.string().c_str());
+			saveNif(newNif, testfileout.string().c_str());
+
+			// ------ And we can read what we wrote -------
+			void* shapes3[10];
+			void* nif3 = load(testfileout.string().c_str());
+			getShapes(nif3, shapes3, 10, 0);
+
+			// segmentCount returns the count of segments in the shape
+			// Helmet has 2 top-level segments
+			int segCount3 = segmentCount(nif3, shapes3[0]);
+			Assert::AreEqual(1, segCount3);
+
+			char ssfile[100];
+			getSegmentFile(nif3, shapes3[0], ssfile, 100);
+			Assert::AreEqual("Meshes\\Armor\\FlightHelmet\\HelmetOut.ssf", ssfile);
+
+			int segInfo3[20];
+			segCount = getSegments(nif3, shapes3[0], segInfo3, 20);
+			// This shape has 1 subsegments in its 1st segment
+			seg1id = segInfo3[0];
+			Assert::AreEqual(0, seg1id);
+
+			sscount = getSubsegments(nif3, shapes3[0], seg1id, subsegs, 20);
+			Assert::AreEqual(1, sscount);
+			Assert::AreEqual(30, int(subsegs[1]));
+		};
 	};
 }

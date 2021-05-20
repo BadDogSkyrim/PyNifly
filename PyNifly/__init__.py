@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 26), 
+    "version": (0, 0, 27), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -123,6 +123,7 @@ def mesh_create_partition_groups(the_shape, the_object):
                 this_loop = mesh.loops[lp]
                 this_vg.add((this_loop.vertex_index,), 1.0, 'ADD')
     if len(the_shape.segment_file) > 0:
+        log.debug(f"..Putting segment file '{the_shape.segment_file}' on '{the_object.name}'")
         the_object['FO4_SEGMENT_FILE'] = the_shape.segment_file
 
     
@@ -707,8 +708,8 @@ def expected_game(nif, bonelist):
 
 
 def partitions_from_vert_groups(obj):
-    """ Return dictionary of Partition objects for all vertex groups that match the partition name 
-        pattern. These are all partition objects including subsegments.
+    """ Return dictionary of Partition objects for all vertex groups that match the partition 
+        name pattern. These are all partition objects including subsegments.
     """
     val = {}
     if obj.vertex_groups:
@@ -725,13 +726,15 @@ def partitions_from_vert_groups(obj):
         for vg in obj.vertex_groups:
             parent_name, subseg_id, material = Subsegment.name_match(vg.name)
             if subseg_id >= 0:
-                if not parent_name in val:
+                if not parent_name in val.keys():
                     # Create parent segments if not there
+                    if parent_name == '':
+                        parent_name = f"FO4 Segment #{len(val)}"
                     parid = FO4Partition.name_match(parent_name)
-                    val[parent_name] = FOPartition(parid, 0, parent_name)
+                    val[parent_name] = FO4Partition(parid, 0, parent_name)
                 p = val[parent_name]
                 log.debug(f"....Found subsegment {vg.name} child of {parent_name}")
-                val[vg.name] = Subsegment(len(val)+1, 0, material, p, name=vg.name)
+                val[vg.name] = Subsegment(len(val), subseg_id, material, p, name=vg.name)
     
     return val
 
@@ -1115,7 +1118,8 @@ def run_tests():
     TEST_SPLIT_NORMAL = False
     TEST_SKEL = False
     TEST_PARTITIONS = False
-    TEST_SEGMENTS = False
+    TEST_SEGMENTS = True
+    TEST_BP_SEGMENTS = False
     TEST_ROGUE01 = False
     TEST_ROGUE02 = False
 
@@ -1622,14 +1626,32 @@ def run_tests():
 
         obj = bpy.context.object
         assert "FO4 Human 2" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
-        assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == obj['FO4_SEGMENT_FILE'], "FO4 segment file read and saved for later use"
+        assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == obj['FO4_SEGMENT_FILE'], "Should have FO4 segment file read and saved for later use"
 
         print("### Can write FO4 segments")
         export_shape_to(obj, os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"), "FO4")
         
         nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"))
         assert len(nif2.shapes[0].partitions) == 7, "Have all FO4 partitions"
-        assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == nif2.shapes[0].segment_file, "Nif references segment file"
+        assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == nif2.shapes[0].segment_file, f"Nif should reference segment file, found '{nif2.shapes[0].segment_file}'"
+
+    if TEST_BPY_ALL or TEST_BP_SEGMENTS:
+        print("### TEST_BP_SEGMENTS: Can read FO4 bodypart segments")
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/Helmet.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        obj = bpy.context.object
+        assert "FO4 30 - Hair Top" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
+        assert "Meshes\\Armor\\FlightHelmet\\Helmet.ssf" == obj['FO4_SEGMENT_FILE'], "FO4 segment file read and saved for later use"
+
+        print("### Can write FO4 segments")
+        export_shape_to(obj, os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"), "FO4")
+        
+        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"))
+        assert len(nif2.shapes[0].partitions) == 2, "Have all FO4 partitions"
+        assert "Meshes\\Armor\\FlightHelmet\\Helmet.ssf" == nif2.shapes[0].segment_file, "Nif references segment file"
 
     if TEST_BPY_ALL or TEST_ROGUE01:
         print("### TEST_ROGUE01: Mesh with wonky normals exports correctly")
