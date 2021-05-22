@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = True
+RUN_TESTS = False
 TEST_BPY_ALL = False
 
 
@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 28), 
+    "version": (0, 0, 29), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -112,8 +112,9 @@ def mesh_create_partition_groups(the_shape, the_object):
         log.debug(f"..found partition {p.name}")
         new_vg = vg.new(name=p.name)
         partn_groups.append(new_vg)
-        if type(p) == FO4Partition:
+        if type(p) == FO4Segment:
             for sseg in p.subsegments:
+                log.debug(f"..found subsegment {sseg.name}")
                 new_vg = vg.new(name=sseg.name)
                 partn_groups.append(new_vg)
     for part_idx, face in zip(the_shape.partition_tris, mesh.polygons):
@@ -724,23 +725,24 @@ def partitions_from_vert_groups(obj):
             if skyid >= 0:
                 val[vg.name] = SkyPartition(part_id=skyid, flags=0, name=vg.name)
             else:
-                segid = FO4Partition.name_match(vg.name)
+                segid = FO4Segment.name_match(vg.name)
                 if segid >= 0:
-                    val[vg.name] = FO4Partition(segid, 0, name=vg.name)
+                    val[vg.name] = FO4Segment(len(val), 0, name=vg.name)
         
         # A second pass to pick up subsections
         for vg in obj.vertex_groups:
-            parent_name, subseg_id, material = Subsegment.name_match(vg.name)
-            if subseg_id >= 0:
-                if not parent_name in val.keys():
-                    # Create parent segments if not there
-                    if parent_name == '':
-                        parent_name = f"FO4 Segment #{len(val)}"
-                    parid = FO4Partition.name_match(parent_name)
-                    val[parent_name] = FO4Partition(parid, 0, parent_name)
-                p = val[parent_name]
-                log.debug(f"....Found subsegment {vg.name} child of {parent_name}")
-                val[vg.name] = Subsegment(len(val), subseg_id, material, p, name=vg.name)
+            if vg.name not in val:
+                parent_name, subseg_id, material = FO4Subsegment.name_match(vg.name)
+                if subseg_id >= 0:
+                    if not parent_name in val.keys():
+                        # Create parent segments if not there
+                        if parent_name == '':
+                            parent_name = f"FO4Segment #{len(val)}"
+                        parid = FO4Segment.name_match(parent_name)
+                        val[parent_name] = FO4Segment(len(val), 0, parent_name)
+                    p = val[parent_name]
+                    log.debug(f"....Found FO4Subsegment '{vg.name}' child of '{parent_name}'")
+                    val[vg.name] = FO4Subsegment(len(val), subseg_id, material, p, name=vg.name)
     
     return val
 
@@ -1105,10 +1107,10 @@ def run_tests():
     TEST_SKEL = False
     TEST_PARTITIONS = False
     TEST_SEGMENTS = False
-    TEST_BP_SEGMENTS = False
+    TEST_BP_SEGMENTS = True
     TEST_ROGUE01 = False
     TEST_ROGUE02 = False
-    TEST_NORMAL_SEAM = True
+    TEST_NORMAL_SEAM = False
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -1664,7 +1666,9 @@ def run_tests():
         nif = NifFile(testfile)
         import_nif(nif)
 
-        obj = bpy.context.object
+        for o in bpy.context.selected_objects:
+            if o.name.startswith("Helmet:0"):
+                obj = o
         assert "FO4 30 - Hair Top" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
         assert "Meshes\\Armor\\FlightHelmet\\Helmet.ssf" == obj['FO4_SEGMENT_FILE'], "FO4 segment file read and saved for later use"
 
@@ -1673,6 +1677,14 @@ def run_tests():
         
         nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"))
         assert len(nif2.shapes[0].partitions) == 2, "Have all FO4 partitions"
+        ss30 = None
+        for p in nif2.shapes[0].partitions:
+            for s in p.subsegments:
+                if s.user_slot == 30:
+                    ss30 = s
+                    break
+        assert ss30 is not None, "Mesh has FO4Subsegment 30"
+        assert ss30.material == 0x86b72980, "FO4Subsegment 30 should have correct material"
         assert "Meshes\\Armor\\FlightHelmet\\Helmet.ssf" == nif2.shapes[0].segment_file, "Nif references segment file"
 
     if TEST_BPY_ALL or TEST_ROGUE01:
