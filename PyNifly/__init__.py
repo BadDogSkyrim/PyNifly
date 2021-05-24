@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 RUN_TESTS = False
-TEST_BPY_ALL = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 27), 
+    "version": (0, 0, 29), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -112,8 +112,9 @@ def mesh_create_partition_groups(the_shape, the_object):
         log.debug(f"..found partition {p.name}")
         new_vg = vg.new(name=p.name)
         partn_groups.append(new_vg)
-        if type(p) == FO4Partition:
+        if type(p) == FO4Segment:
             for sseg in p.subsegments:
+                log.debug(f"..found subsegment {sseg.name}")
                 new_vg = vg.new(name=sseg.name)
                 partn_groups.append(new_vg)
     for part_idx, face in zip(the_shape.partition_tris, mesh.polygons):
@@ -559,7 +560,7 @@ def select_all_faces(workingctx, mesh):
         f.select = True
 
 
-def extract_face_info(ctxt, mesh, uvlayer):
+def extract_face_info(ctxt, mesh, uvlayer, use_loop_normals=False):
     """ Extract face info from the mesh. Mesh is triangularized. 
         Return 
         loops = [vert-index, ...] list of vert indices in loops (which are tris)
@@ -579,6 +580,9 @@ def extract_face_info(ctxt, mesh, uvlayer):
             uvs.append(uvlayer[i].uv[:])
             #log.debug(f"....Adding uv index {uvlayer[i].uv[:]}")
 
+    # CANNOT figure out how to get the loop normals correctly.  They seem to follow the
+    # face normals even on smooth shading.  (TEST_NORMAL_SEAM tests for this.) So use the
+    # vertex normal except when there are custom split normals.
     bpy.ops.object.mode_set(mode='OBJECT') #required to get accurate normals
     mesh.calc_normals()
     mesh.calc_normals_split()
@@ -587,7 +591,10 @@ def extract_face_info(ctxt, mesh, uvlayer):
         for i in f.loop_indices:
             loopseg = mesh.loops[i]
             loops.append(loopseg.vertex_index)
-            norms.append(loopseg.normal[:])
+            if use_loop_normals:
+                norms.append(loopseg.normal[:])
+            else:
+                norms.append(mesh.vertices[loopseg.vertex_index].normal[:])
 
     return loops, uvs, norms
 
@@ -718,23 +725,24 @@ def partitions_from_vert_groups(obj):
             if skyid >= 0:
                 val[vg.name] = SkyPartition(part_id=skyid, flags=0, name=vg.name)
             else:
-                segid = FO4Partition.name_match(vg.name)
+                segid = FO4Segment.name_match(vg.name)
                 if segid >= 0:
-                    val[vg.name] = FO4Partition(segid, 0, name=vg.name)
+                    val[vg.name] = FO4Segment(len(val), 0, name=vg.name)
         
         # A second pass to pick up subsections
         for vg in obj.vertex_groups:
-            parent_name, subseg_id, material = Subsegment.name_match(vg.name)
-            if subseg_id >= 0:
-                if not parent_name in val.keys():
-                    # Create parent segments if not there
-                    if parent_name == '':
-                        parent_name = f"FO4 Segment #{len(val)}"
-                    parid = FO4Partition.name_match(parent_name)
-                    val[parent_name] = FO4Partition(parid, 0, parent_name)
-                p = val[parent_name]
-                log.debug(f"....Found subsegment {vg.name} child of {parent_name}")
-                val[vg.name] = Subsegment(len(val), subseg_id, material, p, name=vg.name)
+            if vg.name not in val:
+                parent_name, subseg_id, material = FO4Subsegment.name_match(vg.name)
+                if subseg_id >= 0:
+                    if not parent_name in val.keys():
+                        # Create parent segments if not there
+                        if parent_name == '':
+                            parent_name = f"FO4Segment #{len(val)}"
+                        parid = FO4Segment.name_match(parent_name)
+                        val[parent_name] = FO4Segment(len(val), 0, parent_name)
+                    p = val[parent_name]
+                    log.debug(f"....Found FO4Subsegment '{vg.name}' child of '{parent_name}'")
+                    val[vg.name] = FO4Subsegment(len(val), subseg_id, material, p, name=vg.name)
     
     return val
 
@@ -796,7 +804,6 @@ def export_shape(nif, trip, obj, target_key=''):
         target_key = shape key to export
         """
     log.info("Exporting " + obj.name)
-    mesh = obj.data
     workingctx = bpy.context # bpy.context.copy()
     retval = {'FINISHED'}
 
@@ -810,9 +817,11 @@ def export_shape(nif, trip, obj, target_key=''):
             log.warning(f"Exporting to game that doesn't match armature: game={nif.game}, armature={obj.parent.name}")
             retval.add('GAME')
 
-    log.info("..Triangulating mesh")
-    originalmesh = mesh.copy()
+    originalmesh = obj.data
+    editmesh = originalmesh.copy()
+    obj.data = editmesh
     saved_sk = obj.active_shape_key_index
+    log.info("..Triangulating mesh")
     try:
         # This next little dance ensures the mesh.vertices locations are correct
         obj.active_shape_key_index = 0
@@ -820,22 +829,17 @@ def export_shape(nif, trip, obj, target_key=''):
         bpy.ops.object.mode_set(mode = 'OBJECT')
         #log.debug(f"....Vertex 12 position: {mesh.vertices[12].co}")
 
-        editmesh = mesh
-
         bpy.ops.object.select_all(action='DESELECT')
         obj.select_set(True)
 
         # Can't get custom normals out of a bmesh (known limitation). Can't triangulate
         # a regular mesh except through the operator. 
-        #bm = bmesh.new()
-        #bm.from_mesh(mesh)
-        #bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method='BEAUTY', ngon_method='BEAUTY')
-        #editmesh = mesh.copy()
-        #bm.to_mesh(editmesh)
-
         select_all_faces(workingctx, editmesh)
         bpy.ops.object.mode_set(mode = 'EDIT') # Required to convert to tris
         bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
+
+        for p in editmesh.polygons:
+            p.use_smooth = True
 
         editmesh.update()
         
@@ -845,11 +849,11 @@ def export_shape(nif, trip, obj, target_key=''):
         # custom normals, fukkit -- use the custom normals and assume the deformation
         # won't be so great that it looks bad.
         bpy.ops.object.mode_set(mode = 'OBJECT') 
-        uvlayer = mesh.uv_layers.active.data
-        if target_key != '' and not mesh.has_custom_normals:
+        uvlayer = editmesh.uv_layers.active.data
+        if target_key != '' and not editmesh.has_custom_normals:
             editmesh = mesh_from_key(editmesh, verts, target_key)
 
-        loops, uvs, norms = extract_face_info(workingctx, editmesh, uvlayer)
+        loops, uvs, norms = extract_face_info(workingctx, editmesh, uvlayer, use_loop_normals=editmesh.has_custom_normals)
     
         log.info("..Splitting mesh along UV seams")
         mesh_split_by_uv(verts, norms, loops, uvs, weights_by_vert, morphdict)
@@ -1075,22 +1079,6 @@ def unregister():
     bpy.utils.unregister_class(ExportNIF)
 
 
-def append_from_file(objname, with_parent, filepath, innerpath, targetobj):
-    if objname in bpy.data.objects:
-        bpy.ops.object.select_all(action='DESELECT')
-        obj = bpy.data.objects[objname]
-        obj.select_set(True)
-        if with_parent:
-            obj.parent.select_set(True)
-        bpy.ops.object.delete() 
-    
-    file_path = os.path.join(pynifly_dev_path, filepath)
-    bpy.ops.object.select_all(action='DESELECT')
-    bpy.ops.wm.append(filepath=file_path,
-                      directory=file_path + innerpath,
-                      filename=targetobj)
-    return bpy.data.objects[objname]
-
 
 def run_tests():
     print("""
@@ -1108,7 +1096,7 @@ def run_tests():
     TEST_IMP_EXP_SKY = False
     TEST_IMP_EXP_FO4 = False
     TEST_ROUND_TRIP = False
-    TEST_UV_SPLIT = True
+    TEST_UV_SPLIT = False
     TEST_CUSTOM_BONES = False
     TEST_BPY_PARENT = False
     TEST_BABY = False
@@ -1118,13 +1106,49 @@ def run_tests():
     TEST_SPLIT_NORMAL = False
     TEST_SKEL = False
     TEST_PARTITIONS = False
-    TEST_SEGMENTS = True
-    TEST_BP_SEGMENTS = False
+    TEST_SEGMENTS = False
+    TEST_BP_SEGMENTS = True
     TEST_ROGUE01 = False
     TEST_ROGUE02 = False
+    TEST_NORMAL_SEAM = False
 
     NifFile.Load(nifly_path)
     #LoggerInit()
+
+    def append_from_file(objname, with_parent, filepath, innerpath, targetobj):
+        """ Convenience routine: Load an object from another blender file. 
+            Deletes any existing objects with that name first.
+        """
+        if objname in bpy.data.objects:
+            bpy.ops.object.select_all(action='DESELECT')
+            obj = bpy.data.objects[objname]
+            obj.select_set(True)
+            if with_parent:
+                obj.parent.select_set(True)
+            bpy.ops.object.delete() 
+    
+        file_path = os.path.join(pynifly_dev_path, filepath)
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.wm.append(filepath=file_path,
+                          directory=file_path + innerpath,
+                          filename=targetobj)
+        return bpy.data.objects[objname]
+
+    def export_from_blend(blendfile, objname, game, outfile, shapekey=''):
+        """ Covenience routine: Export the object found in another blend file through
+            the exporter.
+            """
+        obj = append_from_file(objname, False, blendfile, r"\Object", objname)
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.mode_set(mode="OBJECT")
+        outnif = NifFile()
+        outtrip = TripFile()
+        outnif.initialize(game, os.path.join(pynifly_dev_path, outfile))
+        export_shape(outnif, outtrip, obj, shapekey) 
+        outnif.save()
+
+
 
     if TEST_BPY_ALL or TEST_UNIT:
         # Lower-level tests of individual routines for bug hunting
@@ -1642,7 +1666,9 @@ def run_tests():
         nif = NifFile(testfile)
         import_nif(nif)
 
-        obj = bpy.context.object
+        for o in bpy.context.selected_objects:
+            if o.name.startswith("Helmet:0"):
+                obj = o
         assert "FO4 30 - Hair Top" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
         assert "Meshes\\Armor\\FlightHelmet\\Helmet.ssf" == obj['FO4_SEGMENT_FILE'], "FO4 segment file read and saved for later use"
 
@@ -1651,6 +1677,14 @@ def run_tests():
         
         nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"))
         assert len(nif2.shapes[0].partitions) == 2, "Have all FO4 partitions"
+        ss30 = None
+        for p in nif2.shapes[0].partitions:
+            for s in p.subsegments:
+                if s.user_slot == 30:
+                    ss30 = s
+                    break
+        assert ss30 is not None, "Mesh has FO4Subsegment 30"
+        assert ss30.material == 0x86b72980, "FO4Subsegment 30 should have correct material"
         assert "Meshes\\Armor\\FlightHelmet\\Helmet.ssf" == nif2.shapes[0].segment_file, "Nif references segment file"
 
     if TEST_BPY_ALL or TEST_ROGUE01:
@@ -1703,16 +1737,21 @@ def run_tests():
     if TEST_BPY_ALL or TEST_ROGUE02:
         print("### TEST_ROGUE02: Shape keys export normals correctly")
 
-        obj = append_from_file("Plane", False, r"tests\Skyrim\ROGUE02-normals.blend", r"\Object", "Plane")
-        assert obj.name == "Plane", "Got the right object"
-        bpy.ops.object.select_all(action='DESELECT')
-        bpy.context.view_layer.objects.active = obj
-        bpy.ops.object.mode_set(mode="OBJECT")
-        outnif = NifFile()
-        outtrip = TripFile()
-        outnif.initialize("SKYRIM", os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROGUE02_warp.nif"))
-        export_shape(outnif, outtrip, obj, "_warp") 
-        outnif.save()
+        #obj = append_from_file("Plane", False, r"tests\Skyrim\ROGUE02-normals.blend", r"\Object", "Plane")
+        #assert obj.name == "Plane", "Got the right object"
+        #bpy.ops.object.select_all(action='DESELECT')
+        #bpy.context.view_layer.objects.active = obj
+        #bpy.ops.object.mode_set(mode="OBJECT")
+        #outnif = NifFile()
+        #outtrip = TripFile()
+        #outnif.initialize("SKYRIM", os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROGUE02_warp.nif"))
+        #export_shape(outnif, outtrip, obj, "_warp") 
+        #outnif.save()
+        export_from_blend(r"tests\Skyrim\ROGUE02-normals.blend",
+                          "Plane",
+                          "SKYRIM",
+                          r"tests/Out/TEST_ROGUE02_warp.nif",
+                          "_warp")
 
         nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROGUE02_warp.nif"))
         shape2 = nif2.shapes[0]
@@ -1722,6 +1761,21 @@ def run_tests():
         n = [round(x, 1) for x in shape2.normals[8]]
         assert n == [0, 1, 0], f"Normal should point along y axis, instead: {n}"
 
+    if TEST_BPY_ALL or TEST_NORMAL_SEAM:
+        print("### TEST_NORMAL_SEAM: Normals on a split seam are seamless")
+
+        export_from_blend(r"tests\FO4\TestKnitCap.blend",
+                          "MLongshoremansCap:0",
+                          "FO4",
+                          r"tests/Out/TEST_NORMAL_SEAM_Dog.nif",
+                          "_Dog")
+
+        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_NORMAL_SEAM_Dog.nif"))
+        shape2 = nif2.shapes[0]
+        target_vert = [i for i, v in enumerate(shape2.verts) if VNearEqual(v, (0.0, 8.0, 9.3))]
+
+        assert len(target_vert) == 2, "Expect vert to have been split"
+        assert VNearEqual(shape2.normals[target_vert[0]], shape2.normals[target_vert[1]]), f"Normals should be equal: {shape2.normals[target_vert[0]]} != {shape2.normals[target_vert[1]]}" 
 
 
     print("""
