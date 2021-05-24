@@ -148,8 +148,7 @@ def import_shape(the_shape: NiShape):
     new_object.scale = [inv_xf.scale] * 3
     new_object.location = inv_xf.translation
     # vv Use matrix here instead of conversion?
-    new_object.rotation_euler[0], new_object.rotation_euler[1], new_object.rotation_euler[2] \
-        = inv_xf.rotation.euler_deg()
+    new_object.rotation_euler[0], new_object.rotation_euler[1], new_object.rotation_euler[2] = inv_xf.rotation.euler_deg()
 
     mesh_create_uv(new_object.data, the_shape.uvs)
     mesh_create_bone_groups(the_shape, new_object)
@@ -821,19 +820,25 @@ def export_shape(nif, trip, obj, target_key=''):
     editmesh = originalmesh.copy()
     obj.data = editmesh
     saved_sk = obj.active_shape_key_index
-    log.info("..Triangulating mesh")
     try:
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+
+        # If scales aren't uniform, apply them before export
+        if obj.scale[0] != obj.scale[1] or obj.scale[0] != obj.scale[2]:
+            log.warning("Object scale not uniform, applying before export") # apply scale to verts?   
+            retval.add('SCALE')
+            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
         # This next little dance ensures the mesh.vertices locations are correct
         obj.active_shape_key_index = 0
         bpy.ops.object.mode_set(mode = 'EDIT')
         bpy.ops.object.mode_set(mode = 'OBJECT')
         #log.debug(f"....Vertex 12 position: {mesh.vertices[12].co}")
 
-        bpy.ops.object.select_all(action='DESELECT')
-        obj.select_set(True)
-
         # Can't get custom normals out of a bmesh (known limitation). Can't triangulate
         # a regular mesh except through the operator. 
+        log.info("..Triangulating mesh")
         select_all_faces(workingctx, editmesh)
         bpy.ops.object.mode_set(mode = 'EDIT') # Required to convert to tris
         bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
@@ -879,10 +884,6 @@ def export_shape(nif, trip, obj, target_key=''):
     new_xform.rotation = RotationMatrix((obj.matrix_local[0][0:3], 
                                             obj.matrix_local[1][0:3], 
                                             obj.matrix_local[2][0:3]))
-
-    if obj.scale[0] != obj.scale[1] or obj.scale[0] != obj.scale[2]:
-        log.warning("Object scale not uniform, using x-value") # apply scale to verts?   
-        retval.add('SCALE')
     new_xform.scale = obj.scale[0]
         
     if is_skinned:
@@ -1036,7 +1037,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 self.report({"ERROR"}, f"The following objects have unweighted vertices.\nSee the '*UNWEIGHTED*' vertex groups to find them: \n{objs_unweighted}")
                 rep = True
             if 'SCALE' in res:
-                self.report({"ERROR"}, f"The following objects have non-uniform scale, which nifs do not support.\nUsing the x scale value: \n{objs_scale}")
+                self.report({"ERROR"}, f"The following objects have non-uniform scale, which nifs do not support.\nScale applied to verts before export.")
                 rep = True
             if 'GAME' in res:
                 self.report({'WARNING'}, f"The armature appears to be designed for a different game--check that it's correct\nArmature: {arma_game}, game: {exportf.game}")
