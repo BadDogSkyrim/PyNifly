@@ -273,7 +273,20 @@ def get_weights_by_bone(weights_by_vert):
 class Partition:
     def __init__(self, part_id=0, namedict=None, name=None):
         self.id = part_id
-        self.name = name
+        self._name = name
+        self.namedict = namedict
+
+    @property
+    def name(self):
+        if self._name:
+            return self._name
+        else:
+            return f"{self.__class__.__name__} #{self.id}"
+
+    @name.setter
+    def name(self, val):
+        if val:
+            self._name = val
 
     def __eq__(self, other):
         return self.name == other.name
@@ -296,11 +309,12 @@ class SkyPartition(Partition):
     def __init__(self, part_id=0, flags=0, namedict=None, name=None):
         super().__init__(part_id, namedict, name)
         self.flags = flags
-        if not self.name:
-            if namedict and part_id in namedict.parts:
-                self.name = namedict.parts[part_id].name
+        if not self._name:
+            bp = namedict.part_by_id(part_id)
+            if bp:
+                self._name = bp.name
             else:
-                self.name = f"SBP_{part_id}_UNKNOWN"
+                self._name = f"SBP_{part_id}_UNKNOWN"
 
     @classmethod
     def name_match(cls, name):
@@ -310,14 +324,13 @@ class SkyPartition(Partition):
         else:
             return -1
 
-class FO4Partition(Partition):
-    fo4segmatch = re.compile('FO4 \w+ \#*([0-9]+)\Z')
+class FO4Segment(Partition):
+    fo4segmatch = re.compile('FO4\w+ \#*([0-9]+)\Z')
 
-    def __init__(self, part_id=0, subsegments=0, namedict=None, name=None):
+    def __init__(self, part_id=0, subsegments=0, namedict=fo4Dict, name=None):
         super().__init__(part_id, namedict=namedict, name=name)
         self.subseg_count = subsegments
         self.subsegments = []
-        self._name = name
 
     @property
     def name(self):
@@ -329,70 +342,71 @@ class FO4Partition(Partition):
         if self._name:
             return self._name
         elif len(self.subsegments) > 0:
-            n = set()
-            for s in self.subsegments:
-                n.add(s.parent_name)
-            return "FO4 " + "+".join(n)
+            return self.subsegments[0].parent_name
         else:
-            return f"FO4 Segment #{self.id}"
-
-    @name.setter
-    def name(self, val):
-        if val:
-            self._name = val
+            return super().name
 
     @classmethod
     def name_match(cls, name):
-        m = FO4Partition.fo4segmatch.match(name)
+        bp = fo4Dict.bodypart(name)
+        if bp:
+            if bp.id == 0xffffffff:
+                return 1
+            
+        m = FO4Segment.fo4segmatch.match(name)
         if m:
             return int(m.group(1))
         else:
             return -1
 
-class Subsegment(FO4Partition):
-    fo4subsegm = re.compile('((\w+ [0-9]+) \| [\w\-\d\. ]+)')
-    fo4bpm = re.compile('\AFO4 (\d+) - ')
+class FO4Subsegment(FO4Segment):
+    #fo4subsegm = re.compile('((\AFO4 \w+ [0-9]+) \| [\w\-\d\. ]+)')
+    fo4subsegm = re.compile('\AFO4 *.*')
+    fo4bpm = re.compile('\AFO4 *(\d+) - ')
 
     def __init__(self, part_id, user_slot, material, parent, namedict=fo4Dict, name=None):
         super().__init__(part_id, 0, namedict, name)
         self.user_slot = user_slot
         self.material = material
-        if namedict:
-            if user_slot in namedict.parts:
-                self.name = f"{namedict.parts[user_slot].name}" # | {part_id}"
-            elif material in namedict.dismem:
-                self.name = f"{namedict.dismem[material].name}" # | {part_id}"
+        bp = namedict.part_by_id(user_slot)
+        if bp:
+            self._name = f"{bp.name}" #{part_id}"
+        else:
+            bp = namedict.part_by_id(material)
+            if bp:
+                self._name = f"{bp.name}" #{part_id}"
         self.parent = parent
         parent.subsegments.append(self)
 
     @property
     def parent_name(self):
-        if self.material in fo4Dict.dismem:
-            return fo4Dict.dismem[self.material].name.split("|")[0].strip()
-        else:
-            return f"Segment #{hex(self.material)}"
+        bp = self.namedict.bodypart(self._name)
+        if bp and bp.parentname != '':
+            return bp.parentname
+        return f"FO4Segment #{self.id}"
 
     @classmethod
     def name_match(cls, name):
-        m = Subsegment.fo4bpm.match(name)
+        """ Determine whether given string is a valid FO4Subsegment name. Ignore any numeral after a hash. Returned parent name comes from built-in name structure.
+            Returns: name of parent, ID (body part # or dismember hash), dismember hash of parent
+        """
+        mat = 0
+        bp = fo4Dict.bodypart(name)
+        if bp:
+            return bp.parentname, bp.id, bp.material
+
+        m = FO4Subsegment.fo4bpm.match(name)
         if m:
             subseg_id = int(m.group(1))
             parent_name = ''
-            material = 0
-            return (parent_name, subseg_id, material)
+            return (parent_name, subseg_id, mat)
         else:
-            m = Subsegment.fo4subsegm.match(name)
+            m = FO4Subsegment.fo4subsegm.match(name)
             if m:
-                basename = m.group(1)
-                parent_name = f"FO4 {m.group(2)}"
                 subseg_id = 0
-                material = 0
-                for k, v in fo4Dict.dismem.items():
-                    if v.name == basename:
-                        material = k
-                return (parent_name, subseg_id, material)
+                return ('', subseg_id, mat)
             else:
-                return ("", -1, -1)
+                return ("", -1, mat)
 
 
 # --- NiNode --- #
@@ -548,16 +562,16 @@ class NiShape:
         buf = (c_int * 2 * num)()
         pc = NifFile.nifly.getSegments(self.parent._handle, self._handle, buf, num)
         for i in range(num):
-            p = FO4Partition(part_id=buf[i][0], subsegments=buf[i][1], namedict=self.parent.dict)
+            p = FO4Segment(part_id=buf[i][0], subsegments=buf[i][1], namedict=self.parent.dict)
             self._partitions.append(p)
             buf2 = (c_uint32 * 3 * p.subseg_count)()
             ssn = NifFile.nifly.getSubsegments(self.parent._handle, self._handle, p.id, buf2, p.subseg_count)
             for i in range(ssn):
-                ss = Subsegment(part_id=buf2[i][0], 
-                                user_slot=buf2[i][1], 
-                                material=buf2[i][2], 
-                                parent=p, 
-                                namedict=self.parent.dict)
+                ss = FO4Subsegment(part_id=buf2[i][0], 
+                                   user_slot=buf2[i][1], 
+                                   material=buf2[i][2], 
+                                   parent=p, 
+                                   namedict=self.parent.dict)
 
     @property
     def partitions(self):
@@ -787,13 +801,13 @@ class NiShape:
     def set_partitions(self, partitionlist, trilist):
         """ Set the partitions for a shape
             partitionlist = list of Partition objects, either Skyrim or FO. Any Subsegments in the
-                list are ignored.
+                list are ignored. Subsegments are found separately under Partitions.
             trilist = 1:1 with shape tris, gives the ID of the tri's partition
             """
         if len(partitionlist) == 0:
             return
 
-        parts = list(filter(lambda x: type(x) in [SkyPartition, FO4Partition], partitionlist))
+        parts = list(filter(lambda x: type(x) in [SkyPartition, FO4Segment], partitionlist))
         if len(parts) == 0:
             return
 
@@ -823,7 +837,7 @@ class NiShape:
             sslist = []
             for seg in parts:
                 for sseg in seg.subsegments:
-                    NifFile.log.debug(f"....Exporting subseg {sseg.name}: {sseg.id}, {sseg.user_slot}")
+                    NifFile.log.debug(f"....Exporting subseg {sseg.name}: {sseg.id}, {sseg.user_slot}, {hex(sseg.material)}")
                     sslist.extend([sseg.id, seg.id, sseg.user_slot, sseg.material])
             sbuf = (c_uint32 * len(sslist))()
             for i, s in enumerate(sslist):
@@ -1601,7 +1615,7 @@ if __name__ == "__main__":
         # parent, so the parent figures out its own name from its subsegments.  This is
         # magic figured out by OS.
         assert len(nif.shapes[0].partitions[2].subsegments) > 0, "Shapes have subsegments"
-        assert nif.shapes[0].partitions[2].subsegments[0].name == "Human 2 | R-Up Arm", "Subsegments have human-readable names"
+        assert nif.shapes[0].partitions[2].subsegments[0].name == "FO4 R-Up Arm", "Subsegments have human-readable names"
 
         print("### Can write segments back out")
         # When writing segments, the tri list refers to segments/subsegments by ID *not*
@@ -1620,7 +1634,7 @@ if __name__ == "__main__":
         assert nif3.shapes[0].partitions[2].id != 0, "Partition IDs same as before"
         assert nif3.shapes[0].partitions[2].name == "FO4 Human 2"
         assert len(nif3.shapes[0].partitions[2].subsegments) > 0, "Shapes have subsegments"
-        assert nif3.shapes[0].partitions[2].subsegments[0].name == "Human 2 | R-Up Arm", "Subsegments have human-readable names"
+        assert nif3.shapes[0].partitions[2].subsegments[0].name == "FO4 R-Up Arm", "Subsegments have human-readable names"
         assert nif3.shapes[0].segment_file == r"Meshes\Actors\Character\CharacterAssets\MaleBodyOut.ssf"
 
 
@@ -1635,7 +1649,7 @@ if __name__ == "__main__":
         
         # IDs assigned by nifly for reference
         assert nif.shapes[1].partitions[1].id != 0
-        assert nif.shapes[1].partitions[1].name.startswith("FO4 Segment #")
+        assert nif.shapes[1].partitions[1].name.startswith("FO4Segment #")
 
         # Partition tri list gives the index of the associated partition for each tri in
         # the shape, so it's the same size as number of tris in shape
@@ -1657,14 +1671,17 @@ if __name__ == "__main__":
         nif2.initialize('FO4', r"tests/Out/SegmentsHelmet.nif")
         _test_export_shape(nif.shapes[1], nif2)
         nif2.shapes[0].segment_file = r"Meshes\Armor\FlightHelmet\Helmet.ssf"
-        nif2.shapes[0].set_partitions(nif.shapes[1].partitions, 
-                                      nif.shapes[1].partition_tris)
+
+        p1 = FO4Segment(0, 0)
+        p2 = FO4Segment(1, 0)
+        ss1 = FO4Subsegment(2, 30, 0x86b72980, p2)
+        nif2.shapes[0].set_partitions([p1, p2], nif.shapes[1].partition_tris)
         nif2.save()
 
         nif3 = NifFile(r"tests/Out/SegmentsHelmet.nif")
         assert len(nif3.shapes[0].partitions) == 2, "Have the same number of partitions as before"
         assert nif3.shapes[0].partitions[1].id != 0, "Partition IDs same as before"
-        assert nif3.shapes[0].partitions[1].name.startswith("FO4 Segment #")
+        assert nif3.shapes[0].partitions[1].name.startswith("FO4Segment #")
         assert len(nif3.shapes[0].partitions[1].subsegments) > 0, "Shapes have subsegments"
         assert nif3.shapes[0].partitions[1].subsegments[0].name.startswith("FO4 30 - Hair Top"), "Subsegments have human-readable names"
         assert nif3.shapes[0].segment_file == r"Meshes\Armor\FlightHelmet\Helmet.ssf"
@@ -1678,15 +1695,13 @@ if __name__ == "__main__":
         assert SkyPartition.name_match("SBP_42_CIRCLET") == 42, "Match skyrim parts"
         assert SkyPartition.name_match("FOOBAR") < 0, "Don't match random stuff"
 
-        assert FO4Partition.name_match("FO4 Segment #3") == 3, "Match FO4 parts"
-        assert FO4Partition.name_match("Segment 4") < 0, "Don't match bougs names"
+        assert FO4Segment.name_match("FO4Segment #3") == 3, "Match FO4 parts"
+        assert FO4Segment.name_match("Segment 4") < 0, "Don't match bougs names"
 
-        sseg = Subsegment.name_match("Human 5 | R-Kne-Clf")
-        assert sseg[0] == "FO4 Human 5", "Extract subseg parent name"
-        assert sseg[2] == 0x22324321, "Extract material"
+        sseg_par, sseg_id, sseg_mat = FO4Subsegment.name_match("FO4 R-Kne-Clf")
+        assert sseg_par == "FO4 Human 5", "Extract subseg parent name"
+        assert sseg_mat == 0x22324321, "Extract material"
 
-        sseg_par, sseg_id, sseg_mat = Subsegment.name_match("FO4 45 - [A] R Leg")
-        assert sseg_par == "", "No parent name"
-        assert sseg_id == 45, "Extracted part id"
-
-
+        sseg_par, sseg_id, sseg_mat = FO4Subsegment.name_match("FO4 30 - Hair Top")
+        #assert sseg_par == "FO4 1 | Head/Hair", "Should have parent name"
+        assert sseg_id == 30, "Should have part id"

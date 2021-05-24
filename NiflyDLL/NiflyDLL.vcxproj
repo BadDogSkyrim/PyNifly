@@ -161,6 +161,7 @@
     <IncludePath>..\..\Nifly\external;..\..\Nifly\include;$(IncludePath)</IncludePath>
     <SourcePath>..\..\Nifly\src;$(SourcePath)</SourcePath>
     <LibraryPath>$(LibraryPath)</LibraryPath>
+    <CustomBuildAfterTargets>Link</CustomBuildAfterTargets>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -332,6 +333,16 @@ xcopy /y/s/i $(ProjectDir)..\pynifly\skeletons $(OutDir)io_scene_nifly\skeletons
 copy /y $(ProjectDir)..\pynifly\*.py  $(OutDir)io_scene_nifly\
 7z a -tzip $(OutDir)io_scene_nifly.zip $(OutDir)io_scene_nifly</Command>
     </PostBuildEvent>
+    <CustomBuildStep>
+      <Command>
+      </Command>
+    </CustomBuildStep>
+    <CustomBuildStep>
+      <Message>Performing final packaging</Message>
+    </CustomBuildStep>
+    <CustomBuildStep>
+      <TreatOutputAsContent>false</TreatOutputAsContent>
+    </CustomBuildStep>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Nifly\external\half.hpp" />

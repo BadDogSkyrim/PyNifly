@@ -2,6 +2,7 @@
 
 from math import asin, acos, atan2, pi, sin, cos, radians, sqrt
 import logging
+import re
 
 log = logging.getLogger("pynifly")
 
@@ -330,6 +331,12 @@ def mesh_split_by_uv(verts, norms, loops, uvmap, weights, morphdict):
 
 # ----------------------- Game-specific Skeleton Dictionaries ---------------------------
 
+def blender_basename(n):
+    m = re.match("(.+)\.\d+\Z", n)
+    if m:
+        return m[1]
+    return n
+    
 class SkeletonBone:
     def __init__(self, blender_name, nif_name, parent=None):
         self.blender = blender_name
@@ -338,9 +345,13 @@ class SkeletonBone:
         self.parent = None
 
 class BodyPart:
-    def __init__(self, id, name):
+    def __init__(self, id, name, parent='', material=0):
         self.id = id
         self.name = name
+        self.parentname = parent
+        self.material = material
+        if material == 0 and (id > 100 or id < 0):
+            self.material = id
 
 class BoneDict:
     def __init__(self, bone_list, morph_list, part_list, dismem_list=[]):
@@ -356,9 +367,9 @@ class BoneDict:
                 b.parent = self.byBlender[b.parent_name]
         self.expressions = set(morph_list)
         for p in part_list:
-            self.parts[p.id] = p
+            self.parts[p.name] = p
         for d in dismem_list:
-            self.dismem[d.id] = d
+            self.dismem[d.name] = d
 
     def blender_name(self, nif_name):
         if nif_name in self.byNif:
@@ -371,6 +382,27 @@ class BoneDict:
             return self.byBlender[blender_name].nif
         else:
             return blender_name
+
+    def bodypart(self, name):
+        """ Look for 'name' in any of the bodyparts. Strip any trailing '.001'-type
+            number before checking. """
+        if name is None:
+            return None
+        name = blender_basename(name)
+        if name in self.parts:
+            return self.parts[name]
+        if name in self.dismem:
+            return self.dismem[name]
+        return None
+
+    def part_by_id(self, id):
+        for bp in self.parts.values():
+            if bp.id == id:
+                return bp
+        for bp in self.dismem.values():
+            if bp.id == id:
+                return bp
+        return None
 
     def matches(self, boneset):
         """ Return count of entries in aList that match skeleton bones """
@@ -760,104 +792,116 @@ fo4Expressions = ['Basis', 'UprLipRollOut', 'UprLipRollIn', 'UprLipFunnel', 'Sti
     ]
 
 fo4Dismember = [
-    BodyPart(0x86b72980, "1 | Head/Hair"),
-    BodyPart(0x0155094f, "1 | Neck"),
-    BodyPart(0xb2e2764f, "Human 2 | R-Up Arm"),
-    BodyPart(0x6fc3fbb2, "Human 2 | R-Lo Arm"),
-    BodyPart(0xfc03dc25, "Human 4 | L-Up Arm"),
-    BodyPart(0x212251d8, "Human 4 | L-Lo Arm"),
-    BodyPart(0xbf3a3cc5, "Human 5 | R-Up Thi"),
-    BodyPart(0x22324321, "Human 5 | R-Kne-Clf"),
-    BodyPart(0xc7e6bc92, "Human 5 | R-Lo Ft.-Ank"),
-    BodyPart(0x865d8d9e, "Human 6 | L-Up Leg"),
-    BodyPart(0x4630dac2, "Human 6 | L-Kne-Clf"),
-    BodyPart(0xa3e42571, "Human 6 | L-Lo Ft.-Ank"),
-    BodyPart(0x2a549ee1, "Feral Ghoul 2 | R-Up Arm"),
-    BodyPart(0xf775131c, "Feral Ghoul 2 | R-Lo Arm"),
-    BodyPart(0x85342e3c, "Feral Ghoul 2 | R-Hand"),
-    BodyPart(0x4e560702, "Feral Ghoul 4 | L-Up Arm"),
-    BodyPart(0x93778aff, "Feral Ghoul 4 | L-Lo Arm"),
-    BodyPart(0x5ae407df, "Feral Ghoul 4 | L-Hand"),
-    BodyPart(0xc0f43cc3, "Death Claw 1 | Neck"),
-    BodyPart(0xf2ba1077, "Death Claw 2 | R-Up-Arm"),
-    BodyPart(0xf4e10d0d, "Death Claw 2 | R-Elbow-4Arm"),
-    BodyPart(0xe2da5319, "Death Claw 2 | R-Hand"),
-    BodyPart(0x17932e95, "Death Claw 4 | L-Up-Arm"),
-    BodyPart(0x0861e2c0, "Death Claw 4 | L-Elbow-4Arm"),
-    BodyPart(0x8beb7000, "Death Claw 4 | L-Hand"),
-    BodyPart(0x9af9d18c, "Death Claw, Feral Ghoul 5 | R-Up Thi"),
-    BodyPart(0x8e0daa93, "Death Claw, Feral Ghoul 5 | R-Lo Leg"),
-    BodyPart(0x6bd95520, "Death Claw, Feral Ghoul 5 | R-Lo Ft"),
-    BodyPart(0xa325b267, "Death Claw, Feral Ghoul 6 | L-Lo Thi"),
-    BodyPart(0x51dd8370, "Death Claw, Feral Ghoul 6 | L-Lo Leg"),
-    BodyPart(0xb4097cc3, "Death Claw, Feral Ghoul 6 | L-Lo Ft"),
-    BodyPart(0x99338c09, "Super Mutant Hound 3 | Fr-Lf Up Leg"),
-    BodyPart(0x7491a630, "Super Mutant Hound 3 | Fr-Lf Lo Leg"),
-    BodyPart(0x8a99ba3f, "Super Mutant Hound 3 | Fr-Lf Foot"),
-    BodyPart(0xa7860026, "Super Mutant Hound 4 | Bk-Lf Thigh"),
-    BodyPart(0xaf6a52d7, "Super Mutant Hound 4 | Bk-Lf Knee"),
-    BodyPart(0xb42c3610, "Super Mutant Hound 4 | Bk-Lf Ankle"),
-    BodyPart(0x6e284ec0, "Super Mutant Hound 4 | Bk-Lf Foot"),
-    BodyPart(0x0e97871c, "Super Mutant Hound 5 | Bk-Ri Thigh"),
-    BodyPart(0x02433b3b, "Super Mutant Hound 5 | Bk-Ri Knee"),
-    BodyPart(0x1d3db12a, "Super Mutant Hound 5 | Bk-Ri Ankle"),
-    BodyPart(0x20c9e4aa, "Super Mutant Hound 5 | Bk-Ri Foot"),
-    BodyPart(0x5f96443c, "Super Mutant Hound 6 | Fr-Ri Up Leg"),
-    BodyPart(0xdd80210a, "Super Mutant Hound 6 | Fr-Ri Lo Leg"),
-    BodyPart(0x4c3c720a, "Super Mutant Hound 6 | Fr-Ri Foot"),
-    BodyPart(0xa5f4be71, "Mirelurk 2 | Fr-Ri-Up Arm"),
-    BodyPart(0x99eb64eb, "Mirelurk 2 | Fr-Ri-Lo Arm"),
-    BodyPart(0x3c9df64f, "Mirelurk 2 | R Claw"),
-    BodyPart(0x40f66ca4, "Mirelurk 4 | L Shoulder"),
-    BodyPart(0xc1f62792, "Mirelurk 4 | L-Up Arm"),
-    BodyPart(0xf0da47f2, "Mirelurk 4 | L Elbow"),
-    BodyPart(0x55acd556, "Mirelurk 4 | L Claw"),
-    BodyPart(0x064f59cd, "Mirelurk 5 | Fr-Ri Hip"),
-    BodyPart(0x5b033df6, "Mirelurk 5 | Fr-Ri Thigh"),
-    BodyPart(0x15fc7bad, "Mirelurk 5 | Fr-Ri Calf"),
-    BodyPart(0xf028841e, "Mirelurk 5 | Fr-Ri Foot"),
-    BodyPart(0xf62a541a, "Mirelurk 6 | Fr-Lf Hip-Thigh"),
-    BodyPart(0x5b1dd1c7, "Mirelurk 6 | Fr-Lf Kne-Clf"),
-    BodyPart(0xbec92e74, "Mirelurk 6 | Fr-Lf Foot"),
-    BodyPart(0xfc5546b8, "Mirelurk 8 | Bk-Ri Hip-Thigh"),
-    BodyPart(0x24a15449, "Mirelurk 8 | Bk-Ri Kne-Clf"),
-    BodyPart(0xc175abfa, "Mirelurk 8 | Bk-Ri Foot"),
-    BodyPart(0xb2b4ecd2, "Mirelurk 9 | Bk-Lf Hip-Thigh"),
-    BodyPart(0xc1886aab, "Mirelurk 9 | Bk-Lf Kne-Clf"),
-    BodyPart(0x245c9518, "Mirelurk 9 | Bk-Lf Foot"),
-    BodyPart(0x5530c47b, "Dog 3 | Fr-Lf Knee"),
-    BodyPart(0xcc3995c1, "Dog 3 | Fr-Lf Calf"),
-    BodyPart(0xbd2750cf, "Dog 3 | Fr-Lf Heel+Arch"),
-    BodyPart(0x77fe1ec8, "Dog 3 | Fr-Lf Paw"),
-    BodyPart(0x52f7244b, "Dog 4 | Bk-Lf Knee"),
-    BodyPart(0xcbfe75f1, "Dog 4 | Bk-Lf Calf"),
-    BodyPart(0xfe31ace4, "Dog 4 | Bk-Lf Heel+Arch"),
-    BodyPart(0x08eb5fa0, "Dog 4 | Bk-Lf Paw"),
-    BodyPart(0x8d270da8, "Dog 5 | Bk-Ri Knee"),
-    BodyPart(0x142e5c12, "Dog 5 | Bk-Ri Calf+Heel"),
-    BodyPart(0x9a333507, "Dog 5 | Bk-Ri Arch"),
-    BodyPart(0x61da7cb9, "Dog 5 | Bk-Ri Paw"),
-    BodyPart(0x8ae0ed98, "Dog 6 | Fr-Ri Knee"),
-    BodyPart(0x13e9bc22, "Dog 6 | Fr-Ri Calf"),
-    BodyPart(0xd925c92c, "Dog 6 | Fr-Ri Heel+Arch"),
-    BodyPart(0x1ecf3dd1, "Dog 6 | Fr-Ri Paw"),
-    BodyPart(0x8c5ae189, "Behemoth 2 | R-Arm+Elbow"),
-    BodyPart(0x071dfd97, "Behemoth 2 | R-4 Arm"),
-    BodyPart(0xded0fadf, "Behemoth 2 | R-Hand"),
-    BodyPart(0xc2bb4be3, "Behemoth 4 | L-Arm+Elbow"),
-    BodyPart(0x3e7a4ccc, "Behemoth 4 | L-4 Arm"),
-    BodyPart(0xe7b74b84, "Behemoth 4 | L-Hand"),
-    BodyPart(0xa411c600, "Behemoth 5 | R-Calf"),
-    BodyPart(0xac900af3, "Behemoth 5 | R-Foot"),
-    BodyPart(0xc0135fe3, "Behemoth 6 | L-Calf"),
-    BodyPart(0x95f7bba8, "Behemoth 6 | R-Foot"),
-    BodyPart(0x3d6644aa, "Robot 3 | Torso")    
+    BodyPart(0xffffffff, "FO4 1"),
+    BodyPart(0xffffffff, "FO4 Human 2"),
+    BodyPart(0xffffffff, "FO4 Human 4"),
+    BodyPart(0xffffffff, "FO4 Human 5"),
+    BodyPart(0xffffffff, "FO4 Human 6"),
+    BodyPart(0x86b72980, "FO4 Head/Hair", "FO4 1"),
+    BodyPart(0x0155094f, "FO4 Neck", "FO4 1"),
+    BodyPart(0xb2e2764f, "FO4 R-Up Arm", "FO4 Human 2"),
+    BodyPart(0x6fc3fbb2, "FO4 R-Lo Arm", "FO4 Human 2"),
+    BodyPart(0xfc03dc25, "FO4 L-Up Arm", "FO4 Human 4"),
+    BodyPart(0x212251d8, "FO4 L-Lo Arm", "FO4 Human 4"),
+    BodyPart(0xbf3a3cc5, "FO4 R-Up Thi", "FO4 Human 5"),
+    BodyPart(0x22324321, "FO4 R-Kne-Clf", "FO4 Human 5"),
+    BodyPart(0xc7e6bc92, "FO4 R-Lo Ft-Ank", "FO4 Human 5"),
+    BodyPart(0x865d8d9e, "FO4 L-Up Leg", "FO4 Human 6"),
+    BodyPart(0x4630dac2, "FO4 L-Kne-Clf", "FO4 Human 6"),
+    BodyPart(0xa3e42571, "FO4 L-Lo Ft-Ank", "FO4 Human 6"),
+    BodyPart(0x2a549ee1, "FO4 Ghoul R-Up Arm", "FO4 Feral Ghoul 2"),
+    BodyPart(0xf775131c, "FO4 Ghoul R-Lo Arm", "FO4 Feral Ghoul 2"),
+    BodyPart(0x85342e3c, "FO4 Ghoul R-Hand", "FO4 Feral Ghoul 2"),
+    BodyPart(0x4e560702, "FO4 Ghoul L-Up Arm", "FO4 Feral Ghoul 4"),
+    BodyPart(0x93778aff, "FO4 Ghoul L-Lo Arm", "FO4 Feral Ghoul 4"),
+    BodyPart(0x5ae407df, "FO4 Ghoul L-Hand", "FO4 Feral Ghoul 4"),
+    BodyPart(0xc0f43cc3, "FO4 Death Claw Neck", "FO4 Death Claw 1"),
+    BodyPart(0xf2ba1077, "FO4 Death Claw R-Up-Arm", "FO4 Death Claw 2"),
+    BodyPart(0xf4e10d0d, "FO4 Death Claw R-Elbow-4Arm", "FO4 Death Claw 2"),
+    BodyPart(0xe2da5319, "FO4 Death Claw R-Hand", "FO4 Death Claw 2"),
+    BodyPart(0x17932e95, "FO4 Death Claw L-Up-Arm", "FO4 Death Claw 4"),
+    BodyPart(0x0861e2c0, "FO4 Death Claw L-Elbow-4Arm", "FO4 Death Claw 4"),
+    BodyPart(0x8beb7000, "FO4 Death Claw L-Hand", "FO4 Death Claw 4"),
+    BodyPart(0x9af9d18c, "FO4 Death Claw R-Up Thi", "FO4 Death Claw 5"),
+    BodyPart(0x8e0daa93, "FO4 Death Claw R-Lo Leg", "FO4 Death Claw 5"),
+    BodyPart(0x6bd95520, "FO4 Death Claw R-Lo Ft", "FO4 Death Claw 5"),
+    BodyPart(0xa325b267, "FO4 Death Claw L-Lo Thi", "FO4 Death Claw 6"),
+    BodyPart(0x51dd8370, "FO4 Death Claw L-Lo Leg", "FO4 Death Claw 6"),
+    BodyPart(0xb4097cc3, "FO4 Death Claw L-Lo Ft", "FO4 Death Claw 6"),
+    BodyPart(0x9af9d18c, "FO4 Ghoul R-Up Thi", "FO4 Feral Ghoul 5"),
+    BodyPart(0x8e0daa93, "FO4 Ghoul R-Lo Leg", "FO4 Feral Ghoul 5"),
+    BodyPart(0x6bd95520, "FO4 Ghoul R-Lo Ft", "FO4 Feral Ghoul 5"),
+    BodyPart(0xa325b267, "FO4 Ghoul L-Lo Thi", "FO4 Feral Ghoul 6"),
+    BodyPart(0x51dd8370, "FO4 Ghoul L-Lo Leg", "FO4 Feral Ghoul 6"),
+    BodyPart(0xb4097cc3, "FO4 Ghoul L-Lo Ft", "FO4 Feral Ghoul 6"),
+    BodyPart(0x99338c09, "FO4 Mut Hound Fr-Lf Up Leg", "FO4 Super Mutant Hound 3"),
+    BodyPart(0x7491a630, "FO4 Mut Hound Fr-Lf Lo Leg", "FO4 Super Mutant Hound 3"),
+    BodyPart(0x8a99ba3f, "FO4 Mut Hound Fr-Lf Foot", "FO4 Super Mutant Hound 3"),
+    BodyPart(0xa7860026, "FO4 Mut Hound Bk-Lf Thigh", "FO4 Super Mutant Hound 4"),
+    BodyPart(0xaf6a52d7, "FO4 Mut Hound Bk-Lf Knee", "FO4 Super Mutant Hound 4"),
+    BodyPart(0xb42c3610, "FO4 Mut Hound Bk-Lf Ankle", "FO4 Super Mutant Hound 4"),
+    BodyPart(0x6e284ec0, "FO4 Mut Hound Bk-Lf Foot", "FO4 Super Mutant Hound 4"),
+    BodyPart(0x0e97871c, "FO4 Mut Hound Bk-Ri Thigh", "FO4 Super Mutant Hound 5"),
+    BodyPart(0x02433b3b, "FO4 Mut Hound Bk-Ri Knee", "FO4 Super Mutant Hound 5"),
+    BodyPart(0x1d3db12a, "FO4 Mut Hound Bk-Ri Ankle", "FO4 Super Mutant Hound 5"),
+    BodyPart(0x20c9e4aa, "FO4 Mut Hound Bk-Ri Foot", "FO4 Super Mutant Hound 5"),
+    BodyPart(0x5f96443c, "FO4 Mut Hound Fr-Ri Up Leg", "FO4 Super Mutant Hound 6"),
+    BodyPart(0xdd80210a, "FO4 Mut Hound Fr-Ri Lo Leg", "FO4 Super Mutant Hound 6"),
+    BodyPart(0x4c3c720a, "FO4 Mut Hound Fr-Ri Foot", "FO4 Super Mutant Hound 6"),
+    BodyPart(0xa5f4be71, "FO4 Mirelurk Fr-Ri-Up Arm", "FO4 Mirelurk 2"),
+    BodyPart(0x99eb64eb, "FO4 Mirelurk Fr-Ri-Lo Arm", "FO4 Mirelurk 2"),
+    BodyPart(0x3c9df64f, "FO4 Mirelurk R Claw", "FO4 Mirelurk 2"),
+    BodyPart(0x40f66ca4, "FO4 Mirelurk L Shoulder", "FO4 Mirelurk 4"),
+    BodyPart(0xc1f62792, "FO4 Mirelurk L-Up Arm", "FO4 Mirelurk 4"),
+    BodyPart(0xf0da47f2, "FO4 Mirelurk L Elbow", "FO4 Mirelurk 4"),
+    BodyPart(0x55acd556, "FO4 Mirelurk L Claw", "FO4 Mirelurk 4"),
+    BodyPart(0x064f59cd, "FO4 Mirelurk Fr-Ri Hip", "FO4 Mirelurk 5"),
+    BodyPart(0x5b033df6, "FO4 Mirelurk Fr-Ri Thigh", "FO4 Mirelurk 5"),
+    BodyPart(0x15fc7bad, "FO4 Mirelurk Fr-Ri Calf", "FO4 Mirelurk 5"),
+    BodyPart(0xf028841e, "FO4 Mirelurk Fr-Ri Foot", "FO4 Mirelurk 5"),
+    BodyPart(0xf62a541a, "FO4 Mirelurk Fr-Lf Hip-Thigh", "FO4 Mirelurk 6"),
+    BodyPart(0x5b1dd1c7, "FO4 Mirelurk Fr-Lf Kne-Clf", "FO4 Mirelurk 6"),
+    BodyPart(0xbec92e74, "FO4 Mirelurk Fr-Lf Foot", "FO4 Mirelurk 6"),
+    BodyPart(0xfc5546b8, "FO4 Mirelurk Bk-Ri Hip-Thigh", "FO4 Mirelurk 8"),
+    BodyPart(0x24a15449, "FO4 Mirelurk Bk-Ri Kne-Clf", "FO4 Mirelurk 8"),
+    BodyPart(0xc175abfa, "FO4 Mirelurk Bk-Ri Foot", "FO4 Mirelurk 8"),
+    BodyPart(0xb2b4ecd2, "FO4 Mirelurk Bk-Lf Hip-Thigh", "FO4 Mirelurk 9"),
+    BodyPart(0xc1886aab, "FO4 Mirelurk Bk-Lf Kne-Clf", "FO4 Mirelurk 9"),
+    BodyPart(0x245c9518, "FO4 Mirelurk Bk-Lf Foot", "FO4 Mirelurk 9"),
+    BodyPart(0x5530c47b, "FO4 Dog Fr-Lf Knee", "FO4 Dog 3"),
+    BodyPart(0xcc3995c1, "FO4 Dog Fr-Lf Calf", "FO4 Dog 3"),
+    BodyPart(0xbd2750cf, "FO4 Dog Fr-Lf Heel+Arch", "FO4 Dog 3"),
+    BodyPart(0x77fe1ec8, "FO4 Dog Fr-Lf Paw", "FO4 Dog 3"),
+    BodyPart(0x52f7244b, "FO4 Dog Bk-Lf Knee", "FO4 Dog 4"),
+    BodyPart(0xcbfe75f1, "FO4 Dog Bk-Lf Calf", "FO4 Dog 4"),
+    BodyPart(0xfe31ace4, "FO4 Dog Bk-Lf Heel+Arch", "FO4 Dog 4"),
+    BodyPart(0x08eb5fa0, "FO4 Dog Bk-Lf Paw", "FO4 Dog 4"),
+    BodyPart(0x8d270da8, "FO4 Dog Bk-Ri Knee", "FO4 Dog 5"),
+    BodyPart(0x142e5c12, "FO4 Dog Bk-Ri Calf+Heel", "FO4 Dog 5"),
+    BodyPart(0x9a333507, "FO4 Dog Bk-Ri Arch", "FO4 Dog 5"),
+    BodyPart(0x61da7cb9, "FO4 Dog Bk-Ri Paw", "FO4 Dog 5"),
+    BodyPart(0x8ae0ed98, "FO4 Dog Fr-Ri Knee", "FO4 Dog 6"),
+    BodyPart(0x13e9bc22, "FO4 Dog Fr-Ri Calf", "FO4 Dog 6"),
+    BodyPart(0xd925c92c, "FO4 Dog Fr-Ri Heel+Arch", "FO4 Dog 6"),
+    BodyPart(0x1ecf3dd1, "FO4 Dog Fr-Ri Paw", "FO4 Dog 6"),
+    BodyPart(0x8c5ae189, "FO4 Behemoth R-Arm+Elbow", "FO4 Behemoth 2"),
+    BodyPart(0x071dfd97, "FO4 Behemoth R-4 Arm", "FO4 Behemoth 2"),
+    BodyPart(0xded0fadf, "FO4 Behemoth R-Hand", "FO4 Behemoth 2"),
+    BodyPart(0xc2bb4be3, "FO4 Behemoth L-Arm+Elbow", "FO4 Behemoth 4"),
+    BodyPart(0x3e7a4ccc, "FO4 Behemoth L-4 Arm", "FO4 Behemoth 4"),
+    BodyPart(0xe7b74b84, "FO4 Behemoth L-Hand", "FO4 Behemoth 4"),
+    BodyPart(0xa411c600, "FO4 Behemoth R-Calf", "FO4 Behemoth 5"),
+    BodyPart(0xac900af3, "FO4 Behemoth R-Foot", "FO4 Behemoth 5"),
+    BodyPart(0xc0135fe3, "FO4 Behemoth L-Calf", "FO4 Behemoth 6"),
+    BodyPart(0x95f7bba8, "FO4 Behemoth R-Foot", "FO4 Behemoth 6"),
+    BodyPart(0x3d6644aa, "FO4 Behemoth Torso", "FO4 Robot 3")    
     ]
 
 fo4Parts = [
-	BodyPart(30, "FO4 30 - Hair Top"),
-    BodyPart(31, "FO4 31 - Hair Long"),
-    BodyPart(32, "FO4 32 - Head"),
+    BodyPart(0xffffffff, "FO4 1 | Head/Hair"),
+    BodyPart(30, "FO4 30 - Hair Top", material=0x86b72980),
+    BodyPart(31, "FO4 31 - Hair Long", material=0x86b72980),
+    BodyPart(32, "FO4 32 - Head", material=0x86b72980),
     BodyPart(33, "FO4 33 - Body"),
     BodyPart(35, "FO4 35 - R Hand"),
     BodyPart(36, "FO4 36 - [U] Torso"),
@@ -870,13 +914,13 @@ fo4Parts = [
     BodyPart(43, "FO4 43 - [A] R Arm"),
     BodyPart(44, "FO4 44 - [A] L Leg"),
     BodyPart(45, "FO4 45 - [A] R Leg"),
-    BodyPart(46, "FO4 46 - Headband"),
-    BodyPart(47, "FO4 47 - Eyes"),
-    BodyPart(48, "FO4 48 - Beard"),
-    BodyPart(49, "FO4 49 - Mouth"),
-    BodyPart(50, "FO4 50 - Neck"),
+    BodyPart(46, "FO4 46 - Headband", material=0x86b72980),
+    BodyPart(47, "FO4 47 - Eyes", "FO4 1 | Head/Hair"),
+    BodyPart(48, "FO4 48 - Beard", "FO4 1 | Head/Hair"),
+    BodyPart(49, "FO4 49 - Mouth", "FO4 1 | Head/Hair"),
+    BodyPart(50, "FO4 50 - Neck", "FO4 1 | Neck"),
     BodyPart(51, "FO4 51 - Ring"),
-    BodyPart(52, "FO4 52 - Scalp"),
+    BodyPart(52, "FO4 52 - Scalp", "FO4 1 | Head/Hair"),
     BodyPart(53, "FO4 53 - Decapitation"),
     BodyPart(54, "FO4 54 - Unnamed"),
     BodyPart(55, "FO4 55 - Unnamed"),
