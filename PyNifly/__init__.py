@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 29), 
+    "version": (0, 0, 31), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -1650,7 +1650,7 @@ def run_tests():
         import_nif(nif)
 
         obj = bpy.context.object
-        assert "FO4 Human 2" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
+        assert "FO4 Human Arm.R" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
         assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == obj['FO4_SEGMENT_FILE'], "Should have FO4 segment file read and saved for later use"
 
         print("### Can write FO4 segments")
