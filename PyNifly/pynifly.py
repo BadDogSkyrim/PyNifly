@@ -1601,7 +1601,7 @@ if __name__ == "__main__":
         
         # IDs assigned by nifly for reference
         assert nif.shapes[0].partitions[2].id != 0
-        assert nif.shapes[0].partitions[2].name == "FO4 Human 2", f"Expected partition not found, 'FO4 Human 2' != '{nif.shapes[0].partitions[2].name}'"
+        assert nif.shapes[0].partitions[2].name == "FO4 Human Arm.R", f"Expected partition not found, 'FO4 Human Arm.R' != '{nif.shapes[0].partitions[2].name}'"
 
         # Partition tri list gives the index of the associated partition for each tri in
         # the shape, so it's the same size as number of tris in shape
@@ -1615,7 +1615,7 @@ if __name__ == "__main__":
         # parent, so the parent figures out its own name from its subsegments.  This is
         # magic figured out by OS.
         assert len(nif.shapes[0].partitions[2].subsegments) > 0, "Shapes have subsegments"
-        assert nif.shapes[0].partitions[2].subsegments[0].name == "FO4 R-Up Arm", "Subsegments have human-readable names"
+        assert nif.shapes[0].partitions[2].subsegments[0].name == "FO4 Up Arm.R", "Subsegments have human-readable names"
 
         print("### Can write segments back out")
         # When writing segments, the tri list refers to segments/subsegments by ID *not*
@@ -1632,9 +1632,9 @@ if __name__ == "__main__":
         nif3 = NifFile(r"tests/Out/SegmentsMaleBody.nif")
         assert len(nif3.shapes[0].partitions) == 7, "Have the same number of partitions as before"
         assert nif3.shapes[0].partitions[2].id != 0, "Partition IDs same as before"
-        assert nif3.shapes[0].partitions[2].name == "FO4 Human 2"
+        assert nif3.shapes[0].partitions[2].name == "FO4 Human Arm.R"
         assert len(nif3.shapes[0].partitions[2].subsegments) > 0, "Shapes have subsegments"
-        assert nif3.shapes[0].partitions[2].subsegments[0].name == "FO4 R-Up Arm", "Subsegments have human-readable names"
+        assert nif3.shapes[0].partitions[2].subsegments[0].name == "FO4 Up Arm.R", "Subsegments have human-readable names"
         assert nif3.shapes[0].segment_file == r"Meshes\Actors\Character\CharacterAssets\MaleBodyOut.ssf"
 
 
@@ -1698,9 +1698,13 @@ if __name__ == "__main__":
         assert FO4Segment.name_match("FO4Segment #3") == 3, "Match FO4 parts"
         assert FO4Segment.name_match("Segment 4") < 0, "Don't match bougs names"
 
-        sseg_par, sseg_id, sseg_mat = FO4Subsegment.name_match("FO4 R-Kne-Clf")
-        assert sseg_par == "FO4 Human 5", "Extract subseg parent name"
+        sseg_par, sseg_id, sseg_mat = FO4Subsegment.name_match("FO4 Kne-Clf.R")
+        assert sseg_par == "FO4 Human Leg.R", "Extract subseg parent name"
         assert sseg_mat == 0x22324321, "Extract material"
+
+        sseg_par, sseg_id, sseg_mat = FO4Subsegment.name_match("FO4 Lo Ft-Ank.R")
+        assert sseg_par == "FO4 Human Leg.R", "Extract subseg parent name"
+        assert sseg_mat == 0xc7e6bc92, "Extract material"
 
         sseg_par, sseg_id, sseg_mat = FO4Subsegment.name_match("FO4 30 - Hair Top")
         #assert sseg_par == "FO4 1 | Head/Hair", "Should have parent name"
