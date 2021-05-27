@@ -757,3 +757,38 @@ NIFLY_API void setSegments(void* nifref, void* shaperef,
     nif->SetShapeSegments(shape, inf, triParts);
     nif->UpdateSkinPartitions(shape);
 }
+NIFLY_API int getColorsForShape(void* nifref, void* shaperef, float* colors, int colorLen) {
+    /*
+        Return vertex colors.
+        colorLen = # of floats buffer can hold, has to be 4x number of colors
+        Return value is # of colors, which is # of vertices.
+    */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+    const std::vector<Color4>* theColors = nif->GetColorsForShape(shape->name.get());
+    for (int i = 0, j = 0; j < colorLen && i < theColors->size(); i++) {
+        colors[j++] = theColors->at(i).r;
+        colors[j++] = theColors->at(i).g;
+        colors[j++] = theColors->at(i).b;
+        colors[j++] = theColors->at(i).a;
+    }
+    return int(theColors->size());
+}
+NIFLY_API void setColorsForShape(void* nifref, void* shaperef, float* colors, int colorLen) {
+    /*
+        Set vertex colors.
+        colorLen = # of color values the buf can hold, must be same as # of vertices
+    */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+    std::vector<Color4> theColors;
+    for (int i = 0, j = 0; i < colorLen; i++) {
+        Color4 c;
+        c.r = colors[j++];
+        c.g = colors[j++];
+        c.b = colors[j++];
+        c.a = colors[j++];
+        theColors.push_back(c);
+    }
+    nif->SetColorsForShape(shape->name.get(), theColors);
+}
