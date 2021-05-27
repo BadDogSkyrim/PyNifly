@@ -885,10 +885,10 @@ namespace NiflyDLLTests
 			// ------ Now show we can write the file back out -------
 			std::filesystem::path testfileout = testRoot / "Out/geBPFO4Helmet.nif";
 
-			float verts[2500*3];
-			uint16_t rawtris[3000*3];
-			float uv[2500*2];
-			float norms[2500*3];
+			float verts[2500 * 3];
+			uint16_t rawtris[3000 * 3];
+			float uv[2500 * 2];
+			float norms[2500 * 3];
 
 			int vlen = getVertsForShape(nif, theHelmet, verts, 2500, 0);
 			int tlen = getTriangles(nif, theHelmet, rawtris, 3000, 0);
@@ -906,11 +906,11 @@ namespace NiflyDLLTests
 			void* newNif = createNif("FO4");
 			void* newSkin = createSkinForNif(newNif, "FO4");
 
-			void* newHelm = createNifShapeFromData(newNif, "Helmet", 
-				verts, vlen*3,
-				rawtris, tlen*3,
-				uv, ulen*2,
-				norms, nlen*3);
+			void* newHelm = createNifShapeFromData(newNif, "Helmet",
+				verts, vlen * 3,
+				rawtris, tlen * 3,
+				uv, ulen * 2,
+				norms, nlen * 3);
 			skinShape(newNif, newHelm);
 
 			uint16_t segData[100];
@@ -999,6 +999,66 @@ namespace NiflyDLLTests
 			sscount = getSubsegments(nif3, shapes3[0], seg1id, subsegs, 20);
 			Assert::AreEqual(1, sscount);
 			Assert::AreEqual(30, int(subsegs[1]));
+		};
+
+		TEST_METHOD(vertexColors) {
+			/* Can load and save vertex colors */
+			std::filesystem::path testfile = testRoot / "FO4/HeadGear1.nif";
+
+			void* nif;
+			void* shapes[10];
+			float verts[1000 * 3];
+			float colors[1000 * 4];
+			float norms[1000 * 3];
+			float uvs[1000 * 2];
+			uint16_t tris[1100 * 3];
+
+			// Can load vertex colors
+			nif = load(testfile.string().c_str());
+			getShapes(nif, shapes, 10, 0);
+			int vertLen = getVertsForShape(nif, shapes[0], verts, 1000, 0);
+			int colorLen = getColorsForShape(nif, shapes[0], colors, vertLen*4);
+			int triLen = getTriangles(nif, shapes[0], tris, 1100 * 3, 0);
+			int uvLen = getUVs(nif, shapes[0], uvs, vertLen * 2, 0);
+			int normLen = getNormalsForShape(nif, shapes[0], norms, vertLen * 3, 0);
+
+			Assert::AreEqual(vertLen, colorLen);
+			Assert::IsTrue(colors[0] == 1 and
+				colors[1] == 1 and
+				colors[2] == 1 and
+				colors[3] == 1);
+			
+			Assert::IsTrue(colors[561 * 4] == 0);
+
+			// Can save vertex colors
+			std::filesystem::path testfileOut = testRoot / "Out/vertexColors_HeadGear1.nif";
+
+			void* nif2 = createNif("FO4");
+			void* shape2 = createNifShapeFromData(nif2, "Hood",
+				verts, vertLen * 3,
+				tris, triLen * 3,
+				uvs, uvLen * 2,
+				norms, normLen * 3);
+			setColorsForShape(nif2, shape2, colors, colorLen);
+
+			saveNif(nif2, testfileOut.string().c_str());
+
+			// And can read them back correctly
+			void* nif3;
+			void* shapes3[10];
+			float colors3[1000*4];
+
+			nif3 = load(testfileOut.string().c_str());
+			getShapes(nif3, shapes3, 10, 0);
+			int colorsLen3 = getColorsForShape(nif3, shapes3[0], colors3, 1000 * 4);
+
+			Assert::AreEqual(vertLen, colorsLen3);
+			Assert::IsTrue(colors3[0] == 1 and
+				colors3[1] == 1 and
+				colors3[2] == 1 and
+				colors3[3] == 1);
+
+			Assert::IsTrue(colors3[561 * 4] == 0);
 		};
 	};
 }
