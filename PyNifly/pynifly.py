@@ -43,6 +43,8 @@ def load_nifly(nifly_path):
     nifly.getAllShapeNames.restype = c_int
     nifly.getBoneSkinToBoneXform.argtypes = [c_void_p, c_char_p, c_char_p, c_void_p]
     nifly.getBoneSkinToBoneXform.restype = None 
+    nifly.getColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
+    nifly.getColorsForShape.restype = c_int
     nifly.getGameName.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getGameName.restype = c_int
     nifly.getGlobalToSkin.argtypes = [c_void_p, c_void_p, c_void_p]
@@ -111,6 +113,8 @@ def load_nifly(nifly_path):
     nifly.saveSkinnedNif.restype = None
     nifly.segmentCount.argtypes = [c_void_p, c_void_p]
     nifly.segmentCount.restype = c_int
+    nifly.setColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
+    nifly.setColorsForShape.restype = None
     nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p]
     nifly.setGlobalToSkinXform.restype = None
     nifly.setPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int]
@@ -458,6 +462,7 @@ class NiShape:
         self._handle = theShapeRef
         self.transform = MatTransform()
         self._normals = None
+        self._colors = None
         self._scale = 1.0
         self._tris = None
         self._is_skinned = False
@@ -514,6 +519,18 @@ class NiShape:
             self._verts = [(v[0], v[1], v[2]) for v in verts]
         return self._verts
 
+    @property
+    def colors(self):
+        if not self._colors:
+            if self._verts:
+                buflen = len(self._verts)
+            else:
+                buflen = NifFile.nifly.getColorsForShape(self.parent._handle, self._handle, None, 0)
+            buf = (c_float * 4 * buflen)()
+            colCount = NifFile.nifly.getColorsForShape(self.parent._handle, self._handle, buf, buflen*4)
+            self._colors = [(buf[i][0], buf[i][1], buf[i][2], buf[i][3]) for i in range(colCount)]
+        return self._colors
+    
     @property
     def normals(self):
         if not self._normals:
@@ -849,6 +866,16 @@ class NiShape:
                                       tbuf, len(trilist),
                                       self._segment_file.encode('utf-8'))
 
+    def set_colors(self, colors):
+        buf = (c_float * 4 * len(colors))()
+        for i, c in enumerate(colors):
+            buf[i][0] = c[0]
+            buf[i][1] = c[1]
+            buf[i][2] = c[2]
+            buf[i][3] = c[3]
+        NifFile.nifly.setColorsForShape(self.parent._handle, self._handle, 
+                                        buf, len(colors))
+
 
 # --- NifFile --- #
 class NifFile:
@@ -1051,10 +1078,11 @@ TEST_ROTATIONS = False
 TEST_PARENT = False
 TEST_PYBABY = False
 TEST_BONE_XFORM = False
-TEST_PARTITION_NAMES = True
+TEST_PARTITION_NAMES = False
 TEST_PARTITIONS = False
-TEST_SEGMENTS = True
-TEST_BP_SEGMENTS = True
+TEST_SEGMENTS = False
+TEST_BP_SEGMENTS = False
+TEST_COLORS = True
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1709,3 +1737,26 @@ if __name__ == "__main__":
         sseg_par, sseg_id, sseg_mat = FO4Subsegment.name_match("FO4 30 - Hair Top")
         #assert sseg_par == "FO4 1 | Head/Hair", "Should have parent name"
         assert sseg_id == 30, "Should have part id"
+
+    if TEST_ALL or TEST_COLORS:
+        print("### TEST_COLORS: Can load and save colors")
+
+        nif = NifFile(r"Tests/FO4/HeadGear1.nif")
+        assert nif.shapes[0].colors[0] == (1.0, 1.0, 1.0, 1.0)
+        assert nif.shapes[0].colors[561] == (0.0, 0.0, 0.0, 1.0)
+
+        nif2 = NifFile()
+        nif2.initialize("FO4", r"Tests/Out/TEST_COLORS_HeadGear1.nif")
+        _test_export_shape(nif.shapes[0], nif2)
+        nif2.shapes[0].set_colors(nif.shapes[0].colors)
+        nif2.save()
+
+        nif3 = NifFile(r"Tests/Out/TEST_COLORS_HeadGear1.nif")
+        assert nif3.shapes[0].colors[0] == (1.0, 1.0, 1.0, 1.0)
+        assert nif3.shapes[0].colors[561] == (0.0, 0.0, 0.0, 1.0)
+        
+        nif4 = NifFile(r"tests\Skyrim\test.nif")
+        assert nif4.shapes[1].name == "Armor", "Have the right shape"
+        assert len(nif4.shapes[1].verts) > 0, "Get the verts from the shape"
+        assert len(nif4.shapes[1].colors) == 0, f"Should have no colors, 0 != {len(nif4.shapes[1].colors)}"
+        

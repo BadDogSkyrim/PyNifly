@@ -777,7 +777,7 @@ NIFLY_API int getColorsForShape(void* nifref, void* shaperef, float* colors, int
 NIFLY_API void setColorsForShape(void* nifref, void* shaperef, float* colors, int colorLen) {
     /*
         Set vertex colors.
-        colorLen = # of color values the buf can hold, must be same as # of vertices
+        colorLen = # of color values in the buf, must be same as # of vertices
     */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);

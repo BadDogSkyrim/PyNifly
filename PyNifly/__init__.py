@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 31), 
+    "version": (0, 0, 32), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -127,7 +127,16 @@ def mesh_create_partition_groups(the_shape, the_object):
         log.debug(f"..Putting segment file '{the_shape.segment_file}' on '{the_object.name}'")
         the_object['FO4_SEGMENT_FILE'] = the_shape.segment_file
 
-    
+
+def import_colors(mesh, shape):
+    if len(shape.colors) > 0:
+        log.debug(f"..Importing vertex colors for {shape.name}")
+        clayer = mesh.vertex_colors.new()
+        colors = shape.colors
+        for lp in mesh.loops:
+            clayer.data[lp.index].color = colors[lp.vertex_index]
+
+
 def import_shape(the_shape: NiShape):
     """ Import the shape to a Blender object, translating bone names """
     v = the_shape.verts
@@ -136,6 +145,7 @@ def import_shape(the_shape: NiShape):
     new_mesh = bpy.data.meshes.new(the_shape.name)
     new_mesh.from_pydata(v, [], t)
     new_object = bpy.data.objects.new(the_shape.name, new_mesh)
+    import_colors(new_mesh, the_shape)
 
     # Global-to-skin transform is what offsets all the vertices together, e.g. so that
     # heads can be positioned at the origin. Put the reverse transform on the blender 
@@ -865,6 +875,11 @@ def export_shape(nif, trip, obj, target_key=''):
         # Old UV map had dups where verts were split; new matches 1-1 with verts
         uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
         norms_new = [norms[loops.index(i)] for i in range(len(verts))]
+        if len(editmesh.vertex_colors) > 0:
+            colordata = editmesh.vertex_colors.active.data
+            colors_new = [colordata[loops.index(i)].color[:] for i in range(len(verts))]
+        else:
+            colors_new = None
         tris = [(loops[i], loops[i+1], loops[i+2]) for i in range(0, len(loops), 3)]
         #log.debug(f"..Vertex 44 loc: {verts[44]}")
         #log.debug(f"..Vertex 44 normals: {[norms[i] for i, l in enumerate(loops) if l==44]}")
@@ -875,6 +890,8 @@ def export_shape(nif, trip, obj, target_key=''):
     obj.data.update()
     log.info("..Exporting to nif")
     new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_new)
+    if colors_new:
+        new_shape.set_colors(colors_new)
 
     if is_skinned:
         nif.createSkin()
@@ -1108,10 +1125,11 @@ def run_tests():
     TEST_SKEL = False
     TEST_PARTITIONS = False
     TEST_SEGMENTS = False
-    TEST_BP_SEGMENTS = True
+    TEST_BP_SEGMENTS = False
     TEST_ROGUE01 = False
     TEST_ROGUE02 = False
     TEST_NORMAL_SEAM = False
+    TEST_COLORS = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -1149,6 +1167,11 @@ def run_tests():
         export_shape(outnif, outtrip, obj, shapekey) 
         outnif.save()
 
+    def find_vertex(mesh, targetloc):
+        for v in mesh.vertices:
+            if round(v.co[0], 2) == round(targetloc[0], 2) and round(v.co[1], 2) == round(targetloc[1], 2) and round(v.co[2], 2) == round(targetloc[2], 2):
+                return v.index
+        return -1
 
 
     if TEST_BPY_ALL or TEST_UNIT:
@@ -1187,7 +1210,6 @@ def run_tests():
         assert len(new_cube.data.uv_layers) == 1, "ERROR: Cube doesn't have a UV layer"
         assert len(new_cube.data.uv_layers[0].data) == 36, f"ERROR: Cube should have 36 UV locations, has {len(new_cube.data.uv_layers[0].data)}"
         assert len(new_cube.data.polygons) == 12, f"ERROR: Cube should have 12 polygons, has {len(new_cube.data.polygons)}"
-        # bpy.data.objects.remove(cube, do_unlink=True)
 
         print("## And can do the same for FO4")
 
@@ -1346,7 +1368,6 @@ def run_tests():
         nif = NifFile(testfile)
         import_nif(nif)
 
-        armor1 = None
         for obj in bpy.context.selected_objects:
             if "Armor" in obj.name:
                 armor1 = obj
@@ -1355,6 +1376,8 @@ def run_tests():
         maxz = max([v.co.z for v in armor1.data.vertices])
         minz = min([v.co.z for v in armor1.data.vertices])
         assert maxz < 0 and minz > -130, "Error: Vertices are positioned below origin"
+
+        assert len(armor1.data.vertex_colors) == 0, "ERROR: Armor should have no colors"
 
         print("..Exporting  to test file")
         outfile1 = os.path.join(pynifly_dev_path, "tests/Out/testSkyrim03.nif")
@@ -1667,9 +1690,10 @@ def run_tests():
         nif = NifFile(testfile)
         import_nif(nif)
 
-        for o in bpy.context.selected_objects:
-            if o.name.startswith("Helmet:0"):
-                obj = o
+        #for o in bpy.context.selected_objects:
+        #    if o.name.startswith("Helmet:0"):
+        #        obj = o
+        obj = bpy.context.object
         assert "FO4 30 - Hair Top" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
         assert "Meshes\\Armor\\FlightHelmet\\Helmet.ssf" == obj['FO4_SEGMENT_FILE'], "FO4 segment file read and saved for later use"
 
@@ -1762,6 +1786,7 @@ def run_tests():
         n = [round(x, 1) for x in shape2.normals[8]]
         assert n == [0, 1, 0], f"Normal should point along y axis, instead: {n}"
 
+
     if TEST_BPY_ALL or TEST_NORMAL_SEAM:
         print("### TEST_NORMAL_SEAM: Normals on a split seam are seamless")
 
@@ -1777,6 +1802,29 @@ def run_tests():
 
         assert len(target_vert) == 2, "Expect vert to have been split"
         assert VNearEqual(shape2.normals[target_vert[0]], shape2.normals[target_vert[1]]), f"Normals should be equal: {shape2.normals[target_vert[0]]} != {shape2.normals[target_vert[1]]}" 
+
+
+    if TEST_BPY_ALL or TEST_COLORS:
+        print("### TEST_COLORS: Can read & write vertex colors")
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/HeadGear1.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        obj = bpy.context.object
+        colordata = obj.data.vertex_colors.active.data
+        targetv = find_vertex(obj.data, (1.62, 7.08, 0.37))
+        assert colordata[0].color[:] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not read correctly: {colordata[0].color[:]}"
+        for lp in obj.data.loops:
+            if lp.vertex_index == targetv:
+                assert colordata[lp.index].color[:] == (0.0, 0.0, 0.0, 1.0), f"Color for vert not read correctly: {colordata[lp.index].color[:]}"
+
+        testfileout = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLORSB_HeadGear1.nif")
+        export_shape_to(obj, testfileout, "FO4")
+
+        nif2 = NifFile(testfileout)
+        assert nif2.shapes[0].colors[0] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not reread correctly: {nif2.shapes[0].colors[0]}"
+        assert nif2.shapes[0].colors[561] == (0.0, 0.0, 0.0, 1.0), f"Color 561 not reread correctly: {nif2.shapes[0].colors[561]}"
 
 
     print("""
