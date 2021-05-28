@@ -1020,7 +1020,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         
             if len(objs_to_export) == 0:
                 log.warning("Warning: Nothing to export")
-                self.report("Warning: Nothing to export")
+                self.report({"WARNING"}, "Warning: No selected object to export")
                 return {"CANCELLED"}
             else:
                 shape_keys = get_with_uscore(get_common_shapes(objs_to_export))
