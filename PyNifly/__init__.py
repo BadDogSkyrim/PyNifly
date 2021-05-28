@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 32), 
+    "version": (0, 0, 33), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -801,8 +801,9 @@ def mesh_from_key(editmesh, verts, target_key):
     for p in editmesh.polygons:
         faces.append([editmesh.loops[lpi].vertex_index for lpi in p.loop_indices])
     log.debug(f"....Remaking mesh with shape {target_key}: {len(verts)} verts, {len(faces)} faces")
+    newverts = [v.co[:] for v in editmesh.shape_keys.key_blocks[target_key].data]
     newmesh = bpy.data.meshes.new(editmesh.name)
-    newmesh.from_pydata(verts, [], faces)
+    newmesh.from_pydata(newverts, [], faces)
     return newmesh
 
 def export_shape(nif, trip, obj, target_key=''):
@@ -828,8 +829,9 @@ def export_shape(nif, trip, obj, target_key=''):
 
     originalmesh = obj.data
     editmesh = originalmesh.copy()
-    obj.data = editmesh
+    loopcolors = None
     saved_sk = obj.active_shape_key_index
+    obj.data = editmesh
     try:
         bpy.ops.object.select_all(action='DESELECT')
         obj.select_set(True)
@@ -857,8 +859,13 @@ def export_shape(nif, trip, obj, target_key=''):
             p.use_smooth = True
 
         editmesh.update()
-        
+         
         verts, weights_by_vert, morphdict = extract_vert_info(obj, editmesh, target_key)
+
+        bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
+        if len(editmesh.vertex_colors) > 0:
+            loopcolors = [c.color[:] for c in editmesh.vertex_colors.active.data]
+            #log.debug(f"Saved loop colors: {loopcolors}")
 
         # Apply shape key verts to the mesh so normals will be correct.  If the mesh has
         # custom normals, fukkit -- use the custom normals and assume the deformation
@@ -875,12 +882,13 @@ def export_shape(nif, trip, obj, target_key=''):
         # Old UV map had dups where verts were split; new matches 1-1 with verts
         uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
         norms_new = [norms[loops.index(i)] for i in range(len(verts))]
-        if len(editmesh.vertex_colors) > 0:
-            colordata = editmesh.vertex_colors.active.data
-            colors_new = [colordata[loops.index(i)].color[:] for i in range(len(verts))]
-        else:
-            colors_new = None
         tris = [(loops[i], loops[i+1], loops[i+2]) for i in range(0, len(loops), 3)]
+        colors_new = None
+        if loopcolors:
+            log.debug(f"..Exporting vertex colors for shape {obj.name}")
+            colors_new = [loopcolors[loops.index(i)] for i in range(len(verts))]
+        else:
+            log.debug(f"..No vertex colors in shape {obj.name}")
         #log.debug(f"..Vertex 44 loc: {verts[44]}")
         #log.debug(f"..Vertex 44 normals: {[norms[i] for i, l in enumerate(loops) if l==44]}")
     finally:
@@ -1807,6 +1815,21 @@ def run_tests():
     if TEST_BPY_ALL or TEST_COLORS:
         print("### TEST_COLORS: Can read & write vertex colors")
         bpy.ops.object.select_all(action='DESELECT')
+        export_from_blend(r"tests\FO4\VertexColors.blend",
+                          "Plane",
+                          "FO4",
+                          r"tests/Out/TEST_COLORS_Plane.nif",
+                          "_Test")
+
+        nif3 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLORS_Plane.nif"))
+        assert len(nif3.shapes[0].colors) > 0, f"Expected color layers, have: {len(nif3.shapes[0].colors)}"
+        cd = nif3.shapes[0].colors
+        assert cd[0] == (0.0, 1.0, 0.0, 1.0), f"First vertex found: {cd[0]}"
+        assert cd[1] == (1.0, 1.0, 0.0, 1.0), f"Second vertex found: {cd[1]}"
+        assert cd[2] == (1.0, 0.0, 0.0, 1.0), f"Second vertex found: {cd[2]}"
+        assert cd[3] == (0.0, 0.0, 1.0, 1.0), f"Second vertex found: {cd[3]}"
+
+        bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/HeadGear1.nif")
         nif = NifFile(testfile)
         import_nif(nif)
@@ -1825,7 +1848,6 @@ def run_tests():
         nif2 = NifFile(testfileout)
         assert nif2.shapes[0].colors[0] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not reread correctly: {nif2.shapes[0].colors[0]}"
         assert nif2.shapes[0].colors[561] == (0.0, 0.0, 0.0, 1.0), f"Color 561 not reread correctly: {nif2.shapes[0].colors[561]}"
-
 
     print("""
     ############################################################
