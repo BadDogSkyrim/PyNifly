@@ -123,23 +123,33 @@ int NIFLY_API loadShapeNames(const char* filename, char* buf, int len) {
 int NIFLY_API getShapes(void* f, void** buf, int len, int start) {
     NifFile* theNif = static_cast<NifFile*>(f);
     std::vector<nifly::NiShape*> shapes = theNif->GetShapes();
-    for (int i=start, j=0; (i < start+len) && (i < shapes.size()); i++)
+    for (int i=start, j=0; (j < len) && (i < shapes.size()); i++)
         buf[j++] = shapes[i];
     return int(shapes.size());
 }
+/*
+    Get a shape's verts.
+    buf, len = buffer that receives triples. len is length of buffer in floats.
+    start = vertex index to start with.
+    */
 NIFLY_API int getVertsForShape(void* theNif, void* theShape, float* buf, int len, int start)
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     std::vector<nifly::Vector3> verts;
     nif->GetVertsForShape(shape, verts);
-    for (int i = start, j = 0; i < start + len && i < verts.size(); i++) {
+    for (int i = start, j = 0; j < len && i < verts.size(); i++) {
         buf[j++] = verts.at(i).x;
         buf[j++] = verts.at(i).y;
         buf[j++] = verts.at(i).z;
     }
     return int(verts.size());
 }
+/*
+    Get a shape's normals.
+    buf, len = buffer that receives triples. len is length of buffer in floats.
+    start = normal index to start with.
+    */
 NIFLY_API int getNormalsForShape(void* theNif, void* theShape, float* buf, int len, int start)
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
@@ -147,7 +157,7 @@ NIFLY_API int getNormalsForShape(void* theNif, void* theShape, float* buf, int l
     const std::vector<nifly::Vector3>* norms;
     norms = nif->GetNormalsForShape(shape);
     if (norms) {
-        for (int i = start, j = 0; i < start + len && i < norms->size(); i++) {
+        for (int i = start, j = 0; j < len && i < norms->size(); i++) {
             buf[j++] = norms->at(i).x;
             buf[j++] = norms->at(i).y;
             buf[j++] = norms->at(i).z;
@@ -169,13 +179,18 @@ NIFLY_API int getNormalsForShape(void* theNif, void* theShape, float* buf, int l
 //    }
 //    return verts->size();
 //}
+/*
+    Get a shape's tris.
+    buf, len = buffer that receives triples. len is length of buffer in uint16's.
+    start = tri index to start with.
+    */
 NIFLY_API int getTriangles(void* theNif, void* theShape, uint16_t* buf, int len, int start)
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     std::vector<nifly::Triangle> shapeTris;
     shape->GetTriangles(shapeTris);
-    for (int i=start, j=0; i < start+len && i < shapeTris.size(); i++) {
+    for (int i=start, j=0; j < len && i < shapeTris.size(); i++) {
         buf[j++] = shapeTris.at(i).p1;
         buf[j++] = shapeTris.at(i).p2;
         buf[j++] = shapeTris.at(i).p3;
@@ -223,7 +238,7 @@ NIFLY_API int getUVs(void* theNif, void* theShape, float* buf, int len, int star
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     const std::vector<nifly::Vector2>* uv = nif->GetUvsForShape(shape);
-    for (int i = start, j = 0; i < start + len && i < uv->size(); i++) {
+    for (int i = start, j = 0; j < len && i < uv->size(); i++) {
         buf[j++] = uv->at(i).u;
         buf[j++] = uv->at(i).v;
     }
@@ -359,6 +374,7 @@ int NIFLY_API getVersion() {
 
 enum TargetGame StrToTargetGame(const char* gameName) {
     if (strcmp(gameName, "FO3") == 0) { return TargetGame::FO3; }
+    else if (strcmp(gameName, "FONV") == 0) { return TargetGame::FONV; }
     else if (strcmp(gameName, "SKYRIM") == 0) { return TargetGame::SKYRIM; }
     else if (strcmp(gameName, "FO4") == 0) { return TargetGame::FO4; }
     else if (strcmp(gameName, "FO4VR") == 0) { return TargetGame::FO4VR; }

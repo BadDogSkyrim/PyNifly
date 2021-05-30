@@ -3,6 +3,10 @@ import struct
 from niflytools import *
 from pynifly import *
 
+nifly_path = r"C:\Users\User\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
+NifFile.Load(nifly_path)
+NifFile.log.setLevel(logging.DEBUG)
+
 def ParentName(n):
     if n.parent:
         return n.parent.name
@@ -14,6 +18,56 @@ def xlate(str):
         str = str.replace("L Calf", "Calf") + ".L"
     elif "R Calf" in str:
         str = str.replace("R Calf", "Calf") + ".R"
+    elif "R Calf" in str:
+        str = str.replace("R Calf", "Calf") + ".R"
+    elif "L Foot" in str:
+        str = str.replace("L Foot", "Foot") + ".L"
+    elif "R Foot" in str:
+        str = str.replace("R Foot", "Foot") + ".R"
+    elif "L Toe" in str:
+        str = str.replace("L Toe", "Toe") + ".L"
+    elif "R Toe" in str:
+        str = str.replace("R Toe", "Toe") + ".R"
+    elif "L Clavicle" in str:
+        str = str.replace("L Clavicle", "Clavicle") + ".L"
+    elif "R Clavicle" in str:
+        str = str.replace("R Clavicle", "Clavicle") + ".R"
+    elif "L Thumb" in str:
+        str = str.replace("L Thumb", "Thumb") + ".L"
+    elif "R Thumb" in str:
+        str = str.replace("R Thumb", "Thumb") + ".R"
+    elif "L Finger" in str:
+        str = str.replace("L Finger", "Finger") + ".L"
+    elif "R Finger" in str:
+        str = str.replace("R Finger", "Finger") + ".R"
+    elif "L Forearm" in str:
+        str = str.replace("L Forearm", "Forearm") + ".L"
+    elif "R Forearm" in str:
+        str = str.replace("R Forearm", "Forearm") + ".R"
+    elif "L ForeTwist" in str:
+        str = str.replace("L ForeTwist", "ForeTwist") + ".L"
+    elif "R ForeTwist" in str:
+        str = str.replace("R ForeTwist", "ForeTwist") + ".R"
+    elif "L Hand" in str:
+        str = str.replace("L Hand", "Hand") + ".L"
+    elif "R Hand" in str:
+        str = str.replace("R Hand", "Hand") + ".R"
+    elif "L UpperArm" in str:
+        str = str.replace("L UpperArm", "UpperArm") + ".L"
+    elif "R UpperArm" in str:
+        str = str.replace("R UpperArm", "UpperArm") + ".R"
+    elif "L Breast" in str:
+        str = str.replace("L Breast", "Breast") + ".L"
+    elif "R Breast" in str:
+        str = str.replace("R Breast", "Breast") + ".R"
+    elif "LUpArmTwistBone" in str:
+        str = str.replace("LUpArmTwistBone", "UpArmTwistBone") + ".L"
+    elif "RUpArmTwistBone" in str:
+        str = str.replace("RUpArmTwistBone", "UpArmTwistBone") + ".R"
+    elif "LPauldron" in str:
+        str = str.replace("LPauldron", "Pauldron") + ".L"
+    elif "RPauldron" in str:
+        str = str.replace("RPauldron", "Pauldron") + ".R"
     if "L Thigh" in str:
         str = str.replace("L Thigh", "Thigh") + ".L"
     elif "R Thigh" in str:
@@ -50,10 +104,8 @@ def xlate(str):
     
     return str
 
-nifly_path = r"D:\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
-NifFile.Load(nifly_path)
 
-f = NifFile(r"D:\Games\ModOrganizer\SkyrimLE\mods\00 Vanilla Assets\meshes\actors\character\character assets\skeletonbeast.nif")
+f = NifFile(r"C:\Users\User\OneDrive\Dev\Bodyslide-OS\res\skeleton_fo3nv.nif")
 
 ##for name, node in f.nodes.items():
 ##	print(f"{xlate(skyrimDict.blender_name(name))}, {name}, {xlate(skyrimDict.blender_name(ParentName(node)))}")
