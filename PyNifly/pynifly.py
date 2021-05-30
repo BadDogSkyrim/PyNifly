@@ -1065,7 +1065,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1082,7 +1082,8 @@ TEST_PARTITION_NAMES = False
 TEST_PARTITIONS = False
 TEST_SEGMENTS = False
 TEST_BP_SEGMENTS = False
-TEST_COLORS = True
+TEST_COLORS = False
+TEST_FNV = True
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1738,6 +1739,7 @@ if __name__ == "__main__":
         #assert sseg_par == "FO4 1 | Head/Hair", "Should have parent name"
         assert sseg_id == 30, "Should have part id"
 
+
     if TEST_ALL or TEST_COLORS:
         print("### TEST_COLORS: Can load and save colors")
 
@@ -1760,3 +1762,18 @@ if __name__ == "__main__":
         assert len(nif4.shapes[1].verts) > 0, "Get the verts from the shape"
         assert len(nif4.shapes[1].colors) == 0, f"Should have no colors, 0 != {len(nif4.shapes[1].colors)}"
         
+
+    if TEST_ALL or TEST_FNV:
+        print("### TEST_COLORS: Can load and save FNV nifs")
+
+        nif = NifFile(r"tests\FNV\9mmscp.nif")
+        shapenames = [s.name for s in nif.shapes]
+        assert "Scope:0" in shapenames, f"Error in shape name 'Scope:0' not in {shapenames}"
+        scopeidx = shapenames.index("Scope:0")
+        assert len(nif.shapes[scopeidx].verts) == 831, f"Error in vertex count: 831 != {nif.shapes[0].verts == 831}"
+        
+        nif2 = NifFile()
+        nif2.initialize('FONV', r"tests/Out/9mmscp.nif")
+        for s in nif.shapes:
+            _test_export_shape(s, nif2)
+        nif2.save()

@@ -1060,5 +1060,109 @@ namespace NiflyDLLTests
 
 			Assert::IsTrue(colors3[561 * 4] == 0);
 		};
-	};
+		TEST_METHOD(expImpFNV) {
+			/* NOT WORKING */
+			return;
+
+			/* Can load and save vertex colors */
+			std::filesystem::path testfile = testRoot / "FNV/9mmscp.nif";
+
+			void* nif;
+			void* shapes[10];
+			float verts[1000 * 3];
+			float norms[1000 * 3];
+			float uvs[1000 * 2];
+			uint16_t tris[1100 * 3];
+
+			// Can load nif
+			nif = load(testfile.string().c_str());
+			int shapeCount = getShapes(nif, shapes, 10, 0);
+			int vertLen = getVertsForShape(nif, shapes[0], verts, 1000, 0);
+			int triLen = getTriangles(nif, shapes[0], tris, 1100 * 3, 0);
+			int uvLen = getUVs(nif, shapes[0], uvs, vertLen * 2, 0);
+			int normLen = getNormalsForShape(nif, shapes[0], norms, vertLen * 3, 0);
+
+			Assert::AreEqual(9, shapeCount, L"Have right number of shapes");
+
+			// Can save nif
+			std::filesystem::path testfileOut = testRoot / "Out/expImpFNV_9mmscp.nif";
+
+			void* nif2 = createNif("FONV");
+			void* shape2 = createNifShapeFromData(nif2, "Scope",
+				verts, vertLen * 3,
+				tris, triLen * 3,
+				uvs, uvLen * 2,
+				norms, normLen * 3);
+
+			saveNif(nif2, testfileOut.string().c_str());
+
+			// And can read them back correctly
+			void* nif3;
+			void* shapes3[10];
+
+			nif3 = load(testfileOut.string().c_str());
+			getShapes(nif3, shapes3, 10, 0);
+
+		};
+		TEST_METHOD(hdtBones) {
+			/* Can load and save shape with unique HDT bones */
+			std::filesystem::path testfile = testRoot / "SkyrimSE/Anchor.nif";
+
+			void* nif;
+			void* shapes[10];
+			float* verts = new float[1000 * 3];
+			float norms[1000 * 3];
+			float uvs[1000 * 2];
+			uint16_t tris[1100 * 3];
+
+			// Can load nif. Intentionally passing in short buffers to make sure that works.
+			// This is a big nif, so it will overwrite everything in sight if it's wrong.
+			nif = load(testfile.string().c_str());
+			int shapeCount = getShapes(nif, shapes, 10, 0);
+			long vertLen = getVertsForShape(nif, shapes[0], verts, 1000, 0);
+			int triLen = getTriangles(nif, shapes[0], tris, 1100 * 3, 0);
+			int uvLen = getUVs(nif, shapes[0], uvs, 1000 * 2, 0);
+			int normLen = getNormalsForShape(nif, shapes[0], norms, 1000 * 3, 0);
+
+			Assert::AreEqual(1, shapeCount, L"Have right number of shapes");
+			Assert::AreEqual(16534L, vertLen, L"Have right number of vertices");
+
+			// Can save nif
+			std::filesystem::path testfileOut = testRoot / "Out/hdtBones_Anchor.nif";
+
+			// Get all the data because we didn't above
+			float* verts2 = new float[vertLen * 3];
+			uint16_t* tris2 = new uint16_t[triLen * 3];
+			float* uvs2 = new float[vertLen * 2];
+			float* norms2 = new float[vertLen * 3];
+
+			getVertsForShape(nif, shapes[0], verts2, vertLen, 0);
+			getTriangles(nif, shapes[0], tris2, triLen * 3, 0);
+			getUVs(nif, shapes[0], uvs2, vertLen * 2, 0);
+			getNormalsForShape(nif, shapes[0], norms2, vertLen * 3, 0);
+
+			void* nif2 = createNif("SKYRIMSE");
+			void* skin2 = createSkinForNif(nif2, "SKYRIMSE");
+
+			void* shape2 = createNifShapeFromData(nif2, "KSSMP_Anchor",
+				verts2, vertLen * 3,
+				tris2, triLen * 3,
+				uvs2, uvLen * 2,
+				norms2, normLen * 3);
+
+			skinShape(nif2, shape2);
+
+			saveNif(nif2, testfileOut.string().c_str());
+
+			// And can read them back correctly
+			void* nif3;
+			void* shapes3[10];
+			float* verts3 = new float[vertLen * 3];
+
+			nif3 = load(testfileOut.string().c_str());
+			int shapeCount3 = getShapes(nif3, shapes3, 10, 0);
+			long vertLen3 = getVertsForShape(nif3, shapes3[0], verts3, vertLen * 3, 0);
+
+			Assert::IsTrue(vertLen == vertLen3, L"Got same number of verts back");
+		};	};
 }
