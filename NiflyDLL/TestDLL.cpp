@@ -910,7 +910,8 @@ namespace NiflyDLLTests
 				verts, vlen * 3,
 				rawtris, tlen * 3,
 				uv, ulen * 2,
-				norms, nlen * 3);
+				norms, nlen * 3,
+				nullptr);
 			skinShape(newNif, newHelm);
 
 			uint16_t segData[100];
@@ -1038,7 +1039,8 @@ namespace NiflyDLLTests
 				verts, vertLen * 3,
 				tris, triLen * 3,
 				uvs, uvLen * 2,
-				norms, normLen * 3);
+				norms, normLen * 3,
+				nullptr);
 			setColorsForShape(nif2, shape2, colors, colorLen);
 
 			saveNif(nif2, testfileOut.string().c_str());
@@ -1092,7 +1094,8 @@ namespace NiflyDLLTests
 				verts, vertLen * 3,
 				tris, triLen * 3,
 				uvs, uvLen * 2,
-				norms, normLen * 3);
+				norms, normLen * 3,
+				nullptr);
 
 			saveNif(nif2, testfileOut.string().c_str());
 
@@ -1110,7 +1113,7 @@ namespace NiflyDLLTests
 
 			void* nif;
 			void* shapes[10];
-			float* verts = new float[1000 * 3];
+			float verts[1000 * 3];
 			float norms[1000 * 3];
 			float uvs[1000 * 2];
 			uint16_t tris[1100 * 3];
@@ -1144,15 +1147,39 @@ namespace NiflyDLLTests
 			void* nif2 = createNif("SKYRIMSE");
 			void* skin2 = createSkinForNif(nif2, "SKYRIMSE");
 
+			uint16_t options = 1;
 			void* shape2 = createNifShapeFromData(nif2, "KSSMP_Anchor",
 				verts2, vertLen * 3,
 				tris2, triLen * 3,
 				uvs2, uvLen * 2,
-				norms2, normLen * 3);
+				norms2, normLen * 3,
+				&options);
 
 			skinShape(nif2, shape2);
 
-			saveNif(nif2, testfileOut.string().c_str());
+			char boneNameBuf[2000];
+			int boneCount = getShapeBoneCount(nif, shapes[0]);
+			getShapeBoneNames(nif, shapes[0], boneNameBuf, 2000);
+			for (char* p = boneNameBuf; *p != '\0'; p++) {
+				if (*p == '\n') *p = '\0';
+			}
+			char* bnp = boneNameBuf;
+			for (int boneIdx = 0; boneIdx < boneCount; boneIdx++) {
+				MatTransform boneXForm;
+				int vwpLen = getShapeBoneWeightsCount(nif, shapes[0], boneIdx);
+				VertexWeightPair* vwp = new VertexWeightPair[vwpLen];
+				getShapeBoneWeights(nif, shapes[0], boneIdx, vwp, vwpLen);
+				getBoneSkinToBoneXform(skin2, "KSSMP_Anchor", bnp, &boneXForm.translation.x);
+
+				addBoneToShape(skin2, shape2, bnp, &boneXForm);
+				setShapeBoneWeights(nif2, shape2, boneIdx, vwp, vwpLen);
+
+				for (; *bnp != '\0'; bnp++);
+				bnp++;
+				delete[]vwp;
+			};
+
+			saveSkinnedNif(skin2, testfileOut.string().c_str());
 
 			// And can read them back correctly
 			void* nif3;
@@ -1164,5 +1191,12 @@ namespace NiflyDLLTests
 			long vertLen3 = getVertsForShape(nif3, shapes3[0], verts3, vertLen * 3, 0);
 
 			Assert::IsTrue(vertLen == vertLen3, L"Got same number of verts back");
-		};	};
+
+			delete[]verts2;
+			delete[]tris2;
+			delete[]uvs2;
+			delete[]norms2;
+			delete[]verts3;
+		};	
+	};
 }

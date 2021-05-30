@@ -436,7 +436,8 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     const float* verts, int verts_len,
     const uint16_t* tris, int tris_len,
     const float* uv_points, int uv_len,
-    const float* norms, int norms_len) {
+    const float* norms, int norms_len,
+    uint16_t* optionsPtr=nullptr) {
 
     NifFile *nif = static_cast<NifFile*>(parentNif);
     std::vector<Vector3> v;
@@ -472,7 +473,10 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
         n.push_back(thisnorm);
     }
 
-    return nif->CreateShapeFromData(shapeName, &v, &t, &uv, &n);
+    if (optionsPtr)
+        return PyniflyCreateShapeFromData(nif, shapeName, &v, &t, &uv, &n, *optionsPtr);
+    else
+        return nif->CreateShapeFromData(shapeName, &v, &t, &uv, &n);
 }
 
 NIFLY_API void* createSkinForNif(void* nifPtr, const char* gameName) {
@@ -514,6 +518,10 @@ NIFLY_API void setShapeWeights(void* anim, void* theShape, const char* boneName,
     SetShapeWeights(static_cast<AnimInfo*>(anim), static_cast<NiShape*>(theShape), boneName, aw);
 }
 
+/* 
+    Save skinned nif
+    options: 1 = save as head part, uses BSDynamicTriShape on SSE 
+    */
 NIFLY_API int saveSkinnedNif(void* anim, const char* filepath) {
     return SaveSkinnedNif(static_cast<AnimInfo*>(anim), std::string(filepath));
 }
