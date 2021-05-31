@@ -33,7 +33,7 @@ def load_nifly(nifly_path):
     nifly.addNode.restype = c_int
     nifly.createNif.argtypes = [c_char_p]
     nifly.createNif.restype = c_void_p
-    nifly.createNifShapeFromData.argtypes = [c_void_p, c_char_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int]
+    nifly.createNifShapeFromData.argtypes = [c_void_p, c_char_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_void_p]
     nifly.createNifShapeFromData.restype = c_void_p
     nifly.createSkinForNif.argtypes = [c_void_p, c_char_p]
     nifly.createSkinForNif.restype = c_void_p
@@ -465,6 +465,7 @@ class NiShape:
         self._colors = None
         self._scale = 1.0
         self._tris = None
+        self._uvs = None
         self._is_skinned = False
         self._verts = None
         self._weights = None
@@ -515,7 +516,7 @@ class NiShape:
                 self.parent._handle, self._handle, None, 0, 0)
             verts = (c_float * 3 * totalCount)()
             NifFile.nifly.getVertsForShape(
-                self.parent._handle, self._handle, verts, totalCount, 0)
+                self.parent._handle, self._handle, verts, totalCount * 3, 0)
             self._verts = [(v[0], v[1], v[2]) for v in verts]
         return self._verts
 
@@ -540,29 +541,19 @@ class NiShape:
             if totalCount > 0:
                 norms = (c_float * 3 * totalCount)()
                 NifFile.nifly.getNormalsForShape(
-                        self.parent._handle, self._handle, norms, totalCount, 0)
+                        self.parent._handle, self._handle, norms, totalCount * 3, 0)
                 self._normals = [(n[0], n[1], n[2]) for n in norms]
         return self._normals
 
     @property
     def tris(self):
         if not self._tris:
-            BUFSIZE = 1000
-            TRIBUF = c_uint16 * 3 * BUFSIZE
-            tris = TRIBUF()
-            self._tris = []
-            readSoFar = 0
-            remainingCount = 0
-            while (readSoFar == 0) or (remainingCount > 0):
-                totalCount = NifFile.nifly.getTriangles(
-                    self.parent._handle, self._handle, tris, BUFSIZE, readSoFar)
-                if readSoFar == 0:
-                    remainingCount = totalCount
-                if remainingCount > 0:
-                    for i in range(0, min(remainingCount, BUFSIZE)):
-                        self._tris.append((tris[i][0], tris[i][1], tris[i][2]))
-                remainingCount -= BUFSIZE
-                readSoFar += BUFSIZE
+            triCount = NifFile.nifly.getTriangles(
+                    self.parent._handle, self._handle, None, 0, 0)
+            buf = (c_uint16 * 3 * triCount)()
+            NifFile.nifly.getTriangles(
+                    self.parent._handle, self._handle, buf, triCount * 3, 0)
+            self._tris = [(buf[i][0], buf[i][1], buf[i][2]) for i in range(triCount)]
         return self._tris
 
     def _read_partitions(self):
@@ -626,23 +617,13 @@ class NiShape:
     
     @property
     def uvs(self):
-        BUFSIZE = (len(self._verts) if self._verts else 1000)
-        UVBUF = c_float * 2 * BUFSIZE
-        buf = UVBUF()
-        out = []
-        readSoFar = 0
-        remainingCount = 0
-        while (readSoFar == 0) or (remainingCount > 0):
-            totalCount = NifFile.nifly.getUVs(
-                self.parent._handle, self._handle, buf, BUFSIZE, readSoFar)
-            if readSoFar == 0:
-                remainingCount = totalCount
-            if remainingCount > 0:
-                for i in range(0, min(remainingCount, BUFSIZE)):
-                    out.append((buf[i][0], buf[i][1]))
-            remainingCount -= BUFSIZE
-            readSoFar += BUFSIZE
-        return out
+        if self._uvs is None:
+            uvCount = len(self.verts)
+            buf = (c_float * 2 * uvCount)()
+            NifFile.nifly.getUVs(
+                    self.parent._handle, self._handle, buf, uvCount * 2, 0)
+            self._uvs = [(buf[i][0], buf[i][1]) for i in range(uvCount)]
+        return self._uvs
     
     @property
     def bone_names(self):
@@ -954,7 +935,8 @@ class NifFile:
             vertbuf, len(verts)*3, 
             tribuf, len(tris)*3, 
             uvbuf, len(uvs)*2, 
-            normbuf, norm_len*3)
+            normbuf, norm_len*3,
+            None)
         if self._shapes is None:
             self._shapes = []
         sh = NiShape(self)
@@ -1065,7 +1047,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1172,6 +1154,15 @@ if __name__ == "__main__":
         assert round(verts[685][1], 4) == -16.3246, "ERROR: Last vert wrong"
         assert round(verts[685][2], 4) == 26.4362, "ERROR: Last vert wrong"
 
+        # Normals follow the verts
+        assert len(f2.shapes[0].normals) == 686, "ERROR: Expected 686 normals"
+        assert (round(f2.shapes[0].normals[0][0], 4) == 0.0), "Error: First normal wrong"
+        assert (round(f2.shapes[0].normals[0][1], 4) == -0.9776), "Error: First normal wrong"
+        assert (round(f2.shapes[0].normals[0][2], 4) == 0.2104), "Error: First normal wrong"
+        assert (round(f2.shapes[0].normals[685][0], 4) == 0.0), "Error: Last normal wrong"
+        assert (round(f2.shapes[0].normals[685][1], 4) == 0.0), "Error: Last normal wrong"
+        assert (round(f2.shapes[0].normals[685][2], 4) == 1.0), "Error: Last normal wrong"
+
         # A NiShape's tris property is a list of triples defining the triangles. Each triangle
         # is a triple of indices into the verts list.
         tris = f2.shapes[0].tris
@@ -1209,7 +1200,7 @@ if __name__ == "__main__":
         uvs = f2.shapes[0].uvs
         assert len(uvs) == 686, "ERROR: UV count not correct"
         assert list(round(x, 4) for x in uvs[0]) == [0.4164, 0.419], "ERROR: First UV wrong"
-        assert list(round(x, 4) for x in uvs[685]) == [0.4621, 0.4327], "ERROR: First UV wrong"
+        assert list(round(x, 4) for x in uvs[685]) == [0.4621, 0.4327], "ERROR: Last UV wrong"
     
         # Bones are represented as nodes on the NifFile. Bones don't have a special type
         # in the nif, so we just bring in all NiNodes. Bones have names and transforms.
