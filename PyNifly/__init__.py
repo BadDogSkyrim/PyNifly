@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 33), 
+    "version": (0, 0, 34), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -1020,7 +1020,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         
             if len(objs_to_export) == 0:
                 log.warning("Warning: Nothing to export")
-                self.report("Warning: Nothing to export")
+                self.report({"WARNING"}, "Warning: No selected object to export")
                 return {"CANCELLED"}
             else:
                 shape_keys = get_with_uscore(get_common_shapes(objs_to_export))
