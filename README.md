@@ -11,10 +11,9 @@ My interest is primarily Skyrim, Skyrim SE, and Fallout 4 so I'll be focusing on
 
 **Status**
 
-Latest state of the world on the wiki
+This is a work in progress. Latest state of the world is documented in the wiki.
 
 Not yet implemented (but on deck):
-* Fallout 4's facebones files. I want to support them, but there's a bunch of fancy nodes in there that I don't understand.
 * Shaders
 
 Not yet implemented (and maybe never, unless I get a lot of help/advice):
