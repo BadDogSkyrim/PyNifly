@@ -477,6 +477,7 @@ def import_tri(filepath):
 
 def export_tris(nif, trip, obj, verts, tris, loops, uvs, morphdict):
     """ Export a tri file to go along with the given nif file, if there are shape keys 
+        dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
     """
     result = {'FINISHED'}
 
@@ -491,30 +492,41 @@ def export_tris(nif, trip, obj, verts, tris, loops, uvs, morphdict):
     # Don't export anything that starts with an underscore or asterisk
     objkeys = obj.data.shape_keys.key_blocks.keys()
     export_keys = set(filter((lambda n: n[0] not in ('_', '*') and n != 'Basis'), objkeys))
-    expression_morphs = nif.dict.expressions.intersection(export_keys)
+    expression_morphs = nif.dict.expression_filter(export_keys)
     trip_morphs = set(filter((lambda n: n[0] == '>'), objkeys))
-    chargen_morphs = export_keys.difference(expression_morphs).difference(trip_morphs)
+    # Leftovers are chargen candidates
+    leftover_morphs = export_keys.difference(expression_morphs).difference(trip_morphs)
+    chargen_morphs = nif.dict.chargen_filter(leftover_morphs)
 
     if len(expression_morphs) > 0 and len(trip_morphs) > 0:
         log.warning(f"Found both expression morphs and BS tri morphs in shape {obj.name}. May be an error.")
         result = {'WARNING'}
 
-    if len(expression_morphs) > 0 or len(chargen_morphs) > 0:
+    if len(expression_morphs) > 0:
+        log.debug(f"....Exporting expressions {expression_morphs}")
         tri = TriFile()
         tri.vertices = verts
         tri.faces = tris
         tri.uv_pos = uvs
         tri.face_uvs = tris # (because 1:1 with verts)
-        tri.morphs = morphdict
+        for m in expression_morphs:
+            tri.morphs[m] = morphdict[m]
     
-        if len(expression_morphs) > 0:
-            log.info(f"Generating tri file '{fname_tri}'")
-            #log.debug(f"Expression morphs: {expression_morphs}")
-            tri.write(fname_tri, expression_morphs)
+        log.info(f"Generating tri file '{fname_tri}'")
+        tri.write(fname_tri, expression_morphs)
 
-        if len(chargen_morphs) > 0:
-            log.info(f"Generating tri file '{fname_chargen}'")
-            tri.write(fname_chargen, chargen_morphs)
+    if len(chargen_morphs) > 0:
+        log.debug(f"....Exporting chargen morphs {chargen_morphs}")
+        tri = TriFile()
+        tri.vertices = verts
+        tri.faces = tris
+        tri.uv_pos = uvs
+        tri.face_uvs = tris # (because 1:1 with verts)
+        for m in chargen_morphs:
+            tri.morphs[m] = morphdict[m]
+    
+        log.info(f"Generating tri file '{fname_chargen}'")
+        tri.write(fname_chargen, chargen_morphs)
 
     if len(trip_morphs) > 0:
         log.info(f"Generating BS tri shapes for '{obj.name}'")
