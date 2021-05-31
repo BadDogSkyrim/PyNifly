@@ -1197,6 +1197,6 @@ namespace NiflyDLLTests
 			delete[]uvs2;
 			delete[]norms2;
 			delete[]verts3;
-		};	
+		};
 	};
 }
