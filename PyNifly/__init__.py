@@ -834,6 +834,8 @@ def export_shape(nif, trip, obj, target_key=''):
 
     is_skinned = (obj.parent and obj.parent.type == 'ARMATURE')
     unweighted = []
+    if "*UNWEIGHTED*" in obj.vertex_groups:
+        obj.vertex_groups.remove(obj.vertex_groups["*UNWEIGHTED*"])
         
     if is_skinned:
         # Get unweighted bones before we muck up the list by splitting edges
