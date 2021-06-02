@@ -700,7 +700,9 @@ def tag_unweighted(obj, bones):
     log.debug(f"..Checking for unweighted verts on {obj.name}")
     unweighted_verts = []
     for v in obj.data.vertices:
-        maxweight = max([g.weight for g in v.groups])
+        maxweight = 0.0
+        if len(v.groups) > 0:
+            maxweight = max([g.weight for g in v.groups])
         if maxweight < 0.0001:
             unweighted_verts.append(v.index)
     log.debug(f"..Unweighted vert count: {len(unweighted_verts)}")
@@ -1059,7 +1061,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
                     for obj in objs_to_export:
                         r = export_shape(exportf, trip, obj, sk)
-                        #log.debug(f"Exported shape {obj.name} with result {str(r)}")
+                        log.debug(f"Exported shape {obj.name} with result {str(r)}")
                         if 'UNWEIGHTED' in r:
                             objs_unweighted.append(obj.name)
                         if 'SCALE' in r:
@@ -1096,7 +1098,6 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, "Export of nif failed, see console window for details")
             res.add("CANCELLED")
 
-        log.info("Export successful")
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 
 
