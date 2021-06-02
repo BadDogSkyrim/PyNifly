@@ -77,6 +77,8 @@ def load_nifly(nifly_path):
     nifly.getSegments.restype = c_int
     nifly.getSubsegments.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
     nifly.getSubsegments.restype = c_int
+    nifly.getShapeBlockName.argtypes = [c_void_p, c_void_p, c_int]
+    nifly.getShapeBlockName.restypes = c_int
     nifly.getShapeBoneCount.argtypes = [c_void_p, c_void_p]
     nifly.getShapeBoneCount.restype = c_int
     nifly.getShapeBoneIDs.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
@@ -474,6 +476,7 @@ class NiShape:
         self._partitions = None
         self._partition_tris = None
         self._segment_file = ''
+        self.is_head_part = False
 
         if not theShapeRef is None:
             buf = create_string_buffer(256)
@@ -508,6 +511,12 @@ class NiShape:
     #        remainingCount -= BUFSIZE
     #        readSoFar += BUFSIZE
     #    return out
+
+    @property
+    def blockname(self):
+        buf = (c_char * 50)()
+        NifFile.nifly.getShapeBlockName(self._handle, buf, 50)
+        return buf.value.decode('utf-8')
 
     @property
     def verts(self):
@@ -904,7 +913,7 @@ class NifFile:
         else:
             NifFile.nifly.saveNif(self._handle, self.filepath.encode('utf-8'))
 
-    def createShapeFromData(self, shape_name, verts, tris, uvs, normals):
+    def createShapeFromData(self, shape_name, verts, tris, uvs, normals, is_headpart=False):
         """ Create the shape from the data provided
             shape_name = Name of shape
             verts = [(x, y, z)...] vertex location
@@ -929,6 +938,8 @@ class NifFile:
         UVBUFDEF = c_float * 2 * len(uvs)
         uvbuf = UVBUFDEF()
         for i, u in enumerate(uvs): uvbuf[i] = (u[0], 1-u[1])
+        optbuf = (c_uint16 * 1)()
+        optbuf[0] = 1 if is_headpart else 0
         shape_handle = NifFile.nifly.createNifShapeFromData(
             self._handle, 
             shape_name.encode('utf-8'), 
@@ -936,7 +947,7 @@ class NifFile:
             tribuf, len(tris)*3, 
             uvbuf, len(uvs)*2, 
             normbuf, norm_len*3,
-            None)
+            optbuf)
         if self._shapes is None:
             self._shapes = []
         sh = NiShape(self)
@@ -1065,7 +1076,8 @@ TEST_PARTITIONS = False
 TEST_SEGMENTS = False
 TEST_BP_SEGMENTS = False
 TEST_COLORS = False
-TEST_FNV = True
+TEST_FNV = False
+TEST_BLOCKNAME = True
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1768,3 +1780,9 @@ if __name__ == "__main__":
         for s in nif.shapes:
             _test_export_shape(s, nif2)
         nif2.save()
+
+    if TEST_ALL or TEST_BLOCKNAME:
+        print("### TEST_BLOCKNAME: Can discover block name")
+
+        nif = NifFile(r"tests\SKYRIMSE\malehead.nif")
+        assert nif.shapes[0].blockname == "BSDynamicTriShape", f"Expected '', found '{nif.shapes[0].blockname}'"
