@@ -127,6 +127,14 @@ int NIFLY_API getShapes(void* f, void** buf, int len, int start) {
         buf[j++] = shapes[i];
     return int(shapes.size());
 }
+NIFLY_API int getShapeBlockName(void* theShape, char* buf, int buflen) {
+    NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    const char* blockname = shape->GetBlockName();
+    strncpy_s(buf, buflen, blockname, buflen);
+    //strncpy(buf, blockname, buflen);
+    buf[buflen - 1] = '\0';
+    return int(strlen(blockname));
+}
 /*
     Get a shape's verts.
     buf, len = buffer that receives triples. len is length of buffer in floats.

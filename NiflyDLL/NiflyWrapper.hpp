@@ -41,6 +41,7 @@ extern "C" NIFLY_API int getShapeBoneNames(void* theNif, void* theShape, char* b
 extern "C" NIFLY_API int getShapeBoneWeightsCount(void* theNif, void* theShape, int boneIndex);
 extern "C" NIFLY_API int getShapeBoneWeights(void* theNif, void* theShape, int boneIndex, VertexWeightPair * buf, int buflen);
 extern "C" NIFLY_API int getShapes(void* f, void** buf, int len, int start);
+extern "C" NIFLY_API int getShapeBlockName(void* theShape, char* buf, int buflen);
 extern "C" NIFLY_API int getVertsForShape(void* theNif, void* theShape, float* buf, int len, int start);
 extern "C" NIFLY_API int getNormalsForShape(void* theNif, void* theShape, float* buf, int len, int start);
 //extern "C" NIFLY_API int getRawVertsForShape(void* theNif, void* theShape, float* buf, int len, int start);
