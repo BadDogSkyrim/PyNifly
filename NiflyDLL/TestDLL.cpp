@@ -1198,5 +1198,19 @@ namespace NiflyDLLTests
 			delete[]norms2;
 			delete[]verts3;
 		};
+		TEST_METHOD(blockName) {
+			std::filesystem::path testfile = testRoot / "SkyrimSE/malehead.nif";
+
+			void* nif;
+			void* shapes[10];
+
+			// Can load nif. Intentionally passing in short buffers to make sure that works.
+			// This is a big nif, so it will overwrite everything in sight if it's wrong.
+			nif = load(testfile.string().c_str());
+			int shapeCount = getShapes(nif, shapes, 10, 0);
+			char blockname[50];
+			getShapeBlockName(shapes[0], blockname, 50);
+			Assert::AreEqual("BSDynamicTriShape", blockname, L"Have expected node type");
+		}
 	};
 }

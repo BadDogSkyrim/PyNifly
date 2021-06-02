@@ -404,6 +404,15 @@ class BoneDict:
                 return bp
         return None
 
+    def expression_filter(self, name_set):
+        return name_set.intersection(self.expressions)
+
+    def chargen_filter(self, candidates):
+        """ Filter the given set down to only those that can be a chargen morph.
+            Default is to keep everything.
+            """
+        return candidates
+
     def matches(self, boneset):
         """ Return count of entries in aList that match skeleton bones """
         return len(boneset.intersection(set(self.byBlender.keys()))) + \
@@ -884,7 +893,7 @@ fo4Bones = [
     SkeletonBone('Bone_Cloth_H_002', 'Bone_Cloth_H_002', 'Bone_Cloth_H_001'),
     SkeletonBone('Bone_Cloth_H_003', 'Bone_Cloth_H_003', 'Bone_Cloth_H_002')]
 
-fo4Expressions = ['Basis', 'UprLipRollOut', 'UprLipRollIn', 'UprLipFunnel', 'StickyLips', 
+fo4Expressions = ['UprLipRollOut', 'UprLipRollIn', 'UprLipFunnel', 'StickyLips', 
     'RUprLipUp', 'RUprLipDn', 'RUprLidUp', 'RUprLidDn', 'RSmile', 'ROutBrowDn', 
     'RNoseUp', 'RMidBrowUp', 'RMidBrowDn', 'RLwrLipUp', 'RLwrLipDn', 'RLwrLidUp', 
     'RLwrLidDn', 'RLipCornerOut', 'RLipCornerIn', 'RJaw', 'RFrown', 'RCheekUp', 
@@ -1035,7 +1044,13 @@ fo4Parts = [
     BodyPart(60, "FO4 60 - Pipboy"),
     BodyPart(61, "FO4 61 - FX")]
 
-fo4Dict = BoneDict(fo4Bones, fo4Expressions, fo4Parts, fo4Dismember)
+fo4chargen_pat = re.compile("Type[0-9]+")
+
+class FO4BoneDict(BoneDict):
+    def chargen_filter(self, candidates):
+        return set([c for c in candidates if fo4chargen_pat.search(c)])
+
+fo4Dict = FO4BoneDict(fo4Bones, fo4Expressions, fo4Parts, fo4Dismember)
 
 gameSkeletons = {
     'SKYRIM': skyrimDict,
@@ -1139,3 +1154,11 @@ if __name__ == "__main__":
 
     print("--Can get count of matching bones from skeleton")
     assert gameSkeletons["FO4"].matches(set(['Leg_Calf.R', 'Leg_Calf_skin.R', 'Leg_Calf_Low_skin.R', 'FOO'])) == 3, "Error: Skeletons should return correct bone match"
+
+
+    print ("--FO4 can filter morphs")
+    exprmorphs = set(['DialogueAnger', 'MoodFear', 'CombatShout', 'RUprLipDn', 'RUprLidUp', 'RUprLidDn'])
+    assert fo4Dict.expression_filter(exprmorphs) == set(['RUprLipDn', 'RUprLidUp', 'RUprLidDn']), "ERROR: FO4 expression filter incorrect"
+    assert skyrimDict.expression_filter(exprmorphs) == set(['DialogueAnger', 'MoodFear', 'CombatShout']), "ERROR: FO4 expression filter incorrect"
+    assert fo4Dict.chargen_filter(set(['foo', 'barType1', 'fribble', 'Type45cat', 'aTypeB'])) == set(['barType1', 'Type45cat']), "ERROR: FO4 Chargen filter incorrect"
+    

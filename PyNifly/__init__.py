@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 34), 
+    "version": (0, 0, 36), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -352,27 +352,28 @@ def create_shape_keys(obj, tri:TriFile):
     """Adds the shape keys in tri to obj 
         """
     mesh = obj.data
-    #if mesh.shape_keys is None:
-    #    log.debug(f"Adding first shape key to {obj.name}")
-    #    newsk = obj.shape_key_add()
-    #    mesh.shape_keys.use_relative=True
-    #    newsk.name = "Basis"
-    #    mesh.update()
+    if mesh.shape_keys is None:
+        log.debug(f"Adding first shape key to {obj.name}")
+        newsk = obj.shape_key_add()
+        mesh.shape_keys.use_relative=True
+        newsk.name = "Basis"
+        mesh.update()
 
     for morph_name, morph_verts in sorted(tri.morphs.items()):
-        newsk = obj.shape_key_add()
-        newsk.name = morph_name
+        if morph_name not in mesh.shape_keys.key_blocks:
+            newsk = obj.shape_key_add()
+            newsk.name = morph_name
 
-        obj.active_shape_key_index = len(mesh.shape_keys.key_blocks) - 1
-        #This is a pointer, not a copy
-        mesh_key_verts = mesh.shape_keys.key_blocks[obj.active_shape_key_index].data
-        #log.debug(f"Morph {morph_name} in tri file should have same number of verts as Blender shape: {len(mesh_key_verts)} != {len(morph_verts)}")
-        for key_vert, morph_vert in zip(mesh_key_verts, morph_verts):
-            key_vert.co[0] = morph_vert[0]
-            key_vert.co[1] = morph_vert[1]
-            key_vert.co[2] = morph_vert[2]
+            obj.active_shape_key_index = len(mesh.shape_keys.key_blocks) - 1
+            #This is a pointer, not a copy
+            mesh_key_verts = mesh.shape_keys.key_blocks[obj.active_shape_key_index].data
+            #log.debug(f"Morph {morph_name} in tri file should have same number of verts as Blender shape: {len(mesh_key_verts)} != {len(morph_verts)}")
+            for key_vert, morph_vert in zip(mesh_key_verts, morph_verts):
+                key_vert.co[0] = morph_vert[0]
+                key_vert.co[1] = morph_vert[1]
+                key_vert.co[2] = morph_vert[2]
         
-        mesh.update()
+            mesh.update()
 
 def create_trip_shape_keys(obj, trip:TripFile):
     """Adds the shape keys in trip to obj 
@@ -412,7 +413,7 @@ def import_trip(filepath, target_objs):
         for shapename, offsetmorphs in trip.shapes.items():
             matchlist = [o for o in target_objs if o.name == shapename]
             if len(matchlist) == 0:
-                log.warning("BS Tri file shape does not match any selected object: {shapename}")
+                log.warning(f"BS Tri file shape does not match any selected object: {shapename}")
                 result.add('WARNING')
             else:
                 create_trip_shape_keys(matchlist[0], trip)
@@ -477,6 +478,7 @@ def import_tri(filepath):
 
 def export_tris(nif, trip, obj, verts, tris, loops, uvs, morphdict):
     """ Export a tri file to go along with the given nif file, if there are shape keys 
+        dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
     """
     result = {'FINISHED'}
 
@@ -491,30 +493,41 @@ def export_tris(nif, trip, obj, verts, tris, loops, uvs, morphdict):
     # Don't export anything that starts with an underscore or asterisk
     objkeys = obj.data.shape_keys.key_blocks.keys()
     export_keys = set(filter((lambda n: n[0] not in ('_', '*') and n != 'Basis'), objkeys))
-    expression_morphs = nif.dict.expressions.intersection(export_keys)
+    expression_morphs = nif.dict.expression_filter(export_keys)
     trip_morphs = set(filter((lambda n: n[0] == '>'), objkeys))
-    chargen_morphs = export_keys.difference(expression_morphs).difference(trip_morphs)
+    # Leftovers are chargen candidates
+    leftover_morphs = export_keys.difference(expression_morphs).difference(trip_morphs)
+    chargen_morphs = nif.dict.chargen_filter(leftover_morphs)
 
     if len(expression_morphs) > 0 and len(trip_morphs) > 0:
         log.warning(f"Found both expression morphs and BS tri morphs in shape {obj.name}. May be an error.")
         result = {'WARNING'}
 
-    if len(expression_morphs) > 0 or len(chargen_morphs) > 0:
+    if len(expression_morphs) > 0:
+        log.debug(f"....Exporting expressions {expression_morphs}")
         tri = TriFile()
         tri.vertices = verts
         tri.faces = tris
         tri.uv_pos = uvs
         tri.face_uvs = tris # (because 1:1 with verts)
-        tri.morphs = morphdict
+        for m in expression_morphs:
+            tri.morphs[m] = morphdict[m]
     
-        if len(expression_morphs) > 0:
-            log.info(f"Generating tri file '{fname_tri}'")
-            #log.debug(f"Expression morphs: {expression_morphs}")
-            tri.write(fname_tri, expression_morphs)
+        log.info(f"Generating tri file '{fname_tri}'")
+        tri.write(fname_tri, expression_morphs)
 
-        if len(chargen_morphs) > 0:
-            log.info(f"Generating tri file '{fname_chargen}'")
-            tri.write(fname_chargen, chargen_morphs)
+    if len(chargen_morphs) > 0:
+        log.debug(f"....Exporting chargen morphs {chargen_morphs}")
+        tri = TriFile()
+        tri.vertices = verts
+        tri.faces = tris
+        tri.uv_pos = uvs
+        tri.face_uvs = tris # (because 1:1 with verts)
+        for m in chargen_morphs:
+            tri.morphs[m] = morphdict[m]
+    
+        log.info(f"Generating tri file '{fname_chargen}'")
+        tri.write(fname_chargen, chargen_morphs)
 
     if len(trip_morphs) > 0:
         log.info(f"Generating BS tri shapes for '{obj.name}'")
@@ -895,9 +908,14 @@ def export_shape(nif, trip, obj, target_key=''):
         obj.data = originalmesh
         obj.active_shape_key_index = saved_sk
 
+    is_headpart = False
+    if obj.data.shape_keys \
+        and len(nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0:
+        is_headpart = True
+
     obj.data.update()
     log.info("..Exporting to nif")
-    new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_new)
+    new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_new, is_headpart)
     if colors_new:
         new_shape.set_colors(colors_new)
 
@@ -937,7 +955,7 @@ def export_shape_to(shape, filepath, game):
     outnif = NifFile()
     outtrip = TripFile()
     outnif.initialize(game, filepath)
-    ret = export_shape(outnif, outtrip, shape) 
+    ret = export_shape(outnif, outtrip, shape, '') 
     outnif.save()
     log.info(f"..Wrote {filepath}")
     return ret
@@ -1137,7 +1155,8 @@ def run_tests():
     TEST_ROGUE01 = False
     TEST_ROGUE02 = False
     TEST_NORMAL_SEAM = False
-    TEST_COLORS = True
+    TEST_COLORS = False
+    TEST_HEADPART = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -1848,6 +1867,29 @@ def run_tests():
         nif2 = NifFile(testfileout)
         assert nif2.shapes[0].colors[0] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not reread correctly: {nif2.shapes[0].colors[0]}"
         assert nif2.shapes[0].colors[561] == (0.0, 0.0, 0.0, 1.0), f"Color 561 not reread correctly: {nif2.shapes[0].colors[561]}"
+
+    if TEST_BPY_ALL or TEST_HEADPART:
+        print("### TEST_HEADPART: Can read & write an SE head part")
+
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests/SKYRIMSE/malehead.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+        obj = bpy.context.object
+
+        testtri = os.path.join(pynifly_dev_path, r"tests/SKYRIMSE/malehead.tri")
+        import_tri(testtri)
+
+        assert len(obj.data.shape_keys.key_blocks) == 45, f"Expected key blocks 45 != {len(obj.data.shape_keys.key_blocks)}"
+        assert obj.data.shape_keys.key_blocks[0].name == "Basis", f"Expected first key 'Basis' != {obj.data.shape_keys.key_blocks[0].name}"
+
+        testfileout = os.path.join(pynifly_dev_path, r"tests/out/TEST_HEADPART_malehead.nif")
+        export_shape_to(obj, testfileout, 'SKYRIMSE')
+
+        nif2 = NifFile(testfileout)
+        assert len(nif2.shapes) == 1, f"Expected single shape, 1 != {len(nif2.shapes)}"
+        assert nif2.shapes[0].blockname == "BSDynamicTriShape", f"Expected 'BSDynamicTriShape' != '{nif2.shapes[0].blockname}'"
+
 
     print("""
     ############################################################

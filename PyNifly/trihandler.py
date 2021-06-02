@@ -472,7 +472,7 @@ class TriFile():
 
         self.header.morphNum = len(morphlist)
         for morphName in morphlist:
-            self.log.debug(f"..exporting morph {morphName}")
+            #self.log.debug(f"..exporting morph {morphName}")
             verts_diff = [[]] * len(self.vertices)		#list to save vertices to
             max_diff = 0
             fullMorphNameList.append(morphName)
@@ -759,7 +759,7 @@ class TripFile():
 
                 file.write(pack("<1H", len(offsetmorphs)))
                 for name, offslist in offsetmorphs.items():
-                    self.log.debug(f"....Writing morph {name}")
+                    #self.log.debug(f"....Writing morph {name}")
                     self._write_count_str(file, name)
             
                     scalefactor = 0x7fff / self._calc_max_offset(offslist) 
