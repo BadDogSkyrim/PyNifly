@@ -72,6 +72,10 @@ def xlate(str):
         str = str.replace("L Thigh", "Thigh") + ".L"
     elif "R Thigh" in str:
         str = str.replace("R Thigh", "Thigh") + ".R"
+    if "LArm" in str:
+        str = str.replace("LArm", "Arm") + ".L"
+    elif "RArm" in str:
+        str = str.replace("RArm", "Arm") + ".R"
     if "CME L " in str:
         str = str.replace("CME L ", "CME ") + ".L"
     elif "CME R " in str:
@@ -96,6 +100,10 @@ def xlate(str):
         str = str.replace("SkirtL", "Skirt") + ".L"
     elif "SkirtR" in str:
         str = str.replace("SkirtR", "Skirt") + ".R"
+    elif "_L_" in str:
+        str = str.replace("_L_", "_") + ".L"
+    elif "_R_" in str:
+        str = str.replace("_R_", "_") + ".R"
 
     s1 = str.split("[")
     s2 = str.split("]")
@@ -105,7 +113,7 @@ def xlate(str):
     return str
 
 
-f = NifFile(r"C:\Users\User\OneDrive\Dev\Bodyslide-OS\res\skeleton_fo3nv.nif")
+f = NifFile(r"C:\ModOrganizer\Fallout4\mods\00 FO4 Assets\Meshes\Actors\Character\CharacterAssets\BaseMaleHead_faceBones.nif")
 
 ##for name, node in f.nodes.items():
 ##	print(f"{xlate(skyrimDict.blender_name(name))}, {name}, {xlate(skyrimDict.blender_name(ParentName(node)))}")
