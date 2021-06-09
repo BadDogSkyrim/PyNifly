@@ -2,8 +2,8 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
-TEST_BPY_ALL = True
+RUN_TESTS = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 38), 
+    "version": (0, 0, 40), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -283,13 +283,15 @@ def import_nif(f: NifFile):
     new_objs = []
 
     for s in f.shapes:
-        obj = import_shape(s)
-        new_objs.append(obj)
-        new_collection.objects.link(obj)
-
         for n in s.bone_names: 
             log.debug(f"....adding bone {n} for {s.name}")
             bones.add(n) 
+        if f.game == 'FO4' and fo4FaceDict.matches(bones) > 10:
+            f.dict = fo4FaceDict
+
+        obj = import_shape(s)
+        new_objs.append(obj)
+        new_collection.objects.link(obj)
 
     for o in new_objs: o.select_set(True)
 
@@ -689,6 +691,7 @@ def export_skin(obj, arma, new_shape, new_xform, weights_by_vert):
             # print(f"..Shape {obj.name} exporting bone {bone_name} with rotation {bone_xform.rotation.euler_deg()}")
             nifname = new_shape.parent.nif_name(bone_name)
             new_shape.add_bone(nifname, bone_xform)
+            log.debug(f"....Adding bone {nifname}")
                 #nif.nodes[bone_name].xform_to_global)
             new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
 
@@ -1015,6 +1018,8 @@ def export_file_set(filepath, target_game, shape_keys, objs_to_export, arma, suf
         log.info(f"..Exporting to {target_game} {fpath}")
         exportf = NifFile()
         exportf.initialize(target_game, fpath)
+        if suffix == '_faceBones':
+            exportf.dict = fo4FaceDict
 
         trip = TripFile()
 
@@ -1193,7 +1198,7 @@ def run_tests():
     TEST_UV_SPLIT = False
     TEST_CUSTOM_BONES = False
     TEST_BPY_PARENT = False
-    TEST_BABY = True
+    TEST_BABY = False
     TEST_CONNECTED_SKEL = False
     TEST_TRI = False
     TEST_0_WEIGHTS = False
@@ -1207,6 +1212,7 @@ def run_tests():
     TEST_NORMAL_SEAM = False
     TEST_COLORS = False
     TEST_HEADPART = False
+    TEST_FACEBONES = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -1250,6 +1256,10 @@ def run_tests():
             if round(v.co[0], 2) == round(targetloc[0], 2) and round(v.co[1], 2) == round(targetloc[1], 2) and round(v.co[2], 2) == round(targetloc[2], 2):
                 return v.index
         return -1
+
+    def remove_if(fn):
+        if os.path.exists(fn):
+            os.remove(fn)
 
 
     if TEST_BPY_ALL or TEST_UNIT:
@@ -1350,8 +1360,7 @@ def run_tests():
         assert (len(the_armor.tris) == 3195), "ERROR: Wrong number of tris"
 
         outfile = os.path.join(pynifly_dev_path, "tests/Out/TestSkinnedFromPy02.nif")
-        if os.path.exists(outfile):
-            os.remove(outfile)
+        remove_if(outfile)
         new_nif = NifFile()
         new_nif.initialize("SKYRIM", outfile)
         new_nif.createSkin()
@@ -1412,8 +1421,7 @@ def run_tests():
         
         # Export armor
         filepath_armor = os.path.join(pynifly_dev_path, "tests/out/testArmorSkyrim02.nif")
-        if os.path.exists(filepath_armor):
-            os.remove(filepath_armor)
+        remove_if(filepath_armor)
         #export_shape_to(the_armor, filepath_armor, "SKYRIM")
         export_file_set(filepath_armor, "SKYRIM", [''], [the_armor], the_armor.parent)
         assert os.path.exists(filepath_armor), "ERROR: File not created"
@@ -1426,8 +1434,7 @@ def run_tests():
 
         # Write armor to FO4 (wrong skeleton but whatevs, just see that it doesn't crash)
         filepath_armor_fo = os.path.join(pynifly_dev_path, r"tests\Out\testArmorFO02.nif")
-        if os.path.exists(filepath_armor_fo):
-            os.remove(filepath_armor_fo)
+        remove_if(filepath_armor_fo)
         #export_shape_to(the_armor, filepath_armor_fo, "FO4")
         export_file_set(filepath_armor_fo, 'FO4', [''], [the_armor], the_armor.parent)
         assert os.path.exists(filepath_armor_fo), f"ERROR: File {filepath_armor_fo} not created"
@@ -1435,8 +1442,7 @@ def run_tests():
         # Write body 
         filepath_body = os.path.join(pynifly_dev_path, r"tests\Out\testBodySkyrim02.nif")
         body_out = NifFile()
-        if os.path.exists(filepath_body):
-            os.remove(filepath_body)
+        remove_if(filepath_body)
         #export_shape_to(the_body, filepath_body, "SKYRIM")
         export_file_set(filepath_body, 'SKYRIM', [''], [the_body], the_body.parent)
         assert os.path.exists(filepath_body), f"ERROR: File {filepath_body} not created"
@@ -1463,8 +1469,7 @@ def run_tests():
 
         print("..Exporting  to test file")
         outfile1 = os.path.join(pynifly_dev_path, "tests/Out/testSkyrim03.nif")
-        if os.path.exists(outfile1):
-            os.remove(outfile1)
+        remove_if(outfile1)
         #export_shape_to(armor1, outfile1, "SKYRIM")
         export_file_set(outfile1, 'SKYRIM', [''], [armor1], armor1.parent)
         assert os.path.exists(outfile1), "ERROR: Created output file"
@@ -1648,8 +1653,7 @@ def run_tests():
         tricubeniftri = os.path.join(pynifly_dev_path, r"tests\Out\tricube01.tri")
         tricubenifchg = os.path.join(pynifly_dev_path, r"tests\Out\tricube01_chargen.tri")
         for f in [testout2, testout2tri, testout2chg, tricubenif]:
-            if os.path.exists(f):
-                os.remove(f)
+            remove_if(f)
 
         nif = NifFile(testfile)
         import_nif(nif)
@@ -1955,6 +1959,28 @@ def run_tests():
         nif2 = NifFile(testfileout)
         assert len(nif2.shapes) == 1, f"Expected single shape, 1 != {len(nif2.shapes)}"
         assert nif2.shapes[0].blockname == "BSDynamicTriShape", f"Expected 'BSDynamicTriShape' != '{nif2.shapes[0].blockname}'"
+
+
+    if TEST_BPY_ALL or TEST_FACEBONES:
+        print("### TEST_FACEBONES: Test that facebones are correctly named")
+
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/basemalehead_facebones.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        obj = bpy.context.object
+        assert 'skin_bone_Dimple.R' in obj.vertex_groups.keys(), f"Expected munged vertex groups"
+        assert 'skin_bone_Dimple.R' in obj.parent.data.bones.keys(), f"Expected munged bone names"
+        assert 'skin_bone_R_Dimple' not in obj.vertex_groups.keys(), f"Expected munged vertex groups"
+        assert 'skin_bone_R_Dimple' not in obj.parent.data.bones.keys(), f"Expected munged bone names"
+
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/basemalehead.nif")
+        remove_if(outfile)
+        export_file_set(outfile, 'FO4', [''], [obj], obj.parent, '_faceBones')
+
+        outfile2 = os.path.join(pynifly_dev_path, r"tests/Out/basemalehead_facebones.nif")
+        nif2 = NifFile(outfile2)
+        assert 'skin_bone_R_Dimple' in nif2.shapes[0].bone_names, f"Expected game bone names, got {nif2.shapes[0].bone_names[0:10]}"
 
 
     print("""
