@@ -2,8 +2,8 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
-TEST_BPY_ALL = False
+RUN_TESTS = True
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 43), 
+    "version": (0, 0, 44), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -1112,6 +1112,8 @@ def do_export(context, filepath, target_game):
                                 a)
                 res = res.union(r)
                 mesh_export = True
+        if not mesh_export and not fb_export:
+            r = export_file_set(filepath, target_game, shape_keys, objs_to_export, None)
     return res
 
 
@@ -1220,7 +1222,7 @@ def run_tests():
     ############################################################
     """)
 
-    TEST_EXPORT = False
+    TEST_EXPORT = True
     TEST_IMPORT_ARMATURE = False
     TEST_EXPORT_WEIGHTS = False
     TEST_UNIT = False
@@ -1245,7 +1247,7 @@ def run_tests():
     TEST_COLORS = False
     TEST_HEADPART = False
     TEST_FACEBONES = False
-    TEST_FACEBONE_EXPORT = True
+    TEST_FACEBONE_EXPORT = False
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -1314,7 +1316,10 @@ def run_tests():
         log.debug("TODO: support objects with flat shading or autosmooth properly")
         for f in cube.data.polygons: f.use_smooth = True
         filepath = os.path.join(pynifly_dev_path, r"tests\Out\testSkyrim01.nif")
-        export_shape_to(cube, filepath, "SKYRIM")
+        remove_if(filepath)
+
+        do_export(bpy.context, filepath, 'SKYRIM')
+        #export_shape_to(cube, filepath, "SKYRIM")
 
         assert os.path.exists(filepath), "ERROR: Didn't create file"
         bpy.data.objects.remove(cube, do_unlink=True)
@@ -1457,7 +1462,9 @@ def run_tests():
         filepath_armor = os.path.join(pynifly_dev_path, "tests/out/testArmorSkyrim02.nif")
         remove_if(filepath_armor)
         #export_shape_to(the_armor, filepath_armor, "SKYRIM")
-        export_file_set(filepath_armor, "SKYRIM", [''], [the_armor], the_armor.parent)
+        #export_file_set(filepath_armor, "SKYRIM", [''], [the_armor], the_armor.parent)
+        the_body.select_set(False)
+        do_export(bpy.context, filepath_armor, 'SKYRIM')
         assert os.path.exists(filepath_armor), "ERROR: File not created"
 
         # Check armor
@@ -1470,7 +1477,8 @@ def run_tests():
         filepath_armor_fo = os.path.join(pynifly_dev_path, r"tests\Out\testArmorFO02.nif")
         remove_if(filepath_armor_fo)
         #export_shape_to(the_armor, filepath_armor_fo, "FO4")
-        export_file_set(filepath_armor_fo, 'FO4', [''], [the_armor], the_armor.parent)
+        #export_file_set(filepath_armor_fo, 'FO4', [''], [the_armor], the_armor.parent)
+        do_export(bpy.context, filepath_armor_fo, 'FO4')
         assert os.path.exists(filepath_armor_fo), f"ERROR: File {filepath_armor_fo} not created"
 
         # Write body 
