@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 42), 
+    "version": (0, 0, 43), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -1152,6 +1152,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         
 
     def execute(self, context):
+        res = {}
+
         log.info("NIFLY EXPORT V%d.%d.%d" % bl_info['version'])
         NifFile.Load(nifly_path)
 
