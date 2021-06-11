@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 40), 
+    "version": (0, 0, 41), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -721,7 +721,8 @@ def create_group_from_verts(obj, name, verts):
 
 
 def is_facebones(arma):
-    return (fo4FaceDict.matches(set(list(arma.data.bones.keys()))) > 10)
+    #return (fo4FaceDict.matches(set(list(arma.data.bones.keys()))) > 20)
+    return  len([x for x in arma.data.bones.keys() if x.startswith('skin_bone_')]) > 5
 
 
 def best_game_fit(bonelist):
@@ -1038,7 +1039,7 @@ def export_file_set(filepath, target_game, shape_keys, objs_to_export, arma, suf
         log.info(f"..Wrote {fpath}")
 
         if len(trip.shapes) > 0:
-            trippath = os.path.join(os.path.dirname(self.filepath), fbasename) + ".tri"
+            trippath = os.path.join(os.path.dirname(filepath), fbasename) + ".tri"
             trip.write(trippath)
             log.info(f"..Wrote {trippath}")
 
@@ -1100,6 +1101,9 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                     armatures_found.add(context.object.parent)
         
             objs_to_export = set([x for x in context.selected_objects if x.type == 'MESH'])
+
+            log.debug(f"..Armatures for export: {armatures_found}")
+            log.debug(f"..Objects for export: {objs_to_export}")
 
             shape_keys = get_with_uscore(get_common_shapes(objs_to_export))
             if len(shape_keys) == 0:
