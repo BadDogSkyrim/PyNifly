@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 41), 
+    "version": (0, 0, 42), 
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -480,6 +480,7 @@ def import_tri(filepath):
 
 def export_tris(nif, trip, obj, verts, tris, loops, uvs, morphdict):
     """ Export a tri file to go along with the given nif file, if there are shape keys 
+        and it's not a faceBones nif.
         dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
     """
     result = {'FINISHED'}
@@ -489,6 +490,10 @@ def export_tris(nif, trip, obj, verts, tris, loops, uvs, morphdict):
 
     fpath = os.path.split(nif.filepath)
     fname = os.path.splitext(fpath[1])
+
+    if fname[0].endswith('_faceBones'):
+        return result
+
     fname_tri = os.path.join(fpath[0], fname[0] + ".tri")
     fname_chargen = os.path.join(fpath[0], fname[0] + "_chargen.tri")
 
@@ -579,9 +584,16 @@ def clean_filename(fn):
     return "".join(c for c in fn.strip() if (c.isalnum() or c in "._- "))
 
 def select_all_faces(workingctx, mesh):
-    bpy.ops.object.mode_set(mode = 'OBJECT')
-    for f in mesh.polygons:
-        f.select = True
+    """ Make sure all mesh elements are visible and all faces are selected """
+    bpy.ops.object.mode_set(mode = 'OBJECT') # Have to be in object mode
+
+    for v in mesh.vertices:
+        v.hide = False
+    for e in mesh.edges:
+        e.hide = False
+    for p in mesh.polygons:
+        p.hide = False
+        p.select = True
 
 
 def extract_face_info(ctxt, mesh, uvlayer, use_loop_normals=False):
@@ -911,7 +923,14 @@ def export_shape(nif, trip, obj, target_key='', arma=None):
         # Old UV map had dups where verts were split; new matches 1-1 with verts
         uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
         norms_new = [norms[loops.index(i)] for i in range(len(verts))]
-        tris = [(loops[i], loops[i+1], loops[i+2]) for i in range(0, len(loops), 3)]
+
+        # Our "loops" list matches 1:1 with the mesh's loops. So we can use the polygons
+        # to pull the loops
+        tris = []
+        for p in editmesh.polygons:
+            tris.append((loops[p.loop_start], loops[p.loop_start+1], loops[p.loop_start+2]))
+
+        #tris = [(loops[i], loops[i+1], loops[i+2]) for i in range(0, len(loops), 3)]
         colors_new = None
         if loopcolors:
             log.debug(f"..Exporting vertex colors for shape {obj.name}")
@@ -1046,6 +1065,56 @@ def export_file_set(filepath, target_game, shape_keys, objs_to_export, arma, suf
     return res
 
 
+def do_export(context, filepath, target_game):
+    """ Export currently selected objects """
+    res = set()
+        
+    objs_unweighted = []
+    objs_scale = []
+    arma_game = []
+    arma_facebones = None
+    arma_skel = None
+
+    armatures_found = set([x for x in context.selected_objects if x.type == 'ARMATURE'])
+    if context.object.parent:
+        if context.object.parent.type == 'ARMATURE':
+            armatures_found.add(context.object.parent)
+        
+    objs_to_export = set([x for x in context.selected_objects if x.type == 'MESH'])
+
+    log.debug(f"..Armatures for export: {armatures_found}")
+    log.debug(f"..Objects for export: {objs_to_export}")
+
+    shape_keys = get_with_uscore(get_common_shapes(objs_to_export))
+    if len(shape_keys) == 0:
+        shape_keys.append('') # just export the plain file
+            
+    if len(objs_to_export) == 0:
+        res = res.union({"NOTHING"})
+    else:
+        fb_export = False
+        mesh_export = False
+        for a in armatures_found:
+            if target_game == 'FO4' and is_facebones(a) and not fb_export:
+                r = export_file_set(filepath, 
+                                target_game, 
+                                shape_keys, 
+                                objs_to_export, 
+                                a, 
+                                '_faceBones')
+                res = res.union(r)
+                fb_export = True
+            elif not mesh_export:
+                r = export_file_set(filepath, 
+                                target_game, 
+                                shape_keys, 
+                                objs_to_export, 
+                                a)
+                res = res.union(r)
+                mesh_export = True
+    return res
+
+
 class ExportNIF(bpy.types.Operator, ExportHelper):
     """Export Blender object(s) to a NIF File"""
 
@@ -1087,53 +1156,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         NifFile.Load(nifly_path)
 
         try:
-            res = set()
-        
-            objs_unweighted = []
-            objs_scale = []
-            arma_game = []
-            arma_facebones = None
-            arma_skel = None
-
-            armatures_found = set([x for x in context.selected_objects if x.type == 'ARMATURE'])
-            if context.object.parent:
-                if context.object.parent.type == 'ARMATURE':
-                    armatures_found.add(context.object.parent)
-        
-            objs_to_export = set([x for x in context.selected_objects if x.type == 'MESH'])
-
-            log.debug(f"..Armatures for export: {armatures_found}")
-            log.debug(f"..Objects for export: {objs_to_export}")
-
-            shape_keys = get_with_uscore(get_common_shapes(objs_to_export))
-            if len(shape_keys) == 0:
-                shape_keys.append('') # just export the plain file
-            
-            if len(objs_to_export) == 0:
-                log.warning("Warning: Nothing to export")
-                self.report({"WARNING"}, "Warning: No selected object to export")
-                return {"CANCELLED"}
-            else:
-                fb_export = False
-                mesh_export = False
-                for a in armatures_found:
-                    if self.target_game == 'FO4' and is_facebones(a) and not fb_export:
-                        r = export_file_set(self.filepath, 
-                                       self.target_game, 
-                                       shape_keys, 
-                                       objs_to_export, 
-                                       a, 
-                                       '_faceBones')
-                        res = res.union(r)
-                        fb_export = True
-                    elif not mesh_export:
-                        r = export_file_set(self.filepath, 
-                                       self.target_game, 
-                                       shape_keys, 
-                                       objs_to_export, 
-                                       a)
-                        res = res.union(r)
-                        mesh_export = True
+            res = do_export(context, self.filepath, self.target_game) 
             
             rep = False
             if 'UNWEIGHTED' in res:
@@ -1144,6 +1167,9 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 rep = True
             if 'GAME' in res:
                 self.report({'WARNING'}, f"The armature appears to be designed for a different game--check that it's correct\nArmature: {arma_game}, game: {exportf.game}")
+                rep = True
+            if 'NOTHING' in res:
+                self.report({'WARNING'}, f"No mesh selected; nothing to export")
                 rep = True
             if 'WARNING' in res:
                 self.report({'WARNING'}, f"Export completed with warnings. Check the console window.")
@@ -1216,7 +1242,8 @@ def run_tests():
     TEST_NORMAL_SEAM = False
     TEST_COLORS = False
     TEST_HEADPART = False
-    TEST_FACEBONES = True
+    TEST_FACEBONES = False
+    TEST_FACEBONE_EXPORT = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -1244,11 +1271,12 @@ def run_tests():
         """ Covenience routine: Export the object found in another blend file through
             the exporter.
             """
-        obj = append_from_file(objname, False, blendfile, r"\Object", objname)
         bpy.ops.object.select_all(action='DESELECT')
+        obj = append_from_file(objname, False, blendfile, r"\Object", objname)
         bpy.context.view_layer.objects.active = obj
         bpy.ops.object.mode_set(mode="OBJECT")
-        export_file_set(os.path.join(pynifly_dev_path, outfile), game, [shapekey], [obj], obj.parent)
+        do_export(bpy.context, os.path.join(pynifly_dev_path, outfile), game)
+        #export_file_set(os.path.join(pynifly_dev_path, outfile), game, [shapekey], [obj], obj.parent)
         #outnif = NifFile()
         #outtrip = TripFile()
         #outnif.initialize(game, os.path.join(pynifly_dev_path, outfile))
@@ -1985,6 +2013,32 @@ def run_tests():
         outfile2 = os.path.join(pynifly_dev_path, r"tests/Out/basemalehead_facebones.nif")
         nif2 = NifFile(outfile2)
         assert 'skin_bone_R_Dimple' in nif2.shapes[0].bone_names, f"Expected game bone names, got {nif2.shapes[0].bone_names[0:10]}"
+    
+        
+    if TEST_BPY_ALL or TEST_FACEBONE_EXPORT:
+        print("### TEST_FACEBONES: Test can export facebones + regular nif; shapes with hidden verts export correctly")
+
+        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.nif"))
+        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT_faceBones.nif"))
+        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.tri"))
+        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT_chargen.tri"))
+
+        export_from_blend(r"tests\FO4\HeadFaceBones.blend",
+                          "HorseFemaleHead",
+                          "FO4",
+                          r"tests/Out/TEST_FACEBONE_EXPORT.nif",
+                          "")
+        
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.nif"))
+        assert len(nif1.shapes) == 1, "Write the file successfully"
+        assert len(nif1.shapes[0].tris) == 8922, f"Expected 8922 tris, found {len(nif1.shapes[0].tris)}"
+        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT_faceBones.nif"))
+        assert len(nif2.shapes) == 1
+        assert len(nif2.shapes[0].tris) == 8922, f"Expected 8922 tris, found {len(nif2.shapes[0].tris)}"
+        tri1 = TriFile.from_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.tri"))
+        assert len(tri1.morphs) > 0
+        tri2 = TriFile.from_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT_chargen.tri"))
+        assert len(tri2.morphs) > 0
 
 
     print("""
