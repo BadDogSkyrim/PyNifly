@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 44), 
+    "version": (0, 0, 45),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -921,8 +921,14 @@ def export_shape(nif, trip, obj, target_key='', arma=None):
         log.info("..Splitting mesh along UV seams")
         mesh_split_by_uv(verts, norms, loops, uvs, weights_by_vert, morphdict)
         # Old UV map had dups where verts were split; new matches 1-1 with verts
-        uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
-        norms_new = [norms[loops.index(i)] for i in range(len(verts))]
+        uvmap_new = [(0.0, 0.0)] * len(verts)
+        norms_new = [(0.0, 0.0, 0.0)] * len(verts)
+        for i, lp in enumerate(loops):
+            assert lp < len(verts), f"Error: Invalid vert index in loops: {lp} >= {len(verts)}"
+            uvmap_new[lp] = uvs[i]
+            norms_new[lp] = norms[i]
+        #uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
+        #norms_new = [norms[loops.index(i)] for i in range(len(verts))]
 
         # Our "loops" list matches 1:1 with the mesh's loops. So we can use the polygons
         # to pull the loops
@@ -934,7 +940,10 @@ def export_shape(nif, trip, obj, target_key='', arma=None):
         colors_new = None
         if loopcolors:
             log.debug(f"..Exporting vertex colors for shape {obj.name}")
-            colors_new = [loopcolors[loops.index(i)] for i in range(len(verts))]
+            colors_new = [(0.0, 0.0, 0.0, 0.0)] * len(verts)
+            for i, lp in enumerate(loops):
+                colors_new[lp] = loopcolors[i]
+            #colors_new = [loopcolors[loops.index(i)] for i in range(len(verts))]
         else:
             log.debug(f"..No vertex colors in shape {obj.name}")
         #log.debug(f"..Vertex 44 loc: {verts[44]}")
@@ -1154,7 +1163,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         
 
     def execute(self, context):
-        res = {}
+        res = set()
 
         log.info("NIFLY EXPORT V%d.%d.%d" % bl_info['version'])
         NifFile.Load(nifly_path)
@@ -1222,7 +1231,7 @@ def run_tests():
     ############################################################
     """)
 
-    TEST_EXPORT = True
+    TEST_EXPORT = False
     TEST_IMPORT_ARMATURE = False
     TEST_EXPORT_WEIGHTS = False
     TEST_UNIT = False
@@ -1248,6 +1257,7 @@ def run_tests():
     TEST_HEADPART = False
     TEST_FACEBONES = False
     TEST_FACEBONE_EXPORT = False
+    TEST_TIGER_EXPORT = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -2026,7 +2036,7 @@ def run_tests():
     
         
     if TEST_BPY_ALL or TEST_FACEBONE_EXPORT:
-        print("### TEST_FACEBONES: Test can export facebones + regular nif; shapes with hidden verts export correctly")
+        print("### TEST_FACEBONE_EXPORT: Test can export facebones + regular nif; shapes with hidden verts export correctly")
 
         remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.nif"))
         remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT_faceBones.nif"))
@@ -2051,6 +2061,25 @@ def run_tests():
         assert len(tri2.morphs) > 0
 
 
+    if TEST_BPY_ALL or TEST_TIGER_EXPORT:
+        print("### TEST_TIGER_EXPORT: Tiger head exports without errors")
+
+        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"))
+        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT_faceBones.nif"))
+        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.tri"))
+        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT_chargen.tri"))
+
+        #append_from_file("FacebonesSkel", True, r"tests\FO4\Tiger.blend", r"\Object", "FacebonesSkel")
+        append_from_file("TigerMaleHead", True, r"tests\FO4\Tiger.blend", r"\Object", "TigerMaleHead")
+        bpy.context.view_layer.objects.active = bpy.data.objects["TigerMaleHead"]
+       
+        do_export(bpy.context, 
+                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"), 
+                  'FO4')
+
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"))
+        assert len(nif1.shapes) == 1, f"Expected tiger nif"
+        
     print("""
     ############################################################
     ##                                                        ##
