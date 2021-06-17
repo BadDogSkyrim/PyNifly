@@ -445,8 +445,10 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     const uint16_t* tris, int tris_len,
     const float* uv_points, int uv_len,
     const float* norms, int norms_len,
-    uint16_t* optionsPtr=nullptr) {
-
+    uint16_t* optionsPtr=nullptr) 
+    // Options == 1: Create SSE head part (so use BSDynamicTriShape)
+    // Options == 2: Create FO4 BSTriShape (default is BSSubindexTriShape)
+{
     NifFile *nif = static_cast<NifFile*>(parentNif);
     std::vector<Vector3> v;
     std::vector<Triangle> t;

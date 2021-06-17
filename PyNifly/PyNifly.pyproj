@@ -34,9 +34,9 @@
     <Content Include="niflytools.py">
       <Publish>True</Publish>
     </Content>
-    <Content Include="pynifly.py">
+    <AdditionalFiles Include="pynifly.py">
       <Publish>True</Publish>
-    </Content>
+    </AdditionalFiles>
     <Content Include="__init__.py">
       <Publish>True</Publish>
     </Content>
