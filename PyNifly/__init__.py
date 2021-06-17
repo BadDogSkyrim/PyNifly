@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 45),  
+    "version": (0, 0, 46),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -952,14 +952,13 @@ def export_shape(nif, trip, obj, target_key='', arma=None):
         obj.data = originalmesh
         obj.active_shape_key_index = saved_sk
 
-    is_headpart = False
-    if obj.data.shape_keys \
-        and len(nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0:
-        is_headpart = True
+    is_hp = obj.data.shape_keys \
+            and len(nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
 
     obj.data.update()
     log.info("..Exporting to nif")
-    new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_new, is_headpart)
+    new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_new, 
+                                        is_hp, is_skinned)
     if colors_new:
         new_shape.set_colors(colors_new)
 
@@ -1148,8 +1147,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
     def __init__(self):
         obj = bpy.context.object
-        if obj:
-            self.filepath = clean_filename(obj.name)
+        if obj is None:
+            self.report({"ERROR"}, "No active object to export")
+            return
+
+        self.filepath = clean_filename(obj.name)
         arma = None
         if obj.type == "ARMATURE":
             arma = obj
@@ -1365,6 +1367,7 @@ def run_tests():
         f = NifFile(filepath)
         sourceGame = f.game
         assert f.game == "FO4", "ERROR: Wrong game found"
+        assert f.shapes[0].blockname == "BSTriShape", f"Error: Expected BSTriShape on unskinned shape, got {f.shapes[0].blockname}"
 
         import_nif(f)
 
@@ -1660,6 +1663,7 @@ def run_tests():
         testeyes = testnif.shape_by_root('Baby_Eyes')
         assert len(testhead.bone_names) > 10, "Error: Head should have bone weights"
         assert len(testeyes.bone_names) > 2, "Error: Eyes should have bone weights"
+        assert testhead.blockname == "BSSubIndexTriShape", f"Error: Expected BSSubIndexTriShape on skinned shape, got {testhead.blockname}"
 
         # TODO: Test that baby's unkown skeleton is connected
       

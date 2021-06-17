@@ -1211,6 +1211,46 @@ namespace NiflyDLLTests
 			char blockname[50];
 			getShapeBlockName(shapes[0], blockname, 50);
 			Assert::AreEqual("BSDynamicTriShape", blockname, L"Have expected node type");
+		};
+		TEST_METHOD(loadAndStoreUnskinned) {
+			std::filesystem::path testfile = testRoot / "FO4/AlarmClock.nif";
+
+			void* nif;
+			void* shapes[10];
+			float verts[1000 * 3];
+			float norms[1000 * 3];
+			float uvs[1000 * 2];
+			uint16_t tris[1100 * 3];
+
+			nif = load(testfile.string().c_str());
+			int shapeCount = getShapes(nif, shapes, 10, 0);
+			char blockname[50];
+			getShapeBlockName(shapes[0], blockname, 50);
+			Assert::AreEqual("BSTriShape", blockname, L"Have expected node type");
+
+			int vertLen = getVertsForShape(nif, shapes[0], verts, 1000, 0);
+			int triLen = getTriangles(nif, shapes[0], tris, 1100 * 3, 0);
+			int uvLen = getUVs(nif, shapes[0], uvs, vertLen * 2, 0);
+			int normLen = getNormalsForShape(nif, shapes[0], norms, vertLen * 3, 0);
+
+			std::filesystem::path testfileOut = testRoot / "Out/loadAndStoreUnskinned.nif";
+
+			void* nif2 = createNif("FO4");
+			uint16_t options = 2;
+			void* shape2 = createNifShapeFromData(nif2, "AlarmClock",
+				verts, vertLen * 3,
+				tris, triLen * 3,
+				uvs, uvLen * 2,
+				norms, normLen * 3,
+				&options);
+
+			saveNif(nif2, testfileOut.string().c_str());
+			
+			void *nif3 = load(testfileOut.string().c_str());
+			void* shapes3[10];
+			int shapeCount3 = getShapes(nif3, shapes3, 10, 0);
+			getShapeBlockName(shapes3[0], blockname, 50);
+			Assert::AreEqual("BSTriShape", blockname, L"Have expected node type");
 		}
 	};
 }
