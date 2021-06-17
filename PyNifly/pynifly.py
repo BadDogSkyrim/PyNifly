@@ -913,7 +913,8 @@ class NifFile:
         else:
             NifFile.nifly.saveNif(self._handle, self.filepath.encode('utf-8'))
 
-    def createShapeFromData(self, shape_name, verts, tris, uvs, normals, is_headpart=False):
+    def createShapeFromData(self, shape_name, verts, tris, uvs, normals, 
+                            is_headpart=False, is_skinned=False):
         """ Create the shape from the data provided
             shape_name = Name of shape
             verts = [(x, y, z)...] vertex location
@@ -939,7 +940,8 @@ class NifFile:
         uvbuf = UVBUFDEF()
         for i, u in enumerate(uvs): uvbuf[i] = (u[0], 1-u[1])
         optbuf = (c_uint16 * 1)()
-        optbuf[0] = 1 if is_headpart else 0
+        optbuf[0] = (1 if is_headpart else 0) \
+            + (2 if not is_skinned else 0)
         shape_handle = NifFile.nifly.createNifShapeFromData(
             self._handle, 
             shape_name.encode('utf-8'), 
@@ -1073,21 +1075,25 @@ TEST_PYBABY = False
 TEST_BONE_XFORM = False
 TEST_PARTITION_NAMES = False
 TEST_PARTITIONS = False
-TEST_SEGMENTS = False
+TEST_SEGMENTS = True
 TEST_BP_SEGMENTS = False
 TEST_COLORS = False
 TEST_FNV = False
 TEST_BLOCKNAME = True
+TEST_UNSKINNED = True
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
+    skinned = (len(s_in.bone_weights) > 0)
+
     new_shape = ftout.createShapeFromData(s_in.name + ".Out", 
                                             s_in.verts,
                                             s_in.tris,
                                             s_in.uvs,
-                                            s_in.normals)
+                                            s_in.normals,
+                                            is_skinned=skinned)
     new_shape.transform = s_in.transform.copy()
-    new_shape.skin()
+    if skinned: new_shape.skin()
     oldxform = s_in.global_to_skin_data
     if oldxform is None:
         oldxform = s_in.global_to_skin
@@ -1281,11 +1287,12 @@ if __name__ == "__main__":
         # Skyrim and FO4 work the same way
         newf2 = NifFile()
         newf2.initialize("FO4", "tests/out/testnew02.nif")
-        newf2.createShapeFromData("FirstShape", verts, tris, uvs, norms)
+        newf2.createShapeFromData("FirstShape", verts, tris, uvs, norms, is_skinned=False)
         newf2.save()
 
         newf2_in = NifFile("tests/out/testnew02.nif")
         assert newf2_in.shapes[0].name == "FirstShape", "ERROR: Didn't get expected shape back"
+        assert newf2_in.shapes[0].blockname == "BSTriShape", f"Error: Expected BSTriShape, found {newf2_in.shapes[0].blockname}"
 
         #Transforms are set by putting them on the NiShape
         newf3 = NifFile()
@@ -1662,7 +1669,7 @@ if __name__ == "__main__":
         nif2.save()
 
         nif3 = NifFile(r"tests/Out/SegmentsMaleBody.nif")
-        assert len(nif3.shapes[0].partitions) == 7, "Have the same number of partitions as before"
+        assert len(nif3.shapes[0].partitions) == 7, f"Error: Expected the same number of partitions as before, found {len(nif3.shapes[0].partitions)} != 7"
         assert nif3.shapes[0].partitions[2].id != 0, "Partition IDs same as before"
         assert nif3.shapes[0].partitions[2].name == "FO4 Human Arm.R"
         assert len(nif3.shapes[0].partitions[2].subsegments) > 0, "Shapes have subsegments"
@@ -1781,8 +1788,26 @@ if __name__ == "__main__":
             _test_export_shape(s, nif2)
         nif2.save()
 
+
     if TEST_ALL or TEST_BLOCKNAME:
         print("### TEST_BLOCKNAME: Can discover block name")
 
         nif = NifFile(r"tests\SKYRIMSE\malehead.nif")
         assert nif.shapes[0].blockname == "BSDynamicTriShape", f"Expected '', found '{nif.shapes[0].blockname}'"
+
+
+    if TEST_ALL or TEST_UNSKINNED:
+        print("### TEST_UNSKINNED: FO4 unskinned shape uses BSTriShape")
+
+        nif = NifFile(r"Tests/FO4/Alarmclock.nif")
+        assert nif.shapes[0].blockname == "BSTriShape", f"Error: Expected BSTriShape on unskinned shape, got {nif.shapes[0].blockname}"
+
+        nif2 = NifFile()
+        nif2.initialize("FO4", r"Tests/Out/TEST_UNSKINNED.nif")
+        _test_export_shape(nif.shapes[0], nif2)
+        nif2.save()
+
+        nif3 = NifFile(r"Tests/Out/TEST_UNSKINNED.nif")
+        assert nif3.shapes[0].blockname == "BSTriShape", f"Error: Expected BSTriShape on unskinned shape after export, got {nif3.shapes[0].blockname}"
+        
+        
