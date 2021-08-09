@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 47),  
+    "version": (0, 0, 48),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -79,7 +79,15 @@ import bmesh
 #log.addHandler(ch)
 
 
-# ### ---------------------------- IMPORT -------------------------------- ###
+# ######################################################################## ###
+#                                                                          ###
+# -------------------------------- IMPORT -------------------------------- ###
+#                                                                          ###
+# ######################################################################## ###
+
+# -----------------------------  SHADERS  -------------------------------
+
+# -----------------------------  MESH  -------------------------------
 
 def mesh_create_uv(the_mesh, uv_points):
     """ Create UV in Blender to match UVpoints from Nif
@@ -2100,6 +2108,21 @@ def run_tests():
 
     if TEST_BPY_ALL or TEST_JIARAN:
         print("#### TEST_JIARAN: Armature with no stashed transforms exports correctly")
+
+        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"))
+
+        append_from_file("hair.001", True, r"tests\SKYRIMSE\jiaran.blend", r"\Object", "hair.001")
+        bpy.context.view_layer.objects.active = bpy.data.objects["hair.001"]
+       
+        do_export(bpy.context, 
+                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"), 
+                  'FO4')
+
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"))
+        assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
+
+    if TEST_BPY_ALL or TEST_SHADER:
+        print("#### TEST_SHADER: Can import and deal with shaders")
 
         remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"))
 

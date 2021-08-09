@@ -378,19 +378,27 @@ int NIFLY_API getVersion() {
 
 /* ************************** READING SHADERS ************************** */
 
-NIFLY_API void* GetShader(void* nifref, void* shaperef) {
+NIFLY_API void* getShader(void* nifref, void* shaperef) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
 
     return nif->GetShader(shape);
 }
 
-NIFLY_API int GetShaderTexturePaths(void* nifref, void* shaperef, wchar_t* buf, int buflen) {
+NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char8_t* buf, int buflen) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
 
-    /* TBD */
-    return 0;
+    std::string texture;
+
+    nif->GetTextureSlot(shape, texture, slotIndex);
+
+    if (buflen > 1) {
+        memcpy(buf, texture.data(), std::min(texture.size(), static_cast<size_t>(buflen - 1)));
+        buf[texture.size()] = '\0';
+    }
+
+    return static_cast<int>(texture.length());
 }
 
 

@@ -75,8 +75,8 @@ def load_nifly(nifly_path):
     nifly.getSegmentFile.restype = c_int
     nifly.getSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getSegments.restype = c_int
-    nifly.getSubsegments.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
-    nifly.getSubsegments.restype = c_int
+    nifly.getShaderTextureSlot.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int]
+    nifly.getShaderTextureSlot.restype = c_int
     nifly.getShapeBlockName.argtypes = [c_void_p, c_void_p, c_int]
     nifly.getShapeBlockName.restypes = c_int
     nifly.getShapeBoneCount.argtypes = [c_void_p, c_void_p]
@@ -97,6 +97,8 @@ def load_nifly(nifly_path):
     nifly.getShapes.restype = c_int
     nifly.getShapeSkinToBone.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
     nifly.getShapeSkinToBone.restype = c_bool
+    nifly.getSubsegments.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
+    nifly.getSubsegments.restype = c_int
     nifly.getTransform.argtypes = [c_void_p, c_void_p]
     nifly.getTransform.restype = None
     nifly.getTriangles.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
@@ -468,6 +470,7 @@ class NiShape:
         self._scale = 1.0
         self._tris = None
         self._uvs = None
+        self._textures = None
         self._is_skinned = False
         self._verts = None
         self._weights = None
@@ -491,26 +494,6 @@ class NiShape:
         buf = ( c_float * 13)()
         self.transform.fill_buffer(buf)
         NifFile.nifly.setTransform(self._handle, buf)
-
-    #@property
-    #def rawVerts(self):
-    #    BUFSIZE = 1000
-    #    VERTBUF = c_float * 3 * BUFSIZE
-    #    verts = VERTBUF()
-    #    out = []
-    #    readSoFar = 0
-    #    remainingCount = 0
-    #    while (readSoFar == 0) or (remainingCount > 0):
-    #        totalCount = NifFile.nifly.getRawVertsForShape(
-    #            self.parent._handle, self._handle, verts, BUFSIZE, readSoFar)
-    #        if readSoFar == 0:
-    #            remainingCount = totalCount
-    #        if remainingCount > 0:
-    #            for i in range(0, min(remainingCount, BUFSIZE)):
-    #                out.append((verts[i][0], verts[i][1], verts[i][2]))
-    #        remainingCount -= BUFSIZE
-    #        readSoFar += BUFSIZE
-    #    return out
 
     @property
     def blockname(self):
@@ -633,6 +616,17 @@ class NiShape:
                     self.parent._handle, self._handle, buf, uvCount * 2, 0)
             self._uvs = [(buf[i][0], buf[i][1]) for i in range(uvCount)]
         return self._uvs
+    
+    @property
+    def textures(self):
+        if self._textures is None:
+            self._textures = []
+            for i in range(0, 9):
+                bufsize = 300
+                buf = create_string_buffer(bufsize)
+                NifFile.nifly.getShaderTextureSlot(self.parent._handle, self._handle, i, buf, bufsize)
+                self._textures.append(buf.value.decode('utf-8'))
+        return self._textures
     
     @property
     def bone_names(self):
@@ -1060,7 +1054,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1081,7 +1075,8 @@ TEST_COLORS = False
 TEST_FNV = False
 TEST_BLOCKNAME = False
 TEST_UNSKINNED = False
-TEST_UNI = True
+TEST_UNI = False
+TEST_TEXTURES = True
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1824,5 +1819,46 @@ if __name__ == "__main__":
 
         nif3 = NifFile(f"tests\out\будильник.nif")
         assert len(nif3.shapes) == 1, f"Error: Expected 1 shape, found {len(nif3.shapes)}"
-        
+
+    if TEST_ALL or TEST_TEXTURES:
+        print("### TEST_TEXTURES: Can read texture paths")
+        nif = NifFile(r"tests\SKYRIMSE\malehead.nif")
+        shape = nif.shapes[0]
+        for i, t in enumerate([
+                  r"textures\actors\character\male\MaleHead.dds",
+                  r"textures\actors\character\male\MaleHead_msn.dds",
+                  r"textures\actors\character\male\MaleHead_sk.dds",
+                  "",
+                  "",
+                  "",
+                  "",
+                  r"textures\actors\character\male\MaleHead_S.dds"]):
+            assert shape.textures[i] == t, f"Expected {t}, got {shape.textures[i]}"
+
+        nif = NifFile(r"tests\SKYRIM\malehead.nif")
+        shape = nif.shapes[0]
+        for i, t in enumerate([
+                  r"textures\actors\character\male\MaleHead.dds",
+                  r"textures\actors\character\male\MaleHead_msn.dds",
+                  r"textures\actors\character\male\MaleHead_sk.dds",
+                  "",
+                  "",
+                  "",
+                  "",
+                  r"textures\actors\character\male\MaleHead_S.dds"]):
+            assert shape.textures[i] == t, f"Expected {t}, got {shape.textures[i]}"
+
+        nif = NifFile(r"tests\FO4\basemalehead.nif")
+        shape = nif.shapes[0]
+        for i, t in enumerate([
+                  r"textures\Actors\Character\BaseHumanMale\BaseMaleHead_d.dds",
+                  r"textures\Actors\Character\BaseHumanMale\BaseMaleHead_n.dds",
+                  "",
+                  "",
+                  "",
+                  "",
+                  "",
+                  r"textures\actors\character\basehumanmale\basemalehead_s.dds"]):
+            assert shape.textures[i] == t, f"Expected {t}, got {shape.textures[i]}"
+      
         
