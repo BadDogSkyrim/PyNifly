@@ -242,7 +242,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
@@ -266,7 +266,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -286,7 +286,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
       <AdditionalIncludeDirectories>$(VCInstallDir)Auxiliary\VS\UnitTest\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -314,7 +314,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -371,6 +371,7 @@ copy /y $(ProjectDir)..\pynifly\*.py  $(OutDir)io_scene_nifly\
     <ClInclude Include="NiflyWrapper.hpp" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="resource.h" />
+    <ClInclude Include="resource1.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Nifly\src\Animation.cpp" />
@@ -409,6 +410,7 @@ copy /y $(ProjectDir)..\pynifly\*.py  $(OutDir)io_scene_nifly\
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="NiflyDLL.rc" />
+    <ResourceCompile Include="Resource.rc" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\PyNifly\PyNifly\skeletons\Skyrim\SKYRIM_skeleton.nif" />

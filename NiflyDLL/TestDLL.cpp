@@ -1,4 +1,4 @@
-/*
+﻿/*
 	Test of Nifly and the functions layered on it. Lives inside the DLL so we can
 	explore functionality without having to go through the DLL packing/unpacking.
 
@@ -97,7 +97,7 @@ namespace NiflyDLLTests
 	{
 	public:
 		TEST_METHOD(LoadReferenceSkeleton) {
-			/* Can load a skeleton */
+			/* FUNCTION TEST: Can load a skeleton */
 			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(SKYRIM), curRootName);
 
 			AnimSkeleton skel = AnimSkeleton::getInstance();
@@ -732,7 +732,7 @@ namespace NiflyDLLTests
 			uint16_t partTris[2000];
 			int triCount;
 
-			nif = load(testfile.string().c_str());
+			nif = load(testfile.u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 
 			// Asking for the segment count on Skyrim nifs is allowed, but always 0. 
@@ -810,7 +810,7 @@ namespace NiflyDLLTests
 			char fname[256];
 			int namelen;
 
-			nif = load(testfile.string().c_str());
+			nif = load(testfile.u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 
 			// segmentCount returns the count of segments in the shape
@@ -852,7 +852,7 @@ namespace NiflyDLLTests
 			int namelen;
 			int seg1id;
 
-			nif = load(testfile.string().c_str());
+			nif = load(testfile.u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 
 			// segmentCount returns the count of segments in the shape
@@ -974,12 +974,12 @@ namespace NiflyDLLTests
 			//}
 			addBoneToShape(newSkin, newHelm, "HEAD", nullptr);
 
-			saveSkinnedNif(newSkin, testfileout.string().c_str());
-			saveNif(newNif, testfileout.string().c_str());
+			saveSkinnedNif(newSkin, testfileout.u8string().c_str());
+			saveNif(newNif, testfileout.u8string().c_str());
 
 			// ------ And we can read what we wrote -------
 			void* shapes3[10];
-			void* nif3 = load(testfileout.string().c_str());
+			void* nif3 = load(testfileout.u8string().c_str());
 			getShapes(nif3, shapes3, 10, 0);
 
 			// segmentCount returns the count of segments in the shape
@@ -1015,7 +1015,7 @@ namespace NiflyDLLTests
 			uint16_t tris[1100 * 3];
 
 			// Can load vertex colors
-			nif = load(testfile.string().c_str());
+			nif = load(testfile.u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 			int vertLen = getVertsForShape(nif, shapes[0], verts, 1000, 0);
 			int colorLen = getColorsForShape(nif, shapes[0], colors, vertLen*4);
@@ -1043,14 +1043,14 @@ namespace NiflyDLLTests
 				nullptr);
 			setColorsForShape(nif2, shape2, colors, colorLen);
 
-			saveNif(nif2, testfileOut.string().c_str());
+			saveNif(nif2, testfileOut.u8string().c_str());
 
 			// And can read them back correctly
 			void* nif3;
 			void* shapes3[10];
 			float colors3[1000*4];
 
-			nif3 = load(testfileOut.string().c_str());
+			nif3 = load(testfileOut.u8string().c_str());
 			getShapes(nif3, shapes3, 10, 0);
 			int colorsLen3 = getColorsForShape(nif3, shapes3[0], colors3, 1000 * 4);
 
@@ -1077,7 +1077,7 @@ namespace NiflyDLLTests
 			uint16_t tris[1100 * 3];
 
 			// Can load nif
-			nif = load(testfile.string().c_str());
+			nif = load(testfile.u8string().c_str());
 			int shapeCount = getShapes(nif, shapes, 10, 0);
 			int vertLen = getVertsForShape(nif, shapes[0], verts, 1000, 0);
 			int triLen = getTriangles(nif, shapes[0], tris, 1100 * 3, 0);
@@ -1097,13 +1097,13 @@ namespace NiflyDLLTests
 				norms, normLen * 3,
 				nullptr);
 
-			saveNif(nif2, testfileOut.string().c_str());
+			saveNif(nif2, testfileOut.u8string().c_str());
 
 			// And can read them back correctly
 			void* nif3;
 			void* shapes3[10];
 
-			nif3 = load(testfileOut.string().c_str());
+			nif3 = load(testfileOut.u8string().c_str());
 			getShapes(nif3, shapes3, 10, 0);
 
 		};
@@ -1120,7 +1120,7 @@ namespace NiflyDLLTests
 
 			// Can load nif. Intentionally passing in short buffers to make sure that works.
 			// This is a big nif, so it will overwrite everything in sight if it's wrong.
-			nif = load(testfile.string().c_str());
+			nif = load(testfile.u8string().c_str());
 			int shapeCount = getShapes(nif, shapes, 10, 0);
 			long vertLen = getVertsForShape(nif, shapes[0], verts, 1000, 0);
 			int triLen = getTriangles(nif, shapes[0], tris, 1100 * 3, 0);
@@ -1179,14 +1179,14 @@ namespace NiflyDLLTests
 				delete[]vwp;
 			};
 
-			saveSkinnedNif(skin2, testfileOut.string().c_str());
+			saveSkinnedNif(skin2, testfileOut.u8string().c_str());
 
 			// And can read them back correctly
 			void* nif3;
 			void* shapes3[10];
 			float* verts3 = new float[vertLen * 3];
 
-			nif3 = load(testfileOut.string().c_str());
+			nif3 = load(testfileOut.u8string().c_str());
 			int shapeCount3 = getShapes(nif3, shapes3, 10, 0);
 			long vertLen3 = getVertsForShape(nif3, shapes3[0], verts3, vertLen * 3, 0);
 
@@ -1206,7 +1206,7 @@ namespace NiflyDLLTests
 
 			// Can load nif. Intentionally passing in short buffers to make sure that works.
 			// This is a big nif, so it will overwrite everything in sight if it's wrong.
-			nif = load(testfile.string().c_str());
+			nif = load(testfile.u8string().c_str());
 			int shapeCount = getShapes(nif, shapes, 10, 0);
 			char blockname[50];
 			getShapeBlockName(shapes[0], blockname, 50);
@@ -1222,7 +1222,7 @@ namespace NiflyDLLTests
 			float uvs[1000 * 2];
 			uint16_t tris[1100 * 3];
 
-			nif = load(testfile.string().c_str());
+			nif = load(testfile.u8string().c_str());
 			int shapeCount = getShapes(nif, shapes, 10, 0);
 			char blockname[50];
 			getShapeBlockName(shapes[0], blockname, 50);
@@ -1244,13 +1244,63 @@ namespace NiflyDLLTests
 				norms, normLen * 3,
 				&options);
 
-			saveNif(nif2, testfileOut.string().c_str());
-			
-			void *nif3 = load(testfileOut.string().c_str());
+			saveNif(nif2, testfileOut.u8string().c_str());
+
+			void* nif3 = load(testfileOut.u8string().c_str());
 			void* shapes3[10];
 			int shapeCount3 = getShapes(nif3, shapes3, 10, 0);
 			getShapeBlockName(shapes3[0], blockname, 50);
 			Assert::AreEqual("BSTriShape", blockname, L"Have expected node type");
-		}
+		};
+		TEST_METHOD(loadAndStoreUni) {
+			// Can load and store files with extended character set in path
+			// Can't figure out how to use extended character set in the source
+			// file so do a stupid workaround.
+			std::filesystem::path testdir = testRoot / "FO4/TestUnicode";
+			for (const std::filesystem::directory_entry testfile :
+			std::filesystem::recursive_directory_iterator(testdir)) {
+				if (testfile.path().extension() == ".nif") {
+					std::u8string fp = testfile.path().u8string();
+					const char8_t* fpstr = fp.c_str();
+
+					void* nif;
+					void* shapes[10];
+					float* verts = new float[1000 * 3];
+					float* norms = new float[1000 * 3];
+					float* uvs = new float[1000 * 2];
+					uint16_t* tris = new uint16_t[1100 * 3];
+
+					nif = load(fpstr);
+					int shapeCount = getShapes(nif, shapes, 10, 0);
+					char blockname[50];
+					getShapeBlockName(shapes[0], blockname, 50);
+					Assert::AreEqual("BSTriShape", blockname, L"Have expected node type");
+
+					int vertLen = getVertsForShape(nif, shapes[0], verts, 1000, 0);
+					int triLen = getTriangles(nif, shapes[0], tris, 1100 * 3, 0);
+					int uvLen = getUVs(nif, shapes[0], uvs, vertLen * 2, 0);
+					int normLen = getNormalsForShape(nif, shapes[0], norms, vertLen * 3, 0);
+
+					std::filesystem::path testfileOut = testRoot / "Out" / testfile.path().filename();
+
+					void* nif2 = createNif("FO4");
+					uint16_t options = 2;
+					void* shape2 = createNifShapeFromData(nif2, "AlarmClock",
+						verts, vertLen * 3,
+						tris, triLen * 3,
+						uvs, uvLen * 2,
+						norms, normLen * 3,
+						&options);
+
+					saveNif(nif2, testfileOut.u8string().c_str());
+
+					void* nif3 = load(testfileOut.u8string().c_str());
+					void* shapes3[10];
+					int shapeCount3 = getShapes(nif3, shapes3, 10, 0);
+					getShapeBlockName(shapes3[0], blockname, 50);
+					Assert::AreEqual("BSTriShape", blockname, L"Have expected node type");
+				};
+			};
+		};
 	};
 }

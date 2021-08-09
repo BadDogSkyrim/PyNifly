@@ -247,6 +247,27 @@ class RotationMatrix:
     def copy(self):
         return RotationMatrix([self.matrix[0], self.matrix[1], self.matrix[2]])
     
+    def multiply(self, other):
+        y = other.matrix
+        x = self.matrix
+        new_mx = [[0] * len(y[0])] * len(x)
+        for i in range(len(x)):
+            for j in range(len(y[0])):
+                for k in range(len(y)):
+                    new_mx[i][j] += x[i][k] * y[k][j]
+
+        new_mx = [ ( x[0][0]*y[0][0] + x[0][1]*y[1][0] + x[0][2]*y[2][0], 
+                     x[0][0]*y[0][1] + x[0][1]*y[1][1] + x[0][2]*y[2][1],
+                     x[0][0]*y[0][2] + x[0][1]*y[1][2] + x[0][2]*y[2][2]), 
+                   ( x[1][0]*y[0][0] + x[1][1]*y[1][0] + x[1][2]*y[2][0],
+                     x[1][0]*y[0][1] + x[1][1]*y[1][1] + x[1][2]*y[2][1],
+                     x[1][0]*y[0][2] + x[1][1]*y[1][2] + x[1][2]*y[2][2]), 
+                   ( x[2][0]*y[0][0] + x[2][1]*y[1][0] + x[2][2]*y[2][0],
+                     x[2][0]*y[0][1] + x[2][1]*y[1][1] + x[2][2]*y[2][1],
+                     x[2][0]*y[0][2] + x[2][1]*y[1][2] + x[2][2]*y[2][2])]
+        return RotationMatrix(new_mx)
+
+
     def invert(self):
         det = self.determinant
         rows = self.matrix
@@ -267,14 +288,17 @@ class RotationMatrix:
             print("Error: Rotation matrix cannot be inverted")
             return self.copy()
 
+
 def uv_location(uv):
     """ Rounds UV location to eliminate floating point error """
     return (round(uv[0], 4), round(uv[1], 4))
+
 
 def VNearEqual(v1, v2):
     return round(v1[0], 1) == round(v2[0], 1) and \
         round(v1[1], 1) == round(v2[1], 1) and \
         round(v1[2], 1) == round(v2[2], 1)
+
 
 def vert_uv_key(vert_index, uv):
     return str(vert_index) + "_" + str(uv)
@@ -1130,13 +1154,18 @@ gameSkeletons = {
     'FONV': fnvDict}
 
 if __name__ == "__main__":
-# ------------ # TESTS # ------------------ #
+# ######################################### #
+#                                           #
+#   FUNCTIONAL TESTS                        #
+#                                           #
+# ######################################### #
 
     import sys
     import os.path
     #sys.path.append(r"D:\OneDrive\Dev\PyNifly\PyNifly")
     #from pynifly import *
 
+    # ####################################################################################
     print("--Can split verts of a triangularized plane")
     # Verts 4 & 5 are on a seam
     verts = [(-1.0, -1.0, 0.0), (1.0, -1.0, 0.0), (-1.0, 1.0, 0.0), (1.0, 1.0, 0.0), (0.0, -1.0, 0.0), (0.0, 1.0, 0.0)]
@@ -1166,6 +1195,8 @@ if __name__ == "__main__":
     morphdict["by2"] = [(v[0]*2, v[1]*2, v[2]*2) for v in verts]
     morphdict["by3"] = [(v[0]*3, v[1]*3, v[2]*3) for v in verts]
         
+    # mesh_split_by_uv() splits the mesh along UV seams--any vert that has two 
+    # different UV locations needs to be split
     mesh_split_by_uv(verts, norms, loops, uvs, weights, morphdict)
 
     # Vert 5 got split into 5 & 7. Data should be the same.
@@ -1182,7 +1213,12 @@ if __name__ == "__main__":
     # Any loop entry referencing vert 5 should have same UV location as one referencing 7
     assert loops[1] == 5 and loops[10] == 7 and uvs[1] != uvs[10], "Error: Duplicating UV locations correctly"
 
-    print("--Game skeletons translate to and from blender format")
+
+    print("""####################################################################################
+    Game skeletons translate to and from blender conventions. This allows blender mirror operations
+    to be smart.
+    """)
+
     assert gameSkeletons["SKYRIM"].byBlender['NPC Finger11.L'].nif == 'NPC L Finger11 [LF11]', "Error: Bone not translated correctly"
     assert gameSkeletons["SKYRIM"].byNif['NPC L Finger11 [LF11]'].blender == 'NPC Finger11.L', "Error: Bone not translated correctly"
     assert gameSkeletons["FO4"].byBlender['Arm_Finger13.R'].nif == 'RArm_Finger13', "Error: Bone not translated correctly"
@@ -1191,42 +1227,81 @@ if __name__ == "__main__":
     assert gameSkeletons["SKYRIM"].blender_name('NPC L Finger20 [LF20]') == 'NPC Finger20.L', "Error: Name translation incorrect"
     assert gameSkeletons["SKYRIM"].nif_name('NPC Finger20.L') == 'NPC L Finger20 [LF20]', "Error: Name translation incorrect"
     assert gameSkeletons["FO4"].nif_name('FOOBAR') == 'FOOBAR', "Error: Name translation incorrect"
+    
 
-    print("--Rotation Matrices")
+    print("""
+##############################################################################
+RotationMatrix provides handling for bone rotations and such.
+""")
     rm = RotationMatrix([[-0.0072, 0.9995, -0.0313],
                          [-0.0496, -0.0316, -0.9983],
                          [-0.9987, -0.0056, 0.0498]])
+    
+    # by_vector creates a rotation matrix from a vector 
     assert rm.by_vector((5,0,0)) == (-0.036, -0.248, -4.9935), "Error: Applying rotation matrix"
 
+    # identity is the do-nothing rotation
+    # invert() is the inverse rotation
     identity = RotationMatrix()
     assert identity.invert() == identity, "Error: Inverting identity should give itself"
 
+    # euler_deg() returns the rotation in euler degrees
     rm = RotationMatrix([(0,0,1), (1,0,0), (0,1,0)])
     assert rm.euler_deg() == (90.0, 90.0, 0), "Error: Euler degrees reflect same rotation"
     # No idea if this is actually correct, need to figure out rotations
     assert rm.invert().euler_deg() == (-90.0, 0, -90.0), "Error: Euler degrees reflect inverse rotation"
 
     rm = RotationMatrix.from_euler(0, 0, 0)
-    assert rm == identity, "Error: null euler rotation generates null matrix"
+    assert rm == identity, "Error: null euler rotation generates null rotation"
 
-    # what we want to do with blender
+    # Not working... what we want to do with blender
     bone_rot = (87.1, -1.8, -90.4)
     bone_mat = RotationMatrix.from_euler(bone_rot[0], bone_rot[1], bone_rot[2])
     rot_vec = bone_mat.by_vector((1, 0, 0))
     res_mat = RotationMatrix.from_vector(rot_vec)
     res_euler = res_mat.euler()
-    
-    # Rotation vectors work to go from matrices and back again
+
+    # from_euler() creates a rotation matrix from euler angles
     r = RotationMatrix.from_euler(20, 30, 40)
+    # rotation_vector() returns a vector showing a matrix's rotation
+    # from_vector() creates a rotation matrix from a vector
     r1 = RotationMatrix.from_vector(r.rotation_vector())
-    assert r == r1, "Error: Rotation vectors are reversable"
+    # So convert a rotation to a vector and back should be identity
+    assert r == r1, "Error: Rotation vectors should be reversable"
+
+    print("Matrixes can be multiplied, which allows trainsforms to be combined.")
+    a = RotationMatrix([(1, 2, 3), (4, 5, 6), (7, 8, 9)])
+    b = RotationMatrix([(10,20,30), (40, 50, 60), (70, 80, 90)])
+    c = a.multiply(b)
+    assert c == RotationMatrix([(300, 360, 420), (660, 810, 960), (1020, 1260, 1500)]), "Error: Matrix multiplication failure"
+
+    print("Bones have transforms which are turned into head and tail positions")
+    bone_mx = RotationMatrix.from_euler(30, 0, 0)
+    print(f"bone_mx = \n{bone_mx}")
+    bone_v = bone_mx.by_vector([1, 0, 0])
+    print("Can re-create the rotation matrix from the vector")
+    new_mx = RotationMatrix.from_vector([n * -1 for n in bone_v], 0)
+    # Can't recreate the maxtrix because the vector loses info if the mx
+    # rotates it about its own axis. Can code rotation in the lenght of the vector
+    # but not convenient for blender. 
+    # assert new_mx == bone_mx, "Error: can't recreate rotation matrix from vector"
 
 
+    # ####################################################################################
+    print(
+        """
+        gameSkeleton matches() function counts the bones that match bones inf the given set
+        """)
     print("--Can get count of matching bones from skeleton")
     assert gameSkeletons["FO4"].matches(set(['Leg_Calf.R', 'Leg_Calf_skin.R', 'Leg_Calf_Low_skin.R', 'FOO'])) == 3, "Error: Skeletons should return correct bone match"
 
 
-    print ("--FO4 can filter morphs")
+    # ####################################################################################
+    print ("""
+        BoneDict expression_filter returns just the expression morphs for the given game
+        BoneDict chargen_filter returns just the chargen morphs for the given game.
+            Note for FO4 these aren't predefined, but match *type#. 
+        """)
     exprmorphs = set(['DialogueAnger', 'MoodFear', 'CombatShout', 'RUprLipDn', 'RUprLidUp', 'RUprLidDn'])
     assert fo4Dict.expression_filter(exprmorphs) == set(['RUprLipDn', 'RUprLidUp', 'RUprLidDn']), "ERROR: FO4 expression filter incorrect"
     assert skyrimDict.expression_filter(exprmorphs) == set(['DialogueAnger', 'MoodFear', 'CombatShout']), "ERROR: FO4 expression filter incorrect"
