@@ -4,7 +4,7 @@ import struct
 from math import asin, atan2, pi, sin, cos
 import re
 import logging
-from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer
+from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer
 from niflytools import *
 
 
@@ -1075,12 +1075,13 @@ TEST_PYBABY = False
 TEST_BONE_XFORM = False
 TEST_PARTITION_NAMES = False
 TEST_PARTITIONS = False
-TEST_SEGMENTS = True
+TEST_SEGMENTS = False
 TEST_BP_SEGMENTS = False
 TEST_COLORS = False
 TEST_FNV = False
-TEST_BLOCKNAME = True
-TEST_UNSKINNED = True
+TEST_BLOCKNAME = False
+TEST_UNSKINNED = False
+TEST_UNI = True
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1774,7 +1775,7 @@ if __name__ == "__main__":
         
 
     if TEST_ALL or TEST_FNV:
-        print("### TEST_COLORS: Can load and save FNV nifs")
+        print("### TEST_FNV: Can load and save FNV nifs")
 
         nif = NifFile(r"tests\FNV\9mmscp.nif")
         shapenames = [s.name for s in nif.shapes]
@@ -1790,10 +1791,10 @@ if __name__ == "__main__":
 
 
     if TEST_ALL or TEST_BLOCKNAME:
-        print("### TEST_BLOCKNAME: Can discover block name")
+        print("### TEST_BLOCKNAME: Can get block type as a string")
 
         nif = NifFile(r"tests\SKYRIMSE\malehead.nif")
-        assert nif.shapes[0].blockname == "BSDynamicTriShape", f"Expected '', found '{nif.shapes[0].blockname}'"
+        assert nif.shapes[0].blockname == "BSDynamicTriShape", f"Expected 'BSDynamicTriShape', found '{nif.shapes[0].blockname}'"
 
 
     if TEST_ALL or TEST_UNSKINNED:
@@ -1809,5 +1810,19 @@ if __name__ == "__main__":
 
         nif3 = NifFile(r"Tests/Out/TEST_UNSKINNED.nif")
         assert nif3.shapes[0].blockname == "BSTriShape", f"Error: Expected BSTriShape on unskinned shape after export, got {nif3.shapes[0].blockname}"
+
+    if TEST_ALL or TEST_UNI:
+        print("### TEST_UNI: Can load and store files with non-ascii pathnames")
+
+        nif = NifFile(r"tests\FO4\TestUnicode\проверка\будильник.nif")
+        assert len(nif.shapes) == 1, f"Error: Expected 1 shape, found {len(nif.shapes)}"
+
+        nif2 = NifFile()
+        nif2.initialize('SKYRIMSE', r"tests\out\будильник.nif")
+        _test_export_shape(nif.shapes[0], nif2)
+        nif2.save()
+
+        nif3 = NifFile(f"tests\out\будильник.nif")
+        assert len(nif3.shapes) == 1, f"Error: Expected 1 shape, found {len(nif3.shapes)}"
         
         

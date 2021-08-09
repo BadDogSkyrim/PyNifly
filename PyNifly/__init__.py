@@ -675,10 +675,15 @@ def get_bone_xforms(arma, bone_names):
     for b in arma.bones:
         mat = MatTransform()
         mat.translation = b.head_local
-        mat.rotation = RotationMatrix((tuple(b['pyxform'][0]), 
-                                       tuple(b['pyxform'][1]), 
-                                       tuple(b['pyxform'][2])))
+        if b['pyxform']:
+            mat.rotation = RotationMatrix((tuple(b['pyxform'][0]), 
+                                           tuple(b['pyxform'][1]), 
+                                           tuple(b['pyxform'][2])))
+        else:
+            mat.rotation = RotationMatrix()
+        
         result[b.name] = mat
+    
     return result
 
 def export_skin(obj, arma, new_shape, new_xform, weights_by_vert):
@@ -1259,7 +1264,8 @@ def run_tests():
     TEST_HEADPART = False
     TEST_FACEBONES = False
     TEST_FACEBONE_EXPORT = False
-    TEST_TIGER_EXPORT = True
+    TEST_TIGER_EXPORT = False
+    TEST_JIARAN = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -2064,6 +2070,13 @@ def run_tests():
         tri2 = TriFile.from_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT_chargen.tri"))
         assert len(tri2.morphs) > 0
 
+# #############################################################################################
+#
+#    REGRESSION TESTS
+#
+#    These tests cover specific cases that have caused bugs in the past.
+#
+# ############################################################################################
 
     if TEST_BPY_ALL or TEST_TIGER_EXPORT:
         print("### TEST_TIGER_EXPORT: Tiger head exports without errors")
@@ -2083,6 +2096,24 @@ def run_tests():
 
         nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"))
         assert len(nif1.shapes) == 1, f"Expected tiger nif"
+
+
+    if TEST_BPY_ALL or TEST_JIARAN:
+        print("#### TEST_JIARAN: Armature with no stashed transforms exports correctly")
+
+        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"))
+
+        append_from_file("hair.001", True, r"tests\SKYRIMSE\jiaran.blend", r"\Object", "hair.001")
+        bpy.context.view_layer.objects.active = bpy.data.objects["hair.001"]
+       
+        do_export(bpy.context, 
+                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"), 
+                  'FO4')
+
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"))
+        assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
+
+
         
     print("""
     ############################################################
