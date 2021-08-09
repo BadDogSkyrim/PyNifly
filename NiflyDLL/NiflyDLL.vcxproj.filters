@@ -93,6 +93,9 @@
     <ClInclude Include="Logger.hpp">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="resource1.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">
@@ -158,6 +161,9 @@
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="NiflyDLL.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+    <ResourceCompile Include="Resource.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
   </ItemGroup>

@@ -45,7 +45,7 @@ void SetShapeGlobalToSkinXform(AnimInfo* anim, nifly::NiShape* theShape, const n
 
 void SetShapeWeights(AnimInfo* anim, nifly::NiShape* theShape, std::string boneName, AnimWeight& theWeightSet);
 
-int SaveSkinnedNif(AnimInfo* anim, std::string filepath);
+int SaveSkinnedNif(AnimInfo* anim, std::filesystem::path filepath);
 
 void GetPartitions(nifly::NifFile* workNif, nifly::NiShape* shape, 
 	nifly::NiVector<nifly::BSDismemberSkinInstance::PartitionInfo>& partitions,

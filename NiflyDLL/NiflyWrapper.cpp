@@ -36,7 +36,7 @@ NIFLY_API void* nifCreate() {
     return new NifFile;
 }
 
-NIFLY_API void* load(const char* filename) {
+NIFLY_API void* load(const char8_t* filename) {
     NifFile* nif = new NifFile();
     int errval = nif->Load(std::filesystem::path(filename));
 
@@ -376,6 +376,25 @@ int NIFLY_API getVersion() {
     return 110;
 };
 
+/* ************************** READING SHADERS ************************** */
+
+NIFLY_API void* GetShader(void* nifref, void* shaperef) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    return nif->GetShader(shape);
+}
+
+NIFLY_API int GetShaderTexturePaths(void* nifref, void* shaperef, wchar_t* buf, int buflen) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    /* TBD */
+    return 0;
+}
+
+
+
 /* ******************** NIF CREATION *************************************** */
 
 //enum TargetGame {FO3, FONV, SKYRIM, FO4, SKYRIMSE, FO4VR, SKYRIMVR, FO76, UNKNOWN_TARGET};
@@ -532,8 +551,8 @@ NIFLY_API void setShapeWeights(void* anim, void* theShape, const char* boneName,
     Save skinned nif
     options: 1 = save as head part, uses BSDynamicTriShape on SSE 
     */
-NIFLY_API int saveSkinnedNif(void* anim, const char* filepath) {
-    return SaveSkinnedNif(static_cast<AnimInfo*>(anim), std::string(filepath));
+NIFLY_API int saveSkinnedNif(void* anim, const char8_t* filepath) {
+    return SaveSkinnedNif(static_cast<AnimInfo*>(anim), std::filesystem::path(filepath));
 }
 
 NIFLY_API void setTransform(void* theShape, float* buf) {
@@ -595,7 +614,7 @@ NIFLY_API void setShapeBoneIDList(void* theFile, void* shapeRef, int* boneIDList
     nif->SetShapeBoneIDList(shape, bids);
 }
 
-NIFLY_API int saveNif(void* the_nif, const char* filename) {
+NIFLY_API int saveNif(void* the_nif, const char8_t* filename) {
     NifFile* nif = static_cast<NifFile*>(the_nif);
     return nif->Save(std::filesystem::path(filename));
 }

@@ -163,7 +163,7 @@ void SetShapeWeights(AnimInfo* anim, nifly::NiShape* theShape, std::string boneN
 	anim->SetWeights(theShape->name.get(), boneName, theWeightSet.weights);
 }
 
-int SaveSkinnedNif(AnimInfo* anim, std::string filepath)
+int SaveSkinnedNif(AnimInfo* anim, std::filesystem::path filepath)
 {
 	NifFile* theNif = anim->GetRefNif();
 	anim->WriteToNif(theNif, "None");
