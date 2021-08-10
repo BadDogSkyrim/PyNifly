@@ -1,6 +1,7 @@
 
 import os
 import struct
+from enum import Enum, IntFlag
 from math import asin, atan2, pi, sin, cos
 import re
 import logging
@@ -22,6 +23,39 @@ class VERTEX_WEIGHT_PAIR(Structure):
     _fields_ = [("vertex", c_uint16),
                 ("weight", c_float)]
 
+class ShaderFlags1(IntFlag):
+    SPECULAR = 1 << 0
+    SKINNED = 1 << 1
+    TEMP_REFRACTION = 1 << 2
+    VERTEX_ALPHA = 1 << 3
+    GREYSCALE_COLOR = 1 << 4
+    GREYSCALE_ALPHA = 1 << 5
+    USE_FALLOFF = 1 << 6
+    ENVIRONMENT_MAPPING = 1 << 7
+    RECEIVE_SHADOWS = 1 << 8
+    CAST_SHADOWS = 1 << 9
+    FACEGEN_DETAIL_MAP = 1 << 10
+    PARALLAX = 1 << 11
+    MODEL_SPACE_NORMALS = 1 << 12
+    NON_PROJECTIVE_SHADOWS = 1 << 13
+    LANDSCAPE = 1 << 14
+    REFRACTION = 1 << 15
+    FIRE_REFRACTION = 1 << 16
+    EYE_ENVIRONMENT_MAPPING = 1 << 17
+    HAIR_SOFT_LIGHTING = 1 << 18
+    SCREENDOOR_ALPHA_FADE = 1 << 19
+    LOCALMAP_HIDE_SECRET = 1 << 20
+    FACEGEN_RGB_TINT = 1 << 21
+    OWN_EMIT = 1 << 22
+    PROJECTED_UV = 1 << 23
+    MULTIPLE_TEXTURES = 1 << 24
+    REMAPPABLE_TEXTURES = 1 << 25
+    DECAL = 1 << 26
+    DYNAMIC_DECAL = 1 << 27
+    PARALLAX_OCCLUSION = 1 << 28
+    EXTERNAL_EMITTANCE = 1 << 29
+    SOFT_EFFECT = 1 << 30
+    ZBUFFER_TES = 1 << 31
 
 def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
@@ -75,8 +109,9 @@ def load_nifly(nifly_path):
     nifly.getSegmentFile.restype = c_int
     nifly.getSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getSegments.restype = c_int
-    nifly.getSubsegments.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
-    nifly.getSubsegments.restype = c_int
+    nifly.getShaderTextureSlot.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int]
+    nifly.getShaderTextureSlot.restype = c_int
+    nifly.getShaderFlags1.argtypes = [c_void_p, c_void_p, c_void_p]
     nifly.getShapeBlockName.argtypes = [c_void_p, c_void_p, c_int]
     nifly.getShapeBlockName.restypes = c_int
     nifly.getShapeBoneCount.argtypes = [c_void_p, c_void_p]
@@ -97,6 +132,8 @@ def load_nifly(nifly_path):
     nifly.getShapes.restype = c_int
     nifly.getShapeSkinToBone.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
     nifly.getShapeSkinToBone.restype = c_bool
+    nifly.getSubsegments.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
+    nifly.getSubsegments.restype = c_int
     nifly.getTransform.argtypes = [c_void_p, c_void_p]
     nifly.getTransform.restype = None
     nifly.getTriangles.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
@@ -468,6 +505,7 @@ class NiShape:
         self._scale = 1.0
         self._tris = None
         self._uvs = None
+        self._textures = None
         self._is_skinned = False
         self._verts = None
         self._weights = None
@@ -491,26 +529,6 @@ class NiShape:
         buf = ( c_float * 13)()
         self.transform.fill_buffer(buf)
         NifFile.nifly.setTransform(self._handle, buf)
-
-    #@property
-    #def rawVerts(self):
-    #    BUFSIZE = 1000
-    #    VERTBUF = c_float * 3 * BUFSIZE
-    #    verts = VERTBUF()
-    #    out = []
-    #    readSoFar = 0
-    #    remainingCount = 0
-    #    while (readSoFar == 0) or (remainingCount > 0):
-    #        totalCount = NifFile.nifly.getRawVertsForShape(
-    #            self.parent._handle, self._handle, verts, BUFSIZE, readSoFar)
-    #        if readSoFar == 0:
-    #            remainingCount = totalCount
-    #        if remainingCount > 0:
-    #            for i in range(0, min(remainingCount, BUFSIZE)):
-    #                out.append((verts[i][0], verts[i][1], verts[i][2]))
-    #        remainingCount -= BUFSIZE
-    #        readSoFar += BUFSIZE
-    #    return out
 
     @property
     def blockname(self):
@@ -633,6 +651,26 @@ class NiShape:
                     self.parent._handle, self._handle, buf, uvCount * 2, 0)
             self._uvs = [(buf[i][0], buf[i][1]) for i in range(uvCount)]
         return self._uvs
+    
+    @property
+    def shaderflags1(self):
+        buf = c_uint32()
+        return NifFile.nifly.getShaderFlags1(self.parent._handle, self._handle, byref(buf))
+
+    @property
+    def model_space_normals(self):
+        return (self.shaderflags1 & ShaderFlags1.MODEL_SPACE_NORMALS) != 0
+
+    @property
+    def textures(self):
+        if self._textures is None:
+            self._textures = []
+            for i in range(0, 9):
+                bufsize = 300
+                buf = create_string_buffer(bufsize)
+                NifFile.nifly.getShaderTextureSlot(self.parent._handle, self._handle, i, buf, bufsize)
+                self._textures.append(buf.value.decode('utf-8'))
+        return self._textures
     
     @property
     def bone_names(self):
@@ -1081,7 +1119,8 @@ TEST_COLORS = False
 TEST_FNV = False
 TEST_BLOCKNAME = False
 TEST_UNSKINNED = False
-TEST_UNI = True
+TEST_UNI = False
+TEST_SHADER = True
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1824,5 +1863,57 @@ if __name__ == "__main__":
 
         nif3 = NifFile(f"tests\out\будильник.nif")
         assert len(nif3.shapes) == 1, f"Error: Expected 1 shape, found {len(nif3.shapes)}"
-        
+
+    if TEST_ALL or TEST_SHADER:
+        print("### TEST_SHADER: Can read shader flags")
+        hnse = NifFile(r"tests\SKYRIMSE\malehead.nif")
+        hsse = hnse.shapes[0]
+        assert hsse.model_space_normals, f"Expected MSN true, got {hsse.model_space_normals}"
+
+        hnle = NifFile(r"tests\SKYRIM\malehead.nif")
+        hsle = hnle.shapes[0]
+        assert hsle.model_space_normals, f"Expected MSN true, got {hsle.model_space_normals}"
+
+        hnfo = NifFile(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
+        hsfo = hnfo.shapes[0]
+        assert not hsfo.model_space_normals, f"Expected MSN true, got {hsfo.model_space_normals}"
+
+        cnle = NifFile(r"tests\Skyrim\noblecrate01.nif")
+        csle = cnle.shapes[0]
+        assert not csle.model_space_normals, f"Expected MSN false, got {csle.model_space_normals}"
+
+        print("### TEST_SHADER: Can read texture paths")
+        for i, t in enumerate([
+                  r"textures\actors\character\male\MaleHead.dds",
+                  r"textures\actors\character\male\MaleHead_msn.dds",
+                  r"textures\actors\character\male\MaleHead_sk.dds",
+                  "",
+                  "",
+                  "",
+                  "",
+                  r"textures\actors\character\male\MaleHead_S.dds"]):
+            assert hsse.textures[i] == t, f"Expected {t}, got '{hsse.textures[i]}'"
+
+        for i, t in enumerate([
+                  r"textures\actors\character\male\MaleHead.dds",
+                  r"textures\actors\character\male\MaleHead_msn.dds",
+                  r"textures\actors\character\male\MaleHead_sk.dds",
+                  "",
+                  "",
+                  "",
+                  "",
+                  r"textures\actors\character\male\MaleHead_S.dds"]):
+            assert hsse.textures[i] == t, f"Expected {t}, got '{hsse.textures[i]}'"
+
+        for i, t in enumerate([
+                  r"textures\Actors\Character\BaseHumanMale\BaseMaleHead_d.dds",
+                  r"textures\Actors\Character\BaseHumanMale\BaseMaleHead_n.dds",
+                  "",
+                  "",
+                  "",
+                  "",
+                  "",
+                  r"textures\actors\character\basehumanmale\basemalehead_s.dds"]):
+            assert hsfo.textures[i] == t, f"Expected {t}, got '{hsfo.textures[i]}'"
+      
         

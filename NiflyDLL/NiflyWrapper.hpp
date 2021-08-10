@@ -88,3 +88,8 @@ extern "C" NIFLY_API void setShapeGlobalToSkinXform(void* animPtr, void* shapePt
 extern "C" NIFLY_API void setShapeWeights(void * anim, void * theShape, const char* boneName,
 	VertexWeightPair * vertWeights, int vertWeightLen, nifly::MatTransform * skinToBoneXform);
 extern "C" NIFLY_API int saveSkinnedNif(void * anim, const char8_t* filepath);
+
+/* ********************* SHADERS ***************** */
+
+extern "C" NIFLY_API void getShaderFlags1(void* nifref, void* shaperef, uint32_t* flags);
+extern "C" NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char8_t* buf, int buflen);
