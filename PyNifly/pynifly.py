@@ -1,6 +1,7 @@
 
 import os
 import struct
+from enum import Enum, IntFlag
 from math import asin, atan2, pi, sin, cos
 import re
 import logging
@@ -22,6 +23,39 @@ class VERTEX_WEIGHT_PAIR(Structure):
     _fields_ = [("vertex", c_uint16),
                 ("weight", c_float)]
 
+class ShaderFlags1(IntFlag):
+    SPECULAR = 1 << 0
+    SKINNED = 1 << 1
+    TEMP_REFRACTION = 1 << 2
+    VERTEX_ALPHA = 1 << 3
+    GREYSCALE_COLOR = 1 << 4
+    GREYSCALE_ALPHA = 1 << 5
+    USE_FALLOFF = 1 << 6
+    ENVIRONMENT_MAPPING = 1 << 7
+    RECEIVE_SHADOWS = 1 << 8
+    CAST_SHADOWS = 1 << 9
+    FACEGEN_DETAIL_MAP = 1 << 10
+    PARALLAX = 1 << 11
+    MODEL_SPACE_NORMALS = 1 << 12
+    NON_PROJECTIVE_SHADOWS = 1 << 13
+    LANDSCAPE = 1 << 14
+    REFRACTION = 1 << 15
+    FIRE_REFRACTION = 1 << 16
+    EYE_ENVIRONMENT_MAPPING = 1 << 17
+    HAIR_SOFT_LIGHTING = 1 << 18
+    SCREENDOOR_ALPHA_FADE = 1 << 19
+    LOCALMAP_HIDE_SECRET = 1 << 20
+    FACEGEN_RGB_TINT = 1 << 21
+    OWN_EMIT = 1 << 22
+    PROJECTED_UV = 1 << 23
+    MULTIPLE_TEXTURES = 1 << 24
+    REMAPPABLE_TEXTURES = 1 << 25
+    DECAL = 1 << 26
+    DYNAMIC_DECAL = 1 << 27
+    PARALLAX_OCCLUSION = 1 << 28
+    EXTERNAL_EMITTANCE = 1 << 29
+    SOFT_EFFECT = 1 << 30
+    ZBUFFER_TES = 1 << 31
 
 def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
@@ -77,6 +111,7 @@ def load_nifly(nifly_path):
     nifly.getSegments.restype = c_int
     nifly.getShaderTextureSlot.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int]
     nifly.getShaderTextureSlot.restype = c_int
+    nifly.getShaderFlags1.argtypes = [c_void_p, c_void_p, c_void_p]
     nifly.getShapeBlockName.argtypes = [c_void_p, c_void_p, c_int]
     nifly.getShapeBlockName.restypes = c_int
     nifly.getShapeBoneCount.argtypes = [c_void_p, c_void_p]
@@ -618,6 +653,15 @@ class NiShape:
         return self._uvs
     
     @property
+    def shaderflags1(self):
+        buf = c_uint32()
+        return NifFile.nifly.getShaderFlags1(self.parent._handle, self._handle, byref(buf))
+
+    @property
+    def model_space_normals(self):
+        return (self.shaderflags1 & ShaderFlags1.MODEL_SPACE_NORMALS) != 0
+
+    @property
     def textures(self):
         if self._textures is None:
             self._textures = []
@@ -1054,7 +1098,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1076,7 +1120,7 @@ TEST_FNV = False
 TEST_BLOCKNAME = False
 TEST_UNSKINNED = False
 TEST_UNI = False
-TEST_TEXTURES = True
+TEST_SHADER = True
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1820,10 +1864,25 @@ if __name__ == "__main__":
         nif3 = NifFile(f"tests\out\будильник.nif")
         assert len(nif3.shapes) == 1, f"Error: Expected 1 shape, found {len(nif3.shapes)}"
 
-    if TEST_ALL or TEST_TEXTURES:
-        print("### TEST_TEXTURES: Can read texture paths")
-        nif = NifFile(r"tests\SKYRIMSE\malehead.nif")
-        shape = nif.shapes[0]
+    if TEST_ALL or TEST_SHADER:
+        print("### TEST_SHADER: Can read shader flags")
+        hnse = NifFile(r"tests\SKYRIMSE\malehead.nif")
+        hsse = hnse.shapes[0]
+        assert hsse.model_space_normals, f"Expected MSN true, got {hsse.model_space_normals}"
+
+        hnle = NifFile(r"tests\SKYRIM\malehead.nif")
+        hsle = hnle.shapes[0]
+        assert hsle.model_space_normals, f"Expected MSN true, got {hsle.model_space_normals}"
+
+        hnfo = NifFile(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
+        hsfo = hnfo.shapes[0]
+        assert not hsfo.model_space_normals, f"Expected MSN true, got {hsfo.model_space_normals}"
+
+        cnle = NifFile(r"tests\Skyrim\noblecrate01.nif")
+        csle = cnle.shapes[0]
+        assert not csle.model_space_normals, f"Expected MSN false, got {csle.model_space_normals}"
+
+        print("### TEST_SHADER: Can read texture paths")
         for i, t in enumerate([
                   r"textures\actors\character\male\MaleHead.dds",
                   r"textures\actors\character\male\MaleHead_msn.dds",
@@ -1833,10 +1892,8 @@ if __name__ == "__main__":
                   "",
                   "",
                   r"textures\actors\character\male\MaleHead_S.dds"]):
-            assert shape.textures[i] == t, f"Expected {t}, got {shape.textures[i]}"
+            assert hsse.textures[i] == t, f"Expected {t}, got '{hsse.textures[i]}'"
 
-        nif = NifFile(r"tests\SKYRIM\malehead.nif")
-        shape = nif.shapes[0]
         for i, t in enumerate([
                   r"textures\actors\character\male\MaleHead.dds",
                   r"textures\actors\character\male\MaleHead_msn.dds",
@@ -1846,10 +1903,8 @@ if __name__ == "__main__":
                   "",
                   "",
                   r"textures\actors\character\male\MaleHead_S.dds"]):
-            assert shape.textures[i] == t, f"Expected {t}, got {shape.textures[i]}"
+            assert hsse.textures[i] == t, f"Expected {t}, got '{hsse.textures[i]}'"
 
-        nif = NifFile(r"tests\FO4\basemalehead.nif")
-        shape = nif.shapes[0]
         for i, t in enumerate([
                   r"textures\Actors\Character\BaseHumanMale\BaseMaleHead_d.dds",
                   r"textures\Actors\Character\BaseHumanMale\BaseMaleHead_n.dds",
@@ -1859,6 +1914,6 @@ if __name__ == "__main__":
                   "",
                   "",
                   r"textures\actors\character\basehumanmale\basemalehead_s.dds"]):
-            assert shape.textures[i] == t, f"Expected {t}, got {shape.textures[i]}"
+            assert hsfo.textures[i] == t, f"Expected {t}, got '{hsfo.textures[i]}'"
       
         
