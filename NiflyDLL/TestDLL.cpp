@@ -1302,5 +1302,30 @@ namespace NiflyDLLTests
 				};
 			};
 		};
+		TEST_METHOD(shaders) {
+			// Can read the shaders from a shape
+			std::filesystem::path testfile = testRoot / "Skyrim/MaleHead.nif";
+
+			void* nif;
+			void* shapes[10];
+			void* shader;
+
+			nif = load(testfile.u8string().c_str());
+			int shapeCount = getShapes(nif, shapes, 10, 0);
+			char8_t textures[9][300];
+			shader = getShader(nif, shapes[0]);
+
+			
+			std::u8string* txtstr[9];
+			for (int i = 0; i < 9; i++) {
+				getShaderTextureSlot(nif, shapes[0], i, textures[i], 300);
+				txtstr[i] = new std::u8string(textures[i]);
+			};
+
+			Assert::IsTrue(txtstr[0]->compare(u8"textures\\actors\\character\\male\\MaleHead.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[1]->compare(u8"textures\\actors\\character\\male\\MaleHead_msn.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[2]->compare(u8"textures\\actors\\character\\male\\MaleHead_sk.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[3]->compare(u8"") == 0, L"Found expected texture");
+		};
 	};
 }

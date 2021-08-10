@@ -378,19 +378,64 @@ int NIFLY_API getVersion() {
 
 /* ************************** READING SHADERS ************************** */
 
-NIFLY_API void* GetShader(void* nifref, void* shaperef) {
+enum class ShaderProperty {
+    SPECULAR=0,
+    SKINNED,
+    TEMP_REFRACTION,
+    VERTEX_ALPHA,
+    GREYSCALE_COLOR,
+    GREYSCALE_ALPHA,
+    USE_FALLOFF,
+    ENVIRONMENT_MAPPING,
+    RECEIVE_SHADOWS,
+    CAST_SHADOWS,
+    FACEGEN_DETAIL_MAP,
+    PARALLAX,
+    MODEL_SPACE_NORMALS,
+    NON_PROJECTIVE_SHADOWS,
+    LANDSCAPE,
+    REFRACTION,
+    FIRE_REFRACTION,
+    EYE_ENVIRONMENT_MAPPING,
+    HAIR_SOFT_LIGHTING,
+    SCREENDOOR_ALPHA_FADE,
+    LOCALMAP_HIDE_SECRET,
+    FACEGEN_RGB_TINT,
+    OWN_EMIT,
+    PROJECTED_UV,
+    MULTIPLE_TEXTURES,
+    REMAPPABLE_TEXTURES,
+    DECAL,
+    DYNAMIC_DECAL,
+    PARALLAX_OCCLUSION,
+    EXTERNAL_EMITTANCE,
+    SOFT_EFFECT,
+    ZBUFFER_TEST
+};
+
+NIFLY_API void getShaderFlags1(void* nifref, void* shaperef, uint32_t* flags) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
 
-    return nif->GetShader(shape);
+    NiShader* shader = nif->GetShader(shape);
+    *flags = 0;
+    if (shader->IsModelSpace()) *flags |= 1 << int(ShaderProperty::MODEL_SPACE_NORMALS);
 }
 
-NIFLY_API int GetShaderTexturePaths(void* nifref, void* shaperef, wchar_t* buf, int buflen) {
+NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char8_t* buf, int buflen) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
 
-    /* TBD */
-    return 0;
+    std::string texture;
+
+    nif->GetTextureSlot(shape, texture, slotIndex);
+
+    if (buflen > 1) {
+        memcpy(buf, texture.data(), std::min(texture.size(), static_cast<size_t>(buflen - 1)));
+        buf[texture.size()] = '\0';
+    }
+
+    return static_cast<int>(texture.length());
 }
 
 

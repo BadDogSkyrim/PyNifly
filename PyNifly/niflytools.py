@@ -1,10 +1,44 @@
-""" Simple tools doing mesh operations to support import/export"""
+""" niflytools
 
+    Utility functions and classes to support import/export
+    Includes game-specific mesh information
+
+"""
+
+import os
 from math import asin, acos, atan2, pi, sin, cos, radians, sqrt
 import logging
 import re
+from pathlib import Path
 
 log = logging.getLogger("pynifly")
+
+# ###################### FILE HANDLING ##################################
+
+def extend_filenames(root, separator, files):
+    """ Extend the given relative path names with the portion of the root before the separator.
+        Separator is the name of a directory in the path """
+    rootpath = Path(root)
+    try:
+        upperpath = list(map(lambda s: s.upper(), rootpath.parts))
+        seploc = upperpath.index(separator.upper())
+        sharedpart = rootpath.parents[len(rootpath.parts) - seploc - 1]
+        return [(str(sharedpart / f) if len(f) > 0 else "") for f in files]
+    except:
+        return files
+
+def check_files(files):
+    """ Check that all files in the given list exist """
+    if sum([len(f) for f in files]) == 0:
+        return False
+    else:
+        exists = True
+        for f in files:
+            exists &= (os.path.exists(f) if len(f) > 0 else True)
+        return exists
+
+
+# ###################### VECTORS, ROTATION MATRICES, MATHY STUFF ################################
 
 def vector_normalize(v):
     d = sqrt(v[0]**2 + v[1]**2 + v[2]**2)
@@ -1306,4 +1340,27 @@ RotationMatrix provides handling for bone rotations and such.
     assert fo4Dict.expression_filter(exprmorphs) == set(['RUprLipDn', 'RUprLidUp', 'RUprLidDn']), "ERROR: FO4 expression filter incorrect"
     assert skyrimDict.expression_filter(exprmorphs) == set(['DialogueAnger', 'MoodFear', 'CombatShout']), "ERROR: FO4 expression filter incorrect"
     assert fo4Dict.chargen_filter(set(['foo', 'barType1', 'fribble', 'Type45cat', 'aTypeB'])) == set(['barType1', 'Type45cat']), "ERROR: FO4 Chargen filter incorrect"
+    
+    print("""
+##############################################################################
+File handling
+""")
+    print (">>> Can check that a list of files exists")
+    assert check_files([r"tests\FO4\HeadGear1.nif", r"tests\Skyrim\malehead.nif"]), "Expected files exist"
+    assert not check_files([r"tests\FO4\HeadGear1.nif", r"tests\Skyrim\maleheadXYZ.nif"]), "Unexpected files don't exist"
+
+    print (">>> Can extend filenames from a shared root")
+    flst = extend_filenames("C:/mod/meshes/mesh.nif",
+                            "meshes",
+                            [r"textures\actors\character\male\MaleHead.dds",
+                             r"textures\actors\character\male\MaleHead_msn.dds",
+                             "",
+                             "",
+                             r"textures\actors\character\male\MaleHead_sk.dds"])
+    assert flst == ['C:\\mod\\textures\\actors\\character\\male\\MaleHead.dds',
+                    'C:\\mod\\textures\\actors\\character\\male\\MaleHead_msn.dds',
+                    "", 
+                    "", 
+                    'C:\\mod\\textures\\actors\\character\\male\\MaleHead_sk.dds'], \
+        "Error: Extended filenames incorrect"
     
