@@ -27,16 +27,16 @@ using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 std::filesystem::path testRoot = std::filesystem::current_path()
 	.parent_path().parent_path().parent_path().parent_path() / "PyNifly/Pynifly/tests/";
 
-bool ApproxEqual(float first, float second) {
+bool TApproxEqual(float first, float second) {
 	return round(first * 1000) == round(second * 1000);
 }
-bool ApproxEqual(Vector3 first, Vector3 second) {
-		return ApproxEqual(first.x, second.x)
-		&& ApproxEqual(first.y, second.y)
-		&& ApproxEqual(first.z, second.z);
+bool TApproxEqual(Vector3 first, Vector3 second) {
+		return TApproxEqual(first.x, second.x)
+		&& TApproxEqual(first.y, second.y)
+		&& TApproxEqual(first.z, second.z);
 };
 
-int GetWeightsFor(
+int TGetWeightsFor(
 		NifFile* nif, NiShape* shape, Vector3 targetVert,
 		std::unordered_map<std::string, float>& result)
 {
@@ -53,13 +53,13 @@ int GetWeightsFor(
 		std::unordered_map<uint16_t, float> weights;
 		nif->GetShapeBoneWeights(shape, i, weights);
 		for (auto w : weights) {
-			if (ApproxEqual(targetVert, verts[w.first])) {
+			if (TApproxEqual(targetVert, verts[w.first])) {
 				result[names[i]] = w.second;
 			}
 		}
 	}
 	for (int i = 0; i < verts.size(); i++) {
-		if (ApproxEqual(targetVert, verts[i])) {
+		if (TApproxEqual(targetVert, verts[i])) {
 			target_index = i;
 		}
 	}
@@ -72,7 +72,7 @@ int GetWeightsFor(
 }
 
 /* Compare source and destination nif shapes to ensure they are the same*/
-void CheckAccuracy(const std::filesystem::path srcPath, const char* srcShapeName,
+void TCheckAccuracy(const std::filesystem::path srcPath, const char* srcShapeName,
 	const std::filesystem::path dstPath, const char* dstShapeName,
 	Vector3 targetVert, std::string targetBone) {
 
@@ -84,11 +84,94 @@ void CheckAccuracy(const std::filesystem::path srcPath, const char* srcShapeName
 	/* Check that a give vert has the same weight in both models */
 	std::unordered_map<std::string, float> srcWeights;
 	std::unordered_map<std::string, float> dstWeights; 
-	int srcIndex = GetWeightsFor(&nifSrc, shapeSrc, targetVert, srcWeights);
-	int dstIndex = GetWeightsFor(&nifDst, shapeDst, targetVert, dstWeights);
+	int srcIndex = TGetWeightsFor(&nifSrc, shapeSrc, targetVert, srcWeights);
+	int dstIndex = TGetWeightsFor(&nifDst, shapeDst, targetVert, dstWeights);
 	Assert::IsTrue(srcIndex >= 0 && dstIndex >= 0, L"Couldn't find vertex");
-	Assert::IsTrue(ApproxEqual(srcWeights[targetBone], dstWeights[targetBone]), 
+	Assert::IsTrue(TApproxEqual(srcWeights[targetBone], dstWeights[targetBone]), 
 		L"Vertex weights not the same");
+};
+
+void* TCopyWeights(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape) {
+
+	std::vector<std::string> boneNames;
+	std::vector<AnimWeight> boneWeights;
+	nifly::MatTransform xformGlobalToSkin;
+	const int BUFLEN = 3000;
+	char boneNameBuf[BUFLEN];
+
+	//if (!getShapeGlobalToSkin(sourceNif, 
+	//						  sourceShape, 
+	//						  static_cast<float*>(&xformGlobalToSkin.translation.x)))
+	//	return;
+
+	int boneCount = getShapeBoneCount(sourceNif, sourceShape);
+	if (boneCount == 0) return nullptr;
+
+	int boneBufLen = getShapeBoneNames(sourceNif, sourceShape, boneNameBuf, BUFLEN);
+	Assert::IsTrue(boneCount <= BUFLEN);
+	for (int i = 0; i < boneBufLen; i++) if (boneNameBuf[i] == '\n') boneNameBuf[i] = '\0';
+
+	char gameName[30];
+	getGameName(sourceNif, gameName, 30);
+
+	void* anim;
+	anim = createSkinForNif(targetNif, gameName);
+	skinShape(targetNif, targetShape);
+
+	MatTransform shapeXform;
+	getTransform(sourceShape, &shapeXform.translation.x);
+	setTransform(targetShape, &shapeXform.translation.x);
+
+	MatTransform shapeGTSkin;
+	if (!getShapeGlobalToSkin(sourceNif, sourceShape, &shapeGTSkin.translation.x))
+		getGlobalToSkin(sourceNif, sourceShape, &shapeGTSkin.translation.x);
+	
+	setGlobalToSkinXform(anim, targetShape, &shapeGTSkin);
+
+	MatTransform xform;
+
+	for (int i = 0, boneIndex = 0; boneIndex < boneCount;  boneIndex++) {
+		addBoneToShape(anim, targetShape, &boneNameBuf[i], &xform);
+		int bwcount = getShapeBoneWeightsCount(sourceNif, sourceShape, boneIndex);
+		VertexWeightPair* vwp = new VertexWeightPair[bwcount];
+		getShapeBoneWeights(sourceNif, sourceShape, boneIndex, vwp, bwcount);
+		setShapeWeights(anim, targetShape, &boneNameBuf[i], vwp, bwcount, &xform);
+
+		i += int(strlen(&boneNameBuf[i]) + 1);
+	};
+
+	return anim;
+};
+
+void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* sourceShape, 
+		uint16_t options, void** targetSkin) {
+	float* verts = new float[5000 * 3];
+	float* norms = new float[5000 * 3];
+	float* uvs = new float[5000 * 2];
+	uint16_t* tris = new uint16_t[5000 * 3];
+
+	int vertLen = getVertsForShape(sourceNif, sourceShape, verts, 5000, 0);
+	Assert::IsTrue(vertLen <= 5000);
+
+	int triLen = getTriangles(sourceNif, sourceShape, tris, 5000 * 3, 0);
+	Assert::IsTrue(triLen <= 5000);
+
+	int uvLen = getUVs(sourceNif, sourceShape, uvs, vertLen * 2, 0);
+	Assert::IsTrue(uvLen <= 5000);
+
+	int normLen = getNormalsForShape(sourceNif, sourceShape, norms, vertLen * 3, 0);
+	Assert::IsTrue(normLen <= 5000);
+
+	void* targetShape = createNifShapeFromData(targetNif, shapeName,
+		verts, vertLen * 3,
+		tris, triLen * 3,
+		uvs, uvLen * 2,
+		norms, normLen * 3,
+		&options);
+
+	*targetSkin = TCopyWeights(targetNif, targetShape, sourceNif, sourceShape);
+
+	return targetShape;
 };
 
 namespace NiflyDLLTests
@@ -264,7 +347,7 @@ namespace NiflyDLLTests
 
 			Vector3 targetVert(12.761050f, -0.580783f, 21.823328f); // vert 358
 			std::string targetBone = "NPC R Calf [RClf]"; // should be 1.0
-			CheckAccuracy(
+			TCheckAccuracy(
 				testRoot / "Skyrim/test.nif", "MaleBody",
 				testRoot / "Out/TestSkinned02.nif", "Body",
 				targetVert, targetBone);
@@ -359,7 +442,7 @@ namespace NiflyDLLTests
 
 			Vector3 targetVert(2.587891f, 10.031250f, -39.593750f);
 			std::string targetBone = "Spine1_skin";
-			CheckAccuracy(
+			TCheckAccuracy(
 				testRoot / "FO4/BTMaleBody.nif", "BaseMaleBody:0",
 				testRoot / "Out/TestSkinnedFO01.nif", "Body",
 				targetVert, "Spine1_skin");
@@ -1262,36 +1345,20 @@ namespace NiflyDLLTests
 				if (testfile.path().extension() == ".nif") {
 					std::u8string fp = testfile.path().u8string();
 					const char8_t* fpstr = fp.c_str();
+					void* nif = load(fpstr);
 
-					void* nif;
 					void* shapes[10];
-					float* verts = new float[1000 * 3];
-					float* norms = new float[1000 * 3];
-					float* uvs = new float[1000 * 2];
-					uint16_t* tris = new uint16_t[1100 * 3];
-
-					nif = load(fpstr);
 					int shapeCount = getShapes(nif, shapes, 10, 0);
 					char blockname[50];
 					getShapeBlockName(shapes[0], blockname, 50);
 					Assert::AreEqual("BSTriShape", blockname, L"Have expected node type");
 
-					int vertLen = getVertsForShape(nif, shapes[0], verts, 1000, 0);
-					int triLen = getTriangles(nif, shapes[0], tris, 1100 * 3, 0);
-					int uvLen = getUVs(nif, shapes[0], uvs, vertLen * 2, 0);
-					int normLen = getNormalsForShape(nif, shapes[0], norms, vertLen * 3, 0);
-
 					std::filesystem::path testfileOut = testRoot / "Out" / testfile.path().filename();
-
 					void* nif2 = createNif("FO4");
-					uint16_t options = 2;
-					void* shape2 = createNifShapeFromData(nif2, "AlarmClock",
-						verts, vertLen * 3,
-						tris, triLen * 3,
-						uvs, uvLen * 2,
-						norms, normLen * 3,
-						&options);
 
+					uint16_t options = 2;
+					void* skin2;
+					void* shape2 = TCopyShape(nif2, "AlarmClock", nif, shapes[0], options, &skin2);
 					saveNif(nif2, testfileOut.u8string().c_str());
 
 					void* nif3 = load(testfileOut.u8string().c_str());
@@ -1308,24 +1375,172 @@ namespace NiflyDLLTests
 
 			void* nif;
 			void* shapes[10];
-			void* shader;
 
 			nif = load(testfile.u8string().c_str());
 			int shapeCount = getShapes(nif, shapes, 10, 0);
-			char8_t textures[9][300];
-			shader = getShader(nif, shapes[0]);
+			char textures[9][300];
 
-			
-			std::u8string* txtstr[9];
+			std::string* txtstr[9];
 			for (int i = 0; i < 9; i++) {
 				getShaderTextureSlot(nif, shapes[0], i, textures[i], 300);
-				txtstr[i] = new std::u8string(textures[i]);
+				txtstr[i] = new std::string(textures[i]);
 			};
 
-			Assert::IsTrue(txtstr[0]->compare(u8"textures\\actors\\character\\male\\MaleHead.dds") == 0, L"Found expected texture");
-			Assert::IsTrue(txtstr[1]->compare(u8"textures\\actors\\character\\male\\MaleHead_msn.dds") == 0, L"Found expected texture");
-			Assert::IsTrue(txtstr[2]->compare(u8"textures\\actors\\character\\male\\MaleHead_sk.dds") == 0, L"Found expected texture");
-			Assert::IsTrue(txtstr[3]->compare(u8"") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[0]->compare("textures\\actors\\character\\male\\MaleHead.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[1]->compare("textures\\actors\\character\\male\\MaleHead_msn.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[2]->compare("textures\\actors\\character\\male\\MaleHead_sk.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[7]->compare("textures\\actors\\character\\male\\MaleHead_S.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[3]->compare("") == 0, L"Found expected texture");
+
+			// Can write head back out
+
+			std::filesystem::path testfileO = testRoot / "Out" / "testWrapperShaders01.nif";
+
+			void* nifOut = createNif("Skyrim");
+			uint16_t options = 0;
+			void* skinOut;
+			void* shapeOut = TCopyShape(nifOut, "MaleHead", nif, shapes[0], 0, &skinOut);
+			setShaderTextureSlot(nifOut, shapeOut, 0, txtstr[0]->c_str());
+			setShaderTextureSlot(nifOut, shapeOut, 1, txtstr[1]->c_str());
+			setShaderTextureSlot(nifOut, shapeOut, 2, txtstr[2]->c_str());
+			setShaderTextureSlot(nifOut, shapeOut, 7, txtstr[7]->c_str());
+
+			setShaderFlags1(nifOut, shapeOut, static_cast<uint32_t>(ShaderProperty::MODEL_SPACE_NORMALS));
+
+			saveSkinnedNif(skinOut, testfileO.u8string().c_str());
+
+			// What we wrote is correct
+
+			void* nifTest = load(testfileO.u8string().c_str());
+			void* shapesTest[10];
+			shapeCount = getShapes(nifTest, shapesTest, 10, 0);
+			for (int i = 0; i < 9; i++) {
+				getShaderTextureSlot(nifTest, shapesTest[0], i, textures[i], 300);
+				txtstr[i] = new std::string(textures[i]);
+			};
+			uint32_t flagsOneTest = getShaderFlags1(nifTest, shapesTest[0]);
+
+			Assert::IsTrue(txtstr[0]->compare("textures\\actors\\character\\male\\MaleHead.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[1]->compare("textures\\actors\\character\\male\\MaleHead_msn.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[2]->compare("textures\\actors\\character\\male\\MaleHead_sk.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[7]->compare("textures\\actors\\character\\male\\MaleHead_S.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[3]->compare("") == 0, L"Found expected texture");
+
+			Assert::IsTrue(flagsOneTest & static_cast<uint32_t>(ShaderProperty::MODEL_SPACE_NORMALS),
+				L"Found MSN flag should be set");
+
+			// Can read chest
+
+			std::filesystem::path testfile2 = testRoot / "Skyrim/NobleCrate01.nif";
+			void* nif2 = load(testfile2.u8string().c_str());
+			void* shapes2[10];
+			shapeCount = getShapes(nif2, shapes2, 10, 0);
+			for (int i = 0; i < 9; i++) {
+				getShaderTextureSlot(nif2, shapes2[0], i, textures[i], 300);
+				txtstr[i] = new std::string(textures[i]);
+			};
+			uint32_t flagsOne2 = getShaderFlags1(nifTest, shapes2[0]);
+
+			Assert::IsTrue(txtstr[0]->compare("textures\\furniture\\noble\\NobleFurnChest01.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[1]->compare("textures\\furniture\\noble\\NobleFurnChest01_n.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[2]->compare("") == 0, L"Found expected texture");
+			Assert::IsFalse(flagsOne2 & static_cast<uint32_t>(ShaderProperty::MODEL_SPACE_NORMALS),
+				L"Found MSN flag not set");
+
+			// Can write chest back out
+
+			std::filesystem::path testfile2Out = testRoot / "Out" / "testWrapperShaders02.nif";
+
+			void* nif2Out = createNif("Skyrim");
+			options = 0;
+			void* skin2Out;
+			void* shape2Out = TCopyShape(nif2Out, "NobleCrate", nif2, shapes2[0], 0, &skin2Out);
+			setShaderTextureSlot(nif2Out, shape2Out, 0, txtstr[0]->c_str());
+			setShaderTextureSlot(nif2Out, shape2Out, 1, txtstr[1]->c_str());
+
+			saveNif(nif2Out, testfile2Out.u8string().c_str());
+
+			// What we wrote is correct
+
+			void* nif2Test = load(testfile2Out.u8string().c_str());
+			void* shapes2Test[10];
+			shapeCount = getShapes(nif2Test, shapes2Test, 10, 0);
+			for (int i = 0; i < 9; i++) {
+				getShaderTextureSlot(nif2Test, shapes2Test[0], i, textures[i], 300);
+				txtstr[i] = new std::string(textures[i]);
+			};
+			uint32_t flagsOne2Test = getShaderFlags1(nifTest, shapes2[0]);
+
+			Assert::IsTrue(txtstr[0]->compare("textures\\furniture\\noble\\NobleFurnChest01.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[1]->compare("textures\\furniture\\noble\\NobleFurnChest01_n.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[2]->compare("") == 0, L"Found expected texture");
+			Assert::IsFalse(flagsOne2Test & static_cast<uint32_t>(ShaderProperty::MODEL_SPACE_NORMALS),
+				L"Found MSN flag should not be set");
+		};
+		TEST_METHOD(shadersFO4) {
+			// Can read the shaders from a shape
+			std::filesystem::path testfile = testRoot / "FO4/BaseMaleHead.nif";
+
+			void* nif;
+			void* shapes[10];
+
+			nif = load(testfile.u8string().c_str());
+			int shapeCount = getShapes(nif, shapes, 10, 0);
+			char textures[9][300];
+
+			std::string* txtstr[9];
+			for (int i = 0; i < 9; i++) {
+				getShaderTextureSlot(nif, shapes[0], i, textures[i], 300);
+				txtstr[i] = new std::string(textures[i]);
+			};
+			char shaderName[500];
+			getShaderName(nif, shapes[0], shaderName, 500);
+
+			Assert::IsTrue(txtstr[0]->compare("textures\\Actors\\Character\\BaseHumanMale\\BaseMaleHead_d.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[1]->compare("textures\\Actors\\Character\\BaseHumanMale\\BaseMaleHead_n.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[2]->compare("") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[7]->compare("textures\\actors\\character\\basehumanmale\\basemalehead_s.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[3]->compare("") == 0, L"Found expected texture");
+			Assert::AreEqual(shaderName, "Materials\\Actors\\Character\\BaseHumanMale\\basehumanskinHead.bgsm", L"Expected materials path");
+
+			// Can write head back out
+
+			std::filesystem::path testfileO = testRoot / "Out" / "testWrappershadersFO401.nif";
+
+			void* nifOut = createNif("FO4");
+			uint16_t options = 0;
+			void* skin;
+			void* shapeOut = TCopyShape(nifOut, "MaleHead", nif, shapes[0], 0, &skin);
+			setShaderTextureSlot(nifOut, shapeOut, 0, txtstr[0]->c_str());
+			setShaderTextureSlot(nifOut, shapeOut, 1, txtstr[1]->c_str());
+			setShaderTextureSlot(nifOut, shapeOut, 7, txtstr[7]->c_str());
+			setShaderName(nifOut, shapeOut, shaderName);
+
+			saveSkinnedNif(skin, testfileO.u8string().c_str());
+
+			// What we wrote is correct
+
+			void* nifTest = load(testfileO.u8string().c_str());
+			void* shapesTest[10];
+			shapeCount = getShapes(nifTest, shapesTest, 10, 0);
+			for (int i = 0; i < 9; i++) {
+				getShaderTextureSlot(nifTest, shapesTest[0], i, textures[i], 300);
+				txtstr[i] = new std::string(textures[i]);
+			};
+			uint32_t flagsOneTest = getShaderFlags1(nifTest, shapesTest[0]);
+			
+			char shaderNameTest[500];
+			getShaderName(nifTest, shapesTest[0], shaderNameTest, 500);
+
+			Assert::IsTrue(txtstr[0]->compare("textures\\Actors\\Character\\BaseHumanMale\\BaseMaleHead_d.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[1]->compare("textures\\Actors\\Character\\BaseHumanMale\\BaseMaleHead_n.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[2]->compare("") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[7]->compare("textures\\actors\\character\\basehumanmale\\basemalehead_s.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[3]->compare("") == 0, L"Found expected texture");
+
+			Assert::IsFalse(flagsOneTest & static_cast<uint32_t>(ShaderProperty::MODEL_SPACE_NORMALS),
+				L"Found MSN flag should not be set");
+			Assert::AreEqual(shaderNameTest, "Materials\\Actors\\Character\\BaseHumanMale\\basehumanskinHead.bgsm", L"Expected materials path");
 		};
 	};
 }

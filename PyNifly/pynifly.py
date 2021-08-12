@@ -109,9 +109,12 @@ def load_nifly(nifly_path):
     nifly.getSegmentFile.restype = c_int
     nifly.getSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getSegments.restype = c_int
+    nifly.getShaderFlags1.argtypes = [c_void_p, c_void_p]
+    nifly.getShaderFlags1.restype = c_uint32
+    nifly.getShaderName.argtypes = [c_void_p, c_void_p, c_char_p, c_int]
+    nifly.getShaderName.restype = c_int
     nifly.getShaderTextureSlot.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int]
     nifly.getShaderTextureSlot.restype = c_int
-    nifly.getShaderFlags1.argtypes = [c_void_p, c_void_p, c_void_p]
     nifly.getShapeBlockName.argtypes = [c_void_p, c_void_p, c_int]
     nifly.getShapeBlockName.restypes = c_int
     nifly.getShapeBoneCount.argtypes = [c_void_p, c_void_p]
@@ -158,6 +161,9 @@ def load_nifly(nifly_path):
     nifly.setGlobalToSkinXform.restype = None
     nifly.setPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int]
     nifly.setPartitions.restype = None
+    nifly.setShaderFlags1.argtypes = [c_void_p, c_void_p, c_uint32]
+    nifly.setShaderName.argtypes = [c_void_p, c_void_p, c_char_p]
+    nifly.setShaderTextureSlot.argtypes = [c_void_p, c_void_p, c_int, c_char_p]
     nifly.setShapeBoneIDList.argtypes = [c_void_p, c_void_p, c_void_p, c_int]  
     nifly.setShapeBoneWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p]
     nifly.setShapeGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p] 
@@ -654,8 +660,11 @@ class NiShape:
     
     @property
     def shaderflags1(self):
-        buf = c_uint32()
-        return NifFile.nifly.getShaderFlags1(self.parent._handle, self._handle, byref(buf))
+        return NifFile.nifly.getShaderFlags1(self.parent._handle, self._handle)
+
+    @shaderflags1.setter
+    def shaderflags1(self, val):
+        NifFile.nifly.setShaderFlags(self.parent._handle, self._handle, val);
 
     @property
     def model_space_normals(self):
@@ -671,6 +680,10 @@ class NiShape:
                 NifFile.nifly.getShaderTextureSlot(self.parent._handle, self._handle, i, buf, bufsize)
                 self._textures.append(buf.value.decode('utf-8'))
         return self._textures
+
+    def set_texture(self, slot, str):
+        NifFile.nifly.setShaderTextureSlot(self.parent._handle, self._handle, 
+                                           slot, str.encode('utf-8'))
     
     @property
     def bone_names(self):
@@ -1098,7 +1111,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
