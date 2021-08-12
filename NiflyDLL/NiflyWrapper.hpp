@@ -91,6 +91,29 @@ extern "C" NIFLY_API int saveSkinnedNif(void * anim, const char8_t* filepath);
 
 /* ********************* SHADERS ***************** */
 
+enum BSLightingShaderPropertyShaderType : uint32_t {
+	BSLSP_DEFAULT=0,
+	BSLSP_ENVMAP,
+	BSLSP_GLOWMAP,
+	BSLSP_PARALLAX,
+	BSLSP_FACE,
+	BSLSP_SKINTINT,
+	BSLSP_HAIRTINT,
+	BSLSP_PARALLAXOCC,
+	BSLSP_MULTITEXTURELANDSCAPE,
+	BSLSP_LODLANDSCAPE,
+	BSLSP_SNOW,
+	BSLSP_MULTILAYERPARALLAX,
+	BSLSP_TREEANIM,
+	BSLSP_LODOBJECTS,
+	BSLSP_MULTIINDEXSNOW,
+	BSLSP_LODOBJECTSHD,
+	BSLSP_EYE,
+	BSLSP_CLOUD,
+	BSLSP_LODLANDSCAPENOISE,
+	BSLSP_MULTITEXTURELANDSCAPELODBLEND,
+	BSLSP_DISMEMBERMENT
+}; 
 enum class ShaderProperty: uint32_t {
     SPECULAR = 0,
     SKINNED,
@@ -126,9 +149,37 @@ enum class ShaderProperty: uint32_t {
     ZBUFFER_TEST
 };
 
+enum class BSLSPShaderType : uint32_t {
+	Default = 0,
+	Environment_Map,
+	Glow_Shader,
+	Parallax,
+	Face_Tint,
+	Skin_Tint,
+	Hair_Tint,
+	Parallax_Occ,
+	Multitexture_Landscape,
+	LOD_Landscape,
+	Snow,
+	MultiLayer_Parallax,
+	Tree_Anim,
+	LOD_Objects,
+	Sparkle_Snow,
+	LOD_Objects_HD,
+	Eye_Envmap,
+	Cloud,
+	LOD_Landscape_Noise,
+	Multitexture_Landscape_LOD_Blend,
+	FO4_Dismemberment
+};
+
 extern "C" NIFLY_API int getShaderName(void* nifref, void* shaperef, char* buf, int buflen);
 extern "C" NIFLY_API uint32_t getShaderFlags1(void* nifref, void* shaperef);
+extern "C" NIFLY_API uint32_t getShaderFlags2(void* nifref, void* shaperef);
 extern "C" NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char* buf, int buflen);
+extern "C" NIFLY_API uint32_t getShaderType(void* nifref, void* shaperef);
 extern "C" NIFLY_API void setShaderName(void* nifref, void* shaperef, char* name);
+extern "C" NIFLY_API void setShaderType(void* nifref, void* shaperef, uint32_t shaderType);
 extern "C" NIFLY_API void setShaderFlags1(void* nifref, void* shaperef, uint32_t flags);
+extern "C" NIFLY_API void setShaderFlags2(void* nifref, void* shaperef, uint32_t flags);
 extern "C" NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, const char* buf);

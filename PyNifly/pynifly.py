@@ -667,8 +667,8 @@ class NiShape:
         NifFile.nifly.setShaderFlags(self.parent._handle, self._handle, val);
 
     @property
-    def model_space_normals(self):
-        return (self.shaderflags1 & ShaderFlags1.MODEL_SPACE_NORMALS) != 0
+    def shaderflags1_test(self, flag):
+        return (self.shaderflags1 & flag) != 0
 
     @property
     def textures(self):
@@ -1881,19 +1881,19 @@ if __name__ == "__main__":
         print("### TEST_SHADER: Can read shader flags")
         hnse = NifFile(r"tests\SKYRIMSE\malehead.nif")
         hsse = hnse.shapes[0]
-        assert hsse.model_space_normals, f"Expected MSN true, got {hsse.model_space_normals}"
+        assert hsse.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsse.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
         hnle = NifFile(r"tests\SKYRIM\malehead.nif")
         hsle = hnle.shapes[0]
-        assert hsle.model_space_normals, f"Expected MSN true, got {hsle.model_space_normals}"
+        assert hsle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
         hnfo = NifFile(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
         hsfo = hnfo.shapes[0]
-        assert not hsfo.model_space_normals, f"Expected MSN true, got {hsfo.model_space_normals}"
+        assert not hsfo.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsfo.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
         cnle = NifFile(r"tests\Skyrim\noblecrate01.nif")
         csle = cnle.shapes[0]
-        assert not csle.model_space_normals, f"Expected MSN false, got {csle.model_space_normals}"
+        assert not csle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN false, got {csle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
         print("### TEST_SHADER: Can read texture paths")
         for i, t in enumerate([

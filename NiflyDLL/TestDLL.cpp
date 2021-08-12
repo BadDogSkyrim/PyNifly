@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <filesystem>
 #include <libloaderapi.h>
+#include <bitset>
 #include "CppUnitTest.h"
 #include "Object3d.hpp"
 #include "Anim.h"
@@ -172,6 +173,58 @@ void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* 
 	*targetSkin = TCopyWeights(targetNif, targetShape, sourceNif, sourceShape);
 
 	return targetShape;
+};
+
+void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
+{
+	for (int i = 0; i < 9; i++) {
+		char txt1[300];
+		char txt2[300];
+		getShaderTextureSlot(nif1, shape1, i, txt1, 300);
+		getShaderTextureSlot(nif2, shape2, i, txt2, 300);
+		std::string txtstr1 = txt1;
+		std::string txtstr2 = txt2;
+		Assert::IsTrue(txtstr1 == txtstr2, L"Expected same texture in slot");
+	};
+	uint32_t f1_1 = getShaderFlags1(nif1, shape1);
+	uint32_t f1_2 = getShaderFlags1(nif2, shape2);
+
+	Assert::IsTrue(f1_1 == f1_2, L"ShaderFlags1 not identicial");
+
+	uint32_t f2_1 = getShaderFlags2(nif1, shape1);
+	uint32_t f2_2 = getShaderFlags2(nif2, shape2);
+
+	Assert::IsTrue(f2_1 == f2_2, L"ShaderFlags2 not identicial");
+
+	char name1[500];
+	char name2[500];
+	getShaderName(nif1, shape1, name1, 500);
+	getShaderName(nif2, shape2, name2, 500);
+
+	Assert::IsTrue(strcmp(name1, name2) == 0, L"Expected matching shader name");
+
+};
+
+void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape)
+{
+	for (int i = 0; i < 9; i++) {
+		char texture[300];
+		getShaderTextureSlot(sourceNif, sourceShape, i, texture, 300);
+		setShaderTextureSlot(targetNif, targetShape, i, texture);
+	};
+
+	char shaderName[500];
+	getShaderName(sourceNif, sourceShape, shaderName, 500);
+	setShaderName(targetNif, targetShape, shaderName);
+
+	uint32_t st = getShaderType(sourceNif, sourceShape);
+	setShaderType(targetNif, targetShape, st);
+
+	uint32_t f1 = getShaderFlags1(sourceNif, sourceShape);
+	uint32_t f2 = getShaderFlags2(sourceNif, sourceShape);
+
+	setShaderFlags1(targetNif, targetShape, f1);
+	setShaderFlags2(targetNif, targetShape, f2);
 };
 
 namespace NiflyDLLTests
@@ -1392,6 +1445,10 @@ namespace NiflyDLLTests
 			Assert::IsTrue(txtstr[7]->compare("textures\\actors\\character\\male\\MaleHead_S.dds") == 0, L"Found expected texture");
 			Assert::IsTrue(txtstr[3]->compare("") == 0, L"Found expected texture");
 
+			uint32_t f1 = getShaderFlags1(nif, shapes[0]);
+			uint32_t f2 = getShaderFlags2(nif, shapes[0]);
+			Assert::IsTrue(f1 & (1 << 12), L"Expected MSN bit set");
+
 			// Can write head back out
 
 			std::filesystem::path testfileO = testRoot / "Out" / "testWrapperShaders01.nif";
@@ -1405,7 +1462,8 @@ namespace NiflyDLLTests
 			setShaderTextureSlot(nifOut, shapeOut, 2, txtstr[2]->c_str());
 			setShaderTextureSlot(nifOut, shapeOut, 7, txtstr[7]->c_str());
 
-			setShaderFlags1(nifOut, shapeOut, static_cast<uint32_t>(ShaderProperty::MODEL_SPACE_NORMALS));
+			setShaderFlags1(nifOut, shapeOut, f1);
+			setShaderFlags2(nifOut, shapeOut, f2);
 
 			saveSkinnedNif(skinOut, testfileO.u8string().c_str());
 
@@ -1414,20 +1472,7 @@ namespace NiflyDLLTests
 			void* nifTest = load(testfileO.u8string().c_str());
 			void* shapesTest[10];
 			shapeCount = getShapes(nifTest, shapesTest, 10, 0);
-			for (int i = 0; i < 9; i++) {
-				getShaderTextureSlot(nifTest, shapesTest[0], i, textures[i], 300);
-				txtstr[i] = new std::string(textures[i]);
-			};
-			uint32_t flagsOneTest = getShaderFlags1(nifTest, shapesTest[0]);
-
-			Assert::IsTrue(txtstr[0]->compare("textures\\actors\\character\\male\\MaleHead.dds") == 0, L"Found expected texture");
-			Assert::IsTrue(txtstr[1]->compare("textures\\actors\\character\\male\\MaleHead_msn.dds") == 0, L"Found expected texture");
-			Assert::IsTrue(txtstr[2]->compare("textures\\actors\\character\\male\\MaleHead_sk.dds") == 0, L"Found expected texture");
-			Assert::IsTrue(txtstr[7]->compare("textures\\actors\\character\\male\\MaleHead_S.dds") == 0, L"Found expected texture");
-			Assert::IsTrue(txtstr[3]->compare("") == 0, L"Found expected texture");
-
-			Assert::IsTrue(flagsOneTest & static_cast<uint32_t>(ShaderProperty::MODEL_SPACE_NORMALS),
-				L"Found MSN flag should be set");
+			TCompareShaders(nif, shapes[0], nifTest, shapesTest[0]);
 
 			// Can read chest
 
@@ -1455,8 +1500,7 @@ namespace NiflyDLLTests
 			options = 0;
 			void* skin2Out;
 			void* shape2Out = TCopyShape(nif2Out, "NobleCrate", nif2, shapes2[0], 0, &skin2Out);
-			setShaderTextureSlot(nif2Out, shape2Out, 0, txtstr[0]->c_str());
-			setShaderTextureSlot(nif2Out, shape2Out, 1, txtstr[1]->c_str());
+			TCopyShader(nif2Out, shape2Out, nif2, shapes2[0]);
 
 			saveNif(nif2Out, testfile2Out.u8string().c_str());
 
@@ -1465,17 +1509,8 @@ namespace NiflyDLLTests
 			void* nif2Test = load(testfile2Out.u8string().c_str());
 			void* shapes2Test[10];
 			shapeCount = getShapes(nif2Test, shapes2Test, 10, 0);
-			for (int i = 0; i < 9; i++) {
-				getShaderTextureSlot(nif2Test, shapes2Test[0], i, textures[i], 300);
-				txtstr[i] = new std::string(textures[i]);
-			};
-			uint32_t flagsOne2Test = getShaderFlags1(nifTest, shapes2[0]);
 
-			Assert::IsTrue(txtstr[0]->compare("textures\\furniture\\noble\\NobleFurnChest01.dds") == 0, L"Found expected texture");
-			Assert::IsTrue(txtstr[1]->compare("textures\\furniture\\noble\\NobleFurnChest01_n.dds") == 0, L"Found expected texture");
-			Assert::IsTrue(txtstr[2]->compare("") == 0, L"Found expected texture");
-			Assert::IsFalse(flagsOne2Test & static_cast<uint32_t>(ShaderProperty::MODEL_SPACE_NORMALS),
-				L"Found MSN flag should not be set");
+			TCompareShaders(nif2, shapes2[0], nif2Test, shapes2Test[0]);
 		};
 		TEST_METHOD(shadersFO4) {
 			// Can read the shaders from a shape
@@ -1511,10 +1546,7 @@ namespace NiflyDLLTests
 			uint16_t options = 0;
 			void* skin;
 			void* shapeOut = TCopyShape(nifOut, "MaleHead", nif, shapes[0], 0, &skin);
-			setShaderTextureSlot(nifOut, shapeOut, 0, txtstr[0]->c_str());
-			setShaderTextureSlot(nifOut, shapeOut, 1, txtstr[1]->c_str());
-			setShaderTextureSlot(nifOut, shapeOut, 7, txtstr[7]->c_str());
-			setShaderName(nifOut, shapeOut, shaderName);
+			TCopyShader(nifOut, shapeOut, nif, shapes[0]);
 
 			saveSkinnedNif(skin, testfileO.u8string().c_str());
 
@@ -1523,24 +1555,27 @@ namespace NiflyDLLTests
 			void* nifTest = load(testfileO.u8string().c_str());
 			void* shapesTest[10];
 			shapeCount = getShapes(nifTest, shapesTest, 10, 0);
-			for (int i = 0; i < 9; i++) {
-				getShaderTextureSlot(nifTest, shapesTest[0], i, textures[i], 300);
-				txtstr[i] = new std::string(textures[i]);
-			};
-			uint32_t flagsOneTest = getShaderFlags1(nifTest, shapesTest[0]);
-			
-			char shaderNameTest[500];
-			getShaderName(nifTest, shapesTest[0], shaderNameTest, 500);
 
-			Assert::IsTrue(txtstr[0]->compare("textures\\Actors\\Character\\BaseHumanMale\\BaseMaleHead_d.dds") == 0, L"Found expected texture");
-			Assert::IsTrue(txtstr[1]->compare("textures\\Actors\\Character\\BaseHumanMale\\BaseMaleHead_n.dds") == 0, L"Found expected texture");
-			Assert::IsTrue(txtstr[2]->compare("") == 0, L"Found expected texture");
-			Assert::IsTrue(txtstr[7]->compare("textures\\actors\\character\\basehumanmale\\basemalehead_s.dds") == 0, L"Found expected texture");
-			Assert::IsTrue(txtstr[3]->compare("") == 0, L"Found expected texture");
+			TCompareShaders(nif, shapes[0], nifTest, shapesTest[0]);
+		};
+		TEST_METHOD(shadersReadType) {
+			void* nif;
+			void* shapes[10];
 
-			Assert::IsFalse(flagsOneTest & static_cast<uint32_t>(ShaderProperty::MODEL_SPACE_NORMALS),
-				L"Found MSN flag should not be set");
-			Assert::AreEqual(shaderNameTest, "Materials\\Actors\\Character\\BaseHumanMale\\basehumanskinHead.bgsm", L"Expected materials path");
+			nif = load((testRoot / "Skyrim/NobleCrate01.nif").u8string().c_str());
+			getShapes(nif, shapes, 10, 0);
+			Assert::IsTrue(uint32_t(BSLSPShaderType::Default) == getShaderType(nif, shapes[0]),
+				L"Expected shader type Default");
+
+			nif = load((testRoot / "SkyrimSE/MaleHead.nif").u8string().c_str());
+			getShapes(nif, shapes, 10, 0);
+			Assert::IsTrue(uint32_t(BSLSPShaderType::Face_Tint) == getShaderType(nif, shapes[0]),
+				L"Expected shader type Face_Tint");
+
+			nif = load((testRoot / "FO4/BodyTalk3.nif").u8string().c_str());
+			getShapes(nif, shapes, 10, 0);
+			Assert::IsTrue(uint32_t(BSLSPShaderType::Skin_Tint) == getShaderType(nif, shapes[0]),
+				L"Expected shader type Skin_Tint");
 		};
 	};
 }
