@@ -666,6 +666,16 @@ NIFLY_API uint32_t getShaderFlags1(void* nifref, void* shaperef) {
     return (bssh ? bssh->shaderFlags1 : 0);
 }
 
+NIFLY_API uint32_t getShaderFlags2(void* nifref, void* shaperef) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    NiShader* shader = nif->GetShader(shape);
+    BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
+
+    return (bssh ? bssh->shaderFlags2 : 0);
+}
+
 NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char* buf, int buflen) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
@@ -682,6 +692,14 @@ NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, 
     return static_cast<int>(texture.length());
 }
 
+NIFLY_API uint32_t getShaderType(void* nifref, void* shaperef) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    NiShader* shader = nif->GetShader(shape);
+    return shader->GetShaderType();
+};
+
 NIFLY_API void setShaderName(void* nifref, void* shaperef, char* name) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
@@ -689,6 +707,14 @@ NIFLY_API void setShaderName(void* nifref, void* shaperef, char* name) {
     NiShader* shader = nif->GetShader(shape);
     shader->name.get() = name;
 }
+
+NIFLY_API void setShaderType(void* nifref, void* shaperef, uint32_t shaderType) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    NiShader* shader = nif->GetShader(shape);
+    return shader->SetShaderType(shaderType);
+};
 
 NIFLY_API void setShaderFlags1(void* nifref, void* shaperef, uint32_t flags) {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -698,6 +724,16 @@ NIFLY_API void setShaderFlags1(void* nifref, void* shaperef, uint32_t flags) {
     BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
 
     if (bssh) bssh->shaderFlags1 = flags;
+}
+
+NIFLY_API void setShaderFlags2(void* nifref, void* shaperef, uint32_t flags) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    NiShader* shader = nif->GetShader(shape);
+    BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
+
+    if (bssh) bssh->shaderFlags2 = flags;
 }
 
 NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, const char* buf) {
