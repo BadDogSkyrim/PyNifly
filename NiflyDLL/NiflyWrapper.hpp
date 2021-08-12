@@ -91,5 +91,44 @@ extern "C" NIFLY_API int saveSkinnedNif(void * anim, const char8_t* filepath);
 
 /* ********************* SHADERS ***************** */
 
-extern "C" NIFLY_API void getShaderFlags1(void* nifref, void* shaperef, uint32_t* flags);
-extern "C" NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char8_t* buf, int buflen);
+enum class ShaderProperty: uint32_t {
+    SPECULAR = 0,
+    SKINNED,
+    TEMP_REFRACTION,
+    VERTEX_ALPHA,
+    GREYSCALE_COLOR,
+    GREYSCALE_ALPHA,
+    USE_FALLOFF,
+    ENVIRONMENT_MAPPING,
+    RECEIVE_SHADOWS,
+    CAST_SHADOWS,
+    FACEGEN_DETAIL_MAP,
+    PARALLAX,
+    MODEL_SPACE_NORMALS,
+    NON_PROJECTIVE_SHADOWS,
+    LANDSCAPE,
+    REFRACTION,
+    FIRE_REFRACTION,
+    EYE_ENVIRONMENT_MAPPING,
+    HAIR_SOFT_LIGHTING,
+    SCREENDOOR_ALPHA_FADE,
+    LOCALMAP_HIDE_SECRET,
+    FACEGEN_RGB_TINT,
+    OWN_EMIT,
+    PROJECTED_UV,
+    MULTIPLE_TEXTURES,
+    REMAPPABLE_TEXTURES,
+    DECAL,
+    DYNAMIC_DECAL,
+    PARALLAX_OCCLUSION,
+    EXTERNAL_EMITTANCE,
+    SOFT_EFFECT,
+    ZBUFFER_TEST
+};
+
+extern "C" NIFLY_API int getShaderName(void* nifref, void* shaperef, char* buf, int buflen);
+extern "C" NIFLY_API uint32_t getShaderFlags1(void* nifref, void* shaperef);
+extern "C" NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char* buf, int buflen);
+extern "C" NIFLY_API void setShaderName(void* nifref, void* shaperef, char* name);
+extern "C" NIFLY_API void setShaderFlags1(void* nifref, void* shaperef, uint32_t flags);
+extern "C" NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, const char* buf);
