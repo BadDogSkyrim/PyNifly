@@ -202,6 +202,11 @@ struct BSLSPAttrs {
 	float Skin_Tint_Color_B;
 };
 
+struct AlphaPropertyBuf {
+	uint16_t flags;
+	uint8_t threshold;
+};
+
 extern "C" NIFLY_API int getShaderName(void* nifref, void* shaperef, char* buf, int buflen);
 extern "C" NIFLY_API uint32_t getShaderFlags1(void* nifref, void* shaperef);
 extern "C" NIFLY_API uint32_t getShaderFlags2(void* nifref, void* shaperef);
@@ -215,3 +220,5 @@ extern "C" NIFLY_API void setShaderFlags2(void* nifref, void* shaperef, uint32_t
 extern "C" NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, const char* buf);
 
 extern "C" NIFLY_API void setShaderAttrs(void* nifref, void* shaperef, BSLSPAttrs* buf);
+extern "C" NIFLY_API int getAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr);
+extern "C" NIFLY_API void setAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr);

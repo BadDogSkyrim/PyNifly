@@ -2,8 +2,8 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = True
-TEST_BPY_ALL = False
+RUN_TESTS = False
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -110,6 +110,19 @@ def import_shader_attrs(material, shader, shape):
     material['BSLSP_Skin_Tint_Color_G'] = attrs.Skin_Tint_Color_G
     material['BSLSP_Skin_Tint_Color_B'] = attrs.Skin_Tint_Color_B
 
+def import_shader_alpha(mat, shape):
+    if shape.has_alpha_property:
+        mat.alpha_threshold = shape.alpha_property.threshold
+        if shape.alpha_property.flags & 1:
+            mat.blend_method = 'BLEND'
+        else:
+            mat.blend_method = 'CLIP'
+        mat['NiAlphaProperty_flags'] = shape.alpha_property.flags
+        mat['NiAlphaProperty_threshold'] = shape.alpha_property.threshold
+        return True
+    else:
+        return False
+
 def obj_create_material(obj, shape):
     img_offset_x = -1000
     cvt_offset_x = -300
@@ -133,6 +146,7 @@ def obj_create_material(obj, shape):
     bdsf = nodes.get("Principled BSDF")
 
     import_shader_attrs(mat, bdsf, shape)
+    has_alpha = import_shader_alpha(mat, shape)
 
     # --- Diffuse --
 
@@ -143,7 +157,8 @@ def obj_create_material(obj, shape):
     txtnode.location = (bdsf.location[0] + img_offset_x, bdsf.location[1])
     
     mat.node_tree.links.new(txtnode.outputs['Color'], bdsf.inputs['Base Color'])
-    mat.node_tree.links.new(txtnode.outputs['Alpha'], bdsf.inputs['Alpha'])
+    if has_alpha:
+        mat.node_tree.links.new(txtnode.outputs['Alpha'], bdsf.inputs['Alpha'])
 
     yloc = txtnode.location[1] + offset_y
 
@@ -345,6 +360,19 @@ def export_shader(obj, shape):
                 spec_fp = spec_fp_full[spec_fp_full.lower().find('textures'):]
                 log.debug(f"....Writing subsurface texture path '{spec_fp}'")
                 shape.set_texture(7, spec_fp)
+
+        alpha_input = shader_node.inputs['Alpha']
+        if alpha_input.is_linked:
+            mat = obj.active_material
+            if 'NiAlphaProperty_flags' in mat.keys():
+                shape.alpha_property.flags = mat['NiAlphaProperty_flags']
+            else:
+                shape.alpha_property.flags = 4844
+            if 'NiAlphaProperty_threshold' in mat.keys():
+                shape.alpha_property.threshold = mat['NiAlphaProperty_threshold']
+            else:
+                shape.alpha_property.threshold = 128
+            shape.save_alpha_property()
 
     else:
         log.warning(f"...Have material but no shader node for {obj.name}")
@@ -1561,9 +1589,10 @@ def run_tests():
     TEST_FACEBONE_EXPORT = False
     TEST_TIGER_EXPORT = False
     TEST_JIARAN = False
-    TEST_SHADER_LE = True
-    TEST_SHADER_SE = True
-    TEST_SHADER_FO4 = True
+    TEST_SHADER_LE = False
+    TEST_SHADER_SE = False
+    TEST_SHADER_FO4 = False
+    TEST_SHADER_ALPHA = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -2322,7 +2351,7 @@ def run_tests():
 
 
     if TEST_BPY_ALL or TEST_FACEBONES:
-        print("### TEST_FACEBONES: Test that facebones are correctly named")
+        print("### TEST_FACEBONES: Facebones are renamed from Blender to the game's names")
 
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/basemalehead_facebones.nif")
         nif = NifFile(testfile)
@@ -2480,6 +2509,49 @@ def run_tests():
         assert nifcheckSE.shapes[0].textures[7] == nifSE.shapes[0].textures[7], \
             f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[7]}' != '{nifSE.shapes[0].textures[7]}'"
         assert nifcheckSE.shapes[0].shader_attributes == shaderAttrsSE, f"Error: Shader attributes not preserved:\n{nifcheckSE.shapes[0].shader_attributes}\nvs\n{shaderAttrsSE}"
+
+    if TEST_BPY_ALL or TEST_SHADER_ALPHA:
+        print("## TEST_SHADER_ALPHA Shader attributes are read and turned into Blender shader nodes")
+        # Note this nif uses a MSN with a _n suffix. Import goes by the shader flag not the suffix.
+
+        bpy.ops.object.select_all(action='DESELECT')
+        fileAlph = os.path.join(pynifly_dev_path, r"tests\Skyrim\meshes\actors\character\Lykaios\Tails\maletaillykaios.nif")
+        nifAlph = NifFile(fileAlph)
+        import_nif(nifAlph)
+        furshape = nifAlph.shapes[1]
+        for obj in bpy.context.selected_objects:
+            if "tail_fur.001" in obj.name:
+                tail = obj
+        assert len(tail.active_material.node_tree.nodes) == 9, "ERROR: Didn't import images"
+        assert tail.active_material.blend_method == 'CLIP', f"Error: Alpha blend is '{tail.active_material.blend_method}', not 'CLIP'"
+
+        print("## Shader attributes are written on export")
+
+        bpy.context.view_layer.objects.active = tail       
+        do_export(bpy.context, 
+                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_ALPH.nif"), 
+                  'SKYRIM')
+
+        nifCheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_ALPH.nif"))
+        checkfurshape = None
+        for s in nifCheck.shapes:
+            if s.name == "tail_fur.001":
+                checkfurshape = s
+                break
+        
+        assert checkfurshape.textures[0] == furshape.textures[0], \
+            f"Error: Texture paths not preserved: '{checkfurshape.textures[0]}' != '{furshape.textures[0]}'"
+        assert checkfurshape.textures[1] == furshape.textures[1], \
+            f"Error: Texture paths not preserved: '{checkfurshape.textures[1]}' != '{furshape.textures[1]}'"
+        assert checkfurshape.textures[2] == furshape.textures[2], \
+            f"Error: Texture paths not preserved: '{checkfurshape.textures[2]}' != '{furshape.textures[2]}'"
+        assert checkfurshape.textures[7] == furshape.textures[7], \
+            f"Error: Texture paths not preserved: '{checkfurshape.textures[7]}' != '{furshape.textures[7]}'"
+        assert checkfurshape.shader_attributes == furshape.shader_attributes, f"Error: Shader attributes not preserved:\n{checkfurshape.shader_attributes}\nvs\n{furshape.shader_attributes}"
+
+        assert checkfurshape.has_alpha_property, f"Error: Did not write alpha property"
+        assert checkfurshape.alpha_property.flags == furshape.alpha_property.flags, f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.flags} != {furshape.alpha_property.flags}"
+        assert checkfurshape.alpha_property.threshold == furshape.alpha_property.threshold, f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.threshold} != {furshape.alpha_property.threshold}"
 
 
 # #############################################################################################

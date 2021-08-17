@@ -744,6 +744,29 @@ NIFLY_API void getShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* b
     };
 };
 
+NIFLY_API int getAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+    if (shape->HasAlphaProperty()) {
+        NiAlphaProperty* alph = nif->GetAlphaProperty(shape);
+        bufptr->flags = alph->flags;
+        bufptr->threshold = alph->threshold;
+        return 1;
+    }
+    else
+        return 0;
+}
+
+NIFLY_API void setAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    auto alphaProp = std::make_unique<NiAlphaProperty>();
+    alphaProp->flags = bufptr->flags;
+    alphaProp->threshold = bufptr->threshold;
+    nif->AssignAlphaProperty(shape, std::move(alphaProp));
+}
+
 NIFLY_API void setShaderName(void* nifref, void* shaperef, char* name) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
