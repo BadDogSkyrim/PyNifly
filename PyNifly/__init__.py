@@ -88,9 +88,46 @@ import bmesh
 # -----------------------------  SHADERS  -------------------------------
 
 
+def import_shader_attrs(material, shader, shape):
+    attrs = shape.shader_attributes
+
+    material['BSLSP_Shader_Type'] = attrs.Shader_Type
+    material['BSLSP_Shader_Name'] = shape.shader_name
+    material['BSLSP_Shader_Flags_1'] = hex(attrs.Shader_Flags_1)
+    material['BSLSP_Shader_Flags_2'] = hex(attrs.Shader_Flags_2)
+    shader.inputs['Emission'].default_value = (attrs.Emissive_Color_R, attrs.Emissive_Color_G, attrs.Emissive_Color_B, attrs.Emissive_Color_A)
+    shader.inputs['Emission Strength'].default_value = attrs.Emissive_Mult
+    shader.inputs['Alpha'].default_value = attrs.Alpha
+    material['BSLSP_Refraction_Str'] = attrs.Refraction_Str
+    shader.inputs['Metallic'].default_value = attrs.Glossiness
+    material['BSLSP_Spec_Color_R'] = attrs.Spec_Color_R
+    material['BSLSP_Spec_Color_G'] = attrs.Spec_Color_G
+    material['BSLSP_Spec_Color_B'] = attrs.Spec_Color_B
+    material['BSLSP_Spec_Str'] = attrs.Spec_Str
+    material['BSLSP_Soft_Lighting'] = attrs.Soft_Lighting
+    material['BSLSP_Rim_Light_Power'] = attrs.Rim_Light_Power
+    material['BSLSP_Skin_Tint_Color_R'] = attrs.Skin_Tint_Color_R
+    material['BSLSP_Skin_Tint_Color_G'] = attrs.Skin_Tint_Color_G
+    material['BSLSP_Skin_Tint_Color_B'] = attrs.Skin_Tint_Color_B
+
+def import_shader_alpha(mat, shape):
+    if shape.has_alpha_property:
+        mat.alpha_threshold = shape.alpha_property.threshold
+        if shape.alpha_property.flags & 1:
+            mat.blend_method = 'BLEND'
+        else:
+            mat.blend_method = 'CLIP'
+        mat['NiAlphaProperty_flags'] = shape.alpha_property.flags
+        mat['NiAlphaProperty_threshold'] = shape.alpha_property.threshold
+        return True
+    else:
+        return False
+
 def obj_create_material(obj, shape):
-    img_offset_x = -600
+    img_offset_x = -1000
     cvt_offset_x = -300
+    inter1_offset_x = -700
+    inter2_offset_x = -500
     offset_y = -300
     yloc = 0
     nifpath = shape.parent.filepath
@@ -102,9 +139,14 @@ def obj_create_material(obj, shape):
     log.debug(". . creating material")
 
     mat = bpy.data.materials.new(name=(obj.name + ".Mat"))
+
+
     mat.use_nodes = True
     nodes = mat.node_tree.nodes
     bdsf = nodes.get("Principled BSDF")
+
+    import_shader_attrs(mat, bdsf, shape)
+    has_alpha = import_shader_alpha(mat, shape)
 
     # --- Diffuse --
 
@@ -115,7 +157,8 @@ def obj_create_material(obj, shape):
     txtnode.location = (bdsf.location[0] + img_offset_x, bdsf.location[1])
     
     mat.node_tree.links.new(txtnode.outputs['Color'], bdsf.inputs['Base Color'])
-    mat.node_tree.links.new(txtnode.outputs['Alpha'], bdsf.inputs['Alpha'])
+    if has_alpha:
+        mat.node_tree.links.new(txtnode.outputs['Alpha'], bdsf.inputs['Alpha'])
 
     yloc = txtnode.location[1] + offset_y
 
@@ -156,27 +199,184 @@ def obj_create_material(obj, shape):
     
     if fulltextures[1] != "":
         nmap = nodes.new("ShaderNodeNormalMap")
-        if shape.model_space_normals:
+        if shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
             nmap.space = "OBJECT"
         else:
             nmap.space = "TANGENT"
         nmap.location = (bdsf.location[0] + cvt_offset_x, yloc)
-                         
+        
         nimg = bpy.data.images.load(fulltextures[1], check_existing=True) 
         nimg.colorspace_settings.name = "Non-Color"
         nimgnode = nodes.new("ShaderNodeTexImage")
         nimgnode.image = nimg
         nimgnode.location = (txtnode.location[0], yloc)
         
-        mat.node_tree.links.new(nimgnode.outputs['Color'], nmap.inputs['Color'])
+        if shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+            rgbsep = nodes.new("ShaderNodeSeparateRGB")
+            rgbcomb = nodes.new("ShaderNodeCombineRGB")
+            mat.node_tree.links.new(rgbsep.outputs['R'], rgbcomb.inputs['R'])
+            mat.node_tree.links.new(rgbsep.outputs['G'], rgbcomb.inputs['B'])
+            mat.node_tree.links.new(rgbsep.outputs['B'], rgbcomb.inputs['G'])
+            mat.node_tree.links.new(rgbcomb.outputs['Image'], nmap.inputs['Color'])
+            mat.node_tree.links.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
+            rgbsep.location = (bdsf.location[0] + inter1_offset_x, yloc)
+            rgbcomb.location = (bdsf.location[0] + inter2_offset_x, yloc)
+        else:
+            mat.node_tree.links.new(nimgnode.outputs['Color'], nmap.inputs['Color'])
+            nmap.location = (bdsf.location[0] + inter2_offset_x, yloc)
+                         
         mat.node_tree.links.new(nmap.outputs['Normal'], bdsf.inputs['Normal'])
 
-        if shape.parent.game in ["SKYRIM", "SKYRIMSE"] and not shape.model_space_normals:
+        if shape.parent.game in ["SKYRIM", "SKYRIMSE"] and not shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
             # Specular is in the normal map alpha channel
             mat.node_tree.links.new(nimgnode.outputs['Alpha'], bdsf.inputs['Specular'])
+            
         
     obj.active_material = mat
+
+def find_shader_node(nodelist, nodeid):
+    """ Look up a shader node by bl_idname"""
+    resultlist = list(filter(lambda n: n.bl_idname == nodeid, nodelist))
+    if len(resultlist) > 0:
+        return resultlist[0]
+    else:
+        return None
+
+def export_shader_attrs(obj, shader, shape):
+    mat = obj.active_material
+
+    if 'BSLSP_Shader_Type' in mat.keys():
+        shape.shader_attributes.Shader_Type = int(mat['BSLSP_Shader_Type'])
+        log.debug(f"....setting shader type to {shape.shader_attributes.Shader_Type}")
+    if 'BSLSP_Shader_Name' in mat.keys() and len(mat['BSLSP_Shader_Name']) > 0:
+        shape.shader_name = mat['BSLSP_Shader_Name']
+    if 'BSLSP_Shader_Flags_1' in mat.keys():
+        shape.shader_attributes.Shader_Flags_1 = int(mat['BSLSP_Shader_Flags_1'], 16)
+    if 'BSLSP_Shader_Flags_2' in mat.keys():
+        shape.shader_attributes.Shader_Flags_2 = int(mat['BSLSP_Shader_Flags_2'], 16)
+    shape.shader_attributes.Emissive_Color_R = shader.inputs['Emission'].default_value[0]
+    shape.shader_attributes.Emissive_Color_G = shader.inputs['Emission'].default_value[1]
+    shape.shader_attributes.Emissive_Color_B = shader.inputs['Emission'].default_value[2]
+    shape.shader_attributes.Emissive_Color_A = shader.inputs['Emission'].default_value[3]
+    shape.shader_attributes.Emissive_Mult = shader.inputs['Emission Strength'].default_value
+    shape.shader_attributes.Alpha = shader.inputs['Alpha'].default_value
+    if 'BSLSP_Refraction_Str' in mat.keys():
+        shape.Refraction_Str = mat['BSLSP_Refraction_Str']
+    shape.shader_attributes.Glossiness = shader.inputs['Metallic'].default_value
+    if 'BSLSP_Spec_Color_R' in mat.keys():
+        shape.shader_attributes.Spec_Color_R = mat['BSLSP_Spec_Color_R']
+    if 'BSLSP_Spec_Color_G' in mat.keys():
+        shape.shader_attributes.Spec_Color_G = mat['BSLSP_Spec_Color_G']
+    if 'BSLSP_Spec_Color_B' in mat.keys():
+        shape.shader_attributes.Spec_Color_B = mat['BSLSP_Spec_Color_B']
+    if 'BSLSP_Spec_Str' in mat.keys():
+        shape.shader_attributes.Spec_Str = mat['BSLSP_Spec_Str']
+    if 'BSLSP_Spec_Str' in mat.keys():
+        shape.shader_attributes.Soft_Lighting = mat['BSLSP_Soft_Lighting']
+    if 'BSLSP_Spec_Str' in mat.keys():
+        shape.shader_attributes.Rim_Light_Power = mat['BSLSP_Rim_Light_Power']
+    if 'BSLSP_Skin_Tint_Color_R' in mat.keys():
+        shape.shader_attributes.Skin_Tint_Color_R = mat['BSLSP_Skin_Tint_Color_R']
+    if 'BSLSP_Skin_Tint_Color_G' in mat.keys():
+        shape.shader_attributes.Skin_Tint_Color_G = mat['BSLSP_Skin_Tint_Color_G']
+    if 'BSLSP_Skin_Tint_Color_B' in mat.keys():
+        shape.shader_attributes.Skin_Tint_Color_G = mat['BSLSP_Skin_Tint_Color_B']
+
+    #log.debug(f"Shader Type: {shape.shader_attributes.Shader_Type}")
+    #log.debug(f"Shader attributes: \n{shape.shader_attributes}")
+
+def has_msn_shader(obj):
+    val = False
+    if obj.active_material:
+        nodelist = obj.active_material.node_tree.nodes
+        shader_node = find_shader_node(nodelist, 'ShaderNodeBsdfPrincipled')
+        normal_input = shader_node.inputs['Normal']
+        if normal_input.is_linked:
+            nmap_node = normal_input.links[0].from_node
+            if nmap_node.space == "OBJECT":
+                val = True
+    return val
+
+def export_shader(obj, shape):
+    """Create shader from the given material"""
+    log.debug(f"...exporting material for object {obj.name}")
+    shader = shape.shader_attributes
+    nodelist = obj.active_material.node_tree.nodes
     
+    # Texture paths
+    shader_node = find_shader_node(nodelist, 'ShaderNodeBsdfPrincipled')
+    if shader_node:
+        export_shader_attrs(obj, shader_node, shape)
+
+        diffuse_input = shader_node.inputs['Base Color']
+        if diffuse_input.is_linked:
+            diffuse_node = diffuse_input.links[0].from_node
+            if diffuse_node.image:
+                diffuse_fp_full = diffuse_node.image.filepath
+                diffuse_fp = diffuse_fp_full[diffuse_fp_full.lower().find('textures'):]
+                log.debug(f"....Writing diffuse texture path '{diffuse_fp}'")
+                shape.set_texture(0, diffuse_fp)
+        
+        normal_input = shader_node.inputs['Normal']
+        if normal_input.is_linked:
+            nmap_node = normal_input.links[0].from_node
+            if nmap_node.space == "OBJECT":
+                shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
+            else:
+                shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
+            prior_input = nmap_node.inputs['Color']
+            prior_node = prior_input.links[0].from_node
+            if prior_node and prior_node.bl_idname == 'ShaderNodeCombineRGB':
+                prior_input = prior_node.inputs['R']
+                prior_node = prior_input.links[0].from_node
+            if prior_node and prior_node.bl_idname == 'ShaderNodeSeparateRGB':
+                prior_input = prior_node.inputs['Image']
+                prior_node = prior_input.links[0].from_node
+            if prior_node and prior_node.bl_idname == 'ShaderNodeTexImage' and prior_node.image:
+                norm_txt_node = prior_node
+                norm_fp_full = norm_txt_node.image.filepath
+                norm_fp = norm_fp_full[norm_fp_full.lower().find('textures'):]
+                log.debug(f"....Writing normal texture path '{norm_fp}'")
+                shape.set_texture(1, norm_fp)
+
+        sk_input = shader_node.inputs['Subsurface Color']
+        if sk_input.is_linked:
+            sk_node = sk_input.links[0].from_node
+            if sk_node.image:
+                sk_fp_full = sk_node.image.filepath
+                sk_fp = sk_fp_full[sk_fp_full.lower().find('textures'):]
+                log.debug(f"....Writing subsurface texture path '{sk_fp}'")
+                shape.set_texture(2, sk_fp)
+
+        spec_input = shader_node.inputs['Specular']
+        if spec_input.is_linked:
+            prior_node = spec_input.links[0].from_node
+            if prior_node and prior_node.bl_idname == 'ShaderNodeSeparateRGB':
+                prior_input = prior_node.inputs['Image']
+                prior_node = prior_input.links[0].from_node
+            if prior_node and prior_node.bl_idname == 'ShaderNodeTexImage'and \
+                prior_node != norm_txt_node and prior_node.image:
+                spec_fp_full = prior_node.image.filepath
+                spec_fp = spec_fp_full[spec_fp_full.lower().find('textures'):]
+                log.debug(f"....Writing subsurface texture path '{spec_fp}'")
+                shape.set_texture(7, spec_fp)
+
+        alpha_input = shader_node.inputs['Alpha']
+        if alpha_input.is_linked:
+            mat = obj.active_material
+            if 'NiAlphaProperty_flags' in mat.keys():
+                shape.alpha_property.flags = mat['NiAlphaProperty_flags']
+            else:
+                shape.alpha_property.flags = 4844
+            if 'NiAlphaProperty_threshold' in mat.keys():
+                shape.alpha_property.threshold = mat['NiAlphaProperty_threshold']
+            else:
+                shape.alpha_property.threshold = 128
+            shape.save_alpha_property()
+
+    else:
+        log.warning(f"...Have material but no shader node for {obj.name}")
+
 
 # -----------------------------  MESH CREATION -------------------------------
 
@@ -1054,11 +1254,9 @@ def export_shape(nif, trip, obj, target_key='', arma=None):
             colors_new = [(0.0, 0.0, 0.0, 0.0)] * len(verts)
             for i, lp in enumerate(loops):
                 colors_new[lp] = loopcolors[i]
-            #colors_new = [loopcolors[loops.index(i)] for i in range(len(verts))]
         else:
             log.debug(f"..No vertex colors in shape {obj.name}")
-        #log.debug(f"..Vertex 44 loc: {verts[44]}")
-        #log.debug(f"..Vertex 44 normals: {[norms[i] for i, l in enumerate(loops) if l==44]}")
+
     finally:
         obj.data = originalmesh
         obj.active_shape_key_index = saved_sk
@@ -1068,10 +1266,29 @@ def export_shape(nif, trip, obj, target_key='', arma=None):
 
     obj.data.update()
     log.info("..Exporting to nif")
-    new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_new, 
+    norms_exp = norms_new
+    has_msn = has_msn_shader(obj)
+    if has_msn:
+        norms_exp = None
+
+    new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_exp, 
                                         is_hp, is_skinned)
     if colors_new:
         new_shape.set_colors(colors_new)
+
+    if obj.active_material:
+        export_shader(obj, new_shape)
+        if has_msn:
+            new_shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
+        else:
+            new_shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
+        if colors_new:
+            new_shape.shader_attributes.shaderflags2_set(ShaderFlags2.VERTEX_COLORS)
+        else:
+            new_shape.shader_attributes.shaderflags2_clear(ShaderFlags2.VERTEX_COLORS)
+        new_shape.save_shader_attributes()
+    else:
+        log.debug(f"..No material on {obj.name}")
 
     if is_skinned:
         nif.createSkin()
@@ -1372,7 +1589,10 @@ def run_tests():
     TEST_FACEBONE_EXPORT = False
     TEST_TIGER_EXPORT = False
     TEST_JIARAN = False
-    TEST_SHADER = True
+    TEST_SHADER_LE = False
+    TEST_SHADER_SE = False
+    TEST_SHADER_FO4 = False
+    TEST_SHADER_ALPHA = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -2131,7 +2351,7 @@ def run_tests():
 
 
     if TEST_BPY_ALL or TEST_FACEBONES:
-        print("### TEST_FACEBONES: Test that facebones are correctly named")
+        print("### TEST_FACEBONES: Facebones are renamed from Blender to the game's names")
 
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/basemalehead_facebones.nif")
         nif = NifFile(testfile)
@@ -2177,6 +2397,163 @@ def run_tests():
         tri2 = TriFile.from_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT_chargen.tri"))
         assert len(tri2.morphs) > 0
 
+    if TEST_BPY_ALL or TEST_JIARAN:
+        print("#### TEST_JIARAN: Armature with no stashed transforms exports correctly")
+
+        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"))
+
+        append_from_file("hair.001", True, r"tests\SKYRIMSE\jiaran.blend", r"\Object", "hair.001")
+        bpy.context.view_layer.objects.active = bpy.data.objects["hair.001"]
+       
+        do_export(bpy.context, 
+                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"), 
+                  'SKYRIMSE')
+
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"))
+        assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
+
+    if TEST_BPY_ALL or TEST_SHADER_LE:
+        print("## TEST_SHADER_LE Shader attributes are read and turned into Blender shader nodes")
+
+        bpy.ops.object.select_all(action='DESELECT')
+        fileLE = os.path.join(pynifly_dev_path, r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
+        nifLE = NifFile(fileLE)
+        import_nif(nifLE)
+        shaderAttrsLE = nifLE.shapes[0].shader_attributes
+        for obj in bpy.context.selected_objects:
+            if "MaleHeadIMF" in obj.name:
+                headLE = obj
+        assert len(headLE.active_material.node_tree.nodes) == 9, "ERROR: Didn't import images"
+
+        print("## Shader attributes are written on export")
+
+        bpy.context.view_layer.objects.active = headLE       
+        do_export(bpy.context, 
+                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_LE.nif"), 
+                  'SKYRIM')
+
+        nifcheckLE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_LE.nif"))
+        
+        assert nifcheckLE.shapes[0].textures[0] == nifLE.shapes[0].textures[0], \
+            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[0]}' != '{nifLE.shapes[0].textures[0]}'"
+        assert nifcheckLE.shapes[0].textures[1] == nifLE.shapes[0].textures[1], \
+            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[1]}' != '{nifLE.shapes[0].textures[1]}'"
+        assert nifcheckLE.shapes[0].textures[2] == nifLE.shapes[0].textures[2], \
+            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[2]}' != '{nifLE.shapes[0].textures[2]}'"
+        assert nifcheckLE.shapes[0].textures[7] == nifLE.shapes[0].textures[7], \
+            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[7]}' != '{nifLE.shapes[0].textures[7]}'"
+        assert nifcheckLE.shapes[0].shader_attributes == shaderAttrsLE, f"Error: Shader attributes not preserved:\n{nifcheckLE.shapes[0].shader_attributes}\nvs\n{shaderAttrsLE}"
+
+    if TEST_BPY_ALL or TEST_SHADER_FO4:
+        print("## TEST_SHADER_FO4 Shader attributes are read and turned into Blender shader nodes")
+
+        bpy.ops.object.select_all(action='DESELECT')
+        fileFO4 = os.path.join(pynifly_dev_path, r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
+        nifFO4 = NifFile(fileFO4)
+        import_nif(nifFO4)
+        shaderAttrsFO4 = nifFO4.shapes[0].shader_attributes
+        for obj in bpy.context.selected_objects:
+            if "BaseMaleHead:0" in obj.name:
+                headFO4 = obj
+        assert len(headFO4.active_material.node_tree.nodes) == 7, "ERROR: Didn't import images"
+
+        print("## Shader attributes are written on export")
+
+        bpy.context.view_layer.objects.active = headFO4       
+        do_export(bpy.context, 
+                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_FO4.nif"), 
+                  'FO4')
+
+        nifcheckFO4 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_FO4.nif"))
+        
+        assert nifcheckFO4.shapes[0].textures[0] == nifFO4.shapes[0].textures[0], \
+            f"Error: Texture paths not preserved: '{nifcheckFO4.shapes[0].textures[0]}' != '{nifFO4.shapes[0].textures[0]}'"
+        assert nifcheckFO4.shapes[0].textures[1] == nifFO4.shapes[0].textures[1], \
+            f"Error: Texture paths not preserved: '{nifcheckFO4.shapes[0].textures[1]}' != '{nifFO4.shapes[0].textures[1]}'"
+        assert nifcheckFO4.shapes[0].textures[2] == nifFO4.shapes[0].textures[2], \
+            f"Error: Texture paths not preserved: '{nifcheckFO4.shapes[0].textures[2]}' != '{nifFO4.shapes[0].textures[2]}'"
+        assert nifcheckFO4.shapes[0].textures[7] == nifFO4.shapes[0].textures[7], \
+            f"Error: Texture paths not preserved: '{nifcheckFO4.shapes[0].textures[7]}' != '{nifFO4.shapes[0].textures[7]}'"
+        assert nifcheckFO4.shapes[0].shader_attributes == shaderAttrsFO4, f"Error: Shader attributes not preserved:\n{nifcheckFO4.shapes[0].shader_attributes}\nvs\n{shaderAttrsFO4}"
+        assert nifcheckFO4.shapes[0].shader_name == nifFO4.shapes[0].shader_name, f"Error: Shader name not preserved: '{nifcheckFO4.shapes[0].shader_name}' != '{nifFO4.shapes[0].shader_name}'"
+
+
+    if TEST_BPY_ALL or TEST_SHADER_SE:
+        print("## TEST_SHADER_SE Shader attributes are read and turned into Blender shader nodes")
+
+        bpy.ops.object.select_all(action='DESELECT')
+        fileSE = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\meshes\furniture\noble\noblecrate01.nif")
+        nifSE = NifFile(fileSE)
+        import_nif(nifSE)
+        shaderAttrsSE = nifSE.shapes[0].shader_attributes
+        for obj in bpy.context.selected_objects:
+            if "NobleCrate01:1" in obj.name:
+                crate = obj
+        assert len(crate.active_material.node_tree.nodes) == 5, "ERROR: Didn't import images"
+
+        print("## Shader attributes are written on export")
+
+        bpy.context.view_layer.objects.active = crate       
+        do_export(bpy.context, 
+                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_SE.nif"), 
+                  'SKYRIMSE')
+
+        nifcheckSE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_SE.nif"))
+        
+        assert nifcheckSE.shapes[0].textures[0] == nifSE.shapes[0].textures[0], \
+            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[0]}' != '{nifSE.shapes[0].textures[0]}'"
+        assert nifcheckSE.shapes[0].textures[1] == nifSE.shapes[0].textures[1], \
+            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[1]}' != '{nifSE.shapes[0].textures[1]}'"
+        assert nifcheckSE.shapes[0].textures[2] == nifSE.shapes[0].textures[2], \
+            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[2]}' != '{nifSE.shapes[0].textures[2]}'"
+        assert nifcheckSE.shapes[0].textures[7] == nifSE.shapes[0].textures[7], \
+            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[7]}' != '{nifSE.shapes[0].textures[7]}'"
+        assert nifcheckSE.shapes[0].shader_attributes == shaderAttrsSE, f"Error: Shader attributes not preserved:\n{nifcheckSE.shapes[0].shader_attributes}\nvs\n{shaderAttrsSE}"
+
+    if TEST_BPY_ALL or TEST_SHADER_ALPHA:
+        print("## TEST_SHADER_ALPHA Shader attributes are read and turned into Blender shader nodes")
+        # Note this nif uses a MSN with a _n suffix. Import goes by the shader flag not the suffix.
+
+        bpy.ops.object.select_all(action='DESELECT')
+        fileAlph = os.path.join(pynifly_dev_path, r"tests\Skyrim\meshes\actors\character\Lykaios\Tails\maletaillykaios.nif")
+        nifAlph = NifFile(fileAlph)
+        import_nif(nifAlph)
+        furshape = nifAlph.shapes[1]
+        for obj in bpy.context.selected_objects:
+            if "tail_fur.001" in obj.name:
+                tail = obj
+        assert len(tail.active_material.node_tree.nodes) == 9, "ERROR: Didn't import images"
+        assert tail.active_material.blend_method == 'CLIP', f"Error: Alpha blend is '{tail.active_material.blend_method}', not 'CLIP'"
+
+        print("## Shader attributes are written on export")
+
+        bpy.context.view_layer.objects.active = tail       
+        do_export(bpy.context, 
+                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_ALPH.nif"), 
+                  'SKYRIM')
+
+        nifCheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_ALPH.nif"))
+        checkfurshape = None
+        for s in nifCheck.shapes:
+            if s.name == "tail_fur.001":
+                checkfurshape = s
+                break
+        
+        assert checkfurshape.textures[0] == furshape.textures[0], \
+            f"Error: Texture paths not preserved: '{checkfurshape.textures[0]}' != '{furshape.textures[0]}'"
+        assert checkfurshape.textures[1] == furshape.textures[1], \
+            f"Error: Texture paths not preserved: '{checkfurshape.textures[1]}' != '{furshape.textures[1]}'"
+        assert checkfurshape.textures[2] == furshape.textures[2], \
+            f"Error: Texture paths not preserved: '{checkfurshape.textures[2]}' != '{furshape.textures[2]}'"
+        assert checkfurshape.textures[7] == furshape.textures[7], \
+            f"Error: Texture paths not preserved: '{checkfurshape.textures[7]}' != '{furshape.textures[7]}'"
+        assert checkfurshape.shader_attributes == furshape.shader_attributes, f"Error: Shader attributes not preserved:\n{checkfurshape.shader_attributes}\nvs\n{furshape.shader_attributes}"
+
+        assert checkfurshape.has_alpha_property, f"Error: Did not write alpha property"
+        assert checkfurshape.alpha_property.flags == furshape.alpha_property.flags, f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.flags} != {furshape.alpha_property.flags}"
+        assert checkfurshape.alpha_property.threshold == furshape.alpha_property.threshold, f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.threshold} != {furshape.alpha_property.threshold}"
+
+
 # #############################################################################################
 #
 #    REGRESSION TESTS
@@ -2204,48 +2581,6 @@ def run_tests():
         nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"))
         assert len(nif1.shapes) == 1, f"Expected tiger nif"
 
-
-    if TEST_BPY_ALL or TEST_JIARAN:
-        print("#### TEST_JIARAN: Armature with no stashed transforms exports correctly")
-
-        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"))
-
-        append_from_file("hair.001", True, r"tests\SKYRIMSE\jiaran.blend", r"\Object", "hair.001")
-        bpy.context.view_layer.objects.active = bpy.data.objects["hair.001"]
-       
-        do_export(bpy.context, 
-                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"), 
-                  'SKYRIMSE')
-
-        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"))
-        assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
-
-    if TEST_BPY_ALL or TEST_SHADER:
-        print("## TEST_SHADER Can read shaders")
-
-        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
-        for obj in bpy.context.selected_objects:
-            if "MaleHeadIMF" in obj.name:
-                head = obj
-        assert len(head.active_material.node_tree.nodes) == 7, "ERROR: Didn't import images"
-
-        testfile2 = os.path.join(pynifly_dev_path, r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
-        nif = NifFile(testfile2)
-        import_nif(nif)
-        for obj in bpy.context.selected_objects:
-            if "BaseMaleHead:0" in obj.name:
-                head2 = obj
-        assert len(head2.active_material.node_tree.nodes) == 7, "ERROR: Didn't import images"
-
-        testfile3 = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\meshes\furniture\noble\noblecrate01.nif")
-        nif = NifFile(testfile3)
-        import_nif(nif)
-        for obj in bpy.context.selected_objects:
-            if "NobleCrate01:1" in obj.name:
-                crate = obj
-        assert len(crate.active_material.node_tree.nodes) == 5, "ERROR: Didn't import images"
 
 
         
