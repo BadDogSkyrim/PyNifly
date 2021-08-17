@@ -700,13 +700,57 @@ NIFLY_API uint32_t getShaderType(void* nifref, void* shaperef) {
     return shader->GetShaderType();
 };
 
+NIFLY_API void getShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    NiShader* shader = nif->GetShader(shape);;
+    BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
+    BSLightingShaderProperty* bslsp = dynamic_cast<BSLightingShaderProperty*>(shader);
+    NiTexturingProperty* txtProp = nif->GetTexturingProperty(shape);
+
+    FillMemory(buf, sizeof(BSLSPAttrs), 0);
+
+    buf->Shader_Type = shader->GetShaderType();
+    if (bssh) buf->Shader_Flags_1 = bssh->shaderFlags1;
+    if (bssh) buf->Shader_Flags_2 = bssh->shaderFlags2;
+    buf->UV_Offset_U = shader->GetUVOffset().u;
+    buf->UV_Offset_V = shader->GetUVOffset().v;
+    buf->UV_Scale_U = shader->GetUVScale().u;
+    buf->UV_Scale_V = shader->GetUVScale().v;
+    buf->Emissive_Color_R = shader->GetEmissiveColor().r;
+    buf->Emissive_Color_G = shader->GetEmissiveColor().g;
+    buf->Emissive_Color_B = shader->GetEmissiveColor().b;
+    buf->Emissive_Color_A = shader->GetEmissiveColor().a;
+    buf->Emissmive_Mult = shader->GetEmissiveMultiple();
+    if (txtProp) {
+        NiSyncVector<ShaderTexDesc>* txtdesc = &txtProp->shaderTex;
+        //buf->Tex_Clamp_Mode = txtdesc->data.clampMode;
+    };
+    buf->Alpha = shader->GetAlpha();
+    buf->Glossiness = shader->GetGlossiness();
+    buf->Spec_Color_R = shader->GetSpecularColor().x;
+    buf->Spec_Color_G = shader->GetSpecularColor().y;
+    buf->Spec_Color_B = shader->GetSpecularColor().z;
+    buf->Spec_Str = shader->GetSpecularStrength();
+    if (bslsp) {
+        buf->Refraction_Str = bslsp->refractionStrength;
+        buf->Soft_Lighting = bslsp->softlighting;
+        buf->Rim_Light_Power = bslsp->rimlightPower;
+        buf->Skin_Tint_Alpha = bslsp->skinTintAlpha;
+        buf->Skin_Tint_Color_R = bslsp->skinTintColor[0];
+        buf->Skin_Tint_Color_G = bslsp->skinTintColor[1];
+        buf->Skin_Tint_Color_B = bslsp->skinTintColor[2];
+    };
+};
+
 NIFLY_API void setShaderName(void* nifref, void* shaperef, char* name) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
 
     NiShader* shader = nif->GetShader(shape);
     shader->name.get() = name;
-}
+};
 
 NIFLY_API void setShaderType(void* nifref, void* shaperef, uint32_t shaderType) {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -744,6 +788,50 @@ NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex,
 
     nif->SetTextureSlot(shape, texture, slotIndex);
 }
+
+NIFLY_API void setShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    NiShader* shader = nif->GetShader(shape);;
+    BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
+    BSLightingShaderProperty* bslsp = dynamic_cast<BSLightingShaderProperty*>(shader);
+    NiTexturingProperty* txtProp = nif->GetTexturingProperty(shape);
+
+    shader->SetShaderType(buf->Shader_Type);
+    if (bssh) {
+        bssh->shaderFlags1 = buf->Shader_Flags_1;
+        bssh->shaderFlags2 = buf->Shader_Flags_2;
+    };
+    //shader->SetUVOffset( = buf->UV_Offset_U = ;
+    //buf->UV_Offset_V = shader->GetUVOffset().v;
+    //buf->UV_Scale_U = shader->GetUVScale().u;
+    //buf->UV_Scale_V = shader->GetUVScale().v;
+    Color4 col = Color4(buf->Emissive_Color_R, 
+        buf->Emissive_Color_G, 
+        buf->Emissive_Color_B, 
+        buf->Emissive_Color_A);
+    shader->SetEmissiveColor(col);
+    shader->SetEmissiveMultiple(buf->Emissmive_Mult);
+    if (txtProp) {
+        NiSyncVector<ShaderTexDesc>* txtdesc = &txtProp->shaderTex;
+        //txtdesc->data.clampMode = buf->Tex_Clamp_Mode;
+    };
+    //shader->SetAlpha(buf->Alpha);
+    shader->SetGlossiness(buf->Glossiness);
+    Vector3 specCol = Vector3(buf->Spec_Color_R, buf->Spec_Color_G, buf->Spec_Color_B);
+    shader->SetSpecularColor(specCol);
+    shader->SetSpecularStrength(buf->Spec_Str);
+    if (bslsp) {
+        bslsp->refractionStrength = buf->Refraction_Str;
+        bslsp->softlighting = buf->Soft_Lighting;
+        bslsp->rimlightPower = buf->Rim_Light_Power;
+        bslsp->skinTintAlpha = buf->Skin_Tint_Alpha;
+        bslsp->skinTintColor[0] = buf->Skin_Tint_Color_R;
+        bslsp->skinTintColor[1] = buf->Skin_Tint_Color_G;
+        bslsp->skinTintColor[2] = buf->Skin_Tint_Color_B;
+    };
+};
 
 
 /* ******************** SEGMENTS AND PARTITIONS ****************************** */

@@ -203,6 +203,36 @@ void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
 
 	Assert::IsTrue(strcmp(name1, name2) == 0, L"Expected matching shader name");
 
+	BSLSPAttrs shaderAttr1, shaderAttr2;
+	getShaderAttrs(nif1, shape1, &shaderAttr1);
+	getShaderAttrs(nif2, shape2, &shaderAttr2);
+
+	Assert::IsTrue(shaderAttr1.Shader_Type == shaderAttr2.Shader_Type);
+	Assert::IsTrue(shaderAttr1.Shader_Flags_1 == shaderAttr2.Shader_Flags_1);
+	Assert::IsTrue(shaderAttr1.Shader_Flags_2 == shaderAttr2.Shader_Flags_2);
+	Assert::IsTrue(shaderAttr1.Tex_Clamp_Mode == shaderAttr2.Tex_Clamp_Mode);
+	Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Offset_U, shaderAttr2.UV_Offset_U));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Offset_V, shaderAttr2.UV_Offset_V));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Scale_U, shaderAttr2.UV_Scale_U));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Scale_V, shaderAttr2.UV_Scale_V));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_R, shaderAttr2.Emissive_Color_R));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_G, shaderAttr2.Emissive_Color_G));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_B, shaderAttr2.Emissive_Color_B));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_A, shaderAttr2.Emissive_Color_A));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Emissmive_Mult, shaderAttr2.Emissmive_Mult));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Alpha, shaderAttr2.Alpha));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Refraction_Str, shaderAttr2.Refraction_Str));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Glossiness, shaderAttr2.Glossiness));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Color_R, shaderAttr2.Spec_Color_R));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Color_G, shaderAttr2.Spec_Color_G));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Color_B, shaderAttr2.Spec_Color_B));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Str, shaderAttr2.Spec_Str));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Soft_Lighting, shaderAttr2.Soft_Lighting));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Rim_Light_Power, shaderAttr2.Rim_Light_Power));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Alpha, shaderAttr2.Skin_Tint_Alpha));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_R, shaderAttr2.Skin_Tint_Color_R));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_G, shaderAttr2.Skin_Tint_Color_G));
+	Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_B, shaderAttr2.Skin_Tint_Color_B));
 };
 
 void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape)
@@ -217,14 +247,19 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 	getShaderName(sourceNif, sourceShape, shaderName, 500);
 	setShaderName(targetNif, targetShape, shaderName);
 
-	uint32_t st = getShaderType(sourceNif, sourceShape);
-	setShaderType(targetNif, targetShape, st);
+	//uint32_t st = getShaderType(sourceNif, sourceShape);
+	//setShaderType(targetNif, targetShape, st);
 
-	uint32_t f1 = getShaderFlags1(sourceNif, sourceShape);
-	uint32_t f2 = getShaderFlags2(sourceNif, sourceShape);
+	//uint32_t f1 = getShaderFlags1(sourceNif, sourceShape);
+	//uint32_t f2 = getShaderFlags2(sourceNif, sourceShape);
 
-	setShaderFlags1(targetNif, targetShape, f1);
-	setShaderFlags2(targetNif, targetShape, f2);
+	//setShaderFlags1(targetNif, targetShape, f1);
+	//setShaderFlags2(targetNif, targetShape, f2);
+
+	BSLSPAttrs shaderAttr;
+	getShaderAttrs(sourceNif, sourceShape, &shaderAttr);
+	setShaderAttrs(targetNif, targetShape, &shaderAttr);
+
 };
 
 namespace NiflyDLLTests
@@ -1449,6 +1484,14 @@ namespace NiflyDLLTests
 			uint32_t f2 = getShaderFlags2(nif, shapes[0]);
 			Assert::IsTrue(f1 & (1 << 12), L"Expected MSN bit set");
 
+			BSLSPAttrs shaderAttr;
+			getShaderAttrs(nif, shapes[0], &shaderAttr);
+			Assert::IsTrue(TApproxEqual(
+				Vector3(shaderAttr.Spec_Color_R, shaderAttr.Spec_Color_G, shaderAttr.Spec_Color_B), 
+				Vector3(0xa1/255.0, 0xc2/255.0, 0xff/255.0)));
+			Assert::IsTrue(TApproxEqual(shaderAttr.Spec_Str, 2.69));
+			Assert::IsTrue(shaderAttr.Shader_Type == uint32_t(BSLSPShaderType::Face_Tint));
+
 			// Can write head back out
 
 			std::filesystem::path testfileO = testRoot / "Out" / "testWrapperShaders01.nif";
@@ -1457,13 +1500,14 @@ namespace NiflyDLLTests
 			uint16_t options = 0;
 			void* skinOut;
 			void* shapeOut = TCopyShape(nifOut, "MaleHead", nif, shapes[0], 0, &skinOut);
-			setShaderTextureSlot(nifOut, shapeOut, 0, txtstr[0]->c_str());
-			setShaderTextureSlot(nifOut, shapeOut, 1, txtstr[1]->c_str());
-			setShaderTextureSlot(nifOut, shapeOut, 2, txtstr[2]->c_str());
-			setShaderTextureSlot(nifOut, shapeOut, 7, txtstr[7]->c_str());
+			TCopyShader(nifOut, shapeOut, nif, shapes[0]);
+			//setShaderTextureSlot(nifOut, shapeOut, 0, txtstr[0]->c_str());
+			//setShaderTextureSlot(nifOut, shapeOut, 1, txtstr[1]->c_str());
+			//setShaderTextureSlot(nifOut, shapeOut, 2, txtstr[2]->c_str());
+			//setShaderTextureSlot(nifOut, shapeOut, 7, txtstr[7]->c_str());
 
-			setShaderFlags1(nifOut, shapeOut, f1);
-			setShaderFlags2(nifOut, shapeOut, f2);
+			//setShaderFlags1(nifOut, shapeOut, f1);
+			//setShaderFlags2(nifOut, shapeOut, f2);
 
 			saveSkinnedNif(skinOut, testfileO.u8string().c_str());
 
@@ -1530,6 +1574,14 @@ namespace NiflyDLLTests
 			};
 			char shaderName[500];
 			getShaderName(nif, shapes[0], shaderName, 500);
+
+			BSLSPAttrs shaderAttr;
+			getShaderAttrs(nif, shapes[0], &shaderAttr);
+			Assert::IsTrue(TApproxEqual(
+				Vector3(shaderAttr.Spec_Color_R, shaderAttr.Spec_Color_G, shaderAttr.Spec_Color_B),
+				Vector3(1.0, 1.0, 1.0)));
+			Assert::IsTrue(TApproxEqual(shaderAttr.Spec_Str, 1.0));
+			Assert::IsTrue(shaderAttr.Shader_Type == uint32_t(BSLSPShaderType::Face_Tint));
 
 			Assert::IsTrue(txtstr[0]->compare("textures\\Actors\\Character\\BaseHumanMale\\BaseMaleHead_d.dds") == 0, L"Found expected texture");
 			Assert::IsTrue(txtstr[1]->compare("textures\\Actors\\Character\\BaseHumanMale\\BaseMaleHead_n.dds") == 0, L"Found expected texture");
