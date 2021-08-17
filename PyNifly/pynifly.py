@@ -1,3 +1,6 @@
+"""
+Wrapper around nifly to provide python-friendly access to nifs
+"""
 
 import os
 import struct
@@ -202,6 +205,11 @@ class ShaderFlags2(IntFlag):
     EFFECT_LIGHTING = 1 << 30
     HD_LOD_OBJECTS = 1 << 31
 
+class AlphaPropertyBuf(Structure):
+    _fields_ = [('flags', c_uint16), ('threshold', c_uint8)]
+
+AlphaPropertyBuf_p = POINTER(AlphaPropertyBuf)
+
 def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
     #nifly.getRawVertsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
@@ -220,6 +228,8 @@ def load_nifly(nifly_path):
     nifly.destroy.restype = None
     nifly.getAllShapeNames.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getAllShapeNames.restype = c_int
+    nifly.getAlphaProperty.argtypes = [c_void_p, c_void_p, AlphaPropertyBuf_p]
+    nifly.getAlphaProperty.restype = c_int
     nifly.getBoneSkinToBoneXform.argtypes = [c_void_p, c_char_p, c_char_p, c_void_p]
     nifly.getBoneSkinToBoneXform.restype = None 
     nifly.getColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
@@ -302,6 +312,8 @@ def load_nifly(nifly_path):
     nifly.saveSkinnedNif.restype = None
     nifly.segmentCount.argtypes = [c_void_p, c_void_p]
     nifly.segmentCount.restype = c_int
+    nifly.setAlphaProperty.argtypes = [c_void_p, c_void_p, AlphaPropertyBuf_p]
+    nifly.setAlphaProperty.restype = None
     nifly.setColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.setColorsForShape.restype = None
     nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p]
@@ -672,6 +684,7 @@ class NiShape:
         self.is_head_part = False
         self._shader_attrs = None
         self._shader_name = None
+        self._alpha = None
 
         if not theShapeRef is None:
             buf = create_string_buffer(256)
@@ -857,6 +870,25 @@ class NiShape:
         if self._shader_attrs:
             NifFile.nifly.setShaderAttrs(self.parent._handle, self._handle,
                                          byref(self._shader_attrs))
+
+    @property
+    def has_alpha_property(self):
+        if self._alpha:
+            return True
+        buf = AlphaPropertyBuf()
+        return NifFile.nifly.getAlphaProperty(self.parent._handle, self._handle, byref(buf))
+        
+    @property
+    def alpha_property(self):
+        if self._alpha is None:
+            buf = AlphaPropertyBuf()
+            NifFile.nifly.getAlphaProperty(self.parent._handle, self._handle, byref(buf))
+            self._alpha = buf
+        return self._alpha
+
+    def save_alpha_property(self):
+        if self._alpha:
+            NifFile.nifly.setAlphaProperty(self.parent._handle, self._handle, byref(self._alpha))
 
     @property
     def bone_names(self):
@@ -1284,7 +1316,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1306,7 +1338,8 @@ TEST_FNV = False
 TEST_BLOCKNAME = False
 TEST_UNSKINNED = False
 TEST_UNI = False
-TEST_SHADER = True
+TEST_SHADER = False
+TEST_ALPHA = True
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1364,6 +1397,12 @@ def _test_export_shape(s_in: NiShape, ftout: NifFile):
     new_shape.shader_attributes.Skin_Tint_Color_B = s_in.shader_attributes.Skin_Tint_Color_B
 
     new_shape.save_shader_attributes()
+
+    alpha = AlphaPropertyBuf()
+    if s_in.has_alpha_property:
+        new_shape.alpha_property.flags = s_in.alpha_property.flags
+        new_shape.alpha_property.threshold = s_in.alpha_property.threshold
+        new_shape.save_alpha_property()
 
 
 if __name__ == "__main__":
@@ -2151,3 +2190,27 @@ if __name__ == "__main__":
         shapeTest = nifTest.shapes[0]
         attrsTest = shapeTest.shader_attributes
         assert attrsTest == attrs, f"Error: Expected same shader attributes"
+
+    if TEST_ALL or TEST_ALPHA:
+        print("### TEST_SHADER: Can read and write alpha property")
+        nif = NifFile(r"tests/Skyrim/meshes/actors/character/Lykaios/Tails/maletaillykaios.nif")
+        tailfur = nif.shapes[1]
+
+        assert tailfur.shader_attributes.Shader_Type == BSLSPShaderType.Skin_Tint, f"Error: Skin tint incorrect, got {nif.shader_attributes.Shader_Type}"
+        assert tailfur.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsse.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert tailfur.alpha_property.flags == 4844, f"Error: Alpha flags incorrect, found {tailfur.alpha_property.flags}"
+        assert tailfur.alpha_property.threshold == 70, f"Error: Threshold incorrect, found {tailfur.alpha_property.threshold}"
+
+        nifOut = NifFile()
+        nifOut.initialize('SKYRIM', r"tests\out\TEST_ALPHA.nif")
+        _test_export_shape(tailfur, nifOut)
+        nifOut.save()
+
+        nifcheck = NifFile(r"tests\out\TEST_ALPHA.nif")
+        tailcheck = nifcheck.shapes[0]
+
+        assert tailcheck.alpha_property.flags == tailfur.alpha_property.flags, \
+               f"Error: alpha flags don't match, {tailcheck.alpha_property.flags} != {tailfur.alpha_property.flags}"
+        assert tailcheck.alpha_property.threshold == tailfur.alpha_property.threshold, \
+               f"Error: alpha flags don't match, {tailcheck.alpha_property.threshold} != {tailfur.alpha_property.threshold}"
+        

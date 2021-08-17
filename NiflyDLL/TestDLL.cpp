@@ -233,6 +233,13 @@ void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
 	Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_R, shaderAttr2.Skin_Tint_Color_R));
 	Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_G, shaderAttr2.Skin_Tint_Color_G));
 	Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_B, shaderAttr2.Skin_Tint_Color_B));
+
+	AlphaPropertyBuf alpha1;
+	AlphaPropertyBuf alpha2;
+	getAlphaProperty(nif1, shape1, &alpha1);
+	getAlphaProperty(nif2, shape2, &alpha2);
+	Assert::IsTrue(alpha1.flags == alpha2.flags, L"Error: Flags do not match");
+	Assert::IsTrue(alpha1.threshold == alpha2.threshold, L"Error: threshold does not match");
 };
 
 void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape)
@@ -260,6 +267,9 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 	getShaderAttrs(sourceNif, sourceShape, &shaderAttr);
 	setShaderAttrs(targetNif, targetShape, &shaderAttr);
 
+	AlphaPropertyBuf alpha;
+	if (getAlphaProperty(sourceNif, sourceShape, &alpha))
+		setAlphaProperty(targetNif, targetShape, &alpha);
 };
 
 namespace NiflyDLLTests
@@ -1494,7 +1504,7 @@ namespace NiflyDLLTests
 
 			// Can write head back out
 
-			std::filesystem::path testfileO = testRoot / "Out" / "testWrapperShaders01.nif";
+			std::filesystem::path testfileO = testRoot / "Out" / "testWrapper_Shaders01.nif";
 
 			void* nifOut = createNif("Skyrim");
 			uint16_t options = 0;
@@ -1538,7 +1548,7 @@ namespace NiflyDLLTests
 
 			// Can write chest back out
 
-			std::filesystem::path testfile2Out = testRoot / "Out" / "testWrapperShaders02.nif";
+			std::filesystem::path testfile2Out = testRoot / "Out" / "testWrapper_Shaders02.nif";
 
 			void* nif2Out = createNif("Skyrim");
 			options = 0;
@@ -1592,7 +1602,7 @@ namespace NiflyDLLTests
 
 			// Can write head back out
 
-			std::filesystem::path testfileO = testRoot / "Out" / "testWrappershadersFO401.nif";
+			std::filesystem::path testfileO = testRoot / "Out" / "testWrapper_shadersFO401.nif";
 
 			void* nifOut = createNif("FO4");
 			uint16_t options = 0;
@@ -1628,6 +1638,41 @@ namespace NiflyDLLTests
 			getShapes(nif, shapes, 10, 0);
 			Assert::IsTrue(uint32_t(BSLSPShaderType::Skin_Tint) == getShaderType(nif, shapes[0]),
 				L"Expected shader type Skin_Tint");
+		};
+		TEST_METHOD(shadersReadAlpha) {
+			void* nif;
+			void* shapes[10];
+			AlphaPropertyBuf alpha;
+
+			nif = load((testRoot / "Skyrim/meshes/actors/character/Lykaios/Tails/maletaillykaios.nif").u8string().c_str());
+			getShapes(nif, shapes, 10, 0);
+			void* shape = shapes[1];
+			bool hasAlpha = getAlphaProperty(nif, shape, &alpha);
+
+			Assert::IsTrue(uint32_t(BSLSPShaderType::Skin_Tint) == getShaderType(nif, shapes[0]),
+				L"Expected shader type Skin_Tint");
+			Assert::IsTrue(hasAlpha, L"Error: Should have alpha property");
+			Assert::IsTrue(alpha.flags == 4844, L"Error: Flags not correct");
+			Assert::IsTrue(alpha.threshold == 70, L"Error: Threshold not correct");
+
+			// ### Can write the alpha property back out
+
+			std::filesystem::path fileOut = testRoot / "Out" / "testWrapper_shadersReadAlpha.nif";
+
+			void* nifOut = createNif("Skyrim");
+			uint16_t options = 0;
+			void* skinOut;
+			void* shapeOut = TCopyShape(nifOut, "TailFur", nif, shape, 0, &skinOut);
+			TCopyShader(nifOut, shapeOut, nif, shape);
+
+			saveSkinnedNif(skinOut, fileOut.u8string().c_str());
+
+			// What we wrote is correct
+
+			void* nifCheck = load(fileOut.u8string().c_str());
+			void* shapesCheck[10];
+			getShapes(nifCheck, shapesCheck, 10, 0);
+			TCompareShaders(nif, shape, nifCheck, shapesCheck[0]);
 		};
 	};
 }
