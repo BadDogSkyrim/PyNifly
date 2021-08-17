@@ -91,5 +91,134 @@ extern "C" NIFLY_API int saveSkinnedNif(void * anim, const char8_t* filepath);
 
 /* ********************* SHADERS ***************** */
 
-extern "C" NIFLY_API void getShaderFlags1(void* nifref, void* shaperef, uint32_t* flags);
-extern "C" NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char8_t* buf, int buflen);
+enum BSLightingShaderPropertyShaderType : uint32_t {
+	BSLSP_DEFAULT=0,
+	BSLSP_ENVMAP,
+	BSLSP_GLOWMAP,
+	BSLSP_PARALLAX,
+	BSLSP_FACE,
+	BSLSP_SKINTINT,
+	BSLSP_HAIRTINT,
+	BSLSP_PARALLAXOCC,
+	BSLSP_MULTITEXTURELANDSCAPE,
+	BSLSP_LODLANDSCAPE,
+	BSLSP_SNOW,
+	BSLSP_MULTILAYERPARALLAX,
+	BSLSP_TREEANIM,
+	BSLSP_LODOBJECTS,
+	BSLSP_MULTIINDEXSNOW,
+	BSLSP_LODOBJECTSHD,
+	BSLSP_EYE,
+	BSLSP_CLOUD,
+	BSLSP_LODLANDSCAPENOISE,
+	BSLSP_MULTITEXTURELANDSCAPELODBLEND,
+	BSLSP_DISMEMBERMENT
+}; 
+enum class ShaderProperty: uint32_t {
+    SPECULAR = 0,
+    SKINNED,
+    TEMP_REFRACTION,
+    VERTEX_ALPHA,
+    GREYSCALE_COLOR,
+    GREYSCALE_ALPHA,
+    USE_FALLOFF,
+    ENVIRONMENT_MAPPING,
+    RECEIVE_SHADOWS,
+    CAST_SHADOWS,
+    FACEGEN_DETAIL_MAP,
+    PARALLAX,
+    MODEL_SPACE_NORMALS,
+    NON_PROJECTIVE_SHADOWS,
+    LANDSCAPE,
+    REFRACTION,
+    FIRE_REFRACTION,
+    EYE_ENVIRONMENT_MAPPING,
+    HAIR_SOFT_LIGHTING,
+    SCREENDOOR_ALPHA_FADE,
+    LOCALMAP_HIDE_SECRET,
+    FACEGEN_RGB_TINT,
+    OWN_EMIT,
+    PROJECTED_UV,
+    MULTIPLE_TEXTURES,
+    REMAPPABLE_TEXTURES,
+    DECAL,
+    DYNAMIC_DECAL,
+    PARALLAX_OCCLUSION,
+    EXTERNAL_EMITTANCE,
+    SOFT_EFFECT,
+    ZBUFFER_TEST
+};
+
+enum class BSLSPShaderType : uint32_t {
+	Default = 0,
+	Environment_Map,
+	Glow_Shader,
+	Parallax,
+	Face_Tint,
+	Skin_Tint,
+	Hair_Tint,
+	Parallax_Occ,
+	Multitexture_Landscape,
+	LOD_Landscape,
+	Snow,
+	MultiLayer_Parallax,
+	Tree_Anim,
+	LOD_Objects,
+	Sparkle_Snow,
+	LOD_Objects_HD,
+	Eye_Envmap,
+	Cloud,
+	LOD_Landscape_Noise,
+	Multitexture_Landscape_LOD_Blend,
+	FO4_Dismemberment
+};
+
+struct BSLSPAttrs {
+	uint32_t Shader_Type;
+	uint32_t Shader_Flags_1;
+	uint32_t Shader_Flags_2;
+	float UV_Offset_U;
+	float UV_Offset_V;
+	float UV_Scale_U;
+	float UV_Scale_V;
+	float Emissive_Color_R;
+	float Emissive_Color_G;
+	float Emissive_Color_B;
+	float Emissive_Color_A;
+	float Emissmive_Mult;
+	uint32_t Tex_Clamp_Mode;
+	float Alpha;
+	float Refraction_Str;
+	float Glossiness;
+	float Spec_Color_R;
+	float Spec_Color_G;
+	float Spec_Color_B;
+	float Spec_Str;
+	float Soft_Lighting;
+	float Rim_Light_Power;
+	float Skin_Tint_Alpha;
+	float Skin_Tint_Color_R;
+	float Skin_Tint_Color_G;
+	float Skin_Tint_Color_B;
+};
+
+struct AlphaPropertyBuf {
+	uint16_t flags;
+	uint8_t threshold;
+};
+
+extern "C" NIFLY_API int getShaderName(void* nifref, void* shaperef, char* buf, int buflen);
+extern "C" NIFLY_API uint32_t getShaderFlags1(void* nifref, void* shaperef);
+extern "C" NIFLY_API uint32_t getShaderFlags2(void* nifref, void* shaperef);
+extern "C" NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char* buf, int buflen);
+extern "C" NIFLY_API uint32_t getShaderType(void* nifref, void* shaperef);
+extern "C" NIFLY_API void getShaderAttrs(void* nifref, void* shaperef, BSLSPAttrs* buf);
+extern "C" NIFLY_API void setShaderName(void* nifref, void* shaperef, char* name);
+extern "C" NIFLY_API void setShaderType(void* nifref, void* shaperef, uint32_t shaderType);
+extern "C" NIFLY_API void setShaderFlags1(void* nifref, void* shaperef, uint32_t flags);
+extern "C" NIFLY_API void setShaderFlags2(void* nifref, void* shaperef, uint32_t flags);
+extern "C" NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, const char* buf);
+
+extern "C" NIFLY_API void setShaderAttrs(void* nifref, void* shaperef, BSLSPAttrs* buf);
+extern "C" NIFLY_API int getAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr);
+extern "C" NIFLY_API void setAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr);

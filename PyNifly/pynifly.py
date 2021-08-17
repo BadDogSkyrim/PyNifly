@@ -1,3 +1,6 @@
+"""
+Wrapper around nifly to provide python-friendly access to nifs
+"""
 
 import os
 import struct
@@ -5,7 +8,7 @@ from enum import Enum, IntFlag
 from math import asin, atan2, pi, sin, cos
 import re
 import logging
-from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer
+from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer, addressof
 from niflytools import *
 
 
@@ -22,6 +25,117 @@ class MAT_TRANSFORM(Structure):
 class VERTEX_WEIGHT_PAIR(Structure):
     _fields_ = [("vertex", c_uint16),
                 ("weight", c_float)]
+
+class BSLSPAttrs(Structure):
+    _fields_ = [
+	    ('Shader_Type', c_uint32),
+	    ('Shader_Flags_1', c_uint32),
+	    ('Shader_Flags_2', c_uint32),
+	    ('UV_Offset_U', c_float),
+	    ('UV_Offset_V', c_float),
+	    ('UV_Scale_U', c_float),
+	    ('UV_Scale_V', c_float),
+	    ('Emissive_Color_R', c_float),
+	    ('Emissive_Color_G', c_float),
+	    ('Emissive_Color_B', c_float),
+	    ('Emissive_Color_A', c_float),
+	    ('Emissive_Mult', c_float),
+	    ('Tex_Clamp_Mode', c_uint32),
+	    ('Alpha', c_float),
+	    ('Refraction_Str', c_float),
+	    ('Glossiness', c_float),
+	    ('Spec_Color_R', c_float),
+	    ('Spec_Color_G', c_float),
+	    ('Spec_Color_B', c_float),
+	    ('Spec_Str', c_float),
+	    ('Soft_Lighting', c_float),
+	    ('Rim_Light_Power', c_float),
+	    ('Skin_Tint_Alpha', c_float),
+	    ('Skin_Tint_Color_R', c_float),
+	    ('Skin_Tint_Color_G', c_float),
+	    ('Skin_Tint_Color_B', c_float)
+        ]
+    def __str__(self):
+        s = ""
+        for attr in self._fields_:
+            if len(s) > 0:
+                s = s + "\n"
+            if attr[0].startswith('Shader_Flags'):
+                s = s + f"\t{attr[0]} = {getattr(self, attr[0]):32b}"
+            else:        
+                s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
+        return s
+
+    def __eq__(self, other):
+        return (self.Shader_Type == other.Shader_Type) and \
+            (self.Shader_Flags_1 == other.Shader_Flags_1) and \
+            (self.Shader_Flags_2 == other.Shader_Flags_2) and \
+            (round(self.UV_Offset_U, 4) == round(other.UV_Offset_U, 4)) and \
+            (round(self.UV_Offset_V, 4) == round(other.UV_Offset_V, 4)) and \
+            (round(self.UV_Scale_U, 4) == round(other.UV_Scale_U, 4)) and \
+            (round(self.UV_Scale_V, 4) == round(other.UV_Scale_V, 4)) and \
+            (round(self.Emissive_Color_R, 4) == round(other.Emissive_Color_R, 4)) and \
+            (round(self.Emissive_Color_G, 4) == round(other.Emissive_Color_G, 4)) and \
+            (round(self.Emissive_Color_B, 4) == round(other.Emissive_Color_B, 4)) and \
+            (round(self.Emissive_Color_A, 4) == round(other.Emissive_Color_A, 4)) and \
+            (round(self.Emissive_Mult, 4) == round(other.Emissive_Mult, 4)) and \
+            (self.Tex_Clamp_Mode == other.Tex_Clamp_Mode) and \
+            (round(self.Alpha, 4) == round(other.Alpha, 4)) and \
+            (round(self.Refraction_Str, 4) == round(other.Refraction_Str, 4)) and \
+            (round(self.Glossiness, 4) == round(other.Glossiness, 4)) and \
+            (round(self.Spec_Color_R, 4) == round(other.Spec_Color_R, 4)) and \
+            (round(self.Spec_Color_G, 4) == round(other.Spec_Color_G, 4)) and \
+            (round(self.Spec_Color_B, 4) == round(other.Spec_Color_B, 4)) and \
+            (round(self.Spec_Str, 4) == round(other.Spec_Str, 4)) and \
+            (round(self.Soft_Lighting, 4) == round(other.Soft_Lighting, 4)) and \
+            (round(self.Rim_Light_Power, 4) == round(other.Rim_Light_Power, 4)) and \
+            (round(self.Skin_Tint_Alpha, 4) == round(other.Skin_Tint_Alpha, 4)) and \
+            (round(self.Skin_Tint_Color_R, 4) == round(other.Skin_Tint_Color_R, 4)) and \
+            (round(self.Skin_Tint_Color_G, 4) == round(other.Skin_Tint_Color_G, 4)) and \
+            (round(self.Skin_Tint_Color_B, 4) == round(other.Skin_Tint_Color_B, 4))
+
+    def shaderflags1_test(self, flag):
+        return (self.Shader_Flags_1 & flag) != 0
+
+    def shaderflags1_set(self, flag):
+        self.Shader_Flags_1 |= flag.value
+
+    def shaderflags1_clear(self, flag):
+        self.Shader_Flags_1 &= ~flag.value
+
+    def shaderflags2_test(self, flag):
+        return (self.Shader_Flags_2 & flag) != 0
+
+    def shaderflags2_set(self, flag):
+        self.Shader_Flags_2 |= flag.value
+
+    def shaderflags2_clear(self, flag):
+        self.Shader_Flags_2 &= ~flag.value
+
+BSLSPAttrs_p = POINTER(BSLSPAttrs)
+
+class BSLSPShaderType(IntFlag):
+    Default = 0
+    Environment_Map = 1
+    Glow_Shader = 2
+    Parallax = 3
+    Face_Tint = 4
+    Skin_Tint = 5
+    Hair_Tint = 6
+    Parallax_Occ = 7
+    Multitexture_Landscape = 8
+    LOD_Landscape = 9
+    Snow = 10
+    MultiLayer_Parallax = 11
+    Tree_Anim = 12
+    LOD_Objects = 13
+    Sparkle_Snow = 14
+    LOD_Objects_HD = 15
+    Eye_Envmap = 16
+    Cloud = 17
+    LOD_Landscape_Noise = 18
+    Multitexture_Landscape_LOD_Blend = 19
+    FO4_Dismembermen = 20
 
 class ShaderFlags1(IntFlag):
     SPECULAR = 1 << 0
@@ -57,6 +171,45 @@ class ShaderFlags1(IntFlag):
     SOFT_EFFECT = 1 << 30
     ZBUFFER_TES = 1 << 31
 
+class ShaderFlags2(IntFlag):
+    ZBUFFER_WRITE = 1
+    LOD_LANDSCAPE = 1 << 1
+    LOD_OBJECTS = 1 << 2
+    NO_FADE = 1 << 3
+    DOUBLE_SIDED = 1 << 4
+    VERTEX_COLORS = 1 << 5
+    GLOW_MAP = 1 << 6
+    ASSUME_SHADOWMASK = 1 << 7
+    PACKED_TANGENT = 1 << 8
+    MULTI_INDEX_SNOW = 1 << 9
+    VERTEX_LIGHTING = 1 << 10
+    UNIFORM_SCALE = 1 << 11
+    FIT_SLOPE = 1 << 12
+    BILLBOARD = 1 << 13
+    NO_LOD_LAND_BLEND = 1 << 14
+    ENVMAP_LIGHT_FADE = 1 << 15
+    WIREFRAME = 1 << 16
+    WEAPON_BLOOD = 1 << 17
+    HIDE_ON_LOCAL_MAP = 1 << 18 
+    PREMULT_ALPHA = 1 << 19
+    CLOUD_LOD = 1 << 20
+    ANISOTROPIC_LIGHTING = 1 << 21
+    NO_TRANSPARENCY_MULTISAMPLING = 1 << 22
+    UNUSED01 = 1 << 23
+    MULTI_LAYER_PARALLAX = 1 << 24
+    SOFT_LIGHTING = 1 << 25
+    RIM_LIGHTING = 1 << 26
+    BACK_LIGHTING = 1 << 27
+    UNUSED02 = 1 << 28
+    TREE_ANIM = 1 << 29
+    EFFECT_LIGHTING = 1 << 30
+    HD_LOD_OBJECTS = 1 << 31
+
+class AlphaPropertyBuf(Structure):
+    _fields_ = [('flags', c_uint16), ('threshold', c_uint8)]
+
+AlphaPropertyBuf_p = POINTER(AlphaPropertyBuf)
+
 def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
     #nifly.getRawVertsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
@@ -75,6 +228,8 @@ def load_nifly(nifly_path):
     nifly.destroy.restype = None
     nifly.getAllShapeNames.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getAllShapeNames.restype = c_int
+    nifly.getAlphaProperty.argtypes = [c_void_p, c_void_p, AlphaPropertyBuf_p]
+    nifly.getAlphaProperty.restype = c_int
     nifly.getBoneSkinToBoneXform.argtypes = [c_void_p, c_char_p, c_char_p, c_void_p]
     nifly.getBoneSkinToBoneXform.restype = None 
     nifly.getColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
@@ -109,9 +264,14 @@ def load_nifly(nifly_path):
     nifly.getSegmentFile.restype = c_int
     nifly.getSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getSegments.restype = c_int
+    nifly.getShaderAttrs.argtypes = [c_void_p, c_void_p, BSLSPAttrs_p]
+    nifly.getShaderAttrs.restype = None
+    nifly.getShaderFlags1.argtypes = [c_void_p, c_void_p]
+    nifly.getShaderFlags1.restype = c_uint32
+    nifly.getShaderName.argtypes = [c_void_p, c_void_p, c_char_p, c_int]
+    nifly.getShaderName.restype = c_int
     nifly.getShaderTextureSlot.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int]
     nifly.getShaderTextureSlot.restype = c_int
-    nifly.getShaderFlags1.argtypes = [c_void_p, c_void_p, c_void_p]
     nifly.getShapeBlockName.argtypes = [c_void_p, c_void_p, c_int]
     nifly.getShapeBlockName.restypes = c_int
     nifly.getShapeBoneCount.argtypes = [c_void_p, c_void_p]
@@ -152,12 +312,19 @@ def load_nifly(nifly_path):
     nifly.saveSkinnedNif.restype = None
     nifly.segmentCount.argtypes = [c_void_p, c_void_p]
     nifly.segmentCount.restype = c_int
+    nifly.setAlphaProperty.argtypes = [c_void_p, c_void_p, AlphaPropertyBuf_p]
+    nifly.setAlphaProperty.restype = None
     nifly.setColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.setColorsForShape.restype = None
     nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p]
     nifly.setGlobalToSkinXform.restype = None
     nifly.setPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int]
     nifly.setPartitions.restype = None
+    nifly.setShaderAttrs.argtypes = [c_void_p, c_void_p, POINTER(BSLSPAttrs)]
+    nifly.setShaderAttrs.restype = None
+    nifly.setShaderFlags1.argtypes = [c_void_p, c_void_p, c_uint32]
+    nifly.setShaderName.argtypes = [c_void_p, c_void_p, c_char_p]
+    nifly.setShaderTextureSlot.argtypes = [c_void_p, c_void_p, c_int, c_char_p]
     nifly.setShapeBoneIDList.argtypes = [c_void_p, c_void_p, c_void_p, c_int]  
     nifly.setShapeBoneWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p]
     nifly.setShapeGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p] 
@@ -515,6 +682,9 @@ class NiShape:
         self._partition_tris = None
         self._segment_file = ''
         self.is_head_part = False
+        self._shader_attrs = None
+        self._shader_name = None
+        self._alpha = None
 
         if not theShapeRef is None:
             buf = create_string_buffer(256)
@@ -653,13 +823,24 @@ class NiShape:
         return self._uvs
     
     @property
-    def shaderflags1(self):
-        buf = c_uint32()
-        return NifFile.nifly.getShaderFlags1(self.parent._handle, self._handle, byref(buf))
+    def shader_name(self):
+        if self._shader_name is None:
+            buf = (c_char * 500)()
+            NifFile.nifly.getShaderName(self.parent._handle, self._handle, buf, 500)
+            self._shader_name = buf.value.decode('utf-8')
+        return self._shader_name
+
+    @shader_name.setter
+    def shader_name(self, val):
+        NifFile.nifly.setShaderName(self.parent._handle, self._handle, val.encode('utf-8'))
 
     @property
-    def model_space_normals(self):
-        return (self.shaderflags1 & ShaderFlags1.MODEL_SPACE_NORMALS) != 0
+    def shaderflags1(self):
+        return NifFile.nifly.getShaderFlags1(self.parent._handle, self._handle)
+
+    @shaderflags1.setter
+    def shaderflags1(self, val):
+        NifFile.nifly.setShaderFlags(self.parent._handle, self._handle, val);
 
     @property
     def textures(self):
@@ -671,7 +852,44 @@ class NiShape:
                 NifFile.nifly.getShaderTextureSlot(self.parent._handle, self._handle, i, buf, bufsize)
                 self._textures.append(buf.value.decode('utf-8'))
         return self._textures
+
+    def set_texture(self, slot, str):
+        NifFile.nifly.setShaderTextureSlot(self.parent._handle, self._handle, 
+                                           slot, str.encode('utf-8'))
     
+    @property
+    def shader_attributes(self):
+        if self._shader_attrs is None:
+            buf = BSLSPAttrs()
+            NifFile.nifly.getShaderAttrs(self.parent._handle, self._handle, 
+                                         byref(buf))
+            self._shader_attrs = buf
+        return self._shader_attrs
+
+    def save_shader_attributes(self):
+        if self._shader_attrs:
+            NifFile.nifly.setShaderAttrs(self.parent._handle, self._handle,
+                                         byref(self._shader_attrs))
+
+    @property
+    def has_alpha_property(self):
+        if self._alpha:
+            return True
+        buf = AlphaPropertyBuf()
+        return NifFile.nifly.getAlphaProperty(self.parent._handle, self._handle, byref(buf))
+        
+    @property
+    def alpha_property(self):
+        if self._alpha is None:
+            buf = AlphaPropertyBuf()
+            NifFile.nifly.getAlphaProperty(self.parent._handle, self._handle, byref(buf))
+            self._alpha = buf
+        return self._alpha
+
+    def save_alpha_property(self):
+        if self._alpha:
+            NifFile.nifly.setAlphaProperty(self.parent._handle, self._handle, byref(self._alpha))
+
     @property
     def bone_names(self):
         if self._bone_names is None:
@@ -1120,7 +1338,8 @@ TEST_FNV = False
 TEST_BLOCKNAME = False
 TEST_UNSKINNED = False
 TEST_UNI = False
-TEST_SHADER = True
+TEST_SHADER = False
+TEST_ALPHA = True
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1147,6 +1366,44 @@ def _test_export_shape(s_in: NiShape, ftout: NifFile):
     for bone_name, weights in s_in.bone_weights.items():
         new_shape.add_bone(bone_name, s_in.parent.nodes[bone_name].xform_to_global)
         new_shape.setShapeWeights(bone_name, weights)
+
+    new_shape.shader_name = s_in.shader_name
+
+    new_shape.shader_attributes.Shader_Type = s_in.shader_attributes.Shader_Type
+    new_shape.shader_attributes.Shader_Flags_1 = s_in.shader_attributes.Shader_Flags_1
+    new_shape.shader_attributes.Shader_Flags_2 = s_in.shader_attributes.Shader_Flags_2
+    new_shape.shader_attributes.UV_Offset_U = s_in.shader_attributes.UV_Offset_U
+    new_shape.shader_attributes.UV_Offset_V = s_in.shader_attributes.UV_Offset_V
+    new_shape.shader_attributes.UV_Scale_U = s_in.shader_attributes.UV_Scale_U
+    new_shape.shader_attributes.UV_Scale_V = s_in.shader_attributes.UV_Scale_V
+    new_shape.shader_attributes.Emissive_Color_R = s_in.shader_attributes.Emissive_Color_R
+    new_shape.shader_attributes.Emissive_Color_G = s_in.shader_attributes.Emissive_Color_G
+    new_shape.shader_attributes.Emissive_Color_B = s_in.shader_attributes.Emissive_Color_B
+    new_shape.shader_attributes.Emissive_Color_A = s_in.shader_attributes.Emissive_Color_A
+    new_shape.shader_attributes.Emissive_Mult = s_in.shader_attributes.Emissive_Mult
+    new_shape.shader_attributes.Tex_Clamp_Mode = s_in.shader_attributes.Tex_Clamp_Mode
+    new_shape.shader_attributes.Alpha = s_in.shader_attributes.Alpha
+    new_shape.shader_attributes.Refraction_Str = s_in.shader_attributes.Refraction_Str
+    new_shape.shader_attributes.Glossiness = s_in.shader_attributes.Glossiness
+    new_shape.shader_attributes.Spec_Color_R = s_in.shader_attributes.Spec_Color_R
+    new_shape.shader_attributes.Spec_Color_G = s_in.shader_attributes.Spec_Color_G
+    new_shape.shader_attributes.Spec_Color_B = s_in.shader_attributes.Spec_Color_B
+    new_shape.shader_attributes.Spec_Str = s_in.shader_attributes.Spec_Str
+    new_shape.shader_attributes.Soft_Lighting = s_in.shader_attributes.Soft_Lighting
+    new_shape.shader_attributes.Rim_Light_Power = s_in.shader_attributes.Rim_Light_Power
+    new_shape.shader_attributes.Skin_Tint_Alpha = s_in.shader_attributes.Skin_Tint_Alpha
+    new_shape.shader_attributes.Skin_Tint_Color_R = s_in.shader_attributes.Skin_Tint_Color_R
+    new_shape.shader_attributes.Skin_Tint_Color_G = s_in.shader_attributes.Skin_Tint_Color_G
+    new_shape.shader_attributes.Skin_Tint_Color_B = s_in.shader_attributes.Skin_Tint_Color_B
+
+    new_shape.save_shader_attributes()
+
+    alpha = AlphaPropertyBuf()
+    if s_in.has_alpha_property:
+        new_shape.alpha_property.flags = s_in.alpha_property.flags
+        new_shape.alpha_property.threshold = s_in.alpha_property.threshold
+        new_shape.save_alpha_property()
+
 
 if __name__ == "__main__":
     nifly_path = r"C:\Users\User\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
@@ -1868,19 +2125,20 @@ if __name__ == "__main__":
         print("### TEST_SHADER: Can read shader flags")
         hnse = NifFile(r"tests\SKYRIMSE\malehead.nif")
         hsse = hnse.shapes[0]
-        assert hsse.model_space_normals, f"Expected MSN true, got {hsse.model_space_normals}"
+        assert hsse.shader_attributes.Shader_Type == 4
+        assert hsse.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsse.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
         hnle = NifFile(r"tests\SKYRIM\malehead.nif")
         hsle = hnle.shapes[0]
-        assert hsle.model_space_normals, f"Expected MSN true, got {hsle.model_space_normals}"
+        assert hsle.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
         hnfo = NifFile(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
         hsfo = hnfo.shapes[0]
-        assert not hsfo.model_space_normals, f"Expected MSN true, got {hsfo.model_space_normals}"
+        assert not hsfo.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsfo.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
         cnle = NifFile(r"tests\Skyrim\noblecrate01.nif")
         csle = cnle.shapes[0]
-        assert not csle.model_space_normals, f"Expected MSN false, got {csle.model_space_normals}"
+        assert not csle.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN false, got {csle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
         print("### TEST_SHADER: Can read texture paths")
         for i, t in enumerate([
@@ -1915,5 +2173,44 @@ if __name__ == "__main__":
                   "",
                   r"textures\actors\character\basehumanmale\basemalehead_s.dds"]):
             assert hsfo.textures[i] == t, f"Expected {t}, got '{hsfo.textures[i]}'"
-      
+
+        print("### Can read and write shader")
+        nif = NifFile(r"tests\FO4\AlarmClock.nif")
+        assert len(nif.shapes) == 1, f"Error: Expected 1 shape, found {len(nif.shapes)}"
+        shape = nif.shapes[0]
+        attrs = shape.shader_attributes
+
+        nifOut = NifFile()
+        nifOut.initialize('FO4', r"tests\out\SHADER_OUT.nif")
+        _test_export_shape(nif.shapes[0], nifOut)
+        nifOut.save()
+
+        nifTest = NifFile(f"tests\out\SHADER_OUT.nif")
+        assert len(nifTest.shapes) == 1, f"Error: Expected 1 shape, found {len(nif3.shapes)}"
+        shapeTest = nifTest.shapes[0]
+        attrsTest = shapeTest.shader_attributes
+        assert attrsTest == attrs, f"Error: Expected same shader attributes"
+
+    if TEST_ALL or TEST_ALPHA:
+        print("### TEST_SHADER: Can read and write alpha property")
+        nif = NifFile(r"tests/Skyrim/meshes/actors/character/Lykaios/Tails/maletaillykaios.nif")
+        tailfur = nif.shapes[1]
+
+        assert tailfur.shader_attributes.Shader_Type == BSLSPShaderType.Skin_Tint, f"Error: Skin tint incorrect, got {nif.shader_attributes.Shader_Type}"
+        assert tailfur.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsse.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert tailfur.alpha_property.flags == 4844, f"Error: Alpha flags incorrect, found {tailfur.alpha_property.flags}"
+        assert tailfur.alpha_property.threshold == 70, f"Error: Threshold incorrect, found {tailfur.alpha_property.threshold}"
+
+        nifOut = NifFile()
+        nifOut.initialize('SKYRIM', r"tests\out\TEST_ALPHA.nif")
+        _test_export_shape(tailfur, nifOut)
+        nifOut.save()
+
+        nifcheck = NifFile(r"tests\out\TEST_ALPHA.nif")
+        tailcheck = nifcheck.shapes[0]
+
+        assert tailcheck.alpha_property.flags == tailfur.alpha_property.flags, \
+               f"Error: alpha flags don't match, {tailcheck.alpha_property.flags} != {tailfur.alpha_property.flags}"
+        assert tailcheck.alpha_property.threshold == tailfur.alpha_property.threshold, \
+               f"Error: alpha flags don't match, {tailcheck.alpha_property.threshold} != {tailfur.alpha_property.threshold}"
         
