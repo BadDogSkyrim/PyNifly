@@ -1079,7 +1079,7 @@ class NiShape:
         parts_lookup = {}
         pbuf = (c_uint16 * len(parts))()
         for i, p in enumerate(parts):
-            pbuf[i] = p.id
+            pbuf[i] = p.id # ==is this right should be pairs==
             parts_lookup[p.id] = i
         
         tbuf = (c_uint16 * len(trilist))()
@@ -1316,7 +1316,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1339,7 +1339,7 @@ TEST_BLOCKNAME = False
 TEST_UNSKINNED = False
 TEST_UNI = False
 TEST_SHADER = False
-TEST_ALPHA = True
+TEST_ALPHA = False
 
 def _test_export_shape(s_in: NiShape, ftout: NifFile):
     """ Convenience routine to copy existing shape """

@@ -92,6 +92,45 @@ void TCheckAccuracy(const std::filesystem::path srcPath, const char* srcShapeNam
 		L"Vertex weights not the same");
 };
 
+void TCopyPartitions(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape) {
+	uint16_t partitionInfo[20];
+	int partitionCount = getPartitions(sourceNif, sourceShape, partitionInfo, 20);
+
+	int triCount = getPartitionTris(sourceNif, sourceShape, nullptr, 0);
+	uint16_t* partTris = new uint16_t[triCount];
+	getPartitionTris(sourceNif, sourceShape, partTris, triCount);
+	setPartitions(targetNif, targetShape, partitionInfo, partitionCount, partTris, triCount);
+};
+
+void TComparePartitions(void* nif1, void* shape1, void* nif2, void* shape2) {
+	uint16_t partitionInfo1[20], partitionInfo2[20];
+	int partitionCount1 = getPartitions(nif1, shape1, partitionInfo1, 20);
+	int triCount1 = getPartitionTris(nif1, shape1, nullptr, 0);
+	uint16_t* partTris1 = new uint16_t[triCount1];
+	getPartitionTris(nif1, shape1, partTris1, triCount1);
+	int partitionCount2 = getPartitions(nif2, shape2, partitionInfo2, 20);
+	int triCount2 = getPartitionTris(nif2, shape2, nullptr, 0);
+	uint16_t* partTris2 = new uint16_t[triCount2];
+	getPartitionTris(nif2, shape2, partTris2, triCount2);
+
+	Assert::IsTrue(partitionCount1 == partitionCount2, L"Error: Partition count wrong");
+	// Nifly sets PF_EDITOR_VISIBLE, which is generally fine; also sets PF_START_NET_BONESET
+	// in situations that seem correct, tho vanilla nifs don't set it. So don't check these
+	// flags.
+	for (int i = 0; i < partitionCount1 * 2; i += 2) {
+		Assert::IsTrue((partitionInfo1[i] & !PF_EDITOR_VISIBLE & !PF_START_NET_BONESET) ==
+					   (partitionInfo2[i] & !PF_EDITOR_VISIBLE & !PF_START_NET_BONESET), 
+			L"Error: Partition flags don't match");
+		Assert::IsTrue((partitionInfo1[i + 1] & !PF_EDITOR_VISIBLE & !PF_START_NET_BONESET) == 
+					   (partitionInfo2[i + 1] & !PF_EDITOR_VISIBLE & !PF_START_NET_BONESET), 
+			L"Error: Partition IDs don't match");
+	};
+	Assert::IsTrue(triCount1 == triCount2, L"Error: Different number of tris");
+	for (int i = 0; i < triCount1; i++) {
+		Assert::IsTrue(partTris1[i] == partTris2[i], L"Error: Tri index differs");
+	};
+};
+
 void* TCopyWeights(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape) {
 
 	std::vector<std::string> boneNames;
@@ -146,33 +185,118 @@ void* TCopyWeights(void* targetNif, void* targetShape, void* sourceNif, void* so
 
 void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* sourceShape, 
 		uint16_t options, void** targetSkin) {
-	float* verts = new float[5000 * 3];
-	float* norms = new float[5000 * 3];
-	float* uvs = new float[5000 * 2];
-	uint16_t* tris = new uint16_t[5000 * 3];
 
-	int vertLen = getVertsForShape(sourceNif, sourceShape, verts, 5000, 0);
-	Assert::IsTrue(vertLen <= 5000);
+	int vertLen = getVertsForShape(sourceNif, sourceShape, nullptr, 0, 0);
+	float* verts = new float[vertLen * 3];
+	getVertsForShape(sourceNif, sourceShape, verts, vertLen*3, 0);
 
-	int triLen = getTriangles(sourceNif, sourceShape, tris, 5000 * 3, 0);
-	Assert::IsTrue(triLen <= 5000);
+	int triLen = getTriangles(sourceNif, sourceShape, nullptr, 0, 0);
+	uint16_t* tris = new uint16_t[triLen * 3];
+	getTriangles(sourceNif, sourceShape, tris, triLen * 3, 0);
 
-	int uvLen = getUVs(sourceNif, sourceShape, uvs, vertLen * 2, 0);
-	Assert::IsTrue(uvLen <= 5000);
+	float* uvs = new float[vertLen * 2];
+	getUVs(sourceNif, sourceShape, uvs, vertLen * 2, 0);
 
-	int normLen = getNormalsForShape(sourceNif, sourceShape, norms, vertLen * 3, 0);
-	Assert::IsTrue(normLen <= 5000);
+	float* norms = new float[vertLen * 3];
+	getNormalsForShape(sourceNif, sourceShape, norms, vertLen * 3, 0);
 
 	void* targetShape = createNifShapeFromData(targetNif, shapeName,
 		verts, vertLen * 3,
 		tris, triLen * 3,
-		uvs, uvLen * 2,
-		norms, normLen * 3,
+		uvs, vertLen * 2,
+		norms, vertLen * 3,
 		&options);
 
 	*targetSkin = TCopyWeights(targetNif, targetShape, sourceNif, sourceShape);
 
+	TCopyPartitions(targetNif, targetShape, sourceNif, sourceShape);
+
 	return targetShape;
+};
+
+void TCompareShapes(void* nif1, void* shape1, void* nif2, void* shape2) {
+	char name1[100];
+	char name2[100];
+	getShapeName(shape1, name1, 99);
+	getShapeName(shape2, name2, 99);
+	Assert::IsTrue(strcmp(name1, name2) == 0, L"Error: Shape names differ");
+
+	int vertLen1 = getVertsForShape(nif1, shape1, nullptr, 0, 0);
+	float* verts1 = new float[vertLen1 * 3];
+	getVertsForShape(nif1, shape1, verts1, vertLen1, 0);
+
+	int vertLen2 = getVertsForShape(nif2, shape2, nullptr, 0, 0);
+	float* verts2 = new float[vertLen2 * 3];
+	getVertsForShape(nif2, shape2, verts2, vertLen2, 0);
+
+	Assert::IsTrue(vertLen1 == vertLen2, L"Error: Different number of verts");
+
+	int triLen1 = getTriangles(nif1, shape1, nullptr, 0, 0);
+	uint16_t* tris1 = new uint16_t[triLen1 * 3];
+	getTriangles(nif1, shape1, tris1, triLen1 * 3, 0);
+
+	int triLen2 = getTriangles(nif2, shape2, nullptr, 0, 0);
+	uint16_t* tris2 = new uint16_t[triLen2 * 3];
+	getTriangles(nif2, shape2, tris2, triLen2 * 3, 0);
+
+	Assert::IsTrue(triLen1 == triLen2, L"Error: Different number of tris");
+
+	int boneCount1 = getShapeBoneCount(nif1, shape1);
+	int boneCount2 = getShapeBoneCount(nif2, shape2);
+	Assert::IsTrue(boneCount1 == boneCount2, L"Error: Bone counts don't match");
+	
+	if (boneCount1 > 0) {
+		int boneBufLen1 = getShapeBoneNames(nif1, shape1, nullptr, 0);
+		char* boneBuf1 = new char[boneBufLen1];
+		getShapeBoneNames(nif1, shape1, boneBuf1, boneBufLen1);
+
+		int boneBufLen2 = getShapeBoneNames(nif1, shape1, nullptr, 0);
+		char* boneBuf2 = new char[boneBufLen2];
+		getShapeBoneNames(nif1, shape1, boneBuf2, boneBufLen2);
+
+		Assert::IsTrue(strcmp(boneBuf1, boneBuf2) == 0, L"Error: Bone names differ");
+		for (int i = 0; i < boneBufLen1; i++) if (boneBuf1[i] == '\n') boneBuf1[i] = '\0';
+		for (int i = 0; i < boneBufLen2; i++) if (boneBuf2[i] == '\n') boneBuf2[i] = '\0';
+
+		char gameName1[30];
+		getGameName(nif1, gameName1, 30);
+		char gameName2[30];
+		getGameName(nif2, gameName2, 30);
+		Assert::IsTrue(strcmp(gameName1, gameName2) == 0, L"Error: Nifs for different games");
+
+		MatTransform shapeXform1;
+		getTransform(shape1, &shapeXform1.translation.x);
+		MatTransform shapeXform2;
+		getTransform(shape2, &shapeXform2.translation.x);
+		Assert::IsTrue(shapeXform1.IsNearlyEqualTo(shapeXform2), L"Error shape transforms differ");
+
+		MatTransform shapeGTSkin1;
+		if (!getShapeGlobalToSkin(nif1, shape1, &shapeGTSkin1.translation.x))
+			getGlobalToSkin(nif1, shape1, &shapeGTSkin1.translation.x);
+		MatTransform shapeGTSkin2;
+		if (!getShapeGlobalToSkin(nif2, shape2, &shapeGTSkin2.translation.x))
+			getGlobalToSkin(nif2, shape2, &shapeGTSkin2.translation.x);
+
+		Assert::IsTrue(shapeGTSkin1.IsNearlyEqualTo(shapeGTSkin2), L"Error global to skin transforms differ");
+
+		MatTransform xform1;
+		MatTransform xform2;
+
+		for (int boneIndex = 0; boneIndex < boneCount1; boneIndex++) {
+			int bwcount1 = getShapeBoneWeightsCount(nif1, shape1, boneIndex);
+			int bwcount2 = getShapeBoneWeightsCount(nif2, shape2, boneIndex);
+			Assert::IsTrue(bwcount1 == bwcount2, L"Error: Bone weight counts don't match");
+			VertexWeightPair* vwp1 = new VertexWeightPair[bwcount1];
+			VertexWeightPair* vwp2 = new VertexWeightPair[bwcount2];
+			getShapeBoneWeights(nif1, shape1, boneIndex, vwp1, bwcount1);
+			getShapeBoneWeights(nif2, shape2, boneIndex, vwp2, bwcount2);
+			for (int j = 0; j < bwcount1; j++) {
+				Assert::IsTrue(vwp1[j].vertex == vwp2[j].vertex, L"Error vertex indices should match");
+				Assert::IsTrue(vwp1[j].weight == vwp2[j].weight, L"Error vertex weights should match");
+			};
+		};
+	};
+	TComparePartitions(nif1, shape1, nif2, shape2);
 };
 
 void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
@@ -271,6 +395,89 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 	if (getAlphaProperty(sourceNif, sourceShape, &alpha))
 		setAlphaProperty(targetNif, targetShape, &alpha);
 };
+
+void TCopyExtraData(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape) {
+	int namelen, valuelen;
+
+	for (int i = 0; getStringExtraDataLen(sourceNif, sourceShape, i, &namelen, &valuelen); i++) {
+		char* namebuf = new char[namelen + 1];
+		char* valuebuf = new char[valuelen + 1];
+		getStringExtraData(sourceNif, sourceShape, i, namebuf, namelen + 1, valuebuf, valuelen + 1);
+		setStringExtraData(targetNif, targetShape, namebuf, valuebuf);
+	};
+	for (int i = 0; getBGExtraDataLen(sourceNif, sourceShape, i, &namelen, &valuelen); i++) {
+		char* namebuf = new char[namelen + 1];
+		char* valuebuf = new char[valuelen + 1];
+		getBGExtraData(sourceNif, sourceShape, i, namebuf, namelen + 1, valuebuf, valuelen + 1);
+		setBGExtraData(targetNif, targetShape, namebuf, valuebuf);
+	}
+};
+
+void TCompareExtraData(void* nif1, void* shape1, void* nif2, void* shape2) {
+	int namelen, valuelen;
+
+	for (int i = 0; getStringExtraDataLen(nif1, shape1, i, &namelen, &valuelen); i++) {
+		char* namebuf1 = new char[namelen + 1];
+		char* valuebuf1 = new char[valuelen + 1];
+		getStringExtraData(nif1, shape1, i, namebuf1, namelen + 1, valuebuf1, valuelen + 1);
+
+		Assert::IsTrue(getStringExtraDataLen(nif2, shape2, i, &namelen, &valuelen));
+		char* namebuf2 = new char[namelen + 1];
+		char* valuebuf2 = new char[valuelen + 1];
+		getStringExtraData(nif2, shape2, i, namebuf2, namelen + 1, valuebuf2, valuelen + 1);
+
+		Assert::IsTrue(strcmp(namebuf1, namebuf2) == 0, L"Error: String names not the same");
+		Assert::IsTrue(strcmp(valuebuf1, valuebuf2) == 0, L"Error: String values not the same");
+	};
+	for (int i = 0; getBGExtraDataLen(nif1, shape1, i, &namelen, &valuelen); i++) {
+		char* namebuf1 = new char[namelen + 1];
+		char* valuebuf1 = new char[valuelen + 1];
+		getBGExtraData(nif1, shape1, i, namebuf1, namelen + 1, valuebuf1, valuelen + 1);
+
+		Assert::IsTrue(getBGExtraDataLen(nif2, shape2, i, &namelen, &valuelen));
+		char* namebuf2 = new char[namelen + 1];
+		char* valuebuf2 = new char[valuelen + 1];
+		getBGExtraData(nif2, shape2, i, namebuf2, namelen + 1, valuebuf2, valuelen + 1);
+
+		Assert::IsTrue(strcmp(namebuf1, namebuf2) == 0, L"Error: String names not the same");
+		Assert::IsTrue(strcmp(valuebuf1, valuebuf2) == 0, L"Error: String values not the same");
+	};
+};
+
+void TSanityCheckShape(void* nif, void* shape) {
+	char name[100];
+	getShapeName(shape, name, 99);
+	Assert::IsTrue(strlen(name) > 0, L"Error: Shape needs a name");
+
+	int vertLen = getVertsForShape(nif, shape, nullptr, 0, 0);
+	float* verts = new float[vertLen * 3];
+	getVertsForShape(nif, shape, verts, vertLen*3, 0);
+	Assert::IsTrue(vertLen > 10, L"Error: Shape should have verts");
+
+	// Check verts are within a reasonably-sized shape. Unrolled to make it easier to find problems.
+	float minX=0, minY=0, minZ=0, maxX=0, maxY=0, maxZ = 0;
+	for (int i = 0; i < vertLen * 3; i += 3) {
+		float x = verts[i];
+		float y = verts[i + 1];
+		float z = verts[i + 2];
+		if ((x < -200) || (y < -200) || (z < -200)
+			|| (x > 200) || (y > 200) || (z > 200))
+			Assert::Fail(L"Error: All verts within reasonable bounds");
+		minX = std::min(minX, verts[i]);
+		maxX = std::max(maxX, verts[i]);
+		minY = std::min(minY, verts[i + 1]);
+		maxY = std::max(maxY, verts[i + 1]);
+		minZ = std::min(minZ, verts[i + 2]);
+		maxZ = std::max(maxZ, verts[i + 2]);
+	};
+	Assert::IsTrue((minX >= -200) && (minY >= -200) && (minZ >= -200)
+		&& (maxX <= 200) && (maxY <= 200) && (maxZ <= 200),
+		L"Error: All verts within reasonable bounds");
+
+	int triLen = getTriangles(nif, shape, nullptr, 0, 0);
+	Assert::IsTrue(triLen > 10, L"Error: Shape should have tris");
+
+}
 
 namespace NiflyDLLTests
 {
@@ -453,7 +660,7 @@ namespace NiflyDLLTests
 		TEST_METHOD(LoadAndStoreFO4)
 		{
 			/* Can load a nif and read info out of it */
-			LogInit();
+			niflydll::LogInit();
 			NifFile nif = NifFile(testRoot / "FO4/BTMaleBody.nif");
 			std::vector<std::string> shapeNames = nif.GetShapeNames();
 			for (std::string s : shapeNames) std::cout << s;
@@ -536,7 +743,7 @@ namespace NiflyDLLTests
 
 			SaveSkinnedNif(anim, (testRoot / "Out/TestSkinnedFO01.nif").string());
 
-			Assert::AreEqual(0, LogGetLen(), L"Generated messages");
+			Assert::AreEqual(0, niflydll::LogGetLen(), L"Generated messages");
 
 			Vector3 targetVert(2.587891f, 10.031250f, -39.593750f);
 			std::string targetBone = "Spine1_skin";
@@ -1673,6 +1880,151 @@ namespace NiflyDLLTests
 			void* shapesCheck[10];
 			getShapes(nifCheck, shapesCheck, 10, 0);
 			TCompareShaders(nif, shape, nifCheck, shapesCheck[0]);
+		};
+		TEST_METHOD(extraDataBody) {
+			void* shapes[10];
+			int namelen, vallen;
+
+			void* nifbody = load((testRoot / "FO4/BTMaleBody.nif").u8string().c_str());
+			getShapes(nifbody, shapes, 10, 0);
+			void* body = shapes[0];
+
+			getStringExtraDataLen(nifbody, nullptr, 0, &namelen, &vallen);
+			char* bodytri = new char[namelen+1L];
+			char* bodypath = new char[vallen+1L];
+			getStringExtraData(nifbody, nullptr, 0, bodytri, namelen+1, bodypath, vallen+1);
+			Assert::IsTrue(strcmp(bodytri, "BODYTRI") == 0, L"Error: Extradata name wrong");
+			Assert::IsTrue(strcmp(bodypath, "actors\\character\\characterassets\\MaleBody.tri") == 0, L"Error: Extradata value wrong");
+		};
+		TEST_METHOD(extraDataSheath) {
+			void* shapes[10];
+			int namelen, vallen;
+
+			void* nifsheath = load((testRoot / "Skyrim/sheath_p1_1.nif").u8string().c_str());
+			getShapes(nifsheath, shapes, 10, 0);
+			void* sheath = shapes[0];
+
+			getStringExtraDataLen(nifsheath, nullptr, 0, &namelen, &vallen);
+			char* namepath1 = new char[namelen + 1L];
+			char* path1 = new char[vallen + 1L];
+			getStringExtraData(nifsheath, nullptr, 0, namepath1, namelen+1, path1, vallen+1);
+			Assert::IsTrue(strcmp(namepath1, "HDT Havok Path") == 0, L"Error: Extradata name wrong");
+			Assert::IsTrue(strcmp(path1, "SKSE\\Plugins\\hdtm_baddog.xml") == 0, L"Error: Extradata value wrong");
+
+			getStringExtraDataLen(nifsheath, nullptr, 1, &namelen, &vallen);
+			char* namepath2 = new char[namelen + 1L];
+			char* path2 = new char[vallen + 1L];
+			getStringExtraData(nifsheath, nullptr, 1, namepath2, namelen+1, path2, vallen+1);
+			Assert::IsTrue(strcmp(namepath2, "HDT Skinned Mesh Physics Object") == 0, L"Error: Extradata name wrong");
+			Assert::IsTrue(strcmp(path2, "SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml") == 0, L"Error: Extradata value wrong");
+
+			getBGExtraDataLen(nifsheath, nullptr, 0, &namelen, &vallen);
+			char* edname= new char[namelen + 1L];
+			char* edtxt = new char[vallen + 1L];
+			getBGExtraData(nifsheath, nullptr, 0, edname, namelen+1, edtxt, vallen+1);
+			Assert::IsTrue(strcmp(edname, "BGED") == 0, L"Error: Extradata name wrong");
+			Assert::IsTrue(strcmp(edtxt, "AuxBones\\SOS\\SOSMale.hkx") == 0, L"Error: Extradata value wrong");
+
+			// ### Can wrie the mesh back out
+
+			std::filesystem::path fileOut = testRoot / "Out/testWrapper_extraDataSheath.nif";
+
+			void* nifOut = createNif("SKYRIM");
+			uint16_t options = 0;
+			void* skinOut;
+			void* shapeOut = TCopyShape(nifOut, "Sheath", nifsheath, sheath, 0, &skinOut);
+			TCopyShader(nifOut, shapeOut, nifsheath, sheath);
+			TCopyExtraData(nifOut, nullptr, nifsheath, nullptr);
+			TCopyExtraData(nifOut, shapeOut, nifsheath, sheath);
+
+			saveSkinnedNif(skinOut, fileOut.u8string().c_str());
+
+			// What we wrote is correct
+
+			void* nifCheck = load(fileOut.u8string().c_str());
+			void* shapesCheck[10];
+			getShapes(nifCheck, shapesCheck, 10, 0);
+			TCompareExtraData(nifsheath, nullptr, nifCheck, nullptr);
+			TCompareExtraData(nifsheath, sheath, nifCheck, shapesCheck[0]);
+		};
+		TEST_METHOD(extraDataFeet) {
+			void* shapes[10];
+			int namelen, vallen;
+
+			void* niffeet = load((testRoot / "SkyrimSE/caninemalefeet_1.nif").u8string().c_str());
+			getShapes(niffeet, shapes, 10, 0);
+			void* feet = shapes[0];
+
+			getStringExtraDataLen(niffeet, feet, 0, &namelen, &vallen);
+			char* dataname = new char[namelen + 1L];
+			char* dataval = new char[vallen + 1L];
+			getStringExtraData(niffeet, feet, 0, dataname, namelen + 1, dataval, vallen + 1);
+			Assert::IsTrue(strcmp(dataname, "SDTA") == 0, L"Error: Extradata name wrong");
+			Assert::IsTrue(strncmp(dataval, "[{\"name\":", 9) == 0, L"Error: Extradata value wrong");
+
+			// ### Can wrie the mesh back out
+
+			std::filesystem::path fileOut = testRoot / "Out/testWrapper_extraDataFeet.nif";
+
+			void* nifOut = createNif("SKYRIMSE");
+			uint16_t options = 0;
+			void* skinOut;
+			void* shapeOut = TCopyShape(nifOut, "feet", niffeet, feet, 0, &skinOut);
+			TCopyShader(nifOut, shapeOut, niffeet, feet);
+			//TCopyExtraData(nifOut, nullptr, niffeet, nullptr);
+			//TCopyExtraData(nifOut, shapeOut, niffeet, feet);
+
+			saveSkinnedNif(skinOut, fileOut.u8string().c_str());
+
+			// What we wrote is correct
+
+			void* nifCheck = load(fileOut.u8string().c_str());
+			void* shapesCheck[10];
+			getShapes(nifCheck, shapesCheck, 10, 0);
+			TCompareExtraData(niffeet, nullptr, nifCheck, nullptr);
+			TCompareExtraData(niffeet, feet, nifCheck, shapesCheck[0]);
+		};
+		TEST_METHOD(impExpSE) {
+			void* shapes[10];
+			int namelen, vallen;
+
+			void* nifhead = load((testRoot / "SkyrimSE/malehead.nif").u8string().c_str());
+			Assert::IsTrue(getShapes(nifhead, shapes, 10, 0) == 1, L"ERROR: Wrong number of shapes");
+			void* head = shapes[0];
+			TSanityCheckShape(nifhead, head);
+
+			// ### Can wrie the mesh back out
+
+			clearMessageLog();
+			std::filesystem::path fileOut = testRoot / "Out/testWrapper_impExpSE.nif";
+
+			void* nifOut = createNif("SKYRIMSE");
+			uint16_t options = 0;
+			void* skinOut;
+			void* shapeOut = TCopyShape(nifOut, "MaleHeadIMF", nifhead, head, 1, &skinOut);
+			TCopyShader(nifOut, shapeOut, nifhead, head);
+			//TCopyExtraData(nifOut, nullptr, nifhead, nullptr);
+			//TCopyExtraData(nifOut, shapeOut, nifhead, head);
+
+			saveSkinnedNif(skinOut, fileOut.u8string().c_str());
+			const int MSGBUFLEN = 2000;
+			char msgbuf[MSGBUFLEN]; 
+			int loglen = getMessageLog(msgbuf, MSGBUFLEN);
+			Assert::IsTrue(loglen == 0, L"Error: Have log messages");
+
+			// What we wrote is correct
+
+			clearMessageLog();
+			void* nifCheck = load(fileOut.u8string().c_str());
+			void* shapesCheck[10];
+			getShapes(nifCheck, shapesCheck, 10, 0);
+			TSanityCheckShape(nifCheck, shapesCheck[0]);
+			TCompareShapes(nifhead, head, nifCheck, shapesCheck[0]);
+
+			//TCompareExtraData(nifhead, nullptr, nifCheck, nullptr);
+			//TCompareExtraData(nifhead, head, nifCheck, shapesCheck[0]);
+			loglen = getMessageLog(msgbuf, MSGBUFLEN);
+			Assert::IsTrue(loglen == 0, L"Error: Have log messages");
 		};
 	};
 }

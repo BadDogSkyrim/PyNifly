@@ -6,17 +6,19 @@
 #pragma once
 
 /* Anim.cpp needs these */
-#define wxLogMessage LogWritef
-#define wxLogWarning LogWritef
-#define wxLogError LogWritef
+#define wxLogMessage niflydll::LogWritef
+#define wxLogWarning niflydll::LogWritef
+#define wxLogError niflydll::LogWritef
 
+namespace niflydll {
 
-void LogInit();
+	void LogInit();
 
-void LogWrite(std::string msg);
-void LogWritef(std::string msg, ...);
+	void LogWrite(std::string msg);
+	void LogWritef(std::string msg, ...);
 
-int LogGetLen();
+	int LogGetLen();
 
-void LogGet(char* buf, int len);
+	void LogGet(char* buf, int len);
 
+}

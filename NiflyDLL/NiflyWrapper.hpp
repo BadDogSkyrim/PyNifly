@@ -222,3 +222,13 @@ extern "C" NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int
 extern "C" NIFLY_API void setShaderAttrs(void* nifref, void* shaperef, BSLSPAttrs* buf);
 extern "C" NIFLY_API int getAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr);
 extern "C" NIFLY_API void setAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr);
+extern "C" NIFLY_API int getStringExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen);
+extern "C" NIFLY_API void setStringExtraData(void* nifref, void* shaperef, char* name, char* buf);
+extern "C" NIFLY_API int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen);
+extern "C" NIFLY_API void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf);
+extern "C" NIFLY_API int getStringExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen);
+extern "C" NIFLY_API int getBGExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen);
+
+/* ********************* ERROR REPORTING ********************* */
+extern "C" NIFLY_API void clearMessageLog();
+extern "C" NIFLY_API int getMessageLog(char* buf, int buflen);
