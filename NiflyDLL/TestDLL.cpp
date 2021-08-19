@@ -183,7 +183,24 @@ void* TCopyWeights(void* targetNif, void* targetShape, void* sourceNif, void* so
 	return anim;
 };
 
-void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* sourceShape, 
+void TCopyExtraData(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape) {
+	int namelen, valuelen;
+
+	for (int i = 0; getStringExtraDataLen(sourceNif, sourceShape, i, &namelen, &valuelen); i++) {
+		char* namebuf = new char[namelen + 1];
+		char* valuebuf = new char[valuelen + 1];
+		getStringExtraData(sourceNif, sourceShape, i, namebuf, namelen + 1, valuebuf, valuelen + 1);
+		setStringExtraData(targetNif, targetShape, namebuf, valuebuf);
+	};
+	for (int i = 0; getBGExtraDataLen(sourceNif, sourceShape, i, &namelen, &valuelen); i++) {
+		char* namebuf = new char[namelen + 1];
+		char* valuebuf = new char[valuelen + 1];
+		getBGExtraData(sourceNif, sourceShape, i, namebuf, namelen + 1, valuebuf, valuelen + 1);
+		setBGExtraData(targetNif, targetShape, namebuf, valuebuf);
+	}
+};
+
+void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* sourceShape,
 		uint16_t options, void** targetSkin) {
 
 	int vertLen = getVertsForShape(sourceNif, sourceShape, nullptr, 0, 0);
@@ -197,19 +214,27 @@ void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* 
 	float* uvs = new float[vertLen * 2];
 	getUVs(sourceNif, sourceShape, uvs, vertLen * 2, 0);
 
-	float* norms = new float[vertLen * 3];
-	getNormalsForShape(sourceNif, sourceShape, norms, vertLen * 3, 0);
+	float* norms = nullptr;
+	uint32_t f1 = getShaderFlags1(sourceNif, sourceShape);
+	if (!(f1 & uint32_t(ShaderProperty1::MODEL_SPACE_NORMALS))) {
+		norms = new float[vertLen * 3];
+		getNormalsForShape(sourceNif, sourceShape, norms, vertLen * 3, 0);
+	};
 
 	void* targetShape = createNifShapeFromData(targetNif, shapeName,
-		verts, vertLen * 3,
-		tris, triLen * 3,
-		uvs, vertLen * 2,
-		norms, vertLen * 3,
-		&options);
+		verts, uvs, norms, vertLen, tris, triLen, &options);
+
+	uint32_t f2 = getShaderFlags2(sourceNif, sourceShape);
+	if (f2 & uint32_t(ShaderProperty2::VERTEX_COLORS)) {
+		float* colors = new float[vertLen * 4];
+		getColorsForShape(sourceNif, sourceShape, colors, vertLen*4);
+		setColorsForShape(targetNif, targetShape, colors, vertLen);
+	}
 
 	*targetSkin = TCopyWeights(targetNif, targetShape, sourceNif, sourceShape);
 
 	TCopyPartitions(targetNif, targetShape, sourceNif, sourceShape);
+	TCopyExtraData(targetNif, targetShape, sourceNif, sourceShape);
 
 	return targetShape;
 };
@@ -292,7 +317,7 @@ void TCompareShapes(void* nif1, void* shape1, void* nif2, void* shape2) {
 			getShapeBoneWeights(nif2, shape2, boneIndex, vwp2, bwcount2);
 			for (int j = 0; j < bwcount1; j++) {
 				Assert::IsTrue(vwp1[j].vertex == vwp2[j].vertex, L"Error vertex indices should match");
-				Assert::IsTrue(vwp1[j].weight == vwp2[j].weight, L"Error vertex weights should match");
+				Assert::IsTrue(round(vwp1[j].weight * 100) == round(vwp2[j].weight * 100), L"Error vertex weights should match");
 			};
 		};
 	};
@@ -394,23 +419,6 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 	AlphaPropertyBuf alpha;
 	if (getAlphaProperty(sourceNif, sourceShape, &alpha))
 		setAlphaProperty(targetNif, targetShape, &alpha);
-};
-
-void TCopyExtraData(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape) {
-	int namelen, valuelen;
-
-	for (int i = 0; getStringExtraDataLen(sourceNif, sourceShape, i, &namelen, &valuelen); i++) {
-		char* namebuf = new char[namelen + 1];
-		char* valuebuf = new char[valuelen + 1];
-		getStringExtraData(sourceNif, sourceShape, i, namebuf, namelen + 1, valuebuf, valuelen + 1);
-		setStringExtraData(targetNif, targetShape, namebuf, valuebuf);
-	};
-	for (int i = 0; getBGExtraDataLen(sourceNif, sourceShape, i, &namelen, &valuelen); i++) {
-		char* namebuf = new char[namelen + 1];
-		char* valuebuf = new char[valuelen + 1];
-		getBGExtraData(sourceNif, sourceShape, i, namebuf, namelen + 1, valuebuf, valuelen + 1);
-		setBGExtraData(targetNif, targetShape, namebuf, valuebuf);
-	}
 };
 
 void TCompareExtraData(void* nif1, void* shape1, void* nif2, void* shape2) {
@@ -1295,10 +1303,8 @@ namespace NiflyDLLTests
 			void* newSkin = createSkinForNif(newNif, "FO4");
 
 			void* newHelm = createNifShapeFromData(newNif, "Helmet",
-				verts, vlen * 3,
-				rawtris, tlen * 3,
-				uv, ulen * 2,
-				norms, nlen * 3,
+				verts, uv, norms, vlen,
+				rawtris, tlen,
 				nullptr);
 			skinShape(newNif, newHelm);
 
@@ -1424,10 +1430,8 @@ namespace NiflyDLLTests
 
 			void* nif2 = createNif("FO4");
 			void* shape2 = createNifShapeFromData(nif2, "Hood",
-				verts, vertLen * 3,
-				tris, triLen * 3,
-				uvs, uvLen * 2,
-				norms, normLen * 3,
+				verts, uvs, norms, vertLen,
+				tris, triLen,
 				nullptr);
 			setColorsForShape(nif2, shape2, colors, colorLen);
 
@@ -1479,10 +1483,8 @@ namespace NiflyDLLTests
 
 			void* nif2 = createNif("FONV");
 			void* shape2 = createNifShapeFromData(nif2, "Scope",
-				verts, vertLen * 3,
-				tris, triLen * 3,
-				uvs, uvLen * 2,
-				norms, normLen * 3,
+				verts, uvs, norms, vertLen,
+				tris, triLen,
 				nullptr);
 
 			saveNif(nif2, testfileOut.u8string().c_str());
@@ -1537,10 +1539,8 @@ namespace NiflyDLLTests
 
 			uint16_t options = 1;
 			void* shape2 = createNifShapeFromData(nif2, "KSSMP_Anchor",
-				verts2, vertLen * 3,
-				tris2, triLen * 3,
-				uvs2, uvLen * 2,
-				norms2, normLen * 3,
+				verts2, uvs2, norms2, vertLen,
+				tris2, triLen,
 				&options);
 
 			skinShape(nif2, shape2);
@@ -1626,10 +1626,8 @@ namespace NiflyDLLTests
 			void* nif2 = createNif("FO4");
 			uint16_t options = 2;
 			void* shape2 = createNifShapeFromData(nif2, "AlarmClock",
-				verts, vertLen * 3,
-				tris, triLen * 3,
-				uvs, uvLen * 2,
-				norms, normLen * 3,
+				verts, uvs, norms, vertLen,
+				tris, triLen,
 				&options);
 
 			saveNif(nif2, testfileOut.u8string().c_str());
@@ -1750,7 +1748,7 @@ namespace NiflyDLLTests
 			Assert::IsTrue(txtstr[0]->compare("textures\\furniture\\noble\\NobleFurnChest01.dds") == 0, L"Found expected texture");
 			Assert::IsTrue(txtstr[1]->compare("textures\\furniture\\noble\\NobleFurnChest01_n.dds") == 0, L"Found expected texture");
 			Assert::IsTrue(txtstr[2]->compare("") == 0, L"Found expected texture");
-			Assert::IsFalse(flagsOne2 & static_cast<uint32_t>(ShaderProperty::MODEL_SPACE_NORMALS),
+			Assert::IsFalse(flagsOne2 & static_cast<uint32_t>(ShaderProperty1::MODEL_SPACE_NORMALS),
 				L"Found MSN flag not set");
 
 			// Can write chest back out
@@ -1969,10 +1967,10 @@ namespace NiflyDLLTests
 			void* nifOut = createNif("SKYRIMSE");
 			uint16_t options = 0;
 			void* skinOut;
-			void* shapeOut = TCopyShape(nifOut, "feet", niffeet, feet, 0, &skinOut);
+			void* shapeOut = TCopyShape(nifOut, "FootLowRes", niffeet, feet, 0, &skinOut);
 			TCopyShader(nifOut, shapeOut, niffeet, feet);
-			//TCopyExtraData(nifOut, nullptr, niffeet, nullptr);
-			//TCopyExtraData(nifOut, shapeOut, niffeet, feet);
+
+			TCopyExtraData(nifOut, nullptr, niffeet, nullptr);
 
 			saveSkinnedNif(skinOut, fileOut.u8string().c_str());
 
@@ -1981,12 +1979,12 @@ namespace NiflyDLLTests
 			void* nifCheck = load(fileOut.u8string().c_str());
 			void* shapesCheck[10];
 			getShapes(nifCheck, shapesCheck, 10, 0);
+			TCompareShapes(niffeet, feet, nifCheck, shapesCheck[0]);
 			TCompareExtraData(niffeet, nullptr, nifCheck, nullptr);
 			TCompareExtraData(niffeet, feet, nifCheck, shapesCheck[0]);
 		};
 		TEST_METHOD(impExpSE) {
 			void* shapes[10];
-			int namelen, vallen;
 
 			void* nifhead = load((testRoot / "SkyrimSE/malehead.nif").u8string().c_str());
 			Assert::IsTrue(getShapes(nifhead, shapes, 10, 0) == 1, L"ERROR: Wrong number of shapes");

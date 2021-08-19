@@ -346,22 +346,22 @@ NIFLY_API int getUVs(void* theNif, void* theShape, float* buf, int len, int star
 
 NIFLY_API void* createNifShapeFromData(void* parentNif,
     const char* shapeName,
-    const float* verts, int verts_len,
-    const uint16_t* tris, int tris_len,
-    const float* uv_points, int uv_len,
-    const float* norms, int norms_len,
+    const float* verts,
+    const float* uv_points,
+    const float* norms,
+    int vertCount,
+    const uint16_t* tris, int triCount,
     uint16_t* optionsPtr = nullptr)
     /* Create nif shape from the given data
     * verts = (float x, float y float z), ... 
-    * verts_len = # of floats in verts (so 3 * the number of vertices)
-    * tris = (uint16, uiint16, uint16) indices into the vertex list
-    * tris_len = # of uint16s in the tris list (3 * the number of tris)
     * uv_points = (float u, float v), matching 1-1 with the verts list
-    * uv_len = # of floats in the uv_points list
-    * norms = (float, float, float) matching 1-1 with the verts list
-    * norms_len = number of floats in the norms list
+    * norms = (float, float, float) matching 1-1 with the verts list. May be null.
+    * vertCount = number of verts in verts list (and uv pairs and normals in those lists)
+    * tris = (uint16, uiint16, uint16) indices into the vertex list
+    * triCount = # of tris in the tris list (buffer is 3x as long)
     * optionsPtr == 1: Create SSE head part (so use BSDynamicTriShape)
     *            == 2: Create FO4 BSTriShape (default is BSSubindexTriShape)
+    *            may be omitted
     */
 {
     NifFile* nif = static_cast<NifFile*>(parentNif);
@@ -370,32 +370,32 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     std::vector<Vector2> uv;
     std::vector<Vector3> n;
 
-    for (int i = 0; i < verts_len;) {
+    for (int i = 0; i < vertCount; i++) {
         Vector3 thisv;
-        thisv[0] = verts[i++];
-        thisv[1] = verts[i++];
-        thisv[2] = verts[i++];
+        thisv[0] = verts[i*3];
+        thisv[1] = verts[i*3 + 1];
+        thisv[2] = verts[i*3 + 2];
         v.push_back(thisv);
-    }
-    for (int i = 0; i < tris_len;) {
-        Triangle thist;
-        thist[0] = tris[i++];
-        thist[1] = tris[i++];
-        thist[2] = tris[i++];
-        t.push_back(thist);
-    }
-    for (int i = 0; i < uv_len;) {
+
         Vector2 thisuv;
-        thisuv.u = uv_points[i++];
-        thisuv.v = uv_points[i++];
+        thisuv.u = uv_points[i*2];
+        thisuv.v = uv_points[i*2+1];
         uv.push_back(thisuv);
+
+        if (norms) {
+            Vector3 thisnorm;
+            thisnorm[0] = norms[i*3];
+            thisnorm[1] = norms[i*3+1];
+            thisnorm[2] = norms[i*3+2];
+            n.push_back(thisnorm);
+        };
     }
-    for (int i = 0; i < norms_len;) {
-        Vector3 thisnorm;
-        thisnorm[0] = norms[i++];
-        thisnorm[1] = norms[i++];
-        thisnorm[2] = norms[i++];
-        n.push_back(thisnorm);
+    for (int i = 0; i < triCount; i++) {
+        Triangle thist;
+        thist[0] = tris[i*3];
+        thist[1] = tris[i*3+1];
+        thist[2] = tris[i*3+2];
+        t.push_back(thist);
     }
 
     if (optionsPtr)
