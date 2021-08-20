@@ -220,7 +220,7 @@ def load_nifly(nifly_path):
     nifly.addNode.restype = c_int
     nifly.createNif.argtypes = [c_char_p]
     nifly.createNif.restype = c_void_p
-    nifly.createNifShapeFromData.argtypes = [c_void_p, c_char_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_void_p]
+    nifly.createNifShapeFromData.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p]
     nifly.createNifShapeFromData.restype = c_void_p
     nifly.createSkinForNif.argtypes = [c_void_p, c_char_p]
     nifly.createSkinForNif.restype = c_void_p
@@ -292,6 +292,14 @@ def load_nifly(nifly_path):
     nifly.getShapes.restype = c_int
     nifly.getShapeSkinToBone.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
     nifly.getShapeSkinToBone.restype = c_bool
+    nifly.getBGExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int]
+    nifly.getBGExtraData.restype = c_int
+    nifly.getBGExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
+    nifly.getBGExtraDataLen.restype = c_int
+    nifly.getStringExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int]
+    nifly.getStringExtraData.restype = c_int
+    nifly.getStringExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
+    nifly.getStringExtraDataLen.restype = c_int
     nifly.getSubsegments.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
     nifly.getSubsegments.restype = c_int
     nifly.getTransform.argtypes = [c_void_p, c_void_p]
@@ -332,6 +340,10 @@ def load_nifly(nifly_path):
     nifly.setShapeVertWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
     nifly.setShapeWeights.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
     nifly.setShapeWeights.restype = None
+    nifly.setStringExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p]
+    nifly.setStringExtraData.restype = None
+    nifly.setBGExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p]
+    nifly.setBGExtraData.restype = None
     nifly.setTransform.argtypes = [c_void_p, c_void_p]
     nifly.setTransform.restype = None
     nifly.skinShape.argtypes = [c_void_p, c_void_p]
@@ -618,6 +630,50 @@ class FO4Subsegment(FO4Segment):
             else:
                 return ("", -1, mat)
 
+class ExtraDataType(Enum):
+    BehaviorGraph = 1
+    String = 2
+
+def _read_extra_data(nifHandle, shapeHandle, edtype):
+    ed = []
+    namelen = c_int()
+    valuelen = c_int()
+
+    if edtype == ExtraDataType.BehaviorGraph:
+        len_func = NifFile.nifly.getBGExtraDataLen
+        get_func = NifFile.nifly.getBGExtraData
+    else:
+        len_func = NifFile.nifly.getStringExtraDataLen
+        get_func = NifFile.nifly.getStringExtraData
+
+    for i in range(0, 1000):
+        exists = len_func(nifHandle, shapeHandle, 
+                          i,
+                          byref(namelen),
+                          byref(valuelen))
+        if not exists:
+            break
+
+        name = (c_char * (namelen.value+1))()
+        val = (c_char * (valuelen.value+1))()
+               
+        get_func(nifHandle, shapeHandle,
+                 i,
+                 name, namelen.value+1,
+                 val, valuelen.value+1)
+                
+        ed.append((name.value.decode('utf-8'), val.value.decode('utf-8')))
+    
+    return ed
+
+def _write_extra_data(nifhandle, shapehandle, edtype, val):
+    if edtype == ExtraDataType.BehaviorGraph:
+        set_func = NifFile.nifly.setBGExtraData
+    else:
+        set_func = NifFile.nifly.setStringExtraData
+
+    for s in val:
+        set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1].encode('utf-8'))
 
 # --- NiNode --- #
 class NiNode:
@@ -685,6 +741,8 @@ class NiShape:
         self._shader_attrs = None
         self._shader_name = None
         self._alpha = None
+        self._bgdata = None
+        self._strdata = None
 
         if not theShapeRef is None:
             buf = create_string_buffer(256)
@@ -1003,7 +1061,37 @@ class NiShape:
         else:
             return None
 
-    # #############  Creating shapes
+    # #############  Extra Data #############
+
+    @property
+    def behavior_graph_data(self):
+        if self._bgdata is None:
+            self._bgdata = _read_extra_data(self.parent._handle, 
+                                            self._handle,
+                                            ExtraDataType.BehaviorGraph)
+        return self._bgdata
+
+    @behavior_graph_data.setter
+    def behavior_graph_data(self, val):
+        self._bgdata = val
+        _write_extra_data(self.parent._handle, self._handle, 
+                         ExtraDataType.BehaviorGraph, self._bgdata)
+
+    @property
+    def string_data(self):
+        if self._strdata is None:
+            self._strdata = _read_extra_data(self.parent._handle, 
+                                             self._handle,
+                                             ExtraDataType.String)
+        return self._strdata
+
+    @string_data.setter
+    def string_data(self, val):
+        self._strdata = val
+        _write_extra_data(self.parent._handle, self._handle, 
+                         ExtraDataType.String, self._strdata)
+
+    # #############  Creating shapes #############
 
     def skin(self):
         NifFile.nifly.skinShape(self.parent._handle, self._handle)
@@ -1077,16 +1165,18 @@ class NiShape:
         NifFile.log.debug(f"....Exporting partitions {[(type(p), p.name) for p in parts]}, ssf '{self._segment_file}'")
 
         parts_lookup = {}
-        pbuf = (c_uint16 * len(parts))()
-        for i, p in enumerate(parts):
-            pbuf[i] = p.id # ==is this right should be pairs==
-            parts_lookup[p.id] = i
         
         tbuf = (c_uint16 * len(trilist))()
 
         if type(parts[0]) == SkyPartition:
             # the trilist passed in refers to partition IDs, but nifly wants indices into
             # the given partition list.
+            pbuf = (c_uint16 * 2 * len(parts))()
+            for i, p in enumerate(parts):
+                pbuf[i][0] = 0
+                pbuf[i][1] = p.id 
+                parts_lookup[p.id] = i
+
             for i, t in enumerate(trilist):
                 tbuf[i] = parts_lookup[trilist[i]]
             NifFile.nifly.setPartitions(self.parent._handle, self._handle,
@@ -1094,6 +1184,11 @@ class NiShape:
                                         tbuf, len(trilist))
         else:
             # For segments, the trilist has to refer to IDs becuase of referring to subsegments.
+            pbuf = (c_uint16 * len(parts))()
+            for i, p in enumerate(parts):
+                pbuf[i] = p.id 
+                parts_lookup[p.id] = i
+
             for i, t in enumerate(trilist):
                 tbuf[i] = trilist[i]
             
@@ -1149,6 +1244,8 @@ class NifFile:
         self._skin_handle = None
         if self.game is not None:
             self.dict = gameSkeletons[self.game]
+        self._bgdata = None
+        self._strdata = None
 
     def __del__(self):
         if self._handle:
@@ -1201,10 +1298,8 @@ class NifFile:
         shape_handle = NifFile.nifly.createNifShapeFromData(
             self._handle, 
             shape_name.encode('utf-8'), 
-            vertbuf, len(verts)*3, 
-            tribuf, len(tris)*3, 
-            uvbuf, len(uvs)*2, 
-            normbuf, norm_len*3,
+            vertbuf, uvbuf, normbuf, len(verts),
+            tribuf, len(tris), 
             optbuf)
         if self._shapes is None:
             self._shapes = []
@@ -1298,6 +1393,33 @@ class NifFile:
         mat.from_array(buf)
         return mat
 
+    @property
+    def behavior_graph_data(self):
+        if self._bgdata is None:
+            self._bgdata = _read_extra_data(self._handle, None,
+                                           ExtraDataType.BehaviorGraph)
+        return self._bgdata
+
+    @behavior_graph_data.setter
+    def behavior_graph_data(self, val):
+        self._bgdata = val
+        _write_extra_data(self._handle, None, 
+                         ExtraDataType.BehaviorGraph, self._bgdata)
+
+    @property
+    def string_data(self):
+        if self._strdata is None:
+            self._strdata = _read_extra_data(self._handle, None,
+                                           ExtraDataType.String)
+        return self._strdata
+
+    @string_data.setter
+    def string_data(self, val):
+        self._strdata = val
+        _write_extra_data(self._handle, None, 
+                         ExtraDataType.String, self._strdata)
+
+
     def createSkin(self):
         self.game
         if self._skin_handle is None:
@@ -1340,69 +1462,74 @@ TEST_UNSKINNED = False
 TEST_UNI = False
 TEST_SHADER = False
 TEST_ALPHA = False
+TEST_SHEATH = True
+TEST_FEET = True
 
-def _test_export_shape(s_in: NiShape, ftout: NifFile):
+def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
     """ Convenience routine to copy existing shape """
-    skinned = (len(s_in.bone_weights) > 0)
+    skinned = (len(old_shape.bone_weights) > 0)
 
-    new_shape = ftout.createShapeFromData(s_in.name + ".Out", 
-                                            s_in.verts,
-                                            s_in.tris,
-                                            s_in.uvs,
-                                            s_in.normals,
+    new_shape = new_nif.createShapeFromData(old_shape.name + ".Out", 
+                                            old_shape.verts,
+                                            old_shape.tris,
+                                            old_shape.uvs,
+                                            old_shape.normals,
                                             is_skinned=skinned)
-    new_shape.transform = s_in.transform.copy()
+    new_shape.transform = old_shape.transform.copy()
     if skinned: new_shape.skin()
-    oldxform = s_in.global_to_skin_data
+    oldxform = old_shape.global_to_skin_data
     if oldxform is None:
-        oldxform = s_in.global_to_skin
+        oldxform = old_shape.global_to_skin
     new_shape_gts = oldxform # no inversion?
     new_shape.set_global_to_skin(new_shape_gts)
-    #if s_in.parent.game in ("SKYRIM", "SKYRIMSE"):
+    #if old_shape.parent.game in ("SKYRIM", "SKYRIMSE"):
     #    new_shape.set_global_to_skindata(new_shape_gts) # only for skyrim
     #else:
     #    new_shape.set_global_to_skin(new_shape_gts)
 
-    for bone_name, weights in s_in.bone_weights.items():
-        new_shape.add_bone(bone_name, s_in.parent.nodes[bone_name].xform_to_global)
+    for bone_name, weights in old_shape.bone_weights.items():
+        new_shape.add_bone(bone_name, old_shape.parent.nodes[bone_name].xform_to_global)
         new_shape.setShapeWeights(bone_name, weights)
 
-    new_shape.shader_name = s_in.shader_name
+    new_shape.shader_name = old_shape.shader_name
 
-    new_shape.shader_attributes.Shader_Type = s_in.shader_attributes.Shader_Type
-    new_shape.shader_attributes.Shader_Flags_1 = s_in.shader_attributes.Shader_Flags_1
-    new_shape.shader_attributes.Shader_Flags_2 = s_in.shader_attributes.Shader_Flags_2
-    new_shape.shader_attributes.UV_Offset_U = s_in.shader_attributes.UV_Offset_U
-    new_shape.shader_attributes.UV_Offset_V = s_in.shader_attributes.UV_Offset_V
-    new_shape.shader_attributes.UV_Scale_U = s_in.shader_attributes.UV_Scale_U
-    new_shape.shader_attributes.UV_Scale_V = s_in.shader_attributes.UV_Scale_V
-    new_shape.shader_attributes.Emissive_Color_R = s_in.shader_attributes.Emissive_Color_R
-    new_shape.shader_attributes.Emissive_Color_G = s_in.shader_attributes.Emissive_Color_G
-    new_shape.shader_attributes.Emissive_Color_B = s_in.shader_attributes.Emissive_Color_B
-    new_shape.shader_attributes.Emissive_Color_A = s_in.shader_attributes.Emissive_Color_A
-    new_shape.shader_attributes.Emissive_Mult = s_in.shader_attributes.Emissive_Mult
-    new_shape.shader_attributes.Tex_Clamp_Mode = s_in.shader_attributes.Tex_Clamp_Mode
-    new_shape.shader_attributes.Alpha = s_in.shader_attributes.Alpha
-    new_shape.shader_attributes.Refraction_Str = s_in.shader_attributes.Refraction_Str
-    new_shape.shader_attributes.Glossiness = s_in.shader_attributes.Glossiness
-    new_shape.shader_attributes.Spec_Color_R = s_in.shader_attributes.Spec_Color_R
-    new_shape.shader_attributes.Spec_Color_G = s_in.shader_attributes.Spec_Color_G
-    new_shape.shader_attributes.Spec_Color_B = s_in.shader_attributes.Spec_Color_B
-    new_shape.shader_attributes.Spec_Str = s_in.shader_attributes.Spec_Str
-    new_shape.shader_attributes.Soft_Lighting = s_in.shader_attributes.Soft_Lighting
-    new_shape.shader_attributes.Rim_Light_Power = s_in.shader_attributes.Rim_Light_Power
-    new_shape.shader_attributes.Skin_Tint_Alpha = s_in.shader_attributes.Skin_Tint_Alpha
-    new_shape.shader_attributes.Skin_Tint_Color_R = s_in.shader_attributes.Skin_Tint_Color_R
-    new_shape.shader_attributes.Skin_Tint_Color_G = s_in.shader_attributes.Skin_Tint_Color_G
-    new_shape.shader_attributes.Skin_Tint_Color_B = s_in.shader_attributes.Skin_Tint_Color_B
+    new_shape.shader_attributes.Shader_Type = old_shape.shader_attributes.Shader_Type
+    new_shape.shader_attributes.Shader_Flags_1 = old_shape.shader_attributes.Shader_Flags_1
+    new_shape.shader_attributes.Shader_Flags_2 = old_shape.shader_attributes.Shader_Flags_2
+    new_shape.shader_attributes.UV_Offset_U = old_shape.shader_attributes.UV_Offset_U
+    new_shape.shader_attributes.UV_Offset_V = old_shape.shader_attributes.UV_Offset_V
+    new_shape.shader_attributes.UV_Scale_U = old_shape.shader_attributes.UV_Scale_U
+    new_shape.shader_attributes.UV_Scale_V = old_shape.shader_attributes.UV_Scale_V
+    new_shape.shader_attributes.Emissive_Color_R = old_shape.shader_attributes.Emissive_Color_R
+    new_shape.shader_attributes.Emissive_Color_G = old_shape.shader_attributes.Emissive_Color_G
+    new_shape.shader_attributes.Emissive_Color_B = old_shape.shader_attributes.Emissive_Color_B
+    new_shape.shader_attributes.Emissive_Color_A = old_shape.shader_attributes.Emissive_Color_A
+    new_shape.shader_attributes.Emissive_Mult = old_shape.shader_attributes.Emissive_Mult
+    new_shape.shader_attributes.Tex_Clamp_Mode = old_shape.shader_attributes.Tex_Clamp_Mode
+    new_shape.shader_attributes.Alpha = old_shape.shader_attributes.Alpha
+    new_shape.shader_attributes.Refraction_Str = old_shape.shader_attributes.Refraction_Str
+    new_shape.shader_attributes.Glossiness = old_shape.shader_attributes.Glossiness
+    new_shape.shader_attributes.Spec_Color_R = old_shape.shader_attributes.Spec_Color_R
+    new_shape.shader_attributes.Spec_Color_G = old_shape.shader_attributes.Spec_Color_G
+    new_shape.shader_attributes.Spec_Color_B = old_shape.shader_attributes.Spec_Color_B
+    new_shape.shader_attributes.Spec_Str = old_shape.shader_attributes.Spec_Str
+    new_shape.shader_attributes.Soft_Lighting = old_shape.shader_attributes.Soft_Lighting
+    new_shape.shader_attributes.Rim_Light_Power = old_shape.shader_attributes.Rim_Light_Power
+    new_shape.shader_attributes.Skin_Tint_Alpha = old_shape.shader_attributes.Skin_Tint_Alpha
+    new_shape.shader_attributes.Skin_Tint_Color_R = old_shape.shader_attributes.Skin_Tint_Color_R
+    new_shape.shader_attributes.Skin_Tint_Color_G = old_shape.shader_attributes.Skin_Tint_Color_G
+    new_shape.shader_attributes.Skin_Tint_Color_B = old_shape.shader_attributes.Skin_Tint_Color_B
 
     new_shape.save_shader_attributes()
 
     alpha = AlphaPropertyBuf()
-    if s_in.has_alpha_property:
-        new_shape.alpha_property.flags = s_in.alpha_property.flags
-        new_shape.alpha_property.threshold = s_in.alpha_property.threshold
+    if old_shape.has_alpha_property:
+        new_shape.alpha_property.flags = old_shape.alpha_property.flags
+        new_shape.alpha_property.threshold = old_shape.alpha_property.threshold
         new_shape.save_alpha_property()
+
+    new_shape.behavior_graph_data = old_shape.behavior_graph_data
+    new_shape.string_data = old_shape.string_data
 
 
 if __name__ == "__main__":
@@ -1924,6 +2051,8 @@ if __name__ == "__main__":
         nif3 = NifFile(r"tests/Out/PartitionsMaleHead.nif")
         assert len(nif3.shapes[0].partitions) == 3, "Have the same number of partitions as before"
         assert nif3.shapes[0].partitions[0].id == 230, "Partition IDs same as before"
+        assert nif3.shapes[0].partitions[1].id == 130, "Partition IDs same as before"
+        assert nif3.shapes[0].partitions[2].id == 143, "Partition IDs same as before"
         assert len(nif3.shapes[0].partition_tris) == 1694, "Same number of tri indices as before"
         assert (nif3.shapes[0].partitions[0].flags and 1) == 1, "First partition has start-net-boneset set"
 
@@ -2202,7 +2331,7 @@ if __name__ == "__main__":
         assert tailfur.alpha_property.threshold == 70, f"Error: Threshold incorrect, found {tailfur.alpha_property.threshold}"
 
         nifOut = NifFile()
-        nifOut.initialize('SKYRIM', r"tests\out\TEST_ALPHA.nif")
+        nifOut.initialize('SKYRIM', r"tests\out\pynifly_TEST_ALPHA.nif")
         _test_export_shape(tailfur, nifOut)
         nifOut.save()
 
@@ -2214,3 +2343,55 @@ if __name__ == "__main__":
         assert tailcheck.alpha_property.threshold == tailfur.alpha_property.threshold, \
                f"Error: alpha flags don't match, {tailcheck.alpha_property.threshold} != {tailfur.alpha_property.threshold}"
         
+    if TEST_ALL or TEST_SHEATH:
+        print("### TEST_SHEATH: Can read and write extra data")
+        nif = NifFile(r"tests/Skyrim/sheath_p1_1.nif")
+        
+        bg = nif.behavior_graph_data
+        assert bg == [('BGED', r"AuxBones\SOS\SOSMale.hkx")], f"Error: Expected behavior graph data, got {bg}"
+
+        str = nif.string_data
+        assert len(str) == 2, f"Error: Expected two string data records"
+        assert ('HDT Havok Path', 'SKSE\\Plugins\\hdtm_baddog.xml') in str, "Error: expect havok path"
+        assert ('HDT Skinned Mesh Physics Object', 'SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml') in str, "Error: Expect physics path"
+
+        nifout = NifFile()
+        nifout.initialize('SKYRIM', r"tests/Out/pynifly_TEST_SHEATH.nif")
+        nifout.behavior_graph_data = nif.behavior_graph_data
+        nifout.string_data = nif.string_data
+        _test_export_shape(nif.shapes[0], nifout)
+        nifout.save()
+
+        nifcheck = NifFile(r"tests/Out/pynifly_TEST_SHEATH.nif")
+
+        assert len(nifcheck.shapes) == 1, "Error: Wrote expected shapes"
+        assert nifcheck.behavior_graph_data == [('BGED', r"AuxBones\SOS\SOSMale.hkx")], f"Error: Expected behavior graph data, got {nifcheck.behavior_graph_data}"
+        
+        assert len(nifcheck.string_data) == 2, f"Error: Expected two string data records in written file"
+        assert ('HDT Havok Path', 'SKSE\\Plugins\\hdtm_baddog.xml') in nifcheck.string_data, "Error: expect havok path in written file"
+        assert ('HDT Skinned Mesh Physics Object', 'SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml') in nifcheck.string_data, "Error: Expect physics path in written file"
+
+
+    if TEST_ALL or TEST_FEET:
+        print("### TEST_FEET: Can read and write extra data")
+        nif = NifFile(r"tests/SkyrimSE/caninemalefeet_1.nif")
+        feet = nif.shapes[0]
+        
+        s = feet.string_data
+        assert s[0][0] == 'SDTA', f"Error: Expected string data, got {s}"
+        assert s[0][1].startswith('[{"name"'), f"Error: Expected string data, got {s}"
+
+        nifout = NifFile()
+        nifout.initialize('SKYRIM', r"tests/Out/pynifly_TEST_FEET.nif")
+        _test_export_shape(feet, nifout)
+        nifout.save()
+
+        nifcheck = NifFile(r"tests/Out/pynifly_TEST_FEET.nif")
+
+        assert len(nifcheck.shapes) == 1, "Error: Wrote expected shapes"
+        feetcheck = nifcheck.shapes[0]
+
+        s = feetcheck.string_data
+        assert s[0][0] == 'SDTA', f"Error: Expected string data, got {s}"
+        assert s[0][1].startswith('[{"name"'), f"Error: Expected string data, got {s}"
+

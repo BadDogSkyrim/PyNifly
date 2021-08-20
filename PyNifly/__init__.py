@@ -2,8 +2,8 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
-TEST_BPY_ALL = True
+RUN_TESTS = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -577,6 +577,31 @@ def make_armature(the_coll, the_nif, bone_names):
     #print(f"***All armature '{arm_ob.name}' bones: " + str(list(arm_ob.data.bones.keys())))
     return arm_ob
 
+def import_extra(f: NifFile):
+    """ Import any extra data at the root level and create corresponding shapes """
+    loc = [0.0, 0.0, 0.0]
+
+    if len(f.string_data):
+        for s in f.string_data:
+            bpy.ops.object.add(radius=1.0, type='EMPTY', location=loc)
+            ed = bpy.context.object
+            ed.name = "NiStringExtraData"
+            ed.show_name = True
+            ed['NiStringExtraData_Name'] = s[0]
+            ed['NiStringExtraData_Value'] = s[1]
+            loc[0] += 3.0
+
+    if len(f.behavior_graph_data):
+        for s in f.behavior_graph_data:
+            bpy.ops.object.add(radius=1.0, type='EMPTY', location=loc)
+            ed = bpy.context.object
+            ed.name = "BSBehaviorGraphExtraData"
+            ed.show_name = True
+            ed['BSBehaviorGraphExtraData_Name'] = s[0]
+            ed['BSBehaviorGraphExtraData_Value'] = s[1]
+            loc[0] += 3.0
+
+
 def import_nif(f: NifFile):
     new_collection = bpy.data.collections.new(os.path.basename(f.filepath))
     bpy.context.scene.collection.children.link(new_collection)
@@ -585,6 +610,7 @@ def import_nif(f: NifFile):
     bones = set()
     new_objs = []
 
+    # Import shapes
     for s in f.shapes:
         for n in s.bone_names: 
             log.debug(f"....adding bone {n} for {s.name}")
@@ -598,6 +624,7 @@ def import_nif(f: NifFile):
 
     for o in new_objs: o.select_set(True)
 
+    # Import armature
     if len(bones) > 0 or len(f.shapes) == 0:
         if len(bones) == 0:
             log.debug(f"....No shapes in nif, importing bones as skeleton")
@@ -612,6 +639,9 @@ def import_nif(f: NifFile):
         else:
             arma.select_set(True)
     
+    # Import nif-level extra data
+    import_extra(f)
+
     if len(new_objs) > 0:
         bpy.context.view_layer.objects.active = new_objs[0]
 
@@ -1592,7 +1622,8 @@ def run_tests():
     TEST_SHADER_LE = False
     TEST_SHADER_SE = False
     TEST_SHADER_FO4 = False
-    TEST_SHADER_ALPHA = True
+    TEST_SHADER_ALPHA = False
+    TEST_SHEATH = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -2552,6 +2583,23 @@ def run_tests():
         assert checkfurshape.has_alpha_property, f"Error: Did not write alpha property"
         assert checkfurshape.alpha_property.flags == furshape.alpha_property.flags, f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.flags} != {furshape.alpha_property.flags}"
         assert checkfurshape.alpha_property.threshold == furshape.alpha_property.threshold, f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.threshold} != {furshape.alpha_property.threshold}"
+
+
+    if TEST_BPY_ALL or TEST_SHEATH:
+        print("## TEST_SHEATH Extra data nodes are imported and exported")
+
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete(use_global=True, confirm=False)
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/sheath_p1_1.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        bpy.ops.object.select_all(action='SELECT')
+        bgnames = set([obj['BSBehaviorGraphExtraData_Name'] for obj in bpy.context.selected_objects if obj.name.startswith("BSBehaviorGraphExtraData")])
+        assert bgnames == set(["BGED"]), f"Error: Expected BG extra data properties, found {bgnames}"
+        snames = set([obj['NiStringExtraData_Name'] for obj in bpy.context.selected_objects if obj.name.startswith("NiStringExtraData")])
+        assert snames == set(["HDT Havok Path", "HDT Skinned Mesh Physics Object"]), f"Error: Expected string extra data properties, found {snames}"
+        
 
 
 # #############################################################################################
