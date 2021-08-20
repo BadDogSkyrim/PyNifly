@@ -2024,5 +2024,23 @@ namespace NiflyDLLTests
 			loglen = getMessageLog(msgbuf, MSGBUFLEN);
 			Assert::IsTrue(loglen == 0, L"Error: Have log messages");
 		};
+		TEST_METHOD(invalidSkin) {
+			/* Trying to read skin information causes an error that is written to the log */
+			void* shapes[10];
+			void* nif = load((testRoot / "Skyrim/noblecrate01.nif").u8string().c_str());
+			getShapes(nif, shapes, 10, 0);
+
+			clearMessageLog();
+
+			MatTransform xform;
+			getGlobalToSkin(nif, shapes[0], &xform);
+			
+			const int MSGBUFLEN = 2000;
+			char msgbuf[MSGBUFLEN];
+			int loglen = getMessageLog(msgbuf, MSGBUFLEN);
+			Assert::IsTrue(loglen > 0, L"Error: Expect log messages");
+
+
+		};
 	};
 }

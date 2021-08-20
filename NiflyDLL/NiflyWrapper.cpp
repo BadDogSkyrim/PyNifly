@@ -996,7 +996,9 @@ NIFLY_API void setPartitions(void* nifref, void* shaperef,
     uint16_t* partData, int partDataLen,
     uint16_t* tris, int triLen)
     /* partData = (uint16 flags, uint16 partID)... where partID is the body part ID
-        tris = list of segment indices matching 1-1 with shape triangles
+    * partDataLen = length of the buffer in uint16s
+    * tris = list of segment indices matching 1-1 with shape triangles
+    * 
         >>Needs to be called AFTER bone weights are set
     */
 {
@@ -1191,6 +1193,7 @@ void setStringExtraData(void* nifref, void* shaperef, char* name, char* buf) {
 int getBGExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* datalen)
 /* Treats the NiBehaviorGraphExtraData nodes in the nif like an array--idx indicates
     which to return (0-based).
+    Returns T/F depending on whether extra data exists
     */
 {
     NifFile* nif = static_cast<NifFile*>(nifref);

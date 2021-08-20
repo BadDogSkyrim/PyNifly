@@ -22,6 +22,7 @@ namespace niflydll {
 		va_list args;
 		va_start(args, fmt);
 		vsnprintf(buf, 500, fmt.c_str(), args);
+		messageLog.push_back(buf);
 		va_end(args);
 	}
 
