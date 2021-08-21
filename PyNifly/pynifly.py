@@ -1438,7 +1438,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -2350,10 +2350,10 @@ if __name__ == "__main__":
         bg = nif.behavior_graph_data
         assert bg == [('BGED', r"AuxBones\SOS\SOSMale.hkx")], f"Error: Expected behavior graph data, got {bg}"
 
-        str = nif.string_data
-        assert len(str) == 2, f"Error: Expected two string data records"
-        assert ('HDT Havok Path', 'SKSE\\Plugins\\hdtm_baddog.xml') in str, "Error: expect havok path"
-        assert ('HDT Skinned Mesh Physics Object', 'SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml') in str, "Error: Expect physics path"
+        s = nif.string_data
+        assert len(s) == 2, f"Error: Expected two string data records"
+        assert ('HDT Havok Path', 'SKSE\\Plugins\\hdtm_baddog.xml') in s, "Error: expect havok path"
+        assert ('HDT Skinned Mesh Physics Object', 'SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml') in s, "Error: Expect physics path"
 
         nifout = NifFile()
         nifout.initialize('SKYRIM', r"tests/Out/pynifly_TEST_SHEATH.nif")
