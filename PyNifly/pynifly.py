@@ -1178,7 +1178,19 @@ class NiShape:
                 parts_lookup[p.id] = i
 
             for i, t in enumerate(trilist):
-                tbuf[i] = parts_lookup[trilist[i]]
+                try:
+                    tbuf[i] = parts_lookup[trilist[i]]
+                except:
+                    # Report the error unless the id is 0--that means we couldn't assign the 
+                    # partition and that error has already been reported
+                    if not trilist[i] == 0:
+                        if i < len(trilist):
+                            log.error(f"Tri at index {i} assigned partition id {trilist[i]}, but no such partition defined")
+                            log.error(f"Partitions are {parts_lookup.items()}")
+                        else:
+                            log.error(f"Tri at index {i} assigned partition, but only {len(trilist)} tris defined")
+                    tbuf[i] = pbuf[0][1] # Export with the first partition so we get something out
+
             NifFile.nifly.setPartitions(self.parent._handle, self._handle,
                                         pbuf, len(parts),
                                         tbuf, len(trilist))
@@ -1438,7 +1450,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1452,7 +1464,7 @@ TEST_PARENT = False
 TEST_PYBABY = False
 TEST_BONE_XFORM = False
 TEST_PARTITION_NAMES = False
-TEST_PARTITIONS = False
+TEST_PARTITIONS = True
 TEST_SEGMENTS = False
 TEST_BP_SEGMENTS = False
 TEST_COLORS = False
@@ -1462,8 +1474,8 @@ TEST_UNSKINNED = False
 TEST_UNI = False
 TEST_SHADER = False
 TEST_ALPHA = False
-TEST_SHEATH = True
-TEST_FEET = True
+TEST_SHEATH = False
+TEST_FEET = False
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
     """ Convenience routine to copy existing shape """
@@ -2260,6 +2272,7 @@ if __name__ == "__main__":
         hnle = NifFile(r"tests\SKYRIM\malehead.nif")
         hsle = hnle.shapes[0]
         assert hsle.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert hsle.shader_attributes.Glossiness == 33.0, f"Error: Glossiness incorrect: {hsle.shader_attributes.Glossiness}"
 
         hnfo = NifFile(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
         hsfo = hnfo.shapes[0]
@@ -2335,7 +2348,7 @@ if __name__ == "__main__":
         _test_export_shape(tailfur, nifOut)
         nifOut.save()
 
-        nifcheck = NifFile(r"tests\out\TEST_ALPHA.nif")
+        nifcheck = NifFile(r"tests\out\pynifly_TEST_ALPHA.nif")
         tailcheck = nifcheck.shapes[0]
 
         assert tailcheck.alpha_property.flags == tailfur.alpha_property.flags, \

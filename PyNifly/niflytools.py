@@ -37,6 +37,10 @@ def check_files(files):
             exists &= (os.path.exists(f) if len(f) > 0 else True)
         return exists
 
+def missing_files(files):
+    """ Returns a list containing the files in the given list that don't exist """
+    return [x for x in files if not os.path.exists(x)]
+
 
 # ###################### VECTORS, ROTATION MATRICES, MATHY STUFF ################################
 

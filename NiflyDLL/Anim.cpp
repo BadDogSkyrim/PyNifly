@@ -516,7 +516,7 @@ void AnimInfo::WriteToNif(NifFile* nif, const std::string& shapeException) {
 
 	if (incomplete)
 /* +++ NiflyDLL Changes +++ */
-		niflydll::LogWritef("Bone information incomplete. Exported data will not contain correct bone entries! Be sure to load a reference NIF prior to export.");
+		niflydll::LogWriteWf("Bone information incomplete. Exported data will not contain correct bone entries! Be sure to load a reference NIF prior to export.");
 	//	wxMessageBox(_("Bone information incomplete. Exported data will not contain correct bone entries! Be sure to load a reference NIF prior to export."), _("Export Warning"), wxICON_WARNING);
 /* +++ NiflyDLL Changes +++ */
 }

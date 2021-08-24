@@ -1275,6 +1275,6 @@ void clearMessageLog() {
 };
 
 int getMessageLog(char* buf, int buflen) {
-    niflydll::LogGet(buf, buflen);
-    return niflydll::LogGetLen();
+    return niflydll::LogGet(buf, buflen);
+    //return niflydll::LogGetLen();
 }

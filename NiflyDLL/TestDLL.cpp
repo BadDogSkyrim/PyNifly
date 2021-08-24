@@ -697,6 +697,8 @@ namespace NiflyDLLTests
 			AnimInfo* anim;
 			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(FO4), curRootName);
 
+			clearMessageLog();
+
 			NifFile newNif = NifFile();
 			SetNifVersion(&newNif, FO4);
 			anim = CreateSkinForNif(&newNif, FO4);
@@ -751,7 +753,10 @@ namespace NiflyDLLTests
 
 			SaveSkinnedNif(anim, (testRoot / "Out/TestSkinnedFO01.nif").string());
 
-			Assert::AreEqual(0, niflydll::LogGetLen(), L"Generated messages");
+			char msgbuf[1000];
+			getMessageLog(msgbuf, 1000);
+			Assert::IsFalse(strstr(msgbuf, "WARNING:"), L"Error completed with warnings");
+			Assert::IsFalse(strstr(msgbuf, "ERROR:"), L"Error completed with errors");
 
 			Vector3 targetVert(2.587891f, 10.031250f, -39.593750f);
 			std::string targetBone = "Spine1_skin";
@@ -1706,6 +1711,7 @@ namespace NiflyDLLTests
 				Vector3(0xa1/255.0, 0xc2/255.0, 0xff/255.0)));
 			Assert::IsTrue(TApproxEqual(shaderAttr.Spec_Str, 2.69));
 			Assert::IsTrue(shaderAttr.Shader_Type == uint32_t(BSLSPShaderType::Face_Tint));
+			Assert::IsTrue(shaderAttr.Glossiness == 33.0, L"Error: Glossiness value");
 
 			// Can write head back out
 
@@ -2008,7 +2014,8 @@ namespace NiflyDLLTests
 			const int MSGBUFLEN = 2000;
 			char msgbuf[MSGBUFLEN]; 
 			int loglen = getMessageLog(msgbuf, MSGBUFLEN);
-			Assert::IsTrue(loglen == 0, L"Error: Have log messages");
+			Assert::IsFalse(strstr(msgbuf, "WARNING:"), L"Error completed with warnings");
+			Assert::IsFalse(strstr(msgbuf, "ERROR:"), L"Error completed with errors");
 
 			// What we wrote is correct
 
@@ -2022,7 +2029,8 @@ namespace NiflyDLLTests
 			//TCompareExtraData(nifhead, nullptr, nifCheck, nullptr);
 			//TCompareExtraData(nifhead, head, nifCheck, shapesCheck[0]);
 			loglen = getMessageLog(msgbuf, MSGBUFLEN);
-			Assert::IsTrue(loglen == 0, L"Error: Have log messages");
+			Assert::IsFalse(strstr(msgbuf, "WARNING:"), L"Error completed with warnings");
+			Assert::IsFalse(strstr(msgbuf, "ERROR:"), L"Error completed with errors");
 		};
 		TEST_METHOD(invalidSkin) {
 			/* Trying to read skin information causes an error that is written to the log */
