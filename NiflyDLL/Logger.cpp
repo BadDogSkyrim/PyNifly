@@ -16,12 +16,35 @@ namespace niflydll {
 		messageLog.push_back(msg);
 	}
 
-	void LogWritef(std::string fmt, ...)
+	void LogWriteMf(std::string fmt, ...)
 	{
 		char buf[500];
 		va_list args;
 		va_start(args, fmt);
-		vsnprintf(buf, 500, fmt.c_str(), args);
+		std::string msg = "Info: " + fmt;
+		vsnprintf(buf, 500, msg.c_str(), args);
+		messageLog.push_back(buf);
+		va_end(args);
+	}
+
+	void LogWriteWf(std::string fmt, ...)
+	{
+		char buf[500];
+		va_list args;
+		va_start(args, fmt);
+		std::string msg = "WARNING: " + fmt;
+		vsnprintf(buf, 500, msg.c_str(), args);
+		messageLog.push_back(buf);
+		va_end(args);
+	}
+
+	void LogWriteEf(std::string fmt, ...)
+	{
+		char buf[500];
+		va_list args;
+		va_start(args, fmt);
+		std::string msg = "ERROR: " + fmt;
+		vsnprintf(buf, 500, msg.c_str(), args);
 		messageLog.push_back(buf);
 		va_end(args);
 	}
@@ -34,13 +57,14 @@ namespace niflydll {
 		return len;
 	}
 
-	void LogGet(char* buf, int len) {
+	int LogGet(char* buf, int len) {
 		std::string outStr;
 		for (std::string s : messageLog) {
 			outStr += s + '\n';
 		};
 		strcpy_s(buf, len - 1, outStr.c_str());
 		buf[len - 1] = '\0';
+		return outStr.size();
 	}
 
 }
