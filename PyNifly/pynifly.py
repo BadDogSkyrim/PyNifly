@@ -1464,7 +1464,7 @@ TEST_PARENT = False
 TEST_PYBABY = False
 TEST_BONE_XFORM = False
 TEST_PARTITION_NAMES = False
-TEST_PARTITIONS = True
+TEST_PARTITIONS = False
 TEST_SEGMENTS = False
 TEST_BP_SEGMENTS = False
 TEST_COLORS = False
@@ -1476,6 +1476,7 @@ TEST_SHADER = False
 TEST_ALPHA = False
 TEST_SHEATH = False
 TEST_FEET = False
+TEST_XFORM_SKY = True
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1927,13 +1928,6 @@ if __name__ == "__main__":
         xfskin = s1.global_to_skin_data
         assert int(xfshape.translation[2]) == -120, "ERROR: FO4 body shape has a -120 z translation"
         assert xfskin is None, "ERROR: FO4 nifs do not have global-to-skin transforms"
-
-        print("### Can read Skyrim head transforms")
-        f1 = NifFile(r"tests\Skyrim\malehead.nif")
-        s1 = f1.shapes[0]
-        xfshape = s1.global_to_skin
-        xfskin = s1.global_to_skin_data
-        assert int(xfshape.translation[2]) == -120, "ERROR: Skyrim head shape has a -120 z translation"
 
     if TEST_ALL or TEST_2_TAILS:
         print("### TEST_2_TAILS: Can export tails file with two tails")
@@ -2407,4 +2401,28 @@ if __name__ == "__main__":
         s = feetcheck.string_data
         assert s[0][0] == 'SDTA', f"Error: Expected string data, got {s}"
         assert s[0][1].startswith('[{"name"'), f"Error: Expected string data, got {s}"
+
+    if TEST_ALL or TEST_XFORM_SKY:
+        print("### TEST_XFORM_SKY: Can read and set the Skyrim body transforms")
+        print("### Can read Skyrim head transforms")
+        nif = NifFile(r"tests\Skyrim\malehead.nif")
+        head = nif.shapes[0]
+        xfshape = head.transform
+        xfskin = head.global_to_skin
+        assert int(xfshape.translation[2]) == 120, "ERROR: Skyrim head shape has a 120 z translation"
+        assert int(xfskin.translation[2]) == -120, "ERROR: Skyrim head shape has a -120 z skin translation"
+
+        nifout = NifFile()
+        nifout.initialize('SKYRIM', r"tests/Out/TEST_XFORM_SKY.nif")
+        _test_export_shape(head, nifout)
+        xfshapeout = xfshape.copy()
+        xfshapeout.translation = (0, -1.5475, 120.3436)
+        nifout.save()
+
+        nifcheck = NifFile(r"tests/Out/TEST_XFORM_SKY.nif")
+        headcheck = nifcheck.shapes[0]
+        xfshapecheck = headcheck.transform
+        xfskincheck = headcheck.global_to_skin
+        assert int(xfshapecheck.translation[2]) == 120, "ERROR: Skyrim head shape has a 120 z translation"
+        assert int(xfskincheck.translation[2]) == -120, "ERROR: Skyrim head shape has a -120 z skin translation"
 

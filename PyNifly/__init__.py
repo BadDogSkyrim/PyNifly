@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 RUN_TESTS = True
-TEST_BPY_ALL = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -873,7 +873,7 @@ def import_tri(filepath):
     return new_object
 
 
-def export_tris(nif, trip, obj, verts, tris, loops, uvs, morphdict):
+def export_tris(nif, trip, obj, verts, tris, uvs, morphdict):
     """ Export a tri file to go along with the given nif file, if there are shape keys 
         and it's not a faceBones nif.
         dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
@@ -978,7 +978,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
 def clean_filename(fn):
     return "".join(c for c in fn.strip() if (c.isalnum() or c in "._- "))
 
-def select_all_faces(workingctx, mesh):
+def select_all_faces(mesh):
     """ Make sure all mesh elements are visible and all faces are selected """
     bpy.ops.object.mode_set(mode = 'OBJECT') # Have to be in object mode
 
@@ -991,7 +991,7 @@ def select_all_faces(workingctx, mesh):
         p.select = True
 
 
-def extract_face_info(ctxt, mesh, uvlayer, use_loop_normals=False):
+def extract_face_info(mesh, uvlayer, use_loop_normals=False):
     """ Extract face info from the mesh. Mesh is triangularized. 
         Return 
         loops = [vert-index, ...] list of vert indices in loops (which are tris)
@@ -1093,6 +1093,7 @@ def export_skin(obj, arma, new_shape, new_xform, weights_by_vert):
     #    new_shape.set_global_to_skindata(new_xform.invert())
     #else:
     #    new_shape.set_global_to_skin(new_xform.invert())
+    new_shape.transform = new_xform
     new_shape.set_global_to_skin(new_xform.invert())
     
     group_names = [g.name for g in obj.vertex_groups]
@@ -1208,7 +1209,6 @@ def all_vertex_groups(weightdict):
     return val
 
 
-
 def mesh_from_key(editmesh, verts, target_key):
     faces = []
     for p in editmesh.polygons:
@@ -1218,176 +1218,6 @@ def mesh_from_key(editmesh, verts, target_key):
     newmesh = bpy.data.meshes.new(editmesh.name)
     newmesh.from_pydata(newverts, [], faces)
     return newmesh
-
-
-#def xxxexport_shape(nif, trip, obj, target_key='', arma=None):
-#    """Export given blender object to the given NIF file
-#        nif = target nif file
-#        trip = target file for BS Tri shapes
-#        obj = blender object
-#        target_key = shape key to export
-#        arma = armature to skin to
-#        """
-#    log.info("Exporting " + obj.name)
-#    workingctx = bpy.context # bpy.context.copy()
-#    retval = {'FINISHED'}
-
-#    is_skinned = (arma is not None)
-#    unweighted = []
-#    if UNWEIGHTED_VERTEX_GROUP in obj.vertex_groups:
-#        obj.vertex_groups.remove(obj.vertex_groups[UNWEIGHTED_VERTEX_GROUP])
-        
-#    if is_skinned:
-#        # Get unweighted bones before we muck up the list by splitting edges
-#        unweighted = tag_unweighted(obj, arma.data.bones.keys())
-#        if not expected_game(nif, arma.data.bones):
-#            log.warning(f"Exporting to game that doesn't match armature: game={nif.game}, armature={arma.name}")
-#            self.arma_game.add('GAME')
-
-#    originalmesh = obj.data
-#    editmesh = originalmesh.copy()
-#    loopcolors = None
-#    saved_sk = obj.active_shape_key_index
-#    obj.data = editmesh
-#    try:
-#        bpy.ops.object.select_all(action='DESELECT')
-#        obj.select_set(True)
-#        bpy.context.view_layer.objects.active = obj
-
-#        # If scales aren't uniform, apply them before export
-#        if obj.scale[0] != obj.scale[1] or obj.scale[0] != obj.scale[2]:
-#            log.warning("Object scale not uniform, applying before export") # apply scale to verts?   
-#            retval.add('SCALE')
-#            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
-#        # This next little dance ensures the mesh.vertices locations are correct
-#        obj.active_shape_key_index = 0
-#        bpy.ops.object.mode_set(mode = 'EDIT')
-#        bpy.ops.object.mode_set(mode = 'OBJECT')
-#        #log.debug(f"....Vertex 12 position: {mesh.vertices[12].co}")
-
-#        # Can't get custom normals out of a bmesh (known limitation). Can't triangulate
-#        # a regular mesh except through the operator. 
-#        log.info("..Triangulating mesh")
-#        select_all_faces(workingctx, editmesh)
-#        bpy.ops.object.mode_set(mode = 'EDIT') # Required to convert to tris
-#        bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
-
-#        for p in editmesh.polygons:
-#            p.use_smooth = True
-
-#        editmesh.update()
-         
-#        verts, weights_by_vert, morphdict = extract_vert_info(obj, editmesh, target_key)
-
-#        bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
-#        if len(editmesh.vertex_colors) > 0:
-#            loopcolors = [c.color[:] for c in editmesh.vertex_colors.active.data]
-#            #log.debug(f"Saved loop colors: {loopcolors}")
-
-#        # Apply shape key verts to the mesh so normals will be correct.  If the mesh has
-#        # custom normals, fukkit -- use the custom normals and assume the deformation
-#        # won't be so great that it looks bad.
-#        bpy.ops.object.mode_set(mode = 'OBJECT') 
-#        uvlayer = editmesh.uv_layers.active.data
-#        if target_key != '' and not editmesh.has_custom_normals:
-#            editmesh = mesh_from_key(editmesh, verts, target_key)
-
-#        loops, uvs, norms = extract_face_info(workingctx, editmesh, uvlayer, use_loop_normals=editmesh.has_custom_normals)
-    
-#        log.info("..Splitting mesh along UV seams")
-#        mesh_split_by_uv(verts, norms, loops, uvs, weights_by_vert, morphdict)
-#        # Old UV map had dups where verts were split; new matches 1-1 with verts
-#        uvmap_new = [(0.0, 0.0)] * len(verts)
-#        norms_new = [(0.0, 0.0, 0.0)] * len(verts)
-#        for i, lp in enumerate(loops):
-#            assert lp < len(verts), f"Error: Invalid vert index in loops: {lp} >= {len(verts)}"
-#            uvmap_new[lp] = uvs[i]
-#            norms_new[lp] = norms[i]
-#        #uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
-#        #norms_new = [norms[loops.index(i)] for i in range(len(verts))]
-
-#        # Our "loops" list matches 1:1 with the mesh's loops. So we can use the polygons
-#        # to pull the loops
-#        tris = []
-#        for p in editmesh.polygons:
-#            tris.append((loops[p.loop_start], loops[p.loop_start+1], loops[p.loop_start+2]))
-
-#        #tris = [(loops[i], loops[i+1], loops[i+2]) for i in range(0, len(loops), 3)]
-#        colors_new = None
-#        if loopcolors:
-#            log.debug(f"..Exporting vertex colors for shape {obj.name}")
-#            colors_new = [(0.0, 0.0, 0.0, 0.0)] * len(verts)
-#            for i, lp in enumerate(loops):
-#                colors_new[lp] = loopcolors[i]
-#        else:
-#            log.debug(f"..No vertex colors in shape {obj.name}")
-
-#    finally:
-#        obj.data = originalmesh
-#        obj.active_shape_key_index = saved_sk
-
-#    is_hp = obj.data.shape_keys \
-#            and len(nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
-
-#    obj.data.update()
-#    log.info("..Exporting to nif")
-#    norms_exp = norms_new
-#    has_msn = has_msn_shader(obj)
-#    if has_msn:
-#        norms_exp = None
-
-#    new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_exp, 
-#                                        is_hp, is_skinned)
-#    if colors_new:
-#        new_shape.set_colors(colors_new)
-
-#    export_shape_data(obj, new_shape)
-        
-#    if obj.active_material:
-#        export_shader(obj, new_shape)
-#        if has_msn:
-#            new_shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
-#        else:
-#            new_shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
-#        if colors_new:
-#            new_shape.shader_attributes.shaderflags2_set(ShaderFlags2.VERTEX_COLORS)
-#        else:
-#            new_shape.shader_attributes.shaderflags2_clear(ShaderFlags2.VERTEX_COLORS)
-#        new_shape.save_shader_attributes()
-#    else:
-#        log.debug(f"..No material on {obj.name}")
-
-#    if is_skinned:
-#        nif.createSkin()
-
-#    new_xform = MatTransform();
-#    new_xform.translation = obj.location
-#    new_xform.rotation = RotationMatrix((obj.matrix_local[0][0:3], 
-#                                            obj.matrix_local[1][0:3], 
-#                                            obj.matrix_local[2][0:3]))
-#    new_xform.scale = obj.scale[0]
-        
-#    if is_skinned:
-#        export_skin(obj, arma, new_shape, new_xform, weights_by_vert)
-#        if len(unweighted) > 0:
-#            create_group_from_verts(obj, UNWEIGHTED_VERTEX_GROUP, unweighted)
-#            log.warning("Some vertices are not weighted to the armature")
-#            self.objs_unweighted.add('UNWEIGHTED')
-
-#        partitions, tri_indices = export_partitions(obj, weights_by_vert, tris)
-#        if len(partitions) > 0:
-#            if 'FO4_SEGMENT_FILE' in obj.keys():
-#                log.debug(f"....Writing segment file {obj['FO4_SEGMENT_FILE']}")
-#                new_shape.segment_file = obj['FO4_SEGMENT_FILE']
-#            new_shape.set_partitions(partitions, tri_indices)
-#    else:
-#        new_shape.transform = new_xform
-
-#    retval.union(export_tris(nif, trip, obj, verts, tris, loops, uvmap_new, morphdict))
-
-#    log.info(f"..{obj.name} successfully exported")
-#    return retval
 
 
 def export_shape_to(shape, filepath, game):
@@ -1417,114 +1247,6 @@ def get_common_shapes(obj_list):
 def get_with_uscore(str_list):
     return list(filter((lambda x: x[0] == '_'), str_list))
 
-# Globals for error reporting
-#xxxobjs_unweighted = []
-#xxxobjs_scale = []
-#xxxarma_game = []
-
-#def xxxexport_file_set(filepath, target_game, file_keys, objs_to_export, arma, suffix=''):
-#    """ Create a set nif file from the given object, with associated TRIP files if 
-#        there is TRIP info.
-#        filepath = nif file to create
-#        target_game = game to create for
-#        file_keys = set of shape key names; export one file for each shape key
-#        objs_to_export = mesh objects to write into each file
-#        arma = skeleton to use for the meshes
-#        suffix = suffix to append to the filenames
-#        """
-#    res = set()
-
-#    shape_keys = None
-#    if file_keys is None or len(file_keys) == 0:
-#        shape_keys = ['']
-#    else:
-#        shape_keys = file_keys
-
-#    for sk in shape_keys:
-#        fname_ext = os.path.splitext(os.path.basename(filepath))
-#        fbasename = fname_ext[0] + sk + suffix
-#        fnamefull = fbasename + fname_ext[1]
-#        fpath = os.path.join(os.path.dirname(filepath), fnamefull)
-
-#        log.info(f"..Exporting to {target_game} {fpath}")
-#        exportf = NifFile()
-#        exportf.initialize(target_game, fpath)
-#        if suffix == '_faceBones':
-#            exportf.dict = fo4FaceDict
-
-#        trip = TripFile()
-
-#        for obj in objs_to_export:
-#            export_shape(exportf, trip, obj, sk, arma)
-#            log.debug(f"Exported shape {obj.name}")
-#            #if 'UNWEIGHTED' in r:
-#            #    self.objs_unweighted.append(obj.name)
-#            #if 'SCALE' in r:
-#            #    self.objs_scale.append(obj.name)
-#            #if 'GAME' in r:
-#            #    self.arma_game.append(arma.name)
-#            #self.warnings |= r
-
-#        exportf.save()
-#        log.info(f"..Wrote {fpath}")
-
-#        if len(trip.shapes) > 0:
-#            trippath = os.path.join(os.path.dirname(filepath), fbasename) + ".tri"
-#            trip.write(trippath)
-#            log.info(f"..Wrote {trippath}")
-
-#    return res
-
-#def xxxdo_export(context, filepath, target_game):
-#    """ Export currently selected objects """
-#    res = set()
-        
-#    objs_unweighted = []
-#    objs_scale = []
-#    arma_game = []
-#    arma_facebones = None
-#    arma_skel = None
-
-#    armatures_found = set([x for x in context.selected_objects if x.type == 'ARMATURE'])
-#    if context.object.parent:
-#        if context.object.parent.type == 'ARMATURE':
-#            armatures_found.add(context.object.parent)
-        
-#    objs_to_export = set([x for x in context.selected_objects if x.type == 'MESH'])
-
-#    log.debug(f"..Armatures for export: {armatures_found}")
-#    log.debug(f"..Objects for export: {objs_to_export}")
-
-#    shape_keys = get_with_uscore(get_common_shapes(objs_to_export))
-#    if len(shape_keys) == 0:
-#        shape_keys.append('') # just export the plain file
-            
-#    if len(objs_to_export) == 0:
-#        res = res.union({"NOTHING"})
-#    else:
-#        fb_export = False
-#        mesh_export = False
-#        for a in armatures_found:
-#            if self.target_game == 'FO4' and is_facebones(a) and not fb_export:
-#                r = export_file_set(filepath, 
-#                                target_game, 
-#                                shape_keys, 
-#                                objs_to_export, 
-#                                a, 
-#                                '_faceBones')
-#                res = res.union(r)
-#                fb_export = True
-#            elif not mesh_export:
-#                r = export_file_set(filepath, 
-#                                target_game, 
-#                                shape_keys, 
-#                                objs_to_export, 
-#                                a)
-#                res = res.union(r)
-#                mesh_export = True
-#        if not mesh_export and not fb_export:
-#            r = export_file_set(filepath, target_game, shape_keys, objs_to_export, None)
-#    return res
 
 class NifExporter:
     """ Object that handles the export process 
@@ -1642,6 +1364,107 @@ class NifExporter:
 
         return list(partitions.values()), tri_indices
 
+    def extract_mesh_data(self, obj, target_key):
+        """ 
+        Extract the mesh data from the given object
+            obj = object being exported
+            target_key = shape key to export
+        returns
+            verts = list of XYZ vertex locations
+            norms_new = list of XYZ normal values, 1:1 with verts
+            uvmap_new = list of (u, v) values, 1:1 with verts
+            colors_new = list of RGB color values 1:1 with verts. May be None.
+            tris = list of (t1, t2, t3) vert indices to define triangles
+            weights_by_vert = [dict[group-name: weight], ...] 1:1 with verts
+            morphdict = {shape-key: [verts...], ...} only if "target_key" is NOT specified
+        NOTE this routine changes selection and switches to edit mode and back
+        """
+        originalmesh = obj.data
+        editmesh = originalmesh.copy()
+        saved_sk = obj.active_shape_key_index
+        obj.data = editmesh
+        loopcolors = None
+
+        try:
+            bpy.ops.object.select_all(action='DESELECT')
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
+        
+            # If scales aren't uniform, apply them before export
+            if obj.scale[0] != obj.scale[1] or obj.scale[0] != obj.scale[2]:
+                log.warning(f"Object {obj.name} scale not uniform, applying before export") 
+                self.objs_scale.add('SCALE')
+                bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        
+            # This next little dance ensures the mesh.vertices locations are correct
+            obj.active_shape_key_index = 0
+            bpy.ops.object.mode_set(mode = 'EDIT')
+            bpy.ops.object.mode_set(mode = 'OBJECT')
+            #log.debug(f"....Vertex 12 position: {mesh.vertices[12].co}")
+        
+            # Can't get custom normals out of a bmesh (known limitation). Can't triangulate
+            # a regular mesh except through the operator. 
+            log.info("..Triangulating mesh")
+            select_all_faces(editmesh)
+            bpy.ops.object.mode_set(mode = 'EDIT') # Required to convert to tris
+            bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
+        
+            for p in editmesh.polygons:
+                p.use_smooth = True
+        
+            editmesh.update()
+         
+            verts, weights_by_vert, morphdict = extract_vert_info(obj, editmesh, target_key)
+        
+            bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
+            if len(editmesh.vertex_colors) > 0:
+                loopcolors = [c.color[:] for c in editmesh.vertex_colors.active.data]
+                #log.debug(f"Saved loop colors: {loopcolors}")
+        
+            # Apply shape key verts to the mesh so normals will be correct.  If the mesh has
+            # custom normals, fukkit -- use the custom normals and assume the deformation
+            # won't be so great that it looks bad.
+            bpy.ops.object.mode_set(mode = 'OBJECT') 
+            uvlayer = editmesh.uv_layers.active.data
+            if target_key != '' and not editmesh.has_custom_normals:
+                editmesh = mesh_from_key(editmesh, verts, target_key)
+        
+            loops, uvs, norms = extract_face_info(editmesh, uvlayer, use_loop_normals=editmesh.has_custom_normals)
+        
+            log.info("..Splitting mesh along UV seams")
+            mesh_split_by_uv(verts, norms, loops, uvs, weights_by_vert, morphdict)
+            # Old UV map had dups where verts were split; new matches 1-1 with verts
+            uvmap_new = [(0.0, 0.0)] * len(verts)
+            norms_new = [(0.0, 0.0, 0.0)] * len(verts)
+            for i, lp in enumerate(loops):
+                assert lp < len(verts), f"Error: Invalid vert index in loops: {lp} >= {len(verts)}"
+                uvmap_new[lp] = uvs[i]
+                norms_new[lp] = norms[i]
+            #uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
+            #norms_new = [norms[loops.index(i)] for i in range(len(verts))]
+        
+            # Our "loops" list matches 1:1 with the mesh's loops. So we can use the polygons
+            # to pull the loops
+            tris = []
+            for p in editmesh.polygons:
+                tris.append((loops[p.loop_start], loops[p.loop_start+1], loops[p.loop_start+2]))
+        
+            #tris = [(loops[i], loops[i+1], loops[i+2]) for i in range(0, len(loops), 3)]
+            colors_new = None
+            if loopcolors:
+                log.debug(f"..Exporting vertex colors for shape {obj.name}")
+                colors_new = [(0.0, 0.0, 0.0, 0.0)] * len(verts)
+                for i, lp in enumerate(loops):
+                    colors_new[lp] = loopcolors[i]
+            else:
+                log.debug(f"..No vertex colors in shape {obj.name}")
+        
+        finally:
+            obj.data = originalmesh
+            obj.active_shape_key_index = saved_sk
+
+        return verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict
+
     def export_shape(self, nif, trip, obj, target_key='', arma=None):
         """Export given blender object to the given NIF file
             nif = target nif file
@@ -1651,7 +1474,6 @@ class NifExporter:
             arma = armature to skin to
             """
         log.info("Exporting " + obj.name)
-        workingctx = bpy.context # bpy.context.copy()
         retval = set()
 
         is_skinned = (arma is not None)
@@ -1670,90 +1492,10 @@ class NifExporter:
                 log.warning(f"Exporting to game that doesn't match armature: game={nif.game}, armature={arma.name}")
                 retval.add('GAME')
 
-        originalmesh = obj.data
-        editmesh = originalmesh.copy()
-        loopcolors = None
-        saved_sk = obj.active_shape_key_index
-        obj.data = editmesh
-        try:
-            bpy.ops.object.select_all(action='DESELECT')
-            obj.select_set(True)
-            bpy.context.view_layer.objects.active = obj
+        verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict = \
+           self.extract_mesh_data(obj, target_key)
 
-            # If scales aren't uniform, apply them before export
-            if obj.scale[0] != obj.scale[1] or obj.scale[0] != obj.scale[2]:
-                log.warning(f"Object {obj.name} scale not uniform, applying before export") 
-                self.objs_scale.add('SCALE')
-                bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
-            # This next little dance ensures the mesh.vertices locations are correct
-            obj.active_shape_key_index = 0
-            bpy.ops.object.mode_set(mode = 'EDIT')
-            bpy.ops.object.mode_set(mode = 'OBJECT')
-            #log.debug(f"....Vertex 12 position: {mesh.vertices[12].co}")
-
-            # Can't get custom normals out of a bmesh (known limitation). Can't triangulate
-            # a regular mesh except through the operator. 
-            log.info("..Triangulating mesh")
-            select_all_faces(workingctx, editmesh)
-            bpy.ops.object.mode_set(mode = 'EDIT') # Required to convert to tris
-            bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
-
-            for p in editmesh.polygons:
-                p.use_smooth = True
-
-            editmesh.update()
-         
-            verts, weights_by_vert, morphdict = extract_vert_info(obj, editmesh, target_key)
-
-            bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
-            if len(editmesh.vertex_colors) > 0:
-                loopcolors = [c.color[:] for c in editmesh.vertex_colors.active.data]
-                #log.debug(f"Saved loop colors: {loopcolors}")
-
-            # Apply shape key verts to the mesh so normals will be correct.  If the mesh has
-            # custom normals, fukkit -- use the custom normals and assume the deformation
-            # won't be so great that it looks bad.
-            bpy.ops.object.mode_set(mode = 'OBJECT') 
-            uvlayer = editmesh.uv_layers.active.data
-            if target_key != '' and not editmesh.has_custom_normals:
-                editmesh = mesh_from_key(editmesh, verts, target_key)
-
-            loops, uvs, norms = extract_face_info(workingctx, editmesh, uvlayer, use_loop_normals=editmesh.has_custom_normals)
-    
-            log.info("..Splitting mesh along UV seams")
-            mesh_split_by_uv(verts, norms, loops, uvs, weights_by_vert, morphdict)
-            # Old UV map had dups where verts were split; new matches 1-1 with verts
-            uvmap_new = [(0.0, 0.0)] * len(verts)
-            norms_new = [(0.0, 0.0, 0.0)] * len(verts)
-            for i, lp in enumerate(loops):
-                assert lp < len(verts), f"Error: Invalid vert index in loops: {lp} >= {len(verts)}"
-                uvmap_new[lp] = uvs[i]
-                norms_new[lp] = norms[i]
-            #uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
-            #norms_new = [norms[loops.index(i)] for i in range(len(verts))]
-
-            # Our "loops" list matches 1:1 with the mesh's loops. So we can use the polygons
-            # to pull the loops
-            tris = []
-            for p in editmesh.polygons:
-                tris.append((loops[p.loop_start], loops[p.loop_start+1], loops[p.loop_start+2]))
-
-            #tris = [(loops[i], loops[i+1], loops[i+2]) for i in range(0, len(loops), 3)]
-            colors_new = None
-            if loopcolors:
-                log.debug(f"..Exporting vertex colors for shape {obj.name}")
-                colors_new = [(0.0, 0.0, 0.0, 0.0)] * len(verts)
-                for i, lp in enumerate(loops):
-                    colors_new[lp] = loopcolors[i]
-            else:
-                log.debug(f"..No vertex colors in shape {obj.name}")
-
-        finally:
-            obj.data = originalmesh
-            obj.active_shape_key_index = saved_sk
-
-        is_hp = obj.data.shape_keys \
+        is_headpart = obj.data.shape_keys \
                 and len(nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
 
         obj.data.update()
@@ -1764,7 +1506,7 @@ class NifExporter:
             norms_exp = None
 
         new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_exp, 
-                                            is_hp, is_skinned)
+                                            is_headpart, is_skinned)
         if colors_new:
             new_shape.set_colors(colors_new)
 
@@ -1810,7 +1552,7 @@ class NifExporter:
         else:
             new_shape.transform = new_xform
 
-        retval |= export_tris(nif, trip, obj, verts, tris, loops, uvmap_new, morphdict)
+        retval |= export_tris(nif, trip, obj, verts, tris, uvmap_new, morphdict)
 
         log.info(f"..{obj.name} successfully exported")
         return retval
@@ -2029,12 +1771,13 @@ def run_tests():
     TEST_FACEBONE_EXPORT = False
     TEST_TIGER_EXPORT = False
     TEST_JIARAN = False
-    TEST_SHADER_LE = 1
-    TEST_SHADER_SE = 1
-    TEST_SHADER_FO4 = 1
-    TEST_SHADER_ALPHA = 1
-    TEST_SHEATH = 1
-    TEST_FEET = 1
+    TEST_SHADER_LE = False
+    TEST_SHADER_SE = False
+    TEST_SHADER_FO4 = False
+    TEST_SHADER_ALPHA = False
+    TEST_SHEATH = False
+    TEST_FEET = False
+    TEST_SKYRIM_XFORM = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -3083,6 +2826,26 @@ def run_tests():
         feetShape = nifCheck.shapes[0]
         assert feetShape.string_data[0][0] == 'SDTA', "String data name written correctly"
         assert feetShape.string_data[0][1].startswith('[{"name"'), "String data value written correctly"
+
+    if TEST_BPY_ALL or TEST_SKYRIM_XFORM:
+        print("## TEST_SKYRIM_XFORM: Can read & write the Skyrim shape transforms")
+        
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/MaleHead.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        obj = bpy.context.object
+        assert int(obj.location[2]) == 120, f"Shape offset not applied to head, found {obj.location[2]}"
+
+        e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SKYRIM_XFORM.nif"), "SKYRIM")
+        e.export([obj])
+        
+        nifcheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SKYRIM_XFORM.nif"))
+        headcheck = nifcheck.shapes[0]
+        assert int(headcheck.transform.translation[2]) == 120, f"Shape offset not written correctly, found {headcheck.transform.translation[2]}"
+        assert int(headcheck.global_to_skin.translation[2]) == -120, f"Shape global-to-skin not written correctly, found {headcheck.global_to_skin.translation[2]}"
+
 
 
 # #############################################################################################
