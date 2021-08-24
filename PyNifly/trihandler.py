@@ -27,7 +27,7 @@ updated by anon (me) to work with newer blender ( version 2.63+), I hope
 
 """
 
-# File format:
+# Tri File format:
 # Header
 #   FRTRI003
 #   version number
