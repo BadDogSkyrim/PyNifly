@@ -2,8 +2,8 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = True
-TEST_BPY_ALL = False
+RUN_TESTS = False
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -745,7 +745,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
 # ### ---------------------------- TRI Files -------------------------------- ###
 
-def create_shape_keys(obj, tri:TriFile):
+def create_shape_keys(obj, tri: TriFile):
     """Adds the shape keys in tri to obj 
         """
     mesh = obj.data
@@ -756,6 +756,8 @@ def create_shape_keys(obj, tri:TriFile):
         newsk.name = "Basis"
         mesh.update()
 
+    base_verts = tri.vertices
+
     for morph_name, morph_verts in sorted(tri.morphs.items()):
         if morph_name not in mesh.shape_keys.key_blocks:
             newsk = obj.shape_key_add()
@@ -765,10 +767,14 @@ def create_shape_keys(obj, tri:TriFile):
             #This is a pointer, not a copy
             mesh_key_verts = mesh.shape_keys.key_blocks[obj.active_shape_key_index].data
             #log.debug(f"Morph {morph_name} in tri file should have same number of verts as Blender shape: {len(mesh_key_verts)} != {len(morph_verts)}")
-            for key_vert, morph_vert in zip(mesh_key_verts, morph_verts):
-                key_vert.co[0] = morph_vert[0]
-                key_vert.co[1] = morph_vert[1]
-                key_vert.co[2] = morph_vert[2]
+            # We may be applying the morphs to a different shape than the one stored in 
+            # the tri file. But the morphs in the tri file are absolute locations, as are 
+            # shape key locations. So we need to calculate the offset in the tri and apply that 
+            # to our shape keys.
+            for key_vert, morph_vert, base_vert in zip(mesh_key_verts, morph_verts, base_verts):
+                key_vert.co[0] += morph_vert[0] - base_vert[0]
+                key_vert.co[1] += morph_vert[1] - base_vert[1]
+                key_vert.co[2] += morph_vert[2] - base_vert[2]
         
             mesh.update()
 
@@ -820,17 +826,10 @@ def import_trip(filepath, target_objs):
     return result
 
 
-def import_tri(filepath):
-    cobj = bpy.context.object
-
-    #trip = TripFile.from_file(filepath)
-    #if trip.is_valid:
-    #    if cobj is None or cobj.type != "MESH":
-    #        log.info(f"Loading a Bodyslide TRI -- requires a matching selected mesh")
-    #        raise "Cannot import Bodyslide TRI file without a selected object"
-    #    create_trip_shape_keys(cobj, trip)
-    #    return cobj
-
+def import_tri(filepath, cobj):
+    """ Import the tris from filepath into cobj
+        If cobj is None, create a new object
+        """
     tri = TriFile.from_file(filepath)
 
     new_object = None
@@ -953,7 +952,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
             
             v = import_trip(self.filepath, context.selected_objects)
             if 'WRONGTYPE' in v:
-                import_tri(self.filepath)
+                import_tri(self.filepath, bpy.context.object)
             status.union(v)
         
             for area in bpy.context.screen.areas:
@@ -1777,7 +1776,8 @@ def run_tests():
     TEST_SHADER_ALPHA = False
     TEST_SHEATH = False
     TEST_FEET = False
-    TEST_SKYRIM_XFORM = True
+    TEST_SKYRIM_XFORM = False
+    TEST_TRI2 = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -2249,7 +2249,7 @@ def run_tests():
             bpy.context.view_layer.objects.active = obj
 
         log.debug(f"Importing tri with {bpy.context.object.name} selected")
-        triobj2 = import_tri(testtri2)
+        triobj2 = import_tri(testtri2, obj)
 
         assert len(obj.data.shape_keys.key_blocks) == 47, f"Error: {obj.name} should have enough keys ({len(obj.data.shape_keys.key_blocks)})"
 
@@ -2257,7 +2257,7 @@ def run_tests():
 
         bpy.ops.object.select_all(action='DESELECT')
         bpy.context.view_layer.objects.active = None
-        triobj = import_tri(testtri3)
+        triobj = import_tri(testtri3, None)
         assert triobj.name.startswith("CheetahMaleHead.tri"), f"Error: Should be named like tri file, found {triobj.name}"
         assert "LJaw" in triobj.data.shape_keys.key_blocks.keys(), "Error: Should be no keys missing"
         
@@ -2551,7 +2551,7 @@ def run_tests():
         obj = bpy.context.object
 
         testtri = os.path.join(pynifly_dev_path, r"tests/SKYRIMSE/malehead.tri")
-        import_tri(testtri)
+        import_tri(testtri, obj)
 
         assert len(obj.data.shape_keys.key_blocks) == 45, f"Expected key blocks 45 != {len(obj.data.shape_keys.key_blocks)}"
         assert obj.data.shape_keys.key_blocks[0].name == "Basis", f"Expected first key 'Basis' != {obj.data.shape_keys.key_blocks[0].name}"
@@ -2847,6 +2847,20 @@ def run_tests():
         assert int(headcheck.global_to_skin.translation[2]) == -120, f"Shape global-to-skin not written correctly, found {headcheck.global_to_skin.translation[2]}"
 
 
+    if TEST_BPY_ALL or TEST_TRI2:
+        print("## TEST_TRI2: Test that tris do as expected when the base shape is different")
+        
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/OtterMaleHead.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        obj = bpy.context.object
+        trifile = os.path.join(pynifly_dev_path, r"tests/Skyrim/OtterMaleHeadChargen.tri")
+        import_tri(trifile, obj)
+
+        v1 = obj.data.shape_keys.key_blocks['VampireMorph'].data[1]
+        assert v1.co[0] <= 30, "Shape keys not relative to current mesh"
 
 # #############################################################################################
 #
