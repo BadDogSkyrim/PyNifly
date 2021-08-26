@@ -3,16 +3,19 @@ BodySlide and Outfit Studio
 See the included LICENSE file
 */
 /* *******************************************************
-	Copied from OS with minimal changes to make updating easier
+	PYNIFLY DLL: Copied from OS with minimal changes to make updating easier
 */
 
 #include "Anim.h"
 #include "NifUtil.hpp"
+/* +++ NiflyDLL Changes +++ */
 //#include <wx/log.h>
 //#include <wx/msgdlg.h>
+#include "logger.hpp"
 #include <unordered_set>
 
 //extern ConfigurationManager Config;
+/* +++ NiflyDLL Changes +++ */
 
 using namespace nifly;
 
@@ -21,7 +24,7 @@ bool AnimInfo::AddShapeBone(const std::string& shape, const std::string& boneNam
 		if (!bone.compare(boneName))
 			return false;
 
-	shapeSkinning[shape].boneNames[boneName] = int(shapeBones[shape].size());
+	shapeSkinning[shape].boneNames[boneName] = shapeBones[shape].size();
 	shapeBones[shape].push_back(boneName);
 	AnimSkeleton::getInstance().RefBone(boneName);
 	RecalcXFormSkinToBone(shape, boneName);
@@ -188,7 +191,10 @@ bool AnimInfo::LoadFromNif(NifFile* nif, NiShape* shape, bool newRefNif) {
 
 	std::string shapeName = shape->name.get();
 	if (!nif->GetShapeBoneList(shape, boneNames)) {
-//		wxLogWarning("No skinning found in shape '%s'.", shapeName);
+/* +++ NiflyDLL Changes +++ */
+//		LogWritef("No skinning found in shape '%s'.", shapeName);
+		wxLogWarning("No skinning found in shape '%s'.", shapeName.c_str());
+/* +++ NiflyDLL Changes +++ */
 		return false;
 	}
 
@@ -196,7 +202,7 @@ bool AnimInfo::LoadFromNif(NifFile* nif, NiShape* shape, bool newRefNif) {
 		if (!AnimSkeleton::getInstance().RefBone(bn)) {
 			AnimBone *cstm = AnimSkeleton::getInstance().LoadCustomBoneFromNif(nif, bn);
 			if (!cstm->isStandardBone)
-				nonRefBones += bn + "\n";
+				nonRefBones += bn + ", ";
 			AnimSkeleton::getInstance().RefBone(bn);
 		}
 
@@ -206,7 +212,7 @@ bool AnimInfo::LoadFromNif(NifFile* nif, NiShape* shape, bool newRefNif) {
 	shapeSkinning[shapeName].LoadFromNif(nif, shape);
 
 	if (!nonRefBones.empty())
-		wxLogMessage("Bones in shape '%s' not found in reference skeleton and added as custom bones:\n%s", shapeName, nonRefBones);
+		wxLogMessage("Bones in shape '%s' not found in reference skeleton and added as custom bones: %s", shapeName.c_str(), nonRefBones.c_str());
 
 	return true;
 }
@@ -219,7 +225,7 @@ bool AnimInfo::CloneShape(NifFile* nif, NiShape* shape, const std::string& newSh
 
 	std::vector<std::string> boneNames;
 	if (!nif->GetShapeBoneList(shape, boneNames)) {
-		wxLogWarning("No skinning found in shape '%s'.", shapeName);
+		wxLogWarning("No skinning found in shape '%s'.", shapeName.c_str());
 		return false;
 	}
 
@@ -508,8 +514,11 @@ void AnimInfo::WriteToNif(NifFile* nif, const std::string& shapeException) {
 		}
 	}
 
-	//if (incomplete)
+	if (incomplete)
+/* +++ NiflyDLL Changes +++ */
+		niflydll::LogWriteWf("Bone information incomplete. Exported data will not contain correct bone entries! Be sure to load a reference NIF prior to export.");
 	//	wxMessageBox(_("Bone information incomplete. Exported data will not contain correct bone entries! Be sure to load a reference NIF prior to export."), _("Export Warning"), wxICON_WARNING);
+/* +++ NiflyDLL Changes +++ */
 }
 
 void AnimInfo::RenameShape(const std::string& shapeName, const std::string& newShapeName) {
@@ -568,23 +577,32 @@ void AnimSkeleton::Clear() {
 	rootBone.clear();
 	unknownCount = 0;
 }
-
+/* +++ NiflyDLL Changes +++ */
+//NiflyDLL//int AnimSkeleton::LoadFromNif(const std::string& fileName) {
+//NiflyDLL//Get root from caller, not configuration
 int AnimSkeleton::LoadFromNif(const std::string& fileName, std::string curRootName) {
+/* +++ NiflyDLL Changes +++ */
 	Clear();
 
 	int error = refSkeletonNif.Load(fileName);
 	if (error) {
-		wxLogError("Failed to load skeleton '%s'!", fileName);
-		//NiflyDLL//wxMessageBox(wxString::Format(_("Failed to load skeleton '%s'!"), fileName));
+		wxLogError("Failed to load skeleton '%s'!", fileName.c_str());
+/* +++ NiflyDLL Changes +++ */
+		//wxMessageBox(wxString::Format(_("Failed to load skeleton '%s'!"), fileName));
+/* +++ NiflyDLL Changes +++ */
 		return 1;
 	}
 
+/* +++ NiflyDLL Changes +++ */
 	//NiflyDLL//rootBone = Config["Anim/SkeletonRootName"];
 	rootBone = curRootName;
+/* +++ NiflyDLL Changes +++ */
 	int nodeID = refSkeletonNif.GetBlockID(refSkeletonNif.FindBlockByName<NiNode>(rootBone));
 	if (nodeID == 0xFFFFFFFF) {
-		wxLogError("Root '%s' not found in skeleton '%s'!", rootBone, fileName);
+		wxLogError("Root '%s' not found in skeleton '%s'!", rootBone.c_str(), fileName.c_str());
+/* +++ NiflyDLL Changes +++ */
 		//NiflyDLL//wxMessageBox(wxString::Format(_("Root '%s' not found in skeleton '%s'!"), rootBone, fileName));
+/* +++ NiflyDLL Changes +++ */
 		return 2;
 	}
 
@@ -592,7 +610,7 @@ int AnimSkeleton::LoadFromNif(const std::string& fileName, std::string curRootNa
 	customBones.clear();
 
 	AddStandardBone(rootBone).LoadFromNif(&refSkeletonNif, nodeID, nullptr);
-	wxLogMessage("Loaded skeleton '%s' with root '%s'.", fileName, rootBone);
+	wxLogMessage("Loaded skeleton '%s' with root '%s'.", fileName.c_str(), rootBone.c_str());
 	return 0;
 }
 
@@ -607,11 +625,12 @@ AnimBone& AnimSkeleton::AddCustomBone(const std::string& boneName) {
 }
 
 std::string AnimSkeleton::GenerateBoneName() {
-	//NiflyDLL//return wxString::Format("UnnamedBone_%i", unknownCount++).ToStdString();
+/* +++ NiflyDLL Changes +++ */
+	//return wxString::Format("UnnamedBone_%i", unknownCount++).ToStdString();
 	char buf[256];
 	snprintf(buf, 256, "UnnamedBone_%i", unknownCount++);
 	return std::string(buf);
-	//NiflyDLL//
+/* +++ NiflyDLL Changes +++ */
 }
 
 AnimBone *AnimSkeleton::LoadCustomBoneFromNif(NifFile *nif, const std::string &boneName) {
@@ -688,8 +707,25 @@ bool AnimSkeleton::GetBoneTransformToGlobal(const std::string &boneName, MatTran
 	return true;
 }
 
-int AnimSkeleton::GetActiveBoneNames(std::vector<std::string>& outBoneNames) const {
-	int c = 0;
+size_t AnimSkeleton::GetActiveBoneCount() const {
+	size_t c = 0;
+	for (auto &ab : allBones) {
+		if (ab.second.refCount > 0) {
+			c++;
+		}
+	}
+
+	for (auto &cb : customBones) {
+		if (cb.second.refCount > 0) {
+			c++;
+		}
+	}
+
+	return c;
+}
+
+size_t AnimSkeleton::GetActiveBoneNames(std::vector<std::string>& outBoneNames) const {
+	size_t c = 0;
 	for (auto &ab : allBones) {
 		if (ab.second.refCount > 0) {
 			outBoneNames.push_back(ab.first);
@@ -703,9 +739,9 @@ int AnimSkeleton::GetActiveBoneNames(std::vector<std::string>& outBoneNames) con
 			c++;
 		}
 	}
+
 	return c;
 }
-
 void AnimSkeleton::DisableCustomTransforms() {
 	allowCustomTransforms = false;
 }

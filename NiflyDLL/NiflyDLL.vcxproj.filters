@@ -87,14 +87,14 @@
     <ClInclude Include="..\..\Nifly\external\Miniball.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Anim.h">
-      <Filter>Source Files</Filter>
-    </ClInclude>
     <ClInclude Include="Logger.hpp">
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="resource1.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Anim.h">
+      <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -152,10 +152,10 @@
     <ClCompile Include="..\..\Nifly\src\Skin.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Anim.cpp">
+    <ClCompile Include="Logger.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Logger.cpp">
+    <ClCompile Include="Anim.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

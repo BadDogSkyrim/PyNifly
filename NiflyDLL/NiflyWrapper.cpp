@@ -56,8 +56,8 @@ NIFLY_API void* load(const char8_t* filename) {
 
     if (errval == 0) return nif;
 
-    if (errval == 1) LogWrite("File does not exist or is not a nif");
-    if (errval == 2) LogWrite("File is not a nif format we can read");
+    if (errval == 1) niflydll::LogWrite("File does not exist or is not a nif");
+    if (errval == 2) niflydll::LogWrite("File is not a nif format we can read");
 
     return nullptr;
 }
@@ -260,13 +260,12 @@ NIFLY_API int getShapeBlockName(void* theShape, char* buf, int buflen) {
     return int(strlen(blockname));
 }
 
+NIFLY_API int getVertsForShape(void* theNif, void* theShape, float* buf, int len, int start)
 /*
     Get a shape's verts.
     buf, len = buffer that receives triples. len is length of buffer in floats.
     start = vertex index to start with.
     */
-
-NIFLY_API int getVertsForShape(void* theNif, void* theShape, float* buf, int len, int start)
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
@@ -347,13 +346,23 @@ NIFLY_API int getUVs(void* theNif, void* theShape, float* buf, int len, int star
 
 NIFLY_API void* createNifShapeFromData(void* parentNif,
     const char* shapeName,
-    const float* verts, int verts_len,
-    const uint16_t* tris, int tris_len,
-    const float* uv_points, int uv_len,
-    const float* norms, int norms_len,
+    const float* verts,
+    const float* uv_points,
+    const float* norms,
+    int vertCount,
+    const uint16_t* tris, int triCount,
     uint16_t* optionsPtr = nullptr)
-    // Options == 1: Create SSE head part (so use BSDynamicTriShape)
-    // Options == 2: Create FO4 BSTriShape (default is BSSubindexTriShape)
+    /* Create nif shape from the given data
+    * verts = (float x, float y float z), ... 
+    * uv_points = (float u, float v), matching 1-1 with the verts list
+    * norms = (float, float, float) matching 1-1 with the verts list. May be null.
+    * vertCount = number of verts in verts list (and uv pairs and normals in those lists)
+    * tris = (uint16, uiint16, uint16) indices into the vertex list
+    * triCount = # of tris in the tris list (buffer is 3x as long)
+    * optionsPtr == 1: Create SSE head part (so use BSDynamicTriShape)
+    *            == 2: Create FO4 BSTriShape (default is BSSubindexTriShape)
+    *            may be omitted
+    */
 {
     NifFile* nif = static_cast<NifFile*>(parentNif);
     std::vector<Vector3> v;
@@ -361,32 +370,32 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     std::vector<Vector2> uv;
     std::vector<Vector3> n;
 
-    for (int i = 0; i < verts_len;) {
+    for (int i = 0; i < vertCount; i++) {
         Vector3 thisv;
-        thisv[0] = verts[i++];
-        thisv[1] = verts[i++];
-        thisv[2] = verts[i++];
+        thisv[0] = verts[i*3];
+        thisv[1] = verts[i*3 + 1];
+        thisv[2] = verts[i*3 + 2];
         v.push_back(thisv);
-    }
-    for (int i = 0; i < tris_len;) {
-        Triangle thist;
-        thist[0] = tris[i++];
-        thist[1] = tris[i++];
-        thist[2] = tris[i++];
-        t.push_back(thist);
-    }
-    for (int i = 0; i < uv_len;) {
+
         Vector2 thisuv;
-        thisuv.u = uv_points[i++];
-        thisuv.v = uv_points[i++];
+        thisuv.u = uv_points[i*2];
+        thisuv.v = uv_points[i*2+1];
         uv.push_back(thisuv);
+
+        if (norms) {
+            Vector3 thisnorm;
+            thisnorm[0] = norms[i*3];
+            thisnorm[1] = norms[i*3+1];
+            thisnorm[2] = norms[i*3+2];
+            n.push_back(thisnorm);
+        };
     }
-    for (int i = 0; i < norms_len;) {
-        Vector3 thisnorm;
-        thisnorm[0] = norms[i++];
-        thisnorm[1] = norms[i++];
-        thisnorm[2] = norms[i++];
-        n.push_back(thisnorm);
+    for (int i = 0; i < triCount; i++) {
+        Triangle thist;
+        thist[0] = tris[i*3];
+        thist[1] = tris[i*3+1];
+        thist[2] = tris[i*3+2];
+        t.push_back(thist);
     }
 
     if (optionsPtr)
@@ -550,9 +559,11 @@ NIFLY_API int getShapeBoneNames(void* theNif, void* theShape, char* buf, int buf
         if (s.length() > 0) s += "\n";
         s += sn;
     }
-    int copylen = std::min((int)buflen - 1, (int)s.length());
-    s.copy(buf, copylen, 0);
-    buf[copylen] = '\0';
+    if (buf) {
+        int copylen = std::min((int)buflen - 1, (int)s.length());
+        s.copy(buf, copylen, 0);
+        buf[copylen] = '\0';
+    };
 
     return(int(s.length()));
 }
@@ -984,17 +995,22 @@ NIFLY_API int getPartitionTris(void* nifref, void* shaperef, uint16_t* tris, int
 NIFLY_API void setPartitions(void* nifref, void* shaperef,
     uint16_t* partData, int partDataLen,
     uint16_t* tris, int triLen)
-    // Needs to be called AFTER bone weights are set
+    /* partData = (uint16 flags, uint16 partID)... where partID is the body part ID
+    * partDataLen = length of the buffer in uint16s
+    * tris = list of segment indices matching 1-1 with shape triangles
+    * 
+        >>Needs to be called AFTER bone weights are set
+    */
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
     NiVector<BSDismemberSkinInstance::PartitionInfo> partInfos;
     std::vector<int> triParts;
 
-    for (int i = 0; i < partDataLen; i++) {
+    for (int i = 0; i < partDataLen*2; i += 2) {
         BSDismemberSkinInstance::PartitionInfo p;
-        p.partID = partData[i];
-        p.flags = PF_EDITOR_VISIBLE;
+        p.flags = static_cast<PartitionFlags>(partData[i]);
+        p.partID = partData[i+1];
         partInfos.push_back(p);
     }
 
@@ -1005,20 +1021,20 @@ NIFLY_API void setPartitions(void* nifref, void* shaperef,
     nif->SetShapePartitions(shape, partInfos, triParts, true);
     nif->UpdateSkinPartitions(shape);
 }
-/*
-* Create segments and subsegments in the nif
-* segData = [part_id, ...] list of internal IDs for each segment
-* subsegData = [[part_id, parent_id, user_slot, material], ...]
-* tris = [part_id, ...] matches 1:1 with the shape's tris, indicates which subsegment
-*   it's a part of
-* filename = null-terminated filename
-*/
 
 NIFLY_API void setSegments(void* nifref, void* shaperef,
     uint16_t* segData, int segDataLen,
     uint32_t* subsegData, int subsegDataLen,
     uint16_t* tris, int triLen,
     const char* filename)
+    /*
+    * Create segments and subsegments in the nif
+    * segData = [part_id, ...] list of internal IDs for each segment
+    * subsegData = [[part_id, parent_id, user_slot, material], ...]
+    * tris = [part_id, ...] matches 1:1 with the shape's tris, indicates which subsegment
+    *   it's a part of
+    * filename = null-terminated filename
+    */
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
@@ -1092,4 +1108,173 @@ NIFLY_API void setColorsForShape(void* nifref, void* shaperef, float* colors, in
         theColors.push_back(c);
     }
     nif->SetColorsForShape(shape->name.get(), theColors);
+}
+
+/* ***************************** EXTRA DATA ***************************** */
+
+int getStringExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen)
+/* Treats the NiStringExtraData nodes in the nif like an array--idx indicates
+    which to return (0-based).
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+
+    //NiShape* shape = static_cast<NiShape*>(shaperef);
+    NiAVObject* source = nullptr;
+    if (shaperef)
+        source = static_cast<NiAVObject*>(shaperef);
+    else
+        source = nif->GetRootNode();
+
+    int i = idx;
+    for (auto& extraData : source->extraDataRefs) {
+        NiStringExtraData* strData = hdr.GetBlock<NiStringExtraData>(extraData);
+        if (strData) {
+            if (i == 0) {
+                *namelen = int(strData->name.get().size());
+                *valuelen = int(strData->stringData.get().size());
+                return 1;
+            }
+            else
+                i--;
+        }
+    }
+    return 0;
+};
+
+int getStringExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen)
+/* Treats the NiStringExtraData nodes in the nif like an array--idx indicates
+    which to return (0-based).
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+
+    //NiShape* shape = static_cast<NiShape*>(shaperef);
+    NiAVObject* source = nullptr;
+    if (shaperef)
+        source = static_cast<NiAVObject*>(shaperef);
+    else
+        source = nif->GetRootNode();
+
+    int i = idx;
+    for (auto& extraData : source->extraDataRefs) {
+        NiStringExtraData* strData = hdr.GetBlock<NiStringExtraData>(extraData);
+        if (strData) {
+            if (i == 0) {
+                strncpy_s(name, namelen, strData->name.get().c_str(), namelen - 1);
+                strncpy_s(buf, buflen, strData->stringData.get().c_str(), buflen - 1);
+                return 1;
+            }
+            else
+                i--;
+        }
+    }
+    return 0;
+};
+
+void setStringExtraData(void* nifref, void* shaperef, char* name, char* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiAVObject* target = nullptr;
+    if (shaperef)
+        target = static_cast<NiAVObject*>(shaperef);
+    else
+        target = nif->GetRootNode();
+    
+    if (target) {
+        auto strdata = std::make_unique<NiStringExtraData>();
+        strdata->name.get() = name;
+        strdata->stringData.get() = buf;
+        nif->AssignExtraData(target, std::move(strdata));
+    }
+};
+
+int getBGExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* datalen)
+/* Treats the NiBehaviorGraphExtraData nodes in the nif like an array--idx indicates
+    which to return (0-based).
+    Returns T/F depending on whether extra data exists
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+
+    //NiShape* shape = static_cast<NiShape*>(shaperef);
+    NiAVObject* source = nullptr;
+    if (shaperef)
+        source = static_cast<NiAVObject*>(shaperef);
+    else
+        source = nif->GetRootNode();
+
+    int i = idx;
+    for (auto& extraData : source->extraDataRefs) {
+        BSBehaviorGraphExtraData* bgData = hdr.GetBlock<BSBehaviorGraphExtraData>(extraData);
+        if (bgData) {
+            if (i == 0) {
+                *namelen = int(bgData->name.get().size());
+                *datalen = int(bgData->behaviorGraphFile.get().size());
+                return 1;
+            }
+            else
+                i--;
+        }
+    }
+    return 0;
+};
+int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen)
+/* Treats the NiBehaviorGraphExtraData nodes in the nif like an array--idx indicates
+    which to return (0-based).
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+
+    //NiShape* shape = static_cast<NiShape*>(shaperef);
+    NiAVObject* source = nullptr;
+    if (shaperef)
+        source = static_cast<NiAVObject*>(shaperef);
+    else
+        source = nif->GetRootNode();
+
+    int i = idx;
+    for (auto& extraData : source->extraDataRefs) {
+        BSBehaviorGraphExtraData* bgData = hdr.GetBlock<BSBehaviorGraphExtraData>(extraData);
+        if (bgData) {
+            if (i == 0) {
+                strncpy_s(name, namelen, bgData->name.get().c_str(), namelen - 1);
+                strncpy_s(buf, buflen, bgData->behaviorGraphFile.get().c_str(), buflen - 1);
+                return 1;
+            }
+            else
+                i--;
+        }
+    }
+    return 0;
+};
+
+void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiAVObject* target = nullptr;
+    if (shaperef)
+        target = static_cast<NiAVObject*>(shaperef);
+    else
+        target = nif->GetRootNode();
+
+    if (target) {
+        auto strdata = std::make_unique<BSBehaviorGraphExtraData>();
+        strdata->name.get() = name;
+        strdata->behaviorGraphFile.get() = buf;
+        nif->AssignExtraData(target, std::move(strdata));
+    }
+};
+
+/* ********************* ERROR REPORTING ********************* */
+
+void clearMessageLog() {
+    niflydll::LogInit();
+};
+
+int getMessageLog(char* buf, int buflen) {
+    return niflydll::LogGet(buf, buflen);
+    //return niflydll::LogGetLen();
 }
