@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
+RUN_TESTS = True
 TEST_BPY_ALL = True
 
 
@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (0, 0, 49),  
+    "version": (1, 0, 0),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -70,6 +70,11 @@ from bpy_extras.io_utils import (
         ExportHelper)
 import bmesh
 
+NO_PARTITION_GROUP = "*NO_PARTITIONS*"
+MULTIPLE_PARTITION_GROUP = "*MULTIPLE_PARTITIONS*"
+UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
+
+GLOSS_SCALE = 100
 
 #log.setLevel(logging.DEBUG)
 #pynifly_ch = logging.StreamHandler()
@@ -85,6 +90,81 @@ import bmesh
 #                                                                          ###
 # ######################################################################## ###
 
+# -----------------------------  EXTRA DATA  -------------------------------
+
+def import_extra(f: NifFile):
+    """ Import any extra data from the root, and create corresponding shapes 
+        Returns a list of the new extradata objects
+    """
+    extradata = []
+    loc = [0.0, 0.0, 0.0]
+
+    for s in f.string_data:
+        bpy.ops.object.add(radius=1.0, type='EMPTY', location=loc)
+        ed = bpy.context.object
+        ed.name = "NiStringExtraData"
+        ed.show_name = True
+        ed['NiStringExtraData_Name'] = s[0]
+        ed['NiStringExtraData_Value'] = s[1]
+        loc[0] += 3.0
+        extradata.append(ed)
+
+    for s in f.behavior_graph_data:
+        bpy.ops.object.add(radius=1.0, type='EMPTY', location=loc)
+        ed = bpy.context.object
+        ed.name = "BSBehaviorGraphExtraData"
+        ed.show_name = True
+        ed['BSBehaviorGraphExtraData_Name'] = s[0]
+        ed['BSBehaviorGraphExtraData_Value'] = s[1]
+        loc[0] += 3.0
+        extradata.append(ed)
+
+    return extradata
+
+
+def import_shape_extra(obj, shape):
+    """ Import any extra data from the shape if given or the root if not, and create 
+    corresponding shapes """
+    extradata = []
+    loc = list(obj.location)
+
+    for s in shape.string_data:
+        bpy.ops.object.add(radius=1.0, type='EMPTY', location=loc)
+        ed = bpy.context.object
+        ed.name = "NiStringExtraData"
+        ed.show_name = True
+        ed['NiStringExtraData_Name'] = s[0]
+        ed['NiStringExtraData_Value'] = s[1]
+        ed.parent = obj
+        loc[0] += 3.0
+        extradata.append(ed)
+
+    for s in shape.behavior_graph_data:
+        bpy.ops.object.add(radius=1.0, type='EMPTY', location=loc)
+        ed = bpy.context.object
+        ed.name = "BSBehaviorGraphExtraData"
+        ed.show_name = True
+        ed['BSBehaviorGraphExtraData_Name'] = s[0]
+        ed['BSBehaviorGraphExtraData_Value'] = s[1]
+        ed.parent = obj
+        loc[0] += 3.0
+        extradata.append(ed)
+
+    return extradata
+
+
+def export_shape_data(obj, shape):
+    ed = [ (x['NiStringExtraData_Name'], x['NiStringExtraData_Value']) for x in \
+            obj.children if 'NiStringExtraData_Name' in x.keys()]
+    if len(ed) > 0:
+        shape.string_data = ed
+    
+    ed = [ (x['BSBehaviorGraphExtraData_Name'], x['BSBehaviorGraphExtraData_Value']) for x in \
+            obj.children if 'BSBehaviorGraphExtraData_Name' in x.keys()]
+    if len(ed) > 0:
+        shape.behavior_graph_data = ed
+
+
 # -----------------------------  SHADERS  -------------------------------
 
 
@@ -99,7 +179,7 @@ def import_shader_attrs(material, shader, shape):
     shader.inputs['Emission Strength'].default_value = attrs.Emissive_Mult
     shader.inputs['Alpha'].default_value = attrs.Alpha
     material['BSLSP_Refraction_Str'] = attrs.Refraction_Str
-    shader.inputs['Metallic'].default_value = attrs.Glossiness
+    shader.inputs['Metallic'].default_value = attrs.Glossiness/GLOSS_SCALE
     material['BSLSP_Spec_Color_R'] = attrs.Spec_Color_R
     material['BSLSP_Spec_Color_G'] = attrs.Spec_Color_G
     material['BSLSP_Spec_Color_B'] = attrs.Spec_Color_B
@@ -115,8 +195,10 @@ def import_shader_alpha(mat, shape):
         mat.alpha_threshold = shape.alpha_property.threshold
         if shape.alpha_property.flags & 1:
             mat.blend_method = 'BLEND'
+            mat.alpha_threshold = shape.alpha_property.threshold/255
         else:
             mat.blend_method = 'CLIP'
+            mat.alpha_threshold = shape.alpha_property.threshold/255
         mat['NiAlphaProperty_flags'] = shape.alpha_property.flags
         mat['NiAlphaProperty_threshold'] = shape.alpha_property.threshold
         return True
@@ -133,9 +215,12 @@ def obj_create_material(obj, shape):
     nifpath = shape.parent.filepath
 
     fulltextures = extend_filenames(nifpath, "meshes", shape.textures)
-    if not check_files(fulltextures):
-        log.debug(f". . texture files not available, not creating material: \n\tnif path = {nifpath}\n\t textures = {fulltextures}")
-        return
+    missing = missing_files(fulltextures)
+    if len(missing) > 0:
+        log.warning(f". . Some texture files not found: {missing}")
+    #if not check_files(fulltextures):
+    #    log.debug(f". . texture files not available, not creating material: \n\tnif path = {nifpath}\n\t textures = {fulltextures}")
+    #    return
     log.debug(". . creating material")
 
     mat = bpy.data.materials.new(name=(obj.name + ".Mat"))
@@ -150,10 +235,12 @@ def obj_create_material(obj, shape):
 
     # --- Diffuse --
 
-    img = bpy.data.images.load(fulltextures[0], check_existing=True)
-
     txtnode = nodes.new("ShaderNodeTexImage")
-    txtnode.image = img
+    try:
+        img = bpy.data.images.load(fulltextures[0], check_existing=True)
+        txtnode.image = img
+    except:
+        pass
     txtnode.location = (bdsf.location[0] + img_offset_x, bdsf.location[1])
     
     mat.node_tree.links.new(txtnode.outputs['Color'], bdsf.inputs['Base Color'])
@@ -166,10 +253,13 @@ def obj_create_material(obj, shape):
 
     if fulltextures[2] != "": 
         # Have a sk separate from a specular
-        skimg = bpy.data.images.load(fulltextures[2], check_existing=True)
-        skimg.colorspace_settings.name = "Non-Color"
         skimgnode = nodes.new("ShaderNodeTexImage")
-        skimgnode.image = skimg
+        try:
+            skimg = bpy.data.images.load(fulltextures[2], check_existing=True)
+            skimg.colorspace_settings.name = "Non-Color"
+            skimgnode.image = skimg
+        except:
+            pass
         skimgnode.location = (txtnode.location[0], yloc)
         mat.node_tree.links.new(skimgnode.outputs['Color'], bdsf.inputs["Subsurface Color"])
         yloc = skimgnode.location[1] + offset_y
@@ -177,10 +267,13 @@ def obj_create_material(obj, shape):
     # --- Specular --- 
 
     if fulltextures[7] != "":
-        simg = bpy.data.images.load(fulltextures[7], check_existing=True)
-        simg.colorspace_settings.name = "Non-Color"
         simgnode = nodes.new("ShaderNodeTexImage")
-        simgnode.image = simg
+        try:
+            simg = bpy.data.images.load(fulltextures[7], check_existing=True)
+            simg.colorspace_settings.name = "Non-Color"
+            simgnode.image = simg
+        except:
+            pass
         simgnode.location = (txtnode.location[0], yloc)
 
         if shape.parent.game in ["FO4"]:
@@ -192,6 +285,7 @@ def obj_create_material(obj, shape):
             mat.node_tree.links.new(seprgb.outputs['G'], bdsf.inputs['Metallic'])
         else:
             mat.node_tree.links.new(simgnode.outputs['Color'], bdsf.inputs['Specular'])
+            # bdsf.inputs['Metallic'].default_value = 0
             
         yloc = simgnode.location[1] + offset_y
 
@@ -205,10 +299,13 @@ def obj_create_material(obj, shape):
             nmap.space = "TANGENT"
         nmap.location = (bdsf.location[0] + cvt_offset_x, yloc)
         
-        nimg = bpy.data.images.load(fulltextures[1], check_existing=True) 
-        nimg.colorspace_settings.name = "Non-Color"
         nimgnode = nodes.new("ShaderNodeTexImage")
-        nimgnode.image = nimg
+        try:
+            nimg = bpy.data.images.load(fulltextures[1], check_existing=True) 
+            nimg.colorspace_settings.name = "Non-Color"
+            nimgnode.image = nimg
+        except:
+            pass
         nimgnode.location = (txtnode.location[0], yloc)
         
         if shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
@@ -262,7 +359,7 @@ def export_shader_attrs(obj, shader, shape):
     shape.shader_attributes.Alpha = shader.inputs['Alpha'].default_value
     if 'BSLSP_Refraction_Str' in mat.keys():
         shape.Refraction_Str = mat['BSLSP_Refraction_Str']
-    shape.shader_attributes.Glossiness = shader.inputs['Metallic'].default_value
+    shape.shader_attributes.Glossiness = shader.inputs['Metallic'].default_value * GLOSS_SCALE
     if 'BSLSP_Spec_Color_R' in mat.keys():
         shape.shader_attributes.Spec_Color_R = mat['BSLSP_Spec_Color_R']
     if 'BSLSP_Spec_Color_G' in mat.keys():
@@ -304,6 +401,7 @@ def export_shader(obj, shape):
     nodelist = obj.active_material.node_tree.nodes
     
     # Texture paths
+    norm_txt_node = None
     shader_node = find_shader_node(nodelist, 'ShaderNodeBsdfPrincipled')
     if shader_node:
         export_shader_attrs(obj, shader_node, shape)
@@ -368,10 +466,11 @@ def export_shader(obj, shape):
                 shape.alpha_property.flags = mat['NiAlphaProperty_flags']
             else:
                 shape.alpha_property.flags = 4844
-            if 'NiAlphaProperty_threshold' in mat.keys():
-                shape.alpha_property.threshold = mat['NiAlphaProperty_threshold']
-            else:
-                shape.alpha_property.threshold = 128
+            shape.alpha_property.threshold = int(mat.alpha_threshold * 255)
+            #if 'NiAlphaProperty_threshold' in mat.keys():
+            #    shape.alpha_property.threshold = mat['NiAlphaProperty_threshold']
+            #else:
+            #    shape.alpha_property.threshold = 128
             shape.save_alpha_property()
 
     else:
@@ -437,13 +536,19 @@ def import_colors(mesh, shape):
 
 
 def import_shape(the_shape: NiShape):
-    """ Import the shape to a Blender object, translating bone names """
+    """ Import the shape to a Blender object, translating bone names 
+        Returns a list of objects created. Might be more than one because of extra data nodes.
+    """
     v = the_shape.verts
     t = the_shape.tris
+
+    objects_created = []
 
     new_mesh = bpy.data.meshes.new(the_shape.name)
     new_mesh.from_pydata(v, [], t)
     new_object = bpy.data.objects.new(the_shape.name, new_mesh)
+    objects_created.append(new_object)
+    
     import_colors(new_mesh, the_shape)
 
     # Global-to-skin transform is what offsets all the vertices together, e.g. so that
@@ -458,6 +563,7 @@ def import_shape(the_shape: NiShape):
     new_object.location = inv_xf.translation
     # vv Use matrix here instead of conversion?
     new_object.rotation_euler[0], new_object.rotation_euler[1], new_object.rotation_euler[2] = inv_xf.rotation.euler_deg()
+    log.debug(f"..Object {new_object.name} created at {new_object.location[:]}")
 
     mesh_create_uv(new_object.data, the_shape.uvs)
     mesh_create_bone_groups(the_shape, new_object)
@@ -470,7 +576,9 @@ def import_shape(the_shape: NiShape):
 
     obj_create_material(new_object, the_shape)
 
-    return new_object
+    objects_created.extend(import_shape_extra(new_object, the_shape))
+
+    return objects_created
 
 def add_bone_to_arma(armdata, name, nif):
     """ Add bone to armature. Bone may come from nif or reference skeleton.
@@ -544,25 +652,27 @@ def connect_armature(arm_data, the_nif):
                     arma_bone.parent = arm_data.edit_bones[parentname]
         i += 1
 
-def make_armature(the_coll, the_nif, bone_names):
+def make_armature(the_coll, the_nif, bone_names, armature):
     """ Make a Blender armature from the given info. 
         the_coll = Collection to put the armature in. If the current active object is an
             armature, they will be added to it instead of creating a new one.
         the_nif = Nif file to read bone data from
         bone_names = bones to include in the armature. Additional bones will be added from
             the reference skeleton as needed to connect every bone to the skeleton root.
+        armature = existing armature to add the new bones to. May be None.
         Returns: New armature, set as active object
         """
-    if bpy.context.object and bpy.context.object.type == "ARMATURE":
-        arm_ob = bpy.context.object
-    else:
-        bpy.ops.object.select_all(action='DESELECT')
+    if armature is None:
+        log.debug(f"..Creating new armature for the import")
         arm_data = bpy.data.armatures.new(the_nif.rootName)
         arm_ob = bpy.data.objects.new(the_nif.rootName, arm_data)
         the_coll.objects.link(arm_ob)
-        arm_ob.select_set(True)
-        bpy.context.view_layer.objects.active = arm_ob
+    else:
+        arm_ob = armature
 
+    bpy.ops.object.select_all(action='DESELECT')
+    arm_ob.select_set(True)
+    bpy.context.view_layer.objects.active = arm_ob
     bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
     bpy.ops.object.mode_set(mode='EDIT', toggle=False)
     
@@ -577,34 +687,45 @@ def make_armature(the_coll, the_nif, bone_names):
     #print(f"***All armature '{arm_ob.name}' bones: " + str(list(arm_ob.data.bones.keys())))
     return arm_ob
 
+
 def import_nif(f: NifFile):
     new_collection = bpy.data.collections.new(os.path.basename(f.filepath))
     bpy.context.scene.collection.children.link(new_collection)
+    bpy.context.view_layer.active_layer_collection \
+         = bpy.context.view_layer.layer_collection.children[new_collection.name]
+    
+    arma = None
+    if bpy.context.object and bpy.context.object.type == "ARMATURE":
+        arma = bpy.context.object
+        log.debug(f"..Current object is an armature, parenting shapes to {arma.name}")
 
     log.info("..Importing " + f.game + " file")
     bones = set()
     new_objs = []
 
+    # Import shapes
     for s in f.shapes:
         for n in s.bone_names: 
-            log.debug(f"....adding bone {n} for {s.name}")
+            #log.debug(f"....adding bone {n} for {s.name}")
             bones.add(n) 
         if f.game == 'FO4' and fo4FaceDict.matches(bones) > 10:
             f.dict = fo4FaceDict
 
-        obj = import_shape(s)
-        new_objs.append(obj)
-        new_collection.objects.link(obj)
+        objs = import_shape(s)
+        new_objs.append(objs[0])
+        new_collection.objects.link(objs[0])
+        #for o in objs:
+        #    log.debug(f"..Linking object {o.name} to collection {new_collection.name}")
+        #    new_collection.objects.link(o)
 
-    for o in new_objs: o.select_set(True)
-
+    # Import armature
     if len(bones) > 0 or len(f.shapes) == 0:
-        if len(bones) == 0:
+        if len(f.shapes) == 0:
             log.debug(f"....No shapes in nif, importing bones as skeleton")
             bones = set(f.nodes.keys())
         else:
             log.debug(f"....Found bones, creating armature")
-        arma = make_armature(new_collection, f, bones)
+        arma = make_armature(new_collection, f, bones, arma)
         
         if len(new_objs) > 0:
             for o in new_objs: o.select_set(True)
@@ -612,6 +733,12 @@ def import_nif(f: NifFile):
         else:
             arma.select_set(True)
     
+    # Import nif-level extra data
+    objs = import_extra(f)
+    #for o in objs:
+    #    new_collection.objects.link(o)
+
+    for o in new_objs: o.select_set(True)
     if len(new_objs) > 0:
         bpy.context.view_layer.objects.active = new_objs[0]
 
@@ -653,7 +780,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
 # ### ---------------------------- TRI Files -------------------------------- ###
 
-def create_shape_keys(obj, tri:TriFile):
+def create_shape_keys(obj, tri: TriFile):
     """Adds the shape keys in tri to obj 
         """
     mesh = obj.data
@@ -664,6 +791,8 @@ def create_shape_keys(obj, tri:TriFile):
         newsk.name = "Basis"
         mesh.update()
 
+    base_verts = tri.vertices
+
     for morph_name, morph_verts in sorted(tri.morphs.items()):
         if morph_name not in mesh.shape_keys.key_blocks:
             newsk = obj.shape_key_add()
@@ -673,10 +802,14 @@ def create_shape_keys(obj, tri:TriFile):
             #This is a pointer, not a copy
             mesh_key_verts = mesh.shape_keys.key_blocks[obj.active_shape_key_index].data
             #log.debug(f"Morph {morph_name} in tri file should have same number of verts as Blender shape: {len(mesh_key_verts)} != {len(morph_verts)}")
-            for key_vert, morph_vert in zip(mesh_key_verts, morph_verts):
-                key_vert.co[0] = morph_vert[0]
-                key_vert.co[1] = morph_vert[1]
-                key_vert.co[2] = morph_vert[2]
+            # We may be applying the morphs to a different shape than the one stored in 
+            # the tri file. But the morphs in the tri file are absolute locations, as are 
+            # shape key locations. So we need to calculate the offset in the tri and apply that 
+            # to our shape keys.
+            for key_vert, morph_vert, base_vert in zip(mesh_key_verts, morph_verts, base_verts):
+                key_vert.co[0] += morph_vert[0] - base_vert[0]
+                key_vert.co[1] += morph_vert[1] - base_vert[1]
+                key_vert.co[2] += morph_vert[2] - base_vert[2]
         
             mesh.update()
 
@@ -728,17 +861,10 @@ def import_trip(filepath, target_objs):
     return result
 
 
-def import_tri(filepath):
-    cobj = bpy.context.object
-
-    #trip = TripFile.from_file(filepath)
-    #if trip.is_valid:
-    #    if cobj is None or cobj.type != "MESH":
-    #        log.info(f"Loading a Bodyslide TRI -- requires a matching selected mesh")
-    #        raise "Cannot import Bodyslide TRI file without a selected object"
-    #    create_trip_shape_keys(cobj, trip)
-    #    return cobj
-
+def import_tri(filepath, cobj):
+    """ Import the tris from filepath into cobj
+        If cobj is None, create a new object
+        """
     tri = TriFile.from_file(filepath)
 
     new_object = None
@@ -781,7 +907,7 @@ def import_tri(filepath):
     return new_object
 
 
-def export_tris(nif, trip, obj, verts, tris, loops, uvs, morphdict):
+def export_tris(nif, trip, obj, verts, tris, uvs, morphdict):
     """ Export a tri file to go along with the given nif file, if there are shape keys 
         and it's not a faceBones nif.
         dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
@@ -861,7 +987,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
             
             v = import_trip(self.filepath, context.selected_objects)
             if 'WRONGTYPE' in v:
-                import_tri(self.filepath)
+                import_tri(self.filepath, bpy.context.object)
             status.union(v)
         
             for area in bpy.context.screen.areas:
@@ -886,7 +1012,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
 def clean_filename(fn):
     return "".join(c for c in fn.strip() if (c.isalnum() or c in "._- "))
 
-def select_all_faces(workingctx, mesh):
+def select_all_faces(mesh):
     """ Make sure all mesh elements are visible and all faces are selected """
     bpy.ops.object.mode_set(mode = 'OBJECT') # Have to be in object mode
 
@@ -899,7 +1025,7 @@ def select_all_faces(workingctx, mesh):
         p.select = True
 
 
-def extract_face_info(ctxt, mesh, uvlayer, use_loop_normals=False):
+def extract_face_info(mesh, uvlayer, use_loop_normals=False):
     """ Extract face info from the mesh. Mesh is triangularized. 
         Return 
         loops = [vert-index, ...] list of vert indices in loops (which are tris)
@@ -1001,6 +1127,7 @@ def export_skin(obj, arma, new_shape, new_xform, weights_by_vert):
     #    new_shape.set_global_to_skindata(new_xform.invert())
     #else:
     #    new_shape.set_global_to_skin(new_xform.invert())
+    new_shape.transform = new_xform
     new_shape.set_global_to_skin(new_xform.invert())
     
     group_names = [g.name for g in obj.vertex_groups]
@@ -1036,10 +1163,12 @@ def tag_unweighted(obj, bones):
 
 
 def create_group_from_verts(obj, name, verts):
-    """ Create a new vertex group from the list of vertex indices """
-    if name in obj.vertex_groups:
-        obj.vertex_groups.remove(obj.vertex_groups[name])
-    g = obj.vertex_groups.new(name=name)
+    """ Create a vertex group from the list of vertex indices.
+    Use the existing group if any """
+    if name in obj.vertex_groups.keys():
+        g = obj.vertex_groups[name]
+    else:
+        g = obj.vertex_groups.new(name=name)
     g.add(verts, 1.0, 'REPLACE')
 
 
@@ -1114,37 +1243,6 @@ def all_vertex_groups(weightdict):
     return val
 
 
-def export_partitions(obj, weights_by_vert, tris):
-    """ Export partitions described by vertex groups
-        weights = [dict[group-name: weight], ...] vertex weights, 1:1 with verts. For 
-            partitions, can assume the weights are 1.0
-        tris = [(v1, v2, v3)...] where v1-3 are indices into the vertex list
-    """
-    log.debug(f"..Exporting partitions")
-    partitions = partitions_from_vert_groups(obj)
-    log.debug(f"....Found partitions {list(partitions.keys())}")
-
-    if len(partitions) == 0:
-        return [], []
-
-    partition_set = set(list(partitions.keys()))
-
-    tri_indices = [0] * len(tris)
-
-    for i, t in enumerate(tris):
-        # All 3 have to be in the vertex group to count
-        vg0 = all_vertex_groups(weights_by_vert[t[0]])
-        vg1 = all_vertex_groups(weights_by_vert[t[1]])
-        vg2 = all_vertex_groups(weights_by_vert[t[2]])
-        tri_partitions = vg0.intersection(vg1).intersection(vg2).intersection(partition_set)
-        if len(tri_partitions) > 0:
-            if len(tri_partitions) > 1:
-                log.warning(f"....Found multiple partitions for tri {t}: {tri_partitions}")
-            tri_indices[i] = partitions[next(iter(tri_partitions))].id
-
-    return list(partitions.values()), tri_indices
-
-
 def mesh_from_key(editmesh, verts, target_key):
     faces = []
     for p in editmesh.polygons:
@@ -1154,172 +1252,6 @@ def mesh_from_key(editmesh, verts, target_key):
     newmesh = bpy.data.meshes.new(editmesh.name)
     newmesh.from_pydata(newverts, [], faces)
     return newmesh
-
-def export_shape(nif, trip, obj, target_key='', arma=None):
-    """Export given blender object to the given NIF file
-        nif = target nif file
-        trip = target file for BS Tri shapes
-        obj = blender object
-        target_key = shape key to export
-        arma = armature to skin to
-        """
-    log.info("Exporting " + obj.name)
-    workingctx = bpy.context # bpy.context.copy()
-    retval = {'FINISHED'}
-
-    is_skinned = (arma is not None)
-    unweighted = []
-    if "*UNWEIGHTED*" in obj.vertex_groups:
-        obj.vertex_groups.remove(obj.vertex_groups["*UNWEIGHTED*"])
-        
-    if is_skinned:
-        # Get unweighted bones before we muck up the list by splitting edges
-        unweighted = tag_unweighted(obj, arma.data.bones.keys())
-        if not expected_game(nif, arma.data.bones):
-            log.warning(f"Exporting to game that doesn't match armature: game={nif.game}, armature={arma.name}")
-            retval.add('GAME')
-
-    originalmesh = obj.data
-    editmesh = originalmesh.copy()
-    loopcolors = None
-    saved_sk = obj.active_shape_key_index
-    obj.data = editmesh
-    try:
-        bpy.ops.object.select_all(action='DESELECT')
-        obj.select_set(True)
-
-        # If scales aren't uniform, apply them before export
-        if obj.scale[0] != obj.scale[1] or obj.scale[0] != obj.scale[2]:
-            log.warning("Object scale not uniform, applying before export") # apply scale to verts?   
-            retval.add('SCALE')
-            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
-        # This next little dance ensures the mesh.vertices locations are correct
-        obj.active_shape_key_index = 0
-        bpy.ops.object.mode_set(mode = 'EDIT')
-        bpy.ops.object.mode_set(mode = 'OBJECT')
-        #log.debug(f"....Vertex 12 position: {mesh.vertices[12].co}")
-
-        # Can't get custom normals out of a bmesh (known limitation). Can't triangulate
-        # a regular mesh except through the operator. 
-        log.info("..Triangulating mesh")
-        select_all_faces(workingctx, editmesh)
-        bpy.ops.object.mode_set(mode = 'EDIT') # Required to convert to tris
-        bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
-
-        for p in editmesh.polygons:
-            p.use_smooth = True
-
-        editmesh.update()
-         
-        verts, weights_by_vert, morphdict = extract_vert_info(obj, editmesh, target_key)
-
-        bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
-        if len(editmesh.vertex_colors) > 0:
-            loopcolors = [c.color[:] for c in editmesh.vertex_colors.active.data]
-            #log.debug(f"Saved loop colors: {loopcolors}")
-
-        # Apply shape key verts to the mesh so normals will be correct.  If the mesh has
-        # custom normals, fukkit -- use the custom normals and assume the deformation
-        # won't be so great that it looks bad.
-        bpy.ops.object.mode_set(mode = 'OBJECT') 
-        uvlayer = editmesh.uv_layers.active.data
-        if target_key != '' and not editmesh.has_custom_normals:
-            editmesh = mesh_from_key(editmesh, verts, target_key)
-
-        loops, uvs, norms = extract_face_info(workingctx, editmesh, uvlayer, use_loop_normals=editmesh.has_custom_normals)
-    
-        log.info("..Splitting mesh along UV seams")
-        mesh_split_by_uv(verts, norms, loops, uvs, weights_by_vert, morphdict)
-        # Old UV map had dups where verts were split; new matches 1-1 with verts
-        uvmap_new = [(0.0, 0.0)] * len(verts)
-        norms_new = [(0.0, 0.0, 0.0)] * len(verts)
-        for i, lp in enumerate(loops):
-            assert lp < len(verts), f"Error: Invalid vert index in loops: {lp} >= {len(verts)}"
-            uvmap_new[lp] = uvs[i]
-            norms_new[lp] = norms[i]
-        #uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
-        #norms_new = [norms[loops.index(i)] for i in range(len(verts))]
-
-        # Our "loops" list matches 1:1 with the mesh's loops. So we can use the polygons
-        # to pull the loops
-        tris = []
-        for p in editmesh.polygons:
-            tris.append((loops[p.loop_start], loops[p.loop_start+1], loops[p.loop_start+2]))
-
-        #tris = [(loops[i], loops[i+1], loops[i+2]) for i in range(0, len(loops), 3)]
-        colors_new = None
-        if loopcolors:
-            log.debug(f"..Exporting vertex colors for shape {obj.name}")
-            colors_new = [(0.0, 0.0, 0.0, 0.0)] * len(verts)
-            for i, lp in enumerate(loops):
-                colors_new[lp] = loopcolors[i]
-        else:
-            log.debug(f"..No vertex colors in shape {obj.name}")
-
-    finally:
-        obj.data = originalmesh
-        obj.active_shape_key_index = saved_sk
-
-    is_hp = obj.data.shape_keys \
-            and len(nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
-
-    obj.data.update()
-    log.info("..Exporting to nif")
-    norms_exp = norms_new
-    has_msn = has_msn_shader(obj)
-    if has_msn:
-        norms_exp = None
-
-    new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_exp, 
-                                        is_hp, is_skinned)
-    if colors_new:
-        new_shape.set_colors(colors_new)
-
-    if obj.active_material:
-        export_shader(obj, new_shape)
-        if has_msn:
-            new_shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
-        else:
-            new_shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
-        if colors_new:
-            new_shape.shader_attributes.shaderflags2_set(ShaderFlags2.VERTEX_COLORS)
-        else:
-            new_shape.shader_attributes.shaderflags2_clear(ShaderFlags2.VERTEX_COLORS)
-        new_shape.save_shader_attributes()
-    else:
-        log.debug(f"..No material on {obj.name}")
-
-    if is_skinned:
-        nif.createSkin()
-
-    new_xform = MatTransform();
-    new_xform.translation = obj.location
-    new_xform.rotation = RotationMatrix((obj.matrix_local[0][0:3], 
-                                            obj.matrix_local[1][0:3], 
-                                            obj.matrix_local[2][0:3]))
-    new_xform.scale = obj.scale[0]
-        
-    if is_skinned:
-        export_skin(obj, arma, new_shape, new_xform, weights_by_vert)
-        if len(unweighted) > 0:
-            create_group_from_verts(obj, "*UNWEIGHTED*", unweighted)
-            log.warning("Some vertices are not weighted to the armature")
-            retval.add('UNWEIGHTED')
-
-        partitions, tri_indices = export_partitions(obj, weights_by_vert, tris)
-        if len(partitions) > 0:
-            if 'FO4_SEGMENT_FILE' in obj.keys():
-                log.debug(f"....Writing segment file {obj['FO4_SEGMENT_FILE']}")
-                new_shape.segment_file = obj['FO4_SEGMENT_FILE']
-            new_shape.set_partitions(partitions, tri_indices)
-    else:
-        new_shape.transform = new_xform
-
-    retval.union(export_tris(nif, trip, obj, verts, tris, loops, uvmap_new, morphdict))
-
-    log.info(f"..{obj.name} successfully exported")
-    return retval
 
 
 def export_shape_to(shape, filepath, game):
@@ -1349,109 +1281,370 @@ def get_common_shapes(obj_list):
 def get_with_uscore(str_list):
     return list(filter((lambda x: x[0] == '_'), str_list))
 
-# Globals for error reporting
-objs_unweighted = []
-objs_scale = []
-arma_game = []
 
-def export_file_set(filepath, target_game, shape_keys, objs_to_export, arma, suffix=''):
-    """ Create a set nif file from the given object, with associated TRIP files if 
-        there is TRIP info.
-        filepath = nif file to create
-        target_game = game to create for
-        shape_keys = set of shape key names; export one file for each shape key
-        objs_to_export = mesh objects to write into each file
-        arma = skeleton to use for the meshes
-        suffix = suffix to append to the filenames
+class NifExporter:
+    """ Object that handles the export process 
+    """
+    def __init__(self, filepath, game):
+        self.filepath = filepath
+        self.game = game
+        self.warnings = set()
+        self.armature = None
+        self.facebones = None
+        self.objects = set([])
+        self.bg_data = set([])
+        self.str_data = set([])
+        # Shape keys that start with underscore and are common to all exportable shapes trigger
+        # a separate file export for each shape key
+        self.file_keys = []
+        self.objs_unweighted = set()
+        self.objs_scale = set()
+        self.objs_mult_part = set()
+        self.objs_no_part = set()
+        self.arma_game = []
+
+    def add_object(self, obj):
+        """ Adds the given object to the objects to export """
+        if obj.type == 'ARMATURE':
+            if self.game == 'FO4' and is_facebones(obj) and self.facebones is None:
+                self.facebones = obj
+            if self.armature is None:
+                self.armature = obj 
+
+        elif obj.type == 'MESH':
+            self.objects.add(obj)
+            if obj.parent and obj.parent.type == 'ARMATURE':
+                self.add_object(obj.parent)
+            self.file_keys = get_with_uscore(get_common_shapes(self.objects))
+
+        elif 'BSBehaviorGraphExtraData_Name' in obj.keys():
+            self.bg_data.add(obj)
+
+        elif 'NiStringExtraData_Name' in obj.keys():
+            self.str_data.add(obj)
+
+        # remove extra data nodes with objects in the export list as parents so they 
+        # don't get exported twice
+        for n in self.bg_data:
+            if n.parent and n.parent in self.objects:
+                self.bg_data.remove(n)
+        for n in self.str_data:
+            if n.parent and n.parent in self.objects:
+                self.str_data.remove(n)
+
+    def set_objects(self, objects):
+        """ Set the objects to export from the given list of objects 
         """
-    res = set()
-    for sk in shape_keys:
-        fname_ext = os.path.splitext(os.path.basename(filepath))
-        fbasename = fname_ext[0] + sk + suffix
-        fnamefull = fbasename + fname_ext[1]
-        fpath = os.path.join(os.path.dirname(filepath), fnamefull)
+        for x in objects:
+            self.add_object(x)
 
-        log.info(f"..Exporting to {target_game} {fpath}")
-        exportf = NifFile()
-        exportf.initialize(target_game, fpath)
-        if suffix == '_faceBones':
-            exportf.dict = fo4FaceDict
+    def from_context(self, context):
+        """ Set the objects to export from the given context 
+        """
+        self.set_objects(context.selected_objects)
 
-        trip = TripFile()
+    # --------- DO THE EXPORT ---------
 
-        for obj in objs_to_export:
-            r = export_shape(exportf, trip, obj, sk, arma)
-            log.debug(f"Exported shape {obj.name} with result {str(r)}")
-            if 'UNWEIGHTED' in r:
-                objs_unweighted.append(obj.name)
-            if 'SCALE' in r:
-                objs_scale.append(obj.name)
-            if 'GAME' in r:
-                arma_game.append(arma.name)
-            res = res.union(r)
+    def export_extra_data(self, nif):
+        exdatalist = [ (x['NiStringExtraData_Name'], x['NiStringExtraData_Value']) for x in \
+            self.str_data]
+        if len(exdatalist) > 0:
+            nif.string_data = exdatalist
 
-        exportf.save()
-        log.info(f"..Wrote {fpath}")
+        exdatalist = [ (x['BSBehaviorGraphExtraData_Name'], x['BSBehaviorGraphExtraData_Value']) \
+                for x in self.bg_data]
+        if len(exdatalist) > 0:
+            nif.behavior_graph_data = exdatalist
 
-        if len(trip.shapes) > 0:
-            trippath = os.path.join(os.path.dirname(filepath), fbasename) + ".tri"
-            trip.write(trippath)
-            log.info(f"..Wrote {trippath}")
+    def export_partitions(self, obj, weights_by_vert, tris):
+        """ Export partitions described by vertex groups
+            weights = [dict[group-name: weight], ...] vertex weights, 1:1 with verts. For 
+                partitions, can assume the weights are 1.0
+            tris = [(v1, v2, v3)...] where v1-3 are indices into the vertex list
+            returns (partitions, tri_indices)
+                partitions = list of partition objects
+                tri_indices = list of paritition indices, 1:1 with the shape's tri list
+        """
+        log.debug(f"..Exporting partitions")
+        partitions = partitions_from_vert_groups(obj)
+        log.debug(f"....Found partitions {list(partitions.keys())}")
 
-    return res
+        if len(partitions) == 0:
+            return [], []
 
+        partition_set = set(list(partitions.keys()))
 
-def do_export(context, filepath, target_game):
-    """ Export currently selected objects """
-    res = set()
+        tri_indices = [0] * len(tris)
+
+        for i, t in enumerate(tris):
+            # All 3 have to be in the vertex group to count
+            vg0 = all_vertex_groups(weights_by_vert[t[0]])
+            vg1 = all_vertex_groups(weights_by_vert[t[1]])
+            vg2 = all_vertex_groups(weights_by_vert[t[2]])
+            tri_partitions = vg0.intersection(vg1).intersection(vg2).intersection(partition_set)
+            if len(tri_partitions) > 0:
+                #if len(tri_partitions) > 1:
+                #    log.warning(f"Found multiple partitions for tri {t} in object {obj.name}: {tri_partitions}")
+                #    self.objs_mult_part.add(obj)
+                #    create_group_from_verts(obj, MULTIPLE_PARTITION_GROUP, t)
+
+                # Triangulation will put some tris in two partitions. Just choose one--
+                # exact division doesn't matter (if it did user should have put in an edge)
+                tri_indices[i] = partitions[next(iter(tri_partitions))].id
+            else:
+                log.warning(f"Tri {t} is not assigned any partition")
+                self.objs_no_part.add(obj)
+                create_group_from_verts(obj, NO_PARTITION_GROUP, t)
+
+        return list(partitions.values()), tri_indices
+
+    def extract_mesh_data(self, obj, target_key):
+        """ 
+        Extract the mesh data from the given object
+            obj = object being exported
+            target_key = shape key to export
+        returns
+            verts = list of XYZ vertex locations
+            norms_new = list of XYZ normal values, 1:1 with verts
+            uvmap_new = list of (u, v) values, 1:1 with verts
+            colors_new = list of RGB color values 1:1 with verts. May be None.
+            tris = list of (t1, t2, t3) vert indices to define triangles
+            weights_by_vert = [dict[group-name: weight], ...] 1:1 with verts
+            morphdict = {shape-key: [verts...], ...} only if "target_key" is NOT specified
+        NOTE this routine changes selection and switches to edit mode and back
+        """
+        originalmesh = obj.data
+        editmesh = originalmesh.copy()
+        saved_sk = obj.active_shape_key_index
+        obj.data = editmesh
+        loopcolors = None
+
+        try:
+            bpy.ops.object.select_all(action='DESELECT')
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
         
-    objs_unweighted = []
-    objs_scale = []
-    arma_game = []
-    arma_facebones = None
-    arma_skel = None
-
-    armatures_found = set([x for x in context.selected_objects if x.type == 'ARMATURE'])
-    if context.object.parent:
-        if context.object.parent.type == 'ARMATURE':
-            armatures_found.add(context.object.parent)
+            # If scales aren't uniform, apply them before export
+            if obj.scale[0] != obj.scale[1] or obj.scale[0] != obj.scale[2]:
+                log.warning(f"Object {obj.name} scale not uniform, applying before export") 
+                self.objs_scale.add('SCALE')
+                bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
         
-    objs_to_export = set([x for x in context.selected_objects if x.type == 'MESH'])
+            # This next little dance ensures the mesh.vertices locations are correct
+            obj.active_shape_key_index = 0
+            bpy.ops.object.mode_set(mode = 'EDIT')
+            bpy.ops.object.mode_set(mode = 'OBJECT')
+            #log.debug(f"....Vertex 12 position: {mesh.vertices[12].co}")
+        
+            # Can't get custom normals out of a bmesh (known limitation). Can't triangulate
+            # a regular mesh except through the operator. 
+            log.info("..Triangulating mesh")
+            select_all_faces(editmesh)
+            bpy.ops.object.mode_set(mode = 'EDIT') # Required to convert to tris
+            bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
+        
+            for p in editmesh.polygons:
+                p.use_smooth = True
+        
+            editmesh.update()
+         
+            verts, weights_by_vert, morphdict = extract_vert_info(obj, editmesh, target_key)
+        
+            bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
+            if len(editmesh.vertex_colors) > 0:
+                loopcolors = [c.color[:] for c in editmesh.vertex_colors.active.data]
+                #log.debug(f"Saved loop colors: {loopcolors}")
+        
+            # Apply shape key verts to the mesh so normals will be correct.  If the mesh has
+            # custom normals, fukkit -- use the custom normals and assume the deformation
+            # won't be so great that it looks bad.
+            bpy.ops.object.mode_set(mode = 'OBJECT') 
+            uvlayer = editmesh.uv_layers.active.data
+            if target_key != '' and not editmesh.has_custom_normals:
+                editmesh = mesh_from_key(editmesh, verts, target_key)
+        
+            loops, uvs, norms = extract_face_info(editmesh, uvlayer, use_loop_normals=editmesh.has_custom_normals)
+        
+            log.info("..Splitting mesh along UV seams")
+            mesh_split_by_uv(verts, norms, loops, uvs, weights_by_vert, morphdict)
+            # Old UV map had dups where verts were split; new matches 1-1 with verts
+            uvmap_new = [(0.0, 0.0)] * len(verts)
+            norms_new = [(0.0, 0.0, 0.0)] * len(verts)
+            for i, lp in enumerate(loops):
+                assert lp < len(verts), f"Error: Invalid vert index in loops: {lp} >= {len(verts)}"
+                uvmap_new[lp] = uvs[i]
+                norms_new[lp] = norms[i]
+            #uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
+            #norms_new = [norms[loops.index(i)] for i in range(len(verts))]
+        
+            # Our "loops" list matches 1:1 with the mesh's loops. So we can use the polygons
+            # to pull the loops
+            tris = []
+            for p in editmesh.polygons:
+                tris.append((loops[p.loop_start], loops[p.loop_start+1], loops[p.loop_start+2]))
+        
+            #tris = [(loops[i], loops[i+1], loops[i+2]) for i in range(0, len(loops), 3)]
+            colors_new = None
+            if loopcolors:
+                log.debug(f"..Exporting vertex colors for shape {obj.name}")
+                colors_new = [(0.0, 0.0, 0.0, 0.0)] * len(verts)
+                for i, lp in enumerate(loops):
+                    colors_new[lp] = loopcolors[i]
+            else:
+                log.debug(f"..No vertex colors in shape {obj.name}")
+        
+        finally:
+            obj.data = originalmesh
+            obj.active_shape_key_index = saved_sk
 
-    log.debug(f"..Armatures for export: {armatures_found}")
-    log.debug(f"..Objects for export: {objs_to_export}")
+        return verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict
 
-    shape_keys = get_with_uscore(get_common_shapes(objs_to_export))
-    if len(shape_keys) == 0:
-        shape_keys.append('') # just export the plain file
-            
-    if len(objs_to_export) == 0:
-        res = res.union({"NOTHING"})
-    else:
-        fb_export = False
-        mesh_export = False
-        for a in armatures_found:
-            if target_game == 'FO4' and is_facebones(a) and not fb_export:
-                r = export_file_set(filepath, 
-                                target_game, 
-                                shape_keys, 
-                                objs_to_export, 
-                                a, 
-                                '_faceBones')
-                res = res.union(r)
-                fb_export = True
-            elif not mesh_export:
-                r = export_file_set(filepath, 
-                                target_game, 
-                                shape_keys, 
-                                objs_to_export, 
-                                a)
-                res = res.union(r)
-                mesh_export = True
-        if not mesh_export and not fb_export:
-            r = export_file_set(filepath, target_game, shape_keys, objs_to_export, None)
-    return res
+    def export_shape(self, nif, trip, obj, target_key='', arma=None):
+        """Export given blender object to the given NIF file
+            nif = target nif file
+            trip = target file for BS Tri shapes
+            obj = blender object
+            target_key = shape key to export
+            arma = armature to skin to
+            """
+        log.info("Exporting " + obj.name)
+        retval = set()
 
+        is_skinned = (arma is not None)
+        unweighted = []
+        if UNWEIGHTED_VERTEX_GROUP in obj.vertex_groups:
+            obj.vertex_groups.remove(obj.vertex_groups[UNWEIGHTED_VERTEX_GROUP])
+        if MULTIPLE_PARTITION_GROUP in obj.vertex_groups:
+            obj.vertex_groups.remove(obj.vertex_groups[MULTIPLE_PARTITION_GROUP])
+        if NO_PARTITION_GROUP in obj.vertex_groups:
+            obj.vertex_groups.remove(obj.vertex_groups[NO_PARTITION_GROUP])
+        
+        if is_skinned:
+            # Get unweighted bones before we muck up the list by splitting edges
+            unweighted = tag_unweighted(obj, arma.data.bones.keys())
+            if not expected_game(nif, arma.data.bones):
+                log.warning(f"Exporting to game that doesn't match armature: game={nif.game}, armature={arma.name}")
+                retval.add('GAME')
+
+        verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict = \
+           self.extract_mesh_data(obj, target_key)
+
+        is_headpart = obj.data.shape_keys \
+                and len(nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
+
+        obj.data.update()
+        log.info("..Exporting to nif")
+        norms_exp = norms_new
+        has_msn = has_msn_shader(obj)
+        if has_msn:
+            norms_exp = None
+
+        new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_exp, 
+                                            is_headpart, is_skinned)
+        if colors_new:
+            new_shape.set_colors(colors_new)
+
+        export_shape_data(obj, new_shape)
+        
+        if obj.active_material:
+            export_shader(obj, new_shape)
+            if has_msn:
+                new_shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
+            else:
+                new_shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
+            if colors_new:
+                new_shape.shader_attributes.shaderflags2_set(ShaderFlags2.VERTEX_COLORS)
+            else:
+                new_shape.shader_attributes.shaderflags2_clear(ShaderFlags2.VERTEX_COLORS)
+            new_shape.save_shader_attributes()
+        else:
+            log.debug(f"..No material on {obj.name}")
+
+        if is_skinned:
+            nif.createSkin()
+
+        new_xform = MatTransform();
+        new_xform.translation = obj.location
+        new_xform.rotation = RotationMatrix((obj.matrix_local[0][0:3], 
+                                                obj.matrix_local[1][0:3], 
+                                                obj.matrix_local[2][0:3]))
+        new_xform.scale = obj.scale[0]
+        
+        if is_skinned:
+            export_skin(obj, arma, new_shape, new_xform, weights_by_vert)
+            if len(unweighted) > 0:
+                create_group_from_verts(obj, UNWEIGHTED_VERTEX_GROUP, unweighted)
+                log.warning("Some vertices are not weighted to the armature in object {obj.name}")
+                self.objs_unweighted.add(obj)
+
+            partitions, tri_indices = self.export_partitions(obj, weights_by_vert, tris)
+            if len(partitions) > 0:
+                if 'FO4_SEGMENT_FILE' in obj.keys():
+                    log.debug(f"....Writing segment file {obj['FO4_SEGMENT_FILE']}")
+                    new_shape.segment_file = obj['FO4_SEGMENT_FILE']
+                new_shape.set_partitions(partitions, tri_indices)
+        else:
+            new_shape.transform = new_xform
+
+        retval |= export_tris(nif, trip, obj, verts, tris, uvmap_new, morphdict)
+
+        log.info(f"..{obj.name} successfully exported")
+        return retval
+
+    def export_file_set(self, arma, suffix=''):
+        """ Create a set of nif files from the given object, using the given armature and appending
+            the suffix. One file is created per shape key with the shape key used as suffix. Associated
+            TRIP files are exported if there is TRIP info.
+                arma = skeleton to use 
+                suffix = suffix to append to the filenames, after the shape key suffix
+            """
+        if self.file_keys is None or len(self.file_keys) == 0:
+            shape_keys = ['']
+        else:
+            shape_keys = self.file_keys
+
+        for sk in shape_keys:
+            fname_ext = os.path.splitext(os.path.basename(self.filepath))
+            fbasename = fname_ext[0] + sk + suffix
+            fnamefull = fbasename + fname_ext[1]
+            fpath = os.path.join(os.path.dirname(self.filepath), fnamefull)
+
+            log.info(f"..Exporting to {self.game} {fpath}")
+            exportf = NifFile()
+            exportf.initialize(self.game, fpath)
+            if suffix == '_faceBones':
+                exportf.dict = fo4FaceDict
+
+            self.export_extra_data(exportf)
+
+            trip = TripFile()
+
+            for obj in self.objects:
+                self.export_shape(exportf, trip, obj, sk, arma)
+                log.debug(f"Exported shape {obj.name}")
+
+            exportf.save()
+            log.info(f"..Wrote {fpath}")
+
+            if len(trip.shapes) > 0:
+                trippath = os.path.join(os.path.dirname(self.filepath), fbasename) + ".tri"
+                trip.write(trippath)
+                log.info(f"..Wrote {trippath}")
+
+
+    def do_export(self):
+        log.debug(f"..Exporting objects: {self.objects}\nstring data: {self.str_data}\nBG data: {self.bg_data}\narmature: armatrue: {self.armature},\nfacebones: {self.facebones}")
+        if self.facebones:
+            self.export_file_set(self.facebones, '_faceBones')
+        if self.armature:
+            self.export_file_set(self.armature, '')
+        if self.facebones is None and self.armature is None:
+            self.export_file_set(None, '')
+    
+    def export(self, objects):
+        self.set_objects(objects)
+        self.do_export()
+        
 
 class ExportNIF(bpy.types.Operator, ExportHelper):
     """Export Blender object(s) to a NIF File"""
@@ -1491,30 +1684,53 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             if g != "":
                 self.target_game = g
         
+    @classmethod
+    def poll(cls, context):
+        if context.object is None:
+            log.error("Must select an object to export")
+            return False
+
+        if context.object.mode != 'OBJECT':
+            log.error("Must be in Object Mode to export")
+            return False
+
+        return True
 
     def execute(self, context):
         res = set()
+
+        if not self.poll(context):
+            self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
+            return {'CANCELLED'} 
 
         log.info("NIFLY EXPORT V%d.%d.%d" % bl_info['version'])
         NifFile.Load(nifly_path)
 
         try:
-            res = do_export(context, self.filepath, self.target_game) 
+            exporter = NifExporter(self.filepath, self.target_game)
+            exporter.from_context(context)
+            exporter.export(context.selected_objects)
             
             rep = False
-            if 'UNWEIGHTED' in res:
-                self.report({"ERROR"}, f"The following objects have unweighted vertices.\nSee the '*UNWEIGHTED*' vertex groups to find them: \n{objs_unweighted}")
+            if len(exporter.objs_unweighted) > 0:
+                self.report({"ERROR"}, f"The following objects have unweighted vertices.See the '*UNWEIGHTED*' vertex group to find them: \n{exporter.objs_unweighted}")
                 rep = True
-            if 'SCALE' in res:
-                self.report({"ERROR"}, f"The following objects have non-uniform scale, which nifs do not support.\nScale applied to verts before export.")
+            if len(exporter.objs_scale) > 0:
+                self.report({"ERROR"}, f"The following objects have non-uniform scale, which nifs do not support. Scale applied to verts before export.\n{exporter.objs_scale}")
                 rep = True
-            if 'GAME' in res:
-                self.report({'WARNING'}, f"The armature appears to be designed for a different game--check that it's correct\nArmature: {arma_game}, game: {exportf.game}")
+            if len(exporter.objs_mult_part) > 0:
+                self.report({'WARNING'}, f"Some faces have been assigned to more than one partition, which should never happen.\n{exporter.objs_mult_part}")
                 rep = True
-            if 'NOTHING' in res:
+            if len(exporter.objs_no_part) > 0:
+                self.report({'WARNING'}, f"Some faces have been assigned to no partition, which should not happen for skinned body parts.\n{exporter.objs_no_part}")
+                rep = True
+            if len(exporter.arma_game) > 0:
+                self.report({'WARNING'}, f"The armature appears to be designed for a different game--check that it's correct\nArmature: {exporter.arma_game}, game: {exportf.game}")
+                rep = True
+            if 'NOTHING' in exporter.warnings:
                 self.report({'WARNING'}, f"No mesh selected; nothing to export")
                 rep = True
-            if 'WARNING' in res:
+            if 'WARNING' in exporter.warnings:
                 self.report({'WARNING'}, f"Export completed with warnings. Check the console window.")
                 rep = True
             if not rep:
@@ -1592,10 +1808,21 @@ def run_tests():
     TEST_SHADER_LE = False
     TEST_SHADER_SE = False
     TEST_SHADER_FO4 = False
-    TEST_SHADER_ALPHA = True
+    TEST_SHADER_ALPHA = False
+    TEST_SHEATH = False
+    TEST_FEET = False
+    TEST_SKYRIM_XFORM = False
+    TEST_TRI2 = False
+    TEST_3BBB = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
+
+    def clear_all():
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete(use_global=True, confirm=False)
+        for c in bpy.data.collections:
+            bpy.data.collections.remove(c)
 
     def append_from_file(objname, with_parent, filepath, innerpath, targetobj):
         """ Convenience routine: Load an object from another blender file. 
@@ -1624,13 +1851,8 @@ def run_tests():
         obj = append_from_file(objname, False, blendfile, r"\Object", objname)
         bpy.context.view_layer.objects.active = obj
         bpy.ops.object.mode_set(mode="OBJECT")
-        do_export(bpy.context, os.path.join(pynifly_dev_path, outfile), game)
-        #export_file_set(os.path.join(pynifly_dev_path, outfile), game, [shapekey], [obj], obj.parent)
-        #outnif = NifFile()
-        #outtrip = TripFile()
-        #outnif.initialize(game, os.path.join(pynifly_dev_path, outfile))
-        #export_shape(outnif, outtrip, obj, shapekey) 
-        #outnif.save()
+        exporter = NifExporter(os.path.join(pynifly_dev_path, outfile), game)
+        exporter.export([obj])
 
     def find_vertex(mesh, targetloc):
         for v in mesh.vertices:
@@ -1638,7 +1860,7 @@ def run_tests():
                 return v.index
         return -1
 
-    def remove_if(fn):
+    def remove_file(fn):
         if os.path.exists(fn):
             os.remove(fn)
 
@@ -1655,16 +1877,18 @@ def run_tests():
 
     if TEST_BPY_ALL or TEST_EXPORT:
         print("## TEST_EXPORT Can export the basic cube")
+
+        clear_all()
         bpy.ops.mesh.primitive_cube_add()
         cube = bpy.context.selected_objects[0]
         cube.name = "TestCube"
         log.debug("TODO: support objects with flat shading or autosmooth properly")
         for f in cube.data.polygons: f.use_smooth = True
-        filepath = os.path.join(pynifly_dev_path, r"tests\Out\testSkyrim01.nif")
-        remove_if(filepath)
 
-        do_export(bpy.context, filepath, 'SKYRIM')
-        #export_shape_to(cube, filepath, "SKYRIM")
+        filepath = os.path.join(pynifly_dev_path, r"tests\Out\testSkyrim01.nif")
+        remove_file(filepath)
+        exporter = NifExporter(filepath, 'SKYRIM')
+        exporter.export([cube])
 
         assert os.path.exists(filepath), "ERROR: Didn't create file"
         bpy.data.objects.remove(cube, do_unlink=True)
@@ -1689,9 +1913,11 @@ def run_tests():
         cube = bpy.context.selected_objects[0]
         cube.name = "TestCube"
         for f in cube.data.polygons: f.use_smooth = True
+
         filepath = os.path.join(pynifly_dev_path, r"tests\Out\testFO401.nif")
-        #export_shape_to(cube, filepath, "FO4")
-        export_file_set(filepath, 'FO4', [''], [cube], None)
+        remove_file(filepath)
+        exporter = NifExporter(filepath, 'FO4')
+        exporter.export([cube])
 
         assert os.path.exists(filepath), "ERROR: Didn't create file"
         bpy.data.objects.remove(cube, do_unlink=True)
@@ -1745,7 +1971,7 @@ def run_tests():
         assert (len(the_armor.tris) == 3195), "ERROR: Wrong number of tris"
 
         outfile = os.path.join(pynifly_dev_path, "tests/Out/TestSkinnedFromPy02.nif")
-        remove_if(outfile)
+        remove_file(outfile)
         new_nif = NifFile()
         new_nif.initialize("SKYRIM", outfile)
         new_nif.createSkin()
@@ -1797,6 +2023,8 @@ def run_tests():
     if TEST_BPY_ALL or TEST_EXPORT_WEIGHTS:
         print("## TEST_EXPORT_WEIGHTS Import and export with weights")
 
+        clear_all()
+
         # Import body and armor
         f_in = NifFile(os.path.join(pynifly_dev_path, r"tests\Skyrim\test.nif"))
         import_nif(f_in)
@@ -1806,33 +2034,30 @@ def run_tests():
         
         # Export armor
         filepath_armor = os.path.join(pynifly_dev_path, "tests/out/testArmorSkyrim02.nif")
-        remove_if(filepath_armor)
-        #export_shape_to(the_armor, filepath_armor, "SKYRIM")
-        #export_file_set(filepath_armor, "SKYRIM", [''], [the_armor], the_armor.parent)
-        the_body.select_set(False)
-        do_export(bpy.context, filepath_armor, 'SKYRIM')
+        remove_file(filepath_armor)
+        exporter = NifExporter(filepath_armor, 'SKYRIM')
+        exporter.export([the_armor])
         assert os.path.exists(filepath_armor), "ERROR: File not created"
 
         # Check armor
         ftest = NifFile(filepath_armor)
         assert ftest.shapes[0].name[0:5] == "Armor", "ERROR: Armor not read"
         gts = ftest.shapes[0].global_to_skin
-        assert int(gts.translation[2]) == -120, "ERROR: Armor not offset"
+        assert int(gts.translation[2]) == -120, f"ERROR: Armor offset not correct: {gts.translation[2]}"
 
         # Write armor to FO4 (wrong skeleton but whatevs, just see that it doesn't crash)
         filepath_armor_fo = os.path.join(pynifly_dev_path, r"tests\Out\testArmorFO02.nif")
-        remove_if(filepath_armor_fo)
-        #export_shape_to(the_armor, filepath_armor_fo, "FO4")
-        #export_file_set(filepath_armor_fo, 'FO4', [''], [the_armor], the_armor.parent)
-        do_export(bpy.context, filepath_armor_fo, 'FO4')
+        remove_file(filepath_armor_fo)
+        exporter = NifExporter(filepath_armor_fo, 'FO4')
+        exporter.export([the_armor])
         assert os.path.exists(filepath_armor_fo), f"ERROR: File {filepath_armor_fo} not created"
 
         # Write body 
         filepath_body = os.path.join(pynifly_dev_path, r"tests\Out\testBodySkyrim02.nif")
         body_out = NifFile()
-        remove_if(filepath_body)
-        #export_shape_to(the_body, filepath_body, "SKYRIM")
-        export_file_set(filepath_body, 'SKYRIM', [''], [the_body], the_body.parent)
+        remove_file(filepath_body)
+        exporter = NifExporter(filepath_body, 'SKYRIM')
+        exporter.export([the_body])
         assert os.path.exists(filepath_body), f"ERROR: File {filepath_body} not created"
         # Should do some checking here
 
@@ -1857,9 +2082,11 @@ def run_tests():
 
         print("..Exporting  to test file")
         outfile1 = os.path.join(pynifly_dev_path, "tests/Out/testSkyrim03.nif")
-        remove_if(outfile1)
+        remove_file(outfile1)
+        exporter = NifExporter(outfile1, 'SKYRIM')
+        exporter.export([armor1])
         #export_shape_to(armor1, outfile1, "SKYRIM")
-        export_file_set(outfile1, 'SKYRIM', [''], [armor1], armor1.parent)
+        #export_file_set(outfile1, 'SKYRIM', [''], [armor1], armor1.parent)
         assert os.path.exists(outfile1), "ERROR: Created output file"
 
         print("..Re-importing exported file")
@@ -1919,7 +2146,9 @@ def run_tests():
         bpy.context.view_layer.objects.active = new_object
 
         filepath = os.path.join(pynifly_dev_path, "tests/Out/testUV01.nif")
-        export_file_set(filepath, "SKYRIM", [''], [new_object], None)
+        exporter = NifExporter(filepath, "SKYRIM")
+        exporter.export([new_object])
+        #export_file_set(filepath, "SKYRIM", [''], [new_object], None)
 
         nif_in = NifFile(filepath)
         plane = nif_in.shapes[0]
@@ -1940,7 +2169,8 @@ def run_tests():
         outfile = os.path.join(pynifly_dev_path, r"tests\Out\Tail01.nif")
         for obj in bpy.context.selected_objects:
             if obj.type == 'MESH':
-                export_file_set(outfile, "FO4", [''], [obj], obj.parent)
+                e = NifExporter(outfile, "FO4")
+                e.export([obj])
 
         test_in = NifFile(outfile)
         new_xform = test_in.nodes['Bone_Cloth_H_003'].xform_to_global
@@ -1984,7 +2214,9 @@ def run_tests():
         eyes = bpy.data.objects['Baby_Eyes:0']
 
         outfile = os.path.join(pynifly_dev_path, r"tests\Out\baby01.nif")
-        export_file_set(outfile, 'FO4', [''], [eyes, head], head.parent)
+        e = NifExporter(outfile, 'FO4')
+        e.export([eyes, head])
+        #export_file_set(outfile, 'FO4', [''], [eyes, head], head.parent)
         #outnif = NifFile()
         #outnif.initialize("FO4", outfile)
         #export_shape(outnif, TripFile(), eyes)
@@ -2042,7 +2274,7 @@ def run_tests():
         tricubeniftri = os.path.join(pynifly_dev_path, r"tests\Out\tricube01.tri")
         tricubenifchg = os.path.join(pynifly_dev_path, r"tests\Out\tricube01_chargen.tri")
         for f in [testout2, testout2tri, testout2chg, tricubenif]:
-            remove_if(f)
+            remove_file(f)
 
         nif = NifFile(testfile)
         import_nif(nif)
@@ -2053,7 +2285,7 @@ def run_tests():
             bpy.context.view_layer.objects.active = obj
 
         log.debug(f"Importing tri with {bpy.context.object.name} selected")
-        triobj2 = import_tri(testtri2)
+        triobj2 = import_tri(testtri2, obj)
 
         assert len(obj.data.shape_keys.key_blocks) == 47, f"Error: {obj.name} should have enough keys ({len(obj.data.shape_keys.key_blocks)})"
 
@@ -2061,13 +2293,15 @@ def run_tests():
 
         bpy.ops.object.select_all(action='DESELECT')
         bpy.context.view_layer.objects.active = None
-        triobj = import_tri(testtri3)
+        triobj = import_tri(testtri3, None)
         assert triobj.name.startswith("CheetahMaleHead.tri"), f"Error: Should be named like tri file, found {triobj.name}"
         assert "LJaw" in triobj.data.shape_keys.key_blocks.keys(), "Error: Should be no keys missing"
         
         print('### Can export a shape with tris')
 
-        export_file_set(os.path.join(pynifly_dev_path, testout2), "FO4", [''], [triobj], triobj.parent)
+        e = NifExporter(os.path.join(pynifly_dev_path, testout2), "FO4")
+        e.export([triobj])
+        #export_file_set(os.path.join(pynifly_dev_path, testout2), "FO4", [''], [triobj], triobj.parent)
         
         print('### Exported shape and tri match')
         nif2 = NifFile(os.path.join(pynifly_dev_path, testout2))
@@ -2091,7 +2325,9 @@ def run_tests():
         sk3.name = "*Extra"
         sk4 = cube.shape_key_add()
         sk4.name = "BrowIn"
-        export_file_set(tricubenif, "SKYRIM", [''], [cube], cube.parent)
+        e = NifExporter(tricubenif, "SKYRIM")
+        e.export([cube])
+        #export_file_set(tricubenif, "SKYRIM", [''], [cube], cube.parent)
 
         assert os.path.exists(tricubenif), f"Error: Should have exported {tricubenif}"
         assert os.path.exists(tricubeniftri), f"Error: Should have exported {tricubeniftri}"
@@ -2114,20 +2350,24 @@ def run_tests():
         baby = append_from_file("TestBabyhead", True, r"tests\FO4\Test0Weights.blend", r"\Collection", "BabyCollection")
         baby.parent.name == "BabyExportRoot", f"Error: Should have baby and armature"
         log.debug(f"Found object {baby.name}")
-        export_file_set(os.path.join(pynifly_dev_path, r"tests\Out\weight0.nif"), 
-                        "FO4", 
-                        [''],
-                        [baby], 
-                        baby.parent)
-        assert "*UNWEIGHTED*" in baby.vertex_groups, "Unweighted vertex group captures vertices without weights"
+        e = NifExporter(os.path.join(pynifly_dev_path, r"tests\Out\weight0.nif"), "FO4")
+        e.export([baby])
+        #export_file_set(os.path.join(pynifly_dev_path, r"tests\Out\weight0.nif"), 
+        #                "FO4", 
+        #                [''],
+        #                [baby], 
+        #                baby.parent)
+        assert UNWEIGHTED_VERTEX_GROUP in baby.vertex_groups, "Unweighted vertex group captures vertices without weights"
 
 
     if TEST_BPY_ALL or TEST_SPLIT_NORMAL:
         print("## TEST_SPLIT_NORMAL Can handle meshes with split normals")
 
         plane = append_from_file("Plane", False, r"tests\skyrim\testSplitNormalPlane.blend", r"\Object", "Plane")
-        export_file_set(os.path.join(pynifly_dev_path, r"tests\Out\CustomNormals.nif"), 
-                        "FO4", [''], [plane], plane.parent)
+        e = NifExporter(os.path.join(pynifly_dev_path, r"tests\Out\CustomNormals.nif"), "FO4")
+        e.export([plane])
+        #export_file_set(os.path.join(pynifly_dev_path, r"tests\Out\CustomNormals.nif"), 
+        #                "FO4", [''], [plane], plane.parent)
 
 
     if TEST_BPY_ALL or TEST_PARTITIONS:
@@ -2141,8 +2381,10 @@ def run_tests():
         assert "SBP_130_HEAD" in obj.vertex_groups, "Skyrim body parts read in as vertex groups with sensible names"
 
         print("### Can write Skyrim partitions")
-        export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"),
-                        "SKYRIM", [''], [obj], obj.parent)
+        e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"), "SKYRIM")
+        e.export([obj])
+        #export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"),
+        #                "SKYRIM", [''], [obj], obj.parent)
         
         nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"))
         assert len(nif2.shapes[0].partitions) == 3, "Have all skyrim partitions"
@@ -2160,8 +2402,10 @@ def run_tests():
         assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == obj['FO4_SEGMENT_FILE'], "Should have FO4 segment file read and saved for later use"
 
         print("### Can write FO4 segments")
-        export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"),
-                        "FO4", [''], [obj], obj.parent)
+        e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"), "FO4")
+        e.export([obj])
+        #export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"),
+        #                "FO4", [''], [obj], obj.parent)
         
         nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"))
         assert len(nif2.shapes[0].partitions) == 7, "Have all FO4 partitions"
@@ -2182,8 +2426,10 @@ def run_tests():
         assert "Meshes\\Armor\\FlightHelmet\\Helmet.ssf" == obj['FO4_SEGMENT_FILE'], "FO4 segment file read and saved for later use"
 
         print("### Can write FO4 segments")
-        export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"),
-                        "FO4", [''], [obj], obj.parent)
+        e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"), "FO4")
+        e.export([obj])
+        #export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"),
+        #                "FO4", [''], [obj], obj.parent)
         
         nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"))
         assert len(nif2.shapes[0].partitions) == 2, "Have all FO4 partitions"
@@ -2205,8 +2451,10 @@ def run_tests():
         bpy.ops.object.select_all(action='DESELECT')
         bpy.context.view_layer.objects.active = obj
         bpy.ops.object.mode_set(mode="OBJECT")
-        export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROGUE01.nif"), 
-                        "FO4", [''], [obj], obj.parent)
+        e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROGUE01.nif"), "FO4")
+        e.export([obj])
+        #export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROGUE01.nif"), 
+        #                "FO4", [''], [obj], obj.parent)
 
         nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROGUE01.nif"))
         shape2 = nif2.shapes[0]
@@ -2321,7 +2569,9 @@ def run_tests():
                 assert colordata[lp.index].color[:] == (0.0, 0.0, 0.0, 1.0), f"Color for vert not read correctly: {colordata[lp.index].color[:]}"
 
         testfileout = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLORSB_HeadGear1.nif")
-        export_file_set(testfileout, "FO4", [''], [obj], obj.parent)
+        e = NifExporter(testfileout, "FO4")
+        e.export([obj])
+        #export_file_set(testfileout, "FO4", [''], [obj], obj.parent)
 
         nif2 = NifFile(testfileout)
         assert nif2.shapes[0].colors[0] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not reread correctly: {nif2.shapes[0].colors[0]}"
@@ -2337,13 +2587,15 @@ def run_tests():
         obj = bpy.context.object
 
         testtri = os.path.join(pynifly_dev_path, r"tests/SKYRIMSE/malehead.tri")
-        import_tri(testtri)
+        import_tri(testtri, obj)
 
         assert len(obj.data.shape_keys.key_blocks) == 45, f"Expected key blocks 45 != {len(obj.data.shape_keys.key_blocks)}"
         assert obj.data.shape_keys.key_blocks[0].name == "Basis", f"Expected first key 'Basis' != {obj.data.shape_keys.key_blocks[0].name}"
 
         testfileout = os.path.join(pynifly_dev_path, r"tests/out/TEST_HEADPART_malehead.nif")
-        export_file_set(testfileout, 'SKYRIMSE', [''], [obj], obj.parent)
+        e = NifExporter(testfileout, 'SKYRIMSE')
+        e.export([obj])
+        #export_file_set(testfileout, 'SKYRIMSE', [''], [obj], obj.parent)
 
         nif2 = NifFile(testfileout)
         assert len(nif2.shapes) == 1, f"Expected single shape, 1 != {len(nif2.shapes)}"
@@ -2364,8 +2616,10 @@ def run_tests():
         assert 'skin_bone_R_Dimple' not in obj.parent.data.bones.keys(), f"Expected munged bone names"
 
         outfile = os.path.join(pynifly_dev_path, r"tests/Out/basemalehead.nif")
-        remove_if(outfile)
-        export_file_set(outfile, 'FO4', [''], [obj], obj.parent, '_faceBones')
+        remove_file(outfile)
+        e = NifExporter(outfile, 'FO4')
+        e.export([obj])
+        #export_file_set(outfile, 'FO4', [''], [obj], obj.parent, '_faceBones')
 
         outfile2 = os.path.join(pynifly_dev_path, r"tests/Out/basemalehead_facebones.nif")
         nif2 = NifFile(outfile2)
@@ -2375,17 +2629,20 @@ def run_tests():
     if TEST_BPY_ALL or TEST_FACEBONE_EXPORT:
         print("### TEST_FACEBONE_EXPORT: Test can export facebones + regular nif; shapes with hidden verts export correctly")
 
-        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.nif"))
-        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT_faceBones.nif"))
-        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.tri"))
-        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT_chargen.tri"))
+        clear_all()
 
-        export_from_blend(r"tests\FO4\HeadFaceBones.blend",
-                          "HorseFemaleHead",
-                          "FO4",
-                          r"tests/Out/TEST_FACEBONE_EXPORT.nif",
-                          "")
-        
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.nif"))
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT_faceBones.nif"))
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.tri"))
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT_chargen.tri"))
+
+        obj = append_from_file("HorseFemaleHead", False, r"tests\FO4\HeadFaceBones.blend", r"\Object", "HorseFemaleHead")
+        bpy.ops.object.select_all(action='SELECT')
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.nif"),
+                               "FO4")
+        exporter.from_context(bpy.context)
+        exporter.do_export()
+
         nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.nif"))
         assert len(nif1.shapes) == 1, "Write the file successfully"
         assert len(nif1.shapes[0].tris) == 8922, f"Expected 8922 tris, found {len(nif1.shapes[0].tris)}"
@@ -2400,14 +2657,14 @@ def run_tests():
     if TEST_BPY_ALL or TEST_JIARAN:
         print("#### TEST_JIARAN: Armature with no stashed transforms exports correctly")
 
-        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"))
+        clear_all()
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"))
 
         append_from_file("hair.001", True, r"tests\SKYRIMSE\jiaran.blend", r"\Object", "hair.001")
-        bpy.context.view_layer.objects.active = bpy.data.objects["hair.001"]
-       
-        do_export(bpy.context, 
-                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"), 
-                  'SKYRIMSE')
+
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"), 
+                               'SKYRIMSE')
+        exporter.export([bpy.data.objects["hair.001"]])
 
         nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"))
         assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
@@ -2415,7 +2672,8 @@ def run_tests():
     if TEST_BPY_ALL or TEST_SHADER_LE:
         print("## TEST_SHADER_LE Shader attributes are read and turned into Blender shader nodes")
 
-        bpy.ops.object.select_all(action='DESELECT')
+        clear_all()
+
         fileLE = os.path.join(pynifly_dev_path, r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
         nifLE = NifFile(fileLE)
         import_nif(nifLE)
@@ -2424,13 +2682,14 @@ def run_tests():
             if "MaleHeadIMF" in obj.name:
                 headLE = obj
         assert len(headLE.active_material.node_tree.nodes) == 9, "ERROR: Didn't import images"
+        g = round(headLE.active_material.node_tree.nodes['Principled BSDF'].inputs['Metallic'].default_value, 4)
+        assert round(g, 4) == 33/GLOSS_SCALE, f"Glossiness not correct, value is {g}"
 
         print("## Shader attributes are written on export")
 
-        bpy.context.view_layer.objects.active = headLE       
-        do_export(bpy.context, 
-                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_LE.nif"), 
-                  'SKYRIM')
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_LE.nif"), 
+                               'SKYRIM')
+        exporter.export([headLE])
 
         nifcheckLE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_LE.nif"))
         
@@ -2447,7 +2706,8 @@ def run_tests():
     if TEST_BPY_ALL or TEST_SHADER_FO4:
         print("## TEST_SHADER_FO4 Shader attributes are read and turned into Blender shader nodes")
 
-        bpy.ops.object.select_all(action='DESELECT')
+        clear_all()
+
         fileFO4 = os.path.join(pynifly_dev_path, r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
         nifFO4 = NifFile(fileFO4)
         import_nif(nifFO4)
@@ -2459,10 +2719,8 @@ def run_tests():
 
         print("## Shader attributes are written on export")
 
-        bpy.context.view_layer.objects.active = headFO4       
-        do_export(bpy.context, 
-                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_FO4.nif"), 
-                  'FO4')
+        exp = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_FO4.nif"), 'FO4')
+        exp.export([headFO4])
 
         nifcheckFO4 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_FO4.nif"))
         
@@ -2481,7 +2739,8 @@ def run_tests():
     if TEST_BPY_ALL or TEST_SHADER_SE:
         print("## TEST_SHADER_SE Shader attributes are read and turned into Blender shader nodes")
 
-        bpy.ops.object.select_all(action='DESELECT')
+        clear_all()
+
         fileSE = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\meshes\furniture\noble\noblecrate01.nif")
         nifSE = NifFile(fileSE)
         import_nif(nifSE)
@@ -2493,10 +2752,9 @@ def run_tests():
 
         print("## Shader attributes are written on export")
 
-        bpy.context.view_layer.objects.active = crate       
-        do_export(bpy.context, 
-                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_SE.nif"), 
-                  'SKYRIMSE')
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_SE.nif"), 
+                               'SKYRIMSE')
+        exporter.export([crate])
 
         nifcheckSE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_SE.nif"))
         
@@ -2514,7 +2772,8 @@ def run_tests():
         print("## TEST_SHADER_ALPHA Shader attributes are read and turned into Blender shader nodes")
         # Note this nif uses a MSN with a _n suffix. Import goes by the shader flag not the suffix.
 
-        bpy.ops.object.select_all(action='DESELECT')
+        clear_all()
+
         fileAlph = os.path.join(pynifly_dev_path, r"tests\Skyrim\meshes\actors\character\Lykaios\Tails\maletaillykaios.nif")
         nifAlph = NifFile(fileAlph)
         import_nif(nifAlph)
@@ -2527,10 +2786,8 @@ def run_tests():
 
         print("## Shader attributes are written on export")
 
-        bpy.context.view_layer.objects.active = tail       
-        do_export(bpy.context, 
-                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_ALPH.nif"), 
-                  'SKYRIM')
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_ALPH.nif"), 'SKYRIM')
+        exporter.export([tail])
 
         nifCheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_ALPH.nif"))
         checkfurshape = None
@@ -2554,6 +2811,94 @@ def run_tests():
         assert checkfurshape.alpha_property.threshold == furshape.alpha_property.threshold, f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.threshold} != {furshape.alpha_property.threshold}"
 
 
+    if TEST_BPY_ALL or TEST_SHEATH:
+        print("## TEST_SHEATH Extra data nodes are imported and exported")
+        
+        clear_all()
+
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete(use_global=True, confirm=False)
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/sheath_p1_1.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        bgnames = set([obj['BSBehaviorGraphExtraData_Name'] for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")])
+        assert bgnames == set(["BGED"]), f"Error: Expected BG extra data properties, found {bgnames}"
+        snames = set([obj['NiStringExtraData_Name'] for obj in bpy.data.objects if obj.name.startswith("NiStringExtraData")])
+        assert snames == set(["HDT Havok Path", "HDT Skinned Mesh Physics Object"]), f"Error: Expected string extra data properties, found {snames}"
+
+        # Write and check
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHEATH.nif"), 'SKYRIM')
+        exporter.export(bpy.data.objects)
+
+        nifCheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHEATH.nif"))
+        sheathShape = nifCheck.shapes[0]
+        names = [x[0] for x in nifCheck.behavior_graph_data]
+        assert "BGED" in names, f"Error: Expected BGED in {names}"
+        strings = [x[0] for x in nifCheck.string_data]
+        assert "HDT Havok Path" in strings, f"Error expected havoc path in {strings}"
+        assert "HDT Skinned Mesh Physics Object" in strings, f"Error: Expected physics object in {strings}"
+
+
+    if TEST_BPY_ALL or TEST_FEET:
+        print("## TEST_FEET Extra data nodes are imported and exported")
+
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/caninemalefeet_1.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        feet = bpy.data.objects['FootLowRes']
+        assert len(feet.children) == 1, "Feet have children"
+        assert feet.children[0]['NiStringExtraData_Name'] == "SDTA", "Feet have extra data child"
+        assert feet.children[0]['NiStringExtraData_Value'].startswith('[{"name"'), f"Feet have string data"
+
+        # Write and check that it's correct
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FEET.nif"), 'SKYRIMSE')
+        exporter.export([feet])
+
+        nifCheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FEET.nif"))
+        feetShape = nifCheck.shapes[0]
+        assert feetShape.string_data[0][0] == 'SDTA', "String data name written correctly"
+        assert feetShape.string_data[0][1].startswith('[{"name"'), "String data value written correctly"
+
+    if TEST_BPY_ALL or TEST_SKYRIM_XFORM:
+        print("## TEST_SKYRIM_XFORM: Can read & write the Skyrim shape transforms")
+        
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/MaleHead.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        obj = bpy.context.object
+        assert int(obj.location[2]) == 120, f"Shape offset not applied to head, found {obj.location[2]}"
+
+        e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SKYRIM_XFORM.nif"), "SKYRIM")
+        e.export([obj])
+        
+        nifcheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SKYRIM_XFORM.nif"))
+        headcheck = nifcheck.shapes[0]
+        assert int(headcheck.transform.translation[2]) == 120, f"Shape offset not written correctly, found {headcheck.transform.translation[2]}"
+        assert int(headcheck.global_to_skin.translation[2]) == -120, f"Shape global-to-skin not written correctly, found {headcheck.global_to_skin.translation[2]}"
+
+
+    if TEST_BPY_ALL or TEST_TRI2:
+        print("## TEST_TRI2: Test that tris do as expected when the base shape is different")
+        
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/OtterMaleHead.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        obj = bpy.context.object
+        trifile = os.path.join(pynifly_dev_path, r"tests/Skyrim/OtterMaleHeadChargen.tri")
+        import_tri(trifile, obj)
+
+        v1 = obj.data.shape_keys.key_blocks['VampireMorph'].data[1]
+        assert v1.co[0] <= 30, "Shape keys not relative to current mesh"
+
+
 # #############################################################################################
 #
 #    REGRESSION TESTS
@@ -2565,24 +2910,44 @@ def run_tests():
     if TEST_BPY_ALL or TEST_TIGER_EXPORT:
         print("### TEST_TIGER_EXPORT: Tiger head exports without errors")
 
-        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"))
-        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT_faceBones.nif"))
-        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.tri"))
-        remove_if(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT_chargen.tri"))
+        clear_all()
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"))
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT_faceBones.nif"))
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.tri"))
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT_chargen.tri"))
 
-        #append_from_file("FacebonesSkel", True, r"tests\FO4\Tiger.blend", r"\Object", "FacebonesSkel")
         append_from_file("TigerMaleHead", True, r"tests\FO4\Tiger.blend", r"\Object", "TigerMaleHead")
-        bpy.context.view_layer.objects.active = bpy.data.objects["TigerMaleHead"]
-       
-        do_export(bpy.context, 
-                  os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"), 
-                  'FO4')
+
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"), 
+                               'FO4')
+        exporter.export([bpy.data.objects["TigerMaleHead"]])
 
         nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"))
         assert len(nif1.shapes) == 1, f"Expected tiger nif"
 
 
+    if TEST_BPY_ALL or TEST_3BBB:
+        print("## TEST_3BBB: Test that this mesh imports with the right transforms")
+        
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/3BBB_femalebody_1.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+        
+        obj = bpy.context.object
+        assert obj.location[0] == 0, f"Expected body to be centered on x-axis, got {obj.location[:]}"
 
+        print("## Test that the same armature is used for the next import")
+        arma = bpy.data.objects['Scene Root']
+        bpy.ops.object.select_all(action='DESELECT')
+        arma.select_set(True)
+        bpy.context.view_layer.objects.active = arma
+        testfile2 = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/3BBB_femalehands_1.nif")
+        nif2 = NifFile(testfile2)
+        import_nif(nif2)
+
+        arma2 = bpy.context.object.parent
+        assert arma2.name == arma.name, f"Should have parented to same armature: {arma2.name} != {arma.name}"
         
     print("""
     ############################################################

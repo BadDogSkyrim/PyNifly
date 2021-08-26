@@ -35,12 +35,12 @@ void FindProjectRoot() {
 			GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
 			(LPCSTR)&SkeletonFile, &hm) == 0) {
 		int ret = GetLastError();
-		LogWrite("Failed to get a handle to the DLL module");
+		niflydll::LogWrite("Failed to get a handle to the DLL module");
 	}
 	if (GetModuleFileName(hm, (LPSTR)path, sizeof(path)) == 0)
 	{
 		int ret = GetLastError();
-		LogWrite("Failed to get the filename of the DLL");
+		niflydll::LogWrite("Failed to get the filename of the DLL");
 	}
 	
 	projectRoot = std::filesystem::path(path).parent_path();
