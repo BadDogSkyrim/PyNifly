@@ -3,7 +3,6 @@ Export/Import tools between Blender and the Nif format, using Bodyslide/Outfit S
 
 **Features**
 
-Features
 * Supports FO4, Skyrim LE, Skyrim SE
 * Handles tris and base mesh in one step. No need to separate UV seams or triangulate before exporting
 * Handles expression and chargen tri files for Skyrim and FO4
