@@ -551,19 +551,30 @@ def import_shape(the_shape: NiShape):
     
     import_colors(new_mesh, the_shape)
 
-    # Global-to-skin transform is what offsets all the vertices together, e.g. so that
-    # heads can be positioned at the origin. Put the reverse transform on the blender 
-    # object so they can be worked on in their skinned position.
-    # Use the one on the NiSkinData if it exists.
-    xform =  the_shape.global_to_skin_data
-    if xform is None:
-        xform = the_shape.global_to_skin
-    inv_xf = xform.invert()
-    new_object.scale = [inv_xf.scale] * 3
-    new_object.location = inv_xf.translation
-    # vv Use matrix here instead of conversion?
-    new_object.rotation_euler[0], new_object.rotation_euler[1], new_object.rotation_euler[2] = inv_xf.rotation.euler_deg()
-    log.debug(f"..Object {new_object.name} created at {new_object.location[:]}")
+    if not the_shape.has_skin_instance:
+        # Statics get transformed according to the shape's transform
+        #new_object.scale = (the_shape.transform.scale, ) * 3
+        xf = the_shape.transform.invert()
+        new_object.matrix_world = xf.as_matrix() 
+        new_object.location = the_shape.transform.translation
+    else:
+        # Global-to-skin transform is what offsets all the vertices together, e.g. so that
+        # heads can be positioned at the origin. Put the reverse transform on the blender 
+        # object so they can be worked on in their skinned position.
+        # Use the one on the NiSkinData if it exists.
+        xform =  the_shape.global_to_skin_data
+        if xform is None:
+            xform = the_shape.global_to_skin
+        inv_xf = xform.invert()
+        new_object.matrix_world = inv_xf.as_matrix()
+        new_object.location = inv_xf.translation
+        #new_object.scale = [inv_xf.scale] * 3
+        #new_object.location = inv_xf.translation
+        # vv Use matrix here instead of conversion?
+        # And why does this work? Shouldn't this be in radians?
+        #new_object.rotation_euler = inv_xf.rotation.euler_deg()
+        #new_object.rotation_euler = inv_xf.rotation.euler()
+        log.debug(f"..Object {new_object.name} created at {new_object.location[:]}")
 
     mesh_create_uv(new_object.data, the_shape.uvs)
     mesh_create_bone_groups(the_shape, new_object)
@@ -1813,7 +1824,9 @@ def run_tests():
     TEST_FEET = False
     TEST_SKYRIM_XFORM = False
     TEST_TRI2 = False
-    TEST_3BBB = True
+    TEST_3BBB = False
+    TEST_ROTSTATIC = False
+    TEST_ROTSTATIC2 = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -2898,6 +2911,30 @@ def run_tests():
         v1 = obj.data.shape_keys.key_blocks['VampireMorph'].data[1]
         assert v1.co[0] <= 30, "Shape keys not relative to current mesh"
 
+
+    if TEST_BPY_ALL or TEST_ROTSTATIC:
+        print("## TEST_ROTSTATIC: Test that statics are transformed according to the shape transform")
+        
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/rotatedbody.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        body = bpy.data.objects["LykaiosBody"]
+        assert body.rotation_euler[0] != (0.0, 0.0, 0.0), f"Expected rotation, got {body.rotation_euler}"
+
+    if TEST_BPY_ALL or TEST_ROTSTATIC2:
+        print("## TEST_ROTSTATIC2: Test that statics are transformed according to the shape transform")
+        
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/Crane03_simplified.nif")
+        nif = NifFile(testfile)
+        import_nif(nif)
+
+        glass = bpy.data.objects["Glass:0"]
+        assert int(glass.location[0]) == -107, f"Locaation is incorret, got {glass.location[:]}"
+        assert round(glass.matrix_world[0][1], 4) == -0.9971, f"Rotation is incorrect, got {round(glass.matrix_world[0][1], 4)} != -0.9971"
+        assert round(glass.matrix_world[2][2], 4) == 0.9971, f"Rotation is incorrect, got {round(glass.matrix_world[2][2], 4)} != 59.2036"
 
 # #############################################################################################
 #
