@@ -26,9 +26,6 @@ My interest is primarily Skyrim, Skyrim SE, and Fallout 4 so I'll be focusing on
 
 This is a work in progress. Latest state of the world is documented in the wiki.
 
-Not yet implemented (but on deck):
-* Shaders
-
 Not yet implemented (and maybe never, unless I get a lot of help/advice):
 * Animations. A lot of Skyrim's statics have animations built into the nifs.
 * Collisions
