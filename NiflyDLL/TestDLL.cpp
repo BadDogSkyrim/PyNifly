@@ -769,36 +769,41 @@ namespace NiflyDLLTests
 		TEST_METHOD(SkinTransformsFO4)
 		{
 			/* FO4 */
-			NifFile nif = NifFile(testRoot / "FO4/BTMaleBody.nif");
-			NiShape* theBody = nif.FindBlockByName<NiShape>("BaseMaleBody:0");
-			AnimInfo bodySkin;
-			bodySkin.LoadFromNif(&nif, theBody);
+			void* nif = load((testRoot / "FO4/BTMaleBody.nif").u8string().c_str());
+			void* shapes[10];
+			getShapes(nif, shapes, 10, 0);
+			void* theBody = shapes[0];
 
 			/* Whether there's a skin instance just says the shape is skinned */
-			Assert::IsTrue(theBody->HasSkinInstance(), L"ERROR: This is a skinned shape");
+			Assert::IsTrue(hasSkinInstance(theBody), L"ERROR: This is a skinned shape");
 
 			/* Skyrim has transforms on the NiSkinInstance. FO4 nifs don't */
 			MatTransform bodyg2skinInst;
-			Assert::IsFalse(nif.GetShapeTransformGlobalToSkin(theBody, bodyg2skinInst),
-				L"FO4 nifs do not have skin instance");
+			bool skinInstFound = getShapeGlobalToSkin(nif, theBody, &bodyg2skinInst.translation.x);
+
+			Assert::IsFalse(skinInstFound, L"FO4 nifs do not have skin instance");
 
 			/* But FO4 nifs do have a GTS transform, which is calculated from the bones.
 			   The calculation happened when we loaded the nif into the bodySkin. */
 			MatTransform bodyg2skin;
-			GetGlobalToSkin(&bodySkin, theBody, &bodyg2skin);
+			getGlobalToSkin(nif, theBody, &bodyg2skin);
 			Assert::AreEqual(-120, int(bodyg2skin.translation.z), L"ERROR: should have -120 translation");
 
 			/* The -120z transform means all the body verts are below the 0 point */
-			std::vector < Vector3 > verts;
-			nif.GetVertsForShape(theBody, verts);
-			float minVert = verts[0].z;
-			float maxVert = verts[0].z;
-			for (auto v : verts) {
-				minVert = std::min(v.z, minVert);
-				maxVert = std::max(v.z, maxVert);
-			}
-			Assert::IsTrue(minVert > -130 && maxVert < 0, L"ERROR: Body verts below origin");
+			const int VERTSLEN = 10000;
+			auto verts = new float[VERTSLEN][3];
+			int vertCount = getVertsForShape(nif, theBody, &verts[0][0], VERTSLEN*3, 0);
+
+			for (int i = 0; i < vertCount; i++) {
+				float v[3];
+				v[0] = verts[i][0];
+				v[1] = verts[i][1];
+				v[2] = verts[i][2];
+				if (v[2] < -130 || v[2] > 0)
+					Assert::Fail(L"ERROR: Body verts below origin");
+			};
 		};
+
 		TEST_METHOD(SkinTransformsSkyrim)
 		{
 			/* Skyrim */
@@ -2037,6 +2042,8 @@ namespace NiflyDLLTests
 			void* shapes[10];
 			void* nif = load((testRoot / "Skyrim/noblecrate01.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
+
+			Assert::IsFalse(hasSkinInstance(shapes[0]), L"ERROR: This is not a skinned shape");
 
 			clearMessageLog();
 

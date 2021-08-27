@@ -423,7 +423,7 @@ NIFLY_API void getGlobalToSkin(void* nifRef, void* shapeRef, void* xform) {
 }
 
 NIFLY_API int hasSkinInstance(void* shapeRef) {
-    return int(static_cast<NiShape*>(shapeRef)->HasSkinInstance()? 1: 0);
+    return static_cast<NiShape*>(shapeRef)->HasSkinInstance()? 1: 0;
 }
 
 NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const  char* boneName, float* buf) {
