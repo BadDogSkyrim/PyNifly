@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 0, 0),  
+    "version": (1, 0, 1),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -238,6 +238,7 @@ def obj_create_material(obj, shape):
     txtnode = nodes.new("ShaderNodeTexImage")
     try:
         img = bpy.data.images.load(fulltextures[0], check_existing=True)
+        img.colorspace_settings.name = "sRGB"
         txtnode.image = img
     except:
         pass
@@ -256,7 +257,8 @@ def obj_create_material(obj, shape):
         skimgnode = nodes.new("ShaderNodeTexImage")
         try:
             skimg = bpy.data.images.load(fulltextures[2], check_existing=True)
-            skimg.colorspace_settings.name = "Non-Color"
+            if skimg != txtnode.image:
+                skimg.colorspace_settings.name = "Non-Color"
             skimgnode.image = skimg
         except:
             pass
