@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = True
+RUN_TESTS = False
 TEST_BPY_ALL = True
 
 
@@ -763,6 +763,15 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
     bl_options = {'PRESET', 'UNDO'}
 
     filename_ext = ".nif"
+    filter_glob: StringProperty(
+        default="*.nif",
+        options={'HIDDEN'},
+    )
+
+    create_bones: bpy.props.BoolProperty(
+        name="Create Bones",
+        description="Create vanilla bones as needed to make skeleton complete.",
+        default=True)
 
     def execute(self, context):
         log.info("NIFLY IMPORT V%d.%d.%d" % bl_info['version'])
@@ -991,6 +1000,10 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
     bl_options = {'PRESET', 'UNDO'}
 
     filename_ext = ".tri"
+    filter_glob: StringProperty(
+        default="*.tri",
+        options={'HIDDEN'},
+    )
 
     def execute(self, context):
         log.info("NIFLY IMPORT V%d.%d.%d" % bl_info['version'])
