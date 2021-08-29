@@ -2,8 +2,8 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
-TEST_BPY_ALL = True
+RUN_TESTS = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 0, 1),  
+    "version": (1, 1, 0),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -59,6 +59,7 @@ from trihandler import *
 import pyniflywhereami
 
 import bpy
+import bpy_types
 from bpy.props import (
         BoolProperty,
         FloatProperty,
@@ -212,6 +213,7 @@ def obj_create_material(obj, shape):
     inter2_offset_x = -500
     offset_y = -300
     yloc = 0
+
     nifpath = shape.parent.filepath
 
     fulltextures = extend_filenames(nifpath, "meshes", shape.textures)
@@ -225,6 +227,9 @@ def obj_create_material(obj, shape):
 
     mat = bpy.data.materials.new(name=(obj.name + ".Mat"))
 
+    # Stash texture strings for future export
+    for i, t in enumerate(shape.textures):
+        mat['BSShaderTextureSet_' + str(i)] = t
 
     mat.use_nodes = True
     nodes = mat.node_tree.nodes
@@ -396,11 +401,30 @@ def has_msn_shader(obj):
                 val = True
     return val
 
+
+def read_object_texture(obj, index):
+    """Return the index'th texture in the saved texture custom properties"""
+    n = 'BSShaderTextureSet_' + str(index)
+    if n in obj.keys():
+        return obj[n]
+    else:
+        return None
+
+
+def set_object_texture(shape, obj, i):
+    t = read_object_texture(obj, i)
+    if t:
+        shape.set_texture(i, t)
+
+
 def export_shader(obj, shape):
-    """Create shader from the given material"""
+    """Create shader from the object's material"""
     log.debug(f"...exporting material for object {obj.name}")
     shader = shape.shader_attributes
     nodelist = obj.active_material.node_tree.nodes
+
+    for i in [3, 4, 5, 6, 8]:
+        set_object_texture(shape, obj, i)
     
     # Texture paths
     norm_txt_node = None
@@ -408,6 +432,7 @@ def export_shader(obj, shape):
     if shader_node:
         export_shader_attrs(obj, shader_node, shape)
 
+        diffuse_fp = None
         diffuse_input = shader_node.inputs['Base Color']
         if diffuse_input.is_linked:
             diffuse_node = diffuse_input.links[0].from_node
@@ -416,7 +441,10 @@ def export_shader(obj, shape):
                 diffuse_fp = diffuse_fp_full[diffuse_fp_full.lower().find('textures'):]
                 log.debug(f"....Writing diffuse texture path '{diffuse_fp}'")
                 shape.set_texture(0, diffuse_fp)
+        if diffuse_fp is None:
+            set_object_texture(shape, obj, 0)
         
+        norm_fp = None
         normal_input = shader_node.inputs['Normal']
         if normal_input.is_linked:
             nmap_node = normal_input.links[0].from_node
@@ -438,7 +466,10 @@ def export_shader(obj, shape):
                 norm_fp = norm_fp_full[norm_fp_full.lower().find('textures'):]
                 log.debug(f"....Writing normal texture path '{norm_fp}'")
                 shape.set_texture(1, norm_fp)
+        if norm_fp is None:
+            set_object_texture(shape, obj, 1)
 
+        sk_fp = None
         sk_input = shader_node.inputs['Subsurface Color']
         if sk_input.is_linked:
             sk_node = sk_input.links[0].from_node
@@ -447,7 +478,10 @@ def export_shader(obj, shape):
                 sk_fp = sk_fp_full[sk_fp_full.lower().find('textures'):]
                 log.debug(f"....Writing subsurface texture path '{sk_fp}'")
                 shape.set_texture(2, sk_fp)
+        if sk_fp is None:
+            set_object_texture(shape, obj, 2)
 
+        spec_fp = None
         spec_input = shader_node.inputs['Specular']
         if spec_input.is_linked:
             prior_node = spec_input.links[0].from_node
@@ -460,6 +494,8 @@ def export_shader(obj, shape):
                 spec_fp = spec_fp_full[spec_fp_full.lower().find('textures'):]
                 log.debug(f"....Writing subsurface texture path '{spec_fp}'")
                 shape.set_texture(7, spec_fp)
+        if sk_fp is None:
+            set_object_texture(shape, obj, 7)
 
         alpha_input = shader_node.inputs['Alpha']
         if alpha_input.is_linked:
@@ -537,223 +573,255 @@ def import_colors(mesh, shape):
             clayer.data[lp.index].color = colors[lp.vertex_index]
 
 
-def import_shape(the_shape: NiShape):
-    """ Import the shape to a Blender object, translating bone names 
-        Returns a list of objects created. Might be more than one because of extra data nodes.
-    """
-    v = the_shape.verts
-    t = the_shape.tris
+class NifImporter():
+    """Does the work of importing a nif, independent of Blender's operator interface"""
+    class ImportFlags(IntFlag):
+        CREATE_BONES = 1
+        RENAME_BONES = 1 << 1
 
-    objects_created = []
+    def __init__(self, 
+                 filename: str, 
+                 f: ImportFlags = ImportFlags.CREATE_BONES | ImportFlags.RENAME_BONES):
+        self.filename = filename
+        self.flags = f
+        self.armature = None
+        self.bones = set()
+        self.objects_created = []
+        self.nif = NifFile(filename)
 
-    new_mesh = bpy.data.meshes.new(the_shape.name)
-    new_mesh.from_pydata(v, [], t)
-    new_object = bpy.data.objects.new(the_shape.name, new_mesh)
-    objects_created.append(new_object)
-    
-    import_colors(new_mesh, the_shape)
-
-    if not the_shape.has_skin_instance:
-        # Statics get transformed according to the shape's transform
-        #new_object.scale = (the_shape.transform.scale, ) * 3
-        xf = the_shape.transform.invert()
-        new_object.matrix_world = xf.as_matrix() 
-        new_object.location = the_shape.transform.translation
-    else:
-        # Global-to-skin transform is what offsets all the vertices together, e.g. so that
-        # heads can be positioned at the origin. Put the reverse transform on the blender 
-        # object so they can be worked on in their skinned position.
-        # Use the one on the NiSkinData if it exists.
-        xform =  the_shape.global_to_skin_data
-        if xform is None:
-            xform = the_shape.global_to_skin
-        inv_xf = xform.invert()
-        new_object.matrix_world = inv_xf.as_matrix()
-        new_object.location = inv_xf.translation
-        #new_object.scale = [inv_xf.scale] * 3
-        #new_object.location = inv_xf.translation
-        # vv Use matrix here instead of conversion?
-        # And why does this work? Shouldn't this be in radians?
-        #new_object.rotation_euler = inv_xf.rotation.euler_deg()
-        #new_object.rotation_euler = inv_xf.rotation.euler()
-        log.debug(f"..Object {new_object.name} created at {new_object.location[:]}")
-
-    mesh_create_uv(new_object.data, the_shape.uvs)
-    mesh_create_bone_groups(the_shape, new_object)
-    mesh_create_partition_groups(the_shape, new_object)
-    for f in new_mesh.polygons:
-        f.use_smooth = True
-
-    new_mesh.update(calc_edges=True, calc_edges_loose=True)
-    new_mesh.validate(verbose=True)
-
-    obj_create_material(new_object, the_shape)
-
-    objects_created.extend(import_shape_extra(new_object, the_shape))
-
-    return objects_created
-
-def add_bone_to_arma(armdata, name, nif):
-    """ Add bone to armature. Bone may come from nif or reference skeleton.
-        armdata = armature data block
-        name = blender name of the new bone
-        nif = nif we're importing
-        returns new bone
-    """
-    if name in armdata.edit_bones:
-        return None
-    
-    # use the transform in the file if there is one; otherwise get the 
-    # transform from the reference skeleton
-    bone_xform = nif.get_node_xform_to_global(nif.nif_name(name)) 
-
-    bone = armdata.edit_bones.new(name)
-    bone.head = bone_xform.translation
-    if nif.game in ("SKYRIM", "SKYRIMSE"):
-        rot_vec = bone_xform.rotation.by_vector((0.0, 0.0, 5.0))
-    else:
-        rot_vec = bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
-    bone.tail = (bone.head[0] + rot_vec[0], bone.head[1] + rot_vec[1], bone.head[2] + rot_vec[2])
-    bone['pyxform'] = bone_xform.rotation.matrix # stash for later
-
-    #print(f"Added bone {name} at {bone.head[:]} - {bone.tail[:]}")
-    return bone
-
-def connect_armature(arm_data, the_nif):
-    """ Connect up the bones in an armature to make a full skeleton.
-        Use parent/child relationships in the nif if present, from the skel otherwise.
-        arm_data: Data block of the armature
-        the_nif: Nif being imported
+    def import_shape(self, the_shape: NiShape):
+        """ Import the shape to a Blender object, translating bone names 
+            self.objects_created = Set to a list of objects created. Might be more than one because 
+                of extra data nodes.
         """
-    log.info("..Connecting armature")
-    bones_to_parent = [b.name for b in arm_data.edit_bones]
-    i = 0
-    while i < len(bones_to_parent): # list will grow while iterating
-        bonename = bones_to_parent[i]
-        arma_bone = arm_data.edit_bones[bonename]
+        v = the_shape.verts
+        t = the_shape.tris
 
-        if arma_bone.parent is None:
-            #print("Parenting " + bonename)
-            parentname = None
-            skelbone = None
-            # look for a parent in the nif
-            nifname = the_nif.nif_name(bonename)
-            if nifname in the_nif.nodes:
-                niparent = the_nif.nodes[nifname].parent
-                if niparent and niparent._handle != the_nif.root:
-                    parentname = niparent.blender_name
-                    #print("Parent bone from nif: " + parentname)
+        new_mesh = bpy.data.meshes.new(the_shape.name)
+        new_mesh.from_pydata(v, [], t)
+        new_object = bpy.data.objects.new(the_shape.name, new_mesh)
+        self.objects_created.append(new_object)
+    
+        import_colors(new_mesh, the_shape)
 
-            if parentname is None:
-                # No parent in the nif. If it's a known bone, get parent from skeleton
-                if arma_bone.name in the_nif.dict.byBlender:
-                    p = the_nif.dict.byBlender[bonename].parent
-                    if p:
-                        parentname = p.blender
-                        #print("Parent bone from skeleton: " + parentname)
+        if not the_shape.has_skin_instance:
+            # Statics get transformed according to the shape's transform
+            #new_object.scale = (the_shape.transform.scale, ) * 3
+            xf = the_shape.transform.invert()
+            new_object.matrix_world = xf.as_matrix() 
+            new_object.location = the_shape.transform.translation
+        else:
+            # Global-to-skin transform is what offsets all the vertices together, e.g. so that
+            # heads can be positioned at the origin. Put the reverse transform on the blender 
+            # object so they can be worked on in their skinned position.
+            # Use the one on the NiSkinData if it exists.
+            xform =  the_shape.global_to_skin_data
+            if xform is None:
+                xform = the_shape.global_to_skin
+            inv_xf = xform.invert()
+            new_object.matrix_world = inv_xf.as_matrix()
+            new_object.location = inv_xf.translation
+            #new_object.scale = [inv_xf.scale] * 3
+            #new_object.location = inv_xf.translation
+            # vv Use matrix here instead of conversion?
+            # And why does this work? Shouldn't this be in radians?
+            #new_object.rotation_euler = inv_xf.rotation.euler_deg()
+            #new_object.rotation_euler = inv_xf.rotation.euler()
+            log.debug(f"..Object {new_object.name} created at {new_object.location[:]}")
+
+        mesh_create_uv(new_object.data, the_shape.uvs)
+        mesh_create_bone_groups(the_shape, new_object)
+        mesh_create_partition_groups(the_shape, new_object)
+        for f in new_mesh.polygons:
+            f.use_smooth = True
+
+        new_mesh.update(calc_edges=True, calc_edges_loose=True)
+        new_mesh.validate(verbose=True)
+
+        obj_create_material(new_object, the_shape)
+
+        self.objects_created.extend(import_shape_extra(new_object, the_shape))
+
+
+    def add_bone_to_arma(self, name):
+        """ Add bone to armature. Bone may come from nif or reference skeleton.
+            name = name to use for the bone in blender 
+            returns new bone
+        """
+        armdata = self.armature.data
+
+        if name in armdata.edit_bones:
+            return None
+    
+        # use the transform in the file if there is one; otherwise get the 
+        # transform from the reference skeleton
+        bone_xform = self.nif.get_node_xform_to_global(self.nif.nif_name(name)) 
+
+        bone = armdata.edit_bones.new(name)
+        bone.head = bone_xform.translation
+        if self.nif.game in ("SKYRIM", "SKYRIMSE"):
+            rot_vec = bone_xform.rotation.by_vector((0.0, 0.0, 5.0))
+        else:
+            rot_vec = bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
+        bone.tail = (bone.head[0] + rot_vec[0], bone.head[1] + rot_vec[1], bone.head[2] + rot_vec[2])
+        bone['pyxform'] = bone_xform.rotation.matrix # stash for later
+
+        return bone
+
+
+    def connect_armature(self):
+        """ Connect up the bones in an armature to make a full skeleton.
+            Use parent/child relationships in the nif if present, from the skel otherwise.
+            Uses flags
+                CREATE_BONES - add bones from skeleton as needed
+                RENAME_BONES - rename bones to conform with blender conventions
+            """
+        log.info("..Connecting armature")
+        arm_data = self.armature.data
+        bones_to_parent = [b.name for b in arm_data.edit_bones]
+
+        i = 0
+        while i < len(bones_to_parent): # list will grow while iterating
+            bonename = bones_to_parent[i]
+            arma_bone = arm_data.edit_bones[bonename]
+
+            if arma_bone.parent is None:
+                parentname = None
+                skelbone = None
+                # look for a parent in the nif
+                nifname = self.nif.nif_name(bonename)
+                if nifname in self.nif.nodes:
+                    niparent = self.nif.nodes[nifname].parent
+                    if niparent and niparent._handle != self.nif.root:
+                        if self.flags & self.ImportFlags.RENAME_BONES:
+                            parentname = niparent.blender_name
+                        else:
+                            parentname = niparent.nif_name
+
+                if parentname is None and (self.flags & self.ImportFlags.CREATE_BONES):
+                    # No parent in the nif. If it's a known bone, get parent from skeleton
+                    if self.flags & self.ImportFlags.RENAME_BONES:
+                        if arma_bone.name in self.nif.dict.byBlender:
+                            p = self.nif.dict.byBlender[bonename].parent
+                            if p:
+                                parentname = p.blender
+                    else:
+                        if arma_bone.name in self.nif.dict.byNif:
+                            p = self.nif.dict.byNif[bonename].parent
+                            if p:
+                                parentname = p.nif
             
-            # if we got a parent from somewhere, hook it up
-            if parentname:
-                if parentname not in arm_data.edit_bones:
-                    # Add parent bones and put on our list so we can get its parent
-                    #print(f"Parenting new bone {arma_bone.name} -> {parentname}")
-                    new_parent = add_bone_to_arma(arm_data, parentname, the_nif)
-                    bones_to_parent.append(parentname)  
-                    arma_bone.parent = new_parent
-                else:
-                    #print(f"Parenting known {arma_bone.name} -> {parentname}")
-                    arma_bone.parent = arm_data.edit_bones[parentname]
-        i += 1
+                # if we got a parent from somewhere, hook it up
+                if parentname:
+                    if parentname not in arm_data.edit_bones:
+                        # Add parent bones and put on our list so we can get its parent
+                        new_parent = self.add_bone_to_arma(parentname)
+                        bones_to_parent.append(parentname)  
+                        arma_bone.parent = new_parent
+                    else:
+                        arma_bone.parent = arm_data.edit_bones[parentname]
+            i += 1
 
-def make_armature(the_coll, the_nif, bone_names, armature):
-    """ Make a Blender armature from the given info. 
-        the_coll = Collection to put the armature in. If the current active object is an
-            armature, they will be added to it instead of creating a new one.
-        the_nif = Nif file to read bone data from
-        bone_names = bones to include in the armature. Additional bones will be added from
-            the reference skeleton as needed to connect every bone to the skeleton root.
-        armature = existing armature to add the new bones to. May be None.
-        Returns: New armature, set as active object
-        """
-    if armature is None:
-        log.debug(f"..Creating new armature for the import")
-        arm_data = bpy.data.armatures.new(the_nif.rootName)
-        arm_ob = bpy.data.objects.new(the_nif.rootName, arm_data)
-        the_coll.objects.link(arm_ob)
-    else:
-        arm_ob = armature
 
-    bpy.ops.object.select_all(action='DESELECT')
-    arm_ob.select_set(True)
-    bpy.context.view_layer.objects.active = arm_ob
-    bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
-    bpy.ops.object.mode_set(mode='EDIT', toggle=False)
+    def make_armature(self,
+                      the_coll: bpy_types.Collection, 
+                      bone_names: set):
+        """ Make a Blender armature from the given info. If the current active object is an
+                armature, bones will be added to it instead of creating a new one.
+            Inputs:
+                the_coll = Collection to put the armature in. 
+                bone_names = bones to include in the armature. Additional bones will be added from
+                    the reference skeleton as needed to connect every bone to the skeleton root.
+                self.armature = existing armature to add the new bones to. May be None.
+            Returns: 
+                self.armature = new armature, set as active object
+            """
+        if self.armature is None:
+            log.debug(f"..Creating new armature for the import")
+            arm_data = bpy.data.armatures.new(self.nif.rootName)
+            self.armature = bpy.data.objects.new(self.nif.rootName, arm_data)
+            the_coll.objects.link(self.armature)
+        else:
+            self.armature = self.armature
+
+        bpy.ops.object.select_all(action='DESELECT')
+        self.armature.select_set(True)
+        bpy.context.view_layer.objects.active = self.armature
+        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+        bpy.ops.object.mode_set(mode='EDIT', toggle=False)
     
-    for bone_game_name in bone_names:
-        add_bone_to_arma(arm_ob.data, the_nif.blender_name(bone_game_name), the_nif)
+        for bone_game_name in bone_names:
+            if self.flags & self.ImportFlags.RENAME_BONES:
+                name = self.nif.blender_name(bone_game_name)
+            else:
+                name = bone_game_name
+            self.add_bone_to_arma(name)
         
-    # Hook the armature bones up to a skeleton
-    connect_armature(arm_ob.data, the_nif)
+        # Hook the armature bones up to a skeleton
+        self.connect_armature()
 
-    #print(f"***All armature edit bones: " + str(list(arm_ob.data.edit_bones.keys())))
-    bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
-    #print(f"***All armature '{arm_ob.name}' bones: " + str(list(arm_ob.data.bones.keys())))
-    return arm_ob
+        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
 
 
-def import_nif(f: NifFile):
-    new_collection = bpy.data.collections.new(os.path.basename(f.filepath))
-    bpy.context.scene.collection.children.link(new_collection)
-    bpy.context.view_layer.active_layer_collection \
-         = bpy.context.view_layer.layer_collection.children[new_collection.name]
+    def execute(self):
+        """Perform the import operation as previously defined"""
+        new_collection = bpy.data.collections.new(os.path.basename(self.filename))
+        bpy.context.scene.collection.children.link(new_collection)
+        bpy.context.view_layer.active_layer_collection \
+             = bpy.context.view_layer.layer_collection.children[new_collection.name]
     
-    arma = None
-    if bpy.context.object and bpy.context.object.type == "ARMATURE":
-        arma = bpy.context.object
-        log.debug(f"..Current object is an armature, parenting shapes to {arma.name}")
+        log.info("..Importing " + self.nif.game + " file")
+        if bpy.context.object and bpy.context.object.type == "ARMATURE":
+            self.armature = bpy.context.object
+            log.info(f"..Current object is an armature, parenting shapes to {self.armature.name}")
 
-    log.info("..Importing " + f.game + " file")
-    bones = set()
-    new_objs = []
+        # Import shapes
+        for s in self.nif.shapes:
+            for n in s.bone_names: 
+                #log.debug(f"....adding bone {n} for {s.name}")
+                self.bones.add(n) 
+            if self.nif.game == 'FO4' and fo4FaceDict.matches(self.bones) > 10:
+                self.nif.dict = fo4FaceDict
 
-    # Import shapes
-    for s in f.shapes:
-        for n in s.bone_names: 
-            #log.debug(f"....adding bone {n} for {s.name}")
-            bones.add(n) 
-        if f.game == 'FO4' and fo4FaceDict.matches(bones) > 10:
-            f.dict = fo4FaceDict
+            self.import_shape(s)
 
-        objs = import_shape(s)
-        new_objs.append(objs[0])
-        new_collection.objects.link(objs[0])
+        for obj in self.objects_created:
+            if not obj.name in new_collection.objects and obj.type == 'MESH':
+                log.debug(f"...Adding object {obj.name} to collection {new_collection.name}")
+                new_collection.objects.link(obj)
+
+        # Import armature
+        if len(self.bones) > 0 or len(self.nif.shapes) == 0:
+            if len(self.nif.shapes) == 0:
+                log.debug(f"....No shapes in nif, importing bones as skeleton")
+                self.bones = set(self.nif.nodes.keys())
+            else:
+                log.debug(f"....Found self.bones, creating armature")
+            self.make_armature(new_collection, self.bones)
+        
+            if len(self.objects_created) > 0:
+                for o in self.objects_created: 
+                    if o.type == 'MESH': 
+                        o.select_set(True)
+                bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+            else:
+                self.armature.select_set(True)
+    
+        # Import nif-level extra data
+        objs = import_extra(self.nif)
         #for o in objs:
-        #    log.debug(f"..Linking object {o.name} to collection {new_collection.name}")
         #    new_collection.objects.link(o)
 
-    # Import armature
-    if len(bones) > 0 or len(f.shapes) == 0:
-        if len(f.shapes) == 0:
-            log.debug(f"....No shapes in nif, importing bones as skeleton")
-            bones = set(f.nodes.keys())
-        else:
-            log.debug(f"....Found bones, creating armature")
-        arma = make_armature(new_collection, f, bones, arma)
-        
-        if len(new_objs) > 0:
-            for o in new_objs: o.select_set(True)
-            bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
-        else:
-            arma.select_set(True)
-    
-    # Import nif-level extra data
-    objs = import_extra(f)
-    #for o in objs:
-    #    new_collection.objects.link(o)
+        for o in self.objects_created: o.select_set(True)
+        if len(self.objects_created) > 0:
+            bpy.context.view_layer.objects.active = self.objects_created[0]
 
-    for o in new_objs: o.select_set(True)
-    if len(new_objs) > 0:
-        bpy.context.view_layer.objects.active = new_objs[0]
+
+    @classmethod
+    def do_import(cls, 
+                  filename: str, 
+                  flags: ImportFlags = ImportFlags.CREATE_BONES | ImportFlags.RENAME_BONES):
+        return NifImporter(filename, flags).execute()
 
 
 class ImportNIF(bpy.types.Operator, ImportHelper):
@@ -773,17 +841,28 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Create vanilla bones as needed to make skeleton complete.",
         default=True)
 
+    rename_bones: bpy.props.BoolProperty(
+        name="Rename Bones",
+        description="Rename bones to conform to Blender's left/right conventions.",
+        default=True)
+
+
     def execute(self, context):
         log.info("NIFLY IMPORT V%d.%d.%d" % bl_info['version'])
         status = {'FINISHED'}
+
+        flags = NifImporter.ImportFlags(0)
+        if self.create_bones:
+            flags |= NifImporter.ImportFlags.CREATE_BONES
+        if self.rename_bones:
+            flags |= NifImporter.ImportFlags.RENAME_BONES
 
         try:
             NifFile.Load(nifly_path)
 
             bpy.ops.object.select_all(action='DESELECT')
 
-            f = NifFile(self.filepath)
-            import_nif(f)
+            NifImporter.do_import(self.filepath, flags)
         
             for area in bpy.context.screen.areas:
                 if area.type == 'VIEW_3D':
@@ -1063,7 +1142,6 @@ def extract_face_info(mesh, uvlayer, use_loop_normals=False):
     loops = []
     uvs = []
     norms = []
-    log.debug(f"....UV in object mode: {uvlayer[2].uv[:]}")
 
     # Calculating normals messes up the passed-in UV, so get the data out of it first
     for f in mesh.polygons:
@@ -1574,6 +1652,7 @@ class NifExporter:
         
         if obj.active_material:
             export_shader(obj, new_shape)
+            log.debug(f"....'{new_shape.name}' has textures: {new_shape.textures}")
             if has_msn:
                 new_shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
             else:
@@ -1592,8 +1671,8 @@ class NifExporter:
         new_xform = MatTransform();
         new_xform.translation = obj.location
         new_xform.rotation = RotationMatrix((obj.matrix_local[0][0:3], 
-                                                obj.matrix_local[1][0:3], 
-                                                obj.matrix_local[2][0:3]))
+                                             obj.matrix_local[1][0:3], 
+                                             obj.matrix_local[2][0:3]))
         new_xform.scale = obj.scale[0]
         
         if is_skinned:
@@ -1610,6 +1689,7 @@ class NifExporter:
                     new_shape.segment_file = obj['FO4_SEGMENT_FILE']
                 new_shape.set_partitions(partitions, tri_indices)
         else:
+            log.debug(f"...Exporting {new_shape.name} with transform {new_xform}")
             new_shape.transform = new_xform
 
         retval |= export_tris(nif, trip, obj, verts, tris, uvmap_new, morphdict)
@@ -1658,7 +1738,7 @@ class NifExporter:
                 log.info(f"..Wrote {trippath}")
 
 
-    def do_export(self):
+    def execute(self):
         log.debug(f"..Exporting objects: {self.objects}\nstring data: {self.str_data}\nBG data: {self.bg_data}\narmature: armatrue: {self.armature},\nfacebones: {self.facebones}")
         if self.facebones:
             self.export_file_set(self.facebones, '_faceBones')
@@ -1669,7 +1749,11 @@ class NifExporter:
     
     def export(self, objects):
         self.set_objects(objects)
-        self.do_export()
+        self.execute()
+
+    @classmethod
+    def do_export(cls, filepath, game, objects):
+        return NifExporter(filepath, game).export(objects)
         
 
 class ExportNIF(bpy.types.Operator, ExportHelper):
@@ -1840,8 +1924,8 @@ def run_tests():
     TEST_SKYRIM_XFORM = False
     TEST_TRI2 = False
     TEST_3BBB = False
-    TEST_ROTSTATIC = False
-    TEST_ROTSTATIC2 = True
+    TEST_ROTSTATIC = True
+    TEST_ROTSTATIC2 = False
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -1892,6 +1976,7 @@ def run_tests():
         if os.path.exists(fn):
             os.remove(fn)
 
+    clear_all()
 
     if TEST_BPY_ALL or TEST_UNIT:
         # Lower-level tests of individual routines for bug hunting
@@ -1922,11 +2007,10 @@ def run_tests():
         bpy.data.objects.remove(cube, do_unlink=True)
 
         print("## And can read it in again")
-        f = NifFile(filepath)
-        sourceGame = f.game
-        assert f.game == "SKYRIM", "ERROR: Wrong game found"
-
-        import_nif(f)
+        importer = NifImporter(filepath)
+        importer.execute()
+        sourceGame = importer.nif.game
+        assert sourceGame == "SKYRIM", "ERROR: Wrong game found"
 
         new_cube = bpy.context.selected_objects[0]
         assert 'Cube' in new_cube.name, "ERROR: cube not named correctly"
@@ -1951,12 +2035,12 @@ def run_tests():
         bpy.data.objects.remove(cube, do_unlink=True)
 
         print("## And can read it in again")
-        f = NifFile(filepath)
-        sourceGame = f.game
-        assert f.game == "FO4", "ERROR: Wrong game found"
-        assert f.shapes[0].blockname == "BSTriShape", f"Error: Expected BSTriShape on unskinned shape, got {f.shapes[0].blockname}"
+        importer = NifImporter(filepath)
+        sourceGame = importer.nif.game
+        assert sourceGame == "FO4", "ERROR: Wrong game found"
+        assert importer.nif.shapes[0].blockname == "BSTriShape", f"Error: Expected BSTriShape on unskinned shape, got {f.shapes[0].blockname}"
 
-        import_nif(f)
+        importer.execute()
 
         new_cube = bpy.context.selected_objects[0]
         assert 'Cube' in new_cube.name, "ERROR: cube not named correctly"
@@ -1971,8 +2055,7 @@ def run_tests():
         for o in bpy.context.selected_objects:
             o.select_set(False)
         filepath = os.path.join(pynifly_dev_path, "tests\Skyrim\malehead.nif")
-        f = NifFile(filepath)
-        import_nif(f)
+        NifImporter.do_import(filepath)
         male_head = bpy.context.selected_objects[0]
         assert round(male_head.location.z, 0) == 120, "ERROR: Object not elevated to position"
         assert male_head.parent.type == "ARMATURE", "ERROR: Didn't parent to armature"
@@ -1982,7 +2065,7 @@ def run_tests():
             o.select_set(False)
         filepath = os.path.join(pynifly_dev_path, "tests\FO4\BaseMaleHead.nif")
         f = NifFile(filepath)
-        import_nif(f)
+        NifImporter.do_import(filepath)
         male_head = bpy.data.objects["BaseMaleHead:0"]
         assert int(male_head.location.z) == 120, f"ERROR: Object {male_head.name} at {male_head.location.z}, not elevated to position"
         assert male_head.parent.type == "ARMATURE", "ERROR: Didn't parent to armature"
@@ -2054,8 +2137,7 @@ def run_tests():
         clear_all()
 
         # Import body and armor
-        f_in = NifFile(os.path.join(pynifly_dev_path, r"tests\Skyrim\test.nif"))
-        import_nif(f_in)
+        NifImporter.do_import(os.path.join(pynifly_dev_path, r"tests\Skyrim\test.nif"))
         the_armor = bpy.data.objects["Armor"]
         the_body = bpy.data.objects["MaleBody"]
         assert 'NPC Foot.L' in the_armor.vertex_groups, f"ERROR: Left foot is in the groups: {the_armor.vertex_groups}"
@@ -2094,8 +2176,7 @@ def run_tests():
 
         print("..Importing original file")
         testfile = os.path.join(pynifly_dev_path, "tests/Skyrim/test.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         for obj in bpy.context.selected_objects:
             if "Armor" in obj.name:
@@ -2118,8 +2199,7 @@ def run_tests():
         assert os.path.exists(outfile1), "ERROR: Created output file"
 
         print("..Re-importing exported file")
-        nif2 = NifFile(outfile1)
-        import_nif(nif2)
+        NifImporter.do_import(outfile)
 
         armor2 = None
         for obj in bpy.context.selected_objects:
@@ -2190,9 +2270,9 @@ def run_tests():
 
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests\FO4\VulpineInariTailPhysics.nif")
-        nif_in = NifFile(testfile)
-        bone_xform = nif_in.nodes['Bone_Cloth_H_003'].xform_to_global
-        import_nif(nif_in)
+        nifimp = NifImporter(testfile)
+        bone_xform = nifimp.nif.nodes['Bone_Cloth_H_003'].xform_to_global
+        nifimp.execute()
 
         outfile = os.path.join(pynifly_dev_path, r"tests\Out\Tail01.nif")
         for obj in bpy.context.selected_objects:
@@ -2211,8 +2291,7 @@ def run_tests():
         # Can intuit structure if it's not in the file
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\test.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
         for obj in bpy.context.selected_objects:
             if obj.name.startswith("Scene Root"):
                  assert obj.data.bones['NPC Hand.R'].parent.name == 'NPC Forearm.R', "Error: Should find forearm as parent"
@@ -2221,8 +2300,7 @@ def run_tests():
         ## Can read structure if it comes from file
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests\FO4\bear_tshirt_turtleneck.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
         for obj in bpy.context.selected_objects:
             if obj.name.startswith("Scene Root"):
                 assert 'Arm_Hand.R' in obj.data.bones, "Error: Hand should be in armature"
@@ -2236,8 +2314,7 @@ def run_tests():
         # Can intuit structure if it's not in the file
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests\FO4\baby.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
         head = bpy.data.objects['Baby_Head:0']
         eyes = bpy.data.objects['Baby_Eyes:0']
 
@@ -2265,8 +2342,7 @@ def run_tests():
 
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests\FO4\vanillaMaleBody.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         #print("FO4 LArm_UpperTwist1: ", nif.get_node_xform_to_global('LArm_UpperTwist1') )
         #print("FO4 LArm_UpperTwist1_skin: ", nif.get_node_xform_to_global('LArm_UpperTwist1_skin') )
@@ -2282,8 +2358,7 @@ def run_tests():
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"skeletons\FO4\skeleton.nif")
 
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         arma = bpy.data.objects["skeleton.nif"]
         assert 'Leg_Thigh.L' in arma.data.bones, "Error: Should have left thigh"
@@ -2304,8 +2379,7 @@ def run_tests():
         for f in [testout2, testout2tri, testout2chg, tricubenif]:
             remove_file(f)
 
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         obj = bpy.context.object
         if obj.type == "ARMATURE":
@@ -2402,8 +2476,7 @@ def run_tests():
         print("## TEST_PARTITIONS: Can read Skyrim partions")
         testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/MaleHead.nif")
 
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         obj = bpy.context.object
         assert "SBP_130_HEAD" in obj.vertex_groups, "Skyrim body parts read in as vertex groups with sensible names"
@@ -2422,8 +2495,7 @@ def run_tests():
         print("### TEST_SEGMENTS: Can read FO4 segments")
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/VanillaMaleBody.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         obj = bpy.context.object
         assert "FO4 Human Arm.R" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
@@ -2443,8 +2515,7 @@ def run_tests():
         print("### TEST_BP_SEGMENTS: Can read FO4 bodypart segments")
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/Helmet.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         #for o in bpy.context.selected_objects:
         #    if o.name.startswith("Helmet:0"):
@@ -2585,8 +2656,7 @@ def run_tests():
 
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/HeadGear1.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         obj = bpy.context.object
         colordata = obj.data.vertex_colors.active.data
@@ -2610,8 +2680,7 @@ def run_tests():
 
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests/SKYRIMSE/malehead.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
         obj = bpy.context.object
 
         testtri = os.path.join(pynifly_dev_path, r"tests/SKYRIMSE/malehead.tri")
@@ -2634,8 +2703,7 @@ def run_tests():
         print("### TEST_FACEBONES: Facebones are renamed from Blender to the game's names")
 
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/basemalehead_facebones.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         obj = bpy.context.object
         assert 'skin_bone_Dimple.R' in obj.vertex_groups.keys(), f"Expected munged vertex groups"
@@ -2669,7 +2737,7 @@ def run_tests():
         exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.nif"),
                                "FO4")
         exporter.from_context(bpy.context)
-        exporter.do_export()
+        exporter.execute()
 
         nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.nif"))
         assert len(nif1.shapes) == 1, "Write the file successfully"
@@ -2703,8 +2771,9 @@ def run_tests():
         clear_all()
 
         fileLE = os.path.join(pynifly_dev_path, r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
-        nifLE = NifFile(fileLE)
-        import_nif(nifLE)
+        leimport = NifImporter(fileLE)
+        leimport.execute()
+        nifLE = leimport.nif
         shaderAttrsLE = nifLE.shapes[0].shader_attributes
         for obj in bpy.context.selected_objects:
             if "MaleHeadIMF" in obj.name:
@@ -2712,6 +2781,7 @@ def run_tests():
         assert len(headLE.active_material.node_tree.nodes) == 9, "ERROR: Didn't import images"
         g = round(headLE.active_material.node_tree.nodes['Principled BSDF'].inputs['Metallic'].default_value, 4)
         assert round(g, 4) == 33/GLOSS_SCALE, f"Glossiness not correct, value is {g}"
+        assert headLE.active_material['BSShaderTextureSet_2'] == r"textures\actors\character\male\MaleHead_sk.dds", f"Expected stashed texture path, found {headLE.active_material['BSShaderTextureSet_2']}"
 
         print("## Shader attributes are written on export")
 
@@ -2737,8 +2807,9 @@ def run_tests():
         clear_all()
 
         fileFO4 = os.path.join(pynifly_dev_path, r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
-        nifFO4 = NifFile(fileFO4)
-        import_nif(nifFO4)
+        importFO4 = NifImporter(fileFO4)
+        importFO4.execute()
+        nifFO4 = importFO4.nif
         shaderAttrsFO4 = nifFO4.shapes[0].shader_attributes
         for obj in bpy.context.selected_objects:
             if "BaseMaleHead:0" in obj.name:
@@ -2770,8 +2841,9 @@ def run_tests():
         clear_all()
 
         fileSE = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\meshes\furniture\noble\noblecrate01.nif")
-        nifSE = NifFile(fileSE)
-        import_nif(nifSE)
+        seimporter = NifImporter(fileSE)
+        seimporter.execute()
+        nifSE = seimporter.nif
         shaderAttrsSE = nifSE.shapes[0].shader_attributes
         for obj in bpy.context.selected_objects:
             if "NobleCrate01:1" in obj.name:
@@ -2803,8 +2875,9 @@ def run_tests():
         clear_all()
 
         fileAlph = os.path.join(pynifly_dev_path, r"tests\Skyrim\meshes\actors\character\Lykaios\Tails\maletaillykaios.nif")
-        nifAlph = NifFile(fileAlph)
-        import_nif(nifAlph)
+        alphimporter = NifImporter(fileAlph)
+        alphimporter.execute()
+        nifAlph = alphimporter.nif
         furshape = nifAlph.shapes[1]
         for obj in bpy.context.selected_objects:
             if "tail_fur.001" in obj.name:
@@ -2847,8 +2920,7 @@ def run_tests():
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.object.delete(use_global=True, confirm=False)
         testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/sheath_p1_1.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         bgnames = set([obj['BSBehaviorGraphExtraData_Name'] for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")])
         assert bgnames == set(["BGED"]), f"Error: Expected BG extra data properties, found {bgnames}"
@@ -2874,8 +2946,7 @@ def run_tests():
         clear_all()
 
         testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/caninemalefeet_1.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         feet = bpy.data.objects['FootLowRes']
         assert len(feet.children) == 1, "Feet have children"
@@ -2896,8 +2967,7 @@ def run_tests():
         
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/MaleHead.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         obj = bpy.context.object
         assert int(obj.location[2]) == 120, f"Shape offset not applied to head, found {obj.location[2]}"
@@ -2916,8 +2986,7 @@ def run_tests():
         
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/OtterMaleHead.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         obj = bpy.context.object
         trifile = os.path.join(pynifly_dev_path, r"tests/Skyrim/OtterMaleHeadChargen.tri")
@@ -2932,19 +3001,29 @@ def run_tests():
         
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/rotatedbody.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         body = bpy.data.objects["LykaiosBody"]
+        head = bpy.data.objects["FemaleHead"]
         assert body.rotation_euler[0] != (0.0, 0.0, 0.0), f"Expected rotation, got {body.rotation_euler}"
+
+        NifExporter.do_export(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROTSTATIC.nif"), 
+                              "SKYRIM",
+                              [body, head])
+        
+        nifcheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROTSTATIC.nif"))
+        assert "LykaiosBody" in nifcheck.shape_dict.keys(), f"Expected LykaiosBody shape, found {[s.name for s in nifcheck.shapes]}"
+        bodycheck = nifcheck.shape_dict["LykaiosBody"]
+
+        assert int(bodycheck.transform.rotation.euler_deg()[0]) == 90.0, f"Expected 90deg rotation, got {bodycheck.transform.rotation.euler_deg()}"
+
 
     if TEST_BPY_ALL or TEST_ROTSTATIC2:
         print("## TEST_ROTSTATIC2: Test that statics are transformed according to the shape transform")
         
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/Crane03_simplified.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
 
         glass = bpy.data.objects["Glass:0"]
         assert int(glass.location[0]) == -107, f"Locaation is incorret, got {glass.location[:]}"
@@ -2983,8 +3062,7 @@ def run_tests():
         
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/3BBB_femalebody_1.nif")
-        nif = NifFile(testfile)
-        import_nif(nif)
+        NifImporter.do_import(testfile)
         
         obj = bpy.context.object
         assert obj.location[0] == 0, f"Expected body to be centered on x-axis, got {obj.location[:]}"
@@ -2995,8 +3073,7 @@ def run_tests():
         arma.select_set(True)
         bpy.context.view_layer.objects.active = arma
         testfile2 = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/3BBB_femalehands_1.nif")
-        nif2 = NifFile(testfile2)
-        import_nif(nif2)
+        NifImporter.do_import(testfile2)
 
         arma2 = bpy.context.object.parent
         assert arma2.name == arma.name, f"Should have parented to same armature: {arma2.name} != {arma.name}"

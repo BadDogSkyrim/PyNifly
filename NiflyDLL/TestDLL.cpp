@@ -231,10 +231,15 @@ void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* 
 		setColorsForShape(targetNif, targetShape, colors, vertLen);
 	}
 
-	*targetSkin = TCopyWeights(targetNif, targetShape, sourceNif, sourceShape);
-
-	TCopyPartitions(targetNif, targetShape, sourceNif, sourceShape);
+	if (targetSkin) {
+		*targetSkin = TCopyWeights(targetNif, targetShape, sourceNif, sourceShape);
+		TCopyPartitions(targetNif, targetShape, sourceNif, sourceShape);
+	};
 	TCopyExtraData(targetNif, targetShape, sourceNif, sourceShape);
+
+	MatTransform xf;
+	getTransform(sourceShape, &xf.translation.x);
+	setTransform(targetShape, &xf);
 
 	return targetShape;
 };
@@ -841,6 +846,7 @@ namespace NiflyDLLTests
 			}
 			Assert::IsTrue(minVert > -15 && maxVert < 15, L"ERROR: Head verts centered around origin");
 		};
+
 		TEST_METHOD(SkinTransformsOnBones)
 		{
 			/* This file has transforms only on bones */
@@ -2056,6 +2062,39 @@ namespace NiflyDLLTests
 			Assert::IsTrue(loglen > 0, L"Error: Expect log messages");
 
 
+		};
+
+		TEST_METHOD(transformRot) {
+			/* Test transforms with rotations */
+			void* shapes[10];
+			void* nif = load((testRoot / "Skyrim/rotatedbody.nif").u8string().c_str());
+			getShapes(nif, shapes, 10, 0);
+
+			void* body = shapes[0];
+			char* buf = new char[101];
+			getShapeName(body, buf, 100);
+			Assert::IsTrue(strcmp("LykaiosBody", buf) == 0, L"Expected lykaios body");
+
+			MatTransform xf;
+			getTransform(body, &xf.translation.x);
+			Assert::IsTrue(round(xf.translation.y) == 75, L"Expected y translation");
+			Assert::IsTrue(xf.rotation[1][2] == -1.0, L"Expected rotation around Y");
+
+			void* nifOut = createNif("SKYRIM");
+			uint16_t options = 0;
+			void* shapeOut = TCopyShape(nifOut, "LykaiosBody", nif, body, 0, nullptr);
+			TCopyShader(nifOut, shapeOut, nif, body);
+
+			saveNif(nifOut, (testRoot / "Out/Wrapper_transformRot.nif").u8string().c_str());
+
+			void* nifCheck = load((testRoot / "Out/Wrapper_transformRot.nif").u8string().c_str());
+			void* shapesCheck[10];
+			getShapes(nifCheck, shapesCheck, 10, 0);
+			void* bodyCheck = shapesCheck[0];
+			MatTransform xfCheck;
+			getTransform(bodyCheck, &xfCheck.translation.x);
+			Assert::IsTrue(round(xfCheck.translation.y) == 75, L"Expected y translation");
+			Assert::IsTrue(xfCheck.rotation[1][2] == -1.0, L"Expected rotation around Y");
 		};
 	};
 }
