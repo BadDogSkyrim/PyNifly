@@ -67,7 +67,7 @@ extern "C" NIFLY_API void* createNifShapeFromData(void* parentNif,
 	int vertCount,
 	const uint16_t * tris, int triCount,
 	uint16_t * optionsPtr);
-extern "C" NIFLY_API void setTransform(void* theShape, float* buf);
+extern "C" NIFLY_API void setTransform(void* theShape, void* buf);
 extern "C" NIFLY_API int addNode(void* f, const char* name, const nifly::MatTransform* xf, void* parent);
 extern "C" NIFLY_API void skinShape(void* f, void* shapeRef);
 extern "C" NIFLY_API void getBoneSkinToBoneXform(void* animPtr, const char* shapeName, const char* boneName, float* xform);
