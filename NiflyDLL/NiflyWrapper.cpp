@@ -14,6 +14,8 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
+const int NiflyDDLVersion[3] = { 1, 1, 0 };
+
 using namespace nifly;
 
 /* ************************** UTILITY ************************** */
@@ -423,7 +425,7 @@ NIFLY_API void getGlobalToSkin(void* nifRef, void* shapeRef, void* xform) {
 }
 
 NIFLY_API int hasSkinInstance(void* shapeRef) {
-    return int(static_cast<NiShape*>(shapeRef)->HasSkinInstance()? 1: 0);
+    return static_cast<NiShape*>(shapeRef)->HasSkinInstance()? 1: 0;
 }
 
 NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const  char* boneName, float* buf) {
@@ -515,14 +517,10 @@ NIFLY_API void setShapeGlobalToSkinXform(void* animPtr, void* shapePtr, void* gt
         *static_cast<MatTransform*>(gtsXformPtr));
 }
 
-NIFLY_API void setTransform(void* theShape, float* buf) {
+NIFLY_API void setTransform(void* theShape, void* buf) {
     NiShape* shape = static_cast<nifly::NiShape*>(theShape);
-    MatTransform xf;
-    xf.translation.x = buf[0];
-    xf.translation.y = buf[1];
-    xf.translation.z = buf[2];
-    xf.scale = buf[12];
-    shape->SetTransformToParent(xf);
+    MatTransform* xf = static_cast<MatTransform*>(buf);
+    shape->SetTransformToParent(*xf);
 }
 
 

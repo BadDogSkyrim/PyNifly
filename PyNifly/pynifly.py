@@ -310,7 +310,7 @@ def load_nifly(nifly_path):
     nifly.getUVs.restype = c_int
     nifly.getVertsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
     nifly.getVertsForShape.restype = c_int
-    nifly.hasSkinInstance.argtype = [c_void_p]
+    nifly.hasSkinInstance.argtypes = [c_void_p]
     nifly.hasSkinInstance.restype = c_int
     nifly.load.argtypes = [c_char_p]
     nifly.load.restype = c_void_p
@@ -474,6 +474,14 @@ class MatTransform():
         inverseXform.scale = 1/self.scale
         inverseXform.rotation = self.rotation.invert()
         return inverseXform
+
+    def as_matrix(self):
+        """ Return the transformation matrix as a 4x4 matrix """
+        v = [[self.scale, 1, 1, self.translation[0]], [1, self.scale, 1, self.translation[1]], [1, 1, self.scale, self.translation[2]], [0, 0, 0, 1]]
+        for i in range(0, 3):
+            for j in range(0, 3):
+                v[i][j] *= self.rotation.matrix[i][j]
+        return v
 
 
 def get_weights_by_bone(weights_by_vert):
@@ -1450,7 +1458,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1476,7 +1484,8 @@ TEST_SHADER = False
 TEST_ALPHA = False
 TEST_SHEATH = False
 TEST_FEET = False
-TEST_XFORM_SKY = True
+TEST_XFORM_SKY = False
+TEST_XFORM_STATIC = True
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1599,7 +1608,9 @@ if __name__ == "__main__":
         
         # A NiShape's verts property is a list of triples containing x,y,z position
         f2 = NifFile("tests/skyrim/noblecrate01.nif")
-        print(f2.getAllShapeNames())
+
+        assert not f2.shapes[0].has_skin_instance, "Error: Crate should not be skinned"
+
         verts = f2.shapes[0].verts
         assert len(verts) == 686, "ERROR: Did not import 686 verts"
         assert round(verts[0][0], 4) == -67.6339, "ERROR: First vert wrong"
@@ -1823,6 +1834,7 @@ if __name__ == "__main__":
         assert (len(the_armor.tris) == 3195), "ERROR: Wrong number of tris"
 
         assert int(the_armor.transform.translation[2]) == 120, "ERROR: Armor shape is raised up"
+        assert the_armor.has_skin_instance, "Error: Armor should be skinned"
 
         print("### Can save armor to Skyrim")
         testfile = "tests/Out/TestSkinnedFromPy01.nif"
@@ -2426,3 +2438,13 @@ if __name__ == "__main__":
         assert int(xfshapecheck.translation[2]) == 120, "ERROR: Skyrim head shape has a 120 z translation"
         assert int(xfskincheck.translation[2]) == -120, "ERROR: Skyrim head shape has a -120 z skin translation"
 
+    if TEST_ALL or TEST_XFORM_STATIC:
+        print("### TEST_XFORM_STATIC: Can read static transforms")
+
+        nif = NifFile(r"tests\FO4\Crane03_simplified.nif")
+        glass = nif.shapes[0]
+
+        assert glass.name == "Glass:0", f"Error: Expected glass first, found {glass.name}"
+        xform = glass.transform.as_matrix()
+        assert round(xform[0][3]) == -108, f"Error: X translation wrong: {xform}"
+        assert round(xform[1][0]) == 1, f"Error: Rotation incorrect, got {xform}"
