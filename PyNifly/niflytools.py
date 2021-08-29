@@ -42,7 +42,7 @@ def missing_files(files):
     return [x for x in files if not os.path.exists(x)]
 
 
-# ###################### VECTORS, ROTATION MATRICES, MATHY STUFF ################################
+# ################# VECTORS, ROTATION MATRICES, MATHY STUFF #################
 
 def vector_normalize(v):
     d = sqrt(v[0]**2 + v[1]**2 + v[2]**2)
