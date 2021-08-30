@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 1, 0),  
+    "version": (1, 1, 1),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -74,6 +74,7 @@ import bmesh
 NO_PARTITION_GROUP = "*NO_PARTITIONS*"
 MULTIPLE_PARTITION_GROUP = "*MULTIPLE_PARTITIONS*"
 UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
+ALPHA_MAP_NAME = "VERTEX_ALPHA"
 
 GLOSS_SCALE = 100
 
@@ -568,9 +569,15 @@ def import_colors(mesh, shape):
     if len(shape.colors) > 0:
         log.debug(f"..Importing vertex colors for {shape.name}")
         clayer = mesh.vertex_colors.new()
+        alphlayer = mesh.vertex_colors.new()
+        alphlayer.name = ALPHA_MAP_NAME
+        
         colors = shape.colors
         for lp in mesh.loops:
-            clayer.data[lp.index].color = colors[lp.vertex_index]
+            c = colors[lp.vertex_index]
+            clayer.data[lp.index].color = (c[0], c[1], c[2], 1.0)
+            alph = colors[lp.vertex_index][3]
+            alphlayer.data[lp.index].color = [alph, alph, alph, 1.0]
 
 
 class NifImporter():
@@ -1502,6 +1509,47 @@ class NifExporter:
 
         return list(partitions.values()), tri_indices
 
+    def extract_colors(self, mesh):
+        """Extract vertex color data from the given mesh. Use the VERTEX_ALPHA color map
+            for alpha values if it exists."""
+        vc = mesh.vertex_colors
+        alphamap = None
+        alphamapname = ''
+        colormap = None
+        colormapname = ''
+        colorlen = 0
+        if ALPHA_MAP_NAME in vc.keys():
+            alphamap = vc[ALPHA_MAP_NAME].data
+            alphamapname = ALPHA_MAP_NAME
+            colorlen = len(alphamap)
+        if vc.active.data == alphamap:
+            # Alpha map is active--see if theres another map to use for colors. If not, 
+            # colors will be set to white
+            for c in vc:
+                if c.data != alphamap:
+                    colormap = c.data
+                    colormapname = c.name
+                    break
+        else:
+            colormap = vc.active.data
+            colormapname = vc.active.name
+            colorlen = len(colormap)
+
+        log.debug(f"...Writing vertex colors from map {colormapname}, vertex alpha from {alphamapname}")
+        loopcolors = [(0.0, 0.0, 0.0, 0.0)] * colorlen
+        for i in range(0, colorlen):
+            if colormap:
+                c = colormap[i].color[:]
+            else:
+                c = (1.0, 1.0, 1.0, 1.0)
+            if alphamap:
+                a = alphamap[i].color
+                c = (c[0], c[1], c[2], (a[0] + a[1] + a[2])/3)
+            loopcolors[i] = c
+
+        return loopcolors
+        #loopcolors = [c.color[:] for c in editmesh.vertex_colors.active.data]
+
     def extract_mesh_data(self, obj, target_key):
         """ 
         Extract the mesh data from the given object
@@ -1511,7 +1559,7 @@ class NifExporter:
             verts = list of XYZ vertex locations
             norms_new = list of XYZ normal values, 1:1 with verts
             uvmap_new = list of (u, v) values, 1:1 with verts
-            colors_new = list of RGB color values 1:1 with verts. May be None.
+            colors_new = list of RGBA color values 1:1 with verts. May be None.
             tris = list of (t1, t2, t3) vert indices to define triangles
             weights_by_vert = [dict[group-name: weight], ...] 1:1 with verts
             morphdict = {shape-key: [verts...], ...} only if "target_key" is NOT specified
@@ -1556,8 +1604,7 @@ class NifExporter:
         
             bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
             if len(editmesh.vertex_colors) > 0:
-                loopcolors = [c.color[:] for c in editmesh.vertex_colors.active.data]
-                #log.debug(f"Saved loop colors: {loopcolors}")
+                loopcolors = self.extract_colors(editmesh)
         
             # Apply shape key verts to the mesh so normals will be correct.  If the mesh has
             # custom normals, fukkit -- use the custom normals and assume the deformation
@@ -1909,7 +1956,7 @@ def run_tests():
     TEST_ROGUE01 = False
     TEST_ROGUE02 = False
     TEST_NORMAL_SEAM = False
-    TEST_COLORS = False
+    TEST_COLORS = True
     TEST_HEADPART = False
     TEST_FACEBONES = False
     TEST_FACEBONE_EXPORT = False
@@ -1924,8 +1971,9 @@ def run_tests():
     TEST_SKYRIM_XFORM = False
     TEST_TRI2 = False
     TEST_3BBB = False
-    TEST_ROTSTATIC = True
+    TEST_ROTSTATIC = False
     TEST_ROTSTATIC2 = False
+    TEST_VERTEX_ALPHA = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -3029,6 +3077,34 @@ def run_tests():
         assert int(glass.location[0]) == -107, f"Locaation is incorret, got {glass.location[:]}"
         assert round(glass.matrix_world[0][1], 4) == -0.9971, f"Rotation is incorrect, got {round(glass.matrix_world[0][1], 4)} != -0.9971"
         assert round(glass.matrix_world[2][2], 4) == 0.9971, f"Rotation is incorrect, got {round(glass.matrix_world[2][2], 4)} != 59.2036"
+
+
+    if TEST_BPY_ALL or TEST_VERTEX_ALPHA:
+        print("### TEST_VERTEX_ALPHA: Export shape with vertex alpha values")
+
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_VERTEX_ALPHA.nif")
+        remove_file(outfile)
+        append_from_file("Cube", True, r"tests\Skyrim\AlphaCube.blend", r"\Object", "Cube")
+        exporter = NifExporter(outfile, "SKYRIM")
+        exporter.export([bpy.data.objects["Cube"]])
+
+        nifcheck = NifFile(outfile)
+        shapecheck = nifcheck.shapes[0]
+
+        assert shapecheck.colors[0][3] == 0.0, f"Expected 0, found {shapecheck.colors[0]}"
+        for c in shapecheck.colors:
+            assert c[0] == 1.0 and c[1] == 1.0 and c[2] == 1.0, f"Expected all white verts in nif, found {c}"
+
+        NifImporter.do_import(outfile)
+        objcheck = bpy.context.object
+        colorscheck = objcheck.data.vertex_colors
+        assert ALPHA_MAP_NAME in colorscheck.keys(), f"Expected alpha map, found {objcheck.data.vertex_colors.keys()}"
+
+        assert min([c.color[1] for c in colorscheck[ALPHA_MAP_NAME].data]) == 0, f"Expected some 0 alpha values"
+        for i, c in enumerate(objcheck.data.vertex_colors['Col'].data):
+            assert c.color[:] == (1.0, 1.0, 1.0, 1.0), f"Expected all white, full alpha in read object, found {i}: {c.color[:]}"
+
 
 # #############################################################################################
 #
