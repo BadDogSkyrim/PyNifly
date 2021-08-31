@@ -130,7 +130,9 @@ void GetGlobalToSkin(AnimInfo* anim, NiShape* theShape, MatTransform* outXform) 
 }
 
 /* Create a skin for a nif, represented by AnimInfo */
-AnimInfo* CreateSkinForNif(NifFile* nif, enum TargetGame game) {
+AnimInfo* CreateSkinForNif(NifFile* nif, enum TargetGame game) 
+/* Create an AnimInfo skin for an entire nif, based on the reference skeleton for the target game. */
+{
 	AnimInfo* anim = new AnimInfo();
 	std::string fname = SkeletonFile(game);
 	AnimSkeleton::getInstance().LoadFromNif(fname, curRootName); 

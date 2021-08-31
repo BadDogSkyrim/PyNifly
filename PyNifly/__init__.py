@@ -604,6 +604,8 @@ class NifImporter():
         v = the_shape.verts
         t = the_shape.tris
 
+        log.debug(f">>>import shape: {the_shape.name} has gts {the_shape.global_to_skin.translation}")
+
         new_mesh = bpy.data.meshes.new(the_shape.name)
         new_mesh.from_pydata(v, [], t)
         new_object = bpy.data.objects.new(the_shape.name, new_mesh)
@@ -622,9 +624,10 @@ class NifImporter():
             # heads can be positioned at the origin. Put the reverse transform on the blender 
             # object so they can be worked on in their skinned position.
             # Use the one on the NiSkinData if it exists.
-            xform =  the_shape.global_to_skin_data
+            xform = the_shape.global_to_skin_data
             if xform is None:
                 xform = the_shape.global_to_skin
+            log.debug(f"....Found transform {the_shape.global_to_skin} on {the_shape.name} in '{self.nif.filepath}'")
             inv_xf = xform.invert()
             new_object.matrix_world = inv_xf.as_matrix()
             new_object.location = inv_xf.translation
@@ -649,12 +652,16 @@ class NifImporter():
 
         self.objects_created.extend(import_shape_extra(new_object, the_shape))
 
+        log.debug(f"<<<import shape: {the_shape.name} has gts {the_shape.global_to_skin.translation}")
+
 
     def add_bone_to_arma(self, name):
         """ Add bone to armature. Bone may come from nif or reference skeleton.
             name = name to use for the bone in blender 
             returns new bone
         """
+        log.debug(f">>>add_bone_to_arma: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
+
         armdata = self.armature.data
 
         if name in armdata.edit_bones:
@@ -673,6 +680,7 @@ class NifImporter():
         bone.tail = (bone.head[0] + rot_vec[0], bone.head[1] + rot_vec[1], bone.head[2] + rot_vec[2])
         bone['pyxform'] = bone_xform.rotation.matrix # stash for later
 
+        log.debug(f"<<<add_bone_to_arma: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
         return bone
 
 
@@ -683,7 +691,9 @@ class NifImporter():
                 CREATE_BONES - add bones from skeleton as needed
                 RENAME_BONES - rename bones to conform with blender conventions
             """
-        log.info("..Connecting armature")
+
+        log.debug(f">>>connect_armature: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
+
         arm_data = self.armature.data
         bones_to_parent = [b.name for b in arm_data.edit_bones]
 
@@ -728,6 +738,8 @@ class NifImporter():
                     else:
                         arma_bone.parent = arm_data.edit_bones[parentname]
             i += 1
+        
+        log.debug(f"<<<connect_armature: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
 
 
     def make_armature(self,
@@ -743,6 +755,8 @@ class NifImporter():
             Returns: 
                 self.armature = new armature, set as active object
             """
+        log.debug(f">>>make_armature: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
+
         if self.armature is None:
             log.debug(f"..Creating new armature for the import")
             arm_data = bpy.data.armatures.new(self.nif.rootName)
@@ -757,17 +771,22 @@ class NifImporter():
         bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
         bpy.ops.object.mode_set(mode='EDIT', toggle=False)
     
+        log.debug(f">>>bone_names: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
         for bone_game_name in bone_names:
             if self.flags & self.ImportFlags.RENAME_BONES:
                 name = self.nif.blender_name(bone_game_name)
+                #log.debug(f"---bone_names {name}: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
             else:
                 name = bone_game_name
             self.add_bone_to_arma(name)
+        log.debug(f"<<<bone_names: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
         
         # Hook the armature bones up to a skeleton
         self.connect_armature()
 
         bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+
+        log.debug(f"<<<make_armature: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
 
 
     def execute(self):
@@ -784,6 +803,7 @@ class NifImporter():
 
         # Import shapes
         for s in self.nif.shapes:
+            log.debug(f">>>execute: {s.name} has gts {s.global_to_skin.translation}")
             for n in s.bone_names: 
                 #log.debug(f"....adding bone {n} for {s.name}")
                 self.bones.add(n) 
@@ -823,12 +843,17 @@ class NifImporter():
         if len(self.objects_created) > 0:
             bpy.context.view_layer.objects.active = self.objects_created[0]
 
+        log.debug(f"<<<execute: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
+
+
 
     @classmethod
     def do_import(cls, 
                   filename: str, 
                   flags: ImportFlags = ImportFlags.CREATE_BONES | ImportFlags.RENAME_BONES):
-        return NifImporter(filename, flags).execute()
+        imp = NifImporter(filename, flags)
+        imp.execute()
+        return imp
 
 
 class ImportNIF(bpy.types.Operator, ImportHelper):
@@ -1956,7 +1981,7 @@ def run_tests():
     TEST_ROGUE01 = False
     TEST_ROGUE02 = False
     TEST_NORMAL_SEAM = False
-    TEST_COLORS = True
+    TEST_COLORS = False
     TEST_HEADPART = False
     TEST_FACEBONES = False
     TEST_FACEBONE_EXPORT = False
@@ -1973,7 +1998,8 @@ def run_tests():
     TEST_3BBB = False
     TEST_ROTSTATIC = False
     TEST_ROTSTATIC2 = False
-    TEST_VERTEX_ALPHA = True
+    TEST_VERTEX_ALPHA = False
+    TEST_MUTANT = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -3153,6 +3179,23 @@ def run_tests():
 
         arma2 = bpy.context.object.parent
         assert arma2.name == arma.name, f"Should have parented to same armature: {arma2.name} != {arma.name}"
+
+    if TEST_BPY_ALL or TEST_MUTANT:
+        print("### TEST_MUTANT: Test that the supermutant body imports correctly the *second* time")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/testsupermutantbody.nif")
+        imp = NifImporter.do_import(testfile, NifImporter.ImportFlags.RENAME_BONES)
+        log.debug(f"Expected -140 z translation in first nif, got {imp.nif.shapes[0].global_to_skin.translation[2]}")
+
+        sm1 = bpy.context.object
+        assert round(sm1.location[2]) == 140, f"Expect first supermutant body at 140 Z, got {sm1.location[2]}"
+        assert round(imp.nif.shapes[0].global_to_skin.translation[2]) == -140, f"Expected -140 z translation in first nif, got {imp.nif.shapes[0].global_to_skin.translation[2]}"
+
+        imp2 = NifImporter.do_import(testfile, NifImporter.ImportFlags.RENAME_BONES)
+        sm2 = bpy.context.object
+        assert round(sm2.location[2]) == 140, f"Expect supermutant body at 140 Z, got {sm2.location[2]}"
+
         
     print("""
     ############################################################
