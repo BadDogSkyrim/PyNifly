@@ -314,6 +314,8 @@ def load_nifly(nifly_path):
     nifly.hasSkinInstance.restype = c_int
     nifly.load.argtypes = [c_char_p]
     nifly.load.restype = c_void_p
+    nifly.loadSkinForNif.argtypes = [c_void_p]
+    nifly.loadSkinForNif.restype = c_void_p
     nifly.saveNif.argtypes = [c_void_p, c_char_p]
     nifly.saveNif.restype = c_int
     nifly.saveSkinnedNif.argtypes = [c_void_p, c_char_p]
@@ -716,10 +718,8 @@ class NiNode:
 
     @property
     def xform_to_global(self):
-        self.file.createSkin()
-
         buf = (c_float * 13)()
-        NifFile.nifly.getNodeXformToGlobal(self.file._skin_handle, self.name.encode('utf-8'), buf)
+        NifFile.nifly.getNodeXformToGlobal(self.file.skin, self.name.encode('utf-8'), buf)
         mat = MatTransform()
         mat.from_array(buf)
         return mat
@@ -1020,7 +1020,9 @@ class NiShape:
             NiSkinInstance. This should be applied to the shape in blender so it matches 
             the armature. """
         buf = (c_float * 13)() # MAT_TRANSFORM() # 
-        NifFile.nifly.getGlobalToSkin(self.parent._handle, self._handle, buf)
+        for i in range(0, 13):
+            buf[i] = 0.0
+        NifFile.nifly.getGlobalToSkin(self.parent.skin, self._handle, buf)
         result = MatTransform()
         result.from_array(buf)
         return result
@@ -1043,14 +1045,12 @@ class NiShape:
         """ Return the transform between the skin and bone it uses. Often used to 
             reposition the mesh over the armature. <<< IS THAT TRUE? WHAT IS THIS?
             """
-        if self.parent._skin_handle is None:
-            self.parent.createSkin()
         self.skin()
         buf = (c_float * 13)()
-        NifFile.nifly.getBoneSkinToBoneXform(self.parent._skin_handle,
-                                         self.name.encode('utf-8'),
-                                         bone_name.encode('utf-8'),
-                                         buf)
+        NifFile.nifly.getBoneSkinToBoneXform(self.parent.skin,
+                                             self.name.encode('utf-8'),
+                                             bone_name.encode('utf-8'),
+                                             buf)
         res = MatTransform()
         res.from_array(buf)
         return res
@@ -1403,12 +1403,16 @@ class NifFile:
                 self._nodes[this_node.name] = this_node
         return self._nodes
 
+    @property
+    def skin(self):
+        if self._skin_handle is None:
+            self._skin_handle = NifFile.nifly.loadSkinForNif(self._handle)
+        return self._skin_handle
+
     def get_node_xform_to_global(self, name):
         """ Get the xform-to-global either from the nif or the reference skeleton """
-        self.createSkin()
-
         buf = (c_float * 13)()
-        NifFile.nifly.getNodeXformToGlobal(self._skin_handle, name.encode('utf-8'), buf)
+        NifFile.nifly.getNodeXformToGlobal(self.skin, name.encode('utf-8'), buf)
         mat = MatTransform()
         mat.from_array(buf)
         return mat
@@ -1458,7 +1462,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1470,21 +1474,21 @@ TEST_2_TAILS = False
 TEST_ROTATIONS = False
 TEST_PARENT = False
 TEST_PYBABY = False
-TEST_BONE_XFORM = False
-TEST_PARTITION_NAMES = False
-TEST_PARTITIONS = False
-TEST_SEGMENTS = False
-TEST_BP_SEGMENTS = False
-TEST_COLORS = False
-TEST_FNV = False
-TEST_BLOCKNAME = False
-TEST_UNSKINNED = False
-TEST_UNI = False
-TEST_SHADER = False
-TEST_ALPHA = False
-TEST_SHEATH = False
-TEST_FEET = False
-TEST_XFORM_SKY = False
+TEST_BONE_XFORM = True
+TEST_PARTITION_NAMES = True
+TEST_PARTITIONS = True
+TEST_SEGMENTS = True
+TEST_BP_SEGMENTS = True
+TEST_COLORS = True
+TEST_FNV = True
+TEST_BLOCKNAME = True
+TEST_UNSKINNED = True
+TEST_UNI = True
+TEST_SHADER = True
+TEST_ALPHA = True
+TEST_SHEATH = True
+TEST_FEET = True
+TEST_XFORM_SKY = True
 TEST_XFORM_STATIC = True
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -2023,14 +2027,17 @@ if __name__ == "__main__":
         print('### TEST_BONE_XFORM: Can read bone transforms')
 
         nif = NifFile(r"tests/Skyrim/MaleHead.nif")
-        #nif.game
-        #nif.createSkin()
-        #buf = (c_float * 13)()
-        #NifFile.nifly.getNodeXformToGlobal(nif._skin_handle, "NPC Spine2 [Spn2]".encode('utf-8'), buf)
+
+        # node-to-global transform combines all the transforms to show node's position
+        # in space. Since this nif doesn't contain bone relationships, that's just
+        # the transform on the bone.
         mat = nif.get_node_xform_to_global("NPC Spine2 [Spn2]")
-        assert mat.translation[2] != 0, "Error: Translation should not be 0"
+        assert mat.translation[2] != 0, f"Error: Translation should not be 0, found {mat.translation[2]}"
+
+        # If the bone isn't in the nif, the node-to-global is retrieved from
+        # the reference skeleton.
         mat2 = nif.get_node_xform_to_global("NPC L Forearm [LLar]")
-        assert mat2.translation[2] != 0, "Error: Translation should not be 0"
+        assert mat2.translation[2] != 0, f"Error: Translation should not be 0, found {mat2.translation[2]}"
 
         nif = NifFile(r"tests/FO4/BaseMaleHead.nif")
         mat3 = nif.get_node_xform_to_global("Neck")

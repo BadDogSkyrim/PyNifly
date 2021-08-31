@@ -46,8 +46,9 @@ extern "C" NIFLY_API int getVertsForShape(void* theNif, void* theShape, float* b
 extern "C" NIFLY_API int getNormalsForShape(void* theNif, void* theShape, float* buf, int len, int start);
 //extern "C" NIFLY_API int getRawVertsForShape(void* theNif, void* theShape, float* buf, int len, int start);
 extern "C" NIFLY_API int getTriangles(void* theNif, void* theShape, uint16_t* buf, int len, int start);
+extern "C" NIFLY_API void* loadSkinForNif(void* nifRef);
 extern "C" NIFLY_API bool getShapeGlobalToSkin(void* nifRef, void* shapeRef, float* xform);
-extern "C" NIFLY_API void getGlobalToSkin(void* nifRef, void* shapeRef, void* xform);
+extern "C" NIFLY_API void getGlobalToSkin(void* nifSkinRef, void* shapeRef, void* xform);
 extern "C" NIFLY_API int hasSkinInstance(void* shapeRef);
 extern "C" NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const char* boneName, float* xform);
 extern "C" NIFLY_API void getTransform(void* theShape, float* buf);
