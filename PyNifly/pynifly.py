@@ -218,6 +218,8 @@ def load_nifly(nifly_path):
     nifly.addBoneToShape.restype = None
     nifly.addNode.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p]
     nifly.addNode.restype = c_int
+    nifly.clearMessageLog.argtypes = []
+    nifly.clearMessageLog.restype = None
     nifly.createNif.argtypes = [c_char_p]
     nifly.createNif.restype = c_void_p
     nifly.createNifShapeFromData.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p]
@@ -238,6 +240,8 @@ def load_nifly(nifly_path):
     nifly.getGameName.restype = c_int
     nifly.getGlobalToSkin.argtypes = [c_void_p, c_void_p, c_void_p]
     nifly.getGlobalToSkin.restype = None
+    nifly.getMessageLog.argtypes = [c_char_p, c_int]
+    nifly.getMessageLog.restype = c_int
     nifly.getNodeCount.argtypes = [c_void_p]
     nifly.getNodeCount.restype = c_int
     nifly.getNodeName.argtypes = [c_void_p, c_void_p, c_int]
@@ -314,8 +318,14 @@ def load_nifly(nifly_path):
     nifly.hasSkinInstance.restype = c_int
     nifly.load.argtypes = [c_char_p]
     nifly.load.restype = c_void_p
-    nifly.loadSkinForNif.argtypes = [c_void_p]
+    nifly.loadSkinForNif.argtypes = [c_void_p, c_char_p]
     nifly.loadSkinForNif.restype = c_void_p
+    nifly.loadSkinForNifSkel.argtypes = [c_void_p, c_void_p]
+    nifly.loadSkinForNifSkel.restype = c_void_p
+    nifly.makeGameSkeletonInstance.argtypes = [c_char_p]
+    nifly.makeGameSkeletonInstance.restype = c_void_p
+    nifly.makeSkeletonInstance.argtypes = [c_char_p, c_char_p]
+    nifly.makeSkeletonInstance.restype = c_void_p
     nifly.saveNif.argtypes = [c_void_p, c_char_p]
     nifly.saveNif.restype = c_int
     nifly.saveSkinnedNif.argtypes = [c_void_p, c_char_p]
@@ -1406,7 +1416,8 @@ class NifFile:
     @property
     def skin(self):
         if self._skin_handle is None:
-            self._skin_handle = NifFile.nifly.loadSkinForNif(self._handle)
+            self._skin_handle = NifFile.nifly.loadSkinForNif(
+                self._handle, self.game.encode('utf-8'))
         return self._skin_handle
 
     def get_node_xform_to_global(self, name):
@@ -1452,6 +1463,18 @@ class NifFile:
     def saveSkinnedNif(self, filepath):
         NifFile.nifly.saveSkinnedNif(self._skin_handle, filepath.encode('utf-8'))
 
+    @staticmethod
+    def clear_log():
+        NifFIle.nifly.clearMessageLog()
+
+    @staticmethod
+    def message_log():
+        buf = create_string_buffer(500)
+        msgsize = NifFile.nifly.getMessageLog(buf, 500)
+        if msgsize > 500:
+            buf = create_string_buffer(msgsize)
+            NifFile.nifly.getMessageLog(buf, msgsize)
+        return buf.value.decode('utf-8')
 
 #
 # ######################################## TESTS ########################################
@@ -1474,22 +1497,23 @@ TEST_2_TAILS = False
 TEST_ROTATIONS = False
 TEST_PARENT = False
 TEST_PYBABY = False
-TEST_BONE_XFORM = True
-TEST_PARTITION_NAMES = True
-TEST_PARTITIONS = True
-TEST_SEGMENTS = True
-TEST_BP_SEGMENTS = True
-TEST_COLORS = True
-TEST_FNV = True
-TEST_BLOCKNAME = True
-TEST_UNSKINNED = True
-TEST_UNI = True
-TEST_SHADER = True
-TEST_ALPHA = True
-TEST_SHEATH = True
-TEST_FEET = True
-TEST_XFORM_SKY = True
-TEST_XFORM_STATIC = True
+TEST_BONE_XFORM = False
+TEST_PARTITION_NAMES = False
+TEST_PARTITIONS = False
+TEST_SEGMENTS = False
+TEST_BP_SEGMENTS = False
+TEST_COLORS = False
+TEST_FNV = False
+TEST_BLOCKNAME = False
+TEST_UNSKINNED = False
+TEST_UNI = False
+TEST_SHADER = False
+TEST_ALPHA = False
+TEST_SHEATH = False
+TEST_FEET = False
+TEST_XFORM_SKY = False
+TEST_XFORM_STATIC = False
+TEST_MUTANT = True
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
     """ Convenience routine to copy existing shape """
@@ -2455,3 +2479,19 @@ if __name__ == "__main__":
         xform = glass.transform.as_matrix()
         assert round(xform[0][3]) == -108, f"Error: X translation wrong: {xform}"
         assert round(xform[1][0]) == 1, f"Error: Rotation incorrect, got {xform}"
+
+    if TEST_ALL or TEST_MUTANT:
+        print("### TEST_MUTANT: Test we can read the mutant nif correctly")
+
+        testfile = r"tests/FO4/testsupermutantbody.nif"
+        nif = NifFile(testfile)
+        shape = nif.shapes[0]
+        
+        assert round(shape.global_to_skin.translation[2]) == -140, f"Error: Expected -140 z translation, got {shape.global_to_skin.translation[2]}"
+
+        print(nif.get_node_xform_to_global('Pelvis_skin'))
+
+        nif2 = NifFile(testfile)
+        shape2 = nif.shapes[0]
+
+        assert round(shape2.global_to_skin.translation[2]) == -140, f"Error: Expected -140 z translation, got {shape2.global_to_skin.translation[2]}"

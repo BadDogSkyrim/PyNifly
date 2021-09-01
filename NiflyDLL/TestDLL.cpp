@@ -162,7 +162,7 @@ void* TCopyWeights(void* targetNif, void* targetShape, void* sourceNif, void* so
 	getTransform(sourceShape, &shapeXform.translation.x);
 	setTransform(targetShape, &shapeXform.translation.x);
 
-	void* sourceSkin = loadSkinForNif(sourceNif);
+	void* sourceSkin = loadSkinForNif(sourceNif, gameName);
 	MatTransform shapeGTSkin;
 	if (!getShapeGlobalToSkin(sourceNif, sourceShape, &shapeGTSkin.translation.x))
 		getGlobalToSkin(sourceSkin, sourceShape, &shapeGTSkin.translation.x);
@@ -301,8 +301,8 @@ void TCompareShapes(void* nif1, void* shape1, void* nif2, void* shape2) {
 		getTransform(shape2, &shapeXform2.translation.x);
 		Assert::IsTrue(shapeXform1.IsNearlyEqualTo(shapeXform2), L"Error shape transforms differ");
 
-		void* nifSkin1 = loadSkinForNif(nif1);
-		void* nifSkin2 = loadSkinForNif(nif2);
+		void* nifSkin1 = loadSkinForNif(nif1, gameName1);
+		void* nifSkin2 = loadSkinForNif(nif2, gameName2);
 		MatTransform shapeGTSkin1;
 		if (!getShapeGlobalToSkin(nif1, shape1, &shapeGTSkin1.translation.x))
 			getGlobalToSkin(nifSkin1, shape1, &shapeGTSkin1.translation.x);
@@ -501,15 +501,18 @@ namespace NiflyDLLTests
 	{
 	public:
 		TEST_METHOD(LoadReferenceSkeleton) {
-			/* FUNCTION TEST: Can load a skeleton */
-			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(SKYRIM), curRootName);
+			/* UNIT TEST: Can load a skeleton */
+			AnimSkeleton* skel = AnimSkeleton::MakeInstance();
+			std::string root;
+			std::string fn = SkeletonFile(SKYRIM, root);
+			skel->LoadFromNif(fn, root);
 
-			AnimSkeleton skel = AnimSkeleton::getInstance();
-			std::string rootName = skel.GetRootBonePtr()->boneName;
+			std::string rootName = skel->GetRootBonePtr()->boneName;
 			Assert::AreEqual(std::string("NPC Root [Root]"), rootName);
-			int nodeCount = int(skel.refSkeletonNif.GetNodes().size());
+			int nodeCount = int(skel->refSkeletonNif.GetNodes().size());
 
-			NifFile nif = NifFile(SkeletonFile(FO4));
+			fn = SkeletonFile(FO4, root);
+			NifFile nif = NifFile(fn);
 			NiNode* node = nif.FindBlockByName<NiNode>("LArm_Hand");
 			NiNode* parent = nif.GetParentNode(node);
 			std::string parentName = nif.GetNodeName(nif.GetBlockID(parent));
@@ -517,7 +520,7 @@ namespace NiflyDLLTests
 		}
 		TEST_METHOD(LoadAndStoreSkyrim)
 		{
-			/* Can load a nif and read info out of it */
+			/* UNIT TEST: Can load a nif and read info out of it */
 			NifFile nif = NifFile(testRoot / "Skyrim/test.nif");
 			std::vector<std::string> shapeNames = nif.GetShapeNames();
 			for (std::string s : shapeNames) std::cout << s;
@@ -562,8 +565,6 @@ namespace NiflyDLLTests
 
 			/* >> Can save just the armor as a skinned object */
 			AnimInfo* anim;
-			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(SKYRIM), curRootName);
-
 			NifFile newNifSkind = NifFile();
 			SetNifVersion(&newNifSkind, SKYRIM);
 			anim = CreateSkinForNif(&newNifSkind, SKYRIM);
@@ -586,7 +587,8 @@ namespace NiflyDLLTests
 			Assert::IsTrue(hasGTSkin), L"ERROR: Skyrim nifs have skin transforms";
 
 			AnimInfo oldArmorSkin;
-			oldArmorSkin.LoadFromNif(&nif, theArmor);
+			// oldArmorSkin.LoadFromNif(&nif, theArmor, MakeSkeleton(SKYRIM));
+			oldArmorSkin.LoadFromNif(&nif, MakeSkeleton(SKYRIM));
 			MatTransform armorGTShape;
 			GetGlobalToSkin(&oldArmorSkin, theArmor, &armorGTShape);
 			Assert::AreEqual(-120, int(armorGTSkin.translation.z), L"ERROR: Body nifs have a -120 z transform");
@@ -675,7 +677,7 @@ namespace NiflyDLLTests
 		};
 		TEST_METHOD(LoadAndStoreFO4)
 		{
-			/* Can load a nif and read info out of it */
+			/* UNIT TEST: Can load a nif and read info out of it */
 			niflydll::LogInit();
 			NifFile nif = NifFile(testRoot / "FO4/BTMaleBody.nif");
 			std::vector<std::string> shapeNames = nif.GetShapeNames();
@@ -700,13 +702,12 @@ namespace NiflyDLLTests
 			Assert::AreEqual(8717, int(norms->size()));
 
 			AnimInfo oldBodySkin;
-			oldBodySkin.LoadFromNif(&nif, theBody);
-
-			AnimInfo* anim;
-			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(FO4), curRootName);
+			oldBodySkin.LoadFromNif(&nif, MakeSkeleton(FO4));
+			// oldBodySkin.LoadFromNif(&nif, theBody, MakeSkeleton(FO4));
 
 			clearMessageLog();
 
+			AnimInfo* anim;
 			NifFile newNif = NifFile();
 			SetNifVersion(&newNif, FO4);
 			anim = CreateSkinForNif(&newNif, FO4);
@@ -793,7 +794,7 @@ namespace NiflyDLLTests
 
 			/* But FO4 nifs do have a GTS transform, which is calculated from the bones.
 			   The calculation happened when we loaded the nif into the bodySkin. */
-			void* nifSkin = loadSkinForNif(nif);
+			void* nifSkin = loadSkinForNif(nif, "FO4");
 			MatTransform bodyg2skin;
 			getGlobalToSkin(nifSkin, theBody, &bodyg2skin);
 			Assert::AreEqual(-120, int(bodyg2skin.translation.z), L"ERROR: should have -120 translation");
@@ -822,7 +823,7 @@ namespace NiflyDLLTests
 
 			NiShape* theHead = nifHead.FindBlockByName<NiShape>("MaleHeadIMF");
 			AnimInfo headSkin;
-			headSkin.LoadFromNif(&nifHead, theHead);
+			headSkin.LoadFromNif(&nifHead, MakeSkeleton(SKYRIM));
 
 			/* This one is also skinned */
 			Assert::IsTrue(theHead->HasSkinInstance(), L"ERROR: This is a skinned shape");
@@ -858,7 +859,7 @@ namespace NiflyDLLTests
 
 			NiShape* shape = nif.FindBlockByName<NiShape>("Armor");
 			AnimInfo skin;
-			skin.LoadFromNif(&nif, shape);
+			skin.LoadFromNif(&nif, MakeSkeleton(SKYRIM));
 
 			/* And there's a NiSkinInstance */
 			MatTransform gtshape;
@@ -890,7 +891,7 @@ namespace NiflyDLLTests
 			Assert::IsTrue(minVert > -130 && maxVert < 0, L"ERROR: Armor verts all below origin");
 		};
 		TEST_METHOD(UnkownBones) {
-			/* We can deal with bones that aren't part of the standard skeleton */
+			/* UNIT TEST: We can deal with bones that aren't part of the standard skeleton */
 
 			/* Shapes have bones that aren't known in the skeleton */
 			NifFile nif = NifFile(testRoot / "FO4/VulpineInariTailPhysics.nif");
@@ -916,7 +917,7 @@ namespace NiflyDLLTests
 			norms = nif.GetNormalsForShape(shape);
 
 			AnimInfo oldSkin;
-			oldSkin.LoadFromNif(&nif, shape);
+			oldSkin.LoadFromNif(&nif, MakeSkeleton(FO4));
 
 			MatTransform shapeGTS;
 			GetGlobalToSkin(&oldSkin, shape, &shapeGTS);
@@ -940,8 +941,6 @@ namespace NiflyDLLTests
 
 			/* We can export the shape with the bones in their locations as read */
 			AnimInfo* newSkin;
-			AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(FO4), curRootName);
-
 			NifFile newNif = NifFile();
 			SetNifVersion(&newNif, FO4);
 			newSkin = CreateSkinForNif(&newNif, FO4);
@@ -972,7 +971,8 @@ namespace NiflyDLLTests
 			/* Read the armor */
 			NiShape* theArmor = nif.FindBlockByName<NiShape>("Armor");
 			AnimInfo armorSkin;
-			armorSkin.LoadFromNif(&nif, theArmor);
+			AnimSkeleton* skelSkyrim = MakeSkeleton(SKYRIM);
+			armorSkin.LoadFromNif(&nif, skelSkyrim);
 			MatTransform armorSkinInst;
 			nif.GetShapeTransformGlobalToSkin(theArmor, armorSkinInst);
 			MatTransform armorXform;
@@ -1000,7 +1000,7 @@ namespace NiflyDLLTests
 			/* Read the body */
 			NiShape* theBody = nif.FindBlockByName<NiShape>("MaleBody");
 			AnimInfo bodySkin;
-			bodySkin.LoadFromNif(&nif, theBody);
+			bodySkin.LoadFromNif(&nif, skelSkyrim);
 			MatTransform bodySkinInst;
 			nif.GetShapeTransformGlobalToSkin(theBody, bodySkinInst);
 
@@ -1057,7 +1057,7 @@ namespace NiflyDLLTests
 		TEST_METHOD(getXformFromSkel) {
 			float buf[13];
 			void* nif = load((testRoot / "Skyrim/MaleHead.nif").u8string().c_str());
-			void* nifSkin = loadSkinForNif(nif);
+			void* nifSkin = loadSkinForNif(nif, "SKYRIM");
 
 			for (int i = 0; i < 13; i++) { buf[i] = 0.0f; };
 			getNodeXformToGlobal(nifSkin, "NPC Spine2 [Spn2]", buf);
@@ -1068,7 +1068,7 @@ namespace NiflyDLLTests
 			Assert::AreNotEqual(0.0f, buf[0], L"Error: Should not have null transform");
 
 			void* nifFO4 = load((testRoot / "FO4/BaseMaleHead.nif").u8string().c_str());
-			void* animFO4 = loadSkinForNif(nifFO4);
+			void* animFO4 = loadSkinForNif(nifFO4, "FO4");
 
 			for (int i = 0; i < 13; i++) { buf[i] = 0.0f; };
 			getNodeXformToGlobal(animFO4, "Neck", buf);
@@ -1088,10 +1088,12 @@ namespace NiflyDLLTests
 
 			/* THIS WORKS -- ROTATIONS ARE THE SAME */
 			NifFile nif = NifFile(testfile);
+			AnimSkeleton* skelFO4 = MakeSkeleton(FO4);
 
 			NiShape* vbody = nif.FindBlockByName<NiShape>("BaseMaleBody:0");
 			AnimInfo vskin;
-			vskin.LoadFromNif(&nif, vbody);
+			vskin.SetSkeleton(skelFO4);
+			vskin.LoadFromNif(&nif, vbody, skelFO4);
 			MatTransform vSkinInst;
 			vSkinInst = vskin.shapeSkinning["BaseMaleBody:0"].xformGlobalToSkin;
 
@@ -1099,7 +1101,8 @@ namespace NiflyDLLTests
 
 			NiShape* btbody = nif2.FindBlockByName<NiShape>("BaseMaleBody:0");
 			AnimInfo btskin;
-			btskin.LoadFromNif(&nif2, btbody);
+			btskin.SetSkeleton(skelFO4);
+			btskin.LoadFromNif(&nif2, btbody, skelFO4);
 			MatTransform btSkinInst;
 			btSkinInst = btskin.shapeSkinning["BaseMaleBody:0"].xformGlobalToSkin;
 
@@ -1107,7 +1110,7 @@ namespace NiflyDLLTests
 			float vbuf[13];
 			NifFile nifw = NifFile(testfile);
 			NiShape* vbodyw = nifw.FindBlockByName<NiShape>("BaseMaleBody:0");
-			void* nifskinw = loadSkinForNif(&nifw);
+			void* nifskinw = loadSkinForNifSkel(&nifw, skelFO4);
 
 			for (int i = 0; i < 13; i++) { vbuf[i] = 0.0f; };
 			getGlobalToSkin(nifskinw, vbodyw, vbuf);
@@ -1115,10 +1118,10 @@ namespace NiflyDLLTests
 			float btbuf[13];
 			NifFile btnifw = NifFile(testfile2);
 			NiShape* btbodyw = btnifw.FindBlockByName<NiShape>("BaseMaleBody:0");
-			void* btnifskinw = loadSkinForNif(&btnifw);
+			void* btnifskinw = loadSkinForNifSkel(&btnifw, skelFO4);
 
 			for (int i = 0; i < 13; i++) { btbuf[i] = 0.0f; };
-			getGlobalToSkin(&btnifskinw, btbodyw, btbuf);
+			getGlobalToSkin(btnifskinw, btbodyw, btbuf);
 
 			// Accessing the transform through the DLL gets the same results as going through 
 			// the wrapper layer
@@ -1313,14 +1316,6 @@ namespace NiflyDLLTests
 			int ulen = getUVs(nif, theHelmet, uv, 2500, 0);
 			int nlen = getNormalsForShape(nif, theHelmet, norms, 2500, 0);
 
-
-			//AnimInfo oldBodySkin;
-
-			//skin.LoadFromNif(&nif, theBody);
-
-			//AnimInfo* anim;
-			//AnimSkeleton::getInstance().LoadFromNif(SkeletonFile(FO4), curRootName);
-
 			void* newNif = createNif("FO4");
 			void* newSkin = createSkinForNif(newNif, "FO4");
 
@@ -1344,50 +1339,6 @@ namespace NiflyDLLTests
 				tripart, tlen,
 				"Meshes\\Armor\\FlightHelmet\\HelmetOut.ssf");
 
-			/* Transform the global frame of reference to the skin's FoR.
-			* This transform lifts the whole shape *up* to normal position by changing the
-			* transforms on all the bones associated with the shape. With this transform
-			* NPC L Foot [Lft ]:
-				Rot  Y -124.31  P 0.11  R 164.37
-				Tra  X -13.2327  Y 94.8649  Z -63.7509
-			  Without:
-				Rot  Y -124.31  P 0.11  R 164.37
-				Tra  X -13.8866  Y -3.6996  Z 5.3110
-			*/
-			//MatTransform bodyGTS;
-			////armorGTS.translation = { 0.000256f, 1.547526f, -120.343582f };
-			//bool hasGTSkin = nif.GetShapeTransformGlobalToSkin(theBody, bodyGTS);
-			//Assert::IsFalse(hasGTSkin), L"ERROR: FO4 nifs do not have skin transforms";
-			//if (!hasGTSkin)
-			//	GetGlobalToSkin(&oldBodySkin, theBody, &bodyGTS);
-			//Assert::AreEqual(-120, int(bodyGTS.translation.z), L"ERROR: Body nifs have a -120 z transform");
-			//SetGlobalToSkinXform(anim, newBody, bodyGTS);
-
-			/*
-			This transform is applied to the NiSkinData block. It gives the
-			overall transform for the model when there's a NiSkinData block (Skyrim).
-			It has to be set correctly so that the model can be put in skinned position
-			when read into blender, because if the block exists only this transform is used.
-			*/
-			//if (theBody->HasSkinInstance()) {
-			//	MatTransform sourceXformGlobalToSkin;
-			//	if (nif.GetShapeTransformGlobalToSkin(theBody, sourceXformGlobalToSkin))
-			//		SetShapeGlobalToSkinXform(anim, theBody, sourceXformGlobalToSkin);
-			//}
-
-			//std::vector<std::string> bodyBoneNames;
-			//nif.GetShapeBoneList(theBody, bodyBoneNames);
-			//std::unordered_map<std::string, AnimWeight> bodyWeights;
-			//for (int i = 0; i < bodyBoneNames.size(); i++) {
-			//	AnimWeight w;
-			//	nif.GetShapeBoneWeights(theBody, i, w.weights);
-			//	bodyWeights[bodyBoneNames[i]] = w;
-			//}
-			///* Sets bone weights only. Doesn't set transforms. */
-			//for (auto w : bodyWeights) {
-			//	AddBoneToShape(anim, newBody, w.first, nullptr);
-			//	SetShapeWeights(anim, newBody, w.first, w.second);
-			//}
 			addBoneToShape(newSkin, newHelm, "HEAD", nullptr);
 
 			saveSkinnedNif(newSkin, testfileout.u8string().c_str());
@@ -2059,7 +2010,7 @@ namespace NiflyDLLTests
 
 			clearMessageLog();
 
-			void* nifskin = loadSkinForNif(nif);
+			void* nifskin = loadSkinForNif(nif, "SKYRIM");
 			MatTransform xform;
 			getGlobalToSkin(nifskin, shapes[0], &xform);
 			
@@ -2108,7 +2059,10 @@ namespace NiflyDLLTests
 			void* nif = load((testRoot / "FO4/TestSupermutantBody.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 
-			void* nifskin = loadSkinForNif(nif);
+			const char* mutantSkelPath = "C:/ModOrganizer/Fallout4/mods/00 FO4 Assets/Meshes/Actors/Supermutant/CharacterAssets/skeleton.nif";
+			void* mutantSkel = makeSkeletonInstance(mutantSkelPath, "Root");
+
+			void* nifskin = loadSkinForNifSkel(nif, mutantSkel);
 			MatTransform gts;
 			getGlobalToSkin(nifskin, shapes[0], &gts);
 			Assert::IsTrue(TApproxEqual(gts.translation.z, -140.0), L"Expected -140 GTS");
@@ -2116,9 +2070,28 @@ namespace NiflyDLLTests
 			MatTransform ntg;
 			getNodeXformToGlobal(nifskin, "LArm_Finger32", &ntg.translation.x);
 
+			MatTransform gtsB;
+			getGlobalToSkin(nifskin, shapes[0], &gtsB);
+			Assert::IsTrue(TApproxEqual(gtsB.translation.z, -140.0), L"Expected -140 GTS");
+
+			// Do it again, but with the normal skeleton. Should get transforms from nif
+
+			void* shapes2[10];
+			void* nif2 = load((testRoot / "FO4/TestSupermutantBody.nif").u8string().c_str());
+			void* nifskin2 = loadSkinForNif(nif2, "FO4");
+
+			getShapes(nif2, shapes2, 10, 0);
 			MatTransform gts2;
-			getGlobalToSkin(nifskin, shapes[0], &gts2);
+			getGlobalToSkin(nifskin2, shapes2[0], &gts2);
 			Assert::IsTrue(TApproxEqual(gts2.translation.z, -140.0), L"Expected -140 GTS");
+
+			MatTransform ntg2;
+			getNodeXformToGlobal(nifskin2, "LArm_Finger32", &ntg2.translation.x);
+			Assert::IsTrue(TApproxEqual(ntg.translation.z, 64.4317), L"Expected node-to-global to match nif");
+
+			MatTransform gts2B;
+			getGlobalToSkin(nifskin, shapes[0], &gts2B);
+			Assert::IsTrue(TApproxEqual(gts2B.translation.z, -140.0), L"Expected -140 GTS");
 		};
 	};
 }

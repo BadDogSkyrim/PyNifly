@@ -22,7 +22,7 @@ enum TargetGame {
 extern std::string curRootName;
 
 
-std::string SkeletonFile(enum TargetGame game);
+std::string SkeletonFile(enum TargetGame game, std::string& rootName);
 
 void SetNifVersion(nifly::NifFile* nif, enum TargetGame targ);
 
@@ -52,3 +52,5 @@ void GetPartitions(nifly::NifFile* workNif, nifly::NiShape* shape,
 	std::vector<int>& indices);
 
 nifly::NiShape* PyniflyCreateShapeFromData(nifly::NifFile* nif, const std::string& shapeName, const std::vector<nifly::Vector3>* v, const std::vector<nifly::Triangle>* t, const std::vector<nifly::Vector2>* uv, const std::vector<nifly::Vector3>* norms, uint32_t options);
+
+AnimSkeleton* MakeSkeleton(enum TargetGame theGame);
