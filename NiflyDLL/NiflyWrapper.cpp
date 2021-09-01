@@ -5,6 +5,12 @@
   
   Copyright (c) 2021, by Bad Dog
 */
+
+/*
+    TODO: Refactor so this whole interface is not dependent on a single reference skeleton.
+
+    TODO: Walk through and make sure all the memory allocated here gets released
+    */
 #include "pch.h" // use stdafx.h in Visual Studio 2017 and earlier
 #include <iostream>
 #include <filesystem>
@@ -14,8 +20,8 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 1, 1, 0 };
-
+const int NiflyDDLVersion[3] = { 1, 2, 0 };
+ 
 using namespace nifly;
 
 /* ************************** UTILITY ************************** */
@@ -96,8 +102,8 @@ NIFLY_API int getGameName(void* f, char* buf, int len) {
     return int(name.length());
 }
 
-int NIFLY_API getVersion() {
-    return 110;
+NIFLY_API const int* getVersion() {
+    return NiflyDDLVersion;
 };
 
 NIFLY_API void* nifCreate() {
@@ -409,6 +415,55 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
 
 /* ********************* TRANSFORMS AND SKINNING ********************* */
 
+NIFLY_API void* makeGameSkeletonInstance(const char* gameName) {
+    return MakeSkeleton(StrToTargetGame(gameName));
+};
+
+NIFLY_API void* makeSkeletonInstance(const char* skelPath, const char* rootName) {
+    AnimSkeleton* skel = AnimSkeleton::MakeInstance();
+    skel->LoadFromNif(skelPath, rootName);
+    return skel;
+}
+
+NIFLY_API void* loadSkinForNif(void* nifRef, const char* game)
+/* Return a AnimInfo based on the given nif and shape. This saves time because it only
+    needs to be loaded once.
+    Parameters:
+        NifFile* - nif to load
+        game - name of the game to use for skeleton
+    Returns
+        AnimInfo* - AnimInfo loaded with all shapes in the nif
+    */
+{
+    AnimSkeleton* skel = AnimSkeleton::MakeInstance();
+    std::string root;
+    std::string fn = SkeletonFile(StrToTargetGame(game), root);
+    skel->LoadFromNif(fn, root);
+
+    AnimInfo* skin = new AnimInfo();
+    skin->SetSkeleton(skel);
+    skin->LoadFromNif(static_cast<NifFile*>(nifRef), skel);
+    return skin;
+}
+
+NIFLY_API void* loadSkinForNifSkel(void* nifRef, void* skel)
+/* Return a AnimInfo based on the given nif and shape. This saves time because it only
+    needs to be loaded once.
+    Parameters:
+        NifFile* - nif to load
+        skel - AnimSkeleton to use
+    Returns
+        AnimInfo* - AnimInfo loaded with all shapes in the nif
+    */
+{
+
+    AnimInfo* skin = new AnimInfo();
+    skin->SetSkeleton(static_cast<AnimSkeleton*>(skel));
+    skin->LoadFromNif(static_cast<NifFile*>(nifRef), 
+                      static_cast<AnimSkeleton*>(skel));
+    return skin;
+}
+
 NIFLY_API bool getShapeGlobalToSkin(void* nifRef, void* shapeRef, float* xform) {
     NifFile* nif = static_cast<NifFile*>(nifRef);
     MatTransform tmp;
@@ -417,11 +472,17 @@ NIFLY_API bool getShapeGlobalToSkin(void* nifRef, void* shapeRef, float* xform) 
     return skinInstFound;
 }
 
-NIFLY_API void getGlobalToSkin(void* nifRef, void* shapeRef, void* xform) {
-    AnimInfo skin;
-    skin.LoadFromNif(static_cast<NifFile*>(nifRef), static_cast<NiShape*>(shapeRef));
-    GetGlobalToSkin(&skin, static_cast<NiShape*>(shapeRef), 
-        static_cast<MatTransform*>(xform));
+NIFLY_API void getGlobalToSkin(void* nifSkinRef, void* shapeRef, void* xform) 
+/* Return the global-to-skin transform for the given shape 
+*   Parameters
+*   > AnimInfo* nifSkinRef = AnimInfo* for the nif
+*   > NIShape* shapeRef = shape to get the transform for
+*   < MatTransform* xform = buffer to hold the transform
+*/
+{
+    GetGlobalToSkin(static_cast<AnimInfo*>(nifSkinRef), 
+                    static_cast<NiShape*>(shapeRef), 
+                    static_cast<MatTransform*>(xform));
 }
 
 NIFLY_API int hasSkinInstance(void* shapeRef) {
@@ -452,10 +513,15 @@ NIFLY_API void getNodeTransform(void* theNode, float* buf) {
 }
 
 NIFLY_API void getNodeXformToGlobal(void* anim, const char* boneName, float* xformBuf) {
-    // Get the transform from the nif if there, from the reference skeleton if not.
-    // Requires an AnimInfo because this is a skinned nif, after all. It's creating the 
-    // AnimInfo that loads the skeleton.
-    NifFile* nif = static_cast<AnimInfo*>(anim)->GetRefNif();
+    /* Get the transform from the nif if there, from the reference skeleton if not.
+        Requires an AnimInfo because this is a skinned nif, after all. Creating the 
+        AnimInfo loads the skeleton.
+        > AnimInfo* anim - The nif's AnimInfo
+        > char* boneName - name of the bone
+        < MatTransform* xformBuf - Buffer to receive the transform
+        */
+    AnimInfo* nifskin = static_cast<AnimInfo*>(anim);
+    NifFile* nif = nifskin->GetRefNif();
     MatTransform mat;
 
     for (int i = 0; i < 13; i++) { xformBuf[i] = 0.0f; }
@@ -463,7 +529,7 @@ NIFLY_API void getNodeXformToGlobal(void* anim, const char* boneName, float* xfo
         XformToBuffer(xformBuf, mat);
     }
     else {
-        AnimSkeleton* skel = &AnimSkeleton::getInstance();
+        AnimSkeleton* skel = nifskin->GetSkeleton(); // need ref skeleton here?
         AnimBone* thisBone = skel->GetBonePtr(boneName);
         if (thisBone) {
             XformToBuffer(xformBuf, thisBone->xformToGlobal);
@@ -471,15 +537,23 @@ NIFLY_API void getNodeXformToGlobal(void* anim, const char* boneName, float* xfo
     }
 }
 
-NIFLY_API void getBoneSkinToBoneXform(void* animPtr, const char* shapeName,
+NIFLY_API void getBoneSkinToBoneXform(void* nifSkinPtr, const char* shapeName,
     const char* boneName, float* xform) {
-    AnimInfo* anim = static_cast<AnimInfo*>(animPtr);
+    AnimInfo* anim = static_cast<AnimInfo*>(nifSkinPtr);
     int boneIdx = anim->GetShapeBoneIndex(shapeName, boneName);
     AnimSkin* skin = &anim->shapeSkinning[boneName];
     XformToBuffer(xform, skin->boneWeights[boneIdx].xformSkinToBone);
 }
 
-NIFLY_API void* createSkinForNif(void* nifPtr, const char* gameName) {
+NIFLY_API void* createSkinForNif(void* nifPtr, const char* gameName) 
+/* Create a skin (AnimInfo) for the nif.
+*  NOTE THIS WILL RELOAD THE REFERENCE SKELETON
+*   Parameters
+*   > NifFIle* nifPtr
+*   > char* gameName 
+*   < returns AnimInfo* 
+*/
+{
     NifFile* nif = static_cast<NifFile*>(nifPtr);
     return CreateSkinForNif(nif, StrToTargetGame(gameName));
 }
@@ -490,10 +564,11 @@ NIFLY_API void skinShape(void* nif, void* shapeRef)
 }
 
 NIFLY_API int saveSkinnedNif(void* anim, const char8_t* filepath) {
-    /*
-    Save skinned nif
-    options: 1 = save as head part, uses BSDynamicTriShape on SSE
-    */
+/* Save skinned nif
+*   Parameters
+*   > AnimInfo* anim = Nif skin for the nif to save
+*   > char* filepath
+*/
     return SaveSkinnedNif(static_cast<AnimInfo*>(anim), std::filesystem::path(filepath));
 }
 
@@ -1273,6 +1348,9 @@ void clearMessageLog() {
 };
 
 int getMessageLog(char* buf, int buflen) {
-    return niflydll::LogGet(buf, buflen);
+    if (buf)
+        return niflydll::LogGet(buf, buflen);
+    else
+        return niflydll::LogGetLen();
     //return niflydll::LogGetLen();
 }
