@@ -20,8 +20,8 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 1, 1, 1 };
-
+const int NiflyDDLVersion[3] = { 1, 2, 0 };
+ 
 using namespace nifly;
 
 /* ************************** UTILITY ************************** */
@@ -1348,6 +1348,9 @@ void clearMessageLog() {
 };
 
 int getMessageLog(char* buf, int buflen) {
-    return niflydll::LogGet(buf, buflen);
+    if (buf)
+        return niflydll::LogGet(buf, buflen);
+    else
+        return niflydll::LogGetLen();
     //return niflydll::LogGetLen();
 }

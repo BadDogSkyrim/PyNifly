@@ -2,8 +2,8 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = True
-TEST_BPY_ALL = False
+RUN_TESTS = False
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 1, 1),  
+    "version": (1, 2, 0),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -530,11 +530,14 @@ def mesh_create_uv(the_mesh, uv_points):
     for i, this_uv in enumerate(new_uv):
         new_uvlayer.data[i].uv = this_uv
 
-def mesh_create_bone_groups(the_shape, the_object):
+def mesh_create_bone_groups(the_shape, the_object, do_name_xlate):
     """ Create groups to capture bone weights """
     vg = the_object.vertex_groups
     for bone_name in the_shape.bone_names:
-        xlate_name = the_shape.parent.blender_name(bone_name)
+        if do_name_xlate:
+            xlate_name = the_shape.parent.blender_name(bone_name)
+        else:
+            xlate_name = bone_name
         new_vg = vg.new(name=xlate_name)
         for v, w in the_shape.bone_weights[bone_name]:
             new_vg.add((v,), w, 'ADD')
@@ -604,8 +607,6 @@ class NifImporter():
         v = the_shape.verts
         t = the_shape.tris
 
-        log.debug(f">>>import shape: {the_shape.name} has gts {the_shape.global_to_skin.translation}")
-
         new_mesh = bpy.data.meshes.new(the_shape.name)
         new_mesh.from_pydata(v, [], t)
         new_object = bpy.data.objects.new(the_shape.name, new_mesh)
@@ -640,7 +641,7 @@ class NifImporter():
             log.debug(f"..Object {new_object.name} created at {new_object.location[:]}")
 
         mesh_create_uv(new_object.data, the_shape.uvs)
-        mesh_create_bone_groups(the_shape, new_object)
+        mesh_create_bone_groups(the_shape, new_object, self.flags & self.ImportFlags.RENAME_BONES)
         mesh_create_partition_groups(the_shape, new_object)
         for f in new_mesh.polygons:
             f.use_smooth = True
@@ -652,16 +653,12 @@ class NifImporter():
 
         self.objects_created.extend(import_shape_extra(new_object, the_shape))
 
-        log.debug(f"<<<import shape: {the_shape.name} has gts {the_shape.global_to_skin.translation}")
-
 
     def add_bone_to_arma(self, name):
         """ Add bone to armature. Bone may come from nif or reference skeleton.
             name = name to use for the bone in blender 
             returns new bone
         """
-        log.debug(f">>>add_bone_to_arma: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
-
         armdata = self.armature.data
 
         if name in armdata.edit_bones:
@@ -680,7 +677,6 @@ class NifImporter():
         bone.tail = (bone.head[0] + rot_vec[0], bone.head[1] + rot_vec[1], bone.head[2] + rot_vec[2])
         bone['pyxform'] = bone_xform.rotation.matrix # stash for later
 
-        log.debug(f"<<<add_bone_to_arma: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
         return bone
 
 
@@ -691,9 +687,6 @@ class NifImporter():
                 CREATE_BONES - add bones from skeleton as needed
                 RENAME_BONES - rename bones to conform with blender conventions
             """
-
-        log.debug(f">>>connect_armature: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
-
         arm_data = self.armature.data
         bones_to_parent = [b.name for b in arm_data.edit_bones]
 
@@ -739,8 +732,6 @@ class NifImporter():
                         arma_bone.parent = arm_data.edit_bones[parentname]
             i += 1
         
-        log.debug(f"<<<connect_armature: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
-
 
     def make_armature(self,
                       the_coll: bpy_types.Collection, 
@@ -755,8 +746,6 @@ class NifImporter():
             Returns: 
                 self.armature = new armature, set as active object
             """
-        log.debug(f">>>make_armature: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
-
         if self.armature is None:
             log.debug(f"..Creating new armature for the import")
             arm_data = bpy.data.armatures.new(self.nif.rootName)
@@ -771,26 +760,23 @@ class NifImporter():
         bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
         bpy.ops.object.mode_set(mode='EDIT', toggle=False)
     
-        log.debug(f">>>bone_names: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
         for bone_game_name in bone_names:
             if self.flags & self.ImportFlags.RENAME_BONES:
                 name = self.nif.blender_name(bone_game_name)
-                #log.debug(f"---bone_names {name}: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
             else:
                 name = bone_game_name
             self.add_bone_to_arma(name)
-        log.debug(f"<<<bone_names: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
         
         # Hook the armature bones up to a skeleton
         self.connect_armature()
 
         bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
 
-        log.debug(f"<<<make_armature: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
-
 
     def execute(self):
         """Perform the import operation as previously defined"""
+        NifFile.clear_log()
+
         new_collection = bpy.data.collections.new(os.path.basename(self.filename))
         bpy.context.scene.collection.children.link(new_collection)
         bpy.context.view_layer.active_layer_collection \
@@ -803,7 +789,6 @@ class NifImporter():
 
         # Import shapes
         for s in self.nif.shapes:
-            log.debug(f">>>execute: {s.name} has gts {s.global_to_skin.translation}")
             for n in s.bone_names: 
                 #log.debug(f"....adding bone {n} for {s.name}")
                 self.bones.add(n) 
@@ -842,9 +827,6 @@ class NifImporter():
         for o in self.objects_created: o.select_set(True)
         if len(self.objects_created) > 0:
             bpy.context.view_layer.objects.active = self.objects_created[0]
-
-        log.debug(f"<<<execute: {self.nif.shapes[0].name} has gts {self.nif.shapes[0].global_to_skin.translation}")
-
 
 
     @classmethod
@@ -1812,6 +1794,7 @@ class NifExporter:
 
     def execute(self):
         log.debug(f"..Exporting objects: {self.objects}\nstring data: {self.str_data}\nBG data: {self.bg_data}\narmature: armatrue: {self.armature},\nfacebones: {self.facebones}")
+        NifFile.clear_log()
         if self.facebones:
             self.export_file_set(self.facebones, '_faceBones')
         if self.armature:
@@ -1999,7 +1982,8 @@ def run_tests():
     TEST_ROTSTATIC = False
     TEST_ROTSTATIC2 = False
     TEST_VERTEX_ALPHA = False
-    TEST_MUTANT = True
+    TEST_MUTANT = False
+    TEST_RENAME = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -3197,6 +3181,23 @@ def run_tests():
         assert round(sm2.location[2]) == 140, f"Expect supermutant body at 140 Z, got {sm2.location[2]}"
 
         
+    if TEST_BPY_ALL or TEST_RENAME:
+        print("### TEST_RENAME: Test that renaming bones works correctly")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"C:\Users\User\OneDrive\Dev\PyNifly\PyNifly\tests\Skyrim\femalebody_1.nif")
+        imp = NifImporter.do_import(testfile, NifImporter.ImportFlags.CREATE_BONES)
+
+        body = bpy.context.object
+        vgnames = [x.name for x in body.vertex_groups]
+        vgxl = list(filter(lambda x: ".L" in x or ".R" in x, vgnames))
+        assert len(vgxl) == 0, f"Expected no vertex groups renamed, got {vgxl}"
+
+        armnames = [b.name for b in body.parent.data.bones]
+        armxl = list(filter(lambda x: ".L" in x or ".R" in x, armnames))
+        assert len(armxl) == 0, f"Expected no bones renamed in armature, got {vgxl}"
+
+
     print("""
     ############################################################
     ##                                                        ##

@@ -1465,15 +1465,13 @@ class NifFile:
 
     @staticmethod
     def clear_log():
-        NifFIle.nifly.clearMessageLog()
+        NifFile.nifly.clearMessageLog()
 
     @staticmethod
     def message_log():
-        buf = create_string_buffer(500)
-        msgsize = NifFile.nifly.getMessageLog(buf, 500)
-        if msgsize > 500:
-            buf = create_string_buffer(msgsize)
-            NifFile.nifly.getMessageLog(buf, msgsize)
+        msgsize = NifFile.nifly.getMessageLog(None, 0)+2
+        buf = create_string_buffer(msgsize)
+        NifFile.nifly.getMessageLog(buf, msgsize)
         return buf.value.decode('utf-8')
 
 #
@@ -1485,7 +1483,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -2489,7 +2487,8 @@ if __name__ == "__main__":
         
         assert round(shape.global_to_skin.translation[2]) == -140, f"Error: Expected -140 z translation, got {shape.global_to_skin.translation[2]}"
 
-        print(nif.get_node_xform_to_global('Pelvis_skin'))
+        bellyxf = nif.get_node_xform_to_global('Belly_skin')
+        assert round(bellyxf.translation[2]) == 90, f"Error: Expected Belly_skin Z at 90, got {bellyxf.translation.z}"
 
         nif2 = NifFile(testfile)
         shape2 = nif.shapes[0]
