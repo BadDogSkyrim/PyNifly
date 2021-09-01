@@ -46,25 +46,25 @@ void FindProjectRoot() {
 	projectRoot = std::filesystem::path(path).parent_path();
 }
 
-String SkeletonFile(enum TargetGame game) {
+String SkeletonFile(enum TargetGame game, String& rootName) {
 	String skeletonPath;
 
 	FindProjectRoot();
 	switch (game) {
 	case FO3:
 	case FONV:
-		curRootName = "Bip01";
+		rootName = "Bip01";
 		break;
 	case SKYRIM:
 	case SKYRIMSE:
 	case SKYRIMVR:
 		curSkeletonPath = (projectRoot / "skeletons/Skyrim/skeleton.nif").string();
-		curRootName = "NPC Root [Root]";
+		rootName = "NPC Root [Root]";
 		break;
 	case FO4:
 	case FO4VR:
 		curSkeletonPath = (projectRoot / "skeletons/FO4/skeleton.nif").string();
-		curRootName = "Root";
+		rootName = "Root";
 		break;
 	}
 	return curSkeletonPath;
@@ -111,17 +111,18 @@ void SetNifVersion(NifFile* nif, enum TargetGame targ) {
 }
 
 void AddCustomBoneRef(
+	AnimInfo* anim,
 	const std::string& boneName, 
 	const std::string* parentBone, 
 	const MatTransform* xformToParent) 
 {
-	AnimSkeleton* skel = &AnimSkeleton::getInstance();
+	AnimSkeleton* skel = anim->GetSkeleton();
 	if (!skel->RefBone(boneName)) {
 		// Not in skeleton, add it
-		AnimBone& customBone = AnimSkeleton::getInstance().AddCustomBone(boneName);
+		AnimBone& customBone = skel->AddCustomBone(boneName);
 		customBone.SetTransformBoneToParent(*xformToParent);
 		if (parentBone)
-			customBone.SetParentBone(AnimSkeleton::getInstance().GetBonePtr(*parentBone, true));
+			customBone.SetParentBone(skel->GetBonePtr(*parentBone, true));
 	}
 };
 
@@ -130,10 +131,15 @@ void GetGlobalToSkin(AnimInfo* anim, NiShape* theShape, MatTransform* outXform) 
 }
 
 /* Create a skin for a nif, represented by AnimInfo */
-AnimInfo* CreateSkinForNif(NifFile* nif, enum TargetGame game) {
+AnimInfo* CreateSkinForNif(NifFile* nif, enum TargetGame game) 
+/* Create an AnimInfo skin for an entire nif, based on the reference skeleton for the target game. */
+{
 	AnimInfo* anim = new AnimInfo();
-	std::string fname = SkeletonFile(game);
-	AnimSkeleton::getInstance().LoadFromNif(fname, curRootName); 
+	std::string rootName = "";
+	std::string fname = SkeletonFile(game, rootName);
+	AnimSkeleton* skel = AnimSkeleton::MakeInstance();
+	skel->LoadFromNif(fname, rootName); 
+	anim->SetSkeleton(skel);
 	anim->SetRefNif(nif);
 	return anim;
 }
@@ -148,7 +154,7 @@ void SetGlobalToSkinXform(AnimInfo* anim, NiShape* theShape, const MatTransform&
 void AddBoneToShape(AnimInfo* anim, NiShape* theShape, std::string boneName, 
 	MatTransform* boneXform)
 {
-	AddCustomBoneRef(boneName, nullptr, boneXform);
+	AddCustomBoneRef(anim, boneName, nullptr, boneXform);
 	anim->AddShapeBone(theShape->name.get(), boneName);
 }
 
@@ -264,4 +270,12 @@ NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 
 	return shapeResult;
 }
+
+AnimSkeleton* MakeSkeleton(enum TargetGame theGame) {
+	AnimSkeleton* skel = AnimSkeleton::MakeInstance();
+	std::string root;
+	std::string fn = SkeletonFile(theGame, root);
+	skel->LoadFromNif(fn, root);
+	return skel;
+};
 
