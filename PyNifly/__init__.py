@@ -424,6 +424,10 @@ def export_shader(obj, shape):
     shader = shape.shader_attributes
     nodelist = obj.active_material.node_tree.nodes
 
+    if not 'Principled BSDF' in nodelist:
+        log.warning(f"...Have material but no Principled BSDF for {obj.name}")
+        return
+
     for i in [3, 4, 5, 6, 8]:
         set_object_texture(shape, obj, i)
     
@@ -435,7 +439,7 @@ def export_shader(obj, shape):
 
         diffuse_fp = None
         diffuse_input = shader_node.inputs['Base Color']
-        if diffuse_input.is_linked:
+        if diffuse_input and diffuse_input.is_linked:
             diffuse_node = diffuse_input.links[0].from_node
             if diffuse_node.image:
                 diffuse_fp_full = diffuse_node.image.filepath
@@ -447,7 +451,7 @@ def export_shader(obj, shape):
         
         norm_fp = None
         normal_input = shader_node.inputs['Normal']
-        if normal_input.is_linked:
+        if normal_input and normal_input.is_linked:
             nmap_node = normal_input.links[0].from_node
             if nmap_node.space == "OBJECT":
                 shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
@@ -472,7 +476,7 @@ def export_shader(obj, shape):
 
         sk_fp = None
         sk_input = shader_node.inputs['Subsurface Color']
-        if sk_input.is_linked:
+        if sk_input and sk_input.is_linked:
             sk_node = sk_input.links[0].from_node
             if sk_node.image:
                 sk_fp_full = sk_node.image.filepath
@@ -484,7 +488,7 @@ def export_shader(obj, shape):
 
         spec_fp = None
         spec_input = shader_node.inputs['Specular']
-        if spec_input.is_linked:
+        if spec_input and spec_input.is_linked:
             prior_node = spec_input.links[0].from_node
             if prior_node and prior_node.bl_idname == 'ShaderNodeSeparateRGB':
                 prior_input = prior_node.inputs['Image']
@@ -499,7 +503,7 @@ def export_shader(obj, shape):
             set_object_texture(shape, obj, 7)
 
         alpha_input = shader_node.inputs['Alpha']
-        if alpha_input.is_linked:
+        if alpha_input and alpha_input.is_linked:
             mat = obj.active_material
             if 'NiAlphaProperty_flags' in mat.keys():
                 shape.alpha_property.flags = mat['NiAlphaProperty_flags']
