@@ -396,9 +396,9 @@ def has_msn_shader(obj):
         nodelist = obj.active_material.node_tree.nodes
         shader_node = find_shader_node(nodelist, 'ShaderNodeBsdfPrincipled')
         normal_input = shader_node.inputs['Normal']
-        if normal_input.is_linked:
+        if normal_input and normal_input.is_linked:
             nmap_node = normal_input.links[0].from_node
-            if nmap_node.space == "OBJECT":
+            if nmap_node.bl_idname == 'ShaderNodeNormalMap' and nmap_node.space == "OBJECT":
                 val = True
     return val
 
@@ -453,24 +453,25 @@ def export_shader(obj, shape):
         normal_input = shader_node.inputs['Normal']
         if normal_input and normal_input.is_linked:
             nmap_node = normal_input.links[0].from_node
-            if nmap_node.space == "OBJECT":
-                shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
-            else:
-                shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
-            prior_input = nmap_node.inputs['Color']
-            prior_node = prior_input.links[0].from_node
-            if prior_node and prior_node.bl_idname == 'ShaderNodeCombineRGB':
-                prior_input = prior_node.inputs['R']
+            if nmap_node.bl_idname == 'ShaderNodeNormalMap':
+                if nmap_node.space == "OBJECT":
+                    shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
+                else:
+                    shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
+                prior_input = nmap_node.inputs['Color']
                 prior_node = prior_input.links[0].from_node
-            if prior_node and prior_node.bl_idname == 'ShaderNodeSeparateRGB':
-                prior_input = prior_node.inputs['Image']
-                prior_node = prior_input.links[0].from_node
-            if prior_node and prior_node.bl_idname == 'ShaderNodeTexImage' and prior_node.image:
-                norm_txt_node = prior_node
-                norm_fp_full = norm_txt_node.image.filepath
-                norm_fp = norm_fp_full[norm_fp_full.lower().find('textures'):]
-                log.debug(f"....Writing normal texture path '{norm_fp}'")
-                shape.set_texture(1, norm_fp)
+                if prior_node and prior_node.bl_idname == 'ShaderNodeCombineRGB':
+                    prior_input = prior_node.inputs['R']
+                    prior_node = prior_input.links[0].from_node
+                if prior_node and prior_node.bl_idname == 'ShaderNodeSeparateRGB':
+                    prior_input = prior_node.inputs['Image']
+                    prior_node = prior_input.links[0].from_node
+                if prior_node and prior_node.bl_idname == 'ShaderNodeTexImage' and prior_node.image:
+                    norm_txt_node = prior_node
+                    norm_fp_full = norm_txt_node.image.filepath
+                    norm_fp = norm_fp_full[norm_fp_full.lower().find('textures'):]
+                    log.debug(f"....Writing normal texture path '{norm_fp}'")
+                    shape.set_texture(1, norm_fp)
         if norm_fp is None:
             set_object_texture(shape, obj, 1)
 
