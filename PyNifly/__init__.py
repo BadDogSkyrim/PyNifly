@@ -403,41 +403,47 @@ def has_msn_shader(obj):
     return val
 
 
-def read_object_texture(obj, index):
+def read_object_texture(mat: bpy.types.Material, index: int):
     """Return the index'th texture in the saved texture custom properties"""
     n = 'BSShaderTextureSet_' + str(index)
-    if n in obj.keys():
-        return obj[n]
-    else:
+    try:
+        return mat[n]
+    except:
         return None
 
 
-def set_object_texture(shape, obj, i):
-    t = read_object_texture(obj, i)
+def set_object_texture(shape: NiShape, mat: bpy.types.Material, i: int):
+    t = read_object_texture(mat, i)
     if t:
         shape.set_texture(i, t)
 
 
-def export_shader(obj, shape):
+def export_shader(obj, shape: NiShape):
     """Create shader from the object's material"""
     log.debug(f"...exporting material for object {obj.name}")
     shader = shape.shader_attributes
-    nodelist = obj.active_material.node_tree.nodes
+    mat = obj.active_material
+    nodelist = mat.node_tree.nodes
+
+    shader_node = None
+    diffuse_fp = None
+    norm_fp = None
+    sk_fp = None
+    spec_fp = None
 
     if not 'Principled BSDF' in nodelist:
         log.warning(f"...Have material but no Principled BSDF for {obj.name}")
-        return
+    else:
+        shader_node = nodelist['Principled BSDF']
 
     for i in [3, 4, 5, 6, 8]:
-        set_object_texture(shape, obj, i)
+        set_object_texture(shape, mat, i)
     
     # Texture paths
     norm_txt_node = None
-    shader_node = find_shader_node(nodelist, 'ShaderNodeBsdfPrincipled')
     if shader_node:
         export_shader_attrs(obj, shader_node, shape)
 
-        diffuse_fp = None
         diffuse_input = shader_node.inputs['Base Color']
         if diffuse_input and diffuse_input.is_linked:
             diffuse_node = diffuse_input.links[0].from_node
@@ -445,11 +451,7 @@ def export_shader(obj, shape):
                 diffuse_fp_full = diffuse_node.image.filepath
                 diffuse_fp = diffuse_fp_full[diffuse_fp_full.lower().find('textures'):]
                 log.debug(f"....Writing diffuse texture path '{diffuse_fp}'")
-                shape.set_texture(0, diffuse_fp)
-        if diffuse_fp is None:
-            set_object_texture(shape, obj, 0)
         
-        norm_fp = None
         normal_input = shader_node.inputs['Normal']
         if normal_input and normal_input.is_linked:
             nmap_node = normal_input.links[0].from_node
@@ -471,11 +473,7 @@ def export_shader(obj, shape):
                     norm_fp_full = norm_txt_node.image.filepath
                     norm_fp = norm_fp_full[norm_fp_full.lower().find('textures'):]
                     log.debug(f"....Writing normal texture path '{norm_fp}'")
-                    shape.set_texture(1, norm_fp)
-        if norm_fp is None:
-            set_object_texture(shape, obj, 1)
 
-        sk_fp = None
         sk_input = shader_node.inputs['Subsurface Color']
         if sk_input and sk_input.is_linked:
             sk_node = sk_input.links[0].from_node
@@ -483,11 +481,7 @@ def export_shader(obj, shape):
                 sk_fp_full = sk_node.image.filepath
                 sk_fp = sk_fp_full[sk_fp_full.lower().find('textures'):]
                 log.debug(f"....Writing subsurface texture path '{sk_fp}'")
-                shape.set_texture(2, sk_fp)
-        if sk_fp is None:
-            set_object_texture(shape, obj, 2)
 
-        spec_fp = None
         spec_input = shader_node.inputs['Specular']
         if spec_input and spec_input.is_linked:
             prior_node = spec_input.links[0].from_node
@@ -499,9 +493,6 @@ def export_shader(obj, shape):
                 spec_fp_full = prior_node.image.filepath
                 spec_fp = spec_fp_full[spec_fp_full.lower().find('textures'):]
                 log.debug(f"....Writing subsurface texture path '{spec_fp}'")
-                shape.set_texture(7, spec_fp)
-        if sk_fp is None:
-            set_object_texture(shape, obj, 7)
 
         alpha_input = shader_node.inputs['Alpha']
         if alpha_input and alpha_input.is_linked:
@@ -519,6 +510,23 @@ def export_shader(obj, shape):
 
     else:
         log.warning(f"...Have material but no shader node for {obj.name}")
+
+    if diffuse_fp:
+        shape.set_texture(0, diffuse_fp)
+    else:
+        set_object_texture(shape, mat, 0)
+    if norm_fp:
+        shape.set_texture(1, norm_fp)
+    else:
+        set_object_texture(shape, mat, 1)
+    if sk_fp:
+        shape.set_texture(2, sk_fp)
+    else:
+        set_object_texture(shape, mat, 2)
+    if spec_fp:
+        shape.set_texture(7, spec_fp)
+    else:
+        set_object_texture(shape, mat, 7)
 
 
 # -----------------------------  MESH CREATION -------------------------------
