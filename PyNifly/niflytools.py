@@ -696,7 +696,7 @@ skyrimBones = [
     SkeletonBone('NPC Genitals05', 'NPC Genitals05 [Gen05]', 'NPC Genitals04'),
     SkeletonBone('NPC Genitals06', 'NPC Genitals06 [Gen06]', 'NPC Genitals05')]
 
-skyrimExpressions = ['Basis', 'Aah', 'BigAah', 'BlinkLeft', 'BlinkRight', 'BMP', 'BrowDownLeft', 
+skyrimExpressions = ['Aah', 'BigAah', 'BlinkLeft', 'BlinkRight', 'BMP', 'BrowDownLeft', 
     'BrowDownRight', 'BrowInLeft', 'BrowInRight', 'BrowUpLeft', 'BrowUpRight', 'ChJSh', 'CombatAnger', 
     'CombatShout', 'DialogueAnger', 'DialogueDisgusted', 'DialogueFear', 'DialogueHappy', 
     'DialoguePuzzled', 'DialogueSad', 'DialogueSurprise', 'DST', 'Eee', 'Eh', 'FV', 'I', 'K', 

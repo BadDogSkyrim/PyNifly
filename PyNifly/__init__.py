@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 2, 0),  
+    "version": (1, 2, 2),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -1329,7 +1329,8 @@ def best_game_fit(bonelist):
 def expected_game(nif, bonelist):
     """ Check whether the nif's game is the best match for the given bonelist """
     matchgame = best_game_fit(bonelist)
-    return matchgame == "" or matchgame == nif.game
+    return matchgame == "" or matchgame == nif.game or \
+        (matchgame in ['SKYRIM', 'SKYRIMSE'] and nif.game in ['SKYRIM', 'SKYRIMSE'])
 
 
 def partitions_from_vert_groups(obj):
@@ -1702,6 +1703,8 @@ class NifExporter:
 
         is_headpart = obj.data.shape_keys \
                 and len(nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
+        if is_headpart:
+            log.debug(f"...shape is headpart, shape keys = {nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))}")
 
         obj.data.update()
         log.info("..Exporting to nif")
