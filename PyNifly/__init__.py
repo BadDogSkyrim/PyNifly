@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 RUN_TESTS = False
-TEST_BPY_ALL = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 2, 0),  
+    "version": (1, 3, 0),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -39,7 +39,10 @@ if os.path.exists(nifly_path):
     log.debug(f"PyNifly dev path: {pynifly_dev_path}")
     if pynifly_dev_path not in sys.path:
         sys.path.append(pynifly_dev_path)
-    log.setLevel(logging.DEBUG)
+    if RUN_TESTS:
+        log.setLevel(logging.DEBUG)
+    else:
+        log.setLevel(logging.INFO)
 else:
     # Load from install location
     py_addon_path = os.path.dirname(os.path.realpath(__file__))
@@ -396,95 +399,94 @@ def has_msn_shader(obj):
         nodelist = obj.active_material.node_tree.nodes
         shader_node = find_shader_node(nodelist, 'ShaderNodeBsdfPrincipled')
         normal_input = shader_node.inputs['Normal']
-        if normal_input.is_linked:
+        if normal_input and normal_input.is_linked:
             nmap_node = normal_input.links[0].from_node
-            if nmap_node.space == "OBJECT":
+            if nmap_node.bl_idname == 'ShaderNodeNormalMap' and nmap_node.space == "OBJECT":
                 val = True
     return val
 
 
-def read_object_texture(obj, index):
+def read_object_texture(mat: bpy.types.Material, index: int):
     """Return the index'th texture in the saved texture custom properties"""
     n = 'BSShaderTextureSet_' + str(index)
-    if n in obj.keys():
-        return obj[n]
-    else:
+    try:
+        return mat[n]
+    except:
         return None
 
 
-def set_object_texture(shape, obj, i):
-    t = read_object_texture(obj, i)
+def set_object_texture(shape: NiShape, mat: bpy.types.Material, i: int):
+    t = read_object_texture(mat, i)
     if t:
         shape.set_texture(i, t)
 
 
-def export_shader(obj, shape):
+def export_shader(obj, shape: NiShape):
     """Create shader from the object's material"""
     log.debug(f"...exporting material for object {obj.name}")
     shader = shape.shader_attributes
-    nodelist = obj.active_material.node_tree.nodes
+    mat = obj.active_material
+    nodelist = mat.node_tree.nodes
+
+    shader_node = None
+    diffuse_fp = None
+    norm_fp = None
+    sk_fp = None
+    spec_fp = None
+
+    if not 'Principled BSDF' in nodelist:
+        log.warning(f"...Have material but no Principled BSDF for {obj.name}")
+    else:
+        shader_node = nodelist['Principled BSDF']
 
     for i in [3, 4, 5, 6, 8]:
-        set_object_texture(shape, obj, i)
+        set_object_texture(shape, mat, i)
     
     # Texture paths
     norm_txt_node = None
-    shader_node = find_shader_node(nodelist, 'ShaderNodeBsdfPrincipled')
     if shader_node:
         export_shader_attrs(obj, shader_node, shape)
 
-        diffuse_fp = None
         diffuse_input = shader_node.inputs['Base Color']
-        if diffuse_input.is_linked:
+        if diffuse_input and diffuse_input.is_linked:
             diffuse_node = diffuse_input.links[0].from_node
             if diffuse_node.image:
                 diffuse_fp_full = diffuse_node.image.filepath
                 diffuse_fp = diffuse_fp_full[diffuse_fp_full.lower().find('textures'):]
                 log.debug(f"....Writing diffuse texture path '{diffuse_fp}'")
-                shape.set_texture(0, diffuse_fp)
-        if diffuse_fp is None:
-            set_object_texture(shape, obj, 0)
         
-        norm_fp = None
         normal_input = shader_node.inputs['Normal']
-        if normal_input.is_linked:
+        if normal_input and normal_input.is_linked:
             nmap_node = normal_input.links[0].from_node
-            if nmap_node.space == "OBJECT":
-                shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
-            else:
-                shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
-            prior_input = nmap_node.inputs['Color']
-            prior_node = prior_input.links[0].from_node
-            if prior_node and prior_node.bl_idname == 'ShaderNodeCombineRGB':
-                prior_input = prior_node.inputs['R']
+            if nmap_node.bl_idname == 'ShaderNodeNormalMap':
+                if nmap_node.space == "OBJECT":
+                    shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
+                else:
+                    shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
+                prior_input = nmap_node.inputs['Color']
                 prior_node = prior_input.links[0].from_node
-            if prior_node and prior_node.bl_idname == 'ShaderNodeSeparateRGB':
-                prior_input = prior_node.inputs['Image']
-                prior_node = prior_input.links[0].from_node
-            if prior_node and prior_node.bl_idname == 'ShaderNodeTexImage' and prior_node.image:
-                norm_txt_node = prior_node
-                norm_fp_full = norm_txt_node.image.filepath
-                norm_fp = norm_fp_full[norm_fp_full.lower().find('textures'):]
-                log.debug(f"....Writing normal texture path '{norm_fp}'")
-                shape.set_texture(1, norm_fp)
-        if norm_fp is None:
-            set_object_texture(shape, obj, 1)
+                if prior_node and prior_node.bl_idname == 'ShaderNodeCombineRGB':
+                    prior_input = prior_node.inputs['R']
+                    prior_node = prior_input.links[0].from_node
+                if prior_node and prior_node.bl_idname == 'ShaderNodeSeparateRGB':
+                    prior_input = prior_node.inputs['Image']
+                    prior_node = prior_input.links[0].from_node
+                if prior_node and prior_node.bl_idname == 'ShaderNodeTexImage' and prior_node.image:
+                    norm_txt_node = prior_node
+                    norm_fp_full = norm_txt_node.image.filepath
+                    norm_fp = norm_fp_full[norm_fp_full.lower().find('textures'):]
+                    log.debug(f"....Writing normal texture path '{norm_fp}'")
 
-        sk_fp = None
         sk_input = shader_node.inputs['Subsurface Color']
-        if sk_input.is_linked:
+        if sk_input and sk_input.is_linked:
             sk_node = sk_input.links[0].from_node
             if sk_node.image:
                 sk_fp_full = sk_node.image.filepath
                 sk_fp = sk_fp_full[sk_fp_full.lower().find('textures'):]
                 log.debug(f"....Writing subsurface texture path '{sk_fp}'")
-                shape.set_texture(2, sk_fp)
-        if sk_fp is None:
-            set_object_texture(shape, obj, 2)
 
-        spec_fp = None
         spec_input = shader_node.inputs['Specular']
-        if spec_input.is_linked:
+        if spec_input and spec_input.is_linked:
             prior_node = spec_input.links[0].from_node
             if prior_node and prior_node.bl_idname == 'ShaderNodeSeparateRGB':
                 prior_input = prior_node.inputs['Image']
@@ -494,12 +496,9 @@ def export_shader(obj, shape):
                 spec_fp_full = prior_node.image.filepath
                 spec_fp = spec_fp_full[spec_fp_full.lower().find('textures'):]
                 log.debug(f"....Writing subsurface texture path '{spec_fp}'")
-                shape.set_texture(7, spec_fp)
-        if sk_fp is None:
-            set_object_texture(shape, obj, 7)
 
         alpha_input = shader_node.inputs['Alpha']
-        if alpha_input.is_linked:
+        if alpha_input and alpha_input.is_linked:
             mat = obj.active_material
             if 'NiAlphaProperty_flags' in mat.keys():
                 shape.alpha_property.flags = mat['NiAlphaProperty_flags']
@@ -514,6 +513,23 @@ def export_shader(obj, shape):
 
     else:
         log.warning(f"...Have material but no shader node for {obj.name}")
+
+    if diffuse_fp:
+        shape.set_texture(0, diffuse_fp)
+    else:
+        set_object_texture(shape, mat, 0)
+    if norm_fp:
+        shape.set_texture(1, norm_fp)
+    else:
+        set_object_texture(shape, mat, 1)
+    if sk_fp:
+        shape.set_texture(2, sk_fp)
+    else:
+        set_object_texture(shape, mat, 2)
+    if spec_fp:
+        shape.set_texture(7, spec_fp)
+    else:
+        set_object_texture(shape, mat, 7)
 
 
 # -----------------------------  MESH CREATION -------------------------------
@@ -1316,7 +1332,8 @@ def best_game_fit(bonelist):
 def expected_game(nif, bonelist):
     """ Check whether the nif's game is the best match for the given bonelist """
     matchgame = best_game_fit(bonelist)
-    return matchgame == "" or matchgame == nif.game
+    return matchgame == "" or matchgame == nif.game or \
+        (matchgame in ['SKYRIM', 'SKYRIMSE'] and nif.game in ['SKYRIM', 'SKYRIMSE'])
 
 
 def partitions_from_vert_groups(obj):
@@ -1584,7 +1601,8 @@ class NifExporter:
             bpy.context.view_layer.objects.active = obj
         
             # If scales aren't uniform, apply them before export
-            if obj.scale[0] != obj.scale[1] or obj.scale[0] != obj.scale[2]:
+            if (round(obj.scale[0], 4) != round(obj.scale[1], 4)) \
+                    or (round(obj.scale[0], 4) != round(obj.scale[2], 4)):
                 log.warning(f"Object {obj.name} scale not uniform, applying before export") 
                 self.objs_scale.add('SCALE')
                 bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
@@ -1689,6 +1707,8 @@ class NifExporter:
 
         is_headpart = obj.data.shape_keys \
                 and len(nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
+        if is_headpart:
+            log.debug(f"...shape is headpart, shape keys = {nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))}")
 
         obj.data.update()
         log.info("..Exporting to nif")
@@ -1983,7 +2003,8 @@ def run_tests():
     TEST_ROTSTATIC2 = False
     TEST_VERTEX_ALPHA = False
     TEST_MUTANT = False
-    TEST_RENAME = True
+    TEST_RENAME = False
+    TEST_BONE_XPORT_POS = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -3196,6 +3217,32 @@ def run_tests():
         armnames = [b.name for b in body.parent.data.bones]
         armxl = list(filter(lambda x: ".L" in x or ".R" in x, armnames))
         assert len(armxl) == 0, f"Expected no bones renamed in armature, got {vgxl}"
+
+
+    if TEST_BPY_ALL or TEST_BONE_XPORT_POS:
+        print("### Test that bones named like vanilla bones but from a different skeleton export to the correct position")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, 
+                                r"C:\Users\User\OneDrive\Dev\PyNifly\PyNifly\tests\Skyrim\draugr.nif")
+        imp = NifImporter.do_import(testfile, 0)
+        draugr = bpy.context.object
+        spine2 = draugr.parent.data.bones['NPC Spine2 [Spn2]']
+        assert round(spine2.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2.head[2]}"
+
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_BONE_XPORT_POS.nif")
+        exp = NifExporter(outfile, 'SKYRIM')
+        exp.export([bpy.data.objects["Body_Male_Naked"]])
+
+        impcheck = NifImporter.do_import(outfile, 0)
+
+        nifbone = impcheck.nif.nodes['NPC Spine2 [Spn2]']
+        assert round(nifbone.transform.translation[2], 2) == 102.36, f"Expected nif location at z 102.36, found {nifbone.transform.translation[2]}"
+
+        draugrcheck = bpy.context.object
+        spine2check = draugrcheck.parent.data.bones['NPC Spine2 [Spn2]']
+        assert round(spine2check.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2check.head[2]}"
+
 
 
     print("""

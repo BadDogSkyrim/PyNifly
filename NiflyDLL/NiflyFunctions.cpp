@@ -117,7 +117,9 @@ void AddCustomBoneRef(
 	const MatTransform* xformToParent) 
 {
 	AnimSkeleton* skel = anim->GetSkeleton();
-	if (!skel->RefBone(boneName)) {
+	
+	// Use the provided transform in preference to any transform from the reference skeleton
+	if (xformToParent || !skel->RefBone(boneName)) {
 		// Not in skeleton, add it
 		AnimBone& customBone = skel->AddCustomBone(boneName);
 		customBone.SetTransformBoneToParent(*xformToParent);

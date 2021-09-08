@@ -172,6 +172,9 @@ void* TCopyWeights(void* targetNif, void* targetShape, void* sourceNif, void* so
 	MatTransform xform;
 
 	for (int i = 0, boneIndex = 0; boneIndex < boneCount;  boneIndex++) {
+		// Get xform from the source
+		getNodeXformToGlobal(sourceSkin, &boneNameBuf[i], &xform.translation.x);
+
 		addBoneToShape(targetSkin, targetShape, &boneNameBuf[i], &xform);
 		int bwcount = getShapeBoneWeightsCount(sourceNif, sourceShape, boneIndex);
 		VertexWeightPair* vwp = new VertexWeightPair[bwcount];
@@ -2053,7 +2056,7 @@ namespace NiflyDLLTests
 			Assert::IsTrue(xfCheck.rotation[1][2] == -1.0, L"Expected rotation around Y");
 		};
 		TEST_METHOD(gtsVsntg) {
-			/* Regression: Test that reading the node-to-global transform doesn't mess up 
+			/* Regression: Test that reading the node-to-global transform doesn't mess up
 				the global-to-skin transform */
 			void* shapes[10];
 			void* nif = load((testRoot / "FO4/TestSupermutantBody.nif").u8string().c_str());
@@ -2092,6 +2095,61 @@ namespace NiflyDLLTests
 			MatTransform gts2B;
 			getGlobalToSkin(nifskin, shapes[0], &gts2B);
 			Assert::IsTrue(TApproxEqual(gts2B.translation.z, -140.0), L"Expected -140 GTS");
+		};
+		TEST_METHOD(draugrBones) {
+			/* Test that writing bone positions are correct when it's named like a vanilla bone but 
+			isn't a vanilla bone */
+			void* shapes[10];
+			void** nodes;
+			void* nif = load((testRoot / "Skyrim/draugr.nif").u8string().c_str());
+			getShapes(nif, shapes, 10, 0);
+
+			int nodeCount = getNodeCount(nif);
+			nodes = new void*[nodeCount];
+			getNodes(nif, nodes);
+
+			int i;
+			for (i = 0; i < nodeCount; i++) {
+				char name[50];
+				getNodeName(nodes[i], name, 50);
+				if (strcmp(name, "NPC Spine2 [Spn2]") == 0) break;
+			}
+			Assert::IsTrue(i < nodeCount, L"Expected to find spine2");
+			void* spine2 = nodes[i];
+
+			MatTransform xf;
+			getNodeTransform(spine2, &xf.translation.x);
+			Assert::IsTrue(TApproxEqual(xf.translation.z, 102.3579), 
+				L"Bone at expected location when first read");
+
+			void* nifOut = createNif("SKYRIM");
+			uint16_t options = 0;
+			void* skinOut;
+			void* shapeOut = TCopyShape(nifOut, "DraugrBody", nif, shapes[0], 0, &skinOut);
+			TCopyShader(nifOut, shapeOut, nif, shapes[0]);
+
+			saveSkinnedNif(skinOut, (testRoot / "Out/Wrapper_draugrBones.nif").u8string().c_str());
+
+			void* shapescheck[10];
+			void* nifcheck = load((testRoot / "Out/Wrapper_draugrBones.nif").u8string().c_str());
+			getShapes(nifcheck, shapescheck, 10, 0);
+
+			int nodeCountCheck = getNodeCount(nifcheck);
+			void** nodescheck = new void* [nodeCountCheck];
+			getNodes(nifcheck, nodescheck);
+
+			for (i = 0; i < nodeCountCheck; i++) {
+				char name[50];
+				getNodeName(nodescheck[i], name, 50);
+				if (strcmp(name, "NPC Spine2 [Spn2]") == 0) break;
+			}
+			Assert::IsTrue(i < nodeCountCheck, L"Expected to find spine2");
+			void* spine2check = nodescheck[i];
+
+			MatTransform xfcheck;
+			getNodeTransform(spine2check, &xfcheck.translation.x);
+			Assert::IsTrue(TApproxEqual(xfcheck.translation.z, 102.3579),
+				L"Bone at expected location when re-read");
 		};
 	};
 }
