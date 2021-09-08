@@ -2,8 +2,8 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
-TEST_BPY_ALL = True
+RUN_TESTS = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 2, 2),  
+    "version": (1, 3, 0),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -39,7 +39,10 @@ if os.path.exists(nifly_path):
     log.debug(f"PyNifly dev path: {pynifly_dev_path}")
     if pynifly_dev_path not in sys.path:
         sys.path.append(pynifly_dev_path)
-    log.setLevel(logging.DEBUG)
+    if RUN_TESTS:
+        log.setLevel(logging.DEBUG)
+    else:
+        log.setLevel(logging.INFO)
 else:
     # Load from install location
     py_addon_path = os.path.dirname(os.path.realpath(__file__))
@@ -1598,7 +1601,8 @@ class NifExporter:
             bpy.context.view_layer.objects.active = obj
         
             # If scales aren't uniform, apply them before export
-            if obj.scale[0] != obj.scale[1] or obj.scale[0] != obj.scale[2]:
+            if (round(obj.scale[0], 4) != round(obj.scale[1], 4)) \
+                    or (round(obj.scale[0], 4) != round(obj.scale[2], 4)):
                 log.warning(f"Object {obj.name} scale not uniform, applying before export") 
                 self.objs_scale.add('SCALE')
                 bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
@@ -1999,7 +2003,8 @@ def run_tests():
     TEST_ROTSTATIC2 = False
     TEST_VERTEX_ALPHA = False
     TEST_MUTANT = False
-    TEST_RENAME = True
+    TEST_RENAME = False
+    TEST_BONE_XPORT_POS = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -3212,6 +3217,32 @@ def run_tests():
         armnames = [b.name for b in body.parent.data.bones]
         armxl = list(filter(lambda x: ".L" in x or ".R" in x, armnames))
         assert len(armxl) == 0, f"Expected no bones renamed in armature, got {vgxl}"
+
+
+    if TEST_BPY_ALL or TEST_BONE_XPORT_POS:
+        print("### Test that bones named like vanilla bones but from a different skeleton export to the correct position")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, 
+                                r"C:\Users\User\OneDrive\Dev\PyNifly\PyNifly\tests\Skyrim\draugr.nif")
+        imp = NifImporter.do_import(testfile, 0)
+        draugr = bpy.context.object
+        spine2 = draugr.parent.data.bones['NPC Spine2 [Spn2]']
+        assert round(spine2.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2.head[2]}"
+
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_BONE_XPORT_POS.nif")
+        exp = NifExporter(outfile, 'SKYRIM')
+        exp.export([bpy.data.objects["Body_Male_Naked"]])
+
+        impcheck = NifImporter.do_import(outfile, 0)
+
+        nifbone = impcheck.nif.nodes['NPC Spine2 [Spn2]']
+        assert round(nifbone.transform.translation[2], 2) == 102.36, f"Expected nif location at z 102.36, found {nifbone.transform.translation[2]}"
+
+        draugrcheck = bpy.context.object
+        spine2check = draugrcheck.parent.data.bones['NPC Spine2 [Spn2]']
+        assert round(spine2check.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2check.head[2]}"
+
 
 
     print("""

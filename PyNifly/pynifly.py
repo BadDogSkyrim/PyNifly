@@ -1483,7 +1483,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1511,7 +1511,8 @@ TEST_SHEATH = False
 TEST_FEET = False
 TEST_XFORM_SKY = False
 TEST_XFORM_STATIC = False
-TEST_MUTANT = True
+TEST_MUTANT = False
+TEST_BONE_XPORT_POS = True
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
     """ Convenience routine to copy existing shape """
@@ -2494,3 +2495,27 @@ if __name__ == "__main__":
         shape2 = nif.shapes[0]
 
         assert round(shape2.global_to_skin.translation[2]) == -140, f"Error: Expected -140 z translation, got {shape2.global_to_skin.translation[2]}"
+
+    if TEST_ALL or TEST_BONE_XPORT_POS:
+        print("### TEST_BONE_XPORT_POS: Test that bones named like vanilla bones but from a different skeleton export to the correct position")
+
+        testfile = r"tests/Skyrim/Draugr.nif"
+        nif = NifFile(testfile)
+        draugr = nif.shapes[0]
+        spine2 = nif.nodes['NPC Spine2 [Spn2]']
+
+        assert round(spine2.transform.translation[2], 2) == 102.36, f"Expected bone location at z 102.36, found {spine2.transform.translation[2]}"
+
+        outfile = r"tests/Out/pynifly_TEST_BONE_XPORT_POS.nif"
+        nifout = NifFile()
+        nifout.initialize('SKYRIM', outfile)
+        _test_export_shape(draugr, nifout)
+        nifout.save()
+
+        nifcheck = NifFile(outfile)
+        draugrcheck = nifcheck.shapes[0]
+        spine2check = nifcheck.nodes['NPC Spine2 [Spn2]']
+
+        assert round(spine2check.transform.translation[2], 2) == 102.36, f"Expected output bone location at z 102.36, found {spine2check.transform.translation[2]}"
+
+        
