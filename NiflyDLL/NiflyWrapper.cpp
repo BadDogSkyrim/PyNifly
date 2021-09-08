@@ -20,7 +20,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 1, 2, 0 };
+const int NiflyDDLVersion[3] = { 1, 3, 0 };
  
 using namespace nifly;
 
@@ -673,7 +673,12 @@ NIFLY_API int getShapeBoneWeights(void* theNif, void* theShape, int boneID,
     return numWeights;
 }
 
-NIFLY_API void addBoneToShape(void* anim, void* theShape, const char* boneName, void* xformPtr) {
+NIFLY_API void addBoneToShape(void* anim, void* theShape, const char* boneName, void* xformPtr)
+/* Add the given bone to the nif and shape for export. 
+    xformToParent may be omitted, in which case the bone transform comes from the 
+    reference skeleton.
+*/
+{
     AddBoneToShape(static_cast<AnimInfo*>(anim), static_cast<NiShape*>(theShape),
         boneName, static_cast<MatTransform*>(xformPtr));
 }
