@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
+RUN_TESTS = True
 TEST_BPY_ALL = False
 
 
@@ -175,6 +175,8 @@ def export_shape_data(obj, shape):
 
 def import_shader_attrs(material, shader, shape):
     attrs = shape.shader_attributes
+    if not attrs: 
+        return
 
     material['BSLSP_Shader_Type'] = attrs.Shader_Type
     material['BSLSP_Shader_Name'] = shape.shader_name
@@ -304,7 +306,7 @@ def obj_create_material(obj, shape):
     
     if fulltextures[1] != "":
         nmap = nodes.new("ShaderNodeNormalMap")
-        if shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+        if shape.shader_attributes and shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
             nmap.space = "OBJECT"
         else:
             nmap.space = "TANGENT"
@@ -319,7 +321,7 @@ def obj_create_material(obj, shape):
             pass
         nimgnode.location = (txtnode.location[0], yloc)
         
-        if shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+        if shape.shader_attributes and shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
             rgbsep = nodes.new("ShaderNodeSeparateRGB")
             rgbcomb = nodes.new("ShaderNodeCombineRGB")
             mat.node_tree.links.new(rgbsep.outputs['R'], rgbcomb.inputs['R'])
@@ -335,7 +337,9 @@ def obj_create_material(obj, shape):
                          
         mat.node_tree.links.new(nmap.outputs['Normal'], bdsf.inputs['Normal'])
 
-        if shape.parent.game in ["SKYRIM", "SKYRIMSE"] and not shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+        if shape.parent.game in ["SKYRIM", "SKYRIMSE"] and \
+            shape.shader_attributes and \
+            not shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
             # Specular is in the normal map alpha channel
             mat.node_tree.links.new(nimgnode.outputs['Alpha'], bdsf.inputs['Specular'])
             
@@ -620,6 +624,7 @@ class NifImporter():
             self.objects_created = Set to a list of objects created. Might be more than one because 
                 of extra data nodes.
         """
+        log.debug(f". Importing shape {the_shape.name}")
         v = the_shape.verts
         t = the_shape.tris
 
@@ -1199,7 +1204,7 @@ def extract_face_info(mesh, uvlayer, use_loop_normals=False):
 
 
 def extract_vert_info(obj, mesh, target_key=''):
-    """Returns 5 lists of equal length with one entry each for each vertex
+    """Returns 3 lists of equal length with one entry each for each vertex
         verts = [(x, y, z)... ] - base or as modified by target-key if provided
         weights = [{group-name: weight}... ] - 1:1 with verts list
         dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
@@ -1217,7 +1222,10 @@ def extract_vert_info(obj, mesh, target_key=''):
     for v in mesh.vertices:
         vert_weights = {}
         for vg in v.groups:
-            vert_weights[obj.vertex_groups[vg.group].name] = vg.weight
+            try:
+                vert_weights[obj.vertex_groups[vg.group].name] = vg.weight
+            except:
+                log.error(f"ERROR: Vertex #{v.index} references invalid group #{vg.group}")
         weights.append(vert_weights)
     
     if target_key == '' and mesh.shape_keys:
@@ -2004,7 +2012,9 @@ def run_tests():
     TEST_VERTEX_ALPHA = False
     TEST_MUTANT = False
     TEST_RENAME = False
-    TEST_BONE_XPORT_POS = True
+    TEST_BONE_XPORT_POS = False
+    TEST_EXPORT_HANDS = False
+    TEST_POT = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -3223,8 +3233,7 @@ def run_tests():
         print("### Test that bones named like vanilla bones but from a different skeleton export to the correct position")
 
         clear_all()
-        testfile = os.path.join(pynifly_dev_path, 
-                                r"C:\Users\User\OneDrive\Dev\PyNifly\PyNifly\tests\Skyrim\draugr.nif")
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\draugr.nif")
         imp = NifImporter.do_import(testfile, 0)
         draugr = bpy.context.object
         spine2 = draugr.parent.data.bones['NPC Spine2 [Spn2]']
@@ -3243,6 +3252,29 @@ def run_tests():
         spine2check = draugrcheck.parent.data.bones['NPC Spine2 [Spn2]']
         assert round(spine2check.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2check.head[2]}"
 
+
+    if TEST_BPY_ALL or TEST_EXPORT_HANDS:
+        print("### Test that hand mesh doesn't throw an error")
+
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXPORT_HANDS.tri")
+        remove_file(outfile)
+
+        append_from_file("SupermutantHands", True, r"tests\FO4\SupermutantHands.blend", r"\Object", "SupermutantHands")
+        bpy.ops.object.select_all(action='SELECT')
+
+        exp = NifExporter(outfile, 'FO4')
+        exp.export(bpy.context.selected_objects)
+
+        assert os.path.exists(outfile)
+
+
+    if TEST_BPY_ALL or TEST_POT:
+        print("### Test that pot shaders doesn't throw an error")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\spitpotopen01.nif")
+        imp = NifImporter.do_import(testfile, 0)
+        assert 'ANCHOR:0' in bpy.data.objects.keys()
 
 
     print("""

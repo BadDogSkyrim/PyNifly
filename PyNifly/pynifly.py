@@ -937,9 +937,11 @@ class NiShape:
     def shader_attributes(self):
         if self._shader_attrs is None:
             buf = BSLSPAttrs()
-            NifFile.nifly.getShaderAttrs(self.parent._handle, self._handle, 
-                                         byref(buf))
-            self._shader_attrs = buf
+            if NifFile.nifly.getShaderAttrs(self.parent._handle, self._handle, 
+                                            byref(buf)) == 0:
+                self._shader_attrs = buf
+            else:
+                self._shader_attrs = None
         return self._shader_attrs
 
     def save_shader_attributes(self):
