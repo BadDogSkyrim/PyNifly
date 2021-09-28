@@ -789,11 +789,18 @@ NIFLY_API uint32_t getShaderType(void* nifref, void* shaperef) {
     return shader->GetShaderType();
 };
 
-NIFLY_API void getShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* buf) {
+NIFLY_API int getShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* buf) 
+/* 
+    Return value: 0 = success, 1 = no shader 
+*/
+{
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
 
-    NiShader* shader = nif->GetShader(shape);;
+    NiShader* shader = nif->GetShader(shape);
+
+    if (!shader) return 1;
+
     BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
     BSLightingShaderProperty* bslsp = dynamic_cast<BSLightingShaderProperty*>(shader);
     NiTexturingProperty* txtProp = nif->GetTexturingProperty(shape);
@@ -831,6 +838,8 @@ NIFLY_API void getShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* b
         buf->Skin_Tint_Color_G = bslsp->skinTintColor[1];
         buf->Skin_Tint_Color_B = bslsp->skinTintColor[2];
     };
+
+    return 0;
 };
 
 NIFLY_API int getAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr) {
