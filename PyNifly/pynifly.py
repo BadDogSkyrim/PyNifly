@@ -269,7 +269,7 @@ def load_nifly(nifly_path):
     nifly.getSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getSegments.restype = c_int
     nifly.getShaderAttrs.argtypes = [c_void_p, c_void_p, BSLSPAttrs_p]
-    nifly.getShaderAttrs.restype = None
+    nifly.getShaderAttrs.restype = c_int
     nifly.getShaderFlags1.argtypes = [c_void_p, c_void_p]
     nifly.getShaderFlags1.restype = c_uint32
     nifly.getShaderName.argtypes = [c_void_p, c_void_p, c_char_p, c_int]
@@ -941,7 +941,7 @@ class NiShape:
                                             byref(buf)) == 0:
                 self._shader_attrs = buf
             else:
-                self._shader_attrs = None
+                self._shader_attrs = BSLSPAttrs()
         return self._shader_attrs
 
     def save_shader_attributes(self):
