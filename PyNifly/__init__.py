@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = True
+RUN_TESTS = False
 TEST_BPY_ALL = False
 
 
@@ -80,6 +80,12 @@ UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 
 GLOSS_SCALE = 100
+
+z180 = MatTransform((0, 0, 0), 
+                    [(-1, 0, 0), 
+                     (0, -1, 0),
+                     (0, 0, 1)],
+                     1)
 
 #log.setLevel(logging.DEBUG)
 #pynifly_ch = logging.StreamHandler()
@@ -608,6 +614,7 @@ class NifImporter():
     class ImportFlags(IntFlag):
         CREATE_BONES = 1
         RENAME_BONES = 1 << 1
+        ROTATE_MODEL = 1 << 2
 
     def __init__(self, 
                  filename: str, 
@@ -635,6 +642,7 @@ class NifImporter():
     
         import_colors(new_mesh, the_shape)
 
+        log.info(f". . import flags: {self.flags}")
         if not the_shape.has_skin_instance:
             # Statics get transformed according to the shape's transform
             #new_object.scale = (the_shape.transform.scale, ) * 3
@@ -660,6 +668,11 @@ class NifImporter():
             #new_object.rotation_euler = inv_xf.rotation.euler_deg()
             #new_object.rotation_euler = inv_xf.rotation.euler()
             log.debug(f"..Object {new_object.name} created at {new_object.location[:]}")
+
+        if self.flags & self.ImportFlags.ROTATE_MODEL:
+            log.info(f". . Rotating model to match blender")
+            r = new_object.rotation_euler[:]
+            new_object.rotation_euler = (r[0], r[1], r[2]+pi)
 
         mesh_create_uv(new_object.data, the_shape.uvs)
         mesh_create_bone_groups(the_shape, new_object, self.flags & self.ImportFlags.RENAME_BONES)
@@ -881,6 +894,11 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Rename bones to conform to Blender's left/right conventions.",
         default=True)
 
+    rotate_model: bpy.props.BoolProperty(
+        name="Rotate Model",
+        description="Rotate model to face forward in blender",
+        default=True)
+
 
     def execute(self, context):
         log.info("NIFLY IMPORT V%d.%d.%d" % bl_info['version'])
@@ -891,6 +909,8 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             flags |= NifImporter.ImportFlags.CREATE_BONES
         if self.rename_bones:
             flags |= NifImporter.ImportFlags.RENAME_BONES
+        if self.rotate_model:
+            flags |= NifImporter.ImportFlags.ROTATE_MODEL
 
         try:
             NifFile.Load(nifly_path)
@@ -1428,7 +1448,7 @@ def get_with_uscore(str_list):
 class NifExporter:
     """ Object that handles the export process 
     """
-    def __init__(self, filepath, game):
+    def __init__(self, filepath, game, rotate=False):
         self.filepath = filepath
         self.game = game
         self.warnings = set()
@@ -1445,6 +1465,7 @@ class NifExporter:
         self.objs_mult_part = set()
         self.objs_no_part = set()
         self.arma_game = []
+        self.rotate_model = rotate
 
     def add_object(self, obj):
         """ Adds the given object to the objects to export """
@@ -1602,6 +1623,10 @@ class NifExporter:
         saved_sk = obj.active_shape_key_index
         obj.data = editmesh
         loopcolors = None
+        
+        original_rot = obj.rotation_euler[:]
+        if self.rotate_model:
+            obj.rotation_euler = (original_rot[0], original_rot[1], original_rot[2]+pi)
 
         try:
             bpy.ops.object.select_all(action='DESELECT')
@@ -1678,6 +1703,7 @@ class NifExporter:
                 log.debug(f"..No vertex colors in shape {obj.name}")
         
         finally:
+            obj.rotation_euler = original_rot
             obj.data = originalmesh
             obj.active_shape_key_index = saved_sk
 
@@ -1859,6 +1885,12 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ),
             )
 
+    rotate_model: bpy.props.BoolProperty(
+        name="Rotate Model",
+        description="Rotate model from blender-forward to nif-forward",
+        default=True)
+
+
     def __init__(self):
         obj = bpy.context.object
         if obj is None:
@@ -1900,7 +1932,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         NifFile.Load(nifly_path)
 
         try:
-            exporter = NifExporter(self.filepath, self.target_game)
+            exporter = NifExporter(self.filepath, self.target_game, rotate=self.rotate_model)
             exporter.from_context(context)
             exporter.export(context.selected_objects)
             
