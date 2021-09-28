@@ -219,10 +219,11 @@ def import_shader_alpha(mat, shape):
         return False
 
 def obj_create_material(obj, shape):
-    img_offset_x = -1000
+    img_offset_x = -1200
     cvt_offset_x = -300
-    inter1_offset_x = -700
-    inter2_offset_x = -500
+    inter1_offset_x = -900
+    inter2_offset_x = -700
+    inter3_offset_x = -500
     offset_y = -300
     yloc = 0
 
@@ -267,6 +268,8 @@ def obj_create_material(obj, shape):
 
     yloc = txtnode.location[1] + offset_y
 
+    matlinks = mat.node_tree.links
+
     # --- Subsurface --- 
 
     if fulltextures[2] != "": 
@@ -280,7 +283,7 @@ def obj_create_material(obj, shape):
         except:
             pass
         skimgnode.location = (txtnode.location[0], yloc)
-        mat.node_tree.links.new(skimgnode.outputs['Color'], bdsf.inputs["Subsurface Color"])
+        matlinks.new(skimgnode.outputs['Color'], bdsf.inputs["Subsurface Color"])
         yloc = skimgnode.location[1] + offset_y
         
     # --- Specular --- 
@@ -299,11 +302,11 @@ def obj_create_material(obj, shape):
             # specular combines gloss and spec
             seprgb = nodes.new("ShaderNodeSeparateRGB")
             seprgb.location = (bdsf.location[0] + cvt_offset_x, yloc)
-            mat.node_tree.links.new(simgnode.outputs['Color'], seprgb.inputs['Image'])
-            mat.node_tree.links.new(seprgb.outputs['R'], bdsf.inputs['Specular'])
-            mat.node_tree.links.new(seprgb.outputs['G'], bdsf.inputs['Metallic'])
+            matlinks.new(simgnode.outputs['Color'], seprgb.inputs['Image'])
+            matlinks.new(seprgb.outputs['R'], bdsf.inputs['Specular'])
+            matlinks.new(seprgb.outputs['G'], bdsf.inputs['Metallic'])
         else:
-            mat.node_tree.links.new(simgnode.outputs['Color'], bdsf.inputs['Specular'])
+            matlinks.new(simgnode.outputs['Color'], bdsf.inputs['Specular'])
             # bdsf.inputs['Metallic'].default_value = 0
             
         yloc = simgnode.location[1] + offset_y
@@ -327,27 +330,42 @@ def obj_create_material(obj, shape):
             pass
         nimgnode.location = (txtnode.location[0], yloc)
         
-        if shape.shader_attributes and shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+        if shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+            # Need to swap green and blue channels for blender
             rgbsep = nodes.new("ShaderNodeSeparateRGB")
             rgbcomb = nodes.new("ShaderNodeCombineRGB")
-            mat.node_tree.links.new(rgbsep.outputs['R'], rgbcomb.inputs['R'])
-            mat.node_tree.links.new(rgbsep.outputs['G'], rgbcomb.inputs['B'])
-            mat.node_tree.links.new(rgbsep.outputs['B'], rgbcomb.inputs['G'])
-            mat.node_tree.links.new(rgbcomb.outputs['Image'], nmap.inputs['Color'])
-            mat.node_tree.links.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
+            matlinks.new(rgbsep.outputs['R'], rgbcomb.inputs['R'])
+            matlinks.new(rgbsep.outputs['G'], rgbcomb.inputs['B'])
+            matlinks.new(rgbsep.outputs['B'], rgbcomb.inputs['G'])
+            matlinks.new(rgbcomb.outputs['Image'], nmap.inputs['Color'])
+            matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
             rgbsep.location = (bdsf.location[0] + inter1_offset_x, yloc)
             rgbcomb.location = (bdsf.location[0] + inter2_offset_x, yloc)
+        elif shape.parent.game == 'FO4':
+            # Need to invert the green channel for blender
+            rgbsep = nodes.new("ShaderNodeSeparateRGB")
+            rgbcomb = nodes.new("ShaderNodeCombineRGB")
+            colorinv = nodes.new("ShaderNodeInvert")
+            matlinks.new(rgbsep.outputs['R'], rgbcomb.inputs['R'])
+            matlinks.new(rgbsep.outputs['B'], rgbcomb.inputs['B'])
+            matlinks.new(rgbsep.outputs['G'], colorinv.inputs['Color'])
+            matlinks.new(colorinv.outputs['Color'], rgbcomb.inputs['G'])
+            matlinks.new(rgbcomb.outputs['Image'], nmap.inputs['Color'])
+            matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
+            rgbsep.location = (bdsf.location[0] + inter1_offset_x, yloc)
+            rgbcomb.location = (bdsf.location[0] + inter3_offset_x, yloc)
+            colorinv.location = (bdsf.location[0] + inter2_offset_x, yloc - rgbcomb.height * 0.9)
         else:
-            mat.node_tree.links.new(nimgnode.outputs['Color'], nmap.inputs['Color'])
+            matlinks.new(nimgnode.outputs['Color'], nmap.inputs['Color'])
             nmap.location = (bdsf.location[0] + inter2_offset_x, yloc)
                          
-        mat.node_tree.links.new(nmap.outputs['Normal'], bdsf.inputs['Normal'])
+        matlinks.new(nmap.outputs['Normal'], bdsf.inputs['Normal'])
 
         if shape.parent.game in ["SKYRIM", "SKYRIMSE"] and \
             shape.shader_attributes and \
             not shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
             # Specular is in the normal map alpha channel
-            mat.node_tree.links.new(nimgnode.outputs['Alpha'], bdsf.inputs['Specular'])
+            matlinks.new(nimgnode.outputs['Alpha'], bdsf.inputs['Specular'])
             
         
     obj.active_material = mat
