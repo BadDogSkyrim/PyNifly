@@ -902,8 +902,11 @@ class NiShape:
     def shader_name(self):
         if self._shader_name is None:
             buf = (c_char * 500)()
-            NifFile.nifly.getShaderName(self.parent._handle, self._handle, buf, 500)
-            self._shader_name = buf.value.decode('utf-8')
+            buflen = NifFile.nifly.getShaderName(self.parent._handle, self._handle, buf, 500)
+            if buflen == -1:
+                self._shader_name = ''
+            else:
+                self._shader_name = buf.value.decode('utf-8')
         return self._shader_name
 
     @shader_name.setter
