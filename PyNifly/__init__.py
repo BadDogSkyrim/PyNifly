@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
+RUN_TESTS = True
 TEST_BPY_ALL = False
 
 
@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 3, 0),  
+    "version": (1, 3, 1),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -178,6 +178,26 @@ def export_shape_data(obj, shape):
 
 # -----------------------------  SHADERS  -------------------------------
 
+def get_image_node(node_input):
+    """Walk the shader nodes backwards until a texture node is found.
+        node_input = the shader node input to follow; may be null"""
+    n = None
+    if node_input and len(node_input.links) > 0: 
+        n = node_input.links[0].from_node
+
+    while n and type(n) != bpy.types.ShaderNodeTexImage:
+        if 'Base Color' in n.inputs.keys() and n.inputs['Base Color'].is_linked:
+            n = n.inputs['Base Color'].links[0].from_node
+        elif 'Image' in n.inputs.keys() and n.inputs['Image'].is_linked:
+            n = n.inputs['Image'].links[0].from_node
+        elif 'Color' in n.inputs.keys() and n.inputs['Color'].is_linked:
+            n = n.inputs['Color'].links[0].from_node
+        elif 'R' in n.inputs.keys() and n.inputs['R'].is_linked:
+            n = n.inputs['R'].links[0].from_node
+    return n
+
+def find_shader_node(nodelist, idname):
+    return next((x for x in nodelist if x.bl_idname == idname), None)
 
 def import_shader_attrs(material, shader, shape):
     attrs = shape.shader_attributes
@@ -370,14 +390,6 @@ def obj_create_material(obj, shape):
         
     obj.active_material = mat
 
-def find_shader_node(nodelist, nodeid):
-    """ Look up a shader node by bl_idname"""
-    resultlist = list(filter(lambda n: n.bl_idname == nodeid, nodelist))
-    if len(resultlist) > 0:
-        return resultlist[0]
-    else:
-        return None
-
 def export_shader_attrs(obj, shader, shape):
     mat = obj.active_material
 
@@ -484,46 +496,35 @@ def export_shader(obj, shape: NiShape):
                 log.debug(f"....Writing diffuse texture path '{diffuse_fp}'")
         
         normal_input = shader_node.inputs['Normal']
+        is_obj_space = False
         if normal_input and normal_input.is_linked:
             nmap_node = normal_input.links[0].from_node
             if nmap_node.bl_idname == 'ShaderNodeNormalMap':
-                if nmap_node.space == "OBJECT":
+                is_obj_space = (nmap_node.space == "OBJECT")
+                if is_obj_space:
                     shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
                 else:
                     shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
-                prior_input = nmap_node.inputs['Color']
-                prior_node = prior_input.links[0].from_node
-                if prior_node and prior_node.bl_idname == 'ShaderNodeCombineRGB':
-                    prior_input = prior_node.inputs['R']
-                    prior_node = prior_input.links[0].from_node
-                if prior_node and prior_node.bl_idname == 'ShaderNodeSeparateRGB':
-                    prior_input = prior_node.inputs['Image']
-                    prior_node = prior_input.links[0].from_node
-                if prior_node and prior_node.bl_idname == 'ShaderNodeTexImage' and prior_node.image:
-                    norm_txt_node = prior_node
+                image_node = get_image_node(nmap_node.inputs['Color'])
+                if image_node and image_node.image:
+                    norm_txt_node = image_node
                     norm_fp_full = norm_txt_node.image.filepath
                     norm_fp = norm_fp_full[norm_fp_full.lower().find('textures'):]
                     log.debug(f"....Writing normal texture path '{norm_fp}'")
 
-        sk_input = shader_node.inputs['Subsurface Color']
-        if sk_input and sk_input.is_linked:
-            sk_node = sk_input.links[0].from_node
-            if sk_node.image:
-                sk_fp_full = sk_node.image.filepath
-                sk_fp = sk_fp_full[sk_fp_full.lower().find('textures'):]
-                log.debug(f"....Writing subsurface texture path '{sk_fp}'")
+        sk_node = get_image_node(shader_node.inputs['Subsurface Color'])
+        if sk_node and sk_node.image:
+            sk_fp_full = sk_node.image.filepath
+            sk_fp = sk_fp_full[sk_fp_full.lower().find('textures'):]
+            log.debug(f"....Writing subsurface texture path '{sk_fp}'")
 
-        spec_input = shader_node.inputs['Specular']
-        if spec_input and spec_input.is_linked:
-            prior_node = spec_input.links[0].from_node
-            if prior_node and prior_node.bl_idname == 'ShaderNodeSeparateRGB':
-                prior_input = prior_node.inputs['Image']
-                prior_node = prior_input.links[0].from_node
-            if prior_node and prior_node.bl_idname == 'ShaderNodeTexImage'and \
-                prior_node != norm_txt_node and prior_node.image:
-                spec_fp_full = prior_node.image.filepath
-                spec_fp = spec_fp_full[spec_fp_full.lower().find('textures'):]
-                log.debug(f"....Writing subsurface texture path '{spec_fp}'")
+        # Separate specular slot is only used if it's a MSN
+        if is_obj_space:
+            spec_node = get_image_node(shader_node.inputs['Specular'])
+            if spec_node and spec_node.image:
+                    spec_fp_full = spec_node.image.filepath
+                    spec_fp = spec_fp_full[spec_fp_full.lower().find('textures'):]
+                    log.debug(f"....Writing subsurface texture path '{spec_fp}'")
 
         alpha_input = shader_node.inputs['Alpha']
         if alpha_input and alpha_input.is_linked:
@@ -2050,20 +2051,20 @@ def run_tests():
     TEST_JIARAN = False
     TEST_SHADER_LE = False
     TEST_SHADER_SE = False
-    TEST_SHADER_FO4 = False
-    TEST_SHADER_ALPHA = False
-    TEST_SHEATH = False
-    TEST_FEET = False
-    TEST_SKYRIM_XFORM = False
-    TEST_TRI2 = False
-    TEST_3BBB = False
-    TEST_ROTSTATIC = False
-    TEST_ROTSTATIC2 = False
-    TEST_VERTEX_ALPHA = False
-    TEST_MUTANT = False
-    TEST_RENAME = False
-    TEST_BONE_XPORT_POS = False
-    TEST_EXPORT_HANDS = False
+    TEST_SHADER_FO4 = True
+    TEST_SHADER_ALPHA = True
+    TEST_SHEATH = True
+    TEST_FEET = True
+    TEST_SKYRIM_XFORM = True
+    TEST_TRI2 = True
+    TEST_3BBB = True
+    TEST_ROTSTATIC = True
+    TEST_ROTSTATIC2 = True
+    TEST_VERTEX_ALPHA = True
+    TEST_MUTANT = True
+    TEST_RENAME = True
+    TEST_BONE_XPORT_POS = True
+    TEST_EXPORT_HANDS = True
     TEST_POT = True
 
     NifFile.Load(nifly_path)
@@ -2953,7 +2954,10 @@ def run_tests():
         for obj in bpy.context.selected_objects:
             if "BaseMaleHead:0" in obj.name:
                 headFO4 = obj
-        assert len(headFO4.active_material.node_tree.nodes) == 7, "ERROR: Didn't import images"
+        sh = next((x for x in headFO4.active_material.node_tree.nodes if x.name == "Principled BSDF"), None)
+        assert sh, "ERROR: Didn't import images"
+        txt = get_image_node(sh.inputs["Base Color"])
+        assert txt and txt.image, "ERROR: Didn't import images"
 
         print("## Shader attributes are written on export")
 
