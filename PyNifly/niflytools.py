@@ -108,12 +108,18 @@ class RotationMatrix:
         """ Convert from blender-style euler anges (in degrees) to a matrix.
             Calculation from wikipedia (where else?)
             """
-        c1 = cos(radians(xrot))
-        c2 = cos(radians(yrot))
-        c3 = cos(radians(zrot))
-        s1 = sin(radians(xrot))
-        s2 = sin(radians(yrot))
-        s3 = sin(radians(zrot))
+        return RotationMatrix.from_euler_rad(radians(xrot), radians(yrot), radians(zrot))
+
+    def from_euler_rad(xrot, yrot, zrot):
+        """ Convert from blender-style euler anges (in degrees) to a matrix.
+            Calculation from wikipedia (where else?)
+            """
+        c1 = cos(xrot)
+        c2 = cos(yrot)
+        c3 = cos(zrot)
+        s1 = sin(xrot)
+        s2 = sin(yrot)
+        s3 = sin(zrot)
         
         res = [(c2 * c3,                   -s2,         c2 * s3),
                (s1 * s3 + c1 * c3 * s2,     c1 * c2,    c1 * s2 * s3 - c3 * s1),
