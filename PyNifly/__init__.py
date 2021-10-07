@@ -665,9 +665,13 @@ class NifImporter():
         if not the_shape.has_skin_instance:
             # Statics get transformed according to the shape's transform
             #new_object.scale = (the_shape.transform.scale, ) * 3
-            xf = the_shape.transform.invert()
-            new_object.matrix_world = xf.as_matrix() 
+            # xf = the_shape.transform.invert()
+            # new_object.matrix_world = xf.as_matrix() 
+            # new_object.location = the_shape.transform.translation
+            log.debug(f". . shape {the_shape.name} transform: {the_shape.transform}")
+            new_object.matrix_world = the_shape.transform.as_matrix()
             new_object.location = the_shape.transform.translation
+            log.debug(f". . New object transform: \n{new_object.matrix_world}")
         else:
             # Global-to-skin transform is what offsets all the vertices together, e.g. so that
             # heads can be positioned at the origin. Put the reverse transform on the blender 
@@ -835,7 +839,7 @@ class NifImporter():
         bpy.context.view_layer.active_layer_collection \
              = bpy.context.view_layer.layer_collection.children[new_collection.name]
     
-        log.info("..Importing " + self.nif.game + " file")
+        log.info(f"Importing {self.nif.game} file {self.nif.filepath}")
         if bpy.context.object and bpy.context.object.type == "ARMATURE":
             self.armature = bpy.context.object
             log.info(f"..Current object is an armature, parenting shapes to {self.armature.name}")
@@ -1442,7 +1446,7 @@ def export_shape_to(shape, filepath, game):
     outnif.initialize(game, filepath)
     ret = export_shape(outnif, outtrip, shape, '', shape.parent) 
     outnif.save()
-    log.info(f"..Wrote {filepath}")
+    log.info(f"Wrote {filepath}")
     return ret
 
 
@@ -1797,9 +1801,10 @@ class NifExporter:
 
         new_xform = MatTransform();
         new_xform.translation = obj.location
-        new_xform.rotation = RotationMatrix((obj.matrix_local[0][0:3], 
-                                             obj.matrix_local[1][0:3], 
-                                             obj.matrix_local[2][0:3]))
+        #new_xform.rotation = RotationMatrix((obj.matrix_local[0][0:3], 
+        #                                     obj.matrix_local[1][0:3], 
+        #                                     obj.matrix_local[2][0:3]))
+        new_xform.rotation = RotationMatrix.from_euler_rad(*obj.rotation_euler[:])
         new_xform.scale = obj.scale[0]
         
         if is_skinned:
@@ -2051,21 +2056,22 @@ def run_tests():
     TEST_JIARAN = False
     TEST_SHADER_LE = False
     TEST_SHADER_SE = False
-    TEST_SHADER_FO4 = True
-    TEST_SHADER_ALPHA = True
-    TEST_SHEATH = True
-    TEST_FEET = True
-    TEST_SKYRIM_XFORM = True
-    TEST_TRI2 = True
-    TEST_3BBB = True
-    TEST_ROTSTATIC = True
-    TEST_ROTSTATIC2 = True
-    TEST_VERTEX_ALPHA = True
-    TEST_MUTANT = True
-    TEST_RENAME = True
-    TEST_BONE_XPORT_POS = True
-    TEST_EXPORT_HANDS = True
-    TEST_POT = True
+    TEST_SHADER_FO4 = False
+    TEST_SHADER_ALPHA = False
+    TEST_SHEATH = False
+    TEST_FEET = False
+    TEST_SKYRIM_XFORM = False
+    TEST_TRI2 = False
+    TEST_3BBB = False
+    TEST_ROTSTATIC = False
+    TEST_ROTSTATIC2 = False
+    TEST_VERTEX_ALPHA = False
+    TEST_MUTANT = False
+    TEST_RENAME = False
+    TEST_BONE_XPORT_POS = False
+    TEST_EXPORT_HANDS = False
+    TEST_POT = False
+    TEST_SCALING = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -3322,6 +3328,30 @@ def run_tests():
         assert os.path.exists(outfile)
 
 
+    if TEST_BPY_ALL or TEST_SCALING:
+        print("### Test that scale factors happen correctly")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\statuechampion.nif")
+        NifImporter.do_import(testfile, 0)
+        
+        base = bpy.data.objects['basis1']
+        assert int(base.scale[0]) == 10, f"ERROR: Base scale should be 10, found {base.scale[0]}"
+        tail = bpy.data.objects['tail_base.001']
+        assert round(tail.scale[0], 1) == 1.7, f"ERROR: Tail scale should be ~1.7, found {tail.scale}"
+        assert round(tail.location[0], 0) == -158, f"ERROR: Tail x loc should be -158, found {tail.location}"
+
+        testout = os.path.join(pynifly_dev_path, r"tests\Out\TEST_SCALING.nif")
+        exp = NifExporter.do_export(testout, "SKYRIM", bpy.data.objects[:])
+        checknif = NifFile(testout)
+        checkfoot = checknif.shape_dict['FootLowRes']
+        assert checkfoot.transform.rotation.matrix[0][0] == 1.0, f"ERROR: Foot rotation matrix not identity: {checkfoot.transform.rotation.matrix}"
+        assert checkfoot.transform.scale == 1.0, f"ERROR: Foot scale not correct: {checkfoot.transform.scale}"
+        checkbase = checknif.shape_dict['basis3']
+        assert checkbase.transform.rotation.matrix[0][0] == 1.0, f"ERROR: Base rotation matrix not identity: {checkbase.transform.rotation.matrix}"
+        assert checkbase.transform.scale == 10.0, f"ERROR: Base scale not correct: {checkbase.transform.scale}"
+
+
     if TEST_BPY_ALL or TEST_POT:
         print("### Test that pot shaders doesn't throw an error")
 
@@ -3359,8 +3389,3 @@ if __name__ == "__main__":
             run_tests()
         except:
             traceback.print_exc()
-
-
-# To do: 
-# - Don't export chargen tri if no chargens - test that _ and * aren't exported
-# - Hook new mesh to existing armature, if selected
