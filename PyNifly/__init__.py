@@ -2,8 +2,8 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
-TEST_BPY_ALL = False
+RUN_TESTS = True
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 3, 0),  
+    "version": (1, 3, 2),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -29,7 +29,7 @@ import math
 import re
 
 log = logging.getLogger("pynifly")
-log.info(f"Loading pynifly version {bl_info['version']}")
+log.info(f"Loading pynifly version {bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}")
 
 pynifly_dev_root = r"C:\Users\User\OneDrive\Dev"
 pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
@@ -80,6 +80,12 @@ UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 
 GLOSS_SCALE = 100
+
+z180 = MatTransform((0, 0, 0), 
+                    [(-1, 0, 0), 
+                     (0, -1, 0),
+                     (0, 0, 1)],
+                     1)
 
 #log.setLevel(logging.DEBUG)
 #pynifly_ch = logging.StreamHandler()
@@ -172,9 +178,31 @@ def export_shape_data(obj, shape):
 
 # -----------------------------  SHADERS  -------------------------------
 
+def get_image_node(node_input):
+    """Walk the shader nodes backwards until a texture node is found.
+        node_input = the shader node input to follow; may be null"""
+    n = None
+    if node_input and len(node_input.links) > 0: 
+        n = node_input.links[0].from_node
+
+    while n and type(n) != bpy.types.ShaderNodeTexImage:
+        if 'Base Color' in n.inputs.keys() and n.inputs['Base Color'].is_linked:
+            n = n.inputs['Base Color'].links[0].from_node
+        elif 'Image' in n.inputs.keys() and n.inputs['Image'].is_linked:
+            n = n.inputs['Image'].links[0].from_node
+        elif 'Color' in n.inputs.keys() and n.inputs['Color'].is_linked:
+            n = n.inputs['Color'].links[0].from_node
+        elif 'R' in n.inputs.keys() and n.inputs['R'].is_linked:
+            n = n.inputs['R'].links[0].from_node
+    return n
+
+def find_shader_node(nodelist, idname):
+    return next((x for x in nodelist if x.bl_idname == idname), None)
 
 def import_shader_attrs(material, shader, shape):
     attrs = shape.shader_attributes
+    if not attrs: 
+        return
 
     material['BSLSP_Shader_Type'] = attrs.Shader_Type
     material['BSLSP_Shader_Name'] = shape.shader_name
@@ -211,10 +239,11 @@ def import_shader_alpha(mat, shape):
         return False
 
 def obj_create_material(obj, shape):
-    img_offset_x = -1000
+    img_offset_x = -1200
     cvt_offset_x = -300
-    inter1_offset_x = -700
-    inter2_offset_x = -500
+    inter1_offset_x = -900
+    inter2_offset_x = -700
+    inter3_offset_x = -500
     offset_y = -300
     yloc = 0
 
@@ -259,6 +288,8 @@ def obj_create_material(obj, shape):
 
     yloc = txtnode.location[1] + offset_y
 
+    matlinks = mat.node_tree.links
+
     # --- Subsurface --- 
 
     if fulltextures[2] != "": 
@@ -272,7 +303,7 @@ def obj_create_material(obj, shape):
         except:
             pass
         skimgnode.location = (txtnode.location[0], yloc)
-        mat.node_tree.links.new(skimgnode.outputs['Color'], bdsf.inputs["Subsurface Color"])
+        matlinks.new(skimgnode.outputs['Color'], bdsf.inputs["Subsurface Color"])
         yloc = skimgnode.location[1] + offset_y
         
     # --- Specular --- 
@@ -291,11 +322,11 @@ def obj_create_material(obj, shape):
             # specular combines gloss and spec
             seprgb = nodes.new("ShaderNodeSeparateRGB")
             seprgb.location = (bdsf.location[0] + cvt_offset_x, yloc)
-            mat.node_tree.links.new(simgnode.outputs['Color'], seprgb.inputs['Image'])
-            mat.node_tree.links.new(seprgb.outputs['R'], bdsf.inputs['Specular'])
-            mat.node_tree.links.new(seprgb.outputs['G'], bdsf.inputs['Metallic'])
+            matlinks.new(simgnode.outputs['Color'], seprgb.inputs['Image'])
+            matlinks.new(seprgb.outputs['R'], bdsf.inputs['Specular'])
+            matlinks.new(seprgb.outputs['G'], bdsf.inputs['Metallic'])
         else:
-            mat.node_tree.links.new(simgnode.outputs['Color'], bdsf.inputs['Specular'])
+            matlinks.new(simgnode.outputs['Color'], bdsf.inputs['Specular'])
             # bdsf.inputs['Metallic'].default_value = 0
             
         yloc = simgnode.location[1] + offset_y
@@ -304,7 +335,7 @@ def obj_create_material(obj, shape):
     
     if fulltextures[1] != "":
         nmap = nodes.new("ShaderNodeNormalMap")
-        if shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+        if shape.shader_attributes and shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
             nmap.space = "OBJECT"
         else:
             nmap.space = "TANGENT"
@@ -320,35 +351,44 @@ def obj_create_material(obj, shape):
         nimgnode.location = (txtnode.location[0], yloc)
         
         if shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+            # Need to swap green and blue channels for blender
             rgbsep = nodes.new("ShaderNodeSeparateRGB")
             rgbcomb = nodes.new("ShaderNodeCombineRGB")
-            mat.node_tree.links.new(rgbsep.outputs['R'], rgbcomb.inputs['R'])
-            mat.node_tree.links.new(rgbsep.outputs['G'], rgbcomb.inputs['B'])
-            mat.node_tree.links.new(rgbsep.outputs['B'], rgbcomb.inputs['G'])
-            mat.node_tree.links.new(rgbcomb.outputs['Image'], nmap.inputs['Color'])
-            mat.node_tree.links.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
+            matlinks.new(rgbsep.outputs['R'], rgbcomb.inputs['R'])
+            matlinks.new(rgbsep.outputs['G'], rgbcomb.inputs['B'])
+            matlinks.new(rgbsep.outputs['B'], rgbcomb.inputs['G'])
+            matlinks.new(rgbcomb.outputs['Image'], nmap.inputs['Color'])
+            matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
             rgbsep.location = (bdsf.location[0] + inter1_offset_x, yloc)
             rgbcomb.location = (bdsf.location[0] + inter2_offset_x, yloc)
+        elif shape.parent.game == 'FO4':
+            # Need to invert the green channel for blender
+            rgbsep = nodes.new("ShaderNodeSeparateRGB")
+            rgbcomb = nodes.new("ShaderNodeCombineRGB")
+            colorinv = nodes.new("ShaderNodeInvert")
+            matlinks.new(rgbsep.outputs['R'], rgbcomb.inputs['R'])
+            matlinks.new(rgbsep.outputs['B'], rgbcomb.inputs['B'])
+            matlinks.new(rgbsep.outputs['G'], colorinv.inputs['Color'])
+            matlinks.new(colorinv.outputs['Color'], rgbcomb.inputs['G'])
+            matlinks.new(rgbcomb.outputs['Image'], nmap.inputs['Color'])
+            matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
+            rgbsep.location = (bdsf.location[0] + inter1_offset_x, yloc)
+            rgbcomb.location = (bdsf.location[0] + inter3_offset_x, yloc)
+            colorinv.location = (bdsf.location[0] + inter2_offset_x, yloc - rgbcomb.height * 0.9)
         else:
-            mat.node_tree.links.new(nimgnode.outputs['Color'], nmap.inputs['Color'])
+            matlinks.new(nimgnode.outputs['Color'], nmap.inputs['Color'])
             nmap.location = (bdsf.location[0] + inter2_offset_x, yloc)
                          
-        mat.node_tree.links.new(nmap.outputs['Normal'], bdsf.inputs['Normal'])
+        matlinks.new(nmap.outputs['Normal'], bdsf.inputs['Normal'])
 
-        if shape.parent.game in ["SKYRIM", "SKYRIMSE"] and not shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+        if shape.parent.game in ["SKYRIM", "SKYRIMSE"] and \
+            shape.shader_attributes and \
+            not shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
             # Specular is in the normal map alpha channel
-            mat.node_tree.links.new(nimgnode.outputs['Alpha'], bdsf.inputs['Specular'])
+            matlinks.new(nimgnode.outputs['Alpha'], bdsf.inputs['Specular'])
             
         
     obj.active_material = mat
-
-def find_shader_node(nodelist, nodeid):
-    """ Look up a shader node by bl_idname"""
-    resultlist = list(filter(lambda n: n.bl_idname == nodeid, nodelist))
-    if len(resultlist) > 0:
-        return resultlist[0]
-    else:
-        return None
 
 def export_shader_attrs(obj, shader, shape):
     mat = obj.active_material
@@ -456,46 +496,35 @@ def export_shader(obj, shape: NiShape):
                 log.debug(f"....Writing diffuse texture path '{diffuse_fp}'")
         
         normal_input = shader_node.inputs['Normal']
+        is_obj_space = False
         if normal_input and normal_input.is_linked:
             nmap_node = normal_input.links[0].from_node
             if nmap_node.bl_idname == 'ShaderNodeNormalMap':
-                if nmap_node.space == "OBJECT":
+                is_obj_space = (nmap_node.space == "OBJECT")
+                if is_obj_space:
                     shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
                 else:
                     shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
-                prior_input = nmap_node.inputs['Color']
-                prior_node = prior_input.links[0].from_node
-                if prior_node and prior_node.bl_idname == 'ShaderNodeCombineRGB':
-                    prior_input = prior_node.inputs['R']
-                    prior_node = prior_input.links[0].from_node
-                if prior_node and prior_node.bl_idname == 'ShaderNodeSeparateRGB':
-                    prior_input = prior_node.inputs['Image']
-                    prior_node = prior_input.links[0].from_node
-                if prior_node and prior_node.bl_idname == 'ShaderNodeTexImage' and prior_node.image:
-                    norm_txt_node = prior_node
+                image_node = get_image_node(nmap_node.inputs['Color'])
+                if image_node and image_node.image:
+                    norm_txt_node = image_node
                     norm_fp_full = norm_txt_node.image.filepath
                     norm_fp = norm_fp_full[norm_fp_full.lower().find('textures'):]
                     log.debug(f"....Writing normal texture path '{norm_fp}'")
 
-        sk_input = shader_node.inputs['Subsurface Color']
-        if sk_input and sk_input.is_linked:
-            sk_node = sk_input.links[0].from_node
-            if sk_node.image:
-                sk_fp_full = sk_node.image.filepath
-                sk_fp = sk_fp_full[sk_fp_full.lower().find('textures'):]
-                log.debug(f"....Writing subsurface texture path '{sk_fp}'")
+        sk_node = get_image_node(shader_node.inputs['Subsurface Color'])
+        if sk_node and sk_node.image:
+            sk_fp_full = sk_node.image.filepath
+            sk_fp = sk_fp_full[sk_fp_full.lower().find('textures'):]
+            log.debug(f"....Writing subsurface texture path '{sk_fp}'")
 
-        spec_input = shader_node.inputs['Specular']
-        if spec_input and spec_input.is_linked:
-            prior_node = spec_input.links[0].from_node
-            if prior_node and prior_node.bl_idname == 'ShaderNodeSeparateRGB':
-                prior_input = prior_node.inputs['Image']
-                prior_node = prior_input.links[0].from_node
-            if prior_node and prior_node.bl_idname == 'ShaderNodeTexImage'and \
-                prior_node != norm_txt_node and prior_node.image:
-                spec_fp_full = prior_node.image.filepath
-                spec_fp = spec_fp_full[spec_fp_full.lower().find('textures'):]
-                log.debug(f"....Writing subsurface texture path '{spec_fp}'")
+        # Separate specular slot is only used if it's a MSN
+        if is_obj_space:
+            spec_node = get_image_node(shader_node.inputs['Specular'])
+            if spec_node and spec_node.image:
+                    spec_fp_full = spec_node.image.filepath
+                    spec_fp = spec_fp_full[spec_fp_full.lower().find('textures'):]
+                    log.debug(f"....Writing subsurface texture path '{spec_fp}'")
 
         alpha_input = shader_node.inputs['Alpha']
         if alpha_input and alpha_input.is_linked:
@@ -604,6 +633,7 @@ class NifImporter():
     class ImportFlags(IntFlag):
         CREATE_BONES = 1
         RENAME_BONES = 1 << 1
+        ROTATE_MODEL = 1 << 2
 
     def __init__(self, 
                  filename: str, 
@@ -620,6 +650,7 @@ class NifImporter():
             self.objects_created = Set to a list of objects created. Might be more than one because 
                 of extra data nodes.
         """
+        log.debug(f". Importing shape {the_shape.name}")
         v = the_shape.verts
         t = the_shape.tris
 
@@ -630,12 +661,18 @@ class NifImporter():
     
         import_colors(new_mesh, the_shape)
 
+        log.info(f". . import flags: {self.flags}")
         if not the_shape.has_skin_instance:
             # Statics get transformed according to the shape's transform
             #new_object.scale = (the_shape.transform.scale, ) * 3
-            xf = the_shape.transform.invert()
-            new_object.matrix_world = xf.as_matrix() 
+            # xf = the_shape.transform.invert()
+            # new_object.matrix_world = xf.as_matrix() 
+            # new_object.location = the_shape.transform.translation
+            log.debug(f". . shape {the_shape.name} transform: {the_shape.transform}")
+            new_object.matrix_world = the_shape.transform.invert().as_matrix()
             new_object.location = the_shape.transform.translation
+            new_object.scale = [the_shape.transform.scale] * 3
+            log.debug(f". . New object transform: \n{new_object.matrix_world}")
         else:
             # Global-to-skin transform is what offsets all the vertices together, e.g. so that
             # heads can be positioned at the origin. Put the reverse transform on the blender 
@@ -655,6 +692,12 @@ class NifImporter():
             #new_object.rotation_euler = inv_xf.rotation.euler_deg()
             #new_object.rotation_euler = inv_xf.rotation.euler()
             log.debug(f"..Object {new_object.name} created at {new_object.location[:]}")
+
+        if self.flags & self.ImportFlags.ROTATE_MODEL:
+            log.info(f". . Rotating model to match blender")
+            r = new_object.rotation_euler[:]
+            new_object.rotation_euler = (r[0], r[1], r[2]+pi)
+            new_object["PYNIFLY_IS_ROTATED"] = True
 
         mesh_create_uv(new_object.data, the_shape.uvs)
         mesh_create_bone_groups(the_shape, new_object, self.flags & self.ImportFlags.RENAME_BONES)
@@ -798,7 +841,7 @@ class NifImporter():
         bpy.context.view_layer.active_layer_collection \
              = bpy.context.view_layer.layer_collection.children[new_collection.name]
     
-        log.info("..Importing " + self.nif.game + " file")
+        log.info(f"Importing {self.nif.game} file {self.nif.filepath}")
         if bpy.context.object and bpy.context.object.type == "ARMATURE":
             self.armature = bpy.context.object
             log.info(f"..Current object is an armature, parenting shapes to {self.armature.name}")
@@ -876,6 +919,11 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Rename bones to conform to Blender's left/right conventions.",
         default=True)
 
+    #rotate_model: bpy.props.BoolProperty(
+    #    name="Rotate Model",
+    #    description="Rotate model to face forward in blender",
+    #    default=True)
+
 
     def execute(self, context):
         log.info("NIFLY IMPORT V%d.%d.%d" % bl_info['version'])
@@ -886,6 +934,8 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             flags |= NifImporter.ImportFlags.CREATE_BONES
         if self.rename_bones:
             flags |= NifImporter.ImportFlags.RENAME_BONES
+        if self.rotate_model:
+            flags |= NifImporter.ImportFlags.ROTATE_MODEL
 
         try:
             NifFile.Load(nifly_path)
@@ -1199,7 +1249,7 @@ def extract_face_info(mesh, uvlayer, use_loop_normals=False):
 
 
 def extract_vert_info(obj, mesh, target_key=''):
-    """Returns 5 lists of equal length with one entry each for each vertex
+    """Returns 3 lists of equal length with one entry each for each vertex
         verts = [(x, y, z)... ] - base or as modified by target-key if provided
         weights = [{group-name: weight}... ] - 1:1 with verts list
         dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
@@ -1217,7 +1267,10 @@ def extract_vert_info(obj, mesh, target_key=''):
     for v in mesh.vertices:
         vert_weights = {}
         for vg in v.groups:
-            vert_weights[obj.vertex_groups[vg.group].name] = vg.weight
+            try:
+                vert_weights[obj.vertex_groups[vg.group].name] = vg.weight
+            except:
+                log.error(f"ERROR: Vertex #{v.index} references invalid group #{vg.group}")
         weights.append(vert_weights)
     
     if target_key == '' and mesh.shape_keys:
@@ -1395,7 +1448,7 @@ def export_shape_to(shape, filepath, game):
     outnif.initialize(game, filepath)
     ret = export_shape(outnif, outtrip, shape, '', shape.parent) 
     outnif.save()
-    log.info(f"..Wrote {filepath}")
+    log.info(f"Wrote {filepath}")
     return ret
 
 
@@ -1420,7 +1473,7 @@ def get_with_uscore(str_list):
 class NifExporter:
     """ Object that handles the export process 
     """
-    def __init__(self, filepath, game):
+    def __init__(self, filepath, game, rotate=False):
         self.filepath = filepath
         self.game = game
         self.warnings = set()
@@ -1437,6 +1490,7 @@ class NifExporter:
         self.objs_mult_part = set()
         self.objs_no_part = set()
         self.arma_game = []
+        self.rotate_model = rotate
 
     def add_object(self, obj):
         """ Adds the given object to the objects to export """
@@ -1594,6 +1648,10 @@ class NifExporter:
         saved_sk = obj.active_shape_key_index
         obj.data = editmesh
         loopcolors = None
+        
+        original_rot = obj.rotation_euler[:]
+        if self.rotate_model:
+            obj.rotation_euler = (original_rot[0], original_rot[1], original_rot[2]+pi)
 
         try:
             bpy.ops.object.select_all(action='DESELECT')
@@ -1670,6 +1728,7 @@ class NifExporter:
                 log.debug(f"..No vertex colors in shape {obj.name}")
         
         finally:
+            obj.rotation_euler = original_rot
             obj.data = originalmesh
             obj.active_shape_key_index = saved_sk
 
@@ -1744,9 +1803,10 @@ class NifExporter:
 
         new_xform = MatTransform();
         new_xform.translation = obj.location
-        new_xform.rotation = RotationMatrix((obj.matrix_local[0][0:3], 
-                                             obj.matrix_local[1][0:3], 
-                                             obj.matrix_local[2][0:3]))
+        #new_xform.rotation = RotationMatrix((obj.matrix_local[0][0:3], 
+        #                                     obj.matrix_local[1][0:3], 
+        #                                     obj.matrix_local[2][0:3]))
+        new_xform.rotation = RotationMatrix.from_euler_rad(*obj.rotation_euler[:])
         new_xform.scale = obj.scale[0]
         
         if is_skinned:
@@ -1851,6 +1911,12 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ),
             )
 
+    #rotate_model: bpy.props.BoolProperty(
+    #    name="Rotate Model",
+    #    description="Rotate model from blender-forward to nif-forward",
+    #    default=True)
+
+
     def __init__(self):
         obj = bpy.context.object
         if obj is None:
@@ -1892,7 +1958,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         NifFile.Load(nifly_path)
 
         try:
-            exporter = NifExporter(self.filepath, self.target_game)
+            exporter = NifExporter(self.filepath, self.target_game, rotate=self.rotate_model)
             exporter.from_context(context)
             exporter.export(context.selected_objects)
             
@@ -1999,12 +2065,16 @@ def run_tests():
     TEST_SKYRIM_XFORM = False
     TEST_TRI2 = False
     TEST_3BBB = False
-    TEST_ROTSTATIC = False
+    TEST_ROTSTATIC = True
     TEST_ROTSTATIC2 = False
     TEST_VERTEX_ALPHA = False
     TEST_MUTANT = False
     TEST_RENAME = False
-    TEST_BONE_XPORT_POS = True
+    TEST_BONE_XPORT_POS = False
+    TEST_EXPORT_HANDS = False
+    TEST_POT = False
+   # TEST_ROT = False
+    TEST_SCALING = False
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -2893,7 +2963,10 @@ def run_tests():
         for obj in bpy.context.selected_objects:
             if "BaseMaleHead:0" in obj.name:
                 headFO4 = obj
-        assert len(headFO4.active_material.node_tree.nodes) == 7, "ERROR: Didn't import images"
+        sh = next((x for x in headFO4.active_material.node_tree.nodes if x.name == "Principled BSDF"), None)
+        assert sh, "ERROR: Didn't import images"
+        txt = get_image_node(sh.inputs["Base Color"])
+        assert txt and txt.image, "ERROR: Didn't import images"
 
         print("## Shader attributes are written on export")
 
@@ -3223,8 +3296,7 @@ def run_tests():
         print("### Test that bones named like vanilla bones but from a different skeleton export to the correct position")
 
         clear_all()
-        testfile = os.path.join(pynifly_dev_path, 
-                                r"C:\Users\User\OneDrive\Dev\PyNifly\PyNifly\tests\Skyrim\draugr.nif")
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\draugr.nif")
         imp = NifImporter.do_import(testfile, 0)
         draugr = bpy.context.object
         spine2 = draugr.parent.data.bones['NPC Spine2 [Spn2]']
@@ -3243,6 +3315,70 @@ def run_tests():
         spine2check = draugrcheck.parent.data.bones['NPC Spine2 [Spn2]']
         assert round(spine2check.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2check.head[2]}"
 
+
+    if TEST_BPY_ALL or TEST_EXPORT_HANDS:
+        print("### Test that hand mesh doesn't throw an error")
+
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXPORT_HANDS.tri")
+        remove_file(outfile)
+
+        append_from_file("SupermutantHands", True, r"tests\FO4\SupermutantHands.blend", r"\Object", "SupermutantHands")
+        bpy.ops.object.select_all(action='SELECT')
+
+        exp = NifExporter(outfile, 'FO4')
+        exp.export(bpy.context.selected_objects)
+
+        assert os.path.exists(outfile)
+
+
+    if TEST_BPY_ALL or TEST_SCALING:
+        print("### Test that scale factors happen correctly")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\statuechampion.nif")
+        NifImporter.do_import(testfile, 0)
+        
+        base = bpy.data.objects['basis1']
+        assert int(base.scale[0]) == 10, f"ERROR: Base scale should be 10, found {base.scale[0]}"
+        tail = bpy.data.objects['tail_base.001']
+        assert round(tail.scale[0], 1) == 1.7, f"ERROR: Tail scale should be ~1.7, found {tail.scale}"
+        assert round(tail.location[0], 0) == -158, f"ERROR: Tail x loc should be -158, found {tail.location}"
+
+        testout = os.path.join(pynifly_dev_path, r"tests\Out\TEST_SCALING.nif")
+        exp = NifExporter.do_export(testout, "SKYRIM", bpy.data.objects[:])
+        checknif = NifFile(testout)
+        checkfoot = checknif.shape_dict['FootLowRes']
+        assert checkfoot.transform.rotation.matrix[0][0] == 1.0, f"ERROR: Foot rotation matrix not identity: {checkfoot.transform.rotation.matrix}"
+        assert checkfoot.transform.scale == 1.0, f"ERROR: Foot scale not correct: {checkfoot.transform.scale}"
+        checkbase = checknif.shape_dict['basis3']
+        assert checkbase.transform.rotation.matrix[0][0] == 1.0, f"ERROR: Base rotation matrix not identity: {checkbase.transform.rotation.matrix}"
+        assert checkbase.transform.scale == 10.0, f"ERROR: Base scale not correct: {checkbase.transform.scale}"
+
+
+    if TEST_BPY_ALL or TEST_POT:
+        print("### Test that pot shaders doesn't throw an error")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\spitpotopen01.nif")
+        imp = NifImporter.do_import(testfile, 0)
+        assert 'ANCHOR:0' in bpy.data.objects.keys()
+
+
+    #if TEST_BPY_ALL or TEST_ROT:
+    #    print("### Test that rotating the model works correctly")
+
+    #    clear_all()
+    #    testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\malehead.nif")
+    #    imp = NifImporter.do_import(testfile, 
+    #                                NifImporter.ImportFlags.CREATE_BONES | 
+    #                                NifImporter.ImportFlags.RENAME_BONES |
+    #                                NifImporter.ImportFlags.ROTATE_MODEL )
+    #    assert 'MaleHeadIMF' in bpy.data.objects.keys()
+    #    head = bpy.data.objects['MaleHeadIMF']
+    #    assert round(head.rotation_euler[2], 4) == round(math.pi, 4), f"Error: Head should have been rotated, found {head.rotation_euler[:]}"
+    #    assert 'MaleHead.nif' in bpy.data.objects.keys()
+    #    skel = bpy.data.objects['MaleHead.nif']
+    #    assert skel.rotation_euler[:] == (0, 0, math.pi), f"Error: Armature should have been rotated, found {skel.rotation_euler[:]}"
 
 
     print("""
@@ -3273,8 +3409,3 @@ if __name__ == "__main__":
             run_tests()
         except:
             traceback.print_exc()
-
-
-# To do: 
-# - Don't export chargen tri if no chargens - test that _ and * aren't exported
-# - Hook new mesh to existing armature, if selected
