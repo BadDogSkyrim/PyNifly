@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 RUN_TESTS = True
-TEST_BPY_ALL = False
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -669,8 +669,9 @@ class NifImporter():
             # new_object.matrix_world = xf.as_matrix() 
             # new_object.location = the_shape.transform.translation
             log.debug(f". . shape {the_shape.name} transform: {the_shape.transform}")
-            new_object.matrix_world = the_shape.transform.as_matrix()
+            new_object.matrix_world = the_shape.transform.invert().as_matrix()
             new_object.location = the_shape.transform.translation
+            new_object.scale = [the_shape.transform.scale] * 3
             log.debug(f". . New object transform: \n{new_object.matrix_world}")
         else:
             # Global-to-skin transform is what offsets all the vertices together, e.g. so that
@@ -918,10 +919,10 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Rename bones to conform to Blender's left/right conventions.",
         default=True)
 
-    rotate_model: bpy.props.BoolProperty(
-        name="Rotate Model",
-        description="Rotate model to face forward in blender",
-        default=True)
+    #rotate_model: bpy.props.BoolProperty(
+    #    name="Rotate Model",
+    #    description="Rotate model to face forward in blender",
+    #    default=True)
 
 
     def execute(self, context):
@@ -1910,10 +1911,10 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ),
             )
 
-    rotate_model: bpy.props.BoolProperty(
-        name="Rotate Model",
-        description="Rotate model from blender-forward to nif-forward",
-        default=True)
+    #rotate_model: bpy.props.BoolProperty(
+    #    name="Rotate Model",
+    #    description="Rotate model from blender-forward to nif-forward",
+    #    default=True)
 
 
     def __init__(self):
@@ -2064,7 +2065,7 @@ def run_tests():
     TEST_SKYRIM_XFORM = False
     TEST_TRI2 = False
     TEST_3BBB = False
-    TEST_ROTSTATIC = False
+    TEST_ROTSTATIC = True
     TEST_ROTSTATIC2 = False
     TEST_VERTEX_ALPHA = False
     TEST_MUTANT = False
@@ -2072,7 +2073,7 @@ def run_tests():
     TEST_BONE_XPORT_POS = False
     TEST_EXPORT_HANDS = False
     TEST_POT = False
-    TEST_ROT = True
+   # TEST_ROT = False
     TEST_SCALING = False
 
     NifFile.Load(nifly_path)
@@ -3363,21 +3364,21 @@ def run_tests():
         assert 'ANCHOR:0' in bpy.data.objects.keys()
 
 
-    if TEST_BPY_ALL or TEST_ROT:
-        print("### Test that rotating the model works correctly")
+    #if TEST_BPY_ALL or TEST_ROT:
+    #    print("### Test that rotating the model works correctly")
 
-        clear_all()
-        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\malehead.nif")
-        imp = NifImporter.do_import(testfile, 
-                                    NifImporter.ImportFlags.CREATE_BONES | 
-                                    NifImporter.ImportFlags.RENAME_BONES |
-                                    NifImporter.ImportFlags.ROTATE_MODEL )
-        assert 'MaleHeadIMF' in bpy.data.objects.keys()
-        head = bpy.data.objects['MaleHeadIMF']
-        assert round(head.rotation_euler[2], 4) == round(math.pi, 4), f"Error: Head should have been rotated, found {head.rotation_euler[:]}"
-        assert 'MaleHead.nif' in bpy.data.objects.keys()
-        skel = bpy.data.objects['MaleHead.nif']
-        assert skel.rotation_euler[:] == (0, 0, math.pi), f"Error: Armature should have been rotated, found {skel.rotation_euler[:]}"
+    #    clear_all()
+    #    testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\malehead.nif")
+    #    imp = NifImporter.do_import(testfile, 
+    #                                NifImporter.ImportFlags.CREATE_BONES | 
+    #                                NifImporter.ImportFlags.RENAME_BONES |
+    #                                NifImporter.ImportFlags.ROTATE_MODEL )
+    #    assert 'MaleHeadIMF' in bpy.data.objects.keys()
+    #    head = bpy.data.objects['MaleHeadIMF']
+    #    assert round(head.rotation_euler[2], 4) == round(math.pi, 4), f"Error: Head should have been rotated, found {head.rotation_euler[:]}"
+    #    assert 'MaleHead.nif' in bpy.data.objects.keys()
+    #    skel = bpy.data.objects['MaleHead.nif']
+    #    assert skel.rotation_euler[:] == (0, 0, math.pi), f"Error: Armature should have been rotated, found {skel.rotation_euler[:]}"
 
 
     print("""
