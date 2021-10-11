@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 3, 1),  
+    "version": (1, 3, 2),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -29,7 +29,7 @@ import math
 import re
 
 log = logging.getLogger("pynifly")
-log.info(f"Loading pynifly version {bl_info['version']}")
+log.info(f"Loading pynifly version {bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}")
 
 pynifly_dev_root = r"C:\Users\User\OneDrive\Dev"
 pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
@@ -696,6 +696,7 @@ class NifImporter():
             log.info(f". . Rotating model to match blender")
             r = new_object.rotation_euler[:]
             new_object.rotation_euler = (r[0], r[1], r[2]+pi)
+            new_object["PYNIFLY_IS_ROTATED"] = True
 
         mesh_create_uv(new_object.data, the_shape.uvs)
         mesh_create_bone_groups(the_shape, new_object, self.flags & self.ImportFlags.RENAME_BONES)
@@ -2071,7 +2072,8 @@ def run_tests():
     TEST_BONE_XPORT_POS = False
     TEST_EXPORT_HANDS = False
     TEST_POT = False
-    TEST_SCALING = True
+    TEST_ROT = True
+    TEST_SCALING = False
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -3359,6 +3361,23 @@ def run_tests():
         testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\spitpotopen01.nif")
         imp = NifImporter.do_import(testfile, 0)
         assert 'ANCHOR:0' in bpy.data.objects.keys()
+
+
+    if TEST_BPY_ALL or TEST_ROT:
+        print("### Test that rotating the model works correctly")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\malehead.nif")
+        imp = NifImporter.do_import(testfile, 
+                                    NifImporter.ImportFlags.CREATE_BONES | 
+                                    NifImporter.ImportFlags.RENAME_BONES |
+                                    NifImporter.ImportFlags.ROTATE_MODEL )
+        assert 'MaleHeadIMF' in bpy.data.objects.keys()
+        head = bpy.data.objects['MaleHeadIMF']
+        assert round(head.rotation_euler[2], 4) == round(math.pi, 4), f"Error: Head should have been rotated, found {head.rotation_euler[:]}"
+        assert 'MaleHead.nif' in bpy.data.objects.keys()
+        skel = bpy.data.objects['MaleHead.nif']
+        assert skel.rotation_euler[:] == (0, 0, math.pi), f"Error: Armature should have been rotated, found {skel.rotation_euler[:]}"
 
 
     print("""
