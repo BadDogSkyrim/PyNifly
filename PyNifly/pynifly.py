@@ -269,7 +269,7 @@ def load_nifly(nifly_path):
     nifly.getSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getSegments.restype = c_int
     nifly.getShaderAttrs.argtypes = [c_void_p, c_void_p, BSLSPAttrs_p]
-    nifly.getShaderAttrs.restype = None
+    nifly.getShaderAttrs.restype = c_int
     nifly.getShaderFlags1.argtypes = [c_void_p, c_void_p]
     nifly.getShaderFlags1.restype = c_uint32
     nifly.getShaderName.argtypes = [c_void_p, c_void_p, c_char_p, c_int]
@@ -902,8 +902,11 @@ class NiShape:
     def shader_name(self):
         if self._shader_name is None:
             buf = (c_char * 500)()
-            NifFile.nifly.getShaderName(self.parent._handle, self._handle, buf, 500)
-            self._shader_name = buf.value.decode('utf-8')
+            buflen = NifFile.nifly.getShaderName(self.parent._handle, self._handle, buf, 500)
+            if buflen == -1:
+                self._shader_name = ''
+            else:
+                self._shader_name = buf.value.decode('utf-8')
         return self._shader_name
 
     @shader_name.setter
@@ -937,9 +940,11 @@ class NiShape:
     def shader_attributes(self):
         if self._shader_attrs is None:
             buf = BSLSPAttrs()
-            NifFile.nifly.getShaderAttrs(self.parent._handle, self._handle, 
-                                         byref(buf))
-            self._shader_attrs = buf
+            if NifFile.nifly.getShaderAttrs(self.parent._handle, self._handle, 
+                                            byref(buf)) == 0:
+                self._shader_attrs = buf
+            else:
+                self._shader_attrs = BSLSPAttrs()
         return self._shader_attrs
 
     def save_shader_attributes(self):
@@ -1483,7 +1488,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False

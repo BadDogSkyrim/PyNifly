@@ -321,7 +321,6 @@ class TriFile():
         # a vertex location needs more than one set of data, each vertex only has one set of data.
         #     Meanwhile, the uv_layers has the uv coordinates in the same indexing order as mesh.loops. So, uv_layers[0].data[5].uv is intended to be the uv
         # coordinates of loop number 5 in mesh.loops, and that is how uv are "placed" on vertex (the vertex of a particular face)
-        #
 
         tmp_buffer = file.read(INT_LEN * 3 * numFaces)
         if len(tmp_buffer) < INT_LEN * 3 * numFaces:
