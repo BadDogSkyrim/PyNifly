@@ -309,7 +309,7 @@ class TriFile():
 
         #I'm assuming that tri files will always have 1 UV per vertex, but i wasn't able to conirm this for sure.. so:
         if numUV != len(verts_list):
-            errlog.error("\n----=| Tri Import Error |=----\nNumber of verticies differs from number of UV coordinates\nTRI file has valid header, but file appears to be corrupt\n   !! Since \'Base Verticies\' != \'UV Coordinates\', file is probably corrupt.\nHowever, if TRI file is *not* corrupted, then it is possible that Author\'s\nassertion regarding TRI files always correlating V and UV array indices\nmight be wrong.\n   Probably should post if you see this error and are sure file is not corrupt")
+            errlog.error(f"\n----=| Tri Import Error |=----\nNumber of verticies differs from number of UV coordinates: {numUV} != {len(verts_list)}\nTRI file has valid header, but file appears to be corrupt\n   !! Since \'Base Verticies\' != \'UV Coordinates\', file is probably corrupt.\nHowever, if TRI file is *not* corrupted, then it is possible that Author\'s\nassertion regarding TRI files always correlating V and UV array indices\nmight be wrong.\n   Probably should post if you see this error and are sure file is not corrupt")
             raise ValueError("Error reading TRI file")
 
         # NOTE --- For future reference. UV's are placed "on a vertex" but indirectly. Each loop contains one vertex index that is supposed to be tied into
