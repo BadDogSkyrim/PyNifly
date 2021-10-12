@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = True
+RUN_TESTS = False
 TEST_BPY_ALL = True
 
 
@@ -11,7 +11,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 3, 2),  
+    "version": (1, 3, 3),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -204,24 +204,28 @@ def import_shader_attrs(material, shader, shape):
     if not attrs: 
         return
 
-    material['BSLSP_Shader_Type'] = attrs.Shader_Type
-    material['BSLSP_Shader_Name'] = shape.shader_name
-    material['BSLSP_Shader_Flags_1'] = hex(attrs.Shader_Flags_1)
-    material['BSLSP_Shader_Flags_2'] = hex(attrs.Shader_Flags_2)
-    shader.inputs['Emission'].default_value = (attrs.Emissive_Color_R, attrs.Emissive_Color_G, attrs.Emissive_Color_B, attrs.Emissive_Color_A)
-    shader.inputs['Emission Strength'].default_value = attrs.Emissive_Mult
-    shader.inputs['Alpha'].default_value = attrs.Alpha
-    material['BSLSP_Refraction_Str'] = attrs.Refraction_Str
-    shader.inputs['Metallic'].default_value = attrs.Glossiness/GLOSS_SCALE
-    material['BSLSP_Spec_Color_R'] = attrs.Spec_Color_R
-    material['BSLSP_Spec_Color_G'] = attrs.Spec_Color_G
-    material['BSLSP_Spec_Color_B'] = attrs.Spec_Color_B
-    material['BSLSP_Spec_Str'] = attrs.Spec_Str
-    material['BSLSP_Soft_Lighting'] = attrs.Soft_Lighting
-    material['BSLSP_Rim_Light_Power'] = attrs.Rim_Light_Power
-    material['BSLSP_Skin_Tint_Color_R'] = attrs.Skin_Tint_Color_R
-    material['BSLSP_Skin_Tint_Color_G'] = attrs.Skin_Tint_Color_G
-    material['BSLSP_Skin_Tint_Color_B'] = attrs.Skin_Tint_Color_B
+    try:
+        material['BSLSP_Shader_Type'] = attrs.Shader_Type
+        material['BSLSP_Shader_Name'] = shape.shader_name
+        material['BSLSP_Shader_Flags_1'] = hex(attrs.Shader_Flags_1)
+        material['BSLSP_Shader_Flags_2'] = hex(attrs.Shader_Flags_2)
+        shader.inputs['Emission'].default_value = (attrs.Emissive_Color_R, attrs.Emissive_Color_G, attrs.Emissive_Color_B, attrs.Emissive_Color_A)
+        shader.inputs['Emission Strength'].default_value = attrs.Emissive_Mult
+        shader.inputs['Alpha'].default_value = attrs.Alpha
+        material['BSLSP_Refraction_Str'] = attrs.Refraction_Str
+        shader.inputs['Metallic'].default_value = attrs.Glossiness/GLOSS_SCALE
+        material['BSLSP_Spec_Color_R'] = attrs.Spec_Color_R
+        material['BSLSP_Spec_Color_G'] = attrs.Spec_Color_G
+        material['BSLSP_Spec_Color_B'] = attrs.Spec_Color_B
+        material['BSLSP_Spec_Str'] = attrs.Spec_Str
+        material['BSLSP_Soft_Lighting'] = attrs.Soft_Lighting
+        material['BSLSP_Rim_Light_Power'] = attrs.Rim_Light_Power
+        material['BSLSP_Skin_Tint_Color_R'] = attrs.Skin_Tint_Color_R
+        material['BSLSP_Skin_Tint_Color_G'] = attrs.Skin_Tint_Color_G
+        material['BSLSP_Skin_Tint_Color_B'] = attrs.Skin_Tint_Color_B
+    except Exception as e:
+        # Any errors, print the error but continue
+        log.warning(str(e))
 
 def import_shader_alpha(mat, shape):
     if shape.has_alpha_property:
@@ -934,8 +938,8 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             flags |= NifImporter.ImportFlags.CREATE_BONES
         if self.rename_bones:
             flags |= NifImporter.ImportFlags.RENAME_BONES
-        if self.rotate_model:
-            flags |= NifImporter.ImportFlags.ROTATE_MODEL
+        #if self.rotate_model:
+        #    flags |= NifImporter.ImportFlags.ROTATE_MODEL
 
         try:
             NifFile.Load(nifly_path)
@@ -1047,6 +1051,9 @@ def import_tri(filepath, cobj):
         If cobj is None, create a new object
         """
     tri = TriFile.from_file(filepath)
+    if not type(tri) == TriFile:
+        log.error(f"Error reading tri file")
+        return None
 
     new_object = None
 
@@ -1490,7 +1497,7 @@ class NifExporter:
         self.objs_mult_part = set()
         self.objs_no_part = set()
         self.arma_game = []
-        self.rotate_model = rotate
+        #self.rotate_model = rotate
 
     def add_object(self, obj):
         """ Adds the given object to the objects to export """
@@ -1650,8 +1657,8 @@ class NifExporter:
         loopcolors = None
         
         original_rot = obj.rotation_euler[:]
-        if self.rotate_model:
-            obj.rotation_euler = (original_rot[0], original_rot[1], original_rot[2]+pi)
+        #if self.rotate_model:
+        #    obj.rotation_euler = (original_rot[0], original_rot[1], original_rot[2]+pi)
 
         try:
             bpy.ops.object.select_all(action='DESELECT')
@@ -1958,7 +1965,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         NifFile.Load(nifly_path)
 
         try:
-            exporter = NifExporter(self.filepath, self.target_game, rotate=self.rotate_model)
+            exporter = NifExporter(self.filepath, self.target_game) # , rotate=self.rotate_model)
             exporter.from_context(context)
             exporter.export(context.selected_objects)
             
