@@ -11,6 +11,7 @@
     <OutputPath>.</OutputPath>
     <Name>PyNifly</Name>
     <RootNamespace>PyNifly</RootNamespace>
+    <SuppressConfigureTestFrameworkPrompt>true</SuppressConfigureTestFrameworkPrompt>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
