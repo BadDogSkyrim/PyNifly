@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 RUN_TESTS = True
-TEST_BPY_ALL = False
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -2037,10 +2037,10 @@ def run_tests():
     ############################################################
     """)
 
-    TEST_EXPORT = False
-    TEST_IMPORT_ARMATURE = False
+    from test_tools import test_title, clear_all, append_from_file, export_from_blend, find_vertex, remove_file
+    from pynifly_tests import run_tests
+
     TEST_EXPORT_WEIGHTS = False
-    TEST_UNIT = False
     TEST_IMP_EXP_SKY = False
     TEST_IMP_EXP_FO4 = False
     TEST_ROUND_TRIP = False
@@ -2084,149 +2084,19 @@ def run_tests():
     TEST_POT = False
    # TEST_ROT = False
     TEST_SCALING = False
+    TEST_UNIT = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
 
-    def clear_all():
-        bpy.ops.object.select_all(action='SELECT')
-        bpy.ops.object.delete(use_global=True, confirm=False)
-        for c in bpy.data.collections:
-            bpy.data.collections.remove(c)
-
-    def append_from_file(objname, with_parent, filepath, innerpath, targetobj):
-        """ Convenience routine: Load an object from another blender file. 
-            Deletes any existing objects with that name first.
-        """
-        if objname in bpy.data.objects:
-            bpy.ops.object.select_all(action='DESELECT')
-            obj = bpy.data.objects[objname]
-            obj.select_set(True)
-            if with_parent:
-                obj.parent.select_set(True)
-            bpy.ops.object.delete() 
-    
-        file_path = os.path.join(pynifly_dev_path, filepath)
-        bpy.ops.object.select_all(action='DESELECT')
-        bpy.ops.wm.append(filepath=file_path,
-                          directory=file_path + innerpath,
-                          filename=targetobj)
-        return bpy.data.objects[objname]
-
-    def export_from_blend(blendfile, objname, game, outfile, shapekey=''):
-        """ Covenience routine: Export the object found in another blend file through
-            the exporter.
-            """
-        bpy.ops.object.select_all(action='DESELECT')
-        obj = append_from_file(objname, False, blendfile, r"\Object", objname)
-        bpy.context.view_layer.objects.active = obj
-        bpy.ops.object.mode_set(mode="OBJECT")
-        exporter = NifExporter(os.path.join(pynifly_dev_path, outfile), game)
-        exporter.export([obj])
-
-    def find_vertex(mesh, targetloc):
-        for v in mesh.vertices:
-            if round(v.co[0], 2) == round(targetloc[0], 2) and round(v.co[1], 2) == round(targetloc[1], 2) and round(v.co[2], 2) == round(targetloc[2], 2):
-                return v.index
-        return -1
-
-    def remove_file(fn):
-        if os.path.exists(fn):
-            os.remove(fn)
-
     clear_all()
 
-    if TEST_BPY_ALL or TEST_UNIT:
-        # Lower-level tests of individual routines for bug hunting
-        print("## TEST_UNIT get_weights_by_bone converts from weights-by-vertex")
-        group_names = ("a", "b", "c", "d")
-        wbv = [{"a": 0.1, "c": 0.5}, {"b": 0.2}, {"d": 0.0, "b": 0.6}, {"a": 0.4}]
-        wbb = get_weights_by_bone(wbv)
-        assert wbb["a"] == [(0, 0.1), (3, 0.4)], "ERROR: get_weights_by_bone failed"
-        assert wbb["b"] == [(1, 0.2), (2, 0.6)], "ERROR: get_weights_by_bone failed"
-        assert wbb["c"] == [(0, 0.5)], "ERROR: get_weights_by_bone failed"
+    if TEST_BPY_ALL:
+        run_tests(pynifly_dev_path, NifExporter, NifImporter)
 
-    if TEST_BPY_ALL or TEST_EXPORT:
-        print("## TEST_EXPORT Can export the basic cube")
+    # TESTS
+    # These are tests of functionality currently under development
 
-        clear_all()
-        bpy.ops.mesh.primitive_cube_add()
-        cube = bpy.context.selected_objects[0]
-        cube.name = "TestCube"
-        log.debug("TODO: support objects with flat shading or autosmooth properly")
-        for f in cube.data.polygons: f.use_smooth = True
-
-        filepath = os.path.join(pynifly_dev_path, r"tests\Out\testSkyrim01.nif")
-        remove_file(filepath)
-        exporter = NifExporter(filepath, 'SKYRIM')
-        exporter.export([cube])
-
-        assert os.path.exists(filepath), "ERROR: Didn't create file"
-        bpy.data.objects.remove(cube, do_unlink=True)
-
-        print("## And can read it in again")
-        importer = NifImporter(filepath)
-        importer.execute()
-        sourceGame = importer.nif.game
-        assert sourceGame == "SKYRIM", "ERROR: Wrong game found"
-
-        new_cube = bpy.context.selected_objects[0]
-        assert 'Cube' in new_cube.name, "ERROR: cube not named correctly"
-        assert len(new_cube.data.vertices) == 14, f"ERROR: Cube should have 14 verts, has {len(new_cube.data.vertices)}"
-        assert len(new_cube.data.uv_layers) == 1, "ERROR: Cube doesn't have a UV layer"
-        assert len(new_cube.data.uv_layers[0].data) == 36, f"ERROR: Cube should have 36 UV locations, has {len(new_cube.data.uv_layers[0].data)}"
-        assert len(new_cube.data.polygons) == 12, f"ERROR: Cube should have 12 polygons, has {len(new_cube.data.polygons)}"
-
-        print("## And can do the same for FO4")
-
-        bpy.ops.mesh.primitive_cube_add()
-        cube = bpy.context.selected_objects[0]
-        cube.name = "TestCube"
-        for f in cube.data.polygons: f.use_smooth = True
-
-        filepath = os.path.join(pynifly_dev_path, r"tests\Out\testFO401.nif")
-        remove_file(filepath)
-        exporter = NifExporter(filepath, 'FO4')
-        exporter.export([cube])
-
-        assert os.path.exists(filepath), "ERROR: Didn't create file"
-        bpy.data.objects.remove(cube, do_unlink=True)
-
-        print("## And can read it in again")
-        importer = NifImporter(filepath)
-        sourceGame = importer.nif.game
-        assert sourceGame == "FO4", "ERROR: Wrong game found"
-        assert importer.nif.shapes[0].blockname == "BSTriShape", f"Error: Expected BSTriShape on unskinned shape, got {f.shapes[0].blockname}"
-
-        importer.execute()
-
-        new_cube = bpy.context.selected_objects[0]
-        assert 'Cube' in new_cube.name, "ERROR: cube not named correctly"
-        assert len(new_cube.data.vertices) == 14, f"ERROR: Cube should have 14 verts, has {len(new_cube.data.vertices)}"
-        assert len(new_cube.data.uv_layers) == 1, "ERROR: Cube doesn't have a UV layer"
-        assert len(new_cube.data.uv_layers[0].data) == 36, f"ERROR: Cube should have 36 UV locations, has {len(new_cube.data.uv_layers[0].data)}"
-        assert len(new_cube.data.polygons) == 12, f"ERROR: Cube should have 12 polygons, has {len(new_cube.data.polygons)}"
-        # bpy.data.objects.remove(cube, do_unlink=True)
-
-    if TEST_BPY_ALL or TEST_IMPORT_ARMATURE:
-        print("## TEST_IMPORT_ARMATURE Can import a Skyrim head with armature")
-        for o in bpy.context.selected_objects:
-            o.select_set(False)
-        filepath = os.path.join(pynifly_dev_path, "tests\Skyrim\malehead.nif")
-        NifImporter.do_import(filepath)
-        male_head = bpy.context.selected_objects[0]
-        assert round(male_head.location.z, 0) == 120, "ERROR: Object not elevated to position"
-        assert male_head.parent.type == "ARMATURE", "ERROR: Didn't parent to armature"
-        
-        print("## Can import a FO4 head  with armature")
-        for o in bpy.context.selected_objects:
-            o.select_set(False)
-        filepath = os.path.join(pynifly_dev_path, "tests\FO4\BaseMaleHead.nif")
-        f = NifFile(filepath)
-        NifImporter.do_import(filepath)
-        male_head = bpy.data.objects["BaseMaleHead:0"]
-        assert int(male_head.location.z) == 120, f"ERROR: Object {male_head.name} at {male_head.location.z}, not elevated to position"
-        assert male_head.parent.type == "ARMATURE", "ERROR: Didn't parent to armature"
 
     if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
         print("## TEST_IMP_EXP_SKY Can read the armor nif and spit it back out (no blender shape)")
@@ -2751,7 +2621,7 @@ def run_tests():
         assert found >= 0, "Triangle not in output mesh"
 
     if TEST_BPY_ALL or TEST_ROGUE02:
-        print("### TEST_ROGUE02: Shape keys export normals correctly")
+        test_title("TEST_ROGUE02", "Shape keys export normals correctly")
 
         #obj = append_from_file("Plane", False, r"tests\Skyrim\ROGUE02-normals.blend", r"\Object", "Plane")
         #assert obj.name == "Plane", "Got the right object"
@@ -2763,7 +2633,8 @@ def run_tests():
         #outnif.initialize("SKYRIM", os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROGUE02_warp.nif"))
         #export_shape(outnif, outtrip, obj, "_warp") 
         #outnif.save()
-        export_from_blend(r"tests\Skyrim\ROGUE02-normals.blend",
+        export_from_blend(NifExporter,
+                          r"tests\Skyrim\ROGUE02-normals.blend",
                           "Plane",
                           "SKYRIM",
                           r"tests/Out/TEST_ROGUE02.nif",
@@ -2781,7 +2652,8 @@ def run_tests():
     if TEST_BPY_ALL or TEST_NORMAL_SEAM:
         print("### TEST_NORMAL_SEAM: Normals on a split seam are seamless")
 
-        export_from_blend(r"tests\FO4\TestKnitCap.blend",
+        export_from_blend(NifExporter, 
+                          r"tests\FO4\TestKnitCap.blend",
                           "MLongshoremansCap:0",
                           "FO4",
                           r"tests/Out/TEST_NORMAL_SEAM.nif",
@@ -2798,7 +2670,8 @@ def run_tests():
     if TEST_BPY_ALL or TEST_COLORS:
         print("### TEST_COLORS: Can read & write vertex colors")
         bpy.ops.object.select_all(action='DESELECT')
-        export_from_blend(r"tests\FO4\VertexColors.blend",
+        export_from_blend(NifExporter, 
+                          r"tests\FO4\VertexColors.blend",
                           "Plane",
                           "FO4",
                           r"tests/Out/TEST_COLORS_Plane.nif",
@@ -3389,6 +3262,18 @@ def run_tests():
     #    assert 'MaleHead.nif' in bpy.data.objects.keys()
     #    skel = bpy.data.objects['MaleHead.nif']
     #    assert skel.rotation_euler[:] == (0, 0, math.pi), f"Error: Armature should have been rotated, found {skel.rotation_euler[:]}"
+
+
+    if TEST_UNIT:
+        # Lower-level tests of individual routines for bug hunting
+        test_title("TEST_UNIT", "get_weights_by_bone converts from weights-by-vertex")
+
+        group_names = ("a", "b", "c", "d")
+        wbv = [{"a": 0.1, "c": 0.5}, {"b": 0.2}, {"d": 0.0, "b": 0.6}, {"a": 0.4}]
+        wbb = get_weights_by_bone(wbv)
+        assert wbb["a"] == [(0, 0.1), (3, 0.4)], "ERROR: get_weights_by_bone failed"
+        assert wbb["b"] == [(1, 0.2), (2, 0.6)], "ERROR: get_weights_by_bone failed"
+        assert wbb["c"] == [(0, 0.5)], "ERROR: get_weights_by_bone failed"
 
 
     print("""
