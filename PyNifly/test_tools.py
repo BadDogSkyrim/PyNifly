@@ -15,8 +15,8 @@ log = logging.getLogger("pynifly")
 
 
 def test_title(name, desc):
-    print (f"\n### ---------------- {name} ----------------")
-    print (f"### {desc}")
+    print (f"\n\n---------------- {name} ----------------")
+    print (f"--- {desc}")
 
 def clear_all():
     bpy.ops.object.select_all(action='SELECT')
