@@ -2,8 +2,8 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = False
-TEST_BPY_ALL = True
+RUN_TESTS = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -1470,7 +1470,9 @@ def get_common_shapes(obj_list):
             res = res.intersection(o_shapes)
         else:
             res = o_shapes
-    return list(res)
+    if res:
+        res = list(res)
+    return res
 
 
 def get_with_uscore(str_list):
@@ -2065,14 +2067,14 @@ def run_tests():
     TEST_JIARAN = False
     TEST_SHADER_LE = False
     TEST_SHADER_SE = False
-    TEST_SHADER_FO4 = False
+    TEST_SHADER_FO4 = True
     TEST_SHADER_ALPHA = False
     TEST_SHEATH = False
     TEST_FEET = False
     TEST_SKYRIM_XFORM = False
     TEST_TRI2 = False
     TEST_3BBB = False
-    TEST_ROTSTATIC = True
+    TEST_ROTSTATIC = False
     TEST_ROTSTATIC2 = False
     TEST_VERTEX_ALPHA = False
     TEST_MUTANT = False
@@ -2992,6 +2994,7 @@ def run_tests():
             f"Error: Texture paths not preserved: '{nifcheckFO4.shapes[0].textures[7]}' != '{nifFO4.shapes[0].textures[7]}'"
         assert nifcheckFO4.shapes[0].shader_attributes == shaderAttrsFO4, f"Error: Shader attributes not preserved:\n{nifcheckFO4.shapes[0].shader_attributes}\nvs\n{shaderAttrsFO4}"
         assert nifcheckFO4.shapes[0].shader_name == nifFO4.shapes[0].shader_name, f"Error: Shader name not preserved: '{nifcheckFO4.shapes[0].shader_name}' != '{nifFO4.shapes[0].shader_name}'"
+
 
 
     if TEST_BPY_ALL or TEST_SHADER_SE:
