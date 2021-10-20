@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-RUN_TESTS = True
+RUN_TESTS = False
 TEST_BPY_ALL = True
 
 
@@ -42,7 +42,7 @@ if os.path.exists(nifly_path):
     if RUN_TESTS:
         log.setLevel(logging.DEBUG)
     else:
-        log.setLevel(logging.INFO)
+        log.setLevel(logging.DEBUG)
 else:
     # Load from install location
     py_addon_path = os.path.dirname(os.path.realpath(__file__))
@@ -1265,7 +1265,7 @@ def extract_vert_info(obj, mesh, target_key=''):
     weights = []
     morphdict = {}
 
-    if target_key != '' and mesh.shape_keys:
+    if target_key != '' and mesh.shape_keys and target_key in mesh.shape_keys.key_blocks.keys():
         log.debug(f"....exporting shape {target_key} only")
         verts = [v.co[:] for v in mesh.shape_keys.key_blocks[target_key].data]
     else:
@@ -1460,14 +1460,14 @@ def export_shape_to(shape, filepath, game):
 
 
 def get_common_shapes(obj_list):
-    """ Return the shape keys common to all the given objects """
+    """ Return the shape keys found in any of the given objects """
     res = None
     for obj in obj_list:
         o_shapes = set()
         if obj.data.shape_keys:
             o_shapes = set(obj.data.shape_keys.key_blocks.keys())
         if res:
-            res = res.intersection(o_shapes)
+            res = res.union(o_shapes)
         else:
             res = o_shapes
     if res:
@@ -1703,7 +1703,10 @@ class NifExporter:
             # won't be so great that it looks bad.
             bpy.ops.object.mode_set(mode = 'OBJECT') 
             uvlayer = editmesh.uv_layers.active.data
-            if target_key != '' and not editmesh.has_custom_normals:
+            if target_key != '' and \
+                editmesh.shape_keys and \
+                target_key in editmesh.shape_keys.key_blocks.keys() and \
+                not editmesh.has_custom_normals:
                 editmesh = mesh_from_key(editmesh, verts, target_key)
         
             loops, uvs, norms = extract_face_info(editmesh, uvlayer, use_loop_normals=editmesh.has_custom_normals)
@@ -1752,6 +1755,8 @@ class NifExporter:
             arma = armature to skin to
             """
         log.info("Exporting " + obj.name)
+        log.info(f" . with shapes: {self.file_keys}")
+
         retval = set()
 
         is_skinned = (arma is not None)
@@ -1837,7 +1842,7 @@ class NifExporter:
 
         retval |= export_tris(nif, trip, obj, verts, tris, uvmap_new, morphdict)
 
-        log.info(f"..{obj.name} successfully exported")
+        log.info(f"..{obj.name} successfully exported to {nif.filepath}")
         return retval
 
     def export_file_set(self, arma, suffix=''):
