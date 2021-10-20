@@ -1179,7 +1179,9 @@ fo4Parts = [
     BodyPart(58, "FO4 58 - Unnamed"),
     BodyPart(59, "FO4 59 - Shield"),
     BodyPart(60, "FO4 60 - Pipboy"),
-    BodyPart(61, "FO4 61 - FX")]
+    BodyPart(61, "FO4 61 - FX"),
+    BodyPart(100, "FO4 100 - Head Meatcap"),
+    BodyPart(101, "FO4 101 - Body Meatcap")]
 
 fo4chargen_pat = re.compile("Type[0-9]+")
 
