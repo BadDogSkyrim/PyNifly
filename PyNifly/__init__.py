@@ -2,7 +2,6 @@
 
 # Copyright © 2021, Bad Dog.
 
-# Switched from object to track BODYTRI to doing it automatically
 
 RUN_TESTS = False
 TEST_BPY_ALL = True
@@ -13,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 4, 3),  
+    "version": (1, 4, 4),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -1756,14 +1755,13 @@ class NifExporter:
 
         return verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict
 
-    def export_shape(self, nif, trip, obj, target_key='', arma=None, have_bodytri=False):
+    def export_shape(self, nif, trip, obj, target_key='', arma=None):
         """Export given blender object to the given NIF file
             nif = target nif file
             trip = target file for BS Tri shapes
             obj = blender object
             target_key = shape key to export
             arma = armature to skin to
-            have_bodytri = indicates BODTRI extra data has already been written
             """
         log.info("Exporting " + obj.name)
         log.info(f" . with shapes: {self.file_keys}")
@@ -1886,12 +1884,12 @@ class NifExporter:
             trippath = os.path.join(os.path.dirname(self.filepath), fbasename) + ".tri"
 
             for obj in self.objects:
-                self.export_shape(exportf, trip, obj, sk, arma, have_bodytri)
+                self.export_shape(exportf, trip, obj, sk, arma)
                 log.debug(f"Exported shape {obj.name}")
 
             # Check for bodytri morphs--write the extra data node if needed
             if len(trip.shapes) > 0 and not self.bodytri_written:
-                exportf.string_data = ('BODYTRI', os.path.join(basepath(self.filepath), fbasename) + ".tri")
+                exportf.string_data = [('BODYTRI', truncate_filename(trippath, "meshes"))]
 
             exportf.save()
             log.info(f"..Wrote {fpath}")
