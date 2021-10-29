@@ -2,6 +2,8 @@
 
 # Copyright © 2021, Bad Dog.
 
+# Switched from object to track BODYTRI to doing it automatically
+
 RUN_TESTS = False
 TEST_BPY_ALL = True
 
@@ -1499,6 +1501,7 @@ class NifExporter:
         self.objs_mult_part = set()
         self.objs_no_part = set()
         self.arma_game = []
+        self.bodytri_written = False
         #self.rotate_model = rotate
 
     def add_object(self, obj):
@@ -1541,18 +1544,25 @@ class NifExporter:
         """
         self.set_objects(context.selected_objects)
 
+
     # --------- DO THE EXPORT ---------
 
-    def export_extra_data(self, nif):
+    def export_extra_data(self, nif: NifFile):
+        """ Export any extra data represented as Blender objects. 
+            Sets self.bodytri_done if one of the extra data nodes represents a bodytri
+        """
         exdatalist = [ (x['NiStringExtraData_Name'], x['NiStringExtraData_Value']) for x in \
             self.str_data]
         if len(exdatalist) > 0:
             nif.string_data = exdatalist
 
-        exdatalist = [ (x['BSBehaviorGraphExtraData_Name'], x['BSBehaviorGraphExtraData_Value']) \
+        self.bodytri_written = ('BODYTRI' in [x[0] for x in exdatalist])
+
+        bglist = [ (x['BSBehaviorGraphExtraData_Name'], x['BSBehaviorGraphExtraData_Value']) \
                 for x in self.bg_data]
-        if len(exdatalist) > 0:
-            nif.behavior_graph_data = exdatalist
+        if len(bglist) > 0:
+            nif.behavior_graph_data = bglist 
+
 
     def export_partitions(self, obj, weights_by_vert, tris):
         """ Export partitions described by vertex groups
@@ -1746,13 +1756,14 @@ class NifExporter:
 
         return verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict
 
-    def export_shape(self, nif, trip, obj, target_key='', arma=None):
+    def export_shape(self, nif, trip, obj, target_key='', arma=None, have_bodytri=False):
         """Export given blender object to the given NIF file
             nif = target nif file
             trip = target file for BS Tri shapes
             obj = blender object
             target_key = shape key to export
             arma = armature to skin to
+            have_bodytri = indicates BODTRI extra data has already been written
             """
         log.info("Exporting " + obj.name)
         log.info(f" . with shapes: {self.file_keys}")
@@ -1872,16 +1883,20 @@ class NifExporter:
             self.export_extra_data(exportf)
 
             trip = TripFile()
+            trippath = os.path.join(os.path.dirname(self.filepath), fbasename) + ".tri"
 
             for obj in self.objects:
-                self.export_shape(exportf, trip, obj, sk, arma)
+                self.export_shape(exportf, trip, obj, sk, arma, have_bodytri)
                 log.debug(f"Exported shape {obj.name}")
+
+            # Check for bodytri morphs--write the extra data node if needed
+            if len(trip.shapes) > 0 and not self.bodytri_written:
+                exportf.string_data = ('BODYTRI', os.path.join(basepath(self.filepath), fbasename) + ".tri")
 
             exportf.save()
             log.info(f"..Wrote {fpath}")
 
             if len(trip.shapes) > 0:
-                trippath = os.path.join(os.path.dirname(self.filepath), fbasename) + ".tri"
                 trip.write(trippath)
                 log.info(f"..Wrote {trippath}")
 
