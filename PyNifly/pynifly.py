@@ -1512,7 +1512,7 @@ TEST_UNSKINNED = False
 TEST_UNI = False
 TEST_SHADER = False
 TEST_ALPHA = False
-TEST_SHEATH = False
+TEST_SHEATH = True
 TEST_FEET = False
 TEST_XFORM_SKY = False
 TEST_XFORM_STATIC = False
@@ -2401,6 +2401,7 @@ if __name__ == "__main__":
         print("### TEST_SHEATH: Can read and write extra data")
         nif = NifFile(r"tests/Skyrim/sheath_p1_1.nif")
         
+        # Extra data can be at the file level
         bg = nif.behavior_graph_data
         assert bg == [('BGED', r"AuxBones\SOS\SOSMale.hkx")], f"Error: Expected behavior graph data, got {bg}"
 
@@ -2409,10 +2410,14 @@ if __name__ == "__main__":
         assert ('HDT Havok Path', 'SKSE\\Plugins\\hdtm_baddog.xml') in s, "Error: expect havok path"
         assert ('HDT Skinned Mesh Physics Object', 'SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml') in s, "Error: Expect physics path"
 
+        # Can write extra data at the file level
         nifout = NifFile()
         nifout.initialize('SKYRIM', r"tests/Out/pynifly_TEST_SHEATH.nif")
         nifout.behavior_graph_data = nif.behavior_graph_data
         nifout.string_data = nif.string_data
+        # Can write extra data with multiple calls
+        nifout.string_data = [('BODYTRI', 'foo/bar/fribble.tri')]
+
         _test_export_shape(nif.shapes[0], nifout)
         nifout.save()
 
@@ -2421,9 +2426,10 @@ if __name__ == "__main__":
         assert len(nifcheck.shapes) == 1, "Error: Wrote expected shapes"
         assert nifcheck.behavior_graph_data == [('BGED', r"AuxBones\SOS\SOSMale.hkx")], f"Error: Expected behavior graph data, got {nifcheck.behavior_graph_data}"
         
-        assert len(nifcheck.string_data) == 2, f"Error: Expected two string data records in written file"
+        assert len(nifcheck.string_data) == 3, f"Error: Expected three string data records in written file"
         assert ('HDT Havok Path', 'SKSE\\Plugins\\hdtm_baddog.xml') in nifcheck.string_data, "Error: expect havok path in written file"
         assert ('HDT Skinned Mesh Physics Object', 'SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml') in nifcheck.string_data, "Error: Expect physics path in written file"
+        assert ('BODYTRI', 'foo/bar/fribble.tri') in nifcheck.string_data, "Error: Expected second string data written to be available"
 
 
     if TEST_ALL or TEST_FEET:

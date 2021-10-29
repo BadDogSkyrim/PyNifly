@@ -13,6 +13,7 @@ from pathlib import Path
 
 log = logging.getLogger("pynifly")
 
+
 # ###################### FILE HANDLING ##################################
 
 def extend_filenames(root, separator, files):
@@ -41,6 +42,12 @@ def missing_files(files):
     """ Returns a list containing the files in the given list that don't exist """
     return [x for x in files if not os.path.exists(x)]
 
+def truncate_filename(filepath: str, root_dir: str)-> str:
+    n = filepath.lower().find(root_dir.lower())
+    if n < 0:
+        return filepath
+    else:
+        return filepath[(n+len(root_dir)+1):]
 
 # ################# VECTORS, ROTATION MATRICES, MATHY STUFF #################
 
@@ -1378,4 +1385,11 @@ File handling
                     "", 
                     'C:\\mod\\textures\\actors\\character\\male\\MaleHead_sk.dds'], \
         "Error: Extended filenames incorrect"
+
+    print(">>> Can truncate a fliename to a given root")
+    str1 = "C:/mod/stuff/meshes/foo/bar/mesh.tri"
+    fn = truncate_filename(str1, "meshes")
+    assert fn == "foo/bar/mesh.tri"
+    fn2 = truncate_filename(str1, "fribble")
+    assert fn2 == str1
     
