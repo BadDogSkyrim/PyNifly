@@ -1501,6 +1501,7 @@ class NifExporter:
         self.objs_no_part = set()
         self.arma_game = []
         self.bodytri_written = False
+        self.message_log = []
         #self.rotate_model = rotate
 
     def add_object(self, obj):
@@ -1584,22 +1585,24 @@ class NifExporter:
         tri_indices = [0] * len(tris)
 
         for i, t in enumerate(tris):
-            # All 3 have to be in the vertex group to count
+            # All 3 have to be in the same vertex group to count
             vg0 = all_vertex_groups(weights_by_vert[t[0]])
             vg1 = all_vertex_groups(weights_by_vert[t[1]])
             vg2 = all_vertex_groups(weights_by_vert[t[2]])
             tri_partitions = vg0.intersection(vg1).intersection(vg2).intersection(partition_set)
             if len(tri_partitions) > 0:
-                #if len(tri_partitions) > 1:
-                #    log.warning(f"Found multiple partitions for tri {t} in object {obj.name}: {tri_partitions}")
-                #    self.objs_mult_part.add(obj)
-                #    create_group_from_verts(obj, MULTIPLE_PARTITION_GROUP, t)
+                if len(tri_partitions) > 1:
+                    log.warning(f"Found multiple partitions for tri {t} in object {obj.name}: {tri_partitions}")
+                    self.warnings.add('MANY_PARITITON')
+                    self.objs_mult_part.add(obj)
+                    create_group_from_verts(obj, MULTIPLE_PARTITION_GROUP, t)
 
                 # Triangulation will put some tris in two partitions. Just choose one--
                 # exact division doesn't matter (if it did user should have put in an edge)
                 tri_indices[i] = partitions[next(iter(tri_partitions))].id
             else:
                 log.warning(f"Tri {t} is not assigned any partition")
+                self.warnings.add('NO_PARTITION')
                 self.objs_no_part.add(obj)
                 create_group_from_verts(obj, NO_PARTITION_GROUP, t)
 
@@ -1893,6 +1896,7 @@ class NifExporter:
 
             exportf.save()
             log.info(f"..Wrote {fpath}")
+            self.message_log.append(exportf.message_log())
 
             if len(trip.shapes) > 0:
                 trip.write(trippath)
@@ -2065,7 +2069,9 @@ def run_tests():
     TEST_POT = False
    # TEST_ROT = False
     TEST_SCALING = False
-    TEST_UNIT = True
+    TEST_UNIT = False
+    TEST_TIGER_EXPORT = False
+    TEST_PARTITION_ERRORS = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -2078,6 +2084,20 @@ def run_tests():
     # TESTS
     # These are tests of functionality currently under development
 
+    if TEST_BPY_ALL or TEST_PARTITION_ERRORS:
+        print("### TEST_PARTITION_ERRORS: Partitions with errors raise errors")
+
+        clear_all()
+
+        append_from_file("SynthMaleBody", True, r"tests\FO4\SynthBody02.blend", r"\Object", "SynthMaleBody")
+
+        # Partitions must divide up the mesh cleanly--exactly 1 partition per tri
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"), 
+                               'FO4')
+        exporter.export([bpy.data.objects["SynthMaleBody"]])
+        assert len(exporter.warnings) > 0, f"Error: Export should have generated warnings: {exporter.warnings}"
+        print(f"Exporter warnings: {exporter.warnings}")
+        assert MULTIPLE_PARTITION_GROUP in bpy.data.objects["SynthMaleBody"].vertex_groups, "Error: Expected group to be created for tris in multiple partitions"
 
 
 
