@@ -34,45 +34,45 @@ def get_image_node(node_input):
 
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri):
-    TEST_EXPORT = True
-    TEST_IMPORT_ARMATURE = True
+    TEST_EXPORT = False
+    TEST_IMPORT_ARMATURE = False
     TEST_EXPORT_WEIGHTS = False
-    TEST_IMP_EXP_SKY = True
-    TEST_IMP_EXP_FO4 = True
-    TEST_ROUND_TRIP = True
-    TEST_UV_SPLIT = True
-    TEST_CUSTOM_BONES = True
-    TEST_BPY_PARENT = True
-    TEST_BABY = True
-    TEST_CONNECTED_SKEL = True
-    TEST_TRI = True
-    TEST_0_WEIGHTS = True
-    TEST_SPLIT_NORMAL = True
-    TEST_SKEL = True
-    TEST_PARTITIONS = True
-    TEST_SEGMENTS = True
-    TEST_BP_SEGMENTS = True
-    TEST_ROGUE01 = True
-    TEST_ROGUE02 = True
-    TEST_NORMAL_SEAM = True
-    TEST_COLORS = True
-    TEST_HEADPART = True
-    TEST_FACEBONES = True
-    TEST_FACEBONE_EXPORT = True
-    TEST_TIGER_EXPORT = True
-    TEST_JIARAN = True
-    TEST_SHADER_LE = True
-    TEST_SHADER_SE = True
-    TEST_SHADER_FO4 = True
-    TEST_SHADER_ALPHA = True
-    TEST_SHEATH = True
-    TEST_FEET = True
-    TEST_SKYRIM_XFORM = True
-    TEST_TRI2 = True
-    TEST_3BBB = True
-    TEST_ROTSTATIC = True
-    TEST_ROTSTATIC2 = True
-    TEST_VERTEX_ALPHA = True
+    TEST_IMP_EXP_SKY = False
+    TEST_IMP_EXP_FO4 = False
+    TEST_ROUND_TRIP = False
+    TEST_UV_SPLIT = False
+    TEST_CUSTOM_BONES = False
+    TEST_BPY_PARENT = False
+    TEST_BABY = False
+    TEST_CONNECTED_SKEL = False
+    TEST_TRI = False
+    TEST_0_WEIGHTS = False
+    TEST_SPLIT_NORMAL = False
+    TEST_SKEL = False
+    TEST_PARTITIONS = False
+    TEST_SEGMENTS = False
+    TEST_BP_SEGMENTS = False
+    TEST_ROGUE01 = False
+    TEST_ROGUE02 = False
+    TEST_NORMAL_SEAM = False
+    TEST_COLORS = False
+    TEST_HEADPART = False
+    TEST_FACEBONES = False
+    TEST_FACEBONE_EXPORT = False
+    TEST_TIGER_EXPORT = False
+    TEST_JIARAN = False
+    TEST_SHADER_LE = False
+    TEST_SHADER_SE = False
+    TEST_SHADER_FO4 = False
+    TEST_SHADER_ALPHA = False
+    TEST_SHEATH = False
+    TEST_FEET = False
+    TEST_SKYRIM_XFORM = False
+    TEST_TRI2 = False
+    TEST_3BBB = False
+    TEST_ROTSTATIC = False
+    TEST_ROTSTATIC2 = False
+    TEST_VERTEX_ALPHA = False
 
 
     if TEST_EXPORT:
@@ -824,23 +824,62 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.tri"))
         remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT_chargen.tri"))
 
+        # Have a head shape parented to the normal skeleton but with facebone weights as well
         obj = append_from_file("HorseFemaleHead", False, r"tests\FO4\HeadFaceBones.blend", r"\Object", "HorseFemaleHead")
         bpy.ops.object.select_all(action='SELECT')
+
+        # Normal and Facebones skeleton selected for export
         exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.nif"),
                                "FO4")
         exporter.from_context(bpy.context)
         exporter.execute()
 
+        # Exporter generates normal and facebones nif file
         nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.nif"))
         assert len(nif1.shapes) == 1, "Write the file successfully"
         assert len(nif1.shapes[0].tris) == 8922, f"Expected 8922 tris, found {len(nif1.shapes[0].tris)}"
         nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT_faceBones.nif"))
         assert len(nif2.shapes) == 1
         assert len(nif2.shapes[0].tris) == 8922, f"Expected 8922 tris, found {len(nif2.shapes[0].tris)}"
+
+        # No facebones in the normal file
+        # (Not sure if facebones nif needs the normal bones--they are there in vanilla)
+        assert len([x for x in nif1.nodes.keys() if "skin_bone" in x]) == 0, f"Expected no skin_bone nodes in regular nif file; found {nif1.nodes.keys()}"
+        #assert len([x for x in nif1.nodes.keys() if x == "Neck"]) == 0, f"Expected no regular nodes in facebones nif file; found {nif2.nodes.keys()}"
+
+        # Exporter generates a single tri file named after the normal file
         tri1 = TriFile.from_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.tri"))
         assert len(tri1.morphs) > 0
         tri2 = TriFile.from_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT_chargen.tri"))
         assert len(tri2.morphs) > 0
+
+        # Same behavior if the shape is parented to the facebones skeleton and the normal skeleton is 
+        # exported
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.context.view_layer.objects.active  = bpy.data.objects['HorseFemaleHead']
+        bpy.ops.object.parent_clear(type='CLEAR')
+        bpy.context.view_layer.objects.active  = bpy.data.objects['FaceBonesSkel']
+        bpy.data.objects['HorseFemaleHead'].select_set(True)
+        bpy.ops.object.parent_set(type='ARMATURE_NAME') 
+        bpy.data.objects['FullBodySkel'].select_set(True)
+
+        # Export shape with facebones parent
+        exporter2 = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT2.nif"),
+                               "FO4")
+        exporter2.from_context(bpy.context)
+        exporter2.execute()
+
+        nif3 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT2.nif"))
+        assert len(nif3.shapes) == 1, "Write the file successfully"
+        assert len(nif3.shapes[0].tris) == 8922, f"Expected 8922 tris, found {len(nif1.shapes[0].tris)}"
+        nif4 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT2_faceBones.nif"))
+        assert len(nif4.shapes) == 1
+        assert len(nif4.shapes[0].tris) == 8922, f"Expected 8922 tris, found {len(nif2.shapes[0].tris)}"
+
+        skinbones = [x for x in nif3.nodes.keys() if "skin_bone" in x]
+        assert len(skinbones) == 0, f"Expected no skin_bone nodes in regular nif file; found {skinbones}"
+        #assert len([x for x in nif4.nodes.keys() if x == "Neck"]) == 0, f"Expected no regular nodes in facebones nif file; found {nif4.nodes.keys()}"
+
 
     if TEST_JIARAN:
         test_title("TEST_JIARAN", "Armature with no stashed transforms exports correctly")

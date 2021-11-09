@@ -3,8 +3,8 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = False
-TEST_BPY_ALL = True
+RUN_TESTS = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 4, 4),  
+    "version": (1, 4, 5),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -1507,9 +1507,10 @@ class NifExporter:
     def add_object(self, obj):
         """ Adds the given object to the objects to export """
         if obj.type == 'ARMATURE':
-            if self.game == 'FO4' and is_facebones(obj) and self.facebones is None:
+            facebones_obj = (self.game == 'FO4') and (is_facebones(obj))
+            if facebones_obj and self.facebones is None:
                 self.facebones = obj
-            if self.armature is None:
+            if (not facebones_obj) and (self.armature is None):
                 self.armature = obj 
 
         elif obj.type == 'MESH':
@@ -1904,7 +1905,7 @@ class NifExporter:
 
 
     def execute(self):
-        log.debug(f"..Exporting objects: {self.objects}\nstring data: {self.str_data}\nBG data: {self.bg_data}\narmature: armatrue: {self.armature},\nfacebones: {self.facebones}")
+        log.debug(f"..Exporting objects: {self.objects}\nstring data: {self.str_data}\nBG data: {self.bg_data}\narmature: armature: {self.armature},\nfacebones: {self.facebones}")
         NifFile.clear_log()
         if self.facebones:
             self.export_file_set(self.facebones, '_faceBones')
@@ -2067,19 +2068,19 @@ def run_tests():
     TEST_BONE_XPORT_POS = False
     TEST_EXPORT_HANDS = False
     TEST_POT = False
-   # TEST_ROT = False
+    # TEST_ROT = False
+    TEST_3BBB = False
     TEST_SCALING = False
     TEST_UNIT = False
     TEST_TIGER_EXPORT = False
-    TEST_PARTITION_ERRORS = True
+    TEST_PARTITION_ERRORS = False
 
     NifFile.Load(nifly_path)
     #LoggerInit()
 
     clear_all()
 
-    if TEST_BPY_ALL:
-        run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri)
+    run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri)
 
     # TESTS
     # These are tests of functionality currently under development
