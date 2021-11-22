@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 5, 0),  
+    "version": (1, 5, 1),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -495,7 +495,7 @@ def export_shader(obj, shape: NiShape):
         diffuse_input = shader_node.inputs['Base Color']
         if diffuse_input and diffuse_input.is_linked:
             diffuse_node = diffuse_input.links[0].from_node
-            if diffuse_node.image:
+            if hasattr(diffuse_node, 'image') and diffuse_node.image:
                 diffuse_fp_full = diffuse_node.image.filepath
                 diffuse_fp = diffuse_fp_full[diffuse_fp_full.lower().find('textures'):]
                 log.debug(f"....Writing diffuse texture path '{diffuse_fp}'")
@@ -1597,7 +1597,7 @@ class NifExporter:
                     self.warnings.add('MANY_PARITITON')
                     self.objs_mult_part.add(obj)
                     create_group_from_verts(obj, MULTIPLE_PARTITION_GROUP, t)
-                    log.debug(f"Number of verts in multiple partitions: {len(obj.vertex_groups[MULTIPLE_PARTITION_GROUP]}")
+                    log.debug(f"Number of verts in multiple partitions: {len(obj.vertex_groups[MULTIPLE_PARTITION_GROUP])}")
 
                 # Triangulation may put some tris in two partitions. Just choose one--
                 # exact division doesn't matter (if it did user should have put in an edge)
