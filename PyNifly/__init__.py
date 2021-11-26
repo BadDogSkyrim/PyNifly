@@ -1597,7 +1597,7 @@ class NifExporter:
                     self.warnings.add('MANY_PARITITON')
                     self.objs_mult_part.add(obj)
                     create_group_from_verts(obj, MULTIPLE_PARTITION_GROUP, t)
-                    log.debug(f"Number of verts in multiple partitions: {len(obj.vertex_groups[MULTIPLE_PARTITION_GROUP])}")
+                    # log.debug(f"Number of verts in multiple partitions: {len(obj.vertex_groups[MULTIPLE_PARTITION_GROUP])}")
 
                 # Triangulation may put some tris in two partitions. Just choose one--
                 # exact division doesn't matter (if it did user should have put in an edge)
