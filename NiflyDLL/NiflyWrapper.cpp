@@ -1221,6 +1221,88 @@ NIFLY_API void setColorsForShape(void* nifref, void* shaperef, float* colors, in
 
 /* ***************************** EXTRA DATA ***************************** */
 
+int getClothExtraDataLen(void* nifref, void* shaperef, int idx, int* valuelen)
+/* Treats the BSClothExtraData nodes in the nif like an array--idx indicates
+    which to return (0-based).
+    (Probably there can be only one per file but code allows for more)
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+
+    //NiShape* shape = static_cast<NiShape*>(shaperef);
+    NiAVObject* source = nullptr;
+    if (shaperef)
+        source = static_cast<NiAVObject*>(shaperef);
+    else
+        source = nif->GetRootNode();
+
+    int i = idx;
+    for (auto& extraData : source->extraDataRefs) {
+        BSClothExtraData* clothData = hdr.GetBlock<BSClothExtraData>(extraData);
+        if (clothData) {
+            if (i == 0) {
+                *valuelen = int(clothData->data.size());
+                return 1;
+            }
+            else
+                i--;
+        }
+    }
+    return 0;
+};
+
+int getClothExtraData(void* nifref, void* shaperef, int idx, char* buf, int buflen)
+/* Treats the BSClothExtraData nodes in the nif like an array--idx indicates
+    which to return (0-based).
+    (Probably there can be only one per file but code allows for more)
+    Returns 1 if the extra data was found at requested index
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+
+    //NiShape* shape = static_cast<NiShape*>(shaperef);
+    NiAVObject* source = nullptr;
+    if (shaperef)
+        source = static_cast<NiAVObject*>(shaperef);
+    else
+        source = nif->GetRootNode();
+
+    int i = idx;
+    for (auto& extraData : source->extraDataRefs) {
+        BSClothExtraData* clothData = hdr.GetBlock<BSClothExtraData>(extraData);
+        if (clothData) {
+            if (i == 0) {
+                for (int j = 0; j < buflen && j < clothData->data.size(); j++) {
+                    buf[j] = clothData->data[j];
+                }
+                return 1;
+            }
+            else
+                i--;
+        }
+    }
+    return 0;
+};
+
+void setClothExtraData(void* nifref, char* buf, int buflen) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiAVObject* target = nullptr;
+    target = nif->GetRootNode();
+
+    if (target) {
+        auto clothData = std::make_unique<BSClothExtraData>();
+        for (int i = 0; i < buflen; i++) {
+            clothData->data.push_back(buf[i]);
+        }
+        int id = nif->GetHeader().AddBlock(std::move(clothData));
+        if (id != 0xFFFFFFFF) {
+            target->extraDataRefs.AddBlockRef(id);
+        }
+    }
+};
+
 int getStringExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen)
 /* Treats the NiStringExtraData nodes in the nif like an array--idx indicates
     which to return (0-based).
