@@ -34,45 +34,55 @@ def get_image_node(node_input):
 
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri):
-    TEST_EXPORT = False
-    TEST_IMPORT_ARMATURE = False
-    TEST_EXPORT_WEIGHTS = False
-    TEST_IMP_EXP_SKY = False
-    TEST_IMP_EXP_FO4 = False
-    TEST_ROUND_TRIP = False
-    TEST_UV_SPLIT = False
-    TEST_CUSTOM_BONES = False
-    TEST_BPY_PARENT = False
-    TEST_BABY = False
-    TEST_CONNECTED_SKEL = False
-    TEST_TRI = False
-    TEST_0_WEIGHTS = False
-    TEST_SPLIT_NORMAL = False
-    TEST_SKEL = False
-    TEST_PARTITIONS = False
-    TEST_SEGMENTS = False
-    TEST_BP_SEGMENTS = False
-    TEST_ROGUE01 = False
-    TEST_ROGUE02 = False
-    TEST_NORMAL_SEAM = False
-    TEST_COLORS = False
-    TEST_HEADPART = False
-    TEST_FACEBONES = False
-    TEST_FACEBONE_EXPORT = False
-    TEST_TIGER_EXPORT = False
-    TEST_JIARAN = False
-    TEST_SHADER_LE = False
-    TEST_SHADER_SE = False
-    TEST_SHADER_FO4 = False
-    TEST_SHADER_ALPHA = False
-    TEST_SHEATH = False
-    TEST_FEET = False
-    TEST_SKYRIM_XFORM = False
-    TEST_TRI2 = False
-    TEST_3BBB = False
-    TEST_ROTSTATIC = False
-    TEST_ROTSTATIC2 = False
-    TEST_VERTEX_ALPHA = False
+    TEST_POT = True
+    TEST_EXPORT = True
+    TEST_IMPORT_ARMATURE = True
+    TEST_EXPORT_WEIGHTS = True
+    TEST_IMP_EXP_SKY = True
+    TEST_IMP_EXP_FO4 = True
+    TEST_ROUND_TRIP = True
+    TEST_UV_SPLIT = True
+    TEST_CUSTOM_BONES = True
+    TEST_BPY_PARENT = True
+    TEST_BABY = True
+    TEST_CONNECTED_SKEL = True
+    TEST_TRI = True
+    TEST_0_WEIGHTS = True
+    TEST_SPLIT_NORMAL = True
+    TEST_SKEL = True
+    TEST_PARTITIONS = True
+    TEST_SEGMENTS = True
+    TEST_BP_SEGMENTS = True
+    TEST_ROGUE01 = True
+    TEST_ROGUE02 = True
+    TEST_NORMAL_SEAM = True
+    TEST_COLORS = True
+    TEST_HEADPART = True
+    TEST_FACEBONES = True
+    TEST_FACEBONE_EXPORT = True
+    TEST_TIGER_EXPORT = True
+    TEST_JIARAN = True
+    TEST_SHADER_LE = True
+    TEST_SHADER_SE = True
+    TEST_SHADER_FO4 = True
+    TEST_SHADER_ALPHA = True
+    TEST_SHEATH = True
+    TEST_FEET = True
+    TEST_SKYRIM_XFORM = True
+    TEST_TRI2 = True
+    TEST_3BBB = True
+    TEST_ROTSTATIC = True
+    TEST_ROTSTATIC2 = True
+    TEST_VERTEX_ALPHA = True
+
+
+    if TEST_POT:
+        print("### Test that pot shaders doesn't throw an error")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\spitpotopen01.nif")
+        imp = NifImporter.do_import(testfile, 0)
+        assert 'ANCHOR:0' in bpy.data.objects.keys()
 
 
     if TEST_EXPORT:
