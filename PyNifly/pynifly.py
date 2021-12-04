@@ -1521,7 +1521,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -2563,7 +2563,7 @@ if __name__ == "__main__":
         draugrcheck = nifcheck.shapes[0]
         spine2check = nifcheck.nodes['NPC Spine2 [Spn2]']
 
-        assert round(spine2check.transform.traanslation[2], 2) == 102.36, f"Expected output bone location at z 102.36, found {spine2check.transform.translation[2]}"
+        assert round(spine2check.transform.translation[2], 2) == 102.36, f"Expected output bone location at z 102.36, found {spine2check.transform.translation[2]}"
 
     if TEST_ALL or TEST_CLOTH_DATA:
         print("### TEST_CLOTH_DATA: Test we can read and write cloth data")
