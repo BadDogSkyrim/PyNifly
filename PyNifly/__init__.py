@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -28,6 +28,7 @@ from functools import reduce
 import traceback
 import math
 import re
+import codecs
 
 log = logging.getLogger("pynifly")
 log.info(f"Loading pynifly version {bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}")
@@ -128,6 +129,16 @@ def import_extra(f: NifFile):
         ed.show_name = True
         ed['BSBehaviorGraphExtraData_Name'] = s[0]
         ed['BSBehaviorGraphExtraData_Value'] = s[1]
+        loc[0] += 3.0
+        extradata.append(ed)
+
+    for c in f.cloth_data: 
+        bpy.ops.object.add(radius=1.0, type='EMPTY', location=loc)
+        ed = bpy.context.object
+        ed.name = "BSClothExtraData"
+        ed.show_name = True
+        ed['BSClothExtraData_Name'] = c[0]
+        ed['BSClothExtraData_Value'] = codecs.encode(c[1], 'base64')
         loc[0] += 3.0
         extradata.append(ed)
 
@@ -1493,6 +1504,7 @@ class NifExporter:
         self.objects = set([])
         self.bg_data = set([])
         self.str_data = set([])
+        self.cloth_data = set([])
         # Shape keys that start with underscore and are common to all exportable shapes trigger
         # a separate file export for each shape key
         self.file_keys = []
@@ -1526,6 +1538,9 @@ class NifExporter:
         elif 'NiStringExtraData_Name' in obj.keys():
             self.str_data.add(obj)
 
+        elif 'BSClothExtraData_Name' in obj.keys():
+            self.cloth_data.add(obj)
+
         # remove extra data nodes with objects in the export list as parents so they 
         # don't get exported twice
         for n in self.bg_data:
@@ -1534,6 +1549,9 @@ class NifExporter:
         for n in self.str_data:
             if n.parent and n.parent in self.objects:
                 self.str_data.remove(n)
+        for n in self.cloth_data:
+            if n.parent and n.parent in self.objects:
+                self.cloth_data.remove(n)
 
     def set_objects(self, objects):
         """ Set the objects to export from the given list of objects 
@@ -1553,8 +1571,8 @@ class NifExporter:
         """ Export any extra data represented as Blender objects. 
             Sets self.bodytri_done if one of the extra data nodes represents a bodytri
         """
-        exdatalist = [ (x['NiStringExtraData_Name'], x['NiStringExtraData_Value']) for x in \
-            self.str_data]
+        exdatalist = [ (x['NiStringExtraData_Name'], x['NiStringExtraData_Value']) 
+                        for x in self.str_data]
         if len(exdatalist) > 0:
             nif.string_data = exdatalist
 
@@ -1564,6 +1582,10 @@ class NifExporter:
                 for x in self.bg_data]
         if len(bglist) > 0:
             nif.behavior_graph_data = bglist 
+
+        cdlist = [ (x['BSClothExtraData_Name'], codecs.decode(x['BSClothExtraData_Value'], "base64")) for x in self.cloth_data]
+        if len(cdlist) > 0:
+            nif.cloth_data = cdlist 
 
 
     def export_partitions(self, obj, weights_by_vert, tris):
@@ -1907,7 +1929,7 @@ class NifExporter:
 
 
     def execute(self):
-        log.debug(f"..Exporting objects: {self.objects}\nstring data: {self.str_data}\nBG data: {self.bg_data}\narmature: armature: {self.armature},\nfacebones: {self.facebones}")
+        log.debug(f"..Exporting objects: {self.objects}\nstring data: {self.str_data}\nBG data: {self.bg_data}\ncloth data: {self.cloth_data}\narmature: armature: {self.armature},\nfacebones: {self.facebones}")
         NifFile.clear_log()
         if self.facebones:
             self.export_file_set(self.facebones, '_faceBones')
@@ -2065,6 +2087,7 @@ def run_tests():
     from test_tools import test_title, clear_all, append_from_file, export_from_blend, find_vertex, remove_file
     from pynifly_tests import run_tests
 
+    TEST_COTH_DATA = True
     TEST_MUTANT = False
     TEST_RENAME = False
     TEST_BONE_XPORT_POS = False
@@ -2072,36 +2095,40 @@ def run_tests():
     TEST_POT = False
     # TEST_ROT = False
     TEST_3BBB = False
-    TEST_SCALING = False
     TEST_UNIT = False
-    TEST_BAD_TRI = True
+    TEST_BAD_TRI = False
     TEST_TIGER_EXPORT = False
-    TEST_PARTITION_ERRORS = False
 
     NifFile.Load(nifly_path)
     #LoggerInit()
 
     clear_all()
 
-    run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri)
+    if TEST_BPY_ALL:
+        run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri)
 
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
-    if TEST_BPY_ALL or TEST_PARTITION_ERRORS:
-        print("### TEST_PARTITION_ERRORS: Partitions with errors raise errors")
-
+    if TEST_BPY_ALL or TEST_COTH_DATA:
+        print("### TEST_COTH_DATA: Can read and write cloth data")
         clear_all()
 
-        append_from_file("SynthMaleBody", True, r"tests\FO4\SynthBody02.blend", r"\Object", "SynthMaleBody")
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/HairLong01.nif")
+        NifImporter.do_import(testfile)
+        
+        assert 'BSClothExtraData' in bpy.data.objects.keys(), f"Found no cloth extra data in {bpy.data.objects.keys()}"
 
-        # Partitions must divide up the mesh cleanly--exactly 1 partition per tri
-        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"), 
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_COTH_DATA.nif"), 
                                'FO4')
-        exporter.export([bpy.data.objects["SynthMaleBody"]])
-        assert len(exporter.warnings) > 0, f"Error: Export should have generated warnings: {exporter.warnings}"
-        print(f"Exporter warnings: {exporter.warnings}")
-        assert MULTIPLE_PARTITION_GROUP in bpy.data.objects["SynthMaleBody"].vertex_groups, "Error: Expected group to be created for tris in multiple partitions"
+        exporter.export([bpy.data.objects["HairLong01:0"], 
+                         bpy.data.objects["BSClothExtraData"]])
+
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_COTH_DATA.nif"))
+        assert len(nif1.shapes) == 1, f"Expected hair nif"
+        assert len(nif1.cloth_data) == 1, f"Expected cloth data"
+        assert len(nif1.cloth_data[0][1]) == 46257, f"Expected 46257 bytes of cloth data, found {len(nif1.cloth_data[0][1])}"
+
 
 
     if TEST_BPY_ALL or TEST_BAD_TRI:
@@ -2115,8 +2142,6 @@ def run_tests():
         testfile2 = os.path.join(pynifly_dev_path, r"tests/Skyrim/bad_tri_2.tri")
         obj2 = import_tri(testfile2, None)
         assert len(obj2.data.vertices) == 11254, f"Expected 11254 vertices, found {len(obj2.data.vertices)}"
-
-
 
 
     if TEST_BPY_ALL or TEST_TIGER_EXPORT:
@@ -2231,29 +2256,6 @@ def run_tests():
 
         assert os.path.exists(outfile)
 
-
-    if TEST_BPY_ALL or TEST_SCALING:
-        print("### Test that scale factors happen correctly")
-
-        clear_all()
-        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\statuechampion.nif")
-        NifImporter.do_import(testfile, 0)
-        
-        base = bpy.data.objects['basis1']
-        assert int(base.scale[0]) == 10, f"ERROR: Base scale should be 10, found {base.scale[0]}"
-        tail = bpy.data.objects['tail_base.001']
-        assert round(tail.scale[0], 1) == 1.7, f"ERROR: Tail scale should be ~1.7, found {tail.scale}"
-        assert round(tail.location[0], 0) == -158, f"ERROR: Tail x loc should be -158, found {tail.location}"
-
-        testout = os.path.join(pynifly_dev_path, r"tests\Out\TEST_SCALING.nif")
-        exp = NifExporter.do_export(testout, "SKYRIM", bpy.data.objects[:])
-        checknif = NifFile(testout)
-        checkfoot = checknif.shape_dict['FootLowRes']
-        assert checkfoot.transform.rotation.matrix[0][0] == 1.0, f"ERROR: Foot rotation matrix not identity: {checkfoot.transform.rotation.matrix}"
-        assert checkfoot.transform.scale == 1.0, f"ERROR: Foot scale not correct: {checkfoot.transform.scale}"
-        checkbase = checknif.shape_dict['basis3']
-        assert checkbase.transform.rotation.matrix[0][0] == 1.0, f"ERROR: Base rotation matrix not identity: {checkbase.transform.rotation.matrix}"
-        assert checkbase.transform.scale == 10.0, f"ERROR: Base scale not correct: {checkbase.transform.scale}"
 
 
     #if TEST_BPY_ALL or TEST_ROT:

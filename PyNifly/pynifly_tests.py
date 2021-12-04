@@ -34,6 +34,8 @@ def get_image_node(node_input):
 
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri):
+    TEST_PARTITION_ERRORS = True
+    TEST_SCALING = True
     TEST_POT = True
     TEST_EXPORT = True
     TEST_IMPORT_ARMATURE = True
@@ -74,6 +76,46 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_ROTSTATIC = True
     TEST_ROTSTATIC2 = True
     TEST_VERTEX_ALPHA = True
+
+
+    if TEST_PARTITION_ERRORS:
+        print("### TEST_PARTITION_ERRORS: Partitions with errors raise errors")
+
+        clear_all()
+
+        append_from_file("SynthMaleBody", True, r"tests\FO4\SynthBody02.blend", r"\Object", "SynthMaleBody")
+
+        # Partitions must divide up the mesh cleanly--exactly 1 partition per tri
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"), 
+                               'FO4')
+        exporter.export([bpy.data.objects["SynthMaleBody"]])
+        assert len(exporter.warnings) > 0, f"Error: Export should have generated warnings: {exporter.warnings}"
+        print(f"Exporter warnings: {exporter.warnings}")
+        assert MULTIPLE_PARTITION_GROUP in bpy.data.objects["SynthMaleBody"].vertex_groups, "Error: Expected group to be created for tris in multiple partitions"
+
+
+    if TEST_SCALING:
+        print("### Test that scale factors happen correctly")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\statuechampion.nif")
+        NifImporter.do_import(testfile, 0)
+        
+        base = bpy.data.objects['basis1']
+        assert int(base.scale[0]) == 10, f"ERROR: Base scale should be 10, found {base.scale[0]}"
+        tail = bpy.data.objects['tail_base.001']
+        assert round(tail.scale[0], 1) == 1.7, f"ERROR: Tail scale should be ~1.7, found {tail.scale}"
+        assert round(tail.location[0], 0) == -158, f"ERROR: Tail x loc should be -158, found {tail.location}"
+
+        testout = os.path.join(pynifly_dev_path, r"tests\Out\TEST_SCALING.nif")
+        exp = NifExporter.do_export(testout, "SKYRIM", bpy.data.objects[:])
+        checknif = NifFile(testout)
+        checkfoot = checknif.shape_dict['FootLowRes']
+        assert checkfoot.transform.rotation.matrix[0][0] == 1.0, f"ERROR: Foot rotation matrix not identity: {checkfoot.transform.rotation.matrix}"
+        assert checkfoot.transform.scale == 1.0, f"ERROR: Foot scale not correct: {checkfoot.transform.scale}"
+        checkbase = checknif.shape_dict['basis3']
+        assert checkbase.transform.rotation.matrix[0][0] == 1.0, f"ERROR: Base rotation matrix not identity: {checkbase.transform.rotation.matrix}"
+        assert checkbase.transform.scale == 10.0, f"ERROR: Base scale not correct: {checkbase.transform.scale}"
 
 
     if TEST_POT:

@@ -89,6 +89,9 @@ extern "C" NIFLY_API void setPartitions(void* nifref, void* shaperef, uint16_t *
 extern "C" NIFLY_API void setSegments(void* nifref, void* shaperef, uint16_t * segData, int segDataLen, uint32_t * subsegData, int subsegDataLen, uint16_t * tris, int triLen, const char* filename);
 extern "C" NIFLY_API int getColorsForShape(void* nifref, void* shaperef, float* colors, int colorLen);
 extern "C" NIFLY_API void setColorsForShape(void* nifref, void* shaperef, float* colors, int colorLen);
+extern "C" NIFLY_API int getClothExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen);
+extern "C" NIFLY_API int getClothExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen);
+extern "C" NIFLY_API void setClothExtraData(void* nifref, void* shaperef, char* name, char* buf, int buflen);
 extern "C" NIFLY_API void* createSkinForNif(void* nifPtr, const char* gameName);
 extern "C" NIFLY_API void setGlobalToSkinXform(void* animPtr, void* shapePtr, void* gtsXformPtr);
 extern "C" NIFLY_API void addBoneToShape(void * anim, void * theShape, const char* boneName, void* xformPtr);
