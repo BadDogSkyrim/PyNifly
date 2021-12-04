@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = False
+RUN_TESTS = True
 TEST_BPY_ALL = True
 
 
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 5, 1),  
+    "version": (1, 5, 3),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -931,7 +931,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
 
     def execute(self, context):
-        log.info("NIFLY IMPORT V%d.%d.%d" % bl_info['version'])
+        log.info("\n\n====================================\nNIFLY IMPORT V%d.%d.%d" % bl_info['version'])
         status = {'FINISHED'}
 
         flags = NifImporter.ImportFlags(0)
@@ -1083,7 +1083,8 @@ def import_tri(filepath, cobj):
         new_mesh.update(calc_edges=True, calc_edges_loose=True)
         new_mesh.validate(verbose=True)
 
-        mesh_create_uv(new_mesh, tri.uv_pos)
+        if tri.import_uv:
+            mesh_create_uv(new_mesh, tri.uv_pos)
    
         new_collection = bpy.data.collections.new(os.path.basename(os.path.basename(filepath) + ".Coll"))
         bpy.context.scene.collection.children.link(new_collection)
@@ -1987,7 +1988,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
             return {'CANCELLED'} 
 
-        log.info("NIFLY EXPORT V%d.%d.%d" % bl_info['version'])
+        log.info("\n\n==============================\nNIFLY EXPORT V%d.%d.%d\n==============================" % bl_info['version'])
         NifFile.Load(nifly_path)
 
         try:
@@ -2073,6 +2074,7 @@ def run_tests():
     TEST_3BBB = False
     TEST_SCALING = False
     TEST_UNIT = False
+    TEST_BAD_TRI = True
     TEST_TIGER_EXPORT = False
     TEST_PARTITION_ERRORS = False
 
@@ -2083,8 +2085,8 @@ def run_tests():
 
     run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri)
 
-    # TESTS
-    # These are tests of functionality currently under development
+    # Tests in this file are for functionality under development. They should be moved to
+    # pynifly_tests.py when stable.
 
     if TEST_BPY_ALL or TEST_PARTITION_ERRORS:
         print("### TEST_PARTITION_ERRORS: Partitions with errors raise errors")
@@ -2102,14 +2104,20 @@ def run_tests():
         assert MULTIPLE_PARTITION_GROUP in bpy.data.objects["SynthMaleBody"].vertex_groups, "Error: Expected group to be created for tris in multiple partitions"
 
 
+    if TEST_BPY_ALL or TEST_BAD_TRI:
+        print("### TEST_BAD_TRI: Tris with messed up UVs can be imported")
+        clear_all()
 
-# #############################################################################################
-#
-#    REGRESSION TESTS
-#
-#    These tests cover specific cases that have caused bugs in the past.
-#
-# ############################################################################################
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/bad_tri.tri")
+        obj = import_tri(testfile, None)
+        assert len(obj.data.vertices) == 6711, f"Expected 6711 vertices, found {len(obj.data.vertices)}"
+
+        testfile2 = os.path.join(pynifly_dev_path, r"tests/Skyrim/bad_tri_2.tri")
+        obj2 = import_tri(testfile2, None)
+        assert len(obj2.data.vertices) == 11254, f"Expected 11254 vertices, found {len(obj2.data.vertices)}"
+
+
+
 
     if TEST_BPY_ALL or TEST_TIGER_EXPORT:
         print("### TEST_TIGER_EXPORT: Tiger head exports without errors")
@@ -2246,15 +2254,6 @@ def run_tests():
         checkbase = checknif.shape_dict['basis3']
         assert checkbase.transform.rotation.matrix[0][0] == 1.0, f"ERROR: Base rotation matrix not identity: {checkbase.transform.rotation.matrix}"
         assert checkbase.transform.scale == 10.0, f"ERROR: Base scale not correct: {checkbase.transform.scale}"
-
-
-    if TEST_BPY_ALL or TEST_POT:
-        print("### Test that pot shaders doesn't throw an error")
-
-        clear_all()
-        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\spitpotopen01.nif")
-        imp = NifImporter.do_import(testfile, 0)
-        assert 'ANCHOR:0' in bpy.data.objects.keys()
 
 
     #if TEST_BPY_ALL or TEST_ROT:

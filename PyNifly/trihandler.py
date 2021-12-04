@@ -137,6 +137,7 @@ class TriFile():
         self.modmorphs = {}
         self.uv_pos = None      # [(u,v), ...] 1:1 with vertex list
         self.face_uvs = None    # [(i1,i2,i3), ...]  1:1 with faces list; indices into UV_pos list
+        self.import_uv = True   # Import UV along with verts
         self.log = logging.getLogger("pynifly")
 
     def error_write(self, text):
@@ -309,8 +310,8 @@ class TriFile():
 
         #I'm assuming that tri files will always have 1 UV per vertex, but i wasn't able to conirm this for sure.. so:
         if numUV != len(verts_list):
-            errlog.error(f"\n----=| Tri Import Error |=----\nNumber of verticies differs from number of UV coordinates: {numUV} != {len(verts_list)}\nTRI file has valid header, but file appears to be corrupt\n   !! Since \'Base Verticies\' != \'UV Coordinates\', file is probably corrupt.\nHowever, if TRI file is *not* corrupted, then it is possible that Author\'s\nassertion regarding TRI files always correlating V and UV array indices\nmight be wrong.\n   Probably should post if you see this error and are sure file is not corrupt")
-            raise ValueError("Error reading TRI file")
+            errlog.warning(f"Number of verticies differs from number of UV coordinates: {numUV} != {len(verts_list)}; importing without UV")
+            self.import_uv = False
 
         # NOTE --- For future reference. UV's are placed "on a vertex" but indirectly. Each loop contains one vertex index that is supposed to be tied into
         # a polygon face (there will be face*3 loops for a triangulated mesh) and each "loop" contains the uv. This allows for things like smoothing since a
@@ -329,13 +330,14 @@ class TriFile():
 
         # face_uvs array: For each face we have 3 (u,v) locations (3 cuz faces are triangles)
         ### Not currently using this, but Blender can do it. Since nifs have 1:1 relationship between vert and UV, skipping it.
-        self.face_uvs = [] 
-        for lidx in range(numFaces):
-            data = unpack('<3I', tmp_buffer[INT_LEN*3*lidx:(INT_LEN*3*lidx)+(INT_LEN*3)])
-            self.face_uvs.append((data[0], data[1], data[2]))
-            #self.face_uvs.append([(self.uv_pos[data[0]][0], self.uv_pos[data[0]][1]),
-            #                      (self.uv_pos[data[1]][0], self.uv_pos[data[1]][1]),
-            #                      (self.uv_pos[data[2]][0], self.uv_pos[data[2]][1]) ])
+        self.face_uvs = []
+        if self.import_uv:
+            for lidx in range(numFaces):
+                data = unpack('<3I', tmp_buffer[INT_LEN*3*lidx:(INT_LEN*3*lidx)+(INT_LEN*3)])
+                self.face_uvs.append((data[0], data[1], data[2]))
+                #self.face_uvs.append([(self.uv_pos[data[0]][0], self.uv_pos[data[0]][1]),
+                #                      (self.uv_pos[data[1]][0], self.uv_pos[data[1]][1]),
+                #                      (self.uv_pos[data[2]][0], self.uv_pos[data[2]][1]) ])
             
         self.morphs = {}
         self.morphs['Basis'] = self._vertices
