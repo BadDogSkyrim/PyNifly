@@ -1221,7 +1221,10 @@ NIFLY_API void setColorsForShape(void* nifref, void* shaperef, float* colors, in
 
 /* ***************************** EXTRA DATA ***************************** */
 
-int getClothExtraDataLen(void* nifref, void* shaperef, int idx, int* valuelen)
+const char* ClothExtraDataName = "Binary Data";
+const int ClothExtraDataNameLen = 11;
+
+int getClothExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen)
 /* Treats the BSClothExtraData nodes in the nif like an array--idx indicates
     which to return (0-based).
     (Probably there can be only one per file but code allows for more)
@@ -1243,6 +1246,7 @@ int getClothExtraDataLen(void* nifref, void* shaperef, int idx, int* valuelen)
         if (clothData) {
             if (i == 0) {
                 *valuelen = int(clothData->data.size());
+                *namelen = ClothExtraDataNameLen;
                 return 1;
             }
             else
@@ -1252,7 +1256,7 @@ int getClothExtraDataLen(void* nifref, void* shaperef, int idx, int* valuelen)
     return 0;
 };
 
-int getClothExtraData(void* nifref, void* shaperef, int idx, char* buf, int buflen)
+int getClothExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen)
 /* Treats the BSClothExtraData nodes in the nif like an array--idx indicates
     which to return (0-based).
     (Probably there can be only one per file but code allows for more)
@@ -1277,6 +1281,7 @@ int getClothExtraData(void* nifref, void* shaperef, int idx, char* buf, int bufl
                 for (int j = 0; j < buflen && j < clothData->data.size(); j++) {
                     buf[j] = clothData->data[j];
                 }
+                strncpy_s(name, namelen, ClothExtraDataName, ClothExtraDataNameLen);
                 return 1;
             }
             else
@@ -1286,7 +1291,7 @@ int getClothExtraData(void* nifref, void* shaperef, int idx, char* buf, int bufl
     return 0;
 };
 
-void setClothExtraData(void* nifref, char* buf, int buflen) {
+void setClothExtraData(void* nifref, void* shaperef, char* name, char* buf, int buflen) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiAVObject* target = nullptr;
     target = nif->GetRootNode();
