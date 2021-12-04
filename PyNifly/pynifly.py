@@ -304,6 +304,12 @@ def load_nifly(nifly_path):
     nifly.getStringExtraData.restype = c_int
     nifly.getStringExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
     nifly.getStringExtraDataLen.restype = c_int
+    nifly.getClothExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int]
+    nifly.getClothExtraDataLen.restype = c_int
+    nifly.getClothExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int]
+    nifly.getClothExtraData.restype = c_int
+    nifly.setClothExtraData.argtypes = [c_void_p, c_char_p, c_int]
+    nifly.setClothExtraData.restype = None
     nifly.getSubsegments.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
     nifly.getSubsegments.restype = c_int
     nifly.getTransform.argtypes = [c_void_p, c_void_p]
@@ -653,16 +659,19 @@ class FO4Subsegment(FO4Segment):
 class ExtraDataType(Enum):
     BehaviorGraph = 1
     String = 2
+    Cloth = 3
 
 def _read_extra_data(nifHandle, shapeHandle, edtype):
     ed = []
     namelen = c_int()
     valuelen = c_int()
 
-    if edtype == ExtraDataType.BehaviorGraph:
+    if edtype == ExtraDataType.Cloth:
+        # Cloth doesn't return a separate name and 
+    elif edtype == ExtraDataType.BehaviorGraph:
         len_func = NifFile.nifly.getBGExtraDataLen
         get_func = NifFile.nifly.getBGExtraData
-    else:
+    elif edtype == ExtraDataType.String:
         len_func = NifFile.nifly.getStringExtraDataLen
         get_func = NifFile.nifly.getStringExtraData
 

@@ -2157,13 +2157,15 @@ namespace NiflyDLLTests
 			void* nif = load((testRoot / "FO4/HairLong01.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 
+			int namelen;
 			int valuelen;
-			getClothExtraDataLen(nif, nullptr, 0, &valuelen);
+			getClothExtraDataLen(nif, nullptr, 0, &namelen, &valuelen);
 			Assert::IsTrue(valuelen == 46256, L"Expected value length 46256");
 
+			char name[20];
 			char* databuf = new char[valuelen + 1];
 			databuf[valuelen] = 123;
-			getClothExtraData(nif, nullptr, 0, databuf, valuelen);
+			getClothExtraData(nif, nullptr, 0, name, 20, databuf, valuelen);
 			Assert::IsTrue(databuf[valuelen] == 123, L"Override guard byte");
 
 			/* Test we can write the data correctly */
@@ -2173,7 +2175,7 @@ namespace NiflyDLLTests
 			void* skinOut;
 			void* shapeOut = TCopyShape(nifOut, "Hair", nif, shapes[0], 0, &skinOut);
 			TCopyShader(nifOut, shapeOut, nif, shapes[0]);
-			setClothExtraData(nifOut, databuf, valuelen);
+			setClothExtraData(nifOut, nullptr, name, databuf, valuelen);
 
 			saveSkinnedNif(skinOut, (testRoot / "Out/Wrapper_hairlong01.nif").u8string().c_str());
 
@@ -2181,13 +2183,15 @@ namespace NiflyDLLTests
 			void* nif2 = load((testRoot / "Out/Wrapper_hairlong01.nif").u8string().c_str());
 			getShapes(nif2, shapes2, 10, 0);
 
+			int namelen2;
 			int valuelen2;
-			getClothExtraDataLen(nif2, nullptr, 0, &valuelen2);
+			getClothExtraDataLen(nif2, nullptr, 0, &namelen2, &valuelen2);
 			Assert::IsTrue(valuelen2 == 46256, L"Expected written value length 46256");
 
+			char name2[20];
 			char* databuf2 = new char[valuelen2 + 1];
 			databuf2[valuelen2] = 123;
-			getClothExtraData(nif2, nullptr, 0, databuf2, valuelen2);
+			getClothExtraData(nif2, nullptr, 0, name, 20, databuf2, valuelen2);
 			Assert::IsTrue(databuf2[valuelen2] == 123, L"Override guard byte");
 
 			for (int i = 0; i < valuelen2; i++)
