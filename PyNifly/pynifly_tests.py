@@ -34,6 +34,7 @@ def get_image_node(node_input):
 
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri):
+    TEST_EXPORT_HANDS = True
     TEST_PARTITION_ERRORS = True
     TEST_SCALING = True
     TEST_POT = True
@@ -76,6 +77,21 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_ROTSTATIC = True
     TEST_ROTSTATIC2 = True
     TEST_VERTEX_ALPHA = True
+
+
+    if TEST_EXPORT_HANDS:
+        print("### Test that hand mesh doesn't throw an error")
+
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXPORT_HANDS.tri")
+        remove_file(outfile)
+
+        append_from_file("SupermutantHands", True, r"tests\FO4\SupermutantHands.blend", r"\Object", "SupermutantHands")
+        bpy.ops.object.select_all(action='SELECT')
+
+        exp = NifExporter(outfile, 'FO4')
+        exp.export(bpy.context.selected_objects)
+
+        assert os.path.exists(outfile)
 
 
     if TEST_PARTITION_ERRORS:

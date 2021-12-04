@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = True
+RUN_TESTS = False
 TEST_BPY_ALL = False
 
 
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 5, 3),  
+    "version": (1, 6, 0),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -577,7 +577,17 @@ def export_shader(obj, shape: NiShape):
         set_object_texture(shape, mat, 7)
 
 
-# -----------------------------  MESH CREATION -------------------------------
+# -----------------------------  MESH CREATION -------------------------------\
+
+def mesh_create_normals(the_mesh, normals):
+    """ Create custom normals in Blender to match those on the object 
+        normals = [(x, y, z)... ] 1:1 with mesh verts
+        """
+    if normals:
+        the_mesh.use_auto_smooth = True
+        the_mesh.normals_split_custom_set([(0, 0, 0) for l in the_mesh.loops])
+        the_mesh.normals_split_custom_set_from_vertices(normals)
+
 
 def mesh_create_uv(the_mesh, uv_points):
     """ Create UV in Blender to match UVpoints from Nif
@@ -723,6 +733,9 @@ class NifImporter():
 
         new_mesh.update(calc_edges=True, calc_edges_loose=True)
         new_mesh.validate(verbose=True)
+
+        mesh_create_normals(new_object.data, the_shape.normals)
+        new_mesh.calc_normals_split()
 
         obj_create_material(new_object, the_shape)
 
@@ -2087,11 +2100,11 @@ def run_tests():
     from test_tools import test_title, clear_all, append_from_file, export_from_blend, find_vertex, remove_file
     from pynifly_tests import run_tests
 
-    TEST_COTH_DATA = True
+    TEST_IMP_NORMALS = True
+    TEST_COTH_DATA = False
     TEST_MUTANT = False
     TEST_RENAME = False
     TEST_BONE_XPORT_POS = False
-    TEST_EXPORT_HANDS = False
     TEST_POT = False
     # TEST_ROT = False
     TEST_3BBB = False
@@ -2109,6 +2122,20 @@ def run_tests():
 
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
+
+    if TEST_BPY_ALL or TEST_IMP_NORMALS:
+        print("### TEST_IMP_NORMALS: Can import normals from nif shape")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/cube.nif")
+        NifImporter.do_import(testfile)
+
+        # all loop custom normals point off at diagonals
+        obj = bpy.context.object
+        for l in obj.data.loops:
+            for i in [0, 1, 2]:
+                assert round(abs(l.normal[i]), 3) == 0.577, f"Expected diagonal normal, got loop {l.index}/{i} = {l.normal[i]}"
+
 
     if TEST_BPY_ALL or TEST_COTH_DATA:
         print("### TEST_COTH_DATA: Can read and write cloth data")
@@ -2240,21 +2267,6 @@ def run_tests():
         draugrcheck = bpy.context.object
         spine2check = draugrcheck.parent.data.bones['NPC Spine2 [Spn2]']
         assert round(spine2check.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2check.head[2]}"
-
-
-    if TEST_BPY_ALL or TEST_EXPORT_HANDS:
-        print("### Test that hand mesh doesn't throw an error")
-
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXPORT_HANDS.tri")
-        remove_file(outfile)
-
-        append_from_file("SupermutantHands", True, r"tests\FO4\SupermutantHands.blend", r"\Object", "SupermutantHands")
-        bpy.ops.object.select_all(action='SELECT')
-
-        exp = NifExporter(outfile, 'FO4')
-        exp.export(bpy.context.selected_objects)
-
-        assert os.path.exists(outfile)
 
 
 
