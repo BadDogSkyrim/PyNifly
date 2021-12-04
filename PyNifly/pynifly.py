@@ -304,6 +304,10 @@ def load_nifly(nifly_path):
     nifly.getStringExtraData.restype = c_int
     nifly.getStringExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
     nifly.getStringExtraDataLen.restype = c_int
+    nifly.getClothExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
+    nifly.getClothExtraDataLen.restype = c_int
+    nifly.getClothExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int]
+    nifly.getClothExtraData.restype = c_int
     nifly.getSubsegments.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
     nifly.getSubsegments.restype = c_int
     nifly.getTransform.argtypes = [c_void_p, c_void_p]
@@ -356,6 +360,8 @@ def load_nifly(nifly_path):
     nifly.setStringExtraData.restype = None
     nifly.setBGExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p]
     nifly.setBGExtraData.restype = None
+    nifly.setClothExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
+    nifly.setClothExtraData.restype = None
     nifly.setTransform.argtypes = [c_void_p, c_void_p]
     nifly.setTransform.restype = None
     nifly.skinShape.argtypes = [c_void_p, c_void_p]
@@ -653,6 +659,7 @@ class FO4Subsegment(FO4Segment):
 class ExtraDataType(Enum):
     BehaviorGraph = 1
     String = 2
+    Cloth = 3
 
 def _read_extra_data(nifHandle, shapeHandle, edtype):
     ed = []
@@ -662,9 +669,12 @@ def _read_extra_data(nifHandle, shapeHandle, edtype):
     if edtype == ExtraDataType.BehaviorGraph:
         len_func = NifFile.nifly.getBGExtraDataLen
         get_func = NifFile.nifly.getBGExtraData
-    else:
+    elif edtype == ExtraDataType.String:
         len_func = NifFile.nifly.getStringExtraDataLen
         get_func = NifFile.nifly.getStringExtraData
+    elif edtype == ExtraDataType.Cloth:
+        len_func = NifFile.nifly.getClothExtraDataLen
+        get_func = NifFile.nifly.getClothExtraData
 
     for i in range(0, 1000):
         exists = len_func(nifHandle, shapeHandle, 
@@ -682,18 +692,26 @@ def _read_extra_data(nifHandle, shapeHandle, edtype):
                  name, namelen.value+1,
                  val, valuelen.value+1)
                 
-        ed.append((name.value.decode('utf-8'), val.value.decode('utf-8')))
+        if edtype == ExtraDataType.Cloth:
+            ed.append((name.value.decode('utf-8'), val.raw))
+        else:
+            ed.append((name.value.decode('utf-8'), val.value.decode('utf-8')))
     
     return ed
 
 def _write_extra_data(nifhandle, shapehandle, edtype, val):
-    if edtype == ExtraDataType.BehaviorGraph:
+    if edtype == ExtraDataType.Cloth:
+        set_func = NifFile.nifly.setClothExtraData
+    elif edtype == ExtraDataType.BehaviorGraph:
         set_func = NifFile.nifly.setBGExtraData
     else:
         set_func = NifFile.nifly.setStringExtraData
 
     for s in val:
-        set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1].encode('utf-8'))
+        if edtype == ExtraDataType.Cloth:
+            set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1], len(s[1])-1)
+        else:
+            set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1].encode('utf-8'))
 
 # --- NiNode --- #
 class NiNode:
@@ -1281,6 +1299,7 @@ class NifFile:
             self.dict = gameSkeletons[self.game]
         self._bgdata = None
         self._strdata = None
+        self._clothdata = None
 
     def __del__(self):
         if self._handle:
@@ -1434,6 +1453,20 @@ class NifFile:
         return mat
 
     @property
+    def cloth_data(self):
+        if self._clothdata is None:
+            self._clothdata = _read_extra_data(self._handle, 
+                                               None,
+                                               ExtraDataType.Cloth)
+        return self._clothdata
+
+    @cloth_data.setter
+    def cloth_data(self, val):
+        self._clothdata = val
+        _write_extra_data(self._handle, None, 
+                         ExtraDataType.Cloth, self._clothdata)
+
+    @property
     def behavior_graph_data(self):
         if self._bgdata is None:
             self._bgdata = _read_extra_data(self._handle, None,
@@ -1488,7 +1521,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1512,12 +1545,13 @@ TEST_UNSKINNED = False
 TEST_UNI = False
 TEST_SHADER = False
 TEST_ALPHA = False
-TEST_SHEATH = True
+TEST_SHEATH = False
 TEST_FEET = False
 TEST_XFORM_SKY = False
 TEST_XFORM_STATIC = False
 TEST_MUTANT = False
-TEST_BONE_XPORT_POS = True
+TEST_BONE_XPORT_POS = False
+TEST_CLOTH_DATA = True
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1587,6 +1621,8 @@ def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
 
 
 if __name__ == "__main__":
+    import codecs
+
     nifly_path = r"C:\Users\User\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
     NifFile.Load(nifly_path)
     NifFile.log.setLevel(logging.DEBUG)
@@ -2527,6 +2563,49 @@ if __name__ == "__main__":
         draugrcheck = nifcheck.shapes[0]
         spine2check = nifcheck.nodes['NPC Spine2 [Spn2]']
 
-        assert round(spine2check.transform.translation[2], 2) == 102.36, f"Expected output bone location at z 102.36, found {spine2check.transform.translation[2]}"
+        assert round(spine2check.transform.traanslation[2], 2) == 102.36, f"Expected output bone location at z 102.36, found {spine2check.transform.translation[2]}"
+
+    if TEST_ALL or TEST_CLOTH_DATA:
+        print("### TEST_CLOTH_DATA: Test we can read and write cloth data")
+
+        testfile = r"tests/FO4/HairLong01.nif"
+        nif = NifFile(testfile)
+        shape = nif.shapes[0]
+        clothdata = nif.cloth_data[0]
+        # Note the array will have an extra byte, presumeably for a null?
+        assert len(clothdata[1]) == 46257, f"Expeected cloth data length 46257, got {len(clothdata[1])}"
+
+        outfile = r"tests/out/pynifly_TEST_CLOTH_DATA.nif"
+        nifout = NifFile()
+        nifout.initialize('FO4', outfile)
+        _test_export_shape(shape, nifout)
+        nifout.cloth_data = nif.cloth_data
+        nifout.save()
+
+        nifcheck = NifFile(outfile)
+        shapecheck = nifcheck.shapes[0]
+        clothdatacheck = nifcheck.cloth_data[0]
+        assert len(clothdatacheck[1]) == 46257, f"Expeected cloth data length 46257, got {len(clothdatacheck[1])}"
+
+        for i, p in enumerate(zip(clothdata[1], clothdatacheck[1])):
+            assert p[0] == p[1], f"Cloth data doesn't match at {i}, {p[0]} != {p[1]}"
+
+        print("# Can export cloth data when it's been extracted and put back")
+        buf = codecs.encode(clothdata[1], 'base64')
+
+        outfile2 = r"tests/out/pynifly_TEST_CLOTH_DATA2.nif"
+        nifout2 = NifFile()
+        nifout2.initialize('FO4', outfile2)
+        _test_export_shape(shape, nifout2)
+        nifout2.cloth_data = [['binary data', codecs.decode(buf, 'base64')]]
+        nifout2.save()
+
+        nifcheck2 = NifFile(outfile2)
+        shapecheck2 = nifcheck2.shapes[0]
+        clothdatacheck2 = nifcheck2.cloth_data[0]
+        assert len(clothdatacheck2[1]) == 46257, f"Expeected cloth data length 46257, got {len(clothdatacheck2[1])}"
+
+        for i, p in enumerate(zip(clothdata[1], clothdatacheck2[1])):
+            assert p[0] == p[1], f"Cloth data doesn't match at {i}, {p[0]} != {p[1]}"
 
         
