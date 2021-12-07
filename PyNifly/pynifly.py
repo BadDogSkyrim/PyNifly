@@ -576,6 +576,7 @@ class FO4Segment(Partition):
     fo4segmatch = re.compile('FO4\w+ \#*([0-9]+)\Z')
 
     def __init__(self, part_id=0, subsegments=0, namedict=fo4Dict, name=None):
+        log.debug(f"New FO4 partition: {part_id}, {subsegments}, {name}")
         super().__init__(part_id, namedict=namedict, name=name)
         self.subseg_count = subsegments
         self.subsegments = []
@@ -613,6 +614,7 @@ class FO4Subsegment(FO4Segment):
     fo4bpm = re.compile('\AFO4 *(\d+) - ')
 
     def __init__(self, part_id, user_slot, material, parent, namedict=fo4Dict, name=None):
+        log.debug(f"New subsegment: {part_id}, {user_slot}, {material}")
         super().__init__(part_id, 0, namedict, name)
         self.user_slot = user_slot
         self.material = material
@@ -1242,7 +1244,7 @@ class NiShape:
                 pbuf[i] = p.id 
                 parts_lookup[p.id] = i
 
-            for i, t in enumerate(trilist):
+            for i, t in enumerate(trilist): 
                 tbuf[i] = trilist[i]
             
             sslist = []
@@ -1551,7 +1553,8 @@ TEST_XFORM_SKY = False
 TEST_XFORM_STATIC = False
 TEST_MUTANT = False
 TEST_BONE_XPORT_POS = False
-TEST_CLOTH_DATA = True
+TEST_CLOTH_DATA = False
+TEST_PARTITION_SM = True
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
     """ Convenience routine to copy existing shape """
@@ -2164,7 +2167,7 @@ if __name__ == "__main__":
         # Shape has a segment file external to the nif
         assert nif.shapes[0].segment_file == r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf"
 
-        # Subsegments hang of the segment/partition they are a part of.  They are given
+        # Subsegments hang off the segment/partition they are a part of.  They are given
         # names based on their "material" property.  That name includes the name of their
         # parent, so the parent figures out its own name from its subsegments.  This is
         # magic figured out by OS.
@@ -2608,4 +2611,21 @@ if __name__ == "__main__":
         for i, p in enumerate(zip(clothdata[1], clothdatacheck2[1])):
             assert p[0] == p[1], f"Cloth data doesn't match at {i}, {p[0]} != {p[1]}"
 
-        
+
+    if TEST_ALL or TEST_PARTITION_SM:
+        print("### TEST_PARTITION_SM: Regression--test that supermutant armor can be read and written")
+
+        testfile = r"tests/FO4/SMArmor0_Torso.nif"
+        nif = NifFile(testfile)
+        armor = nif.shapes[0]
+        partitions = armor.partitions
+
+        nifout = NifFile()
+        nifout.initialize('FO4', r"tests/Out/TEST_PARTITION_SM.nif")
+        _test_export_shape(armor, nifout)
+        nifout.shapes[0].segment_file = armor.segment_file
+        nifout.shapes[0].set_partitions(armor.partitions, armor.partition_tris)
+        nifout.save()
+
+        # If no CTD we're good
+

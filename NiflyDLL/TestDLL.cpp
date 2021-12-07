@@ -92,15 +92,57 @@ void TCheckAccuracy(const std::filesystem::path srcPath, const char* srcShapeNam
 		L"Vertex weights not the same");
 };
 
-void TCopyPartitions(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape) {
-	uint16_t partitionInfo[20];
-	int partitionCount = getPartitions(sourceNif, sourceShape, partitionInfo, 20);
 
-	int triCount = getPartitionTris(sourceNif, sourceShape, nullptr, 0);
-	uint16_t* partTris = new uint16_t[triCount];
-	getPartitionTris(sourceNif, sourceShape, partTris, triCount);
-	setPartitions(targetNif, targetShape, partitionInfo, partitionCount, partTris, triCount);
+void TCopyPartitions(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape) {
+	int segCount = segmentCount(sourceNif, sourceShape);
+	if (segCount) {
+		uint16_t segData[20];
+		uint32_t subsegData[20 * 4];
+		int ssIndex = 0;
+		char fnbuf[1024];
+
+		int segbuf[20 * 2];
+		getSegments(sourceNif, sourceShape, segbuf, segCount);
+		for (int i = 0; i < segCount; i++) {
+			int part_id = segbuf[i * 2];
+			int subsegCount = segbuf[i * 2 + 1];
+			uint32_t ssbuf[20 * 3];
+
+			segData[i] = part_id;
+
+			getSubsegments(sourceNif, sourceShape, part_id, ssbuf, subsegCount);
+			for (int j = 0; j < subsegCount; j++) {
+				uint32_t subsegID = ssbuf[j * 3];
+				uint32_t subsegUserSlot = ssbuf[j * 3 + 1];
+				uint32_t subsegMaterial = ssbuf[j * 3 + 2];
+				
+				subsegData[ssIndex++] = subsegID;
+				subsegData[ssIndex++] = part_id;
+				subsegData[ssIndex++] = subsegUserSlot;
+				subsegData[ssIndex++] = subsegMaterial;
+			}
+		};
+
+		int triCount = getPartitionTris(sourceNif, sourceShape, nullptr, 0);
+		uint16_t* partTris = new uint16_t[triCount];
+		getPartitionTris(sourceNif, sourceShape, partTris, triCount);
+
+		getSegmentFile(sourceNif, sourceShape, fnbuf, 1024);
+
+		setSegments(targetNif, targetShape, segData, segCount, subsegData, ssIndex / 3,
+			partTris, triCount, fnbuf);
+	}
+	else {
+		uint16_t partitionInfo[20*2];
+		int partitionCount = getPartitions(sourceNif, sourceShape, partitionInfo, 20);
+
+		int triCount = getPartitionTris(sourceNif, sourceShape, nullptr, 0);
+		uint16_t* partTris = new uint16_t[triCount];
+		getPartitionTris(sourceNif, sourceShape, partTris, triCount);
+		setPartitions(targetNif, targetShape, partitionInfo, partitionCount, partTris, triCount);
+	};
 };
+
 
 void TComparePartitions(void* nif1, void* shape1, void* nif2, void* shape2) {
 	uint16_t partitionInfo1[20], partitionInfo2[20];
@@ -2196,6 +2238,28 @@ namespace NiflyDLLTests
 
 			for (int i = 0; i < valuelen2; i++)
 				Assert::IsTrue(databuf[i] == databuf2[i], L"Data doesn't match");
+		};
+		TEST_METHOD(writeSMArmor) {
+			/* Regression: Make sure this armor doesn't cause a CTD */
+			void* shapes[10];
+			void** nodes;
+			void* nif = load((testRoot / "FO4/SMArmor0_Torso.nif").u8string().c_str());
+			getShapes(nif, shapes, 10, 0);
+
+			void* nifOut = createNif("FO4");
+			uint16_t options = 0;
+			void* skinOut;
+			void* shapeOut0 = TCopyShape(nifOut, "Torso0", nif, shapes[0], 0, &skinOut);
+			TCopyShader(nifOut, shapeOut0, nif, shapes[0]);
+			void* shapeOut1 = TCopyShape(nifOut, "Torso1", nif, shapes[1], 0, &skinOut);
+			TCopyShader(nifOut, shapeOut1, nif, shapes[1]);
+
+			saveSkinnedNif(skinOut, (testRoot / "Out/Wrapper_writeSMArmor.nif").u8string().c_str());
+
+			void* shapescheck[10];
+			void* nifcheck = load((testRoot / "Out/Wrapper_writeSMArmor.nif").u8string().c_str());
+			getShapes(nifcheck, shapescheck, 10, 0);
+
 		};
 	};
 }
