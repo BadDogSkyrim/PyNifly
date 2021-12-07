@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (2, 92, 0),
-    "version": (1, 6, 0),  
+    "version": (1, 7, 0),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -734,7 +734,8 @@ class NifImporter():
         new_mesh.update(calc_edges=True, calc_edges_loose=True)
         new_mesh.validate(verbose=True)
 
-        mesh_create_normals(new_object.data, the_shape.normals)
+        if the_shape.normals:
+            mesh_create_normals(new_object.data, the_shape.normals)
         new_mesh.calc_normals_split()
 
         obj_create_material(new_object, the_shape)
