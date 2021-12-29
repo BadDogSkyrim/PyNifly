@@ -95,18 +95,19 @@ void TCheckAccuracy(const std::filesystem::path srcPath, const char* srcShapeNam
 
 void TCopyPartitions(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape) {
 	int segCount = segmentCount(sourceNif, sourceShape);
+	const int maxSegs = 50;
 	if (segCount) {
-		uint16_t segData[20];
-		uint32_t subsegData[20 * 4];
+		uint16_t segData[50];
+		uint32_t subsegData[50 * 4];
 		int ssIndex = 0;
 		char fnbuf[1024];
 
-		int segbuf[20 * 2];
+		int segbuf[maxSegs * 2];
 		getSegments(sourceNif, sourceShape, segbuf, segCount);
 		for (int i = 0; i < segCount; i++) {
 			int part_id = segbuf[i * 2];
 			int subsegCount = segbuf[i * 2 + 1];
-			uint32_t ssbuf[20 * 3];
+			uint32_t ssbuf[maxSegs * 3];
 
 			segData[i] = part_id;
 
@@ -133,8 +134,8 @@ void TCopyPartitions(void* targetNif, void* targetShape, void* sourceNif, void* 
 			partTris, triCount, fnbuf);
 	}
 	else {
-		uint16_t partitionInfo[20*2];
-		int partitionCount = getPartitions(sourceNif, sourceShape, partitionInfo, 20);
+		uint16_t partitionInfo[maxSegs *2];
+		int partitionCount = getPartitions(sourceNif, sourceShape, partitionInfo, maxSegs);
 
 		int triCount = getPartitionTris(sourceNif, sourceShape, nullptr, 0);
 		uint16_t* partTris = new uint16_t[triCount];
@@ -2259,7 +2260,48 @@ namespace NiflyDLLTests
 			void* shapescheck[10];
 			void* nifcheck = load((testRoot / "Out/Wrapper_writeSMArmor.nif").u8string().c_str());
 			getShapes(nifcheck, shapescheck, 10, 0);
+		};
+		TEST_METHOD(writeBadPartitions) {
+			/* Make sure this doesn't cause a CTD */
+			void* shapes[10];
+			void** nodes;
+			void* nif = load((testRoot / "FO4/feralghoulbase.nif").u8string().c_str());
+			getShapes(nif, shapes, 10, 0);
 
+			void* nifOut = createNif("FO4");
+			uint16_t options = 0;
+			void* skinOut;
+			void* shapeOut1 = TCopyShape(nifOut, "FeralGhoulBase:0", nif, shapes[1], 0, &skinOut);
+			TCopyShader(nifOut, shapeOut1, nif, shapes[1]);
+
+			const int segsLen = 4;
+			uint16_t segs[segsLen];
+			segs[0] = 0;
+			segs[1] = 1;
+			segs[2] = 12;
+			segs[3] = 4;
+
+			const int subsegsLen = 2;
+			uint32_t subsegs[subsegsLen*4];
+			subsegs[0] = 4; subsegs[1] = 4; subsegs[2] = 0; subsegs[3] = 0;
+			subsegs[4] = 15; subsegs[5] = 2; subsegs[6] = 0; subsegs[7] = 0;
+
+			clearMessageLog();
+			int triCount = getTriangles(nif, shapes[1], nullptr, 0, 0);
+			uint16_t* trimap = new uint16_t[triCount];
+			for (int i = 0; i < triCount; i++) trimap[i] = 24; // Segment doesn't exist
+			setSegments(nifOut, shapes[1],
+				segs, segsLen,
+				subsegs, subsegsLen,
+				trimap, triCount,
+				"phonysegmentfile.ssf");
+			Assert::IsTrue(getMessageLog(nullptr, 0) > 0, L"Expected errors writen to log");
+
+			saveSkinnedNif(skinOut, (testRoot / "Out/writeBadPartitions.nif").u8string().c_str());
+
+			void* shapescheck[10];
+			void* nifcheck = load((testRoot / "Out/writeBadPartitions.nif").u8string().c_str());
+			getShapes(nifcheck, shapescheck, 10, 0);
 		};
 	};
 }

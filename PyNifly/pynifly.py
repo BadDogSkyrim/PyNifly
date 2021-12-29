@@ -1249,18 +1249,21 @@ class NiShape:
             
             sslist = []
             for seg in parts:
+                NifFile.log.debug(f"....Exporting '{seg.name}'")
                 for sseg in seg.subsegments:
-                    NifFile.log.debug(f"....Exporting subseg {sseg.name}: {sseg.id}, {sseg.user_slot}, {hex(sseg.material)}")
+                    NifFile.log.debug(f"....Exporting '{seg.name}' subseg '{sseg.name}': {sseg.id}, {sseg.user_slot}, {hex(sseg.material)}")
                     sslist.extend([sseg.id, seg.id, sseg.user_slot, sseg.material])
             sbuf = (c_uint32 * len(sslist))()
             for i, s in enumerate(sslist):
                 sbuf[i] = s
 
+            NifFile.log.debug(f"....setSegments({len(parts)}, int({len(sslist)}/4), {len(trilist)}, {trilist[0:4]})")
             NifFile.nifly.setSegments(self.parent._handle, self._handle,
                                       pbuf, len(parts),
                                       sbuf, int(len(sslist)/4),
                                       tbuf, len(trilist),
                                       self._segment_file.encode('utf-8'))
+            NifFile.log.debug(f"......setSegments successful")
 
     def set_colors(self, colors):
         buf = (c_float * 4 * len(colors))()
@@ -1554,7 +1557,9 @@ TEST_XFORM_STATIC = False
 TEST_MUTANT = False
 TEST_BONE_XPORT_POS = False
 TEST_CLOTH_DATA = False
-TEST_PARTITION_SM = True
+TEST_PARTITION_SM = False
+TEST_EXP_BODY = True
+
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
     """ Convenience routine to copy existing shape """
@@ -1628,7 +1633,11 @@ if __name__ == "__main__":
 
     nifly_path = r"C:\Users\User\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
     NifFile.Load(nifly_path)
-    NifFile.log.setLevel(logging.DEBUG)
+
+    mylog = logging.getLogger("pynifly")
+    logging.basicConfig()
+    mylog.setLevel(logging.DEBUG)
+    mylog.info("========= Running pynifly tests =========")
 
 
     if TEST_ALL or TEST_XFORM_INVERSION:
@@ -2628,4 +2637,53 @@ if __name__ == "__main__":
         nifout.save()
 
         # If no CTD we're good
+
+
+    if TEST_ALL or TEST_EXP_BODY:
+        print("### TEST_EXP_BODY: Ensure body with bad partitions does not cause a CTD on export")
+
+        testfile = r"tests/FO4/feralghoulbase.nif"
+        nif = NifFile(testfile)
+        shape = nif.shape_dict['FeralGhoulBase:0']
+        partitions = shape.partitions
+
+        # This is correcct
+        nifout = NifFile()
+        nifout.initialize('FO4', r"tests/Out/TEST_EXP_BODY.nif")
+        _test_export_shape(shape, nifout)
+        nifout.shapes[0].segment_file = shape.segment_file
+        nifout.shapes[0].set_partitions(shape.partitions, shape.partition_tris)
+        nifout.save()
+
+        print('....This causes an error')
+        try:
+            os.remove(r"tests/Out/TEST_EXP_BODY2.nif")
+        except:
+            pass
+
+        nifout2 = NifFile()
+        nifout2.initialize('FO4', r"tests/Out/TEST_EXP_BODY2.nif")
+        _test_export_shape(shape, nifout2)
+        sh = nifout2.shapes[0]
+        sh.segment_file = shape.segment_file
+        seg0 = FO4Segment(0)
+        seg1 = FO4Segment(1)
+        seg12 = FO4Segment(12)
+        seg4 = FO4Segment(4)
+        seg15 = FO4Segment(15)
+        seg26 = FO4Segment(26)
+        seg37 = FO4Segment(37)
+        FO4Subsegment(4, 0, 0, seg4, name='FO4 Feral Ghoul 2')
+        FO4Subsegment(15, 0, 0, seg15, name='FO4 Feral Ghoul 4')
+        FO4Subsegment(26, 0, 0, seg15, name='FO4 Death Claw 5')
+        FO4Subsegment(37, 0, 0, seg15, name='FO4 Death Claw 6')
+        # error caused by referencing a segment that doesn't exist
+        tri_map = [16] * len(sh.tris)
+
+        NifFile.clear_log();
+        sh.set_partitions([seg0, seg1, seg4], tri_map)
+
+        assert "ERROR" in NifFile.message_log(), "Error: Expected error message, got '{NifFile.message_log()}'"
+        # If no CTD we're good
+
 

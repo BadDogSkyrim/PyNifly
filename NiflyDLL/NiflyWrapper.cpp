@@ -20,7 +20,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 1, 8, 0 };
+const int NiflyDDLVersion[3] = { 1, 9, 0 };
  
 using namespace nifly;
 
@@ -1148,36 +1148,50 @@ NIFLY_API void setSegments(void* nifref, void* shaperef,
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
 
-    NifSegmentationInfo inf;
-    inf.ssfFile = filename;
+    try {
+        NifSegmentationInfo inf;
+        inf.ssfFile = filename;
+        std::unordered_set<uint32_t> allParts;
 
-    for (int i = 0; i < segDataLen; i++) {
-        NifSegmentInfo* seg = new NifSegmentInfo();
-        seg->partID = segData[i];
-        inf.segs.push_back(*seg);
-    }
+        for (int i = 0; i < segDataLen; i++) {
+            NifSegmentInfo* seg = new NifSegmentInfo();
+            seg->partID = segData[i];
+            inf.segs.push_back(*seg);
+            allParts.insert(seg->partID);
+        }
 
-    for (int i = 0, j = 0; i < subsegDataLen; i++) {
-        NifSubSegmentInfo sseg;
-        sseg.partID = subsegData[j++];
-        uint32_t parentID = subsegData[j++];
-        sseg.userSlotID = subsegData[j++];
-        sseg.material = subsegData[j++];
+        for (int i = 0, j = 0; i < subsegDataLen; i++) {
+            NifSubSegmentInfo sseg;
+            sseg.partID = subsegData[j++];
+            uint32_t parentID = subsegData[j++];
+            sseg.userSlotID = subsegData[j++];
+            sseg.material = subsegData[j++];
 
-        for (auto& seg : inf.segs) {
-            if (seg.partID == parentID) {
-                seg.subs.push_back(sseg);
-                break;
+            for (auto& seg : inf.segs) {
+                if (seg.partID == parentID) {
+                    seg.subs.push_back(sseg);
+                    allParts.insert(sseg.partID);
+                    break;
+                }
             }
         }
-    }
 
-    std::vector<int> triParts;
-    for (int i = 0; i < triLen; i++) {
-        triParts.push_back(tris[i]);
+        std::vector<int> triParts;
+        for (int i = 0; i < triLen; i++) {
+            // Checking for invalid segment references explicitly because the try/catch isn't working
+            if (allParts.find(tris[i]) == allParts.end()) {
+                niflydll::LogWrite("ERROR: Tri list references invalid segment, segments are not correct");
+                return;
+            }
+            else
+                triParts.push_back(tris[i]);
+        }
+        nif->SetShapeSegments(shape, inf, triParts);
+        nif->UpdateSkinPartitions(shape);
     }
-    nif->SetShapeSegments(shape, inf, triParts);
-    nif->UpdateSkinPartitions(shape);
+    catch (std::exception e) {
+        niflydll::LogWrite("Error in setSegments, segments may not be correct");
+    }
 }
 
 /* ************************ VERTEX COLORS AND ALPHA ********************* */

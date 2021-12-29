@@ -3,16 +3,16 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = False
-TEST_BPY_ALL = False
+RUN_TESTS = True
+TEST_BPY_ALL = True
 
 
 bl_info = {
     "name": "NIF format",
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
-    "blender": (2, 92, 0),
-    "version": (1, 8, 0),  
+    "blender": (3, 0, 0),
+    "version": (1, 9, 0),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -1444,6 +1444,7 @@ def partitions_from_vert_groups(obj):
                 segid = FO4Segment.name_match(vg.name)
                 if segid >= 0:
                     val[vg.name] = FO4Segment(len(val), 0, name=vg.name)
+                    log.debug(f"....Found FO4Segment '{vg.name}'")
         
         # A second pass to pick up subsections
         for vg in obj.vertex_groups:
@@ -2108,17 +2109,7 @@ def run_tests():
     from test_tools import test_title, clear_all, append_from_file, export_from_blend, find_vertex, remove_file
     from pynifly_tests import run_tests
 
-    TEST_IMP_NORMALS = True
-    TEST_COTH_DATA = False
-    TEST_MUTANT = False
-    TEST_RENAME = False
-    TEST_BONE_XPORT_POS = False
-    TEST_POT = False
-    # TEST_ROT = False
-    TEST_3BBB = False
-    TEST_UNIT = False
-    TEST_BAD_TRI = False
-    TEST_TIGER_EXPORT = False
+    TEST_EXP_BODY = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -2131,180 +2122,21 @@ def run_tests():
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
-    if TEST_BPY_ALL or TEST_IMP_NORMALS:
-        print("### TEST_IMP_NORMALS: Can import normals from nif shape")
+    if TEST_BPY_ALL or TEST_EXP_BODY:
+        print("### TEST_EXP_BODY: Ensure body does not cause a CTD on export")
         clear_all()
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_BODY.nif"))
 
-        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/cube.nif")
-        NifImporter.do_import(testfile)
+        append_from_file("FeralGhoulBase", True, r"tests\FO4\FeralGhoulBaseTEST.blend", r"\Object", "FeralGhoulBase")
 
-        # all loop custom normals point off at diagonals
-        obj = bpy.context.object
-        for l in obj.data.loops:
-            for i in [0, 1, 2]:
-                assert round(abs(l.normal[i]), 3) == 0.577, f"Expected diagonal normal, got loop {l.index}/{i} = {l.normal[i]}"
-
-
-    if TEST_BPY_ALL or TEST_COTH_DATA:
-        print("### TEST_COTH_DATA: Can read and write cloth data")
-        clear_all()
-
-        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/HairLong01.nif")
-        NifImporter.do_import(testfile)
-        
-        assert 'BSClothExtraData' in bpy.data.objects.keys(), f"Found no cloth extra data in {bpy.data.objects.keys()}"
-
-        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_COTH_DATA.nif"), 
+        NifFile.clear_log()
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_BODY.nif"), 
                                'FO4')
-        exporter.export([bpy.data.objects["HairLong01:0"], 
-                         bpy.data.objects["BSClothExtraData"]])
+        exporter.export([bpy.data.objects["FeralGhoulBase"]])
+        assert "ERROR" not in NifFile.message_log(), f"Error: Expected no error message, got: \n{NifFile.message_log()}---\n"
 
-        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_COTH_DATA.nif"))
-        assert len(nif1.shapes) == 1, f"Expected hair nif"
-        assert len(nif1.cloth_data) == 1, f"Expected cloth data"
-        assert len(nif1.cloth_data[0][1]) == 46257, f"Expected 46257 bytes of cloth data, found {len(nif1.cloth_data[0][1])}"
-
-
-
-    if TEST_BPY_ALL or TEST_BAD_TRI:
-        print("### TEST_BAD_TRI: Tris with messed up UVs can be imported")
-        clear_all()
-
-        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/bad_tri.tri")
-        obj = import_tri(testfile, None)
-        assert len(obj.data.vertices) == 6711, f"Expected 6711 vertices, found {len(obj.data.vertices)}"
-
-        testfile2 = os.path.join(pynifly_dev_path, r"tests/Skyrim/bad_tri_2.tri")
-        obj2 = import_tri(testfile2, None)
-        assert len(obj2.data.vertices) == 11254, f"Expected 11254 vertices, found {len(obj2.data.vertices)}"
-
-
-    if TEST_BPY_ALL or TEST_TIGER_EXPORT:
-        print("### TEST_TIGER_EXPORT: Tiger head exports without errors")
-
-        clear_all()
-        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"))
-        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT_faceBones.nif"))
-        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.tri"))
-        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT_chargen.tri"))
-
-        append_from_file("TigerMaleHead", True, r"tests\FO4\Tiger.blend", r"\Object", "TigerMaleHead")
-
-        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"), 
-                               'FO4')
-        exporter.export([bpy.data.objects["TigerMaleHead"]])
-
-        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"))
-        assert len(nif1.shapes) == 1, f"Expected tiger nif"
-
-
-    if TEST_BPY_ALL or TEST_3BBB:
-        print("## TEST_3BBB: Test that this mesh imports with the right transforms")
-        
-        clear_all()
-        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/3BBB_femalebody_1.nif")
-        NifImporter.do_import(testfile)
-        
-        obj = bpy.context.object
-        assert obj.location[0] == 0, f"Expected body to be centered on x-axis, got {obj.location[:]}"
-
-        print("## Test that the same armature is used for the next import")
-        arma = bpy.data.objects['Scene Root']
-        bpy.ops.object.select_all(action='DESELECT')
-        arma.select_set(True)
-        bpy.context.view_layer.objects.active = arma
-        testfile2 = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/3BBB_femalehands_1.nif")
-        NifImporter.do_import(testfile2)
-
-        arma2 = bpy.context.object.parent
-        assert arma2.name == arma.name, f"Should have parented to same armature: {arma2.name} != {arma.name}"
-
-    if TEST_BPY_ALL or TEST_MUTANT:
-        print("### TEST_MUTANT: Test that the supermutant body imports correctly the *second* time")
-
-        clear_all()
-        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/testsupermutantbody.nif")
-        imp = NifImporter.do_import(testfile, NifImporter.ImportFlags.RENAME_BONES)
-        log.debug(f"Expected -140 z translation in first nif, got {imp.nif.shapes[0].global_to_skin.translation[2]}")
-
-        sm1 = bpy.context.object
-        assert round(sm1.location[2]) == 140, f"Expect first supermutant body at 140 Z, got {sm1.location[2]}"
-        assert round(imp.nif.shapes[0].global_to_skin.translation[2]) == -140, f"Expected -140 z translation in first nif, got {imp.nif.shapes[0].global_to_skin.translation[2]}"
-
-        imp2 = NifImporter.do_import(testfile, NifImporter.ImportFlags.RENAME_BONES)
-        sm2 = bpy.context.object
-        assert round(sm2.location[2]) == 140, f"Expect supermutant body at 140 Z, got {sm2.location[2]}"
-
-        
-    if TEST_BPY_ALL or TEST_RENAME:
-        print("### TEST_RENAME: Test that renaming bones works correctly")
-
-        clear_all()
-        testfile = os.path.join(pynifly_dev_path, r"C:\Users\User\OneDrive\Dev\PyNifly\PyNifly\tests\Skyrim\femalebody_1.nif")
-        imp = NifImporter.do_import(testfile, NifImporter.ImportFlags.CREATE_BONES)
-
-        body = bpy.context.object
-        vgnames = [x.name for x in body.vertex_groups]
-        vgxl = list(filter(lambda x: ".L" in x or ".R" in x, vgnames))
-        assert len(vgxl) == 0, f"Expected no vertex groups renamed, got {vgxl}"
-
-        armnames = [b.name for b in body.parent.data.bones]
-        armxl = list(filter(lambda x: ".L" in x or ".R" in x, armnames))
-        assert len(armxl) == 0, f"Expected no bones renamed in armature, got {vgxl}"
-
-
-    if TEST_BPY_ALL or TEST_BONE_XPORT_POS:
-        print("### Test that bones named like vanilla bones but from a different skeleton export to the correct position")
-
-        clear_all()
-        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\draugr.nif")
-        imp = NifImporter.do_import(testfile, 0)
-        draugr = bpy.context.object
-        spine2 = draugr.parent.data.bones['NPC Spine2 [Spn2]']
-        assert round(spine2.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2.head[2]}"
-
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_BONE_XPORT_POS.nif")
-        exp = NifExporter(outfile, 'SKYRIM')
-        exp.export([bpy.data.objects["Body_Male_Naked"]])
-
-        impcheck = NifImporter.do_import(outfile, 0)
-
-        nifbone = impcheck.nif.nodes['NPC Spine2 [Spn2]']
-        assert round(nifbone.transform.translation[2], 2) == 102.36, f"Expected nif location at z 102.36, found {nifbone.transform.translation[2]}"
-
-        draugrcheck = bpy.context.object
-        spine2check = draugrcheck.parent.data.bones['NPC Spine2 [Spn2]']
-        assert round(spine2check.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2check.head[2]}"
-
-
-
-    #if TEST_BPY_ALL or TEST_ROT:
-    #    print("### Test that rotating the model works correctly")
-
-    #    clear_all()
-    #    testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\malehead.nif")
-    #    imp = NifImporter.do_import(testfile, 
-    #                                NifImporter.ImportFlags.CREATE_BONES | 
-    #                                NifImporter.ImportFlags.RENAME_BONES |
-    #                                NifImporter.ImportFlags.ROTATE_MODEL )
-    #    assert 'MaleHeadIMF' in bpy.data.objects.keys()
-    #    head = bpy.data.objects['MaleHeadIMF']
-    #    assert round(head.rotation_euler[2], 4) == round(math.pi, 4), f"Error: Head should have been rotated, found {head.rotation_euler[:]}"
-    #    assert 'MaleHead.nif' in bpy.data.objects.keys()
-    #    skel = bpy.data.objects['MaleHead.nif']
-    #    assert skel.rotation_euler[:] == (0, 0, math.pi), f"Error: Armature should have been rotated, found {skel.rotation_euler[:]}"
-
-
-    if TEST_UNIT:
-        # Lower-level tests of individual routines for bug hunting
-        test_title("TEST_UNIT", "get_weights_by_bone converts from weights-by-vertex")
-
-        group_names = ("a", "b", "c", "d")
-        wbv = [{"a": 0.1, "c": 0.5}, {"b": 0.2}, {"d": 0.0, "b": 0.6}, {"a": 0.4}]
-        wbb = get_weights_by_bone(wbv)
-        assert wbb["a"] == [(0, 0.1), (3, 0.4)], "ERROR: get_weights_by_bone failed"
-        assert wbb["b"] == [(1, 0.2), (2, 0.6)], "ERROR: get_weights_by_bone failed"
-        assert wbb["c"] == [(0, 0.5)], "ERROR: get_weights_by_bone failed"
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_BODY.nif"))
+        assert len(nif1.shapes) == 1, f"Expected body nif"
 
 
     print("""
