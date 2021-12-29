@@ -34,6 +34,15 @@ def get_image_node(node_input):
 
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri):
+    TEST_IMP_NORMALS = True
+    TEST_COTH_DATA = True
+    TEST_MUTANT = True
+    TEST_RENAME = True
+    TEST_BONE_XPORT_POS = True
+    TEST_POT = True
+    TEST_3BBB = True
+    TEST_BAD_TRI = True
+    TEST_TIGER_EXPORT = True
     TEST_EXPORT_HANDS = True
     TEST_PARTITION_ERRORS = True
     TEST_SCALING = True
@@ -79,19 +88,165 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_VERTEX_ALPHA = True
 
 
-    if TEST_EXPORT_HANDS:
-        print("### Test that hand mesh doesn't throw an error")
+    if TEST_IMP_NORMALS:
+        print("### TEST_IMP_NORMALS: Can import normals from nif shape")
+        clear_all()
 
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXPORT_HANDS.tri")
-        remove_file(outfile)
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/cube.nif")
+        NifImporter.do_import(testfile)
+
+        # all loop custom normals point off at diagonals
+        obj = bpy.context.object
+        for l in obj.data.loops:
+            for i in [0, 1, 2]:
+                assert round(abs(l.normal[i]), 3) == 0.577, f"Expected diagonal normal, got loop {l.index}/{i} = {l.normal[i]}"
+
+
+    if TEST_COTH_DATA:
+        print("### TEST_COTH_DATA: Can read and write cloth data")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/HairLong01.nif")
+        NifImporter.do_import(testfile)
+        
+        assert 'BSClothExtraData' in bpy.data.objects.keys(), f"Found no cloth extra data in {bpy.data.objects.keys()}"
+
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_COTH_DATA.nif"), 
+                               'FO4')
+        exporter.export([bpy.data.objects["HairLong01:0"], 
+                         bpy.data.objects["BSClothExtraData"]])
+
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_COTH_DATA.nif"))
+        assert len(nif1.shapes) == 1, f"Expected hair nif"
+        assert len(nif1.cloth_data) == 1, f"Expected cloth data"
+        assert len(nif1.cloth_data[0][1]) == 46257, f"Expected 46257 bytes of cloth data, found {len(nif1.cloth_data[0][1])}"
+
+
+
+    if TEST_BAD_TRI:
+        print("### TEST_BAD_TRI: Tris with messed up UVs can be imported")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/bad_tri.tri")
+        obj = import_tri(testfile, None)
+        assert len(obj.data.vertices) == 6711, f"Expected 6711 vertices, found {len(obj.data.vertices)}"
+
+        testfile2 = os.path.join(pynifly_dev_path, r"tests/Skyrim/bad_tri_2.tri")
+        obj2 = import_tri(testfile2, None)
+        assert len(obj2.data.vertices) == 11254, f"Expected 11254 vertices, found {len(obj2.data.vertices)}"
+
+
+    if TEST_TIGER_EXPORT:
+        print("### TEST_TIGER_EXPORT: Tiger head exports without errors")
+
+        clear_all()
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"))
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT_faceBones.nif"))
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.tri"))
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT_chargen.tri"))
+
+        append_from_file("TigerMaleHead", True, r"tests\FO4\Tiger.blend", r"\Object", "TigerMaleHead")
+
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"), 
+                               'FO4')
+        exporter.export([bpy.data.objects["TigerMaleHead"]])
+
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"))
+        assert len(nif1.shapes) == 1, f"Expected tiger nif"
+
+
+    if TEST_3BBB:
+        print("## TEST_3BBB: Test that this mesh imports with the right transforms")
+        
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/3BBB_femalebody_1.nif")
+        NifImporter.do_import(testfile)
+        
+        obj = bpy.context.object
+        assert obj.location[0] == 0, f"Expected body to be centered on x-axis, got {obj.location[:]}"
+
+        print("## Test that the same armature is used for the next import")
+        arma = bpy.data.objects['Scene Root']
+        bpy.ops.object.select_all(action='DESELECT')
+        arma.select_set(True)
+        bpy.context.view_layer.objects.active = arma
+        testfile2 = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/3BBB_femalehands_1.nif")
+        NifImporter.do_import(testfile2)
+
+        arma2 = bpy.context.object.parent
+        assert arma2.name == arma.name, f"Should have parented to same armature: {arma2.name} != {arma.name}"
+
+    if TEST_MUTANT:
+        print("### TEST_MUTANT: Test that the supermutant body imports correctly the *second* time")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/testsupermutantbody.nif")
+        imp = NifImporter.do_import(testfile, NifImporter.ImportFlags.RENAME_BONES)
+        log.debug(f"Expected -140 z translation in first nif, got {imp.nif.shapes[0].global_to_skin.translation[2]}")
+
+        sm1 = bpy.context.object
+        assert round(sm1.location[2]) == 140, f"Expect first supermutant body at 140 Z, got {sm1.location[2]}"
+        assert round(imp.nif.shapes[0].global_to_skin.translation[2]) == -140, f"Expected -140 z translation in first nif, got {imp.nif.shapes[0].global_to_skin.translation[2]}"
+
+        imp2 = NifImporter.do_import(testfile, NifImporter.ImportFlags.RENAME_BONES)
+        sm2 = bpy.context.object
+        assert round(sm2.location[2]) == 140, f"Expect supermutant body at 140 Z, got {sm2.location[2]}"
+
+        
+    if TEST_RENAME:
+        print("### TEST_RENAME: Test that renaming bones works correctly")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"C:\Users\User\OneDrive\Dev\PyNifly\PyNifly\tests\Skyrim\femalebody_1.nif")
+        imp = NifImporter.do_import(testfile, NifImporter.ImportFlags.CREATE_BONES)
+
+        body = bpy.context.object
+        vgnames = [x.name for x in body.vertex_groups]
+        vgxl = list(filter(lambda x: ".L" in x or ".R" in x, vgnames))
+        assert len(vgxl) == 0, f"Expected no vertex groups renamed, got {vgxl}"
+
+        armnames = [b.name for b in body.parent.data.bones]
+        armxl = list(filter(lambda x: ".L" in x or ".R" in x, armnames))
+        assert len(armxl) == 0, f"Expected no bones renamed in armature, got {vgxl}"
+
+
+    if TEST_BONE_XPORT_POS:
+        print("### Test that bones named like vanilla bones but from a different skeleton export to the correct position")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\draugr.nif")
+        imp = NifImporter.do_import(testfile, 0)
+        draugr = bpy.context.object
+        spine2 = draugr.parent.data.bones['NPC Spine2 [Spn2]']
+        assert round(spine2.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2.head[2]}"
+
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_BONE_XPORT_POS.nif")
+        exp = NifExporter(outfile, 'SKYRIM')
+        exp.export([bpy.data.objects["Body_Male_Naked"]])
+
+        impcheck = NifImporter.do_import(outfile, 0)
+
+        nifbone = impcheck.nif.nodes['NPC Spine2 [Spn2]']
+        assert round(nifbone.transform.translation[2], 2) == 102.36, f"Expected nif location at z 102.36, found {nifbone.transform.translation[2]}"
+
+        draugrcheck = bpy.context.object
+        spine2check = draugrcheck.parent.data.bones['NPC Spine2 [Spn2]']
+        assert round(spine2check.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2check.head[2]}"
+
+
+    if TEST_EXPORT_HANDS:
+        print("### TEST_EXPORT_HANDS: Test that hand mesh doesn't throw an error")
+
+        outfile1 = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXPORT_HANDS.nif")
+        remove_file(outfile1)
 
         append_from_file("SupermutantHands", True, r"tests\FO4\SupermutantHands.blend", r"\Object", "SupermutantHands")
         bpy.ops.object.select_all(action='SELECT')
 
-        exp = NifExporter(outfile, 'FO4')
+        exp = NifExporter(outfile1, 'FO4')
         exp.export(bpy.context.selected_objects)
 
-        assert os.path.exists(outfile)
+        assert os.path.exists(outfile1)
 
 
     if TEST_PARTITION_ERRORS:
