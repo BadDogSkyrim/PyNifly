@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = True
+RUN_TESTS = False
 TEST_BPY_ALL = True
 
 
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (1, 9, 0),  
+    "version": (1, 10, 0),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -1011,7 +1011,17 @@ def create_shape_keys(obj, tri: TriFile):
 
     base_verts = tri.vertices
 
-    for morph_name, morph_verts in sorted(tri.morphs.items()):
+    dict = None
+    if obj.parent and obj.parent.type == 'ARMATURE':
+        g = best_game_fit(obj.parent.data.bones)
+        if g != "":
+            dict = gameSkeletons[g]
+
+    for game_morph_name, morph_verts in sorted(tri.morphs.items()):
+        if dict and game_morph_name in dict.morph_dic_blender:
+            morph_name = dict.morph_dic_blender[game_morph_name]
+        else:
+            morph_name = game_morph_name
         if morph_name not in mesh.shape_keys.key_blocks:
             newsk = obj.shape_key_add()
             newsk.name = morph_name
@@ -1169,10 +1179,14 @@ def export_tris(nif, trip, obj, verts, tris, uvs, morphdict):
         tri.uv_pos = uvs
         tri.face_uvs = tris # (because 1:1 with verts)
         for m in expression_morphs:
-            tri.morphs[m] = morphdict[m]
+            if m in nif.dict.morph_dic_game:
+                triname = nif.dict.morph_dic_game[m]
+            else:
+                triname = m
+            tri.morphs[triname] = morphdict[m]
     
         log.info(f"Generating tri file '{fname_tri}'")
-        tri.write(fname_tri, expression_morphs)
+        tri.write(fname_tri) # Only expression morphs to write at this point
 
     if len(chargen_morphs) > 0:
         log.debug(f"....Exporting chargen morphs {chargen_morphs}")
@@ -1295,6 +1309,7 @@ def extract_vert_info(obj, mesh, target_key=''):
         weights = [{group-name: weight}... ] - 1:1 with verts list
         dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
             if "target_key" is specified this will be empty
+            shape key is the blender name
         """
     weights = []
     morphdict = {}
@@ -2109,7 +2124,7 @@ def run_tests():
     from test_tools import test_title, clear_all, append_from_file, export_from_blend, find_vertex, remove_file
     from pynifly_tests import run_tests
 
-    TEST_EXP_BODY = True
+    TEST_EXP_SK_RENAMED = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -2122,21 +2137,36 @@ def run_tests():
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
-    if TEST_BPY_ALL or TEST_EXP_BODY:
-        print("### TEST_EXP_BODY: Ensure body does not cause a CTD on export")
-        clear_all()
-        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_BODY.nif"))
 
-        append_from_file("FeralGhoulBase", True, r"tests\FO4\FeralGhoulBaseTEST.blend", r"\Object", "FeralGhoulBase")
+    if TEST_BPY_ALL or TEST_EXP_SK_RENAMED:
+        print("### TEST_EXP_SK_RENAMED: Ensure renamed shape keys export properly")
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SK_RENAMED.nif")
+        trifile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SK_RENAMED.tri")
+        remove_file(outfile)
+        remove_file(trifile)
+
+        append_from_file("CheetahChildHead", True, r"tests\FO4\Feline Child Test.blend", r"\Object", "CheetahChildHead")
 
         NifFile.clear_log()
-        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_BODY.nif"), 
-                               'FO4')
-        exporter.export([bpy.data.objects["FeralGhoulBase"]])
+        exporter = NifExporter(outfile, 'FO4')
+        exporter.export([bpy.data.objects["CheetahChildHead"]])
         assert "ERROR" not in NifFile.message_log(), f"Error: Expected no error message, got: \n{NifFile.message_log()}---\n"
 
-        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_BODY.nif"))
-        assert len(nif1.shapes) == 1, f"Expected body nif"
+        nif1 = NifFile(outfile)
+        assert len(nif1.shapes) == 1, f"Expected head nif"
+
+        tri1 = TriFile.from_file(trifile)
+        assert len(tri1.morphs) == 47, f"Expected 47 morphs, got {len(tri1.morphs)} morphs: {tri1.morphs.keys()}"
+
+        bpy.ops.object.select_all(action='DESELECT')
+        NifImporter.do_import(outfile)
+        obj = bpy.context.object
+
+        import_tri(trifile, obj)
+
+        assert len(obj.data.shape_keys.key_blocks) == 47, f"Expected key blocks 47 != {len(obj.data.shape_keys.key_blocks)}"
+        assert 'Smile.L' in obj.data.shape_keys.key_blocks, f"Expected key 'Smile.L' in {obj.data.shape_keys.key_blocks.keys()}"
 
 
     print("""
