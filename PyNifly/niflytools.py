@@ -440,7 +440,12 @@ class BoneDict:
         for b in bone_list:
             if b.parent_name in self.byBlender:
                 b.parent = self.byBlender[b.parent_name]
-        self.expressions = set(morph_list)
+        self.expressions = set(set([m[0] for m in morph_list]) | set([m[1] for m in morph_list]))
+        self.morph_dic_game = {}
+        self.morph_dic_blender = {}
+        for m in morph_list:
+            self.morph_dic_game[m[0]] = m[1]
+            self.morph_dic_blender[m[1]] = m[0]
         for p in part_list:
             self.parts[p.name] = p
         for d in dismem_list:
@@ -480,7 +485,14 @@ class BoneDict:
         return None
 
     def expression_filter(self, name_set):
+        """ Return the subset of name_set that are valid FO4 expressions, either blender or native form """
         return name_set.intersection(self.expressions)
+
+    #def morph_to_game(self, morph_name): 
+    #    """ Translate a set of expression morphs with Blender names to morphs with game names """
+    #    if type(name_set) == type(''):
+
+        return set([m[1] for m in self.morphs if m[0] in name_set or m[1] in name_set])
 
     def chargen_filter(self, candidates):
         """ Filter the given set down to only those that can be a chargen morph.
@@ -709,13 +721,55 @@ skyrimBones = [
     SkeletonBone('NPC Genitals05', 'NPC Genitals05 [Gen05]', 'NPC Genitals04'),
     SkeletonBone('NPC Genitals06', 'NPC Genitals06 [Gen06]', 'NPC Genitals05')]
 
-skyrimExpressions = ['Aah', 'BigAah', 'BlinkLeft', 'BlinkRight', 'BMP', 'BrowDownLeft', 
-    'BrowDownRight', 'BrowInLeft', 'BrowInRight', 'BrowUpLeft', 'BrowUpRight', 'ChJSh', 'CombatAnger', 
-    'CombatShout', 'DialogueAnger', 'DialogueDisgusted', 'DialogueFear', 'DialogueHappy', 
-    'DialoguePuzzled', 'DialogueSad', 'DialogueSurprise', 'DST', 'Eee', 'Eh', 'FV', 'I', 'K', 
-    'LookDown', 'LookLeft', 'LookRight', 'LookUp', 'MoodAnger', 'MoodDisgusted', 'MoodFear', 
-    'MoodHappy', 'MoodPuzzled', 'MoodSad', 'MoodSurprise', 'N', 'Oh', 'OohQ', 'R', 'SkinnyMorph', 
-    'SquintLeft', 'SquintRight', 'Th', 'W', 'VampireMorph']
+skyrimExpressions = [
+    ('Aah', 'Aah'), 
+    ('BigAah', 'BigAah'), 
+    ('Blink.L', 'BlinkLeft'), 
+    ('Blink.R', 'BlinkRight'), 
+    ('BMP', 'BMP'), 
+    ('BrowDown.L', 'BrowDownLeft'), 
+    ('BrowDown.R', 'BrowDownRight'), 
+    ('BrowIn.L', 'BrowInLeft'), 
+    ('BrowIn.R', 'BrowInRight'), 
+    ('BrowUp.L', 'BrowUpLeft'), 
+    ('BrowUp.R', 'BrowUpRight'), 
+    ('ChJSh', 'ChJSh'), 
+    ('CombatAnger', 'CombatAnger'), 
+    ('CombatShout', 'CombatShout'), 
+	('DialogueAnger', 'DialogueAnger'), 
+	('DialogueDisgusted', 'DialogueDisgusted'), 
+	('DialogueFear', 'DialogueFear'), 
+	('DialogueHappy', 'DialogueHappy'), 
+	('DialoguePuzzled', 'DialoguePuzzled'), 
+	('DialogueSad', 'DialogueSad'), 
+	('DialogueSurprise', 'DialogueSurprise'), 
+	('DST', 'DST'), 
+	('Eee', 'Eee'), 
+	('Eh', 'Eh'), 
+	('FV', 'FV'), 
+	('I', 'I'), 
+	('K', 'K'), 
+    ('LookDown', 'LookDown'), 
+	('Look.L', 'LookLeft'), 
+	('Look.R', 'LookRight'), 
+	('LookUp', 'LookUp'), 
+	('MoodAnger', 'MoodAnger'), 
+	('MoodDisgusted', 'MoodDisgusted'), 
+	('MoodFear', 'MoodFear'), 
+    ('MoodHappy', 'MoodHappy'), 
+	('MoodPuzzled', 'MoodPuzzled'), 
+	('MoodSad', 'MoodSad'), 
+	('MoodSurprise', 'MoodSurprise'), 
+	('N', 'N'), 
+	('Oh', 'Oh'), 
+	('OohQ', 'OohQ'), 
+	('R', 'R'), 
+	('SkinnyMorph', 'SkinnyMorph'),
+    ('Squint.L', 'SquintLeft'), 
+	('Squint.R', 'SquintRight'), 
+	('Th', 'Th'), 
+	('W', 'W'), 
+	('VampireMorph', 'VampireMorph')]
 
 skyrimParts = [
     BodyPart(30, "SBP_30_HEAD"),
@@ -1037,15 +1091,56 @@ fo4FaceBones = [
     SkeletonBone('skin_bone_SideNodeFat.R', 'skin_bone_R_SideNodeFat', 'HEAD'),
     SkeletonBone('skin_bone_Temple.R', 'skin_bone_R_Temple', 'HEAD')]
 
-fo4Expressions = ['UprLipRollOut', 'UprLipRollIn', 'UprLipFunnel', 'StickyLips', 
-    'RUprLipUp', 'RUprLipDn', 'RUprLidUp', 'RUprLidDn', 'RSmile', 'ROutBrowDn', 
-    'RNoseUp', 'RMidBrowUp', 'RMidBrowDn', 'RLwrLipUp', 'RLwrLipDn', 'RLwrLidUp', 
-    'RLwrLidDn', 'RLipCornerOut', 'RLipCornerIn', 'RJaw', 'RFrown', 'RCheekUp', 
-    'RBrowOutUp', 'Pucker', 'JawOpen', 'JawFwd', 'BrowSqueeze', 'LUprLipUp', 
-    'LUprLipDn', 'LUprLidUp', 'LUprLidDn', 'LSmile', 'LOutBrowDn', 'LNoseUp', 
-    'LMidBrowUp', 'LMidBrowDn', 'LLwrLipUp', 'LLwrLipDn', 'LLwrLidUp', 'LLwrLidDn', 
-    'LLipCornerOut', 'LLipCornerIn', 'LJaw', 'LFrown', 'LCheekUp', 'LBrowOutUp',
-    'LwrLipRollOut', 'LwrLipFunnel', 'LwrLipRollIn'
+fo4Expressions = [
+    ('UprLipRollOut', 'UprLipRollOut'),
+    ('UprLipRollIn', 'UprLipRollIn'),
+    ('UprLipFunnel', 'UprLipFunnel'),
+    ('StickyLips', 'StickyLips'),
+    ('UprLipUp.R', 'RUprLipUp'),
+    ('UprLipDn.R', 'RUprLipDn'),
+    ('UprLidUp.R', 'RUprLidUp'),
+    ('UprLidDn.R', 'RUprLidDn'),
+    ('Smile.R', 'RSmile'),
+    ('OutBrowDn.R', 'ROutBrowDn'),
+    ('NoseUp.R', 'RNoseUp'),
+    ('MidBrowUp.R', 'RMidBrowUp'),
+    ('MidBrowDn.R', 'RMidBrowDn'),
+    ('LwrLipUp.R', 'RLwrLipUp'),
+    ('LwrLipDn.R', 'RLwrLipDn'),
+    ('LwrLidUp.R', 'RLwrLidUp'),
+    ('LwrLidDn.R', 'RLwrLidDn'),
+    ('LipCornerOut.R', 'RLipCornerOut'),
+    ('LipCornerIn.R', 'RLipCornerIn'),
+    ('Jaw.R', 'RJaw'),
+    ('Frown.R', 'RFrown'),
+    ('CheekUp.R', 'RCheekUp'),
+    ('BrowOutUp.R', 'RBrowOutUp'),
+    ('Pucker', 'Pucker'),
+    ('JawOpen', 'JawOpen'),
+    ('JawFwd', 'JawFwd'),
+    ('BrowSqueeze', 'BrowSqueeze'),
+    ('UprLipUp.L', 'LUprLipUp'),
+    ('UprLipDn.L', 'LUprLipDn'),
+    ('UprLidUp.L', 'LUprLidUp'),
+    ('UprLidDn.L', 'LUprLidDn'),
+    ('Smile.L', 'LSmile'),
+    ('OutBrowDn.L', 'LOutBrowDn'),
+    ('NoseUp.L', 'LNoseUp'),
+    ('MidBrowUp.L', 'LMidBrowUp'),
+    ('MidBrowDn.L', 'LMidBrowDn'),
+    ('LwrLipUp.L', 'LLwrLipUp'),
+    ('LwrLipDn.L', 'LLwrLipDn'),
+    ('LwrLidUp.L', 'LLwrLidUp'),
+    ('LwrLidDn.L', 'LLwrLidDn'),
+    ('LipCornerOut.L', 'LLipCornerOut'),
+    ('LipCornerIn.L', 'LLipCornerIn'),
+    ('Jaw.L', 'LJaw'),
+    ('Frown.L', 'LFrown'),
+    ('CheekUp.L', 'LCheekUp'),
+    ('BrowOutUp.L', 'LBrowOutUp'),
+    ('LwrLipRollOut', 'LwrLipRollOut'),
+    ('LwrLipFunnel', 'LwrLipFunnel'),
+    ('LwrLipRollIn', 'LwrLipRollIn')
     ]
 
 fo4Dismember = [
@@ -1384,10 +1479,14 @@ RotationMatrix provides handling for bone rotations and such.
         BoneDict chargen_filter returns just the chargen morphs for the given game.
             Note for FO4 these aren't predefined, but match *type#. 
         """)
-    exprmorphs = set(['DialogueAnger', 'MoodFear', 'CombatShout', 'RUprLipDn', 'RUprLidUp', 'RUprLidDn'])
-    assert fo4Dict.expression_filter(exprmorphs) == set(['RUprLipDn', 'RUprLidUp', 'RUprLidDn']), "ERROR: FO4 expression filter incorrect"
-    assert skyrimDict.expression_filter(exprmorphs) == set(['DialogueAnger', 'MoodFear', 'CombatShout']), "ERROR: FO4 expression filter incorrect"
+    exprmorphs = set(['DialogueAnger', 'MoodFear', 'CombatShout', 'RUprLipDn', 'UprLidUp.R', 'RUprLidDn', 'Smile.L'])
+    assert fo4Dict.expression_filter(exprmorphs) == set(['RUprLipDn', 'UprLidUp.R', 'RUprLidDn', 'Smile.L']), "ERROR: FO4 expression filter incorrect"
+    assert skyrimDict.expression_filter(exprmorphs) == set(['DialogueAnger', 'MoodFear', 'CombatShout']), "ERROR: Skyrim expression filter incorrect"
     assert fo4Dict.chargen_filter(set(['foo', 'barType1', 'fribble', 'Type45cat', 'aTypeB'])) == set(['barType1', 'Type45cat']), "ERROR: FO4 Chargen filter incorrect"
+
+    assert fo4Dict.morph_dic_game['Smile.L'] == 'LSmile', "ERROR: Morph not translated correctly"
+    assert fo4Dict.morph_dic_game['UprLidUp.R'] == 'RUprLidUp', "ERROR: Morph not translated correctly"
+    assert fo4Dict.morph_dic_blender['LUprLidUp'] == 'UprLidUp.L', "ERROR: Morph not translated correctly"
     
     print("""
 ##############################################################################

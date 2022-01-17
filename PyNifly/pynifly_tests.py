@@ -34,6 +34,7 @@ def get_image_node(node_input):
 
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri):
+    TEST_EXP_BODY = True
     TEST_IMP_NORMALS = True
     TEST_COTH_DATA = True
     TEST_MUTANT = True
@@ -87,6 +88,22 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_ROTSTATIC2 = True
     TEST_VERTEX_ALPHA = True
 
+
+    if TEST_EXP_BODY:
+        print("### TEST_EXP_BODY: Ensure body does not cause a CTD on export")
+        clear_all()
+        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_BODY.nif"))
+
+        append_from_file("FeralGhoulBase", True, r"tests\FO4\FeralGhoulBaseTEST.blend", r"\Object", "FeralGhoulBase")
+
+        NifFile.clear_log()
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_BODY.nif"), 
+                               'FO4')
+        exporter.export([bpy.data.objects["FeralGhoulBase"]])
+        assert "ERROR" not in NifFile.message_log(), f"Error: Expected no error message, got: \n{NifFile.message_log()}---\n"
+
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_BODY.nif"))
+        assert len(nif1.shapes) == 1, f"Expected body nif"
 
     if TEST_IMP_NORMALS:
         print("### TEST_IMP_NORMALS: Can import normals from nif shape")
