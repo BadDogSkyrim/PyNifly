@@ -282,9 +282,10 @@ extern "C" NIFLY_API int getShaderName(void* nifref, void* shaperef, char* buf, 
 extern "C" NIFLY_API uint32_t getShaderFlags1(void* nifref, void* shaperef);
 extern "C" NIFLY_API uint32_t getShaderFlags2(void* nifref, void* shaperef);
 extern "C" NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char* buf, int buflen);
-extern "C" NIFLY_API const char* getShaderBlockName(void* nifref, void* shaperef);
 extern "C" NIFLY_API uint32_t getShaderType(void* nifref, void* shaperef);
 extern "C" NIFLY_API int getShaderAttrs(void* nifref, void* shaperef, BSLSPAttrs* buf);
+extern "C" NIFLY_API const char* getShaderBlockName(void* nifref, void* shaperef);
+extern "C" NIFLY_API int getEffectShaderAttrs(void* nifref, void* shaperef, BSESPAttrs* buf);
 extern "C" NIFLY_API void setShaderName(void* nifref, void* shaperef, char* name);
 extern "C" NIFLY_API void setShaderType(void* nifref, void* shaperef, uint32_t shaderType);
 extern "C" NIFLY_API void setShaderFlags1(void* nifref, void* shaperef, uint32_t flags);
@@ -292,6 +293,7 @@ extern "C" NIFLY_API void setShaderFlags2(void* nifref, void* shaperef, uint32_t
 extern "C" NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, const char* buf);
 
 extern "C" NIFLY_API void setShaderAttrs(void* nifref, void* shaperef, BSLSPAttrs* buf);
+extern "C" NIFLY_API void setEffectShaderAttrs(void* nifref, void* shaperef, BSESPAttrs* buf);
 extern "C" NIFLY_API int getAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr);
 extern "C" NIFLY_API void setAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr);
 

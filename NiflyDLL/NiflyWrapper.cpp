@@ -762,8 +762,11 @@ NIFLY_API uint32_t getShaderFlags1(void* nifref, void* shaperef) {
     if (!shader)
         return 0;
     else {
-        BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
-        return (bssh ? bssh->shaderFlags1 : 0);
+        BSLightingShaderProperty* bssh = dynamic_cast<BSLightingShaderProperty*>(shader);
+        if (bssh) return bssh->shaderFlags1;
+        BSEffectShaderProperty* bses = dynamic_cast<BSEffectShaderProperty*>(shader);
+        if (bses) return bses->shaderFlags1;
+        return 0;
     }
 }
 
@@ -781,13 +784,29 @@ NIFLY_API uint32_t getShaderFlags2(void* nifref, void* shaperef) {
     };
 }
 
-NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char* buf, int buflen) {
+NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char* buf, int buflen) 
+/*
+* Return the filepath associated with the requested texture slot. 
+* For BSEffectShaderProperty the slots are: 
+*   0 = source texture
+*   1 = normal map
+*   2 = <not used>
+*   3 = greyscale
+*   4 = environment map
+*   5 = environment mask
+*/
+{
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
+    NiShader* shader = nif->GetShader(shape);
+    NiHeader hdr = nif->GetHeader();
 
     std::string texture;
 
-    nif->GetTextureSlot(shape, texture, slotIndex);
+    uint32_t val = nif->GetTextureSlot(shape, texture, slotIndex);
+
+    if (buflen > 0) buf[0] = '\0';
+    if (val == 0) return 0;
 
     if (buflen > 1) {
         memcpy(buf, texture.data(), std::min(texture.size(), static_cast<size_t>(buflen - 1)));
@@ -798,44 +817,58 @@ NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, 
 
     /* HOW OS RETURNS A PARTICULAR TEXTURE SLOT:
     * int NifFile::GetTextureSlot(NiShader* shader, std::string& outTexFile, int texIndex) const 
-    * 
-    auto textureSet = hdr.GetBlock(shader->TextureSetRef());
-    if (textureSet && texIndex + 1 <= textureSet->textures.vec.size()) {
-        outTexFile = textureSet->textures.vec[texIndex].get();
-        return 1;
-    }
-
-    if (!textureSet) {
-        auto effectShader = dynamic_cast<BSEffectShaderProperty*>(shader);
-        if (effectShader) {
-            switch (texIndex) {
-                case 0: outTexFile = effectShader->sourceTexture.get(); break;
-                case 1: outTexFile = effectShader->normalTexture.get(); break;
-                case 3: outTexFile = effectShader->greyscaleTexture.get(); break;
-                case 4: outTexFile = effectShader->envMapTexture.get(); break;
-                case 5: outTexFile = effectShader->envMaskTexture.get(); break;
-            }
-
-            return 2;
-        }
-    }
     */
+
+    //auto textureSet = hdr.GetBlock(shader->TextureSetRef());
+    //if (textureSet && slotIndex + 1 <= textureSet->textures.vec.size()) {
+    //    outTexFile = textureSet->textures.vec[texIndex].get();
+    //    return 1;
+    //}
+
+    //if (!textureSet) {
+    //    auto effectShader = dynamic_cast<BSEffectShaderProperty*>(shader);
+    //    if (effectShader) {
+    //        switch (slotIndex) {
+    //            case 0: outTexFile = effectShader->sourceTexture.get(); break;
+    //            case 1: outTexFile = effectShader->normalTexture.get(); break;
+    //            case 3: outTexFile = effectShader->greyscaleTexture.get(); break;
+    //            case 4: outTexFile = effectShader->envMapTexture.get(); break;
+    //            case 5: outTexFile = effectShader->envMaskTexture.get(); break;
+    //        }
+
+    //        return 2;
+    //    }
+    //}
+    
 };
 
 NIFLY_API const char* getShaderBlockName(void* nifref, void* shaperef) {
-    /* Return value: Name of the shader block property, e.g. "BSLightingShaderProperty"
-    * Read-only
+    /* Returns name of the shader block property, e.g. "BSLightingShaderProperty"
+    * Return value is null if shader is not BSLightingShader or BSEffectShader.
     */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
 
     NiShader* shader = nif->GetShader(shape);
-    return shader->BlockName;
+    const char* blockName = nullptr;
+ 
+    if (shader) {
+        BSLightingShaderProperty* sp = dynamic_cast<BSLightingShaderProperty*>(shader);
+        if (sp)
+            blockName = sp->BlockName;
+        else {
+            BSEffectShaderProperty* ep = dynamic_cast<BSEffectShaderProperty*>(shader);
+            if (ep)
+                blockName = ep->BlockName;
+        }
+    };
+    
+    return blockName;
 };
 
 NIFLY_API uint32_t getShaderType(void* nifref, void* shaperef) {
 /*
-    Return value: 0 = no shader; anything else is the shader type
+    Return value: 0 = no shader or not a LSLightingShader; anything else is the shader type
 */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
@@ -932,18 +965,18 @@ NIFLY_API int getEffectShaderAttrs(void* nifref, void* shaperef, struct BSESPAtt
     buf->UV_Scale_U = shader->GetUVScale().u;
     buf->UV_Scale_V = shader->GetUVScale().v;
     buf->Tex_Clamp_Mode = bsesp->textureClampMode;
-    //buf->Lighting_Influence = bsesp->lightingInfluence;
+    //buf->Lighting_Influence = bsesp->light;
     //buf->Env_Map_Min_LOD = bsesp->getEnvmapMinLOD();
-    //buf->Falloff_Start_Angle = bsesp->GetFalloffStartAngle();
-    //buf->Falloff_Stop_Angle = bsesp->GetFalloffStartAngle();
-    //buf->Falloff_Start_Opacity = bsesp->GetFalloffStartAngle();
-    //buf->Falloff_Stop_Opacity = bsesp->GetFalloffStartAngle();
+    buf->Falloff_Start_Angle = bsesp->falloffStartAngle;
+    buf->Falloff_Stop_Angle = bsesp->falloffStopAngle;
+    buf->Falloff_Start_Opacity = bsesp->falloffStartOpacity;
+    buf->Falloff_Stop_Opacity = bsesp->falloffStopOpacity;
     buf->Emissive_Color_R = shader->GetEmissiveColor().r;
     buf->Emissive_Color_G = shader->GetEmissiveColor().g;
     buf->Emissive_Color_B = shader->GetEmissiveColor().b;
     buf->Emissive_Color_A = shader->GetEmissiveColor().a;
     buf->Emissmive_Mult = shader->GetEmissiveMultiple();
-    //buf->Soft_Falloff_Depth = bsesp->softFalloffDepth;
+    buf->Soft_Falloff_Depth = bsesp->softFalloffDepth;
     buf->Env_Map_Scale = shader->GetEnvironmentMapScale();
 
     return 0;
@@ -1058,9 +1091,9 @@ NIFLY_API void setShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* b
     //buf->UV_Offset_V = shader->GetUVOffset().v;
     //buf->UV_Scale_U = shader->GetUVScale().u;
     //buf->UV_Scale_V = shader->GetUVScale().v;
-    Color4 col = Color4(buf->Emissive_Color_R, 
-        buf->Emissive_Color_G, 
-        buf->Emissive_Color_B, 
+    Color4 col = Color4(buf->Emissive_Color_R,
+        buf->Emissive_Color_G,
+        buf->Emissive_Color_B,
         buf->Emissive_Color_A);
     shader->SetEmissiveColor(col);
     shader->SetEmissiveMultiple(buf->Emissmive_Mult);
@@ -1081,6 +1114,41 @@ NIFLY_API void setShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* b
         bslsp->skinTintColor[0] = buf->Skin_Tint_Color_R;
         bslsp->skinTintColor[1] = buf->Skin_Tint_Color_G;
         bslsp->skinTintColor[2] = buf->Skin_Tint_Color_B;
+    };
+};
+
+NIFLY_API void setEffectShaderAttrs(void* nifref, void* shaperef, struct BSESPAttrs* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    NiShader* shader = nif->GetShader(shape);;
+    BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
+    BSEffectShaderProperty* bsesp= dynamic_cast<BSEffectShaderProperty*>(shader);
+    NiTexturingProperty* txtProp = nif->GetTexturingProperty(shape);
+
+    if (bssh) {
+        bssh->shaderFlags1 = buf->Shader_Flags_1;
+        bssh->shaderFlags2 = buf->Shader_Flags_2;
+    };
+    Color4 col = Color4(buf->Emissive_Color_R,
+        buf->Emissive_Color_G,
+        buf->Emissive_Color_B,
+        buf->Emissive_Color_A);
+    shader->SetEmissiveColor(col);
+    shader->SetEmissiveMultiple(buf->Emissmive_Mult);
+    if (txtProp) {
+        NiSyncVector<ShaderTexDesc>* txtdesc = &txtProp->shaderTex;
+        //txtdesc->data.clampMode = buf->Tex_Clamp_Mode;
+    };
+    //shader->SetAlpha(buf->Alpha);
+    if (bsesp) {
+        bsesp->textureClampMode = buf->Tex_Clamp_Mode;
+        bsesp->falloffStartAngle = buf->Falloff_Start_Angle;
+        bsesp->falloffStopAngle = buf->Falloff_Stop_Angle;
+        bsesp->falloffStartOpacity = buf->Falloff_Start_Opacity;
+        bsesp->falloffStopOpacity = buf->Falloff_Stop_Opacity;
+        bsesp->softFalloffDepth = buf->Soft_Falloff_Depth;
+        bsesp->envMapScale = buf->Env_Map_Scale;
     };
 };
 
