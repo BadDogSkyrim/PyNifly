@@ -255,15 +255,16 @@ NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 
 			if (options & 4) {
 				// Make a BSEffectShader
-				//auto nifShader = std::make_unique<BSEffectShaderProperty>(version);
-				//nifShader->SetSkinned(false);
+				auto nifShader = std::make_unique<BSEffectShaderProperty>();
 
-				//int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
-				//nifBSTriShape->ShaderPropertyRef()->index = shaderID;
-				//shapeResult = nifBSTriShape.get();
+				nifShader->SetSkinned(false);
 
-				//int shapeID = nif->GetHeader().AddBlock(std::move(nifBSTriShape));
-				//rootNode->childRefs.AddBlockRef(shapeID);
+				int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
+				nifBSTriShape->ShaderPropertyRef()->index = shaderID;
+				shapeResult = nifBSTriShape.get();
+
+				int shapeID = nif->GetHeader().AddBlock(std::move(nifBSTriShape));
+				rootNode->childRefs.AddBlockRef(shapeID);
 			}
 			else {
 				// Make a BSLightingShader
@@ -295,7 +296,7 @@ NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 
 			if (options & 4) {
 				// Make a BSEffectShader
-				auto nifShader = std::make_unique<BSEffectShaderProperty>(version);
+				auto nifShader = std::make_unique<BSEffectShaderProperty>();
 				nifShader->SetSkinned(false);
 
 				int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
