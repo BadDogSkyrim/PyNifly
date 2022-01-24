@@ -2359,7 +2359,7 @@ namespace NiflyDLLTests
 			BSESPAttrs attrs;
 			Assert::AreEqual(getEffectShaderAttrs(nif, shape, &attrs), 0, L"ERROR: Could not retrieve shader attributes");
 			Assert::IsTrue(attrs.Emissmive_Mult == 1.0, L"ERROR: Emissive multiple wrong");
-			//Assert::IsTrue(attrs.Tex_Clamp_Mode == 3, L"ERROR: Texture clamp mode wrong");
+			Assert::IsTrue(attrs.Soft_Falloff_Depth == 100.0, L"ERROR: Soft falloff depth wrong");
 
 			char diff[256];
 			char env[256];
