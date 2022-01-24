@@ -1727,7 +1727,7 @@ namespace NiflyDLLTests
 			Assert::IsTrue(shaderAttr.Shader_Type == uint32_t(BSLSPShaderType::Face_Tint));
 			Assert::IsTrue(shaderAttr.Glossiness == 33.0, L"Error: Glossiness value");
 
-			// Can write head back out
+			// Can write them back out
 
 			std::filesystem::path testfileO = testRoot / "Out" / "testWrapper_Shaders01.nif";
 
@@ -2302,6 +2302,27 @@ namespace NiflyDLLTests
 			void* shapescheck[10];
 			void* nifcheck = load((testRoot / "Out/writeBadPartitions.nif").u8string().c_str());
 			getShapes(nifcheck, shapescheck, 10, 0);
+		};
+		TEST_METHOD(readWriteGlass) {
+			/* Test we can read and write BSEffectShaderProperty, used for glass */
+			void* shapes[10];
+			void* nif = load((testRoot / "FO4/Helmet.nif").u8string().c_str());
+			getShapes(nif, shapes, 10, 0);
+
+			void* shape = shapes[0];
+			AlphaPropertyBuf alpha;
+			bool hasAlpha = getAlphaProperty(nif, shape, &alpha);
+			char shaderName[256];
+			getShaderName(nif, shape, shaderName, 256);
+
+			Assert::IsTrue(strcmp(getShaderBlockName(nif, shape), "BSEffectShaderProperty") == 0, 
+				L"Error did not find BSEffectShaderProperty");
+
+			Assert::IsTrue(strcmp(shaderName, "Materials\\Armor\\FlightHelmet\\glass.BGEM") == 0, L"Error: Not the right shader");
+			Assert::IsTrue(hasAlpha, L"Error: Should have alpha property");
+			Assert::IsTrue(alpha.flags == 4333, L"Error: Flags not correct");
+			Assert::IsTrue(alpha.threshold == 128, L"Error: Threshold not correct");
+
 		};
 	};
 }

@@ -20,7 +20,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 1, 10, 0 };
+const int NiflyDDLVersion[3] = { 1, 11, 0 };
  
 using namespace nifly;
 
@@ -369,6 +369,7 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     * triCount = # of tris in the tris list (buffer is 3x as long)
     * optionsPtr == 1: Create SSE head part (so use BSDynamicTriShape)
     *            == 2: Create FO4 BSTriShape (default is BSSubindexTriShape)
+    *            == 4: Create FO4 BSEffectShaderProperty
     *            may be omitted
     */
 {
@@ -794,7 +795,43 @@ NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, 
     }
 
     return static_cast<int>(texture.length());
-}
+
+    /* HOW OS RETURNS A PARTICULAR TEXTURE SLOT:
+    * int NifFile::GetTextureSlot(NiShader* shader, std::string& outTexFile, int texIndex) const 
+    * 
+    auto textureSet = hdr.GetBlock(shader->TextureSetRef());
+    if (textureSet && texIndex + 1 <= textureSet->textures.vec.size()) {
+        outTexFile = textureSet->textures.vec[texIndex].get();
+        return 1;
+    }
+
+    if (!textureSet) {
+        auto effectShader = dynamic_cast<BSEffectShaderProperty*>(shader);
+        if (effectShader) {
+            switch (texIndex) {
+                case 0: outTexFile = effectShader->sourceTexture.get(); break;
+                case 1: outTexFile = effectShader->normalTexture.get(); break;
+                case 3: outTexFile = effectShader->greyscaleTexture.get(); break;
+                case 4: outTexFile = effectShader->envMapTexture.get(); break;
+                case 5: outTexFile = effectShader->envMaskTexture.get(); break;
+            }
+
+            return 2;
+        }
+    }
+    */
+};
+
+NIFLY_API const char* getShaderBlockName(void* nifref, void* shaperef) {
+    /* Return value: Name of the shader block property, e.g. "BSLightingShaderProperty"
+    * Read-only
+    */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    NiShader* shader = nif->GetShader(shape);
+    return shader->BlockName;
+};
 
 NIFLY_API uint32_t getShaderType(void* nifref, void* shaperef) {
 /*
@@ -811,9 +848,10 @@ NIFLY_API uint32_t getShaderType(void* nifref, void* shaperef) {
         return shader->GetShaderType();
 };
 
-NIFLY_API int getShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* buf) 
-/* 
-    Return value: 0 = success, 1 = no shader 
+NIFLY_API int getShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* buf)
+/*
+    Get attributes for a BSLightingShaderProperty
+    Return value: 0 = success, 1 = no shader, or not a BSLightingShaderProperty
 */
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -825,6 +863,9 @@ NIFLY_API int getShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* bu
 
     BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
     BSLightingShaderProperty* bslsp = dynamic_cast<BSLightingShaderProperty*>(shader);
+
+    if (!bslsp) return 1;
+
     NiTexturingProperty* txtProp = nif->GetTexturingProperty(shape);
 
     FillMemory(buf, sizeof(BSLSPAttrs), 0);
@@ -860,6 +901,50 @@ NIFLY_API int getShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* bu
         buf->Skin_Tint_Color_G = bslsp->skinTintColor[1];
         buf->Skin_Tint_Color_B = bslsp->skinTintColor[2];
     };
+
+    return 0;
+};
+
+NIFLY_API int getEffectShaderAttrs(void* nifref, void* shaperef, struct BSESPAttrs* buf)
+/*
+    Get attributes for a BSEffectShaderProperty
+    Return value: 0 = success, 1 = no shader, or not a BSEffectShaderProperty
+*/
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    NiShader* shader = nif->GetShader(shape);
+
+    if (!shader) return 1;
+
+    BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
+    BSEffectShaderProperty* bsesp = dynamic_cast<BSEffectShaderProperty*>(shader);
+
+    if (!bsesp) return 1;
+
+    FillMemory(buf, sizeof(BSESPAttrs), 0);
+
+    if (bssh) buf->Shader_Flags_1 = bssh->shaderFlags1;
+    if (bssh) buf->Shader_Flags_2 = bssh->shaderFlags2;
+    buf->UV_Offset_U = shader->GetUVOffset().u;
+    buf->UV_Offset_V = shader->GetUVOffset().v;
+    buf->UV_Scale_U = shader->GetUVScale().u;
+    buf->UV_Scale_V = shader->GetUVScale().v;
+    buf->Tex_Clamp_Mode = bsesp->textureClampMode;
+    //buf->Lighting_Influence = bsesp->lightingInfluence;
+    //buf->Env_Map_Min_LOD = bsesp->getEnvmapMinLOD();
+    //buf->Falloff_Start_Angle = bsesp->GetFalloffStartAngle();
+    //buf->Falloff_Stop_Angle = bsesp->GetFalloffStartAngle();
+    //buf->Falloff_Start_Opacity = bsesp->GetFalloffStartAngle();
+    //buf->Falloff_Stop_Opacity = bsesp->GetFalloffStartAngle();
+    buf->Emissive_Color_R = shader->GetEmissiveColor().r;
+    buf->Emissive_Color_G = shader->GetEmissiveColor().g;
+    buf->Emissive_Color_B = shader->GetEmissiveColor().b;
+    buf->Emissive_Color_A = shader->GetEmissiveColor().a;
+    buf->Emissmive_Mult = shader->GetEmissiveMultiple();
+    //buf->Soft_Falloff_Depth = bsesp->softFalloffDepth;
+    buf->Env_Map_Scale = shader->GetEnvironmentMapScale();
 
     return 0;
 };
@@ -930,6 +1015,29 @@ NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex,
     std::string texture = buf;
 
     nif->SetTextureSlot(shape, texture, slotIndex);
+
+/* HOW OS SETS TEXTURE SLOT
+void NifFile::SetTextureSlot(NiShader* shader, std::string& inTexFile, int texIndex) {
+    auto textureSet = hdr.GetBlock(shader->TextureSetRef());
+    if (textureSet && texIndex + 1 <= textureSet->textures.vec.size()) {
+        textureSet->textures.vec[texIndex].get() = inTexFile;
+        return;
+    }
+
+    if (!textureSet) {
+        auto effectShader = dynamic_cast<BSEffectShaderProperty*>(shader);
+        if (effectShader) {
+            switch (texIndex) {
+                case 0: effectShader->sourceTexture.get() = inTexFile; break;
+                case 1: effectShader->normalTexture.get() = inTexFile; break;
+                case 3: effectShader->greyscaleTexture.get() = inTexFile; break;
+                case 4: effectShader->envMapTexture.get() = inTexFile; break;
+                case 5: effectShader->envMaskTexture.get() = inTexFile; break;
+            }
+        }
+    }
+}
+*/
 }
 
 NIFLY_API void setShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* buf) {

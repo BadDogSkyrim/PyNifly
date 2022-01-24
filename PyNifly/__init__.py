@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (1, 10, 0),  
+    "version": (1, 11, 0),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -647,19 +647,21 @@ def mesh_create_partition_groups(the_shape, the_object):
 
 
 def import_colors(mesh, shape):
-    if len(shape.colors) > 0:
-        log.debug(f"..Importing vertex colors for {shape.name}")
-        clayer = mesh.vertex_colors.new()
-        alphlayer = mesh.vertex_colors.new()
-        alphlayer.name = ALPHA_MAP_NAME
+    try:
+        if shape.colors and len(shape.colors) > 0:
+            log.debug(f"..Importing vertex colors for {shape.name}")
+            clayer = mesh.vertex_colors.new()
+            alphlayer = mesh.vertex_colors.new()
+            alphlayer.name = ALPHA_MAP_NAME
         
-        colors = shape.colors
-        for lp in mesh.loops:
-            c = colors[lp.vertex_index]
-            clayer.data[lp.index].color = (c[0], c[1], c[2], 1.0)
-            alph = colors[lp.vertex_index][3]
-            alphlayer.data[lp.index].color = [alph, alph, alph, 1.0]
-
+            colors = shape.colors
+            for lp in mesh.loops:
+                c = colors[lp.vertex_index]
+                clayer.data[lp.index].color = (c[0], c[1], c[2], 1.0)
+                alph = colors[lp.vertex_index][3]
+                alphlayer.data[lp.index].color = [alph, alph, alph, 1.0]
+    except:
+        log.error(f"ERROR: Could not read colors on shape {shape.name}")
 
 class NifImporter():
     """Does the work of importing a nif, independent of Blender's operator interface"""
