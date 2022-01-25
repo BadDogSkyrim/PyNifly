@@ -389,6 +389,20 @@ void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
 		std::string txtstr2 = txt2;
 		Assert::IsTrue(txtstr1 == txtstr2, L"Expected same texture in slot");
 	};
+
+	const char *blockName1;
+	const char *blockName2;
+	blockName1 = getShaderBlockName(nif1, shape1);
+	blockName2 = getShaderBlockName(nif2, shape2);
+	Assert::IsTrue(strcmp(blockName1, blockName2) == 0, L"Expected matching shader blocks");
+
+	char name1[500];
+	char name2[500];
+	getShaderName(nif1, shape1, name1, 500);
+	getShaderName(nif2, shape2, name2, 500);
+
+	Assert::IsTrue(strcmp(name1, name2) == 0, L"Expected matching shader name");
+
 	uint32_t f1_1 = getShaderFlags1(nif1, shape1);
 	uint32_t f1_2 = getShaderFlags1(nif2, shape2);
 
@@ -399,43 +413,61 @@ void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
 
 	Assert::IsTrue(f2_1 == f2_2, L"ShaderFlags2 not identicial");
 
-	char name1[500];
-	char name2[500];
-	getShaderName(nif1, shape1, name1, 500);
-	getShaderName(nif2, shape2, name2, 500);
+	if (strcmp(blockName1, "BSLightingShaderProperty") == 0) {
+		BSLSPAttrs shaderAttr1, shaderAttr2;
+		getShaderAttrs(nif1, shape1, &shaderAttr1);
+		getShaderAttrs(nif2, shape2, &shaderAttr2);
 
-	Assert::IsTrue(strcmp(name1, name2) == 0, L"Expected matching shader name");
+		Assert::IsTrue(shaderAttr1.Shader_Type == shaderAttr2.Shader_Type);
+		Assert::IsTrue(shaderAttr1.Shader_Flags_1 == shaderAttr2.Shader_Flags_1);
+		Assert::IsTrue(shaderAttr1.Shader_Flags_2 == shaderAttr2.Shader_Flags_2);
+		Assert::IsTrue(shaderAttr1.Tex_Clamp_Mode == shaderAttr2.Tex_Clamp_Mode);
+		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Offset_U, shaderAttr2.UV_Offset_U));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Offset_V, shaderAttr2.UV_Offset_V));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Scale_U, shaderAttr2.UV_Scale_U));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Scale_V, shaderAttr2.UV_Scale_V));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_R, shaderAttr2.Emissive_Color_R));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_G, shaderAttr2.Emissive_Color_G));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_B, shaderAttr2.Emissive_Color_B));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_A, shaderAttr2.Emissive_Color_A));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissmive_Mult, shaderAttr2.Emissmive_Mult));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Alpha, shaderAttr2.Alpha));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Refraction_Str, shaderAttr2.Refraction_Str));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Glossiness, shaderAttr2.Glossiness));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Color_R, shaderAttr2.Spec_Color_R));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Color_G, shaderAttr2.Spec_Color_G));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Color_B, shaderAttr2.Spec_Color_B));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Str, shaderAttr2.Spec_Str));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Soft_Lighting, shaderAttr2.Soft_Lighting));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Rim_Light_Power, shaderAttr2.Rim_Light_Power));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Alpha, shaderAttr2.Skin_Tint_Alpha));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_R, shaderAttr2.Skin_Tint_Color_R));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_G, shaderAttr2.Skin_Tint_Color_G));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_B, shaderAttr2.Skin_Tint_Color_B));
+	}
+	else if (strcmp(blockName1, "BSEffectShaderProperty") == 0) {
+		BSESPAttrs shaderAttr1, shaderAttr2;
+		getEffectShaderAttrs(nif1, shape1, &shaderAttr1);
+		getEffectShaderAttrs(nif2, shape2, &shaderAttr2);
 
-	BSLSPAttrs shaderAttr1, shaderAttr2;
-	getShaderAttrs(nif1, shape1, &shaderAttr1);
-	getShaderAttrs(nif2, shape2, &shaderAttr2);
-
-	Assert::IsTrue(shaderAttr1.Shader_Type == shaderAttr2.Shader_Type);
-	Assert::IsTrue(shaderAttr1.Shader_Flags_1 == shaderAttr2.Shader_Flags_1);
-	Assert::IsTrue(shaderAttr1.Shader_Flags_2 == shaderAttr2.Shader_Flags_2);
-	Assert::IsTrue(shaderAttr1.Tex_Clamp_Mode == shaderAttr2.Tex_Clamp_Mode);
-	Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Offset_U, shaderAttr2.UV_Offset_U));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Offset_V, shaderAttr2.UV_Offset_V));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Scale_U, shaderAttr2.UV_Scale_U));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Scale_V, shaderAttr2.UV_Scale_V));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_R, shaderAttr2.Emissive_Color_R));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_G, shaderAttr2.Emissive_Color_G));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_B, shaderAttr2.Emissive_Color_B));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_A, shaderAttr2.Emissive_Color_A));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Emissmive_Mult, shaderAttr2.Emissmive_Mult));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Alpha, shaderAttr2.Alpha));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Refraction_Str, shaderAttr2.Refraction_Str));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Glossiness, shaderAttr2.Glossiness));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Color_R, shaderAttr2.Spec_Color_R));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Color_G, shaderAttr2.Spec_Color_G));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Color_B, shaderAttr2.Spec_Color_B));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Str, shaderAttr2.Spec_Str));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Soft_Lighting, shaderAttr2.Soft_Lighting));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Rim_Light_Power, shaderAttr2.Rim_Light_Power));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Alpha, shaderAttr2.Skin_Tint_Alpha));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_R, shaderAttr2.Skin_Tint_Color_R));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_G, shaderAttr2.Skin_Tint_Color_G));
-	Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_B, shaderAttr2.Skin_Tint_Color_B));
+		Assert::IsTrue(shaderAttr1.Shader_Flags_1 == shaderAttr2.Shader_Flags_1);
+		Assert::IsTrue(shaderAttr1.Shader_Flags_2 == shaderAttr2.Shader_Flags_2);
+		Assert::IsTrue(shaderAttr1.Tex_Clamp_Mode == shaderAttr2.Tex_Clamp_Mode);
+		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Offset_U, shaderAttr2.UV_Offset_U));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Offset_V, shaderAttr2.UV_Offset_V));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Scale_U, shaderAttr2.UV_Scale_U));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Scale_V, shaderAttr2.UV_Scale_V));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_R, shaderAttr2.Emissive_Color_R));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_G, shaderAttr2.Emissive_Color_G));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_B, shaderAttr2.Emissive_Color_B));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_A, shaderAttr2.Emissive_Color_A));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissmive_Mult, shaderAttr2.Emissmive_Mult));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Falloff_Start_Angle, shaderAttr2.Falloff_Start_Angle));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Falloff_Start_Opacity, shaderAttr2.Falloff_Start_Opacity));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Falloff_Stop_Angle, shaderAttr2.Falloff_Stop_Angle));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Falloff_Stop_Opacity, shaderAttr2.Falloff_Stop_Opacity));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Soft_Falloff_Depth, shaderAttr2.Soft_Falloff_Depth));
+	};
 
 	AlphaPropertyBuf alpha1;
 	AlphaPropertyBuf alpha2;
@@ -457,19 +489,18 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 	getShaderName(sourceNif, sourceShape, shaderName, 500);
 	setShaderName(targetNif, targetShape, shaderName);
 
-	//uint32_t st = getShaderType(sourceNif, sourceShape);
-	//setShaderType(targetNif, targetShape, st);
+	const char* shaderBlock = getShaderBlockName(sourceNif, sourceShape);
 
-	//uint32_t f1 = getShaderFlags1(sourceNif, sourceShape);
-	//uint32_t f2 = getShaderFlags2(sourceNif, sourceShape);
-
-	//setShaderFlags1(targetNif, targetShape, f1);
-	//setShaderFlags2(targetNif, targetShape, f2);
-
-	BSLSPAttrs shaderAttr;
-	getShaderAttrs(sourceNif, sourceShape, &shaderAttr);
-	setShaderAttrs(targetNif, targetShape, &shaderAttr);
-
+	if (strcmp(shaderBlock, "BSLightingShaderProperty") == 0) {
+		BSLSPAttrs shaderAttr;
+		getShaderAttrs(sourceNif, sourceShape, &shaderAttr);
+		setShaderAttrs(targetNif, targetShape, &shaderAttr);
+	}
+	else if (strcmp(shaderBlock, "BSEffectShaderProperty") == 0) {
+		BSESPAttrs shaderAttr;
+		getEffectShaderAttrs(sourceNif, sourceShape, &shaderAttr);
+		setEffectShaderAttrs(targetNif, targetShape, &shaderAttr);
+	};
 	AlphaPropertyBuf alpha;
 	if (getAlphaProperty(sourceNif, sourceShape, &alpha))
 		setAlphaProperty(targetNif, targetShape, &alpha);
@@ -1727,7 +1758,7 @@ namespace NiflyDLLTests
 			Assert::IsTrue(shaderAttr.Shader_Type == uint32_t(BSLSPShaderType::Face_Tint));
 			Assert::IsTrue(shaderAttr.Glossiness == 33.0, L"Error: Glossiness value");
 
-			// Can write head back out
+			// Can write them back out
 
 			std::filesystem::path testfileO = testRoot / "Out" / "testWrapper_Shaders01.nif";
 
@@ -2302,6 +2333,68 @@ namespace NiflyDLLTests
 			void* shapescheck[10];
 			void* nifcheck = load((testRoot / "Out/writeBadPartitions.nif").u8string().c_str());
 			getShapes(nifcheck, shapescheck, 10, 0);
+		};
+		TEST_METHOD(readWriteGlass) {
+			/* Test we can read and write BSEffectShaderProperty, used for glass */
+			void* shapes[10];
+			void* nif = load((testRoot / "FO4/Helmet.nif").u8string().c_str());
+			getShapes(nif, shapes, 10, 0);
+
+			void* shape = shapes[0];
+			AlphaPropertyBuf alpha;
+			bool hasAlpha = getAlphaProperty(nif, shape, &alpha);
+			char shaderName[256];
+			getShaderName(nif, shape, shaderName, 256);
+			const char* blockName;
+			blockName = getShaderBlockName(nif, shape);
+
+			Assert::IsTrue(strcmp(blockName, "BSEffectShaderProperty") == 0, 
+				L"Error did not find BSEffectShaderProperty");
+
+			Assert::IsTrue(strcmp(shaderName, "Materials\\Armor\\FlightHelmet\\glass.BGEM") == 0, L"Error: Not the right shader");
+			Assert::IsTrue(hasAlpha, L"Error: Should have alpha property");
+			Assert::IsTrue(alpha.flags == 4333, L"Error: Flags not correct");
+			Assert::IsTrue(alpha.threshold == 128, L"Error: Threshold not correct");
+
+			BSESPAttrs attrs;
+			Assert::AreEqual(getEffectShaderAttrs(nif, shape, &attrs), 0, L"ERROR: Could not retrieve shader attributes");
+			Assert::IsTrue(attrs.Emissmive_Mult == 1.0, L"ERROR: Emissive multiple wrong");
+			Assert::IsTrue(attrs.Soft_Falloff_Depth == 100.0, L"ERROR: Soft falloff depth wrong");
+
+			char diff[256];
+			char env[256];
+			char norm[256];
+			char mask[256];
+			Assert::AreNotEqual(getShaderTextureSlot(nif, shape, 0, diff, 256), 0, L"ERROR: getting diffuse texture");
+			Assert::AreNotEqual(getShaderTextureSlot(nif, shape, 4, env, 256), 0, L"ERROR: getting env map texture");
+			Assert::AreNotEqual(getShaderTextureSlot(nif, shape, 1, norm, 256), 0, L"ERROR: getting normal map texture");
+			Assert::AreNotEqual(getShaderTextureSlot(nif, shape, 5, mask, 256), 0, L"ERROR: getting env mask texture");
+
+			Assert::IsTrue(strcmp(diff, "Armor/FlightHelmet/Helmet_03_d.dds") == 0, L"ERROR: diffuse texture string not correct");
+			Assert::IsTrue(strcmp(env, "shared/cubemaps/shinyglass_e.dds") == 0, L"ERROR: env map texture string not correct");
+			Assert::IsTrue(strcmp(norm, "Armor/FlightHelmet/Helmet_03_n.dds") == 0, L"ERROR: normal map texture string not correct");
+			Assert::IsTrue(strcmp(mask, "Armor/FlightHelmet/Helmet_03_s.dds") == 0, L"ERROR: env mask texture string not correct");
+
+			/* ------------------------------------ */
+			/* Can write effects shaders out to nif */
+
+			std::filesystem::path testfileO = testRoot / "Out" / "testWrapper_readWriteGlass.nif";
+
+			void* nifOut = createNif("FO4");
+			void* skin;
+			uint16_t options = 4; // Create BSEffectShaderTYpe
+			void* shapeOut = TCopyShape(nifOut, "glass:0", nif, shape, options, &skin);
+			TCopyShader(nifOut, shapeOut, nif, shape);
+
+			saveSkinnedNif(skin, testfileO.u8string().c_str());
+
+			// Checkhat we wrote is correct
+
+			void* nifTest = load(testfileO.u8string().c_str());
+			void* shapesTest[10];
+			int shapeCount = getShapes(nifTest, shapesTest, 10, 0);
+
+			TCompareShaders(nif, shape, nifTest, shapesTest[0]);
 		};
 	};
 }

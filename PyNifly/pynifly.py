@@ -114,6 +114,76 @@ class BSLSPAttrs(Structure):
 
 BSLSPAttrs_p = POINTER(BSLSPAttrs)
 
+class BSESPAttrs(Structure):
+    _fields_ = [
+	    ('Shader_Flags_1', c_uint32),
+	    ('Shader_Flags_2', c_uint32),
+	    ('UV_Offset_U', c_float),
+	    ('UV_Offset_V', c_float),
+	    ('UV_Scale_U', c_float),
+	    ('UV_Scale_V', c_float),
+	    ('Tex_Clamp_Mode', c_uint32),
+        ('Lighting_Influence', c_char),
+        ('Env_Map_Min_LOD', c_char),
+	    ('Falloff_Start_Angle', c_uint32),
+	    ('Falloff_Stop_Angle', c_uint32),
+	    ('Falloff_Start_Opacity', c_uint32),
+	    ('Falloff_Stop_Opacity', c_uint32),
+	    ('Emissive_Color_R', c_float),
+	    ('Emissive_Color_G', c_float),
+	    ('Emissive_Color_B', c_float),
+	    ('Emissive_Color_A', c_float),
+	    ('Emissive_Mult', c_float),
+	    ('Soft_Falloff_Depth', c_uint32),
+	    ('Env_Map_Scale', c_uint32)
+        ]
+    def __str__(self):
+        s = ""
+        for attr in self._fields_:
+            if len(s) > 0:
+                s = s + "\n"
+            s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
+        return s
+
+    def __eq__(self, other):
+        return (self.Shader_Flags_1 == other.Shader_Flags_1) and \
+            (self.Shader_Flags_2 == other.Shader_Flags_2) and \
+            (round(self.UV_Offset_U, 4) == round(other.UV_Offset_U, 4)) and \
+            (round(self.UV_Offset_V, 4) == round(other.UV_Offset_V, 4)) and \
+            (round(self.UV_Scale_U, 4) == round(other.UV_Scale_U, 4)) and \
+            (round(self.UV_Scale_V, 4) == round(other.UV_Scale_V, 4)) and \
+            (round(self.Emissive_Color_R, 4) == round(other.Emissive_Color_R, 4)) and \
+            (round(self.Emissive_Color_G, 4) == round(other.Emissive_Color_G, 4)) and \
+            (round(self.Emissive_Color_B, 4) == round(other.Emissive_Color_B, 4)) and \
+            (round(self.Emissive_Color_A, 4) == round(other.Emissive_Color_A, 4)) and \
+            (round(self.Emissive_Mult, 4) == round(other.Emissive_Mult, 4)) and \
+            (self.Tex_Clamp_Mode == other.Tex_Clamp_Mode) and \
+            (self.Falloff_Start_Angle == other.Falloff_Start_Angle) and \
+            (self.Falloff_Stop_Angle == other.Falloff_Stop_Angle) and \
+            (self.Falloff_Start_Opacity == other.Falloff_Start_Opacity) and \
+            (self.Falloff_Stop_Opacity == other.Falloff_Stop_Opacity) and \
+            (self.Soft_Falloff_Depth == other.Soft_Falloff_Depth) 
+
+    def shaderflags1_test(self, flag):
+        return (self.Shader_Flags_1 & flag) != 0
+
+    def shaderflags1_set(self, flag):
+        self.Shader_Flags_1 |= flag.value
+
+    def shaderflags1_clear(self, flag):
+        self.Shader_Flags_1 &= ~flag.value
+
+    def shaderflags2_test(self, flag):
+        return (self.Shader_Flags_2 & flag) != 0
+
+    def shaderflags2_set(self, flag):
+        self.Shader_Flags_2 |= flag.value
+
+    def shaderflags2_clear(self, flag):
+        self.Shader_Flags_2 &= ~flag.value
+
+BSESPAttrs_p = POINTER(BSESPAttrs)
+
 class BSLSPShaderType(IntFlag):
     Default = 0
     Environment_Map = 1
@@ -236,6 +306,8 @@ def load_nifly(nifly_path):
     nifly.getBoneSkinToBoneXform.restype = None 
     nifly.getColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getColorsForShape.restype = c_int
+    nifly.getEffectShaderAttrs.argtypes = [c_void_p, c_void_p, BSESPAttrs_p]
+    nifly.getEffectShaderAttrs.restype = c_int
     nifly.getGameName.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getGameName.restype = c_int
     nifly.getGlobalToSkin.argtypes = [c_void_p, c_void_p, c_void_p]
@@ -270,6 +342,8 @@ def load_nifly(nifly_path):
     nifly.getSegments.restype = c_int
     nifly.getShaderAttrs.argtypes = [c_void_p, c_void_p, BSLSPAttrs_p]
     nifly.getShaderAttrs.restype = c_int
+    nifly.getShaderBlockName.argtypes = [c_void_p, c_void_p]
+    nifly.getShaderBlockName.restype = c_char_p
     nifly.getShaderFlags1.argtypes = [c_void_p, c_void_p]
     nifly.getShaderFlags1.restype = c_uint32
     nifly.getShaderName.argtypes = [c_void_p, c_void_p, c_char_p, c_int]
@@ -338,6 +412,8 @@ def load_nifly(nifly_path):
     nifly.segmentCount.restype = c_int
     nifly.setAlphaProperty.argtypes = [c_void_p, c_void_p, AlphaPropertyBuf_p]
     nifly.setAlphaProperty.restype = None
+    nifly.setEffectShaderAttrs.argtypes = [c_void_p, c_void_p, POINTER(BSESPAttrs)]
+    nifly.setEffectShaderAttrs.restype = None
     nifly.setColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.setColorsForShape.restype = None
     nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p]
@@ -919,6 +995,14 @@ class NiShape:
         return self._uvs
     
     @property
+    def shader_block_name(self):
+        b = NifFile.nifly.getShaderBlockName(self.parent._handle, self._handle)
+        if b:
+            return b.decode('utf-8')
+        else:
+            return ''
+
+    @property
     def shader_name(self):
         if self._shader_name is None:
             buf = (c_char * 500)()
@@ -959,18 +1043,32 @@ class NiShape:
     @property
     def shader_attributes(self):
         if self._shader_attrs is None:
-            buf = BSLSPAttrs()
-            if NifFile.nifly.getShaderAttrs(self.parent._handle, self._handle, 
-                                            byref(buf)) == 0:
-                self._shader_attrs = buf
+            if self.shader_block_name == "BSLightingShaderProperty":
+                buf = BSLSPAttrs()
+                if NifFile.nifly.getShaderAttrs(self.parent._handle, self._handle, 
+                                                byref(buf)) == 0:
+                    self._shader_attrs = buf
+                else:
+                    self._shader_attrs = BSLSPAttrs()
+            elif self.shader_block_name == "BSEffectShaderProperty":
+                buf = BSESPAttrs()
+                if NifFile.nifly.getEffectShaderAttrs(self.parent._handle, self._handle,
+                                                      byref(buf)) == 0:
+                    self._shader_attrs = buf
+                else:
+                    self._shader_attrs = BSESPAttrs()
             else:
                 self._shader_attrs = BSLSPAttrs()
         return self._shader_attrs
 
     def save_shader_attributes(self):
         if self._shader_attrs:
-            NifFile.nifly.setShaderAttrs(self.parent._handle, self._handle,
-                                         byref(self._shader_attrs))
+            if type(self._shader_attrs) == BSLSPAttrs:
+                NifFile.nifly.setShaderAttrs(self.parent._handle, self._handle,
+                                             byref(self._shader_attrs))
+            else:
+                NifFile.nifly.setEffectShaderAttrs(self.parent._handle, self._handle,
+                                                   byref(self._shader_attrs))
 
     @property
     def has_alpha_property(self):
@@ -1326,7 +1424,7 @@ class NifFile:
             NifFile.nifly.saveNif(self._handle, self.filepath.encode('utf-8'))
 
     def createShapeFromData(self, shape_name, verts, tris, uvs, normals, 
-                            is_headpart=False, is_skinned=False):
+                            is_headpart=False, is_skinned=False, is_effectsshader=False):
         """ Create the shape from the data provided
             shape_name = Name of shape
             verts = [(x, y, z)...] vertex location
@@ -1353,7 +1451,8 @@ class NifFile:
         for i, u in enumerate(uvs): uvbuf[i] = (u[0], 1-u[1])
         optbuf = (c_uint16 * 1)()
         optbuf[0] = (1 if is_headpart else 0) \
-            + (2 if not is_skinned else 0)
+            + (2 if not is_skinned else 0) \
+            + (4 if is_effectsshader else 0)
         shape_handle = NifFile.nifly.createNifShapeFromData(
             self._handle, 
             shape_name.encode('utf-8'), 
@@ -1558,19 +1657,22 @@ TEST_MUTANT = False
 TEST_BONE_XPORT_POS = False
 TEST_CLOTH_DATA = False
 TEST_PARTITION_SM = False
-TEST_EXP_BODY = True
+TEST_EXP_BODY = False
+TEST_EFFECT_SHADER = True
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
     """ Convenience routine to copy existing shape """
     skinned = (len(old_shape.bone_weights) > 0)
+    effectsshader = (type(old_shape.shader_attributes) == BSESPAttrs)
 
     new_shape = new_nif.createShapeFromData(old_shape.name + ".Out", 
                                             old_shape.verts,
                                             old_shape.tris,
                                             old_shape.uvs,
                                             old_shape.normals,
-                                            is_skinned=skinned)
+                                            is_skinned=skinned, 
+                                            is_effectsshader=effectsshader)
     new_shape.transform = old_shape.transform.copy()
     if skinned: new_shape.skin()
     oldxform = old_shape.global_to_skin_data
@@ -1588,8 +1690,6 @@ def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
         new_shape.setShapeWeights(bone_name, weights)
 
     new_shape.shader_name = old_shape.shader_name
-
-    new_shape.shader_attributes.Shader_Type = old_shape.shader_attributes.Shader_Type
     new_shape.shader_attributes.Shader_Flags_1 = old_shape.shader_attributes.Shader_Flags_1
     new_shape.shader_attributes.Shader_Flags_2 = old_shape.shader_attributes.Shader_Flags_2
     new_shape.shader_attributes.UV_Offset_U = old_shape.shader_attributes.UV_Offset_U
@@ -1602,19 +1702,28 @@ def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
     new_shape.shader_attributes.Emissive_Color_A = old_shape.shader_attributes.Emissive_Color_A
     new_shape.shader_attributes.Emissive_Mult = old_shape.shader_attributes.Emissive_Mult
     new_shape.shader_attributes.Tex_Clamp_Mode = old_shape.shader_attributes.Tex_Clamp_Mode
-    new_shape.shader_attributes.Alpha = old_shape.shader_attributes.Alpha
-    new_shape.shader_attributes.Refraction_Str = old_shape.shader_attributes.Refraction_Str
-    new_shape.shader_attributes.Glossiness = old_shape.shader_attributes.Glossiness
-    new_shape.shader_attributes.Spec_Color_R = old_shape.shader_attributes.Spec_Color_R
-    new_shape.shader_attributes.Spec_Color_G = old_shape.shader_attributes.Spec_Color_G
-    new_shape.shader_attributes.Spec_Color_B = old_shape.shader_attributes.Spec_Color_B
-    new_shape.shader_attributes.Spec_Str = old_shape.shader_attributes.Spec_Str
-    new_shape.shader_attributes.Soft_Lighting = old_shape.shader_attributes.Soft_Lighting
-    new_shape.shader_attributes.Rim_Light_Power = old_shape.shader_attributes.Rim_Light_Power
-    new_shape.shader_attributes.Skin_Tint_Alpha = old_shape.shader_attributes.Skin_Tint_Alpha
-    new_shape.shader_attributes.Skin_Tint_Color_R = old_shape.shader_attributes.Skin_Tint_Color_R
-    new_shape.shader_attributes.Skin_Tint_Color_G = old_shape.shader_attributes.Skin_Tint_Color_G
-    new_shape.shader_attributes.Skin_Tint_Color_B = old_shape.shader_attributes.Skin_Tint_Color_B
+
+    if effectsshader:
+        new_shape.shader_attributes.Falloff_Start_Angle = old_shape.shader_attributes.Falloff_Start_Angle
+        new_shape.shader_attributes.Falloff_Stop_Angle = old_shape.shader_attributes.Falloff_Stop_Angle
+        new_shape.shader_attributes.Falloff_Start_Opacity = old_shape.shader_attributes.Falloff_Start_Opacity
+        new_shape.shader_attributes.Falloff_Stop_Opacity = old_shape.shader_attributes.Falloff_Stop_Opacity
+        new_shape.shader_attributes.Soft_Falloff_Depth = old_shape.shader_attributes.Soft_Falloff_Depth
+    else:
+        new_shape.shader_attributes.Shader_Type = old_shape.shader_attributes.Shader_Type
+        new_shape.shader_attributes.Alpha = old_shape.shader_attributes.Alpha
+        new_shape.shader_attributes.Refraction_Str = old_shape.shader_attributes.Refraction_Str
+        new_shape.shader_attributes.Glossiness = old_shape.shader_attributes.Glossiness
+        new_shape.shader_attributes.Spec_Color_R = old_shape.shader_attributes.Spec_Color_R
+        new_shape.shader_attributes.Spec_Color_G = old_shape.shader_attributes.Spec_Color_G
+        new_shape.shader_attributes.Spec_Color_B = old_shape.shader_attributes.Spec_Color_B
+        new_shape.shader_attributes.Spec_Str = old_shape.shader_attributes.Spec_Str
+        new_shape.shader_attributes.Soft_Lighting = old_shape.shader_attributes.Soft_Lighting
+        new_shape.shader_attributes.Rim_Light_Power = old_shape.shader_attributes.Rim_Light_Power
+        new_shape.shader_attributes.Skin_Tint_Alpha = old_shape.shader_attributes.Skin_Tint_Alpha
+        new_shape.shader_attributes.Skin_Tint_Color_R = old_shape.shader_attributes.Skin_Tint_Color_R
+        new_shape.shader_attributes.Skin_Tint_Color_G = old_shape.shader_attributes.Skin_Tint_Color_G
+        new_shape.shader_attributes.Skin_Tint_Color_B = old_shape.shader_attributes.Skin_Tint_Color_B
 
     new_shape.save_shader_attributes()
 
@@ -1623,6 +1732,10 @@ def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
         new_shape.alpha_property.flags = old_shape.alpha_property.flags
         new_shape.alpha_property.threshold = old_shape.alpha_property.threshold
         new_shape.save_alpha_property()
+
+    for i, t in enumerate(old_shape.textures):
+        if len(t) > 0:
+            new_shape.set_texture(i, t)
 
     new_shape.behavior_graph_data = old_shape.behavior_graph_data
     new_shape.string_data = old_shape.string_data
@@ -2685,5 +2798,28 @@ if __name__ == "__main__":
 
         assert "ERROR" in NifFile.message_log(), "Error: Expected error message, got '{NifFile.message_log()}'"
         # If no CTD we're good
+
+    if TEST_ALL or TEST_EFFECT_SHADER:
+        print("### TEST_EFFECT_SHADER: Can read and write shader flags")
+        nif = NifFile(r"tests/FO4/Helmet.nif")
+        shape = nif.shapes[0]
+        assert shape.shader_block_name == "BSEffectShaderProperty", f"Expeted BSEffectShaderProperty, got {shape.shader_block_name}"
+        assert shape.shader_attributes.shaderflags1_test(ShaderFlags1.USE_FALLOFF), f"Expected USE_FALLOFF true, got {shape.shader_attributes.shaderflags1_test(ShaderFlags1.USE_FALLOFF)}"
+
+        assert shape.textures[0] == "Armor/FlightHelmet/Helmet_03_d.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_d.dds', got {shape.textures[0]}"
+        assert shape.textures[1] == "Armor/FlightHelmet/Helmet_03_n.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_n.dds', got {shape.textures[1]}"
+        assert shape.textures[5] == "Armor/FlightHelmet/Helmet_03_s.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_s.dds', got {shape.textures[5]}"
+
+        print("### Can read and write shader")
+        nifOut = NifFile()
+        nifOut.initialize('FO4', r"tests\out\TEST_EFFECT_SHADER.nif")
+        _test_export_shape(nif.shapes[0], nifOut)
+        nifOut.save()
+
+        nifTest = NifFile(f"tests\out\TEST_EFFECT_SHADER.nif")
+        assert len(nifTest.shapes) == 1, f"Error: Expected 1 shape, found {len(nifTest.shapes)}"
+        shapeTest = nifTest.shapes[0]
+        attrsTest = shapeTest.shader_attributes
+        assert attrsTest == shape.shader_attributes, f"Error: Expected same shader attributes"
 
 
