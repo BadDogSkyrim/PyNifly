@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = False
-TEST_BPY_ALL = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (1, 10, 0),  
+    "version": (1, 12, 0),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -217,24 +217,40 @@ def import_shader_attrs(material, shader, shape):
         return
 
     try:
-        material['BSLSP_Shader_Type'] = attrs.Shader_Type
+        material['BS_Shader_Block_Name'] = shape.shader_block_name
         material['BSLSP_Shader_Name'] = shape.shader_name
         material['BSLSP_Shader_Flags_1'] = hex(attrs.Shader_Flags_1)
         material['BSLSP_Shader_Flags_2'] = hex(attrs.Shader_Flags_2)
+        material['BSSP_UV_Offset_U'] = attrs.UV_Offset_U
+        material['BSSP_UV_Offset_V'] = attrs.UV_Offset_V
+        material['BSSP_UV_Scale_U'] = attrs.UV_Scale_U
+        material['BSSP_UV_Scale_V'] = attrs.UV_Scale_V
         shader.inputs['Emission'].default_value = (attrs.Emissive_Color_R, attrs.Emissive_Color_G, attrs.Emissive_Color_B, attrs.Emissive_Color_A)
         shader.inputs['Emission Strength'].default_value = attrs.Emissive_Mult
-        shader.inputs['Alpha'].default_value = attrs.Alpha
-        material['BSLSP_Refraction_Str'] = attrs.Refraction_Str
-        shader.inputs['Metallic'].default_value = attrs.Glossiness/GLOSS_SCALE
-        material['BSLSP_Spec_Color_R'] = attrs.Spec_Color_R
-        material['BSLSP_Spec_Color_G'] = attrs.Spec_Color_G
-        material['BSLSP_Spec_Color_B'] = attrs.Spec_Color_B
-        material['BSLSP_Spec_Str'] = attrs.Spec_Str
-        material['BSLSP_Soft_Lighting'] = attrs.Soft_Lighting
-        material['BSLSP_Rim_Light_Power'] = attrs.Rim_Light_Power
-        material['BSLSP_Skin_Tint_Color_R'] = attrs.Skin_Tint_Color_R
-        material['BSLSP_Skin_Tint_Color_G'] = attrs.Skin_Tint_Color_G
-        material['BSLSP_Skin_Tint_Color_B'] = attrs.Skin_Tint_Color_B
+
+        if shape.shader_block_name == 'BSLightingShaderProperty':
+            material['BSLSP_Shader_Type'] = attrs.Shader_Type
+            shader.inputs['Alpha'].default_value = attrs.Alpha
+            material['BSLSP_Refraction_Str'] = attrs.Refraction_Str
+            shader.inputs['Metallic'].default_value = attrs.Glossiness/GLOSS_SCALE
+            material['BSLSP_Spec_Color_R'] = attrs.Spec_Color_R
+            material['BSLSP_Spec_Color_G'] = attrs.Spec_Color_G
+            material['BSLSP_Spec_Color_B'] = attrs.Spec_Color_B
+            material['BSLSP_Spec_Str'] = attrs.Spec_Str
+            material['BSLSP_Soft_Lighting'] = attrs.Soft_Lighting
+            material['BSLSP_Rim_Light_Power'] = attrs.Rim_Light_Power
+            material['BSLSP_Skin_Tint_Color_R'] = attrs.Skin_Tint_Color_R
+            material['BSLSP_Skin_Tint_Color_G'] = attrs.Skin_Tint_Color_G
+            material['BSLSP_Skin_Tint_Color_B'] = attrs.Skin_Tint_Color_B
+        elif shape.shader_block_name == 'BSEffectShaderProperty':
+            shader.inputs['Alpha'].default_value = attrs.FallffStart_Opacity
+            material['BSESP_Falloff_Start_Angle'] = attrs.Falloff_Start_Angle
+            material['BSESP_Falloff_Start_Opacity'] = attrs.Falloff_Start_Opacity
+            material['BSESP_Falloff_Stop_Angle'] = attrs.Falloff_Stop_Opacity
+            material['BSESP_Soft_Fallof_Depth'] = attrs.Soft_Fallof_Depth
+            material['BSESP_Env_Map_Scale'] = attrs.Env_Map_Scale
+            material['BSESP_Tex_Clamp_Mode'] = attrs.Tex_Clamp_mode
+
     except Exception as e:
         # Any errors, print the error but continue
         log.warning(str(e))
@@ -409,42 +425,65 @@ def obj_create_material(obj, shape):
 def export_shader_attrs(obj, shader, shape):
     mat = obj.active_material
 
-    if 'BSLSP_Shader_Type' in mat.keys():
-        shape.shader_attributes.Shader_Type = int(mat['BSLSP_Shader_Type'])
-        log.debug(f"....setting shader type to {shape.shader_attributes.Shader_Type}")
     if 'BSLSP_Shader_Name' in mat.keys() and len(mat['BSLSP_Shader_Name']) > 0:
         shape.shader_name = mat['BSLSP_Shader_Name']
     if 'BSLSP_Shader_Flags_1' in mat.keys():
         shape.shader_attributes.Shader_Flags_1 = int(mat['BSLSP_Shader_Flags_1'], 16)
     if 'BSLSP_Shader_Flags_2' in mat.keys():
         shape.shader_attributes.Shader_Flags_2 = int(mat['BSLSP_Shader_Flags_2'], 16)
+    if 'BSSP_UV_Offset_U' in mat.keys():
+        shape.shader_attributes.UV_Offset_U = mat['BSSP_UV_Offset_U']
+    if 'BSSP_UV_Offset_V' in mat.keys():
+        shape.shader_attributes.UV_Offset_V = mat['BSSP_UV_Offset_V']
+    if 'BSSP_UV_Scale_U' in mat.keys():
+        shape.shader_attributes.UV_Scale_U = mat['BSSP_UV_Scale_U']
+    if 'BSSP_UV_Scale_V' in mat.keys():
+        shape.shader_attributes.UV_Scale_V = mat['BSSP_UV_Scale_V']
     shape.shader_attributes.Emissive_Color_R = shader.inputs['Emission'].default_value[0]
     shape.shader_attributes.Emissive_Color_G = shader.inputs['Emission'].default_value[1]
     shape.shader_attributes.Emissive_Color_B = shader.inputs['Emission'].default_value[2]
     shape.shader_attributes.Emissive_Color_A = shader.inputs['Emission'].default_value[3]
     shape.shader_attributes.Emissive_Mult = shader.inputs['Emission Strength'].default_value
-    shape.shader_attributes.Alpha = shader.inputs['Alpha'].default_value
-    if 'BSLSP_Refraction_Str' in mat.keys():
-        shape.Refraction_Str = mat['BSLSP_Refraction_Str']
-    shape.shader_attributes.Glossiness = shader.inputs['Metallic'].default_value * GLOSS_SCALE
-    if 'BSLSP_Spec_Color_R' in mat.keys():
-        shape.shader_attributes.Spec_Color_R = mat['BSLSP_Spec_Color_R']
-    if 'BSLSP_Spec_Color_G' in mat.keys():
-        shape.shader_attributes.Spec_Color_G = mat['BSLSP_Spec_Color_G']
-    if 'BSLSP_Spec_Color_B' in mat.keys():
-        shape.shader_attributes.Spec_Color_B = mat['BSLSP_Spec_Color_B']
-    if 'BSLSP_Spec_Str' in mat.keys():
-        shape.shader_attributes.Spec_Str = mat['BSLSP_Spec_Str']
-    if 'BSLSP_Spec_Str' in mat.keys():
-        shape.shader_attributes.Soft_Lighting = mat['BSLSP_Soft_Lighting']
-    if 'BSLSP_Spec_Str' in mat.keys():
-        shape.shader_attributes.Rim_Light_Power = mat['BSLSP_Rim_Light_Power']
-    if 'BSLSP_Skin_Tint_Color_R' in mat.keys():
-        shape.shader_attributes.Skin_Tint_Color_R = mat['BSLSP_Skin_Tint_Color_R']
-    if 'BSLSP_Skin_Tint_Color_G' in mat.keys():
-        shape.shader_attributes.Skin_Tint_Color_G = mat['BSLSP_Skin_Tint_Color_G']
-    if 'BSLSP_Skin_Tint_Color_B' in mat.keys():
-        shape.shader_attributes.Skin_Tint_Color_G = mat['BSLSP_Skin_Tint_Color_B']
+
+    if ('BS_Shader_Block_Name' in mat) and (mat['BS_Shader_Block_Name'] == 'BSEffectShaderProperty'):
+        if 'BSESP_Falloff_Start_Angle' in mat.keys():
+            shape.shader_attributes.Falloff_Start_Angle = mat['BSESP_Falloff_Start_Angle']
+        if 'BSESP_Falloff_Start_Opacity' in mat.keys():
+            shape.shader_attributes.Falloff_Start_Opacity = mat['BSESP_Falloff_Start_Opacity']
+        if 'BSESP_Falloff_Stop_Angle' in mat.keys():
+            shape.shader_attributes.Falloff_Stop_Angle = mat['BSESP_Falloff_Stop_Angle']
+        if 'BSESP_Soft_Fallof_Depth' in mat.keys():
+            shape.shader_attributes.Soft_Fallof_Depth = mat['BSESP_Soft_Fallof_Depth']
+        if 'BSESP_Env_Map_Scale' in mat.keys():
+            shape.shader_attributes.Env_Map_Scale = mat['BSESP_Env_Map_Scale']
+        if 'BSESP_Tex_Clamp_Mode' in mat.keys():
+            shape.shader_attributes.Tex_Clamp_Mode = mat['BSESP_Tex_Clamp_Mode']
+
+    else:
+        if 'BSLSP_Shader_Type' in mat.keys():
+            shape.shader_attributes.Shader_Type = int(mat['BSLSP_Shader_Type'])
+        shape.shader_attributes.Alpha = shader.inputs['Alpha'].default_value
+        if 'BSLSP_Refraction_Str' in mat.keys():
+            shape.Refraction_Str = mat['BSLSP_Refraction_Str']
+        shape.shader_attributes.Glossiness = shader.inputs['Metallic'].default_value * GLOSS_SCALE
+        if 'BSLSP_Spec_Color_R' in mat.keys():
+            shape.shader_attributes.Spec_Color_R = mat['BSLSP_Spec_Color_R']
+        if 'BSLSP_Spec_Color_G' in mat.keys():
+            shape.shader_attributes.Spec_Color_G = mat['BSLSP_Spec_Color_G']
+        if 'BSLSP_Spec_Color_B' in mat.keys():
+            shape.shader_attributes.Spec_Color_B = mat['BSLSP_Spec_Color_B']
+        if 'BSLSP_Spec_Str' in mat.keys():
+            shape.shader_attributes.Spec_Str = mat['BSLSP_Spec_Str']
+        if 'BSLSP_Spec_Str' in mat.keys():
+            shape.shader_attributes.Soft_Lighting = mat['BSLSP_Soft_Lighting']
+        if 'BSLSP_Spec_Str' in mat.keys():
+            shape.shader_attributes.Rim_Light_Power = mat['BSLSP_Rim_Light_Power']
+        if 'BSLSP_Skin_Tint_Color_R' in mat.keys():
+            shape.shader_attributes.Skin_Tint_Color_R = mat['BSLSP_Skin_Tint_Color_R']
+        if 'BSLSP_Skin_Tint_Color_G' in mat.keys():
+            shape.shader_attributes.Skin_Tint_Color_G = mat['BSLSP_Skin_Tint_Color_G']
+        if 'BSLSP_Skin_Tint_Color_B' in mat.keys():
+            shape.shader_attributes.Skin_Tint_Color_G = mat['BSLSP_Skin_Tint_Color_B']
 
     #log.debug(f"Shader Type: {shape.shader_attributes.Shader_Type}")
     #log.debug(f"Shader attributes: \n{shape.shader_attributes}")
@@ -647,19 +686,21 @@ def mesh_create_partition_groups(the_shape, the_object):
 
 
 def import_colors(mesh, shape):
-    if len(shape.colors) > 0:
-        log.debug(f"..Importing vertex colors for {shape.name}")
-        clayer = mesh.vertex_colors.new()
-        alphlayer = mesh.vertex_colors.new()
-        alphlayer.name = ALPHA_MAP_NAME
+    try:
+        if shape.colors and len(shape.colors) > 0:
+            log.debug(f"..Importing vertex colors for {shape.name}")
+            clayer = mesh.vertex_colors.new()
+            alphlayer = mesh.vertex_colors.new()
+            alphlayer.name = ALPHA_MAP_NAME
         
-        colors = shape.colors
-        for lp in mesh.loops:
-            c = colors[lp.vertex_index]
-            clayer.data[lp.index].color = (c[0], c[1], c[2], 1.0)
-            alph = colors[lp.vertex_index][3]
-            alphlayer.data[lp.index].color = [alph, alph, alph, 1.0]
-
+            colors = shape.colors
+            for lp in mesh.loops:
+                c = colors[lp.vertex_index]
+                clayer.data[lp.index].color = (c[0], c[1], c[2], 1.0)
+                alph = colors[lp.vertex_index][3]
+                alphlayer.data[lp.index].color = [alph, alph, alph, 1.0]
+    except:
+        log.error(f"ERROR: Could not read colors on shape {shape.name}")
 
 class NifImporter():
     """Does the work of importing a nif, independent of Blender's operator interface"""
@@ -1864,14 +1905,21 @@ class NifExporter:
         if has_msn:
             norms_exp = None
 
+        is_effectshader = False
+        mat = None
+        if obj.active_material:
+           mat = obj.active_material
+        if mat and 'BS_Shader_Block_Name' in mat:
+            is_effectshader = (mat['BS_Shader_Block_Name'] == 'BSEffectShaderProperty')
+
         new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_exp, 
-                                            is_headpart, is_skinned)
+                                            is_headpart, is_skinned, is_effectshader)
         if colors_new:
             new_shape.set_colors(colors_new)
 
         export_shape_data(obj, new_shape)
         
-        if obj.active_material:
+        if mat:
             export_shader(obj, new_shape)
             log.debug(f"....'{new_shape.name}' has textures: {new_shape.textures}")
             if has_msn:
@@ -2124,7 +2172,7 @@ def run_tests():
     from test_tools import test_title, clear_all, append_from_file, export_from_blend, find_vertex, remove_file
     from pynifly_tests import run_tests
 
-    TEST_EXP_SK_RENAMED = True
+    TEST_SHADER_LE = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -2138,35 +2186,41 @@ def run_tests():
     # pynifly_tests.py when stable.
 
 
-    if TEST_BPY_ALL or TEST_EXP_SK_RENAMED:
-        print("### TEST_EXP_SK_RENAMED: Ensure renamed shape keys export properly")
+    if TEST_BPY_ALL or TEST_SHADER_LE:
+        test_title("TEST_SHADER_LE", "Shader attributes are read and turned into Blender shader nodes")
+
         clear_all()
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SK_RENAMED.nif")
-        trifile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SK_RENAMED.tri")
-        remove_file(outfile)
-        remove_file(trifile)
 
-        append_from_file("CheetahChildHead", True, r"tests\FO4\Feline Child Test.blend", r"\Object", "CheetahChildHead")
+        fileLE = os.path.join(pynifly_dev_path, r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
+        leimport = NifImporter(fileLE)
+        leimport.execute()
+        nifLE = leimport.nif
+        shaderAttrsLE = nifLE.shapes[0].shader_attributes
+        for obj in bpy.context.selected_objects:
+            if "MaleHeadIMF" in obj.name:
+                headLE = obj
+        assert len(headLE.active_material.node_tree.nodes) == 9, "ERROR: Didn't import images"
+        g = round(headLE.active_material.node_tree.nodes['Principled BSDF'].inputs['Metallic'].default_value, 4)
+        assert round(g, 4) == 33/GLOSS_SCALE, f"Glossiness not correct, value is {g}"
+        assert headLE.active_material['BSShaderTextureSet_2'] == r"textures\actors\character\male\MaleHead_sk.dds", f"Expected stashed texture path, found {headLE.active_material['BSShaderTextureSet_2']}"
 
-        NifFile.clear_log()
-        exporter = NifExporter(outfile, 'FO4')
-        exporter.export([bpy.data.objects["CheetahChildHead"]])
-        assert "ERROR" not in NifFile.message_log(), f"Error: Expected no error message, got: \n{NifFile.message_log()}---\n"
+        print("## Shader attributes are written on export")
 
-        nif1 = NifFile(outfile)
-        assert len(nif1.shapes) == 1, f"Expected head nif"
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_LE.nif"), 
+                               'SKYRIM')
+        exporter.export([headLE])
 
-        tri1 = TriFile.from_file(trifile)
-        assert len(tri1.morphs) == 47, f"Expected 47 morphs, got {len(tri1.morphs)} morphs: {tri1.morphs.keys()}"
-
-        bpy.ops.object.select_all(action='DESELECT')
-        NifImporter.do_import(outfile)
-        obj = bpy.context.object
-
-        import_tri(trifile, obj)
-
-        assert len(obj.data.shape_keys.key_blocks) == 47, f"Expected key blocks 47 != {len(obj.data.shape_keys.key_blocks)}"
-        assert 'Smile.L' in obj.data.shape_keys.key_blocks, f"Expected key 'Smile.L' in {obj.data.shape_keys.key_blocks.keys()}"
+        nifcheckLE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_LE.nif"))
+        
+        assert nifcheckLE.shapes[0].textures[0] == nifLE.shapes[0].textures[0], \
+            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[0]}' != '{nifLE.shapes[0].textures[0]}'"
+        assert nifcheckLE.shapes[0].textures[1] == nifLE.shapes[0].textures[1], \
+            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[1]}' != '{nifLE.shapes[0].textures[1]}'"
+        assert nifcheckLE.shapes[0].textures[2] == nifLE.shapes[0].textures[2], \
+            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[2]}' != '{nifLE.shapes[0].textures[2]}'"
+        assert nifcheckLE.shapes[0].textures[7] == nifLE.shapes[0].textures[7], \
+            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[7]}' != '{nifLE.shapes[0].textures[7]}'"
+        assert nifcheckLE.shapes[0].shader_attributes == shaderAttrsLE, f"Error: Shader attributes not preserved:\n{nifcheckLE.shapes[0].shader_attributes}\nvs\n{shaderAttrsLE}"
 
 
     print("""

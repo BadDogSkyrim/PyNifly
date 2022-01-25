@@ -219,6 +219,7 @@ enum class BSLSPShaderType : uint32_t {
 	FO4_Dismemberment
 };
 
+/* BSLightingShaderProperty Attributes */
 struct BSLSPAttrs {
 	uint32_t Shader_Type;
 	uint32_t Shader_Flags_1;
@@ -248,6 +249,30 @@ struct BSLSPAttrs {
 	float Skin_Tint_Color_B;
 };
 
+/* BSEffectShaderProperty Attributes */
+struct BSESPAttrs {
+	uint32_t Shader_Flags_1;
+	uint32_t Shader_Flags_2;
+	float UV_Offset_U;
+	float UV_Offset_V;
+	float UV_Scale_U;
+	float UV_Scale_V;
+	uint32_t Tex_Clamp_Mode;
+	unsigned char Lighting_Influence;
+	unsigned char Env_Map_Min_LOD;
+	float Falloff_Start_Angle;
+	float Falloff_Stop_Angle;
+	float Falloff_Start_Opacity;
+	float Falloff_Stop_Opacity;
+	float Emissive_Color_R;
+	float Emissive_Color_G;
+	float Emissive_Color_B;
+	float Emissive_Color_A;
+	float Emissmive_Mult;
+	float Soft_Falloff_Depth;
+	float Env_Map_Scale;
+};
+
 struct AlphaPropertyBuf {
 	uint16_t flags;
 	uint8_t threshold;
@@ -259,6 +284,8 @@ extern "C" NIFLY_API uint32_t getShaderFlags2(void* nifref, void* shaperef);
 extern "C" NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char* buf, int buflen);
 extern "C" NIFLY_API uint32_t getShaderType(void* nifref, void* shaperef);
 extern "C" NIFLY_API int getShaderAttrs(void* nifref, void* shaperef, BSLSPAttrs* buf);
+extern "C" NIFLY_API const char* getShaderBlockName(void* nifref, void* shaperef);
+extern "C" NIFLY_API int getEffectShaderAttrs(void* nifref, void* shaperef, BSESPAttrs* buf);
 extern "C" NIFLY_API void setShaderName(void* nifref, void* shaperef, char* name);
 extern "C" NIFLY_API void setShaderType(void* nifref, void* shaperef, uint32_t shaderType);
 extern "C" NIFLY_API void setShaderFlags1(void* nifref, void* shaperef, uint32_t flags);
@@ -266,6 +293,7 @@ extern "C" NIFLY_API void setShaderFlags2(void* nifref, void* shaperef, uint32_t
 extern "C" NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, const char* buf);
 
 extern "C" NIFLY_API void setShaderAttrs(void* nifref, void* shaperef, BSLSPAttrs* buf);
+extern "C" NIFLY_API void setEffectShaderAttrs(void* nifref, void* shaperef, BSESPAttrs* buf);
 extern "C" NIFLY_API int getAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr);
 extern "C" NIFLY_API void setAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr);
 
