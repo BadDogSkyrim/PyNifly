@@ -87,6 +87,38 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_ROTSTATIC = True
     TEST_ROTSTATIC2 = True
     TEST_VERTEX_ALPHA = True
+    TEST_EXP_SK_RENAMED = True
+
+
+    if TEST_EXP_SK_RENAMED:
+        print("### TEST_EXP_SK_RENAMED: Ensure renamed shape keys export properly")
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SK_RENAMED.nif")
+        trifile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SK_RENAMED.tri")
+        remove_file(outfile)
+        remove_file(trifile)
+
+        append_from_file("CheetahChildHead", True, r"tests\FO4\Feline Child Test.blend", r"\Object", "CheetahChildHead")
+
+        NifFile.clear_log()
+        exporter = NifExporter(outfile, 'FO4')
+        exporter.export([bpy.data.objects["CheetahChildHead"]])
+        assert "ERROR" not in NifFile.message_log(), f"Error: Expected no error message, got: \n{NifFile.message_log()}---\n"
+
+        nif1 = NifFile(outfile)
+        assert len(nif1.shapes) == 1, f"Expected head nif"
+
+        tri1 = TriFile.from_file(trifile)
+        assert len(tri1.morphs) == 47, f"Expected 47 morphs, got {len(tri1.morphs)} morphs: {tri1.morphs.keys()}"
+
+        bpy.ops.object.select_all(action='DESELECT')
+        NifImporter.do_import(outfile)
+        obj = bpy.context.object
+
+        import_tri(trifile, obj)
+
+        assert len(obj.data.shape_keys.key_blocks) == 47, f"Expected key blocks 47 != {len(obj.data.shape_keys.key_blocks)}"
+        assert 'Smile.L' in obj.data.shape_keys.key_blocks, f"Expected key 'Smile.L' in {obj.data.shape_keys.key_blocks.keys()}"
 
 
     if TEST_EXP_BODY:
@@ -1135,42 +1167,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"))
         assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
-
-    if TEST_SHADER_LE:
-        test_title("TEST_SHADER_LE", "Shader attributes are read and turned into Blender shader nodes")
-
-        clear_all()
-
-        fileLE = os.path.join(pynifly_dev_path, r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
-        leimport = NifImporter(fileLE)
-        leimport.execute()
-        nifLE = leimport.nif
-        shaderAttrsLE = nifLE.shapes[0].shader_attributes
-        for obj in bpy.context.selected_objects:
-            if "MaleHeadIMF" in obj.name:
-                headLE = obj
-        assert len(headLE.active_material.node_tree.nodes) == 9, "ERROR: Didn't import images"
-        g = round(headLE.active_material.node_tree.nodes['Principled BSDF'].inputs['Metallic'].default_value, 4)
-        assert round(g, 4) == 33/GLOSS_SCALE, f"Glossiness not correct, value is {g}"
-        assert headLE.active_material['BSShaderTextureSet_2'] == r"textures\actors\character\male\MaleHead_sk.dds", f"Expected stashed texture path, found {headLE.active_material['BSShaderTextureSet_2']}"
-
-        print("## Shader attributes are written on export")
-
-        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_LE.nif"), 
-                               'SKYRIM')
-        exporter.export([headLE])
-
-        nifcheckLE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_LE.nif"))
-        
-        assert nifcheckLE.shapes[0].textures[0] == nifLE.shapes[0].textures[0], \
-            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[0]}' != '{nifLE.shapes[0].textures[0]}'"
-        assert nifcheckLE.shapes[0].textures[1] == nifLE.shapes[0].textures[1], \
-            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[1]}' != '{nifLE.shapes[0].textures[1]}'"
-        assert nifcheckLE.shapes[0].textures[2] == nifLE.shapes[0].textures[2], \
-            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[2]}' != '{nifLE.shapes[0].textures[2]}'"
-        assert nifcheckLE.shapes[0].textures[7] == nifLE.shapes[0].textures[7], \
-            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[7]}' != '{nifLE.shapes[0].textures[7]}'"
-        assert nifcheckLE.shapes[0].shader_attributes == shaderAttrsLE, f"Error: Shader attributes not preserved:\n{nifcheckLE.shapes[0].shader_attributes}\nvs\n{shaderAttrsLE}"
 
     if TEST_SHADER_FO4:
         test_title("TEST_SHADER_FO4", "Shader attributes are read and turned into Blender shader nodes")
