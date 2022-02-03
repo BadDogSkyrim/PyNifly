@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = False
+RUN_TESTS = True
 TEST_BPY_ALL = False
 
 
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (1, 12, 0),  
+    "version": (2, 0, 2),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -1492,30 +1492,44 @@ def partitions_from_vert_groups(obj):
     """
     val = {}
     if obj.vertex_groups:
-        for vg in obj.vertex_groups:
+        vg_sorted = sorted([g.name for g in obj.vertex_groups])
+        for nm in vg_sorted:
+            vg = obj.vertex_groups[nm]
             skyid = SkyPartition.name_match(vg.name)
             if skyid >= 0:
                 val[vg.name] = SkyPartition(part_id=skyid, flags=0, name=vg.name)
             else:
                 segid = FO4Segment.name_match(vg.name)
                 if segid >= 0:
-                    val[vg.name] = FO4Segment(len(val), 0, name=vg.name)
-                    log.debug(f"....Found FO4Segment '{vg.name}'")
+                    log.debug(f"Found FO4Segment '{vg.name}'")
+                    val[vg.name] = FO4Segment(part_id=len(val), index=segid, name=vg.name)
+                else:
+                    # Check if this is a subsegment. All segs sort before their subsegs, 
+                    # so it will already have been created if it exists separately
+                    parent_name, subseg_id, material = FO4Subsegment.name_match(vg.name)
+                    if parent_name:
+                        if not parent_name in val:
+                            # Create parent segments if not there
+                            log.debug(f"Subseg {vg.name} needs parent {parent_name}; existing parents are {val.keys()}")
+                            val[parent_name] = FO4Segment(len(val), 0, parent_name)
+                        p = val[parent_name]
+                        log.debug(f"Found FO4Subsegment '{vg.name}' child of '{parent_name}'")
+                        val[vg.name] = FO4Subsegment(len(val), subseg_id, material, p, name=vg.name)
+
         
-        # A second pass to pick up subsections
-        for vg in obj.vertex_groups:
-            if vg.name not in val:
-                parent_name, subseg_id, material = FO4Subsegment.name_match(vg.name)
-                if subseg_id >= 0:
-                    if not parent_name in val.keys():
-                        # Create parent segments if not there
-                        if parent_name == '':
-                            parent_name = f"FO4Segment #{len(val)}"
-                        parid = FO4Segment.name_match(parent_name)
-                        val[parent_name] = FO4Segment(len(val), 0, parent_name)
-                    p = val[parent_name]
-                    log.debug(f"....Found FO4Subsegment '{vg.name}' child of '{parent_name}'")
-                    val[vg.name] = FO4Subsegment(len(val), subseg_id, material, p, name=vg.name)
+        ## A second pass to pick up subsections
+        #for nm in vg_sorted:
+        #    vg = obj.vertex_groups[nm]
+        #    if vg.name not in val:
+        #        parent_name, subseg_id, material = FO4Subsegment.name_match(vg.name)
+        #        if parent_name:
+        #            if not parent_name in val:
+        #                # Create parent segments if not there
+        #                log.debug(f"Subseg {vg.name} needs parent {parent_name}; existing parents are {val.keys()}")
+        #                val[parent_name] = FO4Segment(len(val), 0, parent_name)
+        #            p = val[parent_name]
+        #            log.debug(f"Found FO4Subsegment '{vg.name}' child of '{parent_name}'")
+        #            val[vg.name] = FO4Subsegment(len(val), subseg_id, material, p, name=vg.name)
     
     return val
 
@@ -2172,7 +2186,8 @@ def run_tests():
     from test_tools import test_title, clear_all, append_from_file, export_from_blend, find_vertex, remove_file
     from pynifly_tests import run_tests
 
-    TEST_SHADER_LE = True
+    TEST_EXP_SEG_ORDER = False
+    TEST_PARTITIONS = True
 
     NifFile.Load(nifly_path)
     #LoggerInit()
@@ -2185,42 +2200,48 @@ def run_tests():
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
-
-    if TEST_BPY_ALL or TEST_SHADER_LE:
-        test_title("TEST_SHADER_LE", "Shader attributes are read and turned into Blender shader nodes")
-
+    if TEST_EXP_SEG_ORDER:
+        print("### TEST_EXP_SEG_ORDER: Segments export in numerical order")
         clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SEG_ORDER.nif")
+        remove_file(outfile)
 
-        fileLE = os.path.join(pynifly_dev_path, r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
-        leimport = NifImporter(fileLE)
-        leimport.execute()
-        nifLE = leimport.nif
-        shaderAttrsLE = nifLE.shapes[0].shader_attributes
-        for obj in bpy.context.selected_objects:
-            if "MaleHeadIMF" in obj.name:
-                headLE = obj
-        assert len(headLE.active_material.node_tree.nodes) == 9, "ERROR: Didn't import images"
-        g = round(headLE.active_material.node_tree.nodes['Principled BSDF'].inputs['Metallic'].default_value, 4)
-        assert round(g, 4) == 33/GLOSS_SCALE, f"Glossiness not correct, value is {g}"
-        assert headLE.active_material['BSShaderTextureSet_2'] == r"textures\actors\character\male\MaleHead_sk.dds", f"Expected stashed texture path, found {headLE.active_material['BSShaderTextureSet_2']}"
+        append_from_file("SynthGen1Body", True, r"tests\FO4\SynthGen1BodyTest.blend", r"\Object", "SynthGen1Body")
 
-        print("## Shader attributes are written on export")
+        NifFile.clear_log()
+        exporter = NifExporter(outfile, 'FO4')
+        exporter.export([bpy.data.objects["SynthGen1Body"]])
+        assert "ERROR" not in NifFile.message_log(), f"Error: Expected no error message, got: \n{NifFile.message_log()}---\n"
 
-        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_LE.nif"), 
-                               'SKYRIM')
-        exporter.export([headLE])
+        nif1 = NifFile(outfile)
+        assert len(nif1.shapes) == 1, f"Single shape was exported"
 
-        nifcheckLE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_LE.nif"))
+        # Third segment should be arm, with 5 subsegments
+        body = nif1.shapes[0]
+        assert len(body.partitions[2].subsegments) == 5, "Right arm has 5 subsegments"
+        assert body.partitions[2].subsegments[0].material == 0xb2e2764f, "First subsegment is the upper right arm material"
+        assert len(body.partitions[3].subsegments) == 0, "Torso has no subsegments"
+
+
+    if TEST_PARTITIONS:
+        test_title("TEST_PARTITIONS", "Can read Skyrim partions")
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/MaleHead.nif")
+
+        NifImporter.do_import(testfile)
+
+        obj = bpy.context.object
+        assert "SBP_130_HEAD" in obj.vertex_groups, "Skyrim body parts read in as vertex groups with sensible names"
+
+        print("### Can write Skyrim partitions")
+        e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"), "SKYRIM")
+        e.export([obj])
+        #export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"),
+        #                "SKYRIM", [''], [obj], obj.parent)
         
-        assert nifcheckLE.shapes[0].textures[0] == nifLE.shapes[0].textures[0], \
-            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[0]}' != '{nifLE.shapes[0].textures[0]}'"
-        assert nifcheckLE.shapes[0].textures[1] == nifLE.shapes[0].textures[1], \
-            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[1]}' != '{nifLE.shapes[0].textures[1]}'"
-        assert nifcheckLE.shapes[0].textures[2] == nifLE.shapes[0].textures[2], \
-            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[2]}' != '{nifLE.shapes[0].textures[2]}'"
-        assert nifcheckLE.shapes[0].textures[7] == nifLE.shapes[0].textures[7], \
-            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[7]}' != '{nifLE.shapes[0].textures[7]}'"
-        assert nifcheckLE.shapes[0].shader_attributes == shaderAttrsLE, f"Error: Shader attributes not preserved:\n{nifcheckLE.shapes[0].shader_attributes}\nvs\n{shaderAttrsLE}"
+        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"))
+        head = nif2.shapes[0]
+        assert len(nif2.shapes[0].partitions) == 3, "Have all skyrim partitions"
+        assert set([p.id for p in head.partitions]) == set([130, 143, 230]), "Have all head parts"
 
 
     print("""

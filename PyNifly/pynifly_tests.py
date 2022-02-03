@@ -34,6 +34,7 @@ def get_image_node(node_input):
 
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri):
+    TEST_BPY_ALL = False
     TEST_EXP_BODY = True
     TEST_IMP_NORMALS = True
     TEST_COTH_DATA = True
@@ -88,6 +89,110 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_ROTSTATIC2 = True
     TEST_VERTEX_ALPHA = True
     TEST_EXP_SK_RENAMED = True
+
+
+    if TEST_BPY_ALL or TEST_SEGMENTS:
+        test_title("TEST_SEGMENTS", "Can read FO4 segments")
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/VanillaMaleBody.nif")
+        NifImporter.do_import(testfile)
+
+        obj = bpy.context.object
+        assert "FO4 Seg 003" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names: 'FO4 Seg 003'"
+        assert "FO4 Seg 004 | 000 | Up Arm.L" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names: 'FO4 Seg 004 | 000 | Up Arm.L'"
+        assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == obj['FO4_SEGMENT_FILE'], "Should have FO4 segment file read and saved for later use"
+
+        print("### Can write FO4 segments")
+        e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"), "FO4")
+        e.export([obj])
+        #export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"),
+        #                "FO4", [''], [obj], obj.parent)
+        
+        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"))
+        assert len(nif2.shapes[0].partitions) == 7, "Wrote the shape's 7 partitions"
+        assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == nif2.shapes[0].segment_file, f"Nif should reference segment file, found '{nif2.shapes[0].segment_file}'"
+
+    if TEST_BPY_ALL or TEST_SHADER_LE:
+        test_title("TEST_SHADER_LE", "Shader attributes are read and turned into Blender shader nodes")
+
+        clear_all()
+
+        fileLE = os.path.join(pynifly_dev_path, r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
+        leimport = NifImporter(fileLE)
+        leimport.execute()
+        nifLE = leimport.nif
+        shaderAttrsLE = nifLE.shapes[0].shader_attributes
+        for obj in bpy.context.selected_objects:
+            if "MaleHeadIMF" in obj.name:
+                headLE = obj
+        assert len(headLE.active_material.node_tree.nodes) == 9, "ERROR: Didn't import images"
+        g = round(headLE.active_material.node_tree.nodes['Principled BSDF'].inputs['Metallic'].default_value, 4)
+        assert round(g, 4) == 33/GLOSS_SCALE, f"Glossiness not correct, value is {g}"
+        assert headLE.active_material['BSShaderTextureSet_2'] == r"textures\actors\character\male\MaleHead_sk.dds", f"Expected stashed texture path, found {headLE.active_material['BSShaderTextureSet_2']}"
+
+        print("## Shader attributes are written on export")
+
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_LE.nif"), 
+                               'SKYRIM')
+        exporter.export([headLE])
+
+        nifcheckLE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_LE.nif"))
+        
+        assert nifcheckLE.shapes[0].textures[0] == nifLE.shapes[0].textures[0], \
+            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[0]}' != '{nifLE.shapes[0].textures[0]}'"
+        assert nifcheckLE.shapes[0].textures[1] == nifLE.shapes[0].textures[1], \
+            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[1]}' != '{nifLE.shapes[0].textures[1]}'"
+        assert nifcheckLE.shapes[0].textures[2] == nifLE.shapes[0].textures[2], \
+            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[2]}' != '{nifLE.shapes[0].textures[2]}'"
+        assert nifcheckLE.shapes[0].textures[7] == nifLE.shapes[0].textures[7], \
+            f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[7]}' != '{nifLE.shapes[0].textures[7]}'"
+        assert nifcheckLE.shapes[0].shader_attributes == shaderAttrsLE, f"Error: Shader attributes not preserved:\n{nifcheckLE.shapes[0].shader_attributes}\nvs\n{shaderAttrsLE}"
+
+
+    if TEST_ALL or TEST_BP_SEGMENTS:
+        test_title("TEST_BP_SEGMENTS", "Can read FO4 bodypart segments")
+        clear_all()
+
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/Helmet.nif")
+        NifImporter.do_import(testfile)
+
+        #for o in bpy.context.selected_objects:
+        #    if o.name.startswith("Helmet:0"):
+        #        obj = o
+        obj = bpy.data.objects['Helmet:0']
+        assert obj.name == "Helmet:0", "Read the helmet object"
+        assert "FO4 Seg 001 | Hair Top | Head" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
+        assert "Meshes\\Armor\\FlightHelmet\\Helmet.ssf" == obj['FO4_SEGMENT_FILE'], "FO4 segment file read and saved for later use"
+
+        visor = bpy.data.objects['glass:0']
+        assert visor.name == "glass:0", "Read the visor object"
+        assert "FO4 Seg 001 | Hair Top" in visor.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
+
+        print("### Can write FO4 segments")
+        e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"), "FO4")
+        e.export([obj, visor])
+        #export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"),
+        #                "FO4", [''], [obj], obj.parent)
+        
+        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"))
+        helm2 = nif2.shapes[0]
+        assert helm2.name == "Helmet:0", "Have the helmet in the nif file"
+        assert len(helm2.partitions) == 2, "Have all FO4 partitions"
+        ss30 = None
+        for p in helm2.partitions:
+            for s in p.subsegments:
+                if s.user_slot == 30:
+                    ss30 = s
+                    break
+        assert ss30 is not None, "Mesh has FO4Subsegment 30"
+        assert ss30.material == 0x86b72980, "FO4Subsegment 30 should have correct material"
+        assert "Meshes\\Armor\\FlightHelmet\\Helmet.ssf" == nif2.shapes[0].segment_file, "Nif references segment file"
+
+        visor2 = nif2.shapes[1]
+        assert visor2.name == "glass:0", "Have the visor in the nif file"
+        assert len(helm2.partitions) == 2, "Visor has all FO4 partitions"
+        assert visor2.partitions[1].subsegments[0].user_slot == 30, "Visor has subsegment 30"
 
 
     if TEST_EXP_SK_RENAMED:
@@ -832,76 +937,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         #export_file_set(os.path.join(pynifly_dev_path, r"tests\Out\CustomNormals.nif"), 
         #                "FO4", [''], [plane], plane.parent)
 
-
-    if TEST_PARTITIONS:
-        test_title("TEST_PARTITIONS", "Can read Skyrim partions")
-        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/MaleHead.nif")
-
-        NifImporter.do_import(testfile)
-
-        obj = bpy.context.object
-        assert "SBP_130_HEAD" in obj.vertex_groups, "Skyrim body parts read in as vertex groups with sensible names"
-
-        print("### Can write Skyrim partitions")
-        e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"), "SKYRIM")
-        e.export([obj])
-        #export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"),
-        #                "SKYRIM", [''], [obj], obj.parent)
-        
-        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"))
-        assert len(nif2.shapes[0].partitions) == 3, "Have all skyrim partitions"
-        assert nif2.shapes[0].partitions[2].id == 143, "Have ears"
-
-    if TEST_SEGMENTS:
-        test_title("TEST_SEGMENTS", "Can read FO4 segments")
-        bpy.ops.object.select_all(action='DESELECT')
-        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/VanillaMaleBody.nif")
-        NifImporter.do_import(testfile)
-
-        obj = bpy.context.object
-        assert "FO4 Human Arm.R" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
-        assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == obj['FO4_SEGMENT_FILE'], "Should have FO4 segment file read and saved for later use"
-
-        print("### Can write FO4 segments")
-        e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"), "FO4")
-        e.export([obj])
-        #export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"),
-        #                "FO4", [''], [obj], obj.parent)
-        
-        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/segmentsVanillaMaleBody.nif"))
-        assert len(nif2.shapes[0].partitions) == 7, "Have all FO4 partitions"
-        assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == nif2.shapes[0].segment_file, f"Nif should reference segment file, found '{nif2.shapes[0].segment_file}'"
-
-    if TEST_BP_SEGMENTS:
-        test_title("TEST_BP_SEGMENTS", "Can read FO4 bodypart segments")
-        bpy.ops.object.select_all(action='DESELECT')
-        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/Helmet.nif")
-        NifImporter.do_import(testfile)
-
-        #for o in bpy.context.selected_objects:
-        #    if o.name.startswith("Helmet:0"):
-        #        obj = o
-        obj = bpy.context.object
-        assert "FO4 30 - Hair Top" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
-        assert "Meshes\\Armor\\FlightHelmet\\Helmet.ssf" == obj['FO4_SEGMENT_FILE'], "FO4 segment file read and saved for later use"
-
-        print("### Can write FO4 segments")
-        e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"), "FO4")
-        e.export([obj])
-        #export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"),
-        #                "FO4", [''], [obj], obj.parent)
-        
-        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"))
-        assert len(nif2.shapes[0].partitions) == 2, "Have all FO4 partitions"
-        ss30 = None
-        for p in nif2.shapes[0].partitions:
-            for s in p.subsegments:
-                if s.user_slot == 30:
-                    ss30 = s
-                    break
-        assert ss30 is not None, "Mesh has FO4Subsegment 30"
-        assert ss30.material == 0x86b72980, "FO4Subsegment 30 should have correct material"
-        assert "Meshes\\Armor\\FlightHelmet\\Helmet.ssf" == nif2.shapes[0].segment_file, "Nif references segment file"
 
     if TEST_ROGUE01:
         test_title("TEST_ROGUE01", "Mesh with wonky normals exports correctly")

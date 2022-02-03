@@ -425,7 +425,7 @@ class BodyPart:
         self.name = name
         self.parentname = parent
         self.material = material
-        if material == 0 and (id > 100 or id < 0):
+        if material == 0 and (id > 200 or id < 0):
             self.material = id
 
 class BoneDict:
@@ -446,10 +446,17 @@ class BoneDict:
         for m in morph_list:
             self.morph_dic_game[m[0]] = m[1]
             self.morph_dic_blender[m[1]] = m[0]
-        for p in part_list:
-            self.parts[p.name] = p
-        for d in dismem_list:
-            self.dismem[d.name] = d
+        
+        if type(part_list) == dict:
+            self.parts = part_list
+        else:
+            for p in part_list:
+                self.parts[p.name] = p
+        if type(dismem_list == dict):
+            self.dismem = dismem_list
+        else:
+            for d in dismem_list:
+                self.dismem[d.name] = d
 
     def blender_name(self, nif_name):
         if nif_name in self.byNif:
@@ -471,17 +478,31 @@ class BoneDict:
         name = blender_basename(name)
         if name in self.parts:
             return self.parts[name]
+
+    def dismember_bone(self, name):
+        """ Look for 'name' in any of the bodyparts. Strip any trailing '.001'-type
+            number before checking. """
+        if name is None:
+            return None
+        name = blender_basename(name)
         if name in self.dismem:
             return self.dismem[name]
         return None
 
     def part_by_id(self, id):
-        for bp in self.parts.values():
-            if bp.id == id:
-                return bp
-        for bp in self.dismem.values():
-            if bp.id == id:
-                return bp
+        for n, bp in self.parts.items():
+            if type(bp) == int:
+                if bp == id:
+                    return n
+            else:
+                if bp.id == id:
+                    return bp
+        return None
+
+    def dismem_by_id(self, id):
+        for n, bp in self.dismem.items():
+            if bp == id:
+                return n
         return None
 
     def expression_filter(self, name_set):
@@ -506,6 +527,22 @@ class BoneDict:
             len(boneset.intersection(set(self.byNif.keys())))
         #return sum([(1 if v in self.byBlender else 0) for v in aList]) + \
         #        sum([(1 if v in self.byNif else 0) for v in aList])
+
+    ### XXXXX OBSOLETE
+    def _print_with_parent(self, parent_name, print_list):
+        for k, bp in self.dismem.items():
+            if bp.parentname == parent_name and bp.name not in print_list:
+                print(f"    {bp.name} [part={bp.id if bp.id < 256 else hex(bp.id)}, material={hex(bp.material)}]")
+                print_list.add(bp.name)
+            
+    def dump(self):
+        print_list = set()
+        for k in sorted([bp.name for bp in fo4Dict.dismem.values() if bp.parentname == '']):
+            if k not in print_list:
+                print(k)
+                print_list.add(k)
+                self._print_with_parent(k, print_list)
+
 
 fnvBones = [
     SkeletonBone('Bip01', 'Bip01', None),
@@ -1143,12 +1180,115 @@ fo4Expressions = [
     ('LwrLipRollIn', 'LwrLipRollIn')
     ]
 
+fo4BoneIDs = {
+    "Head": 0x86b72980,
+    "Lo Arm.R": 0x6fc3fbb2,
+    "Lo Arm.L": 0x212251d8,
+    "Calf.R": 0x22324321,
+    "Calf.L": 0x4630dac2,
+    "Neck": 0x0155094f,
+    "Up Arm.R": 0xb2e2764f, 
+    "Hand.R": 0xB1EC5379,
+    "Hand.L": 0xD5EECA9A, 
+    "Foot.L": 0xa3e42571, 
+    "Foot.R": 0xc7e6bc92, 
+    "Up Arm.L": 0xfc03dc25, 
+    "Thigh.L": 0x865d8d9e, 
+    "Thigh.R": 0xbf3a3cc5, 
+    "Ghoul Up Arm.R": 0x2a549ee1, 
+    "Ghoul Lo Arm.R": 0xf775131c, 
+    "Ghoul Hand.R": 0x85342e3c, 
+    "Ghoul Up Arm.L": 0x4e560702,
+    "Ghoul Lo Arm.L": 0x93778aff,
+    "Ghoul Hand.L": 0x5ae407df, 
+    "Death Claw Neck": 0xc0f43cc3,
+    "Death Claw Up Arm.R": 0xf2ba1077,
+    "Death Claw Elbow.R": 0xf4e10d0d,
+    "Death Claw Hand.R": 0xe2da5319,
+    "Death Claw Up Arm.L": 0x17932e95,
+    "Death Claw Elbow.L": 0x0861e2c0,
+    "Death Claw Hand.L": 0x8beb7000,
+    "Ghoul Thigh.R": 0x9af9d18c,
+    "Ghoul Calf.R": 0x8e0daa93,
+    "Ghoul Foot.R": 0x6bd95520,
+    "Ghoul Thigh.L": 0xa325b267,
+    "Ghoul Calf.L": 0x51dd8370,
+    "Ghoul Foot.L": 0xb4097cc3,
+    "Mut Hound Fr Up Leg.L": 0x99338c09,
+    "Mut Hound Fr Lo Leg.L": 0x7491a630,
+    "Mut Hound Fr Foot.L": 0x8a99ba3f,
+    "Mut Hound Bk Thigh.L": 0xa7860026,
+    "Mut Hound Bk Knee.L": 0xaf6a52d7,
+    "Mut Hound Bk Ankle.L": 0xb42c3610,
+    "Mut Hound Bk Foot.L": 0x6e284ec0,
+    "Mut Hound Bk Thigh.R": 0x0e97871c,
+    "Mut Hound Bk Knee.R": 0x02433b3b,
+    "Mut Hound Bk Ankle.R": 0x1d3db12a,
+    "Mut Hound Bk Foot.R": 0x20c9e4aa,
+    "Mut Hound Fr Up Leg.R": 0x5f96443c,
+    "Mut Hound Fr Lo Leg.R": 0xdd80210a,
+    "Mut Hound Fr Foot.R": 0x4c3c720a,
+    "Mirelurk Fr Up Arm.R": 0xa5f4be71,
+    "Mirelurk Fr Lo Arm.R": 0x99eb64eb,
+    "Mirelurk Claw.R": 0x3c9df64f,
+    "Mirelurk Shoulder.L": 0x40f66ca4,
+    "Mirelurk Up Arm.L": 0xc1f62792,
+    "Mirelurk Elbow.L": 0xf0da47f2,
+    "Mirelurk Claw.L": 0x55acd556,
+    "Mirelurk Fr Hip.R": 0x064f59cd,
+    "Mirelurk Fr Thigh.R": 0x5b033df6,
+    "Mirelurk Calf.R": 0x15fc7bad,
+    "Mirelurk Foot.R": 0xf028841e,
+    "Mirelurk Hip-Thigh.L": 0xf62a541a,
+    "Mirelurk Kne-Clf.L": 0x5b1dd1c7,
+    "Mirelurk Fr Foot.L": 0xbec92e74,
+    "Mirelurk Bk Hip-Thigh.R": 0xfc5546b8,
+    "Mirelurk Bk Kne-Clf.R": 0x24a15449,
+    "Mirelurk Bk Foot.R": 0xc175abfa,
+    "Mirelurk Bk Hip-Thigh.L": 0xb2b4ecd2,
+    "Mirelurk Bk Kne-Clf.L": 0xc1886aab,
+    "Mirelurk Bk Foot.L": 0x245c9518,
+    "Dog Fr Knee.L": 0x5530c47b,
+    "Dog Fr Calf.L": 0xcc3995c1,
+    "Dog Fr Heel+Arch.L": 0xbd2750cf,
+    "Dog Fr Paw.L": 0x77fe1ec8,
+    "Dog Bk Knee.L": 0x52f7244b,
+    "Dog Bk Calf.L": 0xcbfe75f1,
+    "Dog Bk Heel+Arch.L": 0xfe31ace4,
+    "Dog Bk Paw.L": 0x08eb5fa0,
+    "Dog Bk Knee.R": 0x8d270da8,
+    "Dog Bk Calf+Heel.R": 0x142e5c12,
+    "Dog Bk Arch.R": 0x9a333507,
+    "Dog Bk Paw.R": 0x61da7cb9,
+    "Dog Fr Knee.R": 0x8ae0ed98,
+    "Dog Fr Calf.R": 0x13e9bc22,
+    "Dog Fr Heel+Arch.R": 0xd925c92c,
+    "Dog Fr Paw.R": 0x1ecf3dd1,
+    "Behemoth Arm+Elbow.R": 0x8c5ae189,
+    "Behemoth 4 Arm.R": 0x071dfd97,
+    "Behemoth Hand.R": 0xded0fadf,
+    "Behemoth Arm+Elbow.L": 0xc2bb4be3,
+    "Behemoth 4 Arm.L": 0x3e7a4ccc,
+    "Behemoth Hand.L": 0xe7b74b84,
+    "Behemoth Calf.R": 0xa411c600,
+    "Behemoth Foot.R": 0xac900af3,
+    "Behemoth Calf.L": 0xc0135fe3,
+    "Behemoth Foot.R": 0x95f7bba8,
+    "Robot 3 Torso": 0x3d6644aa,
+    "HP-Neck": 0x3D6644AA
+    }
+
 fo4Dismember = [
     BodyPart(0xffffffff, "FO4 1"),
+    BodyPart(0x86b72980, "FO4 Head/Hair", "FO4 1"),
     BodyPart(0xffffffff, "FO4 Human Arm.R"),
+    BodyPart(0x6fc3fbb2, "FO4 Lo Arm.R", "FO4 Human Arm.R"),
     BodyPart(0xffffffff, "FO4 Human Arm.L"),
+    BodyPart(0x212251d8, "FO4 Lo Arm.L", "FO4 Human Arm.L"),
     BodyPart(0xffffffff, "FO4 Human Leg.R"),
+    BodyPart(0x22324321, "FO4 Kne-Clf.R", "FO4 Human Leg.R"),
     BodyPart(0xffffffff, "FO4 Human Leg.L"),
+    BodyPart(0x4630dac2, "FO4 Kne-Clf.L", "FO4 Human Leg.L"),
     BodyPart(0xffffffff, "FO4 Feral Ghoul 2"),
     BodyPart(0xffffffff, "FO4 Feral Ghoul 4"),
     BodyPart(0xffffffff, "FO4 Death Claw 1"),
@@ -1175,14 +1315,25 @@ fo4Dismember = [
     BodyPart(0xffffffff, "FO4 Behemoth 5"),
     BodyPart(0xffffffff, "FO4 Behemoth 6"),
     BodyPart(0xffffffff, "FO4 Robot 3"),
-    BodyPart(0x86b72980, "FO4 Head/Hair", "FO4 1"),
+    BodyPart(0xffffffff, 'FO4 Synth Torso'),
+    BodyPart(0xffffffff, 'FO4 Synth Head'),
+    BodyPart(0xffffffff, 'FO4 Synth Arm.L'),
+    BodyPart(0xffffffff, 'FO4 Synth Arm.R'),
+    BodyPart(0xffffffff, 'FO4 Synth Leg.L'),
+    BodyPart(0xffffffff, 'FO4 Synth Leg.R'),
     BodyPart(0x0155094f, "FO4 Neck", "FO4 1"),
-    BodyPart(0x4630dac2, "FO4 Kne-Clf.L", "FO4 Human Leg.L"),
-    BodyPart(0x22324321, "FO4 Kne-Clf.R", "FO4 Human Leg.R"),
-    BodyPart(0x212251d8, "FO4 Lo Arm.L", "FO4 Human Arm.L"),
-    BodyPart(0x6fc3fbb2, "FO4 Lo Arm.R", "FO4 Human Arm.R"),
-    BodyPart(0xB1EC5379, "FO4 Supermutant Hand.R", "FO4 Human Arm.R"),
-    BodyPart(0xD5EECA9A, "FO4 Supermutant Hand.L", "FO4 Human Arm.L"),
+    BodyPart(0xffffffff, 'FO4 Supermutant Arm.R'),
+    BodyPart(0xb2e2764f, "FO4 SM Arm 01.R", "FO4 Supermutant Arm.R"),
+    BodyPart(0xb2e2764f, "FO4 SM Arm 02.R", "FO4 Supermutant Arm.R"),
+    BodyPart(0x6fc3fbb2, "FO4 SM Arm 03.R", "FO4 Supermutant Arm.R"),
+    BodyPart(0x6fc3fbb2, "FO4 SM Arm 04.R", "FO4 Supermutant Arm.R"),
+    BodyPart(0xB1EC5379, "FO4 SM Hand.R", "FO4 Supermutant Arm.R"),
+    BodyPart(0xffffffff, 'FO4 Supermutant Arm.L'),
+    BodyPart(0xfc03dc25, "FO4 SM Arm 01.L", "FO4 Supermutant Arm.L"),
+    BodyPart(0xfc03dc25, "FO4 SM Arm 02.L", "FO4 Supermutant Arm.L"),
+    BodyPart(0x212251d8, "FO4 SM Arm 03.L", "FO4 Supermutant Arm.L"),
+    BodyPart(0x212251d8, "FO4 SM Arm 04.L", "FO4 Supermutant Arm.L"),
+    BodyPart(0xD5EECA9A, "FO4 SM Hand.L", "FO4 Supermutant Arm.L"),
     BodyPart(0xa3e42571, "FO4 Lo Ft-Ank.L", "FO4 Human Leg.L"),
     BodyPart(0xc7e6bc92, "FO4 Lo Ft-Ank.R", "FO4 Human Leg.R"),
     BodyPart(0xfc03dc25, "FO4 Up Arm.L", "FO4 Human Arm.L"),
@@ -1274,45 +1425,64 @@ fo4Dismember = [
     BodyPart(0xac900af3, "FO4 Behemoth Foot.R", "FO4 Behemoth 5"),
     BodyPart(0xc0135fe3, "FO4 Behemoth Calf.L", "FO4 Behemoth 6"),
     BodyPart(0x95f7bba8, "FO4 Behemoth Foot.R", "FO4 Behemoth 6"),
-    BodyPart(0x3d6644aa, "FO4 Robot 3 Torso", "FO4 Robot 3")     
+    BodyPart(0x3d6644aa, "FO4 Robot 3 Torso", "FO4 Robot 3"),
+    BodyPart(30, 'FO4 30 - Synth Crotch', 'FO4 Synth Torso'),
+    BodyPart(40, "FO4 40 - Synth Shoulder.R", 'FO4 Synth Torso'),
+    BodyPart(50, "FO4 50 - Synth Side.L", 'FO4 Synth Torso'),
+    BodyPart(60, "FO4 60 - Synth Belly", 'FO4 Synth Torso'),
+    BodyPart(70, "FO4 70 - Synth Chest", 'FO4 Synth Torso'),
+    BodyPart(80, "FO4 80 - Synth Shoulder.L", 'FO4 Synth Torso'),
+    BodyPart(90, "FO4 90 - Synth Side.R", 'FO4 Synth Torso'),
+    BodyPart(40, "FO4 40 - Synth Head Rear", 'FO4 Synth Head'),
+    BodyPart(65, "FO4 65 - Synth Face", 'FO4 Synth Head'),
+    BodyPart(66, "FO4 66 - Synth Ear.L", 'FO4 Synth Head'),
+    BodyPart(67, "FO4 67 - Synth Ear.R", 'FO4 Synth Head'),
+    BodyPart(90, "FO4 15 - Synth Foot.L", 'FO4 Synth Leg.L'),
+    BodyPart(40, "FO4 40 - Synth Thigh.L", 'FO4 Synth Leg.L'),
+    BodyPart(90, "FO4 90 - Synth Calf.L", 'FO4 Synth Leg.L'),
+    BodyPart(30, 'FO4 30 - Synth Calf.R', 'FO4 Synth Leg.R'),
+    BodyPart(50, "FO4 50 - Synth Foot.R", 'FO4 Synth Leg.R'),
+    BodyPart(80, "FO4 80 - Synth Thigh.R", 'FO4 Synth Leg.R'),
+    BodyPart(40, "FO4 40 - Synth Hand.L", 'FO4 Synth Arm.L'),
+    BodyPart(80, "FO4 80 - Synth Arm.L", 'FO4 Synth Arm.L'),
+    BodyPart(40, "FO4 40 - Synth Hand.R", 'FO4 Synth Arm.R'),
+    BodyPart(90, "FO4 90 - Synth Arm.R", 'FO4 Synth Arm.R')
     ]
 
-fo4Parts = [
-    BodyPart(0xffffffff, "FO4 1 | Head/Hair"),
-    BodyPart(30, "FO4 30 - Hair Top", material=0x86b72980),
-    BodyPart(31, "FO4 31 - Hair Long", material=0x86b72980),
-    BodyPart(32, "FO4 32 - Head", material=0x86b72980),
-    BodyPart(33, "FO4 33 - Body"),
-    BodyPart(35, "FO4 34 - L Hand"),
-    BodyPart(35, "FO4 35 - R Hand"),
-    BodyPart(36, "FO4 36 - [U] Torso"),
-    BodyPart(37, "FO4 37 - [U] L Arm"),
-    BodyPart(38, "FO4 38 - [U] R Arm"),
-    BodyPart(39, "FO4 39 - [U] L Leg"),
-    BodyPart(40, "FO4 40 - [U] R Leg"),
-    BodyPart(41, "FO4 41 - [A] Torso"),
-    BodyPart(42, "FO4 42 - [A] L Arm"),
-    BodyPart(43, "FO4 43 - [A] R Arm"),
-    BodyPart(44, "FO4 44 - [A] L Leg"),
-    BodyPart(45, "FO4 45 - [A] R Leg"),
-    BodyPart(46, "FO4 46 - Headband", material=0x86b72980),
-    BodyPart(47, "FO4 47 - Eyes", "FO4 1 | Head/Hair"),
-    BodyPart(48, "FO4 48 - Beard", "FO4 1 | Head/Hair"),
-    BodyPart(49, "FO4 49 - Mouth", "FO4 1 | Head/Hair"),
-    BodyPart(50, "FO4 50 - Neck", "FO4 1 | Neck"),
-    BodyPart(51, "FO4 51 - Ring"),
-    BodyPart(52, "FO4 52 - Scalp", "FO4 1 | Head/Hair"),
-    BodyPart(53, "FO4 53 - Decapitation"),
-    BodyPart(54, "FO4 54 - Unnamed"),
-    BodyPart(55, "FO4 55 - Unnamed"),
-    BodyPart(56, "FO4 56 - Unnamed"),
-    BodyPart(57, "FO4 57 - Unnamed"),
-    BodyPart(58, "FO4 58 - Unnamed"),
-    BodyPart(59, "FO4 59 - Shield"),
-    BodyPart(60, "FO4 60 - Pipboy"),
-    BodyPart(61, "FO4 61 - FX"),
-    BodyPart(100, "FO4 100 - Head Meatcap"),
-    BodyPart(101, "FO4 101 - Body Meatcap")]
+fo4Parts = {
+    "Hair Top": 30,
+    "Hair Long": 31,
+    "Head": 32,
+    "HP-Neck": 33,
+    "Hand": 35,
+    "[U] Torso": 36,
+    "[U] L Arm": 37,
+    "[U] R Arm": 38,
+    "[U] L Leg": 39,
+    "[U] R Leg": 40,
+    "[A] Torso": 41,
+    "[A] L Arm": 42,
+    "[A] R Arm": 43,
+    "[A] L Leg": 44,
+    "[A] R Leg": 45,
+    "Headband": 46,
+    "Eyes": 47,
+    "Beard": 48,
+    "Mouth": 49,
+    "Neck": 50,
+    "Ring": 51,
+    "Scalp": 52,
+    "Decapitation": 53,
+    "Unnamed 54": 54,
+    "Unnamed 55": 55,
+    "Unnamed 56": 56,
+    "Unnamed 57": 57,
+    "Unnamed 58": 58,
+    "Shield": 59,
+    "Pipboy": 60,
+    "FX": 61,
+    "Head Meatcap": 100,
+    "Body Meatcap": 101}
 
 fo4chargen_pat = re.compile("Type[0-9]+")
 
@@ -1320,8 +1490,8 @@ class FO4BoneDict(BoneDict):
     def chargen_filter(self, candidates):
         return set([c for c in candidates if fo4chargen_pat.search(c)])
 
-fo4Dict = FO4BoneDict(fo4Bones, fo4Expressions, fo4Parts, fo4Dismember)
-fo4FaceDict = FO4BoneDict(fo4FaceBones, fo4Expressions, fo4Parts, fo4Dismember)
+fo4Dict = FO4BoneDict(fo4Bones, fo4Expressions, fo4Parts, fo4BoneIDs)
+fo4FaceDict = FO4BoneDict(fo4FaceBones, fo4Expressions, fo4Parts, fo4BoneIDs)
 
 gameSkeletons = {
     'SKYRIM': skyrimDict,
