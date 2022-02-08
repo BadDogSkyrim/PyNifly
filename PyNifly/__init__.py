@@ -1723,6 +1723,7 @@ class NifExporter:
                 self.objs_no_part.add(obj)
                 create_group_from_verts(obj, NO_PARTITION_GROUP, t)
 
+        log.debug(f"Partitions for export: {partitions.keys()}, {tri_indices[0:20]}")
         return list(partitions.values()), tri_indices
 
     def extract_colors(self, mesh):
@@ -2186,9 +2187,6 @@ def run_tests():
     from test_tools import test_title, clear_all, append_from_file, export_from_blend, find_vertex, remove_file
     from pynifly_tests import run_tests
 
-    TEST_EXP_SEG_ORDER = False
-    TEST_PARTITIONS = True
-
     NifFile.Load(nifly_path)
     #LoggerInit()
 
@@ -2197,51 +2195,31 @@ def run_tests():
     if TEST_BPY_ALL:
         run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri)
 
+
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
-    if TEST_EXP_SEG_ORDER:
-        print("### TEST_EXP_SEG_ORDER: Segments export in numerical order")
+    if True:
+        print("### TEST_EXP_SEGMENTS_BAD: Verts export in the correct segments")
         clear_all()
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SEG_ORDER.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SEGMENTS_BAD.nif")
         remove_file(outfile)
 
-        append_from_file("SynthGen1Body", True, r"tests\FO4\SynthGen1BodyTest.blend", r"\Object", "SynthGen1Body")
+        append_from_file("ArmorUnder", True, r"tests\FO4\ArmorExportsBadSegments.blend", r"\Object", "ArmorUnder")
 
         NifFile.clear_log()
         exporter = NifExporter(outfile, 'FO4')
-        exporter.export([bpy.data.objects["SynthGen1Body"]])
+        exporter.export([bpy.data.objects["ArmorUnder"]])
         assert "ERROR" not in NifFile.message_log(), f"Error: Expected no error message, got: \n{NifFile.message_log()}---\n"
 
         nif1 = NifFile(outfile)
         assert len(nif1.shapes) == 1, f"Single shape was exported"
 
-        # Third segment should be arm, with 5 subsegments
         body = nif1.shapes[0]
-        assert len(body.partitions[2].subsegments) == 5, "Right arm has 5 subsegments"
-        assert body.partitions[2].subsegments[0].material == 0xb2e2764f, "First subsegment is the upper right arm material"
-        assert len(body.partitions[3].subsegments) == 0, "Torso has no subsegments"
-
-
-    if TEST_PARTITIONS:
-        test_title("TEST_PARTITIONS", "Can read Skyrim partions")
-        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/MaleHead.nif")
-
-        NifImporter.do_import(testfile)
-
-        obj = bpy.context.object
-        assert "SBP_130_HEAD" in obj.vertex_groups, "Skyrim body parts read in as vertex groups with sensible names"
-
-        print("### Can write Skyrim partitions")
-        e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"), "SKYRIM")
-        e.export([obj])
-        #export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"),
-        #                "SKYRIM", [''], [obj], obj.parent)
-        
-        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"))
-        head = nif2.shapes[0]
-        assert len(nif2.shapes[0].partitions) == 3, "Have all skyrim partitions"
-        assert set([p.id for p in head.partitions]) == set([130, 143, 230]), "Have all head parts"
+        assert len(body.partitions) == 7, "All 7 segments exported"
+        assert len(body.partitions[3].subsegments) == 0, "4th partition (body) has no subsegments"
+        assert len([x for x in body.partition_tris if x == 3]) == len(body.tris), f"All tris in the 4th partition--found {len([x for x in body.partition_tris if x == 3])}"
+        assert len([x for x in body.partition_tris if x != 3]) == 0, f"Regression: No tris in the last partition (or any other)--found {len([x for x in body.partition_tris if x != 3])}"
 
 
     print("""

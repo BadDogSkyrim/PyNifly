@@ -1382,7 +1382,7 @@ class NiShape:
 
             for i, t in enumerate(trilist): 
                 tbuf[i] = trilist[i]
-            
+
             sslist = []
             for seg in parts:
                 NifFile.log.debug(f"....Exporting '{seg.name}'")
@@ -1393,6 +1393,7 @@ class NiShape:
             for i, s in enumerate(sslist):
                 sbuf[i] = s
 
+            NifFile.log.debug(f"....Partition IDs: {[x for x in pbuf]}")
             NifFile.log.debug(f"....setSegments({len(parts)}, int({len(sslist)}/4), {len(trilist)}, {trilist[0:4]})")
             NifFile.nifly.setSegments(self.parent._handle, self._handle,
                                       pbuf, len(parts),
@@ -1663,7 +1664,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1676,8 +1677,9 @@ TEST_ROTATIONS = False
 TEST_PARENT = False
 TEST_PYBABY = False
 TEST_BONE_XFORM = False
-TEST_PARTITION_NAMES = True
+TEST_PARTITION_NAMES = False
 TEST_PARTITIONS = False
+TEST_SEGMENTS_EMPTY = True
 TEST_SEGMENTS = False
 TEST_BP_SEGMENTS = False
 TEST_COLORS = False
@@ -2307,6 +2309,30 @@ if __name__ == "__main__":
         assert nif3.shapes[0].partitions[2].id == 143, "Partition IDs same as before"
         assert len(nif3.shapes[0].partition_tris) == 1694, "Same number of tri indices as before"
         assert (nif3.shapes[0].partitions[0].flags and 1) == 1, "First partition has start-net-boneset set"
+
+    if TEST_ALL or TEST_SEGMENTS_EMPTY:
+        print("### TEST_SEGMENTS_EMPTY: Can write FO4 segments when some are empty")
+
+        nif = NifFile("tests/FO4/TEST_SEGMENTS_EMPTY.nif")
+
+        nif2 = NifFile()
+        nif2.initialize('FO4', r"tests/Out/TEST_SEGMENTS_EMPTY.nif")
+        _test_export_shape(nif.shapes[0], nif2)
+        segs = [FO4Segment(0, 0, "FO4 Seg 000"),
+                FO4Segment(1, 1, "FO4 Seg 001"),
+                FO4Segment(2, 2, "FO4 Seg 002"),
+                FO4Segment(3, 3, "FO4 Seg 003"),
+                FO4Segment(4, 4, "FO4 Seg 004"),
+                FO4Segment(5, 5, "FO4 Seg 005"),
+                FO4Segment(6, 6, "FO4 Seg 006")]
+        ptris = [3] * len(nif.shapes[0].tris)
+        nif2.shapes[0].set_partitions(segs, ptris)
+        nif2.save()
+
+        nif3 = NifFile(r"tests/Out/TEST_SEGMENTS_EMPTY.nif")
+
+        assert len([x for x in nif3.shapes[0].partition_tris if x == 3]) == len(nif3.shapes[0].tris), f"Expected all tris in the 4th partition"
+
 
     if TEST_ALL or TEST_SEGMENTS:
         print ("### TEST_SEGMENTS: Can read FO4 segments")

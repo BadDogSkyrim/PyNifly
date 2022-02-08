@@ -248,7 +248,7 @@ void TCopyExtraData(void* targetNif, void* targetShape, void* sourceNif, void* s
 };
 
 void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* sourceShape,
-		uint16_t options, void** targetSkin) {
+		uint16_t options, void** targetSkin, bool doPartitions=1) {
 
 	int vertLen = getVertsForShape(sourceNif, sourceShape, nullptr, 0, 0);
 	float* verts = new float[vertLen * 3];
@@ -280,7 +280,7 @@ void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* 
 
 	if (targetSkin) {
 		*targetSkin = TCopyWeights(targetNif, targetShape, sourceNif, sourceShape);
-		TCopyPartitions(targetNif, targetShape, sourceNif, sourceShape);
+		if (doPartitions) TCopyPartitions(targetNif, targetShape, sourceNif, sourceShape);
 	};
 	TCopyExtraData(targetNif, targetShape, sourceNif, sourceShape);
 
@@ -1160,6 +1160,7 @@ namespace NiflyDLLTests
 			//	print("SKYRIM NPC L Forearm [LLar]: ", nif.get_node_xform_to_global('NPC L Forearm [LLar]'))
 		}
 		TEST_METHOD(checkGTSOffset) {
+			/* Check that we are reading transformations properly */
 			std::filesystem::path testfile = testRoot / "FO4/VanillaMaleBody.nif";
 			std::filesystem::path testfile2 = testRoot / "FO4/BTMaleBody.nif";
 
@@ -1297,6 +1298,7 @@ namespace NiflyDLLTests
 			//Assert::AreEqual(1694, triCount);
 		};
 		TEST_METHOD(getPartitionFO4) {
+			/* Can successfully read segments from a body part */
 			std::filesystem::path testfile = testRoot / "FO4/VanillaMaleBody.nif";
 
 			void* nif;
@@ -1338,6 +1340,7 @@ namespace NiflyDLLTests
 		};
 
 		TEST_METHOD(geBPFO4) {
+			/* Can handle segments on a helmet: 2 segments, 1 subsegment, all tris in the subsegment */
 			std::filesystem::path testfile = testRoot / "FO4/Helmet.nif";
 
 			void* nif;
@@ -1374,11 +1377,17 @@ namespace NiflyDLLTests
 			namelen = getSegmentFile(nif, theHelmet, fname, 256);
 			Assert::AreEqual("Meshes\\Armor\\FlightHelmet\\Helmet.ssf", fname);
 
-			// FO4 segments have subsegments
+			// FO4 segments have subsegments. 
+			// This shape's second subsegment has user ID = 30 and bone ID = 2260150656
 			uint32_t subsegs[20 * 3];
 			int sscount = getSubsegments(nif, theHelmet, seg1id, subsegs, 20);
 			Assert::AreEqual(1, sscount);
 			Assert::AreEqual(30, int(subsegs[1]));
+			Assert::AreEqual(uint32_t(2260150656), uint32_t(subsegs[2]));
+
+			// All the tris are in this subsegment
+			for (int i = 0; i < triCount; i++)
+				Assert::IsTrue(tris[i] == subsegs[0], L"Expect all tris in the one subsegment");
 
 			// ------ Now show we can write the file back out -------
 			std::filesystem::path testfileout = testRoot / "Out/geBPFO4Helmet.nif";
@@ -1404,15 +1413,16 @@ namespace NiflyDLLTests
 
 			uint16_t segData[100];
 			uint32_t subsegData[100];
-			segData[0] = 1;
-			subsegData[0] = 2;	// subseg ID
-			subsegData[1] = 1;	// parent ID
+			segData[0] = 1; // ID
+			segData[1] = 2; // ID
+			subsegData[0] = 3;	// subseg ID
+			subsegData[1] = 2;	// parent ID
 			subsegData[2] = 30; // user slot
-			subsegData[3] = -1; // material
+			subsegData[3] = 2260150656; // material
 
 			uint16_t tripart[3000];
-			for (int i = 0; i < tlen; i++) { tripart[i] = 2; }
-			setSegments(newNif, newHelm, segData, 1, subsegData, 1,
+			for (int i = 0; i < tlen; i++) { tripart[i] = 3; }
+			setSegments(newNif, newHelm, segData, 2, subsegData, 1,
 				tripart, tlen,
 				"Meshes\\Armor\\FlightHelmet\\HelmetOut.ssf");
 
@@ -1426,10 +1436,13 @@ namespace NiflyDLLTests
 			void* nif3 = load(testfileout.u8string().c_str());
 			getShapes(nif3, shapes3, 10, 0);
 
+			uint16_t rawtris3[3000 * 3];
+			int tlen3 = getTriangles(nif3, shapes3[0], rawtris3, 3000, 0);
+
 			// segmentCount returns the count of segments in the shape
 			// Helmet has 2 top-level segments
 			int segCount3 = segmentCount(nif3, shapes3[0]);
-			Assert::AreEqual(1, segCount3);
+			Assert::AreEqual(2, segCount3);
 
 			char ssfile[100];
 			getSegmentFile(nif3, shapes3[0], ssfile, 100);
@@ -1437,13 +1450,19 @@ namespace NiflyDLLTests
 
 			int segInfo3[20];
 			segCount = getSegments(nif3, shapes3[0], segInfo3, 20);
-			// This shape has 1 subsegments in its 1st segment
-			seg1id = segInfo3[0];
-			Assert::AreEqual(0, seg1id);
+			// This shape has 1 subsegments in its 2nd segment
+			seg1id = segInfo3[2];
+			Assert::AreEqual(1, segInfo3[3]);
 
 			sscount = getSubsegments(nif3, shapes3[0], seg1id, subsegs, 20);
 			Assert::AreEqual(1, sscount);
 			Assert::AreEqual(30, int(subsegs[1]));
+
+			// All the tris are in this subsegment
+			uint16_t tris3[3000];
+			int triCount3 = getPartitionTris(nif3, shapes3[0], tris3, 3000);
+			for (int i = 0; i < triCount3; i++)
+				Assert::IsTrue(tris3[i] == subsegs[0], L"Expect all tris in the one subsegment");
 		};
 
 		TEST_METHOD(vertexColors) {
@@ -2293,7 +2312,7 @@ namespace NiflyDLLTests
 			getShapes(nifcheck, shapescheck, 10, 0);
 		};
 		TEST_METHOD(writeBadPartitions) {
-			/* Make sure this doesn't cause a CTD */
+			/* Assigning tris to a segment that doesn't exist is correctly reported as an error */
 			void* shapes[10];
 			void** nodes;
 			void* nif = load((testRoot / "FO4/feralghoulbase.nif").u8string().c_str());
@@ -2395,6 +2414,156 @@ namespace NiflyDLLTests
 			int shapeCount = getShapes(nifTest, shapesTest, 10, 0);
 
 			TCompareShaders(nif, shape, nifTest, shapesTest[0]);
+		};
+		TEST_METHOD(writeEmptySegments) {
+			/* Shape with a non-empty segment followed by empty segments writes correctly */
+			void* shapes[10];
+			void** nodes;
+			void* nif = load((testRoot / "FO4/TEST_SEGMENTS_EMPTY.nif").u8string().c_str());
+			getShapes(nif, shapes, 10, 0);
+
+			void* nifOut = createNif("FO4");
+			uint16_t options = 0;
+			void* skinOut;
+			void* shapeOut = TCopyShape(nifOut, "UnderArmor", nif, shapes[0], 0, &skinOut, 0);
+			TCopyShader(nifOut, shapeOut, nif, shapes[0]);
+
+			const int segsLen = 7;
+			uint16_t segs[segsLen];
+			segs[0] = 0;
+			segs[1] = 1;
+			segs[2] = 2;
+			segs[3] = 3;
+			segs[4] = 4;
+			segs[5] = 5;
+			segs[6] = 6;
+
+			clearMessageLog();
+			int triCount = getTriangles(nif, shapes[0], nullptr, 0, 0);
+			uint16_t* trimap = new uint16_t[triCount];
+			for (int i = 0; i < triCount; i++) trimap[i] = 3; // All tris in the 3rd segment
+			setSegments(nifOut, shapeOut,
+				segs, segsLen,
+				nullptr, 0,
+				trimap, triCount,
+				"phonysegmentfile.ssf");
+
+			saveSkinnedNif(skinOut, (testRoot / "Out/writeEmptySegments.nif").u8string().c_str());
+
+			void* shapescheck[10];
+			void* nifcheck = load((testRoot / "Out/writeEmptySegments.nif").u8string().c_str());
+			getShapes(nifcheck, shapescheck, 10, 0);
+
+			int segcheck[10*2];
+			int segcheck_len = getSegments(nifcheck, shapescheck[0], segcheck, 10);
+
+			Assert::IsTrue(segcheck_len >= 4, 
+				L"Expected at least 4 segments back (empty trailing segments may be omitted");
+
+			uint16_t segtri[7000];
+			int segtri_len = getPartitionTris(nifcheck, shapescheck[0], segtri, 7000);
+
+			for (int i = 0; i < segtri_len; i++)
+				Assert::IsTrue(segtri[i] == 3, L"Expect all tris in the 4th segment");
+		};
+		TEST_METHOD(writeMiddleEmptySegment) {
+			/* Shape with a empty segment followed by non-empty segments writes correctly */
+			void* shapes[10];
+			void** nodes;
+			void* nif = load((testRoot / "FO4/BaseMaleHead.nif").u8string().c_str());
+			getShapes(nif, shapes, 10, 0);
+			void* head = shapes[0];
+			int segs[10 * 2];
+			int segCount = getSegments(nif, head, segs, 10);
+			int headSegID = segs[2];
+			int headSegSubsegCount = segs[3];
+			int neckSegID = segs[6];
+			int neckSegSubsegCount = segs[7];
+
+			// Segment data runs as follows:
+			// Seg 0 (empty)
+			// Seg 1
+			// Subseg 1 (head)
+			// Seg 2 (empty)
+			// Seg 3
+			// Subseg 3 (neck)
+			int headSegIndex = 2;
+			int neckSegIndex = 5;
+
+			Assert::IsTrue(headSegSubsegCount == 1, L"Expect single subsegment for head");
+			Assert::IsTrue(neckSegSubsegCount == 1, L"Expect single subsegment for neck");
+
+			uint32_t headSubsegs[5 * 3];
+			uint32_t neckSubsegs[5 * 3];
+			getSubsegments(nif, head, headSegID, headSubsegs, 5);
+			getSubsegments(nif, head, neckSegID, neckSubsegs, 5);
+
+			Assert::IsTrue(headSubsegs[1] == 32, L"Read correct user id");
+			Assert::IsTrue(headSubsegs[2] == 2260150656, L"Read correct material");
+			Assert::IsTrue(neckSubsegs[1] == 33, L"Read correct user id");
+			Assert::IsTrue(neckSubsegs[2] == 1030112426, L"Read correct material");
+
+			uint16_t trimap[4000];
+			int partTriCount = getPartitionTris(nif, head, trimap, 4000);
+
+			void* nifOut = createNif("FO4");
+			uint16_t options = 0;
+			void* skinOut;
+			void* headOut = TCopyShape(nifOut, "BaseMaleHead:0", nif, head, 0, &skinOut, 0);
+			TCopyShader(nifOut, headOut, nif, head);
+
+			const int segsLen = 4;
+			uint16_t segsOut[segsLen];
+			segsOut[0] = 1;
+			segsOut[1] = 2;
+			segsOut[2] = 3;
+			segsOut[3] = 4;
+
+			const int subSegsLen = 2;
+			uint32_t subsegs[subSegsLen * 4];
+			subsegs[0] = 5; // ID
+			subsegs[1] = 2; // parent
+			subsegs[2] = 32; // Head
+			subsegs[3] = 2260150656; // head material
+			subsegs[4] = 6; // ID
+			subsegs[5] = 4; // parent
+			subsegs[6] = 33; // Neck
+			subsegs[7] = 2260150656; // head material
+
+			clearMessageLog();
+			uint16_t trimapOut[4000];
+			for (int i = 0; i < partTriCount; i++)
+				if (trimap[i] == headSegIndex)
+					trimapOut[i] = 5;
+				else if (trimap[i] == neckSegIndex)
+					trimapOut[i] = 6;
+				else
+					Assert::Fail(L"All tris should be in head or neck segments");
+			
+			setSegments(nifOut, headOut,
+				segsOut, segsLen,
+				subsegs, subSegsLen,
+				trimapOut, partTriCount,
+				"phonysegmentfile.ssf");
+
+			saveSkinnedNif(skinOut, (testRoot / "Out/writeMiddleEmptySegment.nif").u8string().c_str());
+
+			void* shapescheck[10];
+			void* nifcheck = load((testRoot / "Out/writeMiddleEmptySegment.nif").u8string().c_str());
+			getShapes(nifcheck, shapescheck, 10, 0);
+
+			void* headCheck = shapescheck[0];
+			int segcheck[10];
+			int segcheck_len = getSegments(nifcheck, headCheck, segcheck, 10);
+
+			Assert::IsTrue(segcheck_len == 4,
+				L"Expected 4 segments back");
+
+			uint16_t segtriCheck[4000];
+			int segtri_len = getPartitionTris(nifcheck, shapescheck[0], segtriCheck, 4000);
+
+			for (int i = 0; i < segtri_len; i++)
+				Assert::IsTrue(segtriCheck[i] == trimap[i], L"Tris in resulting nif match original");
 		};
 	};
 }
