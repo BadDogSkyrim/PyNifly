@@ -89,6 +89,51 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_ROTSTATIC2 = True
     TEST_VERTEX_ALPHA = True
     TEST_EXP_SK_RENAMED = True
+    TEST_EXP_SEG_ORDER = True
+
+
+    if TEST_EXP_SEG_ORDER:
+        print("### TEST_EXP_SEG_ORDER: Segments export in numerical order")
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SEG_ORDER.nif")
+        remove_file(outfile)
+
+        append_from_file("SynthGen1Body", True, r"tests\FO4\SynthGen1BodyTest.blend", r"\Object", "SynthGen1Body")
+
+        NifFile.clear_log()
+        exporter = NifExporter(outfile, 'FO4')
+        exporter.export([bpy.data.objects["SynthGen1Body"]])
+        assert "ERROR" not in NifFile.message_log(), f"Error: Expected no error message, got: \n{NifFile.message_log()}---\n"
+
+        nif1 = NifFile(outfile)
+        assert len(nif1.shapes) == 1, f"Single shape was exported"
+
+        # Third segment should be arm, with 5 subsegments
+        body = nif1.shapes[0]
+        assert len(body.partitions[2].subsegments) == 5, "Right arm has 5 subsegments"
+        assert body.partitions[2].subsegments[0].material == 0xb2e2764f, "First subsegment is the upper right arm material"
+        assert len(body.partitions[3].subsegments) == 0, "Torso has no subsegments"
+
+
+    if TEST_PARTITIONS:
+        test_title("TEST_PARTITIONS", "Can read Skyrim partions")
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/MaleHead.nif")
+
+        NifImporter.do_import(testfile)
+
+        obj = bpy.context.object
+        assert "SBP_130_HEAD" in obj.vertex_groups, "Skyrim body parts read in as vertex groups with sensible names"
+
+        print("### Can write Skyrim partitions")
+        e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"), "SKYRIM")
+        e.export([obj])
+        #export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"),
+        #                "SKYRIM", [''], [obj], obj.parent)
+        
+        nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/testPartitionsSky.nif"))
+        head = nif2.shapes[0]
+        assert len(nif2.shapes[0].partitions) == 3, "Have all skyrim partitions"
+        assert set([p.id for p in head.partitions]) == set([130, 143, 230]), "Have all head parts"
 
 
     if TEST_BPY_ALL or TEST_SEGMENTS:
