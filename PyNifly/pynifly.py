@@ -1664,7 +1664,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1790,8 +1790,11 @@ if __name__ == "__main__":
     mylog = logging.getLogger("pynifly")
     logging.basicConfig()
     mylog.setLevel(logging.DEBUG)
-    mylog.info("========= Running pynifly tests =========")
-
+    mylog.info("""
+=========================================
+========= Running pynifly tests =========
+=========================================
+""")
 
     if TEST_ALL or TEST_XFORM_INVERSION:
         print("### Transform inversion works correctly")
@@ -2913,4 +2916,10 @@ if __name__ == "__main__":
         attrsTest = shapeTest.shader_attributes
         assert attrsTest == shape.shader_attributes, f"Error: Expected same shader attributes"
 
-
+    print("""
+================================================
+=========                              =========
+========= TESTS COMPLETED SUCCESSFULLY =========
+=========                              =========
+================================================
+""")
