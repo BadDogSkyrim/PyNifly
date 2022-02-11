@@ -19,6 +19,9 @@ enum TargetGame {
 	FO3, FONV, SKYRIM, FO4, SKYRIMSE, FO4VR, SKYRIMVR, FO76
 };
 
+const int RT_NINODE = 0;
+const int RT_BSFADENODE = 1;
+
 extern std::string curRootName;
 
 
