@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -787,6 +787,14 @@ class NifImporter():
         new_mesh.calc_normals_split()
 
         obj_create_material(new_object, the_shape)
+        
+        # Root block type goes on the shape object because there isn't another good place
+        # to put it.
+        f = the_shape.parent
+        root = f.nodes[f.rootName]
+        if root.blockname != "NiNode":
+            new_object["BS_RootNode_BlockType"] = root.blockname
+        new_object["BS_RootNode_Name"] = root.name
 
         self.objects_created.extend(import_shape_extra(new_object, the_shape))
 
@@ -1515,21 +1523,6 @@ def partitions_from_vert_groups(obj):
                         p = val[parent_name]
                         log.debug(f"Found FO4Subsegment '{vg.name}' child of '{parent_name}'")
                         val[vg.name] = FO4Subsegment(len(val), subseg_id, material, p, name=vg.name)
-
-        
-        ## A second pass to pick up subsections
-        #for nm in vg_sorted:
-        #    vg = obj.vertex_groups[nm]
-        #    if vg.name not in val:
-        #        parent_name, subseg_id, material = FO4Subsegment.name_match(vg.name)
-        #        if parent_name:
-        #            if not parent_name in val:
-        #                # Create parent segments if not there
-        #                log.debug(f"Subseg {vg.name} needs parent {parent_name}; existing parents are {val.keys()}")
-        #                val[parent_name] = FO4Segment(len(val), 0, parent_name)
-        #            p = val[parent_name]
-        #            log.debug(f"Found FO4Subsegment '{vg.name}' child of '{parent_name}'")
-        #            val[vg.name] = FO4Subsegment(len(val), subseg_id, material, p, name=vg.name)
     
     return val
 
@@ -1557,7 +1550,13 @@ def mesh_from_key(editmesh, verts, target_key):
 def export_shape_to(shape, filepath, game):
     outnif = NifFile()
     outtrip = TripFile()
-    outnif.initialize(game, filepath)
+    rt = "NiNode"
+    rn = "Scene Root"
+    if "BS_RootNode_BlockType" in shape:
+        rt = shape["BS_RootNode_BlockType"]
+    if "BS_RootNode_Name" in shape:
+        rn = shape["BS_RootNode_Name"]
+    outnif.initialize(game, filepath, rt, rn)
     ret = export_shape(outnif, outtrip, shape, '', shape.parent) 
     outnif.save()
     log.info(f"Wrote {filepath}")
@@ -2002,7 +2001,17 @@ class NifExporter:
 
             log.info(f"..Exporting to {self.game} {fpath}")
             exportf = NifFile()
-            exportf.initialize(self.game, fpath)
+
+            rt = "NiNode"
+            rn = "Scene Root"
+
+            shape = next(iter(self.objects))
+            if "BS_RootNode_BlockType" in shape:
+                rt = shape["BS_RootNode_BlockType"]
+            if "BS_RootNode_Name" in shape:
+                rn = shape["BS_RootNode_Name"]
+            
+            exportf.initialize(self.game, fpath, rt, rn)
             if suffix == '_faceBones':
                 exportf.dict = fo4FaceDict
 
@@ -2200,27 +2209,23 @@ def run_tests():
     # pynifly_tests.py when stable.
 
     if True:
-        print("### TEST_EXP_SEGMENTS_BAD: Verts export in the correct segments")
+        test_title("TEST_ROOTNODE", "Can read and write root node block types")
         clear_all()
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SEGMENTS_BAD.nif")
-        remove_file(outfile)
+        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/glassbowskinned.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROOTNODE.nif")
 
-        append_from_file("ArmorUnder", True, r"tests\FO4\ArmorExportsBadSegments.blend", r"\Object", "ArmorUnder")
+        NifImporter.do_import(testfile)
 
-        NifFile.clear_log()
-        exporter = NifExporter(outfile, 'FO4')
-        exporter.export([bpy.data.objects["ArmorUnder"]])
-        assert "ERROR" not in NifFile.message_log(), f"Error: Expected no error message, got: \n{NifFile.message_log()}---\n"
+        obj = bpy.context.object
+        assert obj["BS_RootNode_BlockType"] == 'BSFadeNode', "BS_RootNode_BlockType holds the type of root node for the given shape"
+        assert obj["BS_RootNode_Name"] == "GlassBowSkinned.nif", "BS_RootNode_Name holds the name for the root node"
 
-        nif1 = NifFile(outfile)
-        assert len(nif1.shapes) == 1, f"Single shape was exported"
+        exporter = NifExporter(outfile, 'SKYRIMSE')
+        exporter.export([obj])
 
-        body = nif1.shapes[0]
-        assert len(body.partitions) == 7, "All 7 segments exported"
-        assert len(body.partitions[3].subsegments) == 0, "4th partition (body) has no subsegments"
-        assert len([x for x in body.partition_tris if x == 3]) == len(body.tris), f"All tris in the 4th partition--found {len([x for x in body.partition_tris if x == 3])}"
-        assert len([x for x in body.partition_tris if x != 3]) == 0, f"Regression: No tris in the last partition (or any other)--found {len([x for x in body.partition_tris if x != 3])}"
-
+        nif = NifFile(outfile)
+        assert nif.rootName == obj["BS_RootNode_Name"], f"Root node name set successfully: {nif.rootName}"
+        assert nif.nodes[nif.rootName].blockname == obj["BS_RootNode_BlockType"], f"Root block type set successfully: found {nif.nodes[nif.rootName].blockname}"
 
     print("""
     ############################################################

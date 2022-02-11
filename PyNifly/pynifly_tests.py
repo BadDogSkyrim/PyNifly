@@ -92,8 +92,31 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_EXP_SEG_ORDER = True
 
 
+    if True:
+        print("### TEST_EXP_SEGMENTS_BAD: Verts export in the correct segments")
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SEGMENTS_BAD.nif")
+        remove_file(outfile)
+
+        append_from_file("ArmorUnder", True, r"tests\FO4\ArmorExportsBadSegments.blend", r"\Object", "ArmorUnder")
+
+        NifFile.clear_log()
+        exporter = NifExporter(outfile, 'FO4')
+        exporter.export([bpy.data.objects["ArmorUnder"]])
+        assert "ERROR" not in NifFile.message_log(), f"Error: Expected no error message, got: \n{NifFile.message_log()}---\n"
+
+        nif1 = NifFile(outfile)
+        assert len(nif1.shapes) == 1, f"Single shape was exported"
+
+        body = nif1.shapes[0]
+        assert len(body.partitions) == 7, "All 7 segments exported"
+        assert len(body.partitions[3].subsegments) == 0, "4th partition (body) has no subsegments"
+        assert len([x for x in body.partition_tris if x == 3]) == len(body.tris), f"All tris in the 4th partition--found {len([x for x in body.partition_tris if x == 3])}"
+        assert len([x for x in body.partition_tris if x != 3]) == 0, f"Regression: No tris in the last partition (or any other)--found {len([x for x in body.partition_tris if x != 3])}"
+
+
     if TEST_EXP_SEG_ORDER:
-        print("### TEST_EXP_SEG_ORDER: Segments export in numerical order")
+        test_title("TEST_EXP_SEG_ORDER", "Segments export in numerical order")
         clear_all()
         outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SEG_ORDER.nif")
         remove_file(outfile)

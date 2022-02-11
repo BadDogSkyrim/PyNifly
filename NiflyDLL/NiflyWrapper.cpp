@@ -116,7 +116,7 @@ NIFLY_API void destroy(void* f) {
     delete theNif;
 }
 
-void SetNifVersionWrap(NifFile* nif, enum TargetGame targ) {
+void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, int rootType, std::string name) {
     NiVersion version;
 
     switch (targ) {
@@ -150,16 +150,20 @@ void SetNifVersionWrap(NifFile* nif, enum TargetGame targ) {
         break;
     }
 
-    nif->Create(version);
+    if (rootType == RT_BSFADENODE)
+        nif->CreateAsFade(version, name);
+    else
+        nif->Create(version);
     //NiNode* root = nif->GetRootNode();
     //std::string nm = root->GetName();
-    //root->SetName("Scene Root");
+    //root->SetName(name);
 }
 
-NIFLY_API void* createNif(const char* targetGameName) {
+NIFLY_API void* createNif(const char* targetGameName, int rootType, char* rootName) {
     TargetGame targetGame = StrToTargetGame(targetGameName);
     NifFile* workNif = new NifFile();
-    SetNifVersionWrap(workNif, targetGame);
+    std::string rootNameStr = rootName;
+    SetNifVersionWrap(workNif, targetGame, rootType, rootNameStr);
     return workNif;
 }
 
@@ -183,6 +187,15 @@ NIFLY_API void getNodes(void* theNif, void** buf)
     std::vector<nifly::NiNode*> nodes = nif->GetNodes();
     for (int i = 0; i < nodes.size(); i++)
         buf[i] = nodes[i];
+}
+
+NIFLY_API int getNodeBlockname(void* node, char* buf, int buflen) {
+    nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
+    std::string name = theNode->GetBlockName();
+    int copylen = std::min((int)buflen - 1, (int)name.length());
+    name.copy(buf, copylen, 0);
+    buf[name.length()] = '\0';
+    return int(name.length());
 }
 
 NIFLY_API int getNodeName(void* node, char* buf, int buflen) {

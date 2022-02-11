@@ -11,8 +11,12 @@ import logging
 from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer, addressof
 from niflytools import *
 
-
+# We do not actually support all these versions
 game_versions = ["FO3", "FONV", "SKYRIM", "FO4", "SKYRIMSE", "FO4VR", "SKYRIMVR", "FO76"]
+
+# Types of root nodes
+RT_NINODE = 0
+RT_BSFADENODE = 1
 
 VECTOR3 = c_float * 3
 MATRIX3 = VECTOR3 * 3
@@ -290,7 +294,7 @@ def load_nifly(nifly_path):
     nifly.addNode.restype = c_int
     nifly.clearMessageLog.argtypes = []
     nifly.clearMessageLog.restype = None
-    nifly.createNif.argtypes = [c_char_p]
+    nifly.createNif.argtypes = [c_char_p, c_int, c_char_p]
     nifly.createNif.restype = c_void_p
     nifly.createNifShapeFromData.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p]
     nifly.createNifShapeFromData.restype = c_void_p
@@ -314,6 +318,8 @@ def load_nifly(nifly_path):
     nifly.getGlobalToSkin.restype = None
     nifly.getMessageLog.argtypes = [c_char_p, c_int]
     nifly.getMessageLog.restype = c_int
+    nifly.getNodeBlockname.argtypes = [c_void_p, c_char_p, c_int]
+    nifly.getNodeBlockname.restype = c_int
     nifly.getNodeCount.argtypes = [c_void_p]
     nifly.getNodeCount.restype = c_int
     nifly.getNodeName.argtypes = [c_void_p, c_void_p, c_int]
@@ -847,6 +853,12 @@ class NiNode:
             self.transform.from_array(buf)
 
     @property
+    def blockname(self):
+        buf = (c_char * 128)()
+        NifFile.nifly.getNodeBlockname(self._handle, buf, 128)
+        return buf.value.decode('utf-8')
+
+    @property
     def blender_name(self):
         return self.file.blender_name(self.name)
 
@@ -912,8 +924,8 @@ class NiShape:
 
     @property
     def blockname(self):
-        buf = (c_char * 50)()
-        NifFile.nifly.getShapeBlockName(self._handle, buf, 50)
+        buf = (c_char * 128)()
+        NifFile.nifly.getShapeBlockName(self._handle, buf, 128)
         return buf.value.decode('utf-8')
 
     @property
@@ -1447,10 +1459,15 @@ class NifFile:
         if self._handle:
             NifFile.nifly.destroy(self._handle)
 
-    def initialize(self, target_game, filepath):
+    def initialize(self, target_game, filepath, root_type="NiNode", root_name='Scene Root'):
         self.filepath = filepath
         self._game = target_game
-        self._handle = NifFile.nifly.createNif(target_game.encode('utf-8'))
+        rt = 0
+        if root_type == "BSFadeNode":
+            rt = RT_BSFADENODE
+        self._handle = NifFile.nifly.createNif(target_game.encode('utf-8'),
+                                               rt,
+                                               root_name.encode('utf-8'))
         self.dict = gameSkeletons[target_game]
 
     def save(self):
@@ -1664,7 +1681,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1679,7 +1696,7 @@ TEST_PYBABY = False
 TEST_BONE_XFORM = False
 TEST_PARTITION_NAMES = False
 TEST_PARTITIONS = False
-TEST_SEGMENTS_EMPTY = True
+TEST_SEGMENTS_EMPTY = False
 TEST_SEGMENTS = False
 TEST_BP_SEGMENTS = False
 TEST_COLORS = False
@@ -1699,6 +1716,7 @@ TEST_CLOTH_DATA = False
 TEST_PARTITION_SM = False
 TEST_EXP_BODY = False
 TEST_EFFECT_SHADER = False
+TEST_ROOT_BLOCKNAME = True
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -1814,8 +1832,9 @@ if __name__ == "__main__":
         # Root node is not from the file.
         f1 = NifFile("tests/skyrim/test.nif")
         print("### Toplevel node name is available")
-        assert f1.game == "SKYRIM", "ERROR: Test file not Skyrim"
-        assert f1.rootName == "Scene Root", "ERROR: Test file root name wrong: " + str(f.rootName)
+        assert f1.game == "SKYRIM", "'game' property gives the game the nif is good for"
+        assert f1.rootName == "Scene Root", "'rootName' is the name of the root node in the file: " + str(f.rootName)
+        assert f1.nodes[f1.rootName].blockname == 'NiNode', f"'blockname' is the type of block"
 
         # Same for FO4 nifs
         f2 = NifFile("tests/FO4/AlarmClock.nif")
@@ -2893,6 +2912,7 @@ if __name__ == "__main__":
         assert "ERROR" in NifFile.message_log(), "Error: Expected error message, got '{NifFile.message_log()}'"
         # If no CTD we're good
 
+
     if TEST_ALL or TEST_EFFECT_SHADER:
         print("### TEST_EFFECT_SHADER: Can read and write shader flags")
         nif = NifFile(r"tests/FO4/Helmet.nif")
@@ -2910,11 +2930,28 @@ if __name__ == "__main__":
         _test_export_shape(nif.shapes[0], nifOut)
         nifOut.save()
 
-        nifTest = NifFile(f"tests\out\TEST_EFFECT_SHADER.nif")
+        nifTest = NifFile(r"tests\out\TEST_EFFECT_SHADER.nif")
         assert len(nifTest.shapes) == 1, f"Error: Expected 1 shape, found {len(nifTest.shapes)}"
         shapeTest = nifTest.shapes[0]
         attrsTest = shapeTest.shader_attributes
         assert attrsTest == shape.shader_attributes, f"Error: Expected same shader attributes"
+
+
+    if TEST_ALL or TEST_ROOT_BLOCKNAME:
+        print("### TEST_ROOT_BLOCKNAME: Can read and write root block name/type")
+        nif = NifFile(r"tests\SkyrimSE\glassbowskinned.nif")
+        root = nif.nodes[nif.rootName]
+        assert root.blockname == "BSFadeNode", f"Top level node should read as BSFadeNode, found '{root.blockname}'"
+
+        nifOut = NifFile()
+        nifOut.initialize('SKYRIMSE', r"tests\out\TEST_ROOT_BLOCKNAME.nif", root.blockname, root.name)
+        _test_export_shape(nif.shapes[0], nifOut)
+        nifOut.save()
+
+        nifCheck = NifFile(r"tests\out\TEST_ROOT_BLOCKNAME.nif")
+        rootCheck = nifCheck.nodes[nifCheck.rootName]
+        assert nifCheck.rootName == root.name, f"ERROR: root name not correct, {nifCheck.rootName} != {root.name}"
+        assert rootCheck.blockname == root.blockname, f"ERROR: root type not correct, {rootCheck.blockname} != {root.blockname}"
 
     print("""
 ================================================
