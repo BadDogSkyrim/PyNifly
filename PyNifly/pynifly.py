@@ -308,6 +308,12 @@ def load_nifly(nifly_path):
     nifly.getAlphaProperty.restype = c_int
     nifly.getBoneSkinToBoneXform.argtypes = [c_void_p, c_char_p, c_char_p, c_void_p]
     nifly.getBoneSkinToBoneXform.restype = None 
+    nifly.getBSXFlags.argtypes = [c_void_p, c_void_p]
+    nifly.getBSXFlags.restype = c_int
+    nifly.getCollBlockname.argtypes = [c_void_p, c_char_p, c_int]
+    nifly.getCollBlockname.restype = c_int
+    nifly.getCollision.argtypes = [c_void_p, c_void_p]
+    nifly.getCollision.restype = c_void_p
     nifly.getColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getColorsForShape.restype = c_int
     nifly.getEffectShaderAttrs.argtypes = [c_void_p, c_void_p, BSESPAttrs_p]
@@ -316,12 +322,16 @@ def load_nifly(nifly_path):
     nifly.getGameName.restype = c_int
     nifly.getGlobalToSkin.argtypes = [c_void_p, c_void_p, c_void_p]
     nifly.getGlobalToSkin.restype = None
+    nifly.getInvMarker.argtypes = [c_void_p, c_char_p, c_int, c_void_p, c_void_p]
+    nifly.getInvMarker.restype = c_int
     nifly.getMessageLog.argtypes = [c_char_p, c_int]
     nifly.getMessageLog.restype = c_int
     nifly.getNodeBlockname.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getNodeBlockname.restype = c_int
     nifly.getNodeCount.argtypes = [c_void_p]
     nifly.getNodeCount.restype = c_int
+    nifly.getNodeFlags.argtypes = [c_void_p]
+    nifly.getNodeFlags.restype = c_int
     nifly.getNodeName.argtypes = [c_void_p, c_void_p, c_int]
     nifly.getNodeName.restype = c_int
     nifly.getNodeParent.argtypes = [c_void_p, c_void_p]
@@ -782,6 +792,8 @@ class ExtraDataType(Enum):
     BehaviorGraph = 1
     String = 2
     Cloth = 3
+    InvMarker = 4
+    BSXFlags = 5
 
 def _read_extra_data(nifHandle, shapeHandle, edtype):
     ed = []
@@ -835,6 +847,20 @@ def _write_extra_data(nifhandle, shapehandle, edtype, val):
         else:
             set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1].encode('utf-8'))
 
+
+# --- CollisionObject --- #
+class CollisionObject:
+    def __init__(self, handle=None, file=None, parent=None):
+        self._handle = handle
+        self._parent = parent
+
+    @property
+    def blockname(self):
+        buf = (c_char * 128)()
+        NifFile.nifly.getCollBlockname(self._handle, buf, 128)
+        return buf.value.decode('utf-8')
+
+
 # --- NiNode --- #
 class NiNode:
     def __init__(self, handle=None, file=None, parent=None):
@@ -859,6 +885,10 @@ class NiNode:
         return buf.value.decode('utf-8')
 
     @property
+    def flags(self):
+        return NifFile.nifly.getNodeFlags(self._handle)
+
+    @property
     def blender_name(self):
         return self.file.blender_name(self.name)
 
@@ -879,6 +909,15 @@ class NiNode:
         mat = MatTransform()
         mat.from_array(buf)
         return mat
+
+    @property
+    def collision_object(self):
+        n = NifFile.nifly.getCollision(self.file._handle, self._handle)
+        if n:
+            return CollisionObject(handle=n, file=self.file, parent=self)
+        else:
+            return None
+
 
 # --- NifShape --- #
 class NiShape:
@@ -1652,6 +1691,24 @@ class NifFile:
         _write_extra_data(self._handle, None, 
                          ExtraDataType.String, self._strdata)
 
+    @property
+    def inventory_marker(self):
+        namebuf = (c_char * 128)()
+        rotbuf = (c_int * 3)();
+        zoombuf = (c_float * 1)();
+        if NifFile.nifly.getInvMarker(self._handle, namebuf, 128, rotbuf, zoombuf):
+            return [namebuf.value.decode('utf-8'), rotbuf[0], rotbuf[1], rotbuf[2], zoombuf[0]]
+        else:
+            return None
+
+    @property
+    def bsx_flags(self):
+        buf = (c_int * 1)()
+        if NifFile.nifly.getBSXFlags(self._handle, buf):
+            return ["BSX", buf[0]]
+        else:
+            return None
+
 
     def createSkin(self):
         self.game
@@ -1716,7 +1773,7 @@ TEST_CLOTH_DATA = False
 TEST_PARTITION_SM = False
 TEST_EXP_BODY = False
 TEST_EFFECT_SHADER = False
-TEST_ROOT_BLOCKNAME = True
+TEST_BOW = True
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -2937,18 +2994,32 @@ if __name__ == "__main__":
         assert attrsTest == shape.shader_attributes, f"Error: Expected same shader attributes"
 
 
-    if TEST_ALL or TEST_ROOT_BLOCKNAME:
-        print("### TEST_ROOT_BLOCKNAME: Can read and write root block name/type")
+    if TEST_ALL or TEST_BOW:
+        print("### TEST_BOW: Can read and write special weapon data")
         nif = NifFile(r"tests\SkyrimSE\glassbowskinned.nif")
+
         root = nif.nodes[nif.rootName]
         assert root.blockname == "BSFadeNode", f"Top level node should read as BSFadeNode, found '{root.blockname}'"
+        assert root.flags == 14, "Root node has flags"
+        assert root.xform_to_global == MatTransform(), "Root node transform can be read"
+
+        assert nif.inventory_marker[0] == "INV"
+        assert nif.inventory_marker[1:4] == [4712, 0, 785]
+        assert round(nif.inventory_marker[4], 4) == 1.1273, "Inventory marker has rotation and zoom info"
+
+        assert nif.bsx_flags == ['BSX', 202]
+
+        bone = nif.nodes['Bow_MidBone']
+        co = bone.collision_object
+        assert co.blockname == "bhkCollisionObject", f"Can find type of collision object from the block name: {co.blockname}"
+
 
         nifOut = NifFile()
-        nifOut.initialize('SKYRIMSE', r"tests\out\TEST_ROOT_BLOCKNAME.nif", root.blockname, root.name)
+        nifOut.initialize('SKYRIMSE', r"tests\out\TEST_BOW.nif", root.blockname, root.name)
         _test_export_shape(nif.shapes[0], nifOut)
         nifOut.save()
 
-        nifCheck = NifFile(r"tests\out\TEST_ROOT_BLOCKNAME.nif")
+        nifCheck = NifFile(r"tests\out\TEST_BOW.nif")
         rootCheck = nifCheck.nodes[nifCheck.rootName]
         assert nifCheck.rootName == root.name, f"ERROR: root name not correct, {nifCheck.rootName} != {root.name}"
         assert rootCheck.blockname == root.blockname, f"ERROR: root type not correct, {rootCheck.blockname} != {root.blockname}"

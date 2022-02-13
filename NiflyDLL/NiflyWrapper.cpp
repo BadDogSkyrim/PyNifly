@@ -17,10 +17,11 @@
 #include <string>
 #include <algorithm>
 #include "niffile.hpp"
+#include "bhk.hpp"
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 2, 1, 0 };
+const int NiflyDDLVersion[3] = { 2, 2, 0 };
  
 using namespace nifly;
 
@@ -159,7 +160,7 @@ void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, int rootType, std::st
     //root->SetName(name);
 }
 
-NIFLY_API void* createNif(const char* targetGameName, int rootType, char* rootName) {
+NIFLY_API void* createNif(const char* targetGameName, int rootType, const char* rootName) {
     TargetGame targetGame = StrToTargetGame(targetGameName);
     NifFile* workNif = new NifFile();
     std::string rootNameStr = rootName;
@@ -196,6 +197,11 @@ NIFLY_API int getNodeBlockname(void* node, char* buf, int buflen) {
     name.copy(buf, copylen, 0);
     buf[name.length()] = '\0';
     return int(name.length());
+}
+
+NIFLY_API int getNodeFlags(void* node) {
+    nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
+    return theNode->flags;
 }
 
 NIFLY_API int getNodeName(void* node, char* buf, int buflen) {
@@ -1651,6 +1657,50 @@ int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namele
     return 0;
 };
 
+int getInvMarker(void* nifref, char* name, int namelen, int* rot, float* zoom)
+/* 
+* Returns the InvMarker node data, if any. Assumes there is only one.
+*   name = receives the name--will be null terminated
+*   namelen = length of the name buffer
+*   rot = int[3] for X, Y, Z
+*   zoom = zoom value
+* Return value = true/false whether a BSInvMarker exists
+*/
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    NiAVObject* source = nif->GetRootNode();
+
+    for (auto& extraData : source->extraDataRefs) {
+        BSInvMarker* invm = hdr.GetBlock<BSInvMarker>(extraData);
+        if (invm) {
+            strncpy_s(name, namelen, invm->name.get().c_str(), namelen - 1);
+            rot[0] = invm->rotationX;
+            rot[1] = invm->rotationY;
+            rot[2] = invm->rotationZ;
+            *zoom = invm->zoom;
+            return 1;
+        }
+    }
+    return 0;
+};
+
+int getBSXFlags(void* nifref, int* buf)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    NiAVObject* source = nif->GetRootNode();
+
+    for (auto& extraData : source->extraDataRefs) {
+        BSXFlags* f = hdr.GetBlock<BSXFlags>(extraData);
+        if (f) {
+            *buf = f->integerData;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiAVObject* target = nullptr;
@@ -1680,3 +1730,27 @@ int getMessageLog(char* buf, int buflen) {
         return niflydll::LogGetLen();
     //return niflydll::LogGetLen();
 }
+
+/* ***************************** COLLISION OBJECTS ***************************** */
+
+void* getCollision(void* nifref, void* noderef) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::NiNode* node = static_cast<nifly::NiNode*>(noderef);
+
+    return hdr.GetBlock(node->collisionRef);
+};
+
+NIFLY_API int getCollBlockname(void* node, char* buf, int buflen) {
+    nifly::bhkCollisionObject* theNode = static_cast<nifly::bhkCollisionObject*>(node);
+    if (theNode) {
+        std::string name = theNode->GetBlockName();
+        int copylen = std::min((int)buflen - 1, (int)name.length());
+        name.copy(buf, copylen, 0);
+        buf[name.length()] = '\0';
+        return int(name.length());
+    }
+    else
+        return 0;
+}
+

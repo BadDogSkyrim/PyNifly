@@ -111,14 +111,16 @@ class RotationMatrix:
         rot[2][2] = ch * cp;
         return RotationMatrix(rot)
 
-    def from_euler(xrot, yrot, zrot):
-        """ Convert from blender-style euler anges (in degrees) to a matrix.
+    @classmethod
+    def from_euler(cls, xrot, yrot, zrot):
+        """ Convert from blender-style euler angles (in degrees) to a matrix.
             Calculation from wikipedia (where else?)
             """
         return RotationMatrix.from_euler_rad(radians(xrot), radians(yrot), radians(zrot))
 
-    def from_euler_rad(xrot, yrot, zrot):
-        """ Convert from blender-style euler anges (in degrees) to a matrix.
+    @classmethod
+    def from_euler_rad(cls, xrot, yrot, zrot):
+        """ Convert from blender-style euler angles (in radians) to a matrix.
             Calculation from wikipedia (where else?)
             """
         c1 = cos(xrot)

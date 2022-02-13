@@ -60,10 +60,11 @@ extern "C" NIFLY_API int getUVs(void* theNif, void* theShape, float* buf, int le
 extern "C" NIFLY_API int getNodeCount(void* theNif);
 extern "C" NIFLY_API void getNodes(void* theNif, void** buf);
 extern "C" NIFLY_API int getNodeBlockname(void* node, char* buf, int buflen);
+extern "C" NIFLY_API int getNodeFlags(void* node);
 extern "C" NIFLY_API int getNodeName(void* theNode, char* buf, int buflen);
 extern "C" NIFLY_API void* getNodeParent(void* theNif, void* node);
 extern "C" NIFLY_API void getNodeXformToGlobal(void* anim, const char* boneName, float* xformBuf);
-extern "C" NIFLY_API void* createNif(const char* targetGame, int rootType, char* rootName);
+extern "C" NIFLY_API void* createNif(const char* targetGame, int rootType, const char* rootName);
 extern "C" NIFLY_API void* createNifShapeFromData(void* parentNif,
 	const char* shapeName,
 	const float* verts,
@@ -304,8 +305,14 @@ extern "C" NIFLY_API int getStringExtraData(void* nifref, void* shaperef, int id
 extern "C" NIFLY_API void setStringExtraData(void* nifref, void* shaperef, char* name, char* buf);
 extern "C" NIFLY_API int getBGExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen);
 extern "C" NIFLY_API int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen);
+extern "C" NIFLY_API int getInvMarker(void* nifref, char* name, int namelen, int* rot, float* zoom);
+extern "C" NIFLY_API int getBSXFlags(void* nifref, int* buf);
 extern "C" NIFLY_API void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf);
 
 /* ********************* ERROR REPORTING ********************* */
 extern "C" NIFLY_API void clearMessageLog();
 extern "C" NIFLY_API int getMessageLog(char* buf, int buflen);
+
+extern "C" NIFLY_API void* getCollision(void* nifref, void* noderef);
+
+extern "C" NIFLY_API int getCollBlockname(void* node, char* buf, int buflen);
