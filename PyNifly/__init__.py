@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (2, 1, 0),  
+    "version": (2, 2, 0),  
     "location": "File > Import-Export",
     "warning": "WIP",
     "support": "COMMUNITY",
@@ -1596,7 +1596,7 @@ class NifExporter:
         self.bg_data = set([])
         self.str_data = set([])
         self.cloth_data = set([])
-        # Shape keys that start with underscore and are common to all exportable shapes trigger
+        # Shape keys that start with underscore trigger
         # a separate file export for each shape key
         self.file_keys = []
         self.objs_unweighted = set()
@@ -2038,6 +2038,11 @@ class NifExporter:
 
 
     def execute(self):
+        if not self.objects:
+            log.warning(f"No objects selected for export")
+            self.warnings.add('NOTHING')
+            return
+
         log.debug(f"..Exporting objects: {self.objects}\nstring data: {self.str_data}\nBG data: {self.bg_data}\ncloth data: {self.cloth_data}\narmature: armature: {self.armature},\nfacebones: {self.facebones}")
         NifFile.clear_log()
         if self.facebones:
