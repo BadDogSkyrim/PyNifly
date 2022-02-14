@@ -1747,7 +1747,52 @@ NIFLY_API int getCollBlockname(void* node, char* buf, int buflen) {
         std::string name = theNode->GetBlockName();
         int copylen = std::min((int)buflen - 1, (int)name.length());
         name.copy(buf, copylen, 0);
-        buf[name.length()] = '\0';
+        buf[copylen] = '\0';
+        return int(name.length());
+    }
+    else
+        return 0;
+}
+
+NIFLY_API int getCollBodyID(void* nifref, void* node) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::bhkCollisionObject* theNode = static_cast<nifly::bhkCollisionObject*>(node);
+    if (theNode)
+        return theNode->bodyRef.index;
+    else
+        return 0;
+}
+
+NIFLY_API void* getCollTarget(void* nifref, void* node) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::bhkCollisionObject* theNode = static_cast<nifly::bhkCollisionObject*>(node);
+    if (theNode)
+        return hdr.GetBlock(theNode->targetRef);
+    else
+        return nullptr;
+}
+
+NIFLY_API int getCollFlags(void* node) {
+    nifly::bhkCollisionObject* theNode = static_cast<nifly::bhkCollisionObject*>(node);
+    if (theNode) {
+        return theNode->flags;
+    }
+    else
+        return 0;
+}
+
+NIFLY_API int getCollBodyBlockname(void* nifref, int nodeIndex, char* buf, int buflen) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::bhkRigidBody* theBody = hdr.GetBlock<bhkRigidBody>(nodeIndex);
+
+    if (theBody) {
+        std::string name = theBody->GetBlockName();
+        int copylen = std::min((int)buflen - 1, (int)name.length());
+        name.copy(buf, copylen, 0);
+        buf[copylen] = '\0';
         return int(name.length());
     }
     else
