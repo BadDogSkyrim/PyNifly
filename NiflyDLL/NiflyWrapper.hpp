@@ -316,3 +316,11 @@ extern "C" NIFLY_API int getMessageLog(char* buf, int buflen);
 extern "C" NIFLY_API void* getCollision(void* nifref, void* noderef);
 
 extern "C" NIFLY_API int getCollBlockname(void* node, char* buf, int buflen);
+
+extern "C" NIFLY_API int getCollBodyID(void* nifref, void* node);
+
+extern "C" NIFLY_API void* getCollTarget(void* nifref, void* node);
+
+extern "C" NIFLY_API int getCollFlags(void* node);
+
+extern "C" NIFLY_API int getCollBodyBlockname(void* nif, int nodeIndex, char* buf, int buflen);

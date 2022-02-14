@@ -2572,16 +2572,22 @@ namespace NiflyDLLTests
 			void** nodes = new void* [nodeCount];
 			getNodes(nif, nodes);
 
+			void* coll = nullptr;
 			for (int i=0; i < nodeCount; i++) {
 				char nodename[128];
 				getNodeName(nodes[i], nodename, 128);
 				if (strcmp(nodename, "Bow_MidBone") == 0) {
-					void* coll = getCollision(nif, nodes[i]);
+					coll = getCollision(nif, nodes[i]);
 					char collname[128];
 					getCollBlockname(coll, collname, 128);
 					Assert::IsTrue(strcmp(collname, "bhkCollisionObject") == 0, L"Found a bhkCollisionObject");
 				};
 			};
+
+			int body = getCollBodyID(nif, coll);
+			char bodyname[128];
+			getCollBodyBlockname(nif, body, bodyname, 128);
+			Assert::IsTrue(strcmp(bodyname, "bhkRigidBodyT") == 0, L"Can read body blockname");
 		};
 	};
 }

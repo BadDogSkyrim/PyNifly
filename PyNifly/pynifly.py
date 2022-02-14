@@ -312,8 +312,16 @@ def load_nifly(nifly_path):
     nifly.getBSXFlags.restype = c_int
     nifly.getCollBlockname.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getCollBlockname.restype = c_int
+    nifly.getCollBodyID.argtypes = [c_void_p, c_void_p]
+    nifly.getCollBodyID.restype = c_int
+    nifly.getCollBodyBlockname.argtypes = [c_void_p, c_int, c_char_p, c_int]
+    nifly.getCollBodyBlockname.restype = c_int
+    nifly.getCollFlags.argtypes = [c_void_p]
+    nifly.getCollFlags.restype = c_int
     nifly.getCollision.argtypes = [c_void_p, c_void_p]
     nifly.getCollision.restype = c_void_p
+    nifly.getCollTarget.argtypes = [c_void_p, c_void_p]
+    nifly.getCollTarget.restype = c_void_p
     nifly.getColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getColorsForShape.restype = c_int
     nifly.getEffectShaderAttrs.argtypes = [c_void_p, c_void_p, BSESPAttrs_p]
@@ -848,17 +856,61 @@ def _write_extra_data(nifhandle, shapehandle, edtype, val):
             set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1].encode('utf-8'))
 
 
-# --- CollisionObject --- #
+# --- Collisions --- #
+
+class bhkCOFlags(IntFlag):
+    ACTIVE = 1
+    NOTIFY = 1 << 2
+    SET_LOCAL = 1 << 3
+    DBG_DISPLAY = 1 << 4
+    USE_VEL = 1 << 5
+    RESET = 1 << 6
+    SYNC_ON_UPDATE = 1 << 7
+    ANIM_TARGETED = 1 << 10
+    DISMEMBERED_LIMB = 1 << 11
+
+
+class CollisionBody:
+    def __init__(self, index=None, file=None, parent=None):
+        self.block_index = index
+        self._file = file
+        self._parent = parent
+
+    @property
+    def blockname(self):
+        buf = (c_char * 128)()
+        NifFile.nifly.getCollBodyBlockname(self._file._handle, self.block_index, buf, 128)
+        return buf.value.decode('utf-8')
+
+
 class CollisionObject:
     def __init__(self, handle=None, file=None, parent=None):
         self._handle = handle
         self._parent = parent
+        self._file = file
 
     @property
     def blockname(self):
         buf = (c_char * 128)()
         NifFile.nifly.getCollBlockname(self._handle, buf, 128)
         return buf.value.decode('utf-8')
+
+    @property
+    def flags(self):
+        """ Return the collision object flags """
+        return NifFile.nifly.getCollFlags(self._handle)
+
+    @property
+    def target(self):
+        """ Return the node that is the target of the collision object """
+        targ = NifFile.nifly.getCollTarget(self._file._handle, self._handle)
+        return self._file.nodeByHandle(targ)
+
+    @property
+    def body(self):
+        """ Return the collision body object """
+        bod = NifFile.nifly.getCollBodyID(self._file._handle, self._handle)
+        return CollisionBody(bod, file=self._file, parent=self)
 
 
 # --- NiNode --- #
@@ -1635,6 +1687,14 @@ class NifFile:
                 this_node = NiNode(handle=h, file=self)
                 self._nodes[this_node.name] = this_node
         return self._nodes
+
+    def nodeByHandle(self, desired_handle):
+        """ Returns the node with the given handle. If not found assumes it's a node that 
+        doesn't appear in the nodes list and makes a NiNode for it. """
+        for n in self.nodes.values():
+            if n._handle == desired_handle:
+                return n
+        return NiNode(desired_handle, self)
 
     @property
     def skin(self):
@@ -3012,6 +3072,12 @@ if __name__ == "__main__":
         bone = nif.nodes['Bow_MidBone']
         co = bone.collision_object
         assert co.blockname == "bhkCollisionObject", f"Can find type of collision object from the block name: {co.blockname}"
+
+        assert co.flags == bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE, f'Can read collision flags'
+        assert co.target.name == "Bow_MidBone", f"Can read collision target"
+        assert co.body.blockname == "bhkRigidBodyT", "Can read collision block"
+
+
 
 
         nifOut = NifFile()
