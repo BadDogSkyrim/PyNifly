@@ -280,6 +280,69 @@ struct AlphaPropertyBuf {
 	uint8_t threshold;
 };
 
+struct BHKRigidBodyBuf {
+	uint8_t collisionResponse;
+	uint8_t unusedByte1 = 0;
+	uint16_t processContactCallbackDelay;
+	uint32_t unkInt1;
+	uint8_t collisionFilterCopy_layer;
+	uint8_t collisionFilterCopy_flags;
+	uint16_t collisionFilterCopy_group;
+	uint16_t unkShorts2[6]{};
+	float translation_x;
+	float translation_y;
+	float translation_z;
+	float translation_w;
+	float rotation_x;
+	float rotation_y;
+	float rotation_z;
+	float rotation_w;
+	float linearVelocity_x;
+	float linearVelocity_y;
+	float linearVelocity_z;
+	float linearVelocity_w;
+	float angularVelocity_x;
+	float angularVelocity_y;
+	float angularVelocity_z;
+	float angularVelocity_w;
+	float inertiaMatrix[12]{};
+	float center_x;
+	float center_y;
+	float center_z;
+	float center_w;
+	float mass;
+	float linearDamping;
+	float angularDamping;
+	float timeFactor;	// User Version >= 12
+	float gravityFactor; // User Version >= 12
+	float friction;
+	float rollingFrictionMult; // User Version >= 12
+	float restitution;
+	float maxLinearVelocity;
+	float maxAngularVelocity;
+	float penetrationDepth;
+	uint8_t motionSystem;
+	uint8_t deactivatorType;
+	uint8_t solverDeactivation;
+	uint8_t qualityType;
+	uint8_t autoRemoveLevel;
+	uint8_t responseModifierFlag;
+	uint8_t numShapeKeysInContactPointProps;
+	uint8_t forceCollideOntoPpu;
+	uint32_t unusedInts1[3]{};
+	uint8_t unusedBytes2[3]{};
+	uint32_t bodyFlagsInt;
+	uint16_t bodyFlags;
+};
+
+struct BHKBoxShapeBuf {
+	uint32_t material;
+	float radius;
+	float dimensions_x;
+	float dimensions_y;
+	float dimensions_z;
+};
+
 extern "C" NIFLY_API int getShaderName(void* nifref, void* shaperef, char* buf, int buflen);
 extern "C" NIFLY_API uint32_t getShaderFlags1(void* nifref, void* shaperef);
 extern "C" NIFLY_API uint32_t getShaderFlags2(void* nifref, void* shaperef);
@@ -313,6 +376,7 @@ extern "C" NIFLY_API void setBGExtraData(void* nifref, void* shaperef, char* nam
 extern "C" NIFLY_API void clearMessageLog();
 extern "C" NIFLY_API int getMessageLog(char* buf, int buflen);
 
+/* ********************* COLLISIONS ********************* */
 extern "C" NIFLY_API void* getCollision(void* nifref, void* noderef);
 
 extern "C" NIFLY_API int getCollBlockname(void* node, char* buf, int buflen);
@@ -324,3 +388,11 @@ extern "C" NIFLY_API void* getCollTarget(void* nifref, void* node);
 extern "C" NIFLY_API int getCollFlags(void* node);
 
 extern "C" NIFLY_API int getCollBodyBlockname(void* nif, int nodeIndex, char* buf, int buflen);
+
+extern "C" NIFLY_API int getRigidBodyProps(void* nifref, int nodeIndex, BHKRigidBodyBuf * buf);
+
+extern "C" NIFLY_API int getRigidBodyShapeID(void* nifref, int nodeIndex);
+
+extern "C" NIFLY_API int getCollShapeBlockname(void* nifref, int nodeIndex, char* buf, int buflen);
+
+extern "C" NIFLY_API int getCollShapeProps(void* nifref, int nodeIndex, BHKBoxShapeBuf* buf);

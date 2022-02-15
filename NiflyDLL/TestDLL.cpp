@@ -2588,6 +2588,11 @@ namespace NiflyDLLTests
 			char bodyname[128];
 			getCollBodyBlockname(nif, body, bodyname, 128);
 			Assert::IsTrue(strcmp(bodyname, "bhkRigidBodyT") == 0, L"Can read body blockname");
+
+			BHKRigidBodyBuf bodyprops;
+			getRigidBodyProps(nif, body, &bodyprops);
+			Assert::IsTrue(bodyprops.collisionResponse == 1, L"Can read the collision response field");
+			Assert::IsTrue(bodyprops.motionSystem == 3, L"Can read the motion system field");
 		};
 	};
 }
