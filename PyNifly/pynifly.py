@@ -4,7 +4,7 @@ Wrapper around nifly to provide python-friendly access to nifs
 
 import os
 import struct
-from enum import Enum, IntFlag
+from enum import Enum, IntFlag, IntEnum
 from math import asin, atan2, pi, sin, cos
 import re
 import logging
@@ -19,6 +19,9 @@ RT_NINODE = 0
 RT_BSFADENODE = 1
 
 VECTOR3 = c_float * 3
+VECTOR4 = c_float * 4
+VECTOR6_SHORT = c_uint16 * 6
+VECTOR12 = c_float * 12
 MATRIX3 = VECTOR3 * 3
 
 class MAT_TRANSFORM(Structure):
@@ -284,6 +287,163 @@ class AlphaPropertyBuf(Structure):
 
 AlphaPropertyBuf_p = POINTER(AlphaPropertyBuf)
 
+class bhkCOFlags(IntFlag):
+    ACTIVE = 1
+    NOTIFY = 1 << 2
+    SET_LOCAL = 1 << 3
+    DBG_DISPLAY = 1 << 4
+    USE_VEL = 1 << 5
+    RESET = 1 << 6
+    SYNC_ON_UPDATE = 1 << 7
+    ANIM_TARGETED = 1 << 10
+    DISMEMBERED_LIMB = 1 << 11
+
+class hkResponseType(IntEnum):
+    RESPONSE_INVALID = 0
+    RESPONSE_SIMPLE_CONTACT = 1
+    RESPONSE_REPORTING = 2
+    RESPONSE_NONE = 3
+
+class hkMotionType(IntEnum):
+    MO_SYS_INVALID = 0,
+    MO_SYS_DYNAMIC = 1,
+    MO_SYS_SPHERE_INERTIA = 2,
+    MO_SYS_SPHERE_STABILIZED = 3,
+    MO_SYS_BOX_INERTIA = 4,
+    MO_SYS_BOX_STABILIZED = 5, 
+    MO_SYS_KEYFRAMED = 6,
+    MO_SYS_FIXED = 7,
+    MO_SYS_THIN_BOX = 8,
+    MO_SYS_CHARACTER = 9
+
+class SkyrimHavokMaterial(IntEnum):
+    BROKEN_STONE = 131151687
+    LIGHT_WOOD = 365420259
+    SNOW = 398949039
+    GRAVEL = 428587608
+    MATERIAL_CHAIN_METAL = 438912228
+    BOTTLE = 493553910
+    WOOD = 500811281
+    SKIN = 591247106
+    UNKNOWN_617099282 = 617099282
+    BARREL = 732141076
+    MATERIAL_CERAMIC_MEDIUM = 781661019
+    MATERIAL_BASKET = 790784366
+    ICE = 873356572
+    STAIRS_STONE = 899511101
+    WATER = 1024582599
+    UNKNOWN_1028101969 = 1028101969
+    MATERIAL_BLADE_1HAND = 1060167844
+    MATERIAL_BOOK = 1264672850
+    MATERIAL_CARPET = 1286705471
+    SOLID_METAL = 1288358971
+    MATERIAL_AXE_1HAND = 1305674443
+    UNKNOWN_1440721808 = 1440721808
+    STAIRS_WOOD = 1461712277
+    MUD = 1486385281
+    MATERIAL_BOULDER_SMALL = 1550912982
+    STAIRS_SNOW = 1560365355
+    HEAVY_STONE = 1570821952
+    UNKNOWN_1574477864 = 1574477864
+    UNKNOWN_1591009235 = 1591009235
+    MATERIAL_BOWS_STAVES = 1607128641
+    MATERIAL_WOOD_AS_STAIRS = 1803571212
+    GRASS = 1848600814
+    MATERIAL_BOULDER_LARGE = 1885326971
+    MATERIAL_STONE_AS_STAIRS = 1886078335
+    MATERIAL_BLADE_2HAND = 2022742644
+    MATERIAL_BOTTLE_SMALL = 2025794648
+    SAND = 2168343821
+    HEAVY_METAL = 2229413539
+    UNKNOWN_2290050264 = 2290050264
+    DRAGON = 2518321175
+    MATERIAL_BLADE_1HAND_SMALL = 2617944780
+    MATERIAL_SKIN_SMALL = 2632367422
+    STAIRS_BROKEN_STONE = 2892392795
+    MATERIAL_SKIN_LARGE = 2965929619
+    ORGANIC = 2974920155
+    MATERIAL_BONE = 3049421844
+    HEAVY_WOOD = 3070783559
+    MATERIAL_CHAIN = 3074114406
+    DIRT = 3106094762
+    MATERIAL_ARMOR_LIGHT = 3424720541
+    MATERIAL_SHIELD_LIGHT = 3448167928
+    MATERIAL_COIN = 3589100606
+    MATERIAL_SHIELD_HEAVY = 3702389584
+    MATERIAL_ARMOR_HEAVY = 3708432437
+    MATERIAL_ARROW = 3725505938
+    GLASS = 3739830338
+    STONE = 3741512247
+    CLOTH = 3839073443
+    MATERIAL_BLUNT_2HAND = 3969592277
+    UNKNOWN_4239621792 = 4239621792
+    MATERIAL_BOULDER_MEDIUM = 4283869410
+
+
+class bhkRigidBodyProps(Structure):
+    _fields_ = [
+        ('responseType', c_uint8),
+        ('unusedByte1', c_uint8),
+        ('processContactCallbackDelay', c_uint16),
+        ('unkInt1', c_uint32),
+        ('collisionFilterCopy_layer', c_uint8),
+        ('collisionFilterCopy_flags', c_uint8),
+        ('collisionFilterCopy_group', c_uint16),
+        ('unkShorts2', VECTOR6_SHORT),
+        ('translation', VECTOR4),
+        ('rotation', VECTOR4),
+        ('linearVelocity', VECTOR4),
+        ('angularVelocity', VECTOR4),
+        ('inertiaMatrix', VECTOR12),
+        ('center', VECTOR4),
+        ('mass', c_float),
+        ('linearDamping', c_float),
+        ('angularDamping', c_float),
+        ('timeFactor', c_float),
+        ('gravityFactor', c_float),
+        ('friction', c_float),
+        ('rollingFrictionMult', c_float),
+        ('restitution', c_float),
+        ('maxLinearVelocity', c_float),
+        ('maxAngularVelocity', c_float),
+        ('penetrationDepth', c_float),
+        ('motionSystem', c_uint8),
+        ('deactivatorType', c_uint8),
+        ('solverDeactivation', c_uint8),
+        ('qualityType', c_uint8),
+        ('autoRemoveLevel', c_uint8),
+        ('responseModifierFlag', c_uint8),
+        ('numShapeKeysInContactPointProps', c_uint8),
+        ('forceCollideOntoPpu', c_uint8),
+        ('unusedInts1_0', c_uint32),
+        ('unusedInts1_1', c_uint32),
+        ('unusedInts1_2', c_uint32),
+        ('unusedBytes2_0', c_uint8),
+        ('unusedBytes2_1', c_uint8),
+        ('unusedBytes2_2', c_uint8),
+        ('bodyFlagsInt', c_uint32),
+        ('bodyFlags', c_uint16),
+        ('guard', c_uint64)]
+
+    def __init__(self):
+        self.guard = 0xF0F0F0F0
+
+    def __str__(self):
+        s = ""
+        for attr in self._fields_:
+            if len(s) > 0:
+                s = s + "\n"
+            s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
+        return s
+
+class bhkBoxShapeProps(Structure):
+    _fields_ = [
+        ("material", c_uint32),
+        ("radius", c_float),
+        ("dimensions", VECTOR3),
+        ("unused", c_float)]
+
+
 def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
     #nifly.getRawVertsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
@@ -320,6 +480,10 @@ def load_nifly(nifly_path):
     nifly.getCollFlags.restype = c_int
     nifly.getCollision.argtypes = [c_void_p, c_void_p]
     nifly.getCollision.restype = c_void_p
+    nifly.getCollShapeBlockname.argtypes = [c_void_p, c_int, c_char_p, c_int]
+    nifly.getCollShapeBlockname.restype = c_int
+    nifly.getCollShapeProps.argtypes = [c_void_p, c_int, POINTER(bhkBoxShapeProps)]
+    nifly.getCollShapeProps.restype = c_int
     nifly.getCollTarget.argtypes = [c_void_p, c_void_p]
     nifly.getCollTarget.restype = c_void_p
     nifly.getColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
@@ -398,6 +562,10 @@ def load_nifly(nifly_path):
     nifly.getBGExtraData.restype = c_int
     nifly.getBGExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
     nifly.getBGExtraDataLen.restype = c_int
+    nifly.getRigidBodyProps.argtypes = [c_void_p, c_int, POINTER(bhkRigidBodyProps)]
+    nifly.getRigidBodyProps.restype= c_int
+    nifly.getRigidBodyShapeID.argtypes = [c_void_p, c_int]
+    nifly.getRigidBodyShapeID.restype = c_int
     nifly.getStringExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int]
     nifly.getStringExtraData.restype = c_int
     nifly.getStringExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
@@ -858,23 +1026,54 @@ def _write_extra_data(nifhandle, shapehandle, edtype, val):
 
 # --- Collisions --- #
 
-class bhkCOFlags(IntFlag):
-    ACTIVE = 1
-    NOTIFY = 1 << 2
-    SET_LOCAL = 1 << 3
-    DBG_DISPLAY = 1 << 4
-    USE_VEL = 1 << 5
-    RESET = 1 << 6
-    SYNC_ON_UPDATE = 1 << 7
-    ANIM_TARGETED = 1 << 10
-    DISMEMBERED_LIMB = 1 << 11
 
 
-class CollisionBody:
-    def __init__(self, index=None, file=None, parent=None):
+#class BhkRigidBody:
+#    def __init__(self, index=0, file=None, parent=None):
+#        self.block_index = index
+#        self._file = file
+#        self._parent = parent
+
+#    @property
+#    def blockname(self):
+#        buf = (c_char * 128)()
+#        NifFile.nifly.getRigidBodyBlockname(self._file._handle, self.block_index, buf, 128)
+#        return buf.value.decode('utf-8')
+
+#    @property
+#    def blockname(self):
+#        buf = (c_char * 128)()
+#        NifFile.nifly.getCollBodyBlockname(self._file._handle, self.block_index, buf, 128)
+#        return buf.value.decode('utf-8')
+
+class CollisionShape:
+    def __init__(self, index=0, file=None, parent=None):
         self.block_index = index
         self._file = file
         self._parent = parent
+        self._props = None
+
+    @property
+    def blockname(self):
+        buf = (c_char * 128)()
+        NifFile.nifly.getCollShapeBlockname(self._file._handle, self.block_index, buf, 128)
+        return buf.value.decode('utf-8')
+
+    @property
+    def properties(self):
+        if not self._props:
+            p = bhkBoxShapeProps()
+            if NifFile.nifly.getCollShapeProps(self._file._handle, self.block_index, p):
+                self._props = p
+        return self._props
+
+class CollisionBody:
+    def __init__(self, index=0, file=None, parent=None):
+        self.block_index = index
+        self._file = file
+        self._parent = parent
+        self._props = None
+        self._shape = None
 
     @property
     def blockname(self):
@@ -882,6 +1081,21 @@ class CollisionBody:
         NifFile.nifly.getCollBodyBlockname(self._file._handle, self.block_index, buf, 128)
         return buf.value.decode('utf-8')
 
+    @property
+    def properties(self):
+        if not self._props:
+            if self.blockname in ("bhkRigidBody", "bhkRigidBodyT"):
+                p = bhkRigidBodyProps()
+                if NifFile.nifly.getRigidBodyProps(self._file._handle, self.block_index, p):
+                    self._props = p
+        return self._props
+
+    @property
+    def shape(self):
+        if not self._shape:
+            shape_index = NifFile.nifly.getRigidBodyShapeID(self._file._handle, self.block_index)
+            self._shape = CollisionShape(shape_index, file=self._file, parent=self)
+        return self._shape
 
 class CollisionObject:
     def __init__(self, handle=None, file=None, parent=None):
@@ -3076,6 +3290,15 @@ if __name__ == "__main__":
         assert co.flags == bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE, f'Can read collision flags'
         assert co.target.name == "Bow_MidBone", f"Can read collision target"
         assert co.body.blockname == "bhkRigidBodyT", "Can read collision block"
+
+        assert co.body.properties.responseType == hkResponseType.RESPONSE_SIMPLE_CONTACT
+        assert co.body.properties.motionSystem == hkMotionType.MO_SYS_SPHERE_STABILIZED, f"Collision body properties hold the specifics"
+
+        collshape = co.body.shape
+        assert collshape.blockname == "bhkBoxShape", f"Collision body's shape property returns the collision shape"
+        assert collshape.properties.material == SkyrimHavokMaterial.MATERIAL_BOWS_STAVES, "Collision body shape material is readable"
+        assert round(collshape.properties.radius, 4) == 0.0136, f"Collision body shape radius is readable"
+        assert [round(x, 4) for x in collshape.properties.dimensions] == [0.1574, 0.8238, 0.0136], f"Collision body shape dimensions are readable"
 
 
 

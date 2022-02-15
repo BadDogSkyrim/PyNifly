@@ -1799,3 +1799,115 @@ NIFLY_API int getCollBodyBlockname(void* nifref, int nodeIndex, char* buf, int b
         return 0;
 }
 
+NIFLY_API int getRigidBodyProps(void* nifref, int nodeIndex, BHKRigidBodyBuf* buf)
+/*
+    Return the rigid body details. Return value = 1 if the node is a rigid body, 0 if not 
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::bhkRigidBody* theBody = hdr.GetBlock<bhkRigidBody>(nodeIndex);
+
+    if (theBody) {
+        buf->collisionResponse = theBody->collisionResponse;
+        buf->processContactCallbackDelay = theBody->processContactCallbackDelay;
+        buf->collisionFilterCopy_layer = theBody->collisionFilterCopy.layer;
+        buf->collisionFilterCopy_flags = theBody->collisionFilterCopy.flagsAndParts;
+        buf->collisionFilterCopy_group = theBody->collisionFilterCopy.group;
+        buf->translation_x = theBody->translation.x;
+        buf->translation_y = theBody->translation.y;
+        buf->translation_z = theBody->translation.z;
+        buf->translation_w = theBody->translation.w;
+        buf->rotation_x = theBody->rotation.x;
+        buf->rotation_y = theBody->rotation.y;
+        buf->rotation_z = theBody->rotation.z;
+        buf->rotation_w = theBody->rotation.w;
+        buf->linearVelocity_x = theBody->linearVelocity.x;
+        buf->linearVelocity_y = theBody->linearVelocity.y;
+        buf->linearVelocity_z = theBody->linearVelocity.z;
+        buf->linearVelocity_w = theBody->linearVelocity.w;
+        buf->angularVelocity_x = theBody->angularVelocity.x;
+        buf->angularVelocity_y = theBody->angularVelocity.y;
+        buf->angularVelocity_z = theBody->angularVelocity.z;
+        buf->angularVelocity_w = theBody->angularVelocity.w;
+        for (int i=0; i < 12; i++) buf->inertiaMatrix[i] = theBody->inertiaMatrix[i];
+        buf->center_x = theBody->center.x;
+        buf->center_y = theBody->center.y;
+        buf->center_z = theBody->center.z;
+        buf->center_w = theBody->center.w;
+        buf->mass = theBody->mass;
+        buf->linearDamping = theBody->linearDamping;
+        buf->angularDamping = theBody->angularDamping;
+        buf->timeFactor = theBody->timeFactor;
+        buf->gravityFactor = theBody->gravityFactor;
+        buf->friction = theBody->friction;
+        buf->rollingFrictionMult = theBody->rollingFrictionMult;
+        buf->restitution = theBody->restitution;
+        buf->maxLinearVelocity = theBody->maxLinearVelocity;
+        buf->maxAngularVelocity = theBody->maxAngularVelocity;
+        buf->penetrationDepth = theBody->penetrationDepth;
+        buf->motionSystem = theBody->motionSystem;
+        buf->deactivatorType = theBody->deactivatorType;
+        buf->solverDeactivation = theBody->solverDeactivation;
+        buf->qualityType = theBody->qualityType;
+        buf->autoRemoveLevel = theBody->autoRemoveLevel;
+        buf->responseModifierFlag = theBody->responseModifierFlag;
+        buf->numShapeKeysInContactPointProps = theBody->numShapeKeysInContactPointProps;
+        buf->forceCollideOntoPpu = theBody->forceCollideOntoPpu;
+        buf->bodyFlagsInt = theBody->bodyFlagsInt;
+        buf->bodyFlags = theBody->bodyFlags;
+        return 1;
+    }
+    else
+        return 0;
+}
+
+NIFLY_API int getRigidBodyShapeID(void* nifref, int nodeIndex) {
+    /* Returns the block index of the collision shape */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::bhkRigidBody* theBody = hdr.GetBlock<bhkRigidBody>(nodeIndex);
+    if (theBody)
+        return theBody->shapeRef.index;
+    else
+        return 0;
+}
+
+NIFLY_API int getCollShapeBlockname(void* nifref, int nodeIndex, char* buf, int buflen) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::bhkBoxShape* theBody = hdr.GetBlock<bhkBoxShape>(nodeIndex);
+
+    if (theBody) {
+        std::string name = theBody->GetBlockName();
+        int copylen = std::min((int)buflen - 1, (int)name.length());
+        name.copy(buf, copylen, 0);
+        buf[copylen] = '\0';
+        return int(name.length());
+    }
+    else
+        return 0;
+}
+
+NIFLY_API int getCollShapeProps(void* nifref, int nodeIndex, BHKBoxShapeBuf* buf)
+/*
+    Return the collision shape details. Return value = 1 if the node is a known collision shape, 
+    0 if not
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::bhkBoxShape* sh = hdr.GetBlock<bhkBoxShape>(nodeIndex);
+
+    if (sh) {
+        buf->material = sh->GetMaterial();
+        buf->radius = sh->radius;
+        buf->dimensions_x = sh->dimensions.x;
+        buf->dimensions_y = sh->dimensions.y;
+        buf->dimensions_z = sh->dimensions.z;
+        return 1;
+    }
+    else
+        return 0;
+}
+
