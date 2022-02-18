@@ -55,6 +55,9 @@
     <Compile Include="module1.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="nifdefs.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="pynifly_tests.py">
       <SubType>Code</SubType>
     </Compile>
