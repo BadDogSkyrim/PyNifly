@@ -1803,6 +1803,13 @@ NIFLY_API int addRigidBody(void* nifref, uint32_t collShapeIndex, BHKRigidBodyBu
     NiHeader hdr = nif->GetHeader();
 
     auto theBody = std::make_unique<bhkRigidBodyT>();
+    theBody->collisionFilter.layer = buf->collisionFilter_layer;
+    theBody->collisionFilter.flagsAndParts = buf->collisionFilter_flags;
+    theBody->collisionFilter.group = buf->collisionFilter_group;
+    theBody->broadPhaseType = buf->broadPhaseType;
+    theBody->prop.data = buf->prop_data;
+    theBody->prop.size = buf->prop_size;
+    theBody->prop.capacityAndFlags = buf->prop_flags;
     theBody->collisionResponse = static_cast<hkResponseType>(buf->collisionResponse);
     theBody->processContactCallbackDelay = buf->processContactCallbackDelay;
     theBody->collisionFilterCopy.layer = buf->collisionFilterCopy_layer;
@@ -1898,8 +1905,18 @@ NIFLY_API int getRigidBodyProps(void* nifref, int nodeIndex, BHKRigidBodyBuf* bu
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
+    nifly::bhkWorldObject* theWO = hdr.GetBlock<bhkWorldObject>(nodeIndex);
     nifly::bhkRigidBody* theBody = hdr.GetBlock<bhkRigidBody>(nodeIndex);
 
+    if (theWO) {
+        buf->collisionFilter_layer = theWO->collisionFilter.layer;
+        buf->collisionFilter_flags = theWO->collisionFilter.flagsAndParts;
+        buf->collisionFilter_group = theWO->collisionFilter.group;
+        buf->broadPhaseType = theWO->broadPhaseType;
+        buf->prop_data = theWO->prop.data;
+        buf->prop_size = theWO->prop.size;
+        buf->prop_flags = theWO->prop.capacityAndFlags;
+    }
     if (theBody) {
         buf->collisionResponse = theBody->collisionResponse;
         buf->processContactCallbackDelay = theBody->processContactCallbackDelay;

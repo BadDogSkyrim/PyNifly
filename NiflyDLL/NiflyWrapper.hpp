@@ -283,6 +283,13 @@ struct AlphaPropertyBuf {
 };
 
 struct BHKRigidBodyBuf {
+	uint8_t collisionFilter_layer;
+	uint8_t collisionFilter_flags;
+	uint16_t collisionFilter_group;
+	uint8_t broadPhaseType;
+	uint32_t prop_data;
+	uint32_t prop_size;
+	uint32_t prop_flags;
 	uint8_t collisionResponse;
 	uint8_t unusedByte1 = 0;
 	uint16_t processContactCallbackDelay;
