@@ -204,6 +204,11 @@ NIFLY_API int getNodeFlags(void* node) {
     return theNode->flags;
 }
 
+NIFLY_API void setNodeFlags(void* node, int theFlags) {
+    nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
+    theNode->flags = theFlags;
+}
+
 NIFLY_API int getNodeName(void* node, char* buf, int buflen) {
     nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
     std::string name = theNode->name.get();
@@ -583,13 +588,26 @@ NIFLY_API void skinShape(void* nif, void* shapeRef)
     static_cast<NifFile*>(nif)->CreateSkinning(static_cast<nifly::NiShape*>(shapeRef));
 }
 
-NIFLY_API int saveSkinnedNif(void* anim, const char8_t* filepath) {
-/* Save skinned nif
-*   Parameters
-*   > AnimInfo* anim = Nif skin for the nif to save
-*   > char* filepath
-*/
-    return SaveSkinnedNif(static_cast<AnimInfo*>(anim), std::filesystem::path(filepath));
+NIFLY_API void writeSkinToNif(void* animref) {
+    /* Write skin info to nif, creating bone nodes as needed
+    */
+    AnimInfo* anim = static_cast<AnimInfo*>(animref);
+    NifFile* theNif = anim->GetRefNif();
+    anim->WriteToNif(theNif, "None");
+    for (auto& shape : theNif->GetShapes())
+        theNif->UpdateSkinPartitions(shape);
+}
+
+NIFLY_API int saveSkinnedNif(void* animref, const char8_t* filepath) {
+    /* Save skinned nif
+    *   Parameters
+    *   > AnimInfo* anim = Nif skin for the nif to save
+    *   > char* filepath
+    */
+    AnimInfo* anim = static_cast<AnimInfo*>(animref);
+    writeSkinToNif(animref);
+    return saveNif(anim->GetRefNif(), filepath);
+    //return SaveSkinnedNif(static_cast<AnimInfo*>(anim), std::filesystem::path(filepath));
 }
 
 NIFLY_API void setGlobalToSkinXform(void* animPtr, void* shapePtr, void* gtsXformPtr) {
@@ -1741,6 +1759,22 @@ void* getCollision(void* nifref, void* noderef) {
     return hdr.GetBlock(node->collisionRef);
 };
 
+NIFLY_API int addCollision(void* nifref, void* targetref, int body_index, int flags) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::NiNode* targ = static_cast<nifly::NiNode*>(targetref);
+    nifly::bhkRigidBody* theBody = nif->GetHeader().GetBlock<bhkRigidBody>(body_index);
+
+    auto c = std::make_unique<bhkCollisionObject>();
+    c->bodyRef.index = body_index;
+    c->targetRef.index = nif->GetHeader().GetBlockID(targ);
+    c->flags = flags;
+    int newid = nif->GetHeader().AddBlock(std::move(c));
+    targ->collisionRef.index = newid;
+    
+    return newid;
+};
+
 NIFLY_API int getCollBlockname(void* node, char* buf, int buflen) {
     nifly::bhkCollisionObject* theNode = static_cast<nifly::bhkCollisionObject*>(node);
     if (theNode) {
@@ -1763,6 +1797,64 @@ NIFLY_API int getCollBodyID(void* nifref, void* node) {
     else
         return 0;
 }
+
+NIFLY_API int addRigidBody(void* nifref, uint32_t collShapeIndex, BHKRigidBodyBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+
+    auto theBody = std::make_unique<bhkRigidBodyT>();
+    theBody->collisionResponse = static_cast<hkResponseType>(buf->collisionResponse);
+    theBody->processContactCallbackDelay = buf->processContactCallbackDelay;
+    theBody->collisionFilterCopy.layer = buf->collisionFilterCopy_layer;
+    theBody->collisionFilterCopy.flagsAndParts = buf->collisionFilterCopy_flags;
+    theBody->collisionFilterCopy.group = buf->collisionFilterCopy_group;
+    theBody->translation.x = buf->translation_x;
+    theBody->translation.y = buf->translation_y;
+    theBody->translation.z = buf->translation_z;
+    theBody->translation.w = buf->translation_w;
+    theBody->rotation.x = buf->rotation_x;
+    theBody->rotation.y = buf->rotation_y;
+    theBody->rotation.z = buf->rotation_z;
+    theBody->rotation.w = buf->rotation_w;
+    theBody->linearVelocity.x = buf->linearVelocity_x;
+    theBody->linearVelocity.y = buf->linearVelocity_y;
+    theBody->linearVelocity.z = buf->linearVelocity_z;
+    theBody->linearVelocity.w = buf->linearVelocity_w;
+    theBody->angularVelocity.x = buf->angularVelocity_x;
+    theBody->angularVelocity.y = buf->angularVelocity_y;
+    theBody->angularVelocity.z = buf->angularVelocity_z;
+    theBody->angularVelocity.w = buf->angularVelocity_w;
+    for (int i = 0; i < 12; i++) theBody->inertiaMatrix[i] = buf->inertiaMatrix[i];
+    theBody->center.x = buf->center_x;
+    theBody->center.y = buf->center_y;
+    theBody->center.z = buf->center_z;
+    theBody->center.w = buf->center_w;
+    theBody->mass = buf->mass;
+    theBody->linearDamping = buf->linearDamping;
+    theBody->angularDamping = buf->angularDamping;
+    theBody->timeFactor = buf->timeFactor;
+    theBody->gravityFactor = buf->gravityFactor;
+    theBody->friction = buf->friction;
+    theBody->rollingFrictionMult = buf->rollingFrictionMult;
+    theBody->restitution = buf->restitution;
+    theBody->maxLinearVelocity = buf->maxLinearVelocity;
+    theBody->maxAngularVelocity = buf->maxAngularVelocity;
+    theBody->penetrationDepth = buf->penetrationDepth;
+    theBody->motionSystem = buf->motionSystem;
+    theBody->deactivatorType = buf->deactivatorType;
+    theBody->solverDeactivation = buf->solverDeactivation;
+    theBody->qualityType = buf->qualityType;
+    theBody->autoRemoveLevel = buf->autoRemoveLevel;
+    theBody->responseModifierFlag = buf->responseModifierFlag;
+    theBody->numShapeKeysInContactPointProps = buf->numShapeKeysInContactPointProps;
+    theBody->forceCollideOntoPpu = buf->forceCollideOntoPpu;
+    theBody->bodyFlagsInt = buf->bodyFlagsInt;
+    theBody->bodyFlags = buf->bodyFlags;
+    theBody->shapeRef.index = collShapeIndex;
+    int newid = nif->GetHeader().AddBlock(std::move(theBody));
+
+    return newid;
+};
 
 NIFLY_API void* getCollTarget(void* nifref, void* node) {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -1911,3 +2003,16 @@ NIFLY_API int getCollShapeProps(void* nifref, int nodeIndex, BHKBoxShapeBuf* buf
         return 0;
 }
 
+NIFLY_API int addCollBoxShape(void* nifref, const BHKBoxShapeBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+
+    auto sh = std::make_unique<bhkBoxShape>();
+    sh->SetMaterial(buf->material);
+    sh->radius = buf->radius;
+    sh->dimensions.x = buf->dimensions_x;
+    sh->dimensions.y = buf->dimensions_y;
+    sh->dimensions.z = buf->dimensions_z;
+    int newid = nif->GetHeader().AddBlock(std::move(sh));
+    return newid;
+};

@@ -61,6 +61,7 @@ extern "C" NIFLY_API int getNodeCount(void* theNif);
 extern "C" NIFLY_API void getNodes(void* theNif, void** buf);
 extern "C" NIFLY_API int getNodeBlockname(void* node, char* buf, int buflen);
 extern "C" NIFLY_API int getNodeFlags(void* node);
+extern "C" NIFLY_API void setNodeFlags(void* node, int theFlags);
 extern "C" NIFLY_API int getNodeName(void* theNode, char* buf, int buflen);
 extern "C" NIFLY_API void* getNodeParent(void* theNif, void* node);
 extern "C" NIFLY_API void getNodeXformToGlobal(void* anim, const char* boneName, float* xformBuf);
@@ -100,7 +101,8 @@ extern "C" NIFLY_API void addBoneToShape(void * anim, void * theShape, const cha
 extern "C" NIFLY_API void setShapeGlobalToSkinXform(void* animPtr, void* shapePtr, void* gtsXformPtr);
 extern "C" NIFLY_API void setShapeWeights(void * anim, void * theShape, const char* boneName,
 	VertexWeightPair * vertWeights, int vertWeightLen, nifly::MatTransform * skinToBoneXform);
-extern "C" NIFLY_API int saveSkinnedNif(void * anim, const char8_t* filepath);
+extern "C" NIFLY_API void writeSkinToNif(void* animref);
+extern "C" NIFLY_API int saveSkinnedNif(void* animref, const char8_t* filepath);
 
 /* ********************* SHADERS ***************** */
 
@@ -378,21 +380,15 @@ extern "C" NIFLY_API int getMessageLog(char* buf, int buflen);
 
 /* ********************* COLLISIONS ********************* */
 extern "C" NIFLY_API void* getCollision(void* nifref, void* noderef);
-
+extern "C" NIFLY_API int addCollision(void* nifref, void* targetref, int body_index, int flags);
 extern "C" NIFLY_API int getCollBlockname(void* node, char* buf, int buflen);
-
 extern "C" NIFLY_API int getCollBodyID(void* nifref, void* node);
-
+extern "C" NIFLY_API int addRigidBody(void* nifref, uint32_t collShapeIndex, BHKRigidBodyBuf* buf);
 extern "C" NIFLY_API void* getCollTarget(void* nifref, void* node);
-
 extern "C" NIFLY_API int getCollFlags(void* node);
-
 extern "C" NIFLY_API int getCollBodyBlockname(void* nif, int nodeIndex, char* buf, int buflen);
-
 extern "C" NIFLY_API int getRigidBodyProps(void* nifref, int nodeIndex, BHKRigidBodyBuf * buf);
-
 extern "C" NIFLY_API int getRigidBodyShapeID(void* nifref, int nodeIndex);
-
 extern "C" NIFLY_API int getCollShapeBlockname(void* nifref, int nodeIndex, char* buf, int buflen);
-
 extern "C" NIFLY_API int getCollShapeProps(void* nifref, int nodeIndex, BHKBoxShapeBuf* buf);
+extern "C" NIFLY_API int addCollBoxShape(void* nifref, const BHKBoxShapeBuf * buf);

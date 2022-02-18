@@ -2572,11 +2572,13 @@ namespace NiflyDLLTests
 			void** nodes = new void* [nodeCount];
 			getNodes(nif, nodes);
 
+			void* bow_midbone;
 			void* coll = nullptr;
 			for (int i=0; i < nodeCount; i++) {
 				char nodename[128];
 				getNodeName(nodes[i], nodename, 128);
 				if (strcmp(nodename, "Bow_MidBone") == 0) {
+					bow_midbone = nodes[i];
 					coll = getCollision(nif, nodes[i]);
 					char collname[128];
 					getCollBlockname(coll, collname, 128);
@@ -2584,15 +2586,75 @@ namespace NiflyDLLTests
 				};
 			};
 
-			int body = getCollBodyID(nif, coll);
+			int bodyID = getCollBodyID(nif, coll);
 			char bodyname[128];
-			getCollBodyBlockname(nif, body, bodyname, 128);
+			getCollBodyBlockname(nif, bodyID, bodyname, 128);
 			Assert::IsTrue(strcmp(bodyname, "bhkRigidBodyT") == 0, L"Can read body blockname");
 
 			BHKRigidBodyBuf bodyprops;
-			getRigidBodyProps(nif, body, &bodyprops);
+			getRigidBodyProps(nif, bodyID, &bodyprops);
 			Assert::IsTrue(bodyprops.collisionResponse == 1, L"Can read the collision response field");
 			Assert::IsTrue(bodyprops.motionSystem == 3, L"Can read the motion system field");
+
+			BHKBoxShapeBuf boxbuf;
+			int boxID = getRigidBodyShapeID(nif, bodyID);
+			getCollShapeProps(nif, boxID, &boxbuf);
+
+			void* shapes[10];
+			getShapes(nif, shapes, 10, 0);
+			void* bow = shapes[0];
+
+			// ============= Can write collisions =======
+
+			void* nifOut = createNif("SKYRIMSE", RT_BSFADENODE, "Scene Root");
+			uint16_t options = 0;
+			void* skinOut;
+			void* bowOut = TCopyShape(nifOut, "ElvenBowSkinned:0", nif, bow, 0, &skinOut, 0);
+			TCopyShader(nifOut, bowOut, nif, bow);
+
+			// This creates bone nodes
+			writeSkinToNif(skinOut);
+
+			// Set the flags on the root node correctly
+			void* rootNodeOUt = getRoot(nifOut);
+			setNodeFlags(rootNodeOUt, 14);
+
+			void* bowMidboneOut = nullptr;
+			void* nodesOut[50];
+			int nodeCountOut = getNodeCount(nifOut);
+			getNodes(nifOut, nodesOut);
+			for (int i = 0; i < nodeCountOut; i++) {
+				char buf[128];
+				getNodeName(nodesOut[i], buf, 128);
+				if (strcmp(buf, "Bow_MidBone") == 0) {
+					bowMidboneOut = nodesOut[i];
+					break;
+				};
+			};
+
+			int boxOutID = addCollBoxShape(nifOut, &boxbuf);
+			int rbOutID = addRigidBody(nifOut, boxOutID, &bodyprops);
+			int collOut = addCollision(nifOut, bowMidboneOut, rbOutID, 129);
+
+			// Now we can save the collision
+			saveSkinnedNif(skinOut, (testRoot / "Out/readCollisions.nif").u8string().c_str());
+
+			// Check what we wrote is correct
+			// Doing a full check because why not
+			void* nifcheck = load((testRoot / "Out/readCollisions.nif").u8string().c_str());
+
+			char rootname[128];
+			int nodeCountCheck;
+			void* nodesCheck[50];
+			void* rootNodeCheck = nullptr;
+			char rootBlockname[128];
+			int flags;
+			getRootName(nifcheck, rootname, 128);
+			rootNodeCheck = getRoot(nifcheck);
+			getNodeBlockname(rootNodeCheck, rootBlockname, 128);
+			Assert::IsTrue(strcmp(rootBlockname, "BSFadeNode") == 0, L"Wrote a FadeNode");
+			flags = getNodeFlags(rootNodeCheck);
+			Assert::IsTrue(flags == 14, L"Wrote the noode flags correctly");
 		};
 	};
 }
