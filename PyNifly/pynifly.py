@@ -23,10 +23,14 @@ class MAT_TRANSFORM(Structure):
 
 def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
-    #nifly.getRawVertsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
-    #nifly.getRawVertsForShape.restype = c_int
     nifly.addBoneToShape.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p]
     nifly.addBoneToShape.restype = None
+    nifly.addCollBoxShape.argtypes = [c_void_p, POINTER(bhkBoxShapeProps)]
+    nifly.addCollBoxShape.restype = c_int
+    nifly.addCollision.argtypes = [c_void_p, c_void_p, c_int, c_int]
+    nifly.addCollision.restype = c_void_p
+    nifly.addRigidBody.argtypes = [c_void_p, c_uint32, POINTER(bhkRigidBodyProps)]
+    nifly.addRigidBody.restype = c_int
     nifly.addNode.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p]
     nifly.addNode.restype = c_int
     nifly.clearMessageLog.argtypes = []
@@ -187,6 +191,8 @@ def load_nifly(nifly_path):
     nifly.setColorsForShape.restype = None
     nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p]
     nifly.setGlobalToSkinXform.restype = None
+    nifly.setNodeFlags.argtypes = [c_void_p, c_int]
+    nifly.setNodeFlags.restype = None
     nifly.setPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int]
     nifly.setPartitions.restype = None
     nifly.setShaderAttrs.argtypes = [c_void_p, c_void_p, POINTER(BSLSPAttrs)]
@@ -213,6 +219,8 @@ def load_nifly(nifly_path):
     nifly.skinShape.restype = None
     nifly.setSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_char_p]
     nifly.setSegments.restype = None
+    nifly.writeSkinToNif.argtypes = [c_void_p]
+    nifly.writeSkinToNif.restype = None
     return nifly
 
 # --- Helper Routines --- #
@@ -1405,22 +1413,23 @@ class NifFile:
         sh._handle = shape_handle
         return sh
 
-    def addCollShape(self, blocktype, properties):
+    def add_coll_shape(self, blocktype, properties):
         """ Create collision shape """
         if blocktype == "bhkBoxShape":
             collshape_index = NifFile.nifly.addCollBoxShape(self._handle, properties)
             new_collshape = CollisionShape(collshape_index, self, props=properties)
             return new_collshape
 
-    def addRigidBody(self, blocktype, properties, collshape):
+    def add_rigid_body(self, blocktype, properties, collshape):
         """ Create a rigid body with collshape as its collision shape """
         if blocktype == "bhkRigidBodyT":
-            rb_index = NifFile.nifly.addRigidBody(self._handle, properties, collshape.block_index)
+            rb_index = NifFile.nifly.addRigidBody(self._handle, collshape.block_index, properties)
             new_rb = CollisionBody(rb_index, self, props=properties)
             collshape._parent = new_rb
             new_rb._shape = collshape
+            return new_rb
 
-    def addCollision(self, parent, target, body, flags):
+    def add_collision(self, parent, target, body, flags):
         new_coll_hndl = NifFile.nifly.addCollision(self._handle, target._handle, body.block_index, flags)
         new_coll = CollisionObject(new_coll_hndl, self, parent)
     
@@ -1520,6 +1529,13 @@ class NifFile:
         mat = MatTransform()
         mat.from_array(buf)
         return mat
+
+    def apply_skin(self):
+        """ Adding bones to the nif only adds them to the "skin" not to the nif itself.
+        "apply_skin" adds them to the nif so they can be found later. 
+        Note this zaps the nodelist. """
+        NifFile.nifly.writeSkinToNif(self._skin_handle)
+        self._nodes = None
 
     @property
     def cloth_data(self):
@@ -2887,7 +2903,7 @@ if __name__ == "__main__":
         assert co.target.name == "Bow_MidBone", f"Can read collision target"
         assert co.body.blockname == "bhkRigidBodyT", "Can read collision block"
 
-        assert co.body.properties.responseType == hkResponseType.RESPONSE_SIMPLE_CONTACT
+        assert co.body.properties.collisionResponse == hkResponseType.RESPONSE_SIMPLE_CONTACT
         assert co.body.properties.motionSystem == hkMotionType.MO_SYS_SPHERE_STABILIZED, f"Collision body properties hold the specifics"
 
         collshape = co.body.shape
@@ -2902,18 +2918,35 @@ if __name__ == "__main__":
         nifOut.initialize('SKYRIMSE', r"tests\out\TEST_BOW.nif", root.blockname, root.name)
         _test_export_shape(nif.shapes[0], nifOut)
 
+        # Have to apply the skin so we have the bone available to add collisions
+        nifOut.apply_skin()
         midbow = nifOut.nodes["Bow_MidBone"]
-        box_out = nifOut.addCollShape("bhkBoxShape", collshape.properties)
-        bod_out = nifOut.addRigidBody("bhkRigidBodyT", co.body.properties, box_out)
-        coll_out = nifOut.addCollision(midbow, midbow, bod_out, 
+
+        # Create the collision bottom-up, shape first
+        box_out = nifOut.add_coll_shape("bhkBoxShape", collshape.properties)
+        bod_out = nifOut.add_rigid_body("bhkRigidBodyT", co.body.properties, box_out)
+        coll_out = nifOut.add_collision(midbow, midbow, bod_out, 
                                           bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE)
 
         nifOut.save()
 
-        nifCheck = NifFile(r"tests\out\TEST_BOW.nif")
-        rootCheck = nifCheck.nodes[nifCheck.rootName]
-        assert nifCheck.rootName == root.name, f"ERROR: root name not correct, {nifCheck.rootName} != {root.name}"
+        nifcheck = NifFile(r"tests\out\TEST_BOW.nif")
+        rootCheck = nifcheck.nodes[nifcheck.rootName]
+        assert nifcheck.rootName == root.name, f"ERROR: root name not correct, {nifcheck.rootName} != {root.name}"
         assert rootCheck.blockname == root.blockname, f"ERROR: root type not correct, {rootCheck.blockname} != {root.blockname}"
+
+        collcheck = nifcheck.nodes["Bow_MidBone"].collision_object
+        assert collcheck.flags == bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE, f"Flags not correctly read: {collcheck.flags}"
+
+        bodycheck = collcheck.body
+        assert bodycheck.blockname == 'bhkRigidBodyT', f"Collision body not correct, {bodycheck.blockname != 'bhkRigidBodyT'}"
+        assert bodycheck.properties.collisionFilter_layer == SkyrimCollisionLayer.WEAPON, f"Collision layer not correct, {bodycheck.properties.collisionFilter_layer} != {SkyrimCollisionLayer.WEAPON}"
+        assert bodycheck.properties.collisionResponse == hkResponseType.RESPONSE_SIMPLE_CONTACT, f"Collision response not correct, {bodycheck.properties.collisionResponse} != {hkResponseType.RESPONSE_SIMPLE_CONTACT}"
+        assert bodycheck.properties.qualityType == hkQualityType.MOVING, f"Movement quality type not correct, {bodycheck.properties.qualityType} != {hkQualityType.MOVING}"
+
+        boxcheck = bodycheck.shape
+        assert [round(x, 4) for x in boxcheck.properties.dimensions] == [0.1574, 0.8238, 0.0136], f"Collision body shape dimensions written correctly"
+
 
     print("""
 ================================================

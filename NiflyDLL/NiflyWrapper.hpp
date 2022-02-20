@@ -387,7 +387,7 @@ extern "C" NIFLY_API int getMessageLog(char* buf, int buflen);
 
 /* ********************* COLLISIONS ********************* */
 extern "C" NIFLY_API void* getCollision(void* nifref, void* noderef);
-extern "C" NIFLY_API int addCollision(void* nifref, void* targetref, int body_index, int flags);
+extern "C" NIFLY_API void* addCollision(void* nifref, void* targetref, int body_index, int flags);
 extern "C" NIFLY_API int getCollBlockname(void* node, char* buf, int buflen);
 extern "C" NIFLY_API int getCollBodyID(void* nifref, void* node);
 extern "C" NIFLY_API int addRigidBody(void* nifref, uint32_t collShapeIndex, BHKRigidBodyBuf* buf);

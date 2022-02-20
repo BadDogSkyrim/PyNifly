@@ -2628,7 +2628,7 @@ namespace NiflyDLLTests
 
 			int boxOutID = addCollBoxShape(nifOut, &boxbuf);
 			int rbOutID = addRigidBody(nifOut, boxOutID, &bodyprops);
-			int collOut = addCollision(nifOut, bowMidboneOut, rbOutID, 129);
+			void* collOut = addCollision(nifOut, bowMidboneOut, rbOutID, 129);
 
 			// Now we can save the collision
 			saveSkinnedNif(skinOut, (testRoot / "Out/readCollisions.nif").u8string().c_str());

@@ -712,9 +712,11 @@ NIFLY_API int getShapeBoneWeights(void* theNif, void* theShape, int boneID,
 }
 
 NIFLY_API void addBoneToShape(void* anim, void* theShape, const char* boneName, void* xformPtr)
-/* Add the given bone to the nif and shape for export. 
-    xformToParent may be omitted, in which case the bone transform comes from the 
-    reference skeleton.
+/* Add the given bone to the shape for export. Note it is *not* added to the nif--use
+*  writeSkinToNif to update the nif. 
+*  TODO: Look at creating the node here directly.
+*  xformToParent may be omitted, in which case the bone transform comes from the 
+*  reference skeleton.
 */
 {
     AddBoneToShape(static_cast<AnimInfo*>(anim), static_cast<NiShape*>(theShape),
@@ -1759,7 +1761,7 @@ void* getCollision(void* nifref, void* noderef) {
     return hdr.GetBlock(node->collisionRef);
 };
 
-NIFLY_API int addCollision(void* nifref, void* targetref, int body_index, int flags) {
+NIFLY_API void* addCollision(void* nifref, void* targetref, int body_index, int flags) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::NiNode* targ = static_cast<nifly::NiNode*>(targetref);
@@ -1769,10 +1771,10 @@ NIFLY_API int addCollision(void* nifref, void* targetref, int body_index, int fl
     c->bodyRef.index = body_index;
     c->targetRef.index = nif->GetHeader().GetBlockID(targ);
     c->flags = flags;
-    int newid = nif->GetHeader().AddBlock(std::move(c));
+    uint32_t newid = nif->GetHeader().AddBlock(std::move(c));
     targ->collisionRef.index = newid;
     
-    return newid;
+    return nif->GetHeader().GetBlock(targ->collisionRef);
 };
 
 NIFLY_API int getCollBlockname(void* node, char* buf, int buflen) {

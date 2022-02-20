@@ -29,6 +29,7 @@ import traceback
 import math
 import re
 import codecs
+from typing import Collection
 
 log = logging.getLogger("pynifly")
 log.info(f"Loading pynifly version {bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}")
@@ -718,6 +719,10 @@ class NifImporter():
         self.bones = set()
         self.objects_created = []
         self.nif = NifFile(filename)
+        self.loc = [0, 0, 0]   # location for new objects 
+
+    def incr_loc(self):
+        self.loc = list(map(sum, zip(self.loc, [0.5, 0.5, 0])))
 
     def import_shape(self, the_shape: NiShape):
         """ Import the shape to a Blender object, translating bone names 
@@ -793,8 +798,9 @@ class NifImporter():
         f = the_shape.parent
         root = f.nodes[f.rootName]
         if root.blockname != "NiNode":
-            new_object["BS_RootNode_BlockType"] = root.blockname
-        new_object["BS_RootNode_Name"] = root.name
+            new_object["pynRootNode_BlockType"] = root.blockname
+        new_object["pynRootNode_Name"] = root.name
+        new_object["pynRootNode_Flags"] = RootFlags(root.flags).fullname
 
         self.objects_created.extend(import_shape_extra(new_object, the_shape))
 
@@ -918,6 +924,110 @@ class NifImporter():
         bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
 
 
+    def import_collision_shape(self, cs:CollisionShape, cb:bpy_types.Object):
+        # bpy.ops.object.add(type='MESH')
+        # obj = bpy.context.object
+        m = bpy.data.meshes.new(cs.blockname)
+        d = list(map(lambda x: x[0] * x[1], zip(cs.properties.dimensions, (100,100,100))))
+        x = 10
+        v = [ [-d[0], d[1], d[2]],    
+              [-d[0], -d[1], d[2]],   
+              [-d[0], -d[1], -d[2]],  
+              [-d[0], d[1], -d[2]],
+              [d[0], d[1], d[2]],
+              [d[0], -d[1], d[2]],
+              [d[0], -d[1], -d[2]],
+              [d[0], d[1], -d[2]] ]
+        log.debug(f"Creating shape with vertices: {v}")
+        m.from_pydata(v, [], [])
+                      #[ (0, 1, 2, 3), 
+                      #  (4, 5, 6, 7),
+                      #  (0, 1, 5, 4),
+                      #  (2, 3, 7, 6) ])
+        obj = bpy.data.objects.new(cs.blockname, m)
+        obj.name = cs.blockname
+        obj.parent = cb
+        bpy.context.view_layer.active_layer_collection.collection.objects.link(obj)
+        # bpy.context.scene.collection.objects.link(obj)
+        self.objects_created.append(obj)
+        
+        self.incr_loc
+
+
+    def import_collision_body(self, cb:CollisionBody, c:bpy_types.Object):
+        bpy.ops.object.add(radius=1.0, type='EMPTY', location=self.loc)
+        cbody = bpy.context.object
+        cbody.parent = c
+        cbody.name = cb.blockname
+        cbody.show_name = True
+        self.incr_loc
+
+        p = cb.properties
+        cbody['collisionFilter_layer'] = SkyrimCollisionLayer(p.collisionFilter_layer).name
+        cbody['collisionFilter_flags'] = p.collisionFilter_flags
+        cbody['collisionFilter_group'] = p.collisionFilter_group
+        cbody['broadPhaseType'] = p.collisionFilter_flags
+        cbody['broadPhaseType'] = BroadPhaseType(p.broadPhaseType).name
+        cbody['prop_data'] = p.prop_data
+        cbody['prop_size'] = p.prop_size
+        cbody['prop_flags'] = repr(p.prop_flags)
+        cbody['collisionResponse'] = hkResponseType(p.collisionResponse).name
+        cbody['processContactCallbackDelay'] = p.processContactCallbackDelay
+        cbody['collisionFilterCopy_layer'] = SkyrimCollisionLayer(p.collisionFilterCopy_layer).name
+        cbody['collisionFilterCopy_flags'] = p.collisionFilterCopy_flags
+        cbody['collisionFilterCopy_group'] = p.collisionFilterCopy_group
+        cbody['translation'] = repr(p.translation[:])
+        cbody['rotation'] = repr(p.rotation[:])
+        cbody['linearVelocity'] = repr(p.linearVelocity[:])
+        cbody['angularVelocity'] = repr(p.angularVelocity[:])
+        cbody['inertiaMatrix'] = repr(p.inertiaMatrix[:])
+        cbody['center'] = repr(p.center[:])
+        cbody['linearDamping'] = p.linearDamping
+        cbody['angularDamping'] = p.angularDamping
+        cbody['timeFactor'] = p.timeFactor
+        cbody['gravityFactor'] = p.gravityFactor
+        cbody['friction'] = p.friction
+        cbody['rollingFrictionMult'] = p.rollingFrictionMult
+        cbody['restitution'] = p.restitution
+        cbody['maxLinearVelocity'] = p.maxLinearVelocity
+        cbody['maxAngularVelocity'] = p.maxAngularVelocity
+        cbody['penetrationDepth'] = p.penetrationDepth
+        cbody['motionSystem'] = hkMotionType(p.motionSystem).name
+        cbody['deactivatorType'] = hkDeactivatorType(p.deactivatorType).name
+        cbody['solverDeactivation'] = hkSolverDeactivation(p.solverDeactivation).name
+        cbody['qualityType'] = hkQualityType(p.qualityType).name
+        cbody['autoRemoveLevel'] = p.autoRemoveLevel
+        cbody['responseModifierFlag'] = p.responseModifierFlag
+        cbody['numShapeKeysInContactPointProps'] = p.numShapeKeysInContactPointProps
+        cbody['forceCollideOntoPpu'] = p.forceCollideOntoPpu
+        cbody['bodyFlagsInt'] = p.bodyFlagsInt
+        cbody['bodyFlags'] = p.bodyFlags
+
+        cs = cb.shape
+        if cs:
+            self.import_collision_shape(cs, cbody)
+
+    def import_collision_obj(self, c:CollisionObject):
+        bpy.ops.object.add(radius=1.0, type='EMPTY', location=self.loc)
+        col = bpy.context.object
+        col.name = c.blockname
+        col.show_name = True
+        col['pynFlags'] = bhkCOFlags(c.flags).fullname
+        col['pynTarget'] = c.target.name
+        self.incr_loc()
+
+        cb = c.body
+        if cb:
+            self.import_collision_body(cb, col)
+
+    def import_collisions(self):
+        """ Walk through the nif looking for collision objects and import them """
+        log.debug("Import collisions")
+        for k, n in self.nif.nodes.items():
+            c = n.collision_object
+            if c:
+                self.import_collision_obj(c)
+
     def execute(self):
         """Perform the import operation as previously defined"""
         NifFile.clear_log()
@@ -966,8 +1076,9 @@ class NifImporter():
     
         # Import nif-level extra data
         objs = import_extra(self.nif)
-        #for o in objs:
-        #    new_collection.objects.link(o)
+        
+        # Import collisions
+        self.import_collisions()
 
         for o in self.objects_created: o.select_set(True)
         if len(self.objects_created) > 0:
@@ -1552,11 +1663,13 @@ def export_shape_to(shape, filepath, game):
     outtrip = TripFile()
     rt = "NiNode"
     rn = "Scene Root"
-    if "BS_RootNode_BlockType" in shape:
-        rt = shape["BS_RootNode_BlockType"]
-    if "BS_RootNode_Name" in shape:
-        rn = shape["BS_RootNode_Name"]
+    if "pynRootNode_BlockType" in shape:
+        rt = shape["pynRootNode_BlockType"]
+    if "pynRootNode_Name" in shape:
+        rn = shape["pynRootNode_Name"]
     outnif.initialize(game, filepath, rt, rn)
+    if "pynRootNode_Flags" in shape:
+        outf.root.flags = shape["pynRootNode_Flags"]
     ret = export_shape(outnif, outtrip, shape, '', shape.parent) 
     outnif.save()
     log.info(f"Wrote {filepath}")
@@ -2006,12 +2119,15 @@ class NifExporter:
             rn = "Scene Root"
 
             shape = next(iter(self.objects))
-            if "BS_RootNode_BlockType" in shape:
-                rt = shape["BS_RootNode_BlockType"]
-            if "BS_RootNode_Name" in shape:
-                rn = shape["BS_RootNode_Name"]
+            if "pynRootNode_BlockType" in shape:
+                rt = shape["pynRootNode_BlockType"]
+            if "pynRootNode_Name" in shape:
+                rn = shape["pynRootNode_Name"]
             
             exportf.initialize(self.game, fpath, rt, rn)
+            if "pynRootNode_Flags" in shape:
+                exportf.root.flags = shape["pynRootNode_Flags"]
+
             if suffix == '_faceBones':
                 exportf.dict = fo4FaceDict
 
@@ -2198,7 +2314,7 @@ def run_tests():
     ############################################################
     """)
 
-    from test_tools import test_title, clear_all, append_from_file, export_from_blend, find_vertex, remove_file
+    from test_tools import test_title, clear_all, append_from_file, export_from_blend, find_vertex, remove_file, find_shape
     from pynifly_tests import run_tests
 
     NifFile.Load(nifly_path)
@@ -2213,8 +2329,10 @@ def run_tests():
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
+
+
     if True:
-        test_title("TEST_ROOTNODE", "Can read and write root node block types")
+        test_title("TEST_BOW", "Can read and write bow: BSFadeNode plus extras plus collisions")
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/glassbowskinned.nif")
         outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROOTNODE.nif")
@@ -2222,15 +2340,33 @@ def run_tests():
         NifImporter.do_import(testfile)
 
         obj = bpy.context.object
-        assert obj["BS_RootNode_BlockType"] == 'BSFadeNode', "BS_RootNode_BlockType holds the type of root node for the given shape"
-        assert obj["BS_RootNode_Name"] == "GlassBowSkinned.nif", "BS_RootNode_Name holds the name for the root node"
+        assert obj["pynRootNode_BlockType"] == 'BSFadeNode', "pynRootNode_BlockType holds the type of root node for the given shape"
+        assert obj["pynRootNode_Name"] == "GlassBowSkinned.nif", "pynRootNode_Name holds the name for the root node"
+        assert obj["pynRootNode_Flags"] == "SELECTIVE_UPDATE | SELECTIVE_UPDATE_TRANSF | SELECTIVE_UPDATE_CONTR", f"'pynRootNode_Flags' holds the flags on the root node: {obj['pynRootNode_Flags']}"
+
+        coll = find_shape('bhkCollisionObject')
+        assert coll['pynFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
+        assert coll['pynTarget'] == 'Bow_MidBone', f"'Target' names the object the collision affects, in this case a bone: {coll['pynTarget']}"
+
+        collbody = coll.children[0]
+        assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
+        assert collbody['collisionFilter_layer'] == SkyrimCollisionLayer.WEAPON.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
+        assert collbody["collisionResponse"] == hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
+
+        collshape = collbody.children[0]
+        assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
+
+
+        bsim = find_shape('BSInvMarker')
+        assert bsim != None, f"BSInvMarkers are brought in as shapes"
+        
 
         exporter = NifExporter(outfile, 'SKYRIMSE')
         exporter.export([obj])
 
         nif = NifFile(outfile)
-        assert nif.rootName == obj["BS_RootNode_Name"], f"Root node name set successfully: {nif.rootName}"
-        assert nif.nodes[nif.rootName].blockname == obj["BS_RootNode_BlockType"], f"Root block type set successfully: found {nif.nodes[nif.rootName].blockname}"
+        assert nif.rootName == obj["pynRootNode_Name"], f"Root node name set successfully: {nif.rootName}"
+        assert nif.nodes[nif.rootName].blockname == obj["pynRootNode_BlockType"], f"Root block type set successfully: found {nif.nodes[nif.rootName].blockname}"
 
     print("""
     ############################################################
