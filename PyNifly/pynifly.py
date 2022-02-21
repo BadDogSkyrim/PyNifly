@@ -739,6 +739,10 @@ class NiNode:
     def flags(self):
         return NifFile.nifly.getNodeFlags(self._handle)
 
+    @flags.setter
+    def flags(self, value):
+        NifFile.nifly.setNodeFlags(self._handle, value)
+
     @property
     def blender_name(self):
         return self.file.blender_name(self.name)
@@ -1446,6 +1450,10 @@ class NifFile:
         if self._root is None:
             self._root = NifFile.nifly.getRoot(self._handle)
         return self._root
+
+    @property 
+    def rootNode(self):
+        return self.nodes[self.rootName]
     
     @property
     def game(self):
