@@ -16,6 +16,14 @@ class PynIntFlag(IntFlag):
                 s.append(f)
         return " | ".join(list(map(lambda x: x.name, s)))
 
+    @classmethod
+    def parse(cls, value):
+        valuelist = value.split(" | ")
+        flags = 0
+        for v in valuelist:
+            flags |= cls[v]
+        return flags
+
 
 VECTOR3 = c_float * 3
 VECTOR4 = c_float * 4
@@ -232,7 +240,7 @@ class BSLSPShaderType(IntFlag):
     Cloud = 17
     LOD_Landscape_Noise = 18
     Multitexture_Landscape_LOD_Blend = 19
-    FO4_Dismembermen = 20
+    FO4_Dismemberment = 20
 
 class ShaderFlags1(PynIntFlag):
     SPECULAR = 1 << 0
@@ -266,7 +274,7 @@ class ShaderFlags1(PynIntFlag):
     PARALLAX_OCCLUSION = 1 << 28
     EXTERNAL_EMITTANCE = 1 << 29
     SOFT_EFFECT = 1 << 30
-    ZBUFFER_TES = 1 << 31
+    ZBUFFER_TEST = 1 << 31
 
 class ShaderFlags2(PynIntFlag):
     ZBUFFER_WRITE = 1

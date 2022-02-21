@@ -84,6 +84,9 @@ ALPHA_MAP_NAME = "VERTEX_ALPHA"
 
 GLOSS_SCALE = 100
 
+# There are 64 Skyrim units in a yard and havok works in metres, so:
+HAVOC_SCALE_FACTOR = 69.99125
+
 z180 = MatTransform((0, 0, 0), 
                     [(-1, 0, 0), 
                      (0, -1, 0),
@@ -97,97 +100,125 @@ z180 = MatTransform((0, 0, 0),
 #pynifly_ch.setFormatter(formatter)
 #log.addHandler(ch)
 
+def load_shape_from_struct(shape, struct):
+    for f, t in struct._fields_:
+        if f == 'Shader_Flags_1':
+            v = ShaderFlags1(struct.Shader_Flags_1).fullname
+        elif f == 'Shader_Flags_2': 
+            v = ShaderFlags2(struct.Shader_Flags_2).fullname
+        elif f == 'Shader_Type':
+            v = BSLSPShaderType(struct.Shader_Type).name
+        elif f in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
+            v = SkyrimCollisionLayer(struct.__getattribute__(f)).name
+        elif f == 'broadPhaseType':
+            v = BroadPhaseType(struct.broadPhaseType).name
+        elif f == 'collisionResponse':
+            v = hkResponseType(struct.collisionResponse).name
+        elif f == 'motionSystem':
+            v = hkMotionType(struct.motionSystem).name
+        elif f == 'deactivatorType':
+            v = hkDeactivatorType(struct.deactivatorType).name
+        elif f == 'solverDeactivation': 
+            v = hkSolverDeactivation(struct.solverDeactivation).name
+        elif f == 'qualityType':
+            v = hkQualityType(struct.qualityType).name
+        elif t.__name__.startswith('c_float_Array') or t.__name__.startswith('c_ushort_Array'):
+            v = repr(struct.__getattribute__(f)[:])
+        elif t.__name__ in ['c_uint32', 'c_uint64', 'c_ulong', 'c_ulonglong']:
+            v = repr(struct.__getattribute__(f))
+        else:
+            v = struct.__getattribute__(f)
+        
+        try:
+            shape[f] = v
+        except:
+            log.error(f"Cannot load value {v} of type {t.__name__} into field {f} of object {shape.name}")
+
+def load_struct_from_shape(struct, shape):
+    for f, t in struct._fields_:
+        v = ""
+        try:
+            if f == 'Shader_Flags_1':
+                v = ShaderFlags1.parse(shape[f]).value
+            elif f == 'Shader_Flags_2':
+                v = ShaderFlags2.parse(shape[f]).value
+            elif f == 'Shader_Type':
+                v = BSLSPShaderType[shape[f]].value
+            elif f == 'collisionFilter_layer' or f == 'collisionFilterCopy_layer':
+                v = SkyrimCollisionLayer[shape[f]].value
+            elif f == 'broadPhaseType':
+                v = BroadPhaseType[shape[f]].value
+            elif f == 'collisionResponse':
+                v = hkResponseType[shape[f]].value
+            elif f == 'motionSystem':
+                v = hkMotionType[shape[f]].value
+            elif f == 'deactivatorType':
+                v = hkDeactivatorType[shape[f]].value
+            elif f == 'solverDeactivation': 
+                v = hkSolverDeactivation[shape[f]].value
+            elif f == 'qualityType':
+                v = hkQualityType[shape[f]].value
+            elif t.__name__ == 'c_float_Array_4':
+                v = VECTOR4(*eval(shape[f]))
+            elif t.__name__ == 'c_float_Array_12':
+                v = VECTOR12(*eval(shape[f]))
+            elif t.__name__ == 'c_ushort_Array_6':
+                v = VECTOR6_SHORT(*eval(shape[f]))
+            elif t.__name__ in ['c_uint32', 'c_ulong', 'c_ulonglong']:
+                v = int(shape[f])
+            else:
+                v = shape[f]
+            struct.__setattr__(f, v)
+        except:
+            log.error(f"Cannot load value '{v}' of type {t.__name__} into field {f} of structure {struct.__class__.__name__}")
+
+
+        #cbody['collisionFilter_layer'] = SkyrimCollisionLayer(p.collisionFilter_layer).name
+        #cbody['collisionFilter_flags'] = p.collisionFilter_flags
+        #cbody['collisionFilter_group'] = p.collisionFilter_group
+        #cbody['broadPhaseType'] = p.collisionFilter_flags
+        #cbody['broadPhaseType'] = BroadPhaseType(p.broadPhaseType).name
+        #cbody['prop_data'] = p.prop_data
+        #cbody['prop_size'] = p.prop_size
+        #cbody['prop_flags'] = repr(p.prop_flags)
+        #cbody['collisionResponse'] = hkResponseType(p.collisionResponse).name
+        #cbody['processContactCallbackDelay'] = p.processContactCallbackDelay
+        #cbody['collisionFilterCopy_layer'] = SkyrimCollisionLayer(p.collisionFilterCopy_layer).name
+        #cbody['collisionFilterCopy_flags'] = p.collisionFilterCopy_flags
+        #cbody['collisionFilterCopy_group'] = p.collisionFilterCopy_group
+        #cbody['translation'] = repr(p.translation[:])
+        #cbody['rotation'] = repr(p.rotation[:])
+        #cbody['linearVelocity'] = repr(p.linearVelocity[:])
+        #cbody['angularVelocity'] = repr(p.angularVelocity[:])
+        #cbody['inertiaMatrix'] = repr(p.inertiaMatrix[:])
+        #cbody['center'] = repr(p.center[:])
+        #cbody['linearDamping'] = p.linearDamping
+        #cbody['angularDamping'] = p.angularDamping
+        #cbody['timeFactor'] = p.timeFactor
+        #cbody['gravityFactor'] = p.gravityFactor
+        #cbody['friction'] = p.friction
+        #cbody['rollingFrictionMult'] = p.rollingFrictionMult
+        #cbody['restitution'] = p.restitution
+        #cbody['maxLinearVelocity'] = p.maxLinearVelocity
+        #cbody['maxAngularVelocity'] = p.maxAngularVelocity
+        #cbody['penetrationDepth'] = p.penetrationDepth
+        #cbody['motionSystem'] = hkMotionType(p.motionSystem).name
+        #cbody['deactivatorType'] = hkDeactivatorType(p.deactivatorType).name
+        #cbody['solverDeactivation'] = hkSolverDeactivation(p.solverDeactivation).name
+        #cbody['qualityType'] = hkQualityType(p.qualityType).name
+        #cbody['autoRemoveLevel'] = p.autoRemoveLevel
+        #cbody['responseModifierFlag'] = p.responseModifierFlag
+        #cbody['numShapeKeysInContactPointProps'] = p.numShapeKeysInContactPointProps
+        #cbody['forceCollideOntoPpu'] = p.forceCollideOntoPpu
+        #cbody['bodyFlagsInt'] = p.bodyFlagsInt
+        #cbody['bodyFlags'] = p.bodyFlags
+
 
 # ######################################################################## ###
 #                                                                          ###
 # -------------------------------- IMPORT -------------------------------- ###
 #                                                                          ###
 # ######################################################################## ###
-
-# -----------------------------  EXTRA DATA  -------------------------------
-
-def import_extra(f: NifFile):
-    """ Import any extra data from the root, and create corresponding shapes 
-        Returns a list of the new extradata objects
-    """
-    extradata = []
-    loc = [0.0, 0.0, 0.0]
-
-    for s in f.string_data:
-        bpy.ops.object.add(radius=1.0, type='EMPTY', location=loc)
-        ed = bpy.context.object
-        ed.name = "NiStringExtraData"
-        ed.show_name = True
-        ed['NiStringExtraData_Name'] = s[0]
-        ed['NiStringExtraData_Value'] = s[1]
-        loc[0] += 3.0
-        extradata.append(ed)
-
-    for s in f.behavior_graph_data:
-        bpy.ops.object.add(radius=1.0, type='EMPTY', location=loc)
-        ed = bpy.context.object
-        ed.name = "BSBehaviorGraphExtraData"
-        ed.show_name = True
-        ed['BSBehaviorGraphExtraData_Name'] = s[0]
-        ed['BSBehaviorGraphExtraData_Value'] = s[1]
-        loc[0] += 3.0
-        extradata.append(ed)
-
-    for c in f.cloth_data: 
-        bpy.ops.object.add(radius=1.0, type='EMPTY', location=loc)
-        ed = bpy.context.object
-        ed.name = "BSClothExtraData"
-        ed.show_name = True
-        ed['BSClothExtraData_Name'] = c[0]
-        ed['BSClothExtraData_Value'] = codecs.encode(c[1], 'base64')
-        loc[0] += 3.0
-        extradata.append(ed)
-
-    return extradata
-
-
-def import_shape_extra(obj, shape):
-    """ Import any extra data from the shape if given or the root if not, and create 
-    corresponding shapes """
-    extradata = []
-    loc = list(obj.location)
-
-    for s in shape.string_data:
-        bpy.ops.object.add(radius=1.0, type='EMPTY', location=loc)
-        ed = bpy.context.object
-        ed.name = "NiStringExtraData"
-        ed.show_name = True
-        ed['NiStringExtraData_Name'] = s[0]
-        ed['NiStringExtraData_Value'] = s[1]
-        ed.parent = obj
-        loc[0] += 3.0
-        extradata.append(ed)
-
-    for s in shape.behavior_graph_data:
-        bpy.ops.object.add(radius=1.0, type='EMPTY', location=loc)
-        ed = bpy.context.object
-        ed.name = "BSBehaviorGraphExtraData"
-        ed.show_name = True
-        ed['BSBehaviorGraphExtraData_Name'] = s[0]
-        ed['BSBehaviorGraphExtraData_Value'] = s[1]
-        ed.parent = obj
-        loc[0] += 3.0
-        extradata.append(ed)
-
-    return extradata
-
-
-def export_shape_data(obj, shape):
-    ed = [ (x['NiStringExtraData_Name'], x['NiStringExtraData_Value']) for x in \
-            obj.children if 'NiStringExtraData_Name' in x.keys()]
-    if len(ed) > 0:
-        shape.string_data = ed
-    
-    ed = [ (x['BSBehaviorGraphExtraData_Name'], x['BSBehaviorGraphExtraData_Value']) for x in \
-            obj.children if 'BSBehaviorGraphExtraData_Name' in x.keys()]
-    if len(ed) > 0:
-        shape.behavior_graph_data = ed
-
 
 # -----------------------------  SHADERS  -------------------------------
 
@@ -217,44 +248,46 @@ def import_shader_attrs(material, shader, shape):
     if not attrs: 
         return
 
-    try:
-        material['BS_Shader_Block_Name'] = shape.shader_block_name
-        material['BSLSP_Shader_Name'] = shape.shader_name
-        material['BSLSP_Shader_Flags_1'] = hex(attrs.Shader_Flags_1)
-        material['BSLSP_Shader_Flags_2'] = hex(attrs.Shader_Flags_2)
-        material['BSSP_UV_Offset_U'] = attrs.UV_Offset_U
-        material['BSSP_UV_Offset_V'] = attrs.UV_Offset_V
-        material['BSSP_UV_Scale_U'] = attrs.UV_Scale_U
-        material['BSSP_UV_Scale_V'] = attrs.UV_Scale_V
-        shader.inputs['Emission'].default_value = (attrs.Emissive_Color_R, attrs.Emissive_Color_G, attrs.Emissive_Color_B, attrs.Emissive_Color_A)
-        shader.inputs['Emission Strength'].default_value = attrs.Emissive_Mult
+    load_shape_from_struct(material, attrs)
 
-        if shape.shader_block_name == 'BSLightingShaderProperty':
-            material['BSLSP_Shader_Type'] = attrs.Shader_Type
-            shader.inputs['Alpha'].default_value = attrs.Alpha
-            material['BSLSP_Refraction_Str'] = attrs.Refraction_Str
-            shader.inputs['Metallic'].default_value = attrs.Glossiness/GLOSS_SCALE
-            material['BSLSP_Spec_Color_R'] = attrs.Spec_Color_R
-            material['BSLSP_Spec_Color_G'] = attrs.Spec_Color_G
-            material['BSLSP_Spec_Color_B'] = attrs.Spec_Color_B
-            material['BSLSP_Spec_Str'] = attrs.Spec_Str
-            material['BSLSP_Soft_Lighting'] = attrs.Soft_Lighting
-            material['BSLSP_Rim_Light_Power'] = attrs.Rim_Light_Power
-            material['BSLSP_Skin_Tint_Color_R'] = attrs.Skin_Tint_Color_R
-            material['BSLSP_Skin_Tint_Color_G'] = attrs.Skin_Tint_Color_G
-            material['BSLSP_Skin_Tint_Color_B'] = attrs.Skin_Tint_Color_B
-        elif shape.shader_block_name == 'BSEffectShaderProperty':
-            shader.inputs['Alpha'].default_value = attrs.FallffStart_Opacity
-            material['BSESP_Falloff_Start_Angle'] = attrs.Falloff_Start_Angle
-            material['BSESP_Falloff_Start_Opacity'] = attrs.Falloff_Start_Opacity
-            material['BSESP_Falloff_Stop_Angle'] = attrs.Falloff_Stop_Opacity
-            material['BSESP_Soft_Fallof_Depth'] = attrs.Soft_Fallof_Depth
-            material['BSESP_Env_Map_Scale'] = attrs.Env_Map_Scale
-            material['BSESP_Tex_Clamp_Mode'] = attrs.Tex_Clamp_mode
+    #try:
+    #    material['BS_Shader_Block_Name'] = shape.shader_block_name
+    #    material['BSLSP_Shader_Name'] = shape.shader_name
+    #    material['BSLSP_Shader_Flags_1'] = hex(attrs.Shader_Flags_1)
+    #    material['BSLSP_Shader_Flags_2'] = hex(attrs.Shader_Flags_2)
+    #    material['BSSP_UV_Offset_U'] = attrs.UV_Offset_U
+    #    material['BSSP_UV_Offset_V'] = attrs.UV_Offset_V
+    #    material['BSSP_UV_Scale_U'] = attrs.UV_Scale_U
+    #    material['BSSP_UV_Scale_V'] = attrs.UV_Scale_V
+    #    shader.inputs['Emission'].default_value = (attrs.Emissive_Color_R, attrs.Emissive_Color_G, attrs.Emissive_Color_B, attrs.Emissive_Color_A)
+    #    shader.inputs['Emission Strength'].default_value = attrs.Emissive_Mult
 
-    except Exception as e:
-        # Any errors, print the error but continue
-        log.warning(str(e))
+    #    if shape.shader_block_name == 'BSLightingShaderProperty':
+    #        material['BSLSP_Shader_Type'] = attrs.Shader_Type
+    #        shader.inputs['Alpha'].default_value = attrs.Alpha
+    #        material['BSLSP_Refraction_Str'] = attrs.Refraction_Str
+    #        shader.inputs['Metallic'].default_value = attrs.Glossiness/GLOSS_SCALE
+    #        material['BSLSP_Spec_Color_R'] = attrs.Spec_Color_R
+    #        material['BSLSP_Spec_Color_G'] = attrs.Spec_Color_G
+    #        material['BSLSP_Spec_Color_B'] = attrs.Spec_Color_B
+    #        material['BSLSP_Spec_Str'] = attrs.Spec_Str
+    #        material['BSLSP_Soft_Lighting'] = attrs.Soft_Lighting
+    #        material['BSLSP_Rim_Light_Power'] = attrs.Rim_Light_Power
+    #        material['BSLSP_Skin_Tint_Color_R'] = attrs.Skin_Tint_Color_R
+    #        material['BSLSP_Skin_Tint_Color_G'] = attrs.Skin_Tint_Color_G
+    #        material['BSLSP_Skin_Tint_Color_B'] = attrs.Skin_Tint_Color_B
+    #    elif shape.shader_block_name == 'BSEffectShaderProperty':
+    #        shader.inputs['Alpha'].default_value = attrs.FallffStart_Opacity
+    #        material['BSESP_Falloff_Start_Angle'] = attrs.Falloff_Start_Angle
+    #        material['BSESP_Falloff_Start_Opacity'] = attrs.Falloff_Start_Opacity
+    #        material['BSESP_Falloff_Stop_Angle'] = attrs.Falloff_Stop_Opacity
+    #        material['BSESP_Soft_Fallof_Depth'] = attrs.Soft_Fallof_Depth
+    #        material['BSESP_Env_Map_Scale'] = attrs.Env_Map_Scale
+    #        material['BSESP_Tex_Clamp_Mode'] = attrs.Tex_Clamp_mode
+
+    #except Exception as e:
+    #    # Any errors, print the error but continue
+    #    log.warning(str(e))
 
 def import_shader_alpha(mat, shape):
     if shape.has_alpha_property:
@@ -428,63 +461,66 @@ def export_shader_attrs(obj, shader, shape):
 
     if 'BSLSP_Shader_Name' in mat.keys() and len(mat['BSLSP_Shader_Name']) > 0:
         shape.shader_name = mat['BSLSP_Shader_Name']
-    if 'BSLSP_Shader_Flags_1' in mat.keys():
-        shape.shader_attributes.Shader_Flags_1 = int(mat['BSLSP_Shader_Flags_1'], 16)
-    if 'BSLSP_Shader_Flags_2' in mat.keys():
-        shape.shader_attributes.Shader_Flags_2 = int(mat['BSLSP_Shader_Flags_2'], 16)
-    if 'BSSP_UV_Offset_U' in mat.keys():
-        shape.shader_attributes.UV_Offset_U = mat['BSSP_UV_Offset_U']
-    if 'BSSP_UV_Offset_V' in mat.keys():
-        shape.shader_attributes.UV_Offset_V = mat['BSSP_UV_Offset_V']
-    if 'BSSP_UV_Scale_U' in mat.keys():
-        shape.shader_attributes.UV_Scale_U = mat['BSSP_UV_Scale_U']
-    if 'BSSP_UV_Scale_V' in mat.keys():
-        shape.shader_attributes.UV_Scale_V = mat['BSSP_UV_Scale_V']
-    shape.shader_attributes.Emissive_Color_R = shader.inputs['Emission'].default_value[0]
-    shape.shader_attributes.Emissive_Color_G = shader.inputs['Emission'].default_value[1]
-    shape.shader_attributes.Emissive_Color_B = shader.inputs['Emission'].default_value[2]
-    shape.shader_attributes.Emissive_Color_A = shader.inputs['Emission'].default_value[3]
-    shape.shader_attributes.Emissive_Mult = shader.inputs['Emission Strength'].default_value
 
-    if ('BS_Shader_Block_Name' in mat) and (mat['BS_Shader_Block_Name'] == 'BSEffectShaderProperty'):
-        if 'BSESP_Falloff_Start_Angle' in mat.keys():
-            shape.shader_attributes.Falloff_Start_Angle = mat['BSESP_Falloff_Start_Angle']
-        if 'BSESP_Falloff_Start_Opacity' in mat.keys():
-            shape.shader_attributes.Falloff_Start_Opacity = mat['BSESP_Falloff_Start_Opacity']
-        if 'BSESP_Falloff_Stop_Angle' in mat.keys():
-            shape.shader_attributes.Falloff_Stop_Angle = mat['BSESP_Falloff_Stop_Angle']
-        if 'BSESP_Soft_Fallof_Depth' in mat.keys():
-            shape.shader_attributes.Soft_Fallof_Depth = mat['BSESP_Soft_Fallof_Depth']
-        if 'BSESP_Env_Map_Scale' in mat.keys():
-            shape.shader_attributes.Env_Map_Scale = mat['BSESP_Env_Map_Scale']
-        if 'BSESP_Tex_Clamp_Mode' in mat.keys():
-            shape.shader_attributes.Tex_Clamp_Mode = mat['BSESP_Tex_Clamp_Mode']
+    load_struct_from_shape(shape.shader_attributes, mat)
 
-    else:
-        if 'BSLSP_Shader_Type' in mat.keys():
-            shape.shader_attributes.Shader_Type = int(mat['BSLSP_Shader_Type'])
-        shape.shader_attributes.Alpha = shader.inputs['Alpha'].default_value
-        if 'BSLSP_Refraction_Str' in mat.keys():
-            shape.Refraction_Str = mat['BSLSP_Refraction_Str']
-        shape.shader_attributes.Glossiness = shader.inputs['Metallic'].default_value * GLOSS_SCALE
-        if 'BSLSP_Spec_Color_R' in mat.keys():
-            shape.shader_attributes.Spec_Color_R = mat['BSLSP_Spec_Color_R']
-        if 'BSLSP_Spec_Color_G' in mat.keys():
-            shape.shader_attributes.Spec_Color_G = mat['BSLSP_Spec_Color_G']
-        if 'BSLSP_Spec_Color_B' in mat.keys():
-            shape.shader_attributes.Spec_Color_B = mat['BSLSP_Spec_Color_B']
-        if 'BSLSP_Spec_Str' in mat.keys():
-            shape.shader_attributes.Spec_Str = mat['BSLSP_Spec_Str']
-        if 'BSLSP_Spec_Str' in mat.keys():
-            shape.shader_attributes.Soft_Lighting = mat['BSLSP_Soft_Lighting']
-        if 'BSLSP_Spec_Str' in mat.keys():
-            shape.shader_attributes.Rim_Light_Power = mat['BSLSP_Rim_Light_Power']
-        if 'BSLSP_Skin_Tint_Color_R' in mat.keys():
-            shape.shader_attributes.Skin_Tint_Color_R = mat['BSLSP_Skin_Tint_Color_R']
-        if 'BSLSP_Skin_Tint_Color_G' in mat.keys():
-            shape.shader_attributes.Skin_Tint_Color_G = mat['BSLSP_Skin_Tint_Color_G']
-        if 'BSLSP_Skin_Tint_Color_B' in mat.keys():
-            shape.shader_attributes.Skin_Tint_Color_G = mat['BSLSP_Skin_Tint_Color_B']
+    #if 'BSLSP_Shader_Flags_1' in mat.keys():
+    #    shape.shader_attributes.Shader_Flags_1 = int(mat['BSLSP_Shader_Flags_1'], 16)
+    #if 'BSLSP_Shader_Flags_2' in mat.keys():
+    #    shape.shader_attributes.Shader_Flags_2 = int(mat['BSLSP_Shader_Flags_2'], 16)
+    #if 'BSSP_UV_Offset_U' in mat.keys():
+    #    shape.shader_attributes.UV_Offset_U = mat['BSSP_UV_Offset_U']
+    #if 'BSSP_UV_Offset_V' in mat.keys():
+    #    shape.shader_attributes.UV_Offset_V = mat['BSSP_UV_Offset_V']
+    #if 'BSSP_UV_Scale_U' in mat.keys():
+    #    shape.shader_attributes.UV_Scale_U = mat['BSSP_UV_Scale_U']
+    #if 'BSSP_UV_Scale_V' in mat.keys():
+    #    shape.shader_attributes.UV_Scale_V = mat['BSSP_UV_Scale_V']
+    #shape.shader_attributes.Emissive_Color_R = shader.inputs['Emission'].default_value[0]
+    #shape.shader_attributes.Emissive_Color_G = shader.inputs['Emission'].default_value[1]
+    #shape.shader_attributes.Emissive_Color_B = shader.inputs['Emission'].default_value[2]
+    #shape.shader_attributes.Emissive_Color_A = shader.inputs['Emission'].default_value[3]
+    #shape.shader_attributes.Emissive_Mult = shader.inputs['Emission Strength'].default_value
+
+    #if ('BS_Shader_Block_Name' in mat) and (mat['BS_Shader_Block_Name'] == 'BSEffectShaderProperty'):
+    #    if 'BSESP_Falloff_Start_Angle' in mat.keys():
+    #        shape.shader_attributes.Falloff_Start_Angle = mat['BSESP_Falloff_Start_Angle']
+    #    if 'BSESP_Falloff_Start_Opacity' in mat.keys():
+    #        shape.shader_attributes.Falloff_Start_Opacity = mat['BSESP_Falloff_Start_Opacity']
+    #    if 'BSESP_Falloff_Stop_Angle' in mat.keys():
+    #        shape.shader_attributes.Falloff_Stop_Angle = mat['BSESP_Falloff_Stop_Angle']
+    #    if 'BSESP_Soft_Fallof_Depth' in mat.keys():
+    #        shape.shader_attributes.Soft_Fallof_Depth = mat['BSESP_Soft_Fallof_Depth']
+    #    if 'BSESP_Env_Map_Scale' in mat.keys():
+    #        shape.shader_attributes.Env_Map_Scale = mat['BSESP_Env_Map_Scale']
+    #    if 'BSESP_Tex_Clamp_Mode' in mat.keys():
+    #        shape.shader_attributes.Tex_Clamp_Mode = mat['BSESP_Tex_Clamp_Mode']
+
+    #else:
+    #    if 'BSLSP_Shader_Type' in mat.keys():
+    #        shape.shader_attributes.Shader_Type = int(mat['BSLSP_Shader_Type'])
+    #    shape.shader_attributes.Alpha = shader.inputs['Alpha'].default_value
+    #    if 'BSLSP_Refraction_Str' in mat.keys():
+    #        shape.Refraction_Str = mat['BSLSP_Refraction_Str']
+    #    shape.shader_attributes.Glossiness = shader.inputs['Metallic'].default_value * GLOSS_SCALE
+    #    if 'BSLSP_Spec_Color_R' in mat.keys():
+    #        shape.shader_attributes.Spec_Color_R = mat['BSLSP_Spec_Color_R']
+    #    if 'BSLSP_Spec_Color_G' in mat.keys():
+    #        shape.shader_attributes.Spec_Color_G = mat['BSLSP_Spec_Color_G']
+    #    if 'BSLSP_Spec_Color_B' in mat.keys():
+    #        shape.shader_attributes.Spec_Color_B = mat['BSLSP_Spec_Color_B']
+    #    if 'BSLSP_Spec_Str' in mat.keys():
+    #        shape.shader_attributes.Spec_Str = mat['BSLSP_Spec_Str']
+    #    if 'BSLSP_Spec_Str' in mat.keys():
+    #        shape.shader_attributes.Soft_Lighting = mat['BSLSP_Soft_Lighting']
+    #    if 'BSLSP_Spec_Str' in mat.keys():
+    #        shape.shader_attributes.Rim_Light_Power = mat['BSLSP_Rim_Light_Power']
+    #    if 'BSLSP_Skin_Tint_Color_R' in mat.keys():
+    #        shape.shader_attributes.Skin_Tint_Color_R = mat['BSLSP_Skin_Tint_Color_R']
+    #    if 'BSLSP_Skin_Tint_Color_G' in mat.keys():
+    #        shape.shader_attributes.Skin_Tint_Color_G = mat['BSLSP_Skin_Tint_Color_G']
+    #    if 'BSLSP_Skin_Tint_Color_B' in mat.keys():
+    #        shape.shader_attributes.Skin_Tint_Color_G = mat['BSLSP_Skin_Tint_Color_B']
 
     #log.debug(f"Shader Type: {shape.shader_attributes.Shader_Type}")
     #log.debug(f"Shader attributes: \n{shape.shader_attributes}")
@@ -703,6 +739,40 @@ def import_colors(mesh, shape):
     except:
         log.error(f"ERROR: Could not read colors on shape {shape.name}")
 
+
+def get_node_location(the_shape: NiShape):
+    """ Returns location of the_shape ready for blender as a transform """
+    try:
+        if the_shape.has_skin_instance:
+            # Global-to-skin transform is what offsets all the vertices together, e.g. so that
+            # heads can be positioned at the origin. Put the reverse transform on the blender 
+            # object so they can be worked on in their skinned position.
+            # Use the one on the NiSkinData if it exists.
+            xform = the_shape.global_to_skin_data
+            if xform is None:
+                xform = the_shape.global_to_skin
+            # log.debug(f"....Found transform {the_shape.global_to_skin} on {the_shape.name} in '{self.nif.filepath}'")
+            inv_xf = xform.invert()
+            return inv_xf
+            #new_object.matrix_world = inv_xf.as_matrix()
+            #new_object.location = inv_xf.translation
+    except:
+        pass
+
+    # Statics get transformed according to the shape's transform
+    # new_object.scale = (the_shape.transform.scale, ) * 3
+    # xf = the_shape.transform.invert()
+    # new_object.matrix_world = xf.as_matrix() 
+    # new_object.location = the_shape.transform.translation
+    log.debug(f". . shape {the_shape.name} transform: {the_shape.transform}")
+    xf = the_shape.transform
+    return xf
+    #new_object.matrix_world = the_shape.transform.invert().as_matrix()
+    #new_object.location = the_shape.transform.translation
+    #new_object.scale = [the_shape.transform.scale] * 3
+    #log.debug(f". . New object transform: \n{new_object.matrix_world}")
+
+
 class NifImporter():
     """Does the work of importing a nif, independent of Blender's operator interface"""
     class ImportFlags(IntFlag):
@@ -722,7 +792,80 @@ class NifImporter():
         self.loc = [0, 0, 0]   # location for new objects 
 
     def incr_loc(self):
-        self.loc = list(map(sum, zip(self.loc, [0.5, 0.5, 0])))
+        self.loc = list(map(sum, zip(self.loc, [0.5, 0.5, 0.5])))
+
+    def next_loc(self):
+        l = self.loc
+        self.incr_loc()
+        return l
+
+    # -----------------------------  EXTRA DATA  -------------------------------
+
+    def import_extra(self, f: NifFile):
+        """ Import any extra data from the root, and create corresponding shapes 
+            Returns a list of the new extradata objects
+        """
+        extradata = []
+
+        for s in f.string_data:
+            bpy.ops.object.add(radius=1.0, type='EMPTY', location=self.next_loc())
+            ed = bpy.context.object
+            ed.name = "NiStringExtraData"
+            ed.show_name = True
+            ed['NiStringExtraData_Name'] = s[0]
+            ed['NiStringExtraData_Value'] = s[1]
+            extradata.append(ed)
+
+        for s in f.behavior_graph_data:
+            bpy.ops.object.add(radius=1.0, type='EMPTY', location=self.next_loc())
+            ed = bpy.context.object
+            ed.name = "BSBehaviorGraphExtraData"
+            ed.show_name = True
+            ed['BSBehaviorGraphExtraData_Name'] = s[0]
+            ed['BSBehaviorGraphExtraData_Value'] = s[1]
+            extradata.append(ed)
+
+        for c in f.cloth_data: 
+            bpy.ops.object.add(radius=1.0, type='EMPTY', location=self.next_loc())
+            ed = bpy.context.object
+            ed.name = "BSClothExtraData"
+            ed.show_name = True
+            ed['BSClothExtraData_Name'] = c[0]
+            ed['BSClothExtraData_Value'] = codecs.encode(c[1], 'base64')
+            extradata.append(ed)
+
+        return extradata
+
+
+    def import_shape_extra(self, obj, shape):
+        """ Import any extra data from the shape if given or the root if not, and create 
+        corresponding shapes """
+        extradata = []
+        loc = list(obj.location)
+        self.incr_loc()
+
+        for s in shape.string_data:
+            bpy.ops.object.add(radius=1.0, type='EMPTY', location=self.next_loc())
+            ed = bpy.context.object
+            ed.name = "NiStringExtraData"
+            ed.show_name = True
+            ed['NiStringExtraData_Name'] = s[0]
+            ed['NiStringExtraData_Value'] = s[1]
+            ed.parent = obj
+            extradata.append(ed)
+
+        for s in shape.behavior_graph_data:
+            bpy.ops.object.add(radius=1.0, type='EMPTY', location=self.next_loc())
+            ed = bpy.context.object
+            ed.name = "BSBehaviorGraphExtraData"
+            ed.show_name = True
+            ed['BSBehaviorGraphExtraData_Name'] = s[0]
+            ed['BSBehaviorGraphExtraData_Value'] = s[1]
+            ed.parent = obj
+            extradata.append(ed)
+
+        return extradata
+
 
     def import_shape(self, the_shape: NiShape):
         """ Import the shape to a Blender object, translating bone names 
@@ -741,36 +884,41 @@ class NifImporter():
         import_colors(new_mesh, the_shape)
 
         log.info(f". . import flags: {self.flags}")
-        if not the_shape.has_skin_instance:
-            # Statics get transformed according to the shape's transform
-            #new_object.scale = (the_shape.transform.scale, ) * 3
-            # xf = the_shape.transform.invert()
-            # new_object.matrix_world = xf.as_matrix() 
-            # new_object.location = the_shape.transform.translation
-            log.debug(f". . shape {the_shape.name} transform: {the_shape.transform}")
-            new_object.matrix_world = the_shape.transform.invert().as_matrix()
-            new_object.location = the_shape.transform.translation
-            new_object.scale = [the_shape.transform.scale] * 3
-            log.debug(f". . New object transform: \n{new_object.matrix_world}")
-        else:
-            # Global-to-skin transform is what offsets all the vertices together, e.g. so that
-            # heads can be positioned at the origin. Put the reverse transform on the blender 
-            # object so they can be worked on in their skinned position.
-            # Use the one on the NiSkinData if it exists.
-            xform = the_shape.global_to_skin_data
-            if xform is None:
-                xform = the_shape.global_to_skin
-            log.debug(f"....Found transform {the_shape.global_to_skin} on {the_shape.name} in '{self.nif.filepath}'")
-            inv_xf = xform.invert()
-            new_object.matrix_world = inv_xf.as_matrix()
-            new_object.location = inv_xf.translation
-            #new_object.scale = [inv_xf.scale] * 3
-            #new_object.location = inv_xf.translation
-            # vv Use matrix here instead of conversion?
-            # And why does this work? Shouldn't this be in radians?
-            #new_object.rotation_euler = inv_xf.rotation.euler_deg()
-            #new_object.rotation_euler = inv_xf.rotation.euler()
-            log.debug(f"..Object {new_object.name} created at {new_object.location[:]}")
+        xf = get_node_location(the_shape)
+        new_object.matrix_world = xf.as_matrix()
+        new_object.location = xf.translation
+        new_object.scale = [xf.scale] * 3
+
+        #if not the_shape.has_skin_instance:
+        #    # Statics get transformed according to the shape's transform
+        #    #new_object.scale = (the_shape.transform.scale, ) * 3
+        #    # xf = the_shape.transform.invert()
+        #    # new_object.matrix_world = xf.as_matrix() 
+        #    # new_object.location = the_shape.transform.translation
+        #    log.debug(f". . shape {the_shape.name} transform: {the_shape.transform}")
+        #    new_object.matrix_world = the_shape.transform.invert().as_matrix()
+        #    new_object.location = the_shape.transform.translation
+        #    new_object.scale = [the_shape.transform.scale] * 3
+        #    log.debug(f". . New object transform: \n{new_object.matrix_world}")
+        #else:
+        #    # Global-to-skin transform is what offsets all the vertices together, e.g. so that
+        #    # heads can be positioned at the origin. Put the reverse transform on the blender 
+        #    # object so they can be worked on in their skinned position.
+        #    # Use the one on the NiSkinData if it exists.
+        #    xform = the_shape.global_to_skin_data
+        #    if xform is None:
+        #        xform = the_shape.global_to_skin
+        #    log.debug(f"....Found transform {the_shape.global_to_skin} on {the_shape.name} in '{self.nif.filepath}'")
+        #    inv_xf = xform.invert()
+        #    new_object.matrix_world = inv_xf.as_matrix()
+        #    new_object.location = inv_xf.translation
+        #    #new_object.scale = [inv_xf.scale] * 3
+        #    #new_object.location = inv_xf.translation
+        #    # vv Use matrix here instead of conversion?
+        #    # And why does this work? Shouldn't this be in radians?
+        #    #new_object.rotation_euler = inv_xf.rotation.euler_deg()
+        #    #new_object.rotation_euler = inv_xf.rotation.euler()
+        #    log.debug(f"..Object {new_object.name} created at {new_object.location[:]}")
 
         if self.flags & self.ImportFlags.ROTATE_MODEL:
             log.info(f". . Rotating model to match blender")
@@ -802,7 +950,7 @@ class NifImporter():
         new_object["pynRootNode_Name"] = root.name
         new_object["pynRootNode_Flags"] = RootFlags(root.flags).fullname
 
-        self.objects_created.extend(import_shape_extra(new_object, the_shape))
+        self.objects_created.extend(self.import_shape_extra(new_object, the_shape))
 
 
     def add_bone_to_arma(self, name):
@@ -928,7 +1076,7 @@ class NifImporter():
         # bpy.ops.object.add(type='MESH')
         # obj = bpy.context.object
         m = bpy.data.meshes.new(cs.blockname)
-        d = list(map(lambda x: x[0] * x[1], zip(cs.properties.dimensions, (100,100,100))))
+        d = list(map(lambda x: x[0] * x[1], zip(cs.properties.dimensions, (HAVOC_SCALE_FACTOR,HAVOC_SCALE_FACTOR,HAVOC_SCALE_FACTOR))))
         x = 10
         v = [ [-d[0], d[1], d[2]],    
               [-d[0], -d[1], d[2]],   
@@ -939,23 +1087,28 @@ class NifImporter():
               [d[0], -d[1], -d[2]],
               [d[0], d[1], -d[2]] ]
         log.debug(f"Creating shape with vertices: {v}")
-        m.from_pydata(v, [], [])
-                      #[ (0, 1, 2, 3), 
-                      #  (4, 5, 6, 7),
-                      #  (0, 1, 5, 4),
-                      #  (2, 3, 7, 6) ])
+        m.from_pydata(v, [], 
+                      [ (0, 1, 2, 3), 
+                        (4, 5, 6, 7),
+                        (0, 1, 5, 4),
+                        (2, 3, 7, 6),
+                        (0, 4, 7, 3), 
+                        (5, 1, 2, 6)])
         obj = bpy.data.objects.new(cs.blockname, m)
         obj.name = cs.blockname
         obj.parent = cb
         bpy.context.view_layer.active_layer_collection.collection.objects.link(obj)
         # bpy.context.scene.collection.objects.link(obj)
+        p = cs.properties
+        obj['material'] = SkyrimHavokMaterial(p.material).name
+        obj['radius'] = p.radius
         self.objects_created.append(obj)
         
         self.incr_loc
 
 
     def import_collision_body(self, cb:CollisionBody, c:bpy_types.Object):
-        bpy.ops.object.add(radius=1.0, type='EMPTY', location=self.loc)
+        bpy.ops.object.add(radius=1.0, type='EMPTY')
         cbody = bpy.context.object
         cbody.parent = c
         cbody.name = cb.blockname
@@ -963,58 +1116,32 @@ class NifImporter():
         self.incr_loc
 
         p = cb.properties
-        cbody['collisionFilter_layer'] = SkyrimCollisionLayer(p.collisionFilter_layer).name
-        cbody['collisionFilter_flags'] = p.collisionFilter_flags
-        cbody['collisionFilter_group'] = p.collisionFilter_group
-        cbody['broadPhaseType'] = p.collisionFilter_flags
-        cbody['broadPhaseType'] = BroadPhaseType(p.broadPhaseType).name
-        cbody['prop_data'] = p.prop_data
-        cbody['prop_size'] = p.prop_size
-        cbody['prop_flags'] = repr(p.prop_flags)
-        cbody['collisionResponse'] = hkResponseType(p.collisionResponse).name
-        cbody['processContactCallbackDelay'] = p.processContactCallbackDelay
-        cbody['collisionFilterCopy_layer'] = SkyrimCollisionLayer(p.collisionFilterCopy_layer).name
-        cbody['collisionFilterCopy_flags'] = p.collisionFilterCopy_flags
-        cbody['collisionFilterCopy_group'] = p.collisionFilterCopy_group
-        cbody['translation'] = repr(p.translation[:])
-        cbody['rotation'] = repr(p.rotation[:])
-        cbody['linearVelocity'] = repr(p.linearVelocity[:])
-        cbody['angularVelocity'] = repr(p.angularVelocity[:])
-        cbody['inertiaMatrix'] = repr(p.inertiaMatrix[:])
-        cbody['center'] = repr(p.center[:])
-        cbody['linearDamping'] = p.linearDamping
-        cbody['angularDamping'] = p.angularDamping
-        cbody['timeFactor'] = p.timeFactor
-        cbody['gravityFactor'] = p.gravityFactor
-        cbody['friction'] = p.friction
-        cbody['rollingFrictionMult'] = p.rollingFrictionMult
-        cbody['restitution'] = p.restitution
-        cbody['maxLinearVelocity'] = p.maxLinearVelocity
-        cbody['maxAngularVelocity'] = p.maxAngularVelocity
-        cbody['penetrationDepth'] = p.penetrationDepth
-        cbody['motionSystem'] = hkMotionType(p.motionSystem).name
-        cbody['deactivatorType'] = hkDeactivatorType(p.deactivatorType).name
-        cbody['solverDeactivation'] = hkSolverDeactivation(p.solverDeactivation).name
-        cbody['qualityType'] = hkQualityType(p.qualityType).name
-        cbody['autoRemoveLevel'] = p.autoRemoveLevel
-        cbody['responseModifierFlag'] = p.responseModifierFlag
-        cbody['numShapeKeysInContactPointProps'] = p.numShapeKeysInContactPointProps
-        cbody['forceCollideOntoPpu'] = p.forceCollideOntoPpu
-        cbody['bodyFlagsInt'] = p.bodyFlagsInt
-        cbody['bodyFlags'] = p.bodyFlags
+        load_shape_from_struct(cbody, p)
+        rm = RotationMatrix.from_euler(p.rotation[0], p.rotation[2], p.rotation[1])
+        transl = rm.by_vector(p.translation[:])
+        # cbody.rotation_euler = mathutils.Euler((p.rotation[0], p.rotation[2], p.rotation[1]), 'XYZ')
+        # The rotation in the nif is a quaternion with the angle in the 4th position, in radians
+        cbody.rotation_mode = 'QUATERNION'
+        log.debug(f"Rotating collision body around quaternion {(p.rotation[0], p.rotation[1], p.rotation[2], p.rotation[3])}")
+        cbody.rotation_quaternion = (p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2], )
+        cbody.location = list(map(lambda x: x * -HAVOC_SCALE_FACTOR, transl))
 
         cs = cb.shape
         if cs:
             self.import_collision_shape(cs, cbody)
 
     def import_collision_obj(self, c:CollisionObject):
-        bpy.ops.object.add(radius=1.0, type='EMPTY', location=self.loc)
+        bpy.ops.object.add(radius=1.0, type='EMPTY')
         col = bpy.context.object
         col.name = c.blockname
         col.show_name = True
         col['pynFlags'] = bhkCOFlags(c.flags).fullname
         col['pynTarget'] = c.target.name
-        self.incr_loc()
+
+        # targ = bpy.data.objects[c.target.name]
+        xform = get_node_location(c.target)
+        col.matrix_world = xform.as_matrix()
+        col.location = xform.translation
 
         cb = c.body
         if cb:
@@ -1075,7 +1202,7 @@ class NifImporter():
                 self.armature.select_set(True)
     
         # Import nif-level extra data
-        objs = import_extra(self.nif)
+        objs = self.import_extra(self.nif)
         
         # Import collisions
         self.import_collisions()
@@ -1705,10 +1832,11 @@ class NifExporter:
         self.warnings = set()
         self.armature = None
         self.facebones = None
-        self.objects = set([])
-        self.bg_data = set([])
-        self.str_data = set([])
-        self.cloth_data = set([])
+        self.objects = set()
+        self.bg_data = set()
+        self.str_data = set()
+        self.cloth_data = set()
+        self.collisions = set()
         # Shape keys that start with underscore trigger
         # a separate file export for each shape key
         self.file_keys = []
@@ -1720,6 +1848,19 @@ class NifExporter:
         self.bodytri_written = False
         self.message_log = []
         #self.rotate_model = rotate
+
+
+    def export_shape_data(self, obj, shape):
+        ed = [ (x['NiStringExtraData_Name'], x['NiStringExtraData_Value']) for x in \
+                obj.children if 'NiStringExtraData_Name' in x.keys()]
+        if len(ed) > 0:
+            shape.string_data = ed
+    
+        ed = [ (x['BSBehaviorGraphExtraData_Name'], x['BSBehaviorGraphExtraData_Value']) \
+                for x in obj.children if 'BSBehaviorGraphExtraData_Name' in x.keys()]
+        if len(ed) > 0:
+            shape.behavior_graph_data = ed
+
 
     def add_object(self, obj):
         """ Adds the given object to the objects to export """
@@ -1744,6 +1885,9 @@ class NifExporter:
 
         elif 'BSClothExtraData_Name' in obj.keys():
             self.cloth_data.add(obj)
+
+        elif 'pynTarget' in obj.keys():
+            self.collisions.add(obj)
 
         # remove extra data nodes with objects in the export list as parents so they 
         # don't get exported twice
@@ -1790,6 +1934,49 @@ class NifExporter:
         cdlist = [ (x['BSClothExtraData_Name'], codecs.decode(x['BSClothExtraData_Value'], "base64")) for x in self.cloth_data]
         if len(cdlist) > 0:
             nif.cloth_data = cdlist 
+
+
+    def export_collision_shape(self, nif:NifFile, shape_list):
+        cshape = None
+        for s in shape_list:
+            try:
+                p = bhkBoxShapeProps()
+                p.material = SkyrimHavokMaterial[s['material']].value
+                p.radius = s['radius']
+                corner = s.data.vertices[0].co
+                p.dimensions[0] = abs(corner[0]) / HAVOC_SCALE_FACTOR
+                p.dimensions[1] = abs(corner[1]) / HAVOC_SCALE_FACTOR
+                p.dimensions[2] = abs(corner[2]) / HAVOC_SCALE_FACTOR
+                cshape = nif.add_coll_shape("bhkBoxShape", p)
+                log.debug(f"Created collision shape {cshape}")
+            except:
+                log.warning(f"Cannot create collision shape")
+                self.warnings.add('WARNING')
+        return cshape
+
+    def export_collision_body(self, nif:NifFile, body_list):
+        body = None
+        for b in body_list:
+            cshape = self.export_collision_shape(nif, b.children)
+            props = bhkRigidBodyProps()
+            load_struct_from_shape(props, b)
+            body = nif.add_rigid_body("bhkRigidBodyT", props, cshape)
+        return body
+
+    def export_collisions(self, nif:NifFile):
+        """ Export collisions. Apply the skin first so bones are available. """
+        nif.apply_skin()
+
+        for coll in self.collisions:
+            body = self.export_collision_body(nif, coll.children)
+            tn = coll['pynTarget']
+            try:
+                targ = nif.nodes[tn]
+                nif.add_collision(targ, targ, body, bhkCOFlags.parse(coll['pynFlags']).value)
+            except:
+                log.warning(f"Collision references object not included in export: {coll.name} -> {tn}")
+                self.warnings.add('WARNING')
+
 
 
     def export_partitions(self, obj, weights_by_vert, tris):
@@ -2044,7 +2231,7 @@ class NifExporter:
         if colors_new:
             new_shape.set_colors(colors_new)
 
-        export_shape_data(obj, new_shape)
+        self.export_shape_data(obj, new_shape)
         
         if mat:
             export_shader(obj, new_shape)
@@ -2126,7 +2313,8 @@ class NifExporter:
             
             exportf.initialize(self.game, fpath, rt, rn)
             if "pynRootNode_Flags" in shape:
-                exportf.root.flags = shape["pynRootNode_Flags"]
+                log.debug(f"Root node flags are '{shape['pynRootNode_Flags']}' = '{RootFlags.parse(shape['pynRootNode_Flags']).value}'")
+                exportf.rootNode.flags = RootFlags.parse(shape["pynRootNode_Flags"]).value
 
             if suffix == '_faceBones':
                 exportf.dict = fo4FaceDict
@@ -2143,6 +2331,8 @@ class NifExporter:
             # Check for bodytri morphs--write the extra data node if needed
             if len(trip.shapes) > 0 and not self.bodytri_written:
                 exportf.string_data = [('BODYTRI', truncate_filename(trippath, "meshes"))]
+
+            self.export_collisions(exportf)
 
             exportf.save()
             log.info(f"..Wrote {fpath}")
@@ -2355,18 +2545,23 @@ def run_tests():
 
         collshape = collbody.children[0]
         assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
-
-
-        bsim = find_shape('BSInvMarker')
-        assert bsim != None, f"BSInvMarkers are brought in as shapes"
-        
-
+        assert collshape['material'] == 'MATERIAL_BOWS_STAVES', f"Shape material is a custom property: {collshape['material']}"
+        assert round(collshape['radius'],4) == 0.0136, f"Radius property available as custom property: {collshape['radius']}"
+       
         exporter = NifExporter(outfile, 'SKYRIMSE')
-        exporter.export([obj])
+        exporter.export([obj, coll])
 
-        nif = NifFile(outfile)
-        assert nif.rootName == obj["pynRootNode_Name"], f"Root node name set successfully: {nif.rootName}"
-        assert nif.nodes[nif.rootName].blockname == obj["pynRootNode_BlockType"], f"Root block type set successfully: found {nif.nodes[nif.rootName].blockname}"
+        nifcheck = NifFile(outfile)
+        rootcheck = nifcheck.rootNode
+        assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
+        assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
+        assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
+
+        midbowcheck = nifcheck.nodes["Bow_MidBone"]
+        collcheck = midbowcheck.collision_object
+        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+        assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+
 
     print("""
     ############################################################
