@@ -378,7 +378,9 @@ extern "C" NIFLY_API void setStringExtraData(void* nifref, void* shaperef, char*
 extern "C" NIFLY_API int getBGExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen);
 extern "C" NIFLY_API int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen);
 extern "C" NIFLY_API int getInvMarker(void* nifref, char* name, int namelen, int* rot, float* zoom);
+extern "C" NIFLY_API void setInvMarker(void* nifref, const char* name, int* rot, float* zoom);
 extern "C" NIFLY_API int getBSXFlags(void* nifref, int* buf);
+extern "C" NIFLY_API void setBSXFlags(void* nifref, const char* name, uint32_t flags);
 extern "C" NIFLY_API void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf);
 
 /* ********************* ERROR REPORTING ********************* */

@@ -31,6 +31,110 @@ VECTOR6_SHORT = c_uint16 * 6
 VECTOR12 = c_float * 12
 MATRIX3 = VECTOR3 * 3
 
+class pynStructure(Structure):
+    def load(self, shape, ignore=[]):
+        """ Load fields from the dictionary-like object 'shape' """
+        for f, t in self._fields_:
+            v = None
+            try:
+                if f in ignore:
+                    pass
+                elif not (f in shape.keys()):
+                    pass
+                elif f == 'Shader_Flags_1':
+                    v = ShaderFlags1.parse(shape[f]).value
+                elif f == 'Shader_Flags_2':
+                    v = ShaderFlags2.parse(shape[f]).value
+                elif f == 'Shader_Type':
+                    v = BSLSPShaderType[shape[f]].value
+                elif f == 'collisionFilter_layer' or f == 'collisionFilterCopy_layer':
+                    v = SkyrimCollisionLayer[shape[f]].value
+                elif f == 'broadPhaseType':
+                    v = BroadPhaseType[shape[f]].value
+                elif f == 'collisionResponse':
+                    v = hkResponseType[shape[f]].value
+                elif f == 'motionSystem':
+                    v = hkMotionType[shape[f]].value
+                elif f == 'deactivatorType':
+                    v = hkDeactivatorType[shape[f]].value
+                elif f == 'solverDeactivation': 
+                    v = hkSolverDeactivation[shape[f]].value
+                elif f == 'qualityType':
+                    v = hkQualityType[shape[f]].value
+                elif f == 'bhkMaterial':
+                    v = SkyrimHavokMaterial[shape[f]].value
+                elif t.__name__ == 'c_float_Array_4':
+                    v = VECTOR4(*eval(shape[f]))
+                elif t.__name__ == 'c_float_Array_12':
+                    v = VECTOR12(*eval(shape[f]))
+                elif t.__name__ == 'c_ushort_Array_6':
+                    v = VECTOR6_SHORT(*eval(shape[f]))
+                elif t.__name__ == 'c_float':
+                    v = float(shape[f])
+                elif t.__name__ in ['c_ubyte', 'c_ulong', 'c_uint32', 'c_ulong', 'c_ulonglong']:
+                    v = int(shape[f])
+                else:
+                    v = shape[f]
+                if v:
+                    self.__setattr__(f, v)
+            except Exception as e:
+                pass
+
+    def __init__(self, values=None):
+        super().__init__()
+        self.load(bhkRigidBodyProps_Defaults)
+        if values:
+            self.load(values)
+
+    def __str__(self):
+        s = ""
+        for attr in self._fields_:
+            if len(s) > 0:
+                s = s + "\n"
+            s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
+        return s
+
+    def extract(self, shape, ignore=[]):
+        """ Extract fields to the dictionary-like object 'shape' """
+        for f, t in self._fields_:
+            v = None
+            if f in ignore:
+                pass
+            elif f == 'Shader_Flags_1':
+                v = ShaderFlags1(self.Shader_Flags_1).fullname
+            elif f == 'Shader_Flags_2': 
+                v = ShaderFlags2(self.Shader_Flags_2).fullname
+            elif f == 'Shader_Type':
+                v = BSLSPShaderType(self.Shader_Type).name
+            elif f in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
+                v = SkyrimCollisionLayer(self.__getattribute__(f)).name
+            elif f == 'broadPhaseType':
+                v = BroadPhaseType(self.broadPhaseType).name
+            elif f == 'collisionResponse':
+                v = hkResponseType(self.collisionResponse).name
+            elif f == 'motionSystem':
+                v = hkMotionType(self.motionSystem).name
+            elif f == 'deactivatorType':
+                v = hkDeactivatorType(self.deactivatorType).name
+            elif f == 'solverDeactivation': 
+                v = hkSolverDeactivation(self.solverDeactivation).name
+            elif f == 'qualityType':
+                v = hkQualityType(self.qualityType).name
+            elif t.__name__.startswith('c_float_Array') or t.__name__.startswith('c_ushort_Array'):
+                v = repr(self.__getattribute__(f)[:])
+            elif t.__name__ in ['c_uint32', 'c_uint64', 'c_ulong', 'c_ulonglong']:
+                v = repr(self.__getattribute__(f))
+            else:
+                v = self.__getattribute__(f)
+        
+            try:
+                if v:
+                    shape[f] = v
+            except Exception as e:
+                    print(e)
+                #log.error(f"Cannot load value {v} of type {t.__name__} into field {f} of object {shape.name}")
+
+
 # Types of root nodes
 RT_NINODE = 0
 RT_BSFADENODE = 1
@@ -63,7 +167,22 @@ class RootFlags(PynIntFlag):
     FORCE_UPDATE = 1 << 25
     PREPROCESSED_NODE = 1 << 26
 
-class BSLSPAttrs(Structure):
+class BSXFlags(PynIntFlag):
+    ANIMATED = 1
+    HAVOC = 1 << 1
+    RAGDOLL = 1 << 2
+    COMPLEX = 1 << 3
+    ADDON = 1 << 4
+    EDITOR_MARKER = 1 << 5
+    DYNAMIC = 1 << 6
+    ARTICULATED = 1 << 7
+    NEEDS_XFORM_UPDATES = 1 << 8
+    EXTERNAL_EMIT = 1 << 9
+    MAGIC_SHADER_PARTICLES = 1 << 10
+    LIGHTS = 1 << 11
+    BREAKABLE = 1 << 12
+
+class BSLSPAttrs(pynStructure):
     _fields_ = [
 	    ('Shader_Type', c_uint32),
 	    ('Shader_Flags_1', c_uint32),
@@ -501,8 +620,47 @@ class SkyrimHavokMaterial(IntEnum):
     UNKNOWN_4239621792 = 4239621792
     MATERIAL_BOULDER_MEDIUM = 4283869410
 
+bhkRigidBodyProps_Defaults = {
+    'collisionFilter_layer': "STATIC",
+	'collisionFilter_flags': 0,
+	'collisionFilter_group': 0,
+	'broadPhaseType': 0,
+	'prop_data': 0, 
+	'prop_size': 0,
+	'prop_flags': 0,
+    "collisionResponse": "SIMPLE_CONTACT",
+    "processContactCallbackDelay": 0xFFFF,
+    "collisionFilterCopy_layer": "STATIC",
+    "collisionFilterCopy_flags": 0,
+    "collisionFilterCopy_group": 0,
+    "linearVelocity": (0, 0, 0, 0),
+    "angularVelocity": (0, 0, 0, 0),
+    "inertiaMatrix": [0] * 12,
+    "center": (0, 0, 0, 0),
+    "mass": 1.0,
+    "linearDamping": 0.1,
+    "angularDamping": 0.05,
+    "timeFactor": 1.0,
+    "gravityFactor": 1.0,
+    "friction": 0.5,
+    "rollingFrictionMult": 1.0,
+    'restitution': 0.4, 
+    'maxLinearVelocity': 104.4, 
+    'maxAngularVelocity': 31.57, 
+    'penetrationDepth': 0.15,
+    'motionSystem': 1,
+    'deactivatorType': 1,
+    'solverDeactivation': 1, 
+    'qualityType': 1,
+    'autoRemoveLevel': 0,
+    'responseModifierFlag': 0,
+    'numShapeKeysInContactPointProps': 0, 
+    'forceCollideOntoPpu': 0,
+    'bodyFlagsInt': 0,
+    'bodyFlags': 0,
+    'guard': 0x0F0F0F0F }
 
-class bhkRigidBodyProps(Structure):
+class bhkRigidBodyProps(pynStructure):
     _fields_ = [
         ('collisionFilter_layer', c_uint8),
 	    ('collisionFilter_flags', c_uint8),
@@ -554,34 +712,35 @@ class bhkRigidBodyProps(Structure):
         ('bodyFlags', c_uint16),
         ('guard', c_uint64)]
 
-    def __init__(self):
-        self.guard = 0xF0F0F0F0
 
-    def __str__(self):
-        s = ""
-        for attr in self._fields_:
-            if len(s) > 0:
-                s = s + "\n"
-            s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
-        return s
-
-class bhkBoxShapeProps(Structure):
+class bhkBoxShapeProps(pynStructure):
     _fields_ = [
-        ("material", c_uint32),
-        ("radius", c_float),
-        ("dimensions", VECTOR3),
-        ("unused", c_float)]
-
-    def __str__(self):
-        s = ""
-        for attr in self._fields_:
-            if len(s) > 0:
-                s = s + "\n"
-            s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
-        return s
+        ("bhkMaterial", c_uint32),
+        ("bhkRadius", c_float),
+        ("bhkDimensions", VECTOR3),
+        ("bhkUnused", c_float)]
 
 class VERTEX_WEIGHT_PAIR(Structure):
     _fields_ = [("vertex", c_uint16),
                 ("weight", c_float)]
 
+# There are 64 Skyrim units in a yard and havok works in metres, so:
+HAVOC_SCALE_FACTOR = HSF = 69.99125
 
+if __name__ == "__main__":
+    print("---------TEST Loader--------")
+
+    p = bhkRigidBodyProps({"maxLinearVelocity": 555})
+    assert round(p.maxLinearVelocity, 4) == 555, f"Expected 555, found {p.maxLinearVelocity}"
+
+    p = bhkRigidBodyProps()
+    assert round(p.maxLinearVelocity, 4) == 104.4, f"Expected default value 104.4, found {p.maxLinearVelocity}"
+    assert p.collisionFilter_layer == SkyrimCollisionLayer.STATIC.value
+
+    s = {"prop_size": 10,
+         "collisionFilter_layer": "WEAPON"}
+
+    p.load(s)
+
+    assert p.prop_size == 10
+    assert p.collisionFilter_layer == 5

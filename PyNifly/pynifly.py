@@ -20,6 +20,27 @@ class MAT_TRANSFORM(Structure):
                 ("rotation", MATRIX3),
                 ("scale", c_float)]
 
+#def from_mat_xform(xform:MatTransform, buf: MAT_TRANSFORM):
+#    xform.translation = buf.translation[:]
+#    xform.rotation = RotationMatrix((buf.rotation[0][:], buf.rotation[1][:], buf.rotation[2][:]))
+#    xform.scale = buf.scale
+
+#def MatTransform.fill_mat_xform(self, buf: MAT_TRANSFORM):
+#    buf.translation[0] = self.translation[0]
+#    buf.translation[1] = self.translation[1]
+#    buf.translation[2] = self.translation[2]
+#    buf.rotation[0][0] = self.rotation.matrix[0][0]
+#    buf.rotation[0][1] = self.rotation.matrix[0][1]
+#    buf.rotation[0][2] = self.rotation.matrix[0][2]
+#    buf.rotation[1][0] = self.rotation.matrix[1][0]
+#    buf.rotation[1][1] = self.rotation.matrix[1][1]
+#    buf.rotation[1][2] = self.rotation.matrix[1][2]
+#    buf.rotation[2][0] = self.rotation.matrix[2][0]
+#    buf.rotation[2][1] = self.rotation.matrix[2][1]
+#    buf.rotation[2][2] = self.rotation.matrix[2][2]
+#    buf.scale = self.scale
+
+
 
 def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
@@ -185,8 +206,12 @@ def load_nifly(nifly_path):
     nifly.segmentCount.restype = c_int
     nifly.setAlphaProperty.argtypes = [c_void_p, c_void_p, AlphaPropertyBuf_p]
     nifly.setAlphaProperty.restype = None
+    nifly.setBSXFlags.argtypes = [c_void_p, c_char_p, c_uint32]
+    nifly.setBSXFlags.restype = None
     nifly.setEffectShaderAttrs.argtypes = [c_void_p, c_void_p, POINTER(BSESPAttrs)]
     nifly.setEffectShaderAttrs.restype = None
+    nifly.setInvMarker.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p]
+    nifly.setInvMarker.restype = None
     nifly.setColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.setColorsForShape.restype = None
     nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, c_void_p]
@@ -224,136 +249,6 @@ def load_nifly(nifly_path):
     return nifly
 
 # --- Helper Routines --- #
-def to_euler_angles(rm):
-    if rm[0][2] < 1.0:
-        if rm[0][2] > -1.0:
-            y = atan2(-rm[1][2], rm[2][2])
-            p = asin(rm[0][2])
-            r = atan2(-rm[0][1], rm[0][0])
-        else:
-            y = atan2(rm[1][0], rm[1][1])
-            p = pi/2.0
-            r = 0.0
-    else:
-        y = atan2(rm[1][0], rm[1][1])
-        p = pi/2.0
-        r = 0.0
-    return (y, p, r)
-
-def to_euler_degrees(rm):
-    angles = to_euler_angles(rm)
-    return (angles[0] * 180.0/pi, angles[1] * 180.0/pi, angles[2] * 180.0/pi)
-    
-def make_rotation_matrix(yaw, pitch, roll):
-	ch = cos(yaw)
-	sh = sin(yaw)
-	cp = cos(pitch)
-	sp = sin(pitch)
-	cb = cos(roll)
-	sb = sin(roll)
-
-	rot = ((ch * cb + sh * sp * sb,    sb * cp,    -sh * cb + ch * sp * sb),
-           (-ch * sb + sh * sp * cb,      cb * cp,    sb * sh + ch * sp * cb),
-           (sh * cp -sp, ch * cp))
-
-	return rot
-
-
-def store_transform(xf, vec3, mat3x3, scale):
-    xf[0] = vec3[0]
-    xf[1] = vec3[1]
-    xf[2] = vec3[2]
-    xf[3] = mat3x3[0][0]
-    xf[4] = mat3x3[0][1]
-    xf[5] = mat3x3[0][2]
-    xf[6] = mat3x3[1][0]
-    xf[7] = mat3x3[1][1]
-    xf[8] = mat3x3[1][2]
-    xf[9] = mat3x3[2][0]
-    xf[10] = mat3x3[2][1]
-    xf[11] = mat3x3[2][2]
-    xf[12] = scale
-
-class MatTransform():
-    """ Matrix transform, including translation, rotation, and scale """
-
-    def __init__(self, init_translation=None, init_rotation=None, init_scale=1.0):
-        if init_translation:
-            self.translation = init_translation
-        else:
-            self.translation = (0,0,0)
-        self.rotation = RotationMatrix(init_rotation)
-        self.scale = init_scale
-
-    def __eq__(self, other):
-        for v1, v2 in zip(self.translation, other.translation):
-            if round(v1, 4) != round(v2, 4):
-                return False
-        if self.rotation != other.rotation:
-            return False
-        if round(self.scale, 4) != round(other.scale, 4):
-            return False
-        return True
-        
-    def __repr__(self):
-        return "<" + repr(self.translation[:]) + ", " + \
-            "(" + str(self.rotation.matrix) + "), " + \
-            repr(self.scale) + ">"
-
-    def __str__(self):
-        return "<" + str(self.translation[:]) + ", " + \
-            "(" + str(self.rotation.matrix) + "), " + \
-            str(self.scale) + ">"
-
-    def copy(self):
-        the_copy = MatTransform(self.translation, self.rotation.copy(), self.scale)
-        return the_copy
-
-    def from_mat_xform(self, buf: MAT_TRANSFORM):
-        self.translation = buf.translation[:]
-        self.rotation = RotationMatrix((buf.rotation[0][:], buf.rotation[1][:], buf.rotation[2][:]))
-        self.scale = buf.scale
-
-    def from_array(self, float_array):
-        self.translation = (float_array[0], float_array[1], float_array[2])
-        self.rotation = RotationMatrix(((float_array[3], float_array[4], float_array[5]),
-                                      (float_array[6], float_array[7], float_array[8]),
-                                      (float_array[9], float_array[10], float_array[11])))
-        self.scale = float_array[12]
-    
-    def fill_buffer(self, buf):
-        store_transform(buf, self.translation, self.rotation.matrix, self.scale)
-
-    def fill_mat_xform(self, buf: MAT_TRANSFORM):
-        buf.translation[0] = self.translation[0]
-        buf.translation[1] = self.translation[1]
-        buf.translation[2] = self.translation[2]
-        buf.rotation[0][0] = self.rotation.matrix[0][0]
-        buf.rotation[0][1] = self.rotation.matrix[0][1]
-        buf.rotation[0][2] = self.rotation.matrix[0][2]
-        buf.rotation[1][0] = self.rotation.matrix[1][0]
-        buf.rotation[1][1] = self.rotation.matrix[1][1]
-        buf.rotation[1][2] = self.rotation.matrix[1][2]
-        buf.rotation[2][0] = self.rotation.matrix[2][0]
-        buf.rotation[2][1] = self.rotation.matrix[2][1]
-        buf.rotation[2][2] = self.rotation.matrix[2][2]
-        buf.scale = self.scale
-
-    def invert(self):
-        inverseXform = MatTransform()
-        inverseXform.translation = [-self.translation[0], -self.translation[1], -self.translation[2]]
-        inverseXform.scale = 1/self.scale
-        inverseXform.rotation = self.rotation.invert()
-        return inverseXform
-
-    def as_matrix(self):
-        """ Return the transformation matrix as a 4x4 matrix """
-        v = [[self.scale, 1, 1, self.translation[0]], [1, self.scale, 1, self.translation[1]], [1, 1, self.scale, self.translation[2]], [0, 0, 0, 1]]
-        for i in range(0, 3):
-            for j in range(0, 3):
-                v[i][j] *= self.rotation.matrix[i][j]
-        return v
-
 
 def get_weights_by_bone(weights_by_vert):
     """ weights_by_vert = [dict[group-name: weight], ...]
@@ -1228,7 +1123,7 @@ class NiShape:
             vert_buf[i].vertex = vw[0]
             vert_buf[i].weight = vw[1]
         xfbuf = MAT_TRANSFORM()
-        # if xform: xform.from_mat_xform(xfbuf) 
+
         if self.parent._skin_handle is None:
             self.parent.createSkin()
         NifFile.nifly.setShapeWeights(self.parent._skin_handle, self._handle, bone_name.encode('utf-8'),
@@ -1587,6 +1482,7 @@ class NifFile:
 
     @property
     def inventory_marker(self):
+        """ Reads BSInvMarker as [name, x, y, z, zoom] """
         namebuf = (c_char * 128)()
         rotbuf = (c_int * 3)();
         zoombuf = (c_float * 1)();
@@ -1595,13 +1491,30 @@ class NifFile:
         else:
             return None
 
+    @inventory_marker.setter
+    def inventory_marker(self, val):
+        """ Reads BSInvMarker as [name, x, y, z, zoom] """
+        rotbuf = (c_int * 3)()
+        zoombuf = (c_float * 1)()
+        rotbuf[0] = val[1]
+        rotbuf[1] = val[2]
+        rotbuf[2] = val[3]
+        zoombuf[0] = val[4]
+        NifFile.nifly.setInvMarker(self._handle, val[0].encode('utf-8'), rotbuf, zoombuf)
+
     @property
     def bsx_flags(self):
+        """ Returns bsx flags as [name, value] pair """
         buf = (c_int * 1)()
         if NifFile.nifly.getBSXFlags(self._handle, buf):
             return ["BSX", buf[0]]
         else:
             return None
+
+    @bsx_flags.setter
+    def bsx_flags(self, val):
+        """ Sets BSX flags using [name, value] pair """
+        NifFile.nifly.setBSXFlags(self._handle, val[0].encode('utf-8'), val[1])
 
 
     def createSkin(self):
@@ -1764,17 +1677,6 @@ if __name__ == "__main__":
 ========= Running pynifly tests =========
 =========================================
 """)
-
-    if TEST_ALL or TEST_XFORM_INVERSION:
-        print("### Transform inversion works correctly")
-        mat = MatTransform((1, 2, 3), [(1,0,0),(0,1,0),(0,0,1)], 2.0)
-        imat = mat.invert()
-        assert list(mat.translation) == [1,2,3], "ERROR: Source matrix should not be changed"
-        assert list(imat.translation) == [-1,-2,-3], "ERROR: Translation should be inverse"
-        assert imat.rotation.matrix[1][1] == 1.0, "ERROR: Rotation should be inverse"
-        assert imat.scale == 0.5, "Error: Scale should be inverse"
-
-        ### Need to test euler -> matrix -> euler
 
     if TEST_ALL or TEST_SHAPE_QUERY:
         print("### TEST_SHAPE_QUERY: NifFile object gives access to a nif")
@@ -2178,7 +2080,7 @@ if __name__ == "__main__":
         assert round(n.xform_to_global.rotation.euler_deg()[0], 0) == 87, "Error: Global transform read correctly"
         # These checks are half-assed, replace with real checks sometime
         assert n.transform == n.transform.invert().invert(), "Error: Inverting twice should give the original back" 
-        assert n.transform.rotation.by_vector((5.0, 0.0, 0.0)) != (5.0, 0.0, 0.0), "Error: Rotating a vector should do something"
+        assert n.transform.rotation.by_vector((5.0, 0.0, 0.0)) != Vector([5.0, 0.0, 0.0]), "Error: Rotating a vector should do something"
         assert n.xform_to_global != MatTransform(), "Error: xform to global should not be identity"
 
     if TEST_ALL or TEST_PARENT:
@@ -2890,7 +2792,7 @@ if __name__ == "__main__":
 
     if TEST_ALL or TEST_BOW:
         print("### TEST_BOW: Can read and write special weapon data")
-        nif = NifFile(r"tests\SkyrimSE\glassbowskinned.nif")
+        nif = NifFile(r"tests\SkyrimSE\meshes\weapons\glassbowskinned.nif")
 
         root = nif.nodes[nif.rootName]
         assert root.blockname == "BSFadeNode", f"Top level node should read as BSFadeNode, found '{root.blockname}'"
@@ -2911,14 +2813,14 @@ if __name__ == "__main__":
         assert co.target.name == "Bow_MidBone", f"Can read collision target"
         assert co.body.blockname == "bhkRigidBodyT", "Can read collision block"
 
-        assert co.body.properties.collisionResponse == hkResponseType.RESPONSE_SIMPLE_CONTACT
-        assert co.body.properties.motionSystem == hkMotionType.MO_SYS_SPHERE_STABILIZED, f"Collision body properties hold the specifics"
+        assert co.body.properties.collisionResponse == hkResponseType.SIMPLE_CONTACT
+        assert co.body.properties.motionSystem == hkMotionType.SPHERE_STABILIZED, f"Collision body properties hold the specifics"
 
         collshape = co.body.shape
         assert collshape.blockname == "bhkBoxShape", f"Collision body's shape property returns the collision shape"
-        assert collshape.properties.material == SkyrimHavokMaterial.MATERIAL_BOWS_STAVES, "Collision body shape material is readable"
-        assert round(collshape.properties.radius, 4) == 0.0136, f"Collision body shape radius is readable"
-        assert [round(x, 4) for x in collshape.properties.dimensions] == [0.1574, 0.8238, 0.0136], f"Collision body shape dimensions are readable"
+        assert collshape.properties.bhkMaterial == SkyrimHavokMaterial.MATERIAL_BOWS_STAVES, "Collision body shape material is readable"
+        assert round(collshape.properties.bhkRadius, 4) == 0.0136, f"Collision body shape radius is readable"
+        assert [round(x, 4) for x in collshape.properties.bhkDimensions] == [0.1574, 0.8238, 0.0136], f"Collision body shape dimensions are readable"
 
         # WRITE MESH WITH COLLISION DATA 
 
@@ -2949,11 +2851,11 @@ if __name__ == "__main__":
         bodycheck = collcheck.body
         assert bodycheck.blockname == 'bhkRigidBodyT', f"Collision body not correct, {bodycheck.blockname != 'bhkRigidBodyT'}"
         assert bodycheck.properties.collisionFilter_layer == SkyrimCollisionLayer.WEAPON, f"Collision layer not correct, {bodycheck.properties.collisionFilter_layer} != {SkyrimCollisionLayer.WEAPON}"
-        assert bodycheck.properties.collisionResponse == hkResponseType.RESPONSE_SIMPLE_CONTACT, f"Collision response not correct, {bodycheck.properties.collisionResponse} != {hkResponseType.RESPONSE_SIMPLE_CONTACT}"
+        assert bodycheck.properties.collisionResponse == hkResponseType.SIMPLE_CONTACT, f"Collision response not correct, {bodycheck.properties.collisionResponse} != {hkResponseType.SIMPLE_CONTACT}"
         assert bodycheck.properties.qualityType == hkQualityType.MOVING, f"Movement quality type not correct, {bodycheck.properties.qualityType} != {hkQualityType.MOVING}"
 
         boxcheck = bodycheck.shape
-        assert [round(x, 4) for x in boxcheck.properties.dimensions] == [0.1574, 0.8238, 0.0136], f"Collision body shape dimensions written correctly"
+        assert [round(x, 4) for x in boxcheck.properties.bhkDimensions] == [0.1574, 0.8238, 0.0136], f"Collision body shape dimensions written correctly"
 
 
     print("""
