@@ -2582,8 +2582,8 @@ namespace NiflyDLLTests
 				Assert::IsTrue(segtriCheck[i] == trimap[i], L"Tris in resulting nif match original");
 		};
 		TEST_METHOD(readCollisions) {
-			/* Test we can read and write collisions */
-			void* nif = load((testRoot / "SkyrimSE/glassbowskinned.nif").u8string().c_str());
+			/* Test we can read and write collisions (and other nodes in bow file */
+			void* nif = load((testRoot / "SkyrimSE/meshes/weapons/glassbowskinned.nif").u8string().c_str());
 
 			void* bow_midbone = TFindNode(nif, "Bow_MidBone");
 			void* coll = getCollision(nif, bow_midbone);
@@ -2624,6 +2624,15 @@ namespace NiflyDLLTests
 			void* rootNodeOUt = getRoot(nifOut);
 			setNodeFlags(rootNodeOUt, 14);
 
+			int rotbuf[3];
+			float zoombuf;
+			setBSXFlags(nifOut, "BSX", 202);
+			rotbuf[0] = 4712;
+			rotbuf[1] = 0;
+			rotbuf[2] = 785;
+			zoombuf = 1.127286;
+			setInvMarker(nifOut, "INV", rotbuf, &zoombuf);
+
 			void* bowMidboneOut = TFindNode(nifOut, "Bow_MidBone");
 
 			int boxOutID = addCollBoxShape(nifOut, &boxbuf);
@@ -2649,6 +2658,17 @@ namespace NiflyDLLTests
 			Assert::IsTrue(strcmp(rootBlockname, "BSFadeNode") == 0, L"Wrote a FadeNode");
 			flags = getNodeFlags(rootNodeCheck);
 			Assert::IsTrue(flags == 14, L"Wrote the noode flags correctly");
+
+			char invbufcheck[128];
+			int rotcheck[3];
+			float zoomcheck;
+			getInvMarker(nifcheck, invbufcheck, 128, rotcheck, &zoomcheck);
+			Assert::IsTrue(strcmp(invbufcheck, "INV") == 0, L"BSInvMarker name is set");
+			Assert::IsTrue(rotcheck[0] == 4712, L"BSInvMarker rotation is set");
+
+			int bsxflagscheck;
+			Assert::IsTrue(getBSXFlags(nifcheck, &bsxflagscheck), L"BSX Flags present");
+			Assert::IsTrue(bsxflagscheck == 202, L"BSX Flags correct");
 
 			void* bowMidboneCheck = TFindNode(nifcheck, "Bow_MidBone");
 

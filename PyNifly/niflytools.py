@@ -7,9 +7,14 @@
 
 import os
 from math import asin, acos, atan2, pi, sin, cos, radians, sqrt
+import operator
+from functools import reduce
 import logging
 import re
 from pathlib import Path
+from typing import Match
+
+from nifdefs import ShaderFlags2
 
 log = logging.getLogger("pynifly")
 
@@ -51,11 +56,201 @@ def truncate_filename(filepath: str, root_dir: str)-> str:
 
 # ################# VECTORS, ROTATION MATRICES, MATHY STUFF #################
 
-def vector_normalize(v):
-    d = sqrt(v[0]**2 + v[1]**2 + v[2]**2)
-    if d == 0:
-        d = 1.0
-    return (v[0]/d, v[1]/d, v[2]/d)
+# Yes, numpy does this but I hate layers and I needed to understand it anyway 
+
+class Vector():
+    """ General vector class of any dimension """
+    def __init__(self, value=[0, 0, 0]):
+        if type(value) == Vector:
+            self.tuple = value.tuple
+        else:
+            self.tuple = list(value)
+
+    def __getitem__(self, i):
+        return self.tuple[i]
+
+    def __len__(self):
+        return len(self.tuple)
+
+    def __str__(self):
+        s = []
+        for n in self.tuple:
+            s.append(str(round(n,4)))
+        return "Vector([" + ", ".join(s) + "])"
+
+    def __repr__(self):
+        return f"Vector({self.tuple})"
+
+    @property
+    def x(self):
+        return self.tuple[0]
+
+    @x.setter
+    def x(self, value):
+        self.tuple[0] = value
+
+    @property
+    def y(self):
+        return self.tuple[1]
+
+    @y.setter
+    def y(self, value):
+        self.tuple[1] = value
+
+    @property
+    def z(self):
+        return self.tuple[2]
+
+    @z.setter
+    def z(self, value):
+        self.tuple[2] = value
+
+    def dot(self, other):
+        """ Dot product of two vectors returns a scalar """
+        return sum(map(lambda x: x[0]*x[1], zip(self.tuple, other.tuple)))
+
+    def scale(self, scalefactor):
+        return self.__class__(map(lambda x: x*scalefactor, self.tuple))
+
+    def cross(self, other):
+        """ Cross product only defined for 3D vectors """
+        return self.__class__([self.y * other.z - self.z * other.y,
+                               self.z * other.x - self.x * other.z,
+                               self.x * other.y - self.y * other.x])
+
+    def __add__(self, other):
+        return self.__class__(map(sum, zip(self.tuple, other.tuple)))
+
+    def __sub__(self, other):
+        return self.__class__(map(lambda t: t[0]-t[1], zip(self.tuple, other.tuple)))
+
+    def __eq__(self, other):
+        """ Equals defined as approx equal, because that's most useful """
+        return len(self.tuple) == len(other.tuple) and \
+               reduce(operator.__and__, 
+                      map(lambda a: round(a[0],4) == round(a[1],4), zip(self.tuple, other.tuple)))
+
+    def __ne__(self, other):
+        return not(self == other)
+
+    @property
+    def magnitude(self):
+        return sqrt(sum(map(lambda x: x**2, self.tuple)))
+
+    def normalize(self):
+        v = self.tuple
+        d = self.magnitude
+        if d == 0:
+            d = 1.0
+        vnew = map(lambda x: x/d, v)
+        return self.__class__(vnew)
+
+class Quaternion(Vector):
+    def __init__(self, value=[0, 0, 0, 0]):
+        """ Quaternions represented as [angle, x, y, z] OR as [x, y, z] """
+        l = list(value)
+        if len(l) == 3:
+            super().__init__([0, l[0], l[1], l[2]])
+        else:
+            super().__init__(l)
+
+    @property
+    def angle(self):
+        return self.tuple[0]
+
+    @property
+    def vector(self):
+        return Vector(self.tuple[1:4])
+
+    @property
+    def x(self):
+        return self.tuple[1]
+
+    @property
+    def y(self):
+        return self.tuple[2]
+
+    @property
+    def z(self):
+        return self.tuple[3]
+
+    def __str__(self):
+        return f"Quarternion({self.tuple})"
+
+    def __repr__(self):
+        return f"Quarternion({self.tuple})"
+
+    def __add__(self, other):
+        return Quaternion([self.vector[0] + other.vector[0],
+                           self.vector[1] + other.vector[1],
+                           self.vector[2] + other.vector[2]],
+                          self.angle + other.angle)
+
+    #def __mul__(self, other):
+    #    """ Multiplying quarternions returns a quarternion """
+    #    return Quaternion(self.vector.cross(other.vector) 
+    #                      + other.vector.scale(self.angle) 
+    #                      + self.vector.scale(other.angle), 
+    #                      self.angle*other.angle - self.vector.dot(other.vector))
+
+    def __matmul__(self, other):
+        """ Multiply quaternions (cross product) 
+            can also multiply with Vector, which is treated as Quat with angle 0
+         https://danceswithcode.net/engineeringnotes/quaternions/quaternions.html """
+        r0, r1, r2, r3 = self.tuple
+        if len(other) == 3:
+            s0, s1, s2, s3 = (0, other[0], other[1], other[2])
+        else:
+            s0, s1, s2, s3 = other.tuple
+        t0 = r0*s0 - r1*s1 - r2*s2 - r3*s3
+        t1 = r0*s1 + r1*s0 - r2*s3 + r3*s2
+        t2 = r0*s2 + r1*s3 + r2*s0 - r3*s1
+        t3 = r0*s3 - r1*s2 + r2*s1 + r3*s0
+        return Quaternion([t0, t1, t2, t3])
+
+    #def hamilton_product(self, other):
+    #    """ https://en.wikipedia.org/wiki/Quaternion#Hamilton_product """
+    #    a1 = self.tuple[0]
+    #    b1, c1, d1 = self.tuple[1:4]
+    #    a2 = other.angle
+    #    b2, c2, d2 = other.vector[:]
+    #    a3 = a1*a2 - b1*b2 - c1*c2 - d1*d2
+    #    b3 = a1*b2 + b1*a2 + c1*d2 - d1*c2
+    #    c3 = a1*c2 - b1*d2 + c1*a2 + d1*b2
+    #    d3 = a1*d2 + b1*c2 - c1*b2 + d1*a2
+    #    return self.__class__([a3, b3, c3, d3])
+
+    def invert(self):
+        """ Inverse is a negation of the vector components 
+         https://danceswithcode.net/engineeringnotes/quaternions/quaternions.html """
+        return Quaternion([self.tuple[0], -self.tuple[1], -self.tuple[2], -self.tuple[3]])
+
+    def normalize(self):
+        v = self.vector.normalize()
+        return self.__class__([self.angle, v[0], v[1], v[2]])
+
+    #def invert(self):
+    #    n = 1/(self.vector.x**2 + self.vector.y**2 + self.vector.z**2 + self.angle**2)
+    #    return Quaternion(self.vector.scale(-n), self.angle*n)
+
+    #def cross(self, other):
+    #    cross_i = self.vector.cross(other.vector) + other.vector.scale(self.angle) + self.vector.scale(other.angle)
+    #    cross_r = self.angle*other.angle - self.vector.dot(other.vector)
+    #    return Quaternion(cross_i, cross_r)
+
+    def rotate(self, v):
+        """ Rotate the point represented by XYZ vector v """
+        p = Quaternion([0, v[0], v[1], v[2]])
+        v = self.invert() @ p @ self
+        return v.vector
+
+    @classmethod
+    def make_rotation(cls, v):
+        """ Makes a rotation quaternion from from angle-axis, v=[angle, x, y, z] """
+        a = v[0]
+        u = Vector(v[1:4]).normalize() 
+        sf = sin(a/2)
+        return cls([cos(a/2), u[0] * sf, u[1] * sf, u[2] * sf])
 
 class RotationMatrix:
     """ Rotation matrix with handy functions """
@@ -86,6 +281,13 @@ class RotationMatrix:
                 if round(self.matrix[i][j], 4) != round(other.matrix[i][j], 4):
                     return False
         return True
+
+    @property
+    def trace(self):
+        """ Return the trace (sum of diagonals) of the matrix
+            https://en.wikipedia.org/wiki/Rotation_matrix#Quaternion """
+        m = self.matrix
+        return m[0][0] + m[1][1] + m[2][2]
 
     def from_euler_ypr(yaw, pitch, roll):
         """ Create new rotation matrix from Euler data
@@ -135,6 +337,23 @@ class RotationMatrix:
                (c3 * s1 * s2 - c1 * s3,     c2 * s1,    c1 * c3 + s1 * s2 * s3)
                ]
         return RotationMatrix(res)
+
+    @classmethod
+    def from_quaternion(cls, quat):
+        q0, q1, q2, q3 = quat.tuple
+        r = RotationMatrix([
+            [q0**2 + q1**2 - q2**2 - q3**2, 2*q1*q2 - 2*q0*q3, 2*q1*q3 + 2*q0*q2],
+            [2*q1*q2 + 2*q0*q3, q0**2 - q1**2 + q2**2 - q3**2, 2*q2*q3 - 2*q0*q1],
+            [2*q1*q3 - 2*q0*q2, 2*q2*q3 + 2*q0*q1, q0**2 - q1**2 - q2**2 + q3**2]
+        ])
+        #vx, vy, vz = self.vector[:]
+        #a = self.angle
+        #r = RotationMatrix([
+        #    [1 - 2*(vy**2 + vz**2), 2*(vx*vy + vz*a), 2*vx*vz - vy*a],
+        #    [2*(vx*vy - vz*a), 1 - 2*(vx**2 + vz**2), 2*(vy*vz + vx*a)],
+        #    [2*(vx*vz + vy*a), 2*(vy*vz - vx*a), 1-2*(vx**2 + vy**2)]
+        #    ])
+        return r
 
     def from_vector(vec, rotation_angle=None):
         """ Create a rotation matrix from the given vector.
@@ -211,8 +430,39 @@ class RotationMatrix:
         angles = self.euler()
         return (angles[0] * 180.0/pi, angles[1] * 180.0/pi, angles[2] * 180.0/pi)
 
+    @property
+    def largest_diagonal(self):
+        m = self.matrix
+        a = 0
+        if m[1][1] > m[0][0]:
+            a = 1
+        if m[2][2] > m[a][a]:
+            a = 2
+        return a
+
+    def quaternion(self):
+        """ Return the rotation matrix as a quaternion """
+        m = self.matrix
+        t = self.trace
+        #r = sqrt(1+t)
+        #s = 1/(2*r)
+        #w = r/2
+        #x = s * (m[0][1] - m[1][2])
+        #y = s * (m[0][2] - m[2][0])
+        #z = s * (m[1][0] - m[0][1])
+        a, b, c = ((0, 1, 2), (1, 2, 0), (2, 0, 1))[self.largest_diagonal]
+        r = sqrt(1 + m[a][a] - m[b][b] - m[c][c])
+        s = 1/(2*r)
+        w = s * (m[c][b] - m[b][c])
+        x = r/2
+        y = s * (m[a][b] + m[b][a])
+        z = s * (m[c][a] + m[a][c])
+        return Quaternion([w, x, y, z])
+
+
     def rotation_vector(self):
         """ Return a rotation vector from the matrix """
+        # Not sure this is really required now that we have quaternions
         m = self.matrix
         cosang = (m[0][0] + m[1][1] + m[2][2] - 1) * 0.5
         if cosang > 0.5:
@@ -286,9 +536,13 @@ class RotationMatrix:
         """ Cross product of rotation matrix with the given vector.
             Returns vector rotated by the matrix """
         rm = self.matrix
-        return (vec[0]*rm[0][0] + vec[1]*rm[0][1] + vec[2]*rm[0][2],
+        return Vector([vec[0]*rm[0][0] + vec[1]*rm[0][1] + vec[2]*rm[0][2],
                 vec[0]*rm[1][0] + vec[1]*rm[1][1] + vec[2]*rm[1][2],
-                vec[0]*rm[2][0] + vec[1]*rm[2][1] + vec[2]*rm[2][2])
+                vec[0]*rm[2][0] + vec[1]*rm[2][1] + vec[2]*rm[2][2]])
+
+    def rotate(self, vec):
+        """ Rotate the given vector """
+        return self.by_vector(vec)
 
     @property
     def determinant(self):
@@ -320,6 +574,8 @@ class RotationMatrix:
                      x[2][0]*y[0][2] + x[2][1]*y[1][2] + x[2][2]*y[2][2])]
         return RotationMatrix(new_mx)
 
+    def __matmul__(self, other):
+        return self.multiply(other)
 
     def invert(self):
         det = self.determinant
@@ -340,7 +596,6 @@ class RotationMatrix:
         else:
             print("Error: Rotation matrix cannot be inverted")
             return self.copy()
-
 
 def uv_location(uv):
     """ Rounds UV location to eliminate floating point error """
@@ -405,6 +660,130 @@ def mesh_split_by_uv(verts, norms, loops, uvmap, weights, morphdict):
                 vert_uvs.append(this_vert_loc)
                 loops[i] = new_index
                 change_table[vert_key] = new_index
+
+def to_euler_angles(rm):
+    if rm[0][2] < 1.0:
+        if rm[0][2] > -1.0:
+            y = atan2(-rm[1][2], rm[2][2])
+            p = asin(rm[0][2])
+            r = atan2(-rm[0][1], rm[0][0])
+        else:
+            y = atan2(rm[1][0], rm[1][1])
+            p = pi/2.0
+            r = 0.0
+    else:
+        y = atan2(rm[1][0], rm[1][1])
+        p = pi/2.0
+        r = 0.0
+    return (y, p, r)
+
+def to_euler_degrees(rm):
+    angles = to_euler_angles(rm)
+    return (angles[0] * 180.0/pi, angles[1] * 180.0/pi, angles[2] * 180.0/pi)
+    
+def make_rotation_matrix(yaw, pitch, roll):
+	ch = cos(yaw)
+	sh = sin(yaw)
+	cp = cos(pitch)
+	sp = sin(pitch)
+	cb = cos(roll)
+	sb = sin(roll)
+
+	rot = ((ch * cb + sh * sp * sb,    sb * cp,    -sh * cb + ch * sp * sb),
+           (-ch * sb + sh * sp * cb,      cb * cp,    sb * sh + ch * sp * cb),
+           (sh * cp -sp, ch * cp))
+
+	return rot
+
+
+def store_transform(xf, vec3, mat3x3, scale):
+    xf[0] = vec3[0]
+    xf[1] = vec3[1]
+    xf[2] = vec3[2]
+    xf[3] = mat3x3[0][0]
+    xf[4] = mat3x3[0][1]
+    xf[5] = mat3x3[0][2]
+    xf[6] = mat3x3[1][0]
+    xf[7] = mat3x3[1][1]
+    xf[8] = mat3x3[1][2]
+    xf[9] = mat3x3[2][0]
+    xf[10] = mat3x3[2][1]
+    xf[11] = mat3x3[2][2]
+    xf[12] = scale
+
+class MatTransform():
+    """ Matrix transform, including translation, rotation, and scale """
+
+    def __init__(self, init_translation=None, init_rotation=None, init_scale=1.0):
+        if init_translation:
+            self.translation = Vector(init_translation)
+        else:
+            self.translation = Vector([0,0,0])
+        self.rotation = RotationMatrix(init_rotation)
+        self.scale = init_scale
+
+    def __eq__(self, other):
+        for v1, v2 in zip(self.translation, other.translation):
+            if round(v1, 4) != round(v2, 4):
+                return False
+        if self.rotation != other.rotation:
+            return False
+        if round(self.scale, 4) != round(other.scale, 4):
+            return False
+        return True
+        
+    def __repr__(self):
+        return "<" + repr(self.translation[:]) + ", " + \
+            "(" + str(self.rotation.matrix) + "), " + \
+            repr(self.scale) + ">"
+
+    def __str__(self):
+        return "MatTransform(" + str(self.translation[:]) + ",\n" + \
+            str(self.rotation) + ",\n" + \
+            str(self.scale) + ")"
+
+    def __matmul__(self, other):
+        """ Compose two transformation matrices OR a matrix with a vector """
+        # Could be done with matrix multiplication instead
+        if issubclass(other.__class__, MatTransform):
+            new_t = self.rotation.rotate(other.translation).scale(self.scale) + self.translation
+            new_r = self.rotation @ other.rotation
+            return MatTransform(new_t, new_r, self.scale * other.scale)
+        else:
+            # Treat the other as a vector. Let it fail if other doesn't act like a vector.
+            o1 = self.rotation.rotate(other)
+            o1 = o1.scale(self.scale)
+            return self.translation + o1
+        
+
+    def copy(self):
+        the_copy = MatTransform(self.translation, self.rotation.copy(), self.scale)
+        return the_copy
+
+    def from_array(self, float_array):
+        self.translation = Vector([float_array[0], float_array[1], float_array[2]])
+        self.rotation = RotationMatrix(((float_array[3], float_array[4], float_array[5]),
+                                      (float_array[6], float_array[7], float_array[8]),
+                                      (float_array[9], float_array[10], float_array[11])))
+        self.scale = float_array[12]
+    
+    def fill_buffer(self, buf):
+        store_transform(buf, self.translation, self.rotation.matrix, self.scale)
+
+    def invert(self):
+        inverseXform = MatTransform()
+        inverseXform.translation = self.translation.scale(-1)
+        inverseXform.scale = 1/self.scale
+        inverseXform.rotation = self.rotation.invert()
+        return inverseXform
+
+    def as_matrix(self):
+        """ Return the transformation matrix as a 4x4 matrix """
+        v = [[self.scale, 1, 1, self.translation[0]], [1, self.scale, 1, self.translation[1]], [1, 1, self.scale, self.translation[2]], [0, 0, 0, 1]]
+        for i in range(0, 3):
+            for j in range(0, 3):
+                v[i][j] *= self.rotation.matrix[i][j]
+        return v
 
 # ----------------------- Game-specific Skeleton Dictionaries ---------------------------
 
@@ -1514,6 +1893,7 @@ if __name__ == "__main__":
     #sys.path.append(r"D:\OneDrive\Dev\PyNifly\PyNifly")
     #from pynifly import *
 
+
     # ####################################################################################
     print("--Can split verts of a triangularized plane")
     # Verts 4 & 5 are on a seam
@@ -1580,6 +1960,46 @@ if __name__ == "__main__":
 
     print("""
 ##############################################################################
+Vectors and quarternions
+""")
+
+    v1 = Vector([1, 2, 3])
+    v2 = Vector([4, 5, 6])
+    assert v1.dot(v2) == 32, f"Vector dot product works: {v1.dot(v2)}"
+    v3 = Vector([1, 0, 0])
+    v4 = Vector([0, 1, 0])
+    assert v3.cross(v4)[:] == [0, 0, 1], f"Vector cross product works: {v3.cross(v4)}"
+    v5 = Vector([1, 1, 0])
+    v6 = Vector([-1, 1, 0])
+    assert list(map(lambda x: round(x, 4), v5.cross(v6)[:])) == [0, 0, 2], f"Vector cross product works: {v5.cross(v6)}"
+
+    v7 = Vector([.5, 3, 1])
+    v8 = Vector([.5000001, 3, 1])
+    assert v7 == v8, f"Vector comparison works"
+
+    assert not (Vector([1, 2]) == Vector([1, 2, 3])), f"Vector comparison works 2"
+    assert not (Vector([1, 2, 4]) == Vector([1, 2, 3])), f"Vector comparison works 3"
+
+    assert v1.scale(2) == Vector([2, 4, 6]), f"Scaling vectors works: {v1.scale(2)}"
+
+    assert (v1 + v2) == Vector([5, 7, 9]), f"Adding vectors works: {v1 + v2}"
+
+    q5 = Quaternion.make_rotation([2*pi/3, 1, 1, 1]) # Rotate all 3 axes
+    v5 = Vector([1, 0, 0]) # Vector on X axis
+    r51 = q5.rotate(v5)
+    assert r51 == Vector([0, 1, 0]), f"Rotation of axes works 1: {r51}"
+    assert q5.rotate(q5.rotate(q5.rotate(v5))) == v5, f"3 rotations returns us home"
+
+    rm5 = RotationMatrix.from_quaternion(q5)
+    r52 = rm5.by_vector(v5)
+    assert r51 == r52, f"Rotation matrix produces same result as quat"
+
+    r90z = Quaternion.make_rotation([pi/2, 0, 0, 1]) # 90deg about the z axis
+    x1 = Vector([1,0,0])
+    assert r90z.rotate(x1) == Vector([0,1,0]), f"Can rotate abou tthe z axis"
+
+    print("""
+##############################################################################
 RotationMatrix provides handling for bone rotations and such.
 """)
     rm = RotationMatrix([[-0.0072, 0.9995, -0.0313],
@@ -1587,7 +2007,7 @@ RotationMatrix provides handling for bone rotations and such.
                          [-0.9987, -0.0056, 0.0498]])
     
     # by_vector creates a rotation matrix from a vector 
-    assert rm.by_vector((5,0,0)) == (-0.036, -0.248, -4.9935), "Error: Applying rotation matrix"
+    assert rm.by_vector([5,0,0]) == Vector([-0.036, -0.248, -4.9935]), "Error: Applying rotation matrix"
 
     # identity is the do-nothing rotation
     # invert() is the inverse rotation
@@ -1621,8 +2041,14 @@ RotationMatrix provides handling for bone rotations and such.
     print("Matrixes can be multiplied, which allows trainsforms to be combined.")
     a = RotationMatrix([(1, 2, 3), (4, 5, 6), (7, 8, 9)])
     b = RotationMatrix([(10,20,30), (40, 50, 60), (70, 80, 90)])
-    c = a.multiply(b)
+    c = a @ b
     assert c == RotationMatrix([(300, 360, 420), (660, 810, 960), (1020, 1260, 1500)]), "Error: Matrix multiplication failure"
+
+    rm5 = RotationMatrix.from_quaternion(q5)
+    v = Vector ([1, 0.2, 0.3])
+    v1 = rm5.rotate(v)
+    v2 = q5.rotate(v)
+    assert v1 == v2, f"Rotation by matrix == rotation by quaternion {v1} == {v2}"
 
     print("Bones have transforms which are turned into head and tail positions")
     bone_mx = RotationMatrix.from_euler(30, 0, 0)
@@ -1634,6 +2060,33 @@ RotationMatrix provides handling for bone rotations and such.
     # rotates it about its own axis. Can code rotation in the lenght of the vector
     # but not convenient for blender. 
     # assert new_mx == bone_mx, "Error: can't recreate rotation matrix from vector"
+
+    print("### Transform inversion works correctly")
+    mat = MatTransform((1, 2, 3), [(1,0,0),(0,1,0),(0,0,1)], 2.0)
+    imat = mat.invert()
+    assert list(mat.translation) == [1,2,3], "ERROR: Source matrix should not be changed"
+    assert list(imat.translation) == [-1,-2,-3], "ERROR: Translation should be inverse"
+    assert imat.rotation.matrix[1][1] == 1.0, "ERROR: Rotation should be inverse"
+    assert imat.scale == 0.5, "Error: Scale should be inverse"
+
+    ### Need to test euler -> matrix -> euler
+    ### Don't trust the euler conversion, so make rotation matrix from quat
+    q6a = Quaternion.make_rotation([pi/2, 0, 0, 1]) # rotate around z
+    q6b = Quaternion.make_rotation([pi/2, 0, 1, 0]) # rotate around y
+    m6a = MatTransform([1, 2, 3], RotationMatrix.from_quaternion(q6a))
+    m6b = MatTransform([0.1,0.2,0.3], RotationMatrix.from_quaternion(q6b))
+
+    mm = m6a @ m6b
+    v1 = Vector([1,0,0])
+    
+    v1a = m6a @ v1
+    v1ab = m6b @ v1a
+    vmm = mm @ v1
+    # v1ab != vmm because when the MTs are combined the second happens in the transformed
+    # coordinates of the first; when one is applied after the other the second happens
+    # in world coordinates
+    assert v1ab == vmm, f"Vector transforms correct: {v1ab} == {vmm}"
+
 
 
     # ####################################################################################

@@ -1705,6 +1705,18 @@ int getInvMarker(void* nifref, char* name, int namelen, int* rot, float* zoom)
     return 0;
 };
 
+void setInvMarker(void* nifref, const char* name, int* rot, float* zoom)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    auto inv = std::make_unique<BSInvMarker>();
+    inv->name.get() = name;
+    inv->rotationX = rot[0];
+    inv->rotationY = rot[1];
+    inv->rotationZ = rot[2];
+    inv->zoom = *zoom;
+    nif->AssignExtraData(nif->GetRootNode(), std::move(inv));
+}
+
 int getBSXFlags(void* nifref, int* buf)
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -1719,6 +1731,15 @@ int getBSXFlags(void* nifref, int* buf)
         }
     }
     return 0;
+}
+
+void setBSXFlags(void* nifref, const char* name, uint32_t flags)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    auto bsx = std::make_unique<BSXFlags>();
+    bsx->name.get() = name;
+    bsx->integerData = flags;
+    nif->AssignExtraData(nif->GetRootNode(), std::move(bsx));
 }
 
 void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf) {
