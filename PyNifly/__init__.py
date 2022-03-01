@@ -85,12 +85,6 @@ ALPHA_MAP_NAME = "VERTEX_ALPHA"
 
 GLOSS_SCALE = 100
 
-#log.setLevel(logging.DEBUG)
-#pynifly_ch = logging.StreamHandler()
-#pynifly_ch.setLevel(logging.DEBUG)
-#formatter = logging.Formatter('%(name)s-%(levelname)s: %(message)s')
-#pynifly_ch.setFormatter(formatter)
-#log.addHandler(ch)
 
 # Extend TransformBuf to get/give contents as a Blender Matrix
 
@@ -120,23 +114,6 @@ def make_transformbuf(cls, m: Matrix) -> TransformBuf:
 
 setattr(TransformBuf, "from_matrix", classmethod(make_transformbuf))
 
-#def get_quat_from_blend(blenderobj):
-#    v = blenderobj.rotation_mode
-#    blenderobj.rotation_mode = 'QUATERNION'
-#    q = blenderobj.rotation_quaternion
-#    qr = Quaternion([q.w, q.x, q.y, q.z])
-#    blenderobj.rotation_mode = v
-#    return qr
-
-#def get_xform_from_blend(blender_object):
-#    """ Return a MatTransform to capture blender object location """
-#    m = MatTransform()
-#    m.translation = Vector(blender_object.location[:])
-#    blender_object.rotation_mode = 'QUATERNION'
-#    q = blender_object.rotation_quaternion
-#    m.rotation = RotationMatrix.from_quaternion(Quaternion([q.w, q.x, q.y, q.z]))
-#    m.scale = sum(blender_object.scale[:])/3t
-#    return m
 
 # ######################################################################## ###
 #                                                                          ###
@@ -177,37 +154,14 @@ def import_shader_attrs(material, shader, shape):
     try:
         material['BS_Shader_Block_Name'] = shape.shader_block_name
         material['BSLSP_Shader_Name'] = shape.shader_name
-    #    material['BSLSP_Shader_Flags_1'] = hex(attrs.Shader_Flags_1)
-    #    material['BSLSP_Shader_Flags_2'] = hex(attrs.Shader_Flags_2)
-    #    material['BSSP_UV_Offset_U'] = attrs.UV_Offset_U
-    #    material['BSSP_UV_Offset_V'] = attrs.UV_Offset_V
-    #    material['BSSP_UV_Scale_U'] = attrs.UV_Scale_U
-    #    material['BSSP_UV_Scale_V'] = attrs.UV_Scale_V
         shader.inputs['Emission'].default_value = (attrs.Emissive_Color_R, attrs.Emissive_Color_G, attrs.Emissive_Color_B, attrs.Emissive_Color_A)
         shader.inputs['Emission Strength'].default_value = attrs.Emissive_Mult
 
         if shape.shader_block_name == 'BSLightingShaderProperty':
-    #        material['BSLSP_Shader_Type'] = attrs.Shader_Type
             shader.inputs['Alpha'].default_value = attrs.Alpha
-    #        material['BSLSP_Refraction_Str'] = attrs.Refraction_Str
             shader.inputs['Metallic'].default_value = attrs.Glossiness/GLOSS_SCALE
-    #        material['BSLSP_Spec_Color_R'] = attrs.Spec_Color_R
-    #        material['BSLSP_Spec_Color_G'] = attrs.Spec_Color_G
-    #        material['BSLSP_Spec_Color_B'] = attrs.Spec_Color_B
-    #        material['BSLSP_Spec_Str'] = attrs.Spec_Str
-    #        material['BSLSP_Soft_Lighting'] = attrs.Soft_Lighting
-    #        material['BSLSP_Rim_Light_Power'] = attrs.Rim_Light_Power
-    #        material['BSLSP_Skin_Tint_Color_R'] = attrs.Skin_Tint_Color_R
-    #        material['BSLSP_Skin_Tint_Color_G'] = attrs.Skin_Tint_Color_G
-    #        material['BSLSP_Skin_Tint_Color_B'] = attrs.Skin_Tint_Color_B
         elif shape.shader_block_name == 'BSEffectShaderProperty':
             shader.inputs['Alpha'].default_value = attrs.Falloff_Start_Opacity
-    #        material['BSESP_Falloff_Start_Angle'] = attrs.Falloff_Start_Angle
-    #        material['BSESP_Falloff_Start_Opacity'] = attrs.Falloff_Start_Opacity
-    #        material['BSESP_Falloff_Stop_Angle'] = attrs.Falloff_Stop_Opacity
-    #        material['BSESP_Soft_Fallof_Depth'] = attrs.Soft_Fallof_Depth
-    #        material['BSESP_Env_Map_Scale'] = attrs.Env_Map_Scale
-    #        material['BSESP_Tex_Clamp_Mode'] = attrs.Tex_Clamp_mode
 
     except Exception as e:
         # Any errors, print the error but continue
@@ -243,9 +197,6 @@ def obj_create_material(obj, shape):
     missing = missing_files(fulltextures)
     if len(missing) > 0:
         log.warning(f". . Some texture files not found: {missing}")
-    #if not check_files(fulltextures):
-    #    log.debug(f". . texture files not available, not creating material: \n\tnif path = {nifpath}\n\t textures = {fulltextures}")
-    #    return
     log.debug(". . creating material")
 
     mat = bpy.data.materials.new(name=(obj.name + ".Mat"))
@@ -388,68 +339,16 @@ def export_shader_attrs(obj, shader, shape):
 
     shape.shader_attributes.load(mat)
 
-    #if 'BSLSP_Shader_Flags_1' in mat.keys():
-    #    shape.shader_attributes.Shader_Flags_1 = int(mat['BSLSP_Shader_Flags_1'], 16)
-    #if 'BSLSP_Shader_Flags_2' in mat.keys():
-    #    shape.shader_attributes.Shader_Flags_2 = int(mat['BSLSP_Shader_Flags_2'], 16)
-    #if 'BSSP_UV_Offset_U' in mat.keys():
-    #    shape.shader_attributes.UV_Offset_U = mat['BSSP_UV_Offset_U']
-    #if 'BSSP_UV_Offset_V' in mat.keys():
-    #    shape.shader_attributes.UV_Offset_V = mat['BSSP_UV_Offset_V']
-    #if 'BSSP_UV_Scale_U' in mat.keys():
-    #    shape.shader_attributes.UV_Scale_U = mat['BSSP_UV_Scale_U']
-    #if 'BSSP_UV_Scale_V' in mat.keys():
-    #    shape.shader_attributes.UV_Scale_V = mat['BSSP_UV_Scale_V']
     shape.shader_attributes.Emissive_Color_R = shader.inputs['Emission'].default_value[0]
     shape.shader_attributes.Emissive_Color_G = shader.inputs['Emission'].default_value[1]
     shape.shader_attributes.Emissive_Color_B = shader.inputs['Emission'].default_value[2]
     shape.shader_attributes.Emissive_Color_A = shader.inputs['Emission'].default_value[3]
     shape.shader_attributes.Emissive_Mult = shader.inputs['Emission Strength'].default_value
 
-    #if ('BS_Shader_Block_Name' in mat) and (mat['BS_Shader_Block_Name'] == 'BSEffectShaderProperty'):
-    #    if 'BSESP_Falloff_Start_Angle' in mat.keys():
-    #        shape.shader_attributes.Falloff_Start_Angle = mat['BSESP_Falloff_Start_Angle']
-    #    if 'BSESP_Falloff_Start_Opacity' in mat.keys():
-    #        shape.shader_attributes.Falloff_Start_Opacity = mat['BSESP_Falloff_Start_Opacity']
-    #    if 'BSESP_Falloff_Stop_Angle' in mat.keys():
-    #        shape.shader_attributes.Falloff_Stop_Angle = mat['BSESP_Falloff_Stop_Angle']
-    #    if 'BSESP_Soft_Fallof_Depth' in mat.keys():
-    #        shape.shader_attributes.Soft_Fallof_Depth = mat['BSESP_Soft_Fallof_Depth']
-    #    if 'BSESP_Env_Map_Scale' in mat.keys():
-    #        shape.shader_attributes.Env_Map_Scale = mat['BSESP_Env_Map_Scale']
-    #    if 'BSESP_Tex_Clamp_Mode' in mat.keys():
-    #        shape.shader_attributes.Tex_Clamp_Mode = mat['BSESP_Tex_Clamp_Mode']
-
-    #else:
-    #    if 'BSLSP_Shader_Type' in mat.keys():
-    #        shape.shader_attributes.Shader_Type = int(mat['BSLSP_Shader_Type'])
     if shape.shader_block_name == "BSLightingShaderProperty":
         shape.shader_attributes.Alpha = shader.inputs['Alpha'].default_value
         shape.shader_attributes.Glossiness = shader.inputs['Metallic'].default_value * GLOSS_SCALE
-    #    if 'BSLSP_Refraction_Str' in mat.keys():
-    #        shape.Refraction_Str = mat['BSLSP_Refraction_Str']
-    #    shape.shader_attributes.Glossiness = shader.inputs['Metallic'].default_value * GLOSS_SCALE
-    #    if 'BSLSP_Spec_Color_R' in mat.keys():
-    #        shape.shader_attributes.Spec_Color_R = mat['BSLSP_Spec_Color_R']
-    #    if 'BSLSP_Spec_Color_G' in mat.keys():
-    #        shape.shader_attributes.Spec_Color_G = mat['BSLSP_Spec_Color_G']
-    #    if 'BSLSP_Spec_Color_B' in mat.keys():
-    #        shape.shader_attributes.Spec_Color_B = mat['BSLSP_Spec_Color_B']
-    #    if 'BSLSP_Spec_Str' in mat.keys():
-    #        shape.shader_attributes.Spec_Str = mat['BSLSP_Spec_Str']
-    #    if 'BSLSP_Spec_Str' in mat.keys():
-    #        shape.shader_attributes.Soft_Lighting = mat['BSLSP_Soft_Lighting']
-    #    if 'BSLSP_Spec_Str' in mat.keys():
-    #        shape.shader_attributes.Rim_Light_Power = mat['BSLSP_Rim_Light_Power']
-    #    if 'BSLSP_Skin_Tint_Color_R' in mat.keys():
-    #        shape.shader_attributes.Skin_Tint_Color_R = mat['BSLSP_Skin_Tint_Color_R']
-    #    if 'BSLSP_Skin_Tint_Color_G' in mat.keys():
-    #        shape.shader_attributes.Skin_Tint_Color_G = mat['BSLSP_Skin_Tint_Color_G']
-    #    if 'BSLSP_Skin_Tint_Color_B' in mat.keys():
-    #        shape.shader_attributes.Skin_Tint_Color_G = mat['BSLSP_Skin_Tint_Color_B']
 
-    #log.debug(f"Shader Type: {shape.shader_attributes.Shader_Type}")
-    #log.debug(f"Shader attributes: \n{shape.shader_attributes}")
 
 def has_msn_shader(obj):
     val = False
@@ -677,27 +576,16 @@ def get_node_location(the_shape: NiShape) -> Matrix:
             xform = the_shape.global_to_skin_data
             if xform is None:
                 xform = the_shape.global_to_skin
-            # log.debug(f"....Found transform {the_shape.global_to_skin} on {the_shape.name} in '{self.nif.filepath}'")
             xf = xform.as_matrix()
             xf.invert()
             return xf
-            #new_object.matrix_world = inv_xf.as_matrix()
-            #new_object.location = inv_xf.translation
     except:
         pass
 
     # Statics get transformed according to the shape's transform
-    # new_object.scale = (the_shape.transform.scale, ) * 3
-    # xf = the_shape.transform.invert()
-    # new_object.matrix_world = xf.as_matrix() 
-    # new_object.location = the_shape.transform.translation
     xf = the_shape.transform
     log.debug(f". . shape {the_shape.name} transform: {xf}")
     return xf.as_matrix()
-    #new_object.matrix_world = the_shape.transform.invert().as_matrix()
-    #new_object.location = the_shape.transform.translation
-    #new_object.scale = [the_shape.transform.scale] * 3
-    #log.debug(f". . New object transform: \n{new_object.matrix_world}")
 
 
 class NifImporter():
@@ -783,7 +671,6 @@ class NifImporter():
             ed['BSInvMarker_RotZ'] = invm[3]
             ed['BSInvMarker_Zoom'] = invm[4]
             extradata.append(ed)
-
 
         return extradata
 
@@ -890,7 +777,6 @@ class NifImporter():
         bone.head = xft
         if self.nif.game in ("SKYRIM", "SKYRIMSE"):
             rot_vec = Vector((0, 0, 5))
-            # bone_xform.rotation.by_vector((0.0, 0.0, 5.0))
         else:
             rot_vec = Vector((5,0,0)) # bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
         rot_vec.rotate(bone_xform)
@@ -1045,9 +931,6 @@ class NifImporter():
         p = cb.properties
         p.extract(cbody, ignore=self.collision_body_ignore)
 
-        #rm = RotationMatrix.from_quaternion(Quaternion(p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2])
-        #transl = rm.by_vector(p.translation[0:3])
-        # cbody.rotation_euler = mathutils.Euler((p.rotation[0], p.rotation[2], p.rotation[1]), 'XYZ')
         # The rotation in the nif is a quaternion with the angle in the 4th position, in radians
         log.debug(f"Found collision body with properties: {p}")
         cbody.rotation_mode = 'QUATERNION'
@@ -1070,9 +953,7 @@ class NifImporter():
             col['pynFlags'] = bhkCOFlags(c.flags).fullname
             col['pynTarget'] = c.target.name
 
-            # targ = bpy.data.objects[c.target.name]
             col.matrix_world = get_node_location(c.target)
-            # col.location = xform.translation.tuple
 
             cb = c.body
             if cb:
@@ -1174,11 +1055,6 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Rename bones to conform to Blender's left/right conventions.",
         default=True)
 
-    #rotate_model: bpy.props.BoolProperty(
-    #    name="Rotate Model",
-    #    description="Rotate model to face forward in blender",
-    #    default=True)
-
 
     def execute(self, context):
         log.info("\n\n====================================\nNIFLY IMPORT V%d.%d.%d" % bl_info['version'])
@@ -1247,7 +1123,6 @@ def create_shape_keys(obj, tri: TriFile):
             obj.active_shape_key_index = len(mesh.shape_keys.key_blocks) - 1
             #This is a pointer, not a copy
             mesh_key_verts = mesh.shape_keys.key_blocks[obj.active_shape_key_index].data
-            #log.debug(f"Morph {morph_name} in tri file should have same number of verts as Blender shape: {len(mesh_key_verts)} != {len(morph_verts)}")
             # We may be applying the morphs to a different shape than the one stored in 
             # the tri file. But the morphs in the tri file are absolute locations, as are 
             # shape key locations. So we need to calculate the offset in the tri and apply that 
@@ -1277,7 +1152,6 @@ def create_trip_shape_keys(obj, trip:TripFile):
         obj.active_shape_key_index = len(mesh.shape_keys.key_blocks) - 1
         #This is a pointer, not a copy
         mesh_key_verts = mesh.shape_keys.key_blocks[obj.active_shape_key_index].data
-        #log.debug(f"Morph {morph_name} in tri file should have same number of verts as Blender shape: {len(mesh_key_verts)} != {len(morph_verts)}")
         for vert_index, offsets in morph_verts:
             for i in range(3):
                 mesh_key_verts[vert_index].co[i] = verts[vert_index].co[i] + offsets[i]
@@ -1328,9 +1202,6 @@ def import_tri(filepath, cobj):
         new_object = cobj
         new_mesh = new_object.data
         log.info(f"Verts match, loading tri into existing shape {new_object.name}")
-    #elif trip.is_valid:
-    #    log.info(f"Loading a Bodyslide TRI -- requires a matching selected mesh")
-    #    raise "Cannot import Bodyslide TRI file without a selected object"
 
     if new_object is None:
         new_mesh = bpy.data.meshes.new(os.path.basename(filepath))
@@ -1582,12 +1453,6 @@ def get_bone_xforms(arma, bone_names, shape):
 def export_skin(obj, arma, new_shape, new_xform, weights_by_vert):
     log.info("..Parent is armature, skin the mesh")
     new_shape.skin()
-    # if new_shape.has_skin_instance: 
-    # just use set_global_to_skin -- it does the check (maybe)
-    #if nif.game in ("SKYRIM", "SKYRIMSE"):
-    #    new_shape.set_global_to_skindata(new_xform.invert())
-    #else:
-    #    new_shape.set_global_to_skin(new_xform.invert())
     new_shape.transform = TransformBuf.from_matrix(new_xform)
     newxfi = new_xform.copy()
     newxfi.invert()
@@ -1599,13 +1464,10 @@ def export_skin(obj, arma, new_shape, new_xform, weights_by_vert):
     arma_bones = get_bone_xforms(arma.data, used_bones, new_shape)
     
     for bone_name, bone_xform in arma_bones.items():
-        # print(f"  shape {obj.name} adding bone {bone_name}")
         if bone_name in weights_by_bone and len(weights_by_bone[bone_name]) > 0:
-            # print(f"..Shape {obj.name} exporting bone {bone_name} with rotation {bone_xform.rotation.euler_deg()}")
             nifname = new_shape.parent.nif_name(bone_name)
             new_shape.add_bone(nifname, TransformBuf.from_matrix(bone_xform))
             log.debug(f"....Adding bone {nifname}")
-                #nif.nodes[bone_name].xform_to_global)
             new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
 
 
@@ -1648,7 +1510,6 @@ def best_game_fit(bonelist):
     #print(f"Checking bonelist {[b.name for b in bonelist]}")
     for g, s in gameSkeletons.items():
         n = s.matches(boneset)
-        #print(f"Checking against game {g} match is {n}")
         if n > maxmatch:
             maxmatch = n
             matchgame = g
@@ -2119,7 +1980,6 @@ class NifExporter:
             obj.active_shape_key_index = 0
             bpy.ops.object.mode_set(mode = 'EDIT')
             bpy.ops.object.mode_set(mode = 'OBJECT')
-            #log.debug(f"....Vertex 12 position: {mesh.vertices[12].co}")
         
             # Can't get custom normals out of a bmesh (known limitation). Can't triangulate
             # a regular mesh except through the operator. 
@@ -2161,8 +2021,6 @@ class NifExporter:
                 assert lp < len(verts), f"Error: Invalid vert index in loops: {lp} >= {len(verts)}"
                 uvmap_new[lp] = uvs[i]
                 norms_new[lp] = norms[i]
-            #uvmap_new = [uvs[loops.index(i)] for i in range(len(verts))]
-            #norms_new = [norms[loops.index(i)] for i in range(len(verts))]
         
             # Our "loops" list matches 1:1 with the mesh's loops. So we can use the polygons
             # to pull the loops
@@ -2170,7 +2028,6 @@ class NifExporter:
             for p in editmesh.polygons:
                 tris.append((loops[p.loop_start], loops[p.loop_start+1], loops[p.loop_start+2]))
         
-            #tris = [(loops[i], loops[i+1], loops[i+2]) for i in range(0, len(loops), 3)]
             colors_new = None
             if loopcolors:
                 log.debug(f"..Exporting vertex colors for shape {obj.name}")
@@ -2263,13 +2120,6 @@ class NifExporter:
         if is_skinned:
             nif.createSkin()
 
-        #new_xform = MatTransform();
-        #new_xform.translation = Vector(obj.location)
-        ##new_xform.rotation = RotationMatrix((obj.matrix_local[0][0:3], 
-        ##                                     obj.matrix_local[1][0:3], 
-        ##                                     obj.matrix_local[2][0:3]))
-        #new_xform.rotation = RotationMatrix.from_euler_rad(*obj.rotation_euler[:])
-        #new_xform.scale = obj.scale[0]
         new_xform = obj.matrix_world.copy()
         
         if is_skinned:
@@ -2400,11 +2250,6 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ('FO3', "Fallout 3", ""),
                    ),
             )
-
-    #rotate_model: bpy.props.BoolProperty(
-    #    name="Rotate Model",
-    #    description="Rotate model from blender-forward to nif-forward",
-    #    default=True)
 
 
     def __init__(self):
