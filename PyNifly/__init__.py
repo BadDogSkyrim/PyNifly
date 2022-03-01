@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = False
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -27,7 +27,7 @@ from operator import or_
 from functools import reduce
 import traceback
 import math
-import mathutils
+from mathutils import Matrix, Vector, Quaternion
 import re
 import codecs
 from typing import Collection
@@ -85,12 +85,6 @@ ALPHA_MAP_NAME = "VERTEX_ALPHA"
 
 GLOSS_SCALE = 100
 
-z180 = MatTransform((0, 0, 0), 
-                    [(-1, 0, 0), 
-                     (0, -1, 0),
-                     (0, 0, 1)],
-                     1)
-
 #log.setLevel(logging.DEBUG)
 #pynifly_ch = logging.StreamHandler()
 #pynifly_ch.setLevel(logging.DEBUG)
@@ -98,23 +92,51 @@ z180 = MatTransform((0, 0, 0),
 #pynifly_ch.setFormatter(formatter)
 #log.addHandler(ch)
 
-def get_quat_from_blend(blenderobj):
-    v = blenderobj.rotation_mode
-    blenderobj.rotation_mode = 'QUATERNION'
-    q = blenderobj.rotation_quaternion
-    qr = Quaternion([q.w, q.x, q.y, q.z])
-    blenderobj.rotation_mode = v
-    return qr
+# Extend TransformBuf to get/give contents as a Blender Matrix
 
-def get_xform_from_blend(blender_object):
-    """ Return a MatTransform to capture blender object location """
-    m = MatTransform()
-    m.translation = Vector(blender_object.location[:])
-    blender_object.rotation_mode = 'QUATERNION'
-    q = blender_object.rotation_quaternion
-    m.rotation = RotationMatrix.from_quaternion(Quaternion([q.w, q.x, q.y, q.z]))
-    m.scale = sum(blender_object.scale[:])/3
-    return m
+def transform_to_matrix(xf: TransformBuf) -> Matrix:
+    return Matrix.LocRotScale(xf.translation[:], 
+                              Matrix([xf.rotation[0][:],
+                                      xf.rotation[1][:], 
+                                      xf.rotation[2][:] ]), 
+                              [xf.scale]*3)
+
+setattr(TransformBuf, "as_matrix", transform_to_matrix)
+
+def transform_from_matrix(buf: TransformBuf, m: Matrix):
+    t, q, s, = m.decompose()
+    buf.translation = t[:]
+    r = q.to_matrix()
+    buf.rotation = MATRIX3(r[0][:], r[1][:], r[2][:])
+    buf.scale = max(s[:])
+
+setattr(TransformBuf, "load_matrix", transform_from_matrix)
+
+def make_transformbuf(cls, m: Matrix) -> TransformBuf:
+    """ Return a new TransformBuf filled with the data in the matrix """
+    buf = TransformBuf()
+    buf.load_matrix(m)
+    return buf
+
+setattr(TransformBuf, "from_matrix", classmethod(make_transformbuf))
+
+#def get_quat_from_blend(blenderobj):
+#    v = blenderobj.rotation_mode
+#    blenderobj.rotation_mode = 'QUATERNION'
+#    q = blenderobj.rotation_quaternion
+#    qr = Quaternion([q.w, q.x, q.y, q.z])
+#    blenderobj.rotation_mode = v
+#    return qr
+
+#def get_xform_from_blend(blender_object):
+#    """ Return a MatTransform to capture blender object location """
+#    m = MatTransform()
+#    m.translation = Vector(blender_object.location[:])
+#    blender_object.rotation_mode = 'QUATERNION'
+#    q = blender_object.rotation_quaternion
+#    m.rotation = RotationMatrix.from_quaternion(Quaternion([q.w, q.x, q.y, q.z]))
+#    m.scale = sum(blender_object.scale[:])/3t
+#    return m
 
 # ######################################################################## ###
 #                                                                          ###
@@ -152,23 +174,23 @@ def import_shader_attrs(material, shader, shape):
 
     attrs.extract(material)
 
-    #try:
-    #    material['BS_Shader_Block_Name'] = shape.shader_block_name
-    #    material['BSLSP_Shader_Name'] = shape.shader_name
+    try:
+        material['BS_Shader_Block_Name'] = shape.shader_block_name
+        material['BSLSP_Shader_Name'] = shape.shader_name
     #    material['BSLSP_Shader_Flags_1'] = hex(attrs.Shader_Flags_1)
     #    material['BSLSP_Shader_Flags_2'] = hex(attrs.Shader_Flags_2)
     #    material['BSSP_UV_Offset_U'] = attrs.UV_Offset_U
     #    material['BSSP_UV_Offset_V'] = attrs.UV_Offset_V
     #    material['BSSP_UV_Scale_U'] = attrs.UV_Scale_U
     #    material['BSSP_UV_Scale_V'] = attrs.UV_Scale_V
-    #    shader.inputs['Emission'].default_value = (attrs.Emissive_Color_R, attrs.Emissive_Color_G, attrs.Emissive_Color_B, attrs.Emissive_Color_A)
-    #    shader.inputs['Emission Strength'].default_value = attrs.Emissive_Mult
+        shader.inputs['Emission'].default_value = (attrs.Emissive_Color_R, attrs.Emissive_Color_G, attrs.Emissive_Color_B, attrs.Emissive_Color_A)
+        shader.inputs['Emission Strength'].default_value = attrs.Emissive_Mult
 
-    #    if shape.shader_block_name == 'BSLightingShaderProperty':
+        if shape.shader_block_name == 'BSLightingShaderProperty':
     #        material['BSLSP_Shader_Type'] = attrs.Shader_Type
-    #        shader.inputs['Alpha'].default_value = attrs.Alpha
+            shader.inputs['Alpha'].default_value = attrs.Alpha
     #        material['BSLSP_Refraction_Str'] = attrs.Refraction_Str
-    #        shader.inputs['Metallic'].default_value = attrs.Glossiness/GLOSS_SCALE
+            shader.inputs['Metallic'].default_value = attrs.Glossiness/GLOSS_SCALE
     #        material['BSLSP_Spec_Color_R'] = attrs.Spec_Color_R
     #        material['BSLSP_Spec_Color_G'] = attrs.Spec_Color_G
     #        material['BSLSP_Spec_Color_B'] = attrs.Spec_Color_B
@@ -178,8 +200,8 @@ def import_shader_attrs(material, shader, shape):
     #        material['BSLSP_Skin_Tint_Color_R'] = attrs.Skin_Tint_Color_R
     #        material['BSLSP_Skin_Tint_Color_G'] = attrs.Skin_Tint_Color_G
     #        material['BSLSP_Skin_Tint_Color_B'] = attrs.Skin_Tint_Color_B
-    #    elif shape.shader_block_name == 'BSEffectShaderProperty':
-    #        shader.inputs['Alpha'].default_value = attrs.FallffStart_Opacity
+        elif shape.shader_block_name == 'BSEffectShaderProperty':
+            shader.inputs['Alpha'].default_value = attrs.Falloff_Start_Opacity
     #        material['BSESP_Falloff_Start_Angle'] = attrs.Falloff_Start_Angle
     #        material['BSESP_Falloff_Start_Opacity'] = attrs.Falloff_Start_Opacity
     #        material['BSESP_Falloff_Stop_Angle'] = attrs.Falloff_Stop_Opacity
@@ -187,9 +209,9 @@ def import_shader_attrs(material, shader, shape):
     #        material['BSESP_Env_Map_Scale'] = attrs.Env_Map_Scale
     #        material['BSESP_Tex_Clamp_Mode'] = attrs.Tex_Clamp_mode
 
-    #except Exception as e:
-    #    # Any errors, print the error but continue
-    #    log.warning(str(e))
+    except Exception as e:
+        # Any errors, print the error but continue
+        log.warning(str(e))
 
 def import_shader_alpha(mat, shape):
     if shape.has_alpha_property:
@@ -378,11 +400,11 @@ def export_shader_attrs(obj, shader, shape):
     #    shape.shader_attributes.UV_Scale_U = mat['BSSP_UV_Scale_U']
     #if 'BSSP_UV_Scale_V' in mat.keys():
     #    shape.shader_attributes.UV_Scale_V = mat['BSSP_UV_Scale_V']
-    #shape.shader_attributes.Emissive_Color_R = shader.inputs['Emission'].default_value[0]
-    #shape.shader_attributes.Emissive_Color_G = shader.inputs['Emission'].default_value[1]
-    #shape.shader_attributes.Emissive_Color_B = shader.inputs['Emission'].default_value[2]
-    #shape.shader_attributes.Emissive_Color_A = shader.inputs['Emission'].default_value[3]
-    #shape.shader_attributes.Emissive_Mult = shader.inputs['Emission Strength'].default_value
+    shape.shader_attributes.Emissive_Color_R = shader.inputs['Emission'].default_value[0]
+    shape.shader_attributes.Emissive_Color_G = shader.inputs['Emission'].default_value[1]
+    shape.shader_attributes.Emissive_Color_B = shader.inputs['Emission'].default_value[2]
+    shape.shader_attributes.Emissive_Color_A = shader.inputs['Emission'].default_value[3]
+    shape.shader_attributes.Emissive_Mult = shader.inputs['Emission Strength'].default_value
 
     #if ('BS_Shader_Block_Name' in mat) and (mat['BS_Shader_Block_Name'] == 'BSEffectShaderProperty'):
     #    if 'BSESP_Falloff_Start_Angle' in mat.keys():
@@ -401,7 +423,9 @@ def export_shader_attrs(obj, shader, shape):
     #else:
     #    if 'BSLSP_Shader_Type' in mat.keys():
     #        shape.shader_attributes.Shader_Type = int(mat['BSLSP_Shader_Type'])
-    #    shape.shader_attributes.Alpha = shader.inputs['Alpha'].default_value
+    if shape.shader_block_name == "BSLightingShaderProperty":
+        shape.shader_attributes.Alpha = shader.inputs['Alpha'].default_value
+        shape.shader_attributes.Glossiness = shader.inputs['Metallic'].default_value * GLOSS_SCALE
     #    if 'BSLSP_Refraction_Str' in mat.keys():
     #        shape.Refraction_Str = mat['BSLSP_Refraction_Str']
     #    shape.shader_attributes.Glossiness = shader.inputs['Metallic'].default_value * GLOSS_SCALE
@@ -642,7 +666,7 @@ def import_colors(mesh, shape):
         log.error(f"ERROR: Could not read colors on shape {shape.name}")
 
 
-def get_node_location(the_shape: NiShape):
+def get_node_location(the_shape: NiShape) -> Matrix:
     """ Returns location of the_shape ready for blender as a transform """
     try:
         if the_shape.has_skin_instance:
@@ -654,8 +678,9 @@ def get_node_location(the_shape: NiShape):
             if xform is None:
                 xform = the_shape.global_to_skin
             # log.debug(f"....Found transform {the_shape.global_to_skin} on {the_shape.name} in '{self.nif.filepath}'")
-            inv_xf = xform.invert()
-            return inv_xf
+            xf = xform.as_matrix()
+            xf.invert()
+            return xf
             #new_object.matrix_world = inv_xf.as_matrix()
             #new_object.location = inv_xf.translation
     except:
@@ -666,9 +691,9 @@ def get_node_location(the_shape: NiShape):
     # xf = the_shape.transform.invert()
     # new_object.matrix_world = xf.as_matrix() 
     # new_object.location = the_shape.transform.translation
-    log.debug(f". . shape {the_shape.name} transform: {the_shape.transform}")
     xf = the_shape.transform
-    return xf
+    log.debug(f". . shape {the_shape.name} transform: {xf}")
+    return xf.as_matrix()
     #new_object.matrix_world = the_shape.transform.invert().as_matrix()
     #new_object.location = the_shape.transform.translation
     #new_object.scale = [the_shape.transform.scale] * 3
@@ -810,41 +835,7 @@ class NifImporter():
         import_colors(new_mesh, the_shape)
 
         log.info(f". . import flags: {self.flags}")
-        xf = get_node_location(the_shape)
-        new_object.matrix_world = xf.as_matrix()
-        new_object.location = xf.translation.tuple
-        new_object.scale = [xf.scale] * 3
-
-        #if not the_shape.has_skin_instance:
-        #    # Statics get transformed according to the shape's transform
-        #    #new_object.scale = (the_shape.transform.scale, ) * 3
-        #    # xf = the_shape.transform.invert()
-        #    # new_object.matrix_world = xf.as_matrix() 
-        #    # new_object.location = the_shape.transform.translation
-        #    log.debug(f". . shape {the_shape.name} transform: {the_shape.transform}")
-        #    new_object.matrix_world = the_shape.transform.invert().as_matrix()
-        #    new_object.location = the_shape.transform.translation
-        #    new_object.scale = [the_shape.transform.scale] * 3
-        #    log.debug(f". . New object transform: \n{new_object.matrix_world}")
-        #else:
-        #    # Global-to-skin transform is what offsets all the vertices together, e.g. so that
-        #    # heads can be positioned at the origin. Put the reverse transform on the blender 
-        #    # object so they can be worked on in their skinned position.
-        #    # Use the one on the NiSkinData if it exists.
-        #    xform = the_shape.global_to_skin_data
-        #    if xform is None:
-        #        xform = the_shape.global_to_skin
-        #    log.debug(f"....Found transform {the_shape.global_to_skin} on {the_shape.name} in '{self.nif.filepath}'")
-        #    inv_xf = xform.invert()
-        #    new_object.matrix_world = inv_xf.as_matrix()
-        #    new_object.location = inv_xf.translation
-        #    #new_object.scale = [inv_xf.scale] * 3
-        #    #new_object.location = inv_xf.translation
-        #    # vv Use matrix here instead of conversion?
-        #    # And why does this work? Shouldn't this be in radians?
-        #    #new_object.rotation_euler = inv_xf.rotation.euler_deg()
-        #    #new_object.rotation_euler = inv_xf.rotation.euler()
-        #    log.debug(f"..Object {new_object.name} created at {new_object.location[:]}")
+        new_object.matrix_world = get_node_location(the_shape)
 
         if self.flags & self.ImportFlags.ROTATE_MODEL:
             log.info(f". . Rotating model to match blender")
@@ -891,16 +882,20 @@ class NifImporter():
     
         # use the transform in the file if there is one; otherwise get the 
         # transform from the reference skeleton
-        bone_xform = self.nif.get_node_xform_to_global(self.nif.nif_name(name)) 
+        xf = self.nif.get_node_xform_to_global(self.nif.nif_name(name)) 
+        bone_xform = transform_to_matrix(xf)
+        xft, xfr, xfs = bone_xform.decompose()
 
         bone = armdata.edit_bones.new(name)
-        bone.head = bone_xform.translation.tuple
+        bone.head = xft
         if self.nif.game in ("SKYRIM", "SKYRIMSE"):
-            rot_vec = bone_xform.rotation.by_vector((0.0, 0.0, 5.0))
+            rot_vec = Vector((0, 0, 5))
+            # bone_xform.rotation.by_vector((0.0, 0.0, 5.0))
         else:
-            rot_vec = bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
-        bone.tail = (bone.head[0] + rot_vec[0], bone.head[1] + rot_vec[1], bone.head[2] + rot_vec[2])
-        bone['pyxform'] = bone_xform.rotation.matrix # stash for later
+            rot_vec = Vector((5,0,0)) # bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
+        rot_vec.rotate(bone_xform)
+        bone.tail = bone.head + rot_vec
+        bone['pyxform'] = xfr # stash for later
 
         return bone
 
@@ -999,8 +994,9 @@ class NifImporter():
 
 
     def import_collision_shape(self, cs:CollisionShape, cb:bpy_types.Object):
-        # bpy.ops.object.add(type='MESH')
-        # obj = bpy.context.object
+        if cs.blockname != "bhkBoxShape":
+            return None
+
         m = bpy.data.meshes.new(cs.blockname)
         prop = cs.properties
         dx = prop.bhkDimensions[0] * HAVOC_SCALE_FACTOR
@@ -1053,11 +1049,11 @@ class NifImporter():
         #transl = rm.by_vector(p.translation[0:3])
         # cbody.rotation_euler = mathutils.Euler((p.rotation[0], p.rotation[2], p.rotation[1]), 'XYZ')
         # The rotation in the nif is a quaternion with the angle in the 4th position, in radians
-        log.debug(f"Found collision body with rotation: {p.rotation[:]}")
+        log.debug(f"Found collision body with properties: {p}")
         cbody.rotation_mode = 'QUATERNION'
         log.debug(f"Rotating collision body around quaternion {(p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2])}")
         cbody.rotation_quaternion = (p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2], )
-        cbody.location = list(map(lambda x: x * -HAVOC_SCALE_FACTOR, p.translation[0:3]))
+        cbody.location = Vector(p.translation[0:3]) * HAVOC_SCALE_FACTOR
 
         cs = cb.shape
         if cs:
@@ -1066,21 +1062,21 @@ class NifImporter():
         #log.debug(f"Loaded collision body {cbody.name} with properties {list(cbody.keys())}")
 
     def import_collision_obj(self, c:CollisionObject):
-        bpy.ops.object.add(radius=1.0, type='EMPTY')
-        col = bpy.context.object
-        col.name = c.blockname
-        col.show_name = True
-        col['pynFlags'] = bhkCOFlags(c.flags).fullname
-        col['pynTarget'] = c.target.name
+        if c.blockname == "bhkCollisionObject":
+            bpy.ops.object.add(radius=1.0, type='EMPTY')
+            col = bpy.context.object
+            col.name = c.blockname
+            col.show_name = True
+            col['pynFlags'] = bhkCOFlags(c.flags).fullname
+            col['pynTarget'] = c.target.name
 
-        # targ = bpy.data.objects[c.target.name]
-        xform = get_node_location(c.target)
-        col.matrix_world = xform.as_matrix()
-        col.location = xform.translation.tuple
+            # targ = bpy.data.objects[c.target.name]
+            col.matrix_world = get_node_location(c.target)
+            # col.location = xform.translation.tuple
 
-        cb = c.body
-        if cb:
-            self.import_collision_body(cb, col)
+            cb = c.body
+            if cb:
+                self.import_collision_body(cb, col)
 
     def import_collisions(self):
         """ Walk through the nif looking for collision objects and import them """
@@ -1568,18 +1564,18 @@ def get_bone_xforms(arma, bone_names, shape):
     """
     result = {}
     for b in arma.bones:
-        mat = MatTransform()
-        mat.translation = Vector(b.head_local)
+        loc = Vector(b.head_local)
         try:
-            mat.rotation = RotationMatrix((tuple(b['pyxform'][0]), 
-                                           tuple(b['pyxform'][1]), 
-                                           tuple(b['pyxform'][2])))
+            # Todo: Calc from relative head->tail locations)
+            rot = Quaternion(b['pyxform'])
         except:
             nif = shape.parent
             bone_xform = nif.get_node_xform_to_global(nif.nif_name(b.name)) 
-            mat.rotation = bone_xform.rotation
+            rot = Matrix([bone_xform.rotation[0][:], 
+                          bone_xform.rotation[1][:], 
+                          bone_xform.rotation[2][:]])
         
-        result[b.name] = mat
+        result[b.name] = Matrix.LocRotScale(loc, rot, [1,1,1])
     
     return result
 
@@ -1592,8 +1588,10 @@ def export_skin(obj, arma, new_shape, new_xform, weights_by_vert):
     #    new_shape.set_global_to_skindata(new_xform.invert())
     #else:
     #    new_shape.set_global_to_skin(new_xform.invert())
-    new_shape.transform = new_xform
-    new_shape.set_global_to_skin(new_xform.invert())
+    new_shape.transform = TransformBuf.from_matrix(new_xform)
+    newxfi = new_xform.copy()
+    newxfi.invert()
+    new_shape.set_global_to_skin(TransformBuf.from_matrix(newxfi))
     
     group_names = [g.name for g in obj.vertex_groups]
     weights_by_bone = get_weights_by_bone(weights_by_vert)
@@ -1605,7 +1603,7 @@ def export_skin(obj, arma, new_shape, new_xform, weights_by_vert):
         if bone_name in weights_by_bone and len(weights_by_bone[bone_name]) > 0:
             # print(f"..Shape {obj.name} exporting bone {bone_name} with rotation {bone_xform.rotation.euler_deg()}")
             nifname = new_shape.parent.nif_name(bone_name)
-            new_shape.add_bone(nifname, bone_xform)
+            new_shape.add_bone(nifname, TransformBuf.from_matrix(bone_xform))
             log.debug(f"....Adding bone {nifname}")
                 #nif.nodes[bone_name].xform_to_global)
             new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
@@ -1899,7 +1897,7 @@ class NifExporter:
             shape = collision shape in the nif object
             coordinates = center of the shape in Blender world coordinates) """ 
         cshape = None
-        center = mathutils.Vector()
+        center = Vector()
         for s in shape_list:
             try:
                 # Box covers the extent of the shape, whatever it is
@@ -1915,7 +1913,7 @@ class NifExporter:
                 halfspanx = (maxx - minx)/2
                 halfspany = (maxy - miny)/2
                 halfspanz = (maxz - minz)/2
-                center = mathutils.Vector([minx + halfspanx, miny + halfspany, minz + halfspanz])
+                center = Vector([minx + halfspanx, miny + halfspany, minz + halfspanz])
                 
                 p.bhkDimensions[0] = halfspanx / HAVOC_SCALE_FACTOR
                 p.bhkDimensions[1] = halfspany / HAVOC_SCALE_FACTOR
@@ -1930,8 +1928,8 @@ class NifExporter:
 
         return cshape, center
 
-    def get_collision_target(self, collisionobj) -> mathutils.Vector:
-        """ Return the location and rotation for the collision origin """
+    def get_collision_target(self, collisionobj) -> Matrix:
+        """ Return the world transform matrix for the collision target """
         # TODO: Should really do this off the target object, not the collision object.
         # Collision object is fine after an import because it matches, but user needs to
         # be able to create a new one
@@ -1946,33 +1944,35 @@ class NifExporter:
             cshape, ctr = self.export_collision_shape(nif, b.children)
             log.debug(f"Collision Center: {ctr}")
 
-            # Coll body can be anywhere. What matters is the location of the collision 
-            # shape relative to the collision target--that gets stored on the 
-            # collision body
-            targxf = self.get_collision_target(coll)
-            targloc, targq, targscale = targxf.decompose()
+            if cshape:
+                # Coll body can be anywhere. What matters is the location of the collision 
+                # shape relative to the collision target--that gets stored on the 
+                # collision body
+                targxf = self.get_collision_target(coll)
+                targloc, targq, targscale = targxf.decompose()
             
-            props = bhkRigidBodyProps(b)
-            props.rotation[0] = targq.x
-            props.rotation[1] = targq.y
-            props.rotation[2] = targq.z
-            props.rotation[3] = targq.w
-            log.debug(f"Target rotation: {targq.w}, {targq.x}, {targq.y}, {targq.z}")
+                props = bhkRigidBodyProps(b)
+                targq.invert()
+                props.rotation[0] = targq.x
+                props.rotation[1] = targq.y
+                props.rotation[2] = targq.z
+                props.rotation[3] = targq.w
+                log.debug(f"Target rotation: {targq.w}, {targq.x}, {targq.y}, {targq.z}")
 
-            rv = ctr - targloc
-            rv.rotate(targq)
-            log.debug(f"Body to center: {ctr - targloc}")
-            log.debug(f"Body to center rotated: {rv}")
-            # rv = bodq.invert().rotate(rv)
+                rv = ctr - targloc
+                rv.rotate(targq)
+                log.debug(f"Body to center: {ctr - targloc}")
+                log.debug(f"Body to center rotated: {rv}")
+                # rv = bodq.invert().rotate(rv)
 
-            props.translation[0] = (rv.x) / HAVOC_SCALE_FACTOR
-            props.translation[1] = (rv.y) / HAVOC_SCALE_FACTOR
-            props.translation[2] = (rv.z) / HAVOC_SCALE_FACTOR
-            props.translation[3] = 0
-            log.debug(f"In havoc units: {rv / HAVOC_SCALE_FACTOR}")
+                props.translation[0] = (rv.x) / HAVOC_SCALE_FACTOR
+                props.translation[1] = (rv.y) / HAVOC_SCALE_FACTOR
+                props.translation[2] = (rv.z) / HAVOC_SCALE_FACTOR
+                props.translation[3] = 0
+                log.debug(f"In havoc units: {rv / HAVOC_SCALE_FACTOR}")
 
-            log.debug(f"Writing collision body with translation: {props.translation[:]} and rotation {props.rotation[:]}")
-            body = nif.add_rigid_body("bhkRigidBodyT", props, cshape)
+                log.debug(f"Writing collision body with translation: {props.translation[:]} and rotation {props.rotation[:]}")
+                body = nif.add_rigid_body("bhkRigidBodyT", props, cshape)
         return body
 
     def export_collisions(self, nif:NifFile):
@@ -1981,14 +1981,14 @@ class NifExporter:
 
         for coll in self.collisions:
             body = self.export_collision_body(nif, coll.children, coll)
-            tn = coll['pynTarget']
-            try:
-                targ = nif.nodes[tn]
-                nif.add_collision(targ, targ, body, bhkCOFlags.parse(coll['pynFlags']).value)
-            except:
-                log.warning(f"Collision references object not included in export: {coll.name} -> {tn}")
-                self.warnings.add('WARNING')
-
+            if body:
+                tn = coll['pynTarget']
+                try:
+                    targ = nif.nodes[tn]
+                    nif.add_collision(targ, targ, body, bhkCOFlags.parse(coll['pynFlags']).value)
+                except:
+                    log.warning(f"Collision references object not included in export: {coll.name} -> {tn}")
+                    self.warnings.add('WARNING')
 
 
     def export_partitions(self, obj, weights_by_vert, tris):
@@ -2225,7 +2225,6 @@ class NifExporter:
             log.debug(f"...shape is headpart, shape keys = {nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))}")
 
         obj.data.update()
-        log.info("..Exporting to nif")
         norms_exp = norms_new
         has_msn = has_msn_shader(obj)
         if has_msn:
@@ -2238,6 +2237,7 @@ class NifExporter:
         if mat and 'BS_Shader_Block_Name' in mat:
             is_effectshader = (mat['BS_Shader_Block_Name'] == 'BSEffectShaderProperty')
 
+        log.debug(f"..Exporting to nif: {len(verts)} vertices, {len(tris)} tris")
         new_shape = nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_exp, 
                                             is_headpart, is_skinned, is_effectshader)
         if colors_new:
@@ -2263,13 +2263,14 @@ class NifExporter:
         if is_skinned:
             nif.createSkin()
 
-        new_xform = MatTransform();
-        new_xform.translation = Vector(obj.location)
-        #new_xform.rotation = RotationMatrix((obj.matrix_local[0][0:3], 
-        #                                     obj.matrix_local[1][0:3], 
-        #                                     obj.matrix_local[2][0:3]))
-        new_xform.rotation = RotationMatrix.from_euler_rad(*obj.rotation_euler[:])
-        new_xform.scale = obj.scale[0]
+        #new_xform = MatTransform();
+        #new_xform.translation = Vector(obj.location)
+        ##new_xform.rotation = RotationMatrix((obj.matrix_local[0][0:3], 
+        ##                                     obj.matrix_local[1][0:3], 
+        ##                                     obj.matrix_local[2][0:3]))
+        #new_xform.rotation = RotationMatrix.from_euler_rad(*obj.rotation_euler[:])
+        #new_xform.scale = obj.scale[0]
+        new_xform = obj.matrix_world.copy()
         
         if is_skinned:
             export_skin(obj, arma, new_shape, new_xform, weights_by_vert)
@@ -2286,7 +2287,7 @@ class NifExporter:
                 new_shape.set_partitions(partitions, tri_indices)
         else:
             log.debug(f"...Exporting {new_shape.name} with transform {new_xform}")
-            new_shape.transform = new_xform
+            new_shape.transform = TransformBuf.from_matrix(new_xform)
 
         retval |= export_tris(nif, trip, obj, verts, tris, uvmap_new, morphdict)
 
@@ -2546,11 +2547,13 @@ def run_tests():
 
         NifImporter.do_import(testfile)
 
+        # Check root info
         obj = bpy.context.object
         assert obj["pynRootNode_BlockType"] == 'BSFadeNode', "pynRootNode_BlockType holds the type of root node for the given shape"
         assert obj["pynRootNode_Name"] == "GlassBowSkinned.nif", "pynRootNode_Name holds the name for the root node"
         assert obj["pynRootNode_Flags"] == "SELECTIVE_UPDATE | SELECTIVE_UPDATE_TRANSF | SELECTIVE_UPDATE_CONTR", f"'pynRootNode_Flags' holds the flags on the root node: {obj['pynRootNode_Flags']}"
 
+        # Check collision info
         coll = find_shape('bhkCollisionObject')
         assert coll['pynFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
         assert coll['pynTarget'] == 'Bow_MidBone', f"'Target' names the object the collision affects, in this case a bone: {coll['pynTarget']}"
@@ -2559,11 +2562,14 @@ def run_tests():
         assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
         assert collbody['collisionFilter_layer'] == SkyrimCollisionLayer.WEAPON.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
         assert collbody["collisionResponse"] == hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
+        assert VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
 
         collshape = collbody.children[0]
         assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
         assert collshape['bhkMaterial'] == 'MATERIAL_BOWS_STAVES', f"Shape material is a custom property: {collshape['bhkMaterial']}"
         assert round(collshape['bhkRadius'],4) == 0.0136, f"Radius property available as custom property: {collshape['bhkRadius']}"
+        corner = map(abs, collshape.data.vertices[0].co)
+        assert VNearEqual(corner, [11.01445, 57.6582, 0.95413]), f"Collision shape in correct position: {corner}"
 
         bged = find_shape("BSBehaviorGraphExtraData")
         assert bged['BSBehaviorGraphExtraData_Value'] == "Weapons\Bow\BowProject.hkx", f"BGED node contains bow project: {bged['BSBehaviorGraphExtraData_Value']}"
@@ -2584,8 +2590,8 @@ def run_tests():
 
         # Move the edge of the collision box so it covers the bow better
         for v in collshape.data.vertices:
-            if v.co.x < 0:
-                v.co.x = -25 # -16.5
+            if v.co.x > 0:
+                v.co.x = 16.5
 
         exporter = NifExporter(outfile, 'SKYRIMSE')
         exporter.export([obj, coll, bged, strd, bsxf, invm])
@@ -2612,13 +2618,14 @@ def run_tests():
 
         # Full check of locations and rotations to make sure we got them right
         mbc_xf = nifcheck.get_node_xform_to_global("Bow_MidBone")
-        assert mbc_xf.translation == Vector([1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation)}"
-        assert Vector(mbc_xf.rotation.euler_deg()) == Vector([0, 0, -90]), f"Midbow rotation is correct: {Vector(mbc_xf.rotation.euler_deg())}"
+        assert VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
+        m = mbc_xf.as_matrix().to_euler()
+        assert VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
 
         bodycheck = collcheck.body
         p = bodycheck.properties
-        assert Vector(p.translation[0:3]) == Vector([0.0931, -0.0102, -0.0006]), f"Collision body translation is correct: {Vector(p.translation[0:3])}"
-        assert Vector(p.rotation[:]) == Vector([0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {str(Vector(p.rotation[:]))}"
+        assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
+        assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
 
 
     print("""

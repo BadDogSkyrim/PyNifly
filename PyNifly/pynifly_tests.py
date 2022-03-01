@@ -3,6 +3,7 @@
     This file is for older, standard regression tests.
 """
 
+from mathutils import Matrix, Vector, Quaternion
 from test_tools import *
 from pynifly import *
 from trihandler import *
@@ -35,40 +36,40 @@ def get_image_node(node_input):
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_BPY_ALL = False
-    TEST_EXP_BODY = True
-    TEST_IMP_NORMALS = True
-    TEST_COTH_DATA = True
-    TEST_MUTANT = True
-    TEST_RENAME = True
-    TEST_BONE_XPORT_POS = True
-    TEST_POT = True
-    TEST_3BBB = True
-    TEST_BAD_TRI = True
-    TEST_TIGER_EXPORT = True
-    TEST_EXPORT_HANDS = True
-    TEST_PARTITION_ERRORS = True
-    TEST_SCALING = True
-    TEST_POT = True
-    TEST_EXPORT = True
-    TEST_IMPORT_ARMATURE = True
-    TEST_EXPORT_WEIGHTS = True
-    TEST_IMP_EXP_SKY = True
-    TEST_IMP_EXP_FO4 = True
-    TEST_ROUND_TRIP = True
-    TEST_UV_SPLIT = True
-    TEST_CUSTOM_BONES = True
-    TEST_BPY_PARENT = True
-    TEST_BABY = True
-    TEST_CONNECTED_SKEL = True
-    TEST_TRI = True
-    TEST_0_WEIGHTS = True
-    TEST_SPLIT_NORMAL = True
-    TEST_SKEL = True
-    TEST_PARTITIONS = True
-    TEST_SEGMENTS = True
-    TEST_BP_SEGMENTS = True
-    TEST_ROGUE01 = True
-    TEST_ROGUE02 = True
+    TEST_EXP_BODY = False
+    TEST_IMP_NORMALS = False
+    TEST_COTH_DATA = False
+    TEST_MUTANT = False
+    TEST_RENAME = False
+    TEST_BONE_XPORT_POS = False
+    TEST_POT = False
+    TEST_3BBB = False
+    TEST_BAD_TRI = False
+    TEST_TIGER_EXPORT = False
+    TEST_EXPORT_HANDS = False
+    TEST_PARTITION_ERRORS = False
+    TEST_SCALING = False
+    TEST_POT = False
+    TEST_EXPORT = False
+    TEST_IMPORT_ARMATURE = False
+    TEST_EXPORT_WEIGHTS = False
+    TEST_IMP_EXP_SKY = False
+    TEST_IMP_EXP_FO4 = False
+    TEST_ROUND_TRIP = False
+    TEST_UV_SPLIT = False
+    TEST_CUSTOM_BONES = False
+    TEST_BPY_PARENT = False
+    TEST_BABY = False
+    TEST_CONNECTED_SKEL = False
+    TEST_TRI = False
+    TEST_0_WEIGHTS = False
+    TEST_SPLIT_NORMAL = False
+    TEST_SKEL = False
+    TEST_PARTITIONS = False
+    TEST_SEGMENTS = False
+    TEST_BP_SEGMENTS = False
+    TEST_ROGUE01 = False
+    TEST_ROGUE02 = False
     TEST_NORMAL_SEAM = True
     TEST_COLORS = True
     TEST_HEADPART = True
@@ -193,8 +194,9 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         for obj in bpy.context.selected_objects:
             if "MaleHeadIMF" in obj.name:
                 headLE = obj
-        assert len(headLE.active_material.node_tree.nodes) == 9, "ERROR: Didn't import images"
-        g = round(headLE.active_material.node_tree.nodes['Principled BSDF'].inputs['Metallic'].default_value, 4)
+        shadernodes = headLE.active_material.node_tree.nodes
+        assert len(shadernodes) == 9, "ERROR: Didn't import images"
+        g = shadernodes['Principled BSDF'].inputs['Metallic'].default_value
         assert round(g, 4) == 33/GLOSS_SCALE, f"Glossiness not correct, value is {g}"
         assert headLE.active_material['BSShaderTextureSet_2'] == r"textures\actors\character\male\MaleHead_sk.dds", f"Expected stashed texture path, found {headLE.active_material['BSShaderTextureSet_2']}"
 
@@ -404,11 +406,10 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/testsupermutantbody.nif")
         imp = NifImporter.do_import(testfile, NifImporter.ImportFlags.RENAME_BONES)
-        log.debug(f"Expected -140 z translation in first nif, got {imp.nif.shapes[0].global_to_skin.translation[2]}")
+        assert round(imp.nif.shapes[0].global_to_skin.translation[2]) == -140, f"Expected -140 z translation in first nif, got {imp.nif.shapes[0].global_to_skin.translation[2]}"
 
         sm1 = bpy.context.object
         assert round(sm1.location[2]) == 140, f"Expect first supermutant body at 140 Z, got {sm1.location[2]}"
-        assert round(imp.nif.shapes[0].global_to_skin.translation[2]) == -140, f"Expected -140 z translation in first nif, got {imp.nif.shapes[0].global_to_skin.translation[2]}"
 
         imp2 = NifImporter.do_import(testfile, NifImporter.ImportFlags.RENAME_BONES)
         sm2 = bpy.context.object
@@ -504,10 +505,10 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         exp = NifExporter.do_export(testout, "SKYRIM", bpy.data.objects[:])
         checknif = NifFile(testout)
         checkfoot = checknif.shape_dict['FootLowRes']
-        assert checkfoot.transform.rotation.matrix[0][0] == 1.0, f"ERROR: Foot rotation matrix not identity: {checkfoot.transform.rotation.matrix}"
+        assert checkfoot.transform.rotation[0][0] == 1.0, f"ERROR: Foot rotation matrix not identity: {checkfoot.transform}"
         assert checkfoot.transform.scale == 1.0, f"ERROR: Foot scale not correct: {checkfoot.transform.scale}"
         checkbase = checknif.shape_dict['basis3']
-        assert checkbase.transform.rotation.matrix[0][0] == 1.0, f"ERROR: Base rotation matrix not identity: {checkbase.transform.rotation.matrix}"
+        assert checkbase.transform.rotation[0][0] == 1.0, f"ERROR: Base rotation matrix not identity: {checkbase.transform.rotation}"
         assert checkbase.transform.scale == 10.0, f"ERROR: Base scale not correct: {checkbase.transform.scale}"
 
 
@@ -627,7 +628,8 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
                                                 the_armor.uvs,
                                                 the_armor.normals)
         new_armor.skin()
-        armor_gts = MatTransform((0.000256, 1.547526, -120.343582))
+        armor_gts = TransformBuf()
+        armor_gts.translation = (0.000256, 1.547526, -120.343582)
         new_armor.set_global_to_skin(armor_gts)
 
         for b in the_armor.bone_weights.keys():
@@ -654,10 +656,10 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
                                                 the_body.uvs,
                                                 the_body.normals)
         new_body.skin()
-        body_gts = MatTransform((0.000256, 1.547526, -120.343582))
+        body_gts = TransformBuf()
+        body_gts.translation = (0.000256, 1.547526, -120.343582)
         new_body.set_global_to_skin(body_gts)
 
-        no_transform = MatTransform()
         for b in the_body.bone_weights.keys():
             new_body.add_bone(b)
             new_body.setShapeWeights(b, the_body.bone_weights[b])
@@ -733,14 +735,14 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert os.path.exists(outfile1), "ERROR: Created output file"
 
         print("..Re-importing exported file")
-        NifImporter.do_import(outfile)
+        NifImporter.do_import(outfile1)
 
         armor2 = None
         for obj in bpy.context.selected_objects:
             if "Armor" in obj.name:
                 armor2 = obj
 
-        assert int(armor2.location.z) == 120, "ERROR: Exported armor is re-imported with same position"
+        assert int(armor2.location.z) == 120, f"ERROR: Exported armor is re-imported with same position: {armor2.location}"
         maxz = max([v.co.z for v in armor2.data.vertices])
         minz = min([v.co.z for v in armor2.data.vertices])
         assert maxz < 0 and minz > -130, "Error: Vertices from exported armor are positioned below origin"
@@ -816,8 +818,11 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         test_in = NifFile(outfile)
         new_xform = test_in.nodes['Bone_Cloth_H_003'].xform_to_global
-        assert bone_xform == new_xform, \
-            f"Error: Bone transform should not change. Expected\n {bone_xform}, found\n {new_xform}"
+        assert VNearEqual(bone_xform.translation, new_xform.translation), f"Error: Bone transform should not change. Expected\n {bone_xform}, found\n {new_xform}"
+        assert VNearEqual(bone_xform.rotation[0], new_xform.rotation[0]), f"Error: Bone rotation0 should not change. Expected\n {bone_xform}, found\n {new_xform}"
+        assert VNearEqual(bone_xform.rotation[1], new_xform.rotation[1]), f"Error: Bone rotation1 should not change. Expected\n {bone_xform}, found\n {new_xform}"
+        assert VNearEqual(bone_xform.rotation[2], new_xform.rotation[2]), f"Error: Bone rotation2 should not change. Expected\n {bone_xform}, found\n {new_xform}"
+        assert round(bone_xform.scale) == round(new_xform.scale), f"Error: Scale factors should not change. Expected {bone_xform.scale}, found {bone_xform.scale}"
 
     if TEST_BPY_PARENT:
         print('### Maintain armature structure')
@@ -1097,9 +1102,9 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         nif2 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_NORMAL_SEAM_Dog.nif"))
         shape2 = nif2.shapes[0]
-        target_vert = [i for i, v in enumerate(shape2.verts) if VNearEqual(v, (0.0, 8.0, 9.3))]
+        target_vert = [i for i, v in enumerate(shape2.verts) if VNearEqual(v, (0.00037, 7.9961, 9.34375))]
 
-        assert len(target_vert) == 2, "Expect vert to have been split"
+        assert len(target_vert) == 2, f"Expect vert to have been split: {target_vert}"
         assert VNearEqual(shape2.normals[target_vert[0]], shape2.normals[target_vert[1]]), f"Normals should be equal: {shape2.normals[target_vert[0]]} != {shape2.normals[target_vert[1]]}" 
 
 
@@ -1488,7 +1493,8 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert "LykaiosBody" in nifcheck.shape_dict.keys(), f"Expected LykaiosBody shape, found {[s.name for s in nifcheck.shapes]}"
         bodycheck = nifcheck.shape_dict["LykaiosBody"]
 
-        assert int(bodycheck.transform.rotation.euler_deg()[0]) == 90.0, f"Expected 90deg rotation, got {bodycheck.transform.rotation.euler_deg()}"
+        m = Matrix(bodycheck.transform.rotation)
+        assert int(m.to_euler()[0]*180/pi) == 90, f"Expected 90deg rotation, got {m.to_euler()}"
 
 
     if TEST_ROTSTATIC2:
