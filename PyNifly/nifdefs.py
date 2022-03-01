@@ -7,6 +7,11 @@ import struct
 from enum import Enum, IntFlag, IntEnum
 from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer, addressof
 
+
+# We do not actually support all these versions
+game_versions = ["FO3", "FONV", "SKYRIM", "FO4", "SKYRIMSE", "FO4VR", "SKYRIMVR", "FO76"]
+
+
 class PynIntFlag(IntFlag):
     @property
     def fullname(self):
@@ -91,8 +96,21 @@ class pynStructure(Structure):
         for attr in self._fields_:
             if len(s) > 0:
                 s = s + "\n"
-            s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
+            v = getattr(self, attr[0])
+            if type(v) in [VECTOR3, VECTOR4, VECTOR12]:
+                s = s + f"\t{attr[0]} = {v[:]}"
+            elif type(v) == MATRIX3:
+                s = s + f"\t{attr[0]} = {v[0][:]}, {v[1][:]}, {v[2][:]}"
+            else:
+                s = s + f"\t{attr[0]} = {v}"
         return s
+
+    def copy(self):
+        """ Return a copy of the object """
+        n = self.__class__()
+        for f, t in self._fields_:
+            n.__setattr__(f, self.__getattribute__(f))
+        return n
 
     def extract(self, shape, ignore=[]):
         """ Extract fields to the dictionary-like object 'shape' """
@@ -133,6 +151,31 @@ class pynStructure(Structure):
             except Exception as e:
                     print(e)
                 #log.error(f"Cannot load value {v} of type {t.__name__} into field {f} of object {shape.name}")
+
+
+class TransformBuf(pynStructure):
+    _fields_ = [
+        ('translation', VECTOR3),
+        ('rotation', MATRIX3),
+        ('scale', c_float) ]
+
+    def set_identity(self):
+        self.translation = VECTOR3(0, 0, 0)
+        self.rotation = MATRIX3((0,0,0), (0,0,0), (0,0,0))
+        self.scale = 1
+        return self
+
+    def store(self, transl, rot, scale):
+        """ Fill buffer from translation, rotation, scale """
+        self.translation[0] = transl[0]
+        self.translation[1] = transl[1]
+        self.translation[2] = transl[2]
+        self.rotation = rot
+        self.scale = max(scale)
+
+    def read(self):
+        """ Return translation buffer as translation, rotation, scale """
+        return (self.translation, self.rotation, [self.scale]*3)
 
 
 # Types of root nodes
@@ -270,7 +313,7 @@ class BSLSPAttrs(pynStructure):
 
 BSLSPAttrs_p = POINTER(BSLSPAttrs)
 
-class BSESPAttrs(Structure):
+class BSESPAttrs(pynStructure):
     _fields_ = [
 	    ('Shader_Flags_1', c_uint32),
 	    ('Shader_Flags_2', c_uint32),
@@ -723,6 +766,11 @@ class bhkBoxShapeProps(pynStructure):
 class VERTEX_WEIGHT_PAIR(Structure):
     _fields_ = [("vertex", c_uint16),
                 ("weight", c_float)]
+
+#class MAT_TRANSFORM(Structure):
+#    _fields_ = [("translation", VECTOR3),
+#                ("rotation", MATRIX3),
+#                ("scale", c_float)]
 
 # There are 64 Skyrim units in a yard and havok works in metres, so:
 HAVOC_SCALE_FACTOR = HSF = 69.99125
