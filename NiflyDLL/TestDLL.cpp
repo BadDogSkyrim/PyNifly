@@ -37,6 +37,22 @@ bool TApproxEqual(Vector3 first, Vector3 second) {
 		&& TApproxEqual(first.z, second.z);
 };
 
+void* TFindNode(void* nif, const char* targetName) {
+	int nodeCount = getNodeCount(nif);
+	void* nodes[50];
+	getNodes(nif, nodes);
+
+	for (int i = 0; i < nodeCount; i++) {
+		char nodename[128];
+		getNodeName(nodes[i], nodename, 128);
+		if (strcmp(nodename, targetName) == 0) {
+			return nodes[i];
+		};
+	};
+
+	return nullptr;
+};
+
 int TGetWeightsFor(
 		NifFile* nif, NiShape* shape, Vector3 targetVert,
 		std::unordered_map<std::string, float>& result)
@@ -2566,25 +2582,14 @@ namespace NiflyDLLTests
 				Assert::IsTrue(segtriCheck[i] == trimap[i], L"Tris in resulting nif match original");
 		};
 		TEST_METHOD(readCollisions) {
-			/* Test we can read and write collisions */
-			void* nif = load((testRoot / "SkyrimSE/glassbowskinned.nif").u8string().c_str());
-			int nodeCount = getNodeCount(nif);
-			void** nodes = new void* [nodeCount];
-			getNodes(nif, nodes);
+			/* Test we can read and write collisions (and other nodes in bow file */
+			void* nif = load((testRoot / "SkyrimSE/meshes/weapons/glassbowskinned.nif").u8string().c_str());
 
-			void* bow_midbone;
-			void* coll = nullptr;
-			for (int i=0; i < nodeCount; i++) {
-				char nodename[128];
-				getNodeName(nodes[i], nodename, 128);
-				if (strcmp(nodename, "Bow_MidBone") == 0) {
-					bow_midbone = nodes[i];
-					coll = getCollision(nif, nodes[i]);
-					char collname[128];
-					getCollBlockname(coll, collname, 128);
-					Assert::IsTrue(strcmp(collname, "bhkCollisionObject") == 0, L"Found a bhkCollisionObject");
-				};
-			};
+			void* bow_midbone = TFindNode(nif, "Bow_MidBone");
+			void* coll = getCollision(nif, bow_midbone);
+			char collname[128];
+			getCollBlockname(coll, collname, 128);
+			Assert::IsTrue(strcmp(collname, "bhkCollisionObject") == 0, L"Found a bhkCollisionObject");
 
 			int bodyID = getCollBodyID(nif, coll);
 			char bodyname[128];
@@ -2619,22 +2624,20 @@ namespace NiflyDLLTests
 			void* rootNodeOUt = getRoot(nifOut);
 			setNodeFlags(rootNodeOUt, 14);
 
-			void* bowMidboneOut = nullptr;
-			void* nodesOut[50];
-			int nodeCountOut = getNodeCount(nifOut);
-			getNodes(nifOut, nodesOut);
-			for (int i = 0; i < nodeCountOut; i++) {
-				char buf[128];
-				getNodeName(nodesOut[i], buf, 128);
-				if (strcmp(buf, "Bow_MidBone") == 0) {
-					bowMidboneOut = nodesOut[i];
-					break;
-				};
-			};
+			int rotbuf[3];
+			float zoombuf;
+			setBSXFlags(nifOut, "BSX", 202);
+			rotbuf[0] = 4712;
+			rotbuf[1] = 0;
+			rotbuf[2] = 785;
+			zoombuf = 1.127286;
+			setInvMarker(nifOut, "INV", rotbuf, &zoombuf);
+
+			void* bowMidboneOut = TFindNode(nifOut, "Bow_MidBone");
 
 			int boxOutID = addCollBoxShape(nifOut, &boxbuf);
 			int rbOutID = addRigidBody(nifOut, boxOutID, &bodyprops);
-			int collOut = addCollision(nifOut, bowMidboneOut, rbOutID, 129);
+			void* collOut = addCollision(nifOut, bowMidboneOut, rbOutID, 129);
 
 			// Now we can save the collision
 			saveSkinnedNif(skinOut, (testRoot / "Out/readCollisions.nif").u8string().c_str());
@@ -2655,6 +2658,39 @@ namespace NiflyDLLTests
 			Assert::IsTrue(strcmp(rootBlockname, "BSFadeNode") == 0, L"Wrote a FadeNode");
 			flags = getNodeFlags(rootNodeCheck);
 			Assert::IsTrue(flags == 14, L"Wrote the noode flags correctly");
+
+			char invbufcheck[128];
+			int rotcheck[3];
+			float zoomcheck;
+			getInvMarker(nifcheck, invbufcheck, 128, rotcheck, &zoomcheck);
+			Assert::IsTrue(strcmp(invbufcheck, "INV") == 0, L"BSInvMarker name is set");
+			Assert::IsTrue(rotcheck[0] == 4712, L"BSInvMarker rotation is set");
+
+			int bsxflagscheck;
+			Assert::IsTrue(getBSXFlags(nifcheck, &bsxflagscheck), L"BSX Flags present");
+			Assert::IsTrue(bsxflagscheck == 202, L"BSX Flags correct");
+
+			void* bowMidboneCheck = TFindNode(nifcheck, "Bow_MidBone");
+
+			void* collCheck = getCollision(nifcheck, bowMidboneCheck);
+			char collnameCheck[128];
+			getCollBlockname(collCheck, collnameCheck, 128);
+			Assert::IsTrue(strcmp(collnameCheck, "bhkCollisionObject") == 0, L"Found a bhkCollisionObject");
+
+			int bodyIDCheck = getCollBodyID(nifcheck, collCheck);
+			char bodynameCheck[128];
+			getCollBodyBlockname(nifcheck, bodyIDCheck, bodynameCheck, 128);
+			Assert::IsTrue(strcmp(bodynameCheck, "bhkRigidBodyT") == 0, L"Can read body blockname");
+
+			BHKRigidBodyBuf bodypropsCheck;
+			getRigidBodyProps(nifcheck, bodyIDCheck, &bodypropsCheck);
+			Assert::IsTrue(bodypropsCheck.collisionFilter_layer == 5, L"Collision filter layer correct");
+			Assert::IsTrue(bodypropsCheck.collisionResponse == 1, L"Can read the collision response field");
+			Assert::IsTrue(bodypropsCheck.motionSystem == 3, L"Can read the motion system field");
+
+			BHKBoxShapeBuf boxbufCheck;
+			int boxIDCheck = getRigidBodyShapeID(nifcheck, bodyIDCheck);
+			getCollShapeProps(nifcheck, boxIDCheck, &boxbufCheck);
 		};
 	};
 }

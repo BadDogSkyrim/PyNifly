@@ -64,3 +64,8 @@ def remove_file(fn):
     if os.path.exists(fn):
         os.remove(fn)
 
+def find_shape(name_prefix):
+    for o in bpy.data.objects:
+        if o.name.startswith(name_prefix):
+            return o
+    return None

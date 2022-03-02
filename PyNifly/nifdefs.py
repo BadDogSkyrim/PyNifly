@@ -7,17 +7,225 @@ import struct
 from enum import Enum, IntFlag, IntEnum
 from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer, addressof
 
+
+# We do not actually support all these versions
+game_versions = ["FO3", "FONV", "SKYRIM", "FO4", "SKYRIMSE", "FO4VR", "SKYRIMVR", "FO76"]
+
+
+class PynIntFlag(IntFlag):
+    @property
+    def fullname(self):
+        s = []
+        for f in type(self):
+            if f in self:
+                s.append(f)
+        return " | ".join(list(map(lambda x: x.name, s)))
+
+    @classmethod
+    def parse(cls, value):
+        valuelist = value.split(" | ")
+        flags = 0
+        for v in valuelist:
+            flags |= cls[v]
+        return flags
+
+
 VECTOR3 = c_float * 3
 VECTOR4 = c_float * 4
 VECTOR6_SHORT = c_uint16 * 6
 VECTOR12 = c_float * 12
 MATRIX3 = VECTOR3 * 3
 
+class pynStructure(Structure):
+    def load(self, shape, ignore=[]):
+        """ Load fields from the dictionary-like object 'shape' """
+        for f, t in self._fields_:
+            v = None
+            try:
+                if f in ignore:
+                    pass
+                elif not (f in shape.keys()):
+                    pass
+                elif f == 'Shader_Flags_1':
+                    v = ShaderFlags1.parse(shape[f]).value
+                elif f == 'Shader_Flags_2':
+                    v = ShaderFlags2.parse(shape[f]).value
+                elif f == 'Shader_Type':
+                    v = BSLSPShaderType[shape[f]].value
+                elif f == 'collisionFilter_layer' or f == 'collisionFilterCopy_layer':
+                    v = SkyrimCollisionLayer[shape[f]].value
+                elif f == 'broadPhaseType':
+                    v = BroadPhaseType[shape[f]].value
+                elif f == 'collisionResponse':
+                    v = hkResponseType[shape[f]].value
+                elif f == 'motionSystem':
+                    v = hkMotionType[shape[f]].value
+                elif f == 'deactivatorType':
+                    v = hkDeactivatorType[shape[f]].value
+                elif f == 'solverDeactivation': 
+                    v = hkSolverDeactivation[shape[f]].value
+                elif f == 'qualityType':
+                    v = hkQualityType[shape[f]].value
+                elif f == 'bhkMaterial':
+                    v = SkyrimHavokMaterial[shape[f]].value
+                elif t.__name__ == 'c_float_Array_4':
+                    v = VECTOR4(*eval(shape[f]))
+                elif t.__name__ == 'c_float_Array_12':
+                    v = VECTOR12(*eval(shape[f]))
+                elif t.__name__ == 'c_ushort_Array_6':
+                    v = VECTOR6_SHORT(*eval(shape[f]))
+                elif t.__name__ == 'c_float':
+                    v = float(shape[f])
+                elif t.__name__ in ['c_ubyte', 'c_ulong', 'c_uint32', 'c_ulong', 'c_ulonglong']:
+                    v = int(shape[f])
+                else:
+                    v = shape[f]
+                if v:
+                    self.__setattr__(f, v)
+            except Exception as e:
+                pass
+
+    def __init__(self, values=None):
+        super().__init__()
+        self.load(bhkRigidBodyProps_Defaults)
+        if values:
+            self.load(values)
+
+    def __str__(self):
+        s = ""
+        for attr in self._fields_:
+            if len(s) > 0:
+                s = s + "\n"
+            v = getattr(self, attr[0])
+            if type(v) in [VECTOR3, VECTOR4, VECTOR12]:
+                s = s + f"\t{attr[0]} = {v[:]}"
+            elif type(v) == MATRIX3:
+                s = s + f"\t{attr[0]} = {v[0][:]}, {v[1][:]}, {v[2][:]}"
+            else:
+                s = s + f"\t{attr[0]} = {v}"
+        return s
+
+    def copy(self):
+        """ Return a copy of the object """
+        n = self.__class__()
+        for f, t in self._fields_:
+            n.__setattr__(f, self.__getattribute__(f))
+        return n
+
+    def extract(self, shape, ignore=[]):
+        """ Extract fields to the dictionary-like object 'shape' """
+        for f, t in self._fields_:
+            v = None
+            if f in ignore:
+                pass
+            elif f == 'Shader_Flags_1':
+                v = ShaderFlags1(self.Shader_Flags_1).fullname
+            elif f == 'Shader_Flags_2': 
+                v = ShaderFlags2(self.Shader_Flags_2).fullname
+            elif f == 'Shader_Type':
+                v = BSLSPShaderType(self.Shader_Type).name
+            elif f in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
+                v = SkyrimCollisionLayer(self.__getattribute__(f)).name
+            elif f == 'broadPhaseType':
+                v = BroadPhaseType(self.broadPhaseType).name
+            elif f == 'collisionResponse':
+                v = hkResponseType(self.collisionResponse).name
+            elif f == 'motionSystem':
+                v = hkMotionType(self.motionSystem).name
+            elif f == 'deactivatorType':
+                v = hkDeactivatorType(self.deactivatorType).name
+            elif f == 'solverDeactivation': 
+                v = hkSolverDeactivation(self.solverDeactivation).name
+            elif f == 'qualityType':
+                v = hkQualityType(self.qualityType).name
+            elif t.__name__.startswith('c_float_Array') or t.__name__.startswith('c_ushort_Array'):
+                v = repr(self.__getattribute__(f)[:])
+            elif t.__name__ in ['c_uint32', 'c_uint64', 'c_ulong', 'c_ulonglong']:
+                v = repr(self.__getattribute__(f))
+            else:
+                v = self.__getattribute__(f)
+        
+            try:
+                if v:
+                    shape[f] = v
+            except Exception as e:
+                    print(e)
+                #log.error(f"Cannot load value {v} of type {t.__name__} into field {f} of object {shape.name}")
+
+
+class TransformBuf(pynStructure):
+    _fields_ = [
+        ('translation', VECTOR3),
+        ('rotation', MATRIX3),
+        ('scale', c_float) ]
+
+    def set_identity(self):
+        self.translation = VECTOR3(0, 0, 0)
+        self.rotation = MATRIX3((0,0,0), (0,0,0), (0,0,0))
+        self.scale = 1
+        return self
+
+    def store(self, transl, rot, scale):
+        """ Fill buffer from translation, rotation, scale """
+        self.translation[0] = transl[0]
+        self.translation[1] = transl[1]
+        self.translation[2] = transl[2]
+        self.rotation = rot
+        self.scale = max(scale)
+
+    def read(self):
+        """ Return translation buffer as translation, rotation, scale """
+        return (self.translation, self.rotation, [self.scale]*3)
+
+
 # Types of root nodes
 RT_NINODE = 0
 RT_BSFADENODE = 1
 
-class BSLSPAttrs(Structure):
+class RootFlags(PynIntFlag):
+    HIDDEN = 1
+    SELECTIVE_UPDATE = 1 << 1
+    SELECTIVE_UPDATE_TRANSF = 1 << 2
+    SELECTIVE_UPDATE_CONTR = 1 << 3
+    SELECTIVE_UPDATE_RIGID = 1 << 4
+    DISPLAY_OBJECT = 1 << 5
+    DISABLE_SORTING = 1 << 6
+    SEL_UPD_TRANSF_OVERRIDE = 1 << 7
+    SAVE_EXT_GEOM_DATA = 1 << 9
+    NO_DECALS = 1 << 10
+    ALWAYS_DRAW = 1 << 11
+    MESH_LOD = 1 << 12
+    FIXED_BOUND = 1 << 13
+    TOP_FADE_NODE = 1 << 14
+    IGNORE_FADE = 1 << 15
+    NO_ANIM_SYNC_X = 1 << 16
+    NO_ANIM_SYNC_Y = 1 << 17
+    NO_ANIM_SYNC_Z = 1 << 18
+    NO_ANIM_SYNC_S = 1 << 19
+    NO_DISMEMBER = 1 << 20
+    NO_DISMEMBER_VALIDITY = 1 << 21
+    RENDER_USE = 1 << 22
+    MATERIALS_APPLIED = 1 << 23
+    HIGH_DETAIL = 1 << 24
+    FORCE_UPDATE = 1 << 25
+    PREPROCESSED_NODE = 1 << 26
+
+class BSXFlags(PynIntFlag):
+    ANIMATED = 1
+    HAVOC = 1 << 1
+    RAGDOLL = 1 << 2
+    COMPLEX = 1 << 3
+    ADDON = 1 << 4
+    EDITOR_MARKER = 1 << 5
+    DYNAMIC = 1 << 6
+    ARTICULATED = 1 << 7
+    NEEDS_XFORM_UPDATES = 1 << 8
+    EXTERNAL_EMIT = 1 << 9
+    MAGIC_SHADER_PARTICLES = 1 << 10
+    LIGHTS = 1 << 11
+    BREAKABLE = 1 << 12
+
+class BSLSPAttrs(pynStructure):
     _fields_ = [
 	    ('Shader_Type', c_uint32),
 	    ('Shader_Flags_1', c_uint32),
@@ -105,7 +313,7 @@ class BSLSPAttrs(Structure):
 
 BSLSPAttrs_p = POINTER(BSLSPAttrs)
 
-class BSESPAttrs(Structure):
+class BSESPAttrs(pynStructure):
     _fields_ = [
 	    ('Shader_Flags_1', c_uint32),
 	    ('Shader_Flags_2', c_uint32),
@@ -194,9 +402,9 @@ class BSLSPShaderType(IntFlag):
     Cloud = 17
     LOD_Landscape_Noise = 18
     Multitexture_Landscape_LOD_Blend = 19
-    FO4_Dismembermen = 20
+    FO4_Dismemberment = 20
 
-class ShaderFlags1(IntFlag):
+class ShaderFlags1(PynIntFlag):
     SPECULAR = 1 << 0
     SKINNED = 1 << 1
     TEMP_REFRACTION = 1 << 2
@@ -228,9 +436,9 @@ class ShaderFlags1(IntFlag):
     PARALLAX_OCCLUSION = 1 << 28
     EXTERNAL_EMITTANCE = 1 << 29
     SOFT_EFFECT = 1 << 30
-    ZBUFFER_TES = 1 << 31
+    ZBUFFER_TEST = 1 << 31
 
-class ShaderFlags2(IntFlag):
+class ShaderFlags2(PynIntFlag):
     ZBUFFER_WRITE = 1
     LOD_LANDSCAPE = 1 << 1
     LOD_OBJECTS = 1 << 2
@@ -269,7 +477,8 @@ class AlphaPropertyBuf(Structure):
 
 AlphaPropertyBuf_p = POINTER(AlphaPropertyBuf)
 
-class bhkCOFlags(IntFlag):
+    
+class bhkCOFlags(PynIntFlag):
     ACTIVE = 1
     NOTIFY = 1 << 2
     SET_LOCAL = 1 << 3
@@ -281,22 +490,115 @@ class bhkCOFlags(IntFlag):
     DISMEMBERED_LIMB = 1 << 11
 
 class hkResponseType(IntEnum):
-    RESPONSE_INVALID = 0
-    RESPONSE_SIMPLE_CONTACT = 1
-    RESPONSE_REPORTING = 2
-    RESPONSE_NONE = 3
+    INVALID = 0
+    SIMPLE_CONTACT = 1
+    REPORTING = 2
+    NONE = 3
+
+class BroadPhaseType(IntEnum):
+    INVALID = 0
+    ENTITY =  1
+    PHANTOM = 2
+    BORDER = 3
 
 class hkMotionType(IntEnum):
-    MO_SYS_INVALID = 0,
-    MO_SYS_DYNAMIC = 1,
-    MO_SYS_SPHERE_INERTIA = 2,
-    MO_SYS_SPHERE_STABILIZED = 3,
-    MO_SYS_BOX_INERTIA = 4,
-    MO_SYS_BOX_STABILIZED = 5, 
-    MO_SYS_KEYFRAMED = 6,
-    MO_SYS_FIXED = 7,
-    MO_SYS_THIN_BOX = 8,
-    MO_SYS_CHARACTER = 9
+    INVALID = 0,
+    DYNAMIC = 1,
+    SPHERE_INERTIA = 2,
+    SPHERE_STABILIZED = 3,
+    BOX_INERTIA = 4,
+    BOX_STABILIZED = 5, 
+    KEYFRAMED = 6,
+    FIXED = 7,
+    THIN_BOX = 8,
+    CHARACTER = 9
+
+class SkyrimCollisionLayer(IntEnum):
+    UNIDENTIFIED = 0
+    STATIC = 1
+    ANIMSTATIC = 2
+    TRANSPARENT = 3
+    CLUTTER = 4
+    WEAPON = 5
+    PROJECTILE = 6
+    SPELL = 7
+    BIPED = 8
+    TREES = 9
+    PROPS = 10
+    WATER = 11
+    TRIGGER = 12
+    TERRAIN = 13
+    TRAP = 14
+    NONCOLLIDABLE = 15
+    CLOUD_TRAP = 16
+    GROUND = 17
+    PORTAL = 18
+    DEBRIS_SMALL = 19
+    DEBRIS_LARGE = 20
+    ACOUSTIC_SPACE = 21
+    ACTORZONE = 22
+    PROJECTILEZONE = 23
+    GASTRAP = 24
+    SHELLCASING = 25
+    TRANSPARENT_SMALL = 26
+    INVISIBLE_WALL = 27
+    TRANSPARENT_SMALL_ANIM = 28
+    WARD = 29
+    CHARCONTROLLER = 30
+    STAIRHELPER = 31
+    DEADBIP = 32
+    BIPED_NO_CC = 33
+    AVOIDBOX = 34
+    COLLISIONBOX = 35
+    CAMERASHPERE = 36
+    DOORDETECTION = 37
+    CONEPROJECTILE = 38
+    CAMERAPICK = 39
+    ITEMPICK = 40
+    LINEOFSIGHT = 41
+    PATHPICK = 42
+    CUSTOMPICK1 = 43
+    CUSTOMPICK2 = 44
+    SPELLEXPLOSION = 45
+    DROPPINGPICK = 46
+    NULL = 47
+
+class hkQualityType(IntEnum):
+    INVALID = 0
+    FIXED = 1
+    KEYFRAMED = 2
+    DEBRIS = 3
+    MOVING = 4
+    CRITICAL = 5
+    BULLET = 6
+    USER = 7
+    CHARACTER = 8
+    KEYFRAMED_REPORT = 9
+
+class hkDeactivatorType(IntEnum):
+    INVALID = 0
+    NEVER = 1
+    SPATIAL = 2
+
+class hkSolverDeactivation(IntEnum):
+    INVALID = 0
+    OFF = 1
+    LOW = 2
+    MEDIUM = 3
+    HIGH = 4
+    MAX = 5
+
+class hkQualityType(IntEnum):
+    INVALID = 0
+    FIXED = 1
+    KEYFRAMED = 2
+    DEBRIS = 3
+    MOVING = 4
+    CRITICAL = 5
+    BULLET = 6
+    USER = 7
+    CHARACTER = 8
+    KEYFRAMED_REPORT = 9
 
 class SkyrimHavokMaterial(IntEnum):
     BROKEN_STONE = 131151687
@@ -361,10 +663,56 @@ class SkyrimHavokMaterial(IntEnum):
     UNKNOWN_4239621792 = 4239621792
     MATERIAL_BOULDER_MEDIUM = 4283869410
 
+bhkRigidBodyProps_Defaults = {
+    'collisionFilter_layer': "STATIC",
+	'collisionFilter_flags': 0,
+	'collisionFilter_group': 0,
+	'broadPhaseType': 0,
+	'prop_data': 0, 
+	'prop_size': 0,
+	'prop_flags': 0,
+    "collisionResponse": "SIMPLE_CONTACT",
+    "processContactCallbackDelay": 0xFFFF,
+    "collisionFilterCopy_layer": "STATIC",
+    "collisionFilterCopy_flags": 0,
+    "collisionFilterCopy_group": 0,
+    "linearVelocity": (0, 0, 0, 0),
+    "angularVelocity": (0, 0, 0, 0),
+    "inertiaMatrix": [0] * 12,
+    "center": (0, 0, 0, 0),
+    "mass": 1.0,
+    "linearDamping": 0.1,
+    "angularDamping": 0.05,
+    "timeFactor": 1.0,
+    "gravityFactor": 1.0,
+    "friction": 0.5,
+    "rollingFrictionMult": 1.0,
+    'restitution': 0.4, 
+    'maxLinearVelocity': 104.4, 
+    'maxAngularVelocity': 31.57, 
+    'penetrationDepth': 0.15,
+    'motionSystem': 1,
+    'deactivatorType': 1,
+    'solverDeactivation': 1, 
+    'qualityType': 1,
+    'autoRemoveLevel': 0,
+    'responseModifierFlag': 0,
+    'numShapeKeysInContactPointProps': 0, 
+    'forceCollideOntoPpu': 0,
+    'bodyFlagsInt': 0,
+    'bodyFlags': 0,
+    'guard': 0x0F0F0F0F }
 
-class bhkRigidBodyProps(Structure):
+class bhkRigidBodyProps(pynStructure):
     _fields_ = [
-        ('responseType', c_uint8),
+        ('collisionFilter_layer', c_uint8),
+	    ('collisionFilter_flags', c_uint8),
+	    ('collisionFilter_group', c_uint16),
+	    ('broadPhaseType', c_uint8),
+	    ('prop_data', c_uint32),    
+	    ('prop_size', c_uint32),
+	    ('prop_flags', c_uint32),
+        ('collisionResponse', c_uint8),
         ('unusedByte1', c_uint8),
         ('processContactCallbackDelay', c_uint16),
         ('unkInt1', c_uint32),
@@ -407,26 +755,40 @@ class bhkRigidBodyProps(Structure):
         ('bodyFlags', c_uint16),
         ('guard', c_uint64)]
 
-    def __init__(self):
-        self.guard = 0xF0F0F0F0
 
-    def __str__(self):
-        s = ""
-        for attr in self._fields_:
-            if len(s) > 0:
-                s = s + "\n"
-            s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
-        return s
-
-class bhkBoxShapeProps(Structure):
+class bhkBoxShapeProps(pynStructure):
     _fields_ = [
-        ("material", c_uint32),
-        ("radius", c_float),
-        ("dimensions", VECTOR3),
-        ("unused", c_float)]
+        ("bhkMaterial", c_uint32),
+        ("bhkRadius", c_float),
+        ("bhkDimensions", VECTOR3),
+        ("bhkUnused", c_float)]
 
 class VERTEX_WEIGHT_PAIR(Structure):
     _fields_ = [("vertex", c_uint16),
                 ("weight", c_float)]
 
+#class MAT_TRANSFORM(Structure):
+#    _fields_ = [("translation", VECTOR3),
+#                ("rotation", MATRIX3),
+#                ("scale", c_float)]
 
+# There are 64 Skyrim units in a yard and havok works in metres, so:
+HAVOC_SCALE_FACTOR = HSF = 69.99125
+
+if __name__ == "__main__":
+    print("---------TEST Loader--------")
+
+    p = bhkRigidBodyProps({"maxLinearVelocity": 555})
+    assert round(p.maxLinearVelocity, 4) == 555, f"Expected 555, found {p.maxLinearVelocity}"
+
+    p = bhkRigidBodyProps()
+    assert round(p.maxLinearVelocity, 4) == 104.4, f"Expected default value 104.4, found {p.maxLinearVelocity}"
+    assert p.collisionFilter_layer == SkyrimCollisionLayer.STATIC.value
+
+    s = {"prop_size": 10,
+         "collisionFilter_layer": "WEAPON"}
+
+    p.load(s)
+
+    assert p.prop_size == 10
+    assert p.collisionFilter_layer == 5

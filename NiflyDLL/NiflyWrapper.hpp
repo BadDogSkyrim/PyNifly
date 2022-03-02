@@ -283,6 +283,13 @@ struct AlphaPropertyBuf {
 };
 
 struct BHKRigidBodyBuf {
+	uint8_t collisionFilter_layer;
+	uint8_t collisionFilter_flags;
+	uint16_t collisionFilter_group;
+	uint8_t broadPhaseType;
+	uint32_t prop_data;
+	uint32_t prop_size;
+	uint32_t prop_flags;
 	uint8_t collisionResponse;
 	uint8_t unusedByte1 = 0;
 	uint16_t processContactCallbackDelay;
@@ -371,7 +378,9 @@ extern "C" NIFLY_API void setStringExtraData(void* nifref, void* shaperef, char*
 extern "C" NIFLY_API int getBGExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen);
 extern "C" NIFLY_API int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen);
 extern "C" NIFLY_API int getInvMarker(void* nifref, char* name, int namelen, int* rot, float* zoom);
+extern "C" NIFLY_API void setInvMarker(void* nifref, const char* name, int* rot, float* zoom);
 extern "C" NIFLY_API int getBSXFlags(void* nifref, int* buf);
+extern "C" NIFLY_API void setBSXFlags(void* nifref, const char* name, uint32_t flags);
 extern "C" NIFLY_API void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf);
 
 /* ********************* ERROR REPORTING ********************* */
@@ -380,7 +389,7 @@ extern "C" NIFLY_API int getMessageLog(char* buf, int buflen);
 
 /* ********************* COLLISIONS ********************* */
 extern "C" NIFLY_API void* getCollision(void* nifref, void* noderef);
-extern "C" NIFLY_API int addCollision(void* nifref, void* targetref, int body_index, int flags);
+extern "C" NIFLY_API void* addCollision(void* nifref, void* targetref, int body_index, int flags);
 extern "C" NIFLY_API int getCollBlockname(void* node, char* buf, int buflen);
 extern "C" NIFLY_API int getCollBodyID(void* nifref, void* node);
 extern "C" NIFLY_API int addRigidBody(void* nifref, uint32_t collShapeIndex, BHKRigidBodyBuf* buf);
