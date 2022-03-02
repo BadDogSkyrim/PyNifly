@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -113,6 +113,13 @@ def make_transformbuf(cls, m: Matrix) -> TransformBuf:
     return buf
 
 setattr(TransformBuf, "from_matrix", classmethod(make_transformbuf))
+
+def get_bone_vector(game):
+    if game in ("SKYRIM", "SKYRIMSE"):
+        rot_vec = Vector((0, 0, 5))
+    else:
+        rot_vec = Vector((5,0,0)) # bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
+    return rot_vec
 
 
 # ######################################################################## ###
@@ -770,18 +777,24 @@ class NifImporter():
         # use the transform in the file if there is one; otherwise get the 
         # transform from the reference skeleton
         xf = self.nif.get_node_xform_to_global(self.nif.nif_name(name)) 
+        log.debug(f"Found bone transform {name} = {xf}")
         bone_xform = transform_to_matrix(xf)
-        xft, xfr, xfs = bone_xform.decompose()
+        xft, xfq, xfs = bone_xform.decompose()
 
         bone = armdata.edit_bones.new(name)
+        bonevec = get_bone_vector(self.nif.game)
+        rotvec = bonevec
+        rotvec.rotate(xfq)
+        log.debug(f"Vector for bone {name} = {rotvec}")
+        # rot_vec = get_bone_vector(self.nif.game)
+        #if self.nif.game in ("SKYRIM", "SKYRIMSE"):
+        #    rot_vec = Vector((0, 0, 5))
+        #else:
+        #    rot_vec = Vector((5,0,0)) # bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
+        #rot_vec.rotate(bone_xform)
         bone.head = xft
-        if self.nif.game in ("SKYRIM", "SKYRIMSE"):
-            rot_vec = Vector((0, 0, 5))
-        else:
-            rot_vec = Vector((5,0,0)) # bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
-        rot_vec.rotate(bone_xform)
-        bone.tail = bone.head + rot_vec
-        bone['pyxform'] = xfr # stash for later
+        bone.tail = bone.head + rotvec
+        bone['pynXform'] = xfq # stash for later
 
         return bone
 
@@ -1438,7 +1451,7 @@ def get_bone_xforms(arma, bone_names, shape):
         loc = Vector(b.head_local)
         try:
             # Todo: Calc from relative head->tail locations)
-            rot = Quaternion(b['pyxform'])
+            rot = Quaternion(b['pynXform'])
         except:
             nif = shape.parent
             bone_xform = nif.get_node_xform_to_global(nif.nif_name(b.name)) 
@@ -1791,12 +1804,35 @@ class NifExporter:
 
     def get_collision_target(self, collisionobj) -> Matrix:
         """ Return the world transform matrix for the collision target """
-        # TODO: Should really do this off the target object, not the collision object.
-        # Collision object is fine after an import because it matches, but user needs to
-        # be able to create a new one
-        xf = collisionobj.matrix_world
-        log.debug(f"Collision target: {xf}")
-        return xf
+        mx = None
+        targname = collisionobj['pynTarget']
+        t = list(filter(lambda x: x.name == targname, self.objects))
+        if len(t) > 0:
+            log.debug(f"Found collision target object: {t}")
+            targ = t[0]
+            mx = targ.collisionobj.matrix_world
+        elif self.armature:
+            try:
+                log.debug(f"Finding target bone: {targname}")
+                targbone = self.armature.data.bones[targname]
+                d = targbone.head - targbone.tail
+                d.normalize()
+                bonevec = get_bone_vector(self.game)
+                q = Quaternion(targbone['pynXform'])
+                #rotvec.normalize()
+                #a = rotvec.angle(d)
+                #q = Quaternion(rotvec, 
+                #c = rotvec.cross(d)
+                #a = rotvec.angle(d)
+                #q = Quaternion(c, a)
+                mx = Matrix.LocRotScale(targbone.head, q, [1,1,1])
+                log.debug(f"Found collision target bone: {targbone}")
+            except Exception:
+                log.exception(f"No target, using collision object: {collisionobj.name}")
+                mx = collisionobj.matrix_world
+        
+                log.debug(f"Collision target: {mx}")
+        return mx
 
     def export_collision_body(self, nif:NifFile, body_list, coll):
         """ Export the collision body elements. coll is the parent collision object """
@@ -1821,9 +1857,9 @@ class NifExporter:
                 log.debug(f"Target rotation: {targq.w}, {targq.x}, {targq.y}, {targq.z}")
 
                 rv = ctr - targloc
+                log.debug(f"Target to center: {rv}")
                 rv.rotate(targq)
-                log.debug(f"Body to center: {ctr - targloc}")
-                log.debug(f"Body to center rotated: {rv}")
+                log.debug(f"Target to center rotated: {rv}")
                 # rv = bodq.invert().rotate(rv)
 
                 props.translation[0] = (rv.x) / HAVOC_SCALE_FACTOR
@@ -2472,6 +2508,35 @@ def run_tests():
         assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
         assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
 
+        # ------- Export Again --------
+
+        # Move the collision object 
+        coll.location = coll.location + Vector([5, 10, 0])
+        collshape.location = collshape.location + Vector([-5, -10, 0])
+
+        outfile2 = os.path.join(pynifly_dev_path, r"tests/Out/TEST_BOW2.nif")
+        exporter = NifExporter(outfile2, 'SKYRIMSE')
+        exporter.export([obj, coll, bged, strd, bsxf, invm])
+
+        # ------- Check Results 2 --------
+
+        nifcheck2 = NifFile(outfile2)
+
+        midbowcheck2 = nifcheck2.nodes["Bow_MidBone"]
+        collcheck2 = midbowcheck2.collision_object
+        assert collcheck2.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck2.blockname}"
+        assert bhkCOFlags(collcheck2.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+
+        # Full check of locations and rotations to make sure we got them right
+        mbc_xf = nifcheck2.get_node_xform_to_global("Bow_MidBone")
+        assert VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
+        m = mbc_xf.as_matrix().to_euler()
+        assert VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
+
+        bodycheck2 = collcheck2.body
+        p = bodycheck2.properties
+        assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
+        assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
 
     print("""
     ############################################################
