@@ -712,9 +712,11 @@ NIFLY_API int getShapeBoneWeights(void* theNif, void* theShape, int boneID,
 }
 
 NIFLY_API void addBoneToShape(void* anim, void* theShape, const char* boneName, void* xformPtr)
-/* Add the given bone to the nif and shape for export. 
-    xformToParent may be omitted, in which case the bone transform comes from the 
-    reference skeleton.
+/* Add the given bone to the shape for export. Note it is *not* added to the nif--use
+*  writeSkinToNif to update the nif. 
+*  TODO: Look at creating the node here directly.
+*  xformToParent may be omitted, in which case the bone transform comes from the 
+*  reference skeleton.
 */
 {
     AddBoneToShape(static_cast<AnimInfo*>(anim), static_cast<NiShape*>(theShape),
@@ -1703,6 +1705,18 @@ int getInvMarker(void* nifref, char* name, int namelen, int* rot, float* zoom)
     return 0;
 };
 
+void setInvMarker(void* nifref, const char* name, int* rot, float* zoom)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    auto inv = std::make_unique<BSInvMarker>();
+    inv->name.get() = name;
+    inv->rotationX = rot[0];
+    inv->rotationY = rot[1];
+    inv->rotationZ = rot[2];
+    inv->zoom = *zoom;
+    nif->AssignExtraData(nif->GetRootNode(), std::move(inv));
+}
+
 int getBSXFlags(void* nifref, int* buf)
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -1717,6 +1731,15 @@ int getBSXFlags(void* nifref, int* buf)
         }
     }
     return 0;
+}
+
+void setBSXFlags(void* nifref, const char* name, uint32_t flags)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    auto bsx = std::make_unique<BSXFlags>();
+    bsx->name.get() = name;
+    bsx->integerData = flags;
+    nif->AssignExtraData(nif->GetRootNode(), std::move(bsx));
 }
 
 void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf) {
@@ -1759,7 +1782,7 @@ void* getCollision(void* nifref, void* noderef) {
     return hdr.GetBlock(node->collisionRef);
 };
 
-NIFLY_API int addCollision(void* nifref, void* targetref, int body_index, int flags) {
+NIFLY_API void* addCollision(void* nifref, void* targetref, int body_index, int flags) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::NiNode* targ = static_cast<nifly::NiNode*>(targetref);
@@ -1769,10 +1792,10 @@ NIFLY_API int addCollision(void* nifref, void* targetref, int body_index, int fl
     c->bodyRef.index = body_index;
     c->targetRef.index = nif->GetHeader().GetBlockID(targ);
     c->flags = flags;
-    int newid = nif->GetHeader().AddBlock(std::move(c));
+    uint32_t newid = nif->GetHeader().AddBlock(std::move(c));
     targ->collisionRef.index = newid;
     
-    return newid;
+    return nif->GetHeader().GetBlock(targ->collisionRef);
 };
 
 NIFLY_API int getCollBlockname(void* node, char* buf, int buflen) {
@@ -1803,6 +1826,13 @@ NIFLY_API int addRigidBody(void* nifref, uint32_t collShapeIndex, BHKRigidBodyBu
     NiHeader hdr = nif->GetHeader();
 
     auto theBody = std::make_unique<bhkRigidBodyT>();
+    theBody->collisionFilter.layer = buf->collisionFilter_layer;
+    theBody->collisionFilter.flagsAndParts = buf->collisionFilter_flags;
+    theBody->collisionFilter.group = buf->collisionFilter_group;
+    theBody->broadPhaseType = buf->broadPhaseType;
+    theBody->prop.data = buf->prop_data;
+    theBody->prop.size = buf->prop_size;
+    theBody->prop.capacityAndFlags = buf->prop_flags;
     theBody->collisionResponse = static_cast<hkResponseType>(buf->collisionResponse);
     theBody->processContactCallbackDelay = buf->processContactCallbackDelay;
     theBody->collisionFilterCopy.layer = buf->collisionFilterCopy_layer;
@@ -1898,8 +1928,18 @@ NIFLY_API int getRigidBodyProps(void* nifref, int nodeIndex, BHKRigidBodyBuf* bu
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
+    nifly::bhkWorldObject* theWO = hdr.GetBlock<bhkWorldObject>(nodeIndex);
     nifly::bhkRigidBody* theBody = hdr.GetBlock<bhkRigidBody>(nodeIndex);
 
+    if (theWO) {
+        buf->collisionFilter_layer = theWO->collisionFilter.layer;
+        buf->collisionFilter_flags = theWO->collisionFilter.flagsAndParts;
+        buf->collisionFilter_group = theWO->collisionFilter.group;
+        buf->broadPhaseType = theWO->broadPhaseType;
+        buf->prop_data = theWO->prop.data;
+        buf->prop_size = theWO->prop.size;
+        buf->prop_flags = theWO->prop.capacityAndFlags;
+    }
     if (theBody) {
         buf->collisionResponse = theBody->collisionResponse;
         buf->processContactCallbackDelay = theBody->processContactCallbackDelay;
