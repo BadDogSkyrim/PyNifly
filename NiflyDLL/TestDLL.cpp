@@ -2603,7 +2603,7 @@ namespace NiflyDLLTests
 
 			BHKBoxShapeBuf boxbuf;
 			int boxID = getRigidBodyShapeID(nif, bodyID);
-			getCollShapeProps(nif, boxID, &boxbuf);
+			getCollBoxShapeProps(nif, boxID, &boxbuf);
 
 			void* shapes[10];
 			getShapes(nif, shapes, 10, 0);
@@ -2636,7 +2636,7 @@ namespace NiflyDLLTests
 			void* bowMidboneOut = TFindNode(nifOut, "Bow_MidBone");
 
 			int boxOutID = addCollBoxShape(nifOut, &boxbuf);
-			int rbOutID = addRigidBody(nifOut, boxOutID, &bodyprops);
+			int rbOutID = addRigidBody(nifOut, "bhkRigidBodyT", boxOutID, &bodyprops);
 			void* collOut = addCollision(nifOut, bowMidboneOut, rbOutID, 129);
 
 			// Now we can save the collision
@@ -2690,7 +2690,107 @@ namespace NiflyDLLTests
 
 			BHKBoxShapeBuf boxbufCheck;
 			int boxIDCheck = getRigidBodyShapeID(nifcheck, bodyIDCheck);
-			getCollShapeProps(nifcheck, boxIDCheck, &boxbufCheck);
+			getCollBoxShapeProps(nifcheck, boxIDCheck, &boxbufCheck);
+		};
+		TEST_METHOD(readCollisionConvex) {
+			/* Test we can read and write collisions (and other nodes in bow file */
+			void* nif = load((testRoot / "Skyrim/cheesewedge01.nif").u8string().c_str());
+
+			void* root = getRoot(nif);
+			void* coll = getCollision(nif, root);
+			char collname[128];
+			getCollBlockname(coll, collname, 128);
+			Assert::IsTrue(strcmp(collname, "bhkCollisionObject") == 0, L"Found a bhkCollisionObject");
+
+			int bodyID = getCollBodyID(nif, coll);
+			char bodyname[128];
+			getCollBodyBlockname(nif, bodyID, bodyname, 128);
+			Assert::IsTrue(strcmp(bodyname, "bhkRigidBody") == 0, L"Can read body blockname");
+
+			BHKRigidBodyBuf bodyprops;
+			getRigidBodyProps(nif, bodyID, &bodyprops);
+			Assert::IsTrue(bodyprops.collisionResponse == 1, L"Can read the collision response field");
+			Assert::IsTrue(bodyprops.motionSystem == 3, L"Can read the motion system field");
+
+			BHKConvexVertsShapeBuf properties;
+			int convID = getRigidBodyShapeID(nif, bodyID);
+			getCollConvexVertsShapeProps(nif, convID, &properties);
+			Assert::IsTrue(properties.material == 3839073443, L"Can read the material");
+
+			float verts[10*4];
+			float norms[10*4];
+			Assert::IsTrue(getCollShapeVerts(nif, convID, nullptr, 0) == 8, 
+				L"Can read the number of verts without loading them");
+			Assert::IsTrue(getCollShapeVerts(nif, convID, verts, 10) == 8,
+				L"Can read the number of verts while loading them");
+			Assert::IsTrue(TApproxEqual(verts[0], -0.059824), L"Can read vertices");
+			Assert::IsTrue(TApproxEqual(verts[5], 0.112765), L"Can read vertices");
+			Assert::IsTrue(TApproxEqual(verts[28], -0.119985), L"Can read vertices");
+
+			Assert::IsTrue(getCollShapeNormals(nif, convID, norms, 10) == 10,
+				L"Can read the number of normals while loading them");
+			Assert::IsTrue(TApproxEqual(norms[0], 0.513104), L"Can read normals");
+			Assert::IsTrue(TApproxEqual(norms[9], 0.016974), L"Can read normals");
+			Assert::IsTrue(TApproxEqual(norms[36], -0.929436), L"Can read normals");
+
+			void* shapes[10];
+			getShapes(nif, shapes, 10, 0);
+			void* mesh = shapes[0];
+
+			// ============= Can write collisions =======
+
+			void* nifOut = createNif("SKYRIM", RT_BSFADENODE, "CheeseWedge");
+			uint16_t options = 0;
+			void* meshOut = TCopyShape(nifOut, "CheeseWedge01:0", nif, mesh, 0, nullptr, 0);
+			TCopyShader(nifOut, meshOut, nif, mesh);
+
+			void* rootNodeOUt = getRoot(nifOut);
+			setNodeFlags(rootNodeOUt, 14);
+
+			int shOutID = addCollConvexVertsShape(nifOut, &properties,
+				verts, 8, norms, 10);
+			int rbOutID = addRigidBody(nifOut, "bhkRigidBody", shOutID, &bodyprops);
+			void* collOut = addCollision(nifOut, nullptr, rbOutID, 129);
+
+			// Now we can save the collision
+			saveNif(nifOut, (testRoot / "Out/readCollisionConvex.nif").u8string().c_str());
+
+			// Check what we wrote is correct
+			// Doing a full check because why not
+			void* nifcheck = load((testRoot / "Out/readCollisionConvex.nif").u8string().c_str());
+
+			char rootname[128];
+			int nodeCountCheck;
+			void* nodesCheck[50];
+			void* rootNodeCheck = nullptr;
+			char rootBlockname[128];
+			int flags;
+			getRootName(nifcheck, rootname, 128);
+			rootNodeCheck = getRoot(nifcheck);
+			getNodeBlockname(rootNodeCheck, rootBlockname, 128);
+			Assert::IsTrue(strcmp(rootBlockname, "BSFadeNode") == 0, L"Wrote a FadeNode");
+			flags = getNodeFlags(rootNodeCheck);
+			Assert::IsTrue(flags == 14, L"Wrote the noode flags correctly");
+
+			void* collCheck = getCollision(nifcheck, rootNodeCheck);
+			char collnameCheck[128];
+			getCollBlockname(collCheck, collnameCheck, 128);
+			Assert::IsTrue(strcmp(collnameCheck, "bhkCollisionObject") == 0, L"Found a bhkCollisionObject");
+
+			int bodyIDCheck = getCollBodyID(nifcheck, collCheck);
+			char bodynameCheck[128];
+			getCollBodyBlockname(nifcheck, bodyIDCheck, bodynameCheck, 128);
+			Assert::IsTrue(strcmp(bodynameCheck, "bhkRigidBody") == 0, L"Can read body blockname");
+
+			BHKRigidBodyBuf bodypropsCheck;
+			getRigidBodyProps(nifcheck, bodyIDCheck, &bodypropsCheck);
+			Assert::IsTrue(bodypropsCheck.collisionFilter_layer == 4, L"Collision filter layer correct");
+			Assert::IsTrue(bodypropsCheck.collisionResponse == 1, L"Can read the collision response field");
+			Assert::IsTrue(bodypropsCheck.motionSystem == 3, L"Can read the motion system field");
+
+			BHKBoxShapeBuf boxbufCheck;
+			int boxIDCheck = getRigidBodyShapeID(nifcheck, bodyIDCheck);
+			getCollBoxShapeProps(nifcheck, boxIDCheck, &boxbufCheck);
 		};
 	};
 }

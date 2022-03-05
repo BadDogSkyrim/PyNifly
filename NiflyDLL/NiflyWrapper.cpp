@@ -1785,8 +1785,12 @@ void* getCollision(void* nifref, void* noderef) {
 NIFLY_API void* addCollision(void* nifref, void* targetref, int body_index, int flags) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
-    nifly::NiNode* targ = static_cast<nifly::NiNode*>(targetref);
     nifly::bhkRigidBody* theBody = nif->GetHeader().GetBlock<bhkRigidBody>(body_index);
+    nifly::NiNode* targ;
+    if (targetref)
+        targ = static_cast<nifly::NiNode*>(targetref);
+    else
+        targ = nif->GetRootNode();
 
     auto c = std::make_unique<bhkCollisionObject>();
     c->bodyRef.index = body_index;
@@ -1821,11 +1825,16 @@ NIFLY_API int getCollBodyID(void* nifref, void* node) {
         return 0;
 }
 
-NIFLY_API int addRigidBody(void* nifref, uint32_t collShapeIndex, BHKRigidBodyBuf* buf) {
+NIFLY_API int addRigidBody(void* nifref, const char* type, uint32_t collShapeIndex, BHKRigidBodyBuf* buf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
 
-    auto theBody = std::make_unique<bhkRigidBodyT>();
+    std::unique_ptr<bhkRigidBody> theBody;
+    if (strcmp(type, "bhkRigidBodyT") == 0)
+        theBody = std::make_unique<bhkRigidBodyT>();
+    else
+        theBody = std::make_unique<bhkRigidBody>();
+
     theBody->collisionFilter.layer = buf->collisionFilter_layer;
     theBody->collisionFilter.flagsAndParts = buf->collisionFilter_flags;
     theBody->collisionFilter.group = buf->collisionFilter_group;
@@ -2008,7 +2017,7 @@ NIFLY_API int getRigidBodyShapeID(void* nifref, int nodeIndex) {
 NIFLY_API int getCollShapeBlockname(void* nifref, int nodeIndex, char* buf, int buflen) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
-    nifly::bhkBoxShape* theBody = hdr.GetBlock<bhkBoxShape>(nodeIndex);
+    nifly::bhkShape* theBody = hdr.GetBlock<bhkShape>(nodeIndex);
 
     if (theBody) {
         std::string name = theBody->GetBlockName();
@@ -2021,7 +2030,104 @@ NIFLY_API int getCollShapeBlockname(void* nifref, int nodeIndex, char* buf, int 
         return 0;
 }
 
-NIFLY_API int getCollShapeProps(void* nifref, int nodeIndex, BHKBoxShapeBuf* buf)
+NIFLY_API int getCollConvexVertsShapeProps(void* nifref, int nodeIndex, BHKConvexVertsShapeBuf* buf)
+/*
+    Return the collision shape details. Return value = 1 if the node is a known collision shape,
+    0 if not
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::bhkConvexVerticesShape* sh = hdr.GetBlock<bhkConvexVerticesShape>(nodeIndex);
+
+    if (sh) {
+        buf->material = sh->GetMaterial();
+        buf->radius = sh->radius;
+        buf->vertsProp_data = sh->vertsProp.data;
+        buf->vertsProp_size = sh->vertsProp.size;
+        buf->vertsProp_flags = sh->vertsProp.capacityAndFlags;
+        buf->normalsProp_data = sh->normalsProp.data;
+        buf->normalsProp_size = sh->normalsProp.size;
+        buf->normalsProp_flags = sh->normalsProp.capacityAndFlags;
+        return 1;
+    }
+    else
+        return 0;
+};
+
+NIFLY_API int addCollConvexVertsShape(void* nifref, const BHKConvexVertsShapeBuf* buf, 
+        float* verts, int vertcount, float* normals, int normcount) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+
+    auto sh = std::make_unique<bhkConvexVerticesShape>();
+    sh->SetMaterial(buf->material);
+    sh->radius = buf->radius;
+    for (int i = 0; i < vertcount * 4; i += 4) {
+        Vector4 v = Vector4(verts[i], verts[i + 1], verts[i + 2], verts[i + 3]);
+        sh->verts.push_back(v);
+    };
+    for (int i = 0; i < normcount * 4; i += 4) {
+        Vector4 n = Vector4(normals[i], normals[i + 1], normals[i + 2], normals[i + 3]);
+        sh->normals.push_back(n);
+    }
+    int newid = nif->GetHeader().AddBlock(std::move(sh));
+    return newid;
+};
+
+NIFLY_API int getCollShapeVerts(void* nifref, int nodeIndex, float* buf, int buflen)
+/*
+    Return the collision shape vertices. Return number of vertices in shape. *buf may be null.
+    buflen = number of verts the buffer can receive, so buf must be 4x this size.
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    int vertCount = 0;
+
+    nifly::bhkConvexVerticesShape* sh = hdr.GetBlock<bhkConvexVerticesShape>(nodeIndex);
+
+    if (sh) {
+        vertCount = sh->verts.size();
+        for (int i = 0, j = 0; i < vertCount && j < buflen*4; i++) {
+            buf[j++] = sh->verts[i].x;
+            buf[j++] = sh->verts[i].y;
+            buf[j++] = sh->verts[i].z;
+            buf[j++] = sh->verts[i].w;
+        };
+        return vertCount;
+    }
+    else
+        return 0;
+}
+
+NIFLY_API int getCollShapeNormals(void* nifref, int nodeIndex, float* buf, int buflen)
+/*
+    Return the collision shape vertices. Return number of vertices in shape. *buf may be null.
+    buflen = number of verts the buffer can receive, so buf must be 4x this size.
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    int vertCount = 0;
+
+    nifly::bhkConvexVerticesShape* sh = hdr.GetBlock<bhkConvexVerticesShape>(nodeIndex);
+
+    if (sh) {
+        vertCount = sh->normals.size();
+        for (int i = 0, j = 0; i < vertCount && j < buflen*4; i++) {
+            buf[j++] = sh->normals[i].x;
+            buf[j++] = sh->normals[i].y;
+            buf[j++] = sh->normals[i].z;
+            buf[j++] = sh->normals[i].w;
+        };
+        return vertCount;
+    }
+    else
+        return 0;
+}
+
+NIFLY_API int getCollBoxShapeProps(void* nifref, int nodeIndex, BHKBoxShapeBuf* buf)
 /*
     Return the collision shape details. Return value = 1 if the node is a known collision shape, 
     0 if not

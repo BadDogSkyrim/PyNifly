@@ -6,7 +6,25 @@ Value and type definitions for nif structures
 import struct
 from enum import Enum, IntFlag, IntEnum
 from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer, addressof
+from pynmathutils import *
 
+def is_in_plane(plane, vert):
+    """ Test whether vert is in the plane defined by the three vectors in plane """
+    #find the plane's normal. p0, p1, and p2 are simply points on the plane (in world space)
+ 
+    # Get vector normal to plane
+    v1 = vecSub(plane[0], plane[1])
+    v2 = vecSub(plane[2], plane[1])
+    normal = vecCrossProduct(v1, v2)
+    normal = vecNormalized(normal)
+
+    # Get vector from vertex to a point on the plane
+    t = vecNormalized(vecSub(vert, plane[0]))
+
+    # If the dot product is 0, point is on plane
+    dp = vecDotProduct(normal, t)
+
+    return round(dp, 4) == 0.0
 
 # We do not actually support all these versions
 game_versions = ["FO3", "FONV", "SKYRIM", "FO4", "SKYRIMSE", "FO4VR", "SKYRIMVR", "FO76"]
@@ -762,6 +780,17 @@ class bhkBoxShapeProps(pynStructure):
         ("bhkRadius", c_float),
         ("bhkDimensions", VECTOR3),
         ("bhkUnused", c_float)]
+
+class bhkConvexVerticesShapeProps(pynStructure):
+    _fields_ = [
+        ("bhkMaterial", c_uint32),
+        ("bhkRadius", c_float),
+        ('verticesProp_data', c_uint32),
+	    ('verticesProp_size', c_uint32),
+	    ('verticesProp_flags', c_uint32),
+        ('normalsProp_data', c_uint32),
+	    ('normalsProp_size', c_uint32),
+	    ('normalsProp_flags', c_uint32) ]
 
 class VERTEX_WEIGHT_PAIR(Structure):
     _fields_ = [("vertex", c_uint16),

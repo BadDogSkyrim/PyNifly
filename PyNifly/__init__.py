@@ -27,7 +27,8 @@ from operator import or_
 from functools import reduce
 import traceback
 import math
-from mathutils import Matrix, Vector, Quaternion
+from mathutils import Matrix, Vector, Quaternion, geometry
+import quickhull
 import re
 import codecs
 from typing import Collection
@@ -120,6 +121,25 @@ def get_bone_vector(game):
     else:
         rot_vec = Vector((5,0,0)) # bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
     return rot_vec
+
+def is_in_plane(plane, vert):
+    """ Test whether vert is in the plane defined by the three vectors in plane """
+    #find the plane's normal. p0, p1, and p2 are simply points on the plane (in world space)
+ 
+    # Get vector normal to plane
+    v1 = plane[0] - plane[1]
+    v2 = plane[2] - plane[1]
+    normal = v1.cross(v2)
+    normal.normalize()
+
+    # Get vector from vertex to a point on the plane
+    t = vert - plane[0]
+    t.normalize()
+
+    # If the dot product is 0, point is on plane
+    dp = normal.dot(t)
+
+    return round(dp, 4) == 0.0
 
 
 # ######################################################################## ###
@@ -892,10 +912,7 @@ class NifImporter():
         bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
 
 
-    def import_collision_shape(self, cs:CollisionShape, cb:bpy_types.Object):
-        if cs.blockname != "bhkBoxShape":
-            return None
-
+    def import_bhkBoxShape(self, cs:CollisionShape, cb:bpy_types.Object):
         m = bpy.data.meshes.new(cs.blockname)
         prop = cs.properties
         dx = prop.bhkDimensions[0] * HAVOC_SCALE_FACTOR
@@ -922,12 +939,69 @@ class NifImporter():
         obj.parent = cb
         bpy.context.view_layer.active_layer_collection.collection.objects.link(obj)
         # bpy.context.scene.collection.objects.link(obj)
-        p = cs.properties
-        obj['bhkMaterial'] = SkyrimHavokMaterial(p.bhkMaterial).name
-        obj['bhkRadius'] = p.bhkRadius
+        obj['bhkMaterial'] = SkyrimHavokMaterial(prop.bhkMaterial).name
+        obj['bhkRadius'] = prop.bhkRadius
         self.objects_created.append(obj)
         
-        self.incr_loc
+
+    def show_collision_normals(self, cs:CollisionShape, cso):
+        #norms = [Vector(n)*HAVOC_SCALE_FACTOR for n in cs.normals]
+        bpy.ops.object.select_all(action='DESELECT')
+        for n in cs.normals:
+            bpy.ops.object.add(radius=1.0, type='EMPTY')
+            obj = bpy.context.object
+            obj.empty_display_type = 'SINGLE_ARROW'
+            obj.empty_display_size = n[3] * -HAVOC_SCALE_FACTOR
+            v = Vector(n)
+            v.normalize()
+            q = Vector((0,0,1)).rotation_difference(v)
+            obj.rotation_mode = 'QUATERNION'
+            obj.rotation_quaternion = q
+            obj.parent = cso
+            #bpy.context.view_layer.active_layer_collection.collection.objects.link(obj)
+            
+
+    def import_bhkConvexVerticesShape(self, cs:CollisionShape, cb:bpy_types.Object):
+        prop = cs.properties
+        transl = Vector((0,0,0))
+        #if cb['Collision_Block_Name'] != "bhkRigidBodyT":
+        #    transl = cb.location * -1
+
+        sourceverts = [Vector(v[0:3])*HAVOC_SCALE_FACTOR + transl for v in cs.vertices]
+
+        m = bpy.data.meshes.new(cs.blockname)
+        bm = bmesh.new()
+        m.from_pydata(sourceverts, [], [])
+        bm.from_mesh(m)
+
+        ch = bmesh.ops.convex_hull(bm, input=bm.verts)
+        bm.to_mesh(m)
+
+        obj = bpy.data.objects.new(cs.blockname, m)
+        obj.name = cs.blockname
+        obj.parent = cb
+        bpy.context.view_layer.active_layer_collection.collection.objects.link(obj)
+        
+        obj['bhkMaterial'] = SkyrimHavokMaterial(prop.bhkMaterial).name
+        obj['bhkRadius'] = prop.bhkRadius
+        self.objects_created.append(obj)
+
+        log.debug(f"1. Imported bhkConvexVerticesShape {obj.name} matrix: \n{obj.matrix_world}")
+        if log.getEffectiveLevel() == logging.DEBUG:
+            self.show_collision_normals(cs, obj)
+        log.debug(f"2. Imported bhkConvexVerticesShape {obj.name} matrix: \n{obj.matrix_world}")
+        obj.matrix_world.identity()
+
+
+    def import_collision_shape(self, cs:CollisionShape, cb:bpy_types.Object):
+        if cs.blockname == "bhkBoxShape":
+            self.import_bhkBoxShape(cs, cb)
+        elif cs.blockname == "bhkConvexVerticesShape":
+            self.import_bhkConvexVerticesShape(cs, cb)
+        elif cs.blockname == "bhkListSHape":
+            for child in cs.children:
+                self.import_collision_shape(child, cb)
+
 
     collision_body_ignore = ['rotation', 'translation', 'guard', 'unusedByte1', 
                              'unusedInts1_0', 'unusedInts1_1', 'unusedInts1_2',
@@ -938,6 +1012,7 @@ class NifImporter():
         cbody = bpy.context.object
         cbody.parent = c
         cbody.name = cb.blockname
+        cbody['Collision_Block_Name'] = cb.blockname
         cbody.show_name = True
         self.incr_loc
 
@@ -949,13 +1024,15 @@ class NifImporter():
         cbody.rotation_mode = 'QUATERNION'
         log.debug(f"Rotating collision body around quaternion {(p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2])}")
         cbody.rotation_quaternion = (p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2], )
-        cbody.location = Vector(p.translation[0:3]) * HAVOC_SCALE_FACTOR
+        if cb.blockname == "bhkRigidBodyT":
+            cbody.location = Vector(p.translation[0:3]) * HAVOC_SCALE_FACTOR
 
         cs = cb.shape
         if cs:
             self.import_collision_shape(cs, cbody)
 
         #log.debug(f"Loaded collision body {cbody.name} with properties {list(cbody.keys())}")
+
 
     def import_collision_obj(self, c:CollisionObject):
         if c.blockname == "bhkCollisionObject":
@@ -1766,41 +1843,68 @@ class NifExporter:
                                     self.inv_marker['BSInvMarker_Zoom']]
 
 
-    def export_collision_shape(self, nif:NifFile, shape_list):
-        """ Export box shape. Returns (shape, coordinates)
+    def export_bhkBoxShape(self, nif:NifFile, s):
+        """ Export box shape. 
+            Returns (shape, coordinates)
             shape = collision shape in the nif object
             coordinates = center of the shape in Blender world coordinates) """ 
         cshape = None
         center = Vector()
-        for s in shape_list:
-            try:
-                # Box covers the extent of the shape, whatever it is
-                p = bhkBoxShapeProps(s)
-                xf = s.matrix_world
-                xfv = [xf @ v.co for v in s.data.vertices]
-                maxx = max([v[0] for v in xfv])
-                maxy = max([v[1] for v in xfv])
-                maxz = max([v[2] for v in xfv])
-                minx = min([v[0] for v in xfv])
-                miny = min([v[1] for v in xfv])
-                minz = min([v[2] for v in xfv])
-                halfspanx = (maxx - minx)/2
-                halfspany = (maxy - miny)/2
-                halfspanz = (maxz - minz)/2
-                center = Vector([minx + halfspanx, miny + halfspany, minz + halfspanz])
+        try:
+            # Box covers the extent of the shape, whatever it is
+            p = bhkBoxShapeProps(s)
+            xf = s.matrix_world
+            xfv = [xf @ v.co for v in s.data.vertices]
+            maxx = max([v[0] for v in xfv])
+            maxy = max([v[1] for v in xfv])
+            maxz = max([v[2] for v in xfv])
+            minx = min([v[0] for v in xfv])
+            miny = min([v[1] for v in xfv])
+            minz = min([v[2] for v in xfv])
+            halfspanx = (maxx - minx)/2
+            halfspany = (maxy - miny)/2
+            halfspanz = (maxz - minz)/2
+            center = Vector([minx + halfspanx, miny + halfspany, minz + halfspanz])
                 
-                p.bhkDimensions[0] = halfspanx / HAVOC_SCALE_FACTOR
-                p.bhkDimensions[1] = halfspany / HAVOC_SCALE_FACTOR
-                p.bhkDimensions[2] = halfspanz / HAVOC_SCALE_FACTOR
-                if 'radius' not in s.keys():
-                    p.bhkRadius = max(halfspanx, halfspany, halfspanz) / HAVOC_SCALE_FACTOR
-                cshape = nif.add_coll_shape("bhkBoxShape", p)
-                log.debug(f"Created collision shape with dimensions {p.bhkDimensions[:]}")
-            except:
-                log.exception(f"Cannot create collision shape from {s.name}")
-                self.warnings.add('WARNING')
+            p.bhkDimensions[0] = halfspanx / HAVOC_SCALE_FACTOR
+            p.bhkDimensions[1] = halfspany / HAVOC_SCALE_FACTOR
+            p.bhkDimensions[2] = halfspanz / HAVOC_SCALE_FACTOR
+            if 'radius' not in s.keys():
+                p.bhkRadius = max(halfspanx, halfspany, halfspanz) / HAVOC_SCALE_FACTOR
+            cshape = nif.add_coll_shape("bhkBoxShape", p)
+            log.debug(f"Created collision shape with dimensions {p.bhkDimensions[:]}")
+        except:
+            log.exception(f"Cannot create collision shape from {s.name}")
+            self.warnings.add('WARNING')
 
         return cshape, center
+
+    def export_bhkConvexVerticesShape(self, nif:NifFile, s):
+        # Assume the verts are exactly the convex shape
+        p = bhkConvexVerticesShapeProps(s)
+        verts = [v.co/HAVOC_SCALE_FACTOR for v in s.data.vertices]
+        # Need a normal for each face
+        norms = []
+        for face in s.data.polygons:
+            # Length needs to be distance from origin to face along this normal
+            facevert = s.data.vertices[face.vertices[0]].co
+            vintersect = geometry.distance_point_to_plane(
+                Vector((0,0,0)), facevert, face.normal)
+            n = Vector((face.normal[0], face.normal[1], face.normal[2], 
+                        vintersect/HAVOC_SCALE_FACTOR))
+            log.debug(f"Writing convex normal {n}")
+            norms.append(n)
+        cshape = nif.add_coll_shape("bhkConvexVerticesShape", p, verts, norms)
+        return cshape, Vector((0,0,0))
+
+    def export_collision_shape(self, nif:NifFile, shape_list):
+        for cs in shape_list:
+            if cs.name.startswith("bhkBoxShape"):
+                return self.export_bhkBoxShape(nif, shape_list[0])
+            elif cs.name.startswith("bhkConvexVerticesShape"):
+                return self.export_bhkConvexVerticesShape(nif, shape_list[0])
+            elif cs.name.startswith("bhkListSHape"):
+                return self.export_collision_shape(cs.children, cb)
 
     def get_collision_target(self, collisionobj) -> Matrix:
         """ Return the world transform matrix for the collision target """
@@ -1845,31 +1949,36 @@ class NifExporter:
                 # Coll body can be anywhere. What matters is the location of the collision 
                 # shape relative to the collision target--that gets stored on the 
                 # collision body
-                targxf = self.get_collision_target(coll)
-                targloc, targq, targscale = targxf.decompose()
-            
                 props = bhkRigidBodyProps(b)
-                targq.invert()
-                props.rotation[0] = targq.x
-                props.rotation[1] = targq.y
-                props.rotation[2] = targq.z
-                props.rotation[3] = targq.w
-                log.debug(f"Target rotation: {targq.w}, {targq.x}, {targq.y}, {targq.z}")
+                
+                # If there's no target, root is the target. We don't support transforms 
+                # on root yet.
+                targxf = self.get_collision_target(coll)
+                if targxf:
+                    targloc, targq, targscale = targxf.decompose()
+            
+                    targq.invert()
+                    props.rotation[0] = targq.x
+                    props.rotation[1] = targq.y
+                    props.rotation[2] = targq.z
+                    props.rotation[3] = targq.w
+                    log.debug(f"Target rotation: {targq.w}, {targq.x}, {targq.y}, {targq.z}")
 
-                rv = ctr - targloc
-                log.debug(f"Target to center: {rv}")
-                rv.rotate(targq)
-                log.debug(f"Target to center rotated: {rv}")
-                # rv = bodq.invert().rotate(rv)
+                    rv = ctr - targloc
+                    log.debug(f"Target to center: {rv}")
+                    rv.rotate(targq)
+                    log.debug(f"Target to center rotated: {rv}")
+                    # rv = bodq.invert().rotate(rv)
 
-                props.translation[0] = (rv.x) / HAVOC_SCALE_FACTOR
-                props.translation[1] = (rv.y) / HAVOC_SCALE_FACTOR
-                props.translation[2] = (rv.z) / HAVOC_SCALE_FACTOR
-                props.translation[3] = 0
-                log.debug(f"In havoc units: {rv / HAVOC_SCALE_FACTOR}")
+                    props.translation[0] = (rv.x) / HAVOC_SCALE_FACTOR
+                    props.translation[1] = (rv.y) / HAVOC_SCALE_FACTOR
+                    props.translation[2] = (rv.z) / HAVOC_SCALE_FACTOR
+                    props.translation[3] = 0
+                    log.debug(f"In havoc units: {rv / HAVOC_SCALE_FACTOR}")
 
-                log.debug(f"Writing collision body with translation: {props.translation[:]} and rotation {props.rotation[:]}")
-                body = nif.add_rigid_body("bhkRigidBodyT", props, cshape)
+                    log.debug(f"Writing collision body with translation: {props.translation[:]} and rotation {props.rotation[:]}")
+
+                body = nif.add_rigid_body(b['Collision_Block_Name'], props, cshape)
         return body
 
     def export_collisions(self, nif:NifFile):
@@ -2538,6 +2647,63 @@ def run_tests():
         assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
         assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
 
+    if True:
+        test_title("TEST_COLLISION_CONVEXVERT", "Can read and write shape with convex verts collision shape")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\cheesewedge01.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_CONVEXVERT.nif")
+
+        NifImporter.do_import(testfile)
+
+        # Check collision info
+        coll = find_shape('bhkCollisionObject')
+        assert coll['pynFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
+        assert coll['pynTarget'] == 'CheeseWedge01', f"'Target' names the object the collision affects, in this case a bone: {coll['pynTarget']}"
+
+        collbody = coll.children[0]
+        assert collbody.name == 'bhkRigidBody', f"Child of collision is the collision body object"
+        assert collbody['collisionFilter_layer'] == SkyrimCollisionLayer.CLUTTER.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
+        assert collbody["collisionResponse"] == hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
+
+        collshape = collbody.children[0]
+        assert collshape.name == 'bhkConvexVerticesShape', f"Collision shape is child of the collision body"
+        assert collshape['bhkMaterial'] == 'CLOTH', f"Shape material is a custom property: {collshape['bhkMaterial']}"
+        obj = find_shape('CheeseWedge01', collection=bpy.context.selected_objects)
+        xmax1 = max([v.co.x for x in obj.data.vertices])
+        xmax2 = max([v.co.x for x in collshape.data.vertices])
+        assert xmax1 == xmax2, f"Max x vertex the same: {xmax1} == {xmax2}"
+        corner = collshape.data.vertices[0].co
+        assert VNearEqual(corner, (-4.18715, -7.89243, 7.08596)), f"Collision shape in correct position: {corner}"
+
+        # ------- Export --------
+
+        exporter = NifExporter(outfile, 'SKYRIM')
+        exporter.export([obj, coll])
+
+        # ------- Check Results --------
+
+        nifcheck = NifFile(outfile)
+
+        rootcheck = nifcheck.rootNode
+        assert rootcheck.name == "CheeseWedge01", f"Root node name incorrect: {rootcheck.name}"
+        assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
+
+        collcheck = rootcheck.collision_object
+        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+        assert collcheck.target == rootcheck, f"Target of collision is root: {rootcheck.name}"
+
+        bodycheck = collcheck.body
+        assert bodycheck.blockname == "bhkRigidBody", f"Correctly wrote bhkRigidBody: {bodycheck.blockname}"
+
+        shapecheck = bodycheck.shape
+        assert shapecheck.blockname == "bhkConvexVerticesShape", f"Collision body's shape property returns the collision shape"
+        assert shapecheck.properties.bhkMaterial == SkyrimHavokMaterial.CLOTH, "Collision body shape material is readable"
+        assert VNearEqual(shapecheck.vertices[0], [-0.059824, -0.112763, 0.101241, 0]), f"Vertex 0 is correct"
+        assert VNearEqual(shapecheck.vertices[7], [-0.119985, 0.000001, 0, 0]), f"Vertex 7 is correct"
+
+       
     print("""
     ############################################################
     ##                                                        ##

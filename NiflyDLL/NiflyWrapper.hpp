@@ -352,6 +352,17 @@ struct BHKBoxShapeBuf {
 	float dimensions_z;
 };
 
+struct BHKConvexVertsShapeBuf {
+	uint32_t material;
+	float radius;
+	uint32_t vertsProp_data;
+	uint32_t vertsProp_size;
+	uint32_t vertsProp_flags;
+	uint32_t normalsProp_data;
+	uint32_t normalsProp_size;
+	uint32_t normalsProp_flags;
+};
+
 extern "C" NIFLY_API int getShaderName(void* nifref, void* shaperef, char* buf, int buflen);
 extern "C" NIFLY_API uint32_t getShaderFlags1(void* nifref, void* shaperef);
 extern "C" NIFLY_API uint32_t getShaderFlags2(void* nifref, void* shaperef);
@@ -392,12 +403,16 @@ extern "C" NIFLY_API void* getCollision(void* nifref, void* noderef);
 extern "C" NIFLY_API void* addCollision(void* nifref, void* targetref, int body_index, int flags);
 extern "C" NIFLY_API int getCollBlockname(void* node, char* buf, int buflen);
 extern "C" NIFLY_API int getCollBodyID(void* nifref, void* node);
-extern "C" NIFLY_API int addRigidBody(void* nifref, uint32_t collShapeIndex, BHKRigidBodyBuf* buf);
+extern "C" NIFLY_API int addRigidBody(void* nifref, const char* type, uint32_t collShapeIndex, BHKRigidBodyBuf* buf);
 extern "C" NIFLY_API void* getCollTarget(void* nifref, void* node);
 extern "C" NIFLY_API int getCollFlags(void* node);
 extern "C" NIFLY_API int getCollBodyBlockname(void* nif, int nodeIndex, char* buf, int buflen);
 extern "C" NIFLY_API int getRigidBodyProps(void* nifref, int nodeIndex, BHKRigidBodyBuf * buf);
 extern "C" NIFLY_API int getRigidBodyShapeID(void* nifref, int nodeIndex);
 extern "C" NIFLY_API int getCollShapeBlockname(void* nifref, int nodeIndex, char* buf, int buflen);
-extern "C" NIFLY_API int getCollShapeProps(void* nifref, int nodeIndex, BHKBoxShapeBuf* buf);
+extern "C" NIFLY_API int getCollConvexVertsShapeProps(void* nifref, int nodeIndex, BHKConvexVertsShapeBuf* buf);
+extern "C" NIFLY_API int addCollConvexVertsShape(void* nifref, const BHKConvexVertsShapeBuf* buf, float* verts, int vertcount, float* normals, int normcount);
+extern "C" NIFLY_API int getCollShapeVerts(void* nifref, int nodeIndex, float* buf, int buflen);
+extern "C" NIFLY_API int getCollShapeNormals(void* nifref, int nodeIndex, float* buf, int buflen);
+extern "C" NIFLY_API int getCollBoxShapeProps(void* nifref, int nodeIndex, BHKBoxShapeBuf* buf);
 extern "C" NIFLY_API int addCollBoxShape(void* nifref, const BHKBoxShapeBuf * buf);

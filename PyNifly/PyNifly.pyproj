@@ -52,6 +52,7 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="pynmathutils.py" />
     <Compile Include="module1.py">
       <SubType>Code</SubType>
     </Compile>
@@ -61,6 +62,7 @@
     <Compile Include="pynifly_tests.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="quickhull.py" />
     <Compile Include="test_tools.py">
       <SubType>Code</SubType>
     </Compile>
