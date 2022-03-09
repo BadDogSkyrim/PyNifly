@@ -264,7 +264,7 @@ void TCopyExtraData(void* targetNif, void* targetShape, void* sourceNif, void* s
 };
 
 void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* sourceShape,
-		uint16_t options, void** targetSkin, bool doPartitions=1) {
+		uint16_t options, void** targetSkin, bool doPartitions=1, void* parent=nullptr) {
 
 	int vertLen = getVertsForShape(sourceNif, sourceShape, nullptr, 0, 0);
 	float* verts = new float[vertLen * 3];
@@ -285,7 +285,7 @@ void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* 
 	};
 
 	void* targetShape = createNifShapeFromData(targetNif, shapeName,
-		verts, uvs, norms, vertLen, tris, triLen, &options);
+		verts, uvs, norms, vertLen, tris, triLen, &options, parent);
 
 	uint32_t f2 = getShaderFlags2(sourceNif, sourceShape);
 	if (f2 & uint32_t(ShaderProperty2::VERTEX_COLORS)) {
@@ -1829,7 +1829,7 @@ namespace NiflyDLLTests
 				getShaderTextureSlot(nif2, shapes2[0], i, textures[i], 300);
 				txtstr[i] = new std::string(textures[i]);
 			};
-			uint32_t flagsOne2 = getShaderFlags1(nifTest, shapes2[0]);
+			uint32_t flagsOne2 = getShaderFlags1(nif2, shapes2[0]);
 
 			Assert::IsTrue(txtstr[0]->compare("textures\\furniture\\noble\\NobleFurnChest01.dds") == 0, L"Found expected texture");
 			Assert::IsTrue(txtstr[1]->compare("textures\\furniture\\noble\\NobleFurnChest01_n.dds") == 0, L"Found expected texture");
@@ -1857,6 +1857,50 @@ namespace NiflyDLLTests
 
 			TCompareShaders(nif2, shapes2[0], nif2Test, shapes2Test[0]);
 		};
+
+
+		TEST_METHOD(crateSSE) {
+			std::filesystem::path testfile2 
+				= testRoot / "SkyrimSE/meshes/furniture/noble/noblecrate01.nif";
+			void* nif2 = load(testfile2.u8string().c_str());
+			void* shapes2[10];
+			int shapeCount = getShapes(nif2, shapes2, 10, 0);
+			char textures[9][300];
+			std::string* txtstr[9];
+
+			for (int i = 0; i < 9; i++) {
+				getShaderTextureSlot(nif2, shapes2[0], i, textures[i], 300);
+				txtstr[i] = new std::string(textures[i]);
+			};
+			uint32_t flagsOne2 = getShaderFlags1(nif2, shapes2[0]);
+
+			Assert::IsTrue(txtstr[0]->compare("textures\\furniture\\noble\\NobleFurnChest01.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[1]->compare("textures\\furniture\\noble\\NobleFurnChest01_n.dds") == 0, L"Found expected texture");
+			Assert::IsTrue(txtstr[2]->compare("") == 0, L"Found expected texture");
+			Assert::IsFalse(flagsOne2 & static_cast<uint32_t>(ShaderProperty1::MODEL_SPACE_NORMALS),
+				L"Found MSN flag not set");
+
+			// Can write chest back out
+
+			std::filesystem::path testfile2Out = testRoot / "Out" / "testWrapper_crateSSE.nif";
+
+			void* nif2Out = createNif("SKYRIMSE", RT_BSFADENODE, "Scene Root");
+			void* skin2Out;
+			void* shape2Out = TCopyShape(nif2Out, "NobleCrate", nif2, shapes2[0], 
+				0, &skin2Out);
+			TCopyShader(nif2Out, shape2Out, nif2, shapes2[0]);
+
+			saveNif(nif2Out, testfile2Out.u8string().c_str());
+
+			// What we wrote is correct
+
+			void* nif2Test = load(testfile2Out.u8string().c_str());
+			void* shapes2Test[10];
+			shapeCount = getShapes(nif2Test, shapes2Test, 10, 0);
+
+			TCompareShaders(nif2, shapes2[0], nif2Test, shapes2Test[0]);
+		};
+
 		TEST_METHOD(shadersFO4) {
 			// Can read the shaders from a shape
 			std::filesystem::path testfile = testRoot / "FO4/BaseMaleHead.nif";
@@ -2696,6 +2740,13 @@ namespace NiflyDLLTests
 			/* Test we can read and write collisions (and other nodes in bow file */
 			void* nif = load((testRoot / "Skyrim/cheesewedge01.nif").u8string().c_str());
 
+			void* shapes[10];
+			getShapes(nif, shapes, 10, 0);
+			void* mesh = shapes[0];
+
+			float buf[20];
+			getNodeTransform(mesh, buf);
+
 			void* root = getRoot(nif);
 			void* coll = getCollision(nif, root);
 			char collname[128];
@@ -2732,10 +2783,6 @@ namespace NiflyDLLTests
 			Assert::IsTrue(TApproxEqual(norms[0], 0.513104), L"Can read normals");
 			Assert::IsTrue(TApproxEqual(norms[9], 0.016974), L"Can read normals");
 			Assert::IsTrue(TApproxEqual(norms[36], -0.929436), L"Can read normals");
-
-			void* shapes[10];
-			getShapes(nif, shapes, 10, 0);
-			void* mesh = shapes[0];
 
 			// ============= Can write collisions =======
 
@@ -2791,6 +2838,107 @@ namespace NiflyDLLTests
 			BHKBoxShapeBuf boxbufCheck;
 			int boxIDCheck = getRigidBodyShapeID(nifcheck, bodyIDCheck);
 			getCollBoxShapeProps(nifcheck, boxIDCheck, &boxbufCheck);
+		};
+		TEST_METHOD(readCollisionMulti) {
+			/* Test we can read and write collisions with multiple levels of nodes */
+			void* nif = load((testRoot / "Skyrim/grilledleekstest.nif").u8string().c_str());
+
+			void* shapes[10];
+			int shapeCount = getShapes(nif, shapes, 10, 0);
+			void* leek040 = nullptr;
+			void* leek041 = nullptr;
+			for (int i = 0; i < shapeCount; i++) {
+				char buf[128];
+				getShapeName(shapes[i], buf, 128);
+				if (strcmp(buf, "Leek04:0") == 0) leek040 = shapes[i];
+				if (strcmp(buf, "Leek04:1") == 0) leek041 = shapes[i];
+			};
+
+			void* root = getRoot(nif);
+			int nodeCount = getNodeCount(nif);
+			void* nodes[10];
+			getNodes(nif, nodes);
+
+			void* leek04 = nullptr;
+			for (int i = 0; i < nodeCount; i++) {
+				char buf[128];
+				getNodeName(nodes[i], buf, 128);
+				if (strcmp(buf, "Leek04") == 0) leek04 = nodes[i];
+			};
+
+			MatTransform leek04xf;
+			getNodeTransform(leek04, &leek04xf.translation[0]);
+
+			void* collisionObject = getCollision(nif, leek04);
+			int bodyID = getCollBodyID(nif, collisionObject);
+			BHKRigidBodyBuf bodyProps;
+			getRigidBodyProps(nif, bodyID, &bodyProps);
+			int shapeID = getRigidBodyShapeID(nif, bodyID);
+			BHKConvexVertsShapeBuf shapeProps;
+			getCollConvexVertsShapeProps(nif, shapeID, &shapeProps);
+			float shapeVerts[10*4];
+			getCollShapeVerts(nif, shapeID, shapeVerts, 10);
+			float shapeNorms[10 * 4];
+			getCollShapeNormals(nif, shapeID, shapeNorms, 10);
+
+			Assert::IsTrue(getNodeParent(nif, leek040) == leek04, L"Node parent correct");
+			Assert::IsTrue(getNodeParent(nif, leek041) == leek04, L"Node parent correct");
+
+			//// ============= Can write collisions =======
+
+			void* nifOut = createNif("SKYRIM", RT_BSFADENODE, "readCollisionMulti");
+			uint16_t options = 0;
+
+			void* leek04out = addNode(nifOut, "Leek04", &leek04xf, nullptr);
+
+			void* leek040Out = TCopyShape(nifOut, "Leek04:0", nif, leek040,
+				0, nullptr, 0, leek04out);
+			TCopyShader(nifOut, leek040Out, nif, leek040);
+
+			void* leek041Out = TCopyShape(nifOut, "Leek04:1", nif, leek041,
+				0, nullptr, 0, leek04out);
+			TCopyShader(nifOut, leek041Out, nif, leek041);
+
+			//void* rootNodeOUt = getRoot(nifOut);
+			//setNodeFlags(rootNodeOUt, 14);
+
+			//int shOutID = addCollConvexVertsShape(nifOut, &properties,
+			//	verts, 8, norms, 10);
+			//int rbOutID = addRigidBody(nifOut, "bhkRigidBody", shOutID, &bodyprops);
+			//void* collOut = addCollision(nifOut, nullptr, rbOutID, 129);
+
+			//// Now we can save the collision
+			saveNif(nifOut, (testRoot / "Out/readCollisionMulti.nif").u8string().c_str());
+
+			// Check what we wrote is correct
+			// Doing a full check because why not
+			void* nifCheck = load((testRoot / "Out/readCollisionMulti.nif").u8string().c_str());
+
+			void* shapesCheck[10];
+			int shapeCountCheck = getShapes(nifCheck, shapesCheck, 10, 0);
+
+			void* leek040Check = nullptr;
+			void* leek041Check = nullptr;
+			for (int i = 0; i < shapeCountCheck; i++) {
+				char buf[128];
+				getShapeName(shapesCheck[i], buf, 128);
+				if (strcmp(buf, "Leek04:0") == 0) leek040Check = shapesCheck[i];
+				if (strcmp(buf, "Leek04:1") == 0) leek041Check = shapesCheck[i];
+			};
+
+			int nodeCountCheck = getNodeCount(nifCheck);
+			void* nodesCheck[10];
+			getNodes(nifCheck, nodesCheck);
+
+			void* leek04Check = nullptr;
+			for (int i = 0; i < nodeCountCheck; i++) {
+				char buf[128];
+				getNodeName(nodesCheck[i], buf, 128);
+				if (strcmp(buf, "Leek04") == 0) leek04Check = nodesCheck[i];
+			};
+
+			Assert::IsTrue(getNodeParent(nifCheck, leek040Check) == leek04Check, L"Node parent correct");
+			Assert::IsTrue(getNodeParent(nifCheck, leek041Check) == leek04Check, L"Node parent correct");
 		};
 	};
 }
