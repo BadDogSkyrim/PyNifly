@@ -57,6 +57,10 @@ def uv_location(uv):
     return (round(uv[0], 4), round(uv[1], 4))
 
 
+def NearEqual(n1, n2, epsilon=0.001):
+    return abs(n1-n2) < epsilon
+
+
 def VNearEqual(v1, v2, epsilon=0.001):
     r = True
     for a, b in zip(v1, v2):

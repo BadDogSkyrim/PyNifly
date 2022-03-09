@@ -94,6 +94,29 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_EXP_SEGMENTS_BAD = False
 
 
+    if TEST_BPY_ALL and TEST_ROTSTATIC:
+        test_title("TEST_ROTSTATIC", "Test that statics are transformed according to the shape transform")
+        
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/rotatedbody.nif")
+        NifImporter.do_import(testfile)
+
+        body = bpy.data.objects["LykaiosBody"]
+        head = bpy.data.objects["FemaleHead"]
+        assert body.rotation_euler[0] != (0.0, 0.0, 0.0), f"Expected rotation, got {body.rotation_euler}"
+
+        NifExporter.do_export(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROTSTATIC.nif"), 
+                              "SKYRIM",
+                              [body, head])
+        
+        nifcheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROTSTATIC.nif"))
+        assert "LykaiosBody" in nifcheck.shape_dict.keys(), f"Expected LykaiosBody shape, found {[s.name for s in nifcheck.shapes]}"
+        bodycheck = nifcheck.shape_dict["LykaiosBody"]
+
+        m = Matrix(bodycheck.transform.rotation)
+        assert int(m.to_euler()[0]*180/pi) == 90, f"Expected 90deg rotation, got {m.to_euler()}"
+
+
     if TEST_BPY_ALL or TEST_EXP_SEGMENTS_BAD:
         print("### TEST_EXP_SEGMENTS_BAD: Verts export in the correct segments")
         clear_all()
