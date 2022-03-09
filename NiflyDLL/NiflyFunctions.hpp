@@ -54,6 +54,9 @@ void GetPartitions(nifly::NifFile* workNif, nifly::NiShape* shape,
 	nifly::NiVector<nifly::BSDismemberSkinInstance::PartitionInfo>& partitions,
 	std::vector<int>& indices);
 
-nifly::NiShape* PyniflyCreateShapeFromData(nifly::NifFile* nif, const std::string& shapeName, const std::vector<nifly::Vector3>* v, const std::vector<nifly::Triangle>* t, const std::vector<nifly::Vector2>* uv, const std::vector<nifly::Vector3>* norms, uint32_t options);
+nifly::NiShape* PyniflyCreateShapeFromData(nifly::NifFile* nif, const std::string& shapeName, 
+	const std::vector<nifly::Vector3>* v, const std::vector<nifly::Triangle>* t, 
+	const std::vector<nifly::Vector2>* uv, const std::vector<nifly::Vector3>* norms, 
+	uint32_t options, nifly::NiNode* parentRef);
 
 AnimSkeleton* MakeSkeleton(enum TargetGame theGame);

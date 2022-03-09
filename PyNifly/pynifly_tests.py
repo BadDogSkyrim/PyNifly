@@ -36,64 +36,65 @@ def get_image_node(node_input):
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_BPY_ALL = True
-    TEST_EXP_BODY = True
-    TEST_IMP_NORMALS = True
-    TEST_COTH_DATA = True
-    TEST_MUTANT = True
-    TEST_RENAME = True
-    TEST_BONE_XPORT_POS = True
-    TEST_POT = True
-    TEST_3BBB = True
-    TEST_BAD_TRI = True
-    TEST_TIGER_EXPORT = True
-    TEST_EXPORT_HANDS = True
-    TEST_PARTITION_ERRORS = True
-    TEST_SCALING = True
-    TEST_POT = True
-    TEST_EXPORT = True
-    TEST_IMPORT_ARMATURE = True
-    TEST_EXPORT_WEIGHTS = True
-    TEST_IMP_EXP_SKY = True
-    TEST_IMP_EXP_FO4 = True
-    TEST_ROUND_TRIP = True
-    TEST_UV_SPLIT = True
-    TEST_CUSTOM_BONES = True
-    TEST_BPY_PARENT = True
-    TEST_BABY = True
-    TEST_CONNECTED_SKEL = True
-    TEST_TRI = True
-    TEST_0_WEIGHTS = True
-    TEST_SPLIT_NORMAL = True
-    TEST_SKEL = True
-    TEST_PARTITIONS = True
-    TEST_SEGMENTS = True
-    TEST_BP_SEGMENTS = True
-    TEST_ROGUE01 = True
-    TEST_ROGUE02 = True
-    TEST_NORMAL_SEAM = True
-    TEST_COLORS = True
-    TEST_HEADPART = True
-    TEST_FACEBONES = True
-    TEST_FACEBONE_EXPORT = True
-    TEST_TIGER_EXPORT = True
-    TEST_JIARAN = True
-    TEST_SHADER_LE = True
+    TEST_EXP_BODY = False
+    TEST_IMP_NORMALS = False
+    TEST_COTH_DATA = False
+    TEST_MUTANT = False
+    TEST_RENAME = False
+    TEST_BONE_XPORT_POS = False
+    TEST_POT = False
+    TEST_3BBB = False
+    TEST_BAD_TRI = False
+    TEST_TIGER_EXPORT = False
+    TEST_EXPORT_HANDS = False
+    TEST_PARTITION_ERRORS = False
+    TEST_SCALING = False
+    TEST_POT = False
+    TEST_EXPORT = False
+    TEST_IMPORT_ARMATURE = False
+    TEST_EXPORT_WEIGHTS = False
+    TEST_IMP_EXP_SKY = False
+    TEST_IMP_EXP_FO4 = False
+    TEST_ROUND_TRIP = False
+    TEST_UV_SPLIT = False
+    TEST_CUSTOM_BONES = False
+    TEST_BPY_PARENT = False
+    TEST_BABY = False
+    TEST_CONNECTED_SKEL = False
+    TEST_TRI = False
+    TEST_0_WEIGHTS = False
+    TEST_SPLIT_NORMAL = False
+    TEST_SKEL = False
+    TEST_PARTITIONS = False
+    TEST_SEGMENTS = False
+    TEST_BP_SEGMENTS = False
+    TEST_ROGUE01 = False
+    TEST_ROGUE02 = False
+    TEST_NORMAL_SEAM = False
+    TEST_COLORS = False
+    TEST_HEADPART = False
+    TEST_FACEBONES = False
+    TEST_FACEBONE_EXPORT = False
+    TEST_TIGER_EXPORT = False
+    TEST_JIARAN = False
+    TEST_SHADER_LE = False
     TEST_SHADER_SE = True
-    TEST_SHADER_FO4 = True
-    TEST_SHADER_ALPHA = True
-    TEST_SHEATH = True
-    TEST_FEET = True
-    TEST_SKYRIM_XFORM = True
-    TEST_TRI2 = True
-    TEST_3BBB = True
-    TEST_ROTSTATIC = True
-    TEST_ROTSTATIC2 = True
-    TEST_VERTEX_ALPHA = True
-    TEST_EXP_SK_RENAMED = True
-    TEST_EXP_SEG_ORDER = True
+    TEST_SHADER_FO4 = False
+    TEST_SHADER_ALPHA = False
+    TEST_SHEATH = False
+    TEST_FEET = False
+    TEST_SKYRIM_XFORM = False
+    TEST_TRI2 = False
+    TEST_3BBB = False
+    TEST_ROTSTATIC = False
+    TEST_ROTSTATIC2 = False
+    TEST_VERTEX_ALPHA = False
+    TEST_EXP_SK_RENAMED = False
+    TEST_EXP_SEG_ORDER = False
+    TEST_EXP_SEGMENTS_BAD = False
 
 
-    if True:
+    if TEST_BPY_ALL or TEST_EXP_SEGMENTS_BAD:
         print("### TEST_EXP_SEGMENTS_BAD: Verts export in the correct segments")
         clear_all()
         outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SEGMENTS_BAD.nif")
@@ -116,7 +117,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert len([x for x in body.partition_tris if x != 3]) == 0, f"Regression: No tris in the last partition (or any other)--found {len([x for x in body.partition_tris if x != 3])}"
 
 
-    if TEST_EXP_SEG_ORDER:
+    if TEST_BPY_ALL or TEST_EXP_SEG_ORDER:
         test_title("TEST_EXP_SEG_ORDER", "Segments export in numerical order")
         clear_all()
         outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SEG_ORDER.nif")
@@ -139,7 +140,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert len(body.partitions[3].subsegments) == 0, "Torso has no subsegments"
 
 
-    if TEST_PARTITIONS:
+    if TEST_BPY_ALL or TEST_PARTITIONS:
         test_title("TEST_PARTITIONS", "Can read Skyrim partions")
         testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/MaleHead.nif")
 
@@ -265,7 +266,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert visor2.partitions[1].subsegments[0].user_slot == 30, "Visor has subsegment 30"
 
 
-    if TEST_EXP_SK_RENAMED:
+    if TEST_BPY_ALL or TEST_EXP_SK_RENAMED:
         print("### TEST_EXP_SK_RENAMED: Ensure renamed shape keys export properly")
         clear_all()
         outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SK_RENAMED.nif")
@@ -296,7 +297,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert 'Smile.L' in obj.data.shape_keys.key_blocks, f"Expected key 'Smile.L' in {obj.data.shape_keys.key_blocks.keys()}"
 
 
-    if TEST_EXP_BODY:
+    if TEST_BPY_ALL or TEST_EXP_BODY:
         print("### TEST_EXP_BODY: Ensure body does not cause a CTD on export")
         clear_all()
         remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_BODY.nif"))
@@ -326,7 +327,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
                 assert round(abs(l.normal[i]), 3) == 0.577, f"Expected diagonal normal, got loop {l.index}/{i} = {l.normal[i]}"
 
 
-    if TEST_COTH_DATA:
+    if TEST_BPY_ALL or TEST_COTH_DATA:
         print("### TEST_COTH_DATA: Can read and write cloth data")
         clear_all()
 
@@ -347,7 +348,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
 
 
-    if TEST_BAD_TRI:
+    if TEST_BPY_ALL or TEST_BAD_TRI:
         print("### TEST_BAD_TRI: Tris with messed up UVs can be imported")
         clear_all()
 
@@ -360,7 +361,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert len(obj2.data.vertices) == 11254, f"Expected 11254 vertices, found {len(obj2.data.vertices)}"
 
 
-    if TEST_TIGER_EXPORT:
+    if TEST_BPY_ALL or TEST_TIGER_EXPORT:
         print("### TEST_TIGER_EXPORT: Tiger head exports without errors")
 
         clear_all()
@@ -379,7 +380,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert len(nif1.shapes) == 1, f"Expected tiger nif"
 
 
-    if TEST_3BBB:
+    if TEST_BPY_ALL or TEST_3BBB:
         print("## TEST_3BBB: Test that this mesh imports with the right transforms")
         
         clear_all()
@@ -400,7 +401,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         arma2 = bpy.context.object.parent
         assert arma2.name == arma.name, f"Should have parented to same armature: {arma2.name} != {arma.name}"
 
-    if TEST_MUTANT:
+    if TEST_BPY_ALL or TEST_MUTANT:
         print("### TEST_MUTANT: Test that the supermutant body imports correctly the *second* time")
 
         clear_all()
@@ -416,7 +417,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert round(sm2.location[2]) == 140, f"Expect supermutant body at 140 Z, got {sm2.location[2]}"
 
         
-    if TEST_RENAME:
+    if TEST_BPY_ALL or TEST_RENAME:
         print("### TEST_RENAME: Test that renaming bones works correctly")
 
         clear_all()
@@ -433,7 +434,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert len(armxl) == 0, f"Expected no bones renamed in armature, got {vgxl}"
 
 
-    if TEST_BONE_XPORT_POS:
+    if TEST_BPY_ALL or TEST_BONE_XPORT_POS:
         print("### Test that bones named like vanilla bones but from a different skeleton export to the correct position")
 
         clear_all()
@@ -457,7 +458,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert round(spine2check.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2check.head[2]}"
 
 
-    if TEST_EXPORT_HANDS:
+    if TEST_BPY_ALL or TEST_EXPORT_HANDS:
         print("### TEST_EXPORT_HANDS: Test that hand mesh doesn't throw an error")
 
         outfile1 = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXPORT_HANDS.nif")
@@ -472,7 +473,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert os.path.exists(outfile1)
 
 
-    if TEST_PARTITION_ERRORS:
+    if TEST_BPY_ALL or TEST_PARTITION_ERRORS:
         print("### TEST_PARTITION_ERRORS: Partitions with errors raise errors")
 
         clear_all()
@@ -488,7 +489,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert MULTIPLE_PARTITION_GROUP in bpy.data.objects["SynthMaleBody"].vertex_groups, "Error: Expected group to be created for tris in multiple partitions"
 
 
-    if TEST_SCALING:
+    if TEST_BPY_ALL or TEST_SCALING:
         print("### Test that scale factors happen correctly")
 
         clear_all()
@@ -512,7 +513,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert checkbase.transform.scale == 10.0, f"ERROR: Base scale not correct: {checkbase.transform.scale}"
 
 
-    if TEST_POT:
+    if TEST_BPY_ALL or TEST_POT:
         print("### Test that pot shaders doesn't throw an error")
 
         clear_all()
@@ -521,7 +522,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert 'ANCHOR:0' in bpy.data.objects.keys()
 
 
-    if TEST_EXPORT:
+    if TEST_BPY_ALL or TEST_EXPORT:
         test_title("TEST_EXPORT", "Can export the basic cube")
 
         clear_all()
@@ -584,7 +585,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         # bpy.data.objects.remove(cube, do_unlink=True)
 
 
-    if TEST_IMPORT_ARMATURE:
+    if TEST_BPY_ALL or TEST_IMPORT_ARMATURE:
         test_title("TEST_IMPORT_ARMATURE", "Can import a Skyrim head with armature")
         for o in bpy.context.selected_objects:
             o.select_set(False)
@@ -605,7 +606,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert male_head.parent.type == "ARMATURE", "ERROR: Didn't parent to armature"
 
 
-    if TEST_IMP_EXP_SKY:
+    if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
         test_title("TEST_IMP_EXP_SKY", "Can read the armor nif and spit it back out (no blender shape)")
 
         testfile = os.path.join(pynifly_dev_path, "tests/Skyrim/test.nif")
@@ -638,7 +639,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         
         new_nif.save()
             
-    if TEST_IMP_EXP_FO4:
+    if TEST_BPY_ALL or TEST_IMP_EXP_FO4:
         test_title("TEST_IMP_EXP_FO4", "Can read the body nif and spit it back out (no blender shape)")
 
         nif = NifFile(os.path.join(pynifly_dev_path, "tests\FO4\BTMaleBody.nif"))
@@ -667,7 +668,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         new_nif.save()
             
 
-    if TEST_EXPORT_WEIGHTS:
+    if TEST_BPY_ALL or TEST_EXPORT_WEIGHTS:
         test_title("TEST_EXPORT_WEIGHTS", "Import and export with weights")
 
         clear_all()
@@ -707,7 +708,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert os.path.exists(filepath_body), f"ERROR: File {filepath_body} not created"
         # Should do some checking here
 
-    if TEST_ROUND_TRIP:
+    if TEST_BPY_ALL or TEST_ROUND_TRIP:
         test_title("TEST_ROUND_TRIP", "Can do the full round trip: nif -> blender -> nif -> blender")
 
         print("..Importing original file")
@@ -747,7 +748,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         minz = min([v.co.z for v in armor2.data.vertices])
         assert maxz < 0 and minz > -130, "Error: Vertices from exported armor are positioned below origin"
 
-    if TEST_UV_SPLIT:
+    if TEST_BPY_ALL or TEST_UV_SPLIT:
         test_title("TEST_UV_SPLIT", "Can split UVs properly")
 
         verts = [(-1.0, -1.0, 0.0), 
@@ -801,7 +802,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert plane.verts[5] == plane.verts[7], "Error: Split vert at different locations"
         assert plane.uvs[5] != plane.uvs[7], "Error: Split vert has different UV locations"
 
-    if TEST_CUSTOM_BONES:
+    if TEST_BPY_ALL or TEST_CUSTOM_BONES:
         print('## TEST_CUSTOM_BONES Can handle custom bones correctly')
 
         bpy.ops.object.select_all(action='DESELECT')
@@ -824,7 +825,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert VNearEqual(bone_xform.rotation[2], new_xform.rotation[2]), f"Error: Bone rotation2 should not change. Expected\n {bone_xform}, found\n {new_xform}"
         assert round(bone_xform.scale) == round(new_xform.scale), f"Error: Scale factors should not change. Expected {bone_xform.scale}, found {bone_xform.scale}"
 
-    if TEST_BPY_PARENT:
+    if TEST_BPY_ALL or TEST_BPY_PARENT:
         print('### Maintain armature structure')
 
         # Can intuit structure if it's not in the file
@@ -847,7 +848,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
                 print(f"Found parent to hand: {obj.data.bones['Arm_Hand.R'].parent.name}")
         print('### Maintain armature structure PASSED')
 
-    if TEST_BABY:
+    if TEST_BPY_ALL or TEST_BABY:
         print('## TEST_BABY Can export baby parts')
 
         # Can intuit structure if it's not in the file
@@ -876,7 +877,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         # TODO: Test that baby's unkown skeleton is connected
       
-    if TEST_CONNECTED_SKEL:
+    if TEST_BPY_ALL or TEST_CONNECTED_SKEL:
         print('## TEST_CONNECTED_SKEL Can import connected skeleton')
 
         bpy.ops.object.select_all(action='DESELECT')
@@ -891,7 +892,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
                 assert 'Leg_Thigh.L' in s.data.bones.keys(), "Error: Should have left thigh"
                 assert s.data.bones['Leg_Thigh.L'].parent.name == 'Pelvis', "Error: Thigh should connect to pelvis"
 
-    if TEST_SKEL:
+    if TEST_BPY_ALL or TEST_SKEL:
         print('## TEST_SKEL Can import skeleton file with no shapes')
 
         bpy.ops.object.select_all(action='DESELECT')
@@ -902,7 +903,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         arma = bpy.data.objects["skeleton.nif"]
         assert 'Leg_Thigh.L' in arma.data.bones, "Error: Should have left thigh"
 
-    if TEST_TRI:
+    if TEST_BPY_ALL or TEST_TRI:
         test_title("TEST_TRI", "Can load a tri file into an existing mesh")
 
         bpy.ops.object.select_all(action='DESELECT')
@@ -985,7 +986,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert "*Extra" not in cubechg.morphs, f"Error: '*Extra' should not be in chargen"
         
 
-    if TEST_0_WEIGHTS:
+    if TEST_BPY_ALL or TEST_0_WEIGHTS:
         test_title("TEST_0_WEIGHTS", "Gives warning on export with 0 weights")
 
         baby = append_from_file("TestBabyhead", True, r"tests\FO4\Test0Weights.blend", r"\Collection", "BabyCollection")
@@ -1001,7 +1002,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert UNWEIGHTED_VERTEX_GROUP in baby.vertex_groups, "Unweighted vertex group captures vertices without weights"
 
 
-    if TEST_SPLIT_NORMAL:
+    if TEST_BPY_ALL or TEST_SPLIT_NORMAL:
         test_title("TEST_SPLIT_NORMAL", "Can handle meshes with split normals")
 
         plane = append_from_file("Plane", False, r"tests\skyrim\testSplitNormalPlane.blend", r"\Object", "Plane")
@@ -1011,7 +1012,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         #                "FO4", [''], [plane], plane.parent)
 
 
-    if TEST_ROGUE01:
+    if TEST_BPY_ALL or TEST_ROGUE01:
         test_title("TEST_ROGUE01", "Mesh with wonky normals exports correctly")
 
         obj = append_from_file("MHelmetLight:0", False, r"tests\FO4\WonkyNormals.blend", r"\Object", "MHelmetLight:0")
@@ -1061,7 +1062,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
                 break
         assert found >= 0, "Triangle not in output mesh"
 
-    if TEST_ROGUE02:
+    if TEST_BPY_ALL or TEST_ROGUE02:
         test_title("TEST_ROGUE02", "Shape keys export normals correctly")
 
         #obj = append_from_file("Plane", False, r"tests\Skyrim\ROGUE02-normals.blend", r"\Object", "Plane")
@@ -1090,7 +1091,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert n == [0, 1, 0], f"Normal should point along y axis, instead: {n}"
 
 
-    if TEST_NORMAL_SEAM:
+    if TEST_BPY_ALL or TEST_NORMAL_SEAM:
         test_title("TEST_NORMAL_SEAM", "Normals on a split seam are seamless")
 
         export_from_blend(NifExporter, 
@@ -1108,7 +1109,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert VNearEqual(shape2.normals[target_vert[0]], shape2.normals[target_vert[1]]), f"Normals should be equal: {shape2.normals[target_vert[0]]} != {shape2.normals[target_vert[1]]}" 
 
 
-    if TEST_COLORS:
+    if TEST_BPY_ALL or TEST_COLORS:
         test_title("TEST_COLORS", "Can read & write vertex colors")
         bpy.ops.object.select_all(action='DESELECT')
         export_from_blend(NifExporter, 
@@ -1147,7 +1148,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert nif2.shapes[0].colors[0] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not reread correctly: {nif2.shapes[0].colors[0]}"
         assert nif2.shapes[0].colors[561] == (0.0, 0.0, 0.0, 1.0), f"Color 561 not reread correctly: {nif2.shapes[0].colors[561]}"
 
-    if TEST_HEADPART:
+    if TEST_BPY_ALL or TEST_HEADPART:
         test_title("TEST_HEADPART", "Can read & write an SE head part")
 
         bpy.ops.object.select_all(action='DESELECT')
@@ -1171,7 +1172,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert nif2.shapes[0].blockname == "BSDynamicTriShape", f"Expected 'BSDynamicTriShape' != '{nif2.shapes[0].blockname}'"
 
 
-    if TEST_FACEBONES:
+    if TEST_BPY_ALL or TEST_FACEBONES:
         test_title("TEST_FACEBONES", "Facebones are renamed from Blender to the game's names")
 
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/basemalehead_facebones.nif")
@@ -1194,7 +1195,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert 'skin_bone_R_Dimple' in nif2.shapes[0].bone_names, f"Expected game bone names, got {nif2.shapes[0].bone_names[0:10]}"
     
         
-    if TEST_FACEBONE_EXPORT:
+    if TEST_BPY_ALL or TEST_FACEBONE_EXPORT:
         test_title("TEST_FACEBONE_EXPORT", "Test can export facebones + regular nif; shapes with hidden verts export correctly")
 
         clear_all()
@@ -1261,7 +1262,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         #assert len([x for x in nif4.nodes.keys() if x == "Neck"]) == 0, f"Expected no regular nodes in facebones nif file; found {nif4.nodes.keys()}"
 
 
-    if TEST_JIARAN:
+    if TEST_BPY_ALL or TEST_JIARAN:
         test_title("TEST_JIARAN", "Armature with no stashed transforms exports correctly")
 
         clear_all()
@@ -1276,7 +1277,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_JIARAN.nif"))
         assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
 
-    if TEST_SHADER_FO4:
+    if TEST_BPY_ALL or TEST_SHADER_FO4:
         test_title("TEST_SHADER_FO4", "Shader attributes are read and turned into Blender shader nodes")
 
         clear_all()
@@ -1313,12 +1314,13 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert nifcheckFO4.shapes[0].shader_name == nifFO4.shapes[0].shader_name, f"Error: Shader name not preserved: '{nifcheckFO4.shapes[0].shader_name}' != '{nifFO4.shapes[0].shader_name}'"
 
 
-    if TEST_SHADER_SE:
+    if TEST_BPY_ALL or TEST_SHADER_SE:
         test_title("TEST_SHADER_SE", "Shader attributes are read and turned into Blender shader nodes")
 
         clear_all()
 
-        fileSE = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\meshes\furniture\noble\noblecrate01.nif")
+        fileSE = os.path.join(pynifly_dev_path, 
+                              r"tests\SkyrimSE\meshes\furniture\noble\noblecrate01.nif")
         seimporter = NifImporter(fileSE)
         seimporter.execute()
         nifSE = seimporter.nif
@@ -1329,9 +1331,9 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert len(crate.active_material.node_tree.nodes) == 5, "ERROR: Didn't import images"
 
         print("## Shader attributes are written on export")
-
-        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_SE.nif"), 
-                               'SKYRIMSE')
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_SE.nif")
+        remove_file(outfile)
+        exporter = NifExporter(outfile, 'SKYRIMSE')
         exporter.export([crate])
 
         nifcheckSE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_SE.nif"))
@@ -1346,7 +1348,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
             f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[7]}' != '{nifSE.shapes[0].textures[7]}'"
         assert nifcheckSE.shapes[0].shader_attributes == shaderAttrsSE, f"Error: Shader attributes not preserved:\n{nifcheckSE.shapes[0].shader_attributes}\nvs\n{shaderAttrsSE}"
 
-    if TEST_SHADER_ALPHA:
+    if TEST_BPY_ALL or TEST_SHADER_ALPHA:
         test_title("TEST_SHADER_ALPHA", "Shader attributes are read and turned into Blender shader nodes")
         # Note this nif uses a MSN with a _n suffix. Import goes by the shader flag not the suffix.
 
@@ -1390,7 +1392,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert checkfurshape.alpha_property.threshold == furshape.alpha_property.threshold, f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.threshold} != {furshape.alpha_property.threshold}"
 
 
-    if TEST_SHEATH:
+    if TEST_BPY_ALL or TEST_SHEATH:
         test_title("TEST_SHEATH", "Extra data nodes are imported and exported")
         
         clear_all()
@@ -1418,7 +1420,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert "HDT Skinned Mesh Physics Object" in strings, f"Error: Expected physics object in {strings}"
 
 
-    if TEST_FEET:
+    if TEST_BPY_ALL or TEST_FEET:
         test_title("TEST_FEET", "Extra data nodes are imported and exported")
 
         clear_all()
@@ -1440,7 +1442,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert feetShape.string_data[0][0] == 'SDTA', "String data name written correctly"
         assert feetShape.string_data[0][1].startswith('[{"name"'), "String data value written correctly"
 
-    if TEST_SKYRIM_XFORM:
+    if TEST_BPY_ALL or TEST_SKYRIM_XFORM:
         test_title("TEST_SKYRIM_XFORM", "Can read & write the Skyrim shape transforms")
         
         clear_all()
@@ -1459,7 +1461,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert int(headcheck.global_to_skin.translation[2]) == -120, f"Shape global-to-skin not written correctly, found {headcheck.global_to_skin.translation[2]}"
 
 
-    if TEST_TRI2:
+    if TEST_BPY_ALL or TEST_TRI2:
         test_title("TEST_TRI2", "Test that tris do as expected when the base shape is different")
         
         clear_all()
@@ -1474,30 +1476,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert v1.co[0] <= 30, "Shape keys not relative to current mesh"
 
 
-    if TEST_ROTSTATIC:
-        test_title("TEST_ROTSTATIC", "Test that statics are transformed according to the shape transform")
-        
-        clear_all()
-        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/rotatedbody.nif")
-        NifImporter.do_import(testfile)
-
-        body = bpy.data.objects["LykaiosBody"]
-        head = bpy.data.objects["FemaleHead"]
-        assert body.rotation_euler[0] != (0.0, 0.0, 0.0), f"Expected rotation, got {body.rotation_euler}"
-
-        NifExporter.do_export(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROTSTATIC.nif"), 
-                              "SKYRIM",
-                              [body, head])
-        
-        nifcheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROTSTATIC.nif"))
-        assert "LykaiosBody" in nifcheck.shape_dict.keys(), f"Expected LykaiosBody shape, found {[s.name for s in nifcheck.shapes]}"
-        bodycheck = nifcheck.shape_dict["LykaiosBody"]
-
-        m = Matrix(bodycheck.transform.rotation)
-        assert int(m.to_euler()[0]*180/pi) == 90, f"Expected 90deg rotation, got {m.to_euler()}"
-
-
-    if TEST_ROTSTATIC2:
+    if TEST_BPY_ALL or TEST_ROTSTATIC2:
         test_title("TEST_ROTSTATIC2", "Test that statics are transformed according to the shape transform")
         
         clear_all()
@@ -1510,7 +1489,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert round(glass.matrix_world[2][2], 4) == 0.9971, f"Rotation is incorrect, got {round(glass.matrix_world[2][2], 4)} != 59.2036"
 
 
-    if TEST_VERTEX_ALPHA:
+    if TEST_BPY_ALL or TEST_VERTEX_ALPHA:
         test_title("TEST_VERTEX_ALPHA", "Export shape with vertex alpha values")
 
         clear_all()

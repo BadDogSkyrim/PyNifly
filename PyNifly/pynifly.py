@@ -26,13 +26,13 @@ def load_nifly(nifly_path):
     nifly.addCollision.restype = c_void_p
     nifly.addRigidBody.argtypes = [c_void_p, c_char_p, c_uint32, POINTER(bhkRigidBodyProps)]
     nifly.addRigidBody.restype = c_int
-    nifly.addNode.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p]
-    nifly.addNode.restype = c_int
+    nifly.addNode.argtypes = [c_void_p, c_char_p, POINTER(TransformBuf), c_void_p]
+    nifly.addNode.restype = c_void_p
     nifly.clearMessageLog.argtypes = []
     nifly.clearMessageLog.restype = None
     nifly.createNif.argtypes = [c_char_p, c_int, c_char_p]
     nifly.createNif.restype = c_void_p
-    nifly.createNifShapeFromData.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p]
+    nifly.createNifShapeFromData.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_void_p]
     nifly.createNifShapeFromData.restype = c_void_p
     nifly.createSkinForNif.argtypes = [c_void_p, c_char_p]
     nifly.createSkinForNif.restype = c_void_p
@@ -517,7 +517,10 @@ class CollisionShape:
 
     @classmethod
     def New(cls, collisiontype, index=0, file=None, parent=None, props=None):
-        return cls.subtypes[collisiontype](index, file, parent, props)
+        try:
+            return cls.subtypes[collisiontype](index, file, parent, props)
+        except:
+            return None
 
     @property
     def blockname(self):
@@ -707,12 +710,11 @@ class NiNode:
 
 
 # --- NifShape --- #
-class NiShape:
-    def __init__(self, theNif, theShapeRef=None):
+class NiShape(NiNode):
+    def __init__(self, file=None, handle=None, parent=None):
+        super().__init__(handle=handle, file=file, parent=parent)
         self._bone_ids = None
         self._bone_names = None
-        self._handle = theShapeRef
-        self.transform = TransformBuf()
         self._normals = None
         self._colors = None
         self._scale = 1.0
@@ -722,8 +724,6 @@ class NiShape:
         self._is_skinned = False
         self._verts = None
         self._weights = None
-        self.name = None
-        self.parent = theNif
         self._partitions = None
         self._partition_tris = None
         self._segment_file = ''
@@ -734,30 +734,17 @@ class NiShape:
         self._bgdata = None
         self._strdata = None
 
-        if not theShapeRef is None:
-            buf = create_string_buffer(256)
-            NifFile.nifly.getShapeName(theShapeRef, buf, 256)
-            self.name = buf.value.decode('utf-8')
-            
-            NifFile.nifly.getTransform(theShapeRef, self.transform)
-
     def _setShapeXform(self):
         NifFile.nifly.setTransform(self._handle, self.transform)
-
-    @property
-    def blockname(self):
-        buf = (c_char * 128)()
-        NifFile.nifly.getShapeBlockName(self._handle, buf, 128)
-        return buf.value.decode('utf-8')
 
     @property
     def verts(self):
         if not self._verts:
             totalCount = NifFile.nifly.getVertsForShape(
-                self.parent._handle, self._handle, None, 0, 0)
+                self.file._handle, self._handle, None, 0, 0)
             verts = (c_float * 3 * totalCount)()
             NifFile.nifly.getVertsForShape(
-                self.parent._handle, self._handle, verts, totalCount * 3, 0)
+                self.file._handle, self._handle, verts, totalCount * 3, 0)
             self._verts = [(v[0], v[1], v[2]) for v in verts]
         return self._verts
 
@@ -767,9 +754,9 @@ class NiShape:
             if self._verts:
                 buflen = len(self._verts)
             else:
-                buflen = NifFile.nifly.getColorsForShape(self.parent._handle, self._handle, None, 0)
+                buflen = NifFile.nifly.getColorsForShape(self.file._handle, self._handle, None, 0)
             buf = (c_float * 4 * buflen)()
-            colCount = NifFile.nifly.getColorsForShape(self.parent._handle, self._handle, buf, buflen*4)
+            colCount = NifFile.nifly.getColorsForShape(self.file._handle, self._handle, buf, buflen*4)
             self._colors = [(buf[i][0], buf[i][1], buf[i][2], buf[i][3]) for i in range(colCount)]
         return self._colors
     
@@ -778,11 +765,11 @@ class NiShape:
         if not self._normals:
             norms = (c_float*3)()
             totalCount = NifFile.nifly.getNormalsForShape(
-                self.parent._handle, self._handle, norms, 0, 0)
+                self.file._handle, self._handle, norms, 0, 0)
             if totalCount > 0:
                 norms = (c_float * 3 * totalCount)()
                 NifFile.nifly.getNormalsForShape(
-                        self.parent._handle, self._handle, norms, totalCount * 3, 0)
+                        self.file._handle, self._handle, norms, totalCount * 3, 0)
                 self._normals = [(n[0], n[1], n[2]) for n in norms]
         return self._normals
 
@@ -790,42 +777,42 @@ class NiShape:
     def tris(self):
         if not self._tris:
             triCount = NifFile.nifly.getTriangles(
-                    self.parent._handle, self._handle, None, 0, 0)
+                    self.file._handle, self._handle, None, 0, 0)
             buf = (c_uint16 * 3 * triCount)()
             NifFile.nifly.getTriangles(
-                    self.parent._handle, self._handle, buf, triCount * 3, 0)
+                    self.file._handle, self._handle, buf, triCount * 3, 0)
             self._tris = [(buf[i][0], buf[i][1], buf[i][2]) for i in range(triCount)]
         return self._tris
 
     def _read_partitions(self):
         self._partitions = []
         buf = (c_uint16 * 2)()
-        pc = NifFile.nifly.getPartitions(self.parent._handle, self._handle, None, 0)
+        pc = NifFile.nifly.getPartitions(self.file._handle, self._handle, None, 0)
         buf = (c_uint16 * 2 * pc)()
-        pc = NifFile.nifly.getPartitions(self.parent._handle, self._handle, buf, pc)
+        pc = NifFile.nifly.getPartitions(self.file._handle, self._handle, buf, pc)
         for i in range(pc):
-            self._partitions.append(SkyPartition(buf[i][1], buf[i][0], namedict=self.parent.dict))
+            self._partitions.append(SkyPartition(buf[i][1], buf[i][0], namedict=self.file.dict))
     
     def _read_segments(self, num):
         self._partitions = []
         buf = (c_int * 2 * num)()
-        pc = NifFile.nifly.getSegments(self.parent._handle, self._handle, buf, num)
+        pc = NifFile.nifly.getSegments(self.file._handle, self._handle, buf, num)
         for i in range(num):
-            p = FO4Segment(part_id=buf[i][0], index=i, subsegments=buf[i][1], namedict=self.parent.dict)
+            p = FO4Segment(part_id=buf[i][0], index=i, subsegments=buf[i][1], namedict=self.file.dict)
             self._partitions.append(p)
             buf2 = (c_uint32 * 3 * p.subseg_count)()
-            ssn = NifFile.nifly.getSubsegments(self.parent._handle, self._handle, p.id, buf2, p.subseg_count)
+            ssn = NifFile.nifly.getSubsegments(self.file._handle, self._handle, p.id, buf2, p.subseg_count)
             for i in range(ssn):
                 ss = FO4Subsegment(part_id=buf2[i][0], 
                                    user_slot=buf2[i][1], 
                                    material=buf2[i][2], 
                                    parent=p, 
-                                   namedict=self.parent.dict)
+                                   namedict=self.file.dict)
 
     @property
     def partitions(self):
         if self._partitions is None:
-            segc = NifFile.nifly.segmentCount(self.parent._handle, self._handle)
+            segc = NifFile.nifly.segmentCount(self.file._handle, self._handle)
             if segc > 0:
                 self._read_segments(segc)
             else:
@@ -836,9 +823,9 @@ class NiShape:
     def partition_tris(self):
         if self._partition_tris is None:
             buf = (c_uint16 * 1)()
-            pc = NifFile.nifly.getPartitionTris(self.parent._handle, self._handle, None, 0)
+            pc = NifFile.nifly.getPartitionTris(self.file._handle, self._handle, None, 0)
             buf = (c_uint16 * pc)()
-            pc = NifFile.nifly.getPartitionTris(self.parent._handle, self._handle, buf, pc)
+            pc = NifFile.nifly.getPartitionTris(self.file._handle, self._handle, buf, pc)
             self._partition_tris = [0] * pc
             for i in range(pc):
                 self._partition_tris[i] = buf[i]
@@ -846,9 +833,9 @@ class NiShape:
 
     @property
     def segment_file(self):
-        buflen = NifFile.nifly.getSegmentFile(self.parent._handle, self._handle, None, 0)+1
+        buflen = NifFile.nifly.getSegmentFile(self.file._handle, self._handle, None, 0)+1
         buf = (c_char * buflen)()
-        buflen = NifFile.nifly.getSegmentFile(self.parent._handle, self._handle, buf, buflen)
+        buflen = NifFile.nifly.getSegmentFile(self.file._handle, self._handle, buf, buflen)
         self._segment_file = buf.value.decode('utf-8')
         return self._segment_file
 
@@ -862,13 +849,13 @@ class NiShape:
             uvCount = len(self.verts)
             buf = (c_float * 2 * uvCount)()
             NifFile.nifly.getUVs(
-                    self.parent._handle, self._handle, buf, uvCount * 2, 0)
+                    self.file._handle, self._handle, buf, uvCount * 2, 0)
             self._uvs = [(buf[i][0], buf[i][1]) for i in range(uvCount)]
         return self._uvs
     
     @property
     def shader_block_name(self):
-        b = NifFile.nifly.getShaderBlockName(self.parent._handle, self._handle)
+        b = NifFile.nifly.getShaderBlockName(self.file._handle, self._handle)
         if b:
             return b.decode('utf-8')
         else:
@@ -878,7 +865,7 @@ class NiShape:
     def shader_name(self):
         if self._shader_name is None:
             buf = (c_char * 500)()
-            buflen = NifFile.nifly.getShaderName(self.parent._handle, self._handle, buf, 500)
+            buflen = NifFile.nifly.getShaderName(self.file._handle, self._handle, buf, 500)
             if buflen == -1:
                 self._shader_name = ''
             else:
@@ -887,15 +874,15 @@ class NiShape:
 
     @shader_name.setter
     def shader_name(self, val):
-        NifFile.nifly.setShaderName(self.parent._handle, self._handle, val.encode('utf-8'))
+        NifFile.nifly.setShaderName(self.file._handle, self._handle, val.encode('utf-8'))
 
     @property
     def shaderflags1(self):
-        return NifFile.nifly.getShaderFlags1(self.parent._handle, self._handle)
+        return NifFile.nifly.getShaderFlags1(self.file._handle, self._handle)
 
     @shaderflags1.setter
     def shaderflags1(self, val):
-        NifFile.nifly.setShaderFlags(self.parent._handle, self._handle, val);
+        NifFile.nifly.setShaderFlags(self.file._handle, self._handle, val);
 
     @property
     def textures(self):
@@ -904,12 +891,12 @@ class NiShape:
             for i in range(0, 9):
                 bufsize = 300
                 buf = create_string_buffer(bufsize)
-                NifFile.nifly.getShaderTextureSlot(self.parent._handle, self._handle, i, buf, bufsize)
+                NifFile.nifly.getShaderTextureSlot(self.file._handle, self._handle, i, buf, bufsize)
                 self._textures.append(buf.value.decode('utf-8'))
         return self._textures
 
     def set_texture(self, slot, str):
-        NifFile.nifly.setShaderTextureSlot(self.parent._handle, self._handle, 
+        NifFile.nifly.setShaderTextureSlot(self.file._handle, self._handle, 
                                            slot, str.encode('utf-8'))
     
     @property
@@ -917,14 +904,14 @@ class NiShape:
         if self._shader_attrs is None:
             if self.shader_block_name == "BSLightingShaderProperty":
                 buf = BSLSPAttrs()
-                if NifFile.nifly.getShaderAttrs(self.parent._handle, self._handle, 
+                if NifFile.nifly.getShaderAttrs(self.file._handle, self._handle, 
                                                 byref(buf)) == 0:
                     self._shader_attrs = buf
                 else:
                     self._shader_attrs = BSLSPAttrs()
             elif self.shader_block_name == "BSEffectShaderProperty":
                 buf = BSESPAttrs()
-                if NifFile.nifly.getEffectShaderAttrs(self.parent._handle, self._handle,
+                if NifFile.nifly.getEffectShaderAttrs(self.file._handle, self._handle,
                                                       byref(buf)) == 0:
                     self._shader_attrs = buf
                 else:
@@ -936,10 +923,10 @@ class NiShape:
     def save_shader_attributes(self):
         if self._shader_attrs:
             if type(self._shader_attrs) == BSLSPAttrs:
-                NifFile.nifly.setShaderAttrs(self.parent._handle, self._handle,
+                NifFile.nifly.setShaderAttrs(self.file._handle, self._handle,
                                              byref(self._shader_attrs))
             else:
-                NifFile.nifly.setEffectShaderAttrs(self.parent._handle, self._handle,
+                NifFile.nifly.setEffectShaderAttrs(self.file._handle, self._handle,
                                                    byref(self._shader_attrs))
 
     @property
@@ -947,29 +934,30 @@ class NiShape:
         if self._alpha:
             return True
         buf = AlphaPropertyBuf()
-        return NifFile.nifly.getAlphaProperty(self.parent._handle, self._handle, byref(buf))
+        return NifFile.nifly.getAlphaProperty(self.file._handle, self._handle, byref(buf))
         
     @property
     def alpha_property(self):
         if self._alpha is None:
             buf = AlphaPropertyBuf()
-            NifFile.nifly.getAlphaProperty(self.parent._handle, self._handle, byref(buf))
+            NifFile.nifly.getAlphaProperty(self.file._handle, self._handle, byref(buf))
             self._alpha = buf
         return self._alpha
 
     def save_alpha_property(self):
         if self._alpha:
-            NifFile.nifly.setAlphaProperty(self.parent._handle, self._handle, byref(self._alpha))
+            NifFile.nifly.setAlphaProperty(self.file._handle, self._handle, byref(self._alpha))
 
     @property
     def bone_names(self):
+        """ List of bone names in the shape """
         if self._bone_names is None:
             bufsize = 300
             buf = create_string_buffer(bufsize+1)
-            actualsize = NifFile.nifly.getShapeBoneNames(self.parent._handle, self._handle, buf, bufsize)
+            actualsize = NifFile.nifly.getShapeBoneNames(self.file._handle, self._handle, buf, bufsize)
             if actualsize > bufsize:
                 buf = create_string_buffer(actualsize+1)
-                NifFile.nifly.getShapeBoneNames(self.parent._handle, self._handle, buf, actualsize+1)
+                NifFile.nifly.getShapeBoneNames(self.file._handle, self._handle, buf, actualsize+1)
             bn = buf.value.decode('utf-8').split('\n')
             self._bone_names = list(filter((lambda n: len(n) > 0), bn))
         return self._bone_names
@@ -977,19 +965,19 @@ class NiShape:
     @property
     def bone_ids(self):
         if self._bone_ids is None:
-            id_count = NifFile.nifly.getShapeBoneCount(self.parent._handle, self._handle)
+            id_count = NifFile.nifly.getShapeBoneCount(self.file._handle, self._handle)
             BUFDEF = c_int * id_count
             buf = BUFDEF()
-            NifFile.nifly.getShapeBoneIDs(self.parent._handle, self._handle, buf, id_count)
+            NifFile.nifly.getShapeBoneIDs(self.file._handle, self._handle, buf, id_count)
             self._bone_ids = list(buf)
         return self._bone_ids
 
     def _bone_weights(self, bone_id):
         # Weights for all vertices (that are weighted to it)
-        BUFSIZE = NifFile.nifly.getShapeBoneWeightsCount(self.parent._handle, self._handle, bone_id)
+        BUFSIZE = NifFile.nifly.getShapeBoneWeightsCount(self.file._handle, self._handle, bone_id)
         BUFDEF = VERTEX_WEIGHT_PAIR * BUFSIZE
         buf = BUFDEF()
-        NifFile.nifly.getShapeBoneWeights(self.parent._handle, self._handle,
+        NifFile.nifly.getShapeBoneWeights(self.file._handle, self._handle,
                                           bone_id, buf, BUFSIZE)
         out = [(x.vertex, x.weight) for x in buf]
         return out
@@ -1025,7 +1013,7 @@ class NiShape:
             NiSkinInstance. This should be applied to the shape in blender so it matches 
             the armature. """
         buf = TransformBuf()
-        NifFile.nifly.getGlobalToSkin(self.parent.skin, self._handle, buf)
+        NifFile.nifly.getGlobalToSkin(self.file.skin, self._handle, buf)
         return buf
 
     @property
@@ -1035,7 +1023,7 @@ class NiShape:
             Returns the transform or None.
             """
         buf = TransformBuf()
-        has_xform = NifFile.nifly.getShapeGlobalToSkin(self.parent._handle, self._handle, buf)
+        has_xform = NifFile.nifly.getShapeGlobalToSkin(self.file._handle, self._handle, buf)
         if has_xform:
             return buf
         return None
@@ -1046,7 +1034,7 @@ class NiShape:
             """
         self.skin()
         buf = TransformBuf()
-        NifFile.nifly.getBoneSkinToBoneXform(self.parent.skin,
+        NifFile.nifly.getBoneSkinToBoneXform(self.file.skin,
                                              self.name.encode('utf-8'),
                                              bone_name.encode('utf-8'),
                                              buf)
@@ -1055,7 +1043,7 @@ class NiShape:
     def get_shape_skin_to_bone(self, bone_name):
         """ Return the bone-to-parent transform on the bone reference in the shape """
         buf = TransformBuf()
-        xform_found = NifFile.nifly.getShapeSkinToBone(self.parent._handle, 
+        xform_found = NifFile.nifly.getShapeSkinToBone(self.file._handle, 
                                                        self._handle, 
                                                        bone_name.encode('utf-8'),
                                                        buf)
@@ -1069,7 +1057,7 @@ class NiShape:
     @property
     def behavior_graph_data(self):
         if self._bgdata is None:
-            self._bgdata = _read_extra_data(self.parent._handle, 
+            self._bgdata = _read_extra_data(self.file._handle, 
                                             self._handle,
                                             ExtraDataType.BehaviorGraph)
         return self._bgdata
@@ -1077,13 +1065,13 @@ class NiShape:
     @behavior_graph_data.setter
     def behavior_graph_data(self, val):
         self._bgdata = val
-        _write_extra_data(self.parent._handle, self._handle, 
+        _write_extra_data(self.file._handle, self._handle, 
                          ExtraDataType.BehaviorGraph, self._bgdata)
 
     @property
     def string_data(self):
         if self._strdata is None:
-            self._strdata = _read_extra_data(self.parent._handle, 
+            self._strdata = _read_extra_data(self.file._handle, 
                                              self._handle,
                                              ExtraDataType.String)
         return self._strdata
@@ -1091,13 +1079,13 @@ class NiShape:
     @string_data.setter
     def string_data(self, val):
         self._strdata = val
-        _write_extra_data(self.parent._handle, self._handle, 
+        _write_extra_data(self.file._handle, self._handle, 
                          ExtraDataType.String, self._strdata)
 
     # #############  Creating shapes #############
 
     def skin(self):
-        NifFile.nifly.skinShape(self.parent._handle, self._handle)
+        NifFile.nifly.skinShape(self.file._handle, self._handle)
         self._is_skinned = True
 
     def set_global_to_skin(self, transform):
@@ -1105,15 +1093,15 @@ class NiShape:
             to have verts around the origin but to be positioned properly when skinned.
             Works whether or not there is a SkinInstance block
             """
-        if self.parent._skin_handle is None:
-            self.parent.createSkin()
+        if self.file._skin_handle is None:
+            self.file.createSkin()
         if not self._is_skinned:
             self.skin()
-        NifFile.nifly.setGlobalToSkinXform(self.parent._skin_handle, self._handle, transform)
+        NifFile.nifly.setGlobalToSkinXform(self.file._skin_handle, self._handle, transform)
 
     def add_bone(self, bone_name, xform=None):
-        if self.parent._skin_handle is None:
-            self.parent.createSkin()
+        if self.file._skin_handle is None:
+            self.file.createSkin()
         if not self._is_skinned:
             self.skin()
         if xform:
@@ -1121,16 +1109,16 @@ class NiShape:
         else:
             buf = TransformBuf() 
             buf.set_identity()
-        NifFile.nifly.addBoneToShape(self.parent._skin_handle, self._handle, 
+        NifFile.nifly.addBoneToShape(self.file._skin_handle, self._handle, 
                                      bone_name.encode('utf-8'), buf)
 
     def set_global_to_skindata(self, xform):
         """ Sets the NiSkinData transformation. Only call this on nifs that have them. """
-        if self.parent._skin_handle is None:
-            self.parent.createSkin()
+        if self.file._skin_handle is None:
+            self.file.createSkin()
         if not self._is_skinned:
             self.skin()
-        NifFile.nifly.setShapeGlobalToSkinXform(self.parent._skin_handle, self._handle, xform)
+        NifFile.nifly.setShapeGlobalToSkinXform(self.file._skin_handle, self._handle, xform)
         
     def setShapeWeights(self, bone_name, vert_weights):
         """ Set the weights for a shape. Note we pass a dummy transformation matrix that is not used.
@@ -1143,9 +1131,9 @@ class NiShape:
             vert_buf[i].weight = vw[1]
         xfbuf = TransformBuf()
 
-        if self.parent._skin_handle is None:
-            self.parent.createSkin()
-        NifFile.nifly.setShapeWeights(self.parent._skin_handle, self._handle, 
+        if self.file._skin_handle is None:
+            self.file.createSkin()
+        NifFile.nifly.setShapeWeights(self.file._skin_handle, self._handle, 
                                       bone_name.encode('utf-8'),
                                       vert_buf, len(vert_weights), xfbuf)
        
@@ -1191,7 +1179,7 @@ class NiShape:
                             log.error(f"Tri at index {i} assigned partition, but only {len(trilist)} tris defined")
                     tbuf[i] = pbuf[0][1] # Export with the first partition so we get something out
 
-            NifFile.nifly.setPartitions(self.parent._handle, self._handle,
+            NifFile.nifly.setPartitions(self.file._handle, self._handle,
                                         pbuf, len(parts),
                                         tbuf, len(trilist))
         else:
@@ -1216,7 +1204,7 @@ class NiShape:
 
             #NifFile.log.debug(f"....Partition IDs: {[x for x in pbuf]}")
             #NifFile.log.debug(f"....setSegments({len(parts)}, int({len(sslist)}/4), {len(trilist)}, {trilist[0:4]})")
-            NifFile.nifly.setSegments(self.parent._handle, self._handle,
+            NifFile.nifly.setSegments(self.file._handle, self._handle,
                                       pbuf, len(parts),
                                       sbuf, int(len(sslist)/4),
                                       tbuf, len(trilist),
@@ -1230,7 +1218,7 @@ class NiShape:
             buf[i][1] = c[1]
             buf[i][2] = c[2]
             buf[i][3] = c[3]
-        NifFile.nifly.setColorsForShape(self.parent._handle, self._handle, 
+        NifFile.nifly.setColorsForShape(self.file._handle, self._handle, 
                                         buf, len(colors))
 
 
@@ -1288,15 +1276,27 @@ class NifFile:
         else:
             NifFile.nifly.saveNif(self._handle, self.filepath.encode('utf-8'))
 
+    def add_node(self, name, xform, parent=None):
+        phandle = None
+        if parent:
+            phandle = parent._handle
+        nodeh = NifFile.nifly.addNode(self._handle, name.encode('utf-8'), xform, phandle)
+        return NiNode(handle=nodeh, file=self, parent=parent)
+
     def createShapeFromData(self, shape_name, verts, tris, uvs, normals, 
-                            is_headpart=False, is_skinned=False, is_effectsshader=False):
+                            is_headpart=False, is_skinned=False, is_effectsshader=False,
+                            parent=None):
         """ Create the shape from the data provided
             shape_name = Name of shape
             verts = [(x, y, z)...] vertex location
             tris = [(v1, v2, v3)...] triangles
             uvs = [(u, v)...] uvs, as many as there are verts
             normals = [(x, y, z)...] UVs, as many as there are verts
+            parent = Parent object or root
             """
+        parenthandle = None
+        if parent:
+            parenthandle = parent._handle
         VERTBUFDEF = c_float * 3 * len(verts)
         vertbuf = VERTBUFDEF()
         normbuf = None
@@ -1323,7 +1323,8 @@ class NifFile:
             shape_name.encode('utf-8'), 
             vertbuf, uvbuf, normbuf, len(verts),
             tribuf, len(tris), 
-            optbuf)
+            optbuf,
+            parenthandle)
         if self._shapes is None:
             self._shapes = []
         sh = NiShape(self)
@@ -1480,7 +1481,7 @@ class NifFile:
         Note this zaps the nodelist. """
         if self._skin_handle:
             NifFile.nifly.writeSkinToNif(self._skin_handle)
-        self._nodes = None
+            self._nodes = None
 
     @property
     def cloth_data(self):
@@ -1587,7 +1588,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1623,7 +1624,8 @@ TEST_PARTITION_SM = False
 TEST_EXP_BODY = False
 TEST_EFFECT_SHADER = False
 TEST_BOW = False
-TEST_CONVEX = True
+TEST_CONVEX = False
+TEST_CONVEX_MULTI = True
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -1651,7 +1653,7 @@ def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
     #    new_shape.set_global_to_skin(new_shape_gts)
 
     for bone_name, weights in old_shape.bone_weights.items():
-        new_shape.add_bone(bone_name, old_shape.parent.nodes[bone_name].xform_to_global)
+        new_shape.add_bone(bone_name, old_shape.file.nodes[bone_name].xform_to_global)
         new_shape.setShapeWeights(bone_name, weights)
 
     new_shape.shader_name = old_shape.shader_name
@@ -1708,7 +1710,7 @@ def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
 
 if __name__ == "__main__":
     import codecs
-    import quickhull
+    # import quickhull
 
     nifly_path = r"C:\Users\User\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
     NifFile.Load(nifly_path)
@@ -2954,6 +2956,15 @@ if __name__ == "__main__":
                                           bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE)
 
         nifOut.save()
+
+
+    if TEST_ALL or TEST_CONVEX_MULTI:
+        print("### TEST_CONVEX_MULTI: Can read and write convex collisions")
+        nif = NifFile(r"tests/Skyrim/grilledleeks01.nif")
+
+        l2 = nif.shape_dict["Leek02:0"]
+        assert l2.parent.name == "Leek02", f"Parent of shape is node: {l2.parent.name}"
+
 
     print("""
 ================================================

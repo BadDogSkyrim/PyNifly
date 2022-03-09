@@ -21,7 +21,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 3, 0, 0 };
+const int NiflyDDLVersion[3] = { 3, 0, 2 };
  
 using namespace nifly;
 
@@ -224,11 +224,11 @@ NIFLY_API void* getNodeParent(void* theNif, void* node) {
     return nif->GetParentNode(theNode);
 }
 
-NIFLY_API int addNode(void* f, const char* name, const MatTransform* xf, void* parent) {
+NIFLY_API void* addNode(void* f, const char* name, const MatTransform* xf, void* parent) {
     NifFile* nif = static_cast<NifFile*>(f);
     NiNode* parentNode = static_cast<NiNode*>(parent);
     NiNode* theNode = nif->AddNode(name, *xf, parentNode);
-    return nif->GetBlockID(theNode);
+    return theNode;
 }
 
 
@@ -383,7 +383,8 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     const float* norms,
     int vertCount,
     const uint16_t* tris, int triCount,
-    uint16_t* optionsPtr = nullptr)
+    uint16_t* optionsPtr,
+    void* parentRef)
     /* Create nif shape from the given data
     * verts = (float x, float y float z), ... 
     * uv_points = (float u, float v), matching 1-1 with the verts list
@@ -395,6 +396,7 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     *            == 2: Create FO4 BSTriShape (default is BSSubindexTriShape)
     *            == 4: Create FO4 BSEffectShaderProperty
     *            may be omitted
+    * parentRef = Node to be parent of the new shape. Root if omitted.
     */
 {
     NifFile* nif = static_cast<NifFile*>(parentNif);
@@ -431,8 +433,10 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
         t.push_back(thist);
     }
 
-    if (optionsPtr)
-        return PyniflyCreateShapeFromData(nif, shapeName, &v, &t, &uv, &n, *optionsPtr);
+    if ((optionsPtr && *optionsPtr) || parentRef)
+        return PyniflyCreateShapeFromData(nif, shapeName, 
+            &v, &t, &uv, &n, *optionsPtr, 
+            static_cast<NiNode*>(parentRef));
     else
         return nif->CreateShapeFromData(shapeName, &v, &t, &uv, &n);
 }
