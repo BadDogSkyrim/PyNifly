@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = True
+RUN_TESTS = False
 TEST_BPY_ALL = False
 
 
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (3, 0, 2),  
+    "version": (4, 0, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -848,7 +848,7 @@ class NifImporter():
         # transform from the reference skeleton
         # bonenode = self.nif.nodes[self.nif.nif_name(name)]
         xf = self.nif.get_node_xform_to_global(self.nif.nif_name(name)) 
-        log.debug(f"Found bone transform {name} = {xf}")
+        # log.debug(f"Found bone transform {name} = {xf}")
         bone_xform = transform_to_matrix(xf)
         xft, xfq, xfs = bone_xform.decompose()
 
@@ -856,7 +856,7 @@ class NifImporter():
         bonevec = get_bone_vector(self.nif.game)
         rotvec = bonevec
         rotvec.rotate(xfq)
-        log.debug(f"Vector for bone {name} = {rotvec}")
+        # log.debug(f"Vector for bone {name} = {rotvec}")
         # rot_vec = get_bone_vector(self.nif.game)
         #if self.nif.game in ("SKYRIM", "SKYRIMSE"):
         #    rot_vec = Vector((0, 0, 5))
@@ -1084,7 +1084,6 @@ class NifImporter():
         cbody = bpy.context.object
         cbody.parent = c
         cbody.name = cb.blockname
-        cbody['Collision_Block_Name'] = cb.blockname
         cbody.show_name = True
         self.incr_loc
 
@@ -1794,10 +1793,15 @@ class NifExporter:
                 self.armature = obj 
 
         elif obj.type == 'MESH':
-            self.objects.add(obj)
-            if obj.parent and obj.parent.type == 'ARMATURE':
-                self.add_object(obj.parent)
-            self.file_keys = get_with_uscore(get_common_shapes(self.objects))
+            par = obj.parent
+            par2 = None
+            if par:
+                par2 = par.parent
+            if not ( obj.name.startswith('bhk') and par and par.name.startswith('bhk') and par2 and par2.name.startswith('bhkCollisionObject') ):
+                self.objects.add(obj)
+                if obj.parent and obj.parent.type == 'ARMATURE':
+                    self.add_object(obj.parent)
+                self.file_keys = get_with_uscore(get_common_shapes(self.objects))
 
         elif obj.type == 'EMPTY':
             if 'BSBehaviorGraphExtraData_Name' in obj.keys():
@@ -2005,7 +2009,12 @@ class NifExporter:
     def export_bhkConvexVerticesShape(self, s, xform):
         # Assume the verts are exactly the convex shape
         p = bhkConvexVerticesShapeProps(s)
-        verts1 = [xform @ v.co for v in s.data.vertices]
+        bm = bmesh.new()
+        bm.from_mesh(s.data)
+        bmesh.ops.convex_hull(bm, input=bm.verts, use_existing_faces=True)
+
+        verts1 = [xform @ v.co for v in bm.verts]
+        # verts1 = [xform @ v.co for v in s.data.vertices]
         verts = [v / HAVOC_SCALE_FACTOR for v in verts1]
 
         # Need a normal for each face
@@ -2062,42 +2071,27 @@ class NifExporter:
         log.debug(f"Using parent object: {targ.name}")
         return mx
 
-        ##targname = collisionobj['pynCollisionTarget']
-        ##t = list(filter(lambda x: x.name == targname, self.objects))
-        #if len(t) > 0:
-        #    log.debug(f"Found collision target object: {t}")
-        #    targ = t[0]
-        #    mx = targ.collisionobj.matrix_world
-        #elif self.armature:
-        #    try:
-        #        log.debug(f"Finding target bone: {targname}")
-        #        targbone = self.armature.data.bones[targname]
-        #        d = targbone.head - targbone.tail
-        #        d.normalize()
-        #        bonevec = get_bone_vector(self.game)
-        #        q = Quaternion(targbone['pynXform'])
-        #        #rotvec.normalize()
-        #        #a = rotvec.angle(d)
-        #        #q = Quaternion(rotvec, 
-        #        #c = rotvec.cross(d)
-        #        #a = rotvec.angle(d)
-        #        #q = Quaternion(c, a)
-        #        mx = Matrix.LocRotScale(targbone.head, q, [1,1,1])
-        #        log.debug(f"Found collision target bone: {targbone}")
-        #    except Exception:
-        #        log.exception(f"No target, using collision object: {collisionobj.name}")
-        #        mx = collisionobj.matrix_world
-        
-        #        log.debug(f"Collision target: {mx}")
-        #return mx
 
     def export_collision_body(self, body_list, coll):
         """ Export the collision body elements. coll is the parent collision object """
         body = None
         for b in body_list:
+            blockname = 'bhkRigidBody'
+            if b.name.startswith('bhkRigidBodyT'):
+                blockname = 'bhkRigidBodyT'
+
+            targxf = self.get_collision_target(coll)
+
             xform = Matrix()
-            if b['Collision_Block_Name'] == 'bhkRigidBody':
-                xform = b.matrix_parent_inverse.copy()
+            if blockname == 'bhkRigidBody':
+                # Get verts in world coords 
+                xform = b.matrix_world.copy()
+                # xform.invert()
+                # Apply the transform from target
+                targxfi = targxf.copy()
+                targxfi.invert()
+                xform = targxfi @ xform
+
             cshape, ctr = self.export_collision_shape(b.children, xform)
             log.debug(f"Collision Center: {ctr}")
 
@@ -2109,33 +2103,31 @@ class NifExporter:
                 
                 # If there's no target, root is the target. We don't support transforms 
                 # on root yet.
-                targxf = self.get_collision_target(coll)
-                if targxf:
-                    targloc, targq, targscale = targxf.decompose()
+                targloc, targq, targscale = targxf.decompose()
             
-                    targq.invert()
-                    props.rotation[0] = targq.x
-                    props.rotation[1] = targq.y
-                    props.rotation[2] = targq.z
-                    props.rotation[3] = targq.w
-                    log.debug(f"Target rotation: {targq.w}, {targq.x}, {targq.y}, {targq.z}")
+                targq.invert()
+                props.rotation[0] = targq.x
+                props.rotation[1] = targq.y
+                props.rotation[2] = targq.z
+                props.rotation[3] = targq.w
+                log.debug(f"Target rotation: {targq.w}, {targq.x}, {targq.y}, {targq.z}")
 
-                    rv = ctr - targloc
-                    log.debug(f"Target to center: {rv}")
-                    if b['Collision_Block_Name'] == 'bhkRigidBodyT':
-                        rv.rotate(targq)
-                    log.debug(f"Target to center rotated: {rv}")
-                    # rv = bodq.invert().rotate(rv)
+                rv = ctr - targloc
+                log.debug(f"Target to center: {rv}")
+                if blockname == 'bhkRigidBodyT':
+                    rv.rotate(targq)
+                log.debug(f"Target to center rotated: {rv}")
+                # rv = bodq.invert().rotate(rv)
 
-                    props.translation[0] = (rv.x) / HAVOC_SCALE_FACTOR
-                    props.translation[1] = (rv.y) / HAVOC_SCALE_FACTOR
-                    props.translation[2] = (rv.z) / HAVOC_SCALE_FACTOR
-                    props.translation[3] = 0
-                    log.debug(f"In havoc units: {rv / HAVOC_SCALE_FACTOR}")
+                props.translation[0] = (rv.x) / HAVOC_SCALE_FACTOR
+                props.translation[1] = (rv.y) / HAVOC_SCALE_FACTOR
+                props.translation[2] = (rv.z) / HAVOC_SCALE_FACTOR
+                props.translation[3] = 0
+                log.debug(f"In havoc units: {rv / HAVOC_SCALE_FACTOR}")
 
-                    log.debug(f"Writing collision body with translation: {props.translation[:]} and rotation {props.rotation[:]}")
+                log.debug(f"Writing collision body with translation: {props.translation[:]} and rotation {props.rotation[:]}")
 
-                body = self.nif.add_rigid_body(b['Collision_Block_Name'], props, cshape)
+                body = self.nif.add_rigid_body(blockname, props, cshape)
         return body
 
     def export_collisions(self, objlist):
@@ -2751,29 +2743,6 @@ def run_tests():
 
 
     if True:
-        test_title("TEST_ROTSTATIC", "Test that statics are transformed according to the shape transform")
-        
-        clear_all()
-        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/rotatedbody.nif")
-        NifImporter.do_import(testfile)
-
-        body = bpy.data.objects["LykaiosBody"]
-        head = bpy.data.objects["FemaleHead"]
-        assert body.rotation_euler[0] != (0.0, 0.0, 0.0), f"Expected rotation, got {body.rotation_euler}"
-
-        NifExporter.do_export(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROTSTATIC.nif"), 
-                              "SKYRIM",
-                              [body, head])
-        
-        nifcheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_ROTSTATIC.nif"))
-        assert "LykaiosBody" in nifcheck.shape_dict.keys(), f"Expected LykaiosBody shape, found {[s.name for s in nifcheck.shapes]}"
-        bodycheck = nifcheck.shape_dict["LykaiosBody"]
-
-        m = Matrix(bodycheck.transform.rotation)
-        assert int(m.to_euler()[0]*180/pi) == 90, f"Expected 90deg rotation, got {m.to_euler()}"
-
-
-    if True:
         test_title("TEST_BOW", "Can read and write bow")
         # Primarily tests collisions, but also tests fade node, extra data nodes, 
         # UV orientation, and texture handling
@@ -2865,13 +2834,36 @@ def run_tests():
         assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
         assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
 
-        # ------- Export Again --------
+
+    if True:
+        test_title("TEST_BOW2", "Can modify collision shape location")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+        NifImporter.do_import(testfile)
+        obj = find_shape('ElvenBowSkinned')
+        coll = find_shape('bhkCollisionObject')
+        collbody = coll.children[0]
+        collshape = collbody.children[0]
+        bged = find_shape("BSBehaviorGraphExtraData")
+        strd = find_shape("NiStringExtraData")
+        bsxf = find_shape("BSXFlags")
+        invm = find_shape("BSInvMarker")
+
+       # ------- Export --------
+
+        # Move the edge of the collision box so it covers the bow better
+        for v in collshape.data.vertices:
+            if v.co.x > 0:
+                v.co.x = 16.5
 
         # Move the collision object 
         coll.location = coll.location + Vector([5, 10, 0])
         collshape.location = collshape.location + Vector([-5, -10, 0])
 
         outfile2 = os.path.join(pynifly_dev_path, r"tests/Out/TEST_BOW2.nif")
+        remove_file(outfile2)
         exporter = NifExporter(outfile2, 'SKYRIMSE')
         exporter.export([obj, coll, bged, strd, bsxf, invm])
 
@@ -2894,6 +2886,63 @@ def run_tests():
         p = bodycheck2.properties
         assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
         assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
+
+
+    if True:
+        test_title("TEST_BOW3", "Can modify collision shape type")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+        NifImporter.do_import(testfile)
+        obj = find_shape('ElvenBowSkinned')
+        coll = find_shape('bhkCollisionObject')
+        collbody = coll.children[0]
+        collshape = collbody.children[0]
+        bged = find_shape("BSBehaviorGraphExtraData")
+        strd = find_shape("NiStringExtraData")
+        bsxf = find_shape("BSXFlags")
+        invm = find_shape("BSInvMarker")
+
+       # ------- Export --------
+
+        # Move the collision object 
+        for v in collshape.data.vertices:
+            if NearEqual(v.co.x, 11.01, epsilon=0.5):
+                v.co.x = 16.875
+                if v.co.y > 0:
+                    v.co.y = 26.72
+                else:
+                    v.co.y = -26.72
+        collshape.name = "bhkConvexVerticesShape"
+        collbody.name = "bhkRigidBody"
+
+        outfile3 = os.path.join(pynifly_dev_path, r"tests/Out/TEST_BOW3.nif")
+        remove_file(outfile3)
+        exporter = NifExporter(outfile3, 'SKYRIMSE')
+        exporter.export([obj, coll, bged, strd, bsxf, invm])
+
+        # ------- Check Results 3 --------
+
+        nifcheck3 = NifFile(outfile3)
+
+        midbowcheck3 = nifcheck3.nodes["Bow_MidBone"]
+        collcheck3 = midbowcheck3.collision_object
+        assert collcheck3.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck3.blockname}"
+        assert bhkCOFlags(collcheck3.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+
+        # Full check of locations and rotations to make sure we got them right
+        mbc_xf = nifcheck3.get_node_xform_to_global("Bow_MidBone")
+        assert VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
+        m = mbc_xf.as_matrix().to_euler()
+        assert VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
+
+        bodycheck3 = collcheck3.body
+
+        cshapecheck3 = bodycheck3.shape
+        assert cshapecheck3.blockname == "bhkConvexVerticesShape", f"Shape is convex vertices: {cshapecheck3.blockname}"
+        assert VNearEqual(cshapecheck3.vertices[0], (-0.73, -0.267, 0.014, 0.0)), f"Convex shape is correct"
+
 
     if True:
         test_title("TEST_COLLISION_CONVEXVERT", "Can read and write shape with convex verts collision shape")
