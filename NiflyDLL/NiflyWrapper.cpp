@@ -433,12 +433,13 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
         t.push_back(thist);
     }
 
-    if ((optionsPtr && *optionsPtr) || parentRef)
-        return PyniflyCreateShapeFromData(nif, shapeName, 
-            &v, &t, &uv, &n, *optionsPtr, 
-            static_cast<NiNode*>(parentRef));
-    else
-        return nif->CreateShapeFromData(shapeName, &v, &t, &uv, &n);
+    uint16_t opt = 0;
+    if (optionsPtr) opt = *optionsPtr;
+    NiNode* parent = nullptr;
+    if (parentRef) parent = static_cast<NiNode*>(parentRef);
+
+    return PyniflyCreateShapeFromData(nif, shapeName, 
+            &v, &t, &uv, &n, opt, parent);
 }
 
 

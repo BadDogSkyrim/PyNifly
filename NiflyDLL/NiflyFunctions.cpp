@@ -210,7 +210,8 @@ NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 	uint32_t options,
 	NiNode* parentRef
 /* 
-	Copy of the nifly routine but handles BSDynamicTriShapes and BSEffectShaderProperties
+	Copy of the nifly routine but handles BSDynamicTriShapes and BSEffectShaderProperties,
+	also parents other than root
 	* options == 1: Create SSE head part (so use BSDynamicTriShape)
 	*            == 2: Create FO4 BSTriShape (default is BSSubindexTriShape)
 	*            == 4: Create FO4 BSEffectShaderProperty
@@ -227,17 +228,25 @@ NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 	NiVersion& version = nif->GetHeader().GetVersion();
 
 	NiShape* shapeResult = nullptr;
-	if (version.IsSSE() /* && (options & 1) */ ) {
+	if (version.IsSSE()) {
 		std::unique_ptr<BSTriShape> triShape;
-		triShape = std::make_unique<BSDynamicTriShape>();
+		bool isSkinned = false;
+
+		if (options & 1) {
+			triShape = std::make_unique<BSDynamicTriShape>();
+			isSkinned = true; // If a headpart, it's skinned
+		}
+		else {
+			triShape = std::make_unique<BSTriShape>();
+		}
 		triShape->Create(version, v, t, uv, norms);
-		triShape->SetSkinned(true); // If a headpart, it's skinned
+		triShape->SetSkinned(isSkinned);
 
 		auto nifTexset = std::make_unique<BSShaderTextureSet>(version);
 
 		auto nifShader = std::make_unique<BSLightingShaderProperty>(version);
 		nifShader->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
-		nifShader->SetSkinned(true);
+		nifShader->SetSkinned(isSkinned);
 
 		triShape->name.get() = shapeName;
 
@@ -249,87 +258,43 @@ NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 		int shapeID = nif->GetHeader().AddBlock(std::move(triShape));
 		parentNode->childRefs.AddBlockRef(shapeID);
 	}
-	else if (version.IsFO4() /* && ((options & 2) || (options & 4)) */ ) {
+	else if (version.IsFO4() || version.IsFO76()) {
+		std::unique_ptr<BSTriShape> triShape;
+
 		if (options & 2) {
 			// Need to make a BSTriShape
-			auto nifBSTriShape = std::make_unique<BSTriShape>();
-			nifBSTriShape->Create(version, v, t, uv, norms);
-			nifBSTriShape->SetSkinned(false);
-			nifBSTriShape->name.get() = shapeName;
-
-			if (options & 4) {
-				// Make a BSEffectShader
-				auto nifShader = std::make_unique<BSEffectShaderProperty>();
-
-				nifShader->SetSkinned(false);
-
-				int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
-				nifBSTriShape->ShaderPropertyRef()->index = shaderID;
-				shapeResult = nifBSTriShape.get();
-
-				int shapeID = nif->GetHeader().AddBlock(std::move(nifBSTriShape));
-				parentNode->childRefs.AddBlockRef(shapeID);
-			}
-			else {
-				// Make a BSLightingShader
-				auto nifTexset = std::make_unique<BSShaderTextureSet>(version);
-
-				auto nifShader = std::make_unique<BSLightingShaderProperty>(version);
-				nifShader->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
-
-				std::string wetShaderName = "template/OutfitTemplate_Wet.bgsm";
-				nifShader->SetWetMaterialName(wetShaderName);
-				nifShader->SetSkinned(false);
-
-				int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
-				nifBSTriShape->ShaderPropertyRef()->index = shaderID;
-
-				shapeResult = nifBSTriShape.get();
-
-				int shapeID = nif->GetHeader().AddBlock(std::move(nifBSTriShape));
-				parentNode->childRefs.AddBlockRef(shapeID);
-			}
+			triShape = std::make_unique<BSTriShape>();
 		}
 		else {
-			// Need to make a BSSubindexTriShape
-			// Duplicates the entire block above, sue me
-			auto nifBSTriShape = std::make_unique<BSSubIndexTriShape>();
-			nifBSTriShape->Create(version, v, t, uv, norms);
-			nifBSTriShape->SetSkinned(false);
-			nifBSTriShape->name.get() = shapeName;
-
-			if (options & 4) {
-				// Make a BSEffectShader
-				auto nifShader = std::make_unique<BSEffectShaderProperty>();
-				nifShader->SetSkinned(false);
-
-				int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
-				nifBSTriShape->ShaderPropertyRef()->index = shaderID;
-				shapeResult = nifBSTriShape.get();
-
-				int shapeID = nif->GetHeader().AddBlock(std::move(nifBSTriShape));
-				parentNode->childRefs.AddBlockRef(shapeID);
-			}
-			else {
-				// Make a BSLightingShader
-				auto nifTexset = std::make_unique<BSShaderTextureSet>(version);
-
-				auto nifShader = std::make_unique<BSLightingShaderProperty>(version);
-				nifShader->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
-
-				std::string wetShaderName = "template/OutfitTemplate_Wet.bgsm";
-				nifShader->SetWetMaterialName(wetShaderName);
-				nifShader->SetSkinned(false);
-
-				int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
-				nifBSTriShape->ShaderPropertyRef()->index = shaderID;
-
-				shapeResult = nifBSTriShape.get();
-
-				int shapeID = nif->GetHeader().AddBlock(std::move(nifBSTriShape));
-				parentNode->childRefs.AddBlockRef(shapeID);
-			}
+			triShape = std::make_unique<BSSubIndexTriShape>();
 		}
+		triShape->Create(version, v, t, uv, norms);
+		triShape->SetSkinned(false);
+		triShape->name.get() = shapeName;
+
+		std::unique_ptr<BSShaderProperty> nifShader;
+		if (options & 4) {
+			// Make a BSEffectShader
+			nifShader = std::make_unique<BSEffectShaderProperty>();
+		}
+		else {
+			// Make a BSLightingShader
+			auto nifTexset = std::make_unique<BSShaderTextureSet>(version);
+			nifShader = std::make_unique<BSLightingShaderProperty>(version);
+			nifShader->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
+
+			std::string wetShaderName = "template/OutfitTemplate_Wet.bgsm";
+			nifShader->SetWetMaterialName(wetShaderName);
+		}
+		nifShader->SetSkinned(false);
+
+		int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
+		triShape->ShaderPropertyRef()->index = shaderID;
+
+		shapeResult = triShape.get();
+
+		int shapeID = nif->GetHeader().AddBlock(std::move(triShape));
+		parentNode->childRefs.AddBlockRef(shapeID);
 	}
 	else {
 		auto nifTexset = std::make_unique<BSShaderTextureSet>(nif->GetHeader().GetVersion());
@@ -371,11 +336,6 @@ NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 
 		int shapeID = nif->GetHeader().AddBlock(std::move(nifTriShape));
 		parentNode->childRefs.AddBlockRef(shapeID);
-	
-		//shapeResult = nif->CreateShapeFromData(shapeName, v, t, uv, norms);
-		//	uint32_t shapeID = nif->GetHeader().GetBlockID(shapeResult);
-		//	rootNode->childRefs.RemoveBlockRef(shapeID);
-		//	parentNode->childRefs.AddBlockRef(shapeID);
 	}
 
 	return shapeResult;
