@@ -2166,3 +2166,134 @@ NIFLY_API int addCollBoxShape(void* nifref, const BHKBoxShapeBuf* buf) {
     int newid = nif->GetHeader().AddBlock(std::move(sh));
     return newid;
 };
+
+NIFLY_API int getCollListShapeProps(void* nifref, int nodeIndex, BHKListShapeBuf* buf)
+/*
+    Return the collision shape details. Return value = 1 if the node is a known collision shape,
+    0 if not
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::bhkListShape* sh = hdr.GetBlock<bhkListShape>(nodeIndex);
+
+    if (sh) {
+        buf->material = sh->GetMaterial();
+        buf->childShape_data = sh->childShapeProp.data;
+        buf->childShape_size = sh->childShapeProp.size;
+        buf->childShape_flags = sh->childShapeProp.capacityAndFlags;
+        buf->childFilter_data = sh->childFilterProp.data;
+        buf->childFilter_size = sh->childFilterProp.size;
+        buf->childFilter_flags = sh->childFilterProp.capacityAndFlags;
+        return 1;
+    }
+    else
+        return 0;
+}
+
+NIFLY_API int getCollListShapeChildren(void* nifref, int nodeIndex, uint32_t* buf, int buflen)
+/*
+    Return the collision shape children.
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    int childCount = 0;
+
+    nifly::bhkListShape* sh = hdr.GetBlock<bhkListShape>(nodeIndex);
+
+    if (sh) {
+        std::vector<uint32_t> children;
+        sh->GetChildIndices(children);
+        childCount = children.size();
+        for (int i = 0; i < childCount && i < buflen; i++) {
+            buf[i] = children[i];
+        };
+        return childCount;
+    }
+    else
+        return 0;
+}
+
+NIFLY_API int addCollListShape(void* nifref, const BHKListShapeBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+
+    auto sh = std::make_unique<bhkListShape>();
+    sh->SetMaterial(buf->material);
+    sh->childShapeProp.data = buf->childShape_data;
+    sh->childShapeProp.size = buf->childShape_size;
+    sh->childShapeProp.capacityAndFlags = buf->childShape_flags;
+    sh->childFilterProp.data = buf->childFilter_data;
+    sh->childFilterProp.size = buf->childFilter_size;
+    sh->childFilterProp.capacityAndFlags = buf->childFilter_flags;
+    int newid = nif->GetHeader().AddBlock(std::move(sh));
+    return newid;
+};
+
+NIFLY_API void addCollListChild(void* nifref, const uint32_t id, uint32_t child_id) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    bhkListShape* collList = hdr.GetBlock<bhkListShape>(id);
+
+   collList->subShapeRefs.AddBlockRef(child_id);
+};
+
+NIFLY_API int getCollConvexTransformShapeProps(
+    void* nifref, int nodeIndex, BHKConvexTransformShapeBuf* buf)
+/*
+    Return the collision shape details. Return value = 1 if the node is a known collision shape,
+    0 if not
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::bhkConvexTransformShape* sh = hdr.GetBlock<bhkConvexTransformShape>(nodeIndex);
+
+    if (sh) {
+        buf->material = sh->material;
+        buf->radius = sh->radius;
+        for (int i = 0; i < 16; i++) {
+            buf->xform[i] = sh->xform[i]; 
+        };
+        return 1;
+    }
+    else
+        return 0;
+}
+
+NIFLY_API int getCollConvexTransformShapeChildID(void* nifref, int nodeIndex) {
+    /* Returns the block index of the collision shape */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::bhkConvexTransformShape* sh = hdr.GetBlock<bhkConvexTransformShape>(nodeIndex);
+    if (sh)
+        return sh->shapeRef.index;
+    else
+        return -1;
+}
+
+NIFLY_API int addCollConvexTransformShape(void* nifref, const BHKConvexTransformShapeBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+
+    auto sh = std::make_unique<bhkConvexTransformShape>();
+    sh->SetMaterial(buf->material);
+    sh->radius = buf->radius;
+    for (int i = 0; i < 16; i++) {
+        sh->xform[i] = buf->xform[i];
+    };
+
+    int newid = nif->GetHeader().AddBlock(std::move(sh));
+    return newid;
+};
+
+NIFLY_API void setCollConvexTransformShapeChild(
+        void* nifref, const uint32_t id, uint32_t child_id) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    bhkConvexTransformShape* cts = hdr.GetBlock<bhkConvexTransformShape>(id);
+
+    cts->shapeRef.index = child_id;
+};
+

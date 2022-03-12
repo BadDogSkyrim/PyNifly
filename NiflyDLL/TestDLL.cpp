@@ -29,7 +29,7 @@ std::filesystem::path testRoot = std::filesystem::current_path()
 	.parent_path().parent_path().parent_path().parent_path() / "PyNifly/Pynifly/tests/";
 
 bool TApproxEqual(float first, float second) {
-	return round(first * 1000) == round(second * 1000);
+	return abs(first - second) < .001;
 }
 bool TApproxEqual(Vector3 first, Vector3 second) {
 		return TApproxEqual(first.x, second.x)
@@ -2876,7 +2876,7 @@ namespace NiflyDLLTests
 			int shapeID = getRigidBodyShapeID(nif, bodyID);
 			BHKConvexVertsShapeBuf shapeProps;
 			getCollConvexVertsShapeProps(nif, shapeID, &shapeProps);
-			float shapeVerts[10*4];
+			float shapeVerts[10 * 4];
 			getCollShapeVerts(nif, shapeID, shapeVerts, 10);
 			float shapeNorms[10 * 4];
 			getCollShapeNormals(nif, shapeID, shapeNorms, 10);
@@ -2939,6 +2939,85 @@ namespace NiflyDLLTests
 
 			Assert::IsTrue(getNodeParent(nifCheck, leek040Check) == leek04Check, L"Node parent correct");
 			Assert::IsTrue(getNodeParent(nifCheck, leek041Check) == leek04Check, L"Node parent correct");
+		};
+		TEST_METHOD(readCollisionXform) {
+			/* Test we can read and write collisions with convex transforms */
+			void* nif = load((testRoot / "Skyrim/falmerstaff.nif").u8string().c_str());
+
+			void* shapes[10];
+			int shapeCount = getShapes(nif, shapes, 10, 0);
+			void* staff = nullptr;
+			for (int i = 0; i < shapeCount; i++) {
+				char buf[128];
+				getShapeName(shapes[i], buf, 128);
+				if (strcmp(buf, "Staff3rdPerson:0") == 0) 
+					staff = shapes[i];
+			};
+
+			void* root = getRoot(nif);
+			void* collisionObject = getCollision(nif, root);
+			int bodyID = getCollBodyID(nif, collisionObject);
+			BHKRigidBodyBuf bodyProps;
+			getRigidBodyProps(nif, bodyID, &bodyProps);
+			int shapeID = getRigidBodyShapeID(nif, bodyID);
+			BHKListShapeBuf listProps;
+			getCollListShapeProps(nif, shapeID, &listProps);
+			uint32_t cts[5];
+			int childCount = getCollListShapeChildren(nif, shapeID, cts, 5);
+			BHKConvexTransformShapeBuf shapeProps[5];
+			getCollConvexTransformShapeProps(nif, cts[0], &shapeProps[0]);
+			Assert::IsTrue(TApproxEqual(shapeProps[0].xform[13], 0.632), L"Shape transform correct");
+			getCollConvexTransformShapeProps(nif, cts[2], &shapeProps[2]);
+			Assert::IsTrue(TApproxEqual(shapeProps[2].xform[13], 0.90074), L"Shape transform correct");
+			
+			int box0 = getCollConvexTransformShapeChildID(nif, cts[0]);
+			BHKBoxShapeBuf box0Props;
+			getCollBoxShapeProps(nif, box0, &box0Props);
+
+			//// ============= Can write collisions =======
+
+			void* nifOut = createNif("SKYRIM", RT_BSFADENODE, "readCollisionXform");
+			uint16_t options = 0;
+
+			void* staffOut = TCopyShape(nifOut, "Staff", nif, staff,
+				0, nullptr, 0);
+			TCopyShader(nifOut, staffOut, nif, staff);
+
+			int boxOut = addCollBoxShape(nifOut, &box0Props);
+			int ctsOut = addCollConvexTransformShape(nifOut, &shapeProps[0]);
+			setCollConvexTransformShapeChild(nifOut, ctsOut, boxOut);
+			int listOut = addCollListShape(nifOut, &listProps);
+			addCollListChild(nifOut, listOut, ctsOut);
+			int rbOut = addRigidBody(nifOut, "bhkRigidBody", listOut, &bodyProps);
+			addCollision(nifOut, nullptr, rbOut, 1);
+
+			saveNif(nifOut, (testRoot / "Out/readCollisionXform.nif").u8string().c_str());
+			
+			//// ============= Check results =======
+			void* nifCheck = load((testRoot / "Out/readCollisionXform.nif").u8string().c_str());
+
+			void* shapesCheck[10];
+			int shapeCountCheck = getShapes(nifCheck, shapesCheck, 10, 0);
+			void* staffCheck = shapesCheck[0];
+
+			void* rootCheck = getRoot(nifCheck);
+			void* collisionObjectCheck = getCollision(nifCheck, rootCheck);
+			int bodyIDCheck = getCollBodyID(nifCheck, collisionObjectCheck);
+			BHKRigidBodyBuf bodyPropsCheck;
+			getRigidBodyProps(nifCheck, bodyIDCheck, &bodyPropsCheck);
+			int shapeIDCheck = getRigidBodyShapeID(nifCheck, bodyIDCheck);
+			BHKListShapeBuf listPropsCheck;
+			getCollListShapeProps(nifCheck, shapeIDCheck, &listPropsCheck);
+			uint32_t ctsCheck[5];
+			int childCountCheck = getCollListShapeChildren(nifCheck, shapeIDCheck, ctsCheck, 5);
+			BHKConvexTransformShapeBuf shapePropsCheck[5];
+			getCollConvexTransformShapeProps(nifCheck, ctsCheck[0], &shapePropsCheck[0]);
+			Assert::IsTrue(TApproxEqual(shapePropsCheck[0].xform[13], 0.632), L"Shape transform correct");
+
+			int box0Check = getCollConvexTransformShapeChildID(nifCheck, ctsCheck[0]);
+			BHKBoxShapeBuf box0PropsCheck;
+			getCollBoxShapeProps(nifCheck, box0Check, &box0PropsCheck);
+			Assert::IsTrue(TApproxEqual(box0PropsCheck.dimensions_x, 0.009899), L"Got the right value back");
 		};
 	};
 }
