@@ -1732,7 +1732,7 @@ TEST_BP_SEGMENTS = False
 TEST_COLORS = False
 TEST_FNV = False
 TEST_BLOCKNAME = False
-TEST_UNSKINNED = True
+TEST_UNSKINNED = False
 TEST_UNI = False
 TEST_SHADER = False
 TEST_ALPHA = False
@@ -1749,7 +1749,7 @@ TEST_EFFECT_SHADER = False
 TEST_BOW = False
 TEST_CONVEX = False
 TEST_CONVEX_MULTI = False
-TEST_COLLISION_LIST = False
+TEST_COLLISION_LIST = True
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):

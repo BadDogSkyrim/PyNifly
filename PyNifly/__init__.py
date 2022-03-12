@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = False
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -2009,7 +2009,8 @@ class NifExporter:
         try:
             # Box covers the extent of the shape, whatever it is
             p = bhkBoxShapeProps(s)
-            xf = s.matrix_world
+            # TODO: Take the cruft out when we're sure it's correct
+            xf = Matrix() # s.matrix_world
             xfv = [xf @ v.co for v in s.data.vertices]
             maxx = max([v[0] for v in xfv])
             maxy = max([v[1] for v in xfv])
@@ -2020,7 +2021,7 @@ class NifExporter:
             halfspanx = (maxx - minx)/2
             halfspany = (maxy - miny)/2
             halfspanz = (maxz - minz)/2
-            center = Vector([minx + halfspanx, miny + halfspany, minz + halfspanz])
+            center = s.matrix_world @ Vector([minx + halfspanx, miny + halfspany, minz + halfspanz])
                 
             p.bhkDimensions[0] = halfspanx / HAVOC_SCALE_FACTOR
             p.bhkDimensions[1] = halfspany / HAVOC_SCALE_FACTOR
@@ -2065,12 +2066,14 @@ class NifExporter:
 
 
     def export_bhkConvexTransformShape(self, s, xform):
-        childnode, childxform = self.export_collision_shape(s.children, xform)
+        childnode, childxform = self.export_collision_shape(s.children, s.matrix_world)
 
         props = bhkConvexTransformShapeProps(s)
+        havocxf = s.matrix_world.copy()
+        havocxf.translation = havocxf.translation / HAVOC_SCALE_FACTOR
         cshape = self.nif.add_coll_shape("bhkConvexTransformShape", 
-                                         props, transform=xform)
-        cshape.shape = childnode
+                                         props, transform=havocxf)
+        cshape.child = childnode
         return cshape, xform.translation
 
 
@@ -2081,15 +2084,15 @@ class NifExporter:
         xf = s.matrix_local @ xform
         for ch in s.children: 
             if ch.name.startswith("bhk"):
-                shapenode, nodetransl = self.export_collision_shape(ch, xf)
+                shapenode, nodetransl = self.export_collision_shape([ch], xf)
                 cshape.add_child(shapenode)
 
         return cshape, s.matrix_local.translation
 
 
     def export_collision_shape(self, shape_list, xform=Matrix()):
-        if len(shape_list) > 0:
-            cs = shape_list[0]
+        """ Takes a list of shapes, but only exports the first one """
+        for cs in shape_list:
             if cs.name.startswith("bhkBoxShape"):
                 return self.export_bhkBoxShape(cs)
             elif cs.name.startswith("bhkConvexVerticesShape"):
@@ -2833,6 +2836,14 @@ def run_tests():
         listcheck = rbcheck.shape
         assert listcheck.blockname == "bhkListShape", f"Got a list collision back {listcheck.blockname}"
         assert len(listcheck.children) == 3, f"Got our list elements back: {len(listcheck.children)}"
+
+        cts0check = listcheck.children[0]
+        assert cts0check.child.blockname == "bhkBoxShape", f"Found the box shape"
+
+        cts45check = [cts for cts in listcheck.children if NearEqual(cts.transform[1][1], 0.7071, 0.01)]
+        boxdiag = cts45check[0].child
+        assert NearEqual(boxdiag.properties.bhkDimensions[1], 0.170421), f"Diagonal box has correct size: {boxdiag.properties.bhkDimensions[1]}"
+
         
 
     print("""
