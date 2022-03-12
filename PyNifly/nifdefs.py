@@ -53,6 +53,7 @@ VECTOR4 = c_float * 4
 VECTOR6_SHORT = c_uint16 * 6
 VECTOR12 = c_float * 12
 MATRIX3 = VECTOR3 * 3
+MATRIX4 = VECTOR4 * 4
 
 class pynStructure(Structure):
     def load(self, shape, ignore=[]):
@@ -791,6 +792,23 @@ class bhkConvexVerticesShapeProps(pynStructure):
         ('normalsProp_data', c_uint32),
 	    ('normalsProp_size', c_uint32),
 	    ('normalsProp_flags', c_uint32) ]
+
+class bhkListShapeProps(pynStructure):
+    _fields_ = [
+        ("bhkMaterial", c_uint32),
+        ("bhkRadius", c_float),
+        ('childShape_data', c_uint32),
+        ('childShape_size', c_uint32),
+        ('childShape_flags', c_uint32),
+        ('childFilter_data', c_uint32),
+        ('childFilter_size', c_uint32),
+        ('childFilter_flags', c_uint32) ]
+
+class bhkConvexTransformShapeProps(pynStructure):
+    _fields_ = [
+        ("bhkMaterial", c_uint32),
+        ("bhkRadius", c_float),
+        ('transform', MATRIX4) ]
 
 class VERTEX_WEIGHT_PAIR(Structure):
     _fields_ = [("vertex", c_uint16),

@@ -353,6 +353,16 @@ struct BHKBoxShapeBuf {
 	float dimensions_z;
 };
 
+struct BHKListShapeBuf {
+	uint32_t material;
+	uint32_t childShape_data;
+	uint32_t childShape_size;
+	uint32_t childShape_flags;
+	uint32_t childFilter_data;
+	uint32_t childFilter_size;
+	uint32_t childFilter_flags;
+};
+
 struct BHKConvexVertsShapeBuf {
 	uint32_t material;
 	float radius;
@@ -362,6 +372,12 @@ struct BHKConvexVertsShapeBuf {
 	uint32_t normalsProp_data;
 	uint32_t normalsProp_size;
 	uint32_t normalsProp_flags;
+};
+
+struct BHKConvexTransformShapeBuf {
+	uint32_t material;
+	float radius;
+	float xform[16];
 };
 
 extern "C" NIFLY_API int getShaderName(void* nifref, void* shaperef, char* buf, int buflen);
@@ -417,3 +433,19 @@ extern "C" NIFLY_API int getCollShapeVerts(void* nifref, int nodeIndex, float* b
 extern "C" NIFLY_API int getCollShapeNormals(void* nifref, int nodeIndex, float* buf, int buflen);
 extern "C" NIFLY_API int getCollBoxShapeProps(void* nifref, int nodeIndex, BHKBoxShapeBuf* buf);
 extern "C" NIFLY_API int addCollBoxShape(void* nifref, const BHKBoxShapeBuf * buf);
+extern "C" NIFLY_API int getCollListShapeProps(void* nifref, int nodeIndex, BHKListShapeBuf * buf);
+extern "C" NIFLY_API int getCollListShapeChildren(void* nifref, int nodeIndex, uint32_t * buf, int buflen);
+
+extern "C" NIFLY_API int addCollListShape(void* nifref, const BHKListShapeBuf* buf);
+
+extern "C" NIFLY_API void addCollListChild(void* nifref, const uint32_t id, uint32_t child_id);
+
+extern "C" NIFLY_API int setCollListChildren(void* nifref, const uint32_t id, uint32_t* buf, int buflen);
+
+extern "C" NIFLY_API int getCollConvexTransformShapeProps(void* nifref, int nodeIndex, BHKConvexTransformShapeBuf* buf);
+
+extern "C" NIFLY_API int getCollConvexTransformShapeChildID(void* nifref, int nodeIndex);
+
+extern "C" NIFLY_API int addCollConvexTransformShape(void* nifref, const BHKConvexTransformShapeBuf* buf);
+
+extern "C" NIFLY_API void setCollConvexTransformShapeChild(void* nifref, const uint32_t id, uint32_t child_id);
