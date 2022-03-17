@@ -782,6 +782,15 @@ class bhkBoxShapeProps(pynStructure):
         ("bhkDimensions", VECTOR3),
         ("bhkUnused", c_float)]
 
+class bhkCapsuleShapeProps(pynStructure):
+    _fields_ = [
+        ("bhkMaterial", c_uint32),
+        ("bhkRadius", c_float),
+        ("point1", VECTOR3),
+        ("radius1", c_float),
+        ("point2", VECTOR3),
+        ("radius2", c_float)]
+
 class bhkConvexVerticesShapeProps(pynStructure):
     _fields_ = [
         ("bhkMaterial", c_uint32),

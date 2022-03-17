@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (4, 0, 0),  
+    "version": (4, 0, 2),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -84,6 +84,8 @@ UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 
 GLOSS_SCALE = 100
+
+COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5)
 
 
 # Extend TransformBuf to get/give contents as a Blender Matrix
@@ -978,9 +980,6 @@ class NifImporter():
     def import_bhkConvexTransformShape(self, cs:CollisionShape, cb:bpy_types.Object):
         bpy.ops.object.add(radius=1.0, type='EMPTY')
         cshape = bpy.context.object
-        cshape.parent = cb
-        cshape.name = cs.blockname
-        cshape.show_name = True
         cshape['bhkMaterial'] = SkyrimHavokMaterial(cs.properties.bhkMaterial).name
         cshape['bhkRadius'] = cs.properties.bhkRadius
         xf = Matrix(cs.transform)
@@ -989,19 +988,20 @@ class NifImporter():
 
         self.import_collision_shape(cs.child, cshape)
 
+        return cshape
+
 
     def import_bhkListShape(self, cs:CollisionShape, cb:bpy_types.Object):
         """ Import collision list. cs=collision node in nif. cb=collision body in Blender """
         bpy.ops.object.add(radius=1.0, type='EMPTY')
         cshape = bpy.context.object
-        cshape.parent = cb
-        cshape.name = cs.blockname
         cshape.show_name = True
         cshape['bhkMaterial'] = SkyrimHavokMaterial(cs.properties.bhkMaterial).name
 
         for child in cs.children:
             self.import_collision_shape(child, cshape)
 
+        return cshape
 
     def import_bhkBoxShape(self, cs:CollisionShape, cb:bpy_types.Object):
         m = bpy.data.meshes.new(cs.blockname)
@@ -1026,14 +1026,44 @@ class NifImporter():
                         (0, 4, 7, 3), 
                         (5, 1, 2, 6)])
         obj = bpy.data.objects.new(cs.blockname, m)
-        obj.name = cs.blockname
-        obj.parent = cb
         obj.matrix_world = cb.matrix_world
         bpy.context.view_layer.active_layer_collection.collection.objects.link(obj)
         # bpy.context.scene.collection.objects.link(obj)
         obj['bhkMaterial'] = SkyrimHavokMaterial(prop.bhkMaterial).name
         obj['bhkRadius'] = prop.bhkRadius
         # self.objects_created.append(obj)
+        return obj
+        
+    def import_bhkCapsuleShape(self, cs:CollisionShape, cb:bpy_types.Object):
+        prop = cs.properties
+        p1 = Vector(prop.point1)
+        p2 = Vector(prop.point2)
+        vaxis = p2 - p1
+        log.debug(f"Creating capsule shape between {p1} and {p2}")
+        shapelen = vaxis.length * HAVOC_SCALE_FACTOR
+        shaperad = prop.radius1 * HAVOC_SCALE_FACTOR
+
+        bpy.ops.mesh.primitive_cylinder_add(radius=shaperad, depth=shapelen)
+        obj = bpy.context.object
+
+        q = Quaternion((1,0,0), -pi/2)
+        objtrans, objrot, objscale = obj.matrix_world.decompose()
+        objrot.rotate(q)
+        objtrans = Vector(( (((p2.x - p1.x)/2) + p1.x) * HAVOC_SCALE_FACTOR,
+                            (((p2.y - p1.y)/2) + p1.y) * HAVOC_SCALE_FACTOR,
+                            (((p2.z - p1.z)/2) + p1.z) * HAVOC_SCALE_FACTOR,
+                            ))
+        
+        obj.matrix_world = Matrix.LocRotScale(objtrans, objrot, objscale)
+
+        for p in obj.data.polygons:
+            p.use_smooth = True
+        obj.data.update()
+        
+        # bpy.context.view_layer.active_layer_collection.collection.objects.link(obj)
+        obj['bhkMaterial'] = SkyrimHavokMaterial(prop.bhkMaterial).name
+        obj['bhkRadius'] = prop.bhkRadius
+        return obj
         
 
     def show_collision_normals(self, cs:CollisionShape, cso):
@@ -1075,8 +1105,6 @@ class NifImporter():
         bm.to_mesh(m)
 
         obj = bpy.data.objects.new(collisionnode.blockname, m)
-        obj.name = collisionnode.blockname
-        obj.parent = collisionbody
         bpy.context.view_layer.active_layer_collection.collection.objects.link(obj)
         
         obj['bhkMaterial'] = SkyrimHavokMaterial(prop.bhkMaterial).name
@@ -1091,17 +1119,30 @@ class NifImporter():
         q.invert()
         obj.rotation_quaternion = q
         log.info(f"2. Imported bhkConvexVerticesShape {obj.name} matrix: \n{obj.matrix_world}")
+        return obj
 
 
     def import_collision_shape(self, cs:CollisionShape, cb:bpy_types.Object):
+        sh = None
+        log.debug(f"Found collision shape {cs.blockname}")
         if cs.blockname == "bhkBoxShape":
-            self.import_bhkBoxShape(cs, cb)
+            sh = self.import_bhkBoxShape(cs, cb)
         elif cs.blockname == "bhkConvexVerticesShape":
-            self.import_bhkConvexVerticesShape(cs, cb)
+            sh = self.import_bhkConvexVerticesShape(cs, cb)
         elif cs.blockname == "bhkListShape":
-            self.import_bhkListShape(cs, cb)
+            sh = self.import_bhkListShape(cs, cb)
         elif cs.blockname == "bhkConvexTransformShape":
-            self.import_bhkConvexTransformShape(cs, cb)
+            sh = self.import_bhkConvexTransformShape(cs, cb)
+        elif cs.blockname == "bhkCapsuleShape":
+            sh = self.import_bhkCapsuleShape(cs, cb)
+        else:
+            log.warning(f"Found unimplemented collision shape: {cs.blockname}")
+            self.warnings.add('WARNING')
+        
+        if sh:
+            sh.name = cs.blockname
+            sh.parent = cb
+            sh.color = COLLISION_COLOR
 
 
     collision_body_ignore = ['rotation', 'translation', 'guard', 'unusedByte1', 
@@ -1999,7 +2040,47 @@ class NifExporter:
             self.objs_written[self.inv_marker.name] = self.nif
 
 
-    def export_bhkBoxShape(self, s):
+    def export_bhkCapsuleShape(self, s, xform):
+        """ Export capsule shape. 
+            Returns (shape, coordinates)
+            shape = collision shape in the nif object
+            coordinates = center of the shape in Blender world coordinates) """ 
+        cshape = None
+        center = Vector()
+
+        # Capsule covers the extent of the shape
+        props = bhkCapsuleShapeProps(s)
+        xf = s.matrix_local
+        xfv = [xf @ v.co for v in s.data.vertices]
+
+        maxx = max([v[0] for v in xfv])
+        maxy = max([v.y for v in xfv])
+        maxz = max([v[2] for v in xfv])
+        minx = min([v[0] for v in xfv])
+        miny = min([v[1] for v in xfv])
+        minz = min([v[2] for v in xfv])
+        halfspanx = (maxx - minx)/2
+        halfspany = (maxy - miny)/2
+        halfspanz = (maxz - minz)/2
+        center = s.matrix_world @ Vector([minx + halfspanx, miny + halfspany, minz + halfspanz])
+                
+        props.bhkRadius = halfspanx / HAVOC_SCALE_FACTOR
+        props.radius1 = halfspanx / HAVOC_SCALE_FACTOR
+        props.radius2 = halfspanx / HAVOC_SCALE_FACTOR
+
+        props.point1[0] = (minx+halfspanx) / HAVOC_SCALE_FACTOR
+        props.point1[1] = maxy / HAVOC_SCALE_FACTOR
+        props.point1[2] = (minz+halfspanz) / HAVOC_SCALE_FACTOR
+        props.point2[0] = (minx+halfspanx) / HAVOC_SCALE_FACTOR
+        props.point2[1] = miny / HAVOC_SCALE_FACTOR
+        props.point2[2] = (minz+halfspanz) / HAVOC_SCALE_FACTOR
+        cshape = self.nif.add_coll_shape("bhkCapsuleShape", props)
+        log.debug(f"Created capsule collision shape at {props.point1[:]}, {props.point2[:]}, radius {props.bhkRadius}")
+
+        return cshape, center
+
+
+    def export_bhkBoxShape(self, s, xform):
         """ Export box shape. 
             Returns (shape, coordinates)
             shape = collision shape in the nif object
@@ -2010,8 +2091,9 @@ class NifExporter:
             # Box covers the extent of the shape, whatever it is
             p = bhkBoxShapeProps(s)
             # TODO: Take the cruft out when we're sure it's correct
-            xf = Matrix() # s.matrix_world
-            xfv = [xf @ v.co for v in s.data.vertices]
+            # xf = xform # s.matrix_world
+            # xfv = [xf @ v.co for v in s.data.vertices]
+            xfv = [v.co for v in s.data.vertices]
             maxx = max([v[0] for v in xfv])
             maxy = max([v[1] for v in xfv])
             maxz = max([v[2] for v in xfv])
@@ -2035,16 +2117,18 @@ class NifExporter:
             self.warnings.add('WARNING')
 
         return cshape, center
-
+        
 
     def export_bhkConvexVerticesShape(self, s, xform):
         # Assume the verts are exactly the convex shape
+        effectiveXF = xform @ s.matrix_local
+
         p = bhkConvexVerticesShapeProps(s)
         bm = bmesh.new()
         bm.from_mesh(s.data)
         bmesh.ops.convex_hull(bm, input=bm.verts, use_existing_faces=True)
 
-        verts1 = [xform @ v.co for v in bm.verts]
+        verts1 = [effectiveXF @ v.co for v in bm.verts]
         # verts1 = [xform @ v.co for v in s.data.vertices]
         verts = [v / HAVOC_SCALE_FACTOR for v in verts1]
 
@@ -2062,11 +2146,15 @@ class NifExporter:
         
             cshape = self.nif.add_coll_shape("bhkConvexVerticesShape", p, verts, norms)
 
-        return cshape, Vector((0,0,0))
+        return cshape, Vector()
 
 
     def export_bhkConvexTransformShape(self, s, xform):
-        childnode, childxform = self.export_collision_shape(s.children, s.matrix_world)
+        childxf = xform @ s.matrix_local
+        childnode, childcenter = self.export_collision_shape(s.children, childxf)
+
+        if not childnode:
+            return None, None
 
         props = bhkConvexTransformShapeProps(s)
         havocxf = s.matrix_world.copy()
@@ -2085,7 +2173,8 @@ class NifExporter:
         for ch in s.children: 
             if ch.name.startswith("bhk"):
                 shapenode, nodetransl = self.export_collision_shape([ch], xf)
-                cshape.add_child(shapenode)
+                if shapenode:
+                    cshape.add_child(shapenode)
 
         return cshape, s.matrix_local.translation
 
@@ -2094,11 +2183,13 @@ class NifExporter:
         """ Takes a list of shapes, but only exports the first one """
         for cs in shape_list:
             if cs.name.startswith("bhkBoxShape"):
-                return self.export_bhkBoxShape(cs)
+                return self.export_bhkBoxShape(cs, xform)
             elif cs.name.startswith("bhkConvexVerticesShape"):
                 return self.export_bhkConvexVerticesShape(cs, xform)
             elif cs.name.startswith("bhkListShape"):
                 return self.export_bhkListShape(cs, xform)
+            elif cs.name.startswith("bhkCapsuleShape"):
+                return self.export_bhkCapsuleShape(cs, xform)
             elif cs.name.startswith("bhkConvexTransformShape"):
                 return self.export_bhkConvexTransformShape(cs, xform)
         return None, None
@@ -2800,7 +2891,6 @@ def run_tests():
     # pynifly_tests.py when stable.
 
 
-
     if True:
         test_title("TEST_COLLISION_LIST", "Can read and write shape with collision list and collision transform shapes")
         clear_all()
@@ -2844,7 +2934,87 @@ def run_tests():
         boxdiag = cts45check[0].child
         assert NearEqual(boxdiag.properties.bhkDimensions[1], 0.170421), f"Diagonal box has correct size: {boxdiag.properties.bhkDimensions[1]}"
 
+    if True:
+        test_title("TEST_COLLISION_CAPSULE", "Can read and write shape with collision capsule shapes")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\staff04.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_CAPSULE.nif")
+
+        NifImporter.do_import(testfile)
+
+        staff = find_shape("3rdPersonStaff04")
+        coll = find_shape("bhkCollisionObject")
+        collbody = coll.children[0]
+        collshape = collbody.children[0]
+        strd = find_shape("NiStringExtraData")
+        bsxf = find_shape("BSXFlags")
+        invm = find_shape("BSInvMarker")
+
+        assert collshape.name.startswith("bhkCapsuleShape"), f"Found list collision shape: {collshape.name}"
+        v = collshape.data.vertices[5]
+        assert NearEqual(v.co.z, 67.4) or NearEqual(v.co.y, -67.4), f"Found verts where expected for {collshape.name}: {v.co}"
+        assert VNearEqual(collshape.location, (0, -2.8, 0.79), 0.1), f"Collision in right location for {collshape.name}: {collshape.location})"
+
+        # -------- Export --------
+        remove_file(outfile)
+        exporter = NifExporter(outfile, 'SKYRIM')
+        exporter.export([staff, coll, bsxf, invm, strd])
+
+        # ------- Check ---------
+        nifcheck = NifFile(outfile)
+        staffcheck = nifcheck.shape_dict["3rdPersonStaff04:1"]
+        collcheck = nifcheck.rootNode.collision_object
+        rbcheck = collcheck.body
+        shapecheck = rbcheck.shape
+        assert shapecheck.blockname == "bhkCapsuleShape", f"Got a capsule collision back {shapecheck.blockname}"
+
+        niforig = NifFile(testfile)
+        collorig = niforig.rootNode.collision_object
+        rborig = collorig.body
+        shapeorig = rborig.shape
+        assert NearEqual(shapeorig.properties.radius1, shapecheck.properties.radius1), f"Wrote the correct radius: {shapecheck.properties.radius1}"
+        assert NearEqual(shapeorig.properties.point1[1], shapecheck.properties.point1[1]), f"Wrote the correct radius: {shapecheck.properties.point1[1]}"
+
+
+    if True:
+        test_title("TEST_COLLISION_XFORM", "Can read and write shape with collision capsule shapes")
+        clear_all()
+
+        # ------- Load --------
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_XFORM.nif")
+
+        append_from_file("Staff", True, r"tests\SkyrimSE\staff.blend", r"\Object", "Staff")
+        append_from_file("BSInvMarker", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSInvMarker")
+        append_from_file("BSXFlags", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSXFlags")
+        append_from_file("NiStringExtraData", True, r"tests\SkyrimSE\staff.blend", r"\Object", "NiStringExtraData")
+        append_from_file("bhkConvexVerticesShape.002", True, r"tests\SkyrimSE\staff.blend", r"\Object", "bhkConvexVerticesShape.002")
+
+        staff = find_shape("Staff")
+        coll = find_shape("bhkCollisionObject")
+        strd = find_shape("NiStringExtraData")
+        bsxf = find_shape("BSXFlags")
+        invm = find_shape("BSInvMarker")
+
+        # -------- Export --------
+        remove_file(outfile)
+        exporter = NifExporter(outfile, 'SKYRIMSE')
+        exporter.export([staff, coll, bsxf, invm, strd])
+
+        # ------- Check ---------
+        nifcheck = NifFile(outfile)
+        staffcheck = nifcheck.shape_dict["Staff"]
+        collcheck = nifcheck.rootNode.collision_object
+        rbcheck = collcheck.body
+        listcheck = rbcheck.shape
+        cvShapes = [c for c in listcheck.children if c.blockname == "bhkConvexVerticesShape"]
+        maxz = max([v[2] for v in cvShapes[0].vertices])
+        assert maxz < 0, f"All verts on collisions shape on negative z axis: {maxz}"
+
         
+
+
 
     print("""
     ############################################################

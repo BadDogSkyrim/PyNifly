@@ -92,12 +92,12 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_EXP_SK_RENAMED = False
     TEST_EXP_SEG_ORDER = False
     TEST_EXP_SEGMENTS_BAD = False
-    TEST_BOW = True
-    TEST_BOW2 = True
-    TEST_BOW3 = True
-    TEST_COLLISION_CONVEXVERT = True
-    TEST_COLLISION_HIER = True
-    TEST_COLLISION_MULTI = True
+    TEST_BOW = False
+    TEST_BOW2 = False
+    TEST_BOW3 = False
+    TEST_COLLISION_CONVEXVERT = False
+    TEST_COLLISION_HIER = False
+    TEST_COLLISION_MULTI = False
 
 
     if TEST_BPY_ALL or TEST_BOW:

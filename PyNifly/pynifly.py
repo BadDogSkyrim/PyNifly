@@ -19,6 +19,8 @@ def load_nifly(nifly_path):
     nifly.addBoneToShape.restype = None
     nifly.addCollBoxShape.argtypes = [c_void_p, POINTER(bhkBoxShapeProps)]
     nifly.addCollBoxShape.restype = c_int
+    nifly.addCollCapsuleShape.argtypes = [c_void_p, POINTER(bhkCapsuleShapeProps)]
+    nifly.addCollCapsuleShape.restype = c_int
     nifly.addCollConvexTransformShape.argtypes = [c_void_p, POINTER(bhkConvexTransformShapeProps)]
     nifly.addCollConvexTransformShape.restype = c_int
     nifly.addCollConvexVertsShape.argtypes = [c_void_p, POINTER(bhkConvexVerticesShapeProps),
@@ -60,6 +62,8 @@ def load_nifly(nifly_path):
     nifly.getCollBodyID.restype = c_int
     nifly.getCollBoxShapeProps.argtypes = [c_void_p, c_int, POINTER(bhkBoxShapeProps)]
     nifly.getCollBoxShapeProps.restype = c_int
+    nifly.getCollCapsuleShapeProps.argtypes = [c_void_p, c_int, POINTER(bhkCapsuleShapeProps)]
+    nifly.getCollCapsuleShapeProps.restpe = c_int
     nifly.getCollConvexTransformShapeChildID.argtypes = [c_void_p, c_int]
     nifly.getCollConvexTransformShapeChildID.restype = c_int
     nifly.getCollConvexTransformShapeProps.argtypes = [c_void_p, c_int, POINTER(bhkConvexTransformShapeProps)]
@@ -558,6 +562,17 @@ class CollisionBoxShape(CollisionShape):
         return self._props
 
 CollisionShape.subtypes['bhkBoxShape'] = CollisionBoxShape
+
+class CollisionCapsuleShape(CollisionShape):
+    @property
+    def properties(self):
+        if not self._props:
+            p = bhkCapsuleShapeProps()
+            if NifFile.nifly.getCollCapsuleShapeProps(self._file._handle, self.block_index, p):
+                self._props = p
+        return self._props
+
+CollisionShape.subtypes['bhkCapsuleShape'] = CollisionCapsuleShape
 
 class CollisionConvexVerticesShape(CollisionShape):
     def __init__(self, index=0, file=None, parent=None, props=None):
@@ -1453,6 +1468,11 @@ class NifFile:
             new_collshape = CollisionBoxShape(collshape_index, self, props=properties)
             return new_collshape
 
+        elif blocktype == "bhkCapsuleShape":
+            collshape_index = NifFile.nifly.addCollCapsuleShape(self._handle, properties)
+            new_collshape = CollisionCapsuleShape(collshape_index, self, props=properties)
+            return new_collshape
+
         elif blocktype == "bhkConvexTransformShape":
             if transform:
                 for r in range(0,4):
@@ -1711,7 +1731,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1749,7 +1769,8 @@ TEST_EFFECT_SHADER = False
 TEST_BOW = False
 TEST_CONVEX = False
 TEST_CONVEX_MULTI = False
-TEST_COLLISION_LIST = True
+TEST_COLLISION_LIST = False
+TEST_COLLISION_CAPSULE = True
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -3132,6 +3153,18 @@ if __name__ == "__main__":
                                           bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE)
 
         nifOut.save()
+
+
+    if TEST_ALL or TEST_COLLISION_CAPSULE:
+        print("### TEST_COLLISION_CAPSULE: Can read and write capsule collisions")
+        nif = NifFile(r"tests/Skyrim/staff04.nif")
+
+        root = nif.rootNode
+        staff = nif.shape_dict["3rdPersonStaff04:1"]
+        coll = nif.rootNode.collision_object
+        collbody = coll.body
+        collshape = collbody.shape
+        assert collshape.blockname == "bhkCapsuleShape", f"Have capsule shape: {collshape.blockname}"
 
 
     print("""

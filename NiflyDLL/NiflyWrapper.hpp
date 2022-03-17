@@ -353,6 +353,15 @@ struct BHKBoxShapeBuf {
 	float dimensions_z;
 };
 
+struct BHKCapsuleShapeBuf {
+	uint32_t material;
+	float radius;
+	float point1[3];
+	float radius1;
+	float point2[3];
+	float radius2;
+};
+
 struct BHKListShapeBuf {
 	uint32_t material;
 	uint32_t childShape_data;
@@ -449,3 +458,7 @@ extern "C" NIFLY_API int getCollConvexTransformShapeChildID(void* nifref, int no
 extern "C" NIFLY_API int addCollConvexTransformShape(void* nifref, const BHKConvexTransformShapeBuf* buf);
 
 extern "C" NIFLY_API void setCollConvexTransformShapeChild(void* nifref, const uint32_t id, uint32_t child_id);
+
+extern "C" NIFLY_API int getCollCapsuleShapeProps(void* nifref, int nodeIndex, BHKCapsuleShapeBuf* buf);
+
+extern "C" NIFLY_API int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf);

@@ -21,7 +21,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 4, 0, 0 };
+const int NiflyDDLVersion[3] = { 4, 0, 2 };
  
 using namespace nifly;
 
@@ -2016,7 +2016,7 @@ NIFLY_API int getRigidBodyShapeID(void* nifref, int nodeIndex) {
     if (theBody)
         return theBody->shapeRef.index;
     else
-        return 0;
+        return -1;
 }
 
 NIFLY_API int getCollShapeBlockname(void* nifref, int nodeIndex, char* buf, int buflen) {
@@ -2298,3 +2298,41 @@ NIFLY_API void setCollConvexTransformShapeChild(
     cts->shapeRef.index = child_id;
 };
 
+NIFLY_API int getCollCapsuleShapeProps(void* nifref, int nodeIndex, BHKCapsuleShapeBuf* buf)
+/*
+    Return the collision shape details. Return value = 1 if the node is a known collision shape,
+    0 if not
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::bhkCapsuleShape* sh = hdr.GetBlock<bhkCapsuleShape>(nodeIndex);
+
+    if (sh) {
+        buf->material = sh->GetMaterial();
+        buf->radius = sh->radius;
+        buf->radius1 = sh->radius1;
+        buf->radius2 = sh->radius2;
+        for (int i = 0; i < 3; i++) buf->point1[i] = sh->point1[i];
+        for (int i = 0; i < 3; i++) buf->point2[i] = sh->point2[i];
+        return 1;
+    }
+    else
+        return 0;
+}
+
+NIFLY_API int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+
+    auto sh = std::make_unique<bhkCapsuleShape>();
+    sh->SetMaterial(buf->material);
+    sh->radius = buf->radius;
+    sh->radius1 = buf->radius1;
+    sh->radius2 = buf->radius2;
+    for (int i = 0; i < 3; i++) sh->point1[i] = buf->point1[i];
+    for (int i = 0; i < 3; i++) sh->point2[i] = buf->point2[i];
+    
+    int newid = nif->GetHeader().AddBlock(std::move(sh));
+    return newid;
+};
