@@ -2950,7 +2950,7 @@ namespace NiflyDLLTests
 			for (int i = 0; i < shapeCount; i++) {
 				char buf[128];
 				getShapeName(shapes[i], buf, 128);
-				if (strcmp(buf, "Staff3rdPerson:0") == 0) 
+				if (strcmp(buf, "Staff3rdPerson:0") == 0)
 					staff = shapes[i];
 			};
 
@@ -2969,7 +2969,7 @@ namespace NiflyDLLTests
 			Assert::IsTrue(TApproxEqual(shapeProps[0].xform[13], 0.632), L"Shape transform correct");
 			getCollConvexTransformShapeProps(nif, cts[2], &shapeProps[2]);
 			Assert::IsTrue(TApproxEqual(shapeProps[2].xform[13], 0.90074), L"Shape transform correct");
-			
+
 			int box0 = getCollConvexTransformShapeChildID(nif, cts[0]);
 			BHKBoxShapeBuf box0Props;
 			getCollBoxShapeProps(nif, box0, &box0Props);
@@ -2992,7 +2992,7 @@ namespace NiflyDLLTests
 			addCollision(nifOut, nullptr, rbOut, 1);
 
 			saveNif(nifOut, (testRoot / "Out/readCollisionXform.nif").u8string().c_str());
-			
+
 			//// ============= Check results =======
 			void* nifCheck = load((testRoot / "Out/readCollisionXform.nif").u8string().c_str());
 
@@ -3018,6 +3018,17 @@ namespace NiflyDLLTests
 			BHKBoxShapeBuf box0PropsCheck;
 			getCollBoxShapeProps(nifCheck, box0Check, &box0PropsCheck);
 			Assert::IsTrue(TApproxEqual(box0PropsCheck.dimensions_x, 0.009899), L"Got the right value back");
+		};
+		TEST_METHOD(readFurnitureMarker) {
+			void* nif = load((testRoot / "SkyrimSE/farmbench01.nif").u8string().c_str());
+
+			FurnitureMarkerBuf buf1, buf2, buf3;
+			Assert::IsTrue(getFurnMarker(nif, 0, &buf1), L"Have one marker");
+			Assert::IsTrue(getFurnMarker(nif, 1, &buf2), L"Have second marker");
+			Assert::IsFalse(getFurnMarker(nif, 2, &buf3), L"Do not have third");
+
+			Assert::IsTrue(TApproxEqual(buf1.offset[2], 33.8406), L"Offset correct");
+			Assert::IsTrue(TApproxEqual(buf1.heading, 3.141593), L"Heading correct");
 		};
 	};
 }

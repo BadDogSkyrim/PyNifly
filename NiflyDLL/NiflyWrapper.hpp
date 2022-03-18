@@ -389,6 +389,13 @@ struct BHKConvexTransformShapeBuf {
 	float xform[16];
 };
 
+struct FurnitureMarkerBuf {
+	float offset[3];
+	float heading;
+	uint16_t animationType;
+	uint16_t entryPoints;
+};
+
 extern "C" NIFLY_API int getShaderName(void* nifref, void* shaperef, char* buf, int buflen);
 extern "C" NIFLY_API uint32_t getShaderFlags1(void* nifref, void* shaperef);
 extern "C" NIFLY_API uint32_t getShaderFlags2(void* nifref, void* shaperef);
@@ -416,6 +423,8 @@ extern "C" NIFLY_API int getBGExtraDataLen(void* nifref, void* shaperef, int idx
 extern "C" NIFLY_API int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen);
 extern "C" NIFLY_API int getInvMarker(void* nifref, char* name, int namelen, int* rot, float* zoom);
 extern "C" NIFLY_API void setInvMarker(void* nifref, const char* name, int* rot, float* zoom);
+extern "C" NIFLY_API int getFurnMarker(void* nifref, int index, FurnitureMarkerBuf* buf);
+extern "C" NIFLY_API void setFurnMarkers(void* nifref, int buflen, FurnitureMarkerBuf * buf);
 extern "C" NIFLY_API int getBSXFlags(void* nifref, int* buf);
 extern "C" NIFLY_API void setBSXFlags(void* nifref, const char* name, uint32_t flags);
 extern "C" NIFLY_API void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf);

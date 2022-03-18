@@ -21,7 +21,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 4, 0, 2 };
+const int NiflyDDLVersion[3] = { 4, 0, 3 };
  
 using namespace nifly;
 
@@ -1709,6 +1709,48 @@ int getInvMarker(void* nifref, char* name, int namelen, int* rot, float* zoom)
     }
     return 0;
 };
+
+int getFurnMarker(void* nifref, int index, FurnitureMarkerBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    NiAVObject* source = nif->GetRootNode();
+
+    int c = 0;
+
+    for (auto& ed : source->extraDataRefs) {
+        BSFurnitureMarker* fm = hdr.GetBlock<BSFurnitureMarker>(ed);
+        if (fm) {
+            for (auto pos : fm->positions) {
+                if (c == index) {
+                    for (int i = 0; i < 3; i++) buf->offset[i] = pos.offset[i];
+                    buf->heading = pos.heading;
+                    buf->animationType = pos.animationType;
+                    buf->entryPoints = pos.entryPoints;
+
+                    return 1;
+                }
+                c++;
+            };
+        };
+    };
+    return 0;
+}
+
+void setFurnMarkers(void* nifref, int buflen, FurnitureMarkerBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+
+    auto fm = std::make_unique<BSFurnitureMarkerNode>();
+    
+    for (int i=0; i < buflen; i++) {
+        FurniturePosition pos;
+        for (int j = 0; j < 3; j++) pos.offset[j] = buf[i].offset[j];
+        pos.heading = buf[i].heading;
+        pos.animationType = buf[i].animationType;
+        pos.entryPoints = buf[i].entryPoints;
+        fm->positions.push_back(pos);
+    }
+    nif->AssignExtraData(nif->GetRootNode(), std::move(fm));
+}
 
 void setInvMarker(void* nifref, const char* name, int* rot, float* zoom)
 {
