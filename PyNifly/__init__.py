@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (4, 0, 2),  
+    "version": (4, 0, 3),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -88,14 +88,33 @@ GLOSS_SCALE = 100
 COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5)
 
 
-# Extend TransformBuf to get/give contents as a Blender Matrix
+def MatrixLocRotScale(loc, rot, scale):
+    try:
+        return Matrix.LocRotScale(loc, rot, scale)
+    except:
+        pass
+
+    tm = Matrix.Translation(loc)
+    rm = Matrix()
+    if issubclass(rot.__class__, Quaternion):
+        rm = rot.to_matrix()
+    else:
+        rm = Matrix(rot)
+    rm = rm.to_4x4()
+    sm = Matrix(((scale[0],0,0,0),
+                    (0,scale[1],0,0),
+                    (0,0,scale[2],0),
+                    (0,0,0,1)))
+    m = tm @ rm @ sm
+    return m
 
 def transform_to_matrix(xf: TransformBuf) -> Matrix:
-    return Matrix.LocRotScale(xf.translation[:], 
-                              Matrix([xf.rotation[0][:],
-                                      xf.rotation[1][:], 
-                                      xf.rotation[2][:] ]), 
-                              [xf.scale]*3)
+    """ Extends TransformBuf to get/give contents as a Blender Matrix """
+    return MatrixLocRotScale(xf.translation[:], 
+                             Matrix([xf.rotation[0][:],
+                                     xf.rotation[1][:], 
+                                     xf.rotation[2][:] ]), 
+                             [xf.scale]*3)
 
 setattr(TransformBuf, "as_matrix", transform_to_matrix)
 
@@ -712,6 +731,18 @@ class NifImporter():
             # extradata.append(ed)
             self.objects_created[invm[0]] = ed
 
+        for fm in f.furniture_markers:
+            bpy.ops.object.add(radius=1.0, type='EMPTY')
+            obj = bpy.context.object
+            obj.name = "BSFurnitureMarkerNode"
+            obj.show_name = True
+            obj.empty_display_type = 'SINGLE_ARROW'
+            obj.location = fm.offset[:]
+            obj.rotation_euler = (-pi/2, 0, fm.heading)
+            obj.scale = (40,10,10)
+            obj['AnimationType'] = FurnAnimationType(fm.animation_type).name
+            obj['EntryPoints'] = FurnEntryPoints(fm.entry_points).fullname
+
         #return extradata
 
 
@@ -1054,7 +1085,7 @@ class NifImporter():
                             (((p2.z - p1.z)/2) + p1.z) * HAVOC_SCALE_FACTOR,
                             ))
         
-        obj.matrix_world = Matrix.LocRotScale(objtrans, objrot, objscale)
+        obj.matrix_world = MatrixLocRotScale(objtrans, objrot, objscale)
 
         for p in obj.data.polygons:
             p.use_smooth = True
@@ -1620,7 +1651,7 @@ def get_bone_xforms(arma, bone_names, shape):
                           bone_xform.rotation[1][:], 
                           bone_xform.rotation[2][:]])
         
-        result[b.name] = Matrix.LocRotScale(loc, rot, [1,1,1])
+        result[b.name] = MatrixLocRotScale(loc, rot, [1,1,1])
     
     return result
 
@@ -1793,6 +1824,7 @@ class NifExporter:
         self.grouping_nodes = set()
         self.bsx_flag = None
         self.inv_marker = None
+        self.furniture_markers = set()
         self.collisions = set()
         
         # Shape keys that start with underscore trigger a separate file export
@@ -1888,6 +1920,9 @@ class NifExporter:
 
             elif 'BSInvMarker_Name' in obj.keys():
                 self.inv_marker = obj
+
+            elif obj.name.startswith("BSFurnitureMarkerNode"):
+                self.furniture_markers.add(obj)
 
             elif obj.name.startswith("bhkCollisionObject"):
                 self.collisions.add(obj)
@@ -2038,6 +2073,18 @@ class NifExporter:
                                          self.inv_marker['BSInvMarker_RotZ'], 
                                          self.inv_marker['BSInvMarker_Zoom']]
             self.objs_written[self.inv_marker.name] = self.nif
+
+        fmklist = []
+        for fm in self.furniture_markers:
+            buf = FurnitureMarkerBuf()
+            buf.offset = fm.location[:]
+            buf.heading = fm.rotation_euler.z
+            buf.animation_type = FurnAnimationType[fm['AnimationType']].value
+            buf.entry_points = FurnEntryPoints.parse(fm['EntryPoints'])
+            fmklist.append(buf)
+        
+        if len(fmklist) > 0:
+            self.nif.furniture_markers = fmklist
 
 
     def export_bhkCapsuleShape(self, s, xform):
@@ -2212,7 +2259,7 @@ class NifExporter:
             d.normalize()
             bonevec = get_bone_vector(self.game)
             q = Quaternion(targbone['pynXform'])
-            mx = Matrix.LocRotScale(targbone.head, q, [1,1,1])
+            mx = MatrixLocRotScale(targbone.head, q, [1,1,1])
             log.debug(f"Found collision target bone {targbone}, rotation {q}")
 
             return mx
@@ -2883,136 +2930,71 @@ def run_tests():
 
     clear_all()
 
-    if TEST_BPY_ALL:
-        run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri)
-
-
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
-
     if True:
-        test_title("TEST_COLLISION_LIST", "Can read and write shape with collision list and collision transform shapes")
+        print("### TEST_FURN_MARKER1: Furniture markers work")
+
         clear_all()
 
-        # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\falmerstaff.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_LIST.nif")
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\farmbench01.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_FURN_MARKER1.nif")
+        NifImporter.do_import(testfile, 0)
 
-        NifImporter.do_import(testfile)
-
-        staff = find_shape("Staff3rdPerson:0")
-        coll = find_shape("bhkCollisionObject")
-        collbody = coll.children[0]
-        collshape = collbody.children[0]
-        strd = find_shape("NiStringExtraData")
-        bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
-
-        assert collshape.name.startswith("bhkListShape"), f"Found list collision shape: {collshape.name}"
-        assert len(collshape.children) == 3, f" Collision shape has children"
+        fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
         
-        # -------- Export --------
-        bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
-        exporter = NifExporter(outfile, 'SKYRIM')
-        exporter.export([staff, coll, bsxf, invm, strd])
-
-        # ------- Check ---------
-        nifcheck = NifFile(outfile)
-        staffcheck = nifcheck.shape_dict["Staff3rdPerson:0"]
-        collcheck = nifcheck.rootNode.collision_object
-        rbcheck = collcheck.body
-        listcheck = rbcheck.shape
-        assert listcheck.blockname == "bhkListShape", f"Got a list collision back {listcheck.blockname}"
-        assert len(listcheck.children) == 3, f"Got our list elements back: {len(listcheck.children)}"
-
-        cts0check = listcheck.children[0]
-        assert cts0check.child.blockname == "bhkBoxShape", f"Found the box shape"
-
-        cts45check = [cts for cts in listcheck.children if NearEqual(cts.transform[1][1], 0.7071, 0.01)]
-        boxdiag = cts45check[0].child
-        assert NearEqual(boxdiag.properties.bhkDimensions[1], 0.170421), f"Diagonal box has correct size: {boxdiag.properties.bhkDimensions[1]}"
-
-    if True:
-        test_title("TEST_COLLISION_CAPSULE", "Can read and write shape with collision capsule shapes")
-        clear_all()
-
-        # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\staff04.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_CAPSULE.nif")
-
-        NifImporter.do_import(testfile)
-
-        staff = find_shape("3rdPersonStaff04")
-        coll = find_shape("bhkCollisionObject")
-        collbody = coll.children[0]
-        collshape = collbody.children[0]
-        strd = find_shape("NiStringExtraData")
-        bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
-
-        assert collshape.name.startswith("bhkCapsuleShape"), f"Found list collision shape: {collshape.name}"
-        v = collshape.data.vertices[5]
-        assert NearEqual(v.co.z, 67.4) or NearEqual(v.co.y, -67.4), f"Found verts where expected for {collshape.name}: {v.co}"
-        assert VNearEqual(collshape.location, (0, -2.8, 0.79), 0.1), f"Collision in right location for {collshape.name}: {collshape.location})"
+        assert len(fmarkers) == 2, f"Found furniture markers: {fmarkers}"
 
         # -------- Export --------
-        remove_file(outfile)
-        exporter = NifExporter(outfile, 'SKYRIM')
-        exporter.export([staff, coll, bsxf, invm, strd])
-
-        # ------- Check ---------
-        nifcheck = NifFile(outfile)
-        staffcheck = nifcheck.shape_dict["3rdPersonStaff04:1"]
-        collcheck = nifcheck.rootNode.collision_object
-        rbcheck = collcheck.body
-        shapecheck = rbcheck.shape
-        assert shapecheck.blockname == "bhkCapsuleShape", f"Got a capsule collision back {shapecheck.blockname}"
-
-        niforig = NifFile(testfile)
-        collorig = niforig.rootNode.collision_object
-        rborig = collorig.body
-        shapeorig = rborig.shape
-        assert NearEqual(shapeorig.properties.radius1, shapecheck.properties.radius1), f"Wrote the correct radius: {shapecheck.properties.radius1}"
-        assert NearEqual(shapeorig.properties.point1[1], shapecheck.properties.point1[1]), f"Wrote the correct radius: {shapecheck.properties.point1[1]}"
-
-
-    if True:
-        test_title("TEST_COLLISION_XFORM", "Can read and write shape with collision capsule shapes")
-        clear_all()
-
-        # ------- Load --------
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_XFORM.nif")
-
-        append_from_file("Staff", True, r"tests\SkyrimSE\staff.blend", r"\Object", "Staff")
-        append_from_file("BSInvMarker", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSInvMarker")
-        append_from_file("BSXFlags", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSXFlags")
-        append_from_file("NiStringExtraData", True, r"tests\SkyrimSE\staff.blend", r"\Object", "NiStringExtraData")
-        append_from_file("bhkConvexVerticesShape.002", True, r"tests\SkyrimSE\staff.blend", r"\Object", "bhkConvexVerticesShape.002")
-
-        staff = find_shape("Staff")
-        coll = find_shape("bhkCollisionObject")
-        strd = find_shape("NiStringExtraData")
+        bench = find_shape("FarmBench01:5")
         bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
+        fmrklist = [f for f in bpy.data.objects if f.name.startswith("BSFurnitureMarker")]
 
-        # -------- Export --------
-        remove_file(outfile)
         exporter = NifExporter(outfile, 'SKYRIMSE')
-        exporter.export([staff, coll, bsxf, invm, strd])
+        explist = [bench, bsxf]
+        explist.extend(fmrklist)
+        log.debug(f"Exporting: {explist}")
+        exporter.export(explist)
 
-        # ------- Check ---------
+        # --------- Check ----------
         nifcheck = NifFile(outfile)
-        staffcheck = nifcheck.shape_dict["Staff"]
-        collcheck = nifcheck.rootNode.collision_object
-        rbcheck = collcheck.body
-        listcheck = rbcheck.shape
-        cvShapes = [c for c in listcheck.children if c.blockname == "bhkConvexVerticesShape"]
-        maxz = max([v[2] for v in cvShapes[0].vertices])
-        assert maxz < 0, f"All verts on collisions shape on negative z axis: {maxz}"
+        fmcheck = nifcheck.furniture_markers
 
+        assert len(fmcheck) == 2, f"Wrote the furniture marker correctly: {len(fmcheck)}"
+
+
+    if True:
+        print("### TEST_FURN_MARKER2: Furniture markers work")
+
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\commonchair01.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_FURN_MARKER2.nif")
+        NifImporter.do_import(testfile, 0)
+
+        fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
         
+        assert len(fmarkers) == 1, f"Found furniture markers: {fmarkers}"
+        assert VNearEqual(fmarkers[0].rotation_euler, (-pi/2, 0, 0)), f"Marker points the right direction"
+
+        # -------- Export --------
+        chair = find_shape("CommonChair01:0")
+        bsxf = find_shape("BSXFlags")
+        fmrk = find_shape("BSFurnitureMarkerNode")
+        exporter = NifExporter(outfile, 'SKYRIMSE')
+        exporter.export([chair, bsxf, fmrk])
+
+        # --------- Check ----------
+        nifcheck = NifFile(outfile)
+        fmcheck = nifcheck.furniture_markers
+
+        assert len(fmcheck) == 1, f"Wrote the furniture marker correctly: {len(fmcheck)}"
+        assert fmcheck[0].entry_points == 13, f"Entry point data is correct: {fmcheck[0].entry_points}"
+
+
+    if TEST_BPY_ALL:
+        run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri)
 
 
 

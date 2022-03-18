@@ -90,6 +90,8 @@ def load_nifly(nifly_path):
     nifly.getColorsForShape.restype = c_int
     nifly.getEffectShaderAttrs.argtypes = [c_void_p, c_void_p, POINTER(BSESPAttrs)]
     nifly.getEffectShaderAttrs.restype = c_int
+    nifly.getFurnMarker.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
+    nifly.getFurnMarker.restype = c_int
     nifly.getGameName.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getGameName.restype = c_int
     nifly.getGlobalToSkin.argtypes = [c_void_p, c_void_p, POINTER(TransformBuf)]
@@ -214,6 +216,8 @@ def load_nifly(nifly_path):
     nifly.setInvMarker.restype = None
     nifly.setColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.setColorsForShape.restype = None
+    nifly.setFurnMarkers.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
+    nifly.setFurnMarkers.restype = None
     nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, POINTER(TransformBuf)]
     nifly.setGlobalToSkinXform.restype = None
     nifly.setNodeFlags.argtypes = [c_void_p, c_int]
@@ -1375,6 +1379,7 @@ class NifFile:
         self._bgdata = None
         self._strdata = None
         self._clothdata = None
+        self._furniture_markers = None
 
     def __del__(self):
         if self._handle:
@@ -1703,6 +1708,25 @@ class NifFile:
         NifFile.nifly.setBSXFlags(self._handle, val[0].encode('utf-8'), val[1])
 
 
+    @property
+    def furniture_markers(self):
+        if not self._furniture_markers:
+            self._furniture_markers = []
+            for i in range(0, 100):
+                buf = FurnitureMarkerBuf()
+                if not NifFile.nifly.getFurnMarker(self._handle, i, buf):
+                    break
+                self._furniture_markers.append(buf)
+        return self._furniture_markers
+
+    @furniture_markers.setter
+    def furniture_markers(self, value):
+        bufs = (FurnitureMarkerBuf * len(value))()
+        for i, v in enumerate(value):
+            bufs[i] = v
+        NifFile.nifly.setFurnMarkers(self._handle, len(value), bufs)
+
+
     def createSkin(self):
         self.game
         if self._skin_handle is None:
@@ -1770,7 +1794,8 @@ TEST_BOW = False
 TEST_CONVEX = False
 TEST_CONVEX_MULTI = False
 TEST_COLLISION_LIST = False
-TEST_COLLISION_CAPSULE = True
+TEST_COLLISION_CAPSULE = False
+TEST_FURNITURE_MARKER = True
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -3165,6 +3190,13 @@ if __name__ == "__main__":
         collbody = coll.body
         collshape = collbody.shape
         assert collshape.blockname == "bhkCapsuleShape", f"Have capsule shape: {collshape.blockname}"
+
+
+    if TEST_ALL or TEST_FURNITURE_MARKER:
+        print("### TEST_FURNITURE_MARKER: Can read and write furniture markers")
+        nif = NifFile(r"tests/SkyrimSE/farmbench01.nif")
+
+        assert len(nif.furniture_markers) == 2, f"Found the furniture markers"
 
 
     print("""

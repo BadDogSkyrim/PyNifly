@@ -819,6 +819,25 @@ class bhkConvexTransformShapeProps(pynStructure):
         ("bhkRadius", c_float),
         ('transform', MATRIX4) ]
 
+class FurnitureMarkerBuf(pynStructure):
+    _fields_ = [
+        ("offset", VECTOR3),
+        ("heading", c_float),
+        ("animation_type", c_uint16),
+        ("entry_points", c_uint16) ]
+
+class FurnAnimationType(IntEnum):
+    SIT = 1
+    SLEEP = 2
+    LEAN = 4 
+
+class FurnEntryPoints(PynIntFlag):
+    FRONT = 1
+    BEHIND = 1 << 1
+    RIGHT = 1 << 2
+    LEFT = 1 << 3
+    UP = 1 << 4
+
 class VERTEX_WEIGHT_PAIR(Structure):
     _fields_ = [("vertex", c_uint16),
                 ("weight", c_float)]
