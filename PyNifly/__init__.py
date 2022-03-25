@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (4, 1, 0),  
+    "version": (4, 1, 1),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -867,9 +867,10 @@ class NifImporter():
         self.import_shape_extra(new_object, the_shape)
 
 
-    def add_bone_to_arma(self, name):
+    def add_bone_to_arma(self, name, nifname):
         """ Add bone to armature. Bone may come from nif or reference skeleton.
             name = name to use for the bone in blender 
+            nifname = name the bone has in the nif
             returns new bone
         """
         armdata = self.armature.data
@@ -880,8 +881,8 @@ class NifImporter():
         # use the transform in the file if there is one; otherwise get the 
         # transform from the reference skeleton
         # bonenode = self.nif.nodes[self.nif.nif_name(name)]
-        xf = self.nif.get_node_xform_to_global(self.nif.nif_name(name)) 
-        # log.debug(f"Found bone transform {name} = {xf}")
+        xf = self.nif.get_node_xform_to_global(nifname) 
+        log.debug(f"Found bone transform {name} ({nifname}) = {xf.translation[:]}")
         bone_xform = transform_to_matrix(xf)
         xft, xfq, xfs = bone_xform.decompose()
 
@@ -922,6 +923,7 @@ class NifImporter():
 
             if arma_bone.parent is None:
                 parentname = None
+                parentnifname = None
                 skelbone = None
                 
                 # look for a parent in the nif
@@ -933,6 +935,7 @@ class NifImporter():
 
                     niparent = thisnode.parent
                     if niparent and niparent._handle != self.nif.root:
+                        parentnifname = niparent.nif_name
                         if self.flags & self.ImportFlags.RENAME_BONES:
                             parentname = niparent.blender_name
                         else:
@@ -945,17 +948,19 @@ class NifImporter():
                             p = self.nif.dict.byBlender[bonename].parent
                             if p:
                                 parentname = p.blender
+                                parentnifname = p.nif
                     else:
                         if arma_bone.name in self.nif.dict.byNif:
                             p = self.nif.dict.byNif[bonename].parent
                             if p:
                                 parentname = p.nif
+                                parentnifname = p.nif
             
                 # if we got a parent from somewhere, hook it up
                 if parentname:
                     if parentname not in arm_data.edit_bones:
                         # Add parent bones and put on our list so we can get its parent
-                        new_parent = self.add_bone_to_arma(parentname)
+                        new_parent = self.add_bone_to_arma(parentname, parentnifname)
                         bones_to_parent.append(parentname)  
                         arma_bone.parent = new_parent
                     else:
@@ -997,7 +1002,11 @@ class NifImporter():
                 name = self.nif.blender_name(bone_game_name)
             else:
                 name = bone_game_name
-            self.add_bone_to_arma(name)
+
+            xf = self.nif.get_node_xform_to_global("NPC Spine1")
+            log.debug(f"make_armature ({name}): Spine1 translation is {xf.translation[:]}")
+
+            self.add_bone_to_arma(name, bone_game_name)
         
         # Hook the armature bones up to a skeleton
         collisions = self.connect_armature()
@@ -2995,6 +3004,24 @@ def run_tests():
 
     if TEST_BPY_ALL:
         run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri)
+
+
+    if True:
+        test_title("TEST_WELWA", "Can read and write shape with unusual skeleton")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\welwa.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_WELWA.nif")
+
+        NifImporter.do_import(testfile, flags=0)
+
+        welwa = find_shape("111")
+        skel = welwa.parent
+        lipbone = skel.data.bones['NPC UpperLip']
+        assert VNearEqual(lipbone.matrix_local.translation, (0, 49.717827, 161.427307)), f"Found {lipbone.name} at {lipbone.matrix_local.translation}"
+        spine1 = skel.data.bones['NPC Spine1']
+        assert VNearEqual(spine1.matrix_local.translation, (0, -50.551056, 64.465019)), f"Found {spine1.name} at {spine1.matrix_local.translation}"
 
 
 
