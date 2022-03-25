@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (4, 1, 1),  
+    "version": (4, 1, 3),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -86,6 +86,12 @@ ALPHA_MAP_NAME = "VERTEX_ALPHA"
 GLOSS_SCALE = 100
 
 COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5)
+
+
+class ImportFlags(IntFlag):
+    CREATE_BONES = 1
+    RENAME_BONES = 1 << 1
+    ROTATE_MODEL = 1 << 2
 
 
 def MatrixLocRotScale(loc, rot, scale):
@@ -644,11 +650,6 @@ def get_node_transform(the_node) -> Matrix:
 
 class NifImporter():
     """Does the work of importing a nif, independent of Blender's operator interface"""
-    class ImportFlags(IntFlag):
-        CREATE_BONES = 1
-        RENAME_BONES = 1 << 1
-        ROTATE_MODEL = 1 << 2
-
     def __init__(self, 
                  filename: str, 
                  f: ImportFlags = ImportFlags.CREATE_BONES | ImportFlags.RENAME_BONES):
@@ -831,14 +832,14 @@ class NifImporter():
         if parent:
             new_object.parent = parent
 
-        if self.flags & self.ImportFlags.ROTATE_MODEL:
+        if self.flags & ImportFlags.ROTATE_MODEL:
             log.info(f". . Rotating model to match blender")
             r = new_object.rotation_euler[:]
             new_object.rotation_euler = (r[0], r[1], r[2]+pi)
             new_object["PYNIFLY_IS_ROTATED"] = True
 
         mesh_create_uv(new_object.data, the_shape.uvs)
-        mesh_create_bone_groups(the_shape, new_object, self.flags & self.ImportFlags.RENAME_BONES)
+        mesh_create_bone_groups(the_shape, new_object, self.flags & ImportFlags.RENAME_BONES)
         mesh_create_partition_groups(the_shape, new_object)
         for f in new_mesh.polygons:
             f.use_smooth = True
@@ -935,15 +936,18 @@ class NifImporter():
 
                     niparent = thisnode.parent
                     if niparent and niparent._handle != self.nif.root:
-                        parentnifname = niparent.nif_name
-                        if self.flags & self.ImportFlags.RENAME_BONES:
+                        try:
+                            parentnifname = niparent.nif_name
+                        except:
+                            parentnifname = niparent.name
+                        if self.flags & ImportFlags.RENAME_BONES:
                             parentname = niparent.blender_name
                         else:
-                            parentname = niparent.nif_name
+                            parentname = parentnifname
 
-                if parentname is None and (self.flags & self.ImportFlags.CREATE_BONES):
+                if parentname is None and (self.flags & ImportFlags.CREATE_BONES):
                     # No parent in the nif. If it's a known bone, get parent from skeleton
-                    if self.flags & self.ImportFlags.RENAME_BONES:
+                    if self.flags & ImportFlags.RENAME_BONES:
                         if arma_bone.name in self.nif.dict.byBlender:
                             p = self.nif.dict.byBlender[bonename].parent
                             if p:
@@ -998,7 +1002,7 @@ class NifImporter():
         bpy.ops.object.mode_set(mode='EDIT', toggle=False)
     
         for bone_game_name in bone_names:
-            if self.flags & self.ImportFlags.RENAME_BONES:
+            if self.flags & ImportFlags.RENAME_BONES:
                 name = self.nif.blender_name(bone_game_name)
             else:
                 name = bone_game_name
@@ -1664,27 +1668,6 @@ def get_bone_xforms(arma, bone_names, shape):
     
     return result
 
-def export_skin(obj, arma, new_shape, new_xform, weights_by_vert):
-    log.info("..Parent is armature, skin the mesh")
-    new_shape.skin()
-    new_shape.transform = TransformBuf.from_matrix(new_xform)
-    newxfi = new_xform.copy()
-    newxfi.invert()
-    new_shape.set_global_to_skin(TransformBuf.from_matrix(newxfi))
-    
-    group_names = [g.name for g in obj.vertex_groups]
-    weights_by_bone = get_weights_by_bone(weights_by_vert)
-    used_bones = weights_by_bone.keys()
-    arma_bones = get_bone_xforms(arma.data, used_bones, new_shape)
-    
-    for bone_name, bone_xform in arma_bones.items():
-        if bone_name in weights_by_bone and len(weights_by_bone[bone_name]) > 0:
-            nifname = new_shape.file.nif_name(bone_name)
-            new_shape.add_bone(nifname, TransformBuf.from_matrix(bone_xform))
-            log.debug(f"....Adding bone {nifname}")
-            new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
-
-
 def tag_unweighted(obj, bones):
     """ Find and return verts that are not weighted to any of the given bones 
         result = (v_index, ...) list of indices into the vertex list
@@ -1816,7 +1799,7 @@ def get_with_uscore(str_list):
 class NifExporter:
     """ Object that handles the export process 
     """
-    def __init__(self, filepath, game, rotate=False):
+    def __init__(self, filepath, game, export_flags=ImportFlags.RENAME_BONES):
         self.filepath = filepath
         self.game = game
         self.nif = None
@@ -1824,6 +1807,7 @@ class NifExporter:
         self.warnings = set()
         self.armature = None
         self.facebones = None
+        self.flags = export_flags
 
         # Objects that are to be written out
         self.objects = set()
@@ -2591,6 +2575,30 @@ class NifExporter:
         return ninode
 
 
+    def export_skin(self, obj, arma, new_shape, new_xform, weights_by_vert):
+        log.info("..Parent is armature, skin the mesh")
+        new_shape.skin()
+        new_shape.transform = TransformBuf.from_matrix(new_xform)
+        newxfi = new_xform.copy()
+        newxfi.invert()
+        new_shape.set_global_to_skin(TransformBuf.from_matrix(newxfi))
+    
+        group_names = [g.name for g in obj.vertex_groups]
+        weights_by_bone = get_weights_by_bone(weights_by_vert)
+        used_bones = weights_by_bone.keys()
+        arma_bones = get_bone_xforms(arma.data, used_bones, new_shape)
+    
+        for bone_name, bone_xform in arma_bones.items():
+            if bone_name in weights_by_bone and len(weights_by_bone[bone_name]) > 0:
+                if self.flags & ImportFlags.RENAME_BONES:
+                    nifname = new_shape.file.nif_name(bone_name)
+                else:
+                    nifname = bone_name
+                new_shape.add_bone(nifname, TransformBuf.from_matrix(bone_xform))
+                log.debug(f"....Adding bone {nifname}")
+                new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
+
+
     def export_shape(self, obj, target_key='', arma=None):
         """ Export given blender object to the given NIF file; also writes any associated
             tri file. Checks to make sure the object
@@ -2677,7 +2685,7 @@ class NifExporter:
         new_xform = obj.matrix_local.copy()
         
         if is_skinned:
-            export_skin(obj, arma, new_shape, new_xform, weights_by_vert)
+            self.export_skin(obj, arma, new_shape, new_xform, weights_by_vert)
             if len(unweighted) > 0:
                 create_group_from_verts(obj, UNWEIGHTED_VERTEX_GROUP, unweighted)
                 log.warning("Some vertices are not weighted to the armature in object {obj.name}")
@@ -2820,6 +2828,12 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             )
 
 
+    rename_bones: bpy.props.BoolProperty(
+        name="Rename Bones",
+        description="Rename bones from Blender conventions back to nif.",
+        default=True)
+
+
     def __init__(self):
         obj = bpy.context.object
         if obj is None:
@@ -2857,11 +2871,15 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
             return {'CANCELLED'} 
 
+        flags = 0
+        if self.rename_bones:
+            flags = ImportFlags.RENAME_BONES
+
         log.info("\n\n==============================\nNIFLY EXPORT V%d.%d.%d\n==============================" % bl_info['version'])
         NifFile.Load(nifly_path)
 
         try:
-            exporter = NifExporter(self.filepath, self.target_game) # , rotate=self.rotate_model)
+            exporter = NifExporter(self.filepath, self.target_game, export_flags=flags)
             exporter.from_context(context)
             exporter.export(context.selected_objects)
             
@@ -3023,6 +3041,13 @@ def run_tests():
         spine1 = skel.data.bones['NPC Spine1']
         assert VNearEqual(spine1.matrix_local.translation, (0, -50.551056, 64.465019)), f"Found {spine1.name} at {spine1.matrix_local.translation}"
 
+        exporter = NifExporter(outfile, 'SKYRIMSE', export_flags=0)
+        exporter.export([welwa])
+
+        # ------- Check ---------
+        nifcheck = NifFile(outfile)
+
+        assert "NPC Pelvis [Pelv]" not in nifcheck.nodes, f"Human pelvis name not written: {nifcheck.nodes.keys()}"
 
 
     print("""
