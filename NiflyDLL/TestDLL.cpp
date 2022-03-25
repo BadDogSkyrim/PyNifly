@@ -3030,5 +3030,18 @@ namespace NiflyDLLTests
 			Assert::IsTrue(TApproxEqual(buf1.offset[2], 33.8406), L"Offset correct");
 			Assert::IsTrue(TApproxEqual(buf1.heading, 3.141593), L"Heading correct");
 		};
+		TEST_METHOD(readWelwa) {
+			void* nif = load((testRoot / "SkyrimSE/welwa.nif").u8string().c_str());
+
+			void* skin;
+			skin = loadSkinForNif(nif, "SKYRIMSE");
+
+			MatTransform buf;
+			getNodeXformToGlobal(skin, "NPC Spine1", &buf.translation[0]);
+
+			Assert::IsTrue(TApproxEqual(buf.translation[2], 64.465019),
+				L"Expect non-standard location");
+
+		};
 	};
 }
