@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (4, 1, 3),  
+    "version": (4, 1, 4),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -1346,11 +1346,11 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         log.info("\n\n====================================\nNIFLY IMPORT V%d.%d.%d" % bl_info['version'])
         status = {'FINISHED'}
 
-        flags = NifImporter.ImportFlags(0)
+        flags = ImportFlags(0)
         if self.create_bones:
-            flags |= NifImporter.ImportFlags.CREATE_BONES
+            flags |= ImportFlags.CREATE_BONES
         if self.rename_bones:
-            flags |= NifImporter.ImportFlags.RENAME_BONES
+            flags |= ImportFlags.RENAME_BONES
         #if self.rotate_model:
         #    flags |= NifImporter.ImportFlags.ROTATE_MODEL
 
