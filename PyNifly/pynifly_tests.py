@@ -14,6 +14,10 @@ UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 GLOSS_SCALE = 100
 
+class ImportFlags(IntFlag):
+    CREATE_BONES = 1
+    RENAME_BONES = 1 << 1
+    ROTATE_MODEL = 1 << 2
 
 def get_image_node(node_input):
     """Walk the shader nodes backwards until a texture node is found.
@@ -945,13 +949,13 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/testsupermutantbody.nif")
-        imp = NifImporter.do_import(testfile, NifImporter.ImportFlags.RENAME_BONES)
+        imp = NifImporter.do_import(testfile, ImportFlags.RENAME_BONES)
         assert round(imp.nif.shapes[0].global_to_skin.translation[2]) == -140, f"Expected -140 z translation in first nif, got {imp.nif.shapes[0].global_to_skin.translation[2]}"
 
         sm1 = bpy.context.object
         assert round(sm1.location[2]) == 140, f"Expect first supermutant body at 140 Z, got {sm1.location[2]}"
 
-        imp2 = NifImporter.do_import(testfile, NifImporter.ImportFlags.RENAME_BONES)
+        imp2 = NifImporter.do_import(testfile, ImportFlags.RENAME_BONES)
         sm2 = bpy.context.object
         assert round(sm2.location[2]) == 140, f"Expect supermutant body at 140 Z, got {sm2.location[2]}"
 
@@ -961,7 +965,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"C:\Users\User\OneDrive\Dev\PyNifly\PyNifly\tests\Skyrim\femalebody_1.nif")
-        imp = NifImporter.do_import(testfile, NifImporter.ImportFlags.CREATE_BONES)
+        imp = NifImporter.do_import(testfile, ImportFlags.CREATE_BONES)
 
         body = bpy.context.object
         vgnames = [x.name for x in body.vertex_groups]

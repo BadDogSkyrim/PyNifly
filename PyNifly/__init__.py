@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = False
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (4, 1, 4),  
+    "version": (4, 1, 5),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -438,114 +438,8 @@ def set_object_texture(shape: NiShape, mat: bpy.types.Material, i: int):
         shape.set_texture(i, t)
 
 
-def export_shader(obj, shape: NiShape):
-    """Create shader from the object's material"""
-    log.debug(f"...exporting material for object {obj.name}")
-    shader = shape.shader_attributes
-    mat = obj.active_material
 
-    # Use textures stored in properties as defaults; override them with shader nodes
-    set_object_texture(shape, mat, 7)
-
-    try:
-        nodelist = mat.node_tree.nodes
-
-        shader_node = None
-        diffuse_fp = None
-        norm_fp = None
-        sk_fp = None
-        spec_fp = None
-
-        if not 'Principled BSDF' in nodelist:
-            log.warning(f"...Have material but no Principled BSDF for {obj.name}")
-        else:
-            shader_node = nodelist['Principled BSDF']
-
-        for i in [3, 4, 5, 6, 8]:
-            set_object_texture(shape, mat, i)
-    
-        # Texture paths
-        norm_txt_node = None
-        if shader_node:
-            export_shader_attrs(obj, shader_node, shape)
-
-            diffuse_input = shader_node.inputs['Base Color']
-            if diffuse_input and diffuse_input.is_linked:
-                diffuse_node = diffuse_input.links[0].from_node
-                if hasattr(diffuse_node, 'image') and diffuse_node.image:
-                    diffuse_fp_full = diffuse_node.image.filepath
-                    diffuse_fp = diffuse_fp_full[diffuse_fp_full.lower().find('textures'):]
-                    log.debug(f"....Writing diffuse texture path '{diffuse_fp}'")
-        
-            normal_input = shader_node.inputs['Normal']
-            is_obj_space = False
-            if normal_input and normal_input.is_linked:
-                nmap_node = normal_input.links[0].from_node
-                if nmap_node.bl_idname == 'ShaderNodeNormalMap':
-                    is_obj_space = (nmap_node.space == "OBJECT")
-                    if is_obj_space:
-                        shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
-                    else:
-                        shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
-                    image_node = get_image_node(nmap_node.inputs['Color'])
-                    if image_node and image_node.image:
-                        norm_txt_node = image_node
-                        norm_fp_full = norm_txt_node.image.filepath
-                        norm_fp = norm_fp_full[norm_fp_full.lower().find('textures'):]
-                        log.debug(f"....Writing normal texture path '{norm_fp}'")
-
-            sk_node = get_image_node(shader_node.inputs['Subsurface Color'])
-            if sk_node and sk_node.image:
-                sk_fp_full = sk_node.image.filepath
-                sk_fp = sk_fp_full[sk_fp_full.lower().find('textures'):]
-                log.debug(f"....Writing subsurface texture path '{sk_fp}'")
-
-            # Separate specular slot is only used if it's a MSN
-            if is_obj_space:
-                spec_node = get_image_node(shader_node.inputs['Specular'])
-                if spec_node and spec_node.image:
-                        spec_fp_full = spec_node.image.filepath
-                        spec_fp = spec_fp_full[spec_fp_full.lower().find('textures'):]
-                        log.debug(f"....Writing subsurface texture path '{spec_fp}'")
-
-            alpha_input = shader_node.inputs['Alpha']
-            if alpha_input and alpha_input.is_linked:
-                mat = obj.active_material
-                if 'NiAlphaProperty_flags' in mat.keys():
-                    shape.alpha_property.flags = mat['NiAlphaProperty_flags']
-                else:
-                    shape.alpha_property.flags = 4844
-                shape.alpha_property.threshold = int(mat.alpha_threshold * 255)
-                #if 'NiAlphaProperty_threshold' in mat.keys():
-                #    shape.alpha_property.threshold = mat['NiAlphaProperty_threshold']
-                #else:
-                #    shape.alpha_property.threshold = 128
-                shape.save_alpha_property()
-
-        else:
-            log.warning(f"...Have material but no shader node for {obj.name}")
-
-        if diffuse_fp:
-            shape.set_texture(0, diffuse_fp)
-        else:
-            set_object_texture(shape, mat, 0)
-        if norm_fp:
-            shape.set_texture(1, norm_fp)
-        else:
-            set_object_texture(shape, mat, 1)
-        if sk_fp:
-            shape.set_texture(2, sk_fp)
-        else:
-            set_object_texture(shape, mat, 2)
-        if spec_fp:
-            shape.set_texture(7, spec_fp)
-        else:
-            set_object_texture(shape, mat, 7)
-    except:
-        log.warning(f"...Could not use shader nodes for {obj.name}, using cached texture paths")
-
-
-# -----------------------------  MESH CREATION -------------------------------\
+# -----------------------------  MESH CREATION -------------------------------
 
 def mesh_create_normals(the_mesh, normals):
     """ Create custom normals in Blender to match those on the object 
@@ -1352,7 +1246,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         if self.rename_bones:
             flags |= ImportFlags.RENAME_BONES
         #if self.rotate_model:
-        #    flags |= NifImporter.ImportFlags.ROTATE_MODEL
+        #    flags |= ImportFlags.ROTATE_MODEL
 
         try:
             NifFile.Load(nifly_path)
@@ -2599,6 +2493,102 @@ class NifExporter:
                 new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
 
 
+    def export_shader(self, obj, shape: NiShape):
+        """Create shader from the object's material"""
+        log.debug(f"...exporting material for object {obj.name}")
+        shader = shape.shader_attributes
+        mat = obj.active_material
+
+        # Use textures stored in properties as defaults; override them with shader nodes
+        set_object_texture(shape, mat, 7)
+
+        try:
+            nodelist = mat.node_tree.nodes
+
+            shader_node = None
+
+            if not 'Principled BSDF' in nodelist:
+                log.warning(f"...Have material but no Principled BSDF for {obj.name}")
+            else:
+                shader_node = nodelist['Principled BSDF']
+
+            # Texture paths
+            if shader_node:
+                export_shader_attrs(obj, shader_node, shape)
+
+                for textureslot in range(0, 9):
+                    foundpath = ""
+                
+                    if textureslot == 0:
+                        diffuse_input = shader_node.inputs['Base Color']
+                        if diffuse_input and diffuse_input.is_linked:
+                            diffuse_node = diffuse_input.links[0].from_node
+                            if hasattr(diffuse_node, 'image') and diffuse_node.image:
+                                foundpath = diffuse_node.image.filepath
+                
+                    elif textureslot == 1:
+                        normal_input = shader_node.inputs['Normal']
+                        is_obj_space = False
+                        if normal_input and normal_input.is_linked:
+                            nmap_node = normal_input.links[0].from_node
+                            if nmap_node.bl_idname == 'ShaderNodeNormalMap':
+                                is_obj_space = (nmap_node.space == "OBJECT")
+                                if is_obj_space:
+                                    shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
+                                else:
+                                    shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
+                                image_node = get_image_node(nmap_node.inputs['Color'])
+                                if image_node and image_node.image:
+                                    norm_txt_node = image_node
+                                    foundpath = norm_txt_node.image.filepath
+
+                    elif textureslot == 2:
+                        sk_node = get_image_node(shader_node.inputs['Subsurface Color'])
+                        if sk_node and sk_node.image:
+                            foundpath = sk_node.image.filepath
+
+                    elif textureslot == 7:
+                        if is_obj_space:
+                            spec_node = get_image_node(shader_node.inputs['Specular'])
+                            if spec_node and spec_node.image:
+                                    foundpath = spec_node.image.filepath
+
+                    # Use the shader node path if it's usable, the one stashed in 
+                    # custom properties if not
+                    txtidx = foundpath.lower().find('textures')
+                    ext = foundpath[-3:]
+                    if txtidx >= 0 and ext.lower() == "dds":
+                        texturepath = foundpath[txtidx:]
+                    else:
+                        try:
+                            texturepath = mat[f'BSShaderTextureSet_{textureslot}']
+                        except:
+                            texturepath = ""
+
+                    if len(texturepath) > 0:
+                        log.debug(f"....Writing diffuse texture path {textureslot}: '{texturepath}'")
+                        shape.set_texture(textureslot, texturepath)
+
+            # Write alpha if any after the textures
+            alpha_input = shader_node.inputs['Alpha']
+            if alpha_input and alpha_input.is_linked:
+                mat = obj.active_material
+                if 'NiAlphaProperty_flags' in mat.keys():
+                    shape.alpha_property.flags = mat['NiAlphaProperty_flags']
+                else:
+                    shape.alpha_property.flags = 4844
+                shape.alpha_property.threshold = int(mat.alpha_threshold * 255)
+                #if 'NiAlphaProperty_threshold' in mat.keys():
+                #    shape.alpha_property.threshold = mat['NiAlphaProperty_threshold']
+                #else:
+                #    shape.alpha_property.threshold = 128
+                shape.save_alpha_property()
+
+        except:
+            log.warning(f"Couldn't parse the shader nodes on {obj.name}")
+            self.warnings.add('WARNING')
+
+
     def export_shape(self, obj, target_key='', arma=None):
         """ Export given blender object to the given NIF file; also writes any associated
             tri file. Checks to make sure the object
@@ -2664,7 +2654,7 @@ class NifExporter:
         self.export_shape_data(obj, new_shape)
         
         if mat:
-            export_shader(obj, new_shape)
+            self.export_shader(obj, new_shape)
             log.debug(f"....'{new_shape.name}' has textures: {new_shape.textures}")
             if has_msn:
                 new_shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
