@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = True
+RUN_TESTS = False
 TEST_BPY_ALL = True
 
 
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (4, 1, 5),  
+    "version": (4, 1, 11),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -760,6 +760,9 @@ class NifImporter():
             self.import_collision_obj(the_shape.collision_object, new_object)
 
         self.import_shape_extra(new_object, the_shape)
+
+        new_object['PYN_GAME'] = self.nif.game
+        new_object['PYN_RENAME_BONES'] = (self.flags & ImportFlags.RENAME_BONES != 0)
 
 
     def add_bone_to_arma(self, name, nifname):
@@ -2697,6 +2700,9 @@ class NifExporter:
 
         self.objs_written[obj.name] = new_shape
 
+        obj['PYN_GAME'] = self.game
+        obj['PYN_RENAME_BONES'] = (self.flags & ImportFlags.CREATE_BONES) != 0
+
         retval |= self.export_tris(obj, verts, tris, uvmap_new, morphdict)
         log.info(f"..{obj.name} successfully exported to {self.nif.filepath}")
         return retval
@@ -2837,10 +2843,24 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         else:
             if obj.parent and obj.parent.type == "ARMATURE":
                 arma = obj.parent
+        g = ""
         if arma:
             g = best_game_fit(arma.data.bones)
-            if g != "":
-                self.target_game = g
+        if g == "":
+            try:
+                g = obj['PYN_GAME']
+            except:
+                pass
+        if g != "":
+            self.target_game = g
+        
+        try:
+            if obj['PYN_RENAME_BONES']:
+                self.rename_bones = True
+            else:
+                self.rename_bones = False
+        except:
+            pass
         
     @classmethod
     def poll(cls, context):
