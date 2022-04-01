@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (4, 1, 11),  
+    "version": (4, 1, 12),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -2844,13 +2844,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             if obj.parent and obj.parent.type == "ARMATURE":
                 arma = obj.parent
         g = ""
-        if arma:
-            g = best_game_fit(arma.data.bones)
-        if g == "":
-            try:
-                g = obj['PYN_GAME']
-            except:
-                pass
+        try:
+            g = obj['PYN_GAME']
+        except:
+            if arma:
+                g = best_game_fit(arma.data.bones)
         if g != "":
             self.target_game = g
         
