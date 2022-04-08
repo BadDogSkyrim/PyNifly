@@ -3,8 +3,8 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = False
-TEST_BPY_ALL = True
+RUN_TESTS = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (4, 1, 12),  
+    "version": (4, 1, 14),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -762,7 +762,7 @@ class NifImporter():
         self.import_shape_extra(new_object, the_shape)
 
         new_object['PYN_GAME'] = self.nif.game
-        new_object['PYN_RENAME_BONES'] = (self.flags & ImportFlags.RENAME_BONES != 0)
+        new_object['PYN_RENAME_BONES'] = ((self.flags & ImportFlags.RENAME_BONES) != 0)
 
 
     def add_bone_to_arma(self, name, nifname):
@@ -1635,7 +1635,7 @@ def partitions_from_vert_groups(obj):
             else:
                 segid = FO4Segment.name_match(vg.name)
                 if segid >= 0:
-                    log.debug(f"Found FO4Segment '{vg.name}'")
+                    #log.debug(f"Found FO4Segment '{vg.name}'")
                     val[vg.name] = FO4Segment(part_id=len(val), index=segid, name=vg.name)
                 else:
                     # Check if this is a subsegment. All segs sort before their subsegs, 
@@ -1647,7 +1647,7 @@ def partitions_from_vert_groups(obj):
                             log.debug(f"Subseg {vg.name} needs parent {parent_name}; existing parents are {val.keys()}")
                             val[parent_name] = FO4Segment(len(val), 0, parent_name)
                         p = val[parent_name]
-                        log.debug(f"Found FO4Subsegment '{vg.name}' child of '{parent_name}'")
+                        #log.debug(f"Found FO4Subsegment '{vg.name}' child of '{parent_name}'")
                         val[vg.name] = FO4Subsegment(len(val), subseg_id, material, p, name=vg.name)
     
     return val
@@ -1676,6 +1676,7 @@ def mesh_from_key(editmesh, verts, target_key):
 def get_common_shapes(obj_list):
     """ Return the shape keys found in any of the given objects """
     res = None
+    log.debug(f"Checking shape keys on {obj_list}")
     for obj in obj_list:
         o_shapes = set()
         if obj.data.shape_keys:
@@ -2259,7 +2260,7 @@ class NifExporter:
         """
         log.debug(f"..Exporting partitions")
         partitions = partitions_from_vert_groups(obj)
-        log.debug(f"....Found partitions {list(partitions.keys())}")
+        #log.debug(f"....Found partitions {list(partitions.keys())}")
 
         if len(partitions) == 0:
             return [], []
@@ -2492,7 +2493,7 @@ class NifExporter:
                 else:
                     nifname = bone_name
                 new_shape.add_bone(nifname, TransformBuf.from_matrix(bone_xform))
-                log.debug(f"....Adding bone {nifname}")
+                # log.debug(f"....Adding bone {nifname}")
                 new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
 
 
@@ -2701,7 +2702,7 @@ class NifExporter:
         self.objs_written[obj.name] = new_shape
 
         obj['PYN_GAME'] = self.game
-        obj['PYN_RENAME_BONES'] = (self.flags & ImportFlags.CREATE_BONES) != 0
+        obj['PYN_RENAME_BONES'] = (self.flags & ImportFlags.RENAME_BONES) != 0
 
         retval |= self.export_tris(obj, verts, tris, uvmap_new, morphdict)
         log.info(f"..{obj.name} successfully exported to {self.nif.filepath}")
@@ -2756,8 +2757,9 @@ class NifExporter:
                 log.debug(f"Exported shape {obj.name}")
 
             # Check for bodytri morphs--write the extra data node if needed
+            log.debug(f"TRIP data: shapes={len(self.trip.shapes)}, bodytri written: {self.bodytri_written}, filepath: {truncate_filename(trippath, 'meshes')}")
             if len(self.trip.shapes) > 0 and not self.bodytri_written:
-                self.trip.string_data = [('BODYTRI', truncate_filename(trippath, "meshes"))]
+                self.nif.string_data = [('BODYTRI', truncate_filename(trippath, "meshes"))]
 
             self.export_collisions([c for c in self.collisions if c.parent == None])
             self.export_extra_data()
@@ -3033,29 +3035,32 @@ def run_tests():
 
 
     if True:
-        test_title("TEST_WELWA", "Can read and write shape with unusual skeleton")
+        test_title("TEST_TRIP", "Body tri extra data and file are written on export")
         clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP.nif")
 
-        # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\welwa.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_WELWA.nif")
+        append_from_file("BaseMaleBody", True, r"tests\FO4\BodyTalk.blend", r"\Object", "BaseMaleBody")
+        bpy.ops.object.select_all(action='DESELECT')
+        body = find_shape("BaseMaleBody")
 
-        NifImporter.do_import(testfile, flags=0)
+        print("Found body: " + body.name)
 
-        welwa = find_shape("111")
-        skel = welwa.parent
-        lipbone = skel.data.bones['NPC UpperLip']
-        assert VNearEqual(lipbone.matrix_local.translation, (0, 49.717827, 161.427307)), f"Found {lipbone.name} at {lipbone.matrix_local.translation}"
-        spine1 = skel.data.bones['NPC Spine1']
-        assert VNearEqual(spine1.matrix_local.translation, (0, -50.551056, 64.465019)), f"Found {spine1.name} at {spine1.matrix_local.translation}"
-
-        exporter = NifExporter(outfile, 'SKYRIMSE', export_flags=0)
-        exporter.export([welwa])
+        remove_file(outfile)
+        export = NifExporter(outfile, 'FO4')
+        export.export([body])
 
         # ------- Check ---------
         nifcheck = NifFile(outfile)
 
-        assert "NPC Pelvis [Pelv]" not in nifcheck.nodes, f"Human pelvis name not written: {nifcheck.nodes.keys()}"
+        bodycheck = nifcheck.shape_dict["BaseMaleBody"]
+        assert bodycheck.name == "BaseMaleBody", f"Body found in nif"
+
+        stringdata = nifcheck.string_data
+        assert stringdata, f"Found string data: {stringdata}"
+        sd = stringdata[0]
+        assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
+        assert sd[1].endswith("TEST_TRIP.tri"), f"Found correct filename"
+
 
 
     print("""
