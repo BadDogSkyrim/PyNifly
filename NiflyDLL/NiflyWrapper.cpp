@@ -21,7 +21,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 4, 1, 12 };
+const int NiflyDDLVersion[3] = { 4, 1, 14 };
  
 using namespace nifly;
 

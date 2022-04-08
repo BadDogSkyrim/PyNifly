@@ -105,6 +105,33 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_COLLISION_XFORM = False
     TEST_COLLISION_CAPSULE = False
     TEST_COLLISION_LIST = False
+    TEST_WELWA = False
+
+
+    if TEST_BPY_ALL or TEST_WELWA:
+        test_title("TEST_WELWA", "Can read and write shape with unusual skeleton")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\welwa.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_WELWA.nif")
+
+        NifImporter.do_import(testfile, flags=0)
+
+        welwa = find_shape("111")
+        skel = welwa.parent
+        lipbone = skel.data.bones['NPC UpperLip']
+        assert VNearEqual(lipbone.matrix_local.translation, (0, 49.717827, 161.427307)), f"Found {lipbone.name} at {lipbone.matrix_local.translation}"
+        spine1 = skel.data.bones['NPC Spine1']
+        assert VNearEqual(spine1.matrix_local.translation, (0, -50.551056, 64.465019)), f"Found {spine1.name} at {spine1.matrix_local.translation}"
+
+        exporter = NifExporter(outfile, 'SKYRIMSE', export_flags=0)
+        exporter.export([welwa])
+
+        # ------- Check ---------
+        nifcheck = NifFile(outfile)
+
+        assert "NPC Pelvis [Pelv]" not in nifcheck.nodes, f"Human pelvis name not written: {nifcheck.nodes.keys()}"
 
 
     if TEST_BPY_ALL or TEST_COLLISION_LIST:
