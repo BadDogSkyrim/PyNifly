@@ -18,9 +18,19 @@
 #include "Anim.h"
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
+#include "TestDLL.h"
 
 using namespace nifly;
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
+
+enum NifOptions
+{
+	SEHeadPart = 1,
+	FO4TriShape = 2,
+	FO4EffectShader = 4,
+	BoneHierarchy = 8
+};
+DEFINE_ENUM_FLAG_OPERATORS(NifOptions)
 
 //static std::string curRootName;
 
@@ -32,14 +42,23 @@ bool TApproxEqual(float first, float second) {
 	return abs(first - second) < .001;
 }
 bool TApproxEqual(Vector3 first, Vector3 second) {
-		return TApproxEqual(first.x, second.x)
+	return TApproxEqual(first.x, second.x)
 		&& TApproxEqual(first.y, second.y)
 		&& TApproxEqual(first.z, second.z);
 };
 
+bool TApproxEqual(MatTransform first, MatTransform second) {
+	return TApproxEqual(first.translation, second.translation)
+		&& TApproxEqual(first.rotation[0], second.rotation[0])
+		&& TApproxEqual(first.rotation[1], second.rotation[1])
+		&& TApproxEqual(first.rotation[2], second.rotation[2])
+		&& TApproxEqual(first.scale, second.scale);
+};
+
 void* TFindNode(void* nif, const char* targetName) {
 	int nodeCount = getNodeCount(nif);
-	void* nodes[50];
+	Assert::IsTrue(nodeCount <= 100, L"Not too many nodes");
+	void* nodes[100];
 	getNodes(nif, nodes);
 
 	for (int i = 0; i < nodeCount; i++) {
@@ -47,6 +66,22 @@ void* TFindNode(void* nif, const char* targetName) {
 		getNodeName(nodes[i], nodename, 128);
 		if (strcmp(nodename, targetName) == 0) {
 			return nodes[i];
+		};
+	};
+
+	return nullptr;
+};
+
+void* TFindShape(void* nif, const char* targetName) {
+	void* shapes[100];
+	int shapeCount = getShapes(nif, shapes, 100, 0);
+	Assert::IsTrue(shapeCount <= 100, L"Not too many shapes");
+
+	for (int i = 0; i < shapeCount; i++) {
+		char shapename[128];
+		getShapeName(shapes[i], shapename, 128);
+		if (strcmp(shapename, targetName) == 0) {
+			return shapes[i];
 		};
 	};
 
@@ -178,10 +213,10 @@ void TComparePartitions(void* nif1, void* shape1, void* nif2, void* shape2) {
 	// flags.
 	for (int i = 0; i < partitionCount1 * 2; i += 2) {
 		Assert::IsTrue((partitionInfo1[i] & !PF_EDITOR_VISIBLE & !PF_START_NET_BONESET) ==
-					   (partitionInfo2[i] & !PF_EDITOR_VISIBLE & !PF_START_NET_BONESET), 
+			(partitionInfo2[i] & !PF_EDITOR_VISIBLE & !PF_START_NET_BONESET),
 			L"Error: Partition flags don't match");
-		Assert::IsTrue((partitionInfo1[i + 1] & !PF_EDITOR_VISIBLE & !PF_START_NET_BONESET) == 
-					   (partitionInfo2[i + 1] & !PF_EDITOR_VISIBLE & !PF_START_NET_BONESET), 
+		Assert::IsTrue((partitionInfo1[i + 1] & !PF_EDITOR_VISIBLE & !PF_START_NET_BONESET) ==
+			(partitionInfo2[i + 1] & !PF_EDITOR_VISIBLE & !PF_START_NET_BONESET),
 			L"Error: Partition IDs don't match");
 	};
 	Assert::IsTrue(triCount1 == triCount2, L"Error: Different number of tris");
@@ -190,25 +225,86 @@ void TComparePartitions(void* nif1, void* shape1, void* nif2, void* shape2) {
 	};
 };
 
-void* TCopyWeights(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape) {
+
+std::string TWriteNode(void* trgNif, void* trgSkin, void* srcNif, void* srcNode, 
+		std::map<std::string, std::string>  &writtenNodes) {
+	void* trgParent = nullptr;
+	char nodeNameBuf[100];
+	std::string nodeName;
+	std::string parentName;
+	getNodeName(srcNode, nodeNameBuf, 100);
+	nodeName = std::string(nodeNameBuf);
+
+	if (writtenNodes.contains(nodeName))
+		return nodeName;
+
+	void* srcParent = getNodeParent(srcNif, srcNode);
+	if (srcParent) {
+		parentName = TWriteNode(trgNif, trgSkin, srcNif, srcParent, writtenNodes);
+	};
+	
+	MatTransform xf;
+	getNodeTransform(srcNode, &xf);
+	
+	addBoneToSkin(trgSkin, nodeName.c_str(), &xf, parentName.c_str());
+
+	writtenNodes[nodeName] = parentName;
+
+	return nodeName;
+}
+
+void TCopyBones(void* targetNif, void* targetSkin, void* sourceNif) {
+	// Write bones with their hierarchy first
+	std::map<std::string, std::string> writtenNodes;
+	void* rootNode = getRoot(sourceNif);
+	char rootName[100];
+	getNodeName(rootNode, rootName, 100);
+
+	writtenNodes[rootName] = "";
+
+	int nodeCount = getNodeCount(sourceNif);
+	void** nodes = new void* [nodeCount];
+	getNodes(sourceNif, nodes);
+	for (int i = 0; i < nodeCount; i++) {
+		if (nodes[i] != rootNode) {
+			char blockname[100];
+			getNodeBlockname(nodes[i], blockname, 100);
+			if (strcmp(blockname, "NiNode") == 0) {
+				TWriteNode(targetNif, targetSkin, sourceNif, nodes[i], writtenNodes);
+			}
+		}
+	}
+};
+
+void* TCopyWeights(void* targetNif, void* targetShape, 
+				   void* sourceNif, void* sourceShape, 
+				   uint16_t options) {
 
 	std::vector<std::string> boneNames;
 	std::vector<AnimWeight> boneWeights;
 	nifly::MatTransform xformGlobalToSkin;
 	const int BUFLEN = 3000;
 	char boneNameBuf[BUFLEN];
-
-	//if (!getShapeGlobalToSkin(sourceNif, 
-	//						  sourceShape, 
-	//						  static_cast<float*>(&xformGlobalToSkin.translation.x)))
-	//	return;
+//	int boneIDBuf[BUFLEN];
 
 	int boneCount = getShapeBoneCount(sourceNif, sourceShape);
 	if (boneCount == 0) return nullptr;
 
+	// Get list of bones the shape needs
 	int boneBufLen = getShapeBoneNames(sourceNif, sourceShape, boneNameBuf, BUFLEN);
 	Assert::IsTrue(boneCount <= BUFLEN);
 	for (int i = 0; i < boneBufLen; i++) if (boneNameBuf[i] == '\n') boneNameBuf[i] = '\0';
+
+	// Make map from node names to node refs
+	std::map<std::string, void*> boneMap;
+	int nodeCount = getNodeCount(sourceNif);
+	void** srcNodes = new void* [nodeCount];
+	getNodes(sourceNif, srcNodes);
+	for (int i = 0; i < nodeCount; i++) {
+		char* name = new char[100];
+		getNodeName(srcNodes[i], name, 100);
+		boneMap[name] = srcNodes[i];
+	};
 
 	char gameName[30];
 	getGameName(sourceNif, gameName, 30);
@@ -216,6 +312,8 @@ void* TCopyWeights(void* targetNif, void* targetShape, void* sourceNif, void* so
 	void* targetSkin;
 	targetSkin = createSkinForNif(targetNif, gameName);
 	skinShape(targetNif, targetShape);
+
+	if (options & NifOptions::BoneHierarchy) TCopyBones(targetNif, targetSkin, sourceNif);
 
 	MatTransform shapeXform;
 	getTransform(sourceShape, &shapeXform.translation.x);
@@ -230,15 +328,30 @@ void* TCopyWeights(void* targetNif, void* targetShape, void* sourceNif, void* so
 
 	MatTransform xform;
 
-	for (int i = 0, boneIndex = 0; boneIndex < boneCount;  boneIndex++) {
+	//for (auto bone: theBones) {
+	for (int i = 0, boneIndex = 0; boneIndex < boneCount; boneIndex++) {
 		// Get xform from the source
-		getNodeXformToGlobal(sourceSkin, &boneNameBuf[i], &xform.translation.x);
+		const char* bn = &boneNameBuf[i];
+		void* bref = boneMap[bn];
 
-		addBoneToShape(targetSkin, targetShape, &boneNameBuf[i], &xform);
+		if (options & BoneHierarchy)
+			getNodeTransform(bref, &xform);
+		else
+			getNodeXformToGlobal(sourceSkin, bn, &xform);
+
+		void* parentRef = getNodeParent(sourceNif, bref);
+		char parentName[100];
+		char* parentP = nullptr;
+		if (parentRef && (options & BoneHierarchy)) {
+			getNodeName(parentRef, parentName, 100);
+			parentP = parentName;
+		}
+		addBoneToShape(targetSkin, targetShape, bn, &xform, nullptr /*parentP*/);
+
 		int bwcount = getShapeBoneWeightsCount(sourceNif, sourceShape, boneIndex);
 		VertexWeightPair* vwp = new VertexWeightPair[bwcount];
 		getShapeBoneWeights(sourceNif, sourceShape, boneIndex, vwp, bwcount);
-		setShapeWeights(targetSkin, targetShape, &boneNameBuf[i], vwp, bwcount, &xform);
+		setShapeWeights(targetSkin, targetShape, bn, vwp, bwcount, &xform);
 
 		i += int(strlen(&boneNameBuf[i]) + 1);
 	};
@@ -295,7 +408,7 @@ void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* 
 	}
 
 	if (targetSkin) {
-		*targetSkin = TCopyWeights(targetNif, targetShape, sourceNif, sourceShape);
+		*targetSkin = TCopyWeights(targetNif, targetShape, sourceNif, sourceShape, options);
 		if (doPartitions) TCopyPartitions(targetNif, targetShape, sourceNif, sourceShape);
 	};
 	TCopyExtraData(targetNif, targetShape, sourceNif, sourceShape);
@@ -305,6 +418,23 @@ void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* 
 	setTransform(targetShape, &xf);
 
 	return targetShape;
+};
+
+std::vector<std::string> TGetShapeBoneNames(void* nif1, void* shape1)
+{
+	std::vector<std::string> boneNames;
+	char boneNameBuf[5000];
+	int boneNameBufLen = getShapeBoneNames(nif1, shape1, boneNameBuf, 5000);
+	Assert::IsTrue(boneNameBufLen <= 5000, L"Bone names too long");
+	for (int i = 0, j = 0; i <= boneNameBufLen; i++) {
+		if (boneNameBuf[i] == '\0' || boneNameBuf[i] == '\n') {
+			boneNameBuf[i] = '\0';
+			boneNames.push_back(&boneNameBuf[j]);
+			j = i + 1;
+		}
+	}
+
+	return boneNames;
 };
 
 void TCompareShapes(void* nif1, void* shape1, void* nif2, void* shape2) {
@@ -377,23 +507,33 @@ void TCompareShapes(void* nif1, void* shape1, void* nif2, void* shape2) {
 		MatTransform xform1;
 		MatTransform xform2;
 
-		for (int boneIndex = 0; boneIndex < boneCount1; boneIndex++) {
-			int bwcount1 = getShapeBoneWeightsCount(nif1, shape1, boneIndex);
-			int bwcount2 = getShapeBoneWeightsCount(nif2, shape2, boneIndex);
+		std::vector<std::string> boneNames1 = TGetShapeBoneNames(nif1, shape1);
+		std::vector<std::string> boneNames2 = TGetShapeBoneNames(nif2, shape2);
+
+		std::unordered_set<std::string> 
+			boneSet1(std::begin(boneNames1), std::end(boneNames1)),
+			boneSet2(std::begin(boneNames2), std::end(boneNames2));
+		Assert::IsTrue(boneSet1 == boneSet2, L"Bone names match");
+
+		for (int i = 0; i < boneCount1; i++) {
+			auto boneLoc = std::find(boneNames2.begin(), boneNames2.end(), boneNames1[i]);
+			int boneIndex2 = boneLoc - boneNames2.begin();
+			int bwcount1 = getShapeBoneWeightsCount(nif1, shape1, i);
+			int bwcount2 = getShapeBoneWeightsCount(nif2, shape2, boneIndex2);
 			Assert::IsTrue(bwcount1 == bwcount2, L"Error: Bone weight counts don't match");
 			VertexWeightPair* vwp1 = new VertexWeightPair[bwcount1];
 			VertexWeightPair* vwp2 = new VertexWeightPair[bwcount2];
-			getShapeBoneWeights(nif1, shape1, boneIndex, vwp1, bwcount1);
-			getShapeBoneWeights(nif2, shape2, boneIndex, vwp2, bwcount2);
+			getShapeBoneWeights(nif1, shape1, i, vwp1, bwcount1);
+			getShapeBoneWeights(nif2, shape2, boneIndex2, vwp2, bwcount2);
 			for (int j = 0; j < bwcount1; j++) {
 				Assert::IsTrue(vwp1[j].vertex == vwp2[j].vertex, L"Error vertex indices should match");
-				Assert::IsTrue(round(vwp1[j].weight * 100) == round(vwp2[j].weight * 100), L"Error vertex weights should match");
+				Assert::IsTrue(TApproxEqual(vwp1[j].weight, vwp2[j].weight), 
+					L"Error vertex weights should match");
 			};
 		};
 	};
 	TComparePartitions(nif1, shape1, nif2, shape2);
-};
-
+}
 void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
 {
 	for (int i = 0; i < 9; i++) {
@@ -984,77 +1124,97 @@ namespace NiflyDLLTests
 			Assert::IsTrue(minVert > -130 && maxVert < 0, L"ERROR: Armor verts all below origin");
 		};
 		TEST_METHOD(UnkownBones) {
-			/* UNIT TEST: We can deal with bones that aren't part of the standard skeleton */
+			/* We can deal with bones that aren't part of the standard skeleton */
 
+			std::filesystem::path testfile = testRoot / "FO4" / "VulpineInariTailPhysics.nif";
+			std::filesystem::path testfileOut = testRoot / "Out" / "UnkownBones.nif";
 			/* Shapes have bones that aren't known in the skeleton */
-			NifFile nif = NifFile(testRoot / "FO4/VulpineInariTailPhysics.nif");
-			NiShape* shape = nif.FindBlockByName<NiShape>("Inari_ZA85_fluffy");
-			NiNode* bone1 = nif.FindBlockByName<NiNode>("Bone_Cloth_H_002");
+			void* nif = load(testfile.u8string().c_str());
+			
+			void* shape = TFindShape(nif, "Inari_ZA85_fluffy");
+			void* cloth2 = TFindNode(nif, "Bone_Cloth_H_002");
 			Assert::IsNotNull(shape, L"ERROR: Can read shape from nif");
-			Assert::IsNotNull(bone1, L"ERROR: Can read non-standard bone from nif");
+			Assert::IsNotNull(cloth2, L"ERROR: Can read non-standard bone from nif");
+
+			void* oldSkin = loadSkinForNif(nif, "FO4");
 
 			/* We can get the transform (location) of that bone */
-			MatTransform boneXform;
-			nif.GetNodeTransformToGlobal("Bone_Cloth_H_002", boneXform);
-			Assert::AreNotEqual(0.0f, boneXform.translation.z, L"ERROR: Can read bone's transform");
+			MatTransform cloth2xf;
+			getNodeXformToGlobal(oldSkin, "Bone_Cloth_H_002", &cloth2xf);
+			Assert::IsTrue(TApproxEqual(Vector3(-2.53144, -11.41138, 65.6487), 
+				cloth2xf.translation), L"ERROR: Can read bone's transform");
 
 			/* We read all the info we need about the shape */
-			std::vector < Vector3 > verts;
-			std::vector<Triangle> tris;
-			const std::vector<Vector2>* uv;
-			const std::vector<Vector3>* norms;
+			//std::vector < Vector3 > verts;
+			//std::vector<Triangle> tris;
+			//const std::vector<Vector2>* uv;
+			//const std::vector<Vector3>* norms;
 
-			nif.GetVertsForShape(shape, verts);
-			shape->GetTriangles(tris);
-			uv = nif.GetUvsForShape(shape);
-			norms = nif.GetNormalsForShape(shape);
-
-			AnimInfo oldSkin;
-			oldSkin.LoadFromNif(&nif, MakeSkeleton(FO4));
+			//nif.GetVertsForShape(shape, verts);
+			//shape->GetTriangles(tris);
+			//uv = nif.GetUvsForShape(shape);
+			//norms = nif.GetNormalsForShape(shape);
 
 			MatTransform shapeGTS;
-			GetGlobalToSkin(&oldSkin, shape, &shapeGTS);
+			getGlobalToSkin(oldSkin, shape, &shapeGTS);
 
-			std::vector<std::string> boneNames;
-			nif.GetShapeBoneList(shape, boneNames);
+			MatTransform xfc2;
+			MatTransform xfc2Correct;
+			xfc2Correct.translation = Vector3(-2.5314, -11.4114, 65.6487);
+			xfc2Correct.rotation = { Vector3(-0.0251, 0.9993, -0.0286),
+									 Vector3(-0.0491, -0.0298, -0.9984),
+									 Vector3(-0.9985, -0.0237, 0.0498) };
+			getNodeTransform(cloth2, &xfc2);
+			Assert::IsTrue(TApproxEqual(xfc2, xfc2Correct), L"Cloth 2 transform is correct");
 
-			std::unordered_map<std::string, MatTransform> boneXforms;
-			for (auto b : boneNames) {
-				MatTransform xform;
-				nif.GetNodeTransformToGlobal(b, xform);
-				boneXforms[b] = xform;
-			};
+			//std::vector<std::string> boneNames;
+			//nif.GetShapeBoneList(shape, boneNames);
 
-			std::unordered_map<std::string, AnimWeight> shapeWeights;
-			for (int i = 0; i < boneNames.size(); i++) {
-				AnimWeight w;
-				nif.GetShapeBoneWeights(shape, i, w.weights);
-				shapeWeights[boneNames[i]] = w;
-			}
+			//std::unordered_map<std::string, MatTransform> boneXforms;
+			//for (auto b : boneNames) {
+			//	MatTransform xform;
+			//	nif.GetNodeTransformToGlobal(b, xform);
+			//	boneXforms[b] = xform;
+			//};
 
-			/* We can export the shape with the bones in their locations as read */
-			AnimInfo* newSkin;
-			NifFile newNif = NifFile();
-			SetNifVersion(&newNif, FO4);
-			newSkin = CreateSkinForNif(&newNif, FO4);
+			//std::unordered_map<std::string, AnimWeight> shapeWeights;
+			//for (int i = 0; i < boneNames.size(); i++) {
+			//	AnimWeight w;
+			//	nif.GetShapeBoneWeights(shape, i, w.weights);
+			//	shapeWeights[boneNames[i]] = w;
+			//}
 
-			NiShape* newShape = newNif.CreateShapeFromData("Tail", &verts, &tris, uv, norms);
-			newNif.CreateSkinning(newShape);
+			///* We can export the shape with the bones in their locations as read */
+			//AnimInfo* newSkin;
+			//NifFile newNif = NifFile();
+			//SetNifVersion(&newNif, FO4);
+			//newSkin = CreateSkinForNif(&newNif, FO4);
 
-			SetGlobalToSkinXform(newSkin, newShape, shapeGTS);
+			//NiShape* newShape = newNif.CreateShapeFromData("Tail", &verts, &tris, uv, norms);
+			//newNif.CreateSkinning(newShape);
 
-			/* Sets bone weights only. Doesn't set transforms. */
-			for (auto w : shapeWeights) {
-				AddBoneToShape(newSkin, newShape, w.first, &boneXforms[w.first]);
-				SetShapeWeights(newSkin, newShape, w.first, w.second);
-			}
+			//SetGlobalToSkinXform(newSkin, newShape, shapeGTS);
 
-			SaveSkinnedNif(newSkin, (testRoot / "Out/TestSkinnedFO02.nif").string());
+			///* Sets bone weights only. Doesn't set transforms. */
+			//for (auto w : shapeWeights) {
+			//	AddBoneToShape(newSkin, newShape, w.first, &boneXforms[w.first]);
+			//	SetShapeWeights(newSkin, newShape, w.first, w.second);
+			//}
+
+			//SaveSkinnedNif(newSkin, (testRoot / "Out/UnkownBones.nif").string());
+			void* nifOut = createNif("FO4", 0, "Scene Root");
+
+			void* skinOut;
+			TCopyShape(nifOut, "Inari_ZA85_fluffy", nif, shape, 0, &skinOut);
+			saveSkinnedNif(skinOut, testfileOut.u8string().c_str());
 
 			/* Resulting file has the special bones */
-			NifFile newnif = NifFile(testRoot / "Out/TestSkinnedFO02.nif");
-			NiNode* theBone = nif.FindBlockByName<NiNode>("Bone_Cloth_H_002");
-			Assert::IsNotNull(theBone, L"ERROR: Cloth bone expected in file");
+			void* nifCheck = load((testRoot / "Out/UnkownBones.nif").u8string().c_str());
+			void* cloth2Check = TFindNode(nifCheck, "Bone_Cloth_H_002");
+
+			MatTransform xfc2Check;
+			getNodeTransform(cloth2Check, &xfc2Check);
+			Assert::IsTrue(TApproxEqual(xfc2Check, xfc2Correct), L"Written cloth 2 transform is correct");
 		}
 		TEST_METHOD(SaveMulti) {
 			/* We can save shapes with different transforms in the same file */
@@ -1153,22 +1313,22 @@ namespace NiflyDLLTests
 			void* nifSkin = loadSkinForNif(nif, "SKYRIM");
 
 			for (int i = 0; i < 13; i++) { buf[i] = 0.0f; };
-			getNodeXformToGlobal(nifSkin, "NPC Spine2 [Spn2]", buf);
+			getNodeXformToGlobal(nifSkin, "NPC Spine2 [Spn2]", reinterpret_cast<MatTransform*>(buf));
 			Assert::AreNotEqual(0.0f, buf[0], L"Error: Should not have null transform");
 
 			for (int i = 0; i < 13; i++) { buf[i] = 0.0f; };
-			getNodeXformToGlobal(nifSkin, "NPC L Forearm [LLar]", buf);
+			getNodeXformToGlobal(nifSkin, "NPC L Forearm [LLar]", reinterpret_cast<MatTransform*>(buf));
 			Assert::AreNotEqual(0.0f, buf[0], L"Error: Should not have null transform");
 
 			void* nifFO4 = load((testRoot / "FO4/BaseMaleHead.nif").u8string().c_str());
 			void* animFO4 = loadSkinForNif(nifFO4, "FO4");
 
 			for (int i = 0; i < 13; i++) { buf[i] = 0.0f; };
-			getNodeXformToGlobal(animFO4, "Neck", buf);
+			getNodeXformToGlobal(animFO4, "Neck", reinterpret_cast<MatTransform*>(buf));
 			Assert::AreNotEqual(0.0f, buf[0], L"Error: Should not have null transform");
 
 			for (int i = 0; i < 13; i++) { buf[i] = 0.0f; };
-			getNodeXformToGlobal(animFO4, "SPINE1", buf);
+			getNodeXformToGlobal(animFO4, "SPINE1", reinterpret_cast<MatTransform*>(buf));
 			Assert::AreNotEqual(0.0f, buf[0], L"Error: Should not have null transform");
 
 			//print("FO4 LArm_UpperTwist1: ", nif.get_node_xform_to_global('LArm_UpperTwist1'))
@@ -1442,7 +1602,7 @@ namespace NiflyDLLTests
 				tripart, tlen,
 				"Meshes\\Armor\\FlightHelmet\\HelmetOut.ssf");
 
-			addBoneToShape(newSkin, newHelm, "HEAD", nullptr);
+			addBoneToShape(newSkin, newHelm, "HEAD", nullptr, nullptr);
 
 			saveSkinnedNif(newSkin, testfileout.u8string().c_str());
 			saveNif(newNif, testfileout.u8string().c_str());
@@ -1644,7 +1804,7 @@ namespace NiflyDLLTests
 				getShapeBoneWeights(nif, shapes[0], boneIdx, vwp, vwpLen);
 				getBoneSkinToBoneXform(skin2, "KSSMP_Anchor", bnp, &boneXForm.translation.x);
 
-				addBoneToShape(skin2, shape2, bnp, &boneXForm);
+				addBoneToShape(skin2, shape2, bnp, &boneXForm, nullptr);
 				setShapeBoneWeights(nif2, shape2, boneIdx, vwp, vwpLen);
 
 				for (; *bnp != '\0'; bnp++);
@@ -2090,7 +2250,7 @@ namespace NiflyDLLTests
 			Assert::IsTrue(strcmp(dataname, "SDTA") == 0, L"Error: Extradata name wrong");
 			Assert::IsTrue(strncmp(dataval, "[{\"name\":", 9) == 0, L"Error: Extradata value wrong");
 
-			// ### Can wrie the mesh back out
+			// ### Can write the mesh back out
 
 			std::filesystem::path fileOut = testRoot / "Out/testWrapper_extraDataFeet.nif";
 
@@ -2224,7 +2384,7 @@ namespace NiflyDLLTests
 			Assert::IsTrue(TApproxEqual(gts.translation.z, -140.0), L"Expected -140 GTS");
 
 			MatTransform ntg;
-			getNodeXformToGlobal(nifskin, "LArm_Finger32", &ntg.translation.x);
+			getNodeXformToGlobal(nifskin, "LArm_Finger32", reinterpret_cast<MatTransform*>(&ntg));
 
 			MatTransform gtsB;
 			getGlobalToSkin(nifskin, shapes[0], &gtsB);
@@ -2242,7 +2402,7 @@ namespace NiflyDLLTests
 			Assert::IsTrue(TApproxEqual(gts2.translation.z, -140.0), L"Expected -140 GTS");
 
 			MatTransform ntg2;
-			getNodeXformToGlobal(nifskin2, "LArm_Finger32", &ntg2.translation.x);
+			getNodeXformToGlobal(nifskin2, "LArm_Finger32", reinterpret_cast<MatTransform*>(&ntg2));
 			Assert::IsTrue(TApproxEqual(ntg.translation.z, 64.4317), L"Expected node-to-global to match nif");
 
 			MatTransform gts2B;
@@ -2271,7 +2431,7 @@ namespace NiflyDLLTests
 			void* spine2 = nodes[i];
 
 			MatTransform xf;
-			getNodeTransform(spine2, &xf.translation.x);
+			getNodeTransform(spine2, reinterpret_cast<MatTransform*>(&xf));
 			Assert::IsTrue(TApproxEqual(xf.translation.z, 102.3579), 
 				L"Bone at expected location when first read");
 
@@ -2300,7 +2460,7 @@ namespace NiflyDLLTests
 			void* spine2check = nodescheck[i];
 
 			MatTransform xfcheck;
-			getNodeTransform(spine2check, &xfcheck.translation.x);
+			getNodeTransform(spine2check, reinterpret_cast<MatTransform*>(&xfcheck));
 			Assert::IsTrue(TApproxEqual(xfcheck.translation.z, 102.3579),
 				L"Bone at expected location when re-read");
 		};
@@ -2745,7 +2905,7 @@ namespace NiflyDLLTests
 			void* mesh = shapes[0];
 
 			float buf[20];
-			getNodeTransform(mesh, buf);
+			getNodeTransform(mesh, reinterpret_cast<MatTransform*>(buf));
 
 			void* root = getRoot(nif);
 			void* coll = getCollision(nif, root);
@@ -2867,7 +3027,7 @@ namespace NiflyDLLTests
 			};
 
 			MatTransform leek04xf;
-			getNodeTransform(leek04, &leek04xf.translation[0]);
+			getNodeTransform(leek04, &leek04xf);
 
 			void* collisionObject = getCollision(nif, leek04);
 			int bodyID = getCollBodyID(nif, collisionObject);
@@ -3037,11 +3197,58 @@ namespace NiflyDLLTests
 			skin = loadSkinForNif(nif, "SKYRIMSE");
 
 			MatTransform buf;
-			getNodeXformToGlobal(skin, "NPC Spine1", &buf.translation[0]);
+			getNodeXformToGlobal(skin, "NPC Spine1", &buf);
 
 			Assert::IsTrue(TApproxEqual(buf.translation[2], 64.465019),
 				L"Expect non-standard location");
 
+		};
+		TEST_METHOD(writeBoneHierarchy) {
+			void* nif = load((testRoot / "SkyrimSE/anna.nif").u8string().c_str());
+
+			void* shapes[10];
+			int shapeCount = getShapes(nif, shapes, 10, 0);
+			void* hair = shapes[0];
+
+			//// ============= Write the hair =======
+
+			void* nifOut = createNif("SKYRIMSE", RT_BSFADENODE, "Scene Root");
+			uint16_t options = 0;
+
+			void* skinOut;
+			void* hairOut = TCopyShape(nifOut, "KSSMP_Anna", nif, hair, BoneHierarchy, &skinOut);
+			TCopyShader(nifOut, hairOut, nif, hair);
+
+			saveSkinnedNif(skinOut, (testRoot / "Out/writeBoneHierarchy.nif").u8string().c_str());
+
+			void* nifCheck = load((testRoot / "Out/writeBoneHierarchy.nif").u8string().c_str());
+
+			void* shapesCheck[10];
+			getShapes(nifCheck, shapesCheck, 10, 0);
+			void* hairCheck = shapesCheck[0];
+
+			int nc = getNodeCount(nifCheck);
+			void** nodesCheck = new void*[nc];
+			getNodes(nifCheck, nodesCheck);
+
+			for (int i = 0; i < nc; i++) {
+				char nodename[100];
+				char parentname[100];
+				getNodeName(nodesCheck[i], nodename, 100);
+				void* parent = getNodeParent(nifCheck, nodesCheck[i]);
+				if (parent) getNodeName(parent, parentname, 100);
+				if (strcmp(nodename, "Anna R3") == 0) {
+					Assert::IsTrue(strcmp(parentname, "Anna R2") == 0, L"Have correct parent");
+					MatTransform xf;
+					getNodeTransform(nodesCheck[i], & xf);
+					Assert::IsTrue(TApproxEqual(xf.translation.z, -6.0), L"R2 bone is in correct location");
+				}
+				else if (strcmp(nodename, "NPC Head [Head]") == 0) {
+					MatTransform xf;
+					getNodeTransform(nodesCheck[i], &xf);
+					Assert::IsTrue(TApproxEqual(xf.translation.z, 7.392755), L"Head bone is in correct location");
+				}
+			}
 		};
 	};
 }

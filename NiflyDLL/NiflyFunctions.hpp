@@ -29,7 +29,10 @@ std::string SkeletonFile(enum TargetGame game, std::string& rootName);
 
 void SetNifVersion(nifly::NifFile* nif, enum TargetGame targ);
 
-void AddCustomBoneRef(const std::string& boneName, const std::string* parentBone = nullptr,
+void AddCustomBoneRef(
+	AnimInfo* anim, 
+	const std::string boneName, 
+	const std::string* parentBone = nullptr,
 	const nifly::MatTransform* xformToParent = nullptr);
 
 AnimInfo* CreateSkinForNif(nifly::NifFile* nif, enum TargetGame game);
@@ -42,7 +45,7 @@ nifly::NiShape* XXXCreateShapeFromData(nifly::NifFile* nif, const char* shapeNam
 	const std::vector<nifly::Vector3>* verts, const std::vector<nifly::Triangle>* tris,
 	const std::vector<nifly::Vector2>* uv, const std::vector<nifly::Vector3>* norms);
 
-void AddBoneToShape(AnimInfo* anim, nifly::NiShape* theShape, std::string boneName, nifly::MatTransform* boneXform=nullptr);
+void AddBoneToShape(AnimInfo* anim, nifly::NiShape* theShape, std::string boneName, nifly::MatTransform* boneXform=nullptr, const char* parentName=nullptr);
 
 void SetShapeGlobalToSkinXform(AnimInfo* anim, nifly::NiShape* theShape, const nifly::MatTransform& gtsXform);
 

@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = False
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (4, 2, 0),  
+    "version": (4, 3, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -87,11 +87,14 @@ GLOSS_SCALE = 100
 
 COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5)
 
+BONE_LEN = 5
+
 
 class ImportFlags(IntFlag):
     CREATE_BONES = 1
     RENAME_BONES = 1 << 1
     ROTATE_MODEL = 1 << 2
+    PRESERVE_HIERARCHY = 1 << 3
 
 
 def MatrixLocRotScale(loc, rot, scale):
@@ -141,12 +144,60 @@ def make_transformbuf(cls, m: Matrix) -> TransformBuf:
 
 setattr(TransformBuf, "from_matrix", classmethod(make_transformbuf))
 
-def get_bone_vector(game):
-    if game in ("SKYRIM", "SKYRIMSE"):
-        rot_vec = Vector((0, 0, 5))
-    else:
-        rot_vec = Vector((5,0,0)) # bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
-    return rot_vec
+
+GAME_BONE_Q = {"FO4": Quaternion((1, 0, 0), radians(-90)),
+               "SKYRIM": Quaternion((0, 0, 1), radians(-90)),
+               "SKYRIMSE": Quaternion((0, 0, 1), radians(-90))}
+
+GAME_BONE_VECTOR = {"FO4": Vector((5, 0, 0)),
+                    "SKYRIM": Vector((0, 0, 5)),
+                    "SKYRIMSE": Vector((0, 0, 5))}
+
+def bone_game_adjust(game: str, inverse=False) -> Vector:
+    if game in GAME_BONE_VECTOR:
+        return GAME_BONE_VECTOR[game].copy()
+    return GAME_BONE_VECTOR["SKYRIM"].copy()
+
+
+def transform_to_bone(game:str, nodexf:Matrix):
+    """ Turns a bone global transform into the equivalent bone 
+        nodexf = bone transform (4x4 Matrix)
+        parentxf = bone transform of parent, if any
+        game = game we are making the bone for
+        returns: 
+            vector = head location
+            vector = tail location
+            float = roll to apply to bone
+        
+        TODO: Return a proper roll value--the component of the rotation which is around the 
+        axis of the canonical bone vector. That one can't be recovered from head + tail, so 
+        has to be stored somewhere. But it's surprisingly hard to get the that one component 
+        of the rotation, so for now we depend on the 'pynXform' property.
+    """
+    bonehead = nodexf.translation
+    bonevec = bone_game_adjust(game)
+    bonevec.rotate(nodexf)
+    roll = 0
+
+    return bonehead, bonehead+bonevec, roll  # bonehead, bonetail, boneroll
+
+def bone_to_transform(game, bonehead:Vector, boneaxis:Vector, boneroll:float) -> Matrix:
+    ax = boneaxis.copy()
+    bonevec = bone_game_adjust(game)
+    q = bonevec.rotation_difference(boneaxis)
+    rollq = Quaternion(bonevec, boneroll)
+    q.rotate(rollq)
+    return MatrixLocRotScale(bonehead, q, (1,1,1))
+
+def get_bone_global_xf(bone:bpy_types.Bone, game:str) -> Quaternion:
+    """ Return the global transform represented by the bone. 
+        TODO: Calculate based on the bone head, tail, and roll
+    """
+    rot = Quaternion(bone['pynXform'])
+    loc = bone.head_local
+    mx = MatrixLocRotScale(bone.head_local, rot, (1,1,1))
+    return mx
+
 
 def is_in_plane(plane, vert):
     """ Test whether vert is in the plane defined by the three vectors in plane """
@@ -763,6 +814,7 @@ class NifImporter():
 
         new_object['PYN_GAME'] = self.nif.game
         new_object['PYN_RENAME_BONES'] = ((self.flags & ImportFlags.RENAME_BONES) != 0)
+        new_object['PYN_PRESERVE_HIERARCHY'] = ((self.flags & ImportFlags.PRESERVE_HIERARCHY) != 0)
 
 
     def add_bone_to_arma(self, name, nifname):
@@ -778,26 +830,17 @@ class NifImporter():
     
         # use the transform in the file if there is one; otherwise get the 
         # transform from the reference skeleton
-        # bonenode = self.nif.nodes[self.nif.nif_name(name)]
         xf = self.nif.get_node_xform_to_global(nifname) 
-        log.debug(f"Found bone transform {name} ({nifname}) = {xf.translation[:]}")
-        bone_xform = transform_to_matrix(xf)
-        xft, xfq, xfs = bone_xform.decompose()
+        # log.debug(f"Found bone transform {name} ({nifname}) = {xf}")
+        bone_xform = xf.as_matrix()
 
         bone = armdata.edit_bones.new(name)
-        bonevec = get_bone_vector(self.nif.game)
-        rotvec = bonevec
-        rotvec.rotate(xfq)
-        # log.debug(f"Vector for bone {name} = {rotvec}")
-        # rot_vec = get_bone_vector(self.nif.game)
-        #if self.nif.game in ("SKYRIM", "SKYRIMSE"):
-        #    rot_vec = Vector((0, 0, 5))
-        #else:
-        #    rot_vec = Vector((5,0,0)) # bone_xform.rotation.by_vector((5.0, 0.0, 0.0))
-        #rot_vec.rotate(bone_xform)
-        bone.head = xft
-        bone.tail = bone.head + rotvec
-        bone['pynXform'] = xfq # stash for later
+        h, t, r = transform_to_bone(self.nif.game, bone_xform)
+
+        bone.head = h
+        bone.tail = t
+        bone.roll = r
+        bone['pynXform'] = bone_xform.to_quaternion()[:] # stash rotation for later
 
         return bone
 
@@ -1541,30 +1584,6 @@ def extract_vert_info(obj, mesh, target_key=''):
     return verts, weights, morphdict
 
 
-def get_bone_xforms(arma, bone_names, shape):
-    """Return transforms for the bones in list, getting rotation from what we stashed on import
-        arma = data block of armature
-        bone_names = list of names
-        shape = shape being exported
-        result = dict{bone-name: MatTransform, ...}
-    """
-    result = {}
-    for b in arma.bones:
-        loc = Vector(b.head_local)
-        try:
-            # Todo: Calc from relative head->tail locations)
-            rot = Quaternion(b['pynXform'])
-        except:
-            nif = shape.file
-            bone_xform = nif.get_node_xform_to_global(nif.nif_name(b.name)) 
-            rot = Matrix([bone_xform.rotation[0][:], 
-                          bone_xform.rotation[1][:], 
-                          bone_xform.rotation[2][:]])
-        
-        result[b.name] = MatrixLocRotScale(loc, rot, [1,1,1])
-    
-    return result
-
 def tag_unweighted(obj, bones):
     """ Find and return verts that are not weighted to any of the given bones 
         result = (v_index, ...) list of indices into the vertex list
@@ -1758,24 +1777,6 @@ class NifExporter:
             shape.behavior_graph_data = edlist
 
 
-    #def export_shape_to(self, shape, filepath, game):
-    #    self.nif = NifFile()
-    #    self.trip = TripFile()
-    #    rt = "NiNode"
-    #    rn = "Scene Root"
-    #    if "pynRootNode_BlockType" in shape:
-    #        rt = shape["pynRootNode_BlockType"]
-    #    if "pynRootNode_Name" in shape:
-    #        rn = shape["pynRootNode_Name"]
-    #    self.nif.initialize(game, filepath, rt, rn)
-    #    if "pynRootNode_Flags" in shape:
-    #        self.nif.rootNode.flags = shape["pynRootNode_Flags"]
-    #    ret = self.export_shape(shape, '', shape.parent) xxx xxx
-    #    self.nif.save()
-    #    log.info(f"Wrote {filepath}")
-    #    return ret
-
-
     def add_object(self, obj):
         """ Adds the given object to the objects to export """
         if obj.type == 'ARMATURE':
@@ -1823,24 +1824,13 @@ class NifExporter:
                 for c in obj.children:
                     self.add_object(c)
 
-        # remove extra data nodes with objects in the export list as parents so they 
-        # don't get exported twice
-        # SHOULD HAPPEN BY CHECKING THE OBJECTS_CREATED LIST
-        #for n in self.bg_data:
-        #    if n.parent and n.parent in self.objects:
-        #        self.bg_data.remove(n)
-        #for n in self.str_data:
-        #    if n.parent and n.parent in self.objects:
-        #        self.str_data.remove(n)
-        #for n in self.cloth_data:
-        #    if n.parent and n.parent in self.objects:
-        #        self.cloth_data.remove(n)
 
     def set_objects(self, objects):
         """ Set the objects to export from the given list of objects 
         """
         for x in objects:
             self.add_object(x)
+
 
     def from_context(self, context):
         """ Set the objects to export from the given context 
@@ -2146,12 +2136,10 @@ class NifExporter:
             targname = collisionobj['pynCollisionTarget']
             log.debug(f"Finding target bone: {targname}")
             targbone = targ.data.bones[targname]
-            d = targbone.head - targbone.tail
-            d.normalize()
-            bonevec = get_bone_vector(self.game)
-            q = Quaternion(targbone['pynXform'])
-            mx = MatrixLocRotScale(targbone.head, q, [1,1,1])
-            log.debug(f"Found collision target bone {targbone}, rotation {q}")
+            mx = self.get_bone_xform(targbone)
+
+            log.debug(f"Found collision target bone {targbone} loc {mx.translation}")
+            log.debug(f"Found collision target bone {targbone} rot {mx.to_euler()}")
 
             return mx
 
@@ -2473,6 +2461,80 @@ class NifExporter:
         return ninode
 
 
+    def get_bone_xforms(self, arma, bone_names, shape):
+        """Return transforms for the bones in list, getting rotation from what we stashed on import. Checks the "preserve_hierarchy" flag to determine whether to return global 
+          or local transforms.
+            arma = data block of armature
+            bone_names = list of names
+            shape = shape being exported
+            result = dict{bone-name: MatTransform, ...}
+        """
+        result = {}
+        for b in arma.bones:
+            result[b.name] = self.get_bone_xform(b)        
+    
+        return result
+
+    def get_bone_xform(self, b:bpy_types.Bone) -> Matrix:
+        """ Return the local transform represented by the bone """
+        #bonexf = get_bone_global_xf(b, self.game)
+        boneloc = b.head_local
+        try:
+            bonerot = Quaternion(b['pynXform'])
+        except:
+            log.debug(f"No 'pynXform' property on {b.name}")
+            bonerot = Quaternion()
+        bonexf = MatrixLocRotScale(boneloc, bonerot, (1,1,1))
+        # log.debug(f"{b.name} global transform: \n{bonexf}")
+
+        if b.parent and (self.flags & ImportFlags.PRESERVE_HIERARCHY):
+            # Calculate the relative transform from the parent
+            boneloc = b.head_local - b.parent.head_local
+            parentq = Quaternion(b.parent['pynXform'])
+            bonerot.rotate(parentq.inverted())
+            boneloc.rotate(parentq.inverted())
+            bonexf = MatrixLocRotScale(boneloc, bonerot, (1,1,1))
+            # log.debug(f"{b.name} local transform: \n{bonexf}")
+
+        return bonexf
+
+
+    def write_bone(self, shape:NiShape, b:bpy_types.Bone, writtenbones:dict):
+        """ Write a shape's bone, writing all parent bones first if necessary 
+            Returns the node in the target nif for the new bone """
+        if b.name in writtenbones:
+            return writtenbones[b.name]
+
+        parname = None
+        if b.parent:
+            parname = self.write_bone(shape, b.parent, writtenbones)
+        
+        xf = self.get_bone_xform(b)
+
+        if self.flags & ImportFlags.RENAME_BONES:
+            nifname = self.nif.nif_name(b.name)
+        else:
+            nifname = b.name
+
+        tb = TransformBuf.from_matrix(xf)
+
+        #log.debug(f"Writing bone {nifname} with transform\n{tb}")
+        shape.add_bone(nifname, tb, parname)
+        writtenbones[b.name] = nifname
+        return nifname
+
+
+    def write_bone_hierarchy(self, shape:NiShape, arma:bpy.types.Armature, used_bones:list):
+        """ Write the bone hierarchy to the nif. Do this first so that transforms 
+        and parent/child relationships are correct. Do not assume that the skeleton is fully
+        connected (do Blender armatures have to be fully connected?). 
+        used_bones - list of bone names to write. """
+        writtenbones = {}
+        for b in used_bones:
+            if b in arma.bones:
+                self.write_bone(shape, arma.bones[b], writtenbones)
+
+
     def export_skin(self, obj, arma, new_shape, new_xform, weights_by_vert):
         log.info("..Parent is armature, skin the mesh")
         new_shape.skin()
@@ -2484,7 +2546,11 @@ class NifExporter:
         group_names = [g.name for g in obj.vertex_groups]
         weights_by_bone = get_weights_by_bone(weights_by_vert)
         used_bones = weights_by_bone.keys()
-        arma_bones = get_bone_xforms(arma.data, used_bones, new_shape)
+
+        if self.flags & ImportFlags.PRESERVE_HIERARCHY:
+            self.write_bone_hierarchy(new_shape, arma.data, used_bones)
+
+        arma_bones = self.get_bone_xforms(arma.data, used_bones, new_shape)
     
         for bone_name, bone_xform in arma_bones.items():
             if bone_name in weights_by_bone and len(weights_by_bone[bone_name]) > 0:
@@ -2492,7 +2558,10 @@ class NifExporter:
                     nifname = new_shape.file.nif_name(bone_name)
                 else:
                     nifname = bone_name
-                new_shape.add_bone(nifname, TransformBuf.from_matrix(bone_xform))
+
+                tb = TransformBuf.from_matrix(bone_xform)
+                # log.debug(f"Writing bone {nifname} with transform\n{tb}")
+                new_shape.add_bone(nifname, tb)
                 # log.debug(f"....Adding bone {nifname}")
                 new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
 
@@ -2703,6 +2772,7 @@ class NifExporter:
 
         obj['PYN_GAME'] = self.game
         obj['PYN_RENAME_BONES'] = (self.flags & ImportFlags.RENAME_BONES) != 0
+        obj['PYN_PRESERVE_HIERARCHY'] = (self.flags & ImportFlags.PRESERVE_HIERARCHY) != 0
 
         retval |= self.export_tris(obj, verts, tris, uvmap_new, morphdict)
         log.info(f"..{obj.name} successfully exported to {self.nif.filepath}")
@@ -2825,11 +2895,15 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ),
             )
 
-
     rename_bones: bpy.props.BoolProperty(
         name="Rename Bones",
         description="Rename bones from Blender conventions back to nif.",
         default=True)
+
+    preserve_hierarchy: bpy.props.BoolProperty(
+        name="Preserve Bone Hierarchy",
+        description="Preserve bone hierarchy in exported nif.",
+        default=False)
 
 
     def __init__(self):
@@ -2854,13 +2928,16 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         if g != "":
             self.target_game = g
         
-        try:
-            if obj['PYN_RENAME_BONES']:
-                self.rename_bones = True
-            else:
-                self.rename_bones = False
-        except:
-            pass
+        if 'PYN_RENAME_BONES' in obj and obj['PYN_RENAME_BONES']:
+            self.rename_bones = True
+        else:
+            self.rename_bones = False
+
+        if 'PYN_PRESERVE_HIERARCHY' in obj and obj['PYN_PRESERVE_HIERARCHY']:
+            self.preserve_hierarchy = True
+        else:
+            self.preserve_hierarchy = False
+
         
     @classmethod
     def poll(cls, context):
@@ -2884,8 +2961,10 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         flags = 0
         if self.rename_bones:
             flags = ImportFlags.RENAME_BONES
+        if self.preserve_hierarchy:
+            flags |= ImportFlags.PRESERVE_HIERARCHY
 
-        log.info("\n\n==============================\nNIFLY EXPORT V%d.%d.%d\n==============================" % bl_info['version'])
+        log.info("\n\n\n==============================\nNIFLY EXPORT V%d.%d.%d\n==============================" % bl_info['version'])
         NifFile.Load(nifly_path)
 
         try:
@@ -2970,96 +3049,84 @@ def run_tests():
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
-    if True:
-        print("### TEST_FURN_MARKER1: Furniture markers work")
+    if False: # TEST_BPY_ALL or TEST_BONE_MANIPULATIONS:
+        # Test to show we can store an arbitrary rotation in a bone head+tail+roll and 
+        # recover it afterwards. Right now, we can't.
 
+        print('## TEST_BONE_MANIPULATIONS Show our bone manipulations work')
         clear_all()
 
-        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\farmbench01.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_FURN_MARKER1.nif")
-        NifImporter.do_import(testfile, 0)
+        def test_bone(game, boneloc, boneq):
+            log.debug(f"TESTING {game} / {boneloc} / {boneq.axis}, {boneq.angle}")
+            bonexf = MatrixLocRotScale(boneloc, boneq, (1,1,1))
 
-        fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
+            bhead, btail, broll = transform_to_bone(game, bonexf)
+            log.debug(f"transform_to_bone({game}, {boneq}) -> {bhead}, {btail}, {broll}")
         
-        assert len(fmarkers) == 2, f"Found furniture markers: {fmarkers}"
+            xfout = bone_to_transform("FO4", bhead, (btail - bhead)/BONE_LEN, broll)
+            trOut, qOut, scOut = xfout.decompose()
 
-        # -------- Export --------
-        bench = find_shape("FarmBench01:5")
-        bsxf = find_shape("BSXFlags")
-        fmrklist = [f for f in bpy.data.objects if f.name.startswith("BSFurnitureMarker")]
+            assert NearEqual(qOut.angle, boneq.angle), f"{game} Angle is correct: {qOut.angle} == {boneq.angle}"
+            assert VNearEqual(qOut.axis, boneq.axis), f"{game} with angle {boneq.angle}, axis is correct: {qOut.axis} == {boneq.axis}"
 
-        exporter = NifExporter(outfile, 'SKYRIMSE')
-        explist = [bench, bsxf]
-        explist.extend(fmrklist)
-        log.debug(f"Exporting: {explist}")
-        exporter.export(explist)
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((1,0,0)), radians(90)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((1,0,0)), radians(45)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((0,1,0)), radians(90)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((0,1,0)), radians(45)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((0,0,1)), radians(90)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((0,0,1)), radians(45)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((1,1,0)), radians(90)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((1,1,0)), radians(45)))
+        test_bone("FO4", 
+                  Vector([-2.6813, -11.7044, 59.6862]), 
+                  Quaternion((0.496972, 0.487948, 0.4868, -0.5271859)))
+        test_bone("SKYRIM", Vector((1,1,1)), Quaternion(Vector((1, 0, 0)), 90))
+        
 
-        # --------- Check ----------
-        nifcheck = NifFile(outfile)
-        fmcheck = nifcheck.furniture_markers
-
-        assert len(fmcheck) == 2, f"Wrote the furniture marker correctly: {len(fmcheck)}"
-
-
-    if True:
-        print("### TEST_FURN_MARKER2: Furniture markers work")
-
+    if True: # TEST_BPY_ALL or TEST_CUSTOM_BONES:
+        print('## TEST_CUSTOM_BONES Can handle custom bones correctly')
         clear_all()
 
-        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\commonchair01.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_FURN_MARKER2.nif")
-        NifImporter.do_import(testfile, 0)
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\VulpineInariTailPhysics.nif")
+        nifimp = NifImporter(testfile)
+        bone_xform = nifimp.nif.nodes['Bone_Cloth_H_003'].xform_to_global
+        nifimp.execute()
 
-        fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
-        
-        assert len(fmarkers) == 1, f"Found furniture markers: {fmarkers}"
-        assert VNearEqual(fmarkers[0].rotation_euler, (-pi/2, 0, 0)), f"Marker points the right direction"
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_CUSTOM_BONES.nif")
+        for obj in bpy.context.selected_objects:
+            if obj.type == 'MESH':
+                e = NifExporter(outfile, "FO4")
+                e.export([obj])
 
-        # -------- Export --------
-        chair = find_shape("CommonChair01:0")
-        bsxf = find_shape("BSXFlags")
-        fmrk = find_shape("BSFurnitureMarkerNode")
-        exporter = NifExporter(outfile, 'SKYRIMSE')
-        exporter.export([chair, bsxf, fmrk])
+        test_in = NifFile(outfile)
+        new_xform = test_in.nodes['Bone_Cloth_H_003'].xform_to_global
+        bone_euler = Matrix(bone_xform.rotation).to_euler()
+        new_euler = Matrix(new_xform.rotation).to_euler()
+        log.debug(f"Have rotations old: {bone_euler}, new: {new_euler}")
+        assert VNearEqual(bone_xform.translation, new_xform.translation), f"Error: Bone 'Bone_Cloth_H_003' transform should not change. Expected\n {bone_xform}, found\n {new_xform}"
+        assert MatNearEqual(bone_xform.rotation, new_xform.rotation), f"Error: Bone 'Bone_Cloth_H_003' rotation should not change. Expected\n {bone_xform}, found\n {new_xform}"
+        assert round(bone_xform.scale) == round(new_xform.scale), f"Error: 'Bone_Cloth_H_003' Scale factors should not change. Expected {bone_xform.scale}, found {bone_xform.scale}"
 
-        # --------- Check ----------
-        nifcheck = NifFile(outfile)
-        fmcheck = nifcheck.furniture_markers
 
-        assert len(fmcheck) == 1, f"Wrote the furniture marker correctly: {len(fmcheck)}"
-        assert fmcheck[0].entry_points == 13, f"Entry point data is correct: {fmcheck[0].entry_points}"
+    if True: # TEST_BPY_ALL or TEST_CONNECTED_SKEL:
+        print('## TEST_CONNECTED_SKEL Can import connected skeleton')
+
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\vanillaMaleBody.nif")
+        NifImporter.do_import(testfile)
+
+        for s in bpy.context.selected_objects:
+            if 'MaleBody.nif' in s.name:
+                assert 'Leg_Thigh.L' in s.data.bones.keys(), "Error: Should have left thigh"
+                lthigh = s.data.bones['Leg_Thigh.L']
+                assert lthigh.parent.name == 'Pelvis', "Error: Thigh should connect to pelvis"
+                assert VNearEqual(lthigh.head_local, (-6.6151, 0.0005, 68.9113)), f"Thigh head in correct location: {lthigh.head_local}"
+                assert VNearEqual(lthigh.tail_local, (-7.2513, -0.1925, 63.9557)), f"Thigh tail in correct location: {lthigh.tail_local}"
 
 
     if TEST_BPY_ALL:
         run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri)
-
-
-    if True:
-        test_title("TEST_TRIP", "Body tri extra data and file are written on export")
-        clear_all()
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP.nif")
-
-        append_from_file("BaseMaleBody", True, r"tests\FO4\BodyTalk.blend", r"\Object", "BaseMaleBody")
-        bpy.ops.object.select_all(action='DESELECT')
-        body = find_shape("BaseMaleBody")
-
-        print("Found body: " + body.name)
-
-        remove_file(outfile)
-        export = NifExporter(outfile, 'FO4')
-        export.export([body])
-
-        # ------- Check ---------
-        nifcheck = NifFile(outfile)
-
-        bodycheck = nifcheck.shape_dict["BaseMaleBody"]
-        assert bodycheck.name == "BaseMaleBody", f"Body found in nif"
-
-        stringdata = nifcheck.string_data
-        assert stringdata, f"Found string data: {stringdata}"
-        sd = stringdata[0]
-        assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
-        assert sd[1].endswith("TEST_TRIP.tri"), f"Found correct filename"
 
 
 

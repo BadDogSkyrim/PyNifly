@@ -372,6 +372,7 @@ copy /y $(ProjectDir)..\pynifly\*.py  $(OutDir)io_scene_nifly\
     <ClInclude Include="pch.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="resource1.h" />
+    <ClInclude Include="TestDLL.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Nifly\src\Animation.cpp" />

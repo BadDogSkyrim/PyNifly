@@ -17,6 +17,8 @@ def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
     nifly.addBoneToShape.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf)]
     nifly.addBoneToShape.restype = None
+    nifly.addBoneToSkin.argtypes = [c_void_p, c_char_p, POINTER(TransformBuf), c_void_p]
+    nifly.addBoneToSkin.restype = None
     nifly.addCollBoxShape.argtypes = [c_void_p, POINTER(bhkBoxShapeProps)]
     nifly.addCollBoxShape.restype = c_int
     nifly.addCollCapsuleShape.argtypes = [c_void_p, POINTER(bhkCapsuleShapeProps)]
@@ -1227,7 +1229,7 @@ class NiShape(NiNode):
             self.skin()
         NifFile.nifly.setGlobalToSkinXform(self.file._skin_handle, self._handle, transform)
 
-    def add_bone(self, bone_name, xform=None):
+    def add_bone(self, bone_name, xform=None, parent_name=None):
         if self.file._skin_handle is None:
             self.file.createSkin()
         if not self._is_skinned:
@@ -1237,8 +1239,13 @@ class NiShape(NiNode):
         else:
             buf = TransformBuf() 
             buf.set_identity()
+        
+        par = None
+        if parent_name:
+            par = parent_name.encode('utf-8')
         NifFile.nifly.addBoneToShape(self.file._skin_handle, self._handle, 
-                                     bone_name.encode('utf-8'), buf)
+                                        bone_name.encode('utf-8'), buf,
+                                        par) 
 
     def set_global_to_skindata(self, xform):
         """ Sets the NiSkinData transformation. Only call this on nifs that have them. """
@@ -1755,7 +1762,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1764,7 +1771,7 @@ TEST_CREATE_WEIGHTS = False
 TEST_READ_WRITE = False
 TEST_XFORM_FO = False
 TEST_2_TAILS = False
-# TEST_ROTATIONS = False
+TEST_ROTATIONS = True
 TEST_PARENT = False
 TEST_PYBABY = False
 TEST_BONE_XFORM = False
@@ -1795,7 +1802,7 @@ TEST_CONVEX = False
 TEST_CONVEX_MULTI = False
 TEST_COLLISION_LIST = False
 TEST_COLLISION_CAPSULE = False
-TEST_FURNITURE_MARKER = True
+TEST_FURNITURE_MARKER = False
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -2295,18 +2302,31 @@ if __name__ == "__main__":
             assert len(s.bone_names) == 7, f"ERROR: Failed to write all bones to {s.name}"
             assert "TailBone01" in s.bone_names, f"ERROR: bone cloth not in bones: {s.name}, {s.bone_names}"
 
-    #if TEST_ALL or TEST_ROTATIONS:
-    #    print("### TEST_ROTATIONS: Can handle rotations")
+    if TEST_ALL or TEST_ROTATIONS:
+        print("### TEST_ROTATIONS: Can handle rotations")
 
-    #    testfile = r"tests\FO4\VulpineInariTailPhysics.nif"
-    #    f = NifFile(testfile)
-    #    n = f.nodes['Bone_Cloth_H_001']
-    #    assert round(n.transform.rotation.euler_deg()[0], 0) == 87, "Error: Translations read correctly"
-    #    assert round(n.xform_to_global.rotation.euler_deg()[0], 0) == 87, "Error: Global transform read correctly"
-    #    # These checks are half-assed, replace with real checks sometime
-    #    assert n.transform == n.transform.invert().invert(), "Error: Inverting twice should give the original back" 
-    #    assert n.transform.rotation.by_vector((5.0, 0.0, 0.0)) != Vector([5.0, 0.0, 0.0]), "Error: Rotating a vector should do something"
-    #    assert n.xform_to_global != MatTransform(), "Error: xform to global should not be identity"
+        testfile = r"tests\FO4\VulpineInariTailPhysics.nif"
+        f = NifFile(testfile)
+        n = f.nodes['Bone_Cloth_H_002']
+        assert VNearEqual(n.transform.translation, (-2.5314, -11.4114, 65.6487)), f"Translation is correct: {n.transform.translation}"
+        assert MatNearEqual(n.transform.rotation, 
+                            ((-0.0251, 0.9993, -0.0286),
+                             (-0.0491, -0.0298, -0.9984),
+                             (-0.9985, -0.0237, 0.0498))
+                            ), f"Rotations read correctly: {n.transform.rotation}"
+
+        # Write tail mesh
+        nifOut = NifFile()
+        nifOut.initialize('FO4', r"tests\out\TEST_ROTATIONS.nif")
+        _test_export_shape(f.shape_dict['Inari_ZA85_fluffy'], nifOut)
+        nifOut.save()
+
+        # Check results
+        nifCheck = NifFile(r"tests\out\TEST_ROTATIONS.nif")
+        cloth2Check = nifCheck.nodes['Bone_Cloth_H_002']
+        assert VNearEqual(cloth2Check.transform.translation, n.transform.translation), f"Translation is unchanged: {cloth2Check.transform.translation}"
+        assert MatNearEqual(cloth2Check.transform.rotation, n.transform.rotation), f"Rotation is unchanged: {cloth2Check.transform.rotation}"
+
 
     if TEST_ALL or TEST_PARENT:
         print("### TEST_PARENT: Can handle nifs which show relationships between bones")

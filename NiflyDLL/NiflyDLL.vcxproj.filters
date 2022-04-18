@@ -96,6 +96,9 @@
     <ClInclude Include="Anim.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="TestDLL.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">

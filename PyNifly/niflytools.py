@@ -67,6 +67,11 @@ def VNearEqual(v1, v2, epsilon=0.001):
         r = r and (abs(a-b) < epsilon)
     return r
 
+def MatNearEqual(m1, m2, epsilon=0.001):
+    r = True
+    for a, b in zip(m1, m2):
+        r = r and VNearEqual(a, b, epsilon)
+    return r
 
 def vert_uv_key(vert_index, uv):
     return str(vert_index) + "_" + str(uv)
