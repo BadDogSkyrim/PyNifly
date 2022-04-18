@@ -18,6 +18,7 @@ class ImportFlags(IntFlag):
     CREATE_BONES = 1
     RENAME_BONES = 1 << 1
     ROTATE_MODEL = 1 << 2
+    PRESERVE_HIERARCHY = 1 << 3
 
 def get_image_node(node_input):
     """Walk the shader nodes backwards until a texture node is found.
@@ -61,7 +62,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_IMP_EXP_FO4 = False
     TEST_ROUND_TRIP = False
     TEST_UV_SPLIT = False
-    TEST_CUSTOM_BONES = False
+    TEST_CUSTOM_BONES = True
     TEST_BPY_PARENT = False
     TEST_BABY = False
     TEST_CONNECTED_SKEL = False
@@ -93,7 +94,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_ROTSTATIC = False
     TEST_ROTSTATIC2 = False
     TEST_VERTEX_ALPHA = False
-    TEST_EXP_SK_RENAMED = True
+    TEST_EXP_SK_RENAMED = False
     TEST_EXP_SEG_ORDER = False
     TEST_EXP_SEGMENTS_BAD = False
     TEST_BOW = False
@@ -106,6 +107,149 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_COLLISION_CAPSULE = False
     TEST_COLLISION_LIST = False
     TEST_WELWA = False
+    TEST_TRIP = False
+    TEST_FURN_MARKER2 = False
+    TEST_FURN_MARKER1 = False
+    TEST_BONE_HIERARCHY = False
+
+
+    if True:
+        test_title("TEST_BONE_HIERARCHY", "Bone hierarchy can be written on export")
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\Anna.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_BONE_HIERARCHY.nif")
+
+        NifImporter.do_import(testfile)
+
+        hair = find_shape("KSSMP_Anna")
+        skel = hair.parent
+        assert skel
+
+        print("# -------- Export --------")
+        remove_file(outfile)
+        exporter = NifExporter(outfile, 'SKYRIMSE',
+                               export_flags=ImportFlags.PRESERVE_HIERARCHY 
+                                            | ImportFlags.RENAME_BONES)
+        exporter.export([hair])
+
+        print("# ------- Check ---------")
+        nifcheck = NifFile(outfile)
+        haircheck = nifcheck.shape_dict["KSSMP_Anna"]
+
+        com = nifcheck.nodes["NPC COM [COM ]"]
+        assert VNearEqual(com.transform.translation, (0, 0, 68.9113)), f"COM location is correct: \n{com.transform}"
+
+        spine0 = nifcheck.nodes["NPC Spine [Spn0]"]
+        assert VNearEqual(spine0.transform.translation, (0, -5.239852, 3.791618)), f"spine0 location is correct: \n{spine0.transform}"
+        spine0Rot = Matrix(spine0.transform.rotation).to_euler()
+        assert VNearEqual(spine0Rot, (-0.0436, 0, 0)), f"spine0 rotation correct: {spine0Rot}"
+
+        spine1 = nifcheck.nodes["NPC Spine1 [Spn1]"]
+        assert VNearEqual(spine1.transform.translation, (0, 0, 8.748718)), f"spine1 location is correct: \n{spine1.transform}"
+        spine1Rot = Matrix(spine1.transform.rotation).to_euler()
+        assert VNearEqual(spine1Rot, (0.1509, 0, 0)), f"spine1 rotation correct: {spine1Rot}"
+
+        spine2 = nifcheck.nodes["NPC Spine2 [Spn2]"]
+        assert spine2.parent.name == "NPC Spine1 [Spn1]", f"Spine2 parent is correct"
+        assert VNearEqual(spine2.transform.translation, (0, -0.017105, 9.864068), 0.01), f"Spine2 location is correct: \n{spine2.transform}"
+
+        head = nifcheck.nodes["NPC Head [Head]"]
+        assert VNearEqual(head.transform.translation, (0, 0, 7.392755)), f"head location is correct: \n{head.transform}"
+        headRot = Matrix(head.transform.rotation).to_euler()
+        assert VNearEqual(headRot, (0.1913, 0.0009, -0.0002), 0.01), f"head rotation correct: {headRot}"
+
+        l3 = nifcheck.nodes["Anna L3"]
+        assert l3.parent, f"'Anna L3' parent exists"
+        assert l3.parent.name == 'Anna L2', f"'Anna L3' parent is '{l3.parent.name}'"
+        assert VNearEqual(l3.transform.translation, (0, 5, -6), 0.1), f"{l3.name} location correct: \n{l3.transform}"
+
+
+    if TEST_BPY_ALL or TEST_FURN_MARKER1:
+        print("### TEST_FURN_MARKER1: Furniture markers work")
+
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\farmbench01.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_FURN_MARKER1.nif")
+        NifImporter.do_import(testfile, 0)
+
+        fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
+        
+        assert len(fmarkers) == 2, f"Found furniture markers: {fmarkers}"
+
+        # -------- Export --------
+        bench = find_shape("FarmBench01:5")
+        bsxf = find_shape("BSXFlags")
+        fmrklist = [f for f in bpy.data.objects if f.name.startswith("BSFurnitureMarker")]
+
+        exporter = NifExporter(outfile, 'SKYRIMSE')
+        explist = [bench, bsxf]
+        explist.extend(fmrklist)
+        log.debug(f"Exporting: {explist}")
+        exporter.export(explist)
+
+        # --------- Check ----------
+        nifcheck = NifFile(outfile)
+        fmcheck = nifcheck.furniture_markers
+
+        assert len(fmcheck) == 2, f"Wrote the furniture marker correctly: {len(fmcheck)}"
+
+
+    if TEST_BPY_ALL or TEST_FURN_MARKER2:
+        print("### TEST_FURN_MARKER2: Furniture markers work")
+
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\commonchair01.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_FURN_MARKER2.nif")
+        NifImporter.do_import(testfile, 0)
+
+        fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
+        
+        assert len(fmarkers) == 1, f"Found furniture markers: {fmarkers}"
+        assert VNearEqual(fmarkers[0].rotation_euler, (-pi/2, 0, 0)), f"Marker points the right direction"
+
+        # -------- Export --------
+        chair = find_shape("CommonChair01:0")
+        bsxf = find_shape("BSXFlags")
+        fmrk = find_shape("BSFurnitureMarkerNode")
+        exporter = NifExporter(outfile, 'SKYRIMSE')
+        exporter.export([chair, bsxf, fmrk])
+
+        # --------- Check ----------
+        nifcheck = NifFile(outfile)
+        fmcheck = nifcheck.furniture_markers
+
+        assert len(fmcheck) == 1, f"Wrote the furniture marker correctly: {len(fmcheck)}"
+        assert fmcheck[0].entry_points == 13, f"Entry point data is correct: {fmcheck[0].entry_points}"
+
+
+    if TEST_BPY_ALL or TEST_TRIP:
+        test_title("TEST_TRIP", "Body tri extra data and file are written on export")
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP.nif")
+
+        append_from_file("BaseMaleBody", True, r"tests\FO4\BodyTalk.blend", r"\Object", "BaseMaleBody")
+        bpy.ops.object.select_all(action='DESELECT')
+        body = find_shape("BaseMaleBody")
+
+        print("Found body: " + body.name)
+
+        remove_file(outfile)
+        export = NifExporter(outfile, 'FO4')
+        export.export([body])
+
+        # ------- Check ---------
+        nifcheck = NifFile(outfile)
+
+        bodycheck = nifcheck.shape_dict["BaseMaleBody"]
+        assert bodycheck.name == "BaseMaleBody", f"Body found in nif"
+
+        stringdata = nifcheck.string_data
+        assert stringdata, f"Found string data: {stringdata}"
+        sd = stringdata[0]
+        assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
+        assert sd[1].endswith("TEST_TRIP.tri"), f"Found correct filename"
 
 
     if TEST_BPY_ALL or TEST_WELWA:
@@ -991,7 +1135,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         print("### TEST_RENAME: Test that renaming bones works correctly")
 
         clear_all()
-        testfile = os.path.join(pynifly_dev_path, r"C:\Users\User\OneDrive\Dev\PyNifly\PyNifly\tests\Skyrim\femalebody_1.nif")
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\femalebody_1.nif")
         imp = NifImporter.do_import(testfile, ImportFlags.CREATE_BONES)
 
         body = bpy.context.object
@@ -1373,28 +1517,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert plane.verts[5] == plane.verts[7], "Error: Split vert at different locations"
         assert plane.uvs[5] != plane.uvs[7], "Error: Split vert has different UV locations"
 
-    if TEST_BPY_ALL or TEST_CUSTOM_BONES:
-        print('## TEST_CUSTOM_BONES Can handle custom bones correctly')
-
-        bpy.ops.object.select_all(action='DESELECT')
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\VulpineInariTailPhysics.nif")
-        nifimp = NifImporter(testfile)
-        bone_xform = nifimp.nif.nodes['Bone_Cloth_H_003'].xform_to_global
-        nifimp.execute()
-
-        outfile = os.path.join(pynifly_dev_path, r"tests\Out\Tail01.nif")
-        for obj in bpy.context.selected_objects:
-            if obj.type == 'MESH':
-                e = NifExporter(outfile, "FO4")
-                e.export([obj])
-
-        test_in = NifFile(outfile)
-        new_xform = test_in.nodes['Bone_Cloth_H_003'].xform_to_global
-        assert VNearEqual(bone_xform.translation, new_xform.translation), f"Error: Bone transform should not change. Expected\n {bone_xform}, found\n {new_xform}"
-        assert VNearEqual(bone_xform.rotation[0], new_xform.rotation[0]), f"Error: Bone rotation0 should not change. Expected\n {bone_xform}, found\n {new_xform}"
-        assert VNearEqual(bone_xform.rotation[1], new_xform.rotation[1]), f"Error: Bone rotation1 should not change. Expected\n {bone_xform}, found\n {new_xform}"
-        assert VNearEqual(bone_xform.rotation[2], new_xform.rotation[2]), f"Error: Bone rotation2 should not change. Expected\n {bone_xform}, found\n {new_xform}"
-        assert round(bone_xform.scale) == round(new_xform.scale), f"Error: Scale factors should not change. Expected {bone_xform.scale}, found {bone_xform.scale}"
 
     if TEST_BPY_ALL or TEST_BPY_PARENT:
         print('### Maintain armature structure')
@@ -1448,21 +1570,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         # TODO: Test that baby's unkown skeleton is connected
       
-    if TEST_BPY_ALL or TEST_CONNECTED_SKEL:
-        print('## TEST_CONNECTED_SKEL Can import connected skeleton')
-
-        bpy.ops.object.select_all(action='DESELECT')
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\vanillaMaleBody.nif")
-        NifImporter.do_import(testfile)
-
-        #print("FO4 LArm_UpperTwist1: ", nif.get_node_xform_to_global('LArm_UpperTwist1') )
-        #print("FO4 LArm_UpperTwist1_skin: ", nif.get_node_xform_to_global('LArm_UpperTwist1_skin') )
-
-        for s in bpy.context.selected_objects:
-            if 'MaleBody.nif' in s.name:
-                assert 'Leg_Thigh.L' in s.data.bones.keys(), "Error: Should have left thigh"
-                assert s.data.bones['Leg_Thigh.L'].parent.name == 'Pelvis', "Error: Thigh should connect to pelvis"
-
     if TEST_BPY_ALL or TEST_SKEL:
         print('## TEST_SKEL Can import skeleton file with no shapes')
 

@@ -117,11 +117,23 @@ class pynStructure(Structure):
                 s = s + "\n"
             v = getattr(self, attr[0])
             if type(v) in [VECTOR3, VECTOR4, VECTOR12]:
-                s = s + f"\t{attr[0]} = {v[:]}"
+                vals = []
+                for n in v:
+                    vals.append( f"{n:.4f}" )
+                s += f"\t{attr[0]} = [{', '.join(vals)}]"
+                
             elif type(v) == MATRIX3:
-                s = s + f"\t{attr[0]} = {v[0][:]}, {v[1][:]}, {v[2][:]}"
+                rows = []
+                for r in v:
+                    cols = []
+                    for c in r:
+                        cols.append(f"{c:.4f}")
+                    rows.append(f"\t[{', '.join(cols)}]")
+                s += f"\t{attr[0]} = \n" + '\n'.join(rows)
+            elif type(v) == float:
+                s += f"\t{attr[0]} = {v:.4f}"
             else:
-                s = s + f"\t{attr[0]} = {v}"
+                s += f"\t{attr[0]} = {v}"
         return s
 
     def copy(self):

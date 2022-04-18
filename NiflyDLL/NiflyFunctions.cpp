@@ -112,8 +112,8 @@ void SetNifVersion(NifFile* nif, enum TargetGame targ) {
 
 void AddCustomBoneRef(
 	AnimInfo* anim,
-	const std::string& boneName, 
-	const std::string* parentBone, 
+	const std::string boneName, 
+	const std::string* parentBone,
 	const MatTransform* xformToParent) 
 {
 	AnimSkeleton* skel = anim->GetSkeleton();
@@ -153,10 +153,16 @@ void SetGlobalToSkinXform(AnimInfo* anim, NiShape* theShape, const MatTransform&
 	theShape->SetTransformToParent(theShape->GetTransformToParent());
 }
 
-void AddBoneToShape(AnimInfo* anim, NiShape* theShape, std::string boneName, 
-	MatTransform* boneXform)
+void AddBoneToShape(AnimInfo* anim, NiShape* theShape, std::string boneName,
+	MatTransform* boneXform, const char* parentName)
 {
-	AddCustomBoneRef(anim, boneName, nullptr, boneXform);
+	std::string pn;
+	std::string* pp = nullptr;
+	if (parentName) {
+		pn = std::string(parentName);
+		pp = &pn;
+	};
+	AddCustomBoneRef(anim, boneName, pp, boneXform);
 	anim->AddShapeBone(theShape->name.get(), boneName);
 }
 
