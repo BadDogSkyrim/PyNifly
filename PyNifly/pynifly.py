@@ -162,7 +162,7 @@ def load_nifly(nifly_path):
     nifly.getShapes.restype = c_int
     nifly.getShapeSkinToBone.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf)]
     nifly.getShapeSkinToBone.restype = c_bool
-    nifly.getBGExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int]
+    nifly.getBGExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int, c_void_p]
     nifly.getBGExtraData.restype = c_int
     nifly.getBGExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
     nifly.getBGExtraDataLen.restype = c_int
@@ -240,7 +240,7 @@ def load_nifly(nifly_path):
     nifly.setShapeWeights.restype = None
     nifly.setStringExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p]
     nifly.setStringExtraData.restype = None
-    nifly.setBGExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p]
+    nifly.setBGExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
     nifly.setBGExtraData.restype = None
     nifly.setClothExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
     nifly.setClothExtraData.restype = None
@@ -483,13 +483,23 @@ def _read_extra_data(nifHandle, shapeHandle, edtype):
         name = (c_char * (namelen.value+1))()
         val = (c_char * (valuelen.value+1))()
                
-        get_func(nifHandle, shapeHandle,
-                 i,
-                 name, namelen.value+1,
-                 val, valuelen.value+1)
+        if edtype == ExtraDataType.BehaviorGraph:
+            controlsBaseSkel = c_uint16()
+            get_func(nifHandle, shapeHandle,
+                     i,
+                     name, namelen.value+1,
+                     val, valuelen.value+1,
+                     byref(controlsBaseSkel))
+        else:
+            get_func(nifHandle, shapeHandle,
+                     i,
+                     name, namelen.value+1,
+                     val, valuelen.value+1)
                 
         if edtype == ExtraDataType.Cloth:
             ed.append((name.value.decode('utf-8'), val.raw))
+        elif edtype == ExtraDataType.BehaviorGraph:
+            ed.append((name.value.decode('utf-8'), val.value.decode('utf-8'), (controlsBaseSkel.value != 0)))
         else:
             ed.append((name.value.decode('utf-8'), val.value.decode('utf-8')))
     
@@ -506,6 +516,8 @@ def _write_extra_data(nifhandle, shapehandle, edtype, val):
     for s in val:
         if edtype == ExtraDataType.Cloth:
             set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1], len(s[1])-1)
+        elif edtype == ExtraDataType.BehaviorGraph:
+            set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1].encode('utf-8'), s[2])
         else:
             set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1].encode('utf-8'))
 
@@ -1762,7 +1774,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1797,7 +1809,7 @@ TEST_CLOTH_DATA = False
 TEST_PARTITION_SM = False
 TEST_EXP_BODY = False
 TEST_EFFECT_SHADER = False
-TEST_BOW = False
+TEST_BOW = True
 TEST_CONVEX = False
 TEST_CONVEX_MULTI = False
 TEST_COLLISION_LIST = False
@@ -2779,7 +2791,7 @@ if __name__ == "__main__":
         
         # Extra data can be at the file level
         bg = nif.behavior_graph_data
-        assert bg == [('BGED', r"AuxBones\SOS\SOSMale.hkx")], f"Error: Expected behavior graph data, got {bg}"
+        assert bg == [('BGED', r"AuxBones\SOS\SOSMale.hkx", True)], f"Error: Expected behavior graph data, got {bg}"
 
         s = nif.string_data
         assert len(s) == 2, f"Error: Expected two string data records"
@@ -2800,7 +2812,7 @@ if __name__ == "__main__":
         nifcheck = NifFile(r"tests/Out/pynifly_TEST_SHEATH.nif")
 
         assert len(nifcheck.shapes) == 1, "Error: Wrote expected shapes"
-        assert nifcheck.behavior_graph_data == [('BGED', r"AuxBones\SOS\SOSMale.hkx")], f"Error: Expected behavior graph data, got {nifcheck.behavior_graph_data}"
+        assert nifcheck.behavior_graph_data == [('BGED', r"AuxBones\SOS\SOSMale.hkx", True)], f"Error: Expected behavior graph data, got {nifcheck.behavior_graph_data}"
         
         assert len(nifcheck.string_data) == 3, f"Error: Expected three string data records in written file"
         assert ('HDT Havok Path', 'SKSE\\Plugins\\hdtm_baddog.xml') in nifcheck.string_data, "Error: expect havok path in written file"
@@ -3039,7 +3051,7 @@ if __name__ == "__main__":
 
 
     if TEST_ALL or TEST_BOW:
-        print("### TEST_BOW: Can read and write special weapon data")
+        print("### TEST_BOW: Can read and write special weapon data; also testing BGED")
         nif = NifFile(r"tests\SkyrimSE\meshes\weapons\glassbowskinned.nif")
 
         root = nif.nodes[nif.rootName]
@@ -3050,6 +3062,8 @@ if __name__ == "__main__":
         assert VNearEqual(root.xform_to_global.rotation[1], [0,1,0]), "Root node transform can be read"
         assert VNearEqual(root.xform_to_global.rotation[2], [0,0,1]), "Root node transform can be read"
         assert root.xform_to_global.scale == 1.0, "Root node transform can be read"
+
+        assert nif.behavior_graph_data == [('BGED', r"Weapons\Bow\BowProject.hkx", False)], f"Error: Expected behavior graph data, got {nif.behavior_graph_data}"
 
         assert nif.inventory_marker[0] == "INV"
         assert nif.inventory_marker[1:4] == [4712, 0, 785]
@@ -3079,6 +3093,9 @@ if __name__ == "__main__":
         nifOut = NifFile()
         nifOut.initialize('SKYRIMSE', r"tests\out\TEST_BOW.nif", root.blockname, root.name)
         _test_export_shape(nif.shapes[0], nifOut)
+
+        # Testing BGED too
+        nifOut.behavior_graph_data = nif.behavior_graph_data
 
         # Have to apply the skin so we have the bone available to add collisions
         nifOut.apply_skin()
