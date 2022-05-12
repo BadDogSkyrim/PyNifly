@@ -361,6 +361,7 @@ void* TCopyWeights(void* targetNif, void* targetShape,
 
 void TCopyExtraData(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape) {
 	int namelen, valuelen;
+	uint16_t cbs;
 
 	for (int i = 0; getStringExtraDataLen(sourceNif, sourceShape, i, &namelen, &valuelen); i++) {
 		char* namebuf = new char[namelen + 1];
@@ -368,11 +369,15 @@ void TCopyExtraData(void* targetNif, void* targetShape, void* sourceNif, void* s
 		getStringExtraData(sourceNif, sourceShape, i, namebuf, namelen + 1, valuebuf, valuelen + 1);
 		setStringExtraData(targetNif, targetShape, namebuf, valuebuf);
 	};
-	for (int i = 0; getBGExtraDataLen(sourceNif, sourceShape, i, &namelen, &valuelen); i++) {
+	for (int i = 0; 
+		getBGExtraDataLen(sourceNif, sourceShape, i, &namelen, &valuelen); 
+		i++) {
 		char* namebuf = new char[namelen + 1];
 		char* valuebuf = new char[valuelen + 1];
-		getBGExtraData(sourceNif, sourceShape, i, namebuf, namelen + 1, valuebuf, valuelen + 1);
-		setBGExtraData(targetNif, targetShape, namebuf, valuebuf);
+		getBGExtraData(sourceNif, sourceShape, i, namebuf, namelen + 1, 
+			valuebuf, valuelen + 1,
+			&cbs);
+		setBGExtraData(targetNif, targetShape, namebuf, valuebuf, cbs);
 	}
 };
 
@@ -663,7 +668,8 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 };
 
 void TCompareExtraData(void* nif1, void* shape1, void* nif2, void* shape2) {
-	int namelen, valuelen;
+	int namelen, valuelen; 
+	uint16_t cbs;
 
 	for (int i = 0; getStringExtraDataLen(nif1, shape1, i, &namelen, &valuelen); i++) {
 		char* namebuf1 = new char[namelen + 1];
@@ -681,12 +687,18 @@ void TCompareExtraData(void* nif1, void* shape1, void* nif2, void* shape2) {
 	for (int i = 0; getBGExtraDataLen(nif1, shape1, i, &namelen, &valuelen); i++) {
 		char* namebuf1 = new char[namelen + 1];
 		char* valuebuf1 = new char[valuelen + 1];
-		getBGExtraData(nif1, shape1, i, namebuf1, namelen + 1, valuebuf1, valuelen + 1);
+		getBGExtraData(nif1, shape1, i, 
+			namebuf1, namelen + 1, 
+			valuebuf1, valuelen + 1, 
+			&cbs);
 
 		Assert::IsTrue(getBGExtraDataLen(nif2, shape2, i, &namelen, &valuelen));
 		char* namebuf2 = new char[namelen + 1];
 		char* valuebuf2 = new char[valuelen + 1];
-		getBGExtraData(nif2, shape2, i, namebuf2, namelen + 1, valuebuf2, valuelen + 1);
+		getBGExtraData(nif2, shape2, i, 
+			namebuf2, namelen + 1, 
+			valuebuf2, valuelen + 1, 
+			&cbs);
 
 		Assert::IsTrue(strcmp(namebuf1, namebuf2) == 0, L"Error: String names not the same");
 		Assert::IsTrue(strcmp(valuebuf1, valuebuf2) == 0, L"Error: String values not the same");
@@ -2187,6 +2199,7 @@ namespace NiflyDLLTests
 		TEST_METHOD(extraDataSheath) {
 			void* shapes[10];
 			int namelen, vallen;
+			uint16_t cbs;
 
 			void* nifsheath = load((testRoot / "Skyrim/sheath_p1_1.nif").u8string().c_str());
 			getShapes(nifsheath, shapes, 10, 0);
@@ -2209,7 +2222,10 @@ namespace NiflyDLLTests
 			getBGExtraDataLen(nifsheath, nullptr, 0, &namelen, &vallen);
 			char* edname= new char[namelen + 1L];
 			char* edtxt = new char[vallen + 1L];
-			getBGExtraData(nifsheath, nullptr, 0, edname, namelen+1, edtxt, vallen+1);
+			getBGExtraData(nifsheath, nullptr, 0, 
+				edname, namelen+1, 
+				edtxt, vallen+1, 
+				&cbs);
 			Assert::IsTrue(strcmp(edname, "BGED") == 0, L"Error: Extradata name wrong");
 			Assert::IsTrue(strcmp(edtxt, "AuxBones\\SOS\\SOSMale.hkx") == 0, L"Error: Extradata value wrong");
 

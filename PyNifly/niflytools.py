@@ -77,33 +77,35 @@ def vert_uv_key(vert_index, uv):
     return str(vert_index) + "_" + str(uv)
 
 
-def mesh_split_by_uv(verts, norms, loops, uvmap, weights, morphdict):
+def mesh_split_by_uv(verts, loops, norms, uvmap, weights, morphdict):
     """Split a mesh represented by parameters and split verts if necessary because it
         (1) maps to 2 UV locations or (2) has split normals.
         verts = [(x, y, z), ...] vertex locations
         norms = [(x, y, z), ...] normals 1:1 with loops
-        loops = [int, ...] blender-style loops--elements are indices into verts
+        loops = [int, ...] blender-style loops--elements are indices into verts. 
+            Loops are already triangularized so they are in triples, tho the list is flat
         uvmap = [(u, v), ...] uvmap--matches 1:1 with loops
         weights = [dict[group-name: weight], ...] vertex weights, 1:1 with verts
         morphdict = {morph-name: [(x,y,z)...], ...} vertex list for each morph
     Returns
         verts = extended with additional verts where splits were required
-        norms = not changed
-        loops = modified to reference the new verts where needed
+        norms = not changed. Future: If we decide to split the mesh on sharp edges, may be modified.
+        loops = modified to reference the new verts where needed 
         uvmap = not changed
         weights = extended to match verts
     """
     # Walk the loops. If the associated UV puts the vert in a new location, dup the vert
     vert_uvs = [None] * len(verts) # found UV locations of verts
-    vert_norms = [(0.0, 0.0, 0.0)] * len(verts) # found normals of verts
+    #vert_norms = [(0.0, 0.0, 0.0)] * len(verts) # found normals of verts
     change_table = {} # {old_vert_index: new_vert_index}
     for i, vert_idx in enumerate(loops):
+        #log.debug(f"Testing vertex {i}, {vert_idx}")
         this_vert_loc = uv_location(uvmap[i])
-        this_vert_norm = norms[i]
+        #this_vert_norm = norms[i]
         if vert_uvs[vert_idx] is None:
             # Not given this vert a location yet
             vert_uvs[vert_idx] = this_vert_loc
-            vert_norms[vert_idx] = this_vert_norm
+            #vert_norms[vert_idx] = this_vert_norm
         elif vert_uvs[vert_idx] != this_vert_loc: # or not VNearEqual(this_vert_norm, vert_norms[vert_idx]):
             # Found already at different location or with different normal
             #if vert_uvs[vert_idx] != this_vert_loc:
@@ -112,10 +114,10 @@ def mesh_split_by_uv(verts, norms, loops, uvmap, weights, morphdict):
             #    log.debug(f"Splitting vert #{vert_idx}, loop #{i}: Norm {[round(n, 4) for n in this_vert_norm]} != {[round(n, 4) for n in vert_norms[vert_idx]]}")
             vert_key = vert_uv_key(vert_idx, this_vert_loc)
             if vert_key in change_table:
-                #print("..found in change table at %d " % change_table[vert_key])
+                #log.debug("..vert found in change table at %d " % change_table[vert_key])
                 loops[i] = change_table[vert_key]
             else:
-                #print("..not found, creating new vert")
+                #log.debug("..vert not found, creating new vert")
                 new_index = len(verts)
                 verts.append(verts[vert_idx])
                 if weights:

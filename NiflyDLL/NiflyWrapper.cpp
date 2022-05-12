@@ -21,7 +21,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 4, 3, 0 };
+const int NiflyDDLVersion[3] = { 5, 2, 0 };  
  
 using namespace nifly;
 
@@ -1672,7 +1672,8 @@ int getBGExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* 
     }
     return 0;
 };
-int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen)
+int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, 
+        char* buf, int buflen, uint16_t* ctrlBaseSkelP)
 /* Treats the NiBehaviorGraphExtraData nodes in the nif like an array--idx indicates
     which to return (0-based).
     */
@@ -1694,6 +1695,7 @@ int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namele
             if (i == 0) {
                 strncpy_s(name, namelen, bgData->name.get().c_str(), namelen - 1);
                 strncpy_s(buf, buflen, bgData->behaviorGraphFile.get().c_str(), buflen - 1);
+                *ctrlBaseSkelP = bgData->controlsBaseSkel;
                 return 1;
             }
             else
@@ -1810,7 +1812,7 @@ void setBSXFlags(void* nifref, const char* name, uint32_t flags)
     nif->AssignExtraData(nif->GetRootNode(), std::move(bsx));
 }
 
-void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf) {
+void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf, int controlsBaseSkel) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiAVObject* target = nullptr;
     if (shaperef)
@@ -1822,6 +1824,7 @@ void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf) {
         auto strdata = std::make_unique<BSBehaviorGraphExtraData>();
         strdata->name.get() = name;
         strdata->behaviorGraphFile.get() = buf;
+        strdata->controlsBaseSkel = controlsBaseSkel;
         nif->AssignExtraData(target, std::move(strdata));
     }
 };

@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (4, 3, 0),  
+    "version": (5, 2, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -145,19 +145,30 @@ def make_transformbuf(cls, m: Matrix) -> TransformBuf:
 setattr(TransformBuf, "from_matrix", classmethod(make_transformbuf))
 
 
-GAME_BONE_Q = {"FO4": Quaternion((1, 0, 0), radians(-90)),
-               "SKYRIM": Quaternion((0, 0, 1), radians(-90)),
-               "SKYRIMSE": Quaternion((0, 0, 1), radians(-90))}
+#GAME_BONE_Q = {"FO4": Quaternion((1, 0, 0), radians(-90)),
+#               "SKYRIM": Quaternion((0, 0, 1), radians(-90)),
+#               "SKYRIMSE": Quaternion((0, 0, 1), radians(-90))}
 
-GAME_BONE_VECTOR = {"FO4": Vector((5, 0, 0)),
-                    "SKYRIM": Vector((0, 0, 5)),
-                    "SKYRIMSE": Vector((0, 0, 5))}
+#GAME_BONE_VECTOR = {"FO4": Vector((5, 0, 0)),
+#                    "SKYRIM": Vector((0, 0, 5)),
+#                    "SKYRIMSE": Vector((0, 0, 5))}
 
-def bone_game_adjust(game: str, inverse=False) -> Vector:
-    if game in GAME_BONE_VECTOR:
-        return GAME_BONE_VECTOR[game].copy()
-    return GAME_BONE_VECTOR["SKYRIM"].copy()
+#def bone_game_adjust(game: str, inverse=False) -> Vector:
+#    if game in GAME_BONE_VECTOR:
+#        return GAME_BONE_VECTOR[game].copy()
+#    return GAME_BONE_VECTOR["SKYRIM"].copy()
 
+
+bone_vectors = {'X': Vector((1,0,0)), 'Z': Vector((0,0,1))}
+game_axes = {'FO4': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
+
+def qtobone(boneq:Quaternion, axis:str):
+    """ Taxes a rotation and axis and applies the rotation to a unit vector
+    on that axis. Returns resulting vector and twist. """
+    s, t = boneq.to_swing_twist(axis)
+    v = bone_vectors[axis].copy()
+    v.rotate(boneq)
+    return v, t
 
 def transform_to_bone(game:str, nodexf:Matrix):
     """ Turns a bone global transform into the equivalent bone 
@@ -168,34 +179,43 @@ def transform_to_bone(game:str, nodexf:Matrix):
             vector = head location
             vector = tail location
             float = roll to apply to bone
-        
-        TODO: Return a proper roll value--the component of the rotation which is around the 
-        axis of the canonical bone vector. That one can't be recovered from head + tail, so 
-        has to be stored somewhere. But it's surprisingly hard to get the that one component 
-        of the rotation, so for now we depend on the 'pynXform' property.
     """
-    bonehead = nodexf.translation
-    bonevec = bone_game_adjust(game)
-    bonevec.rotate(nodexf)
-    roll = 0
+    bonehead, rot, s = nodexf.decompose()
+    axis = game_axes[game]
+    bonevec, roll = qtobone(rot, axis)
+    return bonehead, bonehead + (bonevec * BONE_LEN), roll  
 
-    return bonehead, bonehead+bonevec, roll  # bonehead, bonetail, boneroll
+#def bone_to_transform(game, bonehead:Vector, boneaxis:Vector, boneroll:float) -> Matrix:
+#    ax = boneaxis.copy()
+#    bonevec = bone_game_adjust(game)
+#    q = bonevec.rotation_difference(boneaxis)
+#    rollq = Quaternion(bonevec, boneroll)
+#    q.rotate(rollq)
+#    return MatrixLocRotScale(bonehead, q, (1,1,1))
 
-def bone_to_transform(game, bonehead:Vector, boneaxis:Vector, boneroll:float) -> Matrix:
-    ax = boneaxis.copy()
-    bonevec = bone_game_adjust(game)
-    q = bonevec.rotation_difference(boneaxis)
-    rollq = Quaternion(bonevec, boneroll)
-    q.rotate(rollq)
-    return MatrixLocRotScale(bonehead, q, (1,1,1))
+def bonetoq(vec:Vector, roll:float, axis:str):
+    """ Takes a vector, roll angle, and axis and returns a quaternion that
+    rotates the unit vector on the axis to the input vector, with the roll."""
+    bv = bone_vectors[axis].copy()
+    q = bv.rotation_difference(vec)
+    rollq = Quaternion(bv, roll)
+    return q @ rollq
 
 def get_bone_global_xf(bone:bpy_types.Bone, game:str) -> Quaternion:
     """ Return the global transform represented by the bone. 
         TODO: Calculate based on the bone head, tail, and roll
     """
-    rot = Quaternion(bone['pynXform'])
-    loc = bone.head_local
-    mx = MatrixLocRotScale(bone.head_local, rot, (1,1,1))
+    if 'pynXform' in bone:
+        # If stashed transform exists, use it for backwards compatibility
+        rot = Quaternion(bone['pynXform'])
+        loc = bone.head_local
+        mx = MatrixLocRotScale(bone.head_local, rot, (1,1,1))
+    else:
+        vec = (bone.tail_local-bone.head_local)/BONE_LEN
+        baxis, broll = bone.AxisRollFromMatrix(bone.matrix_local.to_3x3(), axis=vec)
+        rot = bonetoq(vec, broll, game_axes[game])
+        mx = MatrixLocRotScale(bone.head_local, rot, (1,1,1))
+
     return mx
 
 
@@ -553,19 +573,25 @@ def mesh_create_partition_groups(the_shape, the_object):
 
 
 def import_colors(mesh, shape):
+    log.debug(f"Have shaderflags1: {ShaderFlags1(shape.shader_attributes.Shader_Flags_1).fullname}")
+    log.debug(f"Have shaderflags2: {ShaderFlags2(shape.shader_attributes.Shader_Flags_2).fullname}")
     try:
-        if shape.colors and len(shape.colors) > 0:
+        if (shape.shader_attributes.Shader_Flags_2 & ShaderFlags2.VERTEX_COLORS) \
+            and shape.colors and len(shape.colors) > 0:
             log.debug(f"..Importing vertex colors for {shape.name}")
             clayer = mesh.vertex_colors.new()
-            alphlayer = mesh.vertex_colors.new()
-            alphlayer.name = ALPHA_MAP_NAME
+            alphlayer = None
+            if shape.shader_attributes.Shader_Flags_1 & ShaderFlags1.VERTEX_ALPHA:
+                alphlayer = mesh.vertex_colors.new()
+                alphlayer.name = ALPHA_MAP_NAME
         
             colors = shape.colors
             for lp in mesh.loops:
                 c = colors[lp.vertex_index]
                 clayer.data[lp.index].color = (c[0], c[1], c[2], 1.0)
-                alph = colors[lp.vertex_index][3]
-                alphlayer.data[lp.index].color = [alph, alph, alph, 1.0]
+                if alphlayer:
+                    alph = colors[lp.vertex_index][3]
+                    alphlayer.data[lp.index].color = [alph, alph, alph, 1.0]
     except:
         log.error(f"ERROR: Could not read colors on shape {shape.name}")
 
@@ -639,6 +665,7 @@ class NifImporter():
             ed.show_name = True
             ed['BSBehaviorGraphExtraData_Name'] = s[0]
             ed['BSBehaviorGraphExtraData_Value'] = s[1]
+            ed['BSBehaviorGraphExtraData_CBS'] = s[2]
             # extradata.append(ed)
             self.objects_created[s[0] + s[1]] = ed
 
@@ -840,7 +867,7 @@ class NifImporter():
         bone.head = h
         bone.tail = t
         bone.roll = r
-        bone['pynXform'] = bone_xform.to_quaternion()[:] # stash rotation for later
+        bone['PYN_TRANSFORM'] = bone_xform.to_quaternion()[:] # stash rotation for later
 
         return bone
 
@@ -1512,23 +1539,28 @@ def select_all_faces(mesh):
         p.select = True
 
 
-def extract_face_info(mesh, uvlayer, use_loop_normals=False):
+def extract_face_info(mesh, uvlayer, loopcolors, use_loop_normals=False):
     """ Extract face info from the mesh. Mesh is triangularized. 
         Return 
-        loops = [vert-index, ...] list of vert indices in loops (which are tris)
+        loops = [vert-index, ...] list of vert indices in loops. Triangularized, 
+            so these are read in triples.
         uvs = [(u,v), ...] list of uv coordinates 1:1 with loops
         norms = [(x,y,z), ...] list of normal vectors 1:1 with loops
             --Normal vectors come from the loops, because they reflect whether the edges
             are sharp or the object has flat shading
-        """
+        colors = [(r,g,b,a), ...] 1:1 with loops
+    """
     loops = []
     uvs = []
+    orig_uvs = []
     norms = []
+    colors = []
+    # colormap, alphamap = get_effective_colormaps(mesh)
 
     # Calculating normals messes up the passed-in UV, so get the data out of it first
     for f in mesh.polygons:
         for i in f.loop_indices:
-            uvs.append(uvlayer[i].uv[:])
+            orig_uvs.append(uvlayer[i].uv[:])
             #log.debug(f"....Adding uv index {uvlayer[i].uv[:]}")
 
     # CANNOT figure out how to get the loop normals correctly.  They seem to follow the
@@ -1538,19 +1570,60 @@ def extract_face_info(mesh, uvlayer, use_loop_normals=False):
     mesh.calc_normals()
     mesh.calc_normals_split()
 
+    def write_loop_vert(theloops, norms, uvs, loopseg, mesh, orig_uvs):
+        theloops.append(loopseg.vertex_index)
+        uvs.append(orig_uvs[loopseg.index])
+        #if colormap or alphamap:
+        #    colors.append(get_loop_color(mesh, loopseg.index, colormap, alphamap))
+        if loopcolors:
+            colors.append(loopcolors[loopseg.index])
+        if use_loop_normals:
+            norms.append(loopseg.normal[:])
+        else:
+            norms.append(mesh.vertices[loopseg.vertex_index].normal[:])
+
+    # Write out the loops as triangles
     for f in mesh.polygons:
-        for i in f.loop_indices:
-            loopseg = mesh.loops[i]
-            loops.append(loopseg.vertex_index)
-            if use_loop_normals:
-                norms.append(loopseg.normal[:])
-            else:
-                norms.append(mesh.vertices[loopseg.vertex_index].normal[:])
+        if f.loop_total < 3:
+            log.warning(f"Degenerate polygons on {mesh.name}: 0={l0}, 1={l1}")
+        else:
+            #log.debug(f"Writing verts for polygon start={f.loop_start}, total={f.loop_total}")
+            l0 = mesh.loops[f.loop_start]
+            l1 = mesh.loops[f.loop_start+1]
+            for i in range(f.loop_start+2, f.loop_start+f.loop_total):
+                loopseg = mesh.loops[i]
+                #log.debug(f"Writing triangle: {l0.vertex_index}, {l1.vertex_index}, {loopseg.vertex_index}")
+                write_loop_vert(loops, norms, uvs, l0, mesh, orig_uvs)
+                write_loop_vert(loops, norms, uvs, l1, mesh, orig_uvs)
+                write_loop_vert(loops, norms, uvs, loopseg, mesh, orig_uvs)
+                l1 = loopseg
 
-    return loops, uvs, norms
+    return loops, uvs, norms, colors
 
 
-def extract_vert_info(obj, mesh, target_key=''):
+def trim_to_four(weights, arma):
+    """ Trim to the 4 heaviest weights in the armature
+        weights = [(group_name: weight), ...] """
+    if arma:
+        #log.debug(f"Trimming to 4 on armature {arma.name}")
+        lst = filter(lambda p: p[0] in arma.data.bones, weights)
+        #log.debug(f"Arma weights: {lst}")
+        notlst = filter(lambda p: p[0] not in arma.data.bones, weights)
+        sd = sorted(lst, reverse=True, key=lambda item: item[1])[0:4]
+        #log.debug(f"Arma weights sorted: {sd}")
+        sd.extend(notlst)
+        #if len(sd) != len(weights):
+        #    log.info(f"Trimmed weights to {sd}")
+        return dict(sd)
+    else:
+        return dict(weights)
+
+
+def has_uniform_scale(obj):
+    """ Determine whether an object has uniform scale """
+    return NearEqual(obj.scale[0], obj.scale[1]) and NearEqual(obj.scale[1], obj.scale[2])
+
+def extract_vert_info(obj, mesh, arma, target_key=''):
     """Returns 3 lists of equal length with one entry each for each vertex
         verts = [(x, y, z)... ] - base or as modified by target-key if provided
         weights = [{group-name: weight}... ] - 1:1 with verts list
@@ -1560,25 +1633,32 @@ def extract_vert_info(obj, mesh, target_key=''):
         """
     weights = []
     morphdict = {}
+    msk = mesh.shape_keys
 
-    if target_key != '' and mesh.shape_keys and target_key in mesh.shape_keys.key_blocks.keys():
+    sf = Vector((1,1,1))
+    if not has_uniform_scale(obj):
+        # Apply non-uniform scale to verts directly
+        sf = obj.scale
+
+    if target_key != '' and msk and target_key in msk.key_blocks.keys():
         log.debug(f"....exporting shape {target_key} only")
-        verts = [v.co[:] for v in mesh.shape_keys.key_blocks[target_key].data]
+        verts = [(v.co * sf)[:] for v in msk.key_blocks[target_key].data]
     else:
-        verts = [v.co[:] for v in mesh.vertices]
+        verts = [(v.co * sf)[:] for v in mesh.vertices]
 
-    for v in mesh.vertices:
-        vert_weights = {}
+    for i, v in enumerate(mesh.vertices):
+        vert_weights = []
         for vg in v.groups:
             try:
-                vert_weights[obj.vertex_groups[vg.group].name] = vg.weight
+                vert_weights.append([obj.vertex_groups[vg.group].name, vg.weight])
             except:
                 log.error(f"ERROR: Vertex #{v.index} references invalid group #{vg.group}")
-        weights.append(vert_weights)
+        
+        weights.append(trim_to_four(vert_weights, arma))
     
-    if target_key == '' and mesh.shape_keys:
-        for sk in mesh.shape_keys.key_blocks:
-            morphdict[sk.name] = [v.co[:] for v in sk.data]
+    if target_key == '' and msk:
+        for sk in msk.key_blocks:
+            morphdict[sk.name] = [(v.co * sf)[:] for v in sk.data]
 
     #log.debug(f"....Vertex 18 at {[round(v,2) for v in verts[18]]}")
     return verts, weights, morphdict
@@ -1680,6 +1760,52 @@ def all_vertex_groups(weightdict):
             val.add(g)
     return val
 
+
+def get_effective_colormaps(mesh):
+    """ Return the colormaps we want to use
+        Returns colormap, alphamap
+        Either may be null
+        """
+    if not mesh.vertex_colors:
+        return None, None
+
+    vc = mesh.vertex_colors
+    am = None
+    cm = vc.active.data
+
+    if vc.active.name == ALPHA_MAP_NAME:
+        cm = None
+        if vc.items()[0][0] == ALPHA_MAP_NAME and len(vc) > 1:
+            cm = vc.items()[1][1]
+        else:
+            cm = vc.items()[0][1]
+
+    if ALPHA_MAP_NAME in vc.keys():
+        am = vc[ALPHA_MAP_NAME].data
+
+    return cm, am
+
+def get_loop_color(mesh, loopindex, cm, am):
+    """ Return the color of the vertex-in-loop at given loop index using
+        cm = color map to use
+        am = alpha map to use """
+    ### This routine crashes on the TEST_COLLISION_MULTI test. One of the leeks
+    ### causes a crash on the color table. 
+    log.debug(f"Calling get_loop_color with {mesh}, {loopindex}, {cm}:{len(cm)}, {am}:{len(am)}")
+    log.debug(f"Test color: {cm[5].color[:]}")
+    vc = mesh.vertex_colors
+    alpha = 1.0
+    color = (1.0, 1.0, 1.0)
+    if cm:
+        log.debug( f"Loop index less than color length {loopindex} < {len(cm)}")
+        color = cm[loopindex].color
+    if am:
+        log.debug(f"Loop index less than alpha length {loopindex} < {len(am)}")
+        acolor = am[loopindex].color
+        alpha = (acolor[0] + acolor[1] + acolor[2])/3
+
+    return (color[0], color[1], color[2], alpha)
+    
 
 def mesh_from_key(editmesh, verts, target_key):
     faces = []
@@ -1925,7 +2051,8 @@ class NifExporter:
         bglist = []
         for bg in self.bg_data: 
             bglist.append( (bg['BSBehaviorGraphExtraData_Name'], 
-                            bg['BSBehaviorGraphExtraData_Value']) )
+                            bg['BSBehaviorGraphExtraData_Value'], 
+                            bg['BSBehaviorGraphExtraData_CBS']) )
             self.objs_written[bg.name] = self.nif
 
         if len(bglist) > 0:
@@ -2283,9 +2410,13 @@ class NifExporter:
         log.debug(f"Partitions for export: {partitions.keys()}, {tri_indices[0:20]}")
         return list(partitions.values()), tri_indices
 
+
     def extract_colors(self, mesh):
         """Extract vertex color data from the given mesh. Use the VERTEX_ALPHA color map
-            for alpha values if it exists."""
+            for alpha values if it exists.
+            Returns [c.color[:] for c in editmesh.vertex_colors.active.data]
+                This is 1:1 with loops
+            """
         vc = mesh.vertex_colors
         alphamap = None
         alphamapname = ''
@@ -2322,12 +2453,13 @@ class NifExporter:
             loopcolors[i] = c
 
         return loopcolors
-        #loopcolors = [c.color[:] for c in editmesh.vertex_colors.active.data]
 
-    def extract_mesh_data(self, obj, target_key):
+
+    def extract_mesh_data(self, obj, arma, target_key):
         """ 
-        Extract the mesh data from the given object
+        Extract the triangularized mesh data from the given object
             obj = object being exported
+            arma = controlling armature, if any. Needed so we can limit bone weights.
             target_key = shape key to export
         returns
             verts = list of XYZ vertex locations
@@ -2339,13 +2471,14 @@ class NifExporter:
             morphdict = {shape-key: [verts...], ...} only if "target_key" is NOT specified
         NOTE this routine changes selection and switches to edit mode and back
         """
-        originalmesh = obj.data
-        editmesh = originalmesh.copy()
-        saved_sk = obj.active_shape_key_index
-        obj.data = editmesh
+        #originalmesh = obj.data
+        #editmesh = originalmesh.copy()
+        #saved_sk = obj.active_shape_key_index
+        #obj.data = editmesh
+        editmesh = obj.data
         loopcolors = None
         
-        original_rot = obj.rotation_euler[:]
+        #original_rot = obj.rotation_euler[:]
         #if self.rotate_model:
         #    obj.rotation_euler = (original_rot[0], original_rot[1], original_rot[2]+pi)
 
@@ -2355,11 +2488,11 @@ class NifExporter:
             bpy.context.view_layer.objects.active = obj
         
             # If scales aren't uniform, apply them before export
-            if (round(obj.scale[0], 4) != round(obj.scale[1], 4)) \
-                    or (round(obj.scale[0], 4) != round(obj.scale[2], 4)):
-                log.warning(f"Object {obj.name} scale not uniform, applying before export") 
-                self.objs_scale.add('SCALE')
-                bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+            #if (round(obj.scale[0], 4) != round(obj.scale[1], 4)) \
+            #        or (round(obj.scale[0], 4) != round(obj.scale[2], 4)):
+            #    log.warning(f"Object {obj.name} scale not uniform, applying before export") 
+            #    self.objs_scale.add('SCALE')
+            #    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
         
             # This next little dance ensures the mesh.vertices locations are correct
             obj.active_shape_key_index = 0
@@ -2368,18 +2501,20 @@ class NifExporter:
         
             # Can't get custom normals out of a bmesh (known limitation). Can't triangulate
             # a regular mesh except through the operator. 
-            log.info("..Triangulating mesh")
-            select_all_faces(editmesh)
-            bpy.ops.object.mode_set(mode = 'EDIT') # Required to convert to tris
-            bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
+            #log.info("..Triangulating mesh")
+            #select_all_faces(editmesh)
+            #bpy.ops.object.mode_set(mode = 'EDIT') # Required to convert to tris
+            #bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
         
-            for p in editmesh.polygons:
-                p.use_smooth = True
+            #for p in editmesh.polygons:
+            #    p.use_smooth = True
         
             editmesh.update()
          
-            verts, weights_by_vert, morphdict = extract_vert_info(obj, editmesh, target_key)
+            verts, weights_by_vert, morphdict \
+                = extract_vert_info(obj, editmesh, arma, target_key)
         
+            # Pull out vertex colors first because trying to access them later crashes
             bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
             if len(editmesh.vertex_colors) > 0:
                 loopcolors = self.extract_colors(editmesh)
@@ -2395,26 +2530,39 @@ class NifExporter:
                 not editmesh.has_custom_normals:
                 editmesh = mesh_from_key(editmesh, verts, target_key)
         
-            loops, uvs, norms = extract_face_info(editmesh, uvlayer, use_loop_normals=editmesh.has_custom_normals)
+            #loops = [lp.vertex_index for lp in editmesh.loops]
+            #uvs = []
+            #for f in editmesh.polygons:
+            #    for i in f.loop_indices:
+            #        uvs.append(uvlayer[i].uv[:])
+            
+            # Extracting and triangularizing
+            loops, uvs, norms, loopcolors = extract_face_info(editmesh, uvlayer, loopcolors, use_loop_normals=editmesh.has_custom_normals)
         
             log.info("..Splitting mesh along UV seams")
-            mesh_split_by_uv(verts, norms, loops, uvs, weights_by_vert, morphdict)
-            # Old UV map had dups where verts were split; new matches 1-1 with verts
+            mesh_split_by_uv(verts, loops, norms, uvs, weights_by_vert, morphdict)
+            #log.info(f"..Loops as split: {loops}")
+
+            # Make uv and norm lists 1:1 with verts (rather than with loops)
+            log.debug(f"Length verts={len(verts)}, len loops={len(loops)}, len uvs={len(uvs)}, len norms={len(norms)}")
             uvmap_new = [(0.0, 0.0)] * len(verts)
             norms_new = [(0.0, 0.0, 0.0)] * len(verts)
-            for i, lp in enumerate(loops):
-                assert lp < len(verts), f"Error: Invalid vert index in loops: {lp} >= {len(verts)}"
-                uvmap_new[lp] = uvs[i]
-                norms_new[lp] = norms[i]
+            for i, vi in enumerate(loops):
+                assert vi < len(verts), f"Error: Invalid vert index in loops: {vi} >= {len(verts)}"
+                uvmap_new[vi] = uvs[i]
+                norms_new[vi] = norms[i]
         
-            # Our "loops" list matches 1:1 with the mesh's loops. So we can use the polygons
-            # to pull the loops
+            ## Our "loops" list matches 1:1 with the mesh's loops. So we can use the polygons
+            ## to pull the loops
+            #tris = []
+            #for p in editmesh.polygons:
+            #    tris.append((loops[p.loop_start], loops[p.loop_start+1], loops[p.loop_start+2]))
             tris = []
-            for p in editmesh.polygons:
-                tris.append((loops[p.loop_start], loops[p.loop_start+1], loops[p.loop_start+2]))
+            for i in range(0, len(loops), 3):
+                tris.append((loops[i], loops[i+1], loops[i+2]))
         
             colors_new = None
-            if loopcolors:
+            if len(loopcolors) > 0:
                 log.debug(f"..Exporting vertex colors for shape {obj.name}")
                 colors_new = [(0.0, 0.0, 0.0, 0.0)] * len(verts)
                 for i, lp in enumerate(loops):
@@ -2423,9 +2571,10 @@ class NifExporter:
                 log.debug(f"..No vertex colors in shape {obj.name}")
         
         finally:
-            obj.rotation_euler = original_rot
-            obj.data = originalmesh
-            obj.active_shape_key_index = saved_sk
+            #obj.rotation_euler = original_rot
+            #obj.data = originalmesh
+            #obj.active_shape_key_index = saved_sk
+            pass
 
         return verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict
 
@@ -2477,22 +2626,26 @@ class NifExporter:
 
     def get_bone_xform(self, b:bpy_types.Bone) -> Matrix:
         """ Return the local transform represented by the bone """
-        #bonexf = get_bone_global_xf(b, self.game)
-        boneloc = b.head_local
-        try:
-            bonerot = Quaternion(b['pynXform'])
-        except:
-            log.debug(f"No 'pynXform' property on {b.name}")
-            bonerot = Quaternion()
-        bonexf = MatrixLocRotScale(boneloc, bonerot, (1,1,1))
+        bonexf = get_bone_global_xf(b, self.game)
+        #boneloc = b.head_local
+        #try:
+        #    bonerot = Quaternion(b['pynXform'])
+        #except:
+        #    log.debug(f"No 'pynXform' property on {b.name}")
+        #    bonerot = Quaternion()
+        #bonexf = MatrixLocRotScale(boneloc, bonerot, (1,1,1))
         # log.debug(f"{b.name} global transform: \n{bonexf}")
 
         if b.parent and (self.flags & ImportFlags.PRESERVE_HIERARCHY):
             # Calculate the relative transform from the parent
-            boneloc = b.head_local - b.parent.head_local
-            parentq = Quaternion(b.parent['pynXform'])
-            bonerot.rotate(parentq.inverted())
-            boneloc.rotate(parentq.inverted())
+            boneloc, bonerot, bonescale = bonexf.decompose()
+            parloc, parrot, parscale = get_bone_global_xf(b.parent, self.game).decompose()
+
+            boneloc -= parloc
+            # parentq = Quaternion(b.parent['pynXform'])
+            bonerot.rotate(parrot.inverted())
+            boneloc.rotate(parrot.inverted())
+
             bonexf = MatrixLocRotScale(boneloc, bonerot, (1,1,1))
             # log.debug(f"{b.name} local transform: \n{bonexf}")
 
@@ -2697,7 +2850,7 @@ class NifExporter:
                 retval.add('GAME')
 
         verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict = \
-           self.extract_mesh_data(obj, target_key)
+           self.extract_mesh_data(obj, arma, target_key)
 
         is_headpart = obj.data.shape_keys \
                 and len(self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
@@ -2737,6 +2890,12 @@ class NifExporter:
                 new_shape.shader_attributes.shaderflags2_set(ShaderFlags2.VERTEX_COLORS)
             else:
                 new_shape.shader_attributes.shaderflags2_clear(ShaderFlags2.VERTEX_COLORS)
+            log.debug(f"Object {obj.name} has vertex color maps {[vc.name for vc in obj.data.vertex_colors]}")
+            if ALPHA_MAP_NAME in obj.data.vertex_colors.keys():
+                new_shape.shader_attributes.shaderflags1_set(ShaderFlags1.VERTEX_ALPHA)
+            else:
+                new_shape.shader_attributes.shaderflags1_clear(ShaderFlags1.VERTEX_ALPHA)
+                
             new_shape.save_shader_attributes()
         else:
             log.debug(f"..No material on {obj.name}")
@@ -2746,6 +2905,9 @@ class NifExporter:
 
         #new_xform = obj.matrix_world.copy()
         new_xform = obj.matrix_local.copy()
+        if not has_uniform_scale(obj):
+            l, r, s = new_xform.decompose()
+            new_xform = MatrixLocRotScale(l, r, Vector((1,1,1)))
         
         if is_skinned:
             self.export_skin(obj, arma, new_shape, new_xform, weights_by_vert)
@@ -3049,80 +3211,122 @@ def run_tests():
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
-    if False: # TEST_BPY_ALL or TEST_BONE_MANIPULATIONS:
-        # Test to show we can store an arbitrary rotation in a bone head+tail+roll and 
-        # recover it afterwards. Right now, we can't.
 
-        print('## TEST_BONE_MANIPULATIONS Show our bone manipulations work')
+    if True:
+        test_title("TEST_CHANGE_COLLISION", "Changing collision type works correctly")
         clear_all()
 
-        def test_bone(game, boneloc, boneq):
-            log.debug(f"TESTING {game} / {boneloc} / {boneq.axis}, {boneq.angle}")
-            bonexf = MatrixLocRotScale(boneloc, boneq, (1,1,1))
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_CHANGE_COLLISION.nif")
 
-            bhead, btail, broll = transform_to_bone(game, bonexf)
-            log.debug(f"transform_to_bone({game}, {boneq}) -> {bhead}, {btail}, {broll}")
-        
-            xfout = bone_to_transform("FO4", bhead, (btail - bhead)/BONE_LEN, broll)
-            trOut, qOut, scOut = xfout.decompose()
-
-            assert NearEqual(qOut.angle, boneq.angle), f"{game} Angle is correct: {qOut.angle} == {boneq.angle}"
-            assert VNearEqual(qOut.axis, boneq.axis), f"{game} with angle {boneq.angle}, axis is correct: {qOut.axis} == {boneq.axis}"
-
-        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((1,0,0)), radians(90)))
-        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((1,0,0)), radians(45)))
-        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((0,1,0)), radians(90)))
-        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((0,1,0)), radians(45)))
-        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((0,0,1)), radians(90)))
-        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((0,0,1)), radians(45)))
-        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((1,1,0)), radians(90)))
-        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((1,1,0)), radians(45)))
-        test_bone("FO4", 
-                  Vector([-2.6813, -11.7044, 59.6862]), 
-                  Quaternion((0.496972, 0.487948, 0.4868, -0.5271859)))
-        test_bone("SKYRIM", Vector((1,1,1)), Quaternion(Vector((1, 0, 0)), 90))
-        
-
-    if True: # TEST_BPY_ALL or TEST_CUSTOM_BONES:
-        print('## TEST_CUSTOM_BONES Can handle custom bones correctly')
-        clear_all()
-
-        bpy.ops.object.select_all(action='DESELECT')
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\VulpineInariTailPhysics.nif")
-        nifimp = NifImporter(testfile)
-        bone_xform = nifimp.nif.nodes['Bone_Cloth_H_003'].xform_to_global
-        nifimp.execute()
-
-        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_CUSTOM_BONES.nif")
-        for obj in bpy.context.selected_objects:
-            if obj.type == 'MESH':
-                e = NifExporter(outfile, "FO4")
-                e.export([obj])
-
-        test_in = NifFile(outfile)
-        new_xform = test_in.nodes['Bone_Cloth_H_003'].xform_to_global
-        bone_euler = Matrix(bone_xform.rotation).to_euler()
-        new_euler = Matrix(new_xform.rotation).to_euler()
-        log.debug(f"Have rotations old: {bone_euler}, new: {new_euler}")
-        assert VNearEqual(bone_xform.translation, new_xform.translation), f"Error: Bone 'Bone_Cloth_H_003' transform should not change. Expected\n {bone_xform}, found\n {new_xform}"
-        assert MatNearEqual(bone_xform.rotation, new_xform.rotation), f"Error: Bone 'Bone_Cloth_H_003' rotation should not change. Expected\n {bone_xform}, found\n {new_xform}"
-        assert round(bone_xform.scale) == round(new_xform.scale), f"Error: 'Bone_Cloth_H_003' Scale factors should not change. Expected {bone_xform.scale}, found {bone_xform.scale}"
-
-
-    if True: # TEST_BPY_ALL or TEST_CONNECTED_SKEL:
-        print('## TEST_CONNECTED_SKEL Can import connected skeleton')
-
-        bpy.ops.object.select_all(action='DESELECT')
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\vanillaMaleBody.nif")
         NifImporter.do_import(testfile)
 
-        for s in bpy.context.selected_objects:
-            if 'MaleBody.nif' in s.name:
-                assert 'Leg_Thigh.L' in s.data.bones.keys(), "Error: Should have left thigh"
-                lthigh = s.data.bones['Leg_Thigh.L']
-                assert lthigh.parent.name == 'Pelvis', "Error: Thigh should connect to pelvis"
-                assert VNearEqual(lthigh.head_local, (-6.6151, 0.0005, 68.9113)), f"Thigh head in correct location: {lthigh.head_local}"
-                assert VNearEqual(lthigh.tail_local, (-7.2513, -0.1925, 63.9557)), f"Thigh tail in correct location: {lthigh.tail_local}"
+        obj = bpy.context.object
+        coll = find_shape('bhkCollisionObject')
+        collbody = coll.children[0]
+        collshape = find_shape('bhkBoxShape')
+        bged = find_shape("BSBehaviorGraphExtraData")
+        strd = find_shape("NiStringExtraData")
+        bsxf = find_shape("BSXFlags")
+        invm = find_shape("BSInvMarker")
+        assert collshape.name == 'bhkBoxShape', f"Found collision shape"
+        
+        collshape.name = "bhkConvexVerticesShape"
+
+        # ------- Export --------
+
+        # Move the edge of the collision box so it covers the bow better
+        exporter = NifExporter(outfile, 'SKYRIMSE')
+        exporter.export([obj, coll, bged, strd, bsxf, invm])
+
+        # ------- Check Results --------
+
+        nifcheck = NifFile(outfile)
+        midbowcheck = nifcheck.nodes["Bow_MidBone"]
+        collcheck = midbowcheck.collision_object
+        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+        bodycheck = collcheck.body
+        shapecheck = bodycheck.shape
+
+
+    if True: # TEST_BPY_ALL or TEST_SHEATH:
+        test_title("TEST_SHEATH", "Extra data nodes are imported and exported")
+        
+        clear_all()
+
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete(use_global=True, confirm=False)
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/sheath_p1_1.nif")
+        NifImporter.do_import(testfile)
+
+        bgnames = set([obj['BSBehaviorGraphExtraData_Name'] for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")])
+        assert bgnames == set(["BGED"]), f"Error: Expected BG extra data properties, found {bgnames}"
+        snames = set([obj['NiStringExtraData_Name'] for obj in bpy.data.objects if obj.name.startswith("NiStringExtraData")])
+        assert snames == set(["HDT Havok Path", "HDT Skinned Mesh Physics Object"]), f"Error: Expected string extra data properties, found {snames}"
+
+        # Write and check
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHEATH.nif"), 'SKYRIM')
+        exporter.export(bpy.data.objects)
+
+        nifCheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHEATH.nif"))
+        sheathShape = nifCheck.shapes[0]
+
+        names = [x[0] for x in nifCheck.behavior_graph_data]
+        assert "BGED" in names, f"Error: Expected BGED in {names}"
+        bgedCheck = nifCheck.behavior_graph_data[0]
+        log.debug(f"BGED value is {bgedCheck}")
+        assert bgedCheck[1] == "AuxBones\SOS\SOSMale.hkx", f"Extra data value = AuxBones/SOS/SOSMale.hkx: {bgedCheck}"
+        assert bgedCheck[2], f"Extra data controls base skeleton: {bgedCheck}"
+
+        strings = [x[0] for x in nifCheck.string_data]
+        assert "HDT Havok Path" in strings, f"Error expected havoc path in {strings}"
+        assert "HDT Skinned Mesh Physics Object" in strings, f"Error: Expected physics object in {strings}"
+
+
+    if True: # TEST_CHANGE_COLLISION or TEST_BPY_ALL:
+        test_title("TEST_CHANGE_COLLISION", "Changing collision type works correctly")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_CHANGE_COLLISION.nif")
+
+        NifImporter.do_import(testfile)
+
+        obj = bpy.context.object
+        coll = find_shape('bhkCollisionObject')
+        collbody = coll.children[0]
+        collshape = find_shape('bhkBoxShape')
+        bged = find_shape("BSBehaviorGraphExtraData")
+        strd = find_shape("NiStringExtraData")
+        bsxf = find_shape("BSXFlags")
+        invm = find_shape("BSInvMarker")
+        assert collshape.name == 'bhkBoxShape', f"Found collision shape"
+        
+        collshape.name = "bhkConvexVerticesShape"
+
+        # ------- Export --------
+
+        # Move the edge of the collision box so it covers the bow better
+        exporter = NifExporter(outfile, 'SKYRIMSE')
+        exporter.export([obj, coll, bged, strd, bsxf, invm])
+
+        # ------- Check Results --------
+
+        nifcheck = NifFile(outfile)
+        midbowcheck = nifcheck.nodes["Bow_MidBone"]
+        collcheck = midbowcheck.collision_object
+        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+        bodycheck = collcheck.body
+
+        names = [x[0] for x in nifcheck.behavior_graph_data]
+        assert "BGED" in names, f"Error: Expected BGED in {names}"
+        bgedCheck = nifcheck.behavior_graph_data[0]
+        log.debug(f"BGED value is {bgedCheck}")
+        assert bgedCheck == ("BGED", "Weapons\\Bow\\BowProject.hkx", False), f"Extra data value = {bgedCheck}"
+        assert not bgedCheck[2], f"Extra data controls base skeleton: {bgedCheck}"
+
 
 
     if TEST_BPY_ALL:

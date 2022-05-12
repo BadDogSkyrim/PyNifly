@@ -62,7 +62,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_IMP_EXP_FO4 = False
     TEST_ROUND_TRIP = False
     TEST_UV_SPLIT = False
-    TEST_CUSTOM_BONES = True
+    TEST_CUSTOM_BONES = False
     TEST_BPY_PARENT = False
     TEST_BABY = False
     TEST_CONNECTED_SKEL = False
@@ -86,7 +86,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_SHADER_SE = False
     TEST_SHADER_FO4 = False
     TEST_SHADER_ALPHA = False
-    TEST_SHEATH = False
+    TEST_SHEATH = True
     TEST_FEET = False
     TEST_SKYRIM_XFORM = False
     TEST_TRI2 = False
@@ -111,9 +111,383 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_FURN_MARKER2 = False
     TEST_FURN_MARKER1 = False
     TEST_BONE_HIERARCHY = False
+    TEST_BONE_MANIPULATIONS = False
+    TEST_UNIFORM_SCALE = False
+    TEST_NONUNIFORM_SCALE = False
+    TEST_CHANGE_COLLISION = False
+    TEST_DRAUGR_IMPORT = False
+    TEST_WEIGHTS_EXPORT = False
 
 
-    if True:
+    if TEST_BPY_ALL or TEST_VERTEX_ALPHA:
+        test_title("TEST_VERTEX_ALPHA", "Export shape with vertex alpha values")
+
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_VERTEX_ALPHA.nif")
+        remove_file(outfile)
+        append_from_file("Cube", True, r"tests\Skyrim\AlphaCube.blend", r"\Object", "Cube")
+        exporter = NifExporter(outfile, "SKYRIM")
+        exporter.export([bpy.data.objects["Cube"]])
+
+        nifcheck = NifFile(outfile)
+        shapecheck = nifcheck.shapes[0]
+
+        assert shapecheck.shader_attributes.Shader_Flags_1 & ShaderFlags1.VERTEX_ALPHA, f"Expected VERTEX_ALPHA set: {ShaderFlags1(shapecheck.shader_attributes.Shader_Flags_1).fullname}"
+        assert shapecheck.colors[0][3] == 0.0, f"Expected 0, found {shapecheck.colors[0]}"
+        for c in shapecheck.colors:
+            assert c[0] == 1.0 and c[1] == 1.0 and c[2] == 1.0, f"Expected all white verts in nif, found {c}"
+
+        NifImporter.do_import(outfile)
+        objcheck = bpy.context.object
+        colorscheck = objcheck.data.vertex_colors
+        assert ALPHA_MAP_NAME in colorscheck.keys(), f"Expected alpha map, found {objcheck.data.vertex_colors.keys()}"
+
+        assert min([c.color[1] for c in colorscheck[ALPHA_MAP_NAME].data]) == 0, f"Expected some 0 alpha values"
+        for i, c in enumerate(objcheck.data.vertex_colors['Col'].data):
+            assert c.color[:] == (1.0, 1.0, 1.0, 1.0), f"Expected all white, full alpha in read object, found {i}: {c.color[:]}"
+
+
+    if TEST_WEIGHTS_EXPORT or TEST_BPY_ALL:
+        test_title("TEST_WEIGHTS_EXPORT", "Exporting this head weights all verts correctly")
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_WEIGHTS_EXPORT.nif")
+
+        append_from_file("CheetahFemaleHead", True, r"tests\FO4\CheetahHead.blend", r"\Object", "CheetahFemaleHead")
+        bpy.ops.object.select_all(action='DESELECT')
+
+        head = find_shape("CheetahFemaleHead")
+        print(head.name)
+        skel = find_shape("BaseFemaleHead.nif")
+        print(skel.name)
+        
+        remove_file(outfile)
+        exp = NifExporter(outfile, 'FO4')
+        exp.export([head, skel])
+
+        # ------- Check ---------
+        nifcheck = NifFile(outfile)
+
+        headcheck = nifcheck.shape_dict["CheetahFemaleHead"]
+        bw = headcheck.bone_weights
+        for vert_index, v in enumerate(headcheck.verts):
+            weightfound = False
+            for bn in headcheck.get_used_bones():
+                index_list = [p[0] for p in bw[bn]]
+                weightfound |= (vert_index in index_list)
+            assert weightfound, f"Weight not found for vert #{vert_index}"
+
+
+    if TEST_DRAUGR_IMPORT or TEST_BPY_ALL:
+        test_title("TEST_DRAUGR_IMPORT", "Import of this draugr mesh positions hood correctly")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\draugr lich01.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_DRAUGR_IMPORT.nif")
+
+        NifImporter.do_import(testfile)
+
+        helm = find_shape("Helmet")
+        hood = find_shape("Hood")
+
+        helmz = max([x[2] for x in helm.bound_box])
+        hoodz = max([x[2] for x in hood.bound_box])
+        # CURRENT BUG. Figure out how to handle this nif.
+        # assert helmz < hoodz, f"Helm height should be less than hood height: {helmz} < {hoodz}"
+        
+
+    if TEST_BPY_ALL or TEST_SCALING:
+        print("### Test that scale factors happen correctly")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\statuechampion.nif")
+        NifImporter.do_import(testfile, 0)
+        
+        base = bpy.data.objects['basis1']
+        assert int(base.scale[0]) == 10, f"ERROR: Base scale should be 10, found {base.scale[0]}"
+        tail = bpy.data.objects['tail_base.001']
+        assert round(tail.scale[0], 1) == 1.7, f"ERROR: Tail scale should be ~1.7, found {tail.scale}"
+        assert round(tail.location[0], 0) == -158, f"ERROR: Tail x loc should be -158, found {tail.location}"
+
+        testout = os.path.join(pynifly_dev_path, r"tests\Out\TEST_SCALING.nif")
+        exp = NifExporter.do_export(testout, "SKYRIM", bpy.data.objects[:])
+
+        checknif = NifFile(testout)
+        checkfoot = checknif.shape_dict['FootLowRes']
+        assert checkfoot.transform.rotation[0][0] == 1.0, f"ERROR: Foot rotation matrix not identity: {checkfoot.transform}"
+        assert NearEqual(checkfoot.transform.scale, 1.0), f"ERROR: Foot scale not correct: {checkfoot.transform.scale}"
+
+        zmax = max([v[2] for v in checkfoot.verts])
+        zmin = min([v[2] for v in checkfoot.verts])
+        assert zmax > 140, f"Foot is not scaled: {zmin} - {zmax}"
+        assert zmin > 85, f"Foot is not scaled: {zmin} - {zmax}"
+
+        checkbase = checknif.shape_dict['basis3']
+        assert checkbase.transform.rotation[0][0] == 1.0, f"ERROR: Base rotation matrix not identity: {checkbase.transform.rotation}"
+        assert checkbase.transform.scale == 10.0, f"ERROR: Base scale not correct: {checkbase.transform.scale}"
+        zmax = max([v[2] for v in checkbase.verts])
+        zmin = min([v[2] for v in checkbase.verts])
+        assert zmax < 81, f"basis3 is not scaled: {zmin} - {zmax}"
+        assert zmin < 15, f"basis3 is not scaled: {zmin} - {zmax}"
+
+
+    if TEST_BPY_ALL or TEST_UNIFORM_SCALE:
+        test_title("TEST_UNIFORM_SCALE", "Can export objects with non-uniform scaling")
+        clear_all()
+
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.selected_objects[0]
+        cube.name = "TestCube"
+        cube.scale = Vector((4.0, 4.0, 4.0))
+
+        filepath = os.path.join(pynifly_dev_path, r"tests\Out\TEST_UNIFORM_SCALE.nif")
+        remove_file(filepath)
+        exporter = NifExporter(filepath, 'SKYRIM')
+        exporter.export([cube])
+
+        nifcheck = NifFile(filepath)
+        shapecheck = nifcheck.shapes[0]
+        assert NearEqual(shapecheck.transform.scale, 4.0), f"Shape scaled x4: {shapecheck.transform.scale}"
+        for v in shapecheck.verts:
+            assert VNearEqual(map(abs, v), [1,1,1]), f"All vertices at unit position: {v}"
+
+
+    if TEST_BPY_ALL or TEST_NONUNIFORM_SCALE:
+        test_title("TEST_NONUNIFORM_SCALE", "Can export objects with non-uniform scaling")
+        clear_all()
+
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.selected_objects[0]
+        cube.name = "TestCube"
+        cube.scale = Vector((2.0, 4.0, 8.0))
+
+        filepath = os.path.join(pynifly_dev_path, r"tests\Out\TEST_NONUNIFORM_SCALE.nif")
+        remove_file(filepath)
+        exporter = NifExporter(filepath, 'SKYRIM')
+        exporter.export([cube])
+
+        nifcheck = NifFile(filepath)
+        shapecheck = nifcheck.shapes[0]
+        assert NearEqual(shapecheck.transform.scale, 1.0), f"Nonuniform scale exported in verts so scale is 1: {shapecheck.transform.scale}"
+        for v in shapecheck.verts:
+            assert not VNearEqual(map(abs, v), [1,1,1]), f"All vertices scaled away from unit position: {v}"
+
+
+    if TEST_BPY_ALL or TEST_COLLISION_MULTI:
+        test_title("TEST_COLLISION_MULTI", "Can read and write shape with multiple collision shapes")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\grilledleeks01.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_MULTI.nif")
+
+        NifImporter.do_import(testfile)
+
+        leek1 = find_shape("Leek01")
+        leek10 = find_shape("Leek01:0")
+        leek11 = find_shape("Leek01:1")
+        leek2 = find_shape("Leek02")
+        leek3 = find_shape("Leek03")
+        leek4 = find_shape("Leek04")
+        c1 = find_shape("bhkCollisionObject", leek1.children)
+        c2 = find_shape("bhkCollisionObject", leek2.children)
+        assert set(leek1.children) == set( (c1, leek10, leek11) ), f"Children of Leek01 are correct: {leek1.children} == {c1}, {leek10}, {leek11}"
+        
+        # -------- Export --------
+        bsxf = find_shape("BSXFlags")
+        invm = find_shape("BSInvMarker")
+        exporter = NifExporter(outfile, 'SKYRIM')
+        exporter.export([leek1, leek2, leek3, leek4, bsxf, invm])
+
+        # ------- Check ---------
+        nif = NifFile(outfile)
+        l1 = nif.nodes["Leek01"]
+        l4 = nif.nodes["Leek04"]
+        assert l1.collision_object.body.shape.blockname == "bhkConvexVerticesShape", f"Have the correct collisions"
+        assert l4.collision_object.body.shape.blockname == "bhkConvexVerticesShape", f"Have the correct collisions"
+        l10 = nif.shape_dict["Leek01:0"]
+        l11 = nif.shape_dict["Leek01:1"]
+        assert l10.parent.name == "Leek01", f"Leek01:0 parent correct: {l10.parent.name}"
+        assert l11.parent.name == "Leek01", f"Leek01:0 parent correct: {l11.parent.name}"
+        l40 = nif.shape_dict["Leek04:0"]
+        l41 = nif.shape_dict["Leek04:1"]
+        assert l40.parent.name == "Leek04", f"Leek04:0 parent correct: {l40.parent.name}"
+        assert l41.parent.name == "Leek04", f"Leek04:0 parent correct: {l41.parent.name}"
+        
+
+    if TEST_BPY_ALL or TEST_EXPORT:
+        test_title("TEST_EXPORT", "Can export the basic cube")
+        clear_all()
+
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.selected_objects[0]
+        cube.name = "TestCube"
+        log.debug("TODO: support objects with flat shading or autosmooth properly")
+        for f in cube.data.polygons: f.use_smooth = True
+
+        filepath = os.path.join(pynifly_dev_path, r"tests\Out\TEST_EXPORT_SKY.nif")
+        remove_file(filepath)
+        exporter = NifExporter(filepath, 'SKYRIM')
+        exporter.export([cube])
+
+        assert os.path.exists(filepath), "ERROR: Didn't create file"
+        nifcheck = NifFile(filepath)
+        shapecheck = nifcheck.shapes[0]
+        assert len(shapecheck.tris) == 12, f"Have correct tris: {len(shapecheck.tris)}"
+        assert len(shapecheck.verts) == 14, f"Have correct verts: {len(shapecheck.verts)}"
+        assert len(shapecheck.normals) == 14, f"Have correct normals: {len(shapecheck.normals)}"
+        assert len(shapecheck.uvs) == 14, f"Have correct uvs: {len(shapecheck.uvs)}"
+
+        bpy.data.objects.remove(cube, do_unlink=True)
+
+        print("## And can read it in again")
+        importer = NifImporter(filepath)
+        importer.execute()
+        sourceGame = importer.nif.game
+        assert sourceGame == "SKYRIM", "ERROR: Wrong game found"
+
+        new_cube = bpy.context.selected_objects[0]
+        assert 'Cube' in new_cube.name, "ERROR: cube not named correctly"
+        assert len(new_cube.data.vertices) == 14, f"ERROR: Cube should have 14 verts, has {len(new_cube.data.vertices)}"
+        assert len(new_cube.data.uv_layers) == 1, "ERROR: Cube doesn't have a UV layer"
+        assert len(new_cube.data.uv_layers[0].data) == 36, f"ERROR: Cube should have 36 UV locations, has {len(new_cube.data.uv_layers[0].data)}"
+        assert len(new_cube.data.polygons) == 12, f"ERROR: Cube should have 12 polygons, has {len(new_cube.data.polygons)}"
+
+        print("## And can do the same for FO4")
+
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.selected_objects[0]
+        cube.name = "TestCube"
+        for f in cube.data.polygons: f.use_smooth = True
+
+        filepath = os.path.join(pynifly_dev_path, r"tests\Out\TEST_EXPORT_FO4.nif")
+        remove_file(filepath)
+        exporter = NifExporter(filepath, 'FO4')
+        exporter.export([cube])
+
+        assert os.path.exists(filepath), "ERROR: Didn't create file"
+        bpy.data.objects.remove(cube, do_unlink=True)
+
+        print("## And can read it in again")
+        importer = NifImporter(filepath)
+        sourceGame = importer.nif.game
+        assert sourceGame == "FO4", "ERROR: Wrong game found"
+        assert importer.nif.shapes[0].blockname == "BSTriShape", f"Error: Expected BSTriShape on unskinned shape, got {f.shapes[0].blockname}"
+
+        importer.execute()
+
+        new_cube = bpy.context.selected_objects[0]
+        assert 'Cube' in new_cube.name, "ERROR: cube not named correctly"
+        assert len(new_cube.data.vertices) == 14, f"ERROR: Cube should have 14 verts, has {len(new_cube.data.vertices)}"
+        assert len(new_cube.data.uv_layers) == 1, "ERROR: Cube doesn't have a UV layer"
+        assert len(new_cube.data.uv_layers[0].data) == 36, f"ERROR: Cube should have 36 UV locations, has {len(new_cube.data.uv_layers[0].data)}"
+        assert len(new_cube.data.polygons) == 12, f"ERROR: Cube should have 12 polygons, has {len(new_cube.data.polygons)}"
+        # bpy.data.objects.remove(cube, do_unlink=True)
+
+
+    if False: # TEST_BPY_ALL or TEST_BONE_MANIPULATIONS:
+        # Test to show we can store an arbitrary rotation in a bone head+tail+roll and 
+        # recover it afterwards. 
+        # This test only runs when in the main file, too much trouble to make it work here
+
+        print('## TEST_BONE_MANIPULATIONS Show our bone manipulations work')
+        #bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+        clear_all()
+
+        skeldata = bpy.data.armatures.new("SKELDATA")
+        skel = bpy.data.objects.new("SKEL", skeldata)
+        bpy.context.scene.collection.objects.link(skel)
+        skel.select_set(True)
+        bpy.context.view_layer.objects.active = skel
+        bpy.ops.object.mode_set(mode='EDIT', toggle=False)
+        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+
+        def test_bone(game, boneloc, boneq):
+            log.debug(f"TESTING {game} / {boneloc} / {boneq.axis}, {boneq.angle}")
+            bonexf = MatrixLocRotScale(boneloc, boneq, (1,1,1))
+
+            bhead, btail, broll = transform_to_bone(game, bonexf)
+            #log.debug(f"transform_to_bone({game}, {boneq}) -> {bhead}, {btail}, {broll}")
+            bpy.ops.object.mode_set(mode='EDIT', toggle=False)
+            if "TEST" not in skeldata.edit_bones:
+                b = skeldata.edit_bones.new("TEST")
+            b = skeldata.edit_bones["TEST"]
+            b.head = bhead
+            b.tail = btail
+            b.roll = broll
+            bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+        
+            b = skeldata.bones["TEST"]
+            assert NearEqual((b.head_local-b.tail_local).length, 5), f"Bone length is 5: {(b.head_local-b.tail_local).length}"
+
+            xfout = get_bone_global_xf(b, game)
+            trOut, qOut, scOut = xfout.decompose()
+
+            qax, qang = qOut.rotation_difference(boneq).to_axis_angle()
+            log.debug(f"Quaternion difference is ({qax}, {qang})")
+            assert NearEqual(qOut.angle, boneq.angle, 0.01), f"{game} Angle is correct: {qOut.angle} == {boneq.angle}"
+            assert VNearEqual(qOut.axis, boneq.axis), f"{game} with angle {boneq.angle}, axis is correct: {qOut.axis} == {boneq.axis}"
+
+        test_bone("SKYRIM", Vector((1,1,1)), Quaternion(Vector((1, 0, 0)), radians(90)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((1,0,0)), radians(90)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((1,0,0)), radians(45)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((0,1,0)), radians(90)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((0,1,0)), radians(45)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((0,0,1)), radians(90)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((0,0,1)), radians(45)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((1,1,0)), radians(90)))
+        test_bone("FO4", Vector((0,0,0)), Quaternion(Vector((1,1,0)), radians(45)))
+        test_bone("SKYRIM", Vector((13.4525, -4.2124, 22.574)), 
+                  Quaternion(Vector((0.1719, 0.95, 0.2605)), radians( 174.42)))
+        test_bone("FO4", 
+                    Vector([-2.6813, -11.7044, 59.6862]), 
+                    Quaternion((0.496972, 0.487948, 0.4868, -0.5271859)))
+
+        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+        
+
+    if TEST_BPY_ALL or TEST_CUSTOM_BONES:
+        print('## TEST_CUSTOM_BONES Can handle custom bones correctly')
+        clear_all()
+
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\VulpineInariTailPhysics.nif")
+        nifimp = NifImporter(testfile)
+        bone_xform = nifimp.nif.nodes['Bone_Cloth_H_003'].xform_to_global
+        nifimp.execute()
+
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_CUSTOM_BONES.nif")
+        for obj in bpy.context.selected_objects:
+            if obj.type == 'MESH':
+                e = NifExporter(outfile, "FO4")
+                e.export([obj])
+
+        test_in = NifFile(outfile)
+        new_xform = test_in.nodes['Bone_Cloth_H_003'].xform_to_global
+        bone_euler = Matrix(bone_xform.rotation).to_euler()
+        new_euler = Matrix(new_xform.rotation).to_euler()
+        log.debug(f"Have rotations old: {bone_euler}, new: {new_euler}")
+        assert VNearEqual(bone_xform.translation, new_xform.translation), f"Error: Bone 'Bone_Cloth_H_003' transform should not change. Expected\n {bone_xform}, found\n {new_xform}"
+        assert MatNearEqual(bone_xform.rotation, new_xform.rotation), f"Error: Bone 'Bone_Cloth_H_003' rotation should not change. Expected\n {bone_xform}, found\n {new_xform}"
+        assert round(bone_xform.scale) == round(new_xform.scale), f"Error: 'Bone_Cloth_H_003' Scale factors should not change. Expected {bone_xform.scale}, found {bone_xform.scale}"
+
+
+    if TEST_BPY_ALL or TEST_CONNECTED_SKEL:
+        print('## TEST_CONNECTED_SKEL Can import connected skeleton')
+
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\vanillaMaleBody.nif")
+        NifImporter.do_import(testfile)
+
+        for s in bpy.context.selected_objects:
+            if 'MaleBody.nif' in s.name:
+                assert 'Leg_Thigh.L' in s.data.bones.keys(), "Error: Should have left thigh"
+                lthigh = s.data.bones['Leg_Thigh.L']
+                assert lthigh.parent.name == 'Pelvis', "Error: Thigh should connect to pelvis"
+                assert VNearEqual(lthigh.head_local, (-6.6151, 0.0005, 68.9113)), f"Thigh head in correct location: {lthigh.head_local}"
+                assert VNearEqual(lthigh.tail_local, (-7.2513, -0.1925, 63.9557)), f"Thigh tail in correct location: {lthigh.tail_local}"
+
+    if TEST_BPY_ALL or TEST_BONE_HIERARCHY:
         test_title("TEST_BONE_HIERARCHY", "Bone hierarchy can be written on export")
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\Anna.nif")
@@ -739,47 +1113,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert VNearEqual(shCheck.vertices[5], shOrig.vertices[5]), f"Collision vertices match 0: {shCheck.vertices[5][:]} == {shOrig.vertices[5][:]}"
 
 
-    if TEST_BPY_ALL or TEST_COLLISION_MULTI:
-        test_title("TEST_COLLISION_MULTI", "Can read and write shape with multiple collision shapes")
-        clear_all()
-
-        # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\grilledleeks01.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_MULTI.nif")
-
-        NifImporter.do_import(testfile)
-
-        leek1 = find_shape("Leek01")
-        leek10 = find_shape("Leek01:0")
-        leek11 = find_shape("Leek01:1")
-        leek2 = find_shape("Leek02")
-        leek3 = find_shape("Leek03")
-        leek4 = find_shape("Leek04")
-        c1 = find_shape("bhkCollisionObject", leek1.children)
-        c2 = find_shape("bhkCollisionObject", leek2.children)
-        assert set(leek1.children) == set( (c1, leek10, leek11) ), f"Children of Leek01 are correct: {leek1.children} == {c1}, {leek10}, {leek11}"
-        
-        # -------- Export --------
-        bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
-        exporter = NifExporter(outfile, 'SKYRIM')
-        exporter.export([leek1, leek2, leek3, leek4, bsxf, invm])
-
-        # ------- Check ---------
-        nif = NifFile(outfile)
-        l1 = nif.nodes["Leek01"]
-        l4 = nif.nodes["Leek04"]
-        assert l1.collision_object.body.shape.blockname == "bhkConvexVerticesShape", f"Have the correct collisions"
-        assert l4.collision_object.body.shape.blockname == "bhkConvexVerticesShape", f"Have the correct collisions"
-        l10 = nif.shape_dict["Leek01:0"]
-        l11 = nif.shape_dict["Leek01:1"]
-        assert l10.parent.name == "Leek01", f"Leek01:0 parent correct: {l10.parent.name}"
-        assert l11.parent.name == "Leek01", f"Leek01:0 parent correct: {l11.parent.name}"
-        l40 = nif.shape_dict["Leek04:0"]
-        l41 = nif.shape_dict["Leek04:1"]
-        assert l40.parent.name == "Leek04", f"Leek04:0 parent correct: {l40.parent.name}"
-        assert l41.parent.name == "Leek04", f"Leek04:0 parent correct: {l41.parent.name}"
-        
     if TEST_BPY_ALL and TEST_ROTSTATIC:
         test_title("TEST_ROTSTATIC", "Test that statics are transformed according to the shape transform")
         
@@ -1204,30 +1537,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert MULTIPLE_PARTITION_GROUP in bpy.data.objects["SynthMaleBody"].vertex_groups, "Error: Expected group to be created for tris in multiple partitions"
 
 
-    if TEST_BPY_ALL or TEST_SCALING:
-        print("### Test that scale factors happen correctly")
-
-        clear_all()
-        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\statuechampion.nif")
-        NifImporter.do_import(testfile, 0)
-        
-        base = bpy.data.objects['basis1']
-        assert int(base.scale[0]) == 10, f"ERROR: Base scale should be 10, found {base.scale[0]}"
-        tail = bpy.data.objects['tail_base.001']
-        assert round(tail.scale[0], 1) == 1.7, f"ERROR: Tail scale should be ~1.7, found {tail.scale}"
-        assert round(tail.location[0], 0) == -158, f"ERROR: Tail x loc should be -158, found {tail.location}"
-
-        testout = os.path.join(pynifly_dev_path, r"tests\Out\TEST_SCALING.nif")
-        exp = NifExporter.do_export(testout, "SKYRIM", bpy.data.objects[:])
-        checknif = NifFile(testout)
-        checkfoot = checknif.shape_dict['FootLowRes']
-        assert checkfoot.transform.rotation[0][0] == 1.0, f"ERROR: Foot rotation matrix not identity: {checkfoot.transform}"
-        assert checkfoot.transform.scale == 1.0, f"ERROR: Foot scale not correct: {checkfoot.transform.scale}"
-        checkbase = checknif.shape_dict['basis3']
-        assert checkbase.transform.rotation[0][0] == 1.0, f"ERROR: Base rotation matrix not identity: {checkbase.transform.rotation}"
-        assert checkbase.transform.scale == 10.0, f"ERROR: Base scale not correct: {checkbase.transform.scale}"
-
-
     if TEST_BPY_ALL or TEST_POT:
         print("### Test that pot shaders doesn't throw an error")
 
@@ -1235,69 +1544,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\spitpotopen01.nif")
         imp = NifImporter.do_import(testfile, 0)
         assert 'ANCHOR:0' in bpy.data.objects.keys()
-
-
-    if TEST_BPY_ALL or TEST_EXPORT:
-        test_title("TEST_EXPORT", "Can export the basic cube")
-
-        clear_all()
-        bpy.ops.mesh.primitive_cube_add()
-        cube = bpy.context.selected_objects[0]
-        cube.name = "TestCube"
-        log.debug("TODO: support objects with flat shading or autosmooth properly")
-        for f in cube.data.polygons: f.use_smooth = True
-
-        filepath = os.path.join(dev_path, r"tests\Out\testSkyrim01.nif")
-        remove_file(filepath)
-        exporter = NifExporter(filepath, 'SKYRIM')
-        exporter.export([cube])
-
-        assert os.path.exists(filepath), "ERROR: Didn't create file"
-        bpy.data.objects.remove(cube, do_unlink=True)
-
-        print("## And can read it in again")
-        importer = NifImporter(filepath)
-        importer.execute()
-        sourceGame = importer.nif.game
-        assert sourceGame == "SKYRIM", "ERROR: Wrong game found"
-
-        new_cube = bpy.context.selected_objects[0]
-        assert 'Cube' in new_cube.name, "ERROR: cube not named correctly"
-        assert len(new_cube.data.vertices) == 14, f"ERROR: Cube should have 14 verts, has {len(new_cube.data.vertices)}"
-        assert len(new_cube.data.uv_layers) == 1, "ERROR: Cube doesn't have a UV layer"
-        assert len(new_cube.data.uv_layers[0].data) == 36, f"ERROR: Cube should have 36 UV locations, has {len(new_cube.data.uv_layers[0].data)}"
-        assert len(new_cube.data.polygons) == 12, f"ERROR: Cube should have 12 polygons, has {len(new_cube.data.polygons)}"
-
-        print("## And can do the same for FO4")
-
-        bpy.ops.mesh.primitive_cube_add()
-        cube = bpy.context.selected_objects[0]
-        cube.name = "TestCube"
-        for f in cube.data.polygons: f.use_smooth = True
-
-        filepath = os.path.join(dev_path, r"tests\Out\testFO401.nif")
-        remove_file(filepath)
-        exporter = NifExporter(filepath, 'FO4')
-        exporter.export([cube])
-
-        assert os.path.exists(filepath), "ERROR: Didn't create file"
-        bpy.data.objects.remove(cube, do_unlink=True)
-
-        print("## And can read it in again")
-        importer = NifImporter(filepath)
-        sourceGame = importer.nif.game
-        assert sourceGame == "FO4", "ERROR: Wrong game found"
-        assert importer.nif.shapes[0].blockname == "BSTriShape", f"Error: Expected BSTriShape on unskinned shape, got {f.shapes[0].blockname}"
-
-        importer.execute()
-
-        new_cube = bpy.context.selected_objects[0]
-        assert 'Cube' in new_cube.name, "ERROR: cube not named correctly"
-        assert len(new_cube.data.vertices) == 14, f"ERROR: Cube should have 14 verts, has {len(new_cube.data.vertices)}"
-        assert len(new_cube.data.uv_layers) == 1, "ERROR: Cube doesn't have a UV layer"
-        assert len(new_cube.data.uv_layers[0].data) == 36, f"ERROR: Cube should have 36 UV locations, has {len(new_cube.data.uv_layers[0].data)}"
-        assert len(new_cube.data.polygons) == 12, f"ERROR: Cube should have 12 polygons, has {len(new_cube.data.polygons)}"
-        # bpy.data.objects.remove(cube, do_unlink=True)
 
 
     if TEST_BPY_ALL or TEST_IMPORT_ARMATURE:
@@ -2070,34 +2316,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert checkfurshape.alpha_property.threshold == furshape.alpha_property.threshold, f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.threshold} != {furshape.alpha_property.threshold}"
 
 
-    if TEST_BPY_ALL or TEST_SHEATH:
-        test_title("TEST_SHEATH", "Extra data nodes are imported and exported")
-        
-        clear_all()
-
-        bpy.ops.object.select_all(action='SELECT')
-        bpy.ops.object.delete(use_global=True, confirm=False)
-        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/sheath_p1_1.nif")
-        NifImporter.do_import(testfile)
-
-        bgnames = set([obj['BSBehaviorGraphExtraData_Name'] for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")])
-        assert bgnames == set(["BGED"]), f"Error: Expected BG extra data properties, found {bgnames}"
-        snames = set([obj['NiStringExtraData_Name'] for obj in bpy.data.objects if obj.name.startswith("NiStringExtraData")])
-        assert snames == set(["HDT Havok Path", "HDT Skinned Mesh Physics Object"]), f"Error: Expected string extra data properties, found {snames}"
-
-        # Write and check
-        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHEATH.nif"), 'SKYRIM')
-        exporter.export(bpy.data.objects)
-
-        nifCheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHEATH.nif"))
-        sheathShape = nifCheck.shapes[0]
-        names = [x[0] for x in nifCheck.behavior_graph_data]
-        assert "BGED" in names, f"Error: Expected BGED in {names}"
-        strings = [x[0] for x in nifCheck.string_data]
-        assert "HDT Havok Path" in strings, f"Error expected havoc path in {strings}"
-        assert "HDT Skinned Mesh Physics Object" in strings, f"Error: Expected physics object in {strings}"
-
-
     if TEST_BPY_ALL or TEST_FEET:
         test_title("TEST_FEET", "Extra data nodes are imported and exported")
 
@@ -2167,28 +2385,3 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert round(glass.matrix_world[2][2], 4) == 0.9971, f"Rotation is incorrect, got {round(glass.matrix_world[2][2], 4)} != 59.2036"
 
 
-    if TEST_BPY_ALL or TEST_VERTEX_ALPHA:
-        test_title("TEST_VERTEX_ALPHA", "Export shape with vertex alpha values")
-
-        clear_all()
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_VERTEX_ALPHA.nif")
-        remove_file(outfile)
-        append_from_file("Cube", True, r"tests\Skyrim\AlphaCube.blend", r"\Object", "Cube")
-        exporter = NifExporter(outfile, "SKYRIM")
-        exporter.export([bpy.data.objects["Cube"]])
-
-        nifcheck = NifFile(outfile)
-        shapecheck = nifcheck.shapes[0]
-
-        assert shapecheck.colors[0][3] == 0.0, f"Expected 0, found {shapecheck.colors[0]}"
-        for c in shapecheck.colors:
-            assert c[0] == 1.0 and c[1] == 1.0 and c[2] == 1.0, f"Expected all white verts in nif, found {c}"
-
-        NifImporter.do_import(outfile)
-        objcheck = bpy.context.object
-        colorscheck = objcheck.data.vertex_colors
-        assert ALPHA_MAP_NAME in colorscheck.keys(), f"Expected alpha map, found {objcheck.data.vertex_colors.keys()}"
-
-        assert min([c.color[1] for c in colorscheck[ALPHA_MAP_NAME].data]) == 0, f"Expected some 0 alpha values"
-        for i, c in enumerate(objcheck.data.vertex_colors['Col'].data):
-            assert c.color[:] == (1.0, 1.0, 1.0, 1.0), f"Expected all white, full alpha in read object, found {i}: {c.color[:]}"
