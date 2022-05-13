@@ -653,8 +653,9 @@ skyrimExpressions = [
     ('Squint.L', 'SquintLeft'), 
 	('Squint.R', 'SquintRight'), 
 	('Th', 'Th'), 
-	('W', 'W'), 
-	('VampireMorph', 'VampireMorph')]
+	('W', 'W') #, 
+	#('VampireMorph', 'VampireMorph')
+	]
 
 skyrimParts = [
     BodyPart(30, "SBP_30_HEAD"),
