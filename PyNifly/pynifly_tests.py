@@ -119,6 +119,122 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_WEIGHTS_EXPORT = False
 
 
+    #if TEST_BPY_ALL or TEST_CHANGE_COLLISION:
+    #    test_title("TEST_CHANGE_COLLISION", "Changing collision type works correctly")
+    #    clear_all()
+
+    #    # ------- Load --------
+    #    testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+    #    outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_CHANGE_COLLISION.nif")
+
+    #    NifImporter.do_import(testfile)
+
+    #    obj = bpy.context.object
+    #    coll = find_shape('bhkCollisionObject')
+    #    collbody = coll.children[0]
+    #    collshape = find_shape('bhkBoxShape')
+    #    bged = find_shape("BSBehaviorGraphExtraData")
+    #    strd = find_shape("NiStringExtraData")
+    #    bsxf = find_shape("BSXFlags")
+    #    invm = find_shape("BSInvMarker")
+    #    assert collshape.name == 'bhkBoxShape', f"Found collision shape"
+        
+    #    collshape.name = "bhkConvexVerticesShape"
+
+    #    # ------- Export --------
+
+    #    # Move the edge of the collision box so it covers the bow better
+    #    exporter = NifExporter(outfile, 'SKYRIMSE')
+    #    exporter.export([obj, coll, bged, strd, bsxf, invm])
+
+    #    # ------- Check Results --------
+
+    #    nifcheck = NifFile(outfile)
+    #    midbowcheck = nifcheck.nodes["Bow_MidBone"]
+    #    collcheck = midbowcheck.collision_object
+    #    assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+    #    bodycheck = collcheck.body
+    #    shapecheck = bodycheck.shape
+
+
+    if TEST_BPY_ALL or TEST_SHEATH:
+        test_title("TEST_SHEATH", "Extra data nodes are imported and exported")
+        
+        clear_all()
+
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete(use_global=True, confirm=False)
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/sheath_p1_1.nif")
+        NifImporter.do_import(testfile)
+
+        bgnames = set([obj['BSBehaviorGraphExtraData_Name'] for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")])
+        assert bgnames == set(["BGED"]), f"Error: Expected BG extra data properties, found {bgnames}"
+        snames = set([obj['NiStringExtraData_Name'] for obj in bpy.data.objects if obj.name.startswith("NiStringExtraData")])
+        assert snames == set(["HDT Havok Path", "HDT Skinned Mesh Physics Object"]), f"Error: Expected string extra data properties, found {snames}"
+
+        # Write and check
+        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHEATH.nif"), 'SKYRIM')
+        exporter.export(bpy.data.objects)
+
+        nifCheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHEATH.nif"))
+        sheathShape = nifCheck.shapes[0]
+
+        names = [x[0] for x in nifCheck.behavior_graph_data]
+        assert "BGED" in names, f"Error: Expected BGED in {names}"
+        bgedCheck = nifCheck.behavior_graph_data[0]
+        log.debug(f"BGED value is {bgedCheck}")
+        assert bgedCheck[1] == "AuxBones\SOS\SOSMale.hkx", f"Extra data value = AuxBones/SOS/SOSMale.hkx: {bgedCheck}"
+        assert bgedCheck[2], f"Extra data controls base skeleton: {bgedCheck}"
+
+        strings = [x[0] for x in nifCheck.string_data]
+        assert "HDT Havok Path" in strings, f"Error expected havoc path in {strings}"
+        assert "HDT Skinned Mesh Physics Object" in strings, f"Error: Expected physics object in {strings}"
+
+
+    if TEST_CHANGE_COLLISION or TEST_BPY_ALL:
+        test_title("TEST_CHANGE_COLLISION", "Changing collision type works correctly")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_CHANGE_COLLISION.nif")
+
+        NifImporter.do_import(testfile)
+
+        obj = bpy.context.object
+        coll = find_shape('bhkCollisionObject')
+        collbody = coll.children[0]
+        collshape = find_shape('bhkBoxShape')
+        bged = find_shape("BSBehaviorGraphExtraData")
+        strd = find_shape("NiStringExtraData")
+        bsxf = find_shape("BSXFlags")
+        invm = find_shape("BSInvMarker")
+        assert collshape.name == 'bhkBoxShape', f"Found collision shape"
+        
+        collshape.name = "bhkConvexVerticesShape"
+
+        # ------- Export --------
+
+        # Move the edge of the collision box so it covers the bow better
+        exporter = NifExporter(outfile, 'SKYRIMSE')
+        exporter.export([obj, coll, bged, strd, bsxf, invm])
+
+        # ------- Check Results --------
+
+        nifcheck = NifFile(outfile)
+        midbowcheck = nifcheck.nodes["Bow_MidBone"]
+        collcheck = midbowcheck.collision_object
+        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+        bodycheck = collcheck.body
+
+        names = [x[0] for x in nifcheck.behavior_graph_data]
+        assert "BGED" in names, f"Error: Expected BGED in {names}"
+        bgedCheck = nifcheck.behavior_graph_data[0]
+        log.debug(f"BGED value is {bgedCheck}")
+        assert bgedCheck == ("BGED", "Weapons\\Bow\\BowProject.hkx", False), f"Extra data value = {bgedCheck}"
+        assert not bgedCheck[2], f"Extra data controls base skeleton: {bgedCheck}"
+
+
     if TEST_BPY_ALL or TEST_VERTEX_ALPHA:
         test_title("TEST_VERTEX_ALPHA", "Export shape with vertex alpha values")
 

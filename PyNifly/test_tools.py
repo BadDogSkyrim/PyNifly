@@ -1,13 +1,14 @@
 """Helper routins for tests"""
 
 import sys
+import os
 import os.path
 import pathlib
 import logging
 import bpy
 import bpy_types
 
-pynifly_dev_root = r"C:\Users\User\OneDrive\Dev"
+pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
 pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
 
 
