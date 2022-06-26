@@ -3150,7 +3150,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 self.report({'WARNING'}, f"Some faces have been assigned to no partition, which should not happen for skinned body parts.\n{exporter.objs_no_part}")
                 rep = True
             if len(exporter.arma_game) > 0:
-                self.report({'WARNING'}, f"The armature appears to be designed for a different game--check that it's correct\nArmature: {exporter.arma_game}, game: {exportf.game}")
+                self.report({'WARNING'}, f"The armature appears to be designed for a different game--check that it's correct\nArmature: {exporter.arma_game}, game: {exporter.game}")
                 rep = True
             if 'NOTHING' in exporter.warnings:
                 self.report({'WARNING'}, f"No mesh selected; nothing to export")
