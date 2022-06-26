@@ -1,0 +1,27 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.2.32516.85
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "PyNifly", "PyNifly.pyproj", "{8380EB06-23CD-43FF-8322-E9C4FE92924D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Package|Any CPU = Package|Any CPU
+		Release|Any CPU = Release|Any CPU
+		Test|Any CPU = Test|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8380EB06-23CD-43FF-8322-E9C4FE92924D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8380EB06-23CD-43FF-8322-E9C4FE92924D}.Package|Any CPU.ActiveCfg = Package|Any CPU
+		{8380EB06-23CD-43FF-8322-E9C4FE92924D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8380EB06-23CD-43FF-8322-E9C4FE92924D}.Test|Any CPU.ActiveCfg = Test|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {C56D06D8-6D0D-48BF-B25E-972A6B4D3579}
+	EndGlobalSection
+EndGlobal

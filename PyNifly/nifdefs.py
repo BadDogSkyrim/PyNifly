@@ -41,11 +41,31 @@ class PynIntFlag(IntFlag):
 
     @classmethod
     def parse(cls, value):
-        valuelist = value.split(" | ")
+        if len(value) == 0:
+            return 0
+        valuelist = value.split("|")
         flags = 0
         for v in valuelist:
-            flags |= cls[v]
+            try:
+                flags |= cls[v.strip()]
+            except:
+                flags |= int(v, 0)
         return flags
+
+class PynIntEnum(IntEnum):
+    @classmethod
+    def GetName(cls, i):
+        try:
+            return cls(i).name
+        except:
+            return str(i)
+
+    @classmethod
+    def GetValue(cls, nm):
+        try:
+            return cls[nm].value
+        except:
+            return int(nm, 0)
 
 
 VECTOR3 = c_float * 3
@@ -838,7 +858,7 @@ class FurnitureMarkerBuf(pynStructure):
         ("animation_type", c_uint16),
         ("entry_points", c_uint16) ]
 
-class FurnAnimationType(IntEnum):
+class FurnAnimationType(PynIntEnum):
     SIT = 1
     SLEEP = 2
     LEAN = 4 
