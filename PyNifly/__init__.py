@@ -33,6 +33,7 @@ import re
 import codecs
 from typing import Collection
 
+logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
 log = logging.getLogger("pynifly")
 log.info(f"Loading pynifly version {bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}")
 
@@ -1451,7 +1452,7 @@ def import_tri(filepath, cobj):
     if cobj:
         log.debug(f"Importing with selected object {cobj.name}, type {cobj.type}")
         if cobj.type == "MESH":
-            log.debug(f"Selected mesh vertex match: {len(cobj.data.vertices)}/{len(tri.vertices)}")
+            log.debug(f"Selected mesh vertex match: {cobj.name} {len(cobj.data.vertices)} =? {len(tri.vertices)}")
 
     # Check whether selected object should receive shape keys
     if cobj and cobj.type == "MESH" and len(cobj.data.vertices) == len(tri.vertices):
@@ -1542,66 +1543,15 @@ def select_all_faces(mesh):
         p.select = True
 
 
-def extract_face_info(mesh, uvlayer, loopcolors, use_loop_normals=False):
-    """ Extract face info from the mesh. Mesh is triangularized. 
-        Return 
-        loops = [vert-index, ...] list of vert indices in loops. Triangularized, 
-            so these are read in triples.
-        uvs = [(u,v), ...] list of uv coordinates 1:1 with loops
-        norms = [(x,y,z), ...] list of normal vectors 1:1 with loops
-            --Normal vectors come from the loops, because they reflect whether the edges
-            are sharp or the object has flat shading
-        colors = [(r,g,b,a), ...] 1:1 with loops
-    """
-    loops = []
-    uvs = []
-    orig_uvs = []
-    norms = []
-    colors = []
-    # colormap, alphamap = get_effective_colormaps(mesh)
-
-    # Calculating normals messes up the passed-in UV, so get the data out of it first
-    for f in mesh.polygons:
-        for i in f.loop_indices:
-            orig_uvs.append(uvlayer[i].uv[:])
-            #log.debug(f"....Adding uv index {uvlayer[i].uv[:]}")
-
-    # CANNOT figure out how to get the loop normals correctly.  They seem to follow the
-    # face normals even on smooth shading.  (TEST_NORMAL_SEAM tests for this.) So use the
-    # vertex normal except when there are custom split normals.
-    bpy.ops.object.mode_set(mode='OBJECT') #required to get accurate normals
-    mesh.calc_normals()
-    mesh.calc_normals_split()
-
-    def write_loop_vert(theloops, norms, uvs, loopseg, mesh, orig_uvs):
-        theloops.append(loopseg.vertex_index)
-        uvs.append(orig_uvs[loopseg.index])
-        #if colormap or alphamap:
-        #    colors.append(get_loop_color(mesh, loopseg.index, colormap, alphamap))
-        if loopcolors:
-            colors.append(loopcolors[loopseg.index])
-        if use_loop_normals:
-            norms.append(loopseg.normal[:])
-        else:
-            norms.append(mesh.vertices[loopseg.vertex_index].normal[:])
-
-    # Write out the loops as triangles
-    for f in mesh.polygons:
-        if f.loop_total < 3:
-            log.warning(f"Degenerate polygons on {mesh.name}: 0={l0}, 1={l1}")
-        else:
-            #log.debug(f"Writing verts for polygon start={f.loop_start}, total={f.loop_total}")
-            l0 = mesh.loops[f.loop_start]
-            l1 = mesh.loops[f.loop_start+1]
-            for i in range(f.loop_start+2, f.loop_start+f.loop_total):
-                loopseg = mesh.loops[i]
-                #log.debug(f"Writing triangle: {l0.vertex_index}, {l1.vertex_index}, {loopseg.vertex_index}")
-                write_loop_vert(loops, norms, uvs, l0, mesh, orig_uvs)
-                write_loop_vert(loops, norms, uvs, l1, mesh, orig_uvs)
-                write_loop_vert(loops, norms, uvs, loopseg, mesh, orig_uvs)
-                l1 = loopseg
-
-    return loops, uvs, norms, colors
+def check_partitions(vi1, vi2, vi3, weights):
+    """ Chcek whether the = 3 verts (specified by index) all have the same partitions 
+        weights = [dict[group-name: weight], ...] vertex weights, 1:1 with verts
+       """
+    p1 = set([k for k in weights[vi1].keys() if is_partition(k)])
+    p2 = set([k for k in weights[vi2].keys() if is_partition(k)])
+    p3 = set([k for k in weights[vi3].keys() if is_partition(k)])
+    log.debug(f"Checking tri: {p1}, {p2}, {p3}")
+    return len(p1.intersection(p2, p3)) > 0
 
 
 def trim_to_four(weights, arma):
@@ -1720,6 +1670,21 @@ def expected_game(nif, bonelist):
     matchgame = best_game_fit(bonelist)
     return matchgame == "" or matchgame == nif.game or \
         (matchgame in ['SKYRIM', 'SKYRIMSE'] and nif.game in ['SKYRIM', 'SKYRIMSE'])
+
+
+def is_partition(name):
+    """ Check whether <name> is a valid partition or segment name """
+    if SkyPartition.name_match(name) >= 0:
+        return True
+
+    if FO4Segment.name_match(name) >= 0:
+        return True
+
+    parent_name, subseg_id, material = FO4Subsegment.name_match(name)
+    if parent_name:
+        return True
+
+    return False
 
 
 def partitions_from_vert_groups(obj):
@@ -1854,6 +1819,7 @@ class NifExporter:
         self.armature = None
         self.facebones = None
         self.flags = export_flags
+        self.active_obj = None
 
         # Objects that are to be written out
         self.objects = set()
@@ -2367,6 +2333,105 @@ class NifExporter:
                     self.objs_written[coll.name] = targnode
 
 
+    def get_loop_partitions(self, face, loops, weights):
+        vi1 = loops[face.loop_start].vertex_index
+        p = set([k for k in weights[vi1].keys() if is_partition(k)])
+        for i in range(face.loop_start+1, face.loop_start+face.loop_total):
+            vi = loops[i].vertex_index
+            p = p.intersection(set([k for k in weights[vi].keys() if is_partition(k)]))
+    
+        if len(p) != 1:
+            face_verts = [lp.vertex_index for lp in loops[face.loop_start:face.loop_start+face.loop_total]]
+            if len(p) == 0:
+                log.warning(f'Face {face.index} has no partitions')
+                self.warnings.add('NO_PARTITION')
+                self.objs_no_part.add(self.active_obj)
+                create_group_from_verts(self.active_obj, NO_PARTITION_GROUP, face_verts)
+                return 0
+            elif len(p) > 1:
+                log.warning(f'Face {face.index} has too many partitions: {p}')
+                self.warnings.add('MANY_PARITITON')
+                self.objs_mult_part.add(self.active_obj)
+                create_group_from_verts(self.active_obj, MULTIPLE_PARTITION_GROUP, face_verts)
+
+        return p.pop()
+
+
+    def extract_face_info(self, mesh, uvlayer, loopcolors, weights, obj_partitions, use_loop_normals=False):
+        """ Extract triangularized face info from the mesh. 
+            Return 
+            loops = [vert-index, ...] list of vert indices in loops. Triangularized, 
+                so these are to be read in triples.
+            uvs = [(u,v), ...] list of uv coordinates 1:1 with loops
+            norms = [(x,y,z), ...] list of normal vectors 1:1 with loops
+                --Normal vectors come from the loops, because they reflect whether the edges
+                are sharp or the object has flat shading
+            colors = [(r,g,b,a), ...] 1:1 with loops
+            partition_map = [n, ...] list of partition IDs, 1:1 with tris 
+
+        """
+        loops = []
+        uvs = []
+        orig_uvs = []
+        norms = []
+        colors = []
+        partition_map = []
+
+        # Calculating normals messes up the passed-in UV, so get the data out of it first
+        for f in mesh.polygons:
+            for i in f.loop_indices:
+                orig_uvs.append(uvlayer[i].uv[:])
+                #log.debug(f"....Adding uv index {uvlayer[i].uv[:]}")
+
+        # CANNOT figure out how to get the loop normals correctly.  They seem to follow the
+        # face normals even on smooth shading.  (TEST_NORMAL_SEAM tests for this.) So use the
+        # vertex normal except when there are custom split normals.
+        bpy.ops.object.mode_set(mode='OBJECT') #required to get accurate normals
+        mesh.calc_normals()
+        mesh.calc_normals_split()
+
+        def write_loop_vert(loopseg):
+            """ Write one vert, given as a MeshLoop 
+            """
+            loops.append(loopseg.vertex_index)
+            uvs.append(orig_uvs[loopseg.index])
+            #if colormap or alphamap:
+            #    colors.append(get_loop_color(mesh, loopseg.index, colormap, alphamap))
+            if loopcolors:
+                colors.append(loopcolors[loopseg.index])
+            if use_loop_normals:
+                norms.append(loopseg.normal[:])
+            else:
+                norms.append(mesh.vertices[loopseg.vertex_index].normal[:])
+
+        # Write out the loops as triangles, and partitions to match
+        for f in mesh.polygons:
+            if f.loop_total < 3:
+                log.warning(f"Degenerate polygons on {mesh.name}: 0={l0}, 1={l1}")
+            else:
+                if obj_partitions and len(obj_partitions) > 0:
+                    loop_partition = self.get_loop_partitions(f, mesh.loops, weights)
+                #log.debug(f"Writing verts for polygon start={f.loop_start}, total={f.loop_total}, partition={loop_partition}")
+                l0 = mesh.loops[f.loop_start]
+                l1 = mesh.loops[f.loop_start+1]
+                for i in range(f.loop_start+2, f.loop_start+f.loop_total):
+                    loopseg = mesh.loops[i]
+
+                    #log.debug(f"Writing triangle: [{l0.vertex_index}, {l1.vertex_index}, {loopseg.vertex_index}]")
+                    write_loop_vert(l0)
+                    write_loop_vert(l1)
+                    write_loop_vert(loopseg)
+                    if obj_partitions and len(obj_partitions) > 0:
+                        if loop_partition:
+                            partition_map.append(obj_partitions[loop_partition].id)
+                        else:
+                            partition_map.append(obj_partitions[0].id)
+                    #log.debug(f"Created tri with partition {loop_partition}")
+                    l1 = loopseg
+
+        return loops, uvs, norms, colors, partition_map
+
+
     def export_partitions(self, obj, weights_by_vert, tris):
         """ Export partitions described by vertex groups
             weights = [dict[group-name: weight], ...] vertex weights, 1:1 with verts. For 
@@ -2410,7 +2475,7 @@ class NifExporter:
                 self.objs_no_part.add(obj)
                 create_group_from_verts(obj, NO_PARTITION_GROUP, t)
 
-        log.debug(f"Partitions for export: {partitions.keys()}, {tri_indices[0:20]}")
+        #log.debug(f"Partitions for export: {partitions.keys()}, {tri_indices[0:20]}")
         return list(partitions.values()), tri_indices
 
 
@@ -2474,44 +2539,19 @@ class NifExporter:
             morphdict = {shape-key: [verts...], ...} only if "target_key" is NOT specified
         NOTE this routine changes selection and switches to edit mode and back
         """
-        #originalmesh = obj.data
-        #editmesh = originalmesh.copy()
-        #saved_sk = obj.active_shape_key_index
-        #obj.data = editmesh
         editmesh = obj.data
         loopcolors = None
         
-        #original_rot = obj.rotation_euler[:]
-        #if self.rotate_model:
-        #    obj.rotation_euler = (original_rot[0], original_rot[1], original_rot[2]+pi)
-
         try:
             bpy.ops.object.select_all(action='DESELECT')
             obj.select_set(True)
             bpy.context.view_layer.objects.active = obj
-        
-            # If scales aren't uniform, apply them before export
-            #if (round(obj.scale[0], 4) != round(obj.scale[1], 4)) \
-            #        or (round(obj.scale[0], 4) != round(obj.scale[2], 4)):
-            #    log.warning(f"Object {obj.name} scale not uniform, applying before export") 
-            #    self.objs_scale.add('SCALE')
-            #    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-        
+                
             # This next little dance ensures the mesh.vertices locations are correct
             obj.active_shape_key_index = 0
             bpy.ops.object.mode_set(mode = 'EDIT')
             bpy.ops.object.mode_set(mode = 'OBJECT')
-        
-            # Can't get custom normals out of a bmesh (known limitation). Can't triangulate
-            # a regular mesh except through the operator. 
-            #log.info("..Triangulating mesh")
-            #select_all_faces(editmesh)
-            #bpy.ops.object.mode_set(mode = 'EDIT') # Required to convert to tris
-            #bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
-        
-            #for p in editmesh.polygons:
-            #    p.use_smooth = True
-        
+                
             editmesh.update()
          
             verts, weights_by_vert, morphdict \
@@ -2532,15 +2572,13 @@ class NifExporter:
                 target_key in editmesh.shape_keys.key_blocks.keys() and \
                 not editmesh.has_custom_normals:
                 editmesh = mesh_from_key(editmesh, verts, target_key)
-        
-            #loops = [lp.vertex_index for lp in editmesh.loops]
-            #uvs = []
-            #for f in editmesh.polygons:
-            #    for i in f.loop_indices:
-            #        uvs.append(uvlayer[i].uv[:])
-            
+                    
             # Extracting and triangularizing
-            loops, uvs, norms, loopcolors = extract_face_info(editmesh, uvlayer, loopcolors, use_loop_normals=editmesh.has_custom_normals)
+            partitions = partitions_from_vert_groups(obj)
+            loops, uvs, norms, loopcolors, partition_map = \
+                self.extract_face_info(
+                    editmesh, uvlayer, loopcolors, weights_by_vert, partitions,
+                    use_loop_normals=editmesh.has_custom_normals)
         
             log.info("..Splitting mesh along UV seams")
             mesh_split_by_uv(verts, loops, norms, uvs, weights_by_vert, morphdict)
@@ -2579,7 +2617,8 @@ class NifExporter:
             #obj.active_shape_key_index = saved_sk
             pass
 
-        return verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict
+        return verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, \
+            morphdict, partitions, partition_map
 
 
     def export_shape_parents(self, obj):
@@ -2795,7 +2834,7 @@ class NifExporter:
                             texturepath = ""
 
                     if len(texturepath) > 0:
-                        log.debug(f"....Writing diffuse texture path {textureslot}: '{texturepath}'")
+                        #log.debug(f"....Writing diffuse texture path {textureslot}: '{texturepath}'")
                         shape.set_texture(textureslot, texturepath)
 
             # Write alpha if any after the textures
@@ -2828,6 +2867,7 @@ class NifExporter:
             """
         if obj.name in self.objs_written:
             return
+        self.active_obj = obj
 
         my_parent = self.export_shape_parents(obj)
 
@@ -2852,7 +2892,8 @@ class NifExporter:
                 log.warning(f"Exporting to game that doesn't match armature: game={self.nif.game}, armature={arma.name}")
                 retval.add('GAME')
 
-        verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict = \
+        verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict, \
+            partitions, partition_map = \
            self.extract_mesh_data(obj, arma, target_key)
 
         is_headpart = obj.data.shape_keys \
@@ -2919,12 +2960,14 @@ class NifExporter:
                 log.warning("Some vertices are not weighted to the armature in object {obj.name}")
                 self.objs_unweighted.add(obj)
 
-            partitions, tri_indices = self.export_partitions(obj, weights_by_vert, tris)
+            # partitions, tri_indices = self.export_partitions(obj, weights_by_vert, tris)
             if len(partitions) > 0:
                 if 'FO4_SEGMENT_FILE' in obj.keys():
                     log.debug(f"....Writing segment file {obj['FO4_SEGMENT_FILE']}")
                     new_shape.segment_file = obj['FO4_SEGMENT_FILE']
-                new_shape.set_partitions(partitions, tri_indices)
+
+                # log.debug(f"Partitions for export: {partitions.keys()}, {partition_map[0:20]}")
+                new_shape.set_partitions(partitions.values(), partition_map)
 
             self.export_collisions([c for c in arma.children if c.name.startswith("bhkCollisionObject")])
         else:
@@ -3215,35 +3258,19 @@ def run_tests():
     # pynifly_tests.py when stable.
 
 
-    if True: # TEST_BPY_ALL or TEST_FO4_CHAIR:
-        test_title("TEST_FO4_CHAIR", "Extra data nodes are imported and exported")
-        
+    if True: # TEST_BPY_ALL or TEST_MULT_PART:
+        test_title("TEST_MULT_PART", "Export shape with face that might fall into multiple partititions")
+
         clear_all()
 
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\FederalistChairOffice01.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_FO4_CHAIR.nif")
-        NifImporter.do_import(testfile, 0)
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_MULT_PART.nif")
+        remove_file(outfile)
+        append_from_file("MaleHead", True, r"tests\SkyrimSE\multiple_partitions.blend", r"\Object", "MaleHead")
+        exporter = NifExporter(outfile, "SKYRIMSE")
+        obj = bpy.data.objects["MaleHead"]
+        exporter.export([obj])
 
-        fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
-        
-        assert len(fmarkers) == 4, f"Found furniture markers: {fmarkers}"
-        mk = bpy.data.objects['BSFurnitureMarkerNode']
-        assert VNearEqual(mk.rotation_euler, (-pi/2, 0, 0)), \
-            f"Marker {mk.name} points the right direction: {mk.rotation_euler, (-pi/2, 0, 0)}"
-
-        # -------- Export --------
-        chair = find_shape("FederalistChairOffice01:2")
-        fmrk = list(filter(lambda x: x.name.startswith('BSFurnitureMarkerNode'), bpy.data.objects))
-        
-        exporter = NifExporter(outfile, 'FO4')
-        exporter.export([chair] + fmrk)
-
-        # --------- Check ----------
-        nifcheck = NifFile(outfile)
-        fmcheck = nifcheck.furniture_markers
-
-        assert len(fmcheck) == 4, f"Wrote the furniture marker correctly: {len(fmcheck)}"
-        assert fmcheck[0].entry_points == 0, f"Entry point data is correct: {fmcheck[0].entry_points}"
+        assert "*MULTIPLE_PARTITIONS*" not in obj.vertex_groups, f"Exported without throwing *MULTIPLE_PARTITIONS* error"
 
 
 
@@ -3263,6 +3290,7 @@ def run_tests():
 
 if __name__ == "__main__":
     try:
+        log.setLevel(logging.DEBUG)
         do_run_tests = False
         if RUN_TESTS == True:
             do_run_tests = True

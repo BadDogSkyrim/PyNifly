@@ -41,7 +41,6 @@ def get_image_node(node_input):
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_BPY_ALL = True
-    TEST_EXP_BODY = False
     TEST_IMP_NORMALS = False
     TEST_COTH_DATA = False
     TEST_MUTANT = False
@@ -77,7 +76,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_ROGUE02 = False
     TEST_NORMAL_SEAM = False
     TEST_COLORS = False
-    TEST_HEADPART = False
+    TEST_HEADPART = True
     TEST_FACEBONES = False
     TEST_FACEBONE_EXPORT = False
     TEST_TIGER_EXPORT = False
@@ -86,7 +85,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_SHADER_SE = False
     TEST_SHADER_FO4 = False
     TEST_SHADER_ALPHA = False
-    TEST_SHEATH = True
+    TEST_SHEATH = False
     TEST_FEET = False
     TEST_SKYRIM_XFORM = False
     TEST_TRI2 = False
@@ -117,6 +116,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_CHANGE_COLLISION = False
     TEST_DRAUGR_IMPORT = False
     TEST_WEIGHTS_EXPORT = False
+    TEST_FO4_CHAIR = False
 
 
     #if TEST_BPY_ALL or TEST_CHANGE_COLLISION:
@@ -155,6 +155,37 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     #    assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
     #    bodycheck = collcheck.body
     #    shapecheck = bodycheck.shape
+
+
+    if TEST_BPY_ALL or TEST_FO4_CHAIR:
+        test_title("TEST_FO4_CHAIR", "Extra data nodes are imported and exported")
+        
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\FederalistChairOffice01.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_FO4_CHAIR.nif")
+        NifImporter.do_import(testfile, 0)
+
+        fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
+        
+        assert len(fmarkers) == 4, f"Found furniture markers: {fmarkers}"
+        mk = bpy.data.objects['BSFurnitureMarkerNode']
+        assert VNearEqual(mk.rotation_euler, (-pi/2, 0, 0)), \
+            f"Marker {mk.name} points the right direction: {mk.rotation_euler, (-pi/2, 0, 0)}"
+
+        # -------- Export --------
+        chair = find_shape("FederalistChairOffice01:2")
+        fmrk = list(filter(lambda x: x.name.startswith('BSFurnitureMarkerNode'), bpy.data.objects))
+        
+        exporter = NifExporter(outfile, 'FO4')
+        exporter.export([chair] + fmrk)
+
+        # --------- Check ----------
+        nifcheck = NifFile(outfile)
+        fmcheck = nifcheck.furniture_markers
+
+        assert len(fmcheck) == 4, f"Wrote the furniture marker correctly: {len(fmcheck)}"
+        assert fmcheck[0].entry_points == 0, f"Entry point data is correct: {fmcheck[0].entry_points}"
 
 
     if TEST_BPY_ALL or TEST_SHEATH:
@@ -313,7 +344,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         
 
     if TEST_BPY_ALL or TEST_SCALING:
-        print("### Test that scale factors happen correctly")
+        test_title("TEST_SCALING", "Test that scale factors happen correctly")
 
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\statuechampion.nif")
@@ -655,7 +686,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
 
     if TEST_BPY_ALL or TEST_FURN_MARKER1:
-        print("### TEST_FURN_MARKER1: Furniture markers work")
+        test_title("TEST_FURN_MARKER1", "Furniture markers work")
 
         clear_all()
 
@@ -686,7 +717,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
 
     if TEST_BPY_ALL or TEST_FURN_MARKER2:
-        print("### TEST_FURN_MARKER2: Furniture markers work")
+        test_title("TEST_FURN_MARKER2", "Furniture markers work")
 
         clear_all()
 
@@ -1253,7 +1284,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
 
     if TEST_BPY_ALL or TEST_EXP_SEGMENTS_BAD:
-        print("### TEST_EXP_SEGMENTS_BAD: Verts export in the correct segments")
+        test_title("TEST_EXP_SEGMENTS_BAD", "Verts export in the correct segments")
         clear_all()
         outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SEGMENTS_BAD.nif")
         remove_file(outfile)
@@ -1430,7 +1461,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
     if (TEST_BPY_ALL or TEST_EXP_SK_RENAMED) and bpy.app.version[0] >= 3:
         # Doesn't work on 2.x. Not sure why.
-        print("### TEST_EXP_SK_RENAMED: Ensure renamed shape keys export properly")
+        test_title("TEST_EXP_SK_RENAMED", "Ensure renamed shape keys export properly")
         clear_all()
         outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SK_RENAMED.nif")
         trifile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_SK_RENAMED.tri")
@@ -1460,24 +1491,8 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert 'Smile.L' in obj.data.shape_keys.key_blocks, f"Expected key 'Smile.L' in {obj.data.shape_keys.key_blocks.keys()}"
 
 
-    if TEST_BPY_ALL or TEST_EXP_BODY:
-        print("### TEST_EXP_BODY: Ensure body does not cause a CTD on export")
-        clear_all()
-        remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_BODY.nif"))
-
-        append_from_file("FeralGhoulBase", True, r"tests\FO4\FeralGhoulBaseTEST.blend", r"\Object", "FeralGhoulBase")
-
-        NifFile.clear_log()
-        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_BODY.nif"), 
-                               'FO4')
-        exporter.export([bpy.data.objects["FeralGhoulBase"]])
-        assert "ERROR" not in NifFile.message_log(), f"Error: Expected no error message, got: \n{NifFile.message_log()}---\n"
-
-        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXP_BODY.nif"))
-        assert len(nif1.shapes) == 1, f"Expected body nif"
-
     if TEST_IMP_NORMALS:
-        print("### TEST_IMP_NORMALS: Can import normals from nif shape")
+        test_title("TEST_IMP_NORMALS", "Can import normals from nif shape")
         clear_all()
 
         testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/cube.nif")
@@ -1491,7 +1506,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
 
     if TEST_BPY_ALL or TEST_COTH_DATA:
-        print("### TEST_COTH_DATA: Can read and write cloth data")
+        test_title("TEST_COTH_DATA", "Can read and write cloth data")
         clear_all()
 
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/HairLong01.nif")
@@ -1512,7 +1527,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
 
     if TEST_BPY_ALL or TEST_BAD_TRI:
-        print("### TEST_BAD_TRI: Tris with messed up UVs can be imported")
+        test_title("TEST_BAD_TRI", "Tris with messed up UVs can be imported")
         clear_all()
 
         testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/bad_tri.tri")
@@ -1525,7 +1540,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
 
     if TEST_BPY_ALL or TEST_TIGER_EXPORT:
-        print("### TEST_TIGER_EXPORT: Tiger head exports without errors")
+        test_title("TEST_TIGER_EXPORT", "Tiger head exports without errors")
 
         clear_all()
         remove_file(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"))
@@ -1565,7 +1580,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert arma2.name == arma.name, f"Should have parented to same armature: {arma2.name} != {arma.name}"
 
     if TEST_BPY_ALL or TEST_MUTANT:
-        print("### TEST_MUTANT: Test that the supermutant body imports correctly the *second* time")
+        test_title("TEST_MUTANT", "Test that the supermutant body imports correctly the *second* time")
 
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/testsupermutantbody.nif")
@@ -1581,7 +1596,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         
     if TEST_BPY_ALL or TEST_RENAME:
-        print("### TEST_RENAME: Test that renaming bones works correctly")
+        test_title("TEST_RENAME", "Test that renaming bones works correctly")
 
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\femalebody_1.nif")
@@ -1598,7 +1613,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
 
     if TEST_BPY_ALL or TEST_BONE_XPORT_POS:
-        print("### Test that bones named like vanilla bones but from a different skeleton export to the correct position")
+        test_title("TEST_BONE_XPORT_POS", "Test that bones named like vanilla bones but from a different skeleton export to the correct position")
 
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\draugr.nif")
@@ -1622,7 +1637,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
 
     if TEST_BPY_ALL or TEST_EXPORT_HANDS:
-        print("### TEST_EXPORT_HANDS: Test that hand mesh doesn't throw an error")
+        test_title("TEST_EXPORT_HANDS", "Test that hand mesh doesn't throw an error")
 
         outfile1 = os.path.join(pynifly_dev_path, r"tests/Out/TEST_EXPORT_HANDS.nif")
         remove_file(outfile1)
@@ -1638,7 +1653,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
     if (TEST_BPY_ALL or TEST_PARTITION_ERRORS) and bpy.app.version[0] >= 3:
         # Doesn't run on 2.x, don't know why
-        print("### TEST_PARTITION_ERRORS: Partitions with errors raise errors")
+        test_title("TEST_PARTITION_ERRORS", "Partitions with errors raise errors")
 
         clear_all()
 
@@ -1654,7 +1669,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
 
     if TEST_BPY_ALL or TEST_POT:
-        print("### Test that pot shaders doesn't throw an error")
+        test_title("TEST_POT", "Test that pot shaders doesn't throw an error")
 
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\spitpotopen01.nif")
@@ -2190,6 +2205,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
     if TEST_BPY_ALL or TEST_HEADPART:
         test_title("TEST_HEADPART", "Can read & write an SE head part")
+        clear_all()
 
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests/SKYRIMSE/malehead.nif")
