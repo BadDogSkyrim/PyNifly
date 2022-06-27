@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -1979,7 +1979,8 @@ class NifExporter:
                     triname = self.nif.dict.morph_dic_game[m]
                 else:
                     triname = m
-                tri.morphs[triname] = morphdict[m]
+                if m in morphdict:
+                    tri.morphs[triname] = morphdict[m]
     
             log.info(f"Generating tri file '{fname_tri}'")
             tri.write(fname_tri) # Only expression morphs to write at this point
@@ -1992,7 +1993,8 @@ class NifExporter:
             tri.uv_pos = uvs
             tri.face_uvs = tris # (because 1:1 with verts)
             for m in chargen_morphs:
-                tri.morphs[m] = morphdict[m]
+                if m in morphdict:
+                    tri.morphs[m] = morphdict[m]
     
             log.info(f"Generating tri file '{fname_chargen}'")
             tri.write(fname_chargen, chargen_morphs)
@@ -3256,6 +3258,22 @@ def run_tests():
 
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
+
+
+    if True: # TEST_BPY_ALL or TEST_SK_MULT:
+        test_title("TEST_SK_MULT", "Export multiple objects with only some shape keys")
+
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT.nif")
+        remove_file(outfile)
+
+        append_from_file("CheMaleMane", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "CheMaleMane")
+        append_from_file("MaleTail", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "MaleTail")
+        exporter = NifExporter(outfile, "SKYRIMSE")
+        exporter.export([bpy.data.objects["CheMaleMane"], bpy.data.objects["MaleTail"]])
+
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT.nif"))
+        assert len(nif1.shapes) == 2, "Wrote the file successfully"
 
 
     if True: # TEST_BPY_ALL or TEST_MULT_PART:
