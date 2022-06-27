@@ -90,6 +90,7 @@ GLOSS_SCALE = 100
 COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5)
 
 BONE_LEN = 5
+ROLL_ADJUST = 0 # -pi/2
 
 
 class ImportFlags(IntFlag):
@@ -173,7 +174,7 @@ def qtobone(boneq:Quaternion, axis:str):
     return v, t
 
 def transform_to_bone(game:str, nodexf:Matrix):
-    """ Turns a bone global transform into the equivalent bone 
+    """ Turns a nif bone global transform into the equivalent Blender bone 
         nodexf = bone transform (4x4 Matrix)
         parentxf = bone transform of parent, if any
         game = game we are making the bone for
@@ -185,7 +186,7 @@ def transform_to_bone(game:str, nodexf:Matrix):
     bonehead, rot, s = nodexf.decompose()
     axis = game_axes[game]
     bonevec, roll = qtobone(rot, axis)
-    return bonehead, bonehead + (bonevec * BONE_LEN), roll  
+    return bonehead, bonehead + (bonevec * BONE_LEN), roll + ROLL_ADJUST 
 
 #def bone_to_transform(game, bonehead:Vector, boneaxis:Vector, boneroll:float) -> Matrix:
 #    ax = boneaxis.copy()
@@ -200,7 +201,7 @@ def bonetoq(vec:Vector, roll:float, axis:str):
     rotates the unit vector on the axis to the input vector, with the roll."""
     bv = bone_vectors[axis].copy()
     q = bv.rotation_difference(vec)
-    rollq = Quaternion(bv, roll)
+    rollq = Quaternion(bv, roll - ROLL_ADJUST)
     return q @ rollq
 
 def get_bone_global_xf(bone:bpy_types.Bone, game:str) -> Quaternion:
