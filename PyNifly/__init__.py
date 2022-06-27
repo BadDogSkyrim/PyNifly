@@ -3272,7 +3272,7 @@ def run_tests():
         exporter = NifExporter(outfile, "SKYRIMSE")
         exporter.export([bpy.data.objects["CheMaleMane"], bpy.data.objects["MaleTail"]])
 
-        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT.nif"))
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT_1.nif"))
         assert len(nif1.shapes) == 2, "Wrote the file successfully"
 
 
