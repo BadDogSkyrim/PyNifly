@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (5, 6, 0),  
+    "version": (5, 6, 1),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -37,11 +37,13 @@ logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
 log = logging.getLogger("pynifly")
 log.info(f"Loading pynifly version {bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}")
 
-pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
-pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
-nifly_path = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll")
+nifly_path = None
+if 'PYNIFLY_DEV_ROOT' in os.environ:
+    pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
+    pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
+    nifly_path = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll")
 
-if os.path.exists(nifly_path):
+if nifly_path and os.path.exists(nifly_path):
     log.debug(f"PyNifly dev path: {pynifly_dev_path}")
     if pynifly_dev_path not in sys.path:
         sys.path.insert(0, pynifly_dev_path)
