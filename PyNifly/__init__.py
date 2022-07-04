@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (5, 6, 1),  
+    "version": (5, 7, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -2429,7 +2429,8 @@ class NifExporter:
                         if loop_partition:
                             partition_map.append(obj_partitions[loop_partition].id)
                         else:
-                            partition_map.append(obj_partitions[0].id)
+                            log.warning(f"Writing first partition for face without partitions {obj_partitions}")
+                            partition_map.append(next(iter(obj_partitions.values())).id)
                     #log.debug(f"Created tri with partition {loop_partition}")
                     l1 = loopseg
 
@@ -3261,6 +3262,22 @@ def run_tests():
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
+
+    if True: # TEST_BPY_ALL or TEST_HYENA_PARTITIONS:
+        test_title("TEST_HYENA_PARTITIONS", "Partitions export successfully, with warning")
+
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_HYENA_PARTITIONS.nif")
+        remove_file(outfile)
+
+        append_from_file("HyenaMaleHead", True, r"tests\FO4\HyenaHead.blend", r"\Object", "HyenaMaleHead")
+        append_from_file("Skeleton", True, r"tests\FO4\HyenaHead.blend", r"\Object", "Skeleton")
+        exporter = NifExporter(outfile, "FO4")
+        exporter.export([bpy.data.objects["HyenaMaleHead"], bpy.data.objects["FaceBones.Skel"], bpy.data.objects["Skeleton"]])
+        assert len(exporter.warnings) == 1, f"One warning reported ({exporter.warnings})"
+
+        nif1 = NifFile(outfile)
+        assert len(nif1.shapes) == 1, "Wrote the file successfully"
 
     if True: # TEST_BPY_ALL or TEST_SK_MULT:
         test_title("TEST_SK_MULT", "Export multiple objects with only some shape keys")
