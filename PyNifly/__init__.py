@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (5, 8, 1),  
+    "version": (5, 8, 2),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -1585,7 +1585,7 @@ def extract_vert_info(obj, mesh, arma, target_key=''):
         verts = [(x, y, z)... ] - base or as modified by target-key if provided
         weights = [{group-name: weight}... ] - 1:1 with verts list
         dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
-            if "target_key" is specified this will be empty
+            XXX>if "target_key" is specified this will be empty
             shape key is the blender name
         """
     weights = []
@@ -1613,7 +1613,7 @@ def extract_vert_info(obj, mesh, arma, target_key=''):
         
         weights.append(trim_to_four(vert_weights, arma))
     
-    if target_key == '' and msk:
+    if msk: # and target_key == '' 
         for sk in msk.key_blocks:
             morphdict[sk.name] = [(v.co * sf)[:] for v in sk.data]
 
@@ -1947,7 +1947,9 @@ class NifExporter:
         """
         result = {'FINISHED'}
 
-        if obj.data.shape_keys is None:
+        log.debug(f"export_tris called with {morphdict.keys()}")
+
+        if obj.data.shape_keys is None or len(morphdict) == 0:
             return result
 
         fpath = os.path.split(self.nif.filepath)
@@ -2005,9 +2007,14 @@ class NifExporter:
             tri.write(fname_chargen, chargen_morphs)
 
         if len(trip_morphs) > 0:
-            log.info(f"Generating Bodyslide tri shapes for '{obj.name}'")
-            self.trip.set_morphs(obj.name, morphdict, verts)
-            # log.debug(f"Created tri shapes: {self.trip.shapes.keys()}")
+            log.info(f"Generating Bodyslide tri morphs for '{obj.name}': {morphdict.keys()}")
+            expdict = {}
+            for k, v in morphdict.items():
+                if k[0] == '>':
+                    n = k[1:]
+                    expdict[n] = v
+            self.trip.set_morphs(obj.name, expdict, verts)
+            
         return result
 
 
@@ -2547,7 +2554,7 @@ class NifExporter:
             colors_new = list of RGBA color values 1:1 with verts. May be None.
             tris = list of (t1, t2, t3) vert indices to define triangles
             weights_by_vert = [dict[group-name: weight], ...] 1:1 with verts
-            morphdict = {shape-key: [verts...], ...} only if "target_key" is NOT specified
+            morphdict = {shape-key: [verts...], ...} XXX>only if "target_key" is NOT specified
         NOTE this routine changes selection and switches to edit mode and back
         """
         editmesh = obj.data
@@ -2910,6 +2917,7 @@ class NifExporter:
         verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict, \
             partitions, partition_map = \
            self.extract_mesh_data(obj, arma, target_key)
+        log.debug(f"Export_shape found morphdict: {morphdict.keys()}")
 
         is_headpart = obj.data.shape_keys \
                 and len(self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
@@ -3075,6 +3083,7 @@ class NifExporter:
             self.message_log.append(self.nif.message_log())
 
         if len(self.trip.shapes) > 0:
+            log.debug(f"First shape in trip file has shapes: {self.trip.shapes[next(iter(self.trip.shapes))].keys()}")
             self.trip.write(self.trippath)
             log.info(f"..Wrote {self.trippath}")
 
@@ -3284,6 +3293,41 @@ def run_tests():
 
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
+
+    if True: # TEST_BPY_ALL or TEST_TRIP:
+        test_title("TEST_TRIP_SE", "Bodypart tri extra data and file are written on export")
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP_SE.nif")
+        outfile1 = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP_SE_1.nif")
+        outfiletrip = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP_SE.tri")
+
+        append_from_file("Penis_CBBE", True, r"tests\SkyrimSE\HorseFuta.blend", 
+                         r"\Object", "Penis_CBBE")
+        bpy.ops.object.select_all(action='DESELECT')
+        obj = find_shape("Penis_CBBE")
+
+        remove_file(outfile)
+        export = NifExporter(outfile, 'SKYRIMSE')
+        export.export([obj])
+
+        print(' ------- Check --------- ')
+        nifcheck = NifFile(outfile1)
+
+        bodycheck = nifcheck.shape_dict["Penis_CBBE"]
+        assert bodycheck.name == "Penis_CBBE", f"Penis found in nif"
+
+        stringdata = bodycheck.string_data
+        assert stringdata, f"Found string data: {stringdata}"
+        sd = stringdata[0]
+        assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
+        assert sd[1].endswith("TEST_TRIP_SE.tri"), f"Found correct filename"
+
+        tripcheck = TripFile.from_file(outfiletrip)
+        assert len(tripcheck.shapes) == 1, f"Found shape"
+        bodymorphs = tripcheck.shapes['Penis_CBBE']
+        assert len(bodymorphs) == 27, f"Found enough morphs: {len(bodymorphs)}"
+        assert "CrotchBack" in bodymorphs.keys(), f"Found 'CrotchBack' in {bodymorphs.keys()}"
+
 
     if True: # TEST_BPY_ALL or TEST_TRIP:
         test_title("TEST_TRIP", "Body tri extra data and file are written on export")
