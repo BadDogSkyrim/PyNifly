@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = False
+RUN_TESTS = True
 TEST_BPY_ALL = False
 
 
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (5, 7, 0),  
+    "version": (5, 8, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -980,7 +980,7 @@ class NifImporter():
                 name = bone_game_name
 
             xf = self.nif.get_node_xform_to_global("NPC Spine1")
-            log.debug(f"make_armature ({name}): Spine1 translation is {xf.translation[:]}")
+            # log.debug(f"make_armature ({name}): Spine1 translation is {xf.translation[:]}")
 
             self.add_bone_to_arma(name, bone_game_name)
         
@@ -1835,6 +1835,7 @@ class NifExporter:
         self.inv_marker = None
         self.furniture_markers = set()
         self.collisions = set()
+        self.trippath = ''
         
         # Shape keys that start with underscore trigger a separate file export
         # for each shape key
@@ -2015,11 +2016,12 @@ class NifExporter:
             Sets self.bodytri_done if one of the extra data nodes represents a bodytri
         """
         sdlist = []
-        for st in self.str_data and self.game == 'FO4':
-            # FO4 bodytris go at the top level
-            sdlist.append( (st['NiStringExtraData_Name'], st['NiStringExtraData_Value']) )
-            self.objs_written[st.name] = self.nif
-            self.bodytri_written |= (st['NiStringExtraData_Name'] == 'BODYTRI')
+        for st in self.str_data:
+            if st['NiStringExtraData_Name'] != 'BODYTRI' or self.game != 'FO4':
+                # FO4 bodytris go at the top level
+                sdlist.append( (st['NiStringExtraData_Name'], st['NiStringExtraData_Value']) )
+                self.objs_written[st.name] = self.nif
+                self.bodytri_written |= (st['NiStringExtraData_Name'] == 'BODYTRI')
 
         if len(sdlist) > 0:
             self.nif.string_data = sdlist
@@ -2993,14 +2995,21 @@ class NifExporter:
         # Write collisions
         self.export_collisions([c for c in obj.children if c.name.startswith("bhkCollisionObject")])
 
+        # Write tri file
+        retval |= self.export_tris(obj, verts, tris, uvmap_new, morphdict)
+
+        # Write TRIP extra data if this is Skyrim
+        if self.game in ['SKYRIM', 'SKYRIMSE'] and len(self.trip.shapes) > 0:
+            new_shape.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
+
         # Remember what we did as defaults for next time
         self.objs_written[obj.name] = new_shape
 
         obj['PYN_GAME'] = self.game
-        arma['PYN_RENAME_BONES'] = (self.flags & ImportFlags.RENAME_BONES) != 0
         obj['PYN_PRESERVE_HIERARCHY'] = (self.flags & ImportFlags.PRESERVE_HIERARCHY) != 0
+        if arma:
+            arma['PYN_RENAME_BONES'] = (self.flags & ImportFlags.RENAME_BONES) != 0
 
-        retval |= self.export_tris(obj, verts, tris, uvmap_new, morphdict)
         log.info(f"..{obj.name} successfully exported to {self.nif.filepath}")
         return retval
 
@@ -3017,8 +3026,12 @@ class NifExporter:
         else:
             shape_keys = self.file_keys
 
+        # One TRIP file is written even if we have variants of the mesh ("_" prefix)
+        fname_ext = os.path.splitext(os.path.basename(self.filepath))
+        self.trip = TripFile()
+        self.trippath = os.path.join(os.path.dirname(self.filepath), fname_ext[0]) + ".tri"
+
         for sk in shape_keys:
-            fname_ext = os.path.splitext(os.path.basename(self.filepath))
             fbasename = fname_ext[0] + sk + suffix
             fnamefull = fbasename + fname_ext[1]
             fpath = os.path.join(os.path.dirname(self.filepath), fnamefull)
@@ -3045,17 +3058,14 @@ class NifExporter:
             if suffix == '_faceBones':
                 self.nif.dict = fo4FaceDict
 
-            self.trip = TripFile()
-            trippath = os.path.join(os.path.dirname(self.filepath), fbasename) + ".tri"
-
             for obj in self.objects:
                 self.export_shape(obj, sk, arma)
                 log.debug(f"Exported shape {obj.name}")
 
             # Check for bodytri morphs--write the extra data node if needed
-            log.debug(f"TRIP data: shapes={len(self.trip.shapes)}, bodytri written: {self.bodytri_written}, filepath: {truncate_filename(trippath, 'meshes')}")
-            if len(self.trip.shapes) > 0 and not self.bodytri_written:
-                self.nif.string_data = [('BODYTRI', truncate_filename(trippath, "meshes"))]
+            log.debug(f"TRIP data: shapes={len(self.trip.shapes)}, bodytri written: {self.bodytri_written}, filepath: {truncate_filename(self.trippath, 'meshes')}")
+            if self.game == 'FO4' and len(self.trip.shapes) > 0 and  not self.bodytri_written:
+                self.nif.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
 
             self.export_collisions([c for c in self.collisions if c.parent == None])
             self.export_extra_data()
@@ -3064,9 +3074,9 @@ class NifExporter:
             log.info(f"..Wrote {fpath}")
             self.message_log.append(self.nif.message_log())
 
-            if len(self.trip.shapes) > 0:
-                self.trip.write(trippath)
-                log.info(f"..Wrote {trippath}")
+        if len(self.trip.shapes) > 0:
+            self.trip.write(self.trippath)
+            log.info(f"..Wrote {self.trippath}")
 
 
     def execute(self):
@@ -3077,12 +3087,12 @@ class NifExporter:
 
         log.debug(f"""
 Exporting objects: {self.objects}
-string data: {self.str_data}
-BG data: {self.bg_data}
-cloth data: {self.cloth_data}
-collisions: {self.collisions}
-armature: {self.armature}
-facebones: {self.facebones}""")
+    string data: {self.str_data}
+    BG data: {self.bg_data}
+    cloth data: {self.cloth_data}
+    collisions: {self.collisions}
+    armature: {self.armature}
+    facebones: {self.facebones}""")
         NifFile.clear_log()
         if self.facebones:
             self.export_file_set(self.facebones, '_faceBones')
@@ -3275,52 +3285,44 @@ def run_tests():
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
-
-    if True: # TEST_BPY_ALL or TEST_HYENA_PARTITIONS:
-        test_title("TEST_HYENA_PARTITIONS", "Partitions export successfully, with warning")
-
-        clear_all()
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_HYENA_PARTITIONS.nif")
-        remove_file(outfile)
-
-        append_from_file("HyenaMaleHead", True, r"tests\FO4\HyenaHead.blend", r"\Object", "HyenaMaleHead")
-        append_from_file("Skeleton", True, r"tests\FO4\HyenaHead.blend", r"\Object", "Skeleton")
-        exporter = NifExporter(outfile, "FO4")
-        exporter.export([bpy.data.objects["HyenaMaleHead"], bpy.data.objects["FaceBones.Skel"], bpy.data.objects["Skeleton"]])
-        assert len(exporter.warnings) == 1, f"One warning reported ({exporter.warnings})"
-
-        nif1 = NifFile(outfile)
-        assert len(nif1.shapes) == 1, "Wrote the file successfully"
-
-    if True: # TEST_BPY_ALL or TEST_SK_MULT:
-        test_title("TEST_SK_MULT", "Export multiple objects with only some shape keys")
-
-        clear_all()
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT.nif")
-        remove_file(outfile)
-
-        append_from_file("CheMaleMane", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "CheMaleMane")
-        append_from_file("MaleTail", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "MaleTail")
-        exporter = NifExporter(outfile, "SKYRIMSE")
-        exporter.export([bpy.data.objects["CheMaleMane"], bpy.data.objects["MaleTail"]])
-
-        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT_1.nif"))
-        assert len(nif1.shapes) == 2, "Wrote the file successfully"
-
-
-    if True: # TEST_BPY_ALL or TEST_MULT_PART:
-        test_title("TEST_MULT_PART", "Export shape with face that might fall into multiple partititions")
-
+    if True: # TEST_BPY_ALL or TEST_SHEATH:
+        test_title("TEST_SHEATH", "Extra data nodes are imported and exported")
         clear_all()
 
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_MULT_PART.nif")
-        remove_file(outfile)
-        append_from_file("MaleHead", True, r"tests\SkyrimSE\multiple_partitions.blend", r"\Object", "MaleHead")
-        exporter = NifExporter(outfile, "SKYRIMSE")
-        obj = bpy.data.objects["MaleHead"]
-        exporter.export([obj])
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete(use_global=True, confirm=False)
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/sheath_p1_1.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHEATH.nif")
+        NifImporter.do_import(testfile)
 
-        assert "*MULTIPLE_PARTITIONS*" not in obj.vertex_groups, f"Exported without throwing *MULTIPLE_PARTITIONS* error"
+        bglist = [obj for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")]
+        slist = [obj for obj in bpy.data.objects if obj.name.startswith("NiStringExtraData")]
+        bgnames = set([obj['BSBehaviorGraphExtraData_Name'] for obj in bglist])
+        assert bgnames == set(["BGED"]), f"Error: Expected BG extra data properties, found {bgnames}"
+        snames = set([obj['NiStringExtraData_Name'] for obj in slist])
+        assert snames == set(["HDT Havok Path", "HDT Skinned Mesh Physics Object"]), \
+            f"Error: Expected string extra data properties, found {snames}"
+
+        # Write and check
+        print('------- Can write extra data -------')
+        exporter = NifExporter(outfile, 'SKYRIM')
+        exporter.export(bpy.data.objects)
+
+
+        print('------ Extra data checks out----')
+        nifCheck = NifFile(outfile)
+        sheathShape = nifCheck.shapes[0]
+
+        names = [x[0] for x in nifCheck.behavior_graph_data]
+        assert "BGED" in names, f"Error: Expected BGED in {names}"
+        bgedCheck = nifCheck.behavior_graph_data[0]
+        log.debug(f"BGED value is {bgedCheck}")
+        assert bgedCheck[1] == "AuxBones\SOS\SOSMale.hkx", f"Extra data value = AuxBones/SOS/SOSMale.hkx: {bgedCheck}"
+        assert bgedCheck[2], f"Extra data controls base skeleton: {bgedCheck}"
+
+        strings = [x[0] for x in nifCheck.string_data]
+        assert "HDT Havok Path" in strings, f"Error expected havoc path in {strings}"
+        assert "HDT Skinned Mesh Physics Object" in strings, f"Error: Expected physics object in {strings}"
 
 
 
