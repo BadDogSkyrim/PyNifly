@@ -160,33 +160,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     #    shapecheck = bodycheck.shape
 
 
-    if TEST_BPY_ALL or TEST_TRIP:
-        test_title("TEST_TRIP", "Body tri extra data and file are written on export")
-        clear_all()
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP.nif")
-
-        append_from_file("BaseMaleBody", True, r"tests\FO4\BodyTalk.blend", r"\Object", "BaseMaleBody")
-        bpy.ops.object.select_all(action='DESELECT')
-        body = find_shape("BaseMaleBody")
-
-        print("Found body: " + body.name)
-
-        remove_file(outfile)
-        export = NifExporter(outfile, 'FO4')
-        export.export([body])
-
-        # ------- Check ---------
-        nifcheck = NifFile(outfile)
-
-        bodycheck = nifcheck.shape_dict["BaseMaleBody"]
-        assert bodycheck.name == "BaseMaleBody", f"Body found in nif"
-
-        stringdata = nifcheck.string_data
-        assert stringdata, f"Found string data: {stringdata}"
-        sd = stringdata[0]
-        assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
-        assert sd[1].endswith("TEST_TRIP.tri"), f"Found correct filename"
-
     if TEST_BPY_ALL or TEST_TRI:
         test_title("TEST_TRI", "Can load a tri file into an existing mesh")
         clear_all()

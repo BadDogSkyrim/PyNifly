@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (5, 8, 0),  
+    "version": (5, 8, 1),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -2005,9 +2005,9 @@ class NifExporter:
             tri.write(fname_chargen, chargen_morphs)
 
         if len(trip_morphs) > 0:
-            log.info(f"Generating BS tri shapes for '{obj.name}'")
+            log.info(f"Generating Bodyslide tri shapes for '{obj.name}'")
             self.trip.set_morphs(obj.name, morphdict, verts)
-
+            # log.debug(f"Created tri shapes: {self.trip.shapes.keys()}")
         return result
 
 
@@ -3284,6 +3284,41 @@ def run_tests():
 
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
+
+    if True: # TEST_BPY_ALL or TEST_TRIP:
+        test_title("TEST_TRIP", "Body tri extra data and file are written on export")
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP.nif")
+        outfiletrip = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP.tri")
+
+        append_from_file("BaseMaleBody", True, r"tests\FO4\BodyTalk.blend", r"\Object", "BaseMaleBody")
+        bpy.ops.object.select_all(action='DESELECT')
+        body = find_shape("BaseMaleBody")
+
+        print("Found body: " + body.name)
+
+        remove_file(outfile)
+        export = NifExporter(outfile, 'FO4')
+        export.export([body])
+
+        print(' ------- Check --------- ')
+        nifcheck = NifFile(outfile)
+
+        bodycheck = nifcheck.shape_dict["BaseMaleBody"]
+        assert bodycheck.name == "BaseMaleBody", f"Body found in nif"
+
+        stringdata = nifcheck.string_data
+        assert stringdata, f"Found string data: {stringdata}"
+        sd = stringdata[0]
+        assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
+        assert sd[1].endswith("TEST_TRIP.tri"), f"Found correct filename"
+
+        tripcheck = TripFile.from_file(outfiletrip)
+        assert len(tripcheck.shapes) == 1, f"Found shape"
+        bodymorphs = tripcheck.shapes['BaseMaleBody']
+        assert len(bodymorphs) > 30, f"Found enough morphs: {len(len(bodymorphs))}"
+        assert "BTShoulders" in bodymorphs.keys(), f"Found 'BTShoulders' in {bodymorphs.keys()}"
+
 
     if True: # TEST_BPY_ALL or TEST_SHEATH:
         test_title("TEST_SHEATH", "Extra data nodes are imported and exported")
