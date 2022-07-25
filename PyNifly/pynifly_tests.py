@@ -76,7 +76,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_ROGUE02 = False
     TEST_NORMAL_SEAM = False
     TEST_COLORS = False
-    TEST_HEADPART = True
+    TEST_HEADPART = False
     TEST_FACEBONES = False
     TEST_FACEBONE_EXPORT = False
     TEST_TIGER_EXPORT = False
@@ -85,7 +85,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_SHADER_SE = False
     TEST_SHADER_FO4 = False
     TEST_SHADER_ALPHA = False
-    TEST_SHEATH = False
+    TEST_SHEATH = True
     TEST_FEET = False
     TEST_SKYRIM_XFORM = False
     TEST_TRI2 = False
@@ -117,6 +117,9 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_DRAUGR_IMPORT = False
     TEST_WEIGHTS_EXPORT = False
     TEST_FO4_CHAIR = False
+    TEST_MULT_PART = False
+    TEST_HYENA_PARTITIONS = False
+    TEST_SK_MULT = False
 
 
     #if TEST_BPY_ALL or TEST_CHANGE_COLLISION:
@@ -157,6 +160,162 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     #    shapecheck = bodycheck.shape
 
 
+    if TEST_BPY_ALL or TEST_TRIP:
+        test_title("TEST_TRIP", "Body tri extra data and file are written on export")
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP.nif")
+
+        append_from_file("BaseMaleBody", True, r"tests\FO4\BodyTalk.blend", r"\Object", "BaseMaleBody")
+        bpy.ops.object.select_all(action='DESELECT')
+        body = find_shape("BaseMaleBody")
+
+        print("Found body: " + body.name)
+
+        remove_file(outfile)
+        export = NifExporter(outfile, 'FO4')
+        export.export([body])
+
+        # ------- Check ---------
+        nifcheck = NifFile(outfile)
+
+        bodycheck = nifcheck.shape_dict["BaseMaleBody"]
+        assert bodycheck.name == "BaseMaleBody", f"Body found in nif"
+
+        stringdata = nifcheck.string_data
+        assert stringdata, f"Found string data: {stringdata}"
+        sd = stringdata[0]
+        assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
+        assert sd[1].endswith("TEST_TRIP.tri"), f"Found correct filename"
+
+    if TEST_BPY_ALL or TEST_TRI:
+        test_title("TEST_TRI", "Can load a tri file into an existing mesh")
+        clear_all()
+
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\CheetahMaleHead.nif")
+        testtri2 = os.path.join(pynifly_dev_path, r"tests\FO4\CheetahMaleHead.tri")
+        testtri3 = os.path.join(pynifly_dev_path, r"tests\FO4\CheetahMaleHead.tri")
+        testout2 = os.path.join(pynifly_dev_path, r"tests\Out\CheetahMaleHead02.nif")
+        testout2tri = os.path.join(pynifly_dev_path, r"tests\Out\CheetahMaleHead02.tri")
+        testout2chg = os.path.join(pynifly_dev_path, r"tests\Out\CheetahMaleHead02_chargen.tri")
+        tricubenif = os.path.join(pynifly_dev_path, r"tests\Out\tricube01.nif")
+        tricubeniftri = os.path.join(pynifly_dev_path, r"tests\Out\tricube01.tri")
+        tricubenifchg = os.path.join(pynifly_dev_path, r"tests\Out\tricube01_chargen.tri")
+        for f in [testout2, testout2tri, testout2chg, tricubenif]:
+            remove_file(f)
+
+        NifImporter.do_import(testfile)
+
+        obj = bpy.context.object
+        if obj.type == "ARMATURE":
+            obj = obj.children[0]
+            bpy.context.view_layer.objects.active = obj
+
+        log.debug(f"Importing tri with {bpy.context.object.name} selected")
+        triobj2 = import_tri(testtri2, obj)
+
+        assert len(obj.data.shape_keys.key_blocks) == 47, f"Error: {obj.name} should have enough keys ({len(obj.data.shape_keys.key_blocks)})"
+
+        print("### Can import a simple tri file")
+
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.context.view_layer.objects.active = None
+        triobj = import_tri(testtri3, None)
+        assert triobj.name.startswith("CheetahMaleHead.tri"), f"Error: Should be named like tri file, found {triobj.name}"
+        assert "LJaw" in triobj.data.shape_keys.key_blocks.keys(), "Error: Should be no keys missing"
+        
+        print('### Can export a shape with tris')
+
+        e = NifExporter(os.path.join(pynifly_dev_path, testout2), "FO4")
+        e.export([triobj])
+        #export_file_set(os.path.join(pynifly_dev_path, testout2), "FO4", [''], [triobj], triobj.parent)
+        
+        print('### Exported shape and tri match')
+        nif2 = NifFile(os.path.join(pynifly_dev_path, testout2))
+        tri2 = TriFile.from_file(os.path.join(pynifly_dev_path, testout2tri))
+        assert not os.path.exists(testout2chg), f"{testout2chg} should not have been created"
+        assert len(nif2.shapes[0].verts) == len(tri2.vertices), f"Error vert count should match, {len(nif2.shapes[0].verts)} vs {len(tri2.vertices)}"
+        assert len(nif2.shapes[0].tris) == len(tri2.faces), f"Error vert count should match, {len(nif2.shapes[0].tris)} vs {len(tri2.faces)}"
+        assert tri2.header.morphNum == len(triobj.data.shape_keys.key_blocks)-1, \
+            f"Error: morph count should match, file={tri2.header.morphNum} vs {triobj.name}={len(triobj.data.shape_keys.key_blocks)}"
+        
+        print('### Tri and chargen export as expected')
+
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.selected_objects[0]
+        cube.name = "TriCube"
+        sk1 = cube.shape_key_add()
+        sk1.name = "Aah"
+        sk2 = cube.shape_key_add()
+        sk2.name = "CombatAnger"
+        sk3 = cube.shape_key_add()
+        sk3.name = "*Extra"
+        sk4 = cube.shape_key_add()
+        sk4.name = "BrowIn"
+        e = NifExporter(tricubenif, "SKYRIM")
+        e.export([cube])
+        #export_file_set(tricubenif, "SKYRIM", [''], [cube], cube.parent)
+
+        assert os.path.exists(tricubenif), f"Error: Should have exported {tricubenif}"
+        assert os.path.exists(tricubeniftri), f"Error: Should have exported {tricubeniftri}"
+        assert os.path.exists(tricubenifchg), f"Error: Should have exported {tricubenifchg}"
+        
+        cubetri = TriFile.from_file(tricubeniftri)
+        assert "Aah" in cubetri.morphs, f"Error: 'Aah' should be in tri"
+        assert "BrowIn" not in cubetri.morphs, f"Error: 'BrowIn' should not be in tri"
+        assert "*Extra" not in cubetri.morphs, f"Error: '*Extra' should not be in tri"
+        
+        cubechg = TriFile.from_file(tricubenifchg)
+        assert "Aah" not in cubechg.morphs, f"Error: 'Aah' should not be in chargen"
+        assert "BrowIn" in cubechg.morphs, f"Error: 'BrowIn' should be in chargen"
+        assert "*Extra" not in cubechg.morphs, f"Error: '*Extra' should not be in chargen"
+        
+    if TEST_BPY_ALL or TEST_HYENA_PARTITIONS:
+        test_title("TEST_HYENA_PARTITIONS", "Partitions export successfully, with warning")
+
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_HYENA_PARTITIONS.nif")
+        remove_file(outfile)
+
+        append_from_file("HyenaMaleHead", True, r"tests\FO4\HyenaHead.blend", r"\Object", "HyenaMaleHead")
+        append_from_file("Skeleton", True, r"tests\FO4\HyenaHead.blend", r"\Object", "Skeleton")
+        exporter = NifExporter(outfile, "FO4")
+        exporter.export([bpy.data.objects["HyenaMaleHead"], bpy.data.objects["FaceBones.Skel"], bpy.data.objects["Skeleton"]])
+        assert len(exporter.warnings) == 1, f"One warning reported ({exporter.warnings})"
+
+        nif1 = NifFile(outfile)
+        assert len(nif1.shapes) == 1, "Wrote the file successfully"
+
+    if TEST_BPY_ALL or TEST_SK_MULT:
+        test_title("TEST_SK_MULT", "Export multiple objects with only some shape keys")
+
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT.nif")
+        remove_file(outfile)
+
+        append_from_file("CheMaleMane", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "CheMaleMane")
+        append_from_file("MaleTail", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "MaleTail")
+        exporter = NifExporter(outfile, "SKYRIMSE")
+        exporter.export([bpy.data.objects["CheMaleMane"], bpy.data.objects["MaleTail"]])
+
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT_1.nif"))
+        assert len(nif1.shapes) == 2, "Wrote the file successfully"
+
+
+    if TEST_BPY_ALL or TEST_MULT_PART:
+        test_title("TEST_MULT_PART", "Export shape with face that might fall into multiple partititions")
+
+        clear_all()
+
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_MULT_PART.nif")
+        remove_file(outfile)
+        append_from_file("MaleHead", True, r"tests\SkyrimSE\multiple_partitions.blend", r"\Object", "MaleHead")
+        exporter = NifExporter(outfile, "SKYRIMSE")
+        obj = bpy.data.objects["MaleHead"]
+        exporter.export([obj])
+
+        assert "*MULTIPLE_PARTITIONS*" not in obj.vertex_groups, f"Exported without throwing *MULTIPLE_PARTITIONS* error"
+
     if TEST_BPY_ALL or TEST_FO4_CHAIR:
         test_title("TEST_FO4_CHAIR", "Extra data nodes are imported and exported")
         
@@ -186,40 +345,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         assert len(fmcheck) == 4, f"Wrote the furniture marker correctly: {len(fmcheck)}"
         assert fmcheck[0].entry_points == 0, f"Entry point data is correct: {fmcheck[0].entry_points}"
-
-
-    if TEST_BPY_ALL or TEST_SHEATH:
-        test_title("TEST_SHEATH", "Extra data nodes are imported and exported")
-        
-        clear_all()
-
-        bpy.ops.object.select_all(action='SELECT')
-        bpy.ops.object.delete(use_global=True, confirm=False)
-        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/sheath_p1_1.nif")
-        NifImporter.do_import(testfile)
-
-        bgnames = set([obj['BSBehaviorGraphExtraData_Name'] for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")])
-        assert bgnames == set(["BGED"]), f"Error: Expected BG extra data properties, found {bgnames}"
-        snames = set([obj['NiStringExtraData_Name'] for obj in bpy.data.objects if obj.name.startswith("NiStringExtraData")])
-        assert snames == set(["HDT Havok Path", "HDT Skinned Mesh Physics Object"]), f"Error: Expected string extra data properties, found {snames}"
-
-        # Write and check
-        exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHEATH.nif"), 'SKYRIM')
-        exporter.export(bpy.data.objects)
-
-        nifCheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHEATH.nif"))
-        sheathShape = nifCheck.shapes[0]
-
-        names = [x[0] for x in nifCheck.behavior_graph_data]
-        assert "BGED" in names, f"Error: Expected BGED in {names}"
-        bgedCheck = nifCheck.behavior_graph_data[0]
-        log.debug(f"BGED value is {bgedCheck}")
-        assert bgedCheck[1] == "AuxBones\SOS\SOSMale.hkx", f"Extra data value = AuxBones/SOS/SOSMale.hkx: {bgedCheck}"
-        assert bgedCheck[2], f"Extra data controls base skeleton: {bgedCheck}"
-
-        strings = [x[0] for x in nifCheck.string_data]
-        assert "HDT Havok Path" in strings, f"Error expected havoc path in {strings}"
-        assert "HDT Skinned Mesh Physics Object" in strings, f"Error: Expected physics object in {strings}"
 
 
     if TEST_CHANGE_COLLISION or TEST_BPY_ALL:
@@ -743,34 +868,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         assert len(fmcheck) == 1, f"Wrote the furniture marker correctly: {len(fmcheck)}"
         assert fmcheck[0].entry_points == 13, f"Entry point data is correct: {fmcheck[0].entry_points}"
-
-
-    if TEST_BPY_ALL or TEST_TRIP:
-        test_title("TEST_TRIP", "Body tri extra data and file are written on export")
-        clear_all()
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP.nif")
-
-        append_from_file("BaseMaleBody", True, r"tests\FO4\BodyTalk.blend", r"\Object", "BaseMaleBody")
-        bpy.ops.object.select_all(action='DESELECT')
-        body = find_shape("BaseMaleBody")
-
-        print("Found body: " + body.name)
-
-        remove_file(outfile)
-        export = NifExporter(outfile, 'FO4')
-        export.export([body])
-
-        # ------- Check ---------
-        nifcheck = NifFile(outfile)
-
-        bodycheck = nifcheck.shape_dict["BaseMaleBody"]
-        assert bodycheck.name == "BaseMaleBody", f"Body found in nif"
-
-        stringdata = nifcheck.string_data
-        assert stringdata, f"Found string data: {stringdata}"
-        sd = stringdata[0]
-        assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
-        assert sd[1].endswith("TEST_TRIP.tri"), f"Found correct filename"
 
 
     if TEST_BPY_ALL or TEST_WELWA:
@@ -1957,89 +2054,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         arma = bpy.data.objects["skeleton.nif"]
         assert 'Leg_Thigh.L' in arma.data.bones, "Error: Should have left thigh"
-
-    if TEST_BPY_ALL or TEST_TRI:
-        test_title("TEST_TRI", "Can load a tri file into an existing mesh")
-
-        bpy.ops.object.select_all(action='DESELECT')
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\CheetahMaleHead.nif")
-        testtri2 = os.path.join(pynifly_dev_path, r"tests\FO4\CheetahMaleHead.tri")
-        testtri3 = os.path.join(pynifly_dev_path, r"tests\FO4\CheetahMaleHead.tri")
-        testout2 = os.path.join(pynifly_dev_path, r"tests\Out\CheetahMaleHead02.nif")
-        testout2tri = os.path.join(pynifly_dev_path, r"tests\Out\CheetahMaleHead02.tri")
-        testout2chg = os.path.join(pynifly_dev_path, r"tests\Out\CheetahMaleHead02_chargen.tri")
-        tricubenif = os.path.join(pynifly_dev_path, r"tests\Out\tricube01.nif")
-        tricubeniftri = os.path.join(pynifly_dev_path, r"tests\Out\tricube01.tri")
-        tricubenifchg = os.path.join(pynifly_dev_path, r"tests\Out\tricube01_chargen.tri")
-        for f in [testout2, testout2tri, testout2chg, tricubenif]:
-            remove_file(f)
-
-        NifImporter.do_import(testfile)
-
-        obj = bpy.context.object
-        if obj.type == "ARMATURE":
-            obj = obj.children[0]
-            bpy.context.view_layer.objects.active = obj
-
-        log.debug(f"Importing tri with {bpy.context.object.name} selected")
-        triobj2 = import_tri(testtri2, obj)
-
-        assert len(obj.data.shape_keys.key_blocks) == 47, f"Error: {obj.name} should have enough keys ({len(obj.data.shape_keys.key_blocks)})"
-
-        print("### Can import a simple tri file")
-
-        bpy.ops.object.select_all(action='DESELECT')
-        bpy.context.view_layer.objects.active = None
-        triobj = import_tri(testtri3, None)
-        assert triobj.name.startswith("CheetahMaleHead.tri"), f"Error: Should be named like tri file, found {triobj.name}"
-        assert "LJaw" in triobj.data.shape_keys.key_blocks.keys(), "Error: Should be no keys missing"
-        
-        print('### Can export a shape with tris')
-
-        e = NifExporter(os.path.join(pynifly_dev_path, testout2), "FO4")
-        e.export([triobj])
-        #export_file_set(os.path.join(pynifly_dev_path, testout2), "FO4", [''], [triobj], triobj.parent)
-        
-        print('### Exported shape and tri match')
-        nif2 = NifFile(os.path.join(pynifly_dev_path, testout2))
-        tri2 = TriFile.from_file(os.path.join(pynifly_dev_path, testout2tri))
-        assert not os.path.exists(testout2chg), f"{testout2chg} should not have been created"
-        assert len(nif2.shapes[0].verts) == len(tri2.vertices), f"Error vert count should match, {len(nif2.shapes[0].verts)} vs {len(tri2.vertices)}"
-        assert len(nif2.shapes[0].tris) == len(tri2.faces), f"Error vert count should match, {len(nif2.shapes[0].tris)} vs {len(tri2.faces)}"
-        assert tri2.header.morphNum == len(triobj.data.shape_keys.key_blocks)-1, \
-            f"Error: morph count should match, file={tri2.header.morphNum} vs {triobj.name}={len(triobj.data.shape_keys.key_blocks)}"
-        
-        print('### Tri and chargen export as expected')
-
-        bpy.ops.mesh.primitive_cube_add()
-        cube = bpy.context.selected_objects[0]
-        cube.name = "TriCube"
-        sk1 = cube.shape_key_add()
-        sk1.name = "Aah"
-        sk2 = cube.shape_key_add()
-        sk2.name = "CombatAnger"
-        sk3 = cube.shape_key_add()
-        sk3.name = "*Extra"
-        sk4 = cube.shape_key_add()
-        sk4.name = "BrowIn"
-        e = NifExporter(tricubenif, "SKYRIM")
-        e.export([cube])
-        #export_file_set(tricubenif, "SKYRIM", [''], [cube], cube.parent)
-
-        assert os.path.exists(tricubenif), f"Error: Should have exported {tricubenif}"
-        assert os.path.exists(tricubeniftri), f"Error: Should have exported {tricubeniftri}"
-        assert os.path.exists(tricubenifchg), f"Error: Should have exported {tricubenifchg}"
-        
-        cubetri = TriFile.from_file(tricubeniftri)
-        assert "Aah" in cubetri.morphs, f"Error: 'Aah' should be in tri"
-        assert "BrowIn" not in cubetri.morphs, f"Error: 'BrowIn' should not be in tri"
-        assert "*Extra" not in cubetri.morphs, f"Error: '*Extra' should not be in tri"
-        
-        cubechg = TriFile.from_file(tricubenifchg)
-        assert "Aah" not in cubechg.morphs, f"Error: 'Aah' should not be in chargen"
-        assert "BrowIn" in cubechg.morphs, f"Error: 'BrowIn' should be in chargen"
-        assert "*Extra" not in cubechg.morphs, f"Error: '*Extra' should not be in chargen"
-        
 
     if TEST_BPY_ALL or TEST_0_WEIGHTS:
         test_title("TEST_0_WEIGHTS", "Gives warning on export with 0 weights")
