@@ -735,7 +735,7 @@ class TripFile():
             """
         offsetmorphs = {}
         for name, coords in morphdict.items():
-            if name[0] == '>': name = name[1:]
+            self.log.debug(f"[TRIP] Writing morph {name}")
             offsetlist = []
             for i, coordpair in enumerate(zip(coords, vertlist)):
                 co, v = coordpair
@@ -747,9 +747,10 @@ class TripFile():
         
         self.shapes[shapename] = offsetmorphs
 
+
     def write(self, filepath):
-        """ Write all morphs tagged as TRIP morphs (leading '>') """
-        self.log.info(f"..Writing TRIP file {filepath}")
+        """ Write out the TRIP file """
+        self.log.info(f"[TRIP] Writing TRIP file {filepath}")
         file = open(filepath, 'wb')
         try:
             file.write(pack("<4s", b'PIRT'))
