@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = True
+RUN_TESTS = False
 TEST_BPY_ALL = False
 
 
@@ -789,7 +789,7 @@ class NifImporter():
         return obj
 
     def import_shape(self, the_shape: NiShape):
-        """ Import the shape to a Blender object, translating bone names 
+        """ Import the shape to a Blender object, translating bone names if requested
             self.objects_created = Set to a list of objects created. Might be more than one
             because of extra data nodes.
         """
@@ -846,7 +846,6 @@ class NifImporter():
         self.import_shape_extra(new_object, the_shape)
 
         new_object['PYN_GAME'] = self.nif.game
-        new_object['PYN_RENAME_BONES'] = ((self.flags & ImportFlags.RENAME_BONES) != 0)
         new_object['PYN_PRESERVE_HIERARCHY'] = ((self.flags & ImportFlags.PRESERVE_HIERARCHY) != 0)
 
 
@@ -1258,6 +1257,9 @@ class NifImporter():
             else:
                 log.debug(f"....Found self.bones, creating armature")
             self.make_armature(new_collection, self.bones)
+
+            if self.armature:
+                self.armature['PYN_RENAME_BONES'] = ((self.flags & ImportFlags.RENAME_BONES) != 0)
         
             if len(self.objects_created) > 0:
                 bpy.ops.object.select_all(action='DESELECT')
@@ -2013,7 +2015,8 @@ class NifExporter:
             Sets self.bodytri_done if one of the extra data nodes represents a bodytri
         """
         sdlist = []
-        for st in self.str_data:
+        for st in self.str_data and self.game == 'FO4':
+            # FO4 bodytris go at the top level
             sdlist.append( (st['NiStringExtraData_Name'], st['NiStringExtraData_Value']) )
             self.objs_written[st.name] = self.nif
             self.bodytri_written |= (st['NiStringExtraData_Name'] == 'BODYTRI')
@@ -2434,6 +2437,7 @@ class NifExporter:
                     #log.debug(f"Created tri with partition {loop_partition}")
                     l1 = loopseg
 
+        log.debug(f"extract_face_info: loops = {loops[0:9]}")
         return loops, uvs, norms, colors, partition_map
 
 
@@ -2584,13 +2588,14 @@ class NifExporter:
                 self.extract_face_info(
                     editmesh, uvlayer, loopcolors, weights_by_vert, partitions,
                     use_loop_normals=editmesh.has_custom_normals)
+            log.debug(f"After extract_face_info length loops={len(loops)}, uvs={len(uvs)}, norms={len(norms)}")
         
             log.info("..Splitting mesh along UV seams")
             mesh_split_by_uv(verts, loops, norms, uvs, weights_by_vert, morphdict)
             #log.info(f"..Loops as split: {loops}")
 
             # Make uv and norm lists 1:1 with verts (rather than with loops)
-            log.debug(f"Length verts={len(verts)}, len loops={len(loops)}, len uvs={len(uvs)}, len norms={len(norms)}")
+            log.debug(f"After split length verts={len(verts)}, loops={len(loops)}, uvs={len(uvs)}, norms={len(norms)}")
             uvmap_new = [(0.0, 0.0)] * len(verts)
             norms_new = [(0.0, 0.0, 0.0)] * len(verts)
             for i, vi in enumerate(loops):
@@ -2874,6 +2879,7 @@ class NifExporter:
             return
         self.active_obj = obj
 
+        # If there's a hierarchy, export parents (recursively) first
         my_parent = self.export_shape_parents(obj)
 
         log.info("Exporting " + obj.name)
@@ -2881,6 +2887,7 @@ class NifExporter:
 
         retval = set()
 
+        # Prepare for reporting any bone weight errors
         is_skinned = (arma is not None)
         unweighted = []
         if UNWEIGHTED_VERTEX_GROUP in obj.vertex_groups:
@@ -2897,6 +2904,7 @@ class NifExporter:
                 log.warning(f"Exporting to game that doesn't match armature: game={self.nif.game}, armature={arma.name}")
                 retval.add('GAME')
 
+        # Collect key info about the mesh 
         verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict, \
             partitions, partition_map = \
            self.extract_mesh_data(obj, arma, target_key)
@@ -2919,6 +2927,7 @@ class NifExporter:
         if mat and 'BS_Shader_Block_Name' in mat:
             is_effectshader = (mat['BS_Shader_Block_Name'] == 'BSEffectShaderProperty')
 
+        # Make the shape in the nif file
         log.debug(f"..Exporting '{obj.name}' to nif: {len(verts)} vertices, {len(tris)} tris, parent {my_parent}")
         new_shape = self.nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_exp,
                                                  is_headpart, is_skinned, is_effectshader,
@@ -2928,6 +2937,7 @@ class NifExporter:
 
         self.export_shape_data(obj, new_shape)
         
+        # Write the shader
         if mat:
             self.export_shader(obj, new_shape)
             log.debug(f"....'{new_shape.name}' has textures: {new_shape.textures}")
@@ -2949,6 +2959,7 @@ class NifExporter:
         else:
             log.debug(f"..No material on {obj.name}")
 
+        # Write skin and partitions
         if is_skinned:
             self.nif.createSkin()
 
@@ -2979,12 +2990,14 @@ class NifExporter:
             log.debug(f"...Exporting {new_shape.name} with transform \n{new_xform}")
             new_shape.transform = TransformBuf.from_matrix(new_xform)
 
+        # Write collisions
         self.export_collisions([c for c in obj.children if c.name.startswith("bhkCollisionObject")])
 
+        # Remember what we did as defaults for next time
         self.objs_written[obj.name] = new_shape
 
         obj['PYN_GAME'] = self.game
-        obj['PYN_RENAME_BONES'] = (self.flags & ImportFlags.RENAME_BONES) != 0
+        arma['PYN_RENAME_BONES'] = (self.flags & ImportFlags.RENAME_BONES) != 0
         obj['PYN_PRESERVE_HIERARCHY'] = (self.flags & ImportFlags.PRESERVE_HIERARCHY) != 0
 
         retval |= self.export_tris(obj, verts, tris, uvmap_new, morphdict)
@@ -3141,7 +3154,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         if g != "":
             self.target_game = g
         
-        if 'PYN_RENAME_BONES' in obj and obj['PYN_RENAME_BONES']:
+        if arma and 'PYN_RENAME_BONES' in arma and arma['PYN_RENAME_BONES']:
             self.rename_bones = True
         else:
             self.rename_bones = False

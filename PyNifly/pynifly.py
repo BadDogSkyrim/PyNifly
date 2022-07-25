@@ -1774,7 +1774,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1901,8 +1901,8 @@ if __name__ == "__main__":
     import codecs
     # import quickhull
 
-    nifly_path = r"C:\Users\User\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
-    NifFile.Load(nifly_path)
+    nifly_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
+    NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], nifly_path))
 
 
     mylog = logging.getLogger("pynifly")
