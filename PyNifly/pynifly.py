@@ -1592,13 +1592,15 @@ class NifFile:
         if self._shapes is None:
             self._shapes = []
             self._shape_dict = {}
-            PTRBUF = c_void_p * 30
+            nfound = NifFile.nifly.getShapes(self._handle, None, 0, 0)
+            PTRBUF = c_void_p * nfound
             buf = PTRBUF()
-            nfound = NifFile.nifly.getShapes(self._handle, buf, 30, 0)
-            for i in range(min(nfound, 30)):
+            nfound = NifFile.nifly.getShapes(self._handle, buf, nfound, 0)
+            for i in range(nfound):
                 new_shape = NiShape(self, buf[i])
                 self._shapes.append(new_shape) # not handling too many shapes yet
                 self._shape_dict[new_shape.name] = new_shape
+
         return self._shapes
     
     def shape_by_root(self, rootname):
@@ -1815,6 +1817,7 @@ TEST_CONVEX_MULTI = False
 TEST_COLLISION_LIST = False
 TEST_COLLISION_CAPSULE = False
 TEST_FURNITURE_MARKER = False
+TEST_MANY_SHAPES = True
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -3234,6 +3237,24 @@ if __name__ == "__main__":
         nif = NifFile(r"tests/SkyrimSE/farmbench01.nif")
 
         assert len(nif.furniture_markers) == 2, f"Found the furniture markers"
+
+
+    if TEST_ALL or TEST_MANY_SHAPES:
+        print("### TEST_MANY_SHAPES: Can read and write a nif with many shapes")
+        nif = NifFile(r"tests\FO4\Outfit.nif")
+
+        assert len(nif.shapes) == 87, f"Found all shapes: {len(nif.shapes)}"
+        
+        nifOut = NifFile()
+        nifOut.initialize('FO4', r"tests\out\TEST_MANY_SHAPES.nif")
+        for s in nif.shapes:
+            _test_export_shape(s, nifOut)
+
+        nifOut.save()
+
+        nifcheck = NifFile(r"tests\out\TEST_MANY_SHAPES.nif")
+
+        assert len(nifcheck.shapes) == 87, f"Found all shapes in written file: {len(nifcheck.shapes)}"
 
 
     print("""
