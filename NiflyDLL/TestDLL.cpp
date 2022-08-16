@@ -3266,5 +3266,12 @@ namespace NiflyDLLTests
 				}
 			}
 		};
+		TEST_METHOD(readManyShapes) {
+			void* nif = load((testRoot / "FO4/outfit.nif").u8string().c_str());
+
+			void* shapes[100];
+			int shapeCount = getShapes(nif, shapes, 100, 0);
+			Assert::IsTrue(shapeCount == 87, L"Found enough shapes");
+		};
 	};
 }
