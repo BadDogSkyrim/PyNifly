@@ -523,9 +523,19 @@ def mesh_create_normals(the_mesh, normals):
         normals = [(x, y, z)... ] 1:1 with mesh verts
         """
     if normals:
+        # Make sure the normals are unit length
+        # Magic incantation to set custom normals
         the_mesh.use_auto_smooth = True
-        the_mesh.normals_split_custom_set([(0, 0, 0) for l in the_mesh.loops])
-        the_mesh.normals_split_custom_set_from_vertices(normals)
+        #the_mesh.normals_split_custom_set([(0, 0, 0) for l in the_mesh.loops])
+        the_mesh.normals_split_custom_set([(0, 0, 0)] * len(the_mesh.loops))
+        # the_mesh.calc_normals_split()
+        
+        #the_mesh.calc_normals_split()
+        # loopnorms = [normals[l.vertex_index] for l in the_mesh.loops]
+        # loopnorms = [(0,0,1) for l in the_mesh.loops]
+        # the_mesh.normals_split_custom_set(loopnorms)
+        the_mesh.normals_split_custom_set_from_vertices([Vector(v).normalized() for v in normals])
+        # the_mesh.calc_normals_split()
 
 
 def mesh_create_uv(the_mesh, uv_points):
@@ -799,6 +809,7 @@ class NifImporter():
 
         new_mesh = bpy.data.meshes.new(the_shape.name)
         new_mesh.from_pydata(v, [], t)
+        new_mesh.update(calc_edges=True, calc_edges_loose=True)
         new_object = bpy.data.objects.new(the_shape.name, new_mesh)
         self.objects_created[the_shape._handle] = new_object
     
@@ -822,12 +833,10 @@ class NifImporter():
         for f in new_mesh.polygons:
             f.use_smooth = True
 
-        new_mesh.update(calc_edges=True, calc_edges_loose=True)
-        new_mesh.validate(verbose=True)
+        #new_mesh.validate(verbose=True)
 
         if the_shape.normals:
             mesh_create_normals(new_object.data, the_shape.normals)
-        new_mesh.calc_normals_split()
 
         obj_create_material(new_object, the_shape)
         
@@ -3294,115 +3303,28 @@ def run_tests():
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
-    if True: # TEST_BPY_ALL or TEST_TRIP:
-        test_title("TEST_TRIP_SE", "Bodypart tri extra data and file are written on export")
+    if True: # TEST_BPY_ALL or TEST_NORM:
+        test_title("TEST_NORM", "Normals are read correctly")
         clear_all()
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP_SE.nif")
-        outfile1 = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP_SE_1.nif")
-        outfiletrip = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP_SE.tri")
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/LBoot.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_NORM.nif")
 
-        append_from_file("Penis_CBBE", True, r"tests\SkyrimSE\HorseFuta.blend", 
-                         r"\Object", "Penis_CBBE")
-        bpy.ops.object.select_all(action='DESELECT')
-        obj = find_shape("Penis_CBBE")
-
-        remove_file(outfile)
-        export = NifExporter(outfile, 'SKYRIMSE')
-        export.export([obj])
-
-        print(' ------- Check --------- ')
-        nifcheck = NifFile(outfile1)
-
-        bodycheck = nifcheck.shape_dict["Penis_CBBE"]
-        assert bodycheck.name == "Penis_CBBE", f"Penis found in nif"
-
-        stringdata = bodycheck.string_data
-        assert stringdata, f"Found string data: {stringdata}"
-        sd = stringdata[0]
-        assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
-        assert sd[1].endswith("TEST_TRIP_SE.tri"), f"Found correct filename"
-
-        tripcheck = TripFile.from_file(outfiletrip)
-        assert len(tripcheck.shapes) == 1, f"Found shape"
-        bodymorphs = tripcheck.shapes['Penis_CBBE']
-        assert len(bodymorphs) == 27, f"Found enough morphs: {len(bodymorphs)}"
-        assert "CrotchBack" in bodymorphs.keys(), f"Found 'CrotchBack' in {bodymorphs.keys()}"
-
-
-    if True: # TEST_BPY_ALL or TEST_TRIP:
-        test_title("TEST_TRIP", "Body tri extra data and file are written on export")
-        clear_all()
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP.nif")
-        outfiletrip = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP.tri")
-
-        append_from_file("BaseMaleBody", True, r"tests\FO4\BodyTalk.blend", r"\Object", "BaseMaleBody")
-        bpy.ops.object.select_all(action='DESELECT')
-        body = find_shape("BaseMaleBody")
-
-        print("Found body: " + body.name)
-
-        remove_file(outfile)
-        export = NifExporter(outfile, 'FO4')
-        export.export([body])
-
-        print(' ------- Check --------- ')
-        nifcheck = NifFile(outfile)
-
-        bodycheck = nifcheck.shape_dict["BaseMaleBody"]
-        assert bodycheck.name == "BaseMaleBody", f"Body found in nif"
-
-        stringdata = nifcheck.string_data
-        assert stringdata, f"Found string data: {stringdata}"
-        sd = stringdata[0]
-        assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
-        assert sd[1].endswith("TEST_TRIP.tri"), f"Found correct filename"
-
-        tripcheck = TripFile.from_file(outfiletrip)
-        assert len(tripcheck.shapes) == 1, f"Found shape"
-        bodymorphs = tripcheck.shapes['BaseMaleBody']
-        assert len(bodymorphs) > 30, f"Found enough morphs: {len(len(bodymorphs))}"
-        assert "BTShoulders" in bodymorphs.keys(), f"Found 'BTShoulders' in {bodymorphs.keys()}"
-
-
-    if True: # TEST_BPY_ALL or TEST_SHEATH:
-        test_title("TEST_SHEATH", "Extra data nodes are imported and exported")
-        clear_all()
-
-        bpy.ops.object.select_all(action='SELECT')
-        bpy.ops.object.delete(use_global=True, confirm=False)
-        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/sheath_p1_1.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHEATH.nif")
         NifImporter.do_import(testfile)
+        boot = find_shape("L_Boot")
 
-        bglist = [obj for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")]
-        slist = [obj for obj in bpy.data.objects if obj.name.startswith("NiStringExtraData")]
-        bgnames = set([obj['BSBehaviorGraphExtraData_Name'] for obj in bglist])
-        assert bgnames == set(["BGED"]), f"Error: Expected BG extra data properties, found {bgnames}"
-        snames = set([obj['NiStringExtraData_Name'] for obj in slist])
-        assert snames == set(["HDT Havok Path", "HDT Skinned Mesh Physics Object"]), \
-            f"Error: Expected string extra data properties, found {snames}"
+        boot.data.calc_normals_split()
 
-        # Write and check
-        print('------- Can write extra data -------')
-        exporter = NifExporter(outfile, 'SKYRIM')
-        exporter.export(bpy.data.objects)
-
-
-        print('------ Extra data checks out----')
-        nifCheck = NifFile(outfile)
-        sheathShape = nifCheck.shapes[0]
-
-        names = [x[0] for x in nifCheck.behavior_graph_data]
-        assert "BGED" in names, f"Error: Expected BGED in {names}"
-        bgedCheck = nifCheck.behavior_graph_data[0]
-        log.debug(f"BGED value is {bgedCheck}")
-        assert bgedCheck[1] == "AuxBones\SOS\SOSMale.hkx", f"Extra data value = AuxBones/SOS/SOSMale.hkx: {bgedCheck}"
-        assert bgedCheck[2], f"Extra data controls base skeleton: {bgedCheck}"
-
-        strings = [x[0] for x in nifCheck.string_data]
-        assert "HDT Havok Path" in strings, f"Error expected havoc path in {strings}"
-        assert "HDT Skinned Mesh Physics Object" in strings, f"Error: Expected physics object in {strings}"
-
+        assert VNearEqual(boot.data.vertices[492].co, (-18.28125, 10.890625, -116.25)), \
+            f"Have the right vertex: {boot.data.vertices[492].co}"
+        assert VNearEqual(boot.data.vertices[492].normal, (-0.40112, 0.4675, 0.78774)), \
+            f"Vertex normal as expected: {boot.data.vertices[492].normal}"
+        vertloops = [l.index for l in boot.data.loops if l.vertex_index == 492]
+        custnormal = boot.data.loops[vertloops[0]].normal
+        print(f"TEST_NORM custnormal: loop {vertloops[0]} has normal {custnormal}")
+        assert custnormal[1] > 0, f"Custom normal points forward: {custnormal}"
+        assert custnormal[2] > 0, f"Custom normal points up: {custnormal}"
+        custnormal2 = boot.data.loops[vertloops[2]].normal
+        assert VNearEqual(custnormal, custnormal2), f"Face normals match: {custnormal} == {custnormal2}"
 
 
     if TEST_BPY_ALL:

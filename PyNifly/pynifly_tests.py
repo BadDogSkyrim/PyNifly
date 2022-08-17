@@ -107,6 +107,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_COLLISION_LIST = False
     TEST_WELWA = False
     TEST_TRIP = False
+    TEST_TRIP_SE = False
     TEST_FURN_MARKER2 = False
     TEST_FURN_MARKER1 = False
     TEST_BONE_HIERARCHY = False
@@ -158,6 +159,116 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     #    assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
     #    bodycheck = collcheck.body
     #    shapecheck = bodycheck.shape
+
+
+    if TEST_BPY_ALL or TEST_TRIP_SE:
+        test_title("TEST_TRIP_SE", "Bodypart tri extra data and file are written on export")
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP_SE.nif")
+        outfile1 = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP_SE_1.nif")
+        outfiletrip = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP_SE.tri")
+
+        append_from_file("Penis_CBBE", True, r"tests\SkyrimSE\HorseFuta.blend", 
+                         r"\Object", "Penis_CBBE")
+        bpy.ops.object.select_all(action='DESELECT')
+        obj = find_shape("Penis_CBBE")
+
+        remove_file(outfile)
+        export = NifExporter(outfile, 'SKYRIMSE')
+        export.export([obj])
+
+        print(' ------- Check --------- ')
+        nifcheck = NifFile(outfile1)
+
+        bodycheck = nifcheck.shape_dict["Penis_CBBE"]
+        assert bodycheck.name == "Penis_CBBE", f"Penis found in nif"
+
+        stringdata = bodycheck.string_data
+        assert stringdata, f"Found string data: {stringdata}"
+        sd = stringdata[0]
+        assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
+        assert sd[1].endswith("TEST_TRIP_SE.tri"), f"Found correct filename"
+
+        tripcheck = TripFile.from_file(outfiletrip)
+        assert len(tripcheck.shapes) == 1, f"Found shape"
+        bodymorphs = tripcheck.shapes['Penis_CBBE']
+        assert len(bodymorphs) == 27, f"Found enough morphs: {len(bodymorphs)}"
+        assert "CrotchBack" in bodymorphs.keys(), f"Found 'CrotchBack' in {bodymorphs.keys()}"
+
+
+    if TEST_BPY_ALL or TEST_TRIP:
+        test_title("TEST_TRIP", "Body tri extra data and file are written on export")
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP.nif")
+        outfiletrip = os.path.join(pynifly_dev_path, r"tests/Out/TEST_TRIP.tri")
+
+        append_from_file("BaseMaleBody", True, r"tests\FO4\BodyTalk.blend", r"\Object", "BaseMaleBody")
+        bpy.ops.object.select_all(action='DESELECT')
+        body = find_shape("BaseMaleBody")
+
+        print("Found body: " + body.name)
+
+        remove_file(outfile)
+        export = NifExporter(outfile, 'FO4')
+        export.export([body])
+
+        print(' ------- Check --------- ')
+        nifcheck = NifFile(outfile)
+
+        bodycheck = nifcheck.shape_dict["BaseMaleBody"]
+        assert bodycheck.name == "BaseMaleBody", f"Body found in nif"
+
+        stringdata = nifcheck.string_data
+        assert stringdata, f"Found string data: {stringdata}"
+        sd = stringdata[0]
+        assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
+        assert sd[1].endswith("TEST_TRIP.tri"), f"Found correct filename"
+
+        tripcheck = TripFile.from_file(outfiletrip)
+        assert len(tripcheck.shapes) == 1, f"Found shape"
+        bodymorphs = tripcheck.shapes['BaseMaleBody']
+        assert len(bodymorphs) > 30, f"Found enough morphs: {len(len(bodymorphs))}"
+        assert "BTShoulders" in bodymorphs.keys(), f"Found 'BTShoulders' in {bodymorphs.keys()}"
+
+
+    if TEST_BPY_ALL or TEST_SHEATH:
+        test_title("TEST_SHEATH", "Extra data nodes are imported and exported")
+        clear_all()
+
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete(use_global=True, confirm=False)
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/sheath_p1_1.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHEATH.nif")
+        NifImporter.do_import(testfile)
+
+        bglist = [obj for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")]
+        slist = [obj for obj in bpy.data.objects if obj.name.startswith("NiStringExtraData")]
+        bgnames = set([obj['BSBehaviorGraphExtraData_Name'] for obj in bglist])
+        assert bgnames == set(["BGED"]), f"Error: Expected BG extra data properties, found {bgnames}"
+        snames = set([obj['NiStringExtraData_Name'] for obj in slist])
+        assert snames == set(["HDT Havok Path", "HDT Skinned Mesh Physics Object"]), \
+            f"Error: Expected string extra data properties, found {snames}"
+
+        # Write and check
+        print('------- Can write extra data -------')
+        exporter = NifExporter(outfile, 'SKYRIM')
+        exporter.export(bpy.data.objects)
+
+
+        print('------ Extra data checks out----')
+        nifCheck = NifFile(outfile)
+        sheathShape = nifCheck.shapes[0]
+
+        names = [x[0] for x in nifCheck.behavior_graph_data]
+        assert "BGED" in names, f"Error: Expected BGED in {names}"
+        bgedCheck = nifCheck.behavior_graph_data[0]
+        log.debug(f"BGED value is {bgedCheck}")
+        assert bgedCheck[1] == "AuxBones\SOS\SOSMale.hkx", f"Extra data value = AuxBones/SOS/SOSMale.hkx: {bgedCheck}"
+        assert bgedCheck[2], f"Extra data controls base skeleton: {bgedCheck}"
+
+        strings = [x[0] for x in nifCheck.string_data]
+        assert "HDT Havok Path" in strings, f"Error expected havoc path in {strings}"
+        assert "HDT Skinned Mesh Physics Object" in strings, f"Error: Expected physics object in {strings}"
 
 
     if TEST_BPY_ALL or TEST_TRI:
