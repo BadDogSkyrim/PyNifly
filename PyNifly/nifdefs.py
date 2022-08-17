@@ -290,6 +290,7 @@ class BSLSPAttrs(pynStructure):
 	    ('Emissive_Color_B', c_float),
 	    ('Emissive_Color_A', c_float),
 	    ('Emissive_Mult', c_float),
+	    ('Env_Map_Scale', c_float),
 	    ('Tex_Clamp_Mode', c_uint32),
 	    ('Alpha', c_float),
 	    ('Refraction_Str', c_float),

@@ -21,7 +21,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 5, 8, 2 };  
+const int NiflyDDLVersion[3] = { 5, 9, 0 };
  
 using namespace nifly;
 
@@ -980,6 +980,7 @@ NIFLY_API int getShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* bu
     buf->Emissive_Color_B = shader->GetEmissiveColor().b;
     buf->Emissive_Color_A = shader->GetEmissiveColor().a;
     buf->Emissmive_Mult = shader->GetEmissiveMultiple();
+    buf->Environment_Map_Scale = shader->GetEnvironmentMapScale();
     if (txtProp) {
         NiSyncVector<ShaderTexDesc>* txtdesc = &txtProp->shaderTex;
         //buf->Tex_Clamp_Mode = txtdesc->data.clampMode;

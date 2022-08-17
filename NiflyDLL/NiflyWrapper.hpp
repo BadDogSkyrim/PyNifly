@@ -239,6 +239,7 @@ struct BSLSPAttrs {
 	float Emissive_Color_B;
 	float Emissive_Color_A;
 	float Emissmive_Mult;
+	float Environment_Map_Scale;
 	uint32_t Tex_Clamp_Mode;
 	float Alpha;
 	float Refraction_Str;
