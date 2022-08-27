@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (5, 9, 0),  
+    "version": (5, 10, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -101,6 +101,7 @@ class ImportFlags(IntFlag):
     RENAME_BONES = 1 << 1
     ROTATE_MODEL = 1 << 2
     PRESERVE_HIERARCHY = 1 << 3
+    WRITE_BODYTRI = 1 << 4
 
 
 def MatrixLocRotScale(loc, rot, scale):
@@ -3016,7 +3017,9 @@ class NifExporter:
         retval |= self.export_tris(obj, verts, tris, uvmap_new, morphdict)
 
         # Write TRIP extra data if this is Skyrim
-        if self.game in ['SKYRIM', 'SKYRIMSE'] and len(self.trip.shapes) > 0:
+        if (self.flags & ImportFlags.WRITE_BODYTRI) \
+            and self.game in ['SKYRIM', 'SKYRIMSE'] \
+            and len(self.trip.shapes) > 0:
             new_shape.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
 
         # Remember what we did as defaults for next time
@@ -3026,6 +3029,7 @@ class NifExporter:
         obj['PYN_PRESERVE_HIERARCHY'] = (self.flags & ImportFlags.PRESERVE_HIERARCHY) != 0
         if arma:
             arma['PYN_RENAME_BONES'] = (self.flags & ImportFlags.RENAME_BONES) != 0
+        obj['PYN_WRITE_BODYTRI_ED'] = (self.flags & ImportFlags.WRITE_BODYTRI) != 0
 
         log.info(f"..{obj.name} successfully exported to {self.nif.filepath}")
         return retval
@@ -3081,7 +3085,10 @@ class NifExporter:
 
             # Check for bodytri morphs--write the extra data node if needed
             log.debug(f"TRIP data: shapes={len(self.trip.shapes)}, bodytri written: {self.bodytri_written}, filepath: {truncate_filename(self.trippath, 'meshes')}")
-            if self.game == 'FO4' and len(self.trip.shapes) > 0 and  not self.bodytri_written:
+            if (self.flags & ImportFlags.WRITE_BODYTRI) \
+                and self.game == 'FO4' \
+                and len(self.trip.shapes) > 0 \
+                and  not self.bodytri_written:
                 self.nif.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
 
             self.export_collisions([c for c in self.collisions if c.parent == None])
@@ -3142,10 +3149,10 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             name="Target Game",
             items=(('SKYRIM', "Skyrim", ""),
                    ('SKYRIMSE', "Skyrim SE", ""),
-                   ('FO4', "Fallout 4", ""),
-                   ('FO76', "Fallout 76", ""),
-                   ('FO3', "Fallout New Vegas", ""),
-                   ('FO3', "Fallout 3", ""),
+                   ('FO4', "Fallout 4", "")
+                   # ('FO76', "Fallout 76", ""),
+                   # ('FO3', "Fallout New Vegas", ""),
+                   # ('FO3', "Fallout 3", ""),
                    ),
             )
 
@@ -3157,6 +3164,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     preserve_hierarchy: bpy.props.BoolProperty(
         name="Preserve Bone Hierarchy",
         description="Preserve bone hierarchy in exported nif.",
+        default=False)
+
+    write_bodytri: bpy.props.BoolProperty(
+        name="Export BODYTRI Extra Data",
+        description="Write an extra data node pointing to the BODYTRI file, if there are any bodytri shape keys. Not needed if exporting for Bodyslide, because they write their own.",
         default=False)
 
 
@@ -3192,6 +3204,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         else:
             self.preserve_hierarchy = False
 
+        if 'PYN_WRITE_BODYTRI_ED' in obj and obj['PYN_WRITE_BODYTRI_ED']:
+            self.write_bodytri = True
+        else:
+            self.write_bodytri = False
+
         
     @classmethod
     def poll(cls, context):
@@ -3217,6 +3234,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             flags = ImportFlags.RENAME_BONES
         if self.preserve_hierarchy:
             flags |= ImportFlags.PRESERVE_HIERARCHY
+        if self.write_bodytri:
+            flags |= ImportFlags.WRITE_BODYTRI
 
         log.info("\n\n\n==============================\nNIFLY EXPORT V%d.%d.%d\n==============================" % bl_info['version'])
         NifFile.Load(nifly_path)
