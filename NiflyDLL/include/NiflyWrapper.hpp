@@ -27,7 +27,7 @@ struct BoneWeight {
 };
 
 extern "C" NIFLY_API const int* getVersion();
-extern "C" NIFLY_API void* load(const char8_t* filename);
+extern "C" NIFLY_API void* load(const char* filename);
 extern "C" NIFLY_API void* getRoot(void* f);
 extern "C" NIFLY_API int getRootName(void* f, char* buf, int len);
 extern "C" NIFLY_API int getGameName(void* f, char* buf, int len);
@@ -82,7 +82,7 @@ extern "C" NIFLY_API void getBoneSkinToBoneXform(void* animPtr, const char* shap
 extern "C" NIFLY_API void setShapeVertWeights(void* theFile, void* theShape, int vertIdx, const uint8_t * vertex_bones, const float* vertex_weights);
 extern "C" NIFLY_API void setShapeBoneWeights(void* theFile, void* theShape, int boneIdx, VertexWeightPair * weights, int weightsLen);
 extern "C" NIFLY_API void setShapeBoneIDList(void* f, void* shapeRef, int* boneIDList, int listLen);
-extern "C" NIFLY_API int saveNif(void* the_nif, const char8_t* filename);
+extern "C" NIFLY_API int saveNif(void* the_nif, const char* filename);
 extern "C" NIFLY_API int segmentCount(void* nifref, void* shaperef);
 extern "C" NIFLY_API int getSegmentFile(void* nifref, void* shaperef, char* buf, int buflen);
 extern "C" NIFLY_API int getSegments(void* nifref, void* shaperef, int* segments, int segLen);
@@ -104,7 +104,7 @@ extern "C" NIFLY_API void setShapeGlobalToSkinXform(void* animPtr, void* shapePt
 extern "C" NIFLY_API void setShapeWeights(void * anim, void * theShape, const char* boneName,
 	VertexWeightPair * vertWeights, int vertWeightLen, nifly::MatTransform * skinToBoneXform);
 extern "C" NIFLY_API void writeSkinToNif(void* animref);
-extern "C" NIFLY_API int saveSkinnedNif(void* animref, const char8_t* filepath);
+extern "C" NIFLY_API int saveSkinnedNif(void* animref, const char* filepath);
 
 /* ********************* SHADERS ***************** */
 

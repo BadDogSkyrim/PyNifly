@@ -1,78 +1,22 @@
-﻿################################################################################
-# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
-################################################################################
-
+﻿# Visual Studio cache directory
 .vs/
-/NiflyDLL/.vs/NiflyDLL/v16
-/PyNifly/__pycache__
-/TestNifly/x64/Test
-/PyNifly/Tests/Out
 
-# Build results
-[Dd]ebug/
-[Dd]ebugPublic/
-[Rr]elease/
-[Rr]eleases/
-x64/
-x86/
-[Ww][Ii][Nn]32/
-[Aa][Rr][Mm]/
-[Aa][Rr][Mm]64/
-bld/
-[Bb]in/
-[Oo]bj/
-[Ll]og/
-[Ll]ogs/
+# VS Code cache directory
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
 
-# Files built by Visual Studio
-*_i.c
-*_p.c
-*_h.h
-*.ilk
-*.meta
-*.obj
-*.iobj
-*.pch
-*.pdb
-*.ipdb
-*.pgc
-*.pgd
-*.rsp
-*.sbr
-*.tlb
-*.tli
-*.tlh
-*.tmp
-*.tmp_proj
-*_wpftmp.csproj
-*.log
-*.vspscc
-*.vssscc
-.builds
-*.pidb
-*.svclog
-*.scc
+# Local History for Visual Studio Code
+.history/
 
-# Visual C++ cache files
-ipch/
-*.aps
-*.ncb
-*.opendb
-*.opensdf
-*.sdf
-*.cachefile
-*.VC.db
-*.VC.VC.opendb
+# CMake build directory
+NiflyDLL/build/
 
-# Visual Studio profiler
-*.psess
-*.vsp
-*.vspx
-*.sap
+# Tests
+NiflyDLL/Test/
 
-# Visual Studio Trace Files
-*.e2e
-
-/NiflyDLL/Test/NiflyDLL.tlog
-/NiflyDLL/Test
-/PyNifly/tests/FO4/Test0Weights.blend1
+# Blender backups
+*.blend[1-9]

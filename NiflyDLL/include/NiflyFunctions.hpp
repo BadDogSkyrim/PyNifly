@@ -11,11 +11,11 @@
 #include "skin.hpp"
 //#include "NifFile.hpp"
 //#include "NifUtil.hpp"
-#include "Anim.h"
+#include "Anim.hpp"
 
 #pragma once
 
-enum TargetGame {
+enum class TargetGame {
 	FO3, FONV, SKYRIM, FO4, SKYRIMSE, FO4VR, SKYRIMVR, FO76
 };
 

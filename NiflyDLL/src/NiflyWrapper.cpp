@@ -11,7 +11,7 @@
 
     TODO: Walk through and make sure all the memory allocated here gets released
     */
-#include "pch.h" // use stdafx.h in Visual Studio 2017 and earlier
+#include "framework.hpp"
 #include <iostream>
 #include <filesystem>
 #include <string>
@@ -59,12 +59,18 @@ enum TargetGame StrToTargetGame(const char* gameName) {
     else { return TargetGame::SKYRIM; }
 }
 
-NIFLY_API void* load(const char8_t* filename) {
+NIFLY_API void* load(const char* filename) {
+    NifLoadOptions options;
+
+    if (const char* index = strstr(filename, "\\meshes")) {
+        options.loadMaterials = true;
+        options.projectRoot = std::string(filename, index);
+    }
+
     NifFile* nif = new NifFile();
-    int errval = nif->Load(std::filesystem::path(filename));
+    int errval = nif->Load(std::filesystem::path(filename), options);
 
     if (errval == 0) return nif;
-
     if (errval == 1) niflydll::LogWrite("File does not exist or is not a nif");
     if (errval == 2) niflydll::LogWrite("File is not a nif format we can read");
 
@@ -121,43 +127,48 @@ void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, int rootType, std::st
     NiVersion version;
 
     switch (targ) {
-    case FO3:
-    case FONV:
+    case TargetGame::FO3:
+    case TargetGame::FONV:
         version.SetFile(V20_2_0_7);
         version.SetUser(11);
         version.SetStream(34);
         break;
-    case SKYRIM:
+    case TargetGame::SKYRIM:
         version.SetFile(V20_2_0_7);
         version.SetUser(12);
         version.SetStream(83);
         break;
-    case FO4:
-    case FO4VR:
+    case TargetGame::FO4:
+    case TargetGame::FO4VR:
         version.SetFile(V20_2_0_7);
         version.SetUser(12);
         version.SetStream(130);
         break;
-    case SKYRIMSE:
-    case SKYRIMVR:
+    case TargetGame::SKYRIMSE:
+    case TargetGame::SKYRIMVR:
         version.SetFile(V20_2_0_7);
         version.SetUser(12);
         version.SetStream(100);
         break;
-    case FO76:
+    case TargetGame::FO76:
         version.SetFile(V20_2_0_7);
         version.SetUser(12);
         version.SetStream(155);
         break;
     }
 
-    if (rootType == RT_BSFADENODE)
-        nif->CreateAsFade(version, name);
-    else
-        nif->Create(version);
-    //NiNode* root = nif->GetRootNode();
-    //std::string nm = root->GetName();
-    //root->SetName(name);
+    nif->Create(version);
+
+    /* Replace root node with the correct type
+    */
+    if (rootType == RT_BSFADENODE) {
+        auto& hdr = nif->GetHeader();
+        hdr.DeleteBlock(0u);
+
+        auto rootNode = std::make_unique<BSFadeNode>();
+        rootNode->name.get() = name;
+        hdr.AddBlock(std::move(rootNode));
+    }
 }
 
 NIFLY_API void* createNif(const char* targetGameName, int rootType, const char* rootName) {
@@ -168,7 +179,7 @@ NIFLY_API void* createNif(const char* targetGameName, int rootType, const char* 
     return workNif;
 }
 
-NIFLY_API int saveNif(void* the_nif, const char8_t* filename) {
+NIFLY_API int saveNif(void* the_nif, const char* filename) {
     NifFile* nif = static_cast<NifFile*>(the_nif);
     return nif->Save(std::filesystem::path(filename));
 }
@@ -599,7 +610,7 @@ NIFLY_API void writeSkinToNif(void* animref) {
         theNif->UpdateSkinPartitions(shape);
 }
 
-NIFLY_API int saveSkinnedNif(void* animref, const char8_t* filepath) {
+NIFLY_API int saveSkinnedNif(void* animref, const char* filepath) {
     /* Save skinned nif
     *   Parameters
     *   > AnimInfo* anim = Nif skin for the nif to save
@@ -1534,7 +1545,7 @@ int getClothExtraData(void* nifref, void* shaperef, int idx, char* name, int nam
         BSClothExtraData* clothData = hdr.GetBlock<BSClothExtraData>(extraData);
         if (clothData) {
             if (i == 0) {
-                for (int j = 0; j < buflen && j < clothData->data.size(); j++) {
+                for (int j = 0; j < buflen && j < int(clothData->data.size()); j++) {
                     buf[j] = clothData->data[j];
                 }
                 strncpy_s(name, namelen, ClothExtraDataName, ClothExtraDataNameLen);
@@ -1744,7 +1755,7 @@ int getFurnMarker(void* nifref, int index, FurnitureMarkerBuf* buf) {
     for (auto& ed : source->extraDataRefs) {
         BSFurnitureMarker* fm = hdr.GetBlock<BSFurnitureMarker>(ed);
         if (fm) {
-            for (auto pos : fm->positions) {
+            for (auto& pos : fm->positions) {
                 if (c == index) {
                     for (int i = 0; i < 3; i++) buf->offset[i] = pos.offset[i];
                     buf->heading = pos.heading;
@@ -2273,7 +2284,7 @@ NIFLY_API int getCollListShapeChildren(void* nifref, int nodeIndex, uint32_t* bu
     if (sh) {
         std::vector<uint32_t> children;
         sh->GetChildIndices(children);
-        childCount = children.size();
+        childCount = int(children.size());
         for (int i = 0; i < childCount && i < buflen; i++) {
             buf[i] = children[i];
         };

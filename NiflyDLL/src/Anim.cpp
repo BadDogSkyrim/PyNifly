@@ -6,7 +6,7 @@ See the included LICENSE file
 	PYNIFLY DLL: Copied from OS with minimal changes to make updating easier
 */
 
-#include "Anim.h"
+#include "Anim.hpp"
 #include "NifUtil.hpp"
 /* +++ NiflyDLL Changes +++ */
 //#include <wx/log.h>
@@ -24,7 +24,7 @@ bool AnimInfo::AddShapeBone(const std::string& shape, const std::string& boneNam
 		if (!bone.compare(boneName))
 			return false;
 
-	shapeSkinning[shape].boneNames[boneName] = shapeBones[shape].size();
+	shapeSkinning[shape].boneNames[boneName] = (int)shapeBones[shape].size();
 	shapeBones[shape].push_back(boneName);
 	GetSkeleton()->RefBone(boneName);
 	RecalcXFormSkinToBone(shape, boneName);

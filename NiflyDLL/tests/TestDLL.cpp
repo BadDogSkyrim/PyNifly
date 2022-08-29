@@ -5,7 +5,7 @@
 	Copied from Outfit Studio, all their copywrite restrictions apply
 	*/
 
-#include "pch.h"
+#include "framework.hpp"
 #include <iostream>
 #include <string>
 #include <vector>
@@ -13,12 +13,11 @@
 #include <filesystem>
 #include <libloaderapi.h>
 #include <bitset>
-#include "CppUnitTest.h"
+#include "CppUnitTest.hpp"
 #include "Object3d.hpp"
-#include "Anim.h"
+#include "Anim.hpp"
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
-#include "TestDLL.h"
 
 using namespace nifly;
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
