@@ -166,7 +166,7 @@ setattr(TransformBuf, "from_matrix", classmethod(make_transformbuf))
 
 
 bone_vectors = {'X': Vector((1,0,0)), 'Z': Vector((0,0,1))}
-game_axes = {'FO4': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
+game_axes = {'FO4': 'X', 'FO76': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
 
 def qtobone(boneq:Quaternion, axis:str):
     """ Taxes a rotation and axis and applies the rotation to a unit vector
@@ -331,9 +331,18 @@ def obj_create_material(obj, shape):
     nifpath = shape.file.filepath
 
     fulltextures = extend_filenames(nifpath, "meshes", shape.textures)
-    missing = missing_files(fulltextures)
-    if len(missing) > 0:
-        log.warning(f". . Some texture files not found: {missing}")
+    convertedTextures = replace_extensions(fulltextures, "dds", "png")
+
+    # Check if the user has converted textures to png
+    missing = missing_files(convertedTextures)
+    if len(missing) == 0:
+        fulltextures = convertedTextures
+    # If they haven't, then we'll search for their dds counterparts instead
+    else:
+        missing = missing_files(fulltextures)
+        if len(missing) > 0:
+            log.warning(f". . Some texture files not found: {missing}")
+
     log.debug(". . creating material")
 
     mat = bpy.data.materials.new(name=(obj.name + ".Mat"))
@@ -439,7 +448,7 @@ def obj_create_material(obj, shape):
             matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
             rgbsep.location = (bdsf.location[0] + inter1_offset_x, yloc)
             rgbcomb.location = (bdsf.location[0] + inter2_offset_x, yloc)
-        elif shape.file.game == 'FO4':
+        elif shape.file.game in ['FO4', 'FO76']:
             # Need to invert the green channel for blender
             rgbsep = nodes.new("ShaderNodeSeparateRGB")
             rgbcomb = nodes.new("ShaderNodeCombineRGB")
@@ -1247,7 +1256,7 @@ class NifImporter():
             for n in s.bone_names: 
                 #log.debug(f"....adding bone {n} for {s.name}")
                 self.bones.add(n) 
-            if self.nif.game == 'FO4' and fo4FaceDict.matches(self.bones) > 10:
+            if self.nif.game in ['FO4', 'FO76'] and fo4FaceDict.matches(self.bones) > 10:
                 self.nif.dict = fo4FaceDict
 
             self.import_shape(s)
@@ -1889,7 +1898,7 @@ class NifExporter:
     def add_object(self, obj):
         """ Adds the given object to the objects to export """
         if obj.type == 'ARMATURE':
-            facebones_obj = (self.game == 'FO4') and (is_facebones(obj))
+            facebones_obj = (self.game in ['FO4', 'FO76']) and (is_facebones(obj))
             if facebones_obj and self.facebones is None:
                 self.facebones = obj
             if (not facebones_obj) and (self.armature is None):
@@ -2033,7 +2042,7 @@ class NifExporter:
         """
         sdlist = []
         for st in self.str_data:
-            if st['NiStringExtraData_Name'] != 'BODYTRI' or self.game != 'FO4':
+            if st['NiStringExtraData_Name'] != 'BODYTRI' or self.game not in ['FO4', 'FO76']:
                 # FO4 bodytris go at the top level
                 sdlist.append( (st['NiStringExtraData_Name'], st['NiStringExtraData_Value']) )
                 self.objs_written[st.name] = self.nif
@@ -3081,7 +3090,7 @@ class NifExporter:
 
             # Check for bodytri morphs--write the extra data node if needed
             log.debug(f"TRIP data: shapes={len(self.trip.shapes)}, bodytri written: {self.bodytri_written}, filepath: {truncate_filename(self.trippath, 'meshes')}")
-            if self.game == 'FO4' and len(self.trip.shapes) > 0 and  not self.bodytri_written:
+            if self.game in ['FO4', 'FO76'] and len(self.trip.shapes) > 0 and  not self.bodytri_written:
                 self.nif.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
 
             self.export_collisions([c for c in self.collisions if c.parent == None])
