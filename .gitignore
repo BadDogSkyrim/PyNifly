@@ -12,11 +12,18 @@
 # Local History for Visual Studio Code
 .history/
 
-# CMake build directory
-NiflyDLL/build/
+# Python cache
+__pycache__/
 
-# Tests
+# CMake directories
+build/
+publish/
+
+# NiflyDLL Test directory
 NiflyDLL/Test/
+
+# NiflyDLL install artifacts
+NiflyDLL.*
 
 # Blender backups
 *.blend[1-9]

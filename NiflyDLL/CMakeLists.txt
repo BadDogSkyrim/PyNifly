@@ -8,7 +8,7 @@ set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/publish")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-project(NiflyDLL LANGUAGES CXX)
+project(NiflyDLL LANGUAGES C CXX)
 
 # --------------------------------------------------
 # Add submodules
@@ -105,5 +105,5 @@ group_files("${nifly_dll_sources};${nifly_dll_headers}")
 install(TARGETS
     nifly_dll
     RUNTIME
-    DESTINATION .)
+    DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/../PyNifly)
 
