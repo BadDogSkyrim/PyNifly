@@ -1785,7 +1785,7 @@ TEST_CREATE_WEIGHTS = False
 TEST_READ_WRITE = False
 TEST_XFORM_FO = False
 TEST_2_TAILS = False
-TEST_ROTATIONS = True
+TEST_ROTATIONS = False
 TEST_PARENT = False
 TEST_PYBABY = False
 TEST_BONE_XFORM = False
@@ -1799,7 +1799,7 @@ TEST_FNV = False
 TEST_BLOCKNAME = False
 TEST_UNSKINNED = False
 TEST_UNI = False
-TEST_SHADER = False
+TEST_SHADER = True
 TEST_ALPHA = False
 TEST_SHEATH = False
 TEST_FEET = False
@@ -1811,13 +1811,13 @@ TEST_CLOTH_DATA = False
 TEST_PARTITION_SM = False
 TEST_EXP_BODY = False
 TEST_EFFECT_SHADER = False
-TEST_BOW = True
+TEST_BOW = False
 TEST_CONVEX = False
 TEST_CONVEX_MULTI = False
 TEST_COLLISION_LIST = False
 TEST_COLLISION_CAPSULE = False
 TEST_FURNITURE_MARKER = False
-TEST_MANY_SHAPES = True
+TEST_MANY_SHAPES = False
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -2700,6 +2700,8 @@ if __name__ == "__main__":
         hsse = hnse.shapes[0]
         assert hsse.shader_attributes.Shader_Type == 4
         assert hsse.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsse.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert hsse.shader_attributes.Alpha == 1.0, f"Expected Alpha 1, got {hsse.shader_attributes.Alpha}"
+        assert hsse.shader_attributes.Glossiness == 33.0, f"Expected Glossiness 33, got {hsse.shader_attributes.Glossiness}"
 
         hnle = NifFile(r"tests\SKYRIM\malehead.nif")
         hsle = hnle.shapes[0]

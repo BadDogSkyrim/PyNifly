@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (5, 10, 0),  
+    "version": (5, 11, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -2853,9 +2853,9 @@ class NifExporter:
                     # Use the shader node path if it's usable, the one stashed in 
                     # custom properties if not
                     txtidx = foundpath.lower().find('textures')
-                    ext = foundpath[-3:]
-                    if txtidx >= 0 and ext.lower() == "dds":
-                        texturepath = foundpath[txtidx:]
+                    ext = foundpath[-4:]
+                    if txtidx >= 0 and ext.lower() in [".dds", ".png"]:
+                        texturepath = foundpath[txtidx:-4] + ".dds"
                     else:
                         try:
                             texturepath = mat[f'BSShaderTextureSet_{textureslot}']
