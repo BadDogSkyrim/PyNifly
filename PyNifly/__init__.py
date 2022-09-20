@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = False
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -3096,7 +3096,10 @@ class NifExporter:
 
             self.nif.save()
             log.info(f"..Wrote {fpath}")
-            self.message_log.append(self.nif.message_log())
+            msgs = list(filter(lambda x: not x.startswith('Info: Loaded skeleton') and len(x)>0, 
+                               self.nif.message_log().split('\n')))
+            if msgs:
+                self.message_log.append(self.nif.message_log())
 
         if len(self.trip.shapes) > 0:
             log.debug(f"First shape in trip file has shapes: {self.trip.shapes[next(iter(self.trip.shapes))].keys()}")
@@ -3125,7 +3128,10 @@ Exporting objects: {self.objects}
             self.export_file_set(self.armature, '')
         if self.facebones is None and self.armature is None:
             self.export_file_set(None, '')
-        log.debug("Nifly Message Log:\n" + NifFile.message_log())
+        msgs = list(filter(lambda x: not x.startswith('Info: Loaded skeleton') and len(x)>0, 
+                           NifFile.message_log().split('\n')))
+        if msgs:
+            log.debug("Nifly Message Log:\n" + NifFile.message_log())
     
     def export(self, objects):
         self.set_objects(objects)
