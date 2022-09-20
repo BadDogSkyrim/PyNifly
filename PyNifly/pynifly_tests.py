@@ -19,6 +19,7 @@ class ImportFlags(IntFlag):
     RENAME_BONES = 1 << 1
     ROTATE_MODEL = 1 << 2
     PRESERVE_HIERARCHY = 1 << 3
+    WRITE_BODYTRI = 1 << 4
 
 def get_image_node(node_input):
     """Walk the shader nodes backwards until a texture node is found.
@@ -174,7 +175,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         obj = find_shape("Penis_CBBE")
 
         remove_file(outfile)
-        export = NifExporter(outfile, 'SKYRIMSE')
+        export = NifExporter(outfile, 'SKYRIMSE', ImportFlags.RENAME_BONES | ImportFlags.WRITE_BODYTRI)
         export.export([obj])
 
         print(' ------- Check --------- ')
@@ -209,7 +210,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         print("Found body: " + body.name)
 
         remove_file(outfile)
-        export = NifExporter(outfile, 'FO4')
+        export = NifExporter(outfile, 'FO4', ImportFlags.WRITE_BODYTRI)
         export.export([body])
 
         print(' ------- Check --------- ')
