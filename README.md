@@ -1,5 +1,7 @@
 # PyNifly
-Export/Import tools between Blender and the Nif format, using Bodyslide/Outfit Studio's Nifly layer. Works with Blender 2.9 and 3.0. Can handle nifs for Skyrim LE, SE, and Fallout 4.
+Export/Import tools between Blender and the Nif format, using Bodyslide/Outfit Studio's Nifly layer. Works with Blender 2.9 and 3.x. Can handle nifs for Skyrim LE, SE, and Fallout 4.
+
+Full documentation in the wiki.
 
 **Features**
 
@@ -16,11 +18,11 @@ Export/Import tools between Blender and the Nif format, using Bodyslide/Outfit S
 
 **Background**
 
-Outfit Studio has working export/import for a bunch of the Bethesda games (FO3, FONV, LE, SE, FO4). I'm a modder and I've been using the niftools scripts for years, but I've started modding for Fallout 4 and there's no direct support for that at all.
+Outfit Studio has working export/import for a bunch of the Bethesda games. I'm a modder and I've been using the niftools scripts for years, but I've started modding for Fallout 4 and there's no direct support for that at all.
 
 BS/OS has separated much of their code to deal with nif files into a separate library, nifly. I've used this library and some additional OS code as the core of an export/import addon for Blender. 
 
-My interest is primarily Skyrim, Skyrim SE, and Fallout 4 so I'll be focusing on supporting those games. But the underlying code supports FO3 and FONV as well, and I'll support them as I can.
+My interest is primarily Skyrim, Skyrim SE, and Fallout 4 so I'll be focusing on supporting those games. 
 
 **Status**
 
