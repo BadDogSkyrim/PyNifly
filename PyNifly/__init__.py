@@ -264,19 +264,19 @@ def append_if_new(theList, theVector, errorfactor):
 def get_image_node(node_input):
     """Walk the shader nodes backwards until a texture node is found.
         node_input = the shader node input to follow; may be null"""
+    log.debug(f"Walking shader nodes backwards to find image: {node_input.name}")
     n = None
     if node_input and len(node_input.links) > 0: 
         n = node_input.links[0].from_node
 
     while n and type(n) != bpy.types.ShaderNodeTexImage:
-        if 'Base Color' in n.inputs.keys() and n.inputs['Base Color'].is_linked:
-            n = n.inputs['Base Color'].links[0].from_node
-        elif 'Image' in n.inputs.keys() and n.inputs['Image'].is_linked:
-            n = n.inputs['Image'].links[0].from_node
-        elif 'Color' in n.inputs.keys() and n.inputs['Color'].is_linked:
-            n = n.inputs['Color'].links[0].from_node
-        elif 'R' in n.inputs.keys() and n.inputs['R'].is_linked:
-            n = n.inputs['R'].links[0].from_node
+        log.debug(f"Walking nodes: {n.name}")
+        new_n = None
+        for inp in ['Base Color', 'Image', 'Color', 'R', 'Red']:
+            if inp in n.inputs.keys() and n.inputs[inp].is_linked:
+                new_n = n.inputs[inp].links[0].from_node
+                break
+        n = new_n
     return n
 
 def find_shader_node(nodelist, idname):
@@ -440,26 +440,30 @@ def obj_create_material(obj, shape):
         
         if shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
             # Need to swap green and blue channels for blender
-            rgbsep = nodes.new("ShaderNodeSeparateRGB")
-            rgbcomb = nodes.new("ShaderNodeCombineRGB")
-            matlinks.new(rgbsep.outputs['R'], rgbcomb.inputs['R'])
-            matlinks.new(rgbsep.outputs['G'], rgbcomb.inputs['B'])
-            matlinks.new(rgbsep.outputs['B'], rgbcomb.inputs['G'])
-            matlinks.new(rgbcomb.outputs['Image'], nmap.inputs['Color'])
-            matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
+            rgbsep = nodes.new("ShaderNodeSeparateColor")
+            rgbsep.mode = 'RGB'
+            rgbcomb = nodes.new("ShaderNodeCombineColor")
+            rgbcomb.mode = 'RGB'
+            matlinks.new(rgbsep.outputs['Red'], rgbcomb.inputs['Red'])
+            matlinks.new(rgbsep.outputs['Green'], rgbcomb.inputs['Blue'])
+            matlinks.new(rgbsep.outputs['Blue'], rgbcomb.inputs['Green'])
+            matlinks.new(rgbcomb.outputs['Color'], nmap.inputs['Color'])
+            matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Color'])
             rgbsep.location = (bdsf.location[0] + inter1_offset_x, yloc)
             rgbcomb.location = (bdsf.location[0] + inter2_offset_x, yloc)
         elif shape.file.game in ['FO4', 'FO76']:
             # Need to invert the green channel for blender
-            rgbsep = nodes.new("ShaderNodeSeparateRGB")
-            rgbcomb = nodes.new("ShaderNodeCombineRGB")
+            rgbsep = nodes.new("ShaderNodeSeparateColor")
+            rgbsep.mode = 'RGB'
+            rgbcomb = nodes.new("ShaderNodeCombineColor")
+            rgbcomb.mode = 'RGB'
             colorinv = nodes.new("ShaderNodeInvert")
-            matlinks.new(rgbsep.outputs['R'], rgbcomb.inputs['R'])
-            matlinks.new(rgbsep.outputs['B'], rgbcomb.inputs['B'])
-            matlinks.new(rgbsep.outputs['G'], colorinv.inputs['Color'])
-            matlinks.new(colorinv.outputs['Color'], rgbcomb.inputs['G'])
-            matlinks.new(rgbcomb.outputs['Image'], nmap.inputs['Color'])
-            matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
+            matlinks.new(rgbsep.outputs['Red'], rgbcomb.inputs['Red'])
+            matlinks.new(rgbsep.outputs['Blue'], rgbcomb.inputs['Blue'])
+            matlinks.new(rgbsep.outputs['Green'], colorinv.inputs['Color'])
+            matlinks.new(colorinv.outputs['Color'], rgbcomb.inputs['Green'])
+            matlinks.new(rgbcomb.outputs['Color'], nmap.inputs['Color'])
+            matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Color'])
             rgbsep.location = (bdsf.location[0] + inter1_offset_x, yloc)
             rgbcomb.location = (bdsf.location[0] + inter3_offset_x, yloc)
             colorinv.location = (bdsf.location[0] + inter2_offset_x, yloc - rgbcomb.height * 0.9)
@@ -2815,10 +2819,14 @@ class NifExporter:
 
             shader_node = None
 
-            if not 'Principled BSDF' in nodelist:
-                log.warning(f"...Have material but no Principled BSDF for {obj.name}")
+            if not "Material Output" in nodelist:
+                log.warning(f"Have material but no Material Output for {mat.name}")
             else:
-                shader_node = nodelist['Principled BSDF']
+                mat_out = nodelist["Material Output"]
+                if mat_out.inputs['Surface'].is_linked:
+                    shader_node = mat_out.inputs['Surface'].links[0].from_node
+                if not shader_node:
+                    log.warning(f"Have material but no shader node for {mat.name}")
 
             # Texture paths
             if shader_node:
@@ -2893,6 +2901,7 @@ class NifExporter:
                 shape.save_alpha_property()
 
         except:
+            traceback.print_exc()
             log.warning(f"Couldn't parse the shader nodes on {obj.name}")
             self.warnings.add('WARNING')
 
@@ -3338,6 +3347,34 @@ def run_tests():
 
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
+
+    if True: # TEST_BPY_ALL or TEST_SHADER_3_3:
+        test_title("TEST_SHADER_3_3", "Shader attributes are read and turned into Blender shader nodes")
+
+        clear_all()
+
+        append_from_file("FootMale_Big", True, r"tests\SkyrimSE\feet.3.3.blend", 
+                         r"\Object", "FootMale_Big")
+        bpy.ops.object.select_all(action='DESELECT')
+        obj = find_shape("FootMale_Big")
+
+        print("## Shader attributes are written on export")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_3_3.nif")
+        remove_file(outfile)
+        exporter = NifExporter(outfile, 'SKYRIMSE')
+        exporter.export([obj])
+
+        nifcheckSE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_3_3.nif"))
+        
+        assert nifcheckSE.shapes[0].textures[0] == r"textures\actors\character\male\MaleBody_1.dds", \
+            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[0]}'"
+        assert nifcheckSE.shapes[0].textures[1] == r"textures\actors\character\male\MaleBody_1_msn.dds", \
+            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[1]}'"
+        assert nifcheckSE.shapes[0].textures[2] == r"textures\actors\character\male\MaleBody_1_sk.dds", \
+            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[2]}'"
+        assert nifcheckSE.shapes[0].textures[7] == r"textures\actors\character\male\MaleBody_1_S.dds", \
+            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[7]}'"
+
 
 
     if TEST_BPY_ALL:

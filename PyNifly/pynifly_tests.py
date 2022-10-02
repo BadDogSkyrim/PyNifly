@@ -82,9 +82,9 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_FACEBONE_EXPORT = False
     TEST_TIGER_EXPORT = False
     TEST_JIARAN = False
-    TEST_SHADER_LE = False
-    TEST_SHADER_SE = False
-    TEST_SHADER_FO4 = False
+    TEST_SHADER_LE = True
+    TEST_SHADER_SE = True
+    TEST_SHADER_FO4 = True
     TEST_SHADER_ALPHA = False
     TEST_SHEATH = False
     TEST_FEET = False
@@ -111,7 +111,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_TRIP_SE = False
     TEST_FURN_MARKER2 = False
     TEST_FURN_MARKER1 = False
-    TEST_BONE_HIERARCHY = True
+    TEST_BONE_HIERARCHY = False
     TEST_BONE_MANIPULATIONS = False
     TEST_UNIFORM_SCALE = False
     TEST_NONUNIFORM_SCALE = False
@@ -1631,18 +1631,19 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         #for o in bpy.context.selected_objects:
         #    if o.name.startswith("Helmet:0"):
         #        obj = o
-        obj = bpy.data.objects['Helmet:0']
-        assert obj.name == "Helmet:0", "Read the helmet object"
-        assert "FO4 Seg 001 | Hair Top | Head" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
-        assert "Meshes\\Armor\\FlightHelmet\\Helmet.ssf" == obj['FO4_SEGMENT_FILE'], "FO4 segment file read and saved for later use"
+        helmet = next(filter(lambda x: x.name.startswith('Helmet:0'), bpy.context.selected_objects))
+        visor = next(filter(lambda x: x.name.startswith('glass:0'), bpy.context.selected_objects))
+        helmet = bpy.data.objects['Helmet:0']
+        assert helmet.name == "Helmet:0", "Read the helmet object"
+        assert "FO4 Seg 001 | Hair Top | Head" in helmet.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
+        assert "Meshes\\Armor\\FlightHelmet\\Helmet.ssf" == helmet['FO4_SEGMENT_FILE'], "FO4 segment file read and saved for later use"
 
-        visor = bpy.data.objects['glass:0']
         assert visor.name == "glass:0", "Read the visor object"
         assert "FO4 Seg 001 | Hair Top" in visor.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
 
         print("### Can write FO4 segments")
         e = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"), "FO4")
-        e.export([obj, visor])
+        e.export([helmet, visor])
         #export_file_set(os.path.join(pynifly_dev_path, r"tests/Out/TEST_BP_SEGMENTShelmet.nif"),
         #                "FO4", [''], [obj], obj.parent)
         
