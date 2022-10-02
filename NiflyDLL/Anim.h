@@ -89,8 +89,8 @@ public:
 // Bone to weight list association.
 class AnimSkin {
 public:
-	std::unordered_map<int, AnimWeight> boneWeights;
-	std::unordered_map<std::string, int> boneNames;
+	std::unordered_map<uint8_t, AnimWeight> boneWeights;
+	std::unordered_map<std::string, uint8_t> boneNames;
 	nifly::MatTransform xformGlobalToSkin;
 
 	void LoadFromNif(nifly::NifFile* loadFromFile, nifly::NiShape* shape, AnimSkeleton* skel);

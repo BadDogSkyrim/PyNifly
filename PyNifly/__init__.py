@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (5, 11, 0),  
+    "version": (5, 12, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -96,7 +96,7 @@ BONE_LEN = 5
 ROLL_ADJUST = 0 # -pi/2
 
 
-class ImportFlags(IntFlag):
+class PyNiflyFlags(IntFlag):
     CREATE_BONES = 1
     RENAME_BONES = 1 << 1
     ROTATE_MODEL = 1 << 2
@@ -167,7 +167,7 @@ setattr(TransformBuf, "from_matrix", classmethod(make_transformbuf))
 
 
 bone_vectors = {'X': Vector((1,0,0)), 'Z': Vector((0,0,1))}
-game_axes = {'FO4': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
+game_axes = {'FO4': 'X', 'FO76': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
 
 def qtobone(boneq:Quaternion, axis:str):
     """ Taxes a rotation and axis and applies the rotation to a unit vector
@@ -332,9 +332,18 @@ def obj_create_material(obj, shape):
     nifpath = shape.file.filepath
 
     fulltextures = extend_filenames(nifpath, "meshes", shape.textures)
-    missing = missing_files(fulltextures)
-    if len(missing) > 0:
-        log.warning(f". . Some texture files not found: {missing}")
+    convertedTextures = replace_extensions(fulltextures, ".dds", ".png")
+
+    # Check if the user has converted textures to png
+    missing = missing_files(convertedTextures)
+    if len(missing) == 0:
+        fulltextures = convertedTextures
+    else:
+        # If they haven't, then we'll search for their dds counterparts instead
+        missing = missing_files(fulltextures)
+        if len(missing) > 0:
+            log.warning(f". . Some texture files not found: {missing}")
+
     log.debug(". . creating material")
 
     mat = bpy.data.materials.new(name=(obj.name + ".Mat"))
@@ -440,7 +449,7 @@ def obj_create_material(obj, shape):
             matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
             rgbsep.location = (bdsf.location[0] + inter1_offset_x, yloc)
             rgbcomb.location = (bdsf.location[0] + inter2_offset_x, yloc)
-        elif shape.file.game == 'FO4':
+        elif shape.file.game in ['FO4', 'FO76']:
             # Need to invert the green channel for blender
             rgbsep = nodes.new("ShaderNodeSeparateRGB")
             rgbcomb = nodes.new("ShaderNodeCombineRGB")
@@ -640,7 +649,7 @@ class NifImporter():
     """Does the work of importing a nif, independent of Blender's operator interface"""
     def __init__(self, 
                  filename: str, 
-                 f: ImportFlags = ImportFlags.CREATE_BONES | ImportFlags.RENAME_BONES):
+                 f: PyNiflyFlags = PyNiflyFlags.CREATE_BONES | PyNiflyFlags.RENAME_BONES):
         self.filename = filename
         self.flags = f
         self.armature = None
@@ -822,14 +831,14 @@ class NifImporter():
         if parent:
             new_object.parent = parent
 
-        if self.flags & ImportFlags.ROTATE_MODEL:
+        if self.flags & PyNiflyFlags.ROTATE_MODEL:
             log.info(f". . Rotating model to match blender")
             r = new_object.rotation_euler[:]
             new_object.rotation_euler = (r[0], r[1], r[2]+pi)
             new_object["PYNIFLY_IS_ROTATED"] = True
 
         mesh_create_uv(new_object.data, the_shape.uvs)
-        mesh_create_bone_groups(the_shape, new_object, self.flags & ImportFlags.RENAME_BONES)
+        mesh_create_bone_groups(the_shape, new_object, self.flags & PyNiflyFlags.RENAME_BONES)
         mesh_create_partition_groups(the_shape, new_object)
         for f in new_mesh.polygons:
             f.use_smooth = True
@@ -856,7 +865,7 @@ class NifImporter():
         self.import_shape_extra(new_object, the_shape)
 
         new_object['PYN_GAME'] = self.nif.game
-        new_object['PYN_PRESERVE_HIERARCHY'] = ((self.flags & ImportFlags.PRESERVE_HIERARCHY) != 0)
+        new_object['PYN_PRESERVE_HIERARCHY'] = ((self.flags & PyNiflyFlags.PRESERVE_HIERARCHY) != 0)
 
 
     def add_bone_to_arma(self, name, nifname):
@@ -922,14 +931,14 @@ class NifImporter():
                             parentnifname = niparent.nif_name
                         except:
                             parentnifname = niparent.name
-                        if self.flags & ImportFlags.RENAME_BONES:
+                        if self.flags & PyNiflyFlags.RENAME_BONES:
                             parentname = niparent.blender_name
                         else:
                             parentname = parentnifname
 
-                if parentname is None and (self.flags & ImportFlags.CREATE_BONES):
+                if parentname is None and (self.flags & PyNiflyFlags.CREATE_BONES):
                     # No parent in the nif. If it's a known bone, get parent from skeleton
-                    if self.flags & ImportFlags.RENAME_BONES:
+                    if self.flags & PyNiflyFlags.RENAME_BONES:
                         if arma_bone.name in self.nif.dict.byBlender:
                             p = self.nif.dict.byBlender[bonename].parent
                             if p:
@@ -984,7 +993,7 @@ class NifImporter():
         bpy.ops.object.mode_set(mode='EDIT', toggle=False)
     
         for bone_game_name in bone_names:
-            if self.flags & ImportFlags.RENAME_BONES:
+            if self.flags & PyNiflyFlags.RENAME_BONES:
                 name = self.nif.blender_name(bone_game_name)
             else:
                 name = bone_game_name
@@ -1248,7 +1257,7 @@ class NifImporter():
             for n in s.bone_names: 
                 #log.debug(f"....adding bone {n} for {s.name}")
                 self.bones.add(n) 
-            if self.nif.game == 'FO4' and fo4FaceDict.matches(self.bones) > 10:
+            if self.nif.game in ['FO4', 'FO76'] and fo4FaceDict.matches(self.bones) > 10:
                 self.nif.dict = fo4FaceDict
 
             self.import_shape(s)
@@ -1269,7 +1278,7 @@ class NifImporter():
             self.make_armature(new_collection, self.bones)
 
             if self.armature:
-                self.armature['PYN_RENAME_BONES'] = ((self.flags & ImportFlags.RENAME_BONES) != 0)
+                self.armature['PYN_RENAME_BONES'] = ((self.flags & PyNiflyFlags.RENAME_BONES) != 0)
         
             if len(self.objects_created) > 0:
                 bpy.ops.object.select_all(action='DESELECT')
@@ -1298,7 +1307,7 @@ class NifImporter():
     @classmethod
     def do_import(cls, 
                   filename: str, 
-                  flags: ImportFlags = ImportFlags.CREATE_BONES | ImportFlags.RENAME_BONES):
+                  flags: PyNiflyFlags = PyNiflyFlags.CREATE_BONES | PyNiflyFlags.RENAME_BONES):
         imp = NifImporter(filename, flags)
         imp.execute()
         return imp
@@ -1331,13 +1340,13 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         log.info("\n\n====================================\nNIFLY IMPORT V%d.%d.%d" % bl_info['version'])
         status = {'FINISHED'}
 
-        flags = ImportFlags(0)
+        flags = PyNiflyFlags(0)
         if self.create_bones:
-            flags |= ImportFlags.CREATE_BONES
+            flags |= PyNiflyFlags.CREATE_BONES
         if self.rename_bones:
-            flags |= ImportFlags.RENAME_BONES
+            flags |= PyNiflyFlags.RENAME_BONES
         #if self.rotate_model:
-        #    flags |= ImportFlags.ROTATE_MODEL
+        #    flags |= PyNiflyFlags.ROTATE_MODEL
 
         try:
             NifFile.Load(nifly_path)
@@ -1824,7 +1833,7 @@ def get_with_uscore(str_list):
 class NifExporter:
     """ Object that handles the export process 
     """
-    def __init__(self, filepath, game, export_flags=ImportFlags.RENAME_BONES):
+    def __init__(self, filepath, game, export_flags=PyNiflyFlags.RENAME_BONES):
         self.filepath = filepath
         self.game = game
         self.nif = None
@@ -1890,7 +1899,7 @@ class NifExporter:
     def add_object(self, obj):
         """ Adds the given object to the objects to export """
         if obj.type == 'ARMATURE':
-            facebones_obj = (self.game == 'FO4') and (is_facebones(obj))
+            facebones_obj = (self.game in ['FO4', 'FO76']) and (is_facebones(obj))
             if facebones_obj and self.facebones is None:
                 self.facebones = obj
             if (not facebones_obj) and (self.armature is None):
@@ -2034,7 +2043,7 @@ class NifExporter:
         """
         sdlist = []
         for st in self.str_data:
-            if st['NiStringExtraData_Name'] != 'BODYTRI' or self.game != 'FO4':
+            if st['NiStringExtraData_Name'] != 'BODYTRI' or self.game not in ['FO4', 'FO76']:
                 # FO4 bodytris go at the top level
                 sdlist.append( (st['NiStringExtraData_Name'], st['NiStringExtraData_Value']) )
                 self.objs_written[st.name] = self.nif
@@ -2707,7 +2716,8 @@ class NifExporter:
         #bonexf = MatrixLocRotScale(boneloc, bonerot, (1,1,1))
         # log.debug(f"{b.name} global transform: \n{bonexf}")
 
-        if b.parent and (self.flags & ImportFlags.PRESERVE_HIERARCHY):
+        if b.parent and (self.flags & PyNiflyFlags.PRESERVE_HIERARCHY):
+            # log.debug(f"Exporting {b.name} with PRESERVE_HIERARCHY")
             # Calculate the relative transform from the parent
             boneloc, bonerot, bonescale = bonexf.decompose()
             parloc, parrot, parscale = get_bone_global_xf(b.parent, self.game).decompose()
@@ -2735,7 +2745,7 @@ class NifExporter:
         
         xf = self.get_bone_xform(b)
 
-        if self.flags & ImportFlags.RENAME_BONES:
+        if self.flags & PyNiflyFlags.RENAME_BONES:
             nifname = self.nif.nif_name(b.name)
         else:
             nifname = b.name
@@ -2753,6 +2763,7 @@ class NifExporter:
         and parent/child relationships are correct. Do not assume that the skeleton is fully
         connected (do Blender armatures have to be fully connected?). 
         used_bones - list of bone names to write. """
+        # log.debug(f"write_bone_hierarchy({shape.name})")
         writtenbones = {}
         for b in used_bones:
             if b in arma.bones:
@@ -2771,14 +2782,14 @@ class NifExporter:
         weights_by_bone = get_weights_by_bone(weights_by_vert)
         used_bones = weights_by_bone.keys()
 
-        if self.flags & ImportFlags.PRESERVE_HIERARCHY:
+        if self.flags & PyNiflyFlags.PRESERVE_HIERARCHY:
             self.write_bone_hierarchy(new_shape, arma.data, used_bones)
 
         arma_bones = self.get_bone_xforms(arma.data, used_bones, new_shape)
     
         for bone_name, bone_xform in arma_bones.items():
             if bone_name in weights_by_bone and len(weights_by_bone[bone_name]) > 0:
-                if self.flags & ImportFlags.RENAME_BONES:
+                if self.flags & PyNiflyFlags.RENAME_BONES:
                     nifname = new_shape.file.nif_name(bone_name)
                 else:
                     nifname = bone_name
@@ -3017,7 +3028,7 @@ class NifExporter:
         retval |= self.export_tris(obj, verts, tris, uvmap_new, morphdict)
 
         # Write TRIP extra data if this is Skyrim
-        if (self.flags & ImportFlags.WRITE_BODYTRI) \
+        if (self.flags & PyNiflyFlags.WRITE_BODYTRI) \
             and self.game in ['SKYRIM', 'SKYRIMSE'] \
             and len(self.trip.shapes) > 0:
             new_shape.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
@@ -3026,10 +3037,10 @@ class NifExporter:
         self.objs_written[obj.name] = new_shape
 
         obj['PYN_GAME'] = self.game
-        obj['PYN_PRESERVE_HIERARCHY'] = (self.flags & ImportFlags.PRESERVE_HIERARCHY) != 0
+        obj['PYN_PRESERVE_HIERARCHY'] = (self.flags & PyNiflyFlags.PRESERVE_HIERARCHY) != 0
         if arma:
-            arma['PYN_RENAME_BONES'] = (self.flags & ImportFlags.RENAME_BONES) != 0
-        obj['PYN_WRITE_BODYTRI_ED'] = (self.flags & ImportFlags.WRITE_BODYTRI) != 0
+            arma['PYN_RENAME_BONES'] = (self.flags & PyNiflyFlags.RENAME_BONES) != 0
+        obj['PYN_WRITE_BODYTRI_ED'] = (self.flags & PyNiflyFlags.WRITE_BODYTRI) != 0
 
         log.info(f"..{obj.name} successfully exported to {self.nif.filepath}")
         return retval
@@ -3085,8 +3096,8 @@ class NifExporter:
 
             # Check for bodytri morphs--write the extra data node if needed
             log.debug(f"TRIP data: shapes={len(self.trip.shapes)}, bodytri written: {self.bodytri_written}, filepath: {truncate_filename(self.trippath, 'meshes')}")
-            if (self.flags & ImportFlags.WRITE_BODYTRI) \
-                and self.game == 'FO4' \
+            if (self.flags & PyNiflyFlags.WRITE_BODYTRI) \
+                and self.game in ['FO4', 'FO76'] \
                 and len(self.trip.shapes) > 0 \
                 and  not self.bodytri_written:
                 self.nif.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
@@ -3155,8 +3166,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             name="Target Game",
             items=(('SKYRIM', "Skyrim", ""),
                    ('SKYRIMSE', "Skyrim SE", ""),
-                   ('FO4', "Fallout 4", "")
-                   # ('FO76', "Fallout 76", ""),
+                   ('FO4', "Fallout 4", ""),
+                   ('FO76', "Fallout 76", ""),
                    # ('FO3', "Fallout New Vegas", ""),
                    # ('FO3', "Fallout 3", ""),
                    ),
@@ -3237,11 +3248,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
         flags = 0
         if self.rename_bones:
-            flags = ImportFlags.RENAME_BONES
+            flags = PyNiflyFlags.RENAME_BONES
         if self.preserve_hierarchy:
-            flags |= ImportFlags.PRESERVE_HIERARCHY
+            flags |= PyNiflyFlags.PRESERVE_HIERARCHY
         if self.write_bodytri:
-            flags |= ImportFlags.WRITE_BODYTRI
+            flags |= PyNiflyFlags.WRITE_BODYTRI
 
         log.info("\n\n\n==============================\nNIFLY EXPORT V%d.%d.%d\n==============================" % bl_info['version'])
         NifFile.Load(nifly_path)
@@ -3327,29 +3338,6 @@ def run_tests():
 
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
-
-    if True: # TEST_BPY_ALL or TEST_NORM:
-        test_title("TEST_NORM", "Normals are read correctly")
-        clear_all()
-        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/LBoot.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_NORM.nif")
-
-        NifImporter.do_import(testfile)
-        boot = find_shape("L_Boot")
-
-        boot.data.calc_normals_split()
-
-        assert VNearEqual(boot.data.vertices[492].co, (-18.28125, 10.890625, -116.25)), \
-            f"Have the right vertex: {boot.data.vertices[492].co}"
-        assert VNearEqual(boot.data.vertices[492].normal, (-0.40112, 0.4675, 0.78774)), \
-            f"Vertex normal as expected: {boot.data.vertices[492].normal}"
-        vertloops = [l.index for l in boot.data.loops if l.vertex_index == 492]
-        custnormal = boot.data.loops[vertloops[0]].normal
-        print(f"TEST_NORM custnormal: loop {vertloops[0]} has normal {custnormal}")
-        assert custnormal[1] > 0, f"Custom normal points forward: {custnormal}"
-        assert custnormal[2] > 0, f"Custom normal points up: {custnormal}"
-        custnormal2 = boot.data.loops[vertloops[2]].normal
-        assert VNearEqual(custnormal, custnormal2), f"Face normals match: {custnormal} == {custnormal2}"
 
 
     if TEST_BPY_ALL:

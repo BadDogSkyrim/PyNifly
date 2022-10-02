@@ -26,7 +26,7 @@ static String curGameDataPath; // Get this from OS if it turns out we need it
 std::string curRootName;
 
 void FindProjectRoot() {
-	char path[MAX_PATH];
+	char path[MAX_PATH] = { 0 };
 	HMODULE hm = NULL;
 
 	if (!projectRoot.empty()) return;
@@ -34,12 +34,12 @@ void FindProjectRoot() {
 	if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
 			GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
 			(LPCSTR)&SkeletonFile, &hm) == 0) {
-		int ret = GetLastError();
+		//int ret = GetLastError();
 		niflydll::LogWrite("Failed to get a handle to the DLL module");
 	}
 	if (GetModuleFileName(hm, (LPSTR)path, sizeof(path)) == 0)
 	{
-		int ret = GetLastError();
+		//int ret = GetLastError();
 		niflydll::LogWrite("Failed to get the filename of the DLL");
 	}
 	
@@ -51,18 +51,18 @@ String SkeletonFile(enum TargetGame game, String& rootName) {
 
 	FindProjectRoot();
 	switch (game) {
-	case FO3:
-	case FONV:
+	case TargetGame::FO3:
+	case TargetGame::FONV:
 		rootName = "Bip01";
 		break;
-	case SKYRIM:
-	case SKYRIMSE:
-	case SKYRIMVR:
+	case TargetGame::SKYRIM:
+	case TargetGame::SKYRIMSE:
+	case TargetGame::SKYRIMVR:
 		curSkeletonPath = (projectRoot / "skeletons/Skyrim/skeleton.nif").string();
 		rootName = "NPC Root [Root]";
 		break;
-	case FO4:
-	case FO4VR:
+	case TargetGame::FO4:
+	case TargetGame::FO4VR:
 		curSkeletonPath = (projectRoot / "skeletons/FO4/skeleton.nif").string();
 		rootName = "Root";
 		break;
@@ -74,30 +74,30 @@ void SetNifVersion(NifFile* nif, enum TargetGame targ) {
 	NiVersion version;
 
 	switch (targ) {
-	case FO3:
-	case FONV:
+	case TargetGame::FO3:
+	case TargetGame::FONV:
 		version.SetFile(V20_2_0_7);
 		version.SetUser(11);
 		version.SetStream(34);
 		break;
-	case SKYRIM:
+	case TargetGame::SKYRIM:
 		version.SetFile(V20_2_0_7);
 		version.SetUser(12);
 		version.SetStream(83);
 		break;
-	case FO4:
-	case FO4VR:
+	case TargetGame::FO4:
+	case TargetGame::FO4VR:
 		version.SetFile(V20_2_0_7);
 		version.SetUser(12);
 		version.SetStream(130);
 		break;
-	case SKYRIMSE:
-	case SKYRIMVR:
+	case TargetGame::SKYRIMSE:
+	case TargetGame::SKYRIMVR:
 		version.SetFile(V20_2_0_7);
 		version.SetUser(12);
 		version.SetStream(100);
 		break;
-	case FO76:
+	case TargetGame::FO76:
 		version.SetFile(V20_2_0_7);
 		version.SetUser(12);
 		version.SetStream(155);
