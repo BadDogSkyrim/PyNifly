@@ -31,6 +31,10 @@ def extend_filenames(root, separator, files):
     except:
         return files
 
+def replace_extensions(files, orig, rep):
+    """ Replace the extension of files in the given list """
+    return [re.sub(orig, rep, f, flags=re.I) for f in files]
+
 def check_files(files):
     """ Check that all files in the given list exist """
     if sum([len(f) for f in files]) == 0:
@@ -43,7 +47,7 @@ def check_files(files):
 
 def missing_files(files):
     """ Returns a list containing the files in the given list that don't exist """
-    return [x for x in files if not os.path.exists(x)]
+    return [x for x in files if x is not '' and not os.path.exists(x)]
 
 def truncate_filename(filepath: str, root_dir: str)-> str:
     n = filepath.lower().find(root_dir.lower())
@@ -1347,6 +1351,7 @@ gameSkeletons = {
     'SKYRIM': skyrimDict,
     'SKYRIMSE': skyrimDict,
     'FO4': fo4Dict,
+    'FO76': fo4Dict,
     'FO3': fnvDict,
     'FONV': fnvDict}
 

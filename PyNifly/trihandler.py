@@ -27,7 +27,7 @@ updated by anon (me) to work with newer blender ( version 2.63+), I hope
 
 """
 
-# Tri File format:
+# Tri File format https://facegen.com/dl/sdk/doc/manual/fileformats.html:
 # Header
 #   FRTRI003
 #   version number
@@ -86,13 +86,13 @@ class TRIHeader:
         return pack('<8s14I',	self.str.encode("iso-8859-15"),	#str
             self.vertexNum,			#vertexNum
             self.faceNum,			#faceNum
-            0,0,0,				#(unknown)
+            0,0,0,				#number of quads, of labelled vertices, of labelled surface points
             self.uvNum,			#uvNum
-            1,					#unknown
-            self.morphNum,			#morphNum
-            self.addMorphNum,		#addMorphNum
-            self.addVertexNum,		#addVertexNum
-            0,0,0,0)
+            1,					#extension flags, 1=have texture coordinates
+            self.morphNum,			#morphNum (difference morphs)
+            self.addMorphNum,		#addMorphNum (stat morphs)
+            self.addVertexNum,		#addVertexNum (stat morph vertex count)
+            0,0,0,0)            #16 bytes for future use
 
     def read(self, file):
         """ Read header from file 

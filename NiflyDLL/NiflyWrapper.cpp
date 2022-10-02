@@ -21,7 +21,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 5, 11, 0 };
+const int NiflyDDLVersion[3] = { 5, 12, 0 };
  
 using namespace nifly;
 
@@ -61,7 +61,14 @@ enum TargetGame StrToTargetGame(const char* gameName) {
 
 NIFLY_API void* load(const char8_t* filename) {
     NifFile* nif = new NifFile();
-    int errval = nif->Load(std::filesystem::path(filename));
+    NifLoadOptions options;
+
+    // **Expanded options not yet in Nifly
+    //if (const char* index = strstr(filename, "\\meshes")) {
+    //    options.loadMaterials = true;
+    //    options.projectRoot = std::string(filename, index);
+    //}
+    int errval = nif->Load(std::filesystem::path(filename), options);
 
     if (errval == 0) return nif;
 
@@ -121,40 +128,48 @@ void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, int rootType, std::st
     NiVersion version;
 
     switch (targ) {
-    case FO3:
-    case FONV:
+    case TargetGame::FO3:
+    case TargetGame::FONV:
         version.SetFile(V20_2_0_7);
         version.SetUser(11);
         version.SetStream(34);
         break;
-    case SKYRIM:
+    case TargetGame::SKYRIM:
         version.SetFile(V20_2_0_7);
         version.SetUser(12);
         version.SetStream(83);
         break;
-    case FO4:
-    case FO4VR:
+    case TargetGame::FO4:
+    case TargetGame::FO4VR:
         version.SetFile(V20_2_0_7);
         version.SetUser(12);
         version.SetStream(130);
         break;
-    case SKYRIMSE:
-    case SKYRIMVR:
+    case TargetGame::SKYRIMSE:
+    case TargetGame::SKYRIMVR:
         version.SetFile(V20_2_0_7);
         version.SetUser(12);
         version.SetStream(100);
         break;
-    case FO76:
+    case TargetGame::FO76:
         version.SetFile(V20_2_0_7);
         version.SetUser(12);
         version.SetStream(155);
         break;
     }
 
-    if (rootType == RT_BSFADENODE)
-        nif->CreateAsFade(version, name);
-    else
-        nif->Create(version);
+    nif->Create(version);
+
+    /* Replace root node with the correct type
+    */
+    if (rootType == RT_BSFADENODE) {
+        auto& hdr = nif->GetHeader();
+        hdr.DeleteBlock(0u);
+
+        auto rootNode = std::make_unique<BSFadeNode>();
+        rootNode->name.get() = name;
+        hdr.AddBlock(std::move(rootNode));
+    }
     //NiNode* root = nif->GetRootNode();
     //std::string nm = root->GetName();
     //root->SetName(name);
@@ -169,6 +184,10 @@ NIFLY_API void* createNif(const char* targetGameName, int rootType, const char* 
 }
 
 NIFLY_API int saveNif(void* the_nif, const char8_t* filename) {
+    /*
+        Write the nif out to a file.
+        Returns 0 on success.
+        */
     NifFile* nif = static_cast<NifFile*>(the_nif);
     return nif->Save(std::filesystem::path(filename));
 }
@@ -1534,7 +1553,7 @@ int getClothExtraData(void* nifref, void* shaperef, int idx, char* name, int nam
         BSClothExtraData* clothData = hdr.GetBlock<BSClothExtraData>(extraData);
         if (clothData) {
             if (i == 0) {
-                for (int j = 0; j < buflen && j < clothData->data.size(); j++) {
+                for (uint32_t j = 0; j < (uint32_t) buflen && j < clothData->data.size(); j++) {
                     buf[j] = clothData->data[j];
                 }
                 strncpy_s(name, namelen, ClothExtraDataName, ClothExtraDataNameLen);
@@ -1744,7 +1763,7 @@ int getFurnMarker(void* nifref, int index, FurnitureMarkerBuf* buf) {
     for (auto& ed : source->extraDataRefs) {
         BSFurnitureMarker* fm = hdr.GetBlock<BSFurnitureMarker>(ed);
         if (fm) {
-            for (auto pos : fm->positions) {
+            for (auto& pos : fm->positions) {
                 if (c == index) {
                     for (int i = 0; i < 3; i++) buf->offset[i] = pos.offset[i];
                     buf->heading = pos.heading;
@@ -2273,7 +2292,7 @@ NIFLY_API int getCollListShapeChildren(void* nifref, int nodeIndex, uint32_t* bu
     if (sh) {
         std::vector<uint32_t> children;
         sh->GetChildIndices(children);
-        childCount = children.size();
+        childCount = int(children.size());
         for (int i = 0; i < childCount && i < buflen; i++) {
             buf[i] = children[i];
         };

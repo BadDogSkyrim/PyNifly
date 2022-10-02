@@ -64,7 +64,7 @@ namespace niflydll {
 		};
 		strcpy_s(buf, len - 1, outStr.c_str());
 		buf[len - 1] = '\0';
-		return outStr.size();
+		return int(outStr.size());
 	}
 
 }

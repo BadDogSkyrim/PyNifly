@@ -14,7 +14,7 @@ UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 GLOSS_SCALE = 100
 
-class ImportFlags(IntFlag):
+class PyNiflyFlags(IntFlag):
     CREATE_BONES = 1
     RENAME_BONES = 1 << 1
     ROTATE_MODEL = 1 << 2
@@ -86,7 +86,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_SHADER_SE = False
     TEST_SHADER_FO4 = False
     TEST_SHADER_ALPHA = False
-    TEST_SHEATH = True
+    TEST_SHEATH = False
     TEST_FEET = False
     TEST_SKYRIM_XFORM = False
     TEST_TRI2 = False
@@ -111,7 +111,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_TRIP_SE = False
     TEST_FURN_MARKER2 = False
     TEST_FURN_MARKER1 = False
-    TEST_BONE_HIERARCHY = False
+    TEST_BONE_HIERARCHY = True
     TEST_BONE_MANIPULATIONS = False
     TEST_UNIFORM_SCALE = False
     TEST_NONUNIFORM_SCALE = False
@@ -122,6 +122,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_MULT_PART = False
     TEST_HYENA_PARTITIONS = False
     TEST_SK_MULT = False
+    TEST_NORM = False
 
 
     #if TEST_BPY_ALL or TEST_CHANGE_COLLISION:
@@ -162,6 +163,30 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     #    shapecheck = bodycheck.shape
 
 
+    if TEST_BPY_ALL or TEST_NORM:
+        test_title("TEST_NORM", "Normals are read correctly")
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/LBoot.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_NORM.nif")
+
+        NifImporter.do_import(testfile)
+        boot = find_shape("L_Boot")
+
+        boot.data.calc_normals_split()
+
+        assert VNearEqual(boot.data.vertices[492].co, (-18.28125, 10.890625, -116.25)), \
+            f"Have the right vertex: {boot.data.vertices[492].co}"
+        assert VNearEqual(boot.data.vertices[492].normal, (-0.40112, 0.4675, 0.78774)), \
+            f"Vertex normal as expected: {boot.data.vertices[492].normal}"
+        vertloops = [l.index for l in boot.data.loops if l.vertex_index == 492]
+        custnormal = boot.data.loops[vertloops[0]].normal
+        print(f"TEST_NORM custnormal: loop {vertloops[0]} has normal {custnormal}")
+        assert custnormal[1] > 0, f"Custom normal points forward: {custnormal}"
+        assert custnormal[2] > 0, f"Custom normal points up: {custnormal}"
+        custnormal2 = boot.data.loops[vertloops[2]].normal
+        assert VNearEqual(custnormal, custnormal2), f"Face normals match: {custnormal} == {custnormal2}"
+
+
     if TEST_BPY_ALL or TEST_TRIP_SE:
         test_title("TEST_TRIP_SE", "Bodypart tri extra data and file are written on export")
         clear_all()
@@ -175,7 +200,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         obj = find_shape("Penis_CBBE")
 
         remove_file(outfile)
-        export = NifExporter(outfile, 'SKYRIMSE', ImportFlags.RENAME_BONES | ImportFlags.WRITE_BODYTRI)
+        export = NifExporter(outfile, 'SKYRIMSE', PyNiflyFlags.RENAME_BONES | PyNiflyFlags.WRITE_BODYTRI)
         export.export([obj])
 
         print(' ------- Check --------- ')
@@ -210,7 +235,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         print("Found body: " + body.name)
 
         remove_file(outfile)
-        export = NifExporter(outfile, 'FO4', ImportFlags.WRITE_BODYTRI)
+        export = NifExporter(outfile, 'FO4', PyNiflyFlags.WRITE_BODYTRI)
         export.export([body])
 
         print(' ------- Check --------- ')
@@ -859,8 +884,8 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         print("# -------- Export --------")
         remove_file(outfile)
         exporter = NifExporter(outfile, 'SKYRIMSE',
-                               export_flags=ImportFlags.PRESERVE_HIERARCHY 
-                                            | ImportFlags.RENAME_BONES)
+                               export_flags=PyNiflyFlags.PRESERVE_HIERARCHY 
+                                            | PyNiflyFlags.RENAME_BONES)
         exporter.export([hair])
 
         print("# ------- Check ---------")
@@ -1766,13 +1791,13 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests/FO4/testsupermutantbody.nif")
-        imp = NifImporter.do_import(testfile, ImportFlags.RENAME_BONES)
+        imp = NifImporter.do_import(testfile, PyNiflyFlags.RENAME_BONES)
         assert round(imp.nif.shapes[0].global_to_skin.translation[2]) == -140, f"Expected -140 z translation in first nif, got {imp.nif.shapes[0].global_to_skin.translation[2]}"
 
         sm1 = bpy.context.object
         assert round(sm1.location[2]) == 140, f"Expect first supermutant body at 140 Z, got {sm1.location[2]}"
 
-        imp2 = NifImporter.do_import(testfile, ImportFlags.RENAME_BONES)
+        imp2 = NifImporter.do_import(testfile, PyNiflyFlags.RENAME_BONES)
         sm2 = bpy.context.object
         assert round(sm2.location[2]) == 140, f"Expect supermutant body at 140 Z, got {sm2.location[2]}"
 
@@ -1782,7 +1807,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         clear_all()
         testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\femalebody_1.nif")
-        imp = NifImporter.do_import(testfile, ImportFlags.CREATE_BONES)
+        imp = NifImporter.do_import(testfile, PyNiflyFlags.CREATE_BONES)
 
         body = bpy.context.object
         vgnames = [x.name for x in body.vertex_groups]

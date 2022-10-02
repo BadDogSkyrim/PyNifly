@@ -24,7 +24,7 @@ bool AnimInfo::AddShapeBone(const std::string& shape, const std::string& boneNam
 		if (!bone.compare(boneName))
 			return false;
 
-	shapeSkinning[shape].boneNames[boneName] = shapeBones[shape].size();
+	shapeSkinning[shape].boneNames[boneName] = (uint8_t) shapeBones[shape].size();
 	shapeBones[shape].push_back(boneName);
 	GetSkeleton()->RefBone(boneName);
 	RecalcXFormSkinToBone(shape, boneName);
