@@ -1188,6 +1188,7 @@ NIFLY_API void setShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* b
     };
     //shader->SetAlpha(buf->Alpha);
     shader->SetGlossiness(buf->Glossiness);
+    shader->SetEnvironmentMapScale(buf->Environment_Map_Scale);
     Vector3 specCol = Vector3(buf->Spec_Color_R, buf->Spec_Color_G, buf->Spec_Color_B);
     shader->SetSpecularColor(specCol);
     shader->SetSpecularStrength(buf->Spec_Str);

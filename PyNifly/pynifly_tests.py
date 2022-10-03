@@ -2495,40 +2495,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert nifcheckFO4.shapes[0].shader_name == nifFO4.shapes[0].shader_name, f"Error: Shader name not preserved: '{nifcheckFO4.shapes[0].shader_name}' != '{nifFO4.shapes[0].shader_name}'"
 
 
-    if TEST_BPY_ALL or TEST_SHADER_SE:
-        test_title("TEST_SHADER_SE", "Shader attributes are read and turned into Blender shader nodes")
-
-        clear_all()
-
-        fileSE = os.path.join(pynifly_dev_path, 
-                              r"tests\SkyrimSE\meshes\furniture\noble\noblecrate01.nif")
-        seimporter = NifImporter(fileSE)
-        seimporter.execute()
-        nifSE = seimporter.nif
-        shaderAttrsSE = nifSE.shapes[0].shader_attributes
-        for obj in bpy.context.selected_objects:
-            if "NobleCrate01:1" in obj.name:
-                crate = obj
-        assert len(crate.active_material.node_tree.nodes) == 5, "ERROR: Didn't import images"
-
-        print("## Shader attributes are written on export")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_SE.nif")
-        remove_file(outfile)
-        exporter = NifExporter(outfile, 'SKYRIMSE')
-        exporter.export([crate])
-
-        nifcheckSE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_SE.nif"))
-        
-        assert nifcheckSE.shapes[0].textures[0] == nifSE.shapes[0].textures[0], \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[0]}' != '{nifSE.shapes[0].textures[0]}'"
-        assert nifcheckSE.shapes[0].textures[1] == nifSE.shapes[0].textures[1], \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[1]}' != '{nifSE.shapes[0].textures[1]}'"
-        assert nifcheckSE.shapes[0].textures[2] == nifSE.shapes[0].textures[2], \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[2]}' != '{nifSE.shapes[0].textures[2]}'"
-        assert nifcheckSE.shapes[0].textures[7] == nifSE.shapes[0].textures[7], \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[7]}' != '{nifSE.shapes[0].textures[7]}'"
-        assert nifcheckSE.shapes[0].shader_attributes == shaderAttrsSE, f"Error: Shader attributes not preserved:\n{nifcheckSE.shapes[0].shader_attributes}\nvs\n{shaderAttrsSE}"
-
     if TEST_BPY_ALL or TEST_SHADER_ALPHA:
         test_title("TEST_SHADER_ALPHA", "Shader attributes are read and turned into Blender shader nodes")
         # Note this nif uses a MSN with a _n suffix. Import goes by the shader flag not the suffix.

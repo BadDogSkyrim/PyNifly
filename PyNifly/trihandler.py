@@ -787,7 +787,7 @@ class TripFile():
     
 
 if __name__ == "__main__":
-    test_path = r"C:\Users\User\OneDrive\Dev\PyNifly\PyNifly\Tests"
+    test_path = r"C:\Users\hughr\OneDrive\Dev\PyNifly\PyNifly\tests"
     log = logging.getLogger("pynifly")
     log.setLevel(logging.DEBUG)
     ch = logging.StreamHandler()
