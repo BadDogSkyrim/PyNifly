@@ -1042,7 +1042,7 @@ class NiShape(NiNode):
                                            slot, str.encode('utf-8'))
     
     @property
-    def shader_attributes(self):
+    def shader_attributes(self) -> BSLSPAttrs:
         if self._shader_attrs is None:
             if self.shader_block_name == "BSLightingShaderProperty":
                 buf = BSLSPAttrs()
