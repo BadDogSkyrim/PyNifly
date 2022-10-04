@@ -661,6 +661,7 @@ class NifImporter():
         self.objects_created = {} # Dictionary of objects created, indexed by node handle
         self.nif = NifFile(filename)
         self.loc = [0, 0, 0]   # location for new objects 
+        self.saved_bone_loc = {}
 
     def incr_loc(self):
         self.loc = list(map(sum, zip(self.loc, [0.5, 0.5, 0.5])))
@@ -876,26 +877,34 @@ class NifImporter():
         """ Add bone to armature. Bone may come from nif or reference skeleton.
             name = name to use for the bone in blender 
             nifname = name the bone has in the nif
-            returns new bone
+            returns new/existing bone
+        If bone is in a different place in the nif file than in the armature, 
+        move the armature bone to match the file. Stash the original location so it can be
+        restored later.
         """
         armdata = self.armature.data
 
-        if name in armdata.edit_bones:
-            return None
-    
         # use the transform in the file if there is one; otherwise get the 
         # transform from the reference skeleton
         xf = self.nif.get_node_xform_to_global(nifname) 
         # log.debug(f"Found bone transform {name} ({nifname}) = {xf}")
         bone_xform = xf.as_matrix()
-
-        bone = armdata.edit_bones.new(name)
         h, t, r = transform_to_bone(self.nif.game, bone_xform)
+
+        if name in armdata.edit_bones:
+            bone = armdata.edit_bones[name]
+            if (not VNearEqual(bone.head, h)) or (not VNearEqual(bone.tail, t)) \
+                or (not NearEqual(bone.roll, r)):
+                log.debug(f"Nif location {(h, t, r)} != armature location {(bone.head, bone.tail, bone.roll)}")
+                self.saved_bone_loc[name] = (bone.head, bone.tail, bone.roll)
+                bone.head, bone.tail, bone.roll = (h, t, r)
+        else:
+            bone = armdata.edit_bones.new(name)
+            bone['PYN_TRANSFORM'] = bone_xform.to_quaternion()[:] # stash rotation for later
 
         bone.head = h
         bone.tail = t
         bone.roll = r
-        bone['PYN_TRANSFORM'] = bone_xform.to_quaternion()[:] # stash rotation for later
 
         return bone
 
@@ -1002,7 +1011,7 @@ class NifImporter():
             else:
                 name = bone_game_name
 
-            xf = self.nif.get_node_xform_to_global("NPC Spine1")
+            # xf = self.nif.get_node_xform_to_global("NPC Spine1")
             # log.debug(f"make_armature ({name}): Spine1 translation is {xf.translation[:]}")
 
             self.add_bone_to_arma(name, bone_game_name)
@@ -3348,67 +3357,43 @@ def run_tests():
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
-    if True: # TEST_BPY_ALL or TEST_SHADER_SE:
-        test_title("TEST_SHADER_SE", "Shader attributes are read and turned into Blender shader nodes")
+    if True: # TEST_BPY_ALL or TEST_MISPLACED_BONES:
+        test_title("TEST_MISPLACED_BONES", "Test that we handle misplaced bones correctly")
 
         clear_all()
 
-        fileSE = os.path.join(pynifly_dev_path, 
-                              r"tests\skyrimse\meshes\armor\dwarven\dwarvenboots_envscale.nif")
-        seimporter = NifImporter(fileSE)
-        seimporter.execute()
-        nifSE = seimporter.nif
-        shaderAttrsSE = nifSE.shapes[0].shader_attributes
-        boots = next(filter(lambda x: x.name.startswith('Shoes'), bpy.context.selected_objects))
-        assert len(boots.active_material.node_tree.nodes) >= 5, "ERROR: Didn't import shader nodes"
-        assert shaderAttrsSE.Env_Map_Scale == 5, "Read the correct environment map scale"
+        testfile1 = os.path.join(pynifly_dev_path, 
+                              r"tests\Skyrim\diamondized_femalefeet_1.nif")
+        testfile2 = os.path.join(pynifly_dev_path, 
+                              r"tests\Skyrim\diamondized_femalebody_1.nif")
 
-        print("## Shader attributes are written on export")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_SE.nif")
-        remove_file(outfile)
-        exporter = NifExporter(outfile, 'SKYRIMSE')
-        exporter.export([boots])
+        imp = NifImporter(testfile1)
+        imp.execute()
+        feet = next(filter(lambda x: x.name.startswith('phygitfeet_1'), bpy.context.selected_objects))
+        arma = feet.parent
+        bpy.context.view_layer.objects.active = arma
+        print(f"Have armature {arma.name}")
 
-        nifcheckSE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_SE.nif"))
-        
-        assert nifcheckSE.shapes[0].textures[0] == nifSE.shapes[0].textures[0], \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[0]}' != '{nifSE.shapes[0].textures[0]}'"
-        assert nifcheckSE.shapes[0].textures[1] == nifSE.shapes[0].textures[1], \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[1]}' != '{nifSE.shapes[0].textures[1]}'"
-        assert nifcheckSE.shapes[0].textures[2] == nifSE.shapes[0].textures[2], \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[2]}' != '{nifSE.shapes[0].textures[2]}'"
-        assert nifcheckSE.shapes[0].textures[7] == nifSE.shapes[0].textures[7], \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[7]}' != '{nifSE.shapes[0].textures[7]}'"
-        assert nifcheckSE.shapes[0].shader_attributes.Env_Map_Scale == shaderAttrsSE.Env_Map_Scale, f"Error: Shader attributes not preserved:\n{nifcheckSE.shapes[0].shader_attributes}\nvs\n{shaderAttrsSE}"
+        print(f"Armature has bones {arma.data.bones.keys()}")
+        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+        bpy.ops.object.mode_set(mode='EDIT', toggle=False)
+        print(f"Have bones {arma.data.edit_bones.keys()}")
+        calf_b = arma.data.edit_bones["NPC Calf.R"]
+        calf_loc = (calf_b.head, calf_b.tail, calf_b.roll)
+        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
 
+        print(f">>> Importing to armature {arma.name}")
+        imp2 = NifImporter(testfile2)
+        imp2.execute()
 
-    if True: # TEST_BPY_ALL or TEST_SHADER_3_3:
-        test_title("TEST_SHADER_3_3", "Shader attributes are read and turned into Blender shader nodes")
+        bpy.context.view_layer.objects.active = arma
+        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+        bpy.ops.object.mode_set(mode='EDIT', toggle=False)
+        calf_b_new = arma.data.edit_bones["NPC Calf.R"]
+        calf_new_loc = (calf_b_new.head, calf_b_new.tail, calf_b_new.roll)
+        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
 
-        clear_all()
-
-        append_from_file("FootMale_Big", True, r"tests\SkyrimSE\feet.3.3.blend", 
-                         r"\Object", "FootMale_Big")
-        bpy.ops.object.select_all(action='DESELECT')
-        obj = find_shape("FootMale_Big")
-
-        print("## Shader attributes are written on export")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_3_3.nif")
-        remove_file(outfile)
-        exporter = NifExporter(outfile, 'SKYRIMSE')
-        exporter.export([obj])
-
-        nifcheckSE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_3_3.nif"))
-        
-        assert nifcheckSE.shapes[0].textures[0] == r"textures\actors\character\male\MaleBody_1.dds", \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[0]}'"
-        assert nifcheckSE.shapes[0].textures[1] == r"textures\actors\character\male\MaleBody_1_msn.dds", \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[1]}'"
-        assert nifcheckSE.shapes[0].textures[2] == r"textures\actors\character\male\MaleBody_1_sk.dds", \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[2]}'"
-        assert nifcheckSE.shapes[0].textures[7] == r"textures\actors\character\male\MaleBody_1_S.dds", \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[7]}'"
-
+        assert calf_loc == calf_new_loc, f"Calf bone not moved by body import"
 
 
     if TEST_BPY_ALL:
