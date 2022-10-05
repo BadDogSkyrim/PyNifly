@@ -859,6 +859,14 @@ class FurnitureMarkerBuf(pynStructure):
         ("animation_type", c_uint16),
         ("entry_points", c_uint16) ]
 
+class ConnectPointBuf(pynStructure):
+    _fields_ = [
+        ("parent", c_char * 256),
+        ("name", c_char * 256),
+        ("rotation", VECTOR4),
+        ("translation", VECTOR3),
+        ("scale", c_float)]
+
 class FurnAnimationType(PynIntEnum):
     SIT = 1
     SLEEP = 2

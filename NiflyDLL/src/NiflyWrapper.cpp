@@ -11,7 +11,7 @@
 
     TODO: Walk through and make sure all the memory allocated here gets released
     */
-#include "pch.h" // use stdafx.h in Visual Studio 2017 and earlier
+#include "framework.hpp"
 #include <iostream>
 #include <filesystem>
 #include <string>
@@ -21,7 +21,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 5, 13, 0 };
+const int NiflyDDLVersion[3] = { 5, 10, 0 };
  
 using namespace nifly;
 
@@ -59,19 +59,18 @@ enum TargetGame StrToTargetGame(const char* gameName) {
     else { return TargetGame::SKYRIM; }
 }
 
-NIFLY_API void* load(const char8_t* filename) {
-    NifFile* nif = new NifFile();
+NIFLY_API void* load(const char* filename) {
     NifLoadOptions options;
 
-    // **Expanded options not yet in Nifly
-    //if (const char* index = strstr(filename, "\\meshes")) {
-    //    options.loadMaterials = true;
-    //    options.projectRoot = std::string(filename, index);
-    //}
+    if (const char* index = strstr(filename, "\\meshes")) {
+        options.loadMaterials = true;
+        options.projectRoot = std::string(filename, index);
+    }
+
+    NifFile* nif = new NifFile();
     int errval = nif->Load(std::filesystem::path(filename), options);
 
     if (errval == 0) return nif;
-
     if (errval == 1) niflydll::LogWrite("File does not exist or is not a nif");
     if (errval == 2) niflydll::LogWrite("File is not a nif format we can read");
 
@@ -170,9 +169,6 @@ void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, int rootType, std::st
         rootNode->name.get() = name;
         hdr.AddBlock(std::move(rootNode));
     }
-    //NiNode* root = nif->GetRootNode();
-    //std::string nm = root->GetName();
-    //root->SetName(name);
 }
 
 NIFLY_API void* createNif(const char* targetGameName, int rootType, const char* rootName) {
@@ -183,11 +179,7 @@ NIFLY_API void* createNif(const char* targetGameName, int rootType, const char* 
     return workNif;
 }
 
-NIFLY_API int saveNif(void* the_nif, const char8_t* filename) {
-    /*
-        Write the nif out to a file.
-        Returns 0 on success.
-        */
+NIFLY_API int saveNif(void* the_nif, const char* filename) {
     NifFile* nif = static_cast<NifFile*>(the_nif);
     return nif->Save(std::filesystem::path(filename));
 }
@@ -618,7 +610,7 @@ NIFLY_API void writeSkinToNif(void* animref) {
         theNif->UpdateSkinPartitions(shape);
 }
 
-NIFLY_API int saveSkinnedNif(void* animref, const char8_t* filepath) {
+NIFLY_API int saveSkinnedNif(void* animref, const char* filepath) {
     /* Save skinned nif
     *   Parameters
     *   > AnimInfo* anim = Nif skin for the nif to save
@@ -1188,7 +1180,6 @@ NIFLY_API void setShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* b
     };
     //shader->SetAlpha(buf->Alpha);
     shader->SetGlossiness(buf->Glossiness);
-    shader->SetEnvironmentMapScale(buf->Environment_Map_Scale);
     Vector3 specCol = Vector3(buf->Spec_Color_R, buf->Spec_Color_G, buf->Spec_Color_B);
     shader->SetSpecularColor(specCol);
     shader->SetSpecularStrength(buf->Spec_Str);
@@ -1554,7 +1545,7 @@ int getClothExtraData(void* nifref, void* shaperef, int idx, char* name, int nam
         BSClothExtraData* clothData = hdr.GetBlock<BSClothExtraData>(extraData);
         if (clothData) {
             if (i == 0) {
-                for (uint32_t j = 0; j < (uint32_t) buflen && j < clothData->data.size(); j++) {
+                for (int j = 0; j < buflen && j < int(clothData->data.size()); j++) {
                     buf[j] = clothData->data[j];
                 }
                 strncpy_s(name, namelen, ClothExtraDataName, ClothExtraDataNameLen);
@@ -1753,64 +1744,6 @@ int getInvMarker(void* nifref, char* name, int namelen, int* rot, float* zoom)
     }
     return 0;
 };
-
-int getConnectPointParent(void* nifref, int index, ConnectPointBuf* buf) {
-    NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
-    NiAVObject* source = nif->GetRootNode();
-
-    int c = 0;
-
-    for (auto& ed : source->extraDataRefs) {
-        BSConnectPointParents* cpl = hdr.GetBlock<BSConnectPointParents>(ed);
-        if (cpl) {
-            for (auto& cp : cpl->connectPoints) {
-                if (c == index) {
-                    strncpy_s(buf->parent, cp.root.get().c_str(), 256);
-                    buf->parent[255] = '\0';
-                    strncpy_s(buf->name, cp.variableName.get().c_str(), 256);
-                    buf->name[255] = '\0';
-                    buf->rotation[0] = cp.rotation.w;
-                    buf->rotation[1] = cp.rotation.x;
-                    buf->rotation[2] = cp.rotation.y;
-                    buf->rotation[3] = cp.rotation.z;
-                    for (int i = 0; i < 3; i++) buf->translation[i] = cp.translation[i];
-                    buf->scale = cp.scale;
-
-                    return 1;
-                }
-                c++;
-            };
-        };
-    };
-    return 0;
-}
-
-int getConnectPointChild(void* nifref, int index, char* buf) {
-    /* Return child connect point information 
-    *   index: connect point to return
-    *   buf: associated name
-        returns 0: no child at index; -1: not skinned; 1: skinned */
-    NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
-    NiAVObject* source = nif->GetRootNode();
-
-    int c = 0;
-
-    for (auto& ed : source->extraDataRefs) {
-        BSConnectPointChildren* cpl = hdr.GetBlock<BSConnectPointChildren>(ed);
-        if (cpl) {
-            for (auto& cp : cpl->targets) {
-                if (c == index) {
-                    strncpy_s(buf, 256, cp.get().c_str(), cp.length());
-                    return cpl->skinned? 1: -1;
-                }
-                c++;
-            };
-        };
-    };
-    return 0;
-}
 
 int getFurnMarker(void* nifref, int index, FurnitureMarkerBuf* buf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
