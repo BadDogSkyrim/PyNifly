@@ -89,6 +89,7 @@ UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 
 GLOSS_SCALE = 100
+CONNECT_POINT_SCALE = 1.0
 
 COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5)
 
@@ -683,6 +684,7 @@ class NifImporter():
             ed = bpy.context.object
             ed.name = "NiStringExtraData"
             ed.show_name = True
+            ed.empty_display_type = 'SPHERE'
             ed['NiStringExtraData_Name'] = s[0]
             ed['NiStringExtraData_Value'] = s[1]
             # extradata.append(ed)
@@ -693,6 +695,7 @@ class NifImporter():
             ed = bpy.context.object
             ed.name = "BSBehaviorGraphExtraData"
             ed.show_name = True
+            ed.empty_display_type = 'SPHERE'
             ed['BSBehaviorGraphExtraData_Name'] = s[0]
             ed['BSBehaviorGraphExtraData_Value'] = s[1]
             ed['BSBehaviorGraphExtraData_CBS'] = s[2]
@@ -704,6 +707,7 @@ class NifImporter():
             ed = bpy.context.object
             ed.name = "BSClothExtraData"
             ed.show_name = True
+            ed.empty_display_type = 'SPHERE'
             ed['BSClothExtraData_Name'] = c[0]
             ed['BSClothExtraData_Value'] = codecs.encode(c[1], 'base64')
             # extradata.append(ed)
@@ -715,6 +719,7 @@ class NifImporter():
             ed = bpy.context.object
             ed.name = "BSXFlags"
             ed.show_name = True
+            ed.empty_display_type = 'SPHERE'
             ed['BSXFlags_Name'] = b[0]
             ed['BSXFlags_Value'] = BSXFlags(b[1]).fullname
             # extradata.append(ed)
@@ -726,6 +731,8 @@ class NifImporter():
             ed = bpy.context.object
             ed.name = "BSInvMarker"
             ed.show_name = True
+            ed.empty_display_type = 'ARROWS'
+            ed.rotation_euler = (invm[1:4])
             ed['BSInvMarker_Name'] = invm[0]
             ed['BSInvMarker_RotX'] = invm[1]
             ed['BSInvMarker_RotY'] = invm[2]
@@ -745,6 +752,33 @@ class NifImporter():
             obj.scale = (40,10,10)
             obj['AnimationType'] = FurnAnimationType.GetName(fm.animation_type)
             obj['EntryPoints'] = FurnEntryPoints(fm.entry_points).fullname
+            self.objects_created[obj.name] = obj
+
+        for cp in f.connect_points_parent:
+            #log.debug(f"Found parent connect point: \n{cp}")
+            bpy.ops.object.add(radius=1.0, type='EMPTY')
+            obj = bpy.context.object
+            obj.name = "BSConnectPointParents" + "::" + cp.name.decode('utf-8')
+            obj.show_name = True
+            obj.empty_display_type = 'ARROWS'
+            obj.location = cp.translation[:]
+            obj.rotation_quaternion = Quaternion(cp.rotation[:])
+            obj.scale = ((cp.scale * CONNECT_POINT_SCALE),) * 3
+            obj['PYN_CONNECT_PARENT'] = cp.parent
+            self.objects_created[obj.name] = obj
+
+        if f.connect_points_child:
+            #log.debug(f"Found child connect point: \n{cp}")
+            bpy.ops.object.add(radius=1.0, type='EMPTY', location=self.next_loc())
+            obj = bpy.context.object
+            obj.name = "BSConnectPointChildren"
+            obj.show_name = True
+            obj.empty_display_type = 'SPHERE'
+            obj.location = (0,0,0)
+            obj['PYN_CONNECT_CHILD_SKINNED'] = f.connect_pt_child_skinned
+            for i, n in enumerate(f.connect_points_child):
+                obj[f'PYN_CONNECT_CHILD_{i}'] = n
+            self.objects_created[obj.name] = obj
 
         #return extradata
 
@@ -3348,66 +3382,39 @@ def run_tests():
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
-    if True: # TEST_BPY_ALL or TEST_SHADER_SE:
-        test_title("TEST_SHADER_SE", "Shader attributes are read and turned into Blender shader nodes")
-
+    if True: # TEST_BPY_ALL or TEST_CONNECT_POINT:
+        test_title("TEST_CONNECT_POINT", "Connect points are imported and exported")
         clear_all()
 
-        fileSE = os.path.join(pynifly_dev_path, 
-                              r"tests\skyrimse\meshes\armor\dwarven\dwarvenboots_envscale.nif")
-        seimporter = NifImporter(fileSE)
-        seimporter.execute()
-        nifSE = seimporter.nif
-        shaderAttrsSE = nifSE.shapes[0].shader_attributes
-        boots = next(filter(lambda x: x.name.startswith('Shoes'), bpy.context.selected_objects))
-        assert len(boots.active_material.node_tree.nodes) >= 5, "ERROR: Didn't import shader nodes"
-        assert shaderAttrsSE.Env_Map_Scale == 5, "Read the correct environment map scale"
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\CombatShotgun.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_CONNECT_POINT.nif")
+        NifImporter.do_import(testfile, 0)
 
-        print("## Shader attributes are written on export")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_SE.nif")
-        remove_file(outfile)
-        exporter = NifExporter(outfile, 'SKYRIMSE')
-        exporter.export([boots])
-
-        nifcheckSE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_SE.nif"))
+        cpparents = list(filter(lambda x: x.name.startswith('BSConnectPointParents'), bpy.context.selected_objects))
+        cpchildren = list(filter(lambda x: x.name.startswith('BSConnectPointChildren'), bpy.context.selected_objects))
         
-        assert nifcheckSE.shapes[0].textures[0] == nifSE.shapes[0].textures[0], \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[0]}' != '{nifSE.shapes[0].textures[0]}'"
-        assert nifcheckSE.shapes[0].textures[1] == nifSE.shapes[0].textures[1], \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[1]}' != '{nifSE.shapes[0].textures[1]}'"
-        assert nifcheckSE.shapes[0].textures[2] == nifSE.shapes[0].textures[2], \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[2]}' != '{nifSE.shapes[0].textures[2]}'"
-        assert nifcheckSE.shapes[0].textures[7] == nifSE.shapes[0].textures[7], \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[7]}' != '{nifSE.shapes[0].textures[7]}'"
-        assert nifcheckSE.shapes[0].shader_attributes.Env_Map_Scale == shaderAttrsSE.Env_Map_Scale, f"Error: Shader attributes not preserved:\n{nifcheckSE.shapes[0].shader_attributes}\nvs\n{shaderAttrsSE}"
+        assert len(cpparents) == 5, f"Found parent connect points: {cpparents}"
+        assert "BSConnectPointParents::P-Grip" in [x.name for x in cpparents]
 
+        assert cpchildren, f"Found child connect points: {cpchildren}"
+        assert (cpchildren[0]['PYN_CONNECT_CHILD_0'] == "C-Receiver") or \
+            (cpchildren[0]['PYN_CONNECT_CHILD_1'] == "C-Receiver"), \
+            f"Did not find child name"
 
-    if True: # TEST_BPY_ALL or TEST_SHADER_3_3:
-        test_title("TEST_SHADER_3_3", "Shader attributes are read and turned into Blender shader nodes")
-
-        clear_all()
-
-        append_from_file("FootMale_Big", True, r"tests\SkyrimSE\feet.3.3.blend", 
-                         r"\Object", "FootMale_Big")
-        bpy.ops.object.select_all(action='DESELECT')
-        obj = find_shape("FootMale_Big")
-
-        print("## Shader attributes are written on export")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_3_3.nif")
-        remove_file(outfile)
-        exporter = NifExporter(outfile, 'SKYRIMSE')
-        exporter.export([obj])
-
-        nifcheckSE = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_3_3.nif"))
+        ## -------- Export --------
+        #chair = find_shape("FederalistChairOffice01:2")
+        #fmrk = list(filter(lambda x: x.name.startswith('BSFurnitureMarkerNode'), bpy.data.objects))
         
-        assert nifcheckSE.shapes[0].textures[0] == r"textures\actors\character\male\MaleBody_1.dds", \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[0]}'"
-        assert nifcheckSE.shapes[0].textures[1] == r"textures\actors\character\male\MaleBody_1_msn.dds", \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[1]}'"
-        assert nifcheckSE.shapes[0].textures[2] == r"textures\actors\character\male\MaleBody_1_sk.dds", \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[2]}'"
-        assert nifcheckSE.shapes[0].textures[7] == r"textures\actors\character\male\MaleBody_1_S.dds", \
-            f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[7]}'"
+        #exporter = NifExporter(outfile, 'FO4')
+        #exporter.export([chair] + fmrk)
+
+        ## --------- Check ----------
+        #nifcheck = NifFile(outfile)
+        #fmcheck = nifcheck.furniture_markers
+
+        #assert len(fmcheck) == 4, f"Wrote the furniture marker correctly: {len(fmcheck)}"
+        #assert fmcheck[0].entry_points == 0, f"Entry point data is correct: {fmcheck[0].entry_points}"
+
 
 
 

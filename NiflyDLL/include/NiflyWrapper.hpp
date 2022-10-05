@@ -27,7 +27,7 @@ struct BoneWeight {
 };
 
 extern "C" NIFLY_API const int* getVersion();
-extern "C" NIFLY_API void* load(const char8_t* filename);
+extern "C" NIFLY_API void* load(const char* filename);
 extern "C" NIFLY_API void* getRoot(void* f);
 extern "C" NIFLY_API int getRootName(void* f, char* buf, int len);
 extern "C" NIFLY_API int getGameName(void* f, char* buf, int len);
@@ -82,7 +82,7 @@ extern "C" NIFLY_API void getBoneSkinToBoneXform(void* animPtr, const char* shap
 extern "C" NIFLY_API void setShapeVertWeights(void* theFile, void* theShape, int vertIdx, const uint8_t * vertex_bones, const float* vertex_weights);
 extern "C" NIFLY_API void setShapeBoneWeights(void* theFile, void* theShape, int boneIdx, VertexWeightPair * weights, int weightsLen);
 extern "C" NIFLY_API void setShapeBoneIDList(void* f, void* shapeRef, int* boneIDList, int listLen);
-extern "C" NIFLY_API int saveNif(void* the_nif, const char8_t* filename);
+extern "C" NIFLY_API int saveNif(void* the_nif, const char* filename);
 extern "C" NIFLY_API int segmentCount(void* nifref, void* shaperef);
 extern "C" NIFLY_API int getSegmentFile(void* nifref, void* shaperef, char* buf, int buflen);
 extern "C" NIFLY_API int getSegments(void* nifref, void* shaperef, int* segments, int segLen);
@@ -104,7 +104,7 @@ extern "C" NIFLY_API void setShapeGlobalToSkinXform(void* animPtr, void* shapePt
 extern "C" NIFLY_API void setShapeWeights(void * anim, void * theShape, const char* boneName,
 	VertexWeightPair * vertWeights, int vertWeightLen, nifly::MatTransform * skinToBoneXform);
 extern "C" NIFLY_API void writeSkinToNif(void* animref);
-extern "C" NIFLY_API int saveSkinnedNif(void* animref, const char8_t* filepath);
+extern "C" NIFLY_API int saveSkinnedNif(void* animref, const char* filepath);
 
 /* ********************* SHADERS ***************** */
 
@@ -398,14 +398,6 @@ struct FurnitureMarkerBuf {
 	uint16_t entryPoints;
 };
 
-struct ConnectPointBuf {
-	char parent[256];
-	char name[256];
-	float rotation[4];
-	float translation[3];
-	float scale;
-};
-
 extern "C" NIFLY_API int getShaderName(void* nifref, void* shaperef, char* buf, int buflen);
 extern "C" NIFLY_API uint32_t getShaderFlags1(void* nifref, void* shaperef);
 extern "C" NIFLY_API uint32_t getShaderFlags2(void* nifref, void* shaperef);
@@ -432,8 +424,6 @@ extern "C" NIFLY_API void setStringExtraData(void* nifref, void* shaperef, char*
 extern "C" NIFLY_API int getBGExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen);
 extern "C" NIFLY_API int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen, uint16_t* ctrlBaseSkelP);
 extern "C" NIFLY_API int getInvMarker(void* nifref, char* name, int namelen, int* rot, float* zoom);
-extern "C" NIFLY_API int getConnectPointParent(void* nifref, int index, ConnectPointBuf* buf);
-extern "C" NIFLY_API int getConnectPointChild(void* nifref, int index, char* buf);
 extern "C" NIFLY_API void setInvMarker(void* nifref, const char* name, int* rot, float* zoom);
 extern "C" NIFLY_API int getFurnMarker(void* nifref, int index, FurnitureMarkerBuf* buf);
 extern "C" NIFLY_API void setFurnMarkers(void* nifref, int buflen, FurnitureMarkerBuf * buf);

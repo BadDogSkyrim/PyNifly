@@ -5,7 +5,7 @@
 	Copied from Outfit Studio, all their copywrite restrictions apply
 	*/
 
-#include "pch.h"
+#include "framework.hpp"
 #include <iostream>
 #include <string>
 #include <vector>
@@ -13,12 +13,11 @@
 #include <filesystem>
 #include <libloaderapi.h>
 #include <bitset>
-#include "CppUnitTest.h"
+#include "CppUnitTest.hpp"
 #include "Object3d.hpp"
-#include "Anim.h"
+#include "Anim.hpp"
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
-#include "TestDLL.h"
 
 using namespace nifly;
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -38,7 +37,7 @@ DEFINE_ENUM_FLAG_OPERATORS(NifOptions)
 std::filesystem::path testRoot = std::filesystem::current_path()
 	.parent_path().parent_path().parent_path().parent_path() / "PyNifly/Pynifly/tests/";
 
-bool TApproxEqual(double first, double second) {
+bool TApproxEqual(float first, float second) {
 	return abs(first - second) < .001;
 }
 bool TApproxEqual(Vector3 first, Vector3 second) {
@@ -522,7 +521,7 @@ void TCompareShapes(void* nif1, void* shape1, void* nif2, void* shape2) {
 
 		for (int i = 0; i < boneCount1; i++) {
 			auto boneLoc = std::find(boneNames2.begin(), boneNames2.end(), boneNames1[i]);
-			int boneIndex2 = int(boneLoc - boneNames2.begin());
+			int boneIndex2 = boneLoc - boneNames2.begin();
 			int bwcount1 = getShapeBoneWeightsCount(nif1, shape1, i);
 			int bwcount2 = getShapeBoneWeightsCount(nif2, shape2, boneIndex2);
 			Assert::IsTrue(bwcount1 == bwcount2, L"Error: Bone weight counts don't match");
@@ -749,14 +748,14 @@ namespace NiflyDLLTests
 			/* UNIT TEST: Can load a skeleton */
 			AnimSkeleton* skel = AnimSkeleton::MakeInstance();
 			std::string root;
-			std::string fn = SkeletonFile(TargetGame::SKYRIM, root);
+			std::string fn = SkeletonFile(SKYRIM, root);
 			skel->LoadFromNif(fn, root);
 
 			std::string rootName = skel->GetRootBonePtr()->boneName;
 			Assert::AreEqual(std::string("NPC Root [Root]"), rootName);
 			int nodeCount = int(skel->refSkeletonNif.GetNodes().size());
 
-			fn = SkeletonFile(TargetGame::FO4, root);
+			fn = SkeletonFile(FO4, root);
 			NifFile nif = NifFile(fn);
 			NiNode* node = nif.FindBlockByName<NiNode>("LArm_Hand");
 			NiNode* parent = nif.GetParentNode(node);
@@ -787,7 +786,7 @@ namespace NiflyDLLTests
 			Assert::AreEqual(2115, int(norms->size()));
 
 			NifFile newNif = NifFile();
-			SetNifVersion(&newNif, TargetGame::SKYRIM);
+			SetNifVersion(&newNif, SKYRIM);
 			NiShape* newArmor = newNif.CreateShapeFromData("Armor", &verts, &tris, uv, norms);
 			newNif.Save(testRoot / "Out/TestSaveUnskinned01.nif");
 			Assert::IsTrue(std::filesystem::exists(testRoot / "Out/TestSaveUnskinned01.nif"));
@@ -811,8 +810,8 @@ namespace NiflyDLLTests
 			/* >> Can save just the armor as a skinned object */
 			AnimInfo* anim;
 			NifFile newNifSkind = NifFile();
-			SetNifVersion(&newNifSkind, TargetGame::SKYRIM);
-			anim = CreateSkinForNif(&newNifSkind, TargetGame::SKYRIM);
+			SetNifVersion(&newNifSkind, SKYRIM);
+			anim = CreateSkinForNif(&newNifSkind, SKYRIM);
 
 			newArmor = newNifSkind.CreateShapeFromData("Armor", &verts, &tris, uv, norms);
 			newNifSkind.CreateSkinning(newArmor);
@@ -833,7 +832,7 @@ namespace NiflyDLLTests
 
 			AnimInfo oldArmorSkin;
 			// oldArmorSkin.LoadFromNif(&nif, theArmor, MakeSkeleton(SKYRIM));
-			oldArmorSkin.LoadFromNif(&nif, MakeSkeleton(TargetGame::SKYRIM));
+			oldArmorSkin.LoadFromNif(&nif, MakeSkeleton(SKYRIM));
 			MatTransform armorGTShape;
 			GetGlobalToSkin(&oldArmorSkin, theArmor, &armorGTShape);
 			Assert::AreEqual(-120, int(armorGTSkin.translation.z), L"ERROR: Body nifs have a -120 z transform");
@@ -899,8 +898,8 @@ namespace NiflyDLLTests
 			}
 
 			newNifSkind = NifFile();
-			SetNifVersion(&newNifSkind, TargetGame::SKYRIM);
-			anim = CreateSkinForNif(&newNifSkind, TargetGame::SKYRIM);
+			SetNifVersion(&newNifSkind, SKYRIM);
+			anim = CreateSkinForNif(&newNifSkind, SKYRIM);
 
 			NiShape* newBody = newNifSkind.CreateShapeFromData("Body", &verts, &tris, uv, norms);
 			newNifSkind.CreateSkinning(newBody);
@@ -947,15 +946,15 @@ namespace NiflyDLLTests
 			Assert::AreEqual(8717, int(norms->size()));
 
 			AnimInfo oldBodySkin;
-			oldBodySkin.LoadFromNif(&nif, MakeSkeleton(TargetGame::FO4));
+			oldBodySkin.LoadFromNif(&nif, MakeSkeleton(FO4));
 			// oldBodySkin.LoadFromNif(&nif, theBody, MakeSkeleton(FO4));
 
 			clearMessageLog();
 
 			AnimInfo* anim;
 			NifFile newNif = NifFile();
-			SetNifVersion(&newNif, TargetGame::FO4);
-			anim = CreateSkinForNif(&newNif, TargetGame::FO4);
+			SetNifVersion(&newNif, FO4);
+			anim = CreateSkinForNif(&newNif, FO4);
 
 			NiShape* newBody = newNif.CreateShapeFromData("Body", &verts, &tris, uv, norms);
 			newNif.CreateSkinning(newBody);
@@ -1068,7 +1067,7 @@ namespace NiflyDLLTests
 
 			NiShape* theHead = nifHead.FindBlockByName<NiShape>("MaleHeadIMF");
 			AnimInfo headSkin;
-			headSkin.LoadFromNif(&nifHead, MakeSkeleton(TargetGame::SKYRIM));
+			headSkin.LoadFromNif(&nifHead, MakeSkeleton(SKYRIM));
 
 			/* This one is also skinned */
 			Assert::IsTrue(theHead->HasSkinInstance(), L"ERROR: This is a skinned shape");
@@ -1104,7 +1103,7 @@ namespace NiflyDLLTests
 
 			NiShape* shape = nif.FindBlockByName<NiShape>("Armor");
 			AnimInfo skin;
-			skin.LoadFromNif(&nif, MakeSkeleton(TargetGame::SKYRIM));
+			skin.LoadFromNif(&nif, MakeSkeleton(SKYRIM));
 
 			/* And there's a NiSkinInstance */
 			MatTransform gtshape;
@@ -1141,7 +1140,7 @@ namespace NiflyDLLTests
 			std::filesystem::path testfile = testRoot / "FO4" / "VulpineInariTailPhysics.nif";
 			std::filesystem::path testfileOut = testRoot / "Out" / "UnkownBones.nif";
 			/* Shapes have bones that aren't known in the skeleton */
-			void* nif = load( testfile.u8string().c_str());
+			void* nif = load(testfile.u8string().c_str());
 			
 			void* shape = TFindShape(nif, "Inari_ZA85_fluffy");
 			void* cloth2 = TFindNode(nif, "Bone_Cloth_H_002");
@@ -1153,7 +1152,7 @@ namespace NiflyDLLTests
 			/* We can get the transform (location) of that bone */
 			MatTransform cloth2xf;
 			getNodeXformToGlobal(oldSkin, "Bone_Cloth_H_002", &cloth2xf);
-			Assert::IsTrue(TApproxEqual(Vector3(-2.53144f, -11.41138f, 65.6487f), 
+			Assert::IsTrue(TApproxEqual(Vector3(-2.53144, -11.41138, 65.6487), 
 				cloth2xf.translation), L"ERROR: Can read bone's transform");
 
 			/* We read all the info we need about the shape */
@@ -1172,10 +1171,10 @@ namespace NiflyDLLTests
 
 			MatTransform xfc2;
 			MatTransform xfc2Correct;
-			xfc2Correct.translation = Vector3(-2.5314f, -11.4114f, 65.6487f);
-			xfc2Correct.rotation[0] = Vector3(-0.0251f, 0.9993f, -0.0286f);
-			xfc2Correct.rotation[1] = Vector3(-0.0491f, -0.0298f, -0.9984f);
-			xfc2Correct.rotation[2] = Vector3(-0.9985f, -0.0237f, 0.0498f);
+			xfc2Correct.translation = Vector3(-2.5314, -11.4114, 65.6487);
+			xfc2Correct.rotation = { Vector3(-0.0251, 0.9993, -0.0286),
+									 Vector3(-0.0491, -0.0298, -0.9984),
+									 Vector3(-0.9985, -0.0237, 0.0498) };
 			getNodeTransform(cloth2, &xfc2);
 			Assert::IsTrue(TApproxEqual(xfc2, xfc2Correct), L"Cloth 2 transform is correct");
 
@@ -1236,7 +1235,7 @@ namespace NiflyDLLTests
 			/* Read the armor */
 			NiShape* theArmor = nif.FindBlockByName<NiShape>("Armor");
 			AnimInfo armorSkin;
-			AnimSkeleton* skelSkyrim = MakeSkeleton(TargetGame::SKYRIM);
+			AnimSkeleton* skelSkyrim = MakeSkeleton(SKYRIM);
 			armorSkin.LoadFromNif(&nif, skelSkyrim);
 			MatTransform armorSkinInst;
 			nif.GetShapeTransformGlobalToSkin(theArmor, armorSkinInst);
@@ -1290,8 +1289,8 @@ namespace NiflyDLLTests
 
 			/* Save the armor */
 			NifFile newNif = NifFile();
-			SetNifVersion(&newNif, TargetGame::SKYRIM);
-			AnimInfo* newSkin = CreateSkinForNif(&newNif, TargetGame::SKYRIM);
+			SetNifVersion(&newNif, SKYRIM);
+			AnimInfo* newSkin = CreateSkinForNif(&newNif, SKYRIM);
 			NiShape* newArmor = newNif.CreateShapeFromData("Armor", &aVerts, &aTris, aUV, aNorms);
 			newNif.CreateSkinning(newArmor);
 			newNif.SetShapeTransformGlobalToSkin(newArmor, armorXform);
@@ -1354,7 +1353,7 @@ namespace NiflyDLLTests
 
 			/* THIS WORKS -- ROTATIONS ARE THE SAME */
 			NifFile nif = NifFile(testfile);
-			AnimSkeleton* skelFO4 = MakeSkeleton(TargetGame::FO4);
+			AnimSkeleton* skelFO4 = MakeSkeleton(FO4);
 
 			NiShape* vbody = nif.FindBlockByName<NiShape>("BaseMaleBody:0");
 			AnimInfo vskin;
@@ -1960,7 +1959,7 @@ namespace NiflyDLLTests
 			getShaderAttrs(nif, shapes[0], &shaderAttr);
 			Assert::IsTrue(TApproxEqual(
 				Vector3(shaderAttr.Spec_Color_R, shaderAttr.Spec_Color_G, shaderAttr.Spec_Color_B), 
-				Vector3(0xa1/255.0f, 0xc2/255.0f, 0xff/255.0f)));
+				Vector3(0xa1/255.0, 0xc2/255.0, 0xff/255.0)));
 			Assert::IsTrue(TApproxEqual(shaderAttr.Spec_Str, 2.69));
 			Assert::IsTrue(shaderAttr.Shader_Type == uint32_t(BSLSPShaderType::Face_Tint));
 			Assert::IsTrue(shaderAttr.Glossiness == 33.0, L"Error: Glossiness value");
@@ -2062,7 +2061,7 @@ namespace NiflyDLLTests
 				0, &skin2Out);
 			TCopyShader(nif2Out, shape2Out, nif2, shapes2[0]);
 
-			Assert::IsTrue(saveNif(nif2Out, testfile2Out.u8string().c_str()) == 0, L"Nif successfully saved");
+			saveNif(nif2Out, testfile2Out.u8string().c_str());
 
 			// What we wrote is correct
 
@@ -2457,8 +2456,7 @@ namespace NiflyDLLTests
 			void* shapeOut = TCopyShape(nifOut, "DraugrBody", nif, shapes[0], 0, &skinOut);
 			TCopyShader(nifOut, shapeOut, nif, shapes[0]);
 
-			Assert::IsTrue(saveSkinnedNif(skinOut, (testRoot / "Out/Wrapper_draugrBones.nif").u8string().c_str()) == 0, 
-				L"Skinned nif successfully saved");
+			saveSkinnedNif(skinOut, (testRoot / "Out/Wrapper_draugrBones.nif").u8string().c_str());
 
 			void* shapescheck[10];
 			void* nifcheck = load((testRoot / "Out/Wrapper_draugrBones.nif").u8string().c_str());
@@ -2518,6 +2516,7 @@ namespace NiflyDLLTests
 			getClothExtraDataLen(nif2, nullptr, 0, &namelen2, &valuelen2);
 			Assert::IsTrue(valuelen2 == 46256, L"Expected written value length 46256");
 
+			char name2[20];
 			char* databuf2 = new char[valuelen2 + 1];
 			databuf2[valuelen2] = 123;
 			getClothExtraData(nif2, nullptr, 0, name, 20, databuf2, valuelen2);
@@ -2529,6 +2528,7 @@ namespace NiflyDLLTests
 		TEST_METHOD(writeSMArmor) {
 			/* Regression: Make sure this armor doesn't cause a CTD */
 			void* shapes[10];
+			void** nodes;
 			void* nif = load((testRoot / "FO4/SMArmor0_Torso.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 
@@ -2549,6 +2549,7 @@ namespace NiflyDLLTests
 		TEST_METHOD(writeBadPartitions) {
 			/* Assigning tris to a segment that doesn't exist is correctly reported as an error */
 			void* shapes[10];
+			void** nodes;
 			void* nif = load((testRoot / "FO4/feralghoulbase.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 
@@ -2652,6 +2653,7 @@ namespace NiflyDLLTests
 		TEST_METHOD(writeEmptySegments) {
 			/* Shape with a non-empty segment followed by empty segments writes correctly */
 			void* shapes[10];
+			void** nodes;
 			void* nif = load((testRoot / "FO4/TEST_SEGMENTS_EMPTY.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 
@@ -2702,6 +2704,7 @@ namespace NiflyDLLTests
 		TEST_METHOD(writeMiddleEmptySegment) {
 			/* Shape with a empty segment followed by non-empty segments writes correctly */
 			void* shapes[10];
+			void** nodes;
 			void* nif = load((testRoot / "FO4/BaseMaleHead.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 			void* head = shapes[0];
@@ -2846,7 +2849,7 @@ namespace NiflyDLLTests
 			rotbuf[0] = 4712;
 			rotbuf[1] = 0;
 			rotbuf[2] = 785;
-			zoombuf = 1.127286f;
+			zoombuf = 1.127286;
 			setInvMarker(nifOut, "INV", rotbuf, &zoombuf);
 
 			void* bowMidboneOut = TFindNode(nifOut, "Bow_MidBone");
@@ -2863,6 +2866,8 @@ namespace NiflyDLLTests
 			void* nifcheck = load((testRoot / "Out/readCollisions.nif").u8string().c_str());
 
 			char rootname[128];
+			int nodeCountCheck;
+			void* nodesCheck[50];
 			void* rootNodeCheck = nullptr;
 			char rootBlockname[128];
 			int flags;
@@ -2977,6 +2982,8 @@ namespace NiflyDLLTests
 			void* nifcheck = load((testRoot / "Out/readCollisionConvex.nif").u8string().c_str());
 
 			char rootname[128];
+			int nodeCountCheck;
+			void* nodesCheck[50];
 			void* rootNodeCheck = nullptr;
 			char rootBlockname[128];
 			int flags;
@@ -3264,17 +3271,6 @@ namespace NiflyDLLTests
 			void* shapes[100];
 			int shapeCount = getShapes(nif, shapes, 100, 0);
 			Assert::IsTrue(shapeCount == 87, L"Found enough shapes");
-		};
-		TEST_METHOD(readConnectPoints) { 
-			void* nif = load((testRoot / "FO4/CombatShotgun.nif").u8string().c_str());
-			ConnectPointBuf buf1, buf2, buf3;
-			Assert::IsTrue(getConnectPointParent(nif, 0, &buf1), L"Have one conenct point");
-			Assert::IsTrue(getConnectPointParent(nif, 1, &buf2), L"Have second conenct point");
-			Assert::IsTrue(getConnectPointParent(nif, 2, &buf3), L"Have third connect point");
-
-			Assert::IsTrue(TApproxEqual(buf3.translation[1], 23.4580078), L"Translation 3 correct");
-			Assert::IsTrue(strcmp(buf1.name, "P-Mag")==0, L"Parent 1 correct");
-			Assert::IsTrue(strcmp(buf2.parent, "CombatShotgunReceiver")==0, L"Parent 2 correct");
 		};
 	};
 }

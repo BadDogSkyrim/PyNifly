@@ -1,0 +1,3 @@
+[submodule "NiflyDLL/external/nifly"]
+	path = NiflyDLL/external/nifly
+	url = https://github.com/SK83RJOSH/nifly.git
