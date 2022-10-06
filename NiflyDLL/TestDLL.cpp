@@ -3267,14 +3267,38 @@ namespace NiflyDLLTests
 		};
 		TEST_METHOD(readConnectPoints) { 
 			void* nif = load((testRoot / "FO4/CombatShotgun.nif").u8string().c_str());
-			ConnectPointBuf buf1, buf2, buf3;
-			Assert::IsTrue(getConnectPointParent(nif, 0, &buf1), L"Have one conenct point");
-			Assert::IsTrue(getConnectPointParent(nif, 1, &buf2), L"Have second conenct point");
-			Assert::IsTrue(getConnectPointParent(nif, 2, &buf3), L"Have third connect point");
+			ConnectPointBuf buf[3];
+			Assert::IsTrue(getConnectPointParent(nif, 0, &buf[0]), L"Have one conenct point");
+			Assert::IsTrue(getConnectPointParent(nif, 1, &buf[1]), L"Have second conenct point");
+			Assert::IsTrue(getConnectPointParent(nif, 2, &buf[2]), L"Have third connect point");
 
-			Assert::IsTrue(TApproxEqual(buf3.translation[1], 23.4580078), L"Translation 3 correct");
-			Assert::IsTrue(strcmp(buf1.name, "P-Mag")==0, L"Parent 1 correct");
-			Assert::IsTrue(strcmp(buf2.parent, "CombatShotgunReceiver")==0, L"Parent 2 correct");
+			Assert::IsTrue(TApproxEqual(buf[2].translation[1], 23.4580078), L"Translation 3 correct");
+			Assert::IsTrue(strcmp(buf[0].name, "P-Mag") == 0, L"Parent 1 correct");
+			Assert::IsTrue(strcmp(buf[1].parent, "CombatShotgunReceiver") == 0, L"Parent 2 correct");
+
+			char childNames[2][256];
+			Assert::IsTrue(getConnectPointChild(nif, 0, childNames[0]), L"Have child 1");
+			Assert::IsTrue(getConnectPointChild(nif, 1, childNames[1]), L"Have child 2");
+
+			void* shapes[10];
+			int shapeCount = getShapes(nif, shapes, 10, 0);
+
+			void* nifOut = createNif("FO4",  0, "readConnectPoints");
+			uint16_t options = 0;
+
+			void* shapeOut = TCopyShape(nifOut, "CombatShotgunReceiver:0", nif, shapes[0], 0, nullptr, 0);
+			TCopyShader(nifOut, shapeOut, nif, shapes[0]);
+			setConnectPointsParent(nifOut, 3, buf);
+			char children[256];
+			int childBufLen = 0;
+			for (int i = 0; i < 2; i++) {
+				strncpy_s(&children[childBufLen], 256 - childBufLen, childNames[i], strlen(childNames[i]));
+				childBufLen += strlen(childNames[i]) + 1;
+			}
+			setConnectPointsChild(nifOut, false, childBufLen, children);
+
+			saveNif(nifOut, (testRoot / "Out/readConnectPoints.nif").u8string().c_str());
+
 		};
 	};
 }

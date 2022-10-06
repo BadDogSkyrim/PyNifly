@@ -433,7 +433,9 @@ extern "C" NIFLY_API int getBGExtraDataLen(void* nifref, void* shaperef, int idx
 extern "C" NIFLY_API int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen, uint16_t* ctrlBaseSkelP);
 extern "C" NIFLY_API int getInvMarker(void* nifref, char* name, int namelen, int* rot, float* zoom);
 extern "C" NIFLY_API int getConnectPointParent(void* nifref, int index, ConnectPointBuf* buf);
+extern "C" NIFLY_API void setConnectPointsParent(void* nifref, int buflen, ConnectPointBuf* buf);
 extern "C" NIFLY_API int getConnectPointChild(void* nifref, int index, char* buf);
+extern "C" NIFLY_API void setConnectPointsChild(void* nifref, int isSkinned, int buflen, const char* buf);
 extern "C" NIFLY_API void setInvMarker(void* nifref, const char* name, int* rot, float* zoom);
 extern "C" NIFLY_API int getFurnMarker(void* nifref, int index, FurnitureMarkerBuf* buf);
 extern "C" NIFLY_API void setFurnMarkers(void* nifref, int buflen, FurnitureMarkerBuf * buf);

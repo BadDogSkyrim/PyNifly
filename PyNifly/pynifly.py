@@ -222,6 +222,10 @@ def load_nifly(nifly_path):
     nifly.setInvMarker.restype = None
     nifly.setColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.setColorsForShape.restype = None
+    nifly.setConnectPointsChild.argtypes = [c_void_p, c_int, c_int, c_char_p]
+    nifly.setConnectPointsChild.restype = None
+    nifly.setConnectPointsParent.argtypes = [c_void_p, c_int, POINTER(ConnectPointBuf)]
+    nifly.setConnectPointsParent.restype = None
     nifly.setFurnMarkers.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
     nifly.setFurnMarkers.restype = None
     nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, POINTER(TransformBuf)]
@@ -1769,6 +1773,13 @@ class NifFile:
                 self._connect_pt_par.append(buf)
         return self._connect_pt_par
 
+    @connect_points_parent.setter
+    def connect_points_parent(self, value):
+        bufs = (ConnectPointBuf * len(value))()
+        for i, v in enumerate(value):
+            bufs[i] = v
+        NifFile.nifly.setConnectPointsParent(self._handle, len(value), bufs)
+
     @property
     def connect_points_child(self):
         """Reads a nif's child connect points as a pair of [bool, (name, name, ...)]
@@ -1785,6 +1796,11 @@ class NifFile:
                 self.connect_pt_child_skinned = (v > 0)
                 self._connect_pt_child.append(buf.value.decode('utf-8'))
         return self._connect_pt_child
+
+    @connect_points_child.setter
+    def connect_points_child(self, value):
+        buf = create_string_buffer(('\0'.join(value)).encode())
+        NifFile.nifly.setConnectPointsChild(self._handle, self.connect_pt_child_skinned, len(buf), buf)
 
 
     def createSkin(self):
@@ -1857,7 +1873,7 @@ TEST_COLLISION_LIST = False
 TEST_COLLISION_CAPSULE = False
 TEST_FURNITURE_MARKER = False
 TEST_MANY_SHAPES = False
-TEST_CONNECT_PARENT = True
+TEST_CONNECT_POINTS = True
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -3306,11 +3322,35 @@ if __name__ == "__main__":
         pcp = nif.connect_points_parent
         assert len(pcp) == 5, f"Can read all the connect points: {len(pcp)}"
         assert pcp[0].parent.decode('utf-8') == "WeaponMagazine", f"Can read the name property: {pcp[0].parent}"
+        pcpnames = set([x.name.decode() for x in pcp])
+        assert pcpnames == set(['P-Mag', 'P-Grip', 'P-Barrel', 'P-Casing', 'P-Scope']), f"Can read all names: {pcpnames}"
 
         pcc = nif.connect_points_child
         assert not nif.connect_pt_child_skinned, f"Shotgun not skinned {pcc[0]}"
         assert "C-Receiver" in pcc, f"Have two conect points: {pcc}"
         assert "C-Reciever" in pcc, f"Have two conect points: {pcc}"
+
+        nifOut = NifFile()
+        nifOut.initialize('FO4', r"tests\out\TEST_CONNECT_POINTS.nif")
+        _test_export_shape(nif.shapes[0], nifOut)
+        nifOut.connect_points_parent = nif.connect_points_parent
+        nifOut.connect_pt_child_skinned = False
+        nifOut.connect_points_child = ["C-Receiver", "C-Reciever"]
+        nifOut.save()
+
+        nifcheck = NifFile(r"tests\out\TEST_CONNECT_POINTS.nif")
+        pcpcheck = nifcheck.connect_points_parent
+        assert len(pcpcheck) == 5, f"Can read all the connect points: {len(pcpcheck)}"
+        assert pcpcheck[0].parent.decode('utf-8') == "WeaponMagazine", f"Can read the name property: {pcpcheck[0].parent}"
+        pcpnamescheck = set([x.name.decode() for x in pcpcheck])
+        assert pcpnames == pcpnamescheck, f"Can read all names: {pcpnamescheck}"
+
+        pcccheck = nifcheck.connect_points_child
+        assert not nifcheck.connect_pt_child_skinned, f"Shotgun not skinned {nifcheck.connect_pt_child_skinned}"
+        assert "C-Receiver" in pcccheck, f"Have two conect points: {pcccheck}"
+        assert "C-Reciever" in pcccheck, f"Have two conect points: {pcccheck}"
+
+
 
     print("""
 ================================================

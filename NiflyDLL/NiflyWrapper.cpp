@@ -1786,10 +1786,30 @@ int getConnectPointParent(void* nifref, int index, ConnectPointBuf* buf) {
     return 0;
 }
 
+void setConnectPointsParent(void* nifref, int buflen, ConnectPointBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+
+    auto cplist = std::make_unique<BSConnectPointParents>();
+
+    for (int i = 0; i < buflen; i++) {
+        BSConnectPoint cp;
+        cp.root = NiString(buf[i].parent);
+        cp.variableName = NiString(buf[i].name);
+        cp.rotation.w = buf[i].rotation[0];
+        cp.rotation.x = buf[i].rotation[1];
+        cp.rotation.y = buf[i].rotation[2];
+        cp.rotation.z = buf[i].rotation[3];
+        for (int j = 0; j < 3; j++) cp.translation[j] = buf[i].translation[j];
+        cp.scale = buf[i].scale;
+        cplist->connectPoints.push_back(cp);
+    }
+    nif->AssignExtraData(nif->GetRootNode(), std::move(cplist));
+}
+
 int getConnectPointChild(void* nifref, int index, char* buf) {
     /* Return child connect point information 
     *   index: connect point to return
-    *   buf: associated name
+    *   buf: associated name, must accept 256 characters
         returns 0: no child at index; -1: not skinned; 1: skinned */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
@@ -1810,6 +1830,20 @@ int getConnectPointChild(void* nifref, int index, char* buf) {
         };
     };
     return 0;
+}
+
+void setConnectPointsChild(void* nifref, int isSkinned, int buflen, const char* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+
+    auto cplist = std::make_unique<BSConnectPointChildren>();
+    cplist->skinned = isSkinned;
+
+    for (int i = 0; i < buflen; ) {
+        NiString s = NiString(&buf[i]);
+        cplist->targets.push_back(s);
+        i += s.length() + 1;
+    }
+    nif->AssignExtraData(nif->GetRootNode(), std::move(cplist));
 }
 
 int getFurnMarker(void* nifref, int index, FurnitureMarkerBuf* buf) {

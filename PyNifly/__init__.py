@@ -764,7 +764,7 @@ class NifImporter():
             obj.location = cp.translation[:]
             obj.rotation_quaternion = Quaternion(cp.rotation[:])
             obj.scale = ((cp.scale * CONNECT_POINT_SCALE),) * 3
-            obj['PYN_CONNECT_PARENT'] = cp.parent
+            obj['PYN_CONNECT_PARENT'] = cp.parent.decode('utf-8')
             self.objects_created[obj.name] = obj
 
         if f.connect_points_child:
@@ -1892,6 +1892,8 @@ class NifExporter:
         self.inv_marker = None
         self.furniture_markers = set()
         self.collisions = set()
+        self.connect_parent = set()
+        self.connect_child = set()
         self.trippath = ''
         
         # Shape keys that start with underscore trigger a separate file export
@@ -1972,6 +1974,12 @@ class NifExporter:
 
             elif obj.name.startswith("BSFurnitureMarkerNode"):
                 self.furniture_markers.add(obj)
+
+            elif obj.name.startswith("BSConnectPointParents"):
+                self.connect_parent.add(obj)
+
+            elif obj.name.startswith("BSConnectPointChildren"):
+                self.connect_child.add(obj)
 
             elif obj.name.startswith("bhkCollisionObject"):
                 self.collisions.add(obj)
@@ -2133,8 +2141,32 @@ class NifExporter:
             buf.entry_points = FurnEntryPoints.parse(fm['EntryPoints'])
             fmklist.append(buf)
         
-        if len(fmklist) > 0:
+        if fmklist:
             self.nif.furniture_markers = fmklist
+
+        connect_par = []
+        for cp in self.connect_parent:
+            buf = ConnectPointBuf()
+            buf.name = cp.name.split("::")[1].encode('utf-8')
+            buf.parent = cp['PYN_CONNECT_PARENT'].encode('utf-8')
+            buf.translation[0] = cp.location[0]
+            buf.translation[1] = cp.location[1]
+            buf.translation[2] = cp.location[2]
+            buf.rotation[0], buf.rotation[1], buf.rotation[2], buf.rotation[3] = cp.rotation_quaternion[:]
+            buf.scale = cp.scale[0] / CONNECT_POINT_SCALE
+            #log.debug(f"PARENT\n{buf}\n{cp.rotation_quaternion}")
+            connect_par.append(buf)
+        if connect_par:
+            self.nif.connect_points_parent = connect_par
+
+        child_names = []
+        for cp in self.connect_child:
+            self.nif.connect_pt_child_skinned = cp['PYN_CONNECT_CHILD_SKINNED']
+            #log.debug(f"Extending child names with {[cp[x] for x in cp.keys() if x != 'PYN_CONNECT_CHILD_SKINNED' and x.startswith('PYN_CONNECT_CHILD')]}")
+            child_names.extend([cp[x] for x in cp.keys() if x != 'PYN_CONNECT_CHILD_SKINNED' and x.startswith('PYN_CONNECT_CHILD')])
+        if child_names:
+            #log.debug(f"Writing connect point children: {child_names}")
+            self.nif.connect_points_child = child_names
 
 
     def export_bhkCapsuleShape(self, s, xform):
@@ -2503,7 +2535,7 @@ class NifExporter:
                     #log.debug(f"Created tri with partition {loop_partition}")
                     l1 = loopseg
 
-        log.debug(f"extract_face_info: loops = {loops[0:9]}")
+        #log.debug(f"extract_face_info: loops = {loops[0:9]}")
         return loops, uvs, norms, colors, partition_map
 
 
@@ -3174,7 +3206,10 @@ Exporting objects: {self.objects}
     cloth data: {self.cloth_data}
     collisions: {self.collisions}
     armature: {self.armature}
-    facebones: {self.facebones}""")
+    facebones: {self.facebones}
+    parent connect points: {self.connect_parent}
+    child connect points: {self.connect_child}
+""")
         NifFile.clear_log()
         if self.facebones:
             self.export_file_set(self.facebones, '_faceBones')
@@ -3389,32 +3424,39 @@ def run_tests():
         testfile = os.path.join(pynifly_dev_path, r"tests\FO4\CombatShotgun.nif")
         outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_CONNECT_POINT.nif")
         NifImporter.do_import(testfile, 0)
+        parentnames = ['P-Barrel', 'P-Casing', 'P-Grip', 'P-Mag', 'P-Scope']
+        childnames = ['C-Receiver', 'C-Reciever']
 
+        shotgun = next(filter(lambda x: x.name.startswith('CombatShotgunReceiver:0'), bpy.context.selected_objects))
         cpparents = list(filter(lambda x: x.name.startswith('BSConnectPointParents'), bpy.context.selected_objects))
         cpchildren = list(filter(lambda x: x.name.startswith('BSConnectPointChildren'), bpy.context.selected_objects))
         
         assert len(cpparents) == 5, f"Found parent connect points: {cpparents}"
-        assert "BSConnectPointParents::P-Grip" in [x.name for x in cpparents]
+        p = [x.name.split("::")[1] for x in cpparents]
+        p.sort()
+        assert p == parentnames, f"Found correct parentnames: {p}"
 
         assert cpchildren, f"Found child connect points: {cpchildren}"
         assert (cpchildren[0]['PYN_CONNECT_CHILD_0'] == "C-Receiver") or \
             (cpchildren[0]['PYN_CONNECT_CHILD_1'] == "C-Receiver"), \
             f"Did not find child name"
 
-        ## -------- Export --------
-        #chair = find_shape("FederalistChairOffice01:2")
-        #fmrk = list(filter(lambda x: x.name.startswith('BSFurnitureMarkerNode'), bpy.data.objects))
-        
-        #exporter = NifExporter(outfile, 'FO4')
-        #exporter.export([chair] + fmrk)
+        # -------- Export --------
+        exporter = NifExporter(outfile, 'FO4')
+        print(f"Writing to test file: {[shotgun] + cpparents + cpchildren}")
+        exporter.export([shotgun] + cpparents + cpchildren)
 
         ## --------- Check ----------
-        #nifcheck = NifFile(outfile)
-        #fmcheck = nifcheck.furniture_markers
+        nifcheck = NifFile(outfile)
+        pcheck = [x.name.decode() for x in nifcheck.connect_points_parent]
+        pcheck.sort()
+        assert pcheck ==parentnames, f"Wrote correct parent names: {pcheck}"
+        pcasing = next(filter(lambda x: x.name.decode()=="P-Casing", nifcheck.connect_points_parent))
+        assert NearEqual(pcasing.rotation[0], 0.909843564), "Have correct rotation: {p.casing.rotation[0]}"
 
-        #assert len(fmcheck) == 4, f"Wrote the furniture marker correctly: {len(fmcheck)}"
-        #assert fmcheck[0].entry_points == 0, f"Entry point data is correct: {fmcheck[0].entry_points}"
-
+        chnames = nifcheck.connect_points_child
+        chnames.sort()
+        assert chnames == childnames, f"Wrote correct child names: {chnames}"
 
 
 
