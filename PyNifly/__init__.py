@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (5, 13, 0),  
+    "version": (5, 15, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -658,6 +658,8 @@ class NifImporter():
         self.filename = filename
         self.flags = f
         self.armature = None
+        self.parent_cp = None
+        self.created_child_cp = None
         self.bones = set()
         self.objects_created = {} # Dictionary of objects created, indexed by node handle
         self.nif = NifFile(filename)
@@ -762,6 +764,7 @@ class NifImporter():
             obj.show_name = True
             obj.empty_display_type = 'ARROWS'
             obj.location = cp.translation[:]
+            obj.rotation_mode = 'QUATERNION'
             obj.rotation_quaternion = Quaternion(cp.rotation[:])
             obj.scale = ((cp.scale * CONNECT_POINT_SCALE),) * 3
             obj['PYN_CONNECT_PARENT'] = cp.parent.decode('utf-8')
@@ -778,6 +781,8 @@ class NifImporter():
             obj['PYN_CONNECT_CHILD_SKINNED'] = f.connect_pt_child_skinned
             for i, n in enumerate(f.connect_points_child):
                 obj[f'PYN_CONNECT_CHILD_{i}'] = n
+            obj.parent = self.parent_cp
+            self.created_child_cp = obj
             self.objects_created[obj.name] = obj
 
         #return extradata
@@ -1021,8 +1026,6 @@ class NifImporter():
             arm_data = bpy.data.armatures.new(self.nif.rootName)
             self.armature = bpy.data.objects.new(self.nif.rootName, arm_data)
             the_coll.objects.link(self.armature)
-        else:
-            self.armature = self.armature
 
         bpy.ops.object.select_all(action='DESELECT')
         self.armature.select_set(True)
@@ -1286,9 +1289,14 @@ class NifImporter():
              = bpy.context.view_layer.layer_collection.children[new_collection.name]
     
         log.info(f"Importing {self.nif.game} file {self.nif.filepath}")
-        if bpy.context.object and bpy.context.object.type == "ARMATURE":
-            self.armature = bpy.context.object
-            log.info(f"..Current object is an armature, parenting shapes to {self.armature.name}")
+        log.debug(f"Active object is {bpy.context.object}")
+        if bpy.context.object:
+            if bpy.context.object.type == "ARMATURE":
+                self.armature = bpy.context.object
+                log.info(f"Current object is an armature, parenting shapes to {self.armature.name}")
+            elif bpy.context.object.type == "EMPTY" and bpy.context.object.name.startswith("BSConnectPointParents"):
+                self.parent_cp = bpy.context.object
+                log.info(f"Current object is a parent connect point, parenting shapes to {self.parent_cp.name}")
 
         # Import shapes
         for s in self.nif.shapes:
@@ -1334,12 +1342,23 @@ class NifImporter():
         # Import top-level collisions
         self.import_collisions()
 
+        # Cleanup. Select everything and parent everything to the child connect point if any.
         active_set = False
         for o in self.objects_created.values(): 
             if not active_set:
                 bpy.context.view_layer.objects.active = o
                 active_set = True
             o.select_set(True)
+
+            if self.created_child_cp and o.parent == None and o != self.created_child_cp:
+                o.parent = self.created_child_cp
+
+        # Move the child connect point to the parent location
+        if self.created_child_cp and self.parent_cp:
+            self.created_child_cp.parent = self.parent_cp
+            #self.created_child_cp.location = self.parent_cp.location
+            #self.created_child_cp.rotation_mode = 'QUATERNION'
+            #self.created_child_cp.rotation_quaternion = self.parent_cp.rotation_quaternion
 
 
     @classmethod
@@ -3430,6 +3449,7 @@ def run_tests():
         shotgun = next(filter(lambda x: x.name.startswith('CombatShotgunReceiver:0'), bpy.context.selected_objects))
         cpparents = list(filter(lambda x: x.name.startswith('BSConnectPointParents'), bpy.context.selected_objects))
         cpchildren = list(filter(lambda x: x.name.startswith('BSConnectPointChildren'), bpy.context.selected_objects))
+        cpcasing = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Casing'), bpy.context.selected_objects))
         
         assert len(cpparents) == 5, f"Found parent connect points: {cpparents}"
         p = [x.name.split("::")[1] for x in cpparents]
@@ -3440,6 +3460,8 @@ def run_tests():
         assert (cpchildren[0]['PYN_CONNECT_CHILD_0'] == "C-Receiver") or \
             (cpchildren[0]['PYN_CONNECT_CHILD_1'] == "C-Receiver"), \
             f"Did not find child name"
+
+        assert NearEqual(cpcasing.rotation_quaternion.w, 0.9098), f"Have correct rotation: {cpcasing.rotation_quaternion}"
 
         # -------- Export --------
         exporter = NifExporter(outfile, 'FO4')
@@ -3458,6 +3480,24 @@ def run_tests():
         chnames.sort()
         assert chnames == childnames, f"Wrote correct child names: {chnames}"
 
+
+    if True: # TEST_BPY_ALL or TEST_WEAPON_PART:
+        test_title("TEST_WEAPON_PART", "Weapon parts are imported at the parent connect point")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\CombatShotgun.nif")
+        partfile = os.path.join(pynifly_dev_path, r"tests\FO4\CombatShotgunBarrel_1.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_WEAPON_PART.nif")
+
+        NifImporter.do_import(testfile, 0)
+        barrelpcp = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Barrel'), bpy.context.selected_objects))
+        assert barrelpcp, f"Found the connect point for barrel parts"
+
+        bpy.context.view_layer.objects.active = barrelpcp
+        NifImporter.do_import(partfile, 0)
+        barrelccp = next(filter(lambda x: x.name.startswith('BSConnectPointChildren'), bpy.context.selected_objects))
+        assert barrelccp, f"Barrel's child connect point found {barrelccp}"
+        assert barrelccp.parent == barrelpcp, f"Child connect point parented to parent connect point: {barrelccp.parent}"
 
 
     if TEST_BPY_ALL:
