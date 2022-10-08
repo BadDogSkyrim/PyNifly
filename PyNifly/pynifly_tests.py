@@ -82,9 +82,9 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_FACEBONE_EXPORT = False
     TEST_TIGER_EXPORT = False
     TEST_JIARAN = False
-    TEST_SHADER_LE = True
+    TEST_SHADER_LE = False
     TEST_SHADER_SE = True
-    TEST_SHADER_FO4 = True
+    TEST_SHADER_FO4 = False
     TEST_SHADER_ALPHA = False
     TEST_SHEATH = False
     TEST_FEET = False
@@ -125,6 +125,8 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_NORM = False
     TEST_SHADER_3_3 = False
     TEST_SHADER_SE= False
+    TEST_CONNECT_POINT= False
+    TEST_WEAPON_PART= False
 
 
     #if TEST_BPY_ALL or TEST_CHANGE_COLLISION:
@@ -163,6 +165,70 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     #    assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
     #    bodycheck = collcheck.body
     #    shapecheck = bodycheck.shape
+
+
+    if TEST_BPY_ALL or TEST_CONNECT_POINT:
+        test_title("TEST_CONNECT_POINT", "Connect points are imported and exported")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\CombatShotgun.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_CONNECT_POINT.nif")
+        NifImporter.do_import(testfile, 0)
+        parentnames = ['P-Barrel', 'P-Casing', 'P-Grip', 'P-Mag', 'P-Scope']
+        childnames = ['C-Receiver', 'C-Reciever']
+
+        shotgun = next(filter(lambda x: x.name.startswith('CombatShotgunReceiver:0'), bpy.context.selected_objects))
+        cpparents = list(filter(lambda x: x.name.startswith('BSConnectPointParents'), bpy.context.selected_objects))
+        cpchildren = list(filter(lambda x: x.name.startswith('BSConnectPointChildren'), bpy.context.selected_objects))
+        cpcasing = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Casing'), bpy.context.selected_objects))
+        
+        assert len(cpparents) == 5, f"Found parent connect points: {cpparents}"
+        p = [x.name.split("::")[1] for x in cpparents]
+        p.sort()
+        assert p == parentnames, f"Found correct parentnames: {p}"
+
+        assert cpchildren, f"Found child connect points: {cpchildren}"
+        assert (cpchildren[0]['PYN_CONNECT_CHILD_0'] == "C-Receiver") or \
+            (cpchildren[0]['PYN_CONNECT_CHILD_1'] == "C-Receiver"), \
+            f"Did not find child name"
+
+        assert NearEqual(cpcasing.rotation_quaternion.w, 0.9098), f"Have correct rotation: {cpcasing.rotation_quaternion}"
+
+        # -------- Export --------
+        exporter = NifExporter(outfile, 'FO4')
+        print(f"Writing to test file: {[shotgun] + cpparents + cpchildren}")
+        exporter.export([shotgun] + cpparents + cpchildren)
+
+        ## --------- Check ----------
+        nifcheck = NifFile(outfile)
+        pcheck = [x.name.decode() for x in nifcheck.connect_points_parent]
+        pcheck.sort()
+        assert pcheck ==parentnames, f"Wrote correct parent names: {pcheck}"
+        pcasing = next(filter(lambda x: x.name.decode()=="P-Casing", nifcheck.connect_points_parent))
+        assert NearEqual(pcasing.rotation[0], 0.909843564), "Have correct rotation: {p.casing.rotation[0]}"
+
+        chnames = nifcheck.connect_points_child
+        chnames.sort()
+        assert chnames == childnames, f"Wrote correct child names: {chnames}"
+
+
+    if TEST_BPY_ALL or TEST_WEAPON_PART:
+        test_title("TEST_WEAPON_PART", "Weapon parts are imported at the parent connect point")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\CombatShotgun.nif")
+        partfile = os.path.join(pynifly_dev_path, r"tests\FO4\CombatShotgunBarrel_1.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_WEAPON_PART.nif")
+
+        NifImporter.do_import(testfile, 0)
+        barrelpcp = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Barrel'), bpy.context.selected_objects))
+        assert barrelpcp, f"Found the connect point for barrel parts"
+
+        bpy.context.view_layer.objects.active = barrelpcp
+        NifImporter.do_import(partfile, 0)
+        barrelccp = next(filter(lambda x: x.name.startswith('BSConnectPointChildren'), bpy.context.selected_objects))
+        assert barrelccp, f"Barrel's child connect point found {barrelccp}"
+        assert barrelccp.parent == barrelpcp, f"Child connect point parented to parent connect point: {barrelccp.parent}"
 
 
     if TEST_BPY_ALL or TEST_SHADER_SE:
@@ -2663,7 +2729,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         test_title("TEST_ROTSTATIC2", "Test that statics are transformed according to the shape transform")
         
         clear_all()
-        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/Crane03_simplified.nif")
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/Meshes/SetDressing/Vehicles/Crane03_simplified.nif")
         NifImporter.do_import(testfile)
 
         glass = bpy.data.objects["Glass:0"]

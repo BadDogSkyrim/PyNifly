@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = False
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -333,19 +333,27 @@ def obj_create_material(obj, shape):
     nifpath = shape.file.filepath
 
     fulltextures = extend_filenames(nifpath, "meshes", shape.textures)
-    convertedTextures = replace_extensions(fulltextures, ".dds", ".png")
+    # convertedTextures = replace_extensions(fulltextures, ".dds", ".png")
 
     # Check if the user has converted textures to png
-    missing = missing_files(convertedTextures)
-    if len(missing) == 0:
-        fulltextures = convertedTextures
-    else:
-        # If they haven't, then we'll search for their dds counterparts instead
-        missing = missing_files(fulltextures)
-        if len(missing) > 0:
-            log.warning(f". . Some texture files not found: {missing}")
+    for i, tx in enumerate(fulltextures):
+        if len(tx) > 0 and tx[-4:].lower() == '.dds':
+            txpng = tx[0:-3] + 'png'
+            if os.path.exists(txpng):
+                fulltextures[i] = txpng
 
-    log.debug(". . creating material")
+    #missing = missing_files(convertedTextures)
+    #if len(missing) == 0:
+    #    fulltextures = convertedTextures
+    #    log.debug(f"Using png textures in preference to dds: {convertedTextures}")
+    #else:
+    #    # If they haven't, then we'll search for their dds counterparts instead
+    #    log.debug(f"Using dds textures because png missing: {missing}")
+    #    missing = missing_files(fulltextures)
+    #    if len(missing) > 0:
+    #        log.warning(f"Some texture files not found: {missing}")
+
+    # log.debug("Creating material")
 
     mat = bpy.data.materials.new(name=(obj.name + ".Mat"))
 
@@ -409,11 +417,19 @@ def obj_create_material(obj, shape):
 
         if shape.file.game in ["FO4"]:
             # specular combines gloss and spec
-            seprgb = nodes.new("ShaderNodeSeparateRGB")
+            try:
+                seprgb = nodes.new("ShaderNodeSeparateColor")
+                seprgb.mode = 'RGB'
+                matlinks.new(simgnode.outputs['Color'], seprgb.inputs['Color'])
+                matlinks.new(seprgb.outputs['Red'], bdsf.inputs['Specular'])
+                matlinks.new(seprgb.outputs['Green'], bdsf.inputs['Metallic'])
+            except:
+                seprgb = nodes.new("ShaderNodeSeparateRGB")
+                matlinks.new(simgnode.outputs['Color'], seprgb.inputs['Image'])
+                matlinks.new(seprgb.outputs['R'], bdsf.inputs['Specular'])
+                matlinks.new(seprgb.outputs['G'], bdsf.inputs['Metallic'])
+
             seprgb.location = (bdsf.location[0] + cvt_offset_x, yloc)
-            matlinks.new(simgnode.outputs['Color'], seprgb.inputs['Image'])
-            matlinks.new(seprgb.outputs['R'], bdsf.inputs['Specular'])
-            matlinks.new(seprgb.outputs['G'], bdsf.inputs['Metallic'])
         else:
             matlinks.new(simgnode.outputs['Color'], bdsf.inputs['Specular'])
             # bdsf.inputs['Metallic'].default_value = 0
@@ -441,30 +457,54 @@ def obj_create_material(obj, shape):
         
         if shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
             # Need to swap green and blue channels for blender
-            rgbsep = nodes.new("ShaderNodeSeparateColor")
-            rgbsep.mode = 'RGB'
-            rgbcomb = nodes.new("ShaderNodeCombineColor")
-            rgbcomb.mode = 'RGB'
-            matlinks.new(rgbsep.outputs['Red'], rgbcomb.inputs['Red'])
-            matlinks.new(rgbsep.outputs['Green'], rgbcomb.inputs['Blue'])
-            matlinks.new(rgbsep.outputs['Blue'], rgbcomb.inputs['Green'])
-            matlinks.new(rgbcomb.outputs['Color'], nmap.inputs['Color'])
-            matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Color'])
+            try:
+                # 3.3 
+                rgbsep = nodes.new("ShaderNodeSeparateColor")
+                rgbsep.mode = 'RGB'
+                rgbcomb = nodes.new("ShaderNodeCombineColor")
+                rgbcomb.mode = 'RGB'
+                matlinks.new(rgbsep.outputs['Red'], rgbcomb.inputs['Red'])
+                matlinks.new(rgbsep.outputs['Green'], rgbcomb.inputs['Blue'])
+                matlinks.new(rgbsep.outputs['Blue'], rgbcomb.inputs['Green'])
+                matlinks.new(rgbcomb.outputs['Color'], nmap.inputs['Color'])
+                matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Color'])
+            except:
+                # < 3.3
+                rgbsep = nodes.new("ShaderNodeSeparateRGB")
+                rgbcomb = nodes.new("ShaderNodeCombineRGB")
+                matlinks.new(rgbsep.outputs['R'], rgbcomb.inputs['R'])
+                matlinks.new(rgbsep.outputs['G'], rgbcomb.inputs['B'])
+                matlinks.new(rgbsep.outputs['B'], rgbcomb.inputs['G'])
+                matlinks.new(rgbcomb.outputs['Image'], nmap.inputs['Color'])
+                matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
             rgbsep.location = (bdsf.location[0] + inter1_offset_x, yloc)
             rgbcomb.location = (bdsf.location[0] + inter2_offset_x, yloc)
+
         elif shape.file.game in ['FO4', 'FO76']:
             # Need to invert the green channel for blender
-            rgbsep = nodes.new("ShaderNodeSeparateColor")
-            rgbsep.mode = 'RGB'
-            rgbcomb = nodes.new("ShaderNodeCombineColor")
-            rgbcomb.mode = 'RGB'
-            colorinv = nodes.new("ShaderNodeInvert")
-            matlinks.new(rgbsep.outputs['Red'], rgbcomb.inputs['Red'])
-            matlinks.new(rgbsep.outputs['Blue'], rgbcomb.inputs['Blue'])
-            matlinks.new(rgbsep.outputs['Green'], colorinv.inputs['Color'])
-            matlinks.new(colorinv.outputs['Color'], rgbcomb.inputs['Green'])
-            matlinks.new(rgbcomb.outputs['Color'], nmap.inputs['Color'])
-            matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Color'])
+            try:
+                rgbsep = nodes.new("ShaderNodeSeparateColor")
+                rgbsep.mode = 'RGB'
+                rgbcomb = nodes.new("ShaderNodeCombineColor")
+                rgbcomb.mode = 'RGB'
+                colorinv = nodes.new("ShaderNodeInvert")
+                matlinks.new(rgbsep.outputs['Red'], rgbcomb.inputs['Red'])
+                matlinks.new(rgbsep.outputs['Blue'], rgbcomb.inputs['Blue'])
+                matlinks.new(rgbsep.outputs['Green'], colorinv.inputs['Color'])
+                matlinks.new(colorinv.outputs['Color'], rgbcomb.inputs['Green'])
+                matlinks.new(rgbcomb.outputs['Color'], nmap.inputs['Color'])
+                matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Color'])
+            except:
+                rgbsep = nodes.new("ShaderNodeSeparateRGB")
+                rgbcomb = nodes.new("ShaderNodeCombineRGB")
+                colorinv = nodes.new("ShaderNodeInvert")
+                matlinks.new(rgbsep.outputs['R'], rgbcomb.inputs['R'])
+                matlinks.new(rgbsep.outputs['B'], rgbcomb.inputs['B'])
+                matlinks.new(rgbsep.outputs['G'], colorinv.inputs['Color'])
+                matlinks.new(colorinv.outputs['Color'], rgbcomb.inputs['G'])
+                matlinks.new(rgbcomb.outputs['Image'], nmap.inputs['Color'])
+                matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
+
             rgbsep.location = (bdsf.location[0] + inter1_offset_x, yloc)
             rgbcomb.location = (bdsf.location[0] + inter3_offset_x, yloc)
             colorinv.location = (bdsf.location[0] + inter2_offset_x, yloc - rgbcomb.height * 0.9)
@@ -646,7 +686,7 @@ def get_node_transform(the_node) -> Matrix:
 
     # Statics get transformed according to the shape's transform
     xf = the_node.transform # transform
-    log.debug(f". . shape {the_node.name} transform: {xf}")
+    # log.debug(f". . shape {the_node.name} transform: {xf}")
     return xf.as_matrix()
 
 
@@ -868,7 +908,7 @@ class NifImporter():
     
         import_colors(new_mesh, the_shape)
 
-        log.info(f". . import flags: {self.flags}")
+        # log.info(f". . import flags: {self.flags}")
         parent = self.import_node_parents(the_shape)
         new_object.matrix_world = get_node_transform(the_shape)
         if parent:
@@ -3435,69 +3475,6 @@ def run_tests():
 
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
-
-    if True: # TEST_BPY_ALL or TEST_CONNECT_POINT:
-        test_title("TEST_CONNECT_POINT", "Connect points are imported and exported")
-        clear_all()
-
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\CombatShotgun.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_CONNECT_POINT.nif")
-        NifImporter.do_import(testfile, 0)
-        parentnames = ['P-Barrel', 'P-Casing', 'P-Grip', 'P-Mag', 'P-Scope']
-        childnames = ['C-Receiver', 'C-Reciever']
-
-        shotgun = next(filter(lambda x: x.name.startswith('CombatShotgunReceiver:0'), bpy.context.selected_objects))
-        cpparents = list(filter(lambda x: x.name.startswith('BSConnectPointParents'), bpy.context.selected_objects))
-        cpchildren = list(filter(lambda x: x.name.startswith('BSConnectPointChildren'), bpy.context.selected_objects))
-        cpcasing = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Casing'), bpy.context.selected_objects))
-        
-        assert len(cpparents) == 5, f"Found parent connect points: {cpparents}"
-        p = [x.name.split("::")[1] for x in cpparents]
-        p.sort()
-        assert p == parentnames, f"Found correct parentnames: {p}"
-
-        assert cpchildren, f"Found child connect points: {cpchildren}"
-        assert (cpchildren[0]['PYN_CONNECT_CHILD_0'] == "C-Receiver") or \
-            (cpchildren[0]['PYN_CONNECT_CHILD_1'] == "C-Receiver"), \
-            f"Did not find child name"
-
-        assert NearEqual(cpcasing.rotation_quaternion.w, 0.9098), f"Have correct rotation: {cpcasing.rotation_quaternion}"
-
-        # -------- Export --------
-        exporter = NifExporter(outfile, 'FO4')
-        print(f"Writing to test file: {[shotgun] + cpparents + cpchildren}")
-        exporter.export([shotgun] + cpparents + cpchildren)
-
-        ## --------- Check ----------
-        nifcheck = NifFile(outfile)
-        pcheck = [x.name.decode() for x in nifcheck.connect_points_parent]
-        pcheck.sort()
-        assert pcheck ==parentnames, f"Wrote correct parent names: {pcheck}"
-        pcasing = next(filter(lambda x: x.name.decode()=="P-Casing", nifcheck.connect_points_parent))
-        assert NearEqual(pcasing.rotation[0], 0.909843564), "Have correct rotation: {p.casing.rotation[0]}"
-
-        chnames = nifcheck.connect_points_child
-        chnames.sort()
-        assert chnames == childnames, f"Wrote correct child names: {chnames}"
-
-
-    if True: # TEST_BPY_ALL or TEST_WEAPON_PART:
-        test_title("TEST_WEAPON_PART", "Weapon parts are imported at the parent connect point")
-        clear_all()
-
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\CombatShotgun.nif")
-        partfile = os.path.join(pynifly_dev_path, r"tests\FO4\CombatShotgunBarrel_1.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_WEAPON_PART.nif")
-
-        NifImporter.do_import(testfile, 0)
-        barrelpcp = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Barrel'), bpy.context.selected_objects))
-        assert barrelpcp, f"Found the connect point for barrel parts"
-
-        bpy.context.view_layer.objects.active = barrelpcp
-        NifImporter.do_import(partfile, 0)
-        barrelccp = next(filter(lambda x: x.name.startswith('BSConnectPointChildren'), bpy.context.selected_objects))
-        assert barrelccp, f"Barrel's child connect point found {barrelccp}"
-        assert barrelccp.parent == barrelpcp, f"Child connect point parented to parent connect point: {barrelccp.parent}"
 
 
     if TEST_BPY_ALL:
