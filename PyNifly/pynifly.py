@@ -1831,7 +1831,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -2931,7 +2931,7 @@ if __name__ == "__main__":
     if TEST_ALL or TEST_XFORM_STATIC:
         print("### TEST_XFORM_STATIC: Can read static transforms")
 
-        nif = NifFile(r"tests\FO4\Crane03_simplified.nif")
+        nif = NifFile(r"tests\FO4\Meshes\SetDressing\Vehicles\Crane03_simplified.nif")
         glass = nif.shapes[0]
 
         assert glass.name == "Glass:0", f"Error: Expected glass first, found {glass.name}"

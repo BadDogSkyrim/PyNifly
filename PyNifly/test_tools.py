@@ -20,8 +20,8 @@ def test_title(name, desc):
     print (f"--- {desc}")
 
 def clear_all():
-    bpy.ops.object.select_all(action='SELECT')
-    bpy.ops.object.delete(use_global=True, confirm=False)
+    for obj in bpy.data.objects:
+        bpy.data.objects.remove(obj)
     for c in bpy.data.collections:
         bpy.data.collections.remove(c)
 

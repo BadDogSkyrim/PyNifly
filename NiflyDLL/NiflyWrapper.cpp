@@ -47,7 +47,7 @@ void XformToBuffer(float* xform, MatTransform& tmp) {
 
 /* ******************* NIF FILE MANAGEMENT ********************* */
 
-enum TargetGame StrToTargetGame(const char* gameName) {
+enum TargetGame StrToTargetGame(const char* gameName) { 
     if (strcmp(gameName, "FO3") == 0) { return TargetGame::FO3; }
     else if (strcmp(gameName, "FONV") == 0) { return TargetGame::FONV; }
     else if (strcmp(gameName, "SKYRIM") == 0) { return TargetGame::SKYRIM; }
