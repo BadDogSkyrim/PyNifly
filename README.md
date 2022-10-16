@@ -1,5 +1,5 @@
 # PyNifly
-Export/Import tools between Blender and the Nif format, using Bodyslide/Outfit Studio's Nifly layer. Works with Blender 2.9 and 3.x. Can handle nifs for Skyrim LE, SE, and Fallout 4.
+Export/Import tools between Blender and the Nif format, using Bodyslide/Outfit Studio's Nifly layer. Works with Blender 2.9 and 3.x. Can handle nifs for Skyrim LE, SE, Fallout 4, and FO76.
 
 Full documentation in the wiki.
 
