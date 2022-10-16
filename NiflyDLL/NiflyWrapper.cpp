@@ -21,7 +21,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 5, 15, 0 };
+const int NiflyDDLVersion[3] = { 5, 16, 0 };
  
 using namespace nifly;
 
@@ -1790,6 +1790,7 @@ void setConnectPointsParent(void* nifref, int buflen, ConnectPointBuf* buf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
 
     auto cplist = std::make_unique<BSConnectPointParents>();
+    cplist->name.get() = "CPA";
 
     for (int i = 0; i < buflen; i++) {
         BSConnectPoint cp;
@@ -1836,6 +1837,7 @@ void setConnectPointsChild(void* nifref, int isSkinned, int buflen, const char* 
     NifFile* nif = static_cast<NifFile*>(nifref);
 
     auto cplist = std::make_unique<BSConnectPointChildren>();
+    cplist->name.get() = "CPT";
     cplist->skinned = isSkinned;
 
     for (int i = 0; i < buflen; ) {
