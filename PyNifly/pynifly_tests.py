@@ -60,7 +60,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_EXPORT_WEIGHTS = False
     TEST_IMP_EXP_SKY = False
     TEST_IMP_EXP_FO4 = False
-    TEST_ROUND_TRIP = False
+    TEST_ROUND_TRIP = True
     TEST_UV_SPLIT = False
     TEST_CUSTOM_BONES = False
     TEST_BPY_PARENT = False
@@ -882,11 +882,11 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         print("## And can read it in again")
         importer = NifImporter(filepath)
+        importer.execute()
+
         sourceGame = importer.nif.game
         assert sourceGame == "FO4", "ERROR: Wrong game found"
         assert importer.nif.shapes[0].blockname == "BSTriShape", f"Error: Expected BSTriShape on unskinned shape, got {f.shapes[0].blockname}"
-
-        importer.execute()
 
         new_cube = bpy.context.selected_objects[0]
         assert 'Cube' in new_cube.name, "ERROR: cube not named correctly"
@@ -965,8 +965,8 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests\FO4\VulpineInariTailPhysics.nif")
         nifimp = NifImporter(testfile)
-        bone_xform = nifimp.nif.nodes['Bone_Cloth_H_003'].xform_to_global
         nifimp.execute()
+        bone_xform = nifimp.nif.nodes['Bone_Cloth_H_003'].xform_to_global
 
         outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_CUSTOM_BONES.nif")
         for obj in bpy.context.selected_objects:
@@ -2286,7 +2286,8 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         # TODO: Test that baby's unkown skeleton is connected
       
     if TEST_BPY_ALL or TEST_SKEL:
-        print('## TEST_SKEL Can import skeleton file with no shapes')
+        test_title("TEST_SKEL", "Can import skeleton file with no shapes")
+        clear_all()
 
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"skeletons\FO4\skeleton.nif")
