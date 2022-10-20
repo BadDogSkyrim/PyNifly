@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (5, 16, 0),  
+    "version": (5, 17, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -74,9 +74,10 @@ import bpy
 import bpy_types
 from bpy.props import (
         BoolProperty,
+        CollectionProperty,
+        EnumProperty,
         FloatProperty,
         StringProperty,
-        EnumProperty,
         )
 from bpy_extras.io_utils import (
         ImportHelper,
@@ -103,6 +104,23 @@ class PyNiflyFlags(IntFlag):
     ROTATE_MODEL = 1 << 2
     PRESERVE_HIERARCHY = 1 << 3
     WRITE_BODYTRI = 1 << 4
+    IMPORT_SHAPES = 1 << 5
+    SHARE_ARMATURE = 1 << 6
+
+def ObjectSelect(objlist, deselect=True):
+    """Select all the objects in the list"""
+    try:
+        bpy.ops.object.mode_set(mode = 'OBJECT')
+    except:
+        pass
+    if deselect:
+        bpy.ops.object.select_all(action='DESELECT')
+    for o in objlist:
+        o.select_set(True)
+
+def ObjectActive(obj):
+    """Set the given object active"""
+    bpy.context.view_layer.objects.active = obj
 
 
 def MatrixLocRotScale(loc, rot, scale):
@@ -691,18 +709,33 @@ def get_node_transform(the_node) -> Matrix:
 
 
 class NifImporter():
-    """Does the work of importing a nif, independent of Blender's operator interface"""
+    """Does the work of importing a nif, independent of Blender's operator interface.
+    filename can be a single filepath string or a list of filepaths
+    """
     def __init__(self, 
-                 filename: str, 
+                 filename, 
                  f: PyNiflyFlags = PyNiflyFlags.CREATE_BONES | PyNiflyFlags.RENAME_BONES):
-        self.filename = filename
+
+        if type(filename) == str:
+            log.debug(f"Importing single file: {filename}")
+            self.filename = filename
+            self.filename_list = [filename]
+        else:
+            log.debug(f"Importing multiple files: {filename}")
+            self.filename = filename[0]
+            log.debug(f"NifImporter using filename {self.filename}")
+            self.filename_list = filename
+
         self.flags = f
+        self.mesh_only = False
         self.armature = None
         self.parent_cp = None
         self.created_child_cp = None
         self.bones = set()
         self.objects_created = {} # Dictionary of objects created, indexed by node handle
-        self.nif = NifFile(filename)
+        self.loaded_meshes = [] # Holds blender objects created from shapes in a nif
+        self.nif = None # NifFile(filename)
+        self.collection = None
         self.loc = [0, 0, 0]   # location for new objects 
 
     def incr_loc(self):
@@ -904,51 +937,54 @@ class NifImporter():
         new_mesh.from_pydata(v, [], t)
         new_mesh.update(calc_edges=True, calc_edges_loose=True)
         new_object = bpy.data.objects.new(the_shape.name, new_mesh)
-        self.objects_created[the_shape._handle] = new_object
+        self.loaded_meshes.append(new_object)
     
-        import_colors(new_mesh, the_shape)
+        if not self.mesh_only:
+            self.objects_created[the_shape._handle] = new_object
+            
+            import_colors(new_mesh, the_shape)
 
-        # log.info(f". . import flags: {self.flags}")
-        parent = self.import_node_parents(the_shape)
-        new_object.matrix_world = get_node_transform(the_shape)
-        if parent:
-            new_object.parent = parent
+            # log.info(f". . import flags: {self.flags}")
+            parent = self.import_node_parents(the_shape)
+            new_object.matrix_world = get_node_transform(the_shape)
+            if parent:
+                new_object.parent = parent
 
-        if self.flags & PyNiflyFlags.ROTATE_MODEL:
-            log.info(f". . Rotating model to match blender")
-            r = new_object.rotation_euler[:]
-            new_object.rotation_euler = (r[0], r[1], r[2]+pi)
-            new_object["PYNIFLY_IS_ROTATED"] = True
+            if self.flags & PyNiflyFlags.ROTATE_MODEL:
+                log.info(f". . Rotating model to match blender")
+                r = new_object.rotation_euler[:]
+                new_object.rotation_euler = (r[0], r[1], r[2]+pi)
+                new_object["PYNIFLY_IS_ROTATED"] = True
 
-        mesh_create_uv(new_object.data, the_shape.uvs)
-        mesh_create_bone_groups(the_shape, new_object, self.flags & PyNiflyFlags.RENAME_BONES)
-        mesh_create_partition_groups(the_shape, new_object)
-        for f in new_mesh.polygons:
-            f.use_smooth = True
+            mesh_create_uv(new_object.data, the_shape.uvs)
+            mesh_create_bone_groups(the_shape, new_object, self.flags & PyNiflyFlags.RENAME_BONES)
+            mesh_create_partition_groups(the_shape, new_object)
+            for f in new_mesh.polygons:
+                f.use_smooth = True
 
-        #new_mesh.validate(verbose=True)
+            #new_mesh.validate(verbose=True)
 
-        if the_shape.normals:
-            mesh_create_normals(new_object.data, the_shape.normals)
+            if the_shape.normals:
+                mesh_create_normals(new_object.data, the_shape.normals)
 
-        obj_create_material(new_object, the_shape)
+            obj_create_material(new_object, the_shape)
         
-        # Root block type goes on the shape object because there isn't another good place
-        # to put it.
-        f = the_shape.file
-        root = f.nodes[f.rootName]
-        if root.blockname != "NiNode":
-            new_object["pynRootNode_BlockType"] = root.blockname
-        new_object["pynRootNode_Name"] = root.name
-        new_object["pynRootNode_Flags"] = RootFlags(root.flags).fullname
+            # Root block type goes on the shape object because there isn't another good place
+            # to put it.
+            f = the_shape.file
+            root = f.nodes[f.rootName]
+            if root.blockname != "NiNode":
+                new_object["pynRootNode_BlockType"] = root.blockname
+            new_object["pynRootNode_Name"] = root.name
+            new_object["pynRootNode_Flags"] = RootFlags(root.flags).fullname
 
-        if the_shape.collision_object:
-            self.import_collision_obj(the_shape.collision_object, new_object)
+            if the_shape.collision_object:
+                self.import_collision_obj(the_shape.collision_object, new_object)
 
-        self.import_shape_extra(new_object, the_shape)
+            self.import_shape_extra(new_object, the_shape)
 
-        new_object['PYN_GAME'] = self.nif.game
-        new_object['PYN_PRESERVE_HIERARCHY'] = ((self.flags & PyNiflyFlags.PRESERVE_HIERARCHY) != 0)
+            new_object['PYN_GAME'] = self.nif.game
+            new_object['PYN_PRESERVE_HIERARCHY'] = ((self.flags & PyNiflyFlags.PRESERVE_HIERARCHY) != 0)
 
 
     def add_bone_to_arma(self, name, nifname):
@@ -1051,8 +1087,8 @@ class NifImporter():
     def make_armature(self,
                       the_coll: bpy_types.Collection, 
                       bone_names: set):
-        """ Make a Blender armature from the given info. If the current active object is an
-                armature, bones will be added to it instead of creating a new one.
+        """ Make a Blender armature from the given info. If self.armature is defined, bones 
+        will be added to it instead of creating a new one.
             Inputs:
                 the_coll = Collection to put the armature in. 
                 bone_names = bones to include in the armature. Additional bones will be added from
@@ -1067,9 +1103,8 @@ class NifImporter():
             self.armature = bpy.data.objects.new(self.nif.rootName, arm_data)
             the_coll.objects.link(self.armature)
 
-        bpy.ops.object.select_all(action='DESELECT')
-        self.armature.select_set(True)
-        bpy.context.view_layer.objects.active = self.armature
+        ObjectActive(self.armature)
+        ObjectSelect([self.armature])
         bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
         bpy.ops.object.mode_set(mode='EDIT', toggle=False)
     
@@ -1319,16 +1354,90 @@ class NifImporter():
         if r.collision_object:
             self.import_collision_obj(r.collision_object, None)
 
+
+    def import_nif(self):
+        """Perform the import operation as previously defined
+            mesh_only = only import the vertex locations of shapes; ignore everything else in the file
+        """
+    
+        log.info(f"Importing {self.nif.game} file {self.nif.filepath}")
+
+        # Import shapes
+        for s in self.nif.shapes:
+            if not self.mesh_only:
+                for n in s.bone_names: 
+                    #log.debug(f"....adding bone {n} for {s.name}")
+                    self.bones.add(n) 
+                if self.nif.game in ['FO4', 'FO76'] and fo4FaceDict.matches(self.bones) > 10:
+                    self.nif.dict = fo4FaceDict
+
+            self.import_shape(s)
+
+        log.debug(f"Objects created on this import: {self.objects_created}")
+        for obj in self.loaded_meshes:
+            if not obj.name in self.collection.objects:
+                log.debug(f"...Adding object {obj.name} to collection {self.collection.name}")
+                self.collection.objects.link(obj)
+
+        if not self.mesh_only:
+            # Import armature
+            if len(self.bones) > 0 or len(self.nif.shapes) == 0:
+                if len(self.nif.shapes) == 0:
+                    log.debug(f"....No shapes in nif, importing bones as skeleton")
+                    self.bones = set(self.nif.nodes.keys())
+                else:
+                    log.debug(f"....Found self.bones, creating armature")
+                self.make_armature(self.collection, self.bones)
+
+                if self.armature:
+                    self.armature['PYN_RENAME_BONES'] = ((self.flags & PyNiflyFlags.RENAME_BONES) != 0)
+        
+                if len(self.objects_created) > 0:
+                    ObjectActive(self.armature)
+                    ObjectSelect([o for o in self.objects_created.values() if o.type == 'MESH'])
+                    bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+                else:
+                    ObjectSelect([self.armature])
+    
+            # Import nif-level extra data
+            objs = self.import_extra(self.nif)
+        
+            # Import top-level collisions
+            self.import_collisions()
+
+            # Cleanup. Select everything and parent everything to the child connect point if any.
+            ObjectSelect(self.objects_created.values())
+            ObjectActive(next(iter(self.objects_created.values())))
+
+            for o in self.objects_created.values(): 
+                if self.created_child_cp and o.parent == None and o != self.created_child_cp:
+                    o.parent = self.created_child_cp
+
+            # Move the child connect point to the parent location
+            if self.created_child_cp and self.parent_cp:
+                self.created_child_cp.parent = self.parent_cp
+
+
+    def merge_shapes(self, obj_list, new_obj_list):
+        "Merge new_obj_list into obj_list as shape keys"
+        for obj, newobj in zip(obj_list, new_obj_list):
+            log.debug(f"Joining {newobj} into {obj} as shape key")
+            ObjectSelect([obj, newobj])
+            ObjectActive(obj)
+            bpy.ops.object.join_shapes()
+            bpy.data.objects.remove(newobj)
+
+
     def execute(self):
         """Perform the import operation as previously defined"""
         NifFile.clear_log()
 
-        new_collection = bpy.data.collections.new(os.path.basename(self.filename))
-        bpy.context.scene.collection.children.link(new_collection)
+        # All nif files imported into one collection 
+        self.collection = bpy.data.collections.new(os.path.basename(self.filename))
+        bpy.context.scene.collection.children.link(self.collection)
         bpy.context.view_layer.active_layer_collection \
-             = bpy.context.view_layer.layer_collection.children[new_collection.name]
+             = bpy.context.view_layer.layer_collection.children[self.collection.name]
     
-        log.info(f"Importing {self.nif.game} file {self.nif.filepath}")
         log.debug(f"Active object is {bpy.context.object}")
         if bpy.context.object:
             if bpy.context.object.type == "ARMATURE":
@@ -1338,72 +1447,30 @@ class NifImporter():
                 self.parent_cp = bpy.context.object
                 log.info(f"Current object is a parent connect point, parenting shapes to {self.parent_cp.name}")
 
-        # Import shapes
-        for s in self.nif.shapes:
-            for n in s.bone_names: 
-                #log.debug(f"....adding bone {n} for {s.name}")
-                self.bones.add(n) 
-            if self.nif.game in ['FO4', 'FO76'] and fo4FaceDict.matches(self.bones) > 10:
-                self.nif.dict = fo4FaceDict
+        prior_vertcounts = []
+        for this_file in self.filename_list:
+            self.nif = NifFile(this_file)
 
-            self.import_shape(s)
+            prior_shapes = None
+            this_vertcounts = [len(s.verts) for s in self.nif.shapes]
+            if len(this_vertcounts) > 0 and this_vertcounts == prior_vertcounts:
+                log.debug(f"Vert count of all shapes in nif match shapes in prior nif. They will be loaded as a single shape with shape keys")
+                prior_shapes = self.loaded_meshes
+            
+            self.loaded_meshes = []
+            self.mesh_only = (prior_shapes is not None)
+            self.import_nif()
 
-        log.debug(f"Objects created on this import: {self.objects_created}")
-        for obj in self.objects_created.values():
-            if not obj.name in new_collection.objects and obj.type == 'MESH':
-                log.debug(f"...Adding object {obj.name} to collection {new_collection.name}")
-                new_collection.objects.link(obj)
+            if prior_shapes:
+                log.debug(f"Merging shapes: {[s.name for s in prior_shapes]} << {[s.name for s in self.loaded_meshes]}")
+                self.merge_shapes(prior_shapes, self.loaded_meshes)
 
-        # Import armature
-        if len(self.bones) > 0 or len(self.nif.shapes) == 0:
-            if len(self.nif.shapes) == 0:
-                log.debug(f"....No shapes in nif, importing bones as skeleton")
-                self.bones = set(self.nif.nodes.keys())
-            else:
-                log.debug(f"....Found self.bones, creating armature")
-            self.make_armature(new_collection, self.bones)
-
-            if self.armature:
-                self.armature['PYN_RENAME_BONES'] = ((self.flags & PyNiflyFlags.RENAME_BONES) != 0)
-        
-            if len(self.objects_created) > 0:
-                bpy.ops.object.select_all(action='DESELECT')
-                bpy.context.view_layer.objects.active = self.armature
-                for o in self.objects_created.values(): 
-                    if o.type == 'MESH': 
-                        o.select_set(True)
-                bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
-            else:
-                self.armature.select_set(True)
-    
-        # Import nif-level extra data
-        objs = self.import_extra(self.nif)
-        
-        # Import top-level collisions
-        self.import_collisions()
-
-        # Cleanup. Select everything and parent everything to the child connect point if any.
-        active_set = False
-        for o in self.objects_created.values(): 
-            if not active_set:
-                bpy.context.view_layer.objects.active = o
-                active_set = True
-            o.select_set(True)
-
-            if self.created_child_cp and o.parent == None and o != self.created_child_cp:
-                o.parent = self.created_child_cp
-
-        # Move the child connect point to the parent location
-        if self.created_child_cp and self.parent_cp:
-            self.created_child_cp.parent = self.parent_cp
-            #self.created_child_cp.location = self.parent_cp.location
-            #self.created_child_cp.rotation_mode = 'QUATERNION'
-            #self.created_child_cp.rotation_quaternion = self.parent_cp.rotation_quaternion
+            prior_vertcounts = this_vertcounts
 
 
     @classmethod
     def do_import(cls, 
-                  filename: str, 
+                  filename, 
                   flags: PyNiflyFlags = PyNiflyFlags.CREATE_BONES | PyNiflyFlags.RENAME_BONES):
         imp = NifImporter(filename, flags)
         imp.execute()
@@ -1422,6 +1489,11 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         options={'HIDDEN'},
     )
 
+    files: CollectionProperty(
+        type=bpy.types.OperatorFileListElement,
+        options={'HIDDEN', 'SKIP_SAVE'},
+    )
+
     create_bones: bpy.props.BoolProperty(
         name="Create Bones",
         description="Create vanilla bones as needed to make skeleton complete.",
@@ -1437,6 +1509,9 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         log.info("\n\n====================================\nNIFLY IMPORT V%d.%d.%d" % bl_info['version'])
         status = {'FINISHED'}
 
+        log.debug(f"Filepaths are {[f.name for f in self.files]}")
+        log.debug(f"Filepath is {self.filepath}")
+
         flags = PyNiflyFlags(0)
         if self.create_bones:
             flags |= PyNiflyFlags.CREATE_BONES
@@ -1450,7 +1525,9 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
             bpy.ops.object.select_all(action='DESELECT')
 
-            NifImporter.do_import(self.filepath, flags)
+            folderpath = os.path.dirname(self.filepath)
+            fullfiles = [os.path.join(folderpath, f.name) for f in self.files]
+            NifImporter.do_import(fullfiles, flags)
         
             for area in bpy.context.screen.areas:
                 if area.type == 'VIEW_3D':
@@ -1597,8 +1674,8 @@ def import_tri(filepath, cobj):
         new_collection = bpy.data.collections.new(os.path.basename(os.path.basename(filepath) + ".Coll"))
         bpy.context.scene.collection.children.link(new_collection)
         new_collection.objects.link(new_object)
-        bpy.context.view_layer.objects.active = new_object
-        new_object.select_set(True)
+        ObjectActive(new_object)
+        ObjectSelect([new_object])
 
     create_shape_keys(new_object, tri)
 
@@ -2709,9 +2786,8 @@ class NifExporter:
         loopcolors = None
         
         try:
-            bpy.ops.object.select_all(action='DESELECT')
-            obj.select_set(True)
-            bpy.context.view_layer.objects.active = obj
+            ObjectSelect([obj])
+            ObjectActive(obj)
                 
             # This next little dance ensures the mesh.vertices locations are correct
             obj.active_shape_key_index = 0
@@ -3475,6 +3551,21 @@ def run_tests():
 
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
+
+    if True: # TEST_BPY_ALL or TEST_IMPORT_AS_SHAPES:
+        test_title("TEST_IMPORT_AS_SHAPES", "Can import 2 meshes as shape keys")
+        clear_all()
+
+        testfiles = [os.path.join(pynifly_dev_path, r"tests\SkyrimSE\body1m_0.nif"), 
+                     os.path.join(pynifly_dev_path, r"tests\SkyrimSE\body1m_1.nif"), ]
+        NifImporter.do_import(testfiles, 0)
+
+        meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
+        assert len(meshes) == 2, f"Have 2 meshes: {meshes}"
+        armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
+        assert len(armatures) == 1, f"Have 1 armature: {armatures}"
+
+
 
 
     if TEST_BPY_ALL:
