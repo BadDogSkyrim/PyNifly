@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (5, 17, 0),  
+    "version": (5, 18, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -748,6 +748,25 @@ class NifImporter():
 
     # -----------------------------  EXTRA DATA  -------------------------------
 
+    def add_to_parents(self, obj):
+        """Add the given object to our list of parent connect points loaded in this operation.
+        obj must be a valid BSConnectPointParents object. """
+        connectname = obj.name[len('BSConnectPointParents::P-'):]
+        self.loaded_parent_cp[connectname] = obj
+
+
+    def add_to_child_cp(self, obj):
+        """Add the given object to our list of children connect points loaded in this operation.
+        obj must be a valid BSConnectPointChildren object. """
+        for i in range(100):
+            try:
+                n = obj[f"PYN_CONNECT_CHILD_{i}"]
+            except:
+                break
+            connectname = n[2:]
+            self.loaded_child_cp[connectname] = obj
+
+
     def import_extra(self, f: NifFile):
         """ Import any extra data from the root, and create corresponding shapes 
             Returns a list of the new extradata objects
@@ -842,6 +861,7 @@ class NifImporter():
             obj.scale = ((cp.scale * CONNECT_POINT_SCALE),) * 3
             obj['PYN_CONNECT_PARENT'] = cp.parent.decode('utf-8')
             self.objects_created[obj.name] = obj
+            self.add_to_parents(obj)
 
         if f.connect_points_child:
             #log.debug(f"Found child connect point: \n{cp}")
@@ -857,6 +877,7 @@ class NifImporter():
             obj.parent = self.parent_cp
             self.created_child_cp = obj
             self.objects_created[obj.name] = obj
+            self.add_to_child_cp(obj)
 
         #return extradata
 
@@ -1413,9 +1434,9 @@ class NifImporter():
                 if self.created_child_cp and o.parent == None and o != self.created_child_cp:
                     o.parent = self.created_child_cp
 
-            # Move the child connect point to the parent location
-            if self.created_child_cp and self.parent_cp:
-                self.created_child_cp.parent = self.parent_cp
+            ## Move the child connect point to the parent location
+            #if self.created_child_cp and self.parent_cp:
+            #    self.created_child_cp.parent = self.parent_cp
 
 
     def merge_shapes(self, obj_list, new_obj_list):
@@ -1428,6 +1449,22 @@ class NifImporter():
             bpy.data.objects.remove(newobj)
 
 
+    def connect_children_parents(self, parent_shapes, child_shapes):
+        """If any of the child connect points in dictionary child_shapes should connect to the
+        parent connect points in dictionary parent_shapes, parent them up
+        """
+        for connectname, parent in parent_shapes.items():
+            # Find children that should connect to this parent. Could be more than one. 
+            # Also the same child may be in the dictionary more than once under different
+            # spellings of the name.
+            try: 
+                child = child_shapes[connectname]
+                if not child.parent:
+                    child.parent = parent
+            except:
+                pass
+
+
     def execute(self):
         """Perform the import operation as previously defined"""
         NifFile.clear_log()
@@ -1438,16 +1475,19 @@ class NifImporter():
         bpy.context.view_layer.active_layer_collection \
              = bpy.context.view_layer.layer_collection.children[self.collection.name]
     
+        self.loaded_parent_cp = {}
+        self.loaded_child_cp = {}
+        prior_vertcounts = []
+
         log.debug(f"Active object is {bpy.context.object}")
         if bpy.context.object:
             if bpy.context.object.type == "ARMATURE":
                 self.armature = bpy.context.object
                 log.info(f"Current object is an armature, parenting shapes to {self.armature.name}")
             elif bpy.context.object.type == "EMPTY" and bpy.context.object.name.startswith("BSConnectPointParents"):
-                self.parent_cp = bpy.context.object
-                log.info(f"Current object is a parent connect point, parenting shapes to {self.parent_cp.name}")
+                self.add_to_parents(bpy.context.object)
+                log.info(f"Current object is a parent connect point, parenting shapes to {bpy.context.object.name}")
 
-        prior_vertcounts = []
         for this_file in self.filename_list:
             self.nif = NifFile(this_file)
 
@@ -1466,6 +1506,9 @@ class NifImporter():
                 self.merge_shapes(prior_shapes, self.loaded_meshes)
 
             prior_vertcounts = this_vertcounts
+
+        # Connect up all the children loaded in this batch with all the parents loaded in this batch
+        self.connect_children_parents(self.loaded_parent_cp, self.loaded_child_cp)
 
 
     @classmethod
@@ -3552,7 +3595,26 @@ def run_tests():
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
-    if True: # TEST_BPY_ALL or TEST_IMPORT_AS_SHAPES:
+    if True: # TEST_BPY_ALL or TEST_IMPORT_MULT_CP:
+        test_title("TEST_IMPORT_MULT_CP", "Can import multiple files and connect up the connect points")
+        clear_all()
+
+        testfiles = [os.path.join(pynifly_dev_path, r"tests\FO4\Shotgun\CombatShotgun.nif"), 
+                     os.path.join(pynifly_dev_path, r"tests\FO4\Shotgun\CombatShotgunBarrel.nif"), 
+                     os.path.join(pynifly_dev_path, r"tests\FO4\Shotgun\Stock.nif"), ]
+        NifImporter.do_import(testfiles, 0)
+
+        meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
+        assert len(meshes) == 5, f"Have 5 meshes: {meshes}"
+        barrelparent = [obj for obj in bpy.data.objects if obj.name == 'BSConnectPointParents::P-Barrel']
+        assert len(barrelparent) == 1, f"Have barrel parent connect point {barrelparent}"
+        barrelchild = [obj for obj in bpy.data.objects \
+                       if obj.name.startswith('BSConnectPointChildren')
+                            and obj['PYN_CONNECT_CHILD_0'] == 'C-Barrel']
+        assert len(barrelchild) == 1, f"Have a single barrel child {barrelchild}"
+        
+
+    if False: # TEST_BPY_ALL or TEST_IMPORT_AS_SHAPES:
         test_title("TEST_IMPORT_AS_SHAPES", "Can import 2 meshes as shape keys")
         clear_all()
 
