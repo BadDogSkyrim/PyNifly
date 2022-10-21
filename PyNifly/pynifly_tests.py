@@ -127,6 +127,9 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_SHADER_SE= False
     TEST_CONNECT_POINT= False
     TEST_WEAPON_PART= False
+    TEST_IMPORT_AS_SHAPES = False
+    TEST_IMPORT_MULT_CP = False
+    TEST_IMPORT_MULT_SHAPES = False
 
 
     #if TEST_BPY_ALL or TEST_CHANGE_COLLISION:
@@ -165,6 +168,65 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     #    assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
     #    bodycheck = collcheck.body
     #    shapecheck = bodycheck.shape
+
+
+    if TEST_BPY_ALL or TEST_IMPORT_MULT_SHAPES:
+        test_title("TEST_IMPORT_MULT_SHAPES", "Can import >2 meshes as shape keys")
+        clear_all()
+
+        testfiles = [os.path.join(pynifly_dev_path, r"tests\FO4\PoliceGlasses\Glasses_Cat.nif"), 
+                     os.path.join(pynifly_dev_path, r"tests\FO4\PoliceGlasses\Glasses_CatF.nif"), 
+                     os.path.join(pynifly_dev_path, r"tests\FO4\PoliceGlasses\Glasses_Horse.nif"), 
+                     os.path.join(pynifly_dev_path, r"tests\FO4\PoliceGlasses\Glasses_Hyena.nif"), 
+                     os.path.join(pynifly_dev_path, r"tests\FO4\PoliceGlasses\Glasses_LionLyk.nif"), 
+                     ]
+        NifImporter.do_import(testfiles)
+
+        meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
+        assert len(meshes) == 2, f"Have 2 meshes: {meshes}"
+        sknames0 = [sk.name for sk in meshes[0].data.shape_keys.key_blocks]
+        assert set(sknames0) == set(['Basis', '_Cat', '_CatF', '_Horse', '_Hyena', '_LionLyk']), f"Shape keys are named correctly: {sknames0}"
+        sknames1 = [sk.name for sk in meshes[1].data.shape_keys.key_blocks]
+        assert set(sknames1) == set(['Basis', '_Cat', '_CatF', '_Horse', '_Hyena', '_LionLyk']), f"Shape keys are named correctly: {sknames1}"
+        armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
+        assert len(armatures) == 1, f"Have 1 armature: {armatures}"
+
+
+    if TEST_BPY_ALL or TEST_IMPORT_MULT_CP:
+        test_title("TEST_IMPORT_MULT_CP", "Can import multiple files and connect up the connect points")
+        clear_all()
+
+        testfiles = [os.path.join(pynifly_dev_path, r"tests\FO4\Shotgun\CombatShotgun.nif"), 
+                     os.path.join(pynifly_dev_path, r"tests\FO4\Shotgun\CombatShotgunBarrel.nif"), 
+                     os.path.join(pynifly_dev_path, r"tests\FO4\Shotgun\Stock.nif"), ]
+        NifImporter.do_import(testfiles)
+
+        meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
+        assert len(meshes) == 5, f"Have 5 meshes: {meshes}"
+        barrelparent = [obj for obj in bpy.data.objects if obj.name == 'BSConnectPointParents::P-Barrel']
+        assert len(barrelparent) == 1, f"Have barrel parent connect point {barrelparent}"
+        barrelchild = [obj for obj in bpy.data.objects \
+                       if obj.name.startswith('BSConnectPointChildren')
+                            and obj['PYN_CONNECT_CHILD_0'] == 'C-Barrel']
+        assert len(barrelchild) == 1, f"Have a single barrel child {barrelchild}"
+        
+
+    if TEST_BPY_ALL or TEST_IMPORT_AS_SHAPES:
+        test_title("TEST_IMPORT_AS_SHAPES", "Can import 2 meshes as shape keys")
+        clear_all()
+
+        testfiles = [os.path.join(pynifly_dev_path, r"tests\SkyrimSE\body1m_0.nif"), 
+                     os.path.join(pynifly_dev_path, r"tests\SkyrimSE\body1m_1.nif"), ]
+        NifImporter.do_import(testfiles)
+
+        meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
+        assert len(meshes) == 2, f"Have 2 meshes: {meshes}"
+        sknames0 = [sk.name for sk in meshes[0].data.shape_keys.key_blocks]
+        assert set(sknames0) == set(['Basis', '_0', '_1']), f"Shape keys are named correctly: {sknames0}"
+        sknames1 = [sk.name for sk in meshes[1].data.shape_keys.key_blocks]
+        assert set(sknames1) == set(['Basis', '_0', '_1']), f"Shape keys are named correctly: {sknames1}"
+        armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
+        assert len(armatures) == 1, f"Have 1 armature: {armatures}"
 
 
     if TEST_BPY_ALL or TEST_CONNECT_POINT:
