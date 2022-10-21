@@ -12,12 +12,13 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (5, 18, 0),  
+    "version": (5, 19, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
 }
 
+from modulefinder import IMPORT_NAME
 import sys
 import os
 import os.path
@@ -714,7 +715,9 @@ class NifImporter():
     """
     def __init__(self, 
                  filename, 
-                 f: PyNiflyFlags = PyNiflyFlags.CREATE_BONES | PyNiflyFlags.RENAME_BONES):
+                 f: PyNiflyFlags = PyNiflyFlags.CREATE_BONES \
+                    | PyNiflyFlags.RENAME_BONES \
+                    | PyNiflyFlags.IMPORT_SHAPES):
 
         if type(filename) == str:
             log.debug(f"Importing single file: {filename}")
@@ -1439,14 +1442,42 @@ class NifImporter():
             #    self.created_child_cp.parent = self.parent_cp
 
 
-    def merge_shapes(self, obj_list, new_obj_list):
-        "Merge new_obj_list into obj_list as shape keys"
+    def merge_shapes(self, filename, obj_list, new_filename, new_obj_list):
+        """Merge new_obj_list into obj_list as shape keys
+           If filenames follow PyNifly's naming conventions, create a shape key for the 
+           base shape and rename the shape keys appropriately
+        """
+        log.debug(f"merge_shapes({filename}, {new_filename})")
+
+        # Can name shape keys to our convention if they end with underscore-something and everything
+        # before the underscore is the same
+        fn_parts = filename.split('_')
+        new_fn_parts = new_filename.split('_')
+        rename_keys = len(fn_parts) > 1 and len(new_fn_parts) > 1 and fn_parts[0:-1] == new_fn_parts[0:-1]
+        obj_shape_name = '_' + fn_parts[-1]
+
+        #pre = os.path.commonprefix([filename, new_filename])
+        #obj_shape_name = filename[len(pre):]
+        #obj_newshape_name = new_filename[len(pre):]
+        #rename_keys = len(pre) > 0 and obj_shape_name[0] == '_' and obj_newshape_name[0] == '_'
+
         for obj, newobj in zip(obj_list, new_obj_list):
-            log.debug(f"Joining {newobj} into {obj} as shape key")
+            log.debug(f"Joining {newobj.name} into {obj.name} as shape key")
             ObjectSelect([obj, newobj])
             ObjectActive(obj)
+
+            if rename_keys:
+                if (not obj.data.shape_keys) or (not obj.data.shape_keys.key_blocks) \
+                        or (obj_shape_name not in [s.name for s in obj.data.shape_keys.key_blocks]):
+                    if not obj.data.shape_keys:
+                        obj.shape_key_add(name='Basis')
+                    obj.shape_key_add(name=obj_shape_name)
+
             bpy.ops.object.join_shapes()
             bpy.data.objects.remove(newobj)
+
+            if rename_keys:
+                obj.data.shape_keys.key_blocks[-1].name = '_' + new_fn_parts[-1]
 
 
     def connect_children_parents(self, parent_shapes, child_shapes):
@@ -1478,6 +1509,7 @@ class NifImporter():
         self.loaded_parent_cp = {}
         self.loaded_child_cp = {}
         prior_vertcounts = []
+        prior_fn = ''
 
         log.debug(f"Active object is {bpy.context.object}")
         if bpy.context.object:
@@ -1487,25 +1519,34 @@ class NifImporter():
             elif bpy.context.object.type == "EMPTY" and bpy.context.object.name.startswith("BSConnectPointParents"):
                 self.add_to_parents(bpy.context.object)
                 log.info(f"Current object is a parent connect point, parenting shapes to {bpy.context.object.name}")
+            elif bpy.context.object.type == 'MESH':
+                prior_vertcounts = [len(bpy.context.object.data.vertices)]
+                self.loaded_meshes = [bpy.context.object]
+                log.info(f"Current object is a mesh, will import as shape key if possible: {bpy.context.object.name}")
 
         for this_file in self.filename_list:
+            fn = os.path.splitext(os.path.basename(this_file))[0]
+
             self.nif = NifFile(this_file)
 
             prior_shapes = None
             this_vertcounts = [len(s.verts) for s in self.nif.shapes]
-            if len(this_vertcounts) > 0 and this_vertcounts == prior_vertcounts:
-                log.debug(f"Vert count of all shapes in nif match shapes in prior nif. They will be loaded as a single shape with shape keys")
-                prior_shapes = self.loaded_meshes
+            if self.flags & PyNiflyFlags.IMPORT_SHAPES:
+                if len(this_vertcounts) > 0 and this_vertcounts == prior_vertcounts:
+                    log.debug(f"Vert count of all shapes in nif match shapes in prior nif. They will be loaded as a single shape with shape keys")
+                    prior_shapes = self.loaded_meshes
             
             self.loaded_meshes = []
             self.mesh_only = (prior_shapes is not None)
             self.import_nif()
 
             if prior_shapes:
-                log.debug(f"Merging shapes: {[s.name for s in prior_shapes]} << {[s.name for s in self.loaded_meshes]}")
-                self.merge_shapes(prior_shapes, self.loaded_meshes)
-
-            prior_vertcounts = this_vertcounts
+                #log.debug(f"Merging shapes: {[s.name for s in prior_shapes]} << {[s.name for s in self.loaded_meshes]}")
+                self.merge_shapes(prior_fn, prior_shapes, fn, self.loaded_meshes)
+                self.loaded_meshes = prior_shapes
+            else:
+                prior_vertcounts = this_vertcounts
+                prior_fn = fn
 
         # Connect up all the children loaded in this batch with all the parents loaded in this batch
         self.connect_children_parents(self.loaded_parent_cp, self.loaded_child_cp)
@@ -1514,7 +1555,9 @@ class NifImporter():
     @classmethod
     def do_import(cls, 
                   filename, 
-                  flags: PyNiflyFlags = PyNiflyFlags.CREATE_BONES | PyNiflyFlags.RENAME_BONES):
+                  flags: PyNiflyFlags = PyNiflyFlags.CREATE_BONES \
+                      | PyNiflyFlags.RENAME_BONES \
+                      | PyNiflyFlags.IMPORT_SHAPES):
         imp = NifImporter(filename, flags)
         imp.execute()
         return imp
@@ -1538,13 +1581,18 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
     )
 
     create_bones: bpy.props.BoolProperty(
-        name="Create Bones",
+        name="Create bones",
         description="Create vanilla bones as needed to make skeleton complete.",
         default=True)
 
     rename_bones: bpy.props.BoolProperty(
-        name="Rename Bones",
+        name="Rename bones",
         description="Rename bones to conform to Blender's left/right conventions.",
+        default=True)
+
+    import_shapes: bpy.props.BoolProperty(
+        name="Import as shape keys",
+        description="Import similar objects as shape keys where possible on multi-file imports.",
         default=True)
 
 
@@ -1560,6 +1608,8 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             flags |= PyNiflyFlags.CREATE_BONES
         if self.rename_bones:
             flags |= PyNiflyFlags.RENAME_BONES
+        if self.import_shapes:
+            flags |= PyNiflyFlags.IMPORT_SHAPES
         #if self.rotate_model:
         #    flags |= PyNiflyFlags.ROTATE_MODEL
 
@@ -3594,39 +3644,6 @@ def run_tests():
 
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
-
-    if True: # TEST_BPY_ALL or TEST_IMPORT_MULT_CP:
-        test_title("TEST_IMPORT_MULT_CP", "Can import multiple files and connect up the connect points")
-        clear_all()
-
-        testfiles = [os.path.join(pynifly_dev_path, r"tests\FO4\Shotgun\CombatShotgun.nif"), 
-                     os.path.join(pynifly_dev_path, r"tests\FO4\Shotgun\CombatShotgunBarrel.nif"), 
-                     os.path.join(pynifly_dev_path, r"tests\FO4\Shotgun\Stock.nif"), ]
-        NifImporter.do_import(testfiles, 0)
-
-        meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
-        assert len(meshes) == 5, f"Have 5 meshes: {meshes}"
-        barrelparent = [obj for obj in bpy.data.objects if obj.name == 'BSConnectPointParents::P-Barrel']
-        assert len(barrelparent) == 1, f"Have barrel parent connect point {barrelparent}"
-        barrelchild = [obj for obj in bpy.data.objects \
-                       if obj.name.startswith('BSConnectPointChildren')
-                            and obj['PYN_CONNECT_CHILD_0'] == 'C-Barrel']
-        assert len(barrelchild) == 1, f"Have a single barrel child {barrelchild}"
-        
-
-    if False: # TEST_BPY_ALL or TEST_IMPORT_AS_SHAPES:
-        test_title("TEST_IMPORT_AS_SHAPES", "Can import 2 meshes as shape keys")
-        clear_all()
-
-        testfiles = [os.path.join(pynifly_dev_path, r"tests\SkyrimSE\body1m_0.nif"), 
-                     os.path.join(pynifly_dev_path, r"tests\SkyrimSE\body1m_1.nif"), ]
-        NifImporter.do_import(testfiles, 0)
-
-        meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
-        assert len(meshes) == 2, f"Have 2 meshes: {meshes}"
-        armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
-        assert len(armatures) == 1, f"Have 1 armature: {armatures}"
-
 
 
 
