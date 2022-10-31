@@ -1,6 +1,6 @@
 
 """
-Value and type definitions for nif structures
+    Value and type definitions for nif structures
 """
 
 import struct
