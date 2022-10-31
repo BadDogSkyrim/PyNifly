@@ -60,12 +60,12 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_EXPORT_WEIGHTS = False
     TEST_IMP_EXP_SKY = False
     TEST_IMP_EXP_FO4 = False
-    TEST_ROUND_TRIP = True
+    TEST_ROUND_TRIP = False
     TEST_UV_SPLIT = False
     TEST_CUSTOM_BONES = False
     TEST_BPY_PARENT = False
     TEST_BABY = False
-    TEST_CONNECTED_SKEL = False
+    TEST_CONNECTED_SKEL = True
     TEST_TRI = False
     TEST_0_WEIGHTS = False
     TEST_SPLIT_NORMAL = False
@@ -83,7 +83,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_TIGER_EXPORT = False
     TEST_JIARAN = False
     TEST_SHADER_LE = False
-    TEST_SHADER_SE = True
+    TEST_SHADER_SE = False
     TEST_SHADER_FO4 = False
     TEST_SHADER_ALPHA = False
     TEST_SHEATH = False
@@ -227,70 +227,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert set(sknames1) == set(['Basis', '_0', '_1']), f"Shape keys are named correctly: {sknames1}"
         armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
         assert len(armatures) == 1, f"Have 1 armature: {armatures}"
-
-
-    if TEST_BPY_ALL or TEST_CONNECT_POINT:
-        test_title("TEST_CONNECT_POINT", "Connect points are imported and exported")
-        clear_all()
-
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\CombatShotgun.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_CONNECT_POINT.nif")
-        NifImporter.do_import(testfile, 0)
-        parentnames = ['P-Barrel', 'P-Casing', 'P-Grip', 'P-Mag', 'P-Scope']
-        childnames = ['C-Receiver', 'C-Reciever']
-
-        shotgun = next(filter(lambda x: x.name.startswith('CombatShotgunReceiver:0'), bpy.context.selected_objects))
-        cpparents = list(filter(lambda x: x.name.startswith('BSConnectPointParents'), bpy.context.selected_objects))
-        cpchildren = list(filter(lambda x: x.name.startswith('BSConnectPointChildren'), bpy.context.selected_objects))
-        cpcasing = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Casing'), bpy.context.selected_objects))
-        
-        assert len(cpparents) == 5, f"Found parent connect points: {cpparents}"
-        p = [x.name.split("::")[1] for x in cpparents]
-        p.sort()
-        assert p == parentnames, f"Found correct parentnames: {p}"
-
-        assert cpchildren, f"Found child connect points: {cpchildren}"
-        assert (cpchildren[0]['PYN_CONNECT_CHILD_0'] == "C-Receiver") or \
-            (cpchildren[0]['PYN_CONNECT_CHILD_1'] == "C-Receiver"), \
-            f"Did not find child name"
-
-        assert NearEqual(cpcasing.rotation_quaternion.w, 0.9098), f"Have correct rotation: {cpcasing.rotation_quaternion}"
-
-        # -------- Export --------
-        exporter = NifExporter(outfile, 'FO4')
-        print(f"Writing to test file: {[shotgun] + cpparents + cpchildren}")
-        exporter.export([shotgun] + cpparents + cpchildren)
-
-        ## --------- Check ----------
-        nifcheck = NifFile(outfile)
-        pcheck = [x.name.decode() for x in nifcheck.connect_points_parent]
-        pcheck.sort()
-        assert pcheck ==parentnames, f"Wrote correct parent names: {pcheck}"
-        pcasing = next(filter(lambda x: x.name.decode()=="P-Casing", nifcheck.connect_points_parent))
-        assert NearEqual(pcasing.rotation[0], 0.909843564), "Have correct rotation: {p.casing.rotation[0]}"
-
-        chnames = nifcheck.connect_points_child
-        chnames.sort()
-        assert chnames == childnames, f"Wrote correct child names: {chnames}"
-
-
-    if TEST_BPY_ALL or TEST_WEAPON_PART:
-        test_title("TEST_WEAPON_PART", "Weapon parts are imported at the parent connect point")
-        clear_all()
-
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\CombatShotgun.nif")
-        partfile = os.path.join(pynifly_dev_path, r"tests\FO4\CombatShotgunBarrel_1.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_WEAPON_PART.nif")
-
-        NifImporter.do_import(testfile, 0)
-        barrelpcp = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Barrel'), bpy.context.selected_objects))
-        assert barrelpcp, f"Found the connect point for barrel parts"
-
-        bpy.context.view_layer.objects.active = barrelpcp
-        NifImporter.do_import(partfile, 0)
-        barrelccp = next(filter(lambda x: x.name.startswith('BSConnectPointChildren'), bpy.context.selected_objects))
-        assert barrelccp, f"Barrel's child connect point found {barrelccp}"
-        assert barrelccp.parent == barrelpcp, f"Child connect point parented to parent connect point: {barrelccp.parent}"
 
 
     if TEST_BPY_ALL or TEST_SHADER_SE:
@@ -1047,19 +983,21 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
 
     if TEST_BPY_ALL or TEST_CONNECTED_SKEL:
-        print('## TEST_CONNECTED_SKEL Can import connected skeleton')
+        test_title('TEST_CONNECTED_SKEL', 'Can import connected skeleton')
+        clear_all()
 
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests\FO4\vanillaMaleBody.nif")
         NifImporter.do_import(testfile)
 
-        for s in bpy.context.selected_objects:
-            if 'MaleBody.nif' in s.name:
-                assert 'Leg_Thigh.L' in s.data.bones.keys(), "Error: Should have left thigh"
-                lthigh = s.data.bones['Leg_Thigh.L']
-                assert lthigh.parent.name == 'Pelvis', "Error: Thigh should connect to pelvis"
-                assert VNearEqual(lthigh.head_local, (-6.6151, 0.0005, 68.9113)), f"Thigh head in correct location: {lthigh.head_local}"
-                assert VNearEqual(lthigh.tail_local, (-7.2513, -0.1925, 63.9557)), f"Thigh tail in correct location: {lthigh.tail_local}"
+        s = bpy.data.objects[r"BASE meshes\Actors\Character\CharacterAssets\MaleBody.nif"]
+        assert s.type == 'ARMATURE', f"Imported the skeleton {s}" 
+        assert 'Leg_Thigh.L' in s.data.bones.keys(), "Error: Should have left thigh"
+        lthigh = s.data.bones['Leg_Thigh.L']
+        assert lthigh.parent.name == 'Pelvis', "Error: Thigh should connect to pelvis"
+        assert VNearEqual(lthigh.head_local, (-6.6151, 0.0005, 68.9113)), f"Thigh head in correct location: {lthigh.head_local}"
+        assert VNearEqual(lthigh.tail_local, (-7.2513, -0.1925, 63.9557)), f"Thigh tail in correct location: {lthigh.tail_local}"
+
 
     if TEST_BPY_ALL or TEST_BONE_HIERARCHY:
         test_title("TEST_BONE_HIERARCHY", "Bone hierarchy can be written on export")

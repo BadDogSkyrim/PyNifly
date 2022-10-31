@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (5, 19, 0),  
+    "version": (5, 20, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -736,6 +736,7 @@ class NifImporter():
         self.created_child_cp = None
         self.bones = set()
         self.objects_created = {} # Dictionary of objects created, indexed by node handle
+                                  # (or object name, if no handle)
         self.loaded_meshes = [] # Holds blender objects created from shapes in a nif
         self.nif = None # NifFile(filename)
         self.collection = None
@@ -785,7 +786,7 @@ class NifImporter():
             ed['NiStringExtraData_Name'] = s[0]
             ed['NiStringExtraData_Value'] = s[1]
             # extradata.append(ed)
-            self.objects_created[s[0] + s[1]] = ed
+            self.objects_created[ed.name] = ed
 
         for s in f.behavior_graph_data:
             bpy.ops.object.add(radius=1.0, type='EMPTY', location=self.next_loc())
@@ -797,7 +798,7 @@ class NifImporter():
             ed['BSBehaviorGraphExtraData_Value'] = s[1]
             ed['BSBehaviorGraphExtraData_CBS'] = s[2]
             # extradata.append(ed)
-            self.objects_created[s[0] + s[1]] = ed
+            self.objects_created[ed.name] = ed
 
         for c in f.cloth_data: 
             bpy.ops.object.add(radius=1.0, type='EMPTY', location=self.next_loc())
@@ -808,7 +809,7 @@ class NifImporter():
             ed['BSClothExtraData_Name'] = c[0]
             ed['BSClothExtraData_Value'] = codecs.encode(c[1], 'base64')
             # extradata.append(ed)
-            self.objects_created[c[0]] = ed
+            self.objects_created[ed.name] = ed
 
         b = f.bsx_flags
         if b:
@@ -820,7 +821,7 @@ class NifImporter():
             ed['BSXFlags_Name'] = b[0]
             ed['BSXFlags_Value'] = BSXFlags(b[1]).fullname
             # extradata.append(ed)
-            self.objects_created[b[0]] = ed
+            self.objects_created[ed.name] = ed
 
         invm = f.inventory_marker
         if invm:
@@ -836,7 +837,7 @@ class NifImporter():
             ed['BSInvMarker_RotZ'] = invm[3]
             ed['BSInvMarker_Zoom'] = invm[4]
             # extradata.append(ed)
-            self.objects_created[invm[0]] = ed
+            self.objects_created[ed.name] = ed
 
         for fm in f.furniture_markers:
             bpy.ops.object.add(radius=1.0, type='EMPTY')
@@ -862,7 +863,19 @@ class NifImporter():
             obj.rotation_mode = 'QUATERNION'
             obj.rotation_quaternion = Quaternion(cp.rotation[:])
             obj.scale = ((cp.scale * CONNECT_POINT_SCALE),) * 3
-            obj['PYN_CONNECT_PARENT'] = cp.parent.decode('utf-8')
+
+            parname = cp.parent.decode('utf-8')
+
+            if parname and len(parname) > 0 and not parname.startswith("BSConnectPointChildren") \
+                and not parname.startswith("BSConnectPointParents"):
+                try:
+                    parnode = f.nodes[parname]
+                    targetparent = self.objects_created[parnode._handle]
+                    obj.parent = targetparent
+                    log.debug(f"Created parent cp {obj.name} with parent {obj.parent.name}")
+                except:
+                    log.warning(f"Could not find parent node {parname} for connect point {obj.name}")
+
             self.objects_created[obj.name] = obj
             self.add_to_parents(obj)
 
@@ -882,8 +895,6 @@ class NifImporter():
             self.objects_created[obj.name] = obj
             self.add_to_child_cp(obj)
 
-        #return extradata
-
 
     def import_shape_extra(self, obj, shape):
         """ Import any extra data from the shape if given or the root if not, and create 
@@ -899,8 +910,7 @@ class NifImporter():
             ed['NiStringExtraData_Name'] = s[0]
             ed['NiStringExtraData_Value'] = s[1]
             ed.parent = obj
-            self.objects_created[str(shape._handle) + s[0]] = ed
-            #extradata.append(ed)
+            self.objects_created[ed.name] = ed
 
         for s in shape.behavior_graph_data:
             bpy.ops.object.add(radius=1.0, type='EMPTY', location=self.next_loc())
@@ -910,10 +920,37 @@ class NifImporter():
             ed['BSBehaviorGraphExtraData_Name'] = s[0]
             ed['BSBehaviorGraphExtraData_Value'] = s[1]
             ed.parent = obj
-            self.objects_created[str(shape._handle) + s[0]] = ed
-            #extradata.append(ed)
+            self.objects_created[ed.name] = ed
 
-        #return extradata
+
+    def import_ninode(self, ninode, p=None):
+        """ Create Blender representation of an NiNode
+            ninode = nif node
+            p = Blender parent for new object
+            """
+        # Don't import the node if (1) it's already been imported, (2) it's been imported
+        # as a bone in the skeleton, or (3) it's the root node
+        if (ninode._handle not in self.objects_created) \
+            and (not self.armature or ninode.blender_name not in self.armature.data.bones) \
+            and (ninode.parent):
+            bpy.ops.object.add(radius=1.0, type='EMPTY')
+            obj = bpy.context.object
+            obj.name = ninode.name
+            obj["pynBlock_Name"] = ninode.blockname
+            obj.matrix_local = ninode.transform.as_matrix()
+            obj.parent = p
+            self.objects_created[ninode._handle] = obj
+            log.debug(f". . Created node {ninode.name}")
+
+            if ninode.collision_object:
+                self.import_collision_obj(ninode.collision_object, obj)
+        else:
+            try:
+                obj = self.objects_created[ninode._handle]
+            except:
+                obj = None # Might be a bone in an armature, not a separate object
+
+        return obj
 
 
     def import_node_parents(self, node):
@@ -930,23 +967,17 @@ class NifImporter():
         obj = None
         p = None
         for ch in parents[1:]: # [0] is the root node
-            if ch._handle not in self.objects_created:
-                bpy.ops.object.add(radius=1.0, type='EMPTY')
-                obj = bpy.context.object
-                obj.name = ch.name
-                obj["pynBlock_Name"] = ch.blockname
-                obj.matrix_local = ch.transform.as_matrix()
-                obj.parent = p
-                p = obj
-                self.objects_created[ch._handle] = obj
-                log.debug(f". . Created node {ch.name}")
-
-                if ch.collision_object:
-                    self.import_collision_obj(ch.collision_object, obj)
-            else:
-                obj = self.objects_created[ch._handle]
+            obj = self.import_ninode(ch, p)
+            p = obj
 
         return obj
+
+
+    def import_loose_ninodes(self, nif):
+        for n in nif.nodes.values():
+            p = self.import_node_parents(n)
+            obj = self.import_ninode(n, p)
+
 
     def import_shape(self, the_shape: NiShape):
         """ Import the shape to a Blender object, translating bone names if requested
@@ -1206,7 +1237,7 @@ class NifImporter():
         # bpy.context.scene.collection.objects.link(obj)
         obj['bhkMaterial'] = SkyrimHavokMaterial(prop.bhkMaterial).name
         obj['bhkRadius'] = prop.bhkRadius
-        # self.objects_created.append(obj)
+
         return obj
         
     def import_bhkCapsuleShape(self, cs:CollisionShape, cb:bpy_types.Object):
@@ -1284,7 +1315,6 @@ class NifImporter():
         
         obj['bhkMaterial'] = SkyrimHavokMaterial(prop.bhkMaterial).name
         obj['bhkRadius'] = prop.bhkRadius
-        # self.objects_created.append(obj)
 
         log.info(f"1. Imported bhkConvexVerticesShape {obj.name} matrix: \n{obj.matrix_world}")
         if log.getEffectiveLevel() == logging.DEBUG:
@@ -1423,6 +1453,9 @@ class NifImporter():
                 else:
                     ObjectSelect([self.armature])
     
+            # Import loose NiNodes 
+            self.import_loose_ninodes(self.nif)
+
             # Import nif-level extra data
             objs = self.import_extra(self.nif)
         
@@ -1436,10 +1469,6 @@ class NifImporter():
             for o in self.objects_created.values(): 
                 if self.created_child_cp and o.parent == None and o != self.created_child_cp:
                     o.parent = self.created_child_cp
-
-            ## Move the child connect point to the parent location
-            #if self.created_child_cp and self.parent_cp:
-            #    self.created_child_cp.parent = self.parent_cp
 
 
     def merge_shapes(self, filename, obj_list, new_filename, new_obj_list):
@@ -2377,7 +2406,12 @@ class NifExporter:
         for cp in self.connect_parent:
             buf = ConnectPointBuf()
             buf.name = cp.name.split("::")[1].encode('utf-8')
-            buf.parent = cp['PYN_CONNECT_PARENT'].encode('utf-8')
+            try:
+                # Older representation of parent
+                buf.parent = cp['PYN_CONNECT_PARENT'].encode('utf-8')
+            except:
+                if cp.parent:
+                    buf.parent = trim_blender_suffix(cp.parent.name).encode('utf-8')
             buf.translation[0] = cp.location[0]
             buf.translation[1] = cp.location[1]
             buf.translation[2] = cp.location[2]
@@ -3649,6 +3683,75 @@ def run_tests():
 
     if TEST_BPY_ALL:
         run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri)
+
+
+    if True: # TEST_BPY_ALL or TEST_CONNECT_POINT:
+        test_title("TEST_CONNECT_POINT", "Connect points are imported and exported")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\Shotgun\CombatShotgun.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_CONNECT_POINT.nif")
+        NifImporter.do_import(testfile, 0)
+        parentnames = ['P-Barrel', 'P-Casing', 'P-Grip', 'P-Mag', 'P-Scope']
+        childnames = ['C-Receiver', 'C-Reciever']
+
+        shotgun = next(filter(lambda x: x.name.startswith('CombatShotgunReceiver:0'), bpy.context.selected_objects))
+        cpparents = list(filter(lambda x: x.name.startswith('BSConnectPointParents'), bpy.context.selected_objects))
+        cpchildren = list(filter(lambda x: x.name.startswith('BSConnectPointChildren'), bpy.context.selected_objects))
+        cpcasing = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Casing'), bpy.context.selected_objects))
+        
+        assert len(cpparents) == 5, f"Found parent connect points: {cpparents}"
+        p = [x.name.split("::")[1] for x in cpparents]
+        p.sort()
+        assert p == parentnames, f"Found correct parentnames: {p}"
+
+        assert cpchildren, f"Found child connect points: {cpchildren}"
+        assert (cpchildren[0]['PYN_CONNECT_CHILD_0'] == "C-Receiver") or \
+            (cpchildren[0]['PYN_CONNECT_CHILD_1'] == "C-Receiver"), \
+            f"Did not find child name"
+
+        assert NearEqual(cpcasing.rotation_quaternion.w, 0.9098), f"Have correct rotation: {cpcasing.rotation_quaternion}"
+        assert cpcasing.parent.name == "CombatShotgunReceiver", f"Casing has correct parent {cpcasing.parent.name}"
+
+        # -------- Export --------
+        exporter = NifExporter(outfile, 'FO4')
+        print(f"Writing to test file: {[shotgun] + cpparents + cpchildren}")
+        exporter.export([shotgun] + cpparents + cpchildren)
+
+        ## --------- Check ----------
+        nifcheck = NifFile(outfile)
+        pcheck = [x.name.decode() for x in nifcheck.connect_points_parent]
+        pcheck.sort()
+        assert pcheck ==parentnames, f"Wrote correct parent names: {pcheck}"
+        pcasing = next(filter(lambda x: x.name.decode()=="P-Casing", nifcheck.connect_points_parent))
+        assert NearEqual(pcasing.rotation[0], 0.909843564), "Have correct rotation: {p.casing.rotation[0]}"
+
+        chnames = nifcheck.connect_points_child
+        chnames.sort()
+        assert chnames == childnames, f"Wrote correct child names: {chnames}"
+
+
+    if True: # TEST_BPY_ALL or TEST_WEAPON_PART:
+        test_title("TEST_WEAPON_PART", "Weapon parts are imported at the parent connect point")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\Shotgun\CombatShotgun.nif")
+        partfile = os.path.join(pynifly_dev_path, r"tests\FO4\Shotgun\CombatShotgunBarrel_1.nif")
+        partfile2 = os.path.join(pynifly_dev_path, r"tests\FO4\Shotgun\DrumMag.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_WEAPON_PART.nif")
+
+        NifImporter.do_import(testfile, 0)
+        barrelpcp = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Barrel'), bpy.context.selected_objects))
+        assert barrelpcp, f"Found the connect point for barrel parts"
+        magpcp = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Mag'), bpy.context.selected_objects))
+        assert magpcp, f"Found the connect point for magazine parts"
+
+        bpy.context.view_layer.objects.active = barrelpcp
+        NifImporter.do_import(partfile, 0)
+        barrelccp = next(filter(lambda x: x.name.startswith('BSConnectPointChildren'), bpy.context.selected_objects))
+        assert barrelccp, f"Barrel's child connect point found {barrelccp}"
+        assert barrelccp.parent == barrelpcp, f"Child connect point parented to parent connect point: {barrelccp.parent}"
+
 
 
 

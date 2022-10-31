@@ -56,6 +56,42 @@ def truncate_filename(filepath: str, root_dir: str)-> str:
     else:
         return filepath[(n+len(root_dir)+1):]
 
+# ###################### OTHER STUFF ##################################
+
+def find_object(name, coll, fn=lambda x: x):
+    """Find an object by name with the given list of objects
+        name = name to find. Blocks in nifs aren't supposed to have the same
+            name but sometimes they do. Also, a Blend file might contain imports from several nifs. 
+            So we can't be sure the Blender name is exactly the name in the nif. Blender may have 
+            appended .### to it, where ### is some number to make it unique.
+        coll = list or dictionary of objects
+        fn = function to return the name from an object in the collection. Default is for when
+            the collection is just a list of names.
+        Return = object from list, or None. Object either has the exact name or the name followed 
+            by .###
+    """
+    foundobj = None
+    for obj in coll:
+        n = fn(obj)
+        # Exact matches always take precedence
+        if n == name:
+            foundobj = obj
+            break
+        if re.search(name + r'\.\d\d\d', n):
+            foundobj = obj
+            break
+    return foundobj
+
+
+def trim_blender_suffix(s):
+    """Remove Blender's ".###" suffix, if any"""
+    m = re.search(r"(.+)\.\d\d\d", s)
+    if m:
+        return m.groups()[0]
+    else:
+        return s
+
+
 def uv_location(uv):
     """ Rounds UV location to eliminate floating point error """
     return (round(uv[0], 4), round(uv[1], 4))
@@ -132,129 +168,6 @@ def mesh_split_by_uv(verts, loops, norms, uvmap, weights, morphdict):
                 loops[i] = new_index
                 change_table[vert_key] = new_index
 
-#def to_euler_angles(rm):
-#    if rm[0][2] < 1.0:
-#        if rm[0][2] > -1.0:
-#            y = atan2(-rm[1][2], rm[2][2])
-#            p = asin(rm[0][2])
-#            r = atan2(-rm[0][1], rm[0][0])
-#        else:
-#            y = atan2(rm[1][0], rm[1][1])
-#            p = pi/2.0
-#            r = 0.0
-#    else:
-#        y = atan2(rm[1][0], rm[1][1])
-#        p = pi/2.0
-#        r = 0.0
-#    return (y, p, r)
-
-#def to_euler_degrees(rm):
-#    angles = to_euler_angles(rm)
-#    return (angles[0] * 180.0/pi, angles[1] * 180.0/pi, angles[2] * 180.0/pi)
-    
-#def make_rotation_matrix(yaw, pitch, roll):
-#	ch = cos(yaw)
-#	sh = sin(yaw)
-#	cp = cos(pitch)
-#	sp = sin(pitch)
-#	cb = cos(roll)
-#	sb = sin(roll)
-
-#	rot = ((ch * cb + sh * sp * sb,    sb * cp,    -sh * cb + ch * sp * sb),
-#           (-ch * sb + sh * sp * cb,      cb * cp,    sb * sh + ch * sp * cb),
-#           (sh * cp -sp, ch * cp))
-
-#	return rot
-
-
-#def store_transform(xf, vec3, mat3x3, scale):
-#    xf[0] = vec3[0]
-#    xf[1] = vec3[1]
-#    xf[2] = vec3[2]
-#    xf[3] = mat3x3[0][0]
-#    xf[4] = mat3x3[0][1]
-#    xf[5] = mat3x3[0][2]
-#    xf[6] = mat3x3[1][0]
-#    xf[7] = mat3x3[1][1]
-#    xf[8] = mat3x3[1][2]
-#    xf[9] = mat3x3[2][0]
-#    xf[10] = mat3x3[2][1]
-#    xf[11] = mat3x3[2][2]
-#    xf[12] = scale
-
-#class MatTransform():
-#    """ Matrix transform, including translation, rotation, and scale """
-
-#    def __init__(self, init_translation=None, init_rotation=None, init_scale=1.0):
-#        if init_translation:
-#            self.translation = Vector(init_translation)
-#        else:
-#            self.translation = Vector([0,0,0])
-#        self.rotation = RotationMatrix(init_rotation)
-#        self.scale = init_scale
-
-#    def __eq__(self, other):
-#        for v1, v2 in zip(self.translation, other.translation):
-#            if round(v1, 4) != round(v2, 4):
-#                return False
-#        if self.rotation != other.rotation:
-#            return False
-#        if round(self.scale, 4) != round(other.scale, 4):
-#            return False
-#        return True
-        
-#    def __repr__(self):
-#        return "<" + repr(self.translation[:]) + ", " + \
-#            "(" + str(self.rotation.matrix) + "), " + \
-#            repr(self.scale) + ">"
-
-#    def __str__(self):
-#        return "MatTransform(" + str(self.translation[:]) + ",\n" + \
-#            str(self.rotation) + ",\n" + \
-#            str(self.scale) + ")"
-
-#    def __matmul__(self, other):
-#        """ Compose two transformation matrices OR a matrix with a vector """
-#        # Could be done with matrix multiplication instead
-#        if issubclass(other.__class__, MatTransform):
-#            new_t = self.rotation.rotate(other.translation).scale(self.scale) + self.translation
-#            new_r = self.rotation @ other.rotation
-#            return MatTransform(new_t, new_r, self.scale * other.scale)
-#        else:
-#            # Treat the other as a vector. Let it fail if other doesn't act like a vector.
-#            o1 = self.rotation.rotate(other)
-#            o1 = o1.scale(self.scale)
-#            return self.translation + o1
-        
-
-#    def copy(self):
-#        the_copy = MatTransform(self.translation, self.rotation.copy(), self.scale)
-#        return the_copy
-
-#    def from_array(self, float_array):
-#        self.translation = Vector([float_array[0], float_array[1], float_array[2]])
-#        self.rotation = RotationMatrix(((float_array[3], float_array[4], float_array[5]),
-#                                      (float_array[6], float_array[7], float_array[8]),
-#                                      (float_array[9], float_array[10], float_array[11])))
-#        self.scale = float_array[12]
-    
-#    def fill_buffer(self, buf):
-#        store_transform(buf, self.translation, self.rotation.matrix, self.scale)
-
-#    def invert(self):
-#        inverseXform = MatTransform()
-#        inverseXform.translation = self.translation.scale(-1)
-#        inverseXform.scale = 1/self.scale
-#        inverseXform.rotation = self.rotation.invert()
-#        return inverseXform
-
-#    def as_matrix(self):
-#        """ Return the transformation matrix as a 4x4 matrix """
-#        v = [[self.scale, 1, 1, self.translation[0]], [1, self.scale, 1, self.translation[1]], [1, 1, self.scale, self.translation[2]], [0, 0, 0, 1]]
-#        for i in range(0, 3):
-#            for j in range(0, 3):
-#                v[i][j] *= self.rotation.matrix[i][j]
-#        return v
 
 # ----------------------- Game-specific Skeleton Dictionaries ---------------------------
 
