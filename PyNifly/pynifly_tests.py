@@ -85,7 +85,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_SHADER_LE = False
     TEST_SHADER_SE = False
     TEST_SHADER_FO4 = False
-    TEST_SHADER_ALPHA = False
+    TEST_SHADER_ALPHA = True
     TEST_SHEATH = False
     TEST_FEET = False
     TEST_SKYRIM_XFORM = False
@@ -2637,9 +2637,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         alphimporter.execute()
         nifAlph = alphimporter.nif
         furshape = nifAlph.shapes[1]
-        for obj in bpy.context.selected_objects:
-            if "tail_fur.001" in obj.name:
-                tail = obj
+        tail = bpy.data.objects["tail_fur"]
         assert len(tail.active_material.node_tree.nodes) == 9, "ERROR: Didn't import images"
         assert tail.active_material.blend_method == 'CLIP', f"Error: Alpha blend is '{tail.active_material.blend_method}', not 'CLIP'"
 
@@ -2651,7 +2649,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         nifCheck = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SHADER_ALPH.nif"))
         checkfurshape = None
         for s in nifCheck.shapes:
-            if s.name == "tail_fur.001":
+            if s.name == "tail_fur":
                 checkfurshape = s
                 break
         

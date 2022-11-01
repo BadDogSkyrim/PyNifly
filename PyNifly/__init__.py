@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (5, 20, 0),  
+    "version": (5, 21, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -3297,7 +3297,7 @@ class NifExporter:
 
         # Make the shape in the nif file
         log.debug(f"..Exporting '{obj.name}' to nif: {len(verts)} vertices, {len(tris)} tris, parent {my_parent}")
-        new_shape = self.nif.createShapeFromData(obj.name, verts, tris, uvmap_new, norms_exp,
+        new_shape = self.nif.createShapeFromData(trim_blender_suffix(obj.name), verts, tris, uvmap_new, norms_exp,
                                                  is_headpart, is_skinned, is_effectshader,
                                                  parent=my_parent)
         if colors_new:
