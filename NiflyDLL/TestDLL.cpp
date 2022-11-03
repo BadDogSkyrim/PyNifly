@@ -3293,7 +3293,7 @@ namespace NiflyDLLTests
 			int childBufLen = 0;
 			for (int i = 0; i < 2; i++) {
 				strncpy_s(&children[childBufLen], 256 - childBufLen, childNames[i], strlen(childNames[i]));
-				childBufLen += strlen(childNames[i]) + 1;
+				childBufLen += int(strlen(childNames[i]) + 1);
 			}
 			setConnectPointsChild(nifOut, false, childBufLen, children);
 

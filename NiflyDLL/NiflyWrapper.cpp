@@ -27,6 +27,19 @@ using namespace nifly;
 
 /* ************************** UTILITY ************************** */
 
+void assignQ(float* dest, Quaternion source) {
+    dest[0] = source.w;
+    dest[1] = source.x;
+    dest[2] = source.y;
+    dest[3] = source.z;
+}
+
+void assignVec3(float* dest, Vector3 source) {
+    dest[0] = source.x;
+    dest[1] = source.y;
+    dest[2] = source.z;
+}
+
 void XformToBuffer(float* xform, MatTransform& tmp) {
     int i = 0;
     xform[i++] = tmp.translation.x;
@@ -1770,10 +1783,7 @@ int getConnectPointParent(void* nifref, int index, ConnectPointBuf* buf) {
                     buf->parent[255] = '\0';
                     strncpy_s(buf->name, cp.variableName.get().c_str(), 256);
                     buf->name[255] = '\0';
-                    buf->rotation[0] = cp.rotation.w;
-                    buf->rotation[1] = cp.rotation.x;
-                    buf->rotation[2] = cp.rotation.y;
-                    buf->rotation[3] = cp.rotation.z;
+                    assignQ(buf->rotation, cp.rotation);
                     for (int i = 0; i < 3; i++) buf->translation[i] = cp.translation[i];
                     buf->scale = cp.scale;
 
@@ -1840,7 +1850,7 @@ void setConnectPointsChild(void* nifref, int isSkinned, int buflen, const char* 
     cplist->name.get() = "CPT";
     cplist->skinned = isSkinned;
 
-    for (int i = 0; i < buflen; ) {
+    for (size_t i = 0; i < buflen; ) {
         NiString s = NiString(&buf[i]);
         cplist->targets.push_back(s);
         i += s.length() + 1;
@@ -2517,3 +2527,177 @@ NIFLY_API int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf) {
     int newid = nif->GetHeader().AddBlock(std::move(sh));
     return newid;
 };
+
+/* ***************************** TRANSFORM OBJECTS ***************************** */
+
+NIFLY_API int getTransformController(void* nifref, int nodeIndex, NiTransformControllerBuf* buf)
+/*
+    Return a Transform Controller block.
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::NiTransformController* sh = hdr.GetBlock<NiTransformController>(nodeIndex);
+
+    if (sh) {
+        buf->flags = sh->flags;
+        buf->frequency = sh->frequency;
+        buf->phase = sh->phase;
+        buf->startTime = sh->startTime;
+        buf->stopTime = sh->stopTime;
+        buf->targetIndex = sh->targetRef.index;
+        buf->interpolatorIndex = sh->interpolatorRef.index;
+        buf->nextControllerIndex = sh->nextControllerRef.index;
+        return 1;
+    }
+    else
+        return 0;
+};
+
+NIFLY_API int getTransformInterpolator(void* nifref, int nodeIndex, NiTransformInterpolatorBuf* buf)
+/*
+    Return a Transform Interpolator block.
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::NiTransformInterpolator* sh = hdr.GetBlock<NiTransformInterpolator>(nodeIndex);
+
+    if (sh) {
+        for (int i = 0; i < 3; i++) buf->translation[i] = sh->translation[i];
+        assignQ(buf->rotation, sh->rotation);
+        buf->scale = sh->scale;
+        buf->dataIndex = sh->dataRef.index;
+        return 1;
+    }
+    else
+        return 0;
+};
+
+NIFLY_API int getTransformData(void* nifref, int nodeIndex, NiTransformDataBuf* buf)
+/*
+    Return a Transform Data block.
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::NiTransformData* sh = hdr.GetBlock<NiTransformData>(nodeIndex);
+
+    if (sh) {
+        buf->rotationType = sh->rotationType;
+        buf->quaternionKeyCount = sh->quaternionKeys.size();
+        buf->yRotations.interpolation = sh->yRotations.GetInterpolationType();
+        buf->yRotations.numKeys = sh->yRotations.GetNumKeys();
+        buf->zRotations.interpolation = sh->zRotations.GetInterpolationType();
+        buf->zRotations.numKeys = sh->zRotations.GetNumKeys();
+        buf->translations.interpolation = sh->translations.GetInterpolationType();
+        buf->translations.numKeys = sh->translations.GetNumKeys();
+        buf->scales.interpolation = sh->scales.GetInterpolationType();
+        buf->scales.numKeys = sh->scales.GetNumKeys();
+        return 1;
+    }
+    else
+        return 0;
+};
+
+NIFLY_API int getTransformDataValues(void* nifref, int nodeIndex, 
+    NiAnimationKeyQuatBuf* qBuf, 
+    NiAnimationKeyFloatBuf* xRotBuf, 
+    NiAnimationKeyFloatBuf* yRotBuf, 
+    NiAnimationKeyFloatBuf* zRotBuf,
+    NiAnimationKeyVec3Buf* transBuf,
+    NiAnimationKeyFloatBuf* scaleBuf
+    )
+/*
+    Return the arrays of values associated with a Transform Data block. Buffer sizes must have been 
+    allocated correctly by the caller according to values returned by getTransformData.
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::NiTransformData* sh = hdr.GetBlock<NiTransformData>(nodeIndex);
+
+    if (sh) {
+        for (auto& q : sh->quaternionKeys) {
+            assignQ(qBuf->backward, q.backward);
+            assignQ(qBuf->forward, q.forward);
+            qBuf->tbcBias = q.tbc.bias;
+            qBuf->tbcContinuity = q.tbc.continuity;
+            qBuf->tbcTension = q.tbc.tension;
+            qBuf->time = q.time;
+            qBuf->type = q.type;
+            assignQ(qBuf->value, q.value);
+            qBuf++;
+        };
+
+        for (uint32_t i = 0; i < sh->xRotations.GetNumKeys(); i++) {
+            NiAnimationKey<float> k = sh->xRotations.GetKey(i);
+            xRotBuf->backward = k.backward;
+            xRotBuf->forward = k.forward;
+            xRotBuf->tbcBias = k.tbc.bias;
+            xRotBuf->tbcContinuity = k.tbc.continuity;
+            xRotBuf->tbcTension = k.tbc.tension;
+            xRotBuf->time = k.time;
+            xRotBuf->type = k.type;
+            xRotBuf->value = k.value;
+            xRotBuf++;
+        };
+
+        for (uint32_t i = 0; i < sh->yRotations.GetNumKeys(); i++) {
+            NiAnimationKey<float> k = sh->yRotations.GetKey(i);
+            yRotBuf->backward = k.backward;
+            yRotBuf->forward = k.forward;
+            yRotBuf->tbcBias = k.tbc.bias;
+            yRotBuf->tbcContinuity = k.tbc.continuity;
+            yRotBuf->tbcTension = k.tbc.tension;
+            yRotBuf->time = k.time;
+            yRotBuf->type = k.type;
+            yRotBuf->value = k.value;
+            yRotBuf++;
+        };
+
+        for (uint32_t i = 0; i < sh->zRotations.GetNumKeys(); i++) {
+            NiAnimationKey<float> k = sh->zRotations.GetKey(i);
+            zRotBuf->backward = k.backward;
+            zRotBuf->forward = k.forward;
+            zRotBuf->tbcBias = k.tbc.bias;
+            zRotBuf->tbcContinuity = k.tbc.continuity;
+            zRotBuf->tbcTension = k.tbc.tension;
+            zRotBuf->time = k.time;
+            zRotBuf->type = k.type;
+            zRotBuf->value = k.value;
+            zRotBuf++;
+        };
+
+        for (uint32_t i = 0; i < sh->translations.GetNumKeys(); i++) {
+            NiAnimationKey<Vector3> k = sh->translations.GetKey(i);
+            assignVec3(transBuf->backward, k.backward);
+            assignVec3(transBuf->forward, k.forward);
+            transBuf->tbcBias = k.tbc.bias;
+            transBuf->tbcContinuity = k.tbc.continuity;
+            transBuf->tbcTension = k.tbc.tension;
+            transBuf->time = k.time;
+            transBuf->type = k.type;
+            assignVec3(transBuf->value, k.value);
+            transBuf++;
+        };
+
+        for (uint32_t i = 0; i < sh->scales.GetNumKeys(); i++) {
+            NiAnimationKey<float> k = sh->scales.GetKey(i);
+            scaleBuf->backward = k.backward;
+            scaleBuf->forward = k.forward;
+            scaleBuf->tbcBias = k.tbc.bias;
+            scaleBuf->tbcContinuity = k.tbc.continuity;
+            scaleBuf->tbcTension = k.tbc.tension;
+            scaleBuf->time = k.time;
+            scaleBuf->type = k.type;
+            scaleBuf->value = k.value;
+            scaleBuf++;
+        };
+
+        return 1;
+    }
+    else
+        return 0;
+};
+
