@@ -410,6 +410,13 @@ struct NiTransformControllerBuf {
 	uint32_t interpolatorIndex;
 	uint32_t nextControllerIndex;
 	uint16_t flags;
+	/* Controller flags.
+		Bit 0 : Anim type, 0 = APP_TIME 1 = APP_INIT
+		Bit 1 - 2 : Cycle type, 00 = Loop 01 = Reverse 10 = Clamp
+		Bit 3 : Active
+		Bit 4 : Play backwards
+		Bit 5 : Is manager controlled
+		Bit 6 : Always seems to be set in Skyrim and Fallout NIFs, unknown function */
 	float frequency;
 	float phase;
 	float startTime;
@@ -553,3 +560,13 @@ extern "C" NIFLY_API int getCollCapsuleShapeProps(void* nifref, int nodeIndex, B
 extern "C" NIFLY_API int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf);
 
 extern "C" NIFLY_API int getTransformController(void* nifref, int nodeIndex, NiTransformControllerBuf* buf);
+extern "C" NIFLY_API int getTransformInterpolator(void* nifref, int nodeIndex, NiTransformInterpolatorBuf * buf);
+extern "C" NIFLY_API int getTransformData(void* nifref, int nodeIndex, NiTransformDataBuf * buf);
+extern "C" NIFLY_API int getTransformDataValues(void* nifref, int nodeIndex,
+	NiAnimationKeyQuatBuf * qBuf,
+	NiAnimationKeyFloatBuf * xRotBuf,
+	NiAnimationKeyFloatBuf * yRotBuf,
+	NiAnimationKeyFloatBuf * zRotBuf,
+	NiAnimationKeyVec3Buf * transBuf,
+	NiAnimationKeyFloatBuf * scaleBuf
+);
