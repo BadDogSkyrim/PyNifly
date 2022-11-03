@@ -1017,7 +1017,7 @@ class NifImporter():
             for f in new_mesh.polygons:
                 f.use_smooth = True
 
-            #new_mesh.validate(verbose=True)
+            new_mesh.validate(verbose=True)
 
             if the_shape.normals:
                 mesh_create_normals(new_object.data, the_shape.normals)

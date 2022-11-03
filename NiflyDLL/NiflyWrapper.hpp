@@ -406,6 +406,72 @@ struct ConnectPointBuf {
 	float scale;
 };
 
+struct NiTransformControllerBuf {
+	uint32_t interpolatorIndex;
+	uint32_t nextControllerIndex;
+	uint16_t flags;
+	float frequency;
+	float phase;
+	float startTime;
+	float stopTime;
+	uint32_t targetIndex;
+};
+
+struct NiTransformInterpolatorBuf {
+	float translation[3];
+	float rotation[4];
+	float scale;
+	uint32_t dataIndex;
+};
+
+struct NiAnimationKeyQuatBuf {
+	uint32_t type;
+	float time;
+	float value[4];
+	float forward[4];
+	float backward[4];
+	float tbcTension = 0.0f;
+	float tbcBias = 0.0f;
+	float tbcContinuity = 0.0f;
+};
+
+struct NiAnimationKeyVec3Buf {
+	uint32_t type;
+	float time;
+	float value[3];
+	float forward[3];
+	float backward[3];
+	float tbcTension = 0.0f;
+	float tbcBias = 0.0f;
+	float tbcContinuity = 0.0f;
+};
+
+struct NiAnimationKeyFloatBuf {
+	uint32_t type;
+	float time;
+	float value;
+	float forward;
+	float backward;
+	float tbcTension = 0.0f;
+	float tbcBias = 0.0f;
+	float tbcContinuity = 0.0f;
+};
+
+struct NiAnimatinoKeyGroupBuf {
+	uint32_t numKeys;
+	uint32_t interpolation;
+};
+
+struct NiTransformDataBuf {
+	uint32_t rotationType; 
+	uint32_t quaternionKeyCount;
+	NiAnimatinoKeyGroupBuf xRotations;
+	NiAnimatinoKeyGroupBuf yRotations;
+	NiAnimatinoKeyGroupBuf zRotations;
+	NiAnimatinoKeyGroupBuf translations;
+	NiAnimatinoKeyGroupBuf scales;
+};
+
 extern "C" NIFLY_API int getShaderName(void* nifref, void* shaperef, char* buf, int buflen);
 extern "C" NIFLY_API uint32_t getShaderFlags1(void* nifref, void* shaperef);
 extern "C" NIFLY_API uint32_t getShaderFlags2(void* nifref, void* shaperef);
@@ -485,3 +551,5 @@ extern "C" NIFLY_API void setCollConvexTransformShapeChild(void* nifref, const u
 extern "C" NIFLY_API int getCollCapsuleShapeProps(void* nifref, int nodeIndex, BHKCapsuleShapeBuf* buf);
 
 extern "C" NIFLY_API int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf);
+
+extern "C" NIFLY_API int getTransformController(void* nifref, int nodeIndex, NiTransformControllerBuf* buf);
