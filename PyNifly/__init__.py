@@ -565,12 +565,17 @@ def has_msn_shader(obj):
     val = False
     if obj.active_material:
         nodelist = obj.active_material.node_tree.nodes
-        shader_node = find_shader_node(nodelist, 'ShaderNodeBsdfPrincipled')
-        normal_input = shader_node.inputs['Normal']
-        if normal_input and normal_input.is_linked:
-            nmap_node = normal_input.links[0].from_node
-            if nmap_node.bl_idname == 'ShaderNodeNormalMap' and nmap_node.space == "OBJECT":
-                val = True
+        shader_node = None
+        if "Material Output" in nodelist:
+            mat_out = nodelist["Material Output"]
+            if mat_out.inputs["Surface"].is_linked:
+                shader_node = mat_out.inputs['Surface'].links[0].from_node
+        if shader_node:
+            normal_input = shader_node.inputs['Normal']
+            if normal_input and normal_input.is_linked:
+                nmap_node = normal_input.links[0].from_node
+                if nmap_node.bl_idname == 'ShaderNodeNormalMap' and nmap_node.space == "OBJECT":
+                    val = True
     return val
 
 

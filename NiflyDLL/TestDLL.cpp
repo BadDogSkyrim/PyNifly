@@ -3300,5 +3300,18 @@ namespace NiflyDLLTests
 			saveNif(nifOut, (testRoot / "Out/readConnectPoints.nif").u8string().c_str());
 
 		};
+		TEST_METHOD(readTransformController) { 
+			void* nif = load((testRoot / "FO4/CarPush01.nif").u8string().c_str());
+			NiTransformControllerBuf tcbuf;
+
+			Assert::IsTrue(getTransformController(nif, 5, &tcbuf) == 1, L"Found transform controller");
+			Assert::IsTrue(tcbuf.frequency == 1.0f, L"Found frequency");
+			Assert::IsTrue(tcbuf.flags == 76, L"Found frequency");
+
+			NiTransformInterpolatorBuf tibuf;
+
+			Assert::IsTrue(getTransformInterpolator(nif, tcbuf.interpolatorIndex, &tibuf) == 1, L"Found transform interpolator");
+			Assert::IsTrue(tibuf.rotation[0] == 5, L"Found rotation");
+		};
 	};
 }
