@@ -536,7 +536,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         for f in [testout2, testout2tri, testout2chg, tricubenif]:
             remove_file(f)
 
-        NifImporter.do_import(testfile)
+        NifImporter.do_import(testfile, chargen="_chargen")
 
         obj = bpy.context.object
         if obj.type == "ARMATURE":
@@ -1957,7 +1957,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         append_from_file("TigerMaleHead", True, r"tests\FO4\Tiger.blend", r"\Object", "TigerMaleHead")
 
         exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"), 
-                               'FO4')
+                               'FO4', chargen="_chargen")
         exporter.export([bpy.data.objects["TigerMaleHead"]])
 
         nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_TIGER_EXPORT.nif"))
@@ -2591,7 +2591,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         # Normal and Facebones skeleton selected for export
         exporter = NifExporter(os.path.join(pynifly_dev_path, r"tests/Out/TEST_FACEBONE_EXPORT.nif"),
-                               "FO4")
+                               "FO4", chargen="_chargen")
         exporter.from_context(bpy.context)
         exporter.execute()
 
