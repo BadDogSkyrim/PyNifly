@@ -1831,7 +1831,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1873,7 +1873,8 @@ TEST_COLLISION_LIST = False
 TEST_COLLISION_CAPSULE = False
 TEST_FURNITURE_MARKER = False
 TEST_MANY_SHAPES = False
-TEST_CONNECT_POINTS = True
+TEST_CONNECT_POINTS = False
+TEST_SKIN_BONE_XF = True
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -3317,7 +3318,7 @@ if __name__ == "__main__":
 
     if TEST_ALL or TEST_CONNECT_POINTS:
         print("### TEST_CONNECT_POINTS: Can read and write connect points")
-        nif = NifFile(r"tests\FO4\CombatShotgun.nif")
+        nif = NifFile(r"tests\FO4\Shotgun\CombatShotgun.nif")
 
         pcp = nif.connect_points_parent
         assert len(pcp) == 5, f"Can read all the connect points: {len(pcp)}"
@@ -3350,6 +3351,22 @@ if __name__ == "__main__":
         assert "C-Receiver" in pcccheck, f"Have two conect points: {pcccheck}"
         assert "C-Reciever" in pcccheck, f"Have two conect points: {pcccheck}"
 
+
+    if TEST_ALL or TEST_SKIN_BONE_XF:
+        print("### TEST_SKIN_BONE_XF: Can read the skin-bone transform")
+        nif = NifFile(r"tests\SkyrimSE\maleheadargonian.nif")
+        head = nif.shapes[0]
+
+        head_spine_xf = head.get_shape_skin_to_bone('NPC Spine2 [Spn2]')
+        assert NearEqual(head_spine_xf.translation[2], 29.419632), f"Have correct z: {head_spine_xf.translation[2]}"
+
+        head_head_xf = head.get_shape_skin_to_bone('NPC Head [Head]')
+        assert NearEqual(head_head_xf.translation[2], -0.000031), f"Have correct z: {head_head_xf.translation[2]}"
+
+        hsx = nif.nodes['NPC Spine2 [Spn2]'].transform * head_spine_xf
+        assert NearEqual(hsx.translation[2], 120.3436), f"Head-spine transform positions correctly: {hsx.translation[2]}"
+        hhx = nif.nodes['NPC Head [Head]'].transform * head_head_xf
+        assert NearEqual(hhx.translation[2], 120.3436), f"Head-head transform positions correctly: {hhx.translation[2]}"
 
 
     print("""
