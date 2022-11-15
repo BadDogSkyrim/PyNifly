@@ -204,6 +204,34 @@ class pynStructure(Structure):
                 #log.error(f"Cannot load value {v} of type {t.__name__} into field {f} of object {shape.name}")
 
 
+# ------ Little bit of matrix math for debugging ----
+#   Real code uses Blender's functions
+
+class pynMatrix:
+    def __init__(self, v):
+        if type(v) == list:
+            self._array = v
+        elif type(v) == VECTOR3:
+            self._array = [[1, 0, 0, v[0]], [0, 1, 0, v[1]], [0, 0, 1, v[2]], [0, 0, 0, 1]]
+        elif type(v) == VECTOR4:
+            self._array = [[1, 0, 0, v[0]], [0, 1, 0, v[1]], [0, 0, 1, v[2]], [0, 0, 0, v[3]]]
+
+    def __mul__(self, other):
+        return pynMatrix([[sum(a*b for a, b in zip(X_row, Y_col)) for Y_col in zip(*other._array)] for X_row in self._array])
+
+    def __str__(self):
+        return str(self._array)
+
+    def __eq__(self, other):
+        return self._array == other._array
+
+    def to_vector4(self):
+        """ Return the translation part of the matrix """
+        return VECTOR4(self._array[0][3], self._array[1][3], self._array[2][3], self._array[3][3])
+
+    def to_vector3(self):
+        return VECTOR3(self._array[0][3], self._array[1][3], self._array[2][3])
+
 class TransformBuf(pynStructure):
     _fields_ = [
         ('translation', VECTOR3),
@@ -227,6 +255,33 @@ class TransformBuf(pynStructure):
     def read(self):
         """ Return translation buffer as translation, rotation, scale """
         return (self.translation, self.rotation, [self.scale]*3)
+
+    def to_matrix(self):
+        v0 = list(self.rotation[0])
+        v0.append(self.translation[0])
+        v1 = list(self.rotation[1])
+        v1.append(self.translation[1])
+        v2 = list(self.rotation[2])
+        v2.append(self.translation[2])
+        return pynMatrix([v0, v1, v2, [0,0,0,1]])
+
+    @classmethod
+    def from_matrix(cls, m):
+        buf = TransformBuf()
+        buf.translation = VECTOR3(m._array[0][3], m._array[1][3], m._array[2][3])
+        buf.rotation = MATRIX3(VECTOR3(*m._array[0][0:3]), VECTOR3(*m._array[1][0:3]), VECTOR3(*m._array[2][0:3]))
+        buf.scale = 1
+        return buf
+
+    def __mul__(self, other):
+        """ Compose this transform with the other """
+        if type(other) == TransformBuf:
+            return TransformBuf.from_matrix(self.to_matrix() * other.to_matrix())
+        elif type(other) == VECTOR4:
+            return (self.to_matrix() * pynMatrix(other)).to_vector4()
+        elif type(other) == VECTOR3:
+            return (self.to_matrix() * pynMatrix(other)).to_vector3()
+
 
 
 # Types of root nodes
@@ -894,6 +949,35 @@ HAVOC_SCALE_FACTOR = HSF = 69.99125
 if __name__ == "__main__":
     print("---------TEST Loader--------")
 
+    print("--- Testing matrix and transform math")
+    m1 = pynMatrix([[12,7,3],
+                 [4 ,5,6],
+                 [7 ,8,9]])
+    m2 = pynMatrix([[5,8,1,2],
+                 [6,7,3,0],
+                 [4,5,9,1]])
+    assert m1 * m2 == pynMatrix([[114, 160, 60, 27], 
+                              [74, 97, 73, 14], 
+                              [119, 157, 112, 23]]), f"Can multiply arrays"
+
+    xb1 = TransformBuf()
+    xb1.translation = VECTOR3(1, 2, 3)
+    xb1.rotation = MATRIX3((1,0,0),(0,1,0),(0,0,1))
+    xb1.scale = 1
+    assert xb1.to_matrix() == pynMatrix([[1,0,0,1], [0,1,0,2], [0,0,1,3], [0,0,0,1]]), f"Can convert to matrix"
+
+    xb2 = TransformBuf()
+    xb2.translation = VECTOR3(4, 5, 6)
+    xb2.rotation = MATRIX3((1,0,0),(0,1,0),(0,0,1))
+    xb2.scale = 1
+
+    xbm = xb1 * xb2
+    assert list(xbm.translation) == [5, 7, 9], f"TransformBuf operations are correct"
+
+    xv = xb1 * VECTOR3(8, 9, 10)
+    assert list(xv) == [9, 11, 13], f"Multiplying transform buf by vector produces a transformed vector {list(xv)}"
+
+    print("--- Testing structures")
     p = bhkRigidBodyProps({"maxLinearVelocity": 555})
     assert round(p.maxLinearVelocity, 4) == 555, f"Expected 555, found {p.maxLinearVelocity}"
 

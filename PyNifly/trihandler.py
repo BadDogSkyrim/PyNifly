@@ -262,7 +262,9 @@ class TriFile():
         verts_list = []
         tmp_buffer = file.read(FLOAT_LEN * 3 * self.header.vertexNum)
         if len(tmp_buffer) < FLOAT_LEN * 3 * self.header.vertexNum:
-            errlog.error("EOF reading base model verticies - Should read " + str(header.vertexNum) + " verticies with\n" + str(FLOAT_LEN*3*header.vertexNum) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
+            errlog.error("EOF reading base model verticies - Should read " + str(self.header.vertexNum) \
+                + " vertices with\n" + str(FLOAT_LEN*3*self.header.vertexNum) + " bytes but only read " \
+                + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
             raise ValueError("Error reading TRI file")
         
         for i in range(self.header.vertexNum):
@@ -383,8 +385,9 @@ class TriFile():
 
         # version check
         if tri.header.str != VERSION_STRING:
-            file.close()
-            raise ValueError(f"'{filepath}' is not formatted as a tri file. Format given as [{tri.header.str}] when it should be [FRTRI003]")
+            # file.close()
+            #raise ValueError(f"'{filepath}' is not formatted as a tri file. Format given as [{tri.header.str}] when it should be [FRTRI003]")
+            log.warning(f"'{filepath}' is not formatted as a tri file. Format given as [{tri.header.str}] when it should be [FRTRI003]")
             #log.error(f"File is not of correct format. Format given as [{tri.header.str}] when it should be [FRTRI003]")
             #return {'CANCELLED'}
 
@@ -690,7 +693,7 @@ class TripFile():
                 if 1, file position is reset to start
         """
         data = file.read(4)
-        if data != b'PIRT':
+        if data != b'PIRT' and data != b'\0IRT':
             file.seek(0)
             self.is_valid = False
             return 1
