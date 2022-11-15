@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (6, 0, 0),  
+    "version": (6, 1, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -710,7 +710,8 @@ class NifImporter():
                  f: PyNiflyFlags = PyNiflyFlags.CREATE_BONES \
                     | PyNiflyFlags.RENAME_BONES \
                     | PyNiflyFlags.IMPORT_SHAPES \
-                    | PyNiflyFlags.APPLY_SKINNING):
+                    | PyNiflyFlags.APPLY_SKINNING,
+                 chargen="chargen"):
 
         if type(filename) == str:
             log.debug(f"Importing single file: {filename}")
@@ -723,6 +724,7 @@ class NifImporter():
             self.filename_list = filename
 
         self.flags = f
+        self.chargen_ext = chargen
         self.mesh_only = False
         self.armature = None
         self.parent_cp = None
@@ -1697,8 +1699,9 @@ class NifImporter():
                   flags: PyNiflyFlags = PyNiflyFlags.CREATE_BONES \
                       | PyNiflyFlags.RENAME_BONES \
                       | PyNiflyFlags.IMPORT_SHAPES \
-                      | PyNiflyFlags.APPLY_SKINNING):
-        imp = NifImporter(filename, flags)
+                      | PyNiflyFlags.APPLY_SKINNING,
+                  chargen="chargen"):
+        imp = NifImporter(filename, flags, chargen=chargen)
         imp.execute()
         return imp
 
@@ -2245,9 +2248,8 @@ def get_with_uscore(str_list):
 
 
 class NifExporter:
-    """ Object that handles the export process 
-    """
-    def __init__(self, filepath, game, export_flags=PyNiflyFlags.RENAME_BONES):
+    """ Object that handles the export process independent of Blender's export class """
+    def __init__(self, filepath, game, export_flags=PyNiflyFlags.RENAME_BONES, chargen="chargen"):
         self.filepath = filepath
         self.game = game
         self.nif = None
@@ -2271,6 +2273,7 @@ class NifExporter:
         self.connect_parent = set()
         self.connect_child = set()
         self.trippath = ''
+        self.chargen_ext = chargen
         
         # Shape keys that start with underscore trigger a separate file export
         # for each shape key
@@ -2388,7 +2391,7 @@ class NifExporter:
         """
         result = {'FINISHED'}
 
-        log.debug(f"export_tris called with {morphdict.keys()}")
+        #log.debug(f"export_tris called with {morphdict.keys()}")
 
         if obj.data.shape_keys is None or len(morphdict) == 0:
             return result
@@ -2400,7 +2403,8 @@ class NifExporter:
             return result
 
         fname_tri = os.path.join(fpath[0], fname[0] + ".tri")
-        fname_chargen = os.path.join(fpath[0], fname[0] + "_chargen.tri")
+        fname_chargen = os.path.join(fpath[0], fname[0] + self.chargen_ext + ".tri")
+        obj['PYN_CHARGEN_EXT'] = self.chargen_ext
 
         # Don't export anything that starts with an underscore or asterisk
         objkeys = obj.data.shape_keys.key_blocks.keys()
@@ -2434,7 +2438,7 @@ class NifExporter:
             tri.write(fname_tri) # Only expression morphs to write at this point
 
         if len(chargen_morphs) > 0:
-            log.debug(f"....Exporting chargen morphs {chargen_morphs}")
+            log.debug(f"Exporting chargen morphs {chargen_morphs}")
             tri = TriFile()
             tri.vertices = verts
             tri.faces = tris
@@ -3393,12 +3397,12 @@ class NifExporter:
         verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict, \
             partitions, partition_map = \
            self.extract_mesh_data(obj, arma, target_key)
-        log.debug(f"Export_shape found morphdict: {morphdict.keys()}")
+        #log.debug(f"Export_shape found morphdict: {morphdict.keys()}")
 
         is_headpart = obj.data.shape_keys \
                 and len(self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
-        if is_headpart:
-            log.debug(f"...shape is headpart, shape keys = {self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))}")
+        #if is_headpart:
+        #    log.debug(f"...shape is headpart, shape keys = {self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))}")
 
         obj.data.update()
         norms_exp = norms_new
@@ -3619,7 +3623,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     bl_options = {'PRESET'}
 
     filename_ext = ".nif"
-    
+
     target_game: EnumProperty(
             name="Target Game",
             items=(('SKYRIM', "Skyrim", ""),
@@ -3645,6 +3649,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         name="Export BODYTRI Extra Data",
         description="Write an extra data node pointing to the BODYTRI file, if there are any bodytri shape keys. Not needed if exporting for Bodyslide, because they write their own.",
         default=False)
+
+    chargen_ext: bpy.props.StringProperty(
+        name="Chargen extension",
+        description="Extension to use for chargen files (not including file extension).",
+        default="chargen")
 
 
     def __init__(self):
@@ -3684,6 +3693,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         else:
             self.write_bodytri = False
 
+        if 'PYN_CHARGEN_EXT' in obj:
+            self.chargen_ext = obj['PYN_CHARGEN_EXT']
+        else:
+            self.chargen_ext = "chargen"
+
         
     @classmethod
     def poll(cls, context):
@@ -3716,7 +3730,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         NifFile.Load(nifly_path)
 
         try:
-            exporter = NifExporter(self.filepath, self.target_game, export_flags=flags)
+            exporter = NifExporter(self.filepath, self.target_game, export_flags=flags, chargen=self.chargen_ext)
             exporter.from_context(context)
             exporter.export(context.selected_objects)
             
