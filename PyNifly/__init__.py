@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (6, 1, 0),  
+    "version": (6, 2, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -96,7 +96,11 @@ CONNECT_POINT_SCALE = 1.0
 COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5)
 
 BONE_LEN = 5
-ROLL_ADJUST = 0 # -pi/2
+FACEBONE_LEN = 2
+ROLL_ADJUST = 0 
+
+def is_facebone(bname):
+    return bname.startswith("skin_bone_")
 
 
 class PyNiflyFlags(IntFlag):
@@ -186,7 +190,7 @@ def qtobone(boneq:Quaternion, axis:str):
     v.rotate(boneq)
     return v, t
 
-def transform_to_bone(game:str, nodexf:Matrix):
+def transform_to_bone(game:str, nodexf:Matrix, is_fb):
     """ Turns a nif bone global transform into the equivalent Blender bone 
         nodexf = bone transform (4x4 Matrix)
         parentxf = bone transform of parent, if any
@@ -199,7 +203,11 @@ def transform_to_bone(game:str, nodexf:Matrix):
     bonehead, rot, s = nodexf.decompose()
     axis = game_axes[game]
     bonevec, roll = qtobone(rot, axis)
-    return bonehead, bonehead + (bonevec * BONE_LEN), roll + ROLL_ADJUST 
+    if is_fb:
+        blen = FACEBONE_LEN
+    else:
+        blen = BONE_LEN
+    return bonehead, bonehead + (bonevec * blen), roll + ROLL_ADJUST 
 
 #def bone_to_transform(game, bonehead:Vector, boneaxis:Vector, boneroll:float) -> Matrix:
 #    ax = boneaxis.copy()
@@ -225,7 +233,11 @@ def get_bone_global_xf(bone:bpy_types.Bone, game:str) -> Quaternion:
         loc = bone.head_local
         mx = MatrixLocRotScale(bone.head_local, rot, (1,1,1))
     else:
-        vec = (bone.tail_local-bone.head_local)/BONE_LEN
+        if is_facebone(bone.name):
+            blen = FACEBONE_LEN
+        else:
+            blen = BONE_LEN
+        vec = (bone.tail_local-bone.head_local)/blen
         baxis, broll = bone.AxisRollFromMatrix(bone.matrix_local.to_3x3(), axis=vec)
         rot = bonetoq(vec, broll, game_axes[game])
         mx = MatrixLocRotScale(bone.head_local, rot, (1,1,1))
@@ -1057,7 +1069,7 @@ class NifImporter():
         bone_xform = xf.as_matrix()
 
         bone = armdata.edit_bones.new(name)
-        h, t, r = transform_to_bone(self.nif.game, bone_xform)
+        h, t, r = transform_to_bone(self.nif.game, bone_xform, is_facebone(name))
 
         bone.head = h
         bone.tail = t
@@ -1107,7 +1119,7 @@ class NifImporter():
                         else:
                             parentname = parentnifname
 
-                if parentname is None and (self.flags & PyNiflyFlags.CREATE_BONES):
+                if parentname is None and (self.flags & PyNiflyFlags.CREATE_BONES) and not is_facebone(bonename):
                     # No parent in the nif. If it's a known bone, get parent from skeleton
                     if self.flags & PyNiflyFlags.RENAME_BONES:
                         if arma_bone.name in self.nif.dict.byBlender:
@@ -1454,7 +1466,7 @@ class NifImporter():
             if self.flags & PyNiflyFlags.RENAME_BONES:
                 blname = nif_bone.blender_name
             new_bone = tmpa.data.edit_bones.new(blname)
-            h, t, r = transform_to_bone(self.nif.game, new_bone_xf)
+            h, t, r = transform_to_bone(self.nif.game, new_bone_xf, is_facebone(blname))
             new_bone.head = h
             new_bone.tail = t
             new_bone.roll = r
