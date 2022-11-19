@@ -187,11 +187,13 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         boot.data.calc_normals_split()
 
-        targetvert =  next(filter(lambda v: VNearEqual(v.co, (-14.5738, 8.32623, -116.665), epsilon=0.1), boot.data.vertices))
+        # Get vert 527
+        targetvert = boot.data.vertices[527]
+        #targetvert =  next(filter(lambda v: VNearEqual(v.co, (-14.2989, 9.6691, -117.153), epsilon=0.1), boot.data.vertices))
         #targetvert = boot.data.vertices[0]
         #assert VNearEqual(targetvert.co, (-18.28125, 10.890625, -116.25)), \
         #    f"Have the right vertex: {targetvert.co}"
-        assert VNearEqual(targetvert.normal, (0.6207, 0.3681, 0.6923)), \
+        assert VNearEqual(targetvert.normal, (0.7304, 0.1842, 0.6577)), \
             f"Vertex normal as expected: {targetvert.normal}"
         vertloops = [l.index for l in boot.data.loops if l.vertex_index == targetvert.index]
         custnormal = boot.data.loops[vertloops[0]].normal
@@ -2016,7 +2018,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
 
         armnames = [b.name for b in body.parent.data.bones]
         armxl = list(filter(lambda x: ".L" in x or ".R" in x, armnames))
-        assert len(armxl) == 0, f"Expected no bones renamed in armature, got {vgxl}"
+        assert len(armxl) == 0, f"Expected no bones renamed in armature, got {armxl}"
 
 
     if TEST_BPY_ALL or TEST_BONE_XPORT_POS:
