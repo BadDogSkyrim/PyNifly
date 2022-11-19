@@ -112,6 +112,7 @@ class PyNiflyFlags(IntFlag):
     IMPORT_SHAPES = 1 << 5
     SHARE_ARMATURE = 1 << 6
     APPLY_SKINNING = 1 << 7
+    KEEP_TMP_SKEL = 1 << 8 # for debugging
 
 def ObjectSelect(objlist, deselect=True):
     """Select all the objects in the list"""
@@ -758,6 +759,12 @@ class NifImporter():
         self.incr_loc()
         return l
 
+    def flag_set(self, the_flag):
+        return (self.flags & the_flag) != 0
+
+    def flag_clear(self, the_flag):
+        return (self.flags & the_flag) == 0
+
     # -----------------------------  EXTRA DATA  -------------------------------
 
     def add_to_parents(self, obj):
@@ -1014,7 +1021,7 @@ class NifImporter():
             if parent:
                 new_object.parent = parent
 
-            if self.flags & PyNiflyFlags.ROTATE_MODEL:
+            if self.flag_set(PyNiflyFlags.ROTATE_MODEL):
                 log.info(f". . Rotating model to match blender")
                 r = new_object.rotation_euler[:]
                 new_object.rotation_euler = (r[0], r[1], r[2]+pi)
@@ -1433,12 +1440,16 @@ class NifImporter():
             - Unparent the mesh, keeping transform
             - Parent the mesh to the destination armature
             """
-        log.debug(f"Skinning ad parenting object {obj.name}")
+        log.debug(f"Skinning and parenting object {obj.name} at location {obj.location}")
         tmp_name = "PYN_IMPORT_ARMA." + obj.name
         tmpa_data = bpy.data.armatures.new(tmp_name)
         tmpa = bpy.data.objects.new(tmp_name, tmpa_data)
         self.armature.users_collection[0].objects.link(tmpa)
         sh = self.nodes_loaded[obj.name]
+
+        # Location was set when mesh was created to reflect the transform on the NiShape. 
+        # Since this one is skinned, remove that transform. It will be re-set below.
+        obj.matrix_world = Matrix.Identity(4)
 
         # Create bones reflecting the skin-to-bone transforms of the shape
         ObjectActive(tmpa)
@@ -3825,6 +3836,22 @@ def run_tests():
 
 
     if True: # TEST_BPY_ALL or TEST_WELWA:
+        test_title("TEST_FACEBONES", "Can read facebones correctly")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\BaseMaleHead_faceBones.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_WELWA.nif")
+
+        NifImporter.do_import(testfile, PyNiflyFlags.APPLY_SKINNING)
+
+        head = find_shape("BaseMaleHead_faceBones:0")
+        maxy = max([v.co.y for v in head.data.vertices])
+        assert maxy < 11.8, f"Max y not too large: {maxy}"
+        assert False, f"---STOP---"
+
+
+    if False: # TEST_BPY_ALL or TEST_WELWA:
         test_title("TEST_WELWA", "Can read and write shape with unusual skeleton")
         clear_all()
 
