@@ -24,6 +24,7 @@ class PyNiflyFlags(IntFlag):
     IMPORT_SHAPES = 1 << 5
     SHARE_ARMATURE = 1 << 6
     APPLY_SKINNING = 1 << 7
+    KEEP_TMP_SKEL = 1 << 8 # for debugging
 
 def get_image_node(node_input):
     """Walk the shader nodes backwards until a texture node is found.
