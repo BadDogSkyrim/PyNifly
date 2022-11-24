@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (6, 3, 0),  
+    "version": (6, 4, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -1687,7 +1687,8 @@ class NifImporter():
         prior_fn = ''
 
         log.debug(f"Active object is {bpy.context.object}")
-        if bpy.context.object:
+        # Only use the active object if it's selected. Too confusing otherwise.
+        if bpy.context.object and bpy.context.object.select_get():
             if bpy.context.object.type == "ARMATURE":
                 self.armature = bpy.context.object
                 log.info(f"Current object is an armature, parenting shapes to {self.armature.name}")
@@ -2356,7 +2357,7 @@ class NifExporter:
 
 
     def add_object(self, obj):
-        """ Adds the given object to the objects to export """
+        """ Adds the given object to the objects to export. Object may be mesh, armature, or anything else """
         if obj.type == 'ARMATURE':
             facebones_obj = (self.game in ['FO4', 'FO76']) and (is_facebones(obj))
             if facebones_obj and self.facebones is None:
@@ -2365,14 +2366,20 @@ class NifExporter:
                 self.armature = obj 
 
         elif obj.type == 'MESH':
+            # Export the mesh, but use its parent and use any armature modifiers
             par = obj.parent
             par2 = None
             if par:
                 par2 = par.parent
             if not ( obj.name.startswith('bhk') and par and par.name.startswith('bhk') and par2 and par2.name.startswith('bhkCollisionObject') ):
+                # Not dealing with collision objects, which hav etheir own rules
+                # For meshes we want the mesh, its parent if an armature, and any other armatures.
                 self.objects.add(obj)
                 if obj.parent and obj.parent.type == 'ARMATURE':
                     self.add_object(obj.parent)
+                for skel in [m.object for m in obj.modifiers if m.type == "ARMATURE"]:
+                    if skel:
+                        self.add_object(skel)
                 self.file_keys = get_with_uscore(get_common_shapes(self.objects))
 
         elif obj.type == 'EMPTY':
