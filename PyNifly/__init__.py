@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (6, 4, 0),  
+    "version": (6, 5, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -1687,6 +1687,8 @@ class NifImporter():
         prior_fn = ''
 
         log.debug(f"Active object is {bpy.context.object}")
+        if bpy.context.object:
+            log.debug(f"Active object is selected: {bpy.context.object.select_get()}")
         # Only use the active object if it's selected. Too confusing otherwise.
         if bpy.context.object and bpy.context.object.select_get():
             if bpy.context.object.type == "ARMATURE":
@@ -1801,7 +1803,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         try:
             NifFile.Load(nifly_path)
 
-            bpy.ops.object.select_all(action='DESELECT')
+            # bpy.ops.object.select_all(action='DESELECT')
 
             folderpath = os.path.dirname(self.filepath)
             fullfiles = [os.path.join(folderpath, f.name) for f in self.files]
@@ -3857,49 +3859,6 @@ def run_tests():
 
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
-
-
-    if True: # TEST_BPY_ALL or TEST_FACEBONES:
-        test_title("TEST_FACEBONES", "Can read facebones correctly")
-        clear_all()
-
-        # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\BaseMaleHead_faceBones.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_WELWA.nif")
-
-        NifImporter.do_import(testfile, PyNiflyFlags.APPLY_SKINNING | PyNiflyFlags.RENAME_BONES)
-
-        head = find_shape("BaseMaleHead_faceBones:0")
-        maxy = max([v.co.y for v in head.data.vertices])
-        assert maxy < 11.8, f"Max y not too large: {maxy}"
-        assert not "skin_bone_C_MasterEyebrow" in bpy.data.objects, f"Did not load empty node for skin_bone_C_MasterEyebrow"
-        assert "skin_bone_C_MasterEyebrow" in head.parent.data.bones, f"Loaded bone for parented bone skin_bone_C_MasterEyebrow"
-
-
-    if False: # TEST_BPY_ALL or TEST_WELWA:
-        test_title("TEST_WELWA", "Can read and write shape with unusual skeleton")
-        clear_all()
-
-        # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\welwa.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_WELWA.nif")
-
-        NifImporter.do_import(testfile, PyNiflyFlags.APPLY_SKINNING)
-
-        welwa = find_shape("111")
-        skel = welwa.parent
-        lipbone = skel.data.bones['NPC UpperLip']
-        assert VNearEqual(lipbone.matrix_local.translation, (0, 49.717827, 161.427307)), f"Found {lipbone.name} at {lipbone.matrix_local.translation}"
-        spine1 = skel.data.bones['NPC Spine1']
-        assert VNearEqual(spine1.matrix_local.translation, (0, -50.551056, 64.465019)), f"Found {spine1.name} at {spine1.matrix_local.translation}"
-
-        exporter = NifExporter(outfile, 'SKYRIMSE', export_flags=0)
-        exporter.export([welwa])
-
-        # ------- Check ---------
-        nifcheck = NifFile(outfile)
-
-        assert "NPC Pelvis [Pelv]" not in nifcheck.nodes, f"Human pelvis name not written: {nifcheck.nodes.keys()}"
 
 
 
