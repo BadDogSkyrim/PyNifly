@@ -135,6 +135,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_IMPORT_AS_SHAPES = False
     TEST_IMPORT_MULT_CP = False
     TEST_IMPORT_MULT_SHAPES = False
+    TEST_ARMATURE_EXTEND = False
 
 
     #if TEST_BPY_ALL or TEST_CHANGE_COLLISION:
@@ -173,6 +174,72 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     #    assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
     #    bodycheck = collcheck.body
     #    shapecheck = bodycheck.shape
+
+
+    if TEST_BPY_ALL or TEST_ARMATURE_EXTEND:
+        test_title("TEST_ARMATURE_EXTEND", "Can extend an armature with a second NIF")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\BaseMaleBody.nif")
+        testfile2 = os.path.join(pynifly_dev_path, r"tests\FO4\BaseMaleHead.nif")
+
+        NifImporter.do_import(testfile, PyNiflyFlags.APPLY_SKINNING | PyNiflyFlags.RENAME_BONES)
+
+        arma = bpy.data.objects[r"Scene Root"]
+        assert "SPINE1" in arma.data.bones, "Found neck bone in skeleton"
+        assert not "HEAD" in arma.data.bones, "Did not find head bone in skeleton"
+
+        bpy.context.view_layer.objects.active = arma
+        arma.select_set(True)
+        NifImporter.do_import(testfile2, PyNiflyFlags.APPLY_SKINNING | PyNiflyFlags.RENAME_BONES)
+        assert not "BaseMaleHead.nif" in bpy.data.objects, "Head import did not create new skeleton"
+        assert "HEAD" in arma.data.bones, "Found head bone in skeleton"
+
+
+
+
+    if TEST_BPY_ALL or TEST_FACEBONES:
+        test_title("TEST_FACEBONES", "Can read facebones correctly")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\BaseMaleHead_faceBones.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_WELWA.nif")
+
+        NifImporter.do_import(testfile, PyNiflyFlags.APPLY_SKINNING | PyNiflyFlags.RENAME_BONES)
+
+        head = find_shape("BaseMaleHead_faceBones:0")
+        maxy = max([v.co.y for v in head.data.vertices])
+        assert maxy < 11.8, f"Max y not too large: {maxy}"
+        assert not "skin_bone_C_MasterEyebrow" in bpy.data.objects, f"Did not load empty node for skin_bone_C_MasterEyebrow"
+        assert "skin_bone_C_MasterEyebrow" in head.parent.data.bones, f"Loaded bone for parented bone skin_bone_C_MasterEyebrow"
+
+
+    if TEST_BPY_ALL or TEST_WELWA:
+        test_title("TEST_WELWA", "Can read and write shape with unusual skeleton")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\welwa.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_WELWA.nif")
+
+        NifImporter.do_import(testfile, PyNiflyFlags.APPLY_SKINNING)
+
+        welwa = find_shape("111")
+        skel = welwa.parent
+        lipbone = skel.data.bones['NPC UpperLip']
+        assert VNearEqual(lipbone.matrix_local.translation, (0, 49.717827, 161.427307)), f"Found {lipbone.name} at {lipbone.matrix_local.translation}"
+        spine1 = skel.data.bones['NPC Spine1']
+        assert VNearEqual(spine1.matrix_local.translation, (0, -50.551056, 64.465019)), f"Found {spine1.name} at {spine1.matrix_local.translation}"
+
+        exporter = NifExporter(outfile, 'SKYRIMSE', export_flags=0)
+        exporter.export([welwa])
+
+        # ------- Check ---------
+        nifcheck = NifFile(outfile)
+
+        assert "NPC Pelvis [Pelv]" not in nifcheck.nodes, f"Human pelvis name not written: {nifcheck.nodes.keys()}"
 
 
     if TEST_BPY_ALL or TEST_NORM:
