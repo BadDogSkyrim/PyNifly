@@ -197,8 +197,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert "HEAD" in arma.data.bones, "Found head bone in skeleton"
 
 
-
-
     if TEST_BPY_ALL or TEST_FACEBONES:
         test_title("TEST_FACEBONES", "Can read facebones correctly")
         clear_all()
