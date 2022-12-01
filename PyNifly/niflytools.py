@@ -1255,7 +1255,7 @@ fo4chargen_pat = re.compile("Type[0-9]+")
 
 class FO4BoneDict(BoneDict):
     def chargen_filter(self, candidates):
-        return set([c for c in candidates if fo4chargen_pat.search(c)])
+        return candidates
 
 fo4Dict = FO4BoneDict(fo4Bones, fo4Expressions, fo4Parts, fo4BoneIDs)
 fo4FaceDict = FO4BoneDict(fo4FaceBones, fo4Expressions, fo4Parts, fo4BoneIDs)
