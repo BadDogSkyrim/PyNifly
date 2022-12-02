@@ -176,6 +176,49 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     #    shapecheck = bodycheck.shape
 
 
+    if TEST_BPY_ALL or TEST_NORM:
+        test_title("TEST_NORM", "Normals are read correctly")
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/CheetahMaleHead.nif")
+
+        NifImporter.do_import(testfile)
+        head = find_shape("CheetahMaleHead")
+
+
+        head.data.calc_normals_split()
+
+        # Get vert 3073
+        # targetvert = head.data.vertices[527]
+        targetvert =  next(filter(lambda v: VNearEqual(v.co, (-4.92188, 0.646485, -10.0156), epsilon=0.1), head.data.vertices))
+        #targetvert = boot.data.vertices[0]
+        #assert VNearEqual(targetvert.co, (-18.28125, 10.890625, -116.25)), \
+        #    f"Have the right vertex: {targetvert.co}"
+        assert targetvert.normal.x < -0.5, f"Vertex normal for vertex {targetvert.index} as expected: {targetvert.normal}"
+
+        vertloops = [l.index for l in head.data.loops if l.vertex_index == targetvert.index]
+        custnormal = head.data.loops[vertloops[0]].normal
+        print(f"TEST_NORM custnormal: loop {vertloops[0]} has normal {custnormal}")
+        assert custnormal.x > -0.5, f"Custom normal different from vertex normal: {custnormal}"
+
+
+    if TEST_BPY_ALL or TEST_FACEBONES:
+        test_title("TEST_FACEBONES", "Can read facebones correctly")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\BaseFemaleHead_faceBones.nif")
+
+        NifImporter.do_import(testfile, PyNiflyFlags.APPLY_SKINNING | PyNiflyFlags.RENAME_BONES | PyNiflyFlags.KEEP_TMP_SKEL)
+
+        head = find_shape("BaseFemaleHead_faceBones:0")
+        maxy = max([v.co.y for v in head.data.vertices])
+        assert maxy < 11.8, f"Max y not too large: {maxy}"
+        assert not "skin_bone_C_MasterEyebrow" in bpy.data.objects, f"Did not load empty node for skin_bone_C_MasterEyebrow"
+        assert "skin_bone_C_MasterEyebrow" in head.parent.data.bones, f"Loaded bone for parented bone skin_bone_C_MasterEyebrow"
+        
+        assert not VNearEqual(head.data.vertices[1523].co, Vector((1.7168, 5.8867, -4.1643))), f"Vertex is at correct place: {head.data.vertices[1523].co}"
+
+
     if TEST_BPY_ALL or TEST_ARMATURE_EXTEND:
         test_title("TEST_ARMATURE_EXTEND", "Can extend an armature with a second NIF")
         clear_all()
@@ -232,6 +275,8 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         hands = find_object("Hands", bpy.context.selected_objects, fn=lambda x: x.name)
         assert VNearEqual(hands.data.vertices[413].co, Vector((-26.8438, 2.3812, 78.3215))), f"Hands not warped"
 
+        # Head not using the same skeleton as hands because we didn't select it. Probably originally 
+        # intended it to, but this is also a uesful test so
         testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\maleheadargonian.nif")
         NifImporter.do_import(testfile, PyNiflyFlags.RENAME_BONES | PyNiflyFlags.APPLY_SKINNING)
         head = find_object("_ArgonianMaleHead", bpy.context.selected_objects, fn=lambda x: x.name)
@@ -540,90 +585,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert "HDT Havok Path" in strings, f"Error expected havoc path in {strings}"
         assert "HDT Skinned Mesh Physics Object" in strings, f"Error: Expected physics object in {strings}"
 
-
-    if TEST_BPY_ALL or TEST_TRI:
-        test_title("TEST_TRI", "Can load a tri file into an existing mesh")
-        clear_all()
-
-        bpy.ops.object.select_all(action='DESELECT')
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\CheetahMaleHead.nif")
-        testtri2 = os.path.join(pynifly_dev_path, r"tests\FO4\CheetahMaleHead.tri")
-        testtri3 = os.path.join(pynifly_dev_path, r"tests\FO4\CheetahMaleHead.tri")
-        testout2 = os.path.join(pynifly_dev_path, r"tests\Out\CheetahMaleHead02.nif")
-        testout2tri = os.path.join(pynifly_dev_path, r"tests\Out\CheetahMaleHead02.tri")
-        testout2chg = os.path.join(pynifly_dev_path, r"tests\Out\CheetahMaleHead02_chargen.tri")
-        tricubenif = os.path.join(pynifly_dev_path, r"tests\Out\tricube01.nif")
-        tricubeniftri = os.path.join(pynifly_dev_path, r"tests\Out\tricube01.tri")
-        tricubenifchg = os.path.join(pynifly_dev_path, r"tests\Out\tricube01_chargen.tri")
-        for f in [testout2, testout2tri, testout2chg, tricubenif]:
-            remove_file(f)
-
-        NifImporter.do_import(testfile, chargen="_chargen")
-
-        obj = bpy.context.object
-        if obj.type == "ARMATURE":
-            obj = obj.children[0]
-            bpy.context.view_layer.objects.active = obj
-
-        log.debug(f"Importing tri with {bpy.context.object.name} selected")
-        triobj2 = import_tri(testtri2, obj)
-
-        assert len(obj.data.shape_keys.key_blocks) == 47, f"Error: {obj.name} should have enough keys ({len(obj.data.shape_keys.key_blocks)})"
-
-        print("### Can import a simple tri file")
-
-        bpy.ops.object.select_all(action='DESELECT')
-        bpy.context.view_layer.objects.active = None
-        triobj = import_tri(testtri3, None)
-        assert triobj.name.startswith("CheetahMaleHead.tri"), f"Error: Should be named like tri file, found {triobj.name}"
-        assert "LJaw" in triobj.data.shape_keys.key_blocks.keys(), "Error: Should be no keys missing"
-        
-        print('### Can export a shape with tris')
-
-        e = NifExporter(os.path.join(pynifly_dev_path, testout2), "FO4")
-        e.export([triobj])
-        #export_file_set(os.path.join(pynifly_dev_path, testout2), "FO4", [''], [triobj], triobj.parent)
-        
-        print('### Exported shape and tri match')
-        nif2 = NifFile(os.path.join(pynifly_dev_path, testout2))
-        tri2 = TriFile.from_file(os.path.join(pynifly_dev_path, testout2tri))
-        assert not os.path.exists(testout2chg), f"{testout2chg} should not have been created"
-        assert len(nif2.shapes[0].verts) == len(tri2.vertices), f"Error vert count should match, {len(nif2.shapes[0].verts)} vs {len(tri2.vertices)}"
-        assert len(nif2.shapes[0].tris) == len(tri2.faces), f"Error vert count should match, {len(nif2.shapes[0].tris)} vs {len(tri2.faces)}"
-        assert tri2.header.morphNum == len(triobj.data.shape_keys.key_blocks)-1, \
-            f"Error: morph count should match, file={tri2.header.morphNum} vs {triobj.name}={len(triobj.data.shape_keys.key_blocks)}"
-        
-        print('### Tri and chargen export as expected')
-
-        bpy.ops.mesh.primitive_cube_add()
-        cube = bpy.context.selected_objects[0]
-        cube.name = "TriCube"
-        sk1 = cube.shape_key_add()
-        sk1.name = "Aah"
-        sk2 = cube.shape_key_add()
-        sk2.name = "CombatAnger"
-        sk3 = cube.shape_key_add()
-        sk3.name = "*Extra"
-        sk4 = cube.shape_key_add()
-        sk4.name = "BrowIn"
-        e = NifExporter(tricubenif, "SKYRIM")
-        e.export([cube])
-        #export_file_set(tricubenif, "SKYRIM", [''], [cube], cube.parent)
-
-        assert os.path.exists(tricubenif), f"Error: Should have exported {tricubenif}"
-        assert os.path.exists(tricubeniftri), f"Error: Should have exported {tricubeniftri}"
-        assert os.path.exists(tricubenifchg), f"Error: Should have exported {tricubenifchg}"
-        
-        cubetri = TriFile.from_file(tricubeniftri)
-        assert "Aah" in cubetri.morphs, f"Error: 'Aah' should be in tri"
-        assert "BrowIn" not in cubetri.morphs, f"Error: 'BrowIn' should not be in tri"
-        assert "*Extra" not in cubetri.morphs, f"Error: '*Extra' should not be in tri"
-        
-        cubechg = TriFile.from_file(tricubenifchg)
-        assert "Aah" not in cubechg.morphs, f"Error: 'Aah' should not be in chargen"
-        assert "BrowIn" in cubechg.morphs, f"Error: 'BrowIn' should be in chargen"
-        assert "*Extra" not in cubechg.morphs, f"Error: '*Extra' should not be in chargen"
-        
 
     if TEST_BPY_ALL or TEST_HYENA_PARTITIONS:
         test_title("TEST_HYENA_PARTITIONS", "Partitions export successfully, with warning")
