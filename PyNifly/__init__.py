@@ -226,7 +226,7 @@ def bonetoq(vec:Vector, roll:float, axis:str):
     rollq = Quaternion(bv, roll - ROLL_ADJUST)
     return q @ rollq
 
-def get_bone_global_xf(bone:bpy_types.Bone, game:str) -> Quaternion:
+def get_bone_global_xf(bone:bpy_types.Bone, game:str) -> Matrix:
     """ Return the global transform represented by the bone. """
     if 'pynXform' in bone:
         # If stashed transform exists, use it for backwards compatibility
@@ -240,6 +240,7 @@ def get_bone_global_xf(bone:bpy_types.Bone, game:str) -> Quaternion:
             blen = BONE_LEN
         vec = (bone.tail_local-bone.head_local)/blen
         baxis, broll = bone.AxisRollFromMatrix(bone.matrix_local.to_3x3(), axis=vec)
+        #log.debug(f"get_bone_global_xf {bone.name}, axis={baxis}, roll={broll}")
         rot = bonetoq(vec, broll, game_axes[game])
         mx = MatrixLocRotScale(bone.head_local, rot, (1,1,1))
 
@@ -727,6 +728,7 @@ class NifImporter():
         self.chargen_ext = chargen
         self.mesh_only = False
         self.armature = None
+        self.is_new_armature = True
         self.parent_cp = None
         self.created_child_cp = None
         self.bones = set()
@@ -1173,12 +1175,6 @@ class NifImporter():
         return collisions
 
 
-    def make_shape_armature(self):
-        """ Make an amature for the given shape. Bones are created at the position defined in the nif, 
-        but posed according to the bone list transform in the shape. """
-        pass
-        
-
     def make_armature(self,
                       the_coll: bpy_types.Collection, 
                       bone_names: set):
@@ -1192,7 +1188,8 @@ class NifImporter():
             Returns: 
                 self.armature = new armature, set as active object
             """
-        if self.armature is None:
+        self.is_new_armature = (self.armature is None)
+        if self.is_new_armature:
             log.debug(f"Creating new armature for the import")
             arm_data = bpy.data.armatures.new(self.nif.rootName)
             self.armature = bpy.data.objects.new(self.nif.rootName, arm_data)
@@ -1453,6 +1450,14 @@ class NifImporter():
             - Unparent the mesh, keeping transform
             - Parent the mesh to the destination armature
             """
+        if self.is_new_armature:
+            # If it's an armature created on this import from this file, the bone positions
+            # came from this file, so we can just parent the mesh.
+            ObjectSelect([obj])
+            ObjectActive(arma)
+            bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+            return
+
         log.debug(f"Skinning and parenting object {obj.name} at location {obj.location}")
         tmp_name = "PYN_IMPORT_ARMA." + obj.name
         tmpa_data = bpy.data.armatures.new(tmp_name)
@@ -1507,9 +1512,12 @@ class NifImporter():
                 #log.debug(f"Temporary bone '{b.name}' head: {tmpa.data.bones[b.name].head}")
                 targ_bone_xf = get_bone_global_xf(targ_bone, self.nif.game)
                 tmp_bone_xf = get_bone_global_xf(tmpa.data.bones[b.name], self.nif.game)
-                #log.debug(f"Target bone xform: \n{targ_bone_xf}")
-                #log.debug(f"Temp bone xform: \n{tmp_bone_xf}")
-                #log.debug(f"Transforms are equivalent: {MatNearEqual(targ_bone_xf, tmp_bone_xf)}")
+                if 'Chin' in b.name:
+                    log.debug(f"Target bone {b.name} xform: \n{targ_bone_xf}")
+                    log.debug(f"Temp bone {b.name}xform: \n{tmp_bone_xf}")
+                    log.debug(f"Transforms are equivalent: {MatNearEqual(targ_bone_xf, tmp_bone_xf)}")
+                    log.debug(f"Target bone position: {transform_to_bone('FO4', targ_bone_xf, True)}")
+                    log.debug(f"Temp bone position: {transform_to_bone('FO4', tmp_bone_xf, True)}")
                 # TodoIf targ_bone_xf == tmp_bone_xf for every bone, just skip the whole rigamarole
 
                 #log.debug(f"Pose bone {b.name} initial location: \n{pbone.matrix}")
@@ -1517,7 +1525,8 @@ class NifImporter():
                 #log.debug(f"Desired transform, should be identity if above is true: \n{desired_xf}")
 
                 final_xf= desired_xf @ pbone.matrix 
-                #log.debug(f"Pose bone {b.name} desired location: \n{final_xf}")
+                if 'Chin' in b.name:
+                    log.debug(f"Pose bone {b.name} desired location: \n{final_xf}")
                 
                 pbone.matrix = final_xf
 
@@ -1541,7 +1550,8 @@ class NifImporter():
         bpy.ops.object.transform_apply()
         obj.matrix_world = shape_xf
 
-        bpy.data.objects.remove(tmpa)
+        if self.flag_clear(PyNiflyFlags.KEEP_TMP_SKEL):
+            bpy.data.objects.remove(tmpa)
 
 
     def import_nif(self):
@@ -1576,7 +1586,6 @@ class NifImporter():
                     self.bones = set(self.nif.nodes.keys())
                 else:
                     log.debug(f"Found self.bones, creating armature")
-                self.make_shape_armature()
                 self.make_armature(self.collection, self.bones)
 
                 if self.armature:
@@ -3859,6 +3868,53 @@ def run_tests():
 
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
+
+
+    if True: # TEST_BPY_ALL or TEST_NORM:
+        test_title("TEST_NORM", "Normals are read correctly")
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/LBoot.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_NORM.nif")
+
+        NifImporter.do_import(testfile)
+        boot = find_shape("L_Boot")
+
+
+        boot.data.calc_normals_split()
+
+        # Get vert 527
+        targetvert = boot.data.vertices[527]
+        #targetvert =  next(filter(lambda v: VNearEqual(v.co, (-14.2989, 9.6691, -117.153), epsilon=0.1), boot.data.vertices))
+        #targetvert = boot.data.vertices[0]
+        #assert VNearEqual(targetvert.co, (-18.28125, 10.890625, -116.25)), \
+        #    f"Have the right vertex: {targetvert.co}"
+        assert VNearEqual(targetvert.normal, (0.7304, 0.1842, 0.6577)), \
+            f"Vertex normal as expected: {targetvert.normal}"
+        vertloops = [l.index for l in boot.data.loops if l.vertex_index == targetvert.index]
+        custnormal = boot.data.loops[vertloops[0]].normal
+        print(f"TEST_NORM custnormal: loop {vertloops[0]} has normal {custnormal}")
+        assert custnormal[1] > 0, f"Custom normal points forward: {custnormal}"
+        assert custnormal[2] > 0, f"Custom normal points up: {custnormal}"
+        custnormal2 = boot.data.loops[vertloops[2]].normal
+        assert VNearEqual(custnormal, custnormal2), f"Face normals match: {custnormal} == {custnormal2}"
+
+
+    if True: # TEST_BPY_ALL or TEST_FACEBONES:
+        test_title("TEST_FACEBONES", "Can read facebones correctly")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\BaseFemaleHead_faceBones.nif")
+
+        NifImporter.do_import(testfile, PyNiflyFlags.APPLY_SKINNING | PyNiflyFlags.RENAME_BONES | PyNiflyFlags.KEEP_TMP_SKEL)
+
+        head = find_shape("BaseFemaleHead_faceBones:0")
+        maxy = max([v.co.y for v in head.data.vertices])
+        assert maxy < 11.8, f"Max y not too large: {maxy}"
+        assert not "skin_bone_C_MasterEyebrow" in bpy.data.objects, f"Did not load empty node for skin_bone_C_MasterEyebrow"
+        assert "skin_bone_C_MasterEyebrow" in head.parent.data.bones, f"Loaded bone for parented bone skin_bone_C_MasterEyebrow"
+        
+        assert not VNearEqual(head.data.vertices[1523].co, Vector((1.7168, 5.8867, -4.1643))), f"Vertex is at correct place: {head.data.vertices[1523].co}"
 
 
 

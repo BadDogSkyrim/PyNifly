@@ -197,23 +197,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert "HEAD" in arma.data.bones, "Found head bone in skeleton"
 
 
-    if TEST_BPY_ALL or TEST_FACEBONES:
-        test_title("TEST_FACEBONES", "Can read facebones correctly")
-        clear_all()
-
-        # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\BaseMaleHead_faceBones.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_WELWA.nif")
-
-        NifImporter.do_import(testfile, PyNiflyFlags.APPLY_SKINNING | PyNiflyFlags.RENAME_BONES)
-
-        head = find_shape("BaseMaleHead_faceBones:0")
-        maxy = max([v.co.y for v in head.data.vertices])
-        assert maxy < 11.8, f"Max y not too large: {maxy}"
-        assert not "skin_bone_C_MasterEyebrow" in bpy.data.objects, f"Did not load empty node for skin_bone_C_MasterEyebrow"
-        assert "skin_bone_C_MasterEyebrow" in head.parent.data.bones, f"Loaded bone for parented bone skin_bone_C_MasterEyebrow"
-
-
     if TEST_BPY_ALL or TEST_WELWA:
         test_title("TEST_WELWA", "Can read and write shape with unusual skeleton")
         clear_all()
@@ -238,35 +221,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         nifcheck = NifFile(outfile)
 
         assert "NPC Pelvis [Pelv]" not in nifcheck.nodes, f"Human pelvis name not written: {nifcheck.nodes.keys()}"
-
-
-    if TEST_BPY_ALL or TEST_NORM:
-        test_title("TEST_NORM", "Normals are read correctly")
-        clear_all()
-        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/LBoot.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_NORM.nif")
-
-        NifImporter.do_import(testfile)
-        boot = find_shape("L_Boot")
-
-
-        boot.data.calc_normals_split()
-
-        # Get vert 527
-        targetvert = boot.data.vertices[527]
-        #targetvert =  next(filter(lambda v: VNearEqual(v.co, (-14.2989, 9.6691, -117.153), epsilon=0.1), boot.data.vertices))
-        #targetvert = boot.data.vertices[0]
-        #assert VNearEqual(targetvert.co, (-18.28125, 10.890625, -116.25)), \
-        #    f"Have the right vertex: {targetvert.co}"
-        assert VNearEqual(targetvert.normal, (0.7304, 0.1842, 0.6577)), \
-            f"Vertex normal as expected: {targetvert.normal}"
-        vertloops = [l.index for l in boot.data.loops if l.vertex_index == targetvert.index]
-        custnormal = boot.data.loops[vertloops[0]].normal
-        print(f"TEST_NORM custnormal: loop {vertloops[0]} has normal {custnormal}")
-        assert custnormal[1] > 0, f"Custom normal points forward: {custnormal}"
-        assert custnormal[2] > 0, f"Custom normal points up: {custnormal}"
-        custnormal2 = boot.data.loops[vertloops[2]].normal
-        assert VNearEqual(custnormal, custnormal2), f"Face normals match: {custnormal} == {custnormal2}"
 
 
     if TEST_BPY_ALL or TEST_SKIN_BONE_XF:
@@ -670,6 +624,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert "BrowIn" in cubechg.morphs, f"Error: 'BrowIn' should be in chargen"
         assert "*Extra" not in cubechg.morphs, f"Error: '*Extra' should not be in chargen"
         
+
     if TEST_BPY_ALL or TEST_HYENA_PARTITIONS:
         test_title("TEST_HYENA_PARTITIONS", "Partitions export successfully, with warning")
 
