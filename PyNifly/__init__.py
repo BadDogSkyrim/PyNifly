@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (6, 7, 0),  
+    "version": (6, 8, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -3101,6 +3101,7 @@ class NifExporter:
         """
         editmesh = obj.data
         loopcolors = None
+        saved_sk = obj.active_shape_key_index
         
         try:
             ObjectSelect([obj])
@@ -3174,7 +3175,7 @@ class NifExporter:
         finally:
             #obj.rotation_euler = original_rot
             #obj.data = originalmesh
-            #obj.active_shape_key_index = saved_sk
+            obj.active_shape_key_index = saved_sk
             pass
 
         return verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, \
