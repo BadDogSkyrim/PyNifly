@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (6, 6, 0),  
+    "version": (6, 7, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -358,9 +358,19 @@ def obj_create_material(obj, shape):
     # Check if the user has converted textures to png
     for i, tx in enumerate(fulltextures):
         if len(tx) > 0 and tx[-4:].lower() == '.dds':
+            # Check for converted texture in the nif's filetree
             txpng = tx[0:-3] + 'png'
             if os.path.exists(txpng):
                 fulltextures[i] = txpng
+            elif bpy.context.preferences.filepaths.texture_directory:
+                # Check in Blender's default texture directory too
+                fndds = os.path.join(bpy.context.preferences.filepaths.texture_directory, 
+                                  shape.textures[i])
+                fnpng = os.path.splitext(fndds)[0] + '.png'
+                if os.path.exists(fnpng):
+                    fulltextures[i] = fnpng
+        log.debug(f"Using texture path {i}: {fulltextures[i]}")
+
 
     #missing = missing_files(convertedTextures)
     #if len(missing) == 0:

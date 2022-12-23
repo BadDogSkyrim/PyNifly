@@ -47,7 +47,7 @@ def check_files(files):
 
 def missing_files(files):
     """ Returns a list containing the files in the given list that don't exist """
-    return [x for x in files if x is not '' and not os.path.exists(x)]
+    return [x for x in files if x != '' and not os.path.exists(x)]
 
 def truncate_filename(filepath: str, root_dir: str)-> str:
     n = filepath.lower().find(root_dir.lower())
