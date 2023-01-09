@@ -63,6 +63,7 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="quickhull.py" />
+    <Compile Include="renamer_niftools.py" />
     <Compile Include="test_tools.py">
       <SubType>Code</SubType>
     </Compile>
