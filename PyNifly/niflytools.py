@@ -178,7 +178,7 @@ def blender_basename(n):
     return n
     
 class SkeletonBone:
-    def __init__(self, blender_name, nif_name, niftools_name, parent=None):
+    def __init__(self, blender_name, nif_name, parent=None, niftools_name=None):
         self.blender = blender_name
         self.nif = nif_name
         self.niftools = niftools_name
@@ -195,17 +195,23 @@ class BodyPart:
             self.material = id
 
 class BoneDict:
-    def __init__(self, bone_list, morph_list, part_list, dismem_list=[]):
+    def __init__(self, bone_list, morph_list, part_list, dismem_list=[], use_niftools=False):
         self.byNif = {}
-        self.byBlender = {}
+        self.byPynifly = {}
+        self.byNiftools = {}
         self.parts = {}
         self.dismem = {}
+
         for b in bone_list:
             self.byNif[b.nif] = b
-            self.byBlender[b.blender] = b
+            self.byPynifly[b.blender] = b
+
         for b in bone_list:
-            if b.parent_name in self.byBlender:
-                b.parent = self.byBlender[b.parent_name]
+            if b.parent_name in self.byPynifly:
+                b.parent = self.byPynifly[b.parent_name]
+
+        self.use_niftools = use_niftools # Call our own property to set up dicts
+
         self.expressions = set(set([m[0] for m in morph_list]) | set([m[1] for m in morph_list]))
         self.morph_dic_game = {}
         self.morph_dic_blender = {}
@@ -224,16 +230,33 @@ class BoneDict:
             for d in dismem_list:
                 self.dismem[d.name] = d
 
-    def blender_name(self, nif_name):
-        if nif_name in self.byNif:
-            return self.byNif[nif_name].blender
+    @property
+    def use_niftools(self):
+        return self._use_niftools
+
+    @use_niftools.setter
+    def use_niftools(self, val):
+        self._use_niftools = val
+        if val:
+            for b in self.byNif.values():
+                self.byNiftools[b.niftools] = b
+            self.active_dict = self.byNiftools
         else:
+            self.active_dict = self.byPynifly
+
+    def blender_name(self, nif_name):
+        try:
+            if self.use_niftools:
+                return self.byNif[nif_name].niftools
+            else:
+                return self.byNif[nif_name].blender
+        except:
             return nif_name
     
     def nif_name(self, blender_name):
-        if blender_name in self.byBlender:
-            return self.byBlender[blender_name].nif
-        else:
+        try:
+            return self.active_dict[blender_name].nif
+        except:
             return blender_name
 
     def bodypart(self, name):
@@ -289,10 +312,8 @@ class BoneDict:
 
     def matches(self, boneset):
         """ Return count of entries in aList that match skeleton bones """
-        return len(boneset.intersection(set(self.byBlender.keys()))) + \
+        return len(boneset.intersection(set(self.active_dict.keys()))) + \
             len(boneset.intersection(set(self.byNif.keys())))
-        #return sum([(1 if v in self.byBlender else 0) for v in aList]) + \
-        #        sum([(1 if v in self.byNif else 0) for v in aList])
 
     ### XXXXX OBSOLETE
     def _print_with_parent(self, parent_name, print_list):
@@ -312,102 +333,102 @@ class BoneDict:
 
 fnvBones = [
 # PyNifly, Vanilla, NifTools, Parent
-SkeletonBone('Bip01', 'Bip01', 'Bip01',  None),
-SkeletonBone('Bip01 NonAccum', 'Bip01 NonAccum', 'Bip01 NonAccum',  'Bip01'),
-SkeletonBone('Bip01 Pelvis', 'Bip01 Pelvis', 'Bip01 Pelvis',  'Bip01 NonAccum'),
-SkeletonBone('Bip01 Thigh.L', 'Bip01 L Thigh', 'Bip01 L Thigh',  'Bip01 Pelvis'),
-SkeletonBone('Bip01 Calf.L', 'Bip01 L Calf', 'Bip01 L Calf',  'Bip01 Thigh.L'),
-SkeletonBone('Bip01 Foot.L', 'Bip01 L Foot', 'Bip01 L Foot',  'Bip01 Calf.L'),
-SkeletonBone('Bip01 Toe0.L', 'Bip01 L Toe0', 'Bip01 L Toe0',  'Bip01 Foot.L'),
-SkeletonBone('Bip01 Thigh.R', 'Bip01 R Thigh', 'Bip01 R Thigh',  'Bip01 Pelvis'),
-SkeletonBone('Bip01 Calf.R', 'Bip01 R Calf', 'Bip01 R Calf',  'Bip01 Thigh.R'),
-SkeletonBone('Bip01 Foot.R', 'Bip01 R Foot', 'Bip01 R Foot',  'Bip01 Calf.R'),
-SkeletonBone('Bip01 Toe0.R', 'Bip01 R Toe0', 'Bip01 R Toe0',  'Bip01 Foot.R'),
-SkeletonBone('Bip01 GenHelper', 'Bip01 GenHelper', 'Bip01 GenHelper',  'Bip01 Pelvis'),
-SkeletonBone('Bip01 Penis01', 'Bip01 Penis01', 'Bip01 Penis01',  'Bip01 GenHelper'),
-SkeletonBone('Bip01 Penis02', 'Bip01 Penis02', 'Bip01 Penis02',  'Bip01 Penis01'),
-SkeletonBone('Bip01 Penis03', 'Bip01 Penis03', 'Bip01 Penis03',  'Bip01 Penis02'),
-SkeletonBone('Bip01 Penis04', 'Bip01 Penis04', 'Bip01 Penis04',  'Bip01 Penis03'),
-SkeletonBone('Bip01 Penis05', 'Bip01 Penis05', 'Bip01 Penis05',  'Bip01 Penis04'),
-SkeletonBone('Bip01 Penis06', 'Bip01 Penis06', 'Bip01 Penis06',  'Bip01 Penis05'),
-SkeletonBone('Bip01 Scrotum01', 'Bip01 Scrotum01', 'Bip01 Scrotum01',  'Bip01 GenHelper'),
-SkeletonBone('Bip01 Scrotum02', 'Bip01 Scrotum02', 'Bip01 Scrotum02',  'Bip01 Scrotum01'),
-SkeletonBone('Dick1', 'Dick1', 'Dick1',  'Bip01 Pelvis'),
-SkeletonBone('Dick2', 'Dick2', 'Dick2',  'Dick1'),
-SkeletonBone('Dick3', 'Dick3', 'Dick3',  'Dick2'),
-SkeletonBone('Dick4', 'Dick4', 'Dick4',  'Dick3'),
-SkeletonBone('Balls', 'Balls', 'Balls',  'Bip01 Pelvis'),
-SkeletonBone('vagina.R', 'vagina.R', 'vagina.R',  'Bip01 Pelvis'),
-SkeletonBone('vagina.L', 'vagina.L', 'vagina.L',  'Bip01 Pelvis'),
-SkeletonBone('Bip01 Spine', 'Bip01 Spine', 'Bip01 Spine',  'Bip01 NonAccum'),
-SkeletonBone('Bip01 Spine1', 'Bip01 Spine1', 'Bip01 Spine1',  'Bip01 Spine'),
-SkeletonBone('Bip01 Spine2', 'Bip01 Spine2', 'Bip01 Spine2',  'Bip01 Spine1'),
-SkeletonBone('Bip01 Neck', 'Bip01 Neck', 'Bip01 Neck',  'Bip01 Spine2'),
-SkeletonBone('Bip01 Neck1', 'Bip01 Neck1', 'Bip01 Neck1',  'Bip01 Neck'),
-SkeletonBone('Bip01 Head', 'Bip01 Head', 'Bip01 Head',  'Bip01 Neck1'),
-SkeletonBone('HeadAnims', 'HeadAnims', 'HeadAnims',  'Bip01 Head'),
-SkeletonBone('Bip01 HT', 'Bip01 HT', 'Bip01 HT',  'Bip01 Head'),
-SkeletonBone('Bip01 HT2', 'Bip01 HT2', 'Bip01 HT2',  'Bip01 HT'),
-SkeletonBone('Bip01 Tongue01', 'Bip01 Tongue01', 'Bip01 Tongue01',  'Bip01 HT2'),
-SkeletonBone('Bip01 Tongue02', 'Bip01 Tongue02', 'Bip01 Tongue02',  'Bip01 Tongue01'),
-SkeletonBone('Bip01 Tongue03', 'Bip01 Tongue03', 'Bip01 Tongue03',  'Bip01 Tongue02'),
-SkeletonBone('Bip01 NVG', 'Bip01 NVG', 'Bip01 NVG',  'Bip01 Head'),
-SkeletonBone('Bip01 NVG1', 'Bip01 NVG1', 'Bip01 NVG1',  'Bip01 NVG'),
-SkeletonBone('Bip01 NVG2', 'Bip01 NVG2', 'Bip01 NVG2',  'Bip01 NVG1'),
-SkeletonBone('Bip01 Clavicle.L', 'Bip01 L Clavicle', 'Bip01 L Clavicle',  'Bip01 Neck'),
-SkeletonBone('Bip01 UpperArm.L', 'Bip01 L UpperArm', 'Bip01 L UpperArm',  'Bip01 Clavicle.L'),
-SkeletonBone('Bip01 UpArmTwistBone.L', 'Bip01 LUpArmTwistBone', 'Bip01 LUpArmTwistBone',  'Bip01 UpperArm.L'),
-SkeletonBone('Bip01 Forearm.L', 'Bip01 L Forearm', 'Bip01 L Forearm',  'Bip01 UpperArm.L'),
-SkeletonBone('Bip01 ForeTwist.L', 'Bip01 L ForeTwist', 'Bip01 L ForeTwist',  'Bip01 Forearm.L'),
-SkeletonBone('Bip01 Hand.L', 'Bip01 L Hand', 'Bip01 L Hand',  'Bip01 Forearm.L'),
-SkeletonBone('Bip01 Thumb1.L', 'Bip01 L Thumb1', 'Bip01 L Thumb1',  'Bip01 Hand.L'),
-SkeletonBone('Bip01 Thumb11.L', 'Bip01 L Thumb11', 'Bip01 L Thumb11',  'Bip01 Thumb1.L'),
-SkeletonBone('Bip01 Thumb12.L', 'Bip01 L Thumb12', 'Bip01 L Thumb12',  'Bip01 Thumb11.L'),
-SkeletonBone('Bip01 Finger1.L', 'Bip01 L Finger1', 'Bip01 L Finger1',  'Bip01 Hand.L'),
-SkeletonBone('Bip01 Finger11.L', 'Bip01 L Finger11', 'Bip01 L Finger11',  'Bip01 Finger1.L'),
-SkeletonBone('Bip01 Finger12.L', 'Bip01 L Finger12', 'Bip01 L Finger12',  'Bip01 Finger11.L'),
-SkeletonBone('Bip01 Finger2.L', 'Bip01 L Finger2', 'Bip01 L Finger2',  'Bip01 Hand.L'),
-SkeletonBone('Bip01 Finger21.L', 'Bip01 L Finger21', 'Bip01 L Finger21',  'Bip01 Finger2.L'),
-SkeletonBone('Bip01 Finger22.L', 'Bip01 L Finger22', 'Bip01 L Finger22',  'Bip01 Finger21.L'),
-SkeletonBone('Bip01 Finger3.L', 'Bip01 L Finger3', 'Bip01 L Finger3',  'Bip01 Hand.L'),
-SkeletonBone('Bip01 Finger31.L', 'Bip01 L Finger31', 'Bip01 L Finger31',  'Bip01 Finger3.L'),
-SkeletonBone('Bip01 Finger32.L', 'Bip01 L Finger32', 'Bip01 L Finger32',  'Bip01 Finger31.L'),
-SkeletonBone('Bip01 Finger4.L', 'Bip01 L Finger4', 'Bip01 L Finger4',  'Bip01 Hand.L'),
-SkeletonBone('Bip01 Finger41.L', 'Bip01 L Finger41', 'Bip01 L Finger41',  'Bip01 Finger4.L'),
-SkeletonBone('Bip01 Finger42.L', 'Bip01 L Finger42', 'Bip01 L Finger42',  'Bip01 Finger41.L'),
-SkeletonBone('Bip01 Clavicle.R', 'Bip01 R Clavicle', 'Bip01 R Clavicle',  'Bip01 Neck'),
-SkeletonBone('Bip01 UpperArm.R', 'Bip01 R UpperArm', 'Bip01 R UpperArm',  'Bip01 Clavicle.R'),
-SkeletonBone('Bip01 UpArmTwistBone.R', 'Bip01 RUpArmTwistBone', 'Bip01 RUpArmTwistBone',  'Bip01 UpperArm.R'),
-SkeletonBone('Bip01 Forearm.R', 'Bip01 R Forearm', 'Bip01 R Forearm',  'Bip01 UpperArm.R'),
-SkeletonBone('Bip01 ForeTwist.R', 'Bip01 R ForeTwist', 'Bip01 R ForeTwist',  'Bip01 Forearm.R'),
-SkeletonBone('Bip01 Hand.R', 'Bip01 R Hand', 'Bip01 R Hand',  'Bip01 Forearm.R'),
-SkeletonBone('Weapon', 'Weapon', 'WEAPON',  'Bip01 Hand.R'),
-SkeletonBone('Bip01 Thumb1.R', 'Bip01 R Thumb1', 'Bip01 R Thumb1',  'Bip01 Hand.R'),
-SkeletonBone('Bip01 Thumb11.R', 'Bip01 R Thumb11', 'Bip01 R Thumb11',  'Bip01 Thumb1.R'),
-SkeletonBone('Bip01 Thumb12.R', 'Bip01 R Thumb12', 'Bip01 R Thumb12',  'Bip01 Thumb11.R'),
-SkeletonBone('Bip01 Finger1.R', 'Bip01 R Finger1', 'Bip01 R Finger1',  'Bip01 Hand.R'),
-SkeletonBone('Bip01 Finger11.R', 'Bip01 R Finger11', 'Bip01 R Finger11',  'Bip01 Finger1.R'),
-SkeletonBone('Bip01 Finger12.R', 'Bip01 R Finger12', 'Bip01 R Finger12',  'Bip01 Finger11.R'),
-SkeletonBone('Bip01 Finger2.R', 'Bip01 R Finger2', 'Bip01 R Finger2',  'Bip01 Hand.R'),
-SkeletonBone('Bip01 Finger21.R', 'Bip01 R Finger21', 'Bip01 R Finger21',  'Bip01 Finger2.R'),
-SkeletonBone('Bip01 Finger22.R', 'Bip01 R Finger22', 'Bip01 R Finger22',  'Bip01 Finger21.R'),
-SkeletonBone('Bip01 Finger3.R', 'Bip01 R Finger3', 'Bip01 R Finger3',  'Bip01 Hand.R'),
-SkeletonBone('Bip01 Finger31.R', 'Bip01 R Finger31', 'Bip01 R Finger31',  'Bip01 Finger3.R'),
-SkeletonBone('Bip01 Finger32.R', 'Bip01 R Finger32', 'Bip01 R Finger32',  'Bip01 Finger31.R'),
-SkeletonBone('Bip01 Finger4.R', 'Bip01 R Finger4', 'Bip01 R Finger4',  'Bip01 Hand.R'),
-SkeletonBone('Bip01 Finger41.R', 'Bip01 R Finger41', 'Bip01 R Finger41',  'Bip01 Finger4.R'),
-SkeletonBone('Bip01 Finger42.R', 'Bip01 R Finger42', 'Bip01 R Finger42',  'Bip01 Finger41.R'),
-SkeletonBone('Bip01 ForeTwistDriver.R', 'Bip01 R ForeTwistDriver', 'Bip01 R ForeTwistDriver',  'Bip01 UpperArm.R'),
-SkeletonBone('Bip01 Pauldron.L', 'Bip01 LPauldron', 'Bip01 LPauldron',  'Bip01 Spine2'),
-SkeletonBone('Bip01 Pauldron.R', 'Bip01 RPauldron', 'Bip01 RPauldron',  'Bip01 Spine2'),
-SkeletonBone('Bip01 Breast01.L', 'Bip01 L Breast01', 'Bip01 L Breast01',  'Bip01 Spine2'),
-SkeletonBone('Bip01 Breast02.L', 'Bip01 L Breast02', 'Bip01 L Breast02',  'Bip01 Breast01.L'),
-SkeletonBone('Bip01 Breast03.L', 'Bip01 L Breast03', 'Bip01 L Breast03',  'Bip01 Breast02.L'),
-SkeletonBone('Bip01 Breast01.R', 'Bip01 R Breast01', 'Bip01 R Breast01',  'Bip01 Spine2'),
-SkeletonBone('Bip01 Breast02.R', 'Bip01 R Breast02', 'Bip01 R Breast02',  'Bip01 Breast01.R'),
-SkeletonBone('Bip01 Breast03.R', 'Bip01 R Breast03', 'Bip01 R Breast03',  'Bip01 Breast02.R'),
-SkeletonBone('breast.L', 'breast.L', 'breast.L',  'Bip01 Spine2'),
-SkeletonBone('breast.R', 'breast.R', 'breast.R',  'Bip01 Spine2'),
+SkeletonBone('Bip01',  'Bip01',   None, ),
+SkeletonBone('Bip01 NonAccum',  'Bip01 NonAccum',   'Bip01', ),
+SkeletonBone('Bip01 Pelvis',  'Bip01 Pelvis',   'Bip01 NonAccum', ),
+SkeletonBone('Bip01 Thigh.L',  'Bip01 L Thigh',   'Bip01 Pelvis', ),
+SkeletonBone('Bip01 Calf.L',  'Bip01 L Calf',   'Bip01 Thigh.L', ),
+SkeletonBone('Bip01 Foot.L',  'Bip01 L Foot',   'Bip01 Calf.L', ),
+SkeletonBone('Bip01 Toe0.L',  'Bip01 L Toe0',   'Bip01 Foot.L', ),
+SkeletonBone('Bip01 Thigh.R',  'Bip01 R Thigh',   'Bip01 Pelvis', ),
+SkeletonBone('Bip01 Calf.R',  'Bip01 R Calf',   'Bip01 Thigh.R', ),
+SkeletonBone('Bip01 Foot.R',  'Bip01 R Foot',   'Bip01 Calf.R', ),
+SkeletonBone('Bip01 Toe0.R',  'Bip01 R Toe0',   'Bip01 Foot.R', ),
+SkeletonBone('Bip01 GenHelper',  'Bip01 GenHelper',   'Bip01 Pelvis', ),
+SkeletonBone('Bip01 Penis01',  'Bip01 Penis01',   'Bip01 GenHelper', ),
+SkeletonBone('Bip01 Penis02',  'Bip01 Penis02',   'Bip01 Penis01', ),
+SkeletonBone('Bip01 Penis03',  'Bip01 Penis03',   'Bip01 Penis02', ),
+SkeletonBone('Bip01 Penis04',  'Bip01 Penis04',   'Bip01 Penis03', ),
+SkeletonBone('Bip01 Penis05',  'Bip01 Penis05',   'Bip01 Penis04', ),
+SkeletonBone('Bip01 Penis06',  'Bip01 Penis06',   'Bip01 Penis05', ),
+SkeletonBone('Bip01 Scrotum01',  'Bip01 Scrotum01',   'Bip01 GenHelper', ),
+SkeletonBone('Bip01 Scrotum02',  'Bip01 Scrotum02',   'Bip01 Scrotum01', ),
+SkeletonBone('Dick1',  'Dick1',   'Bip01 Pelvis', ),
+SkeletonBone('Dick2',  'Dick2',   'Dick1', ),
+SkeletonBone('Dick3',  'Dick3',   'Dick2', ),
+SkeletonBone('Dick4',  'Dick4',   'Dick3', ),
+SkeletonBone('Balls',  'Balls',   'Bip01 Pelvis', ),
+SkeletonBone('vagina.R',  'vagina.R',   'Bip01 Pelvis', ),
+SkeletonBone('vagina.L',  'vagina.L',   'Bip01 Pelvis', ),
+SkeletonBone('Bip01 Spine',  'Bip01 Spine',   'Bip01 NonAccum', ),
+SkeletonBone('Bip01 Spine1',  'Bip01 Spine1',   'Bip01 Spine', ),
+SkeletonBone('Bip01 Spine2',  'Bip01 Spine2',   'Bip01 Spine1', ),
+SkeletonBone('Bip01 Neck',  'Bip01 Neck',   'Bip01 Spine2', ),
+SkeletonBone('Bip01 Neck1',  'Bip01 Neck1',   'Bip01 Neck', ),
+SkeletonBone('Bip01 Head',  'Bip01 Head',   'Bip01 Neck1', ),
+SkeletonBone('HeadAnims',  'HeadAnims',   'Bip01 Head', ),
+SkeletonBone('Bip01 HT',  'Bip01 HT',   'Bip01 Head', ),
+SkeletonBone('Bip01 HT2',  'Bip01 HT2',   'Bip01 HT', ),
+SkeletonBone('Bip01 Tongue01',  'Bip01 Tongue01',   'Bip01 HT2', ),
+SkeletonBone('Bip01 Tongue02',  'Bip01 Tongue02',   'Bip01 Tongue01', ),
+SkeletonBone('Bip01 Tongue03',  'Bip01 Tongue03',   'Bip01 Tongue02', ),
+SkeletonBone('Bip01 NVG',  'Bip01 NVG',   'Bip01 Head', ),
+SkeletonBone('Bip01 NVG1',  'Bip01 NVG1',   'Bip01 NVG', ),
+SkeletonBone('Bip01 NVG2',  'Bip01 NVG2',   'Bip01 NVG1', ),
+SkeletonBone('Bip01 Clavicle.L',  'Bip01 L Clavicle',   'Bip01 Neck', ),
+SkeletonBone('Bip01 UpperArm.L',  'Bip01 L UpperArm',   'Bip01 Clavicle.L', ),
+SkeletonBone('Bip01 UpArmTwistBone.L',  'Bip01 LUpArmTwistBone',   'Bip01 UpperArm.L', ),
+SkeletonBone('Bip01 Forearm.L',  'Bip01 L Forearm',   'Bip01 UpperArm.L', ),
+SkeletonBone('Bip01 ForeTwist.L',  'Bip01 L ForeTwist',   'Bip01 Forearm.L', ),
+SkeletonBone('Bip01 Hand.L',  'Bip01 L Hand',   'Bip01 Forearm.L', ),
+SkeletonBone('Bip01 Thumb1.L',  'Bip01 L Thumb1',   'Bip01 Hand.L', ),
+SkeletonBone('Bip01 Thumb11.L',  'Bip01 L Thumb11',   'Bip01 Thumb1.L', ),
+SkeletonBone('Bip01 Thumb12.L',  'Bip01 L Thumb12',   'Bip01 Thumb11.L', ),
+SkeletonBone('Bip01 Finger1.L',  'Bip01 L Finger1',   'Bip01 Hand.L', ),
+SkeletonBone('Bip01 Finger11.L',  'Bip01 L Finger11',   'Bip01 Finger1.L', ),
+SkeletonBone('Bip01 Finger12.L',  'Bip01 L Finger12',   'Bip01 Finger11.L', ),
+SkeletonBone('Bip01 Finger2.L',  'Bip01 L Finger2',   'Bip01 Hand.L', ),
+SkeletonBone('Bip01 Finger21.L',  'Bip01 L Finger21',   'Bip01 Finger2.L', ),
+SkeletonBone('Bip01 Finger22.L',  'Bip01 L Finger22',   'Bip01 Finger21.L', ),
+SkeletonBone('Bip01 Finger3.L',  'Bip01 L Finger3',   'Bip01 Hand.L', ),
+SkeletonBone('Bip01 Finger31.L',  'Bip01 L Finger31',   'Bip01 Finger3.L', ),
+SkeletonBone('Bip01 Finger32.L',  'Bip01 L Finger32',   'Bip01 Finger31.L', ),
+SkeletonBone('Bip01 Finger4.L',  'Bip01 L Finger4',   'Bip01 Hand.L', ),
+SkeletonBone('Bip01 Finger41.L',  'Bip01 L Finger41',   'Bip01 Finger4.L', ),
+SkeletonBone('Bip01 Finger42.L',  'Bip01 L Finger42',   'Bip01 Finger41.L', ),
+SkeletonBone('Bip01 Clavicle.R',  'Bip01 R Clavicle',   'Bip01 Neck', ),
+SkeletonBone('Bip01 UpperArm.R',  'Bip01 R UpperArm',   'Bip01 Clavicle.R', ),
+SkeletonBone('Bip01 UpArmTwistBone.R',  'Bip01 RUpArmTwistBone',   'Bip01 UpperArm.R', ),
+SkeletonBone('Bip01 Forearm.R',  'Bip01 R Forearm',   'Bip01 UpperArm.R', ),
+SkeletonBone('Bip01 ForeTwist.R',  'Bip01 R ForeTwist',   'Bip01 Forearm.R', ),
+SkeletonBone('Bip01 Hand.R',  'Bip01 R Hand',   'Bip01 Forearm.R', ),
+SkeletonBone('Weapon',  'Weapon',   'Bip01 Hand.R', ),
+SkeletonBone('Bip01 Thumb1.R',  'Bip01 R Thumb1',   'Bip01 Hand.R', ),
+SkeletonBone('Bip01 Thumb11.R',  'Bip01 R Thumb11',   'Bip01 Thumb1.R', ),
+SkeletonBone('Bip01 Thumb12.R',  'Bip01 R Thumb12',   'Bip01 Thumb11.R', ),
+SkeletonBone('Bip01 Finger1.R',  'Bip01 R Finger1',   'Bip01 Hand.R', ),
+SkeletonBone('Bip01 Finger11.R',  'Bip01 R Finger11',   'Bip01 Finger1.R', ),
+SkeletonBone('Bip01 Finger12.R',  'Bip01 R Finger12',   'Bip01 Finger11.R', ),
+SkeletonBone('Bip01 Finger2.R',  'Bip01 R Finger2',   'Bip01 Hand.R', ),
+SkeletonBone('Bip01 Finger21.R',  'Bip01 R Finger21',   'Bip01 Finger2.R', ),
+SkeletonBone('Bip01 Finger22.R',  'Bip01 R Finger22',   'Bip01 Finger21.R', ),
+SkeletonBone('Bip01 Finger3.R',  'Bip01 R Finger3',   'Bip01 Hand.R', ),
+SkeletonBone('Bip01 Finger31.R',  'Bip01 R Finger31',   'Bip01 Finger3.R', ),
+SkeletonBone('Bip01 Finger32.R',  'Bip01 R Finger32',   'Bip01 Finger31.R', ),
+SkeletonBone('Bip01 Finger4.R',  'Bip01 R Finger4',   'Bip01 Hand.R', ),
+SkeletonBone('Bip01 Finger41.R',  'Bip01 R Finger41',   'Bip01 Finger4.R', ),
+SkeletonBone('Bip01 Finger42.R',  'Bip01 R Finger42',   'Bip01 Finger41.R', ),
+SkeletonBone('Bip01 ForeTwistDriver.R',  'Bip01 R ForeTwistDriver',   'Bip01 UpperArm.R', ),
+SkeletonBone('Bip01 Pauldron.L',  'Bip01 LPauldron',   'Bip01 Spine2', ),
+SkeletonBone('Bip01 Pauldron.R',  'Bip01 RPauldron',   'Bip01 Spine2', ),
+SkeletonBone('Bip01 Breast01.L',  'Bip01 L Breast01',   'Bip01 Spine2', ),
+SkeletonBone('Bip01 Breast02.L',  'Bip01 L Breast02',   'Bip01 Breast01.L', ),
+SkeletonBone('Bip01 Breast03.L',  'Bip01 L Breast03',   'Bip01 Breast02.L', ),
+SkeletonBone('Bip01 Breast01.R',  'Bip01 R Breast01',   'Bip01 Spine2', ),
+SkeletonBone('Bip01 Breast02.R',  'Bip01 R Breast02',   'Bip01 Breast01.R', ),
+SkeletonBone('Bip01 Breast03.R',  'Bip01 R Breast03',   'Bip01 Breast02.R', ),
+SkeletonBone('breast.L',  'breast.L',   'Bip01 Spine2', ),
+SkeletonBone('breast.R',  'breast.R',   'Bip01 Spine2', ),
 ]
 
 fnvExpressions = []
@@ -418,114 +439,114 @@ fnvDict = BoneDict(fnvBones, fnvExpressions, fnvParts)
 
 skyrimBones = [
 # PyNifly, Vanilla, NifTools, Parent
-SkeletonBone('NPC Root', 'NPC Root [Root]', 'NPC Root [Root]',  None),
-SkeletonBone('NPC COM', 'NPC COM [COM ]', 'NPC COM [COM ]',  'NPC Root'),
-SkeletonBone('NPC Pelvis', 'NPC Pelvis [Pelv]', 'NPC Pelvis [Pelv]',  'NPC COM'),
-SkeletonBone('NPC Thigh.L', 'NPC L Thigh [LThg]', 'NPC Thigh [Thg].L',  'NPC Pelvis'),
-SkeletonBone('NPC Calf.L', 'NPC L Calf [LClf]', 'NPC Calf [Clf].L',  'NPC Thigh.L'),
-SkeletonBone('NPC Foot.L', 'NPC L Foot [Lft ]', 'NPC Foot [ft ].L',  'NPC Calf.L'),
-SkeletonBone('NPC Toe0.L', 'NPC L Toe0 [LToe]', 'NPC Toe0 [Toe].L',  'NPC Foot.L'),
-SkeletonBone('NPC Thigh.R', 'NPC R Thigh [RThg]', 'NPC Thigh [Thg].R',  'NPC Pelvis'),
-SkeletonBone('NPC Calf.R', 'NPC R Calf [RClf]', 'NPC Calf [Clf].R',  'NPC Thigh.R'),
-SkeletonBone('NPC Foot.R', 'NPC R Foot [Rft ]', 'NPC Foot [ft ].R',  'NPC Calf.R'),
-SkeletonBone('NPC Toe0.R', 'NPC R Toe0 [RToe]', 'NPC Toe0 [Toe].R',  'NPC Foot.R'),
-SkeletonBone('WeaponDagger', 'WeaponDagger', 'WeaponDagger',  'NPC Pelvis'),
-SkeletonBone('WeaponAxe', 'WeaponAxe', 'WeaponAxe',  'NPC Pelvis'),
-SkeletonBone('WeaponSword', 'WeaponSword', 'WeaponSword',  'NPC Pelvis'),
-SkeletonBone('WeaponMace', 'WeaponMace', 'WeaponMace',  'NPC Pelvis'),
-SkeletonBone('TailBone01', 'TailBone01', 'TailBone01',  'NPC Pelvis'),
-SkeletonBone('TailBone02', 'TailBone02', 'TailBone02',  'TailBone01'),
-SkeletonBone('TailBone03', 'TailBone03', 'TailBone03',  'TailBone02'),
-SkeletonBone('TailBone04', 'TailBone04', 'TailBone04',  'TailBone03'),
-SkeletonBone('TailBone05', 'TailBone05', 'TailBone05',  'TailBone04'),
-SkeletonBone('SkirtFBone01', 'SkirtFBone01', 'SkirtFBone01',  'NPC Pelvis'),
-SkeletonBone('SkirtFBone02', 'SkirtFBone02', 'SkirtFBone02',  'SkirtFBone01'),
-SkeletonBone('SkirtFBone03', 'SkirtFBone03', 'SkirtFBone03',  'SkirtFBone02'),
-SkeletonBone('SkirtBBone01', 'SkirtBBone01', 'SkirtBBone01',  'NPC Pelvis'),
-SkeletonBone('SkirtBBone02', 'SkirtBBone02', 'SkirtBBone02',  'SkirtBBone01'),
-SkeletonBone('SkirtBBone03', 'SkirtBBone03', 'SkirtBBone03',  'SkirtBBone02'),
-SkeletonBone('SkirtBone01.L', 'SkirtLBone01', 'SkirtLBone01',  'NPC Pelvis'),
-SkeletonBone('SkirtBone02.L', 'SkirtLBone02', 'SkirtLBone02',  'SkirtBone01.L'),
-SkeletonBone('SkirtBone03.L', 'SkirtLBone03', 'SkirtLBone03',  'SkirtBone02.L'),
-SkeletonBone('SkirtBone01.R', 'SkirtRBone01', 'SkirtRBone01',  'NPC Pelvis'),
-SkeletonBone('SkirtBone02.R', 'SkirtRBone02', 'SkirtRBone02',  'SkirtBone01.R'),
-SkeletonBone('SkirtBone03.R', 'SkirtRBone03', 'SkirtRBone03',  'SkirtBone02.R'),
-SkeletonBone('NPC Spine', 'NPC Spine [Spn0]', 'NPC Spine [Spn0]',  'NPC Pelvis'),
-SkeletonBone('NPC Spine1', 'NPC Spine1 [Spn1]', 'NPC Spine1 [Spn1]',  'NPC Spine'),
-SkeletonBone('NPC Spine2', 'NPC Spine2 [Spn2]', 'NPC Spine2 [Spn2]',  'NPC Spine1'),
-SkeletonBone('NPC Neck', 'NPC Neck [Neck]', 'NPC Neck [Neck]',  'NPC Spine2'),
-SkeletonBone('NPC Head', 'NPC Head [Head]', 'NPC Head [Head]',  'NPC Neck'),
-SkeletonBone('NPC Head MagicNode', 'NPC Head MagicNode [Hmag]', 'NPC Head MagicNode [Hmag]',  'NPC Head'),
-SkeletonBone('NPCEyeBone', 'NPCEyeBone', 'NPCEyeBone',  'NPC Head'),
-SkeletonBone('NPC Clavicle.R', 'NPC R Clavicle [RClv]', 'NPC Clavicle [Clv].R',  'NPC Spine2'),
-SkeletonBone('NPC UpperArm.R', 'NPC R UpperArm [RUar]', 'NPC UpperArm [Uar].R',  'NPC Clavicle.R'),
-SkeletonBone('NPC Forearm.R', 'NPC R Forearm [RLar]', 'NPC Forearm [Lar].R',  'NPC UpperArm.R'),
-SkeletonBone('NPC Hand.R', 'NPC R Hand [RHnd]', 'NPC Hand [Hnd].R',  'NPC Forearm.R'),
-SkeletonBone('NPC Finger00.R', 'NPC R Finger00 [RF00]', 'NPC Finger00 [F00].R',  'NPC Hand.R'),
-SkeletonBone('NPC Finger01.R', 'NPC R Finger01 [RF01]', 'NPC Finger01 [F01].R',  'NPC Finger00.R'),
-SkeletonBone('NPC Finger02.R', 'NPC R Finger02 [RF02]', 'NPC Finger02 [F02].R',  'NPC Finger01.R'),
-SkeletonBone('NPC Finger10.R', 'NPC R Finger10 [RF10]', 'NPC Finger10 [F10].R',  'NPC Hand.R'),
-SkeletonBone('NPC Finger11.R', 'NPC R Finger11 [RF11]', 'NPC Finger11 [F11].R',  'NPC Finger10.R'),
-SkeletonBone('NPC Finger12.R', 'NPC R Finger12 [RF12]', 'NPC Finger12 [F12].R',  'NPC Finger11.R'),
-SkeletonBone('NPC Finger20.R', 'NPC R Finger20 [RF20]', 'NPC Finger20 [F20].R',  'NPC Hand.R'),
-SkeletonBone('NPC Finger21.R', 'NPC R Finger21 [RF21]', 'NPC Finger21 [F21].R',  'NPC Finger20.R'),
-SkeletonBone('NPC Finger22.R', 'NPC R Finger22 [RF22]', 'NPC Finger22 [F22].R',  'NPC Finger21.R'),
-SkeletonBone('NPC Finger30.R', 'NPC R Finger30 [RF30]', 'NPC Finger30 [F30].R',  'NPC Hand.R'),
-SkeletonBone('NPC Finger31.R', 'NPC R Finger31 [RF31]', 'NPC Finger31 [F31].R',  'NPC Finger30.R'),
-SkeletonBone('NPC Finger32.R', 'NPC R Finger32 [RF32]', 'NPC Finger32 [F32].R',  'NPC Finger31.R'),
-SkeletonBone('NPC Finger40.R', 'NPC R Finger40 [RF40]', 'NPC Finger40 [F40].R',  'NPC Hand.R'),
-SkeletonBone('NPC Finger41.R', 'NPC R Finger41 [RF41]', 'NPC Finger41 [F41].R',  'NPC Finger40.R'),
-SkeletonBone('NPC Finger42.R', 'NPC R Finger42 [RF42]', 'NPC Finger42 [F42].R',  'NPC Finger41.R'),
-SkeletonBone('NPC MagicNode.R', 'NPC R MagicNode [RMag]', 'NPC MagicNode [Mag].R',  'NPC Hand.R'),
-SkeletonBone('WEAPON', 'WEAPON', 'WEAPON',  'NPC Hand.R'),
-SkeletonBone('AnimObject.R', 'AnimObjectR', 'AnimObjectR',  'NPC Hand.R'),
-SkeletonBone('NPC ForearmTwist1.R', 'NPC R ForearmTwist1 [RLt1]', 'NPC ForearmTwist1 [Lt1].R',  'NPC Forearm.R'),
-SkeletonBone('NPC ForearmTwist2.R', 'NPC R ForearmTwist2 [RLt2]', 'NPC ForearmTwist2 [Lt2].R',  'NPC Forearm.R'),
-SkeletonBone('NPC UpperarmTwist1.R', 'NPC R UpperarmTwist1 [RUt1]', 'NPC UpperarmTwist1 [Ut1].R',  'NPC UpperArm.R'),
-SkeletonBone('NPC UpperarmTwist2.R', 'NPC R UpperarmTwist2 [RUt2]', 'NPC UpperarmTwist2 [Ut2].R',  'NPC UpperarmTwist1.R'),
-SkeletonBone('NPC Pauldron.R', 'NPC R Pauldron', 'NPC R Pauldron',  'NPC Clavicle.R'),
-SkeletonBone('NPC Clavicle.L', 'NPC L Clavicle [LClv]', 'NPC Clavicle [Clv].L',  'NPC Spine2'),
-SkeletonBone('NPC UpperArm.L', 'NPC L UpperArm [LUar]', 'NPC UpperArm [Uar].L',  'NPC Clavicle.L'),
-SkeletonBone('NPC Forearm.L', 'NPC L Forearm [LLar]', 'NPC Forearm [Lar].L',  'NPC UpperArm.L'),
-SkeletonBone('NPC Hand.L', 'NPC L Hand [LHnd]', 'NPC Hand [Hnd].L',  'NPC Forearm.L'),
-SkeletonBone('NPC Finger00.L', 'NPC L Finger00 [LF00]', 'NPC Finger00 [F00].L',  'NPC Hand.L'),
-SkeletonBone('NPC Finger01.L', 'NPC L Finger01 [LF01]', 'NPC Finger01 [F01].L',  'NPC Finger00.L'),
-SkeletonBone('NPC Finger02.L', 'NPC L Finger02 [LF02]', 'NPC Finger02 [F02].L',  'NPC Finger01.L'),
-SkeletonBone('NPC Finger10.L', 'NPC L Finger10 [LF10]', 'NPC Finger10 [F10].L',  'NPC Hand.L'),
-SkeletonBone('NPC Finger11.L', 'NPC L Finger11 [LF11]', 'NPC Finger11 [F11].L',  'NPC Finger10.L'),
-SkeletonBone('NPC Finger12.L', 'NPC L Finger12 [LF12]', 'NPC Finger12 [F12].L',  'NPC Finger11.L'),
-SkeletonBone('NPC Finger20.L', 'NPC L Finger20 [LF20]', 'NPC Finger20 [F20].L',  'NPC Hand.L'),
-SkeletonBone('NPC Finger21.L', 'NPC L Finger21 [LF21]', 'NPC Finger21 [F21].L',  'NPC Finger20.L'),
-SkeletonBone('NPC Finger22.L', 'NPC L Finger22 [LF22]', 'NPC Finger22 [F22].L',  'NPC Finger21.L'),
-SkeletonBone('NPC Finger30.L', 'NPC L Finger30 [LF30]', 'NPC Finger30 [F30].L',  'NPC Hand.L'),
-SkeletonBone('NPC Finger31.L', 'NPC L Finger31 [LF31]', 'NPC Finger31 [F31].L',  'NPC Finger30.L'),
-SkeletonBone('NPC Finger32.L', 'NPC L Finger32 [LF32]', 'NPC Finger32 [F32].L',  'NPC Finger31.L'),
-SkeletonBone('NPC Finger40.L', 'NPC L Finger40 [LF40]', 'NPC Finger40 [F40].L',  'NPC Hand.L'),
-SkeletonBone('NPC Finger41.L', 'NPC L Finger41 [LF41]', 'NPC Finger41 [F41].L',  'NPC Finger40.L'),
-SkeletonBone('NPC Finger42.L', 'NPC L Finger42 [LF42]', 'NPC Finger42 [F42].L',  'NPC Finger41.L'),
-SkeletonBone('NPC MagicNode.L', 'NPC L MagicNode [LMag]', 'NPC MagicNode [Mag].L',  'NPC Hand.L'),
-SkeletonBone('SHIELD', 'SHIELD', 'SHIELD',  'NPC Hand.L'),
-SkeletonBone('AnimObject.L', 'AnimObjectL', 'AnimObjectL',  'NPC Hand.L'),
-SkeletonBone('NPC ForearmTwist1.L', 'NPC L ForearmTwist1 [LLt1]', 'NPC ForearmTwist1 [Lt1].L',  'NPC Forearm.L'),
-SkeletonBone('NPC ForearmTwist2.L', 'NPC L ForearmTwist2 [LLt2]', 'NPC ForearmTwist2 [Lt2].L',  'NPC Forearm.L'),
-SkeletonBone('NPC UpperarmTwist1.L', 'NPC L UpperarmTwist1 [LUt1]', 'NPC UpperarmTwist1 [Ut1].L',  'NPC UpperArm.L'),
-SkeletonBone('NPC UpperarmTwist2.L', 'NPC L UpperarmTwist2 [LUt2]', 'NPC UpperarmTwist2 [Ut2].L',  'NPC UpperarmTwist1.L'),
-SkeletonBone('NPC Pauldron.L', 'NPC L Pauldron', 'NPC L Pauldron',  'NPC Clavicle.L'),
-SkeletonBone('WeaponBack', 'WeaponBack', 'WeaponBack',  'NPC Spine2'),
-SkeletonBone('WeaponBow', 'WeaponBow', 'WeaponBow',  'NPC Spine2'),
-SkeletonBone('QUIVER', 'QUIVER', 'QUIVER',  'NPC Spine2'),
-SkeletonBone('MagicEffectsNode', 'MagicEffectsNode', 'MagicEffectsNode',  'NPC Spine'),
-SkeletonBone('Genitals', 'Genitals', 'Genitals',  'NPC Pelvis'),
-SkeletonBone('NPC GenitalsBase', 'NPC GenitalsBase [GenBase]', 'NPC GenitalsBase [GenBase]',  'NPC Pelvis'),
-SkeletonBone('NPC GenitalsScrotum', 'NPC GenitalsScrotum [GenScrot]', 'NPC GenitalsScrotum [GenScrot]',  'NPC GenitalsBase'),
-SkeletonBone('NPC GenitalsScrotum.L', 'NPC L GenitalsScrotum [LGenScrot]', 'NPC L GenitalsScrotum [LGenScrot]',  'NPC GenitalsScrotum'),
-SkeletonBone('NPC GenitalsScrotum.R', 'NPC R GenitalsScrotum [RGenScrot]', 'NPC R GenitalsScrotum [RGenScrot]',  'NPC GenitalsScrotum'),
-SkeletonBone('NPC Genitals01', 'NPC Genitals01 [Gen01]', 'NPC Genitals01 [Gen01]',  'NPC GenitalsBase'),
-SkeletonBone('NPC Genitals02', 'NPC Genitals02 [Gen02]', 'NPC Genitals02 [Gen02]',  'NPC Genitals01'),
-SkeletonBone('NPC Genitals03', 'NPC Genitals03 [Gen03]', 'NPC Genitals03 [Gen03]',  'NPC Genitals02'),
-SkeletonBone('NPC Genitals04', 'NPC Genitals04 [Gen04]', 'NPC Genitals04 [Gen04]',  'NPC Genitals03'),
-SkeletonBone('NPC Genitals05', 'NPC Genitals05 [Gen05]', 'NPC Genitals05 [Gen05]',  'NPC Genitals04'),
-SkeletonBone('NPC Genitals06', 'NPC Genitals06 [Gen06]', 'NPC Genitals06 [Gen06]',  'NPC Genitals05'),
+SkeletonBone('NPC Root',  'NPC Root [Root]',   None,  'NPC Root [Root]'),
+SkeletonBone('NPC COM',  'NPC COM [COM ]',   'NPC Root',  'NPC COM [COM ]'),
+SkeletonBone('NPC Pelvis',  'NPC Pelvis [Pelv]',   'NPC COM',  'NPC Pelvis [Pelv]'),
+SkeletonBone('NPC Thigh.L',  'NPC L Thigh [LThg]',   'NPC Pelvis',  'NPC Thigh [Thg].L'),
+SkeletonBone('NPC Calf.L',  'NPC L Calf [LClf]',   'NPC Thigh.L',  'NPC Calf [Clf].L'),
+SkeletonBone('NPC Foot.L',  'NPC L Foot [Lft ]',   'NPC Calf.L',  'NPC Foot [ft ].L'),
+SkeletonBone('NPC Toe0.L',  'NPC L Toe0 [LToe]',   'NPC Foot.L',  'NPC Toe0 [Toe].L'),
+SkeletonBone('NPC Thigh.R',  'NPC R Thigh [RThg]',   'NPC Pelvis',  'NPC Thigh [Thg].R'),
+SkeletonBone('NPC Calf.R',  'NPC R Calf [RClf]',   'NPC Thigh.R',  'NPC Calf [Clf].R'),
+SkeletonBone('NPC Foot.R',  'NPC R Foot [Rft ]',   'NPC Calf.R',  'NPC Foot [ft ].R'),
+SkeletonBone('NPC Toe0.R',  'NPC R Toe0 [RToe]',   'NPC Foot.R',  'NPC Toe0 [Toe].R'),
+SkeletonBone('WeaponDagger',  'WeaponDagger',   'NPC Pelvis',  'WeaponDagger'),
+SkeletonBone('WeaponAxe',  'WeaponAxe',   'NPC Pelvis',  'WeaponAxe'),
+SkeletonBone('WeaponSword',  'WeaponSword',   'NPC Pelvis',  'WeaponSword'),
+SkeletonBone('WeaponMace',  'WeaponMace',   'NPC Pelvis',  'WeaponMace'),
+SkeletonBone('TailBone01',  'TailBone01',   'NPC Pelvis',  'TailBone01'),
+SkeletonBone('TailBone02',  'TailBone02',   'TailBone01',  'TailBone02'),
+SkeletonBone('TailBone03',  'TailBone03',   'TailBone02',  'TailBone03'),
+SkeletonBone('TailBone04',  'TailBone04',   'TailBone03',  'TailBone04'),
+SkeletonBone('TailBone05',  'TailBone05',   'TailBone04',  'TailBone05'),
+SkeletonBone('SkirtFBone01',  'SkirtFBone01',   'NPC Pelvis',  'SkirtFBone01'),
+SkeletonBone('SkirtFBone02',  'SkirtFBone02',   'SkirtFBone01',  'SkirtFBone02'),
+SkeletonBone('SkirtFBone03',  'SkirtFBone03',   'SkirtFBone02',  'SkirtFBone03'),
+SkeletonBone('SkirtBBone01',  'SkirtBBone01',   'NPC Pelvis',  'SkirtBBone01'),
+SkeletonBone('SkirtBBone02',  'SkirtBBone02',   'SkirtBBone01',  'SkirtBBone02'),
+SkeletonBone('SkirtBBone03',  'SkirtBBone03',   'SkirtBBone02',  'SkirtBBone03'),
+SkeletonBone('SkirtBone01.L',  'SkirtLBone01',   'NPC Pelvis',  'SkirtLBone01'),
+SkeletonBone('SkirtBone02.L',  'SkirtLBone02',   'SkirtBone01.L',  'SkirtLBone02'),
+SkeletonBone('SkirtBone03.L',  'SkirtLBone03',   'SkirtBone02.L',  'SkirtLBone03'),
+SkeletonBone('SkirtBone01.R',  'SkirtRBone01',   'NPC Pelvis',  'SkirtRBone01'),
+SkeletonBone('SkirtBone02.R',  'SkirtRBone02',   'SkirtBone01.R',  'SkirtRBone02'),
+SkeletonBone('SkirtBone03.R',  'SkirtRBone03',   'SkirtBone02.R',  'SkirtRBone03'),
+SkeletonBone('NPC Spine',  'NPC Spine [Spn0]',   'NPC Pelvis',  'NPC Spine [Spn0]'),
+SkeletonBone('NPC Spine1',  'NPC Spine1 [Spn1]',   'NPC Spine',  'NPC Spine1 [Spn1]'),
+SkeletonBone('NPC Spine2',  'NPC Spine2 [Spn2]',   'NPC Spine1',  'NPC Spine2 [Spn2]'),
+SkeletonBone('NPC Neck',  'NPC Neck [Neck]',   'NPC Spine2',  'NPC Neck [Neck]'),
+SkeletonBone('NPC Head',  'NPC Head [Head]',   'NPC Neck',  'NPC Head [Head]'),
+SkeletonBone('NPC Head MagicNode',  'NPC Head MagicNode [Hmag]',   'NPC Head',  'NPC Head MagicNode [Hmag]'),
+SkeletonBone('NPCEyeBone',  'NPCEyeBone',   'NPC Head',  'NPCEyeBone'),
+SkeletonBone('NPC Clavicle.R',  'NPC R Clavicle [RClv]',   'NPC Spine2',  'NPC Clavicle [Clv].R'),
+SkeletonBone('NPC UpperArm.R',  'NPC R UpperArm [RUar]',   'NPC Clavicle.R',  'NPC UpperArm [Uar].R'),
+SkeletonBone('NPC Forearm.R',  'NPC R Forearm [RLar]',   'NPC UpperArm.R',  'NPC Forearm [Lar].R'),
+SkeletonBone('NPC Hand.R',  'NPC R Hand [RHnd]',   'NPC Forearm.R',  'NPC Hand [Hnd].R'),
+SkeletonBone('NPC Finger00.R',  'NPC R Finger00 [RF00]',   'NPC Hand.R',  'NPC Finger00 [F00].R'),
+SkeletonBone('NPC Finger01.R',  'NPC R Finger01 [RF01]',   'NPC Finger00.R',  'NPC Finger01 [F01].R'),
+SkeletonBone('NPC Finger02.R',  'NPC R Finger02 [RF02]',   'NPC Finger01.R',  'NPC Finger02 [F02].R'),
+SkeletonBone('NPC Finger10.R',  'NPC R Finger10 [RF10]',   'NPC Hand.R',  'NPC Finger10 [F10].R'),
+SkeletonBone('NPC Finger11.R',  'NPC R Finger11 [RF11]',   'NPC Finger10.R',  'NPC Finger11 [F11].R'),
+SkeletonBone('NPC Finger12.R',  'NPC R Finger12 [RF12]',   'NPC Finger11.R',  'NPC Finger12 [F12].R'),
+SkeletonBone('NPC Finger20.R',  'NPC R Finger20 [RF20]',   'NPC Hand.R',  'NPC Finger20 [F20].R'),
+SkeletonBone('NPC Finger21.R',  'NPC R Finger21 [RF21]',   'NPC Finger20.R',  'NPC Finger21 [F21].R'),
+SkeletonBone('NPC Finger22.R',  'NPC R Finger22 [RF22]',   'NPC Finger21.R',  'NPC Finger22 [F22].R'),
+SkeletonBone('NPC Finger30.R',  'NPC R Finger30 [RF30]',   'NPC Hand.R',  'NPC Finger30 [F30].R'),
+SkeletonBone('NPC Finger31.R',  'NPC R Finger31 [RF31]',   'NPC Finger30.R',  'NPC Finger31 [F31].R'),
+SkeletonBone('NPC Finger32.R',  'NPC R Finger32 [RF32]',   'NPC Finger31.R',  'NPC Finger32 [F32].R'),
+SkeletonBone('NPC Finger40.R',  'NPC R Finger40 [RF40]',   'NPC Hand.R',  'NPC Finger40 [F40].R'),
+SkeletonBone('NPC Finger41.R',  'NPC R Finger41 [RF41]',   'NPC Finger40.R',  'NPC Finger41 [F41].R'),
+SkeletonBone('NPC Finger42.R',  'NPC R Finger42 [RF42]',   'NPC Finger41.R',  'NPC Finger42 [F42].R'),
+SkeletonBone('NPC MagicNode.R',  'NPC R MagicNode [RMag]',   'NPC Hand.R',  'NPC MagicNode [Mag].R'),
+SkeletonBone('WEAPON',  'WEAPON',   'NPC Hand.R',  'WEAPON'),
+SkeletonBone('AnimObject.R',  'AnimObjectR',   'NPC Hand.R',  'AnimObjectR'),
+SkeletonBone('NPC ForearmTwist1.R',  'NPC R ForearmTwist1 [RLt1]',   'NPC Forearm.R',  'NPC ForearmTwist1 [Lt1].R'),
+SkeletonBone('NPC ForearmTwist2.R',  'NPC R ForearmTwist2 [RLt2]',   'NPC Forearm.R',  'NPC ForearmTwist2 [Lt2].R'),
+SkeletonBone('NPC UpperarmTwist1.R',  'NPC R UpperarmTwist1 [RUt1]',   'NPC UpperArm.R',  'NPC UpperarmTwist1 [Ut1].R'),
+SkeletonBone('NPC UpperarmTwist2.R',  'NPC R UpperarmTwist2 [RUt2]',   'NPC UpperarmTwist1.R',  'NPC UpperarmTwist2 [Ut2].R'),
+SkeletonBone('NPC Pauldron.R',  'NPC R Pauldron',   'NPC Clavicle.R',  'NPC R Pauldron'),
+SkeletonBone('NPC Clavicle.L',  'NPC L Clavicle [LClv]',   'NPC Spine2',  'NPC Clavicle [Clv].L'),
+SkeletonBone('NPC UpperArm.L',  'NPC L UpperArm [LUar]',   'NPC Clavicle.L',  'NPC UpperArm [Uar].L'),
+SkeletonBone('NPC Forearm.L',  'NPC L Forearm [LLar]',   'NPC UpperArm.L',  'NPC Forearm [Lar].L'),
+SkeletonBone('NPC Hand.L',  'NPC L Hand [LHnd]',   'NPC Forearm.L',  'NPC Hand [Hnd].L'),
+SkeletonBone('NPC Finger00.L',  'NPC L Finger00 [LF00]',   'NPC Hand.L',  'NPC Finger00 [F00].L'),
+SkeletonBone('NPC Finger01.L',  'NPC L Finger01 [LF01]',   'NPC Finger00.L',  'NPC Finger01 [F01].L'),
+SkeletonBone('NPC Finger02.L',  'NPC L Finger02 [LF02]',   'NPC Finger01.L',  'NPC Finger02 [F02].L'),
+SkeletonBone('NPC Finger10.L',  'NPC L Finger10 [LF10]',   'NPC Hand.L',  'NPC Finger10 [F10].L'),
+SkeletonBone('NPC Finger11.L',  'NPC L Finger11 [LF11]',   'NPC Finger10.L',  'NPC Finger11 [F11].L'),
+SkeletonBone('NPC Finger12.L',  'NPC L Finger12 [LF12]',   'NPC Finger11.L',  'NPC Finger12 [F12].L'),
+SkeletonBone('NPC Finger20.L',  'NPC L Finger20 [LF20]',   'NPC Hand.L',  'NPC Finger20 [F20].L'),
+SkeletonBone('NPC Finger21.L',  'NPC L Finger21 [LF21]',   'NPC Finger20.L',  'NPC Finger21 [F21].L'),
+SkeletonBone('NPC Finger22.L',  'NPC L Finger22 [LF22]',   'NPC Finger21.L',  'NPC Finger22 [F22].L'),
+SkeletonBone('NPC Finger30.L',  'NPC L Finger30 [LF30]',   'NPC Hand.L',  'NPC Finger30 [F30].L'),
+SkeletonBone('NPC Finger31.L',  'NPC L Finger31 [LF31]',   'NPC Finger30.L',  'NPC Finger31 [F31].L'),
+SkeletonBone('NPC Finger32.L',  'NPC L Finger32 [LF32]',   'NPC Finger31.L',  'NPC Finger32 [F32].L'),
+SkeletonBone('NPC Finger40.L',  'NPC L Finger40 [LF40]',   'NPC Hand.L',  'NPC Finger40 [F40].L'),
+SkeletonBone('NPC Finger41.L',  'NPC L Finger41 [LF41]',   'NPC Finger40.L',  'NPC Finger41 [F41].L'),
+SkeletonBone('NPC Finger42.L',  'NPC L Finger42 [LF42]',   'NPC Finger41.L',  'NPC Finger42 [F42].L'),
+SkeletonBone('NPC MagicNode.L',  'NPC L MagicNode [LMag]',   'NPC Hand.L',  'NPC MagicNode [Mag].L'),
+SkeletonBone('SHIELD',  'SHIELD',   'NPC Hand.L',  'SHIELD'),
+SkeletonBone('AnimObject.L',  'AnimObjectL',   'NPC Hand.L',  'AnimObjectL'),
+SkeletonBone('NPC ForearmTwist1.L',  'NPC L ForearmTwist1 [LLt1]',   'NPC Forearm.L',  'NPC ForearmTwist1 [Lt1].L'),
+SkeletonBone('NPC ForearmTwist2.L',  'NPC L ForearmTwist2 [LLt2]',   'NPC Forearm.L',  'NPC ForearmTwist2 [Lt2].L'),
+SkeletonBone('NPC UpperarmTwist1.L',  'NPC L UpperarmTwist1 [LUt1]',   'NPC UpperArm.L',  'NPC UpperarmTwist1 [Ut1].L'),
+SkeletonBone('NPC UpperarmTwist2.L',  'NPC L UpperarmTwist2 [LUt2]',   'NPC UpperarmTwist1.L',  'NPC UpperarmTwist2 [Ut2].L'),
+SkeletonBone('NPC Pauldron.L',  'NPC L Pauldron',   'NPC Clavicle.L',  'NPC L Pauldron'),
+SkeletonBone('WeaponBack',  'WeaponBack',   'NPC Spine2',  'WeaponBack'),
+SkeletonBone('WeaponBow',  'WeaponBow',   'NPC Spine2',  'WeaponBow'),
+SkeletonBone('QUIVER',  'QUIVER',   'NPC Spine2',  'QUIVER'),
+SkeletonBone('MagicEffectsNode',  'MagicEffectsNode',   'NPC Spine',  'MagicEffectsNode'),
+SkeletonBone('Genitals',  'Genitals',   'NPC Pelvis',  'Genitals'),
+SkeletonBone('NPC GenitalsBase',  'NPC GenitalsBase [GenBase]',   'NPC Pelvis',  'NPC GenitalsBase [GenBase]'),
+SkeletonBone('NPC GenitalsScrotum',  'NPC GenitalsScrotum [GenScrot]',   'NPC GenitalsBase',  'NPC GenitalsScrotum [GenScrot]'),
+SkeletonBone('NPC GenitalsScrotum.L',  'NPC L GenitalsScrotum [LGenScrot]',   'NPC GenitalsScrotum',  'NPC L GenitalsScrotum [LGenScrot]'),
+SkeletonBone('NPC GenitalsScrotum.R',  'NPC R GenitalsScrotum [RGenScrot]',   'NPC GenitalsScrotum',  'NPC R GenitalsScrotum [RGenScrot]'),
+SkeletonBone('NPC Genitals01',  'NPC Genitals01 [Gen01]',   'NPC GenitalsBase',  'NPC Genitals01 [Gen01]'),
+SkeletonBone('NPC Genitals02',  'NPC Genitals02 [Gen02]',   'NPC Genitals01',  'NPC Genitals02 [Gen02]'),
+SkeletonBone('NPC Genitals03',  'NPC Genitals03 [Gen03]',   'NPC Genitals02',  'NPC Genitals03 [Gen03]'),
+SkeletonBone('NPC Genitals04',  'NPC Genitals04 [Gen04]',   'NPC Genitals03',  'NPC Genitals04 [Gen04]'),
+SkeletonBone('NPC Genitals05',  'NPC Genitals05 [Gen05]',   'NPC Genitals04',  'NPC Genitals05 [Gen05]'),
+SkeletonBone('NPC Genitals06',  'NPC Genitals06 [Gen06]',   'NPC Genitals05',  'NPC Genitals06 [Gen06]'),
 ]
 
 
@@ -1341,11 +1362,11 @@ if __name__ == "__main__":
     to be smart.
     """)
 
-    assert gameSkeletons["SKYRIM"].byBlender['NPC Finger11.L'].nif == 'NPC L Finger11 [LF11]', "Error: Bone not translated correctly"
+    assert gameSkeletons["SKYRIM"].byPynifly['NPC Finger11.L'].nif == 'NPC L Finger11 [LF11]', "Error: Bone not translated correctly"
     assert gameSkeletons["SKYRIM"].byNif['NPC L Finger11 [LF11]'].blender == 'NPC Finger11.L', "Error: Bone not translated correctly"
-    assert gameSkeletons["FO4"].byBlender['Arm_Finger13.R'].nif == 'RArm_Finger13', "Error: Bone not translated correctly"
+    assert gameSkeletons["FO4"].byPynifly['Arm_Finger13.R'].nif == 'RArm_Finger13', "Error: Bone not translated correctly"
     assert gameSkeletons["FO4"].byNif['RArm_Finger13'].blender == 'Arm_Finger13.R', "Error: Bone not translated correctly"
-    assert gameSkeletons["FO4"].byBlender['Arm_Finger51.R'].parent == gameSkeletons["FO4"].byBlender['Arm_Hand.R'], "Error: Parents not correct"
+    assert gameSkeletons["FO4"].byPynifly['Arm_Finger51.R'].parent == gameSkeletons["FO4"].byPynifly['Arm_Hand.R'], "Error: Parents not correct"
     assert gameSkeletons["SKYRIM"].blender_name('NPC L Finger20 [LF20]') == 'NPC Finger20.L', "Error: Name translation incorrect"
     assert gameSkeletons["SKYRIM"].nif_name('NPC Finger20.L') == 'NPC L Finger20 [LF20]', "Error: Name translation incorrect"
     assert gameSkeletons["FO4"].nif_name('FOOBAR') == 'FOOBAR', "Error: Name translation incorrect"
