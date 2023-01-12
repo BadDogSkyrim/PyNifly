@@ -48,6 +48,8 @@ def get_image_node(node_input):
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_BPY_ALL = True
+    TEST_NIFTOOLS_NAMES = False
+    TEST_SHAPE_OFFSET = False
     TEST_IMP_NORMALS = False
     TEST_COTH_DATA = False
     TEST_MUTANT = False
@@ -71,7 +73,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_CUSTOM_BONES = False
     TEST_BPY_PARENT = False
     TEST_BABY = False
-    TEST_CONNECTED_SKEL = True
+    TEST_CONNECTED_SKEL = False
     TEST_TRI = False
     TEST_0_WEIGHTS = False
     TEST_SPLIT_NORMAL = False
@@ -91,7 +93,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_SHADER_LE = False
     TEST_SHADER_SE = False
     TEST_SHADER_FO4 = False
-    TEST_SHADER_ALPHA = True
+    TEST_SHADER_ALPHA = False
     TEST_SHEATH = False
     TEST_FEET = False
     TEST_SKYRIM_XFORM = False
@@ -175,6 +177,49 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     #    assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
     #    bodycheck = collcheck.body
     #    shapecheck = bodycheck.shape
+
+
+    if TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
+        test_title("TEST_NIFTOOLS_NAMES", "Can import nif with niftools' naming convention")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\body1m_1.nif")
+
+        NifImporter.do_import(testfile, PyNiflyFlags.CREATE_BONES | PyNiflyFlags.APPLY_SKINNING | PyNiflyFlags.RENAME_BONES_NIFTOOLS)
+
+        arma = find_shape("Body1M_1.nif")
+        assert "NPC Calf [Clf].L" in arma.data.bones, f"Bones follow niftools name conventions {arma.data.bones.keys()}"
+        assert arma.data.niftools.axis_forward == "Z", f"Forward axis set to Z"
+
+        c = arma.data.bones["NPC Calf [Clf].L"]
+        assert c.parent, f"Bones are put into a hierarchy: {c.parent}"
+        assert c.parent.name == "NPC Thigh [Thg].L", f"Parent/child relationships are maintained in skeleton {c.parent.name}"
+
+        body = find_shape("MaleUnderwearBody1:0")
+        assert "NPC Calf [Clf].L" in body.vertex_groups, f"Vertex groups follow niftools naming convention: {body.vertex_groups.keys()}"
+
+
+    if TEST_BPY_ALL or TEST_SHAPE_OFFSET:
+        test_title("TEST_SHAPE_OFFSET", "Shapes can be offset to handle limited precision")
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_SHAPE_OFFSET.nif")
+
+        append_from_file("OtterFemHead", True, r"tests\FO4\Otter Female Head.blend", 
+                         r"\Object", "OtterFemHead")
+        bpy.ops.object.select_all(action='DESELECT')
+        obj = find_shape("OtterFemHead")
+
+        remove_file(outfile)
+        ex = NifExporter(os.path.join(pynifly_dev_path, outfile), "FO4", 
+                         PyNiflyFlags.RENAME_BONES | PyNiflyFlags.APPLY_SKINNING)
+        ex.export([obj])
+
+        nifcheck = NifFile(outfile)
+        headcheck = nifcheck.shape_dict["OtterFemHead"]
+
+        maxz = max([v[2] for v in headcheck.verts])
+        assert maxz < 15, f"Max z vert is at {maxz}"
 
 
     if TEST_BPY_ALL or TEST_TRI:

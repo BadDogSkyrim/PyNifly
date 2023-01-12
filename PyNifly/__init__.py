@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (6, 8, 0),  
+    "version": (6, 8, 2),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -193,23 +193,25 @@ def qtobone(boneq:Quaternion, axis:str):
     v.rotate(boneq)
     return v, t
 
-def transform_to_bone(game:str, nodexf:Matrix, is_fb):
+def transform_to_bone(game:str, nodexf:Matrix, is_fb, scale_factor):
     """ Turns a nif bone global transform into the equivalent Blender bone 
-        nodexf = bone transform (4x4 Matrix)
-        parentxf = bone transform of parent, if any
         game = game we are making the bone for
+        nodexf = bone transform (4x4 Matrix)
+        is_fb = is a facebone (we make them shorter)
+        scale_factor = scale factor to apply
         returns: 
             vector = head location
             vector = tail location
             float = roll to apply to bone
     """
-    bonehead, rot, s = nodexf.decompose()
+    xf = nodexf * scale_factor
+    bonehead, rot, s = xf.decompose()
     axis = game_axes[game]
     bonevec, roll = qtobone(rot, axis)
     if is_fb:
-        blen = FACEBONE_LEN
+        blen = FACEBONE_LEN * scale_factor
     else:
-        blen = BONE_LEN
+        blen = BONE_LEN * scale_factor
     return bonehead, bonehead + (bonevec * blen), roll + ROLL_ADJUST 
 
 #def bone_to_transform(game, bonehead:Vector, boneaxis:Vector, boneroll:float) -> Matrix:
@@ -228,7 +230,7 @@ def bonetoq(vec:Vector, roll:float, axis:str):
     rollq = Quaternion(bv, roll - ROLL_ADJUST)
     return q @ rollq
 
-def get_bone_global_xf(bone:bpy_types.Bone, game:str) -> Matrix:
+def get_bone_global_xf(bone:bpy_types.Bone, game:str, scale_factor=1.0) -> Matrix:
     """ Return the global transform represented by the bone. """
     if 'pynXform' in bone:
         # If stashed transform exists, use it for backwards compatibility
@@ -237,13 +239,13 @@ def get_bone_global_xf(bone:bpy_types.Bone, game:str) -> Matrix:
         mx = MatrixLocRotScale(bone.head_local, rot, (1,1,1))
     else:
         if is_facebone(bone.name):
-            blen = FACEBONE_LEN
+            blen = FACEBONE_LEN / scale_factor
         else:
-            blen = BONE_LEN
+            blen = BONE_LEN / scale_factor
         vec = (bone.tail_local-bone.head_local)/blen
         baxis, broll = bone.AxisRollFromMatrix(bone.matrix_local.to_3x3(), axis=vec)
         #log.debug(f"get_bone_global_xf {bone.name}, axis={baxis}, roll={broll}")
-        rot = bonetoq(vec, broll, game_axes[game])
+        rot = bonetoq(vec/scale_factor, broll, game_axes[game])
         mx = MatrixLocRotScale(bone.head_local, rot, (1,1,1))
 
     return mx
@@ -724,16 +726,15 @@ class NifImporter():
                     | PyNiflyFlags.RENAME_BONES \
                     | PyNiflyFlags.IMPORT_SHAPES \
                     | PyNiflyFlags.APPLY_SKINNING,
-                 chargen="chargen"):
+                 chargen="chargen",
+                 scale=1.0):
 
+        log.debug(f"Importing {filename} with flags {f}")
         if type(filename) == str:
-            log.debug(f"Importing single file: {filename} with flags {f}")
             self.filename = filename
             self.filename_list = [filename]
         else:
-            log.debug(f"Importing multiple files: {filename} with flags {f}")
             self.filename = filename[0]
-            log.debug(f"NifImporter using filename {self.filename} with flags {f}")
             self.filename_list = filename
 
         self.flags = f
@@ -751,6 +752,7 @@ class NifImporter():
         self.nif = None # NifFile(filename)
         self.collection = None
         self.loc = [0, 0, 0]   # location for new objects 
+        self.scale = scale
 
     def incr_loc(self):
         self.loc = list(map(sum, zip(self.loc, [0.5, 0.5, 0.5])))
@@ -1039,6 +1041,10 @@ class NifImporter():
         log.debug(f". Importing shape {the_shape.name}")
         v = the_shape.verts
         t = the_shape.tris
+        if self.scale == 1.0:
+            v = the_shape.verts
+        else:
+            v = [(n[0]*self.scale, n[1]*self.scale, n[2]*self.scale) for n in the_shape.verts]
 
         new_mesh = bpy.data.meshes.new(the_shape.name)
         new_mesh.from_pydata(v, [], t)
@@ -1113,7 +1119,7 @@ class NifImporter():
         bone_xform = xf.as_matrix()
 
         bone = armdata.edit_bones.new(name)
-        h, t, r = transform_to_bone(self.nif.game, bone_xform, is_facebone(name))
+        h, t, r = transform_to_bone(self.nif.game, bone_xform, is_facebone(name), self.scale)
 
         bone.head = h
         bone.tail = t
@@ -1147,7 +1153,7 @@ class NifImporter():
                 
                 # look for a parent in the nif
                 nifname = self.nif.nif_name(bonename)
-                log.debug(f"connect_armature looking up {bonename} -> {nifname}")
+                # log.debug(f"connect_armature looking up {bonename} -> {nifname}")
                 if nifname in self.nif.nodes:
                     thisnode = self.nif.nodes[nifname]
                     if thisnode.collision_object:
@@ -1160,9 +1166,9 @@ class NifImporter():
                         except:
                             parentnifname = niparent.name
                         parentname = self.blender_name(niparent.name)
-                        log.debug(f"Found parent {parentname}/{niparent.name} for {bonename}/{nifname}")
+                        # log.debug(f"Found parent {parentname}/{niparent.name} for {bonename}/{nifname}")
 
-                log.debug(f"connect_armature found {parentname}, creating bones {self.flag_set(PyNiflyFlags.CREATE_BONES)}, is facebones {is_facebone(bonename)} ")
+                # log.debug(f"connect_armature found {parentname}, creating bones {self.flag_set(PyNiflyFlags.CREATE_BONES)}, is facebones {is_facebone(bonename)} ")
                 if parentname is None and self.flag_set(PyNiflyFlags.CREATE_BONES) and not is_facebone(bonename):
                     log.debug(f"No parent for '{nifname}' in the nif. If it's a known bone, get parent from skeleton")
                     if self.flag_set(PyNiflyFlags.RENAME_BONES) or self.flag_set(PyNiflyFlags.RENAME_BONES_NIFTOOLS):
@@ -1188,7 +1194,7 @@ class NifImporter():
                                 parentnifname = p.nif
             
                 # if we got a parent from somewhere, hook it up
-                log.debug(f"Found parent for bone: {parentname}/{parentnifname}")
+                # log.debug(f"Found parent for bone: {parentname}/{parentnifname}")
                 if parentname:
                     if parentname not in arm_data.edit_bones:
                         # Add parent bones and put on our list so we can get its parent
@@ -1241,6 +1247,13 @@ class NifImporter():
 
         for bonenode in collisions:
             self.import_collision_obj(bonenode.collision_object, self.armature, bonenode)
+
+        if self.nif.dict.use_niftools:
+            try:
+                self.armature.data.niftools.axis_forward = "Z"
+                self.armature.data.niftools.axis_up = "-X"
+            except:
+                pass
 
 
     def import_bhkConvexTransformShape(self, cs:CollisionShape, cb:bpy_types.Object):
@@ -1521,7 +1534,7 @@ class NifImporter():
             #log.debug(f"Final '{bn}' bone matrix is \n{new_bone_xf}")
             blname = self.blender_name(bn)
             new_bone = tmpa.data.edit_bones.new(blname)
-            h, t, r = transform_to_bone(self.nif.game, new_bone_xf, is_facebone(blname))
+            h, t, r = transform_to_bone(self.nif.game, new_bone_xf, is_facebone(blname), self.scale)
             new_bone.head = h
             new_bone.tail = t
             new_bone.roll = r
@@ -1538,14 +1551,14 @@ class NifImporter():
                 #log.debug(f"Target armature '{b.name}' head: {targ_bone.head}")
                 pbone = tmpa.pose.bones[b.name]
                 #log.debug(f"Temporary bone '{b.name}' head: {tmpa.data.bones[b.name].head}")
-                targ_bone_xf = get_bone_global_xf(targ_bone, self.nif.game)
-                tmp_bone_xf = get_bone_global_xf(tmpa.data.bones[b.name], self.nif.game)
-                if 'Chin' in b.name:
-                    log.debug(f"Target bone {b.name} xform: \n{targ_bone_xf}")
-                    log.debug(f"Temp bone {b.name}xform: \n{tmp_bone_xf}")
-                    log.debug(f"Transforms are equivalent: {MatNearEqual(targ_bone_xf, tmp_bone_xf)}")
-                    log.debug(f"Target bone position: {transform_to_bone('FO4', targ_bone_xf, True)}")
-                    log.debug(f"Temp bone position: {transform_to_bone('FO4', tmp_bone_xf, True)}")
+                targ_bone_xf = get_bone_global_xf(targ_bone, self.nif.game, self.scale)
+                tmp_bone_xf = get_bone_global_xf(tmpa.data.bones[b.name], self.nif.game, self.scale)
+                #if 'Chin' in b.name:
+                #    log.debug(f"Target bone {b.name} xform: \n{targ_bone_xf}")
+                #    log.debug(f"Temp bone {b.name}xform: \n{tmp_bone_xf}")
+                #    log.debug(f"Transforms are equivalent: {MatNearEqual(targ_bone_xf, tmp_bone_xf)}")
+                #    log.debug(f"Target bone position: {transform_to_bone('FO4', targ_bone_xf, True)}")
+                #    log.debug(f"Temp bone position: {transform_to_bone('FO4', tmp_bone_xf, True)}")
                 # TodoIf targ_bone_xf == tmp_bone_xf for every bone, just skip the whole rigamarole
 
                 #log.debug(f"Pose bone {b.name} initial location: \n{pbone.matrix}")
@@ -1617,6 +1630,7 @@ class NifImporter():
                 self.make_armature(self.collection, self.bones)
 
                 if self.armature:
+                    self.armature['PYN_SCALE_FACTOR'] = self.scale
                     self.armature['PYN_RENAME_BONES'] = self.flag_set(PyNiflyFlags.RENAME_BONES)
                     self.armature['PYN_RENAME_BONES_NIFTOOLS'] = self.flag_set(PyNiflyFlags.RENAME_BONES_NIFTOOLS)
         
@@ -1776,8 +1790,9 @@ class NifImporter():
                       | PyNiflyFlags.RENAME_BONES \
                       | PyNiflyFlags.IMPORT_SHAPES \
                       | PyNiflyFlags.APPLY_SKINNING,
-                  chargen="chargen"):
-        imp = NifImporter(filename, flags, chargen=chargen)
+                  chargen="chargen",
+                  scale=1.0):
+        imp = NifImporter(filename, flags, chargen=chargen, scale=scale)
         imp.execute()
         return imp
 
@@ -1804,6 +1819,11 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Create vanilla bones as needed to make skeleton complete.",
         default=True)
 
+    scale_factor: bpy.props.BoolProperty(
+        name="Scale correction",
+        description="Scale import - set to 0.1 to match NifTools",
+        default=1.0)
+
     rename_bones: bpy.props.BoolProperty(
         name="Rename bones",
         description="Rename bones to conform to Blender's left/right conventions.",
@@ -1826,7 +1846,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
 
     def execute(self, context):
-        log.info("\n\n====================================\nNIFLY IMPORT V%d.%d.%d" % bl_info['version'])
+        log.info(f"\n\n====================================\nPYNIFLY IMPORT V%d.%d.%d" % bl_info['version'])
         status = {'FINISHED'}
 
         log.debug(f"Filepaths are {[f.name for f in self.files]}")
@@ -1862,10 +1882,24 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                     ctx['region'] = area.regions[-1]
                     bpy.ops.view3d.view_selected(ctx)
 
+            log.info(f"""
+PyNifly import of {[f.name for f in self.files]} completed SUCCESSFULLY {status}
+====================================
+|
+"""
+)
+
         except:
             log.exception("Import of nif failed")
             self.report({"ERROR"}, "Import of nif failed, see console window for details")
             status = {'CANCELLED'}
+            log.info(f"""
+|
+PyNifly import of {[f.name for f in self.files]} completed WITH ERRORS
+====================================
+
+"""
+)
                 
         return status
 
@@ -2099,7 +2133,7 @@ def has_uniform_scale(obj):
     """ Determine whether an object has uniform scale """
     return NearEqual(obj.scale[0], obj.scale[1]) and NearEqual(obj.scale[1], obj.scale[2])
 
-def extract_vert_info(obj, mesh, arma, target_key=''):
+def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0):
     """Returns 3 lists of equal length with one entry each for each vertex
         verts = [(x, y, z)... ] - base or as modified by target-key if provided
         weights = [{group-name: weight}... ] - 1:1 with verts list
@@ -2118,9 +2152,9 @@ def extract_vert_info(obj, mesh, arma, target_key=''):
 
     if target_key != '' and msk and target_key in msk.key_blocks.keys():
         log.debug(f"....exporting shape {target_key} only")
-        verts = [(v.co * sf)[:] for v in msk.key_blocks[target_key].data]
+        verts = [(v.co * sf * scale_factor)[:] for v in msk.key_blocks[target_key].data]
     else:
-        verts = [(v.co * sf)[:] for v in mesh.vertices]
+        verts = [(v.co * sf * scale_factor)[:] for v in mesh.vertices]
     log.debug(f"extract_vert_info max z is {max([v[2] for v in verts])}")
 
     for i, v in enumerate(mesh.vertices):
@@ -2332,7 +2366,7 @@ def get_with_uscore(str_list):
 
 class NifExporter:
     """ Object that handles the export process independent of Blender's export class """
-    def __init__(self, filepath, game, export_flags=PyNiflyFlags.RENAME_BONES, chargen="chargen"):
+    def __init__(self, filepath, game, export_flags=PyNiflyFlags.RENAME_BONES, chargen="chargen", scale=1.0):
         self.filepath = filepath
         self.game = game
         self.nif = None
@@ -2342,6 +2376,7 @@ class NifExporter:
         self.facebones = None
         self.flags = export_flags
         self.active_obj = None
+        self.scale = scale
 
         # Objects that are to be written out
         self.objects = set()
@@ -3142,7 +3177,7 @@ class NifExporter:
             editmesh.update()
          
             verts, weights_by_vert, morphdict \
-                = extract_vert_info(obj, editmesh, arma, target_key)
+                = extract_vert_info(obj, editmesh, arma, target_key, self.scale)
         
             # Pull out vertex colors first because trying to access them later crashes
             bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
@@ -3256,7 +3291,7 @@ class NifExporter:
 
     def get_bone_xform(self, b:bpy_types.Bone) -> Matrix:
         """ Return the local transform represented by the bone """
-        bonexf = get_bone_global_xf(b, self.game)
+        bonexf = get_bone_global_xf(b, self.game, self.scale)
         #boneloc = b.head_local
         #try:
         #    bonerot = Quaternion(b['pynXform'])
@@ -3270,7 +3305,7 @@ class NifExporter:
             # log.debug(f"Exporting {b.name} with PRESERVE_HIERARCHY")
             # Calculate the relative transform from the parent
             boneloc, bonerot, bonescale = bonexf.decompose()
-            parloc, parrot, parscale = get_bone_global_xf(b.parent, self.game).decompose()
+            parloc, parrot, parscale = get_bone_global_xf(b.parent, self.game, self.scale).decompose()
 
             boneloc -= parloc
             # parentq = Quaternion(b.parent['pynXform'])
@@ -3593,6 +3628,7 @@ class NifExporter:
         obj['PYN_GAME'] = self.game
         obj['PYN_PRESERVE_HIERARCHY'] = self.flag_set(PyNiflyFlags.PRESERVE_HIERARCHY)
         if arma:
+            arma['PYN_SCALE_FACTOR'] = self.scale
             arma['PYN_RENAME_BONES'] = self.flag_set(PyNiflyFlags.RENAME_BONES)
             arma['PYN_RENAME_BONES_NIFTOOLS'] = self.flag_set(PyNiflyFlags.RENAME_BONES_NIFTOOLS)
         obj['PYN_WRITE_BODYTRI_ED'] = self.flag_set(PyNiflyFlags.WRITE_BODYTRI)
@@ -3733,15 +3769,20 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ),
             )
 
+    scale_factor: bpy.props.BoolProperty(
+        name="Scale correction",
+        description="Change scale for export - set to 0.1 to match NifTools.",
+        default=1.0)
+
     rename_bones: bpy.props.BoolProperty(
         name="Rename Bones",
         description="Rename bones from Blender conventions back to nif.",
         default=True)
 
-    rename_bones: bpy.props.BoolProperty(
+    rename_bones_niftools: bpy.props.BoolProperty(
         name="Rename Bones as per NifTools",
         description="Rename bones from NifTools' Blender conventions back to nif.",
-        default=True)
+        default=False)
 
     preserve_hierarchy: bpy.props.BoolProperty(
         name="Preserve Bone Hierarchy",
@@ -3781,6 +3822,9 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         if g != "":
             self.target_game = g
         
+        if arma and 'PYN_SCALE_FACTOR' in arma:
+            self.scale_factor = arma['PYN_SCALE_FACTOR']
+
         if arma and 'PYN_RENAME_BONES' in arma and arma['PYN_RENAME_BONES']:
             self.rename_bones = True
         else:
@@ -3876,6 +3920,44 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 
+#----------
+class PynRenamerNifTools(bpy.types.Operator):
+    """Rename bones from PyNifly to NifTools"""
+    bl_idname = "object.pynifly_rename_niftools"        # Unique identifier for buttons and menu items to reference.
+    bl_label = "PyNifly: Rename bones to NifTools"         # Display name in the interface.
+    bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
+
+    def execute(self, context):        # execute() is called when running the operator.
+        found_work = False
+
+        scene = context.scene
+        for obj in scene.objects:
+            if obj.type == "ARMATURE" and obj.select_get():
+                log.info(f"Renaming bones on {obj}")
+                found_work = True
+                for b in obj.data.bones:
+                    try:
+                        log.debug(f"Attempting rename of {b.name}")
+                        b.name = skyrimDict.byPynifly[b.name].niftools
+                        log.debug(f"Renamed {b.name}")
+                    except:
+                        pass
+                try:
+                    obj.data.niftools.axis_forward = "Z"
+                    obj.data.niftools.axis_up = "-X"
+                except:
+                    pass
+
+        if not found_work:
+            log.warning(f"No valid objects found to do renaming on")
+            return {'WARNING'}
+        else:
+            return {'FINISHED'}            # Lets Blender know the operator finished successfully.
+
+def nifly_menu_rename_niftools(self, context):
+    self.layout.operator(PynRenamerNifTools.bl_idname)
+
+#------------
 
 def nifly_menu_import_nif(self, context):
     self.layout.operator(ImportNIF.bl_idname, text="Nif file with Nifly (.nif)")
@@ -3930,46 +4012,21 @@ def run_tests():
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
 
-
-    if True: #TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
-        test_title("TEST_NIFTOOLS_NAMES", "Can import nif with niftools' naming convention")
+    if True: #TEST_BPY_ALL or TEST_SCALING:
+        test_title("TEST_SCALING", "Can scale objects and meshes")
         clear_all()
 
         # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\body1m_1.nif")
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\femalebody_1.nif")
 
-        NifImporter.do_import(testfile, PyNiflyFlags.CREATE_BONES | PyNiflyFlags.APPLY_SKINNING | PyNiflyFlags.RENAME_BONES_NIFTOOLS)
+        NifImporter.do_import(testfile, PyNiflyFlags.CREATE_BONES | PyNiflyFlags.APPLY_SKINNING | PyNiflyFlags.RENAME_BONES_NIFTOOLS, scale=0.1)
 
-        arma = find_shape("Body1M_1.nif")
-        assert "NPC Calf [Clf].L" in arma.data.bones, f"Bones follow niftools name conventions {arma.data.bones.keys()}"
-        c = arma.data.bones["NPC Calf [Clf].L"]
-        assert c.parent, f"Bones are put into a hierarchy: {c.parent}"
-        assert c.parent.name == "NPC Thigh [Thg].L", f"Parent/child relationships are maintained in skeleton {c.parent.name}"
-
-        body = find_shape("MaleUnderwearBody1:0")
-        assert "NPC Calf [Clf].L" in body.vertex_groups, f"Vertex groups follow niftools naming convention: {body.vertex_groups.keys()}"
-
-
-    if True: #TEST_BPY_ALL or TEST_SHAPE_OFFSET:
-        test_title("TEST_SHAPE_OFFSET", "Shapes can be offset to handle limited precision")
-        clear_all()
-        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_SHAPE_OFFSET.nif")
-
-        append_from_file("OtterFemHead", True, r"tests\FO4\Otter Female Head.blend", 
-                         r"\Object", "OtterFemHead")
-        bpy.ops.object.select_all(action='DESELECT')
-        obj = find_shape("OtterFemHead")
-
-        remove_file(outfile)
-        ex = NifExporter(os.path.join(pynifly_dev_path, outfile), "FO4", 
-                         PyNiflyFlags.RENAME_BONES | PyNiflyFlags.APPLY_SKINNING)
-        ex.export([obj])
-
-        nifcheck = NifFile(outfile)
-        headcheck = nifcheck.shape_dict["OtterFemHead"]
-
-        maxz = max([v[2] for v in headcheck.verts])
-        assert maxz < 15, f"Max z vert is at {maxz}"
+        arma = find_shape("bbe2femalebody_0")
+        b = arma.data.bones['NPC Spine1 [Spn1]']
+        assert NearEqual(b.matrix_local.translation.z, 7.8155), f"Scale correctly applied: {b.matrix_local.translation}"
+        body = find_shape("SLIM PUSHUPNW3")
+        mv = max([v.co.z for v in body.data.vertices])
+        assert mv < 12, f"Max z is less than 12: {mv}"
 
 
     if TEST_BPY_ALL:
