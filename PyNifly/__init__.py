@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = True
+RUN_TESTS = False
 TEST_BPY_ALL = False
 
 
@@ -1819,9 +1819,9 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Create vanilla bones as needed to make skeleton complete.",
         default=True)
 
-    scale_factor: bpy.props.BoolProperty(
+    scale_factor: bpy.props.FloatProperty(
         name="Scale correction",
-        description="Scale import - set to 0.1 to match NifTools",
+        description="Scale import - set to 0.1 to match NifTools default",
         default=1.0)
 
     rename_bones: bpy.props.BoolProperty(
@@ -2038,6 +2038,7 @@ def import_tri(filepath, cobj):
         ObjectSelect([new_object])
 
     create_shape_keys(new_object, tri)
+    new_object.active_shape_key_index = 0
 
     return new_object
 
@@ -2079,7 +2080,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
             log.exception("Import of tri failed")
             self.report({"ERROR"}, "Import of tri failed, see console window for details")
             status = {'CANCELLED'}
-                
+        
         return status.intersection({'FINISHED', 'CANCELLED'})
 
 # ### ---------------------------- EXPORT -------------------------------- ###
@@ -3769,9 +3770,9 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ),
             )
 
-    scale_factor: bpy.props.BoolProperty(
+    scale_factor: bpy.props.FloatProperty(
         name="Scale correction",
-        description="Change scale for export - set to 0.1 to match NifTools.",
+        description="Change scale for export - set to 0.1 to match NifTools default.",
         default=1.0)
 
     rename_bones: bpy.props.BoolProperty(
