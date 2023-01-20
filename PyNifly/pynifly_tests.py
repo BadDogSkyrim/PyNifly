@@ -139,6 +139,9 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_IMPORT_MULT_CP = False
     TEST_IMPORT_MULT_SHAPES = False
     TEST_ARMATURE_EXTEND = False
+    TEST_SCALING_COLL = False
+    TEST_SCALING_OBJ = False
+    TEST_SCALING_BP = False
 
 
     #if TEST_BPY_ALL or TEST_CHANGE_COLLISION:
@@ -179,6 +182,357 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     #    shapecheck = bodycheck.shape
 
 
+    if TEST_BPY_ALL or TEST_COLLISION_CONVEXVERT:
+        def do_test(sf):
+            test_title("TEST_COLLISION_CONVEXVERT", "Can read and write shape with convex verts collision shape at scale {sf}")
+            clear_all()
+
+            # ------- Load --------
+            testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\cheesewedge01.nif")
+            outfile = os.path.join(pynifly_dev_path, f"tests/Out/TEST_COLLISION_CONVEXVERT.{sf}.nif")
+
+            NifImporter.do_import(testfile, scale=sf)
+
+            # Check transform
+            obj = find_shape('CheeseWedge')
+            assert VNearEqual(obj.location, (0,0,0)), f"Cheese wedge at right location"
+            assert VNearEqual(obj.rotation_euler, (0,0,0)), f"Cheese wedge not rotated"
+            assert obj.scale == Vector((1,1,1)), f"Cheese wedge scale 1"
+
+            # Check collision info
+            coll = find_shape('bhkCollisionObject')
+            assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
+            assert coll.parent == None, f"Collision shape has no parent"
+
+            collbody = coll.children[0]
+            assert collbody.name == 'bhkRigidBody', f"Child of collision is the collision body object"
+            assert collbody['collisionFilter_layer'] == SkyrimCollisionLayer.CLUTTER.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
+            assert collbody["collisionResponse"] == hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
+
+            collshape = collbody.children[0]
+            assert collshape.name == 'bhkConvexVerticesShape', f"Collision shape is child of the collision body"
+            assert collshape['bhkMaterial'] == 'CLOTH', f"Shape material is a custom property: {collshape['bhkMaterial']}"
+            obj = find_shape('CheeseWedge01', collection=bpy.context.selected_objects)
+            xmax1 = max([v.co.x for v in obj.data.vertices])
+            xmax2 = max([v.co.x for v in collshape.data.vertices])
+            assert abs(xmax1 - xmax2) < 0.5*sf, f"Max x vertex nearly the same: {xmax1} == {xmax2}"
+            corner = collshape.data.vertices[0].co
+            assert VNearEqual(corner, (-4.18715*sf, -7.89243*sf, 7.08596*sf)), f"Collision shape in correct position: {corner}"
+
+            # ------- Export --------
+
+            bsxf = find_shape("BSXFlags")
+            invm = find_shape("BSInvMarker")
+            NifExporter.do_export(outfile, 'SKYRIM', [obj, coll, bsxf, invm], scale=sf)
+
+            # ------- Check Results --------
+
+            niforig = NifFile(testfile)
+            rootorig = niforig.rootNode
+            collorig = rootorig.collision_object
+            bodyorig = collorig.body
+            cvsorig = bodyorig.shape
+
+            nifcheck = NifFile(outfile)
+            rootcheck = nifcheck.rootNode
+            collcheck = rootcheck.collision_object
+            bodycheck = collcheck.body
+            cvscheck = bodycheck.shape
+
+            assert rootcheck.name == "CheeseWedge01", f"Root node name incorrect: {rootcheck.name}"
+            assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
+
+            assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+            assert collcheck.target == rootcheck, f"Target of collision is root: {rootcheck.name}"
+
+            assert bodycheck.blockname == "bhkRigidBody", f"Correctly wrote bhkRigidBody: {bodycheck.blockname}"
+
+            assert cvscheck.blockname == "bhkConvexVerticesShape", f"Collision body's shape property returns the collision shape"
+            assert cvscheck.properties.bhkMaterial == SkyrimHavokMaterial.CLOTH, \
+                "Collision body shape material is readable"
+
+            minxch = min(v[0] for v in cvscheck.vertices)
+            maxxch = max(v[0] for v in cvscheck.vertices)
+            minxorig = min(v[0] for v in cvsorig.vertices)
+            maxxorig = max(v[0] for v in cvsorig.vertices)
+
+            assert NearEqual(minxch, minxorig), f"Vertex x is correct: {minxch} == {minxorig}"
+            assert NearEqual(maxxch, maxxorig), f"Vertex x is correct: {maxxch} == {maxxorig}"
+
+            # Re-import
+            #
+            # There have been issues with importing the exported nif and having the 
+            # collision be wrong
+            clear_all()
+            NifImporter.do_import(outfile)
+
+            impcollshape = find_shape("bhkConvexVerticesShape")
+            zmin = min([v.co.z for v in impcollshape.data.vertices])
+            assert zmin >= -0.01*sf, f"Minimum z is positive: {zmin}"
+
+        do_test(1.0)
+        do_test(0.1)
+
+       
+    if TEST_BPY_ALL or TEST_SCALING_BP:
+        test_title("TEST_SCALING_BP", "Can scale bodyparts")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\malebody_1.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_SCALING_BP.nif")
+
+        NifImporter.do_import(testfile, PyNiflyFlags.CREATE_BONES | PyNiflyFlags.APPLY_SKINNING | 
+                              PyNiflyFlags.RENAME_BONES_NIFTOOLS | PyNiflyFlags.KEEP_TMP_SKEL, scale=0.1)
+
+        arma = find_shape("MaleBody_1.nif")
+        b = arma.data.bones['NPC Spine1 [Spn1]']
+        assert NearEqual(b.matrix_local.translation.z, 8.1443), f"Scale correctly applied: {b.matrix_local.translation}"
+        body = find_shape("MaleUnderwearBody:0")
+        assert NearEqual(body.location.z, 12, 0.1), f"Object translation correctly applied: {body.location}"
+        bodymax = max([v.co.z for v in body.data.vertices])
+        bodymin = min([v.co.z for v in body.data.vertices])
+        assert bodymax < 0, f"Max z is less than 0: {bodymax}"
+        assert bodymin >= -12, f"Max z is greater than -12: {bodymin}"
+
+        # Test export scaling is correct
+        NifExporter(outfile, "SKYRIM", 
+                    PyNiflyFlags.APPLY_SKINNING | PyNiflyFlags.RENAME_BONES_NIFTOOLS, scale=0.1) \
+                        .export([body])
+        nifcheck = NifFile(outfile)
+        bodycheck = nifcheck.shape_dict["MaleUnderwearBody:0"]
+        assert NearEqual(bodycheck.transform.scale, 1.0), f"Scale is 1: {bodycheck.transform.scale}"
+        assert NearEqual(bodycheck.transform.translation[2], 120.3, 0.1), \
+            f"Translation is correct: {list(bodycheck.transform.translation)}"
+        bmaxout = max(v[2] for v in bodycheck.verts)
+        bminout = min(v[2] for v in bodycheck.verts)
+        assert bmaxout-bminout > 100, f"Shape scaled up on ouput: {bminout}-{bmaxout}"
+
+    if TEST_BPY_ALL or TEST_SCALING_OBJ:
+        test_title("TEST_SCALING_OBJ", "Can scale simple objects")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\farmbench01.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_SCALING_OBJ.nif")
+        NifImporter.do_import(testfile, 0, scale=0.1)
+
+        bench = find_shape("FarmBench01:5")
+        bmax = max([v.co.z for v in bench.data.vertices])
+        bmin = min([v.co.z for v in bench.data.vertices])
+        assert VNearEqual(bench.scale, (1,1,1)), f"Bench scale factor is 1: {bench.scale}"
+        assert bmax < 3.1, f"Max Z is scaled down: {bmax}"
+        assert bmin >= 0, f"Min Z is correct: {bmin}"
+
+        fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
+        assert fmarkers[0].location.z < 3.4, f"Furniture marker location is correct: {fmarkers[0].location.z}"
+
+        # -------- Export --------
+        bsxf = find_shape("BSXFlags")
+        explist = [bench, bsxf]
+        explist.extend(fmarkers)
+        log.debug(f"Exporting: {explist}")
+        exporter = NifExporter(outfile, 'SKYRIMSE', scale=0.1).export(explist)
+
+        # --------- Check ----------
+        nifcheck = NifFile(outfile)
+        bcheck = nifcheck.shapes[0]
+        fmcheck = nifcheck.furniture_markers
+        bchmax = max([v[2] for v in bcheck.verts])
+        assert bchmax > 30, f"Max Z is scaled up: {bchmax}"
+        assert len(fmcheck) == 2, f"Wrote the furniture marker correctly: {len(fmcheck)}"
+        assert fmcheck[0].offset[2] > 30, f"Furniture marker Z scaled up: {fmcheck[0].offset[2]}"
+
+
+    if TEST_BPY_ALL or TEST_SCALING_COLL:
+        test_title("TEST_SCALING_COLL", "Collisions scale correctly on import and export")
+        # Primarily tests collisions, but also tests fade node, extra data nodes, 
+        # UV orientation, and texture handling
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SCALING_COLL.nif")
+
+        NifImporter.do_import(testfile, scale=0.1)
+        obj = find_shape("ElvenBowSkinned:0")
+
+        # Check collision info
+        coll = find_shape('bhkCollisionObject')
+        assert VNearEqual(coll.location, (0.130636, 0.637351, -0.001978)), \
+            f"Collision location properly scaled: {coll.location}"
+
+        collbody = coll.children[0]
+        assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
+        assert VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), \
+            f"Collision body rotation correct: {collbody.rotation_quaternion}"
+        assert VNearEqual(collbody.location, (0.65169, -0.770812, 0.0039871)), \
+            f"Collision body is in correct location: {collbody.location}"
+
+        collshape = collbody.children[0]
+        assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
+        assert NearEqual(collshape['bhkRadius'], 0.00136), f"Radius is properly scaled: {collshape['bhkRadius']}"
+        assert VNearEqual(collshape.data.vertices[0].co, (-1.10145, 5.76582, 0.09541)), \
+            f"Collision shape is properly scaled 0: {collshape.data.vertices[0].co}"
+        assert VNearEqual(collshape.data.vertices[7].co, (1.10145, 5.76582, -0.09541)), \
+            f"Collision shape is properly scaled 7: {collshape.data.vertices[7].co}"
+        assert VNearEqual(collshape.location, (0,0,0)), f"Collision shape centered on parent: {collshape.location}"
+       
+        print("--Testing export")
+
+        # Move the edge of the collision box so it covers the bow better
+        for v in collshape.data.vertices:
+            if v.co.x > 0:
+                v.co.x = 1.65
+
+        NifExporter.do_export(outfile, 'SKYRIMSE', [obj, coll], 
+                              export_flags=PyNiflyFlags.RENAME_BONES | PyNiflyFlags.PRESERVE_HIERARCHY,
+                              scale=0.1)
+
+        # ------- Check Results --------
+
+        nifcheck = NifFile(outfile)
+        rootcheck = nifcheck.rootNode
+        assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
+        assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
+        assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
+
+        midbowcheck = nifcheck.nodes["Bow_MidBone"]
+        collcheck = midbowcheck.collision_object
+        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+        assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+
+        # Full check of locations and rotations to make sure we got them right
+        mbc_xf = nifcheck.get_node_xform_to_global("Bow_MidBone")
+        assert VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
+        m = mbc_xf.as_matrix().to_euler()
+        assert VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
+
+        bodycheck = collcheck.body
+        p = bodycheck.properties
+        assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
+        assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
+
+        
+    if TEST_BPY_ALL or TEST_COLLISION_CAPSULE:
+        def do_test(sf):
+            test_title("TEST_COLLISION_CAPSULE", 
+                       f"Can read and write shape with collision capsule shapes with scale {sf}")
+            clear_all()
+
+            # ------- Load --------
+            testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\staff04.nif")
+            outfile = os.path.join(pynifly_dev_path, f"tests/Out/TEST_COLLISION_CAPSULE.{sf}.nif")
+
+            NifImporter.do_import(testfile, scale=sf)
+
+            staff = find_shape("3rdPersonStaff04")
+            coll = find_shape("bhkCollisionObject")
+            collbody = coll.children[0]
+            collshape = collbody.children[0]
+            strd = find_shape("NiStringExtraData")
+            bsxf = find_shape("BSXFlags")
+            invm = find_shape("BSInvMarker")
+
+            staffmax = max((staff.matrix_world @ v.co).y for v in staff.data.vertices)
+            staffmin = min((staff.matrix_world @ v.co).y for v in staff.data.vertices)
+            assert NearEqual(staffmax, 68.94*sf, 0.1), f"Staff max y correct: {staffmax} == {68.94*sf}"
+            assert NearEqual(staffmin, -73.88*sf, 0.1), f"Staff min y correct: {staffmin} == {-73.88*sf}"
+
+            assert collshape.name.startswith("bhkCapsuleShape"), f"Found list collision shape: {collshape.name}"
+            collmax = max((collshape.matrix_world @ v.co).y for v in collshape.data.vertices)
+            collmin = min((collshape.matrix_world @ v.co).y for v in collshape.data.vertices)
+            assert NearEqual(staffmax, collmax, 5), f"Collision top near staff top: {collmax} ~ {staffmax}"
+            assert NearEqual(staffmin, collmin, 5), f"Collision bottom near staff botton: {collmin} ~ {staffmin}"
+            v = collshape.data.vertices[5]
+            assert NearEqual(v.co.z, 67.4*sf) or NearEqual(v.co.y, -67.4*sf), \
+            f"Found verts where expected for {collshape.name}: {v.co}"
+            assert VNearEqual(collshape.location, (0, -2.8*sf, 0.79*sf), 0.1*sf), \
+                f"Collision in right location for {collshape.name}: {collshape.location})"
+
+            # -------- Export --------
+            remove_file(outfile)
+            exporter = NifExporter(outfile, 'SKYRIM', scale=sf)
+            exporter.export([staff, coll, bsxf, invm, strd])
+
+            # ------- Check ---------
+            nifcheck = NifFile(outfile)
+            staffcheck = nifcheck.shape_dict["3rdPersonStaff04:1"]
+            collcheck = nifcheck.rootNode.collision_object
+            rbcheck = collcheck.body
+            shapecheck = rbcheck.shape
+            assert shapecheck.blockname == "bhkCapsuleShape", f"Got a capsule collision back {shapecheck.blockname}"
+
+            niforig = NifFile(testfile)
+            collorig = niforig.rootNode.collision_object
+            rborig = collorig.body
+            shapeorig = rborig.shape
+            assert NearEqual(shapeorig.properties.radius1, shapecheck.properties.radius1), f"Wrote the correct radius: {shapecheck.properties.radius1}"
+            assert NearEqual(shapeorig.properties.point1[1], shapecheck.properties.point1[1]), f"Wrote the correct radius: {shapecheck.properties.point1[1]}"
+
+        do_test(1.0)
+        do_test(0.1)
+
+
+    if TEST_BPY_ALL or TEST_COLLISION_LIST:
+        def run_test(sf):
+            test_title("TEST_COLLISION_LIST", 
+                       f"Can read and write shape with collision list and collision transform shapes with scale {sf}")
+            clear_all()
+
+            # ------- Load --------
+            testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\falmerstaff.nif")
+            outfile = os.path.join(pynifly_dev_path, f"tests/Out/TEST_COLLISION_LIST{sf}.nif")
+
+            NifImporter.do_import(testfile, scale=sf)
+
+            staff = find_shape("Staff3rdPerson:0")
+            coll = find_shape("bhkCollisionObject")
+            collbody = coll.children[0]
+            collshape = collbody.children[0]
+            strd = find_shape("NiStringExtraData")
+            bsxf = find_shape("BSXFlags")
+            invm = find_shape("BSInvMarker")
+
+            assert collshape.name.startswith("bhkListShape"), f"Found list collision shape: {collshape.name}"
+            assert len(collshape.children) == 3, f" Collision shape has children"
+        
+            # -------- Export --------
+            bsxf = find_shape("BSXFlags")
+            invm = find_shape("BSInvMarker")
+            exporter = NifExporter(outfile, 'SKYRIM', scale=sf)
+            exporter.export([staff, coll, bsxf, invm, strd])
+
+            # ------- Check ---------
+            niforig = NifFile(testfile)
+            stafforig = niforig.shape_dict["Staff3rdPerson:0"]
+            collorig = niforig.rootNode.collision_object
+            listorig = collorig.body.shape
+            xfshapesorig = listorig.children[:]
+            xfshapematorig = [s.properties.bhkMaterial for s in xfshapesorig]
+
+            nifcheck = NifFile(outfile)
+            staffcheck = nifcheck.shape_dict["Staff3rdPerson:0"]
+            collcheck = nifcheck.rootNode.collision_object
+            listcheck = collcheck.body.shape
+            xfshapescheck = listcheck.children[:]
+            xfshapematcheck = [s.properties.bhkMaterial for s in xfshapescheck]
+
+            assert xfshapematcheck == xfshapematorig, \
+                f"Materials written to ConvexTransformShape: {xfshapematcheck} == {xfshapematorig}"
+
+            assert listcheck.blockname == "bhkListShape", f"Got a list collision back {listcheck.blockname}"
+            assert len(listcheck.children) == 3, f"Got our list elements back: {len(listcheck.children)}"
+
+            cts0check = listcheck.children[0]
+            assert cts0check.child.blockname == "bhkBoxShape", f"Found the box shape"
+
+            cts45check = [cts for cts in listcheck.children if NearEqual(cts.transform[1][1], 0.7071, 0.01)]
+            boxdiag = cts45check[0].child
+            assert NearEqual(boxdiag.properties.bhkDimensions[1], 0.170421), f"Diagonal box has correct size: {boxdiag.properties.bhkDimensions[1]}"
+
+        run_test(1.0)
+        run_test(0.1)
+
+
     if TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
         test_title("TEST_NIFTOOLS_NAMES", "Can import nif with niftools' naming convention")
         clear_all()
@@ -211,7 +565,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         obj = find_shape("OtterFemHead")
 
         remove_file(outfile)
-        ex = NifExporter(os.path.join(pynifly_dev_path, outfile), "FO4", 
+        ex = NifExporter(outfile, "FO4", 
                          PyNiflyFlags.RENAME_BONES | PyNiflyFlags.APPLY_SKINNING)
         ex.export([obj])
 
@@ -1318,92 +1672,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert fmcheck[0].entry_points == 13, f"Entry point data is correct: {fmcheck[0].entry_points}"
 
 
-    if TEST_BPY_ALL or TEST_COLLISION_LIST:
-        test_title("TEST_COLLISION_LIST", "Can read and write shape with collision list and collision transform shapes")
-        clear_all()
-
-        # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\falmerstaff.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_LIST.nif")
-
-        NifImporter.do_import(testfile)
-
-        staff = find_shape("Staff3rdPerson:0")
-        coll = find_shape("bhkCollisionObject")
-        collbody = coll.children[0]
-        collshape = collbody.children[0]
-        strd = find_shape("NiStringExtraData")
-        bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
-
-        assert collshape.name.startswith("bhkListShape"), f"Found list collision shape: {collshape.name}"
-        assert len(collshape.children) == 3, f" Collision shape has children"
-        
-        # -------- Export --------
-        bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
-        exporter = NifExporter(outfile, 'SKYRIM')
-        exporter.export([staff, coll, bsxf, invm, strd])
-
-        # ------- Check ---------
-        nifcheck = NifFile(outfile)
-        staffcheck = nifcheck.shape_dict["Staff3rdPerson:0"]
-        collcheck = nifcheck.rootNode.collision_object
-        rbcheck = collcheck.body
-        listcheck = rbcheck.shape
-        assert listcheck.blockname == "bhkListShape", f"Got a list collision back {listcheck.blockname}"
-        assert len(listcheck.children) == 3, f"Got our list elements back: {len(listcheck.children)}"
-
-        cts0check = listcheck.children[0]
-        assert cts0check.child.blockname == "bhkBoxShape", f"Found the box shape"
-
-        cts45check = [cts for cts in listcheck.children if NearEqual(cts.transform[1][1], 0.7071, 0.01)]
-        boxdiag = cts45check[0].child
-        assert NearEqual(boxdiag.properties.bhkDimensions[1], 0.170421), f"Diagonal box has correct size: {boxdiag.properties.bhkDimensions[1]}"
-
-    if TEST_BPY_ALL or TEST_COLLISION_CAPSULE:
-        test_title("TEST_COLLISION_CAPSULE", "Can read and write shape with collision capsule shapes")
-        clear_all()
-
-        # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\staff04.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_CAPSULE.nif")
-
-        NifImporter.do_import(testfile)
-
-        staff = find_shape("3rdPersonStaff04")
-        coll = find_shape("bhkCollisionObject")
-        collbody = coll.children[0]
-        collshape = collbody.children[0]
-        strd = find_shape("NiStringExtraData")
-        bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
-
-        assert collshape.name.startswith("bhkCapsuleShape"), f"Found list collision shape: {collshape.name}"
-        v = collshape.data.vertices[5]
-        assert NearEqual(v.co.z, 67.4) or NearEqual(v.co.y, -67.4), f"Found verts where expected for {collshape.name}: {v.co}"
-        assert VNearEqual(collshape.location, (0, -2.8, 0.79), 0.1), f"Collision in right location for {collshape.name}: {collshape.location})"
-
-        # -------- Export --------
-        remove_file(outfile)
-        exporter = NifExporter(outfile, 'SKYRIM')
-        exporter.export([staff, coll, bsxf, invm, strd])
-
-        # ------- Check ---------
-        nifcheck = NifFile(outfile)
-        staffcheck = nifcheck.shape_dict["3rdPersonStaff04:1"]
-        collcheck = nifcheck.rootNode.collision_object
-        rbcheck = collcheck.body
-        shapecheck = rbcheck.shape
-        assert shapecheck.blockname == "bhkCapsuleShape", f"Got a capsule collision back {shapecheck.blockname}"
-
-        niforig = NifFile(testfile)
-        collorig = niforig.rootNode.collision_object
-        rborig = collorig.body
-        shapeorig = rborig.shape
-        assert NearEqual(shapeorig.properties.radius1, shapecheck.properties.radius1), f"Wrote the correct radius: {shapecheck.properties.radius1}"
-        assert NearEqual(shapeorig.properties.point1[1], shapecheck.properties.point1[1]), f"Wrote the correct radius: {shapecheck.properties.point1[1]}"
-
 
     if (TEST_BPY_ALL or TEST_COLLISION_XFORM) and bpy.app.version[0] >= 3:
         # V2.x does not import the whole parent chain when appending an object 
@@ -1643,82 +1911,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
         assert VNearEqual(cshapecheck3.vertices[0], (-0.73, -0.267, 0.014, 0.0)), f"Convex shape is correct"
 
 
-    if TEST_BPY_ALL or TEST_COLLISION_CONVEXVERT:
-        test_title("TEST_COLLISION_CONVEXVERT", "Can read and write shape with convex verts collision shape")
-        clear_all()
-
-        # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\cheesewedge01.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_CONVEXVERT.nif")
-
-        NifImporter.do_import(testfile)
-
-        # Check transform
-        obj = find_shape('CheeseWedge')
-        assert VNearEqual(obj.location, (0,0,0)), f"Cheese wedge at right location"
-        assert VNearEqual(obj.rotation_euler, (0,0,0)), f"Cheese wedge not rotated"
-        assert obj.scale == Vector((1,1,1)), f"Cheese wedge scale 1"
-
-        # Check collision info
-        coll = find_shape('bhkCollisionObject')
-        assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
-        assert coll.parent == None, f"Collision shape has no parent"
-
-        collbody = coll.children[0]
-        assert collbody.name == 'bhkRigidBody', f"Child of collision is the collision body object"
-        assert collbody['collisionFilter_layer'] == SkyrimCollisionLayer.CLUTTER.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
-        assert collbody["collisionResponse"] == hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
-
-        collshape = collbody.children[0]
-        assert collshape.name == 'bhkConvexVerticesShape', f"Collision shape is child of the collision body"
-        assert collshape['bhkMaterial'] == 'CLOTH', f"Shape material is a custom property: {collshape['bhkMaterial']}"
-        obj = find_shape('CheeseWedge01', collection=bpy.context.selected_objects)
-        xmax1 = max([v.co.x for v in obj.data.vertices])
-        xmax2 = max([v.co.x for v in collshape.data.vertices])
-        assert abs(xmax1 - xmax2) < 0.5, f"Max x vertex nearly the same: {xmax1} == {xmax2}"
-        corner = collshape.data.vertices[0].co
-        assert VNearEqual(corner, (-4.18715, -7.89243, 7.08596)), f"Collision shape in correct position: {corner}"
-
-        # ------- Export --------
-
-        bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
-        exporter = NifExporter(outfile, 'SKYRIM')
-        exporter.export([obj, coll, bsxf, invm])
-
-        # ------- Check Results --------
-
-        nifcheck = NifFile(outfile)
-
-        rootcheck = nifcheck.rootNode
-        assert rootcheck.name == "CheeseWedge01", f"Root node name incorrect: {rootcheck.name}"
-        assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
-
-        collcheck = rootcheck.collision_object
-        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
-        assert collcheck.target == rootcheck, f"Target of collision is root: {rootcheck.name}"
-
-        bodycheck = collcheck.body
-        assert bodycheck.blockname == "bhkRigidBody", f"Correctly wrote bhkRigidBody: {bodycheck.blockname}"
-
-        shapecheck = bodycheck.shape
-        assert shapecheck.blockname == "bhkConvexVerticesShape", f"Collision body's shape property returns the collision shape"
-        assert shapecheck.properties.bhkMaterial == SkyrimHavokMaterial.CLOTH, "Collision body shape material is readable"
-        assert VNearEqual(shapecheck.vertices[0], [-0.059824, -0.112763, 0.101241, 0]), f"Vertex 0 is correct"
-        assert VNearEqual(shapecheck.vertices[7], [-0.119985, 0.000001, 0, 0]), f"Vertex 7 is correct"
-
-        # Re-import
-        #
-        # There have been issues with importing the exported nif and having the 
-        # collision be wrong
-        clear_all()
-        NifImporter.do_import(outfile)
-
-        impcollshape = find_shape("bhkConvexVerticesShape")
-        zmin = min([v.co.z for v in impcollshape.data.vertices])
-        assert zmin >= -0.01, f"Minimum z is positive: {zmin}"
-
-       
     if TEST_BPY_ALL or TEST_COLLISION_HIER:
         test_title("TEST_COLLISION_HIER", "Can read and write hierarchy of nodes containing shapes")
         clear_all()

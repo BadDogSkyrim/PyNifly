@@ -164,7 +164,7 @@ class pynStructure(Structure):
         return n
 
     def extract(self, shape, ignore=[]):
-        """ Extract fields to the dictionary-like object 'shape' """
+        """Extract fields to the dictionary-like object 'shape'"""
         for f, t in self._fields_:
             v = None
             if f in ignore:

@@ -2470,7 +2470,8 @@ NIFLY_API int addCollConvexTransformShape(void* nifref, const BHKConvexTransform
     NiHeader hdr = nif->GetHeader();
 
     auto sh = std::make_unique<bhkConvexTransformShape>();
-    sh->SetMaterial(buf->material);
+    //sh->SetMaterial(buf->material);
+    sh->material = buf->material;
     sh->radius = buf->radius;
     for (int i = 0; i < 16; i++) {
         sh->xform[i] = buf->xform[i];
