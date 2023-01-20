@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = True
+RUN_TESTS = False
 TEST_BPY_ALL = True
 
 
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (6, 8, 2),  
+    "version": (6, 8, 5),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -134,9 +134,15 @@ def LogFinish(action, files, status, is_exception=False):
         errmsg = "WITH WARNINGS"
     else:
         errmsg = "SUCCESSFULLY"
+
+    if type(files) == str:
+        fn = os.path.basename(files)
+    else:
+        fn = f"{[os.path.basename(f.name) for f in files]}"
+
     log.info(f"""
 
-PyNifly {action} of {[f.name for f in files]} completed {errmsg} {status}
+PyNifly {action} of {fn} completed {errmsg} {status}
 ====================================
 
 """)
@@ -397,15 +403,20 @@ def obj_create_material(obj, shape):
         if len(tx) > 0 and tx[-4:].lower() == '.dds':
             # Check for converted texture in the nif's filetree
             txpng = tx[0:-3] + 'png'
-            if os.path.exists(txpng):
-                fulltextures[i] = txpng
-            elif bpy.context.preferences.filepaths.texture_directory:
-                # Check in Blender's default texture directory too
+            if bpy.context.preferences.filepaths.texture_directory:
+                # Check in Blender's default texture directory first
                 fndds = os.path.join(bpy.context.preferences.filepaths.texture_directory, 
                                   shape.textures[i])
                 fnpng = os.path.splitext(fndds)[0] + '.png'
+                #log.debug(f"checking texture path {fnpng}")
                 if os.path.exists(fnpng):
                     fulltextures[i] = fnpng
+                    log.info(f"Using png texture from Blender's texture directory: {fnpng}")
+            if fulltextures[i][-4:].lower() == '.dds':
+                #log.debug(f"checking texture path {txpng}")
+                if os.path.exists(txpng):
+                    fulltextures[i] = txpng
+                    log.info(f"Using png texture from nif's node tree': {fnpng}")
         log.debug(f"Using texture path {i}: {fulltextures[i]}")
 
 
@@ -1208,11 +1219,11 @@ class NifImporter():
 
                 # log.debug(f"connect_armature found {parentname}, creating bones {self.flag_set(PyNiflyFlags.CREATE_BONES)}, is facebones {is_facebone(bonename)} ")
                 if parentname is None and self.flag_set(PyNiflyFlags.CREATE_BONES) and not is_facebone(bonename):
-                    log.debug(f"No parent for '{nifname}' in the nif. If it's a known bone, get parent from skeleton")
+                    #log.debug(f"No parent for '{nifname}' in the nif. If it's a known bone, get parent from skeleton")
                     if self.flag_set(PyNiflyFlags.RENAME_BONES) or self.flag_set(PyNiflyFlags.RENAME_BONES_NIFTOOLS):
                         bone_dict = self.nif.dict.active_dict
                         if bonename in bone_dict:
-                            log.debug(f"Found bone in dict: {bonename}")
+                            #log.debug(f"Found bone in dict: {bonename}")
                             p = bone_dict[bonename].parent
                             if p:
                                 if self.nif.dict.use_niftools:
@@ -1346,7 +1357,7 @@ class NifImporter():
             #log.debug(f"Inverted '{bn}' bone matrix is \n{new_bone_xf}")
             new_bone_xf = new_bone_xf @ bone_xf
             
-            log.debug(f"Final '{bn}' bone matrix is \n{new_bone_xf}")
+            #log.debug(f"Final '{bn}' bone matrix is \n{new_bone_xf}")
             blname = self.blender_name(bn)
             new_bone = tmpa.data.edit_bones.new(blname)
             h, t, r = transform_to_bone(self.nif.game, new_bone_xf, is_facebone(blname), self.scale)
@@ -1371,10 +1382,10 @@ class NifImporter():
                 #log.debug(f"Temporary bone '{b.name}' head: {tmpa.data.bones[b.name].head}")
                 targ_bone_xf = get_bone_global_xf(targ_bone, self.nif.game, self.scale)
                 tmp_bone_xf = get_bone_global_xf(tmpa.data.bones[b.name], self.nif.game, self.scale)
-                if 'Pelvis' in b.name:
-                    log.debug(f"Target bone {b.name} xform: \n{targ_bone_xf}")
-                    log.debug(f"Temp bone {b.name}xform: \n{tmp_bone_xf}")
-                    log.debug(f"Transforms are equivalent: {MatNearEqual(targ_bone_xf, tmp_bone_xf)}")
+                #if 'Pelvis' in b.name:
+                #    log.debug(f"Target bone {b.name} xform: \n{targ_bone_xf}")
+                #    log.debug(f"Temp bone {b.name}xform: \n{tmp_bone_xf}")
+                #    log.debug(f"Transforms are equivalent: {MatNearEqual(targ_bone_xf, tmp_bone_xf)}")
                     #log.debug(f"Target bone position: {transform_to_bone('FO4', targ_bone_xf, True)}")
                     #log.debug(f"Temp bone position: {transform_to_bone('FO4', tmp_bone_xf, True)}")
                 # TodoIf targ_bone_xf == tmp_bone_xf for every bone, just skip the whole rigamarole
@@ -1384,8 +1395,8 @@ class NifImporter():
                 #log.debug(f"Desired transform, should be identity if above is true: \n{desired_xf}")
 
                 final_xf= desired_xf @ pbone.matrix 
-                if 'Pelvis' in b.name:
-                    log.debug(f"Pose bone {b.name} desired location: \n{final_xf}")
+                #if 'Pelvis' in b.name:
+                #    log.debug(f"Pose bone {b.name} desired location: \n{final_xf}")
                 
                 pbone.matrix = final_xf
 
@@ -1405,21 +1416,21 @@ class NifImporter():
         # Reset the object's base transform to get the verts back where they started
         # If there's a better way to do this, I don't know it yet
         ObjectActive(obj)
-        log.debug(f"Averaged bone transforms for {obj.name}: \n{shape_xf}")
+        #log.debug(f"Averaged bone transforms for {obj.name}: \n{shape_xf}")
         # Scale factor will include the import scale factor, which we don't want. Translation does not.
         shloc, shrot, shsc = shape_xf.decompose()
         shape_xf = MatrixLocRotScale(shloc, shrot, shsc/self.scale)
-        log.debug(f"Corrected transform transform for {obj.name}: \n{shape_xf}")
+        #log.debug(f"Corrected transform transform for {obj.name}: \n{shape_xf}")
         #shinv = shape_xf.inverted()
         #shloc, shrot, shsc = shinv.decompose()
         #obj.matrix_world = MatrixLocRotScale(shloc, shrot, Vector((1.0,1.0,1.0)))
         obj.matrix_world = shape_xf.inverted()
-        log.debug(f"Applying inverted matrix to verts: \n{obj.matrix_world}")
+        #log.debug(f"Applying inverted matrix to verts: \n{obj.matrix_world}")
         bpy.ops.object.transform_apply()
         #shloc, shrot, shsc = shape_xf.decompose()
         #obj.matrix_world = MatrixLocRotScale(shloc, shrot, Vector((1.0, 1.0, 1.0))) # shape_xf # Matrix.Scale(self.scale, 4) @ shape_xf
         obj.matrix_world = shape_xf
-        log.debug(f"Final object transform for {obj.name}:\n{obj.matrix_world}")
+        #log.debug(f"Final object transform for {obj.name}:\n{obj.matrix_world}")
 
         if self.flag_clear(PyNiflyFlags.KEEP_TMP_SKEL):
             bpy.data.objects.remove(tmpa)
@@ -1943,7 +1954,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                     ctx['region'] = area.regions[-1]
                     bpy.ops.view3d.view_selected(ctx)
 
-            LogFinish(self.files, status, False)
+            LogFinish("IMPORT", self.files, status, False)
 
         except:
             log.exception("Import of nif failed")
@@ -2024,14 +2035,17 @@ def create_trip_shape_keys(obj, trip:TripFile):
 
 
 def import_trip(filepath, target_objs):
-    """ Import a BS Tri file. 
-        These TRI files do not have full shape data so they have to be matched to one of the 
-        objects in target_objs.
-        return = True if the file is a BS Tri file
-        """
+    """Import a BS Tri file. 
+       These TRI files do not have full shape data so they have to be matched to one of the 
+       objects in target_objs.
+       return = (set of result types: NOT_TRIP or WARNING. Null result means success,
+                 list of shape names found in trip file)
+       """
     result = set()
+    shapelist = []
     trip = TripFile.from_file(filepath)
     if trip.is_valid:
+        shapelist = trip.shapes.keys()
         for shapename, offsetmorphs in trip.shapes.items():
             matchlist = [o for o in target_objs if o.name == shapename]
             if len(matchlist) == 0:
@@ -2040,15 +2054,15 @@ def import_trip(filepath, target_objs):
             else:
                 create_trip_shape_keys(matchlist[0], trip)
     else:
-        result.add('WRONGTYPE')
+        result.add('NOT_TRIP')
 
-    return result
+    return (result, shapelist)
 
 
 def import_tri(filepath, cobj):
-    """ Import the tris from filepath into cobj
-        If cobj is None, create a new object
-        """
+    """Import the tris from filepath into cobj
+       If cobj is None or if the verts don't match, create a new object
+       """
     tri = TriFile.from_file(filepath)
     if not type(tri) == TriFile:
         log.error(f"Error reading tri file")
@@ -2111,10 +2125,21 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
 
         try:
             
-            v = import_trip(self.filepath, context.selected_objects)
-            if 'WRONGTYPE' in v:
-                import_tri(self.filepath, bpy.context.object)
-            status.union(v)
+            imp = "IMPORT TRIP"
+            v, s = import_trip(self.filepath, context.selected_objects)
+            if 'NOT_TRIP' in v:
+                imp = "IMPORT TRI"
+                cobj = bpy.context.object
+                obj = import_tri(self.filepath, cobj)
+                if obj == cobj:
+                    imp = f"IMPORT TRI into {cobj.name}"
+                else:
+                    imp = "IMPORT TRI as new object"
+            else:
+                # Have a TRIP file
+                imp = f"IMPORT TRIP {list(s)}"
+            status = status.union(v)
+            log.debug(f"Imported tri/trip, got status {status}")
         
             for area in bpy.context.screen.areas:
                 if area.type == 'VIEW_3D':
@@ -2123,7 +2148,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
                     ctx['region'] = area.regions[-1]
                     bpy.ops.view3d.view_selected(ctx)
 
-            LogFinish("IMPORT", self.files, status, False)
+            LogFinish(imp, self.filepath, status, False)
             if 'WARNING' in status:
                 self.report({"ERROR"}, "Import completed with warnings, see console for details")
 
@@ -2131,7 +2156,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
             log.exception("Import of tri failed")
             self.report({"ERROR"}, "Import of tri failed, see console window for details")
             status = {'CANCELLED'}
-            LogFinish("IMPORT", self.files, status, True)
+            LogFinish(imp, self.filepath, status, True)
         
         return status.intersection({'FINISHED', 'CANCELLED'})
 
