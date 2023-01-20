@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = False
+TEST_BPY_ALL = True
 
 
 bl_info = {
@@ -484,19 +484,23 @@ def obj_create_material(obj, shape):
 
         if shape.file.game in ["FO4"]:
             # specular combines gloss and spec
+            invg = nodes.new("ShaderNodeInvert")
+            invg.location = (bdsf.location[0] + cvt_offset_x, yloc)
+            matlinks.new(invg.outputs['Color'], bdsf.inputs['Roughness'])
+
             try:
                 seprgb = nodes.new("ShaderNodeSeparateColor")
                 seprgb.mode = 'RGB'
                 matlinks.new(simgnode.outputs['Color'], seprgb.inputs['Color'])
                 matlinks.new(seprgb.outputs['Red'], bdsf.inputs['Specular'])
-                matlinks.new(seprgb.outputs['Green'], bdsf.inputs['Metallic'])
+                matlinks.new(seprgb.outputs['Green'], invg.inputs['Color'])
             except:
                 seprgb = nodes.new("ShaderNodeSeparateRGB")
                 matlinks.new(simgnode.outputs['Color'], seprgb.inputs['Image'])
                 matlinks.new(seprgb.outputs['R'], bdsf.inputs['Specular'])
-                matlinks.new(seprgb.outputs['G'], bdsf.inputs['Metallic'])
+                matlinks.new(seprgb.outputs['G'], invg.inputs['Color'])
 
-            seprgb.location = (bdsf.location[0] + cvt_offset_x, yloc)
+            seprgb.location = (bdsf.location[0] + 2*cvt_offset_x, yloc)
         else:
             matlinks.new(simgnode.outputs['Color'], bdsf.inputs['Specular'])
             # bdsf.inputs['Metallic'].default_value = 0
@@ -4084,8 +4088,6 @@ def run_tests():
 
     if TEST_BPY_ALL:
         run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri)
-
-
 
 
     print("""

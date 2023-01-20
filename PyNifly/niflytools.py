@@ -971,7 +971,11 @@ fo4Expressions = [
     ('LwrLipRollOut', 'LwrLipRollOut'),
     ('LwrLipFunnel', 'LwrLipFunnel'),
     ('LwrLipRollIn', 'LwrLipRollIn'),
-    ('Tongue', 'Tongue')
+    ('Tongue', 'Tongue'),
+    ('LookUp', 'LookUp'),
+    ('LookDown', 'LookDown'),
+    ('LookLeft', 'Look.L'),
+    ('LookRight', 'Look.R')
     ]
 
 fo4BoneIDs = {

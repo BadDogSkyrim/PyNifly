@@ -47,7 +47,7 @@ def get_image_node(node_input):
 
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri):
-    TEST_BPY_ALL = True
+    TEST_BPY_ALL = False
     TEST_NIFTOOLS_NAMES = False
     TEST_SHAPE_OFFSET = False
     TEST_IMP_NORMALS = False
@@ -92,7 +92,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_JIARAN = False
     TEST_SHADER_LE = False
     TEST_SHADER_SE = False
-    TEST_SHADER_FO4 = False
+    TEST_SHADER_FO4 = True
     TEST_SHADER_ALPHA = False
     TEST_SHEATH = False
     TEST_FEET = False
