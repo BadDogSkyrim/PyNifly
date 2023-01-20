@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (6, 8, 5),  
+    "version": (6, 8, 6),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -3975,6 +3975,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         try:
             exporter = NifExporter(self.filepath, self.target_game, export_flags=flags, chargen=self.chargen_ext)
             exporter.from_context(context)
+            exp_objs = list(context.selected_objects)
             exporter.export(context.selected_objects)
             
             rep = False
@@ -4009,13 +4010,13 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 rep = True
             if not rep:
                 self.report({'INFO'}, f"Export successful")
-            LogFinish("EXPORT", context.select_objects, status, False)
+            LogFinish("EXPORT", exp_objs, status, False)
             
         except:
             log.exception("Export of nif failed")
             self.report({"ERROR"}, "Export of nif failed, see console window for details")
             res.add("CANCELLED")
-            LogFinish("EXPORT", context.select_objects, {"ERROR"}, False)
+            LogFinish("EXPORT", exp_objs, {"ERROR"}, False)
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 
