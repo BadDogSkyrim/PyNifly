@@ -3,8 +3,8 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = False
-TEST_BPY_ALL = True
+RUN_TESTS = True
+TEST_BPY_ALL = False
 
 
 bl_info = {
@@ -1285,7 +1285,7 @@ class NifImporter():
     
         for bone_game_name in bone_names:
             name = self.blender_name(bone_game_name)
-            xf = self.nif.get_node_xform_to_global("NPC Spine1")
+            # xf = self.nif.get_node_xform_to_global("NPC Spine1")
             # log.debug(f"make_armature ({name}): Spine1 translation is {xf.translation[:]}")
             self.add_bone_to_arma(name, bone_game_name)
         
@@ -1680,8 +1680,11 @@ class NifImporter():
                 for n in s.bone_names: 
                     #log.debug(f"....adding bone {n} for {s.name}")
                     self.bones.add(n) 
+                #XXX must put niftools flag here
                 if self.nif.game in ['FO4', 'FO76'] and fo4FaceDict.matches(self.bones) > 10:
+                    log.debug(f"Setting import to use FO4's face dict'")
                     self.nif.dict = fo4FaceDict
+                self.nif.dict.use_niftools = self.flag_set(PyNiflyFlags.RENAME_BONES_NIFTOOLS)
 
             self.import_shape(s)
 
@@ -1830,7 +1833,6 @@ class NifImporter():
             fn = os.path.splitext(os.path.basename(this_file))[0]
 
             self.nif = NifFile(this_file)
-            self.nif.dict.use_niftools = self.flag_set(PyNiflyFlags.RENAME_BONES_NIFTOOLS)
 
             prior_shapes = None
             this_vertcounts = [len(s.verts) for s in self.nif.shapes]
@@ -4111,6 +4113,25 @@ def run_tests():
 
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
+
+    #<TESTS>
+
+    if True: # TEST_BPY_ALL or TEST_BAD_POSE:
+        test_title("TEST_BAD_POSE", "Test that nif with bad bone locations can be imported")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\6SuitM_Test.nif")
+        NifImporter.do_import(testfile, 
+                              PyNiflyFlags.CREATE_BONES \
+                              | PyNiflyFlags.RENAME_BONES \
+                              | PyNiflyFlags.IMPORT_SHAPES \
+                              | PyNiflyFlags.APPLY_SKINNING \
+                              | PyNiflyFlags.KEEP_TMP_SKEL)
+
+        body = find_shape("body_Cloth:0")
+        minz = min([v.co.z for v in body.data.vertices])
+        assert minz > -130, f"Min z location not stretched: {minz}"
+
 
     if TEST_BPY_ALL:
         run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri)

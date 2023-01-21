@@ -850,7 +850,13 @@ fo4Bones = [
     SkeletonBone('Anus_CBP_034.L', 'Anus_CBP_04', 'Anus_CBP_00'),
     SkeletonBone('Bone_Cloth_H_001', 'Bone_Cloth_H_001', 'Spine1_Rear_skin'),
     SkeletonBone('Bone_Cloth_H_002', 'Bone_Cloth_H_002', 'Bone_Cloth_H_001'),
-    SkeletonBone('Bone_Cloth_H_003', 'Bone_Cloth_H_003', 'Bone_Cloth_H_002')]
+    SkeletonBone('Bone_Cloth_H_003', 'Bone_Cloth_H_003', 'Bone_Cloth_H_002'),
+    SkeletonBone('Cloth_Scarf_Front_01', 'Cloth_Scarf_Front_01', 'Chest'),
+    SkeletonBone('Cloth_Scarf_Front_02', 'Cloth_Scarf_Front_02', 'Cloth_Scarf_Front_01'),
+    SkeletonBone('Cloth_Scarf_Rear_01', 'Cloth_Scarf_Rear_01', 'Chest'),
+    SkeletonBone('Cloth_Scarf_Rear_02', 'Cloth_Scarf_Rear_02', 'Cloth_Scarf_Rear_01'),
+    SkeletonBone('Cloth_Scarf_Rear_03', 'Cloth_Scarf_Rear_03', 'Cloth_Scarf_Rear_02'),
+    ]
 
 fo4FaceBones = [
     SkeletonBone('HEAD', 'HEAD', None),
@@ -1288,8 +1294,12 @@ class FO4BoneDict(BoneDict):
     def chargen_filter(self, candidates):
         return candidates
 
+class FO4FacebonesDict(FO4BoneDict):
+    def matches(self, bone_list):
+        return len([b for b in bone_list if b.startswith('skin_bone_')])
+
 fo4Dict = FO4BoneDict(fo4Bones, fo4Expressions, fo4Parts, fo4BoneIDs)
-fo4FaceDict = FO4BoneDict(fo4FaceBones, fo4Expressions, fo4Parts, fo4BoneIDs)
+fo4FaceDict = FO4FacebonesDict(fo4FaceBones, fo4Expressions, fo4Parts, fo4BoneIDs)
 
 gameSkeletons = {
     'SKYRIM': skyrimDict,
