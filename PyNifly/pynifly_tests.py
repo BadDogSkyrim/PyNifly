@@ -47,7 +47,7 @@ def get_image_node(node_input):
 
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri):
-    TEST_BPY_ALL = False
+    TEST_BPY_ALL = True
     TEST_NIFTOOLS_NAMES = False
     TEST_SHAPE_OFFSET = False
     TEST_IMP_NORMALS = False

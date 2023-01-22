@@ -4125,8 +4125,7 @@ def run_tests():
                               PyNiflyFlags.CREATE_BONES \
                               | PyNiflyFlags.RENAME_BONES \
                               | PyNiflyFlags.IMPORT_SHAPES \
-                              | PyNiflyFlags.APPLY_SKINNING \
-                              | PyNiflyFlags.KEEP_TMP_SKEL)
+                              | PyNiflyFlags.APPLY_SKINNING)
 
         body = find_shape("body_Cloth:0")
         minz = min([v.co.z for v in body.data.vertices])
