@@ -1319,6 +1319,7 @@ class NifImporter():
             # came from this file, and for facebones files we can just parent the mesh.
             ObjectSelect([obj])
             ObjectActive(arma)
+            log.debug(f"set_parent_arma (1) Setting parent of {obj.name} to {tmpa.name} (with transforms)")
             bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
             return
 
@@ -1369,6 +1370,7 @@ class NifImporter():
         bpy.ops.object.mode_set(mode = 'OBJECT')
         ObjectSelect([obj])
         ObjectActive(tmpa)
+        log.debug(f"set_parent_arma (2) Setting parent of {obj.name} to {tmpa.name} (with transforms)")
         bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
 
         # Create a pose that moves the bones to the target armature locations
@@ -1405,12 +1407,14 @@ class NifImporter():
         # Freeze the mesh at the posed locations
         ObjectActive(obj)
         bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-        #log.debug(f"Applying modifier {obj.modifiers[0].name}")
+        log.debug(f"Applying modifier {obj.modifiers[0].name}")
         bpy.ops.object.modifier_apply(modifier=obj.modifiers[0].name)
+        log.debug(f"{obj.name} now has modifiers {[m.name for m in obj.modifiers]}")
 
         # Reparent the mesh to the target armature
         ObjectSelect([obj])
         ObjectActive(self.armature)
+        log.debug(f"set_parent_arma (3) Setting parent of {obj.name} to {self.armature.name} (with transforms)")
         bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
         
         # Reset the object's base transform to get the verts back where they started
@@ -1718,7 +1722,8 @@ class NifImporter():
                         except:
                             pass # Might not correspond to a node in the nif
                         if obj.type == 'MESH' and has_skin and self.flag_set(PyNiflyFlags.APPLY_SKINNING):
-                            self.set_parent_arma(self.armature, obj)
+                            if not obj.parent:
+                                self.set_parent_arma(self.armature, obj)
                         else:
                             log.debug(f"Not parenting to armature: type={obj.type}, has skin={has_skin}, applying skin={self.flag_set(PyNiflyFlags.APPLY_SKINNING)}")
                     #ObjectSelect([o for o in self.objects_created.values() if o.type == 'MESH'])
@@ -3466,7 +3471,7 @@ class NifExporter:
                     nifname = bone_name
 
                 tb = TransformBuf.from_matrix(apply_scale_xf(bone_xform, 1/self.scale))
-                log.debug(f"Writing bone {nifname} with transform\n{tb}")
+                #log.debug(f"Writing bone {nifname} with transform\n{tb}")
                 new_shape.add_bone(nifname, tb)
                 # log.debug(f"....Adding bone {nifname}")
                 new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
@@ -4116,8 +4121,27 @@ def run_tests():
 
     #<TESTS>
 
-    if True: # TEST_BPY_ALL or TEST_BAD_POSE:
-        test_title("TEST_BAD_POSE", "Test that nif with bad bone locations can be imported")
+    if True: # TEST_BPY_ALL or TEST_MULTI_IMP:
+        test_title("TEST_MULTI_IMP", "Test that importing multiple hair parts doesn't mess up")
+        clear_all()
+
+        testfile1 = os.path.join(pynifly_dev_path, r"tests\FO4\FemaleHair25.nif")
+        testfile2 = os.path.join(pynifly_dev_path, r"tests\FO4\FemaleHair25_Hairline1.nif")
+        testfile3 = os.path.join(pynifly_dev_path, r"tests\FO4\FemaleHair25_Hairline2.nif")
+        testfile4 = os.path.join(pynifly_dev_path, r"tests\FO4\FemaleHair25_Hairline3.nif")
+        NifImporter.do_import([testfile1, testfile2, testfile3, testfile4], 
+                              PyNiflyFlags.CREATE_BONES \
+                              | PyNiflyFlags.RENAME_BONES \
+                              | PyNiflyFlags.IMPORT_SHAPES \
+                              | PyNiflyFlags.APPLY_SKINNING)
+        h = find_shape("FemaleHair25:0")
+        assert h.location.z > 120, f"Hair fully imported: {h.location}"
+
+
+
+
+    if False: # TEST_BPY_ALL or TEST_NOT_FB:
+        test_title("TEST_NOT_FB", "Test that nif that looked like facebones skel can be imported")
         clear_all()
 
         testfile = os.path.join(pynifly_dev_path, r"tests\FO4\6SuitM_Test.nif")
@@ -4128,7 +4152,7 @@ def run_tests():
                               | PyNiflyFlags.APPLY_SKINNING)
 
         body = find_shape("body_Cloth:0")
-        minz = min([v.co.z for v in body.data.vertices])
+        minz = min(v.co.z for v in body.data.vertices)
         assert minz > -130, f"Min z location not stretched: {minz}"
 
 
