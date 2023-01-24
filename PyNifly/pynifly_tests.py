@@ -48,6 +48,8 @@ def get_image_node(node_input):
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     TEST_BPY_ALL = True
+    TEST_NOT_FB = True
+    TEST_MULTI_IMP = True
     TEST_NIFTOOLS_NAMES = False
     TEST_SHAPE_OFFSET = False
     TEST_IMP_NORMALS = False
@@ -180,6 +182,39 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri):
     #    assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
     #    bodycheck = collcheck.body
     #    shapecheck = bodycheck.shape
+
+
+    if TEST_BPY_ALL or TEST_NOT_FB:
+        test_title("TEST_NOT_FB", "Test that nif that looked like facebones skel can be imported")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\6SuitM_Test.nif")
+        NifImporter.do_import(testfile, 
+                              PyNiflyFlags.CREATE_BONES \
+                              | PyNiflyFlags.RENAME_BONES \
+                              | PyNiflyFlags.IMPORT_SHAPES \
+                              | PyNiflyFlags.APPLY_SKINNING)
+
+        body = find_shape("body_Cloth:0")
+        minz = min(v.co.z for v in body.data.vertices)
+        assert minz > -130, f"Min z location not stretched: {minz}"
+
+
+    if TEST_BPY_ALL or TEST_MULTI_IMP:
+        test_title("TEST_MULTI_IMP", "Test that importing multiple hair parts doesn't mess up")
+        clear_all()
+
+        testfile1 = os.path.join(pynifly_dev_path, r"tests\FO4\FemaleHair25.nif")
+        testfile2 = os.path.join(pynifly_dev_path, r"tests\FO4\FemaleHair25_Hairline1.nif")
+        testfile3 = os.path.join(pynifly_dev_path, r"tests\FO4\FemaleHair25_Hairline2.nif")
+        testfile4 = os.path.join(pynifly_dev_path, r"tests\FO4\FemaleHair25_Hairline3.nif")
+        NifImporter.do_import([testfile1, testfile2, testfile3, testfile4], 
+                              PyNiflyFlags.CREATE_BONES \
+                              | PyNiflyFlags.RENAME_BONES \
+                              | PyNiflyFlags.IMPORT_SHAPES \
+                              | PyNiflyFlags.APPLY_SKINNING)
+        h = find_shape("FemaleHair25:0")
+        assert h.location.z > 120, f"Hair fully imported: {h.location}"
 
 
     if TEST_BPY_ALL or TEST_COLLISION_CONVEXVERT:

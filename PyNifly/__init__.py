@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (6, 8, 6),  
+    "version": (7, 0, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -1319,7 +1319,7 @@ class NifImporter():
             # came from this file, and for facebones files we can just parent the mesh.
             ObjectSelect([obj])
             ObjectActive(arma)
-            log.debug(f"set_parent_arma (1) Setting parent of {obj.name} to {tmpa.name} (with transforms)")
+            log.debug(f"set_parent_arma (1) Setting parent of {obj.name} to {arma.name} (with transforms)")
             bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
             return
 
@@ -2428,8 +2428,8 @@ def mesh_from_key(editmesh, verts, target_key):
     return newmesh
 
 
-def get_common_shapes(obj_list):
-    """ Return the shape keys found in any of the given objects """
+def get_common_shapes(obj_list) -> set:
+    """Return the shape keys found in any of the given objects """
     res = None
     log.debug(f"Checking shape keys on {obj_list}")
     for obj in obj_list:
@@ -2464,7 +2464,7 @@ class NifExporter:
         self.scale = scale
 
         # Objects that are to be written out
-        self.objects = set()
+        self.objects = [] # Ordered list of objects to write--first my have root node info
         self.bg_data = set()
         self.str_data = set()
         self.cloth_data = set()
@@ -2543,13 +2543,13 @@ class NifExporter:
                     and par2 and par2.name.startswith('bhkCollisionObject') ):
                 # Not dealing with collision objects, which hav etheir own rules
                 # For meshes we want the mesh, its parent if an armature, and any other armatures.
-                self.objects.add(obj)
+                self.objects.append(obj)
                 if obj.parent and obj.parent.type == 'ARMATURE':
                     self.add_object(obj.parent)
                 for skel in [m.object for m in obj.modifiers if m.type == "ARMATURE"]:
                     if skel:
                         self.add_object(skel)
-                self.file_keys = get_with_uscore(get_common_shapes(self.objects))
+            #self.file_keys = get_with_uscore(get_common_shapes(self.objects))
 
         elif obj.type == 'EMPTY':
             if 'BSBehaviorGraphExtraData_Name' in obj.keys():
@@ -2590,12 +2590,18 @@ class NifExporter:
         """
         for x in objects:
             self.add_object(x)
+        self.file_keys = get_with_uscore(get_common_shapes(self.objects))
 
 
     def from_context(self, context):
-        """ Set the objects to export from the given context 
-        """
-        self.set_objects(context.selected_objects)
+        """ Set the objects to export from the given context. Ensures the active object is first."""
+        objlist = []
+        if context.object and context.object.select_get():
+            objlist.append(context.object)
+        for o in context.selected_objects:
+            if o != context.object:
+                objlist.append(o)
+        self.set_objects(objlist)
 
 
     # --------- DO THE EXPORT ---------
@@ -3334,15 +3340,17 @@ class NifExporter:
             morphdict, partitions, partition_map
 
 
-    def export_shape_parents(self, obj):
-        """ Export any parent NiNodes the shape might need 
-            Returns the nif node that should be the parent of the shape (may be None)
+    def export_shape_parents(self, obj) -> NiNode:
+        """Export any parent NiNodes the shape might need 
+        Returns the nif node that should be the parent of the shape (may be None)
         """
+        # ancestors list contains all parents from root to obj's immediate parent
         ancestors = []
         p = obj.parent
         while p:
             ancestors.insert(0, p)
             p = p.parent
+        log.debug(f"Shape {obj.name} has parents {ancestors}")
 
         last_parent = None
         ninode = None
@@ -3350,18 +3358,17 @@ class NifExporter:
             if p.type == 'EMPTY' and 'pynBlock_Name' in p:
                 if p.name in self.objs_written:
                     ninode = self.objs_written[p.name]
+                    last_parent = ninode
                 else:
-                    ninode = self.nif.add_node(p.name, 
-                                               TransformBuf.from_matrix(
-                                                   apply_scale_xf(p.matrix_world, 1/self.scale)),
-                                               last_parent)
-                    last_parent = p
-                    log.debug(f"Writing shape parent {p.name} as {ninode}")
+                    xf = TransformBuf.from_matrix(apply_scale_xf(p.matrix_local, 1/self.scale))
+                    log.debug(f"Writing transform for parent node {p.name}:\n{xf}")
+                    ninode = self.nif.add_node(p.name, xf, last_parent)
+                    log.debug(f"Writing shape parent {p.name} as {ninode.name} with parent {last_parent.name if last_parent else '<none>'}")
+                    last_parent = ninode
                     self.objs_written[p.name] = ninode
                     collisions = [x for x in p.children if x.name.startswith("bhkCollisionObject")]
                     if len(collisions) > 0:
                         self.export_collisions(collisions)
-                    log.debug(f"Wrote {p.name} block")
         
         return ninode
 
@@ -4120,40 +4127,46 @@ def run_tests():
     # pynifly_tests.py when stable.
 
     #<TESTS>
-
-    if True: # TEST_BPY_ALL or TEST_MULTI_IMP:
-        test_title("TEST_MULTI_IMP", "Test that importing multiple hair parts doesn't mess up")
+    if True: #TEST_BPY_ALL or TEST_PIPBOY:
+        test_title("TEST_PIPBOY", "Test pipboy import/export--very complex node hierarchy")
         clear_all()
 
-        testfile1 = os.path.join(pynifly_dev_path, r"tests\FO4\FemaleHair25.nif")
-        testfile2 = os.path.join(pynifly_dev_path, r"tests\FO4\FemaleHair25_Hairline1.nif")
-        testfile3 = os.path.join(pynifly_dev_path, r"tests\FO4\FemaleHair25_Hairline2.nif")
-        testfile4 = os.path.join(pynifly_dev_path, r"tests\FO4\FemaleHair25_Hairline3.nif")
-        NifImporter.do_import([testfile1, testfile2, testfile3, testfile4], 
-                              PyNiflyFlags.CREATE_BONES \
-                              | PyNiflyFlags.RENAME_BONES \
-                              | PyNiflyFlags.IMPORT_SHAPES \
-                              | PyNiflyFlags.APPLY_SKINNING)
-        h = find_shape("FemaleHair25:0")
-        assert h.location.z > 120, f"Hair fully imported: {h.location}"
+        def cmp_xf(a, b):
+            axf = a.xform_to_global.as_matrix()
+            bxf = b.xform_to_global.as_matrix()
+            assert MatNearEqual(axf, bxf), f"{a.name} transform preserved: \n{axf}\n != \n{bxf}"
 
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\PipBoy_Simple.nif")
+        outfile = os.path.join(pynifly_dev_path, f"tests/Out/TEST_PIPBOY.nif")
 
+        NifImporter.do_import(testfile)
+        bpy.ops.object.select_all(action='SELECT')
+        NifExporter.do_export(outfile, 'FO4', list(bpy.context.scene.objects),
+                              export_flags = PyNiflyFlags.PRESERVE_HIERARCHY)
 
+        nifcheck = NifFile(outfile)
+        pbb = nifcheck.nodes["PipboyBody"]
+        assert pbb, f"Exported PipboyBody"
+        td1 = nifcheck.nodes["TapeDeck01"]
+        assert td1.parent.name == pbb.name, f"TapeDeck01 has parent {td1.parent.name}"
+        tdl = nifcheck.nodes["TapeDeckLid"]
+        assert tdl.parent.name == td1.name, f"TapeDeckLid has parent {tdl.parent.name}"
+        tdlm = nifcheck.nodes["TapeDeckLid_mesh"]
+        assert tdlm.parent.name == tdl.name, f"TapeDeckLid_mesh has parent {tdlm.parent.name}"
+        tdlm1 = nifcheck.shape_dict["TapeDeckLid_mesh:1"]
+        assert tdlm1.parent.name == tdlm.name, f"TapeDeckLid_mesh:1 has parent {tdlm1.parent.name}"
 
-    if False: # TEST_BPY_ALL or TEST_NOT_FB:
-        test_title("TEST_NOT_FB", "Test that nif that looked like facebones skel can be imported")
-        clear_all()
+        niftest = NifFile(testfile)
+        td1test = niftest.nodes["TapeDeck01"]
+        tdltest = niftest.nodes["TapeDeckLid"]
+        tdlmtest = niftest.nodes["TapeDeckLid_mesh"]
+        tdlm1test = niftest.shape_dict["TapeDeckLid_mesh:1"]
 
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\6SuitM_Test.nif")
-        NifImporter.do_import(testfile, 
-                              PyNiflyFlags.CREATE_BONES \
-                              | PyNiflyFlags.RENAME_BONES \
-                              | PyNiflyFlags.IMPORT_SHAPES \
-                              | PyNiflyFlags.APPLY_SKINNING)
+        cmp_xf(td1, td1test)
+        cmp_xf(tdl, tdltest)
+        cmp_xf(tdlm, tdlmtest)
+        cmp_xf(tdlm1, tdlm1test)
 
-        body = find_shape("body_Cloth:0")
-        minz = min(v.co.z for v in body.data.vertices)
-        assert minz > -130, f"Min z location not stretched: {minz}"
 
 
     if TEST_BPY_ALL:

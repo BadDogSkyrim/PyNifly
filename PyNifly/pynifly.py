@@ -1623,6 +1623,7 @@ class NifFile:
 
     @property
     def nodes(self):
+        """Dictionary of nodes in the nif, indexed by node name"""
         if self._nodes is None:
             self._nodes = {}
             nodeCount = NifFile.nifly.getNodeCount(self._handle)
