@@ -113,6 +113,12 @@ def MatNearEqual(m1, m2, epsilon=0.001):
         r = r and VNearEqual(a, b, epsilon)
     return r
 
+def XFNearEqual(x1, x2, epsilon=0.001):
+    return VNearEqual(x1.translation, x2.translation, epsilon) \
+        and MatNearEqual(x1.rotation, x2.rotation, epsilon) \
+        and NearEqual(x1.scale, x2.scale, epsilon)
+
+
 def vert_uv_key(vert_index, uv):
     return str(vert_index) + "_" + str(uv)
 
