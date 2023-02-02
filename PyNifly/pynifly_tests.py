@@ -67,104 +67,104 @@ def get_image_node(node_input):
 
 def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_bone_global_xf):
     TEST_BPY_ALL = True
-    TEST_NOT_FB = True
-    TEST_BONE_XF = True
-    TEST_MULTI_IMP = True
-    TEST_NIFTOOLS_NAMES = True
-    TEST_SHAPE_OFFSET = True
-    TEST_IMP_NORMALS = True
-    TEST_COTH_DATA = True
-    TEST_MUTANT = True
-    TEST_RENAME = True
-    TEST_BONE_XPORT_POS = True
-    TEST_POT = True
-    TEST_3BBB = True
-    TEST_BAD_TRI = True
-    TEST_TIGER_EXPORT = True
-    TEST_EXPORT_HANDS = True
-    TEST_PARTITION_ERRORS = True
-    TEST_SCALING = True
-    TEST_POT = True
-    TEST_EXPORT = True
-    TEST_IMPORT_ARMATURE = True
-    TEST_EXPORT_WEIGHTS = True
-    TEST_IMP_EXP_SKY = True
-    TEST_IMP_EXP_FO4 = True
-    TEST_ROUND_TRIP = True
-    TEST_UV_SPLIT = True
-    TEST_CUSTOM_BONES = True
-    TEST_BPY_PARENT = True
-    TEST_BABY = True
-    TEST_CONNECTED_SKEL = True
-    TEST_TRI = True
     TEST_0_WEIGHTS = True
-    TEST_SPLIT_NORMAL = True
-    TEST_SKEL = True
-    TEST_PARTITIONS = True
-    TEST_SEGMENTS = True
-    TEST_BP_SEGMENTS = True
-    TEST_ROGUE01 = True
-    TEST_ROGUE02 = True
-    TEST_NORMAL_SEAM = True
-    TEST_COLORS = True
-    TEST_HEADPART = True
-    TEST_FACEBONES = True
-    TEST_FACEBONE_EXPORT = True
-    TEST_TIGER_EXPORT = True
-    TEST_JIARAN = True
-    TEST_SHADER_LE = True
-    TEST_SHADER_SE = True
-    TEST_SHADER_FO4 = True
-    TEST_SHADER_ALPHA = True
-    TEST_SHEATH = True
-    TEST_FEET = True
-    TEST_SKYRIM_XFORM = True
-    TEST_TRI2 = True
     TEST_3BBB = True
-    TEST_ROTSTATIC = True
-    TEST_ROTSTATIC2 = True
-    TEST_VERTEX_ALPHA = True
-    TEST_EXP_SK_RENAMED = True
-    TEST_EXP_SEG_ORDER = True
-    TEST_EXP_SEGMENTS_BAD = True
+    TEST_3BBB = True
+    TEST_ARMATURE_EXTEND = True
+    TEST_BABY = True
+    TEST_BAD_TRI = True
+    TEST_BONE_HIERARCHY = True
+    TEST_BONE_MANIPULATIONS = True
+    TEST_BONE_XF = True
+    TEST_BONE_XPORT_POS = True
     TEST_BOW = True
     TEST_BOW2 = True
     TEST_BOW3 = True
+    TEST_BP_SEGMENTS = True
+    TEST_BPY_PARENT = True
+    TEST_CHANGE_COLLISION = False # leave false; test not working
+    TEST_COLLISION_CAPSULE = True
     TEST_COLLISION_CONVEXVERT = True
     TEST_COLLISION_HIER = True
+    TEST_COLLISION_LIST = True
     TEST_COLLISION_MULTI = True
     TEST_COLLISION_XFORM = True
-    TEST_COLLISION_CAPSULE = True
-    TEST_COLLISION_LIST = True
-    TEST_WELWA = True
-    TEST_TRIP = True
-    TEST_TRIP_SE = True
-    TEST_FURN_MARKER2 = True
-    TEST_FURN_MARKER1 = True
-    TEST_BONE_HIERARCHY = True
-    TEST_BONE_MANIPULATIONS = True
-    TEST_UNIFORM_SCALE = True
-    TEST_NONUNIFORM_SCALE = True
-    TEST_CHANGE_COLLISION = False # leave false; test not working
-    TEST_DRAUGR_IMPORT = True
-    TEST_WEIGHTS_EXPORT = True
-    TEST_FO4_CHAIR = True
-    TEST_MULT_PART = True
-    TEST_HYENA_PARTITIONS = True
-    TEST_SK_MULT = True
-    TEST_NORM = True
-    TEST_SHADER_3_3 = True
-    TEST_SHADER_SE= True
+    TEST_COLORS = True
     TEST_CONNECT_POINT= True
-    TEST_WEAPON_PART= True
+    TEST_CONNECTED_SKEL = True
+    TEST_COTH_DATA = True
+    TEST_CUSTOM_BONES = True
+    TEST_DRAUGR_IMPORT = True
+    TEST_EXP_SEG_ORDER = True
+    TEST_EXP_SEGMENTS_BAD = True
+    TEST_EXP_SK_RENAMED = True
+    TEST_EXPORT = True
+    TEST_EXPORT_HANDS = True
+    TEST_EXPORT_WEIGHTS = True
+    TEST_FACEBONE_EXPORT = True
+    TEST_FACEBONES = True
+    TEST_FEET = True
+    TEST_FO4_CHAIR = True
+    TEST_FURN_MARKER1 = True
+    TEST_FURN_MARKER2 = True
+    TEST_HEADPART = True
+    TEST_HYENA_PARTITIONS = True
+    TEST_IMP_EXP_FO4 = True
+    TEST_IMP_EXP_SKY = True
+    TEST_IMP_NORMALS = True
+    TEST_IMPORT_ARMATURE = True
     TEST_IMPORT_AS_SHAPES = True
     TEST_IMPORT_MULT_CP = True
     TEST_IMPORT_MULT_SHAPES = True
-    TEST_ARMATURE_EXTEND = True
+    TEST_JIARAN = True
+    TEST_MULT_PART = True
+    TEST_MULTI_IMP = True
+    TEST_MUTANT = True
+    TEST_NIFTOOLS_NAMES = True
+    TEST_NONUNIFORM_SCALE = True
+    TEST_NORM = True
+    TEST_NORMAL_SEAM = True
+    TEST_NOT_FB = True
+    TEST_PARTITION_ERRORS = True
+    TEST_PARTITIONS = True
+    TEST_PIPBOY = False
+    TEST_POT = True
+    TEST_POT = True
+    TEST_RENAME = True
+    TEST_ROGUE01 = True
+    TEST_ROGUE02 = True
+    TEST_ROTSTATIC = True
+    TEST_ROTSTATIC2 = True
+    TEST_ROUND_TRIP = True
+    TEST_SCALING = True
+    TEST_SCALING_BP = False
     TEST_SCALING_COLL = False
     TEST_SCALING_OBJ = False
-    TEST_SCALING_BP = False
-    TEST_PIPBOY = False
+    TEST_SEGMENTS = True
+    TEST_SHADER_3_3 = True
+    TEST_SHADER_ALPHA = True
+    TEST_SHADER_FO4 = True
+    TEST_SHADER_LE = True
+    TEST_SHADER_SE = True
+    TEST_SHADER_SE= True
+    TEST_SHAPE_OFFSET = True
+    TEST_SHEATH = True
+    TEST_SK_MULT = True
+    TEST_SKEL = True
+    TEST_SKYRIM_XFORM = True
+    TEST_SPLIT_NORMAL = True
+    TEST_TIGER_EXPORT = True
+    TEST_TIGER_EXPORT = True
+    TEST_TRI = True
+    TEST_TRI2 = True
+    TEST_TRIP = True
+    TEST_TRIP_SE = True
+    TEST_UNIFORM_SCALE = True
+    TEST_UV_SPLIT = True
+    TEST_VERTEX_ALPHA = True
+    TEST_WEAPON_PART= True
+    TEST_WEIGHTS_EXPORT = True
+    TEST_WELWA = True
 
 
     if TEST_BPY_ALL or TEST_IMP_NORMALS:
@@ -1292,22 +1292,6 @@ Transforms for output and input node {nm} match:
 
         nif1 = NifFile(outfile)
         assert len(nif1.shapes) == 1, "Wrote the file successfully"
-
-    if TEST_BPY_ALL or TEST_SK_MULT:
-        test_title("TEST_SK_MULT", "Export multiple objects with only some shape keys")
-
-        clear_all()
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT.nif")
-        remove_file(outfile)
-
-        append_from_file("CheMaleMane", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "CheMaleMane")
-        append_from_file("MaleTail", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "MaleTail")
-        exporter = NifExporter(outfile, "SKYRIMSE")
-        exporter.export([bpy.data.objects["CheMaleMane"], bpy.data.objects["MaleTail"]])
-
-        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT_1.nif"))
-        assert len(nif1.shapes) == 2, "Wrote the file successfully"
-
 
     if TEST_BPY_ALL or TEST_MULT_PART:
         test_title("TEST_MULT_PART", "Export shape with face that might fall into multiple partititions")

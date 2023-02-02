@@ -3729,6 +3729,7 @@ class NifExporter:
                 self.nif.dict = fo4FaceDict
 
             self.nif.dict.use_niftools = self.flag_set(PyNiflyFlags.RENAME_BONES_NIFTOOLS)
+            self.writtenbones = {}
 
             for obj in self.objects:
                 self.export_shape(obj, sk, arma)
@@ -4173,6 +4174,31 @@ def run_tests():
         bmaxout = max(v[2] for v in bodycheck.verts)
         bminout = min(v[2] for v in bodycheck.verts)
         assert bmaxout-bminout > 100, f"Shape scaled up on ouput: {bminout}-{bmaxout}"
+
+
+    if True: #TEST_BPY_ALL or TEST_SK_MULT:
+        test_title("TEST_SK_MULT", "Export multiple objects with only some shape keys")
+
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT.nif")
+        remove_file(outfile)
+
+        append_from_file("CheMaleMane", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "CheMaleMane")
+        append_from_file("MaleTail", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "MaleTail")
+        exporter = NifExporter(outfile, "SKYRIMSE")
+        exporter.export([bpy.data.objects["CheMaleMane"], bpy.data.objects["MaleTail"]])
+
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT_1.nif"))
+        assert len(nif1.shapes) == 2, "Wrote the 1 file successfully"
+        assert 'NPC Spine2 [Spn2]' in nif1.nodes, "Found spine2 bone"
+        assert 'TailBone01' in nif1.nodes, "Found Tailbone01"
+        assert 'NPC L Clavicle [LClv]' in nif1.nodes, "Found Clavicle"
+
+        nif0 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT_0.nif"))
+        assert len(nif0.shapes) == 2, "Wrote the 0 file successfully"
+        assert 'NPC Spine2 [Spn2]' in nif0.nodes, "Found Spine2 in _0 file"
+        assert 'TailBone01' in nif0.nodes, "Found tailbone01 in _0 file"
+        assert 'NPC L Clavicle [LClv]' in nif0.nodes, "Found clavicle in _0 file"
 
 
 
