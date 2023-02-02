@@ -27,6 +27,25 @@ class PyNiflyFlags(IntFlag):
     KEEP_TMP_SKEL = 1 << 8 # for debugging
     RENAME_BONES_NIFTOOLS = 1 << 9
 
+def MatrixLocRotScale(loc, rot, scale):
+    """Dup from main file"""
+    try:
+        return Matrix.LocRotScale(loc, rot, scale)
+    except:
+        tm = Matrix.Translation(loc)
+        rm = Matrix()
+        if issubclass(rot.__class__, Quaternion):
+            rm = rot.to_matrix()
+        else:
+            rm = Matrix(rot)
+        rm = rm.to_4x4()
+        sm = Matrix(((scale[0],0,0,0),
+                        (0,scale[1],0,0),
+                        (0,0,scale[2],0),
+                        (0,0,0,1)))
+        m = tm @ rm @ sm
+        return m
+
 def get_image_node(node_input):
     """Walk the shader nodes backwards until a texture node is found.
         node_input = the shader node input to follow; may be null"""
@@ -224,7 +243,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
 
         def do_test(bone_name, xf):
             log.debug(f"---\n---Testing {bone_name}---")
-            ObjectActive(arma)
+            bpy.context.view_layer.objects.active = arma
             bpy.ops.object.mode_set(mode='EDIT')
             create_bone(arma.data, bone_name, xf, 'FO4', 1.0)
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -237,41 +256,41 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
             assert MatNearEqual(xfout, xf), f"Transforms preserved for {bone_name}: \n{xfout}\n == \n{xf}"
 
         print("---180 deg rotation around Z")
-        xf2 = MatrixLocRotScale(Vector((0, 0, 0)),
-                                ((-1, 0, 0),
-                                 (0, -1, 0),
-                                 (0, 0, 1)),
-                                (1.0, 1.0, 1.0))
-        do_test('BONE3', xf2)
+        xf = Matrix.LocRotScale(Vector((0, 0, 0)),
+                                Matrix(((-1, 0, 0),
+                                        (0, -1, 0),
+                                        (0, 0, 1))),
+                                None)
+        do_test('BONE3', xf)
 
         print("---180 deg rotation around Y")
-        xf2 = MatrixLocRotScale(Vector((0, 0, 0)),
-                                ((-1, 0, 0),
-                                 (0, 1, 0),
-                                 (0, 0, -1)),
-                                (1.0, 1.0, 1.0))
-        do_test('BONE4', xf2)
+        xf = Matrix.LocRotScale( Vector((0, 0, 0)),
+                                 Matrix(((-1, 0, 0),
+                                         (0, 1, 0),
+                                         (0, 0, -1))),
+                                 None)
+        do_test('BONE4', xf)
 
-        xf2 = MatrixLocRotScale(Vector((-0.0005, 2.5661, 115.5521)),
-                               ((-1.0000, 0.0002, 0.0001),
-                                (0.0002, 0.9492, 0.3147),
-                                (-0.0001, 0.3147, -0.9492)),
-                               (1.0, 1.0, 1.0))
-        do_test('BONE2', xf2)
+        xf = Matrix.LocRotScale( Vector((-0.0005, 2.5661, 115.5521)),
+                                 Matrix(((-1.0000, 0.0002, 0.0001),
+                                         (0.0002, 0.9492, 0.3147),
+                                         (-0.0001, 0.3147, -0.9492))),
+                                 None)
+        do_test('BONE2', xf)
 
-        xf1 = MatrixLocRotScale(Vector((0.0000, 0.5394, 91.2848)),
-                                ((0.0000, -0.0000, -1.0000),
-                                 (-0.0343, 0.9994, -0.0000),
-                                 (0.9994, 0.0343, 0.0000)),
-                                (1.0, 1.0, 1.0))
-        do_test('BONE1', xf1)
+        xf = Matrix.LocRotScale(Vector((0.0000, 0.5394, 91.2848)),
+                                Matrix(((0.0000, -0.0000, -1.0000),
+                                        (-0.0343, 0.9994, -0.0000),
+                                        (0.9994, 0.0343, 0.0000))),
+                                None)
+        do_test('BONE1', xf)
 
-        xf1 = MatrixLocRotScale(Vector((-2.6813, -11.7044, 59.6862)),
-                                ((0.0048, -1.0000,  0.0020),
-                                 (1.0000,  0.0048, -0.0000),
-                                 (0.0000,  0.0020,  1.0000)),
-                                (1,1,1))
-        do_test('BONE5', xf1)
+        xf = Matrix.LocRotScale(Vector((-2.6813, -11.7044, 59.6862)),
+                                Matrix(((0.0048, -1.0000,  0.0020),
+                                        (1.0000,  0.0048, -0.0000),
+                                        (0.0000,  0.0020,  1.0000))),
+                                None)
+        do_test('BONE5', xf)
 
 
     if TEST_BPY_ALL or TEST_CUSTOM_BONES:
@@ -3226,74 +3245,5 @@ Transforms for output and input node {nm} match:
         assert len(fmcheck) == 2, f"Wrote the furniture marker correctly: {len(fmcheck)}"
         assert fmcheck[0].offset[2] > 30, f"Furniture marker Z scaled up: {fmcheck[0].offset[2]}"
 
-
-    if TEST_BPY_ALL or TEST_SCALING_COLL:
-        test_title("TEST_SCALING_COLL", "Collisions scale correctly on import and export")
-        # Primarily tests collisions, but also tests fade node, extra data nodes, 
-        # UV orientation, and texture handling
-        clear_all()
-
-        # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SCALING_COLL.nif")
-
-        NifImporter.do_import(testfile, scale=0.1)
-        obj = find_shape("ElvenBowSkinned:0")
-
-        # Check collision info
-        coll = find_shape('bhkCollisionObject')
-        assert VNearEqual(coll.location, (0.130636, 0.637351, -0.001978)), \
-            f"Collision location properly scaled: {coll.location}"
-
-        collbody = coll.children[0]
-        assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
-        assert VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), \
-            f"Collision body rotation correct: {collbody.rotation_quaternion}"
-        assert VNearEqual(collbody.location, (0.65169, -0.770812, 0.0039871)), \
-            f"Collision body is in correct location: {collbody.location}"
-
-        collshape = collbody.children[0]
-        assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
-        assert NearEqual(collshape['bhkRadius'], 0.00136), f"Radius is properly scaled: {collshape['bhkRadius']}"
-        assert VNearEqual(collshape.data.vertices[0].co, (-1.10145, 5.76582, 0.09541)), \
-            f"Collision shape is properly scaled 0: {collshape.data.vertices[0].co}"
-        assert VNearEqual(collshape.data.vertices[7].co, (1.10145, 5.76582, -0.09541)), \
-            f"Collision shape is properly scaled 7: {collshape.data.vertices[7].co}"
-        assert VNearEqual(collshape.location, (0,0,0)), f"Collision shape centered on parent: {collshape.location}"
-       
-        print("--Testing export")
-
-        # Move the edge of the collision box so it covers the bow better
-        for v in collshape.data.vertices:
-            if v.co.x > 0:
-                v.co.x = 1.65
-
-        NifExporter.do_export(outfile, 'SKYRIMSE', [obj, coll], 
-                              export_flags=PyNiflyFlags.RENAME_BONES | PyNiflyFlags.PRESERVE_HIERARCHY,
-                              scale=0.1)
-
-        # ------- Check Results --------
-
-        nifcheck = NifFile(outfile)
-        rootcheck = nifcheck.rootNode
-        assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
-        assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
-        assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
-
-        midbowcheck = nifcheck.nodes["Bow_MidBone"]
-        collcheck = midbowcheck.collision_object
-        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
-        assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
-
-        # Full check of locations and rotations to make sure we got them right
-        mbc_xf = nifcheck.get_node_xform_to_global("Bow_MidBone")
-        assert VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
-        m = mbc_xf.as_matrix().to_euler()
-        assert VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
-
-        bodycheck = collcheck.body
-        p = bodycheck.properties
-        assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
-        assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
 
         

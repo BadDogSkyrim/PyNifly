@@ -5,14 +5,14 @@
 
 RUN_TESTS = True
 TEST_BPY_ALL = False
-TEST_TARGET_BONE = "XXX"
+TEST_TARGET_BONE = "Bow_MidBone"
 
 bl_info = {
     "name": "NIF format",
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (7, 0, 0),  
+    "version": (8, 0, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -268,14 +268,14 @@ def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor):
     bone = armdata.edit_bones.new(bone_name)
     bone.head = Vector((0,0,0))
     if is_facebone(bone_name):
-        v = Vector((FACEBONE_LEN*scale_factor, 0, 0))
+        v = Vector((FACEBONE_LEN, 0, 0))
     else:
-        v = Vector((0, 0, BONE_LEN*scale_factor))
+        v = Vector((0, 0, BONE_LEN))
     bone.tail = bone.head + v
-    mx = node_xf @ game_rotations[game_axes[game]][0]
-    mxl, mxr, mxs = mx.decompose()
+    mx = Matrix.Scale(scale_factor, 4) @ node_xf @ game_rotations[game_axes[game]][0]
+    #mxl, mxr, mxs = mx.decompose()
 
-    bone.matrix = MatrixLocRotScale(mxl, mxr, mxs*scale_factor)
+    bone.matrix = mx #MatrixLocRotScale(mxl, mxr, mxs*scale_factor)
 
     if bone_name == TEST_TARGET_BONE:
         log.debug(f"Bone transform for {bone_name}) = \n{node_xf}")
@@ -285,6 +285,7 @@ def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor):
 
 def get_bone_global_xf(bone:bpy_types.Bone, game:str, scale_factor=1.0) -> Matrix:
     """ Return the global transform represented by the bone. """
+    # Scale applied at this level on import, but by callor on export. Should be here for cosistency?
     bmx = bone.matrix_local @ game_rotations[game_axes[game]][1]
     #mx = MatrixLocRotScale(bone.head_local, bmx, (1,1,1))
     return bmx
@@ -2443,6 +2444,7 @@ class NifExporter:
         self.connect_child = set()
         self.trippath = ''
         self.chargen_ext = chargen
+        self.writtenbones = {}
         
         # Shape keys that start with underscore trigger a separate file export
         # for each shape key
@@ -3354,29 +3356,29 @@ class NifExporter:
     
         return result
 
-    def write_bone(self, shape:NiShape, b:bpy_types.Bone, writtenbones:dict):
+    def write_bone(self, shape:NiShape, b:bpy_types.Bone):
         """ Write a shape's bone, writing all parent bones first if necessary 
             Returns the node in the target nif for the new bone """
-        if b.name in writtenbones:
-            return writtenbones[b.name]
+        if b.name in self.writtenbones:
+            return self.writtenbones[b.name]
 
         parname = None
         if b.parent:
-            parname = self.write_bone(shape, b.parent, writtenbones)
+            parname = self.write_bone(shape, b.parent)
         
         if self.flag_set(PyNiflyFlags.RENAME_BONES) or self.flag_set(PyNiflyFlags.RENAME_BONES_NIFTOOLS):
             nifname = self.nif.nif_name(b.name)
         else:
             nifname = b.name
 
-        xf = get_bone_xform(b, self.game, self.scale, self.flag_set(PyNiflyFlags.PRESERVE_HIERARCHY))
+        xf = Matrix.Scale(1/self.scale, 4) @ get_bone_xform(b, self.game, self.scale, self.flag_set(PyNiflyFlags.PRESERVE_HIERARCHY))
         tb = TransformBuf.from_matrix(xf) #(apply_scale_xf(xf, 1/self.scale))
 
         if nifname == TEST_TARGET_BONE:
-            log.debug(f"<write_bone> writing bone {b.name} with transform\n{b.matrix}\n-> nif\n{xf_out}")
+            log.debug(f"<write_bone> writing bone {b.name} with transform\n{b.matrix}\n-> nif\n{xf}")
             
         shape.add_bone(nifname, tb, parname)
-        writtenbones[b.name] = nifname
+        self.writtenbones[b.name] = nifname
         return nifname
 
 
@@ -3386,10 +3388,10 @@ class NifExporter:
         connected (do Blender armatures have to be fully connected?). 
         used_bones - list of bone names to write. 
         """
-        writtenbones = {}
+        self.writtenbones = {}
         for b in used_bones:
             if b in arma.bones:
-                self.write_bone(shape, arma.bones[b], writtenbones)
+                self.write_bone(shape, arma.bones[b])
 
 
     def export_skin(self, obj, arma, new_shape, new_xform, weights_by_vert):
@@ -3416,12 +3418,13 @@ class NifExporter:
                 else:
                     nifname = bone_name
 
-                tb = TransformBuf.from_matrix(bone_xform) #(apply_scale_xf(bone_xform, 1/self.scale))
-                if nifname == TEST_TARGET_BONE:
-                    log.debug(f"<export_skin> has bone {bone_name} with pose \n{arma.pose.bones[bone_name].matrix}")
-                    log.debug(f"<export_skin> writing bone {bone_name} with transform\n{arma.data.bones[bone_name].matrix}\n->nif\n{bone_xform}")
-                new_shape.add_bone(nifname, tb)
-                # log.debug(f"....Adding bone {nifname}")
+                if bone_name not in self.writtenbones:
+                    tb = TransformBuf.from_matrix(bone_xform) #(apply_scale_xf(bone_xform, 1/self.scale))
+                    if nifname == TEST_TARGET_BONE:
+                        log.debug(f"<export_skin> writing bone {bone_name} with transform\n{arma.data.bones[bone_name].matrix}\n->nif\n{bone_xform}")
+                    new_shape.add_bone(nifname, tb)
+                    # log.debug(f"....Adding bone {nifname}")
+                    self.writtenbones[bone_name] = nifname
                 new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
 
 
@@ -4067,6 +4070,76 @@ def run_tests():
     # ########### LOCAL TESTS #############
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
+
+    if True: #TEST_BPY_ALL or TEST_SCALING_COLL:
+        test_title("TEST_SCALING_COLL", "Collisions scale correctly on import and export")
+        # Primarily tests collisions, but also tests fade node, extra data nodes, 
+        # UV orientation, and texture handling
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SCALING_COLL.nif")
+
+        NifImporter.do_import(testfile, scale=0.1)
+        obj = find_shape("ElvenBowSkinned:0")
+
+        # Check collision info
+        coll = find_shape('bhkCollisionObject')
+        assert VNearEqual(coll.location, (0.130636, 0.637351, -0.001978)), \
+            f"Collision location properly scaled: {coll.location}"
+
+        collbody = coll.children[0]
+        assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
+        assert VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), \
+            f"Collision body rotation correct: {collbody.rotation_quaternion}"
+        assert VNearEqual(collbody.location, (0.65169, -0.770812, 0.0039871)), \
+            f"Collision body is in correct location: {collbody.location}"
+
+        collshape = collbody.children[0]
+        assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
+        assert NearEqual(collshape['bhkRadius'], 0.00136), f"Radius is properly scaled: {collshape['bhkRadius']}"
+        assert VNearEqual(collshape.data.vertices[0].co, (-1.10145, 5.76582, 0.09541)), \
+            f"Collision shape is properly scaled 0: {collshape.data.vertices[0].co}"
+        assert VNearEqual(collshape.data.vertices[7].co, (1.10145, 5.76582, -0.09541)), \
+            f"Collision shape is properly scaled 7: {collshape.data.vertices[7].co}"
+        assert VNearEqual(collshape.location, (0,0,0)), f"Collision shape centered on parent: {collshape.location}"
+       
+        print("--Testing export")
+
+        # Move the edge of the collision box so it covers the bow better
+        for v in collshape.data.vertices:
+            if v.co.x > 0:
+                v.co.x = 1.65
+
+        NifExporter.do_export(outfile, 'SKYRIMSE', [obj, coll], 
+                              export_flags=PyNiflyFlags.RENAME_BONES | PyNiflyFlags.PRESERVE_HIERARCHY,
+                              scale=0.1)
+
+        # ------- Check Results --------
+
+        nifcheck = NifFile(outfile)
+        rootcheck = nifcheck.rootNode
+        assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
+        assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
+        assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
+
+        midbowcheck = nifcheck.nodes["Bow_MidBone"]
+        collcheck = midbowcheck.collision_object
+        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+        assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+
+        # Full check of locations and rotations to make sure we got them right
+        mbc_xf = nifcheck.get_node_xform_to_global("Bow_MidBone")
+        assert VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
+        m = mbc_xf.as_matrix().to_euler()
+        assert VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
+
+        bodycheck = collcheck.body
+        p = bodycheck.properties
+        assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
+        assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
+
 
     if True: #TEST_BPY_ALL or TEST_SCALING_BP:
         test_title("TEST_SCALING_BP", "Can scale bodyparts")
