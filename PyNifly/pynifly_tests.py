@@ -167,6 +167,357 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
     TEST_WELWA = True
 
 
+    if True: #TEST_BPY_ALL or TEST_SKIN_BONE_XF:
+        test_title("TEST_SKIN_BONE_XF", "Skin-to-bone transforms work correctly")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\3BBB_femalehands_1.nif")
+        NifImporter.do_import(testfile, PyNiflyFlags.RENAME_BONES | PyNiflyFlags.APPLY_SKINNING)
+        hands = find_object("Hands", bpy.context.selected_objects, fn=lambda x: x.name)
+        assert VNearEqual(hands.data.vertices[413].co, Vector((-26.8438, 2.3812, 78.3215))), f"Hands not warped"
+
+        # Head not using the same skeleton as hands because we didn't select it. Probably originally 
+        # intended it to, but this is also a uesful test, so
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\maleheadargonian.nif")
+        NifImporter.do_import(testfile, PyNiflyFlags.RENAME_BONES | PyNiflyFlags.APPLY_SKINNING)
+        head = find_object("_ArgonianMaleHead", bpy.context.selected_objects, fn=lambda x: x.name)
+        minz = min([v.co.z for v in head.data.vertices])
+        assert NearEqual(minz, -11.012878, epsilon=0.1), f"Min Z is negative: {minz}"
+        maxz = max([v.co.z for v in head.data.vertices])
+        assert NearEqual(maxz, 11.262238, epsilon=0.1), f"Min Z is negative: {minz}"
+        assert NearEqual(head.location.z, 120.343582), f"Head is positioned at head position: {head.location}"
+
+
+    if True: #TEST_BPY_ALL or TEST_BOW:
+        test_title("TEST_BOW", "Can read and write bow")
+        # Primarily tests collisions, but also tests fade node, extra data nodes, 
+        # UV orientation, and texture handling
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_BOW.nif")
+
+        imp = NifImporter(testfile)
+        imp.execute()
+
+        # Check root info
+        obj = bpy.context.object
+        assert obj["pynRootNode_BlockType"] == 'BSFadeNode', "pynRootNode_BlockType holds the type of root node for the given shape"
+        assert obj["pynRootNode_Name"] == "GlassBowSkinned.nif", "pynRootNode_Name holds the name for the root node"
+        assert obj["pynRootNode_Flags"] == "SELECTIVE_UPDATE | SELECTIVE_UPDATE_TRANSF | SELECTIVE_UPDATE_CONTR", f"'pynRootNode_Flags' holds the flags on the root node: {obj['pynRootNode_Flags']}"
+
+        # Check collision info
+        coll = find_shape('bhkCollisionObject')
+        assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
+        assert coll['pynCollisionTarget'] == 'Bow_MidBone', f"'Target' names the object the collision affects, in this case a bone: {coll['pynCollisionTarget']}"
+
+        collbody = coll.children[0]
+        assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
+        assert collbody['collisionFilter_layer'] == SkyrimCollisionLayer.WEAPON.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
+        assert collbody["collisionResponse"] == hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
+        assert VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
+
+        collshape = collbody.children[0]
+        assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
+        assert collshape['bhkMaterial'] == 'MATERIAL_BOWS_STAVES', f"Shape material is a custom property: {collshape['bhkMaterial']}"
+        assert round(collshape['bhkRadius'],4) == 0.0136, f"Radius property available as custom property: {collshape['bhkRadius']}"
+        corner = map(abs, collshape.data.vertices[0].co)
+        assert VNearEqual(corner, [11.01445, 57.6582, 0.95413]), f"Collision shape in correct position: {corner}"
+
+        bged = find_shape("BSBehaviorGraphExtraData")
+        assert bged['BSBehaviorGraphExtraData_Value'] == "Weapons\Bow\BowProject.hkx", f"BGED node contains bow project: {bged['BSBehaviorGraphExtraData_Value']}"
+
+        strd = find_shape("NiStringExtraData")
+        assert strd['NiStringExtraData_Value'] == "WeaponBow", f"Str ED node contains bow value: {strd['NiStringExtraData_Value']}"
+
+        bsxf = find_shape("BSXFlags")
+        assert bsxf['BSXFlags_Name'] == "BSX", f"BSX Flags contain name BSX: {bsxf['BSXFlags_Name']}"
+        assert bsxf['BSXFlags_Value'] == "HAVOC | COMPLEX | DYNAMIC | ARTICULATED", "BSX Flags object contains correct flags: {bsxf['BSXFlags_Value']}"
+
+        invm = find_shape("BSInvMarker")
+        assert invm['BSInvMarker_Name'] == "INV", f"Inventory marker shape has correct name: {invm['BSInvMarker_Name']}"
+        assert invm['BSInvMarker_RotX'] == 4712, f"Inventory marker rotation correct: {invm['BSInvMarker_RotX']}"
+        assert round(invm['BSInvMarker_Zoom'], 4) == 1.1273, f"Inventory marker zoom correct: {invm['BSInvMarker_Zoom']}"
+       
+        # ------- Export --------
+
+        # Move the edge of the collision box so it covers the bow better
+        for v in collshape.data.vertices:
+            if v.co.x > 0:
+                v.co.x = 16.5
+
+        exporter = NifExporter(outfile, 'SKYRIMSE')
+        exporter.export([obj, coll, bged, strd, bsxf, invm])
+
+        # ------- Check Results --------
+
+        nifcheck = NifFile(outfile)
+        compare_shapes(imp.nif.shape_dict['ElvenBowSkinned:0'],
+                       nifcheck.shape_dict['ElvenBowSkinned:0'],
+                       obj)
+
+        rootcheck = nifcheck.rootNode
+        assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
+        assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
+        assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
+
+        bsxcheck = nifcheck.bsx_flags
+        assert bsxcheck == ["BSX", 202], f"BSX Flag node found: {bsxcheck}"
+
+        bsinvcheck = nifcheck.inventory_marker
+        assert bsinvcheck[0:4] == ["INV", 4712, 0, 785], f"Inventory marker set: {bsinvcheck}"
+        assert round(bsinvcheck[4], 4) == 1.1273, f"Inventory marker zoom set: {bsinvcheck[4]}"
+
+        midbowcheck = nifcheck.nodes["Bow_MidBone"]
+        collcheck = midbowcheck.collision_object
+        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+        assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+
+        # Full check of locations and rotations to make sure we got them right
+        mbc_xf = nifcheck.get_node_xform_to_global("Bow_MidBone")
+        assert VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
+        m = mbc_xf.as_matrix().to_euler()
+        assert VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
+
+        bodycheck = collcheck.body
+        p = bodycheck.properties
+        assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
+        assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
+
+
+    if True: #TEST_BPY_ALL or TEST_IMP_EXP_SKY:
+        test_title("TEST_IMP_EXP_SKY", "Can read the armor nif and spit it back out")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/armor_only.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_EXP_SKY.nif")
+
+        imp = NifImporter(testfile)
+        imp.execute()
+
+        armorin = imp.nif.shape_dict['Armor']
+        armor = find_shape('Armor')
+
+        exp = NifExporter(outfile, "SKYRIM")
+        exp.export([armor])
+
+        nifout = NifFile(outfile)
+
+        assert NearEqual(armorin.verts[0][2], armor.data.vertices[0].co.z), f"0 z coordinate matches: {armorin.verts[0][2]}=={armor.data.vertices[0].co.z}"
+
+        compare_shapes(armorin, nifout.shape_dict['Armor'], armor)
+        check_unweighted_verts(nifout.shape_dict['Armor'])
+        assert NearEqual(armor.location.z, 120.343582, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
+            
+
+    if True: #TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
+        test_title("TEST_IMP_EXP_SKY_2", "Can read the armor nif with two shapes and spit it back out")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/test.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_EXP_SKY_2.nif")
+
+        imp = NifImporter(testfile)
+        imp.execute()
+
+        body = find_shape('MaleBody')
+        armor = find_shape('Armor')
+
+        exp = NifExporter(outfile, "SKYRIM")
+        exp.export([body, armor])
+
+        nifout = NifFile(outfile)
+        compare_shapes(imp.nif.shape_dict['MaleBody'], nifout.shape_dict['MaleBody'], body)
+        compare_shapes(imp.nif.shape_dict['Armor'], nifout.shape_dict['Armor'], armor)
+
+        check_unweighted_verts(nifout.shape_dict['MaleBody'])
+        check_unweighted_verts(nifout.shape_dict['Armor'])
+        assert NearEqual(body.location.z, 0), f"{body.name} not in lifted position: {body.location.z}"
+        assert NearEqual(armor.location.z, 120.343582, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
+            
+
+    if True: #TEST_BPY_ALL or TEST_IMP_EXP_FO4:
+        test_title("TEST_IMP_EXP_FO4", "Can read the body nif and spit it back out")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\BTMaleBody.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_EXP_FO4.nif")
+
+        imp = NifImporter(testfile)
+        imp.execute()
+
+        body = find_shape('BaseMaleBody:0')
+        bodyin = imp.nif.shape_dict['BaseMaleBody:0']
+
+        exp = NifExporter(outfile, "FO4")
+        exp.export([body])
+
+        nifout = NifFile(outfile)
+        bodyout = nifout.shape_dict['BaseMaleBody:0']
+
+        compare_shapes(bodyin, bodyout, body, e=0.001, ignore_translations=True)
+
+
+    if True: #TEST_BPY_ALL or TEST_IMP_EXP_FO4_2:
+        test_title("TEST_IMP_EXP_FO4_2", "Can read the body armor with 2 parts")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\Pack_UnderArmor_03_M.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_EXP_FO4_2.nif")
+
+        imp = NifImporter(testfile)
+        imp.execute()
+
+        body = find_shape('BaseMaleBody_03:0')
+        armor = find_shape('Pack_UnderArmor_03_M:0')
+        bodyin = imp.nif.shape_dict['BaseMaleBody_03:0']
+        armorin = imp.nif.shape_dict['Pack_UnderArmor_03_M:0']
+
+        exp = NifExporter(outfile, "FO4")
+        exp.export([body, armor])
+
+        nifout = NifFile(outfile)
+        bodyout = nifout.shape_dict['BaseMaleBody_03:0']
+        armorout = nifout.shape_dict['Pack_UnderArmor_03_M:0']
+
+        compare_shapes(bodyin, bodyout, body, e=0.001, ignore_translations=True)
+        compare_shapes(armorin, armorout, armor, e=0.001, ignore_translations=True)
+
+
+    if True: #TEST_BPY_ALL or TEST_SCALING_COLL:
+        test_title("TEST_SCALING_COLL", "Collisions scale correctly on import and export")
+        # Primarily tests collisions, but also tests fade node, extra data nodes, 
+        # UV orientation, and texture handling
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SCALING_COLL.nif")
+
+        imp = NifImporter(testfile, scale=0.1)
+        imp.execute()
+        obj = find_shape("ElvenBowSkinned:0")
+
+        # Check collision info
+        coll = find_shape('bhkCollisionObject')
+        assert VNearEqual(coll.location, (0.130636, 0.637351, -0.001978)), \
+            f"Collision location properly scaled: {coll.location}"
+
+        collbody = coll.children[0]
+        assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
+        assert VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), \
+            f"Collision body rotation correct: {collbody.rotation_quaternion}"
+        assert VNearEqual(collbody.location, (0.65169, -0.770812, 0.0039871)), \
+            f"Collision body is in correct location: {collbody.location}"
+
+        collshape = collbody.children[0]
+        assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
+        assert NearEqual(collshape['bhkRadius'], 0.00136), f"Radius is properly scaled: {collshape['bhkRadius']}"
+        assert VNearEqual(collshape.data.vertices[0].co, (-1.10145, 5.76582, 0.09541)), \
+            f"Collision shape is properly scaled 0: {collshape.data.vertices[0].co}"
+        assert VNearEqual(collshape.data.vertices[7].co, (1.10145, 5.76582, -0.09541)), \
+            f"Collision shape is properly scaled 7: {collshape.data.vertices[7].co}"
+        assert VNearEqual(collshape.location, (0,0,0)), f"Collision shape centered on parent: {collshape.location}"
+       
+        print("--Testing export")
+
+        # Move the edge of the collision box so it covers the bow better
+        for v in collshape.data.vertices:
+            if v.co.x > 0:
+                v.co.x = 1.65
+
+        NifExporter.do_export(outfile, 'SKYRIMSE', [obj, coll], 
+                              export_flags=PyNiflyFlags.RENAME_BONES | PyNiflyFlags.PRESERVE_HIERARCHY,
+                              scale=0.1)
+
+        # ------- Check Results --------
+
+        nifcheck = NifFile(outfile)
+        compare_shapes(imp.nif.shape_dict['ElvenBowSkinned:0'],
+                       nifcheck.shape_dict['ElvenBowSkinned:0'],
+                       obj,
+                       scale=0.1)
+
+        rootcheck = nifcheck.rootNode
+        assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
+        assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
+        assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
+
+        midbowcheck = nifcheck.nodes["Bow_MidBone"]
+        collcheck = midbowcheck.collision_object
+        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+        assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+
+        # Full check of locations and rotations to make sure we got them right
+        compare_bones('Bow_MidBone', imp.nif, nifcheck)
+        compare_bones('Bow_StringBone2', imp.nif, nifcheck)
+
+        bodycheck = collcheck.body
+        p = bodycheck.properties
+        assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
+        assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
+
+
+    if TEST_BPY_ALL or TEST_SCALING_BP:
+        test_title("TEST_SCALING_BP", "Can scale bodyparts")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\malebody_1.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_SCALING_BP.nif")
+
+        NifImporter.do_import(testfile, PyNiflyFlags.CREATE_BONES | PyNiflyFlags.APPLY_SKINNING | 
+                              PyNiflyFlags.RENAME_BONES_NIFTOOLS | PyNiflyFlags.KEEP_TMP_SKEL, scale=0.1)
+
+        arma = find_shape("MaleBody_1.nif")
+        b = arma.data.bones['NPC Spine1 [Spn1]']
+        assert NearEqual(b.matrix_local.translation.z, 8.1443), f"Scale correctly applied: {b.matrix_local.translation}"
+        body = find_shape("MaleUnderwearBody:0")
+        assert NearEqual(body.location.z, 12, 0.1), f"Object translation correctly applied: {body.location}"
+        bodymax = max([v.co.z for v in body.data.vertices])
+        bodymin = min([v.co.z for v in body.data.vertices])
+        assert bodymax < 0, f"Max z is less than 0: {bodymax}"
+        assert bodymin >= -12, f"Max z is greater than -12: {bodymin}"
+
+        # Test export scaling is correct
+        NifExporter(outfile, "SKYRIM", 
+                    PyNiflyFlags.APPLY_SKINNING | PyNiflyFlags.RENAME_BONES_NIFTOOLS, scale=0.1) \
+                        .export([body])
+        nifcheck = NifFile(outfile)
+        bodycheck = nifcheck.shape_dict["MaleUnderwearBody:0"]
+        assert NearEqual(bodycheck.transform.scale, 1.0), f"Scale is 1: {bodycheck.transform.scale}"
+        assert NearEqual(bodycheck.transform.translation[2], 120.3, 0.1), \
+            f"Translation is correct: {list(bodycheck.transform.translation)}"
+        bmaxout = max(v[2] for v in bodycheck.verts)
+        bminout = min(v[2] for v in bodycheck.verts)
+        assert bmaxout-bminout > 100, f"Shape scaled up on ouput: {bminout}-{bmaxout}"
+
+
+    if TEST_BPY_ALL or TEST_SK_MULT:
+        test_title("TEST_SK_MULT", "Export multiple objects with only some shape keys")
+
+        clear_all()
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT.nif")
+        remove_file(outfile)
+
+        append_from_file("CheMaleMane", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "CheMaleMane")
+        append_from_file("MaleTail", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "MaleTail")
+        exporter = NifExporter(outfile, "SKYRIMSE")
+        exporter.export([bpy.data.objects["CheMaleMane"], bpy.data.objects["MaleTail"]])
+
+        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT_1.nif"))
+        assert len(nif1.shapes) == 2, "Wrote the 1 file successfully"
+        assert 'NPC Spine2 [Spn2]' in nif1.nodes, "Found spine2 bone"
+        assert 'TailBone01' in nif1.nodes, "Found Tailbone01"
+        assert 'NPC L Clavicle [LClv]' in nif1.nodes, "Found Clavicle"
+
+        nif0 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT_0.nif"))
+        assert len(nif0.shapes) == 2, "Wrote the 0 file successfully"
+        assert 'NPC Spine2 [Spn2]' in nif0.nodes, "Found Spine2 in _0 file"
+        assert 'TailBone01' in nif0.nodes, "Found tailbone01 in _0 file"
+        assert 'NPC L Clavicle [LClv]' in nif0.nodes, "Found clavicle in _0 file"
+
+
     if TEST_BPY_ALL or TEST_IMP_NORMALS:
         test_title("TEST_IMP_NORMALS", "Can import normals from nif shape")
         clear_all()
@@ -955,27 +1306,6 @@ Transforms for output and input node {nm} match:
         nifcheck = NifFile(outfile)
 
         assert "NPC Pelvis [Pelv]" not in nifcheck.nodes, f"Human pelvis name not written: {nifcheck.nodes.keys()}"
-
-
-    if TEST_BPY_ALL or TEST_SKIN_BONE_XF:
-        test_title("TEST_SKIN_BONE_XF", "Skin-to-bone transforms work correctly")
-        clear_all()
-
-        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\3BBB_femalehands_1.nif")
-        NifImporter.do_import(testfile, PyNiflyFlags.RENAME_BONES | PyNiflyFlags.APPLY_SKINNING)
-        hands = find_object("Hands", bpy.context.selected_objects, fn=lambda x: x.name)
-        assert VNearEqual(hands.data.vertices[413].co, Vector((-26.8438, 2.3812, 78.3215))), f"Hands not warped"
-
-        # Head not using the same skeleton as hands because we didn't select it. Probably originally 
-        # intended it to, but this is also a uesful test so
-        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\maleheadargonian.nif")
-        NifImporter.do_import(testfile, PyNiflyFlags.RENAME_BONES | PyNiflyFlags.APPLY_SKINNING)
-        head = find_object("_ArgonianMaleHead", bpy.context.selected_objects, fn=lambda x: x.name)
-        minz = min([v.co.z for v in head.data.vertices])
-        assert NearEqual(minz, -11.012878, epsilon=0.1), f"Min Z is negative: {minz}"
-        maxz = max([v.co.z for v in head.data.vertices])
-        assert NearEqual(maxz, 11.262238, epsilon=0.1), f"Min Z is negative: {minz}"
-        assert NearEqual(head.location.z, 120.343582), f"Head is positioned at head position: {head.location}"
 
 
     if TEST_BPY_ALL or TEST_CONNECT_POINT:
@@ -1769,137 +2099,6 @@ Transforms for output and input node {nm} match:
         assert fmcheck[0].entry_points == 13, f"Entry point data is correct: {fmcheck[0].entry_points}"
 
 
-
-    if (TEST_BPY_ALL or TEST_COLLISION_XFORM) and bpy.app.version[0] >= 3:
-        # V2.x does not import the whole parent chain when appending an object 
-        # from another file
-        test_title("TEST_COLLISION_XFORM", "Can read and write shape with collision capsule shapes")
-        clear_all()
-
-        # ------- Load --------
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_XFORM.nif")
-
-        append_from_file("Staff", True, r"tests\SkyrimSE\staff.blend", r"\Object", "Staff")
-        append_from_file("BSInvMarker", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSInvMarker")
-        append_from_file("BSXFlags", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSXFlags")
-        append_from_file("NiStringExtraData", True, r"tests\SkyrimSE\staff.blend", r"\Object", "NiStringExtraData")
-        append_from_file("bhkConvexVerticesShape.002", True, r"tests\SkyrimSE\staff.blend", r"\Object", "bhkConvexVerticesShape.002")
-
-        staff = find_shape("Staff")
-        coll = find_shape("bhkCollisionObject")
-        strd = find_shape("NiStringExtraData")
-        bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
-
-        # -------- Export --------
-        remove_file(outfile)
-        exporter = NifExporter(outfile, 'SKYRIMSE')
-        exporter.export([staff, coll, bsxf, invm, strd])
-
-        # ------- Check ---------
-        nifcheck = NifFile(outfile)
-        staffcheck = nifcheck.shape_dict["Staff"]
-        collcheck = nifcheck.rootNode.collision_object
-        rbcheck = collcheck.body
-        listcheck = rbcheck.shape
-        cvShapes = [c for c in listcheck.children if c.blockname == "bhkConvexVerticesShape"]
-        maxz = max([v[2] for v in cvShapes[0].vertices])
-        assert maxz < 0, f"All verts on collisions shape on negative z axis: {maxz}"
-
-        
-    if TEST_BPY_ALL or TEST_BOW:
-        test_title("TEST_BOW", "Can read and write bow")
-        # Primarily tests collisions, but also tests fade node, extra data nodes, 
-        # UV orientation, and texture handling
-        clear_all()
-
-        # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_BOW.nif")
-
-        NifImporter.do_import(testfile)
-
-        # Check root info
-        obj = bpy.context.object
-        assert obj["pynRootNode_BlockType"] == 'BSFadeNode', "pynRootNode_BlockType holds the type of root node for the given shape"
-        assert obj["pynRootNode_Name"] == "GlassBowSkinned.nif", "pynRootNode_Name holds the name for the root node"
-        assert obj["pynRootNode_Flags"] == "SELECTIVE_UPDATE | SELECTIVE_UPDATE_TRANSF | SELECTIVE_UPDATE_CONTR", f"'pynRootNode_Flags' holds the flags on the root node: {obj['pynRootNode_Flags']}"
-
-        # Check collision info
-        coll = find_shape('bhkCollisionObject')
-        assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
-        assert coll['pynCollisionTarget'] == 'Bow_MidBone', f"'Target' names the object the collision affects, in this case a bone: {coll['pynCollisionTarget']}"
-
-        collbody = coll.children[0]
-        assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
-        assert collbody['collisionFilter_layer'] == SkyrimCollisionLayer.WEAPON.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
-        assert collbody["collisionResponse"] == hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
-        assert VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
-
-        collshape = collbody.children[0]
-        assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
-        assert collshape['bhkMaterial'] == 'MATERIAL_BOWS_STAVES', f"Shape material is a custom property: {collshape['bhkMaterial']}"
-        assert round(collshape['bhkRadius'],4) == 0.0136, f"Radius property available as custom property: {collshape['bhkRadius']}"
-        corner = map(abs, collshape.data.vertices[0].co)
-        assert VNearEqual(corner, [11.01445, 57.6582, 0.95413]), f"Collision shape in correct position: {corner}"
-
-        bged = find_shape("BSBehaviorGraphExtraData")
-        assert bged['BSBehaviorGraphExtraData_Value'] == "Weapons\Bow\BowProject.hkx", f"BGED node contains bow project: {bged['BSBehaviorGraphExtraData_Value']}"
-
-        strd = find_shape("NiStringExtraData")
-        assert strd['NiStringExtraData_Value'] == "WeaponBow", f"Str ED node contains bow value: {strd['NiStringExtraData_Value']}"
-
-        bsxf = find_shape("BSXFlags")
-        assert bsxf['BSXFlags_Name'] == "BSX", f"BSX Flags contain name BSX: {bsxf['BSXFlags_Name']}"
-        assert bsxf['BSXFlags_Value'] == "HAVOC | COMPLEX | DYNAMIC | ARTICULATED", "BSX Flags object contains correct flags: {bsxf['BSXFlags_Value']}"
-
-        invm = find_shape("BSInvMarker")
-        assert invm['BSInvMarker_Name'] == "INV", f"Inventory marker shape has correct name: {invm['BSInvMarker_Name']}"
-        assert invm['BSInvMarker_RotX'] == 4712, f"Inventory marker rotation correct: {invm['BSInvMarker_RotX']}"
-        assert round(invm['BSInvMarker_Zoom'], 4) == 1.1273, f"Inventory marker zoom correct: {invm['BSInvMarker_Zoom']}"
-       
-        # ------- Export --------
-
-        # Move the edge of the collision box so it covers the bow better
-        for v in collshape.data.vertices:
-            if v.co.x > 0:
-                v.co.x = 16.5
-
-        exporter = NifExporter(outfile, 'SKYRIMSE')
-        exporter.export([obj, coll, bged, strd, bsxf, invm])
-
-        # ------- Check Results --------
-
-        nifcheck = NifFile(outfile)
-        rootcheck = nifcheck.rootNode
-        assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
-        assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
-        assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
-
-        bsxcheck = nifcheck.bsx_flags
-        assert bsxcheck == ["BSX", 202], f"BSX Flag node found: {bsxcheck}"
-
-        bsinvcheck = nifcheck.inventory_marker
-        assert bsinvcheck[0:4] == ["INV", 4712, 0, 785], f"Inventory marker set: {bsinvcheck}"
-        assert round(bsinvcheck[4], 4) == 1.1273, f"Inventory marker zoom set: {bsinvcheck[4]}"
-
-        midbowcheck = nifcheck.nodes["Bow_MidBone"]
-        collcheck = midbowcheck.collision_object
-        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
-        assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
-
-        # Full check of locations and rotations to make sure we got them right
-        mbc_xf = nifcheck.get_node_xform_to_global("Bow_MidBone")
-        assert VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
-        m = mbc_xf.as_matrix().to_euler()
-        assert VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
-
-        bodycheck = collcheck.body
-        p = bodycheck.properties
-        assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
-        assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
-
-
     if TEST_BPY_ALL or TEST_BOW2:
         test_title("TEST_BOW2", "Can modify collision shape location")
         clear_all()
@@ -2491,69 +2690,6 @@ Transforms for output and input node {nm} match:
         male_head = bpy.data.objects["BaseMaleHead:0"]
         assert int(male_head.location.z) == 120, f"ERROR: Object {male_head.name} at {male_head.location.z}, not elevated to position"
         assert male_head.parent.type == "ARMATURE", "ERROR: Didn't parent to armature"
-
-
-    if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
-        test_title("TEST_IMP_EXP_SKY", "Can read the armor nif and spit it back out (no blender shape)")
-
-        testfile = os.path.join(pynifly_dev_path, "tests/Skyrim/test.nif")
-        nif = NifFile(testfile)
-        assert "Armor" in nif.getAllShapeNames(), "ERROR: Didn't read armor"
-
-        the_armor = nif.shape_dict["Armor"]
-        assert len(the_armor.verts) == 2115, "ERROR: Wrong number of verts"
-        assert (len(the_armor.tris) == 3195), "ERROR: Wrong number of tris"
-
-        outfile = os.path.join(pynifly_dev_path, "tests/Out/TestSkinnedFromPy02.nif")
-        remove_file(outfile)
-        new_nif = NifFile()
-        new_nif.initialize("SKYRIM", outfile)
-        new_nif.createSkin()
-        
-        new_armor = new_nif.createShapeFromData("Armor", 
-                                                the_armor.verts,
-                                                the_armor.tris,
-                                                the_armor.uvs,
-                                                the_armor.normals)
-        new_armor.skin()
-        armor_gts = TransformBuf()
-        armor_gts.translation = (0.000256, 1.547526, -120.343582)
-        new_armor.set_global_to_skin(armor_gts)
-
-        for b in the_armor.bone_weights.keys():
-            new_armor.add_bone(b)
-            new_armor.setShapeWeights(b, the_armor.bone_weights[b])
-        
-        new_nif.save()
-            
-    if TEST_BPY_ALL or TEST_IMP_EXP_FO4:
-        test_title("TEST_IMP_EXP_FO4", "Can read the body nif and spit it back out (no blender shape)")
-
-        nif = NifFile(os.path.join(pynifly_dev_path, "tests\FO4\BTMaleBody.nif"))
-        assert "BaseMaleBody:0" in nif.getAllShapeNames(), "ERROR: Didn't read nif"
-
-        the_body = nif.shape_dict["BaseMaleBody:0"]
-
-        new_nif = NifFile()
-        new_nif.initialize("FO4", os.path.join(pynifly_dev_path, "tests/Out/TestSkinnedFO03.nif"))
-        new_nif.createSkin()
-        
-        new_body = new_nif.createShapeFromData("BaseMaleBody:0", 
-                                                the_body.verts,
-                                                the_body.tris,
-                                                the_body.uvs,
-                                                the_body.normals)
-        new_body.skin()
-        body_gts = TransformBuf()
-        body_gts.translation = (0.000256, 1.547526, -120.343582)
-        new_body.set_global_to_skin(body_gts)
-
-        for b in the_body.bone_weights.keys():
-            new_body.add_bone(b)
-            new_body.setShapeWeights(b, the_body.bone_weights[b])
-        
-        new_nif.save()
-            
 
 
     if TEST_BPY_ALL or TEST_EXPORT_WEIGHTS:

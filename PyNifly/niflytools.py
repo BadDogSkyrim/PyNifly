@@ -108,6 +108,9 @@ def VNearEqual(v1, v2, epsilon=0.001):
     return r
 
 def MatNearEqual(m1, m2, epsilon=0.001):
+    """Compare matrices for near-equality.
+    Matrix must act like a list of lists.
+    """
     r = True
     for a, b in zip(m1, m2):
         r = r and VNearEqual(a, b, epsilon)

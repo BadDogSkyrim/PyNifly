@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (8, 1, 0),  
+    "version": (8, 2, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -28,6 +28,7 @@ from operator import or_
 from functools import reduce
 import traceback
 import math
+from unittest.result import failfast
 from mathutils import Matrix, Vector, Quaternion, geometry
 # import quickhull
 import re
@@ -209,6 +210,7 @@ def append_if_new(theList, theVector, errorfactor):
             return
     theList.append(theVector)
 
+
 def apply_scale_xf(xf:Matrix, sf:float):
     """Apply the scale factor sf to the matrix but NOT to the scale component of the matrix.
     When importing with a scale factor, verts and other elements are scaled already by the scale factor
@@ -216,6 +218,18 @@ def apply_scale_xf(xf:Matrix, sf:float):
     """
     loc, rot, scale = (xf * sf).decompose()
     return MatrixLocRotScale(loc, rot, xf.to_scale())
+
+def armatures_match(a, b):
+    """Returns true if all bones of the first arature have the same position in the second"""
+    for bone in a.data.bones:
+        if bone.name in b.data.bones:
+            if not MatNearEqual(bone.matrix_local, b.data.bones[bone_name].matrix_local):
+                log.debug(f"Bone {bone.name} positions do not match {a.name} vs {b.name}: \n{bone.matrix_local}!=\n{b.data.bones[bone_name].matrix_local}")
+            return False
+        else:
+            log.debug(f"Bone {bone.name} found in {a.name} but not in {b.name}")
+            return False
+    return True
 
 
 # ------------- TransformBuf extensions -------
@@ -408,7 +422,7 @@ def obj_create_material(obj, shape):
                 if os.path.exists(txpng):
                     fulltextures[i] = txpng
                     log.info(f"Using png texture from nif's node tree': {fnpng}")
-        log.debug(f"Using texture path {i}: {fulltextures[i]}")
+        #log.debug(f"Using texture path {i}: {fulltextures[i]}")
 
 
     #missing = missing_files(convertedTextures)
@@ -996,7 +1010,6 @@ class NifImporter():
         if (ninode._handle not in self.objects_created) \
             and (not self.armature or bl_name not in self.armature.data.bones) \
             and (ninode.parent):
-            log.debug(f"Creating node for {bl_name}")
             
             skelbone = None
             if ninode.name in ninode.file.dict.byNif:
@@ -1007,6 +1020,7 @@ class NifImporter():
 
             if skelbone:
                 # If the node is a known skeleton bone, add it to the skeleton even if it's not used
+                log.debug(f"Creating bone for {bl_name}")
                 ObjectSelect([self.armature])
                 ObjectActive(self.armature)
                 bpy.ops.object.mode_set(mode = 'EDIT')
@@ -1015,6 +1029,7 @@ class NifImporter():
 
             else:
                 # If not a known skeleton bone, just import as n EMPTY object
+                log.debug(f"Creating node for {bl_name}")
                 bpy.ops.object.add(radius=1.0, type='EMPTY')
                 obj = bpy.context.object
                 obj.name = ninode.name
@@ -1099,10 +1114,11 @@ class NifImporter():
             parent = self.import_node_parents(the_shape) 
 
             new_object.matrix_world = get_node_transform(the_shape, scale_factor=self.scale)
+            log.debug(f"Importing new object {new_object.name} at \n{new_object.matrix_world}\n<- nif\n{the_shape.global_to_skin_data}")
             if parent:
                 new_object.parent = parent
 
-            if self.flag_set(PyNiflyFlags.ROTATE_MODEL):
+            if self.flag_set(PyNiflyFlags.ROTATE_MODEL): #This flag is not yet implemented
                 log.info(f"Rotating model to match blender")
                 r = new_object.rotation_euler[:]
                 new_object.rotation_euler = (r[0], r[1], r[2]+pi)
@@ -1308,17 +1324,16 @@ class NifImporter():
             return
 
         log.debug(f"Skinning and parenting object {obj.name} at location {obj.location}")
+        log.debug(f"V0 coordinates start at {obj.data.vertices[0].co}")
+        obj_original_xf = obj.matrix_world
         tmp_name = "PYN_IMPORT_ARMA." + obj.name
         tmpa_data = bpy.data.armatures.new(tmp_name)
         tmpa = bpy.data.objects.new(tmp_name, tmpa_data)
         self.armature.users_collection[0].objects.link(tmpa)
         sh = self.nodes_loaded[obj.name]
 
-        # Location was set when mesh was created to reflect the transform on the NiShape. 
-        # Since this one is skinned, remove that transform. It will be re-set below.
-        obj.matrix_world = Matrix.Identity(4)
-
-        # Create bones reflecting the skin-to-bone transforms of the shape
+        # Create bones reflecting the skin-to-bone transforms of the shape.
+        # Collect the average skin-to-bone transforms of all the bones along the way.
         ObjectActive(tmpa)
         bpy.ops.object.mode_set(mode = 'EDIT')
         shape_xf = Matrix()
@@ -1327,15 +1342,14 @@ class NifImporter():
             bone_shape_xf = sh.get_shape_skin_to_bone(bn).as_matrix()
             #log.debug(f"Bone '{bn}' has skin-to-bone xform matrix \n{bone_shape_xf}")
             nif_bone = self.nif.nodes[bn]
-            bone_xf = nif_bone.transform.as_matrix()
+            bone_xf = nif_bone.xform_to_global.as_matrix() # nif_bone.transform.as_matrix()
             #log.debug(f"Bone '{bn}' has base transform in nif: \n{bone_xf}")
             new_bone_xf = bone_xf @ bone_shape_xf 
-            #log.debug(f"Combined '{bn}' bone matrix is \n{new_bone_xf}")
+            log.debug(f"Combined '{bn}' bone matrix is \n{new_bone_xf}")
 
             # This is the transform we'll use to reposition the shape. Has to be scaled.
             shape_count += 1
-            xfsc = Matrix.Scale(self.scale, 4) @ new_bone_xf
-            shape_xf = shape_xf.lerp(xfsc, 1/shape_count)
+            shape_xf = shape_xf.lerp(new_bone_xf, 1/shape_count)
             #log.debug(f"Averaged output shape transform for bone {nif_bone.name}\n{shape_xf}")
 
             new_bone_xf.invert()
@@ -1346,65 +1360,92 @@ class NifImporter():
             blname = self.blender_name(bn)
             create_bone(tmpa.data, blname, new_bone_xf, self.nif.game, self.scale)
 
-        # New, temporary armature is parent of object
-        bpy.ops.object.mode_set(mode = 'OBJECT')
-        ObjectSelect([obj])
-        ObjectActive(tmpa)
-        log.debug(f"set_parent_arma (2) Setting parent of {obj.name} to {tmpa.name} (with transforms)")
-        bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+        #shape_loc, shape_rot, shape_scale = shape_xf.decompose()
+        #shape_xf = MatrixLocRotScale(shape_loc*self.scale, shape_rot, shape_scale)
+        shape_xf = Matrix.Scale(self.scale, 4) @ shape_xf
+        log.debug(f"Final shape transform for {obj.name} is \n{shape_xf}")
 
-        # Create a pose that moves the bones to the target armature locations
-        # Note scale of temp and target armatures has to match, why we used the scale factor above
-        for b in tmpa_data.bones:
-            if b.name in self.armature.data.bones:
-                targ_bone = self.armature.pose.bones[b.name]
-                tmp_bone = tmpa.pose.bones[b.name]
-                targ_bone_xf = targ_bone.matrix 
-                tmp_bone_xf = tmp_bone.matrix 
-                desired_xf = targ_bone_xf @ tmp_bone_xf.inverted() 
-                if b.name == TEST_TARGET_BONE:
-                    log.debug(f"Pose bone {b.name} initial location: \n{tmp_bone.matrix}\n")
-                    log.debug(f"Target bone {b.name} location: \n{targ_bone.matrix}\n")
-                    log.debug(f"Reposition transform: \n{desired_xf}\n")
+        # Check the new armature against the target armature. If the bones are in the same position,
+        # just parent to the target armature directly. It's more efficient, and there's loss of precision 
+        # in all the bone deforms.
+        if armatures_match(tmpa, self.armature):
+            log.debug(f"All bones match between new shape {obj.name} and exising armature")
+        if armatures_match(tmpa, self.armature) : #and MatNearEqual(shape_xf, Matrix.Identity(4)):
+            log.debug(f"All bones match between new shape {obj.name} and exising armature")
+            # We want to position the shape at the location in the nif but we don't want the rotation component
+            # because the armature doesn't have it. 
+            ObjectSelect([obj])
+            ObjectActive(arma)
+            log.debug(f"set_parent_arma (1) Setting parent of {obj.name} to {arma.name} (with transforms)")
+            bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+            shloc, shrot, shsc = shape_xf.decompose()
+            obj.matrix_world = MatrixLocRotScale(shloc, shrot, shsc/self.scale)
+            #obj.matrix_world = shape_xf
+            #bpy.ops.object.transform_apply()
+            #obj.matrix_world = new_xf
+
+        else:
+            # New, temporary armature is parent of object
+            ObjectActive(obj)
+            # Scale factor will include the import scale factor, which we don't want. Translation does not.
+            shloc, shrot, shsc = shape_xf.decompose()
+            shape_xf = MatrixLocRotScale(shloc, shrot, shsc/self.scale)
+            obj.matrix_world = shape_xf.inverted()
+            bpy.ops.object.transform_apply()
+
+            bpy.ops.object.mode_set(mode = 'OBJECT')
+            ObjectSelect([obj])
+            ObjectActive(tmpa)
+            log.debug(f"set_parent_arma (2) Setting parent of {obj.name} to {tmpa.name} (with transforms)")
+            bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+
+            # Create a pose that moves the bones to the target armature locations
+            # Note scale of temp and target armatures has to match, why we used the scale factor above
+            for b in tmpa_data.bones:
+                if b.name in self.armature.data.bones:
+                    targ_bone = self.armature.pose.bones[b.name]
+                    tmp_bone = tmpa.pose.bones[b.name]
+                    targ_bone_xf = targ_bone.matrix 
+                    tmp_bone_xf = tmp_bone.matrix 
+                    desired_xf = targ_bone_xf @ tmp_bone_xf.inverted() 
+                    if b.name == TEST_TARGET_BONE:
+                        log.debug(f"Pose bone {b.name} initial location: \n{tmp_bone.matrix}\n")
+                        log.debug(f"Target bone {b.name} location: \n{targ_bone.matrix}\n")
+                        log.debug(f"Reposition transform: \n{desired_xf}\n")
                 
-                tmp_bone.matrix = targ_bone_xf 
-                if b.name == TEST_TARGET_BONE:
-                    log.debug(f"Pose bone final location: \n{tmp_bone.matrix}\n")
+                    tmp_bone.matrix = targ_bone_xf 
+                    if b.name == TEST_TARGET_BONE:
+                        log.debug(f"Pose bone final location: \n{tmp_bone.matrix}\n")
 
-        # Freeze the mesh at the posed locations
-        ObjectActive(obj)
-        bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-        log.debug(f"Applying modifier {obj.modifiers[0].name}")
-        bpy.ops.object.modifier_apply(modifier=obj.modifiers[0].name)
-        log.debug(f"{obj.name} now has modifiers {[m.name for m in obj.modifiers]}")
+            # Freeze the mesh at the posed locations
+            ObjectActive(obj)
+            bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+            log.debug(f"Applying modifier {obj.modifiers[0].name}")
+            bpy.ops.object.modifier_apply(modifier=obj.modifiers[0].name)
+            log.debug(f"{obj.name} now has modifiers {[m.name for m in obj.modifiers]}")
 
-        # Reparent the mesh to the target armature
-        ObjectSelect([obj])
-        ObjectActive(self.armature)
-        log.debug(f"set_parent_arma (3) Setting parent of {obj.name} to {self.armature.name} (with transforms)")
-        bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+            # Reparent the mesh to the target armature
+            ObjectSelect([obj])
+            ObjectActive(self.armature)
+            log.debug(f"set_parent_arma (3) Setting parent of {obj.name} to {self.armature.name} (with transforms)")
+            bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
         
-        # Reset the object's base transform to get the verts back where they started
-        # If there's a better way to do this, I don't know it yet
-        ObjectActive(obj)
-        #log.debug(f"Averaged bone transforms for {obj.name}: \n{shape_xf}")
-        # Scale factor will include the import scale factor, which we don't want. Translation does not.
-        shloc, shrot, shsc = shape_xf.decompose()
-        shape_xf = MatrixLocRotScale(shloc, shrot, shsc/self.scale)
-        #log.debug(f"Corrected transform transform for {obj.name}: \n{shape_xf}")
-        #shinv = shape_xf.inverted()
-        #shloc, shrot, shsc = shinv.decompose()
-        #obj.matrix_world = MatrixLocRotScale(shloc, shrot, Vector((1.0,1.0,1.0)))
-        obj.matrix_world = shape_xf.inverted()
-        #log.debug(f"Applying inverted matrix to verts: \n{obj.matrix_world}")
-        bpy.ops.object.transform_apply()
-        #shloc, shrot, shsc = shape_xf.decompose()
-        #obj.matrix_world = MatrixLocRotScale(shloc, shrot, Vector((1.0, 1.0, 1.0))) # shape_xf # Matrix.Scale(self.scale, 4) @ shape_xf
-        obj.matrix_world = shape_xf
-        #log.debug(f"Final object transform for {obj.name}:\n{obj.matrix_world}")
+            # Reset the object's base transform to get the verts back where they started
+            # If there's a better way to do this, I don't know it yet
+            ObjectActive(obj)
+            # Scale factor will include the import scale factor, which we don't want. Translation does not.
+            shloc, shrot, shsc = shape_xf.decompose()
+            shape_xf = MatrixLocRotScale(shloc, shrot, shsc/self.scale)
+            obj.matrix_world = shape_xf.inverted()
+            bpy.ops.object.transform_apply()
+            obj.matrix_world = obj_original_xf
 
         if self.flag_clear(PyNiflyFlags.KEEP_TMP_SKEL):
             bpy.data.objects.remove(tmpa)
+
+        log.debug(f"{obj.name} transform ends up at \n{obj.matrix_world}")
+        log.debug(f"V0 coordinates end up at {obj.data.vertices[0].co}")
+
 
 
     # ------- COLLISION IMPORT --------
@@ -2207,13 +2248,14 @@ def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0):
         verts = [(v.co * sf / scale_factor)[:] for v in msk.key_blocks[target_key].data]
     else:
         verts = [(v.co * sf / scale_factor)[:] for v in mesh.vertices]
-    log.debug(f"extract_vert_info max z is {max([v[2] for v in verts])}")
+    #log.debug(f"extract_vert_info max z is {max([v[2] for v in verts])}")
 
     for i, v in enumerate(mesh.vertices):
         vert_weights = []
         for vg in v.groups:
             try:
-                vert_weights.append([obj.vertex_groups[vg.group].name, vg.weight])
+                vgn = obj.vertex_groups[vg.group].name
+                vert_weights.append([vgn, vg.weight])
             except:
                 log.error(f"ERROR: Vertex #{v.index} references invalid group #{vg.group}")
         
@@ -3282,9 +3324,6 @@ class NifExporter:
         
             ## Our "loops" list matches 1:1 with the mesh's loops. So we can use the polygons
             ## to pull the loops
-            #tris = []
-            #for p in editmesh.polygons:
-            #    tris.append((loops[p.loop_start], loops[p.loop_start+1], loops[p.loop_start+2]))
             tris = []
             for i in range(0, len(loops), 3):
                 tris.append((loops[i], loops[i+1], loops[i+2]))
@@ -3371,11 +3410,14 @@ class NifExporter:
         else:
             nifname = b.name
 
-        xf = Matrix.Scale(1/self.scale, 4) @ get_bone_xform(b, self.game, self.scale, self.flag_set(PyNiflyFlags.PRESERVE_HIERARCHY))
-        tb = TransformBuf.from_matrix(xf) #(apply_scale_xf(xf, 1/self.scale))
+        xf = get_bone_xform(b, self.game, self.scale, self.flag_set(PyNiflyFlags.PRESERVE_HIERARCHY))
+        xf_loc, xf_rot, xf_scale = xf.decompose()
+        tb = TransformBuf()
+        tb.store(xf_loc/self.scale, xf_rot.to_matrix(), xf_scale)
+        #tb = TransformBuf.from_matrix(xf) 
 
         if nifname == TEST_TARGET_BONE:
-            log.debug(f"<write_bone> writing bone {b.name} with transform\n{b.matrix}\n-> nif\n{xf}")
+            log.debug(f"<write_bone> writing bone {b.name} with transform\n{b.matrix}\n-> nif\n{tb}")
             
         shape.add_bone(nifname, tb, parname)
         self.writtenbones[b.name] = nifname
@@ -3418,13 +3460,16 @@ class NifExporter:
                 else:
                     nifname = bone_name
 
-                if bone_name not in self.writtenbones:
-                    tb = TransformBuf.from_matrix(bone_xform) #(apply_scale_xf(bone_xform, 1/self.scale))
-                    if nifname == TEST_TARGET_BONE:
-                        log.debug(f"<export_skin> writing bone {bone_name} with transform\n{arma.data.bones[bone_name].matrix}\n->nif\n{bone_xform}")
-                    new_shape.add_bone(nifname, tb)
-                    # log.debug(f"....Adding bone {nifname}")
-                    self.writtenbones[bone_name] = nifname
+                #xf = Matrix.Scale(1/self.scale, 4) @ bone_xform
+                #tb = TransformBuf.from_matrix(xf) 
+                xf_loc, xf_rot, xf_scale = bone_xform.decompose()
+                tb = TransformBuf()
+                tb.store(xf_loc/self.scale, xf_rot.to_matrix(), xf_scale)
+                if nifname == TEST_TARGET_BONE:
+                    log.debug(f"<export_skin>({obj.name}) writing bone {bone_name} with transform\n{bone_xform}\n->nif\n{tb}")
+                new_shape.add_bone(nifname, tb)
+                # log.debug(f"....Adding bone {nifname}")
+                self.writtenbones[bone_name] = nifname
                 new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
 
 
@@ -4071,136 +4116,45 @@ def run_tests():
     # ########### LOCAL TESTS #############
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
-
-    if True: #TEST_BPY_ALL or TEST_SCALING_COLL:
-        test_title("TEST_SCALING_COLL", "Collisions scale correctly on import and export")
-        # Primarily tests collisions, but also tests fade node, extra data nodes, 
-        # UV orientation, and texture handling
+    if True: #(TEST_BPY_ALL or TEST_COLLISION_XFORM) and bpy.app.version[0] >= 3:
+        # V2.x does not import the whole parent chain when appending an object 
+        # from another file
+        test_title("TEST_COLLISION_XFORM", "Can read and write shape with collision capsule shapes")
         clear_all()
 
         # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SCALING_COLL.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_XFORM.nif")
 
-        NifImporter.do_import(testfile, scale=0.1)
-        obj = find_shape("ElvenBowSkinned:0")
+        append_from_file("Staff", True, r"tests\SkyrimSE\staff.blend", r"\Object", "Staff")
+        append_from_file("BSInvMarker", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSInvMarker")
+        append_from_file("BSXFlags", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSXFlags")
+        append_from_file("NiStringExtraData", True, r"tests\SkyrimSE\staff.blend", r"\Object", "NiStringExtraData")
+        append_from_file("bhkConvexVerticesShape.002", True, r"tests\SkyrimSE\staff.blend", r"\Object", "bhkConvexVerticesShape.002")
 
-        # Check collision info
-        coll = find_shape('bhkCollisionObject')
-        assert VNearEqual(coll.location, (0.130636, 0.637351, -0.001978)), \
-            f"Collision location properly scaled: {coll.location}"
+        staff = find_shape("Staff")
+        coll = find_shape("bhkCollisionObject")
+        strd = find_shape("NiStringExtraData")
+        bsxf = find_shape("BSXFlags")
+        invm = find_shape("BSInvMarker")
 
-        collbody = coll.children[0]
-        assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
-        assert VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), \
-            f"Collision body rotation correct: {collbody.rotation_quaternion}"
-        assert VNearEqual(collbody.location, (0.65169, -0.770812, 0.0039871)), \
-            f"Collision body is in correct location: {collbody.location}"
-
-        collshape = collbody.children[0]
-        assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
-        assert NearEqual(collshape['bhkRadius'], 0.00136), f"Radius is properly scaled: {collshape['bhkRadius']}"
-        assert VNearEqual(collshape.data.vertices[0].co, (-1.10145, 5.76582, 0.09541)), \
-            f"Collision shape is properly scaled 0: {collshape.data.vertices[0].co}"
-        assert VNearEqual(collshape.data.vertices[7].co, (1.10145, 5.76582, -0.09541)), \
-            f"Collision shape is properly scaled 7: {collshape.data.vertices[7].co}"
-        assert VNearEqual(collshape.location, (0,0,0)), f"Collision shape centered on parent: {collshape.location}"
-       
-        print("--Testing export")
-
-        # Move the edge of the collision box so it covers the bow better
-        for v in collshape.data.vertices:
-            if v.co.x > 0:
-                v.co.x = 1.65
-
-        NifExporter.do_export(outfile, 'SKYRIMSE', [obj, coll], 
-                              export_flags=PyNiflyFlags.RENAME_BONES | PyNiflyFlags.PRESERVE_HIERARCHY,
-                              scale=0.1)
-
-        # ------- Check Results --------
-
-        nifcheck = NifFile(outfile)
-        rootcheck = nifcheck.rootNode
-        assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
-        assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
-        assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
-
-        midbowcheck = nifcheck.nodes["Bow_MidBone"]
-        collcheck = midbowcheck.collision_object
-        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
-        assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
-
-        # Full check of locations and rotations to make sure we got them right
-        mbc_xf = nifcheck.get_node_xform_to_global("Bow_MidBone")
-        assert VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
-        m = mbc_xf.as_matrix().to_euler()
-        assert VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
-
-        bodycheck = collcheck.body
-        p = bodycheck.properties
-        assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
-        assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
-
-
-    if True: #TEST_BPY_ALL or TEST_SCALING_BP:
-        test_title("TEST_SCALING_BP", "Can scale bodyparts")
-        clear_all()
-
-        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\malebody_1.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_SCALING_BP.nif")
-
-        NifImporter.do_import(testfile, PyNiflyFlags.CREATE_BONES | PyNiflyFlags.APPLY_SKINNING | 
-                              PyNiflyFlags.RENAME_BONES_NIFTOOLS | PyNiflyFlags.KEEP_TMP_SKEL, scale=0.1)
-
-        arma = find_shape("MaleBody_1.nif")
-        b = arma.data.bones['NPC Spine1 [Spn1]']
-        assert NearEqual(b.matrix_local.translation.z, 8.1443), f"Scale correctly applied: {b.matrix_local.translation}"
-        body = find_shape("MaleUnderwearBody:0")
-        assert NearEqual(body.location.z, 12, 0.1), f"Object translation correctly applied: {body.location}"
-        bodymax = max([v.co.z for v in body.data.vertices])
-        bodymin = min([v.co.z for v in body.data.vertices])
-        assert bodymax < 0, f"Max z is less than 0: {bodymax}"
-        assert bodymin >= -12, f"Max z is greater than -12: {bodymin}"
-
-        # Test export scaling is correct
-        NifExporter(outfile, "SKYRIM", 
-                    PyNiflyFlags.APPLY_SKINNING | PyNiflyFlags.RENAME_BONES_NIFTOOLS, scale=0.1) \
-                        .export([body])
-        nifcheck = NifFile(outfile)
-        bodycheck = nifcheck.shape_dict["MaleUnderwearBody:0"]
-        assert NearEqual(bodycheck.transform.scale, 1.0), f"Scale is 1: {bodycheck.transform.scale}"
-        assert NearEqual(bodycheck.transform.translation[2], 120.3, 0.1), \
-            f"Translation is correct: {list(bodycheck.transform.translation)}"
-        bmaxout = max(v[2] for v in bodycheck.verts)
-        bminout = min(v[2] for v in bodycheck.verts)
-        assert bmaxout-bminout > 100, f"Shape scaled up on ouput: {bminout}-{bmaxout}"
-
-
-    if True: #TEST_BPY_ALL or TEST_SK_MULT:
-        test_title("TEST_SK_MULT", "Export multiple objects with only some shape keys")
-
-        clear_all()
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT.nif")
+        # -------- Export --------
         remove_file(outfile)
+        exporter = NifExporter(outfile, 'SKYRIMSE')
+        exporter.export([staff, coll, bsxf, invm, strd])
 
-        append_from_file("CheMaleMane", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "CheMaleMane")
-        append_from_file("MaleTail", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "MaleTail")
-        exporter = NifExporter(outfile, "SKYRIMSE")
-        exporter.export([bpy.data.objects["CheMaleMane"], bpy.data.objects["MaleTail"]])
+        # ------- Check ---------
+        # NOTE the collision is just on one of the tines
+        nifcheck = NifFile(outfile)
+        staffcheck = nifcheck.shape_dict["Staff"]
+        collcheck = nifcheck.rootNode.collision_object
+        rbcheck = collcheck.body
+        listcheck = rbcheck.shape
+        cvShapes = [c for c in listcheck.children if c.blockname == "bhkConvexVerticesShape"]
+        maxz = max([v[2] for v in cvShapes[0].vertices])
+        assert maxz < 0, f"All verts on collisions shape on negative z axis: {maxz}"
 
-        nif1 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT_1.nif"))
-        assert len(nif1.shapes) == 2, "Wrote the 1 file successfully"
-        assert 'NPC Spine2 [Spn2]' in nif1.nodes, "Found spine2 bone"
-        assert 'TailBone01' in nif1.nodes, "Found Tailbone01"
-        assert 'NPC L Clavicle [LClv]' in nif1.nodes, "Found Clavicle"
-
-        nif0 = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_SK_MULT_0.nif"))
-        assert len(nif0.shapes) == 2, "Wrote the 0 file successfully"
-        assert 'NPC Spine2 [Spn2]' in nif0.nodes, "Found Spine2 in _0 file"
-        assert 'TailBone01' in nif0.nodes, "Found tailbone01 in _0 file"
-        assert 'NPC L Clavicle [LClv]' in nif0.nodes, "Found clavicle in _0 file"
-
-
+        
+        
 
     if TEST_BPY_ALL:
         run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri, create_bone, get_bone_global_xf)

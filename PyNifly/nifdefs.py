@@ -249,7 +249,7 @@ class TransformBuf(pynStructure):
         self.translation[0] = transl[0]
         self.translation[1] = transl[1]
         self.translation[2] = transl[2]
-        self.rotation = rot
+        self.rotation = MATRIX3(VECTOR3(*rot[0]), VECTOR3(*rot[1]), VECTOR3(*rot[2]))
         self.scale = max(scale)
 
     def read(self):
