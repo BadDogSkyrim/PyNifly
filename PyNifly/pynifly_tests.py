@@ -167,7 +167,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
     TEST_WELWA = True
 
 
-    if True: #TEST_BPY_ALL or TEST_SKIN_BONE_XF:
+    if TEST_BPY_ALL or TEST_SKIN_BONE_XF:
         test_title("TEST_SKIN_BONE_XF", "Skin-to-bone transforms work correctly")
         clear_all()
 
@@ -188,7 +188,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
         assert NearEqual(head.location.z, 120.343582), f"Head is positioned at head position: {head.location}"
 
 
-    if True: #TEST_BPY_ALL or TEST_BOW:
+    if TEST_BPY_ALL or TEST_BOW:
         test_title("TEST_BOW", "Can read and write bow")
         # Primarily tests collisions, but also tests fade node, extra data nodes, 
         # UV orientation, and texture handling
@@ -286,7 +286,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
         assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
 
 
-    if True: #TEST_BPY_ALL or TEST_IMP_EXP_SKY:
+    if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
         test_title("TEST_IMP_EXP_SKY", "Can read the armor nif and spit it back out")
         clear_all()
 
@@ -311,7 +311,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
         assert NearEqual(armor.location.z, 120.343582, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
             
 
-    if True: #TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
+    if TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
         test_title("TEST_IMP_EXP_SKY_2", "Can read the armor nif with two shapes and spit it back out")
         clear_all()
 
@@ -337,7 +337,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
         assert NearEqual(armor.location.z, 120.343582, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
             
 
-    if True: #TEST_BPY_ALL or TEST_IMP_EXP_FO4:
+    if TEST_BPY_ALL or TEST_IMP_EXP_FO4:
         test_title("TEST_IMP_EXP_FO4", "Can read the body nif and spit it back out")
         clear_all()
 
@@ -359,7 +359,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
         compare_shapes(bodyin, bodyout, body, e=0.001, ignore_translations=True)
 
 
-    if True: #TEST_BPY_ALL or TEST_IMP_EXP_FO4_2:
+    if TEST_BPY_ALL or TEST_IMP_EXP_FO4_2:
         test_title("TEST_IMP_EXP_FO4_2", "Can read the body armor with 2 parts")
         clear_all()
 
@@ -385,7 +385,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
         compare_shapes(armorin, armorout, armor, e=0.001, ignore_translations=True)
 
 
-    if True: #TEST_BPY_ALL or TEST_SCALING_COLL:
+    if TEST_BPY_ALL or TEST_SCALING_COLL:
         test_title("TEST_SCALING_COLL", "Collisions scale correctly on import and export")
         # Primarily tests collisions, but also tests fade node, extra data nodes, 
         # UV orientation, and texture handling
@@ -2099,6 +2099,44 @@ Transforms for output and input node {nm} match:
         assert fmcheck[0].entry_points == 13, f"Entry point data is correct: {fmcheck[0].entry_points}"
 
 
+    if (TEST_BPY_ALL or TEST_COLLISION_XFORM) and bpy.app.version[0] >= 3:
+        # V2.x does not import the whole parent chain when appending an object 
+        # from another file
+        test_title("TEST_COLLISION_XFORM", "Can read and write shape with collision capsule shapes")
+        clear_all()
+
+        # ------- Load --------
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_XFORM.nif")
+
+        append_from_file("Staff", True, r"tests\SkyrimSE\staff.blend", r"\Object", "Staff")
+        append_from_file("BSInvMarker", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSInvMarker")
+        append_from_file("BSXFlags", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSXFlags")
+        append_from_file("NiStringExtraData", True, r"tests\SkyrimSE\staff.blend", r"\Object", "NiStringExtraData")
+        append_from_file("bhkConvexVerticesShape.002", True, r"tests\SkyrimSE\staff.blend", r"\Object", "bhkConvexVerticesShape.002")
+
+        staff = find_shape("Staff")
+        coll = find_shape("bhkCollisionObject")
+        strd = find_shape("NiStringExtraData")
+        bsxf = find_shape("BSXFlags")
+        invm = find_shape("BSInvMarker")
+
+        # -------- Export --------
+        remove_file(outfile)
+        exporter = NifExporter(outfile, 'SKYRIMSE')
+        exporter.export([staff, coll, bsxf, invm, strd])
+
+        # ------- Check ---------
+        # NOTE the collision is just on one of the tines
+        nifcheck = NifFile(outfile)
+        staffcheck = nifcheck.shape_dict["Staff"]
+        collcheck = nifcheck.rootNode.collision_object
+        rbcheck = collcheck.body
+        listcheck = rbcheck.shape
+        cvShapes = [c for c in listcheck.children if c.blockname == "bhkConvexVerticesShape"]
+        maxz = max([v[2] for v in cvShapes[0].vertices])
+        assert maxz < 0, f"All verts on collisions shape on negative z axis: {maxz}"
+
+        
     if TEST_BPY_ALL or TEST_BOW2:
         test_title("TEST_BOW2", "Can modify collision shape location")
         clear_all()

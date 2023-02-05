@@ -1722,8 +1722,10 @@ class NifImporter():
                     self.armature['PYN_RENAME_BONES_NIFTOOLS'] = self.flag_set(PyNiflyFlags.RENAME_BONES_NIFTOOLS)
         
                 if len(self.objects_created) > 0:
+                    log.debug(f"Parenting new objects to armature: {[obj.name for obj in self.objects_created.values()]}")
                     ObjectActive(self.armature)
                     for obj_handle, obj in self.objects_created.items():
+                        log.debug(f"Checking {obj.name} for parent")
                         has_skin = False
                         try:
                             has_skin = self.nodes_loaded[obj.name].has_skin_instance
@@ -1731,9 +1733,10 @@ class NifImporter():
                             pass # Might not correspond to a node in the nif
                         if obj.type == 'MESH' and has_skin and self.flag_set(PyNiflyFlags.APPLY_SKINNING):
                             if not obj.parent:
+                                log.debug(f"Parenting {obj.name} to armature")
                                 self.set_parent_arma(self.armature, obj)
                         else:
-                            log.debug(f"Not parenting to armature: type={obj.type}, has skin={has_skin}, applying skin={self.flag_set(PyNiflyFlags.APPLY_SKINNING)}")
+                            log.debug(f"Not parenting {obj.name} to armature: type={obj.type}, has skin={has_skin}, applying skin={self.flag_set(PyNiflyFlags.APPLY_SKINNING)}")
                     #ObjectSelect([o for o in self.objects_created.values() if o.type == 'MESH'])
                     #bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
                 else:
@@ -4116,44 +4119,22 @@ def run_tests():
     # ########### LOCAL TESTS #############
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
-    if True: #(TEST_BPY_ALL or TEST_COLLISION_XFORM) and bpy.app.version[0] >= 3:
-        # V2.x does not import the whole parent chain when appending an object 
-        # from another file
-        test_title("TEST_COLLISION_XFORM", "Can read and write shape with collision capsule shapes")
+    if True: #TEST_BPY_ALL or TEST_IMP_EXP_SKY:
+        test_title("TEST_IMP_FACEGEN", "Can read a facegen nif")
         clear_all()
 
-        # ------- Load --------
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_XFORM.nif")
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/Facegen.nif")
+        skelfile = os.path.join(pynifly_dev_path, r"tests/FO4/skeleton.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_FACEGEN.nif")
 
-        append_from_file("Staff", True, r"tests\SkyrimSE\staff.blend", r"\Object", "Staff")
-        append_from_file("BSInvMarker", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSInvMarker")
-        append_from_file("BSXFlags", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSXFlags")
-        append_from_file("NiStringExtraData", True, r"tests\SkyrimSE\staff.blend", r"\Object", "NiStringExtraData")
-        append_from_file("bhkConvexVerticesShape.002", True, r"tests\SkyrimSE\staff.blend", r"\Object", "bhkConvexVerticesShape.002")
+        NifImporter.do_import(skelfile)
+        skel = find_shape('skeleton.nif')
+        ObjectSelect([skel])
+        ObjectActive(skel)
+        imp = NifImporter(testfile)
+        imp.execute()
 
-        staff = find_shape("Staff")
-        coll = find_shape("bhkCollisionObject")
-        strd = find_shape("NiStringExtraData")
-        bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
-
-        # -------- Export --------
-        remove_file(outfile)
-        exporter = NifExporter(outfile, 'SKYRIMSE')
-        exporter.export([staff, coll, bsxf, invm, strd])
-
-        # ------- Check ---------
-        # NOTE the collision is just on one of the tines
-        nifcheck = NifFile(outfile)
-        staffcheck = nifcheck.shape_dict["Staff"]
-        collcheck = nifcheck.rootNode.collision_object
-        rbcheck = collcheck.body
-        listcheck = rbcheck.shape
-        cvShapes = [c for c in listcheck.children if c.blockname == "bhkConvexVerticesShape"]
-        maxz = max([v[2] for v in cvShapes[0].vertices])
-        assert maxz < 0, f"All verts on collisions shape on negative z axis: {maxz}"
-
-        
+        assert False, "--------------STOP------------"
         
 
     if TEST_BPY_ALL:
