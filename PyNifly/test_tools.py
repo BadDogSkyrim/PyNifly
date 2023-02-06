@@ -7,6 +7,7 @@ import pathlib
 import logging
 import bpy
 import bpy_types
+from niflytools import *
 
 pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
 pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")

@@ -5,7 +5,7 @@
 
 RUN_TESTS = True
 TEST_BPY_ALL = False
-TEST_TARGET_BONE = "Bow_MidBone"
+TEST_TARGET_BONE = "Head_skin"
 
 bl_info = {
     "name": "NIF format",
@@ -148,6 +148,13 @@ PyNifly {action} of {fn} completed {errmsg} {status}
 
 """)
 
+def LogIf(condition, text):
+    if condition:
+        log.debug(text)
+
+def LogIfBone(name, text):
+    LogIf(name == TEST_TARGET_BONE, text)
+
 
 def ObjectSelect(objlist, deselect=True):
     """Select all the objects in the list"""
@@ -219,16 +226,20 @@ def apply_scale_xf(xf:Matrix, sf:float):
     loc, rot, scale = (xf * sf).decompose()
     return MatrixLocRotScale(loc, rot, xf.to_scale())
 
+
 def armatures_match(a, b):
     """Returns true if all bones of the first arature have the same position in the second"""
+    bpy.ops.object.mode_set(mode = 'OBJECT')
+    log.debug(f"<armatures_match> comparing {a.name} with {b.name}")
     for bone in a.data.bones:
         if bone.name in b.data.bones:
-            if not MatNearEqual(bone.matrix_local, b.data.bones[bone_name].matrix_local):
-                log.debug(f"Bone {bone.name} positions do not match {a.name} vs {b.name}: \n{bone.matrix_local}!=\n{b.data.bones[bone_name].matrix_local}")
-            return False
+            if not MatNearEqual(bone.matrix_local, b.data.bones[bone.name].matrix_local):
+                log.debug(f"Bone {bone.name} positions do not match {a.name} vs {b.name}: \n{bone.matrix_local}!=\n{b.data.bones[bone.name].matrix_local}")
+                return False
+            else:
+                pass
         else:
-            log.debug(f"Bone {bone.name} found in {a.name} but not in {b.name}")
-            return False
+            pass
     return True
 
 
@@ -1090,7 +1101,7 @@ class NifImporter():
             self.objects_created = Set to a list of objects created. Might be more than one
             because of extra data nodes.
         """
-        log.debug(f". Importing shape {the_shape.name}")
+        log.debug(f"Importing shape {the_shape.name} with flags {self.flag_set(PyNiflyFlags.KEEP_TMP_SKEL)}")
         v = the_shape.verts
         t = the_shape.tris
         if self.scale == 1.0:
@@ -1305,6 +1316,24 @@ class NifImporter():
                 pass
 
 
+    def connect_to_arma(self, arma, obj):
+        """Do the actual work of connecting obj to arma. If obj has no parent, parent to the arma; 
+        if it does, just create an arma modifier.
+        """
+        if obj.parent:
+            log.debug(f"<connect_to_arma> Connecting {obj.name} to {arma.name}")
+            ObjectActive(obj)
+            i = len(obj.modifiers)
+            bpy.ops.object.modifier_add(type='ARMATURE')
+            mod = obj.modifiers[i]
+            mod.object = arma
+        else:
+            ObjectSelect([obj])
+            ObjectActive(arma)
+            log.debug(f"<connect_to_arma> Setting parent of {obj.name} to {arma.name} (with transforms)")
+            bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+
+
     def set_parent_arma(self, arma, obj):
         """Set the given armature as parent of the given object.
         If the object represents a skinned shape, any deform has to be applied. So:
@@ -1314,14 +1343,15 @@ class NifImporter():
         - Unparent the mesh, keeping transform
         - Parent the mesh to the destination armature
         """
-        if self.is_new_armature and self.filename.endswith('_faceBones.nif'):
-            # If it's an armature created on this import from this file, the bone positions
-            # came from this file, and for facebones files we can just parent the mesh.
-            ObjectSelect([obj])
-            ObjectActive(arma)
-            log.debug(f"set_parent_arma (1) Setting parent of {obj.name} to {arma.name} (with transforms)")
-            bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
-            return
+        # With latest fixes the following should not be needed
+        #if self.is_new_armature and self.filename.endswith('_faceBones.nif'):
+        #    # If it's an armature created on this import from this file, the bone positions
+        #    # came from this file, and for facebones files we can just parent the mesh.
+        #    ObjectSelect([obj])
+        #    ObjectActive(arma)
+        #    log.debug(f"set_parent_arma (1) Setting parent of {obj.name} to {arma.name} (with transforms)")
+        #    bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+        #    return
 
         log.debug(f"Skinning and parenting object {obj.name} at location {obj.location}")
         log.debug(f"V0 coordinates start at {obj.data.vertices[0].co}")
@@ -1338,46 +1368,47 @@ class NifImporter():
         bpy.ops.object.mode_set(mode = 'EDIT')
         shape_xf = Matrix()
         shape_count = 0
+        bones_consistent = True
         for bn in sh.bone_names:
             bone_shape_xf = sh.get_shape_skin_to_bone(bn).as_matrix()
-            #log.debug(f"Bone '{bn}' has skin-to-bone xform matrix \n{bone_shape_xf}")
+            LogIfBone(bn, f"Bone '{bn}' has skin-to-bone xform matrix \n{bone_shape_xf}")
             nif_bone = self.nif.nodes[bn]
             bone_xf = nif_bone.xform_to_global.as_matrix() # nif_bone.transform.as_matrix()
-            #log.debug(f"Bone '{bn}' has base transform in nif: \n{bone_xf}")
+            LogIfBone(bn, f"Bone '{bn}' has base transform in nif: \n{bone_xf}")
             new_bone_xf = bone_xf @ bone_shape_xf 
-            log.debug(f"Combined '{bn}' bone matrix is \n{new_bone_xf}")
+            LogIfBone(bn, f"Combined '{bn}' bone matrix is \n{new_bone_xf}")
 
             # This is the transform we'll use to reposition the shape. Has to be scaled.
             shape_count += 1
-            shape_xf = shape_xf.lerp(new_bone_xf, 1/shape_count)
+            if MatNearEqual(new_bone_xf, shape_xf):
+                LogIfBone(bn, f"New bone {bn} transform same as existing")
+            else:
+                bones_consistent = False
+                shape_xf = shape_xf.lerp(new_bone_xf, 1/shape_count)
             #log.debug(f"Averaged output shape transform for bone {nif_bone.name}\n{shape_xf}")
 
-            new_bone_xf.invert()
+            #new_bone_xf.invert()
             #log.debug(f"Inverted '{bn}' bone matrix is \n{new_bone_xf}")
-            new_bone_xf = new_bone_xf @ bone_xf
+            #new_bone_xf = new_bone_xf @ bone_xf
             
             #log.debug(f"Final '{bn}' bone matrix is \n{new_bone_xf}")
             blname = self.blender_name(bn)
-            create_bone(tmpa.data, blname, new_bone_xf, self.nif.game, self.scale)
+            create_bone(tmpa.data, blname, bone_xf, self.nif.game, self.scale)
 
         #shape_loc, shape_rot, shape_scale = shape_xf.decompose()
         #shape_xf = MatrixLocRotScale(shape_loc*self.scale, shape_rot, shape_scale)
         shape_xf = Matrix.Scale(self.scale, 4) @ shape_xf
+        log.debug(f"Bones in shape have consistent transforms: {bones_consistent}")
         log.debug(f"Final shape transform for {obj.name} is \n{shape_xf}")
 
         # Check the new armature against the target armature. If the bones are in the same position,
         # just parent to the target armature directly. It's more efficient, and there's loss of precision 
         # in all the bone deforms.
-        if armatures_match(tmpa, self.armature):
-            log.debug(f"All bones match between new shape {obj.name} and exising armature")
-        if armatures_match(tmpa, self.armature) : #and MatNearEqual(shape_xf, Matrix.Identity(4)):
+        if armatures_match(tmpa, self.armature): 
             log.debug(f"All bones match between new shape {obj.name} and exising armature")
             # We want to position the shape at the location in the nif but we don't want the rotation component
             # because the armature doesn't have it. 
-            ObjectSelect([obj])
-            ObjectActive(arma)
-            log.debug(f"set_parent_arma (1) Setting parent of {obj.name} to {arma.name} (with transforms)")
-            bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+            self.connect_to_arma(arma, obj)
             shloc, shrot, shsc = shape_xf.decompose()
             obj.matrix_world = MatrixLocRotScale(shloc, shrot, shsc/self.scale)
             #obj.matrix_world = shape_xf
@@ -1394,6 +1425,7 @@ class NifImporter():
             bpy.ops.object.transform_apply()
 
             bpy.ops.object.mode_set(mode = 'OBJECT')
+            
             ObjectSelect([obj])
             ObjectActive(tmpa)
             log.debug(f"set_parent_arma (2) Setting parent of {obj.name} to {tmpa.name} (with transforms)")
@@ -1405,30 +1437,30 @@ class NifImporter():
                 if b.name in self.armature.data.bones:
                     targ_bone = self.armature.pose.bones[b.name]
                     tmp_bone = tmpa.pose.bones[b.name]
-                    targ_bone_xf = targ_bone.matrix 
-                    tmp_bone_xf = tmp_bone.matrix 
-                    desired_xf = targ_bone_xf @ tmp_bone_xf.inverted() 
-                    if b.name == TEST_TARGET_BONE:
-                        log.debug(f"Pose bone {b.name} initial location: \n{tmp_bone.matrix}\n")
-                        log.debug(f"Target bone {b.name} location: \n{targ_bone.matrix}\n")
-                        log.debug(f"Reposition transform: \n{desired_xf}\n")
+                    #targ_bone_xf = targ_bone.matrix 
+                    #tmp_bone_xf = tmp_bone.matrix 
+                    #desired_xf = targ_bone_xf @ tmp_bone_xf.inverted() 
+                    #if b.name == TEST_TARGET_BONE:
+                    #    log.debug(f"Pose bone {b.name} initial location: \n{tmp_bone.matrix}\n")
+                    #    log.debug(f"Target bone {b.name} location: \n{targ_bone.matrix}\n")
+                    #    log.debug(f"Reposition transform: \n{desired_xf}\n")
                 
-                    tmp_bone.matrix = targ_bone_xf 
+                    bpy.ops.object.mode_set(mode = 'POSE')
+                    tmp_bone.matrix = targ_bone.matrix.copy()
+                    bpy.ops.object.mode_set(mode = 'OBJECT')
+                    LogIfBone(b.name, f"Pose bone final location: \n{tmp_bone.matrix}\n<--\n{targ_bone.matrix}")
                     if b.name == TEST_TARGET_BONE:
-                        log.debug(f"Pose bone final location: \n{tmp_bone.matrix}\n")
+                        assert MatNearEqual(tmp_bone.matrix, targ_bone.matrix), f"Assign {b.name} xform didnt work, \n{tmp_bone.matrix} != \n{targ_bone.matrix}"
+
 
             # Freeze the mesh at the posed locations
             ObjectActive(obj)
             bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
             log.debug(f"Applying modifier {obj.modifiers[0].name}")
             bpy.ops.object.modifier_apply(modifier=obj.modifiers[0].name)
-            log.debug(f"{obj.name} now has modifiers {[m.name for m in obj.modifiers]}")
 
             # Reparent the mesh to the target armature
-            ObjectSelect([obj])
-            ObjectActive(self.armature)
-            log.debug(f"set_parent_arma (3) Setting parent of {obj.name} to {self.armature.name} (with transforms)")
-            bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+            self.connect_to_arma(arma, obj)
         
             # Reset the object's base transform to get the verts back where they started
             # If there's a better way to do this, I don't know it yet
@@ -1445,6 +1477,7 @@ class NifImporter():
 
         log.debug(f"{obj.name} transform ends up at \n{obj.matrix_world}")
         log.debug(f"V0 coordinates end up at {obj.data.vertices[0].co}")
+
 
 
 
@@ -1732,9 +1765,9 @@ class NifImporter():
                         except:
                             pass # Might not correspond to a node in the nif
                         if obj.type == 'MESH' and has_skin and self.flag_set(PyNiflyFlags.APPLY_SKINNING):
-                            if not obj.parent:
-                                log.debug(f"Parenting {obj.name} to armature")
-                                self.set_parent_arma(self.armature, obj)
+                            #if not obj.parent:
+                            log.debug(f"Connecting {obj.name} to armature")
+                            self.set_parent_arma(self.armature, obj)
                         else:
                             log.debug(f"Not parenting {obj.name} to armature: type={obj.type}, has skin={has_skin}, applying skin={self.flag_set(PyNiflyFlags.APPLY_SKINNING)}")
                     #ObjectSelect([o for o in self.objects_created.values() if o.type == 'MESH'])
@@ -1882,7 +1915,7 @@ class NifImporter():
                       | PyNiflyFlags.APPLY_SKINNING,
                   chargen="chargen",
                   scale=1.0):
-        imp = NifImporter(filename, flags, chargen=chargen, scale=scale)
+        imp = NifImporter(filename, f=flags, chargen=chargen, scale=scale)
         imp.execute()
         return imp
 
@@ -4108,7 +4141,8 @@ def run_tests():
     ############################################################
     """)
 
-    from test_tools import test_title, clear_all, append_from_file, export_from_blend, find_vertex, remove_file, find_shape
+    from test_tools import test_title, clear_all, append_from_file, export_from_blend, find_vertex
+    from test_tools import remove_file, find_shape, compare_shapes, check_unweighted_verts
     from pynifly_tests import run_tests
 
     NifFile.Load(nifly_path)
@@ -4119,11 +4153,11 @@ def run_tests():
     # ########### LOCAL TESTS #############
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
-    if True: #TEST_BPY_ALL or TEST_IMP_EXP_SKY:
+    if True: #TEST_BPY_ALL or TEST_IMP_FACEGEN:
         test_title("TEST_IMP_FACEGEN", "Can read a facegen nif")
         clear_all()
 
-        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/Facegen.nif")
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/facegen_simple.nif")
         skelfile = os.path.join(pynifly_dev_path, r"tests/FO4/skeleton.nif")
         outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_FACEGEN.nif")
 
@@ -4131,11 +4165,43 @@ def run_tests():
         skel = find_shape('skeleton.nif')
         ObjectSelect([skel])
         ObjectActive(skel)
-        imp = NifImporter(testfile)
+        imp = NifImporter(testfile, f = PyNiflyFlags.CREATE_BONES \
+                      | PyNiflyFlags.RENAME_BONES \
+                      | PyNiflyFlags.IMPORT_SHAPES \
+                      | PyNiflyFlags.APPLY_SKINNING \
+                      | PyNiflyFlags.KEEP_TMP_SKEL)
         imp.execute()
 
-        assert False, "--------------STOP------------"
         
+    if True: #TEST_BPY_ALL or TEST_IMP_EXP_SKY:
+        test_title("TEST_IMP_EXP_SKY", "Can read the armor nif and spit it back out")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/armor_only.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_EXP_SKY.nif")
+
+        imp = NifImporter(testfile, f = PyNiflyFlags.CREATE_BONES \
+                      | PyNiflyFlags.RENAME_BONES \
+                      | PyNiflyFlags.IMPORT_SHAPES \
+                      | PyNiflyFlags.APPLY_SKINNING \
+                      | PyNiflyFlags.KEEP_TMP_SKEL)
+        imp.execute()
+
+        armorin = imp.nif.shape_dict['Armor']
+        armor = find_shape('Armor')
+
+        exp = NifExporter(outfile, "SKYRIM")
+        exp.export([armor])
+
+        nifout = NifFile(outfile)
+
+        assert NearEqual(armorin.verts[0][2], armor.data.vertices[0].co.z), f"0 z coordinate matches: {armorin.verts[0][2]}=={armor.data.vertices[0].co.z}"
+
+        compare_shapes(armorin, nifout.shape_dict['Armor'], armor)
+        check_unweighted_verts(nifout.shape_dict['Armor'])
+        assert NearEqual(armor.location.z, 120.343582, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
+            
+
 
     if TEST_BPY_ALL:
         run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri, create_bone, get_bone_global_xf)
