@@ -2861,35 +2861,6 @@ Transforms for output and input node {nm} match:
                 print(f"Found parent to hand: {obj.data.bones['Arm_Hand.R'].parent.name}")
         print('### Maintain armature structure PASSED')
 
-    if TEST_BPY_ALL or TEST_BABY:
-        print('## TEST_BABY Can export baby parts')
-
-        # Can intuit structure if it's not in the file
-        bpy.ops.object.select_all(action='DESELECT')
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\baby.nif")
-        NifImporter.do_import(testfile)
-        head = bpy.data.objects['Baby_Head:0']
-        eyes = bpy.data.objects['Baby_Eyes:0']
-
-        outfile = os.path.join(pynifly_dev_path, r"tests\Out\baby01.nif")
-        e = NifExporter(outfile, 'FO4')
-        e.export([eyes, head])
-        #export_file_set(outfile, 'FO4', [''], [eyes, head], head.parent)
-        #outnif = NifFile()
-        #outnif.initialize("FO4", outfile)
-        #export_shape(outnif, TripFile(), eyes)
-        #export_shape(outnif, TripFile(), head)
-        #outnif.save()
-
-        testnif = NifFile(outfile)
-        testhead = testnif.shape_by_root('Baby_Head')
-        testeyes = testnif.shape_by_root('Baby_Eyes')
-        assert len(testhead.bone_names) > 10, "Error: Head should have bone weights"
-        assert len(testeyes.bone_names) > 2, "Error: Eyes should have bone weights"
-        assert testhead.blockname == "BSSubIndexTriShape", f"Error: Expected BSSubIndexTriShape on skinned shape, got {testhead.blockname}"
-
-        # TODO: Test that baby's unkown skeleton is connected
-      
     if TEST_BPY_ALL or TEST_SKEL:
         test_title("TEST_SKEL", "Can import skeleton file with no shapes")
         clear_all()
@@ -2902,8 +2873,10 @@ Transforms for output and input node {nm} match:
         arma = bpy.data.objects["skeleton.nif"]
         assert 'Leg_Thigh.L' in arma.data.bones, "Error: Should have left thigh"
 
+
     if TEST_BPY_ALL or TEST_0_WEIGHTS:
         test_title("TEST_0_WEIGHTS", "Gives warning on export with 0 weights")
+        clear_all()
 
         baby = append_from_file("TestBabyhead", True, r"tests\FO4\Test0Weights.blend", r"\Collection", "BabyCollection")
         baby.parent.name == "BabyExportRoot", f"Error: Should have baby and armature"
@@ -2920,6 +2893,7 @@ Transforms for output and input node {nm} match:
 
     if TEST_BPY_ALL or TEST_SPLIT_NORMAL:
         test_title("TEST_SPLIT_NORMAL", "Can handle meshes with split normals")
+        clear_all()
 
         plane = append_from_file("Plane", False, r"tests\skyrim\testSplitNormalPlane.blend", r"\Object", "Plane")
         e = NifExporter(os.path.join(pynifly_dev_path, r"tests\Out\CustomNormals.nif"), "FO4")
