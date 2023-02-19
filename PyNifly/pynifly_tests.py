@@ -168,6 +168,107 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
     TEST_WELWA = True
 
 
+    if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
+        test_title("TEST_IMP_EXP_SKY", "Can read the armor nif and spit it back out")
+
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/armor_only.nif")
+
+        def do_test(scale_factor):
+            log.debug(f"\nTesting with scale factor {scale_factor}")
+            clear_all()
+            outfile = os.path.join(pynifly_dev_path, f"tests/Out/TEST_IMP_EXP_SKY_{scale_factor}.nif")
+            remove_file(outfile)
+
+            imp = NifImporter(testfile, f = pynFlags.CREATE_BONES \
+                          | pynFlags.RENAME_BONES \
+                          | pynFlags.IMPORT_SHAPES \
+                          | pynFlags.APPLY_SKINNING \
+                          | pynFlags.KEEP_TMP_SKEL, \
+                          scale=scale_factor)
+            imp.execute()
+
+            armorin = imp.nif.shape_dict['Armor']
+            armor = find_shape('Armor')
+
+            vmin, vmax = get_obj_bbox(armor)
+            assert VNearEqual(vmin, Vector([-30.32, -13.31, -90.03])*scale_factor, 0.1), f"Armor min is correct: {vmin}"
+            assert VNearEqual(vmax, Vector([30.32, 12.57, -4.23])*scale_factor, 0.1), f"Armor max is correct: {vmax}"
+            assert NearEqual(armor.location.z, 120.34*scale_factor, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
+            arma = armor.parent
+            assert arma.name == "Scene Root", f"armor has parent: {arma}"
+            pelvis = arma.data.bones['NPC Pelvis']
+            pelvis_pose = arma.pose.bones['NPC Pelvis']
+            assert pelvis.parent.name == 'NPC COM', f"Pelvis has correct parent: {pelvis.parent}"
+            assert pelvis.matrix_local.translation[2] == pelvis_pose.matrix.translation[2], \
+                f"Pelvis pose position matches bone position: {pelvis_pose.matrix.translation[2]}"
+
+            exp = NifExporter(outfile, "SKYRIM", scale=scale_factor)
+            exp.export([armor])
+
+            nifout = NifFile(outfile)
+
+            compare_shapes(armorin, nifout.shape_dict['Armor'], armor, scale=scale_factor)
+            check_unweighted_verts(nifout.shape_dict['Armor'])
+
+        do_test(1.0)
+        do_test(0.1)
+            
+
+    if TEST_BPY_ALL or TEST_SCALING_BP:
+        test_title("TEST_SCALING_BP", "Can scale bodyparts")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\malebody_1.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_SCALING_BP.nif")
+
+        NifImporter.do_import(testfile, pynFlags.CREATE_BONES | pynFlags.APPLY_SKINNING | 
+                              pynFlags.RENAME_BONES_NIFTOOLS | pynFlags.KEEP_TMP_SKEL, scale=0.1)
+
+        arma = find_shape("MaleBody_1.nif")
+        b = arma.data.bones['NPC Spine1 [Spn1]']
+        assert NearEqual(b.matrix_local.translation.z, 8.1443), f"Scale correctly applied: {b.matrix_local.translation}"
+        body = find_shape("MaleUnderwearBody:0")
+        assert NearEqual(body.location.z, 12, 0.1), f"Object translation correctly applied: {body.location}"
+        bodymax = max([v.co.z for v in body.data.vertices])
+        bodymin = min([v.co.z for v in body.data.vertices])
+        assert bodymax < 0, f"Max z is less than 0: {bodymax}"
+        assert bodymin >= -12, f"Max z is greater than -12: {bodymin}"
+
+        # Test export scaling is correct
+        NifExporter(outfile, "SKYRIM", 
+                    pynFlags.APPLY_SKINNING | pynFlags.RENAME_BONES_NIFTOOLS, scale=0.1) \
+                        .export([body])
+        nifcheck = NifFile(outfile)
+        bodycheck = nifcheck.shape_dict["MaleUnderwearBody:0"]
+        assert NearEqual(bodycheck.transform.scale, 1.0), f"Scale is 1: {bodycheck.transform.scale}"
+        assert NearEqual(bodycheck.transform.translation[2], 120.3, 0.1), \
+            f"Translation is correct: {list(bodycheck.transform.translation)}"
+        bmaxout = max(v[2] for v in bodycheck.verts)
+        bminout = min(v[2] for v in bodycheck.verts)
+        assert bmaxout-bminout > 100, f"Shape scaled up on ouput: {bminout}-{bmaxout}"
+
+
+    if TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
+        test_title("TEST_NIFTOOLS_NAMES", "Can import nif with niftools' naming convention")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\body1m_1.nif")
+
+        NifImporter.do_import(testfile, pynFlags.CREATE_BONES | pynFlags.APPLY_SKINNING | pynFlags.RENAME_BONES_NIFTOOLS)
+
+        arma = find_shape("Body1M_1.nif")
+        assert "NPC Calf [Clf].L" in arma.data.bones, f"Bones follow niftools name conventions {arma.data.bones.keys()}"
+        #assert arma.data.niftools.axis_forward == "Z", f"Forward axis set to Z"
+
+        c = arma.data.bones["NPC Calf [Clf].L"]
+        assert c.parent, f"Bones are put into a hierarchy: {c.parent}"
+        assert c.parent.name == "NPC Thigh [Thg].L", f"Parent/child relationships are maintained in skeleton {c.parent.name}"
+
+        body = find_shape("MaleUnderwearBody1:0")
+        assert "NPC Calf [Clf].L" in body.vertex_groups, f"Vertex groups follow niftools naming convention: {body.vertex_groups.keys()}"
+
+
     if TEST_BPY_ALL or TEST_SKIN_BONE_XF:
         test_title("TEST_SKIN_BONE_XF", "Skin-to-bone transforms work correctly")
         clear_all()
@@ -190,6 +291,30 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
         assert NearEqual(head.location.z, 0), f"Head is positioned at head position: {head.location}"
 
 
+    if True: #TEST_BPY_ALL or TEST_FACEBONES:
+        test_title("TEST_FACEBONES", "Facebones are renamed from Blender to the game's names")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/basemalehead_facebones.nif")
+        NifImporter.do_import(testfile)
+
+        obj = bpy.context.object
+        assert 'skin_bone_Dimple.R' in obj.vertex_groups.keys(), f"Expected munged vertex groups"
+        assert 'skin_bone_Dimple.R' in obj.parent.data.bones.keys(), f"Expected munged bone names"
+        assert 'skin_bone_R_Dimple' not in obj.vertex_groups.keys(), f"Expected munged vertex groups"
+        assert 'skin_bone_R_Dimple' not in obj.parent.data.bones.keys(), f"Expected munged bone names"
+
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/basemalehead.nif")
+        remove_file(outfile)
+        e = NifExporter(outfile, 'FO4')
+        e.export([obj])
+        #export_file_set(outfile, 'FO4', [''], [obj], obj.parent, '_faceBones')
+
+        outfile2 = os.path.join(pynifly_dev_path, r"tests/Out/basemalehead_facebones.nif")
+        nif2 = NifFile(outfile2)
+        assert 'skin_bone_R_Dimple' in nif2.shapes[0].bone_names, f"Expected game bone names, got {nif2.shapes[0].bone_names[0:10]}"
+    
+        
     if TEST_BPY_ALL or TEST_BOW:
         test_title("TEST_BOW", "Can read and write bow")
         # Primarily tests collisions, but also tests fade node, extra data nodes, 
