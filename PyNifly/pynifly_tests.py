@@ -413,32 +413,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
         assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
 
 
-    if TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
-        test_title("TEST_IMP_EXP_SKY_2", "Can read the armor nif with two shapes and spit it back out")
-        clear_all()
-
-        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/test.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_EXP_SKY_2.nif")
-
-        imp = NifImporter(testfile)
-        imp.execute()
-
-        body = find_shape('MaleBody')
-        armor = find_shape('Armor')
-
-        exp = NifExporter(outfile, "SKYRIM")
-        exp.export([body, armor])
-
-        nifout = NifFile(outfile)
-        compare_shapes(imp.nif.shape_dict['MaleBody'], nifout.shape_dict['MaleBody'], body)
-        compare_shapes(imp.nif.shape_dict['Armor'], nifout.shape_dict['Armor'], armor)
-
-        check_unweighted_verts(nifout.shape_dict['MaleBody'])
-        check_unweighted_verts(nifout.shape_dict['Armor'])
-        assert NearEqual(body.location.z, 0), f"{body.name} not in lifted position: {body.location.z}"
-        assert NearEqual(armor.location.z, 120.343582, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
-            
-
     if TEST_BPY_ALL or TEST_IMP_EXP_FO4:
         test_title("TEST_IMP_EXP_FO4", "Can read the body nif and spit it back out")
         clear_all()

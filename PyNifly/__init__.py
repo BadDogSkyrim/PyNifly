@@ -4,7 +4,7 @@
 
 
 RUN_TESTS = True
-TEST_BPY_ALL = True
+TEST_BPY_ALL = False
 TEST_TARGET_BONE = ['NPC Pelvis', 'NPC Pelvis [Pelv]'] # Print extra debugging info for these bones
 
 bl_info = {
@@ -824,6 +824,7 @@ class NifImporter():
         self.chargen_ext = chargen
         self.mesh_only = False
         self.armature = None
+        self.imported_armatures = []
         self.is_new_armature = True # Armature is derived from current nif; set false if adding to existing arma
         self.parent_cp = None
         self.created_child_cp = None
@@ -1031,6 +1032,12 @@ class NifImporter():
             ed.parent = obj
             self.objects_created[ed.name] = ed
 
+    def bone_in_armatures(self, bone_name):
+        """Determine whether a bone is in one of the armatures we've imported"""
+        for arma in self.imported_armatures:
+            if bone_name in arma.data.bones:
+                return True
+        return False
 
     def import_ninode(self, ninode, p=None):
         """ Create Blender representation of an NiNode
@@ -1042,7 +1049,7 @@ class NifImporter():
         obj = None
         bl_name = self.blender_name(ninode.name)
         if (ninode._handle not in self.objects_created) \
-            and (not self.armature or bl_name not in self.armature.data.bones) \
+            and (not self.bone_in_armatures(bl_name)) \
             and (ninode.parent):
             
             skelbone = None
@@ -1195,6 +1202,27 @@ Importing new object {new_object.name} at \n{new_object.matrix_world}\n<- nif\n{
 
 
     # ------ ARMATURE IMPORT ------
+
+    def find_compatible_arma(self, shape:NiShape, armatures:list):
+        """Look through the list of armatures and find one that can be used by the shape. 
+        Bones in the armature must match the shape's bone bind positions.
+        Returns the armature, or None.
+        """
+        for arma in armatures:
+            is_ok = True
+            for b in shape.bone_names:
+                if b in arma.data.bones:
+                    shape_xf = shape.get_shape_skin_to_bone(b)
+                    arma_xf = arma.data.bones[b].matrix_local
+                    is_ok &= XFNearEqual(shape_xf, arma_xf)
+                    if not is_ok:
+                        break
+            if is_ok:
+                log.debug(f"Armature {arma.name} ok for shape {shape.name}")
+                return arma
+        log.debug(f"No armature found for {shape.name}")
+        return None
+
 
     def add_bone_to_arma(self, arma, bone_name, nifname):
         """ Add bone to armature. Bone may come from nif or reference skeleton.
@@ -1715,35 +1743,21 @@ Importing new object {new_object.name} at \n{new_object.matrix_world}\n<- nif\n{
                 self.connect_armature(self.armature)
             else:
                 log.debug(f"Found self.bones, creating armature")
-                new_arma = None
-                same_xf = True
-                match_xf = None
+                # List of armatures available for shapes
+                if self.armature:
+                    self.imported_armatures = [self.armature] 
+
                 for obj in self.loaded_meshes:
                     sh = self.nodes_loaded[obj.name]
                     if sh.has_skin_instance:
-                        if not new_arma:
-                            match_xf = obj.matrix_world
-                            log.debug(f"Armature matching against {obj.name} \n{match_xf}")
-                        else:
-                            same_xf &= MatNearEqual(obj.matrix_world, match_xf)
-                            log.debug(f"Armature from {obj.name} matches: {same_xf}:\n{obj.matrix_world}")
-                        if same_xf:
-                            new_arma = self.set_parent_arma(new_arma, obj, sh)
-                        else:
-                            if new_arma:
-                                self.connect_armature(new_arma)
-                            match_xf = obj.matrix_world
-                            log.debug(f"New armature matching against {obj.name} \n{match_xf}")
-                            new_arma = self.set_parent_arma(None, obj, sh)
-                        orphan_shapes.remove(obj)
-                if new_arma:
-                    if self.armature and self.flag_set(pynFlags.APPLY_SKINNING):
-                        self.transfer_shapes(self.armature, new_arma)
-                        if self.flag_clear(pynFlags.KEEP_TMP_SKEL):
-                            bpy.data.objects.remove(new_arma)
-                    if not self.armature:
-                        self.armature = new_arma
-                    self.connect_armature(self.armature)
+                        target_arma = self.find_compatible_arma(sh, self.imported_armatures)
+                        if self.flag_set(pynFlags.APPLY_SKINNING):
+                            new_arma = self.set_parent_arma(target_arma, obj, sh)
+                            if not target_arma:
+                                self.imported_armatures.append(new_arma)
+                            orphan_shapes.remove(obj)
+                for arma in self.imported_armatures:
+                    self.connect_armature(arma)
     
             # Import loose NiNodes 
             self.import_loose_ninodes(self.nif)
@@ -4113,6 +4127,33 @@ def run_tests():
     # ########### LOCAL TESTS #############
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
+    if True: #TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
+        test_title("TEST_IMP_EXP_SKY_2", "Can read the armor nif with two shapes and spit it back out")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/test.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_EXP_SKY_2.nif")
+
+        imp = NifImporter(testfile)
+        imp.execute()
+
+        body = find_shape('MaleBody')
+        armor = find_shape('Armor')
+
+        exp = NifExporter(outfile, "SKYRIM")
+        exp.export([body, armor])
+
+        nifout = NifFile(outfile)
+        compare_shapes(imp.nif.shape_dict['MaleBody'], nifout.shape_dict['MaleBody'], body)
+        compare_shapes(imp.nif.shape_dict['Armor'], nifout.shape_dict['Armor'], armor)
+
+        check_unweighted_verts(nifout.shape_dict['MaleBody'])
+        check_unweighted_verts(nifout.shape_dict['Armor'])
+        assert NearEqual(body.location.z, 0), f"{body.name} not in lifted position: {body.location.z}"
+        assert NearEqual(armor.location.z, 120.343582, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
+        assert "NPC R Hand [RHnd]" not in bpy.data.objects, f"Did not create extra nodes representing the bones"
+            
+
     if True: #TEST_BPY_ALL or TEST_BABY:
         test_title('TEST_BABY', 'Can export baby parts')
         clear_all()
@@ -4138,6 +4179,7 @@ def run_tests():
         #assert len(testeyes.bone_names) > 2, "Error: Eyes should have bone weights"
         assert testhead.blockname == "BSSubIndexTriShape", f"Error: Expected BSSubIndexTriShape on skinned shape, got {testhead.blockname}"
 
+        assert False, "----STOP----"
         
     if False: 
         """Not a real test--just exposes a bunch of transforms for understanding"""

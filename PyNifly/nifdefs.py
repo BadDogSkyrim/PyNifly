@@ -281,7 +281,7 @@ class TransformBuf(pynStructure):
             return (self.to_matrix() * pynMatrix(other)).to_vector4()
         elif type(other) == VECTOR3:
             return (self.to_matrix() * pynMatrix(other)).to_vector3()
-
+        
 
 
 # Types of root nodes
