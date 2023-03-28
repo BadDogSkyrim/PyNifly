@@ -162,7 +162,7 @@ void AddBoneToShape(AnimInfo* anim, NiShape* theShape, std::string boneName,
 		pn = std::string(parentName);
 		pp = &pn;
 	};
-	AddCustomBoneRef(anim, boneName, pp, boneXform);
+	AddCustomBoneRef(anim, boneName, pp, boneXform); 
 	anim->AddShapeBone(theShape->name.get(), boneName);
 }
 

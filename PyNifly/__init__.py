@@ -5,7 +5,7 @@
 
 RUN_TESTS = True
 TEST_BPY_ALL = False
-TEST_TARGET_BONE = ['NPC Pelvis', 'NPC Pelvis [Pelv]'] # Print extra debugging info for these bones
+TEST_TARGET_BONE = ['LLeg_Thigh_Fat_skin'] # Print extra debugging info for these bones
 
 bl_info = {
     "name": "NIF format",
@@ -112,6 +112,7 @@ class pynFlags(IntFlag):
     APPLY_SKINNING = 1 << 7
     KEEP_TMP_SKEL = 1 << 8 # for debugging
     RENAME_BONES_NIFTOOLS = 1 << 9
+    EXPORT_POSE = 1 << 10
 
 # --------- Helper functions -------------
 
@@ -248,6 +249,23 @@ def armatures_match(a, b):
     return True
 
 
+def find_armatures(obj):
+    """Find armatures associated with obj. 
+    Returns (regular armature, facebones armature)
+    Only returns the first regular amature it finds--there might be more than one.
+    """
+    arma = None
+    fb_arma = None
+    for skel in [m.object for m in obj.modifiers if m.type == "ARMATURE"]:
+        if skel:
+            if is_facebones(skel.data.bones.keys()):
+                fb_arma = skel
+            else:
+                if not arma:
+                    arma = skel
+    return arma, fb_arma
+
+
 # ------------- TransformBuf extensions -------
 
 def transform_to_matrix(xf: TransformBuf) -> Matrix:
@@ -327,25 +345,29 @@ def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor):
 
     return bone
 
-def get_bone_global_xf(bone:bpy_types.Bone, game:str, scale_factor=1.0) -> Matrix:
+def get_bone_global_xf(arma, bone_name, game:str, use_pose) -> Matrix:
     """ Return the global transform represented by the bone. """
     # Scale applied at this level on import, but by callor on export. Should be here for cosistency?
-    bmx = bone.matrix_local @ game_rotations[game_axes[game]][1]
-    #mx = MatrixLocRotScale(bone.head_local, bmx, (1,1,1))
+    if use_pose:
+        bmx = arma.pose.bones[bone_name].matrix @ game_rotations[game_axes[game]][1]
+    else:
+        bmx = arma.data.bones[bone_name].matrix_local @ game_rotations[game_axes[game]][1]
     return bmx
 
-def get_bone_xform(b:bpy_types.Bone, game, scale, preserve_hierarchy) -> Matrix:
-    """ Return the local transform represented by the bone """
-    bonexf = get_bone_global_xf(b, game, scale)
+def get_bone_xform(arma, bone_name, game, scale, preserve_hierarchy, use_pose) -> Matrix:
+    """Return the local transform represented by the bone"""
+    bonexf = get_bone_global_xf(arma, bone_name, game, use_pose)
 
-    if b.parent and preserve_hierarchy:
+    bparent = arma.data.bones[bone_name].parent
+    if bparent and preserve_hierarchy:
         # Calculate the relative transform from the parent
-        parent_xf = get_bone_global_xf(b.parent, game, scale)
+        parent_xf = get_bone_global_xf(arma, bparent.name, game, scale)
         loc_xf = parent_xf.inverted() @ bonexf
-        if b.name in TEST_TARGET_BONE:
-            log.debug(f"<get_bone_xform> {b.name} has bone xf\n{bonexf}")
-            log.debug(f"<get_bone_xform> {b.name} has parent xf\n{parent_xf}")
-            log.debug(f"<get_bone_xform> {b.name} has local xf\n{loc_xf}")
+        if bone_name in TEST_TARGET_BONE:
+            log.debug("Using pose location" if use_pose else "Using bind location")
+            log.debug(f"<get_bone_xform> {bone_name} has bone xf\n{bonexf}")
+            log.debug(f"<get_bone_xform> {bone_name} has parent xf\n{parent_xf}")
+            log.debug(f"<get_bone_xform> {bone_name} has local xf\n{loc_xf}")
 
         return loc_xf
     else:
@@ -2553,10 +2575,10 @@ class NifExporter:
     def add_object(self, obj):
         """ Adds the given object to the objects to export. Object may be mesh, armature, or anything else """
         if obj.type == 'ARMATURE':
-            facebones_obj = (self.game in ['FO4', 'FO76']) and (is_facebones(obj.data.bones.keys()))
-            if facebones_obj and self.facebones is None:
+            facebones_arma = (self.game in ['FO4', 'FO76']) and (is_facebones(obj.data.bones.keys()))
+            if facebones_arma and self.facebones is None:
                 self.facebones = obj
-            if (not facebones_obj) and (self.armature is None):
+            if (not facebones_arma) and (self.armature is None):
                 self.armature = obj 
 
         elif obj.type == 'MESH':
@@ -2572,10 +2594,11 @@ class NifExporter:
                 self.objects.append(obj)
                 if obj.parent and obj.parent.type == 'ARMATURE':
                     self.add_object(obj.parent)
-                for skel in [m.object for m in obj.modifiers if m.type == "ARMATURE"]:
-                    if skel:
-                        self.add_object(skel)
-            #self.file_keys = get_with_uscore(get_common_shapes(self.objects))
+                arma, fb_arma = find_armatures(obj)
+                if arma:
+                    self.add_object(arma)
+                if fb_arma:
+                    self.add_object(fb_arma)
 
         elif obj.type == 'EMPTY':
             if 'BSBehaviorGraphExtraData_Name' in obj.keys():
@@ -2974,7 +2997,10 @@ class NifExporter:
             targname = collisionobj['pynCollisionTarget']
             log.debug(f"Finding target bone: {targname}")
             targbone = targ.data.bones[targname]
-            mx = get_bone_xform(targbone, self.game, self.scale, self.flag_set(pynFlags.PRESERVE_HIERARCHY))
+            mx = get_bone_xform(targ, targname, self.game, self.scale, 
+                                self.flag_set(pynFlags.PRESERVE_HIERARCHY),
+                                self.flag_set(pynFlags.EXPORT_POSE)
+                                )
 
             log.debug(f"Found collision target bone {targbone} loc {mx.translation}")
             log.debug(f"Found collision target bone {targbone} rot {mx.to_euler()}")
@@ -3398,62 +3424,69 @@ class NifExporter:
 
 
     def get_bone_xforms(self, arma, bone_names, shape):
-        """Return transforms for the bones in list, getting rotation from what we stashed on import. Checks the "preserve_hierarchy" flag to determine whether to return global 
-          or local transforms.
-            arma = data block of armature
+        """Return transforms for the bones in list. Checks the "preserve_hierarchy" flag to 
+        determine whether to return global or local transforms.
+            arma = armature
             bone_names = list of names
             shape = shape being exported
             result = dict{bone-name: MatTransform, ...}
         """
         result = {}
-        for b in arma.bones:
-            result[b.name] = get_bone_xform(b, self.game, self.scale, self.flag_set(pynFlags.PRESERVE_HIERARCHY))
+        for b in arma.data.bones:
+            result[b.name] = get_bone_xform(arma, b.name, self.game, self.scale, 
+                                            self.flag_set(pynFlags.PRESERVE_HIERARCHY),
+                                            self.flag_set(pynFlags.EXPORT_POSE)
+                                            )
     
         return result
 
-    def write_bone(self, shape:NiShape, b:bpy_types.Bone):
+    def write_bone(self, shape:NiShape, arma, bone_name):
         """ Write a shape's bone, writing all parent bones first if necessary 
             Returns the node in the target nif for the new bone """
-        if b.name in self.writtenbones:
-            return self.writtenbones[b.name]
+        if bone_name in self.writtenbones:
+            return self.writtenbones[bone_name]
 
+        bone_parent = arma.data.bones[bone_name].parent
         parname = None
-        if b.parent:
-            parname = self.write_bone(shape, b.parent)
+        if bone_parent:
+            parname = self.write_bone(shape, arma, bone_parent.name)
         
         if self.flag_set(pynFlags.RENAME_BONES) or self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS):
-            nifname = self.nif.nif_name(b.name)
+            nifname = self.nif.nif_name(bone_name)
         else:
-            nifname = b.name
+            nifname = bone_name
 
-        xf = get_bone_xform(b, self.game, self.scale, self.flag_set(pynFlags.PRESERVE_HIERARCHY))
+        xf = get_bone_xform(arma, bone_name, self.game, self.scale, 
+                            self.flag_set(pynFlags.PRESERVE_HIERARCHY),
+                            self.flag_set(pynFlags.EXPORT_POSE)
+                            )
         xf_loc, xf_rot, xf_scale = xf.decompose()
         tb = TransformBuf()
         tb.store(xf_loc/self.scale, xf_rot.to_matrix(), xf_scale)
         #tb = TransformBuf.from_matrix(xf) 
 
         if nifname in TEST_TARGET_BONE:
-            log.debug(f"<write_bone> writing bone {b.name} with transform\n{b.matrix}\n-> nif\n{tb}")
+            log.debug(f"<write_bone> writing bone {bone_name} with transform\n{tb}")
             
         shape.add_bone(nifname, tb, parname)
-        self.writtenbones[b.name] = nifname
+        self.writtenbones[bone_name] = nifname
         return nifname
 
 
-    def write_bone_hierarchy(self, shape:NiShape, arma:bpy.types.Armature, used_bones:list):
+    def write_bone_hierarchy(self, shape:NiShape, arma, used_bones:list):
         """Write the bone hierarchy to the nif. Do this first so that transforms 
         and parent/child relationships are correct. Do not assume that the skeleton is fully
         connected (do Blender armatures have to be fully connected?). 
         used_bones - list of bone names to write. 
         """
         self.writtenbones = {}
-        for b in used_bones:
-            if b in arma.bones:
-                self.write_bone(shape, arma.bones[b])
+        for bone_name in used_bones:
+            if bone_name in arma.data.bones:
+                self.write_bone(shape, arma, bone_name)
 
 
     def export_skin(self, obj, arma, new_shape, new_xform, weights_by_vert):
-        log.info("..Parent is armature, skin the mesh")
+        log.info("Skinning {obj.name}")
         new_shape.skin()
         new_shape.transform = TransformBuf.from_matrix(new_xform)
         newxfi = new_xform.copy()
@@ -3465,9 +3498,9 @@ class NifExporter:
         used_bones = weights_by_bone.keys()
 
         if self.flag_set(pynFlags.PRESERVE_HIERARCHY):
-            self.write_bone_hierarchy(new_shape, arma.data, used_bones)
+            self.write_bone_hierarchy(new_shape, arma, used_bones)
 
-        arma_bones = self.get_bone_xforms(arma.data, used_bones, new_shape)
+        arma_bones = self.get_bone_xforms(arma, used_bones, new_shape)
     
         for bone_name, bone_xform in arma_bones.items():
             if bone_name in weights_by_bone and len(weights_by_bone[bone_name]) > 0:
@@ -3586,6 +3619,10 @@ class NifExporter:
             self.warnings.add('WARNING')
 
 
+    def apply_shape_key(self, key_name):
+        pass
+
+
     def export_shape(self, obj, target_key='', arma=None):
         """ Export given blender object to the given NIF file; also writes any associated
             tri file. Checks to make sure the object
@@ -3596,12 +3633,31 @@ class NifExporter:
             """
         if obj.name in self.objs_written:
             return
-        self.active_obj = obj
+        log.info(f"Exporting {obj.name} with shapes: {self.file_keys} with flags {str(pynFlags(self.flags))}")
+
+        # Exporting posed means bones are in pose location, mesh is still where it was
+        if False: #self.flag_set(pynFlags.EXPORT_POSE):
+            # Make a copy of the object and apply its armature modifiers. Then export that.
+            log.info(f"Exporting pose, modifers={[m.name for m in obj.modifiers]}")
+            newdata = obj.data.copy()
+            objcopy = bpy.data.objects.new("pynExport_" + obj.name, newdata)
+            bpy.context.scene.collection.objects.link(objcopy)
+            ObjectActive(objcopy)
+            if objcopy.data.shape_keys:
+                self.apply_shape_key(target_key)
+            for m in obj.modifiers:
+                log.debug(f"Checking modifer {m.name}")
+                if m.type == 'ARMATURE':
+                    newmod = objcopy.modifiers.new(name=m.name, type=m.type)
+                    newmod.object = m.object
+                    log.debug(f"Applying armature {newmod.name} > {newmod.object.name} to {objcopy.name}")
+                    bpy.ops.object.modifier_apply(modifier=newmod.name)
+            self.active_obj = objcopy
+        else:
+            self.active_obj = obj
 
         # If there's a hierarchy, export parents (recursively) first
         my_parent = self.export_shape_parents(obj)
-
-        log.info(f"Exporting {obj.name} with shapes: {self.file_keys}")
 
         retval = set()
 
@@ -3624,8 +3680,7 @@ class NifExporter:
 
         # Collect key info about the mesh 
         verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict, partitions, partition_map = \
-           self.extract_mesh_data(obj, arma, target_key)
-        #log.debug(f"Export_shape found morphdict: {morphdict.keys()}")
+           self.extract_mesh_data(self.active_obj, arma, target_key)
 
         is_headpart = obj.data.shape_keys \
                 and len(self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
@@ -3679,7 +3734,6 @@ class NifExporter:
         if is_skinned:
             self.nif.createSkin()
 
-        #new_xform = obj.matrix_world.copy()
         # Using local transform because the shapes will be parented in the nif
         new_xform = obj.matrix_local * (1/self.scale) 
         if not has_uniform_scale(obj):
@@ -3692,13 +3746,12 @@ class NifExporter:
             new_xform = MatrixLocRotScale(l, r, obj.matrix_local.to_scale()) 
         
         if is_skinned:
-            self.export_skin(obj, arma, new_shape, new_xform, weights_by_vert)
+            self.export_skin(self.active_obj, arma, new_shape, new_xform, weights_by_vert)
             if len(unweighted) > 0:
                 create_group_from_verts(obj, UNWEIGHTED_VERTEX_GROUP, unweighted)
                 log.warning("Some vertices are not weighted to the armature in object {obj.name}")
                 self.objs_unweighted.add(obj)
 
-            # partitions, tri_indices = self.export_partitions(obj, weights_by_vert, tris)
             if len(partitions) > 0:
                 if 'FO4_SEGMENT_FILE' in obj.keys():
                     log.debug(f"....Writing segment file {obj['FO4_SEGMENT_FILE']}")
@@ -3734,17 +3787,22 @@ class NifExporter:
             arma['PYN_RENAME_BONES'] = self.flag_set(pynFlags.RENAME_BONES)
             arma['PYN_RENAME_BONES_NIFTOOLS'] = self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS)
         obj['PYN_WRITE_BODYTRI_ED'] = self.flag_set(pynFlags.WRITE_BODYTRI)
+        obj['PYN_EXPORT_POSE'] = self.flag_set(pynFlags.EXPORT_POSE)
+
+        if self.active_obj != obj:
+            bpy.data.meshes.remove(self.active_obj.data)
+            self.active_obj = None
 
         log.info(f"{obj.name} successfully exported to {self.nif.filepath}")
         return retval
 
 
-    def export_file_set(self, arma, suffix=''):
+    def export_file_set(self, suffix=''):
         """ Create a set of nif files from the given object, using the given armature and appending
             the suffix. One file is created per shape key with the shape key used as suffix. Associated
             TRIP files are exported if there is TRIP info.
-                arma = skeleton to use 
-                suffix = suffix to append to the filenames, after the shape key suffix
+                suffix = suffix to append to the filenames, after the shape key suffix. 
+                    Empty string for regular nifs, non-empty for facebones nifs
             """
         if self.file_keys is None or len(self.file_keys) == 0:
             shape_keys = ['']
@@ -3787,8 +3845,13 @@ class NifExporter:
             self.writtenbones = {}
 
             for obj in self.objects:
-                self.export_shape(obj, sk, arma)
-                log.debug(f"Exported shape {obj.name}")
+                arma, fb_arma = find_armatures(obj)
+                if len(suffix) > 0 and fb_arma:
+                    self.export_shape(obj, sk, fb_arma)
+                    log.debug(f"Exported shape {obj.name} using {fb_arma.name}")
+                if len(suffix) == 0 and arma:
+                    self.export_shape(obj, sk, arma)
+                    log.debug(f"Exported shape {obj.name} using {arma.name}")
 
             # Check for bodytri morphs--write the extra data node if needed
             log.debug(f"TRIP data: shapes={len(self.trip.shapes)}, bodytri written: {self.bodytri_written}, filepath: {truncate_filename(self.trippath, 'meshes')}")
@@ -3833,11 +3896,11 @@ Exporting objects: {self.objects}
 """)
         NifFile.clear_log()
         if self.facebones:
-            self.export_file_set(self.facebones, '_faceBones')
-        if self.armature:
-            self.export_file_set(self.armature, '')
-        if self.facebones is None and self.armature is None:
-            self.export_file_set(None, '')
+            self.export_file_set('_faceBones')
+        #if self.armature:
+        #    self.export_file_set('')
+        #if self.facebones is None and self.armature is None:
+        self.export_file_set('')
         msgs = list(filter(lambda x: not x.startswith('Info: Loaded skeleton') and len(x)>0, 
                            NifFile.message_log().split('\n')))
         if msgs:
@@ -3897,6 +3960,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         description="Write an extra data node pointing to the BODYTRI file, if there are any bodytri shape keys. Not needed if exporting for Bodyslide, because they write their own.",
         default=False)
 
+    export_pose: bpy.props.BoolProperty(
+        name="Export pose position",
+        description="Export bones in pose position.",
+        default=False)
+
     chargen_ext: bpy.props.StringProperty(
         name="Chargen extension",
         description="Extension to use for chargen files (not including file extension).",
@@ -3948,6 +4016,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         else:
             self.write_bodytri = False
 
+        if 'PYN_EXPORT_POSE' in obj and obj['PYN_EXPORT_POSE']:
+            self.export_pose = True
+        else:
+            self.export_pose = False
+
         if 'PYN_CHARGEN_EXT' in obj:
             self.chargen_ext = obj['PYN_CHARGEN_EXT']
         else:
@@ -3982,6 +4055,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             flags |= pynFlags.PRESERVE_HIERARCHY
         if self.write_bodytri:
             flags |= pynFlags.WRITE_BODYTRI
+        if self.export_pose:
+            flags |= pynFlags.EXPORT_POSE
 
         LogStart("EXPORT", "NIF")
         NifFile.Load(nifly_path)
@@ -4127,6 +4202,71 @@ def run_tests():
     # ########### LOCAL TESTS #############
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
+    if True: #TEST_BPY_ALL or TEST_NEW_COLORS:
+        test_title("TEST_NEW_COLORS", "Can write vertex colors that were created in blender")
+        bpy.ops.object.select_all(action='DESELECT')
+        export_from_blend(NifExporter, 
+                          r"tests\SKYRIMSE\BirdHead.blend",
+                          "HeadWhole",
+                          "SKYRIMSE",
+                          r"tests/Out/TEST_NEW_COLORS.nif",
+                          "")
+
+        nif = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_NEW_COLORS.nif"))
+        shape = nif.shapes[0]
+        assert shape.colors, f"Have colors in shape {shape.name}"
+        assert shape.colors[10] == (1.0, 1.0, 1.0, 1.0), f"Colors are as expected: {shape.colors[10]}"
+        assert shape.shader_attributes.shaderflags2_test(ShaderFlags2.VERTEX_COLORS), \
+            f"ShaderFlags2 vertex colors set: {ShaderFlags2(shape.shader_attributes.Shader_Flags_2).fullname}"
+        assert False, "---STOP---"
+
+
+    if True: #TEST_BPY_ALL or TEST_IMP_ANIMATRON:
+        test_title("TEST_IMP_ANIMATRON", "Can read a FO4 animatron nif")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/AnimatronicNormalWoman-body.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_ANIMATRON.nif")
+        outfile_fb = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_ANIMATRON.nif")
+        remove_file(outfile_fb)
+
+        imp = NifImporter(testfile, f = pynFlags.IMPORT_SHAPES \
+                      | pynFlags.APPLY_SKINNING \
+                      | pynFlags.KEEP_TMP_SKEL)
+        imp.execute()
+
+        sh = find_shape('BodyLo:0')
+        minv, maxv = get_obj_bbox(sh)
+        assert VNearEqual(minv, Vector((-13.14, -7.83, 38.6)), 0.1), f"Bounding box min correct: {minv}"
+        assert VNearEqual(maxv, Vector((14.0, 12.66, 133.5)), 0.1), f"Bounding box max correct: {maxv}"
+
+        cp_armorleg = find_shape("BSConnectPointParents::P-ArmorLleg")
+        assert cp_armorleg["pynConnectParent"] == "LLeg_Thigh", f"Connect point has correct parent: {cp_armorleg['pynConnectParent']}"
+        assert VNearEqual(cp_armorleg.location, Vector((33.7, -2.4, 1.5)), 0.1), f"Connect point at correct position"
+
+        arma = find_shape('AnimatronicNormalWoman')
+        assert arma, f"Found armature '{arma.name}'"
+        lleg_thigh = arma.data.bones['LLeg_Thigh']
+        assert lleg_thigh.parent, f"LLeg_Thigh has parent"
+        assert lleg_thigh.parent.name == 'Pelvis', f"LLeg_Thigh parent is {lleg_thigh.parent.name}"
+
+        NifExporter(outfile, "FO4", 
+                    export_flags=pynFlags.PRESERVE_HIERARCHY | pynFlags.EXPORT_POSE
+                    ).export([sh, find_shape('BodyLo:1')])
+
+        nifout = NifFile(outfile_fb)
+        sh_out = nifout.shapes[0]
+        assert sh_out.name == 'BodyLo:0', f"Exported shape: {sh_out.name}"
+        minv_out, maxv_out = get_shape_bbox(sh_out)
+        assert VNearEqual(minv_out, minv), f"Minimum bounds equal: {minv_out} == {minv}"
+        assert VNearEqual(maxv_out, maxv), f"Minimum bounds equal: {maxv_out} == {maxv}"
+        sp2_out = nifout.nodes['SPINE2']
+        assert sp2_out.parent.name == 'SPINE1', f"SPINE2 has parent {sp2_out.parent.name}"
+        sp2_in = imp.nif.nodes['SPINE2']
+        assert MatNearEqual(transform_to_matrix(sp2_out.transform), transform_to_matrix(sp2_in.transform)), \
+            f"Transforms are equal: \n{sp2_out.transform}\n==\n{sp2_in.transform}"
+        
+
     if True: #TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
         test_title("TEST_IMP_EXP_SKY_2", "Can read the armor nif with two shapes and spit it back out")
         clear_all()
@@ -4161,25 +4301,23 @@ def run_tests():
         # Can intuit structure if it's not in the file
         bpy.ops.object.select_all(action='DESELECT')
         testfile = os.path.join(pynifly_dev_path, r"tests\FO4\baby.nif")
-        NifImporter.do_import(testfile)
+        NifImporter.do_import(testfile, flags = pynFlags.APPLY_SKINNING)
         head = bpy.data.objects['Baby_Head:0']
         eyes = bpy.data.objects['Baby_Eyes:0']
 
-        outfile = os.path.join(pynifly_dev_path, r"tests\Out\baby01.nif")
-        e = NifExporter(outfile, 'FO4')
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_BABY.nif")
+        e = NifExporter(outfile, 'FO4', export_flags=pynFlags.PRESERVE_HIERARCHY)
         # This nif imports with different skeletons because the head has a different skin-to-bone transform from 
         # the other shapes. We aren't yet smart enough to export multiple skeletons to one nif.
-        #e.export([eyes, head])
-        e.export([head])
+        e.export([eyes, head])
 
         testnif = NifFile(outfile)
         testhead = testnif.shape_by_root('Baby_Head')
         testeyes = testnif.shape_by_root('Baby_Eyes')
         assert len(testhead.bone_names) > 10, "Error: Head should have bone weights"
-        #assert len(testeyes.bone_names) > 2, "Error: Eyes should have bone weights"
+        assert len(testeyes.bone_names) > 2, "Error: Eyes should have bone weights"
         assert testhead.blockname == "BSSubIndexTriShape", f"Error: Expected BSSubIndexTriShape on skinned shape, got {testhead.blockname}"
 
-        assert False, "----STOP----"
         
     if False: 
         """Not a real test--just exposes a bunch of transforms for understanding"""
@@ -4229,51 +4367,6 @@ def run_tests():
         assert False, "----------STOP-----------"
 
         
-    if True: #TEST_BPY_ALL or TEST_IMP_ANIMATRON:
-        test_title("TEST_IMP_ANIMATRON", "Can read a FO4 animatron nif")
-        clear_all()
-
-        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/AnimatronicNormalWoman-lowerbody.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_ANIMATRON.nif")
-        outfile_fb = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_ANIMATRON.nif")
-        remove_file(outfile_fb)
-
-        imp = NifImporter(testfile, f = pynFlags.IMPORT_SHAPES \
-                      | pynFlags.APPLY_SKINNING \
-                      | pynFlags.KEEP_TMP_SKEL)
-        imp.execute()
-
-        sh = find_shape('BodyLo:0')
-        minv, maxv = get_obj_bbox(sh)
-        assert VNearEqual(minv, Vector((-13.14, -7.83, 38.6)), 0.1), f"Bounding box min correct: {minv}"
-        assert VNearEqual(maxv, Vector((14.0, 12.66, 133.5)), 0.1), f"Bounding box max correct: {maxv}"
-
-        cp_armorleg = find_shape("BSConnectPointParents::P-ArmorLleg")
-        assert cp_armorleg["pynConnectParent"] == "LLeg_Thigh", f"Connect point has correct parent: {cp_armorleg['pynConnectParent']}"
-        assert VNearEqual(cp_armorleg.location, Vector((33.7, -2.4, 1.5)), 0.1), f"Connect point at correct position"
-
-        arma = find_shape('AnimatronicNormalWoman')
-        assert arma, f"Found armature '{arma.name}'"
-        lleg_thigh = arma.data.bones['LLeg_Thigh']
-        assert lleg_thigh.parent, f"LLeg_Thigh has parent"
-        assert lleg_thigh.parent.name == 'Pelvis', f"LLeg_Thigh parent is {lleg_thigh.parent.name}"
-
-        NifExporter(outfile, "FO4", export_flags=pynFlags.PRESERVE_HIERARCHY).export([sh])
-
-        nifout = NifFile(outfile_fb)
-        sh_out = nifout.shapes[0]
-        assert sh_out.name == 'BodyLo:0', f"Exported shape: {sh_out.name}"
-        minv_out, maxv_out = get_shape_bbox(sh_out)
-        assert VNearEqual(minv_out, minv), f"Minimum bounds equal: {minv_out} == {minv}"
-        assert VNearEqual(maxv_out, maxv), f"Minimum bounds equal: {maxv_out} == {maxv}"
-        sp2_out = nifout.nodes['SPINE2']
-        assert sp2_out.parent.name == 'SPINE1', f"SPINE2 has parent {sp2_out.parent.name}"
-        sp2_in = imp.nif.nodes['SPINE2']
-        # Have to export posed position for this next check to work
-        #assert MatNearEqual(transform_to_matrix(sp2_out.transform), transform_to_matrix(sp2_in.transform)), \
-        #    f"Transforms are equal: \n{sp2_out.transform}\n==\n{sp2_in.transform}"
-        
-
     if False: #TEST_BPY_ALL or TEST_IMP_FACEGEN:
         # This test fails -- can't get the head positioned where it belongs, but the head wants to come in
         # with a 90deg rotation.

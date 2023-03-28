@@ -900,6 +900,7 @@ class NiShape(NiNode):
 
     @property
     def colors(self):
+        """Returns colors as a list of 4-tuples representing color values, 1:1 with vertices."""
         if not self._colors:
             if self._verts:
                 buflen = len(self._verts)

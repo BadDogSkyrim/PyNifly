@@ -53,8 +53,10 @@ extern "C" NIFLY_API void* loadSkinForNifSkel(void* nifRef, void* skel);
 extern "C" NIFLY_API bool getShapeGlobalToSkin(void* nifRef, void* shapeRef, float* xform);
 extern "C" NIFLY_API void getGlobalToSkin(void* nifSkinRef, void* shapeRef, void* xform);
 extern "C" NIFLY_API int hasSkinInstance(void* shapeRef);
-extern "C" NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const char* boneName, float* xform);
+extern "C" NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const  char* boneName, float* buf);
+extern "C" NIFLY_API void setShapeSkinToBone(void* nifPtr, void* shapePtr, const char* boneName, const nifly::MatTransform & buf);
 extern "C" NIFLY_API void getTransform(void* theShape, float* buf);
+extern "C" NIFLY_API void setXFormSkinToBone(void* anim, const char* shapeName, const char* boneName, const nifly::MatTransform & buf);
 extern "C" NIFLY_API void getNodeTransform(void* theNode, nifly::MatTransform* buf);
 extern "C" NIFLY_API int getUVs(void* theNif, void* theShape, float* buf, int len, int start);
 extern "C" NIFLY_API int getNodeCount(void* theNif);
@@ -66,15 +68,7 @@ extern "C" NIFLY_API int getNodeName(void* theNode, char* buf, int buflen);
 extern "C" NIFLY_API void* getNodeParent(void* theNif, void* node);
 extern "C" NIFLY_API void getNodeXformToGlobal(void* anim, const char* boneName, nifly::MatTransform* xformBuf);
 extern "C" NIFLY_API void* createNif(const char* targetGame, int rootType, const char* rootName);
-extern "C" NIFLY_API void* createNifShapeFromData(void* parentNif,
-	const char* shapeName,
-	const float* verts,
-	const float* uv_points,
-	const float* norms,
-	int vertCount,
-	const uint16_t * tris, int triCount,
-	uint16_t * optionsPtr = nullptr,
-	void* parentRef = nullptr);
+extern "C" NIFLY_API void* createNifShapeFromData(void* parentNif, const char* shapeName, const float* verts, const float* uv_points, const float* norms, int vertCount, const uint16_t * tris, int triCount, uint16_t * optionsPtr = nullptr, void* parentRef = nullptr);
 extern "C" NIFLY_API void setTransform(void* theShape, void* buf);
 extern "C" NIFLY_API void* addNode(void* f, const char* name, const nifly::MatTransform* xf, void* parent);
 extern "C" NIFLY_API void skinShape(void* f, void* shapeRef);

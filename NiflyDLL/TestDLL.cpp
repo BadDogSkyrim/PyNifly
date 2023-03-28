@@ -3301,7 +3301,69 @@ namespace NiflyDLLTests
 			saveNif(nifOut, (testRoot / "Out/readConnectPoints.nif").u8string().c_str());
 
 		};
-		TEST_METHOD(readTransformController) { 
+		TEST_METHOD(impExpSkinBone) {
+			void* shapes[10];
+
+			void* nif = load((testRoot / "SkyrimSE/maleheadargonian.nif").u8string().c_str());
+			Assert::IsTrue(getShapes(nif, shapes, 10, 0) == 1, L"ERROR: Wrong number of shapes");
+			void* head = shapes[0];
+			TSanityCheckShape(nif, head);
+
+			void* headbone, *spinebone;
+			MatTransform headbonexf, spinebonexf, headboneinv, spineboneinv;
+			headbone = TFindNode(nif, "NPC Head [Head]");
+			spinebone = TFindNode(nif, "NPC Spine2 [Spn2]");
+			getNodeTransform(headbone, &headbonexf);
+			getNodeTransform(spinebone, &spinebonexf);
+			headboneinv = headbonexf.InverseTransform();
+			spineboneinv = spinebonexf.InverseTransform();
+
+			MatTransform headxf, spinexf, headxfinv, spinexfinv;
+			getShapeSkinToBone(nif, head, "NPC Spine2 [Spn2]", &spinexf.translation.x);
+			getShapeSkinToBone(nif, head, "NPC Head [Head]", &headxf.translation.x);
+			headxfinv = headxf.InverseTransform();
+			spinexfinv = spinexf.InverseTransform();
+
+
+			// ### Can wrie the mesh back out
+
+			clearMessageLog();
+			std::filesystem::path fileOut = testRoot / "Out/testWrapper_impExpSkinBone.nif";
+
+			void* nifOut = createNif("SKYRIMSE", 0, "AnimatronicNormalWoman");
+			uint16_t options = 0;
+			void* skinOut;
+			void* shapeOut = TCopyShape(nifOut, "_ArgonianMaleHead", nif, head, BoneHierarchy, &skinOut );
+			setXFormSkinToBone(skinOut, "_ArgonianMaleHead", "NPC Spine2 [Spn2]", spinexf);
+			setXFormSkinToBone(skinOut, "_ArgonianMaleHead", "NPC Head [Head]", headxf);
+			TCopyShader(nifOut, shapeOut, nif, head);
+
+			saveSkinnedNif(skinOut, fileOut.u8string().c_str());
+			const int MSGBUFLEN = 2000;
+			char msgbuf[MSGBUFLEN];
+			int loglen = getMessageLog(msgbuf, MSGBUFLEN);
+			Assert::IsFalse(strstr(msgbuf, "WARNING:"), L"Error completed with warnings");
+			Assert::IsFalse(strstr(msgbuf, "ERROR:"), L"Error completed with errors");
+
+			// What we wrote is correct
+
+			clearMessageLog();
+			void* nifCheck = load(fileOut.u8string().c_str());
+			void* shapesCheck[10];
+			getShapes(nifCheck, shapesCheck, 10, 0);
+			void* headCheck = shapesCheck[0];
+			TCompareShapes(nif, head, nifCheck, shapesCheck[0]);
+
+			MatTransform checkHeadxf, checkSpinexf;
+			getShapeSkinToBone(nifCheck, headCheck, "NPC Spine2 [Spn2]", &checkSpinexf.translation.x);
+			getShapeSkinToBone(nifCheck, headCheck, "NPC Head [Head]", &checkHeadxf.translation.x);
+			Assert::IsTrue(TApproxEqual(spinexf, checkSpinexf), L"Skin-to-bone transforms not equal");
+
+			loglen = getMessageLog(msgbuf, MSGBUFLEN);
+			Assert::IsFalse(strstr(msgbuf, "WARNING:"), L"Error completed with warnings");
+			Assert::IsFalse(strstr(msgbuf, "ERROR:"), L"Error completed with errors");
+		};
+		TEST_METHOD(readTransformController) {
 
 			//void* nif = load((testRoot / "FO4/CarPush01.nif").u8string().c_str());
 			//NiTransformControllerBuf tcbuf;

@@ -110,6 +110,7 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
     TEST_HEADPART = True
     TEST_HYENA_PARTITIONS = True
     TEST_IMP_EXP_FO4 = True
+    TEST_IMP_EXP_FO4_2 = True
     TEST_IMP_EXP_SKY = True
     TEST_IMP_EXP_SKY_2 = True
     TEST_IMP_NORMALS = True

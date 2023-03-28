@@ -551,7 +551,9 @@ NIFLY_API int hasSkinInstance(void* shapeRef) {
     return static_cast<NiShape*>(shapeRef)->HasSkinInstance()? 1: 0;
 }
 
-NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const  char* boneName, float* buf) {
+NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const char* boneName, float* buf)
+/* Return the skin-to-bone transform for the given bone in the given shape*/
+{
     MatTransform xf;
     bool hasXform = static_cast<NifFile*>(nifPtr)->GetShapeTransformSkinToBone(
         static_cast<NiShape*>(shapePtr),
@@ -559,6 +561,32 @@ NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const  char* bon
         xf);
     if (hasXform) XformToBuffer(buf, xf);
     return hasXform;
+}
+
+NIFLY_API void setShapeSkinToBone(void* nifPtr, void* shapePtr, const char* boneName, const MatTransform& buf)
+/* 
+    Set the skin-to-bone transform for the given bone in the given shape.
+
+    Note the bone has to exist in the shape already. 
+*/
+{
+    NifFile* nif = static_cast<NifFile*>(nifPtr);
+    NiShape* shape = static_cast<NiShape*>(shapePtr);
+    NiHeader hdr = nif->GetHeader();
+    uint32_t boneID = shape->GetBoneID(hdr, boneName);
+
+    if (boneID != NIF_NPOS)
+        nif->SetShapeTransformSkinToBone(shape, boneID, buf);
+}
+
+NIFLY_API void setXFormSkinToBone(void* anim, const char* shapeName, const char* boneName, const MatTransform& buf)
+/* 
+    Set the skin-to-bone transform for the given bone in the given shape.
+    The bone need not exist in the shape. 
+*/
+{
+    AnimInfo* nifskin = static_cast<AnimInfo*>(anim);
+    nifskin->SetXFormSkinToBone(shapeName, boneName, buf);
 }
 
 NIFLY_API void getTransform(void* theShape, float* buf) {
@@ -575,8 +603,8 @@ NIFLY_API void getNodeTransform(void* theNode, MatTransform* buf) {
 NIFLY_API void getNodeXformToGlobal(
     void* anim, const char* boneName, MatTransform* xformBuf) {
     /* Get the transform from the nif if there, from the reference skeleton if not.
-        Requires an AnimInfo because this is a skinned nif, after all. Creating the 
-        AnimInfo loads the skeleton.
+        Requires an AnimInfo because this is a skinned nif and we return the skin-to-bone
+        transform. Creating the AnimInfo loads the skeleton.
         > AnimInfo* anim - The nif's AnimInfo
         > char* boneName - name of the bone
         < MatTransform* xformBuf - Buffer to receive the transform
@@ -768,8 +796,8 @@ NIFLY_API void addBoneToSkin(void* anim, const char* boneName,
 
 
 NIFLY_API void addBoneToShape(void* anim, void* theShape, const char* boneName, 
-        void* xformPtr, const char* parentName)
-/* Add the given bone to the shape for export. Note it is *not* added to the nif--use
+        void* xformToParent, const char* parentName)
+/* Add the given bone to the shape for export. Note the bone node is *not* added to the nif--use
 *  writeSkinToNif to update the nif. 
 *  TODO: Look at creating the node here directly.
 *  xformToParent may be omitted, in which case the bone transform comes from the 
@@ -778,7 +806,7 @@ NIFLY_API void addBoneToShape(void* anim, void* theShape, const char* boneName,
 */
 {
     AddBoneToShape(static_cast<AnimInfo*>(anim), static_cast<NiShape*>(theShape),
-        boneName, static_cast<MatTransform*>(xformPtr), parentName);
+        boneName, static_cast<MatTransform*>(xformToParent), parentName);
 }
 
 NIFLY_API void setShapeWeights(void* anim, void* theShape, const char* boneName,
