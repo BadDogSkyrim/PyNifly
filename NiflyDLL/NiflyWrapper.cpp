@@ -623,8 +623,7 @@ NIFLY_API void getNodeXformToGlobal(
     }
 }
 
-NIFLY_API void getBoneSkinToBoneXform(void* nifSkinPtr, const char* shapeName,
-    const char* boneName, float* xform) {
+NIFLY_API void getBoneSkinToBoneXform(void* nifSkinPtr, const char* shapeName, const char* boneName, float* xform) {
     AnimInfo* anim = static_cast<AnimInfo*>(nifSkinPtr);
     int boneIdx = anim->GetShapeBoneIndex(shapeName, boneName);
     AnimSkin* skin = &anim->shapeSkinning[boneName];

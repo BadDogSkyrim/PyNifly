@@ -258,6 +258,7 @@ def load_nifly(nifly_path):
     nifly.skinShape.restype = None
     nifly.setSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_char_p]
     nifly.setSegments.restype = None
+    nifly.setXFormSkinToBone.argtypes = [c_void_p, c_char_p, c_char_p, POINTER(TransformBuf)]
     nifly.writeSkinToNif.argtypes = [c_void_p]
     nifly.writeSkinToNif.restype = None
     return nifly
@@ -1180,9 +1181,7 @@ class NiShape(NiNode):
         return None
 
     def get_skin_to_bone_xform(self, bone_name):
-        """ Return the transform between the skin and bone it uses. Often used to 
-            reposition the mesh over the armature. <<< IS THAT TRUE? WHAT IS THIS?
-            """
+        """ Return the skin-to-bone transform, getting it from the skin. """
         self.skin()
         buf = TransformBuf()
         NifFile.nifly.getBoneSkinToBoneXform(self.file.skin,
@@ -1192,7 +1191,7 @@ class NiShape(NiNode):
         return buf
 
     def get_shape_skin_to_bone(self, bone_name):
-        """ Return the bone-to-parent transform on the bone reference in the shape """
+        """ Return the skin-to-bone transform, getting it from the nif data """
         buf = TransformBuf()
         xform_found = NifFile.nifly.getShapeSkinToBone(self.file._handle, 
                                                        self._handle, 
@@ -1202,6 +1201,14 @@ class NiShape(NiNode):
             return buf
         else:
             return None
+
+    def set_skin_to_bone_xform(self, bone_name, xform: TransformBuf):
+        """Set the skin-to-bone transform on the shape's skin, using the skin."""
+        NifFile.nifly.setXFormSkinToBone(self.file.skin, 
+                                         self.name.encode('utf-8'),
+                                         bone_name.encode('utf-8'),
+                                         xform)
+
 
     # #############  Extra Data #############
 
@@ -1833,7 +1840,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -1856,7 +1863,7 @@ TEST_FNV = False
 TEST_BLOCKNAME = False
 TEST_UNSKINNED = False
 TEST_UNI = False
-TEST_SHADER = True
+TEST_SHADER = False
 TEST_ALPHA = False
 TEST_SHEATH = False
 TEST_FEET = False
@@ -1884,10 +1891,13 @@ def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
     skinned = (len(old_shape.bone_weights) > 0)
     effectsshader = (type(old_shape.shader_attributes) == BSESPAttrs)
 
+    # Somehow the UV needs inversion. Probably a bug but we've lived with it so long...
+    uv_inv = [(x, 1-y) for x, y in old_shape.uvs]
+
     new_shape = new_nif.createShapeFromData(old_shape.name + ".Out", 
                                             old_shape.verts,
                                             old_shape.tris,
-                                            old_shape.uvs,
+                                            uv_inv,
                                             old_shape.normals,
                                             is_skinned=skinned, 
                                             is_effectsshader=effectsshader)
@@ -1905,6 +1915,10 @@ def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
 
     for bone_name, weights in old_shape.bone_weights.items():
         new_shape.add_bone(bone_name, old_shape.file.nodes[bone_name].xform_to_global)
+
+        sbx = old_shape.get_shape_skin_to_bone(bone_name)
+        new_shape.set_skin_to_bone_xform(bone_name, sbx)
+
         new_shape.setShapeWeights(bone_name, weights)
 
     new_shape.shader_name = old_shape.shader_name
@@ -3355,7 +3369,7 @@ if __name__ == "__main__":
 
 
     if TEST_ALL or TEST_SKIN_BONE_XF:
-        print("### TEST_SKIN_BONE_XF: Can read the skin-bone transform")
+        print("### TEST_SKIN_BONE_XF: Can read and write the skin-bone transform")
         nif = NifFile(r"tests\SkyrimSE\maleheadargonian.nif")
         head = nif.shapes[0]
 
@@ -3370,6 +3384,29 @@ if __name__ == "__main__":
         hhx = nif.nodes['NPC Head [Head]'].transform * head_head_xf
         assert NearEqual(hhx.translation[2], 120.3436), f"Head-head transform positions correctly: {hhx.translation[2]}"
 
+        nifout = NifFile()
+        nifout.initialize('SKYRIMSE', r"tests\out\TEST_SKIN_BONE_XF.nif")
+
+        _test_export_shape(head, nifout)
+
+        nifout.save()
+
+        nifcheck = NifFile(r"tests\out\TEST_SKIN_BONE_XF.nif")
+        headcheck = nifcheck.shapes[0]
+
+        head_spine_check_xf = headcheck.get_shape_skin_to_bone('NPC Spine2 [Spn2]')
+        assert NearEqual(head_spine_check_xf.translation[2], 29.419632), f"Have correct z: {head_spine_check_xf.translation[2]}"
+
+        head_head_check_xf = headcheck.get_shape_skin_to_bone('NPC Head [Head]')
+        assert NearEqual(head_head_check_xf.translation[2], -0.000031), f"Have correct z: {head_head_check_xf.translation[2]}"
+
+        hsx_check = nifcheck.nodes['NPC Spine2 [Spn2]'].transform * head_spine_check_xf
+        assert NearEqual(hsx_check.translation[2], 120.3436), f"Head-spine transform positions correctly: {hsx_check.translation[2]}"
+        hhx_check = nifcheck.nodes['NPC Head [Head]'].transform * head_head_check_xf
+        assert NearEqual(hhx_check.translation[2], 120.3436), f"Head-headcheck transform positions correctly: {hhx_check.translation[2]}"
+
+        #Throw in an unrelated test for whether the UV got inverted
+        assert VNearEqual(head.uvs[0], headcheck.uvs[0]), f"UV 0 same in both: [{head.uvs[0]}, {headcheck.uvs[0]}]"
 
     print("""
 ================================================
