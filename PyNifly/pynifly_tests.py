@@ -167,7 +167,77 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
     TEST_WEAPON_PART= True
     TEST_WEIGHTS_EXPORT = True
     TEST_WELWA = True
+    TEST_NEW_COLORS = True
 
+
+    if TEST_BPY_ALL or TEST_NEW_COLORS:
+        test_title("TEST_NEW_COLORS", "Can write vertex colors that were created in blender")
+        bpy.ops.object.select_all(action='DESELECT')
+        export_from_blend(NifExporter, 
+                          r"tests\SKYRIMSE\BirdHead.blend",
+                          "HeadWhole",
+                          "SKYRIMSE",
+                          r"tests/Out/TEST_NEW_COLORS.nif",
+                          "")
+
+        nif = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_NEW_COLORS.nif"))
+        shape = nif.shapes[0]
+        assert shape.colors, f"Have colors in shape {shape.name}"
+        assert shape.colors[10] == (1.0, 1.0, 1.0, 1.0), f"Colors are as expected: {shape.colors[10]}"
+        assert shape.shader_attributes.shaderflags2_test(ShaderFlags2.VERTEX_COLORS), \
+            f"ShaderFlags2 vertex colors set: {ShaderFlags2(shape.shader_attributes.Shader_Flags_2).fullname}"
+
+
+    if TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
+        test_title("TEST_IMP_EXP_SKY_2", "Can read the armor nif with two shapes and spit it back out")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/test.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_EXP_SKY_2.nif")
+
+        imp = NifImporter(testfile)
+        imp.execute()
+
+        body = find_shape('MaleBody')
+        armor = find_shape('Armor')
+
+        exp = NifExporter(outfile, "SKYRIM")
+        exp.export([body, armor])
+
+        nifout = NifFile(outfile)
+        compare_shapes(imp.nif.shape_dict['MaleBody'], nifout.shape_dict['MaleBody'], body)
+        compare_shapes(imp.nif.shape_dict['Armor'], nifout.shape_dict['Armor'], armor)
+
+        check_unweighted_verts(nifout.shape_dict['MaleBody'])
+        check_unweighted_verts(nifout.shape_dict['Armor'])
+        assert NearEqual(body.location.z, 0), f"{body.name} not in lifted position: {body.location.z}"
+        assert NearEqual(armor.location.z, 120.343582, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
+        assert "NPC R Hand [RHnd]" not in bpy.data.objects, f"Did not create extra nodes representing the bones"
+            
+
+    if TEST_BPY_ALL or TEST_BABY:
+        test_title('TEST_BABY', 'Can export baby parts')
+        clear_all()
+
+        # Can intuit structure if it's not in the file
+        bpy.ops.object.select_all(action='DESELECT')
+        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\baby.nif")
+        NifImporter.do_import(testfile, flags = pynFlags.APPLY_SKINNING)
+        head = bpy.data.objects['Baby_Head:0']
+        eyes = bpy.data.objects['Baby_Eyes:0']
+
+        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_BABY.nif")
+        e = NifExporter(outfile, 'FO4', export_flags=pynFlags.PRESERVE_HIERARCHY)
+        # This nif imports with different skeletons because the head has a different skin-to-bone transform from 
+        # the other shapes. We aren't yet smart enough to export multiple skeletons to one nif.
+        e.export([eyes, head])
+
+        testnif = NifFile(outfile)
+        testhead = testnif.shape_by_root('Baby_Head')
+        testeyes = testnif.shape_by_root('Baby_Eyes')
+        assert len(testhead.bone_names) > 10, "Error: Head should have bone weights"
+        assert len(testeyes.bone_names) > 2, "Error: Eyes should have bone weights"
+        assert testhead.blockname == "BSSubIndexTriShape", f"Error: Expected BSSubIndexTriShape on skinned shape, got {testhead.blockname}"
 
     if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
         test_title("TEST_IMP_EXP_SKY", "Can read the armor nif and spit it back out")
@@ -268,28 +338,6 @@ def run_tests(dev_path, NifExporter, NifImporter, import_tri, create_bone, get_b
 
         body = find_shape("MaleUnderwearBody1:0")
         assert "NPC Calf [Clf].L" in body.vertex_groups, f"Vertex groups follow niftools naming convention: {body.vertex_groups.keys()}"
-
-
-    if TEST_BPY_ALL or TEST_SKIN_BONE_XF:
-        test_title("TEST_SKIN_BONE_XF", "Skin-to-bone transforms work correctly")
-        clear_all()
-
-        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\3BBB_femalehands_1.nif")
-        NifImporter.do_import(testfile, pynFlags.RENAME_BONES | pynFlags.APPLY_SKINNING)
-        hands = find_object("Hands", bpy.context.selected_objects, fn=lambda x: x.name)
-        assert VNearEqual(hands.data.vertices[413].co, Vector((-26.8438, 2.3812, 78.3215))), f"Hands not warped"
-
-        # Head not using the same skeleton as hands because we didn't select it. Probably originally 
-        # intended it to, but this is also a uesful test, so
-        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\maleheadargonian.nif")
-        NifImporter.do_import(testfile, pynFlags.RENAME_BONES | pynFlags.APPLY_SKINNING)
-        head = find_object("_ArgonianMaleHead", bpy.context.selected_objects, fn=lambda x: x.name)
-        minz = min([v.co.z for v in head.data.vertices])
-        assert NearEqual(minz, -11.012878, epsilon=0.1), f"Min Z is negative: {minz}"
-        maxz = max([v.co.z for v in head.data.vertices])
-        assert NearEqual(maxz, 11.262238, epsilon=0.1), f"Min Z is negative: {minz}"
-        # Argonian head is a weird nif, so head z pos is 0
-        assert NearEqual(head.location.z, 0), f"Head is positioned at head position: {head.location}"
 
 
     if True: #TEST_BPY_ALL or TEST_FACEBONES:

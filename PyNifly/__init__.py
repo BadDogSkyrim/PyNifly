@@ -5,7 +5,7 @@
 
 RUN_TESTS = True
 TEST_BPY_ALL = False
-TEST_TARGET_BONE = ['LLeg_Thigh_Fat_skin'] # Print extra debugging info for these bones
+TEST_TARGET_BONE = ['NPC Spine2 [Spn2]', 'NPC Spine2'] # Print extra debugging info for these bones
 
 bl_info = {
     "name": "NIF format",
@@ -230,6 +230,14 @@ def apply_scale_transl(xf:Matrix, sf:float):
     return MatrixLocRotScale(loc*sf, rot, scale)
 
 
+def pack_xf_to_buf(xf, scale_factor: float):
+    """Pack a transform to a TransformBuf, applying a scale fator to translation"""
+    xf_loc, xf_rot, xf_scale = xf.decompose()
+    tb = TransformBuf()
+    tb.store(xf_loc/scale_factor, xf_rot.to_matrix(), xf_scale)
+    return tb
+
+
 def armatures_match(a, b):
     """Returns true if all bones of the first armature have the same position in the second"""
     bpy.ops.object.mode_set(mode = 'OBJECT')
@@ -324,7 +332,7 @@ def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor):
     """Creates a bone in the armature with the given transform.
     Must be in edit mode.
         armdata = data block for armature
-        node_xf = bone transform (4x4 Matrix)
+        node_xf = bone transform (4x4 Matrix) - this is bind position
         game = game we are making the bone for
         is_fb = is a facebone (we make them shorter)
         scale_factor = scale factor to apply
@@ -354,24 +362,25 @@ def get_bone_global_xf(arma, bone_name, game:str, use_pose) -> Matrix:
         bmx = arma.data.bones[bone_name].matrix_local @ game_rotations[game_axes[game]][1]
     return bmx
 
-def get_bone_xform(arma, bone_name, game, scale, preserve_hierarchy, use_pose) -> Matrix:
-    """Return the local transform represented by the bone"""
+def get_bone_xform(arma, bone_name, game, preserve_hierarchy, use_pose) -> Matrix:
+    """Return the local or global transform represented by the bone"""
     bonexf = get_bone_global_xf(arma, bone_name, game, use_pose)
 
-    bparent = arma.data.bones[bone_name].parent
-    if bparent and preserve_hierarchy:
-        # Calculate the relative transform from the parent
-        parent_xf = get_bone_global_xf(arma, bparent.name, game, scale)
-        loc_xf = parent_xf.inverted() @ bonexf
-        if bone_name in TEST_TARGET_BONE:
-            log.debug("Using pose location" if use_pose else "Using bind location")
-            log.debug(f"<get_bone_xform> {bone_name} has bone xf\n{bonexf}")
-            log.debug(f"<get_bone_xform> {bone_name} has parent xf\n{parent_xf}")
-            log.debug(f"<get_bone_xform> {bone_name} has local xf\n{loc_xf}")
+    if preserve_hierarchy:
+        bparent = arma.data.bones[bone_name].parent
+        if bparent:
+            # Calculate the relative transform from the parent
+            parent_xf = get_bone_global_xf(arma, bparent.name, game, scale)
+            loc_xf = parent_xf.inverted() @ bonexf
+            if bone_name in TEST_TARGET_BONE:
+                log.debug("Using pose location" if use_pose else "Using bind location")
+                log.debug(f"<get_bone_xform> {bone_name} has bone xf\n{bonexf}")
+                log.debug(f"<get_bone_xform> {bone_name} has parent xf\n{parent_xf}")
+                log.debug(f"<get_bone_xform> {bone_name} has local xf\n{loc_xf}")
 
-        return loc_xf
-    else:
-        return bonexf
+            return loc_xf
+
+    return bonexf
 
 
 # ######################################################################## ###
@@ -1441,7 +1450,7 @@ Importing new object {new_object.name} at \n{new_object.matrix_world}\n<- nif\n{
         
         sh = self.nodes_loaded[obj.name]
 
-        # Create bones reflecting the skin-to-bone transforms of the shape.
+        # Create bones reflecting the skin-to-bone transforms of the shape (bind position).
         ObjectActive(arma)
         new_bones = []
         bpy.ops.object.mode_set(mode = 'EDIT')
@@ -2997,7 +3006,7 @@ class NifExporter:
             targname = collisionobj['pynCollisionTarget']
             log.debug(f"Finding target bone: {targname}")
             targbone = targ.data.bones[targname]
-            mx = get_bone_xform(targ, targname, self.game, self.scale, 
+            mx = get_bone_xform(targ, targname, self.game, 
                                 self.flag_set(pynFlags.PRESERVE_HIERARCHY),
                                 self.flag_set(pynFlags.EXPORT_POSE)
                                 )
@@ -3433,7 +3442,7 @@ class NifExporter:
         """
         result = {}
         for b in arma.data.bones:
-            result[b.name] = get_bone_xform(arma, b.name, self.game, self.scale, 
+            result[b.name] = get_bone_xform(arma, b.name, self.game, 
                                             self.flag_set(pynFlags.PRESERVE_HIERARCHY),
                                             self.flag_set(pynFlags.EXPORT_POSE)
                                             )
@@ -3456,14 +3465,14 @@ class NifExporter:
         else:
             nifname = bone_name
 
-        xf = get_bone_xform(arma, bone_name, self.game, self.scale, 
+        xf = get_bone_xform(arma, bone_name, self.game, 
                             self.flag_set(pynFlags.PRESERVE_HIERARCHY),
                             self.flag_set(pynFlags.EXPORT_POSE)
                             )
-        xf_loc, xf_rot, xf_scale = xf.decompose()
-        tb = TransformBuf()
-        tb.store(xf_loc/self.scale, xf_rot.to_matrix(), xf_scale)
-        #tb = TransformBuf.from_matrix(xf) 
+        #xf_loc, xf_rot, xf_scale = xf.decompose()
+        #tb = TransformBuf()
+        #tb.store(xf_loc/self.scale, xf_rot.to_matrix(), xf_scale)
+        tb = pack_xf_to_buf(xf, self.scale)
 
         if nifname in TEST_TARGET_BONE:
             log.debug(f"<write_bone> writing bone {bone_name} with transform\n{tb}")
@@ -3503,21 +3512,32 @@ class NifExporter:
         arma_bones = self.get_bone_xforms(arma, used_bones, new_shape)
     
         for bone_name, bone_xform in arma_bones.items():
+            log.debug(f"<export_skin> checking {bone_name}")
             if bone_name in weights_by_bone and len(weights_by_bone[bone_name]) > 0:
+                log.debug(f"<export_skin> writing {bone_name}")
                 if self.flag_set(pynFlags.RENAME_BONES) or self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS):
                     nifname = new_shape.file.nif_name(bone_name)
                 else:
                     nifname = bone_name
 
-                #xf = Matrix.Scale(1/self.scale, 4) @ bone_xform
-                #tb = TransformBuf.from_matrix(xf) 
-                xf_loc, xf_rot, xf_scale = bone_xform.decompose()
-                tb = TransformBuf()
-                tb.store(xf_loc/self.scale, xf_rot.to_matrix(), xf_scale)
+                #xf_loc, xf_rot, xf_scale = bone_xform.decompose()
+                #tb = TransformBuf()
+                #tb.store(xf_loc/self.scale, xf_rot.to_matrix(), xf_scale)
+                tb = pack_xf_to_buf(bone_xform, self.scale)
                 if nifname in TEST_TARGET_BONE:
-                    log.debug(f"<export_skin>({obj.name}) writing bone {bone_name} with transform\n{bone_xform}\n->nif\n{tb}")
+                    log.debug(f"<export_skin>({obj.name}) writing bone {bone_name} with pose transform\n{bone_xform}\n->nif\n{tb}")
                 new_shape.add_bone(nifname, tb)
                 # log.debug(f"....Adding bone {nifname}")
+                if self.flag_set(pynFlags.EXPORT_POSE):
+                    # Bind location is different from pose location
+                    bone_xform_bind = get_bone_xform(arma, bone_name, self.game, 
+                                                     self.flag_set(pynFlags.PRESERVE_HIERARCHY),
+                                                     False)
+                    bone_xform_bind.invert()
+                    tb_bind = pack_xf_to_buf(bone_xform_bind, self.scale)
+                    new_shape.set_skin_to_bone_xform(nifname, tb_bind)
+                    if nifname in TEST_TARGET_BONE:
+                        log.debug(f"<export_skin>({obj.name}) writing bone {bone_name} with sk2b transform\n{bone_xform_bind}\n->nif\n{tb_bind}")
                 self.writtenbones[bone_name] = nifname
                 new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
 
@@ -3633,7 +3653,7 @@ class NifExporter:
             """
         if obj.name in self.objs_written:
             return
-        log.info(f"Exporting {obj.name} with shapes: {self.file_keys} with flags {str(pynFlags(self.flags))}")
+        log.info(f"Exporting {obj.name} with shapes: {self.file_keys} with flags {str(pynFlags(self.flags))}\n")
 
         # Exporting posed means bones are in pose location, mesh is still where it was
         if False: #self.flag_set(pynFlags.EXPORT_POSE):
@@ -4202,26 +4222,125 @@ def run_tests():
     # ########### LOCAL TESTS #############
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
-    if True: #TEST_BPY_ALL or TEST_NEW_COLORS:
-        test_title("TEST_NEW_COLORS", "Can write vertex colors that were created in blender")
-        bpy.ops.object.select_all(action='DESELECT')
-        export_from_blend(NifExporter, 
-                          r"tests\SKYRIMSE\BirdHead.blend",
-                          "HeadWhole",
-                          "SKYRIMSE",
-                          r"tests/Out/TEST_NEW_COLORS.nif",
-                          "")
+    if False: 
+        """Not a real test--just exposes a bunch of transforms for understanding"""
+        test_title("TEST_SHOW_TRANSFORMS", "Some transforms from the argonian head")
+        clear_all()
 
-        nif = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_NEW_COLORS.nif"))
-        shape = nif.shapes[0]
-        assert shape.colors, f"Have colors in shape {shape.name}"
-        assert shape.colors[10] == (1.0, 1.0, 1.0, 1.0), f"Colors are as expected: {shape.colors[10]}"
-        assert shape.shader_attributes.shaderflags2_test(ShaderFlags2.VERTEX_COLORS), \
-            f"ShaderFlags2 vertex colors set: {ShaderFlags2(shape.shader_attributes.Shader_Flags_2).fullname}"
-        assert False, "---STOP---"
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\maleheadargonian.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_ARG.nif")
+        skelfile = os.path.join(pynifly_dev_path, r"C:\Modding\SkyrimSE\mods\00 Vanilla Assets\meshes\actors\character\character assets\skeletonbeast.nif")
+
+        skel = NifFile(skelfile)
+        skel_head_xf = skel.nodes['NPC Head [Head]'].xform_to_global
+        skel_head_mx = MatrixLocRotScale(skel_head_xf.translation, skel_head_xf.rotation, Vector((1,1,1)))
+        print(f"Skeleton Head position is \n{skel_head_mx}")
+        skel_spine2_xf = skel.nodes['NPC Spine2 [Spn2]'].xform_to_global
+        skel_spine2_mx = MatrixLocRotScale(skel_spine2_xf.translation, skel_spine2_xf.rotation, Vector((1,1,1)))
+        print(f"Skeleton NPC Spine2 [Spn2] position is \n{skel_spine2_mx}")
+        skel_diff = skel_spine2_mx.inverted() @ skel_head_mx 
+        print(f"Skeleton offset Head-Spine2 =\n{skel_diff}")
+        # These next two are both saying the same thing
+        print(f"Skeleton offset Head-Spine2 inverted =\n{skel_diff.inverted()}")
+        print(f"Skeleton offset Spine2-Head =\n{skel_head_mx.inverted() @ skel_spine2_mx}")
+
+        nif = NifFile(testfile)
+        sh = nif.shapes[0]
+        assert sh.name == '_ArgonianMaleHead', f"Have the correct shape: {sh.name}"
+
+        print("Bone nodes in the argonian nif are at the vanilla skeleton positions")
+        spine2_xf = nif.nodes['NPC Spine2 [Spn2]'].xform_to_global
+        spine2_mx = MatrixLocRotScale(spine2_xf.translation, spine2_xf.rotation, Vector((1,1,1)))
+        print(f"xform-to-global for 'NPC Spine2 [Spn2]' is \n{spine2_mx}")
+
+        head_xf = nif.nodes['NPC Head [Head]'].xform_to_global
+        head_mx = MatrixLocRotScale(head_xf.translation, head_xf.rotation, Vector((1,1,1)))
+        print(f"xform-to-global for 'NPC Head [Head]' is \n{head_mx}")
+
+        print("Skin to bone for spine2 is exactly the inverse offset of spine2 from origin (head bone)--except for rotations")
+        sh_sp2 = sh.get_shape_skin_to_bone('NPC Spine2 [Spn2]')
+        sh_sp2_mx = MatrixLocRotScale(sh_sp2.translation, sh_sp2.rotation, Vector((1,1,1)))
+        sp2_bind = sh_sp2_mx.inverted()
+        print(f"skin-to-bone for Spine2 is \n{sh_sp2_mx}")
+        print("But inverting the spine2 skin-to-bone is NOT exactly the head-spine2 offset, presumably because of those rotations")
+        print(f"Inverse skin-to-bone for Spine2 (bind position) is \n{sp2_bind}")
+
+        print("Head is just about at origin")
+        sh_head = sh.get_shape_skin_to_bone('NPC Head [Head]')
+        sh_head_mx = MatrixLocRotScale(sh_head.translation, sh_head.rotation, Vector((1,1,1)))
+        print(f"skin-to-bone for Head is \n{sh_head_mx}")
+
+        print("Combining bone node location with skin-to-bone transform gives pose location")
+        sh_sp2_van = spine2_mx @ sh_sp2_mx.inverted() 
+        print(f"Spine2 computed transform is \n{sh_sp2_van}")
+        sh_head_van = head_mx @ sh_head_mx.inverted() 
+        print(f"Head computed transform is \n{sh_head_van}")
+
+        print("Invert the bind position and we get the skin-to-bone transform for output")
+        print(f"Inverse bind position\n{sp2_bind.inverted()}")
 
 
-    if True: #TEST_BPY_ALL or TEST_IMP_ANIMATRON:
+        assert False, "----------STOP-----------"
+
+        
+    if True: #TEST_BPY_ALL or TEST_SKIN_BONE_XF:
+        test_title("TEST_SKIN_BONE_XF", "Skin-to-bone transforms work correctly")
+        clear_all()
+
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\maleheadargonian.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests\out\TEST_SKIN_BONE_XF.nif")
+
+        NifImporter.do_import(testfile, pynFlags.RENAME_BONES | pynFlags.APPLY_SKINNING)
+        head = find_object("_ArgonianMaleHead", bpy.context.selected_objects, fn=lambda x: x.name)
+        minz = min([v.co.z for v in head.data.vertices])
+        assert NearEqual(minz, -11.012878, epsilon=0.1), f"Min Z is negative: {minz}"
+        maxz = max([v.co.z for v in head.data.vertices])
+        assert NearEqual(maxz, 11.262238, epsilon=0.1), f"Min Z is negative: {minz}"
+        # Argonian head is a weird nif, so head z pos is 0
+        assert NearEqual(head.location.z, 0), f"Head is positioned at head position: {head.location}"
+
+        arma = head.parent
+        spine2_xf = arma.data.bones['NPC Spine2'].matrix_local
+        head_xf = arma.data.bones['NPC Head'].matrix_local
+        assert VNearEqual(head_xf.translation, Vector((0,0,0))), f"Head position at origin: {head_xf.translation}"
+        assert VNearEqual(spine2_xf.translation, Vector((0.0003, -4.3843, -29.0947))), f"Spine2 position below origin: {spine2_xf.translation}"
+
+        spine2_pose_xf = arma.pose.bones['NPC Spine2'].matrix
+        head_pose_xf = arma.pose.bones['NPC Head'].matrix
+        assert VNearEqual(head_pose_xf.translation, Vector((-0.0003, -1.5475, 120.3436))), f"Head pose position at 120: {head_pose_xf.translation}"
+        assert VNearEqual(spine2_pose_xf.translation, Vector((0.0000, -5.9318, 91.2488))), f"Spine2 pose position at 91: {spine2_pose_xf.translation}"
+
+        head_nif = NifFile(testfile)
+        head_nishape = head_nif.shapes[0]
+        def print_xf(sh, bn):
+            print(f"-----{bn}-----")
+            global_xf = head_nif.nodes[bn].xform_to_global.as_matrix()
+            sk2b_xf = head_nishape.get_shape_skin_to_bone(bn).as_matrix()
+            bind_xf = sk2b_xf.inverted()
+            print(f"global xf = \n{global_xf}")
+            #print(f"Head sk2b = \n{head_sk2b_orig}")
+            print(f"bind xf = \n{bind_xf}")
+
+        print_xf(head_nishape, "NPC Head [Head]")
+        print_xf(head_nishape, "NPC Spine2 [Spn2]")
+
+        #head_bone_xf = arma.pose.bones['NPC Head'].matrix @ game_rotations[game_axes["SKYRIMSE"]][1]
+        #print(f"head sk2b out =\n{head_bone_xf}")
+
+        NifExporter(outfile, 
+                    "SKYRIMSE",
+                    export_flags=pynFlags.RENAME_BONES | pynFlags.EXPORT_POSE, 
+                    ).export([head])
+
+        nifcheck = NifFile(outfile)
+        headcheck = nifcheck.shapes[0]
+        sk2b_spine = headcheck.get_shape_skin_to_bone('NPC Spine2 [Spn2]')
+        assert NearEqual(sk2b_spine.translation[2], 29.419632), f"Have correct z: {sk2b_spine.translation[2]}"
+
+        assert False, "[STOP]"
+
+
+    if TEST_BPY_ALL or TEST_IMP_ANIMATRON:
         test_title("TEST_IMP_ANIMATRON", "Can read a FO4 animatron nif")
         clear_all()
 
@@ -4267,106 +4386,16 @@ def run_tests():
             f"Transforms are equal: \n{sp2_out.transform}\n==\n{sp2_in.transform}"
         
 
-    if True: #TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
-        test_title("TEST_IMP_EXP_SKY_2", "Can read the armor nif with two shapes and spit it back out")
+    if True: #TEST_BPY_ALL or TEST_HANDS:
+        test_title("TEST_HANDS", "Import of hands works correctly")
         clear_all()
 
-        testfile = os.path.join(pynifly_dev_path, r"tests/Skyrim/test.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_EXP_SKY_2.nif")
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\3BBB_femalehands_1.nif")
+        NifImporter.do_import(testfile, pynFlags.RENAME_BONES | pynFlags.APPLY_SKINNING)
+        hands = find_object("Hands", bpy.context.selected_objects, fn=lambda x: x.name)
+        assert VNearEqual(hands.data.vertices[413].co, Vector((-26.8438, 2.3812, 78.3215))), f"Hands not warped"
 
-        imp = NifImporter(testfile)
-        imp.execute()
 
-        body = find_shape('MaleBody')
-        armor = find_shape('Armor')
-
-        exp = NifExporter(outfile, "SKYRIM")
-        exp.export([body, armor])
-
-        nifout = NifFile(outfile)
-        compare_shapes(imp.nif.shape_dict['MaleBody'], nifout.shape_dict['MaleBody'], body)
-        compare_shapes(imp.nif.shape_dict['Armor'], nifout.shape_dict['Armor'], armor)
-
-        check_unweighted_verts(nifout.shape_dict['MaleBody'])
-        check_unweighted_verts(nifout.shape_dict['Armor'])
-        assert NearEqual(body.location.z, 0), f"{body.name} not in lifted position: {body.location.z}"
-        assert NearEqual(armor.location.z, 120.343582, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
-        assert "NPC R Hand [RHnd]" not in bpy.data.objects, f"Did not create extra nodes representing the bones"
-            
-
-    if True: #TEST_BPY_ALL or TEST_BABY:
-        test_title('TEST_BABY', 'Can export baby parts')
-        clear_all()
-
-        # Can intuit structure if it's not in the file
-        bpy.ops.object.select_all(action='DESELECT')
-        testfile = os.path.join(pynifly_dev_path, r"tests\FO4\baby.nif")
-        NifImporter.do_import(testfile, flags = pynFlags.APPLY_SKINNING)
-        head = bpy.data.objects['Baby_Head:0']
-        eyes = bpy.data.objects['Baby_Eyes:0']
-
-        outfile = os.path.join(pynifly_dev_path, r"tests\Out\TEST_BABY.nif")
-        e = NifExporter(outfile, 'FO4', export_flags=pynFlags.PRESERVE_HIERARCHY)
-        # This nif imports with different skeletons because the head has a different skin-to-bone transform from 
-        # the other shapes. We aren't yet smart enough to export multiple skeletons to one nif.
-        e.export([eyes, head])
-
-        testnif = NifFile(outfile)
-        testhead = testnif.shape_by_root('Baby_Head')
-        testeyes = testnif.shape_by_root('Baby_Eyes')
-        assert len(testhead.bone_names) > 10, "Error: Head should have bone weights"
-        assert len(testeyes.bone_names) > 2, "Error: Eyes should have bone weights"
-        assert testhead.blockname == "BSSubIndexTriShape", f"Error: Expected BSSubIndexTriShape on skinned shape, got {testhead.blockname}"
-
-        
-    if False: 
-        """Not a real test--just exposes a bunch of transforms for understanding"""
-        test_title("TEST_SHOW_TRANSFORMS", "Some transforms from the argonian head")
-        clear_all()
-
-        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\maleheadargonian.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_ARG.nif")
-        skelfile = os.path.join(pynifly_dev_path, r"C:\Modding\SkyrimSE\mods\00 Vanilla Assets\meshes\actors\character\character assets\skeletonbeast.nif")
-
-        skel = NifFile(skelfile)
-        skel_head_xf = skel.nodes['NPC Head [Head]'].xform_to_global
-        skel_head_mx = MatrixLocRotScale(skel_head_xf.translation, skel_head_xf.rotation, Vector((1,1,1)))
-        print(f"Skeleton Head position is \n{skel_head_mx}")
-        skel_spine2_xf = skel.nodes['NPC Spine2 [Spn2]'].xform_to_global
-        skel_spine2_mx = MatrixLocRotScale(skel_spine2_xf.translation, skel_spine2_xf.rotation, Vector((1,1,1)))
-        print(f"Skeleton NPC Spine2 [Spn2] position is \n{skel_spine2_mx}")
-        skel_diff = skel_spine2_mx.inverted() @ skel_head_mx 
-        print(f"Skeleton offset Head-Spine2 =\n{skel_diff}")
-
-        nif = NifFile(testfile)
-        sh = nif.shapes[0]
-        assert sh.name == '_ArgonianMaleHead', f"Have the correct shape: {sh.name}"
-
-        spine2_xf = nif.nodes['NPC Spine2 [Spn2]'].xform_to_global
-        spine2_mx = MatrixLocRotScale(spine2_xf.translation, spine2_xf.rotation, Vector((1,1,1)))
-        print(f"xform-to-global for 'NPC Spine2 [Spn2]' is \n{spine2_mx}")
-
-        head_xf = nif.nodes['NPC Head [Head]'].xform_to_global
-        head_mx = MatrixLocRotScale(head_xf.translation, head_xf.rotation, Vector((1,1,1)))
-        print(f"xform-to-global for 'NPC Head [Head]' is \n{head_mx}")
-
-        sh_sp2 = sh.get_shape_skin_to_bone('NPC Spine2 [Spn2]')
-        sh_sp2_mx = MatrixLocRotScale(sh_sp2.translation, sh_sp2.rotation, Vector((1,1,1)))
-        print(f"skin-to-bone for Spine2 is \n{sh_sp2_mx}")
-        print(f"Inverse skin-to-bone for Spine2 is \n{sh_sp2_mx.inverted()}")
-
-        sh_head = sh.get_shape_skin_to_bone('NPC Head [Head]')
-        sh_head_mx = MatrixLocRotScale(sh_head.translation, sh_head.rotation, Vector((1,1,1)))
-        print(f"skin-to-bone for Head is \n{sh_head}")
-
-        sh_sp2_van = spine2_mx @ sh_sp2_mx.inverted() 
-        print(f"Spine2 computed transform is \n{sh_sp2_van}")
-        sh_head_van = head_mx @ sh_head_mx.inverted() 
-        print(f"Head computed transform is \n{sh_head_van}")
-
-        assert False, "----------STOP-----------"
-
-        
     if False: #TEST_BPY_ALL or TEST_IMP_FACEGEN:
         # This test fails -- can't get the head positioned where it belongs, but the head wants to come in
         # with a 90deg rotation.
