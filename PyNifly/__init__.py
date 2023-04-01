@@ -5,7 +5,7 @@
 
 RUN_TESTS = True
 TEST_BPY_ALL = False
-TEST_TARGET_BONE = ['NPC Spine2 [Spn2]', 'NPC Spine2'] # Print extra debugging info for these bones
+TEST_TARGET_BONE = ['skin_bone_C_MasterEyebrow'] # Print extra debugging info for these bones
 
 bl_info = {
     "name": "NIF format",
@@ -261,6 +261,7 @@ def find_armatures(obj):
     """Find armatures associated with obj. 
     Returns (regular armature, facebones armature)
     Only returns the first regular amature it finds--there might be more than one.
+    Looks at armature modfiers and also at the parent.
     """
     arma = None
     fb_arma = None
@@ -271,6 +272,15 @@ def find_armatures(obj):
             else:
                 if not arma:
                     arma = skel
+
+    if obj.parent and obj.parent.type == "ARMATURE":
+        if is_facebones(obj.parent.data.bones.keys()):
+            if fb_arma == None:
+                fb_arma = obj.parent
+        else:
+            if arma == None:
+                arma = obj.parent
+
     return arma, fb_arma
 
 
@@ -370,7 +380,7 @@ def get_bone_xform(arma, bone_name, game, preserve_hierarchy, use_pose) -> Matri
         bparent = arma.data.bones[bone_name].parent
         if bparent:
             # Calculate the relative transform from the parent
-            parent_xf = get_bone_global_xf(arma, bparent.name, game, scale)
+            parent_xf = get_bone_global_xf(arma, bparent.name, game, use_pose)
             loc_xf = parent_xf.inverted() @ bonexf
             if bone_name in TEST_TARGET_BONE:
                 log.debug("Using pose location" if use_pose else "Using bind location")
@@ -1063,68 +1073,83 @@ class NifImporter():
             ed.parent = obj
             self.objects_created[ed.name] = ed
 
+
     def bone_in_armatures(self, bone_name):
-        """Determine whether a bone is in one of the armatures we've imported"""
+        """Determine whether a bone is in one of the armatures we've imported.
+        Returns the bone or None.
+        """
         for arma in self.imported_armatures:
             if bone_name in arma.data.bones:
-                return True
-        return False
+                return arma.data.bones[bone_name]
+        return None
+
 
     def import_ninode(self, ninode, p=None):
         """ Create Blender representation of an NiNode
             ninode = nif node
             p = Blender parent for new object
+            Returns the Blender representation of the node, either an object or a bone, or none
             """
         # Don't import the node if (1) it's already been imported, (2) it's been imported
         # as a bone in the skeleton, or (3) it's the root node
+        log.debug(f"<import_ninode> {ninode.name}, {p}")
         obj = None
+        if ninode.name == ninode.file.rootName:
+            return None
+
+        # Nothing to do if we've already imported this object. 
         bl_name = self.blender_name(ninode.name)
-        if (ninode._handle not in self.objects_created) \
-            and (not self.bone_in_armatures(bl_name)) \
-            and (ninode.parent):
-            
-            skelbone = None
-            if ninode.name in ninode.file.dict.byNif:
-                skelbone = ninode.file.dict.byNif[ninode.name]
+        if ninode._handle in self.objects_created:
+            log.debug(f"Already created: {ninode.name}")
+            return self.objects_created[ninode._handle]
 
-            elif ninode.file.game == "FO4" and ninode.name in fo4FaceDict.byNif:
-                skelbone = fo4FaceDict.byNif[ninode.name]
+        bn = self.bone_in_armatures(bl_name)
+        if bn:
+            return bn
 
-            if skelbone and self.armature:
-                # If the node is a known skeleton bone, add it to the skeleton even if it's not used
-                LogIfBone(ninode.name, f"Creating bone for {bl_name}")
-                ObjectSelect([self.armature])
-                ObjectActive(self.armature)
-                bpy.ops.object.mode_set(mode = 'EDIT')
-                self.add_bone_to_arma(self.armature, self.blender_name(ninode.name), ninode.name)
-                bpy.ops.object.mode_set(mode = 'OBJECT')
+        skelbone = None
+        if ninode.name in ninode.file.dict.byNif:
+            skelbone = ninode.file.dict.byNif[ninode.name]
 
+        elif ninode.file.game == "FO4" and ninode.name in fo4FaceDict.byNif:
+            skelbone = fo4FaceDict.byNif[ninode.name]
+
+        if skelbone and self.armature:
+            # Have not created this as bone in an armature already AND it's a known skeleton bone, 
+            # AND we have an armature, create it as an armature bone even tho it's not used in the shape
+            LogIfBone(ninode.name, f"Creating bone for {bl_name}")
+            ObjectSelect([self.armature])
+            ObjectActive(self.armature)
+            bpy.ops.object.mode_set(mode = 'EDIT')
+            bn = self.add_bone_to_arma(self.armature, self.blender_name(ninode.name), ninode.name)
+            bpy.ops.object.mode_set(mode = 'OBJECT')
+            return bn
+
+        # If not a known skeleton bone, just import as an EMPTY object
+        log.debug(f"Creating node for {bl_name}, parent {p}")
+        bpy.ops.object.add(radius=1.0, type='EMPTY')
+        obj = bpy.context.object
+        obj.name = ninode.name
+        obj["pynBlock_Name"] = ninode.blockname
+        obj.matrix_local = ninode.transform.as_matrix()
+        if p:
+            if type(p) == bpy_types.Bone:
+                # Can't set a bone as parent, but get the node in the right position
+                log.debug(f"Setting node {ninode.name} to global position: \n{ninode.xform_to_global}")
+                obj.matrix_local = apply_scale_xf(ninode.xform_to_global.as_matrix(), self.scale) 
             else:
-                # If not a known skeleton bone, just import as n EMPTY object
-                #log.debug(f"Creating node for {bl_name}")
-                bpy.ops.object.add(radius=1.0, type='EMPTY')
-                obj = bpy.context.object
-                obj.name = ninode.name
-                obj["pynBlock_Name"] = ninode.blockname
-                obj.matrix_local = ninode.transform.as_matrix()
                 obj.parent = p
-                self.objects_created[ninode._handle] = obj
-                #log.debug(f"Created node {ninode.name}")
+        self.objects_created[ninode._handle] = obj
+        #log.debug(f"Created node {ninode.name}")
 
-            if ninode.collision_object:
-                self.import_collision_obj(ninode.collision_object, obj)
-        else:
-            try:
-                obj = self.objects_created[ninode._handle]
-            except:
-                #LogIfBone(ninode.name, f"Not creating {ninode.name} and not in objects_created")
-                #LogIfBone(ninode.name, f"{bl_name} found in armature: {bl_name in self.armature.data.bones}")
-                obj = None # Might be a bone in an armature, not a separate object
+        if ninode.collision_object:
+            log.debug(f"{ninode.name} has collision object")
+            self.import_collision_obj(ninode.collision_object, obj)
 
         return obj
 
 
-    def import_node_parents(self, node):
+    def import_node_parents(self, node: NiNode):
         """ Import the chain of parents of the given node all the way up to the root """
         nif = node.file
         # Get list of parents of the given node from the list, bottom-up. 
@@ -1187,11 +1212,8 @@ class NifImporter():
             # log.info(f"import flags: {self.flags}")
             parent = self.import_node_parents(the_shape) 
 
-            log.debug(f"get_node_transform on {the_shape.name}")
             new_object.matrix_world = get_node_transform(the_shape, scale_factor=self.scale)
-            log.debug(f"""
-Importing new object {new_object.name} at \n{new_object.matrix_world}\n<- nif\n{the_shape.global_to_skin}
-""")
+            log.debug(f"Importing new object {new_object.name}")
             if parent:
                 new_object.parent = parent
 
@@ -1236,21 +1258,25 @@ Importing new object {new_object.name} at \n{new_object.matrix_world}\n<- nif\n{
 
     def find_compatible_arma(self, shape:NiShape, armatures:list):
         """Look through the list of armatures and find one that can be used by the shape. 
-        Bones in the armature must match the shape's bone bind positions.
+        SHOULD BE THAT: Bones in the armature must match the shape's bone bind positions.
+        BUT FOR NOW just assume the skeletons are compatible. If not, user can try again.
         Returns the armature, or None.
         """
         for arma in armatures:
             is_ok = True
             for b in shape.bone_names:
                 if b in arma.data.bones:
-                    shape_xf = shape.get_shape_skin_to_bone(b)
+                    shape_xf = shape.get_shape_skin_to_bone(b).as_matrix()
                     arma_xf = arma.data.bones[b].matrix_local
                     is_ok &= XFNearEqual(shape_xf, arma_xf)
                     if not is_ok:
+                        log.debug(f"Armature mismatch for bone {b}:\n{shape_xf} \n!=\n{arma_xf}")
                         break
             if is_ok:
                 log.debug(f"Armature {arma.name} ok for shape {shape.name}")
                 return arma
+            # Oops, do it anyway
+            return arma
         log.debug(f"No armature found for {shape.name}")
         return None
 
@@ -1321,7 +1347,7 @@ Importing new object {new_object.name} at \n{new_object.matrix_world}\n<- nif\n{
                         except:
                             parentnifname = niparent.name
                         parentname = self.blender_name(niparent.name)
-                        log.debug(f"Found parent {parentname}/{niparent.name} for {bonename}/{nifname}")
+                        #log.debug(f"Found parent {parentname}/{niparent.name} for {bonename}/{nifname}")
 
                 # log.debug(f"connect_armature found {parentname}, creating bones {self.flag_set(pynFlags.CREATE_BONES)}, is facebones {is_facebone(bonename)} ")
                 if parentname is None and self.flag_set(pynFlags.CREATE_BONES) and not is_facebone(bonename):
@@ -1709,7 +1735,10 @@ Importing new object {new_object.name} at \n{new_object.matrix_world}\n<- nif\n{
     def import_collision_obj(self, c:CollisionObject, parentObj=None, bone=None):
         """Import collision object. Parent is target of collision. 
         If target is a bone, parent is armature and "bone" is bone name.
+        Returns new collision object.
         """
+        log.debug(f"<import_collision_obj> for {parentObj}")
+        col = None
         bpy.ops.object.mode_set(mode='OBJECT')
         if c.blockname == "bhkCollisionObject":
             bpy.ops.object.add(radius=self.scale, type='EMPTY')
@@ -1728,6 +1757,7 @@ Importing new object {new_object.name} at \n{new_object.matrix_world}\n<- nif\n{
             cb = c.body
             if cb:
                 self.import_collision_body(cb, col)
+        return col
 
     def import_collisions(self):
         """Import top-level collision, if any """
@@ -1773,7 +1803,7 @@ Importing new object {new_object.name} at \n{new_object.matrix_world}\n<- nif\n{
                 self.add_bones_to_arma(self.armature, set(self.nif.nodes.keys()))
                 self.connect_armature(self.armature)
             else:
-                log.debug(f"Found self.bones, creating armature")
+                log.debug(f"Found shapes in nif, creating armature if necessary")
                 # List of armatures available for shapes
                 if self.armature:
                     self.imported_armatures = [self.armature] 
@@ -2581,14 +2611,19 @@ class NifExporter:
             shape.behavior_graph_data = edlist
 
 
+    def add_armature(self, arma):
+        """Add an armature to the export"""
+        facebones_arma = (self.game in ['FO4', 'FO76']) and (is_facebones(arma.data.bones.keys()))
+        if facebones_arma and self.facebones is None:
+            self.facebones = arma
+        if (not facebones_arma) and (self.armature is None):
+            self.armature = arma 
+        # Do we need self.add_object(arma) here?
+
     def add_object(self, obj):
         """ Adds the given object to the objects to export. Object may be mesh, armature, or anything else """
         if obj.type == 'ARMATURE':
-            facebones_arma = (self.game in ['FO4', 'FO76']) and (is_facebones(obj.data.bones.keys()))
-            if facebones_arma and self.facebones is None:
-                self.facebones = obj
-            if (not facebones_arma) and (self.armature is None):
-                self.armature = obj 
+            self.add_armature(obj)
 
         elif obj.type == 'MESH':
             # Export the mesh, but use its parent and use any armature modifiers
@@ -2604,10 +2639,11 @@ class NifExporter:
                 if obj.parent and obj.parent.type == 'ARMATURE':
                     self.add_object(obj.parent)
                 arma, fb_arma = find_armatures(obj)
+                log.debug(f"Found armatures from obj {arma}, {fb_arma}")
                 if arma:
-                    self.add_object(arma)
+                    self.add_armature(arma)
                 if fb_arma:
-                    self.add_object(fb_arma)
+                    self.add_armature(fb_arma)
 
         elif obj.type == 'EMPTY':
             if 'BSBehaviorGraphExtraData_Name' in obj.keys():
@@ -3512,17 +3548,14 @@ class NifExporter:
         arma_bones = self.get_bone_xforms(arma, used_bones, new_shape)
     
         for bone_name, bone_xform in arma_bones.items():
-            log.debug(f"<export_skin> checking {bone_name}")
+            #log.debug(f"<export_skin> checking {bone_name}")
             if bone_name in weights_by_bone and len(weights_by_bone[bone_name]) > 0:
-                log.debug(f"<export_skin> writing {bone_name}")
+                #log.debug(f"<export_skin> writing {bone_name}")
                 if self.flag_set(pynFlags.RENAME_BONES) or self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS):
                     nifname = new_shape.file.nif_name(bone_name)
                 else:
                     nifname = bone_name
 
-                #xf_loc, xf_rot, xf_scale = bone_xform.decompose()
-                #tb = TransformBuf()
-                #tb.store(xf_loc/self.scale, xf_rot.to_matrix(), xf_scale)
                 tb = pack_xf_to_buf(bone_xform, self.scale)
                 if nifname in TEST_TARGET_BONE:
                     log.debug(f"<export_skin>({obj.name}) writing bone {bone_name} with pose transform\n{bone_xform}\n->nif\n{tb}")
@@ -3645,8 +3678,7 @@ class NifExporter:
 
     def export_shape(self, obj, target_key='', arma=None):
         """ Export given blender object to the given NIF file; also writes any associated
-            tri file. Checks to make sure the object
-            wasn't already written.
+            tri file. Checks to make sure the object wasn't already written.
             obj = blender object
             target_key = shape key to export
             arma = armature to skin to
@@ -3841,7 +3873,7 @@ class NifExporter:
 
             self.objs_written.clear()
 
-            log.info(f"..Exporting to {self.game} {fpath}")
+            log.info(f"Exporting to {self.game} {fpath}")
             self.nif = NifFile()
 
             rt = "NiNode"
@@ -3865,13 +3897,16 @@ class NifExporter:
             self.writtenbones = {}
 
             for obj in self.objects:
-                arma, fb_arma = find_armatures(obj)
-                if len(suffix) > 0 and fb_arma:
-                    self.export_shape(obj, sk, fb_arma)
-                    log.debug(f"Exported shape {obj.name} using {fb_arma.name}")
-                if len(suffix) == 0 and arma:
-                    self.export_shape(obj, sk, arma)
-                    log.debug(f"Exported shape {obj.name} using {arma.name}")
+                #arma, fb_arma = find_armatures(obj)
+                if len(suffix) > 0 and self.facebones:
+                    self.export_shape(obj, sk, self.facebones)
+                    log.debug(f"Exported shape {obj.name} using {self.facebones.name}")
+                elif len(suffix) == 0 and self.armature:
+                    self.export_shape(obj, sk, self.armature)
+                    log.debug(f"Exported shape {obj.name} using {self.armature.name}")
+                elif self.facebones == None and self.armature == None:
+                    self.export_shape(obj, sk)
+                    log.debug(f"Exported shape {obj.name}, no armature")
 
             # Check for bodytri morphs--write the extra data node if needed
             log.debug(f"TRIP data: shapes={len(self.trip.shapes)}, bodytri written: {self.bodytri_written}, filepath: {truncate_filename(self.trippath, 'meshes')}")
@@ -4222,178 +4257,47 @@ def run_tests():
     # ########### LOCAL TESTS #############
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
-    if False: 
-        """Not a real test--just exposes a bunch of transforms for understanding"""
-        test_title("TEST_SHOW_TRANSFORMS", "Some transforms from the argonian head")
+    if True: #TEST_BPY_ALL or TEST_COLLISION_MULTI:
+        test_title("TEST_COLLISION_MULTI", "Can read and write shape with multiple collision shapes")
         clear_all()
 
-        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\maleheadargonian.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_ARG.nif")
-        skelfile = os.path.join(pynifly_dev_path, r"C:\Modding\SkyrimSE\mods\00 Vanilla Assets\meshes\actors\character\character assets\skeletonbeast.nif")
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\grilledleeks01.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_MULTI.nif")
 
-        skel = NifFile(skelfile)
-        skel_head_xf = skel.nodes['NPC Head [Head]'].xform_to_global
-        skel_head_mx = MatrixLocRotScale(skel_head_xf.translation, skel_head_xf.rotation, Vector((1,1,1)))
-        print(f"Skeleton Head position is \n{skel_head_mx}")
-        skel_spine2_xf = skel.nodes['NPC Spine2 [Spn2]'].xform_to_global
-        skel_spine2_mx = MatrixLocRotScale(skel_spine2_xf.translation, skel_spine2_xf.rotation, Vector((1,1,1)))
-        print(f"Skeleton NPC Spine2 [Spn2] position is \n{skel_spine2_mx}")
-        skel_diff = skel_spine2_mx.inverted() @ skel_head_mx 
-        print(f"Skeleton offset Head-Spine2 =\n{skel_diff}")
-        # These next two are both saying the same thing
-        print(f"Skeleton offset Head-Spine2 inverted =\n{skel_diff.inverted()}")
-        print(f"Skeleton offset Spine2-Head =\n{skel_head_mx.inverted() @ skel_spine2_mx}")
+        NifImporter.do_import(testfile)
 
-        nif = NifFile(testfile)
-        sh = nif.shapes[0]
-        assert sh.name == '_ArgonianMaleHead', f"Have the correct shape: {sh.name}"
-
-        print("Bone nodes in the argonian nif are at the vanilla skeleton positions")
-        spine2_xf = nif.nodes['NPC Spine2 [Spn2]'].xform_to_global
-        spine2_mx = MatrixLocRotScale(spine2_xf.translation, spine2_xf.rotation, Vector((1,1,1)))
-        print(f"xform-to-global for 'NPC Spine2 [Spn2]' is \n{spine2_mx}")
-
-        head_xf = nif.nodes['NPC Head [Head]'].xform_to_global
-        head_mx = MatrixLocRotScale(head_xf.translation, head_xf.rotation, Vector((1,1,1)))
-        print(f"xform-to-global for 'NPC Head [Head]' is \n{head_mx}")
-
-        print("Skin to bone for spine2 is exactly the inverse offset of spine2 from origin (head bone)--except for rotations")
-        sh_sp2 = sh.get_shape_skin_to_bone('NPC Spine2 [Spn2]')
-        sh_sp2_mx = MatrixLocRotScale(sh_sp2.translation, sh_sp2.rotation, Vector((1,1,1)))
-        sp2_bind = sh_sp2_mx.inverted()
-        print(f"skin-to-bone for Spine2 is \n{sh_sp2_mx}")
-        print("But inverting the spine2 skin-to-bone is NOT exactly the head-spine2 offset, presumably because of those rotations")
-        print(f"Inverse skin-to-bone for Spine2 (bind position) is \n{sp2_bind}")
-
-        print("Head is just about at origin")
-        sh_head = sh.get_shape_skin_to_bone('NPC Head [Head]')
-        sh_head_mx = MatrixLocRotScale(sh_head.translation, sh_head.rotation, Vector((1,1,1)))
-        print(f"skin-to-bone for Head is \n{sh_head_mx}")
-
-        print("Combining bone node location with skin-to-bone transform gives pose location")
-        sh_sp2_van = spine2_mx @ sh_sp2_mx.inverted() 
-        print(f"Spine2 computed transform is \n{sh_sp2_van}")
-        sh_head_van = head_mx @ sh_head_mx.inverted() 
-        print(f"Head computed transform is \n{sh_head_van}")
-
-        print("Invert the bind position and we get the skin-to-bone transform for output")
-        print(f"Inverse bind position\n{sp2_bind.inverted()}")
-
-
-        assert False, "----------STOP-----------"
-
+        leek1 = find_shape("Leek01")
+        leek10 = find_shape("Leek01:0")
+        leek11 = find_shape("Leek01:1")
+        leek2 = find_shape("Leek02")
+        leek3 = find_shape("Leek03")
+        leek4 = find_shape("Leek04")
+        c1 = find_shape("bhkCollisionObject", leek1.children)
+        c2 = find_shape("bhkCollisionObject", leek2.children)
+        assert set(leek1.children) == set( (c1, leek10, leek11) ), f"Children of Leek01 are correct: {leek1.children} == {c1}, {leek10}, {leek11}"
         
-    if True: #TEST_BPY_ALL or TEST_SKIN_BONE_XF:
-        test_title("TEST_SKIN_BONE_XF", "Skin-to-bone transforms work correctly")
-        clear_all()
+        # -------- Export --------
+        bsxf = find_shape("BSXFlags")
+        invm = find_shape("BSInvMarker")
+        exporter = NifExporter(outfile, 'SKYRIM')
+        exporter.export([leek1, leek2, leek3, leek4, bsxf, invm])
 
-        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\maleheadargonian.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests\out\TEST_SKIN_BONE_XF.nif")
-
-        NifImporter.do_import(testfile, pynFlags.RENAME_BONES | pynFlags.APPLY_SKINNING)
-        head = find_object("_ArgonianMaleHead", bpy.context.selected_objects, fn=lambda x: x.name)
-        minz = min([v.co.z for v in head.data.vertices])
-        assert NearEqual(minz, -11.012878, epsilon=0.1), f"Min Z is negative: {minz}"
-        maxz = max([v.co.z for v in head.data.vertices])
-        assert NearEqual(maxz, 11.262238, epsilon=0.1), f"Min Z is negative: {minz}"
-        # Argonian head is a weird nif, so head z pos is 0
-        assert NearEqual(head.location.z, 0), f"Head is positioned at head position: {head.location}"
-
-        arma = head.parent
-        spine2_xf = arma.data.bones['NPC Spine2'].matrix_local
-        head_xf = arma.data.bones['NPC Head'].matrix_local
-        assert VNearEqual(head_xf.translation, Vector((0,0,0))), f"Head position at origin: {head_xf.translation}"
-        assert VNearEqual(spine2_xf.translation, Vector((0.0003, -4.3843, -29.0947))), f"Spine2 position below origin: {spine2_xf.translation}"
-
-        spine2_pose_xf = arma.pose.bones['NPC Spine2'].matrix
-        head_pose_xf = arma.pose.bones['NPC Head'].matrix
-        assert VNearEqual(head_pose_xf.translation, Vector((-0.0003, -1.5475, 120.3436))), f"Head pose position at 120: {head_pose_xf.translation}"
-        assert VNearEqual(spine2_pose_xf.translation, Vector((0.0000, -5.9318, 91.2488))), f"Spine2 pose position at 91: {spine2_pose_xf.translation}"
-
-        head_nif = NifFile(testfile)
-        head_nishape = head_nif.shapes[0]
-        def print_xf(sh, bn):
-            print(f"-----{bn}-----")
-            global_xf = head_nif.nodes[bn].xform_to_global.as_matrix()
-            sk2b_xf = head_nishape.get_shape_skin_to_bone(bn).as_matrix()
-            bind_xf = sk2b_xf.inverted()
-            print(f"global xf = \n{global_xf}")
-            #print(f"Head sk2b = \n{head_sk2b_orig}")
-            print(f"bind xf = \n{bind_xf}")
-
-        print_xf(head_nishape, "NPC Head [Head]")
-        print_xf(head_nishape, "NPC Spine2 [Spn2]")
-
-        #head_bone_xf = arma.pose.bones['NPC Head'].matrix @ game_rotations[game_axes["SKYRIMSE"]][1]
-        #print(f"head sk2b out =\n{head_bone_xf}")
-
-        NifExporter(outfile, 
-                    "SKYRIMSE",
-                    export_flags=pynFlags.RENAME_BONES | pynFlags.EXPORT_POSE, 
-                    ).export([head])
-
-        nifcheck = NifFile(outfile)
-        headcheck = nifcheck.shapes[0]
-        sk2b_spine = headcheck.get_shape_skin_to_bone('NPC Spine2 [Spn2]')
-        assert NearEqual(sk2b_spine.translation[2], 29.419632), f"Have correct z: {sk2b_spine.translation[2]}"
-
-        assert False, "[STOP]"
-
-
-    if TEST_BPY_ALL or TEST_IMP_ANIMATRON:
-        test_title("TEST_IMP_ANIMATRON", "Can read a FO4 animatron nif")
-        clear_all()
-
-        testfile = os.path.join(pynifly_dev_path, r"tests/FO4/AnimatronicNormalWoman-body.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_ANIMATRON.nif")
-        outfile_fb = os.path.join(pynifly_dev_path, r"tests/Out/TEST_IMP_ANIMATRON.nif")
-        remove_file(outfile_fb)
-
-        imp = NifImporter(testfile, f = pynFlags.IMPORT_SHAPES \
-                      | pynFlags.APPLY_SKINNING \
-                      | pynFlags.KEEP_TMP_SKEL)
-        imp.execute()
-
-        sh = find_shape('BodyLo:0')
-        minv, maxv = get_obj_bbox(sh)
-        assert VNearEqual(minv, Vector((-13.14, -7.83, 38.6)), 0.1), f"Bounding box min correct: {minv}"
-        assert VNearEqual(maxv, Vector((14.0, 12.66, 133.5)), 0.1), f"Bounding box max correct: {maxv}"
-
-        cp_armorleg = find_shape("BSConnectPointParents::P-ArmorLleg")
-        assert cp_armorleg["pynConnectParent"] == "LLeg_Thigh", f"Connect point has correct parent: {cp_armorleg['pynConnectParent']}"
-        assert VNearEqual(cp_armorleg.location, Vector((33.7, -2.4, 1.5)), 0.1), f"Connect point at correct position"
-
-        arma = find_shape('AnimatronicNormalWoman')
-        assert arma, f"Found armature '{arma.name}'"
-        lleg_thigh = arma.data.bones['LLeg_Thigh']
-        assert lleg_thigh.parent, f"LLeg_Thigh has parent"
-        assert lleg_thigh.parent.name == 'Pelvis', f"LLeg_Thigh parent is {lleg_thigh.parent.name}"
-
-        NifExporter(outfile, "FO4", 
-                    export_flags=pynFlags.PRESERVE_HIERARCHY | pynFlags.EXPORT_POSE
-                    ).export([sh, find_shape('BodyLo:1')])
-
-        nifout = NifFile(outfile_fb)
-        sh_out = nifout.shapes[0]
-        assert sh_out.name == 'BodyLo:0', f"Exported shape: {sh_out.name}"
-        minv_out, maxv_out = get_shape_bbox(sh_out)
-        assert VNearEqual(minv_out, minv), f"Minimum bounds equal: {minv_out} == {minv}"
-        assert VNearEqual(maxv_out, maxv), f"Minimum bounds equal: {maxv_out} == {maxv}"
-        sp2_out = nifout.nodes['SPINE2']
-        assert sp2_out.parent.name == 'SPINE1', f"SPINE2 has parent {sp2_out.parent.name}"
-        sp2_in = imp.nif.nodes['SPINE2']
-        assert MatNearEqual(transform_to_matrix(sp2_out.transform), transform_to_matrix(sp2_in.transform)), \
-            f"Transforms are equal: \n{sp2_out.transform}\n==\n{sp2_in.transform}"
+        # ------- Check ---------
+        nif = NifFile(outfile)
+        l1 = nif.nodes["Leek01"]
+        l4 = nif.nodes["Leek04"]
+        assert l1.collision_object.body.shape.blockname == "bhkConvexVerticesShape", f"Have the correct collisions"
+        assert l4.collision_object.body.shape.blockname == "bhkConvexVerticesShape", f"Have the correct collisions"
+        l10 = nif.shape_dict["Leek01:0"]
+        l11 = nif.shape_dict["Leek01:1"]
+        assert l10.parent.name == "Leek01", f"Leek01:0 parent correct: {l10.parent.name}"
+        assert l11.parent.name == "Leek01", f"Leek01:0 parent correct: {l11.parent.name}"
+        l40 = nif.shape_dict["Leek04:0"]
+        l41 = nif.shape_dict["Leek04:1"]
+        assert l40.parent.name == "Leek04", f"Leek04:0 parent correct: {l40.parent.name}"
+        assert l41.parent.name == "Leek04", f"Leek04:0 parent correct: {l41.parent.name}"
         
-
-    if True: #TEST_BPY_ALL or TEST_HANDS:
-        test_title("TEST_HANDS", "Import of hands works correctly")
-        clear_all()
-
-        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\3BBB_femalehands_1.nif")
-        NifImporter.do_import(testfile, pynFlags.RENAME_BONES | pynFlags.APPLY_SKINNING)
-        hands = find_object("Hands", bpy.context.selected_objects, fn=lambda x: x.name)
-        assert VNearEqual(hands.data.vertices[413].co, Vector((-26.8438, 2.3812, 78.3215))), f"Hands not warped"
 
 
     if False: #TEST_BPY_ALL or TEST_IMP_FACEGEN:
@@ -4421,7 +4325,7 @@ def run_tests():
 
 
     if TEST_BPY_ALL:
-        run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri, create_bone, get_bone_global_xf)
+        run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri, create_bone, get_bone_global_xf, transform_to_matrix)
 
 
     print("""
