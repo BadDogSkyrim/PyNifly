@@ -1160,7 +1160,7 @@ class NiShape(NiNode):
         return NifFile.nifly.hasSkinInstance(self._handle)
 
     @property
-    def global_to_skin(self):
+    def xxxglobal_to_skin(self):
         """ Return the global-to-skin transform. Calculates the transform if there's no 
             NiSkinInstance. This should be applied to the shape in blender so it matches 
             the armature. """
@@ -1180,7 +1180,7 @@ class NiShape(NiNode):
             return buf
         return None
 
-    def get_skin_to_bone_xform(self, bone_name):
+    def xxxget_skin_to_bone_xform(self, bone_name):
         """ Return the skin-to-bone transform, getting it from the skin. """
         self.skin()
         buf = TransformBuf()
@@ -1204,8 +1204,8 @@ class NiShape(NiNode):
 
     def set_skin_to_bone_xform(self, bone_name, xform: TransformBuf):
         """Set the skin-to-bone transform on the shape's skin, using the skin."""
-        NifFile.nifly.setXFormSkinToBone(self.file.skin, 
-                                         self.name.encode('utf-8'),
+        NifFile.nifly.setShapeSkinToBone(self.file._handle, 
+                                         self._handle,
                                          bone_name.encode('utf-8'),
                                          xform)
 
@@ -1251,11 +1251,12 @@ class NiShape(NiNode):
             to have verts around the origin but to be positioned properly when skinned.
             Works whether or not there is a SkinInstance block
             """
-        if self.file._skin_handle is None:
-            self.file.createSkin()
+        #if self.file._skin_handle is None:
+        #    self.file.createSkin()
         if not self._is_skinned:
             self.skin()
-        NifFile.nifly.setGlobalToSkinXform(self.file._skin_handle, self._handle, transform)
+        NifFile.nifly.setShapeTransformGlobalToSkin(self._handle, transform)
+        #NifFile.nifly.setGlobalToSkinXform(self.file._skin_handle, self._handle, transform)
 
     def add_bone(self, bone_name, xform=None, parent_name=None):
         if self.file._skin_handle is None:
@@ -1271,17 +1272,21 @@ class NiShape(NiNode):
         par = None
         if parent_name:
             par = parent_name.encode('utf-8')
-        NifFile.nifly.addBoneToShape(self.file._skin_handle, self._handle, 
+        NifFile.nifly.addBoneToNifShape(self.file._handle, self._handle, 
                                         bone_name.encode('utf-8'), buf,
-                                        par) 
+                                        par)
+        #NifFile.nifly.addBoneToShape(self.file._skin_handle, self._handle, 
+        #                                bone_name.encode('utf-8'), buf,
+        #                                par) 
 
     def set_global_to_skindata(self, xform):
         """ Sets the NiSkinData transformation. Only call this on nifs that have them. """
-        if self.file._skin_handle is None:
-            self.file.createSkin()
-        if not self._is_skinned:
-            self.skin()
-        NifFile.nifly.setShapeGlobalToSkinXform(self.file._skin_handle, self._handle, xform)
+        NifFile.nifly.setShapeTransformGlobalToSkin(self.file._handle, self._handle, xform)
+        #if self.file._skin_handle is None:
+        #    self.file.createSkin()
+        #if not self._is_skinned:
+        #    self.skin()
+        #NifFile.nifly.setShapeGlobalToSkinXform(self.file._skin_handle, self._handle, xform)
         
     def setShapeWeights(self, bone_name, vert_weights):
         """ Set the weights for a shape. Note we pass a dummy transformation matrix that is not used.
@@ -1296,9 +1301,12 @@ class NiShape(NiNode):
 
         if self.file._skin_handle is None:
             self.file.createSkin()
-        NifFile.nifly.setShapeWeights(self.file._skin_handle, self._handle, 
+        NifFile.nifly.setShapeBoneWeights(self.file._handle, self._handle, 
                                       bone_name.encode('utf-8'),
-                                      vert_buf, len(vert_weights), xfbuf)
+                                      vert_buf, len(vert_weights))
+        #NifFile.nifly.setShapeWeights(self.file._skin_handle, self._handle, 
+        #                              bone_name.encode('utf-8'),
+        #                              vert_buf, len(vert_weights), xfbuf)
        
     def set_partitions(self, partitionlist, trilist):
         """ Set the partitions for a shape

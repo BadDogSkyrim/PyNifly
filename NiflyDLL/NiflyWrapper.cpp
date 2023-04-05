@@ -202,6 +202,10 @@ NIFLY_API int saveNif(void* the_nif, const char8_t* filename) {
         Returns 0 on success.
         */
     NifFile* nif = static_cast<NifFile*>(the_nif);
+
+    for (auto& shape : nif->GetShapes())
+        nif->UpdateSkinPartitions(shape);
+
     return nif->Save(std::filesystem::path(filename));
 }
 
@@ -215,6 +219,9 @@ NIFLY_API int getNodeCount(void* theNif)
 }
 
 NIFLY_API void getNodes(void* theNif, void** buf)
+/* 
+* Return all NiNodes in the nif. Includes the root node.
+*/
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
     std::vector<nifly::NiNode*> nodes = nif->GetNodes();
@@ -261,6 +268,11 @@ NIFLY_API void* addNode(void* f, const char* name, const MatTransform* xf, void*
     NiNode* parentNode = static_cast<NiNode*>(parent);
     NiNode* theNode = nif->AddNode(name, *xf, parentNode);
     return theNode;
+}
+
+NIFLY_API void* findNodeByName(void* theNif, const char* nodeName) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    return nif->FindBlockByName<NiObjectNET>(nodeName);
 }
 
 
@@ -324,26 +336,30 @@ NIFLY_API int getShapeBlockName(void* theShape, char* buf, int buflen) {
     return int(strlen(blockname));
 }
 
-NIFLY_API int getVertsForShape(void* theNif, void* theShape, float* buf, int len, int start)
+NIFLY_API int getVertsForShape(void* theNif, void* theShape, Vector3* buf, int len, int start)
 /*
     Get a shape's verts.
-    buf, len = buffer that receives triples. len is length of buffer in floats.
+    buf, len = buffer that receives triples. len is length of buffer in floats. 
     start = vertex index to start with.
+    Returns number of verts in the nif.
     */
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     std::vector<nifly::Vector3> verts;
     nif->GetVertsForShape(shape, verts);
-    for (int i = start, j = 0; j < len && i < verts.size(); i++) {
-        buf[j++] = verts.at(i).x;
-        buf[j++] = verts.at(i).y;
-        buf[j++] = verts.at(i).z;
-    }
+    for (int i = start, j = 0; i < verts.size() && j < len; i++, j += 3)
+        buf[i] = verts.at(i);
+
+    //for (int i = start, j = 0; j < len && i < verts.size(); i++) {
+    //    buf[j++] = verts.at(i).x;
+    //    buf[j++] = verts.at(i).y;
+    //    buf[j++] = verts.at(i).z;
+    //}
     return int(verts.size());
 }
 
-NIFLY_API int getNormalsForShape(void* theNif, void* theShape, float* buf, int len, int start)
+NIFLY_API int getNormalsForShape(void* theNif, void* theShape, Vector3* buf, int len, int start)
 /*
     Get a shape's normals.
     buf, len = buffer that receives triples. len is length of buffer in floats.
@@ -355,11 +371,8 @@ NIFLY_API int getNormalsForShape(void* theNif, void* theShape, float* buf, int l
     const std::vector<nifly::Vector3>* norms;
     norms = nif->GetNormalsForShape(shape);
     if (norms) {
-        for (int i = start, j = 0; j < len && i < norms->size(); i++) {
-            buf[j++] = norms->at(i).x;
-            buf[j++] = norms->at(i).y;
-            buf[j++] = norms->at(i).z;
-        }
+        for (int i = start, j = 0; j < len && i < norms->size(); i++, j += 3)
+            buf[i] = norms->at(i);
         return int(norms->size());
     }
     else
@@ -377,7 +390,7 @@ NIFLY_API int getNormalsForShape(void* theNif, void* theShape, float* buf, int l
 //    }
 //    return verts->size();
 //}
-NIFLY_API int getTriangles(void* theNif, void* theShape, uint16_t* buf, int len, int start)
+NIFLY_API int getTriangles(void* theNif, void* theShape, Triangle* buf, int len, int start)
 /*
     Get a shape's tris.
     buf, len = buffer that receives triples. len is length of buffer in uint16's.
@@ -388,33 +401,30 @@ NIFLY_API int getTriangles(void* theNif, void* theShape, uint16_t* buf, int len,
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     std::vector<nifly::Triangle> shapeTris;
     shape->GetTriangles(shapeTris);
-    for (int i=start, j=0; j < len && i < shapeTris.size(); i++) {
-        buf[j++] = shapeTris.at(i).p1;
-        buf[j++] = shapeTris.at(i).p2;
-        buf[j++] = shapeTris.at(i).p3;
-    }
+    for (int i = start, j = 0; j < len && i < shapeTris.size(); i++, j += 3)
+        buf[i] = shapeTris.at(i);
+
     return int(shapeTris.size());
 }
 
-NIFLY_API int getUVs(void* theNif, void* theShape, float* buf, int len, int start)
+NIFLY_API int getUVs(void* theNif, void* theShape, Vector2* buf, int len, int start)
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     const std::vector<nifly::Vector2>* uv = nif->GetUvsForShape(shape);
-    for (int i = start, j = 0; j < len && i < uv->size(); i++) {
-        buf[j++] = uv->at(i).u;
-        buf[j++] = uv->at(i).v;
-    }
+    for (int i = start, j = 0; j < len && i < uv->size(); i++, j += 2) 
+        buf[i] = uv->at(i);
+
     return int(uv->size());
 }
 
 NIFLY_API void* createNifShapeFromData(void* parentNif,
     const char* shapeName,
-    const float* verts,
-    const float* uv_points,
-    const float* norms,
+    const Vector3* verts,
+    const Vector2* uv_points,
+    const Vector3* norms,
     int vertCount,
-    const uint16_t* tris, int triCount,
+    const Triangle* tris, int triCount,
     uint16_t* optionsPtr,
     void* parentRef)
     /* Create nif shape from the given data
@@ -438,30 +448,19 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     std::vector<Vector3> n;
 
     for (int i = 0; i < vertCount; i++) {
-        Vector3 thisv;
-        thisv[0] = verts[i*3];
-        thisv[1] = verts[i*3 + 1];
-        thisv[2] = verts[i*3 + 2];
+        Vector3 thisv = verts[i];
         v.push_back(thisv);
 
-        Vector2 thisuv;
-        thisuv.u = uv_points[i*2];
-        thisuv.v = uv_points[i*2+1];
+        Vector2 thisuv = uv_points[i];
         uv.push_back(thisuv);
 
         if (norms) {
-            Vector3 thisnorm;
-            thisnorm[0] = norms[i*3];
-            thisnorm[1] = norms[i*3+1];
-            thisnorm[2] = norms[i*3+2];
+            Vector3 thisnorm = norms[i];
             n.push_back(thisnorm);
         };
     }
     for (int i = 0; i < triCount; i++) {
-        Triangle thist;
-        thist[0] = tris[i*3];
-        thist[1] = tris[i*3+1];
-        thist[2] = tris[i*3+2];
+        Triangle thist = tris[i];
         t.push_back(thist);
     }
 
@@ -487,7 +486,7 @@ NIFLY_API void* makeSkeletonInstance(const char* skelPath, const char* rootName)
     return skel;
 }
 
-NIFLY_API void* loadSkinForNif(void* nifRef, const char* game)
+NIFLY_API void* xxxloadSkinForNif(void* nifRef, const char* game)
 /* Return a AnimInfo based on the given nif and shape. This saves time because it only
     needs to be loaded once.
     Parameters:
@@ -508,7 +507,7 @@ NIFLY_API void* loadSkinForNif(void* nifRef, const char* game)
     return skin;
 }
 
-NIFLY_API void* loadSkinForNifSkel(void* nifRef, void* skel)
+NIFLY_API void* xxxloadSkinForNifSkel(void* nifRef, void* skel)
 /* Return a AnimInfo based on the given nif and shape. This saves time because it only
     needs to be loaded once.
     Parameters:
@@ -526,15 +525,18 @@ NIFLY_API void* loadSkinForNifSkel(void* nifRef, void* skel)
     return skin;
 }
 
-NIFLY_API bool getShapeGlobalToSkin(void* nifRef, void* shapeRef, float* xform) {
+NIFLY_API bool getShapeGlobalToSkin(void* nifRef, void* shapeRef, MatTransform* xform) 
+/* Return the global-to-skin transform (on NiSkinData), if it exists. FO4 meshes do not have this transform. 
+    Returns true if the transform exists.
+    V9 warning: the call on the skin returned the inverse of this.
+    */
+{
     NifFile* nif = static_cast<NifFile*>(nifRef);
-    MatTransform tmp;
-    bool skinInstFound = nif->GetShapeTransformGlobalToSkin(static_cast<NiShape*>(shapeRef), tmp);
-    if (skinInstFound) XformToBuffer(xform, tmp);
-    return skinInstFound;
+    bool skinXfFound = nif->GetShapeTransformGlobalToSkin(static_cast<NiShape*>(shapeRef), *xform);
+    return skinXfFound;
 }
 
-NIFLY_API void getGlobalToSkin(void* nifSkinRef, void* shapeRef, void* xform) 
+NIFLY_API void xxxgetGlobalToSkin(void* nifSkinRef, void* shapeRef, void* xform) 
 /* Return the global-to-skin transform for the given shape 
 *   Parameters
 *   > AnimInfo* nifSkinRef = AnimInfo* for the nif
@@ -551,15 +553,15 @@ NIFLY_API int hasSkinInstance(void* shapeRef) {
     return static_cast<NiShape*>(shapeRef)->HasSkinInstance()? 1: 0;
 }
 
-NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const char* boneName, float* buf)
+NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const char* boneName, MatTransform& buf)
 /* Return the skin-to-bone transform for the given bone in the given shape*/
 {
-    MatTransform xf;
+    //MatTransform xf;
     bool hasXform = static_cast<NifFile*>(nifPtr)->GetShapeTransformSkinToBone(
         static_cast<NiShape*>(shapePtr),
         std::string(boneName),
-        xf);
-    if (hasXform) XformToBuffer(buf, xf);
+        buf);
+    //if (hasXform) XformToBuffer(buf, xf);
     return hasXform;
 }
 
@@ -579,7 +581,7 @@ NIFLY_API void setShapeSkinToBone(void* nifPtr, void* shapePtr, const char* bone
         nif->SetShapeTransformSkinToBone(shape, boneID, buf);
 }
 
-NIFLY_API void setXFormSkinToBone(void* anim, const char* shapeName, const char* boneName, const MatTransform& buf)
+NIFLY_API void xxxsetXFormSkinToBone(void* anim, const char* shapeName, const char* boneName, const MatTransform& buf)
 /* 
     Set the skin-to-bone transform for the given bone in the given shape.
     The bone need not exist in the shape. 
@@ -589,7 +591,7 @@ NIFLY_API void setXFormSkinToBone(void* anim, const char* shapeName, const char*
     nifskin->SetXFormSkinToBone(shapeName, boneName, buf);
 }
 
-NIFLY_API void getTransform(void* theShape, float* buf) {
+NIFLY_API void xxxgetTransform(void* theShape, float* buf) {
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     nifly::MatTransform xf = shape->GetTransformToParent();
     XformToBuffer(buf, xf);
@@ -600,7 +602,12 @@ NIFLY_API void getNodeTransform(void* theNode, MatTransform* buf) {
     *buf = node->GetTransformToParent();
 }
 
-NIFLY_API void getNodeXformToGlobal(
+NIFLY_API int getNodeTransformToGlobal(void* nifref, const char* nodeName, MatTransform* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    return nif->GetNodeTransformToGlobal(nodeName, *buf)? 1 : 0;
+}
+
+NIFLY_API void xxxgetNodeXformToGlobal(
     void* anim, const char* boneName, MatTransform* xformBuf) {
     /* Get the transform from the nif if there, from the reference skeleton if not.
         Requires an AnimInfo because this is a skinned nif and we return the skin-to-bone
@@ -623,14 +630,14 @@ NIFLY_API void getNodeXformToGlobal(
     }
 }
 
-NIFLY_API void getBoneSkinToBoneXform(void* nifSkinPtr, const char* shapeName, const char* boneName, float* xform) {
+NIFLY_API void xxxgetBoneSkinToBoneXform(void* nifSkinPtr, const char* shapeName, const char* boneName, float* xform) {
     AnimInfo* anim = static_cast<AnimInfo*>(nifSkinPtr);
     int boneIdx = anim->GetShapeBoneIndex(shapeName, boneName);
     AnimSkin* skin = &anim->shapeSkinning[boneName];
     XformToBuffer(xform, skin->boneWeights[boneIdx].xformSkinToBone);
 }
 
-NIFLY_API void* createSkinForNif(void* nifPtr, const char* gameName) 
+NIFLY_API void* xxxcreateSkinForNif(void* nifPtr, const char* gameName) 
 /* Create a skin (AnimInfo) for the nif.
 *  NOTE THIS WILL RELOAD THE REFERENCE SKELETON
 *   Parameters
@@ -648,7 +655,7 @@ NIFLY_API void skinShape(void* nif, void* shapeRef)
     static_cast<NifFile*>(nif)->CreateSkinning(static_cast<nifly::NiShape*>(shapeRef));
 }
 
-NIFLY_API void writeSkinToNif(void* animref) {
+NIFLY_API void xxxwriteSkinToNif(void* animref) {
     /* Write skin info to nif, creating bone nodes as needed
     */
     AnimInfo* anim = static_cast<AnimInfo*>(animref);
@@ -658,19 +665,19 @@ NIFLY_API void writeSkinToNif(void* animref) {
         theNif->UpdateSkinPartitions(shape);
 }
 
-NIFLY_API int saveSkinnedNif(void* animref, const char8_t* filepath) {
+NIFLY_API int xxxsaveSkinnedNif(void* animref, const char8_t* filepath) {
     /* Save skinned nif
     *   Parameters
     *   > AnimInfo* anim = Nif skin for the nif to save
     *   > char* filepath
     */
     AnimInfo* anim = static_cast<AnimInfo*>(animref);
-    writeSkinToNif(animref);
+    xxxwriteSkinToNif(animref);
     return saveNif(anim->GetRefNif(), filepath);
     //return SaveSkinnedNif(static_cast<AnimInfo*>(anim), std::filesystem::path(filepath));
 }
 
-NIFLY_API void setGlobalToSkinXform(void* animPtr, void* shapePtr, void* gtsXformPtr) {
+NIFLY_API void xxxsetGlobalToSkinXform(void* animPtr, void* shapePtr, void* gtsXformPtr) {
     if (static_cast<NiShape*>(shapePtr)->HasSkinInstance()) {
         SetShapeGlobalToSkinXform(static_cast<AnimInfo*>(animPtr),
             static_cast<NiShape*>(shapePtr),
@@ -684,16 +691,21 @@ NIFLY_API void setGlobalToSkinXform(void* animPtr, void* shapePtr, void* gtsXfor
     }
 }
 
-NIFLY_API void setShapeGlobalToSkinXform(void* animPtr, void* shapePtr, void* gtsXformPtr) {
+NIFLY_API void xxxsetShapeGlobalToSkinXform(void* animPtr, void* shapePtr, void* gtsXformPtr) {
     SetShapeGlobalToSkinXform(static_cast<AnimInfo*>(animPtr),
         static_cast<NiShape*>(shapePtr),
         *static_cast<MatTransform*>(gtsXformPtr));
 }
 
-NIFLY_API void setTransform(void* theShape, void* buf) {
+NIFLY_API void setShapeGlobalToSkin(void* nifref, void* shaperef, MatTransform* xformBuf) {
+    NifFile* nif = static_cast<nifly::NifFile*>(nifref);
+    NiShape* shape = static_cast<nifly::NiShape*>(shaperef);
+    nif->SetShapeTransformGlobalToSkin(shape, *xformBuf);
+}
+
+NIFLY_API void setTransform(void* theShape, MatTransform* buf) {
     NiShape* shape = static_cast<nifly::NiShape*>(theShape);
-    MatTransform* xf = static_cast<MatTransform*>(buf);
-    shape->SetTransformToParent(*xf);
+    shape->SetTransformToParent(*buf);
 }
 
 
@@ -718,7 +730,11 @@ NIFLY_API int getShapeBoneIDs(void* theNif, void* theShape, int* buf, int bufsiz
 }
 
 NIFLY_API int getShapeBoneNames(void* theNif, void* theShape, char* buf, int buflen) 
-// Returns a list of bone names the shape uses. List is separated by \n characters.
+/* Returns a list of bone names the shape uses. List is separated by \n characters.
+* buf = buffer to receive the list
+* buflen = length of the buffer in chars
+* returns actual length written to buf
+*/
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
@@ -753,15 +769,16 @@ NIFLY_API int getShapeBoneWeights(void* theNif, void* theShape, int boneIndex,
     /* Get the bone weights associated with the given bone for the given shape.
         boneIndex = index of bone in the list of bones associated with this shape 
         buf = Buffer to hold <vertex index, weight> for every vertex weighted to this bone.
+        returns number of bones
     */
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
 
-    std::vector<std::string> names;
-    nif->GetShapeBoneList(shape, names);
-    
-    std::vector<int> bonelist;
-    nif->GetShapeBoneIDList(shape, bonelist);
+    //std::vector<std::string> names;
+    //nif->GetShapeBoneList(shape, names);
+    //
+    //std::vector<int> bonelist;
+    //nif->GetShapeBoneIDList(shape, bonelist);
 
     std::unordered_map<uint16_t, float> boneWeights;
     int numWeights = nif->GetShapeBoneWeights(shape, boneIndex, boneWeights);
@@ -776,7 +793,7 @@ NIFLY_API int getShapeBoneWeights(void* theNif, void* theShape, int boneIndex,
     return numWeights;
 }
 
-NIFLY_API void addBoneToSkin(void* anim, const char* boneName,
+NIFLY_API void xxxaddBoneToSkin(void* anim, const char* boneName,
     void* xformPtr, const char* parentName)
     /* Add the given bone to the skin for export. Note it is *not* added to the nif--use
     *  writeSkinToNif to update the nif.
@@ -794,7 +811,7 @@ NIFLY_API void addBoneToSkin(void* anim, const char* boneName,
 }
 
 
-NIFLY_API void addBoneToShape(void* anim, void* theShape, const char* boneName, 
+NIFLY_API void xxxaddBoneToShape(void* anim, void* theShape, const char* boneName, 
         void* xformToParent, const char* parentName)
 /* Add the given bone to the shape for export. Note the bone node is *not* added to the nif--use
 *  writeSkinToNif to update the nif. 
@@ -808,7 +825,91 @@ NIFLY_API void addBoneToShape(void* anim, void* theShape, const char* boneName,
         boneName, static_cast<MatTransform*>(xformToParent), parentName);
 }
 
-NIFLY_API void setShapeWeights(void* anim, void* theShape, const char* boneName,
+NIFLY_API void addBoneToNifShape(void* nifref, void* shaperef, const char* boneName,
+    MatTransform* xformToParent, const char* parentName)
+/*  Add a bone to a shape, adding a node for it if needed. 
+*   NOTE this call removes any bone data--skin-to-bone transform and bone weights.
+*   Add all bones to the shape first, then set skin-bone attributes.
+*   xformToParent = Transform of the bone node must be present if the bone node doesn't yet exist.
+*   parentName is the parent for the new bone; it must exist if given. May be null. 
+*/
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    // Add a node for the bone if not already there
+    NiNode* node = nif->FindBlockByName<NiNode>(boneName);
+    if (!node) {
+        NiNode* pnode = nullptr;
+        if (parentName) pnode = nif->FindBlockByName<NiNode>(parentName);
+        node = nif->AddNode(boneName, *xformToParent, pnode);
+    }
+
+    std::vector<int> boneIDs;
+    nif->GetShapeBoneIDList(shape, boneIDs);
+    int boneIndex = uint32_t(boneIDs.size());
+    boneIDs.push_back(hdr.GetBlockID(node));
+    nif->SetShapeBoneIDList(shape, boneIDs);
+
+    nif->SetShapeBoneTransform(shape, boneIndex, *xformToParent);
+}
+
+NIFLY_API void setShapeBoneWeights(void* nifref, void* shaperef, const char* boneName,
+    VertexWeightPair* vertWeightsIn, int vertWeightLen) 
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+    bool isFO = hdr.GetVersion().IsFO4() || nif->GetHeader().GetVersion().IsFO76();
+    int boneID = shape->GetBoneID(hdr, boneName);
+    
+    // Bone must have been added to skin already
+    if (boneID == NIF_NPOS) {
+        return;
+    }
+
+    auto bsTriShape = dynamic_cast<BSTriShape*>(shape);
+    if (bsTriShape) {
+        for (int i = 0; i < std::min(vertWeightLen, int(bsTriShape->vertData.size())); i++) {
+            auto& vertex = bsTriShape->vertData[vertWeightsIn[i].vertex];
+            bool found = false;
+            for (int j = 0; j < 4 && !found; j++) {
+                if (vertex.weightBones[j] == boneID) {
+                    vertex.weights[j] = vertWeightsIn[i].weight;
+                    found = true;
+                }
+            }
+            if (!found) {
+                int minIndex = 0;
+                float minWeight = 1.0;
+                for (int j = 0; j < 4; j++) {
+                    if (vertex.weights[j] < minWeight) {
+                        minWeight = vertex.weights[j];
+                        minIndex = j;
+                    }
+                };
+                if (minWeight < vertWeightsIn[i].weight) {
+                    vertex.weights[minIndex] = vertWeightsIn[i].weight;
+                    vertex.weightBones[minIndex] = boneID;
+                }
+            }
+            //Normalize weights in some kind of finalization step.
+            //float sum = vertex.weights[0] + vertex.weights[1] + vertex.weights[2] + vertex.weights[3];
+            //for (int j = 0; j < 4; j++) vertex.weights[j] = vertex.weights[j] / sum;
+        }
+    }
+    else {
+        std::unordered_map<uint16_t, float> vertWeights;
+        for (int i = 0; i < vertWeightLen; i++) {
+            vertWeights[vertWeightsIn[i].vertex] = vertWeightsIn[i].weight;
+        }
+        nif->SetShapeBoneWeights(shape->name.get(), boneID, vertWeights);
+    }
+}
+
+/* XXX OBSOLETE? XXX */
+NIFLY_API void xxxsetShapeWeights(void* anim, void* theShape, const char* boneName,
     VertexWeightPair* vertWeights, int vertWeightLen, MatTransform* skinToBoneXform) {
     AnimWeight aw;
     for (int i = 0; i < vertWeightLen; i++) {
@@ -817,6 +918,7 @@ NIFLY_API void setShapeWeights(void* anim, void* theShape, const char* boneName,
     SetShapeWeights(static_cast<AnimInfo*>(anim), static_cast<NiShape*>(theShape), boneName, aw);
 }
 
+/* XXX OBSOLETE? XXX */
 NIFLY_API void setShapeVertWeights(void* theFile, void* theShape,
     int vertIdx, const uint8_t* vertex_bones, const float* vertex_weights) {
     NifFile* nif = static_cast<NifFile*>(theFile);
@@ -833,7 +935,8 @@ NIFLY_API void setShapeVertWeights(void* theFile, void* theShape,
     nif->SetShapeVertWeights(shape->name.get(), vertIdx, boneids, weights);
 }
 
-NIFLY_API void setShapeBoneWeights(void* theFile, void* theShape,
+/* XXX OBSOLETE? XXX */
+NIFLY_API void setShapeBoneWeightsById(void* theFile, void* theShape,
     int boneIdx, VertexWeightPair* weights, int weightsLen)
 {
     NifFile* nif = static_cast<NifFile*>(theFile);
@@ -1498,7 +1601,7 @@ NIFLY_API void setSegments(void* nifref, void* shaperef,
 
 /* ************************ VERTEX COLORS AND ALPHA ********************* */
 
-NIFLY_API int getColorsForShape(void* nifref, void* shaperef, float* colors, int colorLen) {
+NIFLY_API int getColorsForShape(void* nifref, void* shaperef, Color4* colors, int colorLen) {
     /*
         Return vertex colors.
         colorLen = # of floats buffer can hold, has to be 4x number of colors
@@ -1507,16 +1610,13 @@ NIFLY_API int getColorsForShape(void* nifref, void* shaperef, float* colors, int
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
     const std::vector<Color4>* theColors = nif->GetColorsForShape(shape->name.get());
-    for (int i = 0, j = 0; j < colorLen && i < theColors->size(); i++) {
-        colors[j++] = theColors->at(i).r;
-        colors[j++] = theColors->at(i).g;
-        colors[j++] = theColors->at(i).b;
-        colors[j++] = theColors->at(i).a;
-    }
+    for (int i = 0, j = 0; j < colorLen && i < theColors->size(); i++, j += 4)
+        colors[i] = theColors->at(i);
+
     return int(theColors->size());
 }
 
-NIFLY_API void setColorsForShape(void* nifref, void* shaperef, float* colors, int colorLen) {
+NIFLY_API void setColorsForShape(void* nifref, void* shaperef, Color4* colors, int colorLen) {
     /*
         Set vertex colors.
         colorLen = # of color values in the buf, must be same as # of vertices
@@ -1524,12 +1624,8 @@ NIFLY_API void setColorsForShape(void* nifref, void* shaperef, float* colors, in
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
     std::vector<Color4> theColors;
-    for (int i = 0, j = 0; i < colorLen; i++) {
-        Color4 c;
-        c.r = colors[j++];
-        c.g = colors[j++];
-        c.b = colors[j++];
-        c.a = colors[j++];
+    for (int i = 0; i < colorLen; i++) {
+        Color4 c = colors[i];
         theColors.push_back(c);
     }
     nif->SetColorsForShape(shape->name.get(), theColors);
@@ -2613,7 +2709,7 @@ NIFLY_API int getTransformData(void* nifref, int nodeIndex, NiTransformDataBuf* 
 
     if (sh) {
         buf->rotationType = sh->rotationType;
-        buf->quaternionKeyCount = sh->quaternionKeys.size();
+        buf->quaternionKeyCount = uint32_t(sh->quaternionKeys.size());
         buf->yRotations.interpolation = sh->yRotations.GetInterpolationType();
         buf->yRotations.numKeys = sh->yRotations.GetNumKeys();
         buf->zRotations.interpolation = sh->zRotations.GetInterpolationType();
