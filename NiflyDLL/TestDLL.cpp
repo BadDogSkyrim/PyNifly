@@ -912,12 +912,11 @@ namespace NiflyDLLTests
 
 			Assert::IsFalse(xfFound, L"FO4 nifs do not have skin instance transform");
 
-			/* But FO4 nifs do have a GTS transform, which is calculated from the bones.
-			   The calculation happened wahen we loaded the nif into the bodySkin. */
-			// This was being calculated by the Anim layer. 
-			//MatTransform bodyg2skin;
-			//getShapeGlobalToSkin(nif, theBody, &bodyg2skin);
-			//Assert::AreEqual(-120, int(bodyg2skin.translation.z), L"ERROR: should have -120 translation");
+			/* But we can calculate a global-to-skin transform from the bones.*/
+			MatTransform bodyg2skin;
+			calcShapeGlobalToSkin(nif, theBody, &bodyg2skin);
+			Assert::AreEqual(-120, int(bodyg2skin.translation.z), L"ERROR: should have -120 translation");
+			
 			MatTransform chestSk2b;
 			getShapeSkinToBone(nif, theBody, "Chest", chestSk2b);
 			Assert::AreNotEqual(chestSk2b.translation.z, 0.0f);

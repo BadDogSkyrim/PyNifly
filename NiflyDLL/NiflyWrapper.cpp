@@ -526,14 +526,54 @@ NIFLY_API void* xxxloadSkinForNifSkel(void* nifRef, void* skel)
 }
 
 NIFLY_API bool getShapeGlobalToSkin(void* nifRef, void* shapeRef, MatTransform* xform) 
-/* Return the global-to-skin transform (on NiSkinData), if it exists. FO4 meshes do not have this transform. 
+/* Return the global-to-skin transform (on NiSkinData), if it exists. 
+    FO4 meshes do not have this transform.
     Returns true if the transform exists.
     V9 warning: the call on the skin returned the inverse of this.
     */
 {
     NifFile* nif = static_cast<NifFile*>(nifRef);
     bool skinXfFound = nif->GetShapeTransformGlobalToSkin(static_cast<NiShape*>(shapeRef), *xform);
+    if (!skinXfFound) {
+        // Calculate the transform if it's not stored in the nif
+        std::vector<MatTransform> eachXformGlobalToSkin;
+        MatTransform boneXf;
+        
+    }
     return skinXfFound;
+}
+
+NIFLY_API void calcShapeGlobalToSkin(void* nifRef, void* shapeRef, MatTransform* xform) 
+/* Calculate the global-to-skin transform from the skin-to-bone transforms. 
+    The calculation assumes the bone nodes are in vanilla position.
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifRef);
+    NiShape* shape = static_cast<NiShape*>(shapeRef);
+    std::vector<MatTransform> eachXformGlobalToSkin;
+    std::vector<int> idList;
+    std::string bonename;
+
+    xform->Clear();
+
+    nif->GetShapeBoneIDList(shape, idList);
+    int i = 0;
+    for (auto& id: idList) {
+        MatTransform thisXF, xformBoneToGlobal, xformSkinToBone;
+
+        auto node = nif->GetHeader().GetBlock<NiNode>(id);
+        if (!node) continue;
+        bonename = node->name.get();
+        
+        xformBoneToGlobal = node->GetTransformToParent();
+        if (nif->GetShapeTransformSkinToBone(shape, i, xformSkinToBone)) {
+            thisXF = xformBoneToGlobal.ComposeTransforms(xformSkinToBone).InverseTransform();
+            eachXformGlobalToSkin.push_back(thisXF);
+        }
+        i++;
+    }
+    if (!eachXformGlobalToSkin.empty())
+        *xform = CalcMedianMatTransform(eachXformGlobalToSkin);
 }
 
 NIFLY_API void xxxgetGlobalToSkin(void* nifSkinRef, void* shapeRef, void* xform) 

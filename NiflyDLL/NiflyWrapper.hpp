@@ -51,6 +51,7 @@ extern "C" NIFLY_API void* makeSkeletonInstance(const char* skelPath, const char
 extern "C" NIFLY_API void* xxxloadSkinForNif(void* nifRef, const char* game);
 extern "C" NIFLY_API void* xxxloadSkinForNifSkel(void* nifRef, void* skel);
 extern "C" NIFLY_API bool getShapeGlobalToSkin(void* nifRef, void* shapeRef, nifly::MatTransform* xform);
+extern "C" NIFLY_API void calcShapeGlobalToSkin(void* nifRef, void* shapeRef, nifly::MatTransform * xform);
 extern "C" NIFLY_API void xxxgetGlobalToSkin(void* nifSkinRef, void* shapeRef, void* xform);
 extern "C" NIFLY_API int hasSkinInstance(void* shapeRef);
 extern "C" NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const  char* boneName, nifly::MatTransform& buf);

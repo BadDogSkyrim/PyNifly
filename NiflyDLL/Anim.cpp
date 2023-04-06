@@ -160,6 +160,11 @@ void AnimSkin::LoadFromNif(NifFile* loadFromFile, NiShape* shape, AnimSkeleton* 
 			// and inverting.
 			MatTransform xformBoneToGlobal;
 			if (skel->GetBoneTransformToGlobal(node->name.get(), xformBoneToGlobal)) {
+				std::string bn = node->name.get();
+				MatTransform bw = boneWeights[newID].xformSkinToBone;
+				MatTransform cmp = xformBoneToGlobal.ComposeTransforms(bw);
+				MatTransform inv = cmp.InverseTransform();
+
 				eachXformGlobalToSkin.push_back(xformBoneToGlobal.ComposeTransforms(boneWeights[newID].xformSkinToBone).InverseTransform());
 			}
 		}

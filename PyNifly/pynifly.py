@@ -15,10 +15,8 @@ from nifdefs import *
 
 def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
-    nifly.addBoneToShape.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf)]
-    nifly.addBoneToShape.restype = None
-    nifly.addBoneToSkin.argtypes = [c_void_p, c_char_p, POINTER(TransformBuf), c_void_p]
-    nifly.addBoneToSkin.restype = None
+    nifly.addBoneToNifShape.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf), c_char_p]
+    nifly.addBoneToNifShape.restype = None
     nifly.addCollBoxShape.argtypes = [c_void_p, POINTER(bhkBoxShapeProps)]
     nifly.addCollBoxShape.restype = c_int
     nifly.addCollCapsuleShape.argtypes = [c_void_p, POINTER(bhkCapsuleShapeProps)]
@@ -44,16 +42,12 @@ def load_nifly(nifly_path):
     nifly.createNif.restype = c_void_p
     nifly.createNifShapeFromData.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_void_p]
     nifly.createNifShapeFromData.restype = c_void_p
-    nifly.createSkinForNif.argtypes = [c_void_p, c_char_p]
-    nifly.createSkinForNif.restype = c_void_p
     nifly.destroy.argtypes = [c_void_p]
     nifly.destroy.restype = None
     nifly.getAllShapeNames.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getAllShapeNames.restype = c_int
     nifly.getAlphaProperty.argtypes = [c_void_p, c_void_p, AlphaPropertyBuf_p]
     nifly.getAlphaProperty.restype = c_int
-    nifly.getBoneSkinToBoneXform.argtypes = [c_void_p, c_char_p, c_char_p, POINTER(TransformBuf)]
-    nifly.getBoneSkinToBoneXform.restype = None 
     nifly.getBSXFlags.argtypes = [c_void_p, c_void_p]
     nifly.getBSXFlags.restype = c_int
     nifly.getCollBlockname.argtypes = [c_void_p, c_char_p, c_int]
@@ -100,8 +94,6 @@ def load_nifly(nifly_path):
     nifly.getFurnMarker.restype = c_int
     nifly.getGameName.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getGameName.restype = c_int
-    nifly.getGlobalToSkin.argtypes = [c_void_p, c_void_p, POINTER(TransformBuf)]
-    nifly.getGlobalToSkin.restype = None
     nifly.getInvMarker.argtypes = [c_void_p, c_char_p, c_int, c_void_p, c_void_p]
     nifly.getInvMarker.restype = c_int
     nifly.getMessageLog.argtypes = [c_char_p, c_int]
@@ -120,8 +112,8 @@ def load_nifly(nifly_path):
     nifly.getNodes.restype = None
     nifly.getNodeTransform.argtypes = [c_void_p, POINTER(TransformBuf)]
     nifly.getNodeTransform.restype = None
-    nifly.getNodeXformToGlobal.argtypes = [c_void_p, c_char_p, POINTER(TransformBuf)]
-    nifly.getNodeXformToGlobal.restype = None
+    nifly.getNodeTransformToGlobal.argtypes = [c_void_p, c_char_p, POINTER(TransformBuf)]
+    nifly.getNodeTransformToGlobal.restype = None
     nifly.getNormalsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
     nifly.getNormalsForShape.restype = c_int
     nifly.getPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
@@ -184,8 +176,6 @@ def load_nifly(nifly_path):
     nifly.getClothExtraData.restype = c_int
     nifly.getSubsegments.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
     nifly.getSubsegments.restype = c_int
-    nifly.getTransform.argtypes = [c_void_p, POINTER(TransformBuf)]
-    nifly.getTransform.restype = None
     nifly.getTriangles.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
     nifly.getTriangles.restype = c_int
     nifly.getUVs.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
@@ -196,18 +186,12 @@ def load_nifly(nifly_path):
     nifly.hasSkinInstance.restype = c_int
     nifly.load.argtypes = [c_char_p]
     nifly.load.restype = c_void_p
-    nifly.loadSkinForNif.argtypes = [c_void_p, c_char_p]
-    nifly.loadSkinForNif.restype = c_void_p
-    nifly.loadSkinForNifSkel.argtypes = [c_void_p, c_void_p]
-    nifly.loadSkinForNifSkel.restype = c_void_p
     nifly.makeGameSkeletonInstance.argtypes = [c_char_p]
     nifly.makeGameSkeletonInstance.restype = c_void_p
     nifly.makeSkeletonInstance.argtypes = [c_char_p, c_char_p]
     nifly.makeSkeletonInstance.restype = c_void_p
     nifly.saveNif.argtypes = [c_void_p, c_char_p]
     nifly.saveNif.restype = c_int
-    nifly.saveSkinnedNif.argtypes = [c_void_p, c_char_p]
-    nifly.saveSkinnedNif.restype = None
     nifly.segmentCount.argtypes = [c_void_p, c_void_p]
     nifly.segmentCount.restype = c_int
     nifly.setAlphaProperty.argtypes = [c_void_p, c_void_p, AlphaPropertyBuf_p]
@@ -228,8 +212,6 @@ def load_nifly(nifly_path):
     nifly.setConnectPointsParent.restype = None
     nifly.setFurnMarkers.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
     nifly.setFurnMarkers.restype = None
-    nifly.setGlobalToSkinXform.argtypes = [c_void_p, c_void_p, POINTER(TransformBuf)]
-    nifly.setGlobalToSkinXform.restype = None
     nifly.setNodeFlags.argtypes = [c_void_p, c_int]
     nifly.setNodeFlags.restype = None
     nifly.setPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int]
@@ -240,12 +222,12 @@ def load_nifly(nifly_path):
     nifly.setShaderName.argtypes = [c_void_p, c_void_p, c_char_p]
     nifly.setShaderTextureSlot.argtypes = [c_void_p, c_void_p, c_int, c_char_p]
     nifly.setShapeBoneIDList.argtypes = [c_void_p, c_void_p, c_void_p, c_int]  
-    nifly.setShapeBoneWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p]
-    nifly.setShapeGlobalToSkinXform.argtypes = [c_void_p, c_void_p, POINTER(TransformBuf)] 
-    nifly.setShapeGlobalToSkinXform.restype = None
-    nifly.setShapeVertWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
-    nifly.setShapeWeights.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(VERTEX_WEIGHT_PAIR), c_int, POINTER(TransformBuf)]
-    nifly.setShapeWeights.restype = None
+    nifly.setShapeBoneWeights.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(VERTEX_WEIGHT_PAIR), c_int]
+    nifly.setShapeBoneWeights.restype = None
+    nifly.setShapeSkinToBone.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf)]
+    nifly.setShapeSkinToBone.restype = None
+    nifly.setShapeGlobalToSkin.argtypes = [c_void_p, c_void_p, POINTER(TransformBuf)]
+    nifly.setShapeGlobalToSkin.restype = None
     nifly.setStringExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p]
     nifly.setStringExtraData.restype = None
     nifly.setBGExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
@@ -258,9 +240,6 @@ def load_nifly(nifly_path):
     nifly.skinShape.restype = None
     nifly.setSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_char_p]
     nifly.setSegments.restype = None
-    nifly.setXFormSkinToBone.argtypes = [c_void_p, c_char_p, c_char_p, POINTER(TransformBuf)]
-    nifly.writeSkinToNif.argtypes = [c_void_p]
-    nifly.writeSkinToNif.restype = None
     return nifly
 
 # --- Helper Routines --- #
@@ -848,7 +827,7 @@ class NiNode:
     @property
     def xform_to_global(self):
         buf = TransformBuf()
-        NifFile.nifly.getNodeXformToGlobal(self.file.skin, self.name.encode('utf-8'), buf)
+        NifFile.nifly.getNodeTransformToGlobal(self.file._handle, self.name.encode('utf-8'), buf)
         return buf
 
     @property
@@ -1160,16 +1139,7 @@ class NiShape(NiNode):
         return NifFile.nifly.hasSkinInstance(self._handle)
 
     @property
-    def xxxglobal_to_skin(self):
-        """ Return the global-to-skin transform. Calculates the transform if there's no 
-            NiSkinInstance. This should be applied to the shape in blender so it matches 
-            the armature. """
-        buf = TransformBuf()
-        NifFile.nifly.getGlobalToSkin(self.file.skin, self._handle, buf)
-        return buf
-
-    @property
-    def global_to_skin_data(self):
+    def global_to_skin(self):
         """ Return the global-to-skin transform on this shape 
             (on NiSkinData. not all nifs have this transform.)
             Returns the transform or None.
@@ -1179,16 +1149,6 @@ class NiShape(NiNode):
         if has_xform:
             return buf
         return None
-
-    def xxxget_skin_to_bone_xform(self, bone_name):
-        """ Return the skin-to-bone transform, getting it from the skin. """
-        self.skin()
-        buf = TransformBuf()
-        NifFile.nifly.getBoneSkinToBoneXform(self.file.skin,
-                                             self.name.encode('utf-8'),
-                                             bone_name.encode('utf-8'),
-                                             buf)
-        return buf
 
     def get_shape_skin_to_bone(self, bone_name):
         """ Return the skin-to-bone transform, getting it from the nif data """
@@ -1255,12 +1215,10 @@ class NiShape(NiNode):
         #    self.file.createSkin()
         if not self._is_skinned:
             self.skin()
-        NifFile.nifly.setShapeTransformGlobalToSkin(self._handle, transform)
+        NifFile.nifly.setShapeGlobalToSkin(self.file._handle, self._handle, transform)
         #NifFile.nifly.setGlobalToSkinXform(self.file._skin_handle, self._handle, transform)
 
     def add_bone(self, bone_name, xform=None, parent_name=None):
-        if self.file._skin_handle is None:
-            self.file.createSkin()
         if not self._is_skinned:
             self.skin()
         if xform:
@@ -1281,7 +1239,7 @@ class NiShape(NiNode):
 
     def set_global_to_skindata(self, xform):
         """ Sets the NiSkinData transformation. Only call this on nifs that have them. """
-        NifFile.nifly.setShapeTransformGlobalToSkin(self.file._handle, self._handle, xform)
+        NifFile.nifly.setShapeGlobalToSkin(self.file._handle, self._handle, xform)
         #if self.file._skin_handle is None:
         #    self.file.createSkin()
         #if not self._is_skinned:
@@ -1289,8 +1247,7 @@ class NiShape(NiNode):
         #NifFile.nifly.setShapeGlobalToSkinXform(self.file._skin_handle, self._handle, xform)
         
     def setShapeWeights(self, bone_name, vert_weights):
-        """ Set the weights for a shape. Note we pass a dummy transformation matrix that is not used.
-            Bones should have been added to the shape already.
+        """ Set the weights for a bone in a shape. 
         """
         VERT_BUF_DEF = VERTEX_WEIGHT_PAIR * len(vert_weights)
         vert_buf = VERT_BUF_DEF()
@@ -1299,8 +1256,6 @@ class NiShape(NiNode):
             vert_buf[i].weight = vw[1]
         xfbuf = TransformBuf()
 
-        if self.file._skin_handle is None:
-            self.file.createSkin()
         NifFile.nifly.setShapeBoneWeights(self.file._handle, self._handle, 
                                       bone_name.encode('utf-8'),
                                       vert_buf, len(vert_weights))
@@ -1659,12 +1614,12 @@ class NifFile:
                 return n
         return NiNode(desired_handle, self)
 
-    @property
-    def skin(self):
-        if self._skin_handle is None:
-            self._skin_handle = NifFile.nifly.loadSkinForNif(
-                self._handle, self.game.encode('utf-8'))
-        return self._skin_handle
+    #@property
+    #def skin(self):
+    #    if self._skin_handle is None:
+    #        self._skin_handle = NifFile.nifly.loadSkinForNif(
+    #            self._handle, self.game.encode('utf-8'))
+    #    return self._skin_handle
 
     def get_node_xform_to_global(self, name):
         """ Get the xform-to-global either from the nif or the reference skeleton """
@@ -1672,13 +1627,13 @@ class NifFile:
         NifFile.nifly.getNodeXformToGlobal(self.skin, name.encode('utf-8'), buf)
         return buf
 
-    def apply_skin(self):
-        """ Adding bones to the nif only adds them to the "skin" not to the nif itself.
-        "apply_skin" adds them to the nif so they can be found later. 
-        Note this zaps the nodelist. """
-        if self._skin_handle:
-            NifFile.nifly.writeSkinToNif(self._skin_handle)
-            self._nodes = None
+    #def apply_skin(self):
+    #    """ Adding bones to the nif only adds them to the "skin" not to the nif itself.
+    #    "apply_skin" adds them to the nif so they can be found later. 
+    #    Note this zaps the nodelist. """
+    #    if self._skin_handle:
+    #        NifFile.nifly.writeSkinToNif(self._skin_handle)
+    #        self._nodes = None
 
     @property
     def cloth_data(self):
@@ -1820,13 +1775,13 @@ class NifFile:
         NifFile.nifly.setConnectPointsChild(self._handle, self.connect_pt_child_skinned, len(buf), buf)
 
 
-    def createSkin(self):
-        self.game
-        if self._skin_handle is None:
-            self._skin_handle = NifFile.nifly.createSkinForNif(self._handle, self.game.encode('utf-8'))
+    #def createSkin(self):
+    #    self.game
+    #    if self._skin_handle is None:
+    #        self._skin_handle = NifFile.nifly.createSkinForNif(self._handle, self.game.encode('utf-8'))
 
-    def saveSkinnedNif(self, filepath):
-        NifFile.nifly.saveSkinnedNif(self._skin_handle, filepath.encode('utf-8'))
+    #def saveSkinnedNif(self, filepath):
+    #    NifFile.nifly.saveSkinnedNif(self._skin_handle, filepath.encode('utf-8'))
 
     @staticmethod
     def clear_log():
@@ -1911,9 +1866,9 @@ def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
                                             is_effectsshader=effectsshader)
     new_shape.transform = old_shape.transform.copy()
     if skinned: new_shape.skin()
-    oldxform = old_shape.global_to_skin_data
+    oldxform = old_shape.global_to_skin
     if oldxform is None:
-        oldxform = old_shape.global_to_skin
+        oldxform = old_shape.transform
     new_shape_gts = oldxform # no inversion?
     new_shape.set_global_to_skin(new_shape_gts)
     #if old_shape.parent.game in ("SKYRIM", "SKYRIMSE"):
@@ -2215,7 +2170,6 @@ if __name__ == "__main__":
         # Need a skin to attach a mesh to an armature.  Can create the skin on the
         # NifFile, then on the NiShape, but putting it on the NifFile is optional.  The
         # shape will make sure its nif is set up.
-        newf4.createSkin()
         shape4 = newf4.createShapeFromData("WeightedTetra", verts, tris, uvs, norms)
         shape4.transform.translation = (0,0,0)
         shape4.transform.scale = 1.0
@@ -2229,7 +2183,9 @@ if __name__ == "__main__":
 
         # Need to add the bones to the shape before you can weight to them.
         for b in arma_bones:
-            shape4.add_bone(bones.nif_name(b))
+            xf = TransformBuf()
+            xf.translation = arma_bones[b]
+            shape4.add_bone(bones.nif_name(b), xf)
 
         # Transforms position parts relative to their parent or absolute in the global
         # reference frame.  The global to skin transform makes that translation.  Note
@@ -2242,7 +2198,11 @@ if __name__ == "__main__":
         # SetShapeWeights sets the vertex weights from a bone
         for bone_name, weights in weights_by_bone.items():
             if (len(weights) > 0):
-                shape4.setShapeWeights(bones.nif_name(bone_name), weights)
+                nif_name = bones.nif_name(bone_name)
+                xf = TransformBuf()
+                xf.translation = arma_bones[bone_name]
+                shape4.set_skin_to_bone_xform(nif_name, bodyPartXform)
+                shape4.setShapeWeights(nif_name, weights)
     
         newf4.save()
 
@@ -2274,7 +2234,6 @@ if __name__ == "__main__":
         testfile = "tests/Out/TestSkinnedFromPy01.nif"
         new_nif = NifFile()
         new_nif.initialize("SKYRIM", testfile)
-        new_nif.createSkin()
 
         new_armor = new_nif.createShapeFromData("Armor", 
                                                 the_armor.verts,
@@ -2288,7 +2247,6 @@ if __name__ == "__main__":
                                             the_armor.transform.translation[1] * -1,
                                             the_armor.transform.translation[2] * -1)
         new_armor.set_global_to_skin(new_armor_gts)
-        new_armor.set_global_to_skindata(new_armor_gts) # only for skyrim
 
         for bone_name, weights in the_armor.bone_weights.items():
             new_armor.add_bone(bone_name)
@@ -2298,12 +2256,12 @@ if __name__ == "__main__":
 
         # Armor and body nifs are generally positioned below ground level and lifted up with a transform, 
         # approx 120 in the Z direction. The transform on the armor shape is actually irrelevant;
-        # it's the global_to_skin_data transform that matters.
+        # it's the global_to_skin and skin-to-bone transforms that matter.
         test_py01 = NifFile(testfile)
         test_py01_armor = test_py01.shapes[0]
         assert int(test_py01_armor.transform.translation[2]) == 120, f"ERROR: Armor shape should be set at 120 in '{testfile}'"
 
-        assert int(test_py01_armor.global_to_skin_data.translation[2]) == -120, f"ERROR: Armor skin instance should be at -120 in {testfile}"
+        assert int(test_py01_armor.global_to_skin.translation[2]) == -120, f"ERROR: Armor skin instance should be at -120 in {testfile}"
 
         max_vert = max([v[2] for v in test_py01_armor.verts])
         assert max_vert < 0, "ERROR: Armor verts are all below origin"
@@ -2315,7 +2273,6 @@ if __name__ == "__main__":
             os.remove(test_py02_path)
         new_nif = NifFile()
         new_nif.initialize("SKYRIM", test_py02_path)
-        new_nif.createSkin()
 
         new_body = new_nif.createShapeFromData("Body", 
                                                 the_body.verts,
@@ -2357,7 +2314,6 @@ if __name__ == "__main__":
 
         nif2res = NifFile(testfile)
         body2res = nif2res.shape_dict["MaleBody.Out"]
-        stb = body2res.get_skin_to_bone_xform("NPC Spine1 [Spn1]")
         sstb = body2res.get_shape_skin_to_bone("NPC Spine1 [Spn1]")
 
         # Body doesn't have shape-level transformations so make sure we haven't put in
@@ -2372,8 +2328,8 @@ if __name__ == "__main__":
         print("### TEST_XFORM_FO: Can read the FO4 body transforms")
         f1 = NifFile("tests/FO4/BTMaleBody.nif")
         s1 = f1.shapes[0]
-        xfshape = s1.global_to_skin
-        xfskin = s1.global_to_skin_data
+        xfshape = s1.transform
+        xfskin = s1.global_to_skin
         assert int(xfshape.translation[2]) == -120, "ERROR: FO4 body shape has a -120 z translation"
         assert xfskin is None, "ERROR: FO4 nifs do not have global-to-skin transforms"
 
@@ -2385,7 +2341,6 @@ if __name__ == "__main__":
         ft1 = NifFile(testfile_in)
         ftout = NifFile()
         ftout.initialize("SKYRIM", testfile_out)
-        ftout.createSkin()
 
         for s_in in ft1.shapes:
             _test_export_shape(s_in, ftout)
