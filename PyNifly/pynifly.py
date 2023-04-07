@@ -188,10 +188,6 @@ def load_nifly(nifly_path):
     nifly.hasSkinInstance.restype = c_int
     nifly.load.argtypes = [c_char_p]
     nifly.load.restype = c_void_p
-    nifly.makeGameSkeletonInstance.argtypes = [c_char_p]
-    nifly.makeGameSkeletonInstance.restype = c_void_p
-    nifly.makeSkeletonInstance.argtypes = [c_char_p, c_char_p]
-    nifly.makeSkeletonInstance.restype = c_void_p
     nifly.saveNif.argtypes = [c_void_p, c_char_p]
     nifly.saveNif.restype = c_int
     nifly.segmentCount.argtypes = [c_void_p, c_void_p]
@@ -1220,6 +1216,10 @@ class NiShape(NiNode):
         #NifFile.nifly.setGlobalToSkinXform(self.file._skin_handle, self._handle, transform)
 
     def add_bone(self, bone_name, xform=None, parent_name=None):
+        """Add bone to shape. This resets all the shape's bone information, so 
+        skin-to-bone transforms and bone weights will need to be reset.
+        Add all bones first, then set transforms and weights.
+        """
         if not self._is_skinned:
             self.skin()
         if xform:
@@ -1625,7 +1625,7 @@ class NifFile:
     def get_node_xform_to_global(self, name):
         """ Get the xform-to-global either from the nif or the reference skeleton """
         buf = TransformBuf()
-        NifFile.nifly.getNodeXformToGlobal(self.skin, name.encode('utf-8'), buf)
+        NifFile.nifly.getNodeTransformToGlobal(self._handle, name.encode('utf-8'), buf)
         return buf
 
     #def apply_skin(self):
@@ -1880,6 +1880,7 @@ def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
     for bone_name, weights in old_shape.bone_weights.items():
         new_shape.add_bone(bone_name, old_shape.file.nodes[bone_name].xform_to_global)
 
+    for bone_name, weights in old_shape.bone_weights.items():
         sbx = old_shape.get_shape_skin_to_bone(bone_name)
         new_shape.set_skin_to_bone_xform(bone_name, sbx)
 
@@ -2331,8 +2332,8 @@ if __name__ == "__main__":
         s1 = f1.shapes[0]
         xfshape = s1.transform
         xfskin = s1.global_to_skin
-        assert int(xfshape.translation[2]) == -120, "ERROR: FO4 body shape has a -120 z translation"
-        assert xfskin is None, "ERROR: FO4 nifs do not have global-to-skin transforms"
+        assert int(xfshape.translation[2]) == 0, f"ERROR: FO4 body shape has a 0 z translation: {xfshape.translation[2]}"
+        assert int(xfskin.translation[2]) == -120, f"ERROR: global-to-skin is calculated: {xfskin.translation[2]}"
 
     if TEST_ALL or TEST_2_TAILS:
         print("### TEST_2_TAILS: Can export tails file with two tails")
@@ -2437,18 +2438,18 @@ if __name__ == "__main__":
         # in space. Since this nif doesn't contain bone relationships, that's just
         # the transform on the bone.
         mat = nif.get_node_xform_to_global("NPC Spine2 [Spn2]")
-        assert mat.translation[2] != 0, f"Error: Translation should not be 0, found {mat.translation[2]}"
+        assert NearEqual(mat.translation[2], 91.2488), f"Error: Translation should not be 0, found {mat.translation[2]}"
 
         # If the bone isn't in the nif, the node-to-global is retrieved from
         # the reference skeleton.
         mat2 = nif.get_node_xform_to_global("NPC L Forearm [LLar]")
-        assert mat2.translation[2] != 0, f"Error: Translation should not be 0, found {mat2.translation[2]}"
+        assert mat2.translation[2] == 0, f"Error: Translation should be 0, found {mat2.translation[2]}"
 
         nif = NifFile(r"tests/FO4/BaseMaleHead.nif")
         mat3 = nif.get_node_xform_to_global("Neck")
-        assert mat3.translation[2] != 0, "Error: Translation should not be 0"
+        assert NearEqual(mat3.translation[2], 113.2265), f"Error: Translation should not be 0: {mat3.translation[2]}"
         mat4 = nif.get_node_xform_to_global("SPINE1")
-        assert mat4.translation[2] != 0, "Error: Translation should not be 0"
+        assert mat4.translation[2] == 0, f"Error: Translation should be 0: {mat4.translation[2]}"
 
     if TEST_ALL or TEST_PARTITIONS:
         print('### TEST_PARTITIONS: Can read partitions')
@@ -3140,7 +3141,7 @@ if __name__ == "__main__":
         nifOut.behavior_graph_data = nif.behavior_graph_data
 
         # Have to apply the skin so we have the bone available to add collisions
-        nifOut.apply_skin()
+        #nifOut.apply_skin()
         midbow = nifOut.nodes["Bow_MidBone"]
 
         # Create the collision bottom-up, shape first
