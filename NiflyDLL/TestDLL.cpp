@@ -750,24 +750,24 @@ namespace NiflyDLLTests
 	TEST_CLASS(NiflyDLLTests)
 	{
 	public:
-		TEST_METHOD(LoadReferenceSkeleton) {
-			/* UNIT TEST: Can load a skeleton */
-			AnimSkeleton* skel = AnimSkeleton::MakeInstance();
-			std::string root;
-			std::string fn = SkeletonFile(TargetGame::SKYRIM, root);
-			skel->LoadFromNif(fn, root);
+		//TEST_METHOD(LoadReferenceSkeleton) {
+		//	/* UNIT TEST: Can load a skeleton */
+		//	AnimSkeleton* skel = AnimSkeleton::MakeInstance();
+		//	std::string root;
+		//	std::string fn = SkeletonFile(TargetGame::SKYRIM, root);
+		//	skel->LoadFromNif(fn, root);
 
-			std::string rootName = skel->GetRootBonePtr()->boneName;
-			Assert::AreEqual(std::string("NPC Root [Root]"), rootName);
-			int nodeCount = int(skel->refSkeletonNif.GetNodes().size());
+		//	std::string rootName = skel->GetRootBonePtr()->boneName;
+		//	Assert::AreEqual(std::string("NPC Root [Root]"), rootName);
+		//	int nodeCount = int(skel->refSkeletonNif.GetNodes().size());
 
-			fn = SkeletonFile(TargetGame::FO4, root);
-			NifFile nif = NifFile(fn);
-			NiNode* node = nif.FindBlockByName<NiNode>("LArm_Hand");
-			NiNode* parent = nif.GetParentNode(node);
-			std::string parentName = nif.GetNodeName(nif.GetBlockID(parent));
-			Assert::AreEqual("LArm_ForeArm3", parentName.c_str());
-		}
+		//	fn = SkeletonFile(TargetGame::FO4, root);
+		//	NifFile nif = NifFile(fn);
+		//	NiNode* node = nif.FindBlockByName<NiNode>("LArm_Hand");
+		//	NiNode* parent = nif.GetParentNode(node);
+		//	std::string parentName = nif.GetNodeName(nif.GetBlockID(parent));
+		//	Assert::AreEqual("LArm_ForeArm3", parentName.c_str());
+		//}
 		TEST_METHOD(LoadAndStoreSkyrim)
 		{
 			/* UNIT TEST: Can load a nif and read info out of it */
@@ -939,37 +939,27 @@ namespace NiflyDLLTests
 		TEST_METHOD(SkinTransformsSkyrim)
 		{
 			/* Skyrim */
-			NifFile nifHead = NifFile(testRoot / "Skyrim/MaleHead.nif");
-			std::vector<std::string> shapeNames = nifHead.GetShapeNames();
-			Assert::IsFalse(std::find(shapeNames.begin(), shapeNames.end(), "MaleHeadIMF") == shapeNames.end());
-
-			NiShape* theHead = nifHead.FindBlockByName<NiShape>("MaleHeadIMF");
-			AnimInfo headSkin;
-			headSkin.LoadFromNif(&nifHead, MakeSkeleton(TargetGame::SKYRIM));
+			void* nifHead = load((testRoot / "Skyrim/MaleHead.nif").u8string().c_str());
+			void* theHead = findNodeByName(nifHead, "MaleHeadIMF");
 
 			/* This one is also skinned */
-			Assert::IsTrue(theHead->HasSkinInstance(), L"ERROR: This is a skinned shape");
+			Assert::IsTrue(hasSkinInstance(theHead), L"ERROR: This is a skinned shape");
 
-			/* And there's a NiSkinInstance */
-			MatTransform headg2skinInst;
-			Assert::IsTrue(nifHead.GetShapeTransformGlobalToSkin(theHead, headg2skinInst),
-				L"Skyrim nifs have skin instance");
+			/* And there's a global-to-skin transform because skyrim */
+			MatTransform g2sk;
+			Assert::IsTrue(getShapeGlobalToSkin(nifHead, theHead, &g2sk),
+				L"Skyrim nifs have skin transform");
 
-			/* You can still ask for the global-to-skin transform but it just gives the same thing */
-			MatTransform headg2skin;
-			GetGlobalToSkin(&headSkin, theHead, &headg2skin);
-			Assert::AreEqual(-120, int(headg2skin.translation.z), L"ERROR: should have -120 translation");
-			Assert::AreEqual(headg2skinInst.translation.z, headg2skin.translation.z,
-				L"ERROR: should have -120 translation");
+			Assert::IsTrue(TApproxEqual(g2sk.translation.z, -120.3436f), L"ERROR: should have -120 translation");
 
 			/* The -120z transform means all the head verts are around the 0 point */
-			std::vector < Vector3 > verts;
-			nifHead.GetVertsForShape(theHead, verts);
+			Vector3* verts = new Vector3[5000];
+			int vertCount = getVertsForShape(nifHead, theHead, verts, 5000 * 3, 0);
 			float minVert = verts[0].z;
 			float maxVert = verts[0].z;
-			for (auto v : verts) {
-				minVert = std::min(v.z, minVert);
-				maxVert = std::max(v.z, maxVert);
+			for (int i = 0; i < std::min(vertCount, 5000); i++) {
+				minVert = std::min(verts[i][2], minVert);
+				maxVert = std::max(verts[i][2], maxVert);
 			}
 			Assert::IsTrue(minVert > -15 && maxVert < 15, L"ERROR: Head verts centered around origin");
 		};
@@ -977,38 +967,37 @@ namespace NiflyDLLTests
 		TEST_METHOD(SkinTransformsOnBones)
 		{
 			/* This file has transforms only on bones */
-			NifFile nif = NifFile(testRoot / "Skyrim/ArmorOffset.nif");
+			void* nif = load((testRoot / "Skyrim/ArmorOffset.nif").u8string().c_str());
 
-			NiShape* shape = nif.FindBlockByName<NiShape>("Armor");
-			AnimInfo skin;
-			skin.LoadFromNif(&nif, MakeSkeleton(TargetGame::SKYRIM));
+			void* shape = findNodeByName(nif, "Armor");
 
 			/* And there's a NiSkinInstance */
 			MatTransform gtshape;
-			bool haveGTS = nif.GetShapeTransformGlobalToSkin(shape, gtshape);
+			bool haveGTS = getShapeGlobalToSkin(nif, shape, &gtshape);
 			MatTransform gtsCalc;
-			nif.CalcShapeTransformGlobalToSkin(shape, gtsCalc);
-			MatTransform gts;
-			GetGlobalToSkin(&skin, shape, &gts); // Similar to CalcShapeTransform
+			calcShapeGlobalToSkin(nif, shape, &gtsCalc);
+			//MatTransform gts;
+			//GetGlobalToSkin(&skin, shape, &gts); // Similar to CalcShapeTransform
 
 			/* All the z translations are 0 because for skyrim nifs we just look at
 			   NiSkinData and it's 0 for this nif */
 			Assert::IsTrue(haveGTS, L"Skyrim nifs have skin instance");
-			Assert::AreEqual(0, int(gtshape.translation.z), L"Global-to-shape is -120");
+			Assert::AreEqual(0, int(gtshape.translation.z), L"Global-to-shape is 0");
+			Assert::IsTrue(TApproxEqual(-120.3436, gtsCalc.translation.z), L"Global-to-shape is -120");
 
-			/* You can still ask for the global-to-skin transform but it just gives the same thing */
-			Assert::AreEqual(0, int(gts.translation.z), L"Global-to-skin is -120 translation");
-			Assert::AreEqual(gtshape.translation.z, gts.translation.z,
-				L"ERROR: should have -120 translation");
+			///* You can still ask for the global-to-skin transform but it just gives the same thing */
+			//Assert::AreEqual(0, int(gts.translation.z), L"Global-to-skin is -120 translation");
+			//Assert::AreEqual(gtshape.translation.z, gts.translation.z,
+			//	L"ERROR: should have -120 translation");
 
 			/* The -120z transform means all the head verts are around the 0 point */
-			std::vector < Vector3 > verts;
-			nif.GetVertsForShape(shape, verts);
-			float minVert = verts[0].z;
-			float maxVert = verts[0].z;
-			for (auto v : verts) {
-				minVert = std::min(v.z, minVert);
-				maxVert = std::max(v.z, maxVert);
+			Vector3* verts = new Vector3[5000];
+			int vertCount = getVertsForShape(nif, shape, verts, 5000*3, 0);
+			float minVert = verts[0][2];
+			float maxVert = verts[0][2];
+			for (int i = 0; i < std::min(5000, vertCount); i++) {
+				minVert = std::min(verts[i][2], minVert);
+				maxVert = std::max(verts[i][2], maxVert);
 			}
 			Assert::IsTrue(minVert > -130 && maxVert < 0, L"ERROR: Armor verts all below origin");
 		};

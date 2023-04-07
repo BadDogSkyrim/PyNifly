@@ -29,6 +29,8 @@ std::string SkeletonFile(enum TargetGame game, std::string& rootName);
 
 void SetNifVersion(nifly::NifFile* nif, enum TargetGame targ);
 
+void UpdateShapeSkinBounds(nifly::NifFile* nif, nifly::NiShape* shape);
+
 void AddCustomBoneRef(
 	AnimInfo* anim, 
 	const std::string boneName, 
@@ -62,4 +64,4 @@ nifly::NiShape* PyniflyCreateShapeFromData(nifly::NifFile* nif, const std::strin
 	const std::vector<nifly::Vector2>* uv, const std::vector<nifly::Vector3>* norms, 
 	uint32_t options, nifly::NiNode* parentRef);
 
-AnimSkeleton* MakeSkeleton(enum TargetGame theGame);
+//AnimSkeleton* MakeSkeleton(enum TargetGame theGame);

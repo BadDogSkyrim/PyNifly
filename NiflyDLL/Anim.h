@@ -226,7 +226,7 @@ public:
 	// ChangeGlobalToSkinTransform sets the global-to-skin transform for a
 	// shape and updates all skin-to-bone transforms.
 	void ChangeGlobalToSkinTransform(const std::string& shape, const nifly::MatTransform& newTrans);
-	bool CalcShapeSkinBounds(const std::string& shapeName, const int& boneIndex);
+	bool UpdateShapeSkinBounds(const std::string& shapeName, const int& boneIndex);
 	void CleanupBones();
 	void WriteToNif(nifly::NifFile* nif, const std::string& shapeException = "");
 

@@ -110,82 +110,140 @@ void SetNifVersion(NifFile* nif, enum TargetGame targ) {
 	//root->SetName("Scene Root");
 }
 
-void AddCustomBoneRef(
-	AnimInfo* anim,
-	const std::string boneName, 
-	const std::string* parentBone,
-	const MatTransform* xformToParent) 
-{
-	AnimSkeleton* skel = anim->GetSkeleton();
-	
-	// Use the provided transform in preference to any transform from the reference skeleton
-	if (xformToParent || !skel->RefBone(boneName)) {
-		// Not in skeleton, add it
-		AnimBone& customBone = skel->AddCustomBone(boneName);
-		customBone.SetTransformBoneToParent(*xformToParent);
-		if (parentBone)
-			customBone.SetParentBone(skel->GetBonePtr(*parentBone, true));
+std::vector<Vector3> GetShapeBoneVerts(NifFile* nif, NiShape* shape, int boneIndex) {
+/* Return a vector of vertex coordinates for vertices affected by a shape's bone.
+	boneIndex = index of bone within the shape.
+*/
+	NiHeader hdr = nif->GetHeader();
+	std::vector<Vector3> verts;
+	if (!shape->IsSkinned())
+		return verts;
+
+	BSTriShape* bsTriShape = dynamic_cast<BSTriShape*>(shape);
+	if (bsTriShape) {
+		verts.reserve(bsTriShape->GetNumVertices());
+		for (uint16_t vertexIndex = 0; vertexIndex < bsTriShape->GetNumVertices(); vertexIndex++) {
+			auto& vertex = bsTriShape->vertData[vertexIndex];
+			for (size_t i = 0; i < 4; i++) {
+				if (vertex.weightBones[i] == boneIndex && vertex.weights[i] >= EPSILON)
+					verts.push_back(vertex.vert);
+			}
+		}
 	}
-};
+	else {
+		NiSkinInstance* skinInst = hdr.GetBlock<NiSkinInstance>(shape->SkinInstanceRef());
+		if (!skinInst)
+			return verts;
 
-void GetGlobalToSkin(AnimInfo* anim, NiShape* theShape, MatTransform* outXform) {
-	*outXform = anim->shapeSkinning[theShape->name.get()].xformGlobalToSkin;
+		NiSkinData* skinData = hdr.GetBlock(skinInst->dataRef);
+		if (!skinData || boneIndex >= int(skinData->numBones))
+			return verts;
+
+		NiGeometryData* geom = shape->GetGeomData();
+		NiSkinData::BoneData* bone = &skinData->bones[boneIndex];
+
+		for (SkinWeight& sw : bone->vertexWeights)
+			if (sw.weight >= EPSILON)
+				verts.push_back(geom->vertices[sw.index]);
+	}
+
+	return verts;
 }
 
-/* Create a skin for a nif, represented by AnimInfo */
-AnimInfo* CreateSkinForNif(NifFile* nif, enum TargetGame game) 
-/* Create an AnimInfo skin for an entire nif, based on the reference skeleton for the target game. */
+void UpdateShapeSkinBounds(NifFile* nif, NiShape* shape) 
+/* Update the bone bounding spheres on all bones in the shape. */
 {
-	AnimInfo* anim = new AnimInfo();
-	std::string rootName = "";
-	std::string fname = SkeletonFile(game, rootName);
-	AnimSkeleton* skel = AnimSkeleton::MakeInstance();
-	skel->LoadFromNif(fname, rootName); 
-	anim->SetSkeleton(skel);
-	anim->SetRefNif(nif);
-	return anim;
+		
+	std::vector<int> boneIDlist;
+	nif->GetShapeBoneIDList(shape, boneIDlist);
+
+	for (uint32_t boneIndex = 0; boneIndex < boneIDlist.size(); boneIndex++) {
+		std::vector<Vector3> boundVerts = GetShapeBoneVerts(nif, shape, boneIndex);
+		BoundingSphere boneBounds = BoundingSphere(boundVerts);
+		MatTransform sk2b;
+		nif->GetShapeTransformSkinToBone(shape, boneIndex, sk2b);
+		boneBounds.center = sk2b.ApplyTransform(boneBounds.center);
+		boneBounds.radius *= sk2b.scale;
+		nif->SetShapeBoneBounds(shape->name.get(), boneIndex, boneBounds);
+	}
 }
 
-/* Set the skin transform of a shape */
-void SetGlobalToSkinXform(AnimInfo* anim, NiShape* theShape, const MatTransform& gtsXform) {
-	String shapeName = theShape->name.get();
-	anim->shapeSkinning[shapeName].xformGlobalToSkin = gtsXform;
-	theShape->SetTransformToParent(theShape->GetTransformToParent());
-}
+//void AddCustomBoneRef(
+//	AnimInfo* anim,
+//	const std::string boneName, 
+//	const std::string* parentBone,
+//	const MatTransform* xformToParent) 
+//{
+//	AnimSkeleton* skel = anim->GetSkeleton();
+//	
+//	// Use the provided transform in preference to any transform from the reference skeleton
+//	if (xformToParent || !skel->RefBone(boneName)) {
+//		// Not in skeleton, add it
+//		AnimBone& customBone = skel->AddCustomBone(boneName);
+//		customBone.SetTransformBoneToParent(*xformToParent);
+//		if (parentBone)
+//			customBone.SetParentBone(skel->GetBonePtr(*parentBone, true));
+//	}
+//};
+//
+//void GetGlobalToSkin(AnimInfo* anim, NiShape* theShape, MatTransform* outXform) {
+//	*outXform = anim->shapeSkinning[theShape->name.get()].xformGlobalToSkin;
+//}
 
-void AddBoneToShape(AnimInfo* anim, NiShape* theShape, std::string boneName,
-	MatTransform* boneXform, const char* parentName)
-{
-	std::string pn;
-	std::string* pp = nullptr;
-	if (parentName) {
-		pn = std::string(parentName);
-		pp = &pn;
-	};
-	AddCustomBoneRef(anim, boneName, pp, boneXform); 
-	anim->AddShapeBone(theShape->name.get(), boneName);
-}
+///* Create a skin for a nif, represented by AnimInfo */
+//AnimInfo* CreateSkinForNif(NifFile* nif, enum TargetGame game) 
+///* Create an AnimInfo skin for an entire nif, based on the reference skeleton for the target game. */
+//{
+//	AnimInfo* anim = new AnimInfo();
+//	std::string rootName = "";
+//	std::string fname = SkeletonFile(game, rootName);
+//	AnimSkeleton* skel = AnimSkeleton::MakeInstance();
+//	skel->LoadFromNif(fname, rootName); 
+//	anim->SetSkeleton(skel);
+//	anim->SetRefNif(nif);
+//	return anim;
+//}
+//
+///* Set the skin transform of a shape */
+//void SetGlobalToSkinXform(AnimInfo* anim, NiShape* theShape, const MatTransform& gtsXform) {
+//	String shapeName = theShape->name.get();
+//	anim->shapeSkinning[shapeName].xformGlobalToSkin = gtsXform;
+//	theShape->SetTransformToParent(theShape->GetTransformToParent());
+//}
 
-void SetShapeGlobalToSkinXform(AnimInfo* anim, nifly::NiShape* theShape, const nifly::MatTransform& gtsXform)
-{
-	anim->ChangeGlobalToSkinTransform(theShape->name.get(), gtsXform);
-	anim->GetRefNif()->SetShapeTransformGlobalToSkin(theShape, gtsXform);
-}
+//void AddBoneToShape(AnimInfo* anim, NiShape* theShape, std::string boneName,
+//	MatTransform* boneXform, const char* parentName)
+//{
+//	std::string pn;
+//	std::string* pp = nullptr;
+//	if (parentName) {
+//		pn = std::string(parentName);
+//		pp = &pn;
+//	};
+//	AddCustomBoneRef(anim, boneName, pp, boneXform); 
+//	anim->AddShapeBone(theShape->name.get(), boneName);
+//}
 
-void SetShapeWeights(AnimInfo* anim, nifly::NiShape* theShape, std::string boneName, AnimWeight& theWeightSet)
-{
-	anim->SetWeights(theShape->name.get(), boneName, theWeightSet.weights);
-}
-
-int SaveSkinnedNif(AnimInfo* anim, std::filesystem::path filepath)
-{
-	NifFile* theNif = anim->GetRefNif();
-	anim->WriteToNif(theNif, "None");
-	for (auto& shape : theNif->GetShapes())
-		theNif->UpdateSkinPartitions(shape);
-
-	return theNif->Save(filepath);
-}
+//void SetShapeGlobalToSkinXform(AnimInfo* anim, nifly::NiShape* theShape, const nifly::MatTransform& gtsXform)
+//{
+//	anim->ChangeGlobalToSkinTransform(theShape->name.get(), gtsXform);
+//	anim->GetRefNif()->SetShapeTransformGlobalToSkin(theShape, gtsXform);
+//}
+//
+//void SetShapeWeights(AnimInfo* anim, nifly::NiShape* theShape, std::string boneName, AnimWeight& theWeightSet)
+//{
+//	anim->SetWeights(theShape->name.get(), boneName, theWeightSet.weights);
+//}
+//
+//int SaveSkinnedNif(AnimInfo* anim, std::filesystem::path filepath)
+//{
+//	NifFile* theNif = anim->GetRefNif();
+//	anim->WriteToNif(theNif, "None");
+//	for (auto& shape : theNif->GetShapes())
+//		theNif->UpdateSkinPartitions(shape);
+//
+//	return theNif->Save(filepath);
+//}
 
 void GetPartitions(
 	NifFile* workNif,
@@ -347,11 +405,11 @@ NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 	return shapeResult;
 }
 
-AnimSkeleton* MakeSkeleton(enum TargetGame theGame) {
-	AnimSkeleton* skel = AnimSkeleton::MakeInstance();
-	std::string root;
-	std::string fn = SkeletonFile(theGame, root);
-	skel->LoadFromNif(fn, root);
-	return skel;
-};
+//AnimSkeleton* MakeSkeleton(enum TargetGame theGame) {
+//	AnimSkeleton* skel = AnimSkeleton::MakeInstance();
+//	std::string root;
+//	std::string fn = SkeletonFile(theGame, root);
+//	skel->LoadFromNif(fn, root);
+//	return skel;
+//};
 

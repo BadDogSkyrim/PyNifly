@@ -324,7 +324,7 @@ void AnimInfo::ChangeGlobalToSkinTransform(const std::string& shape, const MatTr
 		RecalcXFormSkinToBone(shape, bone);
 }
 
-bool AnimInfo::CalcShapeSkinBounds(const std::string& shapeName, const int& boneIndex) {
+bool AnimInfo::UpdateShapeSkinBounds(const std::string& shapeName, const int& boneIndex) {
 	if (!refNif || !refNif->IsValid())	// Check for existence of reference nif
 		return false;
 
@@ -515,7 +515,7 @@ void AnimInfo::WriteToNif(NifFile* nif, const std::string& shapeException) {
 			if (!isFO)
 				nif->SetShapeBoneWeights(shapeBoneList.first, bid, bw.weights);
 
-			if (CalcShapeSkinBounds(shapeBoneList.first, bid))
+			if (UpdateShapeSkinBounds(shapeBoneList.first, bid))
 				nif->SetShapeBoneBounds(shapeBoneList.first, bid, bw.bounds);
 		}
 

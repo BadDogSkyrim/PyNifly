@@ -36,6 +36,8 @@ def load_nifly(nifly_path):
     nifly.addRigidBody.restype = c_int
     nifly.addNode.argtypes = [c_void_p, c_char_p, POINTER(TransformBuf), c_void_p]
     nifly.addNode.restype = c_void_p
+    nifly.calcShapeGlobalToSkin.argtypes = [c_void_p, c_void_p, POINTER(TransformBuf)]
+    nifly.calcShapeGlobalToSkin.restype = None
     nifly.clearMessageLog.argtypes = []
     nifly.clearMessageLog.restype = None
     nifly.createNif.argtypes = [c_char_p, c_int, c_char_p]
@@ -1140,15 +1142,14 @@ class NiShape(NiNode):
 
     @property
     def global_to_skin(self):
-        """ Return the global-to-skin transform on this shape 
-            (on NiSkinData. not all nifs have this transform.)
-            Returns the transform or None.
+        """ Return the global-to-skin transform on this shape; calculate it if not present.
+            Returns the transform.
             """
         buf = TransformBuf()
         has_xform = NifFile.nifly.getShapeGlobalToSkin(self.file._handle, self._handle, buf)
-        if has_xform:
-            return buf
-        return None
+        if not has_xform:
+            NifFile.nifly.calcShapeGlobalToSkin(self.file._handle, self._handle, buf)
+        return buf
 
     def get_shape_skin_to_bone(self, bone_name):
         """ Return the skin-to-bone transform, getting it from the nif data """
