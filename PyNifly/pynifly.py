@@ -115,7 +115,7 @@ def load_nifly(nifly_path):
     nifly.getNodeTransform.argtypes = [c_void_p, POINTER(TransformBuf)]
     nifly.getNodeTransform.restype = None
     nifly.getNodeTransformToGlobal.argtypes = [c_void_p, c_char_p, POINTER(TransformBuf)]
-    nifly.getNodeTransformToGlobal.restype = None
+    nifly.getNodeTransformToGlobal.restype = c_int
     nifly.getNormalsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
     nifly.getNormalsForShape.restype = c_int
     nifly.getPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
@@ -1234,18 +1234,16 @@ class NiShape(NiNode):
         NifFile.nifly.addBoneToNifShape(self.file._handle, self._handle, 
                                         bone_name.encode('utf-8'), buf,
                                         par)
-        #NifFile.nifly.addBoneToShape(self.file._skin_handle, self._handle, 
-        #                                bone_name.encode('utf-8'), buf,
-        #                                par) 
+        self.file._nodes = None # So that we find the bone node if we look for it
 
-    def set_global_to_skindata(self, xform):
-        """ Sets the NiSkinData transformation. Only call this on nifs that have them. """
-        NifFile.nifly.setShapeGlobalToSkin(self.file._handle, self._handle, xform)
-        #if self.file._skin_handle is None:
-        #    self.file.createSkin()
-        #if not self._is_skinned:
-        #    self.skin()
-        #NifFile.nifly.setShapeGlobalToSkinXform(self.file._skin_handle, self._handle, xform)
+    #def set_global_to_skindata(self, xform):
+    #    """ Sets the NiSkinData transformation. Only call this on nifs that have them. """
+    #    NifFile.nifly.setShapeGlobalToSkin(self.file._handle, self._handle, xform)
+    #    #if self.file._skin_handle is None:
+    #    #    self.file.createSkin()
+    #    #if not self._is_skinned:
+    #    #    self.skin()
+    #    #NifFile.nifly.setShapeGlobalToSkinXform(self.file._skin_handle, self._handle, xform)
         
     def setShapeWeights(self, bone_name, vert_weights):
         """ Set the weights for a bone in a shape. 
@@ -1359,6 +1357,7 @@ class NifFile:
 
     def Load(nifly_path):
         NifFile.nifly = load_nifly(nifly_path)
+        NifFile.nifly_path = nifly_path
     
     def __init__(self, filepath=None):
         self.filepath = filepath
@@ -1382,10 +1381,26 @@ class NifFile:
         self._connect_pt_par = None
         self._connect_pt_child = None
         self.connect_pt_child_skinned = False
+        self._ref_skel = None
 
     def __del__(self):
         if self._handle:
             NifFile.nifly.destroy(self._handle)
+
+    @property
+    def reference_skel(self):
+        if self._ref_skel:
+            return self._ref_skel
+
+        # We don't actually know which skeleton to use. Assume the basic human skeleton.
+        g = "SKYRIM" if self._game == "SKYRIMSE" else self._game
+        skel_path = os.path.join(os.path.dirname(NifFile.nifly_path), "Skeletons", g, "skeleton.nif")
+        if os.path.exists(skel_path):
+            self._ref_skel = NifFile(skel_path)
+            return self._ref_skel
+
+        return None
+
 
     def initialize(self, target_game, filepath, root_type="NiNode", root_name='Scene Root'):
         self.filepath = filepath
@@ -1625,8 +1640,16 @@ class NifFile:
     def get_node_xform_to_global(self, name):
         """ Get the xform-to-global either from the nif or the reference skeleton """
         buf = TransformBuf()
-        NifFile.nifly.getNodeTransformToGlobal(self._handle, name.encode('utf-8'), buf)
+        buf.set_identity()
+        if NifFile.nifly.getNodeTransformToGlobal(self._handle, name.encode('utf-8'), buf):
+            return buf
+
+        if self.reference_skel:
+            NifFile.nifly.getNodeTransformToGlobal(self.reference_skel._handle, 
+                                                   name.encode('utf-8'), 
+                                                   buf)
         return buf
+
 
     #def apply_skin(self):
     #    """ Adding bones to the nif only adds them to the "skin" not to the nif itself.
@@ -1804,13 +1827,13 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
 TEST_CREATE_TETRA = False
 TEST_CREATE_WEIGHTS = False
-TEST_READ_WRITE = False
+TEST_READ_WRITE = True
 TEST_XFORM_FO = False
 TEST_2_TAILS = False
 TEST_ROTATIONS = False
@@ -1847,7 +1870,7 @@ TEST_COLLISION_CAPSULE = False
 TEST_FURNITURE_MARKER = False
 TEST_MANY_SHAPES = False
 TEST_CONNECT_POINTS = False
-TEST_SKIN_BONE_XF = True
+TEST_SKIN_BONE_XF = False
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -1942,9 +1965,8 @@ if __name__ == "__main__":
     import codecs
     # import quickhull
 
-    nifly_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
-    NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], nifly_path))
-
+    dev_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
+    NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], dev_path))
 
     mylog = logging.getLogger("pynifly")
     logging.basicConfig()
@@ -2218,9 +2240,19 @@ if __name__ == "__main__":
 
 
     if TEST_ALL or TEST_READ_WRITE:
-        print("### TEST_READ_WRITE: Can read the armor nif and spit out armor and body separately")
+        print("### TEST_READ_WRITE: Basic load-and-store for Skyrim--Can read the armor nif and spit out armor and body separately")
+        testfile = "tests/Skyrim/test.nif"
+        outfile1 = "tests/Out/TEST_READ_WRITE1.nif"
+        outfile2 = "tests/Out/TEST_READ_WRITE2.nif"
+        outfile3 = "tests/Out/TEST_READ_WRITE3.nif"
+        if os.path.exists(outfile1):
+            os.remove(outfile1)
+        if os.path.exists(outfile2):
+            os.remove(outfile2)
+        if os.path.exists(outfile3):
+            os.remove(outfile3)
 
-        nif = NifFile("tests/Skyrim/test.nif")
+        nif = NifFile(testfile)
         assert "Armor" in nif.getAllShapeNames(), "ERROR: Didn't read armor"
         assert "MaleBody" in nif.getAllShapeNames(), "ERROR: Didn't read body"
 
@@ -2233,68 +2265,72 @@ if __name__ == "__main__":
         assert the_armor.has_skin_instance, "Error: Armor should be skinned"
 
         print("### Can save armor to Skyrim")
-        testfile = "tests/Out/TestSkinnedFromPy01.nif"
         new_nif = NifFile()
-        new_nif.initialize("SKYRIM", testfile)
+        new_nif.initialize("SKYRIM", outfile1)
+        _test_export_shape(the_armor, new_nif)
+        #new_armor = new_nif.createShapeFromData("Armor", 
+        #                                        the_armor.verts,
+        #                                        the_armor.tris,
+        #                                        the_armor.uvs,
+        #                                        the_armor.normals)
+        #new_armor.transform = the_armor.transform.copy()
+        #new_armor.skin()
+        #new_armor_gts = the_armor.transform.copy()
+        #new_armor_gts.translation = VECTOR3(the_armor.transform.translation[0] * -1,
+        #                                    the_armor.transform.translation[1] * -1,
+        #                                    the_armor.transform.translation[2] * -1)
+        #new_armor.set_global_to_skin(new_armor_gts)
 
-        new_armor = new_nif.createShapeFromData("Armor", 
-                                                the_armor.verts,
-                                                the_armor.tris,
-                                                the_armor.uvs,
-                                                the_armor.normals)
-        new_armor.transform = the_armor.transform.copy()
-        new_armor.skin()
-        new_armor_gts = the_armor.transform.copy()
-        new_armor_gts.translation = VECTOR3(the_armor.transform.translation[0] * -1,
-                                            the_armor.transform.translation[1] * -1,
-                                            the_armor.transform.translation[2] * -1)
-        new_armor.set_global_to_skin(new_armor_gts)
-
-        for bone_name, weights in the_armor.bone_weights.items():
-            new_armor.add_bone(bone_name)
-            new_armor.setShapeWeights(bone_name, weights)
+        #for bone_name, weights in the_armor.bone_weights.items():
+        #    new_armor.add_bone(bone_name)
+        #    new_armor.setShapeWeights(bone_name, weights)
     
         new_nif.save()
 
         # Armor and body nifs are generally positioned below ground level and lifted up with a transform, 
         # approx 120 in the Z direction. The transform on the armor shape is actually irrelevant;
         # it's the global_to_skin and skin-to-bone transforms that matter.
-        test_py01 = NifFile(testfile)
-        test_py01_armor = test_py01.shapes[0]
-        assert int(test_py01_armor.transform.translation[2]) == 120, f"ERROR: Armor shape should be set at 120 in '{testfile}'"
+        test_nif = NifFile(outfile1)
+        armor01 = test_nif.shapes[0]
+        assert int(armor01.transform.translation[2]) == 120, \
+            f"ERROR: Armor shape should be set at 120 in '{outfile1}'"
+        assert int(armor01.global_to_skin.translation[2]) == -120, \
+            f"ERROR: Armor skin instance should be at -120 in {outfile1}"
+        assert the_armor.global_to_skin.NearEqual(armor01.global_to_skin), "ERROR: global-to-skin differs: {armor01.global_to_skin}"
+        ftxf = the_armor.get_shape_skin_to_bone('NPC L ForearmTwist1 [LLt1]')
+        ftxf01 = armor01.get_shape_skin_to_bone('NPC L ForearmTwist1 [LLt1]')
+        assert int(ftxf01.translation[2]) == -5, \
+            f"ERROR: Skin transform Z should be -5.0, have {xf}"
+        assert ftxf.NearEqual(ftxf01), f"ERROR: Skin-to-bone differs: {ftxf01}"
+        
 
-        assert int(test_py01_armor.global_to_skin.translation[2]) == -120, f"ERROR: Armor skin instance should be at -120 in {testfile}"
-
-        max_vert = max([v[2] for v in test_py01_armor.verts])
+        max_vert = max([v[2] for v in armor01.verts])
         assert max_vert < 0, "ERROR: Armor verts are all below origin"
 
         print("### Can save body to Skyrim")
+        new_nif2 = NifFile()
+        new_nif2.initialize("SKYRIM", outfile2)
+        _test_export_shape(the_body, new_nif2)
 
-        test_py02_path = "tests/Out/TestSkinnedFromPy02.nif"
-        if os.path.exists(test_py02_path):
-            os.remove(test_py02_path)
-        new_nif = NifFile()
-        new_nif.initialize("SKYRIM", test_py02_path)
+        #new_body = new_nif.createShapeFromData("Body", 
+        #                                        the_body.verts,
+        #                                        the_body.tris,
+        #                                        the_body.uvs,
+        #                                        the_body.normals)
+        #new_body.skin()
+        #body_gts = the_body.global_to_skin
+        #new_body.set_global_to_skin(the_body.global_to_skin.copy())
 
-        new_body = new_nif.createShapeFromData("Body", 
-                                                the_body.verts,
-                                                the_body.tris,
-                                                the_body.uvs,
-                                                the_body.normals)
-        new_body.skin()
-        body_gts = the_body.global_to_skin
-        new_body.set_global_to_skin(the_body.global_to_skin.copy())
+        #for b in the_body.bone_names:
+        #    new_body.add_bone(b)
 
-        for b in the_body.bone_names:
-            new_body.add_bone(b)
-
-        for bone_name, weights in the_body.bone_weights.items():
-            new_body.setShapeWeights(bone_name, weights)
+        #for bone_name, weights in the_body.bone_weights.items():
+        #    new_body.setShapeWeights(bone_name, weights)
     
-        new_nif.save()
+        new_nif2.save()
 
         # check that the body is where it should be
-        test_py02 = NifFile(test_py02_path)
+        test_py02 = NifFile(outfile2)
         test_py02_body = test_py02.shapes[0]
         max_vert = max([v[2] for v in test_py02_body.verts])
         assert max_vert < 130, "ERROR: Body verts are all below 130"
@@ -2303,19 +2339,14 @@ if __name__ == "__main__":
 
         print("### Can save armor and body together")
 
-        testfile = "tests/Out/TestSkinnedFromPy03.nif"
-        if os.path.exists(testfile):
-            os.remove(testfile)
+        newnif3 = NifFile()
+        newnif3.initialize("SKYRIM", outfile3)
+        _test_export_shape(the_body, newnif3)
+        _test_export_shape(the_armor, newnif3)    
+        newnif3.save()
 
-        newnif2 = NifFile()
-        newnif2.initialize("SKYRIM", testfile)
-        _test_export_shape(the_body, newnif2)
-        _test_export_shape(the_armor, newnif2)    
-        newnif2.save()
-        assert os.path.exists(testfile), "ERROR: Writing test file"
-
-        nif2res = NifFile(testfile)
-        body2res = nif2res.shape_dict["MaleBody.Out"]
+        nif3res = NifFile(outfile3)
+        body2res = nif3res.shape_dict["MaleBody.Out"]
         sstb = body2res.get_shape_skin_to_bone("NPC Spine1 [Spn1]")
 
         # Body doesn't have shape-level transformations so make sure we haven't put in
@@ -2443,13 +2474,13 @@ if __name__ == "__main__":
         # If the bone isn't in the nif, the node-to-global is retrieved from
         # the reference skeleton.
         mat2 = nif.get_node_xform_to_global("NPC L Forearm [LLar]")
-        assert mat2.translation[2] == 0, f"Error: Translation should be 0, found {mat2.translation[2]}"
+        assert NearEqual(mat2.translation[2], 85.7311), f"Error: Translation should not be 0, found {mat2.translation[2]}"
 
         nif = NifFile(r"tests/FO4/BaseMaleHead.nif")
         mat3 = nif.get_node_xform_to_global("Neck")
         assert NearEqual(mat3.translation[2], 113.2265), f"Error: Translation should not be 0: {mat3.translation[2]}"
         mat4 = nif.get_node_xform_to_global("SPINE1")
-        assert mat4.translation[2] == 0, f"Error: Translation should be 0: {mat4.translation[2]}"
+        assert NearEqual(mat4.translation[2], 72.7033), f"Error: Translation should not be 0: {mat4.translation[2]}"
 
     if TEST_ALL or TEST_PARTITIONS:
         print('### TEST_PARTITIONS: Can read partitions')
@@ -2930,7 +2961,7 @@ if __name__ == "__main__":
         assert round(shape.global_to_skin.translation[2]) == -140, f"Error: Expected -140 z translation, got {shape.global_to_skin.translation[2]}"
 
         bellyxf = nif.get_node_xform_to_global('Belly_skin')
-        assert round(bellyxf.translation[2]) == 90, f"Error: Expected Belly_skin Z at 90, got {bellyxf.translation[2]}"
+        assert NearEqual(bellyxf.translation[2], 90.1133), f"Error: Expected Belly_skin Z near 90, got {bellyxf.translation[2]}"
 
         nif2 = NifFile(testfile)
         shape2 = nif.shapes[0]

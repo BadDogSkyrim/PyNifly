@@ -265,6 +265,18 @@ class TransformBuf(pynStructure):
         v2.append(self.translation[2])
         return pynMatrix([v0, v1, v2, [0,0,0,1]])
 
+    def NearEqual(self, other, epsilon=0.0001):
+        for n, m in zip(self.translation[:], other.translation[:]):
+            if abs(n-m) > epsilon:
+                return False
+        for v1, v2 in zip(self.rotation, other.rotation):
+            for n, m in zip(v1, v2):
+                if abs(n-m) > epsilon:
+                    return False
+        if abs(self.scale-other.scale) > epsilon:
+            return False
+        return True
+
     @classmethod
     def from_matrix(cls, m):
         buf = TransformBuf()

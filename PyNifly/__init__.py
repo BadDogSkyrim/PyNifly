@@ -5,7 +5,7 @@
 
 RUN_TESTS = True
 TEST_BPY_ALL = False
-TEST_TARGET_BONE = ['skin_bone_C_MasterEyebrow'] # Print extra debugging info for these bones
+TEST_TARGET_BONE = ['NPC L Thigh [LThg]'] # Print extra debugging info for these bones
 
 bl_info = {
     "name": "NIF format",
@@ -22,18 +22,15 @@ from modulefinder import IMPORT_NAME
 import sys
 import os
 import os.path
-import pathlib
 import logging
 from operator import or_
 from functools import reduce
 import traceback
-import math
 from unittest.result import failfast
 from mathutils import Matrix, Vector, Quaternion, geometry
 # import quickhull
 import re
 import codecs
-from typing import Collection
 
 logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
 log = logging.getLogger("pynifly")
@@ -360,6 +357,7 @@ def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor):
     if bone_name in TEST_TARGET_BONE:
         log.debug(f"<create_bone> Bone transform for {bone_name}) = \n{node_xf}")
         log.debug(f"<create_bone> Blender transform for {bone_name} = \n{bone.matrix}")
+        log.debug(f"<create_bone> Bone head={bone.head} tail={bone.tail}")
 
     return bone
 
@@ -893,6 +891,11 @@ class NifImporter():
     def flag_clear(self, the_flag):
         return (self.flags & the_flag) == 0
 
+    def nif_name(self, blender_name):
+        if self.flag_set(pynFlags.RENAME_BONES) or self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS):
+            return self.nif.nif_name(blender_name)
+        else:
+            return blender_name
     def blender_name(self, nif_name):
         if self.flag_set(pynFlags.RENAME_BONES) or self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS):
             return self.nif.dict.blender_name(nif_name)
@@ -1092,7 +1095,7 @@ class NifImporter():
             """
         # Don't import the node if (1) it's already been imported, (2) it's been imported
         # as a bone in the skeleton, or (3) it's the root node
-        log.debug(f"<import_ninode> {ninode.name}, {p}")
+        #log.debug(f"<import_ninode> {ninode.name}, {p}")
         obj = None
         if ninode.name == ninode.file.rootName:
             return None
@@ -1295,6 +1298,7 @@ class NifImporter():
         # use the transform in the file if there is one; otherwise get the 
         # transform from the reference skeleton
         xf = self.nif.get_node_xform_to_global(nifname) 
+        log.debug(f"<add_bone_to_arma> creating bone {nifname} with position \n{xf}")
         bone_xform = xf.as_matrix()
         bone = create_bone(armdata, bone_name, bone_xform, self.nif.game, self.scale)
         bone['PYN_TRANSFORM'] = bone_xform.to_quaternion()[:] # stash rotation for later (no longer used)
@@ -1325,16 +1329,16 @@ class NifImporter():
         i = 0
         while i < len(bones_to_parent): # list will grow while iterating
             bonename = bones_to_parent[i]
+            #log.debug(f"Checking {bonename}")
             arma_bone = arm_data.edit_bones[bonename]
-            LogIfBone(bonename, f"Checking {bonename}")
 
             if arma_bone.parent is None:
                 parentname = None
                 parentnifname = None
                 
                 # look for a parent in the nif
-                nifname = self.nif.nif_name(bonename)
-                # log.debug(f"connect_armature looking up {bonename} -> {nifname}")
+                nifname = self.nif_name(bonename)
+                #log.debug(f"connect_armature looking up {bonename} -> {nifname}")
                 if nifname in self.nif.nodes:
                     thisnode = self.nif.nodes[nifname]
                     if thisnode.collision_object:
@@ -1349,47 +1353,42 @@ class NifImporter():
                         parentname = self.blender_name(niparent.name)
                         #log.debug(f"Found parent {parentname}/{niparent.name} for {bonename}/{nifname}")
 
-                # log.debug(f"connect_armature found {parentname}, creating bones {self.flag_set(pynFlags.CREATE_BONES)}, is facebones {is_facebone(bonename)} ")
+                #log.debug(f"connect_armature found {parentname}, creating bones {self.flag_set(pynFlags.CREATE_BONES)}, is facebones {is_facebone(bonename)} ")
                 if parentname is None and self.flag_set(pynFlags.CREATE_BONES) and not is_facebone(bonename):
                     #log.debug(f"No parent for '{nifname}' in the nif. If it's a known bone, get parent from skeleton")
-                    if self.flag_set(pynFlags.RENAME_BONES) or self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS):
-                        bone_dict = self.nif.dict.active_dict
-                        if bonename in bone_dict:
-                            #log.debug(f"Found bone in dict: {bonename}")
-                            p = bone_dict[bonename].parent
-                            if p:
-                                if self.nif.dict.use_niftools:
-                                    parentname = p.niftools
-                                else:
-                                    parentname = p.blender
-                                parentnifname = p.nif
-                            else:
-                                log.debug(f"Bone {bonename} has no parent")
-                        else:
-                            log.debug(f"Did not find bone in dict: {bonename}")
-                    else:
-                        if arma_bone.name in self.nif.dict.byNif:
-                            p = self.nif.dict.byNif[bonename].parent
-                            if p:
-                                parentname = p.nif
-                                parentnifname = p.nif
+                    dict = self.nif.dict.active_dict
+                    if bonename in dict:
+                        #log.debug(f"Found bone in dict: {bonename}")
+                        p = dict[bonename].parent
+                        if p:
+                            parentname = self.blender_name(p.nif)
+                            parentnifname = p.nif
+                            log.debug(f"Found parent {parentname} in bone dictionary")
             
                 # if we got a parent from somewhere, hook it up
-                LogIfBone(bonename, f"Found parent for bone {bonename}: {parentname}/{parentnifname}")
                 if parentname:
+                    #log.debug(f"Found parent for bone {bonename}: {parentname}/{parentnifname}")
                     bpy.ops.object.mode_set(mode='POSE')
                     saved_pose = arma.pose.bones[bonename].matrix.copy()
                     bpy.ops.object.mode_set(mode='EDIT')
                     if parentname not in arm_data.edit_bones:
                         # Add parent bones and put on our list so we can get its parent
                         new_parent = self.add_bone_to_arma(arma, parentname, parentnifname)
+                        #log.debug(f"New parent {parentname} head={new_parent.head} tail={new_parent.tail}")
                         bones_to_parent.append(parentname)  
                         arm_data.edit_bones[bonename].parent = new_parent
                     else:
                         arm_data.edit_bones[bonename].parent = arm_data.edit_bones[parentname]
+
+                    arm_data.edit_bones.update()
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                    arma.update_from_editmode()
+                    assert parentname in arma.data.bones, f"Parent {parentname} not in bones {arma.data.bones.keys()}"
                     bpy.ops.object.mode_set(mode='POSE')
                     arma.pose.bones[bonename].matrix = saved_pose 
                     bpy.ops.object.mode_set(mode='EDIT')
+                    assert parentname in arm_data.edit_bones, f"Parent {parentname} not in edit bones {arm_data.edit_bones.keys()}"
+
 
             i += 1
 
@@ -2587,6 +2586,11 @@ class NifExporter:
     def flag_clear(self, the_flag):
         return (self.flags & the_flag) == 0
 
+    def nif_name(self, blender_name):
+        if self.flag_set(pynFlags.RENAME_BONES) or self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS):
+            return self.nif.nif_name(blender_name)
+        else:
+            return blender_name
 
     def export_shape_data(self, obj, shape):
         """ Export a shape's extra data """
@@ -3118,10 +3122,6 @@ class NifExporter:
     def export_collisions(self, objlist):
         """ Export all the collisions in objlist. (Should be only one.) Apply the skin first so bones are available. """
         log.debug("Writing collisions")
-        if self.armature:
-            log.debug("Applying skin")
-            self.nif.apply_skin()
-
         for coll in objlist:
             body = self.export_collision_body(coll.children, coll)
             if body:
@@ -3132,6 +3132,7 @@ class NifExporter:
                         targnode = self.nif.rootNode
                     elif p.type == "ARMATURE":
                         targname = coll['pynCollisionTarget']
+                        ### self.nif._nodes = None ### Might have added nodes 
                         targnode = self.nif.nodes[targname]
                     else:
                         log.debug(f"Exporting collision {coll.name}, exported objects are {self.objs_written.keys()}")
@@ -3485,35 +3486,32 @@ class NifExporter:
     
         return result
 
-    def write_bone(self, shape:NiShape, arma, bone_name):
+    def write_bone(self, shape:NiShape, arma, bone_name, bones_to_write):
         """ Write a shape's bone, writing all parent bones first if necessary 
             Returns the node in the target nif for the new bone """
         if bone_name in self.writtenbones:
             return self.writtenbones[bone_name]
 
+        if not bone_name in bones_to_write and not self.flag_set(pynFlags.PRESERVE_HIERARCHY):
+            return None
+
         bone_parent = arma.data.bones[bone_name].parent
         parname = None
         if bone_parent:
-            parname = self.write_bone(shape, arma, bone_parent.name)
+            parname = self.write_bone(shape, arma, bone_parent.name, bones_to_write)
         
-        if self.flag_set(pynFlags.RENAME_BONES) or self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS):
-            nifname = self.nif.nif_name(bone_name)
-        else:
-            nifname = bone_name
+        nifname = self.nif_name(bone_name)
 
         xf = get_bone_xform(arma, bone_name, self.game, 
                             self.flag_set(pynFlags.PRESERVE_HIERARCHY),
-                            self.flag_set(pynFlags.EXPORT_POSE)
-                            )
-        #xf_loc, xf_rot, xf_scale = xf.decompose()
-        #tb = TransformBuf()
-        #tb.store(xf_loc/self.scale, xf_rot.to_matrix(), xf_scale)
+                            self.flag_set(pynFlags.EXPORT_POSE))
         tb = pack_xf_to_buf(xf, self.scale)
 
         if nifname in TEST_TARGET_BONE:
             log.debug(f"<write_bone> writing bone {bone_name} with transform\n{tb}")
             
-        shape.add_bone(nifname, tb, parname)
+        shape.add_bone(nifname, tb, 
+                       (parname if self.flag_set(pynFlags.PRESERVE_HIERARCHY) else None))
         self.writtenbones[bone_name] = nifname
         return nifname
 
@@ -3540,39 +3538,43 @@ class NifExporter:
     
         group_names = [g.name for g in obj.vertex_groups]
         weights_by_bone = get_weights_by_bone(weights_by_vert)
-        used_bones = weights_by_bone.keys()
 
-        if self.flag_set(pynFlags.PRESERVE_HIERARCHY):
-            self.write_bone_hierarchy(new_shape, arma, used_bones)
+        # Identify the bones with weights that are part of the armature
+        used_bones = [bn for bn, bw in weights_by_bone.items() \
+            if len(bw) > 0 and bn in arma.data.bones]
 
-        arma_bones = self.get_bone_xforms(arma, used_bones, new_shape)
-    
-        for bone_name, bone_xform in arma_bones.items():
-            #log.debug(f"<export_skin> checking {bone_name}")
-            if bone_name in weights_by_bone and len(weights_by_bone[bone_name]) > 0:
-                #log.debug(f"<export_skin> writing {bone_name}")
-                if self.flag_set(pynFlags.RENAME_BONES) or self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS):
-                    nifname = new_shape.file.nif_name(bone_name)
-                else:
-                    nifname = bone_name
+        self.writtenbones = {}
+        for bone_name in used_bones:
+            self.write_bone(new_shape, arma, bone_name, used_bones)
 
-                tb = pack_xf_to_buf(bone_xform, self.scale)
-                if nifname in TEST_TARGET_BONE:
-                    log.debug(f"<export_skin>({obj.name}) writing bone {bone_name} with pose transform\n{bone_xform}\n->nif\n{tb}")
-                new_shape.add_bone(nifname, tb)
-                # log.debug(f"....Adding bone {nifname}")
-                if self.flag_set(pynFlags.EXPORT_POSE):
-                    # Bind location is different from pose location
-                    bone_xform_bind = get_bone_xform(arma, bone_name, self.game, 
-                                                     self.flag_set(pynFlags.PRESERVE_HIERARCHY),
-                                                     False)
-                    bone_xform_bind.invert()
-                    tb_bind = pack_xf_to_buf(bone_xform_bind, self.scale)
-                    new_shape.set_skin_to_bone_xform(nifname, tb_bind)
-                    if nifname in TEST_TARGET_BONE:
-                        log.debug(f"<export_skin>({obj.name}) writing bone {bone_name} with sk2b transform\n{bone_xform_bind}\n->nif\n{tb_bind}")
-                self.writtenbones[bone_name] = nifname
-                new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
+        for bone_name in used_bones:
+            nifname = self.nif_name(bone_name)
+            log.debug(f"<export_skin> writing {bone_name}")
+            if self.flag_set(pynFlags.EXPORT_POSE):
+                # Bind location is different from pose location
+                xf = get_bone_xform(arma, bone_name, self.game, 
+                                    self.flag_set(pynFlags.PRESERVE_HIERARCHY),
+                                    False)
+                xfoffs = obj.matrix_world.inverted() @ xf
+                xfinv = xfoffs.inverted()
+                tb_bind = pack_xf_to_buf(xfinv, self.scale)
+                new_shape.set_skin_to_bone_xform(nifname, tb_bind)
+                LogIfBone(nifname, f"<export_skin>({obj.name}) writing bone {bone_name} with sk2b transform\n{xfinv}\n->nif\n{tb_bind}")
+            else:
+                # Have to set skin-to-bone again because adding the bones nuked it
+                xf = get_bone_xform(arma, bone_name, self.game, 
+                            self.flag_set(pynFlags.PRESERVE_HIERARCHY),
+                            self.flag_set(pynFlags.EXPORT_POSE))
+                xfoffs = obj.matrix_world.inverted() @ xf
+                xfinv = xfoffs.inverted()
+                LogIfBone(bone_name, f"Have bone transform\n{xf}")
+                LogIfBone(bone_name, f"Have offset transform\n{xfoffs}")
+                LogIfBone(bone_name, f"Bone transform inverted\n{xfinv}")
+                tb = pack_xf_to_buf(xfinv, self.scale)
+                new_shape.set_skin_to_bone_xform(nifname, tb)
+
+            self.writtenbones[bone_name] = nifname
+            new_shape.setShapeWeights(nifname, weights_by_bone[bone_name])
 
 
     def export_shader(self, obj, shape: NiShape):
@@ -3781,10 +3783,6 @@ class NifExporter:
             new_shape.save_shader_attributes()
         else:
             log.debug(f"..No material on {obj.name}")
-
-        # Write skin and partitions
-        if is_skinned:
-            self.nif.createSkin()
 
         # Using local transform because the shapes will be parented in the nif
         new_xform = obj.matrix_local * (1/self.scale) 
@@ -4257,47 +4255,165 @@ def run_tests():
     # ########### LOCAL TESTS #############
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
-    if True: #TEST_BPY_ALL or TEST_COLLISION_MULTI:
-        test_title("TEST_COLLISION_MULTI", "Can read and write shape with multiple collision shapes")
+    if True: #TEST_BPY_ALL or TEST_BONE_XPORT_POS:
+        test_title("TEST_BONE_XPORT_POS", "Test that bones named like vanilla bones but from a different skeleton export to the correct position")
+
+        clear_all()
+        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\draugr.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_BONE_XPORT_POS.nif")
+        imp = NifImporter.do_import(testfile, pynFlags.APPLY_SKINNING)
+        draugr = bpy.context.object
+        spine2 = draugr.parent.data.bones['NPC Spine2 [Spn2]']
+        assert round(spine2.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2.head[2]}"
+
+        exp = NifExporter(outfile, 'SKYRIM')
+        exp.export([bpy.data.objects["Body_Male_Naked"]])
+
+        # --- Check nif contents directly ---
+        nifcheck = NifFile(outfile)
+        body = nifcheck.shape_dict['Body_Male_Naked']
+        spine2_check = nifcheck.nodes['NPC Spine2 [Spn2]']
+        spine2_xf = spine2_check.transform
+        assert round(spine2_xf.translation[2], 2) == 102.36, \
+            f"Expected nif location at z 102.36, found {spine2_xf.translation[2]}"
+
+        thigh_sk2b_check = body.get_shape_skin_to_bone('NPC L Thigh [LThg]')
+
+        assert VNearEqual(thigh_sk2b_check.translation, Vector([-4.0765, -4.4979, 78.4952])), \
+            f"Expected skin-to-bone translation Z = 78.4952, found {thigh_sk2b_check.translation[:]}"
+        thsk2b = imp.nif.shapes[0].get_shape_skin_to_bone('NPC L Thigh [LThg]')
+        assert thsk2b.NearEqual(thigh_sk2b_check), f"Entire skin-to-bone transform correct: {thigh_sk2b_check}"
+
+        # --- Check we can import correctly ---
+        impcheck = NifImporter.do_import(outfile, pynFlags.APPLY_SKINNING)
+
+        nifbone = impcheck.nif.nodes['NPC Spine2 [Spn2]']
+        assert round(nifbone.transform.translation[2], 2) == 102.36, f"Expected nif location at z 102.36, found {nifbone.transform.translation[2]}"
+
+        draugrcheck = bpy.context.object
+        spine2check = draugrcheck.parent.data.bones['NPC Spine2 [Spn2]']
+        assert round(spine2check.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2check.head[2]}"
+
+
+    if True: #TEST_BPY_ALL or TEST_BOW:
+        test_title("TEST_BOW", "Can read and write bow")
+        # Primarily tests collisions, but also tests fade node, extra data nodes, 
+        # UV orientation, and texture handling
         clear_all()
 
         # ------- Load --------
-        testfile = os.path.join(pynifly_dev_path, r"tests\Skyrim\grilledleeks01.nif")
-        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_COLLISION_MULTI.nif")
+        testfile = os.path.join(pynifly_dev_path, r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+        outfile = os.path.join(pynifly_dev_path, r"tests/Out/TEST_BOW.nif")
 
-        NifImporter.do_import(testfile)
+        imp = NifImporter(testfile)
+        imp.execute()
 
-        leek1 = find_shape("Leek01")
-        leek10 = find_shape("Leek01:0")
-        leek11 = find_shape("Leek01:1")
-        leek2 = find_shape("Leek02")
-        leek3 = find_shape("Leek03")
-        leek4 = find_shape("Leek04")
-        c1 = find_shape("bhkCollisionObject", leek1.children)
-        c2 = find_shape("bhkCollisionObject", leek2.children)
-        assert set(leek1.children) == set( (c1, leek10, leek11) ), f"Children of Leek01 are correct: {leek1.children} == {c1}, {leek10}, {leek11}"
-        
-        # -------- Export --------
+        # Check root info
+        obj = bpy.context.object
+        assert obj["pynRootNode_BlockType"] == 'BSFadeNode', "pynRootNode_BlockType holds the type of root node for the given shape"
+        assert obj["pynRootNode_Name"] == "GlassBowSkinned.nif", "pynRootNode_Name holds the name for the root node"
+        assert obj["pynRootNode_Flags"] == "SELECTIVE_UPDATE | SELECTIVE_UPDATE_TRANSF | SELECTIVE_UPDATE_CONTR", f"'pynRootNode_Flags' holds the flags on the root node: {obj['pynRootNode_Flags']}"
+
+        # Check collision info
+        coll = find_shape('bhkCollisionObject')
+        assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
+        assert coll['pynCollisionTarget'] == 'Bow_MidBone', f"'Target' names the object the collision affects, in this case a bone: {coll['pynCollisionTarget']}"
+
+        collbody = coll.children[0]
+        assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
+        assert collbody['collisionFilter_layer'] == SkyrimCollisionLayer.WEAPON.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
+        assert collbody["collisionResponse"] == hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
+        assert VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
+
+        collshape = collbody.children[0]
+        assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
+        assert collshape['bhkMaterial'] == 'MATERIAL_BOWS_STAVES', f"Shape material is a custom property: {collshape['bhkMaterial']}"
+        assert round(collshape['bhkRadius'],4) == 0.0136, f"Radius property available as custom property: {collshape['bhkRadius']}"
+        corner = map(abs, collshape.data.vertices[0].co)
+        assert VNearEqual(corner, [11.01445, 57.6582, 0.95413]), f"Collision shape in correct position: {corner}"
+
+        bged = find_shape("BSBehaviorGraphExtraData")
+        assert bged['BSBehaviorGraphExtraData_Value'] == "Weapons\Bow\BowProject.hkx", f"BGED node contains bow project: {bged['BSBehaviorGraphExtraData_Value']}"
+
+        strd = find_shape("NiStringExtraData")
+        assert strd['NiStringExtraData_Value'] == "WeaponBow", f"Str ED node contains bow value: {strd['NiStringExtraData_Value']}"
+
         bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
-        exporter = NifExporter(outfile, 'SKYRIM')
-        exporter.export([leek1, leek2, leek3, leek4, bsxf, invm])
+        assert bsxf['BSXFlags_Name'] == "BSX", f"BSX Flags contain name BSX: {bsxf['BSXFlags_Name']}"
+        assert bsxf['BSXFlags_Value'] == "HAVOC | COMPLEX | DYNAMIC | ARTICULATED", "BSX Flags object contains correct flags: {bsxf['BSXFlags_Value']}"
 
-        # ------- Check ---------
-        nif = NifFile(outfile)
-        l1 = nif.nodes["Leek01"]
-        l4 = nif.nodes["Leek04"]
-        assert l1.collision_object.body.shape.blockname == "bhkConvexVerticesShape", f"Have the correct collisions"
-        assert l4.collision_object.body.shape.blockname == "bhkConvexVerticesShape", f"Have the correct collisions"
-        l10 = nif.shape_dict["Leek01:0"]
-        l11 = nif.shape_dict["Leek01:1"]
-        assert l10.parent.name == "Leek01", f"Leek01:0 parent correct: {l10.parent.name}"
-        assert l11.parent.name == "Leek01", f"Leek01:0 parent correct: {l11.parent.name}"
-        l40 = nif.shape_dict["Leek04:0"]
-        l41 = nif.shape_dict["Leek04:1"]
-        assert l40.parent.name == "Leek04", f"Leek04:0 parent correct: {l40.parent.name}"
-        assert l41.parent.name == "Leek04", f"Leek04:0 parent correct: {l41.parent.name}"
-        
+        invm = find_shape("BSInvMarker")
+        assert invm['BSInvMarker_Name'] == "INV", f"Inventory marker shape has correct name: {invm['BSInvMarker_Name']}"
+        assert invm['BSInvMarker_RotX'] == 4712, f"Inventory marker rotation correct: {invm['BSInvMarker_RotX']}"
+        assert round(invm['BSInvMarker_Zoom'], 4) == 1.1273, f"Inventory marker zoom correct: {invm['BSInvMarker_Zoom']}"
+       
+        # ------- Export --------
+
+        # Move the edge of the collision box so it covers the bow better
+        for v in collshape.data.vertices:
+            if v.co.x > 0:
+                v.co.x = 16.5
+
+        exporter = NifExporter(outfile, 'SKYRIMSE')
+        exporter.export([obj, coll, bged, strd, bsxf, invm])
+
+        # ------- Check Results --------
+
+        nifcheck = NifFile(outfile)
+        compare_shapes(imp.nif.shape_dict['ElvenBowSkinned:0'],
+                       nifcheck.shape_dict['ElvenBowSkinned:0'],
+                       obj)
+
+        rootcheck = nifcheck.rootNode
+        assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
+        assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
+        assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
+
+        bsxcheck = nifcheck.bsx_flags
+        assert bsxcheck == ["BSX", 202], f"BSX Flag node found: {bsxcheck}"
+
+        bsinvcheck = nifcheck.inventory_marker
+        assert bsinvcheck[0:4] == ["INV", 4712, 0, 785], f"Inventory marker set: {bsinvcheck}"
+        assert round(bsinvcheck[4], 4) == 1.1273, f"Inventory marker zoom set: {bsinvcheck[4]}"
+
+        midbowcheck = nifcheck.nodes["Bow_MidBone"]
+        collcheck = midbowcheck.collision_object
+        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+        assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+
+        # Full check of locations and rotations to make sure we got them right
+        mbc_xf = nifcheck.get_node_xform_to_global("Bow_MidBone")
+        assert VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
+        m = mbc_xf.as_matrix().to_euler()
+        assert VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
+
+        bodycheck = collcheck.body
+        p = bodycheck.properties
+        assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
+        assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
+
+
+    if True: #TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
+        test_title("TEST_NIFTOOLS_NAMES", "Can import nif with niftools' naming convention")
+        clear_all()
+
+        # ------- Load --------
+        testfile = os.path.join(pynifly_dev_path, r"tests\SkyrimSE\body1m_1.nif")
+
+        NifImporter.do_import(testfile, pynFlags.CREATE_BONES | pynFlags.APPLY_SKINNING | pynFlags.RENAME_BONES_NIFTOOLS)
+
+        arma = find_shape("Body1M_1.nif")
+        assert "NPC Calf [Clf].L" in arma.data.bones, f"Bones follow niftools name conventions {arma.data.bones.keys()}"
+        #assert arma.data.niftools.axis_forward == "Z", f"Forward axis set to Z"
+
+        c = arma.data.bones["NPC Calf [Clf].L"]
+        assert c.parent, f"Bones are put into a hierarchy: {c.parent}"
+        assert c.parent.name == "NPC Thigh [Thg].L", f"Parent/child relationships are maintained in skeleton {c.parent.name}"
+
+        body = find_shape("MaleUnderwearBody1:0")
+        assert "NPC Calf [Clf].L" in body.vertex_groups, f"Vertex groups follow niftools naming convention: {body.vertex_groups.keys()}"
+
+
 
 
     if False: #TEST_BPY_ALL or TEST_IMP_FACEGEN:
