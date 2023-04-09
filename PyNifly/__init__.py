@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = True
+RUN_TESTS = False
 TEST_BPY_ALL = False
 TEST_TARGET_BONE = [] # Print extra debugging info for these bones
 
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (9, 0, 0),  
+    "version": (9, 1, 1),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -2031,7 +2031,11 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             # bpy.ops.object.select_all(action='DESELECT')
 
             folderpath = os.path.dirname(self.filepath)
-            fullfiles = [os.path.join(folderpath, f.name) for f in self.files]
+            filenames = [f.name for f in self.files]
+            if len(filenames) > 0:
+                fullfiles = [os.path.join(folderpath, f.name) for f in self.files]
+            else:
+                fullfiles = [self.filepath]
             NifImporter.do_import(fullfiles, flags)
         
             for area in bpy.context.screen.areas:
