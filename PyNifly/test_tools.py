@@ -34,7 +34,7 @@ def append_from_file(objname, with_parent, filepath, innerpath, targetobj):
         bpy.ops.object.select_all(action='DESELECT')
         obj = bpy.data.objects[objname]
         obj.select_set(True)
-        if with_parent:
+        if with_parent and obj.parent:
             obj.parent.select_set(True)
         bpy.ops.object.delete() 
     
@@ -67,6 +67,13 @@ def find_vertex(mesh, targetloc):
 def remove_file(fn):
     if os.path.exists(fn):
         os.remove(fn)
+
+
+def test_file(filename, output=False):
+    fullname = os.path.join(pynifly_dev_path, filename)
+    if output:
+        remove_file(fullname)
+    return fullname
 
 
 def find_shape(name_prefix, collection=None):

@@ -738,7 +738,7 @@ class TripFile():
             """
         offsetmorphs = {}
         for name, coords in morphdict.items():
-            self.log.debug(f"[TRIP] Writing morph {name}")
+            #self.log.debug(f"[TRIP] Writing morph {name}")
             offsetlist = []
             for i, coordpair in enumerate(zip(coords, vertlist)):
                 co, v = coordpair

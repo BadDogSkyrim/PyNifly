@@ -46,6 +46,8 @@ def load_nifly(nifly_path):
     nifly.createNifShapeFromData.restype = c_void_p
     nifly.destroy.argtypes = [c_void_p]
     nifly.destroy.restype = None
+    nifly.findNodeByName.argtypes = [c_void_p, c_char_p]
+    nifly.findNodeByName.restype = c_void_p
     nifly.getAllShapeNames.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getAllShapeNames.restype = c_int
     nifly.getAlphaProperty.argtypes = [c_void_p, c_void_p, AlphaPropertyBuf_p]
@@ -242,20 +244,39 @@ def load_nifly(nifly_path):
 
 # --- Helper Routines --- #
 
-def get_weights_by_bone(weights_by_vert):
-    """ weights_by_vert = [dict[group-name: weight], ...]
-        Result: {group_name: ((vert_index, weight), ...), ...}
-        Result contains only groups with non-zero weights 
+def get_weights_by_bone(weights_by_vert, used_groups):
+    """Given a list of weights 1-1 with vertices, return weights organized by bone. 
+        weights_by_vert = [dict[group-name: weight], ...] 1-1 with verts
+        Result: {group_name: [(vert_index, weight), ...], ...}
+        Result contains only groups with non-zero weights, only groups that are in the 
+        used-groups list, and only the 4 heaviest weights, which are normalized to add up to 1.
     """
     result = {}
-    for vert_index, w in enumerate(weights_by_vert):
-        for name, weight in w.items():
-            if weight > 0.00005:
-                if name not in result:
-                    result[name] = [(vert_index, weight)]
-                else:
-                    result[name].append((vert_index, weight))
+    #Get weights by group
+    for vert_index, vert_weights in enumerate(weights_by_vert):
+        weight_pairs = [(w, nm) for nm, w in vert_weights.items() if w > 0.00005 and nm in used_groups]
+        weight_pairs.sort()
+        weight_pairs.reverse()
+        sum_weights = sum(vw for vw, nm in weight_pairs[0:4])
+        for wgt, nm in weight_pairs[0:4]:
+            if nm not in result:
+                result[nm] = []
+            result[nm].append((vert_index, wgt/sum_weights))
+            
     return result
+
+
+def get_weights_by_vertex(verts, weights_by_bone):
+    """Given a list of weights by bone, return a list 1:1 with vertices"""
+    wbv = [None] * len(verts)
+    for i in range(0, len(verts)):
+        wbv[i] = {}
+        
+    for this_bone, this_weightlist in weights_by_bone.items():
+        for weight_pair in this_weightlist:
+            this_vert, this_weight = weight_pair
+            wbv[this_vert][this_bone] = this_weight
+    return wbv
 
 
 class Partition:
@@ -1425,7 +1446,10 @@ class NifFile:
     def add_node(self, name, xform, parent=None):
         phandle = None
         if parent:
-            phandle = parent._handle
+            if type(parent) == str:
+                phandle = NifFile.nifly.findNodeByName(self._handle, parent.encode('utf-8'))
+            else:
+                phandle = parent._handle
         nodeh = NifFile.nifly.addNode(self._handle, name.encode('utf-8'), xform, phandle)
         return NiNode(handle=nodeh, file=self, parent=parent)
 
@@ -1833,7 +1857,7 @@ TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
 TEST_CREATE_TETRA = False
 TEST_CREATE_WEIGHTS = False
-TEST_READ_WRITE = True
+TEST_READ_WRITE = False
 TEST_XFORM_FO = False
 TEST_2_TAILS = False
 TEST_ROTATIONS = False
@@ -1871,6 +1895,7 @@ TEST_FURNITURE_MARKER = False
 TEST_MANY_SHAPES = False
 TEST_CONNECT_POINTS = False
 TEST_SKIN_BONE_XF = False
+TEST_WEIGHTS_BY_BONE = True
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -3403,6 +3428,44 @@ if __name__ == "__main__":
 
         #Throw in an unrelated test for whether the UV got inverted
         assert VNearEqual(head.uvs[0], headcheck.uvs[0]), f"UV 0 same in both: [{head.uvs[0]}, {headcheck.uvs[0]}]"
+
+    if TEST_ALL or TEST_WEIGHTS_BY_BONE:
+        print("### TEST_WEIGHTS_BY_BONE: Weights-by-bone helper works correctly")
+        nif = NifFile(r"tests\SkyrimSE\Anna.nif")
+        allnodes = list(nif.nodes.keys())
+        hair = nif.shape_dict["KSSMP_Anna"]
+
+        #Sanity check--each vertex/weight pair listed just once
+        vwp_list = [None] * len(hair.verts)
+        for i in range(0, len(hair.verts)):
+            vwp_list[i] = {}
+        
+        for bone, weights_list in hair.bone_weights.items():
+            for vwp in weights_list:
+                assert bone not in vwp_list[vwp[0]], \
+                       f"Error: Vertex {vwp[0]} duplicated for bone {bone}"
+                vwp_list[vwp[0]][bone] = 1
+
+        hair_vert_weights = get_weights_by_vertex(hair.verts, hair.bone_weights)
+        assert len(hair_vert_weights) == len(hair.verts), "Have enough vertex weights"
+        assert NearEqual(hair_vert_weights[245]['NPC Head [Head]'], 0.0075), \
+            f"Weight is correct: {hair_vert_weights[245]['NPC Head [Head]']}"
+        
+        wbb = get_weights_by_bone(hair_vert_weights, allnodes)
+
+        assert len(list(wbb.keys())) == 14, f"Have all bones: {wbb.keys()}"
+        assert 'Anna R3' in wbb, f"Special bone in weights by bone: {wbb.keys()}"
+        vw = [vp[1] for vp in wbb['NPC Head [Head]'] if vp[0] == 245]
+        assert len(vw) == 1 and NearEqual(vw[0], 0.0075), \
+            f"Have weight by bone correct: {vw}"
+
+        hair_vert_weights[5]['NPC'] = 0.0
+        hair_vert_weights[10]['NPC'] = 0.0
+        hair_vert_weights[15]['NPC'] = 0.0
+
+        wbb2 = get_weights_by_bone(hair_vert_weights, allnodes)
+        assert 'BOGUS' not in wbb2, f"Bone with no weights not in weights by bone: {wbb2.keys()}"
+
 
     print("""
 ================================================
