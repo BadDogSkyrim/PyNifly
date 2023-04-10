@@ -3,7 +3,7 @@
 # Copyright © 2021, Bad Dog.
 
 
-RUN_TESTS = False
+RUN_TESTS = True
 TEST_BPY_ALL = False
 TEST_TARGET_BONE = [] # Print extra debugging info for these bones
 
@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (9, 1, 1),  
+    "version": (9, 1, 2),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -68,7 +68,6 @@ from niflytools import *
 from pynifly import *
 from trihandler import *
 from renamer_niftools import *
-import pyniflywhereami
 
 import bpy
 import bpy_types
@@ -493,20 +492,6 @@ def obj_create_material(obj, shape):
                     log.info(f"Using png texture from nif's node tree': {fnpng}")
         #log.debug(f"Using texture path {i}: {fulltextures[i]}")
 
-
-    #missing = missing_files(convertedTextures)
-    #if len(missing) == 0:
-    #    fulltextures = convertedTextures
-    #    log.debug(f"Using png textures in preference to dds: {convertedTextures}")
-    #else:
-    #    # If they haven't, then we'll search for their dds counterparts instead
-    #    log.debug(f"Using dds textures because png missing: {missing}")
-    #    missing = missing_files(fulltextures)
-    #    if len(missing) > 0:
-    #        log.warning(f"Some texture files not found: {missing}")
-
-    # log.debug("Creating material")
-
     mat = bpy.data.materials.new(name=(obj.name + ".Mat"))
 
     # Stash texture strings for future export
@@ -789,17 +774,29 @@ def mesh_create_partition_groups(the_shape, the_object):
         the_object['FO4_SEGMENT_FILE'] = the_shape.segment_file
 
 
-def import_colors(mesh, shape):
+def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
     log.debug(f"Have shaderflags1: {ShaderFlags1(shape.shader_attributes.Shader_Flags_1).fullname}")
     log.debug(f"Have shaderflags2: {ShaderFlags2(shape.shader_attributes.Shader_Flags_2).fullname}")
     try:
         if (shape.shader_attributes.Shader_Flags_2 & ShaderFlags2.VERTEX_COLORS) \
             and shape.colors and len(shape.colors) > 0:
-            log.debug(f"..Importing vertex colors for {shape.name}")
-            clayer = mesh.vertex_colors.new()
+            log.debug(f"Importing vertex colors for {shape.name}")
+            clayer = None
+            try: #Post V3.5
+                clayer = mesh.color_attributes.new(type='BYTE_COLOR', domain='CORNER')
+            except:
+                clayer = mesh.vertex_colors.new()
             alphlayer = None
-            if shape.shader_attributes.Shader_Flags_1 & ShaderFlags1.VERTEX_ALPHA:
-                alphlayer = mesh.vertex_colors.new()
+            if (shape.shader_attributes.Shader_Flags_1 & ShaderFlags1.VERTEX_ALPHA) \
+                or (shape.shader_block_name == 'BSEffectShaderProperty'):
+                # If we have a BSEffectShaderProperty we assume the alpha channel is used 
+                # whether or not VERTEX_ALPHA is set. Some FO4 meshes seem to work this way.
+                log.debug(f"<import_colors> using alpha channel")
+                try:
+                    alphlayer = mesh.color_attributes.new(
+                        name=ALPHA_MAP_NAME, type='BYTE_COLOR', domain='CORNER')
+                except:
+                    alphlayer = mesh.vertex_colors.new()
                 alphlayer.name = ALPHA_MAP_NAME
         
             colors = shape.colors
@@ -1252,6 +1249,7 @@ class NifImporter():
             self.import_shape_extra(new_object, the_shape)
 
             new_object['PYN_GAME'] = self.nif.game
+            new_object['PYN_SCALE_FACTOR'] = self.scale
             new_object['PYN_PRESERVE_HIERARCHY'] = self.flag_set(pynFlags.PRESERVE_HIERARCHY)
 
 
@@ -2036,7 +2034,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 fullfiles = [os.path.join(folderpath, f.name) for f in self.files]
             else:
                 fullfiles = [self.filepath]
-            NifImporter.do_import(fullfiles, flags)
+            NifImporter.do_import(fullfiles, flags, scale=self.scale_factor)
         
             for area in bpy.context.screen.areas:
                 if area.type == 'VIEW_3D':
@@ -3819,9 +3817,9 @@ class NifExporter:
         self.objs_written[obj.name] = new_shape
 
         obj['PYN_GAME'] = self.game
+        obj['PYN_SCALE_FACTOR'] = self.scale
         obj['PYN_PRESERVE_HIERARCHY'] = self.flag_set(pynFlags.PRESERVE_HIERARCHY)
         if arma:
-            arma['PYN_SCALE_FACTOR'] = self.scale
             arma['PYN_RENAME_BONES'] = self.flag_set(pynFlags.RENAME_BONES)
             arma['PYN_RENAME_BONES_NIFTOOLS'] = self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS)
         obj['PYN_WRITE_BODYTRI_ED'] = self.flag_set(pynFlags.WRITE_BODYTRI)
@@ -3934,6 +3932,8 @@ Exporting objects: {self.objects}
     facebones: {self.facebones}
     parent connect points: {self.connect_parent}
     child connect points: {self.connect_child}
+    scale factor: {self.scale}
+    to file: {self.filepath}
 """)
         NifFile.clear_log()
         if self.facebones:
@@ -3955,13 +3955,35 @@ Exporting objects: {self.objects}
     def do_export(cls, filepath, game, objects, export_flags=pynFlags.RENAME_BONES, scale=1.0):
         return NifExporter(filepath, game, export_flags=export_flags, scale=scale).export(objects)
         
-
+def get_default_scale():
+    # log.debug(f"<get_default_scale {bpy.context.selected_objects}")
+    # if bpy.context.active_object:
+        # if 'PYN_SCALE_FACTOR' in bpy.context.active_object:
+        #     return bpy.context.active_object['PYN_SCALE_FACTOR']
+    # try:
+    #     for obj in bpy.context.selected_objects:
+    #         if 'PYN_SCALE_FACTOR' in obj:
+    #             return obj['PYN_SCALE_FACTOR']
+    # except Exception as err:
+    #     log.debug(f"error: {err}")
+    #     return 1.0
+    return 1.0
+    
 class ExportNIF(bpy.types.Operator, ExportHelper):
     """Export Blender object(s) to a NIF File"""
 
     bl_idname = "export_scene.pynifly"
     bl_label = 'Export NIF (Nifly)'
     bl_options = {'PRESET'}
+
+    def _get_scale():
+        if bpy.context.active_object:
+            if 'PYN_SCALE_FACTOR' in bpy.context.active_object:
+                return bpy.context.active_object['PYN_SCALE_FACTOR']
+        for obj in bpy.context.selected_objects:
+            if 'PYN_SCALE_FACTOR' in obj:
+                return obj['PYN_SCALE_FACTOR']
+        return 1.0
 
     filename_ext = ".nif"
 
@@ -3979,7 +4001,9 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     scale_factor: bpy.props.FloatProperty(
         name="Scale correction",
         description="Change scale for export - set to 0.1 to match NifTools default.",
-        default=1.0)
+        default=1.0
+        )
+    
 
     rename_bones: bpy.props.BoolProperty(
         name="Rename Bones",
@@ -4013,29 +4037,58 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
 
     def __init__(self):
-        obj = bpy.context.object
+        log.debug("INITIALIZING EXPORT OBJECT")
+        self.objects_to_export = set()
+        obj = bpy.context.active_object
         if obj is None:
             self.report({"ERROR"}, "No active object to export")
             return
+        self.objects_to_export.add(obj)
 
-        self.filepath = clean_filename(obj.name)
-        arma = None
-        if obj.type == "ARMATURE":
-            arma = obj
-        else:
-            if obj.parent and obj.parent.type == "ARMATURE":
-                arma = obj.parent
+        for obj in bpy.context.selected_objects:
+            self.objects_to_export.add(obj)
+
+        export_armature = None
+        export_fb_armature = None
+        for obj in list(self.objects_to_export):
+            if obj.type != 'ARMATURE':
+                arma, fb_arma = find_armatures(obj)
+                if arma:
+                    self.objects_to_export.add(arma)
+                    if export_armature == None:
+                        export_armature = arma
+                if fb_arma:
+                    self.objects_to_export.add(fb_arma)
+                    if export_armature == None:
+                        export_armature == export_fb_armature
+                    if export_fb_armature == None:
+                        export_fb_armature = fb_arma
+
+        if not self.filepath or self.filepath == '':
+            self.filepath = clean_filename(obj.name)
+
         g = ""
         try:
             g = obj['PYN_GAME']
         except:
-            if arma:
-                g = best_game_fit(arma.data.bones)
+            if export_armature:
+                g = best_game_fit(export_armature.data.bones)
         if g != "":
             self.target_game = g
         
-        if arma and 'PYN_SCALE_FACTOR' in arma:
-            self.scale_factor = arma['PYN_SCALE_FACTOR']
+        log.debug(f"ExportNIF <init> scale = {self.scale_factor}")
+        if arma and 'PYN_SCALE_FACTOR' in export_armature and self.scale_factor == 1.0:
+            self.scale_factor = export_armature['PYN_SCALE_FACTOR']
+            log.debug(f"Got scale factor {self.scale_factor} from {export_armature.name}")
+        elif export_fb_armature and 'PYN_SCALE_FACTOR' in export_fb_armature and self.scale_factor == 1.0:
+            self.scale_factor = export_fb_armature['PYN_SCALE_FACTOR']
+            log.debug(f"Got scale factor {self.scale_factor} from {export_fb_armature.name}")
+        else:
+            for obj in self.objects_to_export: 
+                if 'PYN_SCALE_FACTOR' in obj and self.scale_factor == 1.0:
+                    self.scale_factor = obj['PYN_SCALE_FACTOR']
+                    log.debug(f"Got scale factor {self.scale_factor} from {obj.name}")
+        log.debug(f"Calculated scale factor as {self.scale_factor}")
 
         if arma and 'PYN_RENAME_BONES' in arma and arma['PYN_RENAME_BONES']:
             self.rename_bones = True
@@ -4048,9 +4101,9 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             self.rename_bones_niftools = False
 
         if 'PYN_PRESERVE_HIERARCHY' in obj and obj['PYN_PRESERVE_HIERARCHY']:
-            self.preserve_hierarchy = True
+            self.preserve_hierarchy |= True
         else:
-            self.preserve_hierarchy = False
+            self.preserve_hierarchy |= False
 
         if 'PYN_WRITE_BODYTRI_ED' in obj and obj['PYN_WRITE_BODYTRI_ED']:
             self.write_bodytri = True
@@ -4081,6 +4134,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         return True
 
     def execute(self, context):
+        log.debug(f"Execute called with scale {self.scale_factor}")
         res = set()
 
         if not self.poll(context):
@@ -4103,10 +4157,14 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         NifFile.Load(nifly_path)
 
         try:
-            exporter = NifExporter(self.filepath, self.target_game, export_flags=flags, chargen=self.chargen_ext)
+            exporter = NifExporter(self.filepath, 
+                                   self.target_game, 
+                                   export_flags=flags, 
+                                   chargen=self.chargen_ext, 
+                                   scale=self.scale_factor)
+
             exporter.from_context(context)
-            exp_objs = list(context.selected_objects)
-            exporter.export(context.selected_objects)
+            exporter.export(self.objects_to_export)
             
             rep = False
             status = {"SUCCESS"}
@@ -4140,7 +4198,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 rep = True
             if not rep:
                 self.report({'INFO'}, f"Export successful")
-            LogFinish("EXPORT", exp_objs, status, False)
+            LogFinish("EXPORT", self.objects_to_export, status, False)
             
         except:
             log.exception("Export of nif failed")
@@ -4244,139 +4302,6 @@ def run_tests():
     # ########### LOCAL TESTS #############
     # Tests in this file are for functionality under development. They should be moved to
     # pynifly_tests.py when stable.
-    if True: #TEST_BPY_ALL or TEST_BONE_HIERARCHY:
-        test_title("TEST_BONE_HIERARCHY", "Bone hierarchy can be written on export")
-        clear_all()
-        testfile = test_file(r"tests\SkyrimSE\Anna.nif")
-        outfile = test_file(r"tests/Out/TESTS_BONE_HIERARCHY.nif", output=1)
-
-        imp = NifImporter.do_import(testfile)
-
-        hair = find_shape("KSSMP_Anna")
-        skel = hair.parent
-        assert skel
-
-        print("# -------- Export --------")
-        remove_file(outfile)
-        exporter = NifExporter(outfile, 'SKYRIMSE',
-                               export_flags=pynFlags.PRESERVE_HIERARCHY 
-                                            | pynFlags.RENAME_BONES | pynFlags.APPLY_SKINNING)
-        exporter.export([hair])
-
-        print("# ------- Check ---------")
-        nifcheck = NifFile(outfile)
-        haircheck = nifcheck.shape_dict["KSSMP_Anna"]
-
-        com = nifcheck.nodes["NPC COM [COM ]"]
-        assert VNearEqual(com.transform.translation, (0, 0, 68.9113)), f"COM location is correct: \n{com.transform}"
-
-        spine0 = nifcheck.nodes["NPC Spine [Spn0]"]
-        assert VNearEqual(spine0.transform.translation, (0, -5.239852, 3.791618)), f"spine0 location is correct: \n{spine0.transform}"
-        spine0Rot = Matrix(spine0.transform.rotation).to_euler()
-        assert VNearEqual(spine0Rot, (-0.0436, 0, 0)), f"spine0 rotation correct: {spine0Rot}"
-
-        spine1 = nifcheck.nodes["NPC Spine1 [Spn1]"]
-        assert VNearEqual(spine1.transform.translation, (0, 0, 8.748718)), f"spine1 location is correct: \n{spine1.transform}"
-        spine1Rot = Matrix(spine1.transform.rotation).to_euler()
-        assert VNearEqual(spine1Rot, (0.1509, 0, 0)), f"spine1 rotation correct: {spine1Rot}"
-
-        spine2 = nifcheck.nodes["NPC Spine2 [Spn2]"]
-        assert spine2.parent.name == "NPC Spine1 [Spn1]", f"Spine2 parent is correct"
-        assert VNearEqual(spine2.transform.translation, (0, -0.017105, 9.864068), 0.01), f"Spine2 location is correct: \n{spine2.transform}"
-
-        head = nifcheck.nodes["NPC Head [Head]"]
-        assert VNearEqual(head.transform.translation, (0, 0, 7.392755)), f"head location is correct: \n{head.transform}"
-        headRot = Matrix(head.transform.rotation).to_euler()
-        assert VNearEqual(headRot, (0.1913, 0.0009, -0.0002), 0.01), f"head rotation correct: {headRot}"
-
-        l3 = nifcheck.nodes["Anna L3"]
-        assert l3.parent, f"'Anna L3' parent exists"
-        assert l3.parent.name == 'Anna L2', f"'Anna L3' parent is '{l3.parent.name}'"
-        assert VNearEqual(l3.transform.translation, (0, 5, -6), 0.1), f"{l3.name} location correct: \n{l3.transform}"
-
-        hair = imp.nif.shape_dict["KSSMP_Anna"]
-        assert set(hair.get_used_bones()) == set(haircheck.get_used_bones()), \
-            f"The bones written to the shape match original: {haircheck.get_used_bones()}"
-
-        sk2b = haircheck.get_shape_skin_to_bone("Anna L3")
-        assert sk2b.NearEqual(hair.get_shape_skin_to_bone("Anna L3")), \
-            f"Anna L3 skin-to-bone matches original: \n{sk2b}"
-
-
-    if True: #TEST_BPY_ALL or TEST_SCALING_COLL:
-        test_title("TEST_SCALING_COLL", "Collisions scale correctly on import and export")
-        # Primarily tests collisions, but also tests fade node, extra data nodes, 
-        # UV orientation, and texture handling
-        clear_all()
-
-        # ------- Load --------
-        testfile = test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-        outfile = test_file(r"tests/Out/TEST_SCALING_COLL.nif", output=True)
-
-        imp = NifImporter(testfile, scale=0.1)
-        imp.execute()
-        obj = find_shape("ElvenBowSkinned:0")
-
-        # Check collision info
-        coll = find_shape('bhkCollisionObject')
-        assert VNearEqual(coll.location, (0.130636, 0.637351, -0.001978)), \
-            f"Collision location properly scaled: {coll.location}"
-
-        collbody = coll.children[0]
-        assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
-        assert VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), \
-            f"Collision body rotation correct: {collbody.rotation_quaternion}"
-        assert VNearEqual(collbody.location, (0.65169, -0.770812, 0.0039871)), \
-            f"Collision body is in correct location: {collbody.location}"
-
-        collshape = collbody.children[0]
-        assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
-        assert NearEqual(collshape['bhkRadius'], 0.00136), f"Radius is properly scaled: {collshape['bhkRadius']}"
-        assert VNearEqual(collshape.data.vertices[0].co, (-1.10145, 5.76582, 0.09541)), \
-            f"Collision shape is properly scaled 0: {collshape.data.vertices[0].co}"
-        assert VNearEqual(collshape.data.vertices[7].co, (1.10145, 5.76582, -0.09541)), \
-            f"Collision shape is properly scaled 7: {collshape.data.vertices[7].co}"
-        assert VNearEqual(collshape.location, (0,0,0)), f"Collision shape centered on parent: {collshape.location}"
-       
-        print("--Testing export")
-
-        # Move the edge of the collision box so it covers the bow better
-        for v in collshape.data.vertices:
-            if v.co.x > 0:
-                v.co.x = 1.65
-
-        # ------- Export and Check Results --------
-
-        NifExporter.do_export(outfile, 'SKYRIMSE', [obj, coll], 
-                              export_flags=pynFlags.RENAME_BONES | pynFlags.PRESERVE_HIERARCHY,
-                              scale=0.1)
-
-        nifcheck = NifFile(outfile)
-        compare_shapes(imp.nif.shape_dict['ElvenBowSkinned:0'],
-                       nifcheck.shape_dict['ElvenBowSkinned:0'],
-                       obj,
-                       scale=0.1)
-
-        rootcheck = nifcheck.rootNode
-        assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
-        assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
-        assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
-
-        midbowcheck = nifcheck.nodes["Bow_MidBone"]
-        collcheck = midbowcheck.collision_object
-        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
-        assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
-
-        # Full check of locations and rotations to make sure we got them right
-        compare_bones('Bow_MidBone', imp.nif, nifcheck)
-        compare_bones('Bow_StringBone2', imp.nif, nifcheck)
-
-        bodycheck = collcheck.body
-        p = bodycheck.properties
-        assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
-        assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
-
-
     if TEST_BPY_ALL:
         run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri, create_bone, get_bone_global_xf, transform_to_matrix)
 
