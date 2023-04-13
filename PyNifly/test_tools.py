@@ -45,7 +45,7 @@ def append_from_file(objname, with_parent, filepath, innerpath, targetobj):
                         filename=targetobj)
     return bpy.data.objects[objname]
 
-def export_from_blend(NifExporter, blendfile, objname, game, outfile, shapekey=''):
+def export_from_blend(blendfile, objname, game, outfile, shapekey=''):
     """ Covenience routine: Export the object found in another blend file through
         the exporter.
         """
@@ -53,13 +53,13 @@ def export_from_blend(NifExporter, blendfile, objname, game, outfile, shapekey='
     obj = append_from_file(objname, False, blendfile, r"\Object", objname)
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode="OBJECT")
-    exporter = NifExporter(os.path.join(pynifly_dev_path, outfile), game)
-    exporter.export([obj])
+    obj.select_set(True)
+    bpy.ops.export_scene.pynifly(filepath=test_file(outfile), target_game=game)
 
 
-def find_vertex(mesh, targetloc):
+def find_vertex(mesh, targetloc, epsilon=0.01):
     for v in mesh.vertices:
-        if round(v.co[0], 2) == round(targetloc[0], 2) and round(v.co[1], 2) == round(targetloc[1], 2) and round(v.co[2], 2) == round(targetloc[2], 2):
+        if VNearEqual(v.co, targetloc):
             return v.index
     return -1
 
@@ -71,6 +71,8 @@ def remove_file(fn):
 
 def test_file(filename, output=False):
     fullname = os.path.join(pynifly_dev_path, filename)
+    if "TESTS/OUT/" in filename.upper() or "TESTS\\OUT\\" in filename.upper():
+        output=True
     if output:
         remove_file(fullname)
     return fullname
@@ -142,7 +144,8 @@ def compare_bones(bone_name, in_nif, out_nif, e=0.0001):
     """Compare bone transforms, fail if different"""
     xfin = in_nif.get_node_xform_to_global(bone_name).as_matrix()
     xfout = out_nif.get_node_xform_to_global(bone_name).as_matrix()
-    assert MatNearEqual(xfout, xfin, e), f"Bone {bone_name} transform unchanged:\n{xfout}==\n{xfin}"
+    assert MatNearEqual(xfout, xfin, e), \
+        f"Bone {bone_name} transform unchanged:\n{xfout}\n==\n{xfin}"
 
 
 def check_unweighted_verts(nifshape):

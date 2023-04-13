@@ -506,6 +506,7 @@ NIFLY_API void calcShapeGlobalToSkin(void* nifRef, void* shapeRef, MatTransform*
         if (!node) continue;
         bonename = node->name.get();
         
+        // #### LOOKS LIKE A BUG ### - should be global transform, not to-parent
         xformBoneToGlobal = node->GetTransformToParent();
         if (nif->GetShapeTransformSkinToBone(shape, i, xformSkinToBone)) {
             thisXF = xformBoneToGlobal.ComposeTransforms(xformSkinToBone).InverseTransform();

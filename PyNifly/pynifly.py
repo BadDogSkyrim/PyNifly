@@ -1,5 +1,7 @@
 """
 Wrapper around nifly to provide python-friendly access to nifs
+
+Check the first test to see basic functionality exercised.
 """
 
 import os
@@ -1158,6 +1160,12 @@ class NiShape(NiNode):
         return NifFile.nifly.hasSkinInstance(self._handle)
 
     @property
+    def has_global_to_skin(self):
+        """Determine whether the shape has the global-to-skin transform."""
+        buf = TransformBuf()
+        return NifFile.nifly.getShapeGlobalToSkin(self.file._handle, self._handle, buf)
+    
+    @property
     def global_to_skin(self):
         """ Return the global-to-skin transform on this shape; calculate it if not present.
             Returns the transform.
@@ -1851,10 +1859,10 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
-TEST_SHAPE_QUERY = False
-TEST_MESH_QUERY = False
+TEST_SHAPE_QUERY = True
+TEST_MESH_QUERY = True
 TEST_CREATE_TETRA = False
 TEST_CREATE_WEIGHTS = False
 TEST_READ_WRITE = False
@@ -1895,7 +1903,7 @@ TEST_FURNITURE_MARKER = False
 TEST_MANY_SHAPES = False
 TEST_CONNECT_POINTS = False
 TEST_SKIN_BONE_XF = False
-TEST_WEIGHTS_BY_BONE = True
+TEST_WEIGHTS_BY_BONE = False
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -2006,9 +2014,7 @@ if __name__ == "__main__":
         print("### TEST_SHAPE_QUERY: NifFile object gives access to a nif")
 
         # NifFile can be read from a file. It provides game name and root node for that game.
-        # Root node is not from the file.
         f1 = NifFile("tests/skyrim/test.nif")
-        print("### Toplevel node name is available")
         assert f1.game == "SKYRIM", "'game' property gives the game the nif is good for"
         assert f1.rootName == "Scene Root", "'rootName' is the name of the root node in the file: " + str(f1.rootName)
         assert f1.nodes[f1.rootName].blockname == 'NiNode', f"'blockname' is the type of block"
@@ -2019,30 +2025,32 @@ if __name__ == "__main__":
 
         # getAllShapeNames returns names of meshes within the nif
         all_shapes = f1.getAllShapeNames()
-        print(all_shapes)
-        assert "Armor" in all_shapes and 'MaleBody' in all_shapes, \
+        expected_shapes = set(["Armor", 'MaleBody'])
+        assert set(all_shapes) == expected_shapes, \
             f'ERROR: Test shape names expected in {str(all_shapes)}'
 
         # The shapes property lists all the meshes in the nif, whatever the format, as NiShape
         assert len(f1.shapes) == 2, "ERROR: Test file does not have 2 shapes"
 
         # The shape name is the node name from the nif
-        assert ["Armor", "MaleBody"].index(f1.shapes[0].name) >= 0, \
+        assert f1.shapes[0].name in expected_shapes, \
             f"ERROR: first shape name not expected: {f1.shapes[0].name}"
-
-        # ###### has_skin_instance is bust. No idea why.
-        #print("### Skyrim shapes have skin instances, FO4 doesn't")
-        #assert f1.shapes[0].has_skin_instance, "ERROR: Skyrim shapes should have skin instances"
-        #assert not f2.shapes[0].has_skin_instance
-
-    if TEST_ALL or TEST_MESH_QUERY:
-        print("### TEST_MESH_QUERY: Can read mesh info")
         
-        # A NiShape's verts property is a list of triples containing x,y,z position
-        f2 = NifFile("tests/skyrim/noblecrate01.nif")
+        # Find a particular shape using the shape dictionary
+        armor = f1.shape_dict["Armor"]
+        body = f1.shape_dict["MaleBody"]
+        assert armor.name == "Armor", f"Error: Found wrong shape: {armor.name}"
 
+        # The shape blockname is the type of block == type of shape
+        assert armor.blockname == "NiTriShape", f"ERROR: Should be a trishape: {armor.blockname}"
+
+        # Can check whether a shape is skinned.
+        assert armor.has_skin_instance, f"ERROR: Armor should be skinned: {armor.has_skin_instance}"
+
+        f2 = NifFile("tests/skyrim/noblecrate01.nif")
         assert not f2.shapes[0].has_skin_instance, "Error: Crate should not be skinned"
 
+        # A NiShape's verts property is a list of triples containing x,y,z position
         verts = f2.shapes[0].verts
         assert len(verts) == 686, "ERROR: Did not import 686 verts"
         assert round(verts[0][0], 4) == -67.6339, "ERROR: First vert wrong"
@@ -2068,9 +2076,9 @@ if __name__ == "__main__":
         assert tris[0] == (0, 1, 2), "ERROR: First tri incorrect"
         assert tris[1] == (2, 3, 0), "ERROR: Second tri incorrect"
 
-        # We're using fixed-length buffers to pass these lists back and forth, but that
+        # We're using fixed-length buffers internally to pass these lists back and forth, but that
         # doesn't affect the caller.
-        verts = f1.shape_dict["MaleBody"].verts 
+        verts = body.verts 
         assert len(verts) == 2024, "ERROR: Wrong vert count for second shape - " + str(len(f1.shapes[1].verts))
 
         assert round(verts[0][0], 4) == 0.0, "ERROR: First vert wrong"
@@ -2079,7 +2087,7 @@ if __name__ == "__main__":
         assert round(verts[2023][0], 4) == -4.4719, "ERROR: Last vert wrong"
         assert round(verts[2023][1], 4) == 8.8933, "ERROR: Last vert wrong"
         assert round(verts[2023][2], 4) == 92.3898, "ERROR: Last vert wrong"
-        tris = f1.shape_dict["MaleBody"].tris
+        tris = body.tris
         assert len(tris) == 3680, "ERROR: Wrong tri count for second shape - " + str(len(f1.shapes[1].tris))
         assert tris[0][0] == 0, "ERROR: First tri wrong"
         assert tris[0][1] == 1, "ERROR: First tri wrong"
@@ -2089,11 +2097,20 @@ if __name__ == "__main__":
         assert tris[3679][2] == 88, "ERROR: Last tri wrong"
 
         # The transformation on the nif is recorded as the transform property on the shape.
-        xfbody = f1.shape_dict["MaleBody"].transform
+        # This isn't used on skinned nifs, tho it's often set on Skyrim's nifs.
+        xfbody = body.transform
         assert VNearEqual(xfbody.translation, [0.0, 0.0, 0.0]), "ERROR: Body location not 0"
         assert xfbody.scale == 1.0, "ERROR: Body scale not 1"
-        xfarm = f1.shape_dict["Armor"].transform
+        xfarm = armor.transform
         assert VNearEqual(xfarm.translation, [-0.0003, -1.5475, 120.3436]), "ERROR: Armor location not correct"
+
+        # What really matters for skinned shapes is the global-to-skin transform, which is an 
+        # offset for the entire # shape. It's stored explicitly in Skyrim's nifs, calculated 
+        # in FO4's.
+        # Note this is the inverse of the shape transform.
+        g2sk = armor.global_to_skin
+        assert VNearEqual(g2sk.translation, [0.0003, 1.5475, -120.3436]),\
+            "ERROR: Global to skin incorrect: {g2sk.translation}"
 
         # Shapes have UVs. The UV map is a list of UV pairs, 1:1 with the list of verts. 
         # Nifs don't allow one vert to have two UV locations.
@@ -2107,24 +2124,24 @@ if __name__ == "__main__":
         assert len(f1.nodes) == 30, "ERROR: Number of bones incorrect"
         uatw = f1.nodes["NPC R UpperarmTwist2 [RUt2]"]
         assert uatw.name == "NPC R UpperarmTwist2 [RUt2]", "ERROR: Node name wrong"
-        assert VNearEqual(uatw.transform.translation, [15.8788, -5.1873, 100.1124]), "ERROR: Location incorrect"
-        #assert [round(x, 2) for x in uatw.transform.rotation.euler_deg()] == [10.40, 65.25, -9.13], "ERROR: Rotation incorrect"
+        assert VNearEqual(uatw.transform.translation, [15.8788, -5.1873, 100.1124]), \
+            "ERROR: Location incorrect: {uatw.transform}"
 
-        # A skinned shape has a list of bones that influence the shape. The NifFile's shape_dict property
-        # makes it easy to find a shape by name. 
+        # A skinned shape has a list of bones that influence the shape. 
+        # The bone_names property returns the names of these bones.
         try:
-            assert f1.shape_dict["MaleBody"].bone_names.index('NPC Spine [Spn0]') >= 0, "ERROR: Wierd stuff just happened"
+            assert 'NPC Spine [Spn0]' in body.bone_names, "ERROR: Spine not in shape: {body.bone_names}"
         except:
             print("ERROR: Did not find bone in list")
-        print("### Bones have IDs")
         
-        # A shape has a list of bone_ids in the shape.  Nifly uses this to reference the
-        # bones, but we don't use it.  (Yet.)
-        assert len(f1.shape_dict["MaleBody"].bone_ids) == len(f1.shape_dict["MaleBody"].bone_names), "ERROR: Mismatch between names and IDs"
+        # A shape has a list of bone_ids in the shape. These are just an index, 0..#-of-bones.
+        # Nifly uses this to reference the bones, but we don't need it.
+        assert len(body.bone_ids) == len(body.bone_names), "ERROR: Mismatch between names and IDs"
 
-        # The bone_weights dictionary captures weights for each bone that influences a shape. The value
-        # lists (vertex-index, weight) for each vertex it influences.
-        assert len(f1.shape_dict["MaleBody"].bone_weights['NPC L Foot [Lft ]']) == 13, "ERRROR: Wrong number of bone weights"
+        # The bone_weights dictionary captures weights for each bone that influences a shape. 
+        # The value lists (vertex-index, weight) for each vertex it influences.
+        assert len(body.bone_weights['NPC L Foot [Lft ]']) == 13, "ERRROR: Wrong number of bone weights"
+
 
     if TEST_ALL or TEST_CREATE_TETRA:
         print("### Can create new files with content: tetrahedron")
@@ -2227,10 +2244,10 @@ if __name__ == "__main__":
         # It's sometimes convenient to have a bone and ask what verts it influences,
         # other times to have a vert and ask what bones influence it.  weights_by_bone
         # goes from weights by vert to by bone.
-        weights_by_bone = get_weights_by_bone(weights)
+        weights_by_bone = get_weights_by_bone(weights, ['Bone', 'Bone.001', 'Bone.002', 'Bone.003'])
         used_bones = weights_by_bone.keys()
 
-        # Need to add the bones to the shape before you can weight to them.
+        # Need to add the bones to the shape before you can weight them.
         for b in arma_bones:
             xf = TransformBuf()
             xf.translation = arma_bones[b]
@@ -2242,7 +2259,6 @@ if __name__ == "__main__":
         bodyPartXform = TransformBuf().set_identity()
         bodyPartXform.translation = VECTOR3(0.000256, 1.547526, -120.343582)
         shape4.set_global_to_skin(bodyPartXform)
-        shape4.set_global_to_skindata(bodyPartXform)
 
         # SetShapeWeights sets the vertex weights from a bone
         for bone_name, weights in weights_by_bone.items():

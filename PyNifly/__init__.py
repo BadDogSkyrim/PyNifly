@@ -18,18 +18,18 @@ bl_info = {
     "category": "Import-Export"
 }
 
-from modulefinder import IMPORT_NAME
+#from modulefinder import IMPORT_NAME
 import sys
 import os
 import os.path
 import logging
-from operator import or_
-from functools import reduce
+# from operator import or_
+# from functools import reduce
 import traceback
-from unittest.result import failfast
+# from unittest.result import failfast
 from mathutils import Matrix, Vector, Quaternion, geometry
 # import quickhull
-import re
+# import re
 import codecs
 
 logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
@@ -67,7 +67,7 @@ from nifdefs import *
 from niflytools import *
 from pynifly import *
 from trihandler import *
-from renamer_niftools import *
+from blender_defs import *
 
 import bpy
 import bpy_types
@@ -165,25 +165,6 @@ def ObjectActive(obj):
     bpy.context.view_layer.objects.active = obj
 
 
-def MatrixLocRotScale(loc, rot, scale):
-    try:
-        return Matrix.LocRotScale(loc, rot, scale)
-    except:
-        tm = Matrix.Translation(loc)
-        rm = Matrix()
-        if issubclass(rot.__class__, Quaternion):
-            rm = rot.to_matrix()
-        else:
-            rm = Matrix(rot)
-        rm = rm.to_4x4()
-        sm = Matrix(((scale[0],0,0,0),
-                        (0,scale[1],0,0),
-                        (0,0,scale[2],0),
-                        (0,0,0,1)))
-        m = tm @ rm @ sm
-        return m
-
-
 def is_in_plane(plane, vert):
     """ Test whether vert is in the plane defined by the three vectors in plane """
     #find the plane's normal. p0, p1, and p2 are simply points on the plane (in world space)
@@ -202,6 +183,7 @@ def is_in_plane(plane, vert):
     dp = normal.dot(t)
 
     return round(dp, 4) == 0.0
+
 
 def append_if_new(theList, theVector, errorfactor):
     """ Append vector to list if not already present (to within errorfactor) """
@@ -282,30 +264,9 @@ def find_armatures(obj):
 
 # ------------- TransformBuf extensions -------
 
-def transform_to_matrix(xf: TransformBuf) -> Matrix:
-    """ Extends TransformBuf to get/give contents as a Blender Matrix """
-    return MatrixLocRotScale(xf.translation[:], 
-                             Matrix([xf.rotation[0][:],
-                                     xf.rotation[1][:], 
-                                     xf.rotation[2][:] ]), 
-                             [xf.scale]*3)
-
 setattr(TransformBuf, "as_matrix", transform_to_matrix)
 
-def transform_from_matrix(buf: TransformBuf, m: Matrix):
-    t, q, s, = m.decompose()
-    buf.translation = t[:]
-    r = q.to_matrix()
-    buf.rotation = MATRIX3(r[0][:], r[1][:], r[2][:])
-    buf.scale = max(s[:])
-
 setattr(TransformBuf, "load_matrix", transform_from_matrix)
-
-def make_transformbuf(cls, m: Matrix) -> TransformBuf:
-    """ Return a new TransformBuf filled with the data in the matrix """
-    buf = TransformBuf()
-    buf.load_matrix(m)
-    return buf
 
 setattr(TransformBuf, "from_matrix", classmethod(make_transformbuf))
 
@@ -397,24 +358,6 @@ def get_bone_xform(arma, bone_name, game, preserve_hierarchy, use_pose) -> Matri
 # ######################################################################## ###
 
 # -----------------------------  SHADERS  -------------------------------
-
-def get_image_node(node_input):
-    """Walk the shader nodes backwards until a texture node is found.
-        node_input = the shader node input to follow; may be null"""
-    #log.debug(f"Walking shader nodes backwards to find image: {node_input.name}")
-    n = None
-    if node_input and len(node_input.links) > 0: 
-        n = node_input.links[0].from_node
-
-    while n and type(n) != bpy.types.ShaderNodeTexImage:
-        #log.debug(f"Walking nodes: {n.name}")
-        new_n = None
-        for inp in ['Base Color', 'Image', 'Color', 'R', 'Red']:
-            if inp in n.inputs.keys() and n.inputs[inp].is_linked:
-                new_n = n.inputs[inp].links[0].from_node
-                break
-        n = new_n
-    return n
 
 def find_shader_node(nodelist, idname):
     return next((x for x in nodelist if x.bl_idname == idname), None)
@@ -812,8 +755,10 @@ def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
 
 def get_node_transform(the_shape, scale_factor=1.0) -> Matrix:
     """Returns location of the_shape ready for blender as a transform.
+
     scale_factor is applied to the transform but not to its scale component--scale_factor is used
-    to transform vert locations so it's not needed on the transform."""
+    to transform vert locations so it's not needed on the transform.
+    """
     try:
         if the_shape.has_skin_instance:
             # Global-to-skin transform is what offsets all the vertices together, e.g. so that
@@ -822,8 +767,30 @@ def get_node_transform(the_shape, scale_factor=1.0) -> Matrix:
             # Use the one on the NiSkinData if it exists.
             #xform = the_shape.global_to_skin_data
             #if True: #xform is None:
-            xform = the_shape.global_to_skin
-            xf = xform.as_matrix()
+            xf = Matrix.Identity(4)
+            if the_shape.has_global_to_skin:
+                xform = the_shape.global_to_skin
+                xf = xform.as_matrix()
+            
+            # If there's no global to skin (FO4) or it's the identity matrix (Skyrim)
+            # but the pose transforms are all the same, use that as the transform on 
+            # the shape.
+            if xf.is_identity:
+                pose_xf = None
+                same = True
+                for b in the_shape.get_used_bones():
+                    bone_xf = pose_transform(the_shape, b)
+                    if pose_xf:
+                        if not MatNearEqual(pose_xf, bone_xf):
+                            log.debug(f"Pose transform not consistent in {the_shape.name}:\n{pose_xf}\n!=\n{bone_xf}")
+                            same = False
+                            break
+                    else:
+                        pose_xf = bone_xf
+                if same:
+                    log.debug(f"Pose transform consistent, using it for {the_shape.name}:\n{pose_xf}")
+                    xf = pose_xf
+
             xf.invert()
             return apply_scale_xf(xf, scale_factor)
     except:
@@ -1201,6 +1168,7 @@ class NifImporter():
         new_object = bpy.data.objects.new(the_shape.name, new_mesh)
         self.loaded_meshes.append(new_object)
         self.nodes_loaded[new_object.name] = the_shape
+        log.debug(f"Importing new object {new_object.name}")
     
         if not self.mesh_only:
             self.objects_created[the_shape._handle] = new_object
@@ -1210,16 +1178,18 @@ class NifImporter():
             # log.info(f"import flags: {self.flags}")
             parent = self.import_node_parents(the_shape) 
 
+            # Set the object transform to reflect the skin transform in the nif. This
+            # positions the object conveniently for editing.
             new_object.matrix_world = get_node_transform(the_shape, scale_factor=self.scale)
-            log.debug(f"Importing new object {new_object.name}")
+            log.debug(f"<import_shape> object {new_object.name} given transform from nif {new_object.matrix_world}")
             if parent:
                 new_object.parent = parent
 
-            if self.flag_set(pynFlags.ROTATE_MODEL): #This flag is not yet implemented
-                log.info(f"Rotating model to match blender")
-                r = new_object.rotation_euler[:]
-                new_object.rotation_euler = (r[0], r[1], r[2]+pi)
-                new_object["PYNIFLY_IS_ROTATED"] = True
+            # if self.flag_set(pynFlags.ROTATE_MODEL): #This flag is not yet implemented
+            #     log.info(f"Rotating model to match blender")
+            #     r = new_object.rotation_euler[:]
+            #     new_object.rotation_euler = (r[0], r[1], r[2]+pi)
+            #     new_object["PYNIFLY_IS_ROTATED"] = True
 
             mesh_create_uv(new_object.data, the_shape.uvs)
             self.mesh_create_bone_groups(the_shape, new_object)
@@ -1251,6 +1221,7 @@ class NifImporter():
             new_object['PYN_GAME'] = self.nif.game
             new_object['PYN_SCALE_FACTOR'] = self.scale
             new_object['PYN_PRESERVE_HIERARCHY'] = self.flag_set(pynFlags.PRESERVE_HIERARCHY)
+            new_object['PYN_RENAME_BONES'] = self.flag_set(pynFlags.RENAME_BONES)
 
 
     # ------ ARMATURE IMPORT ------
@@ -1461,13 +1432,28 @@ class NifImporter():
         nif_shape - corresponding shape from the nif
         returns arma with bones added
         """
-        log.debug(f"Skinning and parenting object {obj.name} at location {obj.location}")
-        obj_original_xf = nif_shape.global_to_skin.as_matrix().inverted() #obj.matrix_world.copy()
-        #log.debug(f"Object '{obj.name}' has xform \n{obj_original_xf}")
+        log.debug(f"<set_parent_arma> Skinning and parenting object {obj.name} at location {obj.location}")
+
+        # All shapes parented to the same armature need to have the same transform applied
+        # for editing. (Puts body parts in a convenient place for editing.) That transform
+        # is stored on the armature.
+        obj_original_xf = Matrix.Identity(4)
         if arma is None:
             arma = self.make_armature(self.collection, "PYN_IMPORT_ARMA.")
-        scale_mx = Matrix.Scale(self.scale, 4)
-        
+            obj_original_xf = obj.matrix_world.copy()
+            arma['PYN_TRANSFORM'] = repr(obj_original_xf)
+            log.debug(f"<set_parent_arma> New armature, using transform from shape {obj.name}")
+        else:
+            try:
+                obj_original_xf = eval(arma['PYN_TRANSFORM'])
+                obj.matrix_world = obj_original_xf.copy()
+                log.debug(f"<set_parent_arma> Using transform from arma {arma.name}: {obj_original_xf.translation}")
+            except:
+                log.debug(f"<set_parent_arma> No transform on {arma.name}, using identity on {obj.name}")
+        #log.debug(f"Object '{obj.name}' has xform \n{obj_original_xf.translation} == {obj.matrix_world.translation}")
+        # Scale up to combine with the skin-to-bone transform--than then gets scaled down again
+        obj_scale_xf = apply_scale_transl(obj_original_xf, 1/self.scale)
+
         sh = self.nodes_loaded[obj.name]
 
         # Create bones reflecting the skin-to-bone transforms of the shape (bind position).
@@ -1478,9 +1464,11 @@ class NifImporter():
             blname = self.blender_name(bn)
             if blname not in arma.data.edit_bones:
                 bone_shape_xf = sh.get_shape_skin_to_bone(bn).as_matrix()
+                LogIfBone(bn, f"Bone '{bn}' has shape {obj.name} xform matrix \n{obj_scale_xf}")
                 LogIfBone(bn, f"Bone '{bn}' has skin-to-bone xform matrix \n{bone_shape_xf}")
                 LogIfBone(bn, f"Bone '{bn}' has inverse skin-to-bone xform matrix \n{bone_shape_xf.inverted()}")
-                create_bone(arma.data, blname, obj_original_xf @ bone_shape_xf.inverted(), self.nif.game, self.scale)
+                create_bone(arma.data, blname, obj_scale_xf @ bone_shape_xf.inverted(), self.nif.game, self.scale)
+                #create_bone(arma.data, blname, bone_shape_xf.inverted(), self.nif.game, self.scale)
                 new_bones.append((bn, blname))
 
         # Do the pose in a separate pass so we don't have to flip between modes.
@@ -3679,26 +3667,7 @@ class NifExporter:
             return
         log.info(f"Exporting {obj.name} with shapes: {self.file_keys} with flags {str(pynFlags(self.flags))}\n")
 
-        # Exporting posed means bones are in pose location, mesh is still where it was
-        if False: #self.flag_set(pynFlags.EXPORT_POSE):
-            # Make a copy of the object and apply its armature modifiers. Then export that.
-            log.info(f"Exporting pose, modifers={[m.name for m in obj.modifiers]}")
-            newdata = obj.data.copy()
-            objcopy = bpy.data.objects.new("pynExport_" + obj.name, newdata)
-            bpy.context.scene.collection.objects.link(objcopy)
-            ObjectActive(objcopy)
-            if objcopy.data.shape_keys:
-                self.apply_shape_key(target_key)
-            for m in obj.modifiers:
-                log.debug(f"Checking modifer {m.name}")
-                if m.type == 'ARMATURE':
-                    newmod = objcopy.modifiers.new(name=m.name, type=m.type)
-                    newmod.object = m.object
-                    log.debug(f"Applying armature {newmod.name} > {newmod.object.name} to {objcopy.name}")
-                    bpy.ops.object.modifier_apply(modifier=newmod.name)
-            self.active_obj = objcopy
-        else:
-            self.active_obj = obj
+        self.active_obj = obj
 
         # If there's a hierarchy, export parents (recursively) first
         my_parent = self.export_shape_parents(obj)
@@ -3976,15 +3945,6 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     bl_label = 'Export NIF (Nifly)'
     bl_options = {'PRESET'}
 
-    def _get_scale():
-        if bpy.context.active_object:
-            if 'PYN_SCALE_FACTOR' in bpy.context.active_object:
-                return bpy.context.active_object['PYN_SCALE_FACTOR']
-        for obj in bpy.context.selected_objects:
-            if 'PYN_SCALE_FACTOR' in obj:
-                return obj['PYN_SCALE_FACTOR']
-        return 1.0
-
     filename_ext = ".nif"
 
     target_game: EnumProperty(
@@ -3995,7 +3955,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ('FO76', "Fallout 76", ""),
                    # ('FO3', "Fallout New Vegas", ""),
                    # ('FO3', "Fallout 3", ""),
-                   ),
+                   )
             )
 
     scale_factor: bpy.props.FloatProperty(
@@ -4004,7 +3964,6 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         default=1.0
         )
     
-
     rename_bones: bpy.props.BoolProperty(
         name="Rename Bones",
         description="Rename bones from Blender conventions back to nif.",
@@ -4039,14 +3998,18 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     def __init__(self):
         log.debug("INITIALIZING EXPORT OBJECT")
         self.objects_to_export = set()
-        obj = bpy.context.active_object
-        if obj is None:
-            self.report({"ERROR"}, "No active object to export")
-            return
-        self.objects_to_export.add(obj)
+        # It's possible for the active object to not be selected, but it's too 
+        # confusing to have an unselected object export. So just look at what's selected.
+        # obj = bpy.context.active_object
+        # if obj and obj.select_get():
+        #     self.objects_to_export.add(obj)
 
         for obj in bpy.context.selected_objects:
             self.objects_to_export.add(obj)
+
+        if len(self.objects_to_export) == 0:
+            self.report({"ERROR"}, "No objects selected for export")
+            return
 
         export_armature = None
         export_fb_armature = None
@@ -4055,14 +4018,18 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 arma, fb_arma = find_armatures(obj)
                 if arma:
                     self.objects_to_export.add(arma)
+                    for child in arma.children:
+                        self.objects_to_export.add(child)
                     if export_armature == None:
                         export_armature = arma
                 if fb_arma:
                     self.objects_to_export.add(fb_arma)
-                    if export_armature == None:
-                        export_armature == export_fb_armature
+                    for child in fb_arma.children:
+                        self.objects_to_export.add(child)
                     if export_fb_armature == None:
                         export_fb_armature = fb_arma
+        if export_armature == None:
+            export_armature == export_fb_armature
 
         if not self.filepath or self.filepath == '':
             self.filepath = clean_filename(obj.name)
@@ -4077,7 +4044,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             self.target_game = g
         
         log.debug(f"ExportNIF <init> scale = {self.scale_factor}")
-        if arma and 'PYN_SCALE_FACTOR' in export_armature and self.scale_factor == 1.0:
+        if export_armature and 'PYN_SCALE_FACTOR' in export_armature and self.scale_factor == 1.0:
             self.scale_factor = export_armature['PYN_SCALE_FACTOR']
             log.debug(f"Got scale factor {self.scale_factor} from {export_armature.name}")
         elif export_fb_armature and 'PYN_SCALE_FACTOR' in export_fb_armature and self.scale_factor == 1.0:
@@ -4090,35 +4057,27 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                     log.debug(f"Got scale factor {self.scale_factor} from {obj.name}")
         log.debug(f"Calculated scale factor as {self.scale_factor}")
 
-        if arma and 'PYN_RENAME_BONES' in arma and arma['PYN_RENAME_BONES']:
+        if export_armature and 'PYN_RENAME_BONES' in export_armature \
+            and export_armature['PYN_RENAME_BONES']:
             self.rename_bones = True
-        else:
-            self.rename_bones = False
 
-        if arma and 'PYN_RENAME_BONES_NIFTOOLS' in arma and arma['PYN_RENAME_BONES_NIFTOOLS']:
+        if export_armature and 'PYN_RENAME_BONES_NIFTOOLS' in export_armature \
+            and export_armature['PYN_RENAME_BONES_NIFTOOLS']:
             self.rename_bones_niftools = True
         else:
             self.rename_bones_niftools = False
 
         if 'PYN_PRESERVE_HIERARCHY' in obj and obj['PYN_PRESERVE_HIERARCHY']:
             self.preserve_hierarchy |= True
-        else:
-            self.preserve_hierarchy |= False
 
         if 'PYN_WRITE_BODYTRI_ED' in obj and obj['PYN_WRITE_BODYTRI_ED']:
             self.write_bodytri = True
-        else:
-            self.write_bodytri = False
 
-        if 'PYN_EXPORT_POSE' in obj and obj['PYN_EXPORT_POSE']:
+        if self.export_pose == False and 'PYN_EXPORT_POSE' in obj and obj['PYN_EXPORT_POSE']:
             self.export_pose = True
-        else:
-            self.export_pose = False
 
-        if 'PYN_CHARGEN_EXT' in obj:
+        if self.chargen_ext == "chargen" and 'PYN_CHARGEN_EXT' in obj:
             self.chargen_ext = obj['PYN_CHARGEN_EXT']
-        else:
-            self.chargen_ext = "chargen"
 
         
     @classmethod
@@ -4140,6 +4099,10 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         if not self.poll(context):
             self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
             return {'CANCELLED'} 
+
+        if len(self.objects_to_export) == 0:
+            self.report({"ERROR"}, "No objects selected for export")
+            return {'CANCELLED'}
 
         flags = 0
         if self.rename_bones:
@@ -4204,7 +4167,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             log.exception("Export of nif failed")
             self.report({"ERROR"}, "Export of nif failed, see console window for details")
             res.add("CANCELLED")
-            LogFinish("EXPORT", exp_objs, {"ERROR"}, False)
+            LogFinish("EXPORT", self.objects_to_export, {"ERROR"}, False)
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 
