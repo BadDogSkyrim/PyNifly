@@ -14,9 +14,11 @@ from trihandler import *
 TEST_BPY_ALL = 0
 TEST_BODYPART_SKY = 0 ### Skyrim head
 TEST_BODYPART_FO4 = 0 ### FO4 head
-TEST_IMP_EXP_SKY_2 = 1
+TEST_IMP_EXP_SKY_2 = 0 ### Body+Armor
 TEST_SKIN_BONE_XF = 0 ### Argonian head
-TEST_ARMATURE_EXTEND = 0
+TEST_IMP_EXP_SKY = 1 ### Skyrim armor
+TEST_ARMATURE_EXTEND = 0 ### FO4 head + body
+TEST_ARMATURE_EXTEND_BT = 0
 TEST_NEW_COLORS = 0
 TEST_VERTEX_COLOR_IO = 0
 TEST_BONE_HIERARCHY = 0
@@ -71,7 +73,7 @@ if TEST_BPY_ALL or TEST_BODYPART_FO4:
 
 
 if TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
-    # Basic test that the import/export round trip works on bodyparts. 
+    # Basic test that the import/export round trip works on nifs with multiple bodyparts. 
     # The body in this nif has no skin transform and the verts are where they appear
     # to be. The armor does have the usual transform on the shape and the skin, and the
     # verts are all below the origin. They have to be loaded into one armature.
@@ -83,10 +85,10 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    
-
     body = find_shape('MaleBody')
     armor = find_shape('Armor')
+    assert NearEqual(armor.location.z, 120, epsilon=1.0), \
+        f"Armor is raised to match body: {armor.location.z}"
 
     bpy.ops.object.select_all(action='DESELECT')
     body.select_set(True)
@@ -158,22 +160,59 @@ if TEST_BPY_ALL or TEST_SKIN_BONE_XF:
     assert NearEqual(sk2b_spine.translation[2], 29.419632), f"Have correct z: {sk2b_spine.translation[2]}"
 
 
+if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
+    test_title("TEST_IMP_EXP_SKY", "Can read the armor nif and spit it back out")
+
+    testfile = test_file(r"tests/Skyrim/armor_only.nif")
+    impnif = NifFile(testfile)
+
+    def do_test(scale_factor):
+        log.debug(f"\nTesting with scale factor {scale_factor}")
+        clear_all()
+        outfile = test_file(f"tests/Out/TEST_IMP_EXP_SKY_{scale_factor}.nif")
+
+        bpy.ops.import_scene.pynifly(filepath=testfile, scale_factor=scale_factor)
+
+        armorin = impnif.shape_dict['Armor']
+        armor = find_shape('Armor')
+
+        vmin, vmax = get_obj_bbox(armor)
+        assert VNearEqual(vmin, Vector([-30.32, -13.31, -90.03])*scale_factor, 0.1), f"Armor min is correct: {vmin}"
+        assert VNearEqual(vmax, Vector([30.32, 12.57, -4.23])*scale_factor, 0.1), f"Armor max is correct: {vmax}"
+        assert NearEqual(armor.location.z, 120.34*scale_factor, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
+        arma = armor.parent
+        assert arma.name == "Scene Root", f"armor has parent: {arma}"
+        pelvis = arma.data.bones['NPC Pelvis']
+        pelvis_pose = arma.pose.bones['NPC Pelvis']
+        assert pelvis.parent.name == 'NPC COM', f"Pelvis has correct parent: {pelvis.parent}"
+        assert pelvis.matrix_local.translation[2] == pelvis_pose.matrix.translation[2], \
+            f"Pelvis pose position matches bone position: {pelvis_pose.matrix.translation[2]}"
+
+        bpy.ops.object.select_all(action='DESELECT')
+        armor.select_set(True)
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM", scale_factor=scale_factor)
+
+        nifout = NifFile(outfile)
+
+        compare_shapes(armorin, nifout.shape_dict['Armor'], armor, scale=scale_factor)
+        check_unweighted_verts(nifout.shape_dict['Armor'])
+
+    do_test(1.0)
+    do_test(0.1)
+        
+
 if TEST_BPY_ALL or TEST_ARMATURE_EXTEND:
-    # Should be possible to import a shape with an armature and then import another
-    # shape to the same armature. 
-    # The FO4 body nif does not use all bones from teh skeleton, e.g. LLeg_Calf. If we're 
-    # adding missing skeleton bones, we have to get them from the reference skeleton,
-    # which pyNifly handles, and put them into the skeleton consistently with the rest.
+    # Can import a shape with an armature and then import another shape to the same armature. 
     test_title("TEST_ARMATURE_EXTEND", "Can extend an armature with a second NIF")
     clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests\FO4\BaseMaleBody.nif")
+    testfile = test_file(r"tests\FO4\MaleBody.nif")
     testfile2 = test_file(r"tests\FO4\BaseMaleHead.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     
-    arma = bpy.data.objects[r"Scene Root"]
+    arma = bpy.data.objects[r"BASE meshes\Actors\Character\CharacterAssets\MaleBody.nif"]
     bpy.context.view_layer.objects.active = arma
     assert "SPINE1" in arma.data.bones, "Found neck bone in skeleton"
     assert not "HEAD" in arma.data.bones, "Did not find head bone in skeleton"
@@ -183,9 +222,7 @@ if TEST_BPY_ALL or TEST_ARMATURE_EXTEND:
 
     # When we import a shape where the pose-to-bind transform is consistent, we use that 
     # transform on the blender shape for ease of editing. We can then import another body
-    # part to the same armature, but that body part might not have exactly the same 
-    # transform (e.g. FO4 body and head). So ensure that even in that case we get a consistent
-    # import.
+    # part to the same armature.
     bpy.ops.object.select_all(action='DESELECT')
     arma.select_set(True)
     bpy.ops.import_scene.pynifly(filepath=testfile2)
@@ -200,6 +237,48 @@ if TEST_BPY_ALL or TEST_ARMATURE_EXTEND:
     assert VNearEqual(head.data.vertices[v_head].co, body.data.vertices[v_body].co), \
         f"Head and body verts align"
     assert MatNearEqual(head.matrix_world, body.matrix_world), f"Shape transforms match"
+
+
+if TEST_BPY_ALL or TEST_ARMATURE_EXTEND_BT:
+    # The Bodytalk body has bind positions consistent with vanilla, but the skin 
+    # transform is different, which leaves a slight gap at the neck. For now, live 
+    # with this.
+    #  
+    # The FO4 body nif does not use all bones from the skeleton, e.g. LLeg_Calf. If we're 
+    # adding missing skeleton bones, we have to get them from the reference skeleton,
+    # which pyNifly handles, and put them into the skeleton consistently with the rest.
+    test_title("TEST_ARMATURE_EXTEND", "Can extend an armature with a second NIF")
+    clear_all()
+
+    # ------- Load --------
+    testfile = test_file(r"tests\FO4\BTBaseMaleBody.nif")
+    testfile2 = test_file(r"tests\FO4\BaseMaleHead.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    
+    arma = bpy.data.objects[r"Scene Root"]
+    bpy.context.view_layer.objects.active = arma
+    assert "SPINE1" in arma.data.bones, "Found neck bone in skeleton"
+    assert not "HEAD" in arma.data.bones, "Did not find head bone in skeleton"
+    assert "Leg_Calf.L" in arma.data.bones, f"Loaded bones not used by shape"
+    assert arma.data.bones['SPINE2'].matrix_local.translation.z > 0, \
+        f"Armature in basic position: {arma.data.bones['SPINE2'].matrix_local.translation}"
+
+    bpy.ops.object.select_all(action='DESELECT')
+    arma.select_set(True)
+    bpy.ops.import_scene.pynifly(filepath=testfile2)
+    assert not "BaseMaleHead.nif" in bpy.data.objects, "Head import did not create new skeleton"
+    assert "HEAD" in arma.data.bones, "Found head bone in skeleton"
+
+    head = find_shape("BaseMaleHead:0")
+    body = find_shape("BaseMaleBody")
+    target_v = Vector((0.00016, 4.339844, -12.101563))
+    v_head = find_vertex(head.data, target_v)
+    v_body = find_vertex(body.data, target_v)
+    assert VNearEqual(head.data.vertices[v_head].co, body.data.vertices[v_body].co), \
+        f"Head and body verts align"
+    # Shape transforms are different between vanilla head and BT body.
+    #assert MatNearEqual(head.matrix_world, body.matrix_world), f"Shape transforms match"
 
 
 if TEST_BPY_ALL or TEST_CAVE_GREEN:
