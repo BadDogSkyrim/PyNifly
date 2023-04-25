@@ -87,10 +87,17 @@ def make_transformbuf(cls, m: Matrix) -> TransformBuf:
     return buf
 
 
+def bind_position(shape:NiShape, bone: str) -> Matrix:
+    """Return the bind position for a bone in a shape."""
+    return transform_to_matrix(shape.get_shape_skin_to_bone(bone)).inverted()
+
+
 def pose_transform(shape:NiShape, bone: str):
     """Return the pose transform for the given bone.
     
     This is the transform from pose position to bind position for a bone.
+    It's the same for all bones in a nif, unless the nif has the shape in a posed
+    position--changing bone positions relative to each other.
     """
     bonexf = transform_to_matrix(shape.file.nodes[bone].xform_to_global)
     sk2b = transform_to_matrix(shape.get_shape_skin_to_bone(bone))

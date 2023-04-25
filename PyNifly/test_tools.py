@@ -59,7 +59,7 @@ def export_from_blend(blendfile, objname, game, outfile, shapekey=''):
 
 def find_vertex(mesh, targetloc, epsilon=0.01):
     for v in mesh.vertices:
-        if VNearEqual(v.co, targetloc):
+        if VNearEqual(v.co, targetloc, epsilon=epsilon):
             return v.index
     return -1
 
@@ -87,15 +87,29 @@ def find_shape(name_prefix, collection=None):
     return None
 
 
-def get_obj_bbox(obj, scale=1.0):
+def get_obj_bbox(obj, worldspace=False, scale=1.0):
     """Return diagonal forming bounding box of Blender object"""
-    minx = min(v.co.x for v in obj.data.vertices)
-    miny = min(v.co.y for v in obj.data.vertices)
-    minz = min(v.co.z for v in obj.data.vertices)
-    maxx = max(v.co.x for v in obj.data.vertices)
-    maxy = max(v.co.y for v in obj.data.vertices)
-    maxz = max(v.co.z for v in obj.data.vertices)
-    return ((minx/scale, miny/scale, minz/scale), (maxx/scale, maxy/scale, maxz/scale))
+    if worldspace:
+        minx = min(v[0] for v in obj.bound_box)
+        maxx = max(v[0] for v in obj.bound_box)
+        miny = min(v[1] for v in obj.bound_box)
+        maxy = max(v[1] for v in obj.bound_box)
+        minz = min(v[2] for v in obj.bound_box)
+        maxz = max(v[2] for v in obj.bound_box)
+        return (((minx+obj.location.x)/scale, 
+                 (miny+obj.location.y)/scale, 
+                 (minz+obj.location.z)/scale), 
+                 ((maxx+obj.location.x)/scale, 
+                  (maxy+obj.location.y)/scale, 
+                  (maxz+obj.location.z)/scale))
+    else:
+        minx = min(v.co.x for v in obj.data.vertices)
+        miny = min(v.co.y for v in obj.data.vertices)
+        minz = min(v.co.z for v in obj.data.vertices)
+        maxx = max(v.co.x for v in obj.data.vertices)
+        maxy = max(v.co.y for v in obj.data.vertices)
+        maxz = max(v.co.z for v in obj.data.vertices)
+        return ((minx/scale, miny/scale, minz/scale), (maxx/scale, maxy/scale, maxz/scale))
 
 
 def get_shape_bbox(shape):
@@ -112,6 +126,10 @@ def get_shape_bbox(shape):
 def compare_shapes(inshape, outshape, blshape, e=0.0001, scale=1.0, ignore_translations=False):
     """Compare significant characteristics of two nif shapes and a Blender object.
     Fail with error message if any are different.
+    
+    *   ignore_transforms indicates that the transform on the base shape should be
+        ignored. This is useful bc it doesn't affect a skinned nif at all, and we write it
+        by default if we added a transform for editing.
     """
     inshape_bbox = get_shape_bbox(inshape)
     outshape_bbox = get_shape_bbox(outshape)
@@ -164,3 +182,25 @@ def check_unweighted_verts(nifshape):
     assert not fail, f"Found 0 vertex weights for verts in {nifshape.name}"
 
 
+def assert_near_equal(actual, expected, msg, e=0.0001):
+    """Assert two values are equal. Values may be scalars, vectors, or matrices."""
+    try:
+        assert MatNearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
+    except AssertionError:
+        raise
+    except:
+        try:
+            assert VNearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
+        except AssertionError:
+            raise
+        except:
+            assert NearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
+
+def assert_less_than(actual, expected, msg, e=0.0001):
+    """Assert actual is less than expected."""
+    assert actual < expected, f"Values actual less than expected for {msg}: {actual} < {expected}"
+
+
+def assert_greater_than(actual, expected, msg, e=0.0001):
+    """Assert actual is greater than expected."""
+    assert actual > expected, f"Values actual greater than expected for {msg}: {actual} < {expected}"

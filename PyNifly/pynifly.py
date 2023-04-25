@@ -1167,9 +1167,10 @@ class NiShape(NiNode):
     
     @property
     def global_to_skin(self):
-        """ Return the global-to-skin transform on this shape; calculate it if not present.
-            Returns the transform.
-            """
+        """Return the global-to-skin transform on this shape; calculate it if not
+        present. Calculated by averaging the skin-to-bone (pose) transforms on all the
+        bones. 
+        """
         buf = TransformBuf()
         has_xform = NifFile.nifly.getShapeGlobalToSkin(self.file._handle, self._handle, buf)
         if not has_xform:

@@ -5,7 +5,7 @@
 
 RUN_TESTS = True
 TEST_BPY_ALL = False
-TEST_TARGET_BONE = [] # Print extra debugging info for these bones
+TEST_TARGET_BONE = ['Chest_skin' ] # Print extra debugging info for these bones
 
 bl_info = {
     "name": "NIF format",
@@ -43,7 +43,7 @@ if 'PYNIFLY_DEV_ROOT' in os.environ:
     nifly_path = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll")
 
 if nifly_path and os.path.exists(nifly_path):
-    log.debug(f"PyNifly dev path: {pynifly_dev_path}")
+    #log.debug(f"PyNifly dev path: {pynifly_dev_path}")
     if pynifly_dev_path not in sys.path:
         sys.path.insert(0, pynifly_dev_path)
     if RUN_TESTS:
@@ -53,7 +53,7 @@ if nifly_path and os.path.exists(nifly_path):
 else:
     # Load from install location
     py_addon_path = os.path.dirname(os.path.realpath(__file__))
-    log.debug(f"PyNifly addon path: {py_addon_path}")
+    #log.debug(f"PyNifly addon path: {py_addon_path}")
     if py_addon_path not in sys.path:
         sys.path.append(py_addon_path)
     nifly_path = os.path.join(py_addon_path, "NiflyDLL.dll")
@@ -132,11 +132,20 @@ def LogFinish(action, files, status, is_exception=False):
     if type(files) == str:
         fn = os.path.basename(files)
     else:
-        fn = f"{[os.path.basename(f.name) for f in files]}"
+        s = set()
+        for f in files:
+            try:
+                if type(f) == str:
+                    s.add(os.path.basename(f))
+                else:
+                    s.add(f.name)
+            except:
+                pass
+        fn = str(s)
 
     log.info(f"""
 
-PyNifly {action} of {fn} completed {errmsg} {status}
+PyNifly {action} of {fn} completed {errmsg} 
 ====================================
 
 """)
@@ -202,7 +211,7 @@ def apply_scale_xf(xf:Matrix, sf:float):
     return MatrixLocRotScale(loc, rot, xf.to_scale())
 
 
-def apply_scale_transl(xf:Matrix, sf:float):
+def apply_scale_transl(xf:Matrix, sf:float) -> Matrix:
     """Apply the scale factor sf to the translation component of the matrix only."""
     loc, rot, scale = xf.decompose()
     return MatrixLocRotScale(loc*sf, rot, scale)
@@ -219,14 +228,14 @@ def pack_xf_to_buf(xf, scale_factor: float):
 def armatures_match(a, b):
     """Returns true if all bones of the first armature have the same position in the second"""
     bpy.ops.object.mode_set(mode = 'OBJECT')
-    log.debug(f"<armatures_match> comparing {a.name} with {b.name}")
+    #log.debug(f"<armatures_match> comparing {a.name} with {b.name}")
     for bone in a.data.bones:
         if bone.name in b.data.bones:
             if not MatNearEqual(bone.matrix_local, b.data.bones[bone.name].matrix_local):
-                log.debug(f"Bone {bone.name} positions do not match {a.name} vs {b.name}: \n{bone.matrix_local}!=\n{b.data.bones[bone.name].matrix_local}")
+                #log.debug(f"Bone {bone.name} positions do not match {a.name} vs {b.name}: \n{bone.matrix_local}!=\n{b.data.bones[bone.name].matrix_local}")
                 return False
             elif not MatNearEqual(a.pose.bones[bone.name].matrix, b.pose.bones[bone.name].matrix):
-                log.debug(f"Bone {bone.name} pose positions do not match {a.name} vs {b.name}: \n{a.pose.bones[bone.name].matrix}!=\n{b.pose.bones[bone.name].matrix}")
+                #log.debug(f"Bone {bone.name} pose positions do not match {a.name} vs {b.name}: \n{a.pose.bones[bone.name].matrix}!=\n{b.pose.bones[bone.name].matrix}")
                 return False
             else:
                 pass
@@ -314,10 +323,9 @@ def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor):
 
     bone.matrix = get_bone_blender_xf(node_xf, game, scale_factor)
 
-    if bone_name in TEST_TARGET_BONE:
-        log.debug(f"<create_bone> Bone transform for {bone_name}) = \n{node_xf}")
-        log.debug(f"<create_bone> Blender transform for {bone_name} = \n{bone.matrix}")
-        log.debug(f"<create_bone> Bone head={bone.head} tail={bone.tail}")
+    #LogIfBone(bone_name, f"<create_bone> Bone transform for {bone_name}) = \n{node_xf}")
+    #LogIfBone(bone_name, f"<create_bone> Blender transform for {bone_name} = \n{bone.matrix}")
+    #LogIfBone(bone_name, f"<create_bone> Bone head={bone.head} tail={bone.tail}")
 
     return bone
 
@@ -340,11 +348,11 @@ def get_bone_xform(arma, bone_name, game, preserve_hierarchy, use_pose) -> Matri
             # Calculate the relative transform from the parent
             parent_xf = get_bone_global_xf(arma, bparent.name, game, use_pose)
             loc_xf = parent_xf.inverted() @ bonexf
-            if bone_name in TEST_TARGET_BONE:
-                log.debug("Using pose location" if use_pose else "Using bind location")
-                log.debug(f"<get_bone_xform> {bone_name} has bone xf\n{bonexf}")
-                log.debug(f"<get_bone_xform> {bone_name} has parent xf\n{parent_xf}")
-                log.debug(f"<get_bone_xform> {bone_name} has local xf\n{loc_xf}")
+
+            #LogIfBone(bone_name, "Using pose location" if use_pose else "Using bind location")
+            #LogIfBone(bone_name, f"<get_bone_xform> {bone_name} has bone xf\n{bonexf}")
+            #LogIfBone(bone_name, f"<get_bone_xform> {bone_name} has parent xf\n{parent_xf}")
+            #LogIfBone(bone_name, f"<get_bone_xform> {bone_name} has local xf\n{loc_xf}")
 
             return loc_xf
 
@@ -424,16 +432,16 @@ def obj_create_material(obj, shape):
                 fndds = os.path.join(bpy.context.preferences.filepaths.texture_directory, 
                                   shape.textures[i])
                 fnpng = os.path.splitext(fndds)[0] + '.png'
-                #log.debug(f"checking texture path {fnpng}")
+                ##log.debug(f"checking texture path {fnpng}")
                 if os.path.exists(fnpng):
                     fulltextures[i] = fnpng
                     log.info(f"Using png texture from Blender's texture directory: {fnpng}")
             if fulltextures[i][-4:].lower() == '.dds':
-                #log.debug(f"checking texture path {txpng}")
+                ##log.debug(f"checking texture path {txpng}")
                 if os.path.exists(txpng):
                     fulltextures[i] = txpng
                     log.info(f"Using png texture from nif's node tree': {fnpng}")
-        #log.debug(f"Using texture path {i}: {fulltextures[i]}")
+        ##log.debug(f"Using texture path {i}: {fulltextures[i]}")
 
     mat = bpy.data.materials.new(name=(obj.name + ".Mat"))
 
@@ -713,17 +721,17 @@ def mesh_create_partition_groups(the_shape, the_object):
                 this_loop = mesh.loops[lp]
                 this_vg.add((this_loop.vertex_index,), 1.0, 'ADD')
     if len(the_shape.segment_file) > 0:
-        log.debug(f"..Putting segment file '{the_shape.segment_file}' on '{the_object.name}'")
+        #log.debug(f"..Putting segment file '{the_shape.segment_file}' on '{the_object.name}'")
         the_object['FO4_SEGMENT_FILE'] = the_shape.segment_file
 
 
 def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
-    log.debug(f"Have shaderflags1: {ShaderFlags1(shape.shader_attributes.Shader_Flags_1).fullname}")
-    log.debug(f"Have shaderflags2: {ShaderFlags2(shape.shader_attributes.Shader_Flags_2).fullname}")
+    #log.debug(f"Have shaderflags1: {ShaderFlags1(shape.shader_attributes.Shader_Flags_1).fullname}")
+    #log.debug(f"Have shaderflags2: {ShaderFlags2(shape.shader_attributes.Shader_Flags_2).fullname}")
     try:
         if (shape.shader_attributes.Shader_Flags_2 & ShaderFlags2.VERTEX_COLORS) \
             and shape.colors and len(shape.colors) > 0:
-            log.debug(f"Importing vertex colors for {shape.name}")
+            #log.debug(f"Importing vertex colors for {shape.name}")
             clayer = None
             try: #Post V3.5
                 clayer = mesh.color_attributes.new(type='BYTE_COLOR', domain='CORNER')
@@ -734,7 +742,7 @@ def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
                 or (shape.shader_block_name == 'BSEffectShaderProperty'):
                 # If we have a BSEffectShaderProperty we assume the alpha channel is used 
                 # whether or not VERTEX_ALPHA is set. Some FO4 meshes seem to work this way.
-                log.debug(f"<import_colors> using alpha channel")
+                #log.debug(f"<import_colors> using alpha channel")
                 try:
                     alphlayer = mesh.color_attributes.new(
                         name=ALPHA_MAP_NAME, type='BYTE_COLOR', domain='CORNER')
@@ -753,53 +761,6 @@ def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
         log.error(f"ERROR: Could not read colors on shape {shape.name}")
 
 
-def get_node_transform(the_shape, scale_factor=1.0) -> Matrix:
-    """Returns location of the_shape ready for blender as a transform.
-
-    scale_factor is applied to the transform but not to its scale component--scale_factor is used
-    to transform vert locations so it's not needed on the transform.
-    """
-    try:
-        if the_shape.has_skin_instance:
-            # Global-to-skin transform is what offsets all the vertices together, e.g. so that
-            # heads can be positioned at the origin. Put the reverse transform on the blender 
-            # object so they can be worked on in their skinned position.
-            # Use the one on the NiSkinData if it exists.
-            #xform = the_shape.global_to_skin_data
-            #if True: #xform is None:
-            xf = Matrix.Identity(4)
-            if the_shape.has_global_to_skin:
-                xform = the_shape.global_to_skin
-                xf = xform.as_matrix()
-            
-            # If there's no global to skin (FO4) or it's the identity matrix (Skyrim)
-            # but the pose transforms are all the same, use that as the transform on 
-            # the shape.
-            if xf.is_identity:
-                pose_xf = None
-                same = True
-                for b in the_shape.get_used_bones():
-                    bone_xf = pose_transform(the_shape, b)
-                    if pose_xf:
-                        if not MatNearEqual(pose_xf, bone_xf):
-                            log.debug(f"Pose transform not consistent in {the_shape.name}:\n{pose_xf}\n!=\n{bone_xf}")
-                            same = False
-                            break
-                    else:
-                        pose_xf = bone_xf
-                if same:
-                    log.debug(f"Pose transform consistent, using it for {the_shape.name}:\n{pose_xf}")
-                    xf = pose_xf
-
-            xf.invert()
-            return apply_scale_xf(xf, scale_factor)
-    except:
-        pass
-
-    # Statics get transformed according to the shape's transform
-    return apply_scale_xf(the_shape.transform.as_matrix(), scale_factor)
-
-
 class NifImporter():
     """Does the work of importing a nif, independent of Blender's operator interface.
     filename can be a single filepath string or a list of filepaths
@@ -813,7 +774,7 @@ class NifImporter():
                  chargen="chargen",
                  scale=1.0):
 
-        log.debug(f"Importing {filename} with flags {f}")
+        #log.debug(f"Importing {filename} with flags {f}")
         if type(filename) == str:
             self.filename = filename
             self.filename_list = [filename]
@@ -822,6 +783,7 @@ class NifImporter():
             self.filename_list = filename
 
         self.flags = f
+        self.create_bones_p = self.flag_set(pynFlags.CREATE_BONES)
         self.chargen_ext = chargen
         self.mesh_only = False
         self.armature = None
@@ -838,6 +800,7 @@ class NifImporter():
         self.collection = None
         self.loc = Vector((0, 0, 0))   # location for new objects 
         self.scale = scale
+        self.warnings = []
 
     def incr_loc(self):
         self.loc = self.loc + (Vector((.5, .5, .5)) * self.scale) 
@@ -858,11 +821,97 @@ class NifImporter():
             return self.nif.nif_name(blender_name)
         else:
             return blender_name
+        
     def blender_name(self, nif_name):
         if self.flag_set(pynFlags.RENAME_BONES) or self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS):
             return self.nif.dict.blender_name(nif_name)
         else:
             return nif_name
+
+    def get_node_transform(self, the_shape, scale_factor=1.0) -> Matrix:
+        """Returns location of the_shape ready for blender as a transform.
+
+        scale_factor is applied to the transform but not to its scale component--scale_factor is used
+        to transform vert locations so it's not needed on the transform.
+        """
+        if (type(the_shape) != NiShape) or (not the_shape.has_skin_instance):
+            # Statics get transformed according to the shape's transform
+            return apply_scale_xf(the_shape.transform.as_matrix(), scale_factor)
+
+        # Global-to-skin transform is what offsets all the vertices together, e.g. so that
+        # heads can be positioned at the origin. Put the reverse transform on the blender 
+        # object so they can be worked on in their skinned position.
+        # Use the one on the NiSkinData if it exists.
+        #xform = the_shape.global_to_skin_data
+        #if True: #xform is None:
+        xf = Matrix.Identity(4)
+        offset_consistent = False
+        if the_shape.has_global_to_skin:
+            # if this transform exists, use it and don't muck with it.
+            xform = the_shape.global_to_skin
+            log.debug(f"Using {the_shape.name}'s global-to-skin transform: {xform.as_matrix().translation}")
+            xf = xform.as_matrix().inverted()
+            offset_consistent = True
+        
+        skel = the_shape.file.reference_skel
+        offset_xf = None
+        if self.create_bones_p and skel:
+            # If we're creating missing vanilla bones, we need to know the offset from the
+            # bind positions here to the vanilla bind positions, and we need it to be
+            # consistent.
+            for bn in the_shape.get_used_bones():
+                if bn in skel.nodes:
+                    skel_bone = skel.nodes[bn]
+                    LogIfBone(bn, f"Bone {bn} transform: {transform_to_matrix(skel_bone.xform_to_global).translation}")
+                    bindpos = bind_position(the_shape, bn)
+                    LogIfBone(bn, f"Shape {the_shape.name} bind position: {bindpos.translation}")
+                    bindinshape = xf @ bindpos
+                    this_offset = skel_bone.xform_to_global.as_matrix() @ bindinshape.inverted()
+                    if not offset_xf: 
+                        offset_xf = this_offset
+                        offset_consistent = True
+                        #log.debug(f"Shape {the_shape.name} first offset from {bn}")
+                    else:
+                        if not MatNearEqual(this_offset, offset_xf):
+                            offset_consistent = False
+                            # self.create_bones_p = False
+                            #log.debug(f"Shape {the_shape.name} does not have consistent offset from vanilla: {bn}:{this_offset.translation} != {offset_xf.translation}")
+                            break
+
+            if offset_consistent and offset_xf:
+                #log.debug(f"Shape {the_shape.name} has consistent offset from vanilla: {offset_xf.translation}")
+                xf = xf @ offset_xf
+
+        if not offset_consistent: 
+            # If there's no global to skin (FO4) and we haven't found consistent bind
+            # offsets, maybe the pose offsets will give us a skin transform. If they are
+            # all the same they represent a simple reposition of the entire shape. We can
+            # put the inverse on the Blender shape.
+            pose_xf = None
+            same = True
+            for b in the_shape.get_used_bones():
+                bone_xf = pose_transform(the_shape, b)
+                if pose_xf:
+                    # Some common nifs such as the Bodytalk male body need some extra
+                    # fudge factor. Reducing this will result in their shape not getting
+                    # adjusted to the armature location. 
+                    if not MatNearEqual(pose_xf, bone_xf, epsilon=0.5):
+                        log.debug(f"Pose transform not consistent in {the_shape.name} with bone {b}:\n{pose_xf}\n!=\n{bone_xf}")
+                        same = False
+                        break
+                else:
+                    pose_xf = bone_xf
+            if same: ### Don't do this for now
+                log.debug(f"Pose transforms consistent, using it for {the_shape.name}:\n{pose_xf}")
+                #log.debug(f"GTS transform:\n{xf}")
+                xf = xf @ pose_xf
+                xf.invert()
+                #log.debug(f"Pose translation adjusted:\n{xf}")
+
+        #xf.invert()
+        log.debug(f"Shape {the_shape.name} has calculated transform {xf.translation}")
+        return apply_scale_xf(xf, scale_factor)
+
 
     # -----------------------------  EXTRA DATA  -------------------------------
 
@@ -965,7 +1014,7 @@ class NifImporter():
             self.objects_created[obj.name] = obj
 
         for cp in f.connect_points_parent:
-            #log.debug(f"Found parent connect point: \n{cp}")
+            ##log.debug(f"Found parent connect point: \n{cp}")
             bpy.ops.object.add(radius=self.scale, type='EMPTY')
             obj = bpy.context.object
             obj.name = "BSConnectPointParents" + "::" + cp.name.decode('utf-8')
@@ -985,7 +1034,7 @@ class NifImporter():
                     parnode = f.nodes[parname]
                     targetparent = self.objects_created[parnode._handle]
                     obj.parent = targetparent
-                    log.debug(f"Created parent cp {obj.name} with parent {obj.parent.name}")
+                    #log.debug(f"Created parent cp {obj.name} with parent {obj.parent.name}")
                 except:
                     if self.armature and parname in self.armature.data.bones:
                         log.info(f"Connect point {obj.name} is parented to bone {parname}")
@@ -996,7 +1045,7 @@ class NifImporter():
             self.add_to_parents(obj)
 
         if f.connect_points_child:
-            #log.debug(f"Found child connect point: \n{cp}")
+            ##log.debug(f"Found child connect point: \n{cp}")
             bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
             obj = bpy.context.object
             obj.name = "BSConnectPointChildren"
@@ -1049,15 +1098,19 @@ class NifImporter():
         return None
 
 
-    def import_ninode(self, ninode, p=None):
-        """ Create Blender representation of an NiNode
-            ninode = nif node
-            p = Blender parent for new object
-            Returns the Blender representation of the node, either an object or a bone, or none
-            """
-        # Don't import the node if (1) it's already been imported, (2) it's been imported
-        # as a bone in the skeleton, or (3) it's the root node
-        #log.debug(f"<import_ninode> {ninode.name}, {p}")
+    def import_ninode(self, arma, ninode, p=None):
+        """Create Blender representation of an NiNode
+
+        Don't import the node if (1) it's already been imported, (2) it's been imported as
+        a bone in the skeleton, or (3) it's the root node
+        
+        * arma = armature to add the bone to; may be None
+        * ninode = nif node
+        * p = Blender parent for new object
+        * Returns the Blender representation of the node, either an object or a bone, or
+          none
+        """
+        LogIfBone(ninode.name, f"<import_ninode> {ninode.name}, {p}")
         obj = None
         if ninode.name == ninode.file.rootName:
             return None
@@ -1065,38 +1118,41 @@ class NifImporter():
         # Nothing to do if we've already imported this object. 
         bl_name = self.blender_name(ninode.name)
         if ninode._handle in self.objects_created:
-            #log.debug(f"Already created: {ninode.name}")
+            ##log.debug(f"Already created: {ninode.name}")
             return self.objects_created[ninode._handle]
 
         bn = self.bone_in_armatures(bl_name)
-        if bn:
-            return bn
+        if bn: # arma and bl_name in arma.data.bones:
+            return bn # arma.data.bones[bl_name]
 
         skelbone = None
-        if ninode.name in ninode.file.dict.byNif:
-            skelbone = ninode.file.dict.byNif[ninode.name]
+        #log.debug(f"Checking {ninode.name} in {ninode.file.reference_skel.filepath}")
+        if ninode.name in ninode.file.reference_skel.nodes:
+            skelbone = ninode.file.reference_skel.nodes[ninode.name]
 
         elif ninode.file.game == "FO4" and ninode.name in fo4FaceDict.byNif:
             skelbone = fo4FaceDict.byNif[ninode.name]
 
-        if skelbone and self.armature:
-            # Have not created this as bone in an armature already AND it's a known skeleton bone, 
-            # AND we have an armature, create it as an armature bone even tho it's not used in the shape
-            LogIfBone(ninode.name, f"Creating bone for {bl_name}")
-            ObjectSelect([self.armature])
-            ObjectActive(self.armature)
+        #log.debug(f"Found for {ninode.name} {skelbone} to add to {arma}")
+        if skelbone and arma:
+            # Have not created this as bone in an armature already AND it's a known
+            # skeleton bone, AND we have an armature, create it as an armature bone even
+            # tho it's not used in the shape
+            #log.debug(f"Creating bone for {bl_name}")
+            ObjectSelect([arma])
+            ObjectActive(arma)
             bpy.ops.object.mode_set(mode = 'EDIT')
-            bn = self.add_bone_to_arma(self.armature, self.blender_name(ninode.name), ninode.name)
+            bn = self.add_bone_to_arma(arma, self.blender_name(ninode.name), ninode.name)
             bpy.ops.object.mode_set(mode = 'OBJECT')
             return bn
 
         # If not a known skeleton bone, just import as an EMPTY object
-        #log.debug(f"Creating node for {bl_name}, parent {p}")
+        ##log.debug(f"Creating node for {bl_name}, parent {p}")
         bpy.ops.object.add(radius=1.0, type='EMPTY')
         obj = bpy.context.object
         obj.name = ninode.name
         obj["pynBlock_Name"] = ninode.blockname
-        obj.matrix_local = ninode.transform.as_matrix()
+        obj.matrix_local = apply_scale_transl(ninode.transform.as_matrix(), self.scale)
         if p:
             if type(p) == bpy_types.Bone:
                 # Can't set a bone as parent, but get the node in the right position
@@ -1105,18 +1161,17 @@ class NifImporter():
             else:
                 obj.parent = p
         self.objects_created[ninode._handle] = obj
-        #log.debug(f"Created node {ninode.name}")
+        ##log.debug(f"Created node {ninode.name}")
 
         if ninode.collision_object:
-            log.debug(f"{ninode.name} has collision object")
+            #log.debug(f"{ninode.name} has collision object")
             self.import_collision_obj(ninode.collision_object, obj)
 
         return obj
 
 
-    def import_node_parents(self, node: NiNode):
-        """ Import the chain of parents of the given node all the way up to the root """
-        nif = node.file
+    def import_node_parents(self, arma, node: NiNode):
+        """Import the chain of parents of the given node all the way up to the root"""
         # Get list of parents of the given node from the list, bottom-up. 
         parents = []
         n = node.parent
@@ -1128,16 +1183,33 @@ class NifImporter():
         obj = None
         p = None
         for ch in parents[1:]: # [0] is the root node
-            obj = self.import_ninode(ch, p)
+            obj = self.import_ninode(arma, ch, p)
             p = obj
+
+        # TODO: Set pose locations if nec
 
         return obj
 
 
-    def import_loose_ninodes(self, nif):
+    def import_loose_ninodes(self, nif, arma=None):
+        """Import any NiNodes that don't have any special purpose--likely skeleton bones
+        that aren't used in shapes.
+        """
+        original_bones = set()
+        if arma:
+            for n in arma.data.bones.keys():
+                original_bones.add(n)
+
         for n in nif.nodes.values():
-            p = self.import_node_parents(n)
-            obj = self.import_ninode(n, p)
+            p = self.import_node_parents(arma, n)
+            self.import_ninode(arma, n, p)
+        
+        if arma:
+            # Set the pose position for the bones we just added
+            new_bones = set(arma.data.bones.keys()).difference(original_bones)
+            bone_names = [(self.nif_name(n), n) for n in new_bones]
+            #log.debug(f"Setting pose locations for {bone_names}")
+            self.set_bone_poses(arma, nif, bone_names)
 
 
     def mesh_create_bone_groups(self, the_shape, the_object):
@@ -1151,10 +1223,14 @@ class NifImporter():
 
     def import_shape(self, the_shape: NiShape):
         """ Import the shape to a Blender object, translating bone names if requested
-            self.objects_created = Set to a list of objects created. Might be more than one
-            because of extra data nodes.
+            
+        * self.objects_created = List of objects created, extended with objects associated
+          with this shape. Might be more than one because of extra data nodes.
+        * self.loaded_meshes = List of Blender objects created that represent meshes,
+          extended with this shape.
+        * self.nodes_loaded = Dictionary mapping blender name : NiShape from nif
         """
-        log.debug(f"Importing shape {the_shape.name} with flags {self.flag_set(pynFlags.KEEP_TMP_SKEL)}")
+        #log.debug(f"Importing shape {the_shape.name} with flags {self.flag_set(pynFlags.KEEP_TMP_SKEL)}")
         v = the_shape.verts
         t = the_shape.tris
         if self.scale == 1.0:
@@ -1168,7 +1244,7 @@ class NifImporter():
         new_object = bpy.data.objects.new(the_shape.name, new_mesh)
         self.loaded_meshes.append(new_object)
         self.nodes_loaded[new_object.name] = the_shape
-        log.debug(f"Importing new object {new_object.name}")
+        log.debug(f"Importing new object {new_object.name}, min z = {min(v.co.z for v in new_mesh.vertices)}")
     
         if not self.mesh_only:
             self.objects_created[the_shape._handle] = new_object
@@ -1176,20 +1252,15 @@ class NifImporter():
             import_colors(new_mesh, the_shape)
 
             # log.info(f"import flags: {self.flags}")
-            parent = self.import_node_parents(the_shape) 
+            parent = self.import_node_parents(None, the_shape) 
 
             # Set the object transform to reflect the skin transform in the nif. This
             # positions the object conveniently for editing.
-            new_object.matrix_world = get_node_transform(the_shape, scale_factor=self.scale)
-            log.debug(f"<import_shape> object {new_object.name} given transform from nif {new_object.matrix_world}")
+            new_object.matrix_world = self.get_node_transform(the_shape, 
+                                                              scale_factor=self.scale)
+            ##log.debug(f"<import_shape> object {new_object.name} given transform from nif {new_object.matrix_world}")
             if parent:
                 new_object.parent = parent
-
-            # if self.flag_set(pynFlags.ROTATE_MODEL): #This flag is not yet implemented
-            #     log.info(f"Rotating model to match blender")
-            #     r = new_object.rotation_euler[:]
-            #     new_object.rotation_euler = (r[0], r[1], r[2]+pi)
-            #     new_object["PYNIFLY_IS_ROTATED"] = True
 
             mesh_create_uv(new_object.data, the_shape.uvs)
             self.mesh_create_bone_groups(the_shape, new_object)
@@ -1226,51 +1297,190 @@ class NifImporter():
 
     # ------ ARMATURE IMPORT ------
 
-    def find_compatible_arma(self, shape:NiShape, armatures:list):
-        """Look through the list of armatures and find one that can be used by the shape. 
-        SHOULD BE THAT: Bones in the armature must match the shape's bone bind positions.
-        BUT FOR NOW just assume the skeletons are compatible. If not, user can try again.
-        Returns the armature, or None.
+    def calc_skin_transform(self, arma, obj=None) -> Matrix:
+        """Determine the skin transform to use for this shape.
+        Skin transform will be:
+        - the transform on the armature if there is one, combined with the shape's own skin 
+        transform
+        - the skin transform on the shape if there is one
+        - the identity matrix
         """
+        skin_xf = Matrix.Identity(4)
+        if not obj:
+            if 'PYN_TRANSFORM' in arma:
+                skin_xf = eval(arma['PYN_TRANSFORM'])
+            return skin_xf
+
+        if 'PYN_TRANSFORM' not in arma:
+            skin_xf = obj.matrix_world.copy()
+            arma['PYN_TRANSFORM'] = repr(skin_xf)
+            #log.debug(f"<set_parent_arma> No transform on armature, using transform from shape {obj.name}")
+        else:
+            try:
+                # If the object is being parented to an existing armature, use the skin
+                # transform the armature used.
+                arma_xf = eval(arma['PYN_TRANSFORM'])
+                skin_xf = obj.matrix_world
+                if not MatNearEqual(arma_xf, skin_xf): 
+                    log.debug(f"Transforms don't match between {arma.name} and {obj.name}" + f"\n{arma_xf.translation} != {skin_xf.translation}")
+                    log.warning(f"Skin transform on {obj.name} do not match existing armature. Shapes may be offset.")
+                    self.warnings.append(['WARNING', 
+                        f"Skin transform on {obj.name} do not match existing armature. Shapes may be offset."])
+                # obj.matrix_world = arma_xf
+            except Exception as e:
+                log.warning(repr(e))
+                skin_xf = obj.matrix_world
+                #log.debug(f"<set_parent_arma> Transform from {arma.name} failed, using transform from {obj.name}")
+        #log.debug(f"Object '{obj.name}' has translation {skin_xf.translation}")
+
+        return skin_xf
+
+
+    def bone_nif_to_blender(self, shape:NiShape, bone:str, skin_xf:Matrix) -> Matrix:
+        """Return bone's final position in blender
+        
+        arma: armature that will parent bone
+        skin_xf: the skin transform applied to all shapes under the armature.
+        """
+        bone_xf = shape.get_shape_skin_to_bone(bone).as_matrix()
+        LogIfBone(bone, f"Bone_xf: \n{bone_xf}")
+        LogIfBone(bone, f"Skin_xf: \n{skin_xf}")
+        bone_xf = apply_scale_transl(skin_xf, 1/self.scale) @ bone_xf.inverted()
+        LogIfBone(bone, f"Scaled bone_xf: \n{bone_xf}")
+        LogIfBone(bone, f"Game rotation:\n{game_rotations[game_axes[shape.file.game]][0]}")
+        bone_xf = Matrix.Scale(self.scale, 4) @ bone_xf @ game_rotations[game_axes[shape.file.game]][0]
+        return bone_xf
+
+
+    def find_compatible_arma(self, obj, armatures:list):
+        """Look through the list of armatures and find one that can be used by the shape. 
+
+        For an armature to be compatible with a shape's skin, the bind positions of the
+        bones in the skin have to be the same as the edit positions of the bones in the
+        armature. 
+
+        If there's not a match, it may be that the bind positions were all offset by the 
+        same amount--just a transpose. If so, we could add this transpose to the skin
+        transform and then we can use the same armature.
+
+        Returns (armature, transform-matrix), or None.
+        """
+        shape = self.nodes_loaded[obj.name]
+
         for arma in armatures:
             is_ok = True
+            # skin_xf = self.calc_skin_transform(arma, obj) # TODO: Doing this for a 2nd time.
+            offset_xf = None
+            offset_consistent = True
+            #log.debug(f"Armature skin translation = {skin_xf.translation}")
+
             for b in shape.bone_names:
-                if b in arma.data.bones:
-                    shape_xf = shape.get_shape_skin_to_bone(b).as_matrix()
-                    arma_xf = arma.data.bones[b].matrix_local
-                    is_ok &= XFNearEqual(shape_xf, arma_xf)
-                    if not is_ok:
-                        log.debug(f"Armature mismatch for bone {b}:\n{shape_xf} \n!=\n{arma_xf}")
-                        break
+                blend_name = self.blender_name(b)
+                if blend_name in arma.data.bones:
+                    # shape_bone_xf = self.bone_nif_to_blender(shape, b, skin_xf)
+                    shape_bone_xf = obj.matrix_world @ bind_position(shape, b) # shape.get_shape_skin_to_bone(b).as_matrix()
+                    #shape_xf = skin_xf @ shape.get_shape_skin_to_bone(b).as_matrix().inverted()
+                    # arma_xf = arma.data.bones[blend_name].matrix_local
+                    arma_xf = get_bone_xform(arma, blend_name, shape.file.game, False, False)
+                    LogIfBone(b, f"<find_compatible_arma> Shape {b}: {shape.name} = {shape_bone_xf.translation}")
+                    LogIfBone(b, f"<find_compatible_arma> Armature {blend_name}: {arma.name} = {arma_xf.translation}")
+                    if not MatNearEqual(shape_bone_xf, arma_xf):
+                        is_ok = False
+                        this_offset = shape_bone_xf @ arma_xf 
+                        # log.debug(f"Found offset: {this_offset.translation}")
+                        if offset_xf:
+                            if not MatNearEqual(this_offset, offset_xf):
+                                offset_consistent = False
+                                log.debug(f"Offsets different for {b}: {this_offset.translation} != {offset_xf.translation}")
+                        else:
+                            offset_xf = this_offset
+                    # if not is_ok:
+                    #     #log.debug(f"Armature mismatch for bone {b}:\n{shape_bone_xf} \n!=\n{arma_xf}")
+                    #     break
             if is_ok:
                 log.debug(f"Armature {arma.name} ok for shape {shape.name}")
-                return arma
+                return arma, offset_xf
             # Oops, do it anyway
-            return arma
-        log.debug(f"No armature found for {shape.name}")
-        return None
+            # return arma
+            if False and offset_consistent: ### TODO decide if we can do this
+                log.debug(f"Armature {arma.name} NOT ok, but offset consistent: {offset_xf.translation}")
+                return arma, offset_xf
+            else:
+                log.debug(f"Armature {arma.name} NOT ok, inconsistent offsets")
+                return None, None
+        #log.debug(f"No armature found for {shape.name}")
+        return None, None
 
 
-    def add_bone_to_arma(self, arma, bone_name, nifname):
-        """ Add bone to armature. Bone may come from nif or reference skeleton.
-            name = name to use for the bone in blender 
-            nifname = name the bone has in the nif
-            returns new bone
+    def add_bone_to_arma(self, arma, bone_name:str, nifname:str):
+        """Add bone to armature. Bone may come from nif or reference skeleton.
+        Bind position is set to vanilla bind position if we're extending the skeleton.
+        Otherwise set to the position in the nif. Pose position is not set--do that with
+        set_bone_poses afterwards. Blender gets crashy if this isn't done in a separate
+        step.
+
+        *   bone_name = name to use for the bone in blender 
+        *   nifname = name the bone has in the nif returns new bone
         """
         armdata = arma.data
 
         if bone_name in armdata.edit_bones:
             return None
     
-        # use the transform in the file if there is one; otherwise get the 
-        # transform from the reference skeleton
-        xf = self.nif.get_node_xform_to_global(nifname) 
-        LogIfBone(bone_name, f"<add_bone_to_arma> creating bone {nifname} with position \n{xf}")
-        bone_xform = xf.as_matrix()
-        bone = create_bone(armdata, bone_name, bone_xform, self.nif.game, self.scale)
-        bone['PYN_TRANSFORM'] = bone_xform.to_quaternion()[:] # stash rotation for later (no longer used)
+        # Use the transform from the reference skeleton if we're extending bones; 
+        # otherwise use the one in the file.
+        skel = self.nif.reference_skel
+        if self.create_bones_p and nifname in skel.nodes:
+            LogIfBone(bone_name, f"Creating {bone_name} using reference location")
+            bone_xform = skel.nodes[nifname].xform_to_global.as_matrix()
+            bone = create_bone(armdata, bone_name, bone_xform, self.nif.game, self.scale)
+            # if nifname in self.nif.nodes:
+            #     bpy.ops.object.mode_set(mode = 'POSE')
+            #     bone_xf = self.nif.nodes[nifname].xform_to_global.as_matrix()
+            #     pose_xf = get_pose_blender_xf(bone_xf, self.nif.game, self.scale)
+            #     LogIfBone(nifname, f"Bone '{nifname}' has Blender pose transform: \n{pose_xf}")
+            #     arma.pose.bones[bone_name].matrix = pose_xf
+            #     bpy.ops.object.mode_set(mode = 'EDIT')
+        else:
+            xf = self.nif.get_node_xform_to_global(nifname) 
+            LogIfBone(bone_name, f"<add_bone_to_arma> creating bone {nifname} with position \n{xf}")
+            bone_xform = xf.as_matrix()
+            arma_xf = self.calc_skin_transform(arma)
+            scaled_xf = apply_scale_transl(arma_xf, 1/self.scale)
+            bone = create_bone(armdata, bone_name, scaled_xf @ bone_xform, self.nif.game, self.scale)
+            # bone['PYN_TRANSFORM'] = bone_xform.to_quaternion()[:] # stash rotation for later (no longer used)
 
         return bone
+    
+
+    def set_bone_poses(self, arma, nif:NifFile, bonelist:list):
+        """Set the pose transform of all the given bones. Pose transform is the transform
+        on the NiNode in the nif being imported.
+        *   bonelist = [(nif-name, blender-name), ...]
+        """
+        # bpy.ops.object.mode_set(mode = 'OBJECT')
+        # bpy.ops.object.mode_set(mode = 'POSE')
+        #log.debug(f"<set_bone_poses> using nif {nif.filepath}")
+        for bn, blname in bonelist:
+            if bn in nif.nodes and blname in arma.pose.bones:
+                nif_bone = nif.nodes[bn]
+                if nif_bone.blockname == "NiNode" and nif_bone.name != nif.rootName:
+                    bone_xf = nif_bone.xform_to_global.as_matrix() 
+                    pb_xf = apply_scale_transl(bone_xf, self.scale)
+                    LogIfBone(bn, f"Bone '{bn}' has base transform in nif: \n{bone_xf}")
+                    LogIfBone(bn, f"Bone '{bn}' has pose transform: \n{pb_xf}")
+                    pose_bone = arma.pose.bones[blname]
+                    pbmx = get_pose_blender_xf(bone_xf, self.nif.game, self.scale)
+                    LogIfBone(bn, f"Bone '{bn}' in has Blender pose transform: \n{pbmx}")
+                    pose_bone.matrix = pbmx
+
+
+    def set_all_bone_poses(self, arma, nif:NifFile):
+        """Set all bone pose transforms based on the nif. No reason not to do it once at
+        the end.
+        """
+        bonelist = [(self.nif_name(b.name), b.name) for b in arma.data.bones]
+        self.set_bone_poses(arma, nif, bonelist)
 
 
     def connect_armature(self, arma):
@@ -1282,7 +1492,7 @@ class NifImporter():
                 RENAME_BONES_NIFTOOLS - rename bones to conform with blender conventions
             Returns list of bone nodes with collisions found along the way
             """
-        log.debug(f"<connect_armature> {arma.name}")
+        #log.debug(f"<connect_armature> {arma.name}")
         ObjectActive(arma)
         
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -1291,12 +1501,14 @@ class NifImporter():
         arm_data = arma.data
         arm_data.edit_bones.update()
         bones_to_parent = [b.name for b in arm_data.edit_bones]
+        new_bones = []
         collisions = set()
+        skel = self.nif.reference_skel
 
         i = 0
         while i < len(bones_to_parent): # list will grow while iterating
             bonename = bones_to_parent[i]
-            #log.debug(f"Checking {bonename}")
+            LogIfBone(bonename, f"<connect_armature> checking {bonename}")
             arma_bone = arm_data.edit_bones[bonename]
 
             if arma_bone.parent is None:
@@ -1305,7 +1517,6 @@ class NifImporter():
                 
                 # look for a parent in the nif
                 nifname = self.nif_name(bonename)
-                #log.debug(f"connect_armature looking up {bonename} -> {nifname}")
                 if nifname in self.nif.nodes:
                     thisnode = self.nif.nodes[nifname]
                     if thisnode.collision_object:
@@ -1318,46 +1529,54 @@ class NifImporter():
                         except:
                             parentnifname = niparent.name
                         parentname = self.blender_name(niparent.name)
-                        #log.debug(f"Found parent {parentname}/{niparent.name} for {bonename}/{nifname}")
+                        ##log.debug(f"Found parent {parentname}/{niparent.name} for {bonename}/{nifname}")
 
-                #log.debug(f"connect_armature found {parentname}, creating bones {self.flag_set(pynFlags.CREATE_BONES)}, is facebones {is_facebone(bonename)} ")
-                if parentname is None and self.flag_set(pynFlags.CREATE_BONES) and not is_facebone(bonename):
-                    #log.debug(f"No parent for '{nifname}' in the nif. If it's a known bone, get parent from skeleton")
-                    dict = self.nif.dict.active_dict
-                    if bonename in dict:
-                        #log.debug(f"Found bone in dict: {bonename}")
-                        p = dict[bonename].parent
+                LogIfBone(bonename, f"connect_armature found {parentname}, creating bones {self.create_bones_p}, is facebones {is_facebone(bonename)} ")
+                if parentname is None and self.create_bones_p and not is_facebone(bonename):
+                    ##log.debug(f"No parent for '{nifname}' in the nif. If it's a known bone, get parent from skeleton")
+                    if nifname in skel.nodes:
+                        LogIfBone(bonename, f"Found bone in dict: {bonename}")
+                        p = skel.nodes[nifname].parent
                         if p:
-                            parentname = self.blender_name(p.nif)
-                            parentnifname = p.nif
-                            #log.debug(f"Found parent {parentname} in bone dictionary")
+                            parentname = self.blender_name(p.name)
+                            parentnifname = p.name
+                            LogIfBone(bonename, f"Found parent {parentname} in bone dictionary")
             
                 # if we got a parent from somewhere, hook it up
                 if parentname:
-                    #log.debug(f"Found parent for bone {bonename}: {parentname}/{parentnifname}")
-                    bpy.ops.object.mode_set(mode='POSE')
-                    saved_pose = arma.pose.bones[bonename].matrix.copy()
-                    bpy.ops.object.mode_set(mode='EDIT')
+                    ##log.debug(f"Found parent for bone {bonename}: {parentname}/{parentnifname}")
+                    # Parenting may change transforms, so save the original pose position
+                    # #log.debug(f"Armature {arma.name} has pose bones: {list(arma.pose.bones.keys())}")
+                    # saved_pose = None
+                    # if bonename in arma.pose.bones:
+                    #     saved_pose = arma.pose.bones[bonename].matrix.copy()
                     if parentname not in arm_data.edit_bones:
                         # Add parent bones and put on our list so we can get its parent
                         new_parent = self.add_bone_to_arma(arma, parentname, parentnifname)
-                        #log.debug(f"New parent {parentname} head={new_parent.head} tail={new_parent.tail}")
+                        ##log.debug(f"New parent {parentname} head={new_parent.head} tail={new_parent.tail}")
                         bones_to_parent.append(parentname)  
                         arm_data.edit_bones[bonename].parent = new_parent
+                        new_bones.append((parentnifname, parentname))
                     else:
                         arm_data.edit_bones[bonename].parent = arm_data.edit_bones[parentname]
 
-                    arm_data.edit_bones.update()
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    arma.update_from_editmode()
-                    assert parentname in arma.data.bones, f"Parent {parentname} not in bones {arma.data.bones.keys()}"
-                    bpy.ops.object.mode_set(mode='POSE')
-                    arma.pose.bones[bonename].matrix = saved_pose 
-                    bpy.ops.object.mode_set(mode='EDIT')
-                    assert parentname in arm_data.edit_bones, f"Parent {parentname} not in edit bones {arm_data.edit_bones.keys()}"
-
-
+                    # if saved_pose:
+                    #     arma.pose.bones[bonename].matrix = saved_pose 
             i += 1
+
+        bpy.ops.object.mode_set(mode='OBJECT')
+        arma.update_from_editmode()
+        # self.set_bone_poses(arma, self.nif, new_bones)
+        self.set_all_bone_poses(arma, self.nif)
+        # #log.debug(f"Armature {arma.name} has bones after additions: {arma.data.bones.keys()}")
+        # bpy.ops.object.mode_set(mode='POSE')
+        # #log.debug(f"Armature {arma.name} has pose bones after additions: {list(arma.pose.bones.keys())}")
+        # for bonename in new_bones:
+        #     if bonename in skel.nodes:
+
+        #     arma.pose.bones[bonename].matrix = saved_pose 
+        #     bpy.ops.object.mode_set(mode='EDIT')
+        #     assert parentname in arm_data.edit_bones, f"Parent {parentname} not in edit bones {arm_data.edit_bones.keys()}"
 
         bpy.ops.object.mode_set(mode='OBJECT')
 
@@ -1366,23 +1585,33 @@ class NifImporter():
         return collisions
 
 
-    def add_bones_to_arma(self, arma, bone_names):
-        for bone_game_name in bone_names:
-            name = self.blender_name(bone_game_name)
-            self.add_bone_to_arma(arma, name, bone_game_name)
+    def add_bones_to_arma(self, arma, nif, bone_names):
+        """Add all the bones in the list to the armature"""
+        ObjectSelect([arma])
+        ObjectActive(arma)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.mode_set(mode='EDIT')
+        new_bones = []
+        for bone_nif_name in bone_names:
+            if bone_nif_name != nif.rootName:
+                name = self.blender_name(bone_nif_name)
+                self.add_bone_to_arma(arma, name, bone_nif_name)
+                new_bones.append((bone_nif_name, name))
+        self.set_bone_poses(arma, nif, new_bones)
 
 
     def make_armature(self, the_coll: bpy_types.Collection, name_prefix=""):
-        """Make a Blender armature from the given info. If self.armature is defined, bones 
-        will be added to it instead of creating a new one.
+        """Make a Blender armature from the given info. 
+            
             Inputs:
-                the_coll = Collection to put the armature in. 
-                bone_names = bones to include in the armature.
-                self.armature = existing armature to add the new bones to. May be None.
+            *   the_coll = Collection to put the armature in. 
+            *   bone_names = bones to include in the armature.
+            *   self.armature = existing armature to add the new bones to. May be None.
+            
             Returns: 
-                self.armature = new armature, set as active object
+            * new armature, set as active object
             """
-        log.debug(f"make_armature using niftools names: {self.nif.dict.use_niftools}")
+        #log.debug(f"make_armature using niftools names: {self.nif.dict.use_niftools}")
         arm_data = bpy.data.armatures.new(name_prefix + self.nif.rootName)
         arma = bpy.data.objects.new(self.nif.rootName, arm_data)
         the_coll.objects.link(arma)
@@ -1411,7 +1640,7 @@ class NifImporter():
         if it does, just create an arma modifier.
         """
         if obj.parent:
-            log.debug(f"<connect_to_arma> Connecting {obj.name} to {arma.name}")
+            #log.debug(f"<connect_to_arma> Connecting {obj.name} to {arma.name}")
             ObjectActive(obj)
             i = len(obj.modifiers)
             bpy.ops.object.modifier_add(type='ARMATURE')
@@ -1420,77 +1649,80 @@ class NifImporter():
         else:
             ObjectSelect([obj])
             ObjectActive(arma)
-            log.debug(f"<connect_to_arma> Setting parent of {obj.name} to {arma.name} (with transforms)")
+            #log.debug(f"<connect_to_arma> Setting parent of {obj.name} to {arma.name} (with transforms)")
             bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
 
 
-    def set_parent_arma(self, arma, obj, nif_shape:NiShape):
+    def set_parent_arma(self, arma, obj, nif_shape:NiShape, s2a_xf:Matrix):
         """Set the given armature as parent of the given object.
-        arma - armature to use as parent. May be null, in which case it's created if necessary.
-        obj - skinned shape. Bones it uses are added to the arma at bind position, with the nif location
-            as pose position
-        nif_shape - corresponding shape from the nif
-        returns arma with bones added
+        
+        * arma - armature to use as parent. May be null, in which case it's created if
+          necessary.
+        * obj - skinned shape. Bones it uses are added to the arma at bind position, with
+          the nif location as pose position
+        * nif_shape - corresponding shape from the nif
+        * s2a_xf - additional transform which must be applied to import this shape under
+          this armature (may be None)
+        
+        Returns armature with bones from this shape added
         """
-        log.debug(f"<set_parent_arma> Skinning and parenting object {obj.name} at location {obj.location}")
+        #log.debug(f"<set_parent_arma> Skinning and parenting object {obj.name} at location {obj.location}")
+        if arma is None:
+            arma = self.make_armature(self.collection, "PYN_IMPORT_ARMA.")
 
         # All shapes parented to the same armature need to have the same transform applied
         # for editing. (Puts body parts in a convenient place for editing.) That transform
-        # is stored on the armature.
-        obj_original_xf = Matrix.Identity(4)
-        if arma is None:
-            arma = self.make_armature(self.collection, "PYN_IMPORT_ARMA.")
-            obj_original_xf = obj.matrix_world.copy()
-            arma['PYN_TRANSFORM'] = repr(obj_original_xf)
-            log.debug(f"<set_parent_arma> New armature, using transform from shape {obj.name}")
-        else:
-            try:
-                obj_original_xf = eval(arma['PYN_TRANSFORM'])
-                obj.matrix_world = obj_original_xf.copy()
-                log.debug(f"<set_parent_arma> Using transform from arma {arma.name}: {obj_original_xf.translation}")
-            except:
-                log.debug(f"<set_parent_arma> No transform on {arma.name}, using identity on {obj.name}")
-        #log.debug(f"Object '{obj.name}' has xform \n{obj_original_xf.translation} == {obj.matrix_world.translation}")
-        # Scale up to combine with the skin-to-bone transform--than then gets scaled down again
-        obj_scale_xf = apply_scale_transl(obj_original_xf, 1/self.scale)
+        # is stored on the shape.
+        unscaled_skin_xf = self.calc_skin_transform(arma, obj)
+        log.debug(f"Found skin transform on {obj.name} = {unscaled_skin_xf.translation}")
+        if s2a_xf:
+            # unscaled_skin_xf = s2a_xf @ unscaled_skin_xf
+            unscaled_skin_xf = unscaled_skin_xf.inverted() @ s2a_xf 
 
-        sh = self.nodes_loaded[obj.name]
+        obj.matrix_world = unscaled_skin_xf
+        skin_xf = apply_scale_transl(unscaled_skin_xf, 1/self.scale)
 
         # Create bones reflecting the skin-to-bone transforms of the shape (bind position).
         ObjectActive(arma)
         new_bones = []
         bpy.ops.object.mode_set(mode = 'EDIT')
-        for bn in sh.bone_names:
+        for bn in nif_shape.bone_names:
             blname = self.blender_name(bn)
             if blname not in arma.data.edit_bones:
-                bone_shape_xf = sh.get_shape_skin_to_bone(bn).as_matrix()
-                LogIfBone(bn, f"Bone '{bn}' has shape {obj.name} xform matrix \n{obj_scale_xf}")
+                if self.create_bones_p and bn in self.nif.reference_skel.nodes:
+                    bone_shape_xf = self.nif.reference_skel.nodes[bn].xform_to_global.as_matrix()
+                    xf = bone_shape_xf
+                else:
+                    bone_shape_xf = nif_shape.get_shape_skin_to_bone(bn).as_matrix().inverted()
+                    xf = skin_xf @ bone_shape_xf
+                LogIfBone(bn, f"Bone '{bn}' has shape {obj.name} xform matrix \n{skin_xf}")
                 LogIfBone(bn, f"Bone '{bn}' has skin-to-bone xform matrix \n{bone_shape_xf}")
-                LogIfBone(bn, f"Bone '{bn}' has inverse skin-to-bone xform matrix \n{bone_shape_xf.inverted()}")
-                create_bone(arma.data, blname, obj_scale_xf @ bone_shape_xf.inverted(), self.nif.game, self.scale)
+                LogIfBone(bn, f"Bone '{bn}' has final matrix \n{xf}")
+                create_bone(arma.data, blname, xf, self.nif.game, self.scale)
                 #create_bone(arma.data, blname, bone_shape_xf.inverted(), self.nif.game, self.scale)
                 new_bones.append((bn, blname))
 
         # Do the pose in a separate pass so we don't have to flip between modes.
         bpy.ops.object.mode_set(mode = 'OBJECT')
-        bpy.ops.object.mode_set(mode = 'POSE')
-        for bn, blname in new_bones:
-            nif_bone = self.nif.nodes[bn]
-            bone_xf = nif_bone.xform_to_global.as_matrix() 
-            pb_xf = apply_scale_transl(bone_xf, self.scale)
-            LogIfBone(bn, f"Bone '{bn}' has base transform in nif: \n{bone_xf}")
-            LogIfBone(bn, f"Bone '{bn}' has pose transform: \n{pb_xf}")
-            pose_bone = arma.pose.bones[blname]
-            pbmx = get_pose_blender_xf(bone_xf, self.nif.game, self.scale)
-            LogIfBone(bn, f"Bone '{bn}' has blender pose transform: \n{pbmx}")
-            pose_bone.matrix = pbmx
+        self.set_bone_poses(arma, self.nif, new_bones)
+        # bpy.ops.object.mode_set(mode = 'POSE')
+        # for bn, blname in new_bones:
+        #     nif_bone = self.nif.nodes[bn]
+        #     bone_xf = nif_bone.xform_to_global.as_matrix() 
+        #     pb_xf = apply_scale_transl(bone_xf, self.scale)
+        #     LogIfBone(bn, f"Bone '{bn}' has base transform in nif: \n{bone_xf}")
+        #     LogIfBone(bn, f"Bone '{bn}' has pose transform: \n{pb_xf}")
+        #     pose_bone = arma.pose.bones[blname]
+        #     pbmx = get_pose_blender_xf(bone_xf, self.nif.game, self.scale)
+        #     LogIfBone(bn, f"Bone '{bn}' in has Blender pose transform: \n{pbmx}")
+        #     pose_bone.matrix = pbmx
 
-        log.debug(f"<set_parent_arma> Setting parent of {obj.name} to {arma.name} (with transforms)")
+        #log.debug(f"<set_parent_arma> Setting parent of {obj.name} to {arma.name} (with transforms)")
         bpy.ops.object.mode_set(mode = 'OBJECT')
 
-        for b in TEST_TARGET_BONE:
-            if b in arma.pose.bones:
-                log.debug(f"Bone {b} is posed at \n{arma.pose.bones[b].matrix}")
+        # for b in TEST_TARGET_BONE:
+        #     if b in arma.pose.bones:
+                #log.debug(f"Bone {b} is posed at \n{arma.pose.bones[b].matrix}")
 
         ObjectSelect([obj])
         ObjectActive(arma)
@@ -1507,7 +1739,7 @@ class NifImporter():
                 ObjectActive(obj)
                 # Freeze the mesh at the posed locations
                 bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-                log.debug(f"Applying modifier {obj.modifiers[0].name}")
+                #log.debug(f"Applying modifier {obj.modifiers[0].name}")
                 bpy.ops.object.modifier_apply(modifier=obj.modifiers[0].name)
 
                 # Reparent the mesh to the target armature
@@ -1557,7 +1789,7 @@ class NifImporter():
               [dx, -dy, dz],
               [dx, -dy, -dz],
               [dx, dy, -dz] ]
-        #log.debug(f"Creating shape with vertices: {v}")
+        ##log.debug(f"Creating shape with vertices: {v}")
         m.from_pydata(v, [], 
                       [ (0, 1, 2, 3), 
                         (4, 5, 6, 7),
@@ -1579,7 +1811,7 @@ class NifImporter():
         p1 = Vector(prop.point1)
         p2 = Vector(prop.point2)
         vaxis = p2 - p1
-        log.debug(f"Creating capsule shape between {p1} and {p2}")
+        #log.debug(f"Creating capsule shape between {p1} and {p2}")
         shapelen = vaxis.length * HAVOC_SCALE_FACTOR * self.scale
         shaperad = prop.radius1 * HAVOC_SCALE_FACTOR * self.scale
 
@@ -1660,7 +1892,7 @@ class NifImporter():
 
     def import_collision_shape(self, cs:CollisionShape, cb:bpy_types.Object):
         sh = None
-        log.debug(f"Found collision shape {cs.blockname}")
+        #log.debug(f"Found collision shape {cs.blockname}")
         if cs.blockname == "bhkBoxShape":
             sh = self.import_bhkBoxShape(cs, cb)
         elif cs.blockname == "bhkConvexVerticesShape":
@@ -1694,16 +1926,16 @@ class NifImporter():
         cbody.name = cb.blockname
         cbody.show_name = True
         self.incr_loc
-        log.debug(f"Made collision body {cb.blockname} at {cbody.location}")
+        #log.debug(f"Made collision body {cb.blockname} at {cbody.location}")
 
         p = cb.properties
         p.extract(cbody, ignore=self.collision_body_ignore)
 
         # The rotation in the nif is a quaternion with the angle in the 4th position, in radians
-        # log.debug(f"Found collision body with properties:\n{p}")
+        # #log.debug(f"Found collision body with properties:\n{p}")
         if cb.blockname == "bhkRigidBodyT":
             cbody.rotation_mode = 'QUATERNION'
-            log.debug(f"Rotating collision body around quaternion {(p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2])}")
+            #log.debug(f"Rotating collision body around quaternion {(p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2])}")
             cbody.rotation_quaternion = (p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2], )
             cbody.location = Vector(p.translation[0:3]) * HAVOC_SCALE_FACTOR * self.scale
 
@@ -1711,7 +1943,7 @@ class NifImporter():
         if cs:
             self.import_collision_shape(cs, cbody)
 
-        log.debug(f"Found collision body {cb.blockname} at {cbody.location}")
+        #log.debug(f"Found collision body {cb.blockname} at {cbody.location}")
 
 
     def import_collision_obj(self, c:CollisionObject, parentObj=None, bone=None):
@@ -1719,7 +1951,7 @@ class NifImporter():
         If target is a bone, parent is armature and "bone" is bone name.
         Returns new collision object.
         """
-        log.debug(f"<import_collision_obj> for {parentObj}")
+        #log.debug(f"<import_collision_obj> for {parentObj}")
         col = None
         bpy.ops.object.mode_set(mode='OBJECT')
         if c.blockname == "bhkCollisionObject":
@@ -1733,7 +1965,7 @@ class NifImporter():
             if parentObj:
                 col.parent = parentObj
                 if parentObj.type == "ARMATURE":
-                    col.matrix_world = get_node_transform(bone, scale_factor=self.scale)
+                    col.matrix_world = self.get_node_transform(bone, scale_factor=self.scale)
                     col['pynCollisionTarget'] = bone.name
 
             cb = c.body
@@ -1760,49 +1992,52 @@ class NifImporter():
         for s in self.nif.shapes:
             #if not self.mesh_only:
             #    for n in s.bone_names: 
-            #        #log.debug(f"....adding bone {n} for {s.name}")
+            #        ##log.debug(f"....adding bone {n} for {s.name}")
             #        self.bones.add(n) 
-            #    #XXX must put niftools flag here
+            #    #TODO must put niftools flag here
             if self.nif.game in ['FO4', 'FO76'] and is_facebones(s.bone_names):
-                log.debug(f"Setting import to use FO4's face dict'")
+                #log.debug(f"Setting import to use FO4's face dict'")
                 self.nif.dict = fo4FaceDict
             self.nif.dict.use_niftools = self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS)
             self.import_shape(s)
 
-        log.debug(f"Objects created on this import: {self.objects_created}")
+        #log.debug(f"Objects created on this import: {self.objects_created}")
         for obj in self.loaded_meshes:
             if not obj.name in self.collection.objects:
-                log.debug(f"...Adding object {obj.name} to collection {self.collection.name}")
                 self.collection.objects.link(obj)
 
         if not self.mesh_only:
             # Import armature
             orphan_shapes = set(self.objects_created.values())
             if len(self.nif.shapes) == 0:
-                log.debug(f"No shapes in nif, importing bones as skeleton")
+                #log.debug(f"No shapes in nif, importing bones as skeleton")
                 if not self.armature:
                     self.armature = self.make_armature(self.collection)
-                self.add_bones_to_arma(self.armature, set(self.nif.nodes.keys()))
+                self.add_bones_to_arma(self.armature, self.nif, self.nif.nodes.keys())
                 self.connect_armature(self.armature)
             else:
-                log.debug(f"Found shapes in nif, creating armature if necessary")
+                #log.debug(f"Found shapes in nif, creating armature if necessary")
                 # List of armatures available for shapes
                 if self.armature:
                     self.imported_armatures = [self.armature] 
 
-                for obj in self.loaded_meshes:
-                    sh = self.nodes_loaded[obj.name]
-                    if sh.has_skin_instance:
-                        target_arma = self.find_compatible_arma(sh, self.imported_armatures)
-                        if self.flag_set(pynFlags.APPLY_SKINNING):
-                            new_arma = self.set_parent_arma(target_arma, obj, sh)
+                if self.flag_set(pynFlags.APPLY_SKINNING):
+                    for obj in self.loaded_meshes:
+                        sh = self.nodes_loaded[obj.name]
+                        if sh.has_skin_instance:
+                            target_arma, target_xf = self.find_compatible_arma(obj, self.imported_armatures)
+                            self.armature = target_arma
+                            new_arma = self.set_parent_arma(target_arma, obj, sh, target_xf) #target_xf)
                             if not target_arma:
                                 self.imported_armatures.append(new_arma)
+                                self.armature = new_arma
                             orphan_shapes.remove(obj)
                 for arma in self.imported_armatures:
+                    if self.create_bones_p:
+                        self.add_bones_to_arma(arma, self.nif, self.nif.nodes.keys())
                     self.connect_armature(arma)
     
-            # Import loose NiNodes 
+            # Gather up any NiNodes that weren't captured any other way 
             self.import_loose_ninodes(self.nif)
 
             # Import nif-level extra data
@@ -1825,7 +2060,7 @@ class NifImporter():
            If filenames follow PyNifly's naming conventions, create a shape key for the 
            base shape and rename the shape keys appropriately
         """
-        log.debug(f"merge_shapes({filename}, {new_filename})")
+        #log.debug(f"merge_shapes({filename}, {new_filename})")
 
         # Can name shape keys to our convention if they end with underscore-something and everything
         # before the underscore is the same
@@ -1835,7 +2070,7 @@ class NifImporter():
         obj_shape_name = '_' + fn_parts[-1]
 
         for obj, newobj in zip(obj_list, new_obj_list):
-            log.debug(f"Joining {newobj.name} into {obj.name} as shape key")
+            #log.debug(f"Joining {newobj.name} into {obj.name} as shape key")
             ObjectSelect([obj, newobj])
             ObjectActive(obj)
 
@@ -1884,9 +2119,9 @@ class NifImporter():
         prior_vertcounts = []
         prior_fn = ''
 
-        log.debug(f"Active object is {bpy.context.object}")
-        if bpy.context.object:
-            log.debug(f"Active object is selected: {bpy.context.object.select_get()}")
+        #log.debug(f"Active object is {bpy.context.object}")
+        #if bpy.context.object:
+            #log.debug(f"Active object is selected: {bpy.context.object.select_get()}")
         # Only use the active object if it's selected. Too confusing otherwise.
         if bpy.context.object and bpy.context.object.select_get():
             if bpy.context.object.type == "ARMATURE":
@@ -1909,7 +2144,7 @@ class NifImporter():
             this_vertcounts = [len(s.verts) for s in self.nif.shapes]
             if self.flag_set(pynFlags.IMPORT_SHAPES):
                 if len(this_vertcounts) > 0 and this_vertcounts == prior_vertcounts:
-                    log.debug(f"Vert count of all shapes in nif match shapes in prior nif. They will be loaded as a single shape with shape keys")
+                    #log.debug(f"Vert count of all shapes in nif match shapes in prior nif. They will be loaded as a single shape with shape keys")
                     prior_shapes = self.loaded_meshes
             
             self.loaded_meshes = []
@@ -1917,7 +2152,7 @@ class NifImporter():
             self.import_nif()
 
             if prior_shapes:
-                #log.debug(f"Merging shapes: {[s.name for s in prior_shapes]} << {[s.name for s in self.loaded_meshes]}")
+                ##log.debug(f"Merging shapes: {[s.name for s in prior_shapes]} << {[s.name for s in self.loaded_meshes]}")
                 self.merge_shapes(prior_fn, prior_shapes, fn, self.loaded_meshes)
                 self.loaded_meshes = prior_shapes
             else:
@@ -1994,8 +2229,8 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         LogStart("IMPORT", "NIF")
         status = {'FINISHED'}
 
-        log.debug(f"Filepaths are {[f.name for f in self.files]}")
-        log.debug(f"Filepath is {self.filepath}")
+        #log.debug(f"Filepaths are {[f.name for f in self.files]}")
+        #log.debug(f"Filepath is {self.filepath}")
 
         flags = pynFlags(0)
         if self.create_bones:
@@ -2022,7 +2257,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 fullfiles = [os.path.join(folderpath, f.name) for f in self.files]
             else:
                 fullfiles = [self.filepath]
-            NifImporter.do_import(fullfiles, flags, scale=self.scale_factor)
+            imp = NifImporter.do_import(fullfiles, flags, scale=self.scale_factor)
         
             for area in bpy.context.screen.areas:
                 if area.type == 'VIEW_3D':
@@ -2031,15 +2266,21 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                     ctx['region'] = area.regions[-1]
                     bpy.ops.view3d.view_selected(ctx)
 
-            LogFinish("IMPORT", self.files, status, False)
+
+            status = set()
+            for w in imp.warnings:
+                status.add(w[0])
+                self.report({w[0]}, w[1])
+
+            LogFinish("IMPORT", fullfiles, status, False)
 
         except:
             log.exception("Import of nif failed")
             self.report({"ERROR"}, "Import of nif failed, see console window for details")
             status = {'CANCELLED'}
-            LogFinish("IMPORT", self.files, status, True)
+            LogFinish("IMPORT", fullfiles, status, True)
                 
-        return status
+        return {'FINISHED'}
 
 
 # ### ---------------------------- TRI Files -------------------------------- ###
@@ -2049,7 +2290,7 @@ def create_shape_keys(obj, tri: TriFile):
         """
     mesh = obj.data
     if mesh.shape_keys is None:
-        log.debug(f"Adding first shape key to {obj.name}")
+        #log.debug(f"Adding first shape key to {obj.name}")
         newsk = obj.shape_key_add()
         mesh.shape_keys.use_relative=True
         newsk.name = "Basis"
@@ -2147,10 +2388,10 @@ def import_tri(filepath, cobj):
 
     new_object = None
 
-    if cobj:
-        log.debug(f"Importing with selected object {cobj.name}, type {cobj.type}")
-        if cobj.type == "MESH":
-            log.debug(f"Selected mesh vertex match: {cobj.name} {len(cobj.data.vertices)} =? {len(tri.vertices)}")
+    #if cobj:
+        #log.debug(f"Importing with selected object {cobj.name}, type {cobj.type}")
+        #if cobj.type == "MESH":
+            #log.debug(f"Selected mesh vertex match: {cobj.name} {len(cobj.data.vertices)} =? {len(tri.vertices)}")
 
     # Check whether selected object should receive shape keys
     if cobj and cobj.type == "MESH" and len(cobj.data.vertices) == len(tri.vertices):
@@ -2216,7 +2457,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
                 # Have a TRIP file
                 imp = f"IMPORT TRIP {list(s)}"
             status = status.union(v)
-            log.debug(f"Imported tri/trip, got status {status}")
+            #log.debug(f"Imported tri/trip, got status {status}")
         
             for area in bpy.context.screen.areas:
                 if area.type == 'VIEW_3D':
@@ -2262,7 +2503,7 @@ def check_partitions(vi1, vi2, vi3, weights):
     p1 = set([k for k in weights[vi1].keys() if is_partition(k)])
     p2 = set([k for k in weights[vi2].keys() if is_partition(k)])
     p3 = set([k for k in weights[vi3].keys() if is_partition(k)])
-    log.debug(f"Checking tri: {p1}, {p2}, {p3}")
+    #log.debug(f"Checking tri: {p1}, {p2}, {p3}")
     return len(p1.intersection(p2, p3)) > 0
 
 
@@ -2270,12 +2511,12 @@ def trim_to_four(weights, arma):
     """ Trim to the 4 heaviest weights in the armature
         weights = [(group_name: weight), ...] """
     if arma:
-        #log.debug(f"Trimming to 4 on armature {arma.name}")
+        ##log.debug(f"Trimming to 4 on armature {arma.name}")
         lst = filter(lambda p: p[0] in arma.data.bones, weights)
-        #log.debug(f"Arma weights: {lst}")
+        ##log.debug(f"Arma weights: {lst}")
         notlst = filter(lambda p: p[0] not in arma.data.bones, weights)
         sd = sorted(lst, reverse=True, key=lambda item: item[1])[0:4]
-        #log.debug(f"Arma weights sorted: {sd}")
+        ##log.debug(f"Arma weights sorted: {sd}")
         sd.extend(notlst)
         #if len(sd) != len(weights):
         #    log.info(f"Trimmed weights to {sd}")
@@ -2287,6 +2528,7 @@ def trim_to_four(weights, arma):
 def has_uniform_scale(obj):
     """ Determine whether an object has uniform scale """
     return NearEqual(obj.scale[0], obj.scale[1]) and NearEqual(obj.scale[1], obj.scale[2])
+
 
 def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0):
     """Returns 3 lists of equal length with one entry each for each vertex
@@ -2306,11 +2548,11 @@ def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0):
         sf = obj.scale
 
     if target_key != '' and msk and target_key in msk.key_blocks.keys():
-        log.debug(f"....exporting shape {target_key} only")
+        #log.debug(f"....exporting shape {target_key} only")
         verts = [(v.co * sf / scale_factor)[:] for v in msk.key_blocks[target_key].data]
     else:
         verts = [(v.co * sf / scale_factor)[:] for v in mesh.vertices]
-    #log.debug(f"extract_vert_info max z is {max([v[2] for v in verts])}")
+    ##log.debug(f"extract_vert_info max z is {max([v[2] for v in verts])}")
 
     for i, v in enumerate(mesh.vertices):
         vert_weights = []
@@ -2334,7 +2576,7 @@ def tag_unweighted(obj, bones):
     """ Find and return verts that are not weighted to any of the given bones 
         result = (v_index, ...) list of indices into the vertex list
     """
-    log.debug(f"..Checking for unweighted verts on {obj.name}")
+    #log.debug(f"..Checking for unweighted verts on {obj.name}")
     unweighted_verts = []
     for v in obj.data.vertices:
         maxweight = 0.0
@@ -2342,7 +2584,7 @@ def tag_unweighted(obj, bones):
             maxweight = max([g.weight for g in v.groups])
         if maxweight < 0.0001:
             unweighted_verts.append(v.index)
-    log.debug(f"..Unweighted vert count: {len(unweighted_verts)}")
+    #log.debug(f"..Unweighted vert count: {len(unweighted_verts)}")
     return unweighted_verts
 
 
@@ -2416,7 +2658,7 @@ def partitions_from_vert_groups(obj):
             else:
                 segid = FO4Segment.name_match(vg.name)
                 if segid >= 0:
-                    #log.debug(f"Found FO4Segment '{vg.name}'")
+                    ##log.debug(f"Found FO4Segment '{vg.name}'")
                     val[vg.name] = FO4Segment(part_id=len(val), index=segid, name=vg.name)
                 else:
                     # Check if this is a subsegment. All segs sort before their subsegs, 
@@ -2425,10 +2667,10 @@ def partitions_from_vert_groups(obj):
                     if parent_name:
                         if not parent_name in val:
                             # Create parent segments if not there
-                            log.debug(f"Subseg {vg.name} needs parent {parent_name}; existing parents are {val.keys()}")
+                            #log.debug(f"Subseg {vg.name} needs parent {parent_name}; existing parents are {val.keys()}")
                             val[parent_name] = FO4Segment(len(val), 0, parent_name)
                         p = val[parent_name]
-                        #log.debug(f"Found FO4Subsegment '{vg.name}' child of '{parent_name}'")
+                        ##log.debug(f"Found FO4Subsegment '{vg.name}' child of '{parent_name}'")
                         val[vg.name] = FO4Subsegment(len(val), subseg_id, material, p, name=vg.name)
     
     return val
@@ -2473,16 +2715,16 @@ def get_loop_color(mesh, loopindex, cm, am):
         am = alpha map to use """
     ### This routine crashes on the TEST_COLLISION_MULTI test. One of the leeks
     ### causes a crash on the color table. 
-    log.debug(f"Calling get_loop_color with {mesh}, {loopindex}, {cm}:{len(cm)}, {am}:{len(am)}")
-    log.debug(f"Test color: {cm[5].color[:]}")
+    #log.debug(f"Calling get_loop_color with {mesh}, {loopindex}, {cm}:{len(cm)}, {am}:{len(am)}")
+    #log.debug(f"Test color: {cm[5].color[:]}")
     vc = mesh.vertex_colors
     alpha = 1.0
     color = (1.0, 1.0, 1.0)
     if cm:
-        log.debug( f"Loop index less than color length {loopindex} < {len(cm)}")
+        #log.debug( f"Loop index less than color length {loopindex} < {len(cm)}")
         color = cm[loopindex].color
     if am:
-        log.debug(f"Loop index less than alpha length {loopindex} < {len(am)}")
+        #log.debug(f"Loop index less than alpha length {loopindex} < {len(am)}")
         acolor = am[loopindex].color
         alpha = (acolor[0] + acolor[1] + acolor[2])/3
 
@@ -2493,7 +2735,7 @@ def mesh_from_key(editmesh, verts, target_key):
     faces = []
     for p in editmesh.polygons:
         faces.append([editmesh.loops[lpi].vertex_index for lpi in p.loop_indices])
-    log.debug(f"....Remaking mesh with shape {target_key}: {len(verts)} verts, {len(faces)} faces")
+    #log.debug(f"....Remaking mesh with shape {target_key}: {len(verts)} verts, {len(faces)} faces")
     newverts = [v.co[:] for v in editmesh.shape_keys.key_blocks[target_key].data]
     newmesh = bpy.data.meshes.new(editmesh.name)
     newmesh.from_pydata(newverts, [], faces)
@@ -2503,7 +2745,7 @@ def mesh_from_key(editmesh, verts, target_key):
 def get_common_shapes(obj_list) -> set:
     """Return the shape keys found in any of the given objects """
     res = None
-    log.debug(f"Checking shape keys on {obj_list}")
+    #log.debug(f"Checking shape keys on {obj_list}")
     for obj in obj_list:
         o_shapes = set()
         if obj.data.shape_keys:
@@ -2630,7 +2872,7 @@ class NifExporter:
                 if obj.parent and obj.parent.type == 'ARMATURE':
                     self.add_object(obj.parent)
                 arma, fb_arma = find_armatures(obj)
-                log.debug(f"Found armatures from obj {arma}, {fb_arma}")
+                #log.debug(f"Found armatures from obj {arma}, {fb_arma}")
                 if arma:
                     self.add_armature(arma)
                 if fb_arma:
@@ -2698,7 +2940,7 @@ class NifExporter:
         """
         result = {'FINISHED'}
 
-        #log.debug(f"export_tris called with {morphdict.keys()}")
+        ##log.debug(f"export_tris called with {morphdict.keys()}")
 
         if obj.data.shape_keys is None or len(morphdict) == 0:
             return result
@@ -2727,7 +2969,7 @@ class NifExporter:
             result = {'WARNING'}
 
         if len(expression_morphs) > 0:
-            #log.debug(f"....Exporting expressions {expression_morphs}")
+            ##log.debug(f"....Exporting expressions {expression_morphs}")
             tri = TriFile()
             tri.vertices = verts
             tri.faces = tris
@@ -2803,13 +3045,13 @@ class NifExporter:
             self.nif.cloth_data = cdlist 
 
         if self.bsx_flag:
-            log.debug(f"Exporting BSXFlags node")
+            #log.debug(f"Exporting BSXFlags node")
             self.nif.bsx_flags = [self.bsx_flag['BSXFlags_Name'],
                                   BSXFlags.parse(self.bsx_flag['BSXFlags_Value'])]
             self.objs_written[self.bsx_flag.name] = self.nif
 
         if self.inv_marker:
-            log.debug(f"Exporting BSInvMarker node")
+            #log.debug(f"Exporting BSInvMarker node")
             self.nif.inventory_marker = [self.inv_marker['BSInvMarker_Name'], 
                                          self.inv_marker['BSInvMarker_RotX'], 
                                          self.inv_marker['BSInvMarker_RotY'], 
@@ -2844,7 +3086,7 @@ class NifExporter:
             buf.translation[2] = cp.location[2]
             buf.rotation[0], buf.rotation[1], buf.rotation[2], buf.rotation[3] = cp.rotation_quaternion[:]
             buf.scale = cp.scale[0] / CONNECT_POINT_SCALE
-            #log.debug(f"PARENT\n{buf}\n{cp.rotation_quaternion}")
+            ##log.debug(f"PARENT\n{buf}\n{cp.rotation_quaternion}")
             connect_par.append(buf)
         if connect_par:
             self.nif.connect_points_parent = connect_par
@@ -2852,10 +3094,10 @@ class NifExporter:
         child_names = []
         for cp in self.connect_child:
             self.nif.connect_pt_child_skinned = cp['PYN_CONNECT_CHILD_SKINNED']
-            #log.debug(f"Extending child names with {[cp[x] for x in cp.keys() if x != 'PYN_CONNECT_CHILD_SKINNED' and x.startswith('PYN_CONNECT_CHILD')]}")
+            ##log.debug(f"Extending child names with {[cp[x] for x in cp.keys() if x != 'PYN_CONNECT_CHILD_SKINNED' and x.startswith('PYN_CONNECT_CHILD')]}")
             child_names.extend([cp[x] for x in cp.keys() if x != 'PYN_CONNECT_CHILD_SKINNED' and x.startswith('PYN_CONNECT_CHILD')])
         if child_names:
-            #log.debug(f"Writing connect point children: {child_names}")
+            ##log.debug(f"Writing connect point children: {child_names}")
             self.nif.connect_points_child = child_names
 
 
@@ -2895,7 +3137,7 @@ class NifExporter:
         props.point2[1] = (miny / HAVOC_SCALE_FACTOR) / self.scale
         props.point2[2] = ((minz+halfspanz) / HAVOC_SCALE_FACTOR) / self.scale
         cshape = self.nif.add_coll_shape("bhkCapsuleShape", props)
-        log.debug(f"Created capsule collision shape at {props.point1[:]}, {props.point2[:]}, radius {props.bhkRadius}")
+        #log.debug(f"Created capsule collision shape at {props.point1[:]}, {props.point2[:]}, radius {props.bhkRadius}")
 
         return cshape, center
 
@@ -2932,7 +3174,7 @@ class NifExporter:
             if 'radius' not in s.keys():
                 p.bhkRadius = (max(halfspanx, halfspany, halfspanz) / HAVOC_SCALE_FACTOR) / self.scale
             cshape = self.nif.add_coll_shape("bhkBoxShape", p)
-            log.debug(f"Created collision shape with dimensions {p.bhkDimensions[:]}")
+            #log.debug(f"Created collision shape with dimensions {p.bhkDimensions[:]}")
         except:
             log.exception(f"Cannot create collision shape from {s.name}")
             self.warnings.add('WARNING')
@@ -2982,7 +3224,7 @@ class NifExporter:
         havocxf.translation = (havocxf.translation / HAVOC_SCALE_FACTOR) / self.scale
         cshape = self.nif.add_coll_shape("bhkConvexTransformShape", 
                                          props, transform=havocxf)
-        log.debug(f"Exporting bhkConvexTransformShape with material {props.bhkMaterial}")
+        #log.debug(f"Exporting bhkConvexTransformShape with material {props.bhkMaterial}")
         cshape.child = childnode
         return cshape, xform.translation
 
@@ -3028,20 +3270,20 @@ class NifExporter:
 
         if targ.type == 'ARMATURE':
             targname = collisionobj['pynCollisionTarget']
-            log.debug(f"Finding target bone: {targname}")
+            #log.debug(f"Finding target bone: {targname}")
             targbone = targ.data.bones[targname]
             mx = get_bone_xform(targ, targname, self.game, 
                                 self.flag_set(pynFlags.PRESERVE_HIERARCHY),
                                 self.flag_set(pynFlags.EXPORT_POSE)
                                 )
 
-            log.debug(f"Found collision target bone {targbone} loc {mx.translation}")
-            log.debug(f"Found collision target bone {targbone} rot {mx.to_euler()}")
+            #log.debug(f"Found collision target bone {targbone} loc {mx.translation}")
+            #log.debug(f"Found collision target bone {targbone} rot {mx.to_euler()}")
 
             return mx
 
         mx = targ.matrix_world.copy()
-        log.debug(f"Using parent object: {targ.name}")
+        #log.debug(f"Using parent object: {targ.name}")
         return mx
 
 
@@ -3066,7 +3308,7 @@ class NifExporter:
                 xform = targxfi @ xform
 
             cshape, ctr = self.export_collision_shape(b.children, xform)
-            #log.debug(f"Collision Center: {ctr}")
+            ##log.debug(f"Collision Center: {ctr}")
 
             if cshape:
                 # Coll body can be anywhere. What matters is the location of the collision 
@@ -3083,29 +3325,29 @@ class NifExporter:
                 props.rotation[1] = targq.y
                 props.rotation[2] = targq.z
                 props.rotation[3] = targq.w
-                #log.debug(f"Target rotation: {targq.w}, {targq.x}, {targq.y}, {targq.z}")
+                ##log.debug(f"Target rotation: {targq.w}, {targq.x}, {targq.y}, {targq.z}")
 
                 rv = ctr - targloc
-                #log.debug(f"Target to center: {rv}")
+                ##log.debug(f"Target to center: {rv}")
                 if blockname == 'bhkRigidBodyT':
                     rv.rotate(targq)
-                #log.debug(f"Target to center rotated: {rv}")
+                ##log.debug(f"Target to center rotated: {rv}")
                 # rv = bodq.invert().rotate(rv)
 
                 props.translation[0] = ((rv.x) / HAVOC_SCALE_FACTOR) / self.scale
                 props.translation[1] = ((rv.y) / HAVOC_SCALE_FACTOR) / self.scale
                 props.translation[2] = ((rv.z) / HAVOC_SCALE_FACTOR) / self.scale
                 props.translation[3] = 0
-                log.debug(f"In havoc units: {rv / HAVOC_SCALE_FACTOR}")
+                #log.debug(f"In havoc units: {rv / HAVOC_SCALE_FACTOR}")
 
-                log.debug(f"Writing collision body with translation: {props.translation[:]} and rotation {props.rotation[:]}")
+                #log.debug(f"Writing collision body with translation: {props.translation[:]} and rotation {props.rotation[:]}")
 
                 body = self.nif.add_rigid_body(blockname, props, cshape)
         return body
 
     def export_collisions(self, objlist):
         """ Export all the collisions in objlist. (Should be only one.) Apply the skin first so bones are available. """
-        log.debug("Writing collisions")
+        #log.debug("Writing collisions")
         for coll in objlist:
             body = self.export_collision_body(coll.children, coll)
             if body:
@@ -3119,13 +3361,13 @@ class NifExporter:
                         ### self.nif._nodes = None ### Might have added nodes 
                         targnode = self.nif.nodes[targname]
                     else:
-                        log.debug(f"Exporting collision {coll.name}, exported objects are {self.objs_written.keys()}")
+                        #log.debug(f"Exporting collision {coll.name}, exported objects are {self.objs_written.keys()}")
                         if p.name not in self.objs_written:
                             targnode = self.export_shape_parents(coll)
                         else:
                             targnode = self.objs_written[p.name]
 
-                    log.debug(f"Writing collision object {coll.name} under {targnode}")
+                    #log.debug(f"Writing collision object {coll.name} under {targnode}")
                     self.nif.add_collision(targnode, targnode, body, 
                             bhkCOFlags.parse(coll['pynCollisionFlags']).value)
                     self.objs_written[coll.name] = targnode
@@ -3179,7 +3421,7 @@ class NifExporter:
         for f in mesh.polygons:
             for i in f.loop_indices:
                 orig_uvs.append(uvlayer[i].uv[:])
-                #log.debug(f"....Adding uv index {uvlayer[i].uv[:]}")
+                ##log.debug(f"....Adding uv index {uvlayer[i].uv[:]}")
 
         # CANNOT figure out how to get the loop normals correctly.  They seem to follow the
         # face normals even on smooth shading.  (TEST_NORMAL_SEAM tests for this.) So use the
@@ -3209,13 +3451,13 @@ class NifExporter:
             else:
                 if obj_partitions and len(obj_partitions) > 0:
                     loop_partition = self.get_loop_partitions(f, mesh.loops, weights)
-                #log.debug(f"Writing verts for polygon start={f.loop_start}, total={f.loop_total}, partition={loop_partition}")
+                ##log.debug(f"Writing verts for polygon start={f.loop_start}, total={f.loop_total}, partition={loop_partition}")
                 l0 = mesh.loops[f.loop_start]
                 l1 = mesh.loops[f.loop_start+1]
                 for i in range(f.loop_start+2, f.loop_start+f.loop_total):
                     loopseg = mesh.loops[i]
 
-                    #log.debug(f"Writing triangle: [{l0.vertex_index}, {l1.vertex_index}, {loopseg.vertex_index}]")
+                    ##log.debug(f"Writing triangle: [{l0.vertex_index}, {l1.vertex_index}, {loopseg.vertex_index}]")
                     write_loop_vert(l0)
                     write_loop_vert(l1)
                     write_loop_vert(loopseg)
@@ -3225,10 +3467,10 @@ class NifExporter:
                         else:
                             log.warning(f"Writing first partition for face without partitions {obj_partitions}")
                             partition_map.append(next(iter(obj_partitions.values())).id)
-                    #log.debug(f"Created tri with partition {loop_partition}")
+                    ##log.debug(f"Created tri with partition {loop_partition}")
                     l1 = loopseg
 
-        #log.debug(f"extract_face_info: loops = {loops[0:9]}")
+        ##log.debug(f"extract_face_info: loops = {loops[0:9]}")
         return loops, uvs, norms, colors, partition_map
 
 
@@ -3241,9 +3483,9 @@ class NifExporter:
                 partitions = list of partition objects
                 tri_indices = list of paritition indices, 1:1 with the shape's tri list
         """
-        log.debug(f"..Exporting partitions")
+        #log.debug(f"..Exporting partitions")
         partitions = partitions_from_vert_groups(obj)
-        #log.debug(f"....Found partitions {list(partitions.keys())}")
+        ##log.debug(f"....Found partitions {list(partitions.keys())}")
 
         if len(partitions) == 0:
             return [], []
@@ -3264,7 +3506,7 @@ class NifExporter:
                     self.warnings.add('MANY_PARITITON')
                     self.objs_mult_part.add(obj)
                     create_group_from_verts(obj, MULTIPLE_PARTITION_GROUP, t)
-                    # log.debug(f"Number of verts in multiple partitions: {len(obj.vertex_groups[MULTIPLE_PARTITION_GROUP])}")
+                    # #log.debug(f"Number of verts in multiple partitions: {len(obj.vertex_groups[MULTIPLE_PARTITION_GROUP])}")
 
                 # Triangulation may put some tris in two partitions. Just choose one--
                 # exact division doesn't matter (if it did user should have put in an edge)
@@ -3275,7 +3517,7 @@ class NifExporter:
                 self.objs_no_part.add(obj)
                 create_group_from_verts(obj, NO_PARTITION_GROUP, t)
 
-        #log.debug(f"Partitions for export: {partitions.keys()}, {tri_indices[0:20]}")
+        ##log.debug(f"Partitions for export: {partitions.keys()}, {tri_indices[0:20]}")
         return list(partitions.values()), tri_indices
 
 
@@ -3308,7 +3550,7 @@ class NifExporter:
             colormapname = vc.active.name
             colorlen = len(colormap)
 
-        log.debug(f"...Writing vertex colors from map {colormapname}, vertex alpha from {alphamapname}")
+        #log.debug(f"...Writing vertex colors from map {colormapname}, vertex alpha from {alphamapname}")
         loopcolors = [(0.0, 0.0, 0.0, 0.0)] * colorlen
         for i in range(0, colorlen):
             if colormap:
@@ -3398,7 +3640,7 @@ class NifExporter:
         
             colors_new = None
             if len(loopcolors) > 0:
-                log.debug(f"Exporting vertex colors for shape {obj.name}")
+                #log.debug(f"Exporting vertex colors for shape {obj.name}")
                 colors_new = [(0.0, 0.0, 0.0, 0.0)] * len(verts)
                 for i, lp in enumerate(loops):
                     colors_new[lp] = loopcolors[i]
@@ -3423,7 +3665,7 @@ class NifExporter:
         while p:
             ancestors.insert(0, p)
             p = p.parent
-        log.debug(f"Shape {obj.name} has parents {ancestors}")
+        #log.debug(f"Shape {obj.name} has parents {ancestors}")
 
         last_parent = None
         ninode = None
@@ -3434,10 +3676,9 @@ class NifExporter:
                     last_parent = ninode
                 else:
                     xf = TransformBuf.from_matrix(apply_scale_xf(p.matrix_local, 1/self.scale))
-                    if p.name in TEST_TARGET_BONE:
-                        log.debug(f"Writing transform for parent node {p.name}:\n{xf}")
+                    #LogIfBone(p.name, f"Writing transform for parent node {p.name}:\n{xf}")
                     ninode = self.nif.add_node(p.name, xf, last_parent)
-                    log.debug(f"Writing shape parent {p.name} as {ninode.name} with parent {last_parent.name if last_parent else '<none>'}")
+                    #log.debug(f"Writing shape parent {p.name} as {ninode.name} with parent {last_parent.name if last_parent else '<none>'}")
                     last_parent = ninode
                     self.objs_written[p.name] = ninode
                     collisions = [x for x in p.children if x.name.startswith("bhkCollisionObject")]
@@ -3522,7 +3763,7 @@ class NifExporter:
         group_names = [g.name for g in obj.vertex_groups]
         weights_by_bone = get_weights_by_bone(weights_by_vert, arma.data.bones.keys())
 
-        #log.debug(f"<export_skin> found bones: {weights_by_bone.keys()}")
+        ##log.debug(f"<export_skin> found bones: {weights_by_bone.keys()}")
 
         self.writtenbones = {}
         for bone_name in  weights_by_bone.keys():
@@ -3557,7 +3798,7 @@ class NifExporter:
 
     def export_shader(self, obj, shape: NiShape):
         """Create shader from the object's material"""
-        log.debug(f"...exporting material for object {obj.name}")
+        #log.debug(f"...exporting material for object {obj.name}")
         shader = shape.shader_attributes
         mat = obj.active_material
 
@@ -3632,7 +3873,7 @@ class NifExporter:
                             texturepath = ""
 
                     if len(texturepath) > 0:
-                        #log.debug(f"....Writing diffuse texture path {textureslot}: '{texturepath}'")
+                        ##log.debug(f"....Writing diffuse texture path {textureslot}: '{texturepath}'")
                         shape.set_texture(textureslot, texturepath)
 
             # Write alpha if any after the textures
@@ -3712,7 +3953,7 @@ class NifExporter:
             is_effectshader = (mat['BS_Shader_Block_Name'] == 'BSEffectShaderProperty')
 
         # Make the shape in the nif file
-        log.debug(f"..Exporting '{obj.name}' to nif: {len(verts)} vertices, {len(tris)} tris, parent {my_parent}")
+        #log.debug(f"..Exporting '{obj.name}' to nif: {len(verts)} vertices, {len(tris)} tris, parent {my_parent}")
         new_shape = self.nif.createShapeFromData(trim_blender_suffix(obj.name), verts, tris, uvmap_new, norms_exp,
                                                  is_headpart, is_skinned, is_effectshader,
                                                  parent=my_parent)
@@ -3760,10 +4001,10 @@ class NifExporter:
 
             if len(partitions) > 0:
                 if 'FO4_SEGMENT_FILE' in obj.keys():
-                    log.debug(f"....Writing segment file {obj['FO4_SEGMENT_FILE']}")
+                    #log.debug(f"....Writing segment file {obj['FO4_SEGMENT_FILE']}")
                     new_shape.segment_file = obj['FO4_SEGMENT_FILE']
 
-                # log.debug(f"Partitions for export: {partitions.keys()}, {partition_map[0:20]}")
+                # #log.debug(f"Partitions for export: {partitions.keys()}, {partition_map[0:20]}")
                 new_shape.set_partitions(partitions.values(), partition_map)
 
             self.export_collisions([c for c in arma.children if c.name.startswith("bhkCollisionObject")])
@@ -3840,7 +4081,7 @@ class NifExporter:
             
             self.nif.initialize(self.game, fpath, rt, rn)
             if "pynRootNode_Flags" in shape:
-                log.debug(f"Root node flags are '{shape['pynRootNode_Flags']}' = '{RootFlags.parse(shape['pynRootNode_Flags']).value}'")
+                #log.debug(f"Root node flags are '{shape['pynRootNode_Flags']}' = '{RootFlags.parse(shape['pynRootNode_Flags']).value}'")
                 self.nif.rootNode.flags = RootFlags.parse(shape["pynRootNode_Flags"]).value
 
             if suffix == '_faceBones':
@@ -3853,16 +4094,16 @@ class NifExporter:
                 #arma, fb_arma = find_armatures(obj)
                 if len(suffix) > 0 and self.facebones:
                     self.export_shape(obj, sk, self.facebones)
-                    log.debug(f"Exported shape {obj.name} using {self.facebones.name}")
+                    #log.debug(f"Exported shape {obj.name} using {self.facebones.name}")
                 elif len(suffix) == 0 and self.armature:
                     self.export_shape(obj, sk, self.armature)
-                    log.debug(f"Exported shape {obj.name} using {self.armature.name}")
+                    #log.debug(f"Exported shape {obj.name} using {self.armature.name}")
                 elif self.facebones == None and self.armature == None:
                     self.export_shape(obj, sk)
-                    log.debug(f"Exported shape {obj.name}, no armature")
+                    #log.debug(f"Exported shape {obj.name}, no armature")
 
             # Check for bodytri morphs--write the extra data node if needed
-            #log.debug(f"TRIP data: shapes={len(self.trip.shapes)}, bodytri written: {self.bodytri_written}, filepath: {truncate_filename(self.trippath, 'meshes')}")
+            ##log.debug(f"TRIP data: shapes={len(self.trip.shapes)}, bodytri written: {self.bodytri_written}, filepath: {truncate_filename(self.trippath, 'meshes')}")
             if self.flag_set(pynFlags.WRITE_BODYTRI) \
                 and self.game in ['FO4', 'FO76'] \
                 and len(self.trip.shapes) > 0 \
@@ -3880,7 +4121,7 @@ class NifExporter:
                 self.message_log.append(self.nif.message_log())
 
         if len(self.trip.shapes) > 0:
-            log.debug(f"First shape in trip file has shapes: {self.trip.shapes[next(iter(self.trip.shapes))].keys()}")
+            #log.debug(f"First shape in trip file has shapes: {self.trip.shapes[next(iter(self.trip.shapes))].keys()}")
             self.trip.write(self.trippath)
             log.info(f"..Wrote {self.trippath}")
 
@@ -3892,18 +4133,18 @@ class NifExporter:
             return
 
         log.debug(f"""
-Exporting objects: {self.objects}
-    string data: {self.str_data}
-    BG data: {self.bg_data}
-    cloth data: {self.cloth_data}
-    collisions: {self.collisions}
-    armature: {self.armature}
-    facebones: {self.facebones}
-    parent connect points: {self.connect_parent}
-    child connect points: {self.connect_child}
-    scale factor: {self.scale}
-    to file: {self.filepath}
-""")
+        Exporting objects: {self.objects}
+            string data: {self.str_data}
+            BG data: {self.bg_data}
+            cloth data: {self.cloth_data}
+            collisions: {self.collisions}
+            armature: {self.armature}
+            facebones: {self.facebones}
+            parent connect points: {self.connect_parent}
+            child connect points: {self.connect_child}
+            scale factor: {self.scale}
+            to file: {self.filepath}
+        """)
         NifFile.clear_log()
         if self.facebones:
             self.export_file_set('_faceBones')
@@ -3925,7 +4166,7 @@ Exporting objects: {self.objects}
         return NifExporter(filepath, game, export_flags=export_flags, scale=scale).export(objects)
         
 def get_default_scale():
-    # log.debug(f"<get_default_scale {bpy.context.selected_objects}")
+    # #log.debug(f"<get_default_scale {bpy.context.selected_objects}")
     # if bpy.context.active_object:
         # if 'PYN_SCALE_FACTOR' in bpy.context.active_object:
         #     return bpy.context.active_object['PYN_SCALE_FACTOR']
@@ -3934,7 +4175,7 @@ def get_default_scale():
     #         if 'PYN_SCALE_FACTOR' in obj:
     #             return obj['PYN_SCALE_FACTOR']
     # except Exception as err:
-    #     log.debug(f"error: {err}")
+    #     #log.debug(f"error: {err}")
     #     return 1.0
     return 1.0
     
@@ -3996,7 +4237,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
 
     def __init__(self):
-        log.debug("INITIALIZING EXPORT OBJECT")
+        #log.debug("INITIALIZING EXPORT OBJECT")
         self.objects_to_export = set()
         # It's possible for the active object to not be selected, but it's too 
         # confusing to have an unselected object export. So just look at what's selected.
@@ -4043,23 +4284,23 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         if g != "":
             self.target_game = g
         
-        log.debug(f"ExportNIF <init> scale = {self.scale_factor}")
+        #log.debug(f"ExportNIF <init> scale = {self.scale_factor}")
         if export_armature and 'PYN_SCALE_FACTOR' in export_armature and self.scale_factor == 1.0:
             self.scale_factor = export_armature['PYN_SCALE_FACTOR']
-            log.debug(f"Got scale factor {self.scale_factor} from {export_armature.name}")
+            #log.debug(f"Got scale factor {self.scale_factor} from {export_armature.name}")
         elif export_fb_armature and 'PYN_SCALE_FACTOR' in export_fb_armature and self.scale_factor == 1.0:
             self.scale_factor = export_fb_armature['PYN_SCALE_FACTOR']
-            log.debug(f"Got scale factor {self.scale_factor} from {export_fb_armature.name}")
+            #log.debug(f"Got scale factor {self.scale_factor} from {export_fb_armature.name}")
         else:
             for obj in self.objects_to_export: 
                 if 'PYN_SCALE_FACTOR' in obj and self.scale_factor == 1.0:
                     self.scale_factor = obj['PYN_SCALE_FACTOR']
-                    log.debug(f"Got scale factor {self.scale_factor} from {obj.name}")
-        log.debug(f"Calculated scale factor as {self.scale_factor}")
+                    #log.debug(f"Got scale factor {self.scale_factor} from {obj.name}")
+        #log.debug(f"Calculated scale factor as {self.scale_factor}")
 
         if export_armature and 'PYN_RENAME_BONES' in export_armature \
-            and export_armature['PYN_RENAME_BONES']:
-            self.rename_bones = True
+            and not export_armature['PYN_RENAME_BONES']:
+            self.rename_bones = False
 
         if export_armature and 'PYN_RENAME_BONES_NIFTOOLS' in export_armature \
             and export_armature['PYN_RENAME_BONES_NIFTOOLS']:
@@ -4093,7 +4334,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         return True
 
     def execute(self, context):
-        log.debug(f"Execute called with scale {self.scale_factor}")
+        #log.debug(f"Execute called with scale {self.scale_factor}")
         res = set()
 
         if not self.poll(context):
@@ -4188,9 +4429,9 @@ class PynRenamerNifTools(bpy.types.Operator):
                 found_work = True
                 for b in obj.data.bones:
                     try:
-                        log.debug(f"Attempting rename of {b.name}")
+                        #log.debug(f"Attempting rename of {b.name}")
                         b.name = skyrimDict.byPynifly[b.name].niftools
-                        log.debug(f"Renamed {b.name}")
+                        #log.debug(f"Renamed {b.name}")
                     except:
                         pass
                 try:
