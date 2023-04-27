@@ -1860,10 +1860,10 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
-TEST_SHAPE_QUERY = True
-TEST_MESH_QUERY = True
+TEST_SHAPE_QUERY = False
+TEST_MESH_QUERY = False
 TEST_CREATE_TETRA = False
 TEST_CREATE_WEIGHTS = False
 TEST_READ_WRITE = False

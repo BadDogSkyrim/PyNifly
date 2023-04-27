@@ -11,7 +11,7 @@ from blender_defs import *
 from trihandler import *
 
 
-TEST_BPY_ALL = 0
+TEST_BPY_ALL = 1
 TEST_BODYPART_SKY = 0  ### Skyrim head
 TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKIN_BONE_XF = 0  ### Argonian head
@@ -25,9 +25,9 @@ TEST_DRAUGR_IMPORT3 = 0  ### Import helm, don't extend skeleton
 TEST_DRAUGR_IMPORT4 = 0  ### Import helm, do extend skeleton
 TEST_DRAUGR_IMPORT5 = 0  ### Import helm and hood together
 TEST_CONNECTED_SKEL = 0  ### Can import connected skeleton
-TEST_SCALING_BP = 0
+TEST_SCALING_BP = 0  ### Import and export bodypart with scale factor
 TEST_ARMATURE_EXTEND = 0  ### FO4 head + body
-TEST_ARMATURE_EXTEND_BT = 0
+TEST_ARMATURE_EXTEND_BT = 0  ### Import two nifs that share a skeleton
 TEST_WEIGHTS_EXPORT = 0  ### Exporting this head weights all verts correctly
 TEST_TRI = 0  ### Can load a tri file into an existing mesh
 TEST_IMPORT_AS_SHAPES = 0  ### Import 2 meshes as shape keys
@@ -38,7 +38,7 @@ TEST_TRIP = 0  ### Body tri extra data and file are written on export
 TEST_NEW_COLORS = 0  ### Can write vertex colors that were created in blender
 TEST_VERTEX_COLOR_IO = 0  ### Vertex colors can be read and written
 TEST_VERTEX_ALPHA = 0  ### Export shape with vertex alpha values
-TEST_BONE_HIERARCHY = 0
+TEST_BONE_HIERARCHY = 0  ### Import and export bone hierarchy
 TEST_SEGMENTS = 0  ### FO4 segments
 TEST_SHADER_SE = 0  ### Shader attributes are read and turned into Blender shader nodes
 TEST_SHADER_3_3 = 0  ### Shader attributes are read and turned into Blender shader nodes
@@ -187,8 +187,8 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
         assert arma.name == "Scene Root", f"armor has parent: {arma}"
 
         pelvis = arma.data.bones['NPC Pelvis']
-        pelvis_pose = arma.pose.bones['NPC Pelvis']
-        assert pelvis.parent.name == 'CME LBody [LBody]', f"Pelvis has correct parent: {pelvis.parent}"
+        pelvis_pose = arma.pose.bones['NPC Pelvis'] 
+        assert pelvis.parent.name == 'CME LBody', f"Pelvis has correct parent: {pelvis.parent}"
         assert pelvis.matrix_local.translation[2] == pelvis_pose.matrix.translation[2], \
             f"Pelvis pose position matches bone position: {pelvis_pose.matrix.translation[2]}"
 
@@ -1621,12 +1621,17 @@ if TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
     bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones_niftools=True)
 
     arma = find_shape("Body1M_1.nif")
+    assert "skeleton.nif" not in arma.data.bones, f"Root node not imported as bone"
     assert "NPC Calf [Clf].L" in arma.data.bones, f"Bones follow niftools name conventions {arma.data.bones.keys()}"
     #assert arma.data.niftools.axis_forward == "Z", f"Forward axis set to Z"
+    assert 'NPC L Thigh [LThg]' not in arma.data.bones, f"No vanilla bone names: {arma.data.bones['NPC L Thigh [LThg]']}"
 
+    inif = NifFile(testfile)
+    skel = inif.reference_skel
+    skel_calf = skel.nodes['CME L Thigh [LThg]']
     c = arma.data.bones["NPC Calf [Clf].L"]
     assert c.parent, f"Bones are put into a hierarchy: {c.parent}"
-    assert c.parent.name == "NPC Thigh [Thg].L", f"Parent/child relationships are maintained in skeleton {c.parent.name}"
+    assert c.parent.name == 'CME L Thigh [LThg]', f"Parent/child relationships are maintained: {c.parent.name}"
 
     body = find_shape("MaleUnderwearBody1:0")
     assert "NPC Calf [Clf].L" in body.vertex_groups, f"Vertex groups follow niftools naming convention: {body.vertex_groups.keys()}"
@@ -2230,8 +2235,9 @@ if False: #TEST_BPY_ALL or TEST_BONE_XF:
 
 
 if TEST_BPY_ALL or TEST_IMP_ANIMATRON:
-    # The animatrons are very complex and their pose and bind positions are different.
-    # Not sure we can do a full round trip successfully even yet.
+    # The animatrons are very complex and their pose and bind positions are different. The
+    # two shapes have slightly different bind positions, though they are a small offset
+    # from each other.
     test_title("TEST_IMP_ANIMATRON", "Can read a FO4 animatron nif")
     clear_all()
 
@@ -2248,7 +2254,10 @@ if TEST_BPY_ALL or TEST_IMP_ANIMATRON:
 
     arma = find_shape("AnimatronicNormalWoman")
     spine2 = arma.data.bones['SPINE2']
+    hand = arma.data.bones['RArm_Hand']
+    handpose = arma.pose.bones['RArm_Hand']
     assert spine2.matrix_local.translation.z > 30, f"SPINE2 in correct position: {spine2.matrix_local.translation}"
+    assert VNearEqual(handpose.matrix.translation, [18.1848, 2.6116, 68.6298]), f"Hand position matches Nif: {handpose.matrix.translation}"
 
     cp_armorleg = find_shape("BSConnectPointParents::P-ArmorLleg")
     assert cp_armorleg["pynConnectParent"] == "LLeg_Thigh", f"Connect point has correct parent: {cp_armorleg['pynConnectParent']}"
