@@ -1842,7 +1842,8 @@ class NifFile:
 
     @staticmethod
     def clear_log():
-        NifFile.nifly.clearMessageLog()
+        if NifFile.nifly:
+            NifFile.nifly.clearMessageLog()
 
     @staticmethod
     def message_log():

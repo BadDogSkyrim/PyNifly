@@ -43,7 +43,11 @@ def append_from_file(objname, with_parent, filepath, innerpath, targetobj):
     bpy.ops.wm.append(filepath=file_path,
                         directory=file_path + innerpath,
                         filename=targetobj)
-    return bpy.data.objects[objname]
+    obj = bpy.data.objects[objname]
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    return obj
 
 def export_from_blend(blendfile, objname, game, outfile, shapekey=''):
     """ Covenience routine: Export the object found in another blend file through

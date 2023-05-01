@@ -2,9 +2,9 @@
 
 from enum import IntFlag
 from mathutils import Matrix, Vector, Quaternion, geometry
+import bpy_types
 from nifdefs import *
 from pynifly import *
-
 
 NO_PARTITION_GROUP = "*NO_PARTITIONS*"
 MULTIPLE_PARTITION_GROUP = "*MULTIPLE_PARTITIONS*"
@@ -102,3 +102,68 @@ def pose_transform(shape:NiShape, bone: str):
     bonexf = transform_to_matrix(shape.file.nodes[bone].xform_to_global)
     sk2b = transform_to_matrix(shape.get_shape_skin_to_bone(bone))
     return (bonexf @ sk2b).inverted()
+
+
+def is_facebones(bone_names):
+    """Determine whether the list of bone names indicates a facebones skeleton"""
+    #return (fo4FaceDict.matches(set(list(arma.data.bones.keys()))) > 20)
+    return  len([x for x in bone_names if x.startswith('skin_bone_')]) > 5
+
+
+def find_armatures(obj):
+    """Find armatures associated with obj. 
+    Returns (regular armature, facebones armature)
+    Only returns the first regular amature it finds--there might be more than one.
+    Looks at armature modfiers and also at the parent.
+    """
+    arma = None
+    fb_arma = None
+    for skel in [m.object for m in obj.modifiers if m.type == "ARMATURE"]:
+        if skel:
+            if is_facebones(skel.data.bones.keys()):
+                fb_arma = skel
+            else:
+                if not arma:
+                    arma = skel
+
+    if obj.parent and obj.parent.type == "ARMATURE":
+        if is_facebones(obj.parent.data.bones.keys()):
+            if fb_arma == None:
+                fb_arma = obj.parent
+        else:
+            if arma == None:
+                arma = obj.parent
+
+    return arma, fb_arma
+
+
+def get_export_objects(ctxt:bpy_types.Context) -> list:
+    """Collect list of objects to export from the given context. 
+    
+    * Any selected object is exported
+    * Any armatures referenced in an armature modifier of a selected object is
+        exported;
+    * If an armature is selected all its children are exported.
+
+    We don't add the active object because it's too confusing to have it be
+    exported when it's not selected. But if it is selected, it goes first.
+    """
+    export_objects = []
+    for obj in ctxt.selected_objects:
+        if obj not in export_objects: 
+            if obj == ctxt.object:
+                export_objects.insert(0, obj)
+            else:
+                export_objects.append(obj) 
+            if obj.type == 'ARMATURE':
+                for child in obj.children:
+                    if child not in export_objects: export_objects.append(child)
+            else:
+                arma, fb_arma = find_armatures(obj)
+                if arma:
+                    export_objects.append(arma)
+                if fb_arma:
+                    export_objects.append(fb_arma)
+
+    return export_objects
+

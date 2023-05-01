@@ -244,33 +244,6 @@ def armatures_match(a, b):
     return True
 
 
-def find_armatures(obj):
-    """Find armatures associated with obj. 
-    Returns (regular armature, facebones armature)
-    Only returns the first regular amature it finds--there might be more than one.
-    Looks at armature modfiers and also at the parent.
-    """
-    arma = None
-    fb_arma = None
-    for skel in [m.object for m in obj.modifiers if m.type == "ARMATURE"]:
-        if skel:
-            if is_facebones(skel.data.bones.keys()):
-                fb_arma = skel
-            else:
-                if not arma:
-                    arma = skel
-
-    if obj.parent and obj.parent.type == "ARMATURE":
-        if is_facebones(obj.parent.data.bones.keys()):
-            if fb_arma == None:
-                fb_arma = obj.parent
-        else:
-            if arma == None:
-                arma = obj.parent
-
-    return arma, fb_arma
-
-
 # ------------- TransformBuf extensions -------
 
 setattr(TransformBuf, "as_matrix", transform_to_matrix)
@@ -413,24 +386,27 @@ def obj_create_material(obj, shape):
     fulltextures = extend_filenames(nifpath, "meshes", shape.textures)
 
     # Check if the user has converted textures to png
+    blender_dir = bpy.context.preferences.filepaths.texture_directory
+    if not os.path.exists(blender_dir):
+        blender_dir = None
     for i, tx in enumerate(fulltextures):
+        #log.debug(f"Finding texture {i}: {tx}")
         if len(tx) > 0 and tx[-4:].lower() == '.dds':
             # Check for converted texture in the nif's filetree
             txpng = tx[0:-3] + 'png'
-            if bpy.context.preferences.filepaths.texture_directory:
-                # Check in Blender's default texture directory first
-                fndds = os.path.join(bpy.context.preferences.filepaths.texture_directory, 
-                                  shape.textures[i])
+            if blender_dir:
+                #log.debug("Check in Blender's default texture directory first")
+                fndds = os.path.join(blender_dir, shape.textures[i])
+                #log.debug("Got blender texture path")
                 fnpng = os.path.splitext(fndds)[0] + '.png'
-                ##log.debug(f"checking texture path {fnpng}")
                 if os.path.exists(fnpng):
                     fulltextures[i] = fnpng
                     log.info(f"Using png texture from Blender's texture directory: {fnpng}")
             if fulltextures[i][-4:].lower() == '.dds':
-                ##log.debug(f"checking texture path {txpng}")
+                log.debug(f"checking texture path {txpng}")
                 if os.path.exists(txpng):
                     fulltextures[i] = txpng
-                    log.info(f"Using png texture from nif's node tree': {fnpng}")
+                    log.info(f"Using png texture from nif's node tree': {txpng}")
 
     mat = bpy.data.materials.new(name=(obj.name + ".Mat"))
 
@@ -446,7 +422,7 @@ def obj_create_material(obj, shape):
     has_alpha = import_shader_alpha(mat, shape)
 
     # --- Diffuse --
-
+    log.debug("Handling diffuse texture")
     txtnode = nodes.new("ShaderNodeTexImage")
     try:
         img = bpy.data.images.load(fulltextures[0], check_existing=True)
@@ -466,6 +442,7 @@ def obj_create_material(obj, shape):
 
     # --- Subsurface --- 
 
+    log.debug("Handling subsurface texture")
     if fulltextures[2] != "": 
         # Have a sk separate from a specular
         skimgnode = nodes.new("ShaderNodeTexImage")
@@ -482,6 +459,7 @@ def obj_create_material(obj, shape):
         
     # --- Specular --- 
 
+    log.debug("Handling specular texture")
     if fulltextures[7] != "":
         simgnode = nodes.new("ShaderNodeTexImage")
         try:
@@ -519,6 +497,7 @@ def obj_create_material(obj, shape):
 
     # --- Normal Map --- 
     
+    log.debug("Handling normal map texture")
     if fulltextures[1] != "":
         nmap = nodes.new("ShaderNodeNormalMap")
         if shape.shader_attributes and shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
@@ -601,8 +580,8 @@ def obj_create_material(obj, shape):
             # Specular is in the normal map alpha channel
             matlinks.new(nimgnode.outputs['Alpha'], bdsf.inputs['Specular'])
             
-        
     obj.active_material = mat
+
 
 def export_shader_attrs(obj, shader, shape):
     mat = obj.active_material
@@ -881,12 +860,11 @@ class NifImporter():
                 else:
                     pose_xf = bone_xf
             if same: 
-                log.debug(f"Pose transforms consistent, using it for {the_shape.name}:\n{pose_xf}")
+                #log.debug(f"Pose transforms consistent, using it for {the_shape.name}:\n{pose_xf}")
                 xf = xf @ pose_xf
                 xf.invert()
 
-        #xf.invert()
-        log.debug(f"Shape {the_shape.name} has calculated transform {xf.translation}")
+        #log.debug(f"Shape {the_shape.name} has calculated transform {xf.translation}")
         return apply_scale_xf(xf, scale_factor)
 
 
@@ -1231,18 +1209,25 @@ class NifImporter():
             if parent:
                 new_object.parent = parent
 
+            log.debug("Creating UVs")
             mesh_create_uv(new_object.data, the_shape.uvs)
+            log.debug("Creating bone groups")
             self.mesh_create_bone_groups(the_shape, new_object)
+            log.debug("Creating partition groups")
             mesh_create_partition_groups(the_shape, new_object)
             for f in new_mesh.polygons:
                 f.use_smooth = True
 
+            log.debug("Validating mesh")
             new_mesh.validate(verbose=True)
 
+            log.debug("Creating normals")
             if the_shape.normals:
                 mesh_create_normals(new_object.data, the_shape.normals)
 
+            log.debug("Creating material")
             obj_create_material(new_object, the_shape)
+            log.debug("Creating material DONE")
         
             # Root block type goes on the shape object because there isn't another good place
             # to put it.
@@ -1254,8 +1239,10 @@ class NifImporter():
             new_object["pynRootNode_Flags"] = RootFlags(root.flags).fullname
 
             if the_shape.collision_object:
+                log.debug("Importing collisions")
                 self.import_collision_obj(the_shape.collision_object, new_object)
 
+            log.debug("Importing extra data")
             self.import_shape_extra(new_object, the_shape)
 
             new_object['PYN_GAME'] = self.nif.game
@@ -1436,7 +1423,7 @@ class NifImporter():
                 RENAME_BONES_NIFTOOLS - rename bones to conform with blender conventions
             Returns list of bone nodes with collisions found along the way
             """
-        log.debug(f"<connect_armature> {arma.name}={arma.data.bones.keys()}")
+        #log.debug(f"<connect_armature> {arma.name}={arma.data.bones.keys()}")
         ObjectActive(arma)
         
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -1473,7 +1460,7 @@ class NifImporter():
                         except:
                             parentnifname = niparent.name
                         parentname = self.blender_name(niparent.name)
-                        log.debug(f"Found parent in armature: {parentname}/{parentnifname} for {bonename}/{nifname}")
+                        #log.debug(f"Found parent in armature: {parentname}/{parentnifname} for {bonename}/{nifname}")
 
                 LogIfBone(bonename, f"connect_armature found {parentname}, creating bones {self.create_bones_p}, is facebones {is_facebone(bonename)} ")
                 if parentname is None and self.create_bones_p and not is_facebone(bonename):
@@ -1490,7 +1477,7 @@ class NifImporter():
                 if parentname:
                     if parentname not in arm_data.edit_bones:
                         # Add parent bones and put on our list so we can get its parent
-                        log.debug(f"<connect_armature> adding bone {parentname}/{parentnifname}")
+                        #log.debug(f"<connect_armature> adding bone {parentname}/{parentnifname}")
                         new_parent = self.add_bone_to_arma(arma, parentname, parentnifname)
                         bones_to_parent.append(parentname)  
                         arm_data.edit_bones[bonename].parent = new_parent
@@ -1772,14 +1759,14 @@ class NifImporter():
         obj['bhkMaterial'] = SkyrimHavokMaterial(prop.bhkMaterial).name
         obj['bhkRadius'] = prop.bhkRadius * self.scale
 
-        log.info(f"1. Imported bhkConvexVerticesShape {obj.name} matrix: \n{obj.matrix_world}")
+        #log.info(f"1. Imported bhkConvexVerticesShape {obj.name} matrix: \n{obj.matrix_world}")
         if log.getEffectiveLevel() == logging.DEBUG:
             self.show_collision_normals(collisionnode, obj)
         obj.rotation_mode = "QUATERNION"
         q = collisionbody.rotation_quaternion.copy()
         q.invert()
         obj.rotation_quaternion = q
-        log.info(f"2. Imported bhkConvexVerticesShape {obj.name} matrix: \n{obj.matrix_world}")
+        #log.info(f"2. Imported bhkConvexVerticesShape {obj.name} matrix: \n{obj.matrix_world}")
         return obj
 
 
@@ -1885,6 +1872,7 @@ class NifImporter():
             self.nif.dict.use_niftools = self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS)
             self.import_shape(s)
 
+        log.debug("Linking objects to collections")
         for obj in self.loaded_meshes:
             if not obj.name in self.collection.objects:
                 self.collection.objects.link(obj)
@@ -1903,6 +1891,7 @@ class NifImporter():
                 if self.armature:
                     self.imported_armatures = [self.armature] 
 
+                log.debug("Finding armature")
                 if self.flag_set(pynFlags.APPLY_SKINNING):
                     for obj in self.loaded_meshes:
                         sh = self.nodes_loaded[obj.name]
@@ -1914,6 +1903,7 @@ class NifImporter():
                                 self.imported_armatures.append(new_arma)
                                 self.armature = new_arma
                             orphan_shapes.remove(obj)
+                log.debug("Connecting armature")
                 for arma in self.imported_armatures:
                     if self.create_bones_p:
                         self.add_bones_to_arma(arma, self.nif, self.nif.nodes.keys())
@@ -2469,12 +2459,6 @@ def create_group_from_verts(obj, name, verts):
     g.add(verts, 1.0, 'ADD')
 
 
-def is_facebones(bone_names):
-    """Determine whether the list of bone names indicates a facebones skeleton"""
-    #return (fo4FaceDict.matches(set(list(arma.data.bones.keys()))) > 20)
-    return  len([x for x in bone_names if x.startswith('skin_bone_')]) > 5
-
-
 def best_game_fit(bonelist):
     """ Find the game that best matches the skeleton """
     boneset = set([b.name for b in bonelist])
@@ -2625,7 +2609,10 @@ def get_common_shapes(obj_list) -> set:
 
 
 def get_with_uscore(str_list):
-    return list(filter((lambda x: x[0] == '_'), str_list))
+    if str_list:
+        return list(filter((lambda x: x[0] == '_'), str_list))
+    else:
+        return []
 
 
 class NifExporter:
@@ -2716,10 +2703,16 @@ class NifExporter:
             self.facebones = arma
         if (not facebones_arma) and (self.armature is None):
             self.armature = arma 
-        # Do we need self.add_object(arma) here?
+
 
     def add_object(self, obj):
-        """ Adds the given object to the objects to export. Object may be mesh, armature, or anything else """
+        """Adds the given object to the objects to export. Object may be mesh, armature,
+        or anything else. 
+        
+        * If an armature is selected, all child objects are exported 
+        * If a skinned mesh is selected, all armatures referenced in armature modifiers
+          are considered for export.
+        """
         if obj.type == 'ARMATURE':
             self.add_armature(obj)
 
@@ -2778,7 +2771,7 @@ class NifExporter:
                     self.add_object(c)
 
 
-    def set_objects(self, objects):
+    def set_objects(self, objects:list):
         """ Set the objects to export from the given list of objects 
         """
         for x in objects:
@@ -2786,15 +2779,16 @@ class NifExporter:
         self.file_keys = get_with_uscore(get_common_shapes(self.objects))
 
 
-    def from_context(self, context):
-        """ Set the objects to export from the given context. Ensures the active object is first."""
-        objlist = []
-        if context.object and context.object.select_get():
-            objlist.append(context.object)
-        for o in context.selected_objects:
-            if o != context.object:
-                objlist.append(o)
-        self.set_objects(objlist)
+    # def from_context(self, context):
+    #     """ Set the objects to export from the given context. Ensures the active object is
+    #     first."""
+    #     objlist = []
+    #     if context.object and context.object.select_get():
+    #         objlist.append(context.object)
+    #     for o in context.selected_objects:
+    #         if o != context.object:
+    #             objlist.append(o)
+    #     self.set_objects(objlist)
 
 
     # --------- DO THE EXPORT ---------
@@ -3756,7 +3750,7 @@ class NifExporter:
             """
         if obj.name in self.objs_written:
             return
-        log.info(f"Exporting {obj.name} with shapes: {self.file_keys} with flags {str(pynFlags(self.flags))}\n")
+        log.info(f"Exporting {obj.name} with shapes: {self.file_keys} with flags {str(pynFlags(self.flags))}")
 
         self.active_obj = obj
 
@@ -3889,7 +3883,7 @@ class NifExporter:
             bpy.data.meshes.remove(self.active_obj.data)
             self.active_obj = None
 
-        log.info(f"{obj.name} successfully exported to {self.nif.filepath}")
+        log.info(f"{obj.name} successfully exported to {self.nif.filepath}\n")
         return retval
 
 
@@ -4087,62 +4081,37 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
 
     def __init__(self):
-        #log.debug("INITIALIZING EXPORT OBJECT")
-        self.objects_to_export = set()
-        # It's possible for the active object to not be selected, but it's too 
-        # confusing to have an unselected object export. So just look at what's selected.
-        for obj in bpy.context.selected_objects:
-            self.objects_to_export.add(obj)
+        self.objects_to_export = get_export_objects(bpy.context)
 
         if len(self.objects_to_export) == 0:
             self.report({"ERROR"}, "No objects selected for export")
             return
 
-        export_armature = None
-        export_fb_armature = None
-        for obj in list(self.objects_to_export):
-            if obj.type != 'ARMATURE':
-                arma, fb_arma = find_armatures(obj)
-                if arma:
-                    self.objects_to_export.add(arma)
-                    for child in arma.children:
-                        self.objects_to_export.add(child)
-                    if export_armature == None:
-                        export_armature = arma
-                if fb_arma:
-                    self.objects_to_export.add(fb_arma)
-                    for child in fb_arma.children:
-                        self.objects_to_export.add(child)
-                    if export_fb_armature == None:
-                        export_fb_armature = fb_arma
-        if export_armature == None:
-            export_armature == export_fb_armature
-
+        obj = self.objects_to_export[0]
         if not self.filepath or self.filepath == '':
             self.filepath = clean_filename(obj.name)
 
+        export_armature = None
+        if obj.type == 'ARMATURE':
+            export_armature = obj
+        else:
+            export_armature, fb_arma = find_armatures(obj)
+            if not export_armature:
+                export_armature = fb_arma
+
         g = ""
-        try:
+        if 'PYN_GAME' in obj:
             g = obj['PYN_GAME']
-        except:
+        else:
             if export_armature:
                 g = best_game_fit(export_armature.data.bones)
         if g != "":
             self.target_game = g
         
-        #log.debug(f"ExportNIF <init> scale = {self.scale_factor}")
-        if export_armature and 'PYN_SCALE_FACTOR' in export_armature and self.scale_factor == 1.0:
+        if 'PYN_SCALE_FACTOR' in obj and self.scale_factor == 1.0:
+            self.scale_factor = obj['PYN_SCALE_FACTOR']
+        elif export_armature and 'PYN_SCALE_FACTOR' in export_armature and self.scale_factor == 1.0:
             self.scale_factor = export_armature['PYN_SCALE_FACTOR']
-            #log.debug(f"Got scale factor {self.scale_factor} from {export_armature.name}")
-        elif export_fb_armature and 'PYN_SCALE_FACTOR' in export_fb_armature and self.scale_factor == 1.0:
-            self.scale_factor = export_fb_armature['PYN_SCALE_FACTOR']
-            #log.debug(f"Got scale factor {self.scale_factor} from {export_fb_armature.name}")
-        else:
-            for obj in self.objects_to_export: 
-                if 'PYN_SCALE_FACTOR' in obj and self.scale_factor == 1.0:
-                    self.scale_factor = obj['PYN_SCALE_FACTOR']
-                    #log.debug(f"Got scale factor {self.scale_factor} from {obj.name}")
-        #log.debug(f"Calculated scale factor as {self.scale_factor}")
 
         if export_armature and 'PYN_RENAME_BONES' in export_armature \
             and not export_armature['PYN_RENAME_BONES']:
@@ -4169,7 +4138,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         
     @classmethod
     def poll(cls, context):
-        if context.object is None:
+        if len(context.selected_objects) == 0:
             log.error("Must select an object to export")
             return False
 
@@ -4180,7 +4149,6 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         return True
 
     def execute(self, context):
-        #log.debug(f"Execute called with scale {self.scale_factor}")
         res = set()
 
         if not self.poll(context):
@@ -4213,7 +4181,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                                    chargen=self.chargen_ext, 
                                    scale=self.scale_factor)
 
-            exporter.from_context(context)
+            # exporter.from_context(context)
             exporter.export(self.objects_to_export)
             
             rep = False
