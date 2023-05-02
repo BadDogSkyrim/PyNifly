@@ -150,7 +150,7 @@ std::vector<Vector3> GetShapeBoneVerts(NifFile* nif, NiShape* shape, int boneInd
 	return verts;
 }
 
-void UpdateShapeSkinBounds(NifFile* nif, NiShape* shape) 
+void UpdateShapeSkinBoneBounds(NifFile* nif, NiShape* shape) 
 /* Update the bone bounding spheres on all bones in the shape. */
 {
 		

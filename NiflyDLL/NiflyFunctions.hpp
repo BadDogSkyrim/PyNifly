@@ -29,7 +29,7 @@ std::string SkeletonFile(enum TargetGame game, std::string& rootName);
 
 void SetNifVersion(nifly::NifFile* nif, enum TargetGame targ);
 
-void UpdateShapeSkinBounds(nifly::NifFile* nif, nifly::NiShape* shape);
+void UpdateShapeSkinBoneBounds(nifly::NifFile* nif, nifly::NiShape* shape);
 
 void AddCustomBoneRef(
 	AnimInfo* anim, 

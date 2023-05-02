@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (9, 1, 2),  
+    "version": (9, 2, 2),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -3604,10 +3604,7 @@ class NifExporter:
         newxfi.invert()
         new_shape.set_global_to_skin(TransformBuf.from_matrix(newxfi))
     
-        group_names = [g.name for g in obj.vertex_groups]
         weights_by_bone = get_weights_by_bone(weights_by_vert, arma.data.bones.keys())
-
-        ##log.debug(f"<export_skin> found bones: {weights_by_bone.keys()}")
 
         self.writtenbones = {}
         for bone_name in  weights_by_bone.keys():
@@ -4335,21 +4332,7 @@ def run_tests():
 
 if __name__ == "__main__":
     try:
-        log.setLevel(logging.DEBUG)
-        do_run_tests = False
-        if RUN_TESTS == True:
-            do_run_tests = True
+        unregister()
     except:
-        do_run_tests == False
-        
-    if not do_run_tests:
-        try:
-            unregister()
-        except:
-            pass
-        register()
-    else:
-        try:
-            run_tests()
-        except:
-            traceback.print_exc()
+        pass
+    register()

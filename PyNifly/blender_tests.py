@@ -3661,68 +3661,6 @@ if TEST_BPY_ALL or TEST_JIARAN:
     assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
 
 
-# Disabling this for now. Bone transforms are tested in reading/writing nifs--this
-# test just isloates that function for convenience. 
-if False: #TEST_BPY_ALL or TEST_BONE_XF:
-    test_title("TEST_BONE_XF", "Test our method of putting transforms into blender bones")
-    clear_all()
-
-    armdata = bpy.data.armatures.new("TEST_BONE_XF")
-    arma = bpy.data.objects.new("TEST_BONE_XF", armdata)
-    bpy.context.view_layer.active_layer_collection.collection.objects.link(arma)
-
-    def do_test(bone_name, xf):
-        log.debug(f"---\n---Testing {bone_name}---")
-        bpy.context.view_layer.objects.active = arma
-        bpy.ops.object.mode_set(mode='EDIT')
-        create_bone(arma.data, bone_name, xf, 'FO4', 1.0)
-        bpy.ops.object.mode_set(mode='OBJECT')
-
-        log.debug(f"New bone has matrix\n{arma.data.bones[bone_name].matrix}")
-
-        # Get xf from bone, verify it didn't change
-        bone = armdata.bones[bone_name]
-        xfout = get_bone_global_xf(arma, bone_name, 'FO4', False)
-        assert MatNearEqual(xfout, xf), f"Transforms preserved for {bone_name}: \n{xfout}\n == \n{xf}"
-
-    print("---180 deg rotation around Z")
-    xf = Matrix.LocRotScale(Vector((0, 0, 0)),
-                            Matrix(((-1, 0, 0),
-                                    (0, -1, 0),
-                                    (0, 0, 1))),
-                            None)
-    do_test('BONE3', xf)
-
-    print("---180 deg rotation around Y")
-    xf = Matrix.LocRotScale( Vector((0, 0, 0)),
-                                Matrix(((-1, 0, 0),
-                                        (0, 1, 0),
-                                        (0, 0, -1))),
-                                None)
-    do_test('BONE4', xf)
-
-    xf = Matrix.LocRotScale( Vector((-0.0005, 2.5661, 115.5521)),
-                                Matrix(((-1.0000, 0.0002, 0.0001),
-                                        (0.0002, 0.9492, 0.3147),
-                                        (-0.0001, 0.3147, -0.9492))),
-                                None)
-    do_test('BONE2', xf)
-
-    xf = Matrix.LocRotScale(Vector((0.0000, 0.5394, 91.2848)),
-                            Matrix(((0.0000, -0.0000, -1.0000),
-                                    (-0.0343, 0.9994, -0.0000),
-                                    (0.9994, 0.0343, 0.0000))),
-                            None)
-    do_test('BONE1', xf)
-
-    xf = Matrix.LocRotScale(Vector((-2.6813, -11.7044, 59.6862)),
-                            Matrix(((0.0048, -1.0000,  0.0020),
-                                    (1.0000,  0.0048, -0.0000),
-                                    (0.0000,  0.0020,  1.0000))),
-                            None)
-    do_test('BONE5', xf)
-
-
 print("""
 ############################################################
 ##                                                        ##

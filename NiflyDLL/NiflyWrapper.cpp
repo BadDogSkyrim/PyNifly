@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 9, 1, 1 };
+const int NiflyDDLVersion[3] = { 9, 2, 2 };
  
 using namespace nifly;
 
@@ -205,7 +205,7 @@ NIFLY_API int saveNif(void* the_nif, const char8_t* filename) {
     {
         nif->UpdateSkinPartitions(shape);
         shape->UpdateBounds();
-        UpdateShapeSkinBounds(nif, shape);
+        UpdateShapeSkinBoneBounds(nif, shape);
     }
     
 

@@ -38,21 +38,21 @@ DEFINE_ENUM_FLAG_OPERATORS(NifOptions)
 std::filesystem::path testRoot = std::filesystem::current_path()
 	.parent_path().parent_path().parent_path().parent_path() / "PyNifly/Pynifly/tests/";
 
-bool TApproxEqual(double first, double second) {
-	return abs(first - second) < .001;
+bool TApproxEqual(double first, double second, double epsilon=0.001) {
+	return abs(first - second) < epsilon;
 }
-bool TApproxEqual(Vector3 first, Vector3 second) {
-	return TApproxEqual(first.x, second.x)
-		&& TApproxEqual(first.y, second.y)
-		&& TApproxEqual(first.z, second.z);
+bool TApproxEqual(Vector3 first, Vector3 second, double epsilon = 0.001) {
+	return TApproxEqual(first.x, second.x, epsilon)
+		&& TApproxEqual(first.y, second.y, epsilon)
+		&& TApproxEqual(first.z, second.z, epsilon);
 };
 
-bool TApproxEqual(MatTransform first, MatTransform second) {
-	return TApproxEqual(first.translation, second.translation)
-		&& TApproxEqual(first.rotation[0], second.rotation[0])
-		&& TApproxEqual(first.rotation[1], second.rotation[1])
-		&& TApproxEqual(first.rotation[2], second.rotation[2])
-		&& TApproxEqual(first.scale, second.scale);
+bool TApproxEqual(MatTransform first, MatTransform second, double epsilon = 0.001) {
+	return TApproxEqual(first.translation, second.translation, epsilon)
+		&& TApproxEqual(first.rotation[0], second.rotation[0], epsilon)
+		&& TApproxEqual(first.rotation[1], second.rotation[1], epsilon)
+		&& TApproxEqual(first.rotation[2], second.rotation[2], epsilon)
+		&& TApproxEqual(first.scale, second.scale, epsilon);
 };
 
 void* TFindNode(void* nif, const char* targetName) {
@@ -122,27 +122,6 @@ int TGetWeightsFor(
 	//}
 	return target_index;
 }
-
-/* Compare source and destination nif shapes to ensure they are the same*/
-void TCheckAccuracy(const std::filesystem::path srcPath, const char* srcShapeName,
-	const std::filesystem::path dstPath, const char* dstShapeName,
-	Vector3 targetVert, std::string targetBone) {
-
-	NifFile nifSrc = NifFile(srcPath);
-	NifFile nifDst = NifFile(dstPath);
-	NiShape* shapeSrc = nifSrc.FindBlockByName<NiShape>(srcShapeName);
-	NiShape* shapeDst = nifDst.FindBlockByName<NiShape>(dstShapeName);
-
-	/* Check that a give vert has the same weight in both models */
-	std::unordered_map<std::string, float> srcWeights;
-	std::unordered_map<std::string, float> dstWeights; 
-	int srcIndex = TGetWeightsFor(&nifSrc, shapeSrc, targetVert, srcWeights);
-	int dstIndex = TGetWeightsFor(&nifDst, shapeDst, targetVert, dstWeights);
-	Assert::IsTrue(srcIndex >= 0 && dstIndex >= 0, L"Couldn't find vertex");
-	Assert::IsTrue(TApproxEqual(srcWeights[targetBone], dstWeights[targetBone]), 
-		L"Vertex weights not the same");
-};
-
 
 void TCopyPartitions(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape) {
 	int segCount = segmentCount(sourceNif, sourceShape);
@@ -533,12 +512,17 @@ void TCompareShapes(void* nif1, void* shape1, void* nif2, void* shape2) {
 			getShapeBoneWeights(nif2, shape2, boneIndex2, vwp2, bwcount2);
 			// Walk through the verts weighted by this bone
 			for (int j = 0; j < bwcount1; j++) {
-				int index2 = -1;
-				for (; index2 < bwcount2; index2++)
+				int index2;
+				for (index2 = 0; index2 < bwcount2; index2++)
 					if (vwp2[index2].vertex == vwp1[j].vertex) break;
 				Assert::IsTrue(index2 < bwcount2, L"Found corresponding vertex");
-				Assert::IsTrue(TApproxEqual(vwp1[j].weight, vwp2[index2].weight), 
-					L"Vertex weights match");
+				float w1 = vwp1[j].weight;
+				float w2 = vwp2[index2].weight;
+				Assert::IsTrue(TApproxEqual(w1, w2));
+					//L"Vertex weights match: " + std::to_wstring(w1)
+					//+ L" vs " + std::to_wstring(w2));
+				w1 += 1;
+				w2 += 2;
 			};
 		};
 	};
@@ -745,6 +729,45 @@ void TSanityCheckShape(void* nif, void* shape) {
 
 }
 
+BoundingSphere TGetShapeBoneBounds(NifFile* nif, NiShape* shape, std::string boneName) {
+	BoundingSphere val;
+	NiHeader hdr = nif->GetHeader();
+	int boneIndex = shape->GetBoneID(hdr, boneName);
+	nif->GetShapeBoneBounds(shape, boneIndex, val);
+	return val;
+}
+
+/* Compare source and destination nif shapes to ensure they are the same*/
+void TCheckAccuracy(const std::filesystem::path srcPath, const char* srcShapeName,
+	const std::filesystem::path dstPath, const char* dstShapeName,
+	Vector3 targetVert, std::string targetBone) {
+
+	NifFile nifSrc = NifFile(srcPath);
+	NifFile nifDst = NifFile(dstPath);
+	NiShape* shapeSrc = nifSrc.FindBlockByName<NiShape>(srcShapeName);
+	NiShape* shapeDst = nifDst.FindBlockByName<NiShape>(dstShapeName);
+
+	TSanityCheckShape(&nifDst, shapeDst);
+	TCompareShapes(&nifSrc, shapeSrc, &nifDst, shapeDst);
+
+	/* Check that a given vert has the same weight in both models */
+	std::unordered_map<std::string, float> srcWeights;
+	std::unordered_map<std::string, float> dstWeights;
+	int srcIndex = TGetWeightsFor(&nifSrc, shapeSrc, targetVert, srcWeights);
+	int dstIndex = TGetWeightsFor(&nifDst, shapeDst, targetVert, dstWeights);
+	Assert::IsTrue(srcIndex >= 0 && dstIndex >= 0, L"Couldn't find vertex");
+	Assert::IsTrue(TApproxEqual(srcWeights[targetBone], dstWeights[targetBone]),
+		L"Vertex weights not the same");
+
+	/* Check the bone's bounding sphere. Different algorithms can come up with different 
+	bounding spheres (maybe?) so we allow some leeway here. */
+	BoundingSphere boundSrc = TGetShapeBoneBounds(&nifSrc, shapeSrc, targetBone);
+	BoundingSphere boundDst = TGetShapeBoneBounds(&nifDst, shapeDst, targetBone);
+	//Assert::IsTrue(TApproxEqual(boundSrc.center, boundDst.center, 0.5));
+	//Assert::IsTrue(TApproxEqual(boundSrc.radius, boundDst.radius, 0.5));
+};
+
+
 namespace NiflyDLLTests
 {
 	TEST_CLASS(NiflyDLLTests)
@@ -878,7 +901,7 @@ namespace NiflyDLLTests
 			clearMessageLog();
 
 			void* newNif = createNif("FO4", RT_NINODE, "Scene Root");
-			TCopyShape(newNif, "Body", nif, theBody[0]);
+			TCopyShape(newNif, "BaseMaleBody:0", nif, theBody[0]);
 			saveNif(newNif, outfile.u8string().c_str());
 			Assert::IsTrue(std::filesystem::exists(outfile));
 
@@ -891,7 +914,7 @@ namespace NiflyDLLTests
 			std::string targetBone = "Spine1_skin";
 			TCheckAccuracy(
 				testfile, "BaseMaleBody:0",
-				outfile, "Body",
+				outfile, "BaseMaleBody:0",
 				targetVert, "Spine1_skin");
 		};
 		/* Here's about skinning */
@@ -1676,6 +1699,7 @@ namespace NiflyDLLTests
 			getShapeBlockName(shapes[0], blockname, 50);
 			Assert::AreEqual("BSDynamicTriShape", blockname, L"Have expected node type");
 		};
+
 		TEST_METHOD(loadAndStoreUnskinned) {
 			std::filesystem::path testfile = testRoot / "FO4/AlarmClock.nif";
 
@@ -2049,6 +2073,7 @@ namespace NiflyDLLTests
 			TCompareExtraData(nifsheath, nullptr, nifCheck, nullptr);
 			TCompareExtraData(nifsheath, sheath, nifCheck, shapesCheck[0]);
 		};
+
 		TEST_METHOD(extraDataFeet) {
 			void* shapes[10];
 			int namelen, vallen;
@@ -2085,10 +2110,13 @@ namespace NiflyDLLTests
 			TCompareExtraData(niffeet, nullptr, nifCheck, nullptr);
 			TCompareExtraData(niffeet, feet, nifCheck, shapesCheck[0]);
 		};
+
 		TEST_METHOD(impExpSE) {
 			void* shapes[10];
+			std::filesystem::path fileIn = testRoot / "SkyrimSE/malehead.nif";
+			std::filesystem::path fileOut = testRoot / "Out/testWrapper_impExpSE.nif";
 
-			void* nifhead = load((testRoot / "SkyrimSE/malehead.nif").u8string().c_str());
+			void* nifhead = load(fileIn.u8string().c_str());
 			Assert::IsTrue(getShapes(nifhead, shapes, 10, 0) == 1, L"ERROR: Wrong number of shapes");
 			void* head = shapes[0];
 			TSanityCheckShape(nifhead, head);
@@ -2096,7 +2124,6 @@ namespace NiflyDLLTests
 			// ### Can wrie the mesh back out
 
 			clearMessageLog();
-			std::filesystem::path fileOut = testRoot / "Out/testWrapper_impExpSE.nif";
 
 			void* nifOut = createNif("SKYRIMSE", 0, "Scene Root");
 			void* shapeOut = TCopyShape(nifOut, "MaleHeadIMF", nifhead, head, NifOptions(SEHeadPart));
@@ -2112,11 +2139,11 @@ namespace NiflyDLLTests
 			// What we wrote is correct
 
 			clearMessageLog();
-			void* nifCheck = load(fileOut.u8string().c_str());
-			void* shapesCheck[10];
-			getShapes(nifCheck, shapesCheck, 10, 0);
-			TSanityCheckShape(nifCheck, shapesCheck[0]);
-			TCompareShapes(nifhead, head, nifCheck, shapesCheck[0]);
+			//void* nifCheck = load(fileOut.u8string().c_str());
+			//void* shapesCheck[10];
+			//getShapes(nifCheck, shapesCheck, 10, 0);
+			Vector3 tV = Vector3(0.954437, 4.977112, -11.012909);
+			TCheckAccuracy(fileIn, "MaleHeadIMF", fileOut, "MaleHeadIMF", tV, "NPC Spine2 [Spn2]");
 
 			//TCompareExtraData(nifhead, nullptr, nifCheck, nullptr);
 			//TCompareExtraData(nifhead, head, nifCheck, shapesCheck[0]);
