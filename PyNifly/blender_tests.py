@@ -11,7 +11,7 @@ from blender_defs import *
 from trihandler import *
 
 
-TEST_BPY_ALL = 1
+TEST_BPY_ALL = 0
 TEST_BODYPART_SKY = 0  ### Skyrim head
 TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
@@ -52,6 +52,7 @@ TEST_COLORS = 0  ### Read & write vertex colors
 TEST_COLORS2 = 0  ### Read & write vertex colors
 TEST_NEW_COLORS = 0  ### Can write vertex colors that were created in blender
 TEST_VERTEX_COLOR_IO = 0  ### Vertex colors can be read and written
+TEST_VERTEX_ALPHA_IO = 1  ### Vertex alpha affects Blender visible alpha
 TEST_VERTEX_ALPHA = 0  ### Export shape with vertex alpha values
 TEST_BONE_HIERARCHY = 0  ### Import and export bone hierarchy
 TEST_SEGMENTS = 0  ### FO4 segments
@@ -1983,6 +1984,51 @@ if TEST_BPY_ALL or TEST_VERTEX_COLOR_IO:
     max_a = max(c[3] for c in eyescheck.colors)
     assert min_a == 0, f"Minimum alpha is 0: {min_a}"
     assert max_a == 1, f"Max alpha is 1: {max_a}"
+
+
+if TEST_BPY_ALL or TEST_VERTEX_ALPHA_IO:
+    test_title("TEST_VERTEX_ALPHA_IO", "Import & export shape with vertex alpha values")
+    clear_all()
+    testfile = test_file(r"tests\SkyrimSE\meshes\actors\character\character assets\maleheadkhajiit.nif")
+    outfile = test_file(r"tests/Out/TEST_VERTEX_ALPHA_IO.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    head = bpy.context.object
+    nodes = head.active_material.node_tree.nodes
+    shader = nodes["Principled BSDF"]
+    assert shader, f"Found Principled BSDF node"
+    diffuse = shader.inputs["Base Color"].links[0].from_node
+    assert diffuse.name == "Image Texture", f"Found correct diffuse type {diffuse.name}"
+    assert diffuse.image.filepath.endswith('KhajiitMaleHead.dds'), f"Filepath correct: {diffuse.image.filepath}"
+    map1 = shader.inputs['Alpha'].links[0].from_node
+    assert map1.bl_idname == "ShaderNodeMapRange", f"Found first map: {map1}"
+    map2 = map1.inputs['To Min'].links[0].from_node
+    assert map2.bl_idname == "ShaderNodeMapRange", f"Found second map: {map2}"
+    attr = map2.inputs['Value'].links[0].from_node
+    assert attr.bl_idname == "ShaderNodeAttribute", f"Found attribute node: {attr}"
+    assert map1.inputs['Value'].links[0].from_node == diffuse, f"Alpha path correct: {map1.inputs['Value'].links[0].from_node}"
+
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    nif = NifFile(testfile)
+    head1 = nif.shapes[0]
+    nif2 = NifFile(outfile)
+    head2 = nif2.shapes[0]
+
+    assert head2.has_alpha_property, f"Error: Did not write alpha property"
+    assert head2.alpha_property.flags == head1.alpha_property.flags, f"Error: Alpha flags incorrect: {head2.alpha_property.flags} != {head1.alpha_property.flags}"
+    assert head2.alpha_property.threshold == head1.alpha_property.threshold, f"Error: Alpha flags incorrect: {head2.alpha_property.threshold} != {head1.alpha_property.threshold}"
+
+    assert head2.textures[0] == head1.textures[0], \
+        f"Error: Texture paths not preserved: '{head2.textures[0]}' != '{head1.textures[0]}'"
+    assert head2.textures[1] == head1.textures[1], \
+        f"Error: Texture paths not preserved: '{head2.textures[1]}' != '{head1.textures[1]}'"
+    assert head2.textures[2] == head1.textures[2], \
+        f"Error: Texture paths not preserved: '{head2.textures[2]}' != '{head1.textures[2]}'"
+    assert head2.textures[7] == head1.textures[7], \
+        f"Error: Texture paths not preserved: '{head2.textures[7]}' != '{head1.textures[7]}'"
+    assert head2.shader_attributes == head1.shader_attributes, f"Error: Shader attributes not preserved:\n{head2.shader_attributes}\nvs\n{head1.shader_attributes}"
 
 
 if TEST_BPY_ALL or TEST_VERTEX_ALPHA:

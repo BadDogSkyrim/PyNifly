@@ -368,11 +368,12 @@ def import_shader_alpha(mat, shape):
             mat.alpha_threshold = shape.alpha_property.threshold/255
         mat['NiAlphaProperty_flags'] = shape.alpha_property.flags
         mat['NiAlphaProperty_threshold'] = shape.alpha_property.threshold
+
         return True
     else:
         return False
 
-def obj_create_material(obj, shape):
+def import_material(obj, shape):
     img_offset_x = -1200
     cvt_offset_x = -300
     inter1_offset_x = -900
@@ -431,10 +432,34 @@ def obj_create_material(obj, shape):
     except:
         pass
     txtnode.location = (bdsf.location[0] + img_offset_x, bdsf.location[1])
-    
     mat.node_tree.links.new(txtnode.outputs['Color'], bdsf.inputs['Base Color'])
+
     if has_alpha:
-        mat.node_tree.links.new(txtnode.outputs['Alpha'], bdsf.inputs['Alpha'])
+        if obj.data.vertex_colors and ALPHA_MAP_NAME in obj.data.vertex_colors:
+            attrnode = nodes.new("ShaderNodeAttribute")
+            attrnode.attribute_name = ALPHA_MAP_NAME
+            attrnode.attribute_type = "GEOMETRY"
+            attrnode.location = (txtnode.location[0], 
+                                 txtnode.location[1] - attrnode.height - offset_y)
+
+            # Magic values make the khajiit head look good. Check against other meshes.
+            mapnode1 = nodes.new("ShaderNodeMapRange")
+            mapnode1.inputs['From Min'].default_value = 0.29
+            mapnode1.inputs['From Max'].default_value = 0.8
+            mapnode1.location = (attrnode.location[0] - inter2_offset_x, attrnode.location[1])
+            mat.node_tree.links.new(attrnode.outputs['Color'], mapnode1.inputs['Value'])
+            
+            mapnode2 = nodes.new("ShaderNodeMapRange")
+            mapnode2.inputs['From Min'].default_value = 0.4
+            mapnode2.inputs['To Max'].default_value = 0.38
+            mapnode2.location = (attrnode.location[0] - inter1_offset_x, attrnode.location[1])
+            mat.node_tree.links.new(mapnode1.outputs['Result'], mapnode2.inputs['To Min'])
+            mat.node_tree.links.new(txtnode.outputs['Alpha'], mapnode2.inputs['Value'])
+
+            mat.node_tree.links.new(mapnode2.outputs['Result'], bdsf.inputs['Alpha'])
+            
+        else:
+            mat.node_tree.links.new(txtnode.outputs['Alpha'], bdsf.inputs['Alpha'])
 
     yloc = txtnode.location[1] + offset_y
 
@@ -1226,7 +1251,7 @@ class NifImporter():
                 mesh_create_normals(new_object.data, the_shape.normals)
 
             log.debug("Creating material")
-            obj_create_material(new_object, the_shape)
+            import_material(new_object, the_shape)
             log.debug("Creating material DONE")
         
             # Root block type goes on the shape object because there isn't another good place
