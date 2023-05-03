@@ -52,7 +52,8 @@ TEST_COLORS = 0  ### Read & write vertex colors
 TEST_COLORS2 = 0  ### Read & write vertex colors
 TEST_NEW_COLORS = 0  ### Can write vertex colors that were created in blender
 TEST_VERTEX_COLOR_IO = 0  ### Vertex colors can be read and written
-TEST_VERTEX_ALPHA_IO = 1  ### Vertex alpha affects Blender visible alpha
+TEST_SHADER_GLOW = 1  ### BSEffectShaderProperty
+TEST_VERTEX_ALPHA_IO = 0  ### Vertex alpha affects Blender visible alpha
 TEST_VERTEX_ALPHA = 0  ### Export shape with vertex alpha values
 TEST_BONE_HIERARCHY = 0  ### Import and export bone hierarchy
 TEST_SEGMENTS = 0  ### FO4 segments
@@ -61,10 +62,11 @@ TEST_EXP_SEGMENTS_BAD = 0  ### Verts export in the correct FO4 segments
 TEST_EXP_SEG_ORDER = 0  ### Segments export in numerical order
 TEST_PARTITIONS = 0  ### Read Skyrim partitions
 TEST_SHADER_LE = 0  ### Shader attributes Skyrim LE
-TEST_SHADER_SE = 0  ### Shader attributes Skyrim SE 
+TEST_SHADER_SE = 1  ### Shader attributes Skyrim SE 
 TEST_SHADER_FO4 = 0  ### Shader attributes are read and turned into Blender shader nodes
 TEST_SHADER_ALPHA = 0  ### Alpha property handled correctly
 TEST_SHADER_3_3 = 0  ### Shader attributes are read and turned into Blender shader nodes
+TEST_CAVE_GREEN = 0  ### Use vertex colors in shader
 TEST_POT = 0  ### Pot shader doesn't throw an error
 TEST_NOT_FB = 0  ### Nif that looked like facebones skel can be imported
 TEST_MULTI_IMP = 0  ### Importing multiple hair parts doesn't mess up
@@ -78,7 +80,6 @@ TEST_SCALING = 0  ### Scale factors applied correctly
 TEST_SCALING_OBJ = 0  ### Scale simple objects
 TEST_UNIFORM_SCALE = 0  ### Export objects with uniform scaling
 TEST_NONUNIFORM_SCALE = 0  ### Export objects with non-uniform scaling
-TEST_CAVE_GREEN = 0
 TEST_FACEBONE_EXPORT = 0
 TEST_HYENA_PARTITIONS = 0
 TEST_MULT_PART = 0  ### Export shape with face that might fall into multiple partititions
@@ -1482,6 +1483,33 @@ if TEST_BPY_ALL or TEST_SHADER_3_3:
         f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[7]}'"
 
 
+if TEST_BPY_ALL or TEST_CAVE_GREEN:
+    # Regression: Make sure the transparency is exported on this nif.
+    test_title("TEST_CAVE_GREEN", "Cave nif can be exported correctly")
+    clear_all()
+    testfile = test_file(r"tests\SkyrimSE\meshes\dungeons\caves\green\smallhall\caveghall1way01.nif")
+    outfile = test_file(r"tests/Out/TEST_CAVE_GREEN.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    wall1 = bpy.data.objects["CaveGHall1Way01:2"]
+    mat1 = wall1.active_material
+    mix1 = mat1.node_tree.nodes['Principled BSDF'].inputs['Base Color'].links[0].from_node
+    diff1 = mix1.inputs[6].links[0].from_node
+    assert diff1.image.filepath.lower().endswith("cavebasewall01.dds"), f"Have correct wall diffuse: {diff1.image.filepath}"
+
+    roots = find_shape("L2_Roots:5")
+
+    bpy.ops.object.select_all(action='DESELECT')
+    roots.select_set(True)
+    bpy.ops.object.duplicate()
+
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    nifcheck = NifFile(outfile)
+    rootscheck = nifcheck.shape_dict["L2_Roots:5"]
+    assert rootscheck.has_alpha_property, f"Roots have alpha: {rootscheck.has_alpha_property}"
+
+
 if TEST_BPY_ALL or TEST_POT:
     test_title("TEST_POT", "Test that pot shaders doesn't throw an error")
     clear_all()
@@ -1797,27 +1825,6 @@ if TEST_BPY_ALL or TEST_NONUNIFORM_SCALE:
         assert not VNearEqual(map(abs, v), [1,1,1]), f"All vertices scaled away from unit position: {v}"
 
 
-if TEST_BPY_ALL or TEST_CAVE_GREEN:
-    # Regression: Make sure the transparency is exported on this nif.
-    test_title("TEST_CAVE_GREEN", "Cave nif can be exported correctly")
-    clear_all()
-    testfile = test_file(r"tests\SkyrimSE\caveghall1way01.nif")
-    outfile = test_file(r"tests/Out/TEST_CAVE_GREEN.nif")
-    bpy.ops.import_scene.pynifly(filepath=testfile)
-
-    roots = find_shape("L2_Roots:5")
-
-    bpy.ops.object.select_all(action='DESELECT')
-    roots.select_set(True)
-    bpy.ops.object.duplicate()
-
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
-
-    nifcheck = NifFile(outfile)
-    rootscheck = nifcheck.shape_dict["L2_Roots:5"]
-    assert rootscheck.has_alpha_property, f"Roots have alpha: {rootscheck.has_alpha_property}"
-
-
 if TEST_BPY_ALL or TEST_TRIP_SE:
     # Special bodytri files allow for Bodyslide or FO4 body morphing.
     test_title("TEST_TRIP_SE", "Bodypart tri extra data and file are written on export")
@@ -1945,10 +1952,9 @@ if TEST_BPY_ALL or TEST_NEW_COLORS:
 
 
 if TEST_BPY_ALL or TEST_VERTEX_COLOR_IO:
-    # Vertex colors are loaded into Blender's color attribute. Alpha is loaded
-    # into the VERTEX_ALPHA color attribute. The FO4 eye AO nif is wierd because 
-    # it doesn't set the alpha bit, but does expect the alpha information to be
-    # used.
+    # On heads, vertex alpha and diffuse alpha work together to determine the final
+    # transparency the user sees. We set up Blender shader nodes to provide the same
+    # effect.
     test_title("TEST_VERTEX_COLOR_IO", "Vertex colors can be read and written")
     clear_all()
     testfile = test_file(r"tests\FO4\FemaleEyesAO.nif")

@@ -12,7 +12,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (9, 2, 2),  
+    "version": (9, 3, 1),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -374,6 +374,8 @@ def import_shader_alpha(mat, shape):
         return False
 
 def import_material(obj, shape):
+    if obj.type == 'EMPTY': return 
+
     img_offset_x = -1200
     cvt_offset_x = -300
     inter1_offset_x = -900
@@ -384,9 +386,11 @@ def import_material(obj, shape):
 
     nifpath = shape.file.filepath
 
+    log.debug(f"{obj.name} Extending filepaths with {nifpath}")
     fulltextures = extend_filenames(nifpath, "meshes", shape.textures)
 
     # Check if the user has converted textures to png
+    log.debug(f"Diffuse as in nif: {fulltextures[0]}")
     blender_dir = bpy.context.preferences.filepaths.texture_directory
     if not os.path.exists(blender_dir):
         blender_dir = None
@@ -421,6 +425,7 @@ def import_material(obj, shape):
 
     import_shader_attrs(mat, bdsf, shape)
     has_alpha = import_shader_alpha(mat, shape)
+    colormap, alpha_colormap = get_effective_colormaps(obj.data)
 
     # --- Diffuse --
     log.debug("Handling diffuse texture")
@@ -432,34 +437,51 @@ def import_material(obj, shape):
     except:
         pass
     txtnode.location = (bdsf.location[0] + img_offset_x, bdsf.location[1])
-    mat.node_tree.links.new(txtnode.outputs['Color'], bdsf.inputs['Base Color'])
 
-    if has_alpha:
-        if obj.data.vertex_colors and ALPHA_MAP_NAME in obj.data.vertex_colors:
-            attrnode = nodes.new("ShaderNodeAttribute")
-            attrnode.attribute_name = ALPHA_MAP_NAME
-            attrnode.attribute_type = "GEOMETRY"
-            attrnode.location = (txtnode.location[0], 
-                                 txtnode.location[1] - attrnode.height - offset_y)
+    if colormap:
+        log.debug(f"Have colormap: {colormap}")
+        attrnode = nodes.new("ShaderNodeAttribute")
+        attrnode.location = (txtnode.location[0], 
+                             txtnode.location[1] - attrnode.height - offset_y)
+        
+        mixnode = nodes.new("ShaderNodeMix")
+        mixnode.data_type = 'RGBA'
+        mixnode.location = (attrnode.location[0] - inter2_offset_x, attrnode.location[1])
+        mat.node_tree.links.new(txtnode.outputs['Color'], mixnode.inputs[6])
+        mat.node_tree.links.new(attrnode.outputs['Color'], mixnode.inputs[7])
+        mat.node_tree.links.new(mixnode.outputs[2], bdsf.inputs['Base Color'])
+        attrnode.attribute_name = colormap.name
+        attrnode.attribute_type = "GEOMETRY"
+        mixnode.blend_type = 'MULTIPLY'
+        mixnode.inputs['Factor'].default_value = 1
+    else:
+        mat.node_tree.links.new(txtnode.outputs['Color'], bdsf.inputs['Base Color'])
 
-            # Magic values make the khajiit head look good. Check against other meshes.
-            mapnode1 = nodes.new("ShaderNodeMapRange")
-            mapnode1.inputs['From Min'].default_value = 0.29
-            mapnode1.inputs['From Max'].default_value = 0.8
-            mapnode1.location = (attrnode.location[0] - inter2_offset_x, attrnode.location[1])
-            mat.node_tree.links.new(attrnode.outputs['Color'], mapnode1.inputs['Value'])
-            
-            mapnode2 = nodes.new("ShaderNodeMapRange")
-            mapnode2.inputs['From Min'].default_value = 0.4
-            mapnode2.inputs['To Max'].default_value = 0.38
-            mapnode2.location = (attrnode.location[0] - inter1_offset_x, attrnode.location[1])
-            mat.node_tree.links.new(mapnode1.outputs['Result'], mapnode2.inputs['To Min'])
-            mat.node_tree.links.new(txtnode.outputs['Alpha'], mapnode2.inputs['Value'])
+    if alpha_colormap:
+        attrnode = nodes.new("ShaderNodeAttribute")
+        attrnode.attribute_name = ALPHA_MAP_NAME
+        attrnode.attribute_type = "GEOMETRY"
+        attrnode.location = (txtnode.location[0], 
+                                txtnode.location[1] - attrnode.height - offset_y)
 
-            mat.node_tree.links.new(mapnode2.outputs['Result'], bdsf.inputs['Alpha'])
-            
-        else:
-            mat.node_tree.links.new(txtnode.outputs['Alpha'], bdsf.inputs['Alpha'])
+        # Magic values make the khajiit head look good. Check against other meshes.
+        mapnode1 = nodes.new("ShaderNodeMapRange")
+        mapnode1.inputs['From Min'].default_value = 0.29
+        mapnode1.inputs['From Max'].default_value = 0.8
+        mapnode1.location = (attrnode.location[0] - inter2_offset_x, attrnode.location[1])
+        mat.node_tree.links.new(attrnode.outputs['Color'], mapnode1.inputs['Value'])
+        
+        mapnode2 = nodes.new("ShaderNodeMapRange")
+        mapnode2.inputs['From Min'].default_value = 0.4
+        mapnode2.inputs['To Max'].default_value = 0.38
+        mapnode2.location = (attrnode.location[0] - inter1_offset_x, attrnode.location[1])
+        mat.node_tree.links.new(mapnode1.outputs['Result'], mapnode2.inputs['To Min'])
+        mat.node_tree.links.new(txtnode.outputs['Alpha'], mapnode2.inputs['Value'])
+
+        mat.node_tree.links.new(mapnode2.outputs['Result'], bdsf.inputs['Alpha'])
+        
+    else:
+        mat.node_tree.links.new(txtnode.outputs['Alpha'], bdsf.inputs['Alpha'])
 
     yloc = txtnode.location[1] + offset_y
 
@@ -2567,25 +2589,27 @@ def all_vertex_groups(weightdict):
 
 def get_effective_colormaps(mesh):
     """ Return the colormaps we want to use
-        Returns colormap, alphamap
+        Returns (colormap, alphamap)
         Either may be null
         """
-    if not mesh.vertex_colors:
+    if not mesh:
+        return None, None
+    if not mesh.color_attributes:
         return None, None
 
-    vc = mesh.vertex_colors
+    vc = mesh.color_attributes
     am = None
-    cm = vc.active.data
+    cm = vc.active_color
 
-    if vc.active.name == ALPHA_MAP_NAME:
+    if vc.active_color_name == ALPHA_MAP_NAME:
         cm = None
-        if vc.items()[0][0] == ALPHA_MAP_NAME and len(vc) > 1:
-            cm = vc.items()[1][1]
+        if vc[0] == ALPHA_MAP_NAME and len(vc) > 1:
+            cm = vc[1]
         else:
-            cm = vc.items()[0][1]
+            cm = vc[0]
 
     if ALPHA_MAP_NAME in vc.keys():
-        am = vc[ALPHA_MAP_NAME].data
+        am = vc[ALPHA_MAP_NAME]
 
     return cm, am
 
