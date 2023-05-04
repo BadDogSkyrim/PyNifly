@@ -38,10 +38,13 @@ def get_image_node(node_input):
     while n and not hasattr(n, "image"):
         #log.debug(f"Walking nodes: {n.name}")
         new_n = None
-        for inp in ['Base Color', 'Image', 'Color', 'R', 'Red']:
-            if inp in n.inputs.keys() and n.inputs[inp].is_linked:
-                new_n = n.inputs[inp].links[0].from_node
-                break
+        if n.type == 'MIX':
+            new_n = n.inputs[6].links[0].from_node
+        if not new_n:
+            for inp in ['Base Color', 'Image', 'Color', 'R', 'Red']:
+                if inp in n.inputs.keys() and n.inputs[inp].is_linked:
+                    new_n = n.inputs[inp].links[0].from_node
+                    break
         n = new_n
     return n
 

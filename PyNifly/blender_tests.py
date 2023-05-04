@@ -37,7 +37,7 @@ TEST_WEIGHTS_EXPORT = 0  ### Exporting this head weights all verts correctly
 TEST_0_WEIGHTS = 0  ### Gives warning on export with 0 weights
 TEST_TIGER_EXPORT = 0  ### Tiger head export
 TEST_3BBB = 0  ### Test that mesh imports with correct transforms
-TEST_SKEL = 0  ### Import skeleton file with no shapes
+TEST_SKEL = 1  ### Import skeleton file with no shapes
 TEST_HEADPART = 0  ### Read & write SE head part with tris
 TEST_TRI = 0  ### Can load a tri file into an existing mesh
 TEST_IMPORT_AS_SHAPES = 0  ### Import 2 meshes as shape keys
@@ -52,7 +52,7 @@ TEST_COLORS = 0  ### Read & write vertex colors
 TEST_COLORS2 = 0  ### Read & write vertex colors
 TEST_NEW_COLORS = 0  ### Can write vertex colors that were created in blender
 TEST_VERTEX_COLOR_IO = 0  ### Vertex colors can be read and written
-TEST_SHADER_GLOW = 1  ### BSEffectShaderProperty
+TEST_SHADER_GLOW = 0  ### BSEffectShaderProperty
 TEST_VERTEX_ALPHA_IO = 0  ### Vertex alpha affects Blender visible alpha
 TEST_VERTEX_ALPHA = 0  ### Export shape with vertex alpha values
 TEST_BONE_HIERARCHY = 0  ### Import and export bone hierarchy
@@ -62,7 +62,7 @@ TEST_EXP_SEGMENTS_BAD = 0  ### Verts export in the correct FO4 segments
 TEST_EXP_SEG_ORDER = 0  ### Segments export in numerical order
 TEST_PARTITIONS = 0  ### Read Skyrim partitions
 TEST_SHADER_LE = 0  ### Shader attributes Skyrim LE
-TEST_SHADER_SE = 1  ### Shader attributes Skyrim SE 
+TEST_SHADER_SE = 0  ### Shader attributes Skyrim SE 
 TEST_SHADER_FO4 = 0  ### Shader attributes are read and turned into Blender shader nodes
 TEST_SHADER_ALPHA = 0  ### Alpha property handled correctly
 TEST_SHADER_3_3 = 0  ### Shader attributes are read and turned into Blender shader nodes
@@ -120,6 +120,8 @@ TEST_IMP_NORMALS = 0  ### Can import normals from nif shape
 TEST_UV_SPLIT = 0  ### Split UVs properly
 TEST_JIARAN = 0  ### Armature with no stashed transforms exports correctly
 
+log = logging.getLogger("pynifly")
+log.setLevel(logging.DEBUG)
 
 if TEST_BPY_ALL or TEST_BODYPART_SKY:
     # Basic test that a Skyrim bodypart is imported correctly. 
@@ -129,7 +131,7 @@ if TEST_BPY_ALL or TEST_BODYPART_SKY:
     clear_all()
     testfile = test_file("tests\Skyrim\malehead.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    male_head = bpy.context.selected_objects[0]
+    male_head = bpy.context.object
     assert round(male_head.location.z, 0) == 120, "ERROR: Object not elevated to position"
     assert male_head.parent.type == "ARMATURE", "ERROR: Didn't parent to armature"
     maxz = max([v.co.z for v in male_head.data.vertices])
@@ -885,7 +887,7 @@ if TEST_BPY_ALL or TEST_TIGER_EXPORT:
 
 
 if TEST_BPY_ALL or TEST_3BBB:
-    print("## TEST_3BBB: Test that this mesh imports with the right transforms")
+    test_title("TEST_3BBB", "Test that this mesh imports with the right transforms")
     clear_all()
 
     testfile = test_file(r"tests/SkyrimSE/3BBB_femalebody_1.nif")
@@ -910,11 +912,17 @@ if TEST_BPY_ALL or TEST_SKEL:
     test_title("TEST_SKEL", "Can import skeleton file with no shapes")
     clear_all()
     testfile = test_file(r"skeletons\FO4\skeleton.nif")
+    outfile = test_file(r"tests/out/TEST_SKEL.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     arma = bpy.data.objects["skeleton.nif"]
-    assert 'Leg_Thigh.L' in arma.data.bones, "Error: Should have left thigh"
+    assert 'Leg_Thigh.L' in arma.data.bones, "Have left thigh bone"
+    assert 'RibHelper.L' in arma.data.bones, "Have rib helper bone"
+    assert 'L_RibHelper.L' not in arma.data.bones, "Do not have nif name for bone"
+    assert 'L_RibHelper' not in bpy.data.objects, "Do not have rib helper object"
+
+    bpy.ops.export_scene.pynifly(filepath=outfile)
 
 
 if TEST_BPY_ALL or TEST_HEADPART:
@@ -1321,11 +1329,11 @@ if TEST_BPY_ALL or TEST_SHADER_LE:
 
     nifLE = NifFile(fileLE)
     shaderAttrsLE = nifLE.shapes[0].shader_attributes
-    for obj in bpy.context.selected_objects:
-        if "MaleHeadIMF" in obj.name:
-            headLE = obj
+    headLE = bpy.context.object
     shadernodes = headLE.active_material.node_tree.nodes
-    assert len(shadernodes) == 9, "ERROR: Didn't import images"
+    assert 'Principled BSDF' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
+    assert 'Image Texture' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
+    assert 'Normal Map' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     g = shadernodes['Principled BSDF'].inputs['Metallic'].default_value
     assert round(g, 4) == 33/GLOSS_SCALE, f"Glossiness not correct, value is {g}"
     assert headLE.active_material['BSShaderTextureSet_2'] == r"textures\actors\character\male\MaleHead_sk.dds", f"Expected stashed texture path, found {headLE.active_material['BSShaderTextureSet_2']}"
@@ -1430,7 +1438,10 @@ if TEST_BPY_ALL or TEST_SHADER_ALPHA:
     nifAlph = NifFile(fileAlph)
     furshape = nifAlph.shape_dict["tail_fur"]
     tail = bpy.data.objects["tail_fur"]
-    assert len(tail.active_material.node_tree.nodes) == 9, "ERROR: Didn't import images"
+    assert 'Principled BSDF' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
+    assert 'Image Texture' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
+    assert 'Attribute' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
+    assert 'Normal Map' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
     assert tail.active_material.blend_method == 'CLIP', f"Error: Alpha blend is '{tail.active_material.blend_method}', not 'CLIP'"
 
     print("## Shader attributes are written on export")
@@ -1898,7 +1909,7 @@ if TEST_BPY_ALL or TEST_COLORS:
     # Blender's vertex color layers are used to define vertex colors in the nif.
     test_title("TEST_COLORS", "Can read & write vertex colors")
     clear_all()
-    outfile = r"tests/Out/TEST_COLORS_Plane.nif"
+    outfile = test_file(r"tests/Out/TEST_COLORS_Plane.nif")
     export_from_blend(r"tests\FO4\VertexColors.blend", "Plane",
                       "FO4", outfile)
 
@@ -2004,7 +2015,8 @@ if TEST_BPY_ALL or TEST_VERTEX_ALPHA_IO:
     nodes = head.active_material.node_tree.nodes
     shader = nodes["Principled BSDF"]
     assert shader, f"Found Principled BSDF node"
-    diffuse = shader.inputs["Base Color"].links[0].from_node
+    mixnode = shader.inputs["Base Color"].links[0].from_node
+    diffuse = mixnode.inputs[6].links[0].from_node
     assert diffuse.name == "Image Texture", f"Found correct diffuse type {diffuse.name}"
     assert diffuse.image.filepath.endswith('KhajiitMaleHead.dds'), f"Filepath correct: {diffuse.image.filepath}"
     map1 = shader.inputs['Alpha'].links[0].from_node

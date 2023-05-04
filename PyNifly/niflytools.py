@@ -20,13 +20,22 @@ log = logging.getLogger("pynifly")
 # ###################### FILE HANDLING ##################################
 
 def extend_filenames(root, separator, files):
-    """ Extend the given relative path names with the portion of the root before the separator.
-        Separator is the name of a directory in the path """
+    """ Extend the given relative path names with the portion of the root before the
+        separator. 
+        
+        * root = absolute filepath 
+        * separator = Folder within the filepath. The part before the separator is the
+          common directory path to use for the files. If None, use the entire root.  
+        * files = list of relative file paths 
+        """
     rootpath = Path(root)
     try:
-        upperpath = list(map(lambda s: s.upper(), rootpath.parts))
-        seploc = upperpath.index(separator.upper())
-        sharedpart = rootpath.parents[len(rootpath.parts) - seploc - 1]
+        if separator:
+            upperpath = [s.upper() for s in rootpath.parts]
+            seploc = upperpath.index(separator.upper())
+            sharedpart = rootpath.parents[len(rootpath.parts) - seploc - 1]
+        else:
+            sharedpart = root
         return [(str(sharedpart / f) if len(f) > 0 else "") for f in files]
     except:
         return files

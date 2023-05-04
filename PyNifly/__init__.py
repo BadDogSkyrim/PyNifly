@@ -2,10 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-
-RUN_TESTS = True
-TEST_BPY_ALL = False
-TEST_TARGET_BONE = ['skeleton.nif' ] # Print extra debugging info for these bones
+TEST_TARGET_BONE = ['L_RibHelper.L',  'L_RibHelper'] # Print extra debugging info for these bones
 
 bl_info = {
     "name": "NIF format",
@@ -18,22 +15,17 @@ bl_info = {
     "category": "Import-Export"
 }
 
-#from modulefinder import IMPORT_NAME
 import sys
 import os
 import os.path
 import logging
-# from operator import or_
-# from functools import reduce
 import traceback
-# from unittest.result import failfast
 from mathutils import Matrix, Vector, Quaternion, geometry
-# import quickhull
-# import re
 import codecs
 
 logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
 log = logging.getLogger("pynifly")
+log.setLevel(logging.INFO)
 log.info(f"Loading pynifly version {bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}")
 
 nifly_path = None
@@ -43,12 +35,8 @@ if 'PYNIFLY_DEV_ROOT' in os.environ:
     nifly_path = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll")
 
 if nifly_path and os.path.exists(nifly_path):
-    #log.debug(f"PyNifly dev path: {pynifly_dev_path}")
     if pynifly_dev_path not in sys.path:
         sys.path.insert(0, pynifly_dev_path)
-    if RUN_TESTS:
-        log.setLevel(logging.DEBUG)
-    else:
         log.setLevel(logging.INFO)
 else:
     # Load from install location
@@ -68,6 +56,7 @@ from niflytools import *
 from pynifly import *
 from trihandler import *
 from blender_defs import *
+from shader_io import ShaderImporter
 
 import bpy
 import bpy_types
@@ -88,7 +77,6 @@ MULTIPLE_PARTITION_GROUP = "*MULTIPLE_PARTITIONS*"
 UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 
-GLOSS_SCALE = 100
 CONNECT_POINT_SCALE = 1.0
 
 COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5)
@@ -331,305 +319,6 @@ def get_bone_xform(arma, bone_name, game, preserve_hierarchy, use_pose) -> Matri
 
 # -----------------------------  SHADERS  -------------------------------
 
-def find_shader_node(nodelist, idname):
-    return next((x for x in nodelist if x.bl_idname == idname), None)
-
-def import_shader_attrs(material, shader, shape):
-    attrs = shape.shader_attributes
-    if not attrs: 
-        return
-
-    attrs.extract(material)
-
-    try:
-        material['BS_Shader_Block_Name'] = shape.shader_block_name
-        material['BSLSP_Shader_Name'] = shape.shader_name
-        shader.inputs['Emission'].default_value = (attrs.Emissive_Color_R, attrs.Emissive_Color_G, attrs.Emissive_Color_B, attrs.Emissive_Color_A)
-        shader.inputs['Emission Strength'].default_value = attrs.Emissive_Mult
-
-        if shape.shader_block_name == 'BSLightingShaderProperty':
-            shader.inputs['Alpha'].default_value = attrs.Alpha
-            shader.inputs['Metallic'].default_value = attrs.Glossiness/GLOSS_SCALE
-        elif shape.shader_block_name == 'BSEffectShaderProperty':
-            shader.inputs['Alpha'].default_value = attrs.Falloff_Start_Opacity
-
-    except Exception as e:
-        # Any errors, print the error but continue
-        log.warning(str(e))
-
-def import_shader_alpha(mat, shape):
-    if shape.has_alpha_property:
-        mat.alpha_threshold = shape.alpha_property.threshold
-        if shape.alpha_property.flags & 1:
-            mat.blend_method = 'BLEND'
-            mat.alpha_threshold = shape.alpha_property.threshold/255
-        else:
-            mat.blend_method = 'CLIP'
-            mat.alpha_threshold = shape.alpha_property.threshold/255
-        mat['NiAlphaProperty_flags'] = shape.alpha_property.flags
-        mat['NiAlphaProperty_threshold'] = shape.alpha_property.threshold
-
-        return True
-    else:
-        return False
-
-def import_material(obj, shape):
-    if obj.type == 'EMPTY': return 
-
-    img_offset_x = -1200
-    cvt_offset_x = -300
-    inter1_offset_x = -900
-    inter2_offset_x = -700
-    inter3_offset_x = -500
-    offset_y = -300
-    yloc = 0
-
-    nifpath = shape.file.filepath
-
-    log.debug(f"{obj.name} Extending filepaths with {nifpath}")
-    fulltextures = extend_filenames(nifpath, "meshes", shape.textures)
-
-    # Check if the user has converted textures to png
-    log.debug(f"Diffuse as in nif: {fulltextures[0]}")
-    blender_dir = bpy.context.preferences.filepaths.texture_directory
-    if not os.path.exists(blender_dir):
-        blender_dir = None
-    for i, tx in enumerate(fulltextures):
-        #log.debug(f"Finding texture {i}: {tx}")
-        if len(tx) > 0 and tx[-4:].lower() == '.dds':
-            # Check for converted texture in the nif's filetree
-            txpng = tx[0:-3] + 'png'
-            if blender_dir:
-                #log.debug("Check in Blender's default texture directory first")
-                fndds = os.path.join(blender_dir, shape.textures[i])
-                #log.debug("Got blender texture path")
-                fnpng = os.path.splitext(fndds)[0] + '.png'
-                if os.path.exists(fnpng):
-                    fulltextures[i] = fnpng
-                    log.info(f"Using png texture from Blender's texture directory: {fnpng}")
-            if fulltextures[i][-4:].lower() == '.dds':
-                log.debug(f"checking texture path {txpng}")
-                if os.path.exists(txpng):
-                    fulltextures[i] = txpng
-                    log.info(f"Using png texture from nif's node tree': {txpng}")
-
-    mat = bpy.data.materials.new(name=(obj.name + ".Mat"))
-
-    # Stash texture strings for future export
-    for i, t in enumerate(shape.textures):
-        mat['BSShaderTextureSet_' + str(i)] = t
-
-    mat.use_nodes = True
-    nodes = mat.node_tree.nodes
-    bdsf = nodes.get("Principled BSDF")
-
-    import_shader_attrs(mat, bdsf, shape)
-    has_alpha = import_shader_alpha(mat, shape)
-    colormap, alpha_colormap = get_effective_colormaps(obj.data)
-
-    # --- Diffuse --
-    log.debug("Handling diffuse texture")
-    txtnode = nodes.new("ShaderNodeTexImage")
-    try:
-        img = bpy.data.images.load(fulltextures[0], check_existing=True)
-        img.colorspace_settings.name = "sRGB"
-        txtnode.image = img
-    except:
-        pass
-    txtnode.location = (bdsf.location[0] + img_offset_x, bdsf.location[1])
-
-    if colormap:
-        log.debug(f"Have colormap: {colormap}")
-        attrnode = nodes.new("ShaderNodeAttribute")
-        attrnode.location = (txtnode.location[0], 
-                             txtnode.location[1] - attrnode.height - offset_y)
-        
-        mixnode = nodes.new("ShaderNodeMix")
-        mixnode.data_type = 'RGBA'
-        mixnode.location = (attrnode.location[0] - inter2_offset_x, attrnode.location[1])
-        mat.node_tree.links.new(txtnode.outputs['Color'], mixnode.inputs[6])
-        mat.node_tree.links.new(attrnode.outputs['Color'], mixnode.inputs[7])
-        mat.node_tree.links.new(mixnode.outputs[2], bdsf.inputs['Base Color'])
-        attrnode.attribute_name = colormap.name
-        attrnode.attribute_type = "GEOMETRY"
-        mixnode.blend_type = 'MULTIPLY'
-        mixnode.inputs['Factor'].default_value = 1
-    else:
-        mat.node_tree.links.new(txtnode.outputs['Color'], bdsf.inputs['Base Color'])
-
-    if alpha_colormap:
-        attrnode = nodes.new("ShaderNodeAttribute")
-        attrnode.attribute_name = ALPHA_MAP_NAME
-        attrnode.attribute_type = "GEOMETRY"
-        attrnode.location = (txtnode.location[0], 
-                                txtnode.location[1] - attrnode.height - offset_y)
-
-        # Magic values make the khajiit head look good. Check against other meshes.
-        mapnode1 = nodes.new("ShaderNodeMapRange")
-        mapnode1.inputs['From Min'].default_value = 0.29
-        mapnode1.inputs['From Max'].default_value = 0.8
-        mapnode1.location = (attrnode.location[0] - inter2_offset_x, attrnode.location[1])
-        mat.node_tree.links.new(attrnode.outputs['Color'], mapnode1.inputs['Value'])
-        
-        mapnode2 = nodes.new("ShaderNodeMapRange")
-        mapnode2.inputs['From Min'].default_value = 0.4
-        mapnode2.inputs['To Max'].default_value = 0.38
-        mapnode2.location = (attrnode.location[0] - inter1_offset_x, attrnode.location[1])
-        mat.node_tree.links.new(mapnode1.outputs['Result'], mapnode2.inputs['To Min'])
-        mat.node_tree.links.new(txtnode.outputs['Alpha'], mapnode2.inputs['Value'])
-
-        mat.node_tree.links.new(mapnode2.outputs['Result'], bdsf.inputs['Alpha'])
-        
-    else:
-        mat.node_tree.links.new(txtnode.outputs['Alpha'], bdsf.inputs['Alpha'])
-
-    yloc = txtnode.location[1] + offset_y
-
-    matlinks = mat.node_tree.links
-
-    # --- Subsurface --- 
-
-    log.debug("Handling subsurface texture")
-    if fulltextures[2] != "": 
-        # Have a sk separate from a specular
-        skimgnode = nodes.new("ShaderNodeTexImage")
-        try:
-            skimg = bpy.data.images.load(fulltextures[2], check_existing=True)
-            if skimg != txtnode.image:
-                skimg.colorspace_settings.name = "Non-Color"
-            skimgnode.image = skimg
-        except:
-            pass
-        skimgnode.location = (txtnode.location[0], yloc)
-        matlinks.new(skimgnode.outputs['Color'], bdsf.inputs["Subsurface Color"])
-        yloc = skimgnode.location[1] + offset_y
-        
-    # --- Specular --- 
-
-    log.debug("Handling specular texture")
-    if fulltextures[7] != "":
-        simgnode = nodes.new("ShaderNodeTexImage")
-        try:
-            simg = bpy.data.images.load(fulltextures[7], check_existing=True)
-            simg.colorspace_settings.name = "Non-Color"
-            simgnode.image = simg
-        except:
-            pass
-        simgnode.location = (txtnode.location[0], yloc)
-
-        if shape.file.game in ["FO4"]:
-            # specular combines gloss and spec
-            invg = nodes.new("ShaderNodeInvert")
-            invg.location = (bdsf.location[0] + cvt_offset_x, yloc)
-            matlinks.new(invg.outputs['Color'], bdsf.inputs['Roughness'])
-
-            try:
-                seprgb = nodes.new("ShaderNodeSeparateColor")
-                seprgb.mode = 'RGB'
-                matlinks.new(simgnode.outputs['Color'], seprgb.inputs['Color'])
-                matlinks.new(seprgb.outputs['Red'], bdsf.inputs['Specular'])
-                matlinks.new(seprgb.outputs['Green'], invg.inputs['Color'])
-            except:
-                seprgb = nodes.new("ShaderNodeSeparateRGB")
-                matlinks.new(simgnode.outputs['Color'], seprgb.inputs['Image'])
-                matlinks.new(seprgb.outputs['R'], bdsf.inputs['Specular'])
-                matlinks.new(seprgb.outputs['G'], invg.inputs['Color'])
-
-            seprgb.location = (bdsf.location[0] + 2*cvt_offset_x, yloc)
-        else:
-            matlinks.new(simgnode.outputs['Color'], bdsf.inputs['Specular'])
-            # bdsf.inputs['Metallic'].default_value = 0
-            
-        yloc = simgnode.location[1] + offset_y
-
-    # --- Normal Map --- 
-    
-    log.debug("Handling normal map texture")
-    if fulltextures[1] != "":
-        nmap = nodes.new("ShaderNodeNormalMap")
-        if shape.shader_attributes and shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
-            nmap.space = "OBJECT"
-        else:
-            nmap.space = "TANGENT"
-        nmap.location = (bdsf.location[0] + cvt_offset_x, yloc)
-        
-        nimgnode = nodes.new("ShaderNodeTexImage")
-        try:
-            nimg = bpy.data.images.load(fulltextures[1], check_existing=True) 
-            nimg.colorspace_settings.name = "Non-Color"
-            nimgnode.image = nimg
-        except:
-            pass
-        nimgnode.location = (txtnode.location[0], yloc)
-        
-        if shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
-            # Need to swap green and blue channels for blender
-            try:
-                # 3.3 
-                rgbsep = nodes.new("ShaderNodeSeparateColor")
-                rgbsep.mode = 'RGB'
-                rgbcomb = nodes.new("ShaderNodeCombineColor")
-                rgbcomb.mode = 'RGB'
-                matlinks.new(rgbsep.outputs['Red'], rgbcomb.inputs['Red'])
-                matlinks.new(rgbsep.outputs['Green'], rgbcomb.inputs['Blue'])
-                matlinks.new(rgbsep.outputs['Blue'], rgbcomb.inputs['Green'])
-                matlinks.new(rgbcomb.outputs['Color'], nmap.inputs['Color'])
-                matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Color'])
-            except:
-                # < 3.3
-                rgbsep = nodes.new("ShaderNodeSeparateRGB")
-                rgbcomb = nodes.new("ShaderNodeCombineRGB")
-                matlinks.new(rgbsep.outputs['R'], rgbcomb.inputs['R'])
-                matlinks.new(rgbsep.outputs['G'], rgbcomb.inputs['B'])
-                matlinks.new(rgbsep.outputs['B'], rgbcomb.inputs['G'])
-                matlinks.new(rgbcomb.outputs['Image'], nmap.inputs['Color'])
-                matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
-            rgbsep.location = (bdsf.location[0] + inter1_offset_x, yloc)
-            rgbcomb.location = (bdsf.location[0] + inter2_offset_x, yloc)
-
-        elif shape.file.game in ['FO4', 'FO76']:
-            # Need to invert the green channel for blender
-            try:
-                rgbsep = nodes.new("ShaderNodeSeparateColor")
-                rgbsep.mode = 'RGB'
-                rgbcomb = nodes.new("ShaderNodeCombineColor")
-                rgbcomb.mode = 'RGB'
-                colorinv = nodes.new("ShaderNodeInvert")
-                matlinks.new(rgbsep.outputs['Red'], rgbcomb.inputs['Red'])
-                matlinks.new(rgbsep.outputs['Blue'], rgbcomb.inputs['Blue'])
-                matlinks.new(rgbsep.outputs['Green'], colorinv.inputs['Color'])
-                matlinks.new(colorinv.outputs['Color'], rgbcomb.inputs['Green'])
-                matlinks.new(rgbcomb.outputs['Color'], nmap.inputs['Color'])
-                matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Color'])
-            except:
-                rgbsep = nodes.new("ShaderNodeSeparateRGB")
-                rgbcomb = nodes.new("ShaderNodeCombineRGB")
-                colorinv = nodes.new("ShaderNodeInvert")
-                matlinks.new(rgbsep.outputs['R'], rgbcomb.inputs['R'])
-                matlinks.new(rgbsep.outputs['B'], rgbcomb.inputs['B'])
-                matlinks.new(rgbsep.outputs['G'], colorinv.inputs['Color'])
-                matlinks.new(colorinv.outputs['Color'], rgbcomb.inputs['G'])
-                matlinks.new(rgbcomb.outputs['Image'], nmap.inputs['Color'])
-                matlinks.new(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
-
-            rgbsep.location = (bdsf.location[0] + inter1_offset_x, yloc)
-            rgbcomb.location = (bdsf.location[0] + inter3_offset_x, yloc)
-            colorinv.location = (bdsf.location[0] + inter2_offset_x, yloc - rgbcomb.height * 0.9)
-        else:
-            matlinks.new(nimgnode.outputs['Color'], nmap.inputs['Color'])
-            nmap.location = (bdsf.location[0] + inter2_offset_x, yloc)
-                         
-        matlinks.new(nmap.outputs['Normal'], bdsf.inputs['Normal'])
-
-        if shape.file.game in ["SKYRIM", "SKYRIMSE"] and \
-            shape.shader_attributes and \
-            not shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
-            # Specular is in the normal map alpha channel
-            matlinks.new(nimgnode.outputs['Alpha'], bdsf.inputs['Specular'])
-            
-    obj.active_material = mat
-
-
 def export_shader_attrs(obj, shader, shape):
     mat = obj.active_material
 
@@ -680,7 +369,6 @@ def set_object_texture(shape: NiShape, mat: bpy.types.Material, i: int):
     t = read_object_texture(mat, i)
     if t:
         shape.set_texture(i, t)
-
 
 
 # -----------------------------  MESH CREATION -------------------------------
@@ -1095,6 +783,7 @@ class NifImporter():
         Returns the bone or None.
         """
         for arma in self.imported_armatures:
+            log.debug(f"Looking for bone {bone_name} in armature {arma.name} with bones {arma.data.bones}")
             if bone_name in arma.data.bones:
                 return arma.data.bones[bone_name]
         return None
@@ -1121,6 +810,7 @@ class NifImporter():
         if ninode._handle in self.objects_created:
             return self.objects_created[ninode._handle]
 
+        log.debug(f"Looking for bone {bl_name} in armature list {self.imported_armatures}")
         bn = self.bone_in_armatures(bl_name)
         if bn: 
             return bn 
@@ -1273,7 +963,7 @@ class NifImporter():
                 mesh_create_normals(new_object.data, the_shape.normals)
 
             log.debug("Creating material")
-            import_material(new_object, the_shape)
+            ShaderImporter().import_material(new_object, the_shape)
             log.debug("Creating material DONE")
         
             # Root block type goes on the shape object because there isn't another good place
@@ -1547,7 +1237,9 @@ class NifImporter():
 
 
     def add_bones_to_arma(self, arma, nif, bone_names):
-        """Add all the bones in the list to the armature"""
+        """Add all the bones in the list to the armature.
+        * bone_names = nif bone names to import
+        """
         ObjectSelect([arma])
         ObjectActive(arma)
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -1932,7 +1624,8 @@ class NifImporter():
                 if not self.armature:
                     self.armature = self.make_armature(self.collection)
                 self.add_bones_to_arma(self.armature, self.nif, self.nif.nodes.keys())
-                self.connect_armature(self.armature)
+                self.imported_armatures.append(self.armature)
+                #self.connect_armature(self.armature)
             else:
                 # List of armatures available for shapes
                 if self.armature:
@@ -2586,32 +2279,6 @@ def all_vertex_groups(weightdict):
             val.add(g)
     return val
 
-
-def get_effective_colormaps(mesh):
-    """ Return the colormaps we want to use
-        Returns (colormap, alphamap)
-        Either may be null
-        """
-    if not mesh:
-        return None, None
-    if not mesh.color_attributes:
-        return None, None
-
-    vc = mesh.color_attributes
-    am = None
-    cm = vc.active_color
-
-    if vc.active_color_name == ALPHA_MAP_NAME:
-        cm = None
-        if vc[0] == ALPHA_MAP_NAME and len(vc) > 1:
-            cm = vc[1]
-        else:
-            cm = vc[0]
-
-    if ALPHA_MAP_NAME in vc.keys():
-        am = vc[ALPHA_MAP_NAME]
-
-    return cm, am
 
 def get_loop_color(mesh, loopindex, cm, am):
     """ Return the color of the vertex-in-loop at given loop index using
