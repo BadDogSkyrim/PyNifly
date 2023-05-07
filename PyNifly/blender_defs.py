@@ -3,6 +3,7 @@
 from enum import IntFlag
 from mathutils import Matrix, Vector, Quaternion, geometry
 import bpy_types
+import re
 from nifdefs import *
 from pynifly import *
 
@@ -26,27 +27,13 @@ class pynFlags(IntFlag):
     RENAME_BONES_NIFTOOLS = 1 << 9
     EXPORT_POSE = 1 << 10
 
+name_pat = re.compile('(.+)\.\d\d\d')
 
-def get_image_node(node_input):
-    """Walk the shader nodes backwards until a texture node is found.
-        node_input = the shader node input to follow; may be null"""
-    #log.debug(f"Walking shader nodes backwards to find image: {node_input.name}")
-    n = None
-    if node_input and len(node_input.links) > 0: 
-        n = node_input.links[0].from_node
-
-    while n and not hasattr(n, "image"):
-        #log.debug(f"Walking nodes: {n.name}")
-        new_n = None
-        if n.type == 'MIX':
-            new_n = n.inputs[6].links[0].from_node
-        if not new_n:
-            for inp in ['Base Color', 'Image', 'Color', 'R', 'Red']:
-                if inp in n.inputs.keys() and n.inputs[inp].is_linked:
-                    new_n = n.inputs[inp].links[0].from_node
-                    break
-        n = new_n
-    return n
+def nonunique_name(obj):
+    m = name_pat.search(obj.name)
+    if m:
+        return m.group(1)
+    return obj.name
 
 
 def MatrixLocRotScale(loc, rot, scale):
@@ -153,20 +140,25 @@ def get_export_objects(ctxt:bpy_types.Context) -> list:
     """
     export_objects = []
     for obj in ctxt.selected_objects:
-        if obj not in export_objects: 
-            if obj == ctxt.object:
-                export_objects.insert(0, obj)
-            else:
-                export_objects.append(obj) 
-            if obj.type == 'ARMATURE':
-                for child in obj.children:
-                    if child not in export_objects: export_objects.append(child)
-            else:
-                arma, fb_arma = find_armatures(obj)
-                if arma:
-                    export_objects.append(arma)
-                if fb_arma:
-                    export_objects.append(fb_arma)
+        if obj not in export_objects:
+            par = obj.parent
+            gpar = par.parent if par else None
+            gparname = gpar.name if gpar else ''
+            if not gparname.startswith('bhkCollisionObject'): 
+                log.debug(f"Adding {obj.name} to export objects")
+                if obj == ctxt.object:
+                    export_objects.insert(0, obj)
+                else:
+                    export_objects.append(obj) 
+                if obj.type == 'ARMATURE':
+                    for child in obj.children:
+                        if child not in export_objects: export_objects.append(child)
+                else:
+                    arma, fb_arma = find_armatures(obj)
+                    if arma:
+                        export_objects.append(arma)
+                    if fb_arma:
+                        export_objects.append(fb_arma)
 
     return export_objects
 

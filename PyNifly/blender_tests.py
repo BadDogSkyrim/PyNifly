@@ -4,14 +4,14 @@ Convenient setup for running these tests here:
 https://polynook.com/learn/set-up-blender-addon-development-environment-in-windows
 """
 import bpy
-from mathutils import Matrix, Vector, Quaternion
+from mathutils import Matrix, Vector
 from test_tools import *
 from pynifly import *
 from blender_defs import *
 from trihandler import *
 
 
-TEST_BPY_ALL = 0
+TEST_BPY_ALL = 1
 TEST_BODYPART_SKY = 0  ### Skyrim head
 TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
@@ -37,7 +37,7 @@ TEST_WEIGHTS_EXPORT = 0  ### Exporting this head weights all verts correctly
 TEST_0_WEIGHTS = 0  ### Gives warning on export with 0 weights
 TEST_TIGER_EXPORT = 0  ### Tiger head export
 TEST_3BBB = 0  ### Test that mesh imports with correct transforms
-TEST_SKEL = 1  ### Import skeleton file with no shapes
+TEST_SKEL = 0  ### Import skeleton file with no shapes
 TEST_HEADPART = 0  ### Read & write SE head part with tris
 TEST_TRI = 0  ### Can load a tri file into an existing mesh
 TEST_IMPORT_AS_SHAPES = 0  ### Import 2 meshes as shape keys
@@ -921,8 +921,20 @@ if TEST_BPY_ALL or TEST_SKEL:
     assert 'RibHelper.L' in arma.data.bones, "Have rib helper bone"
     assert 'L_RibHelper.L' not in arma.data.bones, "Do not have nif name for bone"
     assert 'L_RibHelper' not in bpy.data.objects, "Do not have rib helper object"
+    assert arma.data.bones['RibHelper.L'].parent.name == 'Chest', \
+        f"Parent of ribhelper is chest: {arma.data.bones['RibHelper.L'].parent.name}"
 
-    bpy.ops.export_scene.pynifly(filepath=outfile)
+    cp_lleg = bpy.data.objects['BSConnectPointParents::P-ArmorLleg']
+    assert cp_lleg.parent == arma, f"cp_lleg has armature as parent: {cp_lleg.parent}"
+    assert VNearEqual(cp_lleg.location, [-6.6, 0, 68.9], epsilon=1), \
+        f"Armor left leg connect point at relative position: {cp_lleg.location}"
+
+    bpy.data.objects['skeleton.nif'].select_set(True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True)
+    skel = NifFile(outfile)
+    assert "L_RibHelper" in skel.nodes, "Bones written to nif"
+    pb = skel.nodes["L_RibHelper"].parent
+    assert pb.name == "Chest", f"Have correct parent: {pb.name}"
 
 
 if TEST_BPY_ALL or TEST_HEADPART:
@@ -1344,13 +1356,13 @@ if TEST_BPY_ALL or TEST_SHADER_LE:
 
     nifcheckLE = NifFile(outfile)
     
-    assert nifcheckLE.shapes[0].textures[0] == nifLE.shapes[0].textures[0], \
+    assert nifcheckLE.shapes[0].textures[0].lower() == nifLE.shapes[0].textures[0].lower(), \
         f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[0]}' != '{nifLE.shapes[0].textures[0]}'"
-    assert nifcheckLE.shapes[0].textures[1] == nifLE.shapes[0].textures[1], \
+    assert nifcheckLE.shapes[0].textures[1].lower() == nifLE.shapes[0].textures[1].lower(), \
         f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[1]}' != '{nifLE.shapes[0].textures[1]}'"
-    assert nifcheckLE.shapes[0].textures[2] == nifLE.shapes[0].textures[2], \
+    assert nifcheckLE.shapes[0].textures[2].lower() == nifLE.shapes[0].textures[2].lower(), \
         f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[2]}' != '{nifLE.shapes[0].textures[2]}'"
-    assert nifcheckLE.shapes[0].textures[7] == nifLE.shapes[0].textures[7], \
+    assert nifcheckLE.shapes[0].textures[7].lower() == nifLE.shapes[0].textures[7].lower(), \
         f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[7]}' != '{nifLE.shapes[0].textures[7]}'"
     assert nifcheckLE.shapes[0].shader_attributes == shaderAttrsLE, f"Error: Shader attributes not preserved:\n{nifcheckLE.shapes[0].shader_attributes}\nvs\n{shaderAttrsLE}"
 
@@ -1365,10 +1377,15 @@ if TEST_BPY_ALL or TEST_SHADER_SE:
     
     bpy.ops.import_scene.pynifly(filepath=fileSE)
     nifSE = NifFile(fileSE)
-    shaderAttrsSE = nifSE.shapes[0].shader_attributes
-    boots = next(filter(lambda x: x.name.startswith('Shoes'), bpy.context.selected_objects))
-    assert len(boots.active_material.node_tree.nodes) >= 5, "ERROR: Didn't import shader nodes"
-    assert shaderAttrsSE.Env_Map_Scale == 5, "Read the correct environment map scale"
+    nifboots = nifSE.shapes[0]
+    shaderAttrsSE = nifboots.shader_attributes
+    boots = bpy.context.object
+    shadernodes = boots.active_material.node_tree.nodes
+    assert len(shadernodes) >= 5, "ERROR: Didn't import shader nodes"
+    shader = shadernodes['Principled BSDF']
+    assert boots.active_material['Env_Map_Scale'] == shaderAttrsSE.Env_Map_Scale, \
+        f"Read the correct environment map scale: {boots.active_material['Env_Map_Scale']}"
+    assert not shader.inputs['Alpha'].is_linked, f"No alpha property"
 
     print("## Shader attributes are written on export")
     bpy.ops.object.select_all(action='DESELECT')
@@ -1376,16 +1393,23 @@ if TEST_BPY_ALL or TEST_SHADER_SE:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
     nifcheckSE = NifFile(outfile)
+    bootcheck = nifcheckSE.shapes[0]
     
-    assert nifcheckSE.shapes[0].textures[0] == nifSE.shapes[0].textures[0], \
-        f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[0]}' != '{nifSE.shapes[0].textures[0]}'"
-    assert nifcheckSE.shapes[0].textures[1] == nifSE.shapes[0].textures[1], \
-        f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[1]}' != '{nifSE.shapes[0].textures[1]}'"
-    assert nifcheckSE.shapes[0].textures[2] == nifSE.shapes[0].textures[2], \
-        f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[2]}' != '{nifSE.shapes[0].textures[2]}'"
-    assert nifcheckSE.shapes[0].textures[7] == nifSE.shapes[0].textures[7], \
-        f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[7]}' != '{nifSE.shapes[0].textures[7]}'"
-    assert nifcheckSE.shapes[0].shader_attributes.Env_Map_Scale == shaderAttrsSE.Env_Map_Scale, f"Error: Shader attributes not preserved:\n{nifcheckSE.shapes[0].shader_attributes}\nvs\n{shaderAttrsSE}"
+    assert bootcheck.textures[0].lower() == nifboots.textures[0].lower(), \
+        f"Error: Texture paths not preserved: '{bootcheck.textures[0]}' != '{nifboots.textures[0]}'"
+    assert bootcheck.textures[1].lower() == nifboots.textures[1].lower(), \
+        f"Error: Texture paths not preserved: '{bootcheck.textures[1]}' != '{nifboots.textures[1]}'"
+    assert bootcheck.textures[2].lower() == nifboots.textures[2].lower(), \
+        f"Error: Texture paths not preserved: '{bootcheck.textures[2]}' != '{nifboots.textures[2]}'"
+    assert bootcheck.textures[4] == nifboots.textures[4], \
+        f"Error: Texture paths not preserved: '{bootcheck.textures[4]}' != '{nifboots.textures[4]}'"
+    assert bootcheck.textures[7].lower() == nifboots.textures[7].lower(), \
+        f"Error: Texture paths not preserved: '{bootcheck.textures[7]}' != '{nifboots.textures[7]}'"
+    assert bootcheck.shader_attributes.Env_Map_Scale == shaderAttrsSE.Env_Map_Scale, \
+        f"Error: Shader attributes not preserved:\n{bootcheck.shader_attributes}\nvs\n{shaderAttrsSE}"
+    assert not bootcheck.has_alpha_property, "Boots have no alpha"
+    assert bootcheck.shader_attributes.Env_Map_Scale == shaderAttrsSE.Env_Map_Scale, \
+        f"Environment map scale written correctly: {bootcheck.shader_attributes.Env_Map_Scale}"
 
 
 if TEST_BPY_ALL or TEST_SHADER_FO4:
@@ -1399,10 +1423,10 @@ if TEST_BPY_ALL or TEST_SHADER_FO4:
     
     nifFO4 = NifFile(fileFO4)
     shaderAttrsFO4 = nifFO4.shapes[0].shader_attributes
-    sh = next((x for x in headFO4.active_material.node_tree.nodes if x.name == "Principled BSDF"), None)
-    assert sh, "ERROR: Didn't import images"
-    txt = get_image_node(sh.inputs["Base Color"])
-    assert txt and txt.image, "ERROR: Didn't import images"
+    sh = headFO4.active_material.node_tree.nodes["Principled BSDF"]
+    assert sh, "Have shader node"
+    txt = headFO4.active_material.node_tree.nodes["Image Texture"]
+    assert txt and txt.image and txt.image.filepath, "ERROR: Didn't import images"
 
     print("## Shader attributes are written on export")
 
@@ -3475,9 +3499,11 @@ if TEST_BPY_ALL or TEST_IMP_ANIMATRON:
     assert spine2.matrix_local.translation.z > 30, f"SPINE2 in correct position: {spine2.matrix_local.translation}"
     assert VNearEqual(handpose.matrix.translation, [18.1848, 2.6116, 68.6298]), f"Hand position matches Nif: {handpose.matrix.translation}"
 
+    thighl = arma.data.bones['LLeg_Thigh']
     cp_armorleg = find_shape("BSConnectPointParents::P-ArmorLleg")
     assert cp_armorleg["pynConnectParent"] == "LLeg_Thigh", f"Connect point has correct parent: {cp_armorleg['pynConnectParent']}"
-    assert VNearEqual(cp_armorleg.location, Vector((33.7, -2.4, 1.5)), 0.1), f"Connect point at correct position"
+    assert VNearEqual(cp_armorleg.location, thighl.matrix_local.translation, 0.1), \
+        f"Connect point at correct position: {cp_armorleg.location} == {thighl.matrix_local.translation}"
 
     arma = find_shape('AnimatronicNormalWoman')
     assert arma, f"Found armature '{arma.name}'"

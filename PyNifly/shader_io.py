@@ -39,28 +39,12 @@ def get_effective_colormaps(mesh):
     return cm, am
 
 
-def import_shader_alpha(mat, shape):
-    if shape.has_alpha_property:
-        mat.alpha_threshold = shape.alpha_property.threshold
-        if shape.alpha_property.flags & 1:
-            mat.blend_method = 'BLEND'
-            mat.alpha_threshold = shape.alpha_property.threshold/255
-        else:
-            mat.blend_method = 'CLIP'
-            mat.alpha_threshold = shape.alpha_property.threshold/255
-        mat['NiAlphaProperty_flags'] = shape.alpha_property.flags
-        mat['NiAlphaProperty_threshold'] = shape.alpha_property.threshold
-
-        return True
-    else:
-        return False
-
 class ShaderImporter:
     def __init__(self):
         self.material = None
         self.shape = None
         self.colormap = None
-        self.alpha_colormap = None
+        self.alphamap = None
         self.bsdf = None
         self.nodes = None
         self.textures = []
@@ -74,11 +58,11 @@ class ShaderImporter:
         self.inter3_offset_x = -500
         self.offset_y = -300
         self.yloc = 0
+        self.ytop = 0
 
         self.log = logging.getLogger("pynifly")
 
     
-
     def import_shader_attrs(self, shape:NiShape):
         """
         Import the shader attributes associated with the shape. All attributes are stored
@@ -106,6 +90,26 @@ class ShaderImporter:
         except Exception as e:
             # Any errors, print the error but continue
             log.warning(str(e))
+
+
+    def import_shader_alpha(self, shape):
+        if shape.has_alpha_property:
+            self.material.alpha_threshold = shape.alpha_property.threshold
+            if shape.alpha_property.flags & 1:
+                self.material.blend_method = 'BLEND'
+                self.material.alpha_threshold = shape.alpha_property.threshold/255
+            else:
+                self.material.blend_method = 'CLIP'
+                self.material.alpha_threshold = shape.alpha_property.threshold/255
+            self.material['NiAlphaProperty_flags'] = shape.alpha_property.flags
+            self.material['NiAlphaProperty_threshold'] = shape.alpha_property.threshold
+
+            if self.diffuse and self.bsdf and not self.bsdf.inputs['Alpha'].is_linked:
+                # Alpha input may already have been hooked up if there are vertex alphas
+                self.link(self.diffuse.outputs['Alpha'], self.bsdf.inputs['Alpha'])
+
+            return True
+        return False
 
 
     def find_textures(self, shape:NiShape):
@@ -149,26 +153,6 @@ class ShaderImporter:
             if fulltextures[i] and os.path.exists(fulltextures[i]):
                 self.textures[i] = fulltextures[i]
             
-        # # Check if the user has converted textures to png
-        # self.log.debug(f"Diffuse as in nif: {fulltextures[0]}")
-        # for i, tx in enumerate(fulltextures):
-        #     #log.debug(f"Finding texture {i}: {tx}")
-        #     if len(tx) > 0 and tx[-4:].lower() == '.dds':
-        #         # Check for converted texture in the nif's filetree
-        #         txpng = tx[0:-3] + 'png'
-        #         if blender_dir:
-        #             #log.debug("Check in Blender's default texture directory first")
-        #             fndds = os.path.join(blender_dir, shape.textures[i])
-        #             #log.debug("Got blender texture path")
-        #             fnpng = os.path.splitext(fndds)[0] + '.png'
-        #             if os.path.exists(fnpng):
-        #                 fulltextures[i] = fnpng
-        #                 log.info(f"Using png texture from Blender's texture directory: {fnpng}")
-        #         if fulltextures[i][-4:].lower() == '.dds':
-        #             log.debug(f"checking texture path {txpng}")
-        #             if os.path.exists(txpng):
-        #                 fulltextures[i] = txpng
-        #                 log.info(f"Using png texture from nif's node tree': {txpng}")
 
     def link(self, a, b):
         """Create a link between two nodes"""
@@ -191,11 +175,11 @@ class ShaderImporter:
             log.debug(f"Have colormap: {self.colormap}")
             attrnode = self.nodes.new("ShaderNodeAttribute")
             attrnode.location = (txtnode.location[0], 
-                                txtnode.location[1] - attrnode.height - self.offset_y)
+                                 self.ytop - attrnode.height - self.offset_y)
             
             mixnode = self.nodes.new("ShaderNodeMix")
             mixnode.data_type = 'RGBA'
-            mixnode.location = (attrnode.location[0] - self.inter2_offset_x, attrnode.location[1])
+            mixnode.location = (attrnode.location[0] - self.inter2_offset_x, txtnode.location[1])
             self.link(txtnode.outputs['Color'], mixnode.inputs[6])
             self.link(attrnode.outputs['Color'], mixnode.inputs[7])
             self.link(mixnode.outputs[2], self.bsdf.inputs['Base Color'])
@@ -203,35 +187,36 @@ class ShaderImporter:
             attrnode.attribute_type = "GEOMETRY"
             mixnode.blend_type = 'MULTIPLY'
             mixnode.inputs['Factor'].default_value = 1
+            self.ytop = attrnode.location[1]
         else:
             self.link(txtnode.outputs['Color'], self.bsdf.inputs['Base Color'])
 
-        if self.alpha_colormap:
+        if self.alphamap:
             attrnode = self.nodes.new("ShaderNodeAttribute")
             attrnode.attribute_name = ALPHA_MAP_NAME
             attrnode.attribute_type = "GEOMETRY"
             attrnode.location = (txtnode.location[0], 
-                                    txtnode.location[1] - attrnode.height - self.offset_y)
+                                 self.ytop - attrnode.height - self.offset_y)
 
             # Magic values make the khajiit head look good. Check against other meshes.
             mapnode1 = self.nodes.new("ShaderNodeMapRange")
             mapnode1.inputs['From Min'].default_value = 0.29
             mapnode1.inputs['From Max'].default_value = 0.8
-            mapnode1.location = (attrnode.location[0] - self.inter2_offset_x, attrnode.location[1])
+            mapnode1.location = (attrnode.location[0] - self.inter2_offset_x, 
+                                 attrnode.location[1])
             self.link(attrnode.outputs['Color'], mapnode1.inputs['Value'])
             
             mapnode2 = self.nodes.new("ShaderNodeMapRange")
             mapnode2.inputs['From Min'].default_value = 0.4
             mapnode2.inputs['To Max'].default_value = 0.38
-            mapnode2.location = (attrnode.location[0] - self.inter1_offset_x, attrnode.location[1])
+            mapnode2.location = (attrnode.location[0] - self.inter1_offset_x, 
+                                 attrnode.location[1])
             self.link(mapnode1.outputs['Result'], mapnode2.inputs['To Min'])
             self.link(txtnode.outputs['Alpha'], mapnode2.inputs['Value'])
-
             self.link(mapnode2.outputs['Result'], self.bsdf.inputs['Alpha'])
-            
-        else:
-            self.link(txtnode.outputs['Alpha'], self.bsdf.inputs['Alpha'])
 
+            self.ytop = attrnode.location[1]
+            
         self.yloc = txtnode.location[1] + self.offset_y
         self.diffuse = txtnode
 
@@ -391,6 +376,7 @@ class ShaderImporter:
         self.material.use_nodes = True
         self.nodes = self.material.node_tree.nodes
         self.bsdf = self.nodes["Principled BSDF"]
+        self.ytop = self.bsdf.location[1]
 
         # Stash texture strings for future export
         for i, t in enumerate(shape.textures):
@@ -399,14 +385,231 @@ class ShaderImporter:
         self.find_textures(shape)
 
         self.import_shader_attrs(shape)
-        import_shader_alpha(self.material, shape)
-        self.colormap, self.alpha_colormap = get_effective_colormaps(obj.data)
+        self.colormap, self.alphamap = get_effective_colormaps(obj.data)
 
         self.import_diffuse()
         self.import_subsurface()
         self.import_specular()
         self.import_normal(shape)
+        self.import_shader_alpha(shape)
 
         obj.active_material = self.material
 
+
+def set_object_textures(shape: NiShape, mat: bpy.types.Material):
+    """Set the shape's textures from the value from the material's custom properties."""
+    for i in range(0, 20):
+        prop = 'BSShaderTextureSet_' + str(i)
+        if mat and prop in mat:
+            shape.set_texture(i, mat[prop])
+
+    
+def get_image_node(node_input):
+    """Walk the shader nodes backwards until a texture node is found.
+        node_input = the shader node input to follow; may be null"""
+    #log.debug(f"Walking shader nodes backwards to find image: {node_input.name}")
+    n = None
+    if node_input and len(node_input.links) > 0: 
+        n = node_input.links[0].from_node
+
+    while n and not hasattr(n, "image"):
+        #log.debug(f"Walking nodes: {n.name}")
+        new_n = None
+        if n.type == 'MIX':
+            new_n = n.inputs[6].links[0].from_node
+        if not new_n:
+            for inp in ['Base Color', 'Image', 'Color', 'R', 'Red']:
+                if inp in n.inputs.keys() and n.inputs[inp].is_linked:
+                    new_n = n.inputs[inp].links[0].from_node
+                    break
+        n = new_n
+    return n
+
+
+def get_image_filepath(node_input):
+    n = get_image_node(node_input)
+    try:
+        return n.image.filepath
+    except:
+        pass
+    return ''
+
+
+def has_msn_shader(obj):
+    val = False
+    if obj.active_material:
+        nodelist = obj.active_material.node_tree.nodes
+        shader_node = None
+        if "Material Output" in nodelist:
+            mat_out = nodelist["Material Output"]
+            if mat_out.inputs["Surface"].is_linked:
+                shader_node = mat_out.inputs['Surface'].links[0].from_node
+        if shader_node:
+            normal_input = shader_node.inputs['Normal']
+            if normal_input and normal_input.is_linked:
+                nmap_node = normal_input.links[0].from_node
+                if nmap_node.bl_idname == 'ShaderNodeNormalMap' and nmap_node.space == "OBJECT":
+                    val = True
+    return val
+
+
+class ShaderExporter:
+    def __init__(self, blender_obj):
+        self.obj = blender_obj
+        self.is_obj_space = False  # Object vs. tangent normals
+        self.is_obj_space = False
+        self.normal_node = None
+
+        self.material = None
+        self.shader_node = None
+        if blender_obj.active_material:
+            self.material = blender_obj.active_material
+            nodelist = self.material.node_tree.nodes
+            if not "Material Output" in nodelist:
+                log.warning(f"Have material but no Material Output for {self.material.name}")
+            else:
+                mat_out = nodelist["Material Output"]
+                if mat_out.inputs['Surface'].is_linked:
+                    self.shader_node = mat_out.inputs['Surface'].links[0].from_node
+                if not self.shader_node:
+                    log.warning(f"Have material but no shader node for {self.material.name}")
+
+            if self.shader_node:
+                normal_input = self.shader_node.inputs['Normal']
+                if normal_input and normal_input.is_linked:
+                    nmap_node = normal_input.links[0].from_node
+                    if nmap_node.bl_idname == 'ShaderNodeNormalMap':
+                        self.normal_node = nmap_node
+                        self.is_obj_space = (nmap_node.space == "OBJECT")
+
+        self.vertex_colors, self.vertex_alpha = get_effective_colormaps(blender_obj.data)
+
+
+    def export_shader_attrs(self, shape):
+        if not self.material:
+            return
+        
+        if 'BSLSP_Shader_Name' in self.material and self.material['BSLSP_Shader_Name']:
+            shape.shader_name = self.material['BSLSP_Shader_Name']
+
+        shape.shader_attributes.load(self.material)
+
+        shape.shader_attributes.Emissive_Color_R = self.shader_node.inputs['Emission'].default_value[0]
+        shape.shader_attributes.Emissive_Color_G = self.shader_node.inputs['Emission'].default_value[1]
+        shape.shader_attributes.Emissive_Color_B = self.shader_node.inputs['Emission'].default_value[2]
+        shape.shader_attributes.Emissive_Color_A = self.shader_node.inputs['Emission'].default_value[3]
+        shape.shader_attributes.Emissive_Mult = self.shader_node.inputs['Emission Strength'].default_value
+
+        if shape.shader_block_name == "BSLightingShaderProperty":
+            shape.shader_attributes.Alpha = self.shader_node.inputs['Alpha'].default_value
+            shape.shader_attributes.Glossiness = self.shader_node.inputs['Metallic'].default_value * GLOSS_SCALE
+
+
+    def get_diffuse(self):
+        """Get the diffuse filepath, given the material's shader node."""
+        imgnode = get_image_node(self.shader_node.inputs['Base Color'])
+        if imgnode:
+            try:
+                return imgnode.image.filepath
+            except:
+                pass
+        return ''
+    
+
+    def get_normal(self):
+        """
+        Get the normal map filepath, given the shader node.
+        """
+        if self.normal_node:
+            image_node = get_image_node(self.normal_node.inputs['Color'])
+            if image_node and image_node.image:
+                try:
+                    return image_node.image.filepath
+                except:
+                    pass
+        return ''
+    
+
+    def get_specular(self):
+        if self.is_obj_space:
+            return get_image_filepath(self.shader_node.inputs['Specular'])
+        return ''
+
+
+    @property
+    def is_effectshader(self):
+        if self.material and 'BS_Shader_Block_Name' in self.material:
+            return self.material['BS_Shader_Block_Name'] == 'BSEffectShaderProperty'
+        return False
+    
+
+    def write_texture(self, shape, textureslot:int):
+        foundpath = ""
+    
+        if textureslot == 0:
+            foundpath = self.get_diffuse()
+        elif textureslot == 1:
+            foundpath = self.get_normal()
+        elif textureslot == 2:
+            foundpath = get_image_filepath(self.shader_node.inputs['Subsurface Color'])
+        elif textureslot == 7:
+            foundpath = self.get_specular()
+
+        # Use the shader node path if it's usable. The path stashed in 
+        # custom properties is already there if not.
+        if foundpath:
+            log.debug(f"Writing texture: '{foundpath}'")
+            try:
+                fplc = Path(foundpath.lower())
+                txtindex = fplc.parts.index('textures')
+                fp = Path(foundpath)
+                relpath = Path(*fp.parts[txtindex:])
+                shape.set_texture(textureslot, str(relpath.with_suffix('.dds')))
+            except ValueError:
+                log.warning(f"No 'textures' folder found in path: {foundpath}")
+        # else:
+        #     log.debug(f"No texture in slot {textureslot}: '{foundpath}'")
+
+
+    def export_textures(self, shape: NiShape):
+        """Create shader in nif from the blender object's material"""
+        # Use textures stored in properties as defaults; override them with shader nodes
+        set_object_textures(shape, self.material)
+
+        if not self.shader_node: return
+
+        for textureslot in range(0, 9):
+            self.write_texture(shape, textureslot)
+
+        # Write alpha if any after the textures
+        alpha_input = self.shader_node.inputs['Alpha']
+        if alpha_input and alpha_input.is_linked and self.material:
+            if 'NiAlphaProperty_flags' in self.material:
+                shape.alpha_property.flags = self.material['NiAlphaProperty_flags']
+            else:
+                shape.alpha_property.flags = 4844
+            shape.alpha_property.threshold = int(self.material.alpha_threshold * 255)
+            shape.save_alpha_property()
+
+
+    def export(self, new_shape:NiShape):
+        self.export_textures(new_shape)
+        self.export_shader_attrs(new_shape)
+        if self.is_obj_space:
+            new_shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
+        else:
+            new_shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
+
+        log.debug(f"Exporting vertex color flag: {self.vertex_colors}")
+        if self.vertex_colors:
+            new_shape.shader_attributes.shaderflags2_set(ShaderFlags2.VERTEX_COLORS)
+        else:
+            new_shape.shader_attributes.shaderflags2_clear(ShaderFlags2.VERTEX_COLORS)
+
+        if self.vertex_alpha:
+            new_shape.shader_attributes.shaderflags1_set(ShaderFlags1.VERTEX_ALPHA)
+        else:
+            new_shape.shader_attributes.shaderflags1_clear(ShaderFlags1.VERTEX_ALPHA)
+            
+        new_shape.save_shader_attributes()
 

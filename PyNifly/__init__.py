@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-TEST_TARGET_BONE = ['L_RibHelper.L',  'L_RibHelper'] # Print extra debugging info for these bones
+TEST_TARGET_BONE = [] # Print extra debugging info for these bones
 
 bl_info = {
     "name": "NIF format",
@@ -56,7 +56,7 @@ from niflytools import *
 from pynifly import *
 from trihandler import *
 from blender_defs import *
-from shader_io import ShaderImporter
+from shader_io import ShaderImporter, ShaderExporter
 
 import bpy
 import bpy_types
@@ -80,7 +80,9 @@ ALPHA_MAP_NAME = "VERTEX_ALPHA"
 CONNECT_POINT_SCALE = 1.0
 
 COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5)
-
+collision_names = ["bhkBoxShape", "bhkConvexVerticesShape", "bhkListShape", 
+                   "bhkConvexTransformShape", "bhkCapsuleShape",
+                   "bhkRigidBodyT", "bhkRigidBody", "bhkCollisionObject"]
 def is_facebone(bname):
     return bname.startswith("skin_bone_")
 
@@ -316,60 +318,6 @@ def get_bone_xform(arma, bone_name, game, preserve_hierarchy, use_pose) -> Matri
 # -------------------------------- IMPORT -------------------------------- ###
 #                                                                          ###
 # ######################################################################## ###
-
-# -----------------------------  SHADERS  -------------------------------
-
-def export_shader_attrs(obj, shader, shape):
-    mat = obj.active_material
-
-    if 'BSLSP_Shader_Name' in mat.keys() and len(mat['BSLSP_Shader_Name']) > 0:
-        shape.shader_name = mat['BSLSP_Shader_Name']
-
-    shape.shader_attributes.load(mat)
-
-    shape.shader_attributes.Emissive_Color_R = shader.inputs['Emission'].default_value[0]
-    shape.shader_attributes.Emissive_Color_G = shader.inputs['Emission'].default_value[1]
-    shape.shader_attributes.Emissive_Color_B = shader.inputs['Emission'].default_value[2]
-    shape.shader_attributes.Emissive_Color_A = shader.inputs['Emission'].default_value[3]
-    shape.shader_attributes.Emissive_Mult = shader.inputs['Emission Strength'].default_value
-
-    if shape.shader_block_name == "BSLightingShaderProperty":
-        shape.shader_attributes.Alpha = shader.inputs['Alpha'].default_value
-        shape.shader_attributes.Glossiness = shader.inputs['Metallic'].default_value * GLOSS_SCALE
-
-
-def has_msn_shader(obj):
-    val = False
-    if obj.active_material:
-        nodelist = obj.active_material.node_tree.nodes
-        shader_node = None
-        if "Material Output" in nodelist:
-            mat_out = nodelist["Material Output"]
-            if mat_out.inputs["Surface"].is_linked:
-                shader_node = mat_out.inputs['Surface'].links[0].from_node
-        if shader_node:
-            normal_input = shader_node.inputs['Normal']
-            if normal_input and normal_input.is_linked:
-                nmap_node = normal_input.links[0].from_node
-                if nmap_node.bl_idname == 'ShaderNodeNormalMap' and nmap_node.space == "OBJECT":
-                    val = True
-    return val
-
-
-def read_object_texture(mat: bpy.types.Material, index: int):
-    """Return the index'th texture in the saved texture custom properties"""
-    n = 'BSShaderTextureSet_' + str(index)
-    try:
-        return mat[n]
-    except:
-        return None
-
-
-def set_object_texture(shape: NiShape, mat: bpy.types.Material, i: int):
-    t = read_object_texture(mat, i)
-    if t:
-        shape.set_texture(i, t)
-
 
 # -----------------------------  MESH CREATION -------------------------------
 
@@ -704,7 +652,7 @@ class NifImporter():
             self.objects_created[obj.name] = obj
 
         for cp in f.connect_points_parent:
-            ##log.debug(f"Found parent connect point: \n{cp}")
+            log.debug(f"Found parent connect point: \n{cp}")
             bpy.ops.object.add(radius=self.scale, type='EMPTY')
             obj = bpy.context.object
             obj.name = "BSConnectPointParents" + "::" + cp.name.decode('utf-8')
@@ -717,19 +665,24 @@ class NifImporter():
 
             parname = cp.parent.decode('utf-8')
 
-            if parname and len(parname) > 0 and not parname.startswith("BSConnectPointChildren") \
+            if parname and not parname.startswith("BSConnectPointChildren") \
                 and not parname.startswith("BSConnectPointParents"):
-                try:
-                    obj["pynConnectParent"] = parname
+                obj["pynConnectParent"] = parname
+                parnamebl = self.blender_name(parname)
+                if self.armature and parnamebl in self.armature.data.bones:
+                    # log.info(f"Connect point {obj.name} is parented to bone {parnamebl}")
+                    parbone = self.armature.data.bones[parnamebl]
+                    obj.parent = self.armature
+                    obj.matrix_world = parbone.matrix_local @ obj.matrix_world
+                elif parname in f.nodes:
                     parnode = f.nodes[parname]
-                    targetparent = self.objects_created[parnode._handle]
-                    obj.parent = targetparent
-                    #log.debug(f"Created parent cp {obj.name} with parent {obj.parent.name}")
-                except:
-                    if self.armature and parname in self.armature.data.bones:
-                        log.info(f"Connect point {obj.name} is parented to bone {parname}")
+                    if parnode._handle in self.objects_created:
+                        obj.parent = self.objects_created[parnode._handle]
+                        #log.debug(f"Created parent cp {obj.name} with parent {obj.parent.name}")
                     else:
-                        log.warning(f"Could not find parent node {parname} for connect point {obj.name}")
+                        log.warning(f"Parent node {parname} not imported")
+                else:
+                    log.warning(f"Could not find parent node {parname} for connect point {obj.name}")
 
             self.objects_created[obj.name] = obj
             self.add_to_parents(obj)
@@ -783,7 +736,6 @@ class NifImporter():
         Returns the bone or None.
         """
         for arma in self.imported_armatures:
-            log.debug(f"Looking for bone {bone_name} in armature {arma.name} with bones {arma.data.bones}")
             if bone_name in arma.data.bones:
                 return arma.data.bones[bone_name]
         return None
@@ -810,7 +762,6 @@ class NifImporter():
         if ninode._handle in self.objects_created:
             return self.objects_created[ninode._handle]
 
-        log.debug(f"Looking for bone {bl_name} in armature list {self.imported_armatures}")
         bn = self.bone_in_armatures(bl_name)
         if bn: 
             return bn 
@@ -1251,6 +1202,8 @@ class NifImporter():
                 self.add_bone_to_arma(arma, name, bone_nif_name)
                 new_bones.append((bone_nif_name, name))
         self.set_bone_poses(arma, nif, new_bones)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        arma.update_from_editmode()
 
 
     def make_armature(self, the_coll: bpy_types.Collection, name_prefix=""):
@@ -1625,7 +1578,7 @@ class NifImporter():
                     self.armature = self.make_armature(self.collection)
                 self.add_bones_to_arma(self.armature, self.nif, self.nif.nodes.keys())
                 self.imported_armatures.append(self.armature)
-                #self.connect_armature(self.armature)
+                self.connect_armature(self.armature)
             else:
                 # List of armatures available for shapes
                 if self.armature:
@@ -2434,24 +2387,26 @@ class NifExporter:
 
         elif obj.type == 'MESH':
             # Export the mesh, but use its parent and use any armature modifiers
-            par = obj.parent
-            par2 = None
-            if par:
-                par2 = par.parent
-            if not ( obj.name.startswith('bhk') and par and par.name.startswith('bhk') \
-                    and par2 and par2.name.startswith('bhkCollisionObject') ):
-                # Not dealing with collision objects, which hav etheir own rules. For
-                # meshes we want the mesh, its parent if an armature, and any other
-                # armatures.
-                self.objects.append(obj)
-                if obj.parent and obj.parent.type == 'ARMATURE':
-                    self.add_object(obj.parent)
-                arma, fb_arma = find_armatures(obj)
-                #log.debug(f"Found armatures from obj {arma}, {fb_arma}")
-                if arma:
-                    self.add_armature(arma)
-                if fb_arma:
-                    self.add_armature(fb_arma)
+            self.objects.append(obj)
+
+            # par = obj.parent
+            # par2 = None
+            # if par:
+            #     par2 = par.parent
+            # if not ( obj.name.startswith('bhk') and par and par.name.startswith('bhk') \
+            #         and par2 and par2.name.startswith('bhkCollisionObject') ):
+            #     # Not dealing with collision objects, which hav etheir own rules. For
+            #     # meshes we want the mesh, its parent if an armature, and any other
+            #     # armatures.
+            #     self.objects.append(obj)
+            #     if obj.parent and obj.parent.type == 'ARMATURE':
+            #         self.add_object(obj.parent)
+            #     arma, fb_arma = find_armatures(obj)
+            #     #log.debug(f"Found armatures from obj {arma}, {fb_arma}")
+            #     if arma:
+            #         self.add_armature(arma)
+            #     if fb_arma:
+            #         self.add_armature(fb_arma)
 
         elif obj.type == 'EMPTY':
             if 'BSBehaviorGraphExtraData_Name' in obj.keys():
@@ -2490,6 +2445,7 @@ class NifExporter:
     def set_objects(self, objects:list):
         """ Set the objects to export from the given list of objects 
         """
+        log.debug(f"<set_objects> {objects}")
         for x in objects:
             self.add_object(x)
         self.file_keys = get_with_uscore(get_common_shapes(self.objects))
@@ -3266,8 +3222,16 @@ class NifExporter:
         return result
 
     def write_bone(self, shape:NiShape, arma, bone_name, bones_to_write):
-        """ Write a shape's bone, writing all parent bones first if necessary 
-            Returns the name of the node in the target nif for the new bone """
+        """ 
+        Write a shape's bone, writing all parent bones first if necessary Returns the name
+        of the node in the target nif for the new bone. 
+        
+        * shape - bone is added to shape's skin. May be None, if only writing a skeleton
+        * arma - parent armature
+        * bone_name - bone to write (blender name)
+        * bones_to_write - list of bones that the shape needs. If the bone isn't in this
+          list, only write it if it's needed for the hierarchy.
+        """
         if bone_name in self.writtenbones:
             return self.writtenbones[bone_name]
 
@@ -3288,13 +3252,13 @@ class NifExporter:
 
         LogIfBone(nifname, f"<write_bone> writing bone {bone_name} with transform\n{tb}")
         
-        if bone_name in bones_to_write:
+        if bone_name in bones_to_write and shape:
             shape.add_bone(nifname, tb, 
                            (parname if self.flag_set(pynFlags.PRESERVE_HIERARCHY) \
                                else None))
         elif self.flag_set(pynFlags.PRESERVE_HIERARCHY):
             # Not a shape bone but needed for the hierarchy
-            shape.file.add_node(nifname, tb, parname)
+            self.nif.add_node(nifname, tb, parname)
         
         self.writtenbones[bone_name] = nifname
         return nifname
@@ -3313,7 +3277,10 @@ class NifExporter:
 
 
     def export_skin(self, obj, arma, new_shape, new_xform, weights_by_vert):
-        log.info("Skinning {obj.name}")
+        """
+        Export the skin for a shape, including bones used by the skin.
+        """
+        log.info(f"Skinning {obj.name}")
         new_shape.skin()
         new_shape.transform = TransformBuf.from_matrix(new_xform)
         newxfi = new_xform.copy()
@@ -3353,101 +3320,101 @@ class NifExporter:
             new_shape.setShapeWeights(nifname, bone_weights)
 
 
-    def export_shader(self, obj, shape: NiShape):
-        """Create shader from the object's material"""
-        #log.debug(f"...exporting material for object {obj.name}")
-        shader = shape.shader_attributes
-        mat = obj.active_material
+    # def export_shader(self, obj, shape: NiShape):
+    #     """Create shader from the object's material"""
+    #     #log.debug(f"...exporting material for object {obj.name}")
+    #     shader = shape.shader_attributes
+    #     mat = obj.active_material
 
-        # Use textures stored in properties as defaults; override them with shader nodes
-        set_object_texture(shape, mat, 7)
+    #     # Use textures stored in properties as defaults; override them with shader nodes
+    #     set_object_texture(shape, mat, 7)
 
-        try:
-            nodelist = mat.node_tree.nodes
+    #     try:
+    #         nodelist = mat.node_tree.nodes
 
-            shader_node = None
+    #         shader_node = None
 
-            if not "Material Output" in nodelist:
-                log.warning(f"Have material but no Material Output for {mat.name}")
-            else:
-                mat_out = nodelist["Material Output"]
-                if mat_out.inputs['Surface'].is_linked:
-                    shader_node = mat_out.inputs['Surface'].links[0].from_node
-                if not shader_node:
-                    log.warning(f"Have material but no shader node for {mat.name}")
+    #         if not "Material Output" in nodelist:
+    #             log.warning(f"Have material but no Material Output for {mat.name}")
+    #         else:
+    #             mat_out = nodelist["Material Output"]
+    #             if mat_out.inputs['Surface'].is_linked:
+    #                 shader_node = mat_out.inputs['Surface'].links[0].from_node
+    #             if not shader_node:
+    #                 log.warning(f"Have material but no shader node for {mat.name}")
 
-            # Texture paths
-            if shader_node:
-                export_shader_attrs(obj, shader_node, shape)
+    #         # Texture paths
+    #         if shader_node:
+    #             export_shader_attrs(obj, shader_node, shape)
 
-                for textureslot in range(0, 9):
-                    foundpath = ""
+    #             for textureslot in range(0, 9):
+    #                 foundpath = ""
                 
-                    if textureslot == 0:
-                        diffuse_input = shader_node.inputs['Base Color']
-                        if diffuse_input and diffuse_input.is_linked:
-                            diffuse_node = diffuse_input.links[0].from_node
-                            if hasattr(diffuse_node, 'image') and diffuse_node.image:
-                                foundpath = diffuse_node.image.filepath
+    #                 if textureslot == 0:
+    #                     diffuse_input = shader_node.inputs['Base Color']
+    #                     if diffuse_input and diffuse_input.is_linked:
+    #                         diffuse_node = diffuse_input.links[0].from_node
+    #                         if hasattr(diffuse_node, 'image') and diffuse_node.image:
+    #                             foundpath = diffuse_node.image.filepath
                 
-                    elif textureslot == 1:
-                        normal_input = shader_node.inputs['Normal']
-                        is_obj_space = False
-                        if normal_input and normal_input.is_linked:
-                            nmap_node = normal_input.links[0].from_node
-                            if nmap_node.bl_idname == 'ShaderNodeNormalMap':
-                                is_obj_space = (nmap_node.space == "OBJECT")
-                                if is_obj_space:
-                                    shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
-                                else:
-                                    shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
-                                image_node = get_image_node(nmap_node.inputs['Color'])
-                                if image_node and image_node.image:
-                                    norm_txt_node = image_node
-                                    foundpath = norm_txt_node.image.filepath
+    #                 elif textureslot == 1:
+    #                     normal_input = shader_node.inputs['Normal']
+    #                     is_obj_space = False
+    #                     if normal_input and normal_input.is_linked:
+    #                         nmap_node = normal_input.links[0].from_node
+    #                         if nmap_node.bl_idname == 'ShaderNodeNormalMap':
+    #                             is_obj_space = (nmap_node.space == "OBJECT")
+    #                             if is_obj_space:
+    #                                 shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
+    #                             else:
+    #                                 shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
+    #                             image_node = get_image_node(nmap_node.inputs['Color'])
+    #                             if image_node and image_node.image:
+    #                                 norm_txt_node = image_node
+    #                                 foundpath = norm_txt_node.image.filepath
 
-                    elif textureslot == 2:
-                        sk_node = get_image_node(shader_node.inputs['Subsurface Color'])
-                        if sk_node and sk_node.image:
-                            foundpath = sk_node.image.filepath
+    #                 elif textureslot == 2:
+    #                     sk_node = get_image_node(shader_node.inputs['Subsurface Color'])
+    #                     if sk_node and sk_node.image:
+    #                         foundpath = sk_node.image.filepath
 
-                    elif textureslot == 7:
-                        if is_obj_space:
-                            spec_node = get_image_node(shader_node.inputs['Specular'])
-                            if spec_node and spec_node.image:
-                                    foundpath = spec_node.image.filepath
+    #                 elif textureslot == 7:
+    #                     if is_obj_space:
+    #                         spec_node = get_image_node(shader_node.inputs['Specular'])
+    #                         if spec_node and spec_node.image:
+    #                                 foundpath = spec_node.image.filepath
 
-                    # Use the shader node path if it's usable, the one stashed in 
-                    # custom properties if not
-                    txtidx = foundpath.lower().find('textures')
-                    ext = foundpath[-4:]
-                    if txtidx >= 0 and ext.lower() in [".dds", ".png"]:
-                        texturepath = foundpath[txtidx:-4] + ".dds"
-                    else:
-                        try:
-                            texturepath = mat[f'BSShaderTextureSet_{textureslot}']
-                        except:
-                            texturepath = ""
+    #                 # Use the shader node path if it's usable, the one stashed in 
+    #                 # custom properties if not
+    #                 txtidx = foundpath.lower().find('textures')
+    #                 ext = foundpath[-4:]
+    #                 if txtidx >= 0 and ext.lower() in [".dds", ".png"]:
+    #                     texturepath = foundpath[txtidx:-4] + ".dds"
+    #                 else:
+    #                     try:
+    #                         texturepath = mat[f'BSShaderTextureSet_{textureslot}']
+    #                     except:
+    #                         texturepath = ""
 
-                    if len(texturepath) > 0:
-                        ##log.debug(f"....Writing diffuse texture path {textureslot}: '{texturepath}'")
-                        shape.set_texture(textureslot, texturepath)
+    #                 if len(texturepath) > 0:
+    #                     ##log.debug(f"....Writing diffuse texture path {textureslot}: '{texturepath}'")
+    #                     shape.set_texture(textureslot, texturepath)
 
-            # Write alpha if any after the textures
-            alpha_input = shader_node.inputs['Alpha']
-            if alpha_input and alpha_input.is_linked:
-                mat = obj.active_material
-                if 'NiAlphaProperty_flags' in mat.keys():
-                    shape.alpha_property.flags = mat['NiAlphaProperty_flags']
-                else:
-                    shape.alpha_property.flags = 4844
-                shape.alpha_property.threshold = int(mat.alpha_threshold * 255)
-                shape.save_alpha_property()
+    #         # Write alpha if any after the textures
+    #         alpha_input = shader_node.inputs['Alpha']
+    #         if alpha_input and alpha_input.is_linked:
+    #             mat = obj.active_material
+    #             if 'NiAlphaProperty_flags' in mat.keys():
+    #                 shape.alpha_property.flags = mat['NiAlphaProperty_flags']
+    #             else:
+    #                 shape.alpha_property.flags = 4844
+    #             shape.alpha_property.threshold = int(mat.alpha_threshold * 255)
+    #             shape.save_alpha_property()
 
-        except:
-            traceback.print_exc()
-            log.warning(f"Couldn't parse the shader nodes on {obj.name}")
-            self.warnings.add('WARNING')
+    #     except:
+    #         traceback.print_exc()
+    #         log.warning(f"Couldn't parse the shader nodes on {obj.name}")
+    #         self.warnings.add('WARNING')
 
 
     def apply_shape_key(self, key_name):
@@ -3461,7 +3428,7 @@ class NifExporter:
             target_key = shape key to export
             arma = armature to skin to
             """
-        if obj.name in self.objs_written:
+        if obj.name in self.objs_written or nonunique_name(obj) in collision_names:
             return
         log.info(f"Exporting {obj.name} with shapes: {self.file_keys} with flags {str(pynFlags(self.flags))}")
 
@@ -3497,46 +3464,31 @@ class NifExporter:
                 and len(self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
 
         obj.data.update()
-        norms_exp = norms_new
-        has_msn = has_msn_shader(obj)
-        if has_msn:
-            norms_exp = None
+        shaderexp = ShaderExporter(obj)
 
-        is_effectshader = False
-        mat = None
-        if obj.active_material:
-           mat = obj.active_material
-        if mat and 'BS_Shader_Block_Name' in mat:
-            is_effectshader = (mat['BS_Shader_Block_Name'] == 'BSEffectShaderProperty')
+        if shaderexp.is_obj_space:
+            norms_exp = None
+        else:
+            norms_exp = norms_new
 
         # Make the shape in the nif file
         #log.debug(f"..Exporting '{obj.name}' to nif: {len(verts)} vertices, {len(tris)} tris, parent {my_parent}")
-        new_shape = self.nif.createShapeFromData(trim_blender_suffix(obj.name), verts, tris, uvmap_new, norms_exp,
-                                                 is_headpart, is_skinned, is_effectshader,
+        new_shape = self.nif.createShapeFromData(trim_blender_suffix(obj.name), 
+                                                 verts, tris, uvmap_new, norms_exp,
+                                                 is_headpart, is_skinned, 
+                                                 shaderexp.is_effectshader,
                                                  parent=my_parent)
         if colors_new:
             new_shape.set_colors(colors_new)
 
         self.export_shape_data(obj, new_shape)
         
-        # Write the shader
-        if mat:
-            self.export_shader(obj, new_shape)
-            if has_msn:
-                new_shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
-            else:
-                new_shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
-            if colors_new:
-                new_shape.shader_attributes.shaderflags2_set(ShaderFlags2.VERTEX_COLORS)
-            else:
-                new_shape.shader_attributes.shaderflags2_clear(ShaderFlags2.VERTEX_COLORS)
-
-            if ALPHA_MAP_NAME in obj.data.vertex_colors.keys():
-                new_shape.shader_attributes.shaderflags1_set(ShaderFlags1.VERTEX_ALPHA)
-            else:
-                new_shape.shader_attributes.shaderflags1_clear(ShaderFlags1.VERTEX_ALPHA)
-                
-            new_shape.save_shader_attributes()
+        # try:
+        #     # Write the shader
+        shaderexp.export(new_shape)
+        # except:
+        #     log.warning(f"Couldn't parse the shader nodes on {obj.name}")
+        #     self.warnings.add('WARNING')
 
         # Using local transform because the shapes will be parented in the nif
         new_xform = obj.matrix_local * (1/self.scale) 
@@ -3598,6 +3550,12 @@ class NifExporter:
 
         log.info(f"{obj.name} successfully exported to {self.nif.filepath}\n")
         return retval
+    
+
+    def export_armature(self, arma):
+        """Export an armature with no shapes"""
+        for b in arma.data.bones:
+            self.write_bone(None, arma, b.name, arma.data.bones.keys())
 
 
     def export_file_set(self, suffix=''):
@@ -3630,7 +3588,11 @@ class NifExporter:
             rt = "NiNode"
             rn = "Scene Root"
 
-            shape = next(iter(self.objects))
+            if self.objects:
+                shape = next(iter(self.objects))
+            else:
+                shape = self.armature
+
             if "pynRootNode_BlockType" in shape:
                 rt = shape["pynRootNode_BlockType"]
             if "pynRootNode_Name" in shape:
@@ -3647,17 +3609,21 @@ class NifExporter:
             self.nif.dict.use_niftools = self.flag_set(pynFlags.RENAME_BONES_NIFTOOLS)
             self.writtenbones = {}
 
-            for obj in self.objects:
-                #arma, fb_arma = find_armatures(obj)
-                if len(suffix) > 0 and self.facebones:
-                    self.export_shape(obj, sk, self.facebones)
-                    #log.debug(f"Exported shape {obj.name} using {self.facebones.name}")
-                elif len(suffix) == 0 and self.armature:
-                    self.export_shape(obj, sk, self.armature)
-                    #log.debug(f"Exported shape {obj.name} using {self.armature.name}")
-                elif self.facebones == None and self.armature == None:
-                    self.export_shape(obj, sk)
-                    #log.debug(f"Exported shape {obj.name}, no armature")
+            if self.objects:
+                for obj in self.objects:
+                    #arma, fb_arma = find_armatures(obj)
+                    if len(suffix) > 0 and self.facebones:
+                        self.export_shape(obj, sk, self.facebones)
+                        #log.debug(f"Exported shape {obj.name} using {self.facebones.name}")
+                    elif len(suffix) == 0 and self.armature:
+                        self.export_shape(obj, sk, self.armature)
+                        #log.debug(f"Exported shape {obj.name} using {self.armature.name}")
+                    elif self.facebones == None and self.armature == None:
+                        self.export_shape(obj, sk)
+                        #log.debug(f"Exported shape {obj.name}, no armature")
+            elif self.armature:
+                # Just export the skeleton
+                self.export_armature(self.armature)
 
             # Check for bodytri morphs--write the extra data node if needed
             ##log.debug(f"TRIP data: shapes={len(self.trip.shapes)}, bodytri written: {self.bodytri_written}, filepath: {truncate_filename(self.trippath, 'meshes')}")
@@ -3684,7 +3650,7 @@ class NifExporter:
 
 
     def execute(self):
-        if not self.objects:
+        if not self.objects and not self.armature:
             log.warning(f"No objects selected for export")
             self.warnings.add('NOTHING')
             return
