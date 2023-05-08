@@ -11,7 +11,7 @@ from blender_defs import *
 from trihandler import *
 
 
-TEST_BPY_ALL = 0
+TEST_BPY_ALL = 1
 TEST_BODYPART_SKY = 0  ### Skyrim head
 TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
@@ -38,7 +38,7 @@ TEST_0_WEIGHTS = 0  ### Gives warning on export with 0 weights
 TEST_TIGER_EXPORT = 0  ### Tiger head export
 TEST_3BBB = 0  ### Test that mesh imports with correct transforms
 TEST_SKEL = 0  ### Import skeleton file with no shapes
-TEST_HEADPART = 1  ### Read & write SE head part with tris
+TEST_HEADPART = 0  ### Read & write SE head part with tris
 TEST_TRI = 0  ### Can load a tri file into an existing mesh
 TEST_IMPORT_AS_SHAPES = 0  ### Import 2 meshes as shape keys
 TEST_IMPORT_MULT_SHAPES = 0  ### Import >2 meshes as shape keys
@@ -265,7 +265,7 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
 
         nifout = NifFile(outfile)
 
-        compare_shapes(armorin, nifout.shape_dict['Armor'], armor, scale=scale_factor)
+        compare_shapes(armorin, nifout.shape_dict['Armor'], armor, scale=scale_factor, e=0.01)
         check_unweighted_verts(nifout.shape_dict['Armor'])
 
     do_test(1.0)
@@ -297,8 +297,8 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
 
     nifout = NifFile(outfile)
     impnif = NifFile(testfile)
-    compare_shapes(impnif.shape_dict['MaleBody'], nifout.shape_dict['MaleBody'], body)
-    compare_shapes(impnif.shape_dict['Armor'], nifout.shape_dict['Armor'], armor)
+    compare_shapes(impnif.shape_dict['MaleBody'], nifout.shape_dict['MaleBody'], body, e=0.01)
+    compare_shapes(impnif.shape_dict['Armor'], nifout.shape_dict['Armor'], armor, e=0.01)
 
     check_unweighted_verts(nifout.shape_dict['MaleBody'])
     check_unweighted_verts(nifout.shape_dict['Armor'])

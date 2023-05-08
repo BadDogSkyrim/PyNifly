@@ -9,7 +9,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (9, 3, 1),  
+    "version": (9, 4, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -3672,7 +3672,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     export_modifiers: bpy.props.BoolProperty(
         name="Export modifiers",
         description="Export all active modifiers (including shape keys)",
-        default=True)
+        default=False)
 
     chargen_ext: bpy.props.StringProperty(
         name="Chargen extension",
