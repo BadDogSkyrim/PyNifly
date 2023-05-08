@@ -99,6 +99,7 @@ class pynFlags(IntFlag):
     KEEP_TMP_SKEL = 1 << 8 # for debugging
     RENAME_BONES_NIFTOOLS = 1 << 9
     EXPORT_POSE = 1 << 10
+    EXPORT_MODIFIERES = 1 << 11
 
 # --------- Helper functions -------------
 
@@ -3106,7 +3107,6 @@ class NifExporter:
             morphdict = {shape-key: [verts...], ...} XXX>only if "target_key" is NOT specified
         NOTE this routine changes selection and switches to edit mode and back
         """
-        editmesh = obj.data
         loopcolors = None
         saved_sk = obj.active_shape_key_index
         
@@ -3118,7 +3118,10 @@ class NifExporter:
             obj.active_shape_key_index = 0
             bpy.ops.object.mode_set(mode = 'EDIT')
             bpy.ops.object.mode_set(mode = 'OBJECT')
-                
+            if self.flag_set(pynFlags.EXPORT_MODIFIERES):
+                depsgraph = bpy.context.evaluated_depsgraph_get()
+                obj = obj.evaluated_get(depsgraph)            
+            editmesh = obj.data
             editmesh.update()
          
             verts, weights_by_vert, morphdict \
@@ -3664,6 +3667,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         name="Export pose position",
         description="Export bones in pose position.",
         default=False)
+    
+    export_modifiers: bpy.props.BoolProperty(
+        name="Export modifiers",
+        description="Export all active modifieres (including Shape keys)",
+        default=True)
 
     chargen_ext: bpy.props.StringProperty(
         name="Chargen extension",
@@ -3761,6 +3769,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             flags |= pynFlags.WRITE_BODYTRI
         if self.export_pose:
             flags |= pynFlags.EXPORT_POSE
+        if self.export_modifiers:
+            flags |= pynFlags.EXPORT_MODIFIERES
 
         LogStart("EXPORT", "NIF")
         NifFile.Load(nifly_path)
