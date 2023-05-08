@@ -99,7 +99,7 @@ class pynFlags(IntFlag):
     KEEP_TMP_SKEL = 1 << 8 # for debugging
     RENAME_BONES_NIFTOOLS = 1 << 9
     EXPORT_POSE = 1 << 10
-    EXPORT_MODIFIERES = 1 << 11
+    EXPORT_MODIFIERS = 1 << 11
 
 # --------- Helper functions -------------
 
@@ -2096,11 +2096,10 @@ def has_uniform_scale(obj):
 
 def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0):
     """Returns 3 lists of equal length with one entry each for each vertex
-        verts = [(x, y, z)... ] - base or as modified by target-key if provided
-        weights = [{group-name: weight}... ] - 1:1 with verts list
-        dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
-            XXX>if "target_key" is specified this will be empty
-            shape key is the blender name
+    *   verts = [(x, y, z)... ] - base or as modified by target-key if provided
+    *   weights = [{group-name: weight}... ] - 1:1 with verts list
+    *   dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
+            shape-key is the blender name.
         """
     weights = []
     morphdict = {}
@@ -3115,17 +3114,19 @@ class NifExporter:
             ObjectActive(obj)
                 
             # This next little dance ensures the mesh.vertices locations are correct
-            obj.active_shape_key_index = 0
+            if self.flag_set(pynFlags.EXPORT_MODIFIERS):
+                depsgraph = bpy.context.evaluated_depsgraph_get()
+                obj1 = obj.evaluated_get(depsgraph) 
+            else:
+                obj1 = obj           
+            obj1.active_shape_key_index = 0
             bpy.ops.object.mode_set(mode = 'EDIT')
             bpy.ops.object.mode_set(mode = 'OBJECT')
-            if self.flag_set(pynFlags.EXPORT_MODIFIERES):
-                depsgraph = bpy.context.evaluated_depsgraph_get()
-                obj = obj.evaluated_get(depsgraph)            
-            editmesh = obj.data
+            editmesh = obj1.data
             editmesh.update()
          
             verts, weights_by_vert, morphdict \
-                = extract_vert_info(obj, editmesh, arma, target_key, self.scale)
+                = extract_vert_info(obj1, editmesh, arma, target_key, self.scale)
         
             # Pull out vertex colors first because trying to access them later crashes
             bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
@@ -3144,7 +3145,7 @@ class NifExporter:
                 editmesh = mesh_from_key(editmesh, verts, target_key)
                     
             # Extracting and triangularizing
-            partitions = partitions_from_vert_groups(obj)
+            partitions = partitions_from_vert_groups(obj1)
             loops, uvs, norms, loopcolors, partition_map = \
                 self.extract_face_info(
                     editmesh, uvlayer, loopcolors, weights_by_vert, partitions,
@@ -3670,7 +3671,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     
     export_modifiers: bpy.props.BoolProperty(
         name="Export modifiers",
-        description="Export all active modifieres (including Shape keys)",
+        description="Export all active modifiers (including shape keys)",
         default=True)
 
     chargen_ext: bpy.props.StringProperty(
@@ -3770,7 +3771,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         if self.export_pose:
             flags |= pynFlags.EXPORT_POSE
         if self.export_modifiers:
-            flags |= pynFlags.EXPORT_MODIFIERES
+            flags |= pynFlags.EXPORT_MODIFIERS
 
         LogStart("EXPORT", "NIF")
         NifFile.Load(nifly_path)

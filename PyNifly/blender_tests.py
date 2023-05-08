@@ -11,7 +11,7 @@ from blender_defs import *
 from trihandler import *
 
 
-TEST_BPY_ALL = 1
+TEST_BPY_ALL = 0
 TEST_BODYPART_SKY = 0  ### Skyrim head
 TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
@@ -38,13 +38,13 @@ TEST_0_WEIGHTS = 0  ### Gives warning on export with 0 weights
 TEST_TIGER_EXPORT = 0  ### Tiger head export
 TEST_3BBB = 0  ### Test that mesh imports with correct transforms
 TEST_SKEL = 0  ### Import skeleton file with no shapes
-TEST_HEADPART = 0  ### Read & write SE head part with tris
+TEST_HEADPART = 1  ### Read & write SE head part with tris
 TEST_TRI = 0  ### Can load a tri file into an existing mesh
 TEST_IMPORT_AS_SHAPES = 0  ### Import 2 meshes as shape keys
 TEST_IMPORT_MULT_SHAPES = 0  ### Import >2 meshes as shape keys
 TEST_EXP_SK_RENAMED = 0  ### Ensure renamed shape keys export properly
 TEST_SK_MULT = 0  ### Export multiple objects with only some shape keys
-TEST_TRI2 = 0  ### Regression: Test correct improt of tri
+TEST_TRI2 = 0  ### Regression: Test correct import of tri
 TEST_BAD_TRI = 0  ### Tris with messed up UV
 TEST_TRIP_SE = 0  ### Bodypart tri extra data and file are written on export
 TEST_TRIP = 0  ### Body tri extra data and file are written on export
@@ -946,12 +946,14 @@ if TEST_BPY_ALL or TEST_SKEL:
 
 if TEST_BPY_ALL or TEST_HEADPART:
     # Tri files can be loaded up into a shape in blender as shape keys. On SE, when there
-    # are shape keys a BSDynamicTriShape is used.
+    # are shape keys a BSDynamicTriShape is used on export.
     test_title("TEST_HEADPART", "Can read & write an SE head part")
     clear_all()
     testfile = test_file(r"tests/SKYRIMSE/malehead.nif")
     testtri = test_file(r"tests/SKYRIMSE/malehead.tri")
-    testfileout = test_file(r"tests/out/TEST_HEADPART_malehead.nif")
+    testfileout = test_file(r"tests/out/TEST_HEADPART.nif")
+    testfileout2 = test_file(r"tests/out/TEST_HEADPART2.nif")
+    testfileout3 = test_file(r"tests/out/TEST_HEADPART3.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     obj = bpy.context.object
@@ -964,8 +966,35 @@ if TEST_BPY_ALL or TEST_HEADPART:
     bpy.ops.export_scene.pynifly(filepath=testfileout, target_game='SKYRIMSE')
     
     nif2 = NifFile(testfileout)
+    head2 = nif2.shapes[0]
     assert len(nif2.shapes) == 1, f"Expected single shape, 1 != {len(nif2.shapes)}"
-    assert nif2.shapes[0].blockname == "BSDynamicTriShape", f"Expected 'BSDynamicTriShape' != '{nif2.shapes[0].blockname}'"
+    assert head2.blockname == "BSDynamicTriShape", f"Expected 'BSDynamicTriShape' != '{nif2.shapes[0].blockname}'"
+
+    # We can export whatever shape is defined by the shape keys.
+    obj.data.shape_keys.key_blocks['Blink.L'].value = 1
+    obj.data.shape_keys.key_blocks['MoodHappy'].value = 1
+    bpy.ops.export_scene.pynifly(filepath=testfileout2, target_game='SKYRIMSE', 
+                                 export_modifiers=True)
+    
+    nif3 = NifFile(testfileout2)
+    head3 = nif3.shapes[0]
+    eyelid = find_vertex(obj.data, [-2.52558, 7.31011, 124.389])
+    mouth = find_vertex(obj.data, [1.8877, 7.50949, 118.859])
+    assert not VNearEqual(head2.verts[eyelid], head3.verts[eyelid]), \
+        f"Verts have moved: {head2.verts[eyelid]} != {head3.verts[eyelid]}"
+    assert not VNearEqual(head2.verts[mouth], head3.verts[mouth]), \
+        f"Verts have moved: {head2.verts[mouth]} != {head3.verts[mouth]}"
+
+    # We can export any modifiers
+    obj.data.shape_keys.key_blocks['Blink.L'].value = 0
+    obj.data.shape_keys.key_blocks['MoodHappy'].value = 0
+    mod = obj.modifiers.new("Decimate", 'DECIMATE')
+    mod.ratio = 0.2
+    bpy.ops.export_scene.pynifly(filepath=testfileout3, target_game='SKYRIMSE', 
+                                 export_modifiers=True)
+    nif4 = NifFile(testfileout3)
+    head4 = nif4.shapes[0]
+    assert len(head4.verts) < 300, f"Head has decimated verts: {head4.verts}"
 
 
 if TEST_BPY_ALL or TEST_TRI:
