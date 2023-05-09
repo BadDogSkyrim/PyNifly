@@ -11,19 +11,19 @@ from blender_defs import *
 from trihandler import *
 
 
-TEST_BPY_ALL = 1
+TEST_BPY_ALL = 0
 TEST_BODYPART_SKY = 0  ### Skyrim head
 TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
 TEST_SKIN_BONE_XF = 0  ### Argonian head
-TEST_IMP_EXP_SKY = 0  ### Skyrim armor
+TEST_IMP_EXP_SKY = 1  ### Skyrim armor
 TEST_IMP_EXP_SKY_2 = 0  ### Body+Armor
 TEST_IMP_EXP_FO4 = 0  ### Can read the body nif and spit it back out
 TEST_IMP_EXP_FO4_2 = 0  ### Can read body armor with 2 parts
 TEST_ROUND_TRIP = 0  ### Full round trip: nif -> blender -> nif -> blender
 TEST_BPY_PARENT = 0  ### Skeleton armature bones correctly parented
 TEST_RENAME = 0  ### Bone renaming for Blender conventions disabled
-TEST_DRAUGR_IMPORTA = 0  ### Import hood, extend skeleton, non-vanilla pose
+TEST_DRAUGR_IMPORTA = 0  ### Import hood, extend skeleton, non-vanilla pose 
 TEST_DRAUGR_IMPORT2 = 0  ### Import hood, don't extend skeleton, non-vanilla pose
 TEST_DRAUGR_IMPORT3 = 0  ### Import helm, don't extend skeleton
 TEST_DRAUGR_IMPORT4 = 0  ### Import helm, do extend skeleton
@@ -66,7 +66,7 @@ TEST_SHADER_SE = 0  ### Shader attributes Skyrim SE
 TEST_SHADER_FO4 = 0  ### Shader attributes are read and turned into Blender shader nodes
 TEST_SHADER_ALPHA = 0  ### Alpha property handled correctly
 TEST_SHADER_3_3 = 0  ### Shader attributes are read and turned into Blender shader nodes
-TEST_CAVE_GREEN = 0  ### Use vertex colors in shader
+TEST_CAVE_GREEN = 1  ### Use vertex colors in shader
 TEST_POT = 0  ### Pot shader doesn't throw an error
 TEST_NOT_FB = 0  ### Nif that looked like facebones skel can be imported
 TEST_MULTI_IMP = 0  ### Importing multiple hair parts doesn't mess up
