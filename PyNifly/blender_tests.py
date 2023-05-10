@@ -11,24 +11,25 @@ from blender_defs import *
 from trihandler import *
 
 
-TEST_BPY_ALL = 0
+TEST_BPY_ALL = 1
 TEST_BODYPART_SKY = 0  ### Skyrim head
 TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
 TEST_SKIN_BONE_XF = 0  ### Argonian head
-TEST_IMP_EXP_SKY = 1  ### Skyrim armor
+TEST_IMP_EXP_SKY = 0  ### Skyrim armor
 TEST_IMP_EXP_SKY_2 = 0  ### Body+Armor
 TEST_IMP_EXP_FO4 = 0  ### Can read the body nif and spit it back out
 TEST_IMP_EXP_FO4_2 = 0  ### Can read body armor with 2 parts
 TEST_ROUND_TRIP = 0  ### Full round trip: nif -> blender -> nif -> blender
-TEST_BPY_PARENT = 0  ### Skeleton armature bones correctly parented
+TEST_BPY_PARENT_A = 0  ### Skeleton armature bones correctly parented
+TEST_BPY_PARENT_B = 0  ### Skeleton armature bones correctly parented
 TEST_RENAME = 0  ### Bone renaming for Blender conventions disabled
-TEST_DRAUGR_IMPORTA = 0  ### Import hood, extend skeleton, non-vanilla pose 
-TEST_DRAUGR_IMPORT2 = 0  ### Import hood, don't extend skeleton, non-vanilla pose
-TEST_DRAUGR_IMPORT3 = 0  ### Import helm, don't extend skeleton
-TEST_DRAUGR_IMPORT4 = 0  ### Import helm, do extend skeleton
-TEST_DRAUGR_IMPORT5 = 0  ### Import helm and hood together
 TEST_CONNECTED_SKEL = 0  ### Can import connected skeleton
+TEST_DRAUGR_IMPORT_A = 0  ### Import hood, extend skeleton, non-vanilla pose 
+TEST_DRAUGR_IMPORT_B = 0  ### Import hood, don't extend skeleton, non-vanilla pose
+TEST_DRAUGR_IMPORT_C = 0  ### Import helm, don't extend skeleton
+TEST_DRAUGR_IMPORT_D = 0  ### Import helm, do extend skeleton
+TEST_DRAUGR_IMPORT_E = 0  ### Import helm and hood together
 TEST_SCALING_BP = 0  ### Import and export bodypart with scale factor
 TEST_ARMATURE_EXTEND = 0  ### FO4 head + body
 TEST_ARMATURE_EXTEND_BT = 0  ### Import two nifs that share a skeleton
@@ -66,7 +67,7 @@ TEST_SHADER_SE = 0  ### Shader attributes Skyrim SE
 TEST_SHADER_FO4 = 0  ### Shader attributes are read and turned into Blender shader nodes
 TEST_SHADER_ALPHA = 0  ### Alpha property handled correctly
 TEST_SHADER_3_3 = 0  ### Shader attributes are read and turned into Blender shader nodes
-TEST_CAVE_GREEN = 1  ### Use vertex colors in shader
+TEST_CAVE_GREEN = 0  ### Use vertex colors in shader
 TEST_POT = 0  ### Pot shader doesn't throw an error
 TEST_NOT_FB = 0  ### Nif that looked like facebones skel can be imported
 TEST_MULTI_IMP = 0  ### Importing multiple hair parts doesn't mess up
@@ -256,8 +257,8 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
         pelvis = arma.data.bones['NPC Pelvis']
         pelvis_pose = arma.pose.bones['NPC Pelvis'] 
         assert pelvis.parent.name == 'CME LBody', f"Pelvis has correct parent: {pelvis.parent}"
-        assert pelvis.matrix_local.translation[2] == pelvis_pose.matrix.translation[2], \
-            f"Pelvis pose position matches bone position: {pelvis_pose.matrix.translation[2]}"
+        assert VNearEqual(pelvis.matrix_local.translation, pelvis_pose.matrix.translation), \
+            f"Pelvis pose position matches bone position: {pelvis.matrix_local.translation} == {pelvis_pose.matrix.translation}"
 
         bpy.ops.object.select_all(action='DESELECT')
         armor.select_set(True)
@@ -403,11 +404,10 @@ if TEST_BPY_ALL or TEST_ROUND_TRIP:
     assert maxz < 0 and minz > -130, "Error: Vertices from exported armor are positioned below origin"
 
 
-if TEST_BPY_ALL or TEST_BPY_PARENT:
-    test_title("TEST_BPY_PARENT", 'Maintain armature structure')
+if TEST_BPY_ALL or TEST_BPY_PARENT_A:
+    test_title("TEST_BPY_PARENT_A", 'Maintain armature structure')
     clear_all()
     testfile = test_file(r"tests\Skyrim\test.nif")
-    testfile2 = test_file(r"tests\FO4\bear_tshirt_turtleneck.nif")
     
     # Can intuit structure if it's not in the file
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -415,13 +415,18 @@ if TEST_BPY_ALL or TEST_BPY_PARENT:
     assert obj.data.bones['NPC Hand.R'].parent.name == 'CME Forearm.R', f"Error: Should find forearm as parent: {obj.data.bones['NPC Hand.R'].parent.name}"
     print(f"Found parent to hand: {obj.data.bones['NPC Hand.R'].parent.name}")
 
+
+if TEST_BPY_ALL or TEST_BPY_PARENT_B:
+    test_title("TEST_BPY_PARENT_B", 'Maintain armature structure')
+    clear_all()
+    testfile2 = test_file(r"tests\FO4\bear_tshirt_turtleneck.nif")
+    
     ## Can read structure if it comes from file
     bpy.ops.object.select_all(action='DESELECT')
     bpy.ops.import_scene.pynifly(filepath=testfile2)
-    obj = bpy.data.objects["Scene Root.001"]
+    obj = bpy.data.objects["Scene Root"]
     assert 'Arm_Hand.R' in obj.data.bones, "Error: Hand should be in armature"
     assert obj.data.bones['Arm_Hand.R'].parent.name == 'Arm_ForeArm3.R', "Error: Should find forearm as parent"
-    print(f"Found parent to hand: {obj.data.bones['Arm_Hand.R'].parent.name}")
 
 
 if TEST_BPY_ALL or TEST_RENAME:
@@ -441,50 +446,74 @@ if TEST_BPY_ALL or TEST_RENAME:
     assert len(armxl) == 0, f"Expected no bones renamed in armature, got {armxl}"
 
 
-if False: # TEST_DRAUGR_IMPORTA or TEST_BPY_ALL:
-    # XXXX DISABLING
+if TEST_BPY_ALL or TEST_CONNECTED_SKEL:
+    # Check that the bones of the armature are connected correctly.
+    test_title('TEST_CONNECTED_SKEL', 'Can import connected skeleton')
+    clear_all()
+
+    bpy.ops.object.select_all(action='DESELECT')
+    testfile = test_file(r"tests\FO4\vanillaMaleBody.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    s = bpy.data.objects[r"BASE meshes\Actors\Character\CharacterAssets\MaleBody.nif"]
+    assert s.type == 'ARMATURE', f"Imported the skeleton {s}" 
+    assert 'Leg_Thigh.L' in s.data.bones.keys(), "Error: Should have left thigh"
+    lthigh = s.data.bones['Leg_Thigh.L']
+    assert lthigh.parent.name == 'Pelvis', "Error: Thigh should connect to pelvis"
+    assert VNearEqual(lthigh.head_local, (-6.6151, 0.0005, 68.9113)), f"Thigh head in correct location: {lthigh.head_local}"
+    assert VNearEqual(lthigh.tail_local, (-7.2513, -0.1925, 63.9557)), f"Thigh tail in correct location: {lthigh.tail_local}"
+
+
+if TEST_DRAUGR_IMPORT_A or TEST_BPY_ALL:
     # This nif uses the draugr skeleton, which has bones named like human bones but with
-    # different positions. We import it as tho it were human, extending the skeleton. The
-    # result is an armature posed in the draugr position, but the bind position matches
-    # the vanilla human. Bones not in the nif are not posed.
+    # different positions--BUT the hood was made for the human skeleton so the bind
+    # position of its bones don't match the draugr skeleton. Bones defined by the hood are
+    # given the human bind position--the rest come from the reference skeleton and use
+    # those bind positions. 
     test_title("TEST_DRAUGR_IMPORT1", "Import hood, extend skeleton, non-vanilla pose")
     clear_all()
 
     # ------- Load --------
     testfile = test_file(r"tests\SkyrimSE\draugr lich01 hood.nif")
+    skelfile = test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT1.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=True)
 
     helm = find_shape("Helmet")
     hood = find_shape("Hood")
     skel = find_shape("Scene Root")
     bone1 = skel.data.bones['NPC UpperArm.R']
-    bone2 = skel.data.bones['NPC UpperarmTwist1.R']
     pose1 = skel.pose.bones['NPC UpperArm.R']
+    bone2 = skel.data.bones['NPC UpperarmTwist1.R']
     pose2 = skel.pose.bones['NPC UpperarmTwist1.R']
 
-    # Bones added from the reference skeleton must be in the right position relative to
-    # bones that came from the nif.
-    assert VNearEqual(bone1.matrix_local.translation, bone2.matrix_local.translation), \
-        f"Bones should have same position: {bone1.matrix_local.translation} != {bone2.matrix_local.translation}"
-    assert not VNearEqual(pose1.matrix.translation, pose2.matrix.translation), \
-        f"Bones should not have same pose position: {pose1.matrix.translation} != {pose2.matrix.translation}"
+    # Bones referenced by the hood have bind position from humans but pose position from
+    # draugr. The rest of them use bind and pose position from draugr.
+    assert not MatNearEqual(bone1.matrix_local, bone2.matrix_local), \
+        f"Bones should NOT have the same bind position: \n{bone1.matrix_local} != \n{bone2.matrix_local}"
+    assert VNearEqual(pose1.matrix.translation, pose2.matrix.translation), \
+        f"Bones should have same pose position: {pose1.matrix.translation} != {pose2.matrix.translation}"
+    
+    # Create_bones means that the bones are all connected up
+    assert bone1.parent.name == 'NPC Clavicle.R', f"UpperArm parent correct: {bone1.parent.name}"
+    assert bone2.parent.name == 'NPC UpperArm.R', f"UpperArmTwist parent correct: {bone2.parent.name}"
     
 
-if TEST_DRAUGR_IMPORT2 or TEST_BPY_ALL:
+if TEST_DRAUGR_IMPORT_B or TEST_BPY_ALL:
     # This hood uses non-human bone node positions and we don't extend the skeleton, so
     # bones are given the bind position from the hood but the pose position from the nif.
     # Since the pose is not a pure translation, we do not put a transform on the hood
     # shape.
-    test_title("TEST_DRAUGR_IMPORT2", "Import hood, don't extend skeleton, non-vanilla pose")
+    test_title("TEST_DRAUGR_IMPORT_B", "Import hood, don't extend skeleton, non-vanilla pose")
     clear_all()
 
     # ------- Load --------
     testfile = test_file(r"tests\SkyrimSE\draugr lich01 hood.nif")
-    outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT2.nif")
+    skelfile = test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
+    outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT_B.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=False)
 
     helm = find_shape("Helmet")
     hood = find_shape("Hood")
@@ -498,18 +527,16 @@ if TEST_DRAUGR_IMPORT2 or TEST_BPY_ALL:
         f"Pose position is not bind position: {pose1.matrix.translation} != {bone1.matrix_local.translation}"
     
 
-if TEST_DRAUGR_IMPORT3 or TEST_BPY_ALL:
-    # The helm has bones that are not in vanilla bind position, but their position is 
-    # a translation from the vanilla position. When we import WITHOUT adding bones, we
-    # get exactly that in the nif.
+if TEST_DRAUGR_IMPORT_C or TEST_BPY_ALL:
+    # The helm has bones that are in the draugr's vanilla bind position.
     test_title("TEST_DRAUGR_IMPORT", "Import helm, don't extend skeleton")
     clear_all()
 
-    # ------- Load --------
     testfile = test_file(r"tests\SkyrimSE\draugr lich01 helm.nif")
+    skelfile = test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=False)
 
     helm = find_shape("Helmet")
     skel = find_shape("Scene Root")
@@ -522,19 +549,17 @@ if TEST_DRAUGR_IMPORT3 or TEST_BPY_ALL:
         f"Head bone not posed in vanilla position: {pose1.matrix_local.translation}"
 
 
-if False: # TEST_DRAUGR_IMPORT4 or TEST_BPY_ALL:
-    # XXXX DISABLING XXXX
-    # Fo the helm, when we import WITH adding bones, the bones are forced to vanilla bind
-    # position so the skeleton matches up. But the pose position for all the bones in the
-    # nif are as the nif defines it.
+if TEST_DRAUGR_IMPORT_D or TEST_BPY_ALL:
+    # Fo the helm, when we import WITH adding bones, we get a full draugr skeleton.
     test_title("TEST_DRAUGR_IMPORT", "Import helm, do extend skeleton")
     clear_all()
 
     # ------- Load --------
     testfile = test_file(r"tests\SkyrimSE\draugr lich01 helm.nif")
+    skelfile = test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=True)
 
     helm = find_shape("Helmet")
     skel = find_shape("Scene Root")
@@ -543,25 +568,21 @@ if False: # TEST_DRAUGR_IMPORT4 or TEST_BPY_ALL:
     bone2 = skel.data.bones['NPC Spine2']
     pose2 = skel.pose.bones['NPC Spine2']
 
-    assert VNearEqual(bone1.matrix_local.translation, [-0.0003, -1.5475, 120.3436]), \
+    assert VNearEqual(bone1.matrix_local.translation, [-0.015854, -2.40295, 134.301]), \
         f"Head bone in vanilla bind position: {bone1.matrix_local.translation}"
     assert not VNearEqual(pose1.matrix.translation, [-0.0003, -1.5475, 120.3436], epsilon=2.0), \
         f"Head bone not posed in vanilla position: {pose1.matrix.translation}"
 
-    assert VNearEqual(bone2.matrix_local.translation, [0.0, -5.9318, 91.2488]), \
+    assert VNearEqual(bone2.matrix_local.translation, [0.000004, -5.83516, 102.358]), \
         f"Spine bone in vanilla bind position: {bone1.matrix_local.translation}"
     assert VNearEqual(pose2.matrix.translation, [0.0000, -5.8352, 102.3579]), \
         f"Spine bone posed in draugr position: {pose2.matrix.translation}"
     
-    assert bone2.parent.name == 'NPC Spine1 [Spn1]', \
+    assert bone2.parent.name == 'NPC Spine1', \
         f"Spine bone has correct parent: {bone2.parent.name}"
-
-    assert False, "[STOP]"
-    
-    ### Want to create all the unused nodes as bones bc in ref skel
     
 
-if TEST_DRAUGR_IMPORT5 or TEST_BPY_ALL:
+if TEST_DRAUGR_IMPORT_E or TEST_BPY_ALL:
     # This nif has two shapes and the bind positions differ. The hood bind position is
     # human, and it's posed to the draugr position. The draugr hood is bound at pose
     # position, so pose and bind positions are the same. The only solution is to import as
@@ -573,9 +594,10 @@ if TEST_DRAUGR_IMPORT5 or TEST_BPY_ALL:
 
     # ------- Load --------
     testfile = test_file(r"tests\SkyrimSE\draugr lich01 simple.nif")
+    skelfile = test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=False)
 
     helm = find_shape("Helmet")
     hood = find_shape("Hood")
@@ -640,24 +662,6 @@ if TEST_DRAUGR_IMPORT5 or TEST_BPY_ALL:
     assert not VNearEqual(bone1.matrix_local.translation, pose1.matrix.translation), \
         f"Pose and bind locaations differ: {bone1.matrix_local.translation} != {pose1.matrix.translation}"
     
-
-if TEST_BPY_ALL or TEST_CONNECTED_SKEL:
-    # Check that the bones of the armature are connected correctly.
-    test_title('TEST_CONNECTED_SKEL', 'Can import connected skeleton')
-    clear_all()
-
-    bpy.ops.object.select_all(action='DESELECT')
-    testfile = test_file(r"tests\FO4\vanillaMaleBody.nif")
-    bpy.ops.import_scene.pynifly(filepath=testfile)
-
-    s = bpy.data.objects[r"BASE meshes\Actors\Character\CharacterAssets\MaleBody.nif"]
-    assert s.type == 'ARMATURE', f"Imported the skeleton {s}" 
-    assert 'Leg_Thigh.L' in s.data.bones.keys(), "Error: Should have left thigh"
-    lthigh = s.data.bones['Leg_Thigh.L']
-    assert lthigh.parent.name == 'Pelvis', "Error: Thigh should connect to pelvis"
-    assert VNearEqual(lthigh.head_local, (-6.6151, 0.0005, 68.9113)), f"Thigh head in correct location: {lthigh.head_local}"
-    assert VNearEqual(lthigh.tail_local, (-7.2513, -0.1925, 63.9557)), f"Thigh tail in correct location: {lthigh.tail_local}"
-
 
 if TEST_BPY_ALL or TEST_SCALING_BP:
     test_title("TEST_SCALING_BP", "Can scale bodyparts")
@@ -1579,6 +1583,8 @@ if TEST_BPY_ALL or TEST_CAVE_GREEN:
     nifcheck = NifFile(outfile)
     rootscheck = nifcheck.shape_dict["L2_Roots:5"]
     assert rootscheck.has_alpha_property, f"Roots have alpha: {rootscheck.has_alpha_property}"
+    assert rootscheck.shader_attributes.shaderflags2_test(ShaderFlags2.VERTEX_COLORS), \
+        f"Have vertex colors: {rootscheck.shader_attributes.shaderflags2_test(ShaderFlags2.VERTEX_COLORS)}"
 
 
 if TEST_BPY_ALL or TEST_POT:
