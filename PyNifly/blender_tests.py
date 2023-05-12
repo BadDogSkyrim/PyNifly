@@ -11,13 +11,13 @@ from blender_defs import *
 from trihandler import *
 
 
-TEST_BPY_ALL = 1
+TEST_BPY_ALL = 0
 TEST_BODYPART_SKY = 0  ### Skyrim head
 TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
 TEST_SKIN_BONE_XF = 0  ### Argonian head
 TEST_IMP_EXP_SKY = 0  ### Skyrim armor
-TEST_IMP_EXP_SKY_2 = 0  ### Body+Armor
+TEST_IMP_EXP_SKY_2 = 1  ### Body+Armor
 TEST_IMP_EXP_FO4 = 0  ### Can read the body nif and spit it back out
 TEST_IMP_EXP_FO4_2 = 0  ### Can read body armor with 2 parts
 TEST_ROUND_TRIP = 0  ### Full round trip: nif -> blender -> nif -> blender
@@ -281,29 +281,35 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
     test_title("TEST_IMP_EXP_SKY_2", "Can read the armor nif with two shapes and spit it back out")
     clear_all()
 
-    testfile = test_file(r"tests/Skyrim/test.nif")
+    #testfile = test_file(r"tests/Skyrim/test.nif") 
+    # 
+    # The test.nif meshes are a bit wonky--one was pasted in by hand from SOS, the other
+    # is a vanilla armor. The ForearmTwist2.L bind rotation is off by some hundredths.  
+    # So do the test with the vanilla male body, which has two parts and is consistent.
+    testfile = test_file(r"tests/Skyrim/malebody_1.nif")
+    # skelfile = test_file(r"tests/Skyrim/skeleton_vanilla.nif")
     outfile = test_file(r"tests/Out/TEST_IMP_EXP_SKY_2.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    body = find_shape('MaleBody')
-    armor = find_shape('Armor')
+    assert len([x for x in bpy.data.objects if x.type=='ARMATURE']) == 1, \
+        f"Both shapes brought in under one armor"
+    body = find_shape('MaleUnderwearBody:0')
+    armor = find_shape('MaleUnderwear_1')
     assert VNearEqual(armor.location, (-0.0003, -1.5475, 120.3436)), \
         f"Armor is raised to match body: {armor.location}"
 
-    bpy.ops.object.select_all(action='DESELECT')
-    body.select_set(True)
-    armor.select_set(True)
+    ObjectSelect([body, armor])
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
 
     nifout = NifFile(outfile)
-    impnif = NifFile(testfile)
-    compare_shapes(impnif.shape_dict['MaleBody'], nifout.shape_dict['MaleBody'], body, e=0.01)
-    compare_shapes(impnif.shape_dict['Armor'], nifout.shape_dict['Armor'], armor, e=0.01)
+    impnif = NifFile(testfile)  
+    compare_shapes(impnif.shape_dict['MaleUnderwearBody:0'], nifout.shape_dict['MaleUnderwearBody:0'], body, e=0.01)
+    compare_shapes(impnif.shape_dict['MaleUnderwear_1'], nifout.shape_dict['MaleUnderwear_1'], armor, e=0.01)
 
-    check_unweighted_verts(nifout.shape_dict['MaleBody'])
-    check_unweighted_verts(nifout.shape_dict['Armor'])
-    assert NearEqual(body.location.z, 0), f"{body.name} not in lifted position: {body.location.z}"
+    check_unweighted_verts(nifout.shape_dict['MaleUnderwearBody:0'])
+    check_unweighted_verts(nifout.shape_dict['MaleUnderwear_1'])
+    assert NearEqual(body.location.z, 120.343582, 0.01), f"{body.name} in lifted position: {body.location.z}"
     assert NearEqual(armor.location.z, 120.343582, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
     assert "NPC R Hand [RHnd]" not in bpy.data.objects, f"Did not create extra nodes representing the bones"
         
@@ -2776,11 +2782,26 @@ if TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
     clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests\SkyrimSE\body1m_1.nif")
+    testfile = test_file(r"tests\Skyrim\malebody_1.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones_niftools=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones_niftools=True, 
+                                 create_bones=False, scale_factor=0.1)
+    arma = find_shape("MaleBody_1.nif.001")
 
-    arma = find_shape("Body1M_1.nif")
+    ObjectSelect([arma])
+    ObjectActive(arma)
+    bpy.ops.object.mode_set(mode='EDIT')
+    print(f"Bone roll for 'NPC Calf [Clf].L' = {arma.data.edit_bones['NPC Calf [Clf].L'].roll}")
+    for b in arma.data.edit_bones:
+        b.roll += -90 * pi / 180
+    print(f"Bone roll for 'NPC Calf [Clf].L' = {arma.data.edit_bones['NPC Calf [Clf].L'].roll}")
+    bpy.ops.object.mode_set(mode='OBJECT')
+    arma.update_from_editmode()
+
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.import_scene.nif(filepath=testfile, scale_correction=0.1)
+
+    assert False, "Only one armature imported--scale factor didn't result in 2"
     assert "skeleton.nif" not in arma.data.bones, f"Root node not imported as bone"
     assert "NPC Calf [Clf].L" in arma.data.bones, f"Bones follow niftools name conventions {arma.data.bones.keys()}"
     #assert arma.data.niftools.axis_forward == "Z", f"Forward axis set to Z"

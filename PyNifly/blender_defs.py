@@ -2,6 +2,7 @@
 
 from enum import IntFlag
 from mathutils import Matrix, Vector, Quaternion, geometry
+import bpy
 import bpy_types
 import re
 from nifdefs import *
@@ -34,6 +35,22 @@ def nonunique_name(obj):
     if m:
         return m.group(1)
     return obj.name
+
+
+def ObjectSelect(objlist, deselect=True):
+    """Select all the objects in the list"""
+    try:
+        bpy.ops.object.mode_set(mode = 'OBJECT')
+    except:
+        pass
+    if deselect:
+        bpy.ops.object.select_all(action='DESELECT')
+    for o in objlist:
+        o.select_set(True)
+
+def ObjectActive(obj):
+    """Set the given object active"""
+    bpy.context.view_layer.objects.active = obj
 
 
 def MatrixLocRotScale(loc, rot, scale):

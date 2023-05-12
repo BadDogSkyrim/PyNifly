@@ -148,22 +148,6 @@ def LogIfBone(name, text):
     LogIf(name in TEST_TARGET_BONE, text)
 
 
-def ObjectSelect(objlist, deselect=True):
-    """Select all the objects in the list"""
-    try:
-        bpy.ops.object.mode_set(mode = 'OBJECT')
-    except:
-        pass
-    if deselect:
-        bpy.ops.object.select_all(action='DESELECT')
-    for o in objlist:
-        o.select_set(True)
-
-def ObjectActive(obj):
-    """Set the given object active"""
-    bpy.context.view_layer.objects.active = obj
-
-
 def is_in_plane(plane, vert):
     """ Test whether vert is in the plane defined by the three vectors in plane """
     #find the plane's normal. p0, p1, and p2 are simply points on the plane (in world space)
@@ -246,7 +230,7 @@ setattr(TransformBuf, "from_matrix", classmethod(make_transformbuf))
 
 BONE_LEN = 5
 FACEBONE_LEN = 2
-ROLL_ADJUST = 0 
+ROLL_ADJUST = 0 # -90 * pi / 180
 
 game_rotations = {'X': (Quaternion(Vector((0,0,1)), radians(-90)).to_matrix().to_4x4(),
                         Quaternion(Vector((0,0,1)), radians(-90)).inverted().to_matrix().to_4x4()),
@@ -267,7 +251,7 @@ def get_pose_blender_xf(node_xf: Matrix, game: str, scale_factor):
     #return apply_scale_transl(node_xf @ game_rotations[game_axes[game]][0], scale_factor)
 
 
-def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor):
+def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor, roll):
     """Creates a bone in the armature with the given transform.
     Must be in edit mode.
         armdata = data block for armature
@@ -285,6 +269,7 @@ def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor):
     bone.tail = bone.head + v
 
     bone.matrix = get_bone_blender_xf(node_xf, game, scale_factor)
+    bone.roll += roll
 
     return bone
 
@@ -484,11 +469,12 @@ class NifImporter():
         else:
             return nif_name
 
-    def get_node_transform(self, the_shape, scale_factor=1.0) -> Matrix:
+    def calc_obj_transform(self, the_shape, scale_factor=1.0) -> Matrix:
         """Returns location of the_shape ready for blender as a transform.
 
-        scale_factor is applied to the transform but not to its scale component--scale_factor is used
-        to transform vert locations so it's not needed on the transform.
+        scale_factor is applied to the transform but not to its scale component --
+        scale_factor is used to transform vert locations so it's not needed on the
+        transform.
         """
         if (type(the_shape) != NiShape) or (not the_shape.has_skin_instance):
             # Statics get transformed according to the shape's transform
@@ -518,21 +504,20 @@ class NifImporter():
             for bn in the_shape.get_used_bones():
                 if bn in self.reference_skel.nodes:
                     skel_bone = self.reference_skel.nodes[bn]
-                    LogIfBone(bn, f"Bone {bn} transform: {transform_to_matrix(skel_bone.xform_to_global).translation}")
+                    skel_bone_xf= skel_bone.xform_to_global.as_matrix()
+                    LogIfBone(bn, f"Bone '{bn}' transform: {skel_bone_xf.translation}/{skel_bone_xf.to_euler()}")
                     bindpos = bind_position(the_shape, bn)
-                    LogIfBone(bn, f"Shape {the_shape.name} bind position: {bindpos.translation}")
+                    LogIfBone(bn, f"Shape {the_shape.name} bind position for '{bn}': {bindpos.translation}/{bindpos.to_euler()}")
                     bindinshape = xf @ bindpos
-                    this_offset = skel_bone.xform_to_global.as_matrix() @ bindinshape.inverted()
+                    this_offset = skel_bone_xf @ bindinshape.inverted()
                     if not offset_xf: 
                         offset_xf = this_offset
                         offset_consistent = True
-                        #log.debug(f"Shape {the_shape.name} first offset from {bn}")
-                    else:
-                        if not MatNearEqual(this_offset, offset_xf):
-                            offset_consistent = False
-                            # self.create_bones = False
-                            log.debug(f"Shape {the_shape.name} does not have consistent offset from vanilla: {bn}:{this_offset.translation} != {offset_xf.translation}")
-                            break
+                        log.debug(f"Shape {the_shape.name} first offset from {bn}: {this_offset.translation}/{this_offset.to_euler()}")
+                    elif not MatNearEqual(this_offset, offset_xf):
+                        offset_consistent = False
+                        log.debug(f"Shape {the_shape.name} does not have consistent offset from vanilla: {bn}:{this_offset.translation}/{this_offset.to_euler()} != {offset_xf.translation}/{offset_xf.to_euler()}")
+                        break
 
             if offset_consistent and offset_xf:
                 #log.debug(f"Shape {the_shape.name} has consistent offset from vanilla: {offset_xf.translation}")
@@ -915,7 +900,7 @@ class NifImporter():
 
             # Set the object transform to reflect the skin transform in the nif. This
             # positions the object conveniently for editing.
-            new_object.matrix_world = self.get_node_transform(the_shape, 
+            new_object.matrix_world = self.calc_obj_transform(the_shape, 
                                                               scale_factor=self.scale)
             if parent:
                 new_object.parent = parent
@@ -1080,17 +1065,20 @@ class NifImporter():
     
         # Use the transform from the reference skeleton if we're extending bones; 
         # otherwise use the one in the file.
+        addl_roll = ROLL_ADJUST if self.rename_bones_nift else 0
         if self.create_bones and nifname in self.reference_skel.nodes:
             LogIfBone(bone_name, f"Creating {bone_name} using reference location")
             bone_xform = self.reference_skel.nodes[nifname].xform_to_global.as_matrix()
-            bone = create_bone(armdata, bone_name, bone_xform, self.nif.game, self.scale)
+            bone = create_bone(armdata, bone_name, bone_xform, 
+                               self.nif.game, self.scale, addl_roll)
         else:
             xf = self.nif.get_node_xform_to_global(nifname) 
             LogIfBone(bone_name, f"<add_bone_to_arma> creating bone {nifname} with position \n{xf}")
             bone_xform = xf.as_matrix()
             arma_xf = self.calc_skin_transform(arma)
             scaled_xf = apply_scale_transl(arma_xf, 1/self.scale)
-            bone = create_bone(armdata, bone_name, scaled_xf @ bone_xform, self.nif.game, self.scale)
+            bone = create_bone(armdata, bone_name, scaled_xf @ bone_xform, 
+                               self.nif.game, self.scale, addl_roll)
 
         return bone
     
@@ -1328,7 +1316,8 @@ class NifImporter():
                 LogIfBone(bn, f"Bone '{bn}' has shape {obj.name} xform matrix \n{skin_xf}")
                 LogIfBone(bn, f"Bone '{bn}' has skin-to-bone xform matrix \n{bone_shape_xf}")
                 LogIfBone(bn, f"Bone '{bn}' has final matrix \n{xf}")
-                create_bone(arma.data, blname, xf, self.nif.game, self.scale)
+                create_bone(arma.data, blname, xf, self.nif.game, self.scale,
+                            ROLL_ADJUST if self.rename_bones_nift else 0)
                 new_bones.append((bn, blname))
 
         # Do the pose in a separate pass so we don't have to flip between modes.
@@ -1559,7 +1548,7 @@ class NifImporter():
             if parentObj:
                 col.parent = parentObj
                 if parentObj.type == "ARMATURE":
-                    col.matrix_world = self.get_node_transform(bone, scale_factor=self.scale)
+                    col.matrix_world = self.calc_obj_transform(bone, scale_factor=self.scale)
                     col['pynCollisionTarget'] = bone.name
 
             cb = c.body
@@ -3926,42 +3915,6 @@ def register():
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_tri)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export)
     bpy.types.VIEW3D_MT_object.append(nifly_menu_rename_niftools)
-
-
-
-def run_tests():
-    print("""
-    ############################################################
-    ##                                                        ##
-    ##                        TESTING                         ##
-    ##                                                        ##
-    ############################################################
-    """)
-
-    from test_tools import test_title, clear_all, append_from_file, export_from_blend, find_vertex, \
-        remove_file, find_shape, compare_shapes, check_unweighted_verts, get_shape_bbox, get_obj_bbox, \
-        test_file, compare_bones
-    from pynifly_tests import run_tests
-
-    NifFile.Load(nifly_path)
-    #LoggerInit()
-
-    clear_all()
-
-    # ########### LOCAL TESTS #############
-    # Tests in this file are for functionality under development. They should be moved to
-    # pynifly_tests.py when stable.
-    if TEST_BPY_ALL:
-        run_tests(pynifly_dev_path, NifExporter, NifImporter, import_tri, create_bone, get_bone_global_xf, transform_to_matrix)
-
-
-    print("""
-    ############################################################
-    ##                                                        ##
-    ##                    TESTS DONE                          ##
-    ##                                                        ##
-    ############################################################
-    """)
 
 
 if __name__ == "__main__":
