@@ -17,7 +17,7 @@ TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
 TEST_SKIN_BONE_XF = 0  ### Argonian head
 TEST_IMP_EXP_SKY = 0  ### Skyrim armor
-TEST_IMP_EXP_SKY_2 = 1  ### Body+Armor
+TEST_IMP_EXP_SKY_2 = 0  ### Body+Underwear
 TEST_IMP_EXP_FO4 = 0  ### Can read the body nif and spit it back out
 TEST_IMP_EXP_FO4_2 = 0  ### Can read body armor with 2 parts
 TEST_ROUND_TRIP = 0  ### Full round trip: nif -> blender -> nif -> blender
@@ -31,6 +31,7 @@ TEST_DRAUGR_IMPORT_C = 0  ### Import helm, don't extend skeleton
 TEST_DRAUGR_IMPORT_D = 0  ### Import helm, do extend skeleton
 TEST_DRAUGR_IMPORT_E = 0  ### Import helm and hood together
 TEST_SCALING_BP = 0  ### Import and export bodypart with scale factor
+TEST_IMP_EXP_SCALE_2 = 0  ### Import nif with 2 meshes scaled
 TEST_ARMATURE_EXTEND = 0  ### FO4 head + body
 TEST_ARMATURE_EXTEND_BT = 0  ### Import two nifs that share a skeleton
 TEST_EXPORT_WEIGHTS = 0  ### Import and export with weights
@@ -89,7 +90,7 @@ TEST_NORM = 0  ### Normals are read correctly
 TEST_ROGUE01 = 0  ### Custom split normals export correctly
 TEST_ROGUE02 = 0  ### Objects with shape keys export normals correctly
 TEST_NORMAL_SEAM = 0  ### Custom normals can make a seam seamless
-TEST_NIFTOOLS_NAMES = 0
+TEST_NIFTOOLS_NAMES = 1
 TEST_BOW = 0  ### Read and write bow
 TEST_BOW2 = 0  ### Modify collision shape location
 TEST_BOW3 = 0  ### Modify collision shape type
@@ -535,12 +536,12 @@ if TEST_DRAUGR_IMPORT_B or TEST_BPY_ALL:
 
 if TEST_DRAUGR_IMPORT_C or TEST_BPY_ALL:
     # The helm has bones that are in the draugr's vanilla bind position.
-    test_title("TEST_DRAUGR_IMPORT", "Import helm, don't extend skeleton")
+    test_title("TEST_DRAUGR_IMPORT_C", "Import helm, don't extend skeleton")
     clear_all()
 
     testfile = test_file(r"tests\SkyrimSE\draugr lich01 helm.nif")
     skelfile = test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
-    outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT.nif")
+    outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT_C.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=False)
 
@@ -557,13 +558,13 @@ if TEST_DRAUGR_IMPORT_C or TEST_BPY_ALL:
 
 if TEST_DRAUGR_IMPORT_D or TEST_BPY_ALL:
     # Fo the helm, when we import WITH adding bones, we get a full draugr skeleton.
-    test_title("TEST_DRAUGR_IMPORT", "Import helm, do extend skeleton")
+    test_title("TEST_DRAUGR_IMPORT_D", "Import helm, do extend skeleton")
     clear_all()
 
     # ------- Load --------
     testfile = test_file(r"tests\SkyrimSE\draugr lich01 helm.nif")
     skelfile = test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
-    outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT.nif")
+    outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT_D.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=True)
 
@@ -595,13 +596,13 @@ if TEST_DRAUGR_IMPORT_E or TEST_BPY_ALL:
     # two skeletons and let the user sort it out. We could also add a flag to "import at
     # pose position". We lose the bind position info but end up with the shapes parented
     # to one armature.
-    test_title("TEST_DRAUGR_IMPORT", "Import of this draugr mesh positions hood correctly")
+    test_title("TEST_DRAUGR_IMPORT_E", "Import of this draugr mesh positions hood correctly")
     clear_all()
 
     # ------- Load --------
     testfile = test_file(r"tests\SkyrimSE\draugr lich01 simple.nif")
     skelfile = test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
-    outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT.nif")
+    outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT_E.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=False)
 
@@ -706,6 +707,25 @@ if TEST_BPY_ALL or TEST_SCALING_BP:
     assert bmaxout-bminout > 100, f"Shape scaled up on ouput: {bminout}-{bmaxout}"
 
 
+if TEST_BPY_ALL or TEST_IMP_EXP_SCALE_2:
+    # Regression: Making sure that the scale factor doesn't mess up importing under one
+    # armature.
+    test_title("TEST_IMP_EXP_SCALE_2", "Can read the body nif scaled")
+    clear_all()
+
+    testfile = test_file(r"tests/Skyrim/malebody_1.nif")
+    outfile = test_file(r"tests/Out/TEST_IMP_EXP_SCALE_2.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, scale_factor=0.1)
+
+    assert len([x for x in bpy.data.objects if x.type=='ARMATURE']) == 1, \
+        f"Both shapes brought in under one armor"
+    body = find_shape('MaleUnderwearBody:0')
+    armor = find_shape('MaleUnderwear_1')
+    assert VNearEqual(armor.location, (-0.0, -0.15475, 12.03436)), \
+        f"Armor is raised to match body: {armor.location}"
+    
+    
 if TEST_BPY_ALL or TEST_ARMATURE_EXTEND:
     # Can import a shape with an armature and then import another shape to the same armature. 
     test_title("TEST_ARMATURE_EXTEND", "Can extend an armature with a second NIF")
@@ -2786,7 +2806,7 @@ if TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
 
     bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones_niftools=True, 
                                  create_bones=False, scale_factor=0.1)
-    arma = find_shape("MaleBody_1.nif.001")
+    arma = find_shape("MaleBody_1.nif")
 
     ObjectSelect([arma])
     ObjectActive(arma)

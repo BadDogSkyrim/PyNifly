@@ -2,7 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
-TEST_TARGET_BONE = [] # Print extra debugging info for these bones
+TEST_TARGET_BONE = ['NPC L Thigh [LThg]'] # Print extra debugging info for these bones
 
 bl_info = {
     "name": "NIF format",
@@ -1023,7 +1023,7 @@ class NifImporter():
             for b in shape.bone_names:
                 blend_name = self.blender_name(b)
                 if blend_name in arma.data.bones:
-                    shape_bone_xf = obj.matrix_world @ bind_position(shape, b) # shape.get_shape_skin_to_bone(b).as_matrix()
+                    shape_bone_xf = obj.matrix_world @ apply_scale_xf(bind_position(shape, b), self.scale) # shape.get_shape_skin_to_bone(b).as_matrix()
                     arma_xf = get_bone_xform(arma, blend_name, shape.file.game, False, False)
                     LogIfBone(b, f"<find_compatible_arma> Shape {b}: {shape.name} = {shape_bone_xf.translation}")
                     LogIfBone(b, f"<find_compatible_arma> Armature {blend_name}: {arma.name} = {arma_xf.translation}")
@@ -1034,6 +1034,7 @@ class NifImporter():
                             if not MatNearEqual(this_offset, offset_xf):
                                 offset_consistent = False
                                 log.debug(f"Offsets different for {b}: {this_offset.translation} != {offset_xf.translation}")
+                                break
                         else:
                             offset_xf = this_offset
             if is_ok:
