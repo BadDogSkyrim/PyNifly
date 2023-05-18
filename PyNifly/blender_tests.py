@@ -83,6 +83,7 @@ TEST_SCALING_OBJ = 0  ### Scale simple objects
 TEST_UNIFORM_SCALE = 0  ### Export objects with uniform scaling
 TEST_NONUNIFORM_SCALE = 0  ### Export objects with non-uniform scaling
 TEST_FACEBONE_EXPORT = 0
+TEST_FACEBONE_EXPORT2 = 0  ### Facebones with odd armature
 TEST_HYENA_PARTITIONS = 0
 TEST_MULT_PART = 0  ### Export shape with face that might fall into multiple partititions
 TEST_BONE_XPORT_POS = 0
@@ -90,37 +91,37 @@ TEST_NORM = 0  ### Normals are read correctly
 TEST_ROGUE01 = 0  ### Custom split normals export correctly
 TEST_ROGUE02 = 0  ### Objects with shape keys export normals correctly
 TEST_NORMAL_SEAM = 0  ### Custom normals can make a seam seamless
-TEST_NIFTOOLS_NAMES = 1
-TEST_BOW = 0  ### Read and write bow
-TEST_BOW2 = 0  ### Modify collision shape location
-TEST_BOW3 = 0  ### Modify collision shape type
-TEST_COLLISION_HIER = 0  ### Read and write collision of hierarchy of nodes
-TEST_SCALING_COLL = 0
-TEST_COLLISION_MULTI = 0
-TEST_COLLISION_CONVEXVERT = 0
-TEST_COLLISION_CAPSULE = 0  ### Collision capsule shapes with scale
-TEST_COLLISION_LIST = 0  ### Collision list and collision transform shapes with scale
-TEST_CHANGE_COLLISION = 0  ### Changing collision type 
-TEST_COLLISION_XFORM = 0  ### Read and write shape with collision capsule shapes
-TEST_CONNECT_POINT = 0  ### Connect points are imported and exported
-TEST_WEAPON_PART = 0  ### Weapon parts are imported at the parent connect point
-TEST_IMPORT_MULT_CP = 0  ### Import multiple files and connect up the connect points
-TEST_FURN_MARKER1 = 0  ### Skyrim furniture markers 
-TEST_FURN_MARKER2 = 0  ### Skyrim furniture markers
-TEST_FO4_CHAIR = 0  ### FO4 furniture markers 
-TEST_PIPBOY = 0
-TEST_BABY = 0  ### FO4 baby 
-TEST_ROTSTATIC = 0  ### Statics are transformed according to the shape transform
-TEST_ROTSTATIC2 = 0  ### Statics are transformed according to the shape transform
-TEST_FACEBONES = 0
-TEST_FACEBONES_RENAME = 0  ### Facebones are correctly renamed from Blender to the game's names
-TEST_BONE_XF = 0
-TEST_IMP_ANIMATRON = 0
-TEST_CUSTOM_BONES = 0  ### Can handle custom bones correctly
-TEST_COTH_DATA = 0  ## Handle cloth data
-TEST_IMP_NORMALS = 0  ### Can import normals from nif shape
-TEST_UV_SPLIT = 0  ### Split UVs properly
-TEST_JIARAN = 0  ### Armature with no stashed transforms exports correctly
+TEST_NIFTOOLS_NAMES = 0
+TEST_BOW = 1  ### Read and write bow
+TEST_BOW2 = 1  ### Modify collision shape location
+TEST_BOW3 = 1  ### Modify collision shape type
+TEST_COLLISION_HIER = 1  ### Read and write collision of hierarchy of nodes
+TEST_SCALING_COLL = 1
+TEST_COLLISION_MULTI = 1
+TEST_COLLISION_CONVEXVERT = 1
+TEST_COLLISION_CAPSULE = 1  ### Collision capsule shapes with scale
+TEST_COLLISION_LIST = 1  ### Collision list and collision transform shapes with scale
+TEST_CHANGE_COLLISION = 1  ### Changing collision type 
+TEST_COLLISION_XFORM = 1  ### Read and write shape with collision capsule shapes
+TEST_CONNECT_POINT = 1  ### Connect points are imported and exported
+TEST_WEAPON_PART = 1  ### Weapon parts are imported at the parent connect point
+TEST_IMPORT_MULT_CP = 1  ### Import multiple files and connect up the connect points
+TEST_FURN_MARKER1 = 1  ### Skyrim furniture markers 
+TEST_FURN_MARKER2 = 1  ### Skyrim furniture markers
+TEST_FO4_CHAIR = 1  ### FO4 furniture markers 
+TEST_PIPBOY = 1
+TEST_BABY = 1  ### FO4 baby 
+TEST_ROTSTATIC = 1  ### Statics are transformed according to the shape transform
+TEST_ROTSTATIC2 = 1  ### Statics are transformed according to the shape transform
+TEST_FACEBONES = 1
+TEST_FACEBONES_RENAME = 1  ### Facebones are correctly renamed from Blender to the game's names
+TEST_BONE_XF = 1
+TEST_IMP_ANIMATRON = 1
+TEST_CUSTOM_BONES = 1  ### Can handle custom bones correctly
+TEST_COTH_DATA = 1  ## Handle cloth data
+TEST_IMP_NORMALS = 1  ### Can import normals from nif shape
+TEST_UV_SPLIT = 1  ### Split UVs properly
+TEST_JIARAN = 1  ### Armature with no stashed transforms exports correctly
 
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
@@ -2297,6 +2298,29 @@ if TEST_BPY_ALL or TEST_FACEBONE_EXPORT:
     #assert len([x for x in nif4.nodes.keys() if x == "Neck"]) == 0, f"Expected no regular nodes in facebones nif file; found {nif4.nodes.keys()}"
 
 
+if TEST_BPY_ALL or TEST_FACEBONE_EXPORT2:
+    # Regression. Test that facebones and regular mesh are both exported.
+    test_title("TEST_FACEBONE_EXPORT2", "Test can export facebones + regular nif; shapes with hidden verts export correctly")
+    clear_all()
+
+    outfile = test_file(r"tests/Out/TEST_FACEBONE_EXPORT2.nif")
+    outfile_fb = test_file(r"tests/Out/TEST_FACEBONE_EXPORT2_faceBones.nif")
+
+    # Have a head shape parented to the normal skeleton but with facebone weights as well
+    obj = append_from_file("FemaleHead.Export.001", False, r"tests\FO4\Animatron Space Simple.blend", r"\Object", "FemaleHead.Export.001")
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.select_all(action='SELECT')
+
+    # Normal and Facebones skeleton selected for export
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4", chargen_ext="_chargen")
+
+    outnif = NifFile(outfile)
+    assert len(outnif.shapes) >= 1, f"Have shapes in export file: {outnif.shapes}"
+
+    outniffb = NifFile(outfile_fb)
+    assert len(outniffb.shapes) >= 1, f"Have shapes in facebones export file: {outniffb.shapes}"
+
+
 if TEST_BPY_ALL or TEST_HYENA_PARTITIONS:
     # This Blender object has non-normalized weights--the weights for each vertex do 
     # not always add up to 1. That turns out to screw up the rendering. So check that 
@@ -2819,23 +2843,29 @@ if TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
     arma.update_from_editmode()
 
     bpy.ops.object.select_all(action='DESELECT')
-    bpy.ops.import_scene.nif(filepath=testfile, scale_correction=0.1)
+    have_niftools = False
+    try:
+        bpy.ops.import_scene.nif(filepath=testfile, scale_correction=0.1)
+        have_niftools = True
+    except:
+        pass
 
-    assert False, "Only one armature imported--scale factor didn't result in 2"
-    assert "skeleton.nif" not in arma.data.bones, f"Root node not imported as bone"
-    assert "NPC Calf [Clf].L" in arma.data.bones, f"Bones follow niftools name conventions {arma.data.bones.keys()}"
-    #assert arma.data.niftools.axis_forward == "Z", f"Forward axis set to Z"
-    assert 'NPC L Thigh [LThg]' not in arma.data.bones, f"No vanilla bone names: {arma.data.bones['NPC L Thigh [LThg]']}"
+    if have_niftools:
+        assert False, "Only one armature imported--scale factor didn't result in 2"
+        assert "skeleton.nif" not in arma.data.bones, f"Root node not imported as bone"
+        assert "NPC Calf [Clf].L" in arma.data.bones, f"Bones follow niftools name conventions {arma.data.bones.keys()}"
+        #assert arma.data.niftools.axis_forward == "Z", f"Forward axis set to Z"
+        assert 'NPC L Thigh [LThg]' not in arma.data.bones, f"No vanilla bone names: {arma.data.bones['NPC L Thigh [LThg]']}"
 
-    inif = NifFile(testfile)
-    skel = inif.reference_skel
-    skel_calf = skel.nodes['CME L Thigh [LThg]']
-    c = arma.data.bones["NPC Calf [Clf].L"]
-    assert c.parent, f"Bones are put into a hierarchy: {c.parent}"
-    assert c.parent.name == 'CME L Thigh [LThg]', f"Parent/child relationships are maintained: {c.parent.name}"
+        inif = NifFile(testfile)
+        skel = inif.reference_skel
+        skel_calf = skel.nodes['CME L Thigh [LThg]']
+        c = arma.data.bones["NPC Calf [Clf].L"]
+        assert c.parent, f"Bones are put into a hierarchy: {c.parent}"
+        assert c.parent.name == 'CME L Thigh [LThg]', f"Parent/child relationships are maintained: {c.parent.name}"
 
-    body = find_shape("MaleUnderwearBody1:0")
-    assert "NPC Calf [Clf].L" in body.vertex_groups, f"Vertex groups follow niftools naming convention: {body.vertex_groups.keys()}"
+        body = find_shape("MaleUnderwearBody1:0")
+        assert "NPC Calf [Clf].L" in body.vertex_groups, f"Vertex groups follow niftools naming convention: {body.vertex_groups.keys()}"
 
 
 if TEST_BPY_ALL or TEST_COLLISION_MULTI:
