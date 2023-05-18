@@ -83,6 +83,7 @@ TEST_SCALING_OBJ = 0  ### Scale simple objects
 TEST_UNIFORM_SCALE = 0  ### Export objects with uniform scaling
 TEST_NONUNIFORM_SCALE = 0  ### Export objects with non-uniform scaling
 TEST_FACEBONE_EXPORT = 0
+TEST_FACEBONE_EXPORT2 = 0  ### Facebones with odd armature
 TEST_HYENA_PARTITIONS = 0
 TEST_MULT_PART = 0  ### Export shape with face that might fall into multiple partititions
 TEST_BONE_XPORT_POS = 0
@@ -2298,6 +2299,29 @@ if TEST_BPY_ALL or TEST_FACEBONE_EXPORT:
     #assert len([x for x in nif4.nodes.keys() if x == "Neck"]) == 0, f"Expected no regular nodes in facebones nif file; found {nif4.nodes.keys()}"
 
 
+if TEST_BPY_ALL or TEST_FACEBONE_EXPORT2:
+    # Regression. Test that facebones and regular mesh are both exported.
+    test_title("TEST_FACEBONE_EXPORT2", "Test can export facebones + regular nif; shapes with hidden verts export correctly")
+    clear_all()
+
+    outfile = test_file(r"tests/Out/TEST_FACEBONE_EXPORT2.nif")
+    outfile_fb = test_file(r"tests/Out/TEST_FACEBONE_EXPORT2_faceBones.nif")
+
+    # Have a head shape parented to the normal skeleton but with facebone weights as well
+    obj = append_from_file("FemaleHead.Export.001", False, r"tests\FO4\Animatron Space Simple.blend", r"\Object", "FemaleHead.Export.001")
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.select_all(action='SELECT')
+
+    # Normal and Facebones skeleton selected for export
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4", chargen_ext="_chargen")
+
+    outnif = NifFile(outfile)
+    assert len(outnif.shapes) >= 1, f"Have shapes in export file: {outnif.shapes}"
+
+    outniffb = NifFile(outfile_fb)
+    assert len(outniffb.shapes) >= 1, f"Have shapes in facebones export file: {outniffb.shapes}"
+
+
 if TEST_BPY_ALL or TEST_HYENA_PARTITIONS:
     # This Blender object has non-normalized weights--the weights for each vertex do 
     # not always add up to 1. That turns out to screw up the rendering. So check that 
@@ -2810,22 +2834,29 @@ if TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
     arma = find_shape("MaleBody_1.nif")
 
     bpy.ops.object.select_all(action='DESELECT')
-    bpy.ops.import_scene.nif(filepath=testfile, scale_correction=0.1)
+    have_niftools = False
+    try:
+        bpy.ops.import_scene.nif(filepath=testfile, scale_correction=0.1)
+        have_niftools = True
+    except:
+        pass
 
-    assert "skeleton.nif" not in arma.data.bones, f"Root node not imported as bone"
-    assert "NPC Calf [Clf].L" in arma.data.bones, f"Bones follow niftools name conventions {arma.data.bones.keys()}"
-    #assert arma.data.niftools.axis_forward == "Z", f"Forward axis set to Z"
-    assert 'NPC L Thigh [LThg]' not in arma.data.bones, f"No vanilla bone names: {arma.data.bones['NPC L Thigh [LThg]']}"
+    if have_niftools:
+        assert False, "Only one armature imported--scale factor didn't result in 2"
+        assert "skeleton.nif" not in arma.data.bones, f"Root node not imported as bone"
+        assert "NPC Calf [Clf].L" in arma.data.bones, f"Bones follow niftools name conventions {arma.data.bones.keys()}"
+        #assert arma.data.niftools.axis_forward == "Z", f"Forward axis set to Z"
+        assert 'NPC L Thigh [LThg]' not in arma.data.bones, f"No vanilla bone names: {arma.data.bones['NPC L Thigh [LThg]']}"
 
-    inif = NifFile(testfile)
-    skel = inif.reference_skel
-    skel_calf = skel.nodes['CME L Thigh [LThg]']
-    c = arma.data.bones["NPC Calf [Clf].L"]
-    assert c.parent, f"Bones are put into a hierarchy: {c.parent}"
-    assert c.parent.name == 'CME L Thigh [LThg]', f"Parent/child relationships are maintained: {c.parent.name}"
+        inif = NifFile(testfile)
+        skel = inif.reference_skel
+        skel_calf = skel.nodes['CME L Thigh [LThg]']
+        c = arma.data.bones["NPC Calf [Clf].L"]
+        assert c.parent, f"Bones are put into a hierarchy: {c.parent}"
+        assert c.parent.name == 'CME L Thigh [LThg]', f"Parent/child relationships are maintained: {c.parent.name}"
 
-    body = find_shape("MaleUnderwearBody1:0")
-    assert "NPC Calf [Clf].L" in body.vertex_groups, f"Vertex groups follow niftools naming convention: {body.vertex_groups.keys()}"
+        body = find_shape("MaleUnderwearBody1:0")
+        assert "NPC Calf [Clf].L" in body.vertex_groups, f"Vertex groups follow niftools naming convention: {body.vertex_groups.keys()}"
 
 
 if TEST_BPY_ALL or TEST_COLLISION_MULTI:

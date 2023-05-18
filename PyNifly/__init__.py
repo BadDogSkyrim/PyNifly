@@ -2363,7 +2363,7 @@ class NifExporter:
 
         elif obj.type == 'MESH':
             # Export the mesh, but use its parent and use any armature modifiers
-            self.objects.append(obj)
+            if obj not in self.objects: self.objects.append(obj)
 
         elif obj.type == 'EMPTY':
             if 'BSBehaviorGraphExtraData_Name' in obj.keys():
@@ -3464,7 +3464,7 @@ class NifExporter:
 
             self.objs_written.clear()
 
-            log.info(f"Exporting to {self.game} {fpath}")
+            log.info(f"Exporting to {self.game} {fpath} with {self.objects}")
             self.nif = NifFile()
 
             rt = "NiNode"
@@ -3494,15 +3494,20 @@ class NifExporter:
             if self.objects:
                 for obj in self.objects:
                     #arma, fb_arma = find_armatures(obj)
-                    if len(suffix) > 0 and self.facebones:
+                    if suffix == "_faceBones" and self.facebones:
+                        # Have exporting the facebones variant and have a facebones armature
                         self.export_shape(obj, sk, self.facebones)
-                        #log.debug(f"Exported shape {obj.name} using {self.facebones.name}")
-                    elif len(suffix) == 0 and self.armature:
+                    elif (not suffix) and self.armature:
+                        # Exporting the main file and have an armature to do it with. 
                         self.export_shape(obj, sk, self.armature)
-                        #log.debug(f"Exported shape {obj.name} using {self.armature.name}")
-                    elif self.facebones == None and self.armature == None:
+                    elif (not suffix) and self.facebones:
+                        # Exporting the main file and have a facebones armature to do it
+                        # with. Facebones armatures generally have all the necessary bones
+                        # for export, so it's fine to use them.
+                        self.export_shape(obj, sk, self.facebones)
+                    elif (not self.facebones) and (not self.armature):
+                        # No armatures, just export the shape.
                         self.export_shape(obj, sk)
-                        #log.debug(f"Exported shape {obj.name}, no armature")
             elif self.armature:
                 # Just export the skeleton
                 self.export_armature(self.armature)
@@ -3684,33 +3689,6 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
         if obj and 'PYN_CHARGEN_EXT' in obj:
             self.chargen_ext = obj['PYN_CHARGEN_EXT']
-        # if 'PYN_SCALE_FACTOR' in obj and self.scale_factor == SCALE_DEF:
-        #     self.scale_factor = obj['PYN_SCALE_FACTOR']
-        # elif export_armature and 'PYN_SCALE_FACTOR' in export_armature \
-        #     and self.scale_factor == SCALE_DEF:
-        #     self.scale_factor = export_armature['PYN_SCALE_FACTOR']
-
-        # if export_armature and 'PYN_RENAME_BONES' in export_armature \
-        #     and not export_armature['PYN_RENAME_BONES']:
-        #     self.rename_bones = False
-
-        # if export_armature and 'PYN_RENAME_BONES_NIFTOOLS' in export_armature \
-        #     and export_armature['PYN_RENAME_BONES_NIFTOOLS']:
-        #     self.rename_bones_niftools = True
-        # else:
-        #     self.rename_bones_niftools = False
-
-        # if 'PYN_PRESERVE_HIERARCHY' in obj and obj['PYN_PRESERVE_HIERARCHY']:
-        #     self.preserve_hierarchy |= True
-
-        # if 'PYN_WRITE_BODYTRI_ED' in obj and obj['PYN_WRITE_BODYTRI_ED']:
-        #     self.write_bodytri = True
-
-        # if self.export_pose == False and 'PYN_EXPORT_POSE' in obj and obj['PYN_EXPORT_POSE']:
-        #     self.export_pose = True
-
-        # if self.chargen_ext == "chargen" and 'PYN_CHARGEN_EXT' in obj:
-        #     self.chargen_ext = obj['PYN_CHARGEN_EXT']
 
         
     @classmethod
