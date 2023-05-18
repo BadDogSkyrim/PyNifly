@@ -90,7 +90,7 @@ TEST_NORM = 0  ### Normals are read correctly
 TEST_ROGUE01 = 0  ### Custom split normals export correctly
 TEST_ROGUE02 = 0  ### Objects with shape keys export normals correctly
 TEST_NORMAL_SEAM = 0  ### Custom normals can make a seam seamless
-TEST_NIFTOOLS_NAMES = 1
+TEST_NIFTOOLS_NAMES = 0
 TEST_BOW = 0  ### Read and write bow
 TEST_BOW2 = 0  ### Modify collision shape location
 TEST_BOW3 = 0  ### Modify collision shape type
@@ -121,6 +121,7 @@ TEST_COTH_DATA = 0  ## Handle cloth data
 TEST_IMP_NORMALS = 0  ### Can import normals from nif shape
 TEST_UV_SPLIT = 0  ### Split UVs properly
 TEST_JIARAN = 0  ### Armature with no stashed transforms exports correctly
+TEST_SKEL_HKX = 1  ### Basic skeleton export (XML -> HKX)
 
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
@@ -2808,20 +2809,9 @@ if TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
                                  create_bones=False, scale_factor=0.1)
     arma = find_shape("MaleBody_1.nif")
 
-    ObjectSelect([arma])
-    ObjectActive(arma)
-    bpy.ops.object.mode_set(mode='EDIT')
-    print(f"Bone roll for 'NPC Calf [Clf].L' = {arma.data.edit_bones['NPC Calf [Clf].L'].roll}")
-    for b in arma.data.edit_bones:
-        b.roll += -90 * pi / 180
-    print(f"Bone roll for 'NPC Calf [Clf].L' = {arma.data.edit_bones['NPC Calf [Clf].L'].roll}")
-    bpy.ops.object.mode_set(mode='OBJECT')
-    arma.update_from_editmode()
-
     bpy.ops.object.select_all(action='DESELECT')
     bpy.ops.import_scene.nif(filepath=testfile, scale_correction=0.1)
 
-    assert False, "Only one armature imported--scale factor didn't result in 2"
     assert "skeleton.nif" not in arma.data.bones, f"Root node not imported as bone"
     assert "NPC Calf [Clf].L" in arma.data.bones, f"Bones follow niftools name conventions {arma.data.bones.keys()}"
     #assert arma.data.niftools.axis_forward == "Z", f"Forward axis set to Z"
@@ -3832,6 +3822,25 @@ if TEST_BPY_ALL or TEST_JIARAN:
 
     nif1 = NifFile(outfile)
     assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
+
+
+if TEST_BPY_ALL or TEST_SKEL_HKX:
+    test_title("TEST_SKEL_HKX", "Skeleton export")
+    clear_all()
+    testfile = test_file("tests/Skyrim/skeletonbeast_vanilla.nif")
+    outfile = test_file("tests/out/TEST_SKEL_HKX.xml")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    arma = bpy.data.objects['skeletonBeast.nif']
+    ObjectSelect([arma], deselect=True)
+    ObjectActive(arma)
+
+    bpy.ops.object.mode_set(mode='POSE')
+    for b in arma.pose.bones:
+        b.bone.select = b.name.startswith('TailBone')
+
+    bpy.ops.export_scene.skeleton_hkx(filepath=outfile)
+
 
 
 print("""

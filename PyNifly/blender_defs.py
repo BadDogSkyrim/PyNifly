@@ -111,6 +111,50 @@ def pose_transform(shape:NiShape, bone: str):
     return (bonexf @ sk2b).inverted()
 
 
+BONE_LEN = 5
+FACEBONE_LEN = 2
+
+game_rotations = {'X': (Quaternion(Vector((0,0,1)), radians(-90)).to_matrix().to_4x4(),
+                        Quaternion(Vector((0,0,1)), radians(-90)).inverted().to_matrix().to_4x4()),
+                  'Z': (Quaternion(Vector((1,0,0)), radians(90)).to_matrix().to_4x4(),
+                        Quaternion(Vector((1,0,0)), radians(90)).inverted().to_matrix().to_4x4())}
+bone_vectors = {'X': Vector((1,0,0)), 'Z': Vector((0,0,1))}
+game_axes = {'FO4': 'X', 'FO76': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
+
+
+def is_facebone(bname):
+    return bname.startswith("skin_bone_")
+
+
+def get_bone_blender_xf(node_xf: Matrix, game: str, scale_factor):
+    """Take the given bone transform and add in the transform for a blender bone"""
+    return Matrix.Scale(scale_factor, 4) @ node_xf @ game_rotations[game_axes[game]][0]
+    #return apply_scale_transl(node_xf @ game_rotations[game_axes[game]][0], scale_factor)
+
+
+def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor, roll):
+    """Creates a bone in the armature with the given transform.
+    Must be in edit mode.
+        armdata = data block for armature
+        node_xf = bone transform (4x4 Matrix) - this is bind position
+        game = game we are making the bone for
+        is_fb = is a facebone (we make them shorter)
+        scale_factor = scale factor to apply
+    """
+    bone = armdata.edit_bones.new(bone_name)
+    bone.head = Vector((0,0,0))
+    if is_facebone(bone_name):
+        v = Vector((FACEBONE_LEN, 0, 0))
+    else:
+        v = Vector((0, 0, BONE_LEN))
+    bone.tail = bone.head + v
+
+    bone.matrix = get_bone_blender_xf(node_xf, game, scale_factor)
+    bone.roll += roll
+
+    return bone
+
+
 def is_facebones(bone_names):
     """Determine whether the list of bone names indicates a facebones skeleton"""
     #return (fo4FaceDict.matches(set(list(arma.data.bones.keys()))) > 20)
@@ -178,4 +222,43 @@ def get_export_objects(ctxt:bpy_types.Context) -> list:
                         export_objects.append(fb_arma)
 
     return export_objects
+
+
+def LogStart(bl_info, action, importtype):
+    log.info(f"""
+
+
+====================================
+PYNIFLY {action} {importtype} V{bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}
+
+""")
+
+def LogFinish(action, files, status, is_exception=False):
+    if is_exception:
+        errmsg = "WITH ERRORS"
+    elif 'WARNING' in status:
+        errmsg = "WITH WARNINGS"
+    else:
+        errmsg = "SUCCESSFULLY"
+
+    if type(files) == str:
+        fn = os.path.basename(files)
+    else:
+        s = set()
+        for f in files:
+            try:
+                if type(f) == str:
+                    s.add(os.path.basename(f))
+                else:
+                    s.add(f.name)
+            except:
+                pass
+        fn = str(s)
+
+    log.info(f"""
+
+PyNifly {action} of {fn} completed {errmsg} 
+====================================
+
+""")
 

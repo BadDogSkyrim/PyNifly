@@ -2,14 +2,14 @@
 
 # Copyright © 2021, Bad Dog.
 
-TEST_TARGET_BONE = ['NPC L Thigh [LThg]'] # Print extra debugging info for these bones
+TEST_TARGET_BONE = [] # Print extra debugging info for these bones
 
 bl_info = {
     "name": "NIF format",
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (9, 5, 0),  
+    "version": (9, 6, 2),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -56,7 +56,6 @@ from niflytools import *
 from pynifly import *
 from trihandler import *
 from blender_defs import *
-from shader_io import ShaderImporter, ShaderExporter
 
 import bpy
 import bpy_types
@@ -72,6 +71,12 @@ from bpy_extras.io_utils import (
         ExportHelper)
 import bmesh
 
+import importlib
+from shader_io import ShaderImporter, ShaderExporter
+import skeleton_hkx 
+importlib.reload(skeleton_hkx)
+
+
 NO_PARTITION_GROUP = "*NO_PARTITIONS*"
 MULTIPLE_PARTITION_GROUP = "*MULTIPLE_PARTITIONS*"
 UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
@@ -83,8 +88,6 @@ COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5)
 collision_names = ["bhkBoxShape", "bhkConvexVerticesShape", "bhkListShape", 
                    "bhkConvexTransformShape", "bhkCapsuleShape",
                    "bhkRigidBodyT", "bhkRigidBody", "bhkCollisionObject"]
-def is_facebone(bname):
-    return bname.startswith("skin_bone_")
 
 
 # Default values for import/export options
@@ -97,48 +100,11 @@ IMPORT_SHAPES_DEF = True
 PRESERVE_HIERARCHY_DEF = False
 RENAME_BONES_DEF = True
 RENAME_BONES_NIFT_DEF = False
+ROLL_BONES_NIFT_DEF = False
 SCALE_DEF = 1.0
 WRITE_BODYTRI_DEF = False
 
 # --------- Helper functions -------------
-
-def LogStart(action, importtype):
-    log.info(f"""
-
-
-====================================
-PYNIFLY {action} {importtype} V{bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}
-
-""")
-
-def LogFinish(action, files, status, is_exception=False):
-    if is_exception:
-        errmsg = "WITH ERRORS"
-    elif 'WARNING' in status:
-        errmsg = "WITH WARNINGS"
-    else:
-        errmsg = "SUCCESSFULLY"
-
-    if type(files) == str:
-        fn = os.path.basename(files)
-    else:
-        s = set()
-        for f in files:
-            try:
-                if type(f) == str:
-                    s.add(os.path.basename(f))
-                else:
-                    s.add(f.name)
-            except:
-                pass
-        fn = str(s)
-
-    log.info(f"""
-
-PyNifly {action} of {fn} completed {errmsg} 
-====================================
-
-""")
 
 def LogIf(condition, text):
     if condition:
@@ -228,50 +194,13 @@ setattr(TransformBuf, "from_matrix", classmethod(make_transformbuf))
 
 # ------ Bone handling ------
 
-BONE_LEN = 5
-FACEBONE_LEN = 2
 ROLL_ADJUST = 0 # -90 * pi / 180
-
-game_rotations = {'X': (Quaternion(Vector((0,0,1)), radians(-90)).to_matrix().to_4x4(),
-                        Quaternion(Vector((0,0,1)), radians(-90)).inverted().to_matrix().to_4x4()),
-                  'Z': (Quaternion(Vector((1,0,0)), radians(90)).to_matrix().to_4x4(),
-                        Quaternion(Vector((1,0,0)), radians(90)).inverted().to_matrix().to_4x4())}
-bone_vectors = {'X': Vector((1,0,0)), 'Z': Vector((0,0,1))}
-game_axes = {'FO4': 'X', 'FO76': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
-
-def get_bone_blender_xf(node_xf: Matrix, game: str, scale_factor):
-    """Take the given bone transform and add in the transform for a blender bone"""
-    return Matrix.Scale(scale_factor, 4) @ node_xf @ game_rotations[game_axes[game]][0]
-    #return apply_scale_transl(node_xf @ game_rotations[game_axes[game]][0], scale_factor)
-
 
 def get_pose_blender_xf(node_xf: Matrix, game: str, scale_factor):
     """Take the given bone transform and add in the transform for a blender bone"""
     return apply_scale_transl(node_xf, scale_factor) @ game_rotations[game_axes[game]][0]
     #return apply_scale_transl(node_xf @ game_rotations[game_axes[game]][0], scale_factor)
 
-
-def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor, roll):
-    """Creates a bone in the armature with the given transform.
-    Must be in edit mode.
-        armdata = data block for armature
-        node_xf = bone transform (4x4 Matrix) - this is bind position
-        game = game we are making the bone for
-        is_fb = is a facebone (we make them shorter)
-        scale_factor = scale factor to apply
-    """
-    bone = armdata.edit_bones.new(bone_name)
-    bone.head = Vector((0,0,0))
-    if is_facebone(bone_name):
-        v = Vector((FACEBONE_LEN, 0, 0))
-    else:
-        v = Vector((0, 0, BONE_LEN))
-    bone.tail = bone.head + v
-
-    bone.matrix = get_bone_blender_xf(node_xf, game, scale_factor)
-    bone.roll += roll
-
-    return bone
 
 def get_bone_global_xf(arma, bone_name, game:str, use_pose) -> Matrix:
     """ Return the global transform represented by the bone. """
@@ -424,6 +353,7 @@ class NifImporter():
         self.create_bones = CREATE_BONES_DEF
         self.rename_bones = RENAME_BONES_DEF
         self.rename_bones_nift = RENAME_BONES_NIFT_DEF
+        self.roll_bones_nift = ROLL_BONES_NIFT_DEF
         self.import_shapes = IMPORT_SHAPES_DEF
         self.apply_skinning = APPLY_SKINNING_DEF
         self.reference_skel = None
@@ -1066,12 +996,11 @@ class NifImporter():
     
         # Use the transform from the reference skeleton if we're extending bones; 
         # otherwise use the one in the file.
-        addl_roll = ROLL_ADJUST if self.rename_bones_nift else 0
         if self.create_bones and nifname in self.reference_skel.nodes:
             LogIfBone(bone_name, f"Creating {bone_name} using reference location")
             bone_xform = self.reference_skel.nodes[nifname].xform_to_global.as_matrix()
             bone = create_bone(armdata, bone_name, bone_xform, 
-                               self.nif.game, self.scale, addl_roll)
+                               self.nif.game, self.scale, 0)
         else:
             xf = self.nif.get_node_xform_to_global(nifname) 
             LogIfBone(bone_name, f"<add_bone_to_arma> creating bone {nifname} with position \n{xf}")
@@ -1079,7 +1008,7 @@ class NifImporter():
             arma_xf = self.calc_skin_transform(arma)
             scaled_xf = apply_scale_transl(arma_xf, 1/self.scale)
             bone = create_bone(armdata, bone_name, scaled_xf @ bone_xform, 
-                               self.nif.game, self.scale, addl_roll)
+                               self.nif.game, self.scale, 0)
 
         return bone
     
@@ -1197,6 +1126,19 @@ class NifImporter():
         return collisions
 
 
+    def roll_bones(self, arma):
+        ObjectSelect([arma])
+        ObjectActive(arma)
+        bpy.ops.object.mode_set(mode='EDIT')
+        # print(f"Bone roll for 'NPC Calf [Clf].L' = {arma.data.edit_bones['NPC Calf [Clf].L'].roll}")
+        for b in arma.data.edit_bones:
+            b.roll += -90 * pi / 180
+        # print(f"Bone roll for 'NPC Calf [Clf].L' = {arma.data.edit_bones['NPC Calf [Clf].L'].roll}")
+        bpy.ops.object.mode_set(mode='OBJECT')
+        arma.update_from_editmode()
+
+
+    
     def add_bones_to_arma(self, arma, nif, bone_names):
         """Add all the bones in the list to the armature.
         * bone_names = nif bone names to import
@@ -1317,8 +1259,7 @@ class NifImporter():
                 LogIfBone(bn, f"Bone '{bn}' has shape {obj.name} xform matrix \n{skin_xf}")
                 LogIfBone(bn, f"Bone '{bn}' has skin-to-bone xform matrix \n{bone_shape_xf}")
                 LogIfBone(bn, f"Bone '{bn}' has final matrix \n{xf}")
-                create_bone(arma.data, blname, xf, self.nif.game, self.scale,
-                            ROLL_ADJUST if self.rename_bones_nift else 0)
+                create_bone(arma.data, blname, xf, self.nif.game, self.scale, 0)
                 new_bones.append((bn, blname))
 
         # Do the pose in a separate pass so we don't have to flip between modes.
@@ -1612,6 +1553,7 @@ class NifImporter():
                     if self.create_bones:
                         self.add_bones_to_arma(arma, self.nif, self.nif.nodes.keys())
                     self.connect_armature(arma)
+                    if self.roll_bones_nift: self.roll_bones(arma)
     
             # Gather up any NiNodes that weren't captured any other way 
             self.import_loose_ninodes(self.nif)
@@ -1773,6 +1715,11 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Rename bones to conform to Blender's left/right conventions.",
         default=RENAME_BONES_DEF)
 
+    roll_bones: bpy.props.BoolProperty(
+        name="Add bone roll",
+        description="Add bone roll to work with animations.",
+        default=ROLL_BONES_NIFT_DEF)
+
     rename_bones_niftools: bpy.props.BoolProperty(
         name="Rename bones as per NifTools",
         description="Rename bones using NifTools' naming scheme to conform to Blender's left/right conventions.",
@@ -1795,7 +1742,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
 
     def execute(self, context):
-        LogStart("IMPORT", "NIF")
+        LogStart(bl_info, "IMPORT", "NIF")
         status = {'FINISHED'}
 
         #log.debug(f"Filepaths are {[f.name for f in self.files]}")
@@ -1815,6 +1762,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 fullfiles = [self.filepath]
             imp = NifImporter(fullfiles, chargen=CHARGEN_EXT_DEF, scale=self.scale_factor)
             imp.create_bones = self.create_bones
+            imp.roll_bones_nift = self.roll_bones
             imp.rename_bones = self.rename_bones
             imp.rename_bones_nift = self.rename_bones_niftools
             imp.import_shapes = self.import_shapes
@@ -1997,7 +1945,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
     )
 
     def execute(self, context):
-        LogStart("IMPORT", "TRI")
+        LogStart(bl_info, "IMPORT", "TRI")
         status = {'FINISHED'}
 
         try:
@@ -3591,12 +3539,12 @@ class NifExporter:
 
         log.debug(str(self))
         NifFile.clear_log()
+        self.export_file_set('')
         if self.facebones:
             self.export_file_set('_faceBones')
         #if self.armature:
         #    self.export_file_set('')
         #if self.facebones is None and self.armature is None:
-        self.export_file_set('')
         msgs = list(filter(lambda x: not x.startswith('Info: Loaded skeleton') and len(x)>0, 
                            NifFile.message_log().split('\n')))
         if msgs:
@@ -3788,7 +3736,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, "No objects selected for export")
             return {'CANCELLED'}
 
-        LogStart("EXPORT", "NIF")
+        LogStart(bl_info, "EXPORT", "NIF")
         NifFile.Load(nifly_path)
 
         try:
@@ -3896,8 +3844,8 @@ def nifly_menu_export(self, context):
 def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_nif)
     bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_tri)
-    bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_export)
-    bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_rename_niftools)
+    bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export)
+    bpy.types.VIEW3D_MT_object.remove(nifly_menu_rename_niftools)
     try:
         bpy.utils.unregister_class(bpy.types.IMPORT_SCENE_OT_pynifly)
         bpy.utils.unregister_class(bpy.types.IMPORT_SCENE_OT_pyniflytri)
@@ -3905,6 +3853,7 @@ def unregister():
         bpy.utils.unregister_class(bpy.types.OBJECT_OT_pynifly_rename_niftools)
     except:
         pass
+    skeleton_hkx.unregister()
 
 def register():
     unregister()
@@ -3916,6 +3865,7 @@ def register():
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_tri)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export)
     bpy.types.VIEW3D_MT_object.append(nifly_menu_rename_niftools)
+    skeleton_hkx.register()
 
 
 if __name__ == "__main__":
