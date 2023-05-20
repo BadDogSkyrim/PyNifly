@@ -561,7 +561,10 @@ class ShaderExporter:
             log.debug(f"Writing texture: '{foundpath}'")
             try:
                 fplc = Path(foundpath.lower())
-                txtindex = fplc.parts.index('textures')
+                if fplc.drive.endswith('textures'):
+                    txtindex = 0
+                else:
+                    txtindex = fplc.parts.index('textures')
                 fp = Path(foundpath)
                 relpath = Path(*fp.parts[txtindex:])
                 shape.set_texture(textureslot, str(relpath.with_suffix('.dds')))
