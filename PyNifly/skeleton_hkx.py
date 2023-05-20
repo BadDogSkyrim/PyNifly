@@ -16,6 +16,8 @@ from bpy_extras.io_utils import (
         ExportHelper)
 from blender_defs import *
 import xml.etree.ElementTree as xml
+import hashlib
+
 
 bl_info = {
     "name": "NIF format",
@@ -119,6 +121,14 @@ class ImportSkel(bpy.types.Operator, ImportHelper):
 
 # ----------------------- EXPORT -------------------------------------
 
+def set_param(elem, attribs, txt):
+    p = xml.SubElement(elem, "hkparam")
+    for n, v in attribs.items():
+        p.set(n, v)
+    p.text = txt
+    return p
+
+
 class ExportSkel(bpy.types.Operator, ExportHelper):
     """Export Blender armature to a skeleton HKX file"""
 
@@ -130,25 +140,174 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
 
     xmltree = None
     root = None
+    section = None
+    rootlevelcontainer = None
+    animationcontainer = None
+    memoryresourcecontainer = None
+    skeleton = None
+    block_index = 50
+    context = None
+
+    def use_index(self) -> int:
+        v = self.block_index
+        self.block_index += 1
+        return v
+    
+
+    def find_root(self, bones):
+        for b in bones:
+            if b.parent not in bones:
+                return b
+        return bones[0]
+
+
+    def set_incr_name(self, elem):
+        elem.set('name', "#{:04}".format(self.use_index()))
+
+
+    def set_signature(self, elem, seed, strlist):
+        h = hashlib.blake2b(seed.encode('utf-8'), digest_size=4)
+        for s in strlist:
+            h.update(s.encode('utf-8'))
+        elem.set('signature', "0x" + h.hexdigest())
+
 
     def write_header(self) -> None:
         self.root = xml.Element('hkpackfile')
-        sec = xml.SubElement(self.root, 'hksection')
-        skel = xml.SubElement(sec, 'hkobject')
+        self.root.set("classversion", "8")
+        self.root.set("contentsversion", "hk_2010.2.0-r1")
+        self.section = xml.SubElement(self.root, 'hksection')
+        self.section.set("name", "__data__")
         self.xmltree = xml.ElementTree(self.root)
+
+    def write_header_refs(self):
+        self.root.set("toplevelobject", self.rootlevelcontainer.attrib["name"])
+
+
+    def write_rootlevelcontainer(self):
+        rlc = xml.SubElement(self.section, "hkobject")
+        self.set_incr_name(rlc)
+        rlc.set("class", "hkRootLevelContainer")
+        self.set_signature(rlc, "hkRootLevelContainer", [])
+        self.rootlevelcontainer = rlc
+
+    def write_rootlevel_refs(self):
+        v = set_param(self.rootlevelcontainer, {"name":"namedVariants", "numelements":"2"}, "")
+        o1 = xml.SubElement(v, "hkobject")
+        set_param(o1, {'name':"name"}, "Merged Animation Container")
+        set_param(o1, {'name':"className"}, "hkaAnimationContainer")
+        set_param(o1, {'name':"variant"}, self.animationcontainer.attrib['name'])
+        o2 = xml.SubElement(v, "hkobject")
+        set_param(o2, {'name':"name"}, "Resource Data")
+        set_param(o2, {'name':"className"}, "hkMemoryResourceContainer")
+        set_param(o2, {'name':"variant"}, self.memoryresourcecontainer.attrib['name'])
+
+
+    def write_animationcontainer(self):
+        e = xml.SubElement(self.section, "hkobject")
+        self.set_incr_name(e)
+        e.set("class", "hkaAnimationContainer")
+        self.set_signature(e, "hkaAnimationContainer", [])
+        self.animationcontainer = e
+
+    def write_animationcontainer_refs(self):
+        e = self.animationcontainer
+        set_param(e, {"name":"skeletons", "numelements":"1"}, self.skeleton.attrib['name'])
+        set_param(e, {"name":"animations", "numelements":"0"}, "")
+        set_param(e, {"name":"bindings", "numelements":"0"}, "")
+        set_param(e, {"name":"attachments", "numelements":"0"}, "")
+        set_param(e, {"name":"skins", "numelements":"0"}, "")
+
+
+    def write_parentindices(self, skel, bones):
+        set_param(skel, {"name":"parentIndices", "numelements":str(len(bones))},
+                  " ".join([str(x) for x in range(-1, len(bones)-1)]))
+
+
+    def write_bones(self, skel, bones):
+        bonesparam = set_param(skel, {"name":"bones", "numelements":str(len(bones))}, "")
+
+        for b in bones:
+            obj = xml.SubElement(bonesparam, 'hkobject')
+            set_param(obj, {"name":"name"}, b.name)
+            set_param(obj, {"name":"lockTranslation"}, "false")
+
+
+    def write_pose(self, skel, bones):
+        
+        adjust_mx = Matrix.Rotation(pi/2, 4, Vector([1,0,0]))
+        txt = ""
+        for b in bones:
+            mx = b.matrix_local
+            log.debug(f"{b.name} mx before rotation: \n{mx}")
+            if b.parent:
+                # px = adjust_mx @ b.parent.matrix
+                px = b.parent.matrix_local
+                mx = px.inverted() @ mx
+            log.debug(f"mx after global-to-local: \n{mx}")
+            # mx = adjust_mx @ mx
+            # log.debug(f"mx after rotation: \n{mx}")
+            xl = mx.translation
+            xl.rotate(adjust_mx)
+            txt += "\n({0:0.6f} {1:0.6f} {2:0.6f})".format(*xl)
+            q = mx.to_quaternion()
+            qax = q.axis
+            qax.rotate(adjust_mx)
+            txt += "\n({1:0.6f} {2:0.6f} {3:0.6f} {0:0.6f})".format(*q[:])
+            s = mx.to_scale()
+            txt += "\n({0:0.6f} {1:0.6f} {2:0.6f})\n".format(*s)
+
+        set_param(skel, {'name':"referencePose", 'numelements':str(len(bones))}, txt)
+
+
+    def write_skel(self) -> None:
+        arma = self.context.object
+        bones = [arma.data.bones[x.name] for x in arma.pose.bones if x.bone.select]
+        rootbone = self.find_root(bones)
+        skel = xml.SubElement(self.section, 'hkobject')
+        self.set_incr_name(skel)
+        skel.set('class', "hkaSkeleton")
+        self.set_signature(skel, "hkaSkeleton", [b.name for b in bones])
+        set_param(skel, {"name":"name"}, rootbone.name)
+        self.write_parentindices(skel, bones)
+        self.write_bones(skel, bones)
+        self.write_pose(skel, bones)
+        set_param(skel, {"name":"referenceFloats", "numelements":"0"}, "")
+        set_param(skel, {"name":"floatSlots", "numelements":"0"}, "")
+        set_param(skel, {"name":"localFrames", "numelements":"0"}, "")
+        self.skeleton = skel
+
+
+    def write_memoryresourcecontainer(self):
+        e = xml.SubElement(self.section, "hkobject")
+        self.set_incr_name(e)
+        e.set("class", "hkMemoryResourceContainer")
+        self.set_signature(e, "hkMemoryResourceContainer", [])
+        set_param(e, {"name":"name"}, "")
+        set_param(e, {"name":"resourceHandles", "numelements":"0"}, "")
+        set_param(e, {"name":"children", "numelements":"0"}, "")
+        self.memoryresourcecontainer = e
 
 
     def save(self, filepath=None):
         """Write the XML to a file"""
-        log.debug(f"Writing to file: {xml.tostring(self.root)}")
         self.xmltree.write(filepath if filepath else self.filepath,
-                           xml_declaration=True)
+                           xml_declaration=True,
+                           encoding='utf-8')
 
 
     def execute(self, context):
         LogStart(bl_info, "EXPORT SKELETON", "XML")
 
+        self.context = context
         self.write_header()
+        self.write_rootlevelcontainer()
+        self.write_animationcontainer()
+        self.write_skel()
+        self.write_memoryresourcecontainer()
+        self.write_header_refs()
+        self.write_rootlevel_refs()
+        self.write_animationcontainer_refs()
         self.save()
         log.info(f"Wrote {self.filepath}")
 

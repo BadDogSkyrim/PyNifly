@@ -70,10 +70,8 @@ from bpy_extras.io_utils import (
         ImportHelper,
         ExportHelper)
 import bmesh
-
+import skeleton_hkx
 import importlib
-from shader_io import ShaderImporter, ShaderExporter
-import skeleton_hkx 
 importlib.reload(skeleton_hkx)
 
 

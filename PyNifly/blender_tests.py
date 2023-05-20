@@ -9,6 +9,12 @@ from test_tools import *
 from pynifly import *
 from blender_defs import *
 from trihandler import *
+import xml.etree.ElementTree as xml
+
+import importlib
+importlib.reload(xml)
+import skeleton_hkx
+importlib.reload(skeleton_hkx)
 
 
 TEST_BPY_ALL = 0
@@ -3871,6 +3877,48 @@ if TEST_BPY_ALL or TEST_SKEL_HKX:
         b.bone.select = b.name.startswith('TailBone')
 
     bpy.ops.export_scene.skeleton_hkx(filepath=outfile)
+
+    xcheck = xml.parse(outfile)
+    xroot = xcheck.getroot()
+
+    # Check we have various key elements
+    assert xroot.tag == 'hkpackfile', f"Type is hkpackfile: {xroot.tag}"
+    xsec = xroot[0]
+    assert xsec.tag == 'hksection', f"Type is hksection: {xsec.tag}"
+    assert xsec.attrib['name'] == "__data__", f"Have correct name on section: {xsec.attrib['name']}"
+    assert len(xsec[:]) > 0, f"Have children: {xsec[:]}"
+    xskel = [x for x in xsec if x.attrib['class'] == 'hkaSkeleton']
+    assert len(xskel) > 0, f"Have skeletons: {xskel}"
+    assert xskel[0].tag == 'hkobject', f"Type is hkobject: {xskel[0].tag}"
+    nameparam = xskel[0].find("./hkparam[@name='name']")
+    assert nameparam.text == 'TailBone01', f"Name parameter correct: {nameparam.text}"
+    xbones = xskel[0].find("./hkparam[@name='bones']")
+    assert xbones is not None, f"Have bones: {xbones}"
+    xpose = xskel[0].find("./hkparam[@name='referencePose']")
+    assert xpose is not None, f"Have pose: {xpose}"
+
+    # RootLevelContainer has forward references to animation and memory resource
+    # containers. Make sure they are correct.
+    rlc = xroot.find("./hksection/hkobject[@class='hkRootLevelContainer']/hkparam[@name='namedVariants']")
+    ch1 = rlc[0]
+    class1 = ch1.find("./hkparam[@name='className']").text
+    var1 = ch1.find("./hkparam[@name='variant']").text
+    assert class1 in ['hkaAnimationContainer', 'hkMemoryResourceContainer'], f"Found correct forward ref: {class1}"
+    ref1 = xsec.find(f"./hkobject[@name='{var1}']")
+    assert ref1 != None, f"Found forward ref {var1}"
+    assert ref1.attrib['class'] == class1, f"Forward ref correct: {ref1.attrib['class']} == {class1}"
+    ch2 = rlc[1]
+    class2 = ch2.find("./hkparam[@name='className']").text
+    var2 = ch2.find("./hkparam[@name='variant']").text
+    assert class2 in ['hkaAnimationContainer', 'hkMemoryResourceContainer'], f"Found correct forward ref: {class2}"
+    ref2 = xsec.find(f"./hkobject[@name='{var2}']")
+    assert ref2 != None, f"Found forward ref {var2}"
+    assert ref2.attrib['class'] == class2, f"Forward ref correct: {ref2.attrib['class']} == {class2}"
+
+    # Similar for hkaAnimationContainer
+    skelref = xroot.find("./hksection/hkobject[@class='hkaAnimationContainer']/hkparam[@name='skeletons']")
+    assert xskel[0].attrib['name'] == skelref.text, f"Forward ref correct: {xskel[0].attrib['name']} == {skelref.text}"
+
 
 
 
