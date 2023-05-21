@@ -3382,7 +3382,7 @@ class NifExporter:
             self.export_skin(self.active_obj, arma, new_shape, new_xform, weights_by_vert)
             if len(unweighted) > 0:
                 create_group_from_verts(obj, UNWEIGHTED_VERTEX_GROUP, unweighted)
-                log.warning("Some vertices are not weighted to the armature in object {obj.name}")
+                log.warning(f"Some vertices are not weighted to the armature in object {obj.name}")
                 self.objs_unweighted.add(obj)
 
             if len(partitions) > 0:
