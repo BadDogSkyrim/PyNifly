@@ -1612,6 +1612,8 @@ if TEST_BPY_ALL or TEST_TEXTURE_PATHS:
     bsdf = mat.node_tree.nodes['Principled BSDF']
     diffuse = shader_io.get_image_filepath(bsdf.inputs['Base Color'])
     assert diffuse.endswith('Circlet.dds'), f"Found diffuse texture file: '{diffuse}'"
+    norm = shader_io.get_image_filepath(bsdf.inputs['Normal'])
+    assert norm.endswith('Circlet_n.png'), f"Found normal texture file: '{norm}'"
 
 
 if TEST_BPY_ALL or TEST_CAVE_GREEN:
