@@ -46,7 +46,6 @@ TEST_0_WEIGHTS = 0  ### Gives warning on export with 0 weights
 TEST_TIGER_EXPORT = 0  ### Tiger head export
 TEST_3BBB = 0  ### Test that mesh imports with correct transforms
 TEST_SKEL = 0  ### Import skeleton file with no shapes
-TEST_SOS_SKEL = 1  ### Impot SOS Skeleton
 TEST_HEADPART = 0  ### Read & write SE head part with tris
 TEST_TRI = 0  ### Can load a tri file into an existing mesh
 TEST_IMPORT_AS_SHAPES = 0  ### Import 2 meshes as shape keys
@@ -130,6 +129,7 @@ TEST_IMP_NORMALS = 0  ### Can import normals from nif shape
 TEST_UV_SPLIT = 0  ### Split UVs properly
 TEST_JIARAN = 0  ### Armature with no stashed transforms exports correctly
 TEST_SKEL_HKX = 0  ### Basic skeleton export (XML -> HKX)
+TEST_SKEL_SOS_HKX = 1  ### SOS auxbones skeleton 
 
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
@@ -981,15 +981,6 @@ if TEST_BPY_ALL or TEST_SKEL:
     assert helm_cp_out.parent.decode('utf-8') == 'HEAD', f"Parent is correct: {helm_cp_out.parent}"
     assert VNearEqual(helm_cp_in.translation, helm_cp_out.translation), \
         f"Connect point locations correct: {helm_cp_in.translation[:]} == {helm_cp_out.translation[:]}"
-
-
-if TEST_BPY_ALL or TEST_SOS_SKEL:
-    test_title("TEST_SOS_SKEL", "Can import skeleton file with no shapes")
-    clear_all()
-    testfile = test_file(r"tests\SkyrimSE\SOSskeleton.nif")
-    outfile = test_file(r"tests/out/TEST_SOS_SKEL.nif")
-
-    bpy.ops.import_scene.pynifly(filepath=testfile)
 
 
 if TEST_BPY_ALL or TEST_HEADPART:
@@ -3879,7 +3870,7 @@ if TEST_BPY_ALL or TEST_SKEL_HKX:
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     arma = bpy.data.objects['skeletonBeast.nif']
-    ObjectSelect([arma], deselect=True)
+    ObjectSelect([arma])
     ObjectActive(arma)
 
     bpy.ops.object.mode_set(mode='POSE')
@@ -3929,6 +3920,32 @@ if TEST_BPY_ALL or TEST_SKEL_HKX:
     skelref = xroot.find("./hksection/hkobject[@class='hkaAnimationContainer']/hkparam[@name='skeletons']")
     assert xskel[0].attrib['name'] == skelref.text, f"Forward ref correct: {xskel[0].attrib['name']} == {skelref.text}"
 
+
+if TEST_BPY_ALL or TEST_SKEL_SOS_HKX:
+    test_title("TEST_SKEL_SOS_HKX", "Skeleton export")
+    clear_all()
+    testfile = test_file(r"tests\SkyrimSE\skeletonbeast_xpse.nif")
+    outfile = test_file("tests/out/TEST_SKEL_SOS_HKX.xml")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    arma = bpy.data.objects['skeletonBeast.nif']
+    assert arma and arma.type=='ARMATURE', f"Loaded armature: {arma}"
+    bpy.ops.object.select_all(action='DESELECT')
+    ObjectSelect([arma])
+    ObjectActive(arma)
+
+    bpy.ops.object.mode_set(mode='POSE')
+    for b in arma.pose.bones:
+        b.bone.select = b.name in ['NPC GenitalsBase [GenBase]',
+                                   'NPC GenitalsScrotum [GenScrot]',
+                                   'NPC Genitals01 [Gen01]',
+                                   'NPC Genitals02 [Gen02]',
+                                   'NPC Genitals03 [Gen03]',
+                                   'NPC Genitals04 [Gen04]',
+                                   'NPC Genitals05 [Gen05]',
+                                   'NPC Genitals06 [Gen06]']
+
+    bpy.ops.export_scene.skeleton_hkx(filepath=outfile)
 
 
 
