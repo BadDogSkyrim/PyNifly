@@ -29,16 +29,16 @@ def extend_filenames(root, separator, files):
         * files = list of relative file paths 
         """
     rootpath = Path(root)
-    try:
-        if separator:
+    if separator:
+        try:
             upperpath = [s.upper() for s in rootpath.parts]
             seploc = upperpath.index(separator.upper())
             sharedpart = rootpath.parents[len(rootpath.parts) - seploc - 1]
-        else:
-            sharedpart = root
-        return [(str(sharedpart / f) if len(f) > 0 else "") for f in files]
-    except:
-        return files
+        except:
+            sharedpart = rootpath.parent
+    else:
+        sharedpart = rootpath.parent
+    return [(str(sharedpart / f) if len(f) > 0 else "") for f in files]
 
 def replace_extensions(files, orig, rep):
     """ Replace the extension of files in the given list """
