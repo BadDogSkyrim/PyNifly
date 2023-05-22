@@ -46,6 +46,7 @@ TEST_0_WEIGHTS = 0  ### Gives warning on export with 0 weights
 TEST_TIGER_EXPORT = 0  ### Tiger head export
 TEST_3BBB = 0  ### Test that mesh imports with correct transforms
 TEST_SKEL = 0  ### Import skeleton file with no shapes
+TEST_SOS_SKEL = 1  ### Impot SOS Skeleton
 TEST_HEADPART = 0  ### Read & write SE head part with tris
 TEST_TRI = 0  ### Can load a tri file into an existing mesh
 TEST_IMPORT_AS_SHAPES = 0  ### Import 2 meshes as shape keys
@@ -128,7 +129,7 @@ TEST_COTH_DATA = 0  ## Handle cloth data
 TEST_IMP_NORMALS = 0  ### Can import normals from nif shape
 TEST_UV_SPLIT = 0  ### Split UVs properly
 TEST_JIARAN = 0  ### Armature with no stashed transforms exports correctly
-TEST_SKEL_HKX = 1  ### Basic skeleton export (XML -> HKX)
+TEST_SKEL_HKX = 0  ### Basic skeleton export (XML -> HKX)
 
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
@@ -980,6 +981,15 @@ if TEST_BPY_ALL or TEST_SKEL:
     assert helm_cp_out.parent.decode('utf-8') == 'HEAD', f"Parent is correct: {helm_cp_out.parent}"
     assert VNearEqual(helm_cp_in.translation, helm_cp_out.translation), \
         f"Connect point locations correct: {helm_cp_in.translation[:]} == {helm_cp_out.translation[:]}"
+
+
+if TEST_BPY_ALL or TEST_SOS_SKEL:
+    test_title("TEST_SOS_SKEL", "Can import skeleton file with no shapes")
+    clear_all()
+    testfile = test_file(r"tests\SkyrimSE\SOSskeleton.nif")
+    outfile = test_file(r"tests/out/TEST_SOS_SKEL.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
 
 
 if TEST_BPY_ALL or TEST_HEADPART:

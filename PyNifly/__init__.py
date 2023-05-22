@@ -1563,8 +1563,10 @@ class NifImporter():
             self.import_collisions()
 
             # Cleanup. Select everything and parent everything to the child connect point if any.
-            ObjectSelect(self.objects_created.values())
-            ObjectActive(next(iter(self.objects_created.values())))
+            objlist = [x for x in self.objects_created.values()]
+            if objlist: 
+                ObjectSelect(objlist)
+                ObjectActive(objlist[0])
 
             for o in self.objects_created.values(): 
                 if self.created_child_cp and o.parent == None and o != self.created_child_cp:

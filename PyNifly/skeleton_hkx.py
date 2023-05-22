@@ -249,13 +249,13 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
             # log.debug(f"mx after rotation: \n{mx}")
             xl = mx.translation
             xl.rotate(adjust_mx)
-            txt += "\n({0:0.6f} {1:0.6f} {2:0.6f})".format(*xl)
+            txt += "({0:0.6f} {1:0.6f} {2:0.6f})".format(*xl)
             q = mx.to_quaternion()
             qax = q.axis
             qax.rotate(adjust_mx)
-            txt += "\n({1:0.6f} {2:0.6f} {3:0.6f} {0:0.6f})".format(*q[:])
+            txt += "({1:0.6f} {2:0.6f} {3:0.6f} {0:0.6f})".format(*q[:])
             s = mx.to_scale()
-            txt += "\n({0:0.6f} {1:0.6f} {2:0.6f})\n".format(*s)
+            txt += "({0:0.6f} {1:0.6f} {2:0.6f})\n".format(*s)
 
         set_param(skel, {'name':"referencePose", 'numelements':str(len(bones))}, txt)
 
