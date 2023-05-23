@@ -56,6 +56,7 @@ from niflytools import *
 from pynifly import *
 from trihandler import *
 from blender_defs import *
+import shader_io 
 
 import bpy
 import bpy_types
@@ -850,7 +851,7 @@ class NifImporter():
                 mesh_create_normals(new_object.data, the_shape.normals)
 
             log.debug("Creating material")
-            ShaderImporter().import_material(new_object, the_shape)
+            shader_io.ShaderImporter().import_material(new_object, the_shape)
             log.debug("Creating material DONE")
         
             # Root block type goes on the shape object because there isn't another good place
@@ -3343,7 +3344,7 @@ class NifExporter:
                 and len(self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
 
         obj.data.update()
-        shaderexp = ShaderExporter(obj)
+        shaderexp = shader_io.ShaderExporter(obj)
 
         if shaderexp.is_obj_space:
             norms_exp = None

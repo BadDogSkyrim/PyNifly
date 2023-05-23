@@ -12,12 +12,12 @@ from trihandler import *
 import xml.etree.ElementTree as xml
 
 import importlib
-importlib.reload(xml)
 import skeleton_hkx
+import shader_io
 importlib.reload(skeleton_hkx)
 
 
-TEST_BPY_ALL = 0
+TEST_BPY_ALL = 1
 TEST_BODYPART_SKY = 0  ### Skyrim head
 TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
@@ -74,6 +74,7 @@ TEST_SHADER_SE = 0  ### Shader attributes Skyrim SE
 TEST_SHADER_FO4 = 0  ### Shader attributes are read and turned into Blender shader nodes
 TEST_SHADER_ALPHA = 0  ### Alpha property handled correctly
 TEST_SHADER_3_3 = 0  ### Shader attributes are read and turned into Blender shader nodes
+TEST_TEXTURE_PATHS = 1  ### Texture paths are correctly resolved
 TEST_CAVE_GREEN = 0  ### Use vertex colors in shader
 TEST_POT = 0  ### Pot shader doesn't throw an error
 TEST_NOT_FB = 0  ### Nif that looked like facebones skel can be imported
@@ -1593,6 +1594,32 @@ if TEST_BPY_ALL or TEST_SHADER_3_3:
         f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[7]}'"
 
 
+if TEST_BPY_ALL or TEST_TEXTURE_PATHS:
+    test_title("TEST_TEXTURE_PATHS", "Texture paths are correctly resolved")
+    clear_all()
+    testfile = test_file(r"tests\SkyrimSE\circletm1.nif")
+    txtdir = test_file(r"tests\SkyrimSE")
+
+    # Use temp_override to redirect the texture directory
+    assert type(bpy.context) == bpy_types.Context, f"Context type is expected :{type(bpy.context)}"
+    txtdir_in = bpy.context.preferences.filepaths.texture_directory
+    with bpy.context.temp_override():
+        bpy.context.preferences.filepaths.texture_directory = txtdir
+        bpy.ops.import_scene.pynifly(filepath=testfile)
+    
+    # assert bpy.context.preferences.filepaths.texture_directory == txtdir_in, \
+    #     f"Textures filepath didn't change: {bpy.context.preferences.filepaths.texture_directory}"
+
+    # Should have found the texture files
+    circlet = find_shape('M1:4')
+    mat = circlet.active_material
+    bsdf = mat.node_tree.nodes['Principled BSDF']
+    diffuse = shader_io.get_image_filepath(bsdf.inputs['Base Color'])
+    assert diffuse.endswith('Circlet.dds'), f"Found diffuse texture file: '{diffuse}'"
+    norm = shader_io.get_image_filepath(bsdf.inputs['Normal'])
+    assert norm.endswith('Circlet_n.png'), f"Found normal texture file: '{norm}'"
+
+
 if TEST_BPY_ALL or TEST_CAVE_GREEN:
     # Regression: Make sure the transparency is exported on this nif.
     test_title("TEST_CAVE_GREEN", "Cave nif can be exported correctly")
@@ -1717,7 +1744,7 @@ if TEST_BPY_ALL or TEST_MUTANT:
     bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False, create_bones=False)
 
     testnif = NifFile(testfile)
-    assert round(testnif.shapes[0].global_to_skin.translation[2]) == -140, f"Expected -140 z translation in first nif, got {imp.nif.shapes[0].global_to_skin.translation[2]}"
+    assert round(testnif.shapes[0].global_to_skin.translation[2]) == -140, f"Expected -140 z translation in first nif, got {testnif.shapes[0].global_to_skin.translation[2]}"
 
     sm1 = bpy.context.object
     assert round(sm1.location[2]) == 140, f"Expect first supermutant body at 140 Z, got {sm1.location[2]}"
