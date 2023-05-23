@@ -26,7 +26,7 @@ def get_effective_colormaps(mesh):
     am = None
     cm = vc.active_color
 
-    if vc.active_color_name == ALPHA_MAP_NAME:
+    if vc.active_color.name == ALPHA_MAP_NAME:
         cm = None
         if vc[0] == ALPHA_MAP_NAME and len(vc) > 1:
             cm = vc[1]
