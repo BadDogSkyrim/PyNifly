@@ -17,7 +17,7 @@ import shader_io
 importlib.reload(skeleton_hkx)
 
 
-TEST_BPY_ALL = 1
+TEST_BPY_ALL = 0
 TEST_BODYPART_SKY = 0  ### Skyrim head
 TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
@@ -129,7 +129,7 @@ TEST_COTH_DATA = 0  ## Handle cloth data
 TEST_IMP_NORMALS = 0  ### Can import normals from nif shape
 TEST_UV_SPLIT = 0  ### Split UVs properly
 TEST_JIARAN = 0  ### Armature with no stashed transforms exports correctly
-TEST_SKEL_HKX = 0  ### Basic skeleton export (XML -> HKX)
+TEST_SKEL_HKX = 1  ### Basic skeleton export (XML -> HKX)
 TEST_SKEL_SOS_HKX = 1  ### SOS auxbones skeleton 
 
 log = logging.getLogger("pynifly")
@@ -3954,7 +3954,7 @@ if TEST_BPY_ALL or TEST_SKEL_SOS_HKX:
     testfile = test_file(r"tests\SkyrimSE\skeletonbeast_xpse.nif")
     outfile = test_file("tests/out/TEST_SKEL_SOS_HKX.xml")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile)
+    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False)
     arma = bpy.data.objects['skeletonBeast.nif']
     assert arma and arma.type=='ARMATURE', f"Loaded armature: {arma}"
     bpy.ops.object.select_all(action='DESELECT')
@@ -3972,6 +3972,8 @@ if TEST_BPY_ALL or TEST_SKEL_SOS_HKX:
                                    'NPC Genitals05 [Gen05]',
                                    'NPC Genitals06 [Gen06]']
 
+    bs = [b for b in arma.pose.bones if b.bone.select]
+    assert len(bs) == 8, f"Selected bones: {bs}"
     bpy.ops.export_scene.skeleton_hkx(filepath=outfile)
 
 

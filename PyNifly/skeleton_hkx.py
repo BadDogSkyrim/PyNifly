@@ -159,6 +159,16 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
             if b.parent not in bones:
                 return b
         return bones[0]
+    
+
+    def find_parent(self, bone):
+        p = None
+        bp = bone.parent
+        while bp and not p:
+            if bp in self.export_bones:
+                p = bp
+            bp = bp.parent
+        return p
 
 
     def set_incr_name(self, elem):
@@ -238,12 +248,17 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
         adjust_mx = Matrix.Rotation(pi/2, 4, Vector([1,0,0]))
         txt = ""
         for b in bones:
-            mx = b.matrix_local
+            mx = b.matrix_local.copy()
             log.debug(f"{b.name} mx before rotation: \n{mx}")
-            if b.parent:
+            p = self.find_parent(b)
+            if not p:
+                # No parent being exported, this is top-level; export relative to the parent.
+                p = b.parent
+            if p:
                 # px = adjust_mx @ b.parent.matrix
-                px = b.parent.matrix_local
+                px = p.matrix_local
                 mx = px.inverted() @ mx
+
             log.debug(f"mx after global-to-local: \n{mx}")
             # mx = adjust_mx @ mx
             # log.debug(f"mx after rotation: \n{mx}")
@@ -253,7 +268,7 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
             q = mx.to_quaternion()
             qax = q.axis
             qax.rotate(adjust_mx)
-            txt += "({1:0.6f} {2:0.6f} {3:0.6f} {0:0.6f})".format(*q[:])
+            txt += "({0:0.6f} {1:0.6f} {2:0.6f} {3:0.6f})".format(-q[1], q[3], -q[2], -q[0])
             s = mx.to_scale()
             txt += "({0:0.6f} {1:0.6f} {2:0.6f})\n".format(*s)
 
@@ -263,6 +278,7 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
     def write_skel(self) -> None:
         arma = self.context.object
         bones = [arma.data.bones[x.name] for x in arma.pose.bones if x.bone.select]
+        self.export_bones = bones
         rootbone = self.find_root(bones)
         skel = xml.SubElement(self.section, 'hkobject')
         self.set_incr_name(skel)
