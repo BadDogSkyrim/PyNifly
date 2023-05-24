@@ -122,16 +122,16 @@ class ShaderImporter:
         * shape = shape to read for texture files
         * self.textures <- list of filepaths to use.
         """
-        log.debug(f"<find_textures>")
+        # log.debug(f"<find_textures>")
         self.textures = [''] * 10
 
         # Use any textures from Blender's texture directory, if defined
         btextures = None
         blender_dir = bpy.context.preferences.filepaths.texture_directory
         if os.path.exists(blender_dir):
-            log.debug(f"Blender texture directory: {blender_dir}")
+            # log.debug(f"Blender texture directory: {blender_dir}")
             btextures = extend_filenames(blender_dir, None, shape.textures)
-            log.debug(f"Blender textures: {btextures}")
+            # log.debug(f"Blender textures: {btextures}")
 
         # Extend relative filenames in nif with nif's own filepath
         fulltextures = extend_filenames(shape.file.filepath, "meshes", shape.textures)
@@ -140,19 +140,19 @@ class ShaderImporter:
             # First option is to use a png from Blender's texture directory, if any
             if btextures and btextures[i]:
                 fpng = Path(btextures[i]).with_suffix('.png')
-                log.debug(f"Looking for {fpng}")
+                # log.debug(f"Looking for {fpng}")
                 if os.path.exists(fpng):
                     self.textures[i] = str(fpng)
                     continue
 
             if fulltextures[i]:
                 fpng = Path(fulltextures[i]).with_suffix('.png')
-                log.debug(f"Looking for {fpng}")
+                # log.debug(f"Looking for {fpng}")
                 if os.path.exists(fpng):
                     self.textures[i] = str(fpng)
                     continue
             
-            log.debug(f"Looking for {btextures[i] if btextures else None}")
+            # log.debug(f"Looking for {btextures[i] if btextures else None}")
             if btextures and btextures[i] and os.path.exists(btextures[i]):
                 self.textures[i] = btextures[i]
             
@@ -160,7 +160,7 @@ class ShaderImporter:
             if fulltextures[i] and os.path.exists(fulltextures[i]):
                 self.textures[i] = fulltextures[i]
 
-        log.debug(f"Found textures {self.textures}")
+        # log.debug(f"Found textures {self.textures}")
             
 
     def link(self, a, b):

@@ -17,7 +17,7 @@ import shader_io
 importlib.reload(skeleton_hkx)
 
 
-TEST_BPY_ALL = 0
+TEST_BPY_ALL = 1
 TEST_BODYPART_SKY = 0  ### Skyrim head
 TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
