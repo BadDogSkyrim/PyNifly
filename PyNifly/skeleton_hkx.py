@@ -162,6 +162,8 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
     
 
     def find_parent(self, bone):
+        """Find the parent of the given bone, skipping over any that are not
+        in self.export_bones. Returns None if no such parent is found."""
         p = None
         bp = bone.parent
         while bp and not p:
@@ -229,22 +231,35 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
         set_param(e, {"name":"skins", "numelements":"0"}, "")
 
 
-    def write_parentindices(self, skel, bones):
-        set_param(skel, {"name":"parentIndices", "numelements":str(len(bones))},
-                  " ".join([str(x) for x in range(-1, len(bones)-1)]))
+    def write_parentindices(self, skel):
+        pidx = []
+        for b in self.export_bones:
+            bp = self.find_parent(b)
+            if bp:
+                i = self.export_bones.index(bp) 
+            else:
+                i = -1
+            pidx.append(i)
+
+        set_param(skel, 
+                  {"name":"parentIndices", "numelements":str(len(self.export_bones))},
+                  " ".join(str(x) for x in pidx))
 
 
-    def write_bones(self, skel, bones):
-        bonesparam = set_param(skel, {"name":"bones", "numelements":str(len(bones))}, "")
+    def write_bones(self, skel):
+        bonesparam = set_param(skel, 
+                               {"name":"bones", "numelements":str(len(self.export_bones))}, 
+                               "")
 
-        for b in bones:
+        for b in self.export_bones:
             obj = xml.SubElement(bonesparam, 'hkobject')
             set_param(obj, {"name":"name"}, b.name)
             set_param(obj, {"name":"lockTranslation"}, "false")
 
 
-    def write_pose(self, skel, bones):
-        
+    def write_pose(self, skel):
+        """Write bone poses to the referencePose element"""
+        bones = self.export_bones
         adjust_mx = Matrix.Rotation(pi/2, 4, Vector([1,0,0]))
         txt = ""
         for b in bones:
@@ -285,9 +300,9 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
         skel.set('class', "hkaSkeleton")
         self.set_signature(skel, "hkaSkeleton", [b.name for b in bones])
         set_param(skel, {"name":"name"}, rootbone.name)
-        self.write_parentindices(skel, bones)
-        self.write_bones(skel, bones)
-        self.write_pose(skel, bones)
+        self.write_parentindices(skel)
+        self.write_bones(skel)
+        self.write_pose(skel)
         set_param(skel, {"name":"referenceFloats", "numelements":"0"}, "")
         set_param(skel, {"name":"floatSlots", "numelements":"0"}, "")
         set_param(skel, {"name":"localFrames", "numelements":"0"}, "")

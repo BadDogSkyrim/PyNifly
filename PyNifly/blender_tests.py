@@ -129,7 +129,7 @@ TEST_COTH_DATA = 0  ## Handle cloth data
 TEST_IMP_NORMALS = 0  ### Can import normals from nif shape
 TEST_UV_SPLIT = 0  ### Split UVs properly
 TEST_JIARAN = 0  ### Armature with no stashed transforms exports correctly
-TEST_SKEL_HKX = 1  ### Basic skeleton export (XML -> HKX)
+TEST_SKEL_HKX = 0  ### Basic skeleton export (XML -> HKX)
 TEST_SKEL_SOS_HKX = 1  ### SOS auxbones skeleton 
 
 log = logging.getLogger("pynifly")
@@ -3954,6 +3954,15 @@ if TEST_BPY_ALL or TEST_SKEL_SOS_HKX:
     testfile = test_file(r"tests\SkyrimSE\skeletonbeast_xpse.nif")
     outfile = test_file("tests/out/TEST_SKEL_SOS_HKX.xml")
 
+    target_bones = ['NPC GenitalsBase [GenBase]',
+                    'NPC GenitalsScrotum [GenScrot]',
+                    'NPC Genitals01 [Gen01]',
+                    'NPC Genitals02 [Gen02]',
+                    'NPC Genitals03 [Gen03]',
+                    'NPC Genitals04 [Gen04]',
+                    'NPC Genitals05 [Gen05]',
+                    'NPC Genitals06 [Gen06]']
+
     bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False)
     arma = bpy.data.objects['skeletonBeast.nif']
     assert arma and arma.type=='ARMATURE', f"Loaded armature: {arma}"
@@ -3963,19 +3972,24 @@ if TEST_BPY_ALL or TEST_SKEL_SOS_HKX:
 
     bpy.ops.object.mode_set(mode='POSE')
     for b in arma.pose.bones:
-        b.bone.select = b.name in ['NPC GenitalsBase [GenBase]',
-                                   'NPC GenitalsScrotum [GenScrot]',
-                                   'NPC Genitals01 [Gen01]',
-                                   'NPC Genitals02 [Gen02]',
-                                   'NPC Genitals03 [Gen03]',
-                                   'NPC Genitals04 [Gen04]',
-                                   'NPC Genitals05 [Gen05]',
-                                   'NPC Genitals06 [Gen06]']
+        b.bone.select = b.name in target_bones
 
     bs = [b for b in arma.pose.bones if b.bone.select]
     assert len(bs) == 8, f"Selected bones: {bs}"
     bpy.ops.export_scene.skeleton_hkx(filepath=outfile)
 
+    xout = xml.parse(outfile)
+    rootout = xout.getroot()
+    skel_elem = rootout.find("./*hkobject[@class='hkaSkeleton']")
+    assert skel_elem, "Have skeleton element"
+    pi_elem = skel_elem.find("./hkparam[@name='parentIndices']")
+    assert pi_elem.text.split() == ['-1', '0', '0', '2', '3', '4', '5', '6'], \
+        f"parentIndices correct: {pi_elem.text}"
+    
+    bones_elem = skel_elem.find("./hkparam[@name='bones']")
+    name_elems = bones_elem.findall("./hkobject/hkparam[@name='name']")
+    names = [e.text for e in name_elems]
+    assert names == target_bones, f"Have correct bones: {names}"
 
 
 print("""
