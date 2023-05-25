@@ -18,7 +18,7 @@ importlib.reload(skeleton_hkx)
 importlib.reload(shader_io)
 
 
-TEST_BPY_ALL = 1
+TEST_BPY_ALL = 0
 TEST_BODYPART_SKY = 0  ### Skyrim head
 TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
@@ -75,63 +75,63 @@ TEST_SHADER_SE = 0  ### Shader attributes Skyrim SE
 TEST_SHADER_FO4 = 0  ### Shader attributes are read and turned into Blender shader nodes
 TEST_SHADER_ALPHA = 0  ### Alpha property handled correctly
 TEST_SHADER_3_3 = 0  ### Shader attributes are read and turned into Blender shader nodes
-TEST_TEXTURE_PATHS = 0  ### Texture paths are correctly resolved
-TEST_CAVE_GREEN = 0  ### Use vertex colors in shader
-TEST_POT = 0  ### Pot shader doesn't throw an error
-TEST_NOT_FB = 0  ### Nif that looked like facebones skel can be imported
-TEST_MULTI_IMP = 0  ### Importing multiple hair parts doesn't mess up
-TEST_WELWA = 0  ### Shape with unusual skeleton
-TEST_MUTANT = 0  ### Supermutant body imports correctly the *second* time
-TEST_EXPORT_HANDS = 0  ### Hand mesh with errors doesn't crash
-TEST_PARTITION_ERRORS = 0  ### Partitions with errors raise errors
-TEST_SHEATH = 0  ### Extra data nodes are imported and exported
-TEST_FEET = 0  ### Extra data nodes are imported and exported
-TEST_SCALING = 0  ### Scale factors applied correctly
-TEST_SCALING_OBJ = 0  ### Scale simple objects
-TEST_UNIFORM_SCALE = 0  ### Export objects with uniform scaling
-TEST_NONUNIFORM_SCALE = 0  ### Export objects with non-uniform scaling
-TEST_FACEBONE_EXPORT = 0
-TEST_FACEBONE_EXPORT2 = 0  ### Facebones with odd armature
-TEST_HYENA_PARTITIONS = 0
-TEST_MULT_PART = 0  ### Export shape with face that might fall into multiple partititions
-TEST_BONE_XPORT_POS = 0
-TEST_NORM = 0  ### Normals are read correctly
-TEST_ROGUE01 = 0  ### Custom split normals export correctly
-TEST_ROGUE02 = 0  ### Objects with shape keys export normals correctly
-TEST_NORMAL_SEAM = 0  ### Custom normals can make a seam seamless
-TEST_NIFTOOLS_NAMES = 0
-TEST_BOW = 0  ### Read and write bow
-TEST_BOW2 = 0  ### Modify collision shape location
-TEST_BOW3 = 0  ### Modify collision shape type
-TEST_COLLISION_HIER = 0  ### Read and write collision of hierarchy of nodes
-TEST_SCALING_COLL = 0
-TEST_COLLISION_MULTI = 0
-TEST_COLLISION_CONVEXVERT = 0
-TEST_COLLISION_CAPSULE = 0  ### Collision capsule shapes with scale
-TEST_COLLISION_LIST = 0  ### Collision list and collision transform shapes with scale
-TEST_CHANGE_COLLISION = 0  ### Changing collision type 
-TEST_COLLISION_XFORM = 0  ### Read and write shape with collision capsule shapes
-TEST_CONNECT_POINT = 0  ### Connect points are imported and exported
-TEST_WEAPON_PART = 0  ### Weapon parts are imported at the parent connect point
-TEST_IMPORT_MULT_CP = 0  ### Import multiple files and connect up the connect points
-TEST_FURN_MARKER1 = 0  ### Skyrim furniture markers 
-TEST_FURN_MARKER2 = 0  ### Skyrim furniture markers
-TEST_FO4_CHAIR = 0  ### FO4 furniture markers 
-TEST_PIPBOY = 0
-TEST_BABY = 0  ### FO4 baby 
-TEST_ROTSTATIC = 0  ### Statics are transformed according to the shape transform
-TEST_ROTSTATIC2 = 0  ### Statics are transformed according to the shape transform
-TEST_FACEBONES = 0
-TEST_FACEBONES_RENAME = 0  ### Facebones are correctly renamed from Blender to the game's names
-TEST_BONE_XF = 0
-TEST_IMP_ANIMATRON = 0
-TEST_CUSTOM_BONES = 0  ### Can handle custom bones correctly
-TEST_COTH_DATA = 0  ## Handle cloth data
-TEST_IMP_NORMALS = 0  ### Can import normals from nif shape
-TEST_UV_SPLIT = 0  ### Split UVs properly
-TEST_JIARAN = 0  ### Armature with no stashed transforms exports correctly
-TEST_SKEL_HKX = 0  ### Basic skeleton export (XML -> HKX)
-TEST_SKEL_SOS_HKX = 0  ### SOS auxbones skeleton 
+TEST_TEXTURE_PATHS = 1  ### Texture paths are correctly resolved
+TEST_CAVE_GREEN = 1  ### Use vertex colors in shader
+TEST_POT = 1  ### Pot shader doesn't throw an error
+TEST_NOT_FB = 1  ### Nif that looked like facebones skel can be imported
+TEST_MULTI_IMP = 1  ### Importing multiple hair parts doesn't mess up
+TEST_WELWA = 1  ### Shape with unusual skeleton
+TEST_MUTANT = 1  ### Supermutant body imports correctly the *second* time
+TEST_EXPORT_HANDS = 1  ### Hand mesh with errors doesn't crash
+TEST_PARTITION_ERRORS = 1  ### Partitions with errors raise errors
+TEST_SHEATH = 1  ### Extra data nodes are imported and exported
+TEST_FEET = 1  ### Extra data nodes are imported and exported
+TEST_SCALING = 1  ### Scale factors applied correctly
+TEST_SCALING_OBJ = 1  ### Scale simple objects
+TEST_UNIFORM_SCALE = 1  ### Export objects with uniform scaling
+TEST_NONUNIFORM_SCALE = 1  ### Export objects with non-uniform scaling
+TEST_FACEBONE_EXPORT = 1
+TEST_FACEBONE_EXPORT2 = 1  ### Facebones with odd armature
+TEST_HYENA_PARTITIONS = 1
+TEST_MULT_PART = 1  ### Export shape with face that might fall into multiple partititions
+TEST_BONE_XPORT_POS = 1
+TEST_NORM = 1  ### Normals are read correctly
+TEST_ROGUE01 = 1  ### Custom split normals export correctly
+TEST_ROGUE02 = 1  ### Objects with shape keys export normals correctly
+TEST_NORMAL_SEAM = 1  ### Custom normals can make a seam seamless
+TEST_NIFTOOLS_NAMES = 1
+TEST_BOW = 1  ### Read and write bow
+TEST_BOW2 = 1  ### Modify collision shape location
+TEST_BOW3 = 1  ### Modify collision shape type
+TEST_COLLISION_HIER = 1  ### Read and write collision of hierarchy of nodes
+TEST_SCALING_COLL = 1
+TEST_COLLISION_MULTI = 1
+TEST_COLLISION_CONVEXVERT = 1
+TEST_COLLISION_CAPSULE = 1  ### Collision capsule shapes with scale
+TEST_COLLISION_LIST = 1  ### Collision list and collision transform shapes with scale
+TEST_CHANGE_COLLISION = 1  ### Changing collision type 
+TEST_COLLISION_XFORM = 1  ### Read and write shape with collision capsule shapes
+TEST_CONNECT_POINT = 1  ### Connect points are imported and exported
+TEST_WEAPON_PART = 1  ### Weapon parts are imported at the parent connect point
+TEST_IMPORT_MULT_CP = 1  ### Import multiple files and connect up the connect points
+TEST_FURN_MARKER1 = 1  ### Skyrim furniture markers 
+TEST_FURN_MARKER2 = 1  ### Skyrim furniture markers
+TEST_FO4_CHAIR = 1  ### FO4 furniture markers 
+TEST_PIPBOY = 1
+TEST_BABY = 1  ### FO4 baby 
+TEST_ROTSTATIC = 1  ### Statics are transformed according to the shape transform
+TEST_ROTSTATIC2 = 1  ### Statics are transformed according to the shape transform
+TEST_FACEBONES = 1
+TEST_FACEBONES_RENAME = 1  ### Facebones are correctly renamed from Blender to the game's names
+TEST_BONE_XF = 1
+TEST_IMP_ANIMATRON = 1
+TEST_CUSTOM_BONES = 1  ### Can handle custom bones correctly
+TEST_COTH_DATA = 1  ## Handle cloth data
+TEST_IMP_NORMALS = 1  ### Can import normals from nif shape
+TEST_UV_SPLIT = 1  ### Split UVs properly
+TEST_JIARAN = 1  ### Armature with no stashed transforms exports correctly
+TEST_SKEL_HKX = 1  ### Basic skeleton export (XML -> HKX)
+TEST_SKEL_SOS_HKX = 1  ### SOS auxbones skeleton 
 
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
@@ -1604,13 +1604,15 @@ if TEST_BPY_ALL or TEST_TEXTURE_PATHS:
     # Use temp_override to redirect the texture directory
     assert type(bpy.context) == bpy_types.Context, f"Context type is expected :{type(bpy.context)}"
     txtdir_in = bpy.context.preferences.filepaths.texture_directory
-    with bpy.context.temp_override():
-        bpy.context.preferences.filepaths.texture_directory = txtdir
-        bpy.ops.import_scene.pynifly(filepath=testfile)
+    if hasattr(bpy.context, 'temp_override'):
+        # Blender 3.5
+        with bpy.context.temp_override():
+            bpy.context.preferences.filepaths.texture_directory = txtdir
+            bpy.ops.import_scene.pynifly(filepath=testfile)
+    else:
+            bpy.context.preferences.filepaths.texture_directory = txtdir
+            bpy.ops.import_scene.pynifly(filepath=testfile)
     
-    # assert bpy.context.preferences.filepaths.texture_directory == txtdir_in, \
-    #     f"Textures filepath didn't change: {bpy.context.preferences.filepaths.texture_directory}"
-
     # Should have found the texture files
     circlet = find_shape('M1:4')
     mat = circlet.active_material
@@ -1632,7 +1634,13 @@ if TEST_BPY_ALL or TEST_CAVE_GREEN:
     wall1 = bpy.data.objects["CaveGHall1Way01:2"]
     mat1 = wall1.active_material
     mix1 = mat1.node_tree.nodes['Principled BSDF'].inputs['Base Color'].links[0].from_node
-    diff1 = mix1.inputs[6].links[0].from_node
+    try:
+        # Blender 3.5
+        diff1 = mix1.inputs[6].links[0].from_node
+    except:
+        # Blender 3.1
+        diff1 = mix1.inputs['Color1'].links[0].from_node
+
     assert diff1.image.filepath.lower().endswith("cavebasewall01.dds"), f"Have correct wall diffuse: {diff1.image.filepath}"
 
     roots = find_shape("L2_Roots:5")
