@@ -15,6 +15,7 @@ import importlib
 import skeleton_hkx
 import shader_io
 importlib.reload(skeleton_hkx)
+importlib.reload(shader_io)
 
 
 TEST_BPY_ALL = 1
@@ -45,7 +46,7 @@ TEST_WEIGHTS_EXPORT = 0  ### Exporting this head weights all verts correctly
 TEST_0_WEIGHTS = 0  ### Gives warning on export with 0 weights
 TEST_TIGER_EXPORT = 0  ### Tiger head export
 TEST_3BBB = 0  ### Test that mesh imports with correct transforms
-TEST_SKEL = 0  ### Import skeleton file with no shapes
+TEST_SKEL = 0  ### Import/export skeleton file with no shapes
 TEST_HEADPART = 0  ### Read & write SE head part with tris
 TEST_TRI = 0  ### Can load a tri file into an existing mesh
 TEST_IMPORT_AS_SHAPES = 0  ### Import 2 meshes as shape keys
@@ -74,7 +75,7 @@ TEST_SHADER_SE = 0  ### Shader attributes Skyrim SE
 TEST_SHADER_FO4 = 0  ### Shader attributes are read and turned into Blender shader nodes
 TEST_SHADER_ALPHA = 0  ### Alpha property handled correctly
 TEST_SHADER_3_3 = 0  ### Shader attributes are read and turned into Blender shader nodes
-TEST_TEXTURE_PATHS = 1  ### Texture paths are correctly resolved
+TEST_TEXTURE_PATHS = 0  ### Texture paths are correctly resolved
 TEST_CAVE_GREEN = 0  ### Use vertex colors in shader
 TEST_POT = 0  ### Pot shader doesn't throw an error
 TEST_NOT_FB = 0  ### Nif that looked like facebones skel can be imported
@@ -130,7 +131,7 @@ TEST_IMP_NORMALS = 0  ### Can import normals from nif shape
 TEST_UV_SPLIT = 0  ### Split UVs properly
 TEST_JIARAN = 0  ### Armature with no stashed transforms exports correctly
 TEST_SKEL_HKX = 0  ### Basic skeleton export (XML -> HKX)
-TEST_SKEL_SOS_HKX = 1  ### SOS auxbones skeleton 
+TEST_SKEL_SOS_HKX = 0  ### SOS auxbones skeleton 
 
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
@@ -949,7 +950,7 @@ if TEST_BPY_ALL or TEST_3BBB:
 
 
 if TEST_BPY_ALL or TEST_SKEL:
-    test_title("TEST_SKEL", "Can import skeleton file with no shapes")
+    test_title("TEST_SKEL", "Can import and export skeleton file with no shapes")
     clear_all()
     testfile = test_file(r"skeletons\FO4\skeleton.nif")
     outfile = test_file(r"tests/out/TEST_SKEL.nif")

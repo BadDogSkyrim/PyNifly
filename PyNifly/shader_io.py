@@ -19,24 +19,65 @@ def get_effective_colormaps(mesh):
         """
     if not mesh:
         return None, None
-    if not mesh.color_attributes:
+
+    vertcolors = None
+    colormap = None
+    alphamap = None
+    try:
+        vertcolors = mesh.color_attributes
+        colormap = vertcolors.active_color
+    except:
+        pass
+    if not vertcolors:
+        try:
+            vertcolors = mesh.vertex_colors
+            colormap = mesh.vertex_colors.active
+        except:
+            pass
+
+    if not vertcolors:
         return None, None
+        
+    if colormap.name == ALPHA_MAP_NAME:
+        alphamap = colormap
+        colormap = None
+        for vc in vertcolors:
+            if vc.name != ALPHA_MAP_NAME:
+                colormap = vc
+                break
 
-    vc = mesh.color_attributes
-    am = None
-    cm = vc.active_color
+    if not alphamap and ALPHA_MAP_NAME in vertcolors.keys():
+        alphamap = vertcolors[ALPHA_MAP_NAME]
 
-    if vc.active_color.name == ALPHA_MAP_NAME:
-        cm = None
-        if vc[0] == ALPHA_MAP_NAME and len(vc) > 1:
-            cm = vc[1]
-        else:
-            cm = vc[0]
+    return colormap, alphamap
 
-    if ALPHA_MAP_NAME in vc.keys():
-        am = vc[ALPHA_MAP_NAME]
 
-    return cm, am
+def new_mixnode(mat, out1, out2, inp):
+    """Create a shader Mix node--or fall back if it's an older version of Blender."""
+    mixnode = None
+    try:
+        # Blender 3.5
+        mixnode = mat.node_tree.nodes.new("ShaderNodeMix")
+        mixnode.data_type = 'RGBA'
+        mat.node_tree.links.new(out1, mixnode.inputs[6])
+        mat.node_tree.links.new(out2, mixnode.inputs[7])
+        mat.node_tree.links.new(mixnode.outputs[2], inp)
+        mixnode.blend_type = 'MULTIPLY'
+        mixnode.inputs['Factor'].default_value = 1
+    except:
+        pass
+
+    if not mixnode:
+        # Blender 3.1
+        mixnode = mat.node_tree.nodes.new("ShaderNodeMixRGB")
+        mat.node_tree.links.new(out1, mixnode.inputs['Color1'])
+        mat.node_tree.links.new(out2, mixnode.inputs['Color2'])
+        mat.node_tree.links.new(mixnode.outputs['Color'], inp)
+        mixnode.blend_type = 'MULTIPLY'
+        mixnode.inputs['Fac'].default_value = 1
+
+    return mixnode
+
 
 
 class ShaderImporter:
@@ -186,16 +227,13 @@ class ShaderImporter:
             attrnode.location = (txtnode.location[0], 
                                  self.ytop - attrnode.height - self.offset_y)
             
-            mixnode = self.nodes.new("ShaderNodeMix")
-            mixnode.data_type = 'RGBA'
+            mixnode = new_mixnode(self.material, 
+                                  txtnode.outputs['Color'],
+                                  attrnode.outputs['Color'],
+                                  self.bsdf.inputs['Base Color'])
             mixnode.location = (attrnode.location[0] - self.inter2_offset_x, txtnode.location[1])
-            self.link(txtnode.outputs['Color'], mixnode.inputs[6])
-            self.link(attrnode.outputs['Color'], mixnode.inputs[7])
-            self.link(mixnode.outputs[2], self.bsdf.inputs['Base Color'])
             attrnode.attribute_name = self.colormap.name
             attrnode.attribute_type = "GEOMETRY"
-            mixnode.blend_type = 'MULTIPLY'
-            mixnode.inputs['Factor'].default_value = 1
             self.ytop = attrnode.location[1]
         else:
             self.link(txtnode.outputs['Color'], self.bsdf.inputs['Base Color'])
