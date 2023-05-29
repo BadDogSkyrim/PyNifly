@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 9, 7, 0 };
+const int NiflyDDLVersion[3] = { 9, 8, 0 };
  
 using namespace nifly;
 
