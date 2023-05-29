@@ -18,7 +18,7 @@ importlib.reload(skeleton_hkx)
 importlib.reload(shader_io)
 
 
-TEST_BPY_ALL = 0
+TEST_BPY_ALL = 1
 TEST_BODYPART_SKY = 0  ### Skyrim head
 TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
@@ -132,7 +132,8 @@ TEST_UV_SPLIT = 0  ### Split UVs properly
 TEST_JIARAN = 0  ### Armature with no stashed transforms exports correctly
 TEST_SKEL_HKX = 0  ### Basic skeleton export (XML -> HKX)
 TEST_SKEL_SOS_HKX = 0  ### SOS auxbones skeleton 
-TEST_FONV = 1  ### FONV mesh
+TEST_FONV = 0  ### FONV mesh
+TEST_FONV_BOD = 1  ### Basic FONV body part import and export
 
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
@@ -4025,11 +4026,6 @@ if TEST_BPY_ALL or TEST_FONV:
     gripin = nifin.shape_dict["Ninemm:0"]
     nifout = NifFile(outfile)
     gripout = nifout.shape_dict["Ninemm:0"]
-    # gripcheck = nifcheck.shapes[0]
-    # assert gripcheck.name == "Ninemm:0", f"Grip written with correct name: {gripcheck.name}"
-    # gripbounds = get_shape_bbox(gripcheck)
-    # assert VNearEqual(gripbounds[0], (-4.4198, -5.7664, -1.2283), epsilon=0.1), f"Lower bounds correct: {gripbounds}"
-    # assert VNearEqual(gripbounds[1], (15.3664, 6.1434, 1.2283), epsilon=0.1), f"Lower bounds correct: {gripbounds}"
     compare_shapes(gripin, gripout, grip)
 
     collin = nifin.rootNode.collision_object
@@ -4047,6 +4043,29 @@ if TEST_BPY_ALL or TEST_FONV:
     maxzin = max(v[2] for v in colshapein.vertices)
     maxzout = max(v[2] for v in colshapeout.vertices)
     assert NearEqual(maxzin, maxzout), f"Max collision shape bounds equal Z: {maxzin} == {maxzout}"
+
+
+if TEST_BPY_ALL or TEST_FONV_BOD:
+    test_title("TEST_FONV_BOD", "Basic FONV body part import and export")
+    clear_all()
+    testfile = test_file(r"tests\FONV\outfitf_simple.nif")
+    outfile =test_file(r"tests/Out/TEST_FONV_BOD.nif")
+     
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    body = bpy.data.objects['Arms01']
+    bodybb = get_obj_bbox(body)
+    assert NearEqual(bodybb[0][0], -44.4, epsilon=0.1), f"Min X correct: {bodybb[0][0]}"
+    assert NearEqual(bodybb[1][2], 110.4, epsilon=0.1), f"Max Z correct: {bodybb[1][2]}"
+
+    ObjectSelect([body])
+    ObjectActive(body)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    testnif = NifFile(testfile)
+    outnif = NifFile(outfile)
+    compare_shapes(testnif.shape_dict["Arms01"], 
+                   outnif.shape_dict["Arms01"],
+                   body)
 
 
 print("""

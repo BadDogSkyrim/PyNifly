@@ -995,7 +995,7 @@ class NifImporter():
     
         # Use the transform from the reference skeleton if we're extending bones; 
         # otherwise use the one in the file.
-        if self.create_bones and nifname in self.reference_skel.nodes:
+        if self.create_bones and self.reference_skel and nifname in self.reference_skel.nodes:
             LogIfBone(bone_name, f"Creating {bone_name} using reference location")
             bone_xform = self.reference_skel.nodes[nifname].xform_to_global.as_matrix()
             bone = create_bone(armdata, bone_name, bone_xform, 
@@ -1091,7 +1091,9 @@ class NifImporter():
                 LogIfBone(bonename, f"connect_armature found {parentname}, creating bones {self.create_bones}, is facebones {is_facebone(bonename)} ")
                 if parentname is None and self.create_bones and not is_facebone(bonename):
                     ##log.debug(f"No parent for '{nifname}' in the nif. If it's a known bone, get parent from skeleton")
-                    if nifname in self.reference_skel.nodes and nifname != self.reference_skel.rootName:
+                    if self.reference_skel and \
+                        nifname in self.reference_skel.nodes and \
+                            nifname != self.reference_skel.rootName:
                         LogIfBone(bonename, f"Found bone in dict: {bonename}")
                         p = self.reference_skel.nodes[nifname].parent
                         if p and p.name != self.reference_skel.rootName:
@@ -1243,23 +1245,27 @@ class NifImporter():
         ObjectActive(arma)
         new_bones = []
         bpy.ops.object.mode_set(mode = 'EDIT')
-        ref_compat = is_compatible_skeleton(skin_xf, nif_shape, self.reference_skel)
-        if not ref_compat:
-            self.add_warning(f"{nif_shape.name} is not compatible with skeleton {self.reference_skel.filepath}")
-        for bn in nif_shape.bone_names:
-            blname = self.blender_name(bn)
-            if blname not in arma.data.edit_bones:
-                if self.create_bones and bn in self.reference_skel.nodes and ref_compat:
-                    bone_shape_xf = self.reference_skel.nodes[bn].xform_to_global.as_matrix()
-                    xf = bone_shape_xf
-                else:
-                    bone_shape_xf = nif_shape.get_shape_skin_to_bone(bn).as_matrix().inverted()
-                    xf = skin_xf @ bone_shape_xf
-                LogIfBone(bn, f"Bone '{bn}' has shape {obj.name} xform matrix \n{skin_xf}")
-                LogIfBone(bn, f"Bone '{bn}' has skin-to-bone xform matrix \n{bone_shape_xf}")
-                LogIfBone(bn, f"Bone '{bn}' has final matrix \n{xf}")
-                create_bone(arma.data, blname, xf, self.nif.game, self.scale, 0)
-                new_bones.append((bn, blname))
+        if not self.reference_skel:
+            self.add_warning(f"{nif_shape.name} has no reference skeleton")
+            ref_compat = None
+        else:
+            ref_compat = is_compatible_skeleton(skin_xf, nif_shape, self.reference_skel)
+            if not ref_compat:
+                self.add_warning(f"{nif_shape.name} is not compatible with skeleton {self.reference_skel.filepath}")
+            for bn in nif_shape.bone_names:
+                blname = self.blender_name(bn)
+                if blname not in arma.data.edit_bones:
+                    if self.create_bones and bn in self.reference_skel.nodes and ref_compat:
+                        bone_shape_xf = self.reference_skel.nodes[bn].xform_to_global.as_matrix()
+                        xf = bone_shape_xf
+                    else:
+                        bone_shape_xf = nif_shape.get_shape_skin_to_bone(bn).as_matrix().inverted()
+                        xf = skin_xf @ bone_shape_xf
+                    LogIfBone(bn, f"Bone '{bn}' has shape {obj.name} xform matrix \n{skin_xf}")
+                    LogIfBone(bn, f"Bone '{bn}' has skin-to-bone xform matrix \n{bone_shape_xf}")
+                    LogIfBone(bn, f"Bone '{bn}' has final matrix \n{xf}")
+                    create_bone(arma.data, blname, xf, self.nif.game, self.scale, 0)
+                    new_bones.append((bn, blname))
 
         # Do the pose in a separate pass so we don't have to flip between modes.
         bpy.ops.object.mode_set(mode = 'OBJECT')

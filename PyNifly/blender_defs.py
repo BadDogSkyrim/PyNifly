@@ -119,7 +119,7 @@ game_rotations = {'X': (Quaternion(Vector((0,0,1)), radians(-90)).to_matrix().to
                   'Z': (Quaternion(Vector((1,0,0)), radians(90)).to_matrix().to_4x4(),
                         Quaternion(Vector((1,0,0)), radians(90)).inverted().to_matrix().to_4x4())}
 bone_vectors = {'X': Vector((1,0,0)), 'Z': Vector((0,0,1))}
-game_axes = {'FO4': 'X', 'FO76': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
+game_axes = {'FO3': 'X', 'FO4': 'X', 'FO76': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
 
 
 def is_facebone(bname):
