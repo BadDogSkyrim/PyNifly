@@ -206,7 +206,7 @@ def get_export_objects(ctxt:bpy_types.Context) -> list:
             gpar = par.parent if par else None
             gparname = gpar.name if gpar else ''
             if not gparname.startswith('bhkCollisionObject'): 
-                log.debug(f"Adding {obj.name} to export objects")
+                #log.debug(f"Adding {obj.name} to export objects")
                 if obj == ctxt.object:
                     export_objects.insert(0, obj)
                 else:

@@ -704,8 +704,8 @@ class NifImporter():
             return bn 
 
         skelbone = None
-        LogIfBone(ninode.name, f"Checking {ninode.name} in {self.reference_skel.filepath}")
-        if ninode.name in self.reference_skel.nodes:
+        LogIfBone(ninode.name, f"Checking {ninode.name} in {self.reference_skel.filepath if self.reference_skel else 'None'}")
+        if self.reference_skel and ninode.name in self.reference_skel.nodes:
             skelbone = self.reference_skel.nodes[ninode.name]
 
         elif ninode.file.game == "FO4" and ninode.name in fo4FaceDict.byNif:
@@ -1279,7 +1279,7 @@ class NifImporter():
     def import_bhkConvexTransformShape(self, cs:CollisionShape, cb:bpy_types.Object):
         bpy.ops.object.add(radius=1.0, type='EMPTY')
         cshape = bpy.context.object
-        cshape['bhkMaterial'] = SkyrimHavokMaterial(cs.properties.bhkMaterial).name
+        cshape['bhkMaterial'] = SkyrimHavokMaterial.get_name(cs.properties.bhkMaterial)
         cshape['bhkRadius'] = cs.properties.bhkRadius * self.scale
         xf = Matrix(cs.transform)
         xf.translation = xf.translation * HAVOC_SCALE_FACTOR * self.scale
@@ -1295,7 +1295,7 @@ class NifImporter():
         bpy.ops.object.add(radius=1.0, type='EMPTY')
         cshape = bpy.context.object
         cshape.show_name = True
-        cshape['bhkMaterial'] = SkyrimHavokMaterial(cs.properties.bhkMaterial).name
+        cshape['bhkMaterial'] = SkyrimHavokMaterial.get_name(cs.properties.bhkMaterial)
 
         for child in cs.children:
             self.import_collision_shape(child, cshape)
@@ -1305,9 +1305,10 @@ class NifImporter():
     def import_bhkBoxShape(self, cs:CollisionShape, cb:bpy_types.Object):
         m = bpy.data.meshes.new(cs.blockname)
         prop = cs.properties
-        dx = prop.bhkDimensions[0] * HAVOC_SCALE_FACTOR * self.scale
-        dy = prop.bhkDimensions[1] * HAVOC_SCALE_FACTOR * self.scale
-        dz = prop.bhkDimensions[2] * HAVOC_SCALE_FACTOR * self.scale
+        sf = HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
+        dx = prop.bhkDimensions[0] * sf
+        dy = prop.bhkDimensions[1] * sf
+        dz = prop.bhkDimensions[2] * sf
         v = [ [-dx, dy, dz],    
               [-dx, -dy, dz],   
               [-dx, -dy, -dz],  
@@ -1328,7 +1329,7 @@ class NifImporter():
         # obj.matrix_world = cb.matrix_world
         bpy.context.view_layer.active_layer_collection.collection.objects.link(obj)
         # bpy.context.scene.collection.objects.link(obj)
-        obj['bhkMaterial'] = SkyrimHavokMaterial(prop.bhkMaterial).name
+        obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
         obj['bhkRadius'] = prop.bhkRadius * self.scale
 
         return obj
@@ -1339,8 +1340,9 @@ class NifImporter():
         p2 = Vector(prop.point2)
         vaxis = p2 - p1
         #log.debug(f"Creating capsule shape between {p1} and {p2}")
-        shapelen = vaxis.length * HAVOC_SCALE_FACTOR * self.scale
-        shaperad = prop.radius1 * HAVOC_SCALE_FACTOR * self.scale
+        sf = HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
+        shapelen = vaxis.length * sf
+        shaperad = prop.radius1 * sf
 
         bpy.ops.mesh.primitive_cylinder_add(radius=shaperad, depth=shapelen)
         obj = bpy.context.object
@@ -1348,9 +1350,10 @@ class NifImporter():
         q = Quaternion((1,0,0), -pi/2)
         objtrans, objrot, objscale = obj.matrix_world.decompose()
         objrot.rotate(q)
-        objtrans = Vector(( (((p2.x - p1.x)/2) + p1.x) * HAVOC_SCALE_FACTOR * self.scale,
-                            (((p2.y - p1.y)/2) + p1.y) * HAVOC_SCALE_FACTOR * self.scale,
-                            (((p2.z - p1.z)/2) + p1.z) * HAVOC_SCALE_FACTOR * self.scale,
+        sf = HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
+        objtrans = Vector(( (((p2.x - p1.x)/2) + p1.x) * sf,
+                            (((p2.y - p1.y)/2) + p1.y) * sf,
+                            (((p2.z - p1.z)/2) + p1.z) * sf,
                             ))
         
         obj.matrix_world = MatrixLocRotScale(objtrans, objrot, objscale)
@@ -1360,19 +1363,20 @@ class NifImporter():
         obj.data.update()
         
         # bpy.context.view_layer.active_layer_collection.collection.objects.link(obj)
-        obj['bhkMaterial'] = SkyrimHavokMaterial(prop.bhkMaterial).name
+        obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
         obj['bhkRadius'] = prop.bhkRadius * self.scale
         return obj
         
 
     def show_collision_normals(self, cs:CollisionShape, cso):
         #norms = [Vector(n)*HAVOC_SCALE_FACTOR for n in cs.normals]
+        sf = -HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
         bpy.ops.object.select_all(action='DESELECT')
         for n in cs.normals:
             bpy.ops.object.add(radius=1.0, type='EMPTY')
             obj = bpy.context.object
             obj.empty_display_type = 'SINGLE_ARROW'
-            obj.empty_display_size = n[3] * -HAVOC_SCALE_FACTOR * self.scale
+            obj.empty_display_size = n[3] * sf
             v = Vector(n)
             v.normalize()
             q = Vector((0,0,1)).rotation_difference(v)
@@ -1390,7 +1394,11 @@ class NifImporter():
         """
         prop = collisionnode.properties
 
-        sourceverts = [Vector(v[0:3])*HAVOC_SCALE_FACTOR*self.scale for v in collisionnode.vertices]
+        sf = HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
+
+        log.debug(f"Convex verts bounds X RAW: {min(v[0] for v in collisionnode.vertices)}, {max(v[0] for v in collisionnode.vertices)}")
+        sourceverts = [Vector(v[0:3])*sf for v in collisionnode.vertices]
+        log.debug(f"Convex verts bounds X: {min(v[0] for v in sourceverts)}, {max(v[0] for v in sourceverts)}")
 
         m = bpy.data.meshes.new(collisionnode.blockname)
         bm = bmesh.new()
@@ -1403,7 +1411,11 @@ class NifImporter():
         obj = bpy.data.objects.new(collisionnode.blockname, m)
         bpy.context.view_layer.active_layer_collection.collection.objects.link(obj)
         
-        obj['bhkMaterial'] = SkyrimHavokMaterial(prop.bhkMaterial).name
+        try:
+            obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
+        except:
+            self.add_warning(f"Unknown havok material: {prop.bhkMaterial}")
+            obj['bhkMaterial'] = str(prop.bhkMaterial)
         obj['bhkRadius'] = prop.bhkRadius * self.scale
 
         #log.info(f"1. Imported bhkConvexVerticesShape {obj.name} matrix: \n{obj.matrix_world}")
@@ -1471,9 +1483,8 @@ class NifImporter():
 
 
     def import_collision_obj(self, c:CollisionObject, parentObj=None, bone=None):
-        """Import collision object. Parent is target of collision. 
-        If target is a bone, parent is armature and "bone" is bone name.
-        Returns new collision object.
+        """Import collision object. Parent is target of collision. If target is a bone,
+        parent is armature and "bone" is bone name. Returns new collision object.
         """
         #log.debug(f"<import_collision_obj> for {parentObj}")
         col = None
@@ -1499,9 +1510,13 @@ class NifImporter():
 
     def import_collisions(self):
         """Import top-level collision, if any """
-        r = self.nif.rootNode
-        if r.collision_object:
-            self.import_collision_obj(r.collision_object, None)
+        try:
+            r = self.nif.rootNode
+            if r.collision_object:
+                self.import_collision_obj(r.collision_object, None)
+        except:
+            traceback.print_exc()
+            self.add_warning(f"Cannot read collisions--collisions not imported")
 
     # ----- End Collisions ----
 
@@ -2403,7 +2418,7 @@ class NifExporter:
     def set_objects(self, objects:list):
         """ Set the objects to export from the given list of objects 
         """
-        log.debug(f"<set_objects> {objects}")
+        #log.debug(f"<set_objects> {objects}")
         for x in objects:
             self.add_object(x)
         self.file_keys = get_with_uscore(get_common_shapes(self.objects))
@@ -2633,17 +2648,18 @@ class NifExporter:
         halfspany = (maxy - miny)/2
         halfspanz = (maxz - minz)/2
         center = s.matrix_world @ Vector([minx + halfspanx, miny + halfspany, minz + halfspanz])
-                
-        props.bhkRadius = (halfspanx / HAVOC_SCALE_FACTOR) / self.scale 
-        props.radius1 = (halfspanx / HAVOC_SCALE_FACTOR) / self.scale
-        props.radius2 = (halfspanx / HAVOC_SCALE_FACTOR) / self.scale
+        
+        sf = HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.game]
+        props.bhkRadius = (halfspanx / sf) 
+        props.radius1 = (halfspanx / sf) 
+        props.radius2 = (halfspanx / sf) 
 
-        props.point1[0] = ((minx+halfspanx) / HAVOC_SCALE_FACTOR) / self.scale
-        props.point1[1] = (maxy / HAVOC_SCALE_FACTOR) / self.scale
-        props.point1[2] = ((minz+halfspanz) / HAVOC_SCALE_FACTOR) / self.scale
-        props.point2[0] = ((minx+halfspanx) / HAVOC_SCALE_FACTOR) / self.scale
-        props.point2[1] = (miny / HAVOC_SCALE_FACTOR) / self.scale
-        props.point2[2] = ((minz+halfspanz) / HAVOC_SCALE_FACTOR) / self.scale
+        props.point1[0] = ((minx+halfspanx) / sf) 
+        props.point1[1] = (maxy / sf) 
+        props.point1[2] = ((minz+halfspanz) / sf) 
+        props.point2[0] = ((minx+halfspanx) / sf) 
+        props.point2[1] = (miny / sf) 
+        props.point2[2] = ((minz+halfspanz) / sf) 
         cshape = self.nif.add_coll_shape("bhkCapsuleShape", props)
 
         return cshape, center
@@ -2672,11 +2688,12 @@ class NifExporter:
             halfspanz = (maxz - minz)/2
             center = s.matrix_world @ Vector([minx + halfspanx, miny + halfspany, minz + halfspanz])
                 
-            p.bhkDimensions[0] = (halfspanx / HAVOC_SCALE_FACTOR) / self.scale
-            p.bhkDimensions[1] = (halfspany / HAVOC_SCALE_FACTOR) / self.scale
-            p.bhkDimensions[2] = (halfspanz / HAVOC_SCALE_FACTOR) / self.scale
+            sf = HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.game]
+            p.bhkDimensions[0] = (halfspanx / sf) 
+            p.bhkDimensions[1] = (halfspany / sf) 
+            p.bhkDimensions[2] = (halfspanz / sf) 
             if 'radius' not in s.keys():
-                p.bhkRadius = (max(halfspanx, halfspany, halfspanz) / HAVOC_SCALE_FACTOR) / self.scale
+                p.bhkRadius = (max(halfspanx, halfspany, halfspanz) / sf) 
             cshape = self.nif.add_coll_shape("bhkBoxShape", p)
             #log.debug(f"Created collision shape with dimensions {p.bhkDimensions[:]}")
         except:
@@ -2697,7 +2714,8 @@ class NifExporter:
 
         verts1 = [effectiveXF @ v.co for v in bm.verts]
         # verts1 = [xform @ v.co for v in s.data.vertices]
-        verts = [((v / HAVOC_SCALE_FACTOR) / self.scale) for v in verts1]
+        sf = HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
+        verts = [(v / sf) for v in verts1]
 
         # Need a normal for each face
         norms = []
@@ -2706,8 +2724,7 @@ class NifExporter:
             facevert = s.data.vertices[face.vertices[0]].co
             vintersect = geometry.distance_point_to_plane(
                 Vector((0,0,0)), facevert, face.normal)
-            n = Vector((face.normal[0], face.normal[1], face.normal[2], 
-                        (vintersect/HAVOC_SCALE_FACTOR)/self.scale))
+            n = Vector((face.normal[0], face.normal[1], face.normal[2], vintersect/sf))
             append_if_new(norms, n, 0.1)
         
             cshape = self.nif.add_coll_shape("bhkConvexVerticesShape", p, verts, norms)
@@ -2725,10 +2742,11 @@ class NifExporter:
         props = bhkConvexTransformShapeProps(s)
         props.bhkRadius = s["bhkRadius"] / self.scale
         havocxf = s.matrix_world.copy()
-        havocxf.translation = (havocxf.translation / HAVOC_SCALE_FACTOR) / self.scale
+        sf = HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
+        havocxf.translation = havocxf.translation / sf
         cshape = self.nif.add_coll_shape("bhkConvexTransformShape", 
                                          props, transform=havocxf)
-        #log.debug(f"Exporting bhkConvexTransformShape with material {props.bhkMaterial}")
+        #log.debug(f"Exporting bhkConvexTransformShape with material {props.F}")
         cshape.child = childnode
         return cshape, xform.translation
 
@@ -2830,9 +2848,10 @@ class NifExporter:
                 if blockname == 'bhkRigidBodyT':
                     rv.rotate(targq)
 
-                props.translation[0] = ((rv.x) / HAVOC_SCALE_FACTOR) / self.scale
-                props.translation[1] = ((rv.y) / HAVOC_SCALE_FACTOR) / self.scale
-                props.translation[2] = ((rv.z) / HAVOC_SCALE_FACTOR) / self.scale
+                sf = HAVOC_SCALE_FACTOR * self.scale 
+                props.translation[0] = rv.x / sf
+                props.translation[1] = rv.y / sf
+                props.translation[2] = rv.z / sf
                 props.translation[3] = 0
 
                 body = self.nif.add_rigid_body(blockname, props, cshape)
@@ -3464,8 +3483,6 @@ class NifExporter:
             fpath = os.path.join(os.path.dirname(self.filepath), fnamefull)
 
             self.objs_written.clear()
-
-            log.info(f"Exporting to {self.game} {fpath} with {self.objects}")
             self.nif = NifFile()
 
             rt = "NiNode"
@@ -3543,7 +3560,7 @@ class NifExporter:
             self.warnings.add('NOTHING')
             return
 
-        log.debug(str(self))
+        log.info(str(self))
         NifFile.clear_log()
         self.export_file_set('')
         if self.facebones:
@@ -3593,8 +3610,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ('SKYRIMSE', "Skyrim SE", ""),
                    ('FO4', "Fallout 4", ""),
                    ('FO76', "Fallout 76", ""),
-                   # ('FO3', "Fallout New Vegas", ""),
-                   # ('FO3', "Fallout 3", ""),
+                   ('FO3', "Fallout New Vegas", ""),
+                   ('FO3', "Fallout 3", ""),
                    )
             )
 

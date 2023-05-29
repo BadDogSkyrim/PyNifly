@@ -650,7 +650,7 @@ class ShaderExporter:
         else:
             new_shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
 
-        log.debug(f"Exporting vertex color flag: {self.vertex_colors}")
+        #log.debug(f"Exporting vertex color flag: {self.vertex_colors}")
         if self.vertex_colors:
             new_shape.shader_attributes.shaderflags2_set(ShaderFlags2.VERTEX_COLORS)
         else:

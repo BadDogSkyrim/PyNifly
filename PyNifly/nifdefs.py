@@ -77,7 +77,10 @@ MATRIX4 = VECTOR4 * 4
 
 class pynStructure(Structure):
     def load(self, shape, ignore=[]):
-        """ Load fields from the dictionary-like object 'shape' """
+        """Load fields from the dictionary-like object 'shape'.
+        Return list of warnings if any fields can't be set. 
+        """
+        self.warnings = []
         for f, t in self._fields_:
             v = None
             try:
@@ -121,11 +124,17 @@ class pynStructure(Structure):
                     v = shape[f]
                 if v:
                     self.__setattr__(f, v)
+            except KeyError as e:
+                try:
+                    self.__setattr__(f, int(shape[f]))
+                except Exception as e:
+                    self.warnings.append(f"Error setting property {f} <- {shape[f]}")
             except Exception as e:
-                pass
+                self.warnings.append(f"Error setting property {f} <- {shape[f]}")
 
     def __init__(self, values=None):
         super().__init__()
+        self.warnings = []
         self.load(bhkRigidBodyProps_Defaults)
         if values:
             self.load(values)
@@ -782,6 +791,14 @@ class SkyrimHavokMaterial(IntEnum):
     UNKNOWN_4239621792 = 4239621792
     MATERIAL_BOULDER_MEDIUM = 4283869410
 
+    @classmethod
+    def get_name(cls, val):
+        """Turns the material enum into a string--if not found, just returns the input."""
+        try:
+            return SkyrimHavokMaterial(val).name
+        except:
+            return str(val)
+
 bhkRigidBodyProps_Defaults = {
     'collisionFilter_layer': "STATIC",
 	'collisionFilter_flags': 0,
@@ -958,6 +975,11 @@ class VERTEX_WEIGHT_PAIR(Structure):
 # There are 64 Skyrim units in a yard and havok works in metres, so:
 HAVOC_SCALE_FACTOR = HSF = 69.99125
 
+# FONV collisions seem to be 10X what we'd expect. Dunno why.
+["FO3", "FONV", "SKYRIM", "FO4", "SKYRIMSE", "FO4VR", "SKYRIMVR", "FO76"]
+game_collision_sf = {"FONV": 0.1, "FO3": 0.1, "FO4": 1.0, "FO4VR": 10, "FO76": 1.0,
+                     "SKYRIM": 1.0, "SKYRIMSE": 1.0, "SKYRIMVR": 1.0}
+
 if __name__ == "__main__":
     print("---------TEST Loader--------")
 
@@ -1004,3 +1026,28 @@ if __name__ == "__main__":
 
     assert p.prop_size == 10
     assert p.collisionFilter_layer == 5
+
+    print("--- Testing that properties report warnings when missing or incomprehensible")
+    p1 = bhkConvexVerticesShapeProps({"bhkMaterial": "BROKEN_STONE"})
+    assert len(p1.warnings) == 0, f"No warnings reported"
+
+    p2 = bhkConvexVerticesShapeProps({"bhkMaterial": "26"})
+    assert len(p2.warnings) == 0, f"Warnings are reported"
+    assert p2.bhkMaterial == 26, f"Material value is correct: {p2.bhkMaterial}"
+
+    p3 = bhkConvexVerticesShapeProps({"bhkRadius": "FOO"})
+    assert len(p3.warnings) > 0, f"Warnings are reported"
+    print(p3.warnings)
+
+    print("---Testing that getting a material name always works")
+    assert SkyrimHavokMaterial.get_name(3049421844) == "MATERIAL_BONE", f"Material correct: {SkyrimHavokMaterial.get_name(3049421844)}"
+    assert SkyrimHavokMaterial.get_name(53) == "53", f"Material correct: {SkyrimHavokMaterial.get_name(53)}"
+
+print("""
+############################################################
+##                                                        ##
+##                    TESTS DONE                          ##
+##                                                        ##
+############################################################
+""")
+
