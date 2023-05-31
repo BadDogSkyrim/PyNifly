@@ -273,9 +273,43 @@ NIFLY_API void* addNode(void* f, const char* name, const MatTransform* xf, void*
     return theNode;
 }
 
+NIFLY_API void* getNodeByID(void* theNif, uint32_t theID) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    NiHeader hdr = nif->GetHeader();
+    return hdr.GetBlock<NiObject>(theID);
+}
+
 NIFLY_API void* findNodeByName(void* theNif, const char* nodeName) {
     NifFile* nif = static_cast<NifFile*>(theNif);
     return nif->FindBlockByName<NiObjectNET>(nodeName);
+}
+
+NIFLY_API int findNodesByType(void* nifRef, void* parentRef, const char* blockname, int buflen, void** buf)
+/* Return nodes in the nif by blockname.
+    parent = Parent node; only direct children will be found.
+    blockname = block name of desired children.
+    buflen = length of buffer in uint32s. 
+    buf = buffer to write with node IDs of found nodes. 
+*/ 
+{
+    NifFile* nif = static_cast<NifFile*>(nifRef);
+    NiHeader hdr = nif->GetHeader();
+    NiNode* parent = static_cast<NiNode*>(parentRef);
+    
+    std::set<nifly::NiRef*> children;
+    parent->GetChildRefs(children);
+
+    int i = 0;
+    int childCount = 0;
+    for (auto& child: children) {
+        auto ch = hdr.GetBlock<NiObject>(child);
+        if (ch && ch->GetBlockName() == blockname) {
+            childCount++;
+            if (i < buflen) buf[i++] = hdr.GetBlock<NiObject>(child);
+        }
+    }
+
+    return childCount;
 }
 
 
@@ -2393,6 +2427,61 @@ NIFLY_API int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf) {
 };
 
 /* ***************************** TRANSFORM OBJECTS ***************************** */
+
+NIFLY_API void getControllerManager(void* ncmref, NiControllerManagerBuf* buf) {
+    /* Return properties of a NiController Manager node. */
+    NiControllerManager* ncm = static_cast<NiControllerManager*>(ncmref);
+    buf->nextControllerID = ncm->nextControllerRef.index;
+    buf->flags = ncm->flags;
+    buf->frequency = ncm->frequency;
+    buf->phase = ncm->phase;
+    buf->startTime = ncm->startTime;
+    buf->stopTime = ncm->stopTime;
+    buf->targetID = ncm->targetRef.index;
+    buf->cumulative = ncm->cumulative;
+    buf->controllerSequenceCount = ncm->controllerSequenceRefs.GetSize();
+    buf->objectPaletteID = ncm->objectPaletteRef.index;
+};
+
+NIFLY_API int getControllerManagerSequences(void* nifref,  void* ncmref, int buflen, void** seqptrs) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    NiControllerManager* ncm = static_cast<NiControllerManager*>(ncmref);
+    int i = 0;
+    for (auto& cs : ncm->controllerSequenceRefs) {
+        if (i >= buflen) break;
+        seqptrs[i] = hdr.GetBlock<NiObject>(cs.index);
+    }
+    return ncm->controllerSequenceRefs.GetSize();
+}
+
+NIFLY_API void getControllerSequence(void* csref, NiControllerSequenceBuf* buf) {
+    NiControllerSequence* cs = static_cast<NiControllerSequence*>(csref);
+    buf->nameLen = cs->name.length();
+    buf->arrayGrowBy = cs->arrayGrowBy;
+    buf->controlledBlocksCount = cs->controlledBlocks.size();
+    buf->weight = cs->weight;
+    buf->textKeyID = cs->textKeyRef.IsEmpty() ? NIF_NPOS : cs->textKeyRef.index;
+    buf->cycleType = cs->cycleType;
+    buf->frequency = cs->frequency;
+    buf->startTime = cs->startTime;
+    buf->stopTime = cs->stopTime;
+    buf->accumRootNameLen = cs->accumRootName.length();
+    buf->animNotesID = cs->animNotesRef.IsEmpty()? NIF_NPOS: cs->animNotesRef.index;
+    buf->animNotesCount = cs->animNotesRefs.GetSize();
+}
+
+NIFLY_API void getMultiTargetTransformController(void* mttcRef, NiMultiTargetTransformControllerBuf* buf) {
+    NiMultiTargetTransformController* mttc = static_cast<NiMultiTargetTransformController*>(mttcRef);
+    buf->nextControllerID = mttc->nextControllerRef.index;
+    buf->flags = mttc->flags;
+    buf->frequency = mttc->frequency;
+    buf->phase = mttc->phase;
+    buf->startTime = mttc->startTime;
+    buf->stopTime = mttc->stopTime;
+    buf->targetID = mttc->targetRef.index;
+    buf->targetCount;
+}
 
 NIFLY_API int getTransformController(void* nifref, int nodeIndex, NiTransformControllerBuf* buf)
 /*

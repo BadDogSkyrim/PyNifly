@@ -65,7 +65,9 @@ extern "C" NIFLY_API void* createNif(const char* targetGame, int rootType, const
 extern "C" NIFLY_API void* createNifShapeFromData(void* parentNif, const char* shapeName, const nifly::Vector3* verts, const nifly::Vector2* uv_points, const nifly::Vector3* norms, int vertCount, const nifly::Triangle* tris, int triCount, uint16_t * optionsPtr = nullptr, void* parentRef = nullptr);
 extern "C" NIFLY_API void setTransform(void* theShape, nifly::MatTransform* buf);
 extern "C" NIFLY_API void* addNode(void* f, const char* name, const nifly::MatTransform* xf, void* parent);
+extern "C" NIFLY_API void* getNodeByID(void* theNif, uint32_t theID);
 extern "C" NIFLY_API void* findNodeByName(void* theNif, const char* nodeName);
+extern "C" NIFLY_API int findNodesByType(void* nifRef, void* parentRef, const char* blockname, int buflen, void** buf);
 extern "C" NIFLY_API void skinShape(void* f, void* shapeRef);
 extern "C" NIFLY_API void setShapeVertWeights(void* theFile, void* theShape, int vertIdx, const uint8_t * vertex_bones, const float* vertex_weights);
 extern "C" NIFLY_API void setShapeBoneWeightsFlex(void* nifref, void* shaperef, const char* boneName, VertexWeightPair * vertWeightsIn, int vertWeightLen);
@@ -393,6 +395,45 @@ struct ConnectPointBuf {
 	float scale;
 };
 
+struct NiControllerManagerBuf {
+	uint32_t nextControllerID;
+	uint16_t flags = 0x000C;
+	float frequency = 1.0f;
+	float phase = 0.0f;
+	float startTime = nifly::NiFloatMax;
+	float stopTime = nifly::NiFloatMin;
+	uint32_t targetID;
+	uint8_t cumulative = 0;
+	uint16_t controllerSequenceCount;
+	uint32_t objectPaletteID;
+};
+
+struct NiMultiTargetTransformControllerBuf {
+	uint32_t nextControllerID;
+	uint16_t flags = 0x000C;
+	float frequency = 1.0f;
+	float phase = 0.0f;
+	float startTime = nifly::NiFloatMax;
+	float stopTime = nifly::NiFloatMin;
+	uint32_t targetID;
+	uint16_t targetCount;
+};
+
+struct NiControllerSequenceBuf {
+	uint16_t nameLen;
+	uint32_t arrayGrowBy = 0;
+	uint16_t controlledBlocksCount;
+	float weight = 1.0f;
+	uint32_t textKeyID;
+	uint32_t cycleType = nifly::CYCLE_LOOP;
+	float frequency = 0.0f;
+	float startTime = 0.0f;
+	float stopTime = 0.0f;
+	uint16_t accumRootNameLen;
+	uint32_t animNotesID;
+	uint16_t animNotesCount;
+};
+
 struct NiTransformControllerBuf {
 	uint32_t interpolatorIndex;
 	uint32_t nextControllerIndex;
@@ -546,6 +587,10 @@ extern "C" NIFLY_API int getCollCapsuleShapeProps(void* nifref, int nodeIndex, B
 
 extern "C" NIFLY_API int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf);
 
+extern "C" NIFLY_API void getControllerManager(void* ncmref, NiControllerManagerBuf * buf);
+extern "C" NIFLY_API int getControllerManagerSequences(void* nifref, void* ncmref, int buflen, void** seqptrs);
+extern "C" NIFLY_API void getControllerSequence(void* csref, NiControllerSequenceBuf * buf);
+extern "C" NIFLY_API void getMultiTargetTransformController(void* mttcRef, NiMultiTargetTransformControllerBuf * buf);
 extern "C" NIFLY_API int getTransformController(void* nifref, int nodeIndex, NiTransformControllerBuf* buf);
 extern "C" NIFLY_API int getTransformInterpolator(void* nifref, int nodeIndex, NiTransformInterpolatorBuf * buf);
 extern "C" NIFLY_API int getTransformData(void* nifref, int nodeIndex, NiTransformDataBuf * buf);

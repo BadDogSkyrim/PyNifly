@@ -3138,7 +3138,29 @@ namespace NiflyDLLTests
 		};
 		TEST_METHOD(readTransformController) {
 
-			//void* nif = load((testRoot / "FO4/CarPush01.nif").u8string().c_str());
+			void* nif = load((testRoot / "Skyrim/noblechest01.nif").u8string().c_str());
+			void* root = getRoot(nif);
+			void* ncm;
+			int ncmCount = findNodesByType(nif, root, "NiControllerManager", 1, &ncm);
+			Assert::AreEqual(1, ncmCount, L"Found 1 controller manager");
+
+			NiControllerManagerBuf ncmbuf;
+			getControllerManager(ncm, &ncmbuf);
+			Assert::AreEqual(1.0f, ncmbuf.frequency, L"Frequency value correct");
+
+			void* mttc; 
+			mttc = getNodeByID(nif, ncmbuf.nextControllerID);
+			NiMultiTargetTransformControllerBuf mttcbuf;
+			getMultiTargetTransformController(mttc, &mttcbuf);
+			Assert::AreEqual(108, int(mttcbuf.flags), L"Flags are correct");
+
+			void** cs = new void* [ncmbuf.controllerSequenceCount];
+			getControllerManagerSequences(nif, ncm, ncmbuf.controllerSequenceCount, cs);
+			NiControllerSequenceBuf csbuf;
+			getControllerSequence(cs[0], &csbuf);
+			Assert::IsTrue(TApproxEqual(0.5, csbuf.stopTime), L"StopTime correct");
+			
+
 			//NiTransformControllerBuf tcbuf;
 
 			//Assert::IsTrue(getTransformController(nif, 5, &tcbuf) == 1, L"Found transform controller");
