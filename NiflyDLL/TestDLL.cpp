@@ -3139,6 +3139,7 @@ namespace NiflyDLLTests
 		TEST_METHOD(readTransformController) {
 
 			void* nif = load((testRoot / "Skyrim/noblechest01.nif").u8string().c_str());
+			int strlen = getMaxStringLen(nif);
 			void* root = getRoot(nif);
 			void* ncm;
 			int ncmCount = findNodesByType(nif, root, "NiControllerManager", 1, &ncm);
@@ -3148,20 +3149,60 @@ namespace NiflyDLLTests
 			getControllerManager(ncm, &ncmbuf);
 			Assert::AreEqual(1.0f, ncmbuf.frequency, L"Frequency value correct");
 
-			void* mttc; 
-			mttc = getNodeByID(nif, ncmbuf.nextControllerID);
 			NiMultiTargetTransformControllerBuf mttcbuf;
-			getMultiTargetTransformController(mttc, &mttcbuf);
+			getMultiTargetTransformController(nif, ncmbuf.nextControllerID, &mttcbuf);
 			Assert::AreEqual(108, int(mttcbuf.flags), L"Flags are correct");
+			Assert::AreEqual(2, int(ncmbuf.controllerSequenceCount), L"Have right number of controller sequences");
 
-			void** cs = new void* [ncmbuf.controllerSequenceCount];
+			uint32_t* cs = new uint32_t [ncmbuf.controllerSequenceCount];
 			getControllerManagerSequences(nif, ncm, ncmbuf.controllerSequenceCount, cs);
-			NiControllerSequenceBuf csbuf;
-			getControllerSequence(cs[0], &csbuf);
-			Assert::IsTrue(TApproxEqual(0.5, csbuf.stopTime), L"StopTime correct");
-			
+			NiControllerSequenceBuf csbuf[2];
+			getControllerSequence(nif, cs[0], &csbuf[0]);
+			getControllerSequence(nif, cs[1], &csbuf[1]);
+			Assert::IsTrue(TApproxEqual(0.5, csbuf[0].stopTime), L"StopTime correct");
+			char* csName0 = new char [strlen + 1];
+			char* csName1 = new char [strlen + 1];
+			getString(nif, csbuf[0].nameID, strlen + 1, csName0);
+			getString(nif, csbuf[1].nameID, strlen + 1, csName1);
+			int openIndex = -1;
+			int closeIndex = -1;
+			if (strcmp(csName0, "Open") == 0) openIndex = 0;
+			if (strcmp(csName0, "Close") == 0) closeIndex = 0;
+			if (strcmp(csName1, "Open") == 0) openIndex = 1;
+			if (strcmp(csName1, "Close") == 0) closeIndex = 1;
+			Assert::IsTrue(openIndex != -1 && closeIndex != -1, L"Have correct names");
 
-			//NiTransformControllerBuf tcbuf;
+			char* namebuf = new char[strlen + 1];
+			ControllerLinkBuf* clbuf = new ControllerLinkBuf[csbuf[openIndex].controlledBlocksCount];
+			getControlledBlocks(nif, cs[openIndex], csbuf[openIndex].controlledBlocksCount, clbuf);
+			getString(nif, clbuf[0].nodeName, strlen + 1, namebuf);
+			Assert::IsTrue(strcmp("Lid01", namebuf) == 0, L"Have correct node name");
+
+			NiTransformInterpolatorBuf tibuf;
+			getTransformInterpolator(nif, clbuf->interpolatorID, &tibuf);
+			//Not getting correct rotation from Nifly
+			//Assert::IsTrue(TApproxEqual(2.59355926846, tibuf.rotation[3]), L"Angle is correct");
+			NiTransformDataBuf tdbuf;
+			getTransformData(nif, tibuf.dataID, &tdbuf);
+			Assert::AreEqual(4, int(tdbuf.rotationType), L"Have correct rotation type");
+			Assert::AreEqual(2, int(tdbuf.xRotations.interpolation), L"Have correct x rotation");
+			Assert::AreEqual(2, int(tdbuf.xRotations.numKeys), L"Have correct number of keys");
+
+			NiAnimationKeyBuf akbuf0[3], akbuf1[3];
+			getAnimationKeysXYZ(nif, tibuf.dataID, 0, akbuf0);
+			getAnimationKeysXYZ(nif, tibuf.dataID, 1, akbuf1);
+			Assert::IsTrue(TApproxEqual(0.0f, akbuf0[0].time), L"First time value good");
+			Assert::IsTrue(TApproxEqual(0.0f, akbuf0[0].value), L"First value value good");
+			Assert::IsTrue(TApproxEqual(0.5f, akbuf1[0].time), L"Second time value good");
+			Assert::IsTrue(TApproxEqual(-0.122173f, akbuf1[0].value), L"Second value value good");
+			
+			Assert::AreEqual(0, int(tdbuf.translations.numKeys), L"Have no translations");
+
+			Assert::AreEqual(2, int(tdbuf.scales.numKeys), L"Have 2 scale keys");
+			NiAnimationKeyBuf scaleKeyBuf[2];
+			getAnimationKeysScale(nif, tibuf.dataID, 0, &scaleKeyBuf[0]);
+			getAnimationKeysScale(nif, tibuf.dataID, 1, &scaleKeyBuf[1]);
+			Assert::IsTrue(TApproxEqual(0.5, scaleKeyBuf[1].time), L"Second key has correct time.");
 
 			//Assert::IsTrue(getTransformController(nif, 5, &tcbuf) == 1, L"Found transform controller");
 			//Assert::IsTrue(tcbuf.frequency == 1.0f, L"Found frequency");

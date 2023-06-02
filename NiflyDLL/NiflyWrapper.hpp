@@ -68,6 +68,8 @@ extern "C" NIFLY_API void* addNode(void* f, const char* name, const nifly::MatTr
 extern "C" NIFLY_API void* getNodeByID(void* theNif, uint32_t theID);
 extern "C" NIFLY_API void* findNodeByName(void* theNif, const char* nodeName);
 extern "C" NIFLY_API int findNodesByType(void* nifRef, void* parentRef, const char* blockname, int buflen, void** buf);
+extern "C" NIFLY_API int getMaxStringLen(void* nifref);
+extern "C" NIFLY_API int getString(void* nifref, int strid, int buflen, char* buf);
 extern "C" NIFLY_API void skinShape(void* f, void* shapeRef);
 extern "C" NIFLY_API void setShapeVertWeights(void* theFile, void* theShape, int vertIdx, const uint8_t * vertex_bones, const float* vertex_weights);
 extern "C" NIFLY_API void setShapeBoneWeightsFlex(void* nifref, void* shaperef, const char* boneName, VertexWeightPair * vertWeightsIn, int vertWeightLen);
@@ -420,7 +422,7 @@ struct NiMultiTargetTransformControllerBuf {
 };
 
 struct NiControllerSequenceBuf {
-	uint16_t nameLen;
+	uint32_t nameID;
 	uint32_t arrayGrowBy = 0;
 	uint16_t controlledBlocksCount;
 	float weight = 1.0f;
@@ -429,9 +431,27 @@ struct NiControllerSequenceBuf {
 	float frequency = 0.0f;
 	float startTime = 0.0f;
 	float stopTime = 0.0f;
-	uint16_t accumRootNameLen;
+	uint32_t accumRootNameID;
 	uint32_t animNotesID;
 	uint16_t animNotesCount;
+};
+
+struct ControllerLinkBuf {
+	uint32_t interpolatorID;
+	uint32_t controllerID;
+	uint8_t priority = 0;
+	uint32_t nodeName;
+	uint32_t propType;
+	uint32_t ctrlType;
+	uint32_t ctrlID;
+	uint32_t interpID;
+};
+
+struct NiTransformInterpolatorBuf {
+	float translation[3];
+	float rotation[4];
+	float scale = 0.0f;
+	uint32_t dataID;
 };
 
 struct NiTransformControllerBuf {
@@ -450,13 +470,6 @@ struct NiTransformControllerBuf {
 	float startTime;
 	float stopTime;
 	uint32_t targetIndex;
-};
-
-struct NiTransformInterpolatorBuf {
-	float translation[3];
-	float rotation[4];
-	float scale;
-	uint32_t dataIndex;
 };
 
 struct NiAnimationKeyQuatBuf {
@@ -505,6 +518,14 @@ struct NiTransformDataBuf {
 	NiAnimatinoKeyGroupBuf zRotations;
 	NiAnimatinoKeyGroupBuf translations;
 	NiAnimatinoKeyGroupBuf scales;
+};
+
+struct NiAnimationKeyBuf {
+	uint32_t type = nifly::NiKeyType::NO_INTERP; // no IO, used for Sync condition only
+	float time = 0.0f;
+	float value = 0.0f;
+	float forward = 0.0f;
+	float backward = 0.0f;
 };
 
 extern "C" NIFLY_API int getShaderName(void* nifref, void* shaperef, char* buf, int buflen);
@@ -588,12 +609,15 @@ extern "C" NIFLY_API int getCollCapsuleShapeProps(void* nifref, int nodeIndex, B
 extern "C" NIFLY_API int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf);
 
 extern "C" NIFLY_API void getControllerManager(void* ncmref, NiControllerManagerBuf * buf);
-extern "C" NIFLY_API int getControllerManagerSequences(void* nifref, void* ncmref, int buflen, void** seqptrs);
-extern "C" NIFLY_API void getControllerSequence(void* csref, NiControllerSequenceBuf * buf);
-extern "C" NIFLY_API void getMultiTargetTransformController(void* mttcRef, NiMultiTargetTransformControllerBuf * buf);
+extern "C" NIFLY_API int getControllerManagerSequences(void* nifref, void* ncmref, int buflen, uint32_t* seqptrs);
+extern "C" NIFLY_API void getControllerSequence(void* nifref, uint32_t csID, NiControllerSequenceBuf * buf);
+extern "C" NIFLY_API int getControlledBlocks(void* nifref, uint32_t csID, int buflen, ControllerLinkBuf * blocks);
+extern "C" NIFLY_API void getMultiTargetTransformController(void* nifref, int mttcID, NiMultiTargetTransformControllerBuf * buf);
 extern "C" NIFLY_API int getTransformController(void* nifref, int nodeIndex, NiTransformControllerBuf* buf);
-extern "C" NIFLY_API int getTransformInterpolator(void* nifref, int nodeIndex, NiTransformInterpolatorBuf * buf);
+extern "C" NIFLY_API void getTransformInterpolator(void* nifref, uint32_t tiID, NiTransformInterpolatorBuf * buf);
 extern "C" NIFLY_API int getTransformData(void* nifref, int nodeIndex, NiTransformDataBuf * buf);
+extern "C" NIFLY_API void getAnimationKeysXYZ(void* nifref, int tdID, int frame, NiAnimationKeyBuf buf[3]);
+extern "C" NIFLY_API void getAnimationKeysScale(void* nifref, int tdID, int frame, NiAnimationKeyBuf * buf);
 extern "C" NIFLY_API int getTransformDataValues(void* nifref, int nodeIndex,
 	NiAnimationKeyQuatBuf * qBuf,
 	NiAnimationKeyFloatBuf * xRotBuf,
