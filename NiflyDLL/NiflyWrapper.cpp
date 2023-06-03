@@ -252,11 +252,17 @@ NIFLY_API void setNodeFlags(void* node, int theFlags) {
 }
 
 NIFLY_API int getNodeName(void* node, char* buf, int buflen) {
+    if (buflen > 0) buf[0] = '\0';
     nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
+    if (!theNode) return 0;
+
     std::string name = theNode->name.get();
+    if (name.length() == 0) return 0;
+
     int copylen = std::min((int)buflen - 1, (int)name.length());
     name.copy(buf, copylen, 0);
-    buf[name.length()] = '\0';
+    buf[copylen] = '\0';
+
     return int(name.length());
 }
 
@@ -301,12 +307,17 @@ NIFLY_API int findNodesByType(void* nifRef, void* parentRef, const char* blockna
 
     int i = 0;
     int childCount = 0;
+    std::string s = blockname;
     for (auto& child: children) {
         auto ch = hdr.GetBlock<NiObject>(child);
-        if (ch && ch->GetBlockName() == blockname) {
+        if (ch && ch->GetBlockName() == s) {
             childCount++;
             if (i < buflen) buf[i++] = hdr.GetBlock<NiObject>(child);
         }
+    }
+
+    if (childCount == 0) {
+        niflydll::LogWriteMf("Could not find block of type " + s);
     }
 
     return childCount;
@@ -2541,7 +2552,8 @@ NIFLY_API void getTransformInterpolator(void* nifref, uint32_t tiID, NiTransform
     buf->dataID = ti->dataRef.index;
 }
 
-NIFLY_API void getMultiTargetTransformController(void* nifref, int mttcID, NiMultiTargetTransformControllerBuf* buf) {
+NIFLY_API void getMultiTargetTransformController(void* nifref, int mttcID, 
+        NiMultiTargetTransformControllerBuf* buf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     NiMultiTargetTransformController* mttc 

@@ -950,6 +950,93 @@ class ConnectPointBuf(pynStructure):
         ("rotation", VECTOR4),
         ("translation", VECTOR3),
         ("scale", c_float)]
+    
+class NiControllerManagerBuf(pynStructure):
+    _fields_ = [
+        ("nextControllerID", c_uint32),
+        ("flags", c_uint16),
+        ("frequency", c_float),
+        ("phase", c_float),
+        ("startTime", c_float),
+        ("stopTime", c_float),
+        ("targetID", c_uint32),
+        ("cumulative", c_uint8),
+        ("controllerSequenceCount", c_uint16),
+        ("objectPaletteID", c_uint32)]
+
+
+class NiMultiTargetTransformControllerBuf(pynStructure):
+    _fields_ = [
+        ("nextControllerID", c_uint32),
+        ("flags", c_uint16),
+        ("frequency", c_float),
+        ("phase", c_float),
+        ("startTime", c_float),
+        ("stopTime", c_float),
+        ("targetID", c_uint32),
+        ("targetCount", c_uint16)]
+
+class NiControllerSequenceBuf(pynStructure):
+    _fields_ = [
+        ("nameID", c_uint32), 
+        ("arrayGrowBy", c_uint32), 
+        ("controlledBlocksCount", c_uint16),
+        ("weight", c_float), 
+        ("textKeyID", c_uint32),
+        ("cycleType", c_uint32),
+        ("frequency", c_float),
+        ("startTime", c_float),
+        ("stopTime", c_float),
+        ("accumRootNameID", c_uint32),
+        ("animNotesID", c_uint32),
+        ("animNotesCount", c_uint16),
+    ]
+
+class ControllerLinkBuf(pynStructure):
+    _fields_ = [
+        ("interpolatorID", c_uint32),
+        ("controllerID", c_uint32),
+        ("priority", c_uint8),
+        ("nodeName", c_uint32),
+        ("propType", c_uint32),
+        ("ctrlType", c_uint32), 
+        ("ctrlID", c_uint32), 
+        ("interpID", c_uint32),
+    ]
+
+class NiTransformInterpolatorBuf(pynStructure):
+    _fields_ = [
+        ("translation", VECTOR3),
+        ("rotation", VECTOR4),
+        ("scale", c_float),
+        ("dataID", c_uint32),
+    ]
+
+class NiAnimatinoKeyGroupBuf(pynStructure):
+    _fields_ = [
+        ("numKeys", c_uint32),
+        ("interpolation", c_uint32)
+    ]
+
+class NiTransformDataBuf(pynStructure):
+    _fields_ = [
+        ("rotationType", c_uint32), 
+        ("quaternionKeyCount", c_uint32),
+        ("xRotations", NiAnimatinoKeyGroupBuf),
+        ("yRotations", NiAnimatinoKeyGroupBuf),
+        ("zRotations", NiAnimatinoKeyGroupBuf),
+        ("translations", NiAnimatinoKeyGroupBuf),
+        ("scales", NiAnimatinoKeyGroupBuf),
+    ]
+
+class NiAnimationKeyBuf(pynStructure):
+    _fields_ = [
+        ("type", c_uint32),
+        ("time", c_float),
+        ("value", c_float),
+        ("forward", c_float),
+        ("backward", c_float),
+    ]
 
 class FurnAnimationType(PynIntEnum):
     SIT = 1
