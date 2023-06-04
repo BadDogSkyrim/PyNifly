@@ -904,6 +904,36 @@ class NiNode(NiObject):
         else:
             return None
         
+
+class NiKeyFrameData(NiObject):
+    pass
+
+
+class NiTransformData(NiKeyFrameData):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
+        super().__init__(handle=handle, file=file, id=id, parent=parent)
+        self.properties = NiTransformDataBuf()
+        NifFile.nifly.getTransformData(
+            self.file._handle, self.id, self.properties)
+
+
+class NiTransformInterpolator(NiObject):
+    _data = None
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
+        super().__init__(handle=handle, file=file, id=id, parent=parent)
+        self.properties = NiTransformInterpolatorBuf()
+        NifFile.nifly.getTransformInterpolator(
+            self.file._handle, self.id, self.properties)
+        
+    @property
+    def data(self):
+        if self._data: return self._data
+
+        self._data = NiTransformData(file=self.file, id=self.properties.dataID)
+        return self._data
+
+        
 class NiTimeController(NiObject):
     @property 
     def next_controller(self):
@@ -916,6 +946,7 @@ class NiTimeController(NiObject):
 class NiInterpController(NiTimeController):
     pass
 
+
 class NiMultiTargetTransformController(NiInterpController):
     def __init__(self, handle, file, id):
         super().__init__(handle=handle, file=file, id=id)
@@ -923,8 +954,38 @@ class NiMultiTargetTransformController(NiInterpController):
         NifFile.nifly.getMultiTargetTransformController(self.file._handle, self.id, self.properties)
     
 
+class ControllerLink:
+    _nodename = None
+    _interpolator = None
+
+    def __init__(self, props:ControllerLinkBuf, parent):
+        self.properties = props.copy()
+        self.parent = parent
+
+    @property
+    def node_name(self):
+        if self._nodename: return self._nodename
+
+        buflen = self.parent.file.max_string_len+1
+        buf = (c_char * buflen)()
+        NifFile.nifly.getString(self.parent.file._handle, 
+                                self.properties.nodeName,
+                                buflen, buf)
+        self._nodename = buf.value.decode('utf-8')
+        return self._nodename
+    
+    @property
+    def interpolator(self):
+        if self._interpolator: return self._interpolator
+        self._interpolator = NiTransformInterpolator(
+            file=self.parent.file, id=self.properties.interpolatorID
+        )
+        return self._interpolator
+
+
 class NiSequence(NiObject):
     _name = None
+    _controlled_blocks = None
 
     @property
     def name(self):
@@ -936,6 +997,18 @@ class NiSequence(NiObject):
         self._name = namebuf.value.decode('utf-8')
 
         return self._name
+    
+    @property
+    def controlled_blocks(self):
+        if self._controlled_blocks: return self._controlled_blocks
+
+        buf = (ControllerLinkBuf * self.properties.controlledBlocksCount)()
+        NifFile.nifly.getControlledBlocks(
+            self.file._handle, self.id, self.properties.controlledBlocksCount, buf)
+        self._controlled_blocks = []
+        for b in buf:
+            self._controlled_blocks.append(ControllerLink(b, self))
+        return self._controlled_blocks
 
 
 class NiControllerSequence(NiSequence):
@@ -3642,6 +3715,14 @@ if __name__ == "__main__":
         assert cm_names == set(["Open", "Close"]), f"Have correct name: {cm_names}"
         cm_open = cm.controller_manager_seqs['Open']
         assert NearEqual(cm_open.properties.stopTime, 0.5), f"Have correct stop time: {cm_open.properties.stopTime}"
+
+        cblist = cm_open.controlled_blocks
+        assert len(cblist) == 1, f"Have one controlled block: {cblist}"
+        assert cblist[0].node_name == "Lid01", f"Have correct target: {cblist[0].node_name}"
+
+        interp = cblist[0].interpolator
+        td = interp.data
+        assert td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY, f"Have correct key type: {td.rotationType}"
 
     print("""
 ================================================

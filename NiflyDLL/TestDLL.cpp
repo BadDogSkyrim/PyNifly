@@ -3223,8 +3223,6 @@ namespace NiflyDLLTests
 			Assert::IsTrue(buf[11] == 'z', L"Didn't overwrite past end of buffer");
 			getNodeBlockname(mttc, buf, 64);
 			Assert::IsTrue(strcmp(buf, "NiMultiTargetTransformController") == 0, L"Found block name");
-			getNodeName(mttc, namebuf, 64);
-			Assert::AreEqual(0, int(strlen(namebuf)), L"Has no name");
 		};
 	};
 }

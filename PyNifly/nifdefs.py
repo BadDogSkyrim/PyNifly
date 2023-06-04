@@ -1038,6 +1038,14 @@ class NiAnimationKeyBuf(pynStructure):
         ("backward", c_float),
     ]
 
+class NiKeyType(PynIntEnum):
+    NO_INTERP = 0
+    LINEAR_KEY = 1
+    QUADRATIC_KEY = 2
+    TBC_KEY = 3
+    XYZ_ROTATION_KEY = 4
+    CONST_KEY = 5
+
 class FurnAnimationType(PynIntEnum):
     SIT = 1
     SLEEP = 2
