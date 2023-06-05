@@ -909,12 +909,33 @@ class NiKeyFrameData(NiObject):
     pass
 
 
+class NiAnimationKey:
+    properties = None
+
+    def __init__(self, props:NiAnimationKeyBuf):
+        self.properties = props.copy()
+
+
 class NiTransformData(NiKeyFrameData):
+    animation_keys = None
+
     def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
         super().__init__(handle=handle, file=file, id=id, parent=parent)
         self.properties = NiTransformDataBuf()
         NifFile.nifly.getTransformData(
             self.file._handle, self.id, self.properties)
+        
+        # Read the animation keys. The rotation type XYZ (4) is special -- it means
+        # separate X/Y/Z values are provided instead of a quaternion. If the rotation type
+        # is XYZ the quaternionKeyCount must be 1 and the actual number of keys is in the
+        # XYZ rotation field.
+        self.animation_keys = []
+        buf = (NiAnimationKeyBuf * 3)()
+        for frame in range(0, self.properties.xRotations.numKeys):
+            NifFile.nifly.getAnimationKeysXYZ(self.file._handle, self.id, frame, buf)
+            self.animation_keys.append([NiAnimationKey(buf[0]), 
+                                        NiAnimationKey(buf[1]), 
+                                        NiAnimationKey(buf[2])])
 
 
 class NiTransformInterpolator(NiObject):
@@ -3700,29 +3721,52 @@ if __name__ == "__main__":
         root = nif.root
         assert nif.max_string_len > 10, f"Have reasonable {nif.max_string_len}"
 
+        # NiControllerManager is at the top of the animation hierarchy. There can be one
+        # direct child of the root. Notsure if there can be more than one, or if they can
+        # be lower down in the node tree.
         assert len(nif.controller_managers) == 1, f"Found a controller manager"
         cm = nif.controller_managers[0]
         assert cm.properties.frequency == 1.0, f"Have correct frequency: {cm.properties.frequency}"
         assert cm.properties.nextControllerID == 3, f"Have correct next controller: {cm.properties.nextControllerID}"
         assert cm.properties.flags == 76, f"Have correct flags: {cm.properties.flags}"
 
+        # Controllers can apparently be chained. 
         mttc = cm.next_controller
         assert mttc.properties.flags == 108, f"Have correct flag: {mttc.properties.flags}"
         assert mttc.next_controller is None, f"MTTC does not have next controller: {mttc.next_controller}"
 
+        # Controller sequences describe the actual animations. Each has name indicating
+        # what it does. For the chest, they open or close the lid.
         assert len(cm.controller_manager_seqs) == 2, f"Have 2 controller manager sequences: {cm.controller_manager_seqs}"
         cm_names = set(cm.controller_manager_seqs.keys())
         assert cm_names == set(["Open", "Close"]), f"Have correct name: {cm_names}"
         cm_open = cm.controller_manager_seqs['Open']
         assert NearEqual(cm_open.properties.stopTime, 0.5), f"Have correct stop time: {cm_open.properties.stopTime}"
 
+        # The controlled block is the thing that's actually getting animated, referenced
+        # by name.
         cblist = cm_open.controlled_blocks
         assert len(cblist) == 1, f"Have one controlled block: {cblist}"
         assert cblist[0].node_name == "Lid01", f"Have correct target: {cblist[0].node_name}"
 
+        # The interpolator parents the actual animation data.
         interp = cblist[0].interpolator
+
+        # The data is stored in the animation keys. 
         td = interp.data
+
+        # Rotations can be provided in a number of ways. The rotation type XYZ (4) is
+        # special -- it means separate X/Y/Z values are provided instead of a quaternion.
+        # If the rotation type is XYZ the quaternionKeyCount must be 1 and the actual
+        # number of keys is in the XYZ rotation field.
         assert td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY, f"Have correct key type: {td.rotationType}"
+
+        # The data structure allows different numbers of X keys, Y keys, and Z keys. Likely this
+        # is not useful.
+        assert len(td.animation_keys) == 2, f"Have correct number of animation keys: {td.animation_keys}"
+        frame1_x = td.animation_keys[1][0]
+        assert frame1_x.properties.time == 0.5, f"Have correct time: {frame1_x.properties.time}"
+        assert NearEqual(-0.122173, frame1_x.properties.value), f"Have correct value: {frame1_x.properties.value}"
 
     print("""
 ================================================
