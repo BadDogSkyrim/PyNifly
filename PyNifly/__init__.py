@@ -420,7 +420,7 @@ class NifImporter():
         if the_shape.has_global_to_skin:
             # if this transform exists, use it and don't muck with it.
             xform = the_shape.global_to_skin
-            log.debug(f"Using {the_shape.name}'s global-to-skin transform: {xform.as_matrix().translation}")
+            #log.debug(f"Using {the_shape.name}'s global-to-skin transform: {xform.as_matrix().translation}")
             xf = xform.as_matrix().inverted()
             offset_consistent = True
         
@@ -429,7 +429,7 @@ class NifImporter():
             # If we're creating missing vanilla bones, we need to know the offset from the
             # bind positions here to the vanilla bind positions, and we need it to be
             # consistent.
-            log.debug(f"Checking bone offsets from reference skel: {self.reference_skel.filepath}")
+            #log.debug(f"Checking bone offsets from reference skel: {self.reference_skel.filepath}")
             for bn in the_shape.get_used_bones():
                 if bn in self.reference_skel.nodes:
                     skel_bone = self.reference_skel.nodes[bn]
@@ -442,10 +442,10 @@ class NifImporter():
                     if not offset_xf: 
                         offset_xf = this_offset
                         offset_consistent = True
-                        log.debug(f"Shape {the_shape.name} first offset from {bn}: {this_offset.translation}/{this_offset.to_euler()}")
+                        #log.debug(f"Shape {the_shape.name} first offset from {bn}: {this_offset.translation}/{this_offset.to_euler()}")
                     elif not MatNearEqual(this_offset, offset_xf):
                         offset_consistent = False
-                        log.debug(f"Shape {the_shape.name} does not have consistent offset from vanilla: {bn}:{this_offset.translation}/{this_offset.to_euler()} != {offset_xf.translation}/{offset_xf.to_euler()}")
+                        #log.debug(f"Shape {the_shape.name} does not have consistent offset from vanilla: {bn}:{this_offset.translation}/{this_offset.to_euler()} != {offset_xf.translation}/{offset_xf.to_euler()}")
                         break
 
             if offset_consistent and offset_xf:
@@ -466,7 +466,7 @@ class NifImporter():
                     # fudge factor. Reducing epsilon here will result in their shape not
                     # getting adjusted to the armature location. 
                     if not MatNearEqual(pose_xf, bone_xf, epsilon=0.5):
-                        log.debug(f"Pose transform not consistent in {the_shape.name} with bone {b}:\n{pose_xf}\n!=\n{bone_xf}")
+                        #log.debug(f"Pose transform not consistent in {the_shape.name} with bone {b}:\n{pose_xf}\n!=\n{bone_xf}")
                         same = False
                         break
                 else:
@@ -581,7 +581,7 @@ class NifImporter():
             self.objects_created[obj.name] = obj
 
         for cp in f.connect_points_parent:
-            log.debug(f"Found parent connect point: \n{cp}")
+            #log.debug(f"Found parent connect point: \n{cp}")
             bpy.ops.object.add(radius=self.scale, type='EMPTY')
             obj = bpy.context.object
             obj.name = "BSConnectPointParents" + "::" + cp.name.decode('utf-8')
@@ -592,13 +592,13 @@ class NifImporter():
                 Quaternion(cp.rotation[:]),
                 ((cp.scale * CONNECT_POINT_SCALE * self.scale),) * 3
             )
-            log.debug(f"Setting location to {mx.translation}")
+            #log.debug(f"Setting location to {mx.translation}")
             obj.matrix_world = mx
             # obj.location = Vector(cp.translation[:]) * self.scale
             # obj.rotation_mode = 'QUATERNION'
             # obj.rotation_quaternion = Quaternion(cp.rotation[:])
             # obj.scale = ((cp.scale * CONNECT_POINT_SCALE * self.scale),) * 3
-            log.debug(f"New connect point {obj.name} at {obj.matrix_world.translation}")
+            #log.debug(f"New connect point {obj.name} at {obj.matrix_world.translation}")
 
             parname = cp.parent.decode('utf-8')
 
@@ -817,7 +817,7 @@ class NifImporter():
         new_object = bpy.data.objects.new(the_shape.name, new_mesh)
         self.loaded_meshes.append(new_object)
         self.nodes_loaded[new_object.name] = the_shape
-        log.debug(f"Importing new object {new_object.name}, min z = {min(v.co.z for v in new_mesh.vertices)}")
+        #log.debug(f"Importing new object {new_object.name}, min z = {min(v.co.z for v in new_mesh.vertices)}")
     
         if not self.mesh_only:
             self.objects_created[the_shape._handle] = new_object
@@ -834,25 +834,25 @@ class NifImporter():
             if parent:
                 new_object.parent = parent
 
-            log.debug("Creating UVs")
+            #log.debug("Creating UVs")
             mesh_create_uv(new_object.data, the_shape.uvs)
-            log.debug("Creating bone groups")
+            #log.debug("Creating bone groups")
             self.mesh_create_bone_groups(the_shape, new_object)
-            log.debug("Creating partition groups")
+            #log.debug("Creating partition groups")
             mesh_create_partition_groups(the_shape, new_object)
             for f in new_mesh.polygons:
                 f.use_smooth = True
 
-            log.debug("Validating mesh")
+            #log.debug("Validating mesh")
             new_mesh.validate(verbose=True)
 
-            log.debug("Creating normals")
+            #log.debug("Creating normals")
             if the_shape.normals:
                 mesh_create_normals(new_object.data, the_shape.normals)
 
-            log.debug("Creating material")
+            #log.debug("Creating material")
             shader_io.ShaderImporter().import_material(new_object, the_shape)
-            log.debug("Creating material DONE")
+            #log.debug("Creating material DONE")
         
             # Root block type goes on the shape object because there isn't another good place
             # to put it.
@@ -864,10 +864,10 @@ class NifImporter():
             new_object["pynRootNode_Flags"] = RootFlags(root.flags).fullname
 
             if the_shape.collision_object:
-                log.debug("Importing collisions")
+                #log.debug("Importing collisions")
                 self.import_collision_obj(the_shape.collision_object, new_object)
 
-            log.debug("Importing extra data")
+            #log.debug("Importing extra data")
             self.import_shape_extra(new_object, the_shape)
 
             new_object['PYN_GAME'] = self.nif.game
@@ -941,7 +941,7 @@ class NifImporter():
 
         Returns (armature, transform-matrix), or None.
         """
-        log.debug(f"<find_compatible_arma> for {obj.name} in {[x.name for x in armatures] if armatures else armatures}")
+        #log.debug(f"<find_compatible_arma> for {obj.name} in {[x.name for x in armatures] if armatures else armatures}")
         shape = self.nodes_loaded[obj.name]
 
         for arma in armatures:
@@ -962,18 +962,18 @@ class NifImporter():
                         if offset_xf:
                             if not MatNearEqual(this_offset, offset_xf):
                                 offset_consistent = False
-                                log.debug(f"Offsets different for {b}: {this_offset.translation} != {offset_xf.translation}")
+                                #log.debug(f"Offsets different for {b}: {this_offset.translation} != {offset_xf.translation}")
                                 break
                         else:
                             offset_xf = this_offset
             if is_ok:
-                log.debug(f"Armature {arma.name} ok for shape {shape.name} with offset {offset_xf.translation if offset_xf else 'Identity'}")
+                #log.debug(f"Armature {arma.name} ok for shape {shape.name} with offset {offset_xf.translation if offset_xf else 'Identity'}")
                 return arma, offset_xf
             if False and offset_consistent: ### TODO decide if we can do this
-                log.debug(f"Armature {arma.name} NOT ok, but offset consistent: {offset_xf.translation}")
+                #log.debug(f"Armature {arma.name} NOT ok, but offset consistent: {offset_xf.translation}")
                 return arma, offset_xf
             else:
-                log.debug(f"Armature {arma.name} NOT ok, inconsistent offsets")
+                #log.debug(f"Armature {arma.name} NOT ok, inconsistent offsets")
                 return None, None
         return None, None
 
@@ -1233,7 +1233,7 @@ class NifImporter():
         # for editing. (Puts body parts in a convenient place for editing.) That transform
         # is stored on the shape.
         unscaled_skin_xf = self.calc_skin_transform(arma, obj)
-        log.debug(f"Found skin transform on {obj.name} = {unscaled_skin_xf.translation}")
+        #log.debug(f"Found skin transform on {obj.name} = {unscaled_skin_xf.translation}")
         if s2a_xf:
             # unscaled_skin_xf = s2a_xf @ unscaled_skin_xf
             unscaled_skin_xf = unscaled_skin_xf.inverted() @ s2a_xf 
@@ -1402,9 +1402,9 @@ class NifImporter():
 
         sf = HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
 
-        log.debug(f"Convex verts bounds X RAW: {min(v[0] for v in collisionnode.vertices)}, {max(v[0] for v in collisionnode.vertices)}")
+        #log.debug(f"Convex verts bounds X RAW: {min(v[0] for v in collisionnode.vertices)}, {max(v[0] for v in collisionnode.vertices)}")
         sourceverts = [Vector(v[0:3])*sf for v in collisionnode.vertices]
-        log.debug(f"Convex verts bounds X: {min(v[0] for v in sourceverts)}, {max(v[0] for v in sourceverts)}")
+        #log.debug(f"Convex verts bounds X: {min(v[0] for v in sourceverts)}, {max(v[0] for v in sourceverts)}")
 
         m = bpy.data.meshes.new(collisionnode.blockname)
         bm = bmesh.new()
@@ -1526,6 +1526,76 @@ class NifImporter():
 
     # ----- End Collisions ----
 
+
+    # ----- Begin Animations ----
+
+    def import_interpolator(self, ti:NiTransformInterpolator, target_node:bpy.types.Object, 
+                            action:bpy.types.Action):
+        """Import an interpolator, including its data block."""
+        td = ti.data
+        if td.properties.rotationType != NiKeyType.XYZ_ROTATION_KEY:
+            self.add_warning(f"Nif contains unimplemented rotation type: {td.properties.rotationType}")
+            return
+        
+        # The curve is all the keyframes for this one property.
+        fps = bpy.context.scene.render.fps
+        group_name = "Object Transforms"
+        curveX = action.fcurves.new("rotation_euler", index=0, action_group=group_name)
+        curveY = action.fcurves.new("rotation_euler", index=1, action_group=group_name)
+        curveZ = action.fcurves.new("rotation_euler", index=2, action_group=group_name)
+
+        for i, k in enumerate(td.animation_keys):
+            newkeyX = curveX.keyframe_points.insert(k[0].properties.time * fps + 1, k[0].properties.value)
+            newkeyY = curveY.keyframe_points.insert(k[1].properties.time * fps + 1, k[1].properties.value)
+            newkeyZ = curveZ.keyframe_points.insert(k[2].properties.time * fps + 1, k[2].properties.value)
+
+
+    def import_controlled_block(self, seq:NiSequence, block:ControllerLink):
+        """Import one controlled block."""
+        if block.controller_type != "NiTransformController":
+            self.add_warning(f"Nif has unknown controller type: {block.controller_type}")
+            return
+        
+        if block.node_name not in self.nif.nodes:
+            self.add_warning(f"Controller target not found in nif: {block.node_name}")
+            return
+        target_node = self.nif.nodes[block.node_name]
+
+        if target_node._handle in self.objects_created:
+            target_obj = self.objects_created[target_node._handle]
+        else:
+            self.add_warning(f"Target object was not imported: {block.node_name}")
+            return
+
+        fps = bpy.context.scene.render.fps
+        if not target_obj.animation_data:
+            target_obj.animation_data_create()
+        ad = target_obj.animation_data
+        action_name = f"{block.node_name}_{seq.name}"
+        ad.action = bpy.data.actions.new(action_name)
+        ad.action.frame_start = seq.properties.startTime * fps + 1
+        ad.action.frame_end = seq.properties.stopTime * fps + 1
+        ad.action.use_frame_range = True
+
+        self.import_interpolator(block.interpolator, target_obj, ad.action)
+
+
+    def import_sequences(self, seq):
+        """Import a single controller sequence."""
+        for cb in seq.controlled_blocks:
+            self.import_controlled_block(seq, cb)
+        
+
+    def import_animations(self):
+        """Import all top-level animations."""
+        for cm in self.nif.controller_managers:
+            for seq in cm.controller_manager_seqs.values():
+                self.import_sequences(seq)
+
+
+    # ----- End Animations ----
+
+
     def import_nif(self):
         """Perform the import operation as previously defined."""
         log.info(f"Importing {self.nif.game} file {self.nif.filepath}")
@@ -1537,7 +1607,7 @@ class NifImporter():
             self.nif.dict.use_niftools = self.rename_bones_nift
             self.import_shape(s)
 
-        log.debug("Linking objects to collections")
+        #log.debug("Linking objects to collections")
         for obj in self.loaded_meshes:
             if not obj.name in self.collection.objects:
                 self.collection.objects.link(obj)
@@ -1568,7 +1638,7 @@ class NifImporter():
                                 self.imported_armatures.append(new_arma)
                                 self.armature = new_arma
                             orphan_shapes.remove(obj)
-                log.debug("Connecting armature")
+                #log.debug("Connecting armature")
                 for arma in self.imported_armatures:
                     if self.create_bones:
                         self.add_bones_to_arma(arma, self.nif, self.nif.nodes.keys())
@@ -1583,6 +1653,9 @@ class NifImporter():
         
             # Import top-level collisions
             self.import_collisions()
+
+            # Import top-level animations
+            self.import_animations()
 
             # Cleanup. Select everything and parent everything to the child connect point if any.
             objlist = [x for x in self.objects_created.values()]

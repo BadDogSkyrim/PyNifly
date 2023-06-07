@@ -858,7 +858,7 @@ class NiObject:
 # --- NiNode --- #
 class NiNode(NiObject):
     def __init__(self, handle=None, file=None, parent=None):
-        super().__init__(handle, file, parent)
+        super().__init__(handle=handle, file=file, parent=parent)
         self.transform = TransformBuf()
 
         if not self._handle is None:
@@ -977,6 +977,7 @@ class NiMultiTargetTransformController(NiInterpController):
 
 class ControllerLink:
     _nodename = None
+    _controller_type = None
     _interpolator = None
 
     def __init__(self, props:ControllerLinkBuf, parent):
@@ -994,6 +995,18 @@ class ControllerLink:
                                 buflen, buf)
         self._nodename = buf.value.decode('utf-8')
         return self._nodename
+    
+    @property
+    def controller_type(self):
+        if self._controller_type: return self._controller_type
+
+        buflen = self.parent.file.max_string_len+1
+        buf = (c_char * buflen)()
+        NifFile.nifly.getString(self.parent.file._handle, 
+                                self.properties.controllerID,
+                                buflen, buf)
+        self._controller_type = buf.value.decode('utf-8')
+        return self._controller_type
     
     @property
     def interpolator(self):
@@ -2090,7 +2103,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -2988,7 +3001,7 @@ if __name__ == "__main__":
     if TEST_ALL or TEST_FNV:
         print("### TEST_FNV: Can load and save FNV nifs")
 
-        nif = NifFile(r"tests\FNV\9mmscp.nif")
+        nif = NifFile(r"tests\FONV\9mmscp.nif")
         shapenames = [s.name for s in nif.shapes]
         assert "Scope:0" in shapenames, f"Error in shape name 'Scope:0' not in {shapenames}"
         scopeidx = shapenames.index("Scope:0")
@@ -3722,7 +3735,7 @@ if __name__ == "__main__":
         assert nif.max_string_len > 10, f"Have reasonable {nif.max_string_len}"
 
         # NiControllerManager is at the top of the animation hierarchy. There can be one
-        # direct child of the root. Notsure if there can be more than one, or if they can
+        # direct child of the root. Not sure if there can be more than one, or if they can
         # be lower down in the node tree.
         assert len(nif.controller_managers) == 1, f"Found a controller manager"
         cm = nif.controller_managers[0]
@@ -3748,6 +3761,7 @@ if __name__ == "__main__":
         cblist = cm_open.controlled_blocks
         assert len(cblist) == 1, f"Have one controlled block: {cblist}"
         assert cblist[0].node_name == "Lid01", f"Have correct target: {cblist[0].node_name}"
+        assert cblist[0].controller_type == "NiTransformController", f"Have correct controller type: {cblist[0].controller_type}"
 
         # The interpolator parents the actual animation data.
         interp = cblist[0].interpolator

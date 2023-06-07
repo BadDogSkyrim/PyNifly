@@ -176,7 +176,7 @@ class ShaderImporter:
 
         # Extend relative filenames in nif with nif's own filepath
         fulltextures = extend_filenames(shape.file.filepath, "meshes", shape.textures)
-        log.debug(f"fulltextures = {fulltextures}")
+        #log.debug(f"fulltextures = {fulltextures}")
         for i in range(0, len(shape.textures)):
             # First option is to use a png from Blender's texture directory, if any
             if btextures and btextures[i]:
@@ -197,7 +197,7 @@ class ShaderImporter:
             if btextures and btextures[i] and os.path.exists(btextures[i]):
                 self.textures[i] = btextures[i]
             
-            log.debug(f"Looking for {fulltextures[i] if fulltextures else None}")
+            #log.debug(f"Looking for {fulltextures[i] if fulltextures else None}")
             if fulltextures[i] and os.path.exists(fulltextures[i]):
                 self.textures[i] = fulltextures[i]
 
@@ -211,7 +211,7 @@ class ShaderImporter:
 
     def import_diffuse(self):
         """Create nodes for the diffuse texture."""
-        log.debug("Handling diffuse texture")
+        #log.debug("Handling diffuse texture")
         txtnode = self.nodes.new("ShaderNodeTexImage")
         try:
             img = bpy.data.images.load(self.textures[0], check_existing=True)
@@ -222,7 +222,7 @@ class ShaderImporter:
         txtnode.location = (self.bsdf.location[0] + self.img_offset_x, self.bsdf.location[1])
 
         if self.colormap:
-            log.debug(f"Have colormap: {self.colormap}")
+            #log.debug(f"Have colormap: {self.colormap}")
             attrnode = self.nodes.new("ShaderNodeAttribute")
             attrnode.location = (txtnode.location[0], 
                                  self.ytop - attrnode.height - self.offset_y)
@@ -270,7 +270,7 @@ class ShaderImporter:
 
     def import_subsurface(self):
         """Set up nodes for subsurface texture"""
-        log.debug("Handling subsurface texture")
+        #log.debug("Handling subsurface texture")
         if len(self.textures) > 2 and self.textures[2]: 
             # Have a sk separate from a specular
             skimgnode = self.nodes.new("ShaderNodeTexImage")
@@ -288,7 +288,7 @@ class ShaderImporter:
 
     def import_specular(self):
         """Set up nodes for specular texture"""
-        log.debug("Handling specular texture")
+        #log.debug("Handling specular texture")
         if len(self.textures) > 7 and self.textures[7]:
             simgnode = self.nodes.new("ShaderNodeTexImage")
             try:
@@ -326,7 +326,7 @@ class ShaderImporter:
 
     def import_normal(self, shape):
         """Set up nodes for the normal map"""
-        log.debug("Handling normal map texture")
+        #log.debug("Handling normal map texture")
         if shape.textures[1]:
             nmap = self.nodes.new("ShaderNodeNormalMap")
             if shape.shader_attributes and shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
@@ -605,7 +605,7 @@ class ShaderExporter:
         # Use the shader node path if it's usable. The path stashed in 
         # custom properties is already there if not.
         if foundpath:
-            log.debug(f"Writing texture: '{foundpath}'")
+            #log.debug(f"Writing texture: '{foundpath}'")
             try:
                 fplc = Path(foundpath.lower())
                 if fplc.drive.endswith('textures'):

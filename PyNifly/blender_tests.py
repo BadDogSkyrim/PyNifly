@@ -18,7 +18,7 @@ importlib.reload(skeleton_hkx)
 importlib.reload(shader_io)
 
 
-TEST_BPY_ALL = 1
+TEST_BPY_ALL = 0
 TEST_BODYPART_SKY = 0  ### Skyrim head
 TEST_BODYPART_FO4 = 0  ### FO4 head
 TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
@@ -133,7 +133,8 @@ TEST_JIARAN = 0  ### Armature with no stashed transforms exports correctly
 TEST_SKEL_HKX = 0  ### Basic skeleton export (XML -> HKX)
 TEST_SKEL_SOS_HKX = 0  ### SOS auxbones skeleton 
 TEST_FONV = 0  ### FONV mesh
-TEST_FONV_BOD = 1  ### Basic FONV body part import and export
+TEST_FONV_BOD = 0  ### Basic FONV body part import and export
+TEST_CHEST_ANIM = 1  ### Read and write the animation of chest opening and shutting
 
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
@@ -1298,7 +1299,7 @@ if TEST_BPY_ALL or TEST_SEGMENTS:
     assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == nif2.shapes[0].segment_file, f"Nif should reference segment file, found '{nif2.shapes[0].segment_file}'"
 
 
-if TEST_ALL or TEST_BP_SEGMENTS:
+if TEST_BPY_ALL or TEST_BP_SEGMENTS:
     test_title("TEST_BP_SEGMENTS", "Can read FO4 bodypart segments")
     clear_all()
 
@@ -4067,6 +4068,17 @@ if TEST_BPY_ALL or TEST_FONV_BOD:
                    outnif.shape_dict["Arms01"],
                    body)
 
+
+if TEST_BPY_ALL or TEST_CHEST_ANIM:
+    test_title("TEST_CHEST_ANIM", "Read and write the animation of chest opening and shutting.")
+    clear_all()
+    testfile = test_file(r"tests\Skyrim\noblechest01.nif")
+    outfile =test_file(r"tests/Out/TEST_CHEST_ANIM.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    assert bpy.data.objects["Lid01"].animation_data is not None
+
+     
 
 print("""
 ############################################################

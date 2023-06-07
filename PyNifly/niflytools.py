@@ -1745,52 +1745,54 @@ if __name__ == "__main__":
 
 
     # ####################################################################################
-    print("--Can split verts of a triangularized plane")
-    # Verts 4 & 5 are on a seam
-    verts = [(-1.0, -1.0, 0.0), (1.0, -1.0, 0.0), (-1.0, 1.0, 0.0), (1.0, 1.0, 0.0), (0.0, -1.0, 0.0), (0.0, 1.0, 0.0)]
-    weights = [{0: 0.4},
-               {0: 0.6},
-               {0: 1.0},
-               {0: 0.8},
-               {0: 0.3},
-               {0: 0.1}]
-    loops = [1, 5, 4,
-             4, 2, 0,
-             1, 3, 5,
-             4, 5, 2]
-    norms = [(0.0, 0.0, 2.0), (0.0, 0.0, 6.0), (0.0, 0.0, 5.0), 
-             (0.0, 0.0, 5.0), (0.0, 0.0, 3.0), (0.0, 0.0, 1.0), 
-             (0.0, 0.0, 2.0), (0.0, 0.0, 4.0), (0.0, 0.0, 6.0),
-             (0.0, 0.0, 5.0), (0.0, 0.0, 6.0), (0.0, 0.0, 3.0)]
-    #norms = [(0.0, 0.0, 1.0), (0.0, 0.0, 2.0), (0.0, 0.0, 3.0), 
-    #         (0.0, 0.0, 4.0), (0.0, 0.0, 5.0), (0.0, 0.0, 6.0)
-    #         ]
-    uvs = [(0.9, 0.1), (0.6, 0.9), (0.6, 0.1),
-           (0.4, 0.1), (0.1, 0.9), (0.1, 0.1),
-           (0.9, 0.1), (0.9, 0.9), (0.6, 0.9),
-           (0.4, 0.1), (0.4, 0.9), (0.1, 0.9)]
+    # Better tested in blender_tests.py
+    #
+    # print("--Can split verts of a triangularized plane")
+    # # Verts 4 & 5 are on a seam
+    # verts = [(-1.0, -1.0, 0.0), (1.0, -1.0, 0.0), (-1.0, 1.0, 0.0), (1.0, 1.0, 0.0), (0.0, -1.0, 0.0), (0.0, 1.0, 0.0)]
+    # weights = [{0: 0.4},
+    #            {0: 0.6},
+    #            {0: 1.0},
+    #            {0: 0.8},
+    #            {0: 0.3},
+    #            {0: 0.1}]
+    # loops = [1, 5, 4,
+    #          4, 2, 0,
+    #          1, 3, 5,
+    #          4, 5, 2]
+    # norms = [(0.0, 0.0, 2.0), (0.0, 0.0, 6.0), (0.0, 0.0, 5.0), 
+    #          (0.0, 0.0, 5.0), (0.0, 0.0, 3.0), (0.0, 0.0, 1.0), 
+    #          (0.0, 0.0, 2.0), (0.0, 0.0, 4.0), (0.0, 0.0, 6.0),
+    #          (0.0, 0.0, 5.0), (0.0, 0.0, 6.0), (0.0, 0.0, 3.0)]
+    # #norms = [(0.0, 0.0, 1.0), (0.0, 0.0, 2.0), (0.0, 0.0, 3.0), 
+    # #         (0.0, 0.0, 4.0), (0.0, 0.0, 5.0), (0.0, 0.0, 6.0)
+    # #         ]
+    # uvs = [(0.9, 0.1), (0.6, 0.9), (0.6, 0.1),
+    #        (0.4, 0.1), (0.1, 0.9), (0.1, 0.1),
+    #        (0.9, 0.1), (0.9, 0.9), (0.6, 0.9),
+    #        (0.4, 0.1), (0.4, 0.9), (0.1, 0.9)]
 
-    morphdict = {}
-    morphdict["by2"] = [(v[0]*2, v[1]*2, v[2]*2) for v in verts]
-    morphdict["by3"] = [(v[0]*3, v[1]*3, v[2]*3) for v in verts]
+    # morphdict = {}
+    # morphdict["by2"] = [(v[0]*2, v[1]*2, v[2]*2) for v in verts]
+    # morphdict["by3"] = [(v[0]*3, v[1]*3, v[2]*3) for v in verts]
         
-    # mesh_split_by_uv() splits the mesh along UV seams--any vert that has two 
-    # different UV locations needs to be split
-    mesh_split_by_uv(verts, norms, loops, uvs, weights, morphdict)
+    # # mesh_split_by_uv() splits the mesh along UV seams--any vert that has two 
+    # # different UV locations needs to be split
+    # mesh_split_by_uv(verts, norms, loops, uvs, weights, morphdict)
 
-    # Vert 5 got split into 5 & 7. Data should be the same.
-    assert len(verts) == 8, "Error: wrong number of verts after edge splitting"
-    assert len(norms) == len(loops), "Error: Count of normals shouldn't change"
-    assert len(weights) == 8, "Error: wrong number of weights after edge splitting"
-    assert len(morphdict["by2"]) == 8, "Error wrong number of verts in morph after splitting"
-    assert len(morphdict["by3"]) == 8, "Error wrong number of verts in morph after splitting"
-    assert verts.count((0.0, 1.0, 0.0)) == 2, "Error: Duplicating vert on seam"
-    assert verts.count((0.0, -1.0, 0.0)) == 2, "Error: Duplicating vert on seam"
-    assert morphdict["by3"].count((0.0, -3.0, 0.0)) == 2, "Error: Duplicating vert on seam in morph"
-    assert verts[5] == verts[7], "Error: Duplicating vert 5 to vert 7"
-    assert weights[5] == weights[7], "Error: Duplicating weights correctly"
-    # Any loop entry referencing vert 5 should have same UV location as one referencing 7
-    assert loops[1] == 5 and loops[10] == 7 and uvs[1] != uvs[10], "Error: Duplicating UV locations correctly"
+    # # Vert 5 got split into 5 & 7. Data should be the same.
+    # assert len(verts) == 8, "Error: wrong number of verts after edge splitting"
+    # assert len(norms) == len(loops), "Error: Count of normals shouldn't change"
+    # assert len(weights) == 8, "Error: wrong number of weights after edge splitting"
+    # assert len(morphdict["by2"]) == 8, "Error wrong number of verts in morph after splitting"
+    # assert len(morphdict["by3"]) == 8, "Error wrong number of verts in morph after splitting"
+    # assert verts.count((0.0, 1.0, 0.0)) == 2, "Error: Duplicating vert on seam"
+    # assert verts.count((0.0, -1.0, 0.0)) == 2, "Error: Duplicating vert on seam"
+    # assert morphdict["by3"].count((0.0, -3.0, 0.0)) == 2, "Error: Duplicating vert on seam in morph"
+    # assert verts[5] == verts[7], "Error: Duplicating vert 5 to vert 7"
+    # assert weights[5] == weights[7], "Error: Duplicating weights correctly"
+    # # Any loop entry referencing vert 5 should have same UV location as one referencing 7
+    # assert loops[1] == 5 and loops[10] == 7 and uvs[1] != uvs[10], "Error: Duplicating UV locations correctly"
 
 
     print("""####################################################################################
@@ -1948,21 +1950,6 @@ if __name__ == "__main__":
     assert gameSkeletons["FO4"].matches(set(['Leg_Calf.R', 'Leg_Calf_skin.R', 'Leg_Calf_Low_skin.R', 'FOO'])) == 3, "Error: Skeletons should return correct bone match"
 
 
-    # ####################################################################################
-    print ("""
-        BoneDict expression_filter returns just the expression morphs for the given game
-        BoneDict chargen_filter returns just the chargen morphs for the given game.
-            Note for FO4 these aren't predefined, but match *type#. 
-        """)
-    exprmorphs = set(['DialogueAnger', 'MoodFear', 'CombatShout', 'RUprLipDn', 'UprLidUp.R', 'RUprLidDn', 'Smile.L'])
-    assert fo4Dict.expression_filter(exprmorphs) == set(['RUprLipDn', 'UprLidUp.R', 'RUprLidDn', 'Smile.L']), "ERROR: FO4 expression filter incorrect"
-    assert skyrimDict.expression_filter(exprmorphs) == set(['DialogueAnger', 'MoodFear', 'CombatShout']), "ERROR: Skyrim expression filter incorrect"
-    assert fo4Dict.chargen_filter(set(['foo', 'barType1', 'fribble', 'Type45cat', 'aTypeB'])) == set(['barType1', 'Type45cat']), "ERROR: FO4 Chargen filter incorrect"
-
-    assert fo4Dict.morph_dic_game['Smile.L'] == 'LSmile', "ERROR: Morph not translated correctly"
-    assert fo4Dict.morph_dic_game['UprLidUp.R'] == 'RUprLidUp', "ERROR: Morph not translated correctly"
-    assert fo4Dict.morph_dic_blender['LUprLidUp'] == 'UprLidUp.L', "ERROR: Morph not translated correctly"
-    
     print("""
 ##############################################################################
 File handling
@@ -1985,6 +1972,16 @@ File handling
                     "", 
                     'C:\\mod\\textures\\actors\\character\\male\\MaleHead_sk.dds'], \
         "Error: Extended filenames incorrect"
+    
+    flst = extend_filenames(r"C:\Users\hughr\OneDrive\SkyrimDev\Textures\\",
+                            "textures",
+                            [r"textures\actors\character\male\MaleHead.dds",
+                             r"textures\actors\character\male\MaleHead_msn.dds",
+                             "",
+                             "",
+                             r"textures\actors\character\male\MaleHead_sk.dds"])
+    assert flst[0].upper() == r"C:\Users\hughr\OneDrive\SkyrimDev\Textures\actors\character\male\MaleHead.dds".upper(), \
+    f"Have correct filepath: {flst}"
 
     print(">>> Can truncate a fliename to a given root")
     str1 = "C:/mod/stuff/meshes/foo/bar/mesh.tri"
@@ -1992,4 +1989,22 @@ File handling
     assert fn == "foo/bar/mesh.tri"
     fn2 = truncate_filename(str1, "fribble")
     assert fn2 == str1
+
+
+    # ####################################################################################
+    print ("""
+        BoneDict expression_filter returns just the expression morphs for the given game
+        BoneDict chargen_filter returns just the chargen morphs for the given game.
+            Note for FO4 these aren't predefined, but match *type#. 
+        """)
+    exprmorphs = set(['DialogueAnger', 'MoodFear', 'CombatShout', 'RUprLipDn', 'UprLidUp.R', 'RUprLidDn', 'Smile.L'])
+    assert fo4Dict.expression_filter(exprmorphs) == set(['RUprLipDn', 'UprLidUp.R', 'RUprLidDn', 'Smile.L']), "ERROR: FO4 expression filter incorrect"
+    assert skyrimDict.expression_filter(exprmorphs) == set(['DialogueAnger', 'MoodFear', 'CombatShout']), "ERROR: Skyrim expression filter incorrect"
+    # Chargen filter selects all non-expression morphs.
+    chargenset = fo4Dict.chargen_filter(set(['RUprLipDn', 'UprLidUp.R', 'foo', 'barType1', 'fribble', 'Type45cat', 'aTypeB']))
+    assert chargenset == set(['barType1', 'Type45cat']), f"ERROR: FO4 Chargen filter incorrect; {chargenset}"
+
+    assert fo4Dict.morph_dic_game['Smile.L'] == 'LSmile', "ERROR: Morph not translated correctly"
+    assert fo4Dict.morph_dic_game['UprLidUp.R'] == 'RUprLidUp', "ERROR: Morph not translated correctly"
+    assert fo4Dict.morph_dic_blender['LUprLidUp'] == 'UprLidUp.L', "ERROR: Morph not translated correctly"
     
