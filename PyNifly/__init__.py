@@ -1533,21 +1533,32 @@ class NifImporter():
                             action:bpy.types.Action):
         """Import an interpolator, including its data block."""
         td = ti.data
-        if td.properties.rotationType != NiKeyType.XYZ_ROTATION_KEY:
-            self.add_warning(f"Nif contains unimplemented rotation type: {td.properties.rotationType}")
-            return
-        
-        # The curve is all the keyframes for this one property.
         fps = bpy.context.scene.render.fps
         group_name = "Object Transforms"
-        curveX = action.fcurves.new("rotation_euler", index=0, action_group=group_name)
-        curveY = action.fcurves.new("rotation_euler", index=1, action_group=group_name)
-        curveZ = action.fcurves.new("rotation_euler", index=2, action_group=group_name)
 
-        for i, k in enumerate(td.animation_keys):
-            newkeyX = curveX.keyframe_points.insert(k[0].properties.time * fps + 1, k[0].properties.value)
-            newkeyY = curveY.keyframe_points.insert(k[1].properties.time * fps + 1, k[1].properties.value)
-            newkeyZ = curveZ.keyframe_points.insert(k[2].properties.time * fps + 1, k[2].properties.value)
+        if td.xrotations or td.yrotations or td.zrotations:
+            if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
+                curveX = action.fcurves.new("rotation_euler", index=0, action_group=group_name)
+                curveY = action.fcurves.new("rotation_euler", index=1, action_group=group_name)
+                curveZ = action.fcurves.new("rotation_euler", index=2, action_group=group_name)
+
+                for k in td.xrotations:
+                    curveX.keyframe_points.insert(k.time * fps + 1, k.value)
+                for k in td.yrotations:
+                    curveY.keyframe_points.insert(k.time * fps + 1, k.value)
+                for k in td.zrotations:
+                    curveZ.keyframe_points.insert(k.time * fps + 1, k.value)
+            else:
+                self.add_warning(f"Nif contains unimplemented rotation type: {td.properties.rotationType}")
+                
+        if td.properties.translations.numKeys > 0:
+            curveLocX = action.fcurves.new("location", index=0, action_group=group_name)
+            curveLocY = action.fcurves.new("location", index=1, action_group=group_name)
+            curveLocZ = action.fcurves.new("location", index=2, action_group=group_name)
+            for k in td.translations:
+                curveLocX.keyframe_points.insert(k.time * fps + 1, k.value[0])
+                curveLocY.keyframe_points.insert(k.time * fps + 1, k.value[1])
+                curveLocZ.keyframe_points.insert(k.time * fps + 1, k.value[2])
 
 
     def import_controlled_block(self, seq:NiSequence, block:ControllerLink):
@@ -1570,14 +1581,18 @@ class NifImporter():
         fps = bpy.context.scene.render.fps
         if not target_obj.animation_data:
             target_obj.animation_data_create()
-        ad = target_obj.animation_data
         action_name = f"{block.node_name}_{seq.name}"
-        ad.action = bpy.data.actions.new(action_name)
-        ad.action.frame_start = seq.properties.startTime * fps + 1
-        ad.action.frame_end = seq.properties.stopTime * fps + 1
-        ad.action.use_frame_range = True
+        new_action = bpy.data.actions.new(action_name)
+        new_action.frame_start = seq.properties.startTime * fps + 1
+        new_action.frame_end = seq.properties.stopTime * fps + 1
+        new_action.use_frame_range = True
+        new_action.use_fake_user = True
+        new_action.asset_mark()
 
-        self.import_interpolator(block.interpolator, target_obj, ad.action)
+        self.import_interpolator(block.interpolator, target_obj, new_action)
+
+        if not target_obj.animation_data.action:
+            target_obj.animation_data.action = new_action
 
 
     def import_sequences(self, seq):

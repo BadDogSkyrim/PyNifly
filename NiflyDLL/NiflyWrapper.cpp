@@ -2620,32 +2620,53 @@ NIFLY_API int getTransformData(void* nifref, int nodeIndex, NiTransformDataBuf* 
         return 0;
 };
 
-void assignKey(NiAnimationKeyBuf& kb, NiAnimationKey<float> k) {
+void assignKey(NiAnimKeyQuadXYZBuf& kb, NiAnimationKey<float> k) {
     kb.time = k.time;
     kb.value = k.value;
     kb.forward = k.forward;
     kb.backward = k.backward;
 }
 
-NIFLY_API void getAnimationKeysXYZ(void* nifref, int tdID, int frame, NiAnimationKeyBuf buf[3])
-/* Return the frame'th animation keys - X, Y, and Z. */ {
+NIFLY_API void getAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyQuadXYZBuf *buf)
+{
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::NiTransformData* td = hdr.GetBlock<NiTransformData>(tdID);
 
-    assignKey(buf[0], td->xRotations.GetKey(frame));
-    assignKey(buf[1], td->yRotations.GetKey(frame));
-    assignKey(buf[2], td->zRotations.GetKey(frame));
+    if (dimension == 'X') assignKey(*buf, td->xRotations.GetKey(frame));
+    else if (dimension == 'Y') assignKey(*buf, td->yRotations.GetKey(frame));
+    else if (dimension == 'Z') assignKey(*buf, td->zRotations.GetKey(frame));
+    else if (dimension == 'S') assignKey(*buf, td->scales.GetKey(frame));
 }
 
-NIFLY_API void getAnimationKeysScale(void* nifref, int tdID, int frame, NiAnimationKeyBuf* buf)
-/* Return the frame'th animation keys - X, Y, and Z. */ {
+NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyLinearXYZBuf *buf)
+{
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::NiTransformData* td = hdr.GetBlock<NiTransformData>(tdID);
 
-    assignKey(*buf, td->scales.GetKey(frame));
+    NiAnimationKey<float> k;
+    if (dimension == 'X') k = td->xRotations.GetKey(frame);
+    if (dimension == 'Y') k = td->yRotations.GetKey(frame);
+    if (dimension == 'Z') k = td->zRotations.GetKey(frame);
+
+    buf->time = k.time; 
+    buf->value = k.value;
 }
+
+NIFLY_API void getAnimKeyLinearTrans(void* nifref, int tdID, int frame, NiAnimKeyLinearTransBuf *buf)
+/* Return the linear animation key at frame "frame". */ {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::NiTransformData* td = hdr.GetBlock<NiTransformData>(tdID);
+    
+    auto k = td->translations.GetKey(frame);
+    buf->time = k.time;
+    buf->value[0] = k.value[0];
+    buf->value[1] = k.value[1];
+    buf->value[2] = k.value[2];
+}
+
 
 NIFLY_API int getTransformDataValues(void* nifref, int nodeIndex, 
     NiAnimationKeyQuatBuf* qBuf, 

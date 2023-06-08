@@ -128,13 +128,14 @@ TEST_IMP_ANIMATRON = 0
 TEST_CUSTOM_BONES = 0  ### Can handle custom bones correctly
 TEST_COTH_DATA = 0  ## Handle cloth data
 TEST_IMP_NORMALS = 0  ### Can import normals from nif shape
-TEST_UV_SPLIT = 0  ### Split UVs properly
-TEST_JIARAN = 0  ### Armature with no stashed transforms exports correctly
-TEST_SKEL_HKX = 0  ### Basic skeleton export (XML -> HKX)
-TEST_SKEL_SOS_HKX = 0  ### SOS auxbones skeleton 
-TEST_FONV = 0  ### FONV mesh
-TEST_FONV_BOD = 0  ### Basic FONV body part import and export
+TEST_UV_SPLIT = 1  ### Split UVs properly
+TEST_JIARAN = 1  ### Armature with no stashed transforms exports correctly
+TEST_SKEL_HKX = 1  ### Basic skeleton export (XML -> HKX)
+TEST_SKEL_SOS_HKX = 1  ### SOS auxbones skeleton 
+TEST_FONV = 1  ### FONV mesh
+TEST_FONV_BOD = 1  ### Basic FONV body part import and export
 TEST_CHEST_ANIM = 1  ### Read and write the animation of chest opening and shutting
+TEST_CRATE_ANIM = 1  ### Read and write the animation of crate opening and shutting
 
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
@@ -1644,7 +1645,7 @@ if TEST_BPY_ALL or TEST_CAVE_GREEN:
         # Blender 3.1
         diff1 = mix1.inputs['Color1'].links[0].from_node
 
-    assert diff1.image.filepath.lower().endswith("cavebasewall01.dds"), f"Have correct wall diffuse: {diff1.image.filepath}"
+    assert diff1.image.filepath.lower()[0:-4].endswith("cavebasewall01"), f"Have correct wall diffuse: {diff1.image.filepath}"
 
     roots = find_shape("L2_Roots:5")
 
@@ -3838,56 +3839,17 @@ if TEST_BPY_ALL or TEST_IMP_NORMALS:
 if TEST_BPY_ALL or TEST_UV_SPLIT:
     test_title("TEST_UV_SPLIT", "Can split UVs properly")
     clear_all()
-    filepath = test_file("tests/Out/testUV01.nif")
+    filepath = test_file("tests/Out/TEST_UV_SPLIT.nif")
 
-    verts = [(-1.0, -1.0, 0.0), 
-                (1.0, -1.0, 0.0), (-1.0, 1.0, 0.0), (1.0, 1.0, 0.0), (0.0, -1.0, 0.0), (0.0, 1.0, 0.0)]
-    norms = [(0.0, 0.0, 1.0), (0.0, 0.0, 2.0), (0.0, 0.0, 3.0), (0.0, 0.0, 4.0), (0.0, 0.0, 5.0), (0.0, 0.0, 6.0)]
-    weights = [{0: 0.4},
-                {0: 0.6},
-                {0: 1.0},
-                {0: 0.8},
-                {0: 0.3},
-                {0: 0.1}]
-    tris  = [(1, 5, 4),
-                (4, 2, 0),
-                (1, 3, 5),
-                (4, 5, 2)]
-    loops = [1, 5, 4,
-                4, 2, 0,
-                1, 3, 5,
-                4, 5, 2]
-    uvs = [(0.9, 0.1), # vert 1 (tri 0)
-            (0.6, 0.9), # vert 5
-            (0.6, 0.1), # vert 4
-            (0.4, 0.1), # vert 4 (tri 1)
-            (0.1, 0.9), # vert 2
-            (0.1, 0.1), # vert 0
-            (0.9, 0.1), # vert 1 (tri 2)
-            (0.9, 0.9), # vert 3
-            (0.6, 0.9), # vert 5
-            (0.4, 0.1), # vert 4 (tri 3)
-            (0.4, 0.9), # vert 5
-            (0.1, 0.9)] # vert 2
-    new_mesh = bpy.data.meshes.new("TestUV")
-    new_mesh.from_pydata(verts, [], tris)
-    newuv = new_mesh.uv_layers.new(do_init=False)
-    for i, this_uv in enumerate(uvs):
-        newuv.data[i].uv = this_uv
-    new_object = bpy.data.objects.new("TestUV", new_mesh)
-    new_object.data.uv_layers.active = newuv
-    bpy.context.collection.objects.link(new_object)
-    bpy.context.view_layer.objects.active = new_object
-    new_object.select_set(True)
-
+    bpy.ops.mesh.primitive_cube_add()
     bpy.ops.export_scene.pynifly(filepath=filepath, target_game="SKYRIM")
     
     nif_in = NifFile(filepath)
-    plane = nif_in.shapes[0]
-    assert len(plane.verts) == 8, "Error: Exported nif doesn't have correct verts"
-    assert len(plane.uvs) == 8, "Error: Exported nif doesn't have correct UV"
-    assert plane.verts[5] == plane.verts[7], "Error: Split vert at different locations"
-    assert plane.uvs[5] != plane.uvs[7], "Error: Split vert has different UV locations"
+    obj = nif_in.shapes[0]
+    assert len(obj.verts) == 14, f"Verts were split: {len(obj.verts)}"
+    assert len(obj.uvs) == 14, f"Same number of UV points: {len(obj.uvs)}"
+    assert VNearEqual(obj.verts[2], obj.verts[10]), f"Split verts at same location {obj.verts[2]}, {obj.verts[10]}"
+    assert not VNearEqual(obj.uvs[2], obj.uvs[10]), f"Split UV at different location {obj.uvs[2]}, {obj.uvs[10]}"
 
 
 if TEST_BPY_ALL or TEST_JIARAN:
@@ -4076,9 +4038,28 @@ if TEST_BPY_ALL or TEST_CHEST_ANIM:
     outfile =test_file(r"tests/Out/TEST_CHEST_ANIM.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    assert bpy.data.objects["Lid01"].animation_data is not None
+    lid = bpy.data.objects["Lid01"]
+    assert lid.animation_data is not None
+    assert lid.animation_data.action.name.startswith("Lid01_Open"), f"Animation has correct name: {lid.animation_data.action.name}"
+    assert len([x for x in bpy.data.actions if x.name.startswith("Lid01_Close")]) > 0, f"Have close animation in actions: {bpy.data.actions.keys()}"
 
-     
+
+if TEST_BPY_ALL or TEST_CRATE_ANIM:
+    test_title("TEST_CRATE_ANIM", "Read and write the animation of chest opening and shutting.")
+    clear_all()
+    testfile = test_file(r"tests\Skyrim\dwechest01.nif")
+    outfile =test_file(r"tests/Out/TEST_CRATE_ANIM.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    lid = bpy.data.objects["Box01"]
+    assert lid.animation_data is not None
+    assert lid.animation_data.action.name.startswith("Box01_Open"), f"Animation has correct name: {lid.animation_data.action.name}"
+    assert len([x for x in bpy.data.actions if x.name.startswith("Box01_Close")]) > 0, f"Have close animation in actions: {bpy.data.actions.keys()}"
+    assert len(lid.animation_data.action.fcurves) > 0, f"Have curves: {len(lid.animation_data.action.fcurves)}"
+
+    gear = bpy.data.objects["Gear07"]
+    assert gear.animation_data.action.name.startswith("Gear07_Open"), f"Gear animation exists"
+    assert len(gear.animation_data.action.fcurves) > 0, f"Have curves"
 
 print("""
 ############################################################

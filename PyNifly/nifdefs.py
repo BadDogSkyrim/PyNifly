@@ -1011,8 +1011,8 @@ class NiTransformInterpolatorBuf(pynStructure):
         ("scale", c_float),
         ("dataID", c_uint32),
     ]
-
-class NiAnimatinoKeyGroupBuf(pynStructure):
+    
+class NiAnimationKeyGroupBuf(pynStructure):
     _fields_ = [
         ("numKeys", c_uint32),
         ("interpolation", c_uint32)
@@ -1021,21 +1021,32 @@ class NiAnimatinoKeyGroupBuf(pynStructure):
 class NiTransformDataBuf(pynStructure):
     _fields_ = [
         ("rotationType", c_uint32), 
-        ("quaternionKeyCount", c_uint32),
-        ("xRotations", NiAnimatinoKeyGroupBuf),
-        ("yRotations", NiAnimatinoKeyGroupBuf),
-        ("zRotations", NiAnimatinoKeyGroupBuf),
-        ("translations", NiAnimatinoKeyGroupBuf),
-        ("scales", NiAnimatinoKeyGroupBuf),
+        ("rotationKeyCount", c_uint32),
+        ("xRotations", NiAnimationKeyGroupBuf),
+        ("yRotations", NiAnimationKeyGroupBuf),
+        ("zRotations", NiAnimationKeyGroupBuf),
+        ("translations", NiAnimationKeyGroupBuf),
+        ("scales", NiAnimationKeyGroupBuf),
     ]
 
-class NiAnimationKeyBuf(pynStructure):
+class NiAnimKeyQuadXYZBuf(pynStructure):
     _fields_ = [
-        ("type", c_uint32),
         ("time", c_float),
         ("value", c_float),
         ("forward", c_float),
         ("backward", c_float),
+    ]
+
+class NiAnimKeyLinearXYZBuf(pynStructure):
+    _fields_ = [
+        ("time", c_float),
+        ("value", c_float)
+    ]
+
+class NiAnimKeyLinearTransBuf(pynStructure):
+    _fields_ = [
+        ("time", c_float),
+        ("value", VECTOR3)
     ]
 
 class NiKeyType(PynIntEnum):

@@ -37,7 +37,7 @@ def extend_filenames(root, separator, files):
         except:
             sharedpart = rootpath.parent
     else:
-        sharedpart = rootpath.parent
+        sharedpart = rootpath
     return [(str(sharedpart / f) if len(f) > 0 else "") for f in files]
 
 def replace_extensions(files, orig, rep):

@@ -3138,7 +3138,7 @@ namespace NiflyDLLTests
 		};
 		TEST_METHOD(readTransformController) {
 
-			void* nif = load((testRoot / "Skyrim/noblechest01.nif").u8string().c_str());
+			void* nif = load((testRoot / "Skyrim/dwechest01.nif").u8string().c_str());
 			int strlen = getMaxStringLen(nif);
 			void* root = getRoot(nif);
 			void* ncm;
@@ -3159,7 +3159,7 @@ namespace NiflyDLLTests
 			NiControllerSequenceBuf csbuf[2];
 			getControllerSequence(nif, cs[0], &csbuf[0]);
 			getControllerSequence(nif, cs[1], &csbuf[1]);
-			Assert::IsTrue(TApproxEqual(0.5, csbuf[0].stopTime), L"StopTime correct");
+			Assert::IsTrue(TApproxEqual(0.6, csbuf[0].stopTime), L"StopTime correct");
 			char* csName0 = new char [strlen + 1];
 			char* csName1 = new char [strlen + 1];
 			getString(nif, csbuf[0].nameID, strlen + 1, csName0);
@@ -3176,42 +3176,35 @@ namespace NiflyDLLTests
 			ControllerLinkBuf* clbuf = new ControllerLinkBuf[csbuf[openIndex].controlledBlocksCount];
 			getControlledBlocks(nif, cs[openIndex], csbuf[openIndex].controlledBlocksCount, clbuf);
 			getString(nif, clbuf[0].nodeName, strlen + 1, namebuf);
-			Assert::IsTrue(strcmp("Lid01", namebuf) == 0, L"Have correct node name");
+			Assert::IsTrue(strcmp("Object01", namebuf) == 0, L"Have correct node name");
 
+			// First interpolator does linear movement of the chest's lid. So no rotation keys.
 			NiTransformInterpolatorBuf tibuf;
 			getTransformInterpolator(nif, clbuf->interpolatorID, &tibuf);
-			//Not getting correct rotation from Nifly
-			//Assert::IsTrue(TApproxEqual(2.59355926846, tibuf.rotation[3]), L"Angle is correct");
 			NiTransformDataBuf tdbuf;
 			getTransformData(nif, tibuf.dataID, &tdbuf);
-			Assert::AreEqual(4, int(tdbuf.rotationType), L"Have correct rotation type");
-			Assert::AreEqual(2, int(tdbuf.xRotations.interpolation), L"Have correct x rotation");
-			Assert::AreEqual(2, int(tdbuf.xRotations.numKeys), L"Have correct number of keys");
+			Assert::AreEqual(0, int(tdbuf.quaternionKeyCount), L"Have correct number of rotation keys");
+			Assert::AreEqual(18, int(tdbuf.translations.numKeys), L"Have correct number of translations");
+			Assert::AreEqual(1, int(tdbuf.translations.interpolation), L"Have correct interpolation");
 
-			NiAnimationKeyBuf akbuf0[3], akbuf1[3];
-			getAnimationKeysXYZ(nif, tibuf.dataID, 0, akbuf0);
-			getAnimationKeysXYZ(nif, tibuf.dataID, 1, akbuf1);
-			Assert::IsTrue(TApproxEqual(0.0f, akbuf0[0].time), L"First time value good");
-			Assert::IsTrue(TApproxEqual(0.0f, akbuf0[0].value), L"First value value good");
-			Assert::IsTrue(TApproxEqual(0.5f, akbuf1[0].time), L"Second time value good");
-			Assert::IsTrue(TApproxEqual(-0.122173f, akbuf1[0].value), L"Second value value good");
+			NiAnimKeyLinearTransBuf akbuf;
+			getAnimKeyLinearTrans(nif, tibuf.dataID, 2, &akbuf);
+			Assert::IsTrue(TApproxEqual(0.066667f, akbuf.time), L"First time value good");
+			Assert::IsTrue(TApproxEqual(1.117641f, akbuf.value[0]), L"X location good");
 			
-			Assert::AreEqual(0, int(tdbuf.translations.numKeys), L"Have no translations");
+			// Second interpolator does the revolution of the screw in the worm drive. 
+			getString(nif, clbuf[1].nodeName, strlen + 1, namebuf);
+			Assert::IsTrue(strcmp("Gear08", namebuf) == 0, L"Have correct node name");
+			getTransformInterpolator(nif, clbuf[1].interpolatorID, &tibuf);
+			getTransformData(nif, tibuf.dataID, &tdbuf);
+			Assert::AreEqual(1, int(tdbuf.xRotations.numKeys), L"Have correct number of X rotation keys");
+			Assert::AreEqual(2, int(tdbuf.zRotations.numKeys), L"Have correct number of Z rotation keys");
+			Assert::AreEqual(int(NiKeyType::QUADRATIC_KEY), int(tdbuf.zRotations.interpolation), L"Have quadratic interpolation");
+			NiAnimKeyQuadXYZBuf qkey;
+			getAnimKeyQuadXYZ(nif, tibuf.dataID, 'Z', 1, &qkey);
+			Assert::AreEqual(0.6f, qkey.time, L"Have Z time correct");
+			Assert::IsTrue(TApproxEqual(- 3.141593f, qkey.value), L"Have Z value correct");
 
-			Assert::AreEqual(2, int(tdbuf.scales.numKeys), L"Have 2 scale keys");
-			NiAnimationKeyBuf scaleKeyBuf[2];
-			getAnimationKeysScale(nif, tibuf.dataID, 0, &scaleKeyBuf[0]);
-			getAnimationKeysScale(nif, tibuf.dataID, 1, &scaleKeyBuf[1]);
-			Assert::IsTrue(TApproxEqual(0.5, scaleKeyBuf[1].time), L"Second key has correct time.");
-
-			//Assert::IsTrue(getTransformController(nif, 5, &tcbuf) == 1, L"Found transform controller");
-			//Assert::IsTrue(tcbuf.frequency == 1.0f, L"Found frequency");
-			//Assert::IsTrue(tcbuf.flags == 76, L"Found frequency");
-
-			//NiTransformInterpolatorBuf tibuf;
-
-			//Assert::IsTrue(getTransformInterpolator(nif, tcbuf.interpolatorIndex, &tibuf) == 1, L"Found transform interpolator");
-			//Assert::IsTrue(tibuf.rotation[0] == 5, L"Found rotation");
 		};
 		TEST_METHOD(readBlockname) {
 			void* nif = load((testRoot / "Skyrim/noblechest01.nif").u8string().c_str());

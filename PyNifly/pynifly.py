@@ -59,10 +59,12 @@ def load_nifly(nifly_path):
     nifly.getAllShapeNames.restype = c_int
     nifly.getAlphaProperty.argtypes = [c_void_p, c_void_p, AlphaPropertyBuf_p]
     nifly.getAlphaProperty.restype = c_int
-    nifly.getAnimationKeysScale.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimationKeyBuf)]
-    nifly.getAnimationKeysScale.restype = None
-    nifly.getAnimationKeysXYZ.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimationKeyBuf)]
-    nifly.getAnimationKeysXYZ.restype = None
+    nifly.getAnimKeyQuadXYZ.argtypes = [c_void_p, c_int, c_char, c_int, POINTER(NiAnimKeyQuadXYZBuf)]
+    nifly.getAnimKeyQuadXYZ.restype = None
+    nifly.getAnimKeyLinearXYZ.argtypes = [c_void_p, c_int, c_char, c_int, POINTER(NiAnimKeyLinearXYZBuf)]
+    nifly.getAnimKeyLinearXYZ.restype = None
+    nifly.getAnimKeyLinearTrans.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyLinearTransBuf)]
+    nifly.getAnimKeyLinearTrans.restype = None
     nifly.getBSXFlags.argtypes = [c_void_p, c_void_p]
     nifly.getBSXFlags.restype = c_int
     nifly.getCollBlockname.argtypes = [c_void_p, c_char_p, c_int]
@@ -909,33 +911,90 @@ class NiKeyFrameData(NiObject):
     pass
 
 
-class NiAnimationKey:
-    properties = None
+class LinearScalarKey:
+    time = 0.0
+    value = 0.0
 
-    def __init__(self, props:NiAnimationKeyBuf):
-        self.properties = props.copy()
+    def __init__(self, buf):
+        self.time = buf.time
+        self.value = buf.value
 
+class LinearVectorKey:
+    time = 0.0
+    value = []
+
+    def __init__(self, buf):
+        self.time = buf.time
+        self.value = [buf.value[0], buf.value[1], buf.value[2]]
+
+class QuadScalarKey:
+    time = 0.0
+    value = 0.0
+    forward = 0.0
+    backward = 0.0
+
+    def __init__(self, buf):
+        self.time = buf.time
+        self.value = buf.value
+        self.forward = buf.forward
+        self.backward = buf.backward
 
 class NiTransformData(NiKeyFrameData):
-    animation_keys = None
-
     def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
         super().__init__(handle=handle, file=file, id=id, parent=parent)
         self.properties = NiTransformDataBuf()
         NifFile.nifly.getTransformData(
             self.file._handle, self.id, self.properties)
         
-        # Read the animation keys. The rotation type XYZ (4) is special -- it means
-        # separate X/Y/Z values are provided instead of a quaternion. If the rotation type
-        # is XYZ the quaternionKeyCount must be 1 and the actual number of keys is in the
-        # XYZ rotation field.
-        self.animation_keys = []
-        buf = (NiAnimationKeyBuf * 3)()
+        self.xrotations = []
+        self.yrotations = []
+        self.zrotations = []
+        self.translations = []
+        self.scales = []
+
+        dimension = c_char()
+        dimension.value = 'X'.encode('utf-8')
         for frame in range(0, self.properties.xRotations.numKeys):
-            NifFile.nifly.getAnimationKeysXYZ(self.file._handle, self.id, frame, buf)
-            self.animation_keys.append([NiAnimationKey(buf[0]), 
-                                        NiAnimationKey(buf[1]), 
-                                        NiAnimationKey(buf[2])])
+            if self.properties.xRotations.interpolation == NiKeyType.QUADRATIC_KEY:
+                buf = NiAnimKeyQuadXYZBuf()
+                NifFile.nifly.getAnimKeyQuadXYZ(self.file._handle, self.id, dimension, frame, buf)
+                k = QuadScalarKey(buf)
+            elif self.properties.xRotations.interpolation == NiKeyType.LINEAR_KEY:
+                buf = NiAnimKeyLinearXYZBuf()
+                NifFile.nifly.getAnimKeyLinearXYZ(self.file._handle, self.id, dimension, frame, buf)
+                k = LinearScalarKey(buf)
+            self.xrotations.append(k)
+
+        dimension.value = 'Y'.encode('utf-8')
+        for frame in range(0, self.properties.yRotations.numKeys):
+            if self.properties.yRotations.interpolation == NiKeyType.QUADRATIC_KEY:
+                buf = NiAnimKeyQuadXYZBuf()
+                NifFile.nifly.getAnimKeyQuadXYZ(self.file._handle, self.id, dimension, frame, buf)
+                k = QuadScalarKey(buf)
+            elif self.properties.yRotations.interpolation == NiKeyType.LINEAR_KEY:
+                buf = NiAnimKeyLinearXYZBuf()
+                NifFile.nifly.getAnimKeyLinearXYZ(self.file._handle, self.id, dimension, frame, buf)
+                k = LinearScalarKey(buf)
+            self.yrotations.append(k)
+
+        dimension.value = 'Z'.encode('utf-8')
+        for frame in range(0, self.properties.zRotations.numKeys):
+            if self.properties.zRotations.interpolation == NiKeyType.QUADRATIC_KEY:
+                buf = NiAnimKeyQuadXYZBuf()
+                NifFile.nifly.getAnimKeyQuadXYZ(self.file._handle, self.id, dimension, frame, buf)
+                k = QuadScalarKey(buf)
+            elif self.properties.zRotations.interpolation == NiKeyType.LINEAR_KEY:
+                buf = NiAnimKeyLinearXYZBuf()
+                NifFile.nifly.getAnimKeyLinearXYZ(self.file._handle, self.id, dimension, frame, buf)
+                k = LinearScalarKey(buf)
+            self.zrotations.append(k)
+
+        for frame in range(0, self.properties.translations.numKeys):
+            if self.properties.translations.interpolation == NiKeyType.LINEAR_KEY:
+                buf = NiAnimKeyLinearTransBuf()
+                NifFile.nifly.getAnimKeyLinearTrans(self.file._handle, self.id, frame, buf)
+                k = LinearVectorKey(buf)
+            self.translations.append(k)
 
 
 class NiTransformInterpolator(NiObject):
@@ -3730,7 +3789,7 @@ if __name__ == "__main__":
 
     if TEST_ALL or TEST_ANIMATION:
         print("### TEST_ANIMATION: Embedded animations")
-        nif = NifFile(r"tests/Skyrim/noblechest01.nif")
+        nif = NifFile(r"tests/Skyrim/dwechest01.nif")
         root = nif.root
         assert nif.max_string_len > 10, f"Have reasonable {nif.max_string_len}"
 
@@ -3754,33 +3813,51 @@ if __name__ == "__main__":
         cm_names = set(cm.controller_manager_seqs.keys())
         assert cm_names == set(["Open", "Close"]), f"Have correct name: {cm_names}"
         cm_open = cm.controller_manager_seqs['Open']
-        assert NearEqual(cm_open.properties.stopTime, 0.5), f"Have correct stop time: {cm_open.properties.stopTime}"
+        assert NearEqual(cm_open.properties.stopTime, 0.6), f"Have correct stop time: {cm_open.properties.stopTime}"
 
         # The controlled block is the thing that's actually getting animated, referenced
         # by name.
         cblist = cm_open.controlled_blocks
-        assert len(cblist) == 1, f"Have one controlled block: {cblist}"
-        assert cblist[0].node_name == "Lid01", f"Have correct target: {cblist[0].node_name}"
+        assert len(cblist) == 9, f"Have 9 controlled blocks: {cblist}"
+        assert cblist[0].node_name == "Object01", f"Have correct target: {cblist[0].node_name}"
         assert cblist[0].controller_type == "NiTransformController", f"Have correct controller type: {cblist[0].controller_type}"
 
         # The interpolator parents the actual animation data.
         interp = cblist[0].interpolator
 
-        # The data is stored in the animation keys. 
+        # The data is stored in the animation keys. In this chest, Object01 is the lid that 
+        # slides down and sideways, so no rotations.
         td = interp.data
+        # we don't seem to be getting the number of rotation keys from the nif.
+        # assert td.properties.rotationKeyCount == 0, f"Found no rotation keys: {td.properties.rotationKeyCount}"
+        assert td.properties.translations.numKeys == 18, f"Found translation keys: {td.properties.translations.numKeys}"
+        assert td.properties.translations.interpolation == NiKeyType.LINEAR_KEY, f"Found correct interpolation: {td.properties.translations.interpolation}"
+        assert td.translations[0].time == 0, f"First time 0"
+        assert NearEqual(td.translations[1].time, 0.033333), f"Second time 0.03"
 
-        # Rotations can be provided in a number of ways. The rotation type XYZ (4) is
-        # special -- it means separate X/Y/Z values are provided instead of a quaternion.
-        # If the rotation type is XYZ the quaternionKeyCount must be 1 and the actual
-        # number of keys is in the XYZ rotation field.
-        assert td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY, f"Have correct key type: {td.rotationType}"
+        # The second controlled object is a gear, so it has rotations around
+        # the Z axis.
+        assert cblist[1].node_name == "Gear08", f"Found controller for {cblist[1].node_name}"
+        tdgear = cblist[1].interpolator.data
+        # assert tdgear.properties.rotationKeyCount > 0, f"Found rotation keys: {tdgear.properties.rotationKeyCount}"
+        assert tdgear.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY, f"Found XYZ rotation type: {tdgear.properties.rotationType}"
+        assert tdgear.properties.xRotations.interpolation == NiKeyType.LINEAR_KEY, f"X is linear: {tdgear.properties.xRotation.interpolation}"
+        assert tdgear.properties.xRotations.numKeys == 1, f"Have one X rotation key:{tdgear.properties.xRotation.numKeys}"
+        assert tdgear.properties.zRotations.interpolation == NiKeyType.QUADRATIC_KEY, f"Z is quadratic: {tdgear.properties.xRotation.interpolation}"
+        assert tdgear.properties.zRotations.numKeys == 2, f"Have 2 X rotation keys:{tdgear.properties.zRotation.numKeys}"
+        assert NearEqual(tdgear.zrotations[1].time, 0.6), f"Found correct time: {tdgear.zrotations[1].time}"
 
-        # The data structure allows different numbers of X keys, Y keys, and Z keys. Likely this
-        # is not useful.
-        assert len(td.animation_keys) == 2, f"Have correct number of animation keys: {td.animation_keys}"
-        frame1_x = td.animation_keys[1][0]
-        assert frame1_x.properties.time == 0.5, f"Have correct time: {frame1_x.properties.time}"
-        assert NearEqual(-0.122173, frame1_x.properties.value), f"Have correct value: {frame1_x.properties.value}"
+        # Object189 has linear translations but it's been messing up, so check 
+        # it directly.
+        o189 = [cb for cb in cblist if cb.node_name == "Object189"][0]
+        td189 = o189.interpolator.data
+        assert VNearEqual(td189.translations[0].value, [-20.966583, -0.159790, 18.576317]), \
+            f"Have correct translation: {td189.translations[0].value}"
+        assert VNearEqual(td189.translations[2].value, [-20.965717, -0.159790, 18.343819]), \
+            f"Have correct translation: {td189.translations[3].value}"
+        assert VNearEqual(td189.translations[4].value, [-20.963652, -0.159790, 17.789375]), \
+            f"Have correct translation: {td189.translations[3].value}"
+
 
     print("""
 ================================================

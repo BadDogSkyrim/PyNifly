@@ -520,8 +520,17 @@ struct NiTransformDataBuf {
 	NiAnimatinoKeyGroupBuf scales;
 };
 
-struct NiAnimationKeyBuf {
-	uint32_t type = nifly::NiKeyType::NO_INTERP; // no IO, used for Sync condition only
+struct NiAnimKeyLinearTransBuf {
+	float time = 0.0f;
+	float value[3];
+};
+
+struct NiAnimKeyLinearXYZBuf {
+	float time = 0.0f;
+	float value;
+};
+
+struct NiAnimKeyQuadXYZBuf {
 	float time = 0.0f;
 	float value = 0.0f;
 	float forward = 0.0f;
@@ -616,8 +625,9 @@ extern "C" NIFLY_API void getMultiTargetTransformController(void* nifref, int mt
 extern "C" NIFLY_API int getTransformController(void* nifref, int nodeIndex, NiTransformControllerBuf* buf);
 extern "C" NIFLY_API void getTransformInterpolator(void* nifref, uint32_t tiID, NiTransformInterpolatorBuf * buf);
 extern "C" NIFLY_API int getTransformData(void* nifref, int nodeIndex, NiTransformDataBuf * buf);
-extern "C" NIFLY_API void getAnimationKeysXYZ(void* nifref, int tdID, int frame, NiAnimationKeyBuf buf[3]);
-extern "C" NIFLY_API void getAnimationKeysScale(void* nifref, int tdID, int frame, NiAnimationKeyBuf * buf);
+extern "C" NIFLY_API void getAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyQuadXYZBuf * buf);
+extern "C" NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyLinearXYZBuf * buf);
+extern "C" NIFLY_API void getAnimKeyLinearTrans(void* nifref, int tdID, int frame, NiAnimKeyLinearTransBuf * buf);
 extern "C" NIFLY_API int getTransformDataValues(void* nifref, int nodeIndex,
 	NiAnimationKeyQuatBuf * qBuf,
 	NiAnimationKeyFloatBuf * xRotBuf,
