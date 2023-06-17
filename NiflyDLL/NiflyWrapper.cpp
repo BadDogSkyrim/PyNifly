@@ -241,11 +241,37 @@ NIFLY_API int getNodeBlockname(void* node, char* buf, int buflen) {
     return int(name.length());
 }
 
+NIFLY_API void getNode(void* node, NiNodeBuf* buf) {
+    nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
+    buf->nameID = theNode->name.GetIndex();
+    buf->controllerID = theNode->controllerRef.index;
+    buf->extraDataCount = theNode->extraDataRefs.GetSize();
+    buf->flags = theNode->flags;
+    //buf->transform = theNode->transform;
+    for (int i = 0; i < 3; i++) buf->translation[i] = theNode->transform.translation[i];
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++)
+            buf->rotation[r][c] = theNode->transform.rotation[r][c];
+    buf->scale = theNode->transform.scale;
+    buf->collisionID = theNode->collisionRef.index;
+    buf->childCount = theNode->childRefs.GetSize();
+    buf->effectCount = theNode->effectRefs.GetSize();
+}
+
+NIFLY_API void* getNodeByID(void* theNif, uint32_t theID) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    NiHeader hdr = nif->GetHeader();
+    nifly::NiObject* node = hdr.GetBlock<NiObject>(theID);
+    return node;
+}
+
+// OBSOLETE
 NIFLY_API int getNodeFlags(void* node) {
     nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
     return theNode->flags;
 }
 
+// OBSOLETE
 NIFLY_API void setNodeFlags(void* node, int theFlags) {
     nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
     theNode->flags = theFlags;
@@ -266,6 +292,20 @@ NIFLY_API int getNodeName(void* node, char* buf, int buflen) {
     return int(name.length());
 }
 
+NIFLY_API void* getNodeController(void* nifref, void* node, NiControllerManagerBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
+    if (!theNode) return nullptr;
+
+    if (theNode->controllerRef.IsEmpty()) return nullptr;
+
+    auto ctrlr = hdr.GetBlock<NiNode>(theNode->controllerRef.index);
+    if (buf) getControllerManager(ctrlr, buf);
+
+    return ctrlr;
+}
+
 NIFLY_API void* getNodeParent(void* theNif, void* node) {
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
@@ -277,12 +317,6 @@ NIFLY_API void* addNode(void* f, const char* name, const MatTransform* xf, void*
     NiNode* parentNode = static_cast<NiNode*>(parent);
     NiNode* theNode = nif->AddNode(name, *xf, parentNode);
     return theNode;
-}
-
-NIFLY_API void* getNodeByID(void* theNif, uint32_t theID) {
-    NifFile* nif = static_cast<NifFile*>(theNif);
-    NiHeader hdr = nif->GetHeader();
-    return hdr.GetBlock<NiObject>(theID);
 }
 
 NIFLY_API void* findNodeByName(void* theNif, const char* nodeName) {
@@ -623,6 +657,7 @@ NIFLY_API void setShapeSkinToBone(void* nifPtr, void* shapePtr, const char* bone
         nif->SetShapeTransformSkinToBone(shape, boneID, buf);
 }
 
+// OBSOLETE
 NIFLY_API void getNodeTransform(void* theNode, MatTransform* buf) {
     nifly::NiNode* node = static_cast<nifly::NiNode*>(theNode);
     *buf = node->GetTransformToParent();
@@ -727,13 +762,18 @@ NIFLY_API int getShapeBoneWeights(void* theNif, void* theShape, int boneIndex,
     return numWeights;
 }
 
-NIFLY_API void addBoneToNifShape(void* nifref, void* shaperef, const char* boneName,
+NIFLY_API void* addBoneToNifShape(void* nifref, void* shaperef, const char* boneName,
     MatTransform* xformToParent, const char* parentName)
 /*  Add a bone to a shape, adding a node for it if needed. 
-*   NOTE this call removes any bone data--skin-to-bone transform and bone weights.
+* 
+*   NOTE this call removes any skin/bone data--skin-to-bone transform and bone weights.
 *   Add all bones to the shape first, then set skin-bone attributes.
+* 
+*   A NiNode is created for the bone if it doesn't already exist.
+* 
 *   xformToParent = Transform of the bone node must be present if the bone node doesn't yet exist.
 *   parentName is the parent for the new bone; it must exist if given. May be null. 
+*   Returns the handle of the NiNode representing the bone.
 */
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -755,6 +795,8 @@ NIFLY_API void addBoneToNifShape(void* nifref, void* shaperef, const char* boneN
     nif->SetShapeBoneIDList(shape, boneIDs);
 
     nif->SetShapeBoneTransform(shape, boneIndex, *xformToParent);
+
+    return node;
 }
 
 NIFLY_API void setShapeBoneWeights(void* nifref, void* shaperef, const char* boneName,
@@ -2654,6 +2696,21 @@ NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int f
     buf->value = k.value;
 }
 
+NIFLY_API void getAnimKeyLinearQuat(void* nifref, int tdID, int frame, NiAnimKeyLinearQuatBuf* buf)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::NiTransformData* td = hdr.GetBlock<NiTransformData>(tdID);
+
+    NiAnimationKey<Quaternion> k = td->quaternionKeys[frame];
+
+    buf->time = k.time;
+    buf->value[0] = k.value.w;
+    buf->value[1] = k.value.x;
+    buf->value[2] = k.value.y;
+    buf->value[3] = k.value.z;
+}
+
 NIFLY_API void getAnimKeyLinearTrans(void* nifref, int tdID, int frame, NiAnimKeyLinearTransBuf *buf)
 /* Return the linear animation key at frame "frame". */ {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -2665,6 +2722,20 @@ NIFLY_API void getAnimKeyLinearTrans(void* nifref, int tdID, int frame, NiAnimKe
     buf->value[0] = k.value[0];
     buf->value[1] = k.value[1];
     buf->value[2] = k.value[2];
+}
+
+
+NIFLY_API void getAnimKeyQuadTrans(void* nifref, int tdID, int frame, NiAnimKeyQuadTransBuf *buf)
+/* Return the quad animation key at frame "frame". */ {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::NiTransformData* td = hdr.GetBlock<NiTransformData>(tdID);
+    
+    auto k = td->translations.GetKey(frame);
+    buf->time = k.time;
+    for (int i=0; i < 3; i++) buf->value[i] = k.value[i];
+    for (int i=0; i < 3; i++) buf->forward[i] = k.forward[i];
+    for (int i=0; i < 3; i++) buf->backward[i] = k.backward[i];
 }
 
 

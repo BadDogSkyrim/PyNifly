@@ -21,15 +21,14 @@ NODEID_NONE = 4294967295
 def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
     nifly.addBoneToNifShape.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf), c_char_p]
-    nifly.addBoneToNifShape.restype = None
+    nifly.addBoneToNifShape.restype = c_void_p
     nifly.addCollBoxShape.argtypes = [c_void_p, POINTER(bhkBoxShapeProps)]
     nifly.addCollBoxShape.restype = c_int
     nifly.addCollCapsuleShape.argtypes = [c_void_p, POINTER(bhkCapsuleShapeProps)]
     nifly.addCollCapsuleShape.restype = c_int
     nifly.addCollConvexTransformShape.argtypes = [c_void_p, POINTER(bhkConvexTransformShapeProps)]
     nifly.addCollConvexTransformShape.restype = c_int
-    nifly.addCollConvexVertsShape.argtypes = [c_void_p, POINTER(bhkConvexVerticesShapeProps),
-                                              c_void_p, c_int, c_void_p, c_int]
+    nifly.addCollConvexVertsShape.argtypes = [c_void_p, POINTER(bhkConvexVerticesShapeProps), c_void_p, c_int, c_void_p, c_int]
     nifly.addCollConvexVertsShape.restype = c_int
     nifly.addCollision.argtypes = [c_void_p, c_void_p, c_int, c_int]
     nifly.addCollision.restype = c_void_p
@@ -37,10 +36,10 @@ def load_nifly(nifly_path):
     nifly.addCollListChild.restype = None
     nifly.addCollListShape.argtypes = [c_void_p, POINTER(bhkListShapeProps)]
     nifly.addCollListShape.restype = c_int
-    nifly.addRigidBody.argtypes = [c_void_p, c_char_p, c_uint32, POINTER(bhkRigidBodyProps)]
-    nifly.addRigidBody.restype = c_int
     nifly.addNode.argtypes = [c_void_p, c_char_p, POINTER(TransformBuf), c_void_p]
     nifly.addNode.restype = c_void_p
+    nifly.addRigidBody.argtypes = [c_void_p, c_char_p, c_uint32, POINTER(bhkRigidBodyProps)]
+    nifly.addRigidBody.restype = c_int
     nifly.calcShapeGlobalToSkin.argtypes = [c_void_p, c_void_p, POINTER(TransformBuf)]
     nifly.calcShapeGlobalToSkin.restype = None
     nifly.clearMessageLog.argtypes = []
@@ -59,14 +58,26 @@ def load_nifly(nifly_path):
     nifly.getAllShapeNames.restype = c_int
     nifly.getAlphaProperty.argtypes = [c_void_p, c_void_p, AlphaPropertyBuf_p]
     nifly.getAlphaProperty.restype = c_int
-    nifly.getAnimKeyQuadXYZ.argtypes = [c_void_p, c_int, c_char, c_int, POINTER(NiAnimKeyQuadXYZBuf)]
-    nifly.getAnimKeyQuadXYZ.restype = None
-    nifly.getAnimKeyLinearXYZ.argtypes = [c_void_p, c_int, c_char, c_int, POINTER(NiAnimKeyLinearXYZBuf)]
-    nifly.getAnimKeyLinearXYZ.restype = None
+    nifly.getAnimKeyLinearQuat.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyLinearQuatBuf)]
+    nifly.getAnimKeyLinearQuat.restype = None
     nifly.getAnimKeyLinearTrans.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyLinearTransBuf)]
     nifly.getAnimKeyLinearTrans.restype = None
+    nifly.getAnimKeyLinearXYZ.argtypes = [c_void_p, c_int, c_char, c_int, POINTER(NiAnimKeyLinearXYZBuf)]
+    nifly.getAnimKeyLinearXYZ.restype = None
+    nifly.getAnimKeyQuadTrans.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyQuadTransBuf)]
+    nifly.getAnimKeyQuadTrans.restype = None
+    nifly.getAnimKeyQuadXYZ.argtypes = [c_void_p, c_int, c_char, c_int, POINTER(NiAnimKeyQuadXYZBuf)]
+    nifly.getAnimKeyQuadXYZ.restype = None
+    nifly.getBGExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int, c_void_p]
+    nifly.getBGExtraData.restype = c_int
+    nifly.getBGExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
+    nifly.getBGExtraDataLen.restype = c_int
     nifly.getBSXFlags.argtypes = [c_void_p, c_void_p]
     nifly.getBSXFlags.restype = c_int
+    nifly.getClothExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int]
+    nifly.getClothExtraData.restype = c_int
+    nifly.getClothExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
+    nifly.getClothExtraDataLen.restype = c_int
     nifly.getCollBlockname.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getCollBlockname.restype = c_int
     nifly.getCollBodyBlockname.argtypes = [c_void_p, c_int, c_char_p, c_int]
@@ -101,10 +112,10 @@ def load_nifly(nifly_path):
     nifly.getCollTarget.restype = c_void_p
     nifly.getColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getColorsForShape.restype = c_int
-    nifly.getConnectPointParent.argtypes = [c_void_p, c_int, POINTER(ConnectPointBuf)]
-    nifly.getConnectPointParent.restype = c_int
     nifly.getConnectPointChild.argtypes = [c_void_p, c_int, c_char_p]
     nifly.getConnectPointChild.restype = c_int
+    nifly.getConnectPointParent.argtypes = [c_void_p, c_int, POINTER(ConnectPointBuf)]
+    nifly.getConnectPointParent.restype = c_int
     nifly.getControlledBlocks.argtypes = [c_void_p, c_int, c_int, POINTER(ControllerLinkBuf)]
     nifly.getControlledBlocks.restype = c_int
     nifly.getControllerManager.argtypes = [c_void_p, POINTER(NiControllerManagerBuf)]
@@ -126,22 +137,20 @@ def load_nifly(nifly_path):
     nifly.getMessageLog.restype = c_int
     nifly.getMultiTargetTransformController.argtypes = [c_void_p, c_int, POINTER(NiMultiTargetTransformControllerBuf)]
     nifly.getMultiTargetTransformController.restype = None
+    nifly.getNode.argtypes = [c_void_p, POINTER(NiNodeBuf)]
+    nifly.getNode.restype = None
     nifly.getNodeBlockname.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getNodeBlockname.restype = c_int
     nifly.getNodeByID.argtypes = [c_void_p, c_int]
     nifly.getNodeByID.restype = c_void_p
     nifly.getNodeCount.argtypes = [c_void_p]
     nifly.getNodeCount.restype = c_int
-    nifly.getNodeFlags.argtypes = [c_void_p]
-    nifly.getNodeFlags.restype = c_int
     nifly.getNodeName.argtypes = [c_void_p, c_void_p, c_int]
     nifly.getNodeName.restype = c_int
     nifly.getNodeParent.argtypes = [c_void_p, c_void_p]
     nifly.getNodeParent.restype = c_void_p
     nifly.getNodes.argtypes = [c_void_p, c_void_p]
     nifly.getNodes.restype = None
-    nifly.getNodeTransform.argtypes = [c_void_p, POINTER(TransformBuf)]
-    nifly.getNodeTransform.restype = None
     nifly.getNodeTransformToGlobal.argtypes = [c_void_p, c_char_p, POINTER(TransformBuf)]
     nifly.getNodeTransformToGlobal.restype = c_int
     nifly.getNormalsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
@@ -150,6 +159,10 @@ def load_nifly(nifly_path):
     nifly.getPartitions.restype = c_int
     nifly.getPartitionTris.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getPartitionTris.restype = c_int
+    nifly.getRigidBodyProps.argtypes = [c_void_p, c_int, POINTER(bhkRigidBodyProps)]
+    nifly.getRigidBodyProps.restype= c_int
+    nifly.getRigidBodyShapeID.argtypes = [c_void_p, c_int]
+    nifly.getRigidBodyShapeID.restype = c_int
     nifly.getRoot.argtypes = [c_void_p]
     nifly.getRoot.restype = c_void_p
     nifly.getRootName.argtypes = [c_void_p, c_char_p, c_int]
@@ -188,26 +201,16 @@ def load_nifly(nifly_path):
     nifly.getShapes.restype = c_int
     nifly.getShapeSkinToBone.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf)]
     nifly.getShapeSkinToBone.restype = c_bool
-    nifly.getBGExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int, c_void_p]
-    nifly.getBGExtraData.restype = c_int
-    nifly.getBGExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
-    nifly.getBGExtraDataLen.restype = c_int
-    nifly.getRigidBodyProps.argtypes = [c_void_p, c_int, POINTER(bhkRigidBodyProps)]
-    nifly.getRigidBodyProps.restype= c_int
-    nifly.getRigidBodyShapeID.argtypes = [c_void_p, c_int]
-    nifly.getRigidBodyShapeID.restype = c_int
     nifly.getString.argtypes = [c_void_p, c_int, c_int, c_char_p]
     nifly.getString.restype = None
     nifly.getStringExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int]
     nifly.getStringExtraData.restype = c_int
     nifly.getStringExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
     nifly.getStringExtraDataLen.restype = c_int
-    nifly.getClothExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
-    nifly.getClothExtraDataLen.restype = c_int
-    nifly.getClothExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int]
-    nifly.getClothExtraData.restype = c_int
     nifly.getSubsegments.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
     nifly.getSubsegments.restype = c_int
+    nifly.getTransformController.argtypes = [c_void_p, c_int, POINTER(NiTransformControllerBuf)]
+    nifly.getTransformController.restype = c_int
     nifly.getTransformData.argtypes = [c_void_p, c_int, POINTER(NiTransformDataBuf)]
     nifly.getTransformData.restype = c_int
     nifly.getTransformInterpolator.argtypes = [c_void_p, c_int, POINTER(NiTransformInterpolatorBuf)]
@@ -228,26 +231,32 @@ def load_nifly(nifly_path):
     nifly.segmentCount.restype = c_int
     nifly.setAlphaProperty.argtypes = [c_void_p, c_void_p, AlphaPropertyBuf_p]
     nifly.setAlphaProperty.restype = None
+    nifly.setBGExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
+    nifly.setBGExtraData.restype = None
     nifly.setBSXFlags.argtypes = [c_void_p, c_char_p, c_uint32]
     nifly.setBSXFlags.restype = None
+    nifly.setClothExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
+    nifly.setClothExtraData.restype = None
     nifly.setCollConvexTransformShapeChild.argtypes = [c_void_p, c_uint32, c_uint32]
     nifly.setCollConvexTransformShapeChild.restype = None
-    nifly.setEffectShaderAttrs.argtypes = [c_void_p, c_void_p, POINTER(BSESPAttrs)]
-    nifly.setEffectShaderAttrs.restype = None
-    nifly.setInvMarker.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p]
-    nifly.setInvMarker.restype = None
     nifly.setColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.setColorsForShape.restype = None
     nifly.setConnectPointsChild.argtypes = [c_void_p, c_int, c_int, c_char_p]
     nifly.setConnectPointsChild.restype = None
     nifly.setConnectPointsParent.argtypes = [c_void_p, c_int, POINTER(ConnectPointBuf)]
     nifly.setConnectPointsParent.restype = None
+    nifly.setEffectShaderAttrs.argtypes = [c_void_p, c_void_p, POINTER(BSESPAttrs)]
+    nifly.setEffectShaderAttrs.restype = None
     nifly.setFurnMarkers.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
     nifly.setFurnMarkers.restype = None
+    nifly.setInvMarker.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p]
+    nifly.setInvMarker.restype = None
     nifly.setNodeFlags.argtypes = [c_void_p, c_int]
     nifly.setNodeFlags.restype = None
     nifly.setPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int]
     nifly.setPartitions.restype = None
+    nifly.setSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_char_p]
+    nifly.setSegments.restype = None
     nifly.setShaderAttrs.argtypes = [c_void_p, c_void_p, POINTER(BSLSPAttrs)]
     nifly.setShaderAttrs.restype = None
     nifly.setShaderFlags1.argtypes = [c_void_p, c_void_p, c_uint32]
@@ -256,22 +265,16 @@ def load_nifly(nifly_path):
     nifly.setShapeBoneIDList.argtypes = [c_void_p, c_void_p, c_void_p, c_int]  
     nifly.setShapeBoneWeights.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(VERTEX_WEIGHT_PAIR), c_int]
     nifly.setShapeBoneWeights.restype = None
-    nifly.setShapeSkinToBone.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf)]
-    nifly.setShapeSkinToBone.restype = None
     nifly.setShapeGlobalToSkin.argtypes = [c_void_p, c_void_p, POINTER(TransformBuf)]
     nifly.setShapeGlobalToSkin.restype = None
+    nifly.setShapeSkinToBone.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf)]
+    nifly.setShapeSkinToBone.restype = None
     nifly.setStringExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p]
     nifly.setStringExtraData.restype = None
-    nifly.setBGExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
-    nifly.setBGExtraData.restype = None
-    nifly.setClothExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
-    nifly.setClothExtraData.restype = None
     nifly.setTransform.argtypes = [c_void_p, POINTER(TransformBuf)]
     nifly.setTransform.restype = None
     nifly.skinShape.argtypes = [c_void_p, c_void_p]
     nifly.skinShape.restype = None
-    nifly.setSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_char_p]
-    nifly.setSegments.restype = None
     return nifly
 
 # --- Helper Routines --- #
@@ -835,11 +838,6 @@ class CollisionObject:
 # --- NiObject -- #
 class NiObject:
     """ Represents any block in a nif file. """
-    _handle = None
-    _parent = None
-    id = NODEID_NONE
-    file = None
-    properties = None
 
     def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
         self._handle = handle
@@ -859,23 +857,45 @@ class NiObject:
 
 # --- NiNode --- #
 class NiNode(NiObject):
-    def __init__(self, handle=None, file=None, parent=None):
-        super().__init__(handle=handle, file=file, parent=parent)
-        self.transform = TransformBuf()
-
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None, name=""):
+        super().__init__(handle=handle, file=file, id=id, parent=parent)
+        self._name = ""
+        self._controller = None
+        
+        self.properties = NiNodeBuf()
         if not self._handle is None:
-            buf = create_string_buffer(256)
-            NifFile.nifly.getNodeName(self._handle, buf, 256)
+            NifFile.nifly.getNode(self._handle, self.properties)
+
+            buf = create_string_buffer(self.file.max_string_len+1)
+            NifFile.nifly.getNodeName(self._handle, buf, self.file.max_string_len+1)
             self.name = buf.value.decode('utf-8')
-            
-            NifFile.nifly.getNodeTransform(self._handle, self.transform)
+
+        if name: self.name = name
+
+    @property
+    def name(self):
+        return self._name
+    
+    @name.setter
+    def name(self, value):
+        self._name = value
+        if self.file: self.file.register_node(self)
+        
+    @property
+    def transform(self):
+        return self.properties.transform
+    
+    @transform.setter
+    def transform(self, value):
+        self.properties.transform = value
 
     @property
     def flags(self):
-        return NifFile.nifly.getNodeFlags(self._handle)
+        return self.properties.flags
 
     @flags.setter
     def flags(self, value):
+        self.properties.flags = value
         NifFile.nifly.setNodeFlags(self._handle, value)
 
     @property
@@ -905,39 +925,53 @@ class NiNode(NiObject):
             return CollisionObject(handle=n, file=self.file, parent=self)
         else:
             return None
+
+    @property
+    def controller(self):
+        if self._controller: return self._controller
         
+        self._controller = self.file.read_node(node_id=self.properties.controllerID, parent=self)
+        return self._controller
+
 
 class NiKeyFrameData(NiObject):
     pass
 
 
 class LinearScalarKey:
-    time = 0.0
-    value = 0.0
-
-    def __init__(self, buf):
+    def __init__(self, buf:NiAnimKeyLinearXYZBuf):
         self.time = buf.time
         self.value = buf.value
 
 class LinearVectorKey:
-    time = 0.0
-    value = []
-
     def __init__(self, buf):
         self.time = buf.time
         self.value = [buf.value[0], buf.value[1], buf.value[2]]
 
-class QuadScalarKey:
-    time = 0.0
-    value = 0.0
-    forward = 0.0
-    backward = 0.0
-
+class LinearQuatKey:
     def __init__(self, buf):
+        self.time = buf.time
+        self.value = [buf.value[0], buf.value[1], buf.value[2], buf.value[3]]
+
+class QuadScalarKey:
+    def __init__(self, buf:NiAnimKeyQuadXYZBuf):
         self.time = buf.time
         self.value = buf.value
         self.forward = buf.forward
         self.backward = buf.backward
+
+class QuadVectorKey:
+    time = 0.0
+    value = []
+    forward = 0.0
+    backward = 0.0
+
+    def __init__(self, buf:NiAnimKeyQuadTransBuf):
+        self.time = buf.time
+        self.value = buf.value[:]
+        self.forward = buf.forward[:]
+        self.backward = buf.backward[:]
+
 
 class NiTransformData(NiKeyFrameData):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
@@ -949,52 +983,60 @@ class NiTransformData(NiKeyFrameData):
         self.xrotations = []
         self.yrotations = []
         self.zrotations = []
+        self.qrotations = []
         self.translations = []
         self.scales = []
 
-        dimension = c_char()
-        dimension.value = 'X'.encode('utf-8')
-        for frame in range(0, self.properties.xRotations.numKeys):
-            if self.properties.xRotations.interpolation == NiKeyType.QUADRATIC_KEY:
-                buf = NiAnimKeyQuadXYZBuf()
-                NifFile.nifly.getAnimKeyQuadXYZ(self.file._handle, self.id, dimension, frame, buf)
-                k = QuadScalarKey(buf)
-            elif self.properties.xRotations.interpolation == NiKeyType.LINEAR_KEY:
-                buf = NiAnimKeyLinearXYZBuf()
-                NifFile.nifly.getAnimKeyLinearXYZ(self.file._handle, self.id, dimension, frame, buf)
-                k = LinearScalarKey(buf)
-            self.xrotations.append(k)
-
-        dimension.value = 'Y'.encode('utf-8')
-        for frame in range(0, self.properties.yRotations.numKeys):
-            if self.properties.yRotations.interpolation == NiKeyType.QUADRATIC_KEY:
-                buf = NiAnimKeyQuadXYZBuf()
-                NifFile.nifly.getAnimKeyQuadXYZ(self.file._handle, self.id, dimension, frame, buf)
-                k = QuadScalarKey(buf)
-            elif self.properties.yRotations.interpolation == NiKeyType.LINEAR_KEY:
-                buf = NiAnimKeyLinearXYZBuf()
-                NifFile.nifly.getAnimKeyLinearXYZ(self.file._handle, self.id, dimension, frame, buf)
-                k = LinearScalarKey(buf)
-            self.yrotations.append(k)
-
-        dimension.value = 'Z'.encode('utf-8')
-        for frame in range(0, self.properties.zRotations.numKeys):
-            if self.properties.zRotations.interpolation == NiKeyType.QUADRATIC_KEY:
-                buf = NiAnimKeyQuadXYZBuf()
-                NifFile.nifly.getAnimKeyQuadXYZ(self.file._handle, self.id, dimension, frame, buf)
-                k = QuadScalarKey(buf)
-            elif self.properties.zRotations.interpolation == NiKeyType.LINEAR_KEY:
-                buf = NiAnimKeyLinearXYZBuf()
-                NifFile.nifly.getAnimKeyLinearXYZ(self.file._handle, self.id, dimension, frame, buf)
-                k = LinearScalarKey(buf)
-            self.zrotations.append(k)
+        if self.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
+            self._readxyzrot()
+        elif self.properties.rotationType == NiKeyType.LINEAR_KEY:
+            self._readlinrot()
 
         for frame in range(0, self.properties.translations.numKeys):
             if self.properties.translations.interpolation == NiKeyType.LINEAR_KEY:
                 buf = NiAnimKeyLinearTransBuf()
                 NifFile.nifly.getAnimKeyLinearTrans(self.file._handle, self.id, frame, buf)
                 k = LinearVectorKey(buf)
+            elif self.properties.translations.interpolation == NiKeyType.QUADRATIC_KEY:
+                buf = NiAnimKeyQuadTransBuf()
+                NifFile.nifly.getAnimKeyQuadTrans(self.file._handle, self.id, frame, buf)
+                k = QuadVectorKey(buf)
+            else:
+                NifFile.log.warning(f"Found unknown key type: {self.properties.translations.interpolation}")
             self.translations.append(k)
+
+    def _readlinrot(self):
+        """Read keys when the type is LINEAR_KEY. These are time, value pairs where the
+        value is a quaternion. """
+        for frame in range(0, self.properties.rotationKeyCount):
+            buf = NiAnimKeyLinearQuatBuf()
+            NifFile.nifly.getAnimKeyLinearQuat(self.file._handle, self.id, frame, buf)
+            k = LinearQuatKey(buf)
+            self.qrotations.append(k)
+
+
+    def _readxyzrot(self):
+        """Read keys when the type is XYZ_ROTATION_KEY. X, Y, and Z values are in separate
+        lists and each can have a different key type. """
+        for d, p, v in [('X', self.properties.xRotations, self.xrotations), 
+                        ('Y', self.properties.yRotations, self.yrotations), 
+                        ('Z', self.properties.zRotations, self.zrotations)]:
+            for f in range(0, p.numKeys):
+                k = self._readrotkey(d, f, p)
+                v.append(k)
+
+    def _readrotkey(self, d, frame, rots):
+        dimension = c_char()
+        dimension.value = d.encode('utf-8')
+        if rots.interpolation == NiKeyType.QUADRATIC_KEY:
+            buf = NiAnimKeyQuadXYZBuf()
+            NifFile.nifly.getAnimKeyQuadXYZ(self.file._handle, self.id, dimension, frame, buf)
+            k = QuadScalarKey(buf)
+        elif rots.interpolation == NiKeyType.LINEAR_KEY:
+            buf = NiAnimKeyLinearXYZBuf()
+            NifFile.nifly.getAnimKeyLinearXYZ(self.file._handle, self.id, dimension, frame, buf)
+            k = LinearScalarKey(buf)
+        return k
 
 
 class NiTransformInterpolator(NiObject):
@@ -1015,6 +1057,9 @@ class NiTransformInterpolator(NiObject):
 
         
 class NiTimeController(NiObject):
+    """Abstract class for time controllers. Keeping the chain of subclasses below
+    because we'll likely need them eventually.
+    """
     @property 
     def next_controller(self):
         if self.properties.nextControllerID == NODEID_NONE:
@@ -1027,11 +1072,33 @@ class NiInterpController(NiTimeController):
     pass
 
 
+class NiSingleInterpController(NiInterpController):
+    @property 
+    def interpolator(self):
+        if self.properties.interpolatorID == NODEID_NONE:
+            return None
+        else:
+            return self.file.read_node(node_id=self.properties.interpolatorID,
+                                       parent=self)
+
+
+class NiKeyframeController(NiSingleInterpController):
+    pass
+
+
+class NiTransformController(NiKeyframeController):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
+        super().__init__(handle=handle, file=file, id=id, parent=parent)
+        self.properties = NiTransformControllerBuf()
+        NifFile.nifly.getTransformController(self.file._handle, self.id, self.properties)
+
+
 class NiMultiTargetTransformController(NiInterpController):
-    def __init__(self, handle, file, id):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
         super().__init__(handle=handle, file=file, id=id)
         self.properties = NiMultiTargetTransformControllerBuf()
-        NifFile.nifly.getMultiTargetTransformController(self.file._handle, self.id, self.properties)
+        NifFile.nifly.getMultiTargetTransformController(
+            self.file._handle, self.id, self.properties)
     
 
 class ControllerLink:
@@ -1114,13 +1181,13 @@ class NiControllerSequence(NiSequence):
 class NiControllerManager(NiTimeController):
     _controller_manager_sequences = None
 
-    def __init__(self, handle=None, file=None, parent=None):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
         super().__init__(handle=handle, file=file, parent=parent)
         self.properties = NiControllerManagerBuf()
         NifFile.nifly.getControllerManager(handle, self.properties)
 
     @property
-    def controller_manager_seqs(self):
+    def sequences(self):
         if self._controller_manager_sequences:
             return self._controller_manager_sequences
         
@@ -1539,10 +1606,11 @@ class NiShape(NiNode):
         par = None
         if parent_name:
             par = parent_name.encode('utf-8')
-        NifFile.nifly.addBoneToNifShape(self.file._handle, self._handle, 
-                                        bone_name.encode('utf-8'), buf,
-                                        par)
-        self.file._nodes = None # So that we find the bone node if we look for it
+        
+        h = NifFile.nifly.addBoneToNifShape(self.file._handle, self._handle, 
+                                            bone_name.encode('utf-8'), buf,
+                                            par)
+        NiNode(handle=h, file=self.file, name=bone_name)
 
     #def set_global_to_skindata(self, xform):
     #    """ Sets the NiSkinData transformation. Only call this on nifs that have them. """
@@ -1579,7 +1647,7 @@ class NiShape(NiNode):
         if len(partitionlist) == 0:
             return
 
-        parts = list(filter(lambda x: type(x) in [SkyPartition, FO4Segment], partitionlist))
+        parts = list(filter(lambda x: type(x).__name__ in ["SkyPartition", "FO4Segment"], partitionlist))
         if len(parts) == 0:
             return
 
@@ -1589,7 +1657,7 @@ class NiShape(NiNode):
         
         tbuf = (c_uint16 * len(trilist))()
 
-        if type(parts[0]) == SkyPartition:
+        if type(parts[0]).__name__ == "SkyPartition":
             # the trilist passed in refers to partition IDs, but nifly wants indices into
             # the given partition list.
             pbuf = (c_uint16 * 2 * len(parts))()
@@ -1722,6 +1790,8 @@ class NifFile:
                                                rt,
                                                root_name.encode('utf-8'))
         self.dict = gameSkeletons[target_game]
+        # Get the root node into the nodes list so it can be found.
+        NiNode(handle=self.root, file=self, name=self.rootName)
 
     def save(self):
         for sh in self.shapes:
@@ -1733,6 +1803,7 @@ class NifFile:
             NifFile.nifly.saveNif(self._handle, self.filepath.encode('utf-8'))
 
     def add_node(self, name, xform, parent=None):
+        """Add NiNode object to the file."""
         phandle = None
         if parent:
             if type(parent) == str:
@@ -1863,14 +1934,19 @@ class NifFile:
     
     @property
     def root(self):
-        """Return handle of root node"""
+        """Return handle of root node."""
         if self._root is None:
             self._root = NifFile.nifly.getRoot(self._handle)
         return self._root
 
     @property 
-    def rootNode(self):
-        return self.nodes[self.rootName]
+    def rootNode(self) -> NiNode:
+        """Return the root node of the nif. 
+        Note this causes all nodes to be loaded and nif.nodes to be filled.
+        """
+        if self.rootName in self.nodes: return self.nodes[self.rootName]
+        # Root should always have been loaded, if the file has been loaded or initialized.
+        return None
     
     @property
     def game(self):
@@ -1921,6 +1997,9 @@ class NifFile:
                 return s
         return None
 
+    def register_node(self, n):
+        if n.name: self.nodes[n.name] = n
+
     @property
     def nodes(self):
         """Dictionary of nodes in the nif, indexed by node name"""
@@ -1932,7 +2011,6 @@ class NifFile:
             NifFile.nifly.getNodes(self._handle, buf)
             for h in buf:
                 this_node = NiNode(handle=h, file=self)
-                self._nodes[this_node.name] = this_node
         return self._nodes
 
     def nodeByHandle(self, desired_handle):
@@ -2139,16 +2217,28 @@ class NifFile:
         NifFile.nifly.getMessageLog(buf, msgsize)
         return buf.value.decode('utf-8')
 
-    def read_node(self, node_id):
+    # These are the types of blocks we can create from an ID. Eventaully should probably
+    # be all of them. This could be done with reflection but we're keeping things simple.
+    block_types = {
+        "NiNode": NiNode,
+        "NiMultiTargetTransformController": NiMultiTargetTransformController,
+        "NiControllerSequence": NiControllerSequence,
+        "NiTransformController": NiTransformController,
+        "NiTransformInterpolator": NiTransformInterpolator,
+        "NiControllerManager": NiControllerManager,
+    }
+
+    def read_node(self, node_id, parent=None):
+        """Return a node object for the given node ID. The node might be anything,
+        so use the block name to determine what kind of object to create. 
+        """
         buf = (c_char * (128))()
         hndl = NifFile.nifly.getNodeByID(self._handle, node_id)
         if hndl:
             NifFile.nifly.getNodeBlockname(hndl, buf, 128)
             bn = buf.value.decode('utf-8')
-            if bn == "NiNode":
-                return NiNode(hndl, self, parent)
-            elif bn == "NiMultiTargetTransformController":
-                return NiMultiTargetTransformController(hndl, self, id=node_id)
+            if bn in NifFile.block_types:
+                return NifFile.block_types[bn](handle=hndl, id=node_id, file=self, parent=parent)
         else:
             return None
         
@@ -2162,11 +2252,11 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
-TEST_CREATE_TETRA = False
+TEST_CREATE_TETRA = True
 TEST_CREATE_WEIGHTS = False
 TEST_READ_WRITE = False
 TEST_XFORM_FO = False
@@ -2207,7 +2297,8 @@ TEST_MANY_SHAPES = False
 TEST_CONNECT_POINTS = False
 TEST_SKIN_BONE_XF = False
 TEST_WEIGHTS_BY_BONE = False
-TEST_ANIMATION = True
+TEST_ANIMATION = False
+TEST_ANIMATION_ALDUIN = True
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -2425,7 +2516,7 @@ if __name__ == "__main__":
     
         # Bones are represented as nodes on the NifFile. Bones don't have a special type
         # in the nif, so we just bring in all NiNodes. Bones have names and transforms.
-        assert len(f1.nodes) == 30, "ERROR: Number of bones incorrect"
+        assert len([n for n in f1.nodes.values() if type(n) == NiNode]) == 30, "ERROR: Number of bones incorrect"
         uatw = f1.nodes["NPC R UpperarmTwist2 [RUt2]"]
         assert uatw.name == "NPC R UpperarmTwist2 [RUt2]", "ERROR: Node name wrong"
         assert VNearEqual(uatw.transform.translation, [15.8788, -5.1873, 100.1124]), \
@@ -2481,11 +2572,13 @@ if __name__ == "__main__":
         # Can create a shape in one call by passing in these lists
         newf = NifFile()
         newf.initialize("SKYRIM", "tests/out/testnew01.nif")
+        newf.rootNode.flags = 14
         newf.createShapeFromData("FirstShape", verts, tris, uvs, norms)
         newf.save()
 
         newf_in = NifFile("tests/out/testnew01.nif")
         assert newf_in.shapes[0].name == "FirstShape", "ERROR: Didn't get expected shape back"
+        assert newf_in.rootNode.flags == 14, f"Have correct flags: {newf_in.rootNode.flags}"
     
         # Skyrim and FO4 work the same way
         newf2 = NifFile()
@@ -3790,29 +3883,29 @@ if __name__ == "__main__":
     if TEST_ALL or TEST_ANIMATION:
         print("### TEST_ANIMATION: Embedded animations")
         nif = NifFile(r"tests/Skyrim/dwechest01.nif")
-        root = nif.root
+        root = nif.rootNode
         assert nif.max_string_len > 10, f"Have reasonable {nif.max_string_len}"
 
-        # NiControllerManager is at the top of the animation hierarchy. There can be one
-        # direct child of the root. Not sure if there can be more than one, or if they can
-        # be lower down in the node tree.
-        assert len(nif.controller_managers) == 1, f"Found a controller manager"
-        cm = nif.controller_managers[0]
+        # Any node can have a controller, including the root. This nif has a 
+        # NiControllerManager, which coordinates multiple animations.
+        cm = root.controller
+        # assert len(nif.controller_managers) == 1, f"Found a controller manager"
+        # cm = nif.controller_managers[0]
         assert cm.properties.frequency == 1.0, f"Have correct frequency: {cm.properties.frequency}"
         assert cm.properties.nextControllerID == 3, f"Have correct next controller: {cm.properties.nextControllerID}"
         assert cm.properties.flags == 76, f"Have correct flags: {cm.properties.flags}"
 
-        # Controllers can apparently be chained. 
+        # Controllers can be chained. 
         mttc = cm.next_controller
         assert mttc.properties.flags == 108, f"Have correct flag: {mttc.properties.flags}"
         assert mttc.next_controller is None, f"MTTC does not have next controller: {mttc.next_controller}"
 
         # Controller sequences describe the actual animations. Each has name indicating
         # what it does. For the chest, they open or close the lid.
-        assert len(cm.controller_manager_seqs) == 2, f"Have 2 controller manager sequences: {cm.controller_manager_seqs}"
-        cm_names = set(cm.controller_manager_seqs.keys())
+        assert len(cm.sequences) == 2, f"Have 2 controller manager sequences: {cm.sequences}"
+        cm_names = set(cm.sequences.keys())
         assert cm_names == set(["Open", "Close"]), f"Have correct name: {cm_names}"
-        cm_open = cm.controller_manager_seqs['Open']
+        cm_open = cm.sequences['Open']
         assert NearEqual(cm_open.properties.stopTime, 0.6), f"Have correct stop time: {cm_open.properties.stopTime}"
 
         # The controlled block is the thing that's actually getting animated, referenced
@@ -3857,6 +3950,29 @@ if __name__ == "__main__":
             f"Have correct translation: {td189.translations[3].value}"
         assert VNearEqual(td189.translations[4].value, [-20.963652, -0.159790, 17.789375]), \
             f"Have correct translation: {td189.translations[3].value}"
+
+
+    if TEST_ALL or TEST_ANIMATION_ALDUIN:
+        print("### TEST_ANIMATION_ALDUIN: Animated skinned nif")
+        nif = NifFile(r"tests/SkyrimSE/loadscreenalduinwall.nif")
+        tail2 = nif.nodes["NPC Tail2"]
+        assert tail2.controller is not None, f"Have transform controller"
+        assert tail2.controller.blockname == "NiTransformController", f"Created type correctly"
+        tdtail2 = tail2.controller.interpolator.data
+        assert tdtail2.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY, f"Have correct rotation type"
+        assert tdtail2.properties.xRotations.numKeys == 16, f"Have correct number of keys"
+        assert tdtail2.translations[0].time == 0, f"Have 0 time value"
+        assert VNearEqual(tdtail2.translations[0].value, [94.485031, 0, 0]), f"Have 0 location value"
+        assert tdtail2.translations[15].time == 28.0, f"Have 15 time value"
+        assert VNearEqual(tdtail2.translations[15].value, [94.485031, 0, 0]), f"Have 0 location value"
+        
+        # Lots of these rotations are LINEAR_KEY which means they're coded as a sequence
+        # of quaternions.
+        thighl = nif.nodes["NPC LLegThigh"]
+        tdthighl = thighl.controller.interpolator.data
+        assert len(tdthighl.xrotations) == 0, f"Have xrotations"
+        assert len(tdthighl.qrotations) == 161, f"Have quat rotations"
+        assert tdthighl.qrotations[0].value[0] == 213.85, f"Have correct angle"
 
 
     print("""

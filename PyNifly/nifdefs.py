@@ -951,6 +951,18 @@ class ConnectPointBuf(pynStructure):
         ("translation", VECTOR3),
         ("scale", c_float)]
     
+class NiNodeBuf(pynStructure):
+    _fields_ = [
+        ("nameID", c_uint32),
+        ("controllerID", c_uint32),
+        ("extraDataCount", c_uint16),
+        ("flags", c_uint32),
+        ("transform", TransformBuf),
+        ("collisionID", c_uint32),
+        ("childCount", c_uint16),
+        ("effectCount", c_uint16),
+    ]
+
 class NiControllerManagerBuf(pynStructure):
     _fields_ = [
         ("nextControllerID", c_uint32),
@@ -1004,6 +1016,24 @@ class ControllerLinkBuf(pynStructure):
         ("interpID", c_uint32),
     ]
 
+class NiTransformControllerBuf(pynStructure):
+    _fields_ = [
+        ("interpolatorID", c_uint32),
+        ("nextControllerID", c_uint32),
+        ("flags", c_uint16),
+            # Bit 0 : Anim type, 0 = APP_TIME 1 = APP_INIT
+            # Bit 1 - 2 : Cycle type, 00 = Loop 01 = Reverse 10 = Clamp
+            # Bit 3 : Active
+            # Bit 4 : Play backwards
+            # Bit 5 : Is manager controlled
+            # Bit 6 : Always seems to be set in Skyrim and Fallout NIFs, unknown function 
+        ("frequency", c_float),
+        ("phase", c_float),
+        ("startTime", c_float),
+        ("stopTime", c_float),
+        ("targetIndex", c_uint32),
+    ]
+
 class NiTransformInterpolatorBuf(pynStructure):
     _fields_ = [
         ("translation", VECTOR3),
@@ -1043,10 +1073,24 @@ class NiAnimKeyLinearXYZBuf(pynStructure):
         ("value", c_float)
     ]
 
+class NiAnimKeyLinearQuatBuf(pynStructure):
+    _fields_ = [
+        ("time", c_float),
+        ("value", VECTOR4)
+    ]
+
 class NiAnimKeyLinearTransBuf(pynStructure):
     _fields_ = [
         ("time", c_float),
         ("value", VECTOR3)
+    ]
+
+class NiAnimKeyQuadTransBuf(pynStructure):
+    _fields_ = [
+        ("time", c_float),
+        ("value", VECTOR3),
+        ("forward", VECTOR3),
+        ("backward", VECTOR3),
     ]
 
 class NiKeyType(PynIntEnum):

@@ -20,7 +20,7 @@ import os
 import os.path
 import logging
 import traceback
-from mathutils import Matrix, Vector, Quaternion, geometry
+from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 import codecs
 
 logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
@@ -98,6 +98,7 @@ EXPORT_POSE_DEF = False
 IMPORT_SHAPES_DEF = True
 PRESERVE_HIERARCHY_DEF = False
 RENAME_BONES_DEF = True
+IMPORT_ANIMS_DEF = True
 RENAME_BONES_NIFT_DEF = False
 ROLL_BONES_NIFT_DEF = False
 SCALE_DEF = 1.0
@@ -232,15 +233,22 @@ def is_compatible_skeleton(skin_xf:Matrix, shape:NiShape, skel:NifFile) -> bool:
     It's compatible if the shape's bones' bind positions are the same as the
     skeleton's bones. 
     """
-    if shape.has_global_to_skin:
-        gts = shape.global_to_skin.as_matrix().inverted()  
-    else: 
-        gts = Matrix.Identity(4)
+    # if True or shape.has_global_to_skin:
+    # Global-to-skin is calculated for FO4, taken from the NiSkinData for Skyrim.
+    # It's a consistent transform applied to all bones.
+    # BUT the transform should already have been applied to the obj, even for 
+    # FO4. So don't do it again here.
+    # gts = shape.global_to_skin.as_matrix().inverted()  
+    # else: 
+    #     gts = Matrix.Identity(4)
     for b in shape.bone_names:
         if b in skel.nodes:
+            #m1 = gts @ (skin_xf @ shape.get_shape_skin_to_bone(b).as_matrix().inverted())
             m1 = skin_xf @ shape.get_shape_skin_to_bone(b).as_matrix().inverted()
             m2 = skel.nodes[b].xform_to_global.as_matrix()
-            if not MatNearEqual(m1, m2, 0.01):
+            # We give a fairly generous allowance for how close is close enough. 0.03 
+            # allows the FO4 meshes to be parented to their skeletons. 
+            if not MatNearEqual(m1, m2, 0.03):
                 log.debug(f"Skeleton not compatible on {b}: \n{m1} != \n{m2}")
                 return False
     return True
@@ -286,10 +294,13 @@ def mesh_create_partition_groups(the_shape, the_object):
     for p in the_shape.partitions:
         new_vg = vg.new(name=p.name)
         partn_groups.append(new_vg)
-        if type(p) == FO4Segment:
+        try:
+            # Walk through subsegments, if any. Skyrim doesn't have them.
             for sseg in p.subsegments:
                 new_vg = vg.new(name=sseg.name)
                 partn_groups.append(new_vg)
+        except:
+            pass
     for part_idx, face in zip(the_shape.partition_tris, mesh.polygons):
         if part_idx < len(partn_groups):
             this_vg = partn_groups[part_idx]
@@ -351,6 +362,7 @@ class NifImporter():
 
         self.create_bones = CREATE_BONES_DEF
         self.rename_bones = RENAME_BONES_DEF
+        self.import_anims = IMPORT_ANIMS_DEF
         self.rename_bones_nift = RENAME_BONES_NIFT_DEF
         self.roll_bones_nift = ROLL_BONES_NIFT_DEF
         self.import_shapes = IMPORT_SHAPES_DEF
@@ -405,7 +417,7 @@ class NifImporter():
         scale_factor is used to transform vert locations so it's not needed on the
         transform.
         """
-        if (type(the_shape) != NiShape) or (not the_shape.has_skin_instance):
+        if not hasattr(the_shape, "has_skin_instance") or not the_shape.has_skin_instance:
             # Statics get transformed according to the shape's transform
             return apply_scale_xf(the_shape.transform.as_matrix(), scale_factor)
 
@@ -928,6 +940,39 @@ class NifImporter():
         return bone_xf
     
 
+    def check_armature(self, obj, shape, arma):
+        """Check whether an armature is consistent with the shape's bone bind positioins. 
+        If a single transform will make the armature consistent, return that transform. 
+
+        Returns
+        * is_ok - armature is consistent
+        * offset_xf - necessary offset from armature to shape
+        """
+        is_ok = True
+        offset_xf = None
+        offset_consistent = True
+
+        for b in shape.bone_names:
+            blend_name = self.blender_name(b)
+            if blend_name in arma.data.bones:
+                shape_bone_xf = obj.matrix_world @ apply_scale_xf(bind_position(shape, b), self.scale) # shape.get_shape_skin_to_bone(b).as_matrix()
+                arma_xf = get_bone_xform(arma, blend_name, shape.file.game, False, False)
+                LogIfBone(b, f"<find_compatible_arma> Shape {b}: {shape.name} = {shape_bone_xf.translation}")
+                LogIfBone(b, f"<find_compatible_arma> Armature {blend_name}: {arma.name} = {arma_xf.translation}")
+                if not MatNearEqual(shape_bone_xf, arma_xf):
+                    is_ok = False
+                    this_offset = shape_bone_xf @ arma_xf 
+                    if offset_xf:
+                        if not MatNearEqual(this_offset, offset_xf):
+                            offset_consistent = False
+                                #log.debug(f"Offsets different for {b}: {this_offset.translation} != {offset_xf.translation}")
+                            break
+                    else:
+                        offset_xf = this_offset
+        
+        return is_ok, offset_xf, offset_consistent
+
+
     def find_compatible_arma(self, obj, armatures:list):
         """Look through the list of armatures and find one that can be used by the shape. 
 
@@ -935,9 +980,13 @@ class NifImporter():
         bones in the skin have to be the same as the edit positions of the bones in the
         armature. 
 
-        If there's not a match, it may be that the bind positions were all offset by the 
+        If there's not a match, it may be that the bind positions were all offset by the
         same amount--just a transpose. If so, we could add this transpose to the skin
         transform and then we can use the same armature.
+
+        If there's no armature, the shape might be compatible with the reference skeleton.
+        if so, we return no armature but do return a transform for the reference skeleton
+        (if needed).
 
         Returns (armature, transform-matrix), or None.
         """
@@ -945,27 +994,7 @@ class NifImporter():
         shape = self.nodes_loaded[obj.name]
 
         for arma in armatures:
-            is_ok = True
-            offset_xf = None
-            offset_consistent = True
-
-            for b in shape.bone_names:
-                blend_name = self.blender_name(b)
-                if blend_name in arma.data.bones:
-                    shape_bone_xf = obj.matrix_world @ apply_scale_xf(bind_position(shape, b), self.scale) # shape.get_shape_skin_to_bone(b).as_matrix()
-                    arma_xf = get_bone_xform(arma, blend_name, shape.file.game, False, False)
-                    LogIfBone(b, f"<find_compatible_arma> Shape {b}: {shape.name} = {shape_bone_xf.translation}")
-                    LogIfBone(b, f"<find_compatible_arma> Armature {blend_name}: {arma.name} = {arma_xf.translation}")
-                    if not MatNearEqual(shape_bone_xf, arma_xf):
-                        is_ok = False
-                        this_offset = shape_bone_xf @ arma_xf 
-                        if offset_xf:
-                            if not MatNearEqual(this_offset, offset_xf):
-                                offset_consistent = False
-                                #log.debug(f"Offsets different for {b}: {this_offset.translation} != {offset_xf.translation}")
-                                break
-                        else:
-                            offset_xf = this_offset
+            is_ok, offset_xf, offset_consistent = self.check_armature(obj, shape, arma)
             if is_ok:
                 #log.debug(f"Armature {arma.name} ok for shape {shape.name} with offset {offset_xf.translation if offset_xf else 'Identity'}")
                 return arma, offset_xf
@@ -976,7 +1005,6 @@ class NifImporter():
                 #log.debug(f"Armature {arma.name} NOT ok, inconsistent offsets")
                 return None, None
         return None, None
-
 
     def add_bone_to_arma(self, arma, bone_name:str, nifname:str):
         """Add bone to armature. Bone may come from nif or reference skeleton.
@@ -1278,6 +1306,37 @@ class NifImporter():
         ObjectActive(obj)
 
         return arma
+    
+
+    def animate_bone(self, arma, boneobj, bone:NiNode):
+        if not bone.controller: return
+
+        p = bone.controller.properties
+        bpy.context.scene.frame_end = 1 + int(p.stopTime - p.startTime) * bpy.context.scene.render.fps
+
+        if not arma.animation_data: arma.animation_data_create()
+        a = arma.animation_data.action
+        if not a:
+            action_name = arma.name
+            a = bpy.data.actions.new(action_name)
+            a.use_fake_user = True
+            a.asset_mark()
+            arma.animation_data.action = a
+        
+        self.import_interpolator(bone.controller.interpolator, 
+                                 arma, 
+                                 a, 
+                                 boneobj.name,
+                                 f'pose.bones["{boneobj.name}"]')
+
+
+    def animate_armature(self, arma):
+        """Load any animations associated with the armature."""
+        if not self.import_anims: return
+        for b in arma.data.bones:
+            nifname = self.nif_name(b.name)
+            if nifname in self.nif.nodes: 
+                self.animate_bone(arma, b, self.nif.nodes[nifname])
 
 
     # ------- COLLISION IMPORT --------
@@ -1530,35 +1589,97 @@ class NifImporter():
     # ----- Begin Animations ----
 
     def import_interpolator(self, ti:NiTransformInterpolator, target_node:bpy.types.Object, 
-                            action:bpy.types.Action):
+                            action:bpy.types.Action, group_name, path_name):
         """Import an interpolator, including its data block."""
+        tiq = Quaternion(ti.properties.rotation)
+        qinv = tiq.inverted()
+        tixf = MatrixLocRotScale(ti.properties.translation,
+                                 Quaternion(ti.properties.rotation),
+                                 [1.0]*3)
+        tixf.invert()
+        locbase = tixf.translation
+        rotbase = tixf.to_euler()
+        quatbase = tixf.to_quaternion()
+        scalebase = -ti.properties.scale
         td = ti.data
         fps = bpy.context.scene.render.fps
-        group_name = "Object Transforms"
 
-        if td.xrotations or td.yrotations or td.zrotations:
-            if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
-                curveX = action.fcurves.new("rotation_euler", index=0, action_group=group_name)
-                curveY = action.fcurves.new("rotation_euler", index=1, action_group=group_name)
-                curveZ = action.fcurves.new("rotation_euler", index=2, action_group=group_name)
+        if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
+            if td.xrotations or td.yrotations or td.zrotations:
+                curveX = action.fcurves.new(f"{path_name}.rotation_euler", index=0, action_group=group_name)
+                curveY = action.fcurves.new(f"{path_name}.rotation_euler", index=1, action_group=group_name)
+                curveZ = action.fcurves.new(f"{path_name}.rotation_euler", index=2, action_group=group_name)
 
-                for k in td.xrotations:
-                    curveX.keyframe_points.insert(k.time * fps + 1, k.value)
-                for k in td.yrotations:
-                    curveY.keyframe_points.insert(k.time * fps + 1, k.value)
-                for k in td.zrotations:
-                    curveZ.keyframe_points.insert(k.time * fps + 1, k.value)
-            else:
-                self.add_warning(f"Nif contains unimplemented rotation type: {td.properties.rotationType}")
+                if False and len(td.xrotations) == len(td.yrotations) and len(td.xrotations) == len(td.zrotations):
+                    for x, y, z in zip(td.xrotations, td.yrotations, td.zrotations):
+                        e = Euler(Vector((x.value, y.value, z.value)), 'XYZ')
+                        vq = qinv @ e.to_quaternion()
+                        ve = vq.to_euler()
+                        curveX.keyframe_points.insert(x.time * fps + 1, x.value - ve[0])
+                        curveY.keyframe_points.insert(y.time * fps + 1, y.value - ve[1])
+                        curveZ.keyframe_points.insert(z.time * fps + 1, z.value - ve[2])
+                        
+                else:
+                    # This method of getting the inverse of the Euler doesn't always
+                    # work-- not sure why. Might be that the euler rotations need to be
+                    # normalized.
+                    ve = tiq.to_euler()
+
+                    for i, k in enumerate(td.xrotations):
+                        # if i == 0: 
+                        #     val = 0
+                        # else:
+                        val = k.value - ve[0]
+                        curveX.keyframe_points.insert(k.time * fps + 1, val)
+                    for i, k in enumerate(td.yrotations):
+                        # if i == 0: 
+                        #     val = 0
+                        # else:
+                        val = k.value - ve[1]
+                        curveY.keyframe_points.insert(k.time * fps + 1, val)
+                    for i, k in enumerate(td.zrotations):
+                        # if i == 0: 
+                        #     val = 0
+                        # else:
+                        val = k.value - ve[2]
+                        curveZ.keyframe_points.insert(k.time * fps + 1, val)
+        
+        elif td.properties.rotationType == NiKeyType.LINEAR_KEY:
+            curveW = action.fcurves.new(f"{path_name}.rotation_quaternion", index=0, action_group=group_name)
+            curveX = action.fcurves.new(f"{path_name}.rotation_quaternion", index=1, action_group=group_name)
+            curveY = action.fcurves.new(f"{path_name}.rotation_quaternion", index=2, action_group=group_name)
+            curveZ = action.fcurves.new(f"{path_name}.rotation_quaternion", index=3, action_group=group_name)
+
+            for i, k in enumerate(td.qrotations):
+                kq = Quaternion(k.value)
+                vq = qinv @ kq 
+                vq.normalize()
+                if i == 0:
+                    assert MatNearEqual(vq.to_matrix(), Matrix.Identity(3)), \
+                        f"Have identity rotation: {path_name}, {vq}"
+                    # vq = Quaternion() # Just making sure
+                curveW.keyframe_points.insert(k.time * fps + 1, vq[0])
+                curveX.keyframe_points.insert(k.time * fps + 1, vq[1])
+                curveY.keyframe_points.insert(k.time * fps + 1, vq[2])
+                curveZ.keyframe_points.insert(k.time * fps + 1, vq[3])
+
+        else:
+            self.add_warning(f"Nif contains unimplemented rotation type: {td.properties.rotationType}")
                 
-        if td.properties.translations.numKeys > 0:
-            curveLocX = action.fcurves.new("location", index=0, action_group=group_name)
-            curveLocY = action.fcurves.new("location", index=1, action_group=group_name)
-            curveLocZ = action.fcurves.new("location", index=2, action_group=group_name)
+        if len(td.translations) > 0:
+            curveLocX = action.fcurves.new(f"{path_name}.location", index=0, action_group=group_name)
+            curveLocY = action.fcurves.new(f"{path_name}.location", index=1, action_group=group_name)
+            curveLocZ = action.fcurves.new(f"{path_name}.location", index=2, action_group=group_name)
             for k in td.translations:
-                curveLocX.keyframe_points.insert(k.time * fps + 1, k.value[0])
-                curveLocY.keyframe_points.insert(k.time * fps + 1, k.value[1])
-                curveLocZ.keyframe_points.insert(k.time * fps + 1, k.value[2])
+                v = Vector(k.value)
+                v = tixf @ v
+                curveLocX.keyframe_points.insert(k.time * fps + 1, v[0])
+                curveLocY.keyframe_points.insert(k.time * fps + 1, v[1])
+                curveLocZ.keyframe_points.insert(k.time * fps + 1, v[2])
+
+        if "LLegCalf" in path_name:
+            calffc = [f for f in action.fcurves if "LLegCalf" in f.data_path]
+            for i in range(0,4): log.debug(f"{calffc[i].data_path} Curve {i}: {calffc[i].keyframe_points[0].co[1]:0.4f}")
 
 
     def import_controlled_block(self, seq:NiSequence, block:ControllerLink):
@@ -1589,7 +1710,8 @@ class NifImporter():
         new_action.use_fake_user = True
         new_action.asset_mark()
 
-        self.import_interpolator(block.interpolator, target_obj, new_action)
+        self.import_interpolator(block.interpolator, target_obj, new_action, "Object Transforms",
+                                 target_obj.name)
 
         if not target_obj.animation_data.action:
             target_obj.animation_data.action = new_action
@@ -1597,14 +1719,17 @@ class NifImporter():
 
     def import_sequences(self, seq):
         """Import a single controller sequence."""
+        bpy.context.scene.frame_end = 1 + (seq.properties.stopTime - seq.properties.startTime) * bpy.context.scene.render.fps
         for cb in seq.controlled_blocks:
             self.import_controlled_block(seq, cb)
         
 
-    def import_animations(self):
-        """Import all top-level animations."""
-        for cm in self.nif.controller_managers:
-            for seq in cm.controller_manager_seqs.values():
+    def import_animations(self, ctrlr: NiTimeController):
+        """Import the animation defined by this controller."""
+        if not self.import_anims: return
+        
+        if ctrlr and hasattr(ctrlr, "sequences"): 
+            for seq in ctrlr.sequences.values():
                 self.import_sequences(seq)
 
 
@@ -1659,6 +1784,7 @@ class NifImporter():
                         self.add_bones_to_arma(arma, self.nif, self.nif.nodes.keys())
                     self.connect_armature(arma)
                     if self.roll_bones_nift: self.roll_bones(arma)
+                    self.animate_armature(self.armature)
     
             # Gather up any NiNodes that weren't captured any other way 
             self.import_loose_ninodes(self.nif)
@@ -1670,7 +1796,7 @@ class NifImporter():
             self.import_collisions()
 
             # Import top-level animations
-            self.import_animations()
+            self.import_animations(self.nif.rootNode.controller)
 
             # Cleanup. Select everything and parent everything to the child connect point if any.
             objlist = [x for x in self.objects_created.values()]
@@ -1825,6 +1951,11 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Rename bones to conform to Blender's left/right conventions.",
         default=RENAME_BONES_DEF)
 
+    import_animations: bpy.props.BoolProperty(
+        name="Import animations",
+        description="Import any animations embedded in the nif.",
+        default=IMPORT_ANIMS_DEF)
+
     roll_bones: bpy.props.BoolProperty(
         name="Add bone roll",
         description="Add bone roll to work with animations.",
@@ -1876,6 +2007,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             imp.rename_bones = self.rename_bones
             imp.rename_bones_nift = self.rename_bones_niftools
             imp.import_shapes = self.import_shapes
+            imp.import_anims = self.import_animations
             imp.apply_skinning = self.apply_skinning
             if self.reference_skel:
                 imp.reference_skel = NifFile(self.reference_skel)

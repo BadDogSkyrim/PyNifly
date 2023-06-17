@@ -3,10 +3,11 @@
 Convenient setup for running these tests here: 
 https://polynook.com/learn/set-up-blender-addon-development-environment-in-windows
 """
+import math
 import bpy
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Vector, Quaternion, Euler
 from test_tools import *
-from pynifly import *
+import pynifly 
 from blender_defs import *
 from trihandler import *
 import xml.etree.ElementTree as xml
@@ -14,128 +15,131 @@ import xml.etree.ElementTree as xml
 import importlib
 import skeleton_hkx
 import shader_io
+importlib.reload(pynifly)
 importlib.reload(skeleton_hkx)
 importlib.reload(shader_io)
 
 
 TEST_BPY_ALL = 0
-TEST_BODYPART_SKY = 0  ### Skyrim head
-TEST_BODYPART_FO4 = 0  ### FO4 head
-TEST_SKYRIM_XFORM = 0  ### Read & write the Skyrim shape transforms
-TEST_SKIN_BONE_XF = 0  ### Argonian head
-TEST_IMP_EXP_SKY = 0  ### Skyrim armor
-TEST_IMP_EXP_SKY_2 = 0  ### Body+Underwear
-TEST_IMP_EXP_FO4 = 0  ### Can read the body nif and spit it back out
-TEST_IMP_EXP_FO4_2 = 0  ### Can read body armor with 2 parts
-TEST_ROUND_TRIP = 0  ### Full round trip: nif -> blender -> nif -> blender
-TEST_BPY_PARENT_A = 0  ### Skeleton armature bones correctly parented
-TEST_BPY_PARENT_B = 0  ### Skeleton armature bones correctly parented
-TEST_RENAME = 0  ### Bone renaming for Blender conventions disabled
-TEST_CONNECTED_SKEL = 0  ### Can import connected skeleton
-TEST_DRAUGR_IMPORT_A = 0  ### Import hood, extend skeleton, non-vanilla pose 
-TEST_DRAUGR_IMPORT_B = 0  ### Import hood, don't extend skeleton, non-vanilla pose
-TEST_DRAUGR_IMPORT_C = 0  ### Import helm, don't extend skeleton
-TEST_DRAUGR_IMPORT_D = 0  ### Import helm, do extend skeleton
-TEST_DRAUGR_IMPORT_E = 0  ### Import helm and hood together
-TEST_SCALING_BP = 0  ### Import and export bodypart with scale factor
-TEST_IMP_EXP_SCALE_2 = 0  ### Import nif with 2 meshes scaled
-TEST_ARMATURE_EXTEND = 0  ### FO4 head + body
-TEST_ARMATURE_EXTEND_BT = 0  ### Import two nifs that share a skeleton
-TEST_EXPORT_WEIGHTS = 0  ### Import and export with weights
-TEST_WEIGHTS_EXPORT = 0  ### Exporting this head weights all verts correctly
-TEST_0_WEIGHTS = 0  ### Gives warning on export with 0 weights
-TEST_TIGER_EXPORT = 0  ### Tiger head export
-TEST_3BBB = 0  ### Test that mesh imports with correct transforms
-TEST_SKEL = 0  ### Import/export skeleton file with no shapes
-TEST_HEADPART = 0  ### Read & write SE head part with tris
-TEST_TRI = 0  ### Can load a tri file into an existing mesh
-TEST_IMPORT_AS_SHAPES = 0  ### Import 2 meshes as shape keys
-TEST_IMPORT_MULT_SHAPES = 0  ### Import >2 meshes as shape keys
-TEST_EXP_SK_RENAMED = 0  ### Ensure renamed shape keys export properly
-TEST_SK_MULT = 0  ### Export multiple objects with only some shape keys
-TEST_TRI2 = 0  ### Regression: Test correct import of tri
-TEST_BAD_TRI = 0  ### Tris with messed up UV
-TEST_TRIP_SE = 0  ### Bodypart tri extra data and file are written on export
-TEST_TRIP = 0  ### Body tri extra data and file are written on export
-TEST_COLORS = 0  ### Read & write vertex colors
-TEST_COLORS2 = 0  ### Read & write vertex colors
-TEST_NEW_COLORS = 0  ### Can write vertex colors that were created in blender
-TEST_VERTEX_COLOR_IO = 0  ### Vertex colors can be read and written
-TEST_SHADER_GLOW = 0  ### BSEffectShaderProperty
-TEST_VERTEX_ALPHA_IO = 0  ### Vertex alpha affects Blender visible alpha
-TEST_VERTEX_ALPHA = 0  ### Export shape with vertex alpha values
-TEST_BONE_HIERARCHY = 0  ### Import and export bone hierarchy
-TEST_SEGMENTS = 0  ### FO4 segments
-TEST_BP_SEGMENTS = 0  ### Another test of FO4 segments
-TEST_EXP_SEGMENTS_BAD = 0  ### Verts export in the correct FO4 segments
-TEST_EXP_SEG_ORDER = 0  ### Segments export in numerical order
-TEST_PARTITIONS = 0  ### Read Skyrim partitions
-TEST_SHADER_LE = 0  ### Shader attributes Skyrim LE
-TEST_SHADER_SE = 0  ### Shader attributes Skyrim SE 
-TEST_SHADER_FO4 = 0  ### Shader attributes are read and turned into Blender shader nodes
-TEST_SHADER_ALPHA = 0  ### Alpha property handled correctly
-TEST_SHADER_3_3 = 0  ### Shader attributes are read and turned into Blender shader nodes
-TEST_TEXTURE_PATHS = 0  ### Texture paths are correctly resolved
-TEST_CAVE_GREEN = 0  ### Use vertex colors in shader
-TEST_POT = 0  ### Pot shader doesn't throw an error
-TEST_NOT_FB = 0  ### Nif that looked like facebones skel can be imported
-TEST_MULTI_IMP = 0  ### Importing multiple hair parts doesn't mess up
-TEST_WELWA = 0  ### Shape with unusual skeleton
-TEST_MUTANT = 0  ### Supermutant body imports correctly the *second* time
-TEST_EXPORT_HANDS = 0  ### Hand mesh with errors doesn't crash
-TEST_PARTITION_ERRORS = 0  ### Partitions with errors raise errors
-TEST_SHEATH = 0  ### Extra data nodes are imported and exported
-TEST_FEET = 0  ### Extra data nodes are imported and exported
-TEST_SCALING = 0  ### Scale factors applied correctly
-TEST_SCALING_OBJ = 0  ### Scale simple objects
-TEST_UNIFORM_SCALE = 0  ### Export objects with uniform scaling
-TEST_NONUNIFORM_SCALE = 0  ### Export objects with non-uniform scaling
-TEST_FACEBONE_EXPORT = 0
-TEST_FACEBONE_EXPORT2 = 0  ### Facebones with odd armature
-TEST_HYENA_PARTITIONS = 0
-TEST_MULT_PART = 0  ### Export shape with face that might fall into multiple partititions
-TEST_BONE_XPORT_POS = 0
-TEST_NORM = 0  ### Normals are read correctly
-TEST_ROGUE01 = 0  ### Custom split normals export correctly
-TEST_ROGUE02 = 0  ### Objects with shape keys export normals correctly
-TEST_NORMAL_SEAM = 0  ### Custom normals can make a seam seamless
-TEST_NIFTOOLS_NAMES = 0
-TEST_BOW = 0  ### Read and write bow
-TEST_BOW2 = 0  ### Modify collision shape location
-TEST_BOW3 = 0  ### Modify collision shape type
-TEST_COLLISION_HIER = 0  ### Read and write collision of hierarchy of nodes
-TEST_SCALING_COLL = 0
-TEST_COLLISION_MULTI = 0
-TEST_COLLISION_CONVEXVERT = 0
-TEST_COLLISION_CAPSULE = 0  ### Collision capsule shapes with scale
-TEST_COLLISION_LIST = 0  ### Collision list and collision transform shapes with scale
-TEST_CHANGE_COLLISION = 0  ### Changing collision type 
-TEST_COLLISION_XFORM = 0  ### Read and write shape with collision capsule shapes
-TEST_CONNECT_POINT = 0  ### Connect points are imported and exported
-TEST_WEAPON_PART = 0  ### Weapon parts are imported at the parent connect point
-TEST_IMPORT_MULT_CP = 0  ### Import multiple files and connect up the connect points
-TEST_FURN_MARKER1 = 0  ### Skyrim furniture markers 
-TEST_FURN_MARKER2 = 0  ### Skyrim furniture markers
-TEST_FO4_CHAIR = 0  ### FO4 furniture markers 
-TEST_PIPBOY = 0
-TEST_BABY = 0  ### FO4 baby 
-TEST_ROTSTATIC = 0  ### Statics are transformed according to the shape transform
-TEST_ROTSTATIC2 = 0  ### Statics are transformed according to the shape transform
-TEST_FACEBONES = 0
-TEST_FACEBONES_RENAME = 0  ### Facebones are correctly renamed from Blender to the game's names
-TEST_BONE_XF = 0
-TEST_IMP_ANIMATRON = 0
-TEST_CUSTOM_BONES = 0  ### Can handle custom bones correctly
-TEST_COTH_DATA = 0  ## Handle cloth data
-TEST_IMP_NORMALS = 0  ### Can import normals from nif shape
-TEST_UV_SPLIT = 1  ### Split UVs properly
-TEST_JIARAN = 1  ### Armature with no stashed transforms exports correctly
-TEST_SKEL_HKX = 1  ### Basic skeleton export (XML -> HKX)
-TEST_SKEL_SOS_HKX = 1  ### SOS auxbones skeleton 
-TEST_FONV = 1  ### FONV mesh
-TEST_FONV_BOD = 1  ### Basic FONV body part import and export
-TEST_CHEST_ANIM = 1  ### Read and write the animation of chest opening and shutting
-TEST_CRATE_ANIM = 1  ### Read and write the animation of crate opening and shutting
+TEST_BODYPART_SKY = False  ### Skyrim head
+TEST_BODYPART_FO4 = False  ### FO4 head
+TEST_SKYRIM_XFORM = False  ### Read & write the Skyrim shape transforms
+TEST_SKIN_BONE_XF = False  ### Argonian head
+TEST_IMP_EXP_SKY = False  ### Skyrim armor
+TEST_IMP_EXP_SKY_2 = False  ### Body+Underwear
+TEST_IMP_EXP_FO4 = False  ### Can read the body nif and spit it back out
+TEST_IMP_EXP_FO4_2 = False  ### Can read body armor with 2 parts
+TEST_ROUND_TRIP = False  ### Full round trip: nif -> blender -> nif -> blender
+TEST_BPY_PARENT_A = False  ### Skeleton armature bones correctly parented
+TEST_BPY_PARENT_B = False  ### Skeleton armature bones correctly parented
+TEST_RENAME = False  ### Bone renaming for Blender conventions disabled
+TEST_CONNECTED_SKEL = False  ### Can import connected skeleton
+TEST_DRAUGR_IMPORT_A = False  ### Import hood, extend skeleton, non-vanilla pose 
+TEST_DRAUGR_IMPORT_B = False  ### Import hood, don't extend skeleton, non-vanilla pose
+TEST_DRAUGR_IMPORT_C = False  ### Import helm, don't extend skeleton
+TEST_DRAUGR_IMPORT_D = False  ### Import helm, do extend skeleton
+TEST_DRAUGR_IMPORT_E = False  ### Import helm and hood together
+TEST_SCALING_BP = False  ### Import and export bodypart with scale factor
+TEST_IMP_EXP_SCALE_2 = False  ### Import nif with 2 meshes scaled
+TEST_ARMATURE_EXTEND = False  ### FO4 head + body
+TEST_ARMATURE_EXTEND_BT = False  ### Import two nifs that share a skeleton
+TEST_EXPORT_WEIGHTS = False  ### Import and export with weights
+TEST_WEIGHTS_EXPORT = False  ### Exporting this head weights all verts correctly
+TEST_0_WEIGHTS = False  ### Gives warning on export with 0 weights
+TEST_TIGER_EXPORT = False  ### Tiger head export
+TEST_3BBB = False  ### Test that mesh imports with correct transforms
+TEST_SKEL = False  ### Import/export skeleton file with no shapes
+TEST_HEADPART = False  ### Read & write SE head part with tris
+TEST_TRI = False  ### Can load a tri file into an existing mesh
+TEST_IMPORT_AS_SHAPES = False  ### Import 2 meshes as shape keys
+TEST_IMPORT_MULT_SHAPES = False  ### Import >2 meshes as shape keys
+TEST_EXP_SK_RENAMED = False  ### Ensure renamed shape keys export properly
+TEST_SK_MULT = False  ### Export multiple objects with only some shape keys
+TEST_TRI2 = False  ### Regression: Test correct import of tri
+TEST_BAD_TRI = False  ### Tris with messed up UV
+TEST_TRIP_SE = False  ### Bodypart tri extra data and file are written on export
+TEST_TRIP = False  ### Body tri extra data and file are written on export
+TEST_COLORS = False  ### Read & write vertex colors
+TEST_COLORS2 = False  ### Read & write vertex colors
+TEST_NEW_COLORS = False  ### Can write vertex colors that were created in blender
+TEST_VERTEX_COLOR_IO = False  ### Vertex colors can be read and written
+TEST_SHADER_GLOW = False  ### BSEffectShaderProperty
+TEST_VERTEX_ALPHA_IO = False  ### Vertex alpha affects Blender visible alpha
+TEST_VERTEX_ALPHA = False  ### Export shape with vertex alpha values
+TEST_BONE_HIERARCHY = False  ### Import and export bone hierarchy
+TEST_SEGMENTS = False  ### FO4 segments
+TEST_BP_SEGMENTS = False  ### Another test of FO4 segments
+TEST_EXP_SEGMENTS_BAD = False  ### Verts export in the correct FO4 segments
+TEST_EXP_SEG_ORDER = False  ### Segments export in numerical order
+TEST_PARTITIONS = False  ### Read Skyrim partitions
+TEST_SHADER_LE = False  ### Shader attributes Skyrim LE
+TEST_SHADER_SE = False  ### Shader attributes Skyrim SE 
+TEST_SHADER_FO4 = False  ### Shader attributes are read and turned into Blender shader nodes
+TEST_SHADER_ALPHA = False  ### Alpha property handled correctly
+TEST_SHADER_3_3 = False  ### Shader attributes are read and turned into Blender shader nodes
+TEST_TEXTURE_PATHS = False  ### Texture paths are correctly resolved
+TEST_CAVE_GREEN = False  ### Use vertex colors in shader
+TEST_POT = False  ### Pot shader doesn't throw an error
+TEST_NOT_FB = False  ### Nif that looked like facebones skel can be imported
+TEST_MULTI_IMP = False  ### Importing multiple hair parts doesn't mess up
+TEST_WELWA = False  ### Shape with unusual skeleton
+TEST_MUTANT = False  ### Supermutant body imports correctly the *second* time
+TEST_EXPORT_HANDS = False  ### Hand mesh with errors doesn't crash
+TEST_PARTITION_ERRORS = False  ### Partitions with errors raise errors
+TEST_SHEATH = False  ### Extra data nodes are imported and exported
+TEST_FEET = False  ### Extra data nodes are imported and exported
+TEST_SCALING = False  ### Scale factors applied correctly
+TEST_SCALING_OBJ = False  ### Scale simple objects
+TEST_UNIFORM_SCALE = False  ### Export objects with uniform scaling
+TEST_NONUNIFORM_SCALE = False  ### Export objects with non-uniform scaling
+TEST_FACEBONE_EXPORT = False
+TEST_FACEBONE_EXPORT2 = False  ### Facebones with odd armature
+TEST_HYENA_PARTITIONS = False
+TEST_MULT_PART = False  ### Export shape with face that might fall into multiple partititions
+TEST_BONE_XPORT_POS = False
+TEST_NORM = False  ### Normals are read correctly
+TEST_ROGUE01 = False  ### Custom split normals export correctly
+TEST_ROGUE02 = False  ### Objects with shape keys export normals correctly
+TEST_NORMAL_SEAM = False  ### Custom normals can make a seam seamless
+TEST_NIFTOOLS_NAMES = False
+TEST_BOW = False  ### Read and write bow
+TEST_BOW2 = False  ### Modify collision shape location
+TEST_BOW3 = False  ### Modify collision shape type
+TEST_COLLISION_HIER = False  ### Read and write collision of hierarchy of nodes
+TEST_SCALING_COLL = False
+TEST_COLLISION_MULTI = False
+TEST_COLLISION_CONVEXVERT = False
+TEST_COLLISION_CAPSULE = False  ### Collision capsule shapes with scale
+TEST_COLLISION_LIST = False  ### Collision list and collision transform shapes with scale
+TEST_CHANGE_COLLISION = False  ### Changing collision type 
+TEST_COLLISION_XFORM = False  ### Read and write shape with collision capsule shapes
+TEST_CONNECT_POINT = False  ### Connect points are imported and exported
+TEST_WEAPON_PART = False  ### Weapon parts are imported at the parent connect point
+TEST_IMPORT_MULT_CP = False  ### Import multiple files and connect up the connect points
+TEST_FURN_MARKER1 = False  ### Skyrim furniture markers 
+TEST_FURN_MARKER2 = False  ### Skyrim furniture markers
+TEST_FO4_CHAIR = False  ### FO4 furniture markers 
+TEST_PIPBOY = False
+TEST_BABY = False  ### FO4 baby 
+TEST_ROTSTATIC = False  ### Statics are transformed according to the shape transform
+TEST_ROTSTATIC2 = False  ### Statics are transformed according to the shape transform
+TEST_FACEBONES = False
+TEST_FACEBONES_RENAME = False  ### Facebones are correctly renamed from Blender to the game's names
+TEST_BONE_XF = False
+TEST_IMP_ANIMATRON = False
+TEST_CUSTOM_BONES = False  ### Can handle custom bones correctly
+TEST_COTH_DATA = False  ## Handle cloth data
+TEST_IMP_NORMALS = False  ### Can import normals from nif shape
+TEST_UV_SPLIT = False  ### Split UVs properly
+TEST_JIARAN = False  ### Armature with no stashed transforms exports correctly
+TEST_SKEL_HKX = False  ### Basic skeleton export (XML -> HKX)
+TEST_SKEL_SOS_HKX = False  ### SOS auxbones skeleton 
+TEST_FONV = False  ### FONV mesh
+TEST_FONV_BOD = False  ### Basic FONV body part import and export
+TEST_ANIM_CHEST = False  ### Read and write the animation of chest opening and shutting
+TEST_ANIM_CRATE = False  ### Read and write the animation of crate opening and shutting
+TEST_ANIM_ALDUIN = True  ### Read and write animated Alduin loadscreen
+
 
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
@@ -1296,7 +1300,7 @@ if TEST_BPY_ALL or TEST_SEGMENTS:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
     
     nif2 = NifFile(outfile)
-    assert len(nif2.shapes[0].partitions) == 7, "Wrote the shape's 7 partitions"
+    assert len(nif2.shapes[0].partitions) == 7, f"Wrote the shape's 7 partitions: {[p.name for p in nif2.shapes[0].partitions]}"
     assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == nif2.shapes[0].segment_file, f"Nif should reference segment file, found '{nif2.shapes[0].segment_file}'"
 
 
@@ -4031,11 +4035,11 @@ if TEST_BPY_ALL or TEST_FONV_BOD:
                    body)
 
 
-if TEST_BPY_ALL or TEST_CHEST_ANIM:
-    test_title("TEST_CHEST_ANIM", "Read and write the animation of chest opening and shutting.")
+if TEST_BPY_ALL or TEST_ANIM_CHEST:
+    test_title("TEST_ANIM_CHEST", "Read and write the animation of chest opening and shutting.")
     clear_all()
     testfile = test_file(r"tests\Skyrim\noblechest01.nif")
-    outfile =test_file(r"tests/Out/TEST_CHEST_ANIM.nif")
+    outfile =test_file(r"tests/Out/TEST_ANIM_CHEST.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     lid = bpy.data.objects["Lid01"]
@@ -4044,11 +4048,11 @@ if TEST_BPY_ALL or TEST_CHEST_ANIM:
     assert len([x for x in bpy.data.actions if x.name.startswith("Lid01_Close")]) > 0, f"Have close animation in actions: {bpy.data.actions.keys()}"
 
 
-if TEST_BPY_ALL or TEST_CRATE_ANIM:
-    test_title("TEST_CRATE_ANIM", "Read and write the animation of chest opening and shutting.")
+if TEST_BPY_ALL or TEST_ANIM_CRATE:
+    test_title("TEST_ANIM_CRATE", "Read and write the animation of chest opening and shutting.")
     clear_all()
     testfile = test_file(r"tests\Skyrim\dwechest01.nif")
-    outfile =test_file(r"tests/Out/TEST_CRATE_ANIM.nif")
+    outfile =test_file(r"tests/Out/TEST_ANIM_CRATE.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     lid = bpy.data.objects["Box01"]
@@ -4060,6 +4064,119 @@ if TEST_BPY_ALL or TEST_CRATE_ANIM:
     gear = bpy.data.objects["Gear07"]
     assert gear.animation_data.action.name.startswith("Gear07_Open"), f"Gear animation exists"
     assert len(gear.animation_data.action.fcurves) > 0, f"Have curves"
+
+
+if TEST_BPY_ALL or TEST_ANIM_ALDUIN:
+    test_title("TEST_ANIM_ALDUIN", "Read and write animation using bones.")
+    clear_all()
+    testfile = test_file(r"tests\SkyrimSE\loadscreenalduinwall.nif")
+    outfile = test_file(r"tests/Out/TEST_ANIM_ALDUIN.nif")
+
+    def check_xf(node: NiNode):
+        """Check that the transform on the first animation keyframe is the same as the
+        transform on the parent interpolator. This animation starts at the base pose
+        position so all frame 0 transforms should be null."""
+        c:NiTimeController = node.controller
+        ti:NiTransformInterpolator = c.interpolator
+        td:NiTransformData = ti.data
+
+        if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
+            f0 = [td.xrotations[0].value, td.yrotations[0].value, td.zrotations[0].value]
+            e = Euler(f0, 'XYZ')
+            q = e.to_quaternion()
+        elif td.properties.rotationType == NiKeyType.LINEAR_KEY:
+            q = Quaternion(td.qrotations[0].value)
+            e = q.to_euler()
+
+        print(e)
+        print(q)
+        print(q.to_axis_angle())
+        # m = transform_to_matrix(combone.properties.transform)
+        tiq = Quaternion(ti.properties.rotation)
+        assert MatNearEqual(tiq.to_matrix(), e.to_matrix()), f"{node.name} First keyframe has same rotation as parent TD: {tiq.to_euler()} == {e}"
+        nullq = tiq.inverted() @ e.to_quaternion()
+        assert MatNearEqual(nullq.to_matrix(), Matrix.Identity(4)), f"{node.name} can invert rotation: {nullq}"
+        ve = Vector([round(v, 6) % math.pi for v in e[0:3]])
+        vtiq = Vector([round(v, 6) % math.pi for v in tiq.to_euler()[0:3]])
+        nulle = Euler(ve - vtiq, 'XYZ')
+        # if not MatNearEqual(nulle.to_matrix(), Matrix.Identity(3)):
+        #     assert MatNearEqual(nulle.to_matrix(), Matrix.Identity(3)), f"{node.name} can invert euler rotation: {nulle}"
+
+        tiv = Vector(ti.properties.translation)
+        v = Vector(td.translations[0].value)
+        assert VNearEqual(tiv, v), f"{node.name} translations are the same: {tiv} == {v}"
+        assert VNearEqual(v - tiv, [0,0,0]), f"{node.name} can subtract vector"
+
+
+    bpy.ops.import_scene.pynifly(filepath=testfile,
+                                 create_bones=False, 
+                                 rename_bones=False,
+                                 import_animations=True,
+                                 scale_factor=1)
+    
+    nif = NifFile(testfile)
+    check_xf(nif.nodes["NPC COM"])
+    check_xf(nif.nodes["NPC Pelvis"])
+    check_xf(nif.nodes["NPC LLegThigh"])
+    check_xf(nif.nodes["NPC LLegCalf"])
+    check_xf(nif.nodes["NPC LFinger12"])
+    check_xf(nif.nodes["NPC LLBrow"])
+
+    arma = bpy.data.objects['Scene Root']
+    lcalf = arma.data.bones['NPC LLegCalf']
+    lcalfp = arma.pose.bones['NPC LLegCalf']
+
+    def dump_anim():
+        """Dump keyframe 0 animation data if any. If no animation data, dump pose
+        locations."""
+        if arma.animation_data:
+            act = arma.animation_data.action
+            for f in act.fcurves:
+                print(f"{f.data_path}: {f.keyframe_points[0].co[1]:0.4f}")
+
+            comrot = [f for f in act.fcurves if f.data_path == 'pose.bones["NPC COM"].rotation_euler']
+            xyzrot = [comrot[0].keyframe_points[0].co[1], 
+                    comrot[1].keyframe_points[0].co[1], 
+                    comrot[2].keyframe_points[0].co[1]]
+            e = Euler(xyzrot, 'XYZ')
+            q = e.to_quaternion()
+            print(xyzrot)
+            print(e)
+            print(q)
+        else:
+            for b in arma.pose.bones:
+                print(f"{b.name}: {b.matrix.translation}\n\t{b.matrix.to_quaternion()}")
+            # thighfc = [f for f in act.fcurves if "LLegThigh" in f.data_path] 
+            # print(thighfc[0].data_path)
+            # for i in range(0, 7): print(f"LLegThigh {i}: {thighfc[i].keyframe_points[0].co[1]:0.4f}")
+            # calffc = [f for f in act.fcurves if "LLegCalf" in f.data_path]
+            # print(f"{calffc[0].data_path}")
+            # for i in range(0, 7): print(f"LLegCalf {i}: {calffc[i].keyframe_points[0].co[1]:0.4f}")
+
+    # Dump the entire Pelvis location curves from Blender and from the nif.
+    if arma.animation_data and arma.animation_data.action:
+        pelvc = [c for c in arma.animation_data.action.fcurves if "NPC Pelvis" in c.data_path]
+        locc = [c for c in pelvc if "location" in c.data_path]
+        print("---Blender X Curve---")
+        lastv = Vector()
+        for i, xyz in enumerate(zip(locc[0].keyframe_points, 
+                                  locc[1].keyframe_points, 
+                                  locc[2].keyframe_points)):
+            v = Vector((xyz[0].co[1], xyz[1].co[1], xyz[2].co[1]))
+            difv = v - lastv
+            print(f"\t{i}\t{v}  \t{difv}")
+            lastv = v
+
+    print("---Nif Translation Data---")
+    pelv = nif.nodes["NPC Pelvis"]
+    td = pelv.controller.interpolator.data
+    lastv = Vector()
+    for i, k in enumerate(td.translations):
+        v = Vector(k.value)
+        difv = v - lastv
+        print(f"\t{i}\t{v}\t{difv}")
+        lastv = v
+        
 
 print("""
 ############################################################

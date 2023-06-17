@@ -3142,11 +3142,17 @@ namespace NiflyDLLTests
 			int strlen = getMaxStringLen(nif);
 			void* root = getRoot(nif);
 			void* ncm;
+
+			// We can find controller blocks directly, by type.
 			int ncmCount = findNodesByType(nif, root, "NiControllerManager", 1, &ncm);
 			Assert::AreEqual(1, ncmCount, L"Found 1 controller manager");
 
 			NiControllerManagerBuf ncmbuf;
 			getControllerManager(ncm, &ncmbuf);
+			Assert::AreEqual(1.0f, ncmbuf.frequency, L"Frequency value correct");
+
+			// Better, perhaps, to find controller blocks through their parent.
+			void* rc = getNodeController(nif, root, &ncmbuf);
 			Assert::AreEqual(1.0f, ncmbuf.frequency, L"Frequency value correct");
 
 			NiMultiTargetTransformControllerBuf mttcbuf;
@@ -3204,7 +3210,28 @@ namespace NiflyDLLTests
 			getAnimKeyQuadXYZ(nif, tibuf.dataID, 'Z', 1, &qkey);
 			Assert::AreEqual(0.6f, qkey.time, L"Have Z time correct");
 			Assert::IsTrue(TApproxEqual(- 3.141593f, qkey.value), L"Have Z value correct");
+		};
+		TEST_METHOD(readAlduin) {
 
+			void* nif = load((testRoot / "SkyrimSE/loadscreenalduinwall.nif").u8string().c_str());
+
+			// Each node in this nif has a controller.
+			NiNodeBuf thighbuf;
+			NiTransformControllerBuf cbuf;
+			NiTransformInterpolatorBuf tibuf;
+			NiTransformDataBuf tdbuf;
+			NiAnimKeyLinearQuatBuf qbuf;
+
+			void* thigh = findNodeByName(nif, "NPC LLegThigh");
+			getNode(thigh, &thighbuf);
+			getTransformController(nif, thighbuf.controllerID, &cbuf);
+			getTransformInterpolator(nif, cbuf.interpolatorIndex, &tibuf);
+			getTransformData(nif, tibuf.dataID, &tdbuf);
+			Assert::IsTrue(tdbuf.rotationType == NiKeyType::LINEAR_KEY);
+			Assert::IsTrue(tdbuf.quaternionKeyCount == 161);
+
+			getAnimKeyLinearQuat(nif, tibuf.dataID, 0, &qbuf);
+			Assert::IsTrue(qbuf.value[0] == 213.85);
 		};
 		TEST_METHOD(readBlockname) {
 			void* nif = load((testRoot / "Skyrim/noblechest01.nif").u8string().c_str());
