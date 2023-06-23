@@ -4,7 +4,9 @@ import os
 import os.path
 import logging
 import bpy
+from mathutils import Matrix, Vector, Quaternion, Euler
 from niflytools import *
+import blender_defs
 
 
 pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
@@ -20,7 +22,7 @@ def test_title(name, desc):
 
 def clear_all():
     if bpy.data.objects:
-        bpy.ops.object.mode_set(mode = 'OBJECT')
+        if bpy.context.mode != 'OBJECT': bpy.ops.object.mode_set(mode = 'OBJECT')
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.object.delete(use_global=True)
     # for obj in bpy.data.objects:
@@ -84,11 +86,11 @@ def test_file(filename, output=False):
     return fullname
 
 
-def find_shape(name_prefix, collection=None):
+def find_shape(name_prefix, collection=None, type='MESH'):
     if collection is None:
         collection = bpy.data.objects
     for o in collection:
-        if o.name.startswith(name_prefix):
+        if o.name.startswith(name_prefix) and o.type == type:
             return o
     return None
 
@@ -96,18 +98,53 @@ def find_shape(name_prefix, collection=None):
 def get_obj_bbox(obj, worldspace=False, scale=1.0):
     """Return diagonal forming bounding box of Blender object"""
     if worldspace:
-        minx = min(v[0] for v in obj.bound_box)
-        maxx = max(v[0] for v in obj.bound_box)
-        miny = min(v[1] for v in obj.bound_box)
-        maxy = max(v[1] for v in obj.bound_box)
-        minz = min(v[2] for v in obj.bound_box)
-        maxz = max(v[2] for v in obj.bound_box)
-        return (((minx+obj.location.x)/scale, 
-                 (miny+obj.location.y)/scale, 
-                 (minz+obj.location.z)/scale), 
-                 ((maxx+obj.location.x)/scale, 
-                  (maxy+obj.location.y)/scale, 
-                  (maxz+obj.location.z)/scale))
+        # Worldspace can be hard to calculate given armatures and parent transforms. 
+        # So punt--make a copy, apply everything, then return the bounds on the copy.
+        try:
+            bpy.ops.object.mode_set(mode = 'OBJECT')
+        except:
+            pass
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.duplicate()
+        newobj = bpy.context.object
+        newobj.name = "TEST_OBJ." + obj.name
+        bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+        for m in newobj.modifiers:
+            if m.type == 'ARMATURE':
+                bpy.ops.object.modifier_apply(modifier=m.name)
+        bpy.ops.object.transform_apply()
+
+        minv = Vector()
+        maxv = Vector()
+        for v in newobj.data.vertices:
+            for i in range(0, 3):
+                minv[i] = min(minv[i], v.co[i])
+                maxv[i] = max(maxv[i], v.co[i])
+
+        bpy.ops.object.delete()
+
+        return minv, maxv
+        # minv = Vector((min(v[0] for v in obj.bound_box),
+        #                min(v[1] for v in obj.bound_box),
+        #                min(v[2] for v in obj.bound_box)))
+        # maxv = Vector((max(v[0] for v in obj.bound_box),
+        #                max(v[1] for v in obj.bound_box),
+        #                max(v[2] for v in obj.bound_box)))
+        # return obj.matrix_world @ minv, obj.matrix_world @ maxv
+                       
+        # maxx = max(v[0] for v in obj.bound_box)
+        # miny = min(v[1] for v in obj.bound_box)
+        # maxy = max(v[1] for v in obj.bound_box)
+        # minz = min(v[2] for v in obj.bound_box)
+        # maxz = max(v[2] for v in obj.bound_box)
+        # return (((minx+obj.location.x)/scale, 
+        #          (miny+obj.location.y)/scale, 
+        #          (minz+obj.location.z)/scale), 
+        #          ((maxx+obj.location.x)/scale, 
+        #           (maxy+obj.location.y)/scale, 
+        #           (maxz+obj.location.z)/scale))
     else:
         minx = min(v.co.x for v in obj.data.vertices)
         miny = min(v.co.y for v in obj.data.vertices)
@@ -120,14 +157,22 @@ def get_obj_bbox(obj, worldspace=False, scale=1.0):
 
 def get_shape_bbox(shape):
     """Return diagonal forming bounding box of nif shape"""
-    minx = min(v[0] for v in shape.verts)
-    miny = min(v[1] for v in shape.verts)
-    minz = min(v[2] for v in shape.verts)
-    maxx = max(v[0] for v in shape.verts)
-    maxy = max(v[1] for v in shape.verts)
-    maxz = max(v[2] for v in shape.verts)
-    return ((minx, miny, minz), (maxx, maxy, maxz))
+    minv = Vector()
+    maxv = Vector()
+    for v in shape.verts:
+        for i, n in enumerate(v):
+            minv[i] = min(minv[i], n)
+            maxv[i] = max(maxv[i], n)
+    return (minv, maxv)
 
+
+def close_bounds(obja, objb, epsilon=1.0):
+    """Check that the bounds of the two Blender objects are within epsilon of each other."""
+    mina, maxa = get_obj_bbox(obja, worldspace=True)
+    minb, maxb = get_obj_bbox(objb, worldspace=True)
+    return VNearEqual(mina, minb, epsilon=epsilon) and VNearEqual(maxa, maxb, epsilon=epsilon) 
+
+    assert VNearEqual(objmin, mina, epsilon=1.0), f"Collision just covers bow: {objmin} ~~ {mina}"
 
 def compare_shapes(inshape, outshape, blshape, e=0.0001, scale=1.0, ignore_translations=False):
     """Compare significant characteristics of two nif shapes and a Blender object.
@@ -188,7 +233,7 @@ def check_unweighted_verts(nifshape):
     assert not fail, f"Found 0 vertex weights for verts in {nifshape.name}"
 
 
-def assert_near_equal(actual, expected, msg, e=0.0001):
+def assert_equiv(actual, expected, msg, e=0.0001):
     """Assert two values are equal. Values may be scalars, vectors, or matrices."""
     try:
         assert MatNearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
@@ -202,11 +247,16 @@ def assert_near_equal(actual, expected, msg, e=0.0001):
         except:
             assert NearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
 
-def assert_less_than(actual, expected, msg, e=0.0001):
+def assert_lt(actual, expected, msg, e=0.0001):
     """Assert actual is less than expected."""
     assert actual < expected, f"Values actual less than expected for {msg}: {actual} < {expected}"
 
 
-def assert_greater_than(actual, expected, msg, e=0.0001):
+def assert_le(actual, expected, msg, e=0.0001):
+    """Assert actual is less than expected."""
+    assert actual <= expected, f"Values actual less than expected for {msg}: {actual} < {expected}"
+
+
+def assert_gt(actual, expected, msg, e=0.0001):
     """Assert actual is greater than expected."""
     assert actual > expected, f"Values actual greater than expected for {msg}: {actual} < {expected}"

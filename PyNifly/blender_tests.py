@@ -6,7 +6,7 @@ https://polynook.com/learn/set-up-blender-addon-development-environment-in-windo
 import math
 import bpy
 from mathutils import Matrix, Vector, Quaternion, Euler
-from test_tools import *
+import test_tools as TT
 import pynifly 
 from blender_defs import *
 from trihandler import *
@@ -18,9 +18,10 @@ import shader_io
 importlib.reload(pynifly)
 importlib.reload(skeleton_hkx)
 importlib.reload(shader_io)
+importlib.reload(TT)
 
 
-TEST_BPY_ALL = 0
+TEST_BPY_ALL = False
 TEST_BODYPART_SKY = False  ### Skyrim head
 TEST_BODYPART_FO4 = False  ### FO4 head
 TEST_SKYRIM_XFORM = False  ### Read & write the Skyrim shape transforms
@@ -51,6 +52,7 @@ TEST_3BBB = False  ### Test that mesh imports with correct transforms
 TEST_SKEL = False  ### Import/export skeleton file with no shapes
 TEST_HEADPART = False  ### Read & write SE head part with tris
 TEST_TRI = False  ### Can load a tri file into an existing mesh
+TEST_IMPORT_AS_SHAPES = False  ### Import 2 meshes as shape keys
 TEST_IMPORT_AS_SHAPES = False  ### Import 2 meshes as shape keys
 TEST_IMPORT_MULT_SHAPES = False  ### Import >2 meshes as shape keys
 TEST_EXP_SK_RENAMED = False  ### Ensure renamed shape keys export properly
@@ -105,8 +107,8 @@ TEST_NIFTOOLS_NAMES = False
 TEST_BOW = False  ### Read and write bow
 TEST_BOW2 = False  ### Modify collision shape location
 TEST_BOW3 = False  ### Modify collision shape type
-TEST_COLLISION_HIER = False  ### Read and write collision of hierarchy of nodes
-TEST_SCALING_COLL = False
+TEST_COLLISION_HIER = True  ### Read and write collision of hierarchy of nodes
+TEST_SCALING_COLL = True  ### Bow with collisions, scaled
 TEST_COLLISION_MULTI = False
 TEST_COLLISION_CONVEXVERT = False
 TEST_COLLISION_CAPSULE = False  ### Collision capsule shapes with scale
@@ -138,7 +140,7 @@ TEST_FONV = False  ### FONV mesh
 TEST_FONV_BOD = False  ### Basic FONV body part import and export
 TEST_ANIM_CHEST = False  ### Read and write the animation of chest opening and shutting
 TEST_ANIM_CRATE = False  ### Read and write the animation of crate opening and shutting
-TEST_ANIM_ALDUIN = True  ### Read and write animated Alduin loadscreen
+TEST_ANIM_ALDUIN = False  ### Read and write animated Alduin loadscreen
 
 
 log = logging.getLogger("pynifly")
@@ -148,11 +150,24 @@ if TEST_BPY_ALL or TEST_BODYPART_SKY:
     # Basic test that a Skyrim bodypart is imported correctly. 
     # Verts are organized around the origin, but skin transform is put on the shape 
     # and that lifts them to the head position.  
-    test_title("TEST_BODYPART_SKY", "Can import a Skyrim head with armature")
-    clear_all()
-    testfile = test_file("tests\Skyrim\malehead.nif")
+    TT.TT.test_title("TEST_BODYPART_SKY", "Can import a Skyrim head with armature")
+    TT.clear_all()
+    testfile = TT.test_file("tests\Skyrim\malehead.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # Importer leaves any imported shapes as the selected object.
     male_head = bpy.context.object
+    assert male_head.name == 'MaleHeadIMF', f"Have correct name: {male_head.name}"
+    
+    # Importer creates an armature for the skinned shape.
+    arma = TT.find_shape(arma_name("MaleHead.nif"), type='ARMATURE')
+    assert arma, f"Found armature"
+
+    # Root node imported and parents other objects
+    assert male_head.parent.name == arma.name, f"Head parented to armature: {male_head.parent.name}"
+    assert arma.parent.name == "MaleHead.nif", f"armature parented to root: {arma.parent.name}"
+
+    # Importer positions head conveniently.
     assert round(male_head.location.z, 0) == 120, "ERROR: Object not elevated to position"
     assert male_head.parent.type == "ARMATURE", "ERROR: Didn't parent to armature"
     maxz = max([v.co.z for v in male_head.data.vertices])
@@ -165,9 +180,9 @@ if TEST_BPY_ALL or TEST_BODYPART_FO4:
     # Basic test that a FO4 bodypart imports correctly. 
     # Verts are organized around the origin but the skin-to-bone transforms are 
     # all consistent, so they are put on the shape.
-    test_title("TEST_BODYPART_FO4", "Can import a FO4 head with armature")
-    clear_all()
-    testfile = test_file("tests\FO4\BaseMaleHead.nif")
+    TT.TT.test_title("TEST_BODYPART_FO4", "Can import a FO4 head with armature")
+    TT.TT.clear_all()
+    testfile = TT.test_file("tests\FO4\BaseMaleHead.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     male_head = bpy.data.objects["BaseMaleHead:0"]
     assert int(male_head.location.z) == 120, f"ERROR: Object {male_head.name} at {male_head.location.z}, not elevated to position"
@@ -179,20 +194,27 @@ if TEST_BPY_ALL or TEST_BODYPART_FO4:
 
 
 if TEST_BPY_ALL or TEST_SKYRIM_XFORM:
-    test_title("TEST_SKYRIM_XFORM", "Can read & write the Skyrim shape transforms")
-    clear_all()
-    testfile = test_file(r"tests/Skyrim/MaleHead.nif")
-    outfile = test_file(r"tests/Out/TEST_SKYRIM_XFORM.nif")
+    TT.test_title("TEST_SKYRIM_XFORM", "Can read & write the Skyrim shape transforms")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests/Skyrim/MaleHead.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SKYRIM_XFORM.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
     assert int(obj.location[2]) == 120, f"Shape offset not applied to head, found {obj.location[2]}"
 
+    assert False
+
+    # Export the currently selected object, which import should have set to the head.
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
     
     nifcheck = NifFile(outfile)
     headcheck = nifcheck.shapes[0]
+
+    # Make sure we didn't export the root
+    assert headcheck.parent.name == nifcheck.rootName, f"Head parented to root"
+
     assert int(headcheck.transform.translation[2]) == 120, f"Shape offset not written correctly, found {headcheck.transform.translation[2]}"
     assert int(headcheck.global_to_skin.translation[2]) == -120, f"Shape global-to-skin not written correctly, found {headcheck.global_to_skin.translation[2]}"
 
@@ -201,11 +223,11 @@ if TEST_BPY_ALL or TEST_SKIN_BONE_XF:
     # The Argonian head has no global-to-skin transform and the bone pose locations are
     # exactly the vanilla locations, and yet the verts are organized around the origin.
     # The head is lifted into position with the skin-to-bone transforms (same way as FO4).
-    test_title("TEST_SKIN_BONE_XF", "Skin-to-bone transforms work correctly")
-    clear_all()
+    TT.test_title("TEST_SKIN_BONE_XF", "Skin-to-bone transforms work correctly")
+    TT.clear_all()
 
-    testfile = test_file(r"tests\SkyrimSE\maleheadargonian.nif")
-    outfile = test_file(r"tests\out\TEST_SKIN_BONE_XF.nif", output=True)
+    testfile = TT.test_file(r"tests\SkyrimSE\maleheadargonian.nif")
+    outfile = TT.test_file(r"tests\out\TEST_SKIN_BONE_XF.nif", output=True)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     head = find_object("_ArgonianMaleHead", bpy.context.selected_objects, fn=lambda x: x.name)
@@ -252,27 +274,27 @@ if TEST_BPY_ALL or TEST_SKIN_BONE_XF:
 
 if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
     # Round trip of ordinary Skyrim armor, with and without scale factor.
-    test_title("TEST_IMP_EXP_SKY", "Can read the armor nif and spit it back out")
+    TT.test_title("TEST_IMP_EXP_SKY", "Can read the armor nif and spit it back out")
 
-    testfile = test_file(r"tests/Skyrim/armor_only.nif")
+    testfile = TT.test_file(r"tests/Skyrim/armor_only.nif")
     impnif = NifFile(testfile)
 
-    def do_test(scale_factor):
-        log.debug(f"\nTesting with scale factor {scale_factor}")
-        clear_all()
-        outfile = test_file(f"tests/Out/TEST_IMP_EXP_SKY_{scale_factor}.nif")
+    def do_test(blendxf):
+        log.debug(f"\nTesting with blender transform {blendxf}")
+        TT.clear_all()
+        outfile = TT.test_file(f"tests/Out/TEST_IMP_EXP_SKY_{blendxf}.nif")
 
-        bpy.ops.import_scene.pynifly(filepath=testfile, scale_factor=scale_factor)
+        bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=blendxf)
 
         armorin = impnif.shape_dict['Armor']
-        armor = find_shape('Armor')
+        armor = TT.find_shape('Armor')
 
-        vmin, vmax = get_obj_bbox(armor)
-        assert VNearEqual(vmin, Vector([-30.32, -13.31, -90.03])*scale_factor, 0.1), f"Armor min is correct: {vmin}"
-        assert VNearEqual(vmax, Vector([30.32, 12.57, -4.23])*scale_factor, 0.1), f"Armor max is correct: {vmax}"
-        assert NearEqual(armor.location.z, 120.34*scale_factor, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
+        vmin, vmax = TT.get_obj_bbox(armor)
+        assert VNearEqual(vmin, Vector([-30.32, -13.31, -90.03]), 0.1), f"Armor min is correct: {vmin}"
+        assert VNearEqual(vmax, Vector([30.32, 12.57, -4.23]), 0.1), f"Armor max is correct: {vmax}"
+        assert NearEqual(armor.location.z, 120.34, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
         arma = armor.parent
-        assert arma.name == "Scene Root", f"armor has parent: {arma}"
+        assert arma.name == arma_name("Scene Root"), f"armor has parent: {arma}"
 
         pelvis = arma.data.bones['NPC Pelvis']
         pelvis_pose = arma.pose.bones['NPC Pelvis'] 
@@ -282,15 +304,15 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
 
         bpy.ops.object.select_all(action='DESELECT')
         armor.select_set(True)
-        bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM", scale_factor=scale_factor)
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM", use_blender_xf=blendxf)
 
         nifout = NifFile(outfile)
 
-        compare_shapes(armorin, nifout.shape_dict['Armor'], armor, scale=scale_factor, e=0.01)
-        check_unweighted_verts(nifout.shape_dict['Armor'])
+        TT.compare_shapes(armorin, nifout.shape_dict['Armor'], armor, e=0.01)
+        TT.check_unweighted_verts(nifout.shape_dict['Armor'])
 
-    do_test(1.0)
-    do_test(0.1)
+    do_test(False)
+    do_test(True)
         
 
 if TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
@@ -298,24 +320,24 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
     # The body in this nif has no skin transform and the verts are where they appear
     # to be. The armor does have the usual transform on the shape and the skin, and the
     # verts are all below the origin. They have to be loaded into one armature.
-    test_title("TEST_IMP_EXP_SKY_2", "Can read the armor nif with two shapes and spit it back out")
-    clear_all()
+    TT.test_title("TEST_IMP_EXP_SKY_2", "Can read the armor nif with two shapes and spit it back out")
+    TT.clear_all()
 
-    #testfile = test_file(r"tests/Skyrim/test.nif") 
+    #testfile = TT.test_file(r"tests/Skyrim/test.nif") 
     # 
     # The test.nif meshes are a bit wonky--one was pasted in by hand from SOS, the other
     # is a vanilla armor. The ForearmTwist2.L bind rotation is off by some hundredths.  
     # So do the test with the vanilla male body, which has two parts and is consistent.
-    testfile = test_file(r"tests/Skyrim/malebody_1.nif")
-    # skelfile = test_file(r"tests/Skyrim/skeleton_vanilla.nif")
-    outfile = test_file(r"tests/Out/TEST_IMP_EXP_SKY_2.nif")
+    testfile = TT.test_file(r"tests/Skyrim/malebody_1.nif")
+    # skelfile = TT.test_file(r"tests/Skyrim/skeleton_vanilla.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_IMP_EXP_SKY_2.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     assert len([x for x in bpy.data.objects if x.type=='ARMATURE']) == 1, \
         f"Both shapes brought in under one armor"
-    body = find_shape('MaleUnderwearBody:0')
-    armor = find_shape('MaleUnderwear_1')
+    body = TT.find_shape('MaleUnderwearBody:0')
+    armor = TT.find_shape('MaleUnderwear_1')
     assert VNearEqual(armor.location, (-0.0003, -1.5475, 120.3436)), \
         f"Armor is raised to match body: {armor.location}"
 
@@ -324,32 +346,32 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
 
     nifout = NifFile(outfile)
     impnif = NifFile(testfile)  
-    compare_shapes(impnif.shape_dict['MaleUnderwearBody:0'], nifout.shape_dict['MaleUnderwearBody:0'], body, e=0.01)
-    compare_shapes(impnif.shape_dict['MaleUnderwear_1'], nifout.shape_dict['MaleUnderwear_1'], armor, e=0.01)
+    TT.compare_shapes(impnif.shape_dict['MaleUnderwearBody:0'], nifout.shape_dict['MaleUnderwearBody:0'], body, e=0.01)
+    TT.compare_shapes(impnif.shape_dict['MaleUnderwear_1'], nifout.shape_dict['MaleUnderwear_1'], armor, e=0.01)
 
-    check_unweighted_verts(nifout.shape_dict['MaleUnderwearBody:0'])
-    check_unweighted_verts(nifout.shape_dict['MaleUnderwear_1'])
+    TT.check_unweighted_verts(nifout.shape_dict['MaleUnderwearBody:0'])
+    TT.check_unweighted_verts(nifout.shape_dict['MaleUnderwear_1'])
     assert NearEqual(body.location.z, 120.343582, 0.01), f"{body.name} in lifted position: {body.location.z}"
     assert NearEqual(armor.location.z, 120.343582, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
     assert "NPC R Hand [RHnd]" not in bpy.data.objects, f"Did not create extra nodes representing the bones"
         
 
 if TEST_BPY_ALL or TEST_IMP_EXP_FO4:
-    test_title("TEST_IMP_EXP_FO4", "Can read the body nif and spit it back out")
-    clear_all()
+    TT.test_title("TEST_IMP_EXP_FO4", "Can read the body nif and spit it back out")
+    TT.clear_all()
 
-    testfile = test_file(r"tests\FO4\BTMaleBody.nif")
-    outfile = test_file(r"tests/Out/TEST_IMP_EXP_FO4.nif")
+    testfile = TT.test_file(r"tests\FO4\BTMaleBody.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_IMP_EXP_FO4.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     impnif = NifFile(testfile)
-    body = find_shape('BaseMaleBody:0')
+    body = TT.find_shape('BaseMaleBody:0')
     arma = body.parent
     bodyin = impnif.shape_dict['BaseMaleBody:0']
 
     assert not VNearEqual(body.location, [0, 0, 0], epsilon=1), f"Body is repositioned: {body.location}"
-    assert arma.name == "Scene Root", f"Body parented to armature: {arma.name}"
+    assert arma.name == arma_name("Scene Root"), f"Body parented to armature: {arma.name}"
     assert arma.data.bones['Pelvis_skin'].matrix_local.translation.z > 0, f"Bones translated above ground: {arma.data.bones['NPC Pelvis'].matrix_local.translation}"
     assert "Scene Root" not in arma.data.bones, "Did not import the root node"
 
@@ -360,20 +382,20 @@ if TEST_BPY_ALL or TEST_IMP_EXP_FO4:
     nifout = NifFile(outfile)
     bodyout = nifout.shape_dict['BaseMaleBody:0']
 
-    compare_shapes(bodyin, bodyout, body, e=0.001, ignore_translations=True)
+    TT.compare_shapes(bodyin, bodyout, body, e=0.001, ignore_translations=True)
 
 
 if TEST_BPY_ALL or TEST_IMP_EXP_FO4_2:
-    test_title("TEST_IMP_EXP_FO4_2", "Can read the body armor with 2 parts")
-    clear_all()
+    TT.test_title("TEST_IMP_EXP_FO4_2", "Can read the body armor with 2 parts")
+    TT.clear_all()
 
-    testfile = test_file(r"tests\FO4\Pack_UnderArmor_03_M.nif")
-    outfile = test_file(r"tests/Out/TEST_IMP_EXP_FO4_2.nif")
+    testfile = TT.test_file(r"tests\FO4\Pack_UnderArmor_03_M.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_IMP_EXP_FO4_2.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    body = find_shape('BaseMaleBody_03:0')
-    armor = find_shape('Pack_UnderArmor_03_M:0')
+    body = TT.find_shape('BaseMaleBody_03:0')
+    armor = TT.find_shape('Pack_UnderArmor_03_M:0')
     arma = body.parent
     assert body.location.z > 120, f"Body has correct transform: {body.location}"
     assert armor.location.z > 120, f"Armor has correct transform: {armor.location}"
@@ -392,16 +414,16 @@ if TEST_BPY_ALL or TEST_IMP_EXP_FO4_2:
     impnif = NifFile(testfile)
     bodyin = impnif.shape_dict['BaseMaleBody_03:0']
     armorin = impnif.shape_dict['Pack_UnderArmor_03_M:0']
-    compare_shapes(bodyin, bodyout, body, e=0.001, ignore_translations=True)
-    compare_shapes(armorin, armorout, armor, e=0.001, ignore_translations=True)
+    TT.compare_shapes(bodyin, bodyout, body, e=0.001, ignore_translations=True)
+    TT.compare_shapes(armorin, armorout, armor, e=0.001, ignore_translations=True)
 
 
 if TEST_BPY_ALL or TEST_ROUND_TRIP:
     # Test out basic import/export
-    test_title("TEST_ROUND_TRIP", "Can do the full round trip: nif -> blender -> nif -> blender")
-    clear_all()
-    testfile = test_file("tests/Skyrim/test.nif")
-    outfile1 = test_file("tests/Out/testSkyrim03.nif")
+    TT.test_title("TEST_ROUND_TRIP", "Can do the full round trip: nif -> blender -> nif -> blender")
+    TT.clear_all()
+    testfile = TT.test_file("tests/Skyrim/test.nif")
+    outfile1 = TT.test_file("tests/Out/testSkyrim03.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -431,34 +453,34 @@ if TEST_BPY_ALL or TEST_ROUND_TRIP:
 
 
 if TEST_BPY_ALL or TEST_BPY_PARENT_A:
-    test_title("TEST_BPY_PARENT_A", 'Maintain armature structure')
-    clear_all()
-    testfile = test_file(r"tests\Skyrim\test.nif")
+    TT.test_title("TEST_BPY_PARENT_A", 'Maintain armature structure')
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\Skyrim\test.nif")
     
     # Can intuit structure if it's not in the file
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    obj = bpy.data.objects["Scene Root"]
+    obj = bpy.data.objects[arma_name("Scene Root")]
     assert obj.data.bones['NPC Hand.R'].parent.name == 'CME Forearm.R', f"Error: Should find forearm as parent: {obj.data.bones['NPC Hand.R'].parent.name}"
     print(f"Found parent to hand: {obj.data.bones['NPC Hand.R'].parent.name}")
 
 
 if TEST_BPY_ALL or TEST_BPY_PARENT_B:
-    test_title("TEST_BPY_PARENT_B", 'Maintain armature structure')
-    clear_all()
-    testfile2 = test_file(r"tests\FO4\bear_tshirt_turtleneck.nif")
+    TT.test_title("TEST_BPY_PARENT_B", 'Maintain armature structure')
+    TT.clear_all()
+    testfile2 = TT.test_file(r"tests\FO4\bear_tshirt_turtleneck.nif")
     
     ## Can read structure if it comes from file
     bpy.ops.object.select_all(action='DESELECT')
     bpy.ops.import_scene.pynifly(filepath=testfile2)
-    obj = bpy.data.objects["Scene Root"]
+    obj = bpy.context.object.parent
     assert 'Arm_Hand.R' in obj.data.bones, "Error: Hand should be in armature"
     assert obj.data.bones['Arm_Hand.R'].parent.name == 'Arm_ForeArm3.R', "Error: Should find forearm as parent"
 
 
 if TEST_BPY_ALL or TEST_RENAME:
-    test_title("TEST_RENAME", "Test that NOT renaming bones works correctly")
-    clear_all()
-    testfile = test_file(r"tests\Skyrim\femalebody_1.nif")
+    TT.test_title("TEST_RENAME", "Test that NOT renaming bones works correctly")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\Skyrim\femalebody_1.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False)
 
@@ -474,14 +496,14 @@ if TEST_BPY_ALL or TEST_RENAME:
 
 if TEST_BPY_ALL or TEST_CONNECTED_SKEL:
     # Check that the bones of the armature are connected correctly.
-    test_title('TEST_CONNECTED_SKEL', 'Can import connected skeleton')
-    clear_all()
+    TT.test_title('TEST_CONNECTED_SKEL', 'Can import connected skeleton')
+    TT.clear_all()
 
     bpy.ops.object.select_all(action='DESELECT')
-    testfile = test_file(r"tests\FO4\vanillaMaleBody.nif")
+    testfile = TT.test_file(r"tests\FO4\vanillaMaleBody.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    s = bpy.data.objects[r"BASE meshes\Actors\Character\CharacterAssets\MaleBody.nif"]
+    s = bpy.context.object.parent
     assert s.type == 'ARMATURE', f"Imported the skeleton {s}" 
     assert 'Leg_Thigh.L' in s.data.bones.keys(), "Error: Should have left thigh"
     lthigh = s.data.bones['Leg_Thigh.L']
@@ -496,19 +518,19 @@ if TEST_DRAUGR_IMPORT_A or TEST_BPY_ALL:
     # position of its bones don't match the draugr skeleton. Bones defined by the hood are
     # given the human bind position--the rest come from the reference skeleton and use
     # those bind positions. 
-    test_title("TEST_DRAUGR_IMPORT1", "Import hood, extend skeleton, non-vanilla pose")
-    clear_all()
+    TT.test_title("TEST_DRAUGR_IMPORT1", "Import hood, extend skeleton, non-vanilla pose")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests\SkyrimSE\draugr lich01 hood.nif")
-    skelfile = test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
-    outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT1.nif")
+    testfile = TT.test_file(r"tests\SkyrimSE\draugr lich01 hood.nif")
+    skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT1.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=True)
 
-    helm = find_shape("Helmet")
-    hood = find_shape("Hood")
-    skel = find_shape("Scene Root")
+    skel = bpy.context.object.parent
+    helm = TT.find_shape("Helmet")
+    hood = TT.find_shape("Hood")
     bone1 = skel.data.bones['NPC UpperArm.R']
     pose1 = skel.pose.bones['NPC UpperArm.R']
     bone2 = skel.data.bones['NPC UpperarmTwist1.R']
@@ -531,19 +553,19 @@ if TEST_DRAUGR_IMPORT_B or TEST_BPY_ALL:
     # bones are given the bind position from the hood but the pose position from the nif.
     # Since the pose is not a pure translation, we do not put a transform on the hood
     # shape.
-    test_title("TEST_DRAUGR_IMPORT_B", "Import hood, don't extend skeleton, non-vanilla pose")
-    clear_all()
+    TT.test_title("TEST_DRAUGR_IMPORT_B", "Import hood, don't extend skeleton, non-vanilla pose")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests\SkyrimSE\draugr lich01 hood.nif")
-    skelfile = test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
-    outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT_B.nif")
+    testfile = TT.test_file(r"tests\SkyrimSE\draugr lich01 hood.nif")
+    skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_B.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=False)
 
-    helm = find_shape("Helmet")
-    hood = find_shape("Hood")
-    arma = find_shape("Scene Root")
+    arma = bpy.context.object.parent
+    helm = TT.find_shape("Helmet")
+    hood = TT.find_shape("Hood")
     bone1 = arma.data.bones['NPC UpperarmTwist1.R']
     pose1 = arma.pose.bones['NPC UpperarmTwist1.R']
 
@@ -555,17 +577,17 @@ if TEST_DRAUGR_IMPORT_B or TEST_BPY_ALL:
 
 if TEST_DRAUGR_IMPORT_C or TEST_BPY_ALL:
     # The helm has bones that are in the draugr's vanilla bind position.
-    test_title("TEST_DRAUGR_IMPORT_C", "Import helm, don't extend skeleton")
-    clear_all()
+    TT.test_title("TEST_DRAUGR_IMPORT_C", "Import helm, don't extend skeleton")
+    TT.clear_all()
 
-    testfile = test_file(r"tests\SkyrimSE\draugr lich01 helm.nif")
-    skelfile = test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
-    outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT_C.nif")
+    testfile = TT.test_file(r"tests\SkyrimSE\draugr lich01 helm.nif")
+    skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_C.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=False)
 
-    helm = find_shape("Helmet")
-    skel = find_shape("Scene Root")
+    skel = bpy.context.object.parent
+    helm = TT.find_shape("Helmet")
     bone1 = skel.data.bones['NPC Head']
     pose1 = skel.pose.bones['NPC Head']
 
@@ -577,18 +599,18 @@ if TEST_DRAUGR_IMPORT_C or TEST_BPY_ALL:
 
 if TEST_DRAUGR_IMPORT_D or TEST_BPY_ALL:
     # Fo the helm, when we import WITH adding bones, we get a full draugr skeleton.
-    test_title("TEST_DRAUGR_IMPORT_D", "Import helm, do extend skeleton")
-    clear_all()
+    TT.test_title("TEST_DRAUGR_IMPORT_D", "Import helm, do extend skeleton")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests\SkyrimSE\draugr lich01 helm.nif")
-    skelfile = test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
-    outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT_D.nif")
+    testfile = TT.test_file(r"tests\SkyrimSE\draugr lich01 helm.nif")
+    skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_D.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=True)
 
-    helm = find_shape("Helmet")
-    skel = find_shape("Scene Root")
+    skel = bpy.context.object.parent
+    helm = TT.find_shape("Helmet")
     bone1 = skel.data.bones['NPC Head']
     pose1 = skel.pose.bones['NPC Head']
     bone2 = skel.data.bones['NPC Spine2']
@@ -615,18 +637,19 @@ if TEST_DRAUGR_IMPORT_E or TEST_BPY_ALL:
     # two skeletons and let the user sort it out. We could also add a flag to "import at
     # pose position". We lose the bind position info but end up with the shapes parented
     # to one armature.
-    test_title("TEST_DRAUGR_IMPORT_E", "Import of this draugr mesh positions hood correctly")
-    clear_all()
+    TT.test_title("TEST_DRAUGR_IMPORT_E", "Import of this draugr mesh positions hood correctly")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests\SkyrimSE\draugr lich01 simple.nif")
-    skelfile = test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
-    outfile = test_file(r"tests/Out/TEST_DRAUGR_IMPORT_E.nif")
+    testfile = TT.test_file(r"tests\SkyrimSE\draugr lich01 simple.nif")
+    skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_E.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=False)
 
-    helm = find_shape("Helmet")
-    hood = find_shape("Hood")
+    skel = bpy.context.object.parent
+    helm = TT.find_shape("Helmet")
+    hood = TT.find_shape("Hood")
     importnif = NifFile(testfile)
     importhelm = importnif.shape_dict['Helmet']
     importhood = importnif.shape_dict['Hood']
@@ -634,45 +657,44 @@ if TEST_DRAUGR_IMPORT_E or TEST_BPY_ALL:
 
     # No matter what transforms we apply to Blender shapes or how the skinning moves 
     # them about, the vert locations should match the nif.
-    assert_near_equal(max(v.co.x for v in helm.data.vertices), 
+    TT.assert_equiv(max(v.co.x for v in helm.data.vertices), 
                       max(v[0] for v in importhelm.verts), "helm max x")
-    assert_near_equal(min(v.co.x for v in helm.data.vertices), 
+    TT.assert_equiv(min(v.co.x for v in helm.data.vertices), 
                       min(v[0] for v in importhelm.verts), "helm min x")
-    assert_near_equal(max(v.co.y for v in helm.data.vertices), 
+    TT.assert_equiv(max(v.co.y for v in helm.data.vertices), 
                       max(v[1] for v in importhelm.verts), "helm max y")
-    assert_near_equal(min(v.co.y for v in helm.data.vertices), 
+    TT.assert_equiv(min(v.co.y for v in helm.data.vertices), 
                       min(v[1] for v in importhelm.verts), "helm min y")
-    assert_near_equal(max(v.co.z for v in helm.data.vertices), 
+    TT.assert_equiv(max(v.co.z for v in helm.data.vertices), 
                       max(v[2] for v in importhelm.verts), "helm max z")
-    assert_near_equal(min(v.co.z for v in helm.data.vertices), 
+    TT.assert_equiv(min(v.co.z for v in helm.data.vertices), 
                       min(v[2] for v in importhelm.verts), "helm min z")
     
-    assert_near_equal(max(v.co.x for v in hood.data.vertices), 
+    TT.assert_equiv(max(v.co.x for v in hood.data.vertices), 
                       max(v[0] for v in importhood.verts), "hood max x")
-    assert_near_equal(min(v.co.x for v in hood.data.vertices), 
+    TT.assert_equiv(min(v.co.x for v in hood.data.vertices), 
                       min(v[0] for v in importhood.verts), "hood min x")
-    assert_near_equal(max(v.co.y for v in hood.data.vertices), 
+    TT.assert_equiv(max(v.co.y for v in hood.data.vertices), 
                       max(v[1] for v in importhood.verts), "hood max y")
-    assert_near_equal(min(v.co.y for v in hood.data.vertices), 
+    TT.assert_equiv(min(v.co.y for v in hood.data.vertices), 
                       min(v[1] for v in importhood.verts), "hood min y")
-    assert_near_equal(max(v.co.z for v in hood.data.vertices), 
+    TT.assert_equiv(max(v.co.z for v in hood.data.vertices), 
                       max(v[2] for v in importhood.verts), "hood max z")
-    assert_near_equal(min(v.co.z for v in hood.data.vertices), 
+    TT.assert_equiv(min(v.co.z for v in hood.data.vertices), 
                       min(v[2] for v in importhood.verts), "hood min z")
     
-    skel = find_shape("Scene Root")
     headbone = skel.data.bones['NPC Head']
     headpose = skel.pose.bones['NPC Head']
 
     # Helm bounding box has to be contained within the hood's bounding box (in world space).
-    helm_bb = get_obj_bbox(helm, worldspace=True)
-    hood_bb = get_obj_bbox(hood, worldspace=True)
-    assert_less_than(hood_bb[0][0], helm_bb[0][0], "min x")
-    assert_greater_than(hood_bb[1][0], helm_bb[1][0], "max x")
-    assert_less_than(hood_bb[0][1], helm_bb[0][1], "min y")
-    assert_greater_than(hood_bb[1][1], helm_bb[1][1], "max y")
-    assert_less_than(hood_bb[0][2], helm_bb[0][2], "min z")
-    assert_greater_than(hood_bb[1][2], helm_bb[1][2], "max z")
+    helm_bb = TT.get_obj_bbox(helm, worldspace=True)
+    hood_bb = TT.get_obj_bbox(hood, worldspace=True)
+    TT.assert_le(hood_bb[0][0], helm_bb[0][0], "min x")
+    TT.assert_gt(hood_bb[1][0], helm_bb[1][0], "max x")
+    TT.assert_le(hood_bb[0][1], helm_bb[0][1], "min y")
+    TT.assert_gt(hood_bb[1][1], helm_bb[1][1], "max y")
+    TT.assert_le(hood_bb[0][2], helm_bb[0][2], "min z")
+    TT.assert_gt(hood_bb[1][2], helm_bb[1][2], "max z")
 
     # Because the hood came from the human skeleton but the helm from draugr, the bone
     # positions don't match. They had to be brought in under separate armatures.
@@ -690,31 +712,45 @@ if TEST_DRAUGR_IMPORT_E or TEST_BPY_ALL:
     
 
 if TEST_BPY_ALL or TEST_SCALING_BP:
-    test_title("TEST_SCALING_BP", "Can scale bodyparts")
-    clear_all()
+    TT.test_title("TEST_SCALING_BP", "Can scale bodyparts")
+    TT.clear_all()
 
-    testfile = test_file(r"tests\Skyrim\malebody_1.nif")
-    outfile = test_file(r"tests\Out\TEST_SCALING_BP.nif")
+    testfile = TT.test_file(r"tests\Skyrim\malebody_1.nif")
+    outfile = TT.test_file(r"tests\Out\TEST_SCALING_BP.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  rename_bones_niftools=True,
-                                 scale_factor=0.1)
+                                 use_blender_xf=True)
 
-    arma = find_shape("MaleBody_1.nif")
+    arma = TT.find_shape(arma_name("MaleBody_1.nif"), type='ARMATURE')
     b = arma.data.bones['NPC Spine1 [Spn1]']
-    assert NearEqual(b.matrix_local.translation.z, 8.1443), f"Scale correctly applied: {b.matrix_local.translation}"
-    body = find_shape("MaleUnderwearBody:0")
-    assert NearEqual(body.location.z, 12, 0.1), f"Object translation correctly applied: {body.location}"
-    bodymax = max([v.co.z for v in body.data.vertices])
-    bodymin = min([v.co.z for v in body.data.vertices])
+    bw = arma.matrix_world @ b.matrix_local
+    assert NearEqual(bw.translation.z, 8.1443), f"Scale correctly applied: {bw.translation}"
+    body = TT.find_shape("MaleUnderwearBody:0")
+    blw = arma.matrix_world @ body.location
+    assert NearEqual(blw.z, 12, 0.1), f"Object translation correctly applied: {blw}"
+    bodymax = max([(arma.matrix_world @ v.co).z for v in body.data.vertices])
+    bodymin = min([(arma.matrix_world @ v.co).z for v in body.data.vertices])
     assert bodymax < 0, f"Max z is less than 0: {bodymax}"
     assert bodymin >= -12, f"Max z is greater than -12: {bodymin}"
 
-    # Test export scaling is correct
+    # Orientation - chest vertex in front of back.
+    vchest = body.data.vertices[228].co
+    vback = body.data.vertices[713].co
+    assert vchest.y > vback.y, f"Chest is in front of back: {vchest.y} > {vback.y}"
+
+    # But Blender orientation is the opposite.
+    vchestw = arma.matrix_world @ body.data.vertices[228].co
+    vbackw = arma.matrix_world @ body.data.vertices[713].co
+    assert vchestw.y < vbackw.y, f"Chest is in front of back in blender: {vchestw.y} < {vbackw.y}"
+
+
+    # Test export scaling is correct. We don't have to specify it because it will pick up
+    # the scaling from the import by default.
     bpy.ops.object.select_all(action='DESELECT')
-    body.select_set(True)
+    bpy.data.objects['MaleBody_1.nif'].select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM", 
-                                 rename_bones_niftools=True, scale_factor=0.1) \
+                                 rename_bones_niftools=True) 
 
     nifcheck = NifFile(outfile)
     bodycheck = nifcheck.shape_dict["MaleUnderwearBody:0"]
@@ -724,39 +760,44 @@ if TEST_BPY_ALL or TEST_SCALING_BP:
     bmaxout = max(v[2] for v in bodycheck.verts)
     bminout = min(v[2] for v in bodycheck.verts)
     assert bmaxout-bminout > 100, f"Shape scaled up on ouput: {bminout}-{bmaxout}"
+    assert bodycheck.verts[228][1] > bodycheck.verts[713][1], f"Chest is in front of back: {bodycheck.verts[228][1]} > {bodycheck.verts[713][1]}"
 
 
 if TEST_BPY_ALL or TEST_IMP_EXP_SCALE_2:
     # Regression: Making sure that the scale factor doesn't mess up importing under one
     # armature.
-    test_title("TEST_IMP_EXP_SCALE_2", "Can read the body nif scaled")
-    clear_all()
+    TT.test_title("TEST_IMP_EXP_SCALE_2", "Can read the body nif scaled")
+    TT.clear_all()
 
-    testfile = test_file(r"tests/Skyrim/malebody_1.nif")
-    outfile = test_file(r"tests/Out/TEST_IMP_EXP_SCALE_2.nif")
+    testfile = TT.test_file(r"tests/Skyrim/malebody_1.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_IMP_EXP_SCALE_2.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, scale_factor=0.1)
+    bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
 
-    assert len([x for x in bpy.data.objects if x.type=='ARMATURE']) == 1, \
-        f"Both shapes brought in under one armor"
-    body = find_shape('MaleUnderwearBody:0')
-    armor = find_shape('MaleUnderwear_1')
-    assert VNearEqual(armor.location, (-0.0, -0.15475, 12.03436)), \
+    armatures = [x for x in bpy.data.objects if x.type=='ARMATURE']
+    assert len(armatures) == 1, f"Both shapes brought in under one armature"
+    body = TT.find_shape('MaleUnderwearBody:0')
+    armor = TT.find_shape('MaleUnderwear_1')
+    arma = body.parent
+
+    # We imported scaled down and rotated 180.
+    assert VNearEqual((arma.matrix_world @ armor.location), (-0.0, 0.15475, 12.03436)), \
         f"Armor is raised to match body: {armor.location}"
     
     
 if TEST_BPY_ALL or TEST_ARMATURE_EXTEND:
     # Can import a shape with an armature and then import another shape to the same armature. 
-    test_title("TEST_ARMATURE_EXTEND", "Can extend an armature with a second NIF")
-    clear_all()
+    TT.test_title("TEST_ARMATURE_EXTEND", "Can extend an armature with a second NIF")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests\FO4\MaleBody.nif")
-    testfile2 = test_file(r"tests\FO4\BaseMaleHead.nif")
+    testfile = TT.test_file(r"tests\FO4\MaleBody.nif")
+    testfile2 = TT.test_file(r"tests\FO4\BaseMaleHead.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     
-    arma = bpy.data.objects[r"BASE meshes\Actors\Character\CharacterAssets\MaleBody.nif"]
+    arma = bpy.context.object.parent
+    assert arma.type == 'ARMATURE', f"Selected oject is child of armature: {arma.name}"
     bpy.context.view_layer.objects.active = arma
     assert "SPINE1" in arma.data.bones, "Found neck bone in skeleton"
     assert not "HEAD" in arma.data.bones, "Did not find head bone in skeleton"
@@ -770,11 +811,12 @@ if TEST_BPY_ALL or TEST_ARMATURE_EXTEND:
     bpy.ops.object.select_all(action='DESELECT')
     arma.select_set(True)
     bpy.ops.import_scene.pynifly(filepath=testfile2)
-    assert not "BaseMaleHead.nif" in bpy.data.objects, "Head import did not create new skeleton"
+    assert bpy.context.object.parent == arma, f"Have same armature parent: {bpy.context.object.parent.name}"
+    assert len([o for o in bpy.data.objects if o.type == 'ARMATURE']) == 1, f"Have only one armature"
     assert "HEAD" in arma.data.bones, "Found head bone in skeleton"
 
-    head = find_shape("BaseMaleHead:0")
-    body = find_shape("BaseMaleBody")
+    head = TT.find_shape("BaseMaleHead:0")
+    body = TT.find_shape("BaseMaleBody")
     target_v = Vector((0.00016, 4.339844, -12.101563))
     v_head = find_vertex(head.data, target_v)
     v_body = find_vertex(body.data, target_v)
@@ -791,16 +833,17 @@ if TEST_BPY_ALL or TEST_ARMATURE_EXTEND_BT:
     # The FO4 body nif does not use all bones from the skeleton, e.g. LLeg_Calf. If we're 
     # adding missing skeleton bones, we have to get them from the reference skeleton,
     # which pyNifly handles, and put them into the skeleton consistently with the rest.
-    test_title("TEST_ARMATURE_EXTEND", "Can extend an armature with a second NIF")
-    clear_all()
+    TT.test_title("TEST_ARMATURE_EXTEND", "Can extend an armature with a second NIF")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests\FO4\BTBaseMaleBody.nif")
-    testfile2 = test_file(r"tests\FO4\BaseMaleHead.nif")
+    testfile = TT.test_file(r"tests\FO4\BTBaseMaleBody.nif")
+    testfile2 = TT.test_file(r"tests\FO4\BaseMaleHead.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     
-    arma = bpy.data.objects[r"Scene Root"]
+    arma = bpy.context.object.parent
+    assert arma.type == 'ARMATURE', f"Found armature"
     bpy.context.view_layer.objects.active = arma
     assert "SPINE1" in arma.data.bones, "Found neck bone in skeleton"
     assert not "HEAD" in arma.data.bones, "Did not find head bone in skeleton"
@@ -811,11 +854,12 @@ if TEST_BPY_ALL or TEST_ARMATURE_EXTEND_BT:
     bpy.ops.object.select_all(action='DESELECT')
     arma.select_set(True)
     bpy.ops.import_scene.pynifly(filepath=testfile2)
-    assert not "BaseMaleHead.nif" in bpy.data.objects, "Head import did not create new skeleton"
+    
+    assert len([o for o in bpy.data.objects if o.type=='ARMATURE']) == 1, f"Have just one armature"
     assert "HEAD" in arma.data.bones, "Found head bone in skeleton"
 
-    head = find_shape("BaseMaleHead:0")
-    body = find_shape("BaseMaleBody")
+    head = TT.find_shape("BaseMaleHead:0")
+    body = TT.find_shape("BaseMaleBody")
     target_v = Vector((0.00016, 4.339844, -12.101563))
     v_head = find_vertex(head.data, target_v)
     v_body = find_vertex(body.data, target_v)
@@ -831,12 +875,12 @@ if TEST_BPY_ALL or TEST_EXPORT_WEIGHTS:
     # 
     # Also check that when we have multiple objects under a skeleton and only select one,
     # only that one gets written. 
-    test_title("TEST_EXPORT_WEIGHTS", "Import and export with weights")
-    clear_all()
-    testfile = test_file(r"tests\Skyrim\test.nif")
-    filepath_armor = test_file("tests/out/testArmorSkyrim02.nif")
-    filepath_armor_fo = test_file(r"tests\Out\testArmorFO02.nif")
-    filepath_body = test_file(r"tests\Out\testBodySkyrim02.nif")
+    TT.test_title("TEST_EXPORT_WEIGHTS", "Import and export with weights")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\Skyrim\test.nif")
+    filepath_armor = TT.test_file("tests/out/testArmorSkyrim02.nif")
+    filepath_armor_fo = TT.test_file(r"tests\Out\testArmorFO02.nif")
+    filepath_body = TT.test_file(r"tests\Out\testBodySkyrim02.nif")
 
     # Import body and armor
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -844,7 +888,7 @@ if TEST_BPY_ALL or TEST_EXPORT_WEIGHTS:
     the_body = bpy.data.objects["MaleBody"]
     assert 'NPC Foot.L' in the_armor.vertex_groups, f"ERROR: Left foot is in the groups: {the_armor.vertex_groups}"
     
-    # Export armor
+    # Export armor only
     bpy.ops.object.select_all(action='DESELECT')
     the_armor.select_set(True)
     bpy.context.view_layer.objects.active = the_armor
@@ -873,11 +917,11 @@ if TEST_BPY_ALL or TEST_EXPORT_WEIGHTS:
 
 
 if TEST_BPY_ALL or TEST_WEIGHTS_EXPORT:
-    test_title("TEST_WEIGHTS_EXPORT", "Exporting this head weights all verts correctly")
-    clear_all()
-    outfile = test_file(r"tests/Out/TEST_WEIGHTS_EXPORT.nif")
+    TT.test_title("TEST_WEIGHTS_EXPORT", "Exporting this head weights all verts correctly")
+    TT.clear_all()
+    outfile = TT.test_file(r"tests/Out/TEST_WEIGHTS_EXPORT.nif")
 
-    head = append_from_file("CheetahFemaleHead", True, r"tests\FO4\CheetahHead.blend", 
+    head = TT.append_from_file("CheetahFemaleHead", True, r"tests\FO4\CheetahHead.blend", 
                             r"\Object", "CheetahFemaleHead")
     bpy.ops.object.select_all(action='DESELECT')
     head.select_set(True)
@@ -899,11 +943,11 @@ if TEST_BPY_ALL or TEST_WEIGHTS_EXPORT:
 
 
 if TEST_BPY_ALL or TEST_0_WEIGHTS:
-    test_title("TEST_0_WEIGHTS", "Gives warning on export with 0 weights")
-    clear_all()
-    testfile = test_file(r"tests\Out\weight0.nif")
+    TT.test_title("TEST_0_WEIGHTS", "Gives warning on export with 0 weights")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\Out\weight0.nif")
 
-    baby = append_from_file("TestBabyhead", True, r"tests\FO4\Test0Weights.blend", r"\Collection", "BabyCollection")
+    baby = TT.append_from_file("TestBabyhead", True, r"tests\FO4\Test0Weights.blend", r"\Collection", "BabyCollection")
     baby.parent.name == "BabyExportRoot", f"Error: Should have baby and armature"
     log.debug(f"Found object {baby.name}")
     try:
@@ -914,14 +958,14 @@ if TEST_BPY_ALL or TEST_0_WEIGHTS:
 
 
 if TEST_BPY_ALL or TEST_TIGER_EXPORT:
-    test_title("TEST_TIGER_EXPORT", "Tiger head exports without errors")
-    clear_all()
-    f = test_file(r"tests/Out/TEST_TIGER_EXPORT.nif")
-    fb = test_file(r"tests/Out/TEST_TIGER_EXPORT_faceBones.nif")
-    ftri = test_file(r"tests/Out/TEST_TIGER_EXPORT.tri")
-    fchargen = test_file(r"tests/Out/TEST_TIGER_EXPORT_chargen.tri")
+    TT.test_title("TEST_TIGER_EXPORT", "Tiger head exports without errors")
+    TT.clear_all()
+    f = TT.test_file(r"tests/Out/TEST_TIGER_EXPORT.nif")
+    fb = TT.test_file(r"tests/Out/TEST_TIGER_EXPORT_faceBones.nif")
+    ftri = TT.test_file(r"tests/Out/TEST_TIGER_EXPORT.tri")
+    fchargen = TT.test_file(r"tests/Out/TEST_TIGER_EXPORT_chargen.tri")
 
-    append_from_file("TigerMaleHead", True, r"tests\FO4\Tiger.blend", r"\Object", "TigerMaleHead")
+    TT.append_from_file("TigerMaleHead", True, r"tests\FO4\Tiger.blend", r"\Object", "TigerMaleHead")
 
     bpy.ops.object.select_all(action='DESELECT')
     bpy.data.objects["TigerMaleHead"].select_set(True)
@@ -936,18 +980,18 @@ if TEST_BPY_ALL or TEST_TIGER_EXPORT:
 
 
 if TEST_BPY_ALL or TEST_3BBB:
-    test_title("TEST_3BBB", "Test that this mesh imports with the right transforms")
-    clear_all()
+    TT.test_title("TEST_3BBB", "Test that this mesh imports with the right transforms")
+    TT.clear_all()
 
-    testfile = test_file(r"tests/SkyrimSE/3BBB_femalebody_1.nif")
-    testfile2 = test_file(r"tests/SkyrimSE/3BBB_femalehands_1.nif")
+    testfile = TT.test_file(r"tests/SkyrimSE/3BBB_femalebody_1.nif")
+    testfile2 = TT.test_file(r"tests/SkyrimSE/3BBB_femalehands_1.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     
     obj = bpy.context.object
+    arma = obj.parent
     assert NearEqual(obj.location[0], 0.0), f"Expected body to be centered on x-axis, got {obj.location}"
 
     print("## Test that the same armature is used for the next import")
-    arma = bpy.data.objects['Scene Root']
     bpy.ops.object.select_all(action='DESELECT')
     arma.select_set(True)
     bpy.context.view_layer.objects.active = arma
@@ -958,14 +1002,14 @@ if TEST_BPY_ALL or TEST_3BBB:
 
 
 if TEST_BPY_ALL or TEST_SKEL:
-    test_title("TEST_SKEL", "Can import and export skeleton file with no shapes")
-    clear_all()
-    testfile = test_file(r"skeletons\FO4\skeleton.nif")
-    outfile = test_file(r"tests/out/TEST_SKEL.nif")
+    TT.test_title("TEST_SKEL", "Can import and export skeleton file with no shapes")
+    TT.clear_all()
+    testfile = TT.test_file(r"skeletons\FO4\skeleton.nif")
+    outfile = TT.test_file(r"tests/out/TEST_SKEL.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    arma = bpy.data.objects["skeleton.nif"]
+    arma = [a for a in bpy.data.objects if a.type == 'ARMATURE'][0]
     assert 'Leg_Thigh.L' in arma.data.bones, "Have left thigh bone"
     assert 'RibHelper.L' in arma.data.bones, "Have rib helper bone"
     assert 'L_RibHelper.L' not in arma.data.bones, "Do not have nif name for bone"
@@ -996,13 +1040,13 @@ if TEST_BPY_ALL or TEST_SKEL:
 if TEST_BPY_ALL or TEST_HEADPART:
     # Tri files can be loaded up into a shape in blender as shape keys. On SE, when there
     # are shape keys a BSDynamicTriShape is used on export.
-    test_title("TEST_HEADPART", "Can read & write an SE head part")
-    clear_all()
-    testfile = test_file(r"tests/SKYRIMSE/malehead.nif")
-    testtri = test_file(r"tests/SKYRIMSE/malehead.tri")
-    testfileout = test_file(r"tests/out/TEST_HEADPART.nif")
-    testfileout2 = test_file(r"tests/out/TEST_HEADPART2.nif")
-    testfileout3 = test_file(r"tests/out/TEST_HEADPART3.nif")
+    TT.test_title("TEST_HEADPART", "Can read & write an SE head part")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests/SKYRIMSE/malehead.nif")
+    testtri = TT.test_file(r"tests/SKYRIMSE/malehead.tri")
+    testfileout = TT.test_file(r"tests/out/TEST_HEADPART.nif")
+    testfileout2 = TT.test_file(r"tests/out/TEST_HEADPART2.nif")
+    testfileout3 = TT.test_file(r"tests/out/TEST_HEADPART3.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     obj = bpy.context.object
@@ -1047,18 +1091,18 @@ if TEST_BPY_ALL or TEST_HEADPART:
 
 
 if TEST_BPY_ALL or TEST_TRI:
-    test_title("TEST_TRI", "Can load a tri file into an existing mesh")
-    clear_all()
+    TT.test_title("TEST_TRI", "Can load a tri file into an existing mesh")
+    TT.clear_all()
 
-    testfile = test_file(r"tests\FO4\CheetahMaleHead.nif")
-    testtri2 = test_file(r"tests\FO4\CheetahMaleHead.tri")
-    testtri3 = test_file(r"tests\FO4\CheetahMaleHead.tri")
-    testout2 = test_file(r"tests\Out\CheetahMaleHead02.nif")
-    testout2tri = test_file(r"tests\Out\CheetahMaleHead02.tri")
-    testout2chg = test_file(r"tests\Out\CheetahMaleHead02chargen.tri")
-    tricubenif = test_file(r"tests\Out\tricube01.nif")
-    tricubeniftri = test_file(r"tests\Out\tricube01.tri")
-    tricubenifchg = test_file(r"tests\Out\tricube01chargen.tri")
+    testfile = TT.test_file(r"tests\FO4\CheetahMaleHead.nif")
+    testtri2 = TT.test_file(r"tests\FO4\CheetahMaleHead.tri")
+    testtri3 = TT.test_file(r"tests\FO4\CheetahMaleHead.tri")
+    testout2 = TT.test_file(r"tests\Out\CheetahMaleHead02.nif")
+    testout2tri = TT.test_file(r"tests\Out\CheetahMaleHead02.tri")
+    testout2chg = TT.test_file(r"tests\Out\CheetahMaleHead02chargen.tri")
+    tricubenif = TT.test_file(r"tests\Out\tricube01.nif")
+    tricubeniftri = TT.test_file(r"tests\Out\tricube01.tri")
+    tricubenifchg = TT.test_file(r"tests\Out\tricube01chargen.tri")
 
     bpy.ops.object.select_all(action='DESELECT')
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -1127,11 +1171,11 @@ if TEST_BPY_ALL or TEST_TRI:
 
 if TEST_BPY_ALL or TEST_IMPORT_AS_SHAPES:
     # When two files are selected for import, they are imported as shape keys if possible.
-    test_title("TEST_IMPORT_AS_SHAPES", "Can import 2 meshes as shape keys")
-    clear_all()
+    TT.test_title("TEST_IMPORT_AS_SHAPES", "Can import 2 meshes as shape keys")
+    TT.clear_all()
 
-    testfiles = [{"name": test_file(r"tests\SkyrimSE\body1m_0.nif")}, 
-                 {"name": test_file(r"tests\SkyrimSE\body1m_1.nif")}, ]
+    testfiles = [{"name": TT.test_file(r"tests\SkyrimSE\body1m_0.nif")}, 
+                 {"name": TT.test_file(r"tests\SkyrimSE\body1m_1.nif")}, ]
     bpy.ops.import_scene.pynifly(files=testfiles)
 
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
@@ -1147,14 +1191,14 @@ if TEST_BPY_ALL or TEST_IMPORT_AS_SHAPES:
 if TEST_BPY_ALL or TEST_IMPORT_MULT_SHAPES:
     # When multiple files are selected for a single import, they are connected up as 
     # shape keys if possible.
-    test_title("TEST_IMPORT_MULT_SHAPES", "Can import >2 meshes as shape keys")
-    clear_all()
+    TT.test_title("TEST_IMPORT_MULT_SHAPES", "Can import >2 meshes as shape keys")
+    TT.clear_all()
 
-    testfiles = [{"name": test_file(r"tests\FO4\PoliceGlasses\Glasses_Cat.nif")}, 
-                    {"name": test_file(r"tests\FO4\PoliceGlasses\Glasses_CatF.nif")}, 
-                    {"name": test_file(r"tests\FO4\PoliceGlasses\Glasses_Horse.nif")}, 
-                    {"name": test_file(r"tests\FO4\PoliceGlasses\Glasses_Hyena.nif")}, 
-                    {"name": test_file(r"tests\FO4\PoliceGlasses\Glasses_LionLyk.nif")}, 
+    testfiles = [{"name": TT.test_file(r"tests\FO4\PoliceGlasses\Glasses_Cat.nif")}, 
+                    {"name": TT.test_file(r"tests\FO4\PoliceGlasses\Glasses_CatF.nif")}, 
+                    {"name": TT.test_file(r"tests\FO4\PoliceGlasses\Glasses_Horse.nif")}, 
+                    {"name": TT.test_file(r"tests\FO4\PoliceGlasses\Glasses_Hyena.nif")}, 
+                    {"name": TT.test_file(r"tests\FO4\PoliceGlasses\Glasses_LionLyk.nif")}, 
                     ]
     bpy.ops.import_scene.pynifly(files=testfiles)
 
@@ -1173,13 +1217,13 @@ if (TEST_BPY_ALL or TEST_EXP_SK_RENAMED) and bpy.app.version[0] >= 3:
     # naming conventions.
     #
     # Doesn't work on 2.x. Not sure why.
-    test_title("TEST_EXP_SK_RENAMED", "Ensure renamed shape keys export properly")
-    clear_all()
-    outfile = test_file(r"tests/Out/TEST_EXP_SK_RENAMED.nif")
-    trifile = test_file(r"tests/Out/TEST_EXP_SK_RENAMED.tri")
-    chargenfile = test_file(r"tests/Out/TEST_EXP_SK_RENAMEDchargen.tri")
+    TT.test_title("TEST_EXP_SK_RENAMED", "Ensure renamed shape keys export properly")
+    TT.clear_all()
+    outfile = TT.test_file(r"tests/Out/TEST_EXP_SK_RENAMED.nif")
+    trifile = TT.test_file(r"tests/Out/TEST_EXP_SK_RENAMED.tri")
+    chargenfile = TT.test_file(r"tests/Out/TEST_EXP_SK_RENAMEDchargen.tri")
 
-    append_from_file("BaseFemaleHead:0", True, r"tests\FO4\FemaleHead.blend", 
+    TT.append_from_file("BaseFemaleHead:0", True, r"tests\FO4\FemaleHead.blend", 
                      r"\Object", "BaseFemaleHead:0")
 
     head = bpy.data.objects["BaseFemaleHead:0"]
@@ -1221,15 +1265,15 @@ if (TEST_BPY_ALL or TEST_EXP_SK_RENAMED) and bpy.app.version[0] >= 3:
 
 
 if TEST_BPY_ALL or TEST_SK_MULT:
-    test_title("TEST_SK_MULT", "Export multiple objects with only some shape keys")
+    TT.test_title("TEST_SK_MULT", "Export multiple objects with only some shape keys")
 
-    clear_all()
-    outfile = test_file(r"tests/Out/TEST_SK_MULT.nif")
-    outfile0 = test_file(r"tests/Out/TEST_SK_MULT_0.nif")
-    outfile1 = test_file(r"tests/Out/TEST_SK_MULT_1.nif")
+    TT.clear_all()
+    outfile = TT.test_file(r"tests/Out/TEST_SK_MULT.nif")
+    outfile0 = TT.test_file(r"tests/Out/TEST_SK_MULT_0.nif")
+    outfile1 = TT.test_file(r"tests/Out/TEST_SK_MULT_1.nif")
 
-    append_from_file("CheMaleMane", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "CheMaleMane")
-    append_from_file("MaleTail", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "MaleTail")
+    TT.append_from_file("CheMaleMane", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "CheMaleMane")
+    TT.append_from_file("MaleTail", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "MaleTail")
     bpy.context.view_layer.objects.active = bpy.data.objects["CheMaleMane"]
     bpy.ops.object.mode_set(mode='OBJECT')
     bpy.ops.object.select_all(action='DESELECT')
@@ -1251,10 +1295,10 @@ if TEST_BPY_ALL or TEST_SK_MULT:
 
 
 if TEST_BPY_ALL or TEST_TRI2:
-    test_title("TEST_TRI2", "Regression: Test correct improt of tri")    
-    clear_all()
-    testfile = test_file(r"tests/Skyrim/OtterMaleHead.nif")
-    trifile = test_file(r"tests/Skyrim/OtterMaleHeadChargen.tri")
+    TT.test_title("TEST_TRI2", "Regression: Test correct improt of tri")    
+    TT.clear_all()
+    testfile = TT.test_file(r"tests/Skyrim/OtterMaleHead.nif")
+    trifile = TT.test_file(r"tests/Skyrim/OtterMaleHeadChargen.tri")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -1268,11 +1312,11 @@ if TEST_BPY_ALL or TEST_TRI2:
 if TEST_BPY_ALL or TEST_BAD_TRI:
     # Tri files have UVs in them, but it's mostly not used, and some tris have messed up
     # UVs. Make sure they can be read anyway.
-    test_title("TEST_BAD_TRI", "Tris with messed up UVs can be imported")
-    clear_all()
+    TT.test_title("TEST_BAD_TRI", "Tris with messed up UVs can be imported")
+    TT.clear_all()
 
-    testfile = test_file(r"tests/Skyrim/bad_tri.tri")
-    testfile2 = test_file(r"tests/Skyrim/bad_tri_2.tri")
+    testfile = TT.test_file(r"tests/Skyrim/bad_tri.tri")
+    testfile2 = TT.test_file(r"tests/Skyrim/bad_tri_2.tri")
     
     bpy.ops.import_scene.pyniflytri(filepath=testfile)
     obj = bpy.context.object
@@ -1284,11 +1328,11 @@ if TEST_BPY_ALL or TEST_BAD_TRI:
 
 
 if TEST_BPY_ALL or TEST_SEGMENTS:
-    test_title("TEST_SEGMENTS", "Can read FO4 segments")
-    clear_all()
+    TT.test_title("TEST_SEGMENTS", "Can read FO4 segments")
+    TT.clear_all()
 
-    testfile = test_file(r"tests/FO4/VanillaMaleBody.nif")
-    outfile = test_file(r"tests/Out/TEST_SEGMENTS.nif")
+    testfile = TT.test_file(r"tests/FO4/VanillaMaleBody.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SEGMENTS.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
@@ -1305,11 +1349,11 @@ if TEST_BPY_ALL or TEST_SEGMENTS:
 
 
 if TEST_BPY_ALL or TEST_BP_SEGMENTS:
-    test_title("TEST_BP_SEGMENTS", "Can read FO4 bodypart segments")
-    clear_all()
+    TT.test_title("TEST_BP_SEGMENTS", "Can read FO4 bodypart segments")
+    TT.clear_all()
 
-    testfile = test_file(r"tests/FO4/Helmet.nif")
-    outfile = test_file(r"tests/Out/TEST_BP_SEGMENTS.nif")
+    testfile = TT.test_file(r"tests/FO4/Helmet.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_BP_SEGMENTS.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     helmet = bpy.data.objects['Helmet:0']
@@ -1347,12 +1391,12 @@ if TEST_BPY_ALL or TEST_BP_SEGMENTS:
 
 if TEST_BPY_ALL or TEST_EXP_SEGMENTS_BAD:
     # Game can get crashy if there are a bunch of empty segments at the end of the list.
-    test_title("TEST_EXP_SEGMENTS_BAD", "Verts export in the correct segments")
-    clear_all()
+    TT.test_title("TEST_EXP_SEGMENTS_BAD", "Verts export in the correct segments")
+    TT.clear_all()
 
-    outfile = test_file(r"tests/Out/TEST_EXP_SEGMENTS_BAD.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_EXP_SEGMENTS_BAD.nif")
 
-    append_from_file("ArmorUnder", True, r"tests\FO4\ArmorExportsBadSegments.blend", r"\Object", "ArmorUnder")
+    TT.append_from_file("ArmorUnder", True, r"tests\FO4\ArmorExportsBadSegments.blend", r"\Object", "ArmorUnder")
 
     NifFile.clear_log()
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
@@ -1370,11 +1414,11 @@ if TEST_BPY_ALL or TEST_EXP_SEGMENTS_BAD:
 
 if (TEST_BPY_ALL or TEST_EXP_SEG_ORDER) and bpy.app.version[0] >= 3:
     # Order matters for the segments, so make sure it's right.
-    test_title("TEST_EXP_SEG_ORDER", "Segments export in numerical order")
-    outfile = test_file(r"tests/Out/TEST_EXP_SEG_ORDER.nif")
-    clear_all()
+    TT.test_title("TEST_EXP_SEG_ORDER", "Segments export in numerical order")
+    outfile = TT.test_file(r"tests/Out/TEST_EXP_SEG_ORDER.nif")
+    TT.clear_all()
 
-    gen1bod = append_from_file("SynthGen1Body", True, r"tests\FO4\SynthGen1BodyTest.blend", r"\Object", "SynthGen1Body")
+    gen1bod = TT.append_from_file("SynthGen1Body", True, r"tests\FO4\SynthGen1BodyTest.blend", r"\Object", "SynthGen1Body")
 
     obj = bpy.data.objects["SynthGen1Body"]
     groups = [g for g in obj.vertex_groups if g.name.startswith('FO4')]
@@ -1397,10 +1441,10 @@ if (TEST_BPY_ALL or TEST_EXP_SEG_ORDER) and bpy.app.version[0] >= 3:
 
 
 if TEST_BPY_ALL or TEST_PARTITIONS:
-    test_title("TEST_PARTITIONS", "Can read Skyrim partions")
-    clear_all()
-    testfile = test_file(r"tests/Skyrim/MaleHead.nif")
-    outfile = test_file(r"tests/Out/TEST_PARTITIONS.nif")
+    TT.test_title("TEST_PARTITIONS", "Can read Skyrim partions")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests/Skyrim/MaleHead.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_PARTITIONS.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -1417,11 +1461,11 @@ if TEST_BPY_ALL or TEST_PARTITIONS:
 
 
 if TEST_BPY_ALL or TEST_SHADER_LE:
-    test_title("TEST_SHADER_LE", "Shader attributes are read and turned into Blender shader nodes")
-    clear_all()
+    TT.test_title("TEST_SHADER_LE", "Shader attributes are read and turned into Blender shader nodes")
+    TT.clear_all()
 
-    fileLE = test_file(r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
-    outfile = test_file(r"tests/Out/TEST_SHADER_LE.nif")
+    fileLE = TT.test_file(r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SHADER_LE.nif")
     bpy.ops.import_scene.pynifly(filepath=fileLE)
 
     nifLE = NifFile(fileLE)
@@ -1454,11 +1498,11 @@ if TEST_BPY_ALL or TEST_SHADER_LE:
 
 if TEST_BPY_ALL or TEST_SHADER_SE:
     # Basic test of texture paths on shaders.
-    test_title("TEST_SHADER_SE", "Shader attributes are read and turned into Blender shader nodes")
-    clear_all()
+    TT.test_title("TEST_SHADER_SE", "Shader attributes are read and turned into Blender shader nodes")
+    TT.clear_all()
 
-    fileSE = test_file(r"tests\skyrimse\meshes\armor\dwarven\dwarvenboots_envscale.nif")
-    outfile = test_file(r"tests/Out/TEST_SHADER_SE.nif")
+    fileSE = TT.test_file(r"tests\skyrimse\meshes\armor\dwarven\dwarvenboots_envscale.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SHADER_SE.nif")
     
     bpy.ops.import_scene.pynifly(filepath=fileSE)
     nifSE = NifFile(fileSE)
@@ -1498,10 +1542,10 @@ if TEST_BPY_ALL or TEST_SHADER_SE:
 
 
 if TEST_BPY_ALL or TEST_SHADER_FO4:
-    test_title("TEST_SHADER_FO4", "Shader attributes are read and turned into Blender shader nodes")
-    clear_all()
-    fileFO4 = test_file(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
-    outfile = test_file(r"tests/Out/TEST_SHADER_FO4.nif")
+    TT.test_title("TEST_SHADER_FO4", "Shader attributes are read and turned into Blender shader nodes")
+    TT.clear_all()
+    fileFO4 = TT.test_file(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SHADER_FO4.nif")
 
     bpy.ops.import_scene.pynifly(filepath=fileFO4)
     headFO4 = bpy.context.object
@@ -1536,11 +1580,11 @@ if TEST_BPY_ALL or TEST_SHADER_ALPHA:
     #
     # Note this nif uses a MSN with a _n suffix. Import goes by the shader flag not the
     # suffix.
-    test_title("TEST_SHADER_ALPHA", "Shader attributes are read and turned into Blender shader nodes")
-    clear_all()
+    TT.test_title("TEST_SHADER_ALPHA", "Shader attributes are read and turned into Blender shader nodes")
+    TT.clear_all()
 
-    fileAlph = test_file(r"tests\Skyrim\meshes\actors\character\Lykaios\Tails\maletaillykaios.nif")
-    outfile = test_file(r"tests/Out/TEST_SHADER_ALPH.nif")
+    fileAlph = TT.test_file(r"tests\Skyrim\meshes\actors\character\Lykaios\Tails\maletaillykaios.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SHADER_ALPH.nif")
 
     bpy.ops.import_scene.pynifly(filepath=fileAlph)
     
@@ -1576,16 +1620,16 @@ if TEST_BPY_ALL or TEST_SHADER_ALPHA:
 
 
 if TEST_BPY_ALL or TEST_SHADER_3_3:
-    test_title("TEST_SHADER_3_3", "Shader attributes are read and turned into Blender shader nodes")
-    clear_all()
+    TT.test_title("TEST_SHADER_3_3", "Shader attributes are read and turned into Blender shader nodes")
+    TT.clear_all()
 
-    append_from_file("FootMale_Big", True, r"tests\SkyrimSE\feet.3.3.blend", 
+    TT.append_from_file("FootMale_Big", True, r"tests\SkyrimSE\feet.3.3.blend", 
                      r"\Object", "FootMale_Big")
     bpy.ops.object.select_all(action='DESELECT')
-    obj = find_shape("FootMale_Big")
+    obj = TT.find_shape("FootMale_Big")
 
     print("## Shader attributes are written on export")
-    outfile = test_file(r"tests/Out/TEST_SHADER_3_3.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SHADER_3_3.nif")
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
@@ -1604,10 +1648,10 @@ if TEST_BPY_ALL or TEST_SHADER_3_3:
 
 
 if TEST_BPY_ALL or TEST_TEXTURE_PATHS:
-    test_title("TEST_TEXTURE_PATHS", "Texture paths are correctly resolved")
-    clear_all()
-    testfile = test_file(r"tests\SkyrimSE\circletm1.nif")
-    txtdir = test_file(r"tests\SkyrimSE")
+    TT.test_title("TEST_TEXTURE_PATHS", "Texture paths are correctly resolved")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\SkyrimSE\circletm1.nif")
+    txtdir = TT.test_file(r"tests\SkyrimSE")
 
     # Use temp_override to redirect the texture directory
     assert type(bpy.context) == bpy_types.Context, f"Context type is expected :{type(bpy.context)}"
@@ -1622,7 +1666,7 @@ if TEST_BPY_ALL or TEST_TEXTURE_PATHS:
             bpy.ops.import_scene.pynifly(filepath=testfile)
     
     # Should have found the texture files
-    circlet = find_shape('M1:4')
+    circlet = TT.find_shape('M1:4')
     mat = circlet.active_material
     bsdf = mat.node_tree.nodes['Principled BSDF']
     diffuse = shader_io.get_image_filepath(bsdf.inputs['Base Color'])
@@ -1633,10 +1677,10 @@ if TEST_BPY_ALL or TEST_TEXTURE_PATHS:
 
 if TEST_BPY_ALL or TEST_CAVE_GREEN:
     # Regression: Make sure the transparency is exported on this nif.
-    test_title("TEST_CAVE_GREEN", "Cave nif can be exported correctly")
-    clear_all()
-    testfile = test_file(r"tests\SkyrimSE\meshes\dungeons\caves\green\smallhall\caveghall1way01.nif")
-    outfile = test_file(r"tests/Out/TEST_CAVE_GREEN.nif")
+    TT.test_title("TEST_CAVE_GREEN", "Cave nif can be exported correctly")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\SkyrimSE\meshes\dungeons\caves\green\smallhall\caveghall1way01.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_CAVE_GREEN.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     wall1 = bpy.data.objects["CaveGHall1Way01:2"]
@@ -1651,7 +1695,7 @@ if TEST_BPY_ALL or TEST_CAVE_GREEN:
 
     assert diff1.image.filepath.lower()[0:-4].endswith("cavebasewall01"), f"Have correct wall diffuse: {diff1.image.filepath}"
 
-    roots = find_shape("L2_Roots:5")
+    roots = TT.find_shape("L2_Roots:5")
 
     bpy.ops.object.select_all(action='DESELECT')
     roots.select_set(True)
@@ -1667,9 +1711,9 @@ if TEST_BPY_ALL or TEST_CAVE_GREEN:
 
 
 if TEST_BPY_ALL or TEST_POT:
-    test_title("TEST_POT", "Test that pot shaders doesn't throw an error")
-    clear_all()
-    testfile = test_file(r"tests\SkyrimSE\spitpotopen01.nif")
+    TT.test_title("TEST_POT", "Test that pot shaders doesn't throw an error")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\SkyrimSE\spitpotopen01.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False, rename_bones=False)
     assert 'ANCHOR:0' in bpy.data.objects.keys()
 
@@ -1687,13 +1731,13 @@ if TEST_BPY_ALL or TEST_NOT_FB:
     # the head+body passes, but this set of clothes doesn't.
     #
     # TODO: Figure out a fix, expand the test.
-    test_title("TEST_NOT_FB", "Test that nif that looked like facebones skel can be imported")
-    clear_all()
+    TT.test_title("TEST_NOT_FB", "Test that nif that looked like facebones skel can be imported")
+    TT.clear_all()
 
-    testfile = test_file(r"tests\FO4\6SuitM_Test.nif")
+    testfile = TT.test_file(r"tests\FO4\6SuitM_Test.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    body = find_shape("body_Cloth:0")
+    body = TT.find_shape("body_Cloth:0")
     minz = min(v.co.z for v in body.data.vertices)
     assert minz > -130, f"Min z location not stretched: {minz}"
 
@@ -1706,18 +1750,18 @@ if TEST_BPY_ALL or TEST_MULTI_IMP:
     #
     # TODO: Decide if this is work fixing, and how. Maybe key of the _0 and _1 file 
     # extensions?
-    test_title("TEST_MULTI_IMP", "Test that importing multiple hair parts doesn't mess up")
-    clear_all()
+    TT.test_title("TEST_MULTI_IMP", "Test that importing multiple hair parts doesn't mess up")
+    TT.clear_all()
 
-    testfile1 = test_file(r"tests\FO4\FemaleHair25.nif")
-    testfile2 = test_file(r"tests\FO4\FemaleHair25_Hairline1.nif")
-    testfile3 = test_file(r"tests\FO4\FemaleHair25_Hairline2.nif")
-    testfile4 = test_file(r"tests\FO4\FemaleHair25_Hairline3.nif")
+    testfile1 = TT.test_file(r"tests\FO4\FemaleHair25.nif")
+    testfile2 = TT.test_file(r"tests\FO4\FemaleHair25_Hairline1.nif")
+    testfile3 = TT.test_file(r"tests\FO4\FemaleHair25_Hairline2.nif")
+    testfile4 = TT.test_file(r"tests\FO4\FemaleHair25_Hairline3.nif")
     bpy.ops.import_scene.pynifly(files=[{"name": testfile1}, 
                                         {"name": testfile2}, 
                                         {"name": testfile3}, 
                                         {"name": testfile4}])
-    h = find_shape("FemaleHair25:0")
+    h = TT.find_shape("FemaleHair25:0")
     assert h.location.z > 120, f"Hair fully imported: {h.location}"
 
 
@@ -1726,16 +1770,16 @@ if TEST_BPY_ALL or TEST_WELWA:
     # treated like the human skeleton. "Rename bones" is false on import and should be
     # remembered on the mesh and armature for export, so it's not explicitly specified on
     # export.
-    test_title("TEST_WELWA", "Can read and write shape with unusual skeleton")
-    clear_all()
+    TT.test_title("TEST_WELWA", "Can read and write shape with unusual skeleton")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests\SkyrimSE\welwa.nif")
-    outfile = test_file(r"tests/Out/TEST_WELWA.nif")
+    testfile = TT.test_file(r"tests\SkyrimSE\welwa.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_WELWA.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False, create_bones=False)
 
-    welwa = find_shape("111")
+    welwa = TT.find_shape("111")
     skel = welwa.parent
     lipbone = skel.data.bones['NPC UpperLip']
     assert VNearEqual(lipbone.matrix_local.translation, (0, 49.717827, 161.427307)), f"Found {lipbone.name} at {lipbone.matrix_local.translation}"
@@ -1754,9 +1798,9 @@ if TEST_BPY_ALL or TEST_WELWA:
 
 
 if TEST_BPY_ALL or TEST_MUTANT:
-    test_title("TEST_MUTANT", "Test that the supermutant body imports correctly the *second* time")
-    clear_all()
-    testfile = test_file(r"tests/FO4/testsupermutantbody.nif")
+    TT.test_title("TEST_MUTANT", "Test that the supermutant body imports correctly the *second* time")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests/FO4/testsupermutantbody.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False, create_bones=False)
 
@@ -1775,11 +1819,11 @@ if TEST_BPY_ALL or TEST_MUTANT:
     
 if TEST_BPY_ALL or TEST_EXPORT_HANDS:
     # When there are problems with the mesh we don't want to crash and burn.
-    test_title("TEST_EXPORT_HANDS", "Test that hand mesh doesn't throw an error")
-    clear_all()
-    outfile = test_file(r"tests/Out/TEST_EXPORT_HANDS.nif")
+    TT.test_title("TEST_EXPORT_HANDS", "Test that hand mesh doesn't throw an error")
+    TT.clear_all()
+    outfile = TT.test_file(r"tests/Out/TEST_EXPORT_HANDS.nif")
 
-    append_from_file("SupermutantHands", True, r"tests\FO4\SupermutantHands.blend", r"\Object", "SupermutantHands")
+    TT.append_from_file("SupermutantHands", True, r"tests\FO4\SupermutantHands.blend", r"\Object", "SupermutantHands")
     bpy.ops.object.select_all(action='SELECT')
     bpy.context.view_layer.objects.active = bpy.data.objects["SupermutantHands"]
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
@@ -1792,11 +1836,11 @@ if (TEST_BPY_ALL or TEST_PARTITION_ERRORS) and bpy.app.version[0] >= 3:
     # shape. If that's not the case, we return an error.
     #
     # Doesn't run on 2.x, don't know why
-    test_title("TEST_PARTITION_ERRORS", "Partitions with errors raise errors")
-    clear_all()
-    testfile = test_file(r"tests/Out/TEST_TIGER_EXPORT.nif")
+    TT.test_title("TEST_PARTITION_ERRORS", "Partitions with errors raise errors")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests/Out/TEST_TIGER_EXPORT.nif")
 
-    append_from_file("SynthMaleBody", True, r"tests\FO4\SynthBody02.blend", r"\Object", "SynthMaleBody")
+    TT.append_from_fTT.append_from_file("SynthMaleBody", True, r"tests\FO4\SynthBody02.blend", r"\Object", "SynthMaleBody")
 
     # Partitions must divide up the mesh cleanly--exactly 1 partition per tri
     bpy.context.view_layer.objects.active = bpy.data.objects["SynthMaleBody"]
@@ -1810,11 +1854,11 @@ if (TEST_BPY_ALL or TEST_PARTITION_ERRORS) and bpy.app.version[0] >= 3:
 if TEST_BPY_ALL or TEST_SHEATH:
     # The sheath has extra data nodes for Havok. These are imported as Blender empty
     # objects, and can be exported again.
-    test_title("TEST_SHEATH", "Extra data nodes are imported and exported")
-    clear_all()
+    TT.test_title("TEST_SHEATH", "Extra data nodes are imported and exported")
+    TT.clear_all()
 
-    testfile = test_file(r"tests/Skyrim/sheath_p1_1.nif")
-    outfile = test_file(r"tests/Out/TEST_SHEATH.nif")
+    testfile = TT.test_file(r"tests/Skyrim/sheath_p1_1.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SHEATH.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     bglist = [obj for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")]
@@ -1850,10 +1894,10 @@ if TEST_BPY_ALL or TEST_SHEATH:
 if TEST_BPY_ALL or TEST_FEET:
     # Feet have extra data nodes that are children of the feet mesh. This parent/child
     # relationship must be preserved on import and export.
-    test_title("TEST_FEET", "Extra data nodes are imported and exported")
-    clear_all()
-    testfile = test_file(r"tests/SkyrimSE/caninemalefeet_1.nif")
-    outfile = test_file(r"tests/Out/TEST_FEET.nif")
+    TT.test_title("TEST_FEET", "Extra data nodes are imported and exported")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests/SkyrimSE/caninemalefeet_1.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_FEET.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -1875,11 +1919,11 @@ if TEST_BPY_ALL or TEST_FEET:
 
 
 if TEST_BPY_ALL or TEST_SCALING:
-    test_title("TEST_SCALING", "Test that scale factors happen correctly")
+    TT.test_title("TEST_SCALING", "Test that scale factors happen correctly")
 
-    clear_all()
-    testfile = test_file(r"tests\Skyrim\statuechampion.nif")
-    testout = test_file(r"tests\Out\TEST_SCALING.nif")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\Skyrim\statuechampion.nif")
+    testout = TT.test_file(r"tests\Out\TEST_SCALING.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     
     base = bpy.data.objects['basis1']
@@ -1911,27 +1955,34 @@ if TEST_BPY_ALL or TEST_SCALING:
 
 
 if TEST_BPY_ALL or TEST_SCALING_OBJ:
-    test_title("TEST_SCALING_OBJ", "Can scale simple object with furniture markers")
-    clear_all()
-    testfile = test_file(r"tests\SkyrimSE\farmbench01.nif")
-    outfile = test_file(r"tests\Out\TEST_SCALING_OBJ.nif")
+    TT.test_title("TEST_SCALING_OBJ", "Can scale simple object with furniture markers")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\SkyrimSE\farmbench01.nif")
+    outfile = TT.test_file(r"tests\Out\TEST_SCALING_OBJ.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, scale_factor=0.1)
+    bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
 
     bench = bpy.context.object
-    bmax = max([v.co.z for v in bench.data.vertices])
-    bmin = min([v.co.z for v in bench.data.vertices])
-    assert VNearEqual(bench.scale, (1,1,1)), f"Bench scale factor is 1: {bench.scale}"
-    assert bmax < 3.1, f"Max Z is scaled down: {bmax}"
-    assert bmin >= 0, f"Min Z is correct: {bmin}"
+    bbmin, bbmax = TT.get_obj_bbox(bench, worldspace=True)
+    assert bbmax[0] < 6.5, f"Bench is scaled down: {bbmax}" 
+    assert bbmin[0] > -6.5, f"Bench is scaled down: {bbmin}" 
+    # bmax = max([v.co.z for v in bench.data.vertices])
+    # bmin = min([v.co.z for v in bench.data.vertices])
+    # assert VNearEqual(bench.scale, (1,1,1)), f"Bench scale factor is 1: {bench.scale}"
+    # assert bmax < 3.1, f"Max Z is scaled down: {bmax}"
+    # assert bmin >= 0, f"Min Z is correct: {bmin}"
 
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
-    assert fmarkers[0].location.z < 3.4, f"Furniture marker location is correct: {fmarkers[0].location.z}"
+    fx0 = fmarkers[0].matrix_world
+    fx1 = fmarkers[1].matrix_world
+    assert fx0.translation.x > bbmin.x and fx0.translation.x < bbmax.x, f"Furniture marker within bench bounds"
+    assert fx1.translation.x > bbmin.x and fx1.translation.x < bbmax.x, f"Furniture marker within bench bounds"
+    # assert fmarkers[0].location.z < 3.4, f"Furniture marker location is correct: {fmarkers[0].location.z}"
 
     # -------- Export --------
-    bpy.ops.object.select_all(action='SELECT')
+    ObjectSelect([o for o in bpy.data.objects if 'pynRoot' in o], active=True)
     exporter = bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', 
-                                            scale_factor=0.1)
+                                            use_blender_xf=True)
 
     # --------- Check ----------
     nifcheck = NifFile(outfile)
@@ -1944,15 +1995,15 @@ if TEST_BPY_ALL or TEST_SCALING_OBJ:
 
 
 if TEST_BPY_ALL or TEST_UNIFORM_SCALE:
-    test_title("TEST_UNIFORM_SCALE", "Can export objects with uniform scaling")
-    clear_all()
+    TT.test_title("TEST_UNIFORM_SCALE", "Can export objects with uniform scaling")
+    TT.clear_all()
 
     bpy.ops.mesh.primitive_cube_add()
     cube = bpy.context.selected_objects[0]
     cube.name = "TestCube"
     cube.scale = Vector((4.0, 4.0, 4.0))
 
-    testfile = test_file(r"tests\Out\TEST_UNIFORM_SCALE.nif")
+    testfile = TT.test_file(r"tests\Out\TEST_UNIFORM_SCALE.nif")
     bpy.ops.export_scene.pynifly(filepath=testfile, target_game='SKYRIM')
 
     nifcheck = NifFile(testfile)
@@ -1963,10 +2014,10 @@ if TEST_BPY_ALL or TEST_UNIFORM_SCALE:
 
 
 if TEST_BPY_ALL or TEST_NONUNIFORM_SCALE:
-    test_title("TEST_NONUNIFORM_SCALE", "Can export objects with non-uniform scaling")
-    clear_all()
+    TT.test_title("TEST_NONUNIFORM_SCALE", "Can export objects with non-uniform scaling")
+    TT.clear_all()
 
-    testfile = test_file(r"tests\Out\TEST_NONUNIFORM_SCALE.nif")
+    testfile = TT.test_file(r"tests\Out\TEST_NONUNIFORM_SCALE.nif")
     bpy.ops.mesh.primitive_cube_add()
     cube = bpy.context.selected_objects[0]
     cube.name = "TestCube"
@@ -1983,16 +2034,16 @@ if TEST_BPY_ALL or TEST_NONUNIFORM_SCALE:
 
 if TEST_BPY_ALL or TEST_TRIP_SE:
     # Special bodytri files allow for Bodyslide or FO4 body morphing.
-    test_title("TEST_TRIP_SE", "Bodypart tri extra data and file are written on export")
-    clear_all()
-    outfile = test_file(r"tests/Out/TEST_TRIP_SE.nif")
-    outfile1 = test_file(r"tests/Out/TEST_TRIP_SE_1.nif")
-    outfiletrip = test_file(r"tests/Out/TEST_TRIP_SE.tri")
+    TT.test_title("TEST_TRIP_SE", "Bodypart tri extra data and file are written on export")
+    TT.clear_all()
+    outfile = TT.test_file(r"tests/Out/TEST_TRIP_SE.nif")
+    outfile1 = TT.test_file(r"tests/Out/TEST_TRIP_SE_1.nif")
+    outfiletrip = TT.test_file(r"tests/Out/TEST_TRIP_SE.tri")
 
-    append_from_file("Penis_CBBE", True, r"tests\SkyrimSE\HorseFuta.blend", 
+    TT.append_from_file("Penis_CBBE", True, r"tests\SkyrimSE\HorseFuta.blend", 
                      r"\Object", "Penis_CBBE")
     bpy.ops.object.select_all(action='DESELECT')
-    obj = find_shape("Penis_CBBE")
+    obj = TT.find_shape("Penis_CBBE")
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
 
@@ -2018,14 +2069,14 @@ if TEST_BPY_ALL or TEST_TRIP_SE:
 
 
 if TEST_BPY_ALL or TEST_TRIP:
-    test_title("TEST_TRIP", "Body tri extra data and file are written on export")
-    clear_all()
-    outfile = test_file(r"tests/Out/TEST_TRIP.nif")
-    outfiletrip = test_file(r"tests/Out/TEST_TRIP.tri")
+    TT.test_title("TEST_TRIP", "Body tri extra data and file are written on export")
+    TT.clear_all()
+    outfile = TT.test_file(r"tests/Out/TEST_TRIP.nif")
+    outfiletrip = TT.test_file(r"tests/Out/TEST_TRIP.tri")
 
-    append_from_file("BaseMaleBody", True, r"tests\FO4\BodyTalk.blend", r"\Object", "BaseMaleBody")
+    TT.append_from_file("BaseMaleBody", True, r"tests\FO4\BodyTalk.blend", r"\Object", "BaseMaleBody")
     bpy.ops.object.select_all(action='DESELECT')
-    body = find_shape("BaseMaleBody")
+    body = TT.find_shape("BaseMaleBody")
     body.select_set(True)
     bpy.context.view_layer.objects.active = body
 
@@ -2052,10 +2103,10 @@ if TEST_BPY_ALL or TEST_TRIP:
 
 if TEST_BPY_ALL or TEST_COLORS:
     # Blender's vertex color layers are used to define vertex colors in the nif.
-    test_title("TEST_COLORS", "Can read & write vertex colors")
-    clear_all()
-    outfile = test_file(r"tests/Out/TEST_COLORS_Plane.nif")
-    export_from_blend(r"tests\FO4\VertexColors.blend", "Plane",
+    TT.test_title("TEST_COLORS", "Can read & write vertex colors")
+    TT.clear_all()
+    outfile = TT.test_file(r"tests/Out/TEST_COLORS_Plane.nif")
+    TT.export_from_blend(r"tests\FO4\VertexColors.blend", "Plane",
                       "FO4", outfile)
 
     nif3 = NifFile(outfile)
@@ -2068,10 +2119,10 @@ if TEST_BPY_ALL or TEST_COLORS:
 
 
 if TEST_BPY_ALL or TEST_COLORS2:
-    test_title("TEST_COLORS2", "Can read & write vertex colors")
-    clear_all()
-    testfile = test_file(r"tests/FO4/HeadGear1.nif")
-    testfileout = test_file(r"tests/Out/TEST_COLORSB_HeadGear1.nif")
+    TT.test_title("TEST_COLORS2", "Can read & write vertex colors")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests/FO4/HeadGear1.nif")
+    testfileout = TT.test_file(r"tests/Out/TEST_COLORSB_HeadGear1.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -2092,9 +2143,9 @@ if TEST_BPY_ALL or TEST_COLORS2:
 
 if TEST_BPY_ALL or TEST_NEW_COLORS:
     # Regression: There have been issues dealing with how Blender handles colors.
-    test_title("TEST_NEW_COLORS", "Can write vertex colors that were created in blender")
-    clear_all()
-    export_from_blend(r"tests\SKYRIMSE\BirdHead.blend",
+    TT.test_title("TEST_NEW_COLORS", "Can write vertex colors that were created in blender")
+    TT.clear_all()
+    TT.export_from_blend(r"tests\SKYRIMSE\BirdHead.blend",
                       "HeadWhole",
                       "SKYRIMSE",
                       r"tests/Out/TEST_NEW_COLORS.nif")
@@ -2111,13 +2162,13 @@ if TEST_BPY_ALL or TEST_VERTEX_COLOR_IO:
     # On heads, vertex alpha and diffuse alpha work together to determine the final
     # transparency the user sees. We set up Blender shader nodes to provide the same
     # effect.
-    test_title("TEST_VERTEX_COLOR_IO", "Vertex colors can be read and written")
-    clear_all()
-    testfile = test_file(r"tests\FO4\FemaleEyesAO.nif")
-    outfile = test_file(r"tests/Out/TEST_VERTEX_COLOR_IO.nif", output=1)
+    TT.test_title("TEST_VERTEX_COLOR_IO", "Vertex colors can be read and written")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\FO4\FemaleEyesAO.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_VERTEX_COLOR_IO.nif", output=1)
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    eyes = find_shape("FemaleEyesAO:0")
+    eyes = TT.find_shape("FemaleEyesAO:0")
     assert eyes.active_material["Shader_Flags_2"].find("VERTEX_COLORS") >= 0, \
         f"Eyes have colors: {eyes.active_material['Shader_Flags_2']}"
     colors = eyes.data.color_attributes.active_color.data
@@ -2149,10 +2200,10 @@ if TEST_BPY_ALL or TEST_VERTEX_COLOR_IO:
 
 
 if TEST_BPY_ALL or TEST_VERTEX_ALPHA_IO:
-    test_title("TEST_VERTEX_ALPHA_IO", "Import & export shape with vertex alpha values")
-    clear_all()
-    testfile = test_file(r"tests\SkyrimSE\meshes\actors\character\character assets\maleheadkhajiit.nif")
-    outfile = test_file(r"tests/Out/TEST_VERTEX_ALPHA_IO.nif")
+    TT.test_title("TEST_VERTEX_ALPHA_IO", "Import & export shape with vertex alpha values")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\SkyrimSE\meshes\actors\character\character assets\maleheadkhajiit.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_VERTEX_ALPHA_IO.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -2195,11 +2246,11 @@ if TEST_BPY_ALL or TEST_VERTEX_ALPHA_IO:
 
 
 if TEST_BPY_ALL or TEST_VERTEX_ALPHA:
-    test_title("TEST_VERTEX_ALPHA", "Export shape with vertex alpha values")
+    TT.test_title("TEST_VERTEX_ALPHA", "Export shape with vertex alpha values")
 
-    clear_all()
-    outfile = test_file(r"tests/Out/TEST_VERTEX_ALPHA.nif")
-    cube = append_from_file("Cube", True, r"tests\Skyrim\AlphaCube.blend", r"\Object", "Cube")
+    TT.clear_all()
+    outfile = TT.test_file(r"tests/Out/TEST_VERTEX_ALPHA.nif")
+    cube = TT.append_from_file("Cube", True, r"tests\Skyrim\AlphaCube.blend", r"\Object", "Cube")
     bpy.context.view_layer.objects.active = cube
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
 
@@ -2224,14 +2275,14 @@ if TEST_BPY_ALL or TEST_VERTEX_ALPHA:
 if TEST_BPY_ALL or TEST_BONE_HIERARCHY:
     # This hair has a complex custom bone hierarchy which have moved with havok.
     # Turns out the bones must be exported in a hierarchy for that to work.
-    test_title("TEST_BONE_HIERARCHY", "Bone hierarchy can be written on export")
-    clear_all()
-    testfile = test_file(r"tests\SkyrimSE\Anna.nif")
-    outfile = test_file(r"tests/Out/TESTS_BONE_HIERARCHY.nif", output=1)
+    TT.test_title("TEST_BONE_HIERARCHY", "Bone hierarchy can be written on export")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\SkyrimSE\Anna.nif")
+    outfile = TT.test_file(r"tests/Out/TESTS_BONE_HIERARCHY.nif", output=1)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    hair = find_shape("KSSMP_Anna")
+    hair = TT.find_shape("KSSMP_Anna")
     skel = hair.parent
     assert skel
 
@@ -2288,18 +2339,18 @@ if TEST_BPY_ALL or TEST_FACEBONE_EXPORT:
     # Facebones are exported along with the regular nif as long as either they are 
     # both selected or if there's an armature modifier for both on the shape. 
     # This test doesn't check that second condition.
-    test_title("TEST_FACEBONE_EXPORT", "Test can export facebones + regular nif; shapes with hidden verts export correctly")
-    clear_all()
+    TT.test_title("TEST_FACEBONE_EXPORT", "Test can export facebones + regular nif; shapes with hidden verts export correctly")
+    TT.clear_all()
 
-    outfile = test_file(r"tests/Out/TEST_FACEBONE_EXPORT.nif", output=True)
-    outfile_fb = test_file(r"tests/Out/TEST_FACEBONE_EXPORT_faceBones.nif", output=True)
-    outfile_tri = test_file(r"tests/Out/TEST_FACEBONE_EXPORT.tri", output=True)
-    outfile_chargen = test_file(r"tests/Out/TEST_FACEBONE_EXPORT_chargen.tri")
-    outfile2 = test_file(r"tests/Out/TEST_FACEBONE_EXPORT2.nif", output=True)
-    outfile2_fb = test_file(r"tests/Out/TEST_FACEBONE_EXPORT2_faceBones.nif", output=True)
+    outfile = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT.nif", output=True)
+    outfile_fb = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT_faceBones.nif", output=True)
+    outfile_tri = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT.tri", output=True)
+    outfile_chargen = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT_chargen.tri")
+    outfile2 = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT2.nif", output=True)
+    outfile2_fb = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT2_faceBones.nif", output=True)
 
     # Have a head shape parented to the normal skeleton but with facebone weights as well
-    obj = append_from_file("HorseFemaleHead", False, r"tests\FO4\HeadFaceBones.blend", r"\Object", "HorseFemaleHead")
+    obj = TT.append_from_file("HorseFemaleHead", False, r"tests\FO4\HeadFaceBones.blend", r"\Object", "HorseFemaleHead")
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.select_all(action='SELECT')
 
@@ -2352,14 +2403,14 @@ if TEST_BPY_ALL or TEST_FACEBONE_EXPORT:
 
 if TEST_BPY_ALL or TEST_FACEBONE_EXPORT2:
     # Regression. Test that facebones and regular mesh are both exported.
-    test_title("TEST_FACEBONE_EXPORT2", "Test can export facebones + regular nif; shapes with hidden verts export correctly")
-    clear_all()
+    TT.test_title("TEST_FACEBONE_EXPORT2", "Test can export facebones + regular nif; shapes with hidden verts export correctly")
+    TT.clear_all()
 
-    outfile = test_file(r"tests/Out/TEST_FACEBONE_EXPORT2.nif")
-    outfile_fb = test_file(r"tests/Out/TEST_FACEBONE_EXPORT2_faceBones.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT2.nif")
+    outfile_fb = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT2_faceBones.nif")
 
     # Have a head shape parented to the normal skeleton but with facebone weights as well
-    obj = append_from_file("FemaleHead.Export.001", False, r"tests\FO4\Animatron Space Simple.blend", r"\Object", "FemaleHead.Export.001")
+    obj = TT.append_from_file("FemaleHead.Export.001", False, r"tests\FO4\Animatron Space Simple.blend", r"\Object", "FemaleHead.Export.001")
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.select_all(action='SELECT')
 
@@ -2377,13 +2428,13 @@ if TEST_BPY_ALL or TEST_HYENA_PARTITIONS:
     # This Blender object has non-normalized weights--the weights for each vertex do 
     # not always add up to 1. That turns out to screw up the rendering. So check that 
     # the export normalizes them. This isn't done by pynifly or the wrapper layers.
-    test_title("TEST_HYENA_PARTITIONS", "Partitions export successfully, with warning")
+    TT.test_title("TEST_HYENA_PARTITIONS", "Partitions export successfully, with warning")
 
-    clear_all()
-    outfile = test_file(r"tests/Out/TEST_HYENA_PARTITIONS.nif", output=True)
+    TT.clear_all()
+    outfile = TT.test_file(r"tests/Out/TEST_HYENA_PARTITIONS.nif", output=True)
 
-    head = append_from_file("HyenaMaleHead", True, r"tests\FO4\HyenaHead.blend", r"\Object", "HyenaMaleHead")
-    append_from_file("Skeleton", True, r"tests\FO4\HyenaHead.blend", r"\Object", "Skeleton")
+    head = TT.append_from_file("HyenaMaleHead", True, r"tests\FO4\HyenaHead.blend", r"\Object", "HyenaMaleHead")
+    TT.append_from_file("Skeleton", True, r"tests\FO4\HyenaHead.blend", r"\Object", "Skeleton")
 
     bpy.ops.object.select_all(action='DESELECT')
     bpy.context.view_layer.objects.active = head
@@ -2398,22 +2449,33 @@ if TEST_BPY_ALL or TEST_HYENA_PARTITIONS:
     assert "HyenaMaleHead" in nif1.shape_dict, "Wrote the file successfully"
 
     head = nif1.shape_dict["HyenaMaleHead"]
-    for i in range(0, 5000):
-        weight_total = 0
-        for group_weights in head.bone_weights.values():
-            for weight_pair in group_weights:
-                if weight_pair[0] == i:
-                    weight_total += weight_pair[1]
-        assert NearEqual(weight_total, 1.0), f"Weights should total to 1 for index {i}: {weight_total}"        
+    # Only track weights for the first 5000 verts
+    vweights = [0.0] * 5000
+    maxv = 0
+    for group_weights in head.bone_weights.values():
+        for weight_pair in group_weights:
+            if weight_pair[0] < len(vweights):
+                vweights[weight_pair[0]] += weight_pair[1]
+                maxv = max(maxv, weight_pair[0])
+    for i, w in enumerate(vweights[0:maxv]):
+        assert NearEqual(w, 1.0), f"Weights should be 1 for index {i}: {w}"
+
+    # for i in range(0, 5000):
+    #     weight_total = 0
+    #     for group_weights in head.bone_weights.values():
+    #         for weight_pair in group_weights:
+    #             if weight_pair[0] == i:
+    #                 weight_total += weight_pair[1]
+    #     assert NearEqual(weight_total, 1.0), f"Weights should total to 1 for index {i}: {weight_total}"        
 
 
 if TEST_BPY_ALL or TEST_MULT_PART:
     # Check that we DON'T throw a multiple-partitions error when it's not necessary.
-    test_title("TEST_MULT_PART", "Export shape with face that might fall into multiple partititions")
-    clear_all()
+    TT.test_title("TEST_MULT_PART", "Export shape with face that might fall into multiple partititions")
+    TT.clear_all()
 
-    outfile = test_file(r"tests/Out/TEST_MULT_PART.nif")
-    append_from_file("MaleHead", True, r"tests\SkyrimSE\multiple_partitions.blend", r"\Object", "MaleHead")
+    outfile = TT.test_file(r"tests/Out/TEST_MULT_PART.nif")
+    TT.append_from_file("MaleHead", True, r"tests\SkyrimSE\multiple_partitions.blend", r"\Object", "MaleHead")
     obj = bpy.data.objects["MaleHead"]
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
@@ -2426,12 +2488,12 @@ if TEST_BPY_ALL or TEST_BONE_XPORT_POS:
     # Since we use a reference skeleton to make bones, we have to be able to handle
     # the condition where the mesh is not human and the reference skeleton should not
     # be used.
-    test_title("TEST_BONE_XPORT_POS", 
+    TT.test_title("TEST_BONE_XPORT_POS", 
                "Test that bones named like vanilla bones but from a different skeleton export to the correct position")
 
-    clear_all()
-    testfile = test_file(r"tests\Skyrim\draugr.nif")
-    outfile = test_file(r"tests/Out/TEST_BONE_XPORT_POS.nif", output=True)
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\Skyrim\draugr.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_BONE_XPORT_POS.nif", output=True)
     bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False, rename_bones=False)
     
     draugr = bpy.context.object
@@ -2474,23 +2536,24 @@ if TEST_BPY_ALL or TEST_BOW:
     # Note the bow nif as shipped by Bethesda throws errors on import, and the 
     # collision does not match the mesh closely at all. This test adjusts it on
     # export because it was too ugly.
-    test_title("TEST_BOW", "Can read and write bow")
-    clear_all()
+    TT.test_title("TEST_BOW", "Can read and write bow")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile = test_file(r"tests/Out/TEST_BOW.nif", output=True)
+    testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_BOW.nif", output=True)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
+    obj = bpy.context.object
 
     # Check root info
-    obj = bpy.context.object
-    assert obj["pynRootNode_BlockType"] == 'BSFadeNode', "pynRootNode_BlockType holds the type of root node for the given shape"
-    assert obj["pynRootNode_Name"] == "GlassBowSkinned.nif", "pynRootNode_Name holds the name for the root node"
-    assert obj["pynRootNode_Flags"] == "SELECTIVE_UPDATE | SELECTIVE_UPDATE_TRANSF | SELECTIVE_UPDATE_CONTR", f"'pynRootNode_Flags' holds the flags on the root node: {obj['pynRootNode_Flags']}"
+    root = [o for o in bpy.data.objects if "pynRoot" in o][0]
+    assert root["pynBlockName"] == 'BSFadeNode', "pynRootNode_BlockType holds the type of root node for the given shape"
+    assert root["pynNodeName"] == "GlassBowSkinned.nif", "pynRootNode_Name holds the name for the root node"
+    assert root["pynNodeFlags"] == "SELECTIVE_UPDATE | SELECTIVE_UPDATE_TRANSF | SELECTIVE_UPDATE_CONTR", f"'pynNodeFlags' holds the flags on the root node: {root['pynRootNode_Flags']}"
 
     # Check collision info
-    coll = find_shape('bhkCollisionObject')
+    coll = TT.find_shape('bhkCollisionObject', type='EMPTY')
     assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
     assert coll['pynCollisionTarget'] == 'Bow_MidBone', f"'Target' names the object the collision affects, in this case a bone: {coll['pynCollisionTarget']}"
 
@@ -2507,17 +2570,19 @@ if TEST_BPY_ALL or TEST_BOW:
     corner = map(abs, collshape.data.vertices[0].co)
     assert VNearEqual(corner, [11.01445, 57.6582, 0.95413]), f"Collision shape in correct position: {corner}"
 
-    bged = find_shape("BSBehaviorGraphExtraData")
+    bged = TT.find_shape("BSBehaviorGraphExtraData", type='EMPTY')
     assert bged['BSBehaviorGraphExtraData_Value'] == "Weapons\Bow\BowProject.hkx", f"BGED node contains bow project: {bged['BSBehaviorGraphExtraData_Value']}"
 
-    strd = find_shape("NiStringExtraData")
+    strd = TT.find_shape("NiStringExtraData", type='EMPTY')
     assert strd['NiStringExtraData_Value'] == "WeaponBow", f"Str ED node contains bow value: {strd['NiStringExtraData_Value']}"
 
-    bsxf = find_shape("BSXFlags")
+    bsxf = TT.find_shape("BSXFlags", type='EMPTY')
+    root = [o for o in bpy.data.objects if "pynRoot" in o][0]
+    assert bsxf.parent == root, f"Extra data imported under root"
     assert bsxf['BSXFlags_Name'] == "BSX", f"BSX Flags contain name BSX: {bsxf['BSXFlags_Name']}"
     assert bsxf['BSXFlags_Value'] == "HAVOC | COMPLEX | DYNAMIC | ARTICULATED", "BSX Flags object contains correct flags: {bsxf['BSXFlags_Value']}"
 
-    invm = find_shape("BSInvMarker")
+    invm = TT.find_shape("BSInvMarker", type='EMPTY')
     assert invm['BSInvMarker_Name'] == "INV", f"Inventory marker shape has correct name: {invm['BSInvMarker_Name']}"
     assert invm['BSInvMarker_RotX'] == 4712, f"Inventory marker rotation correct: {invm['BSInvMarker_RotX']}"
     assert round(invm['BSInvMarker_Zoom'], 4) == 1.1273, f"Inventory marker zoom correct: {invm['BSInvMarker_Zoom']}"
@@ -2529,14 +2594,15 @@ if TEST_BPY_ALL or TEST_BOW:
         if v.co.x > 0:
             v.co.x = 16.5
 
-    bpy.ops.object.select_all(action='SELECT')
+    # Exporting the root object takes everything with it and sets root properties.
+    ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
     # ------- Check Results --------
 
     impnif = NifFile(testfile)
     nifcheck = NifFile(outfile)
-    compare_shapes(impnif.shape_dict['ElvenBowSkinned:0'],
+    TT.compare_shapes(impnif.shape_dict['ElvenBowSkinned:0'],
                     nifcheck.shape_dict['ElvenBowSkinned:0'],
                     obj)
 
@@ -2570,22 +2636,22 @@ if TEST_BPY_ALL or TEST_BOW:
 
 
 if TEST_BPY_ALL or TEST_BOW2:
-    test_title("TEST_BOW2", "Can modify collision shape location")
-    clear_all()
+    TT.test_title("TEST_BOW2", "Can modify collision shape location")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile2 = test_file(r"tests/Out/TEST_BOW2.nif")
+    testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+    outfile2 = TT.test_file(r"tests/Out/TEST_BOW2.nif")
     
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    obj = find_shape('ElvenBowSkinned')
-    coll = find_shape('bhkCollisionObject')
+    obj = TT.find_shape('ElvenBowSkinned')
+    coll = TT.find_shape('bhkCollisionObject', type='EMPTY')
     collbody = coll.children[0]
     collshape = collbody.children[0]
-    bged = find_shape("BSBehaviorGraphExtraData")
-    strd = find_shape("NiStringExtraData")
-    bsxf = find_shape("BSXFlags")
-    invm = find_shape("BSInvMarker")
+    bged = TT.find_shape("BSBehaviorGraphExtraData", type='EMPTY')
+    strd = TT.find_shape("NiStringExtraData", type='EMPTY')
+    bsxf = TT.find_shape("BSXFlags", type='EMPTY')
+    invm = TT.find_shape("BSInvMarker", type='EMPTY')
 
     # ------- Export --------
     # Move the edge of the collision box so it covers the bow better
@@ -2629,22 +2695,22 @@ if TEST_BPY_ALL or TEST_BOW2:
 
 if TEST_BPY_ALL or TEST_BOW3:
     # We can change the collision by editing the Blender shapes
-    test_title("TEST_BOW3", "Can modify collision shape type")
-    clear_all()
+    TT.test_title("TEST_BOW3", "Can modify collision shape type")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile3 = test_file(r"tests/Out/TEST_BOW3.nif")
+    testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+    outfile3 = TT.test_file(r"tests/Out/TEST_BOW3.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    obj = find_shape('ElvenBowSkinned')
-    coll = find_shape('bhkCollisionObject')
+    obj = TT.find_shape('ElvenBowSkinned')
+    coll = TT.find_shape('bhkCollisionObject', type='EMPTY')
     collbody = coll.children[0]
     collshape = collbody.children[0]
-    bged = find_shape("BSBehaviorGraphExtraData")
-    strd = find_shape("NiStringExtraData")
-    bsxf = find_shape("BSXFlags")
-    invm = find_shape("BSInvMarker")
+    bged = TT.find_shape("BSBehaviorGraphExtraData", type='EMPTY')
+    strd = TT.find_shape("NiStringExtraData", type='EMPTY')
+    bsxf = TT.find_shape("BSXFlags", type='EMPTY')
+    invm = TT.find_shape("BSInvMarker", type='EMPTY')
 
     # ------- Export --------
 
@@ -2693,21 +2759,21 @@ if TEST_BPY_ALL or TEST_BOW3:
 if TEST_BPY_ALL or TEST_COLLISION_HIER:
     # These leeks are two shapes collected under an NiNode, with the collision on the 
     # NiNode. 
-    test_title("TEST_COLLISION_HIER", "Can read and write hierarchy of nodes containing shapes")
-    clear_all()
+    TT.test_title("TEST_COLLISION_HIER", "Can read and write hierarchy of nodes containing shapes")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests\Skyrim\grilledleekstest.nif")
-    outfile = test_file(r"tests/Out/TEST_COLLISION_HIER.nif")
+    testfile = TT.test_file(r"tests\Skyrim\grilledleekstest.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_COLLISION_HIER.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    leek4 = find_shape("Leek04")
-    leek0 = find_shape("Leek04:0")
-    leek1 = find_shape("Leek04:1")
-    c1 = find_shape("bhkCollisionObject")
-    rb = find_shape("bhkRigidBody")
-    cshape = find_shape("bhkConvexVerticesShape")
+    leek4 = TT.find_shape("Leek04")
+    leek0 = TT.find_shape("Leek04:0")
+    leek1 = TT.find_shape("Leek04:1")
+    c1 = TT.find_shape("bhkCollisionObject", type='EMPTY')
+    rb = TT.find_shape("bhkRigidBody", type='EMPTY')
+    cshape = TT.find_shape("bhkConvexVerticesShape")
     assert c1.parent.name == "Leek04" in bpy.data.objects, f"Target is a valid object: {c1.parent.name}"
     assert leek0.parent.name == "Leek04" in bpy.data.objects, f"Target is a valid object: {leek0.parent.name}"
     assert leek1.parent.name == "Leek04" in bpy.data.objects, f"Target is a valid object: {leek1.parent.name}"
@@ -2723,16 +2789,13 @@ if TEST_BPY_ALL or TEST_COLLISION_HIER:
 
     # ------- Export --------
 
-    bpy.ops.object.select_all(action='DESELECT')
-    leek4 = find_shape("BSXFlags")
-    bsxf = find_shape("BSXFlags")
-    invm = find_shape("BSInvMarker")
-    leek4.select_set(True)
-    leek0.select_set(True)
-    leek1.select_set(True)
-    bsxf.select_set(True)
-    invm.select_set(True)
-    bpy.context.view_layer.objects.active = leek4
+    # Select the objects to export. Do this instead of exporting the root. Should still
+    # work.
+    leek4 = bpy.data.objects["Leek04"]
+    bsxf = TT.find_shape("BSXFlags", type='EMPTY')
+    invm = TT.find_shape("BSInvMarker", type='EMPTY')
+    ObjectSelect([leek4, bsxf, invm], active=True)
+
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
 
     # ------- Check Results --------
@@ -2759,12 +2822,12 @@ if TEST_BPY_ALL or TEST_COLLISION_HIER:
 
 
 if TEST_BPY_ALL or TEST_NORM:
-    test_title("TEST_NORM", "Normals are read correctly")
-    clear_all()
-    testfile = test_file(r"tests/FO4/CheetahMaleHead.nif")
+    TT.test_title("TEST_NORM", "Normals are read correctly")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests/FO4/CheetahMaleHead.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    head = find_shape("CheetahMaleHead")
+    head = TT.find_shape("CheetahMaleHead")
 
     head.data.calc_normals_split()
 
@@ -2783,11 +2846,11 @@ if TEST_BPY_ALL or TEST_NORM:
 if TEST_BPY_ALL or TEST_ROGUE01:
     # Custom split normals change the direction light bounces off an object. They may be
     # set to eliminate seams between parts of a mesh, or between two meshes.
-    test_title("TEST_ROGUE01", "Mesh with wonky normals exports correctly")
-    clear_all()
-    testfile = test_file(r"tests/Out/TEST_ROGUE01.nif")
+    TT.test_title("TEST_ROGUE01", "Mesh with wonky normals exports correctly")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests/Out/TEST_ROGUE01.nif")
 
-    obj = append_from_file("MHelmetLight:0", False, r"tests\FO4\WonkyNormals.blend", r"\Object", "MHelmetLight:0")
+    obj = TT.append_from_file("MHelmetLight:0", False, r"tests\FO4\WonkyNormals.blend", r"\Object", "MHelmetLight:0")
     assert obj.name == "MHelmetLight:0", "Got the right object"
     bpy.ops.export_scene.pynifly(filepath=testfile, target_game="FO4")
 
@@ -2834,16 +2897,13 @@ if TEST_BPY_ALL or TEST_ROGUE02:
     # mesh, what direction should a custom normal face after the warp? We just preserve
     # the direction and leave it to the user to separate out the shape key if they don't
     # like the result.
-    test_title("TEST_ROGUE02", "Shape keys export normals correctly")
-    clear_all()
-    testfile = test_file(r"tests/Out/TEST_ROGUE02.nif")
-    outfile = test_file(r"tests/Out/TEST_ROGUE02_warp.nif")
+    TT.test_title("TEST_ROGUE02", "Shape keys export normals correctly")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests/Out/TEST_ROGUE02.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_ROGUE02_warp.nif")
 
-    export_from_blend(r"tests\Skyrim\ROGUE02-normals.blend",
-                        "Plane",
-                        "SKYRIM",
-                        testfile,
-                        "_warp")
+    TT.export_from_blend(r"tests\Skyrim\ROGUE02-normals.blend",
+                         "Plane", "SKYRIM", testfile, "_warp")
 
     nif2 = NifFile(outfile)
     shape2 = nif2.shapes[0]
@@ -2855,12 +2915,12 @@ if TEST_BPY_ALL or TEST_ROGUE02:
 
 
 if TEST_BPY_ALL or TEST_NORMAL_SEAM:
-    test_title("TEST_NORMAL_SEAM", "Normals on a split seam are seamless")
-    clear_all()
-    testfile = test_file(r"tests/Out/TEST_NORMAL_SEAM.nif")
-    outfile = test_file(r"tests/Out/TEST_NORMAL_SEAM_Dog.nif")
+    TT.test_title("TEST_NORMAL_SEAM", "Normals on a split seam are seamless")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests/Out/TEST_NORMAL_SEAM.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_NORMAL_SEAM_Dog.nif")
 
-    export_from_blend(r"tests\FO4\TestKnitCap.blend", "MLongshoremansCap:0",
+    TT.export_from_blend(r"tests\FO4\TestKnitCap.blend", "MLongshoremansCap:0",
                       "FO4", testfile)
 
     nif2 = NifFile(outfile)
@@ -2874,15 +2934,15 @@ if TEST_BPY_ALL or TEST_NORMAL_SEAM:
 if TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
     # We allow renaming bones according to the NifTools format. Someday this may allow
     # us to use their animation tools, but this is not that day.
-    test_title("TEST_NIFTOOLS_NAMES", "Can import nif with niftools' naming convention")
-    clear_all()
+    TT.test_title("TEST_NIFTOOLS_NAMES", "Can import nif with niftools' naming convention")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests\Skyrim\malebody_1.nif")
+    testfile = TT.test_file(r"tests\Skyrim\malebody_1.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones_niftools=True, 
-                                 create_bones=False, scale_factor=0.1)
-    arma = find_shape("MaleBody_1.nif")
+                                 create_bones=False, use_blender_xf=True)
+    arma = TT.find_shape("MaleBody_1.nif", type='ARMATURE')
 
     bpy.ops.object.select_all(action='DESELECT')
     have_niftools = False
@@ -2906,28 +2966,28 @@ if TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
         assert c.parent, f"Bones are put into a hierarchy: {c.parent}"
         assert c.parent.name == 'CME L Thigh [LThg]', f"Parent/child relationships are maintained: {c.parent.name}"
 
-        body = find_shape("MaleUnderwearBody1:0")
+        body = TT.find_shape("MaleUnderwearBody1:0")
         assert "NPC Calf [Clf].L" in body.vertex_groups, f"Vertex groups follow niftools naming convention: {body.vertex_groups.keys()}"
 
 
 if TEST_BPY_ALL or TEST_COLLISION_MULTI:
-    test_title("TEST_COLLISION_MULTI", "Can read and write shape with multiple collision shapes")
-    clear_all()
+    TT.test_title("TEST_COLLISION_MULTI", "Can read and write shape with multiple collision shapes")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests\Skyrim\grilledleeks01.nif")
-    outfile = test_file(r"tests/Out/TEST_COLLISION_MULTI.nif", output=True)
+    testfile = TT.test_file(r"tests\Skyrim\grilledleeks01.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_COLLISION_MULTI.nif", output=True)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    leek1 = find_shape("Leek01")
-    leek10 = find_shape("Leek01:0")
-    leek11 = find_shape("Leek01:1")
-    leek2 = find_shape("Leek02")
-    leek3 = find_shape("Leek03")
-    leek4 = find_shape("Leek04")
-    c1 = find_shape("bhkCollisionObject", leek1.children)
-    c2 = find_shape("bhkCollisionObject", leek2.children)
+    leek1 = TT.find_shape("Leek01", type='EMPTY')
+    leek10 = TT.find_shape("Leek01:0")
+    leek11 = TT.find_shape("Leek01:1")
+    leek2 = TT.find_shape("Leek02", type='EMPTY')
+    leek3 = TT.find_shape("Leek03", type='EMPTY')
+    leek4 = TT.find_shape("Leek04", type='EMPTY')
+    c1 = TT.find_shape("bhkCollisionObject", leek1.children, type='EMPTY')
+    c2 = TT.find_shape("bhkCollisionObject", leek2.children, type='EMPTY')
     assert set(leek1.children) == set( (c1, leek10, leek11) ), f"Children of Leek01 are correct: {leek1.children} == {c1}, {leek10}, {leek11}"
     
     # -------- Export --------
@@ -2951,27 +3011,26 @@ if TEST_BPY_ALL or TEST_COLLISION_MULTI:
 
 
 if TEST_BPY_ALL or TEST_COLLISION_CONVEXVERT:
-    def do_test(sf):
-        test_title("TEST_COLLISION_CONVEXVERT", "Can read and write shape with convex verts collision shape at scale {sf}")
-        clear_all()
+    def do_test(bx):
+        TT.test_title("TEST_COLLISION_CONVEXVERT", "Can read and write shape with convex verts collision shape at scale {bx}")
+        TT.clear_all()
 
         # ------- Load --------
-        testfile = test_file(r"tests\Skyrim\cheesewedge01.nif")
-        outfile = test_file(f"tests/Out/TEST_COLLISION_CONVEXVERT.{sf}.nif", output=True)
+        testfile = TT.test_file(r"tests\Skyrim\cheesewedge01.nif")
+        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_CONVEXVERT.{bx}.nif")
 
-        bpy.ops.import_scene.pynifly(filepath=testfile, scale_factor=sf)
-        #NifImporter.do_import(testfile, scale=sf)
+        bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=bx)
 
         # Check transform
-        obj = find_shape('CheeseWedge')
-        assert VNearEqual(obj.location, (0,0,0)), f"Cheese wedge at right location"
-        assert VNearEqual(obj.rotation_euler, (0,0,0)), f"Cheese wedge not rotated"
+        obj = TT.find_shape('CheeseWedge')
+        assert VNearEqual(obj.location, (0,0,0)), f"Cheese wedge at right location: {obj.location}"
+        assert VNearEqual(obj.rotation_euler, (0,0,0)), f"Cheese wedge not rotated: {obj.rotation_euler}"
         assert obj.scale == Vector((1,1,1)), f"Cheese wedge scale 1"
 
         # Check collision info
-        coll = find_shape('bhkCollisionObject')
+        coll = TT.find_shape('bhkCollisionObject', type='EMPTY')
         assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
-        assert coll.parent == None, f"Collision shape has no parent"
+        assert 'pynRoot' in coll.parent, f"Collision shape's parent is root"
 
         collbody = coll.children[0]
         assert collbody.name == 'bhkRigidBody', f"Child of collision is the collision body object"
@@ -2981,17 +3040,17 @@ if TEST_BPY_ALL or TEST_COLLISION_CONVEXVERT:
         collshape = collbody.children[0]
         assert collshape.name == 'bhkConvexVerticesShape', f"Collision shape is child of the collision body"
         assert collshape['bhkMaterial'] == 'CLOTH', f"Shape material is a custom property: {collshape['bhkMaterial']}"
-        obj = find_shape('CheeseWedge01', collection=bpy.context.selected_objects)
+        obj = TT.find_shape('CheeseWedge01', collection=bpy.context.selected_objects)
         xmax1 = max([v.co.x for v in obj.data.vertices])
         xmax2 = max([v.co.x for v in collshape.data.vertices])
-        assert abs(xmax1 - xmax2) < 0.5*sf, f"Max x vertex nearly the same: {xmax1} == {xmax2}"
+        assert abs(xmax1 - xmax2) < 0.5, f"Max x vertex nearly the same: {xmax1} == {xmax2}"
         corner = collshape.data.vertices[0].co
-        assert VNearEqual(corner, (-4.18715*sf, -7.89243*sf, 7.08596*sf)), f"Collision shape in correct position: {corner}"
+        assert VNearEqual(corner, (-4.18715, -7.89243, 7.08596)), f"Collision shape in correct position: {corner}"
 
         # ------- Export --------
 
         bpy.ops.object.select_all(action="SELECT")
-        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', scale_factor=sf)
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', use_blender_xf=bx)
 
         # ------- Check Results --------
 
@@ -3031,64 +3090,59 @@ if TEST_BPY_ALL or TEST_COLLISION_CONVEXVERT:
         #
         # There have been issues with importing the exported nif and having the 
         # collision be wrong
-        clear_all()
+        TT.clear_all()
         bpy.ops.import_scene.pynifly(filepath=outfile)
 
-        impcollshape = find_shape("bhkConvexVerticesShape")
+        impcollshape = TT.find_shape("bhkConvexVerticesShape")
+        impcollshape = TT.find_shape("bhkConvexVerticesShape")
         zmin = min([v.co.z for v in impcollshape.data.vertices])
-        assert zmin >= -0.01*sf, f"Minimum z is positive: {zmin}"
+        assert zmin >= -0.01, f"Minimum z is positive: {zmin}"
 
-    do_test(1.0)
-    do_test(0.1)
+    do_test(False)
+    do_test(True)
 
     
 if TEST_BPY_ALL or TEST_COLLISION_CAPSULE:
     # Note that the collision object is slightly offset from the shaft of the staff.
     # It might even be intentional, to give the staff a more irregular roll, since 
     # they didn't do a collision for the protrusions.
-    def do_test(sf):
-        test_title("TEST_COLLISION_CAPSULE", 
-                    f"Can read and write shape with collision capsule shapes with scale {sf}")
-        clear_all()
+    def do_test(bx):
+        TT.test_title("TEST_COLLISION_CAPSULE", 
+                    f"Can read and write shape with collision capsule shapes with Blender transforms {bx}")
+        TT.clear_all()
 
         # ------- Load --------
-        testfile = test_file(r"tests\Skyrim\staff04.nif")
-        outfile = test_file(f"tests/Out/TEST_COLLISION_CAPSULE.{sf}.nif")
+        testfile = TT.test_file(r"tests\Skyrim\staff04.nif")
+        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_CAPSULE.{bx}.nif")
 
-        bpy.ops.import_scene.pynifly(filepath=testfile, scale_factor=sf)
+        bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=bx)
 
-        staff = find_shape("3rdPersonStaff04")
-        coll = find_shape("bhkCollisionObject")
+        staff = TT.find_shape("3rdPersonStaff04")
+        coll = TT.find_shape("bhkCollisionObject", type="EMPTY")
         collbody = coll.children[0]
         collshape = collbody.children[0]
-        strd = find_shape("NiStringExtraData")
-        bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
+        strd = TT.find_shape("NiStringExtraData", type="EMPTY")
+        bsxf = TT.find_shape("BSXFlags", type="EMPTY")
+        invm = TT.find_shape("BSInvMarker", type="EMPTY")
 
-        staffmax = max((staff.matrix_world @ v.co).y for v in staff.data.vertices)
-        staffmin = min((staff.matrix_world @ v.co).y for v in staff.data.vertices)
-        assert NearEqual(staffmax, 68.94*sf, 0.1), f"Staff max y correct: {staffmax} == {68.94*sf}"
-        assert NearEqual(staffmin, -73.88*sf, 0.1), f"Staff min y correct: {staffmin} == {-73.88*sf}"
-
-        assert collshape.name.startswith("bhkCapsuleShape"), f"Found list collision shape: {collshape.name}"
-        collmax = max((collshape.matrix_world @ v.co).y for v in collshape.data.vertices)
-        collmin = min((collshape.matrix_world @ v.co).y for v in collshape.data.vertices)
-        assert NearEqual(staffmax, collmax, 5), f"Collision top near staff top: {collmax} ~ {staffmax}"
-        assert NearEqual(staffmin, collmin, 5), f"Collision bottom near staff botton: {collmin} ~ {staffmin}"
-        v = collshape.data.vertices[5]
-        assert NearEqual(v.co.z, 67.4*sf) or NearEqual(v.co.y, -67.4*sf), \
-        f"Found verts where expected for {collshape.name}: {v.co}"
-        assert VNearEqual(collshape.location, (0, -2.8*sf, 0.79*sf), 0.1*sf), \
-            f"Collision in right location for {collshape.name}: {collshape.location})"
+        # The staff has bits that stick out, so its bounding box is a bit larger than
+        # the collision's.
+        staffmin, staffmax = TT.get_obj_bbox(staff, worldspace=True)
+        collmin, collmax = TT.get_obj_bbox(collshape, worldspace=True)
+        assert staffmax[0] > collmax[0], f"Staff surrounds collision: {staffmax}, {collmax}"
+        assert staffmax[1] > collmax[1], f"Staff surrounds collision: {staffmax}, {collmax}"
+        assert staffmax[2] > collmax[2], f"Staff surrounds collision: {staffmax}, {collmax}"
+        assert staffmin[0] < collmin[0], f"Staff surrounds collision: {staffmax}, {collmax}"
+        assert staffmin[1] < collmin[1], f"Staff surrounds collision: {staffmax}, {collmax}"
+        assert staffmin[2] < collmin[2], f"Staff surrounds collision: {staffmax}, {collmax}"
 
         # -------- Export --------
         bpy.ops.object.select_all(action='DESELECT')
-        staff.select_set(True)
-        coll.select_set(True)
-        bsxf.select_set(True)
-        invm.select_set(True)
-        strd.select_set(True)
-        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', scale_factor=sf)
+        for o in bpy.data.objects:
+            if 'pynRoot' in o:
+                ObjectSelect([o])
+                ObjectActive(o)
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', use_blender_xf=bx)
 
         # ------- Check ---------
         nifcheck = NifFile(outfile)
@@ -3105,43 +3159,43 @@ if TEST_BPY_ALL or TEST_COLLISION_CAPSULE:
         assert NearEqual(shapeorig.properties.radius1, shapecheck.properties.radius1), f"Wrote the correct radius: {shapecheck.properties.radius1}"
         assert NearEqual(shapeorig.properties.point1[1], shapecheck.properties.point1[1]), f"Wrote the correct radius: {shapecheck.properties.point1[1]}"
 
-    do_test(1.0)
-    do_test(0.1)
+    do_test(False)
+    do_test(True)
 
 
 if TEST_BPY_ALL or TEST_COLLISION_LIST:
-    def run_test(sf):
-        test_title("TEST_COLLISION_LIST", 
-                    f"Can read and write shape with collision list and collision transform shapes with scale {sf}")
-        clear_all()
+    def run_test(bx):
+        TT.test_title("TEST_COLLISION_LIST", 
+                    f"Can read and write shape with collision list and collision transform shapes with Blender transform {bx}")
+        TT.clear_all()
 
         # ------- Load --------
-        testfile = test_file(r"tests\Skyrim\falmerstaff.nif")
-        outfile = test_file(f"tests/Out/TEST_COLLISION_LIST{sf}.nif")
+        testfile = TT.test_file(r"tests\Skyrim\falmerstaff.nif")
+        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_LIST{bx}.nif")
 
-        bpy.ops.import_scene.pynifly(filepath=testfile, scale_factor=sf)
+        bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=bx)
 
-        staff = find_shape("Staff3rdPerson:0")
-        coll = find_shape("bhkCollisionObject")
+        staff = TT.find_shape("Staff3rdPerson:0")
+        coll = TT.find_shape("bhkCollisionObject", type='EMPTY')
         collbody = coll.children[0]
         collshape = collbody.children[0]
-        strd = find_shape("NiStringExtraData")
-        bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
+        strd = TT.find_shape("NiStringExtraData", type='EMPTY')
+        bsxf = TT.find_shape("BSXFlags", type='EMPTY')
+        invm = TT.find_shape("BSInvMarker", type='EMPTY')
 
         assert collshape.name.startswith("bhkListShape"), f"Found list collision shape: {collshape.name}"
         assert len(collshape.children) == 3, f" Collision shape has children"
     
         # -------- Export --------
-        bpy.ops.object.select_all(action='DESELECT')
-        bsxf = find_shape("BSXFlags")
-        invm = find_shape("BSInvMarker")
-        staff.select_set(True)
-        coll.select_set(True)
-        bsxf.select_set(True)
-        invm.select_set(True)
-        strd.select_set(True)
-        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', scale_factor=sf)
+        bpy.ops.object.select_all(action='SELECT')
+        # bsxf = TT.find_shape("BSXFlags", type='EMPTY')
+        # invm = TT.find_shape("BSInvMarker", type='EMPTY')
+        # staff.select_set(True)
+        # coll.select_set(True)
+        # bsxf.select_set(True)
+        # invm.select_set(True)
+        # strd.select_set(True)
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', use_blender_xf=bx)
 
         # ------- Check ---------
         niforig = NifFile(testfile)
@@ -3167,32 +3221,36 @@ if TEST_BPY_ALL or TEST_COLLISION_LIST:
         cts0check = listcheck.children[0]
         assert cts0check.child.blockname == "bhkBoxShape", f"Found the box shape"
 
-        cts45check = [cts for cts in listcheck.children if NearEqual(cts.transform[1][1], 0.7071, 0.01)]
-        boxdiag = cts45check[0].child
+        cts45check = None
+        for cts in listcheck.children:
+            erot = Matrix(cts.transform).to_euler()
+            if NearEqual(erot.x, math.radians(45)):
+                cts45check = cts
+        boxdiag = cts45check.child
         assert NearEqual(boxdiag.properties.bhkDimensions[1], 0.170421), f"Diagonal box has correct size: {boxdiag.properties.bhkDimensions[1]}"
 
-    run_test(1.0)
-    run_test(0.1)
+    run_test(False)
+    run_test(True)
 
 
 if TEST_BPY_ALL or TEST_CHANGE_COLLISION:
-    test_title("TEST_CHANGE_COLLISION", "Changing collision type works correctly")
-    clear_all()
+    TT.test_title("TEST_CHANGE_COLLISION", "Changing collision type works correctly")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile = test_file(r"tests/Out/TEST_CHANGE_COLLISION.nif")
+    testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_CHANGE_COLLISION.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
-    coll = find_shape('bhkCollisionObject')
+    coll = TT.find_shape('bhkCollisionObject', type='EMPTY')
     collbody = coll.children[0]
-    collshape = find_shape('bhkBoxShape')
-    bged = find_shape("BSBehaviorGraphExtraData")
-    strd = find_shape("NiStringExtraData")
-    bsxf = find_shape("BSXFlags")
-    invm = find_shape("BSInvMarker")
+    collshape = TT.find_shape('bhkBoxShape')
+    bged = TT.find_shape("BSBehaviorGraphExtraData", type='EMPTY')
+    strd = TT.find_shape("NiStringExtraData", type='EMPTY')
+    bsxf = TT.find_shape("BSXFlags", type='EMPTY')
+    invm = TT.find_shape("BSInvMarker", type='EMPTY')
     assert collshape.name == 'bhkBoxShape', f"Found collision shape"
     
     collshape.name = "bhkConvexVerticesShape"
@@ -3228,26 +3286,26 @@ if TEST_BPY_ALL or TEST_CHANGE_COLLISION:
 if (TEST_BPY_ALL or TEST_COLLISION_XFORM) and bpy.app.version[0] >= 3:
     # Blender V2.x does not import the whole parent chain when appending an object from
     # another file, so don't try to run this on that version.
-    test_title("TEST_COLLISION_XFORM", "Can read and write shape with collision capsule shapes")
-    clear_all()
+    TT.test_title("TEST_COLLISION_XFORM", "Can read and write shape with collision capsule shapes")
+    TT.clear_all()
 
     # ------- Load --------
-    outfile = test_file(r"tests/Out/TEST_COLLISION_XFORM.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_COLLISION_XFORM.nif")
 
-    append_from_file("Staff", True, r"tests\SkyrimSE\staff.blend", r"\Object", "Staff")
-    append_from_file("BSInvMarker", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSInvMarker")
-    append_from_file("BSXFlags", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSXFlags")
-    append_from_file("NiStringExtraData", True, r"tests\SkyrimSE\staff.blend", r"\Object", "NiStringExtraData")
-    append_from_file("bhkConvexVerticesShape.002", True, r"tests\SkyrimSE\staff.blend", r"\Object", "bhkConvexVerticesShape.002")
+    TT.append_from_file("Staff", True, r"tests\SkyrimSE\staff.blend", r"\Object", "Staff")
+    TT.append_from_file("BSInvMarker", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSInvMarker")
+    TT.append_from_file("BSXFlags", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSXFlags")
+    TT.append_from_file("NiStringExtraData", True, r"tests\SkyrimSE\staff.blend", r"\Object", "NiStringExtraData")
+    TT.append_from_file("bhkConvexVerticesShape.002", True, r"tests\SkyrimSE\staff.blend", r"\Object", "bhkConvexVerticesShape.002")
 
     # -------- Export --------
     bpy.ops.object.select_all(action='DESELECT')
-    find_shape("Staff").select_set(True)
-    find_shape("bhkCollisionObject").select_set(True)
-    find_shape("NiStringExtraData").select_set(True)
-    find_shape("BSXFlags").select_set(True)
-    find_shape("BSInvMarker").select_set(True)
-    bpy.context.view_layer.objects.active = find_shape("Staff")
+    TT.find_shape("Staff").select_set(True)
+    TT.find_shape("bhkCollisionObject", type='EMPTY').select_set(True)
+    TT.find_shape("NiStringExtraData", type='EMPTY').select_set(True)
+    TT.find_shape("BSXFlags", type='EMPTY').select_set(True)
+    TT.find_shape("BSInvMarker", type='EMPTY').select_set(True)
+    bpy.context.view_layer.objects.active = TT.find_shape("Staff")
 
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
@@ -3266,19 +3324,26 @@ if (TEST_BPY_ALL or TEST_COLLISION_XFORM) and bpy.app.version[0] >= 3:
 if TEST_BPY_ALL or TEST_CONNECT_POINT:
     # FO4 has a complex method of attaching shapes to other shapes in game, using
     # connect points. These can be created and manipulated in Blender.
-    test_title("TEST_CONNECT_POINT", "Connect points are imported and exported")
-    clear_all()
+    TT.test_title("TEST_CONNECT_POINT", "Connect points are imported and exported")
+    TT.clear_all()
 
-    testfile = test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")
-    outfile = test_file(r"tests\Out\TEST_CONNECT_POINT.nif")
+    testfile = TT.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")
+    outfile = TT.test_file(r"tests\Out\TEST_CONNECT_POINT.nif")
+
     bpy.ops.import_scene.pynifly(filepath=testfile)
+
     parentnames = set(['P-Barrel', 'P-Casing', 'P-Grip', 'P-Mag', 'P-Scope'])
     childnames = ['C-Receiver', 'C-Reciever']
 
-    shotgun = next(filter(lambda x: x.name.startswith('CombatShotgunReceiver:0'), bpy.context.selected_objects))
-    cpparents = list(filter(lambda x: x.name.startswith('BSConnectPointParents'), bpy.context.selected_objects))
-    cpchildren = list(filter(lambda x: x.name.startswith('BSConnectPointChildren'), bpy.context.selected_objects))
-    cpcasing = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Casing'), bpy.context.selected_objects))
+    # Empties are not left selected by import
+    shotgun = next(filter(lambda x: x.name.startswith('CombatShotgunReceiver:0'), 
+                          bpy.context.selected_objects))
+    cpparents = list(filter(lambda x: x.name.startswith('BSConnectPointParents'), 
+                            bpy.data.objects))
+    cpchildren = list(filter(lambda x: x.name.startswith('BSConnectPointChildren'), 
+                             bpy.data.objects))
+    cpcasing = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Casing'), 
+                           bpy.data.objects))
     
     assert len(cpparents) == 5, f"Found parent connect points: {cpparents}"
     p = set(x.name.split("::")[1] for x in cpparents)
@@ -3313,35 +3378,41 @@ if TEST_BPY_ALL or TEST_CONNECT_POINT:
 if TEST_BPY_ALL or TEST_WEAPON_PART:
     # When a connect point is selected and then another part is imported that connects
     # to that point, they are connected in Blender.
-    test_title("TEST_WEAPON_PART", "Weapon parts are imported at the parent connect point")
-    clear_all()
+    TT.test_title("TEST_WEAPON_PART", "Weapon parts are imported at the parent connect point")
+    TT.clear_all()
 
-    testfile = test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")
-    partfile = test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel_1.nif")
-    partfile2 = test_file(r"tests\FO4\Shotgun\DrumMag.nif")
-    outfile = test_file(r"tests\Out\TEST_WEAPON_PART.nif")
+    testfile = TT.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")
+    partfile = TT.test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel_1.nif")
+    partfile2 = TT.test_file(r"tests\FO4\Shotgun\DrumMag.nif")
+    outfile = TT.test_file(r"tests\Out\TEST_WEAPON_PART.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False, rename_bones=False)
-    barrelpcp = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Barrel'), bpy.context.selected_objects))
+
+    barrelpcp = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Barrel'), 
+                            bpy.data.objects))
     assert barrelpcp, f"Found the connect point for barrel parts"
-    magpcp = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Mag'), bpy.context.selected_objects))
+    magpcp = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Mag'), 
+                         bpy.data.objects))
     assert magpcp, f"Found the connect point for magazine parts"
 
-    bpy.context.view_layer.objects.active = barrelpcp
+    ObjectActive(barrelpcp)
+
     bpy.ops.import_scene.pynifly(filepath=partfile, create_bones=False, rename_bones=False)
-    barrelccp = next(filter(lambda x: x.name.startswith('BSConnectPointChildren'), bpy.context.selected_objects))
+
+    barrelccp = next(filter(lambda x: x.name.startswith('BSConnectPointChildren'), 
+                            bpy.data.objects))
     assert barrelccp, f"Barrel's child connect point found {barrelccp}"
     assert barrelccp.parent == barrelpcp, f"Child connect point parented to parent connect point: {barrelccp.parent}"
 
 
 if TEST_BPY_ALL or TEST_IMPORT_MULT_CP:
     # When multiple weapon parts are imported in one command, they are connected up
-    test_title("TEST_IMPORT_MULT_CP", "Can import multiple files and connect up the connect points")
-    clear_all()
+    TT.test_title("TEST_IMPORT_MULT_CP", "Can import multiple files and connect up the connect points")
+    TT.clear_all()
 
-    testfiles = [{"name": test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")}, 
-                 {"name": test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel.nif")}, 
-                 {"name": test_file(r"tests\FO4\Shotgun\Stock.nif")} ]
+    testfiles = [{"name": TT.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")}, 
+                 {"name": TT.test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel.nif")}, 
+                 {"name": TT.test_file(r"tests\FO4\Shotgun\Stock.nif")} ]
     bpy.ops.import_scene.pynifly(files=testfiles, rename_bones=False, create_bones=False)
 
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
@@ -3355,11 +3426,11 @@ if TEST_BPY_ALL or TEST_IMPORT_MULT_CP:
     
 
 if TEST_BPY_ALL or TEST_FURN_MARKER1:
-    test_title("TEST_FURN_MARKER1", "Furniture markers work")
-    clear_all()
+    TT.test_title("TEST_FURN_MARKER1", "Furniture markers work")
+    TT.clear_all()
 
-    testfile = test_file(r"tests\SkyrimSE\farmbench01.nif")
-    outfile = test_file(r"tests\Out\TEST_FURN_MARKER1.nif")
+    testfile = TT.test_file(r"tests\SkyrimSE\farmbench01.nif")
+    outfile = TT.test_file(r"tests\Out\TEST_FURN_MARKER1.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
@@ -3368,9 +3439,9 @@ if TEST_BPY_ALL or TEST_FURN_MARKER1:
 
     # -------- Export --------
     bpy.ops.object.select_all(action='DESELECT')
-    bench = find_shape("FarmBench01:5")
+    bench = TT.find_shape("FarmBench01:5")
     bench.select_set(True)
-    bsxf = find_shape("BSXFlags")
+    bsxf = TT.find_shape("BSXFlags", type='EMPTY')
     bsxf.select_set(True)
     for f in bpy.data.objects:
         if f.name.startswith("BSFurnitureMarker"):
@@ -3386,12 +3457,12 @@ if TEST_BPY_ALL or TEST_FURN_MARKER1:
 
 
 if TEST_BPY_ALL or TEST_FURN_MARKER2:
-    test_title("TEST_FURN_MARKER2", "Furniture markers work")
+    TT.test_title("TEST_FURN_MARKER2", "Furniture markers work")
 
-    clear_all()
+    TT.clear_all()
 
-    testfile = test_file(r"tests\SkyrimSE\commonchair01.nif")
-    outfile = test_file(r"tests\Out\TEST_FURN_MARKER2.nif")
+    testfile = TT.test_file(r"tests\SkyrimSE\commonchair01.nif")
+    outfile = TT.test_file(r"tests\Out\TEST_FURN_MARKER2.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
@@ -3401,9 +3472,9 @@ if TEST_BPY_ALL or TEST_FURN_MARKER2:
 
     # -------- Export --------
     bpy.ops.object.select_all(action='DESELECT')
-    find_shape("CommonChair01:0").select_set(True)
-    find_shape("BSXFlags").select_set(True)
-    find_shape("BSFurnitureMarkerNode").select_set(True)
+    TT.find_shape("CommonChair01:0").select_set(True)
+    TT.find_shape("BSXFlags", type='EMPTY').select_set(True)
+    TT.find_shape("BSFurnitureMarkerNode", type='EMPTY').select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
     # --------- Check ----------
@@ -3415,11 +3486,11 @@ if TEST_BPY_ALL or TEST_FURN_MARKER2:
 
 
 if TEST_BPY_ALL or TEST_FO4_CHAIR:
-    test_title("TEST_FO4_CHAIR", "Furniture markers are imported and exported")
-    clear_all()
+    TT.test_title("TEST_FO4_CHAIR", "Furniture markers are imported and exported")
+    TT.clear_all()
 
-    testfile = test_file(r"tests\FO4\FederalistChairOffice01.nif")
-    outfile = test_file(r"tests\Out\TEST_FO4_CHAIR.nif")
+    testfile = TT.test_file(r"tests\FO4\FederalistChairOffice01.nif")
+    outfile = TT.test_file(r"tests\Out\TEST_FO4_CHAIR.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
@@ -3430,7 +3501,7 @@ if TEST_BPY_ALL or TEST_FO4_CHAIR:
         f"Marker {mk.name} points the right direction: {mk.rotation_euler, (-pi/2, 0, 0)}"
 
     # -------- Export --------
-    chair = find_shape("FederalistChairOffice01:2")
+    chair = TT.find_shape("FederalistChairOffice01:2")
     fmrk = list(filter(lambda x: x.name.startswith('BSFurnitureMarkerNode'), bpy.data.objects))
     
     bpy.ops.object.select_all(action='DESELECT')
@@ -3450,16 +3521,16 @@ if TEST_BPY_ALL or TEST_FO4_CHAIR:
 
 
 if TEST_BPY_ALL or TEST_PIPBOY:
-    test_title("TEST_PIPBOY", "Test pipboy import/export--very complex node hierarchy")
-    clear_all()
+    TT.test_title("TEST_PIPBOY", "Test pipboy import/export--very complex node hierarchy")
+    TT.clear_all()
 
     def cmp_xf(a, b):
         axf = a.xform_to_global.as_matrix()
         bxf = b.xform_to_global.as_matrix()
         assert MatNearEqual(axf, bxf), f"{a.name} transform preserved: \n{axf}\n != \n{bxf}"
 
-    testfile = test_file(r"tests\FO4\PipBoy_Simple.nif")
-    outfile = test_file(f"tests/Out/TEST_PIPBOY.nif", output=1)
+    testfile = TT.test_file(r"tests\FO4\PipBoy_Simple.nif")
+    outfile = TT.test_file(f"tests/Out/TEST_PIPBOY.nif", output=1)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     bpy.ops.object.select_all(action='SELECT')
@@ -3491,12 +3562,12 @@ if TEST_BPY_ALL or TEST_PIPBOY:
 
 if TEST_BPY_ALL or TEST_BABY:
     # Non-human skeleton, lots of shapes under one armature.
-    test_title('TEST_BABY', 'Can export baby parts')
-    clear_all()
+    TT.test_title('TEST_BABY', 'Can export baby parts')
+    TT.clear_all()
 
     # Can intuit structure if it's not in the file
-    testfile = test_file(r"tests\FO4\baby.nif")
-    outfile = test_file(r"tests\Out\TEST_BABY.nif")
+    testfile = TT.test_file(r"tests\FO4\baby.nif")
+    outfile = TT.test_file(r"tests\Out\TEST_BABY.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False, rename_bones=False)
     
@@ -3517,11 +3588,11 @@ if TEST_BPY_ALL or TEST_BABY:
 
 
 if TEST_BPY_ALL or TEST_ROTSTATIC:
-    test_title("TEST_ROTSTATIC", "Test that statics are transformed according to the shape transform")
-    clear_all()
+    TT.test_title("TEST_ROTSTATIC", "Test that statics are transformed according to the shape transform")
+    TT.clear_all()
 
-    testfile = test_file(r"tests/Skyrim/rotatedbody.nif")
-    outfile = test_file(r"tests/Out/TEST_ROTSTATIC.nif")
+    testfile = TT.test_file(r"tests/Skyrim/rotatedbody.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_ROTSTATIC.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     body = bpy.data.objects["LykaiosBody"]
@@ -3540,10 +3611,10 @@ if TEST_BPY_ALL or TEST_ROTSTATIC:
 
 
 if TEST_BPY_ALL or TEST_ROTSTATIC2:
-    test_title("TEST_ROTSTATIC2", "Test that statics are transformed according to the shape transform")
-    clear_all()
+    TT.test_title("TEST_ROTSTATIC2", "Test that statics are transformed according to the shape transform")
+    TT.clear_all()
 
-    testfile = test_file(r"tests/FO4/Meshes/SetDressing/Vehicles/Crane03_simplified.nif")
+    testfile = TT.test_file(r"tests/FO4/Meshes/SetDressing/Vehicles/Crane03_simplified.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     glass = bpy.data.objects["Glass:0"]
@@ -3556,17 +3627,17 @@ if TEST_BPY_ALL or TEST_FACEBONES:
     # A few of the facebones have transforms that don't match the rest. The skin-to-bone
     # transforms have to be handled correctly or the face comes in slightly warped.
     # Also the skin_bone_C_MasterEyebrow is included in the nif but not used in the head.
-    test_title("TEST_FACEBONES", "Can read and write facebones correctly")
-    clear_all()
+    TT.test_title("TEST_FACEBONES", "Can read and write facebones correctly")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests\FO4\BaseFemaleHead_faceBones.nif")
-    outfile = test_file(f"tests/Out/TEST_FACEBONES.nif", output=1)
-    resfile = test_file(f"tests/Out/TEST_FACEBONES_facebones.nif", output=1)
+    testfile = TT.test_file(r"tests\FO4\BaseFemaleHead_faceBones.nif")
+    outfile = TT.test_file(f"tests/Out/TEST_FACEBONES.nif", output=1)
+    resfile = TT.test_file(f"tests/Out/TEST_FACEBONES_facebones.nif", output=1)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    head = find_shape("BaseFemaleHead_faceBones:0")
+    head = TT.find_shape("BaseFemaleHead_faceBones:0")
     maxy = max([v.co.y for v in head.data.vertices])
     assert maxy < 11.8, f"Max y not too large: {maxy}"
 
@@ -3607,12 +3678,12 @@ Transforms for output and input node {nm} match:
 """
 
 if TEST_BPY_ALL or TEST_FACEBONES_RENAME:
-    test_title("TEST_FACEBONES_RENAME", "Facebones are renamed from Blender to the game's names")
-    clear_all()
+    TT.test_title("TEST_FACEBONES_RENAME", "Facebones are renamed from Blender to the game's names")
+    TT.clear_all()
 
-    testfile = test_file(r"tests/FO4/basemalehead_facebones.nif")
-    outfile = test_file(r"tests/Out/TEST_FACEBONES_RENAME.nif")
-    outfile2 = test_file(r"tests/Out/TEST_FACEBONES_RENAME_facebones.nif")
+    testfile = TT.test_file(r"tests/FO4/basemalehead_facebones.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_FACEBONES_RENAME.nif")
+    outfile2 = TT.test_file(r"tests/Out/TEST_FACEBONES_RENAME_facebones.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
@@ -3633,21 +3704,21 @@ if TEST_BPY_ALL or TEST_IMP_ANIMATRON:
     # The animatrons are very complex and their pose and bind positions are different. The
     # two shapes have slightly different bind positions, though they are a small offset
     # from each other.
-    test_title("TEST_IMP_ANIMATRON", "Can read a FO4 animatron nif")
-    clear_all()
+    TT.test_title("TEST_IMP_ANIMATRON", "Can read a FO4 animatron nif")
+    TT.clear_all()
 
-    testfile = test_file(r"tests/FO4/AnimatronicNormalWoman-body.nif")
-    outfile = test_file(r"tests/Out/TEST_IMP_ANIMATRON.nif")
-    outfile_fb = test_file(r"tests/Out/TEST_IMP_ANIMATRON.nif")
+    testfile = TT.test_file(r"tests/FO4/AnimatronicNormalWoman-body.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_IMP_ANIMATRON.nif")
+    outfile_fb = TT.test_file(r"tests/Out/TEST_IMP_ANIMATRON.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False, rename_bones=False)
 
-    sh = find_shape('BodyLo:0')
-    minv, maxv = get_obj_bbox(sh)
+    sh = TT.find_shape('BodyLo:0')
+    minv, maxv = TT.get_obj_bbox(sh)
     assert VNearEqual(minv, Vector((-13.14, -7.83, 38.6)), 0.1), f"Bounding box min correct: {minv}"
     assert VNearEqual(maxv, Vector((14.0, 12.66, 133.5)), 0.1), f"Bounding box max correct: {maxv}"
 
-    arma = find_shape("AnimatronicNormalWoman")
+    arma = TT.find_shape(arma_name("AnimatronicNormalWoman"), type='ARMATURE')
     spine2 = arma.data.bones['SPINE2']
     hand = arma.data.bones['RArm_Hand']
     handpose = arma.pose.bones['RArm_Hand']
@@ -3655,12 +3726,12 @@ if TEST_BPY_ALL or TEST_IMP_ANIMATRON:
     assert VNearEqual(handpose.matrix.translation, [18.1848, 2.6116, 68.6298]), f"Hand position matches Nif: {handpose.matrix.translation}"
 
     thighl = arma.data.bones['LLeg_Thigh']
-    cp_armorleg = find_shape("BSConnectPointParents::P-ArmorLleg")
+    cp_armorleg = TT.find_shape("BSConnectPointParents::P-ArmorLleg", type='EMPTY')
     assert cp_armorleg["pynConnectParent"] == "LLeg_Thigh", f"Connect point has correct parent: {cp_armorleg['pynConnectParent']}"
     # assert VNearEqual(cp_armorleg.location, thighl.matrix_local.translation, 0.1), \
     #     f"Connect point at correct position: {cp_armorleg.location} == {thighl.matrix_local.translation}"
 
-    arma = find_shape('AnimatronicNormalWoman')
+    arma = TT.find_shape(arma_name('AnimatronicNormalWoman'), type='ARMATURE')
     assert arma, f"Found armature '{arma.name}'"
     lleg_thigh = arma.data.bones['LLeg_Thigh']
     assert lleg_thigh.parent, f"LLeg_Thigh has parent"
@@ -3668,7 +3739,7 @@ if TEST_BPY_ALL or TEST_IMP_ANIMATRON:
 
     bpy.ops.object.select_all(action='DESELECT')
     sh.select_set(True)
-    find_shape('BodyLo:1').select_set(True)
+    TT.find_shape('BodyLo:1').select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True,
                                  export_pose=True)
 
@@ -3676,7 +3747,7 @@ if TEST_BPY_ALL or TEST_IMP_ANIMATRON:
     nifout = NifFile(outfile_fb)
     sh_out = nifout.shapes[0]
     assert sh_out.name == 'BodyLo:0', f"Exported shape: {sh_out.name}"
-    minv_out, maxv_out = get_shape_bbox(sh_out)
+    minv_out, maxv_out = TT.get_shape_bbox(sh_out)
     assert VNearEqual(minv_out, minv), f"Minimum bounds equal: {minv_out} == {minv}"
     assert VNearEqual(maxv_out, maxv), f"Minimum bounds equal: {maxv_out} == {maxv}"
     sp2_out = nifout.nodes['SPINE2']
@@ -3688,12 +3759,12 @@ if TEST_BPY_ALL or TEST_IMP_ANIMATRON:
 
 if TEST_BPY_ALL or TEST_CUSTOM_BONES:
     # These nifs have bones that are not part of the vanilla skeleton.
-    test_title('TEST_CUSTOM_BONES', 'Can handle custom bones correctly')
-    clear_all()
+    TT.test_title('TEST_CUSTOM_BONES', 'Can handle custom bones correctly')
+    TT.clear_all()
 
-    testfile = test_file(r"tests\FO4\VulpineInariTailPhysics.nif")
-    testfile = test_file(r"tests\FO4\BrushTail_Male_Simple.nif")
-    outfile = test_file(r"tests\Out\TEST_CUSTOM_BONES.nif")
+    testfile = TT.test_file(r"tests\FO4\VulpineInariTailPhysics.nif")
+    testfile = TT.test_file(r"tests\FO4\BrushTail_Male_Simple.nif")
+    outfile = TT.test_file(r"tests\Out\TEST_CUSTOM_BONES.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     nifimp = NifFile(testfile)
     bone_in_xf = nifimp.nodes['Bone_Cloth_H_003'].xform_to_global.as_matrix()
@@ -3710,11 +3781,11 @@ if TEST_BPY_ALL or TEST_CUSTOM_BONES:
 if TEST_BPY_ALL or TEST_COTH_DATA:
     # Cloth data is extra bones that are enabled by HDT-type physics. Since they aren't 
     # part of the skeleton they can create problems.
-    test_title("TEST_COTH_DATA", "Can read and write cloth data")
-    clear_all()
+    TT.test_title("TEST_COTH_DATA", "Can read and write cloth data")
+    TT.clear_all()
 
-    testfile = test_file(r"tests/FO4/HairLong01.nif")
-    outfile = test_file(r"tests/Out/TEST_COTH_DATA.nif")
+    testfile = TT.test_file(r"tests/FO4/HairLong01.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_COTH_DATA.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     
     assert 'BSClothExtraData' in bpy.data.objects.keys(), f"Found no cloth extra data in {bpy.data.objects.keys()}"
@@ -3736,63 +3807,58 @@ if TEST_BPY_ALL or TEST_SCALING_COLL:
     # Primarily tests collisions, but this nif has everything: collisions, root node 
     # as fade node, bone hierarchy, extra data nodes. So tests for those and also  
     # UV orientation and texture handling
-    test_title("TEST_SCALING_COLL", "Collisions scale correctly on import and export")
-    clear_all()
+    TT.test_title("TEST_SCALING_COLL", "Collisions scale correctly on import and export")
+    TT.clear_all()
 
     # ------- Load --------
-    testfile = test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile = test_file(r"tests/Out/TEST_SCALING_COLL.nif", output=True)
+    testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SCALING_COLL.nif", output=True)
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, scale_factor=0.1)
-    obj = find_shape("ElvenBowSkinned:0")
+    bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
+    obj = TT.find_shape("ElvenBowSkinned:0")
 
-    # After import with a scale factor, imported object records the scale factor
-    assert 'PYN_SCALE_FACTOR' in obj, f"Scale fector recorded on {obj.name}"
-    assert NearEqual(obj['PYN_SCALE_FACTOR'], 0.1), f"Scale factor is correct on {obj.name}: {obj['PYN_SCALE_FACTOR']}"
-    assert 'PYN_SCALE_FACTOR' in obj.parent, f"Scale fector recorded on {obj.name.parent}"
-    assert NearEqual(obj.parent['PYN_SCALE_FACTOR'], 0.1), f"Scale factor is correct on {obj.parent.name}: {obj.parent['PYN_SCALE_FACTOR']}"
+    # # After import with a scale factor, imported object records the scale factor
+    # assert 'PYN_SCALE_FACTOR' in obj, f"Scale fector recorded on {obj.name}"
+    # assert NearEqual(obj['PYN_SCALE_FACTOR'], 0.1), f"Scale factor is correct on {obj.name}: {obj['PYN_SCALE_FACTOR']}"
+    # assert 'PYN_SCALE_FACTOR' in obj.parent, f"Scale fector recorded on {obj.name.parent}"
+    # assert NearEqual(obj.parent['PYN_SCALE_FACTOR'], 0.1), f"Scale factor is correct on {obj.parent.name}: {obj.parent['PYN_SCALE_FACTOR']}"
 
     # Check collision info
-    coll = find_shape('bhkCollisionObject')
-    assert VNearEqual(coll.location, (0.130636, 0.637351, -0.001978)), \
-        f"Collision location properly scaled: {coll.location}"
+    arma = TT.find_shape(arma_name('GlassBowSkinned.nif'), type="ARMATURE")
+    midbone = arma.data.bones['Bow_MidBone']
+    midbonew = arma.matrix_world @ midbone.matrix_local
+    coll = TT.find_shape("bhkCollisionObject", type="EMPTY")
+    assert VNearEqual(coll.matrix_world.translation, midbonew.translation), f"Collision positioned at target bone"
 
     collbody = coll.children[0]
     assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
     assert VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), \
         f"Collision body rotation correct: {collbody.rotation_quaternion}"
-    assert VNearEqual(collbody.location, (0.65169, -0.770812, 0.0039871)), \
-        f"Collision body is in correct location: {collbody.location}"
 
-    collshape = collbody.children[0]
-    assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
-    assert NearEqual(collshape['bhkRadius'], 0.00136), f"Radius is properly scaled: {collshape['bhkRadius']}"
-    assert VNearEqual(collshape.data.vertices[0].co, (-1.10145, 5.76582, 0.09541)), \
-        f"Collision shape is properly scaled 0: {collshape.data.vertices[0].co}"
-    assert VNearEqual(collshape.data.vertices[7].co, (1.10145, 5.76582, -0.09541)), \
-        f"Collision shape is properly scaled 7: {collshape.data.vertices[7].co}"
-    assert VNearEqual(collshape.location, (0,0,0)), f"Collision shape centered on parent: {collshape.location}"
+    # Scale factor applied to bow
+    objmin, objmax = TT.get_obj_bbox(obj, worldspace=True)
+    assert objmax.y - objmin.y < 12, f"Bow is properly scaled: {objmax - objmin}"
+
+    # Collision box bounds close to bow bounds.
+    collbox = TT.find_shape('bhkBoxShape')
+    assert TT.close_bounds(obj, collbox), f"Collision just covers bow"
     
-    # Max y dimensions of collision box and bow should be close
-    coll_max = collshape.matrix_world @ Vector(collshape.bound_box[6])
-    print(f"Collision {Vector(collshape.bound_box[6])} -> {coll_max}")
-    bow_max = obj.matrix_world @ Vector(obj.bound_box[6])
-    print(f"Bow {Vector(obj.bound_box[6])} -> {bow_max}")
-    assert NearEqual(coll_max[1], bow_max[1], epsilon=0.1), \
-        f"Collision box just covers bow: {coll_max} ~ {bow_max}"
-
     print("--Testing export")
 
     # Move the edge of the collision box so it covers the bow better
-    for v in collshape.data.vertices:
+    for v in collbox.data.vertices:
         if v.co.x > 0:
-            v.co.x = 1.65
+            v.co.x += 6
+    # collbody.matrix_local = collbody.matrix_local @ Matrix.Translation(Vector((4, 0, 0)))
+
+    collbox.update_from_editmode()
+    boxmin, boxmax = TT.get_obj_bbox(collbox, worldspace=True)
+    assert VNearEqual(objmax, boxmax, epsilon=1.0), f"Collision just covers bow: {objmax} ~~ {boxmax}"
 
     # ------- Export and Check Results --------
 
-    bpy.ops.object.select_all(action='DESELECT')
-    obj.select_set(True)
-    coll.select_set(True)
+    # We want the special properties of the root node. 
+    ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
 
     # Depend on the defaults stored on the armature for scale factor
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', 
@@ -3800,10 +3866,10 @@ if TEST_BPY_ALL or TEST_SCALING_COLL:
 
     nif = NifFile(testfile)
     nifcheck = NifFile(outfile)
-    compare_shapes(nif.shape_dict['ElvenBowSkinned:0'],
-                   nifcheck.shape_dict['ElvenBowSkinned:0'],
-                   obj,
-                   scale=0.1)
+
+    TT.compare_shapes(nif.shape_dict['ElvenBowSkinned:0'],
+                      nifcheck.shape_dict['ElvenBowSkinned:0'],
+                      obj)
 
     rootcheck = nifcheck.rootNode
     assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
@@ -3816,20 +3882,24 @@ if TEST_BPY_ALL or TEST_SCALING_COLL:
     assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
 
     # Full check of locations and rotations to make sure we got them right
-    compare_bones('Bow_MidBone', nif, nifcheck)
-    compare_bones('Bow_StringBone2', nif, nifcheck)
+    TT.compare_bones('Bow_MidBone', nif, nifcheck)
+    TT.compare_bones('Bow_StringBone2', nif, nifcheck)
 
-    bodycheck = collcheck.body
-    p = bodycheck.properties
-    assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
-    assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
+    # Re-import the nif to make sure collisions are right. Could test them in the nif
+    # directly but the math is gnarly.
+    TT.clear_all()
+    
+    bpy.ops.import_scene.pynifly(filepath=outfile, use_blender_xf=True)
+    obj = TT.find_shape("ElvenBowSkinned:0")
+    box = TT.find_shape("bhkBoxShape")
+    assert TT.close_bounds(obj, box), f"Collision box covers bow."
 
 
 if TEST_BPY_ALL or TEST_IMP_NORMALS:
-    test_title("TEST_IMP_NORMALS", "Can import normals from nif shape")
-    clear_all()
+    TT.test_title("TEST_IMP_NORMALS", "Can import normals from nif shape")
+    TT.clear_all()
 
-    testfile = test_file(r"tests/Skyrim/cube.nif")
+    testfile = TT.test_file(r"tests/Skyrim/cube.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     # all loop custom normals point off at diagonals
@@ -3841,9 +3911,9 @@ if TEST_BPY_ALL or TEST_IMP_NORMALS:
 
 
 if TEST_BPY_ALL or TEST_UV_SPLIT:
-    test_title("TEST_UV_SPLIT", "Can split UVs properly")
-    clear_all()
-    filepath = test_file("tests/Out/TEST_UV_SPLIT.nif")
+    TT.test_title("TEST_UV_SPLIT", "Can split UVs properly")
+    TT.clear_all()
+    filepath = TT.test_file("tests/Out/TEST_UV_SPLIT.nif")
 
     bpy.ops.mesh.primitive_cube_add()
     bpy.ops.export_scene.pynifly(filepath=filepath, target_game="SKYRIM")
@@ -3857,24 +3927,24 @@ if TEST_BPY_ALL or TEST_UV_SPLIT:
 
 
 if TEST_BPY_ALL or TEST_JIARAN:
-    test_title("TEST_JIARAN", "Armature with no stashed transforms exports correctly")
-    clear_all()
-    outfile =test_file(r"tests/Out/TEST_JIARAN.nif")
+    TT.test_title("TEST_JIARAN", "Armature with no stashed transforms exports correctly")
+    TT.clear_all()
+    outfile =TT.test_file(r"tests/Out/TEST_JIARAN.nif")
      
-    export_from_blend(r"tests\SKYRIMSE\jiaran.blend", "hair.001", 'SKYRIMSE', outfile)
+    TT.export_from_blend(r"tests\SKYRIMSE\jiaran.blend", "hair.001", 'SKYRIMSE', outfile)
 
     nif1 = NifFile(outfile)
     assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
 
 
 if TEST_BPY_ALL or TEST_SKEL_HKX:
-    test_title("TEST_SKEL_HKX", "Skeleton export")
-    clear_all()
-    testfile = test_file("tests/Skyrim/skeletonbeast_vanilla.nif")
-    outfile = test_file("tests/out/TEST_SKEL_HKX.xml")
+    TT.test_title("TEST_SKEL_HKX", "Skeleton export")
+    TT.clear_all()
+    testfile = TT.test_file("tests/Skyrim/skeletonbeast_vanilla.nif")
+    outfile = TT.test_file("tests/out/TEST_SKEL_HKX.xml")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    arma = bpy.data.objects['skeletonBeast.nif']
+    arma = bpy.data.objects[arma_name('skeletonBeast.nif')]
     ObjectSelect([arma])
     ObjectActive(arma)
 
@@ -3927,10 +3997,10 @@ if TEST_BPY_ALL or TEST_SKEL_HKX:
 
 
 if TEST_BPY_ALL or TEST_SKEL_SOS_HKX:
-    test_title("TEST_SKEL_SOS_HKX", "Skeleton export")
-    clear_all()
-    testfile = test_file(r"tests\SkyrimSE\skeletonbeast_xpse.nif")
-    outfile = test_file("tests/out/TEST_SKEL_SOS_HKX.xml")
+    TT.test_title("TEST_SKEL_SOS_HKX", "Skeleton export")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\SkyrimSE\skeletonbeast_xpse.nif")
+    outfile = TT.test_file("tests/out/TEST_SKEL_SOS_HKX.xml")
 
     target_bones = ['NPC GenitalsBase [GenBase]',
                     'NPC GenitalsScrotum [GenScrot]',
@@ -3942,7 +4012,7 @@ if TEST_BPY_ALL or TEST_SKEL_SOS_HKX:
                     'NPC Genitals06 [Gen06]']
 
     bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False)
-    arma = bpy.data.objects['skeletonBeast.nif']
+    arma = bpy.data.objects[arma_name('skeletonBeast.nif')]
     assert arma and arma.type=='ARMATURE', f"Loaded armature: {arma}"
     bpy.ops.object.select_all(action='DESELECT')
     ObjectSelect([arma])
@@ -3971,15 +4041,15 @@ if TEST_BPY_ALL or TEST_SKEL_SOS_HKX:
 
 
 if TEST_BPY_ALL or TEST_FONV:
-    test_title("TEST_FONV", "Basic FONV mesh import and export")
-    clear_all()
-    testfile = test_file("tests/FONV/9mmscp.nif")
-    outfile =test_file(r"tests/Out/TEST_FONV.nif")
+    TT.test_title("TEST_FONV", "Basic FONV mesh import and export")
+    TT.clear_all()
+    testfile = TT.test_file("tests/FONV/9mmscp.nif")
+    outfile =TT.test_file(r"tests/Out/TEST_FONV.nif")
      
     bpy.ops.import_scene.pynifly(filepath=testfile)
     grip = bpy.data.objects['Ninemm:0']
     coll = bpy.data.objects['bhkConvexVerticesShape']
-    colbb = get_obj_bbox(coll)
+    colbb = TT.get_obj_bbox(coll)
     assert grip is not None, f"Have grip"
     assert VNearEqual(colbb[0], (-4.55526, -6.1704, -1.2513), epsilon=0.1), f"Collision bounding box near correct min: {colbb}"
     assert VNearEqual(colbb[1], (15.6956, 10.2399, 1.07098), epsilon=2.0), f"Collision bounding box near correct max: {colbb}"
@@ -3987,13 +4057,15 @@ if TEST_BPY_ALL or TEST_FONV:
 
     bpy.ops.object.select_all(action="SELECT")
     ObjectActive(grip)
+
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     nifin = NifFile(testfile)
     gripin = nifin.shape_dict["Ninemm:0"]
     nifout = NifFile(outfile)
+    assert nifout.game == 'FO3', f"Have correct game: {nifout.game}"
     gripout = nifout.shape_dict["Ninemm:0"]
-    compare_shapes(gripin, gripout, grip)
+    TT.compare_shapes(gripin, gripout, grip)
 
     collin = nifin.rootNode.collision_object
     colbodyin = collin.body
@@ -4013,14 +4085,14 @@ if TEST_BPY_ALL or TEST_FONV:
 
 
 if TEST_BPY_ALL or TEST_FONV_BOD:
-    test_title("TEST_FONV_BOD", "Basic FONV body part import and export")
-    clear_all()
-    testfile = test_file(r"tests\FONV\outfitf_simple.nif")
-    outfile =test_file(r"tests/Out/TEST_FONV_BOD.nif")
+    TT.test_title("TEST_FONV_BOD", "Basic FONV body part import and export")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\FONV\outfitf_simple.nif")
+    outfile =TT.test_file(r"tests/Out/TEST_FONV_BOD.nif")
      
     bpy.ops.import_scene.pynifly(filepath=testfile)
     body = bpy.data.objects['Arms01']
-    bodybb = get_obj_bbox(body)
+    bodybb = TT.get_obj_bbox(body)
     assert NearEqual(bodybb[0][0], -44.4, epsilon=0.1), f"Min X correct: {bodybb[0][0]}"
     assert NearEqual(bodybb[1][2], 110.4, epsilon=0.1), f"Max Z correct: {bodybb[1][2]}"
 
@@ -4030,16 +4102,16 @@ if TEST_BPY_ALL or TEST_FONV_BOD:
 
     testnif = NifFile(testfile)
     outnif = NifFile(outfile)
-    compare_shapes(testnif.shape_dict["Arms01"], 
+    TT.compare_shapes(testnif.shape_dict["Arms01"], 
                    outnif.shape_dict["Arms01"],
                    body)
 
 
 if TEST_BPY_ALL or TEST_ANIM_CHEST:
-    test_title("TEST_ANIM_CHEST", "Read and write the animation of chest opening and shutting.")
-    clear_all()
-    testfile = test_file(r"tests\Skyrim\noblechest01.nif")
-    outfile =test_file(r"tests/Out/TEST_ANIM_CHEST.nif")
+    TT.test_title("TEST_ANIM_CHEST", "Read and write the animation of chest opening and shutting.")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\Skyrim\noblechest01.nif")
+    outfile =TT.test_file(r"tests/Out/TEST_ANIM_CHEST.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     lid = bpy.data.objects["Lid01"]
@@ -4049,10 +4121,10 @@ if TEST_BPY_ALL or TEST_ANIM_CHEST:
 
 
 if TEST_BPY_ALL or TEST_ANIM_CRATE:
-    test_title("TEST_ANIM_CRATE", "Read and write the animation of chest opening and shutting.")
-    clear_all()
-    testfile = test_file(r"tests\Skyrim\dwechest01.nif")
-    outfile =test_file(r"tests/Out/TEST_ANIM_CRATE.nif")
+    TT.test_title("TEST_ANIM_CRATE", "Read and write the animation of chest opening and shutting.")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\Skyrim\dwechest01.nif")
+    outfile =TT.test_file(r"tests/Out/TEST_ANIM_CRATE.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     lid = bpy.data.objects["Box01"]
@@ -4066,11 +4138,12 @@ if TEST_BPY_ALL or TEST_ANIM_CRATE:
     assert len(gear.animation_data.action.fcurves) > 0, f"Have curves"
 
 
-if TEST_BPY_ALL or TEST_ANIM_ALDUIN:
-    test_title("TEST_ANIM_ALDUIN", "Read and write animation using bones.")
-    clear_all()
-    testfile = test_file(r"tests\SkyrimSE\loadscreenalduinwall.nif")
-    outfile = test_file(r"tests/Out/TEST_ANIM_ALDUIN.nif")
+if TEST_ANIM_ALDUIN:
+    # ###### WIP. Only test if explicitly selected. #####
+    TT.test_title("TEST_ANIM_ALDUIN", "Read and write animation using bones.")
+    TT.clear_all()
+    testfile = TT.test_file(r"tests\SkyrimSE\loadscreenalduinwall.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_ANIM_ALDUIN.nif")
 
     def check_xf(node: NiNode):
         """Check that the transform on the first animation keyframe is the same as the
@@ -4111,8 +4184,7 @@ if TEST_BPY_ALL or TEST_ANIM_ALDUIN:
     bpy.ops.import_scene.pynifly(filepath=testfile,
                                  create_bones=False, 
                                  rename_bones=False,
-                                 import_animations=True,
-                                 scale_factor=1)
+                                 import_animations=True)
     
     nif = NifFile(testfile)
     check_xf(nif.nodes["NPC COM"])

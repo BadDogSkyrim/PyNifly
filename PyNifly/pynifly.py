@@ -564,27 +564,27 @@ def _write_extra_data(nifhandle, shapehandle, edtype, val):
             set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1].encode('utf-8'))
 
 
+# --- NiObject -- #
+class NiObject:
+    """ Represents any block in a nif file. """
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
+        self._handle = handle
+        if handle is None and id != NODEID_NONE and file is not None:
+            handle = NifFile.nifly.getNodeByID(file._handle, id)
+        self._parent = parent
+        self.id = id
+        self.file = file
+        self.properties = None
+
+    @property
+    def blockname(self):
+        buf = (c_char * 128)()
+        NifFile.nifly.getNodeBlockname(self._handle, buf, 128)
+        return buf.value.decode('utf-8')
+
+
 # --- Collisions --- #
-
-
-
-#class BhkRigidBody:
-#    def __init__(self, index=0, file=None, parent=None):
-#        self.block_index = index
-#        self._file = file
-#        self._parent = parent
-
-#    @property
-#    def blockname(self):
-#        buf = (c_char * 128)()
-#        NifFile.nifly.getRigidBodyBlockname(self._file._handle, self.block_index, buf, 128)
-#        return buf.value.decode('utf-8')
-
-#    @property
-#    def blockname(self):
-#        buf = (c_char * 128)()
-#        NifFile.nifly.getCollBodyBlockname(self._file._handle, self.block_index, buf, 128)
-#        return buf.value.decode('utf-8')
 
 class CollisionShape:
     subtypes = {}
@@ -773,6 +773,7 @@ CollisionShape.subtypes['bhkConvexTransformShape'] = CollisionConvexTransformSha
 
 
 class CollisionBody:
+    """Represents either a bhkRigidBody or a bhkRigidBodyT."""
     def __init__(self, index=0, file=None, parent=None, props=None):
         self.block_index = index
         self._file = file
@@ -805,18 +806,8 @@ class CollisionBody:
                                              shape_index, file=self._file, parent=self)
         return self._shape
 
-class CollisionObject:
-    def __init__(self, handle=None, file=None, parent=None):
-        self._handle = handle
-        self._parent = parent
-        self._file = file
-
-    @property
-    def blockname(self):
-        buf = (c_char * 128)()
-        NifFile.nifly.getCollBlockname(self._handle, buf, 128)
-        return buf.value.decode('utf-8')
-
+class CollisionObject(NiObject):
+    """Represents a bhkNiCollisionObject."""
     @property
     def flags(self):
         """ Return the collision object flags """
@@ -825,34 +816,14 @@ class CollisionObject:
     @property
     def target(self):
         """ Return the node that is the target of the collision object """
-        targ = NifFile.nifly.getCollTarget(self._file._handle, self._handle)
-        return self._file.nodeByHandle(targ)
+        targ = NifFile.nifly.getCollTarget(self.file._handle, self._handle)
+        return self.file.nodeByHandle(targ)
 
     @property
     def body(self):
         """ Return the collision body object """
-        bod = NifFile.nifly.getCollBodyID(self._file._handle, self._handle)
-        return CollisionBody(bod, file=self._file, parent=self)
-
-
-# --- NiObject -- #
-class NiObject:
-    """ Represents any block in a nif file. """
-
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
-        self._handle = handle
-        if handle is None and id != NODEID_NONE and file is not None:
-            handle = NifFile.nifly.getNodeByID(file._handle, id)
-        self._parent = parent
-        self.id = id
-        self.file = file
-        self.properties = None
-
-    @property
-    def blockname(self):
-        buf = (c_char * 128)()
-        NifFile.nifly.getNodeBlockname(self._handle, buf, 128)
-        return buf.value.decode('utf-8')
+        bod = NifFile.nifly.getCollBodyID(self.file._handle, self._handle)
+        return CollisionBody(bod, file=self.file, parent=self)
 
 
 # --- NiNode --- #
@@ -861,6 +832,10 @@ class NiNode(NiObject):
         super().__init__(handle=handle, file=file, id=id, parent=parent)
         self._name = ""
         self._controller = None
+        self._bgdata = None
+        self._strdata = None
+        self._clothdata = None
+        self._clothdata = None
         
         self.properties = NiNodeBuf()
         if not self._handle is None:
@@ -932,6 +907,46 @@ class NiNode(NiObject):
         
         self._controller = self.file.read_node(node_id=self.properties.controllerID, parent=self)
         return self._controller
+
+    @property
+    def behavior_graph_data(self):
+        if self._bgdata is None:
+            self._bgdata = _read_extra_data(self.file._handle, self._handle,
+                                           ExtraDataType.BehaviorGraph)
+        return self._bgdata
+
+    @behavior_graph_data.setter
+    def behavior_graph_data(self, val):
+        self._bgdata = val
+        _write_extra_data(self.file._handle, self._handle, 
+                         ExtraDataType.BehaviorGraph, self._bgdata)
+
+    @property
+    def string_data(self):
+        if self._strdata is None:
+            self._strdata = _read_extra_data(self.file._handle, self._handle,
+                                           ExtraDataType.String)
+        return self._strdata
+
+    @string_data.setter
+    def string_data(self, val):
+        self._strdata = val
+        _write_extra_data(self.file._handle, self._handle, 
+                         ExtraDataType.String, self._strdata)
+
+    @property
+    def cloth_data(self):
+        if self._clothdata is None:
+            self._clothdata = _read_extra_data(self.file._handle, 
+                                               self._handle,
+                                               ExtraDataType.Cloth)
+        return self._clothdata
+
+    @cloth_data.setter
+    def cloth_data(self, val):
+        self._clothdata = val
+        _write_extra_data(self.file._handle, self._handle, 
+                         ExtraDataType.Cloth, self._clothdata)
 
 
 class NiKeyFrameData(NiObject):
@@ -1227,8 +1242,6 @@ class NiShape(NiNode):
         self._shader_attrs = None
         self._shader_name = None
         self._alpha = None
-        self._bgdata = None
-        self._strdata = None
 
     def _setShapeXform(self):
         NifFile.nifly.setTransform(self._handle, self.transform)
@@ -1541,36 +1554,6 @@ class NiShape(NiNode):
                                          bone_name.encode('utf-8'),
                                          xform)
 
-
-    # #############  Extra Data #############
-
-    @property
-    def behavior_graph_data(self):
-        if self._bgdata is None:
-            self._bgdata = _read_extra_data(self.file._handle, 
-                                            self._handle,
-                                            ExtraDataType.BehaviorGraph)
-        return self._bgdata
-
-    @behavior_graph_data.setter
-    def behavior_graph_data(self, val):
-        self._bgdata = val
-        _write_extra_data(self.file._handle, self._handle, 
-                         ExtraDataType.BehaviorGraph, self._bgdata)
-
-    @property
-    def string_data(self):
-        if self._strdata is None:
-            self._strdata = _read_extra_data(self.file._handle, 
-                                             self._handle,
-                                             ExtraDataType.String)
-        return self._strdata
-
-    @string_data.setter
-    def string_data(self, val):
-        self._strdata = val
-        _write_extra_data(self.file._handle, self._handle, 
-                         ExtraDataType.String, self._strdata)
 
     # #############  Creating shapes #############
 
@@ -2041,15 +2024,6 @@ class NifFile:
                                                    buf)
         return buf
 
-
-    #def apply_skin(self):
-    #    """ Adding bones to the nif only adds them to the "skin" not to the nif itself.
-    #    "apply_skin" adds them to the nif so they can be found later. 
-    #    Note this zaps the nodelist. """
-    #    if self._skin_handle:
-    #        NifFile.nifly.writeSkinToNif(self._skin_handle)
-    #        self._nodes = None
-
     @property
     def cloth_data(self):
         if self._clothdata is None:
@@ -2252,7 +2226,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -2277,7 +2251,8 @@ TEST_UNSKINNED = False
 TEST_UNI = False
 TEST_SHADER = False
 TEST_ALPHA = False
-TEST_SHEATH = False
+TEST_SHEATH = True
+TEST_SHEATH = True
 TEST_FEET = False
 TEST_XFORM_SKY = False
 TEST_XFORM_STATIC = False
@@ -3310,6 +3285,15 @@ if __name__ == "__main__":
         assert ('HDT Havok Path', 'SKSE\\Plugins\\hdtm_baddog.xml') in s, "Error: expect havok path"
         assert ('HDT Skinned Mesh Physics Object', 'SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml') in s, "Error: Expect physics path"
 
+        # File level is root level
+        bg = nif.rootNode.behavior_graph_data
+        assert bg == [('BGED', r"AuxBones\SOS\SOSMale.hkx", True)], f"Error: Expected behavior graph data, got {bg}"
+
+        s = nif.rootNode.string_data
+        assert len(s) == 2, f"Error: Expected two string data records"
+        assert ('HDT Havok Path', 'SKSE\\Plugins\\hdtm_baddog.xml') in s, "Error: expect havok path"
+        assert ('HDT Skinned Mesh Physics Object', 'SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml') in s, "Error: Expect physics path"
+
         # Can write extra data at the file level
         nifout = NifFile()
         nifout.initialize('SKYRIM', r"tests/Out/pynifly_TEST_SHEATH.nif")
@@ -3972,7 +3956,7 @@ if __name__ == "__main__":
         tdthighl = thighl.controller.interpolator.data
         assert len(tdthighl.xrotations) == 0, f"Have xrotations"
         assert len(tdthighl.qrotations) == 161, f"Have quat rotations"
-        assert tdthighl.qrotations[0].value[0] == 213.85, f"Have correct angle"
+        assert NearEqual(tdthighl.qrotations[0].value[0], 0.2911), f"Have correct angle: {tdthighl.qrotations[0].value}"
 
 
     print("""

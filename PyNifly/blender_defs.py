@@ -37,7 +37,7 @@ def nonunique_name(obj):
     return obj.name
 
 
-def ObjectSelect(objlist, deselect=True):
+def ObjectSelect(objlist, deselect=True, active=False):
     """Select all the objects in the list"""
     try:
         bpy.ops.object.mode_set(mode = 'OBJECT')
@@ -47,9 +47,13 @@ def ObjectSelect(objlist, deselect=True):
         bpy.ops.object.select_all(action='DESELECT')
     for o in objlist:
         o.select_set(True)
+    if active:
+        bpy.context.view_layer.objects.active = objlist[0]
+
 
 def ObjectActive(obj):
     """Set the given object active"""
+    obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
 
 
@@ -109,6 +113,10 @@ def pose_transform(shape:NiShape, bone: str):
     bonexf = transform_to_matrix(shape.file.nodes[bone].xform_to_global)
     sk2b = transform_to_matrix(shape.get_shape_skin_to_bone(bone))
     return (bonexf @ sk2b).inverted()
+
+def arma_name(n):
+    """Return the name for the armature given the name of the root node."""
+    return "ARMA." + n
 
 
 BONE_LEN = 5
@@ -199,29 +207,33 @@ def get_export_objects(ctxt:bpy_types.Context) -> list:
     We don't add the active object because it's too confusing to have it be
     exported when it's not selected. But if it is selected, it goes first.
     """
-    export_objects = []
-    for obj in ctxt.selected_objects:
-        if obj not in export_objects:
-            par = obj.parent
-            gpar = par.parent if par else None
-            gparname = gpar.name if gpar else ''
-            if not gparname.startswith('bhkCollisionObject'): 
-                #log.debug(f"Adding {obj.name} to export objects")
-                if obj == ctxt.object:
-                    export_objects.insert(0, obj)
-                else:
-                    export_objects.append(obj) 
-                if obj.type == 'ARMATURE':
-                    for child in obj.children:
-                        if child not in export_objects: export_objects.append(child)
-                else:
-                    arma, fb_arma = find_armatures(obj)
-                    if arma:
-                        export_objects.append(arma)
-                    if fb_arma:
-                        export_objects.append(fb_arma)
 
-    return export_objects
+    # Doing this at the ImportNif level so why do it here? 
+    return ctxt.selected_objects
+
+    # export_objects = []
+    # for obj in ctxt.selected_objects:
+    #     if obj not in export_objects:
+    #         par = obj.parent
+    #         gpar = par.parent if par else None
+    #         gparname = gpar.name if gpar else ''
+    #         if not gparname.startswith('bhkCollisionObject'): 
+    #             #log.debug(f"Adding {obj.name} to export objects")
+    #             if obj == ctxt.object:
+    #                 export_objects.insert(0, obj)
+    #             else:
+    #                 export_objects.append(obj) 
+    #             if obj.type == 'ARMATURE':
+    #                 for child in obj.children:
+    #                     if child not in export_objects: export_objects.append(child)
+    #             else:
+    #                 arma, fb_arma = find_armatures(obj)
+    #                 if arma:
+    #                     export_objects.append(arma)
+    #                 if fb_arma:
+    #                     export_objects.append(fb_arma)
+
+    # return export_objects
 
 
 def LogStart(bl_info, action, importtype):

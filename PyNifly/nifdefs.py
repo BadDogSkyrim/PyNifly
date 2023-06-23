@@ -309,7 +309,7 @@ class TransformBuf(pynStructure):
 RT_NINODE = 0
 RT_BSFADENODE = 1
 
-class RootFlags(PynIntFlag):
+class NiAVFlags(PynIntFlag):
     HIDDEN = 1
     SELECTIVE_UPDATE = 1 << 1
     SELECTIVE_UPDATE_TRANSF = 1 << 2
