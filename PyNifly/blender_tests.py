@@ -104,17 +104,17 @@ TEST_ROGUE01 = False  ### Custom split normals export correctly
 TEST_ROGUE02 = False  ### Objects with shape keys export normals correctly
 TEST_NORMAL_SEAM = False  ### Custom normals can make a seam seamless
 TEST_NIFTOOLS_NAMES = False
-TEST_BOW = False  ### Read and write bow
-TEST_BOW2 = False  ### Modify collision shape location
-TEST_BOW3 = False  ### Modify collision shape type
+TEST_BOW = True  ### Read and write bow with simple box collision
+TEST_BOW2 = True  ### Modify collision shape location
+TEST_BOW3 = True  ### Modify collision shape type
 TEST_COLLISION_HIER = True  ### Read and write collision of hierarchy of nodes
 TEST_SCALING_COLL = True  ### Bow with collisions, scaled
-TEST_COLLISION_MULTI = False
-TEST_COLLISION_CONVEXVERT = False
-TEST_COLLISION_CAPSULE = False  ### Collision capsule shapes with scale
-TEST_COLLISION_LIST = False  ### Collision list and collision transform shapes with scale
-TEST_CHANGE_COLLISION = False  ### Changing collision type 
-TEST_COLLISION_XFORM = False  ### Read and write shape with collision capsule shapes
+TEST_COLLISION_MULTI = True
+TEST_COLLISION_CONVEXVERT = True
+TEST_COLLISION_CAPSULE = True  ### Collision capsule shapes with scale
+TEST_COLLISION_LIST = True  ### Collision list and collision transform shapes with scale
+TEST_CHANGE_COLLISION = True  ### Changing collision type 
+TEST_COLLISION_XFORM = True  ### Read and write shape with collision capsule shapes
 TEST_CONNECT_POINT = False  ### Connect points are imported and exported
 TEST_WEAPON_PART = False  ### Weapon parts are imported at the parent connect point
 TEST_IMPORT_MULT_CP = False  ### Import multiple files and connect up the connect points
@@ -2725,13 +2725,7 @@ if TEST_BPY_ALL or TEST_BOW3:
     collshape.name = "bhkConvexVerticesShape"
     collbody.name = "bhkRigidBody"
 
-    bpy.ops.object.select_all(action='DESELECT')
-    obj.select_set(True)
-    coll.select_set(True)
-    bged.select_set(True)
-    strd.select_set(True)
-    bsxf.select_set(True)
-    invm.select_set(True)
+    ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile3, target_game='SKYRIMSE')
     
     # ------- Check Results 3 --------
@@ -3187,14 +3181,7 @@ if TEST_BPY_ALL or TEST_COLLISION_LIST:
         assert len(collshape.children) == 3, f" Collision shape has children"
     
         # -------- Export --------
-        bpy.ops.object.select_all(action='SELECT')
-        # bsxf = TT.find_shape("BSXFlags", type='EMPTY')
-        # invm = TT.find_shape("BSInvMarker", type='EMPTY')
-        # staff.select_set(True)
-        # coll.select_set(True)
-        # bsxf.select_set(True)
-        # invm.select_set(True)
-        # strd.select_set(True)
+        ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', use_blender_xf=bx)
 
         # ------- Check ---------
@@ -3218,8 +3205,10 @@ if TEST_BPY_ALL or TEST_COLLISION_LIST:
         assert listcheck.blockname == "bhkListShape", f"Got a list collision back {listcheck.blockname}"
         assert len(listcheck.children) == 3, f"Got our list elements back: {len(listcheck.children)}"
 
-        cts0check = listcheck.children[0]
-        assert cts0check.child.blockname == "bhkBoxShape", f"Found the box shape"
+        convex_xf_shape = listcheck.children[0]
+        convex_xf = Matrix(convex_xf_shape.properties.transform)
+        assert convex_xf.to_scale()[0] == 1.0, f"Have the correct scale: {convex_xf.to_scale()}"
+        assert convex_xf_shape.child.blockname == "bhkBoxShape", f"Found the box shape"
 
         cts45check = None
         for cts in listcheck.children:
@@ -3229,8 +3218,8 @@ if TEST_BPY_ALL or TEST_COLLISION_LIST:
         boxdiag = cts45check.child
         assert NearEqual(boxdiag.properties.bhkDimensions[1], 0.170421), f"Diagonal box has correct size: {boxdiag.properties.bhkDimensions[1]}"
 
-    run_test(False)
     run_test(True)
+    run_test(False)
 
 
 if TEST_BPY_ALL or TEST_CHANGE_COLLISION:
@@ -3257,13 +3246,7 @@ if TEST_BPY_ALL or TEST_CHANGE_COLLISION:
 
     # ------- Export --------
 
-    bpy.ops.object.select_all(action='DESELECT')
-    obj.select_set(True)
-    coll.select_set(True)
-    bged.select_set(True)
-    strd.select_set(True)
-    bsxf.select_set(True)
-    invm.select_set(True)
+    ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
     
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
@@ -3299,13 +3282,13 @@ if (TEST_BPY_ALL or TEST_COLLISION_XFORM) and bpy.app.version[0] >= 3:
     TT.append_from_file("bhkConvexVerticesShape.002", True, r"tests\SkyrimSE\staff.blend", r"\Object", "bhkConvexVerticesShape.002")
 
     # -------- Export --------
-    bpy.ops.object.select_all(action='DESELECT')
-    TT.find_shape("Staff").select_set(True)
-    TT.find_shape("bhkCollisionObject", type='EMPTY').select_set(True)
-    TT.find_shape("NiStringExtraData", type='EMPTY').select_set(True)
-    TT.find_shape("BSXFlags", type='EMPTY').select_set(True)
-    TT.find_shape("BSInvMarker", type='EMPTY').select_set(True)
-    bpy.context.view_layer.objects.active = TT.find_shape("Staff")
+    ObjectSelect([
+        TT.find_shape("Staff"),
+        TT.find_shape("bhkCollisionObject", type="EMPTY"), 
+        TT.find_shape("NiStringExtraData", type='EMPTY'),
+        TT.find_shape("BSXFlags", type='EMPTY'),
+        TT.find_shape("BSInvMarker", type='EMPTY'),
+        ], active=True)
 
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 

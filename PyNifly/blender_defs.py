@@ -246,7 +246,7 @@ PYNIFLY {action} {importtype} V{bl_info['version'][0]}.{bl_info['version'][1]}.{
 """)
 
 def LogFinish(action, files, status, is_exception=False):
-    if is_exception:
+    if is_exception or 'ERROR' in status:
         errmsg = "WITH ERRORS"
     elif 'WARNING' in status:
         errmsg = "WITH WARNINGS"

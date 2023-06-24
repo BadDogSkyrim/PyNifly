@@ -2998,35 +2998,45 @@ class NifExporter:
         xf = s.matrix_local
         xfv = [xf @ v.co for v in s.data.vertices]
 
-        maxx = max([v[0] for v in xfv])
-        maxy = max([v.y for v in xfv])
-        maxz = max([v[2] for v in xfv])
-        minx = min([v[0] for v in xfv])
-        miny = min([v[1] for v in xfv])
-        minz = min([v[2] for v in xfv])
-        halfspanx = (maxx - minx)/2
-        halfspany = (maxy - miny)/2
-        halfspanz = (maxz - minz)/2
-        center = s.matrix_world @ Vector([minx + halfspanx, miny + halfspany, minz + halfspanz])
-        
-        sf = HAVOC_SCALE_FACTOR * self.export_scale * game_collision_sf[self.game]
-        props.bhkRadius = (halfspanx / sf) 
-        props.radius1 = (halfspanx / sf) 
-        props.radius2 = (halfspanx / sf) 
+        # maxx = max([v[0] for v in xfv])
+        # maxy = max([v.y for v in xfv])
+        # maxz = max([v[2] for v in xfv])
+        # minx = min([v[0] for v in xfv])
+        # miny = min([v[1] for v in xfv])
+        # minz = min([v[2] for v in xfv])
+        # halfspanx = (maxx - minx)/2
+        # halfspany = (maxy - miny)/2
+        # halfspanz = (maxz - minz)/2
+        # center = s.matrix_world @ Vector([minx + halfspanx, miny + halfspany, minz + halfspanz])
+        maxv = Vector()
+        minv = Vector()
+        for v in xfv:
+            for i, n in enumerate(v):
+                maxv[i] = max(maxv[i], n)
+                minv[i] = min(minv[i], n)
+        halfspan = (maxv - minv)/2
+        center = s.matrix_world @ (minv + halfspan)
 
-        props.point1[0] = ((minx+halfspanx) / sf) 
-        props.point1[1] = (maxy / sf) 
-        props.point1[2] = ((minz+halfspanz) / sf) 
-        props.point2[0] = ((minx+halfspanx) / sf) 
-        props.point2[1] = (miny / sf) 
-        props.point2[2] = ((minz+halfspanz) / sf) 
+        sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game] # * self.export_scale
+        props.bhkRadius = (halfspan.x / sf) 
+        props.radius1 = (halfspan.x / sf) 
+        props.radius2 = (halfspan.x / sf) 
+
+        props.point1[0] = ((minv.x+halfspan.x) / sf) 
+        props.point1[1] = (maxv.y / sf) 
+        props.point1[2] = ((minv.z+halfspan.z) / sf) 
+        props.point2[0] = ((minv.x+halfspan.x) / sf) 
+        props.point2[1] = (minv.y / sf) 
+        props.point2[2] = ((minv.z+halfspan.z) / sf) 
         cshape = self.nif.add_coll_shape("bhkCapsuleShape", props)
 
         return cshape, center
 
 
-    def export_bhkBoxShape(self, s, xform):
+    def export_bhkBoxShape(self, s, xform) -> CollisionShape:
         """Export box shape. 
+        * s = collision shape blender object.
+        * xform = transform to target. Ignored--transform stored on collision body.
         Returns (shape, coordinates)
         * shape = collision shape in the nif object
         * coordinates = center of the shape in Blender world coordinates) 
@@ -3062,8 +3072,12 @@ class NifExporter:
         
 
     def export_bhkConvexVerticesShape(self, s, xform):
-        """Export a convex vertices shape that wraps around whatever the import shape is."""
-        effectiveXF = xform @ s.matrix_local 
+        """Export a convex vertices shape that wraps around whatever the import shape
+        is."""
+        if self.root_object:
+            effectiveXF = self.root_object.matrix_world @ xform @ s.matrix_local 
+        else:
+            effectiveXF = xform @ s.matrix_local 
 
         p = bhkConvexVerticesShapeProps(s)
         bm = bmesh.new()
@@ -3071,8 +3085,7 @@ class NifExporter:
         bmesh.ops.convex_hull(bm, input=bm.verts, use_existing_faces=True)
 
         verts1 = [effectiveXF @ v.co for v in bm.verts]
-        # verts1 = [xform @ v.co for v in s.data.vertices]
-        sf = HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
+        sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
         verts = [(v / sf) for v in verts1]
 
         # Need a normal for each face
@@ -3085,7 +3098,7 @@ class NifExporter:
             n = Vector((face.normal[0], face.normal[1], face.normal[2], vintersect/sf))
             append_if_new(norms, n, 0.1)
         
-            cshape = self.nif.add_coll_shape("bhkConvexVerticesShape", p, verts, norms)
+        cshape = self.nif.add_coll_shape("bhkConvexVerticesShape", p, verts, norms)
 
         return cshape, Vector()
 
@@ -3099,8 +3112,8 @@ class NifExporter:
 
         props = bhkConvexTransformShapeProps(s)
         props.bhkRadius = s["bhkRadius"] / self.export_scale
-        havocxf = s.matrix_world.copy()
-        sf = HAVOC_SCALE_FACTOR * self.export_scale * game_collision_sf[self.nif.game]
+        sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
+        havocxf = s.matrix_local.copy()
         havocxf.translation = havocxf.translation / sf
         cshape = self.nif.add_coll_shape("bhkConvexTransformShape", 
                                          props, transform=havocxf)
@@ -3123,7 +3136,7 @@ class NifExporter:
         return cshape, s.matrix_local.translation
 
 
-    def export_collision_shape(self, shape_list, xform=Matrix()):
+    def export_collision_shape(self, shape_list, xform=Matrix()) -> CollisionShape:
         """Export the collision shapes in shape_list. 
         * shape_list = list of bhk*Shape objects. Should only be one.
         * xform = additional transform to apply. a bhkRigidBodyT can apply the transform
@@ -3166,69 +3179,65 @@ class NifExporter:
 
 
     def export_collision_body(self, body_list, coll):
-        """ Export the collision body elements. coll is the parent collision object """
+        """ Export the collision body element. Only one allowed, so only first element in
+        list is used. coll is the parent collision object. """
         body = None
-        for b in body_list:
+        if not body_list: return None
+
+        collbody = body_list[0]
+
+        # Gonna need relative locations but without the transform the root provides.
+        rootinv = Matrix.Identity(4)
+        if self.root_object:
+            rootinv = self.root_object.matrix_world.inverted()
+        
+        targxf = self.get_collision_target(coll)
+
+        # Calc transform to collision target. Some collision shapes need this, others
+        # depend on having a bhkRigidBodyT do it for them. 
+        # Apply the transform from target, but remove any transform introduced by the root.
+        xform = rootinv @ collbody.matrix_world
+        targxfi = targxf.inverted()
+        xform = targxfi @ xform
+        # xform = (rootinv @ targxf).inverted() 
+
+        cshape, ctr = self.export_collision_shape(collbody.children, xform)
+        if cshape.needsTransform:
+            blockname = 'bhkRigidBodyT'
+        else:
             blockname = 'bhkRigidBody'
-            if b.name.startswith('bhkRigidBodyT'):
-                blockname = 'bhkRigidBodyT'
 
-            # Gonna need relative locations but without the transform the root provides.
-            rootinv = Matrix.Identity(4)
-            if self.root_object:
-                rootinv = self.root_object.matrix_world.inverted()
+        if cshape:
+            # Coll body can be anywhere. What matters is the location of the collision
+            # shape relative to the collision target--that gets stored on the
+            # collision body
+            props = bhkRigidBodyProps(collbody)
             
-            targxf = self.get_collision_target(coll)
-            #targxf = rootinv @ targxf
+            # If there's no target, root is the target. We don't support transforms 
+            # on root yet.
+            targloc, targq, targscale = targxf.decompose()
+        
+            targq.invert()
+            props.rotation[0] = targq.x
+            props.rotation[1] = targq.y
+            props.rotation[2] = targq.z
+            props.rotation[3] = targq.w
 
-            xform = Matrix()
-            if blockname == 'bhkRigidBody':
-                # Get verts in world coords 
-                xform = rootinv @ b.matrix_world
-                # xform.invert()
-                # Apply the transform from target
-                targxfi = targxf.inverted()
-                xform = targxfi @ xform
+            # Position the collision body not where the empty is in Blender, 
+            # but at the center of the collision shape. 
+            rv = (rootinv @ ctr) - targloc
+            if blockname == 'bhkRigidBodyT':
+                rv.rotate(targq)
 
-            cshape, ctr = self.export_collision_shape(b.children, xform)
-            ##log.debug(f"Collision Center: {ctr}")
+            # Position the collision body where the shape is, not where the empty is
+            # in Blender. So a RigidBodyT gets the offset. (RigidBody just ignores
+            # this.)
+            props.translation[0] = rv.x/HAVOC_SCALE_FACTOR # rv.x / sf
+            props.translation[1] = rv.y/HAVOC_SCALE_FACTOR # rv.y / sf
+            props.translation[2] = rv.z/HAVOC_SCALE_FACTOR # rv.z / sf
+            props.translation[3] = 0
 
-            if cshape:
-                # Coll body can be anywhere. What matters is the location of the collision
-                # shape relative to the collision target--that gets stored on the
-                # collision body
-                props = bhkRigidBodyProps(b)
-                
-                # If there's no target, root is the target. We don't support transforms 
-                # on root yet.
-                targloc, targq, targscale = targxf.decompose()
-            
-                targq.invert()
-                props.rotation[0] = targq.x
-                props.rotation[1] = targq.y
-                props.rotation[2] = targq.z
-                props.rotation[3] = targq.w
-                ##log.debug(f"Target rotation: {targq.w}, {targq.x}, {targq.y}, {targq.z}")
-
-                # Position the collision body not where the empty is in Blender, 
-                # but at the center of the collision shape. 
-                rv = (rootinv @ ctr) - targloc
-                ##log.debug(f"Target to center: {rv}")
-                if blockname == 'bhkRigidBodyT':
-                    rv.rotate(targq)
-                    # rv = targxf.inverted() @ ctr
-
-                # rv = b.location
-                # Position the collision body where the shape is, not where the empty is
-                # in Blender. So a RigidBodyT gets the offset. (RigidBody just ignores
-                # this.)
-                # sf = HAVOC_SCALE_FACTOR # * self.export_scale 
-                props.translation[0] = rv.x/HAVOC_SCALE_FACTOR # rv.x / sf
-                props.translation[1] = rv.y/HAVOC_SCALE_FACTOR # rv.y / sf
-                props.translation[2] = rv.z/HAVOC_SCALE_FACTOR # rv.z / sf
-                props.translation[3] = 0
-
-                body = self.nif.add_rigid_body(blockname, props, cshape)
+            body = self.nif.add_rigid_body(blockname, props, cshape)
         return body
 
     def export_collisions(self, objlist):
@@ -4190,7 +4199,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             log.exception("Export of nif failed")
             self.report({"ERROR"}, "Export of nif failed, see console window for details")
             res.add("CANCELLED")
-            LogFinish("EXPORT", self.objects_to_export, {"ERROR"}, False)
+            LogFinish("EXPORT", self.objects_to_export, {"ERROR"}, True)
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 

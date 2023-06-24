@@ -613,6 +613,8 @@ class CollisionShape:
         raise Exception (f"properties not overridden in subclass {self.__class__}")
 
 class CollisionBoxShape(CollisionShape):
+    needsTransform = True
+
     @property
     def properties(self):
         if not self._props:
@@ -624,6 +626,8 @@ class CollisionBoxShape(CollisionShape):
 CollisionShape.subtypes['bhkBoxShape'] = CollisionBoxShape
 
 class CollisionCapsuleShape(CollisionShape):
+    needsTransform = False
+
     @property
     def properties(self):
         if not self._props:
@@ -635,6 +639,8 @@ class CollisionCapsuleShape(CollisionShape):
 CollisionShape.subtypes['bhkCapsuleShape'] = CollisionCapsuleShape
 
 class CollisionConvexVerticesShape(CollisionShape):
+    needsTransform = False
+
     def __init__(self, index=0, file=None, parent=None, props=None):
         super().__init__(index, file, parent, props)
         self._vertices = None
@@ -680,6 +686,8 @@ CollisionShape.subtypes['bhkConvexVerticesShape'] = CollisionConvexVerticesShape
 
 
 class CollisionListShape(CollisionShape):
+    needsTransform = False
+
     def __init__(self, index=0, file=None, parent=None, props=None):
         super().__init__(index, file, parent, props)
         self._children = None
@@ -727,6 +735,8 @@ CollisionShape.subtypes['bhkListShape'] = CollisionListShape
 
 
 class CollisionConvexTransformShape(CollisionShape):
+    needsTransform = False
+    
     def __init__(self, index=0, file=None, parent=None, props=None, transform=None):
         super().__init__(index, file, parent, props)
         if transform:
