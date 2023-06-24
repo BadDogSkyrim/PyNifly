@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 9, 10, 0 };
+const int NiflyDDLVersion[3] = { 10, 0, 0 };
  
 using namespace nifly;
 
@@ -300,8 +300,8 @@ NIFLY_API void* getNodeController(void* nifref, void* node, NiControllerManagerB
 
     if (theNode->controllerRef.IsEmpty()) return nullptr;
 
-    auto ctrlr = hdr.GetBlock<NiNode>(theNode->controllerRef.index);
-    if (buf) getControllerManager(ctrlr, buf);
+    auto ctrlr = hdr.GetBlock<NiControllerManager>(theNode->controllerRef.index);
+    if (ctrlr) getControllerManager(ctrlr, buf);
 
     return ctrlr;
 }

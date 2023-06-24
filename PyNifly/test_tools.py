@@ -1,5 +1,6 @@
 """Helper routins for tests"""
 
+import sys
 import os
 import os.path
 import logging
@@ -116,8 +117,8 @@ def get_obj_bbox(obj, worldspace=False, scale=1.0):
                 bpy.ops.object.modifier_apply(modifier=m.name)
         bpy.ops.object.transform_apply()
 
-        minv = Vector()
-        maxv = Vector()
+        minv = Vector([sys.float_info.max] * 3)
+        maxv = Vector([-sys.float_info.max] * 3)
         for v in newobj.data.vertices:
             for i in range(0, 3):
                 minv[i] = min(minv[i], v.co[i])
@@ -126,25 +127,7 @@ def get_obj_bbox(obj, worldspace=False, scale=1.0):
         bpy.ops.object.delete()
 
         return minv, maxv
-        # minv = Vector((min(v[0] for v in obj.bound_box),
-        #                min(v[1] for v in obj.bound_box),
-        #                min(v[2] for v in obj.bound_box)))
-        # maxv = Vector((max(v[0] for v in obj.bound_box),
-        #                max(v[1] for v in obj.bound_box),
-        #                max(v[2] for v in obj.bound_box)))
-        # return obj.matrix_world @ minv, obj.matrix_world @ maxv
-                       
-        # maxx = max(v[0] for v in obj.bound_box)
-        # miny = min(v[1] for v in obj.bound_box)
-        # maxy = max(v[1] for v in obj.bound_box)
-        # minz = min(v[2] for v in obj.bound_box)
-        # maxz = max(v[2] for v in obj.bound_box)
-        # return (((minx+obj.location.x)/scale, 
-        #          (miny+obj.location.y)/scale, 
-        #          (minz+obj.location.z)/scale), 
-        #          ((maxx+obj.location.x)/scale, 
-        #           (maxy+obj.location.y)/scale, 
-        #           (maxz+obj.location.z)/scale))
+    
     else:
         minx = min(v.co.x for v in obj.data.vertices)
         miny = min(v.co.y for v in obj.data.vertices)
@@ -157,8 +140,8 @@ def get_obj_bbox(obj, worldspace=False, scale=1.0):
 
 def get_shape_bbox(shape):
     """Return diagonal forming bounding box of nif shape"""
-    minv = Vector()
-    maxv = Vector()
+    minv = Vector([sys.float_info.max] * 3)
+    maxv = Vector([-sys.float_info.max] * 3)
     for v in shape.verts:
         for i, n in enumerate(v):
             minv[i] = min(minv[i], n)

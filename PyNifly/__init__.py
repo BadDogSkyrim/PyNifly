@@ -9,7 +9,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (9, 10, 0),  
+    "version": (10, 0, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -2998,18 +2998,8 @@ class NifExporter:
         xf = s.matrix_local
         xfv = [xf @ v.co for v in s.data.vertices]
 
-        # maxx = max([v[0] for v in xfv])
-        # maxy = max([v.y for v in xfv])
-        # maxz = max([v[2] for v in xfv])
-        # minx = min([v[0] for v in xfv])
-        # miny = min([v[1] for v in xfv])
-        # minz = min([v[2] for v in xfv])
-        # halfspanx = (maxx - minx)/2
-        # halfspany = (maxy - miny)/2
-        # halfspanz = (maxz - minz)/2
-        # center = s.matrix_world @ Vector([minx + halfspanx, miny + halfspany, minz + halfspanz])
-        maxv = Vector()
-        minv = Vector()
+        minv = Vector([sys.float_info.max] * 3)
+        maxv = Vector([-sys.float_info.max] * 3)
         for v in xfv:
             for i, n in enumerate(v):
                 maxv[i] = max(maxv[i], n)
@@ -3046,8 +3036,8 @@ class NifExporter:
         try:
             # Box covers the extent of the shape, whatever it is
             p = bhkBoxShapeProps(s)
-            maxv = Vector()
-            minv = Vector()
+            minv = Vector([sys.float_info.max] * 3)
+            maxv = Vector([-sys.float_info.max] * 3)
             for v in s.data.vertices:
                 for i, n in enumerate(v.co):
                     maxv[i] = max(maxv[i], n)
@@ -3202,6 +3192,8 @@ class NifExporter:
         # xform = (rootinv @ targxf).inverted() 
 
         cshape, ctr = self.export_collision_shape(collbody.children, xform)
+        if not cshape: return None
+
         if cshape.needsTransform:
             blockname = 'bhkRigidBodyT'
         else:

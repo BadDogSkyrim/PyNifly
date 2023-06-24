@@ -104,17 +104,17 @@ TEST_ROGUE01 = False  ### Custom split normals export correctly
 TEST_ROGUE02 = False  ### Objects with shape keys export normals correctly
 TEST_NORMAL_SEAM = False  ### Custom normals can make a seam seamless
 TEST_NIFTOOLS_NAMES = False
-TEST_BOW = True  ### Read and write bow with simple box collision
-TEST_BOW2 = True  ### Modify collision shape location
-TEST_BOW3 = True  ### Modify collision shape type
-TEST_COLLISION_HIER = True  ### Read and write collision of hierarchy of nodes
-TEST_SCALING_COLL = True  ### Bow with collisions, scaled
-TEST_COLLISION_MULTI = True
-TEST_COLLISION_CONVEXVERT = True
-TEST_COLLISION_CAPSULE = True  ### Collision capsule shapes with scale
-TEST_COLLISION_LIST = True  ### Collision list and collision transform shapes with scale
-TEST_CHANGE_COLLISION = True  ### Changing collision type 
-TEST_COLLISION_XFORM = True  ### Read and write shape with collision capsule shapes
+TEST_BOW = False  ### Read and write bow with simple box collision
+TEST_BOW2 = False  ### Modify collision shape location
+TEST_BOW3 = False  ### Modify collision shape type
+TEST_COLLISION_HIER = False  ### Read and write collision of hierarchy of nodes
+TEST_SCALING_COLL = False  ### Bow with collisions, scaled
+TEST_COLLISION_MULTI = False
+TEST_COLLISION_CONVEXVERT = False
+TEST_COLLISION_CAPSULE = False  ### Collision capsule shapes with scale
+TEST_COLLISION_LIST = False  ### Collision list and collision transform shapes with scale
+TEST_CHANGE_COLLISION = False  ### Changing collision type 
+TEST_COLLISION_XFORM = False  ### Read and write shape with collision capsule shapes
 TEST_CONNECT_POINT = False  ### Connect points are imported and exported
 TEST_WEAPON_PART = False  ### Weapon parts are imported at the parent connect point
 TEST_IMPORT_MULT_CP = False  ### Import multiple files and connect up the connect points
@@ -140,7 +140,7 @@ TEST_FONV = False  ### FONV mesh
 TEST_FONV_BOD = False  ### Basic FONV body part import and export
 TEST_ANIM_CHEST = False  ### Read and write the animation of chest opening and shutting
 TEST_ANIM_CRATE = False  ### Read and write the animation of crate opening and shutting
-TEST_ANIM_ALDUIN = False  ### Read and write animated Alduin loadscreen
+TEST_ANIM_ALDUIN = True  ### Read and write animated Alduin loadscreen
 
 
 log = logging.getLogger("pynifly")
@@ -150,7 +150,7 @@ if TEST_BPY_ALL or TEST_BODYPART_SKY:
     # Basic test that a Skyrim bodypart is imported correctly. 
     # Verts are organized around the origin, but skin transform is put on the shape 
     # and that lifts them to the head position.  
-    TT.TT.test_title("TEST_BODYPART_SKY", "Can import a Skyrim head with armature")
+    TT.test_title("TEST_BODYPART_SKY", "Can import a Skyrim head with armature")
     TT.clear_all()
     testfile = TT.test_file("tests\Skyrim\malehead.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -180,8 +180,8 @@ if TEST_BPY_ALL or TEST_BODYPART_FO4:
     # Basic test that a FO4 bodypart imports correctly. 
     # Verts are organized around the origin but the skin-to-bone transforms are 
     # all consistent, so they are put on the shape.
-    TT.TT.test_title("TEST_BODYPART_FO4", "Can import a FO4 head with armature")
-    TT.TT.clear_all()
+    TT.test_title("TEST_BODYPART_FO4", "Can import a FO4 head with armature")
+    TT.clear_all()
     testfile = TT.test_file("tests\FO4\BaseMaleHead.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     male_head = bpy.data.objects["BaseMaleHead:0"]
@@ -203,8 +203,6 @@ if TEST_BPY_ALL or TEST_SKYRIM_XFORM:
 
     obj = bpy.context.object
     assert int(obj.location[2]) == 120, f"Shape offset not applied to head, found {obj.location[2]}"
-
-    assert False
 
     # Export the currently selected object, which import should have set to the head.
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
@@ -277,7 +275,6 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
     TT.test_title("TEST_IMP_EXP_SKY", "Can read the armor nif and spit it back out")
 
     testfile = TT.test_file(r"tests/Skyrim/armor_only.nif")
-    impnif = NifFile(testfile)
 
     def do_test(blendxf):
         log.debug(f"\nTesting with blender transform {blendxf}")
@@ -286,6 +283,7 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
 
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=blendxf)
 
+        impnif = NifFile(testfile)
         armorin = impnif.shape_dict['Armor']
         armor = TT.find_shape('Armor')
 
@@ -818,8 +816,8 @@ if TEST_BPY_ALL or TEST_ARMATURE_EXTEND:
     head = TT.find_shape("BaseMaleHead:0")
     body = TT.find_shape("BaseMaleBody")
     target_v = Vector((0.00016, 4.339844, -12.101563))
-    v_head = find_vertex(head.data, target_v)
-    v_body = find_vertex(body.data, target_v)
+    v_head = TT.find_vertex(head.data, target_v)
+    v_body = TT.find_vertex(body.data, target_v)
     assert VNearEqual(head.data.vertices[v_head].co, body.data.vertices[v_body].co), \
         f"Head and body verts align"
     assert MatNearEqual(head.matrix_world, body.matrix_world), f"Shape transforms match"
@@ -861,8 +859,8 @@ if TEST_BPY_ALL or TEST_ARMATURE_EXTEND_BT:
     head = TT.find_shape("BaseMaleHead:0")
     body = TT.find_shape("BaseMaleBody")
     target_v = Vector((0.00016, 4.339844, -12.101563))
-    v_head = find_vertex(head.data, target_v)
-    v_body = find_vertex(body.data, target_v)
+    v_head = TT.find_vertex(head.data, target_v)
+    v_body = TT.find_vertex(body.data, target_v)
     assert VNearEqual(head.data.vertices[v_head].co, body.data.vertices[v_body].co), \
         f"Head and body verts align"
     # Shape transforms are different between vanilla head and BT body.
@@ -1071,8 +1069,8 @@ if TEST_BPY_ALL or TEST_HEADPART:
     
     nif3 = NifFile(testfileout2)
     head3 = nif3.shapes[0]
-    eyelid = find_vertex(obj.data, [-2.52558, 7.31011, 124.389])
-    mouth = find_vertex(obj.data, [1.8877, 7.50949, 118.859])
+    eyelid = TT.find_vertex(obj.data, [-2.52558, 7.31011, 124.389])
+    mouth = TT.find_vertex(obj.data, [1.8877, 7.50949, 118.859])
     assert not VNearEqual(head2.verts[eyelid], head3.verts[eyelid]), \
         f"Verts have moved: {head2.verts[eyelid]} != {head3.verts[eyelid]}"
     assert not VNearEqual(head2.verts[mouth], head3.verts[mouth]), \
@@ -1131,8 +1129,8 @@ if TEST_BPY_ALL or TEST_TRI:
     bpy.ops.export_scene.pynifly(filepath=testout2, target_game="FO4")
     
     print('### Exported shape and tri match')
-    nif2 = NifFile(os.path.join(pynifly_dev_path, testout2))
-    tri2 = TriFile.from_file(os.path.join(pynifly_dev_path, testout2tri))
+    nif2 = NifFile(testout2)
+    tri2 = TriFile.from_file(testout2tri)
     assert not os.path.exists(testout2chg), f"{testout2chg} should not have been created"
     assert len(nif2.shapes[0].verts) == len(tri2.vertices), f"Error vert count should match, {len(nif2.shapes[0].verts)} vs {len(tri2.vertices)}"
     assert len(nif2.shapes[0].tris) == len(tri2.faces), f"Error vert count should match, {len(nif2.shapes[0].tris)} vs {len(tri2.faces)}"
@@ -1840,7 +1838,7 @@ if (TEST_BPY_ALL or TEST_PARTITION_ERRORS) and bpy.app.version[0] >= 3:
     TT.clear_all()
     testfile = TT.test_file(r"tests/Out/TEST_TIGER_EXPORT.nif")
 
-    TT.append_from_fTT.append_from_file("SynthMaleBody", True, r"tests\FO4\SynthBody02.blend", r"\Object", "SynthMaleBody")
+    TT.append_from_file("SynthMaleBody", True, r"tests\FO4\SynthBody02.blend", r"\Object", "SynthMaleBody")
 
     # Partitions must divide up the mesh cleanly--exactly 1 partition per tri
     bpy.context.view_layer.objects.active = bpy.data.objects["SynthMaleBody"]
@@ -2128,7 +2126,7 @@ if TEST_BPY_ALL or TEST_COLORS2:
 
     obj = bpy.context.object
     colordata = obj.data.vertex_colors.active.data
-    targetv = find_vertex(obj.data, (1.62, 7.08, 0.37))
+    targetv = TT.find_vertex(obj.data, (1.62, 7.08, 0.37))
     assert colordata[0].color[:] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not read correctly: {colordata[0].color[:]}"
     for lp in obj.data.loops:
         if lp.vertex_index == targetv:
@@ -2825,7 +2823,7 @@ if TEST_BPY_ALL or TEST_NORM:
 
     head.data.calc_normals_split()
 
-    vi =  find_vertex(head.data, (-4.92188, 0.646485, -10.0156), epsilon=0.01)
+    vi =  TT.find_vertex(head.data, (-4.92188, 0.646485, -10.0156), epsilon=0.01)
     targetvert = head.data.vertices[vi]
     assert targetvert.normal.x < -0.5, \
         f"Vertex normal for vertex {targetvert.index} as expected: {targetvert.normal}"
@@ -4177,7 +4175,7 @@ if TEST_ANIM_ALDUIN:
     check_xf(nif.nodes["NPC LFinger12"])
     check_xf(nif.nodes["NPC LLBrow"])
 
-    arma = bpy.data.objects['Scene Root']
+    arma = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE'][0]
     lcalf = arma.data.bones['NPC LLegCalf']
     lcalfp = arma.pose.bones['NPC LLegCalf']
 
