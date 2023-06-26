@@ -367,6 +367,8 @@ class NifImporter():
             self.filename = filename[0]
             self.filename_list = filename
 
+        self.context = bpy.context # can be overwritten
+        self.collection = None
         self.create_bones = CREATE_BONES_DEF
         self.rename_bones = RENAME_BONES_DEF
         self.import_anims = IMPORT_ANIMS_DEF
@@ -387,7 +389,6 @@ class NifImporter():
         self.nodes_loaded = {} # Dictionary of nodes from the nif file loaded, indexed by Blender name
         self.loaded_meshes = [] # Holds blender objects created from shapes in a nif
         self.nif = None # NifFile(filename)
-        self.collection = None
         self.loc = Vector((0, 0, 0))   # location for new objects 
         self.scale = scale
         self.warnings = []
@@ -688,33 +689,6 @@ class NifImporter():
             self.add_to_child_cp(obj)
 
 
-    # def import_shape_extra(self, obj, shape):
-    #     """ Import any extra data from the shape if given or the root if not, and create 
-    #     corresponding shapes """
-    #     loc = list(obj.location)
-    #     self.incr_loc()
-
-    #     for s in shape.string_data:
-    #         bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
-    #         ed = bpy.context.object
-    #         ed.name = "NiStringExtraData"
-    #         ed.show_name = True
-    #         ed['NiStringExtraData_Name'] = s[0]
-    #         ed['NiStringExtraData_Value'] = s[1]
-    #         ed.parent = obj
-    #         self.objects_created[ed.name] = ed
-
-    #     for s in shape.behavior_graph_data:
-    #         bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
-    #         ed = bpy.context.object
-    #         ed.name = "BSBehaviorGraphExtraData"
-    #         ed.show_name = True
-    #         ed['BSBehaviorGraphExtraData_Name'] = s[0]
-    #         ed['BSBehaviorGraphExtraData_Value'] = s[1]
-    #         ed.parent = obj
-    #         self.objects_created[ed.name] = ed
-
-
     def bone_in_armatures(self, bone_name):
         """Determine whether a bone is in one of the armatures we've imported.
         Returns the bone or None.
@@ -794,12 +768,12 @@ class NifImporter():
             obj.matrix_local = ninode.transform.as_matrix()
 
         if parent:
-            if type(parent) != bpy_types.Object:
-                # Can't set a bone as parent, but get the node in the right position
-                LogIfBone(ninode.name, f"Setting node {ninode.name} to global position: \n{ninode.xform_to_global}")
-                obj.matrix_local = apply_scale_xf(ninode.xform_to_global.as_matrix(), self.scale) 
-            else:
+            if type(parent) == bpy_types.Object:
                 obj.parent = parent
+            else:
+                # Can't set a bone as parent, but get the node in the right position
+                obj.matrix_local = apply_scale_xf(ninode.xform_to_global.as_matrix(), self.scale) 
+                obj.parent = self.root_object
         self.objects_created[ninode._handle] = obj
 
         if ninode.collision_object:
@@ -1375,7 +1349,7 @@ class NifImporter():
         if not bone.controller: return
 
         p = bone.controller.properties
-        bpy.context.scene.frame_end = 1 + int(p.stopTime - p.startTime) * bpy.context.scene.render.fps
+        self.context.scene.frame_end = 1 + int(p.stopTime - p.startTime) * self.context.scene.render.fps
 
         if not arma.animation_data: arma.animation_data_create()
         a = arma.animation_data.action
@@ -1460,8 +1434,7 @@ class NifImporter():
                         (5, 1, 2, 6)])
         obj = bpy.data.objects.new(cs.blockname, m)
         # obj.matrix_world = cb.matrix_world
-        bpy.context.view_layer.active_layer_collection.collection.objects.link(obj)
-        # bpy.context.scene.collection.objects.link(obj)
+        self.collection.objects.link(obj)
         obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
         obj['bhkRadius'] = prop.bhkRadius * self.import_scale
 
@@ -1497,7 +1470,6 @@ class NifImporter():
             p.use_smooth = True
         obj.data.update()
         
-        # bpy.context.view_layer.active_layer_collection.collection.objects.link(obj)
         obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
         obj['bhkRadius'] = prop.bhkRadius * self.import_scale
         return obj
@@ -1546,7 +1518,7 @@ class NifImporter():
         bm.to_mesh(m)
 
         obj = bpy.data.objects.new(collisionnode.blockname, m)
-        bpy.context.view_layer.active_layer_collection.collection.objects.link(obj)
+        self.collection.objects.link(obj)
         
         try:
             obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
@@ -1596,7 +1568,6 @@ class NifImporter():
         """Import the RigidBody node.
         c = its parent collision object."""
         bpy.ops.object.add(radius=1.0, type='EMPTY')
-        # bpy.ops.object.add(radius=self.scale, type='EMPTY')
         cbody = bpy.context.object
         cbody.matrix_world = Matrix() # Set to identity; will be reset if this is a bhkRigidBodyT
         cbody.parent = c
@@ -1632,7 +1603,6 @@ class NifImporter():
         bpy.ops.object.mode_set(mode='OBJECT')
         if c.blockname == "bhkCollisionObject":
             bpy.ops.object.add(radius=1.0, type='EMPTY')
-            # bpy.ops.object.add(radius=self.scale, type='EMPTY')
             col = bpy.context.object
             # col.matrix_world = Matrix()
             col.name = c.blockname
@@ -1711,7 +1681,7 @@ class NifImporter():
         quatbase = tixf.to_quaternion()
         scalebase = -ti.properties.scale
         td = ti.data
-        fps = bpy.context.scene.render.fps
+        fps = self.context.scene.render.fps
 
         if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
             rotation_mode = "XYZ"
@@ -1814,7 +1784,7 @@ class NifImporter():
             self.add_warning(f"Target object was not imported: {block.node_name}")
             return
 
-        fps = bpy.context.scene.render.fps
+        fps = self.context.scene.render.fps
         if not target_obj.animation_data:
             target_obj.animation_data_create()
         action_name = f"{block.node_name}_{seq.name}"
@@ -1840,7 +1810,8 @@ class NifImporter():
 
     def import_sequences(self, seq):
         """Import a single controller sequence."""
-        bpy.context.scene.frame_end = 1 + int((seq.properties.stopTime - seq.properties.startTime) * bpy.context.scene.render.fps)
+        self.context.scene.frame_end = 1 + int(
+            (seq.properties.stopTime - seq.properties.startTime) * self.context.scene.render.fps)
         for cb in seq.controlled_blocks:
             self.import_controlled_block(seq, cb)
         
@@ -1987,13 +1958,13 @@ class NifImporter():
         """Perform the import operation as previously defined"""
         NifFile.clear_log()
 
-        # All nif files imported into one collection 
-        self.collection = bpy.data.collections.new(os.path.basename(self.filename))
-        bpy.context.scene.collection.children.link(self.collection)
-        bpy.context.view_layer.active_layer_collection \
-             = bpy.context.view_layer.layer_collection.children[self.collection.name]
+        # All nif files imported into the scene collection 
+        # self.collection = bpy.data.collections.new(os.path.basename(self.filename))
+        # bpy.context.scene.collection.children.link(self.collection)
+        # bpy.context.view_layer.active_layer_collection \
+        #      = bpy.context.view_layer.layer_collection.children[self.collection.name]
     
-        self.connect_parents = [p for p in bpy.context.selected_objects \
+        self.connect_parents = [p for p in self.context.selected_objects \
                                 if p.name.startswith('BSConnectPointParents')]
         self.loaded_parent_cp = {}
         self.loaded_child_cp = {}
@@ -2001,17 +1972,17 @@ class NifImporter():
         prior_fn = ''
 
         # Only use the active object if it's selected. Too confusing otherwise.
-        if bpy.context.object and bpy.context.object.select_get():
-            if bpy.context.object.type == "ARMATURE":
-                self.armature = bpy.context.object
+        if self.context.object and self.context.object.select_get():
+            if self.context.object.type == "ARMATURE":
+                self.armature = self.context.object
                 log.info(f"Current object is an armature, parenting shapes to {self.armature.name}")
-            elif bpy.context.object.type == "EMPTY" and bpy.context.object.name.startswith("BSConnectPointParents"):
-                self.add_to_parents(bpy.context.object)
-                log.info(f"Current object is a parent connect point, parenting shapes to {bpy.context.object.name}")
-            elif bpy.context.object.type == 'MESH':
-                prior_vertcounts = [len(bpy.context.object.data.vertices)]
-                self.loaded_meshes = [bpy.context.object]
-                log.info(f"Current object is a mesh, will import as shape key if possible: {bpy.context.object.name}")
+            elif self.context.object.type == "EMPTY" and self.context.object.name.startswith("BSConnectPointParents"):
+                self.add_to_parents(self.context.object)
+                log.info(f"Current object is a parent connect point, parenting shapes to {self.context.object.name}")
+            elif self.context.object.type == 'MESH':
+                prior_vertcounts = [len(self.context.object.data.vertices)]
+                self.loaded_meshes = [self.context.object]
+                log.info(f"Current object is a mesh, will import as shape key if possible: {self.context.object.name}")
 
         for this_file in self.filename_list:
             fn = os.path.splitext(os.path.basename(this_file))[0]
@@ -2137,6 +2108,8 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             else:
                 fullfiles = [self.filepath]
             imp = NifImporter(fullfiles, chargen=CHARGEN_EXT_DEF)
+            imp.context = context
+            imp.collection = context.scene.collection
             imp.create_bones = self.create_bones
             imp.roll_bones_nift = self.roll_bones
             imp.rename_bones = self.rename_bones
@@ -2150,12 +2123,19 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 imp.import_xf = blender_import_xf
             imp.execute()
         
-            for area in bpy.context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    ctx = bpy.context.copy()
-                    ctx['area'] = area
-                    ctx['region'] = area.regions[-1]
-                    bpy.ops.view3d.view_selected(ctx)
+            # Zoom any 3D view to the selected objects
+            for area in [a for a in context.screen.areas if a.type == 'VIEW_3D']:
+                for region in [r for r in area.regions if r.type == 'WINDOW']:
+                    # try:
+                    #     with context.temp_override(area=area, region=region):
+                    #         bpy.ops.view3d.view_selected()
+                    # except:
+                        # Older versions of blender before 3.2
+                    # ctx = context.copy()
+                    # ctx['area'] = area
+                    # ctx['region'] = region
+                    override = {'area':area, 'region': region}
+                    bpy.ops.view3d.view_selected(override)
 
             status = set()
             for w in imp.warnings:
@@ -2171,6 +2151,19 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             status = {'CANCELLED'}
             LogFinish("IMPORT", fullfiles, status, True)
                 
+        # Zoom any outliner view to the active objects.
+        # Not working. Not sure why.
+        for area in [a for a in bpy.context.screen.areas if a.type == 'OUTLINER']:
+            for region in [r for r in area.regions if r.type == 'WINDOW']:
+                override = {'area':area, 'region': region}
+                bpy.ops.outliner.show_active(override)
+                # ctxt = context.copy()
+                # bpy.context.area = area
+                # bpy.context.region = region
+                # bpy.ops.outliner.show_active()
+                # with context.temp_override(area=area, region=region):
+                #     bpy.ops.outliner.show_active()
+
         return {'FINISHED'}
 
 
@@ -2299,9 +2292,9 @@ def import_tri(filepath, cobj):
         if tri.import_uv:
             mesh_create_uv(new_mesh, tri.uv_pos)
    
-        new_collection = bpy.data.collections.new(os.path.basename(os.path.basename(filepath) + ".Coll"))
-        bpy.context.scene.collection.children.link(new_collection)
-        new_collection.objects.link(new_object)
+        # new_collection = bpy.data.collections.new(os.path.basename(os.path.basename(filepath) + ".Coll"))
+        # bpy.context.scene.collection.children.link(new_collection)
+        bpy.context.scene.collection.objects.link(new_object)
         ObjectActive(new_object)
         ObjectSelect([new_object])
 
