@@ -7,18 +7,19 @@ import math
 import bpy
 from mathutils import Matrix, Vector, Quaternion, Euler
 import test_tools as TT
-import pynifly 
-from blender_defs import *
+import pynifly as pyn
+import blender_defs as BD
 from trihandler import *
 import xml.etree.ElementTree as xml
 
 import importlib
 import skeleton_hkx
 import shader_io
-importlib.reload(pynifly)
+importlib.reload(pyn)
 importlib.reload(skeleton_hkx)
 importlib.reload(shader_io)
 importlib.reload(TT)
+importlib.reload(BD)
 
 
 TEST_BPY_ALL = False
@@ -171,9 +172,9 @@ if TEST_BPY_ALL or TEST_BODYPART_SKY:
     assert round(male_head.location.z, 0) == 120, "ERROR: Object not elevated to position"
     assert male_head.parent.type == "ARMATURE", "ERROR: Didn't parent to armature"
     maxz = max([v.co.z for v in male_head.data.vertices])
-    assert NearEqual(maxz, 11.5, epsilon=0.1), f"Max Z ~ 11.5: {maxz}"
+    assert TT.NearEqual(maxz, 11.5, epsilon=0.1), f"Max Z ~ 11.5: {maxz}"
     minz = min([v.co.z for v in male_head.data.vertices])
-    assert NearEqual(minz, -11, epsilon=0.1), f"Min Z ~ -11: {minz}"
+    assert TT.NearEqual(minz, -11, epsilon=0.1), f"Min Z ~ -11: {minz}"
 
     
 if TEST_BPY_ALL or TEST_BODYPART_FO4:
@@ -188,9 +189,9 @@ if TEST_BPY_ALL or TEST_BODYPART_FO4:
     assert int(male_head.location.z) == 120, f"ERROR: Object {male_head.name} at {male_head.location.z}, not elevated to position"
     assert male_head.parent.type == "ARMATURE", "ERROR: Didn't parent to armature"
     maxz = max([v.co.z for v in male_head.data.vertices])
-    assert NearEqual(maxz, 8.3, epsilon=0.1), f"Max Z ~ 8.3: {maxz}"
+    assert TT.NearEqual(maxz, 8.3, epsilon=0.1), f"Max Z ~ 8.3: {maxz}"
     minz = min([v.co.z for v in male_head.data.vertices])
-    assert NearEqual(minz, -12.1, epsilon=0.1), f"Min Z ~ -12.1: {minz}"
+    assert TT.NearEqual(minz, -12.1, epsilon=0.1), f"Min Z ~ -12.1: {minz}"
 
 
 if TEST_BPY_ALL or TEST_SKYRIM_XFORM:
@@ -207,7 +208,7 @@ if TEST_BPY_ALL or TEST_SKYRIM_XFORM:
     # Export the currently selected object, which import should have set to the head.
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
     
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     headcheck = nifcheck.shapes[0]
 
     # Make sure we didn't export the root
@@ -228,8 +229,8 @@ if TEST_BPY_ALL or TEST_SKIN_BONE_XF:
     outfile = TT.test_file(r"tests\out\TEST_SKIN_BONE_XF.nif", output=True)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    head = find_object("_ArgonianMaleHead", bpy.context.selected_objects, fn=lambda x: x.name)
-    assert NearEqual(head.location.z, 120.344), f"Head is positioned at head position: {head.location}"
+    head = TT.find_object("_ArgonianMaleHead", bpy.context.selected_objects, fn=lambda x: x.name)
+    assert TT.NearEqual(head.location.z, 120.344), f"Head is positioned at head position: {head.location}"
     minz = min(v[2] for v in head.bound_box)
     maxz = max(v[2] for v in head.bound_box)
     assert minz < 0, f"Head extends below origin: {minz}"
@@ -238,15 +239,15 @@ if TEST_BPY_ALL or TEST_SKIN_BONE_XF:
     arma = head.parent
     spine2_xf = arma.data.bones['NPC Spine2'].matrix_local
     head_xf = arma.data.bones['NPC Head'].matrix_local
-    assert VNearEqual(head_xf.translation, (-0.0003, -1.5475, 120.3436)), f"Head position at 120: {head_xf.translation}"
-    assert VNearEqual(spine2_xf.translation, (0.0, -5.9318, 91.2488)), f"Spine2 position at 91: {spine2_xf.translation}"
+    assert TT.VNearEqual(head_xf.translation, (-0.0003, -1.5475, 120.3436)), f"Head position at 120: {head_xf.translation}"
+    assert TT.VNearEqual(spine2_xf.translation, (0.0, -5.9318, 91.2488)), f"Spine2 position at 91: {spine2_xf.translation}"
 
     spine2_pose_xf = arma.pose.bones['NPC Spine2'].matrix
     head_pose_xf = arma.pose.bones['NPC Head'].matrix
-    assert VNearEqual(head_pose_xf.translation, Vector((-0.0003, -1.5475, 120.3436))), f"Head pose position at 120: {head_pose_xf.translation}"
-    assert VNearEqual(spine2_pose_xf.translation, Vector((0.0000, -5.9318, 91.2488))), f"Spine2 pose position at 91: {spine2_pose_xf.translation}"
+    assert TT.VNearEqual(head_pose_xf.translation, Vector((-0.0003, -1.5475, 120.3436))), f"Head pose position at 120: {head_pose_xf.translation}"
+    assert TT.VNearEqual(spine2_pose_xf.translation, Vector((0.0000, -5.9318, 91.2488))), f"Spine2 pose position at 91: {spine2_pose_xf.translation}"
 
-    head_nif = NifFile(testfile)
+    head_nif = pyn.NifFile(testfile)
     head_nishape = head_nif.shapes[0]
     def print_xf(sh, bn):
         print(f"-----{bn}-----")
@@ -264,10 +265,10 @@ if TEST_BPY_ALL or TEST_SKIN_BONE_XF:
     head.select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIMSE")
 
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     headcheck = nifcheck.shapes[0]
     sk2b_spine = headcheck.get_shape_skin_to_bone('NPC Spine2 [Spn2]')
-    assert NearEqual(sk2b_spine.translation[2], 29.419632), f"Have correct z: {sk2b_spine.translation[2]}"
+    assert TT.NearEqual(sk2b_spine.translation[2], 29.419632), f"Have correct z: {sk2b_spine.translation[2]}"
 
 
 if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
@@ -283,28 +284,28 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
 
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=blendxf)
 
-        impnif = NifFile(testfile)
+        impnif = pyn.NifFile(testfile)
         armorin = impnif.shape_dict['Armor']
         armor = TT.find_shape('Armor')
 
         vmin, vmax = TT.get_obj_bbox(armor)
-        assert VNearEqual(vmin, Vector([-30.32, -13.31, -90.03]), 0.1), f"Armor min is correct: {vmin}"
-        assert VNearEqual(vmax, Vector([30.32, 12.57, -4.23]), 0.1), f"Armor max is correct: {vmax}"
-        assert NearEqual(armor.location.z, 120.34, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
+        assert TT.VNearEqual(vmin, Vector([-30.32, -13.31, -90.03]), 0.1), f"Armor min is correct: {vmin}"
+        assert TT.VNearEqual(vmax, Vector([30.32, 12.57, -4.23]), 0.1), f"Armor max is correct: {vmax}"
+        assert TT.NearEqual(armor.location.z, 120.34, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
         arma = armor.parent
         assert arma.name == arma_name("Scene Root"), f"armor has parent: {arma}"
 
         pelvis = arma.data.bones['NPC Pelvis']
         pelvis_pose = arma.pose.bones['NPC Pelvis'] 
         assert pelvis.parent.name == 'CME LBody', f"Pelvis has correct parent: {pelvis.parent}"
-        assert VNearEqual(pelvis.matrix_local.translation, pelvis_pose.matrix.translation), \
+        assert TT.VNearEqual(pelvis.matrix_local.translation, pelvis_pose.matrix.translation), \
             f"Pelvis pose position matches bone position: {pelvis.matrix_local.translation} == {pelvis_pose.matrix.translation}"
 
         bpy.ops.object.select_all(action='DESELECT')
         armor.select_set(True)
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM", use_blender_xf=blendxf)
 
-        nifout = NifFile(outfile)
+        nifout = pyn.NifFile(outfile)
 
         TT.compare_shapes(armorin, nifout.shape_dict['Armor'], armor, e=0.01)
         TT.check_unweighted_verts(nifout.shape_dict['Armor'])
@@ -336,21 +337,21 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
         f"Both shapes brought in under one armor"
     body = TT.find_shape('MaleUnderwearBody:0')
     armor = TT.find_shape('MaleUnderwear_1')
-    assert VNearEqual(armor.location, (-0.0003, -1.5475, 120.3436)), \
+    assert TT.VNearEqual(armor.location, (-0.0003, -1.5475, 120.3436)), \
         f"Armor is raised to match body: {armor.location}"
 
     ObjectSelect([body, armor])
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
 
-    nifout = NifFile(outfile)
-    impnif = NifFile(testfile)  
+    nifout = pyn.NifFile(outfile)
+    impnif = pyn.NifFile(testfile)  
     TT.compare_shapes(impnif.shape_dict['MaleUnderwearBody:0'], nifout.shape_dict['MaleUnderwearBody:0'], body, e=0.01)
     TT.compare_shapes(impnif.shape_dict['MaleUnderwear_1'], nifout.shape_dict['MaleUnderwear_1'], armor, e=0.01)
 
     TT.check_unweighted_verts(nifout.shape_dict['MaleUnderwearBody:0'])
     TT.check_unweighted_verts(nifout.shape_dict['MaleUnderwear_1'])
-    assert NearEqual(body.location.z, 120.343582, 0.01), f"{body.name} in lifted position: {body.location.z}"
-    assert NearEqual(armor.location.z, 120.343582, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
+    assert TT.NearEqual(body.location.z, 120.343582, 0.01), f"{body.name} in lifted position: {body.location.z}"
+    assert TT.NearEqual(armor.location.z, 120.343582, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
     assert "NPC R Hand [RHnd]" not in bpy.data.objects, f"Did not create extra nodes representing the bones"
         
 
@@ -363,12 +364,12 @@ if TEST_BPY_ALL or TEST_IMP_EXP_FO4:
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    impnif = NifFile(testfile)
+    impnif = pyn.NifFile(testfile)
     body = TT.find_shape('BaseMaleBody:0')
     arma = body.parent
     bodyin = impnif.shape_dict['BaseMaleBody:0']
 
-    assert not VNearEqual(body.location, [0, 0, 0], epsilon=1), f"Body is repositioned: {body.location}"
+    assert not TT.VNearEqual(body.location, [0, 0, 0], epsilon=1), f"Body is repositioned: {body.location}"
     assert arma.name == arma_name("Scene Root"), f"Body parented to armature: {arma.name}"
     assert arma.data.bones['Pelvis_skin'].matrix_local.translation.z > 0, f"Bones translated above ground: {arma.data.bones['NPC Pelvis'].matrix_local.translation}"
     assert "Scene Root" not in arma.data.bones, "Did not import the root node"
@@ -377,7 +378,7 @@ if TEST_BPY_ALL or TEST_IMP_EXP_FO4:
     body.select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
 
-    nifout = NifFile(outfile)
+    nifout = pyn.NifFile(outfile)
     bodyout = nifout.shape_dict['BaseMaleBody:0']
 
     TT.compare_shapes(bodyin, bodyout, body, e=0.001, ignore_translations=True)
@@ -405,11 +406,11 @@ if TEST_BPY_ALL or TEST_IMP_EXP_FO4_2:
     armor.select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
 
-    nifout = NifFile(outfile)
+    nifout = pyn.NifFile(outfile)
     bodyout = nifout.shape_dict['BaseMaleBody_03:0']
     armorout = nifout.shape_dict['Pack_UnderArmor_03_M:0']
 
-    impnif = NifFile(testfile)
+    impnif = pyn.NifFile(testfile)
     bodyin = impnif.shape_dict['BaseMaleBody_03:0']
     armorin = impnif.shape_dict['Pack_UnderArmor_03_M:0']
     TT.compare_shapes(bodyin, bodyout, body, e=0.001, ignore_translations=True)
@@ -506,8 +507,8 @@ if TEST_BPY_ALL or TEST_CONNECTED_SKEL:
     assert 'Leg_Thigh.L' in s.data.bones.keys(), "Error: Should have left thigh"
     lthigh = s.data.bones['Leg_Thigh.L']
     assert lthigh.parent.name == 'Pelvis', "Error: Thigh should connect to pelvis"
-    assert VNearEqual(lthigh.head_local, (-6.6151, 0.0005, 68.9113)), f"Thigh head in correct location: {lthigh.head_local}"
-    assert VNearEqual(lthigh.tail_local, (-7.2513, -0.1925, 63.9557)), f"Thigh tail in correct location: {lthigh.tail_local}"
+    assert TT.VNearEqual(lthigh.head_local, (-6.6151, 0.0005, 68.9113)), f"Thigh head in correct location: {lthigh.head_local}"
+    assert TT.VNearEqual(lthigh.tail_local, (-7.2513, -0.1925, 63.9557)), f"Thigh tail in correct location: {lthigh.tail_local}"
 
 
 if TEST_DRAUGR_IMPORT_A or TEST_BPY_ALL:
@@ -536,9 +537,9 @@ if TEST_DRAUGR_IMPORT_A or TEST_BPY_ALL:
 
     # Bones referenced by the hood have bind position from humans but pose position from
     # draugr. The rest of them use bind and pose position from draugr.
-    assert not MatNearEqual(bone1.matrix_local, bone2.matrix_local), \
+    assert not TT.MatNearEqual(bone1.matrix_local, bone2.matrix_local), \
         f"Bones should NOT have the same bind position: \n{bone1.matrix_local} != \n{bone2.matrix_local}"
-    assert VNearEqual(pose1.matrix.translation, pose2.matrix.translation), \
+    assert TT.VNearEqual(pose1.matrix.translation, pose2.matrix.translation), \
         f"Bones should have same pose position: {pose1.matrix.translation} != {pose2.matrix.translation}"
     
     # Create_bones means that the bones are all connected up
@@ -569,7 +570,7 @@ if TEST_DRAUGR_IMPORT_B or TEST_BPY_ALL:
 
     # Lots of bones in this nif are not used in the hood. Bones used in the hood have pose
     # and bind locations. The rest only have pose locations and are brought in as Empties.
-    assert not VNearEqual(pose1.matrix.translation, bone1.matrix_local.translation), \
+    assert not TT.VNearEqual(pose1.matrix.translation, bone1.matrix_local.translation), \
         f"Pose position is not bind position: {pose1.matrix.translation} != {bone1.matrix_local.translation}"
     
 
@@ -589,9 +590,9 @@ if TEST_DRAUGR_IMPORT_C or TEST_BPY_ALL:
     bone1 = skel.data.bones['NPC Head']
     pose1 = skel.pose.bones['NPC Head']
 
-    assert not VNearEqual(bone1.matrix_local.translation, [-0.0003, -1.5475, 120.3436]), \
+    assert not TT.VNearEqual(bone1.matrix_local.translation, [-0.0003, -1.5475, 120.3436]), \
         f"Head bone not in vanilla bind position: {bone1.matrix_local.translation}"
-    assert not VNearEqual(pose1.matrix.translation, [-0.0003, -1.5475, 120.3436]), \
+    assert not TT.VNearEqual(pose1.matrix.translation, [-0.0003, -1.5475, 120.3436]), \
         f"Head bone not posed in vanilla position: {pose1.matrix_local.translation}"
 
 
@@ -614,14 +615,14 @@ if TEST_DRAUGR_IMPORT_D or TEST_BPY_ALL:
     bone2 = skel.data.bones['NPC Spine2']
     pose2 = skel.pose.bones['NPC Spine2']
 
-    assert VNearEqual(bone1.matrix_local.translation, [-0.015854, -2.40295, 134.301]), \
+    assert TT.VNearEqual(bone1.matrix_local.translation, [-0.015854, -2.40295, 134.301]), \
         f"Head bone in vanilla bind position: {bone1.matrix_local.translation}"
-    assert not VNearEqual(pose1.matrix.translation, [-0.0003, -1.5475, 120.3436], epsilon=2.0), \
+    assert not TT.VNearEqual(pose1.matrix.translation, [-0.0003, -1.5475, 120.3436], epsilon=2.0), \
         f"Head bone not posed in vanilla position: {pose1.matrix.translation}"
 
-    assert VNearEqual(bone2.matrix_local.translation, [0.000004, -5.83516, 102.358]), \
+    assert TT.VNearEqual(bone2.matrix_local.translation, [0.000004, -5.83516, 102.358]), \
         f"Spine bone in vanilla bind position: {bone1.matrix_local.translation}"
-    assert VNearEqual(pose2.matrix.translation, [0.0000, -5.8352, 102.3579]), \
+    assert TT.VNearEqual(pose2.matrix.translation, [0.0000, -5.8352, 102.3579]), \
         f"Spine bone posed in draugr position: {pose2.matrix.translation}"
     
     assert bone2.parent.name == 'NPC Spine1', \
@@ -648,7 +649,7 @@ if TEST_DRAUGR_IMPORT_E or TEST_BPY_ALL:
     skel = bpy.context.object.parent
     helm = TT.find_shape("Helmet")
     hood = TT.find_shape("Hood")
-    importnif = NifFile(testfile)
+    importnif = pyn.NifFile(testfile)
     importhelm = importnif.shape_dict['Helmet']
     importhood = importnif.shape_dict['Hood']
     print(f"Helm max y = {max(v[1] for v in importnif.shape_dict['Helmet'].verts)}")
@@ -705,7 +706,7 @@ if TEST_DRAUGR_IMPORT_E or TEST_BPY_ALL:
     bone1 = hood.parent.data.bones['NPC Head']
     pose1 = hood.parent.pose.bones['NPC Head']
 
-    assert not VNearEqual(bone1.matrix_local.translation, pose1.matrix.translation), \
+    assert not TT.VNearEqual(bone1.matrix_local.translation, pose1.matrix.translation), \
         f"Pose and bind locaations differ: {bone1.matrix_local.translation} != {pose1.matrix.translation}"
     
 
@@ -723,10 +724,10 @@ if TEST_BPY_ALL or TEST_SCALING_BP:
     arma = TT.find_shape(arma_name("MaleBody_1.nif"), type='ARMATURE')
     b = arma.data.bones['NPC Spine1 [Spn1]']
     bw = arma.matrix_world @ b.matrix_local
-    assert NearEqual(bw.translation.z, 8.1443), f"Scale correctly applied: {bw.translation}"
+    assert TT.NearEqual(bw.translation.z, 8.1443), f"Scale correctly applied: {bw.translation}"
     body = TT.find_shape("MaleUnderwearBody:0")
     blw = arma.matrix_world @ body.location
-    assert NearEqual(blw.z, 12, 0.1), f"Object translation correctly applied: {blw}"
+    assert TT.NearEqual(blw.z, 12, 0.1), f"Object translation correctly applied: {blw}"
     bodymax = max([(arma.matrix_world @ v.co).z for v in body.data.vertices])
     bodymin = min([(arma.matrix_world @ v.co).z for v in body.data.vertices])
     assert bodymax < 0, f"Max z is less than 0: {bodymax}"
@@ -750,10 +751,10 @@ if TEST_BPY_ALL or TEST_SCALING_BP:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM", 
                                  rename_bones_niftools=True) 
 
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     bodycheck = nifcheck.shape_dict["MaleUnderwearBody:0"]
-    assert NearEqual(bodycheck.transform.scale, 1.0), f"Scale is 1: {bodycheck.transform.scale}"
-    assert NearEqual(bodycheck.transform.translation[2], 120.3, 0.1), \
+    assert TT.NearEqual(bodycheck.transform.scale, 1.0), f"Scale is 1: {bodycheck.transform.scale}"
+    assert TT.NearEqual(bodycheck.transform.translation[2], 120.3, 0.1), \
         f"Translation is correct: {list(bodycheck.transform.translation)}"
     bmaxout = max(v[2] for v in bodycheck.verts)
     bminout = min(v[2] for v in bodycheck.verts)
@@ -779,7 +780,7 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SCALE_2:
     arma = body.parent
 
     # We imported scaled down and rotated 180.
-    assert VNearEqual((arma.matrix_world @ armor.location), (-0.0, 0.15475, 12.03436)), \
+    assert TT.VNearEqual((arma.matrix_world @ armor.location), (-0.0, 0.15475, 12.03436)), \
         f"Armor is raised to match body: {armor.location}"
     
     
@@ -818,9 +819,9 @@ if TEST_BPY_ALL or TEST_ARMATURE_EXTEND:
     target_v = Vector((0.00016, 4.339844, -12.101563))
     v_head = TT.find_vertex(head.data, target_v)
     v_body = TT.find_vertex(body.data, target_v)
-    assert VNearEqual(head.data.vertices[v_head].co, body.data.vertices[v_body].co), \
+    assert TT.VNearEqual(head.data.vertices[v_head].co, body.data.vertices[v_body].co), \
         f"Head and body verts align"
-    assert MatNearEqual(head.matrix_world, body.matrix_world), f"Shape transforms match"
+    assert TT.MatNearEqual(head.matrix_world, body.matrix_world), f"Shape transforms match"
 
 
 if TEST_BPY_ALL or TEST_ARMATURE_EXTEND_BT:
@@ -861,10 +862,10 @@ if TEST_BPY_ALL or TEST_ARMATURE_EXTEND_BT:
     target_v = Vector((0.00016, 4.339844, -12.101563))
     v_head = TT.find_vertex(head.data, target_v)
     v_body = TT.find_vertex(body.data, target_v)
-    assert VNearEqual(head.data.vertices[v_head].co, body.data.vertices[v_body].co), \
+    assert TT.VNearEqual(head.data.vertices[v_head].co, body.data.vertices[v_body].co), \
         f"Head and body verts align"
     # Shape transforms are different between vanilla head and BT body.
-    #assert MatNearEqual(head.matrix_world, body.matrix_world), f"Shape transforms match"
+    #assert TT.MatNearEqual(head.matrix_world, body.matrix_world), f"Shape transforms match"
 
 
 if TEST_BPY_ALL or TEST_EXPORT_WEIGHTS:
@@ -894,7 +895,7 @@ if TEST_BPY_ALL or TEST_EXPORT_WEIGHTS:
     assert os.path.exists(filepath_armor), "ERROR: File not created"
 
     # Check armor
-    ftest = NifFile(filepath_armor)
+    ftest = pyn.NifFile(filepath_armor)
     assert len(ftest.shapes) == 1, f"Wrote one shape: {ftest.shape_dict.keys()}"
     assert ftest.shapes[0].name[0:5] == "Armor", "ERROR: Armor not read"
     gts = ftest.shapes[0].global_to_skin
@@ -910,7 +911,7 @@ if TEST_BPY_ALL or TEST_EXPORT_WEIGHTS:
     bpy.context.view_layer.objects.active = the_body
     bpy.ops.export_scene.pynifly(filepath=filepath_body, target_game='SKYRIM')
     assert os.path.exists(filepath_body), f"ERROR: File {filepath_body} not created"
-    bnif = NifFile(filepath_body)
+    bnif = pyn.NifFile(filepath_body)
     assert len(bnif.shapes) == 1, f"Wrote one shape: {bnif.shape_dict.keys()}"
 
 
@@ -928,7 +929,7 @@ if TEST_BPY_ALL or TEST_WEIGHTS_EXPORT:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
     # ------- Check ---------
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
 
     headcheck = nifcheck.shape_dict["CheetahFemaleHead"]
     bw = headcheck.bone_weights
@@ -970,7 +971,7 @@ if TEST_BPY_ALL or TEST_TIGER_EXPORT:
     bpy.context.view_layer.objects.active = bpy.data.objects["TigerMaleHead"]
     bpy.ops.export_scene.pynifly(filepath=f, target_game='FO4', chargen_ext="_chargen")
 
-    nif1 = NifFile(f)
+    nif1 = pyn.NifFile(f)
     assert len(nif1.shapes) == 1, f"Expected tiger nif"
     assert os.path.exists(fb), "Facebones file created"
     assert os.path.exists(ftri), "Tri file created"
@@ -987,7 +988,7 @@ if TEST_BPY_ALL or TEST_3BBB:
     
     obj = bpy.context.object
     arma = obj.parent
-    assert NearEqual(obj.location[0], 0.0), f"Expected body to be centered on x-axis, got {obj.location}"
+    assert TT.NearEqual(obj.location[0], 0.0), f"Expected body to be centered on x-axis, got {obj.location}"
 
     print("## Test that the same armature is used for the next import")
     bpy.ops.object.select_all(action='DESELECT')
@@ -1005,9 +1006,11 @@ if TEST_BPY_ALL or TEST_SKEL:
     testfile = TT.test_file(r"skeletons\FO4\skeleton.nif")
     outfile = TT.test_file(r"tests/out/TEST_SKEL.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile)
+    bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False)
 
     arma = [a for a in bpy.data.objects if a.type == 'ARMATURE'][0]
+    assert 'Root' in arma.data.bones, "Have Root bone"
+    rootbone = arma.data.bones['Root']
     assert 'Leg_Thigh.L' in arma.data.bones, "Have left thigh bone"
     assert 'RibHelper.L' in arma.data.bones, "Have rib helper bone"
     assert 'L_RibHelper.L' not in arma.data.bones, "Do not have nif name for bone"
@@ -1015,23 +1018,31 @@ if TEST_BPY_ALL or TEST_SKEL:
     assert arma.data.bones['RibHelper.L'].parent.name == 'Chest', \
         f"Parent of ribhelper is chest: {arma.data.bones['RibHelper.L'].parent.name}"
 
+    # COM bone's orientation matches that of the nif
+    nif = pyn.NifFile(testfile)
+    rootnode = nif.nodes["Root"]
+    assert TT.MatNearEqual(rootbone.matrix, BD.transform_to_matrix(rootnode.transform)), \
+        f"Bone transform matches nif: {rootbone.matrix}"
+
     cp_lleg = bpy.data.objects['BSConnectPointParents::P-ArmorLleg']
     assert cp_lleg.parent == arma, f"cp_lleg has armature as parent: {cp_lleg.parent}"
-    assert NearEqual(cp_lleg.location[0], 4.91351), \
+    # TODO: Figure out exactly where these connect points ought to be. The number here is
+    # taken from importing the skeleton with no rotations on the bones, so might be right.
+    assert TT.NearEqual(cp_lleg.location[0], -8.748), \
         f"Armor left leg connect point at relative position: {cp_lleg.location}"
 
     bpy.data.objects['skeleton.nif'].select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True)
 
-    skel_in = NifFile(testfile)
-    skel_out = NifFile(outfile)
+    skel_in = pyn.NifFile(testfile)
+    skel_out = pyn.NifFile(outfile)
     assert "L_RibHelper" in skel_out.nodes, "Bones written to nif"
     pb = skel_out.nodes["L_RibHelper"].parent
     assert pb.name == "Chest", f"Have correct parent: {pb.name}"
     helm_cp_in = [x for x in skel_in.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
     helm_cp_out = [x for x in skel_out.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
     assert helm_cp_out.parent.decode('utf-8') == 'HEAD', f"Parent is correct: {helm_cp_out.parent}"
-    assert VNearEqual(helm_cp_in.translation, helm_cp_out.translation), \
+    assert TT.VNearEqual(helm_cp_in.translation, helm_cp_out.translation), \
         f"Connect point locations correct: {helm_cp_in.translation[:]} == {helm_cp_out.translation[:]}"
 
 
@@ -1056,7 +1067,7 @@ if TEST_BPY_ALL or TEST_HEADPART:
 
     bpy.ops.export_scene.pynifly(filepath=testfileout, target_game='SKYRIMSE')
     
-    nif2 = NifFile(testfileout)
+    nif2 = pyn.NifFile(testfileout)
     head2 = nif2.shapes[0]
     assert len(nif2.shapes) == 1, f"Expected single shape, 1 != {len(nif2.shapes)}"
     assert head2.blockname == "BSDynamicTriShape", f"Expected 'BSDynamicTriShape' != '{nif2.shapes[0].blockname}'"
@@ -1067,13 +1078,13 @@ if TEST_BPY_ALL or TEST_HEADPART:
     bpy.ops.export_scene.pynifly(filepath=testfileout2, target_game='SKYRIMSE', 
                                  export_modifiers=True)
     
-    nif3 = NifFile(testfileout2)
+    nif3 = pyn.NifFile(testfileout2)
     head3 = nif3.shapes[0]
     eyelid = TT.find_vertex(obj.data, [-2.52558, 7.31011, 124.389])
     mouth = TT.find_vertex(obj.data, [1.8877, 7.50949, 118.859])
-    assert not VNearEqual(head2.verts[eyelid], head3.verts[eyelid]), \
+    assert not TT.VNearEqual(head2.verts[eyelid], head3.verts[eyelid]), \
         f"Verts have moved: {head2.verts[eyelid]} != {head3.verts[eyelid]}"
-    assert not VNearEqual(head2.verts[mouth], head3.verts[mouth]), \
+    assert not TT.VNearEqual(head2.verts[mouth], head3.verts[mouth]), \
         f"Verts have moved: {head2.verts[mouth]} != {head3.verts[mouth]}"
 
     # We can export any modifiers
@@ -1083,7 +1094,7 @@ if TEST_BPY_ALL or TEST_HEADPART:
     mod.ratio = 0.2
     bpy.ops.export_scene.pynifly(filepath=testfileout3, target_game='SKYRIMSE', 
                                  export_modifiers=True)
-    nif4 = NifFile(testfileout3)
+    nif4 = pyn.NifFile(testfileout3)
     head4 = nif4.shapes[0]
     assert len(head4.verts) < 300, f"Head has decimated verts: {head4.verts}"
 
@@ -1129,7 +1140,7 @@ if TEST_BPY_ALL or TEST_TRI:
     bpy.ops.export_scene.pynifly(filepath=testout2, target_game="FO4")
     
     print('### Exported shape and tri match')
-    nif2 = NifFile(testout2)
+    nif2 = pyn.NifFile(testout2)
     tri2 = TriFile.from_file(testout2tri)
     assert not os.path.exists(testout2chg), f"{testout2chg} should not have been created"
     assert len(nif2.shapes[0].verts) == len(tri2.vertices), f"Error vert count should match, {len(nif2.shapes[0].verts)} vs {len(tri2.vertices)}"
@@ -1227,15 +1238,15 @@ if (TEST_BPY_ALL or TEST_EXP_SK_RENAMED) and bpy.app.version[0] >= 3:
     head = bpy.data.objects["BaseFemaleHead:0"]
     initial_keys = set(head.data.shape_keys.key_blocks.keys())
 
-    NifFile.clear_log()
+    pyn.NifFile.clear_log()
     bpy.ops.object.select_all(action='SELECT')
     bpy.context.view_layer.objects.active = bpy.data.objects["BaseFemaleHead:0"]
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
-    assert "ERROR" not in NifFile.message_log(), f"Error: Expected no error message, got: \n{NifFile.message_log()}---\n"
+    assert "ERROR" not in pyn.NifFile.message_log(), f"Error: Expected no error message, got: \n{pyn.NifFile.message_log()}---\n"
 
     assert not os.path.exists(chargenfile), f"Chargen file not created: {os.path.exists(chargenfile)}"
 
-    nif1 = NifFile(outfile)
+    nif1 = pyn.NifFile(outfile)
     assert len(nif1.shapes) == 1, f"Expected head nif"
 
     tri1 = TriFile.from_file(trifile)
@@ -1279,13 +1290,13 @@ if TEST_BPY_ALL or TEST_SK_MULT:
     bpy.data.objects["MaleTail"].select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIMSE")
 
-    nif1 = NifFile(outfile1)
+    nif1 = pyn.NifFile(outfile1)
     assert len(nif1.shapes) == 2, "Wrote the 1 file successfully"
     assert 'NPC Spine2 [Spn2]' in nif1.nodes, "Found spine2 bone"
     assert 'TailBone01' in nif1.nodes, "Found Tailbone01"
     assert 'NPC L Clavicle [LClv]' in nif1.nodes, "Found Clavicle"
 
-    nif0 = NifFile(outfile0)
+    nif0 = pyn.NifFile(outfile0)
     assert len(nif0.shapes) == 2, "Wrote the 0 file successfully"
     assert 'NPC Spine2 [Spn2]' in nif0.nodes, "Found Spine2 in _0 file"
     assert 'TailBone01' in nif0.nodes, "Found tailbone01 in _0 file"
@@ -1341,7 +1352,7 @@ if TEST_BPY_ALL or TEST_SEGMENTS:
     obj.select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
     
-    nif2 = NifFile(outfile)
+    nif2 = pyn.NifFile(outfile)
     assert len(nif2.shapes[0].partitions) == 7, f"Wrote the shape's 7 partitions: {[p.name for p in nif2.shapes[0].partitions]}"
     assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == nif2.shapes[0].segment_file, f"Nif should reference segment file, found '{nif2.shapes[0].segment_file}'"
 
@@ -1367,7 +1378,7 @@ if TEST_BPY_ALL or TEST_BP_SEGMENTS:
     bpy.ops.object.select_all(action='SELECT')
     e = bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
     
-    nif2 = NifFile(outfile)
+    nif2 = pyn.NifFile(outfile)
     helm2 = nif2.shape_dict["Helmet:0"]
     assert helm2.name == "Helmet:0", "Have the helmet in the nif file"
     assert len(helm2.partitions) == 2, "Have all FO4 partitions"
@@ -1396,11 +1407,11 @@ if TEST_BPY_ALL or TEST_EXP_SEGMENTS_BAD:
 
     TT.append_from_file("ArmorUnder", True, r"tests\FO4\ArmorExportsBadSegments.blend", r"\Object", "ArmorUnder")
 
-    NifFile.clear_log()
+    pyn.NifFile.clear_log()
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
-    assert "ERROR" not in NifFile.message_log(), f"Error: Expected no error message, got: \n{NifFile.message_log()}---\n"
+    assert "ERROR" not in pyn.NifFile.message_log(), f"Error: Expected no error message, got: \n{pyn.NifFile.message_log()}---\n"
 
-    nif1 = NifFile(outfile)
+    nif1 = pyn.NifFile(outfile)
     assert len(nif1.shapes) == 1, f"Single shape was exported"
 
     body = nif1.shapes[0]
@@ -1422,13 +1433,13 @@ if (TEST_BPY_ALL or TEST_EXP_SEG_ORDER) and bpy.app.version[0] >= 3:
     groups = [g for g in obj.vertex_groups if g.name.startswith('FO4')]
     assert len(groups) == 23, f"Groups properly appended from test file: {len(groups)}"
 
-    NifFile.clear_log()
+    pyn.NifFile.clear_log()
     bpy.ops.object.select_all(action='SELECT')
     bpy.context.view_layer.objects.active = gen1bod
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
-    assert "ERROR" not in NifFile.message_log(), f"Error: Expected no error message, got: \n{NifFile.message_log()}---\n"
+    assert "ERROR" not in pyn.NifFile.message_log(), f"Error: Expected no error message, got: \n{pyn.NifFile.message_log()}---\n"
 
-    nif1 = NifFile(outfile)
+    nif1 = pyn.NifFile(outfile)
     assert len(nif1.shapes) == 1, f"Single shape was exported"
 
     # Third segment should be arm, with 5 subsegments
@@ -1452,7 +1463,7 @@ if TEST_BPY_ALL or TEST_PARTITIONS:
     print("### Can write Skyrim partitions")
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
     
-    nif2 = NifFile(outfile)
+    nif2 = pyn.NifFile(outfile)
     head = nif2.shapes[0]
     assert len(nif2.shapes[0].partitions) == 3, "Have all skyrim partitions"
     assert set([p.id for p in head.partitions]) == set([130, 143, 230]), "Have all head parts"
@@ -1466,7 +1477,7 @@ if TEST_BPY_ALL or TEST_SHADER_LE:
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_LE.nif")
     bpy.ops.import_scene.pynifly(filepath=fileLE)
 
-    nifLE = NifFile(fileLE)
+    nifLE = pyn.NifFile(fileLE)
     shaderAttrsLE = nifLE.shapes[0].shader_attributes
     headLE = bpy.context.object
     shadernodes = headLE.active_material.node_tree.nodes
@@ -1481,7 +1492,7 @@ if TEST_BPY_ALL or TEST_SHADER_LE:
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
 
-    nifcheckLE = NifFile(outfile)
+    nifcheckLE = pyn.NifFile(outfile)
     
     assert nifcheckLE.shapes[0].textures[0].lower() == nifLE.shapes[0].textures[0].lower(), \
         f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[0]}' != '{nifLE.shapes[0].textures[0]}'"
@@ -1503,7 +1514,7 @@ if TEST_BPY_ALL or TEST_SHADER_SE:
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_SE.nif")
     
     bpy.ops.import_scene.pynifly(filepath=fileSE)
-    nifSE = NifFile(fileSE)
+    nifSE = pyn.NifFile(fileSE)
     nifboots = nifSE.shapes[0]
     shaderAttrsSE = nifboots.shader_attributes
     boots = bpy.context.object
@@ -1519,7 +1530,7 @@ if TEST_BPY_ALL or TEST_SHADER_SE:
     boots.select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
-    nifcheckSE = NifFile(outfile)
+    nifcheckSE = pyn.NifFile(outfile)
     bootcheck = nifcheckSE.shapes[0]
     
     assert bootcheck.textures[0].lower() == nifboots.textures[0].lower(), \
@@ -1548,7 +1559,7 @@ if TEST_BPY_ALL or TEST_SHADER_FO4:
     bpy.ops.import_scene.pynifly(filepath=fileFO4)
     headFO4 = bpy.context.object
     
-    nifFO4 = NifFile(fileFO4)
+    nifFO4 = pyn.NifFile(fileFO4)
     shaderAttrsFO4 = nifFO4.shapes[0].shader_attributes
     sh = headFO4.active_material.node_tree.nodes["Principled BSDF"]
     assert sh, "Have shader node"
@@ -1559,7 +1570,7 @@ if TEST_BPY_ALL or TEST_SHADER_FO4:
 
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
-    nifcheckFO4 = NifFile(outfile)
+    nifcheckFO4 = pyn.NifFile(outfile)
     
     assert nifcheckFO4.shapes[0].textures[0] == nifFO4.shapes[0].textures[0], \
         f"Error: Texture paths not preserved: '{nifcheckFO4.shapes[0].textures[0]}' != '{nifFO4.shapes[0].textures[0]}'"
@@ -1586,7 +1597,7 @@ if TEST_BPY_ALL or TEST_SHADER_ALPHA:
 
     bpy.ops.import_scene.pynifly(filepath=fileAlph)
     
-    nifAlph = NifFile(fileAlph)
+    nifAlph = pyn.NifFile(fileAlph)
     furshape = nifAlph.shape_dict["tail_fur"]
     tail = bpy.data.objects["tail_fur"]
     assert 'Principled BSDF' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
@@ -1599,7 +1610,7 @@ if TEST_BPY_ALL or TEST_SHADER_ALPHA:
 
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
 
-    nifCheck = NifFile(outfile)
+    nifCheck = pyn.NifFile(outfile)
     checkfurshape = nifCheck.shape_dict["tail_fur"]
     
     assert checkfurshape.textures[0] == furshape.textures[0], \
@@ -1633,7 +1644,7 @@ if TEST_BPY_ALL or TEST_SHADER_3_3:
     bpy.context.view_layer.objects.active = obj
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
-    nifcheckSE = NifFile(outfile)
+    nifcheckSE = pyn.NifFile(outfile)
     
     assert nifcheckSE.shapes[0].textures[0] == r"textures\actors\character\male\MaleBody_1.dds", \
         f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[0]}'"
@@ -1701,7 +1712,7 @@ if TEST_BPY_ALL or TEST_CAVE_GREEN:
 
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     rootscheck = nifcheck.shape_dict["L2_Roots:5"]
     assert rootscheck.has_alpha_property, f"Roots have alpha: {rootscheck.has_alpha_property}"
     assert rootscheck.shader_attributes.shaderflags2_test(ShaderFlags2.VERTEX_COLORS), \
@@ -1780,9 +1791,9 @@ if TEST_BPY_ALL or TEST_WELWA:
     welwa = TT.find_shape("111")
     skel = welwa.parent
     lipbone = skel.data.bones['NPC UpperLip']
-    assert VNearEqual(lipbone.matrix_local.translation, (0, 49.717827, 161.427307)), f"Found {lipbone.name} at {lipbone.matrix_local.translation}"
+    assert TT.VNearEqual(lipbone.matrix_local.translation, (0, 49.717827, 161.427307)), f"Found {lipbone.name} at {lipbone.matrix_local.translation}"
     spine1 = skel.data.bones['NPC Spine1']
-    assert VNearEqual(spine1.matrix_local.translation, (0, -50.551056, 64.465019)), f"Found {spine1.name} at {spine1.matrix_local.translation}"
+    assert TT.VNearEqual(spine1.matrix_local.translation, (0, -50.551056, 64.465019)), f"Found {spine1.name} at {spine1.matrix_local.translation}"
 
     # Should remember that bones are not to be renamed.
     bpy.ops.object.select_all(action='DESELECT')
@@ -1790,7 +1801,7 @@ if TEST_BPY_ALL or TEST_WELWA:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
     # ------- Check ---------
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
 
     assert "NPC Pelvis [Pelv]" not in nifcheck.nodes, f"Human pelvis name not written: {nifcheck.nodes.keys()}"
 
@@ -1802,7 +1813,7 @@ if TEST_BPY_ALL or TEST_MUTANT:
 
     bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False, create_bones=False)
 
-    testnif = NifFile(testfile)
+    testnif = pyn.NifFile(testfile)
     assert round(testnif.shapes[0].global_to_skin.translation[2]) == -140, f"Expected -140 z translation in first nif, got {testnif.shapes[0].global_to_skin.translation[2]}"
 
     sm1 = bpy.context.object
@@ -1874,7 +1885,7 @@ if TEST_BPY_ALL or TEST_SHEATH:
 
 
     print('------ Extra data checks out----')
-    nifCheck = NifFile(outfile)
+    nifCheck = pyn.NifFile(outfile)
     sheathShape = nifCheck.shapes[0]
 
     names = [x[0] for x in nifCheck.behavior_graph_data]
@@ -1910,7 +1921,7 @@ if TEST_BPY_ALL or TEST_FEET:
     feet.select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
-    nifCheck = NifFile(outfile)
+    nifCheck = pyn.NifFile(outfile)
     feetShape = nifCheck.shapes[0]
     assert feetShape.string_data[0][0] == 'SDTA', "String data name written correctly"
     assert feetShape.string_data[0][1].startswith('[{"name"'), "String data value written correctly"
@@ -1933,10 +1944,10 @@ if TEST_BPY_ALL or TEST_SCALING:
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.export_scene.pynifly(filepath=testout, target_game="SKYRIM")
 
-    checknif = NifFile(testout)
+    checknif = pyn.NifFile(testout)
     checkfoot = checknif.shape_dict['FootLowRes']
     assert checkfoot.transform.rotation[0][0] == 1.0, f"ERROR: Foot rotation matrix not identity: {checkfoot.transform}"
-    assert NearEqual(checkfoot.transform.scale, 1.0), f"ERROR: Foot scale not correct: {checkfoot.transform.scale}"
+    assert TT.NearEqual(checkfoot.transform.scale, 1.0), f"ERROR: Foot scale not correct: {checkfoot.transform.scale}"
 
     zmax = max([v[2] for v in checkfoot.verts])
     zmin = min([v[2] for v in checkfoot.verts])
@@ -1966,7 +1977,7 @@ if TEST_BPY_ALL or TEST_SCALING_OBJ:
     assert bbmin[0] > -6.5, f"Bench is scaled down: {bbmin}" 
     # bmax = max([v.co.z for v in bench.data.vertices])
     # bmin = min([v.co.z for v in bench.data.vertices])
-    # assert VNearEqual(bench.scale, (1,1,1)), f"Bench scale factor is 1: {bench.scale}"
+    # assert TT.VNearEqual(bench.scale, (1,1,1)), f"Bench scale factor is 1: {bench.scale}"
     # assert bmax < 3.1, f"Max Z is scaled down: {bmax}"
     # assert bmin >= 0, f"Min Z is correct: {bmin}"
 
@@ -1983,7 +1994,7 @@ if TEST_BPY_ALL or TEST_SCALING_OBJ:
                                             use_blender_xf=True)
 
     # --------- Check ----------
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     bcheck = nifcheck.shapes[0]
     fmcheck = nifcheck.furniture_markers
     bchmax = max([v[2] for v in bcheck.verts])
@@ -2004,11 +2015,11 @@ if TEST_BPY_ALL or TEST_UNIFORM_SCALE:
     testfile = TT.test_file(r"tests\Out\TEST_UNIFORM_SCALE.nif")
     bpy.ops.export_scene.pynifly(filepath=testfile, target_game='SKYRIM')
 
-    nifcheck = NifFile(testfile)
+    nifcheck = pyn.NifFile(testfile)
     shapecheck = nifcheck.shapes[0]
-    assert NearEqual(shapecheck.transform.scale, 4.0), f"Shape scaled x4: {shapecheck.transform.scale}"
+    assert TT.NearEqual(shapecheck.transform.scale, 4.0), f"Shape scaled x4: {shapecheck.transform.scale}"
     for v in shapecheck.verts:
-        assert VNearEqual(map(abs, v), [1,1,1]), f"All vertices at unit position: {v}"
+        assert TT.VNearEqual(map(abs, v), [1,1,1]), f"All vertices at unit position: {v}"
 
 
 if TEST_BPY_ALL or TEST_NONUNIFORM_SCALE:
@@ -2023,11 +2034,11 @@ if TEST_BPY_ALL or TEST_NONUNIFORM_SCALE:
 
     bpy.ops.export_scene.pynifly(filepath=testfile, target_game='SKYRIM')
 
-    nifcheck = NifFile(testfile)
+    nifcheck = pyn.NifFile(testfile)
     shapecheck = nifcheck.shapes[0]
-    assert NearEqual(shapecheck.transform.scale, 1.0), f"Nonuniform scale exported in verts so scale is 1: {shapecheck.transform.scale}"
+    assert TT.NearEqual(shapecheck.transform.scale, 1.0), f"Nonuniform scale exported in verts so scale is 1: {shapecheck.transform.scale}"
     for v in shapecheck.verts:
-        assert not VNearEqual(map(abs, v), [1,1,1]), f"All vertices scaled away from unit position: {v}"
+        assert not TT.VNearEqual(map(abs, v), [1,1,1]), f"All vertices scaled away from unit position: {v}"
 
 
 if TEST_BPY_ALL or TEST_TRIP_SE:
@@ -2048,7 +2059,7 @@ if TEST_BPY_ALL or TEST_TRIP_SE:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', write_bodytri=True)
 
     print(' ------- Check --------- ')
-    nifcheck = NifFile(outfile1)
+    nifcheck = pyn.NifFile(outfile1)
 
     bodycheck = nifcheck.shape_dict["Penis_CBBE"]
     assert bodycheck.name == "Penis_CBBE", f"Penis found in nif"
@@ -2081,7 +2092,7 @@ if TEST_BPY_ALL or TEST_TRIP:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', write_bodytri=True)
 
     print(' ------- Check --------- ')
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
 
     bodycheck = nifcheck.shape_dict["BaseMaleBody"]
     assert bodycheck.name == "BaseMaleBody", f"Body found in nif"
@@ -2107,7 +2118,7 @@ if TEST_BPY_ALL or TEST_COLORS:
     TT.export_from_blend(r"tests\FO4\VertexColors.blend", "Plane",
                       "FO4", outfile)
 
-    nif3 = NifFile(outfile)
+    nif3 = pyn.NifFile(outfile)
     assert len(nif3.shapes[0].colors) > 0, f"Expected color layers, have: {len(nif3.shapes[0].colors)}"
     cd = nif3.shapes[0].colors
     assert cd[0] == (0.0, 1.0, 0.0, 1.0), f"First vertex found: {cd[0]}"
@@ -2134,7 +2145,7 @@ if TEST_BPY_ALL or TEST_COLORS2:
 
     bpy.ops.export_scene.pynifly(filepath=testfileout, target_game="FO4")
 
-    nif2 = NifFile(testfileout)
+    nif2 = pyn.NifFile(testfileout)
     assert nif2.shapes[0].colors[0] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not reread correctly: {nif2.shapes[0].colors[0]}"
     assert nif2.shapes[0].colors[561] == (0.0, 0.0, 0.0, 1.0), f"Color 561 not reread correctly: {nif2.shapes[0].colors[561]}"
 
@@ -2148,7 +2159,7 @@ if TEST_BPY_ALL or TEST_NEW_COLORS:
                       "SKYRIMSE",
                       r"tests/Out/TEST_NEW_COLORS.nif")
 
-    nif = NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_NEW_COLORS.nif"))
+    nif = pyn.NifFile(os.path.join(pynifly_dev_path, r"tests/Out/TEST_NEW_COLORS.nif"))
     shape = nif.shapes[0]
     assert shape.colors, f"Have colors in shape {shape.name}"
     assert shape.colors[10] == (1.0, 1.0, 1.0, 1.0), f"Colors are as expected: {shape.colors[10]}"
@@ -2189,7 +2200,7 @@ if TEST_BPY_ALL or TEST_VERTEX_COLOR_IO:
 
     assert os.path.exists(outfile), f"File created: {outfile}"
 
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     eyescheck = nifcheck.shapes[0]
     min_a = min(c[3] for c in eyescheck.colors)
     max_a = max(c[3] for c in eyescheck.colors)
@@ -2223,9 +2234,9 @@ if TEST_BPY_ALL or TEST_VERTEX_ALPHA_IO:
 
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
-    nif = NifFile(testfile)
+    nif = pyn.NifFile(testfile)
     head1 = nif.shapes[0]
-    nif2 = NifFile(outfile)
+    nif2 = pyn.NifFile(outfile)
     head2 = nif2.shapes[0]
 
     assert head2.has_alpha_property, f"Error: Did not write alpha property"
@@ -2252,7 +2263,7 @@ if TEST_BPY_ALL or TEST_VERTEX_ALPHA:
     bpy.context.view_layer.objects.active = cube
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
 
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     shapecheck = nifcheck.shapes[0]
 
     assert shapecheck.shader_attributes.Shader_Flags_1 & ShaderFlags1.VERTEX_ALPHA, f"Expected VERTEX_ALPHA set: {ShaderFlags1(shapecheck.shader_attributes.Shader_Flags_1).fullname}"
@@ -2293,43 +2304,43 @@ if TEST_BPY_ALL or TEST_BONE_HIERARCHY:
                                  rename_bones=True)
 
     print("# ------- Check ---------")
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     haircheck = nifcheck.shape_dict["KSSMP_Anna"]
 
     com = nifcheck.nodes["NPC COM [COM ]"]
-    assert VNearEqual(com.transform.translation, (0, 0, 68.9113)), f"COM location is correct: \n{com.transform}"
+    assert TT.VNearEqual(com.transform.translation, (0, 0, 68.9113)), f"COM location is correct: \n{com.transform}"
 
     spine0 = nifcheck.nodes["NPC Spine [Spn0]"]
-    assert VNearEqual(spine0.transform.translation, (0, -5.239852, 3.791618)), f"spine0 location is correct: \n{spine0.transform}"
+    assert TT.VNearEqual(spine0.transform.translation, (0, -5.239852, 3.791618)), f"spine0 location is correct: \n{spine0.transform}"
     spine0Rot = Matrix(spine0.transform.rotation).to_euler()
-    assert VNearEqual(spine0Rot, (-0.0436, 0, 0)), f"spine0 rotation correct: {spine0Rot}"
+    assert TT.VNearEqual(spine0Rot, (-0.0436, 0, 0)), f"spine0 rotation correct: {spine0Rot}"
 
     spine1 = nifcheck.nodes["NPC Spine1 [Spn1]"]
-    assert VNearEqual(spine1.transform.translation, (0, 0, 8.748718)), f"spine1 location is correct: \n{spine1.transform}"
+    assert TT.VNearEqual(spine1.transform.translation, (0, 0, 8.748718)), f"spine1 location is correct: \n{spine1.transform}"
     spine1Rot = Matrix(spine1.transform.rotation).to_euler()
-    assert VNearEqual(spine1Rot, (0.1509, 0, 0)), f"spine1 rotation correct: {spine1Rot}"
+    assert TT.VNearEqual(spine1Rot, (0.1509, 0, 0)), f"spine1 rotation correct: {spine1Rot}"
 
     spine2 = nifcheck.nodes["NPC Spine2 [Spn2]"]
     assert spine2.parent.name == "NPC Spine1 [Spn1]", f"Spine2 parent is correct"
-    assert VNearEqual(spine2.transform.translation, (0, -0.017105, 9.864068), 0.01), f"Spine2 location is correct: \n{spine2.transform}"
+    assert TT.VNearEqual(spine2.transform.translation, (0, -0.017105, 9.864068), 0.01), f"Spine2 location is correct: \n{spine2.transform}"
 
     head = nifcheck.nodes["NPC Head [Head]"]
-    assert VNearEqual(head.transform.translation, (0, 0, 7.392755)), f"head location is correct: \n{head.transform}"
+    assert TT.VNearEqual(head.transform.translation, (0, 0, 7.392755)), f"head location is correct: \n{head.transform}"
     headRot = Matrix(head.transform.rotation).to_euler()
-    assert VNearEqual(headRot, (0.1913, 0.0009, -0.0002), 0.01), f"head rotation correct: {headRot}"
+    assert TT.VNearEqual(headRot, (0.1913, 0.0009, -0.0002), 0.01), f"head rotation correct: {headRot}"
 
     l3 = nifcheck.nodes["Anna L3"]
     assert l3.parent, f"'Anna L3' parent exists"
     assert l3.parent.name == 'Anna L2', f"'Anna L3' parent is '{l3.parent.name}'"
-    assert VNearEqual(l3.transform.translation, (0, 5, -6), 0.1), f"{l3.name} location correct: \n{l3.transform}"
+    assert TT.VNearEqual(l3.transform.translation, (0, 5, -6), 0.1), f"{l3.name} location correct: \n{l3.transform}"
 
-    nif = NifFile(testfile)
+    nif = pyn.NifFile(testfile)
     hair = nif.shape_dict["KSSMP_Anna"]
     assert set(hair.get_used_bones()) == set(haircheck.get_used_bones()), \
         f"The bones written to the shape match original: {haircheck.get_used_bones()}"
 
     sk2b = haircheck.get_shape_skin_to_bone("Anna L3")
-    assert sk2b.NearEqual(hair.get_shape_skin_to_bone("Anna L3")), \
+    assert sk2b.TT.NearEqual(hair.get_shape_skin_to_bone("Anna L3")), \
         f"Anna L3 skin-to-bone matches original: \n{sk2b}"
 
 
@@ -2356,10 +2367,10 @@ if TEST_BPY_ALL or TEST_FACEBONE_EXPORT:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4", chargen_ext="_chargen")
 
     # Exporter generates normal and facebones nif file
-    nif1 = NifFile(outfile)
+    nif1 = pyn.NifFile(outfile)
     assert len(nif1.shapes) == 1, "Write the file successfully"
     assert len(nif1.shapes[0].tris) == 8922, f"Expected 8922 tris, found {len(nif1.shapes[0].tris)}"
-    nif2 = NifFile(outfile_fb)
+    nif2 = pyn.NifFile(outfile_fb)
     assert len(nif2.shapes) == 1
     assert len(nif2.shapes[0].tris) == 8922, f"Expected 8922 tris, found {len(nif2.shapes[0].tris)}"
 
@@ -2387,10 +2398,10 @@ if TEST_BPY_ALL or TEST_FACEBONE_EXPORT:
     # Export shape with facebones parent
     bpy.ops.export_scene.pynifly(filepath=outfile2, target_game='FO4')
 
-    nif3 = NifFile(outfile2)
+    nif3 = pyn.NifFile(outfile2)
     assert len(nif3.shapes) == 1, "Write the file successfully"
     assert len(nif3.shapes[0].tris) == 8922, f"Expected 8922 tris, found {len(nif1.shapes[0].tris)}"
-    nif4 = NifFile(outfile2_fb)
+    nif4 = pyn.NifFile(outfile2_fb)
     assert len(nif4.shapes) == 1
     assert len(nif4.shapes[0].tris) == 8922, f"Expected 8922 tris, found {len(nif2.shapes[0].tris)}"
 
@@ -2415,10 +2426,10 @@ if TEST_BPY_ALL or TEST_FACEBONE_EXPORT2:
     # Normal and Facebones skeleton selected for export
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4", chargen_ext="_chargen")
 
-    outnif = NifFile(outfile)
+    outnif = pyn.NifFile(outfile)
     assert len(outnif.shapes) >= 1, f"Have shapes in export file: {outnif.shapes}"
 
-    outniffb = NifFile(outfile_fb)
+    outniffb = pyn.NifFile(outfile_fb)
     assert len(outniffb.shapes) >= 1, f"Have shapes in facebones export file: {outniffb.shapes}"
 
 
@@ -2443,7 +2454,7 @@ if TEST_BPY_ALL or TEST_HYENA_PARTITIONS:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
     #assert len(exporter.warnings) == 1, f"One warning reported ({exporter.warnings})"
 
-    nif1 = NifFile(outfile)
+    nif1 = pyn.NifFile(outfile)
     assert "HyenaMaleHead" in nif1.shape_dict, "Wrote the file successfully"
 
     head = nif1.shape_dict["HyenaMaleHead"]
@@ -2456,7 +2467,7 @@ if TEST_BPY_ALL or TEST_HYENA_PARTITIONS:
                 vweights[weight_pair[0]] += weight_pair[1]
                 maxv = max(maxv, weight_pair[0])
     for i, w in enumerate(vweights[0:maxv]):
-        assert NearEqual(w, 1.0), f"Weights should be 1 for index {i}: {w}"
+        assert TT.NearEqual(w, 1.0), f"Weights should be 1 for index {i}: {w}"
 
     # for i in range(0, 5000):
     #     weight_total = 0
@@ -2464,7 +2475,7 @@ if TEST_BPY_ALL or TEST_HYENA_PARTITIONS:
     #         for weight_pair in group_weights:
     #             if weight_pair[0] == i:
     #                 weight_total += weight_pair[1]
-    #     assert NearEqual(weight_total, 1.0), f"Weights should total to 1 for index {i}: {weight_total}"        
+    #     assert TT.NearEqual(weight_total, 1.0), f"Weights should total to 1 for index {i}: {weight_total}"        
 
 
 if TEST_BPY_ALL or TEST_MULT_PART:
@@ -2503,7 +2514,7 @@ if TEST_BPY_ALL or TEST_BONE_XPORT_POS:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
 
     # --- Check nif contents directly ---
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     body = nifcheck.shape_dict['Body_Male_Naked']
     spine2_check = nifcheck.nodes['NPC Spine2 [Spn2]']
     spine2_xf = spine2_check.transform
@@ -2512,15 +2523,15 @@ if TEST_BPY_ALL or TEST_BONE_XPORT_POS:
 
     thigh_sk2b_check = body.get_shape_skin_to_bone('NPC L Thigh [LThg]')
 
-    assert VNearEqual(thigh_sk2b_check.translation, Vector([-4.0765, -4.4979, 78.4952])), \
+    assert TT.VNearEqual(thigh_sk2b_check.translation, Vector([-4.0765, -4.4979, 78.4952])), \
         f"Expected skin-to-bone translation Z = 78.4952, found {thigh_sk2b_check.translation[:]}"
-    impnif = NifFile(testfile)
+    impnif = pyn.NifFile(testfile)
     thsk2b = impnif.shapes[0].get_shape_skin_to_bone('NPC L Thigh [LThg]')
-    assert thsk2b.NearEqual(thigh_sk2b_check), f"Entire skin-to-bone transform correct: {thigh_sk2b_check}"
+    assert thsk2b.TT.NearEqual(thigh_sk2b_check), f"Entire skin-to-bone transform correct: {thigh_sk2b_check}"
 
     # --- Check we can import correctly ---
     bpy.ops.import_scene.pynifly(filepath=outfile)
-    impcheck = NifFile(outfile)
+    impcheck = pyn.NifFile(outfile)
     nifbone = impcheck.nodes['NPC Spine2 [Spn2]']
     assert round(nifbone.transform.translation[2], 2) == 102.36, f"Expected nif location at z 102.36, found {nifbone.transform.translation[2]}"
 
@@ -2559,14 +2570,14 @@ if TEST_BPY_ALL or TEST_BOW:
     assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
     assert collbody['collisionFilter_layer'] == SkyrimCollisionLayer.WEAPON.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
     assert collbody["collisionResponse"] == hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
-    assert VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
+    assert TT.VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
 
     collshape = collbody.children[0]
     assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
     assert collshape['bhkMaterial'] == 'MATERIAL_BOWS_STAVES', f"Shape material is a custom property: {collshape['bhkMaterial']}"
     assert round(collshape['bhkRadius'],4) == 0.0136, f"Radius property available as custom property: {collshape['bhkRadius']}"
     corner = map(abs, collshape.data.vertices[0].co)
-    assert VNearEqual(corner, [11.01445, 57.6582, 0.95413]), f"Collision shape in correct position: {corner}"
+    assert TT.VNearEqual(corner, [11.01445, 57.6582, 0.95413]), f"Collision shape in correct position: {corner}"
 
     bged = TT.find_shape("BSBehaviorGraphExtraData", type='EMPTY')
     assert bged['BSBehaviorGraphExtraData_Value'] == "Weapons\Bow\BowProject.hkx", f"BGED node contains bow project: {bged['BSBehaviorGraphExtraData_Value']}"
@@ -2598,8 +2609,8 @@ if TEST_BPY_ALL or TEST_BOW:
 
     # ------- Check Results --------
 
-    impnif = NifFile(testfile)
-    nifcheck = NifFile(outfile)
+    impnif = pyn.NifFile(testfile)
+    nifcheck = pyn.NifFile(outfile)
     TT.compare_shapes(impnif.shape_dict['ElvenBowSkinned:0'],
                     nifcheck.shape_dict['ElvenBowSkinned:0'],
                     obj)
@@ -2623,14 +2634,14 @@ if TEST_BPY_ALL or TEST_BOW:
 
     # Full check of locations and rotations to make sure we got them right
     mbc_xf = nifcheck.get_node_xform_to_global("Bow_MidBone")
-    assert VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
+    assert TT.VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
     m = mbc_xf.as_matrix().to_euler()
-    assert VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
+    assert TT.VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
 
     bodycheck = collcheck.body
     p = bodycheck.properties
-    assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
-    assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
+    assert TT.VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
+    assert TT.VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
 
 
 if TEST_BPY_ALL or TEST_BOW2:
@@ -2672,7 +2683,7 @@ if TEST_BPY_ALL or TEST_BOW2:
 
     # ------- Check Results 2 --------
 
-    nifcheck2 = NifFile(outfile2)
+    nifcheck2 = pyn.NifFile(outfile2)
 
     midbowcheck2 = nifcheck2.nodes["Bow_MidBone"]
     collcheck2 = midbowcheck2.collision_object
@@ -2681,14 +2692,14 @@ if TEST_BPY_ALL or TEST_BOW2:
 
     # Full check of locations and rotations to make sure we got them right
     mbc_xf = nifcheck2.get_node_xform_to_global("Bow_MidBone")
-    assert VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
+    assert TT.VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
     m = mbc_xf.as_matrix().to_euler()
-    assert VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
+    assert TT.VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
 
     bodycheck2 = collcheck2.body
     p = bodycheck2.properties
-    assert VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
-    assert VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
+    assert TT.VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
+    assert TT.VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
 
 
 if TEST_BPY_ALL or TEST_BOW3:
@@ -2714,7 +2725,7 @@ if TEST_BPY_ALL or TEST_BOW3:
 
     # Move the collision object 
     for v in collshape.data.vertices:
-        if NearEqual(v.co.x, 11.01, epsilon=0.5):
+        if TT.NearEqual(v.co.x, 11.01, epsilon=0.5):
             v.co.x = 16.875
             if v.co.y > 0:
                 v.co.y = 26.72
@@ -2728,7 +2739,7 @@ if TEST_BPY_ALL or TEST_BOW3:
     
     # ------- Check Results 3 --------
 
-    nifcheck3 = NifFile(outfile3)
+    nifcheck3 = pyn.NifFile(outfile3)
 
     midbowcheck3 = nifcheck3.nodes["Bow_MidBone"]
     collcheck3 = midbowcheck3.collision_object
@@ -2737,15 +2748,15 @@ if TEST_BPY_ALL or TEST_BOW3:
 
     # Full check of locations and rotations to make sure we got them right
     mbc_xf = nifcheck3.get_node_xform_to_global("Bow_MidBone")
-    assert VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
+    assert TT.VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
     m = mbc_xf.as_matrix().to_euler()
-    assert VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
+    assert TT.VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
 
     bodycheck3 = collcheck3.body
 
     cshapecheck3 = bodycheck3.shape
     assert cshapecheck3.blockname == "bhkConvexVerticesShape", f"Shape is convex vertices: {cshapecheck3.blockname}"
-    assert VNearEqual(cshapecheck3.vertices[0], (-0.73, -0.267, 0.014, 0.0)), f"Convex shape is correct"
+    assert TT.VNearEqual(cshapecheck3.vertices[0], (-0.73, -0.267, 0.014, 0.0)), f"Convex shape is correct"
 
 
 if TEST_BPY_ALL or TEST_COLLISION_HIER:
@@ -2792,13 +2803,13 @@ if TEST_BPY_ALL or TEST_COLLISION_HIER:
 
     # ------- Check Results --------
 
-    nifOrig = NifFile(testfile)
+    nifOrig = pyn.NifFile(testfile)
     l4NodeOrig = nifOrig.nodes["Leek04"]
     collOrig = l4NodeOrig.collision_object
     rbOrig = collOrig.body
     shOrig = rbOrig.shape
 
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     leek4Check = nifcheck.nodes['Leek04']
     coCheck = leek4Check.collision_object
     rbCheck = coCheck.body
@@ -2809,8 +2820,8 @@ if TEST_BPY_ALL or TEST_COLLISION_HIER:
     assert l0Check.parent.name == "Leek04", f"Shapes are under the grouping node: {l0Check.parent.name}"
     assert l1Check.parent.name == "Leek04", f"Shapes are under the grouping node: {l1Check.parent.name}"
     # Vertices match. Depends on verts not getting re-ordered.
-    assert VNearEqual(shCheck.vertices[0], shOrig.vertices[0]), f"Collision vertices match 0: {shCheck.vertices[0][:]} == {shOrig.vertices[0][:]}"
-    assert VNearEqual(shCheck.vertices[5], shOrig.vertices[5]), f"Collision vertices match 0: {shCheck.vertices[5][:]} == {shOrig.vertices[5][:]}"
+    assert TT.VNearEqual(shCheck.vertices[0], shOrig.vertices[0]), f"Collision vertices match 0: {shCheck.vertices[0][:]} == {shOrig.vertices[0][:]}"
+    assert TT.VNearEqual(shCheck.vertices[5], shOrig.vertices[5]), f"Collision vertices match 0: {shCheck.vertices[5][:]} == {shOrig.vertices[5][:]}"
 
 
 if TEST_BPY_ALL or TEST_NORM:
@@ -2831,7 +2842,7 @@ if TEST_BPY_ALL or TEST_NORM:
     vertloops = [l.index for l in head.data.loops if l.vertex_index == targetvert.index]
     custnormal = head.data.loops[vertloops[0]].normal
     print(f"TEST_NORM custnormal: loop {vertloops[0]} has normal {custnormal}")
-    assert VNearEqual(custnormal, [-0.1772, 0.4291, 0.8857]), \
+    assert TT.VNearEqual(custnormal, [-0.1772, 0.4291, 0.8857]), \
         f"Custom normal different from vertex normal: {custnormal}"
 
 
@@ -2846,7 +2857,7 @@ if TEST_BPY_ALL or TEST_ROGUE01:
     assert obj.name == "MHelmetLight:0", "Got the right object"
     bpy.ops.export_scene.pynifly(filepath=testfile, target_game="FO4")
 
-    nif2 = NifFile(testfile)
+    nif2 = pyn.NifFile(testfile)
     shape2 = nif2.shapes[0]
 
     assert round(shape2.normals[44][0]) == 0, f"Normal should point sraight up, found {shape2.normals[44]}"
@@ -2897,7 +2908,7 @@ if TEST_BPY_ALL or TEST_ROGUE02:
     TT.export_from_blend(r"tests\Skyrim\ROGUE02-normals.blend",
                          "Plane", "SKYRIM", testfile, "_warp")
 
-    nif2 = NifFile(outfile)
+    nif2 = pyn.NifFile(outfile)
     shape2 = nif2.shapes[0]
     assert len(shape2.verts) == 25, f"Export shouldn't create extra vertices, found {len(shape2.verts)}"
     v = [round(x, 1) for x in shape2.verts[18]]
@@ -2915,12 +2926,12 @@ if TEST_BPY_ALL or TEST_NORMAL_SEAM:
     TT.export_from_blend(r"tests\FO4\TestKnitCap.blend", "MLongshoremansCap:0",
                       "FO4", testfile)
 
-    nif2 = NifFile(outfile)
+    nif2 = pyn.NifFile(outfile)
     shape2 = nif2.shapes[0]
-    target_vert = [i for i, v in enumerate(shape2.verts) if VNearEqual(v, (0.00037, 7.9961, 9.34375))]
+    target_vert = [i for i, v in enumerate(shape2.verts) if TT.VNearEqual(v, (0.00037, 7.9961, 9.34375))]
 
     assert len(target_vert) == 2, f"Expect vert to have been split: {target_vert}"
-    assert VNearEqual(shape2.normals[target_vert[0]], shape2.normals[target_vert[1]]), f"Normals should be equal: {shape2.normals[target_vert[0]]} != {shape2.normals[target_vert[1]]}" 
+    assert TT.VNearEqual(shape2.normals[target_vert[0]], shape2.normals[target_vert[1]]), f"Normals should be equal: {shape2.normals[target_vert[0]]} != {shape2.normals[target_vert[1]]}" 
 
 
 if TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
@@ -2951,7 +2962,7 @@ if TEST_BPY_ALL or TEST_NIFTOOLS_NAMES:
         #assert arma.data.niftools.axis_forward == "Z", f"Forward axis set to Z"
         assert 'NPC L Thigh [LThg]' not in arma.data.bones, f"No vanilla bone names: {arma.data.bones['NPC L Thigh [LThg]']}"
 
-        inif = NifFile(testfile)
+        inif = pyn.NifFile(testfile)
         skel = inif.reference_skel
         skel_calf = skel.nodes['CME L Thigh [LThg]']
         c = arma.data.bones["NPC Calf [Clf].L"]
@@ -2987,7 +2998,7 @@ if TEST_BPY_ALL or TEST_COLLISION_MULTI:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
 
     # ------- Check ---------
-    nif = NifFile(outfile)
+    nif = pyn.NifFile(outfile)
     l1 = nif.nodes["Leek01"]
     l4 = nif.nodes["Leek04"]
     assert l1.collision_object.body.shape.blockname == "bhkConvexVerticesShape", f"Have the correct collisions"
@@ -3015,8 +3026,8 @@ if TEST_BPY_ALL or TEST_COLLISION_CONVEXVERT:
 
         # Check transform
         obj = TT.find_shape('CheeseWedge')
-        assert VNearEqual(obj.location, (0,0,0)), f"Cheese wedge at right location: {obj.location}"
-        assert VNearEqual(obj.rotation_euler, (0,0,0)), f"Cheese wedge not rotated: {obj.rotation_euler}"
+        assert TT.VNearEqual(obj.location, (0,0,0)), f"Cheese wedge at right location: {obj.location}"
+        assert TT.VNearEqual(obj.rotation_euler, (0,0,0)), f"Cheese wedge not rotated: {obj.rotation_euler}"
         assert obj.scale == Vector((1,1,1)), f"Cheese wedge scale 1"
 
         # Check collision info
@@ -3037,7 +3048,7 @@ if TEST_BPY_ALL or TEST_COLLISION_CONVEXVERT:
         xmax2 = max([v.co.x for v in collshape.data.vertices])
         assert abs(xmax1 - xmax2) < 0.5, f"Max x vertex nearly the same: {xmax1} == {xmax2}"
         corner = collshape.data.vertices[0].co
-        assert VNearEqual(corner, (-4.18715, -7.89243, 7.08596)), f"Collision shape in correct position: {corner}"
+        assert TT.VNearEqual(corner, (-4.18715, -7.89243, 7.08596)), f"Collision shape in correct position: {corner}"
 
         # ------- Export --------
 
@@ -3046,13 +3057,13 @@ if TEST_BPY_ALL or TEST_COLLISION_CONVEXVERT:
 
         # ------- Check Results --------
 
-        niforig = NifFile(testfile)
+        niforig = pyn.NifFile(testfile)
         rootorig = niforig.rootNode
         collorig = rootorig.collision_object
         bodyorig = collorig.body
         cvsorig = bodyorig.shape
 
-        nifcheck = NifFile(outfile)
+        nifcheck = pyn.NifFile(outfile)
         rootcheck = nifcheck.rootNode
         collcheck = rootcheck.collision_object
         bodycheck = collcheck.body
@@ -3075,8 +3086,8 @@ if TEST_BPY_ALL or TEST_COLLISION_CONVEXVERT:
         minxorig = min(v[0] for v in cvsorig.vertices)
         maxxorig = max(v[0] for v in cvsorig.vertices)
 
-        assert NearEqual(minxch, minxorig), f"Vertex x is correct: {minxch} == {minxorig}"
-        assert NearEqual(maxxch, maxxorig), f"Vertex x is correct: {maxxch} == {maxxorig}"
+        assert TT.NearEqual(minxch, minxorig), f"Vertex x is correct: {minxch} == {minxorig}"
+        assert TT.NearEqual(maxxch, maxxorig), f"Vertex x is correct: {maxxch} == {maxxorig}"
 
         # Re-import
         #
@@ -3137,19 +3148,19 @@ if TEST_BPY_ALL or TEST_COLLISION_CAPSULE:
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', use_blender_xf=bx)
 
         # ------- Check ---------
-        nifcheck = NifFile(outfile)
+        nifcheck = pyn.NifFile(outfile)
         staffcheck = nifcheck.shape_dict["3rdPersonStaff04:1"]
         collcheck = nifcheck.rootNode.collision_object
         rbcheck = collcheck.body
         shapecheck = rbcheck.shape
         assert shapecheck.blockname == "bhkCapsuleShape", f"Got a capsule collision back {shapecheck.blockname}"
 
-        niforig = NifFile(testfile)
+        niforig = pyn.NifFile(testfile)
         collorig = niforig.rootNode.collision_object
         rborig = collorig.body
         shapeorig = rborig.shape
-        assert NearEqual(shapeorig.properties.radius1, shapecheck.properties.radius1), f"Wrote the correct radius: {shapecheck.properties.radius1}"
-        assert NearEqual(shapeorig.properties.point1[1], shapecheck.properties.point1[1]), f"Wrote the correct radius: {shapecheck.properties.point1[1]}"
+        assert TT.NearEqual(shapeorig.properties.radius1, shapecheck.properties.radius1), f"Wrote the correct radius: {shapecheck.properties.radius1}"
+        assert TT.NearEqual(shapeorig.properties.point1[1], shapecheck.properties.point1[1]), f"Wrote the correct radius: {shapecheck.properties.point1[1]}"
 
     do_test(False)
     do_test(True)
@@ -3183,14 +3194,14 @@ if TEST_BPY_ALL or TEST_COLLISION_LIST:
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', use_blender_xf=bx)
 
         # ------- Check ---------
-        niforig = NifFile(testfile)
+        niforig = pyn.NifFile(testfile)
         stafforig = niforig.shape_dict["Staff3rdPerson:0"]
         collorig = niforig.rootNode.collision_object
         listorig = collorig.body.shape
         xfshapesorig = listorig.children[:]
         xfshapematorig = [s.properties.bhkMaterial for s in xfshapesorig]
 
-        nifcheck = NifFile(outfile)
+        nifcheck = pyn.NifFile(outfile)
         staffcheck = nifcheck.shape_dict["Staff3rdPerson:0"]
         collcheck = nifcheck.rootNode.collision_object
         listcheck = collcheck.body.shape
@@ -3211,10 +3222,10 @@ if TEST_BPY_ALL or TEST_COLLISION_LIST:
         cts45check = None
         for cts in listcheck.children:
             erot = Matrix(cts.transform).to_euler()
-            if NearEqual(erot.x, math.radians(45)):
+            if TT.NearEqual(erot.x, math.radians(45)):
                 cts45check = cts
         boxdiag = cts45check.child
-        assert NearEqual(boxdiag.properties.bhkDimensions[1], 0.170421), f"Diagonal box has correct size: {boxdiag.properties.bhkDimensions[1]}"
+        assert TT.NearEqual(boxdiag.properties.bhkDimensions[1], 0.170421), f"Diagonal box has correct size: {boxdiag.properties.bhkDimensions[1]}"
 
     run_test(True)
     run_test(False)
@@ -3250,7 +3261,7 @@ if TEST_BPY_ALL or TEST_CHANGE_COLLISION:
 
     # ------- Check Results --------
 
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     midbowcheck = nifcheck.nodes["Bow_MidBone"]
     collcheck = midbowcheck.collision_object
     assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
@@ -3292,7 +3303,7 @@ if (TEST_BPY_ALL or TEST_COLLISION_XFORM) and bpy.app.version[0] >= 3:
 
     # ------- Check ---------
     # NOTE the collision is only on one of the tines
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     staffcheck = nifcheck.shape_dict["Staff"]
     collcheck = nifcheck.rootNode.collision_object
     rbcheck = collcheck.body
@@ -3335,7 +3346,7 @@ if TEST_BPY_ALL or TEST_CONNECT_POINT:
         (cpchildren[0]['PYN_CONNECT_CHILD_1'] == "C-Receiver"), \
         f"Did not find child name"
 
-    # assert NearEqual(cpcasing.rotation_quaternion.w, 0.9098), f"Have correct rotation: {cpcasing.rotation_quaternion}"
+    # assert TT.NearEqual(cpcasing.rotation_quaternion.w, 0.9098), f"Have correct rotation: {cpcasing.rotation_quaternion}"
     assert cpcasing.parent.name == "CombatShotgunReceiver", f"Casing has correct parent {cpcasing.parent.name}"
 
     # -------- Export --------
@@ -3343,13 +3354,13 @@ if TEST_BPY_ALL or TEST_CONNECT_POINT:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
     ## --------- Check ----------
-    nifsrc = NifFile(testfile)
-    nifcheck = NifFile(outfile)
+    nifsrc = pyn.NifFile(testfile)
+    nifcheck = pyn.NifFile(outfile)
     pcheck = set(x.name.decode() for x in nifcheck.connect_points_parent)
     assert pcheck == parentnames, f"Wrote correct parent names: {pcheck}"
     pcasingsrc = [cp for cp in nifsrc.connect_points_parent if cp.name.decode()=="P-Casing"][0]
     pcasing = [cp for cp in nifcheck.connect_points_parent if cp.name.decode()=="P-Casing"][0]
-    assert VNearEqual(pcasing.rotation[:], pcasingsrc.rotation[:]), f"Have correct rotation: {pcasing}"
+    assert TT.VNearEqual(pcasing.rotation[:], pcasingsrc.rotation[:]), f"Have correct rotation: {pcasing}"
 
     chnames = nifcheck.connect_points_child
     chnames.sort()
@@ -3431,7 +3442,7 @@ if TEST_BPY_ALL or TEST_FURN_MARKER1:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
     # --------- Check ----------
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     fmcheck = nifcheck.furniture_markers
 
     assert len(fmcheck) == 2, f"Wrote the furniture marker correctly: {len(fmcheck)}"
@@ -3449,7 +3460,7 @@ if TEST_BPY_ALL or TEST_FURN_MARKER2:
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
     
     assert len(fmarkers) == 1, f"Found furniture markers: {fmarkers}"
-    assert VNearEqual(fmarkers[0].rotation_euler, (-pi/2, 0, 0)), f"Marker points the right direction"
+    assert TT.VNearEqual(fmarkers[0].rotation_euler, (-pi/2, 0, 0)), f"Marker points the right direction"
 
     # -------- Export --------
     bpy.ops.object.select_all(action='DESELECT')
@@ -3459,7 +3470,7 @@ if TEST_BPY_ALL or TEST_FURN_MARKER2:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
     # --------- Check ----------
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     fmcheck = nifcheck.furniture_markers
 
     assert len(fmcheck) == 1, f"Wrote the furniture marker correctly: {len(fmcheck)}"
@@ -3478,7 +3489,7 @@ if TEST_BPY_ALL or TEST_FO4_CHAIR:
     
     assert len(fmarkers) == 4, f"Found furniture markers: {fmarkers}"
     mk = bpy.data.objects['BSFurnitureMarkerNode']
-    assert VNearEqual(mk.rotation_euler, (-pi/2, 0, 0)), \
+    assert TT.VNearEqual(mk.rotation_euler, (-pi/2, 0, 0)), \
         f"Marker {mk.name} points the right direction: {mk.rotation_euler, (-pi/2, 0, 0)}"
 
     # -------- Export --------
@@ -3494,7 +3505,7 @@ if TEST_BPY_ALL or TEST_FO4_CHAIR:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
     # --------- Check ----------
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     fmcheck = nifcheck.furniture_markers
 
     assert len(fmcheck) == 4, f"Wrote the furniture marker correctly: {len(fmcheck)}"
@@ -3508,7 +3519,7 @@ if TEST_BPY_ALL or TEST_PIPBOY:
     def cmp_xf(a, b):
         axf = a.xform_to_global.as_matrix()
         bxf = b.xform_to_global.as_matrix()
-        assert MatNearEqual(axf, bxf), f"{a.name} transform preserved: \n{axf}\n != \n{bxf}"
+        assert TT.MatNearEqual(axf, bxf), f"{a.name} transform preserved: \n{axf}\n != \n{bxf}"
 
     testfile = TT.test_file(r"tests\FO4\PipBoy_Simple.nif")
     outfile = TT.test_file(f"tests/Out/TEST_PIPBOY.nif", output=1)
@@ -3517,7 +3528,7 @@ if TEST_BPY_ALL or TEST_PIPBOY:
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True)
 
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     pbb = nifcheck.nodes["PipboyBody"]
     assert pbb, f"Exported PipboyBody"
     td1 = nifcheck.nodes["TapeDeck01"]
@@ -3529,7 +3540,7 @@ if TEST_BPY_ALL or TEST_PIPBOY:
     tdlm1 = nifcheck.shape_dict["TapeDeckLid_mesh:1"]
     assert tdlm1.parent.name == tdlm.name, f"TapeDeckLid_mesh:1 has parent {tdlm1.parent.name}"
 
-    niftest = NifFile(testfile)
+    niftest = pyn.NifFile(testfile)
     td1test = niftest.nodes["TapeDeck01"]
     tdltest = niftest.nodes["TapeDeckLid"]
     tdlmtest = niftest.nodes["TapeDeckLid_mesh"]
@@ -3560,7 +3571,7 @@ if TEST_BPY_ALL or TEST_BABY:
     eyes.select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True)
 
-    testnif = NifFile(outfile)
+    testnif = pyn.NifFile(outfile)
     testhead = testnif.shape_by_root('Baby_Head')
     testeyes = testnif.shape_by_root('Baby_Eyes')
     assert len(testhead.bone_names) > 10, "Error: Head should have bone weights"
@@ -3583,7 +3594,7 @@ if TEST_BPY_ALL or TEST_ROTSTATIC:
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
     
-    nifcheck = NifFile(outfile)
+    nifcheck = pyn.NifFile(outfile)
     assert "LykaiosBody" in nifcheck.shape_dict.keys(), f"Expected LykaiosBody shape, found {[s.name for s in nifcheck.shapes]}"
     bodycheck = nifcheck.shape_dict["LykaiosBody"]
 
@@ -3634,15 +3645,15 @@ if TEST_BPY_ALL or TEST_FACEBONES:
     # meb = bpy.data.objects["skin_bone_C_MasterEyebrow"]
     # assert meb.location.z > 120, f"skin_bone_C_MasterEyebrow in correct position"
     
-    assert not VNearEqual(head.data.vertices[1523].co, Vector((1.7168, 5.8867, -4.1643))), \
+    assert not TT.VNearEqual(head.data.vertices[1523].co, Vector((1.7168, 5.8867, -4.1643))), \
         f"Vertex is at correct place: {head.data.vertices[1523].co}"
 
     bpy.ops.object.select_all(action='DESELECT')
     head.select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
-    nifgood = NifFile(testfile)
-    nifch = NifFile(resfile)
+    nifgood = pyn.NifFile(testfile)
+    nifch = pyn.NifFile(resfile)
     for nm in nifgood.nodes:
         # Skip root node and bones that aren't actually used
         if nm not in ['BaseFemaleHead_faceBones.nif', 'skin_bone_C_MasterEyebrow']:
@@ -3677,7 +3688,7 @@ if TEST_BPY_ALL or TEST_FACEBONES_RENAME:
     obj.select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
-    nif2 = NifFile(outfile2)
+    nif2 = pyn.NifFile(outfile2)
     assert 'skin_bone_R_Dimple' in nif2.shapes[0].bone_names, f"Expected game bone names, got {nif2.shapes[0].bone_names[0:10]}"
     
 
@@ -3696,20 +3707,20 @@ if TEST_BPY_ALL or TEST_IMP_ANIMATRON:
 
     sh = TT.find_shape('BodyLo:0')
     minv, maxv = TT.get_obj_bbox(sh)
-    assert VNearEqual(minv, Vector((-13.14, -7.83, 38.6)), 0.1), f"Bounding box min correct: {minv}"
-    assert VNearEqual(maxv, Vector((14.0, 12.66, 133.5)), 0.1), f"Bounding box max correct: {maxv}"
+    assert TT.VNearEqual(minv, Vector((-13.14, -7.83, 38.6)), 0.1), f"Bounding box min correct: {minv}"
+    assert TT.VNearEqual(maxv, Vector((14.0, 12.66, 133.5)), 0.1), f"Bounding box max correct: {maxv}"
 
     arma = TT.find_shape(arma_name("AnimatronicNormalWoman"), type='ARMATURE')
     spine2 = arma.data.bones['SPINE2']
     hand = arma.data.bones['RArm_Hand']
     handpose = arma.pose.bones['RArm_Hand']
     assert spine2.matrix_local.translation.z > 30, f"SPINE2 in correct position: {spine2.matrix_local.translation}"
-    assert VNearEqual(handpose.matrix.translation, [18.1848, 2.6116, 68.6298]), f"Hand position matches Nif: {handpose.matrix.translation}"
+    assert TT.VNearEqual(handpose.matrix.translation, [18.1848, 2.6116, 68.6298]), f"Hand position matches Nif: {handpose.matrix.translation}"
 
     thighl = arma.data.bones['LLeg_Thigh']
     cp_armorleg = TT.find_shape("BSConnectPointParents::P-ArmorLleg", type='EMPTY')
     assert cp_armorleg["pynConnectParent"] == "LLeg_Thigh", f"Connect point has correct parent: {cp_armorleg['pynConnectParent']}"
-    # assert VNearEqual(cp_armorleg.location, thighl.matrix_local.translation, 0.1), \
+    # assert TT.VNearEqual(cp_armorleg.location, thighl.matrix_local.translation, 0.1), \
     #     f"Connect point at correct position: {cp_armorleg.location} == {thighl.matrix_local.translation}"
 
     arma = TT.find_shape(arma_name('AnimatronicNormalWoman'), type='ARMATURE')
@@ -3724,17 +3735,17 @@ if TEST_BPY_ALL or TEST_IMP_ANIMATRON:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True,
                                  export_pose=True)
 
-    impnif = NifFile(testfile)
-    nifout = NifFile(outfile_fb)
+    impnif = pyn.NifFile(testfile)
+    nifout = pyn.NifFile(outfile_fb)
     sh_out = nifout.shapes[0]
     assert sh_out.name == 'BodyLo:0', f"Exported shape: {sh_out.name}"
     minv_out, maxv_out = TT.get_shape_bbox(sh_out)
-    assert VNearEqual(minv_out, minv), f"Minimum bounds equal: {minv_out} == {minv}"
-    assert VNearEqual(maxv_out, maxv), f"Minimum bounds equal: {maxv_out} == {maxv}"
+    assert TT.VNearEqual(minv_out, minv), f"Minimum bounds equal: {minv_out} == {minv}"
+    assert TT.VNearEqual(maxv_out, maxv), f"Minimum bounds equal: {maxv_out} == {maxv}"
     sp2_out = nifout.nodes['SPINE2']
     assert sp2_out.parent.name == 'SPINE1', f"SPINE2 has parent {sp2_out.parent.name}"
     sp2_in = impnif.nodes['SPINE2']
-    assert MatNearEqual(transform_to_matrix(sp2_out.transform), transform_to_matrix(sp2_in.transform)), \
+    assert TT.MatNearEqual(BD.transform_to_matrix(sp2_out.transform), BD.transform_to_matrix(sp2_in.transform)), \
         f"Transforms are equal: \n{sp2_out.transform}\n==\n{sp2_in.transform}"
         
 
@@ -3747,16 +3758,16 @@ if TEST_BPY_ALL or TEST_CUSTOM_BONES:
     testfile = TT.test_file(r"tests\FO4\BrushTail_Male_Simple.nif")
     outfile = TT.test_file(r"tests\Out\TEST_CUSTOM_BONES.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    nifimp = NifFile(testfile)
+    nifimp = pyn.NifFile(testfile)
     bone_in_xf = nifimp.nodes['Bone_Cloth_H_003'].xform_to_global.as_matrix()
 
     obj = bpy.data.objects['BrushTailBase']
     obj.select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
-    test_in = NifFile(outfile)
+    test_in = pyn.NifFile(outfile)
     new_xf = test_in.nodes['Bone_Cloth_H_003'].xform_to_global.as_matrix()
-    assert MatNearEqual(bone_in_xf, new_xf), f"Bone 'Bone_Cloth_H_003' preserved (new/original):\n{new_xf}\n==\n{bone_in_xf}"
+    assert TT.MatNearEqual(bone_in_xf, new_xf), f"Bone 'Bone_Cloth_H_003' preserved (new/original):\n{new_xf}\n==\n{bone_in_xf}"
         
 
 if TEST_BPY_ALL or TEST_COTH_DATA:
@@ -3776,7 +3787,7 @@ if TEST_BPY_ALL or TEST_COTH_DATA:
     bpy.data.objects["BSClothExtraData"].select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
-    nif1 = NifFile(outfile)
+    nif1 = pyn.NifFile(outfile)
     assert len(nif1.shapes) == 1, f"Expected hair nif"
     assert len(nif1.cloth_data) == 1, f"Expected cloth data"
     assert len(nif1.cloth_data[0][1]) == 46257, f"Expected 46257 bytes of cloth data, found {len(nif1.cloth_data[0][1])}"
@@ -3800,20 +3811,20 @@ if TEST_BPY_ALL or TEST_SCALING_COLL:
 
     # # After import with a scale factor, imported object records the scale factor
     # assert 'PYN_SCALE_FACTOR' in obj, f"Scale fector recorded on {obj.name}"
-    # assert NearEqual(obj['PYN_SCALE_FACTOR'], 0.1), f"Scale factor is correct on {obj.name}: {obj['PYN_SCALE_FACTOR']}"
+    # assert TT.NearEqual(obj['PYN_SCALE_FACTOR'], 0.1), f"Scale factor is correct on {obj.name}: {obj['PYN_SCALE_FACTOR']}"
     # assert 'PYN_SCALE_FACTOR' in obj.parent, f"Scale fector recorded on {obj.name.parent}"
-    # assert NearEqual(obj.parent['PYN_SCALE_FACTOR'], 0.1), f"Scale factor is correct on {obj.parent.name}: {obj.parent['PYN_SCALE_FACTOR']}"
+    # assert TT.NearEqual(obj.parent['PYN_SCALE_FACTOR'], 0.1), f"Scale factor is correct on {obj.parent.name}: {obj.parent['PYN_SCALE_FACTOR']}"
 
     # Check collision info
     arma = TT.find_shape(arma_name('GlassBowSkinned.nif'), type="ARMATURE")
     midbone = arma.data.bones['Bow_MidBone']
     midbonew = arma.matrix_world @ midbone.matrix_local
     coll = TT.find_shape("bhkCollisionObject", type="EMPTY")
-    assert VNearEqual(coll.matrix_world.translation, midbonew.translation), f"Collision positioned at target bone"
+    assert TT.VNearEqual(coll.matrix_world.translation, midbonew.translation), f"Collision positioned at target bone"
 
     collbody = coll.children[0]
     assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
-    assert VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), \
+    assert TT.VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), \
         f"Collision body rotation correct: {collbody.rotation_quaternion}"
 
     # Scale factor applied to bow
@@ -3834,7 +3845,7 @@ if TEST_BPY_ALL or TEST_SCALING_COLL:
 
     collbox.update_from_editmode()
     boxmin, boxmax = TT.get_obj_bbox(collbox, worldspace=True)
-    assert VNearEqual(objmax, boxmax, epsilon=1.0), f"Collision just covers bow: {objmax} ~~ {boxmax}"
+    assert TT.VNearEqual(objmax, boxmax, epsilon=1.0), f"Collision just covers bow: {objmax} ~~ {boxmax}"
 
     # ------- Export and Check Results --------
 
@@ -3845,8 +3856,8 @@ if TEST_BPY_ALL or TEST_SCALING_COLL:
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', 
                                  preserve_hierarchy=True)
 
-    nif = NifFile(testfile)
-    nifcheck = NifFile(outfile)
+    nif = pyn.NifFile(testfile)
+    nifcheck = pyn.NifFile(outfile)
 
     TT.compare_shapes(nif.shape_dict['ElvenBowSkinned:0'],
                       nifcheck.shape_dict['ElvenBowSkinned:0'],
@@ -3899,12 +3910,12 @@ if TEST_BPY_ALL or TEST_UV_SPLIT:
     bpy.ops.mesh.primitive_cube_add()
     bpy.ops.export_scene.pynifly(filepath=filepath, target_game="SKYRIM")
     
-    nif_in = NifFile(filepath)
+    nif_in = pyn.NifFile(filepath)
     obj = nif_in.shapes[0]
     assert len(obj.verts) == 14, f"Verts were split: {len(obj.verts)}"
     assert len(obj.uvs) == 14, f"Same number of UV points: {len(obj.uvs)}"
-    assert VNearEqual(obj.verts[2], obj.verts[10]), f"Split verts at same location {obj.verts[2]}, {obj.verts[10]}"
-    assert not VNearEqual(obj.uvs[2], obj.uvs[10]), f"Split UV at different location {obj.uvs[2]}, {obj.uvs[10]}"
+    assert TT.VNearEqual(obj.verts[2], obj.verts[10]), f"Split verts at same location {obj.verts[2]}, {obj.verts[10]}"
+    assert not TT.VNearEqual(obj.uvs[2], obj.uvs[10]), f"Split UV at different location {obj.uvs[2]}, {obj.uvs[10]}"
 
 
 if TEST_BPY_ALL or TEST_JIARAN:
@@ -3914,7 +3925,7 @@ if TEST_BPY_ALL or TEST_JIARAN:
      
     TT.export_from_blend(r"tests\SKYRIMSE\jiaran.blend", "hair.001", 'SKYRIMSE', outfile)
 
-    nif1 = NifFile(outfile)
+    nif1 = pyn.NifFile(outfile)
     assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
 
 
@@ -4032,8 +4043,8 @@ if TEST_BPY_ALL or TEST_FONV:
     coll = bpy.data.objects['bhkConvexVerticesShape']
     colbb = TT.get_obj_bbox(coll)
     assert grip is not None, f"Have grip"
-    assert VNearEqual(colbb[0], (-4.55526, -6.1704, -1.2513), epsilon=0.1), f"Collision bounding box near correct min: {colbb}"
-    assert VNearEqual(colbb[1], (15.6956, 10.2399, 1.07098), epsilon=2.0), f"Collision bounding box near correct max: {colbb}"
+    assert TT.VNearEqual(colbb[0], (-4.55526, -6.1704, -1.2513), epsilon=0.1), f"Collision bounding box near correct min: {colbb}"
+    assert TT.VNearEqual(colbb[1], (15.6956, 10.2399, 1.07098), epsilon=2.0), f"Collision bounding box near correct max: {colbb}"
     # TODO: Check collision object. It's coming in 10x the size
 
     bpy.ops.object.select_all(action="SELECT")
@@ -4041,9 +4052,9 @@ if TEST_BPY_ALL or TEST_FONV:
 
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
-    nifin = NifFile(testfile)
+    nifin = pyn.NifFile(testfile)
     gripin = nifin.shape_dict["Ninemm:0"]
-    nifout = NifFile(outfile)
+    nifout = pyn.NifFile(outfile)
     assert nifout.game == 'FO3', f"Have correct game: {nifout.game}"
     gripout = nifout.shape_dict["Ninemm:0"]
     TT.compare_shapes(gripin, gripout, grip)
@@ -4059,10 +4070,10 @@ if TEST_BPY_ALL or TEST_FONV:
     
     minxin = min(v[0] for v in colshapein.vertices)
     minxout = min(v[0] for v in colshapeout.vertices)
-    assert NearEqual(minxin, minxout), f"Min collision shape bounds equal X: {minxin} == {minxout}"
+    assert TT.NearEqual(minxin, minxout), f"Min collision shape bounds equal X: {minxin} == {minxout}"
     maxzin = max(v[2] for v in colshapein.vertices)
     maxzout = max(v[2] for v in colshapeout.vertices)
-    assert NearEqual(maxzin, maxzout), f"Max collision shape bounds equal Z: {maxzin} == {maxzout}"
+    assert TT.NearEqual(maxzin, maxzout), f"Max collision shape bounds equal Z: {maxzin} == {maxzout}"
 
 
 if TEST_BPY_ALL or TEST_FONV_BOD:
@@ -4074,15 +4085,15 @@ if TEST_BPY_ALL or TEST_FONV_BOD:
     bpy.ops.import_scene.pynifly(filepath=testfile)
     body = bpy.data.objects['Arms01']
     bodybb = TT.get_obj_bbox(body)
-    assert NearEqual(bodybb[0][0], -44.4, epsilon=0.1), f"Min X correct: {bodybb[0][0]}"
-    assert NearEqual(bodybb[1][2], 110.4, epsilon=0.1), f"Max Z correct: {bodybb[1][2]}"
+    assert TT.NearEqual(bodybb[0][0], -44.4, epsilon=0.1), f"Min X correct: {bodybb[0][0]}"
+    assert TT.NearEqual(bodybb[1][2], 110.4, epsilon=0.1), f"Max Z correct: {bodybb[1][2]}"
 
     ObjectSelect([body])
     ObjectActive(body)
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
-    testnif = NifFile(testfile)
-    outnif = NifFile(outfile)
+    testnif = pyn.NifFile(testfile)
+    outnif = pyn.NifFile(outfile)
     TT.compare_shapes(testnif.shape_dict["Arms01"], 
                    outnif.shape_dict["Arms01"],
                    body)
@@ -4126,54 +4137,55 @@ if TEST_ANIM_ALDUIN:
     testfile = TT.test_file(r"tests\SkyrimSE\loadscreenalduinwall.nif")
     outfile = TT.test_file(r"tests/Out/TEST_ANIM_ALDUIN.nif")
 
-    def check_xf(node: NiNode):
+    def check_xf(node: pyn.NiNode):
         """Check that the transform on the first animation keyframe is the same as the
         transform on the parent interpolator. This animation starts at the base pose
         position so all frame 0 transforms should be null."""
-        c:NiTimeController = node.controller
-        ti:NiTransformInterpolator = c.interpolator
-        td:NiTransformData = ti.data
+        c:pyn.NiTimeController = node.controller
+        ti:pyn.NiTransformInterpolator = c.interpolator
+        td:pyn.NiTransformData = ti.data
 
-        if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
+        if td.properties.rotationType == pyn.NiKeyType.XYZ_ROTATION_KEY:
             f0 = [td.xrotations[0].value, td.yrotations[0].value, td.zrotations[0].value]
             e = Euler(f0, 'XYZ')
             q = e.to_quaternion()
-        elif td.properties.rotationType == NiKeyType.LINEAR_KEY:
+        elif td.properties.rotationType == pyn.NiKeyType.LINEAR_KEY:
             q = Quaternion(td.qrotations[0].value)
             e = q.to_euler()
 
         print(e)
         print(q)
         print(q.to_axis_angle())
-        # m = transform_to_matrix(combone.properties.transform)
+        # m = BD.transform_to_matrix(combone.properties.transform)
         tiq = Quaternion(ti.properties.rotation)
-        assert MatNearEqual(tiq.to_matrix(), e.to_matrix()), f"{node.name} First keyframe has same rotation as parent TD: {tiq.to_euler()} == {e}"
+        assert TT.MatNearEqual(tiq.to_matrix(), e.to_matrix()), f"{node.name} First keyframe has same rotation as parent TD: {tiq.to_euler()} == {e}"
         nullq = tiq.inverted() @ e.to_quaternion()
-        assert MatNearEqual(nullq.to_matrix(), Matrix.Identity(4)), f"{node.name} can invert rotation: {nullq}"
+        assert TT.MatNearEqual(nullq.to_matrix(), Matrix.Identity(4)), f"{node.name} can invert rotation: {nullq}"
         ve = Vector([round(v, 6) % math.pi for v in e[0:3]])
         vtiq = Vector([round(v, 6) % math.pi for v in tiq.to_euler()[0:3]])
         nulle = Euler(ve - vtiq, 'XYZ')
-        # if not MatNearEqual(nulle.to_matrix(), Matrix.Identity(3)):
-        #     assert MatNearEqual(nulle.to_matrix(), Matrix.Identity(3)), f"{node.name} can invert euler rotation: {nulle}"
+        # if not TT.MatNearEqual(nulle.to_matrix(), Matrix.Identity(3)):
+        #     assert TT.MatNearEqual(nulle.to_matrix(), Matrix.Identity(3)), f"{node.name} can invert euler rotation: {nulle}"
 
         tiv = Vector(ti.properties.translation)
         v = Vector(td.translations[0].value)
-        assert VNearEqual(tiv, v), f"{node.name} translations are the same: {tiv} == {v}"
-        assert VNearEqual(v - tiv, [0,0,0]), f"{node.name} can subtract vector"
-
+        assert TT.VNearEqual(tiv, v), f"{node.name} translations are the same: {tiv} == {v}"
+        assert TT.VNearEqual(v - tiv, [0,0,0]), f"{node.name} can subtract vector"
 
     bpy.ops.import_scene.pynifly(filepath=testfile,
                                  create_bones=False, 
                                  rename_bones=False,
-                                 import_animations=True)
+                                 import_animations=True,
+                                 use_blender_xf=True)
     
-    nif = NifFile(testfile)
+    nif = pyn.NifFile(testfile)
     check_xf(nif.nodes["NPC COM"])
     check_xf(nif.nodes["NPC Pelvis"])
     check_xf(nif.nodes["NPC LLegThigh"])
     check_xf(nif.nodes["NPC LLegCalf"])
     check_xf(nif.nodes["NPC LFinger12"])
     check_xf(nif.nodes["NPC LLBrow"])
+    assert 'pynRoot' in bpy.data.objects["MagicEffectsNode"].parent, f"Magic effect node not orphaned"
 
     arma = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE'][0]
     lcalf = arma.data.bones['NPC LLegCalf']

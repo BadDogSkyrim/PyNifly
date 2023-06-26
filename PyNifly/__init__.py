@@ -205,12 +205,13 @@ ROLL_ADJUST = 0 # -90 * pi / 180
 def get_pose_blender_xf(node_xf: Matrix, game: str, scale_factor):
     """Take the given bone transform and add in the transform for a blender bone"""
     return apply_scale_transl(node_xf, scale_factor) @ game_rotations[game_axes[game]][0]
-    #return apply_scale_transl(node_xf @ game_rotations[game_axes[game]][0], scale_factor)
 
 
 def get_bone_global_xf(arma, bone_name, game:str, use_pose) -> Matrix:
     """ Return the global transform represented by the bone. """
-    # Scale applied at this level on import, but by callor on export. Should be here for cosistency?
+    # Scale applied at this level on import, but by callor on export. Should be here for
+    # cosistency? 
+    # TODO -- CHECK this fix, apply everyWHERE
     if use_pose:
         bmx = arma.pose.bones[bone_name].matrix @ game_rotations[game_axes[game]][1]
     else:
@@ -988,11 +989,7 @@ class NifImporter():
         skin_xf: the skin transform applied to all shapes under the armature.
         """
         bone_xf = shape.get_shape_skin_to_bone(bone).as_matrix()
-        LogIfBone(bone, f"Bone_xf: \n{bone_xf}")
-        LogIfBone(bone, f"Skin_xf: \n{skin_xf}")
         bone_xf = apply_scale_transl(skin_xf, 1/self.scale) @ bone_xf.inverted()
-        LogIfBone(bone, f"Scaled bone_xf: \n{bone_xf}")
-        LogIfBone(bone, f"Game rotation:\n{game_rotations[game_axes[shape.file.game]][0]}")
         bone_xf = Matrix.Scale(self.scale, 4) @ bone_xf @ game_rotations[game_axes[shape.file.game]][0]
         return bone_xf
     
@@ -1389,11 +1386,14 @@ class NifImporter():
             a.asset_mark()
             arma.animation_data.action = a
         
-        self.import_interpolator(bone.controller.interpolator, 
-                                 arma, 
-                                 a, 
-                                 boneobj.name,
-                                 f'pose.bones["{boneobj.name}"]')
+        rotmode = self.import_interpolator(
+            bone.controller.interpolator, 
+            arma, 
+            a, 
+            boneobj.name,
+            f'pose.bones["{boneobj.name}"]',
+            boneobj.matrix_local)
+        arma.pose.bones[boneobj.name].rotation_mode = rotmode
 
 
     def animate_armature(self, arma):
@@ -1686,15 +1686,26 @@ class NifImporter():
 
     # ----- Begin Animations ----
 
-    def import_interpolator(self, ti:NiTransformInterpolator, target_node:bpy.types.Object, 
-                            action:bpy.types.Action, group_name, path_name):
-        """Import an interpolator, including its data block."""
+    def import_interpolator(self, ti:NiTransformInterpolator, 
+                            target_node:bpy.types.Object, 
+                            action:bpy.types.Action, 
+                            group_name:str, 
+                            path_name:str, 
+                            parentxf:Matrix):
+        """Import an interpolator, including its data block.
+        * Returns the rotation mode that must be set on the target. If this interpolator 
+        is using XYZ rotations, the rotation mode must be set to Euler. 
+        """
+        rotation_mode = "QUATERNION"
+
         tiq = Quaternion(ti.properties.rotation)
         qinv = tiq.inverted()
+        tiv = Vector(ti.properties.translation)
         tixf = MatrixLocRotScale(ti.properties.translation,
                                  Quaternion(ti.properties.rotation),
                                  [1.0]*3)
         tixf.invert()
+
         locbase = tixf.translation
         rotbase = tixf.to_euler()
         quatbase = tixf.to_quaternion()
@@ -1703,24 +1714,28 @@ class NifImporter():
         fps = bpy.context.scene.render.fps
 
         if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
+            rotation_mode = "XYZ"
             if td.xrotations or td.yrotations or td.zrotations:
                 curveX = action.fcurves.new(f"{path_name}.rotation_euler", index=0, action_group=group_name)
                 curveY = action.fcurves.new(f"{path_name}.rotation_euler", index=1, action_group=group_name)
                 curveZ = action.fcurves.new(f"{path_name}.rotation_euler", index=2, action_group=group_name)
 
-                if False and len(td.xrotations) == len(td.yrotations) and len(td.xrotations) == len(td.zrotations):
+                if len(td.xrotations) == len(td.yrotations) and len(td.xrotations) == len(td.zrotations):
                     for x, y, z in zip(td.xrotations, td.yrotations, td.zrotations):
-                        e = Euler(Vector((x.value, y.value, z.value)), 'XYZ')
-                        vq = qinv @ e.to_quaternion()
+                        if not (NearEqual(x.time, y.time) and NearEqual(x.time, z.time)):
+                            self.add_warning(f"Keyframes do not align for '{path_name}. Animations may be incorrect.")
+
+                        ke = Euler(Vector((x.value, y.value, z.value)), 'XYZ')
+                        kq = ke.to_quaternion()
+                        vq = qinv @ kq
                         ve = vq.to_euler()
-                        curveX.keyframe_points.insert(x.time * fps + 1, x.value - ve[0])
-                        curveY.keyframe_points.insert(y.time * fps + 1, y.value - ve[1])
-                        curveZ.keyframe_points.insert(z.time * fps + 1, z.value - ve[2])
+                        curveX.keyframe_points.insert(x.time * fps + 1, ve[0])
+                        curveY.keyframe_points.insert(y.time * fps + 1, ve[1])
+                        curveZ.keyframe_points.insert(z.time * fps + 1, ve[2])
                         
                 else:
                     # This method of getting the inverse of the Euler doesn't always
-                    # work-- not sure why. Might be that the euler rotations need to be
-                    # normalized.
+                    # work, maybe because of gimbal lock.
                     ve = tiq.to_euler()
 
                     for i, k in enumerate(td.xrotations):
@@ -1743,6 +1758,8 @@ class NifImporter():
                         curveZ.keyframe_points.insert(k.time * fps + 1, val)
         
         elif td.properties.rotationType == NiKeyType.LINEAR_KEY:
+            rotation_mode = "QUATERNION"
+
             curveW = action.fcurves.new(f"{path_name}.rotation_quaternion", index=0, action_group=group_name)
             curveX = action.fcurves.new(f"{path_name}.rotation_quaternion", index=1, action_group=group_name)
             curveY = action.fcurves.new(f"{path_name}.rotation_quaternion", index=2, action_group=group_name)
@@ -1751,11 +1768,7 @@ class NifImporter():
             for i, k in enumerate(td.qrotations):
                 kq = Quaternion(k.value)
                 vq = qinv @ kq 
-                vq.normalize()
-                if i == 0:
-                    assert MatNearEqual(vq.to_matrix(), Matrix.Identity(3)), \
-                        f"Have identity rotation: {path_name}, {vq}"
-                    # vq = Quaternion() # Just making sure
+
                 curveW.keyframe_points.insert(k.time * fps + 1, vq[0])
                 curveX.keyframe_points.insert(k.time * fps + 1, vq[1])
                 curveY.keyframe_points.insert(k.time * fps + 1, vq[2])
@@ -1770,14 +1783,18 @@ class NifImporter():
             curveLocZ = action.fcurves.new(f"{path_name}.location", index=2, action_group=group_name)
             for k in td.translations:
                 v = Vector(k.value)
-                v = tixf @ v
+                # v = qinv @ v
+                # v = Vector()
+                v = v - tiv
                 curveLocX.keyframe_points.insert(k.time * fps + 1, v[0])
                 curveLocY.keyframe_points.insert(k.time * fps + 1, v[1])
                 curveLocZ.keyframe_points.insert(k.time * fps + 1, v[2])
 
-        if "LLegCalf" in path_name:
-            calffc = [f for f in action.fcurves if "LLegCalf" in f.data_path]
-            for i in range(0,4): log.debug(f"{calffc[i].data_path} Curve {i}: {calffc[i].keyframe_points[0].co[1]:0.4f}")
+        # if "LLegCalf" in path_name:
+        #     calffc = [f for f in action.fcurves if "LLegCalf" in f.data_path]
+        #     for i in range(0,4): log.debug(f"{calffc[i].data_path} Curve {i}: {calffc[i].keyframe_points[0].co[1]:0.4f}")
+
+        return rotation_mode
 
 
     def import_controlled_block(self, seq:NiSequence, block:ControllerLink):
@@ -1808,8 +1825,14 @@ class NifImporter():
         new_action.use_fake_user = True
         new_action.asset_mark()
 
-        self.import_interpolator(block.interpolator, target_obj, new_action, "Object Transforms",
-                                 target_obj.name)
+        rotmode = self.import_interpolator(
+            block.interpolator, 
+            target_obj, 
+            new_action, 
+            "Object Transforms",
+            target_obj.name, 
+            target_obj.matrix_local)
+        targetobj.rotation_mode = rotmode
 
         if not target_obj.animation_data.action:
             target_obj.animation_data.action = new_action

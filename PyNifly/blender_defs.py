@@ -122,10 +122,21 @@ def arma_name(n):
 BONE_LEN = 5
 FACEBONE_LEN = 2
 
-game_rotations = {'X': (Quaternion(Vector((0,0,1)), radians(-90)).to_matrix().to_4x4(),
-                        Quaternion(Vector((0,0,1)), radians(-90)).inverted().to_matrix().to_4x4()),
-                  'Z': (Quaternion(Vector((1,0,0)), radians(90)).to_matrix().to_4x4(),
-                        Quaternion(Vector((1,0,0)), radians(90)).inverted().to_matrix().to_4x4())}
+# Game rotations rotate the bones so they look like a skeleton. This is a convenience for
+# the modder but mucks up anything that depends on those rotations: FO4 connection points, 
+# QUADRATIC_KEY animation data, maybe collisions? 
+
+# game_rotations = {'X': (Quaternion(Vector((0,0,1)),
+#                         radians(-90)).to_matrix().to_4x4(), Quaternion(Vector((0,0,1)),
+#                   radians(-90)).inverted().to_matrix().to_4x4()), 'Z':
+#                         (Quaternion(Vector((1,0,0)), radians(90)).to_matrix().to_4x4(),
+# Quaternion(Vector((1,0,0)), radians(90)).inverted().to_matrix().to_4x4())} What if we
+# don't add a rotation--just use what the nif has
+game_rotations = {'X': (Matrix.Identity(4),
+                        Matrix.Identity(4)),
+                  'Z': (Matrix.Identity(4),
+                        Matrix.Identity(4))}
+
 bone_vectors = {'X': Vector((1,0,0)), 'Z': Vector((0,0,1))}
 game_axes = {'FO3': 'X', 'FO4': 'X', 'FO76': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
 
@@ -154,8 +165,12 @@ def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor, roll
     if is_facebone(bone_name):
         v = Vector((FACEBONE_LEN, 0, 0))
     else:
-        v = Vector((0, 0, BONE_LEN))
-    bone.tail = bone.head + v
+        v = bone_vectors[game_axes[game]] * BONE_LEN # Vector((0, -BONE_LEN, 0))
+    # bone.tail = bone.head + v
+    # bone.tail = bone_vectors[game_axes[game]] * BONE_LEN
+
+    # Direction of tail doesn't matter. It will get set by the bone_blender transform.
+    bone.tail = Vector((BONE_LEN,0,0))
 
     bone.matrix = get_bone_blender_xf(node_xf, game, scale_factor)
     bone.roll += roll
