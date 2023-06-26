@@ -763,6 +763,7 @@ class NifImporter():
             obj.matrix_local = self.import_xf @ ninode.transform.as_matrix()
             obj.empty_display_type = 'CONE'
             self.root_object = obj
+            parent = None
             #obj.matrix_local = apply_scale_transl(ninode.transform.as_matrix(), self.scale)
         else:
             obj.matrix_local = ninode.transform.as_matrix()
@@ -1842,8 +1843,9 @@ class NifImporter():
             self.nif.dict.use_niftools = self.rename_bones_nift
             self.import_shape(s)
 
-        orphan_shapes = set([o for o in self.objects_created.values() if o.parent==None])
-        if self.root_object in orphan_shapes: orphan_shapes.remove(self.root_object)
+        orphan_shapes = set([o for o in self.objects_created.values() 
+                             if o.parent==None and not 'pynRoot' in o])
+            
         if not self.mesh_only:
             # Import armature
             if len(self.nif.shapes) == 0:

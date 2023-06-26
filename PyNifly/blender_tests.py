@@ -53,7 +53,7 @@ TEST_3BBB = False  ### Test that mesh imports with correct transforms
 TEST_SKEL = False  ### Import/export skeleton file with no shapes
 TEST_HEADPART = False  ### Read & write SE head part with tris
 TEST_TRI = False  ### Can load a tri file into an existing mesh
-TEST_IMPORT_AS_SHAPES = False  ### Import 2 meshes as shape keys
+TEST_IMPORT_MULTI_OBJECTS = True  ### Can import 2 meshes as objects")
 TEST_IMPORT_AS_SHAPES = False  ### Import 2 meshes as shape keys
 TEST_IMPORT_MULT_SHAPES = False  ### Import >2 meshes as shape keys
 TEST_EXP_SK_RENAMED = False  ### Ensure renamed shape keys export properly
@@ -141,7 +141,7 @@ TEST_FONV = False  ### FONV mesh
 TEST_FONV_BOD = False  ### Basic FONV body part import and export
 TEST_ANIM_CHEST = False  ### Read and write the animation of chest opening and shutting
 TEST_ANIM_CRATE = False  ### Read and write the animation of crate opening and shutting
-TEST_ANIM_ALDUIN = True  ### Read and write animated Alduin loadscreen
+TEST_ANIM_ALDUIN = False  ### Read and write animated Alduin loadscreen
 
 
 log = logging.getLogger("pynifly")
@@ -1177,6 +1177,25 @@ if TEST_BPY_ALL or TEST_TRI:
     assert "BrowIn" in cubechg.morphs, f"Error: 'BrowIn' should be in chargen"
     assert "*Extra" not in cubechg.morphs, f"Error: '*Extra' should not be in chargen"
     
+
+if TEST_BPY_ALL or TEST_IMPORT_MULTI_OBJECTS:
+    # When two files are selected for import, they are connected into a single armature.
+    TT.test_title("TEST_IMPORT_MULTI_OBJECTS", "Can import 2 meshes as objects")
+    TT.clear_all()
+
+    testfiles = [{"name": TT.test_file(r"tests\SkyrimSE\malehead.nif")}, 
+                 {"name": TT.test_file(r"tests\SkyrimSE\body1m_1.nif")}, ]
+    bpy.ops.import_scene.pynifly(files=testfiles)
+
+    meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
+    assert len(meshes) == 3, f"Have 3 meshes: {meshes}"
+    armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
+    assert len(armatures) == 1, f"Have 1 armature: {armatures}"
+    roots = [obj for obj in bpy.data.objects if 'pynRoot' in obj]
+    assert len(roots) == 2, f"Have 2 roots: {roots}"
+    for r in roots:
+        assert r.parent == None, f"Roots do not have parents: {r}"
+        
 
 if TEST_BPY_ALL or TEST_IMPORT_AS_SHAPES:
     # When two files are selected for import, they are imported as shape keys if possible.
@@ -3387,7 +3406,7 @@ if TEST_BPY_ALL or TEST_WEAPON_PART:
                          bpy.data.objects))
     assert magpcp, f"Found the connect point for magazine parts"
 
-    ObjectActive(barrelpcp)
+    TT.ObjectActive(barrelpcp)
 
     bpy.ops.import_scene.pynifly(filepath=partfile, create_bones=False, rename_bones=False)
 
