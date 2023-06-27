@@ -5,21 +5,24 @@ https://polynook.com/learn/set-up-blender-addon-development-environment-in-windo
 """
 import math
 import bpy
+import bpy_types
 from mathutils import Matrix, Vector, Quaternion, Euler
 import test_tools as TT
+import niflytools as NT
+import nifdefs
 import pynifly as pyn
+import xml.etree.ElementTree as xml
 import blender_defs as BD
 from trihandler import *
-import xml.etree.ElementTree as xml
 
 import importlib
 import skeleton_hkx
 import shader_io
 importlib.reload(pyn)
-importlib.reload(skeleton_hkx)
-importlib.reload(shader_io)
 importlib.reload(TT)
 importlib.reload(BD)
+importlib.reload(shader_io)
+importlib.reload(skeleton_hkx)
 
 
 TEST_BPY_ALL = False
@@ -53,7 +56,7 @@ TEST_3BBB = False  ### Test that mesh imports with correct transforms
 TEST_SKEL = False  ### Import/export skeleton file with no shapes
 TEST_HEADPART = False  ### Read & write SE head part with tris
 TEST_TRI = False  ### Can load a tri file into an existing mesh
-TEST_IMPORT_MULTI_OBJECTS = True  ### Can import 2 meshes as objects")
+TEST_IMPORT_MULTI_OBJECTS = False  ### Can import 2 meshes as objects")
 TEST_IMPORT_AS_SHAPES = False  ### Import 2 meshes as shape keys
 TEST_IMPORT_MULT_SHAPES = False  ### Import >2 meshes as shape keys
 TEST_EXP_SK_RENAMED = False  ### Ensure renamed shape keys export properly
@@ -126,7 +129,7 @@ TEST_PIPBOY = False
 TEST_BABY = False  ### FO4 baby 
 TEST_ROTSTATIC = False  ### Statics are transformed according to the shape transform
 TEST_ROTSTATIC2 = False  ### Statics are transformed according to the shape transform
-TEST_FACEBONES = False
+TEST_FACEBONES = True
 TEST_FACEBONES_RENAME = False  ### Facebones are correctly renamed from Blender to the game's names
 TEST_BONE_XF = False
 TEST_IMP_ANIMATRON = False
@@ -161,7 +164,7 @@ if TEST_BPY_ALL or TEST_BODYPART_SKY:
     assert male_head.name == 'MaleHeadIMF', f"Have correct name: {male_head.name}"
     
     # Importer creates an armature for the skinned shape.
-    arma = TT.find_shape(arma_name("MaleHead.nif"), type='ARMATURE')
+    arma = TT.find_shape(BD.arma_name("MaleHead.nif"), type='ARMATURE')
     assert arma, f"Found armature"
 
     # Root node imported and parents other objects
@@ -293,7 +296,7 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY:
         assert TT.VNearEqual(vmax, Vector([30.32, 12.57, -4.23]), 0.1), f"Armor max is correct: {vmax}"
         assert TT.NearEqual(armor.location.z, 120.34, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
         arma = armor.parent
-        assert arma.name == arma_name("Scene Root"), f"armor has parent: {arma}"
+        assert arma.name == BD.arma_name("Scene Root"), f"armor has parent: {arma}"
 
         pelvis = arma.data.bones['NPC Pelvis']
         pelvis_pose = arma.pose.bones['NPC Pelvis'] 
@@ -340,7 +343,7 @@ if TEST_BPY_ALL or TEST_IMP_EXP_SKY_2:
     assert TT.VNearEqual(armor.location, (-0.0003, -1.5475, 120.3436)), \
         f"Armor is raised to match body: {armor.location}"
 
-    ObjectSelect([body, armor])
+    BD.ObjectSelect([body, armor])
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
 
     nifout = pyn.NifFile(outfile)
@@ -370,7 +373,7 @@ if TEST_BPY_ALL or TEST_IMP_EXP_FO4:
     bodyin = impnif.shape_dict['BaseMaleBody:0']
 
     assert not TT.VNearEqual(body.location, [0, 0, 0], epsilon=1), f"Body is repositioned: {body.location}"
-    assert arma.name == arma_name("Scene Root"), f"Body parented to armature: {arma.name}"
+    assert arma.name == BD.arma_name("Scene Root"), f"Body parented to armature: {arma.name}"
     assert arma.data.bones['Pelvis_skin'].matrix_local.translation.z > 0, f"Bones translated above ground: {arma.data.bones['NPC Pelvis'].matrix_local.translation}"
     assert "Scene Root" not in arma.data.bones, "Did not import the root node"
 
@@ -458,7 +461,7 @@ if TEST_BPY_ALL or TEST_BPY_PARENT_A:
     
     # Can intuit structure if it's not in the file
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    obj = bpy.data.objects[arma_name("Scene Root")]
+    obj = bpy.data.objects[BD.arma_name("Scene Root")]
     assert obj.data.bones['NPC Hand.R'].parent.name == 'CME Forearm.R', f"Error: Should find forearm as parent: {obj.data.bones['NPC Hand.R'].parent.name}"
     print(f"Found parent to hand: {obj.data.bones['NPC Hand.R'].parent.name}")
 
@@ -508,7 +511,9 @@ if TEST_BPY_ALL or TEST_CONNECTED_SKEL:
     lthigh = s.data.bones['Leg_Thigh.L']
     assert lthigh.parent.name == 'Pelvis', "Error: Thigh should connect to pelvis"
     assert TT.VNearEqual(lthigh.head_local, (-6.6151, 0.0005, 68.9113)), f"Thigh head in correct location: {lthigh.head_local}"
-    assert TT.VNearEqual(lthigh.tail_local, (-7.2513, -0.1925, 63.9557)), f"Thigh tail in correct location: {lthigh.tail_local}"
+    
+    # Tail location depends on whether we rotate the bones.
+    # assert TT.VNearEqual(lthigh.tail_local, (-7.2513, -0.1925, 63.9557)), f"Thigh tail in correct location: {lthigh.tail_local}"
 
 
 if TEST_DRAUGR_IMPORT_A or TEST_BPY_ALL:
@@ -721,7 +726,7 @@ if TEST_BPY_ALL or TEST_SCALING_BP:
                                  rename_bones_niftools=True,
                                  use_blender_xf=True)
 
-    arma = TT.find_shape(arma_name("MaleBody_1.nif"), type='ARMATURE')
+    arma = TT.find_shape(BD.arma_name("MaleBody_1.nif"), type='ARMATURE')
     b = arma.data.bones['NPC Spine1 [Spn1]']
     bw = arma.matrix_world @ b.matrix_local
     assert TT.NearEqual(bw.translation.z, 8.1443), f"Scale correctly applied: {bw.translation}"
@@ -953,7 +958,7 @@ if TEST_BPY_ALL or TEST_0_WEIGHTS:
         bpy.ops.export_scene.pynifly(filepath=testfile, target_game="FO4")
     except RuntimeError:
         print("Caught expected runtime error")
-    assert UNWEIGHTED_VERTEX_GROUP in baby.vertex_groups, "Unweighted vertex group captures vertices without weights"
+    assert BD.UNWEIGHTED_VERTEX_GROUP in baby.vertex_groups, "Unweighted vertex group captures vertices without weights"
 
 
 if TEST_BPY_ALL or TEST_TIGER_EXPORT:
@@ -1187,6 +1192,11 @@ if TEST_BPY_ALL or TEST_IMPORT_MULTI_OBJECTS:
                  {"name": TT.test_file(r"tests\SkyrimSE\body1m_1.nif")}, ]
     bpy.ops.import_scene.pynifly(files=testfiles)
 
+    for ol_area in [a for a in bpy.context.screen.areas if a.type == 'OUTLINER']:
+        for ol_region in [r for r in ol_area.regions if r.type == 'WINDOW']:
+            override = {'area':ol_area, 'region': ol_region}
+            bpy.ops.outliner.show_active(override)
+
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
     assert len(meshes) == 3, f"Have 3 meshes: {meshes}"
     armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
@@ -1195,7 +1205,10 @@ if TEST_BPY_ALL or TEST_IMPORT_MULTI_OBJECTS:
     assert len(roots) == 2, f"Have 2 roots: {roots}"
     for r in roots:
         assert r.parent == None, f"Roots do not have parents: {r}"
-        
+    invm = [obj for obj in bpy.data.objects if 'InvMarker' in obj.name]
+    assert len(invm) == 1, f"Have an inventory marker: {invm}"
+    assert invm[0].type == 'EMPTY', f"Inventory marker is an empty: {invm[0].type}"
+
 
 if TEST_BPY_ALL or TEST_IMPORT_AS_SHAPES:
     # When two files are selected for import, they are imported as shape keys if possible.
@@ -1270,7 +1283,7 @@ if (TEST_BPY_ALL or TEST_EXP_SK_RENAMED) and bpy.app.version[0] >= 3:
 
     tri1 = TriFile.from_file(trifile)
     new_keys = set()
-    d = gameSkeletons["FO4"]
+    d = BD.gameSkeletons["FO4"]
     for m in tri1.morphs.keys():
         if m in d.morph_dic_blender:
             new_keys.add(d.morph_dic_blender[m])
@@ -1504,7 +1517,7 @@ if TEST_BPY_ALL or TEST_SHADER_LE:
     assert 'Image Texture' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     assert 'Normal Map' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     g = shadernodes['Principled BSDF'].inputs['Metallic'].default_value
-    assert round(g, 4) == 33/GLOSS_SCALE, f"Glossiness not correct, value is {g}"
+    assert round(g, 4) == 33/BD.GLOSS_SCALE, f"Glossiness not correct, value is {g}"
     assert headLE.active_material['BSShaderTextureSet_2'] == r"textures\actors\character\male\MaleHead_sk.dds", f"Expected stashed texture path, found {headLE.active_material['BSShaderTextureSet_2']}"
 
     print("## Shader attributes are written on export")
@@ -1734,8 +1747,8 @@ if TEST_BPY_ALL or TEST_CAVE_GREEN:
     nifcheck = pyn.NifFile(outfile)
     rootscheck = nifcheck.shape_dict["L2_Roots:5"]
     assert rootscheck.has_alpha_property, f"Roots have alpha: {rootscheck.has_alpha_property}"
-    assert rootscheck.shader_attributes.shaderflags2_test(ShaderFlags2.VERTEX_COLORS), \
-        f"Have vertex colors: {rootscheck.shader_attributes.shaderflags2_test(ShaderFlags2.VERTEX_COLORS)}"
+    assert rootscheck.shader_attributes.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS), \
+        f"Have vertex colors: {rootscheck.shader_attributes.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS)}"
 
 
 if TEST_BPY_ALL or TEST_POT:
@@ -1876,7 +1889,7 @@ if (TEST_BPY_ALL or TEST_PARTITION_ERRORS) and bpy.app.version[0] >= 3:
     
     # assert len(exporter.warnings) > 0, f"Error: Export should have generated warnings: {exporter.warnings}"
     # print(f"Exporter warnings: {exporter.warnings}")
-    assert MULTIPLE_PARTITION_GROUP in bpy.data.objects["SynthMaleBody"].vertex_groups, "Error: Expected group to be created for tris in multiple partitions"
+    assert BD.MULTIPLE_PARTITION_GROUP in bpy.data.objects["SynthMaleBody"].vertex_groups, "Error: Expected group to be created for tris in multiple partitions"
 
 
 if TEST_BPY_ALL or TEST_SHEATH:
@@ -2008,7 +2021,7 @@ if TEST_BPY_ALL or TEST_SCALING_OBJ:
     # assert fmarkers[0].location.z < 3.4, f"Furniture marker location is correct: {fmarkers[0].location.z}"
 
     # -------- Export --------
-    ObjectSelect([o for o in bpy.data.objects if 'pynRoot' in o], active=True)
+    BD.ObjectSelect([o for o in bpy.data.objects if 'pynRoot' in o], active=True)
     exporter = bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', 
                                             use_blender_xf=True)
 
@@ -2546,7 +2559,7 @@ if TEST_BPY_ALL or TEST_BONE_XPORT_POS:
         f"Expected skin-to-bone translation Z = 78.4952, found {thigh_sk2b_check.translation[:]}"
     impnif = pyn.NifFile(testfile)
     thsk2b = impnif.shapes[0].get_shape_skin_to_bone('NPC L Thigh [LThg]')
-    assert thsk2b.TT.NearEqual(thigh_sk2b_check), f"Entire skin-to-bone transform correct: {thigh_sk2b_check}"
+    assert thsk2b.NearEqual(thigh_sk2b_check), f"Entire skin-to-bone transform correct: {thigh_sk2b_check}"
 
     # --- Check we can import correctly ---
     bpy.ops.import_scene.pynifly(filepath=outfile)
@@ -2587,8 +2600,8 @@ if TEST_BPY_ALL or TEST_BOW:
 
     collbody = coll.children[0]
     assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
-    assert collbody['collisionFilter_layer'] == SkyrimCollisionLayer.WEAPON.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
-    assert collbody["collisionResponse"] == hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
+    assert collbody['collisionFilter_layer'] == nifdefs.SkyrimCollisionLayer.WEAPON.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
+    assert collbody["collisionResponse"] == nifdefs.hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
     assert TT.VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
 
     collshape = collbody.children[0]
@@ -2623,7 +2636,7 @@ if TEST_BPY_ALL or TEST_BOW:
             v.co.x = 16.5
 
     # Exporting the root object takes everything with it and sets root properties.
-    ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
+    BD.ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
     # ------- Check Results --------
@@ -2649,13 +2662,13 @@ if TEST_BPY_ALL or TEST_BOW:
     midbowcheck = nifcheck.nodes["Bow_MidBone"]
     collcheck = midbowcheck.collision_object
     assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
-    assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+    assert nifdefs.bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
 
     # Full check of locations and rotations to make sure we got them right
     mbc_xf = nifcheck.get_node_xform_to_global("Bow_MidBone")
     assert TT.VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
     m = mbc_xf.as_matrix().to_euler()
-    assert TT.VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
+    assert TT.VNearEqual(m, [0, 0, -math.pi/2]), f"Midbow rotation is correct: {m}"
 
     bodycheck = collcheck.body
     p = bodycheck.properties
@@ -2707,13 +2720,13 @@ if TEST_BPY_ALL or TEST_BOW2:
     midbowcheck2 = nifcheck2.nodes["Bow_MidBone"]
     collcheck2 = midbowcheck2.collision_object
     assert collcheck2.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck2.blockname}"
-    assert bhkCOFlags(collcheck2.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+    assert nifdefs.bhkCOFlags(collcheck2.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
 
     # Full check of locations and rotations to make sure we got them right
     mbc_xf = nifcheck2.get_node_xform_to_global("Bow_MidBone")
     assert TT.VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
     m = mbc_xf.as_matrix().to_euler()
-    assert TT.VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
+    assert TT.VNearEqual(m, [0, 0, -math.pi/2]), f"Midbow rotation is correct: {m}"
 
     bodycheck2 = collcheck2.body
     p = bodycheck2.properties
@@ -2753,7 +2766,7 @@ if TEST_BPY_ALL or TEST_BOW3:
     collshape.name = "bhkConvexVerticesShape"
     collbody.name = "bhkRigidBody"
 
-    ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
+    BD.ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile3, target_game='SKYRIMSE')
     
     # ------- Check Results 3 --------
@@ -2763,13 +2776,13 @@ if TEST_BPY_ALL or TEST_BOW3:
     midbowcheck3 = nifcheck3.nodes["Bow_MidBone"]
     collcheck3 = midbowcheck3.collision_object
     assert collcheck3.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck3.blockname}"
-    assert bhkCOFlags(collcheck3.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+    assert nifdefs.bhkCOFlags(collcheck3.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
 
     # Full check of locations and rotations to make sure we got them right
     mbc_xf = nifcheck3.get_node_xform_to_global("Bow_MidBone")
     assert TT.VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
     m = mbc_xf.as_matrix().to_euler()
-    assert TT.VNearEqual(m, [0, 0, -pi/2]), f"Midbow rotation is correct: {m}"
+    assert TT.VNearEqual(m, [0, 0, -math.pi/2]), f"Midbow rotation is correct: {m}"
 
     bodycheck3 = collcheck3.body
 
@@ -2816,7 +2829,7 @@ if TEST_BPY_ALL or TEST_COLLISION_HIER:
     leek4 = bpy.data.objects["Leek04"]
     bsxf = TT.find_shape("BSXFlags", type='EMPTY')
     invm = TT.find_shape("BSInvMarker", type='EMPTY')
-    ObjectSelect([leek4, bsxf, invm], active=True)
+    BD.ObjectSelect([leek4, bsxf, invm], active=True)
 
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
 
@@ -3056,8 +3069,8 @@ if TEST_BPY_ALL or TEST_COLLISION_CONVEXVERT:
 
         collbody = coll.children[0]
         assert collbody.name == 'bhkRigidBody', f"Child of collision is the collision body object"
-        assert collbody['collisionFilter_layer'] == SkyrimCollisionLayer.CLUTTER.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
-        assert collbody["collisionResponse"] == hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
+        assert collbody['collisionFilter_layer'] == nifdefs.SkyrimCollisionLayer.CLUTTER.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
+        assert collbody["collisionResponse"] == nifdefs.hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
 
         collshape = collbody.children[0]
         assert collshape.name == 'bhkConvexVerticesShape', f"Collision shape is child of the collision body"
@@ -3097,7 +3110,7 @@ if TEST_BPY_ALL or TEST_COLLISION_CONVEXVERT:
         assert bodycheck.blockname == "bhkRigidBody", f"Correctly wrote bhkRigidBody: {bodycheck.blockname}"
 
         assert cvscheck.blockname == "bhkConvexVerticesShape", f"Collision body's shape property returns the collision shape"
-        assert cvscheck.properties.bhkMaterial == SkyrimHavokMaterial.CLOTH, \
+        assert cvscheck.properties.bhkMaterial == nifdefs.SkyrimHavokMaterial.CLOTH, \
             "Collision body shape material is readable"
 
         minxch = min(v[0] for v in cvscheck.vertices)
@@ -3159,11 +3172,7 @@ if TEST_BPY_ALL or TEST_COLLISION_CAPSULE:
         assert staffmin[2] < collmin[2], f"Staff surrounds collision: {staffmax}, {collmax}"
 
         # -------- Export --------
-        bpy.ops.object.select_all(action='DESELECT')
-        for o in bpy.data.objects:
-            if 'pynRoot' in o:
-                ObjectSelect([o])
-                ObjectActive(o)
+        BD.ObjectSelect([o for o in bpy.data.objects if 'pynRoot' in o], active=True)
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', use_blender_xf=bx)
 
         # ------- Check ---------
@@ -3209,7 +3218,7 @@ if TEST_BPY_ALL or TEST_COLLISION_LIST:
         assert len(collshape.children) == 3, f" Collision shape has children"
     
         # -------- Export --------
-        ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
+        BD.ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', use_blender_xf=bx)
 
         # ------- Check ---------
@@ -3274,7 +3283,7 @@ if TEST_BPY_ALL or TEST_CHANGE_COLLISION:
 
     # ------- Export --------
 
-    ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
+    BD.ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
     
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
@@ -3310,7 +3319,7 @@ if (TEST_BPY_ALL or TEST_COLLISION_XFORM) and bpy.app.version[0] >= 3:
     TT.append_from_file("bhkConvexVerticesShape.002", True, r"tests\SkyrimSE\staff.blend", r"\Object", "bhkConvexVerticesShape.002")
 
     # -------- Export --------
-    ObjectSelect([
+    BD.ObjectSelect([
         TT.find_shape("Staff"),
         TT.find_shape("bhkCollisionObject", type="EMPTY"), 
         TT.find_shape("NiStringExtraData", type='EMPTY'),
@@ -3406,12 +3415,13 @@ if TEST_BPY_ALL or TEST_WEAPON_PART:
                          bpy.data.objects))
     assert magpcp, f"Found the connect point for magazine parts"
 
-    TT.ObjectActive(barrelpcp)
+    BD.ObjectSelect([barrelpcp], active=True)
 
     bpy.ops.import_scene.pynifly(filepath=partfile, create_bones=False, rename_bones=False)
 
-    barrelccp = next(filter(lambda x: x.name.startswith('BSConnectPointChildren'), 
-                            bpy.data.objects))
+    barrelccp = next((x for x in bpy.data.objects 
+                      if x.name.startswith('BSConnectPointChildren')), 
+                      None)
     assert barrelccp, f"Barrel's child connect point found {barrelccp}"
     assert barrelccp.parent == barrelpcp, f"Child connect point parented to parent connect point: {barrelccp.parent}"
 
@@ -3479,7 +3489,7 @@ if TEST_BPY_ALL or TEST_FURN_MARKER2:
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
     
     assert len(fmarkers) == 1, f"Found furniture markers: {fmarkers}"
-    assert TT.VNearEqual(fmarkers[0].rotation_euler, (-pi/2, 0, 0)), f"Marker points the right direction"
+    assert TT.VNearEqual(fmarkers[0].rotation_euler, (-math.pi/2, 0, 0)), f"Marker points the right direction"
 
     # -------- Export --------
     bpy.ops.object.select_all(action='DESELECT')
@@ -3508,8 +3518,8 @@ if TEST_BPY_ALL or TEST_FO4_CHAIR:
     
     assert len(fmarkers) == 4, f"Found furniture markers: {fmarkers}"
     mk = bpy.data.objects['BSFurnitureMarkerNode']
-    assert TT.VNearEqual(mk.rotation_euler, (-pi/2, 0, 0)), \
-        f"Marker {mk.name} points the right direction: {mk.rotation_euler, (-pi/2, 0, 0)}"
+    assert TT.VNearEqual(mk.rotation_euler, (-math.pi/2, 0, 0)), \
+        f"Marker {mk.name} points the right direction: {mk.rotation_euler, (-math.pi/2, 0, 0)}"
 
     # -------- Export --------
     chair = TT.find_shape("FederalistChairOffice01:2")
@@ -3618,7 +3628,7 @@ if TEST_BPY_ALL or TEST_ROTSTATIC:
     bodycheck = nifcheck.shape_dict["LykaiosBody"]
 
     m = Matrix(bodycheck.transform.rotation)
-    assert int(m.to_euler()[0]*180/pi) == 90, f"Expected 90deg rotation, got {m.to_euler()}"
+    assert int(m.to_euler()[0]*180/math.pi) == 90, f"Expected 90deg rotation, got {m.to_euler()}"
 
 
 if TEST_BPY_ALL or TEST_ROTSTATIC2:
@@ -3661,6 +3671,9 @@ if TEST_BPY_ALL or TEST_FACEBONES:
         f"Didn't create an EMPTY for the root Node"
     assert "skin_bone_C_MasterEyebrow" not in bpy.data.objects, f"Did load empty node for skin_bone_C_MasterEyebrow"
     assert "skin_bone_C_MasterEyebrow" in head.parent.data.bones, f"Bone not loaded for parented bone skin_bone_C_MasterEyebrow"
+    sbme_pose = head.parent.pose.bones["skin_bone_C_MasterEyebrow"]
+    assert sbme_pose.matrix.translation.x < 1e+30 and sbme_pose.matrix.translation.x > -1e+30, \
+        f"Pose location not stupid: {sbme_pose.matrix.translation}"
     # meb = bpy.data.objects["skin_bone_C_MasterEyebrow"]
     # assert meb.location.z > 120, f"skin_bone_C_MasterEyebrow in correct position"
     
@@ -3677,12 +3690,12 @@ if TEST_BPY_ALL or TEST_FACEBONES:
         # Skip root node and bones that aren't actually used
         if nm not in ['BaseFemaleHead_faceBones.nif', 'skin_bone_C_MasterEyebrow']:
             assert nm in nifch.nodes, f"Found node {nm} in output file"
-            assert XFNearEqual(nifch.nodes[nm].transform, nifgood.nodes[nm].transform), f"""
+            assert NT.XFNearEqual(nifch.nodes[nm].transform, nifgood.nodes[nm].transform), f"""
 Transforms for output and input node {nm} match:
 {nifch.nodes[nm].transform}
 {nifgood.nodes[nm].transform}
 """
-            assert XFNearEqual(nifch.nodes[nm].xform_to_global, nifgood.nodes[nm].xform_to_global), f"""
+            assert NT.XFNearEqual(nifch.nodes[nm].xform_to_global, nifgood.nodes[nm].xform_to_global), f"""
 Transforms for output and input node {nm} match:
 {nifch.nodes[nm].xform_to_global}
 {nifgood.nodes[nm].xform_to_global}
@@ -3729,7 +3742,7 @@ if TEST_BPY_ALL or TEST_IMP_ANIMATRON:
     assert TT.VNearEqual(minv, Vector((-13.14, -7.83, 38.6)), 0.1), f"Bounding box min correct: {minv}"
     assert TT.VNearEqual(maxv, Vector((14.0, 12.66, 133.5)), 0.1), f"Bounding box max correct: {maxv}"
 
-    arma = TT.find_shape(arma_name("AnimatronicNormalWoman"), type='ARMATURE')
+    arma = TT.find_shape(BD.arma_name("AnimatronicNormalWoman"), type='ARMATURE')
     spine2 = arma.data.bones['SPINE2']
     hand = arma.data.bones['RArm_Hand']
     handpose = arma.pose.bones['RArm_Hand']
@@ -3742,7 +3755,7 @@ if TEST_BPY_ALL or TEST_IMP_ANIMATRON:
     # assert TT.VNearEqual(cp_armorleg.location, thighl.matrix_local.translation, 0.1), \
     #     f"Connect point at correct position: {cp_armorleg.location} == {thighl.matrix_local.translation}"
 
-    arma = TT.find_shape(arma_name('AnimatronicNormalWoman'), type='ARMATURE')
+    arma = TT.find_shape(BD.arma_name('AnimatronicNormalWoman'), type='ARMATURE')
     assert arma, f"Found armature '{arma.name}'"
     lleg_thigh = arma.data.bones['LLeg_Thigh']
     assert lleg_thigh.parent, f"LLeg_Thigh has parent"
@@ -3835,7 +3848,7 @@ if TEST_BPY_ALL or TEST_SCALING_COLL:
     # assert TT.NearEqual(obj.parent['PYN_SCALE_FACTOR'], 0.1), f"Scale factor is correct on {obj.parent.name}: {obj.parent['PYN_SCALE_FACTOR']}"
 
     # Check collision info
-    arma = TT.find_shape(arma_name('GlassBowSkinned.nif'), type="ARMATURE")
+    arma = TT.find_shape(BD.arma_name('GlassBowSkinned.nif'), type="ARMATURE")
     midbone = arma.data.bones['Bow_MidBone']
     midbonew = arma.matrix_world @ midbone.matrix_local
     coll = TT.find_shape("bhkCollisionObject", type="EMPTY")
@@ -3869,7 +3882,7 @@ if TEST_BPY_ALL or TEST_SCALING_COLL:
     # ------- Export and Check Results --------
 
     # We want the special properties of the root node. 
-    ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
+    BD.ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
 
     # Depend on the defaults stored on the armature for scale factor
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', 
@@ -3890,7 +3903,7 @@ if TEST_BPY_ALL or TEST_SCALING_COLL:
     midbowcheck = nifcheck.nodes["Bow_MidBone"]
     collcheck = midbowcheck.collision_object
     assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
-    assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+    assert nifdefs.bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
 
     # Full check of locations and rotations to make sure we got them right
     TT.compare_bones('Bow_MidBone', nif, nifcheck)
@@ -3955,9 +3968,8 @@ if TEST_BPY_ALL or TEST_SKEL_HKX:
     outfile = TT.test_file("tests/out/TEST_SKEL_HKX.xml")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    arma = bpy.data.objects[arma_name('skeletonBeast.nif')]
-    ObjectSelect([arma])
-    ObjectActive(arma)
+    arma = bpy.data.objects[BD.arma_name('skeletonBeast.nif')]
+    BD.ObjectSelect([arma], active=True)
 
     bpy.ops.object.mode_set(mode='POSE')
     for b in arma.pose.bones:
@@ -4023,11 +4035,10 @@ if TEST_BPY_ALL or TEST_SKEL_SOS_HKX:
                     'NPC Genitals06 [Gen06]']
 
     bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False)
-    arma = bpy.data.objects[arma_name('skeletonBeast.nif')]
+    arma = bpy.data.objects[BD.arma_name('skeletonBeast.nif')]
     assert arma and arma.type=='ARMATURE', f"Loaded armature: {arma}"
     bpy.ops.object.select_all(action='DESELECT')
-    ObjectSelect([arma])
-    ObjectActive(arma)
+    BD.ObjectSelect([arma], active=True)
 
     bpy.ops.object.mode_set(mode='POSE')
     for b in arma.pose.bones:
@@ -4067,7 +4078,7 @@ if TEST_BPY_ALL or TEST_FONV:
     # TODO: Check collision object. It's coming in 10x the size
 
     bpy.ops.object.select_all(action="SELECT")
-    ObjectActive(grip)
+    BD.ObjectActive(grip)
 
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
@@ -4107,8 +4118,7 @@ if TEST_BPY_ALL or TEST_FONV_BOD:
     assert TT.NearEqual(bodybb[0][0], -44.4, epsilon=0.1), f"Min X correct: {bodybb[0][0]}"
     assert TT.NearEqual(bodybb[1][2], 110.4, epsilon=0.1), f"Max Z correct: {bodybb[1][2]}"
 
-    ObjectSelect([body])
-    ObjectActive(body)
+    BD.ObjectSelect([body], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     testnif = pyn.NifFile(testfile)

@@ -1745,10 +1745,17 @@ class NifImporter():
                 curveY.keyframe_points.insert(k.time * fps + 1, vq[2])
                 curveZ.keyframe_points.insert(k.time * fps + 1, vq[3])
 
+        elif td.properties.rotationType == NiKeyType.NO_INTERP:
+            pass
         else:
-            self.add_warning(f"Nif contains unimplemented rotation type: {td.properties.rotationType}")
-                
-        if len(td.translations) > 0:
+            self.add_warning(f"Nif contains unimplemented rotation type at {path_name}: {td.properties.rotationType}")
+
+        # Seems like a value of + or - infinity in the Transform
+        if len(td.translations) > 0 and \
+            tiv[0] > -1e+30 and tiv[0] < 1e+30 and \
+            tiv[1] > -1e+30 and tiv[1] < 1e+30 and \
+            tiv[2] > -1e+30 and tiv[2] < 1e+30:
+            
             curveLocX = action.fcurves.new(f"{path_name}.location", index=0, action_group=group_name)
             curveLocY = action.fcurves.new(f"{path_name}.location", index=1, action_group=group_name)
             curveLocZ = action.fcurves.new(f"{path_name}.location", index=2, action_group=group_name)
@@ -1803,7 +1810,7 @@ class NifImporter():
             "Object Transforms",
             target_obj.name, 
             target_obj.matrix_local)
-        targetobj.rotation_mode = rotmode
+        target_obj.rotation_mode = rotmode
 
         if not target_obj.animation_data.action:
             target_obj.animation_data.action = new_action
@@ -2125,6 +2132,12 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 imp.import_xf = blender_import_xf
             imp.execute()
         
+            bpy.context.view_layer.update()
+            for area in [a for a in bpy.context.screen.areas if a.type == 'OUTLINER']:
+                for region in [r for r in area.regions if r.type == 'WINDOW']:
+                    override = {'area':area, 'region': region}
+                    bpy.ops.outliner.show_active(override)
+
             # Zoom any 3D view to the selected objects
             for area in [a for a in context.screen.areas if a.type == 'VIEW_3D']:
                 for region in [r for r in area.regions if r.type == 'WINDOW']:
@@ -2155,7 +2168,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 
         # Zoom any outliner view to the active objects.
         # Not working. Not sure why.
-        for area in [a for a in bpy.context.screen.areas if a.type == 'OUTLINER']:
+        for area in [a for a in context.screen.areas if a.type == 'OUTLINER']:
             for region in [r for r in area.regions if r.type == 'WINDOW']:
                 override = {'area':area, 'region': region}
                 bpy.ops.outliner.show_active(override)

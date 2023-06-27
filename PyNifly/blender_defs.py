@@ -130,8 +130,10 @@ FACEBONE_LEN = 2
 #                         radians(-90)).to_matrix().to_4x4(), Quaternion(Vector((0,0,1)),
 #                   radians(-90)).inverted().to_matrix().to_4x4()), 'Z':
 #                         (Quaternion(Vector((1,0,0)), radians(90)).to_matrix().to_4x4(),
-# Quaternion(Vector((1,0,0)), radians(90)).inverted().to_matrix().to_4x4())} What if we
-# don't add a rotation--just use what the nif has
+# Quaternion(Vector((1,0,0)), radians(90)).inverted().to_matrix().to_4x4())} 
+
+# What if we don't add a rotation--just use what the nif has. Not so pretty for the user
+# but arguably more correct?
 game_rotations = {'X': (Matrix.Identity(4),
                         Matrix.Identity(4)),
                   'Z': (Matrix.Identity(4),
@@ -163,14 +165,15 @@ def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor, roll
     bone = armdata.edit_bones.new(bone_name)
     bone.head = Vector((0,0,0))
     if is_facebone(bone_name):
-        v = Vector((FACEBONE_LEN, 0, 0))
+        # v = Vector((FACEBONE_LEN, 0, 0))
+        bone.tail = Vector((FACEBONE_LEN,0,0))
     else:
-        v = bone_vectors[game_axes[game]] * BONE_LEN # Vector((0, -BONE_LEN, 0))
+        # v = bone_vectors[game_axes[game]] * BONE_LEN # Vector((0, -BONE_LEN, 0))
+        bone.tail = Vector((BONE_LEN,0,0))
     # bone.tail = bone.head + v
     # bone.tail = bone_vectors[game_axes[game]] * BONE_LEN
 
     # Direction of tail doesn't matter. It will get set by the bone_blender transform.
-    bone.tail = Vector((BONE_LEN,0,0))
 
     bone.matrix = get_bone_blender_xf(node_xf, game, scale_factor)
     bone.roll += roll
