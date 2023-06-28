@@ -30,6 +30,8 @@ def clear_all():
     #     #bpy.data.objects.remove(obj)
     for c in bpy.data.collections:
         bpy.data.collections.remove(c)
+    for a in bpy.data.actions:
+        bpy.data.actions.remove(a)
 
 def append_from_file(objname, with_parent, filepath, innerpath, targetobj):
     """ Convenience routine: Load an object from another blender file. 

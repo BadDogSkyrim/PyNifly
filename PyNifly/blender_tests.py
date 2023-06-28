@@ -4,6 +4,7 @@ Convenient setup for running these tests here:
 https://polynook.com/learn/set-up-blender-addon-development-environment-in-windows
 """
 import math
+import pathlib
 import bpy
 import bpy_types
 from mathutils import Matrix, Vector, Quaternion, Euler
@@ -129,7 +130,7 @@ TEST_PIPBOY = False
 TEST_BABY = False  ### FO4 baby 
 TEST_ROTSTATIC = False  ### Statics are transformed according to the shape transform
 TEST_ROTSTATIC2 = False  ### Statics are transformed according to the shape transform
-TEST_FACEBONES = True
+TEST_FACEBONES = False
 TEST_FACEBONES_RENAME = False  ### Facebones are correctly renamed from Blender to the game's names
 TEST_BONE_XF = False
 TEST_IMP_ANIMATRON = False
@@ -145,7 +146,7 @@ TEST_FONV_BOD = False  ### Basic FONV body part import and export
 TEST_ANIM_CHEST = False  ### Read and write the animation of chest opening and shutting
 TEST_ANIM_CRATE = False  ### Read and write the animation of crate opening and shutting
 TEST_ANIM_ALDUIN = False  ### Read and write animated Alduin loadscreen
-
+TEST_ANIM_KF = True  ### Import KF animation file
 
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
@@ -4271,6 +4272,46 @@ if TEST_ANIM_ALDUIN:
         print(f"\t{i}\t{v}\t{difv}")
         lastv = v
         
+
+if TEST_ANIM_KF:
+    # ###### WIP. Only test if explicitly selected. #####
+    TT.test_title("TEST_ANIM_KF", "Read and write KF animation.")
+    TT.clear_all()
+
+    testfile = TT.test_file(r"tests\SkyrimSE\1hm_staggerbacksmallest.kf")
+    testfile2 = TT.test_file(r"tests\SkyrimSE\1hm_attackpowerright.kf")
+    skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_vanilla.nif")
+    outfile2 = TT.test_file(r"tests/Out/TEST_ANIM_KF2.nif")
+
+    # Animations are loaded into a skeleton
+    bpy.ops.import_scene.pynifly(filepath=skelfile,
+                                 create_bones=False, 
+                                 rename_bones=False,
+                                 import_animations=False,
+                                 use_blender_xf=False)
+    
+    BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
+    bpy.ops.import_scene.pynifly_kf(filepath=testfile)
+
+    assert bpy.data.actions[0].name.startswith("1hm_staggerbacksmallest")
+
+    # Loading a second animation shouldn't screw things up.
+    BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
+    bpy.ops.import_scene.pynifly_kf(filepath=testfile2)
+
+    assert len([a for a in bpy.data.actions if a.name.startswith("1hm_attackpowerright")])
+
+    BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
+    bpy.ops.export_scene.pynifly_kf(filepath=outfile2)
+
+    # kfout = pyn.NifFile(outfile2)
+    # assert kfout.rootNode.name == '1hm_attackpowerright', f"Have good root node name: {kfout.rootNode.name}"
+
+
+
+# Also test:
+# Import body, then import anim
+# Import skel + anim, import second anim
 
 print("""
 ############################################################

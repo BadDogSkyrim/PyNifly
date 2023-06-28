@@ -3244,5 +3244,17 @@ namespace NiflyDLLTests
 			getNodeBlockname(mttc, buf, 64);
 			Assert::IsTrue(strcmp(buf, "NiMultiTargetTransformController") == 0, L"Found block name");
 		};
+		TEST_METHOD(readKF) {
+			void* nif = load((testRoot / "SkyrimSE/1hm_attackpowerright.kf").u8string().c_str());
+			void* root = getRoot(nif);
+			char namebuf[64];
+			getNodeBlockname(root, namebuf, 64);
+			Assert::IsTrue(strcmp(namebuf, "NiControllerSequence") == 0, L"Found block name");
+			
+			ControllerLinkBuf cblist[100];
+			int cbCount = getControlledBlocks(nif, 0, 100, cblist);
+			getString(nif, cblist[0].ctrlType, 64, namebuf);
+			Assert::IsTrue(strcmp(namebuf, "NiTransformController") == 0, L"Found controller type");
+		};
 	};
 }

@@ -1728,7 +1728,7 @@ class NifImporter():
                         val = k.value - ve[2]
                         curveZ.keyframe_points.insert(k.time * fps + 1, val)
         
-        elif td.properties.rotationType == NiKeyType.LINEAR_KEY:
+        elif td.properties.rotationType in [NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY]:
             rotation_mode = "QUATERNION"
 
             curveW = action.fcurves.new(f"{path_name}.rotation_quaternion", index=0, action_group=group_name)
@@ -1781,36 +1781,54 @@ class NifImporter():
             self.add_warning(f"Nif has unknown controller type: {block.controller_type}")
             return
         
-        if block.node_name not in self.nif.nodes:
-            self.add_warning(f"Controller target not found in nif: {block.node_name}")
-            return
-        target_node = self.nif.nodes[block.node_name]
+        if block.node_name in self.nif.nodes:
+            target_node = self.nif.nodes[block.node_name]
 
-        if target_node._handle in self.objects_created:
-            target_obj = self.objects_created[target_node._handle]
+            if target_node._handle in self.objects_created:
+                target_obj = self.objects_created[target_node._handle]
+            else:
+                self.add_warning(f"Target object was not imported: {block.node_name}")
+                return
+            action_group = "Object Transforms"
+            path_name = target_obj.name
+            action_name = f"{block.node_name}_{seq.name}"
+        elif block.node_name in self.armature.data.bones:
+            action_group = block.node_name
+            path_name = f'pose.bones["{action_group}"]'
+            target_obj = self.armature
+            action_name = seq.name
         else:
-            self.add_warning(f"Target object was not imported: {block.node_name}")
+            self.add_warning(f"Controller target not found: {block.node_name}")
             return
 
         fps = self.context.scene.render.fps
         if not target_obj.animation_data:
             target_obj.animation_data_create()
-        action_name = f"{block.node_name}_{seq.name}"
-        new_action = bpy.data.actions.new(action_name)
-        new_action.frame_start = seq.properties.startTime * fps + 1
-        new_action.frame_end = seq.properties.stopTime * fps + 1
-        new_action.use_frame_range = True
-        new_action.use_fake_user = True
-        new_action.asset_mark()
+
+        new_action = None
+        if action_group != "Object Transforms":
+            new_action = target_obj.animation_data.action
+
+        if not new_action:
+            new_action = bpy.data.actions.new(action_name)
+            new_action.frame_start = seq.properties.startTime * fps + 1
+            new_action.frame_end = seq.properties.stopTime * fps + 1
+            new_action.use_frame_range = True
+            new_action.use_fake_user = True
+            new_action.asset_mark()
 
         rotmode = self.import_interpolator(
             block.interpolator, 
             target_obj, 
             new_action, 
-            "Object Transforms",
-            target_obj.name, 
+            action_group,
+            path_name, 
             target_obj.matrix_local)
-        target_obj.rotation_mode = rotmode
+        
+        if action_group == "Object Transforms":
+            target_obj.rotation_mode = rotmode
+        else:
+            target_obj.pose.bones[block.node_name].rotation_mode = rotmode
 
         if not target_obj.animation_data.action:
             target_obj.animation_data.action = new_action
@@ -1833,12 +1851,27 @@ class NifImporter():
                 self.import_sequences(seq)
 
 
+    def import_controller_seq(self, cseq:NiControllerSequence):
+        """Import a ControllerSequence node and children."""
+        if self.armature:
+            if self.armature.animation_data:
+                self.armature.animation_data.action = None
+
+        for cb in cseq.controlled_blocks:
+            self.import_controlled_block(cseq, cb)
+
+
     # ----- End Animations ----
 
 
     def import_nif(self):
-        """Perform the import operation as previously defined."""
+        """Import a single file."""
         log.info(f"Importing {self.nif.game} file {self.nif.filepath}")
+
+        if self.nif.rootNode.blockname == "NiControllerSequence":
+            # Import animation file and done.
+            self.import_controller_seq(self.nif.rootNode)
+            return
 
         # Import the root node
         self.import_ninode(None, self.nif.rootNode)
@@ -2371,6 +2404,73 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
             LogFinish(imp, self.filepath, status, True)
         
         return status.intersection({'FINISHED', 'CANCELLED'})
+
+
+
+################################################################################
+#                                                                              #
+#                             KF ANIMATION IMPORT                              #
+#                                                                              #
+################################################################################
+
+
+class ImportKF(bpy.types.Operator, ExportHelper):
+    """Import Blender animation to an armature"""
+
+    bl_idname = "import_scene.pynifly_kf"
+    bl_label = 'Import KF (pyNifly)'
+    bl_options = {'PRESET'}
+
+    filename_ext = ".kf"
+    filter_glob: StringProperty(
+        default="*.kf",
+        options={'HIDDEN'},
+    )
+
+    @classmethod
+    def poll(cls, context):
+        if (not context.object) or context.object.type != "ARMATURE":
+            log.error("Active object must be an armature.")
+            return False
+
+        if context.object.mode != 'OBJECT':
+            log.error("Must be in Object Mode to import")
+            return False
+
+        return True
+    
+
+    def __init__(self):
+        self.nif:NifFile = None
+        self.armature = None
+    
+
+    def execute(self, context):
+        res = set()
+
+        if not self.poll(context):
+            self.report({"ERROR"}, f"Cannot run importer--see system console for details")
+            return {'CANCELLED'} 
+
+        LogStart(bl_info, "IMPORT", "KF")
+
+        try:
+            NifFile.Load(nifly_path)
+            imp = NifImporter(self.filepath)
+            imp.context = context
+            imp.armature = context.object
+            imp.import_anims = True
+            imp.nif = NifFile(self.filepath)
+            imp.import_nif()
+        except:
+            log.exception("Import of KF file failed")
+            self.report({"ERROR"}, "Import of KF failed, see console window for details")
+            status = {'CANCELLED'}
+            LogFinish("IMPORT", self.filepath, status, True)
+
+        return res.intersection({'CANCELLED'}, {'FINISHED'})
+    
+
 
 # ### ---------------------------- EXPORT -------------------------------- ###
 
@@ -4226,61 +4326,100 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 
-#----------
-class PynRenamerNifTools(bpy.types.Operator):
-    """Rename bones from PyNifly to NifTools"""
-    bl_idname = "object.pynifly_rename_niftools"        # Unique identifier for buttons and menu items to reference.
-    bl_label = "PyNifly: Rename bones to NifTools"         # Display name in the interface.
-    bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
 
-    def execute(self, context):        # execute() is called when running the operator.
-        found_work = False
+################################################################################
+#                                                                              #
+#                             KF ANIMATION EXPORT                              #
+#                                                                              #
+################################################################################
 
-        scene = context.scene
-        for obj in scene.objects:
-            if obj.type == "ARMATURE" and obj.select_get():
-                log.info(f"Renaming bones on {obj}")
-                found_work = True
-                for b in obj.data.bones:
-                    try:
-                        #log.debug(f"Attempting rename of {b.name}")
-                        b.name = skyrimDict.byPynifly[b.name].niftools
-                        #log.debug(f"Renamed {b.name}")
-                    except:
-                        pass
-                try:
-                    obj.data.niftools.axis_forward = "Z"
-                    obj.data.niftools.axis_up = "-X"
-                except:
-                    pass
+class ExportKF(bpy.types.Operator, ExportHelper):
+    """Export Blender object(s) to a NIF File"""
 
-        if not found_work:
-            log.warning(f"No valid objects found to do renaming on")
-            return {'WARNING'}
-        else:
-            return {'FINISHED'}            # Lets Blender know the operator finished successfully.
+    bl_idname = "export_scene.pynifly_kf"
+    bl_label = 'Export KF (pyNifly)'
+    bl_options = {'PRESET'}
 
-def nifly_menu_rename_niftools(self, context):
-    self.layout.operator(PynRenamerNifTools.bl_idname)
+    filename_ext = ".kf"
+
+
+    @classmethod
+    def poll(cls, context):
+        if len(context.selected_objects) == 0:
+            log.error("Must select an object to export")
+            return False
+
+        if context.object.mode != 'OBJECT':
+            log.error("Must be in Object Mode to export")
+            return False
+
+        return True
+
+
+
+# #----------
+# class PynRenamerNifTools(bpy.types.Operator):
+#     """Rename bones from PyNifly to NifTools"""
+#     bl_idname = "object.pynifly_rename_niftools"        # Unique identifier for buttons and menu items to reference.
+#     bl_label = "PyNifly: Rename bones to NifTools"         # Display name in the interface.
+#     bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
+
+#     def execute(self, context):        # execute() is called when running the operator.
+#         found_work = False
+
+#         scene = context.scene
+#         for obj in scene.objects:
+#             if obj.type == "ARMATURE" and obj.select_get():
+#                 log.info(f"Renaming bones on {obj}")
+#                 found_work = True
+#                 for b in obj.data.bones:
+#                     try:
+#                         #log.debug(f"Attempting rename of {b.name}")
+#                         b.name = skyrimDict.byPynifly[b.name].niftools
+#                         #log.debug(f"Renamed {b.name}")
+#                     except:
+#                         pass
+#                 try:
+#                     obj.data.niftools.axis_forward = "Z"
+#                     obj.data.niftools.axis_up = "-X"
+#                 except:
+#                     pass
+
+#         if not found_work:
+#             log.warning(f"No valid objects found to do renaming on")
+#             return {'WARNING'}
+#         else:
+#             return {'FINISHED'}            # Lets Blender know the operator finished successfully.
+
+# def nifly_menu_rename_niftools(self, context):
+#     self.layout.operator(PynRenamerNifTools.bl_idname)
 
 #------------
 
 def nifly_menu_import_nif(self, context):
-    self.layout.operator(ImportNIF.bl_idname, text="Nif file with Nifly (.nif)")
+    self.layout.operator(ImportNIF.bl_idname, text="Nif file with pyNifly (.nif)")
 def nifly_menu_import_tri(self, context):
-    self.layout.operator(ImportTRI.bl_idname, text="Tri file with Nifly (.tri)")
+    self.layout.operator(ImportTRI.bl_idname, text="Tri file with pyNifly (.tri)")
+def nifly_menu_import_kf(self, context):
+    self.layout.operator(ImportKF.bl_idname, text="KF file with pyNifly (.kf)")
 def nifly_menu_export(self, context):
-    self.layout.operator(ExportNIF.bl_idname, text="Nif file with Nifly (.nif)")
+    self.layout.operator(ExportNIF.bl_idname, text="Nif file with pyNifly (.nif)")
+def nifly_menu_export_kf(self, context):
+    self.layout.operator(ExportKF.bl_idname, text="KF file with pyNifly (.kf)")
 
 def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_nif)
     bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_tri)
+    bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_kf)
     bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export)
-    bpy.types.VIEW3D_MT_object.remove(nifly_menu_rename_niftools)
+    bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export_kf)
+    # bpy.types.VIEW3D_MT_object.remove(nifly_menu_rename_niftools)
     try:
         bpy.utils.unregister_class(bpy.types.IMPORT_SCENE_OT_pynifly)
         bpy.utils.unregister_class(bpy.types.IMPORT_SCENE_OT_pyniflytri)
+        bpy.utils.unregister_class(bpy.types.IMPORT_SCENE_OT_pynifly_kf)
         bpy.utils.unregister_class(bpy.types.EXPORT_SCENE_OT_pynifly)
+        bpy.utils.unregister_class(bpy.types.EXPORT_SCENE_OT_pynifly_kf)
         bpy.utils.unregister_class(bpy.types.OBJECT_OT_pynifly_rename_niftools)
     except:
         pass
@@ -4290,12 +4429,16 @@ def register():
     unregister()
     bpy.utils.register_class(ImportNIF)
     bpy.utils.register_class(ImportTRI)
+    bpy.utils.register_class(ImportKF)
     bpy.utils.register_class(ExportNIF)
-    bpy.utils.register_class(PynRenamerNifTools)
+    bpy.utils.register_class(ExportKF)
+    # bpy.utils.register_class(PynRenamerNifTools)
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_nif)
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_tri)
+    bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_kf)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export)
-    bpy.types.VIEW3D_MT_object.append(nifly_menu_rename_niftools)
+    bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_kf)
+    # bpy.types.VIEW3D_MT_object.append(nifly_menu_rename_niftools)
     skeleton_hkx.register()
 
 

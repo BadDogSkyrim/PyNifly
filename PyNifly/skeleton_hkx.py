@@ -348,6 +348,10 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
 
     @classmethod
     def poll(cls, context):
+        if not context.object:
+            log.error("Must have an active object to export.")
+            return False
+        
         if context.object.mode != 'POSE':
             log.error("Must be in POSE Mode to export skeleton bones")
             return False
@@ -373,11 +377,21 @@ def nifly_menu_export_skel(self, context):
 def unregister():
     try:
         bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_skel)
+    except:
+        pass
+    try:
         bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export_skel)
+    except:
+        pass
+    try:
         bpy.utils.unregister_class(ImportSkel)
+    except:
+        pass
+    try:
         bpy.utils.unregister_class(ExportSkel)
     except:
         pass
+
 
 def register():
     unregister()

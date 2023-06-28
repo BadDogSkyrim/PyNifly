@@ -89,9 +89,15 @@ NIFLY_API void* load(const char8_t* filename) {
     return nullptr;
 }
 
-NIFLY_API void* getRoot(void* f) {
+NIFLY_API void* getRoot(void* f) 
+/* Return the root node of the file.
+    KF files may not have a NiNode as the root, so do the work here.
+    */
+{
     NifFile* theNif = static_cast<NifFile*>(f);
-    return theNif->GetRootNode();
+    NiHeader hdr = theNif->GetHeader();
+    //return theNif->GetRootNode();
+    return hdr.GetBlock<NiObject>(0u);
 }
 
 NIFLY_API int getRootName(void* f, char* buf, int len) {
@@ -232,8 +238,12 @@ NIFLY_API void getNodes(void* theNif, void** buf)
         buf[i] = nodes[i];
 }
 
-NIFLY_API int getNodeBlockname(void* node, char* buf, int buflen) {
-    nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
+NIFLY_API int getNodeBlockname(void* node, char* buf, int buflen) 
+/*
+    Return the blockname of the given NiObject.
+*/
+{
+    nifly::NiObject* theNode = static_cast<nifly::NiObject*>(node);
     std::string name = theNode->GetBlockName();
     int copylen = std::min((int)buflen - 1, (int)name.length());
     name.copy(buf, copylen, 0);
@@ -2572,6 +2582,7 @@ NIFLY_API int getControlledBlocks(void* nifref, uint32_t csID, int buflen, Contr
         b->priority = cl.priority;
         b->nodeName = cl.nodeName.GetIndex();
         b->propType = cl.propType.GetIndex();
+        b->ctrlType = cl.ctrlType.GetIndex();
         b->ctrlID = cl.ctrlID.GetIndex();
         b->interpID = cl.interpID.GetIndex();
         i++;

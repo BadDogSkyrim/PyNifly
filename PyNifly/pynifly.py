@@ -1014,7 +1014,7 @@ class NiTransformData(NiKeyFrameData):
 
         if self.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
             self._readxyzrot()
-        elif self.properties.rotationType == NiKeyType.LINEAR_KEY:
+        elif self.properties.rotationType in [NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY]:
             self._readlinrot()
 
         for frame in range(0, self.properties.translations.numKeys):
@@ -1031,8 +1031,9 @@ class NiTransformData(NiKeyFrameData):
             self.translations.append(k)
 
     def _readlinrot(self):
-        """Read keys when the type is LINEAR_KEY. These are time, value pairs where the
-        value is a quaternion. """
+        """Read keys when the type is LINEAR_KEY or QUADRATIC_KEY. These are time, value
+        pairs where the value is a quaternion. 
+        """
         for frame in range(0, self.properties.rotationKeyCount):
             buf = NiAnimKeyLinearQuatBuf()
             NifFile.nifly.getAnimKeyLinearQuat(self.file._handle, self.id, frame, buf)
@@ -1154,7 +1155,7 @@ class ControllerLink:
         buflen = self.parent.file.max_string_len+1
         buf = (c_char * buflen)()
         NifFile.nifly.getString(self.parent.file._handle, 
-                                self.properties.controllerID,
+                                self.properties.ctrlType,
                                 buflen, buf)
         self._controller_type = buf.value.decode('utf-8')
         return self._controller_type
@@ -1935,11 +1936,9 @@ class NifFile:
     @property 
     def rootNode(self) -> NiNode:
         """Return the root node of the nif. 
-        Note this causes all nodes to be loaded and nif.nodes to be filled.
+        NOT TRUE: Note this causes all nodes to be loaded and nif.nodes to be filled.
         """
-        if self.rootName in self.nodes: return self.nodes[self.rootName]
-        # Root should always have been loaded, if the file has been loaded or initialized.
-        return None
+        return self.read_node(0)
     
     @property
     def game(self):
@@ -2205,6 +2204,7 @@ class NifFile:
     # be all of them. This could be done with reflection but we're keeping things simple.
     block_types = {
         "NiNode": NiNode,
+        "BSFadeNode": NiNode,
         "NiMultiTargetTransformController": NiMultiTargetTransformController,
         "NiControllerSequence": NiControllerSequence,
         "NiTransformController": NiTransformController,
@@ -2236,11 +2236,11 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
-TEST_CREATE_TETRA = True
+TEST_CREATE_TETRA = False
 TEST_CREATE_WEIGHTS = False
 TEST_READ_WRITE = False
 TEST_XFORM_FO = False
@@ -2261,8 +2261,8 @@ TEST_UNSKINNED = False
 TEST_UNI = False
 TEST_SHADER = False
 TEST_ALPHA = False
-TEST_SHEATH = True
-TEST_SHEATH = True
+TEST_SHEATH = False
+TEST_SHEATH = False
 TEST_FEET = False
 TEST_XFORM_SKY = False
 TEST_XFORM_STATIC = False
@@ -2283,7 +2283,8 @@ TEST_CONNECT_POINTS = False
 TEST_SKIN_BONE_XF = False
 TEST_WEIGHTS_BY_BONE = False
 TEST_ANIMATION = False
-TEST_ANIMATION_ALDUIN = True
+TEST_ANIMATION_ALDUIN = False
+TEST_KF = True
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -3967,6 +3968,21 @@ if __name__ == "__main__":
         assert len(tdthighl.xrotations) == 0, f"Have xrotations"
         assert len(tdthighl.qrotations) == 161, f"Have quat rotations"
         assert NearEqual(tdthighl.qrotations[0].value[0], 0.2911), f"Have correct angle: {tdthighl.qrotations[0].value}"
+
+
+    if TEST_ALL or TEST_KF:
+        print("### TEST_KF: KF animation file")
+        nif = NifFile(r"tests/SkyrimSE/1hm_attackpowerright.kf")
+        root = nif.rootNode
+        assert root.blockname == "NiControllerSequence", f"Found correct block name: {root.blockname}"
+        assert root.name == "1hm_attackpowerright", f"Have root node {root.name}"
+        assert len(root.controlled_blocks) == 91, f"Have controlled blocks: {len(root.controlled_blocks)}"
+        cb = root.controlled_blocks[0]
+        assert cb.controller_type == "NiTransformController", f"Have correct controller type: {cb.controller_type}"
+        ti = cb.interpolator
+        td = ti.data
+        assert td.properties.rotationType == NiKeyType.QUADRATIC_KEY, f"Have expected rotation type: {td.properties.rotationType}"
+        assert len(td.qrotations) == 36, f"Have quadratc rotation keys: {len(td.qrotations)}"
 
 
     print("""
