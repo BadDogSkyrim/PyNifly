@@ -531,10 +531,13 @@ extern "C" NIFLY_API void* getNodeParent(void* theNif, void* node);
 extern "C" NIFLY_API void* createNif(const char* targetGame, int rootType, const char* rootName);
 extern "C" NIFLY_API void* createNifShapeFromData(void* parentNif, const char* shapeName, const nifly::Vector3* verts, const nifly::Vector2* uv_points, const nifly::Vector3* norms, int vertCount, const nifly::Triangle* tris, int triCount, uint16_t * optionsPtr = nullptr, void* parentRef = nullptr);
 extern "C" NIFLY_API void setTransform(void* theShape, nifly::MatTransform* buf);
-extern "C" NIFLY_API void* addNode(void* f, const char* name, const nifly::MatTransform* xf, void* parent);
+extern "C" NIFLY_API void* addNode(void* f, const char* name, void* xf, void* parent);
+extern "C" NIFLY_API int addBlock(void* f, const char* name, const char* type, void* buf, void* parent);
+extern "C" NIFLY_API int getBlock(void* nifref, uint32_t blockID, const char* blocktype, void* buf);
 extern "C" NIFLY_API void getNode(void* node, NiNodeBuf * buf);
 extern "C" NIFLY_API void* getNodeByID(void* theNif, uint32_t theID);
 extern "C" NIFLY_API void* findNodeByName(void* theNif, const char* nodeName);
+extern "C" NIFLY_API int findBlockByName(void* theNif, const char* nodeName);
 extern "C" NIFLY_API int findNodesByType(void* nifRef, void* parentRef, const char* blockname, int buflen, void** buf);
 extern "C" NIFLY_API int getMaxStringLen(void* nifref);
 extern "C" NIFLY_API int getString(void* nifref, int strid, int buflen, char* buf);
@@ -647,6 +650,7 @@ extern "C" NIFLY_API int addCollCapsuleShape(void* nifref, const BHKCapsuleShape
 
 extern "C" NIFLY_API void getControllerManager(void* ncmref, NiControllerManagerBuf * buf);
 extern "C" NIFLY_API int getControllerManagerSequences(void* nifref, void* ncmref, int buflen, uint32_t* seqptrs);
+extern "C" NIFLY_API int getControllerManagerSeq(void* nifref, int ncmID, int buflen, uint32_t* seqptrs);
 extern "C" NIFLY_API void getControllerSequence(void* nifref, uint32_t csID, NiControllerSequenceBuf * buf);
 extern "C" NIFLY_API int getControlledBlocks(void* nifref, uint32_t csID, int buflen, ControllerLinkBuf * blocks);
 extern "C" NIFLY_API void getMultiTargetTransformController(void* nifref, int mttcID, NiMultiTargetTransformControllerBuf * buf);

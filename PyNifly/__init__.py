@@ -4345,7 +4345,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
 
     @classmethod
     def poll(cls, context):
-        if len(context.selected_objects) == 0:
+        if (not context.object) and context.object.type != 'ARMATURE':
             log.error("Must select an object to export")
             return False
 
@@ -4354,7 +4354,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             return False
 
         return True
-
+    
 
 
 # #----------

@@ -251,6 +251,44 @@ NIFLY_API int getNodeBlockname(void* node, char* buf, int buflen)
     return int(name.length());
 }
 
+NIFLY_API int getBlock(void* nifref, uint32_t blockID, const char* blocktype, void* buf) 
+/* Read block properties for any type of block. buf must be the appropriate type of buffer 
+    for the block type.
+
+    Returns: True if block found and read; false if not.
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    if (strcmp(blocktype, "NiNode") == 0) {
+        nifly::NiNode* node = hdr.GetBlock<NiNode>(blockID);
+        getNode(node, static_cast<NiNodeBuf*>(buf));
+    }
+    if (strcmp(blocktype, "BSFadeNode") == 0) {
+        nifly::BSFadeNode* node = hdr.GetBlock<BSFadeNode>(blockID);
+        getNode(node, static_cast<NiNodeBuf*>(buf));
+    }
+    else if (strcmp(blocktype, "NiControllerManager") == 0) {
+        nifly::NiControllerManager* node = hdr.GetBlock<NiControllerManager>(blockID);
+        getControllerManager(node, static_cast<NiControllerManagerBuf*>(buf));
+    }
+    else if (strcmp(blocktype, "NiMultiTargetTransformControllerBuf") == 0) {
+        getMultiTargetTransformController(nifref, blockID, static_cast<NiMultiTargetTransformControllerBuf*>(buf));
+    }
+    else if (strcmp(blocktype, "NiControllerSequence") == 0) {
+        getControllerSequence(nifref, blockID, static_cast<NiControllerSequenceBuf*>(buf));
+    }
+    else if (strcmp(blocktype, "NiTransformInterpolator") == 0) {
+        getTransformInterpolator(nifref, blockID, static_cast<NiTransformInterpolatorBuf*>(buf));
+    }
+    else if (strcmp(blocktype, "NiTransformData") == 0) {
+        getTransformData(nifref, blockID, static_cast<NiTransformDataBuf*>(buf));
+    }
+    else
+        return 0;
+    return 1;
+};
+
 NIFLY_API void getNode(void* node, NiNodeBuf* buf) {
     nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
     buf->nameID = theNode->name.GetIndex();
@@ -322,16 +360,39 @@ NIFLY_API void* getNodeParent(void* theNif, void* node) {
     return nif->GetParentNode(theNode);
 }
 
-NIFLY_API void* addNode(void* f, const char* name, const MatTransform* xf, void* parent) {
+NIFLY_API void* addNode(void* f, const char* name, void* xf, void* parent) {
     NifFile* nif = static_cast<NifFile*>(f);
     NiNode* parentNode = static_cast<NiNode*>(parent);
-    NiNode* theNode = nif->AddNode(name, *xf, parentNode);
+    MatTransform* xfptr = static_cast<MatTransform*>(xf);
+    NiNode* theNode = nif->AddNode(name, *xfptr, parentNode);
     return theNode;
+}
+
+NIFLY_API int addBlock(void* f, const char* name, const char* type, void* buf, void* parent) {
+    NifFile* nif = static_cast<NifFile*>(f);
+    NiHeader hdr = nif->GetHeader();
+
+    if (strcmp(type, "NiNode") == 0) {
+        NiNodeBuf* nodeBuf = static_cast<NiNodeBuf*>(buf);
+        void* node = addNode(f, name, &nodeBuf->translation[0], parent);
+        NiNode* theNode = static_cast<NiNode*>(node);
+        return hdr.GetBlockID(theNode);
+    }
+    else {
+        return NIF_NPOS;
+    }
 }
 
 NIFLY_API void* findNodeByName(void* theNif, const char* nodeName) {
     NifFile* nif = static_cast<NifFile*>(theNif);
     return nif->FindBlockByName<NiObjectNET>(nodeName);
+}
+
+NIFLY_API int findBlockByName(void* theNif, const char* nodeName) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    NiHeader hdr = nif->GetHeader();
+    NiObjectNET* theBlock = nif->FindBlockByName<NiObjectNET>(nodeName);
+    return nif->GetBlockID(theBlock);
 }
 
 NIFLY_API int findNodesByType(void* nifRef, void* parentRef, const char* blockname, int buflen, void** buf)
@@ -2534,6 +2595,20 @@ NIFLY_API void getControllerManager(void* ncmref, NiControllerManagerBuf* buf) {
     buf->objectPaletteID = ncm->objectPaletteRef.index;
 };
 
+NIFLY_API int getControllerManagerSeq(
+    void* nifref,  int cmID, int buflen, uint32_t* seqptrs) 
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    NiControllerManager* ncm = hdr.GetBlock<NiControllerManager>(cmID);
+    int i = 0;
+    for (auto& cs : ncm->controllerSequenceRefs) {
+        if (i >= buflen) break;
+        seqptrs[i++] = cs.index;
+    }
+    return ncm->controllerSequenceRefs.GetSize();
+}
+
 NIFLY_API int getControllerManagerSequences(
     void* nifref,  void* ncmref, int buflen, uint32_t* seqptrs) 
 {
@@ -2548,7 +2623,7 @@ NIFLY_API int getControllerManagerSequences(
     return ncm->controllerSequenceRefs.GetSize();
 }
 
-NIFLY_API void getControllerSequence(void* nifref, uint32_t csID, NiControllerSequenceBuf* buf) {
+void getControllerSequence(void* nifref, uint32_t csID, NiControllerSequenceBuf* buf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     NiControllerSequence* cs = hdr.GetBlock< NiControllerSequence>(csID);
@@ -2561,17 +2636,38 @@ NIFLY_API void getControllerSequence(void* nifref, uint32_t csID, NiControllerSe
     buf->cycleType = cs->cycleType;
     buf->frequency = cs->frequency;
     buf->startTime = cs->startTime;
-    buf->stopTime = cs->stopTime;
+    buf->stopTime =  cs->stopTime;
     buf->accumRootNameID = cs->accumRootName.GetIndex();
     buf->animNotesID = cs->animNotesRef.IsEmpty()? NIF_NPOS: cs->animNotesRef.index;
     buf->animNotesCount = cs->animNotesRefs.GetSize();
+}
+
+int addControllerSequence(void* nifref, NiControllerSequenceBuf* buf) 
+/* Add a ControllerSequence block */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+
+    auto cs = std::make_unique<NiControllerSequence>();
+    cs->name.SetIndex(buf->nameID);
+    cs->arrayGrowBy = buf->arrayGrowBy;
+    cs->weight = buf->weight;
+    if (buf->textKeyID != NIF_NPOS) cs->textKeyRef.index = buf->textKeyID;
+    cs->cycleType = CycleType(buf->cycleType);
+    cs->frequency = buf->frequency;
+    cs->startTime = buf->startTime;
+    cs->stopTime = buf->stopTime;
+    cs->accumRootName.SetIndex(buf->accumRootNameID);
+    if (buf->animNotesID != NIF_NPOS) cs->animNotesRef.index = buf->animNotesID;
+
+    return 1;
 }
 
 NIFLY_API int getControlledBlocks(void* nifref, uint32_t csID, int buflen, ControllerLinkBuf* blocks) {
 /* Return the "ControllerLink blocks, children of NiControllerSequence blocks */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
-    NiControllerSequence* cs = hdr.GetBlock< NiControllerSequence>(csID);
+    NiControllerSequence* cs = hdr.GetBlock<NiControllerSequence>(csID);
 
     int i = 0;
     for (auto& cl : cs->controlledBlocks) {

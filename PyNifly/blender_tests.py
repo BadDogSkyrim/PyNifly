@@ -4304,8 +4304,8 @@ if TEST_ANIM_KF:
     BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
     bpy.ops.export_scene.pynifly_kf(filepath=outfile2)
 
-    # kfout = pyn.NifFile(outfile2)
-    # assert kfout.rootNode.name == '1hm_attackpowerright', f"Have good root node name: {kfout.rootNode.name}"
+    kfout = pyn.NifFile(outfile2)
+    assert kfout.rootNode.name == '1hm_attackpowerright', f"Have good root node name: {kfout.rootNode.name}"
 
 
 
