@@ -3260,7 +3260,7 @@ namespace NiflyDLLTests
 			int chestBodyID = findBlockByName(nif, "DwarvenChest");
 			NiNodeBuf chestBodyBuf;
 			getBlock(nif, chestBodyID, "NiNode", &chestBodyBuf);
-			int chestBodyOutID = addBlock(nifOut, "DwarvenChest", "NiNode", &chestBodyBuf, nullptr);
+			int chestBodyOutID = addBlock(nifOut, "DwarvenChest", "NiNode", &chestBodyBuf, NIF_NPOS);
 			void* chestBodyOut = getNodeByID(nifOut, chestBodyOutID);
 
 			for (int i = 0; i < shapeCount; i++) {
@@ -3277,7 +3277,7 @@ namespace NiflyDLLTests
 			int chestLidID = findBlockByName(nif, "Object01");
 			NiNodeBuf chestLidBuf;
 			getBlock(nif, chestLidID, "NiNode", &chestLidBuf);
-			int chestLidOutID = addBlock(nifOut, "Object01", "NiNode", &chestLidBuf, nullptr);
+			int chestLidOutID = addBlock(nifOut, "Object01", "NiNode", &chestLidBuf, NIF_NPOS);
 			void* chestLidOut = getNodeByID(nifOut, chestLidOutID);
 
 			for (int i = 0; i < shapeCount; i++) {
@@ -3290,11 +3290,22 @@ namespace NiflyDLLTests
 				}
 			}
 
+			// Write Gear08, which is animated by the second "open" Controlled Block.
+			int gear08 = findBlockByName(nif, "Gear08");
+			NiNodeBuf gear08buf;
+			getBlock(nif, gear08, "NiNode", &gear08buf);
+			int gear08Out = addBlock(nifOut, "Gear08", "NiNode", &gear08buf, NIF_NPOS);
+			void* gear08Outp = getNodeByID(nifOut, gear08Out);
+			int gear08sh = findBlockByName(nif, "Gear08:7");
+			void* gear08shp = getNodeByID(nif, gear08sh);
+			void* gear08shOutp = TCopyShape(nifOut, "Gear08:7", nif, gear08shp, NifOptions(0), false, gear08Outp);
+			TCopyShader(nifOut, gear08shOutp, nif, gear08shp);
+
 			// Transform Data references nothing so it's easy to write first.
 			NiTransformDataBuf tdbufOut1; 
 			tdbufOut1.rotationType = tdbuf1.rotationType;
 			tdbufOut1.translations.interpolation = NiKeyType(LINEAR_KEY);
-			int tdOut1 = addBlock(nifOut, nullptr, "NiTransformData", &tdbufOut1, nullptr);
+			int tdOut1 = addBlock(nifOut, nullptr, "NiTransformData", &tdbufOut1, NIF_NPOS);
 
 			for (int i = 0; i < tdbuf1.translations.numKeys; i++) {
 				addAnimKeyLinearTrans(nifOut, tdOut1, &akbuf[i]);
@@ -3304,15 +3315,21 @@ namespace NiflyDLLTests
 			NiTransformInterpolatorBuf tibufOut;
 			tibufOut = tibuf;
 			tibufOut.dataID = tdOut1;
-			int tiOut = addBlock(nifOut, nullptr, "NiTransformInterpolator", &tibufOut, nullptr);
+			int tiOut = addBlock(nifOut, nullptr, "NiTransformInterpolator", &tibufOut, NIF_NPOS);
 
-			// Transform Data for the gear.
+			// Transform Data for the gear. Write the Interpolator first and pass it as the parent 
+			// to the Data.
+			NiTransformInterpolatorBuf tibufOut2;
+			tibufOut2 = tibuf2;
+			tibufOut2.dataID = NIF_NPOS;
+			int tiOut2 = addBlock(nifOut, nullptr, "NiTransformInterpolator", &tibufOut2, NIF_NPOS);
+
 			NiTransformDataBuf tdbufOut2;
 			tdbufOut2.rotationType = NiKeyType(XYZ_ROTATION_KEY);
 			tdbufOut2.xRotations.interpolation = NiKeyType(LINEAR_KEY);
 			tdbufOut2.yRotations.interpolation = NiKeyType(LINEAR_KEY);
 			tdbufOut2.zRotations.interpolation = NiKeyType(QUADRATIC_KEY);
-			int tdOut2 = addBlock(nifOut, nullptr, "NiTransformData", &tdbufOut2, nullptr);
+			int tdOut2 = addBlock(nifOut, nullptr, "NiTransformData", &tdbufOut2, tiOut2);
 			NiAnimKeyQuadXYZBuf xk, yk;
 			xk.time = 0;
 			xk.value = 0;
@@ -3322,11 +3339,6 @@ namespace NiflyDLLTests
 				addAnimKeyQuadXYZ(nifOut, tdOut2, 'Z', & akbuf2[i]);
 			}
 			
-			NiTransformInterpolatorBuf tibufOut2;
-			tibufOut2 = tibuf2;
-			tibufOut2.dataID = tdOut2;
-			int tiOut2 = addBlock(nifOut, nullptr, "NiTransformInterpolator", &tibufOut2, nullptr);
-
 			// MultiTargetTransformController is the controller for all the controlled blocks and has to 
 			// be referenced by the ControlerManager, so make it first.
 			NiMultiTargetTransformControllerBuf mttcbufOut;
@@ -3334,7 +3346,7 @@ namespace NiflyDLLTests
 			mttcbufOut.nextControllerID = NIF_NPOS;
 			mttcbufOut.targetID = 0; // target is root
 			mttcbufOut.targetCount = 0;
-			int mttcOut = addBlock(nifOut, "", "NiMultiTargetTransformController", &mttcbufOut, nullptr);
+			int mttcOut = addBlock(nifOut, "", "NiMultiTargetTransformController", &mttcbufOut, NIF_NPOS);
 
 			// Controllers are written as blocks. Controller target (the root node) has its controller 
 			// property set to this new block.
@@ -3343,7 +3355,7 @@ namespace NiflyDLLTests
 			cmbufOut.controllerSequenceCount = 0;
 			cmbufOut.objectPaletteID = NIF_NPOS;
 			cmbufOut.targetID = 0;
-			int controllerOut = addBlock(nifOut, "DwarvenChest01", "NiControllerManager", &cmbufOut, nullptr);
+			int controllerOut = addBlock(nifOut, "DwarvenChest01", "NiControllerManager", &cmbufOut, NIF_NPOS);
 
 			// Sequence 1: Lid opens
 			// 
@@ -3356,7 +3368,7 @@ namespace NiflyDLLTests
 			openbufOut.animNotesCount = 0;
 			openbufOut.textKeyID = NIF_NPOS;
 			openbufOut.managerID = controllerOut;
-			int csOpenOut = addBlock(nifOut, "Open", "NiControllerSequence", & openbufOut, nullptr);
+			int csOpenOut = addBlock(nifOut, "Open", "NiControllerSequence", & openbufOut, NIF_NPOS);
 
 			// ControllerLink in the Controller Sequence connects a block to the Interpolator.
 			// Lid
@@ -3382,7 +3394,7 @@ namespace NiflyDLLTests
 			closebufOut.animNotesCount = 0;
 			closebufOut.textKeyID = NIF_NPOS;
 			closebufOut.managerID = controllerOut;
-			int csCloseOut = addBlock(nifOut, "Close", "NiControllerSequence", &closebufOut, nullptr);
+			int csCloseOut = addBlock(nifOut, "Close", "NiControllerSequence", &closebufOut, NIF_NPOS);
 
 			saveNif(nifOut, fileOut.u8string().c_str());
 
@@ -3403,49 +3415,11 @@ namespace NiflyDLLTests
 				openIndexCheck, 
 				tibufCheck, tdbuf1Check, akbufCheck, 
 				tibuf2Check, tdbuf2Check, akbuf2Check);
-
-			//NiNodeBuf rootbufCheck;
-			//getBlock(nifcheck, 0, "BSFadeNode", & rootbufCheck);
-			//Assert::IsTrue(rootbufCheck.controllerID != NIF_NPOS, L"Have controller ID");
-
-			//NiControllerManagerBuf cmbufCheck;
-			//getBlock(nifcheck, rootbufCheck.controllerID, "NiControllerManager", &cmbufCheck);
-			//Assert::IsTrue(cmbufCheck.controllerSequenceCount == 1, L"Have the sequence we wrote.");
-
-			//NiMultiTargetTransformControllerBuf mttcbufCheck;
-			//getBlock(nifcheck, cmbufCheck.nextControllerID, "NiMultiTargetTransformController", &mttcbufCheck);
-			//Assert::IsTrue(mttcbufCheck.flags = mttcbuf.flags, L"Flags are correct");
-			//Assert::IsTrue(mttcbufCheck.targetCount == 1, L"Have extra target");
-
-			//uint32_t* csListCheck = new uint32_t[cmbufCheck.controllerSequenceCount];
-			//getControllerManagerSeq(nifcheck, rootbufCheck.controllerID, cmbufCheck.controllerSequenceCount, 
-			//	csListCheck);
-
-			//NiControllerSequenceBuf csbufCheck;
-			//getBlock(nifcheck, csListCheck[0], "NiControllerSequence", &csbufCheck);
-			//char openarNameCheck[100];
-			//getString(nifcheck, csbufCheck.accumRootNameID, 100, openarNameCheck);
-			//Assert::IsTrue(strcmp("DwarvenChest01", openarNameCheck) == 0, L"Have AR name");
-
-			//ControllerLinkBuf clbufCheck;
-			//getControlledBlocks(nifcheck, csListCheck[0], 1, &clbufCheck);
-			//Assert::IsTrue(clbufCheck.controllerID == cmbufCheck.nextControllerID, L"Link back to controller correct");
-			//char ctypenameCheck[50];
-			//getString(nifcheck, clbufCheck.ctrlType, 50, ctypenameCheck);
-			//Assert::IsTrue(strcmp(ctypenameCheck, "NiTransferController") == 0, L"Have correct controller type");
-			//Assert::IsTrue(clbufCheck.interpolatorID != NIF_NPOS, L"Have controller link");
-
-			//NiTransformInterpolatorBuf tibufCheck;
-			//getBlock(nifcheck, clbufCheck.interpolatorID, "NiTransformInterpolator", &tibufCheck);
-			//Assert::IsTrue(clbufCheck.interpolatorID != NIF_NPOS, L"Have interpolator");
-			//NiTransformDataBuf tdbufCheck;
-			//getBlock(nifcheck, tibufCheck.dataID, "NiTransformData", &tdbufCheck);
-			//Assert::IsTrue(tdbufCheck.translations.interpolation = NiKeyType::LINEAR_KEY, L"Have correct key type");
-			//Assert::IsTrue(tdbufCheck.translations.numKeys == 18, L"Have translations");
 		};
-		TEST_METHOD(readAlduin) {
 
-			void* nif = load((testRoot / "SkyrimSE/loadscreenalduinwall.nif").u8string().c_str());
+		void TCheckAlduin(void* nif) {
+			/* Check that Alduin is correct. NB the mesh is not properly rigged to the skeleton and we 
+			don't check for that. We just care that the skeleton is animated. */
 
 			// Each node in this nif has a controller.
 			NiNodeBuf thighbuf;
@@ -3453,17 +3427,164 @@ namespace NiflyDLLTests
 			NiTransformInterpolatorBuf tibuf;
 			NiTransformDataBuf tdbuf;
 			NiAnimKeyLinearQuatBuf qbuf;
+			char pelvName[64];
 
 			void* thigh = findNodeByName(nif, "NPC LLegThigh");
+			void* pelvis = getNodeParent(nif, thigh);
+			getNodeName(pelvis, pelvName, 64);
+			Assert::IsTrue(strcmp(pelvName, "NPC Pelvis") == 0, L"Have correct parent");
+
 			getNode(thigh, &thighbuf);
-			getTransformController(nif, thighbuf.controllerID, &cbuf);
-			getTransformInterpolator(nif, cbuf.interpolatorIndex, &tibuf);
-			getTransformData(nif, tibuf.dataID, &tdbuf);
+			getBlock(nif, thighbuf.controllerID, "NiTransformController", & cbuf);
+			getBlock(nif, cbuf.interpolatorIndex, "NiTransformInterpolator", & tibuf);
+			getBlock(nif, tibuf.dataID, "NiTransformData", & tdbuf);
 			Assert::IsTrue(tdbuf.rotationType == NiKeyType::LINEAR_KEY);
 			Assert::IsTrue(tdbuf.quaternionKeyCount == 161);
 
 			getAnimKeyLinearQuat(nif, tibuf.dataID, 0, &qbuf);
-			Assert::IsTrue(qbuf.value[0] == 213.85);
+			Assert::IsTrue(TApproxEqual(qbuf.value[0], 0.291), L"Have correct quaternion");
+		}
+
+		void TCopyQuadXYZKeys(void* nifOut, int tdOut, void* nif, int td, int numkeys, char dimension) {
+			NiAnimKeyQuadXYZBuf kQuad;
+			for (int f = 0; f < numkeys; f++) {
+				getAnimKeyQuadXYZ(nif, td, dimension, f, &kQuad);
+				addAnimKeyQuadXYZ(nifOut, tdOut, dimension, &kQuad);
+			}
+		}
+
+		void TCopyRotationKeys(void* nifOut, int tdOut, void* nif, int td, NiTransformDataBuf* buf) {
+			if (buf->rotationType == NiKeyType(XYZ_ROTATION_KEY)) {
+				if (buf->xRotations.interpolation == NiKeyType(QUADRATIC_KEY))
+					TCopyQuadXYZKeys(nifOut, tdOut, nif, td, buf->xRotations.numKeys, 'X');
+				else
+					Assert::Fail(L"Unexpected key type");
+				if (buf->yRotations.interpolation == NiKeyType(QUADRATIC_KEY))
+					TCopyQuadXYZKeys(nifOut, tdOut, nif, td, buf->yRotations.numKeys, 'Y');
+				else
+					Assert::Fail(L"Unexpected key type");
+				if (buf->zRotations.interpolation == NiKeyType(QUADRATIC_KEY))
+					TCopyQuadXYZKeys(nifOut, tdOut, nif, td, buf->zRotations.numKeys, 'Z');
+				else
+					Assert::Fail(L"Unexpected key type");
+			}
+			else if (buf->rotationType == NiKeyType(LINEAR_KEY)) {
+				NiAnimKeyLinearQuatBuf k;
+				for (int f = 0; f < buf->quaternionKeyCount; f++) {
+					getAnimKeyLinearQuat(nif, td, f, &k);
+					addAnimKeyLinearQuat(nifOut, tdOut, &k);
+				}
+			}
+			else
+				Assert::Fail(L"Unexpected key type");
+		}
+
+		int TCopyTransformData(void* nifOut, int tiOut, NiTransformInterpolatorBuf* bufOut,
+			void* nif, int ti, NiTransformInterpolatorBuf* buf) {
+			NiTransformDataBuf tdbuf, tdbufOut;
+			char blockname[64];
+
+			getBlockname(nif, buf->dataID, blockname, 64);
+			Assert::IsTrue(strcmp(blockname, "NiTransformData") == 0, L"Have transform data");
+			getBlock(nif, buf->dataID, "NiTransformData", &tdbuf);
+
+			tdbufOut = tdbuf;
+			int tdOut = addBlock(nifOut, "", "NiTransformData", &tdbufOut, tiOut);
+
+			TCopyRotationKeys(nifOut, tdOut, nif, buf->dataID, &tdbuf);
+
+			return tdOut;
+		}
+
+		int TCopyInterpolator(void* nifOut, int tcOut, NiTransformControllerBuf* bufOut,
+			void* nif, int controller, NiTransformControllerBuf* buf) {
+			NiTransformInterpolatorBuf tibuf, tibufOut;
+			char blockname[64];
+
+			getBlockname(nif, buf->interpolatorIndex, blockname, 64);
+			Assert::IsTrue(strcmp(blockname, "NiTransformInterpolator") == 0, L"Have transform interpolator");
+			getBlock(nif, buf->interpolatorIndex, "NiTransformInterpolator", &tibuf);
+
+			int tdOut = TCopyTransformData(nifOut, NIF_NPOS, &tibufOut, nif, buf->interpolatorIndex, &tibuf);
+
+			tibufOut = tibuf;
+			tibufOut.dataID = tdOut;
+			int tiOut = addBlock(nifOut, "", "NiTransformInterpolator", &tibufOut, NIF_NPOS);
+
+			return tiOut;
+		}
+
+		int TCopyController(void* nifOut, int boneOut, NiNodeBuf* bufOut,
+							void* nif, int bone, NiNodeBuf* buf) {
+			NiTransformControllerBuf tcbuf, tcbufOut;
+			char blockname[64];
+			getBlockname(nif, buf->controllerID, blockname, 64);
+			Assert::IsTrue(strcmp(blockname, "NiTransformController") == 0, L"Have transform controller");
+			getBlock(nif, buf->controllerID, "NiTransformController", &tcbuf);
+
+			int tiOut = TCopyInterpolator(nifOut, NIF_NPOS, nullptr, nif, buf->controllerID, &tcbuf);
+
+			tcbufOut = tcbuf;
+			tcbufOut.interpolatorIndex = tiOut;
+			int tcOut = addBlock(nifOut, "", "NiTransformController", &tcbufOut, boneOut);
+
+			return tcOut;
+		}
+
+		int TCopyBone(void* nifOut, void* nif, int boneID, int parent) {
+			NiNodeBuf buf, bufOut;
+			char namebuf[128];
+			getBlock(nif, boneID, "NiNode", &buf);
+			getString(nif, buf.nameID, 128, namebuf);
+			bufOut = buf;
+			bufOut.childCount = 0;
+			bufOut.collisionID = NIF_NPOS;
+			bufOut.controllerID = NIF_NPOS;
+			bufOut.effectCount = 0;
+			bufOut.extraDataCount = 0;
+			int boneOut = addBlock(nifOut, namebuf, "NiNode", &bufOut, parent);
+
+			if (buf.controllerID != NIF_NPOS) TCopyController(nifOut, boneOut, &bufOut, nif, boneID, &buf);
+
+			int children[20];
+			int childCount = getNodeChildren(nif, boneID, 20, children);
+			for (int i = 0; i < childCount; i++) {
+				char blockname[128];
+				getBlockname(nif, children[i], blockname, 128);
+				if (children[i] != NIF_NPOS && strcmp(blockname, "NiNode") == 0)
+					TCopyBone(nifOut, nif, children[i], boneOut);
+			}
+
+			return boneOut;
+		}
+		TEST_METHOD(readAlduin) {
+			/* Another kind of animation. */
+			void* nif = load((testRoot / "SkyrimSE/loadscreenalduinwall.nif").u8string().c_str());
+			TCheckAlduin(nif);
+
+			clearMessageLog();
+			void* nifOut = createNif("SKYRIM", RT_BSFADENODE, "Scene Root");
+			uint16_t options = 0;
+
+			// Add the skeleton structure in the nif.
+			int npcRoot = findBlockByName(nif, "NPC Root [Root]");
+			TCopyBone(nifOut, nif, npcRoot, NIF_NPOS);
+
+			void* shapes[200];
+			int shapeCount = getShapes(nif, shapes, 200, 0);
+
+			for (int i = 0; i < shapeCount; i++) {
+				char buf[128];
+				getShapeName(shapes[i], buf, 128);
+				void* newShape = TCopyShape(nifOut, buf, nif, shapes[i]);
+				TCopyShader(nifOut, newShape, nif, shapes[i]);
+				TCopyPartitions(nifOut, newShape, nif, shapes[i]);
+			}
+
+			saveNif(nifOut, (testRoot / "Out/readAlduin.nif").u8string().c_str());
+
+			void* nifCheck = load((testRoot / "Out/readAlduin.nif").u8string().c_str());
+			TCheckAlduin(nifCheck);
 		};
 		TEST_METHOD(readBlockname) {
 			void* nif = load((testRoot / "Skyrim/noblechest01.nif").u8string().c_str());
