@@ -4041,7 +4041,7 @@ def TEST_ANIM_CRATE():
     testfile = TT.test_file(r"tests\Skyrim\dwechest01.nif")
     outfile =TT.test_file(r"tests/Out/TEST_ANIM_CRATE.nif")
     bpy.context.scene.frame_end = 37
-    bpy.context.scene.render.fps = 60
+    bpy.context.scene.render.fps = 60 
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     lid = bpy.data.objects["Box01"]
@@ -4185,6 +4185,9 @@ def TEST_ANIM_KF():
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_vanilla.nif")
     outfile2 = TT.test_file(r"tests/Out/TEST_ANIM_KF2.nif")
 
+    bpy.context.scene.render.fps = 60
+    bpy.context.scene.frame_end = 71
+
     # Animations are loaded into a skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile,
                                  create_bones=False, 
@@ -4216,124 +4219,124 @@ def TEST_ANIM_KF():
 # Import skel + anim, import second anim
 
 TEST_BPY_ALL = False
-# TEST_BODYPART_SKY()  ### Skyrim head
-# TEST_BODYPART_FO4()  ### FO4 head
-# TEST_SKYRIM_XFORM()  ### Read & write the Skyrim shape transforms
-# TEST_SKIN_BONE_XF()  ### Argonian head
-# TEST_IMP_EXP_SKY()  ### Skyrim armor
-# TEST_IMP_EXP_SKY_2()  ### Body+Underwear
-# TEST_IMP_EXP_FO4()  ### Can read the body nif and spit it back out
-# TEST_IMP_EXP_FO4_2()  ### Can read body armor with 2 parts
-# TEST_ROUND_TRIP()  ### Full round trip: nif -> blender -> nif -> blender
-# TEST_BPY_PARENT_A()  ### Skeleton armature bones correctly parented
-# TEST_BPY_PARENT_B()  ### Skeleton armature bones correctly parented
-# TEST_RENAME()  ### Bone renaming for Blender conventions disabled
-# TEST_CONNECTED_SKEL()  ### Can import connected skeleton
-# TEST_DRAUGR_IMPORT_A()  ### Import hood, extend skeleton, non-vanilla pose 
-# TEST_DRAUGR_IMPORT_B()  ### Import hood, don't extend skeleton, non-vanilla pose
-# TEST_DRAUGR_IMPORT_C()  ### Import helm, don't extend skeleton
-# TEST_DRAUGR_IMPORT_D()  ### Import helm, do extend skeleton
-# TEST_DRAUGR_IMPORT_E()  ### Import helm and hood together
-# TEST_SCALING_BP()  ### Import and export bodypart with scale factor
-# TEST_IMP_EXP_SCALE_2()  ### Import nif with 2 meshes scaled
-# TEST_ARMATURE_EXTEND()  ### FO4 head + body
-# TEST_ARMATURE_EXTEND_BT()  ### Import two nifs that share a skeleton
-# TEST_EXPORT_WEIGHTS()  ### Import and export with weights
-# TEST_WEIGHTS_EXPORT()  ### Exporting this head weights all verts correctly
-# TEST_0_WEIGHTS()  ### Gives warning on export with 0 weights
-# TEST_TIGER_EXPORT()  ### Tiger head export
-# TEST_3BBB()  ### Test that mesh imports with correct transforms
-# TEST_SKEL()  ### Import/export skeleton file with no shapes
-# TEST_HEADPART()  ### Read & write SE head part with tris
-# TEST_TRI()  ### Can load a tri file into an existing mesh
-# TEST_IMPORT_MULTI_OBJECTS()  ### Can import 2 meshes as objects")
-# TEST_IMPORT_AS_SHAPES()  ### Import 2 meshes as shape keys
-# TEST_IMPORT_MULT_SHAPES()  ### Import >2 meshes as shape keys
-# TEST_EXP_SK_RENAMED()  ### Ensure renamed shape keys export properly
-# TEST_SK_MULT()  ### Export multiple objects with only some shape keys
-# TEST_TRI2()  ### Regression: Test correct import of tri
-# TEST_BAD_TRI()  ### Tris with messed up UV
-# TEST_TRIP_SE()  ### Bodypart tri extra data and file are written on export
-# TEST_TRIP()  ### Body tri extra data and file are written on export
-# TEST_COLORS()  ### Read & write vertex colors
-# TEST_COLORS2()  ### Read & write vertex colors
-# TEST_NEW_COLORS()  ### Can write vertex colors that were created in blender
-# TEST_VERTEX_COLOR_IO()  ### Vertex colors can be read and written
-# TEST_VERTEX_ALPHA_IO()  ### Vertex alpha affects Blender visible alpha
-# TEST_VERTEX_ALPHA()  ### Export shape with vertex alpha values
-# TEST_BONE_HIERARCHY()  ### Import and export bone hierarchy
-# TEST_SEGMENTS()  ### FO4 segments
-# TEST_BP_SEGMENTS()  ### Another test of FO4 segments
-# TEST_EXP_SEGMENTS_BAD()  ### Verts export in the correct FO4 segments
-# TEST_EXP_SEG_ORDER()  ### Segments export in numerical order
-# TEST_PARTITIONS()  ### Read Skyrim partitions
-# TEST_SHADER_LE()  ### Shader attributes Skyrim LE
-# TEST_SHADER_SE()  ### Shader attributes Skyrim SE 
-# TEST_SHADER_FO4()  ### Shader attributes are read and turned into Blender shader nodes
-# TEST_SHADER_ALPHA()  ### Alpha property handled correctly
-# TEST_SHADER_3_3()  ### Shader attributes are read and turned into Blender shader nodes
-# TEST_TEXTURE_PATHS()  ### Texture paths are correctly resolved
-# TEST_CAVE_GREEN()  ### Use vertex colors in shader
-# TEST_POT()  ### Pot shader doesn't throw an error
-# TEST_NOT_FB()  ### Nif that looked like facebones skel can be imported
-# TEST_MULTI_IMP()  ### Importing multiple hair parts doesn't mess up
-# TEST_WELWA()  ### Shape with unusual skeleton
-# TEST_MUTANT()  ### Supermutant body imports correctly the *second* time
-# TEST_EXPORT_HANDS()  ### Hand mesh with errors doesn't crash
-# TEST_PARTITION_ERRORS()  ### Partitions with errors raise errors
-# TEST_SHEATH()  ### Extra data nodes are imported and exported
-# TEST_FEET()  ### Extra data nodes are imported and exported
-# TEST_SCALING()  ### Scale factors applied correctly
-# TEST_SCALING_OBJ()  ### Scale simple objects
-# TEST_UNIFORM_SCALE()  ### Export objects with uniform scaling
-# TEST_NONUNIFORM_SCALE()  ### Export objects with non-uniform scaling
-# TEST_FACEBONE_EXPORT()
-# TEST_FACEBONE_EXPORT2()  ### Facebones with odd armature
-# TEST_HYENA_PARTITIONS()
-# TEST_MULT_PART()  ### Export shape with face that might fall into multiple partititions
-# TEST_BONE_XPORT_POS()
-# TEST_NORM()  ### Normals are read correctly
-# TEST_ROGUE01()  ### Custom split normals export correctly
-# TEST_ROGUE02()  ### Objects with shape keys export normals correctly
-# TEST_NORMAL_SEAM()  ### Custom normals can make a seam seamless
-# TEST_NIFTOOLS_NAMES()
-# TEST_BOW()  ### Read and write bow with simple box collision
-# TEST_BOW2()  ### Modify collision shape location
-# TEST_BOW3()  ### Modify collision shape type
-# TEST_COLLISION_HIER()  ### Read and write collision of hierarchy of nodes
-# TEST_SCALING_COLL()  ### Bow with collisions, scaled
-# TEST_COLLISION_MULTI()
-# TEST_COLLISION_CONVEXVERT()
-# TEST_COLLISION_CAPSULE()  ### Collision capsule shapes with scale
-# TEST_COLLISION_LIST()  ### Collision list and collision transform shapes with scale
-# TEST_CHANGE_COLLISION()  ### Changing collision type 
-# TEST_COLLISION_XFORM()  ### Read and write shape with collision capsule shapes
-# TEST_CONNECT_POINT()  ### Connect points are imported and exported
-# TEST_WEAPON_PART()  ### Weapon parts are imported at the parent connect point
-# TEST_IMPORT_MULT_CP()  ### Import multiple files and connect up the connect points
-# TEST_FURN_MARKER1()  ### Skyrim furniture markers 
-# TEST_FURN_MARKER2()  ### Skyrim furniture markers
-# TEST_FO4_CHAIR()  ### FO4 furniture markers 
-# TEST_PIPBOY()
-# TEST_BABY()  ### FO4 baby 
-# TEST_ROTSTATIC()  ### Statics are transformed according to the shape transform
-# TEST_ROTSTATIC2()  ### Statics are transformed according to the shape transform
-# TEST_FACEBONES()
-# TEST_FACEBONES_RENAME()  ### Facebones are correctly renamed from Blender to the game's names
-# TEST_IMP_ANIMATRON()
-# TEST_CUSTOM_BONES()  ### Can handle custom bones correctly
-# TEST_COTH_DATA()  ## Handle cloth data
-# TEST_IMP_NORMALS()  ### Can import normals from nif shape
-# TEST_UV_SPLIT()  ### Split UVs properly
-# TEST_JIARAN()  ### Armature with no stashed transforms exports correctly
-# TEST_SKEL_HKX()  ### Basic skeleton export (XML -> HKX)
-# TEST_SKEL_SOS_HKX()  ### SOS auxbones skeleton 
-# TEST_FONV()  ### FONV mesh
-# TEST_FONV_BOD()  ### Basic FONV body part import and export
-# TEST_ANIM_CHEST()  ### Read and write the animation of chest opening and shutting
+TEST_BODYPART_SKY()  ### Skyrim head
+TEST_BODYPART_FO4()  ### FO4 head
+TEST_SKYRIM_XFORM()  ### Read & write the Skyrim shape transforms
+TEST_SKIN_BONE_XF()  ### Argonian head
+TEST_IMP_EXP_SKY()  ### Skyrim armor
+TEST_IMP_EXP_SKY_2()  ### Body+Underwear
+TEST_IMP_EXP_FO4()  ### Can read the body nif and spit it back out
+TEST_IMP_EXP_FO4_2()  ### Can read body armor with 2 parts
+TEST_ROUND_TRIP()  ### Full round trip: nif -> blender -> nif -> blender
+TEST_BPY_PARENT_A()  ### Skeleton armature bones correctly parented
+TEST_BPY_PARENT_B()  ### Skeleton armature bones correctly parented
+TEST_RENAME()  ### Bone renaming for Blender conventions disabled
+TEST_CONNECTED_SKEL()  ### Can import connected skeleton
+TEST_DRAUGR_IMPORT_A()  ### Import hood, extend skeleton, non-vanilla pose 
+TEST_DRAUGR_IMPORT_B()  ### Import hood, don't extend skeleton, non-vanilla pose
+TEST_DRAUGR_IMPORT_C()  ### Import helm, don't extend skeleton
+TEST_DRAUGR_IMPORT_D()  ### Import helm, do extend skeleton
+TEST_DRAUGR_IMPORT_E()  ### Import helm and hood together
+TEST_SCALING_BP()  ### Import and export bodypart with scale factor
+TEST_IMP_EXP_SCALE_2()  ### Import nif with 2 meshes scaled
+TEST_ARMATURE_EXTEND()  ### FO4 head + body
+TEST_ARMATURE_EXTEND_BT()  ### Import two nifs that share a skeleton
+TEST_EXPORT_WEIGHTS()  ### Import and export with weights
+TEST_WEIGHTS_EXPORT()  ### Exporting this head weights all verts correctly
+TEST_0_WEIGHTS()  ### Gives warning on export with 0 weights
+TEST_TIGER_EXPORT()  ### Tiger head export
+TEST_3BBB()  ### Test that mesh imports with correct transforms
+TEST_SKEL()  ### Import/export skeleton file with no shapes
+TEST_HEADPART()  ### Read & write SE head part with tris
+TEST_TRI()  ### Can load a tri file into an existing mesh
+TEST_IMPORT_MULTI_OBJECTS()  ### Can import 2 meshes as objects")
+TEST_IMPORT_AS_SHAPES()  ### Import 2 meshes as shape keys
+TEST_IMPORT_MULT_SHAPES()  ### Import >2 meshes as shape keys
+TEST_EXP_SK_RENAMED()  ### Ensure renamed shape keys export properly
+TEST_SK_MULT()  ### Export multiple objects with only some shape keys
+TEST_TRI2()  ### Regression: Test correct import of tri
+TEST_BAD_TRI()  ### Tris with messed up UV
+TEST_TRIP_SE()  ### Bodypart tri extra data and file are written on export
+TEST_TRIP()  ### Body tri extra data and file are written on export
+TEST_COLORS()  ### Read & write vertex colors
+TEST_COLORS2()  ### Read & write vertex colors
+TEST_NEW_COLORS()  ### Can write vertex colors that were created in blender
+TEST_VERTEX_COLOR_IO()  ### Vertex colors can be read and written
+TEST_VERTEX_ALPHA_IO()  ### Vertex alpha affects Blender visible alpha
+TEST_VERTEX_ALPHA()  ### Export shape with vertex alpha values
+TEST_BONE_HIERARCHY()  ### Import and export bone hierarchy
+TEST_SEGMENTS()  ### FO4 segments
+TEST_BP_SEGMENTS()  ### Another test of FO4 segments
+TEST_EXP_SEGMENTS_BAD()  ### Verts export in the correct FO4 segments
+TEST_EXP_SEG_ORDER()  ### Segments export in numerical order
+TEST_PARTITIONS()  ### Read Skyrim partitions
+TEST_SHADER_LE()  ### Shader attributes Skyrim LE
+TEST_SHADER_SE()  ### Shader attributes Skyrim SE 
+TEST_SHADER_FO4()  ### Shader attributes are read and turned into Blender shader nodes
+TEST_SHADER_ALPHA()  ### Alpha property handled correctly
+TEST_SHADER_3_3()  ### Shader attributes are read and turned into Blender shader nodes
+TEST_TEXTURE_PATHS()  ### Texture paths are correctly resolved
+TEST_CAVE_GREEN()  ### Use vertex colors in shader
+TEST_POT()  ### Pot shader doesn't throw an error
+TEST_NOT_FB()  ### Nif that looked like facebones skel can be imported
+TEST_MULTI_IMP()  ### Importing multiple hair parts doesn't mess up
+TEST_WELWA()  ### Shape with unusual skeleton
+TEST_MUTANT()  ### Supermutant body imports correctly the *second* time
+TEST_EXPORT_HANDS()  ### Hand mesh with errors doesn't crash
+TEST_PARTITION_ERRORS()  ### Partitions with errors raise errors
+TEST_SHEATH()  ### Extra data nodes are imported and exported
+TEST_FEET()  ### Extra data nodes are imported and exported
+TEST_SCALING()  ### Scale factors applied correctly
+TEST_SCALING_OBJ()  ### Scale simple objects
+TEST_UNIFORM_SCALE()  ### Export objects with uniform scaling
+TEST_NONUNIFORM_SCALE()  ### Export objects with non-uniform scaling
+TEST_FACEBONE_EXPORT()
+TEST_FACEBONE_EXPORT2()  ### Facebones with odd armature
+TEST_HYENA_PARTITIONS()
+TEST_MULT_PART()  ### Export shape with face that might fall into multiple partititions
+TEST_BONE_XPORT_POS()
+TEST_NORM()  ### Normals are read correctly
+TEST_ROGUE01()  ### Custom split normals export correctly
+TEST_ROGUE02()  ### Objects with shape keys export normals correctly
+TEST_NORMAL_SEAM()  ### Custom normals can make a seam seamless
+TEST_NIFTOOLS_NAMES()
+TEST_BOW()  ### Read and write bow with simple box collision
+TEST_BOW2()  ### Modify collision shape location
+TEST_BOW3()  ### Modify collision shape type
+TEST_COLLISION_HIER()  ### Read and write collision of hierarchy of nodes
+TEST_SCALING_COLL()  ### Bow with collisions, scaled
+TEST_COLLISION_MULTI()
+TEST_COLLISION_CONVEXVERT()
+TEST_COLLISION_CAPSULE()  ### Collision capsule shapes with scale
+TEST_COLLISION_LIST()  ### Collision list and collision transform shapes with scale
+TEST_CHANGE_COLLISION()  ### Changing collision type 
+TEST_COLLISION_XFORM()  ### Read and write shape with collision capsule shapes
+TEST_CONNECT_POINT()  ### Connect points are imported and exported
+TEST_WEAPON_PART()  ### Weapon parts are imported at the parent connect point
+TEST_IMPORT_MULT_CP()  ### Import multiple files and connect up the connect points
+TEST_FURN_MARKER1()  ### Skyrim furniture markers 
+TEST_FURN_MARKER2()  ### Skyrim furniture markers
+TEST_FO4_CHAIR()  ### FO4 furniture markers 
+TEST_PIPBOY()
+TEST_BABY()  ### FO4 baby 
+TEST_ROTSTATIC()  ### Statics are transformed according to the shape transform
+TEST_ROTSTATIC2()  ### Statics are transformed according to the shape transform
+TEST_FACEBONES()
+TEST_FACEBONES_RENAME()  ### Facebones are correctly renamed from Blender to the game's names
+TEST_IMP_ANIMATRON()
+TEST_CUSTOM_BONES()  ### Can handle custom bones correctly
+TEST_COTH_DATA()  ## Handle cloth data
+TEST_IMP_NORMALS()  ### Can import normals from nif shape
+TEST_UV_SPLIT()  ### Split UVs properly
+TEST_JIARAN()  ### Armature with no stashed transforms exports correctly
+TEST_SKEL_HKX()  ### Basic skeleton export (XML -> HKX)
+TEST_SKEL_SOS_HKX()  ### SOS auxbones skeleton 
+TEST_FONV()  ### FONV mesh
+TEST_FONV_BOD()  ### Basic FONV body part import and export
+TEST_ANIM_CHEST()  ### Read and write the animation of chest opening and shutting
 TEST_ANIM_CRATE()  ### Read and write the animation of crate opening and shutting
-# TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
-# TEST_ANIM_KF()  ### Import KF animation file
+TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
+TEST_ANIM_KF()  ### Import KF animation file
 
 print("""
 ############################################################

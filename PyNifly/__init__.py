@@ -783,7 +783,9 @@ class NifImporter():
 
         self.import_extra(obj, ninode)
 
-        if ninode.controller:
+        if self.root_object != obj and ninode.controller:
+            # import animations if this isn't the root node. If it is, they may reference
+            # any of the root's children and so wait until those can be imported.
             self.import_animations(ninode.controller)
 
         return obj
@@ -1957,7 +1959,11 @@ class NifImporter():
             # Import top-level collisions
             # self.import_collisions()
 
-            # TODO: Probably animations should be impoted with root node.
+            # TODO: Probably animations should be impoted with root node. 
+        
+            # Well, except that the animations refer to the nodes they animate by name, so
+            # it could be root-level animations need to be loaded after everything else.
+
             # Import top-level animations
             self.import_animations(self.nif.rootNode.controller)
 
@@ -1967,6 +1973,8 @@ class NifImporter():
                     o.parent = self.created_child_cp
                     if o in orphan_shapes: orphan_shapes.remove(o)
 
+        self.import_animations(self.nif.rootNode.controller)
+        
         # Cleanup. Select all shapes imported, except the root node.
         objlist = [x for x in self.objects_created.values() if x.type=='MESH']
         if objlist: 
