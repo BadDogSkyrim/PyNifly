@@ -782,6 +782,10 @@ class NifImporter():
             self.import_collision_obj(ninode.collision_object, obj)
 
         self.import_extra(obj, ninode)
+
+        if ninode.controller:
+            self.import_animations(ninode.controller)
+
         return obj
 
 
@@ -1669,9 +1673,19 @@ class NifImporter():
         """
         rotation_mode = "QUATERNION"
 
-        tiq = Quaternion(ti.properties.rotation)
+        have_parent_rotation = False
+        if max(ti.properties.rotation[:]) > 3e+38 or min(ti.properties.rotation[:]) < -3e+38:
+            tiq = Quaternion()
+        else:
+            have_parent_rotation = True
+            tiq = Quaternion(ti.properties.rotation)
         qinv = tiq.inverted()
         tiv = Vector(ti.properties.translation)
+        # Some interpolators have bogus translations. Dunno why.
+        if tiv[0] <= -1e+30 or tiv[0] >= 1e+30: tiv[0] = 0
+        if tiv[1] <= -1e+30 or tiv[1] >= 1e+30: tiv[1] = 0
+        if tiv[2] <= -1e+30 or tiv[2] >= 1e+30: tiv[2] = 0
+
         tixf = MatrixLocRotScale(ti.properties.translation,
                                  Quaternion(ti.properties.rotation),
                                  [1.0]*3)
@@ -1684,22 +1698,38 @@ class NifImporter():
         td = ti.data
         fps = self.context.scene.render.fps
 
+        if path_name:
+            path_prefix = path_name + "."
+        else:
+            path_prefix = ""
+
         if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
             rotation_mode = "XYZ"
             if td.xrotations or td.yrotations or td.zrotations:
-                curveX = action.fcurves.new(f"{path_name}.rotation_euler", index=0, action_group=group_name)
-                curveY = action.fcurves.new(f"{path_name}.rotation_euler", index=1, action_group=group_name)
-                curveZ = action.fcurves.new(f"{path_name}.rotation_euler", index=2, action_group=group_name)
+                curveX = action.fcurves.new(path_prefix + "rotation_euler", index=0, action_group=group_name)
+                curveY = action.fcurves.new(path_prefix + "rotation_euler", index=1, action_group=group_name)
+                curveZ = action.fcurves.new(path_prefix + "rotation_euler", index=2, action_group=group_name)
 
                 if len(td.xrotations) == len(td.yrotations) and len(td.xrotations) == len(td.zrotations):
                     for x, y, z in zip(td.xrotations, td.yrotations, td.zrotations):
+                        # In theory the X/Y/Z dimensions do not have to have key frames at
+                        # the same time signatures. But an Euler rotation needs all 3.
+                        # Probably they will all line up because generating them any other
+                        # way is surely hard. So hope for that and post a warning if not.
                         if not (NearEqual(x.time, y.time) and NearEqual(x.time, z.time)):
                             self.add_warning(f"Keyframes do not align for '{path_name}. Animations may be incorrect.")
 
-                        ke = Euler(Vector((x.value, y.value, z.value)), 'XYZ')
-                        kq = ke.to_quaternion()
-                        vq = qinv @ kq
-                        ve = vq.to_euler()
+                        # Need to apply the parent rotation. If we stay in Eulers, we may
+                        # have gimbal lock. If we convert to quaternions, we may lose the
+                        # distinction between +180 and -180, which are different things
+                        # for animations. So only apply the parent rotation if there is
+                        # one; in those cases we're just hoping it comes out right.
+                        ve = Euler(Vector((x.value, y.value, z.value)), 'XYZ')
+                        if have_parent_rotation:
+                            ke = ve.copy()
+                            kq = ke.to_quaternion()
+                            vq = qinv @ kq
+                            ve = vq.to_euler()
                         curveX.keyframe_points.insert(x.time * fps + 1, ve[0])
                         curveY.keyframe_points.insert(y.time * fps + 1, ve[1])
                         curveZ.keyframe_points.insert(z.time * fps + 1, ve[2])
@@ -1731,10 +1761,10 @@ class NifImporter():
         elif td.properties.rotationType in [NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY]:
             rotation_mode = "QUATERNION"
 
-            curveW = action.fcurves.new(f"{path_name}.rotation_quaternion", index=0, action_group=group_name)
-            curveX = action.fcurves.new(f"{path_name}.rotation_quaternion", index=1, action_group=group_name)
-            curveY = action.fcurves.new(f"{path_name}.rotation_quaternion", index=2, action_group=group_name)
-            curveZ = action.fcurves.new(f"{path_name}.rotation_quaternion", index=3, action_group=group_name)
+            curveW = action.fcurves.new(path_prefix + "rotation_quaternion", index=0, action_group=group_name)
+            curveX = action.fcurves.new(path_prefix + "rotation_quaternion", index=1, action_group=group_name)
+            curveY = action.fcurves.new(path_prefix + "rotation_quaternion", index=2, action_group=group_name)
+            curveZ = action.fcurves.new(path_prefix + "rotation_quaternion", index=3, action_group=group_name)
 
             for i, k in enumerate(td.qrotations):
                 kq = Quaternion(k.value)
@@ -1751,14 +1781,10 @@ class NifImporter():
             self.add_warning(f"Nif contains unimplemented rotation type at {path_name}: {td.properties.rotationType}")
 
         # Seems like a value of + or - infinity in the Transform
-        if len(td.translations) > 0 and \
-            tiv[0] > -1e+30 and tiv[0] < 1e+30 and \
-            tiv[1] > -1e+30 and tiv[1] < 1e+30 and \
-            tiv[2] > -1e+30 and tiv[2] < 1e+30:
-            
-            curveLocX = action.fcurves.new(f"{path_name}.location", index=0, action_group=group_name)
-            curveLocY = action.fcurves.new(f"{path_name}.location", index=1, action_group=group_name)
-            curveLocZ = action.fcurves.new(f"{path_name}.location", index=2, action_group=group_name)
+        if len(td.translations) > 0:
+            curveLocX = action.fcurves.new(path_prefix + "location", index=0, action_group=group_name)
+            curveLocY = action.fcurves.new(path_prefix + "location", index=1, action_group=group_name)
+            curveLocZ = action.fcurves.new(path_prefix + "location", index=2, action_group=group_name)
             for k in td.translations:
                 v = Vector(k.value)
                 # v = qinv @ v
@@ -1790,7 +1816,7 @@ class NifImporter():
                 self.add_warning(f"Target object was not imported: {block.node_name}")
                 return
             action_group = "Object Transforms"
-            path_name = target_obj.name
+            path_name = None
             action_name = f"{block.node_name}_{seq.name}"
         elif block.node_name in self.armature.data.bones:
             action_group = block.node_name
@@ -1842,15 +1868,6 @@ class NifImporter():
             self.import_controlled_block(seq, cb)
         
 
-    def import_animations(self, ctrlr: NiTimeController):
-        """Import the animation defined by this controller."""
-        if not self.import_anims: return
-        
-        if ctrlr and hasattr(ctrlr, "sequences"): 
-            for seq in ctrlr.sequences.values():
-                self.import_sequences(seq)
-
-
     def import_controller_seq(self, cseq:NiControllerSequence):
         """Import a ControllerSequence node and children."""
         if self.armature:
@@ -1859,6 +1876,16 @@ class NifImporter():
 
         for cb in cseq.controlled_blocks:
             self.import_controlled_block(cseq, cb)
+
+    
+    def import_animations(self, ctrlr: NiTimeController):
+        """Import the animation defined by this controller."""
+        if not self.import_anims: return
+        
+        if ctrlr and hasattr(ctrlr, "sequences"): 
+            for seq in ctrlr.sequences.values():
+                self.import_sequences(seq)
+
 
 
     # ----- End Animations ----
@@ -1869,7 +1896,8 @@ class NifImporter():
         log.info(f"Importing {self.nif.game} file {self.nif.filepath}")
 
         if self.nif.rootNode.blockname == "NiControllerSequence":
-            # Import animation file and done.
+            # Top-level node of a KF animation file is a Controller Sequence. 
+            # Import it and done.
             self.import_controller_seq(self.nif.rootNode)
             return
 

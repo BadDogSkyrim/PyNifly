@@ -4040,6 +4040,8 @@ def TEST_ANIM_CRATE():
     TT.clear_all()
     testfile = TT.test_file(r"tests\Skyrim\dwechest01.nif")
     outfile =TT.test_file(r"tests/Out/TEST_ANIM_CRATE.nif")
+    bpy.context.scene.frame_end = 37
+    bpy.context.scene.render.fps = 60
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     lid = bpy.data.objects["Box01"]
@@ -4047,11 +4049,18 @@ def TEST_ANIM_CRATE():
     assert lid.animation_data.action.name.startswith("Box01_Open"), f"Animation has correct name: {lid.animation_data.action.name}"
     assert len([x for x in bpy.data.actions if x.name.startswith("Box01_Close")]) > 0, f"Have close animation in actions: {bpy.data.actions.keys()}"
     assert len(lid.animation_data.action.fcurves) > 0, f"Have curves: {len(lid.animation_data.action.fcurves)}"
+    assert lid.animation_data.action.fcurves[0].data_path == "location", f"Have correct data path"
 
-    gear = bpy.data.objects["Gear07"]
-    assert gear.animation_data.action.name.startswith("Gear07_Open"), f"Gear animation exists"
-    assert len(gear.animation_data.action.fcurves) > 0, f"Have curves"
+    gear07 = bpy.data.objects["Gear07"]
+    assert gear07.animation_data.action.name.startswith("Gear07_Open"), f"Gear animation exists"
+    assert len(gear07.animation_data.action.fcurves) > 0, f"Have curves"
+    gear07z = gear07.animation_data.action.fcurves[2]
+    assert gear07z.data_path == "rotation_euler", f"Have correct data path: {gear07z.data_path}"
+    assert BD.NearEqual(gear07z.keyframe_points[1].co[0], 37.0), f"Have correct time: {gear07z.keyframe_points[1].co}"
+    assert BD.NearEqual(gear07z.keyframe_points[1].co[1], 3.14159), f"Have correct value: {gear07z.keyframe_points[1].co}"
 
+    gear07obj = gear07.children[0]
+    assert len(gear07obj.data.vertices) == 476, f"Have right number of vertices"
 
 def TEST_ANIM_ALDUIN():
     # ###### WIP. Only test if explicitly selected. #####
@@ -4323,8 +4332,8 @@ TEST_BPY_ALL = False
 # TEST_FONV_BOD()  ### Basic FONV body part import and export
 # TEST_ANIM_CHEST()  ### Read and write the animation of chest opening and shutting
 TEST_ANIM_CRATE()  ### Read and write the animation of crate opening and shutting
-TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
-TEST_ANIM_KF()  ### Import KF animation file
+# TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
+# TEST_ANIM_KF()  ### Import KF animation file
 
 print("""
 ############################################################
