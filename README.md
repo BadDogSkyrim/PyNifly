@@ -26,9 +26,8 @@ My interest is primarily Skyrim, Skyrim SE, and Fallout 4 so I'll be focusing on
 
 **Status**
 
-This is a work in progress. Latest state of the world is documented in the wiki.
+Import/Export of most nifs is complete works well. 
 
-Current development involves supporting collisions.
+Import/Export of animations is currently under development.
 
-Not yet implemented (and maybe never, unless I get a lot of help/advice):
-* Animations. A lot of Skyrim's statics have animations built into the nifs.
+Import/Export of Skyrim collisions is complete except for MOPP collisions. Those may never happen. Fallout 4 collisions are not implemented but there's a tool that ships with Fallout to help with that. Check the Collisions page of the wiki (https://github.com/BadDogSkyrim/PyNifly/wiki/Collisions) for more.
