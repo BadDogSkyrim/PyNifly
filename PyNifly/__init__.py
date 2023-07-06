@@ -9,7 +9,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (10, 1, 0),  
+    "version": (10, 2, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -1974,7 +1974,7 @@ class NifImporter():
                     if o in orphan_shapes: orphan_shapes.remove(o)
 
         self.import_animations(self.nif.rootNode.controller)
-        
+
         # Cleanup. Select all shapes imported, except the root node.
         objlist = [x for x in self.objects_created.values() if x.type=='MESH']
         if objlist: 
