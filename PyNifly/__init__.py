@@ -424,7 +424,7 @@ class NifImporter():
         
     def blender_name(self, nif_name):
         if self.rename_bones or self.rename_bones_nift:
-            return self.nif.dict.blender_name(nif_name)
+            return self.nif.blender_name(nif_name)
         else:
             return nif_name
 
@@ -1820,14 +1820,21 @@ class NifImporter():
             action_group = "Object Transforms"
             path_name = None
             action_name = f"{block.node_name}_{seq.name}"
-        elif block.node_name in self.armature.data.bones:
-            action_group = block.node_name
-            path_name = f'pose.bones["{action_group}"]'
-            target_obj = self.armature
-            action_name = seq.name
         else:
-            self.add_warning(f"Controller target not found: {block.node_name}")
-            return
+            # Armature may have had bone names converted or not. Check both ways.
+            name = block.node_name
+            if name not in self.armature.data.bones:
+                name = self.blender_name(name)
+                if name not in self.armature.data.bones:
+                    name = None
+            if name:
+                action_group = name
+                path_name = f'pose.bones["{action_group}"]'
+                target_obj = self.armature
+                action_name = seq.name
+            else:
+                self.add_warning(f"Controller target not found: {block.node_name}")
+                return 
 
         fps = self.context.scene.render.fps
         if not target_obj.animation_data:
@@ -1856,7 +1863,7 @@ class NifImporter():
         if action_group == "Object Transforms":
             target_obj.rotation_mode = rotmode
         else:
-            target_obj.pose.bones[block.node_name].rotation_mode = rotmode
+            target_obj.pose.bones[name].rotation_mode = rotmode
 
         if not target_obj.animation_data.action:
             target_obj.animation_data.action = new_action
