@@ -1953,7 +1953,7 @@ class NifImporter():
                     if self.create_bones:
                         self.add_bones_to_arma(arma, self.nif, self.nif.nodes.keys())
                     self.connect_armature(arma)
-                    if self.roll_bones_nift: self.roll_bones(arma)
+                    # if self.roll_bones_nift: self.roll_bones(arma)
                     self.animate_armature(self.armature)
     
             # Gather up any NiNodes that weren't captured any other way 
@@ -2147,11 +2147,6 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Import any animations embedded in the nif.",
         default=IMPORT_ANIMS_DEF)
 
-    roll_bones: bpy.props.BoolProperty(
-        name="Add bone roll",
-        description="Add bone roll to work with animations.",
-        default=ROLL_BONES_NIFT_DEF)
-
     rename_bones_niftools: bpy.props.BoolProperty(
         name="Rename bones as per NifTools",
         description="Rename bones using NifTools' naming scheme to conform to Blender's left/right conventions.",
@@ -2196,7 +2191,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             imp.context = context
             imp.collection = context.scene.collection
             imp.create_bones = self.create_bones
-            imp.roll_bones_nift = self.roll_bones
+            # imp.roll_bones_nift = self.roll_bones
             imp.rename_bones = self.rename_bones
             imp.rename_bones_nift = self.rename_bones_niftools
             imp.import_shapes = self.import_shapes
@@ -4385,19 +4380,82 @@ class ExportKF(bpy.types.Operator, ExportHelper):
 
     filename_ext = ".kf"
 
-
     @classmethod
     def poll(cls, context):
         if (not context.object) and context.object.type != 'ARMATURE':
-            log.error("Must select an object to export")
+            log.error("Must select an armature to export animations.")
             return False
 
-        if context.object.mode != 'OBJECT':
-            log.error("Must be in Object Mode to export")
+        if (not context.object.animation_data) or (not context.object.animation_data.action):
+            log.error("Active object must have an animation associated with it.")
             return False
 
         return True
     
+
+    def execute(self, context):
+        res = set()
+
+        if not self.poll(context):
+            self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
+            return {'CANCELLED'} 
+
+        LogStart(bl_info, "EXPORT", "KF")
+        NifFile.Load(nifly_path)
+
+        try:
+            # Export whatever animation is attached to the active object.
+            self.export_animation(context.object.animation_data.action)
+
+        except:
+            log.exception("Export of KF failed")
+            self.report({"ERROR"}, "Export of KF failed, see console window for details")
+            res.add("CANCELLED")
+            LogFinish("EXPORT", context.object, {"ERROR"}, True)
+
+        return res.intersection({'CANCELLED'}, {'FINISHED'})
+
+
+    def export_curves(self, ctrlrID, curve_list):
+        """Export a group of curves from the list to a TransformInterpolator/TransformData pair. 
+        A group maps to a controlled object, so each group should be one such pair.
+        The curves that are used are picked off the list.
+        """
+        group = curve_list[0].group.name
+        loc = []
+        eu = []
+        quat = []
+        while curve_list[0].group_name == group:
+            if ".location" in curve_list[0].data_path:
+                loc.append(curve_list[0])
+                curve_list.pop(0)
+            elif ".rotation_quaternion" in curve_list[0].data_path:
+                quat.append(curve_list[0])
+                curve_list.pop(0)
+            else:
+                self.error(f"Unknown curve type: {curve_list[0].data_path}")
+                return
+        
+        if not (loc or eu or quat):
+            self.error(f"No usable transform types in group {group}")
+            return
+
+        td = NiTransformData(handle=None, self.nif, None, ctrlrID)
+
+
+    def export_animation(self, action):
+        """Export one action to one animation KF file."""
+        self.nif = NifFile()
+        self.nif.initialize("SKYRIM", self.filepath, "NiControllerSequence", 
+                            os.path.splitext(os.path.basename(self.filepath))[0])
+        ctrlrID = 0
+
+        # Collect list of curves. They will be picked off in clumps until the list is empty.
+        curve_list = list(action.fcurves)
+        while curve_list:
+            self.export_curves(ctrlrID, curve_list)
+
+        self.nif.save()
 
 
 # #----------

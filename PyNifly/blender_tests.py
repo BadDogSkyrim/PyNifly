@@ -4176,14 +4176,14 @@ def TEST_ANIM_ALDUIN():
         
 
 def TEST_ANIM_KF():
-    # ###### WIP. Only test if explicitly selected. #####
+    # Can import a KF animation
     TT.test_title("TEST_ANIM_KF", "Read and write KF animation.")
     TT.clear_all()
 
     testfile = TT.test_file(r"tests\SkyrimSE\1hm_staggerbacksmallest.kf")
     testfile2 = TT.test_file(r"tests\SkyrimSE\1hm_attackpowerright.kf")
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_vanilla.nif")
-    outfile2 = TT.test_file(r"tests/Out/TEST_ANIM_KF2.nif")
+    outfile2 = TT.test_file(r"tests/Out/TEST_ANIM_KF.kf")
 
     bpy.context.scene.render.fps = 60
     bpy.context.scene.frame_end = 71
@@ -4210,7 +4210,9 @@ def TEST_ANIM_KF():
     bpy.ops.export_scene.pynifly_kf(filepath=outfile2)
 
     kfout = pyn.NifFile(outfile2)
-    assert kfout.rootNode.name == '1hm_attackpowerright', f"Have good root node name: {kfout.rootNode.name}"
+    assert kfout.rootNode.name == 'TEST_ANIM_KF', f"Have good root node name: {kfout.rootNode.name}"
+    assert kfout.rootNode.blockname == 'NiControllerSequence', f"Have good root node name: {kfout.rootNode.name}"
+
 
 def TEST_ANIM_KF_RENAME():
     # Animation import works even if bones are renamed.
@@ -4218,9 +4220,7 @@ def TEST_ANIM_KF_RENAME():
     TT.clear_all()
 
     testfile = TT.test_file(r"tests\SkyrimSE\1hm_staggerbacksmallest.kf")
-    testfile2 = TT.test_file(r"tests\SkyrimSE\1hm_attackpowerright.kf")
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_vanilla.nif")
-    outfile2 = TT.test_file(r"tests/Out/TEST_ANIM_KF_RENAME.nif")
 
     bpy.context.scene.render.fps = 60
     bpy.context.scene.frame_end = 71
@@ -4233,8 +4233,10 @@ def TEST_ANIM_KF_RENAME():
                                  use_blender_xf=True)
     
     BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
+    arma = bpy.context.object
     bpy.ops.import_scene.pynifly_kf(filepath=testfile)
 
+    assert len([fc for fc in arma.animation_data.action.fcurves if 'NPC Pelvis' in fc.data_path]) > 0, f"Animating translated bone names"
 
 
 # Also test:
@@ -4358,8 +4360,8 @@ def TEST_ANIM_KF_RENAME():
 # TEST_ANIM_CHEST()  ### Read and write the animation of chest opening and shutting
 # TEST_ANIM_CRATE()  ### Read and write the animation of crate opening and shutting
 # TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
-# TEST_ANIM_KF()  ### Import KF animation file
-TEST_ANIM_KF_RENAME()  ### Read and write KF animation with renamed bones
+TEST_ANIM_KF()  ### Import KF animation file
+# TEST_ANIM_KF_RENAME()  ### Read and write KF animation with renamed bones
 
 print("""
 ############################################################

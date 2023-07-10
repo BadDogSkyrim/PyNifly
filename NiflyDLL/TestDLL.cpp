@@ -917,7 +917,7 @@ namespace NiflyDLLTests
 			int normCount = getNormalsForShape(nif, theArmor, norms, 2500*3, 0);
 			Assert::AreEqual(2115, normCount);
 
-			void* newNif = createNif("SKYRIM", RT_NINODE, "Scene Root");
+			void* newNif = createNif("SKYRIM", "NiNode", "Scene Root");
 			void* newArmor = createNifShapeFromData(newNif, "Armor", 
 				verts, uv, norms, vertCount, 
 				tris, triCount, 0, nullptr);
@@ -936,7 +936,7 @@ namespace NiflyDLLTests
 			Assert::AreEqual(27, boneCount);
 
 			/* ------- Can save the armor as a skinned object --------- */
-			void* newNifSkind = createNif("SKYRIM", RT_NINODE, "Scene Root");
+			void* newNifSkind = createNif("SKYRIM", "NiNode", "Scene Root");
 			void* outArmor = TCopyShape(newNifSkind, "Armor", nif, theArmor);
 
 			void* shapesOut[5];
@@ -991,7 +991,7 @@ namespace NiflyDLLTests
 
 			clearMessageLog();
 
-			void* newNif = createNif("FO4", RT_NINODE, "Scene Root");
+			void* newNif = createNif("FO4", "NiNode", "Scene Root");
 			TCopyShape(newNif, "BaseMaleBody:0", nif, theBody[0]);
 			saveNif(newNif, outfile.u8string().c_str());
 			Assert::IsTrue(std::filesystem::exists(outfile));
@@ -1211,7 +1211,7 @@ namespace NiflyDLLTests
 			std::filesystem::path outfile = testRoot / "Out/SaveMulti.nif";
 
 			void* nif = load(testfile.u8string().c_str());
-			void* nifOut = createNif("SKYRIM", RT_NINODE, "Scene Root");
+			void* nifOut = createNif("SKYRIM", "NiNode", "Scene Root");
 			void* theArmor = findNodeByName(nif, "Armor");
 			void* theBody = findNodeByName(nif, "MaleBody");
 			TCopyShape(nifOut, "Armor", nif, theArmor);
@@ -1978,7 +1978,7 @@ namespace NiflyDLLTests
 
 			std::filesystem::path testfile2Out = testRoot / "Out" / "testWrapper_crateSSE.nif";
 
-			void* nif2Out = createNif("SKYRIMSE", RT_BSFADENODE, "Scene Root");
+			void* nif2Out = createNif("SKYRIMSE", "BSFadeNode", "Scene Root");
 			void* shape2Out = TCopyShape(nif2Out, "NobleCrate", nif2, shapes2[0]);
 			TCopyShader(nif2Out, shape2Out, nif2, shapes2[0]);
 
@@ -2679,7 +2679,7 @@ namespace NiflyDLLTests
 
 			// ============= Can write collisions =======
 
-			void* nifOut = createNif("SKYRIMSE", RT_BSFADENODE, "Scene Root");
+			void* nifOut = createNif("SKYRIMSE", "BSFadeNode", "Scene Root");
 			uint16_t options = 0;
 			void* bowOut = TCopyShape(nifOut, "ElvenBowSkinned:0", nif, bow, NifOptions(0));
 			TCopyShader(nifOut, bowOut, nif, bow);
@@ -2804,7 +2804,7 @@ namespace NiflyDLLTests
 
 			//// ============= Can write collisions =======
 
-			//void* nifOut = createNif("SKYRIM", RT_BSFADENODE, "CheeseWedge");
+			//void* nifOut = createNif("SKYRIM", "BSFadeNode", "CheeseWedge");
 			//uint16_t options = 0;
 			//void* meshOut = TCopyShape(nifOut, "CheeseWedge01:0", nif, mesh, 0, nullptr, 0);
 			//TCopyShader(nifOut, meshOut, nif, mesh);
@@ -2902,7 +2902,7 @@ namespace NiflyDLLTests
 
 			////// ============= Can write collisions =======
 
-			//void* nifOut = createNif("SKYRIM", RT_BSFADENODE, "readCollisionMulti");
+			//void* nifOut = createNif("SKYRIM", "BSFadeNode", "readCollisionMulti");
 			//uint16_t options = 0;
 
 			//void* leek04out = addNode(nifOut, "Leek04", &leek04xf, nullptr);
@@ -2992,7 +2992,7 @@ namespace NiflyDLLTests
 
 			////// ============= Can write collisions =======
 
-			//void* nifOut = createNif("SKYRIM", RT_BSFADENODE, "readCollisionXform");
+			//void* nifOut = createNif("SKYRIM", "BSFadeNode", "readCollisionXform");
 			//uint16_t options = 0;
 
 			//void* staffOut = TCopyShape(nifOut, "Staff", nif, staff,
@@ -3066,7 +3066,7 @@ namespace NiflyDLLTests
 
 			//// ============= Write the hair =======
 
-			void* nifOut = createNif("SKYRIMSE", RT_NINODE, "Scene Root");
+			void* nifOut = createNif("SKYRIMSE", "NiNode", "Scene Root");
 			uint16_t options = 0;
 
 			void* hairOut = TCopyShape(nifOut, "KSSMP_Anna", nif, hair, BoneHierarchy);
@@ -3250,7 +3250,7 @@ namespace NiflyDLLTests
 			clearMessageLog();
 			std::filesystem::path fileOut = testRoot / "Out/testWrapper_transformController.nif";
 
-			void* nifOut = createNif("SKYRIM", RT_BSFADENODE, "DwarvenChest01");
+			void* nifOut = createNif("SKYRIM", "BSFadeNode", "DwarvenChest01");
 			uint16_t options = 0;
 
 			void* shapes[200];
@@ -3557,13 +3557,13 @@ namespace NiflyDLLTests
 
 			return boneOut;
 		}
-		TEST_METHOD(readAlduin) {
+		TEST_METHOD(readWriteAlduin) {
 			/* Another kind of animation. */
 			void* nif = load((testRoot / "SkyrimSE/loadscreenalduinwall.nif").u8string().c_str());
 			TCheckAlduin(nif);
 
 			clearMessageLog();
-			void* nifOut = createNif("SKYRIM", RT_BSFADENODE, "Scene Root");
+			void* nifOut = createNif("SKYRIM", "BSFadeNode", "Scene Root");
 			uint16_t options = 0;
 
 			// Add the skeleton structure in the nif.
@@ -3581,9 +3581,9 @@ namespace NiflyDLLTests
 				TCopyPartitions(nifOut, newShape, nif, shapes[i]);
 			}
 
-			saveNif(nifOut, (testRoot / "Out/readAlduin.nif").u8string().c_str());
+			saveNif(nifOut, (testRoot / "Out/readWriteAlduin.nif").u8string().c_str());
 
-			void* nifCheck = load((testRoot / "Out/readAlduin.nif").u8string().c_str());
+			void* nifCheck = load((testRoot / "Out/readWriteAlduin.nif").u8string().c_str());
 			TCheckAlduin(nifCheck);
 		};
 		TEST_METHOD(readBlockname) {
@@ -3597,7 +3597,7 @@ namespace NiflyDLLTests
 			getNodeBlockname(mttc, buf, 64);
 			Assert::IsTrue(strcmp(buf, "NiMultiTargetTransformController") == 0, L"Found block name");
 		};
-		TEST_METHOD(readKF) {
+		TEST_METHOD(readWriteKF) {
 			void* nif = load((testRoot / "SkyrimSE/1hm_attackpowerright.kf").u8string().c_str());
 			void* root = getRoot(nif);
 			char namebuf[64];
@@ -3608,6 +3608,22 @@ namespace NiflyDLLTests
 			int cbCount = getControlledBlocks(nif, 0, 100, cblist);
 			getString(nif, cblist[0].ctrlType, 64, namebuf);
 			Assert::IsTrue(strcmp(namebuf, "NiTransformController") == 0, L"Found controller type");
+
+			void* nifout = createNif("SKYRIM", "NiControllerSequence", "TestKF");
+			void* rootout = getRoot(nifout);
+
+			// We can read a root name that hasn't been saved to a nif file yet.
+			getRootName(nifout, namebuf, 64);
+			Assert::IsTrue(strcmp(namebuf, "TestKF") == 0, L"Have root name");
+			saveNif(nifout, (testRoot / "SkyrimSE/readWriteKF.kf").u8string().c_str());
+
+			// Can get type and name of a block that is not a NiNode.
+			void* nifcheck = load((testRoot / "SkyrimSE/readWriteKF.kf").u8string().c_str());
+			void* rootcheck = getRoot(nifcheck);
+			getNodeBlockname(rootcheck, namebuf, 64);
+			Assert::IsTrue(strcmp(namebuf, "NiControllerSequence") == 0, L"Have correct root node type");
+			getNodeName(rootcheck, namebuf, 64);
+			Assert::IsTrue(strcmp(namebuf, "TestKF") == 0, L"Have correct node name");
 		};
 	};
 }

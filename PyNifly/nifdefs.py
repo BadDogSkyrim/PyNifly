@@ -134,6 +134,8 @@ class pynStructure(Structure):
 
     def __init__(self, values=None):
         super().__init__()
+        if "bufSize" in [n for n, t in self._fields_]:
+            self.__setattr__("bufSize", sizeof(self))
         self.warnings = []
         self.load(bhkRigidBodyProps_Defaults)
         if values:
@@ -990,6 +992,7 @@ class NiMultiTargetTransformControllerBuf(pynStructure):
 
 class NiControllerSequenceBuf(pynStructure):
     _fields_ = [
+        ("bufSize", c_uint16),
         ("nameID", c_uint32), 
         ("arrayGrowBy", c_uint32), 
         ("controlledBlocksCount", c_uint16),
@@ -999,6 +1002,7 @@ class NiControllerSequenceBuf(pynStructure):
         ("frequency", c_float),
         ("startTime", c_float),
         ("stopTime", c_float),
+        ("managerID", c_uint32),
         ("accumRootNameID", c_uint32),
         ("animNotesID", c_uint32),
         ("animNotesCount", c_uint16),
@@ -1006,6 +1010,7 @@ class NiControllerSequenceBuf(pynStructure):
 
 class ControllerLinkBuf(pynStructure):
     _fields_ = [
+        ("bufSize", c_uint16),
         ("interpolatorID", c_uint32),
         ("controllerID", c_uint32),
         ("priority", c_uint8),
@@ -1036,6 +1041,7 @@ class NiTransformControllerBuf(pynStructure):
 
 class NiTransformInterpolatorBuf(pynStructure):
     _fields_ = [
+        ("bufSize", c_uint16),
         ("translation", VECTOR3),
         ("rotation", VECTOR4),
         ("scale", c_float),
@@ -1050,6 +1056,7 @@ class NiAnimationKeyGroupBuf(pynStructure):
 
 class NiTransformDataBuf(pynStructure):
     _fields_ = [
+        ("bufSize", c_uint16),
         ("rotationType", c_uint32), 
         ("rotationKeyCount", c_uint32),
         ("xRotations", NiAnimationKeyGroupBuf),

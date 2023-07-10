@@ -365,6 +365,7 @@ struct NiMultiTargetTransformControllerBuf {
 };
 
 struct NiControllerSequenceBuf {
+	uint16_t bufSize;
 	uint32_t nameID;
 	uint32_t arrayGrowBy = 0;
 	uint16_t controlledBlocksCount;
@@ -381,6 +382,7 @@ struct NiControllerSequenceBuf {
 };
 
 struct ControllerLinkBuf {
+	uint16_t bufSize;
 	uint32_t interpolatorID;
 	uint32_t controllerID;
 	uint8_t priority = 0;
@@ -392,6 +394,7 @@ struct ControllerLinkBuf {
 };
 
 struct NiTransformInterpolatorBuf {
+	uint16_t bufSize;
 	float translation[3];
 	float rotation[4];
 	float scale = 0.0f;
@@ -455,6 +458,7 @@ struct NiAnimatinoKeyGroupBuf {
 };
 
 struct NiTransformDataBuf {
+	uint16_t bufSize;
 	uint32_t rotationType;
 	uint32_t quaternionKeyCount;
 	NiAnimatinoKeyGroupBuf xRotations;
@@ -530,11 +534,12 @@ extern "C" NIFLY_API void setNodeFlags(void* node, int theFlags);
 extern "C" NIFLY_API int getNodeName(void* theNode, char* buf, int buflen);
 extern "C" NIFLY_API void* getNodeController(void* nifref, void* node, NiControllerManagerBuf * buf);
 extern "C" NIFLY_API void* getNodeParent(void* theNif, void* node);
-extern "C" NIFLY_API void* createNif(const char* targetGame, int rootType, const char* rootName);
+extern "C" NIFLY_API void* createNif(const char* targetGame, const char* rootType, const char* rootName);
 extern "C" NIFLY_API void* createNifShapeFromData(void* parentNif, const char* shapeName, const nifly::Vector3* verts, const nifly::Vector2* uv_points, const nifly::Vector3* norms, int vertCount, const nifly::Triangle* tris, int triCount, uint16_t * optionsPtr = nullptr, void* parentRef = nullptr);
 extern "C" NIFLY_API void setTransform(void* theShape, nifly::MatTransform* buf);
 extern "C" NIFLY_API int getNodeChildren(void* nifRef, int nodeID, int buflen, int* buf);
 extern "C" NIFLY_API void* addNode(void* f, const char* name, void* xf, void* parent);
+extern "C" NIFLY_API int getBlockID(void* nifref, void* block);
 extern "C" NIFLY_API int addBlock(void* f, const char* name, const char* type, void* buf, int parent);
 extern "C" NIFLY_API int getBlock(void* nifref, uint32_t blockID, const char* blocktype, void* buf);
 extern "C" NIFLY_API void setBlock(void* f, int id, const char* type, void* buf);
@@ -665,9 +670,9 @@ extern "C" NIFLY_API void getMultiTargetTransformController(void* nifref, int mt
 int addMultiTargetTransformController(void* nifref, NiMultiTargetTransformControllerBuf* buf);
 extern "C" NIFLY_API int getTransformController(void* nifref, int nodeIndex, NiTransformControllerBuf* buf);
 extern "C" NIFLY_API int addTransformController(void* nifref, NiTransformControllerBuf * buf, int parent);
-extern "C" NIFLY_API void getTransformInterpolator(void* nifref, uint32_t tiID, NiTransformInterpolatorBuf * buf);
+void getTransformInterpolator(void* nifref, uint32_t tiID, NiTransformInterpolatorBuf * buf);
 int addTransformInterpolator(void* nifref, NiTransformInterpolatorBuf* buf);
-extern "C" NIFLY_API int getTransformData(void* nifref, int nodeIndex, NiTransformDataBuf * buf);
+int getTransformData(void* nifref, int nodeIndex, NiTransformDataBuf * buf);
 int addTransformData(void* nifref, NiTransformDataBuf* buf, int parent);
 extern "C" NIFLY_API void getAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyQuadXYZBuf * buf);
 extern "C" NIFLY_API void addAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, NiAnimKeyQuadXYZBuf * buf);

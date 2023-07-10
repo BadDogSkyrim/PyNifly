@@ -20,8 +20,14 @@ NODEID_NONE = 4294967295
 
 def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
+    nifly.addAnimKeyLinearTrans.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyLinearTransBuf)]
+    nifly.addAnimKeyLinearTrans.restype = None
+    nifly.addAnimKeyLinearQuat.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyLinearQuatBuf)]
+    nifly.addAnimKeyLinearQuat.restype = None
     nifly.addBoneToNifShape.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf), c_char_p]
     nifly.addBoneToNifShape.restype = c_void_p
+    nifly.addBlock.argtypes = [c_void_p, c_char_p, c_char_p, c_void_p, c_int]
+    nifly.addBlock.restype = c_int
     nifly.addCollBoxShape.argtypes = [c_void_p, POINTER(bhkBoxShapeProps)]
     nifly.addCollBoxShape.restype = c_int
     nifly.addCollCapsuleShape.argtypes = [c_void_p, POINTER(bhkCapsuleShapeProps)]
@@ -36,15 +42,19 @@ def load_nifly(nifly_path):
     nifly.addCollListChild.restype = None
     nifly.addCollListShape.argtypes = [c_void_p, POINTER(bhkListShapeProps)]
     nifly.addCollListShape.restype = c_int
+    nifly.addControlledBlock.argtypes = [c_void_p, c_int, c_char_p, POINTER(ControllerLinkBuf)]
+    nifly.addControlledBlock.restype = c_int
     nifly.addNode.argtypes = [c_void_p, c_char_p, POINTER(TransformBuf), c_void_p]
     nifly.addNode.restype = c_void_p
     nifly.addRigidBody.argtypes = [c_void_p, c_char_p, c_uint32, POINTER(bhkRigidBodyProps)]
     nifly.addRigidBody.restype = c_int
+    nifly.addString.argtypes = [c_void_p, c_char_p]
+    nifly.addString.restype = c_int
     nifly.calcShapeGlobalToSkin.argtypes = [c_void_p, c_void_p, POINTER(TransformBuf)]
     nifly.calcShapeGlobalToSkin.restype = None
     nifly.clearMessageLog.argtypes = []
     nifly.clearMessageLog.restype = None
-    nifly.createNif.argtypes = [c_char_p, c_int, c_char_p]
+    nifly.createNif.argtypes = [c_char_p, c_char_p, c_char_p]
     nifly.createNif.restype = c_void_p
     nifly.createNifShapeFromData.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_void_p]
     nifly.createNifShapeFromData.restype = c_void_p
@@ -72,6 +82,12 @@ def load_nifly(nifly_path):
     nifly.getBGExtraData.restype = c_int
     nifly.getBGExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
     nifly.getBGExtraDataLen.restype = c_int
+    nifly.getBlock.argtypes = [c_void_p, c_int, c_char_p, c_void_p]
+    nifly.getBlock.restype = c_int
+    nifly.getBlockID.argtypes = [c_void_p, c_void_p]
+    nifly.getBlockID.restype = c_int
+    nifly.getBlockname.argtypes = [c_void_p, c_int, c_char_p, c_int]
+    nifly.getBlockname.restype = c_int
     nifly.getBSXFlags.argtypes = [c_void_p, c_void_p]
     nifly.getBSXFlags.restype = c_int
     nifly.getClothExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int]
@@ -122,7 +138,6 @@ def load_nifly(nifly_path):
     nifly.getControllerManager.restype = None
     nifly.getControllerManagerSequences.argtypes = [c_void_p, c_void_p, c_int, POINTER(c_uint32)]
     nifly.getControllerManagerSequences.restype = c_int
-    nifly.getControllerSequence.argtypes = [c_void_p, c_uint32, POINTER(NiControllerSequenceBuf)]
     nifly.getEffectShaderAttrs.argtypes = [c_void_p, c_void_p, POINTER(BSESPAttrs)]
     nifly.getEffectShaderAttrs.restype = c_int
     nifly.getFurnMarker.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
@@ -211,10 +226,6 @@ def load_nifly(nifly_path):
     nifly.getSubsegments.restype = c_int
     nifly.getTransformController.argtypes = [c_void_p, c_int, POINTER(NiTransformControllerBuf)]
     nifly.getTransformController.restype = c_int
-    nifly.getTransformData.argtypes = [c_void_p, c_int, POINTER(NiTransformDataBuf)]
-    nifly.getTransformData.restype = c_int
-    nifly.getTransformInterpolator.argtypes = [c_void_p, c_int, POINTER(NiTransformInterpolatorBuf)]
-    nifly.getTransformInterpolator.restype = None
     nifly.getTriangles.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
     nifly.getTriangles.restype = c_int
     nifly.getUVs.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
@@ -233,6 +244,8 @@ def load_nifly(nifly_path):
     nifly.setAlphaProperty.restype = None
     nifly.setBGExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
     nifly.setBGExtraData.restype = None
+    nifly.setBlock.argtypes = [c_void_p, c_int, c_char_p, c_void_p] 
+    nifly.setBlock.restype = None
     nifly.setBSXFlags.argtypes = [c_void_p, c_char_p, c_uint32]
     nifly.setBSXFlags.restype = None
     nifly.setClothExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
@@ -568,20 +581,51 @@ def _write_extra_data(nifhandle, shapehandle, edtype, val):
 class NiObject:
     """ Represents any block in a nif file. """
 
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         self._handle = handle
-        if handle is None and id != NODEID_NONE and file is not None:
-            handle = NifFile.nifly.getNodeByID(file._handle, id)
-        self._parent = parent
-        self.id = id
         self.file = file
-        self.properties = None
+        self.id = id
+        if handle is None and id != NODEID_NONE and file is not None:
+            self._handle = NifFile.nifly.getNodeByID(file._handle, id)
+        if self.id == NODEID_NONE and handle is not None and file is not None:
+            self.id = NifFile.nifly.getBlockID(self.file._handle, self._handle)
+        self._parent = parent
+        self._properties = properties
+        self._blockname = None
 
+    def _getbuf(self):
+        """To be overwritten by subclasses."""
+        assert False, "_getbuf should have been overwritten."
+    
     @property
     def blockname(self):
-        buf = (c_char * 128)()
-        NifFile.nifly.getNodeBlockname(self._handle, buf, 128)
-        return buf.value.decode('utf-8')
+        if self._blockname == None:
+            if self.id == NODEID_NONE:
+                self._blockname = self.__class__.__name__
+            else:
+                buf = (c_char * 128)()
+                NifFile.nifly.getBlockname(self.file._handle, self.id, buf, 128)
+                self._blockname = buf.value.decode('utf-8')
+        return self._blockname
+    
+    @property
+    def properties(self):
+        if self._properties == None:
+            self._properties = self._getbuf()
+            if self.id != NODEID_NONE:
+                NifFile.nifly.getBlock(self.file._handle, 
+                                       self.id, 
+                                       self.blockname.encode('utf-8'), 
+                                       byref(self._properties))
+        return self._properties
+    
+    @properties.setter
+    def properties(self, value):
+        self._properties = value.copy()
+        NifFile.nifly.setBlock(self.file._handle, 
+                               self.id, 
+                               self.blockname.encode('utf-8'), 
+                               byref(self._properties))
 
 
 # --- Collisions --- #
@@ -837,6 +881,7 @@ class CollisionObject(NiObject):
 
 
 # --- NiNode --- #
+
 class NiNode(NiObject):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None, name=""):
         super().__init__(handle=handle, file=file, id=id, parent=parent)
@@ -847,16 +892,22 @@ class NiNode(NiObject):
         self._clothdata = None
         self._clothdata = None
         
-        self.properties = NiNodeBuf()
-        if not self._handle is None:
-            NifFile.nifly.getNode(self._handle, self.properties)
+        if self._handle:
+            NifFile.nifly.getBlock(self.file._handle, 
+                                   self.id, 
+                                   self.blockname.encode('utf-8'), 
+                                   byref(self.properties))
 
-            buf = create_string_buffer(self.file.max_string_len+1)
-            NifFile.nifly.getNodeName(self._handle, buf, self.file.max_string_len+1)
+            buflen = self.file.max_string_len
+            buf = create_string_buffer(buflen)
+            NifFile.nifly.getNodeName(self._handle, buf, buflen)
             self.name = buf.value.decode('utf-8')
 
         if name: self.name = name
 
+    def _getbuf(self):
+        return NiNodeBuf()
+    
     @property
     def name(self):
         return self._name
@@ -999,11 +1050,15 @@ class QuadVectorKey:
 
 
 class NiTransformData(NiKeyFrameData):
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
-        super().__init__(handle=handle, file=file, id=id, parent=parent)
-        self.properties = NiTransformDataBuf()
-        NifFile.nifly.getTransformData(
-            self.file._handle, self.id, self.properties)
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, props=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=props, parent=parent)
+        if self._handle == None and self.id == NODEID_NONE:
+            self.id = NifFile.nifly.addBlock(
+                self.file._handle, None, b"NiTransformData", 
+                byref(self.properties), 
+                parent.id if parent else None)
+            self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
+        self._blockname = "NiTransformData"
         
         self.xrotations = []
         self.yrotations = []
@@ -1030,6 +1085,9 @@ class NiTransformData(NiKeyFrameData):
                 NifFile.log.warning(f"Found unknown key type: {self.properties.translations.interpolation}")
             self.translations.append(k)
 
+    def _getbuf(self):
+        return NiTransformDataBuf()
+    
     def _readlinrot(self):
         """Read keys when the type is LINEAR_KEY or QUADRATIC_KEY. These are time, value
         pairs where the value is a quaternion. 
@@ -1063,17 +1121,41 @@ class NiTransformData(NiKeyFrameData):
             NifFile.nifly.getAnimKeyLinearXYZ(self.file._handle, self.id, dimension, frame, buf)
             k = LinearScalarKey(buf)
         return k
+    
+    def add_translation_key(self, time, loc):
+        """Add a key that does a translation. Keys must be added in time order."""
+        buf = NiAnimKeyLinearTransBuf()
+        buf.time = time
+        buf.value = loc
+        NifFile.nifly.addAnimKeyLinearTrans(self.file._handle, self.id, buf)
+
+    def add_qrotation_key(self, time, q):
+        """Add a key that does a rotation given as a quaternion, linear interpolation. 
+        Keys must be added in time order."""
+        buf = NiAnimKeyLinearQuatBuf()
+        buf.time = time
+        buf.value = q
+        NifFile.nifly.addAnimKeyLinearQuat(self.file._handle, self.id, buf)
+
 
 
 class NiTransformInterpolator(NiObject):
-    _data = None
-
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
-        super().__init__(handle=handle, file=file, id=id, parent=parent)
-        self.properties = NiTransformInterpolatorBuf()
-        NifFile.nifly.getTransformInterpolator(
-            self.file._handle, self.id, self.properties)
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, props=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=props, parent=parent)
+        parent_handle = None
+        if parent:
+            parent_handle = parent._handle
+        if self._handle == None and self.id == NODEID_NONE:
+            self.id = NifFile.nifly.addBlock(
+                self.file._handle, None, b"NiTransformInterpolator", 
+                byref(self.properties), parent_handle)
+            self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
+        self._data = None
+        self._blockname = "NiTransformInterpolator"
         
+    def _getbuf(self):
+        return NiTransformInterpolatorBuf()
+    
     @property
     def data(self):
         if self._data: return self._data
@@ -1140,7 +1222,7 @@ class ControllerLink:
     def node_name(self):
         if self._nodename: return self._nodename
 
-        buflen = self.parent.file.max_string_len+1
+        buflen = self.parent.file.max_string_len
         buf = (c_char * buflen)()
         NifFile.nifly.getString(self.parent.file._handle, 
                                 self.properties.nodeName,
@@ -1152,7 +1234,7 @@ class ControllerLink:
     def controller_type(self):
         if self._controller_type: return self._controller_type
 
-        buflen = self.parent.file.max_string_len+1
+        buflen = self.parent.file.max_string_len
         buf = (c_char * buflen)()
         NifFile.nifly.getString(self.parent.file._handle, 
                                 self.properties.ctrlType,
@@ -1186,7 +1268,7 @@ class NiSequence(NiObject):
     
     @property
     def controlled_blocks(self):
-        if self._controlled_blocks: return self._controlled_blocks
+        if self._controlled_blocks is not None: return self._controlled_blocks
 
         buf = (ControllerLinkBuf * self.properties.controlledBlocksCount)()
         NifFile.nifly.getControlledBlocks(
@@ -1196,21 +1278,63 @@ class NiSequence(NiObject):
             self._controlled_blocks.append(ControllerLink(b, self))
         return self._controlled_blocks
 
+    def add_controlled_block(self,
+                             name:str,
+                             interpolator=None,
+                             controller=None,
+                             priority=0,
+                             node_name=None,
+                             prop_type=None,
+                             controller_type=None,
+                             ctrlr_id=None,
+                             interpolator_id=None):
+        buf = ControllerLinkBuf()
+        buf.interpolatorID = interpolator.id if interpolator else NODEID_NONE
+        buf.controllerID = controller.id if controller else NODEID_NONE
+        buf.priority = priority
+        buf.nodeName = NODEID_NONE
+        if node_name: 
+            buf.nodeName = NifFile.nifly.addString(
+                self.file._handle, node_name.encode('utf-8'))
+        
+        buf.propType = NODEID_NONE
+        if prop_type: 
+            buf.propType = NifFile.nifly.addString(
+                self.file._handle, prop_type.encode('utf-8'))
+        buf.ctrlType = NODEID_NONE
+        if controller_type: 
+            buf.ctrlType = NifFile.nifly.addString(
+                self.file._handle, controller_type.encode('utf-8'))
+        buf.ctrlID = NODEID_NONE
+        if ctrlr_id: 
+            buf.ctrlID = NifFile.nifly.addString(
+                self.file._handle, ctrlr_id.encode('utf-8'))
+        buf.interpID = NODEID_NONE
+        if interpolator_id: 
+            buf.interpID = NifFile.nifly.addString(
+                self.file._handle, interpolator_id.encode('utf-8'))
+        
+        NifFile.nifly.addControlledBlock(self.file._handle, self.id, name.encode('utf-8'), buf)
+        if self._controlled_blocks is None: self._controlled_blocks = []
+        self._controlled_blocks.append(ControllerLink(buf, self))
+
 
 class NiControllerSequence(NiSequence):
     def __init__(self, handle=None, file=None, parent=None, id=NODEID_NONE):
         super().__init__(handle=handle, file=file, parent=parent, id=id)
-        self.properties = NiControllerSequenceBuf()
-        NifFile.nifly.getControllerSequence(file._handle, self.id, self.properties)
+        self._blockname = "NiControllerSequence"
+
+    def _getbuf(self):
+        return NiControllerSequenceBuf()
     
 
 class NiControllerManager(NiTimeController):
     _controller_manager_sequences = None
 
     def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
-        super().__init__(handle=handle, file=file, parent=parent)
+        super().__init__(handle=handle, file=file, id=id, parent=parent)
         self.properties = NiControllerManagerBuf()
-        NifFile.nifly.getControllerManager(handle, self.properties)
+        NifFile.nifly.getBlock(handle, self.id, "NiControllerManager", self.properties)
 
     @property
     def sequences(self):
@@ -1734,12 +1858,10 @@ class NifFile:
         self._handle = None
         self._game = None
         self._root = None
-        self.max_string_len = 0
         if not filepath is None:
             self._handle = NifFile.nifly.load(filepath.encode('utf-8'))
             if not self._handle:
                 raise Exception(f"Could not open '{filepath}' as nif")
-            self.max_string_len = NifFile.nifly.getMaxStringLen(self._handle)
         self._shapes = None
         self._shape_dict = {}
         self._nodes = None
@@ -1760,6 +1882,16 @@ class NifFile:
             NifFile.nifly.destroy(self._handle)
 
     @property
+    def max_string_len(self):
+        """Length of buffer required for the longest string stored in the nif + one for
+        the trailing null byte. Return at least 128 because reasons.
+        """
+        if self._handle:
+            return max(128, NifFile.nifly.getMaxStringLen(self._handle)+1)
+        else:
+            return 128
+        
+    @property
     def reference_skel(self):
         if self._ref_skel:
             return self._ref_skel
@@ -1778,10 +1910,8 @@ class NifFile:
         self.filepath = filepath
         self._game = target_game
         rt = 0
-        if root_type == "BSFadeNode":
-            rt = RT_BSFADENODE
         self._handle = NifFile.nifly.createNif(target_game.encode('utf-8'),
-                                               rt,
+                                               root_type.encode('utf-8'),
                                                root_name.encode('utf-8'))
         self.dict = gameSkeletons[target_game]
         # Get the root node into the nodes list so it can be found.
@@ -2236,7 +2366,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -3974,21 +4104,83 @@ if __name__ == "__main__":
         print("### TEST_KF: KF animation file")
         nif = NifFile(r"tests/SkyrimSE/1hm_attackpowerright.kf")
         root = nif.rootNode
+
+        # Root node of these KF files is a NiControllerSequence.
         assert root.blockname == "NiControllerSequence", f"Found correct block name: {root.blockname}"
         assert root.name == "1hm_attackpowerright", f"Have root node {root.name}"
         assert len(root.controlled_blocks) == 91, f"Have controlled blocks: {len(root.controlled_blocks)}"
+
+        # Controlled Blocks define what gets animated, which isn't in this file.
         cb = root.controlled_blocks[0]
         assert cb.controller_type == "NiTransformController", f"Have correct controller type: {cb.controller_type}"
+        
+        # Interpolator and Data define the animation itself.
         ti = cb.interpolator
         td = ti.data
         assert td.properties.rotationType == NiKeyType.QUADRATIC_KEY, f"Have expected rotation type: {td.properties.rotationType}"
         assert len(td.qrotations) == 36, f"Have quadratc rotation keys: {len(td.qrotations)}"
 
+        nifout = NifFile()
+        nifout.initialize("SKYRIM", r"tests/Out/TEST_KF.kf", "NiControllerSequence", "testKF")
+
+        rootout = nifout.rootNode
+        rootout.properties = root.properties
+
+        # First key: Linear translation.
+        tiprops = NiTransformInterpolatorBuf()
+        ti = NiTransformInterpolator(file=nifout, parent=nifout.rootNode)
+        tdprops = NiTransformDataBuf()
+        tdprops.translations.interpolation = NiKeyType.LINEAR_KEY
+        td = NiTransformData(file=nifout, props=tdprops, parent=ti)
+        td.add_translation_key(0, (-0.029318, -0.229634, 0))
+
+        rootout.add_controlled_block(
+            name="NPC Root [Root]",
+            interpolator=ti,
+            node_name = "NPC Root [Root]",
+            controller_type = "NiTransformController")
+
+        # Second key: Quadratic rotation.
+        tiprops = NiTransformInterpolatorBuf()
+        ti = NiTransformInterpolator(file=nifout, parent=nifout.rootNode)
+        tdprops = NiTransformDataBuf()
+        tdprops.rotationType = NiKeyType.QUADRATIC_KEY
+        td = NiTransformData(file=nifout, props=tdprops, parent=ti)
+        td.add_qrotation_key(0, (0.8452, 0.0518, -0.0010, -0.5320))
+
+        rootout.add_controlled_block(
+            name="NPC Pelvis [Pelv]",
+            interpolator=ti,
+            node_name = "NPC Root [Root]",
+            controller_type = "NPC Pelvis [Pelv]")
+
+        nifout.save()
+
+        nifcheck = NifFile(r"tests/Out/TEST_KF.kf")
+        assert nifcheck.rootNode.blockname == "NiControllerSequence", f"Have correct root node type"
+        assert nifcheck.rootNode.name == "testKF", f"Root node has name"
+        assert len(nifcheck.rootNode.controlled_blocks) > 0, f"Have controlled blocks {nifcheck.rootNode.controlled_blocks}"
+
+        # Check first controlled block
+        cb = nifcheck.rootNode.controlled_blocks[0]
+        assert cb.properties.controllerID == NODEID_NONE, f"No controller for this block"
+        assert cb.node_name == "NPC Root [Root]", f"Have correct node name"
+        assert cb.controller_type == "NiTransformController", f"Have transform controller type"
+        assert cb.properties.propType == NODEID_NONE, f"Do NOT have property type"
+
+        # Check first Interpolator/Data pair
+        ticheck = cb.interpolator
+        tdcheck = ticheck.data
+        assert len(tdcheck.translations) > 0, "Have translations"
+
+        # Check second controlled block
+        cb2 = nifcheck.rootNode.controlled_blocks[1]
+        ti2 = cb2.interpolator
+        td2 = ti2.data
+        assert len(td2.qrotations) > 0, "Have rotations"
 
     print("""
 ================================================
-=========                              =========
 ========= TESTS COMPLETED SUCCESSFULLY =========
-=========                              =========
 ================================================
 """)
