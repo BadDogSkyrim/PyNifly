@@ -1073,6 +1073,7 @@ class NiTransformData(NiKeyFrameData):
             self._readlinrot()
 
         for frame in range(0, self.properties.translations.numKeys):
+            k = None
             if self.properties.translations.interpolation == NiKeyType.LINEAR_KEY:
                 buf = NiAnimKeyLinearTransBuf()
                 NifFile.nifly.getAnimKeyLinearTrans(self.file._handle, self.id, frame, buf)
@@ -1083,7 +1084,7 @@ class NiTransformData(NiKeyFrameData):
                 k = QuadVectorKey(buf)
             else:
                 NifFile.log.warning(f"Found unknown key type: {self.properties.translations.interpolation}")
-            self.translations.append(k)
+            if k: self.translations.append(k)
 
     def _getbuf(self):
         return NiTransformDataBuf()
@@ -1126,7 +1127,7 @@ class NiTransformData(NiKeyFrameData):
         """Add a key that does a translation. Keys must be added in time order."""
         buf = NiAnimKeyLinearTransBuf()
         buf.time = time
-        buf.value = loc
+        buf.value = loc[:]
         NifFile.nifly.addAnimKeyLinearTrans(self.file._handle, self.id, buf)
 
     def add_qrotation_key(self, time, q):
@@ -1142,13 +1143,13 @@ class NiTransformData(NiKeyFrameData):
 class NiTransformInterpolator(NiObject):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, props=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=props, parent=parent)
-        parent_handle = None
+        parent_id = NODEID_NONE
         if parent:
-            parent_handle = parent._handle
+            parent_id = parent.id
         if self._handle == None and self.id == NODEID_NONE:
             self.id = NifFile.nifly.addBlock(
                 self.file._handle, None, b"NiTransformInterpolator", 
-                byref(self.properties), parent_handle)
+                byref(self.properties), parent_id)
             self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
         self._data = None
         self._blockname = "NiTransformInterpolator"

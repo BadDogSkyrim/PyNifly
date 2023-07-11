@@ -4400,32 +4400,62 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
             return {'CANCELLED'} 
 
+        self.messages = []
+        self.errors = set()
         LogStart(bl_info, "EXPORT", "KF")
         NifFile.Load(nifly_path)
+        NifFile.clear_log()
 
         try:
             # Export whatever animation is attached to the active object.
-            self.export_animation(context.object.animation_data.action)
+            self.export_animation(context.object)
 
         except:
             log.exception("Export of KF failed")
+            self.error("Export of KF failed")
+
+        if "ERROR" in self.errors:
             self.report({"ERROR"}, "Export of KF failed, see console window for details")
             res.add("CANCELLED")
-            LogFinish("EXPORT", context.object, {"ERROR"}, True)
+            LogFinish("EXPORT", self.filepath, {"ERROR"}, True)
+        elif "WARNING" in self.errors:
+            self.report({"ERROR"}, "Export of KF completed with warnings, see console window for details")
+            res.add("CANCELLED")
+            LogFinish("EXPORT", self.filepath, {"WARNING"}, True)
+        else:
+            res.add("SUCCESS")
+            LogFinish("EXPORT", self.filepath, {"SUCCESS"})
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
+    
+
+    def error(self, msg):
+        """Log an error message."""
+        log.error(msg)
+        self.errors.add("ERROR")
+        self.messages.append("ERROR: " + msg)
+
+    
+    def warning(self, msg):
+        """Log a warning message."""
+        log.warning(msg)
+        self.errors.add("WARNING")
+        self.messages.append("WARNING: " + msg)
 
 
-    def export_curves(self, ctrlrID, curve_list):
+    def export_curves(self, arma, curve_list):
         """Export a group of curves from the list to a TransformInterpolator/TransformData pair. 
         A group maps to a controlled object, so each group should be one such pair.
         The curves that are used are picked off the list.
+        * Returns (group name, TransformInterpolator for the set of curves).
         """
+        if not curve_list: return
+        
         group = curve_list[0].group.name
         loc = []
         eu = []
         quat = []
-        while curve_list[0].group_name == group:
+        while curve_list and curve_list[0].group.name == group:
             if ".location" in curve_list[0].data_path:
                 loc.append(curve_list[0])
                 curve_list.pop(0)
@@ -4436,24 +4466,89 @@ class ExportKF(bpy.types.Operator, ExportHelper):
                 self.error(f"Unknown curve type: {curve_list[0].data_path}")
                 return
         
-        if not (loc or eu or quat):
-            self.error(f"No usable transform types in group {group}")
+        if len(loc) != 3 and len(eu) != 3 and len(quat) != 4:
+            self.error(f"Unusable transforms in group {group}")
             return
 
-        td = NiTransformData(handle=None, self.nif, None, ctrlrID)
+        if not group in arma.data.bones:
+            self.error(f"Target bone not found in armature: {group}")
+            return
+        
+        targ = arma.data.bones[group]
+        tibuf = NiTransformInterpolatorBuf()
+        tibuf.translation = targ.head_local[:]
+        tibuf.rotation = targ.matrix.to_quaternion()[:]
+        tibuf.scale = 1.0
+        ti = NiTransformInterpolator(file=self.nif, props=tibuf)
+        
+        tdbuf = NiTransformDataBuf()
+        if quat:
+            tdbuf.rotationType = NiKeyType.QUADRATIC_KEY
+        elif eu:
+            tdbuf.rotationType = NiKeyType.XYZ_ROTATION_KEY
+        if loc:
+            tdbuf.translations.interpolation = NiKeyType.LINEAR_KEY
+        td = NiTransformData(file=self.nif, props=tdbuf, parent=ti)
 
+        # Lots of error-checking because the user could have done any damn thing.
+        if len(quat) == 4:
+            # Theoretically, each quaternion curve could have a different number of 
+            # keyframes, but that's just crazypants. Insist they be the same.
+            if len(quat[0].keyframe_points) != len(quat[1].keyframe_points) \
+                or len(quat[0].keyframe_points) != len(quat[2].keyframe_points) \
+                or len(quat[0].keyframe_points) != len(quat[3].keyframe_points):
+                self.error("Don't have same number of keyframes in all curves.")
+                return
+            
+            for kw, kx, ky, kz in zip(quat[0].keyframe_points,
+                                    quat[1].keyframe_points,
+                                    quat[2].keyframe_points,
+                                    quat[3].keyframe_points,):
+                # Insist that the frames all be at matching times.
+                if not NearEqual(kw.co[0], kx.co[0]) \
+                    or not NearEqual(kw.co[0], ky.co[0]) \
+                    or not NearEqual(kw.co[0], kz.co[0]):
+                    self.error(f"Quaternion keyframes not at same times for {group}")
+                    return
+                td.add_qrotation_key(kw.co[0]-1, (kw.co[1], kx.co[1], ky.co[1], kz.co[1]))
 
-    def export_animation(self, action):
+        if len(loc) == 3:
+            if len(loc[0].keyframe_points) != len(loc[1].keyframe_points) \
+                or len(loc[0].keyframe_points) != len(loc[2].keyframe_points):
+                self.error(f"Don't have same number of keyframes for translation in all curves in {group}")
+                return
+            
+            for kx, ky, kz in zip(loc[0].keyframe_points, 
+                                  loc[1].keyframe_points, 
+                                  loc[2].keyframe_points, ):
+                if not NearEqual(kx.co[0], ky.co[0]) \
+                    or not NearEqual(kx.co[0], kz.co[0]):
+                    self.error(f"Translation keyframes not at same times for {group}")
+                    return
+                kv =Vector((kx.co[1], ky.co[1], kz.co[1]))
+                rv = kv + targ.head_local
+                td.add_translation_key(kx.co[0]-1, rv)
+
+        return group, ti
+                
+
+    def export_animation(self, arma):
         """Export one action to one animation KF file."""
+        action = arma.animation_data.action
         self.nif = NifFile()
         self.nif.initialize("SKYRIM", self.filepath, "NiControllerSequence", 
                             os.path.splitext(os.path.basename(self.filepath))[0])
-        ctrlrID = 0
+        controller = self.nif.rootNode
 
         # Collect list of curves. They will be picked off in clumps until the list is empty.
         curve_list = list(action.fcurves)
         while curve_list:
-            self.export_curves(ctrlrID, curve_list)
+            targname, ti = self.export_curves(arma, curve_list)
+            controller.add_controlled_block(
+                name=targname,
+                interpolator=ti,
+                node_name = targname,
+                controller_type = "NiTransformInterpolator")
 
         self.nif.save()
 

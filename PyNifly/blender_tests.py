@@ -4213,6 +4213,14 @@ def TEST_ANIM_KF():
     assert kfout.rootNode.name == 'TEST_ANIM_KF', f"Have good root node name: {kfout.rootNode.name}"
     assert kfout.rootNode.blockname == 'NiControllerSequence', f"Have good root node name: {kfout.rootNode.name}"
 
+    cs = kfout.rootNode
+    cb0 = cs.controlled_blocks[0]
+    ti0 = cb0.interpolator
+    td0 = ti0.data
+    assert td0.properties.translations.interpolation == pyn.NiKeyType.LINEAR_KEY, f"Have correct key type: {td0.translations.interpolation}"
+    assert td0.translations[0].time == 0, f"First time is 0"
+    assert BD.VNearEqual(td0.translations[0].value, (0.0, 0.0001, 57.8815)), f"Have correct translation: {td0.translations[0].value}"
+
 
 def TEST_ANIM_KF_RENAME():
     # Animation import works even if bones are renamed.
