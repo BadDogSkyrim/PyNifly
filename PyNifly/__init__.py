@@ -9,7 +9,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (10, 2, 0),  
+    "version": (10, 3, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -4400,6 +4400,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
             return {'CANCELLED'} 
 
+        self.context = context
         self.messages = []
         self.errors = set()
         LogStart(bl_info, "EXPORT", "KF")
@@ -4449,9 +4450,11 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         The curves that are used are picked off the list.
         * Returns (group name, TransformInterpolator for the set of curves).
         """
-        if not curve_list: return
+        if not curve_list: return None, None
         
         group = curve_list[0].group.name
+        fps = self.context.scene.render.fps
+        
         loc = []
         eu = []
         quat = []
@@ -4464,20 +4467,27 @@ class ExportKF(bpy.types.Operator, ExportHelper):
                 curve_list.pop(0)
             else:
                 self.error(f"Unknown curve type: {curve_list[0].data_path}")
-                return
+                return None, None
         
         if len(loc) != 3 and len(eu) != 3 and len(quat) != 4:
             self.error(f"Unusable transforms in group {group}")
-            return
+            return None, None
 
         if not group in arma.data.bones:
             self.error(f"Target bone not found in armature: {group}")
-            return
+            return None, None
         
         targ = arma.data.bones[group]
+        if targ.parent:
+            targ_xf = targ.parent.matrix_local.inverted() @ targ.matrix_local
+        else:
+            targ_xf = targ.matrix_local
+        targ_trans = targ_xf.translation
+        targ_q = targ_xf.to_quaternion()
+
         tibuf = NiTransformInterpolatorBuf()
-        tibuf.translation = targ.head_local[:]
-        tibuf.rotation = targ.matrix.to_quaternion()[:]
+        tibuf.translation = targ_trans[:]
+        tibuf.rotation = targ_q[:]
         tibuf.scale = 1.0
         ti = NiTransformInterpolator(file=self.nif, props=tibuf)
         
@@ -4498,7 +4508,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
                 or len(quat[0].keyframe_points) != len(quat[2].keyframe_points) \
                 or len(quat[0].keyframe_points) != len(quat[3].keyframe_points):
                 self.error("Don't have same number of keyframes in all curves.")
-                return
+                return None, None
             
             for kw, kx, ky, kz in zip(quat[0].keyframe_points,
                                     quat[1].keyframe_points,
@@ -4509,14 +4519,16 @@ class ExportKF(bpy.types.Operator, ExportHelper):
                     or not NearEqual(kw.co[0], ky.co[0]) \
                     or not NearEqual(kw.co[0], kz.co[0]):
                     self.error(f"Quaternion keyframes not at same times for {group}")
-                    return
-                td.add_qrotation_key(kw.co[0]-1, (kw.co[1], kx.co[1], ky.co[1], kz.co[1]))
+                    return None, None
+                tdq = Quaternion((kw.co[1], kx.co[1], ky.co[1], kz.co[1]))
+                kq = targ_q @ tdq
+                td.add_qrotation_key((kw.co[0]-1)/fps, kq)
 
         if len(loc) == 3:
             if len(loc[0].keyframe_points) != len(loc[1].keyframe_points) \
                 or len(loc[0].keyframe_points) != len(loc[2].keyframe_points):
                 self.error(f"Don't have same number of keyframes for translation in all curves in {group}")
-                return
+                return None, None
             
             for kx, ky, kz in zip(loc[0].keyframe_points, 
                                   loc[1].keyframe_points, 
@@ -4524,10 +4536,10 @@ class ExportKF(bpy.types.Operator, ExportHelper):
                 if not NearEqual(kx.co[0], ky.co[0]) \
                     or not NearEqual(kx.co[0], kz.co[0]):
                     self.error(f"Translation keyframes not at same times for {group}")
-                    return
+                    return None, None
                 kv =Vector((kx.co[1], ky.co[1], kz.co[1]))
-                rv = kv + targ.head_local
-                td.add_translation_key(kx.co[0]-1, rv)
+                rv = kv + targ_trans
+                td.add_translation_key((kx.co[0]-1)/fps, rv)
 
         return group, ti
                 
@@ -4535,20 +4547,27 @@ class ExportKF(bpy.types.Operator, ExportHelper):
     def export_animation(self, arma):
         """Export one action to one animation KF file."""
         action = arma.animation_data.action
+        fps = self.context.scene.render.fps
         self.nif = NifFile()
         self.nif.initialize("SKYRIM", self.filepath, "NiControllerSequence", 
                             os.path.splitext(os.path.basename(self.filepath))[0])
         controller = self.nif.rootNode
+        cp = controller.properties.copy()
+        cp.startTime = (action.curve_frame_range[0]-1)/fps
+        cp.stopTime = (action.curve_frame_range[1]-1)/fps
+        cp.cycleType = CycleType.CYCLE_LOOP if action.use_cyclic else CycleType.CYCLE_CLAMP
+        cp.frequency = 1.0
+        controller.properties = cp
 
         # Collect list of curves. They will be picked off in clumps until the list is empty.
         curve_list = list(action.fcurves)
         while curve_list:
             targname, ti = self.export_curves(arma, curve_list)
             controller.add_controlled_block(
-                name=targname,
+                name=self.nif.nif_name(targname),
                 interpolator=ti,
-                node_name = targname,
-                controller_type = "NiTransformInterpolator")
+                node_name = self.nif.nif_name(targname),
+                controller_type = "NiTransformController")
 
         self.nif.save()
 

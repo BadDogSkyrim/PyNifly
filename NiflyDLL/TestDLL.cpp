@@ -1192,7 +1192,7 @@ namespace NiflyDLLTests
 			//}
 
 			//SaveSkinnedNif(newSkin, (testRoot / "Out/UnkownBones.nif").string());
-			void* nifOut = createNif("FO4", 0, "Scene Root");
+			void* nifOut = createNif("FO4", "NiNode", "Scene Root");
 
 			TCopyShape(nifOut, "Inari_ZA85_fluffy", nif, shape);
 			saveNif(nifOut, testfileOut.u8string().c_str());
@@ -1526,7 +1526,7 @@ namespace NiflyDLLTests
 			int ulen = getUVs(nif, theHelmet, uv, 2500, 0);
 			int nlen = getNormalsForShape(nif, theHelmet, norms, 2500, 0);
 
-			void* newNif = createNif("FO4", 0, "Scene Root");
+			void* newNif = createNif("FO4", "NiNode", "Scene Root");
 			void* newHelm = createNifShapeFromData(newNif, "Helmet",
 				verts, uv, norms, vlen,
 				rawtris, tlen,
@@ -1621,7 +1621,7 @@ namespace NiflyDLLTests
 			// Can save vertex colors
 			std::filesystem::path testfileOut = testRoot / "Out/vertexColors_HeadGear1.nif";
 
-			void* nif2 = createNif("FO4", 0, "Scene Root");
+			void* nif2 = createNif("FO4", "NiNode", "Scene Root");
 			void* shape2 = createNifShapeFromData(nif2, "Hood",
 				verts, uvs, norms, vertLen,
 				tris, triLen,
@@ -1726,7 +1726,7 @@ namespace NiflyDLLTests
 			getUVs(nif, shape, uvs2, vertLen * 2, 0);
 			getNormalsForShape(nif, shape, norms2, vertLen * 3, 0);
 
-			void* nif2 = createNif("SKYRIMSE", 0, "Scene Root");
+			void* nif2 = createNif("SKYRIMSE", "NiNode", "Scene Root");
 
 			uint16_t options = 1;
 			void* shape2 = createNifShapeFromData(nif2, "KSSMP_Anchor",
@@ -1814,7 +1814,7 @@ namespace NiflyDLLTests
 
 			std::filesystem::path testfileOut = testRoot / "Out/loadAndStoreUnskinned.nif";
 
-			void* nif2 = createNif("FO4", 0, "Scene Root");
+			void* nif2 = createNif("FO4", "NiNode", "Scene Root");
 			uint16_t options = 2;
 			void* shape2 = createNifShapeFromData(nif2, "AlarmClock",
 				verts, uvs, norms, vertLen,
@@ -1848,7 +1848,7 @@ namespace NiflyDLLTests
 					Assert::AreEqual("BSTriShape", blockname, L"Have expected node type");
 
 					std::filesystem::path testfileOut = testRoot / "Out" / testfile.path().filename();
-					void* nif2 = createNif("FO4", 0, "Scene Root");
+					void* nif2 = createNif("FO4", "NiNode", "Scene Root");
 
 					void* shape2 = TCopyShape(nif2, "AlarmClock", nif, shapes[0], NifOptions(FO4TriShape));
 					saveNif(nif2, testfileOut.u8string().c_str());
@@ -1901,7 +1901,7 @@ namespace NiflyDLLTests
 
 			std::filesystem::path testfileO = testRoot / "Out" / "testWrapper_Shaders01.nif";
 
-			void* nifOut = createNif("Skyrim", 0, "Scene Root");
+			void* nifOut = createNif("Skyrim", "NiNode", "Scene Root");
 			uint16_t options = 0;
 			void* shapeOut = TCopyShape(nifOut, "MaleHead", nif, shapes[0]);
 			TCopyShader(nifOut, shapeOut, nif, shapes[0]);
@@ -1937,7 +1937,7 @@ namespace NiflyDLLTests
 
 			std::filesystem::path testfile2Out = testRoot / "Out" / "testWrapper_Shaders02.nif";
 
-			void* nif2Out = createNif("Skyrim", 0, "Scene Root");
+			void* nif2Out = createNif("Skyrim", "NiNode", "Scene Root");
 			void* shape2Out = TCopyShape(nif2Out, "NobleCrate", nif2, shapes2[0]);
 			TCopyShader(nif2Out, shape2Out, nif2, shapes2[0]);
 
@@ -2031,7 +2031,7 @@ namespace NiflyDLLTests
 
 			std::filesystem::path testfileO = testRoot / "Out" / "testWrapper_shadersFO401.nif";
 
-			void* nifOut = createNif("FO4", 0, "Scene Root");
+			void* nifOut = createNif("FO4", "NiNode", "Scene Root");
 			void* shapeOut = TCopyShape(nifOut, "MaleHead", nif, shapes[0]);
 			TCopyShader(nifOut, shapeOut, nif, shapes[0]);
 
@@ -2084,7 +2084,7 @@ namespace NiflyDLLTests
 
 			std::filesystem::path fileOut = testRoot / "Out" / "testWrapper_shadersReadAlpha.nif";
 
-			void* nifOut = createNif("Skyrim", 0, "Scene Root");
+			void* nifOut = createNif("Skyrim", "NiNode", "Scene Root");
 			void* shapeOut = TCopyShape(nifOut, "TailFur", nif, shape);
 			TCopyShader(nifOut, shapeOut, nif, shape);
 
@@ -2148,7 +2148,7 @@ namespace NiflyDLLTests
 
 			std::filesystem::path fileOut = testRoot / "Out/testWrapper_extraDataSheath.nif";
 
-			void* nifOut = createNif("Skyrim", 0, "Scene Root");
+			void* nifOut = createNif("Skyrim", "NiNode", "Scene Root");
 			void* shapeOut = TCopyShape(nifOut, "Sheath", nifsheath, sheath);
 			TCopyShader(nifOut, shapeOut, nifsheath, sheath);
 			TCopyExtraData(nifOut, nullptr, nifsheath, nullptr);
@@ -2184,7 +2184,7 @@ namespace NiflyDLLTests
 
 			std::filesystem::path fileOut = testRoot / "Out/testWrapper_extraDataFeet.nif";
 
-			void* nifOut = createNif("SKYRIMSE", 0, "Scene Root");
+			void* nifOut = createNif("SKYRIMSE", "NiNode", "Scene Root");
 			void* shapeOut = TCopyShape(nifOut, "FootLowRes", niffeet, feet);
 			TCopyShader(nifOut, shapeOut, niffeet, feet);
 
@@ -2216,7 +2216,7 @@ namespace NiflyDLLTests
 
 			clearMessageLog();
 
-			void* nifOut = createNif("SKYRIMSE", 0, "Scene Root");
+			void* nifOut = createNif("SKYRIMSE", "NiNode", "Scene Root");
 			void* shapeOut = TCopyShape(nifOut, "MaleHeadIMF", nifhead, head, NifOptions(SEHeadPart));
 			TCopyShader(nifOut, shapeOut, nifhead, head);
 
@@ -2267,7 +2267,7 @@ namespace NiflyDLLTests
 			Assert::IsTrue(round(xf.translation.y) == 75, L"Expected y translation");
 			Assert::IsTrue(xf.rotation[1][2] == -1.0, L"Expected rotation around Y");
 
-			void* nifOut = createNif("Skyrim", 0, "Scene Root");
+			void* nifOut = createNif("Skyrim", "NiNode", "Scene Root");
 			uint16_t options = 0;
 			void* shapeOut = TCopyShape(nifOut, "LykaiosBody", nif, body);
 			TCopyShader(nifOut, shapeOut, nif, body);
@@ -2310,7 +2310,7 @@ namespace NiflyDLLTests
 			Assert::IsTrue(TApproxEqual(xf.translation.z, 102.3579), 
 				L"Bone at expected location when first read");
 
-			void* nifOut = createNif("Skyrim", 0, "Scene Root");
+			void* nifOut = createNif("Skyrim", "NiNode", "Scene Root");
 			uint16_t options = 0;
 			void* shapeOut = TCopyShape(nifOut, "DraugrBody", nif, shapes[0]);
 			TCopyShader(nifOut, shapeOut, nif, shapes[0]);
@@ -2358,7 +2358,7 @@ namespace NiflyDLLTests
 
 			/* Test we can write the data correctly */
 
-			void* nifOut = createNif("FO4", 0, "Scene Root");
+			void* nifOut = createNif("FO4", "NiNode", "Scene Root");
 			uint16_t options = 0;
 			void* shapeOut = TCopyShape(nifOut, "Hair", nif, shapes[0], NifOptions(0));
 			TCopyShader(nifOut, shapeOut, nif, shapes[0]);
@@ -2389,7 +2389,7 @@ namespace NiflyDLLTests
 			void* nif = load((testRoot / "FO4/SMArmor0_Torso.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 
-			void* nifOut = createNif("FO4", 0, "Scene Root");
+			void* nifOut = createNif("FO4", "NiNode", "Scene Root");
 			uint16_t options = 0;
 			void* shapeOut0 = TCopyShape(nifOut, "Torso0", nif, shapes[0], NifOptions(0));
 			TCopyShader(nifOut, shapeOut0, nif, shapes[0]);
@@ -2408,7 +2408,7 @@ namespace NiflyDLLTests
 			void* nif = load((testRoot / "FO4/feralghoulbase.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 
-			void* nifOut = createNif("FO4", 0, "Scene Root");
+			void* nifOut = createNif("FO4", "NiNode", "Scene Root");
 			uint16_t options = 0;
 			void* shapeOut1 = TCopyShape(nifOut, "FeralGhoulBase:0", nif, shapes[1]);
 			TCopyShader(nifOut, shapeOut1, nif, shapes[1]);
@@ -2488,7 +2488,7 @@ namespace NiflyDLLTests
 
 			std::filesystem::path testfileO = testRoot / "Out" / "testWrapper_readWriteGlass.nif";
 
-			void* nifOut = createNif("FO4", 0, "Scene Root");
+			void* nifOut = createNif("FO4", "NiNode", "Scene Root");
 			NifOptions options = NifOptions::FO4EffectShader; 
 			void* shapeOut = TCopyShape(nifOut, "glass:0", nif, shape, options);
 			TCopyShader(nifOut, shapeOut, nif, shape);
@@ -2509,7 +2509,7 @@ namespace NiflyDLLTests
 			void* nif = load((testRoot / "FO4/TEST_SEGMENTS_EMPTY.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 
-			void* nifOut = createNif("FO4", 0, "Scene Root");
+			void* nifOut = createNif("FO4", "NiNode", "Scene Root");
 			uint16_t options = 0;
 			void* shapeOut = TCopyShape(nifOut, "UnderArmor", nif, shapes[0], NifOptions(0));
 			TCopyShader(nifOut, shapeOut, nif, shapes[0]);
@@ -2591,7 +2591,7 @@ namespace NiflyDLLTests
 			uint16_t trimap[4000];
 			int partTriCount = getPartitionTris(nif, head, trimap, 4000);
 
-			void* nifOut = createNif("FO4", 0, "Scene Root");
+			void* nifOut = createNif("FO4", "NiNode", "Scene Root");
 			uint16_t options = 0;
 			void* headOut = TCopyShape(nifOut, "BaseMaleHead:0", nif, head, NifOptions(0));
 			TCopyShader(nifOut, headOut, nif, head);
@@ -3195,7 +3195,7 @@ namespace NiflyDLLTests
 			clearMessageLog();
 			std::filesystem::path fileOut = testRoot / "Out/testWrapper_impExpSkinBone.nif";
 
-			void* nifOut = createNif("SKYRIMSE", 0, "AnimatronicNormalWoman");
+			void* nifOut = createNif("SKYRIMSE", "NiNode", "AnimatronicNormalWoman");
 			uint16_t options = 0;
 			void* shapeOut = TCopyShape(nifOut, "_ArgonianMaleHead", nif, head, BoneHierarchy);
 			setShapeSkinToBone(nifOut, shapeOut, "NPC Spine2 [Spn2]", spinexf);

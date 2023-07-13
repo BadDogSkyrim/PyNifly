@@ -1019,15 +1019,36 @@ class LinearScalarKey:
         self.time = buf.time
         self.value = buf.value
 
+    def __eq__(self, other):
+        return NearEqual(self.time, other.time) \
+            and VNearEqual(self.value, other.value)
+    
+    def __str__(self): 
+        return f"<LinearScalarKey>(time={self.time}, value={self.value:f})"
+
 class LinearVectorKey:
     def __init__(self, buf):
         self.time = buf.time
         self.value = [buf.value[0], buf.value[1], buf.value[2]]
 
+    def __eq__(self, other):
+        return NearEqual(self.time, other.time) \
+            and VNearEqual(self.value, other.value)
+
+    def __str__(self): 
+        return f"<LinearVectorKey>(time={self.time}, value=[{self.value[0]:f}, {self.value[1]:f}, {self.value[2]:f}])"
+
 class LinearQuatKey:
     def __init__(self, buf):
         self.time = buf.time
         self.value = [buf.value[0], buf.value[1], buf.value[2], buf.value[3]]
+
+    def __eq__(self, other):
+        return NearEqual(self.time, other.time) \
+            and VNearEqual(self.value, other.value)
+
+    def __str__(self): 
+        return f"<LinearQuatKey>(time={self.time}, value=[{self.value[0]:f}, {self.value[1]:f}, {self.value[2]:f}, {self.value[3]:f}])"
 
 class QuadScalarKey:
     def __init__(self, buf:NiAnimKeyQuadXYZBuf):
@@ -1035,6 +1056,15 @@ class QuadScalarKey:
         self.value = buf.value
         self.forward = buf.forward
         self.backward = buf.backward
+
+    def __eq__(self, other):
+        return NearEqual(self.time, other.time) \
+            and VNearEqual(self.value, other.value) \
+            and VNearEqual(self.forward, other.forward) \
+            and VNearEqual(self.backward, other.backward) 
+
+    def __str__(self): 
+        return f"<QuadScalarKey>(time={self.time}, value={self.value[:]}, forward={self.forward[:]}, backward={self.backward[:]})"
 
 class QuadVectorKey:
     time = 0.0
@@ -1047,6 +1077,15 @@ class QuadVectorKey:
         self.value = buf.value[:]
         self.forward = buf.forward[:]
         self.backward = buf.backward[:]
+
+    def __eq__(self, other):
+        return NearEqual(self.time, other.time) \
+            and VNearEqual(self.value, other.value) \
+            and VNearEqual(self.forward, other.forward) \
+            and VNearEqual(self.backward, other.backward) 
+
+    def __str__(self): 
+        return f"<QuadVectorKey>(time={self.time}, value={self.value[:]}, forward={self.forward[:]}, backward={self.backward[:]})"
 
 
 class NiTransformData(NiKeyFrameData):
@@ -1135,7 +1174,7 @@ class NiTransformData(NiKeyFrameData):
         Keys must be added in time order."""
         buf = NiAnimKeyLinearQuatBuf()
         buf.time = time
-        buf.value = q
+        buf.value = q[:]
         NifFile.nifly.addAnimKeyLinearQuat(self.file._handle, self.id, buf)
 
 

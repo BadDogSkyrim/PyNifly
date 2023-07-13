@@ -1021,6 +1021,11 @@ class ControllerLinkBuf(pynStructure):
         ("interpID", c_uint32),
     ]
 
+class CycleType(PynIntEnum):
+    CYCLE_LOOP = 0
+    CYCLE_REVERSE = 1
+    CYCLE_CLAMP = 2
+
 class NiTransformControllerBuf(pynStructure):
     _fields_ = [
         ("interpolatorID", c_uint32),

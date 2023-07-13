@@ -4186,7 +4186,7 @@ def TEST_ANIM_KF():
     outfile2 = TT.test_file(r"tests/Out/TEST_ANIM_KF.kf")
 
     bpy.context.scene.render.fps = 60
-    bpy.context.scene.frame_end = 71
+    bpy.context.scene.frame_end = 71 # TODO: Importer should set this
 
     # Animations are loaded into a skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile,
@@ -4209,29 +4209,81 @@ def TEST_ANIM_KF():
     BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
     bpy.ops.export_scene.pynifly_kf(filepath=outfile2)
 
-    kfout = pyn.NifFile(outfile2)
-    assert kfout.rootNode.name == 'TEST_ANIM_KF', f"Have good root node name: {kfout.rootNode.name}"
-    assert kfout.rootNode.blockname == 'NiControllerSequence', f"Have good root node name: {kfout.rootNode.name}"
+    kforig = pyn.NifFile(testfile2)
+    csorig = kforig.rootNode
+    cb2orig = [cb for cb in csorig.controlled_blocks if cb.node_name == 'NPC L Thigh [LThg]'][0]
+    ti_thigh_in = cb2orig.interpolator
+    td_thigh_in = ti_thigh_in.data
+    ti2qorig = Quaternion(ti_thigh_in.properties.rotation)
+    print(f"Original Interpolator rotation: {ti2qorig}")
+    k20orig = Quaternion(td_thigh_in.qrotations[0].value[:])
+    print(f"Original Key rotation: {k20orig}")
+    curve20orig = Quaternion(ti2qorig.inverted() @ k20orig)
+    print(f"Calculated curve quaternion: {curve20orig}")
 
-    cs = kfout.rootNode
-    cb0 = cs.controlled_blocks[0]
+    # The animation we wrote is correctNiControllerSequence
+    kfout = pyn.NifFile(outfile2)
+    csout = kfout.rootNode
+    assert csout.name == 'TEST_ANIM_KF', f"Have good root node name: {kfout.rootNode.name}"
+    assert csout.blockname == 'NiControllerSequence', f"Have good root node name: {kfout.rootNode.name}"
+    assert csout.properties.cycleType == nifdefs.CycleType.CYCLE_CLAMP, f"Have correct cycle type"
+    assert BD.NearEqual(csout.properties.stopTime, 1.166667), f"Have correct stop time"
+    cb0 = csout.controlled_blocks[0]
     ti0 = cb0.interpolator
     td0 = ti0.data
     assert td0.properties.translations.interpolation == pyn.NiKeyType.LINEAR_KEY, f"Have correct key type: {td0.translations.interpolation}"
     assert td0.translations[0].time == 0, f"First time is 0"
     assert BD.VNearEqual(td0.translations[0].value, (0.0, 0.0001, 57.8815)), f"Have correct translation: {td0.translations[0].value}"
 
+    controlled_block_thigh_out = [cb for cb in csout.controlled_blocks if cb.node_name == 'NPC L Thigh [LThg]'][0]
+    ti_thigh_out = controlled_block_thigh_out.interpolator
+    td_thigh_out = ti_thigh_out.data
+
+    # The interpolator's transform must be correct (to match the bone).
+    assert BD.VNearEqual(ti_thigh_out.properties.translation, ti_thigh_in.properties.translation), \
+        f"Thigh Interpolator translation correct: {ti_thigh_out.properties.translation[:]} == {ti_thigh_in.properties.translation[:]}"
+    mxout = Quaternion(ti_thigh_out.properties.rotation).to_matrix()
+    mxorig = Quaternion(ti_thigh_in.properties.rotation).to_matrix()
+    assert BD.MatNearEqual(mxout, mxorig), \
+        f"Thigh Interpolator rotation correct: {mxout} == {mxorig}"
+    
+    # We've calculated the rotations properly--the rotation we wrote matches the original.
+    k2mx = Quaternion(td_thigh_out.qrotations[0].value).to_matrix()
+    k2mxorig = Quaternion(td_thigh_in.qrotations[0].value).to_matrix()
+    assert BD.MatNearEqual(k2mx, k2mxorig), f"Have same rotation keys: {k2mx} == {k2mxorig}"
+
+    # Time signatures are calculated correctly.
+    klast_out = td_thigh_out.qrotations[-1]
+    klast_in = td_thigh_in.qrotations[-1]
+    assert BD.NearEqual(klast_out.time, klast_in.time), f"Have correct final time signature: {klast_out.time}"
+
+    # Check feet transforms
+    cb_foot_in = [cb for cb in csorig.controlled_blocks if cb.node_name == 'NPC L Foot [Lft ]'][0]
+    ti_foot_in = cb_foot_in.interpolator
+    td_foot_in = ti_foot_in.data
+    cb_foot_out = [cb for cb in csout.controlled_blocks if cb.node_name == 'NPC L Foot [Lft ]'][0]
+    ti_foot_out = cb_foot_out.interpolator
+    td_foot_out = ti_foot_out.data
+    assert BD.VNearEqual(ti_foot_out.properties.translation, ti_foot_in.properties.translation), \
+        f"Foot Interpolator translation correct: {ti_foot_out.properties.translation[:]} == {ti_foot_in.properties.translation[:]}"
+    mxout = Quaternion(ti_foot_out.properties.rotation).to_matrix()
+    mxin = Quaternion(ti_foot_in.properties.rotation).to_matrix()
+    assert BD.MatNearEqual(mxout, mxin), \
+        f"Foot Interpolator rotation correct: {mxout} == {mxin}"
+
+
 
 def TEST_ANIM_KF_RENAME():
-    # Animation import works even if bones are renamed.
-    TT.test_title("TEST_ANIM_KF", "Read and write KF animation with renamed bones.")
+    # Animation import/export works even if bones are renamed.
+    TT.test_title("TEST_ANIM_KF_RENAME", "Read and write KF animation with renamed bones.")
     TT.clear_all()
 
     testfile = TT.test_file(r"tests\SkyrimSE\1hm_staggerbacksmallest.kf")
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_vanilla.nif")
+    outfile = TT.test_file(r"tests\Out\TEST_ANIM_KF_RENAME.kf")
 
     bpy.context.scene.render.fps = 60
-    bpy.context.scene.frame_end = 71
+    bpy.context.scene.frame_end = 665
 
     # Animations are loaded into a skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile,
@@ -4246,6 +4298,14 @@ def TEST_ANIM_KF_RENAME():
 
     assert len([fc for fc in arma.animation_data.action.fcurves if 'NPC Pelvis' in fc.data_path]) > 0, f"Animating translated bone names"
 
+    BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
+    bpy.ops.export_scene.pynifly_kf(filepath=outfile)
+
+    nifcheck = pyn.NifFile(outfile)
+    names = [cb.node_name for cb in nifcheck.rootNode.controlled_blocks]
+    assert 'NPC Pelvis [Pelv]' in names, f"Have nif name"
+    assert 'NPC Pelvis' not in names, f"Don't have Blender name"
+    
 
 # Also test:
 # Import body, then import anim

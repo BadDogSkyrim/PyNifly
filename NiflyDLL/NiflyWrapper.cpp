@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 10, 2, 0 };
+const int NiflyDDLVersion[3] = { 10, 3, 0 };
  
 using namespace nifly;
 
@@ -492,23 +492,41 @@ NIFLY_API int addBlock(void* f, const char* name, const char* type, void* buf, i
     }
 }
 
-NIFLY_API void setBlock(void* f, int id, const char* type, void* buf) 
+void assignControllerSequence(NiHeader* hdr, NiControllerSequence* cs, NiControllerSequenceBuf* buf) {
+    cs->arrayGrowBy = buf->arrayGrowBy;
+    cs->weight = buf->weight;
+    if (buf->textKeyID != NIF_NPOS) cs->textKeyRef.index = buf->textKeyID;
+    cs->cycleType = CycleType(buf->cycleType);
+    cs->frequency = buf->frequency;
+    cs->startTime = buf->startTime;
+    cs->stopTime = buf->stopTime;
+    cs->accumRootName.SetIndex(buf->accumRootNameID);
+    cs->accumRootName.get() = hdr->GetStringById(buf->accumRootNameID);
+    if (buf->animNotesID != NIF_NPOS) cs->animNotesRef.index = buf->animNotesID;
+}
+
+NIFLY_API void setBlock(void* f, int id, const char* type, void* buf)
 /* Set the properties of block with id "id". 
     Caller must ensure the buf is the correct type for the node. 
 */
 {
     NifFile* nif = static_cast<NifFile*>(f);
-    NiHeader hdr = nif->GetHeader();
+    NiHeader* hdr = &nif->GetHeader();
 
     if (strcmp(type, "NiNode") == 0) {
-        auto block = hdr.GetBlock<NiNode>(id);
+        auto block = hdr->GetBlock<NiNode>(id);
         NiNodeBuf* nodeBuf = static_cast<NiNodeBuf*>(buf);
         setNode(block, nodeBuf);
     }
     else if (strcmp(type, "BSFadeNode") == 0) {
-        auto block = hdr.GetBlock<BSFadeNode>(id);
+        auto block = hdr->GetBlock<BSFadeNode>(id);
         NiNodeBuf* nodeBuf = static_cast<NiNodeBuf*>(buf);
         setNode(block, nodeBuf);
+    }
+    else if (strcmp(type, "NiControllerSequence") == 0) {
+        NiControllerSequence* block = hdr->GetBlock<NiControllerSequence>(id);
+        NiControllerSequenceBuf* nodeBuf = static_cast<NiControllerSequenceBuf*>(buf);
+        assignControllerSequence(hdr, block, nodeBuf);
     }
 }
 
@@ -2823,20 +2841,10 @@ int addControllerSequence(void* nifref, const char* name, NiControllerSequenceBu
     NiHeader* hdr = &nif->GetHeader();
 
     auto cs = std::make_unique<NiControllerSequence>();
-    //cs->name.SetIndex(hdr->AddOrFindStringId(name));
-    cs->name.get() = name;
-    cs->arrayGrowBy = buf->arrayGrowBy;
-    cs->weight = buf->weight;
-    if (buf->textKeyID != NIF_NPOS) cs->textKeyRef.index = buf->textKeyID;
-    cs->cycleType = CycleType(buf->cycleType);
-    cs->frequency = buf->frequency;
-    cs->startTime = buf->startTime;
-    cs->stopTime = buf->stopTime;
-    cs->accumRootName.SetIndex(buf->accumRootNameID);
-    cs->accumRootName.get() = hdr->GetStringById(buf->accumRootNameID);
-    if (buf->animNotesID != NIF_NPOS) cs->animNotesRef.index = buf->animNotesID;
-
     uint32_t newid = hdr->AddBlock(std::move(cs));
+    NiControllerSequence* csblock = hdr->GetBlock<NiControllerSequence>(newid);
+    csblock->name.get() = name;
+    assignControllerSequence(hdr, csblock, buf);
 
     if (buf->managerID != NIF_NPOS) {
         NiControllerManager* mgr = hdr->GetBlock<NiControllerManager>(buf->managerID);

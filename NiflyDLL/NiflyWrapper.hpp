@@ -2,6 +2,7 @@
 #pragma once
 #include <string>
 #include "Object3d.hpp"
+#include "animation.hpp"
 
 
 #ifdef NIFLYDLL_EXPORTS
