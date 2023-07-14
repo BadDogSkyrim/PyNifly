@@ -1,5 +1,7 @@
 """Common definitions for the Blender plugin"""
 
+import os
+import tempfile
 from enum import IntFlag
 from mathutils import Matrix, Vector, Quaternion, geometry
 import bpy
@@ -292,3 +294,22 @@ PyNifly {action} of {fn} completed {errmsg}
 
 """)
 
+def tmp_filepath(filepath, ext):
+    """Return a unique temporary filename. Name is based on the base name of 
+    'filepath', with suffixes to make it unique, and given the extension 'ext'."""
+
+    fpbase = os.path.join(tempfile.gettempdir(),
+                           "tmp_" + os.path.splitext(os.path.basename(filepath))[0])
+    i = 0
+    iter = ""
+    fp = ""
+    while i < 1000:
+        if i > 0:
+            iter = f"_{i}"
+        fp = fpbase + iter + ext
+        if not os.path.exists(fp): break
+        i += 1
+    if i < 1000: 
+        return fp
+    else:
+        return None

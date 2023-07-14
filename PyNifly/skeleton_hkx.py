@@ -399,3 +399,10 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_skel)
     bpy.utils.register_class(ImportSkel)
     bpy.utils.register_class(ExportSkel)
+
+if __name__ == "__main__":
+    try:
+        unregister()
+    except:
+        pass
+    register()

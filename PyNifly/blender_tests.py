@@ -3,6 +3,7 @@
 Convenient setup for running these tests here: 
 https://polynook.com/learn/set-up-blender-addon-development-environment-in-windows
 """
+import os
 import math
 import pathlib
 import bpy
@@ -4186,7 +4187,6 @@ def TEST_ANIM_KF():
     outfile2 = TT.test_file(r"tests/Out/TEST_ANIM_KF.kf")
 
     bpy.context.scene.render.fps = 60
-    bpy.context.scene.frame_end = 71 # TODO: Importer should set this
 
     # Animations are loaded into a skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile,
@@ -4272,7 +4272,6 @@ def TEST_ANIM_KF():
         f"Foot Interpolator rotation correct: {mxout} == {mxin}"
 
 
-
 def TEST_ANIM_KF_RENAME():
     # Animation import/export works even if bones are renamed.
     TT.test_title("TEST_ANIM_KF_RENAME", "Read and write KF animation with renamed bones.")
@@ -4307,9 +4306,37 @@ def TEST_ANIM_KF_RENAME():
     assert 'NPC Pelvis' not in names, f"Don't have Blender name"
     
 
-# Also test:
-# Import body, then import anim
-# Import skel + anim, import second anim
+def TEST_ANIM_HKX():
+    # Can import a HKX animation
+    TT.test_title("TEST_ANIM_HKX", "Read and write HKX animation.")
+    TT.clear_all()
+
+    testfile = TT.test_file(r"tests\Skyrim\1hm_staggerbacksmallest.hkx")
+    testfile2 = TT.test_file(r"tests\Skyrim\1hm_attackpowerright.hkx")
+    skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    hkx_skel = TT.test_file(r"tests\Skyrim\skeleton.hkx")
+    outfile = TT.test_file(r"tests/Out/TEST_ANIM_HKX.hkx")
+
+    bpy.context.scene.render.fps = 60
+
+    # Animations are loaded into a skeleton
+    bpy.ops.import_scene.pynifly(filepath=skelfile,
+                                 create_bones=False, 
+                                 rename_bones=True,
+                                 import_animations=False,
+                                 use_blender_xf=True)
+    
+    BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
+    arma = bpy.context.object
+    bpy.ops.import_scene.pynifly_hkx(filepath=testfile, 
+                                     reference_skel=hkx_skel)
+
+    assert len([fc for fc in arma.animation_data.action.fcurves if 'NPC Pelvis' in fc.data_path]) > 0, f"Animating translated bone names"
+
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=hkx_skel)
+
+    assert os.path.exists(outfile)
+
 
 # TEST_BODYPART_SKY()  ### Skyrim head
 # TEST_BODYPART_FO4()  ### FO4 head
@@ -4428,8 +4455,8 @@ def TEST_ANIM_KF_RENAME():
 # TEST_ANIM_CHEST()  ### Read and write the animation of chest opening and shutting
 # TEST_ANIM_CRATE()  ### Read and write the animation of crate opening and shutting
 # TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
-TEST_ANIM_KF()  ### Import KF animation file
-# TEST_ANIM_KF_RENAME()  ### Read and write KF animation with renamed bones
+# TEST_ANIM_KF()  ### Import KF animation file
+TEST_ANIM_HKX()  ### Read and write KF animation with renamed bones
 
 print("""
 ############################################################

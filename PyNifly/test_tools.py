@@ -32,6 +32,7 @@ def clear_all():
         bpy.data.collections.remove(c)
     for a in bpy.data.actions:
         bpy.data.actions.remove(a)
+    bpy.context.scene.timeline_markers.clear()
 
 def append_from_file(objname, with_parent, filepath, innerpath, targetobj):
     """ Convenience routine: Load an object from another blender file. 
