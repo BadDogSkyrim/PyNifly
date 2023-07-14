@@ -4328,6 +4328,7 @@ def TEST_ANIM_HKX():
     
     BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
     arma = bpy.context.object
+    
     bpy.ops.import_scene.pynifly_hkx(filepath=testfile, 
                                      reference_skel=hkx_skel)
 

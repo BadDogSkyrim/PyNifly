@@ -4978,7 +4978,7 @@ def nifly_menu_export_kf(self, context):
     self.layout.operator(ExportKF.bl_idname, text="KF file with pyNifly (.kf)")
 
 def nifly_menu_export_hkx(self, context):
-    self.layout.operator(ExportKF.bl_idname, text="HKX file with pyNifly (.hkx)")
+    self.layout.operator(ExportHKX.bl_idname, text="HKX file with pyNifly (.hkx)")
 
 def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_nif)
