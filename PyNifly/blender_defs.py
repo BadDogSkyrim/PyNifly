@@ -1,6 +1,7 @@
 """Common definitions for the Blender plugin"""
 
 import os
+import shutil
 import tempfile
 from enum import IntFlag
 from mathutils import Matrix, Vector, Quaternion, geometry
@@ -9,6 +10,12 @@ import bpy_types
 import re
 from nifdefs import *
 from pynifly import *
+
+import ctypes
+from ctypes import wintypes
+_GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
+_GetShortPathNameW.argtypes = [wintypes.LPWSTR, wintypes.LPWSTR, wintypes.DWORD]
+_GetShortPathNameW.restype = wintypes.DWORD
 
 NO_PARTITION_GROUP = "*NO_PARTITIONS*"
 MULTIPLE_PARTITION_GROUP = "*MULTIPLE_PARTITIONS*"
@@ -294,12 +301,32 @@ PyNifly {action} of {fn} completed {errmsg}
 
 """)
 
+def get_short_path_name(long_name):
+    """
+    Gets the short path name of a given long path. Leave the filename itself untouched
+    unless it has spaces.
+    http://stackoverflow.com/a/23598461/200291
+    """
+    pname = os.path.dirname(long_name)
+    bname = os.path.basename(long_name).replace(' ', '_')
+    output_buf_size = len(long_name)
+    while True:
+        output_buf = ctypes.create_unicode_buffer(output_buf_size)
+        needed = _GetShortPathNameW(pname, output_buf, output_buf_size)
+        if output_buf_size >= needed:
+            break
+        else:
+            output_buf_size = needed
+    return os.path.join(output_buf.value, bname)
+
+
 def tmp_filepath(filepath, ext):
     """Return a unique temporary filename. Name is based on the base name of 
     'filepath', with suffixes to make it unique, and given the extension 'ext'."""
 
-    fpbase = os.path.join(tempfile.gettempdir(),
-                           "tmp_" + os.path.splitext(os.path.basename(filepath))[0])
+    bname = os.path.basename(filepath).replace(' ', '_')
+    name = "tmp_" + os.path.splitext(bname)[0]
+    fpbase = os.path.join(tempfile.gettempdir(), name)
     i = 0
     iter = ""
     fp = ""
@@ -313,3 +340,23 @@ def tmp_filepath(filepath, ext):
         return fp
     else:
         return None
+    
+def copyfile(fin, fout):
+    shutil.copy(fin.strip('"'), fout)
+    
+
+if __name__ == "__main__":
+    print("------------RUNNING TESTS--------------")
+    fn = r"C:\Modding\SkyrimSE\mods\00 Vanilla Assets\meshes\actors\character\animations\1hm_attackpower.hkx"
+    fnq = f'"{fn}"'
+    print(get_short_path_name(fn))
+    t = tmp_filepath(fn, ".xml")
+    print("First temp file: " + t)
+    copyfile(fn, t)
+    assert os.path.exists(t)
+    t2 = tmp_filepath(fnq, ".xml")
+    print("Second temp file: " + t2)
+    copyfile(fnq, t2)
+    assert os.path.exists(t2)
+
+    print("------------TESTS COMPLETE-------------")

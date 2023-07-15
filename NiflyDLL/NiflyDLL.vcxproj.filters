@@ -174,5 +174,6 @@
     <None Include="..\..\PyNifly\PyNifly\skeletons\Skyrim\SKYRIM_skeleton.nif">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="..\PyNifly\hkxcmd.exe" />
   </ItemGroup>
 </Project>

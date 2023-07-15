@@ -331,6 +331,7 @@
       <Command>xcopy /y $(OutDir)NiflyDLL.dll  $(OutDir)io_scene_nifly\
 xcopy /y/s/i $(ProjectDir)..\pynifly\skeletons $(OutDir)io_scene_nifly\skeletons
 copy /y $(ProjectDir)..\pynifly\*.py  $(OutDir)io_scene_nifly\
+copy /y $(ProjectDir)..\pynifly\hkxcmd.exe  $(OutDir)io_scene_nifly\
 7z a -tzip $(OutDir)io_scene_nifly.zip $(OutDir)io_scene_nifly</Command>
     </PostBuildEvent>
     <CustomBuildStep>
@@ -415,6 +416,7 @@ copy /y $(ProjectDir)..\pynifly\*.py  $(OutDir)io_scene_nifly\
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\PyNifly\PyNifly\skeletons\Skyrim\SKYRIM_skeleton.nif" />
+    <None Include="..\PyNifly\hkxcmd.exe" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

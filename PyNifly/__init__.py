@@ -2569,26 +2569,38 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         self.context = context
         self.fps = context.scene.render.fps
 
-        if not self.poll(context):
-            self.error(f"Cannot run importer--see system console for details")
-            return {'CANCELLED'} 
-      
+        self.reference_skel = self.reference_skel.strip('"')
         if not self.reference_skel.lower().endswith(".hkx"):
             self.error(f"Must have an HKX file to use as reference skeleton.")
             return {'CANCELLED'}
 
+        # HKXCMD doesn't like long filenames with spaces in them so put everything
+        # in the temporary directory to work on.
+        self.reference_skel_short = tmp_filepath(self.reference_skel, ".hkx")
+        copyfile(self.reference_skel, self.reference_skel_short)
+        self.filepath_short = tmp_filepath(self.filepath, ".hkx")
+        copyfile(self.filepath, self.filepath_short)
+
+        if not self.poll(context):
+            self.error(f"Cannot run importer--see system console for details")
+            return {'CANCELLED'} 
+      
         LogStart(bl_info, "IMPORT", "HKX")
 
         try:
-            NifFile.Load(nifly_path)
-            imp = NifImporter(self.filepath)
-            imp.context = context
-            imp.armature = context.object
-            imp.import_anims = True
-            imp.nif = self.make_kf(self.filepath)
-            imp.import_nif()
-            self.import_annotations()
-            res.add('FINISHED')
+            kf_file = self.make_kf(self.filepath_short)
+            if not kf_file:
+                res.add('CANCELLED')
+            else:
+                NifFile.Load(nifly_path)
+                imp = NifImporter(self.kf_filepath)
+                imp.context = context
+                imp.armature = context.object
+                imp.import_anims = True
+                imp.nif = kf_file
+                imp.import_nif()
+                self.import_annotations()
+                res.add('FINISHED')
         except:
             log.exception("Import of HKX file failed")
             self.error("Import of HKX failed, see console window for details")
@@ -2609,12 +2621,12 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
     def info(self, msg):
         self.report({"INFO"}, msg)
 
-    def make_kf(self, filepath) -> NifFile:
+    def make_kf(self, filepath_working) -> NifFile:
         """Creates a kf file from a hkx file. Also creates an XML file. 
         Returns
         * KF file is opened and returned as a NifFile.
         * XML filepath is returned in self.xml_filepath."""
-        self.kf_filepath = tmp_filepath(filepath, ".kf")
+        self.kf_filepath = tmp_filepath(self.filepath, ".kf")
 
         if not self.kf_filepath:
             self.error(f"Could not create temporary file")
@@ -2622,8 +2634,8 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         
         stat = subprocess.run(["hkxcmd.exe", 
                                "exportkf", 
-                               self.reference_skel, 
-                               filepath, 
+                               self.reference_skel_short, 
+                               filepath_working, 
                                self.kf_filepath], 
                                capture_output=True, check=True)
         if stat.stderr:
@@ -2634,18 +2646,17 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         if not os.path.exists(self.kf_filepath):
             self.error(f"Failed to create {self.kf_filepath}")
             return None
+        self.info(f"Temporary KF file created: {self.kf_filepath}")
 
-        self.xml_filepath = tmp_filepath(filepath, ".xml")
+        self.xml_filepath = tmp_filepath(self.filepath, ".xml")
 
         if not self.xml_filepath:
             self.error(f"Could not create temporary XML file")
             return
-        
-        self.info(f"Temporary xml file created: {self.kf_filepath}")
-        
+                
         stat = subprocess.run(["hkxcmd.exe", 
                                "convert", 
-                               filepath, 
+                               filepath_working, 
                                self.xml_filepath], 
                                capture_output=True, check=True)
         
@@ -4780,6 +4791,9 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         res = set()
+        self.reference_skel_short = tmp_filepath(self.reference_skel, ".hkx")
+        copyfile(self.reference_skel, self.reference_skel_short)
+        self.filepath_short = tmp_filepath(self.filepath, ".hkx")
 
         if not self.poll(context):
             self.error(f"Cannot run exporter--see system console for details")
@@ -4807,7 +4821,8 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
                 self.write_annotations()
                 self.generate_final_hkx()
             else:
-                self.generate_hkx(self.filepath)
+                self.generate_hkx(self.filepath_short)
+            self.rename_output()
 
             res.add('FINISHED')
         except:
@@ -4837,7 +4852,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         # Generate HKX from KF
         stat = subprocess.run([r"hkxcmd.exe", 
                                "convertkf", 
-                               self.reference_skel, 
+                               self.reference_skel_short, 
                                self.kf_filepath, 
                                filepath], 
                                capture_output=True, check=True)
@@ -4900,23 +4915,33 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         self.info(f"Created final XML file: {self.xml_filepath_out}")
         
         return True
+    
+    def rename_output(self):
+        """If we renamed our output to deal with spaces in names, set it back to what it
+        should be."""
+        copyfile(self.filepath_short, self.filepath)
+        # if os.path.basename(self.filepath) != os.path.basename(self.filepath_short):
+        #     if os.path.exists(self.filepath):
+        #         os.remove(self.filepath)
+        #     os.rename(self.filepath_short, self.filepath)
+
 
 
     def generate_final_hkx(self):
         stat = subprocess.run([r"hkxcmd.exe", 
                                "convert", 
                                self.xml_filepath, 
-                               self.filepath], 
+                               self.filepath_short], 
                                capture_output=True, check=True)
         if stat.returncode:
             s = stat.stderr.decode('utf-8').strip()
             self.error(s)
             return None
-        if not os.path.exists(self.filepath):
-            self.error(f"Failed to create {self.filepath}")
+        if not os.path.exists(self.filepath_short):
+            self.error(f"Failed to create {self.filepath_short}")
             return None
     
-        self.info(f"Created HKX file: {self.filepath}")
+        self.info(f"Created HKX file: {self.filepath_short}")
 
 
 

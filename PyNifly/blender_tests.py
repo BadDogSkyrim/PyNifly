@@ -4311,11 +4311,12 @@ def TEST_ANIM_HKX():
     TT.test_title("TEST_ANIM_HKX", "Read and write HKX animation.")
     TT.clear_all()
 
-    testfile = TT.test_file(r"tests\Skyrim\1hm_staggerbacksmallest.hkx")
-    testfile2 = TT.test_file(r"tests\Skyrim\1hm_attackpowerright.hkx")
+    # Check that this works when there are spaces in the path name
+    testfile = TT.test_file(r"tests\Skyrim\meshes\actors\character\character animations\1hm_staggerbacksmallest.hkx")
+    # testfile2 = TT.test_file(r"tests\Skyrim\1hm_attackpowerright.hkx")
     skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
     hkx_skel = TT.test_file(r"tests\Skyrim\skeleton.hkx")
-    outfile = TT.test_file(r"tests/Out/TEST_ANIM_HKX.hkx")
+    outfile = TT.test_file(r"tests/Out/created animations/TEST_ANIM_HKX.hkx")
 
     bpy.context.scene.render.fps = 60
 
