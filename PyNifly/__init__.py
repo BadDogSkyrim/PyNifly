@@ -2562,6 +2562,11 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         self.armature = None
         self.errors = set()
         self.xml_filepath = None
+
+        obj = bpy.context.object
+        if obj and obj.type == 'ARMATURE':
+            if 'PYN_SKELETON_FILE'in obj:
+                self.reference_skel = obj['PYN_SKELETON_FILE']
     
 
     def execute(self, context):
@@ -2573,6 +2578,8 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         if not self.reference_skel.lower().endswith(".hkx"):
             self.error(f"Must have an HKX file to use as reference skeleton.")
             return {'CANCELLED'}
+        if self.reference_skel:
+            context.object['PYN_SKELETON_FILE'] = self.reference_skel
 
         # HKXCMD doesn't like long filenames with spaces in them so put everything
         # in the temporary directory to work on.
@@ -4776,6 +4783,13 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         description="Reference skeleton (HKX) to use for animation binding",
         default="")
 
+    def __init__(self):
+        obj = bpy.context.object
+        if obj and obj.type == 'ARMATURE':
+            if 'PYN_SKELETON_FILE'in obj:
+                self.reference_skel = obj['PYN_SKELETON_FILE']
+
+
     @classmethod
     def poll(cls, context):
         if (not context.object) and context.object.type != 'ARMATURE':
@@ -4794,6 +4808,8 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         self.reference_skel_short = tmp_filepath(self.reference_skel, ".hkx")
         copyfile(self.reference_skel, self.reference_skel_short)
         self.filepath_short = tmp_filepath(self.filepath, ".hkx")
+        if self.reference_skel:
+            context.object['PYN_SKELETON_FILE'] = self.reference_skel
 
         if not self.poll(context):
             self.error(f"Cannot run exporter--see system console for details")
