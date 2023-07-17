@@ -4206,6 +4206,8 @@ def TEST_ANIM_KF():
 
     assert len([a for a in bpy.data.actions if a.name.startswith("1hm_attackpowerright")])
 
+    ### Export ###
+
     BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
     bpy.ops.export_scene.pynifly_kf(filepath=outfile2)
 
@@ -4232,7 +4234,7 @@ def TEST_ANIM_KF():
     ti0 = cb0.interpolator
     td0 = ti0.data
     assert td0.properties.translations.interpolation == pyn.NiKeyType.LINEAR_KEY, f"Have correct key type: {td0.translations.interpolation}"
-    assert td0.translations[0].time == 0, f"First time is 0"
+    assert td0.translations[0].time == 0, f"First time is 0: {td0.translations[0].time}"
     assert BD.VNearEqual(td0.translations[0].value, (0.0, 0.0001, 57.8815)), f"Have correct translation: {td0.translations[0].value}"
 
     controlled_block_thigh_out = [cb for cb in csout.controlled_blocks if cb.node_name == 'NPC L Thigh [LThg]'][0]
@@ -4253,9 +4255,11 @@ def TEST_ANIM_KF():
     assert BD.MatNearEqual(k2mx, k2mxorig), f"Have same rotation keys: {k2mx} == {k2mxorig}"
 
     # Time signatures are calculated correctly.
+    # We output at 30 fps so the number isn't exact.
     klast_out = td_thigh_out.qrotations[-1]
     klast_in = td_thigh_in.qrotations[-1]
-    assert BD.NearEqual(klast_out.time, klast_in.time), f"Have correct final time signature: {klast_out.time}"
+    assert BD.NearEqual(klast_out.time, klast_in.time), \
+        f"Have correct final time signature: {klast_out.time} == {klast_in.time}"
 
     # Check feet transforms
     cb_foot_in = [cb for cb in csorig.controlled_blocks if cb.node_name == 'NPC L Foot [Lft ]'][0]
@@ -4271,18 +4275,21 @@ def TEST_ANIM_KF():
     assert BD.MatNearEqual(mxout, mxin), \
         f"Foot Interpolator rotation correct: {mxout} == {mxin}"
 
+    assert len(td_foot_out.qrotations) > 30 and len(td_foot_out.qrotations) < 40, \
+        f"Have reasonable number of frames: {td_foot_out.qrotations}"
+
 
 def TEST_ANIM_KF_RENAME():
     # Animation import/export works even if bones are renamed.
     TT.test_title("TEST_ANIM_KF_RENAME", "Read and write KF animation with renamed bones.")
     TT.clear_all()
 
-    testfile = TT.test_file(r"tests\SkyrimSE\1hm_staggerbacksmallest.kf")
-    skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_vanilla.nif")
+    testfile = TT.test_file(r"tests\Skyrim\sneakmtidle_original.kf")
+    skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
     outfile = TT.test_file(r"tests\Out\TEST_ANIM_KF_RENAME.kf")
 
-    bpy.context.scene.render.fps = 60
-    bpy.context.scene.frame_end = 665
+    bpy.context.scene.render.fps = 30
+    # bpy.context.scene.frame_end = 665
 
     # Animations are loaded into a skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile,
@@ -4297,14 +4304,47 @@ def TEST_ANIM_KF_RENAME():
 
     assert len([fc for fc in arma.animation_data.action.fcurves if 'NPC Pelvis' in fc.data_path]) > 0, f"Animating translated bone names"
 
+    ### Export ###
+
     BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
     bpy.ops.export_scene.pynifly_kf(filepath=outfile)
+
+    ### Check ###
+
+    nifin = pyn.NifFile(testfile)
+    cbin = next(x for x in nifin.rootNode.controlled_blocks if x.node_name == 'NPC L Foot [Lft ]')
+    tdin = cbin.interpolator.data
 
     nifcheck = pyn.NifFile(outfile)
     names = [cb.node_name for cb in nifcheck.rootNode.controlled_blocks]
     assert 'NPC Pelvis [Pelv]' in names, f"Have nif name"
     assert 'NPC Pelvis' not in names, f"Don't have Blender name"
-    
+
+    footcb = next(x for x in nifcheck.rootNode.controlled_blocks if x.node_name == 'NPC L Foot [Lft ]')
+    foottd = footcb.interpolator.data
+    assert len(foottd.qrotations) == 333, f"Have correct number of rotation frames: {len(foottd.qrotations)}"
+    assert 250 <= len(foottd.translations) <= 333, f"Have correct number of translation frames: {len(foottd.translations)}"
+    timeinterval = foottd.qrotations[10].time - foottd.qrotations[9].time
+    assert BD.NearEqual(timeinterval, 1/30), f"Have correct rotation time interval: {timeinterval}"
+    timeinterval = foottd.translations[10].time - foottd.translations[9].time
+    assert BD.NearEqual(timeinterval, 1/30), f"Have correct location time interval: {timeinterval}"
+
+    assert BD.NearEqual(foottd.qrotations[10].time, tdin.qrotations[10].time), f"Have near time signatures"
+    # assert BD.VNearEqual(foottd.qrotations[10].value, tdin.qrotations[10].value), f"Have near quaternion values"
+    # assert BD.NearEqual(foottd.translations[10].time, tdin.translations[10].time), f"Have near time signatures"
+    assert BD.VNearEqual(foottd.translations[10].value, tdin.translations[1].value), f"Have near quaternion values"
+
+    comcb_in = next(x for x in nifin.rootNode.controlled_blocks if x.node_name == 'NPC COM [COM ]')
+    comtd_in = comcb_in.interpolator.data
+    commax_in = max(x.value[1] for x in comtd_in.translations)
+    commin_in = min(x.value[1] for x in comtd_in.translations)
+    comcb = next(x for x in nifcheck.rootNode.controlled_blocks if x.node_name == 'NPC COM [COM ]')
+    comtd = comcb.interpolator.data
+    commax = max(x.value[1] for x in comtd.translations)
+    commin = min(x.value[1] for x in comtd.translations)
+    assert BD.NearEqual(commax, commax_in), f"Max com movement {commax} == {commax_in}"
+    assert BD.NearEqual(commin, commin_in), f"Max com movement {commin} == {commin_in}"
+
 
 def TEST_ANIM_HKX():
     # Can import a HKX animation
@@ -4338,6 +4378,34 @@ def TEST_ANIM_HKX():
     bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=hkx_skel)
 
     assert os.path.exists(outfile)
+
+def LOAD_RIG():
+    """Load an animation rig for play."""
+    TT.test_title("LOAD_RIG", "Load some body parts.")
+    TT.clear_all()
+    skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    hkxskelfile = TT.test_file(r"tests\Skyrim\skeleton.hkx")
+    bpfile1 = TT.test_file(r"tests\Skyrim\malebody_1.nif")
+    bpfile2 = TT.test_file(r"tests\Skyrim\malehands_1.nif")
+    bpfile3 = TT.test_file(r"tests\Skyrim\malefeet_1.nif")
+    bpfile4 = TT.test_file(r"tests\Skyrim\malehead.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=skelfile,
+                                 create_bones=False, 
+                                 rename_bones=True,
+                                 import_animations=False,
+                                 use_blender_xf=True)
+    BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
+    bpy.context.object['PYN_SKELETON_FILE'] = hkxskelfile
+    bpy.ops.import_scene.pynifly(files=[{"name": bpfile1}, 
+                                        {"name": bpfile2}, 
+                                        {"name": bpfile3}, 
+                                        {"name": bpfile4}],
+                                 create_bones=False, 
+                                 rename_bones=True,
+                                 import_animations=False,
+                                 use_blender_xf=True)
+
 
 
 # TEST_BODYPART_SKY()  ### Skyrim head
@@ -4458,7 +4526,10 @@ def TEST_ANIM_HKX():
 # TEST_ANIM_CRATE()  ### Read and write the animation of crate opening and shutting
 # TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
 # TEST_ANIM_KF()  ### Import KF animation file
-TEST_ANIM_HKX()  ### Read and write KF animation with renamed bones
+TEST_ANIM_KF_RENAME()  ### Import KF animation file
+# TEST_ANIM_HKX()  ### Read and write KF animation with renamed bones
+
+# LOAD_RIG()  ### Not a test--Load up some shapes for play
 
 print("""
 ############################################################

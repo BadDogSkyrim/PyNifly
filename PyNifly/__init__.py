@@ -9,7 +9,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (10, 3, 0),  
+    "version": (10, 4, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -2607,6 +2607,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
                 imp.nif = kf_file
                 imp.import_nif()
                 self.import_annotations()
+                self.info('Export of HKX animation completed successfully')
                 res.add('FINISHED')
         except:
             log.exception("Import of HKX file failed")
@@ -4571,6 +4572,11 @@ class ExportKF(bpy.types.Operator, ExportHelper):
 
     filename_ext = ".kf"
 
+    fps: bpy.props.FloatProperty(
+        name="FPS",
+        description="Frames per second for export",
+        default=30)
+
     @classmethod
     def poll(cls, context):
         if (not context.object) and context.object.type != 'ARMATURE':
@@ -4590,6 +4596,10 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         if not self.poll(context):
             self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
             return {'CANCELLED'} 
+
+        if self.fps <= 0 or self.fps >= 200:
+            self.report({"ERROR"}, f"FPS outside of valid range, using 30fps: {self.fps}")
+            self.fps = 30
 
         self.context = context
         self.messages = []
@@ -4644,7 +4654,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         if not curve_list: return None, None
         
         group = curve_list[0].group.name
-        fps = self.context.scene.render.fps
+        scene_fps = self.context.scene.render.fps
         
         loc = []
         eu = []
@@ -4693,44 +4703,41 @@ class ExportKF(bpy.types.Operator, ExportHelper):
 
         # Lots of error-checking because the user could have done any damn thing.
         if len(quat) == 4:
-            # Theoretically, each quaternion curve could have a different number of 
-            # keyframes, but that's just crazypants. Insist they be the same.
-            if len(quat[0].keyframe_points) != len(quat[1].keyframe_points) \
-                or len(quat[0].keyframe_points) != len(quat[2].keyframe_points) \
-                or len(quat[0].keyframe_points) != len(quat[3].keyframe_points):
-                self.error("Don't have same number of keyframes in all curves.")
-                return None, None
-            
-            for kw, kx, ky, kz in zip(quat[0].keyframe_points,
-                                    quat[1].keyframe_points,
-                                    quat[2].keyframe_points,
-                                    quat[3].keyframe_points,):
-                # Insist that the frames all be at matching times.
-                if not NearEqual(kw.co[0], kx.co[0]) \
-                    or not NearEqual(kw.co[0], ky.co[0]) \
-                    or not NearEqual(kw.co[0], kz.co[0]):
-                    self.error(f"Quaternion keyframes not at same times for {group}")
-                    return None, None
-                tdq = Quaternion((kw.co[1], kx.co[1], ky.co[1], kz.co[1]))
+            timemax = max(q.range()[1]-1 for q in quat)/scene_fps
+            timemin = min(q.range()[0]-1 for q in quat)/scene_fps
+            timestep = 1/self.fps
+            timesig = timemin
+            while timesig < timemax + 0.0001:
+            # for kw, kx, ky, kz in zip(quat[0].keyframe_points,
+            #                         quat[1].keyframe_points,
+            #                         quat[2].keyframe_points,
+            #                         quat[3].keyframe_points,):
+                # tdq = Quaternion((kw.co[1], kx.co[1], ky.co[1], kz.co[1]))
+                fr = timesig * scene_fps + 1
+                tdq = Quaternion([quat[0].evaluate(fr), 
+                                  quat[1].evaluate(fr), 
+                                  quat[2].evaluate(fr), 
+                                  quat[3].evaluate(fr)])
                 kq = targ_q @ tdq
-                td.add_qrotation_key((kw.co[0]-1)/fps, kq)
+                td.add_qrotation_key(timesig, kq)
+                timesig += timestep
 
         if len(loc) == 3:
-            if len(loc[0].keyframe_points) != len(loc[1].keyframe_points) \
-                or len(loc[0].keyframe_points) != len(loc[2].keyframe_points):
-                self.error(f"Don't have same number of keyframes for translation in all curves in {group}")
-                return None, None
-            
-            for kx, ky, kz in zip(loc[0].keyframe_points, 
-                                  loc[1].keyframe_points, 
-                                  loc[2].keyframe_points, ):
-                if not NearEqual(kx.co[0], ky.co[0]) \
-                    or not NearEqual(kx.co[0], kz.co[0]):
-                    self.error(f"Translation keyframes not at same times for {group}")
-                    return None, None
-                kv =Vector((kx.co[1], ky.co[1], kz.co[1]))
+            # for kx, ky, kz in zip(loc[0].keyframe_points, 
+            #                       loc[1].keyframe_points, 
+            #                       loc[2].keyframe_points, ):
+            timemax = max(v.range()[1]-1 for v in loc)/scene_fps
+            timemin = min(v.range()[0]-1 for v in loc)/scene_fps
+            timestep = 1/self.fps
+            timesig = timemin
+            while timesig < timemax + 0.0001:
+                fr = timesig * scene_fps + 1
+                kv =Vector([loc[0].evaluate(fr), 
+                            loc[1].evaluate(fr), 
+                            loc[2].evaluate(fr)])
                 rv = kv + targ_trans
-                td.add_translation_key((kx.co[0]-1)/fps, rv)
+                td.add_translation_key(timesig, rv)
+                timesig += timestep
 
         return group, ti
                 
@@ -4783,6 +4790,11 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         description="Reference skeleton (HKX) to use for animation binding",
         default="")
 
+    fps: bpy.props.FloatProperty(
+        name="FPS",
+        description="Frames per second for export",
+        default=30)
+
     def __init__(self):
         obj = bpy.context.object
         if obj and obj.type == 'ARMATURE':
@@ -4829,7 +4841,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         try:
             # Export whatever animation is attached to the active object.
             self.kf_filepath = tmp_filepath(self.filepath, ".kf")
-            bpy.ops.export_scene.pynifly_kf(filepath=self.kf_filepath)
+            bpy.ops.export_scene.pynifly_kf(filepath=self.kf_filepath, fps=self.fps)
             self.info(f"Temporary kf file created: {self.kf_filepath}")
             if self.has_markers:
                 self.xml_filepath = tmp_filepath(self.filepath, ".xml")
@@ -4860,6 +4872,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         self.errors.add("ERROR")
 
     def info(self, msg):
+        log.info(msg)
         self.report({"INFO"}, msg)
 
     def generate_hkx(self, filepath):
