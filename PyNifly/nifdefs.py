@@ -955,6 +955,7 @@ class ConnectPointBuf(pynStructure):
     
 class NiNodeBuf(pynStructure):
     _fields_ = [
+        ("bufSize", c_uint16),
         ("nameID", c_uint32),
         ("controllerID", c_uint32),
         ("extraDataCount", c_uint16),
@@ -965,8 +966,32 @@ class NiNodeBuf(pynStructure):
         ("effectCount", c_uint16),
     ]
 
+class NiShapeBuf(pynStructure):
+    _fields_ = [
+        ("bufSize", c_uint16),
+        ("nameID", c_uint32),
+        ("controllerID", c_uint32),
+        ("extraDataCount", c_uint16),
+        ("flags", c_uint32),
+        ("transform", TransformBuf),
+        ("propertyCount", c_uint16),
+        ("collisionID", c_uint32),
+        ("hasVertices", c_uint8),
+        ("hasNormals", c_uint8),
+        ("hasVertexColors", c_uint8),
+        ("hasUV", c_uint8),
+        ("boundingSphereCenter", VECTOR3),
+        ("boundingSphereRadius", c_float),
+        ("vertexCount", c_uint16),
+        ("triangleCount", c_uint16),
+        ("skinInstanceID", c_uint32),
+        ("shaderPropertyID", c_uint32),
+        ("alphaPropertyID", c_uint32)
+        ]
+
 class NiControllerManagerBuf(pynStructure):
     _fields_ = [
+        ("bufSize", c_uint16),
         ("nextControllerID", c_uint32),
         ("flags", c_uint16),
         ("frequency", c_float),

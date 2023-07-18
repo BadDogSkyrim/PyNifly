@@ -309,6 +309,15 @@ NIFLY_API int getBlock(void* nifref, uint32_t blockID, const char* blocktype, vo
         nifly::BSFadeNode* node = hdr->GetBlock<BSFadeNode>(blockID);
         getNode(node, static_cast<NiNodeBuf*>(buf));
     }
+    else if (strcmp(blocktype, "NiShape") == 0 || 
+            strcmp(blocktype, "NiTriShape") == 0 ||
+            strcmp(blocktype, "BSTriShape") == 0 ||
+            strcmp(blocktype, "BSDynamicTriShape") == 0 ||
+            strcmp(blocktype, "BSSubIndexTriShape") == 0 ||
+            strcmp(blocktype, "BSMeshLODTriShape") == 0 ) {
+        nifly::NiShape* node = hdr->GetBlock<NiShape>(blockID);
+        getShape(node, static_cast<NiShapeBuf*>(buf));
+    }
     else if (strcmp(blocktype, "NiControllerManager") == 0) {
         nifly::NiControllerManager* node = hdr->GetBlock<NiControllerManager>(blockID);
         getControllerManager(node, static_cast<NiControllerManagerBuf*>(buf));
@@ -662,6 +671,35 @@ int NIFLY_API getShapes(void* f, void** buf, int len, int start) {
     for (int i=start, j=0; (j < len) && (i < shapes.size()); i++)
         buf[j++] = shapes[i];
     return int(shapes.size());
+}
+
+void getShape(NiShape* theShape, NiShapeBuf* buf) {
+    if (buf->bufSize == sizeof(NiShapeBuf)) {
+        buf->nameID = theShape->name.GetIndex();
+        buf->controllerID = theShape->controllerRef.index;
+        buf->extraDataCount = theShape->extraDataRefs.GetSize();
+        buf->flags = theShape->flags;
+        //buf->transform = theNode->transform;
+        for (int i = 0; i < 3; i++) buf->translation[i] = theShape->transform.translation[i];
+        for (int r = 0; r < 3; r++)
+            for (int c = 0; c < 3; c++)
+                buf->rotation[r][c] = theShape->transform.rotation[r][c];
+        buf->scale = theShape->transform.scale;
+        buf->propertyCount = theShape->propertyRefs.GetSize();
+        buf->collisionID = theShape->collisionRef.index;
+        buf->hasVertices = theShape->HasVertices();
+        buf->hasNormals = theShape->HasNormals();
+        buf->hasVertexColors = theShape->HasVertexColors();
+        for (int i=0; i < 3; i++) buf->boundingSphereCenter[i] = theShape->GetBounds().center[i];
+        buf->boundingSphereRadius = theShape->GetBounds().radius;
+        buf->vertexCount = theShape->GetNumVertices();
+        buf->triangleCount = theShape->GetNumTriangles();
+        buf->skinInstanceID = theShape->SkinInstanceRef()->index;
+        buf->shaderPropertyID = theShape->ShaderPropertyRef()->index;
+        buf->alphaPropertyID = theShape->AlphaPropertyRef()->index;
+    }
+    else
+        niflydll::LogWrite("getShape given wrong size buffer");
 }
 
 NIFLY_API int getShapeBlockName(void* theShape, char* buf, int buflen) {
@@ -2739,7 +2777,10 @@ int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf) {
 NIFLY_API void getControllerManager(void* ncmref, NiControllerManagerBuf* buf) {
     /* Return properties of a NiController Manager node. */
     NiControllerManager* ncm = static_cast<NiControllerManager*>(ncmref);
-    buf->nextControllerID = ncm->nextControllerRef.index;
+    if (!ncm->nextControllerRef.IsEmpty())
+        buf->nextControllerID = ncm->nextControllerRef.index;
+    else
+        buf->nextControllerID = NIF_NPOS;
     buf->flags = ncm->flags;
     buf->frequency = ncm->frequency;
     buf->phase = ncm->phase;
@@ -2760,26 +2801,32 @@ int addControllerManager(void* f, const char* name, NiControllerManagerBuf* buf,
     //if (buf->targetID != NIF_NPOS) 
     //    target = hdr.GetBlock<NiObjectNET>(buf->targetID);
         
-    auto cm = std::make_unique<NiControllerManager>();
-    cm->nextControllerRef.index = buf->nextControllerID;
-    cm->flags = buf->flags;
-    cm->frequency = buf->frequency;
-    cm->phase = buf->phase;
-    cm->startTime = buf->startTime;
-    cm->stopTime = buf->stopTime;
-    cm->cumulative = buf->cumulative;
-    cm->objectPaletteRef.index = buf->objectPaletteID;
-    cm->targetRef.index = buf->targetID;
+    if (buf->bufSize == sizeof(NiControllerManagerBuf)) {
+        auto cm = std::make_unique<NiControllerManager>();
+        cm->nextControllerRef.index = buf->nextControllerID;
+        cm->flags = buf->flags;
+        cm->frequency = buf->frequency;
+        cm->phase = buf->phase;
+        cm->startTime = buf->startTime;
+        cm->stopTime = buf->stopTime;
+        cm->cumulative = buf->cumulative;
+        cm->objectPaletteRef.index = buf->objectPaletteID;
+        cm->targetRef.index = buf->targetID;
     
-    uint32_t newid = hdr->AddBlock(std::move(cm));
+        uint32_t newid = hdr->AddBlock(std::move(cm));
 
-    if (buf->targetID != NIF_NPOS) {
-        NiNode* target = hdr->GetBlock<NiNode>(buf->targetID);
-        target->controllerRef.index = newid;
-        //target->childRefs.AddBlockRef(newid);
+        if (buf->targetID != NIF_NPOS) {
+            NiNode* target = hdr->GetBlock<NiNode>(buf->targetID);
+            target->controllerRef.index = newid;
+            //target->childRefs.AddBlockRef(newid);
+        }
+
+        return newid;
     }
-
-    return newid;
+    else {
+        niflydll::LogWrite("getControllerSequence given wrong size buffer");
+        return NIF_NPOS;
+    }
 };
 
 NIFLY_API int getControllerManagerSeq(

@@ -202,6 +202,7 @@ struct BSESPAttrs {
 };
 
 struct NiNodeBuf {
+	uint16_t bufSize;
 	uint32_t nameID;
 	uint32_t controllerID;
 	uint16_t extraDataCount;
@@ -213,6 +214,31 @@ struct NiNodeBuf {
 	uint32_t collisionID;
 	uint16_t childCount;
 	uint16_t effectCount;
+};
+
+struct NiShapeBuf {
+	uint16_t bufSize;
+	uint32_t nameID;
+	uint32_t controllerID;
+	uint16_t extraDataCount;
+	uint32_t flags;
+	//MatTransform transform
+	float translation[3];
+	float rotation[3][3];
+	float scale;
+	uint16_t propertyCount;
+	uint32_t collisionID;
+	uint8_t hasVertices;
+	uint8_t hasNormals;
+	uint8_t hasVertexColors;
+	uint8_t hasUV;
+	float boundingSphereCenter[3];
+	float boundingSphereRadius;
+	uint16_t vertexCount;
+	uint16_t triangleCount;
+	uint32_t skinInstanceID;
+	uint32_t shaderPropertyID;
+	uint32_t alphaPropertyID;
 };
 
 struct AlphaPropertyBuf {
@@ -342,6 +368,7 @@ struct ConnectPointBuf {
 };
 
 struct NiControllerManagerBuf {
+	uint16_t bufSize;
 	uint32_t nextControllerID;
 	uint16_t flags = 0x000C;
 	float frequency = 1.0f;
@@ -513,6 +540,7 @@ extern "C" NIFLY_API int getShapeBoneNames(void* theNif, void* theShape, char* b
 extern "C" NIFLY_API int getShapeBoneWeightsCount(void* theNif, void* theShape, int boneIndex);
 extern "C" NIFLY_API int getShapeBoneWeights(void* theNif, void* theShape, int boneIndex, VertexWeightPair * buf, int buflen);
 extern "C" NIFLY_API int getShapes(void* f, void** buf, int len, int start);
+void getShape(nifly::NiShape* theShape, NiShapeBuf* buf);
 extern "C" NIFLY_API int getShapeBlockName(void* theShape, char* buf, int buflen);
 extern "C" NIFLY_API int getVertsForShape(void* theNif, void* theShape, nifly::Vector3* buf, int len, int start);
 extern "C" NIFLY_API int getNormalsForShape(void* theNif, void* theShape, nifly::Vector3* buf, int len, int start);

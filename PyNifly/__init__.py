@@ -5074,7 +5074,7 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_kf)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_hkx)
     # bpy.types.VIEW3D_MT_object.append(nifly_menu_rename_niftools)
-    # skeleton_hkx.register()
+    skeleton_hkx.register()
 
 
 if __name__ == "__main__":

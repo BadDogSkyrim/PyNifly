@@ -1095,7 +1095,7 @@ class NiTransformData(NiKeyFrameData):
             self.id = NifFile.nifly.addBlock(
                 self.file._handle, None, b"NiTransformData", 
                 byref(self.properties), 
-                parent.id if parent else None)
+                parent.id if parent else NODEID_NONE)
             self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
         self._blockname = "NiTransformData"
         
@@ -1374,7 +1374,10 @@ class NiControllerManager(NiTimeController):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
         super().__init__(handle=handle, file=file, id=id, parent=parent)
         self.properties = NiControllerManagerBuf()
-        NifFile.nifly.getBlock(handle, self.id, "NiControllerManager", self.properties)
+        NifFile.nifly.getBlock(self.file._handle, 
+                               self.id, 
+                               b"NiControllerManager", 
+                               byref(self.properties))
 
     @property
     def sequences(self):
@@ -1421,6 +1424,9 @@ class NiShape(NiNode):
     def _setShapeXform(self):
         NifFile.nifly.setTransform(self._handle, self.transform)
 
+    def _getbuf(self):
+        return NiShapeBuf()
+    
     @property
     def verts(self):
         if not self._verts:
@@ -2406,7 +2412,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False

@@ -784,12 +784,14 @@ void TCheckDwemerChest(void* nif,
 	that what was written is correct. 
 	*/
 	NiNodeBuf rootbuf;
+	rootbuf.bufSize = sizeof(rootbuf);
 	getBlock(nif, 0, "NiNode", &rootbuf);
 
 	// We can find controller blocks directly, by type.
 	//int ncmCount = findNodesByType(nif, root, "NiControllerManager", 1, &ncm);
 	//Assert::AreEqual(1, ncmCount, L"Found 1 controller manager");
 
+	ncmbuf.bufSize = sizeof(ncmbuf);
 	getBlock(nif, rootbuf.controllerID, "NiControllerManager", &ncmbuf);
 
 	//getControllerManager(ncm, &ncmbuf);
@@ -806,6 +808,9 @@ void TCheckDwemerChest(void* nif,
 
 	uint32_t* cs = new uint32_t[ncmbuf.controllerSequenceCount];
 	getControllerManagerSeq(nif, rootbuf.controllerID, ncmbuf.controllerSequenceCount, cs);
+
+	csbuf[0].bufSize = sizeof(csbuf[0]);
+	csbuf[1].bufSize = sizeof(csbuf[1]);
 
 	getBlock(nif, cs[0], "NiControllerSequence", &csbuf[0]);
 	getBlock(nif, cs[1], "NiControllerSequence", &csbuf[1]);
@@ -831,6 +836,8 @@ void TCheckDwemerChest(void* nif,
 	Assert::IsTrue(strcmp("Object01", namebuf) == 0, L"Have correct node name");
 
 	// First interpolator does linear movement of the chest's lid. So no rotation keys.
+	tibuf.bufSize = sizeof(tibuf);
+	tdbuf.bufSize = sizeof(tdbuf);
 	getBlock(nif, clbuf->interpolatorID, "NiTransformInterpolator", &tibuf);
 	getBlock(nif, tibuf.dataID, "NiTransformData", &tdbuf);
 	Assert::AreEqual(0, int(tdbuf.quaternionKeyCount), L"Have correct number of rotation keys");
@@ -845,6 +852,8 @@ void TCheckDwemerChest(void* nif,
 	// Second interpolator does the revolution of the screw in the worm drive. 
 	getString(nif, clbuf[1].nodeName, 64, namebuf);
 	Assert::IsTrue(strcmp("Gear08", namebuf) == 0, L"Have correct node name");
+	tibuf2.bufSize = sizeof(tibuf2);
+	tdbuf2.bufSize = sizeof(tdbuf2);
 	getBlock(nif, clbuf[1].interpolatorID, "NiTransformInterpolator", &tibuf2);
 	getBlock(nif, tibuf2.dataID, "NiTransformData", &tdbuf2);
 	Assert::AreEqual(1, int(tdbuf2.xRotations.numKeys), L"Have correct number of X rotation keys");
@@ -901,20 +910,26 @@ namespace NiflyDLLTests
 
 			void* shapes[2];
 			shapeCount = getShapes(nif, shapes, 2, 0);
+			int bodyID, armorID;
+			NiShapeBuf bodyBuf, armorBuf;
 			void* theBody = shapes[0];
 			void* theArmor = shapes[1];
-			Vector3* verts = new Vector3[2500];
-			Triangle* tris = new Triangle[3500];
-			Vector2* uv = new Vector2[2500];
-			Vector3* norms = new Vector3[2500];
 
-			int vertCount = getVertsForShape(nif, theArmor, verts, 2500*3, 0);
+			armorBuf.bufSize = sizeof(NiShapeBuf);
+			armorID = getBlockID(nif, theArmor);
+			getBlock(nif, armorID, "NiShape", &armorBuf);
+
+			Vector3* verts = new Vector3[armorBuf.vertexCount];
+			Triangle* tris = new Triangle[armorBuf.triangleCount];
+			Vector2* uv = new Vector2[armorBuf.vertexCount];
+			Vector3* norms = new Vector3[armorBuf.vertexCount];
+			int vertCount = getVertsForShape(nif, theArmor, verts, armorBuf.vertexCount *3, 0);
 			Assert::AreEqual(2115, vertCount);
-			int triCount = getTriangles(nif, theArmor, tris, 3500*3, 0);
+			int triCount = getTriangles(nif, theArmor, tris, armorBuf.vertexCount *3, 0);
 			Assert::AreEqual(3195, triCount);
-			int uvCount = getUVs(nif, theArmor, uv, 2500*2, 0);
+			int uvCount = getUVs(nif, theArmor, uv, armorBuf.vertexCount *2, 0);
 			Assert::AreEqual(2115, uvCount);
-			int normCount = getNormalsForShape(nif, theArmor, norms, 2500*3, 0);
+			int normCount = getNormalsForShape(nif, theArmor, norms, armorBuf.vertexCount *3, 0);
 			Assert::AreEqual(2115, normCount);
 
 			void* newNif = createNif("SKYRIM", "NiNode", "Scene Root");
@@ -3259,6 +3274,7 @@ namespace NiflyDLLTests
 			// Write the static chest body shapes
 			int chestBodyID = findBlockByName(nif, "DwarvenChest");
 			NiNodeBuf chestBodyBuf;
+			chestBodyBuf.bufSize = sizeof(chestBodyBuf);
 			getBlock(nif, chestBodyID, "NiNode", &chestBodyBuf);
 			int chestBodyOutID = addBlock(nifOut, "DwarvenChest", "NiNode", &chestBodyBuf, NIF_NPOS);
 			void* chestBodyOut = getNodeByID(nifOut, chestBodyOutID);
@@ -3276,6 +3292,7 @@ namespace NiflyDLLTests
 			// Write the lid parts
 			int chestLidID = findBlockByName(nif, "Object01");
 			NiNodeBuf chestLidBuf;
+			chestLidBuf.bufSize = sizeof(chestLidBuf);
 			getBlock(nif, chestLidID, "NiNode", &chestLidBuf);
 			int chestLidOutID = addBlock(nifOut, "Object01", "NiNode", &chestLidBuf, NIF_NPOS);
 			void* chestLidOut = getNodeByID(nifOut, chestLidOutID);
@@ -3293,6 +3310,7 @@ namespace NiflyDLLTests
 			// Write Gear08, which is animated by the second "open" Controlled Block.
 			int gear08 = findBlockByName(nif, "Gear08");
 			NiNodeBuf gear08buf;
+			gear08buf.bufSize = sizeof(gear08buf);
 			getBlock(nif, gear08, "NiNode", &gear08buf);
 			int gear08Out = addBlock(nifOut, "Gear08", "NiNode", &gear08buf, NIF_NPOS);
 			void* gear08Outp = getNodeByID(nifOut, gear08Out);
@@ -3436,7 +3454,9 @@ namespace NiflyDLLTests
 
 			getNode(thigh, &thighbuf);
 			getBlock(nif, thighbuf.controllerID, "NiTransformController", & cbuf);
+			tibuf.bufSize = sizeof(NiTransformInterpolatorBuf);
 			getBlock(nif, cbuf.interpolatorIndex, "NiTransformInterpolator", & tibuf);
+			tdbuf.bufSize = sizeof(NiTransformDataBuf);
 			getBlock(nif, tibuf.dataID, "NiTransformData", & tdbuf);
 			Assert::IsTrue(tdbuf.rotationType == NiKeyType::LINEAR_KEY);
 			Assert::IsTrue(tdbuf.quaternionKeyCount == 161);
@@ -3486,6 +3506,7 @@ namespace NiflyDLLTests
 
 			getBlockname(nif, buf->dataID, blockname, 64);
 			Assert::IsTrue(strcmp(blockname, "NiTransformData") == 0, L"Have transform data");
+			tdbuf.bufSize = sizeof(NiTransformDataBuf);
 			getBlock(nif, buf->dataID, "NiTransformData", &tdbuf);
 
 			tdbufOut = tdbuf;
@@ -3503,6 +3524,7 @@ namespace NiflyDLLTests
 
 			getBlockname(nif, buf->interpolatorIndex, blockname, 64);
 			Assert::IsTrue(strcmp(blockname, "NiTransformInterpolator") == 0, L"Have transform interpolator");
+			tibuf.bufSize = sizeof(tibuf);
 			getBlock(nif, buf->interpolatorIndex, "NiTransformInterpolator", &tibuf);
 
 			int tdOut = TCopyTransformData(nifOut, NIF_NPOS, &tibufOut, nif, buf->interpolatorIndex, &tibuf);
