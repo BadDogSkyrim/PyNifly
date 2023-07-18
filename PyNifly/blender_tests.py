@@ -4466,70 +4466,70 @@ def LOAD_RIG():
 # TEST_SHADER_3_3()  ### Shader attributes are read and turned into Blender shader nodes
 # TEST_TEXTURE_PATHS()  ### Texture paths are correctly resolved
 # TEST_CAVE_GREEN()  ### Use vertex colors in shader
-TEST_POT()  ### Pot shader doesn't throw an error
-TEST_NOT_FB()  ### Nif that looked like facebones skel can be imported
-TEST_MULTI_IMP()  ### Importing multiple hair parts doesn't mess up
-TEST_WELWA()  ### Shape with unusual skeleton
-TEST_MUTANT()  ### Supermutant body imports correctly the *second* time
-TEST_EXPORT_HANDS()  ### Hand mesh with errors doesn't crash
-TEST_PARTITION_ERRORS()  ### Partitions with errors raise errors
-TEST_SHEATH()  ### Extra data nodes are imported and exported
-TEST_FEET()  ### Extra data nodes are imported and exported
-TEST_SCALING()  ### Scale factors applied correctly
-TEST_SCALING_OBJ()  ### Scale simple objects
-TEST_UNIFORM_SCALE()  ### Export objects with uniform scaling
-TEST_NONUNIFORM_SCALE()  ### Export objects with non-uniform scaling
-TEST_FACEBONE_EXPORT()
-TEST_FACEBONE_EXPORT2()  ### Facebones with odd armature
-TEST_HYENA_PARTITIONS()
-TEST_MULT_PART()  ### Export shape with face that might fall into multiple partititions
-TEST_BONE_XPORT_POS()
-TEST_NORM()  ### Normals are read correctly
-TEST_ROGUE01()  ### Custom split normals export correctly
-TEST_ROGUE02()  ### Objects with shape keys export normals correctly
-TEST_NORMAL_SEAM()  ### Custom normals can make a seam seamless
-TEST_NIFTOOLS_NAMES()
-TEST_BOW()  ### Read and write bow with simple box collision
-TEST_BOW2()  ### Modify collision shape location
-TEST_BOW3()  ### Modify collision shape type
-TEST_COLLISION_HIER()  ### Read and write collision of hierarchy of nodes
-TEST_SCALING_COLL()  ### Bow with collisions, scaled
-TEST_COLLISION_MULTI()
-TEST_COLLISION_CONVEXVERT()
-TEST_COLLISION_CAPSULE()  ### Collision capsule shapes with scale
-TEST_COLLISION_LIST()  ### Collision list and collision transform shapes with scale
-TEST_CHANGE_COLLISION()  ### Changing collision type 
-TEST_COLLISION_XFORM()  ### Read and write shape with collision capsule shapes
-TEST_CONNECT_POINT()  ### Connect points are imported and exported
-TEST_WEAPON_PART()  ### Weapon parts are imported at the parent connect point
-TEST_IMPORT_MULT_CP()  ### Import multiple files and connect up the connect points
-TEST_FURN_MARKER1()  ### Skyrim furniture markers 
-TEST_FURN_MARKER2()  ### Skyrim furniture markers
-TEST_FO4_CHAIR()  ### FO4 furniture markers 
-TEST_PIPBOY()
-TEST_BABY()  ### FO4 baby 
-TEST_ROTSTATIC()  ### Statics are transformed according to the shape transform
-TEST_ROTSTATIC2()  ### Statics are transformed according to the shape transform
-TEST_FACEBONES()
-TEST_FACEBONES_RENAME()  ### Facebones are correctly renamed from Blender to the game's names
-TEST_IMP_ANIMATRON()
-TEST_CUSTOM_BONES()  ### Can handle custom bones correctly
-TEST_COTH_DATA()  ## Handle cloth data
-TEST_IMP_NORMALS()  ### Can import normals from nif shape
-TEST_UV_SPLIT()  ### Split UVs properly
-TEST_JIARAN()  ### Armature with no stashed transforms exports correctly
-TEST_SKEL_HKX()  ### Basic skeleton export (XML -> HKX)
-TEST_SKEL_SOS_HKX()  ### SOS auxbones skeleton 
-TEST_FONV()  ### FONV mesh
-TEST_FONV_BOD()  ### Basic FONV body part import and export
-TEST_ANIM_CHEST()  ### Read and write the animation of chest opening and shutting
-TEST_ANIM_CRATE()  ### Read and write the animation of crate opening and shutting
-TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
-TEST_ANIM_KF()  ### Import KF animation file
-TEST_ANIM_KF_RENAME()  ### Import KF animation file
-TEST_ANIM_HKX()  ### Read and write KF animation with renamed bones
+# TEST_POT()  ### Pot shader doesn't throw an error
+# TEST_NOT_FB()  ### Nif that looked like facebones skel can be imported
+# TEST_MULTI_IMP()  ### Importing multiple hair parts doesn't mess up
+# TEST_WELWA()  ### Shape with unusual skeleton
+# TEST_MUTANT()  ### Supermutant body imports correctly the *second* time
+# TEST_EXPORT_HANDS()  ### Hand mesh with errors doesn't crash
+# TEST_PARTITION_ERRORS()  ### Partitions with errors raise errors
+# TEST_SHEATH()  ### Extra data nodes are imported and exported
+# TEST_FEET()  ### Extra data nodes are imported and exported
+# TEST_SCALING()  ### Scale factors applied correctly
+# TEST_SCALING_OBJ()  ### Scale simple objects
+# TEST_UNIFORM_SCALE()  ### Export objects with uniform scaling
+# TEST_NONUNIFORM_SCALE()  ### Export objects with non-uniform scaling
+# TEST_FACEBONE_EXPORT()
+# TEST_FACEBONE_EXPORT2()  ### Facebones with odd armature
+# TEST_HYENA_PARTITIONS()
+# TEST_MULT_PART()  ### Export shape with face that might fall into multiple partititions
+# TEST_BONE_XPORT_POS()
+# TEST_NORM()  ### Normals are read correctly
+# TEST_ROGUE01()  ### Custom split normals export correctly
+# TEST_ROGUE02()  ### Objects with shape keys export normals correctly
+# TEST_NORMAL_SEAM()  ### Custom normals can make a seam seamless
+# TEST_NIFTOOLS_NAMES()
+# TEST_BOW()  ### Read and write bow with simple box collision
+# TEST_BOW2()  ### Modify collision shape location
+# TEST_BOW3()  ### Modify collision shape type
+# TEST_COLLISION_HIER()  ### Read and write collision of hierarchy of nodes
+# TEST_SCALING_COLL()  ### Bow with collisions, scaled
+# TEST_COLLISION_MULTI()
+# TEST_COLLISION_CONVEXVERT()
+# TEST_COLLISION_CAPSULE()  ### Collision capsule shapes with scale
+# TEST_COLLISION_LIST()  ### Collision list and collision transform shapes with scale
+# TEST_CHANGE_COLLISION()  ### Changing collision type 
+# TEST_COLLISION_XFORM()  ### Read and write shape with collision capsule shapes
+# TEST_CONNECT_POINT()  ### Connect points are imported and exported
+# TEST_WEAPON_PART()  ### Weapon parts are imported at the parent connect point
+# TEST_IMPORT_MULT_CP()  ### Import multiple files and connect up the connect points
+# TEST_FURN_MARKER1()  ### Skyrim furniture markers 
+# TEST_FURN_MARKER2()  ### Skyrim furniture markers
+# TEST_FO4_CHAIR()  ### FO4 furniture markers 
+# TEST_PIPBOY()
+# TEST_BABY()  ### FO4 baby 
+# TEST_ROTSTATIC()  ### Statics are transformed according to the shape transform
+# TEST_ROTSTATIC2()  ### Statics are transformed according to the shape transform
+# TEST_FACEBONES()
+# TEST_FACEBONES_RENAME()  ### Facebones are correctly renamed from Blender to the game's names
+# TEST_IMP_ANIMATRON()
+# TEST_CUSTOM_BONES()  ### Can handle custom bones correctly
+# TEST_COTH_DATA()  ## Handle cloth data
+# TEST_IMP_NORMALS()  ### Can import normals from nif shape
+# TEST_UV_SPLIT()  ### Split UVs properly
+# TEST_JIARAN()  ### Armature with no stashed transforms exports correctly
+# TEST_SKEL_HKX()  ### Basic skeleton export (XML -> HKX)
+# TEST_SKEL_SOS_HKX()  ### SOS auxbones skeleton 
+# TEST_FONV()  ### FONV mesh
+# TEST_FONV_BOD()  ### Basic FONV body part import and export
+# TEST_ANIM_CHEST()  ### Read and write the animation of chest opening and shutting
+# TEST_ANIM_CRATE()  ### Read and write the animation of crate opening and shutting
+# TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
+# TEST_ANIM_KF()  ### Import KF animation file
+# TEST_ANIM_KF_RENAME()  ### Import KF animation file
+# TEST_ANIM_HKX()  ### Read and write KF animation with renamed bones
 
-# LOAD_RIG()  ### Not a test--Load up some shapes for play
+LOAD_RIG()  ### Not a test--Load up some shapes for play
 
 print("""
 ############################################################

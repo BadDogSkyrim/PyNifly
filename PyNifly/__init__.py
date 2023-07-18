@@ -9,7 +9,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (10, 4, 0),  
+    "version": (10, 4, 3),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -31,10 +31,12 @@ log.setLevel(logging.INFO)
 log.info(f"Loading pynifly version {bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}")
 
 nifly_path = None
+hkxcmd_path = None
 if 'PYNIFLY_DEV_ROOT' in os.environ:
     pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
     pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
     nifly_path = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll")
+    hkxcmd_path = os.path.join(pynifly_dev_path, "hkxcmd.exe")
 
 if nifly_path and os.path.exists(nifly_path):
     if pynifly_dev_path not in sys.path:
@@ -47,11 +49,17 @@ else:
     if py_addon_path not in sys.path:
         sys.path.append(py_addon_path)
     nifly_path = os.path.join(py_addon_path, "NiflyDLL.dll")
+    hkxcmd_path = os.path.join(py_addon_path, "hkxcmd.exe")
     log.setLevel(logging.INFO)
 
 log.info(f"Nifly DLL at {nifly_path}")
 if not os.path.exists(nifly_path):
     log.error("ERROR: pynifly DLL not found")
+
+if hkxcmd_path and os.path.exists(hkxcmd_path):
+    log.info(f"hkxcmd.exe found at {hkxcmd_path}")
+else:
+    log.warn(f"hkxcmd.exe not found. Animation export/import not available.")
 
 from nifdefs import *
 from niflytools import *
@@ -2554,6 +2562,10 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
             log.error("Must be in Object Mode to import")
             return False
 
+        if not hkxcmd_path:
+            log.error("hkxcmd.exe not found--animation I/O not available.")
+            return False
+
         return True
     
 
@@ -2595,11 +2607,11 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         LogStart(bl_info, "IMPORT", "HKX")
 
         try:
+            NifFile.Load(nifly_path)
             kf_file = self.make_kf(self.filepath_short)
             if not kf_file:
                 res.add('CANCELLED')
             else:
-                NifFile.Load(nifly_path)
                 imp = NifImporter(self.kf_filepath)
                 imp.context = context
                 imp.armature = context.object
@@ -2640,8 +2652,8 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
             self.error(f"Could not create temporary file")
             return
         
-        stat = subprocess.run(["hkxcmd.exe", 
-                               "exportkf", 
+        stat = subprocess.run([hkxcmd_path, 
+                               "EXPORTKF", 
                                self.reference_skel_short, 
                                filepath_working, 
                                self.kf_filepath], 
@@ -2662,8 +2674,9 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
             self.error(f"Could not create temporary XML file")
             return
                 
-        stat = subprocess.run(["hkxcmd.exe", 
-                               "convert", 
+        stat = subprocess.run([hkxcmd_path, 
+                               "CONVERT", 
+                               "-V:XML",
                                filepath_working, 
                                self.xml_filepath], 
                                capture_output=True, check=True)
@@ -4812,6 +4825,10 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
             log.error("Active object must have an animation associated with it.")
             return False
 
+        if not hkxcmd_path:
+            log.error("hkxcmd.exe not found--animation I/O not available.")
+            return False
+
         return True
     
 
@@ -4879,8 +4896,8 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         """Generates an HKX file from a KF file. Also generates an XML file."""
 
         # Generate HKX from KF
-        stat = subprocess.run([r"hkxcmd.exe", 
-                               "convertkf", 
+        stat = subprocess.run([hkxcmd_path, 
+                               "CONVERTKF", 
                                self.reference_skel_short, 
                                self.kf_filepath, 
                                filepath], 
@@ -4896,8 +4913,9 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
         if self.xml_filepath:
             # Generate XML from HKX
-            stat = subprocess.run([r"hkxcmd.exe", 
-                                "convert", 
+            stat = subprocess.run([hkxcmd_path, 
+                                "CONVERT", 
+                               "-V:XML",
                                 filepath, 
                                 self.xml_filepath], 
                                 capture_output=True, check=True)
@@ -4957,8 +4975,9 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
 
     def generate_final_hkx(self):
-        stat = subprocess.run([r"hkxcmd.exe", 
-                               "convert", 
+        stat = subprocess.run([hkxcmd_path, 
+                               "CONVERT", 
+                               "-V:WIN32",
                                self.xml_filepath, 
                                self.filepath_short], 
                                capture_output=True, check=True)
