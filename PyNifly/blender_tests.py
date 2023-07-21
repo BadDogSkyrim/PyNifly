@@ -3856,6 +3856,17 @@ def TEST_JIARAN():
     assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
 
 
+def TEST_SKEL_HKX_IMPORT():
+    TT.test_title("TEST_SKEL_HKX_IMPORT", "Skeleton import")
+    TT.clear_all()
+    testfile = TT.test_file("tests/Skyrim/skeleton.hkx")
+    # outfile = TT.test_file("tests/out/TEST_SKEL_HKX.xml")
+
+    bpy.ops.import_scene.skeleton_xml(filepath=testfile)
+    arma = next(x for x in bpy.data.objects if x.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+
+
 def TEST_SKEL_HKX():
     TT.test_title("TEST_SKEL_HKX", "Skeleton export")
     TT.clear_all()
@@ -3870,7 +3881,7 @@ def TEST_SKEL_HKX():
     for b in arma.pose.bones:
         b.bone.select = b.name.startswith('TailBone')
 
-    bpy.ops.export_scene.skeleton_hkx(filepath=outfile)
+    bpy.ops.export_scene.skeleton_xml(filepath=outfile)
 
     xcheck = xml.parse(outfile)
     xroot = xcheck.getroot()
@@ -4518,6 +4529,7 @@ def LOAD_RIG():
 # TEST_IMP_NORMALS()  ### Can import normals from nif shape
 # TEST_UV_SPLIT()  ### Split UVs properly
 # TEST_JIARAN()  ### Armature with no stashed transforms exports correctly
+TEST_SKEL_HKX_IMPORT()  ### Basic skeleton import (XML -> HKX)
 # TEST_SKEL_HKX()  ### Basic skeleton export (XML -> HKX)
 # TEST_SKEL_SOS_HKX()  ### SOS auxbones skeleton 
 # TEST_FONV()  ### FONV mesh
@@ -4529,7 +4541,7 @@ def LOAD_RIG():
 # TEST_ANIM_KF_RENAME()  ### Import KF animation file
 # TEST_ANIM_HKX()  ### Read and write KF animation with renamed bones
 
-LOAD_RIG()  ### Not a test--Load up some shapes for play
+# LOAD_RIG()  ### Not a test--Load up some shapes for play
 
 print("""
 ############################################################

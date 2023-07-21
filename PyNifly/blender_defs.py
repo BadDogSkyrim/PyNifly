@@ -174,16 +174,11 @@ def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor, roll
     bone = armdata.edit_bones.new(bone_name)
     bone.head = Vector((0,0,0))
     if is_facebone(bone_name):
-        # v = Vector((FACEBONE_LEN, 0, 0))
         bone.tail = Vector((FACEBONE_LEN,0,0))
     else:
-        # v = bone_vectors[game_axes[game]] * BONE_LEN # Vector((0, -BONE_LEN, 0))
         bone.tail = Vector((BONE_LEN,0,0))
-    # bone.tail = bone.head + v
-    # bone.tail = bone_vectors[game_axes[game]] * BONE_LEN
 
     # Direction of tail doesn't matter. It will get set by the bone_blender transform.
-
     bone.matrix = get_bone_blender_xf(node_xf, game, scale_factor)
     bone.roll += roll
 

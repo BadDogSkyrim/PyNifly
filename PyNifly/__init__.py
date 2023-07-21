@@ -769,6 +769,7 @@ class NifImporter():
 
         # Only the root node gets the import transform. It gets applied to all children automatically.
         if ninode.name == self.nif.rootName: 
+            obj.name = ninode.name + ":ROOT"
             obj["pynRoot"] = True
             obj["PYN_BLENDER_XF"] = MatNearEqual(self.import_xf, blender_import_xf)
             obj['PYN_GAME'] = self.nif.game
@@ -1949,6 +1950,7 @@ class NifImporter():
                 self.add_bones_to_arma(self.armature, self.nif, self.nif.nodes.keys())
                 self.imported_armatures.append(self.armature)
                 self.connect_armature(self.armature)
+                # if self.root_object: self.armature.parent = self.root_object
             else:
                 # List of armatures available for shapes
                 if self.armature:
@@ -2001,6 +2003,8 @@ class NifImporter():
 
         # Cleanup. Select all shapes imported, except the root node.
         objlist = [x for x in self.objects_created.values() if x.type=='MESH']
+        if self.armature:
+            objlist.insert(0, self.armature)
         if objlist: 
             ObjectSelect(objlist)
             ObjectActive(objlist[0])
@@ -4602,8 +4606,17 @@ class ExportKF(bpy.types.Operator, ExportHelper):
 
         return True
     
+    def __init__(self):
+        self.messages = []
+        self.errors = set()
+        self.given_scale_warning = False
+
+        if bpy.context.object.animation_data and bpy.context.object.animation_data.action:
+            self.filepath =  bpy.context.object.animation_data.action.name
+            
 
     def execute(self, context):
+        self.context = context
         res = set()
 
         if not self.poll(context):
@@ -4614,9 +4627,6 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, f"FPS outside of valid range, using 30fps: {self.fps}")
             self.fps = 30
 
-        self.context = context
-        self.messages = []
-        self.errors = set()
         LogStart(bl_info, "EXPORT", "KF")
         NifFile.Load(nifly_path)
         NifFile.clear_log()
@@ -4672,19 +4682,29 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         loc = []
         eu = []
         quat = []
+        scale = []
         while curve_list and curve_list[0].group.name == group:
-            if ".location" in curve_list[0].data_path:
+            dp = curve_list[0].data_path
+            if ".location" in dp:
                 loc.append(curve_list[0])
                 curve_list.pop(0)
-            elif ".rotation_quaternion" in curve_list[0].data_path:
+            elif ".rotation_quaternion" in dp:
                 quat.append(curve_list[0])
                 curve_list.pop(0)
+            elif ".scale" in dp:
+                scale.append(curve_list[0])
+                curve_list.pop(0)
             else:
-                self.error(f"Unknown curve type: {curve_list[0].data_path}")
+                self.error(f"Unknown curve type: {dp}")
                 return None, None
         
+        if scale:
+            if not self.given_scale_warning:
+                self.report({"INFO"}, f"Ignoring scale transforms--not used in Skyrim")
+                self.given_scale_warning = True
+
         if len(loc) != 3 and len(eu) != 3 and len(quat) != 4:
-            self.error(f"Unusable transforms in group {group}")
+            self.error(f"No useable transforms in group {group}")
             return None, None
 
         if not group in arma.data.bones:
@@ -4774,11 +4794,12 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         curve_list = list(action.fcurves)
         while curve_list:
             targname, ti = self.export_curves(arma, curve_list)
-            controller.add_controlled_block(
-                name=self.nif.nif_name(targname),
-                interpolator=ti,
-                node_name = self.nif.nif_name(targname),
-                controller_type = "NiTransformController")
+            if targname and ti:
+                controller.add_controlled_block(
+                    name=self.nif.nif_name(targname),
+                    interpolator=ti,
+                    node_name = self.nif.nif_name(targname),
+                    controller_type = "NiTransformController")
 
         self.nif.save()
 
@@ -5044,7 +5065,7 @@ def nifly_menu_import_kf(self, context):
 def nifly_menu_import_hkx(self, context):
     self.layout.operator(ImportHKX.bl_idname, text="HKX animation file with pyNifly (.hkx)")
 
-def nifly_menu_export(self, context):
+def nifly_menu_export_nif(self, context):
     self.layout.operator(ExportNIF.bl_idname, text="Nif file with pyNifly (.nif)")
 
 def nifly_menu_export_kf(self, context):
@@ -5053,52 +5074,47 @@ def nifly_menu_export_kf(self, context):
 def nifly_menu_export_hkx(self, context):
     self.layout.operator(ExportHKX.bl_idname, text="HKX file with pyNifly (.hkx)")
 
+pyn_registry = [('i', nifly_menu_import_nif, ImportNIF),
+                ('i', nifly_menu_import_tri, ImportTRI),
+                ('i', nifly_menu_import_kf, ImportKF),
+                ('i', nifly_menu_import_hkx, ImportHKX),
+                ('e', nifly_menu_export_nif, ExportNIF),
+                ('e', nifly_menu_export_kf, ExportKF),
+                ('e', nifly_menu_export_hkx, ExportHKX),
+                ]
+
 def unregister():
-    bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_nif)
-    bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_tri)
-    bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_kf)
-    bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_hkx)
-    bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export)
-    bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export_kf)
-    bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export_hkx)
-    # bpy.types.VIEW3D_MT_object.remove(nifly_menu_rename_niftools)
-    try:
-        bpy.utils.unregister_class(bpy.types.IMPORT_SCENE_OT_pynifly)
-        bpy.utils.unregister_class(bpy.types.IMPORT_SCENE_OT_pyniflytri)
-        bpy.utils.unregister_class(bpy.types.IMPORT_SCENE_OT_pynifly_kf)
-        bpy.utils.unregister_class(bpy.types.IMPORT_SCENE_OT_pynifly_hkx)
-        bpy.utils.unregister_class(bpy.types.EXPORT_SCENE_OT_pynifly)
-        bpy.utils.unregister_class(bpy.types.EXPORT_SCENE_OT_pynifly_kf)
-        bpy.utils.unregister_class(bpy.types.EXPORT_SCENE_OT_pynifly_hkx)
-        bpy.utils.unregister_class(bpy.types.OBJECT_OT_pynifly_rename_niftools)
-    except:
-        pass
+    for d, f, c in pyn_registry:
+        try:
+            if d == 'i':
+                bpy.types.TOPBAR_MT_file_import.remove(f)
+            else:
+                bpy.types.TOPBAR_MT_file_export.remove(f)
+        except: 
+            pass
+        try:
+            bpy.utils.unregister_class(c) 
+        except:
+            pass
+
     skeleton_hkx.unregister()
 
 def register():
-    unregister()
-    bpy.utils.register_class(ImportNIF)
-    bpy.utils.register_class(ImportTRI)
-    bpy.utils.register_class(ImportKF)
-    bpy.utils.register_class(ImportHKX)
-    bpy.utils.register_class(ExportNIF)
-    bpy.utils.register_class(ExportKF)
-    bpy.utils.register_class(ExportHKX)
-    # bpy.utils.register_class(PynRenamerNifTools)
-    bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_nif)
-    bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_tri)
-    bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_kf)
-    bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_hkx)
-    bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export)
-    bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_kf)
-    bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_hkx)
-    # bpy.types.VIEW3D_MT_object.append(nifly_menu_rename_niftools)
+    for d, f, c in pyn_registry:
+        try:
+            bpy.utils.register_class(c)
+        except:
+            pass
+        try:
+            if d == 'i':
+                bpy.types.TOPBAR_MT_file_import.append(f)
+            else:
+                bpy.types.TOPBAR_MT_file_export.append(f)
+        except:
+            pass
     skeleton_hkx.register()
 
 
 if __name__ == "__main__":
-    try:
-        unregister()
-    except:
-        pass
+    unregister()
     register()

@@ -474,8 +474,8 @@ def get_image_node(node_input):
 
 
 def get_image_filepath(node_input):
-    n = get_image_node(node_input)
     try:
+        n = get_image_node(node_input)
         return n.image.filepath
     except:
         pass
@@ -506,6 +506,7 @@ class ShaderExporter:
         self.is_obj_space = False  # Object vs. tangent normals
         self.is_obj_space = False
         self.normal_node = None
+        self.have_errors = False
 
         self.material = None
         self.shader_node = None
@@ -531,35 +532,41 @@ class ShaderExporter:
 
         self.vertex_colors, self.vertex_alpha = get_effective_colormaps(blender_obj.data)
 
+    def warn(self, msg):
+        log.warn(msg)
+        self.have_errors = True
+
 
     def export_shader_attrs(self, shape):
-        if not self.material:
-            return
-        
-        if 'BSLSP_Shader_Name' in self.material and self.material['BSLSP_Shader_Name']:
-            shape.shader_name = self.material['BSLSP_Shader_Name']
+        try:
+            if not self.material:
+                return
+            
+            if 'BSLSP_Shader_Name' in self.material and self.material['BSLSP_Shader_Name']:
+                shape.shader_name = self.material['BSLSP_Shader_Name']
 
-        shape.shader_attributes.load(self.material)
+            shape.shader_attributes.load(self.material)
 
-        shape.shader_attributes.Emissive_Color_R = self.shader_node.inputs['Emission'].default_value[0]
-        shape.shader_attributes.Emissive_Color_G = self.shader_node.inputs['Emission'].default_value[1]
-        shape.shader_attributes.Emissive_Color_B = self.shader_node.inputs['Emission'].default_value[2]
-        shape.shader_attributes.Emissive_Color_A = self.shader_node.inputs['Emission'].default_value[3]
-        shape.shader_attributes.Emissive_Mult = self.shader_node.inputs['Emission Strength'].default_value
+            shape.shader_attributes.Emissive_Color_R = self.shader_node.inputs['Emission'].default_value[0]
+            shape.shader_attributes.Emissive_Color_G = self.shader_node.inputs['Emission'].default_value[1]
+            shape.shader_attributes.Emissive_Color_B = self.shader_node.inputs['Emission'].default_value[2]
+            shape.shader_attributes.Emissive_Color_A = self.shader_node.inputs['Emission'].default_value[3]
+            shape.shader_attributes.Emissive_Mult = self.shader_node.inputs['Emission Strength'].default_value
 
-        if shape.shader_block_name == "BSLightingShaderProperty":
-            shape.shader_attributes.Alpha = self.shader_node.inputs['Alpha'].default_value
-            shape.shader_attributes.Glossiness = self.shader_node.inputs['Metallic'].default_value * GLOSS_SCALE
+            if shape.shader_block_name == "BSLightingShaderProperty":
+                shape.shader_attributes.Alpha = self.shader_node.inputs['Alpha'].default_value
+                shape.shader_attributes.Glossiness = self.shader_node.inputs['Metallic'].default_value * GLOSS_SCALE
+        except:
+            self.warn("Could not determine shader attributes")
 
 
     def get_diffuse(self):
         """Get the diffuse filepath, given the material's shader node."""
-        imgnode = get_image_node(self.shader_node.inputs['Base Color'])
-        if imgnode:
-            try:
-                return imgnode.image.filepath
-            except:
-                pass
+        try:
+            imgnode = get_image_node(self.shader_node.inputs['Base Color'])
+            return imgnode.image.filepath
+        except:
+            self.warn("Could not find diffuse filepath")
         return ''
     
 
@@ -567,40 +574,47 @@ class ShaderExporter:
         """
         Get the normal map filepath, given the shader node.
         """
-        if self.normal_node:
+        try:
             image_node = get_image_node(self.normal_node.inputs['Color'])
-            if image_node and image_node.image:
-                try:
-                    return image_node.image.filepath
-                except:
-                    pass
+            return image_node.image.filepath
+        except:
+            self.warn("Could not find normal filepath")
         return ''
     
 
     def get_specular(self):
-        if self.is_obj_space:
-            return get_image_filepath(self.shader_node.inputs['Specular'])
+        try:
+            if self.is_obj_space:
+                return get_image_filepath(self.shader_node.inputs['Specular'])
+        except:
+            self.warn("Could not find specular filepath")
         return ''
 
 
     @property
     def is_effectshader(self):
-        if self.material and 'BS_Shader_Block_Name' in self.material:
+        try:
             return self.material['BS_Shader_Block_Name'] == 'BSEffectShaderProperty'
+        except:
+            pass
         return False
     
 
     def write_texture(self, shape, textureslot:int):
         foundpath = ""
     
-        if textureslot == 0:
-            foundpath = self.get_diffuse()
-        elif textureslot == 1:
-            foundpath = self.get_normal()
-        elif textureslot == 2:
-            foundpath = get_image_filepath(self.shader_node.inputs['Subsurface Color'])
-        elif textureslot == 7:
-            foundpath = self.get_specular()
+        try:
+            if textureslot == 0:
+                foundpath = self.get_diffuse()
+            elif textureslot == 1:
+                foundpath = self.get_normal()
+            elif textureslot == 2:
+                foundpath = get_image_filepath(self.shader_node.inputs['Subsurface Color'])
+            elif textureslot == 7:
+                foundpath = self.get_specular()
+        except:
+            self.warn("Could not follow shader nodes to find texture files")
+            foundpath = ""
 
         # Use the shader node path if it's usable. The path stashed in 
         # custom properties is already there if not.
@@ -616,7 +630,7 @@ class ShaderExporter:
                 relpath = Path(*fp.parts[txtindex:])
                 shape.set_texture(textureslot, str(relpath.with_suffix('.dds')))
             except ValueError:
-                log.warning(f"No 'textures' folder found in path: {foundpath}")
+                self.warn(f"No 'textures' folder found in path: {foundpath}")
         # else:
         #     log.debug(f"No texture in slot {textureslot}: '{foundpath}'")
 
@@ -632,17 +646,21 @@ class ShaderExporter:
             self.write_texture(shape, textureslot)
 
         # Write alpha if any after the textures
-        alpha_input = self.shader_node.inputs['Alpha']
-        if alpha_input and alpha_input.is_linked and self.material:
-            if 'NiAlphaProperty_flags' in self.material:
-                shape.alpha_property.flags = self.material['NiAlphaProperty_flags']
-            else:
-                shape.alpha_property.flags = 4844
-            shape.alpha_property.threshold = int(self.material.alpha_threshold * 255)
-            shape.save_alpha_property()
+        try:
+            alpha_input = self.shader_node.inputs['Alpha']
+            if alpha_input and alpha_input.is_linked and self.material:
+                if 'NiAlphaProperty_flags' in self.material:
+                    shape.alpha_property.flags = self.material['NiAlphaProperty_flags']
+                else:
+                    shape.alpha_property.flags = 4844
+                shape.alpha_property.threshold = int(self.material.alpha_threshold * 255)
+                shape.save_alpha_property()
+        except:
+            self.warn("Could not determine alpha property")
 
 
     def export(self, new_shape:NiShape):
+        """Top-level routine for exporting a shape's texture attributes."""
         self.export_textures(new_shape)
         self.export_shader_attrs(new_shape)
         if self.is_obj_space:
@@ -662,4 +680,7 @@ class ShaderExporter:
             new_shape.shader_attributes.shaderflags1_clear(ShaderFlags1.VERTEX_ALPHA)
             
         new_shape.save_shader_attributes()
+
+        if self.have_errors:
+            log.warn(f"Shader nodes are not set up for export to nif. Check and fix in generated nif file.")
 

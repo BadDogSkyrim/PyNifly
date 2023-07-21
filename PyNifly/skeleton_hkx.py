@@ -55,8 +55,6 @@ class SkeletonArmature():
         skel = root.find(".//*[@class='hkaSkeleton']")
         skelname = skel.find("./*[@name='name']").text
         skelindices = [int(x) for x in skel.find("./*[@name='parentIndices']").text.split()]
-        log.debug(f"Skeleton name = {skelname}")
-        log.debug(f"Skeleton indices = {skelindices}")
 
         bonelist = []
         skelbones = skel.find("./*[@name='bones']")
@@ -65,28 +63,51 @@ class SkeletonArmature():
         log.debug(f"Found bones {bonelist}")
 
         pose = skel.find("./*[@name='referencePose']")
-        numseq = numseqpat.findall(pose.text)
+        poselist = pose.text.strip(' ()\t\n').split(')')
+
+        # numseq = numseqpat.findall(pose.text)
         bpy.ops.object.mode_set(mode='OBJECT')
         bpy.ops.object.mode_set(mode='EDIT')
-        for i in range(0, len(bonelist)):
-            log.debug(f"[{i}]")
-            loc = Vector([float(x) for x in numseq[i*3].split()])
-            rotlist = [float(x) for x in numseq[i*3+1].split()]
-            rot = Quaternion(rotlist[1:4], rotlist[0])
-            scale = Vector([float(x) for x in numseq[i*3+2].split()])
-            log.debug(f"Location: {loc}")
-            log.debug(f"Rotation: {rot}")
-            log.debug(f"Scale: {scale}")
-            create_bone(self.arma.data, bonelist[i], Matrix.LocRotScale(loc, rot, scale), 
-                        "SKYRIM", 1.0, 0)
+        # for i in range(0, len(bonelist)):
+        i = j = 0
+        while i < len(poselist) and j < len(bonelist):
+            loc = rot = None
+            loclist = poselist[i].strip(' ()\t\n').split()
+            if len(loclist) == 3:
+                loc = Vector([float(x) for x in loclist])
+            else:
+                self.warn(f"Pose list does not have translation at index {j}: {poselist[i]}")
+
+            # loc = Vector([float(x) for x in numseq[i*3].split()])
+            # rotlist = [float(x) for x in numseq[i*3+1].split()]
+            rotlist = poselist[i+1].strip(' ()\t\n').split()
+            if len(rotlist) == 4:
+                rot = Quaternion([float(x) for x in rotlist[1:4]], float(rotlist[0]))
+            else:
+                self.warn(f"Pose list does not have good rotation at index {j}: {poselist[i+1]}")
+            # rot = Quaternion(rotlist[1:4], rotlist[0])
+            scalelist = poselist[i+2].strip(' ()\t\n').split()
+            if len(scalelist) == 3:
+                scale = Vector([float(x) for x in scalelist])
+            else:
+                self.warn(f"Pose list does not have good scale at index {j}: {poselist[i+2]}")
+            if loc and rot and scale:
+                new_bone = create_bone(self.arma.data, 
+                                       bonelist[j], 
+                                       Matrix.LocRotScale(loc, rot, scale), 
+                                       "SKYRIM", 1.0, 0)
+            i += 3
+            j += 1
+        
+        
         bpy.ops.object.mode_set(mode='OBJECT')
         self.arma.update_from_editmode()
 
 
 class ImportSkel(bpy.types.Operator, ImportHelper):
     """Import a skeleton XML file (unpacked from HXK)"""
-    bl_idname = "import_scene.skeleton_hkx"
-    bl_label = "Import Skeleton HKX (XML)"
+    bl_idname = "import_scene.skeleton_xml"
+    bl_label = "Import Skeleton XML"
     bl_options = {'PRESET', 'UNDO'}
 
     filename_ext = ".xml"
@@ -113,6 +134,7 @@ class ImportSkel(bpy.types.Operator, ImportHelper):
         if inroot:
             arma = SkeletonArmature(Path(self.filepath).stem)
             arma.bones_from_xml(inroot)
+            arma.connect_armature(inroot)
 
         status = {'FINISHED'}
 
@@ -132,8 +154,8 @@ def set_param(elem, attribs, txt):
 class ExportSkel(bpy.types.Operator, ExportHelper):
     """Export Blender armature to a skeleton HKX file"""
 
-    bl_idname = "export_scene.skeleton_hkx"
-    bl_label = 'Export skeleton HKX (XML)'
+    bl_idname = "export_scene.skeleton_xml"
+    bl_label = 'Export skeleton XML'
     bl_options = {'PRESET'}
 
     filename_ext = ".xml"
@@ -371,38 +393,42 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
 
 def nifly_menu_import_skel(self, context):
     self.layout.operator(ImportSkel.bl_idname, text="Skeleton file (.xml)")
+
 def nifly_menu_export_skel(self, context):
     self.layout.operator(ExportSkel.bl_idname, text="Skeleton file (.xml)")
 
+skel_registry = [('i', nifly_menu_import_skel, ImportSkel), 
+                 ('e', nifly_menu_export_skel, ExportSkel)]
+
 def unregister():
-    try:
-        bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_skel)
-    except:
-        pass
-    try:
-        bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export_skel)
-    except:
-        pass
-    try:
-        bpy.utils.unregister_class(ImportSkel)
-    except:
-        pass
-    try:
-        bpy.utils.unregister_class(ExportSkel)
-    except:
-        pass
+    for d, f, c in skel_registry:
+        try:
+            if d == 'i':
+                bpy.types.TOPBAR_MT_file_import.remove(f)
+            else:
+                bpy.types.TOPBAR_MT_file_export.remove(f)
+        except: 
+            pass
+        try:
+            bpy.utils.unregister_class(c) 
+        except:
+            pass
 
 
 def register():
-    unregister()
-    bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_skel)
-    bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_skel)
-    bpy.utils.register_class(ImportSkel)
-    bpy.utils.register_class(ExportSkel)
+    for d, f, c in skel_registry:
+        try:
+            bpy.utils.register_class(c)
+        except:
+            pass
+        try:
+            if d == 'i':
+                bpy.types.TOPBAR_MT_file_import.append(f)
+            else:
+                bpy.types.TOPBAR_MT_file_export.append(f)
+        except:
+            pass
 
 if __name__ == "__main__":
-    try:
-        unregister()
-    except:
-        pass
+    unregister()
     register()
