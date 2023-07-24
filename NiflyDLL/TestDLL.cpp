@@ -784,15 +784,13 @@ void TCheckDwemerChest(void* nif,
 	that what was written is correct. 
 	*/
 	NiNodeBuf rootbuf;
-	rootbuf.bufSize = sizeof(rootbuf);
-	getBlock(nif, 0, "NiNode", &rootbuf);
+	getBlock(nif, 0, &rootbuf);
 
 	// We can find controller blocks directly, by type.
 	//int ncmCount = findNodesByType(nif, root, "NiControllerManager", 1, &ncm);
 	//Assert::AreEqual(1, ncmCount, L"Found 1 controller manager");
 
-	ncmbuf.bufSize = sizeof(ncmbuf);
-	getBlock(nif, rootbuf.controllerID, "NiControllerManager", &ncmbuf);
+	getBlock(nif, rootbuf.controllerID, &ncmbuf);
 
 	//getControllerManager(ncm, &ncmbuf);
 	//getBlock(nif, "NiControllerManager", &ncmbuf)
@@ -802,7 +800,7 @@ void TCheckDwemerChest(void* nif,
 	//void* rc = getNodeController(nif, root, &ncmbuf);
 	//Assert::AreEqual(1.0f, ncmbuf.frequency, L"Frequency value correct");
 
-	getBlock(nif, ncmbuf.nextControllerID, "NiMultiTargetTransformController", &mttcbuf);
+	getBlock(nif, ncmbuf.nextControllerID, &mttcbuf);
 	Assert::AreEqual(108, int(mttcbuf.flags), L"Flags are correct");
 	Assert::AreEqual(2, int(ncmbuf.controllerSequenceCount), L"Have right number of controller sequences");
 
@@ -812,8 +810,8 @@ void TCheckDwemerChest(void* nif,
 	csbuf[0].bufSize = sizeof(csbuf[0]);
 	csbuf[1].bufSize = sizeof(csbuf[1]);
 
-	getBlock(nif, cs[0], "NiControllerSequence", &csbuf[0]);
-	getBlock(nif, cs[1], "NiControllerSequence", &csbuf[1]);
+	getBlock(nif, cs[0], &csbuf[0]);
+	getBlock(nif, cs[1], &csbuf[1]);
 	Assert::IsTrue(TApproxEqual(0.6, csbuf[0].stopTime), L"StopTime correct");
 
 	char* csName0 = new char[64];
@@ -836,10 +834,8 @@ void TCheckDwemerChest(void* nif,
 	Assert::IsTrue(strcmp("Object01", namebuf) == 0, L"Have correct node name");
 
 	// First interpolator does linear movement of the chest's lid. So no rotation keys.
-	tibuf.bufSize = sizeof(tibuf);
-	tdbuf.bufSize = sizeof(tdbuf);
-	getBlock(nif, clbuf->interpolatorID, "NiTransformInterpolator", &tibuf);
-	getBlock(nif, tibuf.dataID, "NiTransformData", &tdbuf);
+	getBlock(nif, clbuf->interpolatorID, &tibuf);
+	getBlock(nif, tibuf.dataID, &tdbuf);
 	Assert::AreEqual(0, int(tdbuf.quaternionKeyCount), L"Have correct number of rotation keys");
 	Assert::AreEqual(18, int(tdbuf.translations.numKeys), L"Have correct number of translations");
 	Assert::AreEqual(1, int(tdbuf.translations.interpolation), L"Have correct interpolation");
@@ -852,10 +848,8 @@ void TCheckDwemerChest(void* nif,
 	// Second interpolator does the revolution of the screw in the worm drive. 
 	getString(nif, clbuf[1].nodeName, 64, namebuf);
 	Assert::IsTrue(strcmp("Gear08", namebuf) == 0, L"Have correct node name");
-	tibuf2.bufSize = sizeof(tibuf2);
-	tdbuf2.bufSize = sizeof(tdbuf2);
-	getBlock(nif, clbuf[1].interpolatorID, "NiTransformInterpolator", &tibuf2);
-	getBlock(nif, tibuf2.dataID, "NiTransformData", &tdbuf2);
+	getBlock(nif, clbuf[1].interpolatorID, &tibuf2);
+	getBlock(nif, tibuf2.dataID, &tdbuf2);
 	Assert::AreEqual(1, int(tdbuf2.xRotations.numKeys), L"Have correct number of X rotation keys");
 	Assert::AreEqual(2, int(tdbuf2.zRotations.numKeys), L"Have correct number of Z rotation keys");
 	Assert::AreEqual(int(NiKeyType::QUADRATIC_KEY), int(tdbuf2.zRotations.interpolation), L"Have quadratic interpolation");
@@ -915,9 +909,8 @@ namespace NiflyDLLTests
 			void* theBody = shapes[0];
 			void* theArmor = shapes[1];
 
-			armorBuf.bufSize = sizeof(NiShapeBuf);
 			armorID = getBlockID(nif, theArmor);
-			getBlock(nif, armorID, "NiShape", &armorBuf);
+			getBlock(nif, armorID, &armorBuf);
 
 			Vector3* verts = new Vector3[armorBuf.vertexCount];
 			Triangle* tris = new Triangle[armorBuf.triangleCount];
@@ -2668,25 +2661,26 @@ namespace NiflyDLLTests
 			/* Test we can read and write collisions (and other nodes in bow file */
 			void* nif = load((testRoot / "SkyrimSE/meshes/weapons/glassbowskinned.nif").u8string().c_str());
 
-			void* bow_midbone = TFindNode(nif, "Bow_MidBone");
-			void* coll = getCollision(nif, bow_midbone);
+			int bow_midbone = findBlockByName(nif, "Bow_MidBone");
+			NiNodeBuf bowBuf;
+			bhkNiCollisionObjectBuf coBuf;
+			getBlock(nif, bow_midbone, &bowBuf);
+			getBlock(nif, bowBuf.collisionID, &coBuf);
 			char collname[128];
-			getCollBlockname(coll, collname, 128);
+			getBlockname(nif, bowBuf.collisionID, collname, 128);
 			Assert::IsTrue(strcmp(collname, "bhkCollisionObject") == 0, L"Found a bhkCollisionObject");
 
-			int bodyID = getCollBodyID(nif, coll);
 			char bodyname[128];
-			getCollBodyBlockname(nif, bodyID, bodyname, 128);
+			getBlockname(nif, coBuf.bodyID, bodyname, 128);
 			Assert::IsTrue(strcmp(bodyname, "bhkRigidBodyT") == 0, L"Can read body blockname");
 
-			BHKRigidBodyBuf bodyprops;
-			getRigidBodyProps(nif, bodyID, &bodyprops);
+			bhkRigidBodyBuf bodyprops;
+			getBlock(nif, coBuf.bodyID, &bodyprops);
 			Assert::IsTrue(bodyprops.collisionResponse == 1, L"Can read the collision response field");
 			Assert::IsTrue(bodyprops.motionSystem == 3, L"Can read the motion system field");
 
-			BHKBoxShapeBuf boxbuf;
-			int boxID = getRigidBodyShapeID(nif, bodyID);
-			getCollBoxShapeProps(nif, boxID, &boxbuf);
+			bhkBoxShapeBuf boxbuf;
+			getBlock(nif, bodyprops.shapeID, &boxbuf);
 
 			void* shapes[10];
 			getShapes(nif, shapes, 10, 0);
@@ -2700,8 +2694,8 @@ namespace NiflyDLLTests
 			TCopyShader(nifOut, bowOut, nif, bow);
 
 			// Set the flags on the root node correctly
-			void* rootNodeOUt = getRoot(nifOut);
-			setNodeFlags(rootNodeOUt, 14);
+			void* rootNodeOut = getRoot(nifOut);
+			setNodeFlags(rootNodeOut, 14);
 
 			int rotbuf[3];
 			float zoombuf;
@@ -2721,6 +2715,8 @@ namespace NiflyDLLTests
 			// Now we can save the collision
 			saveNif(nifOut, (testRoot / "Out/readCollisions.nif").u8string().c_str());
 
+			// ============= Can write collisions =======
+
 			// Check what we wrote is correct
 			// Doing a full check because why not
 			void* nifcheck = load((testRoot / "Out/readCollisions.nif").u8string().c_str());
@@ -2728,46 +2724,60 @@ namespace NiflyDLLTests
 			char rootname[128];
 			void* rootNodeCheck = nullptr;
 			char rootBlockname[128];
-			int flags;
+			NiNodeBuf rootBuf;
 			getRootName(nifcheck, rootname, 128);
-			rootNodeCheck = getRoot(nifcheck);
-			getNodeBlockname(rootNodeCheck, rootBlockname, 128);
+			//rootNodeCheck = getRoot(nifcheck);
+			getBlockname(nifcheck, 0, rootBlockname, 128);
 			Assert::IsTrue(strcmp(rootBlockname, "BSFadeNode") == 0, L"Wrote a FadeNode");
-			flags = getNodeFlags(rootNodeCheck);
-			Assert::IsTrue(flags == 14, L"Wrote the noode flags correctly");
 
-			char invbufcheck[128];
-			int rotcheck[3];
-			float zoomcheck;
-			getInvMarker(nifcheck, invbufcheck, 128, rotcheck, &zoomcheck);
-			Assert::IsTrue(strcmp(invbufcheck, "INV") == 0, L"BSInvMarker name is set");
-			Assert::IsTrue(rotcheck[0] == 4712, L"BSInvMarker rotation is set");
+			getBlock(nifcheck, 0, &rootBuf);
+			//flags = getNodeFlags(rootNodeCheck)/*;*/
+			Assert::IsTrue(rootBuf.flags == 14, L"Wrote the noode flags correctly");
 
-			int bsxflagscheck;
-			Assert::IsTrue(getBSXFlags(nifcheck, &bsxflagscheck), L"BSX Flags present");
-			Assert::IsTrue(bsxflagscheck == 202, L"BSX Flags correct");
+			//char invbufcheck[128];
+			//int rotcheck[3];
+			//float zoomcheck;
+			BSInvMarkerBuf invmBuf;
+			char invMarkerName[32];
+			int invMarkerID = getExtraData(nifcheck, 0, "INV");
+			getBlock(nifcheck, invMarkerID, &invmBuf);
+			getString(nifcheck, invmBuf.nameID, 32, invMarkerName);
+			Assert::IsTrue(strcmp(invMarkerName, "INV") == 0, L"BSInvMarker name is set");
+			Assert::IsTrue(invmBuf.rot[0] == 4712, L"BSInvMarker rotation is set");
 
-			void* bowMidboneCheck = TFindNode(nifcheck, "Bow_MidBone");
+			//int bsxflagscheck;
+			int bsxFlagsID = getExtraData(nifcheck, 0, "BSX");
+			BSXFlagsBuf bsxBuf;
+			getBlock(nifcheck, bsxFlagsID, &bsxBuf);
+			Assert::IsTrue(bsxBuf.integerData == 202, L"BSX Flags correct");
 
-			void* collCheck = getCollision(nifcheck, bowMidboneCheck);
+			NiNodeBuf bowCheckBuf;
+			int bowMidboneCheckID = findBlockByName(nifcheck, "Bow_MidBone");
+			getBlock(nifcheck, bowMidboneCheckID, &bowCheckBuf);
+
+			bhkNiCollisionObjectBuf collCheckBuf;
+			getBlock(nifcheck, bowCheckBuf.collisionID, &collCheckBuf);
+			//void* collCheck = getCollision(nifcheck, bowMidboneCheck);
 			char collnameCheck[128];
-			getCollBlockname(collCheck, collnameCheck, 128);
+			getBlockname(nifcheck, bowCheckBuf.collisionID, collnameCheck, 128);
 			Assert::IsTrue(strcmp(collnameCheck, "bhkCollisionObject") == 0, L"Found a bhkCollisionObject");
 
-			int bodyIDCheck = getCollBodyID(nifcheck, collCheck);
+			//int bodyIDCheck = getCollBodyID(nifcheck, collCheck);
 			char bodynameCheck[128];
-			getCollBodyBlockname(nifcheck, bodyIDCheck, bodynameCheck, 128);
+			getBlockname(nifcheck, collCheckBuf.bodyID, bodynameCheck, 128);
 			Assert::IsTrue(strcmp(bodynameCheck, "bhkRigidBodyT") == 0, L"Can read body blockname");
 
-			BHKRigidBodyBuf bodypropsCheck;
-			getRigidBodyProps(nifcheck, bodyIDCheck, &bodypropsCheck);
-			Assert::IsTrue(bodypropsCheck.collisionFilter_layer == 5, L"Collision filter layer correct");
-			Assert::IsTrue(bodypropsCheck.collisionResponse == 1, L"Can read the collision response field");
-			Assert::IsTrue(bodypropsCheck.motionSystem == 3, L"Can read the motion system field");
+			bhkRigidBodyBuf bodyCheckBuf;
+			getBlock(nifcheck, collCheckBuf.bodyID, &bodyCheckBuf);
+			//getRigidBodyProps(nifcheck, bodyIDCheck, &bodypropsCheck);
+			Assert::IsTrue(bodyCheckBuf.collisionFilter_layer == 5, L"Collision filter layer correct");
+			Assert::IsTrue(bodyCheckBuf.collisionResponse == 1, L"Can read the collision response field");
+			Assert::IsTrue(bodyCheckBuf.motionSystem == 3, L"Can read the motion system field");
 
-			BHKBoxShapeBuf boxbufCheck;
-			int boxIDCheck = getRigidBodyShapeID(nifcheck, bodyIDCheck);
-			getCollBoxShapeProps(nifcheck, boxIDCheck, &boxbufCheck);
+			bhkBoxShapeBuf boxbufCheck;
+			//int boxIDCheck = getRigidBodyShapeID(nifcheck, bodyIDCheck);
+			getBlock(nifcheck, bodyCheckBuf.shapeID, &boxbufCheck);
+			//getCollBoxShapeProps(nifcheck, boxIDCheck, &boxbufCheck);
 		};
 		TEST_METHOD(readCollisionConvex) {
 			/* Test we can read and write collisions (and other nodes in bow file */
@@ -3274,8 +3284,7 @@ namespace NiflyDLLTests
 			// Write the static chest body shapes
 			int chestBodyID = findBlockByName(nif, "DwarvenChest");
 			NiNodeBuf chestBodyBuf;
-			chestBodyBuf.bufSize = sizeof(chestBodyBuf);
-			getBlock(nif, chestBodyID, "NiNode", &chestBodyBuf);
+			getBlock(nif, chestBodyID, &chestBodyBuf);
 			int chestBodyOutID = addBlock(nifOut, "DwarvenChest", "NiNode", &chestBodyBuf, NIF_NPOS);
 			void* chestBodyOut = getNodeByID(nifOut, chestBodyOutID);
 
@@ -3292,8 +3301,7 @@ namespace NiflyDLLTests
 			// Write the lid parts
 			int chestLidID = findBlockByName(nif, "Object01");
 			NiNodeBuf chestLidBuf;
-			chestLidBuf.bufSize = sizeof(chestLidBuf);
-			getBlock(nif, chestLidID, "NiNode", &chestLidBuf);
+			getBlock(nif, chestLidID, &chestLidBuf);
 			int chestLidOutID = addBlock(nifOut, "Object01", "NiNode", &chestLidBuf, NIF_NPOS);
 			void* chestLidOut = getNodeByID(nifOut, chestLidOutID);
 
@@ -3310,8 +3318,7 @@ namespace NiflyDLLTests
 			// Write Gear08, which is animated by the second "open" Controlled Block.
 			int gear08 = findBlockByName(nif, "Gear08");
 			NiNodeBuf gear08buf;
-			gear08buf.bufSize = sizeof(gear08buf);
-			getBlock(nif, gear08, "NiNode", &gear08buf);
+			getBlock(nif, gear08, &gear08buf);
 			int gear08Out = addBlock(nifOut, "Gear08", "NiNode", &gear08buf, NIF_NPOS);
 			void* gear08Outp = getNodeByID(nifOut, gear08Out);
 			int gear08sh = findBlockByName(nif, "Gear08:7");
@@ -3453,11 +3460,9 @@ namespace NiflyDLLTests
 			Assert::IsTrue(strcmp(pelvName, "NPC Pelvis") == 0, L"Have correct parent");
 
 			getNode(thigh, &thighbuf);
-			getBlock(nif, thighbuf.controllerID, "NiTransformController", & cbuf);
-			tibuf.bufSize = sizeof(NiTransformInterpolatorBuf);
-			getBlock(nif, cbuf.interpolatorIndex, "NiTransformInterpolator", & tibuf);
-			tdbuf.bufSize = sizeof(NiTransformDataBuf);
-			getBlock(nif, tibuf.dataID, "NiTransformData", & tdbuf);
+			getBlock(nif, thighbuf.controllerID, & cbuf);
+			getBlock(nif, cbuf.interpolatorIndex, &tibuf);
+			getBlock(nif, tibuf.dataID, &tdbuf);
 			Assert::IsTrue(tdbuf.rotationType == NiKeyType::LINEAR_KEY);
 			Assert::IsTrue(tdbuf.quaternionKeyCount == 161);
 
@@ -3506,8 +3511,7 @@ namespace NiflyDLLTests
 
 			getBlockname(nif, buf->dataID, blockname, 64);
 			Assert::IsTrue(strcmp(blockname, "NiTransformData") == 0, L"Have transform data");
-			tdbuf.bufSize = sizeof(NiTransformDataBuf);
-			getBlock(nif, buf->dataID, "NiTransformData", &tdbuf);
+			getBlock(nif, buf->dataID, &tdbuf);
 
 			tdbufOut = tdbuf;
 			int tdOut = addBlock(nifOut, "", "NiTransformData", &tdbufOut, tiOut);
@@ -3524,8 +3528,7 @@ namespace NiflyDLLTests
 
 			getBlockname(nif, buf->interpolatorIndex, blockname, 64);
 			Assert::IsTrue(strcmp(blockname, "NiTransformInterpolator") == 0, L"Have transform interpolator");
-			tibuf.bufSize = sizeof(tibuf);
-			getBlock(nif, buf->interpolatorIndex, "NiTransformInterpolator", &tibuf);
+			getBlock(nif, buf->interpolatorIndex, &tibuf);
 
 			int tdOut = TCopyTransformData(nifOut, NIF_NPOS, &tibufOut, nif, buf->interpolatorIndex, &tibuf);
 
@@ -3542,7 +3545,7 @@ namespace NiflyDLLTests
 			char blockname[64];
 			getBlockname(nif, buf->controllerID, blockname, 64);
 			Assert::IsTrue(strcmp(blockname, "NiTransformController") == 0, L"Have transform controller");
-			getBlock(nif, buf->controllerID, "NiTransformController", &tcbuf);
+			getBlock(nif, buf->controllerID, &tcbuf);
 
 			int tiOut = TCopyInterpolator(nifOut, NIF_NPOS, nullptr, nif, buf->controllerID, &tcbuf);
 
@@ -3556,7 +3559,7 @@ namespace NiflyDLLTests
 		int TCopyBone(void* nifOut, void* nif, int boneID, int parent) {
 			NiNodeBuf buf, bufOut;
 			char namebuf[128];
-			getBlock(nif, boneID, "NiNode", &buf);
+			getBlock(nif, boneID, &buf);
 			getString(nif, buf.nameID, 128, namebuf);
 			bufOut = buf;
 			bufOut.childCount = 0;

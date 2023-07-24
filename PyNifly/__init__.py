@@ -408,7 +408,7 @@ class NifImporter():
         self.root_object = None  # Blender representation of root object
         self.connect_parents = []
 
-    def add_warning(self, text:str):
+    def warn(self, text:str):
         self.warnings.append(('WARNING', text))
         log.warning(text)
 
@@ -670,9 +670,9 @@ class NifImporter():
                         obj.parent = self.objects_created[parnode._handle]
                         #log.debug(f"Created parent cp {obj.name} with parent {obj.parent.name}")
                     else:
-                        self.add_warning(f"Parent node {parname} not imported")
+                        self.warn(f"Parent node {parname} not imported")
                 else:
-                    self.add_warning(f"Could not find parent node {parname} for connect point {obj.name}")
+                    self.warn(f"Could not find parent node {parname} for connect point {obj.name}")
             else:
                 obj.parent = parent_obj
 
@@ -968,9 +968,9 @@ class NifImporter():
                 skin_xf = obj.matrix_world
                 if not MatNearEqual(arma_xf, skin_xf): 
                     log.debug(f"Transforms don't match between {arma.name} and {obj.name}" + f"\n{arma_xf.translation} != {skin_xf.translation}")
-                    self.add_warning(f"Skin transform on {obj.name} do not match existing armature. Shapes may be offset.")
+                    self.warn(f"Skin transform on {obj.name} do not match existing armature. Shapes may be offset.")
             except Exception as e:
-                self.add_warning(repr(e))
+                self.warn(repr(e))
                 skin_xf = obj.matrix_world
 
         return skin_xf
@@ -1325,12 +1325,12 @@ class NifImporter():
         new_bones = []
         bpy.ops.object.mode_set(mode = 'EDIT')
         if not self.reference_skel:
-            self.add_warning(f"{nif_shape.name} has no reference skeleton")
+            self.warn(f"{nif_shape.name} has no reference skeleton")
             ref_compat = None
         else:
             ref_compat = is_compatible_skeleton(skin_xf, nif_shape, self.reference_skel)
             if not ref_compat:
-                self.add_warning(f"{nif_shape.name} is not compatible with skeleton {self.reference_skel.filepath}")
+                self.warn(f"{nif_shape.name} is not compatible with skeleton {self.reference_skel.filepath}")
             for bn in nif_shape.bone_names:
                 blname = self.blender_name(bn)
                 if blname not in arma.data.edit_bones:
@@ -1543,7 +1543,7 @@ class NifImporter():
         try:
             obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
         except:
-            self.add_warning(f"Unknown havok material: {prop.bhkMaterial}")
+            self.warn(f"Unknown havok material: {prop.bhkMaterial}")
             obj['bhkMaterial'] = str(prop.bhkMaterial)
         obj['bhkRadius'] = prop.bhkRadius * self.import_scale
 
@@ -1572,7 +1572,7 @@ class NifImporter():
         elif cs.blockname == "bhkCapsuleShape":
             sh = self.import_bhkCapsuleShape(cs, cb)
         else:
-            self.add_warning(f"Found unimplemented collision shape: {cs.blockname}")
+            self.warn(f"Found unimplemented collision shape: {cs.blockname}")
         
         if sh:
             sh.name = cs.blockname
@@ -1618,13 +1618,14 @@ class NifImporter():
         parentObj is armature and "bone" is the NiNode for the bone. 
         * Returns new collision object.
         """
-        #log.debug(f"<import_collision_obj> for {parentObj}")
         col = None
         bpy.ops.object.mode_set(mode='OBJECT')
-        if c.blockname == "bhkCollisionObject":
+        if c.blockname in ["bhkCollisionObject", 
+                           "bhkSPCollisionObject", 
+                           "bhkNPCollisionObject", 
+                           "bhkPCollisionObject"]:
             bpy.ops.object.add(radius=1.0, type='EMPTY')
-            col = bpy.context.object
-            # col.matrix_world = Matrix()
+            col = self.context.object
             col.name = c.blockname
             col.show_name = True
             col['pynCollisionFlags'] = bhkCOFlags(c.flags).fullname
@@ -1639,26 +1640,11 @@ class NifImporter():
                     col.matrix_world = col.matrix_world @ self.calc_obj_transform(bone)
                     col['pynCollisionTarget'] = bone.name
 
-            # Following is messed up. presumably bc of the transform to bone
-            # if parentObj:
-            #     if parentObj.type == "ARMATURE":
-            #         col.parent = parentObj
-            #         col.parent_type = 'BONE'
-            #         col.parent_bone = bone.name
-            #         col['pynCollisionTarget'] = bone.name
-            #         if bone.name in parentObj.data.bones:
-            #             b = parentObj.data.bones[bone.name]
-            #             # This positions the empty at the bone's tail. WTF. So
-            #             # shift it to the head.
-            #             v = b.head - b.tail
-            #             v.rotate(col.matrix_world.inverted())
-            #             col.location = b.head_local
-            #     else:
-            #         col.parent = parentObj
-
             cb = c.body
             if cb:
                 self.import_collision_body(cb, col)
+        else:
+            self.warn(f"Found an unknown type of collision: {c.blockname}")
         return col
 
     def import_collisions(self):
@@ -1669,7 +1655,7 @@ class NifImporter():
                 self.import_collision_obj(r.collision_object, None)
         except:
             traceback.print_exc()
-            self.add_warning(f"Cannot read collisions--collisions not imported")
+            self.warn(f"Cannot read collisions--collisions not imported")
 
     # ----- End Collisions ----
 
@@ -1732,7 +1718,7 @@ class NifImporter():
                         # Probably they will all line up because generating them any other
                         # way is surely hard. So hope for that and post a warning if not.
                         if not (NearEqual(x.time, y.time) and NearEqual(x.time, z.time)):
-                            self.add_warning(f"Keyframes do not align for '{path_name}. Animations may be incorrect.")
+                            self.warn(f"Keyframes do not align for '{path_name}. Animations may be incorrect.")
 
                         # Need to apply the parent rotation. If we stay in Eulers, we may
                         # have gimbal lock. If we convert to quaternions, we may lose the
@@ -1793,7 +1779,7 @@ class NifImporter():
         elif td.properties.rotationType == NiKeyType.NO_INTERP:
             pass
         else:
-            self.add_warning(f"Nif contains unimplemented rotation type at {path_name}: {td.properties.rotationType}")
+            self.warn(f"Nif contains unimplemented rotation type at {path_name}: {td.properties.rotationType}")
 
         # Seems like a value of + or - infinity in the Transform
         if len(td.translations) > 0:
@@ -1819,7 +1805,7 @@ class NifImporter():
     def import_controlled_block(self, seq:NiSequence, block:ControllerLink):
         """Import one controlled block."""
         if block.controller_type != "NiTransformController":
-            self.add_warning(f"Nif has unknown controller type: {block.controller_type}")
+            self.warn(f"Nif has unknown controller type: {block.controller_type}")
             return
         
         if block.node_name in self.nif.nodes:
@@ -1828,7 +1814,7 @@ class NifImporter():
             if target_node._handle in self.objects_created:
                 target_obj = self.objects_created[target_node._handle]
             else:
-                self.add_warning(f"Target object was not imported: {block.node_name}")
+                self.warn(f"Target object was not imported: {block.node_name}")
                 return
             action_group = "Object Transforms"
             path_name = None
@@ -1846,7 +1832,7 @@ class NifImporter():
                 target_obj = self.armature
                 action_name = seq.name
             else:
-                self.add_warning(f"Controller target not found: {block.node_name}")
+                self.warn(f"Controller target not found: {block.node_name}")
                 return 
 
         fps = self.context.scene.render.fps
@@ -2210,7 +2196,8 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 fullfiles = [self.filepath]
             imp = NifImporter(fullfiles, chargen=CHARGEN_EXT_DEF)
             imp.context = context
-            imp.collection = context.scene.collection
+            if context.view_layer.active_layer_collection: 
+                imp.collection = context.view_layer.active_layer_collection.collection
             imp.create_bones = self.create_bones
             # imp.roll_bones_nift = self.roll_bones
             imp.rename_bones = self.rename_bones
@@ -3983,7 +3970,7 @@ class NifExporter:
         Write a shape's bone, writing all parent bones first if necessary Returns the name
         of the node in the target nif for the new bone. 
         
-        * shape - bone is added to shape's skin. May be None, if only writing a skeleton
+        * shape - bone is added to shape's skin. May be None, if only writing a skeleton.
         * arma - parent armature
         * bone_name - bone to write (blender name)
         * bones_to_write - list of bones that the shape needs. If the bone isn't in this
@@ -4012,7 +3999,7 @@ class NifExporter:
         if bone_name in bones_to_write and shape:
             shape.add_bone(nifname, tb, 
                            (parname if self.preserve_hierarchy else None))
-        elif self.preserve_hierarchy:
+        elif self.preserve_hierarchy or not shape:
             # Not a shape bone but needed for the hierarchy
             self.nif.add_node(nifname, tb, parname)
         
@@ -4433,12 +4420,12 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     def __init__(self):
         self.objects_to_export = bpy.context.selected_objects # get_export_objects(bpy.context)
 
-        if len(self.objects_to_export) == 0:
+        if not self.objects_to_export:
             self.report({"ERROR"}, "No objects selected for export")
             return
 
         obj = self.objects_to_export[0]
-        if not self.filepath or self.filepath == '':
+        if not self.filepath:
             self.filepath = clean_filename(obj.name)
 
         lst = [obj for obj in self.objects_to_export if "pynRoot" in obj]

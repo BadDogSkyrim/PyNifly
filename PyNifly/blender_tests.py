@@ -886,7 +886,7 @@ def TEST_3BBB():
 
 
 def TEST_SKEL():
-    TT.test_title("TEST_SKEL", "Can import and export skeleton file with no shapes")
+    TT.test_title("TEST_SKEL", "Can import and export FO4 skeleton file with no shapes")
     TT.clear_all()
     testfile = TT.test_file(r"skeletons\FO4\skeleton.nif")
     outfile = TT.test_file(r"tests/out/TEST_SKEL.nif")
@@ -916,7 +916,7 @@ def TEST_SKEL():
     assert TT.NearEqual(cp_lleg.location[0], -8.748), \
         f"Armor left leg connect point at relative position: {cp_lleg.location}"
 
-    bpy.data.objects['skeleton.nif'].select_set(True)
+    BD.ObjectSelect([bpy.data.objects['skeleton.nif:ROOT']], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True)
 
     skel_in = pyn.NifFile(testfile)
@@ -929,6 +929,58 @@ def TEST_SKEL():
     assert helm_cp_out.parent.decode('utf-8') == 'HEAD', f"Parent is correct: {helm_cp_out.parent}"
     assert TT.VNearEqual(helm_cp_in.translation, helm_cp_out.translation), \
         f"Connect point locations correct: {helm_cp_in.translation[:]} == {helm_cp_out.translation[:]}"
+
+
+def TEST_SKEL_SKY():
+    TT.test_title("TEST_SKEL_SKY", "Can import and export Skyrim skeleton file with no shapes")
+    TT.clear_all()
+    testfile = TT.test_file(r"skeletons\Skyrim\skeleton.nif")
+    outfile = TT.test_file(r"tests/out/TEST_SKEL_SKY.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False)
+
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    root = next(x for x in bpy.data.objects if 'pynRoot' in x)
+
+    cbcoll = [x for x in arma.children if x.name.startswith('bhkSPCollisionObject')
+              and x['pynCollisionTarget'] == 'CharacterBumper']
+    assert len(cbcoll) > 0, "Have character bumper collision"
+
+    # assert 'Root' in arma.data.bones, "Have Root bone"
+    # rootbone = arma.data.bones['Root']
+    # assert 'Leg_Thigh.L' in arma.data.bones, "Have left thigh bone"
+    # assert 'RibHelper.L' in arma.data.bones, "Have rib helper bone"
+    # assert 'L_RibHelper.L' not in arma.data.bones, "Do not have nif name for bone"
+    # assert 'L_RibHelper' not in bpy.data.objects, "Do not have rib helper object"
+    # assert arma.data.bones['RibHelper.L'].parent.name == 'Chest', \
+    #     f"Parent of ribhelper is chest: {arma.data.bones['RibHelper.L'].parent.name}"
+
+    # # COM bone's orientation matches that of the nif
+    # nif = pyn.NifFile(testfile)
+    # rootnode = nif.nodes["Root"]
+    # assert TT.MatNearEqual(rootbone.matrix, BD.transform_to_matrix(rootnode.transform)), \
+    #     f"Bone transform matches nif: {rootbone.matrix}"
+
+    # cp_lleg = bpy.data.objects['BSConnectPointParents::P-ArmorLleg']
+    # assert cp_lleg.parent == arma, f"cp_lleg has armature as parent: {cp_lleg.parent}"
+    # # TODO: Figure out exactly where these connect points ought to be. The number here is
+    # # taken from importing the skeleton with no rotations on the bones, so might be right.
+    # assert TT.NearEqual(cp_lleg.location[0], -8.748), \
+    #     f"Armor left leg connect point at relative position: {cp_lleg.location}"
+
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True)
+
+    # skel_in = pyn.NifFile(testfile)
+    # skel_out = pyn.NifFile(outfile)
+    # assert "L_RibHelper" in skel_out.nodes, "Bones written to nif"
+    # pb = skel_out.nodes["L_RibHelper"].parent
+    # assert pb.name == "Chest", f"Have correct parent: {pb.name}"
+    # helm_cp_in = [x for x in skel_in.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
+    # helm_cp_out = [x for x in skel_out.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
+    # assert helm_cp_out.parent.decode('utf-8') == 'HEAD', f"Parent is correct: {helm_cp_out.parent}"
+    # assert TT.VNearEqual(helm_cp_in.translation, helm_cp_out.translation), \
+    #     f"Connect point locations correct: {helm_cp_in.translation[:]} == {helm_cp_out.translation[:]}"
 
 
 def TEST_HEADPART():
@@ -4446,7 +4498,8 @@ def LOAD_RIG():
 # TEST_0_WEIGHTS()  ### Gives warning on export with 0 weights
 # TEST_TIGER_EXPORT()  ### Tiger head export
 # TEST_3BBB()  ### Test that mesh imports with correct transforms
-# TEST_SKEL()  ### Import/export skeleton file with no shapes
+# TEST_SKEL()  ### Import/export skeleton file with no shapes (FO4)
+TEST_SKEL_SKY()  ### Import/export skeleton file with no shapes (Skyrim)
 # TEST_HEADPART()  ### Read & write SE head part with tris
 # TEST_TRI()  ### Can load a tri file into an existing mesh
 # TEST_IMPORT_MULTI_OBJECTS()  ### Can import 2 meshes as objects")
@@ -4529,7 +4582,7 @@ def LOAD_RIG():
 # TEST_IMP_NORMALS()  ### Can import normals from nif shape
 # TEST_UV_SPLIT()  ### Split UVs properly
 # TEST_JIARAN()  ### Armature with no stashed transforms exports correctly
-TEST_SKEL_HKX_IMPORT()  ### Basic skeleton import (XML -> HKX)
+# TEST_SKEL_HKX_IMPORT()  ### Basic skeleton import (XML -> HKX)
 # TEST_SKEL_HKX()  ### Basic skeleton export (XML -> HKX)
 # TEST_SKEL_SOS_HKX()  ### SOS auxbones skeleton 
 # TEST_FONV()  ### FONV mesh
