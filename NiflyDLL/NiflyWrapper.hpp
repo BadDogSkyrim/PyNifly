@@ -1,9 +1,9 @@
 // MathLibrary.h - Contains declarations of math functions
 #pragma once
 #include <string>
+#include "BasicTypes.hpp"
 #include "Object3d.hpp"
 #include "animation.hpp"
-
 
 #ifdef NIFLYDLL_EXPORTS
 	#define NIFLY_API __declspec(dllexport)
@@ -30,7 +30,7 @@ struct BoneWeight {
 /* ********************* STRUCTURES ***************** */
 
 enum BUFFER_TYPES : uint16_t {
-	NiNodeBufType = 0,
+	NiNodeBufType = 0, // Used for NiNode and BSFadeNode
 	NiShapeBufType,
 	NiCollisionObjectBufType,
 	bhkNiCollisionObjectBufType,
@@ -47,7 +47,8 @@ enum BUFFER_TYPES : uint16_t {
 	BSInvMarkerBufType,
 	BSXFlagsBufType,
 	NiMultiTargetTransformControllerBufType,
-	NiTransformControllerBufType
+	NiTransformControllerBufType,
+	bhkCollisionObjectBufType
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -306,6 +307,15 @@ struct bhkNiCollisionObjectBuf {
 	uint16_t childCount;
 };
 
+struct bhkCollisionObjectBuf {
+	uint16_t bufSize = sizeof(bhkNiCollisionObjectBuf);
+	uint16_t bufType = BUFFER_TYPES::bhkCollisionObjectBufType;
+	uint32_t targetID;
+	uint16_t flags;
+	uint32_t bodyID;
+	uint16_t childCount;
+};
+
 struct bhkPCollisionObjectBuf {
 	uint16_t bufSize = sizeof(bhkPCollisionObjectBuf);
 	uint16_t bufType = BUFFER_TYPES::bhkPCollisionObjectBufType;
@@ -479,19 +489,19 @@ struct NiMultiTargetTransformControllerBuf {
 struct NiControllerSequenceBuf {
 	uint16_t bufSize = sizeof(NiControllerSequenceBuf);
 	uint16_t bufType = BUFFER_TYPES::NiControllerSequenceBufType;
-	uint32_t nameID;
+	uint32_t nameID = nifly::NIF_NPOS;
 	uint32_t arrayGrowBy = 0;
-	uint16_t controlledBlocksCount;
+	uint16_t controlledBlocksCount = 0;
 	float weight = 1.0f;
-	uint32_t textKeyID;
+	uint32_t textKeyID = nifly::NIF_NPOS;
 	uint32_t cycleType = nifly::CYCLE_LOOP;
 	float frequency = 0.0f;
 	float startTime = 0.0f;
 	float stopTime = 0.0f;
-	uint32_t managerID;
-	uint32_t accumRootNameID;
-	uint32_t animNotesID;
-	uint16_t animNotesCount;
+	uint32_t managerID = nifly::NIF_NPOS;
+	uint32_t accumRootNameID = nifly::NIF_NPOS;
+	uint32_t animNotesID = nifly::NIF_NPOS;
+	uint16_t animNotesCount = 0;
 };
 
 struct ControllerLinkBuf {
@@ -659,9 +669,9 @@ extern "C" NIFLY_API void setTransform(void* theShape, nifly::MatTransform* buf)
 extern "C" NIFLY_API int getNodeChildren(void* nifRef, int nodeID, int buflen, int* buf);
 extern "C" NIFLY_API void* addNode(void* f, const char* name, void* xf, void* parent);
 extern "C" NIFLY_API int getBlockID(void* nifref, void* block);
-extern "C" NIFLY_API int addBlock(void* f, const char* name, const char* type, void* buf, int parent);
+extern "C" NIFLY_API int addBlock(void* f, const char* name, void* buf, int parent);
 extern "C" NIFLY_API int getBlock(void* nifref, uint32_t blockID, void* buf);
-extern "C" NIFLY_API void setBlock(void* f, int id, const char* type, void* buf);
+extern "C" NIFLY_API int setBlock(void* f, int id, void* buf);
 extern "C" NIFLY_API void getNode(void* node, NiNodeBuf * buf);
 extern "C" NIFLY_API void* getNodeByID(void* theNif, uint32_t theID);
 extern "C" NIFLY_API void* findNodeByName(void* theNif, const char* nodeName);
@@ -722,16 +732,16 @@ extern "C" NIFLY_API int getStringExtraData(void* nifref, void* shaperef, int id
 extern "C" NIFLY_API void setStringExtraData(void* nifref, void* shaperef, char* name, char* buf);
 extern "C" NIFLY_API int getBGExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen);
 extern "C" NIFLY_API int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen, uint16_t* ctrlBaseSkelP);
-extern "C" NIFLY_API void getInvMarker(void* nifref, void* inbuf);
+//extern "C" NIFLY_API void getInvMarker(void* nifref, void* inbuf);
 extern "C" NIFLY_API int getConnectPointParent(void* nifref, int index, ConnectPointBuf* buf);
 extern "C" NIFLY_API void setConnectPointsParent(void* nifref, int buflen, ConnectPointBuf* buf);
 extern "C" NIFLY_API int getConnectPointChild(void* nifref, int index, char* buf);
 extern "C" NIFLY_API void setConnectPointsChild(void* nifref, int isSkinned, int buflen, const char* buf);
-extern "C" NIFLY_API void setInvMarker(void* nifref, const char* name, int* rot, float* zoom);
+//extern "C" NIFLY_API void setInvMarker(void* nifref, const char* name, int* rot, float* zoom);
 extern "C" NIFLY_API int getFurnMarker(void* nifref, int index, FurnitureMarkerBuf* buf);
 extern "C" NIFLY_API void setFurnMarkers(void* nifref, int buflen, FurnitureMarkerBuf * buf);
 extern "C" NIFLY_API int getBSXFlags(void* nifref, int* buf);
-extern "C" NIFLY_API void setBSXFlags(void* nifref, const char* name, uint32_t flags);
+//extern "C" NIFLY_API void setBSXFlags(void* nifref, const char* name, uint32_t flags);
 extern "C" NIFLY_API void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf, int controlsBaseSkel);
 
 /* ********************* ERROR REPORTING ********************* */
@@ -743,7 +753,7 @@ extern "C" NIFLY_API int getMessageLog(char* buf, int buflen);
 extern "C" NIFLY_API void* addCollision(void* nifref, void* targetref, int body_index, int flags);
 //extern "C" NIFLY_API int getCollBlockname(void* node, char* buf, int buflen);
 //extern "C" NIFLY_API int getCollBodyID(void* nifref, void* node);
-extern "C" NIFLY_API int addRigidBody(void* nifref, const char* type, uint32_t collShapeIndex, bhkRigidBodyBuf* buf);
+//extern "C" NIFLY_API int addRigidBody(void* nifref, const char* type, uint32_t collShapeIndex, bhkRigidBodyBuf* buf);
 extern "C" NIFLY_API void* getCollTarget(void* nifref, void* node);
 //extern "C" NIFLY_API int getCollFlags(void* node);
 //extern "C" NIFLY_API int getCollBodyBlockname(void* nif, int nodeIndex, char* buf, int buflen);
@@ -755,7 +765,7 @@ extern "C" NIFLY_API int addCollConvexVertsShape(void* nifref, const BHKConvexVe
 extern "C" NIFLY_API int getCollShapeVerts(void* nifref, int nodeIndex, float* buf, int buflen);
 extern "C" NIFLY_API int getCollShapeNormals(void* nifref, int nodeIndex, float* buf, int buflen);
 //extern "C" NIFLY_API int getCollBoxShapeProps(void* nifref, int nodeIndex, BHKBoxShapeBuf* buf);
-extern "C" NIFLY_API int addCollBoxShape(void* nifref, const bhkBoxShapeBuf * buf);
+//extern "C" NIFLY_API int addCollBoxShape(void* nifref, const bhkBoxShapeBuf * buf);
 extern "C" NIFLY_API int getCollListShapeProps(void* nifref, int nodeIndex, BHKListShapeBuf * buf);
 extern "C" NIFLY_API int getCollListShapeChildren(void* nifref, int nodeIndex, uint32_t * buf, int buflen);
 
@@ -784,15 +794,15 @@ extern "C" NIFLY_API int getControllerManagerSeq(void* nifref, int ncmID, int bu
 extern "C" NIFLY_API void getControllerSequence(void* nifref, uint32_t csID, NiControllerSequenceBuf * buf);
 int addControllerSequence(void* nifref, const char* name, NiControllerSequenceBuf* buf);
 extern "C" NIFLY_API int getControlledBlocks(void* nifref, uint32_t csID, int buflen, ControllerLinkBuf * blocks);
-extern "C" NIFLY_API void addControlledBlock(void* nifref, uint32_t csID, const char* name, ControllerLinkBuf * b);
+//extern "C" NIFLY_API void addControlledBlock(void* nifref, uint32_t csID, const char* name, ControllerLinkBuf * b);
 //extern "C" NIFLY_API void getMultiTargetTransformController(void* nifref, int mttcID, NiMultiTargetTransformControllerBuf * buf);
 int addMultiTargetTransformController(void* nifref, NiMultiTargetTransformControllerBuf* buf);
 //extern "C" NIFLY_API int getTransformController(void* nifref, int nodeIndex, NiTransformControllerBuf* buf);
-extern "C" NIFLY_API int addTransformController(void* nifref, NiTransformControllerBuf * buf, int parent);
-void getTransformInterpolator(void* nifref, uint32_t tiID, NiTransformInterpolatorBuf * buf);
-int addTransformInterpolator(void* nifref, NiTransformInterpolatorBuf* buf);
-int getTransformData(void* nifref, int nodeIndex, NiTransformDataBuf * buf);
-int addTransformData(void* nifref, NiTransformDataBuf* buf, int parent);
+//extern "C" NIFLY_API int addTransformController(void* nifref, NiTransformControllerBuf * buf, int parent);
+//void getTransformInterpolator(void* nifref, uint32_t tiID, NiTransformInterpolatorBuf * buf);
+//int addTransformInterpolator(void* nifref, NiTransformInterpolatorBuf* buf);
+//int getTransformData(void* nifref, int nodeIndex, NiTransformDataBuf * buf);
+//int addTransformData(void* nifref, NiTransformDataBuf* buf, int parent);
 extern "C" NIFLY_API void getAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyQuadXYZBuf * buf);
 extern "C" NIFLY_API void addAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, NiAnimKeyQuadXYZBuf * buf);
 extern "C" NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyLinearXYZBuf * buf);

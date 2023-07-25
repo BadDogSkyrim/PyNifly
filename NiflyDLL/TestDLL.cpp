@@ -828,8 +828,10 @@ void TCheckDwemerChest(void* nif,
 	Assert::IsTrue(openIndex != -1 && closeIndex != -1, L"Have correct names");
 
 	char* namebuf = new char[64];
-	ControllerLinkBuf* clbuf = new ControllerLinkBuf[csbuf[openIndex].controlledBlocksCount];
-	getControlledBlocks(nif, cs[openIndex], csbuf[openIndex].controlledBlocksCount, clbuf);
+	int cbCount = csbuf[openIndex].controlledBlocksCount;
+	ControllerLinkBuf* clbuf = new ControllerLinkBuf[cbCount];
+	clbuf[0].bufSize = sizeof(ControllerLinkBuf) * cbCount;
+	getBlock(nif, cs[openIndex], clbuf);
 	getString(nif, clbuf[0].nodeName, 64, namebuf);
 	Assert::IsTrue(strcmp("Object01", namebuf) == 0, L"Have correct node name");
 
@@ -2675,6 +2677,7 @@ namespace NiflyDLLTests
 			Assert::IsTrue(strcmp(bodyname, "bhkRigidBodyT") == 0, L"Can read body blockname");
 
 			bhkRigidBodyBuf bodyprops;
+			bodyprops.bufType = BUFFER_TYPES::bhkRigidBodyTBufType;
 			getBlock(nif, coBuf.bodyID, &bodyprops);
 			Assert::IsTrue(bodyprops.collisionResponse == 1, L"Can read the collision response field");
 			Assert::IsTrue(bodyprops.motionSystem == 3, L"Can read the motion system field");
@@ -2694,24 +2697,34 @@ namespace NiflyDLLTests
 			TCopyShader(nifOut, bowOut, nif, bow);
 
 			// Set the flags on the root node correctly
-			void* rootNodeOut = getRoot(nifOut);
-			setNodeFlags(rootNodeOut, 14);
+			//void* rootNodeOut = getRoot(nifOut);
+			NiNodeBuf rootBuf;
+			getBlock(nifOut, 0, &rootBuf);
+			rootBuf.flags = 14;
+			setBlock(nifOut, 0, &rootBuf);
+			//setNodeFlags(rootNodeOut, 14);
 
-			int rotbuf[3];
-			float zoombuf;
-			setBSXFlags(nifOut, "BSX", 202);
-			rotbuf[0] = 4712;
-			rotbuf[1] = 0;
-			rotbuf[2] = 785;
-			zoombuf = 1.127286f;
-			setInvMarker(nifOut, "INV", rotbuf, &zoombuf);
+			BSXFlagsBuf bsxBuf;
+			bsxBuf.integerData = 202;
+			addBlock(nifOut, "BSK", &bsxBuf, 0);
+			BSInvMarkerBuf invBuf;
+			invBuf.rot[0] = 4712;
+			invBuf.rot[1] = 0;
+			invBuf.rot[2] = 785;
+			invBuf.zoom = 1.127286f;
+			addBlock(nifOut, "INV", &invBuf, 0);
 
-			void* bowMidboneOut = TFindNode(nifOut, "Bow_MidBone");
+			int bowMidboneOut = findBlockByName(nifOut, "Bow_MidBone"); //TFindNode(nifOut, "Bow_MidBone");
 
-			int boxOutID = addCollBoxShape(nifOut, &boxbuf);
-			int rbOutID = addRigidBody(nifOut, "bhkRigidBodyT", boxOutID, &bodyprops);
-			void* collOut = addCollision(nifOut, bowMidboneOut, rbOutID, 129);
+			bhkCollisionObjectBuf collOutBuf;
+			collOutBuf.flags = 129;
+			int collOutID = addBlock(nifOut, nullptr, &collOutBuf, bowMidboneOut); //addCollision(nifOut, bowMidboneOut, rbOutID, 129);
+			int rbOutID = addBlock(nifOut, nullptr, &bodyprops, collOutID);
+			int boxOutID = addBlock(nifOut, nullptr, &boxbuf, rbOutID); // addCollBoxShape(nifOut, &boxbuf);
 
+			bhkCollisionObjectBuf collOutBufCheck;
+			getBlock(nifOut, collOutID, &collOutBufCheck);
+			Assert::IsTrue(collOutBufCheck.bodyID == rbOutID);
 			// Now we can save the collision
 			saveNif(nifOut, (testRoot / "Out/readCollisions.nif").u8string().c_str());
 
@@ -2724,7 +2737,6 @@ namespace NiflyDLLTests
 			char rootname[128];
 			void* rootNodeCheck = nullptr;
 			char rootBlockname[128];
-			NiNodeBuf rootBuf;
 			getRootName(nifcheck, rootname, 128);
 			//rootNodeCheck = getRoot(nifcheck);
 			getBlockname(nifcheck, 0, rootBlockname, 128);
@@ -2739,15 +2751,14 @@ namespace NiflyDLLTests
 			//float zoomcheck;
 			BSInvMarkerBuf invmBuf;
 			char invMarkerName[32];
-			int invMarkerID = getExtraData(nifcheck, 0, "INV");
+			int invMarkerID = getExtraData(nifcheck, 0, "BSInvMarker");
 			getBlock(nifcheck, invMarkerID, &invmBuf);
 			getString(nifcheck, invmBuf.nameID, 32, invMarkerName);
 			Assert::IsTrue(strcmp(invMarkerName, "INV") == 0, L"BSInvMarker name is set");
 			Assert::IsTrue(invmBuf.rot[0] == 4712, L"BSInvMarker rotation is set");
 
 			//int bsxflagscheck;
-			int bsxFlagsID = getExtraData(nifcheck, 0, "BSX");
-			BSXFlagsBuf bsxBuf;
+			int bsxFlagsID = getExtraData(nifcheck, 0, "BSXFlags");
 			getBlock(nifcheck, bsxFlagsID, &bsxBuf);
 			Assert::IsTrue(bsxBuf.integerData == 202, L"BSX Flags correct");
 
@@ -3285,7 +3296,7 @@ namespace NiflyDLLTests
 			int chestBodyID = findBlockByName(nif, "DwarvenChest");
 			NiNodeBuf chestBodyBuf;
 			getBlock(nif, chestBodyID, &chestBodyBuf);
-			int chestBodyOutID = addBlock(nifOut, "DwarvenChest", "NiNode", &chestBodyBuf, NIF_NPOS);
+			int chestBodyOutID = addBlock(nifOut, "DwarvenChest", &chestBodyBuf, NIF_NPOS);
 			void* chestBodyOut = getNodeByID(nifOut, chestBodyOutID);
 
 			for (int i = 0; i < shapeCount; i++) {
@@ -3302,7 +3313,7 @@ namespace NiflyDLLTests
 			int chestLidID = findBlockByName(nif, "Object01");
 			NiNodeBuf chestLidBuf;
 			getBlock(nif, chestLidID, &chestLidBuf);
-			int chestLidOutID = addBlock(nifOut, "Object01", "NiNode", &chestLidBuf, NIF_NPOS);
+			int chestLidOutID = addBlock(nifOut, "Object01", &chestLidBuf, NIF_NPOS);
 			void* chestLidOut = getNodeByID(nifOut, chestLidOutID);
 
 			for (int i = 0; i < shapeCount; i++) {
@@ -3319,7 +3330,7 @@ namespace NiflyDLLTests
 			int gear08 = findBlockByName(nif, "Gear08");
 			NiNodeBuf gear08buf;
 			getBlock(nif, gear08, &gear08buf);
-			int gear08Out = addBlock(nifOut, "Gear08", "NiNode", &gear08buf, NIF_NPOS);
+			int gear08Out = addBlock(nifOut, "Gear08",  & gear08buf, NIF_NPOS);
 			void* gear08Outp = getNodeByID(nifOut, gear08Out);
 			int gear08sh = findBlockByName(nif, "Gear08:7");
 			void* gear08shp = getNodeByID(nif, gear08sh);
@@ -3330,7 +3341,7 @@ namespace NiflyDLLTests
 			NiTransformDataBuf tdbufOut1; 
 			tdbufOut1.rotationType = tdbuf1.rotationType;
 			tdbufOut1.translations.interpolation = NiKeyType(LINEAR_KEY);
-			int tdOut1 = addBlock(nifOut, nullptr, "NiTransformData", &tdbufOut1, NIF_NPOS);
+			int tdOut1 = addBlock(nifOut, nullptr, &tdbufOut1, NIF_NPOS);
 
 			for (int i = 0; i < tdbuf1.translations.numKeys; i++) {
 				addAnimKeyLinearTrans(nifOut, tdOut1, &akbuf[i]);
@@ -3340,21 +3351,21 @@ namespace NiflyDLLTests
 			NiTransformInterpolatorBuf tibufOut;
 			tibufOut = tibuf;
 			tibufOut.dataID = tdOut1;
-			int tiOut = addBlock(nifOut, nullptr, "NiTransformInterpolator", &tibufOut, NIF_NPOS);
+			int tiOut = addBlock(nifOut, nullptr, &tibufOut, NIF_NPOS);
 
 			// Transform Data for the gear. Write the Interpolator first and pass it as the parent 
 			// to the Data.
 			NiTransformInterpolatorBuf tibufOut2;
 			tibufOut2 = tibuf2;
 			tibufOut2.dataID = NIF_NPOS;
-			int tiOut2 = addBlock(nifOut, nullptr, "NiTransformInterpolator", &tibufOut2, NIF_NPOS);
+			int tiOut2 = addBlock(nifOut, nullptr, &tibufOut2, NIF_NPOS);
 
 			NiTransformDataBuf tdbufOut2;
 			tdbufOut2.rotationType = NiKeyType(XYZ_ROTATION_KEY);
 			tdbufOut2.xRotations.interpolation = NiKeyType(LINEAR_KEY);
 			tdbufOut2.yRotations.interpolation = NiKeyType(LINEAR_KEY);
 			tdbufOut2.zRotations.interpolation = NiKeyType(QUADRATIC_KEY);
-			int tdOut2 = addBlock(nifOut, nullptr, "NiTransformData", &tdbufOut2, tiOut2);
+			int tdOut2 = addBlock(nifOut, nullptr, &tdbufOut2, tiOut2);
 			NiAnimKeyQuadXYZBuf xk, yk;
 			xk.time = 0;
 			xk.value = 0;
@@ -3371,7 +3382,7 @@ namespace NiflyDLLTests
 			mttcbufOut.nextControllerID = NIF_NPOS;
 			mttcbufOut.targetID = 0; // target is root
 			mttcbufOut.targetCount = 0;
-			int mttcOut = addBlock(nifOut, "", "NiMultiTargetTransformController", &mttcbufOut, NIF_NPOS);
+			int mttcOut = addBlock(nifOut, nullptr, &mttcbufOut, NIF_NPOS);
 
 			// Controllers are written as blocks. Controller target (the root node) has its controller 
 			// property set to this new block.
@@ -3380,7 +3391,7 @@ namespace NiflyDLLTests
 			cmbufOut.controllerSequenceCount = 0;
 			cmbufOut.objectPaletteID = NIF_NPOS;
 			cmbufOut.targetID = 0;
-			int controllerOut = addBlock(nifOut, "DwarvenChest01", "NiControllerManager", &cmbufOut, NIF_NPOS);
+			int controllerOut = addBlock(nifOut, "DwarvenChest01", &cmbufOut, NIF_NPOS);
 
 			// Sequence 1: Lid opens
 			// 
@@ -3393,7 +3404,7 @@ namespace NiflyDLLTests
 			openbufOut.animNotesCount = 0;
 			openbufOut.textKeyID = NIF_NPOS;
 			openbufOut.managerID = controllerOut;
-			int csOpenOut = addBlock(nifOut, "Open", "NiControllerSequence", & openbufOut, NIF_NPOS);
+			int csOpenOut = addBlock(nifOut, "Open", &openbufOut, NIF_NPOS);
 
 			// ControllerLink in the Controller Sequence connects a block to the Interpolator.
 			// Lid
@@ -3403,7 +3414,7 @@ namespace NiflyDLLTests
 			clbufOut.priority = 0;
 			clbufOut.nodeName = addString(nifOut, "Object01");
 			clbufOut.ctrlType = addString(nifOut, "NiTransformController");
-			addControlledBlock(nifOut, csOpenOut, "Object01", &clbufOut);
+			addBlock(nifOut, "Object01", &clbufOut, csOpenOut);
 
 			// Gear
 			ControllerLinkBuf clbufOut2;
@@ -3412,14 +3423,14 @@ namespace NiflyDLLTests
 			clbufOut2.priority = 0;
 			clbufOut2.nodeName = addString(nifOut, "Gear08");
 			clbufOut2.ctrlType = addString(nifOut, "NiTransformController");
-			addControlledBlock(nifOut, csOpenOut, "Gear08", &clbufOut2);
+			addBlock(nifOut, "Gear08", &clbufOut2, csOpenOut);
 
 			NiControllerSequenceBuf closebufOut = csbuf[closeIndex];
 			closebufOut.controlledBlocksCount = 0;
 			closebufOut.animNotesCount = 0;
 			closebufOut.textKeyID = NIF_NPOS;
 			closebufOut.managerID = controllerOut;
-			int csCloseOut = addBlock(nifOut, "Close", "NiControllerSequence", &closebufOut, NIF_NPOS);
+			int csCloseOut = addBlock(nifOut, "Close", &closebufOut, NIF_NPOS);
 
 			saveNif(nifOut, fileOut.u8string().c_str());
 
@@ -3514,7 +3525,7 @@ namespace NiflyDLLTests
 			getBlock(nif, buf->dataID, &tdbuf);
 
 			tdbufOut = tdbuf;
-			int tdOut = addBlock(nifOut, "", "NiTransformData", &tdbufOut, tiOut);
+			int tdOut = addBlock(nifOut, nullptr, &tdbufOut, tiOut);
 
 			TCopyRotationKeys(nifOut, tdOut, nif, buf->dataID, &tdbuf);
 
@@ -3534,7 +3545,7 @@ namespace NiflyDLLTests
 
 			tibufOut = tibuf;
 			tibufOut.dataID = tdOut;
-			int tiOut = addBlock(nifOut, "", "NiTransformInterpolator", &tibufOut, NIF_NPOS);
+			int tiOut = addBlock(nifOut, "", &tibufOut, NIF_NPOS);
 
 			return tiOut;
 		}
@@ -3551,7 +3562,7 @@ namespace NiflyDLLTests
 
 			tcbufOut = tcbuf;
 			tcbufOut.interpolatorIndex = tiOut;
-			int tcOut = addBlock(nifOut, "", "NiTransformController", &tcbufOut, boneOut);
+			int tcOut = addBlock(nifOut, nullptr, &tcbufOut, boneOut);
 
 			return tcOut;
 		}
@@ -3567,7 +3578,7 @@ namespace NiflyDLLTests
 			bufOut.controllerID = NIF_NPOS;
 			bufOut.effectCount = 0;
 			bufOut.extraDataCount = 0;
-			int boneOut = addBlock(nifOut, namebuf, "NiNode", &bufOut, parent);
+			int boneOut = addBlock(nifOut, namebuf, &bufOut, parent);
 
 			if (buf.controllerID != NIF_NPOS) TCopyController(nifOut, boneOut, &bufOut, nif, boneID, &buf);
 
@@ -3629,8 +3640,13 @@ namespace NiflyDLLTests
 			getNodeBlockname(root, namebuf, 64);
 			Assert::IsTrue(strcmp(namebuf, "NiControllerSequence") == 0, L"Found block name");
 			
+			NiControllerSequenceBuf rootBuf;
+			getBlock(nif, 0, &rootBuf);
+			Assert::IsTrue(rootBuf.controlledBlocksCount == 91, L"Have controlled blocks");
+
 			ControllerLinkBuf cblist[100];
-			int cbCount = getControlledBlocks(nif, 0, 100, cblist);
+			cblist[0].bufSize = sizeof(ControllerLinkBuf) * 100;
+			int cbCount = getBlock(nif, 0, cblist); // getControlledBlocks(nif, 0, 100, cblist);
 			getString(nif, cblist[0].ctrlType, 64, namebuf);
 			Assert::IsTrue(strcmp(namebuf, "NiTransformController") == 0, L"Found controller type");
 
