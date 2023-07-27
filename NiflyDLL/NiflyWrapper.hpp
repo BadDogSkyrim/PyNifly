@@ -48,7 +48,11 @@ enum BUFFER_TYPES : uint16_t {
 	BSXFlagsBufType,
 	NiMultiTargetTransformControllerBufType,
 	NiTransformControllerBufType,
-	bhkCollisionObjectBufType
+	bhkCollisionObjectBufType,
+	bhkCapsuleShapeBufType,
+	bhkConvexTransformShapeBufType,
+	bhkConvexVerticesShapeBufType,
+	bhkListShapeBufType
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -408,6 +412,8 @@ struct bhkBoxShapeBuf {
 };
 
 struct BHKCapsuleShapeBuf {
+	uint16_t bufSize = sizeof(BHKCapsuleShapeBuf);
+	uint16_t bufType = BUFFER_TYPES::bhkCapsuleShapeBufType;
 	uint32_t material;
 	float radius;
 	float point1[3];
@@ -417,6 +423,8 @@ struct BHKCapsuleShapeBuf {
 };
 
 struct BHKListShapeBuf {
+	uint16_t bufSize = sizeof(BHKListShapeBuf);
+	uint16_t bufType = BUFFER_TYPES::bhkListShapeBufType;
 	uint32_t material;
 	uint32_t childShape_data;
 	uint32_t childShape_size;
@@ -424,9 +432,12 @@ struct BHKListShapeBuf {
 	uint32_t childFilter_data;
 	uint32_t childFilter_size;
 	uint32_t childFilter_flags;
+	uint32_t childCount;
 };
 
 struct BHKConvexVertsShapeBuf {
+	uint16_t bufSize = sizeof(BHKConvexVertsShapeBuf);
+	uint16_t bufType = BUFFER_TYPES::bhkConvexVerticesShapeBufType;
 	uint32_t material;
 	float radius;
 	uint32_t vertsProp_data;
@@ -435,9 +446,14 @@ struct BHKConvexVertsShapeBuf {
 	uint32_t normalsProp_data;
 	uint32_t normalsProp_size;
 	uint32_t normalsProp_flags;
+	uint32_t vertsCount;
+	uint32_t normalsCount;
 };
 
 struct BHKConvexTransformShapeBuf {
+	uint16_t bufSize = sizeof(BHKConvexTransformShapeBuf);
+	uint16_t bufType = BUFFER_TYPES::bhkConvexTransformShapeBufType;
+	uint32_t shapeID;
 	uint32_t material;
 	float radius;
 	float xform[16];
@@ -750,7 +766,7 @@ extern "C" NIFLY_API int getMessageLog(char* buf, int buflen);
 
 /* ********************* COLLISIONS ********************* */
 //extern "C" NIFLY_API void* /*getCollision*/(void* nifref, void* noderef);
-extern "C" NIFLY_API void* addCollision(void* nifref, void* targetref, int body_index, int flags);
+//extern "C" NIFLY_API void* addCollision(void* nifref, void* targetref, int body_index, int flags);
 //extern "C" NIFLY_API int getCollBlockname(void* node, char* buf, int buflen);
 //extern "C" NIFLY_API int getCollBodyID(void* nifref, void* node);
 //extern "C" NIFLY_API int addRigidBody(void* nifref, const char* type, uint32_t collShapeIndex, bhkRigidBodyBuf* buf);
@@ -759,33 +775,34 @@ extern "C" NIFLY_API void* getCollTarget(void* nifref, void* node);
 //extern "C" NIFLY_API int getCollBodyBlockname(void* nif, int nodeIndex, char* buf, int buflen);
 //extern "C" NIFLY_API int getRigidBodyProps(void* nifref, int nodeIndex, BHKRigidBodyBuf * buf);
 //extern "C" NIFLY_API int getRigidBodyShapeID(void* nifref, int nodeIndex);
-extern "C" NIFLY_API int getCollShapeBlockname(void* nifref, int nodeIndex, char* buf, int buflen);
-extern "C" NIFLY_API int getCollConvexVertsShapeProps(void* nifref, int nodeIndex, BHKConvexVertsShapeBuf* buf);
-extern "C" NIFLY_API int addCollConvexVertsShape(void* nifref, const BHKConvexVertsShapeBuf* buf, float* verts, int vertcount, float* normals, int normcount);
+//extern "C" NIFLY_API int getCollShapeBlockname(void* nifref, int nodeIndex, char* buf, int buflen);
+//extern "C" NIFLY_API int getCollConvexVertsShapeProps(void* nifref, int nodeIndex, BHKConvexVertsShapeBuf* buf);
+//extern "C" NIFLY_API int addCollConvexVertsShape(void* nifref, const BHKConvexVertsShapeBuf* buf, float* verts, int vertcount, float* normals, int normcount);
+extern "C" NIFLY_API int setCollConvexVerts(void* nifref, int id, float* verts, int vertcount, float* normals, int normcount);
 extern "C" NIFLY_API int getCollShapeVerts(void* nifref, int nodeIndex, float* buf, int buflen);
 extern "C" NIFLY_API int getCollShapeNormals(void* nifref, int nodeIndex, float* buf, int buflen);
 //extern "C" NIFLY_API int getCollBoxShapeProps(void* nifref, int nodeIndex, BHKBoxShapeBuf* buf);
 //extern "C" NIFLY_API int addCollBoxShape(void* nifref, const bhkBoxShapeBuf * buf);
-extern "C" NIFLY_API int getCollListShapeProps(void* nifref, int nodeIndex, BHKListShapeBuf * buf);
+//extern "C" NIFLY_API int getCollListShapeProps(void* nifref, int nodeIndex, BHKListShapeBuf * buf);
 extern "C" NIFLY_API int getCollListShapeChildren(void* nifref, int nodeIndex, uint32_t * buf, int buflen);
 
-extern "C" NIFLY_API int addCollListShape(void* nifref, const BHKListShapeBuf* buf);
+//extern "C" NIFLY_API int /*addCollListShape*/(void* nifref, const BHKListShapeBuf* buf);
 
 extern "C" NIFLY_API void addCollListChild(void* nifref, const uint32_t id, uint32_t child_id);
 
 extern "C" NIFLY_API int setCollListChildren(void* nifref, const uint32_t id, uint32_t* buf, int buflen);
 
-extern "C" NIFLY_API int getCollConvexTransformShapeProps(void* nifref, int nodeIndex, BHKConvexTransformShapeBuf* buf);
+//extern "C" NIFLY_API int getCollConvexTransformShapeProps(void* nifref, int nodeIndex, BHKConvexTransformShapeBuf* buf);
 
-extern "C" NIFLY_API int getCollConvexTransformShapeChildID(void* nifref, int nodeIndex);
+//extern "C" NIFLY_API int getCollConvexTransformShapeChildID(void* nifref, int nodeIndex);
 
-extern "C" NIFLY_API int addCollConvexTransformShape(void* nifref, const BHKConvexTransformShapeBuf* buf);
+//extern "C" NIFLY_API int addCollConvexTransformShape(void* nifref, const BHKConvexTransformShapeBuf* buf);
 
 extern "C" NIFLY_API void setCollConvexTransformShapeChild(void* nifref, const uint32_t id, uint32_t child_id);
 
-extern "C" NIFLY_API int getCollCapsuleShapeProps(void* nifref, int nodeIndex, BHKCapsuleShapeBuf* buf);
+//extern "C" NIFLY_API int getCollCapsuleShapeProps(void* nifref, int nodeIndex, BHKCapsuleShapeBuf* buf);
 
-extern "C" NIFLY_API int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf);
+//extern "C" NIFLY_API int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf);
 
 //extern "C" NIFLY_API void getControllerManager(void* ncmref, NiControllerManagerBuf * buf);
 int addControllerManager(void* f, const char* name, NiControllerManagerBuf * buf, void* parent);
@@ -819,4 +836,4 @@ extern "C" NIFLY_API int getTransformDataValues(void* nifref, int nodeIndex,
 	NiAnimationKeyVec3Buf * transBuf,
 	NiAnimationKeyFloatBuf * scaleBuf
 );
-NIFLY_API int getExtraData(void* nifref, uint32_t id, const char* extraDataName);
+extern "C" NIFLY_API int getExtraData(void* nifref, uint32_t id, const char* extraDataName);

@@ -15,8 +15,6 @@ from typing import ValuesView # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_
 from niflytools import *
 from nifdefs import *
 
-NODEID_NONE = 4294967295
-
 
 def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
@@ -26,28 +24,12 @@ def load_nifly(nifly_path):
     nifly.addAnimKeyLinearQuat.restype = None
     nifly.addBoneToNifShape.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf), c_char_p]
     nifly.addBoneToNifShape.restype = c_void_p
-    nifly.addBlock.argtypes = [c_void_p, c_char_p, c_char_p, c_void_p, c_int]
+    nifly.addBlock.argtypes = [c_void_p, c_char_p, c_void_p, c_int]
     nifly.addBlock.restype = c_int
-    nifly.addCollBoxShape.argtypes = [c_void_p, POINTER(bhkBoxShapeProps)]
-    nifly.addCollBoxShape.restype = c_int
-    nifly.addCollCapsuleShape.argtypes = [c_void_p, POINTER(bhkCapsuleShapeProps)]
-    nifly.addCollCapsuleShape.restype = c_int
-    nifly.addCollConvexTransformShape.argtypes = [c_void_p, POINTER(bhkConvexTransformShapeProps)]
-    nifly.addCollConvexTransformShape.restype = c_int
-    nifly.addCollConvexVertsShape.argtypes = [c_void_p, POINTER(bhkConvexVerticesShapeProps), c_void_p, c_int, c_void_p, c_int]
-    nifly.addCollConvexVertsShape.restype = c_int
-    nifly.addCollision.argtypes = [c_void_p, c_void_p, c_int, c_int]
-    nifly.addCollision.restype = c_void_p
     nifly.addCollListChild.argtypes = [c_void_p, c_uint32, c_uint32]
     nifly.addCollListChild.restype = None
-    nifly.addCollListShape.argtypes = [c_void_p, POINTER(bhkListShapeProps)]
-    nifly.addCollListShape.restype = c_int
-    nifly.addControlledBlock.argtypes = [c_void_p, c_int, c_char_p, POINTER(ControllerLinkBuf)]
-    nifly.addControlledBlock.restype = c_int
     nifly.addNode.argtypes = [c_void_p, c_char_p, POINTER(TransformBuf), c_void_p]
     nifly.addNode.restype = c_void_p
-    nifly.addRigidBody.argtypes = [c_void_p, c_char_p, c_uint32, POINTER(bhkRigidBodyProps)]
-    nifly.addRigidBody.restype = c_int
     nifly.addString.argtypes = [c_void_p, c_char_p]
     nifly.addString.restype = c_int
     nifly.calcShapeGlobalToSkin.argtypes = [c_void_p, c_void_p, POINTER(TransformBuf)]
@@ -82,44 +64,20 @@ def load_nifly(nifly_path):
     nifly.getBGExtraData.restype = c_int
     nifly.getBGExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
     nifly.getBGExtraDataLen.restype = c_int
-    nifly.getBlock.argtypes = [c_void_p, c_int, c_char_p, c_void_p]
+    nifly.getBlock.argtypes = [c_void_p, c_int, c_void_p]
     nifly.getBlock.restype = c_int
     nifly.getBlockID.argtypes = [c_void_p, c_void_p]
     nifly.getBlockID.restype = c_int
     nifly.getBlockname.argtypes = [c_void_p, c_int, c_char_p, c_int]
     nifly.getBlockname.restype = c_int
-    nifly.getBSXFlags.argtypes = [c_void_p, c_void_p]
-    nifly.getBSXFlags.restype = c_int
     nifly.getClothExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int]
     nifly.getClothExtraData.restype = c_int
     nifly.getClothExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
     nifly.getClothExtraDataLen.restype = c_int
-    nifly.getCollBlockname.argtypes = [c_void_p, c_char_p, c_int]
-    nifly.getCollBlockname.restype = c_int
-    nifly.getCollBodyBlockname.argtypes = [c_void_p, c_int, c_char_p, c_int]
-    nifly.getCollBodyBlockname.restype = c_int
-    nifly.getCollBodyID.argtypes = [c_void_p, c_void_p]
-    nifly.getCollBodyID.restype = c_int
-    nifly.getCollBoxShapeProps.argtypes = [c_void_p, c_int, POINTER(bhkBoxShapeProps)]
-    nifly.getCollBoxShapeProps.restype = c_int
-    nifly.getCollCapsuleShapeProps.argtypes = [c_void_p, c_int, POINTER(bhkCapsuleShapeProps)]
-    nifly.getCollCapsuleShapeProps.restpe = c_int
-    nifly.getCollConvexTransformShapeChildID.argtypes = [c_void_p, c_int]
-    nifly.getCollConvexTransformShapeChildID.restype = c_int
-    nifly.getCollConvexTransformShapeProps.argtypes = [c_void_p, c_int, POINTER(bhkConvexTransformShapeProps)]
-    nifly.getCollConvexTransformShapeProps.restype = c_int
-    nifly.getCollConvexVertsShapeProps.argtypes = [c_void_p, c_int, POINTER(bhkConvexVerticesShapeProps)]
-    nifly.getCollConvexVertsShapeProps.restype = c_int
-    nifly.getCollFlags.argtypes = [c_void_p]
-    nifly.getCollFlags.restype = c_int
-    nifly.getCollision.argtypes = [c_void_p, c_void_p]
-    nifly.getCollision.restype = c_void_p
+    # nifly.getCollConvexTransformShapeChildID.argtypes = [c_void_p, c_int]
+    # nifly.getCollConvexTransformShapeChildID.restype = c_int
     nifly.getCollListShapeChildren.argtypes = [c_void_p, c_int, c_void_p, c_int]
     nifly.getCollListShapeChildren.restype = c_int
-    nifly.getCollListShapeProps.argtypes = [c_void_p, c_int, POINTER(bhkListShapeProps)]
-    nifly.getCollListShapeProps.restype = c_int
-    nifly.getCollShapeBlockname.argtypes = [c_void_p, c_int, c_char_p, c_int]
-    nifly.getCollShapeBlockname.restype = c_int
     nifly.getCollShapeNormals.argtypes = [c_void_p, c_int, c_void_p, c_int]
     nifly.getCollShapeNormals.restype = c_int
     nifly.getCollShapeVerts.argtypes = [c_void_p, c_int, c_void_p, c_int]
@@ -132,26 +90,20 @@ def load_nifly(nifly_path):
     nifly.getConnectPointChild.restype = c_int
     nifly.getConnectPointParent.argtypes = [c_void_p, c_int, POINTER(ConnectPointBuf)]
     nifly.getConnectPointParent.restype = c_int
-    nifly.getControlledBlocks.argtypes = [c_void_p, c_int, c_int, POINTER(ControllerLinkBuf)]
-    nifly.getControlledBlocks.restype = c_int
-    nifly.getControllerManager.argtypes = [c_void_p, POINTER(NiControllerManagerBuf)]
-    nifly.getControllerManager.restype = None
     nifly.getControllerManagerSequences.argtypes = [c_void_p, c_void_p, c_int, POINTER(c_uint32)]
     nifly.getControllerManagerSequences.restype = c_int
     nifly.getEffectShaderAttrs.argtypes = [c_void_p, c_void_p, POINTER(BSESPAttrs)]
     nifly.getEffectShaderAttrs.restype = c_int
+    nifly.getExtraData.argtypes = [c_void_p, c_int, c_char_p]
+    nifly.getExtraData.restype = c_uint32
     nifly.getFurnMarker.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
     nifly.getFurnMarker.restype = c_int
     nifly.getGameName.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getGameName.restype = c_int
-    nifly.getInvMarker.argtypes = [c_void_p, c_char_p, c_int, c_void_p, c_void_p]
-    nifly.getInvMarker.restype = c_int
     nifly.getMaxStringLen.argtypes = [c_void_p]
     nifly.getMaxStringLen.restype = c_int
     nifly.getMessageLog.argtypes = [c_char_p, c_int]
     nifly.getMessageLog.restype = c_int
-    nifly.getMultiTargetTransformController.argtypes = [c_void_p, c_int, POINTER(NiMultiTargetTransformControllerBuf)]
-    nifly.getMultiTargetTransformController.restype = None
     nifly.getNode.argtypes = [c_void_p, POINTER(NiNodeBuf)]
     nifly.getNode.restype = None
     nifly.getNodeBlockname.argtypes = [c_void_p, c_char_p, c_int]
@@ -174,10 +126,6 @@ def load_nifly(nifly_path):
     nifly.getPartitions.restype = c_int
     nifly.getPartitionTris.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getPartitionTris.restype = c_int
-    nifly.getRigidBodyProps.argtypes = [c_void_p, c_int, POINTER(bhkRigidBodyProps)]
-    nifly.getRigidBodyProps.restype= c_int
-    nifly.getRigidBodyShapeID.argtypes = [c_void_p, c_int]
-    nifly.getRigidBodyShapeID.restype = c_int
     nifly.getRoot.argtypes = [c_void_p]
     nifly.getRoot.restype = c_void_p
     nifly.getRootName.argtypes = [c_void_p, c_char_p, c_int]
@@ -224,8 +172,6 @@ def load_nifly(nifly_path):
     nifly.getStringExtraDataLen.restype = c_int
     nifly.getSubsegments.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
     nifly.getSubsegments.restype = c_int
-    nifly.getTransformController.argtypes = [c_void_p, c_int, POINTER(NiTransformControllerBuf)]
-    nifly.getTransformController.restype = c_int
     nifly.getTriangles.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
     nifly.getTriangles.restype = c_int
     nifly.getUVs.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
@@ -244,14 +190,14 @@ def load_nifly(nifly_path):
     nifly.setAlphaProperty.restype = None
     nifly.setBGExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
     nifly.setBGExtraData.restype = None
-    nifly.setBlock.argtypes = [c_void_p, c_int, c_char_p, c_void_p] 
+    nifly.setBlock.argtypes = [c_void_p, c_int, c_void_p] 
     nifly.setBlock.restype = None
-    nifly.setBSXFlags.argtypes = [c_void_p, c_char_p, c_uint32]
-    nifly.setBSXFlags.restype = None
     nifly.setClothExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
     nifly.setClothExtraData.restype = None
     nifly.setCollConvexTransformShapeChild.argtypes = [c_void_p, c_uint32, c_uint32]
     nifly.setCollConvexTransformShapeChild.restype = None
+    nifly.setCollConvexVerts.argtypes = [c_void_p, c_int, c_void_p, c_int, c_void_p, c_int]
+    nifly.setCollConvexVerts.restype = c_int
     nifly.setColorsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.setColorsForShape.restype = None
     nifly.setConnectPointsChild.argtypes = [c_void_p, c_int, c_int, c_char_p]
@@ -262,8 +208,6 @@ def load_nifly(nifly_path):
     nifly.setEffectShaderAttrs.restype = None
     nifly.setFurnMarkers.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
     nifly.setFurnMarkers.restype = None
-    nifly.setInvMarker.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p]
-    nifly.setInvMarker.restype = None
     nifly.setNodeFlags.argtypes = [c_void_p, c_int]
     nifly.setNodeFlags.restype = None
     nifly.setPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int]
@@ -603,7 +547,7 @@ class NiObject:
             if self.id == NODEID_NONE:
                 self._blockname = self.__class__.__name__
             else:
-                buf = (c_char * 128)()
+                buf = create_string_buffer(128)
                 NifFile.nifly.getBlockname(self.file._handle, self.id, buf, 128)
                 self._blockname = buf.value.decode('utf-8')
         return self._blockname
@@ -615,114 +559,86 @@ class NiObject:
             if self.id != NODEID_NONE:
                 NifFile.nifly.getBlock(self.file._handle, 
                                        self.id, 
-                                       self.blockname.encode('utf-8'), 
                                        byref(self._properties))
         return self._properties
     
     @properties.setter
     def properties(self, value):
         self._properties = value.copy()
-        NifFile.nifly.setBlock(self.file._handle, 
-                               self.id, 
-                               self.blockname.encode('utf-8'), 
-                               byref(self._properties))
+        NifFile.nifly.setBlock(self.file._handle, self.id, byref(self._properties))
 
 
 # --- Collisions --- #
 
-class CollisionShape:
+class CollisionShape(NiObject):
     subtypes = {}
 
-    def __init__(self, index=0, file=None, parent=None, props=None):
-        self.block_index = index
-        self._file = file
-        self._parent = parent
-        self._props = props
-
     @classmethod
-    def New(cls, collisiontype, index=0, file=None, parent=None, props=None):
+    def New(cls, collisiontype=None, id=NODEID_NONE, file=None, parent=None, 
+            properties=None):
+        if properties:
+            collisiontype = bufferTypeList[properties.bufType]
+        elif not collisiontype:
+            buf = create_string_buffer(128)
+            NifFile.nifly.getBlockname(file._handle, id, buf, 128)
+            collisiontype = buf.value.decode('utf-8')
         try:
-            return cls.subtypes[collisiontype](index, file, parent, props)
+            if id == NODEID_NONE:
+                id = NifFile.nifly.addBlock(
+                    file._handle, 
+                    None, 
+                    byref(properties), 
+                    parent.id if parent else None)
+            return cls.subtypes[collisiontype](
+                id=id, file=file, parent=parent, properties=properties)
         except:
             return None
-
-    @property
-    def blockname(self):
-        buf = (c_char * 128)()
-        NifFile.nifly.getCollShapeBlockname(self._file._handle, self.block_index, buf, 128)
-        return buf.value.decode('utf-8')
-
-    @property
-    def properties(self):
-        raise Exception (f"properties not overridden in subclass {self.__class__}")
 
 class CollisionBoxShape(CollisionShape):
     needsTransform = True
 
-    @property
-    def properties(self):
-        if not self._props:
-            p = bhkBoxShapeProps()
-            if NifFile.nifly.getCollBoxShapeProps(self._file._handle, self.block_index, p):
-                self._props = p
-        return self._props
-
+    def _getbuf(self):
+        return bhkBoxShapeProps()
+    
 CollisionShape.subtypes['bhkBoxShape'] = CollisionBoxShape
 
 class CollisionCapsuleShape(CollisionShape):
     needsTransform = False
 
-    @property
-    def properties(self):
-        if not self._props:
-            p = bhkCapsuleShapeProps()
-            if NifFile.nifly.getCollCapsuleShapeProps(self._file._handle, self.block_index, p):
-                self._props = p
-        return self._props
+    def _getbuf(self):
+        return bhkCapsuleShapeProps()
 
 CollisionShape.subtypes['bhkCapsuleShape'] = CollisionCapsuleShape
 
 class CollisionConvexVerticesShape(CollisionShape):
     needsTransform = False
 
-    def __init__(self, index=0, file=None, parent=None, props=None):
-        super().__init__(index, file, parent, props)
+    def __init__(self, handle=None, id=NODEID_NONE, file=None, parent=None, properties=None):
+        super().__init__(handle=handle, id=id, file=file, parent=parent, 
+                         properties=properties)
         self._vertices = None
         self._normals = None
 
-    @property
-    def properties(self):
-        if not self._props:
-            p = bhkConvexVerticesShapeProps()
-            if NifFile.nifly.getCollConvexVertsShapeProps(self._file._handle, 
-                                                          self.block_index, 
-                                                          p):
-                self._props = p
-        return self._props
+    def _getbuf(self):
+        return bhkConvexVerticesShapeProps()
 
     @property
     def vertices(self):
         if not self._vertices:
-            vertcount = NifFile.nifly.getCollShapeVerts(self._file._handle, 
-                                                        self.block_index, 
-                                                        None, 0)
-            verts = (VECTOR4 * vertcount)()
-            NifFile.nifly.getCollShapeVerts(self._file._handle, 
-                                            self.block_index, 
-                                            verts, vertcount)
+            verts = (VECTOR4 * self.properties.vertsCount)()
+            NifFile.nifly.getCollShapeVerts(self.file._handle, 
+                                            self.id, 
+                                            verts, self.properties.vertsCount)
             self._vertices = [tuple(v) for v in verts]
         return self._vertices
 
     @property
     def normals(self):
         if not self._normals:
-            normcount = NifFile.nifly.getCollShapeNormals(self._file._handle, 
-                                                          self.block_index, 
-                                                          None, 0)
-            norms = (VECTOR4 * normcount)()
-            NifFile.nifly.getCollShapeNormals(self._file._handle, 
-                                              self.block_index, 
-                                              norms, normcount)
+            norms = (VECTOR4 * self.properties.normalsCount)()
+            NifFile.nifly.getCollShapeNormals(self.file._handle, 
+                                              self.id, 
+                                              norms, self.properties.normalsCount)
             self._normals = [tuple(v) for v in norms]
         return self._normals
 
@@ -732,48 +648,38 @@ CollisionShape.subtypes['bhkConvexVerticesShape'] = CollisionConvexVerticesShape
 class CollisionListShape(CollisionShape):
     needsTransform = False
 
-    def __init__(self, index=0, file=None, parent=None, props=None):
-        super().__init__(index, file, parent, props)
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._children = None
 
-    @property
-    def properties(self):
-        if not self._props:
-            p = bhkListShapeProps()
-            if NifFile.nifly.getCollListShapeProps(self._file._handle, 
-                                                   self.block_index, 
-                                                   p):
-                self._props = p
-        return self._props
+    def _getbuf(self):
+        return bhkListShapeProps()
 
     @property
     def children(self):
         if not self._children:
-            numchild = NifFile.nifly.getCollListShapeChildren(self._file._handle,
-                                                              self.block_index,
-                                                              None, 0)
-            if numchild == 0:
+            if self.properties.childCount == 0:
                 self._children = []
             else:
-                buf = (c_uint32 * numchild)()
-                NifFile.nifly.getCollListShapeChildren(self._file._handle,
-                                                       self.block_index,
-                                                       buf, numchild)
+                buf = (c_uint32 * self.properties.childCount)()
+                NifFile.nifly.getCollListShapeChildren(self.file._handle,
+                                                       self.id,
+                                                       buf, self.properties.childCount)
                 self._children = []
                 for idx in buf:
-                    typebuf = (c_char * 128)()
-                    NifFile.nifly.getCollShapeBlockname(self._file._handle, idx, typebuf, 128)
                     self._children.append(CollisionShape.New(
-                        typebuf.value.decode('utf-8'), idx, self._file, self))
+                        id=idx, file=self.file, parent=self))
         
         return self._children
 
-    def add_child(self, child):
+    def add_shape(self, childprops, transform=None):
+        child = CollisionShape.New(file=self.file, properties=childprops, parent=self)
         if not self._children:
             self._children = []
         self._children.append(child)
-        NifFile.nifly.addCollListChild(self._file._handle, self.block_index, 
-                                       child.block_index)
+        # NifFile.nifly.addCollListChild(
+        #     self.file._handle, self.id, child.id)
+        return child
 
 CollisionShape.subtypes['bhkListShape'] = CollisionListShape
 
@@ -781,25 +687,22 @@ CollisionShape.subtypes['bhkListShape'] = CollisionListShape
 class CollisionConvexTransformShape(CollisionShape):
     needsTransform = False
     
-    def __init__(self, index=0, file=None, parent=None, props=None, transform=None):
-        super().__init__(index, file, parent, props)
+    def __init__(self, handle=None, id=NODEID_NONE, file=None, parent=None, 
+                 properties=None, transform=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, 
+                         parent=parent)
         if transform:
             self._set_transform(transform)
+        self._child = None
+
+    def _getbuf(self):
+        return bhkConvexTransformShapeProps()
 
     def _set_transform(self, xf):
         pt = self._props.transform
         for r in range(0, 4):
             for c in range(0, 4):
                 pt[c*4+r] = xf[r][c]
-
-    @property
-    def properties(self):
-        if not self._props:
-            p = bhkConvexTransformShapeProps()
-            if NifFile.nifly.getCollConvexTransformShapeProps(
-                self._file._handle, self.block_index, p):
-                self._props = p
-        return self._props
 
     @property
     def transform(self):
@@ -809,63 +712,106 @@ class CollisionConvexTransformShape(CollisionShape):
                 (t[0][2], t[1][2], t[2][2], t[3][2]),
                 (t[0][3], t[1][3], t[2][3], t[3][3]))
 
+    def add_shape(self, childprops):
+        child = CollisionShape.New(file=self.file, properties=childprops, parent=self)
+        self._child = child
+        self.properties.shapeID = child.id
+        # NifFile.nifly.addCollListChild(
+        #     self.file._handle, self.id, child.id)
+        return child
+
     @property
     def child(self):
-        ch = NifFile.nifly.getCollConvexTransformShapeChildID(self._file._handle,
-                                                              self.block_index)
-        typebuf = (c_char * 128)()
-        NifFile.nifly.getCollShapeBlockname(self._file._handle, ch, typebuf, 128)
-        return CollisionShape.New(typebuf.value.decode('utf-8'), ch, self._file, self)
+        if self._child: return self._child
+
+        # ch = NifFile.nifly.getCollConvexTransformShapeChildID(self.file._handle, self.id)
+        self._child = CollisionShape.New(id=self.properties.shapeID, file=self.file, parent=self)
+        return self._child
 
     @child.setter
     def child(self, value):
-        NifFile.nifly.setCollConvexTransformShapeChild(self._file._handle,
-                                                       self.block_index,
-                                                       value.block_index)
+        NifFile.nifly.setCollConvexTransformShapeChild(self.file._handle,
+                                                       self.id,
+                                                       value.id)
 
 CollisionShape.subtypes['bhkConvexTransformShape'] = CollisionConvexTransformShape
 
 
-class CollisionBody:
+class CollisionBody(NiObject):
     """Represents either a bhkRigidBody or a bhkRigidBodyT."""
-    def __init__(self, index=0, file=None, parent=None, props=None):
-        self.block_index = index
-        self._file = file
-        self._parent = parent
-        self._props = props
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._shape = None
 
-    @property
-    def blockname(self):
-        buf = (c_char * 128)()
-        NifFile.nifly.getCollBodyBlockname(self._file._handle, self.block_index, buf, 128)
-        return buf.value.decode('utf-8')
+    # @property
+    # def properties(self):
+    #     if not self._props:
+    #         if self.blockname in ("bhkRigidBody", "bhkRigidBodyT"):
+    #             p = bhkRigidBodyProps()
+    #             if self.blockname == "bhkRigidBodyT": p.bufType = PynBufferTypes.bhkRigidBodyTBufType
+    #             NifFile.nifly.getBlock(self._file._handle, self.id, byref(p)):
+    #             self._props = p
+    #     return self._props
 
-    @property
-    def properties(self):
-        if not self._props:
-            if self.blockname in ("bhkRigidBody", "bhkRigidBodyT"):
-                p = bhkRigidBodyProps()
-                if NifFile.nifly.getRigidBodyProps(self._file._handle, self.block_index, p):
-                    self._props = p
-        return self._props
+    def _getbuf(self):
+        return bhkRigidBodyProps()
 
     @property
     def shape(self):
         if not self._shape:
-            shape_index = NifFile.nifly.getRigidBodyShapeID(self._file._handle, self.block_index)
-            buf = (c_char * 128)()
-            NifFile.nifly.getCollShapeBlockname(self._file._handle, shape_index, buf, 128)
-            self._shape = CollisionShape.New(buf.value.decode('utf-8'), 
-                                             shape_index, file=self._file, parent=self)
+            shape_index =self.properties.shapeID
+            # shape_index = NifFile.nifly.getRigidBodyShapeID(self._file._handle, self.block_index)
+            self._shape = CollisionShape.New(
+                id=shape_index, file=self.file, parent=self)
         return self._shape
+
+    def add_shape(self, properties, vertices=None, normals=None, transform=None):
+        """ Create collision shape 
+            bhkBoxShape - All data passed in through the properties
+            bhkConvexVerticesShape - vertices can be vectors of 3 points. Normals must be 
+                vectors of 4 elements: x, y, z (setting direction), and w (length)
+        """
+        if properties.bufType == PynBufferTypes.bhkConvexTransformShapeBufType:
+            if transform:
+                for r in range(0,4):
+                    for c in range(0,4):
+                        properties.transform[c][r] = transform[r][c]
+
+        collshape_index = NifFile.nifly.addBlock(
+            self.file._handle, None, byref(properties), self.id)
+        new_collshape = CollisionShape.New(
+            id=collshape_index, file=self.file, properties=properties, parent=self)
+        
+        if properties.bufType == PynBufferTypes.bhkConvexVerticesShapeBufType:
+            vertbuf = (VECTOR4 * len(vertices))()
+            normbuf = (VECTOR4 * len(normals))()
+            for i, v in enumerate(vertices):
+                vertbuf[i] = (v[0], v[1], v[2], 0)
+            for i, n in enumerate(normals):
+                normbuf[i][0], normbuf[i][1], normbuf[i][2], normbuf[i][3] = n[:]
+
+            NifFile.nifly.setCollConvexVerts(
+                self.file._handle, collshape_index,
+                vertbuf, len(vertices), normbuf, len(normals))
+        
+        return new_collshape
+
 
 class CollisionObject(NiObject):
     """Represents a bhkNiCollisionObject."""
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._body = None
+
+    def _getbuf(self):
+        return bhkNiCollisionObjectBuf()
+
     @property
     def flags(self):
         """ Return the collision object flags """
-        return NifFile.nifly.getCollFlags(self._handle)
+        return self.properties.flags
+        # return NifFile.nifly.getCollFlags(self._handle)
 
     @property
     def target(self):
@@ -876,13 +822,46 @@ class CollisionObject(NiObject):
     @property
     def body(self):
         """ Return the collision body object """
-        bod = NifFile.nifly.getCollBodyID(self.file._handle, self._handle)
-        return CollisionBody(bod, file=self.file, parent=self)
+        if not self._body:
+            body_prop = bhkRigidBodyProps()
+            NifFile.nifly.getBlock(self.file._handle, self.properties.bodyID, byref(body_prop))
+            if self.properties.bodyID != NODEID_NONE:
+                self._body = CollisionBody(id=self.properties.bodyID, file=self.file, parent=self)
+        return self._body
 
+    # def add_rigid_body(self, blocktype, properties, collshape):
+    def add_body(self, properties):
+        """ Create a rigid body for this collision object """
+        # rb_index = NifFile.nifly.addRigidBody(self._handle, blocktype.encode('utf-8'), collshape.block_index, properties)
+        rb_index = NifFile.nifly.addBlock(
+            self.file._handle, None, byref(properties), self.id)
+        self._body = CollisionBody(id=rb_index, file=self.file, parent=self, properties=properties)
+        return self._body
+
+
+class NiAVObject(NiObject):
+    def add_collision(self, body, flags):
+        # targhandle = None
+        # if target:
+        #     targhandle = target._handle
+        # new_coll_hndl = NifFile.nifly.addCollision(self._handle, targhandle, 
+        #                                            body.block_index, flags)
+        buf = bhkCollisionObjectBuf()
+        buf.flags = flags
+        buf.bodyID = NODEID_NONE
+        if body: buf.bodyID = body.id
+        buf.targetID = self.id
+        new_coll_id = NifFile.nifly.addBlock(self.file._handle, None, byref(buf), self.id)
+        new_coll = CollisionObject(file=self.file, 
+                                   id=new_coll_id, 
+                                   properties=buf, 
+                                   parent=self)
+        return new_coll
+    
 
 # --- NiNode --- #
 
-class NiNode(NiObject):
+class NiNode(NiAVObject):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None, name=""):
         super().__init__(handle=handle, file=file, id=id, parent=parent)
         self._name = ""
@@ -895,7 +874,6 @@ class NiNode(NiObject):
         if self._handle:
             NifFile.nifly.getBlock(self.file._handle, 
                                    self.id, 
-                                   self.blockname.encode('utf-8'), 
                                    byref(self.properties))
 
             buflen = self.file.max_string_len
@@ -956,9 +934,10 @@ class NiNode(NiObject):
 
     @property
     def collision_object(self):
-        n = NifFile.nifly.getCollision(self.file._handle, self._handle)
-        if n:
-            return CollisionObject(handle=n, file=self.file, parent=self)
+        # n = NifFile.nifly.getCollision(self.file._handle, self._handle)
+        # if n:
+        if self.properties.collisionID != NODEID_NONE:
+            return CollisionObject(id=self.properties.collisionID, file=self.file, parent=self)
         else:
             return None
 
@@ -1008,6 +987,53 @@ class NiNode(NiObject):
         self._clothdata = val
         _write_extra_data(self.file._handle, self._handle, 
                          ExtraDataType.Cloth, self._clothdata)
+
+    @property
+    def bsx_flags(self):
+        """ Returns bsx flags as [name, value] pair """
+        buf = BSXFlagsBuf()
+        # if NifFile.nifly.getBSXFlags(self._handle, buf):
+        bsxf_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSXFlags")
+        if NifFile.nifly.getBlock(self.file._handle, bsxf_id, byref(buf)) == 0:
+            return ["BSX", buf.integerData]
+        else:
+            return None
+
+    @bsx_flags.setter
+    def bsx_flags(self, val):
+        """ Sets BSX flags using [name, value] pair """
+        buf = PynBufferTypes.BSXFlagsBufType()
+        buf.integerData = val[1]
+        NifFile.nifly.addBlock(self._handle, val[0].encode('utf-8'), byref(buf), self.id)
+        # NifFile.nifly.setBSXFlags(self._handle, val[0].encode('utf-8'), val[1])
+
+    @property
+    def inventory_marker(self):
+        """ Reads BSInvMarker as [name, x, y, z, zoom] """
+        buf = BSInvMarkerBuf()
+        namebuf = create_string_buffer(256)
+        im_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSInvMarker")
+        if im_id != NODEID_NONE:
+            NifFile.nifly.getBlock(self.file._handle, im_id, byref(buf))
+            NifFile.nifly.getString(self.file._handle, buf.nameID, 256, namebuf)
+
+            # namebuf = (c_char * 128)()
+            # rotbuf = (c_int * 3)();
+            # zoombuf = (c_float * 1)();
+            # if NifFile.nifly.getInvMarker(self._handle, namebuf, 128, rotbuf, zoombuf):
+            return [namebuf.value.decode('utf-8'), buf.rot0, buf.rot1, buf.rot2, buf.zoom]
+        else:
+            return []
+
+    @inventory_marker.setter
+    def inventory_marker(self, val):
+        """ WRites BSInvMarker as [name, x, y, z, zoom] """
+        buf = BSInvMarkerBuf()
+        buf.rot0 = val[1]
+        buf.rot1 = val[2]
+        buf.rot2 = val[3]
+        buf.zoom = val[4]
+        NifFile.nifly.addBlock(self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
 
 
 class NiKeyFrameData(NiObject):
@@ -1093,7 +1119,8 @@ class NiTransformData(NiKeyFrameData):
         super().__init__(handle=handle, file=file, id=id, properties=props, parent=parent)
         if self._handle == None and self.id == NODEID_NONE:
             self.id = NifFile.nifly.addBlock(
-                self.file._handle, None, b"NiTransformData", 
+                self.file._handle, 
+                None, 
                 byref(self.properties), 
                 parent.id if parent else NODEID_NONE)
             self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
@@ -1182,13 +1209,12 @@ class NiTransformData(NiKeyFrameData):
 class NiTransformInterpolator(NiObject):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, props=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=props, parent=parent)
-        parent_id = NODEID_NONE
-        if parent:
-            parent_id = parent.id
         if self._handle == None and self.id == NODEID_NONE:
             self.id = NifFile.nifly.addBlock(
-                self.file._handle, None, b"NiTransformInterpolator", 
-                byref(self.properties), parent_id)
+                self.file._handle, 
+                None, 
+                byref(self.properties), 
+                parent.id if parent else NODEID_NONE)
             self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
         self._data = None
         self._blockname = "NiTransformInterpolator"
@@ -1237,16 +1263,18 @@ class NiKeyframeController(NiSingleInterpController):
 class NiTransformController(NiKeyframeController):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
         super().__init__(handle=handle, file=file, id=id, parent=parent)
-        self.properties = NiTransformControllerBuf()
-        NifFile.nifly.getTransformController(self.file._handle, self.id, self.properties)
+        self._properties = NiTransformControllerBuf()
+        NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
+        # NifFile.nifly.getTransformController(self.file._handle, self.id, self.properties)
 
 
 class NiMultiTargetTransformController(NiInterpController):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
         super().__init__(handle=handle, file=file, id=id)
-        self.properties = NiMultiTargetTransformControllerBuf()
-        NifFile.nifly.getMultiTargetTransformController(
-            self.file._handle, self.id, self.properties)
+        self._properties = NiMultiTargetTransformControllerBuf()
+        NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
+        # NifFile.nifly.getMultiTargetTransformController(
+        #     self.file._handle, self.id, self.properties)
     
 
 class ControllerLink:
@@ -1311,8 +1339,13 @@ class NiSequence(NiObject):
         if self._controlled_blocks is not None: return self._controlled_blocks
 
         buf = (ControllerLinkBuf * self.properties.controlledBlocksCount)()
-        NifFile.nifly.getControlledBlocks(
-            self.file._handle, self.id, self.properties.controlledBlocksCount, buf)
+        for i in range(0, self.properties.controlledBlocksCount):
+            buf[i].bufType = PynBufferTypes.NiControllerLinkBufType
+            buf[i].bufSize = sizeof(ControllerLinkBuf)
+        buf[0].bufSize = sizeof(ControllerLinkBuf) * self.properties.controlledBlocksCount
+        NifFile.nifly.getBlock(self.file._handle, self.id, byref(buf))
+        # NifFile.nifly.getControlledBlocks(
+        #     self.file._handle, self.id, self.properties.controlledBlocksCount, buf)
         self._controlled_blocks = []
         for b in buf:
             self._controlled_blocks.append(ControllerLink(b, self))
@@ -1354,7 +1387,8 @@ class NiSequence(NiObject):
             buf.interpID = NifFile.nifly.addString(
                 self.file._handle, interpolator_id.encode('utf-8'))
         
-        NifFile.nifly.addControlledBlock(self.file._handle, self.id, name.encode('utf-8'), buf)
+        # NifFile.nifly.addControlledBlock(self.file._handle, self.id, name.encode('utf-8'), buf)
+        NifFile.nifly.addBlock(self.file._handle, name.encode('utf-8'), byref(buf), self.id)
         if self._controlled_blocks is None: self._controlled_blocks = []
         self._controlled_blocks.append(ControllerLink(buf, self))
 
@@ -1373,11 +1407,10 @@ class NiControllerManager(NiTimeController):
 
     def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
         super().__init__(handle=handle, file=file, id=id, parent=parent)
-        self.properties = NiControllerManagerBuf()
+        self._properties = NiControllerManagerBuf()
         NifFile.nifly.getBlock(self.file._handle, 
                                self.id, 
-                               b"NiControllerManager", 
-                               byref(self.properties))
+                               byref(self._properties))
 
     @property
     def sequences(self):
@@ -2033,68 +2066,6 @@ class NifFile:
         sh._handle = shape_handle
         return sh
 
-    def add_coll_shape(self, blocktype, properties, vertices=None, normals=None, transform=None):
-        """ Create collision shape 
-            bhkBoxShape - All data passed in through the properties
-            bhkConvexVerticesShape - vertices can be vectors of 3 points. Normals must be 
-                vectors of 4 elements: x, y, z (setting direction), and w (length)
-        """
-        if blocktype == "bhkBoxShape":
-            collshape_index = NifFile.nifly.addCollBoxShape(self._handle, properties)
-            new_collshape = CollisionBoxShape(collshape_index, self, props=properties)
-            return new_collshape
-
-        elif blocktype == "bhkCapsuleShape":
-            collshape_index = NifFile.nifly.addCollCapsuleShape(self._handle, properties)
-            new_collshape = CollisionCapsuleShape(collshape_index, self, props=properties)
-            return new_collshape
-
-        elif blocktype == "bhkConvexTransformShape":
-            if transform:
-                for r in range(0,4):
-                    for c in range(0,4):
-                        properties.transform[c][r] = transform[r][c]
-
-            cidx = NifFile.nifly.addCollConvexTransformShape(self._handle, properties)
-            newshape = CollisionConvexTransformShape(cidx, self, transform)
-            return newshape
-
-        elif blocktype == "bhkConvexVerticesShape":
-            vertbuf = (VECTOR4 * len(vertices))()
-            normbuf = (VECTOR4 * len(normals))()
-            for i, v in enumerate(vertices):
-                vertbuf[i] = (v[0], v[1], v[2], 0)
-            for i, n in enumerate(normals):
-                normbuf[i][0], normbuf[i][1], normbuf[i][2], normbuf[i][3] = n[:]
-
-            collshape_index = NifFile.nifly.addCollConvexVertsShape(
-                self._handle, properties,
-                vertbuf, len(vertices), normbuf, len(normals))
-            new_collshape = CollisionConvexVerticesShape(collshape_index, self, props=properties)
-
-            return new_collshape
-
-        elif blocktype == "bhkListShape":
-            cidx = NifFile.nifly.addCollListShape(self._handle, properties)
-            return CollisionListShape(cidx, self, properties)
-
-
-    def add_rigid_body(self, blocktype, properties, collshape):
-        """ Create a rigid body with collshape as its collision shape """
-        rb_index = NifFile.nifly.addRigidBody(self._handle, blocktype.encode('utf-8'), collshape.block_index, properties)
-        new_rb = CollisionBody(rb_index, self, props=properties)
-        collshape._parent = new_rb
-        new_rb._shape = collshape
-        return new_rb
-
-    def add_collision(self, parent, target, body, flags):
-        targhandle = None
-        if target:
-            targhandle = target._handle
-        new_coll_hndl = NifFile.nifly.addCollision(self._handle, targhandle, 
-                                                   body.block_index, flags)
-        new_coll = CollisionObject(new_coll_hndl, self, parent)
-    
     @property
     def rootName(self):
         """Return name of root node"""
@@ -2250,43 +2221,6 @@ class NifFile:
                          ExtraDataType.String, self._strdata)
 
     @property
-    def inventory_marker(self):
-        """ Reads BSInvMarker as [name, x, y, z, zoom] """
-        namebuf = (c_char * 128)()
-        rotbuf = (c_int * 3)();
-        zoombuf = (c_float * 1)();
-        if NifFile.nifly.getInvMarker(self._handle, namebuf, 128, rotbuf, zoombuf):
-            return [namebuf.value.decode('utf-8'), rotbuf[0], rotbuf[1], rotbuf[2], zoombuf[0]]
-        else:
-            return None
-
-    @inventory_marker.setter
-    def inventory_marker(self, val):
-        """ Reads BSInvMarker as [name, x, y, z, zoom] """
-        rotbuf = (c_int * 3)()
-        zoombuf = (c_float * 1)()
-        rotbuf[0] = val[1]
-        rotbuf[1] = val[2]
-        rotbuf[2] = val[3]
-        zoombuf[0] = val[4]
-        NifFile.nifly.setInvMarker(self._handle, val[0].encode('utf-8'), rotbuf, zoombuf)
-
-    @property
-    def bsx_flags(self):
-        """ Returns bsx flags as [name, value] pair """
-        buf = (c_int * 1)()
-        if NifFile.nifly.getBSXFlags(self._handle, buf):
-            return ["BSX", buf[0]]
-        else:
-            return None
-
-    @bsx_flags.setter
-    def bsx_flags(self, val):
-        """ Sets BSX flags using [name, value] pair """
-        NifFile.nifly.setBSXFlags(self._handle, val[0].encode('utf-8'), val[1])
-
-
-    @property
     def furniture_markers(self):
         if not self._furniture_markers:
             self._furniture_markers = []
@@ -2393,12 +2327,10 @@ class NifFile:
         so use the block name to determine what kind of object to create. 
         """
         buf = (c_char * (128))()
-        hndl = NifFile.nifly.getNodeByID(self._handle, node_id)
-        if hndl:
-            NifFile.nifly.getNodeBlockname(hndl, buf, 128)
-            bn = buf.value.decode('utf-8')
-            if bn in NifFile.block_types:
-                return NifFile.block_types[bn](handle=hndl, id=node_id, file=self, parent=parent)
+        NifFile.nifly.getBlockname(self._handle, node_id, buf, 128)
+        bn = buf.value.decode('utf-8')
+        if bn in NifFile.block_types:
+            return NifFile.block_types[bn](id=node_id, file=self, parent=parent)
         else:
             return None
         
@@ -2479,12 +2411,11 @@ def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
                                             is_skinned=skinned, 
                                             is_effectsshader=effectsshader)
     new_shape.transform = old_shape.transform.copy()
-    if skinned: new_shape.skin()
     oldxform = old_shape.global_to_skin
     if oldxform is None:
         oldxform = old_shape.transform
     new_shape_gts = oldxform # no inversion?
-    new_shape.set_global_to_skin(new_shape_gts)
+    if skinned: new_shape.set_global_to_skin(new_shape_gts)
     #if old_shape.parent.game in ("SKYRIM", "SKYRIMSE"):
     #    new_shape.set_global_to_skindata(new_shape_gts) # only for skyrim
     #else:
@@ -3737,7 +3668,7 @@ if __name__ == "__main__":
         print("### TEST_BOW: Can read and write special weapon data; also testing BGED")
         nif = NifFile(r"tests\SkyrimSE\meshes\weapons\glassbowskinned.nif")
 
-        root = nif.nodes[nif.rootName]
+        root = nif.rootNode
         assert root.blockname == "BSFadeNode", f"Top level node should read as BSFadeNode, found '{root.blockname}'"
         assert root.flags == 14, "Root node has flags"
         assert VNearEqual(root.xform_to_global.translation, [0,0,0]), "Root node transform can be read"
@@ -3746,13 +3677,13 @@ if __name__ == "__main__":
         assert VNearEqual(root.xform_to_global.rotation[2], [0,0,1]), "Root node transform can be read"
         assert root.xform_to_global.scale == 1.0, "Root node transform can be read"
 
-        assert nif.behavior_graph_data == [('BGED', r"Weapons\Bow\BowProject.hkx", False)], f"Error: Expected behavior graph data, got {nif.behavior_graph_data}"
+        assert root.behavior_graph_data == [('BGED', r"Weapons\Bow\BowProject.hkx", False)], f"Error: Expected behavior graph data, got {nif.behavior_graph_data}"
 
-        assert nif.inventory_marker[0] == "INV"
-        assert nif.inventory_marker[1:4] == [4712, 0, 785]
-        assert round(nif.inventory_marker[4], 4) == 1.1273, "Inventory marker has rotation and zoom info"
+        assert root.inventory_marker[0] == "INV"
+        assert root.inventory_marker[1:4] == [4712, 0, 785]
+        assert round(root.inventory_marker[4], 4) == 1.1273, "Inventory marker has rotation and zoom info"
 
-        assert nif.bsx_flags == ['BSX', 202]
+        assert root.bsx_flags == ['BSX', 202]
 
         bone = nif.nodes['Bow_MidBone']
         co = bone.collision_object
@@ -3785,10 +3716,9 @@ if __name__ == "__main__":
         midbow = nifOut.nodes["Bow_MidBone"]
 
         # Create the collision bottom-up, shape first
-        box_out = nifOut.add_coll_shape("bhkBoxShape", collshape.properties)
-        bod_out = nifOut.add_rigid_body("bhkRigidBodyT", co.body.properties, box_out)
-        coll_out = nifOut.add_collision(midbow, midbow, bod_out, 
-                                          bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE)
+        coll_out = midbow.add_collision(None, bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE)
+        bod_out = coll_out.add_body(co.body.properties)
+        box_out = bod_out.add_shape(collshape.properties)
 
         nifOut.save()
 
@@ -3839,11 +3769,10 @@ if __name__ == "__main__":
         _test_export_shape(nif.shapes[0], nifOut)
 
         # Create the collision bottom-up, shape first
-        box_out = nifOut.add_coll_shape("bhkConvexVerticesShape", collshape.properties,
-                                        collshape.vertices, collshape.normals)
-        bod_out = nifOut.add_rigid_body("bhkRigidBody", co.body.properties, box_out)
-        coll_out = nifOut.add_collision(None, None, bod_out, 
-                                          bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE)
+        coll_out = nifOut.rootNode.add_collision(
+            None, bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE)
+        bod_out = coll_out.add_body(co.body.properties)
+        box_out = bod_out.add_shape(collshape.properties, collshape.vertices, collshape.normals)
 
         nifOut.save()
 
@@ -3856,16 +3785,15 @@ if __name__ == "__main__":
         assert l2.parent.name == "Leek02", f"Parent of shape is node: {l2.parent.name}"
 
 
-    if TEST_ALL or TEST_COLLISION_LIST:
-        print("### TEST_COLLISION_LIST: Can read and write convex collisions")
-        nif = NifFile(r"tests/Skyrim/falmerstaff.nif")
-
+    def checkFalmerStaff(nif):
         root = nif.rootNode
-        staff = nif.shape_dict["Staff3rdPerson:0"]
+        staff = nif.shapes[0]
         coll = nif.rootNode.collision_object
         collbody = coll.body
+        assert collbody.properties.collisionFilter_layer == SkyrimCollisionLayer.WEAPON, f"Rigid body has values"
         collshape = collbody.shape
         assert collshape.blockname == "bhkListShape", f"Have list shape: {collshape.blockname}"
+        assert collshape.properties.bhkMaterial == SkyrimHavokMaterial.MATERIAL_BOWS_STAVES
         assert len(collshape.children) == 3, f"Have 3 children: {collshape.children}"
         cts0 = collshape.children[0]
         cts1 = collshape.children[1]
@@ -3873,31 +3801,47 @@ if __name__ == "__main__":
         assert cts0.blockname == "bhkConvexTransformShape", f"Child is transform shape: {cts0.blockname}"
         assert cts1.blockname == "bhkConvexTransformShape", f"Child is transform shape: {cts1.blockname}"
         assert cts2.blockname == "bhkConvexTransformShape", f"Child is transform shape: {cts2.blockname}"
-        assert cts0.properties.bhkMaterial == 1607128641, f"Material is correct: {xfshape.properties.bhkMaterial}"
+        assert cts0.properties.bhkMaterial == SkyrimHavokMaterial.MATERIAL_BOWS_STAVES, f"Material is correct: {xfshape.properties.bhkMaterial}"
+        assert NearEqual(cts0.properties.bhkRadius, 0.009899), "ConvexTransformShape has values"
 
         assert len(staff.bone_weights) == 0, f"Shape not skinned: {staff}"
         assert len(staff.partitions) == 0, f"Shape has no partitioins"
 
         box0 = cts0.child
 
+
+    if TEST_ALL or TEST_COLLISION_LIST:
+        print("### TEST_COLLISION_LIST: Can read and write convex collisions")
+        nif = NifFile(r"tests/Skyrim/falmerstaff.nif")
+        checkFalmerStaff(nif)
+
         # ------------ Save it ----------
 
         nifOut = NifFile()
-        nifOut.initialize('SKYRIM', r"tests\out\TEST_COLLISION_LIST.nif", root.blockname, root.name)
-        _test_export_shape(staff, nifOut)
+        nifOut.initialize('SKYRIM', r"tests\out\TEST_COLLISION_LIST.nif", nif.rootNode.blockname, "Scene Root")
+        _test_export_shape(nif.shapes[0], nifOut)
 
-        # Create the collision bottom-up, shape first
-        box0_out = nifOut.add_coll_shape("bhkBoxShape", box0.properties)
-        cts0_out = nifOut.add_coll_shape("bhkConvexTransformShape", 
-                                        cts0.properties, transform=cts0.transform)
-        cts0_out.child = box0_out
-        collshape_out = nifOut.add_coll_shape("bhkListShape", collshape.properties)
-        collshape_out.add_child(cts0_out)
-        bod_out = nifOut.add_rigid_body("bhkRigidBody", collbody.properties, collshape_out)
-        coll_out = nifOut.add_collision(None, None, bod_out, 
-                                          bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE)
+        # Create the collision 
+        coll_out = nifOut.rootNode.add_collision(
+            None, bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE)
+        bodprop_out =  bhkRigidBodyProps()
+        bodprop_out.collisionFilter_layer = SkyrimCollisionLayer.WEAPON
+        bod_out = coll_out.add_body(bodprop_out)
+        csprop_out = bhkListShapeProps()
+        csprop_out.bhkMaterial = SkyrimHavokMaterial.MATERIAL_BOWS_STAVES
+        listshape_out = bod_out.add_shape(csprop_out)
+        for i in range(0, 3):
+            ctsprop_out = bhkConvexTransformShapeProps()
+            ctsprop_out.bhkMaterial = SkyrimHavokMaterial.MATERIAL_BOWS_STAVES
+            ctsprop_out.bhkRadius = 0.009899
+            cts_out = listshape_out.add_shape(ctsprop_out)
+
+            box_out = bhkBoxShapeProps()
+            cts_out.add_shape(box_out)
 
         nifOut.save()
+
+        checkFalmerStaff(NifFile(r"tests\out\TEST_COLLISION_LIST.nif"))
 
 
     if TEST_ALL or TEST_COLLISION_CAPSULE:
@@ -4224,6 +4168,12 @@ if __name__ == "__main__":
         ti2 = cb2.interpolator
         td2 = ti2.data
         assert len(td2.qrotations) > 0, "Have rotations"
+
+    if TEST_ALL or TEST_SKEL:
+        print("### TEST_SKEL: Import of skeleton file with collisions")
+        nif = NifFile(r"tests/Skyrim/skeleton_vanilla.nif")
+        root = nif.rootNode
+
 
     print("""
 ================================================

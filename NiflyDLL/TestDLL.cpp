@@ -25,6 +25,7 @@ using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
 enum NifOptions
 {
+	None = 0,
 	SEHeadPart = 1,
 	FO4TriShape = 2,
 	FO4EffectShader = 4,
@@ -766,103 +767,6 @@ void TCheckAccuracy(const std::filesystem::path srcPath, const char* srcShapeNam
 	//Assert::IsTrue(TApproxEqual(boundSrc.center, boundDst.center, 0.5));
 	//Assert::IsTrue(TApproxEqual(boundSrc.radius, boundDst.radius, 0.5));
 };
-
-void TCheckDwemerChest(void* nif,
-	NiControllerManagerBuf& ncmbuf,
-	NiMultiTargetTransformControllerBuf& mttcbuf,
-	NiControllerSequenceBuf* csbuf,
-	int& openIndex,
-	NiTransformInterpolatorBuf &tibuf,
-	NiTransformDataBuf &tdbuf,
-	NiAnimKeyLinearTransBuf *akbuf,
-	NiTransformInterpolatorBuf &tibuf2,
-	NiTransformDataBuf &tdbuf2, 
-	NiAnimKeyQuadXYZBuf *akbuf2)
-{
-
-	/* Check that the dwemer chest is read correctly. Useful to ensure that it can be read and 
-	that what was written is correct. 
-	*/
-	NiNodeBuf rootbuf;
-	getBlock(nif, 0, &rootbuf);
-
-	// We can find controller blocks directly, by type.
-	//int ncmCount = findNodesByType(nif, root, "NiControllerManager", 1, &ncm);
-	//Assert::AreEqual(1, ncmCount, L"Found 1 controller manager");
-
-	getBlock(nif, rootbuf.controllerID, &ncmbuf);
-
-	//getControllerManager(ncm, &ncmbuf);
-	//getBlock(nif, "NiControllerManager", &ncmbuf)
-	Assert::AreEqual(1.0f, ncmbuf.frequency, L"Frequency value correct");
-
-	//// Better, perhaps, to find controller blocks through their parent.
-	//void* rc = getNodeController(nif, root, &ncmbuf);
-	//Assert::AreEqual(1.0f, ncmbuf.frequency, L"Frequency value correct");
-
-	getBlock(nif, ncmbuf.nextControllerID, &mttcbuf);
-	Assert::AreEqual(108, int(mttcbuf.flags), L"Flags are correct");
-	Assert::AreEqual(2, int(ncmbuf.controllerSequenceCount), L"Have right number of controller sequences");
-
-	uint32_t* cs = new uint32_t[ncmbuf.controllerSequenceCount];
-	getControllerManagerSeq(nif, rootbuf.controllerID, ncmbuf.controllerSequenceCount, cs);
-
-	csbuf[0].bufSize = sizeof(csbuf[0]);
-	csbuf[1].bufSize = sizeof(csbuf[1]);
-
-	getBlock(nif, cs[0], &csbuf[0]);
-	getBlock(nif, cs[1], &csbuf[1]);
-	Assert::IsTrue(TApproxEqual(0.6, csbuf[0].stopTime), L"StopTime correct");
-
-	char* csName0 = new char[64];
-	char* csName1 = new char[64];
-	getString(nif, csbuf[0].nameID, 64, csName0);
-	getString(nif, csbuf[1].nameID, 64, csName1);
-
-	openIndex = -1;
-	int closeIndex = -1;
-	if (strcmp(csName0, "Open") == 0) openIndex = 0;
-	if (strcmp(csName0, "Close") == 0) closeIndex = 0;
-	if (strcmp(csName1, "Open") == 0) openIndex = 1;
-	if (strcmp(csName1, "Close") == 0) closeIndex = 1;
-	Assert::IsTrue(openIndex != -1 && closeIndex != -1, L"Have correct names");
-
-	char* namebuf = new char[64];
-	int cbCount = csbuf[openIndex].controlledBlocksCount;
-	ControllerLinkBuf* clbuf = new ControllerLinkBuf[cbCount];
-	clbuf[0].bufSize = sizeof(ControllerLinkBuf) * cbCount;
-	getBlock(nif, cs[openIndex], clbuf);
-	getString(nif, clbuf[0].nodeName, 64, namebuf);
-	Assert::IsTrue(strcmp("Object01", namebuf) == 0, L"Have correct node name");
-
-	// First interpolator does linear movement of the chest's lid. So no rotation keys.
-	getBlock(nif, clbuf->interpolatorID, &tibuf);
-	getBlock(nif, tibuf.dataID, &tdbuf);
-	Assert::AreEqual(0, int(tdbuf.quaternionKeyCount), L"Have correct number of rotation keys");
-	Assert::AreEqual(18, int(tdbuf.translations.numKeys), L"Have correct number of translations");
-	Assert::AreEqual(1, int(tdbuf.translations.interpolation), L"Have correct interpolation");
-
-	for (int i = 0; i < tdbuf.translations.numKeys; i++)
-		getAnimKeyLinearTrans(nif, tibuf.dataID, i, &akbuf[i]);
-	Assert::IsTrue(TApproxEqual(0.06667f, akbuf[2].time), L"First time value good");
-	Assert::IsTrue(TApproxEqual(1.1176f, akbuf[2].value[0]), L"X location good");
-
-	// Second interpolator does the revolution of the screw in the worm drive. 
-	getString(nif, clbuf[1].nodeName, 64, namebuf);
-	Assert::IsTrue(strcmp("Gear08", namebuf) == 0, L"Have correct node name");
-	getBlock(nif, clbuf[1].interpolatorID, &tibuf2);
-	getBlock(nif, tibuf2.dataID, &tdbuf2);
-	Assert::AreEqual(1, int(tdbuf2.xRotations.numKeys), L"Have correct number of X rotation keys");
-	Assert::AreEqual(2, int(tdbuf2.zRotations.numKeys), L"Have correct number of Z rotation keys");
-	Assert::AreEqual(int(NiKeyType::QUADRATIC_KEY), int(tdbuf2.zRotations.interpolation), L"Have quadratic interpolation");
-	
-	for (int i = 0; i < tdbuf2.zRotations.numKeys; i++) {
-		getAnimKeyQuadXYZ(nif, tibuf2.dataID, 'Z', i, &akbuf2[i]);
-	}
-
-	Assert::AreEqual(0.6f, akbuf2[1].time, L"Have Z time correct");
-	Assert::IsTrue(TApproxEqual(-3.141593f, akbuf2[1].value), L"Have Z value correct");
-}
 
 namespace NiflyDLLTests
 {
@@ -2706,7 +2610,7 @@ namespace NiflyDLLTests
 
 			BSXFlagsBuf bsxBuf;
 			bsxBuf.integerData = 202;
-			addBlock(nifOut, "BSK", &bsxBuf, 0);
+			addBlock(nifOut, "BSX", &bsxBuf, 0);
 			BSInvMarkerBuf invBuf;
 			invBuf.rot[0] = 4712;
 			invBuf.rot[1] = 0;
@@ -2992,9 +2896,45 @@ namespace NiflyDLLTests
 			//Assert::IsTrue(getNodeParent(nifCheck, leek040Check) == leek04Check, L"Node parent correct");
 			//Assert::IsTrue(getNodeParent(nifCheck, leek041Check) == leek04Check, L"Node parent correct");
 		};
-		TEST_METHOD(readCollisionXform) {
+		struct FalmerStaffData {
+			void* staffRef;
+			NiNodeBuf rootBuf;
+			NiShapeBuf staffBuf;
+			bhkCollisionObjectBuf coBuf;
+			bhkRigidBodyBuf rbBuf;
+			BHKListShapeBuf listShapeBuf;
+			uint32_t listShapeChildren[3];
+			BHKConvexTransformShapeBuf convexTransBuf[3];
+			bhkBoxShapeBuf boxShapeBuf[3];
+		};
+		void TCheckFalmerStaff(void* nif, FalmerStaffData& d) {
+			getBlock(nif, 0, &d.rootBuf);
+			getBlock(nif, d.rootBuf.collisionID, &d.coBuf);
+			getBlock(nif, d.coBuf.bodyID, &d.rbBuf);
+			getBlock(nif, d.rbBuf.shapeID, &d.listShapeBuf);
+
+			Assert::IsTrue(d.listShapeBuf.childCount == 3, L"Have correct child count");
+			getCollListShapeChildren(nif, d.rbBuf.shapeID, d.listShapeChildren, 3);
+			for (int i = 0; i < d.listShapeBuf.childCount; i++) {
+				getBlock(nif, d.listShapeChildren[i], &d.convexTransBuf[i]);
+				getBlock(nif, d.convexTransBuf[i].shapeID, &d.boxShapeBuf[i]);
+
+				Assert::IsTrue(d.convexTransBuf[i].material == 1607128641, L"Have correct material");
+				Assert::IsTrue(TApproxEqual(d.boxShapeBuf[i].radius, 0.009899) || 
+					TApproxEqual(d.boxShapeBuf[i].radius, 0.008172),
+					L"Have correct radius");
+			}
+
+			Assert::IsTrue(d.rbBuf.collisionFilter_layer == 5, L"Have correct collision filter layer");
+
+			d.staffRef = findNodeByName(nif, "Staff3rdPerson:0");
+		}
+		TEST_METHOD(readWriteCollisionXform) {
 			/* Test we can read and write collisions with convex transforms */
-			//void* nif = load((testRoot / "Skyrim/falmerstaff.nif").u8string().c_str());
+
+			FalmerStaffData data, dataCheck;
+			void* nif = load((testRoot / "Skyrim/falmerstaff.nif").u8string().c_str());
+			TCheckFalmerStaff(nif, data);
 
 			//void* shapes[10];
 			//int shapeCount = getShapes(nif, shapes, 10, 0);
@@ -3006,7 +2946,6 @@ namespace NiflyDLLTests
 			//		staff = shapes[i];
 			//};
 
-			//void* root = getRoot(nif);
 			//void* collisionObject = getCollision(nif, root);
 			//int bodyID = getCollBodyID(nif, collisionObject);
 			//BHKRigidBodyBuf bodyProps;
@@ -3026,14 +2965,34 @@ namespace NiflyDLLTests
 			//BHKBoxShapeBuf box0Props;
 			//getCollBoxShapeProps(nif, box0, &box0Props);
 
-			////// ============= Can write collisions =======
+			//// ============= Can write collisions =======
 
-			//void* nifOut = createNif("SKYRIM", "BSFadeNode", "readCollisionXform");
-			//uint16_t options = 0;
+			void* nifOut = createNif("SKYRIM", "BSFadeNode", "Scene Root");
+			uint16_t options = 0;
 
-			//void* staffOut = TCopyShape(nifOut, "Staff", nif, staff,
-			//	0, nullptr, 0);
-			//TCopyShader(nifOut, staffOut, nif, staff);
+			void* staffOut = TCopyShape(nifOut, "Staff", nif, data.staffRef,
+				NifOptions::None, false);
+			TCopyShader(nifOut, staffOut, nif, data.staffRef);
+
+			bhkCollisionObjectBuf collOutBuf;
+			collOutBuf.targetID = 0;
+			int collOutID = addBlock(nifOut, nullptr, &collOutBuf, NIF_NPOS);
+			bhkRigidBodyBuf rbOutBuf;
+			rbOutBuf.collisionFilter_layer = 5;
+			int rbOutID = addBlock(nifOut, nullptr, &rbOutBuf, collOutID);
+			BHKListShapeBuf lsOutBuf;
+			lsOutBuf.material = 1607128641;
+			int lsOutID = addBlock(nifOut, nullptr, &lsOutBuf, rbOutID);
+			BHKConvexTransformShapeBuf ctOutBuf[3];
+			bhkBoxShapeBuf boxBuf[3];
+			for (int i = 0; i < 3; i++) {
+				ctOutBuf[i].material = 1607128641;
+				ctOutBuf[i].radius = 0.009899;
+				boxBuf[i].material = 1607128641;
+				boxBuf[i].radius = 0.009899;
+				int ctOutID = addBlock(nifOut, nullptr, &ctOutBuf[i], lsOutID);
+				int box1OutID = addBlock(nifOut, nullptr, &boxBuf[i], ctOutID);
+			}
 
 			//int boxOut = addCollBoxShape(nifOut, &box0Props);
 			//int ctsOut = addCollConvexTransformShape(nifOut, &shapeProps[0]);
@@ -3041,16 +3000,13 @@ namespace NiflyDLLTests
 			//int listOut = addCollListShape(nifOut, &listProps);
 			//addCollListChild(nifOut, listOut, ctsOut);
 			//int rbOut = addRigidBody(nifOut, "bhkRigidBody", listOut, &bodyProps);
-			//addCollision(nifOut, nullptr, rbOut, 1);
 
-			//saveNif(nifOut, (testRoot / "Out/readCollisionXform.nif").u8string().c_str());
+			saveNif(nifOut, (testRoot / "Out/readWriteCollisionXform.nif").u8string().c_str());
 
-			////// ============= Check results =======
-			//void* nifCheck = load((testRoot / "Out/readCollisionXform.nif").u8string().c_str());
+			//// ============= Check results =======
+			void* nifCheck = load((testRoot / "Out/readWriteCollisionXform.nif").u8string().c_str());
+			TCheckFalmerStaff(nifCheck, dataCheck);
 
-			//void* shapesCheck[10];
-			//int shapeCountCheck = getShapes(nifCheck, shapesCheck, 10, 0);
-			//void* staffCheck = shapesCheck[0];
 
 			//void* rootCheck = getRoot(nifCheck);
 			//void* collisionObjectCheck = getCollision(nifCheck, rootCheck);
@@ -3263,24 +3219,109 @@ namespace NiflyDLLTests
 			Assert::IsFalse(strstr(msgbuf, "WARNING:"), L"Error completed with warnings");
 			Assert::IsFalse(strstr(msgbuf, "ERROR:"), L"Error completed with errors");
 		};
+		struct DwemerChestData {
+			NiControllerManagerBuf controllerManager;
+			NiMultiTargetTransformControllerBuf mttc;
+			NiControllerSequenceBuf ctrlrSeq[2];
+			ControllerLinkBuf ctrlrLink[9];
+			int openIndex, closeIndex;
+			NiTransformInterpolatorBuf transformInterp[9];
+			NiTransformDataBuf transformData[9];
+			NiAnimKeyLinearTransBuf animKeyLin[20];
+			NiAnimKeyQuadXYZBuf animKeyQuad[5][5];
+		};
+		void TCheckDwemerChest(void* nif, DwemerChestData& data)
+		{
+
+			/* Check that the dwemer chest is read correctly. Useful to ensure that it can be read and
+			that what was written is correct.
+			*/
+			NiNodeBuf rootbuf;
+			getBlock(nif, 0, &rootbuf);
+
+			// We can find controller blocks directly, by type.
+			//int ncmCount = findNodesByType(nif, root, "NiControllerManager", 1, &ncm);
+			//Assert::AreEqual(1, ncmCount, L"Found 1 controller manager");
+
+			getBlock(nif, rootbuf.controllerID, &data.controllerManager);
+
+			//getControllerManager(ncm, &controllerManager);
+			//getBlock(nif, "NiControllerManager", &controllerManager)
+			Assert::AreEqual(1.0f, data.controllerManager.frequency, L"Frequency value correct");
+
+			//// Better, perhaps, to find controller blocks through their parent.
+			//void* rc = getNodeController(nif, root, &controllerManager);
+			//Assert::AreEqual(1.0f, controllerManager.frequency, L"Frequency value correct");
+
+			getBlock(nif, data.controllerManager.nextControllerID, &data.mttc);
+			Assert::AreEqual(108, int(data.mttc.flags), L"Flags are correct");
+			Assert::AreEqual(2, int(data.controllerManager.controllerSequenceCount), L"Have right number of controller sequences");
+
+			uint32_t* cs = new uint32_t[data.controllerManager.controllerSequenceCount];
+			getControllerManagerSeq(nif, rootbuf.controllerID, data.controllerManager.controllerSequenceCount, cs);
+
+			getBlock(nif, cs[0], &data.ctrlrSeq[0]);
+			getBlock(nif, cs[1], &data.ctrlrSeq[1]);
+			Assert::IsTrue(TApproxEqual(0.6, data.ctrlrSeq[0].stopTime), L"StopTime correct");
+
+			char* csName0 = new char[64];
+			char* csName1 = new char[64];
+			getString(nif, data.ctrlrSeq[0].nameID, 64, csName0);
+			getString(nif, data.ctrlrSeq[1].nameID, 64, csName1);
+
+			data.openIndex = -1;
+			data.closeIndex = -1;
+			if (strcmp(csName0, "Open") == 0) data.openIndex = 0;
+			if (strcmp(csName0, "Close") == 0) data.closeIndex = 0;
+			if (strcmp(csName1, "Open") == 0) data.openIndex = 1;
+			if (strcmp(csName1, "Close") == 0) data.closeIndex = 1;
+			Assert::IsTrue(data.openIndex != -1 && data.closeIndex != -1, L"Have correct names");
+
+			char* namebuf = new char[64];
+			int cbCount = data.ctrlrSeq[data.openIndex].controlledBlocksCount;
+			Assert::IsTrue(cbCount == 9 || cbCount == 2, L"Found 9 (2) controller links");
+			data.ctrlrLink[0].bufSize = sizeof(ControllerLinkBuf) * cbCount;
+			getBlock(nif, cs[data.openIndex], data.ctrlrLink);
+			getString(nif, data.ctrlrLink[0].nodeName, 64, namebuf);
+			Assert::IsTrue(strcmp("Object01", namebuf) == 0, L"Have correct node name");
+
+			// First interpolator does linear movement of the chest's lid. So no rotation keys.
+			getBlock(nif, data.ctrlrLink[0].interpolatorID, &data.transformInterp[0]);
+			getBlock(nif, data.transformInterp[0].dataID, &data.transformData[0]);
+			Assert::AreEqual(0, int(data.transformData[0].quaternionKeyCount), L"Have correct number of rotation keys");
+			Assert::AreEqual(18, int(data.transformData[0].translations.numKeys), L"Have correct number of translations");
+			Assert::AreEqual(1, int(data.transformData[0].translations.interpolation), L"Have correct interpolation");
+
+			for (int i = 0; i < data.transformData[0].translations.numKeys; i++)
+				getAnimKeyLinearTrans(nif, data.transformInterp[0].dataID, i, &data.animKeyLin[i]);
+			Assert::IsTrue(TApproxEqual(0.06667f, data.animKeyLin[2].time), L"First time value good");
+			Assert::IsTrue(TApproxEqual(1.1176f, data.animKeyLin[2].value[0]), L"X location good");
+
+			// Second interpolator does the revolution of the screw in the worm drive. 
+			getString(nif, data.ctrlrLink[1].nodeName, 64, namebuf);
+			Assert::IsTrue(strcmp("Gear08", namebuf) == 0, L"Have correct node name");
+			getBlock(nif, data.ctrlrLink[1].interpolatorID, &data.transformInterp[1]);
+			getBlock(nif, data.transformInterp[1].dataID, &data.transformData[1]);
+			Assert::AreEqual(1, int(data.transformData[1].xRotations.numKeys), L"Have correct number of X rotation keys");
+			Assert::AreEqual(2, int(data.transformData[1].zRotations.numKeys), L"Have correct number of Z rotation keys");
+			Assert::AreEqual(int(NiKeyType::QUADRATIC_KEY), int(data.transformData[1].zRotations.interpolation), L"Have quadratic interpolation");
+
+			for (int i = 0; i < data.transformData[1].zRotations.numKeys; i++) {
+				getAnimKeyQuadXYZ(nif, data.transformInterp[1].dataID, 'Z', i, &data.animKeyQuad[1][i]);
+			}
+
+			Assert::AreEqual(0.6f, data.animKeyQuad[1][1].time, L"Have Z time correct");
+			Assert::IsTrue(TApproxEqual(-3.141593f, data.animKeyQuad[1][1].value), L"Have Z value correct");
+		}
+
 		TEST_METHOD(transformController) {
 			/* Can import and export nif with animations (Dwemer chest) */
 
 			void* nif = load((testRoot / "Skyrim/dwechest01.nif").u8string().c_str());
 			int strlen = getMaxStringLen(nif);
 
-			NiTransformDataBuf tdbuf1, tdbuf2;
-			NiAnimKeyLinearTransBuf akbuf[20];
-			NiAnimKeyQuadXYZBuf akbuf2[20];
-			NiTransformInterpolatorBuf tibuf, tibuf2;
-			NiMultiTargetTransformControllerBuf mttcbuf;
-			NiControllerManagerBuf ncmbuf;
-			NiControllerSequenceBuf csbuf[2];
-			int openIndex, closeIndex;
-			TCheckDwemerChest(nif, ncmbuf, mttcbuf, csbuf, openIndex, 
-				tibuf, tdbuf1, akbuf, 
-				tibuf2, tdbuf2, akbuf2);
-			closeIndex = openIndex == 0 ? 1 : 0;
+			DwemerChestData data;
+			TCheckDwemerChest(nif, data);
 
 			/* ********** export ******** */
 			clearMessageLog();
@@ -3339,24 +3380,24 @@ namespace NiflyDLLTests
 
 			// Transform Data references nothing so it's easy to write first.
 			NiTransformDataBuf tdbufOut1; 
-			tdbufOut1.rotationType = tdbuf1.rotationType;
+			tdbufOut1.rotationType = data.transformData[1].rotationType;
 			tdbufOut1.translations.interpolation = NiKeyType(LINEAR_KEY);
 			int tdOut1 = addBlock(nifOut, nullptr, &tdbufOut1, NIF_NPOS);
 
-			for (int i = 0; i < tdbuf1.translations.numKeys; i++) {
-				addAnimKeyLinearTrans(nifOut, tdOut1, &akbuf[i]);
+			for (int i = 0; i < data.transformData[0].translations.numKeys; i++) {
+				addAnimKeyLinearTrans(nifOut, tdOut1, &data.animKeyLin[i]);
 			}
 
 			// Transform interpolator references its transformation data.
 			NiTransformInterpolatorBuf tibufOut;
-			tibufOut = tibuf;
+			tibufOut = data.transformInterp[0];
 			tibufOut.dataID = tdOut1;
 			int tiOut = addBlock(nifOut, nullptr, &tibufOut, NIF_NPOS);
 
 			// Transform Data for the gear. Write the Interpolator first and pass it as the parent 
 			// to the Data.
 			NiTransformInterpolatorBuf tibufOut2;
-			tibufOut2 = tibuf2;
+			tibufOut2 = data.transformInterp[1];
 			tibufOut2.dataID = NIF_NPOS;
 			int tiOut2 = addBlock(nifOut, nullptr, &tibufOut2, NIF_NPOS);
 
@@ -3371,14 +3412,14 @@ namespace NiflyDLLTests
 			xk.value = 0;
 			addAnimKeyQuadXYZ(nifOut, tdOut2, 'X', &xk);
 			addAnimKeyQuadXYZ(nifOut, tdOut2, 'Y', &xk);
-			for (int i = 0; i < tdbuf2.zRotations.numKeys; i++) {
-				addAnimKeyQuadXYZ(nifOut, tdOut2, 'Z', & akbuf2[i]);
+			for (int i = 0; i < data.transformData[1].zRotations.numKeys; i++) {
+				addAnimKeyQuadXYZ(nifOut, tdOut2, 'Z', & data.animKeyQuad[1][i]);
 			}
 			
 			// MultiTargetTransformController is the controller for all the controlled blocks and has to 
 			// be referenced by the ControlerManager, so make it first.
 			NiMultiTargetTransformControllerBuf mttcbufOut;
-			mttcbufOut = mttcbuf;
+			mttcbufOut = data.mttc;
 			mttcbufOut.nextControllerID = NIF_NPOS;
 			mttcbufOut.targetID = 0; // target is root
 			mttcbufOut.targetCount = 0;
@@ -3386,7 +3427,7 @@ namespace NiflyDLLTests
 
 			// Controllers are written as blocks. Controller target (the root node) has its controller 
 			// property set to this new block.
-			NiControllerManagerBuf cmbufOut = ncmbuf;
+			NiControllerManagerBuf cmbufOut = data.controllerManager;
 			cmbufOut.nextControllerID = mttcOut;
 			cmbufOut.controllerSequenceCount = 0;
 			cmbufOut.objectPaletteID = NIF_NPOS;
@@ -3399,7 +3440,7 @@ namespace NiflyDLLTests
 			// that adds it to the manager's list of sequences.
 			//uint32_t nameID = addString(nifOut, "Open");
 			uint32_t accumRootNameID = addString(nifOut, "DwarvenChest01"); 
-			NiControllerSequenceBuf openbufOut = csbuf[openIndex];
+			NiControllerSequenceBuf openbufOut = data.ctrlrSeq[data.openIndex];
 			openbufOut.controlledBlocksCount = 0;
 			openbufOut.animNotesCount = 0;
 			openbufOut.textKeyID = NIF_NPOS;
@@ -3425,7 +3466,7 @@ namespace NiflyDLLTests
 			clbufOut2.ctrlType = addString(nifOut, "NiTransformController");
 			addBlock(nifOut, "Gear08", &clbufOut2, csOpenOut);
 
-			NiControllerSequenceBuf closebufOut = csbuf[closeIndex];
+			NiControllerSequenceBuf closebufOut = data.ctrlrSeq[data.closeIndex];
 			closebufOut.controlledBlocksCount = 0;
 			closebufOut.animNotesCount = 0;
 			closebufOut.textKeyID = NIF_NPOS;
@@ -3435,22 +3476,9 @@ namespace NiflyDLLTests
 			saveNif(nifOut, fileOut.u8string().c_str());
 
 			/* Check the results. */
+			DwemerChestData dataCheck;
 			void* nifcheck = load(fileOut.u8string().c_str());
-			NiTransformDataBuf tdbuf1Check, tdbuf2Check;
-			NiAnimKeyLinearTransBuf akbufCheck[20];
-			NiAnimKeyQuadXYZBuf akbuf2Check[20];
-			NiTransformInterpolatorBuf tibufCheck, tibuf2Check;
-			NiMultiTargetTransformControllerBuf mttcbufCheck;
-			NiControllerManagerBuf ncmbufCheck;
-			NiControllerSequenceBuf csbufCheck[2];
-			int openIndexCheck;
-			TCheckDwemerChest(nifcheck, 
-				ncmbufCheck, 
-				mttcbufCheck, 
-				csbufCheck, 
-				openIndexCheck, 
-				tibufCheck, tdbuf1Check, akbufCheck, 
-				tibuf2Check, tdbuf2Check, akbuf2Check);
+			TCheckDwemerChest(nifcheck, dataCheck);
 		};
 
 		void TCheckAlduin(void* nif) {

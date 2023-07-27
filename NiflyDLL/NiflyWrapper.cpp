@@ -2001,7 +2001,9 @@ int getInvMarker(void* nifref, uint32_t id, void* inbuf)
     }
 
     if (buf->bufSize != sizeof(BSInvMarkerBuf)) {
-        niflydll::LogWrite("getInvMarker passed invalid buffer");
+        niflydll::LogWrite("getInvMarker passed invalid buffer: " +
+            std::to_string(buf->bufSize) + " != " + 
+            std::to_string(sizeof(BSInvMarkerBuf)));
         return 2;
     }
 
@@ -2237,7 +2239,9 @@ int getMessageLog(char* buf, int buflen) {
     //return niflydll::LogGetLen();
 }
 
+
 /* ***************************** COLLISION OBJECTS ***************************** */
+
 
 int getCollisionObject(void* nifref, uint32_t blockID, void* inbuf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -2359,7 +2363,13 @@ int setCollision(void* nifref, uint32_t id, void* inbuf) {
 
 };
 
-int addCollision(void* nifref, const char* name, void* buf, uint32_t parent) {
+int addCollision(void* nifref, const char* name, void* buf, uint32_t parent) 
+/* 
+*  name - ignored
+*  buf - properties
+*  parent - target object; if NIF_NPOS then get target from buf
+*/
+{
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     NiCollisionObjectBuf* coBuf = static_cast<NiCollisionObjectBuf*>(buf);
@@ -2425,29 +2435,6 @@ int addCollision(void* nifref, const char* name, void* buf, uint32_t parent) {
     
     return newid;
 };
-
-NIFLY_API int getCollBlockname(void* node, char* buf, int buflen) {
-    nifly::bhkCollisionObject* theNode = static_cast<nifly::bhkCollisionObject*>(node);
-    if (theNode) {
-        std::string name = theNode->GetBlockName();
-        int copylen = std::min((int)buflen - 1, (int)name.length());
-        name.copy(buf, copylen, 0);
-        buf[copylen] = '\0';
-        return int(name.length());
-    }
-    else
-        return 0;
-}
-
-NIFLY_API int getCollBodyID(void* nifref, void* node) {
-    NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
-    nifly::bhkCollisionObject* theNode = static_cast<nifly::bhkCollisionObject*>(node);
-    if (theNode)
-        return theNode->bodyRef.index;
-    else
-        return 0;
-}
 
 int setRigidBody(void* nifref, uint32_t blockID, void* buffer) {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -2537,10 +2524,11 @@ int addRigidBody(void* nifref, const char* name, void* buffer, uint32_t parent) 
 
     int newid = nif->GetHeader().AddBlock(std::move(theBody));
 
-    if (setRigidBody(nifref, newid, buffer) == 0 && parent != NIF_NPOS) {
-        bhkNiCollisionObject* coll = hdr->GetBlock<bhkNiCollisionObject>(parent);
-        if (coll) coll->bodyRef.index = newid;
-    }
+    if (setRigidBody(nifref, newid, buffer) == 0)
+        if (parent != NIF_NPOS) {
+            bhkNiCollisionObject* coll = hdr->GetBlock<bhkNiCollisionObject>(parent);
+            if (coll) coll->bodyRef.index = newid;
+        }
 
     return newid;
 };
@@ -2589,6 +2577,7 @@ int getRigidBodyProps(void* nifref, uint32_t nodeIndex, void* inbuf)
     NiHeader* hdr = &nif->GetHeader();
     nifly::bhkWorldObject* theWO = hdr->GetBlock<bhkWorldObject>(nodeIndex);
     nifly::bhkRigidBody* theBody = hdr->GetBlock<bhkRigidBody>(nodeIndex);
+    nifly::bhkRigidBody* theBodyT = hdr->GetBlock<bhkRigidBodyT>(nodeIndex);
     bhkRigidBodyBuf* buf = static_cast<bhkRigidBodyBuf*>(inbuf);
 
     if (!theWO and !theBody) {
@@ -2599,6 +2588,9 @@ int getRigidBodyProps(void* nifref, uint32_t nodeIndex, void* inbuf)
         niflydll::LogWrite("getRigidBodyProps given wrong size buffer");
         return 2;
     }
+
+    if (theBodyT) buf->bufType = BUFFER_TYPES::bhkRigidBodyTBufType;
+    else buf->bufType = BUFFER_TYPES::bhkRigidBodyBufType;
 
     if (theWO) {
         std::vector<uint32_t> ch;
@@ -2665,66 +2657,94 @@ int getRigidBodyProps(void* nifref, uint32_t nodeIndex, void* inbuf)
     return 0;
 }
 
-//NIFLY_API int getRigidBodyShapeID(void* nifref, int nodeIndex) {
-//    /* Returns the block index of the collision shape */
-//    NifFile* nif = static_cast<NifFile*>(nifref);
-//    NiHeader hdr = nif->GetHeader();
-//    nifly::bhkRigidBody* theBody = hdr.GetBlock<bhkRigidBody>(nodeIndex);
-//    if (theBody)
-//        return theBody->shapeRef.index;
-//    else
-//        return -1;
-//}
+void addCollisionChild(NifFile* nif, uint32_t parent, uint32_t childID) {
+    /* Make the child the sub-shape of the parent collision shape thing. */
+    if (parent == NIF_NPOS) return;
 
-//NIFLY_API int getCollShapeBlockname(void* nifref, int nodeIndex, char* buf, int buflen) {
-//    NifFile* nif = static_cast<NifFile*>(nifref);
-//    NiHeader hdr = nif->GetHeader();
-//    nifly::bhkShape* theBody = hdr.GetBlock<bhkShape>(nodeIndex);
-//
-//    if (theBody) {
-//        std::string name = theBody->GetBlockName();
-//        int copylen = std::min((int)buflen - 1, (int)name.length());
-//        name.copy(buf, copylen, 0);
-//        buf[copylen] = '\0';
-//        return int(name.length());
-//    }
-//    else
-//        return 0;
-//}
+    NiHeader* hdr = &nif->GetHeader();
+    bhkRigidBody* rb = hdr->GetBlock<bhkRigidBody>(parent);
+    if (rb) {
+        rb->shapeRef.index = childID;
+        return;
+    }
 
-NIFLY_API int getCollConvexVertsShapeProps(void* nifref, int nodeIndex, BHKConvexVertsShapeBuf* buf)
+    bhkWorldObject* wo = hdr->GetBlock<bhkWorldObject>(parent);
+    if (wo) {
+        wo->shapeRef.index = childID;
+    }
+
+    bhkConvexTransformShape* cts = hdr->GetBlock<bhkConvexTransformShape>(parent);
+    if (cts) {
+        cts->shapeRef.index = childID;
+        return;
+    }
+
+    bhkListShape* ls = hdr->GetBlock<bhkListShape>(parent);
+    if (ls) {
+        ls->subShapeRefs.AddBlockRef(childID);
+        return;
+    }
+
+}
+
+NIFLY_API int getCollConvexVertsShapeProps(void* nifref, uint32_t nodeIndex, void* buffer)
 /*
     Return the collision shape details. Return value = 1 if the node is a known collision shape,
     0 if not
     */
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
-    nifly::bhkConvexVerticesShape* sh = hdr.GetBlock<bhkConvexVerticesShape>(nodeIndex);
+    NiHeader* hdr = &nif->GetHeader();
+    BHKConvexVertsShapeBuf* buf = static_cast<BHKConvexVertsShapeBuf*>(buffer);
+    bhkConvexVerticesShape* sh = hdr->GetBlock<bhkConvexVerticesShape>(nodeIndex);
 
-    if (sh) {
-        buf->material = sh->GetMaterial();
-        buf->radius = sh->radius;
-        buf->vertsProp_data = sh->vertsProp.data;
-        buf->vertsProp_size = sh->vertsProp.size;
-        buf->vertsProp_flags = sh->vertsProp.capacityAndFlags;
-        buf->normalsProp_data = sh->normalsProp.data;
-        buf->normalsProp_size = sh->normalsProp.size;
-        buf->normalsProp_flags = sh->normalsProp.capacityAndFlags;
+    if (!sh) {
+        niflydll::LogWrite("ERROR: Node is not a bhkConvexVerticesShape.");
         return 1;
     }
-    else
-        return 0;
+    if (buf->bufSize != sizeof(BHKConvexVertsShapeBuf)) {
+        niflydll::LogWrite("getCollConvexVertsShapeProps given wrong size buffer");
+        return 2;
+    }
+
+    buf->material = sh->GetMaterial();
+    buf->radius = sh->radius;
+    buf->vertsProp_data = sh->vertsProp.data;
+    buf->vertsProp_size = sh->vertsProp.size;
+    buf->vertsProp_flags = sh->vertsProp.capacityAndFlags;
+    buf->normalsProp_data = sh->normalsProp.data;
+    buf->normalsProp_size = sh->normalsProp.size;
+    buf->normalsProp_flags = sh->normalsProp.capacityAndFlags;
+    buf->vertsCount = sh->verts.size();
+    buf->normalsCount = sh->normals.size();
+
+    return 0;
 };
 
-NIFLY_API int addCollConvexVertsShape(void* nifref, const BHKConvexVertsShapeBuf* buf, 
-        float* verts, int vertcount, float* normals, int normcount) {
+int addCollConvexVertsShape(void* nifref, const char* name, void* buffer, uint32_t parent) {
     NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
+    NiHeader* hdr = &nif->GetHeader();
+    BHKConvexVertsShapeBuf* buf = static_cast<BHKConvexVertsShapeBuf*>(buffer);
 
     auto sh = std::make_unique<bhkConvexVerticesShape>();
     sh->SetMaterial(buf->material);
     sh->radius = buf->radius;
+    int newid = nif->GetHeader().AddBlock(std::move(sh));
+    addCollisionChild(nif, parent, newid);
+    return newid;
+};
+
+NIFLY_API int setCollConvexVerts(
+        void* nifref, int id, float* verts, int vertcount, float* normals, int normcount) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkConvexVerticesShape* sh = hdr->GetBlock<bhkConvexVerticesShape>(id);
+
+    if (!sh) {
+        niflydll::LogWrite("ERROR: Node is not a bhkConvexVerticesShape.");
+        return 1;
+    }
+
     for (int i = 0; i < vertcount * 4; i += 4) {
         Vector4 v = Vector4(verts[i], verts[i + 1], verts[i + 2], verts[i + 3]);
         sh->verts.push_back(v);
@@ -2733,8 +2753,8 @@ NIFLY_API int addCollConvexVertsShape(void* nifref, const BHKConvexVertsShapeBuf
         Vector4 n = Vector4(normals[i], normals[i + 1], normals[i + 2], normals[i + 3]);
         sh->normals.push_back(n);
     }
-    int newid = nif->GetHeader().AddBlock(std::move(sh));
-    return newid;
+
+    return 0;
 };
 
 NIFLY_API int getCollShapeVerts(void* nifref, int nodeIndex, float* buf, int buflen)
@@ -2831,37 +2851,43 @@ int addCollBoxShape(void* nifref, const char* name, void* buffer, uint32_t paren
     sh->dimensions.z = buf->dimensions_z;
     int newid = hdr->AddBlock(std::move(sh));
 
-    if (parent != NIF_NPOS) {
-        bhkWorldObject* parentNode = hdr->GetBlock<bhkWorldObject>(parent);
-        if (parentNode) {
-            parentNode->shapeRef.index = newid;
-        }
-    }
+    addCollisionChild(nif, parent, newid);
+
     return newid;
 };
 
-NIFLY_API int getCollListShapeProps(void* nifref, int nodeIndex, BHKListShapeBuf* buf)
+NIFLY_API int getCollListShapeProps(void* nifref, uint32_t nodeIndex, void* buffer)
 /*
     Return the collision shape details. Return value = 1 if the node is a known collision shape,
     0 if not
     */
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
-    nifly::bhkListShape* sh = hdr.GetBlock<bhkListShape>(nodeIndex);
+    NiHeader* hdr = &nif->GetHeader();
+    BHKListShapeBuf* buf = static_cast<BHKListShapeBuf*>(buffer);
+    nifly::bhkListShape* sh = hdr->GetBlock<bhkListShape>(nodeIndex);
 
-    if (sh) {
-        buf->material = sh->GetMaterial();
-        buf->childShape_data = sh->childShapeProp.data;
-        buf->childShape_size = sh->childShapeProp.size;
-        buf->childShape_flags = sh->childShapeProp.capacityAndFlags;
-        buf->childFilter_data = sh->childFilterProp.data;
-        buf->childFilter_size = sh->childFilterProp.size;
-        buf->childFilter_flags = sh->childFilterProp.capacityAndFlags;
+    if (!sh) {
+        niflydll::LogWrite("ERROR: Node is not a bhkListShape.");
         return 1;
     }
-    else
-        return 0;
+    if (buf->bufSize != sizeof(BHKListShapeBuf)) {
+        niflydll::LogWrite("getCollListShapeProps given wrong size buffer");
+        return 2;
+    }
+
+    buf->material = sh->GetMaterial();
+    buf->childShape_data = sh->childShapeProp.data;
+    buf->childShape_size = sh->childShapeProp.size;
+    buf->childShape_flags = sh->childShapeProp.capacityAndFlags;
+    buf->childFilter_data = sh->childFilterProp.data;
+    buf->childFilter_size = sh->childFilterProp.size;
+    buf->childFilter_flags = sh->childFilterProp.capacityAndFlags;
+
+    std::vector<uint32_t> children;
+    sh->GetChildIndices(children);
+    buf->childCount = children.size(); 
+    return 0;
 }
 
 NIFLY_API int getCollListShapeChildren(void* nifref, int nodeIndex, uint32_t* buf, int buflen)
@@ -2888,9 +2914,10 @@ NIFLY_API int getCollListShapeChildren(void* nifref, int nodeIndex, uint32_t* bu
         return 0;
 }
 
-NIFLY_API int addCollListShape(void* nifref, const BHKListShapeBuf* buf) {
+NIFLY_API int addCollListShape(void* nifref, const char* name, void* buffer, uint32_t parent) {
     NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
+    NiHeader* hdr = &nif->GetHeader();
+    BHKListShapeBuf* buf = static_cast<BHKListShapeBuf*>(buffer);
 
     auto sh = std::make_unique<bhkListShape>();
     sh->SetMaterial(buf->material);
@@ -2901,54 +2928,56 @@ NIFLY_API int addCollListShape(void* nifref, const BHKListShapeBuf* buf) {
     sh->childFilterProp.size = buf->childFilter_size;
     sh->childFilterProp.capacityAndFlags = buf->childFilter_flags;
     int newid = nif->GetHeader().AddBlock(std::move(sh));
+
+    addCollisionChild(nif, parent, newid);
+
     return newid;
 };
 
 NIFLY_API void addCollListChild(void* nifref, const uint32_t id, uint32_t child_id) {
     NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
-    bhkListShape* collList = hdr.GetBlock<bhkListShape>(id);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkListShape* collList = hdr->GetBlock<bhkListShape>(id);
 
    collList->subShapeRefs.AddBlockRef(child_id);
 };
 
-NIFLY_API int getCollConvexTransformShapeProps(
-    void* nifref, int nodeIndex, BHKConvexTransformShapeBuf* buf)
+int getCollConvexTransformShapeProps(
+    void* nifref, uint32_t nodeIndex, void* buffer)
 /*
     Return the collision shape details. Return value = 1 if the node is a known collision shape,
     0 if not
     */
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
-    nifly::bhkConvexTransformShape* sh = hdr.GetBlock<bhkConvexTransformShape>(nodeIndex);
+    NiHeader* hdr = &nif->GetHeader();
+    BHKConvexTransformShapeBuf* buf = static_cast<BHKConvexTransformShapeBuf*>(buffer);
+    bhkConvexTransformShape* sh = hdr->GetBlock<bhkConvexTransformShape>(nodeIndex);
 
-    if (sh) {
-        buf->material = sh->material;
-        buf->radius = sh->radius;
-        for (int i = 0; i < 16; i++) {
-            buf->xform[i] = sh->xform[i]; 
-        };
+    if (!sh) {
+        niflydll::LogWrite("ERROR: Node is not a bhkConvexTransformShape.");
         return 1;
     }
-    else
-        return 0;
+    if (buf->bufSize != sizeof(BHKConvexTransformShapeBuf)) {
+        niflydll::LogWrite("getCollConvexTransformShapeProps given wrong size buffer");
+        return 2;
+    }
+    
+    buf->shapeID = sh->shapeRef.index;
+    buf->material = sh->material;
+    buf->radius = sh->radius;
+    for (int i = 0; i < 16; i++) {
+        buf->xform[i] = sh->xform[i]; 
+    };
+
+    return 0;
 }
 
-NIFLY_API int getCollConvexTransformShapeChildID(void* nifref, int nodeIndex) {
-    /* Returns the block index of the collision shape */
+int addCollConvexTransformShape(
+        void* nifref, const char* name, void* buffer, uint32_t parent) {
     NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
-    nifly::bhkConvexTransformShape* sh = hdr.GetBlock<bhkConvexTransformShape>(nodeIndex);
-    if (sh)
-        return sh->shapeRef.index;
-    else
-        return -1;
-}
-
-NIFLY_API int addCollConvexTransformShape(void* nifref, const BHKConvexTransformShapeBuf* buf) {
-    NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
+    NiHeader* hdr = &nif->GetHeader();
+    BHKConvexTransformShapeBuf* buf = static_cast<BHKConvexTransformShapeBuf*>(buffer);
 
     auto sh = std::make_unique<bhkConvexTransformShape>();
     //sh->SetMaterial(buf->material);
@@ -2959,6 +2988,8 @@ NIFLY_API int addCollConvexTransformShape(void* nifref, const BHKConvexTransform
     };
 
     int newid = nif->GetHeader().AddBlock(std::move(sh));
+    addCollisionChild(nif, parent, newid);
+
     return newid;
 };
 
@@ -2968,35 +2999,43 @@ NIFLY_API void setCollConvexTransformShapeChild(
     NiHeader hdr = nif->GetHeader();
     bhkConvexTransformShape* cts = hdr.GetBlock<bhkConvexTransformShape>(id);
 
-    cts->shapeRef.index = child_id;
+    cts->shapeRef.index = child_id; 
 };
 
-NIFLY_API int getCollCapsuleShapeProps(void* nifref, int nodeIndex, BHKCapsuleShapeBuf* buf)
+int getCollCapsuleShapeProps(void* nifref, uint32_t nodeIndex, void* buffer)
 /*
-    Return the collision shape details. Return value = 1 if the node is a known collision shape,
-    0 if not
+    Return the collision shape details. 
+    Return value = 0 if the node is a known collision shape, <>0 if not
     */
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
-    nifly::bhkCapsuleShape* sh = hdr.GetBlock<bhkCapsuleShape>(nodeIndex);
+    NiHeader* hdr = &nif->GetHeader();
+    BHKCapsuleShapeBuf* buf = static_cast<BHKCapsuleShapeBuf*>(buffer);
+    bhkCapsuleShape* sh = hdr->GetBlock<bhkCapsuleShape>(nodeIndex);
 
-    if (sh) {
-        buf->material = sh->GetMaterial();
-        buf->radius = sh->radius;
-        buf->radius1 = sh->radius1;
-        buf->radius2 = sh->radius2;
-        for (int i = 0; i < 3; i++) buf->point1[i] = sh->point1[i];
-        for (int i = 0; i < 3; i++) buf->point2[i] = sh->point2[i];
+    if (!sh) {
+        niflydll::LogWrite("ERROR: Node is not a bhkCapsuleShape.");
         return 1;
     }
-    else
-        return 0;
+    if (buf->bufSize != sizeof(BHKCapsuleShapeBuf)) {
+        niflydll::LogWrite("getCollCapsuleShapeProps given wrong size buffer");
+        return 2;
+    }
+
+    buf->material = sh->GetMaterial();
+    buf->radius = sh->radius;
+    buf->radius1 = sh->radius1;
+    buf->radius2 = sh->radius2;
+    for (int i = 0; i < 3; i++) buf->point1[i] = sh->point1[i];
+    for (int i = 0; i < 3; i++) buf->point2[i] = sh->point2[i];
+
+    return 0;
 }
 
-int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf) {
+int addCollCapsuleShape(void* nifref, const char* name, void* buffer, uint32_t parent) {
     NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
+    NiHeader* hdr = &nif->GetHeader();
+    BHKCapsuleShapeBuf* buf = static_cast<BHKCapsuleShapeBuf*>(buffer);
 
     auto sh = std::make_unique<bhkCapsuleShape>();
     sh->SetMaterial(buf->material);
@@ -3007,6 +3046,9 @@ int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf) {
     for (int i = 0; i < 3; i++) sh->point2[i] = buf->point2[i];
     
     int newid = nif->GetHeader().AddBlock(std::move(sh));
+
+    addCollisionChild(nif, parent, newid);
+
     return newid;
 };
 
@@ -3714,9 +3756,12 @@ NIFLY_API int getExtraData(void* nifref, uint32_t id, const char* extraDataBlock
     }
     for (auto& ed : node->extraDataRefs) {
         NiExtraData* edBlock = hdr->GetBlock<NiExtraData>(ed.index);
-        if (edBlock && edBlock->GetBlockName() == extraDataBlockType)
+        if (edBlock && (strcmp(edBlock->GetBlockName(), extraDataBlockType) == 0))
             return ed.index;
     }
+
+    niflydll::LogWrite("Extra block type " + std::string(extraDataBlockType) 
+        + " not associated with node " + std::to_string(id));
     return NIF_NPOS;
 }
 
@@ -3741,7 +3786,11 @@ BlockGetterFunction getterFunctions[] = {
     getBSXFlags,
     getMultiTargetTransformController,
     getTransformController,
-    getCollisionObject // bhkCollisionObjectBufType
+    getCollisionObject, // bhkCollisionObjectBufType
+    getCollCapsuleShapeProps, //bhkCapsuleShapeBufType,
+    getCollConvexTransformShapeProps, //bhkConvexTransformShapeBufType,
+    getCollConvexVertsShapeProps, //bhkConvexVerticesShapeBufType,
+    getCollListShapeProps //bhkListShapeBufTYpe
 };
 
 NIFLY_API int getBlock(void* nifref, uint32_t blockID, void* buf)
@@ -3778,7 +3827,11 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //BSXFlagsBufType,
     nullptr, //NiMultiTargetTransformControllerBufType,
     nullptr, //NiTransformControllerBufType
-    setCollision // bhkCollisionObjectBufType
+    setCollision, // bhkCollisionObjectBufType
+    nullptr, //bhkCapsuleShapeBufType,
+    nullptr, //bhkConvexTransformShapeBufType,
+    nullptr, //bhkConvexVerticesShapeBufType,
+    nullptr //bhkListShapeBufTYpe
 };
 
 NIFLY_API int setBlock(void* f, int id, void* buf)
@@ -3813,7 +3866,11 @@ BlockCreatorFunction creatorFunctions[] = {
     setBSXFlags, //BSXFlagsBufType,
     addMultiTargetTransformController, //NiMultiTargetTransformControllerBufType,
     addTransformController, //NiTransformControllerBufType, 
-    addCollision // bhkCollisionObjectBufType
+    addCollision, // bhkCollisionObjectBufType
+    addCollCapsuleShape, //bhkCapsuleShapeBufType,
+    addCollConvexTransformShape, //bhkConvexTransformShapeBufType,
+    addCollConvexVertsShape, //bhkConvexVerticesShapeBufType,
+    addCollListShape //bhkListShapeBufTYpe
 };
 
 NIFLY_API int addBlock(void* f, const char* name, void* buf, int parent) {

@@ -67,6 +67,7 @@ class PynIntEnum(IntEnum):
         except:
             return int(nm, 0)
 
+NODEID_NONE = 4294967295
 
 VECTOR3 = c_float * 3
 VECTOR4 = c_float * 4
@@ -137,7 +138,7 @@ class pynStructure(Structure):
         if "bufSize" in [n for n, t in self._fields_]:
             self.__setattr__("bufSize", sizeof(self))
         self.warnings = []
-        self.load(bhkRigidBodyProps_Defaults)
+        self.load(pynBufferDefaults)
         if values:
             self.load(values)
 
@@ -801,48 +802,107 @@ class SkyrimHavokMaterial(IntEnum):
         except:
             return str(val)
 
-bhkRigidBodyProps_Defaults = {
-    'collisionFilter_layer': "STATIC",
-	'collisionFilter_flags': 0,
-	'collisionFilter_group': 0,
-	'broadPhaseType': 0,
-	'prop_data': 0, 
-	'prop_size': 0,
-	'prop_flags': 0,
-    "collisionResponse": "SIMPLE_CONTACT",
-    "processContactCallbackDelay": 0xFFFF,
-    "collisionFilterCopy_layer": "STATIC",
-    "collisionFilterCopy_flags": 0,
-    "collisionFilterCopy_group": 0,
-    "linearVelocity": (0, 0, 0, 0),
-    "angularVelocity": (0, 0, 0, 0),
-    "inertiaMatrix": [0] * 12,
-    "center": (0, 0, 0, 0),
-    "mass": 1.0,
-    "linearDamping": 0.1,
-    "angularDamping": 0.05,
-    "timeFactor": 1.0,
-    "gravityFactor": 1.0,
-    "friction": 0.5,
-    "rollingFrictionMult": 1.0,
-    'restitution': 0.4, 
-    'maxLinearVelocity': 104.4, 
-    'maxAngularVelocity': 31.57, 
-    'penetrationDepth': 0.15,
-    'motionSystem': 1,
-    'deactivatorType': 1,
-    'solverDeactivation': 1, 
-    'qualityType': 1,
-    'autoRemoveLevel': 0,
-    'responseModifierFlag': 0,
-    'numShapeKeysInContactPointProps': 0, 
-    'forceCollideOntoPpu': 0,
-    'bodyFlagsInt': 0,
-    'bodyFlags': 0,
-    'guard': 0x0F0F0F0F }
+class PynBufferTypes(IntEnum):
+    NiNodeBufType = 0
+    NiShapeBufType = 1
+    NiCollisionObjectBufType = 2
+    bhkNiCollisionObjectBufType = 3
+    bhkPCollisionObjectBufType = 4
+    bhkSPCollisionObjectBufType = 5
+    bhkRigidBodyBufType = 6
+    bhkRigidBodyTBufType = 7
+    bhkBoxShapeBufType = 8
+    NiControllerManagerBufType = 9
+    NiControllerSequenceBufType = 10
+    NiTransformInterpolatorBufType = 11
+    NiTransformDataBufType = 12
+    NiControllerLinkBufType = 13
+    BSInvMarkerBufType = 14
+    BSXFlagsBufType = 15
+    NiMultiTargetTransformControllerBufType = 16
+    NiTransformControllerBufType = 17
+    bhkCollisionObjectBufType = 18
+    bhkCapsuleShapeBufType = 19
+    bhkConvexTransformShapeBufType = 20
+    bhkConvexVerticesShapeBufType = 21
+    bhkListShapeBufType = 22
+    PynBufferTypeEnd = 23
+
+bufferTypeList = [''] * PynBufferTypes.PynBufferTypeEnd
+
+
+class NiCollisionObjectBuf(pynStructure):
+    _fields_ = [
+	    ('bufSize', c_uint16),
+	    ('bufType', c_uint16),
+        ('targetID', c_uint32)
+    ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.NiCollisionObjectBufType
+bufferTypeList[PynBufferTypes.NiCollisionObjectBufType] = 'NiCollisionObject'
+
+class bhkNiCollisionObjectBuf(pynStructure):
+    _fields_ = [
+	    ('bufSize', c_uint16),
+	    ('bufType', c_uint16),
+        ('targetID', c_uint32),
+        ('flags', c_uint16),
+        ('bodyID', c_uint32),
+        ('childCount', c_uint16),
+    ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.bhkNiCollisionObjectBufType
+bufferTypeList[PynBufferTypes.bhkNiCollisionObjectBufType] = 'bhkNiCollisionObject'
+
+class bhkCollisionObjectBuf(pynStructure):
+    _fields_ = [
+	    ('bufSize', c_uint16),
+	    ('bufType', c_uint16),
+        ('targetID', c_uint32),
+        ('flags', c_uint16),
+        ('bodyID', c_uint32),
+        ('childCount', c_uint16),
+    ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.bhkCollisionObjectBufType
+bufferTypeList[PynBufferTypes.bhkCollisionObjectBufType] = 'bhkCollisionObject'
+
+class bhkPCollisionObjectBuf(pynStructure):
+    _fields_ = [
+	    ('bufSize', c_uint16),
+	    ('bufType', c_uint16),
+        ('targetID', c_uint32),
+        ('flags', c_uint16),
+        ('bodyID', c_uint32),
+        ('childCount', c_uint16),
+    ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.bhkPCollisionObjectBufType
+bufferTypeList[PynBufferTypes.bhkPCollisionObjectBufType] = 'bhkPCollisionObject'
+
+class bhkSPCollisionObjectBuf(pynStructure):
+    _fields_ = [
+	    ('bufSize', c_uint16),
+	    ('bufType', c_uint16),
+        ('targetID', c_uint32),
+        ('flags', c_uint16),
+        ('bodyID', c_uint32),
+        ('childCount', c_uint16),
+    ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.bhkSPCollisionObjectBufType
+bufferTypeList[PynBufferTypes.bhkSPCollisionObjectBufType] = 'bhkSPCollisionObject'
 
 class bhkRigidBodyProps(pynStructure):
     _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ('shapeID', c_uint32),
         ('collisionFilter_layer', c_uint8),
 	    ('collisionFilter_flags', c_uint8),
 	    ('collisionFilter_group', c_uint16),
@@ -850,14 +910,13 @@ class bhkRigidBodyProps(pynStructure):
 	    ('prop_data', c_uint32),    
 	    ('prop_size', c_uint32),
 	    ('prop_flags', c_uint32),
+        ('childCount', c_uint16),
         ('collisionResponse', c_uint8),
         ('unusedByte1', c_uint8),
         ('processContactCallbackDelay', c_uint16),
-        ('unkInt1', c_uint32),
         ('collisionFilterCopy_layer', c_uint8),
         ('collisionFilterCopy_flags', c_uint8),
         ('collisionFilterCopy_group', c_uint16),
-        ('unkShorts2', VECTOR6_SHORT),
         ('translation', VECTOR4),
         ('rotation', VECTOR4),
         ('linearVelocity', VECTOR4),
@@ -890,28 +949,98 @@ class bhkRigidBodyProps(pynStructure):
         ('unusedBytes2_1', c_uint8),
         ('unusedBytes2_2', c_uint8),
         ('bodyFlagsInt', c_uint32),
-        ('bodyFlags', c_uint16),
-        ('guard', c_uint64)]
+        ('bodyFlags', c_uint16)]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.bhkRigidBodyBufType
+bufferTypeList[PynBufferTypes.bhkRigidBodyBufType] = 'bhkRigidBody'
+
+pynBufferDefaults = {
+	'broadPhaseType': 0,
+	'collisionFilter_flags': 0,
+	'collisionFilter_group': 0,
+	'prop_data': 0, 
+	'prop_flags': 0,
+	'prop_size': 0,
+    'angularDamping': 0.05,
+    'angularVelocity': (0, 0, 0, 0),
+    'autoRemoveLevel': 0,
+    'bodyFlags': 0,
+    'bodyFlagsInt': 0,
+    'bodyID': NODEID_NONE,
+    'center': (0, 0, 0, 0),
+    'childCount': 0,
+    'collisionFilter_layer': "STATIC",
+    'collisionFilterCopy_flags': 0,
+    'collisionFilterCopy_group': 0,
+    'collisionFilterCopy_layer': 'STATIC',
+    'collisionResponse': 'SIMPLE_CONTACT',
+    'controllerID': NODEID_NONE,
+    'ctrlID': NODEID_NONE,
+    'ctrlType': NODEID_NONE,
+    'deactivatorType': 1,
+    'forceCollideOntoPpu': 0,
+    'friction': 0.5,
+    'gravityFactor': 1.0,
+    'inertiaMatrix': [0] * 12,
+    'interpID': NODEID_NONE,
+    'interpolatorID': NODEID_NONE,
+    'linearDamping': 0.1,
+    'linearVelocity': (0, 0, 0, 0),
+    'mass': 1.0,
+    'maxAngularVelocity': 31.57, 
+    'maxLinearVelocity': 104.4, 
+    'motionSystem': 1,
+    'nodeName': NODEID_NONE,
+    'normalsCount': 0,
+    'numShapeKeysInContactPointProps': 0, 
+    'penetrationDepth': 0.15,
+    'processContactCallbackDelay': 0xFFFF,
+    'propType': NODEID_NONE,
+    'qualityType': 1,
+    'responseModifierFlag': 0,
+    'restitution': 0.4, 
+    'rollingFrictionMult': 1.0,
+    'shapeID': NODEID_NONE,
+    'solverDeactivation': 1, 
+    'targetID': NODEID_NONE,
+    'timeFactor': 1.0,
+    'vertsCount': 0,
+    }
 
 
 class bhkBoxShapeProps(pynStructure):
     _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
         ("bhkMaterial", c_uint32),
         ("bhkRadius", c_float),
-        ("bhkDimensions", VECTOR3),
-        ("bhkUnused", c_float)]
+        ("bhkDimensions", VECTOR3)]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.bhkBoxShapeBufType
+bufferTypeList[PynBufferTypes.bhkBoxShapeBufType] = 'bhkBoxShape'
+
 
 class bhkCapsuleShapeProps(pynStructure):
     _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
         ("bhkMaterial", c_uint32),
         ("bhkRadius", c_float),
         ("point1", VECTOR3),
         ("radius1", c_float),
         ("point2", VECTOR3),
         ("radius2", c_float)]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.bhkCapsuleShapeBufType
+bufferTypeList[PynBufferTypes.bhkCapsuleShapeBufType] = 'bhkCapsuleShape'
 
 class bhkConvexVerticesShapeProps(pynStructure):
     _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
         ("bhkMaterial", c_uint32),
         ("bhkRadius", c_float),
         ('verticesProp_data', c_uint32),
@@ -919,24 +1048,44 @@ class bhkConvexVerticesShapeProps(pynStructure):
 	    ('verticesProp_flags', c_uint32),
         ('normalsProp_data', c_uint32),
 	    ('normalsProp_size', c_uint32),
-	    ('normalsProp_flags', c_uint32) ]
+	    ('normalsProp_flags', c_uint32),
+	    ('vertsCount', c_uint32),
+	    ('normalsCount', c_uint32),
+          ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.bhkConvexVerticesShapeBufType
+bufferTypeList[PynBufferTypes.bhkConvexVerticesShapeBufType] = 'bhkConvexVerticesShape'
 
 class bhkListShapeProps(pynStructure):
     _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
         ("bhkMaterial", c_uint32),
-        ("bhkRadius", c_float),
         ('childShape_data', c_uint32),
         ('childShape_size', c_uint32),
         ('childShape_flags', c_uint32),
         ('childFilter_data', c_uint32),
         ('childFilter_size', c_uint32),
-        ('childFilter_flags', c_uint32) ]
+        ('childFilter_flags', c_uint32),
+        ('childCount', c_uint32) ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.bhkListShapeBufType
+bufferTypeList[PynBufferTypes.bhkListShapeBufType] = 'bhkListShape'
 
 class bhkConvexTransformShapeProps(pynStructure):
     _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ("shapeID", c_uint32),
         ("bhkMaterial", c_uint32),
         ("bhkRadius", c_float),
         ('transform', MATRIX4) ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.bhkConvexTransformShapeBufType
+bufferTypeList[PynBufferTypes.bhkConvexTransformShapeBufType] = 'bhkConvexTransformShape'
 
 class FurnitureMarkerBuf(pynStructure):
     _fields_ = [
@@ -955,7 +1104,8 @@ class ConnectPointBuf(pynStructure):
     
 class NiNodeBuf(pynStructure):
     _fields_ = [
-        ("bufSize", c_uint16),
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
         ("nameID", c_uint32),
         ("controllerID", c_uint32),
         ("extraDataCount", c_uint16),
@@ -965,10 +1115,44 @@ class NiNodeBuf(pynStructure):
         ("childCount", c_uint16),
         ("effectCount", c_uint16),
     ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.NiNodeBufType
+bufferTypeList[PynBufferTypes.NiNodeBufType] = 'NiNode'
+
+class BSXFlagsBuf(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ("nameID", c_uint32),
+        ("stringRefCount", c_uint16),
+        ("integerData", c_uint32),
+    ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.BSXFlagsBufType
+bufferTypeList[PynBufferTypes.BSXFlagsBufType] = 'BSXFlags'
+
+class BSInvMarkerBuf(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ("nameID", c_uint32),
+        ("stringRefCount", c_uint16),
+        ("rot0", c_uint16),
+        ("rot1", c_uint16),
+        ("rot2", c_uint16),
+        ("zoom", c_float),
+    ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.BSInvMarkerBufType
+bufferTypeList[PynBufferTypes.BSInvMarkerBufType] = 'BSInvMarker'
 
 class NiShapeBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
+        ('bufType', c_uint16),
         ("nameID", c_uint32),
         ("controllerID", c_uint32),
         ("extraDataCount", c_uint16),
@@ -988,10 +1172,15 @@ class NiShapeBuf(pynStructure):
         ("shaderPropertyID", c_uint32),
         ("alphaPropertyID", c_uint32)
         ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.NiShapeBufType
+bufferTypeList[PynBufferTypes.NiShapeBufType] = 'NiShape'
 
 class NiControllerManagerBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
+        ('bufType', c_uint16),
         ("nextControllerID", c_uint32),
         ("flags", c_uint16),
         ("frequency", c_float),
@@ -1002,10 +1191,16 @@ class NiControllerManagerBuf(pynStructure):
         ("cumulative", c_uint8),
         ("controllerSequenceCount", c_uint16),
         ("objectPaletteID", c_uint32)]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.NiControllerManagerBufType
+bufferTypeList[PynBufferTypes.NiControllerManagerBufType] = 'NiControllerManager'
 
 
 class NiMultiTargetTransformControllerBuf(pynStructure):
     _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
         ("nextControllerID", c_uint32),
         ("flags", c_uint16),
         ("frequency", c_float),
@@ -1014,10 +1209,15 @@ class NiMultiTargetTransformControllerBuf(pynStructure):
         ("stopTime", c_float),
         ("targetID", c_uint32),
         ("targetCount", c_uint16)]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.NiMultiTargetTransformControllerBufType
+bufferTypeList[PynBufferTypes.NiMultiTargetTransformControllerBufType] = 'NiMultiTargetTransformController'
 
 class NiControllerSequenceBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
+        ('bufType', c_uint16),
         ("nameID", c_uint32), 
         ("arrayGrowBy", c_uint32), 
         ("controlledBlocksCount", c_uint16),
@@ -1032,10 +1232,15 @@ class NiControllerSequenceBuf(pynStructure):
         ("animNotesID", c_uint32),
         ("animNotesCount", c_uint16),
     ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.NiControllerSequenceBufType
+bufferTypeList[PynBufferTypes.NiControllerSequenceBufType] = 'NiControllerSequence'
 
 class ControllerLinkBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
+        ('bufType', c_uint16),
         ("interpolatorID", c_uint32),
         ("controllerID", c_uint32),
         ("priority", c_uint8),
@@ -1045,6 +1250,10 @@ class ControllerLinkBuf(pynStructure):
         ("ctrlID", c_uint32), 
         ("interpID", c_uint32),
     ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.NiControllerLinkBufType
+bufferTypeList[PynBufferTypes.NiControllerLinkBufType] = 'NiControllerLink'
 
 class CycleType(PynIntEnum):
     CYCLE_LOOP = 0
@@ -1053,6 +1262,8 @@ class CycleType(PynIntEnum):
 
 class NiTransformControllerBuf(pynStructure):
     _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
         ("interpolatorID", c_uint32),
         ("nextControllerID", c_uint32),
         ("flags", c_uint16),
@@ -1068,16 +1279,25 @@ class NiTransformControllerBuf(pynStructure):
         ("stopTime", c_float),
         ("targetIndex", c_uint32),
     ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.NiTransformControllerBufType
+bufferTypeList[PynBufferTypes.NiTransformControllerBufType] = 'NiTransformController'
 
 class NiTransformInterpolatorBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
+        ('bufType', c_uint16),
         ("translation", VECTOR3),
         ("rotation", VECTOR4),
         ("scale", c_float),
         ("dataID", c_uint32),
     ]
-    
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.NiTransformInterpolatorBufType
+bufferTypeList[PynBufferTypes.NiTransformInterpolatorBufType] = 'NiTransformInterpolator'
+
 class NiAnimationKeyGroupBuf(pynStructure):
     _fields_ = [
         ("numKeys", c_uint32),
@@ -1087,6 +1307,7 @@ class NiAnimationKeyGroupBuf(pynStructure):
 class NiTransformDataBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
+        ('bufType', c_uint16),
         ("rotationType", c_uint32), 
         ("rotationKeyCount", c_uint32),
         ("xRotations", NiAnimationKeyGroupBuf),
@@ -1095,6 +1316,10 @@ class NiTransformDataBuf(pynStructure):
         ("translations", NiAnimationKeyGroupBuf),
         ("scales", NiAnimationKeyGroupBuf),
     ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.NiTransformDataBufType
+bufferTypeList[PynBufferTypes.NiTransformDataBufType] = 'NiTransformData'
 
 class NiAnimKeyQuadXYZBuf(pynStructure):
     _fields_ = [
