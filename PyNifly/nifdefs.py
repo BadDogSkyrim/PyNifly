@@ -826,7 +826,9 @@ class PynBufferTypes(IntEnum):
     bhkConvexTransformShapeBufType = 20
     bhkConvexVerticesShapeBufType = 21
     bhkListShapeBufType = 22
-    PynBufferTypeEnd = 23
+    bhkBlendCollisionObjectBufType = 23
+    bhkRagdollConstraintBufType = 24
+    PynBufferTypeEnd = 25
 
 bufferTypeList = [''] * PynBufferTypes.PynBufferTypeEnd
 
@@ -855,6 +857,22 @@ class bhkNiCollisionObjectBuf(pynStructure):
         super().__init__()
         self.bufType = PynBufferTypes.bhkNiCollisionObjectBufType
 bufferTypeList[PynBufferTypes.bhkNiCollisionObjectBufType] = 'bhkNiCollisionObject'
+
+class bhkBlendCollisionObjectBuf(pynStructure):
+    _fields_ = [
+	    ('bufSize', c_uint16),
+	    ('bufType', c_uint16),
+        ('targetID', c_uint32),
+        ('flags', c_uint16),
+        ('bodyID', c_uint32),
+        ('childCount', c_uint16),
+        ('heirGain', c_float),
+        ('velGain', c_float),
+    ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.bhkBlendCollisionObjectBufType
+bufferTypeList[PynBufferTypes.bhkBlendCollisionObjectBufType] = 'bhkBlendCollisionObjectBuf'
 
 class bhkCollisionObjectBuf(pynStructure):
     _fields_ = [
@@ -948,6 +966,7 @@ class bhkRigidBodyProps(pynStructure):
         ('unusedBytes2_0', c_uint8),
         ('unusedBytes2_1', c_uint8),
         ('unusedBytes2_2', c_uint8),
+        ('constraintCount', c_uint16),
         ('bodyFlagsInt', c_uint32),
         ('bodyFlags', c_uint16)]
     def __init__(self):
@@ -1086,6 +1105,46 @@ class bhkConvexTransformShapeProps(pynStructure):
         super().__init__()
         self.bufType = PynBufferTypes.bhkConvexTransformShapeBufType
 bufferTypeList[PynBufferTypes.bhkConvexTransformShapeBufType] = 'bhkConvexTransformShape'
+
+class bhkRagdollConstraintBuf(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ('entityCount', c_uint16),
+        ('priority', c_uint32),
+        ('twistA', VECTOR4),
+        ('planeA', VECTOR4),
+        ('motorA', VECTOR4),
+        ('pivotA', VECTOR4),
+        ('twistB', VECTOR4),
+        ('planeB', VECTOR4),
+        ('motorB', VECTOR4),
+        ('pivotB', VECTOR4),
+        ('coneMaxAngle', c_float),
+        ('planeMinAngle', c_float),
+        ('planeMaxAngle', c_float),
+        ('twistMinAngle', c_float),
+        ('twistMaxAngle', c_float),
+        ('maxFriction', c_float),
+        ('motorType', c_uint8),
+        # bhkPositionConstraintMotor motorPosition;
+        ('positionConstraint_tau', c_float),
+        ('positionConstraint_damping', c_float),
+        ('positionConstraint_propRV', c_float),
+        ('positionConstraint_constRV', c_float),
+        # bhkVelocityConstraintMotor motorVelocity;
+        ('velocityConstraint_tau', c_float),
+        ('velocityConstraint_velocityTarget', c_float),
+        ('velocityConstraint_useVTFromCT', c_uint8),
+        # bhkSpringDamperConstraintMotor motorSpringDamper;
+        ('springDamp_springConstant', c_float),
+        ('springDamp_springDamping', c_float),
+    ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.bhkRagdollConstraintBufType
+bufferTypeList[PynBufferTypes.bhkRagdollConstraintBufType] = 'bhkRagdollConstraint'
+
 
 class FurnitureMarkerBuf(pynStructure):
     _fields_ = [

@@ -52,7 +52,9 @@ enum BUFFER_TYPES : uint16_t {
 	bhkCapsuleShapeBufType,
 	bhkConvexTransformShapeBufType,
 	bhkConvexVerticesShapeBufType,
-	bhkListShapeBufType
+	bhkListShapeBufType,
+	bhkBlendCollisionObjectBufType,
+	bhkRagdollConstraintBufType
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -320,6 +322,17 @@ struct bhkCollisionObjectBuf {
 	uint16_t childCount;
 };
 
+struct bhkBlendCollisionObjectBuf {
+	uint16_t bufSize = sizeof(bhkBlendCollisionObjectBuf);
+	uint16_t bufType = BUFFER_TYPES::bhkBlendCollisionObjectBufType;
+	uint32_t targetID;
+	uint16_t flags;
+	uint32_t bodyID;
+	uint16_t childCount;
+	float heirGain;
+	float velGain;
+};
+
 struct bhkPCollisionObjectBuf {
 	uint16_t bufSize = sizeof(bhkPCollisionObjectBuf);
 	uint16_t bufType = BUFFER_TYPES::bhkPCollisionObjectBufType;
@@ -397,6 +410,7 @@ struct bhkRigidBodyBuf {
 	uint8_t forceCollideOntoPpu;
 	uint32_t unusedInts1[3]{};
 	uint8_t unusedBytes2[3]{};
+	uint16_t constraintCount;
 	uint32_t bodyFlagsInt;
 	uint16_t bodyFlags;
 };
@@ -457,6 +471,40 @@ struct BHKConvexTransformShapeBuf {
 	uint32_t material;
 	float radius;
 	float xform[16];
+};
+
+struct bhkRagdollConstraintBuf {
+	uint16_t bufSize = sizeof(bhkRagdollConstraintBuf);
+	uint16_t bufType = BUFFER_TYPES::bhkRagdollConstraintBufType;
+	uint16_t entityCount = 0;
+	uint32_t priority = 0;
+	nifly::Vector4 twistA;
+	nifly::Vector4 planeA;
+	nifly::Vector4 motorA;
+	nifly::Vector4 pivotA;
+	nifly::Vector4 twistB;
+	nifly::Vector4 planeB;
+	nifly::Vector4 motorB;
+	nifly::Vector4 pivotB;
+	float coneMaxAngle = 0.0f;
+	float planeMinAngle = 0.0f;
+	float planeMaxAngle = 0.0f;
+	float twistMinAngle = 0.0f;
+	float twistMaxAngle = 0.0f;
+	float maxFriction = 0.0f;
+	uint8_t motorType = 0;
+	// bhkPositionConstraintMotor motorPosition;
+	float positionConstraint_tau = 0.8f;
+	float positionConstraint_damping = 1.0f;
+	float positionConstraint_propRV = 2.0f;
+	float positionConstraint_constRV = 1.0f;
+	// bhkVelocityConstraintMotor motorVelocity;
+	float velocityConstraint_tau = 0.0f;
+	float velocityConstraint_velocityTarget = 0.0f;
+	uint8_t velocityConstraint_useVTFromCT = 0;
+	// bhkSpringDamperConstraintMotor motorSpringDamper;
+	float springDamp_springConstant = 0.0f;
+	float springDamp_springDamping = 0.0f;
 };
 
 struct FurnitureMarkerBuf {
@@ -770,6 +818,8 @@ extern "C" NIFLY_API int getMessageLog(char* buf, int buflen);
 //extern "C" NIFLY_API int getCollBlockname(void* node, char* buf, int buflen);
 //extern "C" NIFLY_API int getCollBodyID(void* nifref, void* node);
 //extern "C" NIFLY_API int addRigidBody(void* nifref, const char* type, uint32_t collShapeIndex, bhkRigidBodyBuf* buf);
+extern "C" NIFLY_API int getRigidBodyConstraints(void* nifref, uint32_t nodeIndex, uint32_t * idList, int buflen);
+extern "C" NIFLY_API int getRagdollEntities(void* nifref, uint32_t nodeIndex, uint32_t* idList, int buflen);
 extern "C" NIFLY_API void* getCollTarget(void* nifref, void* node);
 //extern "C" NIFLY_API int getCollFlags(void* node);
 //extern "C" NIFLY_API int getCollBodyBlockname(void* nif, int nodeIndex, char* buf, int buflen);

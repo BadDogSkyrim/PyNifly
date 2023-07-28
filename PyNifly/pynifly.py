@@ -126,6 +126,10 @@ def load_nifly(nifly_path):
     nifly.getPartitions.restype = c_int
     nifly.getPartitionTris.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getPartitionTris.restype = c_int
+    nifly.getRagdollEntities.argtypes = [c_void_p, c_int, c_void_p, c_int]
+    nifly.getRagdollEntities.restype = c_int
+    nifly.getRigidBodyConstraints.argtypes = [c_void_p, c_int, c_void_p, c_int]
+    nifly.getRigidBodyConstraints.restype = c_int
     nifly.getRoot.argtypes = [c_void_p]
     nifly.getRoot.restype = c_void_p
     nifly.getRootName.argtypes = [c_void_p, c_char_p, c_int]
@@ -737,24 +741,50 @@ class CollisionConvexTransformShape(CollisionShape):
 CollisionShape.subtypes['bhkConvexTransformShape'] = CollisionConvexTransformShape
 
 
+class bhkConstraint(NiObject):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._entities = None
+
+    def _getbuf(self):
+        return bhkRagdollConstraintBuf()
+    
+    @property
+    def entities(self):
+        if self._entities: return self._entities
+
+        buf = (c_uint32 * self.properties.entityCount)()
+        NifFile.nifly.getRagdollEntities(
+            self.file._handle, self.id, byref(buf), self.properties.entityCount)
+        self._entities = []
+        for constr_id in buf:
+            self._entities.append(CollisionBody(file=self.file, id=constr_id, parent=self))
+        
+        return self._entities       
+
+
 class CollisionBody(NiObject):
     """Represents either a bhkRigidBody or a bhkRigidBodyT."""
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._shape = None
-
-    # @property
-    # def properties(self):
-    #     if not self._props:
-    #         if self.blockname in ("bhkRigidBody", "bhkRigidBodyT"):
-    #             p = bhkRigidBodyProps()
-    #             if self.blockname == "bhkRigidBodyT": p.bufType = PynBufferTypes.bhkRigidBodyTBufType
-    #             NifFile.nifly.getBlock(self._file._handle, self.id, byref(p)):
-    #             self._props = p
-    #     return self._props
+        self._constraints = None
 
     def _getbuf(self):
         return bhkRigidBodyProps()
+
+    @property 
+    def constraints(self):
+        if self._constraints: return self._constraints
+
+        buf = (c_uint32 * self.properties.constraintCount)()
+        NifFile.nifly.getRigidBodyConstraints(
+            self.file._handle, self.id, byref(buf), self.properties.constraintCount)
+        self._constraints = []
+        for constr_id in buf:
+            self._constraints.append(bhkConstraint(file=self.file, id=constr_id, parent=self))
+        
+        return self._constraints
 
     @property
     def shape(self):
@@ -799,6 +829,31 @@ class CollisionBody(NiObject):
 
 class CollisionObject(NiObject):
     """Represents a bhkNiCollisionObject."""
+    subtypes = {}
+
+    @classmethod
+    def New(cls, collisiontype=None, id=NODEID_NONE, file=None, parent=None, 
+            properties=None):
+        if properties:
+            collisiontype = bufferTypeList[properties.bufType]
+        elif not collisiontype:
+            buf = create_string_buffer(128)
+            NifFile.nifly.getBlockname(file._handle, id, buf, 128)
+            collisiontype = buf.value.decode('utf-8')
+        try:
+            if id == NODEID_NONE:
+                id = NifFile.nifly.addBlock(
+                    file._handle, 
+                    None, 
+                    byref(properties), 
+                    parent.id if parent else None)
+            if collisiontype in cls.subtypes:
+                return cls.subtypes[collisiontype](
+                    id=id, file=file, parent=parent, properties=properties)
+            else:
+                return CollisionObject(id=id, file=file, parent=parent, properties=properties)
+        except:
+            return None
 
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
@@ -837,7 +892,13 @@ class CollisionObject(NiObject):
             self.file._handle, None, byref(properties), self.id)
         self._body = CollisionBody(id=rb_index, file=self.file, parent=self, properties=properties)
         return self._body
+    
+class bhkBlendCollisionObject(CollisionObject):
 
+    def _getbuf(self):
+        return bhkBlendCollisionObjectBuf()
+
+CollisionObject.subtypes['bhkBlendCollisionObject'] = bhkBlendCollisionObject
 
 class NiAVObject(NiObject):
     def add_collision(self, body, flags):
@@ -937,7 +998,7 @@ class NiNode(NiAVObject):
         # n = NifFile.nifly.getCollision(self.file._handle, self._handle)
         # if n:
         if self.properties.collisionID != NODEID_NONE:
-            return CollisionObject(id=self.properties.collisionID, file=self.file, parent=self)
+            return CollisionObject.New(id=self.properties.collisionID, file=self.file, parent=self)
         else:
             return None
 
@@ -2392,7 +2453,8 @@ TEST_SKIN_BONE_XF = False
 TEST_WEIGHTS_BY_BONE = False
 TEST_ANIMATION = False
 TEST_ANIMATION_ALDUIN = False
-TEST_KF = True
+TEST_KF = False
+TEST_SKEL = True
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -4172,8 +4234,19 @@ if __name__ == "__main__":
     if TEST_ALL or TEST_SKEL:
         print("### TEST_SKEL: Import of skeleton file with collisions")
         nif = NifFile(r"tests/Skyrim/skeleton_vanilla.nif")
-        root = nif.rootNode
+        npc = nif.nodes['NPC']
+        assert npc.string_data[0][1] == "Human"
 
+        com = nif.nodes['NPC COM [COM ]']
+        com_col = com.collision_object
+        assert com_col.blockname == "bhkBlendCollisionObject", f"Have collision object: {com.collision_object.blockname}"
+        com_col.properties.heirGain == 1.0, f"Have unique property"
+
+        spine1 = nif.nodes['NPC Spine1 [Spn1]']
+        spine1_col = spine1.collision_object
+        spine1_rb = spine1_col.body
+        spine1_rag = spine1_rb.constraints[0]
+        assert len(spine1_rag.entities) == 2, f"Have ragdoll entities"
 
     print("""
 ================================================

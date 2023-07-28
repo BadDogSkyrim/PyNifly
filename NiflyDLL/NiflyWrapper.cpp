@@ -2276,6 +2276,35 @@ int getCollisionObject(void* nifref, uint32_t blockID, void* inbuf) {
     return 0;
 };
 
+int getBlendCollisionObject(void* nifref, uint32_t blockID, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkBlendCollisionObjectBuf* coBuf = static_cast<bhkBlendCollisionObjectBuf*>(inbuf);
+    bhkBlendCollisionObject* node = hdr->GetBlock<bhkBlendCollisionObject>(blockID);
+
+    if (!node) {
+        niflydll::LogWrite("ERROR: Node is not a bhkBlendCollisionObject.");
+        return 1;
+    }
+
+    if (coBuf->bufSize < sizeof(bhkBlendCollisionObjectBuf)) {
+        niflydll::LogWrite("ERROR: getBlendCollisionObject buffer wrong size.");
+        return 2;
+    }
+
+    coBuf->targetID = node->targetRef.index;
+
+    std::vector<uint32_t> ch;
+    node->GetChildIndices(ch);
+    coBuf->bodyID = node->bodyRef.index;
+    coBuf->flags = node->flags;
+    coBuf->childCount = ch.size();
+    coBuf->heirGain = node->heirGain;
+    coBuf->velGain = node->velGain;
+
+    return 0;
+};
+
 void* getCollision(void* nifref, void* noderef) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
@@ -2651,10 +2680,97 @@ int getRigidBodyProps(void* nifref, uint32_t nodeIndex, void* inbuf)
         buf->responseModifierFlag = theBody->responseModifierFlag;
         buf->numShapeKeysInContactPointProps = theBody->numShapeKeysInContactPointProps;
         buf->forceCollideOntoPpu = theBody->forceCollideOntoPpu;
+        buf->constraintCount = theBody->constraintRefs.GetSize();
         buf->bodyFlagsInt = theBody->bodyFlagsInt;
         buf->bodyFlags = theBody->bodyFlags;
     }
     return 0;
+}
+
+NIFLY_API int getRigidBodyConstraints(void* nifref, uint32_t nodeIndex, uint32_t* idList, int buflen)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkRigidBody* rb = hdr->GetBlock<bhkRigidBody>(nodeIndex);
+
+    if (!rb) {
+        niflydll::LogWrite("ERROR: Node is not a bhkRigidBody.");
+        return 0;
+    }
+
+    std::vector<uint32_t> constraintList;
+    for (int i = 0; i < buflen; i++) {
+        rb->constraintRefs.GetIndices(constraintList);
+        idList[i] = constraintList[i];
+    }
+
+    return constraintList.size();
+}
+
+int getRagdollConstraint(void* nifref, uint32_t nodeIndex, void* inbuf)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkRagdollConstraint* rd = hdr->GetBlock<bhkRagdollConstraint>(nodeIndex);
+    bhkRagdollConstraintBuf* buf = static_cast<bhkRagdollConstraintBuf*>(inbuf);
+
+    if (!rd) {
+        niflydll::LogWrite("ERROR: Node is not a bhkRagdollConstraint.");
+        return 1;
+    }
+    if (buf->bufSize != sizeof(bhkRagdollConstraintBuf)) {
+        niflydll::LogWrite("getRagdollConstraint given wrong size buffer");
+        return 2;
+    }
+
+    buf->entityCount = rd->entityRefs.GetSize();
+    buf->priority = rd->priority;
+    buf->twistA = rd->ragdoll.twistA;
+    buf->planeA = rd->ragdoll.planeA;
+    buf->motorA = rd->ragdoll.motorA;
+    buf->pivotA = rd->ragdoll.pivotA;
+    buf->twistB = rd->ragdoll.twistB;
+    buf->planeB = rd->ragdoll.planeB;
+    buf->motorB = rd->ragdoll.motorB;
+    buf->pivotB = rd->ragdoll.pivotB;
+    buf->coneMaxAngle = rd->ragdoll.coneMaxAngle;
+    buf->planeMinAngle = rd->ragdoll.planeMinAngle;
+    buf->planeMaxAngle = rd->ragdoll.planeMaxAngle;
+    buf->twistMinAngle = rd->ragdoll.twistMinAngle;
+    buf->twistMaxAngle = rd->ragdoll.twistMaxAngle;
+    buf->maxFriction = rd->ragdoll.maxFriction;
+    buf->motorType = rd->ragdoll.motorDesc.motorType;
+    buf->positionConstraint_tau = rd->ragdoll.motorDesc.motorPosition.tau;
+    buf->positionConstraint_damping = rd->ragdoll.motorDesc.motorPosition.damping;
+    buf->positionConstraint_propRV = rd->ragdoll.motorDesc.motorPosition.proportionalRecoveryVelocity;
+    buf->positionConstraint_constRV = rd->ragdoll.motorDesc.motorPosition.constantRecoveryVelocity;
+    buf->velocityConstraint_tau = rd->ragdoll.motorDesc.motorVelocity.tau;
+    buf->velocityConstraint_velocityTarget = rd->ragdoll.motorDesc.motorVelocity.velocityTarget;
+    buf->velocityConstraint_useVTFromCT = rd->ragdoll.motorDesc.motorVelocity.useVelocityTargetFromConstraintTargets;
+    buf->springDamp_springConstant = rd->ragdoll.motorDesc.motorSpringDamper.springConstant;
+    buf->springDamp_springDamping = rd->ragdoll.motorDesc.motorSpringDamper.springDamping;
+
+    return 0;
+}
+
+NIFLY_API int getRagdollEntities(void* nifref, uint32_t nodeIndex, uint32_t* idList, int buflen)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkRagdollConstraint* rd = hdr->GetBlock<bhkRagdollConstraint>(nodeIndex);
+
+    if (!rd) {
+        niflydll::LogWrite("ERROR: Node is not a bhkRagdollConstraint.");
+        return 0;
+    }
+
+    std::vector<uint32_t> entityList;
+    for (int i = 0; i < buflen; i++) {
+        rd->entityRefs.GetIndices(entityList);
+        idList[i] = entityList[i];
+    }
+
+    return entityList.size();
 }
 
 void addCollisionChild(NifFile* nif, uint32_t parent, uint32_t childID) {
@@ -3790,7 +3906,9 @@ BlockGetterFunction getterFunctions[] = {
     getCollCapsuleShapeProps, //bhkCapsuleShapeBufType,
     getCollConvexTransformShapeProps, //bhkConvexTransformShapeBufType,
     getCollConvexVertsShapeProps, //bhkConvexVerticesShapeBufType,
-    getCollListShapeProps //bhkListShapeBufTYpe
+    getCollListShapeProps, //bhkListShapeBufTYpe
+    getBlendCollisionObject, //bhkBlendCollisionObjectBufType
+    getRagdollConstraint //bhkRagdollConstraintBufType
 };
 
 NIFLY_API int getBlock(void* nifref, uint32_t blockID, void* buf)
@@ -3831,7 +3949,9 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //bhkCapsuleShapeBufType,
     nullptr, //bhkConvexTransformShapeBufType,
     nullptr, //bhkConvexVerticesShapeBufType,
-    nullptr //bhkListShapeBufTYpe
+    nullptr, //bhkListShapeBufTYpe
+    nullptr, //bhkBlendCollisionObjectBufType
+    nullptr //bhkRagdollConstraintBufType
 };
 
 NIFLY_API int setBlock(void* f, int id, void* buf)
@@ -3870,7 +3990,9 @@ BlockCreatorFunction creatorFunctions[] = {
     addCollCapsuleShape, //bhkCapsuleShapeBufType,
     addCollConvexTransformShape, //bhkConvexTransformShapeBufType,
     addCollConvexVertsShape, //bhkConvexVerticesShapeBufType,
-    addCollListShape //bhkListShapeBufTYpe
+    addCollListShape, //bhkListShapeBufTYpe
+    nullptr, //bhkBlendCollisionObjectBufType
+    nullptr //bhkRagdollConstraintBufType
 };
 
 NIFLY_API int addBlock(void* f, const char* name, void* buf, int parent) {
