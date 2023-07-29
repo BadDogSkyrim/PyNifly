@@ -54,7 +54,8 @@ enum BUFFER_TYPES : uint16_t {
 	bhkConvexVerticesShapeBufType,
 	bhkListShapeBufType,
 	bhkBlendCollisionObjectBufType,
-	bhkRagdollConstraintBufType
+	bhkRagdollConstraintBufType,
+	bhkSimpleShapePhantomBufType
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -413,6 +414,21 @@ struct bhkRigidBodyBuf {
 	uint16_t constraintCount;
 	uint32_t bodyFlagsInt;
 	uint16_t bodyFlags;
+};
+
+struct bhkSimpleShapePhantomBuf {
+	uint16_t bufSize = sizeof(bhkSimpleShapePhantomBuf);
+	uint16_t bufType = BUFFER_TYPES::bhkSimpleShapePhantomBufType;
+	uint32_t shapeID;
+	uint8_t collisionFilter_layer;
+	uint8_t collisionFilter_flags;
+	uint16_t collisionFilter_group;
+	uint8_t broadPhaseType;
+	uint32_t prop_data;
+	uint32_t prop_size;
+	uint32_t prop_flags;
+	uint16_t childCount;
+	nifly::Matrix4 transform;
 };
 
 struct bhkBoxShapeBuf {

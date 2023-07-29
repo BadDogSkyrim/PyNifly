@@ -2687,6 +2687,43 @@ int getRigidBodyProps(void* nifref, uint32_t nodeIndex, void* inbuf)
     return 0;
 }
 
+int getSimpleShapePhantom(void* nifref, uint32_t nodeIndex, void* inbuf)
+/*
+    Return the rigid body details. Return value = 1 if the node is a rigid body, 0 if not
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::bhkSimpleShapePhantom* theBody = hdr->GetBlock<bhkSimpleShapePhantom>(nodeIndex);
+    bhkSimpleShapePhantomBuf* buf = static_cast<bhkSimpleShapePhantomBuf*>(inbuf);
+
+    if (!theBody) {
+        niflydll::LogWrite("ERROR: Node is not a getSimpleShapePhantom.");
+        return 1;
+    }
+    if (buf->bufSize != sizeof(bhkSimpleShapePhantomBuf)) {
+        niflydll::LogWrite("getSimpleShapePhantom given wrong size buffer");
+        return 2;
+    }
+
+    std::vector<uint32_t> ch;
+    theBody->GetChildIndices(ch);
+    buf->childCount = ch.size();
+    buf->shapeID = theBody->shapeRef.index;
+    buf->collisionFilter_layer = theBody->collisionFilter.layer;
+    buf->collisionFilter_flags = theBody->collisionFilter.flagsAndParts;
+    buf->collisionFilter_group = theBody->collisionFilter.group;
+    buf->broadPhaseType = theBody->broadPhaseType;
+    buf->prop_data = theBody->prop.data;
+    buf->prop_size = theBody->prop.size;
+    buf->prop_flags = theBody->prop.capacityAndFlags;
+    buf->transform = theBody->transform;
+
+    return 0;
+}
+
+
+
 NIFLY_API int getRigidBodyConstraints(void* nifref, uint32_t nodeIndex, uint32_t* idList, int buflen)
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -3908,7 +3945,8 @@ BlockGetterFunction getterFunctions[] = {
     getCollConvexVertsShapeProps, //bhkConvexVerticesShapeBufType,
     getCollListShapeProps, //bhkListShapeBufTYpe
     getBlendCollisionObject, //bhkBlendCollisionObjectBufType
-    getRagdollConstraint //bhkRagdollConstraintBufType
+    getRagdollConstraint, //bhkRagdollConstraintBufType
+    getSimpleShapePhantom //bhkSimpleShapePhantomBufType
 };
 
 NIFLY_API int getBlock(void* nifref, uint32_t blockID, void* buf)
@@ -3951,7 +3989,8 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //bhkConvexVerticesShapeBufType,
     nullptr, //bhkListShapeBufTYpe
     nullptr, //bhkBlendCollisionObjectBufType
-    nullptr //bhkRagdollConstraintBufType
+    nullptr, //bhkRagdollConstraintBufType
+    nullptr //bhkSimpleShapePhantomBufType
 };
 
 NIFLY_API int setBlock(void* f, int id, void* buf)
@@ -3992,7 +4031,8 @@ BlockCreatorFunction creatorFunctions[] = {
     addCollConvexVertsShape, //bhkConvexVerticesShapeBufType,
     addCollListShape, //bhkListShapeBufTYpe
     nullptr, //bhkBlendCollisionObjectBufType
-    nullptr //bhkRagdollConstraintBufType
+    nullptr, //bhkRagdollConstraintBufType
+    nullptr //bhkSimpleShapePhantomBufType
 };
 
 NIFLY_API int addBlock(void* f, const char* name, void* buf, int parent) {

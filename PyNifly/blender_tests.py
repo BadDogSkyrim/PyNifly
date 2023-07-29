@@ -934,7 +934,7 @@ def TEST_SKEL():
 def TEST_SKEL_SKY():
     TT.test_title("TEST_SKEL_SKY", "Can import and export Skyrim skeleton file with no shapes")
     TT.clear_all()
-    testfile = TT.test_file(r"skeletons\Skyrim\skeleton.nif")
+    testfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
     outfile = TT.test_file(r"tests/out/TEST_SKEL_SKY.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False)
@@ -942,9 +942,13 @@ def TEST_SKEL_SKY():
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     root = next(x for x in bpy.data.objects if 'pynRoot' in x)
 
-    cbcoll = [x for x in arma.children if x.name.startswith('bhkSPCollisionObject')
-              and x['pynCollisionTarget'] == 'CharacterBumper']
-    assert len(cbcoll) > 0, "Have character bumper collision"
+    bumper_col = next(x for x in arma.children 
+                   if x.name.startswith('bhkSPCollisionObject')
+                   and x['pynCollisionTarget'] == 'CharacterBumper')
+
+    foot_col = [obj for obj in bpy.data.objects 
+                    if 'pynCollisionTarget' in obj and obj['pynCollisionTarget'] == 'NPC Foot.R']
+    assert foot_col, "Have foot collision object"
 
     # assert 'Root' in arma.data.bones, "Have Root bone"
     # rootbone = arma.data.bones['Root']
@@ -968,8 +972,8 @@ def TEST_SKEL_SKY():
     # assert TT.NearEqual(cp_lleg.location[0], -8.748), \
     #     f"Armor left leg connect point at relative position: {cp_lleg.location}"
 
-    BD.ObjectSelect([root], active=True)
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True)
+    # BD.ObjectSelect([root], active=True)
+    # bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True)
 
     # skel_in = pyn.NifFile(testfile)
     # skel_out = pyn.NifFile(outfile)

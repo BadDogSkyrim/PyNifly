@@ -201,6 +201,8 @@ class pynStructure(Structure):
                 v = hkSolverDeactivation(self.solverDeactivation).name
             elif f == 'qualityType':
                 v = hkQualityType(self.qualityType).name
+            elif f == 'qualityType':
+                v = hkQualityType(self.qualityType).name
             elif t.__name__.startswith('c_float_Array') or t.__name__.startswith('c_ushort_Array'):
                 v = repr(self.__getattribute__(f)[:])
             elif t.__name__ in ['c_uint32', 'c_uint64', 'c_ulong', 'c_ulonglong']:
@@ -828,9 +830,10 @@ class PynBufferTypes(IntEnum):
     bhkListShapeBufType = 22
     bhkBlendCollisionObjectBufType = 23
     bhkRagdollConstraintBufType = 24
-    PynBufferTypeEnd = 25
+    bhkSimpleShapePhantomBufType = 25
+    END = 26
 
-bufferTypeList = [''] * PynBufferTypes.PynBufferTypeEnd
+bufferTypeList = [''] * PynBufferTypes.END
 
 
 class NiCollisionObjectBuf(pynStructure):
@@ -973,6 +976,26 @@ class bhkRigidBodyProps(pynStructure):
         super().__init__()
         self.bufType = PynBufferTypes.bhkRigidBodyBufType
 bufferTypeList[PynBufferTypes.bhkRigidBodyBufType] = 'bhkRigidBody'
+
+class bhkSimpleShapePhantomBuf(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ('shapeID', c_uint32),
+        ('collisionFilter_layer', c_uint8),
+	    ('collisionFilter_flags', c_uint8),
+	    ('collisionFilter_group', c_uint16),
+	    ('broadPhaseType', c_uint8),
+	    ('prop_data', c_uint32),    
+	    ('prop_size', c_uint32),
+	    ('prop_flags', c_uint32),
+        ('childCount', c_uint16),
+        ('transform', MATRIX4),
+        ]
+    def __init__(self):
+        super().__init__()
+        self.bufType = PynBufferTypes.bhkSimpleShapePhantomBufType
+bufferTypeList[PynBufferTypes.bhkSimpleShapePhantomBufType] = 'bhkSimpleShapePhantomBuf'
 
 pynBufferDefaults = {
 	'broadPhaseType': 0,

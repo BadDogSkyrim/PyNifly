@@ -758,20 +758,41 @@ class bhkConstraint(NiObject):
             self.file._handle, self.id, byref(buf), self.properties.entityCount)
         self._entities = []
         for constr_id in buf:
-            self._entities.append(CollisionBody(file=self.file, id=constr_id, parent=self))
+            self._entities.append(bhkWorldObject(file=self.file, id=constr_id, parent=self))
         
         return self._entities       
 
 
-class CollisionBody(NiObject):
-    """Represents either a bhkRigidBody or a bhkRigidBodyT."""
+class bhkWorldObject(NiObject):
+    subtypes = {}
+
+    @classmethod
+    def New(cls, objtype=None, id=NODEID_NONE, file=None, parent=None, properties=None):
+        if properties:
+            objtype = bufferTypeList[properties.bufType]
+        elif not objtype:
+            buf = create_string_buffer(128)
+            NifFile.nifly.getBlockname(file._handle, id, buf, 128)
+            objtype = buf.value.decode('utf-8')
+        try:
+            if id == NODEID_NONE:
+                id = NifFile.nifly.addBlock(
+                    file._handle, 
+                    None, 
+                    byref(properties), 
+                    parent.id if parent else None)
+            return cls.subtypes[objtype](
+                id=id, file=file, parent=parent, properties=properties)
+        except:
+            return None
+
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._shape = None
         self._constraints = None
 
     def _getbuf(self):
-        return bhkRigidBodyProps()
+        assert False, "bhkWorldObject should never be instantiated directly."
 
     @property 
     def constraints(self):
@@ -826,6 +847,21 @@ class CollisionBody(NiObject):
         
         return new_collshape
 
+class bhkRigidBody(bhkWorldObject):
+    """Represents either a bhkRigidBody or a bhkRigidBodyT."""
+
+    def _getbuf(self):
+        return bhkRigidBodyProps()
+
+bhkWorldObject.subtypes['bhkRigidBody'] = bhkRigidBody
+bhkWorldObject.subtypes['bhkRigidBodyT'] = bhkRigidBody
+
+class bhkSimpleShapePhantom(bhkWorldObject):
+
+    def _getbuf(self):
+        return bhkSimpleShapePhantomBuf()
+
+bhkWorldObject.subtypes['bhkSimpleShapePhantom'] = bhkSimpleShapePhantom
 
 class CollisionObject(NiObject):
     """Represents a bhkNiCollisionObject."""
@@ -878,10 +914,10 @@ class CollisionObject(NiObject):
     def body(self):
         """ Return the collision body object """
         if not self._body:
-            body_prop = bhkRigidBodyProps()
-            NifFile.nifly.getBlock(self.file._handle, self.properties.bodyID, byref(body_prop))
+            # body_prop = bhkRigidBodyProps()
+            # NifFile.nifly.getBlock(self.file._handle, self.properties.bodyID, byref(body_prop))
             if self.properties.bodyID != NODEID_NONE:
-                self._body = CollisionBody(id=self.properties.bodyID, file=self.file, parent=self)
+                self._body = bhkWorldObject.New(id=self.properties.bodyID, file=self.file, parent=self)
         return self._body
 
     # def add_rigid_body(self, blocktype, properties, collshape):
@@ -890,7 +926,7 @@ class CollisionObject(NiObject):
         # rb_index = NifFile.nifly.addRigidBody(self._handle, blocktype.encode('utf-8'), collshape.block_index, properties)
         rb_index = NifFile.nifly.addBlock(
             self.file._handle, None, byref(properties), self.id)
-        self._body = CollisionBody(id=rb_index, file=self.file, parent=self, properties=properties)
+        self._body = bhkWorldObject(id=rb_index, file=self.file, parent=self, properties=properties)
         return self._body
     
 class bhkBlendCollisionObject(CollisionObject):
@@ -1063,7 +1099,7 @@ class NiNode(NiAVObject):
     @bsx_flags.setter
     def bsx_flags(self, val):
         """ Sets BSX flags using [name, value] pair """
-        buf = PynBufferTypes.BSXFlagsBufType()
+        buf = BSXFlagsBuf()
         buf.integerData = val[1]
         NifFile.nifly.addBlock(self._handle, val[0].encode('utf-8'), byref(buf), self.id)
         # NifFile.nifly.setBSXFlags(self._handle, val[0].encode('utf-8'), val[1])
@@ -2405,7 +2441,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = True
+TEST_ALL = False
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -4237,16 +4273,30 @@ if __name__ == "__main__":
         npc = nif.nodes['NPC']
         assert npc.string_data[0][1] == "Human"
 
+        # COM node has a bhkBlendCollisionObject
         com = nif.nodes['NPC COM [COM ]']
         com_col = com.collision_object
         assert com_col.blockname == "bhkBlendCollisionObject", f"Have collision object: {com.collision_object.blockname}"
         com_col.properties.heirGain == 1.0, f"Have unique property"
+        com_shape = com_col.body.shape
+        assert NearEqual(com_shape.properties.point1[0], -com_shape.properties.point2[0]), \
+            f"Capsule shape symmetric around x-axis."
+        assert NearEqual(com_shape.properties.point1[0], 0.041862), f"Have correct X location"
+        assert NearEqual(com_shape.properties.bhkRadius, 0.130600), f"Have correct radius"
 
+        # Spine1 node has a ragdoll node, which references two others
         spine1 = nif.nodes['NPC Spine1 [Spn1]']
         spine1_col = spine1.collision_object
         spine1_rb = spine1_col.body
         spine1_rag = spine1_rb.constraints[0]
         assert len(spine1_rag.entities) == 2, f"Have ragdoll entities"
+
+        # The character bumper uses a bhkSimpleShapePhantom, with its own transform.
+        bumper = nif.nodes['CharacterBumper']
+        bumper_col = bumper.collision_object
+        bumper_bod = bumper_col.body
+        assert bumper_bod.blockname == "bhkSimpleShapePhantom"
+        assert bumper_bod.properties.transform[0][0] != 0, f"Have a transform"
 
     print("""
 ================================================

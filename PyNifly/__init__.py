@@ -95,7 +95,10 @@ ALPHA_MAP_NAME = "VERTEX_ALPHA"
 
 CONNECT_POINT_SCALE = 1.0
 
-COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5)
+COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5) # Default color
+COLLISION_COLOR_MAP = {'bhkRigidBody': (0, 1, 0, 0.3),
+                       'bhkRigidBodyT': (0, 0.8, 0.2, 0.3),
+                       'bhkSimpleShapePhantom': (0.8, 0.8, 0, 0.3),}
 collision_names = ["bhkBoxShape", "bhkConvexVerticesShape", "bhkListShape", 
                    "bhkConvexTransformShape", "bhkCapsuleShape",
                    "bhkRigidBodyT", "bhkRigidBody", "bhkCollisionObject"]
@@ -595,7 +598,7 @@ class NifImporter():
         n = self.nif
         parent_obj = self.root_object
 
-        b = n.bsx_flags
+        b = n.rootNode.bsx_flags
         if b:
             bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
             ed = bpy.context.object
@@ -608,7 +611,7 @@ class NifImporter():
             # extradata.append(ed)
             self.objects_created[ed.name] = ed
 
-        invm = n.inventory_marker
+        invm = n.rootNode.inventory_marker
         if invm:
             bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
             ed = bpy.context.object
@@ -1468,23 +1471,19 @@ class NifImporter():
         #log.debug(f"Creating capsule shape between {p1} and {p2}")
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
         # sf = HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
-        shapelen = vaxis.length * sf
+        shapelen = (vaxis.length + prop.radius1 + prop.radius2) * sf
         shaperad = prop.radius1 * sf
 
         bpy.ops.mesh.primitive_cylinder_add(radius=shaperad, depth=shapelen)
         obj = bpy.context.object
 
-        q = Quaternion((1,0,0), -pi/2)
-        objtrans, objrot, objscale = obj.matrix_world.decompose()
-        objrot.rotate(q)
-        sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
-        # sf = HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
         objtrans = Vector(( (((p2.x - p1.x)/2) + p1.x) * sf,
                             (((p2.y - p1.y)/2) + p1.y) * sf,
                             (((p2.z - p1.z)/2) + p1.z) * sf,
                             ))
+        obj.location = objtrans
         
-        obj.matrix_world = MatrixLocRotScale(objtrans, objrot, objscale)
+        obj.rotation_euler = cb.rotation_euler.copy()
 
         for p in obj.data.polygons:
             p.use_smooth = True
@@ -1577,14 +1576,18 @@ class NifImporter():
         if sh:
             sh.name = cs.blockname
             sh.parent = cb
-            sh.color = COLLISION_COLOR
+            bodytype = cb.name.split('.')[0]
+            if bodytype in COLLISION_COLOR_MAP:
+                sh.color = COLLISION_COLOR_MAP[bodytype] 
+            else:
+                sh.color = COLLISION_COLOR
 
 
     collision_body_ignore = ['rotation', 'translation', 'guard', 'unusedByte1', 
                              'unusedInts1_0', 'unusedInts1_1', 'unusedInts1_2',
                              'unusedBytes2_0', 'unusedBytes2_1', 'unusedBytes2_2']
 
-    def import_collision_body(self, cb:CollisionBody, c:bpy_types.Object):
+    def import_collision_body(self, cb:bhkWorldObject, c:bpy_types.Object):
         """Import the RigidBody node.
         c = its parent collision object."""
         bpy.ops.object.add(radius=1.0, type='EMPTY')
@@ -1599,13 +1602,23 @@ class NifImporter():
         p = cb.properties
         p.extract(cbody, ignore=self.collision_body_ignore)
 
-        # The rotation in the nif is a quaternion with the angle in the 4th position, in radians
-        # #log.debug(f"Found collision body with properties:\n{p}")
-        if cb.blockname == "bhkRigidBodyT":
+        # bhkRigidBodyT blocks store rotation as a quaternion with the angle in the 4th
+        # position, in radians 
+        try:
+            q = Quaternion(p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2],)
             cbody.rotation_mode = 'QUATERNION'
-            #log.debug(f"Rotating collision body around quaternion {(p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2])}")
-            cbody.rotation_quaternion = (p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2], )
+            cbody.rotation_quaternion = q
+            # cbody.rotation_quaternion = (p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2], )
             cbody.location = Vector(p.translation[0:3]) * HAVOC_SCALE_FACTOR
+        except:
+            pass
+
+        # bhkSimpleShapePhantom has a transform built in.
+        try:
+            mx = Matrix([r for r in p.transform])
+            cbody.matrix_local = mx
+        except:
+            pass
 
         cs = cb.shape
         if cs:
@@ -1623,10 +1636,12 @@ class NifImporter():
         if c.blockname in ["bhkCollisionObject", 
                            "bhkSPCollisionObject", 
                            "bhkNPCollisionObject", 
-                           "bhkPCollisionObject"]:
+                           "bhkPCollisionObject",
+                           "bhkBlendCollisionObject"]:
+            name_ext = bone.blender_name if bone else parentObj.name if parentObj else ""
             bpy.ops.object.add(radius=1.0, type='EMPTY')
             col = self.context.object
-            col.name = c.blockname
+            col.name = c.blockname + "(" + name_ext + ")"
             col.show_name = True
             col['pynCollisionFlags'] = bhkCOFlags(c.flags).fullname
 
@@ -1636,9 +1651,11 @@ class NifImporter():
                 # transformation matrix, because someone thatout taht would be helpful.
                 # Change it back. 
                 col.matrix_world = parentObj.matrix_world.copy()
-                if parentObj.type == "ARMATURE":
-                    col.matrix_world = col.matrix_world @ self.calc_obj_transform(bone)
-                    col['pynCollisionTarget'] = bone.name
+                if parentObj.type == "ARMATURE" and bone.blender_name in parentObj.data.bones:
+                    # col.matrix_world = col.matrix_world @ self.calc_obj_transform(bone)
+                    col.matrix_world = col.matrix_world \
+                        @ parentObj.pose.bones[bone.blender_name].matrix
+                    col['pynCollisionTarget'] = bone.blender_name
 
             cb = c.body
             if cb:
@@ -3275,7 +3292,7 @@ class NifExporter:
 
         if self.bsx_flag:
             #log.debug(f"Exporting BSXFlags node")
-            self.nif.bsx_flags = [self.bsx_flag['BSXFlags_Name'],
+            self.nif.rootNode.bsx_flags = [self.bsx_flag['BSXFlags_Name'],
                                   BSXFlags.parse(self.bsx_flag['BSXFlags_Value'])]
             self.objs_written[self.bsx_flag.name] = self.nif
 
