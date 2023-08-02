@@ -55,7 +55,8 @@ enum BUFFER_TYPES : uint16_t {
 	bhkListShapeBufType,
 	bhkBlendCollisionObjectBufType,
 	bhkRagdollConstraintBufType,
-	bhkSimpleShapePhantomBufType
+	bhkSimpleShapePhantomBufType,
+	bhkSphereShapeBufType
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -450,6 +451,13 @@ struct BHKCapsuleShapeBuf {
 	float radius1;
 	float point2[3];
 	float radius2;
+};
+
+struct bhkSphereShapeBuf {
+	uint16_t bufSize = sizeof(bhkSphereShapeBuf);
+	uint16_t bufType = BUFFER_TYPES::bhkSphereShapeBufType;
+	uint32_t material;
+	float radius;
 };
 
 struct BHKListShapeBuf {

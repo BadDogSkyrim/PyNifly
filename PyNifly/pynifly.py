@@ -528,6 +528,10 @@ def _write_extra_data(nifhandle, shapehandle, edtype, val):
 # --- NiObject -- #
 class NiObject:
     """ Represents any block in a nif file. """
+    @classmethod
+    def _getbuf(cls, values=None):
+        """To be overwritten by subclasses."""
+        assert False, "_getbuf should have been overwritten."    
 
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         self._handle = handle
@@ -540,10 +544,6 @@ class NiObject:
         self._parent = parent
         self._properties = properties
         self._blockname = None
-
-    def _getbuf(self):
-        """To be overwritten by subclasses."""
-        assert False, "_getbuf should have been overwritten."
     
     @property
     def blockname(self):
@@ -601,30 +601,42 @@ class CollisionShape(NiObject):
 class CollisionBoxShape(CollisionShape):
     needsTransform = True
 
-    def _getbuf(self):
-        return bhkBoxShapeProps()
+    @classmethod
+    def _getbuf(cls, values=None):
+        return bhkBoxShapeProps(values)
     
 CollisionShape.subtypes['bhkBoxShape'] = CollisionBoxShape
 
 class CollisionCapsuleShape(CollisionShape):
     needsTransform = False
 
-    def _getbuf(self):
-        return bhkCapsuleShapeProps()
+    @classmethod
+    def _getbuf(cls, values=None):
+        return bhkCapsuleShapeProps(values)
 
 CollisionShape.subtypes['bhkCapsuleShape'] = CollisionCapsuleShape
 
+class CollisionSphereShape(CollisionShape):
+    needsTransform = False
+
+    @classmethod
+    def _getbuf(cls, values=None):
+        return bhkSphereShapeBuf(values)
+
+CollisionShape.subtypes['bhkSphereShape'] = CollisionSphereShape
+
 class CollisionConvexVerticesShape(CollisionShape):
     needsTransform = False
+
+    @classmethod
+    def _getbuf(cls, values=None):
+        return bhkConvexVerticesShapeProps(values)
 
     def __init__(self, handle=None, id=NODEID_NONE, file=None, parent=None, properties=None):
         super().__init__(handle=handle, id=id, file=file, parent=parent, 
                          properties=properties)
         self._vertices = None
         self._normals = None
-
-    def _getbuf(self):
-        return bhkConvexVerticesShapeProps()
 
     @property
     def vertices(self):
@@ -652,12 +664,13 @@ CollisionShape.subtypes['bhkConvexVerticesShape'] = CollisionConvexVerticesShape
 class CollisionListShape(CollisionShape):
     needsTransform = False
 
+    @classmethod
+    def _getbuf(cls, values=None):
+        return bhkListShapeProps(values)
+
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._children = None
-
-    def _getbuf(self):
-        return bhkListShapeProps()
 
     @property
     def children(self):
@@ -676,6 +689,10 @@ class CollisionListShape(CollisionShape):
         
         return self._children
 
+    def add_child(self, childnode):
+        NifFile.nifly.addCollListChild(
+            self.file._handle, self.id, childnode.id)
+
     def add_shape(self, childprops, transform=None):
         child = CollisionShape.New(file=self.file, properties=childprops, parent=self)
         if not self._children:
@@ -691,6 +708,10 @@ CollisionShape.subtypes['bhkListShape'] = CollisionListShape
 class CollisionConvexTransformShape(CollisionShape):
     needsTransform = False
     
+    @classmethod
+    def _getbuf(cls, values=None):
+        return bhkConvexTransformShapeProps(values)
+
     def __init__(self, handle=None, id=NODEID_NONE, file=None, parent=None, 
                  properties=None, transform=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, 
@@ -698,9 +719,6 @@ class CollisionConvexTransformShape(CollisionShape):
         if transform:
             self._set_transform(transform)
         self._child = None
-
-    def _getbuf(self):
-        return bhkConvexTransformShapeProps()
 
     def _set_transform(self, xf):
         pt = self._props.transform
@@ -742,13 +760,14 @@ CollisionShape.subtypes['bhkConvexTransformShape'] = CollisionConvexTransformSha
 
 
 class bhkConstraint(NiObject):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return bhkRagdollConstraintBuf(values)
+    
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._entities = None
 
-    def _getbuf(self):
-        return bhkRagdollConstraintBuf()
-    
     @property
     def entities(self):
         if self._entities: return self._entities
@@ -765,6 +784,14 @@ class bhkConstraint(NiObject):
 
 class bhkWorldObject(NiObject):
     subtypes = {}
+
+    @classmethod
+    def _getbuf(cls, values=None):
+        assert False, "bhkWorldObject should never be instantiated directly."
+
+    @classmethod
+    def get_buffer(cls, bodytype, values=None):
+        return cls.subtypes[bodytype]._getbuf(values=values)
 
     @classmethod
     def New(cls, objtype=None, id=NODEID_NONE, file=None, parent=None, properties=None):
@@ -791,9 +818,6 @@ class bhkWorldObject(NiObject):
         self._shape = None
         self._constraints = None
 
-    def _getbuf(self):
-        assert False, "bhkWorldObject should never be instantiated directly."
-
     @property 
     def constraints(self):
         if self._constraints: return self._constraints
@@ -818,54 +842,46 @@ class bhkWorldObject(NiObject):
 
     def add_shape(self, properties, vertices=None, normals=None, transform=None):
         """ Create collision shape 
-            bhkBoxShape - All data passed in through the properties
             bhkConvexVerticesShape - vertices can be vectors of 3 points. Normals must be 
                 vectors of 4 elements: x, y, z (setting direction), and w (length)
+            bhkBoxShape & others - All data passed in through the properties
         """
-        if properties.bufType == PynBufferTypes.bhkConvexTransformShapeBufType:
-            if transform:
-                for r in range(0,4):
-                    for c in range(0,4):
-                        properties.transform[c][r] = transform[r][c]
-
-        collshape_index = NifFile.nifly.addBlock(
-            self.file._handle, None, byref(properties), self.id)
-        new_collshape = CollisionShape.New(
-            id=collshape_index, file=self.file, properties=properties, parent=self)
-        
-        if properties.bufType == PynBufferTypes.bhkConvexVerticesShapeBufType:
-            vertbuf = (VECTOR4 * len(vertices))()
-            normbuf = (VECTOR4 * len(normals))()
-            for i, v in enumerate(vertices):
-                vertbuf[i] = (v[0], v[1], v[2], 0)
-            for i, n in enumerate(normals):
-                normbuf[i][0], normbuf[i][1], normbuf[i][2], normbuf[i][3] = n[:]
-
-            NifFile.nifly.setCollConvexVerts(
-                self.file._handle, collshape_index,
-                vertbuf, len(vertices), normbuf, len(normals))
-        
-        return new_collshape
+        return self.file.add_shape(properties=properties, parent=self, 
+                                   vertices=vertices, normals=normals, transform=transform)
 
 class bhkRigidBody(bhkWorldObject):
-    """Represents either a bhkRigidBody or a bhkRigidBodyT."""
 
-    def _getbuf(self):
-        return bhkRigidBodyProps()
+    @classmethod
+    def _getbuf(cls, values=None):
+        return bhkRigidBodyProps(values)
 
 bhkWorldObject.subtypes['bhkRigidBody'] = bhkRigidBody
-bhkWorldObject.subtypes['bhkRigidBodyT'] = bhkRigidBody
+
+class bhkRigidBodyT(bhkRigidBody):
+
+    @classmethod
+    def _getbuf(cls, values=None):
+        buf = bhkRigidBodyProps(values)
+        buf.bufType = PynBufferTypes.bhkRigidBodyTBufType
+        return buf
+
+bhkWorldObject.subtypes['bhkRigidBodyT'] = bhkRigidBodyT
 
 class bhkSimpleShapePhantom(bhkWorldObject):
 
-    def _getbuf(self):
-        return bhkSimpleShapePhantomBuf()
+    @classmethod
+    def _getbuf(cls, values=None):
+        return bhkSimpleShapePhantomBuf(values)
 
 bhkWorldObject.subtypes['bhkSimpleShapePhantom'] = bhkSimpleShapePhantom
 
 class CollisionObject(NiObject):
     """Represents a bhkNiCollisionObject."""
     subtypes = {}
+
+    @classmethod
+    def _getbuf(cls, values=None):
+        return bhkNiCollisionObjectBuf(values)
 
     @classmethod
     def New(cls, collisiontype=None, id=NODEID_NONE, file=None, parent=None, 
@@ -894,9 +910,6 @@ class CollisionObject(NiObject):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._body = None
-
-    def _getbuf(self):
-        return bhkNiCollisionObjectBuf()
 
     @property
     def flags(self):
@@ -929,12 +942,15 @@ class CollisionObject(NiObject):
         self._body = bhkWorldObject(id=rb_index, file=self.file, parent=self, properties=properties)
         return self._body
     
+
 class bhkBlendCollisionObject(CollisionObject):
 
-    def _getbuf(self):
-        return bhkBlendCollisionObjectBuf()
+    @classmethod
+    def _getbuf(cls, values=None):
+        return bhkBlendCollisionObjectBuf(values)
 
 CollisionObject.subtypes['bhkBlendCollisionObject'] = bhkBlendCollisionObject
+
 
 class NiAVObject(NiObject):
     def add_collision(self, body, flags):
@@ -959,6 +975,10 @@ class NiAVObject(NiObject):
 # --- NiNode --- #
 
 class NiNode(NiAVObject):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiNodeBuf(values)
+    
     def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None, name=""):
         super().__init__(handle=handle, file=file, id=id, parent=parent)
         self._name = ""
@@ -980,9 +1000,6 @@ class NiNode(NiAVObject):
 
         if name: self.name = name
 
-    def _getbuf(self):
-        return NiNodeBuf()
-    
     @property
     def name(self):
         return self._name
@@ -1101,7 +1118,7 @@ class NiNode(NiAVObject):
         """ Sets BSX flags using [name, value] pair """
         buf = BSXFlagsBuf()
         buf.integerData = val[1]
-        NifFile.nifly.addBlock(self._handle, val[0].encode('utf-8'), byref(buf), self.id)
+        NifFile.nifly.addBlock(self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
         # NifFile.nifly.setBSXFlags(self._handle, val[0].encode('utf-8'), val[1])
 
     @property
@@ -1249,8 +1266,9 @@ class NiTransformData(NiKeyFrameData):
                 NifFile.log.warning(f"Found unknown key type: {self.properties.translations.interpolation}")
             if k: self.translations.append(k)
 
-    def _getbuf(self):
-        return NiTransformDataBuf()
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiTransformDataBuf(values)
     
     def _readlinrot(self):
         """Read keys when the type is LINEAR_KEY or QUADRATIC_KEY. These are time, value
@@ -1316,8 +1334,9 @@ class NiTransformInterpolator(NiObject):
         self._data = None
         self._blockname = "NiTransformInterpolator"
         
-    def _getbuf(self):
-        return NiTransformInterpolatorBuf()
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiTransformInterpolatorBuf(values)
     
     @property
     def data(self):
@@ -1491,13 +1510,14 @@ class NiSequence(NiObject):
 
 
 class NiControllerSequence(NiSequence):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiControllerSequenceBuf(values)
+    
     def __init__(self, handle=None, file=None, parent=None, id=NODEID_NONE):
         super().__init__(handle=handle, file=file, parent=parent, id=id)
         self._blockname = "NiControllerSequence"
 
-    def _getbuf(self):
-        return NiControllerSequenceBuf()
-    
 
 class NiControllerManager(NiTimeController):
     _controller_manager_sequences = None
@@ -1530,6 +1550,10 @@ class NiControllerManager(NiTimeController):
 
 # --- NifShape --- #
 class NiShape(NiNode):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiShapeBuf(values)
+    
     def __init__(self, file=None, handle=None, parent=None):
         super().__init__(handle=handle, file=file, parent=parent)
         self._bone_ids = None
@@ -1554,9 +1578,6 @@ class NiShape(NiNode):
     def _setShapeXform(self):
         NifFile.nifly.setTransform(self._handle, self.transform)
 
-    def _getbuf(self):
-        return NiShapeBuf()
-    
     @property
     def verts(self):
         if not self._verts:
@@ -2432,6 +2453,39 @@ class NifFile:
             return None
         
 
+    def add_shape(self, properties, parent=None, vertices=None, normals=None, transform=None):
+        """ Create collision shape in the Nif file. It can be connected to a body later.
+            bhkConvexVerticesShape - vertices can be vectors of 3 points. Normals must be 
+                vectors of 4 elements: x, y, z (setting direction), and w (length)
+        """
+        if properties.bufType == PynBufferTypes.bhkConvexTransformShapeBufType:
+            if transform:
+                for r in range(0,4):
+                    for c in range(0,4):
+                        properties.transform[c][r] = transform[r][c]
+
+        collshape_index = NifFile.nifly.addBlock(
+            self._handle, None, byref(properties), 
+            parent.id if parent else NODEID_NONE)
+        new_collshape = CollisionShape.New(
+            id=collshape_index, file=self, properties=properties, parent=parent)
+        
+        if properties.bufType == PynBufferTypes.bhkConvexVerticesShapeBufType:
+            vertbuf = (VECTOR4 * len(vertices))()
+            normbuf = (VECTOR4 * len(normals))()
+            for i, v in enumerate(vertices):
+                vertbuf[i] = (v[0], v[1], v[2], 0)
+            for i, n in enumerate(normals):
+                normbuf[i][0], normbuf[i][1], normbuf[i][2], normbuf[i][3] = n[:]
+
+            NifFile.nifly.setCollConvexVerts(
+                self._handle, collshape_index,
+                vertbuf, len(vertices), normbuf, len(normals))
+        
+        return new_collshape
+
+
+
 #
 # ######################################## TESTS ########################################
 #
@@ -2441,7 +2495,7 @@ class NifFile:
 # ######################################## TESTS ########################################
 #
 
-TEST_ALL = False
+TEST_ALL = True
 TEST_XFORM_INVERSION = False
 TEST_SHAPE_QUERY = False
 TEST_MESH_QUERY = False
@@ -2477,10 +2531,10 @@ TEST_CLOTH_DATA = False
 TEST_PARTITION_SM = False
 TEST_EXP_BODY = False
 TEST_EFFECT_SHADER = False
-TEST_BOW = False
+TEST_BOW = True
 TEST_CONVEX = False
 TEST_CONVEX_MULTI = False
-TEST_COLLISION_LIST = False
+TEST_COLLISION_LIST = True
 TEST_COLLISION_CAPSULE = False
 TEST_FURNITURE_MARKER = False
 TEST_MANY_SHAPES = False
@@ -2490,7 +2544,8 @@ TEST_WEIGHTS_BY_BONE = False
 TEST_ANIMATION = False
 TEST_ANIMATION_ALDUIN = False
 TEST_KF = False
-TEST_SKEL = True
+TEST_SKEL = False
+TEST_COLLISION_SPHERE = False
 
 
 def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
@@ -4297,6 +4352,24 @@ if __name__ == "__main__":
         bumper_bod = bumper_col.body
         assert bumper_bod.blockname == "bhkSimpleShapePhantom"
         assert bumper_bod.properties.transform[0][0] != 0, f"Have a transform"
+
+
+    if TEST_ALL or TEST_COLLISION_SPHERE:
+        print("### TEST_COLLISION_SPHERE: Can read and write sphere collisions")
+        nif = NifFile(r"tests/SkyrimSE\spitpotopen01.nif")
+
+        anchor = nif.nodes["ANCHOR"]
+        coll = anchor.collision_object
+        collbody = coll.body
+        collshape = collbody.shape
+        assert collshape.blockname == "bhkSphereShape", f"Have sphere shape: {collshape.blockname}"
+        
+        hook = nif.nodes["L1_Hook"]
+        hook_col = hook.collision_object
+        hook_bod = hook_col.body
+        assert hook_bod.blockname == "bhkRigidBodyT", "Have RigidBodyT"
+        assert hook_bod.properties.bufType == PynBufferTypes.bhkRigidBodyTBufType
+
 
     print("""
 ================================================

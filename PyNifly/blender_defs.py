@@ -125,7 +125,7 @@ def pose_transform(shape:NiShape, bone: str):
 
 def arma_name(n):
     """Return the name for the armature given the name of the root node."""
-    return "ARMA." + n
+    return n + ":ARMATURE"
 
 
 BONE_LEN = 5

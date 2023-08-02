@@ -3185,6 +3185,32 @@ int getCollCapsuleShapeProps(void* nifref, uint32_t nodeIndex, void* buffer)
     return 0;
 }
 
+int getCollSphereShapeProps(void* nifref, uint32_t nodeIndex, void* buffer)
+/*
+    Return the collision shape details. 
+    Return value = 0 if the node is a known collision shape, <>0 if not
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkSphereShapeBuf* buf = static_cast<bhkSphereShapeBuf*>(buffer);
+    bhkSphereShape* sh = hdr->GetBlock<bhkSphereShape>(nodeIndex);
+
+    if (!sh) {
+        niflydll::LogWrite("ERROR: Node is not a bhkSphereShape.");
+        return 1;
+    }
+    if (buf->bufSize != sizeof(bhkSphereShapeBuf)) {
+        niflydll::LogWrite("getCollSphereShapeProps given wrong size buffer");
+        return 2;
+    }
+
+    buf->material = sh->GetMaterial();
+    buf->radius = sh->radius;
+
+    return 0;
+}
+
 int addCollCapsuleShape(void* nifref, const char* name, void* buffer, uint32_t parent) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
@@ -3946,7 +3972,8 @@ BlockGetterFunction getterFunctions[] = {
     getCollListShapeProps, //bhkListShapeBufTYpe
     getBlendCollisionObject, //bhkBlendCollisionObjectBufType
     getRagdollConstraint, //bhkRagdollConstraintBufType
-    getSimpleShapePhantom //bhkSimpleShapePhantomBufType
+    getSimpleShapePhantom, //bhkSimpleShapePhantomBufType
+    getCollSphereShapeProps //bhkSphereShapeBufType
 };
 
 NIFLY_API int getBlock(void* nifref, uint32_t blockID, void* buf)
@@ -3990,7 +4017,8 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //bhkListShapeBufTYpe
     nullptr, //bhkBlendCollisionObjectBufType
     nullptr, //bhkRagdollConstraintBufType
-    nullptr //bhkSimpleShapePhantomBufType
+    nullptr, //bhkSimpleShapePhantomBufType
+    nullptr //bhkSphereShapeBufType
 };
 
 NIFLY_API int setBlock(void* f, int id, void* buf)
@@ -4032,7 +4060,8 @@ BlockCreatorFunction creatorFunctions[] = {
     addCollListShape, //bhkListShapeBufTYpe
     nullptr, //bhkBlendCollisionObjectBufType
     nullptr, //bhkRagdollConstraintBufType
-    nullptr //bhkSimpleShapePhantomBufType
+    nullptr, //bhkSimpleShapePhantomBufType
+    nullptr //bhkSphereShapeBufType
 };
 
 NIFLY_API int addBlock(void* f, const char* name, void* buf, int parent) {

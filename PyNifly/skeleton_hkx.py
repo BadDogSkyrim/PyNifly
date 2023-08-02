@@ -134,7 +134,7 @@ class ImportSkel(bpy.types.Operator, ImportHelper):
         if inroot:
             arma = SkeletonArmature(Path(self.filepath).stem)
             arma.bones_from_xml(inroot)
-            arma.connect_armature(inroot)
+            # arma.connect_armature(inroot)
 
         status = {'FINISHED'}
 
