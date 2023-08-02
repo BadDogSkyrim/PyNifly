@@ -101,6 +101,7 @@ COLLISION_COLOR_MAP = {'bhkRigidBody': (0.0, 0.8, 0.2, 0.3),
                        'bhkSimpleShapePhantom': (0.8, 0.8, 0, 0.3),}
 collision_names = ["bhkBoxShape", "bhkConvexVerticesShape", "bhkListShape", 
                    "bhkConvexTransformShape", "bhkCapsuleShape",
+                   "bhkSphereShape",
                    "bhkRigidBodyT", "bhkRigidBody", "bhkCollisionObject"]
 
 ARMATURE_BONE_GROUPS = ['NPC', 'CME']
@@ -114,6 +115,7 @@ CREATE_BONES_DEF = True
 EXPORT_MODIFIERS_DEF = False
 EXPORT_POSE_DEF = False
 IMPORT_ANIMS_DEF = True
+IMPORT_COLLISIONS_DEF = True
 IMPORT_SHAPES_DEF = True
 PRESERVE_HIERARCHY_DEF = False
 RENAME_BONES_DEF = True
@@ -386,13 +388,13 @@ class NifImporter():
 
         self.context = bpy.context # can be overwritten
         self.collection = None
-        self.create_bones = CREATE_BONES_DEF
-        self.rename_bones = RENAME_BONES_DEF
-        self.import_anims = IMPORT_ANIMS_DEF
+        self.do_create_bones = CREATE_BONES_DEF
+        self.do_rename_bones = RENAME_BONES_DEF
+        self.do_import_anims = IMPORT_ANIMS_DEF
         self.rename_bones_nift = RENAME_BONES_NIFT_DEF
         self.roll_bones_nift = ROLL_BONES_NIFT_DEF
-        self.import_shapes = IMPORT_SHAPES_DEF
-        self.apply_skinning = APPLY_SKINNING_DEF
+        self.do_import_shapes = IMPORT_SHAPES_DEF
+        self.do_apply_skinning = APPLY_SKINNING_DEF
         self.reference_skel = None
         self.chargen_ext = chargen
         self.mesh_only = False
@@ -434,13 +436,13 @@ class NifImporter():
         return self.import_xf.to_scale()[0]
 
     def nif_name(self, blender_name):
-        if self.rename_bones or self.rename_bones_nift:
+        if self.do_rename_bones or self.rename_bones_nift:
             return self.nif.nif_name(blender_name)
         else:
             return blender_name
         
     def blender_name(self, nif_name):
-        if self.rename_bones or self.rename_bones_nift:
+        if self.do_rename_bones or self.rename_bones_nift:
             return self.nif.blender_name(nif_name)
         else:
             return nif_name
@@ -472,7 +474,7 @@ class NifImporter():
             offset_consistent = True
         
         offset_xf = None
-        if self.create_bones and self.reference_skel:
+        if self.do_create_bones and self.reference_skel:
             # If we're creating missing vanilla bones, we need to know the offset from the
             # bind positions here to the vanilla bind positions, and we need it to be
             # consistent.
@@ -939,7 +941,7 @@ class NifImporter():
             new_object['PYN_GAME'] = self.nif.game
             #if self.scale != SCALE_DEF: new_object['PYN_SCALE_FACTOR'] = self.scale 
             new_object['PYN_BLENDER_XF'] = MatNearEqual(self.import_xf, blender_import_xf)
-            new_object['PYN_RENAME_BONES'] = self.rename_bones 
+            new_object['PYN_RENAME_BONES'] = self.do_rename_bones 
             if self.rename_bones_nift != RENAME_BONES_NIFT_DEF:
                 new_object['PYN_RENAME_BONES_NIFT'] = self.rename_bones_nift 
 
@@ -1076,7 +1078,7 @@ class NifImporter():
     
         # Use the transform from the reference skeleton if we're extending bones; 
         # otherwise use the one in the file.
-        if self.create_bones and self.reference_skel and nifname in self.reference_skel.nodes:
+        if self.do_create_bones and self.reference_skel and nifname in self.reference_skel.nodes:
             LogIfBone(bone_name, f"Creating {bone_name} using reference location")
             bone_xform = self.reference_skel.nodes[nifname].xform_to_global.as_matrix()
             bone = create_bone(armdata, bone_name, bone_xform, 
@@ -1174,8 +1176,8 @@ class NifImporter():
                         parentname = self.blender_name(niparent.name)
                         #log.debug(f"Found parent in armature: {parentname}/{parentnifname} for {bonename}/{nifname}")
 
-                LogIfBone(bonename, f"connect_armature found {parentname}, creating bones {self.create_bones}, is facebones {is_facebone(bonename)} ")
-                if parentname is None and self.create_bones and not is_facebone(bonename):
+                LogIfBone(bonename, f"connect_armature found {parentname}, creating bones {self.do_create_bones}, is facebones {is_facebone(bonename)} ")
+                if parentname is None and self.do_create_bones and not is_facebone(bonename):
                     ##log.debug(f"No parent for '{nifname}' in the nif. If it's a known bone, get parent from skeleton")
                     if self.reference_skel and \
                         nifname in self.reference_skel.nodes and \
@@ -1299,7 +1301,7 @@ class NifImporter():
 
         #if self.scale != SCALE_DEF: arma['PYN_SCALE_FACTOR'] = self.scale 
         arma['PYN_BLENDER_XF'] = MatNearEqual(self.import_xf, blender_import_xf)
-        arma['PYN_RENAME_BONES'] = self.rename_bones
+        arma['PYN_RENAME_BONES'] = self.do_rename_bones
         if self.rename_bones_nift != RENAME_BONES_NIFT_DEF:
             arma['PYN_RENAME_BONES_NIFTOOLS'] = self.rename_bones_nift 
 
@@ -1369,7 +1371,7 @@ class NifImporter():
             for bn in nif_shape.bone_names:
                 blname = self.blender_name(bn)
                 if blname not in arma.data.edit_bones:
-                    if self.create_bones and bn in self.reference_skel.nodes and ref_compat:
+                    if self.do_create_bones and bn in self.reference_skel.nodes and ref_compat:
                         bone_shape_xf = self.reference_skel.nodes[bn].xform_to_global.as_matrix()
                         xf = bone_shape_xf
                     else:
@@ -1427,7 +1429,7 @@ class NifImporter():
 
     def animate_armature(self, arma):
         """Load any animations associated with the armature."""
-        if not self.import_anims: return
+        if not self.do_import_anims: return
         for b in arma.data.bones:
             nifname = self.nif_name(b.name)
             if nifname in self.nif.nodes: 
@@ -1514,8 +1516,12 @@ class NifImporter():
                             ))
         obj.location = objtrans
         
-        obj.rotation_euler = Euler((-pi/2, 0, 0), 'XYZ')
-        obj.rotation_euler.rotate(cb.rotation_euler)
+        # obj.rotation_euler = Euler((-pi/2, 0, 0), 'XYZ')
+        # obj.rotation_euler.rotate(cb.rotation_euler)
+        objaxis = Vector((0, 0, 1))
+        shaperot = objaxis.rotation_difference(vaxis)
+        cbrot = cb.rotation_euler.to_quaternion()
+        obj.rotation_euler = (shaperot @ cbrot).to_euler()
 
         for p in obj.data.polygons:
             p.use_smooth = True
@@ -1680,6 +1686,7 @@ class NifImporter():
         parentObj is armature and "bone" is the NiNode for the bone. 
         * Returns new collision object.
         """
+        if not self.do_import_collisions: return None
         col = None
         bpy.ops.object.mode_set(mode='OBJECT')
         if c.blockname in ["bhkCollisionObject", 
@@ -1959,7 +1966,7 @@ class NifImporter():
     
     def import_animations(self, ctrlr: NiTimeController):
         """Import the animation defined by this controller."""
-        if not self.import_anims: return
+        if not self.do_import_anims: return
         
         if ctrlr and hasattr(ctrlr, "sequences"): 
             for seq in ctrlr.sequences.values():
@@ -2009,7 +2016,7 @@ class NifImporter():
                 if self.armature:
                     self.imported_armatures = [self.armature] 
 
-                if self.apply_skinning:
+                if self.do_apply_skinning:
                     for obj in self.loaded_meshes:
                         sh = self.nodes_loaded[obj.name]
                         if sh.has_skin_instance:
@@ -2022,7 +2029,7 @@ class NifImporter():
                             orphan_shapes.discard(obj)
                 #log.debug("Connecting armature")
                 for arma in self.imported_armatures:
-                    if self.create_bones:
+                    if self.do_create_bones:
                         self.add_bones_to_arma(arma, self.nif, self.nif.nodes.keys())
                     self.connect_armature(arma)
                     self.group_bones(arma)
@@ -2144,7 +2151,7 @@ class NifImporter():
 
             prior_shapes = None
             this_vertcounts = [len(s.verts) for s in self.nif.shapes]
-            if self.import_shapes:
+            if self.do_import_shapes:
                 if len(this_vertcounts) > 0 and this_vertcounts == prior_vertcounts:
                     #log.debug(f"Vert count of all shapes in nif match shapes in prior nif. They will be loaded as a single shape with shape keys")
                     prior_shapes = self.loaded_meshes
@@ -2188,7 +2195,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         type=bpy.types.OperatorFileListElement,
         options={'HIDDEN', 'SKIP_SAVE'},)
 
-    create_bones: bpy.props.BoolProperty(
+    do_create_bones: bpy.props.BoolProperty(
         name="Create bones",
         description="Create vanilla bones as needed to make skeleton complete.",
         default=CREATE_BONES_DEF)
@@ -2203,27 +2210,32 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Use Blender's orientation and scale",
         default=BLENDER_XF_DEF)
 
-    rename_bones: bpy.props.BoolProperty(
+    do_rename_bones: bpy.props.BoolProperty(
         name="Rename bones",
         description="Rename bones to conform to Blender's left/right conventions.",
         default=RENAME_BONES_DEF)
 
-    import_animations: bpy.props.BoolProperty(
+    do_import_animations: bpy.props.BoolProperty(
         name="Import animations",
         description="Import any animations embedded in the nif.",
         default=IMPORT_ANIMS_DEF)
+
+    do_import_collisions: bpy.props.BoolProperty(
+        name="Import collisions",
+        description="Import any collisions embedded in the nif.",
+        default=IMPORT_COLLISIONS_DEF)
 
     rename_bones_niftools: bpy.props.BoolProperty(
         name="Rename bones as per NifTools",
         description="Rename bones using NifTools' naming scheme to conform to Blender's left/right conventions.",
         default=RENAME_BONES_NIFT_DEF)
 
-    import_shapes: bpy.props.BoolProperty(
+    do_import_shapes: bpy.props.BoolProperty(
         name="Import as shape keys",
         description="Import similar objects as shape keys where possible on multi-file imports.",
         default=IMPORT_SHAPES_DEF)
 
-    apply_skinning: bpy.props.BoolProperty(
+    do_apply_skinning: bpy.props.BoolProperty(
         name="Apply skin to mesh",
         description="Applies any transforms defined in shapes' partitions to the final mesh.",
         default=APPLY_SKINNING_DEF)
@@ -2257,13 +2269,14 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             imp.context = context
             if context.view_layer.active_layer_collection: 
                 imp.collection = context.view_layer.active_layer_collection.collection
-            imp.create_bones = self.create_bones
+            imp.do_create_bones = self.do_create_bones
             # imp.roll_bones_nift = self.roll_bones
-            imp.rename_bones = self.rename_bones
+            imp.do_rename_bones = self.do_rename_bones
             imp.rename_bones_nift = self.rename_bones_niftools
-            imp.import_shapes = self.import_shapes
-            imp.import_anims = self.import_animations
-            imp.apply_skinning = self.apply_skinning
+            imp.do_import_shapes = self.do_import_shapes
+            imp.do_import_anims = self.do_import_animations
+            imp.do_import_collisions = self.do_import_collisions
+            imp.do_apply_skinning = self.do_apply_skinning
             if self.reference_skel:
                 imp.reference_skel = NifFile(self.reference_skel)
             if self.use_blender_xf:
@@ -2572,7 +2585,7 @@ class ImportKF(bpy.types.Operator, ExportHelper):
             imp = NifImporter(self.filepath)
             imp.context = context
             imp.armature = context.object
-            imp.import_anims = True
+            imp.do_import_anims = True
             imp.nif = NifFile(self.filepath)
             imp.import_nif()
         except:
@@ -2673,7 +2686,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
                 imp = NifImporter(self.kf_filepath)
                 imp.context = context
                 imp.armature = context.object
-                imp.import_anims = True
+                imp.do_import_anims = True
                 imp.nif = kf_file
                 imp.import_nif()
                 self.import_annotations()
@@ -3034,7 +3047,7 @@ class NifExporter:
         self.warnings = set()
         self.armature = None
         self.facebones = None
-        self.rename_bones = RENAME_BONES_DEF
+        self.do_rename_bones = RENAME_BONES_DEF
         self.rename_bones_nift = RENAME_BONES_NIFT_DEF
         self.preserve_hierarchy = PRESERVE_HIERARCHY_DEF
         self.write_bodytri = WRITE_BODYTRI_DEF
@@ -3079,7 +3092,7 @@ class NifExporter:
 
     def __str__(self):
         flags = []
-        if self.rename_bones: flags.append("RENAME_BONES")
+        if self.do_rename_bones: flags.append("RENAME_BONES")
         if self.rename_bones_nift: flags.append("RENAME_BONES_NIFT")
         if self.preserve_hierarchy: flags.append("PRESERVE_HIERARCHY")
         if self.write_bodytri: flags.append("WRITE_BODYTRI")
@@ -3114,7 +3127,7 @@ class NifExporter:
         return 1/self.export_xf.to_scale()[0]
     
     def nif_name(self, blender_name):
-        if self.rename_bones or self.rename_bones_nift:
+        if self.do_rename_bones or self.rename_bones_nift:
             return self.nif.nif_name(blender_name)
         else:
             return blender_name
@@ -3456,31 +3469,33 @@ class NifExporter:
 
         # ---New---
         rot = s.rotation_euler.to_quaternion()
-        rot.invert()
+        # rot.invert()
 
         # Capsule shape aligned on z-axis. Length incorporates the caps, so it's 2*radius
         # longer than it should be.
-        rad = (max(v.co.x for v in s.data.vertices)/sf \
-               - min(v.co.x for v in s.data.vertices)/sf) / 2
-        zmin = min(v.co.z for v in s.data.vertices)/sf + rad
-        zmax = max(v.co.z for v in s.data.vertices)/sf - rad
-        point1 = Vector((0, -rad, zmin))
-        point2 = Vector((0, -rad, zmax))
+        global_xf = self.root_object.matrix_world.inverted() @ s.matrix_world 
+        rad = (max(v.co.x for v in s.data.vertices) \
+               - min(v.co.x for v in s.data.vertices)) / 2
+        zmin = min(v.co.z for v in s.data.vertices) + rad
+        zmax = max(v.co.z for v in s.data.vertices) - rad
+        point1 = global_xf @ Vector((0, 0, zmin)) 
+        point2 = global_xf @ Vector((0, 0, zmax))
         
-        transl = s.location/sf
-        point1 -= transl
-        point2 -= transl
-        point1.rotate(rot)
-        point2.rotate(rot)
-        point1 += transl
-        point2 += transl
+        # Point1, Point2 are locations in havok world space. 
+        # transl = (s.location - s.parent.matrix_world.translation)/sf
+        # point1 -= transl
+        # point2 -= transl
+        # point1.rotate(rot)
+        # point2.rotate(rot)
+        # point1 += transl
+        # point2 += transl
 
-        props.bhkRadius = props.radius1 = props.radius2 = rad
+        props.bhkRadius = props.radius1 = props.radius2 = rad/sf
 
         for i, val in enumerate(point1):
-            props.point1[i] = val
+            props.point1[i] = val/sf
         for i, val in enumerate(point2):
-            props.point2[i] = val
+            props.point2[i] = val/sf
 
         cshape = self.nif.add_shape(props)
 
@@ -4312,7 +4327,7 @@ class NifExporter:
         if self.preserve_hierarchy != PRESERVE_HIERARCHY_DEF:
             obj['PYN_PRESERVE_HIERARCHY'] = self.preserve_hierarchy 
         if arma:
-            arma['PYN_RENAME_BONES'] = self.rename_bones
+            arma['PYN_RENAME_BONES'] = self.do_rename_bones
             if self.rename_bones_nift != RENAME_BONES_NIFT_DEF:
                 arma['PYN_RENAME_BONES_NIFTOOLS'] = self.rename_bones_nift 
         if self.write_bodytri != WRITE_BODYTRI_DEF:
@@ -4507,7 +4522,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         default=BLENDER_XF_DEF
         )
     
-    rename_bones: bpy.props.BoolProperty(
+    do_rename_bones: bpy.props.BoolProperty(
         name="Rename Bones",
         description="Rename bones from Blender conventions back to nif.",
         default=True)
@@ -4585,7 +4600,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             self.use_blender_xf = obj['PYN_BLENDER_XF']
             
         if export_armature and 'PYN_RENAME_BONES' in export_armature:
-            self.rename_bones = export_armature['PYN_RENAME_BONES']
+            self.do_rename_bones = export_armature['PYN_RENAME_BONES']
 
         if export_armature and 'PYN_RENAME_BONES_NIFTOOLS' in export_armature:
             self.rename_bones_niftools = export_armature['PYN_RENAME_BONES_NIFTOOLS']
@@ -4634,7 +4649,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                                    self.target_game, 
                                    chargen=self.chargen_ext)
 
-            exporter.rename_bones = self.rename_bones
+            exporter.do_rename_bones = self.do_rename_bones
             exporter.rename_bones_nift = self.rename_bones_niftools
             exporter.preserve_hierarchy = self.preserve_hierarchy
             exporter.write_bodytri = self.write_bodytri

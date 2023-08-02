@@ -365,7 +365,7 @@ def TEST_RENAME():
     TT.clear_all()
     testfile = TT.test_file(r"tests\Skyrim\femalebody_1.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_rename_bones=False)
 
     body = bpy.context.object
     vgnames = [x.name for x in body.vertex_groups]
@@ -412,7 +412,7 @@ def TEST_DRAUGR_IMPORT_A():
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT1.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, do_create_bones=True)
 
     skel = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     helm = TT.find_shape("Helmet")
@@ -447,7 +447,7 @@ def TEST_DRAUGR_IMPORT_B():
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_B.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, do_create_bones=False)
 
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     helm = TT.find_shape("Helmet")
@@ -470,7 +470,7 @@ def TEST_DRAUGR_IMPORT_C():
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_C.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, do_create_bones=False)
 
     skel = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     helm = TT.find_shape("Helmet")
@@ -493,7 +493,7 @@ def TEST_DRAUGR_IMPORT_D():
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_D.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, do_create_bones=True)
 
     skel = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     helm = TT.find_shape("Helmet")
@@ -531,7 +531,7 @@ def TEST_DRAUGR_IMPORT_E():
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_E.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, do_create_bones=False)
 
     skel = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     helm = TT.find_shape("Helmet")
@@ -894,7 +894,7 @@ def TEST_SKEL():
     testfile = TT.test_file(r"skeletons\FO4\skeleton.nif")
     outfile = TT.test_file(r"tests/out/TEST_SKEL.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False)
 
     arma = [a for a in bpy.data.objects if a.type == 'ARMATURE'][0]
     assert 'Root' in arma.data.bones, "Have Root bone"
@@ -940,7 +940,7 @@ def TEST_SKEL_SKY():
     testfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
     outfile = TT.test_file(r"tests/out/TEST_SKEL_SKY.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False)
 
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     root = next(x for x in bpy.data.objects if 'pynRoot' in x)
@@ -948,46 +948,17 @@ def TEST_SKEL_SKY():
     bumper_col = next(x for x in arma.children 
                    if x.name.startswith('bhkSPCollisionObject')
                    and x['pynCollisionTarget'] == 'CharacterBumper')
+    assert bumper_col, "Have bumper collision"
+    bumper_shape = bumper_col.children[0].children[0]
+    bb = TT.get_obj_bbox(bumper_shape, worldspace=True)
+    assert bb[1][2] - bb[0][2] > bb[1][0] - bb[0][0] \
+        and bb[1][2] - bb[0][2] > bb[1][1] - bb[0][1], \
+            f"Character bumper long dimension is vertical: {bb}"
 
     foot_col = [obj for obj in bpy.data.objects 
                     if 'pynCollisionTarget' in obj and obj['pynCollisionTarget'] == 'NPC Foot.R']
     assert foot_col, "Have foot collision object"
 
-    # assert 'Root' in arma.data.bones, "Have Root bone"
-    # rootbone = arma.data.bones['Root']
-    # assert 'Leg_Thigh.L' in arma.data.bones, "Have left thigh bone"
-    # assert 'RibHelper.L' in arma.data.bones, "Have rib helper bone"
-    # assert 'L_RibHelper.L' not in arma.data.bones, "Do not have nif name for bone"
-    # assert 'L_RibHelper' not in bpy.data.objects, "Do not have rib helper object"
-    # assert arma.data.bones['RibHelper.L'].parent.name == 'Chest', \
-    #     f"Parent of ribhelper is chest: {arma.data.bones['RibHelper.L'].parent.name}"
-
-    # # COM bone's orientation matches that of the nif
-    # nif = pyn.NifFile(testfile)
-    # rootnode = nif.nodes["Root"]
-    # assert TT.MatNearEqual(rootbone.matrix, BD.transform_to_matrix(rootnode.transform)), \
-    #     f"Bone transform matches nif: {rootbone.matrix}"
-
-    # cp_lleg = bpy.data.objects['BSConnectPointParents::P-ArmorLleg']
-    # assert cp_lleg.parent == arma, f"cp_lleg has armature as parent: {cp_lleg.parent}"
-    # # TODO: Figure out exactly where these connect points ought to be. The number here is
-    # # taken from importing the skeleton with no rotations on the bones, so might be right.
-    # assert TT.NearEqual(cp_lleg.location[0], -8.748), \
-    #     f"Armor left leg connect point at relative position: {cp_lleg.location}"
-
-    # BD.ObjectSelect([root], active=True)
-    # bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True)
-
-    # skel_in = pyn.NifFile(testfile)
-    # skel_out = pyn.NifFile(outfile)
-    # assert "L_RibHelper" in skel_out.nodes, "Bones written to nif"
-    # pb = skel_out.nodes["L_RibHelper"].parent
-    # assert pb.name == "Chest", f"Have correct parent: {pb.name}"
-    # helm_cp_in = [x for x in skel_in.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
-    # helm_cp_out = [x for x in skel_out.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
-    # assert helm_cp_out.parent.decode('utf-8') == 'HEAD', f"Parent is correct: {helm_cp_out.parent}"
-    # assert TT.VNearEqual(helm_cp_in.translation, helm_cp_out.translation), \
-    #     f"Connect point locations correct: {helm_cp_in.translation[:]} == {helm_cp_out.translation[:]}"
 
 
 def TEST_HEADPART():
@@ -1698,7 +1669,7 @@ def TEST_POT():
     TT.test_title("TEST_POT", "Test that pot shaders doesn't throw an error; also collisions")
     TT.clear_all()
     testfile = TT.test_file(r"tests\SkyrimSE\spitpotopen01.nif")
-    bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False, rename_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
     assert 'ANCHOR:0' in bpy.data.objects.keys()
 
     anchor = bpy.data.objects['ANCHOR']
@@ -1781,7 +1752,7 @@ def TEST_WELWA():
     testfile = TT.test_file(r"tests\SkyrimSE\welwa.nif")
     outfile = TT.test_file(r"tests/Out/TEST_WELWA.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False, create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_rename_bones=False, do_create_bones=False)
 
     welwa = TT.find_shape("111")
     skel = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
@@ -1806,7 +1777,7 @@ def TEST_MUTANT():
     TT.clear_all()
     testfile = TT.test_file(r"tests/FO4/testsupermutantbody.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False, create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_rename_bones=False, do_create_bones=False)
 
     testnif = pyn.NifFile(testfile)
     assert round(testnif.shapes[0].global_to_skin.translation[2]) == -140, f"Expected -140 z translation in first nif, got {testnif.shapes[0].global_to_skin.translation[2]}"
@@ -1815,7 +1786,7 @@ def TEST_MUTANT():
     assert round(sm1.location[2]) == 140, f"Expect first supermutant body at 140 Z, got {sm1.location[2]}"
 
     bpy.ops.object.select_all(action='DESELECT')
-    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False, create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_rename_bones=False, do_create_bones=False)
     sm2 = bpy.context.object
     assert sm2 != sm1, f"Second import created second object: {sm2.name}"
     assert round(sm2.location[2]) == 140, f"Expect supermutant body at 140 Z, got {sm2.location[2]}"
@@ -2305,7 +2276,7 @@ def TEST_BONE_HIERARCHY():
 
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', 
                                  preserve_hierarchy=True,
-                                 rename_bones=True)
+                                 do_rename_bones=True)
 
     print("# ------- Check ---------")
     nifcheck = pyn.NifFile(outfile)
@@ -2508,7 +2479,7 @@ def TEST_BONE_XPORT_POS():
     TT.clear_all()
     testfile = TT.test_file(r"tests\Skyrim\draugr.nif")
     outfile = TT.test_file(r"tests/Out/TEST_BONE_XPORT_POS.nif", output=True)
-    bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False, rename_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
     
     draugr = bpy.context.object
     draugr_arma = next(m.object for m in draugr.modifiers if m.type == 'ARMATURE')
@@ -2952,7 +2923,7 @@ def TEST_NIFTOOLS_NAMES():
     testfile = TT.test_file(r"tests\Skyrim\malebody_1.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones_niftools=True, 
-                                 create_bones=False, use_blender_xf=True)
+                                 do_create_bones=False, use_blender_xf=True)
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
 
     bpy.ops.object.select_all(action='DESELECT')
@@ -3166,11 +3137,56 @@ def TEST_COLLISION_CAPSULE():
         assert TT.NearEqual(shapeorig.properties.radius1, shapecheck.properties.radius1), \
             f"Wrote the correct radius: {shapecheck.properties.radius1}"
         
-        # TODO: Get a better test for this. Not sure this is really working at all.
-        # Have to set epsilon high or the test fails. 
         assert TT.NearEqual(shapeorig.properties.point1[1], 
                             shapecheck.properties.point1[1],
                             epsilon=0.05), \
+            f"Wrote the correct radius: {shapecheck.properties.point1[1]}"
+
+    do_test(False)
+    do_test(True)
+
+
+def TEST_COLLISION_CAPSULE2():
+    # Note that the collision object is slightly offset from the shaft of the staff.
+    # It might even be intentional, to give the staff a more irregular roll, since 
+    # they didn't do a collision for the protrusions.
+    def do_test(bx):
+        TT.test_title("TEST_COLLISION_CAPSULE2", 
+                    f"Can read and write shape with collision capsule shapes with Blender transforms {bx}")
+        TT.clear_all()
+
+        # ------- Load --------
+        testfile = TT.test_file(r"tests\Skyrim\staff04-collision.nif")
+        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_CAPSULE2.{bx}.nif")
+
+        bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=bx)
+
+        staff = TT.find_shape("3rdPersonStaff04")
+        coll = TT.find_shape("bhkCollisionObject", type="EMPTY")
+        collbody = coll.children[0]
+        collshape = collbody.children[0]
+
+        # -------- Export --------
+        BD.ObjectSelect([o for o in bpy.data.objects if 'pynRoot' in o], active=True)
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', use_blender_xf=bx)
+
+        # ------- Check ---------
+        nifcheck = pyn.NifFile(outfile)
+        staffcheck = nifcheck.shape_dict["3rdPersonStaff04:1"]
+        collcheck = nifcheck.rootNode.collision_object
+        rbcheck = collcheck.body
+        shapecheck = rbcheck.shape
+        assert shapecheck.blockname == "bhkCapsuleShape", f"Got a capsule collision back {shapecheck.blockname}"
+
+        niforig = pyn.NifFile(testfile)
+        collorig = niforig.rootNode.collision_object
+        rborig = collorig.body
+        shapeorig = rborig.shape
+        assert TT.NearEqual(shapeorig.properties.radius1, shapecheck.properties.radius1), \
+            f"Wrote the correct radius: {shapecheck.properties.radius1}"
+        
+        assert TT.NearEqual(shapeorig.properties.point1[1], 
+                            shapecheck.properties.point1[1]), \
             f"Wrote the correct radius: {shapecheck.properties.point1[1]}"
 
     do_test(False)
@@ -3391,7 +3407,7 @@ def TEST_WEAPON_PART():
     partfile2 = TT.test_file(r"tests\FO4\Shotgun\DrumMag.nif")
     outfile = TT.test_file(r"tests\Out\TEST_WEAPON_PART.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False, rename_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
 
     barrelpcp = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Barrel'), 
                             bpy.data.objects))
@@ -3402,7 +3418,7 @@ def TEST_WEAPON_PART():
 
     BD.ObjectSelect([barrelpcp], active=True)
 
-    bpy.ops.import_scene.pynifly(filepath=partfile, create_bones=False, rename_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=partfile, do_create_bones=False, do_rename_bones=False)
 
     barrelccp = next((x for x in bpy.data.objects 
                       if x.name.startswith('BSConnectPointChildren')), 
@@ -3419,7 +3435,7 @@ def TEST_IMPORT_MULT_CP():
     testfiles = [{"name": TT.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")}, 
                  {"name": TT.test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel.nif")}, 
                  {"name": TT.test_file(r"tests\FO4\Shotgun\Stock.nif")} ]
-    bpy.ops.import_scene.pynifly(files=testfiles, rename_bones=False, create_bones=False)
+    bpy.ops.import_scene.pynifly(files=testfiles, do_renamef_bones=False, do_create_bones=False)
 
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
     assert len(meshes) == 5, f"Have 5 meshes: {meshes}"
@@ -3575,7 +3591,7 @@ def TEST_BABY():
     testfile = TT.test_file(r"tests\FO4\baby.nif")
     outfile = TT.test_file(r"tests\Out\TEST_BABY.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False, rename_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
     
     head = bpy.data.objects['Baby_Head:0']
     eyes = bpy.data.objects['Baby_Eyes:0']
@@ -3726,7 +3742,7 @@ def TEST_IMP_ANIMATRON():
     outfile = TT.test_file(r"tests/Out/TEST_IMP_ANIMATRON.nif")
     outfile_fb = TT.test_file(r"tests/Out/TEST_IMP_ANIMATRON.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False, rename_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
 
     sh = TT.find_shape('BodyLo:0')
     minv, maxv = TT.get_obj_bbox(sh)
@@ -4042,7 +4058,7 @@ def TEST_SKEL_SOS_HKX():
                     'NPC Genitals05 [Gen05]',
                     'NPC Genitals06 [Gen06]']
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_rename_bones=False)
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     assert arma and arma.type=='ARMATURE', f"Loaded armature: {arma}"
     bpy.ops.object.select_all(action='DESELECT')
@@ -4219,9 +4235,9 @@ def TEST_ANIM_ALDUIN():
         assert TT.VNearEqual(v - tiv, [0,0,0]), f"{node.name} can subtract vector"
 
     bpy.ops.import_scene.pynifly(filepath=testfile,
-                                 create_bones=False, 
-                                 rename_bones=False,
-                                 import_animations=True,
+                                 do_create_bones=False, 
+                                 do_rename_bones=False,
+                                 do_import_animations=True,
                                  use_blender_xf=True)
     
     nif = pyn.NifFile(testfile)
@@ -4303,9 +4319,9 @@ def TEST_ANIM_KF():
 
     # Animations are loaded into a skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile,
-                                 create_bones=False, 
-                                 rename_bones=False,
-                                 import_animations=False,
+                                 do_create_bones=False, 
+                                 do_rename_bones=False,
+                                 do_import_animations=False,
                                  use_blender_xf=False)
     
     BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
@@ -4406,9 +4422,9 @@ def TEST_ANIM_KF_RENAME():
 
     # Animations are loaded into a skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile,
-                                 create_bones=False, 
-                                 rename_bones=True,
-                                 import_animations=False,
+                                 do_create_bones=False, 
+                                 do_rename_bones=True,
+                                 do_import_animations=False,
                                  use_blender_xf=True)
     
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
@@ -4475,9 +4491,9 @@ def TEST_ANIM_HKX():
 
     # Animations are loaded into a skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile,
-                                 create_bones=False, 
-                                 rename_bones=True,
-                                 import_animations=False,
+                                 do_create_bones=False, 
+                                 do_rename_bones=True,
+                                 do_import_animations=False,
                                  use_blender_xf=True)
     
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
@@ -4504,9 +4520,9 @@ def LOAD_RIG():
     bpfile4 = TT.test_file(r"tests\Skyrim\malehead.nif")
 
     bpy.ops.import_scene.pynifly(filepath=skelfile,
-                                 create_bones=False, 
-                                 rename_bones=True,
-                                 import_animations=False,
+                                 do_create_bones=False, 
+                                 do_rename_bones=True,
+                                 do_import_animations=False,
                                  use_blender_xf=True)
     BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
     bpy.context.object['PYN_SKELETON_FILE'] = hkxskelfile
@@ -4514,9 +4530,9 @@ def LOAD_RIG():
                                         {"name": bpfile2}, 
                                         {"name": bpfile3}, 
                                         {"name": bpfile4}],
-                                 create_bones=False, 
-                                 rename_bones=True,
-                                 import_animations=False,
+                                 do_create_bones=False, 
+                                 do_rename_bones=True,
+                                 do_import_animations=False,
                                  use_blender_xf=True)
 
 
@@ -4611,6 +4627,7 @@ def LOAD_RIG():
 # TEST_COLLISION_MULTI()
 # TEST_COLLISION_CONVEXVERT()
 # TEST_COLLISION_CAPSULE()  ### Collision capsule shapes with scale
+TEST_COLLISION_CAPSULE2()  ### Collision capsule shapes with scale
 # TEST_COLLISION_LIST()  ### Collision list and collision transform shapes with scale
 # TEST_CHANGE_COLLISION()  ### Changing collision type 
 # TEST_COLLISION_XFORM()  ### Read and write shape with collision capsule shapes
@@ -4638,7 +4655,7 @@ def LOAD_RIG():
 # TEST_FONV()  ### FONV mesh
 # TEST_FONV_BOD()  ### Basic FONV body part import and export
 # TEST_ANIM_CHEST()  ### Read and write the animation of chest opening and shutting
-TEST_ANIM_CRATE()  ### Read and write the animation of crate opening and shutting
+# TEST_ANIM_CRATE()  ### Read and write the animation of crate opening and shutting
 # TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
 # TEST_ANIM_KF()  ### Import KF animation file
 # TEST_ANIM_KF_RENAME()  ### Import KF animation file

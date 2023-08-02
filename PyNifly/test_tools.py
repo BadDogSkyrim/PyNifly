@@ -7,7 +7,7 @@ import logging
 import bpy
 from mathutils import Matrix, Vector, Quaternion, Euler
 from niflytools import *
-import blender_defs
+import blender_defs as BD
 
 
 pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
@@ -109,8 +109,7 @@ def get_obj_bbox(obj, worldspace=False, scale=1.0):
         except:
             pass
         bpy.ops.object.select_all(action='DESELECT')
-        obj.select_set(True)
-        bpy.context.view_layer.objects.active = obj
+        BD.ObjectSelect([obj], active=True)
         bpy.ops.object.duplicate()
         newobj = bpy.context.object
         newobj.name = "TEST_OBJ." + obj.name
