@@ -3435,7 +3435,7 @@ def TEST_IMPORT_MULT_CP():
     testfiles = [{"name": TT.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")}, 
                  {"name": TT.test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel.nif")}, 
                  {"name": TT.test_file(r"tests\FO4\Shotgun\Stock.nif")} ]
-    bpy.ops.import_scene.pynifly(files=testfiles, do_renamef_bones=False, do_create_bones=False)
+    bpy.ops.import_scene.pynifly(files=testfiles, do_rename_bones=False, do_create_bones=False)
 
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
     assert len(meshes) == 5, f"Have 5 meshes: {meshes}"
@@ -4627,39 +4627,39 @@ def LOAD_RIG():
 # TEST_COLLISION_MULTI()
 # TEST_COLLISION_CONVEXVERT()
 # TEST_COLLISION_CAPSULE()  ### Collision capsule shapes with scale
-TEST_COLLISION_CAPSULE2()  ### Collision capsule shapes with scale
+# TEST_COLLISION_CAPSULE2()  ### Collision capsule shapes with scale
 # TEST_COLLISION_LIST()  ### Collision list and collision transform shapes with scale
 # TEST_CHANGE_COLLISION()  ### Changing collision type 
 # TEST_COLLISION_XFORM()  ### Read and write shape with collision capsule shapes
 # TEST_CONNECT_POINT()  ### Connect points are imported and exported
 # TEST_WEAPON_PART()  ### Weapon parts are imported at the parent connect point
-# TEST_IMPORT_MULT_CP()  ### Import multiple files and connect up the connect points
-# TEST_FURN_MARKER1()  ### Skyrim furniture markers 
-# TEST_FURN_MARKER2()  ### Skyrim furniture markers
-# TEST_FO4_CHAIR()  ### FO4 furniture markers 
-# TEST_PIPBOY()
-# TEST_BABY()  ### FO4 baby 
-# TEST_ROTSTATIC()  ### Statics are transformed according to the shape transform
-# TEST_ROTSTATIC2()  ### Statics are transformed according to the shape transform
-# TEST_FACEBONES()
-# TEST_FACEBONES_RENAME()  ### Facebones are correctly renamed from Blender to the game's names
-# TEST_IMP_ANIMATRON()
-# TEST_CUSTOM_BONES()  ### Can handle custom bones correctly
-# TEST_COTH_DATA()  ## Handle cloth data
-# TEST_IMP_NORMALS()  ### Can import normals from nif shape
-# TEST_UV_SPLIT()  ### Split UVs properly
-# TEST_JIARAN()  ### Armature with no stashed transforms exports correctly
-# TEST_SKEL_HKX_IMPORT()  ### Basic skeleton import (XML -> HKX)
-# TEST_SKEL_HKX()  ### Basic skeleton export (XML -> HKX)
-# TEST_SKEL_SOS_HKX()  ### SOS auxbones skeleton 
-# TEST_FONV()  ### FONV mesh
-# TEST_FONV_BOD()  ### Basic FONV body part import and export
-# TEST_ANIM_CHEST()  ### Read and write the animation of chest opening and shutting
-# TEST_ANIM_CRATE()  ### Read and write the animation of crate opening and shutting
-# TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
-# TEST_ANIM_KF()  ### Import KF animation file
-# TEST_ANIM_KF_RENAME()  ### Import KF animation file
-# TEST_ANIM_HKX()  ### Read and write KF animation with renamed bones
+TEST_IMPORT_MULT_CP()  ### Import multiple files and connect up the connect points
+TEST_FURN_MARKER1()  ### Skyrim furniture markers 
+TEST_FURN_MARKER2()  ### Skyrim furniture markers
+TEST_FO4_CHAIR()  ### FO4 furniture markers 
+TEST_PIPBOY()
+TEST_BABY()  ### FO4 baby 
+TEST_ROTSTATIC()  ### Statics are transformed according to the shape transform
+TEST_ROTSTATIC2()  ### Statics are transformed according to the shape transform
+TEST_FACEBONES()
+TEST_FACEBONES_RENAME()  ### Facebones are correctly renamed from Blender to the game's names
+TEST_IMP_ANIMATRON()
+TEST_CUSTOM_BONES()  ### Can handle custom bones correctly
+TEST_COTH_DATA()  ## Handle cloth data
+TEST_IMP_NORMALS()  ### Can import normals from nif shape
+TEST_UV_SPLIT()  ### Split UVs properly
+TEST_JIARAN()  ### Armature with no stashed transforms exports correctly
+TEST_SKEL_HKX_IMPORT()  ### Basic skeleton import (XML -> HKX)
+TEST_SKEL_HKX()  ### Basic skeleton export (XML -> HKX)
+TEST_SKEL_SOS_HKX()  ### SOS auxbones skeleton 
+TEST_FONV()  ### FONV mesh
+TEST_FONV_BOD()  ### Basic FONV body part import and export
+TEST_ANIM_CHEST()  ### Read and write the animation of chest opening and shutting
+TEST_ANIM_CRATE()  ### Read and write the animation of crate opening and shutting
+TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
+TEST_ANIM_KF()  ### Import KF animation file
+TEST_ANIM_KF_RENAME()  ### Import KF animation file
+TEST_ANIM_HKX()  ### Read and write KF animation with renamed bones
 
 # LOAD_RIG()  ### Not a test--Load up some shapes for play
 
