@@ -2518,6 +2518,102 @@ def TEST_BONE_XPORT_POS():
     assert round(spine2check.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2check.head[2]}"
 
 
+def TEST_INV_MARKER():
+    # Inventory markers are imported as cameras set up to reflect how the item will be
+    # shown in the inventory.
+    TT.test_title("TEST_INV_MARKER", "Can handle inventory markers")
+    TT.clear_all()
+
+    # ------- Load --------
+    testfile = TT.test_file(r"tests\SkyrimSE\Suzanne.nif")
+    outfile1 = TT.test_file(r"tests/Out/TEST_INV_MARKER1.nif")
+    outfile2 = TT.test_file(r"tests/Out/TEST_INV_MARKER2.nif")
+    outfile3 = TT.test_file(r"tests/Out/TEST_INV_MARKER3.nif")
+    outfile4 = TT.test_file(r"tests/Out/TEST_INV_MARKER4.nif")
+    outfile5 = TT.test_file(r"tests/Out/TEST_INV_MARKER5.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    cam = next(obj for obj in bpy.data.objects if obj.type == 'CAMERA')
+    suzanne = next(obj for obj in bpy.context.scene.objects if obj.type == 'MESH')
+    
+    # Camera at [0, 100, 0] pointed back at origin. This is the default position. 
+    # Camera is behind Suzanne. 
+    cam.matrix_world = Matrix((
+            (-1.0000,  0.0000, 0.0000,   0.0000),
+            ( 0.0000, -0.0000, 1.0000, 100.0000),
+            ( 0.0000,  1.0000, 0.0000,   0.0000),
+            ( 0.0000,  0.0000, 0.0000,   1.0000) ))
+    expobj = [obj for obj in bpy.context.scene.objects if 'pynRoot' not in obj]
+    BD.ObjectSelect(expobj)
+    bpy.ops.export_scene.pynifly(filepath=outfile1)
+
+    nifch1 = pyn.NifFile(outfile1)
+    assert nifch1.rootNode.inventory_marker[1:4] == [0, 0, 0], f"Have correct inventory marker: {nifch1.rootNode.inventory_marker}"
+
+    # Camera at [0, -100, 0], pointed at origin. This puts the cam on the other side.
+    # Camera pointed at Suzanne's face.
+    cam.matrix_world = Matrix((
+            ( 1.0000, -0.0000,  0.0000,  0),
+            (-0.0000, -0.0000, -1.0000, -100),
+            ( 0.0000,  1.0000, -0.0000,  0),
+            ( 0.0000,  0.0000,  0.0000,  1.0000)))
+    expobj = [obj for obj in bpy.context.scene.objects if 'pynRoot' not in obj]
+    BD.ObjectSelect(expobj)
+    bpy.ops.export_scene.pynifly(filepath=outfile2)
+
+    nifch2 = pyn.NifFile(outfile2)
+    assert BD.VNearEqual(nifch2.rootNode.inventory_marker[1:4], [0, 0, 3142], epsilon=2), \
+        f"Have correct inventory marker: {nifch2.rootNode.inventory_marker}"
+
+    # Camera on negative X axis, pointed at origin. Shows Suzanne looking to the right.
+    cam.matrix_world = Matrix((
+            ( 0.0000, 0.0000, -1.0000, -100.0000),
+            (-1.0000, 0.0000, -0.0000,   -0.0000),
+            ( 0.0000, 1.0000,  0.0000,    0.0000),
+            ( 0.0000, 0.0000,  0.0000,    1.0000)))
+    expobj = [obj for obj in bpy.context.scene.objects if 'pynRoot' not in obj]
+    BD.ObjectSelect(expobj)
+    bpy.ops.export_scene.pynifly(filepath=outfile3)
+
+    nifch3 = pyn.NifFile(outfile3)
+    assert BD.VNearEqual(nifch3.rootNode.inventory_marker[1:4], [0, 0, 1570], epsilon=2), \
+        f"Have correct inventory marker: {nifch3.rootNode.inventory_marker}"
+
+    # Inventory item can be oriented arbitrarily.
+    suzanne.matrix_world = Matrix((
+            (0.5702, -0.3352, -0.7501, 0.0000),
+            (0.6928,  0.6869,  0.2196, 0.0000),
+            (0.4416, -0.6448,  0.6238, 0.0000),
+            (0.0000,  0.0000,  0.0000, 1.0000)))
+    cam.matrix_world = Matrix((
+            (-0.1333, -0.9077,  0.3978,  39.7837),
+            ( 0.6190, -0.3898, -0.6819, -68.1890),
+            ( 0.7740,  0.1553,  0.6138,  61.3801),
+            ( 0.0000,  0.0000,  0.0000,   1.0000)))
+
+    expobj = [obj for obj in bpy.context.scene.objects if 'pynRoot' not in obj]
+    BD.ObjectSelect(expobj)
+    bpy.ops.export_scene.pynifly(filepath=outfile4)
+
+    # Large inventory item can be viewed by changing zoom factor.
+    suzanne.matrix_world = Matrix((
+            (2.8508, -1.6760, -3.7503, 0.0000),
+            (3.4640,  3.4345,  1.0980, 0.0000),
+            (2.2082, -3.2240,  3.1192, 0.0000),
+            (0.0000,  0.0000,  0.0000, 1.0000)))
+    cam.matrix_world = Matrix((
+            (-0.1333, -0.9077,  0.3978,  39.7837),
+            ( 0.6190, -0.3898, -0.6819, -68.1890),
+            ( 0.7740,  0.1553,  0.6138,  61.3801),
+            ( 0.0000,  0.0000,  0.0000,   1.0000)))
+    cam.data.lens = 38
+
+    expobj = [obj for obj in bpy.context.scene.objects if 'pynRoot' not in obj]
+    BD.ObjectSelect(expobj)
+    bpy.ops.export_scene.pynifly(filepath=outfile5)
+
+
+
 def TEST_BOW():
     # The bow has a simple collision that we can import and export.
     # Note the bow nif as shipped by Bethesda throws errors on import, and the 
@@ -2569,7 +2665,7 @@ def TEST_BOW():
     assert bsxf['BSXFlags_Name'] == "BSX", f"BSX Flags contain name BSX: {bsxf['BSXFlags_Name']}"
     assert bsxf['BSXFlags_Value'] == "HAVOC | COMPLEX | DYNAMIC | ARTICULATED", "BSX Flags object contains correct flags: {bsxf['BSXFlags_Value']}"
 
-    invm = TT.find_shape("BSInvMarker", type='EMPTY')
+    invm = TT.find_shape("BSInvMarker", type='CAMERA')
     assert invm['BSInvMarker_Name'] == "INV", f"Inventory marker shape has correct name: {invm['BSInvMarker_Name']}"
     assert invm['BSInvMarker_RotX'] == 4712, f"Inventory marker rotation correct: {invm['BSInvMarker_RotX']}"
     assert round(invm['BSInvMarker_Zoom'], 4) == 1.1273, f"Inventory marker zoom correct: {invm['BSInvMarker_Zoom']}"
@@ -4619,6 +4715,7 @@ def LOAD_RIG():
 # TEST_ROGUE02()  ### Objects with shape keys export normals correctly
 # TEST_NORMAL_SEAM()  ### Custom normals can make a seam seamless
 # TEST_NIFTOOLS_NAMES()
+TEST_INV_MARKER()  ### Test inventory marker import/export
 # TEST_BOW()  ### Read and write bow with simple box collision
 # TEST_BOW2()  ### Modify collision shape location
 # TEST_BOW3()  ### Modify collision shape type
@@ -4633,33 +4730,33 @@ def LOAD_RIG():
 # TEST_COLLISION_XFORM()  ### Read and write shape with collision capsule shapes
 # TEST_CONNECT_POINT()  ### Connect points are imported and exported
 # TEST_WEAPON_PART()  ### Weapon parts are imported at the parent connect point
-TEST_IMPORT_MULT_CP()  ### Import multiple files and connect up the connect points
-TEST_FURN_MARKER1()  ### Skyrim furniture markers 
-TEST_FURN_MARKER2()  ### Skyrim furniture markers
-TEST_FO4_CHAIR()  ### FO4 furniture markers 
-TEST_PIPBOY()
-TEST_BABY()  ### FO4 baby 
-TEST_ROTSTATIC()  ### Statics are transformed according to the shape transform
-TEST_ROTSTATIC2()  ### Statics are transformed according to the shape transform
-TEST_FACEBONES()
-TEST_FACEBONES_RENAME()  ### Facebones are correctly renamed from Blender to the game's names
-TEST_IMP_ANIMATRON()
-TEST_CUSTOM_BONES()  ### Can handle custom bones correctly
-TEST_COTH_DATA()  ## Handle cloth data
-TEST_IMP_NORMALS()  ### Can import normals from nif shape
-TEST_UV_SPLIT()  ### Split UVs properly
-TEST_JIARAN()  ### Armature with no stashed transforms exports correctly
-TEST_SKEL_HKX_IMPORT()  ### Basic skeleton import (XML -> HKX)
-TEST_SKEL_HKX()  ### Basic skeleton export (XML -> HKX)
-TEST_SKEL_SOS_HKX()  ### SOS auxbones skeleton 
-TEST_FONV()  ### FONV mesh
-TEST_FONV_BOD()  ### Basic FONV body part import and export
-TEST_ANIM_CHEST()  ### Read and write the animation of chest opening and shutting
-TEST_ANIM_CRATE()  ### Read and write the animation of crate opening and shutting
-TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
-TEST_ANIM_KF()  ### Import KF animation file
-TEST_ANIM_KF_RENAME()  ### Import KF animation file
-TEST_ANIM_HKX()  ### Read and write KF animation with renamed bones
+# TEST_IMPORT_MULT_CP()  ### Import multiple files and connect up the connect points
+# TEST_FURN_MARKER1()  ### Skyrim furniture markers 
+# TEST_FURN_MARKER2()  ### Skyrim furniture markers
+# TEST_FO4_CHAIR()  ### FO4 furniture markers 
+# TEST_PIPBOY()
+# TEST_BABY()  ### FO4 baby 
+# TEST_ROTSTATIC()  ### Statics are transformed according to the shape transform
+# TEST_ROTSTATIC2()  ### Statics are transformed according to the shape transform
+# TEST_FACEBONES()
+# TEST_FACEBONES_RENAME()  ### Facebones are correctly renamed from Blender to the game's names
+# TEST_IMP_ANIMATRON()
+# TEST_CUSTOM_BONES()  ### Can handle custom bones correctly
+# TEST_COTH_DATA()  ## Handle cloth data
+# TEST_IMP_NORMALS()  ### Can import normals from nif shape
+# TEST_UV_SPLIT()  ### Split UVs properly
+# TEST_JIARAN()  ### Armature with no stashed transforms exports correctly
+# TEST_SKEL_HKX_IMPORT()  ### Basic skeleton import (XML -> HKX)
+# TEST_SKEL_HKX()  ### Basic skeleton export (XML -> HKX)
+# TEST_SKEL_SOS_HKX()  ### SOS auxbones skeleton 
+# TEST_FONV()  ### FONV mesh
+# TEST_FONV_BOD()  ### Basic FONV body part import and export
+# TEST_ANIM_CHEST()  ### Read and write the animation of chest opening and shutting
+# TEST_ANIM_CRATE()  ### Read and write the animation of crate opening and shutting
+# TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
+# TEST_ANIM_KF()  ### Import KF animation file
+# TEST_ANIM_KF_RENAME()  ### Import KF animation file
+# TEST_ANIM_HKX()  ### Read and write KF animation with renamed bones
 
 # LOAD_RIG()  ### Not a test--Load up some shapes for play
 

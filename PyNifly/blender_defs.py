@@ -4,7 +4,7 @@ import os
 import shutil
 import tempfile
 from enum import IntFlag
-from mathutils import Matrix, Vector, Quaternion, geometry
+from mathutils import Matrix, Vector, Quaternion, Euler
 import bpy
 import bpy_types
 import re
@@ -338,20 +338,54 @@ def tmp_filepath(filepath, ext):
     
 def copyfile(fin, fout):
     shutil.copy(fin.strip('"'), fout)
-    
 
+def cam_to_inv(mx, focal_len):
+    """Given a camera object world matrix, returns an inventory marker 3-tuple:
+        [x-rot, y-rot, z-rot], zoom
+    """
+    initmx = MatrixLocRotScale((0, 100, 0), Euler((-pi/2,pi,0), 'XYZ'), (1,1,1))
+    res = mx @ initmx 
+    eu = res.to_euler()
+    eu_out = [round((v * 1000)) % round(2000*pi) for v in eu[0:3]]
+    f = ((focal_len-38)/231.79487)+1.4
+    return eu_out, f
+
+    
+def TEST_CAM():
+    print('TEST_CAM')
+    # Camera at [0, 100, 0] pointed back at origin. This is the default position. 
+    # Camera is behind Suzanne. 
+    mx = Matrix((
+            (-1.0000,  0.0000, 0.0000,   0.0000),
+            ( 0.0000, -0.0000, 1.0000, 100.0000),
+            ( 0.0000,  1.0000, 0.0000,   0.0000),
+            ( 0.0000,  0.0000, 0.0000,   1.0000) ))
+    inv, z = cam_to_inv(mx, 38) 
+    assert inv == [0, 0, 0], f"Cam at default position: {inv}"
+
+    # Camera at [0, -100, 0], pointed at origin. This puts the cam on the other side.
+    # Camera pointed at Suzanne's face.
+    mx = Matrix((
+            ( 1.0000, -0.0000,  0.0000,  0),
+            (-0.0000, -0.0000, -1.0000, -100),
+            ( 0.0000,  1.0000, -0.0000,  0),
+            ( 0.0000,  0.0000,  0.0000,  1.0000)))
+    inv, z = cam_to_inv(mx, 38)
+    assert VNearEqual(inv, [0, 0, 3142], epsilon=2), f"Cam on opposite side of model: {inv}"
+
+    # Camera on negative X axis, pointed at origin. Shows Suzanne looking to the right.
+    mx = Matrix((
+            ( 0.0000, 0.0000, -1.0000, -100.0000),
+            (-1.0000, 0.0000, -0.0000,   -0.0000),
+            ( 0.0000, 1.0000,  0.0000,    0.0000),
+            ( 0.0000, 0.0000,  0.0000,    1.0000)))
+    inv, z = cam_to_inv(mx, 38)
+    assert VNearEqual(inv, [0, 0, 1570], epsilon=2), f"Cam shows right profile: {inv}"
+
+    
+    
+    
 if __name__ == "__main__":
     print("------------RUNNING TESTS--------------")
-    fn = r"C:\Modding\SkyrimSE\mods\00 Vanilla Assets\meshes\actors\character\animations\1hm_attackpower.hkx"
-    fnq = f'"{fn}"'
-    print(get_short_path_name(fn))
-    t = tmp_filepath(fn, ".xml")
-    print("First temp file: " + t)
-    copyfile(fn, t)
-    assert os.path.exists(t)
-    t2 = tmp_filepath(fnq, ".xml")
-    print("Second temp file: " + t2)
-    copyfile(fnq, t2)
-    assert os.path.exists(t2)
-
+    TEST_CAM()
     print("------------TESTS COMPLETE-------------")
