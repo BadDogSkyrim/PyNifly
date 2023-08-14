@@ -4573,7 +4573,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     #     default=1.0
     #     )
     
-    use_blender_xf: bpy.props.FloatProperty(
+    use_blender_xf: bpy.props.BoolProperty(
         name="Use Blender orientation",
         description="Use Blender's orientation and scale.",
         default=BLENDER_XF_DEF
