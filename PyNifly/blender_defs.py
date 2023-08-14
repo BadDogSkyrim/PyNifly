@@ -339,16 +339,28 @@ def tmp_filepath(filepath, ext):
 def copyfile(fin, fout):
     shutil.copy(fin.strip('"'), fout)
 
+CAMERA_NEUTRAL = MatrixLocRotScale((0, 100, 0), Euler((-pi/2,pi,0), 'XYZ'), (1,1,1))
+
 def cam_to_inv(mx, focal_len):
     """Given a camera object world matrix, returns an inventory marker 3-tuple:
         [x-rot, y-rot, z-rot], zoom
     """
-    initmx = MatrixLocRotScale((0, 100, 0), Euler((-pi/2,pi,0), 'XYZ'), (1,1,1))
-    res = mx @ initmx 
+    res = mx @ CAMERA_NEUTRAL 
     eu = res.to_euler()
     eu_out = [round((v * 1000)) % round(2000*pi) for v in eu[0:3]]
     f = ((focal_len-38)/231.79487)+1.4
     return eu_out, f
+
+def inv_to_cam(im_rot, zoom):
+    """Given an inventory marker rotation triple and zoom factor, return
+    a Blender world matrix and focal length appropriate for a camera object.
+    """
+    focal_len = 231.79487 * (zoom-1.4) + 38 
+    cammx = MatrixLocRotScale(
+        (0,0,0),
+        Euler([v/1000 for v in im_rot], 'XYZ'),
+        (1,1,1) )
+    return cammx.inverted() @ CAMERA_NEUTRAL, focal_len
 
     
 def TEST_CAM():
@@ -382,7 +394,6 @@ def TEST_CAM():
     inv, z = cam_to_inv(mx, 38)
     assert VNearEqual(inv, [0, 0, 1570], epsilon=2), f"Cam shows right profile: {inv}"
 
-    
     
     
 if __name__ == "__main__":

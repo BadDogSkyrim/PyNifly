@@ -9,7 +9,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (11, 0, 0),  
+    "version": (11, 1, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -105,6 +105,8 @@ collision_names = ["bhkBoxShape", "bhkConvexVerticesShape", "bhkListShape",
                    "bhkRigidBodyT", "bhkRigidBody", "bhkCollisionObject"]
 
 ARMATURE_BONE_GROUPS = ['NPC', 'CME']
+
+CAMERA_LENS = 80
 
 
 # Default values for import/export options
@@ -599,6 +601,7 @@ class NifImporter():
         """Import the extra data that generally only appears at top level. If there's
         ever a reason to handle it under other nodes, will require a rewrite.
         """
+        # TODO: Merge this with import_extra()
         n = self.nif
         parent_obj = self.root_object
 
@@ -614,22 +617,37 @@ class NifImporter():
             ed.parent = parent_obj
             # extradata.append(ed)
             self.objects_created[ed.name] = ed
+            self.context.scene.render.resolution_x = 1400
+            self.context.scene.render.resolution_y = 1200
 
         invm = n.rootNode.inventory_marker
         if invm:
-            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+            bpy.ops.object.add(type='CAMERA', 
+                               location=[0, 100, 0],
+                               rotation=[-pi/2, pi, 0])
             ed = bpy.context.object
-            ed.name = "BSInvMarker"
+            ed.name = "BSInvMarker:" + invm[0]
             ed.show_name = True
-            ed.empty_display_type = 'ARROWS'
-            ed.rotation_euler = (invm[1:4])
+
+            neut = MatrixLocRotScale((0, 100, 0),
+                                     Euler((-pi/2, pi, 0), 'XYZ'),
+                                     (1,1,1))
+            mx = MatrixLocRotScale((0,0,0), 
+                                   Euler(Vector(invm[1:4])/1000, 'XYZ'),
+                                   (1,1,1))
+            ed.matrix_world = mx @ neut
+            # ed.data.lens = CAMERA_LENS * invm[4] 
+            mx, focal_len = inv_to_cam(invm[1:4], invm[4])
+            # ed.matrix_world = mx
+            ed.data.lens = focal_len
+
             ed['BSInvMarker_Name'] = invm[0]
             ed['BSInvMarker_RotX'] = invm[1]
             ed['BSInvMarker_RotY'] = invm[2]
             ed['BSInvMarker_RotZ'] = invm[3]
             ed['BSInvMarker_Zoom'] = invm[4]
+
             ed.parent = parent_obj
-            # extradata.append(ed)
             self.objects_created[ed.name] = ed
 
         for fm in n.furniture_markers:
@@ -3188,6 +3206,9 @@ class NifExporter:
                     # independently selected.
                     self.add_armature(mod.object)
 
+        elif obj.type == 'CAMERA':
+            self.inv_marker = obj
+
         elif obj.type == 'EMPTY':
             if 'BSBehaviorGraphExtraData_Name' in obj.keys():
                 self.bg_data.add(obj)
@@ -3200,9 +3221,6 @@ class NifExporter:
 
             elif 'BSXFlags_Name' in obj.keys():
                 self.bsx_flag = obj
-
-            elif 'BSInvMarker_Name' in obj.keys():
-                self.inv_marker = obj
 
             elif obj.name.startswith("BSFurnitureMarkerNode"):
                 self.furniture_markers.add(obj)
@@ -3364,11 +3382,17 @@ class NifExporter:
             self.objs_written[self.bsx_flag.name] = self.nif
 
         if self.inv_marker:
-            self.nif.rootNode.inventory_marker = [self.inv_marker['BSInvMarker_Name'], 
-                                         self.inv_marker['BSInvMarker_RotX'], 
-                                         self.inv_marker['BSInvMarker_RotY'], 
-                                         self.inv_marker['BSInvMarker_RotZ'], 
-                                         self.inv_marker['BSInvMarker_Zoom']]
+            inv_rot, inv_zoom = cam_to_inv(self.inv_marker.matrix_world, self.inv_marker.data.lens)
+
+            self.nif.rootNode.inventory_marker = [
+                self.inv_marker['BSInvMarker_Name'], 
+                inv_rot[0],
+                inv_rot[1],
+                inv_rot[2],
+                # round((eu.x % (2*pi)) * 1000),
+                # round((eu.y % (2*pi)) * 1000),
+                # round((eu.z % (2*pi)) * 1000),
+                inv_zoom]
             self.objs_written[self.inv_marker.name] = self.nif
 
         fmklist = []
