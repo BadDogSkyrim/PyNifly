@@ -552,60 +552,8 @@ class NifImporter():
             self.loaded_child_cp[connectname] = obj
 
 
-    def import_extra(self, parent_obj:bpy_types.Object, n:NiNode):
-        """ Import any extra data from the node, and create corresponding shapes. 
-            If n is None, get the extra data from the root.
-        """
-        if not n: n = self.nif.rootNode
-        if not parent_obj: parent_obj = self.root_object
-
-        for s in n.string_data:
-            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
-            ed = bpy.context.object
-            ed.name = "NiStringExtraData"
-            ed.show_name = True
-            ed.empty_display_type = 'SPHERE'
-            ed['NiStringExtraData_Name'] = s[0]
-            ed['NiStringExtraData_Value'] = s[1]
-            ed.parent = parent_obj
-            # extradata.append(ed)
-            self.objects_created[ed.name] = ed
-
-        for s in n.behavior_graph_data:
-            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
-            ed = bpy.context.object
-            ed.name = "BSBehaviorGraphExtraData"
-            ed.show_name = True
-            ed.empty_display_type = 'SPHERE'
-            ed['BSBehaviorGraphExtraData_Name'] = s[0]
-            ed['BSBehaviorGraphExtraData_Value'] = s[1]
-            ed['BSBehaviorGraphExtraData_CBS'] = s[2]
-            ed.parent = parent_obj
-            # extradata.append(ed)
-            self.objects_created[ed.name] = ed
-
-        for c in n.cloth_data: 
-            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
-            ed = bpy.context.object
-            ed.name = "BSClothExtraData"
-            ed.show_name = True
-            ed.empty_display_type = 'SPHERE'
-            ed['BSClothExtraData_Name'] = c[0]
-            ed['BSClothExtraData_Value'] = codecs.encode(c[1], 'base64')
-            ed.parent = parent_obj
-            # extradata.append(ed)
-            self.objects_created[ed.name] = ed
-
-
-    def import_file_extra(self):
-        """Import the extra data that generally only appears at top level. If there's
-        ever a reason to handle it under other nodes, will require a rewrite.
-        """
-        # TODO: Merge this with import_extra()
-        n = self.nif
-        parent_obj = self.root_object
-
-        b = n.rootNode.bsx_flags
+    def import_bsx(self, node, parent_obj):
+        b = node.bsx_flags
         if b:
             bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
             ed = bpy.context.object
@@ -617,17 +565,17 @@ class NifImporter():
             ed.parent = parent_obj
             # extradata.append(ed)
             self.objects_created[ed.name] = ed
-            self.context.scene.render.resolution_x = 1400
-            self.context.scene.render.resolution_y = 1200
 
-        invm = n.rootNode.inventory_marker
+
+    def import_inventory_marker(self, node, parent_obj):
+        invm = node.inventory_marker
         if invm:
             bpy.ops.object.add(type='CAMERA', 
                                location=[0, 100, 0],
                                rotation=[-pi/2, pi, 0])
             ed = bpy.context.object
             ed.name = "BSInvMarker:" + invm[0]
-            ed.show_name = True
+            ed.show_name = True 
 
             neut = MatrixLocRotScale((0, 100, 0),
                                      Euler((-pi/2, pi, 0), 'XYZ'),
@@ -650,7 +598,18 @@ class NifImporter():
             ed.parent = parent_obj
             self.objects_created[ed.name] = ed
 
-        for fm in n.furniture_markers:
+            # Set up the render resolution to work for the inventory marker camera.
+            self.context.scene.render.resolution_x = 1400
+            self.context.scene.render.resolution_y = 1200
+
+    def import_furniture_markers(self, node, parent_obj):
+        """
+        In theory furniture markers can be on any node, but they really apply 
+        to the whole nif.
+        """
+        if node.parent: return
+
+        for fm in self.nif.furniture_markers:
             bpy.ops.object.add(radius=1.0, type='EMPTY')
             obj = bpy.context.object
             obj.name = "BSFurnitureMarkerNode"
@@ -664,8 +623,12 @@ class NifImporter():
             obj.parent = parent_obj
             self.objects_created[obj.name] = obj
 
-        for cp in n.connect_points_parent:
-            #log.debug(f"Found parent connect point: \n{cp}")
+
+    def import_connect_points_parent(self):
+        """
+        Parent connect points apply to the whole nif.
+        """
+        for cp in self.nif.connect_points_parent:
             bpy.ops.object.add(radius=self.scale, type='EMPTY')
             obj = bpy.context.object
             obj.name = "BSConnectPointParents" + "::" + cp.name.decode('utf-8')
@@ -676,7 +639,7 @@ class NifImporter():
                 Quaternion(cp.rotation[:]),
                 ((cp.scale * CONNECT_POINT_SCALE * self.scale),) * 3
             )
-            obj.matrix_world = mx
+            obj.matrix_world = self.root_object.matrix_world @ mx
 
             parname = cp.parent.decode('utf-8')
 
@@ -699,13 +662,18 @@ class NifImporter():
                 else:
                     self.warn(f"Could not find parent node {parname} for connect point {obj.name}")
             else:
-                obj.parent = parent_obj
+                obj.parent = self.root_object
 
             self.objects_created[obj.name] = obj
             self.add_to_parents(obj)
 
+
+    def import_connect_points_child(self):
+        """
+        Import the child connect point. There's only one and it applies to the
+        whole nif, so only do it if we're working with the root node.
+        """
         if self.nif.connect_points_child:
-            ##log.debug(f"Found child connect point: \n{cp}")
             childname = self.nif.connect_points_child[0].split('-')[1]
             bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
             obj = bpy.context.object
@@ -724,6 +692,73 @@ class NifImporter():
             self.created_child_cp = obj
             self.objects_created[obj.name] = obj
             self.add_to_child_cp(obj)
+
+
+    def import_stringdata(self, node, parent_obj):
+        for s in node.string_data:
+            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+            ed = bpy.context.object
+            ed.name = "NiStringExtraData"
+            ed.show_name = True
+            ed.empty_display_type = 'SPHERE'
+            ed['NiStringExtraData_Name'] = s[0]
+            ed['NiStringExtraData_Value'] = s[1]
+            ed.parent = parent_obj
+            # extradata.append(ed)
+            self.objects_created[ed.name] = ed
+
+
+    def import_behavior_graph_data(self, node, parent_obj):
+        for s in node.behavior_graph_data:
+            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+            ed = bpy.context.object
+            ed.name = "BSBehaviorGraphExtraData"
+            ed.show_name = True
+            ed.empty_display_type = 'SPHERE'
+            ed['BSBehaviorGraphExtraData_Name'] = s[0]
+            ed['BSBehaviorGraphExtraData_Value'] = s[1]
+            ed['BSBehaviorGraphExtraData_CBS'] = s[2]
+            ed.parent = parent_obj
+            # extradata.append(ed)
+            self.objects_created[ed.name] = ed
+
+
+    def import_cloth_data(self, node, parent_obj):
+        for c in node.cloth_data: 
+            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+            ed = bpy.context.object
+            ed.name = "BSClothExtraData"
+            ed.show_name = True
+            ed.empty_display_type = 'SPHERE'
+            ed['BSClothExtraData_Name'] = c[0]
+            ed['BSClothExtraData_Value'] = codecs.encode(c[1], 'base64')
+            ed.parent = parent_obj
+            self.objects_created[ed.name] = ed
+
+
+    def import_extra(self, parent_obj:bpy_types.Object, n:NiNode):
+        """ Import any extra data from the node, and create corresponding shapes. 
+            If n is None, get the extra data from the root.
+        """
+        if not n: n = self.nif.rootNode
+        if not parent_obj: parent_obj = self.root_object
+
+        self.import_bsx(n, parent_obj)
+        self.import_inventory_marker(n, parent_obj)
+        self.import_furniture_markers(n, parent_obj)
+        self.import_stringdata(n, parent_obj)
+        self.import_behavior_graph_data(n, parent_obj)
+        self.import_cloth_data(n, parent_obj)
+
+
+    def import_connect_points(self):
+        """ 
+        Import connect point information from the file. Connect points affect the whole
+        nif rather than being attached to a shape. They should be dealt with last because
+        they refer to other nodes.
+        """
+        self.import_connect_points_parent()
+        self.import_connect_points_child()
 
 
     def bone_in_armatures(self, bone_name):
@@ -1998,6 +2033,9 @@ class NifImporter():
     def import_nif(self):
         """Import a single file."""
         log.info(f"Importing {self.nif.game} file {self.nif.filepath}")
+        
+        # Each file gets its own root object in Blender.
+        self.root_object = None
 
         if self.nif.rootNode.blockname == "NiControllerSequence":
             # Top-level node of a KF animation file is a Controller Sequence. 
@@ -2056,8 +2094,8 @@ class NifImporter():
             # Gather up any NiNodes that weren't captured any other way 
             self.import_loose_ninodes(self.nif)
 
-            # Import nif-level extra data
-            self.import_file_extra()
+            # Import nif-level elements
+            self.import_connect_points()
         
             # Root node collisions imported with root node
             # Import top-level collisions

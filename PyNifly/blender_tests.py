@@ -4,6 +4,7 @@ Convenient setup for running these tests here:
 https://polynook.com/learn/set-up-blender-addon-development-environment-in-windows
 """
 import os
+import sys
 import math
 import pathlib
 import bpy
@@ -404,13 +405,13 @@ def TEST_DRAUGR_IMPORT_A():
     # position of its bones don't match the draugr skeleton. Bones defined by the hood are
     # given the human bind position--the rest come from the reference skeleton and use
     # those bind positions. 
-    TT.test_title("TEST_DRAUGR_IMPORT1", "Import hood, extend skeleton, non-vanilla pose")
+    TT.test_title("TEST_DRAUGR_IMPORT_A", "Import hood, extend skeleton, non-vanilla pose")
     TT.clear_all()
 
     # ------- Load --------
     testfile = TT.test_file(r"tests\SkyrimSE\draugr lich01 hood.nif")
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT1.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_A.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, do_create_bones=True)
 
@@ -912,10 +913,10 @@ def TEST_SKEL():
     assert TT.MatNearEqual(rootbone.matrix, BD.transform_to_matrix(rootnode.transform)), \
         f"Bone transform matches nif: {rootbone.matrix}"
 
+    # Parent connect points are children of the armature. Could also be children of the root
+    # but they get transposed based on the armature bones' transforms.
     cp_lleg = bpy.data.objects['BSConnectPointParents::P-ArmorLleg']
-    assert cp_lleg.parent == arma, f"cp_lleg has armature as parent: {cp_lleg.parent}"
-    # TODO: Figure out exactly where these connect points ought to be. The number here is
-    # taken from importing the skeleton with no rotations on the bones, so might be right.
+    assert cp_lleg.parent.type == 'ARMATURE', f"cp_lleg has armature as parent: {cp_lleg.parent}"
     assert TT.NearEqual(cp_lleg.location[0], -8.748), \
         f"Armor left leg connect point at relative position: {cp_lleg.location}"
 
@@ -1115,7 +1116,8 @@ def TEST_IMPORT_MULTI_OBJECTS():
     assert len(roots) == 2, f"Have 2 roots: {roots}"
     for r in roots:
         assert r.parent == None, f"Roots do not have parents: {r}"
-    invm = [obj for obj in bpy.data.objects if 'InvMarker' in obj.name]
+    bodyroot = next(obj for obj in roots if obj.name.startswith("Body"))
+    invm = [obj for obj in bodyroot.children if 'InvMarker' in obj.name]
     assert len(invm) == 1, f"Have an inventory marker: {invm}"
     assert invm[0].type == 'CAMERA', f"Inventory marker is a camera: {invm[0].type}"
 
@@ -4666,133 +4668,29 @@ def LOAD_RIG():
                                  use_blender_xf=True)
 
 
-
-# TEST_BODYPART_SKY()  ### Skyrim head
-# TEST_BODYPART_FO4()  ### FO4 head
-# TEST_SKYRIM_XFORM()  ### Read & write the Skyrim shape transforms
-# TEST_SKIN_BONE_XF()  ### Argonian head
-# TEST_IMP_EXP_SKY()  ### Skyrim armor
-# TEST_IMP_EXP_SKY_2()  ### Body+Underwear
-# TEST_IMP_EXP_FO4()  ### Can read the body nif and spit it back out
-# TEST_IMP_EXP_FO4_2()  ### Can read body armor with 2 parts
-# TEST_ROUND_TRIP()  ### Full round trip: nif -> blender -> nif -> blender
-# TEST_BPY_PARENT_A()  ### Skeleton armature bones correctly parented
-# TEST_BPY_PARENT_B()  ### Skeleton armature bones correctly parented
-# TEST_RENAME()  ### Bone renaming for Blender conventions disabled
-# TEST_CONNECTED_SKEL()  ### Can import connected skeleton
-# TEST_DRAUGR_IMPORT_A()  ### Import hood, extend skeleton, non-vanilla pose 
-# TEST_DRAUGR_IMPORT_B()  ### Import hood, don't extend skeleton, non-vanilla pose
-# TEST_DRAUGR_IMPORT_C()  ### Import helm, don't extend skeleton
-# TEST_DRAUGR_IMPORT_D()  ### Import helm, do extend skeleton
-# TEST_DRAUGR_IMPORT_E()  ### Import helm and hood together
-# TEST_SCALING_BP()  ### Import and export bodypart with scale factor
-# TEST_IMP_EXP_SCALE_2()  ### Import nif with 2 meshes scaled
-# TEST_ARMATURE_EXTEND()  ### FO4 head + body
-# TEST_ARMATURE_EXTEND_BT()  ### Import two nifs that share a skeleton
-# TEST_EXPORT_WEIGHTS()  ### Import and export with weights
-# TEST_WEIGHTS_EXPORT()  ### Exporting this head weights all verts correctly
-# TEST_0_WEIGHTS()  ### Gives warning on export with 0 weights
-# TEST_TIGER_EXPORT()  ### Tiger head export
-# TEST_3BBB()  ### Test that mesh imports with correct transforms
-# TEST_SKEL()  ### Import/export skeleton file with no shapes (FO4)
-# TEST_SKEL_SKY()  ### Import/export skeleton file with no shapes (Skyrim)
-# TEST_HEADPART()  ### Read & write SE head part with tris
-# TEST_TRI()  ### Can load a tri file into an existing mesh
-# TEST_IMPORT_MULTI_OBJECTS()  ### Can import 2 meshes as objects")
-# TEST_IMPORT_AS_SHAPES()  ### Import 2 meshes as shape keys
-# TEST_IMPORT_MULT_SHAPES()  ### Import >2 meshes as shape keys
-# TEST_EXP_SK_RENAMED()  ### Ensure renamed shape keys export properly
-# TEST_SK_MULT()  ### Export multiple objects with only some shape keys
-# TEST_TRI2()  ### Regression: Test correct import of tri
-# TEST_BAD_TRI()  ### Tris with messed up UV
-# TEST_TRIP_SE()  ### Bodypart tri extra data and file are written on export
-# TEST_TRIP()  ### Body tri extra data and file are written on export
-# TEST_COLORS()  ### Read & write vertex colors
-# TEST_COLORS2()  ### Read & write vertex colors
-# TEST_NEW_COLORS()  ### Can write vertex colors that were created in blender
-# TEST_VERTEX_COLOR_IO()  ### Vertex colors can be read and written
-# TEST_VERTEX_ALPHA_IO()  ### Vertex alpha affects Blender visible alpha
-# TEST_VERTEX_ALPHA()  ### Export shape with vertex alpha values
-# TEST_BONE_HIERARCHY()  ### Import and export bone hierarchy
-# TEST_SEGMENTS()  ### FO4 segments
-# TEST_BP_SEGMENTS()  ### Another test of FO4 segments
-# TEST_EXP_SEGMENTS_BAD()  ### Verts export in the correct FO4 segments
-# TEST_EXP_SEG_ORDER()  ### Segments export in numerical order
-# TEST_PARTITIONS()  ### Read Skyrim partitions
-# TEST_SHADER_LE()  ### Shader attributes Skyrim LE
-# TEST_SHADER_SE()  ### Shader attributes Skyrim SE 
-# TEST_SHADER_FO4()  ### Shader attributes are read and turned into Blender shader nodes
-# TEST_SHADER_ALPHA()  ### Alpha property handled correctly
-# TEST_SHADER_3_3()  ### Shader attributes are read and turned into Blender shader nodes
-# TEST_TEXTURE_PATHS()  ### Texture paths are correctly resolved
-# TEST_CAVE_GREEN()  ### Use vertex colors in shader
-# TEST_POT()  ### Pot shader doesn't throw an error
-# TEST_NOT_FB()  ### Nif that looked like facebones skel can be imported
-# TEST_MULTI_IMP()  ### Importing multiple hair parts doesn't mess up
-# TEST_WELWA()  ### Shape with unusual skeleton
-# TEST_MUTANT()  ### Supermutant body imports correctly the *second* time
-# TEST_EXPORT_HANDS()  ### Hand mesh with errors doesn't crash
-# TEST_PARTITION_ERRORS()  ### Partitions with errors raise errors
-# TEST_SHEATH()  ### Extra data nodes are imported and exported
-# TEST_FEET()  ### Extra data nodes are imported and exported
-# TEST_SCALING()  ### Scale factors applied correctly
-# TEST_SCALING_OBJ()  ### Scale simple objects
-# TEST_UNIFORM_SCALE()  ### Export objects with uniform scaling
-# TEST_NONUNIFORM_SCALE()  ### Export objects with non-uniform scaling
-# TEST_FACEBONE_EXPORT()
-# TEST_FACEBONE_EXPORT2()  ### Facebones with odd armature
-# TEST_HYENA_PARTITIONS()
-# TEST_MULT_PART()  ### Export shape with face that might fall into multiple partititions
-# TEST_BONE_XPORT_POS()
-# TEST_NORM()  ### Normals are read correctly
-# TEST_ROGUE01()  ### Custom split normals export correctly
-# TEST_ROGUE02()  ### Objects with shape keys export normals correctly
-# TEST_NORMAL_SEAM()  ### Custom normals can make a seam seamless
-# TEST_NIFTOOLS_NAMES()
-# TEST_INV_MARKER()  ### Test inventory marker import/export
-# TEST_BOW()  ### Read and write bow with simple box collision
-# TEST_BOW2()  ### Modify collision shape location
-# TEST_BOW3()  ### Modify collision shape type
-# TEST_COLLISION_HIER()  ### Read and write collision of hierarchy of nodes
-# TEST_SCALING_COLL()  ### Bow with collisions, scaled
-# TEST_COLLISION_MULTI()
-# TEST_COLLISION_CONVEXVERT()
-# TEST_COLLISION_CAPSULE()  ### Collision capsule shapes with scale
-# TEST_COLLISION_CAPSULE2()  ### Collision capsule shapes with scale
-# TEST_COLLISION_LIST()  ### Collision list and collision transform shapes with scale
-# TEST_CHANGE_COLLISION()  ### Changing collision type 
-# TEST_COLLISION_XFORM()  ### Read and write shape with collision capsule shapes
-# TEST_CONNECT_POINT()  ### Connect points are imported and exported
-# TEST_WEAPON_PART()  ### Weapon parts are imported at the parent connect point
-# TEST_IMPORT_MULT_CP()  ### Import multiple files and connect up the connect points
-# TEST_FURN_MARKER1()  ### Skyrim furniture markers 
-# TEST_FURN_MARKER2()  ### Skyrim furniture markers
-# TEST_FO4_CHAIR()  ### FO4 furniture markers 
-# TEST_PIPBOY()
-# TEST_BABY()  ### FO4 baby 
-# TEST_ROTSTATIC()  ### Statics are transformed according to the shape transform
-# TEST_ROTSTATIC2()  ### Statics are transformed according to the shape transform
-# TEST_FACEBONES()
-# TEST_FACEBONES_RENAME()  ### Facebones are correctly renamed from Blender to the game's names
-TEST_IMP_ANIMATRON()
-TEST_CUSTOM_BONES()  ### Can handle custom bones correctly
-TEST_COTH_DATA()  ## Handle cloth data
-TEST_IMP_NORMALS()  ### Can import normals from nif shape
-TEST_UV_SPLIT()  ### Split UVs properly
-TEST_JIARAN()  ### Armature with no stashed transforms exports correctly
-TEST_SKEL_HKX_IMPORT()  ### Basic skeleton import (XML -> HKX)
-TEST_SKEL_HKX()  ### Basic skeleton export (XML -> HKX)
-TEST_SKEL_SOS_HKX()  ### SOS auxbones skeleton 
-TEST_FONV()  ### FONV mesh
-TEST_FONV_BOD()  ### Basic FONV body part import and export
-TEST_ANIM_CHEST()  ### Read and write the animation of chest opening and shutting
-TEST_ANIM_CRATE()  ### Read and write the animation of crate opening and shutting
-TEST_ANIM_ALDUIN()  ### Read and write animated Alduin loadscreen
-TEST_ANIM_KF()  ### Import KF animation file
-TEST_ANIM_KF_RENAME()  ### Import KF animation file
-TEST_ANIM_HKX()  ### Read and write KF animation with renamed bones
-
 # LOAD_RIG()  ### Not a test--Load up some shapes for play
+
+# --- Quick and Dirty Test Harness ---
+
+# If clear, all tests run in the order they are defined.
+# If set, this and all following tests will be run.
+# Use to resume a test run from the point it failed.
+first_test = 'TEST_BP_SEGMENTS'  
+
+# If set, run this test only.
+sole_test = ''
+
+m = sys.modules[__name__]
+
+if sole_test: 
+    m.__dict__[first_test]()
+else:
+    all_tests = [k for k in m.__dict__.keys() if k.startswith('TEST_')]
+    doit = True
+    if first_test: doit = False
+    for name in all_tests:
+        if name == first_test: doit = True
+        if doit and name.startswith('TEST_'): m.__dict__[name]()
 
 print("""
 ############################################################
