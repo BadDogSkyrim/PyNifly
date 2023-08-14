@@ -890,49 +890,56 @@ def TEST_3BBB():
 
 
 def TEST_SKEL():
-    TT.test_title("TEST_SKEL", "Can import and export FO4 skeleton file with no shapes")
-    TT.clear_all()
-    testfile = TT.test_file(r"skeletons\FO4\skeleton.nif")
-    outfile = TT.test_file(r"tests/out/TEST_SKEL.nif")
+    def do_test(use_xf):
+        testname = "TEST_SKEL_" + str(use_xf)
+        TT.test_title(testname, "Can import and export FO4 skeleton file with no shapes")
+        TT.clear_all()
+        testfile = TT.test_file(r"skeletons\FO4\skeleton.nif")
+        outfile = TT.test_file(r"tests/out/" + testname + ".nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False)
+        bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                     do_create_bones=False, use_blender_xf=use_xf)
 
-    arma = [a for a in bpy.data.objects if a.type == 'ARMATURE'][0]
-    assert 'Root' in arma.data.bones, "Have Root bone"
-    rootbone = arma.data.bones['Root']
-    assert 'Leg_Thigh.L' in arma.data.bones, "Have left thigh bone"
-    assert 'RibHelper.L' in arma.data.bones, "Have rib helper bone"
-    assert 'L_RibHelper.L' not in arma.data.bones, "Do not have nif name for bone"
-    assert 'L_RibHelper' not in bpy.data.objects, "Do not have rib helper object"
-    assert arma.data.bones['RibHelper.L'].parent.name == 'Chest', \
-        f"Parent of ribhelper is chest: {arma.data.bones['RibHelper.L'].parent.name}"
+        arma = [a for a in bpy.data.objects if a.type == 'ARMATURE'][0]
+        assert 'Root' in arma.data.bones, "Have Root bone"
+        rootbone = arma.data.bones['Root']
+        assert 'Leg_Thigh.L' in arma.data.bones, "Have left thigh bone"
+        assert 'RibHelper.L' in arma.data.bones, "Have rib helper bone"
+        assert 'L_RibHelper.L' not in arma.data.bones, "Do not have nif name for bone"
+        assert 'L_RibHelper' not in bpy.data.objects, "Do not have rib helper object"
+        assert arma.data.bones['RibHelper.L'].parent.name == 'Chest', \
+            f"Parent of ribhelper is chest: {arma.data.bones['RibHelper.L'].parent.name}"
 
-    # COM bone's orientation matches that of the nif
-    nif = pyn.NifFile(testfile)
-    rootnode = nif.nodes["Root"]
-    assert TT.MatNearEqual(rootbone.matrix, BD.transform_to_matrix(rootnode.transform)), \
-        f"Bone transform matches nif: {rootbone.matrix}"
+        # COM bone's orientation matches that of the nif
+        nif = pyn.NifFile(testfile)
+        rootnode = nif.nodes["Root"]
+        assert TT.MatNearEqual(rootbone.matrix, BD.transform_to_matrix(rootnode.transform)), \
+            f"Bone transform matches nif: {rootbone.matrix}"
 
-    # Parent connect points are children of the armature. Could also be children of the root
-    # but they get transposed based on the armature bones' transforms.
-    cp_lleg = bpy.data.objects['BSConnectPointParents::P-ArmorLleg']
-    assert cp_lleg.parent.type == 'ARMATURE', f"cp_lleg has armature as parent: {cp_lleg.parent}"
-    assert TT.NearEqual(cp_lleg.location[0], -8.748), \
-        f"Armor left leg connect point at relative position: {cp_lleg.location}"
+        # Parent connect points are children of the armature. Could also be children of the root
+        # but they get transposed based on the armature bones' transforms.
+        cp_lleg = bpy.data.objects['BSConnectPointParents::P-ArmorLleg']
+        assert cp_lleg.parent.type == 'ARMATURE', f"cp_lleg has armature as parent: {cp_lleg.parent}"
+        assert TT.NearEqual(cp_lleg.location[0], -8.748), \
+            f"Armor left leg connect point at relative position: {cp_lleg.location}"
 
-    BD.ObjectSelect([bpy.data.objects['skeleton.nif:ROOT']], active=True)
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True)
+        BD.ObjectSelect([bpy.data.objects['skeleton.nif:ROOT']], active=True)
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', 
+                                    preserve_hierarchy=True, use_blender_xf=use_xf)
 
-    skel_in = pyn.NifFile(testfile)
-    skel_out = pyn.NifFile(outfile)
-    assert "L_RibHelper" in skel_out.nodes, "Bones written to nif"
-    pb = skel_out.nodes["L_RibHelper"].parent
-    assert pb.name == "Chest", f"Have correct parent: {pb.name}"
-    helm_cp_in = [x for x in skel_in.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
-    helm_cp_out = [x for x in skel_out.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
-    assert helm_cp_out.parent.decode('utf-8') == 'HEAD', f"Parent is correct: {helm_cp_out.parent}"
-    assert TT.VNearEqual(helm_cp_in.translation, helm_cp_out.translation), \
-        f"Connect point locations correct: {helm_cp_in.translation[:]} == {helm_cp_out.translation[:]}"
+        skel_in = pyn.NifFile(testfile)
+        skel_out = pyn.NifFile(outfile)
+        assert "L_RibHelper" in skel_out.nodes, "Bones written to nif"
+        pb = skel_out.nodes["L_RibHelper"].parent
+        assert pb.name == "Chest", f"Have correct parent: {pb.name}"
+        helm_cp_in = [x for x in skel_in.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
+        helm_cp_out = [x for x in skel_out.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
+        assert helm_cp_out.parent.decode('utf-8') == 'HEAD', f"Parent is correct: {helm_cp_out.parent}"
+        assert TT.VNearEqual(helm_cp_in.translation, helm_cp_out.translation), \
+            f"Connect point locations correct: {Vector(helm_cp_in.translation)} == {Vector(helm_cp_out.translation)}"
+        
+    do_test(False)
+    do_test(True)
 
 
 def TEST_SKEL_SKY():
@@ -4675,22 +4682,24 @@ def LOAD_RIG():
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
 # Use to resume a test run from the point it failed.
-first_test = 'TEST_BP_SEGMENTS'  
+first_test = ''  
 
 # If set, run this test only.
-sole_test = ''
+sole_test = 'TEST_SKEL'
 
 m = sys.modules[__name__]
 
 if sole_test: 
-    m.__dict__[first_test]()
+    m.__dict__[sole_test]()
 else:
     all_tests = [k for k in m.__dict__.keys() if k.startswith('TEST_')]
     doit = True
     if first_test: doit = False
     for name in all_tests:
         if name == first_test: doit = True
-        if doit and name.startswith('TEST_'): m.__dict__[name]()
+        if doit and name.startswith('TEST_'): 
+            m.__dict__[name]()
+            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
 print("""
 ############################################################

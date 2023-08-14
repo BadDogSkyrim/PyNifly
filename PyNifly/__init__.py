@@ -651,7 +651,7 @@ class NifImporter():
                     # log.info(f"Connect point {obj.name} is parented to bone {parnamebl}")
                     parbone = self.armature.data.bones[parnamebl]
                     obj.parent = self.armature
-                    obj.matrix_world = parbone.matrix_local @ obj.matrix_world
+                    obj.matrix_world = self.root_object.matrix_world @ (parbone.matrix_local @ mx)
                 elif parname in self.nif.nodes:
                     parnode = self.nif.nodes[parname]
                     if parnode._handle in self.objects_created:
@@ -3467,11 +3467,7 @@ class NifExporter:
                 parentnamebl = self.nif.dict.blender_name(parentname)
                 if parentnamebl in cp.parent.data.bones:
                     parentbone = cp.parent.data.bones[parentnamebl]
-                    log.debug(f"Connect point {cp.name} parent is bone {parentbone.name}")
-                    log.debug(f"Connect point translation is {cp.matrix_world.translation}")
-                    log.debug(f"Parent bone translation is {parentbone.matrix_local.translation}")
-                    mx = parentbone.matrix_local.inverted() @ cp.matrix_world
-                    log.debug(f"Have connect point translation {mx.translation}")
+                    mx = parentbone.matrix_local.inverted() @ cp.matrix_local
                     buf.translation[0] = mx.translation[0]
                     buf.translation[1] = mx.translation[1]
                     buf.translation[2] = mx.translation[2]
@@ -3479,7 +3475,6 @@ class NifExporter:
                         = mx.to_quaternion()[:]
                     buf.scale = mx.to_scale()[0] / CONNECT_POINT_SCALE
             
-            log.debug(f"Writing parent connect point {cp.name} at {buf.translation[:]}")
             connect_par.append(buf)
         if connect_par:
             self.nif.connect_points_parent = connect_par
