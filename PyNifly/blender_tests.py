@@ -2662,6 +2662,27 @@ def TEST_INV_MARKER():
             ), f"Inventory matrix neutral: {im.matrix_world.to_euler()}"
 
 
+def TEST_TREE():
+    # Trees in FO4 use a special root node and a special shape node.
+    TT.test_title("TEST_TREE", "Can read and write FO4 tree")
+    TT.clear_all()
+
+    # ------- Load --------
+    testfile = TT.test_file(r"tests\FO4\TreeMaplePreWar01Orange.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_TREE.nif", output=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    root = next(obj for obj in bpy.data.objects if 'pynRoot' in obj)
+    assert root['pynBlockName'] == "BSLeafAnimNode", f"Have correct root type: {root['pynBlockName']}"
+    
+    # We don't do collisions for FO4
+    assert len([obj for obj in bpy.data.objects if obj.name.startswith('bhk')]) == 0, \
+        f"Have no collision objects."
+
+    tree = next(obj for obj in bpy.data.objects if obj.name.startswith("Tree") and obj.type == 'MESH')
+    assert tree['pynBlockName'] == "BSMeshLODTriShape", f"Have correct block type: {tree['pynBlockName']}"
+    assert int(tree['lodSize0']) == 1126, f"Have correct LOD0 size"
+
 
 def TEST_BOW():
     # The bow has a simple collision that we can import and export.
@@ -4685,7 +4706,7 @@ def LOAD_RIG():
 first_test = ''  
 
 # If set, run this test only.
-sole_test = 'TEST_SKEL'
+sole_test = 'TEST_TREE'
 
 m = sys.modules[__name__]
 

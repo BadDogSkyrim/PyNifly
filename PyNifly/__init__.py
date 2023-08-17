@@ -131,6 +131,27 @@ blender_import_xf = MatrixLocRotScale(Vector((0,0,0)),
                                       (0.1, 0.1, 0.1))
 blender_export_xf = blender_import_xf.inverted()
 
+NISHAPE_IGNORE = ["bufSize", 
+                  'bufType',
+                  "nameID", 
+                  "controllerID", 
+                  "extraDataCount", 
+                  "transform",
+                  "propertyCount",
+                  "collisionID",
+                  "hasVertices", 
+                  "hasNormals", 
+                  "hasVertexColors",
+                  "hasUV", 
+                  "boundingSphereCenter",
+                  "boundingSphereRadius",
+                  "vertexCount",
+                  "triangleCount", 
+                  "skinInstanceID",
+                  "shaderPropertyID", 
+                  "alphaPropertyID", 
+                  ]
+
 # --------- Helper functions -------------
 
 def LogIf(condition, text):
@@ -892,9 +913,12 @@ class NifImporter():
             for n in arma.data.bones.keys():
                 original_bones.add(n)
 
-        for n in nif.nodes.values():
-            p = self.import_node_parents(arma, n)
-            self.import_ninode(arma, n, p)
+        for nm, n in nif.nodes.items():
+            # If it's a bhk (collision) node, only consider it if we're importing
+            # collisions.
+            if not nm.startswith('bhk') or self.do_import_collisions:
+                p = self.import_node_parents(arma, n)
+                self.import_ninode(arma, n, p)
         
         if arma:
             # Set the pose position for the bones we just added
@@ -933,16 +957,16 @@ class NifImporter():
         new_mesh.from_pydata(v, [], t)
         new_mesh.update(calc_edges=True, calc_edges_loose=True)
         new_object = bpy.data.objects.new(the_shape.name, new_mesh)
+        new_object['pynBlockName'] = the_shape.blockname
+        the_shape.properties.extract(new_object, ignore=NISHAPE_IGNORE)
         self.loaded_meshes.append(new_object)
         self.nodes_loaded[new_object.name] = the_shape
-        #log.debug(f"Importing new object {new_object.name}, min z = {min(v.co.z for v in new_mesh.vertices)}")
     
         if not self.mesh_only:
             self.objects_created[the_shape._handle] = new_object
             
             import_colors(new_mesh, the_shape)
 
-            # log.info(f"import flags: {self.flags}")
             parent = self.import_node_parents(None, the_shape) 
 
             # Set the object transform to reflect the skin transform in the nif. This
@@ -1740,6 +1764,7 @@ class NifImporter():
         * Returns new collision object.
         """
         if not self.do_import_collisions: return None
+
         col = None
         bpy.ops.object.mode_set(mode='OBJECT')
         if c.blockname in ["bhkCollisionObject", 
@@ -1773,15 +1798,15 @@ class NifImporter():
             self.warn(f"Found an unknown type of collision: {c.blockname}")
         return col
 
-    def import_collisions(self):
-        """Import top-level collision, if any """
-        try:
-            r = self.nif.rootNode
-            if r.collision_object:
-                self.import_collision_obj(r.collision_object, None)
-        except:
-            traceback.print_exc()
-            self.warn(f"Cannot read collisions--collisions not imported")
+    # def import_collisions(self):
+    #     """Import top-level collision, if any """
+    #     try:
+    #         r = self.nif.rootNode
+    #         if r.collision_object:
+    #             self.import_collision_obj(r.collision_object, None)
+    #     except:
+    #         traceback.print_exc()
+    #         self.warn(f"Cannot read collisions--collisions not imported")
 
     # ----- End Collisions ----
 
@@ -2036,6 +2061,10 @@ class NifImporter():
         
         # Each file gets its own root object in Blender.
         self.root_object = None
+
+        # We don't handle collisions in FO4
+        if not self.nif.game in ['SKYRIM', 'SKYRIMSE']: 
+            self.do_import_collisions = False
 
         if self.nif.rootNode.blockname == "NiControllerSequence":
             # Top-level node of a KF animation file is a Controller Sequence. 
@@ -3804,6 +3833,9 @@ class NifExporter:
         A NiNode can only have one collision, so just export the first child
         that is a collision.
         """
+        # Only do collisions for Skyrim. Fallout is not supported.
+        if self.game not in ['SKYRIM', 'SKYRIMSE']: return
+
         collisions = [x for x in obj.children if x.name.startswith("bhkCollisionObject")]
         if not collisions: return
         coll = collisions[0]

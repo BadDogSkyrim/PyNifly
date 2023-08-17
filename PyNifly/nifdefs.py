@@ -78,7 +78,8 @@ MATRIX4 = VECTOR4 * 4
 
 class pynStructure(Structure):
     def load(self, shape, ignore=[]):
-        """Load fields from the dictionary-like object 'shape'.
+        """
+        Load fields from the dictionary-like object 'shape'. 
         Return list of warnings if any fields can't be set. 
         """
         self.warnings = []
@@ -134,6 +135,7 @@ class pynStructure(Structure):
                 self.warnings.append(f"Error setting property {f} <- {shape[f]}")
 
     def __init__(self, values=None):
+        """Initialize structure from 'values'."""
         super().__init__()
         if "bufSize" in [n for n, t in self._fields_]:
             self.__setattr__("bufSize", sizeof(self))
@@ -357,162 +359,94 @@ class BSXFlags(PynIntFlag):
     LIGHTS = 1 << 11
     BREAKABLE = 1 << 12
 
-class BSLSPAttrs(pynStructure):
-    _fields_ = [
-	    ('Shader_Type', c_uint32),
-	    ('Shader_Flags_1', c_uint32),
-	    ('Shader_Flags_2', c_uint32),
-	    ('UV_Offset_U', c_float),
-	    ('UV_Offset_V', c_float),
-	    ('UV_Scale_U', c_float),
-	    ('UV_Scale_V', c_float),
-	    ('Emissive_Color_R', c_float),
-	    ('Emissive_Color_G', c_float),
-	    ('Emissive_Color_B', c_float),
-	    ('Emissive_Color_A', c_float),
-	    ('Emissive_Mult', c_float),
-	    ('Env_Map_Scale', c_float),
-	    ('Tex_Clamp_Mode', c_uint32),
-	    ('Alpha', c_float),
-	    ('Refraction_Str', c_float),
-	    ('Glossiness', c_float),
-	    ('Spec_Color_R', c_float),
-	    ('Spec_Color_G', c_float),
-	    ('Spec_Color_B', c_float),
-	    ('Spec_Str', c_float),
-	    ('Soft_Lighting', c_float),
-	    ('Rim_Light_Power', c_float),
-	    ('Skin_Tint_Alpha', c_float),
-	    ('Skin_Tint_Color_R', c_float),
-	    ('Skin_Tint_Color_G', c_float),
-	    ('Skin_Tint_Color_B', c_float)
-        ]
-    def __str__(self):
-        s = ""
-        for attr in self._fields_:
-            if len(s) > 0:
-                s = s + "\n"
-            if attr[0].startswith('Shader_Flags'):
-                s = s + f"\t{attr[0]} = {getattr(self, attr[0]):32b}"
-            else:        
-                s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
-        return s
+# class BSLSPAttrs(pynStructure):
+#     _fields_ = [
+# 	    ('Shader_Type', c_uint32),
+# 	    ('Shader_Flags_1', c_uint32),
+# 	    ('Shader_Flags_2', c_uint32),
+# 	    ('UV_Offset_U', c_float),
+# 	    ('UV_Offset_V', c_float),
+# 	    ('UV_Scale_U', c_float),
+# 	    ('UV_Scale_V', c_float),
+# 	    ('Emissive_Color_R', c_float),
+# 	    ('Emissive_Color_G', c_float),
+# 	    ('Emissive_Color_B', c_float),
+# 	    ('Emissive_Color_A', c_float),
+# 	    ('Emissive_Mult', c_float),
+# 	    ('Env_Map_Scale', c_float),
+# 	    ('Tex_Clamp_Mode', c_uint32),
+# 	    ('Alpha', c_float),
+# 	    ('Refraction_Str', c_float),
+# 	    ('Glossiness', c_float),
+# 	    ('Spec_Color_R', c_float),
+# 	    ('Spec_Color_G', c_float),
+# 	    ('Spec_Color_B', c_float),
+# 	    ('Spec_Str', c_float),
+# 	    ('Soft_Lighting', c_float),
+# 	    ('Rim_Light_Power', c_float),
+# 	    ('Skin_Tint_Alpha', c_float),
+# 	    ('Skin_Tint_Color_R', c_float),
+# 	    ('Skin_Tint_Color_G', c_float),
+# 	    ('Skin_Tint_Color_B', c_float)
+#         ]
+#     def __str__(self):
+#         s = ""
+#         for attr in self._fields_:
+#             if len(s) > 0:
+#                 s = s + "\n"
+#             if attr[0].startswith('Shader_Flags'):
+#                 s = s + f"\t{attr[0]} = {getattr(self, attr[0]):32b}"
+#             else:        
+#                 s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
+#         return s
 
-    def __eq__(self, other):
-        return (self.Shader_Type == other.Shader_Type) and \
-            (self.Shader_Flags_1 == other.Shader_Flags_1) and \
-            (self.Shader_Flags_2 == other.Shader_Flags_2) and \
-            (round(self.UV_Offset_U, 4) == round(other.UV_Offset_U, 4)) and \
-            (round(self.UV_Offset_V, 4) == round(other.UV_Offset_V, 4)) and \
-            (round(self.UV_Scale_U, 4) == round(other.UV_Scale_U, 4)) and \
-            (round(self.UV_Scale_V, 4) == round(other.UV_Scale_V, 4)) and \
-            (round(self.Emissive_Color_R, 4) == round(other.Emissive_Color_R, 4)) and \
-            (round(self.Emissive_Color_G, 4) == round(other.Emissive_Color_G, 4)) and \
-            (round(self.Emissive_Color_B, 4) == round(other.Emissive_Color_B, 4)) and \
-            (round(self.Emissive_Color_A, 4) == round(other.Emissive_Color_A, 4)) and \
-            (round(self.Emissive_Mult, 4) == round(other.Emissive_Mult, 4)) and \
-            (self.Tex_Clamp_Mode == other.Tex_Clamp_Mode) and \
-            (round(self.Alpha, 4) == round(other.Alpha, 4)) and \
-            (round(self.Refraction_Str, 4) == round(other.Refraction_Str, 4)) and \
-            (round(self.Glossiness, 4) == round(other.Glossiness, 4)) and \
-            (round(self.Spec_Color_R, 4) == round(other.Spec_Color_R, 4)) and \
-            (round(self.Spec_Color_G, 4) == round(other.Spec_Color_G, 4)) and \
-            (round(self.Spec_Color_B, 4) == round(other.Spec_Color_B, 4)) and \
-            (round(self.Spec_Str, 4) == round(other.Spec_Str, 4)) and \
-            (round(self.Soft_Lighting, 4) == round(other.Soft_Lighting, 4)) and \
-            (round(self.Rim_Light_Power, 4) == round(other.Rim_Light_Power, 4)) and \
-            (round(self.Skin_Tint_Alpha, 4) == round(other.Skin_Tint_Alpha, 4)) and \
-            (round(self.Skin_Tint_Color_R, 4) == round(other.Skin_Tint_Color_R, 4)) and \
-            (round(self.Skin_Tint_Color_G, 4) == round(other.Skin_Tint_Color_G, 4)) and \
-            (round(self.Skin_Tint_Color_B, 4) == round(other.Skin_Tint_Color_B, 4))
+#     def __eq__(self, other):
+#         return (self.Shader_Type == other.Shader_Type) and \
+#             (self.Shader_Flags_1 == other.Shader_Flags_1) and \
+#             (self.Shader_Flags_2 == other.Shader_Flags_2) and \
+#             (round(self.UV_Offset_U, 4) == round(other.UV_Offset_U, 4)) and \
+#             (round(self.UV_Offset_V, 4) == round(other.UV_Offset_V, 4)) and \
+#             (round(self.UV_Scale_U, 4) == round(other.UV_Scale_U, 4)) and \
+#             (round(self.UV_Scale_V, 4) == round(other.UV_Scale_V, 4)) and \
+#             (round(self.Emissive_Color_R, 4) == round(other.Emissive_Color_R, 4)) and \
+#             (round(self.Emissive_Color_G, 4) == round(other.Emissive_Color_G, 4)) and \
+#             (round(self.Emissive_Color_B, 4) == round(other.Emissive_Color_B, 4)) and \
+#             (round(self.Emissive_Color_A, 4) == round(other.Emissive_Color_A, 4)) and \
+#             (round(self.Emissive_Mult, 4) == round(other.Emissive_Mult, 4)) and \
+#             (self.Tex_Clamp_Mode == other.Tex_Clamp_Mode) and \
+#             (round(self.Alpha, 4) == round(other.Alpha, 4)) and \
+#             (round(self.Refraction_Str, 4) == round(other.Refraction_Str, 4)) and \
+#             (round(self.Glossiness, 4) == round(other.Glossiness, 4)) and \
+#             (round(self.Spec_Color_R, 4) == round(other.Spec_Color_R, 4)) and \
+#             (round(self.Spec_Color_G, 4) == round(other.Spec_Color_G, 4)) and \
+#             (round(self.Spec_Color_B, 4) == round(other.Spec_Color_B, 4)) and \
+#             (round(self.Spec_Str, 4) == round(other.Spec_Str, 4)) and \
+#             (round(self.Soft_Lighting, 4) == round(other.Soft_Lighting, 4)) and \
+#             (round(self.Rim_Light_Power, 4) == round(other.Rim_Light_Power, 4)) and \
+#             (round(self.Skin_Tint_Alpha, 4) == round(other.Skin_Tint_Alpha, 4)) and \
+#             (round(self.Skin_Tint_Color_R, 4) == round(other.Skin_Tint_Color_R, 4)) and \
+#             (round(self.Skin_Tint_Color_G, 4) == round(other.Skin_Tint_Color_G, 4)) and \
+#             (round(self.Skin_Tint_Color_B, 4) == round(other.Skin_Tint_Color_B, 4))
 
-    def shaderflags1_test(self, flag):
-        return (self.Shader_Flags_1 & flag) != 0
+#     def shaderflags1_test(self, flag):
+#         return (self.Shader_Flags_1 & flag) != 0
 
-    def shaderflags1_set(self, flag):
-        self.Shader_Flags_1 |= flag.value
+#     def shaderflags1_set(self, flag):
+#         self.Shader_Flags_1 |= flag.value
 
-    def shaderflags1_clear(self, flag):
-        self.Shader_Flags_1 &= ~flag.value
+#     def shaderflags1_clear(self, flag):
+#         self.Shader_Flags_1 &= ~flag.value
 
-    def shaderflags2_test(self, flag):
-        return (self.Shader_Flags_2 & flag) != 0
+#     def shaderflags2_test(self, flag):
+#         return (self.Shader_Flags_2 & flag) != 0
 
-    def shaderflags2_set(self, flag):
-        self.Shader_Flags_2 |= flag.value
+#     def shaderflags2_set(self, flag):
+#         self.Shader_Flags_2 |= flag.value
 
-    def shaderflags2_clear(self, flag):
-        self.Shader_Flags_2 &= ~flag.value
+#     def shaderflags2_clear(self, flag):
+#         self.Shader_Flags_2 &= ~flag.value
 
-BSLSPAttrs_p = POINTER(BSLSPAttrs)
-
-class BSESPAttrs(pynStructure):
-    _fields_ = [
-	    ('Shader_Flags_1', c_uint32),
-	    ('Shader_Flags_2', c_uint32),
-	    ('UV_Offset_U', c_float),
-	    ('UV_Offset_V', c_float),
-	    ('UV_Scale_U', c_float),
-	    ('UV_Scale_V', c_float),
-	    ('Tex_Clamp_Mode', c_uint32),
-        ('Lighting_Influence', c_char),
-        ('Env_Map_Min_LOD', c_char),
-	    ('Falloff_Start_Angle', c_uint32),
-	    ('Falloff_Stop_Angle', c_uint32),
-	    ('Falloff_Start_Opacity', c_uint32),
-	    ('Falloff_Stop_Opacity', c_uint32),
-	    ('Emissive_Color_R', c_float),
-	    ('Emissive_Color_G', c_float),
-	    ('Emissive_Color_B', c_float),
-	    ('Emissive_Color_A', c_float),
-	    ('Emissive_Mult', c_float),
-	    ('Soft_Falloff_Depth', c_uint32),
-	    ('Env_Map_Scale', c_uint32)
-        ]
-    def __str__(self):
-        s = ""
-        for attr in self._fields_:
-            if len(s) > 0:
-                s = s + "\n"
-            s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
-        return s
-
-    def __eq__(self, other):
-        return (self.Shader_Flags_1 == other.Shader_Flags_1) and \
-            (self.Shader_Flags_2 == other.Shader_Flags_2) and \
-            (round(self.UV_Offset_U, 4) == round(other.UV_Offset_U, 4)) and \
-            (round(self.UV_Offset_V, 4) == round(other.UV_Offset_V, 4)) and \
-            (round(self.UV_Scale_U, 4) == round(other.UV_Scale_U, 4)) and \
-            (round(self.UV_Scale_V, 4) == round(other.UV_Scale_V, 4)) and \
-            (round(self.Emissive_Color_R, 4) == round(other.Emissive_Color_R, 4)) and \
-            (round(self.Emissive_Color_G, 4) == round(other.Emissive_Color_G, 4)) and \
-            (round(self.Emissive_Color_B, 4) == round(other.Emissive_Color_B, 4)) and \
-            (round(self.Emissive_Color_A, 4) == round(other.Emissive_Color_A, 4)) and \
-            (round(self.Emissive_Mult, 4) == round(other.Emissive_Mult, 4)) and \
-            (self.Tex_Clamp_Mode == other.Tex_Clamp_Mode) and \
-            (self.Falloff_Start_Angle == other.Falloff_Start_Angle) and \
-            (self.Falloff_Stop_Angle == other.Falloff_Stop_Angle) and \
-            (self.Falloff_Start_Opacity == other.Falloff_Start_Opacity) and \
-            (self.Falloff_Stop_Opacity == other.Falloff_Stop_Opacity) and \
-            (self.Soft_Falloff_Depth == other.Soft_Falloff_Depth) 
-
-    def shaderflags1_test(self, flag):
-        return (self.Shader_Flags_1 & flag) != 0
-
-    def shaderflags1_set(self, flag):
-        self.Shader_Flags_1 |= flag.value
-
-    def shaderflags1_clear(self, flag):
-        self.Shader_Flags_1 &= ~flag.value
-
-    def shaderflags2_test(self, flag):
-        return (self.Shader_Flags_2 & flag) != 0
-
-    def shaderflags2_set(self, flag):
-        self.Shader_Flags_2 |= flag.value
-
-    def shaderflags2_clear(self, flag):
-        self.Shader_Flags_2 &= ~flag.value
+# BSLSPAttrs_p = POINTER(BSLSPAttrs)
 
 class BSLSPShaderType(IntFlag):
     Default = 0
@@ -832,9 +766,108 @@ class PynBufferTypes(IntEnum):
     bhkRagdollConstraintBufType = 24
     bhkSimpleShapePhantomBufType = 25
     bhkSphereShapeBufType = 26
-    COUNT = 27
+    BSMeshLODTriShapeBufType = 27
+    NiShaderBufType = 28
+    COUNT = 29
 
 bufferTypeList = [''] * PynBufferTypes.COUNT
+
+
+class NiShaderBuf(pynStructure):
+    _fields_ = [
+	    ('bufSize', c_uint16),
+	    ('bufType', c_uint16),
+        ('nameID', c_uint32),
+        ('controllerID', c_uint32),
+        ('extraDataCount', c_uint16),
+        ('Shader_Type', c_uint32),
+	    ('Shader_Flags_1', c_uint32),
+	    ('Shader_Flags_2', c_uint32),
+        ('Environment_Map_Scale', c_float),
+	    ('UV_Offset_U', c_float),
+	    ('UV_Offset_V', c_float),
+	    ('UV_Scale_U', c_float),
+	    ('UV_Scale_V', c_float),
+	    ('Tex_Clamp_Mode', c_uint32),
+	    ('Emissive_Color_R', c_float),
+	    ('Emissive_Color_G', c_float),
+	    ('Emissive_Color_B', c_float),
+	    ('Emissive_Color_A', c_float),
+	    ('Emissive_Mult', c_float),
+        # BSLightingShaderProperty
+	    ('Alpha', c_float),
+	    ('Refraction_Str', c_float),
+	    ('Glossiness', c_float),
+	    ('Spec_Color_R', c_float),
+	    ('Spec_Color_G', c_float),
+	    ('Spec_Color_B', c_float),
+	    ('Spec_Str', c_float),
+	    ('Soft_Lighting', c_float),
+	    ('Rim_Light_Power', c_float),
+	    ('Skin_Tint_Alpha', c_float),
+	    ('Skin_Tint_Color_R', c_float),
+	    ('Skin_Tint_Color_G', c_float),
+	    ('Skin_Tint_Color_B', c_float),
+        # BSEffectShaderProperty
+        ('Lighting_Influence', c_char),
+        ('Env_Map_Min_LOD', c_char),
+	    ('Falloff_Start_Angle', c_uint32),
+	    ('Falloff_Stop_Angle', c_uint32),
+	    ('Falloff_Start_Opacity', c_uint32),
+	    ('Falloff_Stop_Opacity', c_uint32),
+	    ('Env_Map_Scale', c_uint32),
+	    ('Soft_Falloff_Depth', c_uint32),
+        ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.NiShaderBufType
+
+    def __str__(self):
+        s = ""
+        for attr in self._fields_:
+            if len(s) > 0:
+                s = s + "\n"
+            s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
+        return s
+
+    def __eq__(self, other):
+        return (self.Shader_Flags_1 == other.Shader_Flags_1) and \
+            (self.Shader_Flags_2 == other.Shader_Flags_2) and \
+            (round(self.UV_Offset_U, 4) == round(other.UV_Offset_U, 4)) and \
+            (round(self.UV_Offset_V, 4) == round(other.UV_Offset_V, 4)) and \
+            (round(self.UV_Scale_U, 4) == round(other.UV_Scale_U, 4)) and \
+            (round(self.UV_Scale_V, 4) == round(other.UV_Scale_V, 4)) and \
+            (round(self.Emissive_Color_R, 4) == round(other.Emissive_Color_R, 4)) and \
+            (round(self.Emissive_Color_G, 4) == round(other.Emissive_Color_G, 4)) and \
+            (round(self.Emissive_Color_B, 4) == round(other.Emissive_Color_B, 4)) and \
+            (round(self.Emissive_Color_A, 4) == round(other.Emissive_Color_A, 4)) and \
+            (round(self.Emissive_Mult, 4) == round(other.Emissive_Mult, 4)) and \
+            (self.Tex_Clamp_Mode == other.Tex_Clamp_Mode) and \
+            (self.Falloff_Start_Angle == other.Falloff_Start_Angle) and \
+            (self.Falloff_Stop_Angle == other.Falloff_Stop_Angle) and \
+            (self.Falloff_Start_Opacity == other.Falloff_Start_Opacity) and \
+            (self.Falloff_Stop_Opacity == other.Falloff_Stop_Opacity) and \
+            (self.Soft_Falloff_Depth == other.Soft_Falloff_Depth) 
+
+    def shaderflags1_test(self, flag):
+        return (self.Shader_Flags_1 & flag) != 0
+
+    def shaderflags1_set(self, flag):
+        self.Shader_Flags_1 |= flag.value
+
+    def shaderflags1_clear(self, flag):
+        self.Shader_Flags_1 &= ~flag.value
+
+    def shaderflags2_test(self, flag):
+        return (self.Shader_Flags_2 & flag) != 0
+
+    def shaderflags2_set(self, flag):
+        self.Shader_Flags_2 |= flag.value
+
+    def shaderflags2_clear(self, flag):
+        self.Shader_Flags_2 &= ~flag.value
+
+bufferTypeList[PynBufferTypes.NiShaderBufType] = 'NiShader'
 
 
 class NiCollisionObjectBuf(pynStructure):
@@ -1271,6 +1304,37 @@ class NiShapeBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiShapeBufType
 bufferTypeList[PynBufferTypes.NiShapeBufType] = 'NiShape'
+
+class BSMeshLODTriShapeBuf(pynStructure):
+    _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
+        ("nameID", c_uint32),
+        ("controllerID", c_uint32),
+        ("extraDataCount", c_uint16),
+        ("flags", c_uint32),
+        ("transform", TransformBuf),
+        ("propertyCount", c_uint16),
+        ("collisionID", c_uint32),
+        ("hasVertices", c_uint8),
+        ("hasNormals", c_uint8),
+        ("hasVertexColors", c_uint8),
+        ("hasUV", c_uint8),
+        ("boundingSphereCenter", VECTOR3),
+        ("boundingSphereRadius", c_float),
+        ("vertexCount", c_uint16),
+        ("triangleCount", c_uint16),
+        ("skinInstanceID", c_uint32),
+        ("shaderPropertyID", c_uint32),
+        ("alphaPropertyID", c_uint32),
+        ("lodSize0", c_uint32),
+        ("lodSize1", c_uint32),
+        ("lodSize2", c_uint32),
+        ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BSMeshLODTriShapeBufType
+bufferTypeList[PynBufferTypes.BSMeshLODTriShapeBufType] = 'BSMeshLODTriShape'
 
 class NiControllerManagerBuf(pynStructure):
     _fields_ = [

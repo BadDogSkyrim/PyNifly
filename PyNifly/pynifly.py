@@ -92,8 +92,6 @@ def load_nifly(nifly_path):
     nifly.getConnectPointParent.restype = c_int
     nifly.getControllerManagerSequences.argtypes = [c_void_p, c_void_p, c_int, POINTER(c_uint32)]
     nifly.getControllerManagerSequences.restype = c_int
-    nifly.getEffectShaderAttrs.argtypes = [c_void_p, c_void_p, POINTER(BSESPAttrs)]
-    nifly.getEffectShaderAttrs.restype = c_int
     nifly.getExtraData.argtypes = [c_void_p, c_int, c_char_p]
     nifly.getExtraData.restype = c_uint32
     nifly.getFurnMarker.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
@@ -138,14 +136,6 @@ def load_nifly(nifly_path):
     nifly.getSegmentFile.restype = c_int
     nifly.getSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
     nifly.getSegments.restype = c_int
-    nifly.getShaderAttrs.argtypes = [c_void_p, c_void_p, BSLSPAttrs_p]
-    nifly.getShaderAttrs.restype = c_int
-    nifly.getShaderBlockName.argtypes = [c_void_p, c_void_p]
-    nifly.getShaderBlockName.restype = c_char_p
-    nifly.getShaderFlags1.argtypes = [c_void_p, c_void_p]
-    nifly.getShaderFlags1.restype = c_uint32
-    nifly.getShaderName.argtypes = [c_void_p, c_void_p, c_char_p, c_int]
-    nifly.getShaderName.restype = c_int
     nifly.getShaderTextureSlot.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int]
     nifly.getShaderTextureSlot.restype = c_int
     nifly.getShapeBlockName.argtypes = [c_void_p, c_void_p, c_int]
@@ -208,8 +198,6 @@ def load_nifly(nifly_path):
     nifly.setConnectPointsChild.restype = None
     nifly.setConnectPointsParent.argtypes = [c_void_p, c_int, POINTER(ConnectPointBuf)]
     nifly.setConnectPointsParent.restype = None
-    nifly.setEffectShaderAttrs.argtypes = [c_void_p, c_void_p, POINTER(BSESPAttrs)]
-    nifly.setEffectShaderAttrs.restype = None
     nifly.setFurnMarkers.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
     nifly.setFurnMarkers.restype = None
     nifly.setNodeFlags.argtypes = [c_void_p, c_int]
@@ -218,10 +206,6 @@ def load_nifly(nifly_path):
     nifly.setPartitions.restype = None
     nifly.setSegments.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_char_p]
     nifly.setSegments.restype = None
-    nifly.setShaderAttrs.argtypes = [c_void_p, c_void_p, POINTER(BSLSPAttrs)]
-    nifly.setShaderAttrs.restype = None
-    nifly.setShaderFlags1.argtypes = [c_void_p, c_void_p, c_uint32]
-    nifly.setShaderName.argtypes = [c_void_p, c_void_p, c_char_p]
     nifly.setShaderTextureSlot.argtypes = [c_void_p, c_void_p, c_int, c_char_p]
     nifly.setShapeBoneIDList.argtypes = [c_void_p, c_void_p, c_void_p, c_int]  
     nifly.setShapeBoneWeights.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(VERTEX_WEIGHT_PAIR), c_int]
@@ -979,8 +963,10 @@ class NiNode(NiAVObject):
     def _getbuf(cls, values=None):
         return NiNodeBuf(values)
     
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None, name=""):
-        super().__init__(handle=handle, file=file, id=id, parent=parent)
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None, 
+                 properties=None, name=""):
+        super().__init__(handle=handle, file=file, id=id, parent=parent, 
+                         properties=properties)
         self._name = ""
         self._controller = None
         self._bgdata = None
@@ -1550,12 +1536,51 @@ class NiControllerManager(NiTimeController):
 
 # --- NifShape --- #
 class NiShape(NiNode):
+    subtypes = None
+
+    @classmethod
+    def load_subclasses(cls):
+        if cls.subtypes: return 
+        cls.subtypes = {}
+        for subc in cls.__subclasses__():
+            cls.subtypes[subc.__name__] = subc
+
+
+    @classmethod
+    def New(cls, handle=None, shapetype=None, id=NODEID_NONE, file=None, parent=None, 
+            properties=None):
+        cls.load_subclasses()
+        if properties:
+            shapetype = bufferTypeList[properties.bufType]
+        if not shapetype:
+            if id == NODEID_NONE:
+                id = NifFile.nifly.getBlockID(file._handle, handle)
+            buf = create_string_buffer(128)
+            NifFile.nifly.getBlockname(file._handle, id, buf, 128)
+            shapetype = buf.value.decode('utf-8')
+        try:
+            if not handle and id == NODEID_NONE:
+                id = NifFile.nifly.addBlock(
+                    file._handle, 
+                    None, 
+                    byref(properties), 
+                    parent.id if parent else None)
+            if not handle:
+                handle = NifFile.nifly.getBlockByID(id)
+            
+            return cls.subtypes[shapetype](
+                handle=handle, id=id, file=file, parent=parent, properties=properties)
+        except:
+            return None
+
     @classmethod
     def _getbuf(cls, values=None):
         return NiShapeBuf(values)
     
-    def __init__(self, file=None, handle=None, parent=None):
-        super().__init__(handle=handle, file=file, parent=parent)
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None, 
+                 properties=None, name=""):
+        super().__init__(handle=handle, file=file, id=id, parent=parent, 
+                         properties=properties, name=name)
         self._bone_ids = None
         self._bone_names = None
         self._normals = None
@@ -1581,49 +1606,49 @@ class NiShape(NiNode):
     @property
     def verts(self):
         if not self._verts:
-            totalCount = NifFile.nifly.getVertsForShape(
-                self.file._handle, self._handle, None, 0, 0)
-            verts = (c_float * 3 * totalCount)()
+            # totalCount = NifFile.nifly.getVertsForShape(
+            #     self.file._handle, self._handle, None, 0, 0)
+            verts = (c_float * 3 * self.properties.vertexCount)()
             NifFile.nifly.getVertsForShape(
-                self.file._handle, self._handle, verts, totalCount * 3, 0)
+                self.file._handle, self._handle, verts, self.properties.vertexCount * 3, 0)
             self._verts = [(v[0], v[1], v[2]) for v in verts]
         return self._verts
 
     @property
     def colors(self):
         """Returns colors as a list of 4-tuples representing color values, 1:1 with vertices."""
-        if not self._colors:
-            if self._verts:
-                buflen = len(self._verts)
+        if self._colors is None:
+            if self.properties.hasVertexColors:
+                buflen = self.properties.vertexCount
+                buf = (c_float * 4 * buflen)()
+                NifFile.nifly.getColorsForShape(self.file._handle, self._handle, buf, buflen*4)
+                self._colors = [(c[0], c[1], c[2], c[3]) for c in buf]
             else:
-                buflen = NifFile.nifly.getColorsForShape(self.file._handle, self._handle, None, 0)
-            buf = (c_float * 4 * buflen)()
-            colCount = NifFile.nifly.getColorsForShape(self.file._handle, self._handle, buf, buflen*4)
-            self._colors = [(buf[i][0], buf[i][1], buf[i][2], buf[i][3]) for i in range(colCount)]
+                self._colors = []
         return self._colors
     
     @property
     def normals(self):
         if not self._normals:
-            norms = (c_float*3)()
-            totalCount = NifFile.nifly.getNormalsForShape(
-                self.file._handle, self._handle, norms, 0, 0)
-            if totalCount > 0:
-                norms = (c_float * 3 * totalCount)()
+            buflen = self.properties.vertexCount 
+            # norms = (c_float*3)()
+            # totalCount = NifFile.nifly.getNormalsForShape(
+            #     self.file._handle, self._handle, norms, 0, 0)
+            if buflen > 0:
+                norms = (c_float * 3 * buflen)()
                 NifFile.nifly.getNormalsForShape(
-                        self.file._handle, self._handle, norms, totalCount * 3, 0)
+                        self.file._handle, self._handle, norms, buflen * 3, 0)
                 self._normals = [(n[0], n[1], n[2]) for n in norms]
         return self._normals
 
     @property
     def tris(self):
-        if not self._tris:
-            triCount = NifFile.nifly.getTriangles(
-                    self.file._handle, self._handle, None, 0, 0)
+        if self._tris is None:
+            triCount = self.properties.triangleCount
             buf = (c_uint16 * 3 * triCount)()
             NifFile.nifly.getTriangles(
                     self.file._handle, self._handle, buf, triCount * 3, 0)
-            self._tris = [(buf[i][0], buf[i][1], buf[i][2]) for i in range(triCount)]
+            self._tris = [(t[0], t[1], t[2]) for t in buf]
         return self._tris
 
     def _read_partitions(self):
@@ -1688,35 +1713,38 @@ class NiShape(NiNode):
     @property
     def uvs(self):
         if self._uvs is None:
-            uvCount = len(self.verts)
+            uvCount = self.properties.vertexCount
             buf = (c_float * 2 * uvCount)()
             NifFile.nifly.getUVs(
                     self.file._handle, self._handle, buf, uvCount * 2, 0)
-            self._uvs = [(buf[i][0], buf[i][1]) for i in range(uvCount)]
+            self._uvs = [(uv[0], uv[1]) for uv in buf]
         return self._uvs
     
     @property
     def shader_block_name(self):
-        b = NifFile.nifly.getShaderBlockName(self.file._handle, self._handle)
-        if b:
-            return b.decode('utf-8')
-        else:
-            return ''
+        buf = create_string_buffer(128)
+        NifFile.nifly.getBlockname(self.file._handle, self.properties.shaderPropertyID, buf, 128)
+        return buf.value.decode('utf-8')
+        # b = NifFile.nifly.getShaderBlockName(self.file._handle, self._handle)
+        # if b:
+        #     return b.decode('utf-8')
+        # else:
+        #     return ''
 
     @property
     def shader_name(self):
         if self._shader_name is None:
-            buf = (c_char * 500)()
-            buflen = NifFile.nifly.getShaderName(self.file._handle, self._handle, buf, 500)
-            if buflen == -1:
-                self._shader_name = ''
-            else:
-                self._shader_name = buf.value.decode('utf-8')
+            buflen = self.file.max_string_len
+            buf = (c_char * buflen)()
+            NifFile.nifly.getString(self.file._handle, self.shader_attributes.nameID, buflen, buf)
+            # buflen = NifFile.nifly.getShaderName(self.file._handle, self._handle, buf, buflen)
+            self._shader_name = buf.value.decode('utf-8')
         return self._shader_name
 
     @shader_name.setter
     def shader_name(self, val):
-        NifFile.nifly.setShaderName(self.file._handle, self._handle, val.encode('utf-8'))
+        self._shader_name = val
+        # NifFile.nifly.setShaderName(self.file._handle, self._handle, val.encode('utf-8'))
 
     @property
     def shaderflags1(self):
@@ -1742,34 +1770,38 @@ class NiShape(NiNode):
                                            slot, str.encode('utf-8'))
     
     @property
-    def shader_attributes(self) -> BSLSPAttrs:
+    def shader_attributes(self) -> NiShaderBuf:
         if self._shader_attrs is None:
-            if self.shader_block_name == "BSLightingShaderProperty":
-                buf = BSLSPAttrs()
-                if NifFile.nifly.getShaderAttrs(self.file._handle, self._handle, 
-                                                byref(buf)) == 0:
-                    self._shader_attrs = buf
-                else:
-                    self._shader_attrs = BSLSPAttrs()
-            elif self.shader_block_name == "BSEffectShaderProperty":
-                buf = BSESPAttrs()
-                if NifFile.nifly.getEffectShaderAttrs(self.file._handle, self._handle,
-                                                      byref(buf)) == 0:
-                    self._shader_attrs = buf
-                else:
-                    self._shader_attrs = BSESPAttrs()
-            else:
-                self._shader_attrs = BSLSPAttrs()
+            self._shader_attrs = NiShaderBuf()
+            NifFile.nifly.getBlock(self.file._handle, self.properties.shaderPropertyID, byref(self._shader_attrs))
+            # if self.shader_block_name == "BSLightingShaderProperty":
+            #     buf = NiShaderBuf()
+            #     if NifFile.nifly.getShaderAttrs(self.file._handle, self._handle, 
+            #                                     byref(buf)) == 0:
+            #         self._shader_attrs = buf
+            #     else:
+            #         self._shader_attrs = NiShaderBuf()
+            # elif self.shader_block_name == "BSEffectShaderProperty":
+            #     buf = NiShaderBuf()
+            #     if NifFile.nifly.getEffectShaderAttrs(self.file._handle, self._handle,
+            #                                           byref(buf)) == 0:
+            #         self._shader_attrs = buf
+            #     else:
+            #         self._shader_attrs = BSESPAttrs()
+            # else:
+            #     self._shader_attrs = BSLSPAttrs()
         return self._shader_attrs
 
     def save_shader_attributes(self):
         if self._shader_attrs:
-            if type(self._shader_attrs) == BSLSPAttrs:
-                NifFile.nifly.setShaderAttrs(self.file._handle, self._handle,
-                                             byref(self._shader_attrs))
-            else:
-                NifFile.nifly.setEffectShaderAttrs(self.file._handle, self._handle,
-                                                   byref(self._shader_attrs))
+            NifFile.nifly.addBlock(self.file._handle, self._shader_name.encode('utf-8'), 
+                                   byref(self._shader_attrs), self.id)
+            # if type(self._shader_attrs) == BSLSPAttrs:
+            #     NifFile.nifly.setShaderAttrs(self.file._handle, self._shader_name, byref(self._shader_attrs, self.id),
+            #                                  byref(self._shader_attrs))
+            # else:
+            #     NifFile.nifly.setEffectShaderAttrs(self.file._handle, self._handle,
+            #                                        byref(self._shader_attrs))
 
     @property
     def has_alpha_property(self):
@@ -2038,6 +2070,48 @@ class NiShape(NiNode):
                                         buf, len(colors))
 
 
+# --- NiTriShape --- #
+class NiTriShape(NiShape):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiShapeBuf(values)
+    
+
+# --- BSTriShape --- #
+class BSTriShape(NiShape):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiShapeBuf(values)
+    
+
+# --- BSDynamicTriShape --- #
+class BSDynamicTriShape(NiShape):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiShapeBuf(values)
+    
+
+# --- BSSubIndexTriShape --- #
+class BSSubIndexTriShape(NiShape):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiShapeBuf(values)
+    
+
+# --- NiTriStrips --- #
+class NiTriStrips(NiShape):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiShapeBuf(values)
+    
+
+# --- BSMeshLODTriShape --- #
+class BSMeshLODTriShape(NiShape):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return BSMeshLODTriShapeBuf(values)
+    
+
 # --- NifFile --- #
 class NifFile:
     """ NifFile represents the file itself. Corresponds approximately to a NifFile in the 
@@ -2178,7 +2252,7 @@ class NifFile:
             parenthandle)
         if self._shapes is None:
             self._shapes = []
-        sh = NiShape(self)
+        sh = NiShape(handle=shape_handle, file=self, parent=parent)
         sh.name = shape_name
         self._shapes.append(sh)
         sh._handle = shape_handle
@@ -2241,7 +2315,7 @@ class NifFile:
             buf = PTRBUF()
             nfound = NifFile.nifly.getShapes(self._handle, buf, nfound, 0)
             for i in range(nfound):
-                new_shape = NiShape(self, buf[i])
+                new_shape = NiShape.New(file=self, handle=buf[i])
                 self._shapes.append(new_shape) # not handling too many shapes yet
                 self._shape_dict[new_shape.name] = new_shape
 
@@ -2433,6 +2507,7 @@ class NifFile:
     block_types = {
         "NiNode": NiNode,
         "BSFadeNode": NiNode,
+        "BSLeafAnimNode": NiNode,
         "NiMultiTargetTransformController": NiMultiTargetTransformController,
         "NiControllerSequence": NiControllerSequence,
         "NiTransformController": NiTransformController,
@@ -2547,112 +2622,114 @@ TEST_KF = False
 TEST_SKEL = False
 TEST_COLLISION_SPHERE = False
 
+class ModuleTest:
+    """Quick and dirty test harness."""
 
-def _test_export_shape(old_shape: NiShape, new_nif: NifFile):
-    """ Convenience routine to copy existing shape """
-    skinned = (len(old_shape.bone_weights) > 0)
-    effectsshader = (type(old_shape.shader_attributes) == BSESPAttrs)
-
-    # Somehow the UV needs inversion. Probably a bug but we've lived with it so long...
-    uv_inv = [(x, 1-y) for x, y in old_shape.uvs]
-
-    new_shape = new_nif.createShapeFromData(old_shape.name + ".Out", 
-                                            old_shape.verts,
-                                            old_shape.tris,
-                                            uv_inv,
-                                            old_shape.normals,
-                                            is_skinned=skinned, 
-                                            is_effectsshader=effectsshader)
-    new_shape.transform = old_shape.transform.copy()
-    oldxform = old_shape.global_to_skin
-    if oldxform is None:
-        oldxform = old_shape.transform
-    new_shape_gts = oldxform # no inversion?
-    if skinned: new_shape.set_global_to_skin(new_shape_gts)
-    #if old_shape.parent.game in ("SKYRIM", "SKYRIMSE"):
-    #    new_shape.set_global_to_skindata(new_shape_gts) # only for skyrim
-    #else:
-    #    new_shape.set_global_to_skin(new_shape_gts)
-
-    for bone_name, weights in old_shape.bone_weights.items():
-        new_shape.add_bone(bone_name, old_shape.file.nodes[bone_name].xform_to_global)
-
-    for bone_name, weights in old_shape.bone_weights.items():
-        sbx = old_shape.get_shape_skin_to_bone(bone_name)
-        new_shape.set_skin_to_bone_xform(bone_name, sbx)
-
-        new_shape.setShapeWeights(bone_name, weights)
-
-    new_shape.shader_name = old_shape.shader_name
-    new_shape.shader_attributes.Shader_Flags_1 = old_shape.shader_attributes.Shader_Flags_1
-    new_shape.shader_attributes.Shader_Flags_2 = old_shape.shader_attributes.Shader_Flags_2
-    new_shape.shader_attributes.UV_Offset_U = old_shape.shader_attributes.UV_Offset_U
-    new_shape.shader_attributes.UV_Offset_V = old_shape.shader_attributes.UV_Offset_V
-    new_shape.shader_attributes.UV_Scale_U = old_shape.shader_attributes.UV_Scale_U
-    new_shape.shader_attributes.UV_Scale_V = old_shape.shader_attributes.UV_Scale_V
-    new_shape.shader_attributes.Emissive_Color_R = old_shape.shader_attributes.Emissive_Color_R
-    new_shape.shader_attributes.Emissive_Color_G = old_shape.shader_attributes.Emissive_Color_G
-    new_shape.shader_attributes.Emissive_Color_B = old_shape.shader_attributes.Emissive_Color_B
-    new_shape.shader_attributes.Emissive_Color_A = old_shape.shader_attributes.Emissive_Color_A
-    new_shape.shader_attributes.Emissive_Mult = old_shape.shader_attributes.Emissive_Mult
-    new_shape.shader_attributes.Tex_Clamp_Mode = old_shape.shader_attributes.Tex_Clamp_Mode
-
-    if effectsshader:
-        new_shape.shader_attributes.Falloff_Start_Angle = old_shape.shader_attributes.Falloff_Start_Angle
-        new_shape.shader_attributes.Falloff_Stop_Angle = old_shape.shader_attributes.Falloff_Stop_Angle
-        new_shape.shader_attributes.Falloff_Start_Opacity = old_shape.shader_attributes.Falloff_Start_Opacity
-        new_shape.shader_attributes.Falloff_Stop_Opacity = old_shape.shader_attributes.Falloff_Stop_Opacity
-        new_shape.shader_attributes.Soft_Falloff_Depth = old_shape.shader_attributes.Soft_Falloff_Depth
-    else:
-        new_shape.shader_attributes.Shader_Type = old_shape.shader_attributes.Shader_Type
-        new_shape.shader_attributes.Alpha = old_shape.shader_attributes.Alpha
-        new_shape.shader_attributes.Refraction_Str = old_shape.shader_attributes.Refraction_Str
-        new_shape.shader_attributes.Glossiness = old_shape.shader_attributes.Glossiness
-        new_shape.shader_attributes.Spec_Color_R = old_shape.shader_attributes.Spec_Color_R
-        new_shape.shader_attributes.Spec_Color_G = old_shape.shader_attributes.Spec_Color_G
-        new_shape.shader_attributes.Spec_Color_B = old_shape.shader_attributes.Spec_Color_B
-        new_shape.shader_attributes.Spec_Str = old_shape.shader_attributes.Spec_Str
-        new_shape.shader_attributes.Soft_Lighting = old_shape.shader_attributes.Soft_Lighting
-        new_shape.shader_attributes.Rim_Light_Power = old_shape.shader_attributes.Rim_Light_Power
-        new_shape.shader_attributes.Skin_Tint_Alpha = old_shape.shader_attributes.Skin_Tint_Alpha
-        new_shape.shader_attributes.Skin_Tint_Color_R = old_shape.shader_attributes.Skin_Tint_Color_R
-        new_shape.shader_attributes.Skin_Tint_Color_G = old_shape.shader_attributes.Skin_Tint_Color_G
-        new_shape.shader_attributes.Skin_Tint_Color_B = old_shape.shader_attributes.Skin_Tint_Color_B
-
-    new_shape.save_shader_attributes()
-
-    alpha = AlphaPropertyBuf()
-    if old_shape.has_alpha_property:
-        new_shape.alpha_property.flags = old_shape.alpha_property.flags
-        new_shape.alpha_property.threshold = old_shape.alpha_property.threshold
-        new_shape.save_alpha_property()
-
-    for i, t in enumerate(old_shape.textures):
-        if len(t) > 0:
-            new_shape.set_texture(i, t)
-
-    new_shape.behavior_graph_data = old_shape.behavior_graph_data
-    new_shape.string_data = old_shape.string_data
+    def __init__(self, logger):
+        self.log = logger
 
 
-if __name__ == "__main__":
-    import codecs
-    # import quickhull
+    def test_file(relative_path):
+        """
+        Given a relative path, return a working filepath to the file. If it's in 
+        the output directory, delete it.
+        """
+        rp = relative_path.upper()
+        if "TESTS/OUT" in rp or r"TESTS\OUT" in rp:
+            if os.path.exists(relative_path):
+                os.remove(relative_path)
+        return relative_path
 
-    dev_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
-    NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], dev_path))
+    
+    def export_shape(old_shape: NiShape, new_nif: NifFile):
+        """ Convenience routine to copy existing shape """
+        skinned = (len(old_shape.bone_weights) > 0)
+        effectsshader = (old_shape.shader_block_name == "BSEffectShaderProperty")
 
-    mylog = logging.getLogger("pynifly")
-    logging.basicConfig()
-    mylog.setLevel(logging.DEBUG)
-    mylog.info("""
-=========================================
-========= Running pynifly tests =========
-=========================================
-""")
+        # Somehow the UV needs inversion. Probably a bug but we've lived with it so long...
+        uv_inv = [(x, 1-y) for x, y in old_shape.uvs]
 
-    if TEST_ALL or TEST_SHAPE_QUERY:
-        print("### TEST_SHAPE_QUERY: NifFile object gives access to a nif")
+        new_shape = new_nif.createShapeFromData(old_shape.name + ".Out", 
+                                                old_shape.verts,
+                                                old_shape.tris,
+                                                uv_inv,
+                                                old_shape.normals,
+                                                is_skinned=skinned, 
+                                                is_effectsshader=effectsshader)
+        new_shape.transform = old_shape.transform.copy()
+        oldxform = old_shape.global_to_skin
+        if oldxform is None:
+            oldxform = old_shape.transform
+        new_shape_gts = oldxform # no inversion?
+        if skinned: new_shape.set_global_to_skin(new_shape_gts)
+        #if old_shape.parent.game in ("SKYRIM", "SKYRIMSE"):
+        #    new_shape.set_global_to_skindata(new_shape_gts) # only for skyrim
+        #else:
+        #    new_shape.set_global_to_skin(new_shape_gts)
+
+        for bone_name, weights in old_shape.bone_weights.items():
+            new_shape.add_bone(bone_name, old_shape.file.nodes[bone_name].xform_to_global)
+
+        for bone_name, weights in old_shape.bone_weights.items():
+            sbx = old_shape.get_shape_skin_to_bone(bone_name)
+            new_shape.set_skin_to_bone_xform(bone_name, sbx)
+
+            new_shape.setShapeWeights(bone_name, weights)
+
+        new_shape.shader_name = old_shape.shader_name
+        new_shape.shader_attributes.Shader_Flags_1 = old_shape.shader_attributes.Shader_Flags_1
+        new_shape.shader_attributes.Shader_Flags_2 = old_shape.shader_attributes.Shader_Flags_2
+        new_shape.shader_attributes.UV_Offset_U = old_shape.shader_attributes.UV_Offset_U
+        new_shape.shader_attributes.UV_Offset_V = old_shape.shader_attributes.UV_Offset_V
+        new_shape.shader_attributes.UV_Scale_U = old_shape.shader_attributes.UV_Scale_U
+        new_shape.shader_attributes.UV_Scale_V = old_shape.shader_attributes.UV_Scale_V
+        new_shape.shader_attributes.Emissive_Color_R = old_shape.shader_attributes.Emissive_Color_R
+        new_shape.shader_attributes.Emissive_Color_G = old_shape.shader_attributes.Emissive_Color_G
+        new_shape.shader_attributes.Emissive_Color_B = old_shape.shader_attributes.Emissive_Color_B
+        new_shape.shader_attributes.Emissive_Color_A = old_shape.shader_attributes.Emissive_Color_A
+        new_shape.shader_attributes.Emissive_Mult = old_shape.shader_attributes.Emissive_Mult
+        new_shape.shader_attributes.Tex_Clamp_Mode = old_shape.shader_attributes.Tex_Clamp_Mode
+
+        if effectsshader:
+            new_shape.shader_attributes.Falloff_Start_Angle = old_shape.shader_attributes.Falloff_Start_Angle
+            new_shape.shader_attributes.Falloff_Stop_Angle = old_shape.shader_attributes.Falloff_Stop_Angle
+            new_shape.shader_attributes.Falloff_Start_Opacity = old_shape.shader_attributes.Falloff_Start_Opacity
+            new_shape.shader_attributes.Falloff_Stop_Opacity = old_shape.shader_attributes.Falloff_Stop_Opacity
+            new_shape.shader_attributes.Soft_Falloff_Depth = old_shape.shader_attributes.Soft_Falloff_Depth
+        else:
+            new_shape.shader_attributes.Shader_Type = old_shape.shader_attributes.Shader_Type
+            new_shape.shader_attributes.Alpha = old_shape.shader_attributes.Alpha
+            new_shape.shader_attributes.Refraction_Str = old_shape.shader_attributes.Refraction_Str
+            new_shape.shader_attributes.Glossiness = old_shape.shader_attributes.Glossiness
+            new_shape.shader_attributes.Spec_Color_R = old_shape.shader_attributes.Spec_Color_R
+            new_shape.shader_attributes.Spec_Color_G = old_shape.shader_attributes.Spec_Color_G
+            new_shape.shader_attributes.Spec_Color_B = old_shape.shader_attributes.Spec_Color_B
+            new_shape.shader_attributes.Spec_Str = old_shape.shader_attributes.Spec_Str
+            new_shape.shader_attributes.Soft_Lighting = old_shape.shader_attributes.Soft_Lighting
+            new_shape.shader_attributes.Rim_Light_Power = old_shape.shader_attributes.Rim_Light_Power
+            new_shape.shader_attributes.Skin_Tint_Alpha = old_shape.shader_attributes.Skin_Tint_Alpha
+            new_shape.shader_attributes.Skin_Tint_Color_R = old_shape.shader_attributes.Skin_Tint_Color_R
+            new_shape.shader_attributes.Skin_Tint_Color_G = old_shape.shader_attributes.Skin_Tint_Color_G
+            new_shape.shader_attributes.Skin_Tint_Color_B = old_shape.shader_attributes.Skin_Tint_Color_B
+
+        new_shape.save_shader_attributes()
+
+        alpha = AlphaPropertyBuf()
+        if old_shape.has_alpha_property:
+            new_shape.alpha_property.flags = old_shape.alpha_property.flags
+            new_shape.alpha_property.threshold = old_shape.alpha_property.threshold
+            new_shape.save_alpha_property()
+
+        for i, t in enumerate(old_shape.textures):
+            if len(t) > 0:
+                new_shape.set_texture(i, t)
+
+        new_shape.behavior_graph_data = old_shape.behavior_graph_data
+        new_shape.string_data = old_shape.string_data
+
+
+    def TEST_SHAPE_QUERY():
+        """NifFile object gives access to a nif"""
 
         # NifFile can be read from a file. It provides game name and root node for that game.
         f1 = NifFile("tests/skyrim/test.nif")
@@ -2784,8 +2861,8 @@ if __name__ == "__main__":
         assert len(body.bone_weights['NPC L Foot [Lft ]']) == 13, "ERRROR: Wrong number of bone weights"
 
 
-    if TEST_ALL or TEST_CREATE_TETRA:
-        print("### Can create new files with content: tetrahedron")
+    def TEST_CREATE_TETRA():
+        """Can create new files with content: tetrahedron"""
         # Vertices are a list of triples defining the coordinates of each vertex
         verts = [(0.0, 0.0, 0.0),
                  (2.0, 0.0, 0.0),
@@ -2850,8 +2927,8 @@ if __name__ == "__main__":
         assert VNearEqual(xf3.translation, (1.0, 2.0, 3.0)), "ERROR: Location transform wrong"
         assert xf3.scale == 1.5, "ERROR: Scale transform wrong"
     
-    if TEST_ALL or TEST_CREATE_WEIGHTS:
-        print("### TEST_CREATE_WEIGHTS: Can create tetrahedron with bone weights (Skyrim)")
+    def TEST_CREATE_WEIGHTS():
+        """Can create tetrahedron with bone weights (Skyrim)"""
         verts = [(0.0, 1.0, -1.0), (0.866, -0.5, -1.0), (-0.866, -0.5, -1.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0)]
         norms = [(0.0, 0.9219, -0.3873), (0.7984, -0.461, -0.3873), (-0.7984, -0.461, -0.3873), (-0.8401, 0.4851, 0.2425), (0.8401, 0.4851, 0.2425), (0.0, -0.9701, 0.2425)]
         tris = [(0, 4, 1), (0, 1, 2), (1, 5, 2), (2, 3, 0)]
@@ -2923,8 +3000,8 @@ if __name__ == "__main__":
         assert not VNearEqual(xform.translation, [0.0, 0.0, 0.0]), "Error: Translation should not be null"
 
 
-    if TEST_ALL or TEST_READ_WRITE:
-        print("### TEST_READ_WRITE: Basic load-and-store for Skyrim--Can read the armor nif and spit out armor and body separately")
+    def TEST_READ_WRITE():
+        """Basic load-and-store for Skyrim--Can read the armor nif and spit out armor and body separately"""
         testfile = "tests/Skyrim/test.nif"
         outfile1 = "tests/Out/TEST_READ_WRITE1.nif"
         outfile2 = "tests/Out/TEST_READ_WRITE2.nif"
@@ -2948,10 +3025,10 @@ if __name__ == "__main__":
         assert int(the_armor.transform.translation[2]) == 120, "ERROR: Armor shape is raised up"
         assert the_armor.has_skin_instance, "Error: Armor should be skinned"
 
-        print("### Can save armor to Skyrim")
+        """Can save armor to Skyrim"""
         new_nif = NifFile()
         new_nif.initialize("SKYRIM", outfile1)
-        _test_export_shape(the_armor, new_nif)
+        ModuleTest.export_shape(the_armor, new_nif)
         #new_armor = new_nif.createShapeFromData("Armor", 
         #                                        the_armor.verts,
         #                                        the_armor.tris,
@@ -2991,10 +3068,10 @@ if __name__ == "__main__":
         max_vert = max([v[2] for v in armor01.verts])
         assert max_vert < 0, "ERROR: Armor verts are all below origin"
 
-        print("### Can save body to Skyrim")
+        """Can save body to Skyrim"""
         new_nif2 = NifFile()
         new_nif2.initialize("SKYRIM", outfile2)
-        _test_export_shape(the_body, new_nif2)
+        ModuleTest.export_shape(the_body, new_nif2)
 
         #new_body = new_nif.createShapeFromData("Body", 
         #                                        the_body.verts,
@@ -3021,12 +3098,12 @@ if __name__ == "__main__":
         min_vert = min([v[2] for v in test_py02_body.verts])
         assert min_vert > 0, "ERROR: Body verts all above origin"
 
-        print("### Can save armor and body together")
+        """Can save armor and body together"""
 
         newnif3 = NifFile()
         newnif3.initialize("SKYRIM", outfile3)
-        _test_export_shape(the_body, newnif3)
-        _test_export_shape(the_armor, newnif3)    
+        ModuleTest.export_shape(the_body, newnif3)
+        ModuleTest.export_shape(the_armor, newnif3)    
         newnif3.save()
 
         nif3res = NifFile(outfile3)
@@ -3041,8 +3118,8 @@ if __name__ == "__main__":
             # This is an open bug having to do with exporting two shapes at once (I think)
             pass
 
-    if TEST_ALL or TEST_XFORM_FO:
-        print("### TEST_XFORM_FO: Can read the FO4 body transforms")
+    def TEST_XFORM_FO():
+        """Can read the FO4 body transforms"""
         f1 = NifFile("tests/FO4/BTMaleBody.nif")
         s1 = f1.shapes[0]
         xfshape = s1.transform
@@ -3050,8 +3127,8 @@ if __name__ == "__main__":
         assert int(xfshape.translation[2]) == 0, f"ERROR: FO4 body shape has a 0 z translation: {xfshape.translation[2]}"
         assert int(xfskin.translation[2]) == -120, f"ERROR: global-to-skin is calculated: {xfskin.translation[2]}"
 
-    if TEST_ALL or TEST_2_TAILS:
-        print("### TEST_2_TAILS: Can export tails file with two tails")
+    def TEST_2_TAILS():
+        """Can export tails file with two tails"""
 
         testfile_in = r"tests/Skyrim/maletaillykaios.nif"
         testfile_out = "tests/out/testtails01.nif"
@@ -3060,7 +3137,7 @@ if __name__ == "__main__":
         ftout.initialize("SKYRIM", testfile_out)
 
         for s_in in ft1.shapes:
-            _test_export_shape(s_in, ftout)
+            ModuleTest.export_shape(s_in, ftout)
 
         ftout.save()
 
@@ -3070,8 +3147,8 @@ if __name__ == "__main__":
             assert len(s.bone_names) == 7, f"ERROR: Failed to write all bones to {s.name}"
             assert "TailBone01" in s.bone_names, f"ERROR: bone cloth not in bones: {s.name}, {s.bone_names}"
 
-    if TEST_ALL or TEST_ROTATIONS:
-        print("### TEST_ROTATIONS: Can handle rotations")
+    def TEST_ROTATIONS():
+        """Can handle rotations"""
 
         testfile = r"tests\FO4\VulpineInariTailPhysics.nif"
         f = NifFile(testfile)
@@ -3086,7 +3163,7 @@ if __name__ == "__main__":
         # Write tail mesh
         nifOut = NifFile()
         nifOut.initialize('FO4', r"tests\out\TEST_ROTATIONS.nif")
-        _test_export_shape(f.shape_dict['Inari_ZA85_fluffy'], nifOut)
+        ModuleTest.export_shape(f.shape_dict['Inari_ZA85_fluffy'], nifOut)
         nifOut.save()
 
         # Check results
@@ -3096,8 +3173,8 @@ if __name__ == "__main__":
         assert MatNearEqual(cloth2Check.transform.rotation, n.transform.rotation), f"Rotation is unchanged: {cloth2Check.transform.rotation}"
 
 
-    if TEST_ALL or TEST_PARENT:
-        print("### TEST_PARENT: Can handle nifs which show relationships between bones")
+    def TEST_PARENT():
+        """Can handle nifs which show relationships between bones"""
 
         testfile = r"tests\FO4\bear_tshirt_turtleneck.nif"
         f = NifFile(testfile)
@@ -3105,7 +3182,7 @@ if __name__ == "__main__":
         # System accurately parents bones to each other bsaed on nif or reference skeleton
         assert n.parent.name == 'RArm_ForeArm3', "Error: Parent node should be forearm"
 
-    if TEST_ALL or TEST_PYBABY:
+    def TEST_PYBABY():
         print('### TEST_PYBABY: Can export multiple parts')
 
         testfile = r"tests\FO4\baby.nif"
@@ -3116,7 +3193,7 @@ if __name__ == "__main__":
         outfile1 = r"tests\Out\baby02.nif"
         outnif1 = NifFile()
         outnif1.initialize("FO4", outfile1)
-        _test_export_shape(head, outnif1)
+        ModuleTest.export_shape(head, outnif1)
         outnif1.save()
 
         testnif1 = NifFile(outfile1)
@@ -3129,8 +3206,8 @@ if __name__ == "__main__":
         outfile2 = r"tests\Out\baby03.nif"
         outnif2 = NifFile()
         outnif2.initialize("FO4", outfile2)
-        _test_export_shape(head, outnif2)
-        _test_export_shape(eyes, outnif2)
+        ModuleTest.export_shape(head, outnif2)
+        ModuleTest.export_shape(eyes, outnif2)
         outnif2.save()
 
         testnif2 = NifFile(outfile2)
@@ -3144,7 +3221,7 @@ if __name__ == "__main__":
         assert VNearEqual(stb1.rotation[2], stb2.rotation[2]), "Error: Bone transforms should stay the same"
         assert stb1.scale == stb2.scale, "Error: Bone transforms should stay the same"
 
-    if TEST_ALL or TEST_BONE_XFORM:
+    def TEST_BONE_XFORM():
         print('### TEST_BONE_XFORM: Can read bone transforms')
 
         nif = NifFile(r"tests/Skyrim/MaleHead.nif")
@@ -3166,7 +3243,7 @@ if __name__ == "__main__":
         mat4 = nif.get_node_xform_to_global("SPINE1")
         assert NearEqual(mat4.translation[2], 72.7033), f"Error: Translation should not be 0: {mat4.translation[2]}"
 
-    if TEST_ALL or TEST_PARTITIONS:
+    def TEST_PARTITIONS():
         print('### TEST_PARTITIONS: Can read partitions')
 
         nif = NifFile(r"tests/Skyrim/MaleHead.nif")
@@ -3182,10 +3259,10 @@ if __name__ == "__main__":
         assert len(nif.shapes[0].partition_tris) == 1694
         assert max(nif.shapes[0].partition_tris) < len(nif.shapes[0].partitions), f"tri index out of range"
 
-        print("### Can write partitions back out")
+        """Can write partitions back out"""
         nif2 = NifFile()
         nif2.initialize('SKYRIM', r"tests/Out/PartitionsMaleHead.nif")
-        _test_export_shape(nif.shapes[0], nif2)
+        ModuleTest.export_shape(nif.shapes[0], nif2)
 
         # set_partitions expects a list of partitions and a tri list.  The tri list references
         # reference partitions by ID, because when there are segments and subsegments it
@@ -3202,14 +3279,14 @@ if __name__ == "__main__":
         assert len(nif3.shapes[0].partition_tris) == 1694, "Same number of tri indices as before"
         assert (nif3.shapes[0].partitions[0].flags and 1) == 1, "First partition has start-net-boneset set"
 
-    if TEST_ALL or TEST_SEGMENTS_EMPTY:
-        print("### TEST_SEGMENTS_EMPTY: Can write FO4 segments when some are empty")
+    def TEST_SEGMENTS_EMPTY():
+        """Can write FO4 segments when some are empty"""
 
         nif = NifFile("tests/FO4/TEST_SEGMENTS_EMPTY.nif")
 
         nif2 = NifFile()
         nif2.initialize('FO4', r"tests/Out/TEST_SEGMENTS_EMPTY.nif")
-        _test_export_shape(nif.shapes[0], nif2)
+        ModuleTest.export_shape(nif.shapes[0], nif2)
         segs = [FO4Segment(0, 0, "FO4 Seg 000"),
                 FO4Segment(1, 1, "FO4 Seg 001"),
                 FO4Segment(2, 2, "FO4 Seg 002"),
@@ -3226,7 +3303,7 @@ if __name__ == "__main__":
         assert len([x for x in nif3.shapes[0].partition_tris if x == 3]) == len(nif3.shapes[0].tris), f"Expected all tris in the 4th partition"
 
 
-    if TEST_ALL or TEST_SEGMENTS:
+    def TEST_SEGMENTS():
         print ("### TEST_SEGMENTS: Can read FO4 segments")
 
         nif = NifFile(r"tests/FO4/VanillaMaleBody.nif")
@@ -3256,13 +3333,13 @@ if __name__ == "__main__":
         assert subsegs[0].name == "FO4 Seg 002 | 000 | Up Arm.R", f"Subsegments have human-readable names: '{subsegs[0].name}'"
         assert "FO4 Seg 002 | 003 | Lo Arm.R" in subseg_names, f"Missing lower arm subsegment in {subseg_names}"
 
-        print("### Can write segments back out")
+        """Can write segments back out"""
         # When writing segments, the tri list refers to segments/subsegments by ID *not*
         # by index into the partitions list (becuase it only has segments, not
         # subsegments, and it's the subsegments the tri list wants to reference).
         nif2 = NifFile()
         nif2.initialize('FO4', r"tests/Out/SegmentsMaleBody.nif")
-        _test_export_shape(nif.shapes[0], nif2)
+        ModuleTest.export_shape(nif.shapes[0], nif2)
         nif2.shapes[0].segment_file = r"Meshes\Actors\Character\CharacterAssets\MaleBodyOut.ssf"
         nif2.shapes[0].set_partitions(nif.shapes[0].partitions, 
                                       nif.shapes[0].partition_tris)
@@ -3277,7 +3354,7 @@ if __name__ == "__main__":
         assert nif3.shapes[0].segment_file == r"Meshes\Actors\Character\CharacterAssets\MaleBodyOut.ssf"
 
 
-    if TEST_ALL or TEST_BP_SEGMENTS:
+    def TEST_BP_SEGMENTS():
         print ("### TEST_BP_SEGMENTS: Can read FO4 body part segments")
 
         nif = NifFile(r"tests/FO4/Helmet.nif")
@@ -3307,13 +3384,13 @@ if __name__ == "__main__":
         assert visor.name == "glass:0", "Have visor"
         assert visor.partitions[1].subsegments[0].name == "FO4 Seg 001 | Hair Top", "Visor has no bone ID"
 
-        print("### Can write segments back out")
+        """Can write segments back out"""
         # When writing segments, the tri list refers to segments/subsegments by ID *not*
         # by index into the partitions list (becuase it only has segments, not
         # subsegments, and it's the subsegments the tri list wants to reference).
         nif2 = NifFile()
         nif2.initialize('FO4', r"tests/Out/SegmentsHelmet.nif")
-        _test_export_shape(helm, nif2)
+        ModuleTest.export_shape(helm, nif2)
         nif2.shapes[0].segment_file = r"Meshes\Armor\FlightHelmet\Helmet.ssf"
 
         p1 = FO4Segment(0, 0)
@@ -3330,8 +3407,8 @@ if __name__ == "__main__":
         assert nif3.shapes[0].partitions[1].subsegments[0].name.startswith("FO4 Seg 001 | Hair Top | Head"), "Subsegments have human-readable names"
         assert nif3.shapes[0].segment_file == r"Meshes\Armor\FlightHelmet\Helmet.ssf"
 
-    if TEST_ALL or TEST_PARTITION_NAMES:
-        print("### TEST_PARTITION_NAMES: Can parse various forms of partition name")
+    def TEST_PARTITION_NAMES():
+        """Can parse various forms of partition name"""
 
         # Blender vertex groups have magic names indicating they are nif partitions or
         # segments.  We have to analyze the group name to see if it's something we have
@@ -3373,8 +3450,8 @@ if __name__ == "__main__":
         assert FO4Subsegment.name_match("FO4 Seg 001 | Hair Top | 0x1234") == ("FO4 Seg 001", 30, 0x1234), "FO4Subsegment.name_match matches subsegments with material as number"
 
 
-    if TEST_ALL or TEST_COLORS:
-        print("### TEST_COLORS: Can load and save colors")
+    def TEST_COLORS():
+        """Can load and save colors"""
 
         nif = NifFile(r"Tests/FO4/HeadGear1.nif")
         assert nif.shapes[0].colors[0] == (1.0, 1.0, 1.0, 1.0)
@@ -3382,7 +3459,7 @@ if __name__ == "__main__":
 
         nif2 = NifFile()
         nif2.initialize("FO4", r"Tests/Out/TEST_COLORS_HeadGear1.nif")
-        _test_export_shape(nif.shapes[0], nif2)
+        ModuleTest.export_shape(nif.shapes[0], nif2)
         nif2.shapes[0].set_colors(nif.shapes[0].colors)
         nif2.save()
 
@@ -3396,8 +3473,8 @@ if __name__ == "__main__":
         assert len(nif4.shapes[1].colors) == 0, f"Should have no colors, 0 != {len(nif4.shapes[1].colors)}"
         
 
-    if TEST_ALL or TEST_FNV:
-        print("### TEST_FNV: Can load and save FNV nifs")
+    def TEST_FNV():
+        """Can load and save FNV nifs"""
 
         nif = NifFile(r"tests\FONV\9mmscp.nif")
         shapenames = [s.name for s in nif.shapes]
@@ -3408,47 +3485,47 @@ if __name__ == "__main__":
         nif2 = NifFile()
         nif2.initialize('FONV', r"tests/Out/9mmscp.nif")
         for s in nif.shapes:
-            _test_export_shape(s, nif2)
+            ModuleTest.export_shape(s, nif2)
         nif2.save()
 
 
-    if TEST_ALL or TEST_BLOCKNAME:
-        print("### TEST_BLOCKNAME: Can get block type as a string")
+    def TEST_BLOCKNAME():
+        """Can get block type as a string"""
 
         nif = NifFile(r"tests\SKYRIMSE\malehead.nif")
         assert nif.shapes[0].blockname == "BSDynamicTriShape", f"Expected 'BSDynamicTriShape', found '{nif.shapes[0].blockname}'"
 
 
-    if TEST_ALL or TEST_UNSKINNED:
-        print("### TEST_UNSKINNED: FO4 unskinned shape uses BSTriShape")
+    def TEST_UNSKINNED():
+        """FO4 unskinned shape uses BSTriShape"""
 
         nif = NifFile(r"Tests/FO4/Alarmclock.nif")
         assert nif.shapes[0].blockname == "BSTriShape", f"Error: Expected BSTriShape on unskinned shape, got {nif.shapes[0].blockname}"
 
         nif2 = NifFile()
         nif2.initialize("FO4", r"Tests/Out/TEST_UNSKINNED.nif")
-        _test_export_shape(nif.shapes[0], nif2)
+        ModuleTest.export_shape(nif.shapes[0], nif2)
         nif2.save()
 
         nif3 = NifFile(r"Tests/Out/TEST_UNSKINNED.nif")
         assert nif3.shapes[0].blockname == "BSTriShape", f"Error: Expected BSTriShape on unskinned shape after export, got {nif3.shapes[0].blockname}"
 
-    if TEST_ALL or TEST_UNI:
-        print("### TEST_UNI: Can load and store files with non-ascii pathnames")
+    def TEST_UNI():
+        """Can load and store files with non-ascii pathnames"""
 
         nif = NifFile(r"tests\FO4\TestUnicode\проверка\будильник.nif")
         assert len(nif.shapes) == 1, f"Error: Expected 1 shape, found {len(nif.shapes)}"
 
         nif2 = NifFile()
         nif2.initialize('SKYRIMSE', r"tests\out\будильник.nif")
-        _test_export_shape(nif.shapes[0], nif2)
+        ModuleTest.export_shape(nif.shapes[0], nif2)
         nif2.save()
 
         nif3 = NifFile(f"tests\out\будильник.nif")
         assert len(nif3.shapes) == 1, f"Error: Expected 1 shape, found {len(nif3.shapes)}"
 
-    if TEST_ALL or TEST_SHADER:
-        print("### TEST_SHADER: Can read shader flags")
+    def TEST_SHADER():
+        """Can read shader flags"""
         hnse = NifFile(r"tests\SKYRIMSE\malehead.nif")
         hsse = hnse.shapes[0]
         assert hsse.shader_attributes.Shader_Type == 4
@@ -3469,7 +3546,7 @@ if __name__ == "__main__":
         csle = cnle.shapes[0]
         assert not csle.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN false, got {csle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
-        print("### TEST_SHADER: Can read texture paths")
+        """Can read texture paths"""
         for i, t in enumerate([
                   r"textures\actors\character\male\MaleHead.dds",
                   r"textures\actors\character\male\MaleHead_msn.dds",
@@ -3503,7 +3580,7 @@ if __name__ == "__main__":
                   r"textures\actors\character\basehumanmale\basemalehead_s.dds"]):
             assert hsfo.textures[i] == t, f"Expected {t}, got '{hsfo.textures[i]}'"
 
-        print("### Can read and write shader")
+        """Can read and write shader"""
         nif = NifFile(r"tests\FO4\AlarmClock.nif")
         assert len(nif.shapes) == 1, f"Error: Expected 1 shape, found {len(nif.shapes)}"
         shape = nif.shapes[0]
@@ -3511,7 +3588,7 @@ if __name__ == "__main__":
 
         nifOut = NifFile()
         nifOut.initialize('FO4', r"tests\out\SHADER_OUT.nif")
-        _test_export_shape(nif.shapes[0], nifOut)
+        ModuleTest.export_shape(nif.shapes[0], nifOut)
         nifOut.save()
 
         nifTest = NifFile(f"tests\out\SHADER_OUT.nif")
@@ -3520,8 +3597,8 @@ if __name__ == "__main__":
         attrsTest = shapeTest.shader_attributes
         assert attrsTest == attrs, f"Error: Expected same shader attributes"
 
-    if TEST_ALL or TEST_ALPHA:
-        print("### TEST_SHADER: Can read and write alpha property")
+    def TEST_ALPHA():
+        """Can read and write alpha property"""
         nif = NifFile(r"tests/Skyrim/meshes/actors/character/Lykaios/Tails/maletaillykaios.nif")
         tailfur = nif.shapes[1]
 
@@ -3532,7 +3609,7 @@ if __name__ == "__main__":
 
         nifOut = NifFile()
         nifOut.initialize('SKYRIM', r"tests\out\pynifly_TEST_ALPHA.nif")
-        _test_export_shape(tailfur, nifOut)
+        ModuleTest.export_shape(tailfur, nifOut)
         nifOut.save()
 
         nifcheck = NifFile(r"tests\out\pynifly_TEST_ALPHA.nif")
@@ -3543,8 +3620,8 @@ if __name__ == "__main__":
         assert tailcheck.alpha_property.threshold == tailfur.alpha_property.threshold, \
                f"Error: alpha flags don't match, {tailcheck.alpha_property.threshold} != {tailfur.alpha_property.threshold}"
         
-    if TEST_ALL or TEST_SHEATH:
-        print("### TEST_SHEATH: Can read and write extra data")
+    def TEST_SHEATH():
+        """Can read and write extra data"""
         nif = NifFile(r"tests/Skyrim/sheath_p1_1.nif")
         
         # Extra data can be at the file level
@@ -3573,7 +3650,7 @@ if __name__ == "__main__":
         # Can write extra data with multiple calls
         nifout.string_data = [('BODYTRI', 'foo/bar/fribble.tri')]
 
-        _test_export_shape(nif.shapes[0], nifout)
+        ModuleTest.export_shape(nif.shapes[0], nifout)
         nifout.save()
 
         nifcheck = NifFile(r"tests/Out/pynifly_TEST_SHEATH.nif")
@@ -3587,8 +3664,8 @@ if __name__ == "__main__":
         assert ('BODYTRI', 'foo/bar/fribble.tri') in nifcheck.string_data, "Error: Expected second string data written to be available"
 
 
-    if TEST_ALL or TEST_FEET:
-        print("### TEST_FEET: Can read and write extra data")
+    def TEST_FEET():
+        """Can read and write extra data"""
         nif = NifFile(r"tests/SkyrimSE/caninemalefeet_1.nif")
         feet = nif.shapes[0]
         
@@ -3598,7 +3675,7 @@ if __name__ == "__main__":
 
         nifout = NifFile()
         nifout.initialize('SKYRIM', r"tests/Out/pynifly_TEST_FEET.nif")
-        _test_export_shape(feet, nifout)
+        ModuleTest.export_shape(feet, nifout)
         nifout.save()
 
         nifcheck = NifFile(r"tests/Out/pynifly_TEST_FEET.nif")
@@ -3610,9 +3687,9 @@ if __name__ == "__main__":
         assert s[0][0] == 'SDTA', f"Error: Expected string data, got {s}"
         assert s[0][1].startswith('[{"name"'), f"Error: Expected string data, got {s}"
 
-    if TEST_ALL or TEST_XFORM_SKY:
-        print("### TEST_XFORM_SKY: Can read and set the Skyrim body transforms")
-        print("### Can read Skyrim head transforms")
+    def TEST_XFORM_SKY():
+        """Can read and set the Skyrim body transforms"""
+        """Can read Skyrim head transforms"""
         nif = NifFile(r"tests\Skyrim\malehead.nif")
         head = nif.shapes[0]
         xfshape = head.transform
@@ -3622,7 +3699,7 @@ if __name__ == "__main__":
 
         nifout = NifFile()
         nifout.initialize('SKYRIM', r"tests/Out/TEST_XFORM_SKY.nif")
-        _test_export_shape(head, nifout)
+        ModuleTest.export_shape(head, nifout)
         #xfshapeout = xfshape.copy()
         #xfshapeout.translation = VECTOR3(0, -1.5475, 120.3436)
         nifout.save()
@@ -3634,8 +3711,8 @@ if __name__ == "__main__":
         assert int(xfshapecheck.translation[2]) == 120, "ERROR: Skyrim head shape has a 120 z translation"
         assert int(xfskincheck.translation[2]) == -120, "ERROR: Skyrim head shape has a -120 z skin translation"
 
-    if TEST_ALL or TEST_XFORM_STATIC:
-        print("### TEST_XFORM_STATIC: Can read static transforms")
+    def TEST_XFORM_STATIC():
+        """Can read static transforms"""
 
         nif = NifFile(r"tests\FO4\Meshes\SetDressing\Vehicles\Crane03_simplified.nif")
         glass = nif.shapes[0]
@@ -3644,8 +3721,8 @@ if __name__ == "__main__":
         assert round(glass.transform.translation[0]) == -108, f"Error: X translation wrong: {glass.transform.translation[0]}"
         assert round(glass.transform.rotation[1][0]) == 1, f"Error: Rotation incorrect, got {glass.transform.rotation[1]}"
 
-    if TEST_ALL or TEST_MUTANT:
-        print("### TEST_MUTANT: Test we can read the mutant nif correctly")
+    def TEST_MUTANT():
+        """can read the mutant nif correctly"""
 
         testfile = r"tests/FO4/testsupermutantbody.nif"
         nif = NifFile(testfile)
@@ -3661,8 +3738,8 @@ if __name__ == "__main__":
 
         assert round(shape2.global_to_skin.translation[2]) == -140, f"Error: Expected -140 z translation, got {shape2.global_to_skin.translation[2]}"
 
-    if TEST_ALL or TEST_BONE_XPORT_POS:
-        print("### TEST_BONE_XPORT_POS: Test that bones named like vanilla bones but from a different skeleton export to the correct position")
+    def TEST_BONE_XPORT_POS():
+        """bones named like vanilla bones but from a different skeleton export to the correct position"""
 
         testfile = r"tests/Skyrim/Draugr.nif"
         nif = NifFile(testfile)
@@ -3674,7 +3751,7 @@ if __name__ == "__main__":
         outfile = r"tests/Out/pynifly_TEST_BONE_XPORT_POS.nif"
         nifout = NifFile()
         nifout.initialize('SKYRIM', outfile)
-        _test_export_shape(draugr, nifout)
+        ModuleTest.export_shape(draugr, nifout)
         nifout.save()
 
         nifcheck = NifFile(outfile)
@@ -3683,8 +3760,8 @@ if __name__ == "__main__":
 
         assert round(spine2check.transform.translation[2], 2) == 102.36, f"Expected output bone location at z 102.36, found {spine2check.transform.translation[2]}"
 
-    if TEST_ALL or TEST_CLOTH_DATA:
-        print("### TEST_CLOTH_DATA: Test we can read and write cloth data")
+    def TEST_CLOTH_DATA():
+        """can read and write cloth data"""
 
         testfile = r"tests/FO4/HairLong01.nif"
         nif = NifFile(testfile)
@@ -3696,7 +3773,7 @@ if __name__ == "__main__":
         outfile = r"tests/out/pynifly_TEST_CLOTH_DATA.nif"
         nifout = NifFile()
         nifout.initialize('FO4', outfile)
-        _test_export_shape(shape, nifout)
+        ModuleTest.export_shape(shape, nifout)
         nifout.cloth_data = nif.cloth_data
         nifout.save()
 
@@ -3714,7 +3791,7 @@ if __name__ == "__main__":
         outfile2 = r"tests/out/pynifly_TEST_CLOTH_DATA2.nif"
         nifout2 = NifFile()
         nifout2.initialize('FO4', outfile2)
-        _test_export_shape(shape, nifout2)
+        ModuleTest.export_shape(shape, nifout2)
         nifout2.cloth_data = [['binary data', codecs.decode(buf, 'base64')]]
         nifout2.save()
 
@@ -3727,8 +3804,8 @@ if __name__ == "__main__":
             assert p[0] == p[1], f"Cloth data doesn't match at {i}, {p[0]} != {p[1]}"
 
 
-    if TEST_ALL or TEST_PARTITION_SM:
-        print("### TEST_PARTITION_SM: Regression--test that supermutant armor can be read and written")
+    def TEST_PARTITION_SM():
+        """Regression--test that supermutant armor can be read and written"""
 
         testfile = r"tests/FO4/SMArmor0_Torso.nif"
         nif = NifFile(testfile)
@@ -3737,7 +3814,7 @@ if __name__ == "__main__":
 
         nifout = NifFile()
         nifout.initialize('FO4', r"tests/Out/TEST_PARTITION_SM.nif")
-        _test_export_shape(armor, nifout)
+        ModuleTest.export_shape(armor, nifout)
         nifout.shapes[0].segment_file = armor.segment_file
         nifout.shapes[0].set_partitions(armor.partitions, armor.partition_tris)
         nifout.save()
@@ -3745,8 +3822,8 @@ if __name__ == "__main__":
         # If no CTD we're good
 
 
-    if TEST_ALL or TEST_EXP_BODY:
-        print("### TEST_EXP_BODY: Ensure body with bad partitions does not cause a CTD on export")
+    def TEST_EXP_BODY():
+        """Ensure body with bad partitions does not cause a CTD on export"""
 
         testfile = r"tests/FO4/feralghoulbase.nif"
         nif = NifFile(testfile)
@@ -3756,7 +3833,7 @@ if __name__ == "__main__":
         # This is correcct
         nifout = NifFile()
         nifout.initialize('FO4', r"tests/Out/TEST_EXP_BODY.nif")
-        _test_export_shape(shape, nifout)
+        ModuleTest.export_shape(shape, nifout)
         nifout.shapes[0].segment_file = shape.segment_file
         nifout.shapes[0].set_partitions(shape.partitions, shape.partition_tris)
         nifout.save()
@@ -3769,7 +3846,7 @@ if __name__ == "__main__":
 
         nifout2 = NifFile()
         nifout2.initialize('FO4', r"tests/Out/TEST_EXP_BODY2.nif")
-        _test_export_shape(shape, nifout2)
+        ModuleTest.export_shape(shape, nifout2)
         sh = nifout2.shapes[0]
         sh.segment_file = shape.segment_file
         seg0 = FO4Segment(0)
@@ -3793,8 +3870,8 @@ if __name__ == "__main__":
         # If no CTD we're good
 
 
-    if TEST_ALL or TEST_EFFECT_SHADER:
-        print("### TEST_EFFECT_SHADER: Can read and write shader flags")
+    def TEST_EFFECT_SHADER():
+        """Can read and write shader flags"""
         nif = NifFile(r"tests/FO4/Helmet.nif")
         shape = nif.shapes[0]
         assert shape.shader_block_name == "BSEffectShaderProperty", f"Expeted BSEffectShaderProperty, got {shape.shader_block_name}"
@@ -3804,10 +3881,10 @@ if __name__ == "__main__":
         assert shape.textures[1] == "Armor/FlightHelmet/Helmet_03_n.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_n.dds', got {shape.textures[1]}"
         assert shape.textures[5] == "Armor/FlightHelmet/Helmet_03_s.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_s.dds', got {shape.textures[5]}"
 
-        print("### Can read and write shader")
+        """Can read and write shader"""
         nifOut = NifFile()
         nifOut.initialize('FO4', r"tests\out\TEST_EFFECT_SHADER.nif")
-        _test_export_shape(nif.shapes[0], nifOut)
+        ModuleTest.export_shape(nif.shapes[0], nifOut)
         nifOut.save()
 
         nifTest = NifFile(r"tests\out\TEST_EFFECT_SHADER.nif")
@@ -3817,8 +3894,8 @@ if __name__ == "__main__":
         assert attrsTest == shape.shader_attributes, f"Error: Expected same shader attributes"
 
 
-    if TEST_ALL or TEST_BOW:
-        print("### TEST_BOW: Can read and write special weapon data; also testing BGED")
+    def TEST_BOW():
+        """Can read and write special weapon data; also testing BGED"""
         nif = NifFile(r"tests\SkyrimSE\meshes\weapons\glassbowskinned.nif")
 
         root = nif.rootNode
@@ -3859,7 +3936,7 @@ if __name__ == "__main__":
 
         nifOut = NifFile()
         nifOut.initialize('SKYRIMSE', r"tests\out\TEST_BOW.nif", root.blockname, root.name)
-        _test_export_shape(nif.shapes[0], nifOut)
+        ModuleTest.export_shape(nif.shapes[0], nifOut)
 
         # Testing BGED too
         nifOut.behavior_graph_data = nif.behavior_graph_data
@@ -3892,8 +3969,8 @@ if __name__ == "__main__":
         boxcheck = bodycheck.shape
         assert [round(x, 4) for x in boxcheck.properties.bhkDimensions] == [0.1574, 0.8238, 0.0136], f"Collision body shape dimensions written correctly"
 
-    if TEST_ALL or TEST_CONVEX:
-        print("### TEST_CONVEX: Can read and write convex collisions")
+    def TEST_CONVEX():
+        """Can read and write convex collisions"""
         nif = NifFile(r"tests/Skyrim/cheesewedge01.nif")
 
         root = nif.rootNode
@@ -3919,7 +3996,7 @@ if __name__ == "__main__":
 
         nifOut = NifFile()
         nifOut.initialize('SKYRIM', r"tests\out\TEST_CONVEX.nif", root.blockname, root.name)
-        _test_export_shape(nif.shapes[0], nifOut)
+        ModuleTest.export_shape(nif.shapes[0], nifOut)
 
         # Create the collision bottom-up, shape first
         coll_out = nifOut.rootNode.add_collision(
@@ -3930,8 +4007,8 @@ if __name__ == "__main__":
         nifOut.save()
 
 
-    if TEST_ALL or TEST_CONVEX_MULTI:
-        print("### TEST_CONVEX_MULTI: Can read and write convex collisions")
+    def TEST_CONVEX_MULTI():
+        """Can read and write convex collisions"""
         nif = NifFile(r"tests/Skyrim/grilledleeks01.nif")
 
         l2 = nif.shape_dict["Leek02:0"]
@@ -3963,16 +4040,16 @@ if __name__ == "__main__":
         box0 = cts0.child
 
 
-    if TEST_ALL or TEST_COLLISION_LIST:
-        print("### TEST_COLLISION_LIST: Can read and write convex collisions")
+    def TEST_COLLISION_LIST():
+        """Can read and write convex collisions"""
         nif = NifFile(r"tests/Skyrim/falmerstaff.nif")
-        checkFalmerStaff(nif)
+        ModuleTest.checkFalmerStaff(nif)
 
         # ------------ Save it ----------
 
         nifOut = NifFile()
         nifOut.initialize('SKYRIM', r"tests\out\TEST_COLLISION_LIST.nif", nif.rootNode.blockname, "Scene Root")
-        _test_export_shape(nif.shapes[0], nifOut)
+        ModuleTest.export_shape(nif.shapes[0], nifOut)
 
         # Create the collision 
         coll_out = nifOut.rootNode.add_collision(
@@ -3994,11 +4071,11 @@ if __name__ == "__main__":
 
         nifOut.save()
 
-        checkFalmerStaff(NifFile(r"tests\out\TEST_COLLISION_LIST.nif"))
+        ModuleTest.checkFalmerStaff(NifFile(r"tests\out\TEST_COLLISION_LIST.nif"))
 
 
-    if TEST_ALL or TEST_COLLISION_CAPSULE:
-        print("### TEST_COLLISION_CAPSULE: Can read and write capsule collisions")
+    def TEST_COLLISION_CAPSULE():
+        """Can read and write capsule collisions"""
         nif = NifFile(r"tests/Skyrim/staff04.nif")
 
         root = nif.rootNode
@@ -4009,15 +4086,15 @@ if __name__ == "__main__":
         assert collshape.blockname == "bhkCapsuleShape", f"Have capsule shape: {collshape.blockname}"
 
 
-    if TEST_ALL or TEST_FURNITURE_MARKER:
-        print("### TEST_FURNITURE_MARKER: Can read and write furniture markers")
+    def TEST_FURNITURE_MARKER():
+        """Can read and write furniture markers"""
         nif = NifFile(r"tests/SkyrimSE/farmbench01.nif")
 
         assert len(nif.furniture_markers) == 2, f"Found the furniture markers"
 
 
-    if TEST_ALL or TEST_MANY_SHAPES:
-        print("### TEST_MANY_SHAPES: Can read and write a nif with many shapes")
+    def TEST_MANY_SHAPES():
+        """Can read and write a nif with many shapes"""
         nif = NifFile(r"tests\FO4\Outfit.nif")
 
         assert len(nif.shapes) == 87, f"Found all shapes: {len(nif.shapes)}"
@@ -4025,7 +4102,7 @@ if __name__ == "__main__":
         nifOut = NifFile()
         nifOut.initialize('FO4', r"tests\out\TEST_MANY_SHAPES.nif")
         for s in nif.shapes:
-            _test_export_shape(s, nifOut)
+            ModuleTest.export_shape(s, nifOut)
 
         nifOut.save()
 
@@ -4034,8 +4111,8 @@ if __name__ == "__main__":
         assert len(nifcheck.shapes) == 87, f"Found all shapes in written file: {len(nifcheck.shapes)}"
 
 
-    if TEST_ALL or TEST_CONNECT_POINTS:
-        print("### TEST_CONNECT_POINTS: Can read and write connect points")
+    def TEST_CONNECT_POINTS():
+        """Can read and write connect points"""
         nif = NifFile(r"tests\FO4\Shotgun\CombatShotgun.nif")
 
         pcp = nif.connect_points_parent
@@ -4051,7 +4128,7 @@ if __name__ == "__main__":
 
         nifOut = NifFile()
         nifOut.initialize('FO4', r"tests\out\TEST_CONNECT_POINTS.nif")
-        _test_export_shape(nif.shapes[0], nifOut)
+        ModuleTest.export_shape(nif.shapes[0], nifOut)
         nifOut.connect_points_parent = nif.connect_points_parent
         nifOut.connect_pt_child_skinned = False
         nifOut.connect_points_child = ["C-Receiver", "C-Reciever"]
@@ -4070,8 +4147,8 @@ if __name__ == "__main__":
         assert "C-Reciever" in pcccheck, f"Have two conect points: {pcccheck}"
 
 
-    if TEST_ALL or TEST_SKIN_BONE_XF:
-        print("### TEST_SKIN_BONE_XF: Can read and write the skin-bone transform")
+    def TEST_SKIN_BONE_XF():
+        """Can read and write the skin-bone transform"""
         nif = NifFile(r"tests\SkyrimSE\maleheadargonian.nif")
         head = nif.shapes[0]
 
@@ -4089,7 +4166,7 @@ if __name__ == "__main__":
         nifout = NifFile()
         nifout.initialize('SKYRIMSE', r"tests\out\TEST_SKIN_BONE_XF.nif")
 
-        _test_export_shape(head, nifout)
+        ModuleTest.export_shape(head, nifout)
 
         nifout.save()
 
@@ -4110,8 +4187,8 @@ if __name__ == "__main__":
         #Throw in an unrelated test for whether the UV got inverted
         assert VNearEqual(head.uvs[0], headcheck.uvs[0]), f"UV 0 same in both: [{head.uvs[0]}, {headcheck.uvs[0]}]"
 
-    if TEST_ALL or TEST_WEIGHTS_BY_BONE:
-        print("### TEST_WEIGHTS_BY_BONE: Weights-by-bone helper works correctly")
+    def TEST_WEIGHTS_BY_BONE():
+        """Weights-by-bone helper works correctly"""
         nif = NifFile(r"tests\SkyrimSE\Anna.nif")
         allnodes = list(nif.nodes.keys())
         hair = nif.shape_dict["KSSMP_Anna"]
@@ -4148,8 +4225,8 @@ if __name__ == "__main__":
         assert 'BOGUS' not in wbb2, f"Bone with no weights not in weights by bone: {wbb2.keys()}"
 
 
-    if TEST_ALL or TEST_ANIMATION:
-        print("### TEST_ANIMATION: Embedded animations")
+    def TEST_ANIMATION():
+        """Embedded animations"""
         nif = NifFile(r"tests/Skyrim/dwechest01.nif")
         root = nif.rootNode
         assert nif.max_string_len > 10, f"Have reasonable {nif.max_string_len}"
@@ -4220,8 +4297,8 @@ if __name__ == "__main__":
             f"Have correct translation: {td189.translations[3].value}"
 
 
-    if TEST_ALL or TEST_ANIMATION_ALDUIN:
-        print("### TEST_ANIMATION_ALDUIN: Animated skinned nif")
+    def TEST_ANIMATION_ALDUIN():
+        """Animated skinned nif"""
         nif = NifFile(r"tests/SkyrimSE/loadscreenalduinwall.nif")
         tail2 = nif.nodes["NPC Tail2"]
         assert tail2.controller is not None, f"Have transform controller"
@@ -4243,8 +4320,8 @@ if __name__ == "__main__":
         assert NearEqual(tdthighl.qrotations[0].value[0], 0.2911), f"Have correct angle: {tdthighl.qrotations[0].value}"
 
 
-    if TEST_ALL or TEST_KF:
-        print("### TEST_KF: KF animation file")
+    def TEST_KF():
+        """KF animation file"""
         nif = NifFile(r"tests/SkyrimSE/1hm_attackpowerright.kf")
         root = nif.rootNode
 
@@ -4322,8 +4399,8 @@ if __name__ == "__main__":
         td2 = ti2.data
         assert len(td2.qrotations) > 0, "Have rotations"
 
-    if TEST_ALL or TEST_SKEL:
-        print("### TEST_SKEL: Import of skeleton file with collisions")
+    def TEST_SKEL():
+        """Import of skeleton file with collisions"""
         nif = NifFile(r"tests/Skyrim/skeleton_vanilla.nif")
         npc = nif.nodes['NPC']
         assert npc.string_data[0][1] == "Human"
@@ -4354,8 +4431,8 @@ if __name__ == "__main__":
         assert bumper_bod.properties.transform[0][0] != 0, f"Have a transform"
 
 
-    if TEST_ALL or TEST_COLLISION_SPHERE:
-        print("### TEST_COLLISION_SPHERE: Can read and write sphere collisions")
+    def TEST_COLLISION_SPHERE():
+        """Can read and write sphere collisions"""
         nif = NifFile(r"tests/SkyrimSE\spitpotopen01.nif")
 
         anchor = nif.nodes["ANCHOR"]
@@ -4370,9 +4447,74 @@ if __name__ == "__main__":
         assert hook_bod.blockname == "bhkRigidBodyT", "Have RigidBodyT"
         assert hook_bod.properties.bufType == PynBufferTypes.bhkRigidBodyTBufType
 
+    
+    def TEST_TREE():
+        """Test that the special nodes for trees work correctly."""
+        testfile = ModuleTest.test_file(r"tests\FO4\TreeMaplePreWar01Orange.nif")
+        outfile = ModuleTest.test_file(r"tests/Out/TEST_TREE.nif")
 
-    print("""
+        nif = NifFile(testfile)
+        assert nif.rootNode.blockname == "BSLeafAnimNode", f"Have correct root node type"
+
+        tree = nif.shapes[0]
+        assert tree.blockname == "BSMeshLODTriShape", f"Have correct shape node type"
+        assert tree.shader_attributes.shaderflags2_test(ShaderFlags2.TREE_ANIM), f"Tree animation set"
+        assert tree.properties.vertexCount == 1059, f"Have correct vertex count"
+        assert tree.properties.lodSize0 == 1126, f"Have correct lodSize0"
+
+
+    
+    @property
+    def all_tests(self):
+        return [k for k in ModuleTest.__dict__.keys() if k.startswith('TEST_')]
+
+        
+    def execute_test(self, t):
+        print(f"\n------------- {t} -------------")
+        ModuleTest.__dict__[t]()
+        print(f"--------------------------")
+
+    
+    def execute_all(self, start=None):
+        print("""\n
+=========================================
+========= Running pynifly tests =========
+=========================================
+
+""")
+        
+        doit = (start is None)
+        for name in self.all_tests:
+            if name == start: doit = True
+            if doit:
+                self.execute_test(name)
+
+        print("""
+
 ================================================
 ========= TESTS COMPLETED SUCCESSFULLY =========
 ================================================
 """)
+
+
+if __name__ == "__main__":
+    import codecs
+    # import quickhull
+
+    dev_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
+    NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], dev_path))
+
+    mylog = logging.getLogger("pynifly")
+    logging.basicConfig()
+    mylog.setLevel(logging.DEBUG)
+    tester = ModuleTest(mylog)
+
+    tester.execute_all()
+    # tester.execute_all(start='TEST_SHADER')
+    # tester.execute_test('TEST_TREE')
+
+
+
+    
+
+

@@ -364,35 +364,39 @@ void TCopyExtraData(void* targetNif, void* targetShape, void* sourceNif, void* s
 };
 
 void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* sourceShape,
-	NifOptions options=NifOptions(0), bool doPartitions = 1, void* parent = nullptr) {
+			NifOptions options=NifOptions(0), bool doPartitions = 1, void* parent = nullptr) {
+	int sourceShapeID = getBlockID(sourceNif, sourceShape);
+	NiShapeBuf sourceBuf;
+	NiShaderBuf sourceShader;
+	getBlock(sourceNif, sourceShapeID, &sourceBuf);
+	getBlock(sourceNif, sourceBuf.shaderPropertyID, &sourceShader);
 
-	int vertLen = getVertsForShape(sourceNif, sourceShape, nullptr, 0, 0);
-	Vector3* verts = new Vector3[vertLen];
-	getVertsForShape(sourceNif, sourceShape, verts, vertLen*3, 0);
+	Vector3* verts = new Vector3[sourceBuf.vertexCount];
+	getVertsForShape(sourceNif, sourceShape, verts, sourceBuf.vertexCount*3, 0);
 
 	int triLen = getTriangles(sourceNif, sourceShape, nullptr, 0, 0);
-	Triangle* tris = new Triangle[triLen];
-	getTriangles(sourceNif, sourceShape, tris, triLen * 3, 0);
+	Triangle* tris = new Triangle[sourceBuf.triangleCount];
+	getTriangles(sourceNif, sourceShape, tris, sourceBuf.triangleCount * 3, 0);
 
-	Vector2* uvs = new Vector2[vertLen * 2];
-	getUVs(sourceNif, sourceShape, uvs, vertLen * 2, 0);
+	Vector2* uvs = new Vector2[sourceBuf.vertexCount * 2];
+	getUVs(sourceNif, sourceShape, uvs, sourceBuf.vertexCount * 2, 0);
 
 	Vector3* norms = nullptr;
-	uint32_t f1 = getShaderFlags1(sourceNif, sourceShape);
-	if (!(f1 & uint32_t(ShaderProperty1::MODEL_SPACE_NORMALS))) {
-		norms = new Vector3[vertLen * 3];
-		getNormalsForShape(sourceNif, sourceShape, norms, vertLen * 3, 0);
+	//uint32_t f1 = getShaderFlags1(sourceNif, sourceShape);
+	if (!(sourceShader.Shader_Flags_1 & uint32_t(ShaderProperty1::MODEL_SPACE_NORMALS))) {
+		norms = new Vector3[sourceBuf.vertexCount * 3];
+		getNormalsForShape(sourceNif, sourceShape, norms, sourceBuf.vertexCount * 3, 0);
 	};
 
 	uint16_t shapeOptions = options;
 	void* targetShape = createNifShapeFromData(targetNif, shapeName,
-		verts, uvs, norms, vertLen, tris, triLen, &shapeOptions, parent);
+		verts, uvs, norms, sourceBuf.vertexCount, tris, sourceBuf.triangleCount, &shapeOptions, parent);
 
-	uint32_t f2 = getShaderFlags2(sourceNif, sourceShape);
-	if (f2 & uint32_t(ShaderProperty2::VERTEX_COLORS)) {
-		Color4* colors = new Color4[vertLen];
-		getColorsForShape(sourceNif, sourceShape, colors, vertLen*4);
-		setColorsForShape(targetNif, targetShape, colors, vertLen);
+	//uint32_t f2 = getShaderFlags2(sourceNif, sourceShape);
+	if (sourceShader.Shader_Flags_2 & uint32_t(ShaderProperty2::VERTEX_COLORS)) {
+		Color4* colors = new Color4[sourceBuf.vertexCount];
+		getColorsForShape(sourceNif, sourceShape, colors, sourceBuf.vertexCount *4);
+		setColorsForShape(targetNif, targetShape, colors, sourceBuf.vertexCount);
 	}
 
 	if (hasSkinInstance(sourceShape)) {
@@ -531,6 +535,24 @@ void TCompareShapes(void* nif1, void* shape1, void* nif2, void* shape2) {
 }
 void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
 {
+	int shapeID1 = getBlockID(nif1, shape1);
+	int shapeID2 = getBlockID(nif2, shape2);
+	NiShapeBuf shapeBuf1, shapeBuf2;
+	NiShaderBuf shaderAttr1, shaderAttr2;
+	char blockName1[128];
+	char blockName2[128];
+	char name1[500];
+	char name2[500];
+
+	getBlock(nif1, shapeID1, &shapeBuf1);
+	getBlock(nif2, shapeID2, &shapeBuf2);
+	getBlock(nif1, shapeBuf1.shaderPropertyID, &shaderAttr1);
+	getBlock(nif2, shapeBuf2.shaderPropertyID, &shaderAttr2);
+	getBlockname(nif1, shapeBuf1.shaderPropertyID, blockName1, 128);
+	getBlockname(nif2, shapeBuf2.shaderPropertyID, blockName2, 128);
+	getString(nif1, shaderAttr1.nameID, 500, name1);
+	getString(nif2, shaderAttr2.nameID, 500, name2);
+
 	for (int i = 0; i < 9; i++) {
 		char txt1[300];
 		char txt2[300];
@@ -541,34 +563,26 @@ void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
 		Assert::IsTrue(txtstr1 == txtstr2, L"Expected same texture in slot");
 	};
 
-	const char *blockName1;
-	const char *blockName2;
-	blockName1 = getShaderBlockName(nif1, shape1);
-	blockName2 = getShaderBlockName(nif2, shape2);
 	Assert::IsTrue(strcmp(blockName1, blockName2) == 0, L"Expected matching shader blocks");
 
-	char name1[500];
-	char name2[500];
-	getShaderName(nif1, shape1, name1, 500);
-	getShaderName(nif2, shape2, name2, 500);
 
-	Assert::IsTrue(strcmp(name1, name2) == 0, L"Expected matching shader name");
+	//uint32_t f1_1 = shaderBuf1.Shader_Flags_1;
+	//uint32_t f1_2 = shaderBuf2.Shader_Flags_1;
+	////uint32_t f1_1 = getShaderFlags1(nif1, shape1);
+	////uint32_t f1_2 = getShaderFlags1(nif2, shape2);
 
-	uint32_t f1_1 = getShaderFlags1(nif1, shape1);
-	uint32_t f1_2 = getShaderFlags1(nif2, shape2);
+	//Assert::IsTrue(f1_1 == f1_2, L"ShaderFlags1 not identicial");
 
-	Assert::IsTrue(f1_1 == f1_2, L"ShaderFlags1 not identicial");
+	//uint32_t f2_1 = shaderBuf1.Shader_Flags_2;
+	//uint32_t f2_2 = shaderBuf2.Shader_Flags_2;
+	////uint32_t f2_1 = getShaderFlags2(nif1, shape1);
+	////uint32_t f2_2 = getShaderFlags2(nif2, shape2);
 
-	uint32_t f2_1 = getShaderFlags2(nif1, shape1);
-	uint32_t f2_2 = getShaderFlags2(nif2, shape2);
-
-	Assert::IsTrue(f2_1 == f2_2, L"ShaderFlags2 not identicial");
+	//Assert::IsTrue(f2_1 == f2_2, L"ShaderFlags2 not identicial");
 
 	if (strcmp(blockName1, "BSLightingShaderProperty") == 0) {
-		BSLSPAttrs shaderAttr1, shaderAttr2;
-		getShaderAttrs(nif1, shape1, &shaderAttr1);
-		getShaderAttrs(nif2, shape2, &shaderAttr2);
-
+		Assert::IsTrue(strcmp(name1, name2) == 0, L"Names match");
+		Assert::IsTrue(strcmp(name1, name2) == 0, L"Expected matching shader name");
 		Assert::IsTrue(shaderAttr1.Shader_Type == shaderAttr2.Shader_Type);
 		Assert::IsTrue(shaderAttr1.Shader_Flags_1 == shaderAttr2.Shader_Flags_1);
 		Assert::IsTrue(shaderAttr1.Shader_Flags_2 == shaderAttr2.Shader_Flags_2);
@@ -597,10 +611,6 @@ void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
 		Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_B, shaderAttr2.Skin_Tint_Color_B));
 	}
 	else if (strcmp(blockName1, "BSEffectShaderProperty") == 0) {
-		BSESPAttrs shaderAttr1, shaderAttr2;
-		getEffectShaderAttrs(nif1, shape1, &shaderAttr1);
-		getEffectShaderAttrs(nif2, shape2, &shaderAttr2);
-
 		Assert::IsTrue(shaderAttr1.Shader_Flags_1 == shaderAttr2.Shader_Flags_1);
 		Assert::IsTrue(shaderAttr1.Shader_Flags_2 == shaderAttr2.Shader_Flags_2);
 		Assert::IsTrue(shaderAttr1.Tex_Clamp_Mode == shaderAttr2.Tex_Clamp_Mode);
@@ -630,28 +640,42 @@ void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
 
 void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape)
 {
+	int sourceID = getBlockID(sourceNif, sourceShape);
+	int targetID = getBlockID(targetNif, targetShape);
+	NiShapeBuf sourceProps;
+	char shaderName[500];
+	char shaderBlockname[128];
+	NiShaderBuf shaderAttr;
+
+	getBlock(sourceNif, sourceID, &sourceProps);
+	getBlockname(sourceNif, sourceProps.shaderPropertyID, shaderBlockname, 128);
+	getBlock(sourceNif, sourceProps.shaderPropertyID, &shaderAttr);
+	getString(sourceNif, shaderAttr.nameID, 500, shaderName);
+
 	for (int i = 0; i < 9; i++) {
 		char texture[300];
 		getShaderTextureSlot(sourceNif, sourceShape, i, texture, 300);
 		setShaderTextureSlot(targetNif, targetShape, i, texture);
 	};
 
-	char shaderName[500];
-	getShaderName(sourceNif, sourceShape, shaderName, 500);
-	setShaderName(targetNif, targetShape, shaderName);
+	//getShaderName(sourceNif, sourceShape, shaderName, 500);
+	//setShaderName(targetNif, targetShape, shaderName);
 
-	const char* shaderBlock = getShaderBlockName(sourceNif, sourceShape);
+	//const char* shaderBlockname = getShaderBlockName(sourceNif, sourceShape);
 
-	if (strcmp(shaderBlock, "BSLightingShaderProperty") == 0) {
-		BSLSPAttrs shaderAttr;
-		getShaderAttrs(sourceNif, sourceShape, &shaderAttr);
-		setShaderAttrs(targetNif, targetShape, &shaderAttr);
-	}
-	else if (strcmp(shaderBlock, "BSEffectShaderProperty") == 0) {
-		BSESPAttrs shaderAttr;
-		getEffectShaderAttrs(sourceNif, sourceShape, &shaderAttr);
-		setEffectShaderAttrs(targetNif, targetShape, &shaderAttr);
-	};
+	//setShaderName(targetNif, targetShape, shaderName);
+	addBlock(targetNif, shaderName, &shaderAttr, targetID);
+	//if (strcmp(shaderBlockname, "BSLightingShaderProperty") == 0) {
+	//	setShaderName(targetNif, targetShape, shaderName);
+	//	//getShaderAttrs(sourceNif, sourceShape, &shaderAttr);
+	//	addBlock(targetNif, shaderName, &shaderAttr, targetID);
+	//	//setShaderAttrs(targetNif, targetShape, &shaderAttr);
+	//}
+	//else if (strcmp(shaderBlockname, "BSEffectShaderProperty") == 0) {
+	//	setShaderName(targetNif, targetShape, shaderName);
+	//	//getEffectShaderAttrs(sourceNif, sourceShape, &shaderAttr);
+	//	setEffectShaderAttrs(targetNif, targetShape, &shaderAttr);
+	//};
 	AlphaPropertyBuf alpha;
 	if (getAlphaProperty(sourceNif, sourceShape, &alpha))
 		setAlphaProperty(targetNif, targetShape, &alpha);
@@ -1798,12 +1822,17 @@ namespace NiflyDLLTests
 			Assert::IsTrue(txtstr[7]->compare("textures\\actors\\character\\male\\MaleHead_S.dds") == 0, L"Found expected texture");
 			Assert::IsTrue(txtstr[3]->compare("") == 0, L"Found expected texture");
 
-			uint32_t f1 = getShaderFlags1(nif, shapes[0]);
-			uint32_t f2 = getShaderFlags2(nif, shapes[0]);
-			Assert::IsTrue(f1 & (1 << 12), L"Expected MSN bit set");
+			int shapeID = getBlockID(nif, shapes[0]);
+			NiShapeBuf shapeBuf;
+			NiShaderBuf shaderAttr;
+			getBlock(nif, shapeID, &shapeBuf);
+			getBlock(nif, shapeBuf.shaderPropertyID, &shaderAttr);
 
-			BSLSPAttrs shaderAttr;
-			getShaderAttrs(nif, shapes[0], &shaderAttr);
+			//uint32_t f1 = getShaderFlags1(nif, shapes[0]);
+			//uint32_t f2 = getShaderFlags2(nif, shapes[0]);
+			Assert::IsTrue(shaderAttr.Shader_Flags_1 & (1 << 12), L"Expected MSN bit set");
+
+			//getShaderAttrs(nif, shapes[0], &shaderAttr);
 			Assert::IsTrue(TApproxEqual(
 				Vector3(shaderAttr.Spec_Color_R, shaderAttr.Spec_Color_G, shaderAttr.Spec_Color_B), 
 				Vector3(0xa1/255.0f, 0xc2/255.0f, 0xff/255.0f)));
@@ -1834,17 +1863,24 @@ namespace NiflyDLLTests
 			std::filesystem::path testfile2 = testRoot / "Skyrim/NobleCrate01.nif";
 			void* nif2 = load(testfile2.u8string().c_str());
 			void* shapes2[10];
+			int id;
+			NiShaderBuf shaderBuf;
+
 			shapeCount = getShapes(nif2, shapes2, 10, 0);
+			id = getBlockID(nif2, shapes2[0]);
+			getBlock(nif2, id, &shapeBuf);
+			getBlock(nif2, shapeBuf.shaderPropertyID, &shaderBuf);
+
 			for (int i = 0; i < 9; i++) {
 				getShaderTextureSlot(nif2, shapes2[0], i, textures[i], 300);
 				txtstr[i] = new std::string(textures[i]);
 			};
-			uint32_t flagsOne2 = getShaderFlags1(nif2, shapes2[0]);
+			//uint32_t flagsOne2 = getShaderFlags1(nif2, shapes2[0]);
 
 			Assert::IsTrue(txtstr[0]->compare("textures\\furniture\\noble\\NobleFurnChest01.dds") == 0, L"Found expected texture");
 			Assert::IsTrue(txtstr[1]->compare("textures\\furniture\\noble\\NobleFurnChest01_n.dds") == 0, L"Found expected texture");
 			Assert::IsTrue(txtstr[2]->compare("") == 0, L"Found expected texture");
-			Assert::IsFalse(flagsOne2 & static_cast<uint32_t>(ShaderProperty1::MODEL_SPACE_NORMALS),
+			Assert::IsFalse(shaderBuf.Shader_Flags_1 & static_cast<uint32_t>(ShaderProperty1::MODEL_SPACE_NORMALS),
 				L"Found MSN flag not set");
 
 			// Can write chest back out
@@ -1875,17 +1911,24 @@ namespace NiflyDLLTests
 			int shapeCount = getShapes(nif2, shapes2, 10, 0);
 			char textures[9][300];
 			std::string* txtstr[9];
+			int id;
+			NiShapeBuf shapeBuf;
+			NiShaderBuf shaderBuf;
+
+			id = getBlockID(nif2, shapes2[0]);
+			getBlock(nif2, id, &shapeBuf);
+			getBlock(nif2, shapeBuf.shaderPropertyID, &shaderBuf);
 
 			for (int i = 0; i < 9; i++) {
 				getShaderTextureSlot(nif2, shapes2[0], i, textures[i], 300);
 				txtstr[i] = new std::string(textures[i]);
 			};
-			uint32_t flagsOne2 = getShaderFlags1(nif2, shapes2[0]);
+			//uint32_t flagsOne2 = getShaderFlags1(nif2, shapes2[0]);
 
 			Assert::IsTrue(txtstr[0]->compare("textures\\furniture\\noble\\NobleFurnChest01.dds") == 0, L"Found expected texture");
 			Assert::IsTrue(txtstr[1]->compare("textures\\furniture\\noble\\NobleFurnChest01_n.dds") == 0, L"Found expected texture");
 			Assert::IsTrue(txtstr[2]->compare("") == 0, L"Found expected texture");
-			Assert::IsFalse(flagsOne2 & static_cast<uint32_t>(ShaderProperty1::MODEL_SPACE_NORMALS),
+			Assert::IsFalse(shaderBuf.Shader_Flags_1 & static_cast<uint32_t>(ShaderProperty1::MODEL_SPACE_NORMALS),
 				L"Found MSN flag not set");
 
 			// Can write chest back out
@@ -1913,21 +1956,25 @@ namespace NiflyDLLTests
 
 			void* nif;
 			void* shapes[10];
+			int shapeID;
+			NiShapeBuf shapeBuf;
+			NiShaderBuf shaderAttr;
+			char textures[9][300];
+			char shaderName[500];
 
 			nif = load(testfile.u8string().c_str());
 			int shapeCount = getShapes(nif, shapes, 10, 0);
-			char textures[9][300];
+			shapeID = getBlockID(nif, shapes[0]);
+			getBlock(nif, shapeID, &shapeBuf);
+			getBlock(nif, shapeBuf.shaderPropertyID, &shaderAttr);
+			getString(nif, shaderAttr.nameID, 500, shaderName);
 
 			std::string* txtstr[9];
 			for (int i = 0; i < 9; i++) {
 				getShaderTextureSlot(nif, shapes[0], i, textures[i], 300);
 				txtstr[i] = new std::string(textures[i]);
 			};
-			char shaderName[500];
-			getShaderName(nif, shapes[0], shaderName, 500);
 
-			BSLSPAttrs shaderAttr;
-			getShaderAttrs(nif, shapes[0], &shaderAttr);
 			Assert::IsTrue(TApproxEqual(
 				Vector3(shaderAttr.Spec_Color_R, shaderAttr.Spec_Color_G, shaderAttr.Spec_Color_B),
 				Vector3(1.0, 1.0, 1.0)));
@@ -1962,33 +2009,52 @@ namespace NiflyDLLTests
 		TEST_METHOD(shadersReadType) {
 			void* nif;
 			void* shapes[10];
+			int shapeID;
+			NiShapeBuf shapeBuf;
+			NiShaderBuf shaderBuf;
 
 			nif = load((testRoot / "Skyrim/NobleCrate01.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
-			Assert::IsTrue(uint32_t(BSLSPShaderType::Default) == getShaderType(nif, shapes[0]),
+
+			shapeID = getBlockID(nif, shapes[0]);
+			getBlock(nif, shapeID, &shapeBuf);
+			getBlock(nif, shapeBuf.shaderPropertyID, &shaderBuf);
+			Assert::IsTrue(uint32_t(BSLSPShaderType::Default) == shaderBuf.Shader_Type,
 				L"Expected shader type Default");
 
 			nif = load((testRoot / "SkyrimSE/MaleHead.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
-			Assert::IsTrue(uint32_t(BSLSPShaderType::Face_Tint) == getShaderType(nif, shapes[0]),
+			shapeID = getBlockID(nif, shapes[0]);
+			getBlock(nif, shapeID, &shapeBuf);
+			getBlock(nif, shapeBuf.shaderPropertyID, &shaderBuf);
+			Assert::IsTrue(uint32_t(BSLSPShaderType::Face_Tint) == shaderBuf.Shader_Type,
 				L"Expected shader type Face_Tint");
 
 			nif = load((testRoot / "FO4/BodyTalk3.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
-			Assert::IsTrue(uint32_t(BSLSPShaderType::Skin_Tint) == getShaderType(nif, shapes[0]),
+			shapeID = getBlockID(nif, shapes[0]);
+			getBlock(nif, shapeID, &shapeBuf);
+			getBlock(nif, shapeBuf.shaderPropertyID, &shaderBuf);
+			Assert::IsTrue(uint32_t(BSLSPShaderType::Skin_Tint) == shaderBuf.Shader_Type,
 				L"Expected shader type Skin_Tint");
 		};
 		TEST_METHOD(shadersReadAlpha) {
 			void* nif;
 			void* shapes[10];
 			AlphaPropertyBuf alpha;
+			NiShapeBuf shapeBuf;
+			NiShaderBuf shaderBuf;
 
 			nif = load((testRoot / "Skyrim/meshes/actors/character/Lykaios/Tails/maletaillykaios.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 			void* shape = shapes[1];
+			int shapeID = getBlockID(nif, shapes[0]);
+			getBlock(nif, shapeID, &shapeBuf);
+			getBlock(nif, shapeBuf.shaderPropertyID, &shaderBuf);
+
 			bool hasAlpha = getAlphaProperty(nif, shape, &alpha);
 
-			Assert::IsTrue(uint32_t(BSLSPShaderType::Skin_Tint) == getShaderType(nif, shapes[0]),
+			Assert::IsTrue(uint32_t(BSLSPShaderType::Skin_Tint) == shaderBuf.Shader_Type,
 				L"Expected shader type Skin_Tint");
 			Assert::IsTrue(hasAlpha, L"Error: Should have alpha property");
 			Assert::IsTrue(alpha.flags == 4844, L"Error: Flags not correct");
@@ -2358,17 +2424,28 @@ namespace NiflyDLLTests
 		};
 		TEST_METHOD(readWriteGlass) {
 			/* Test we can read and write BSEffectShaderProperty, used for glass */
+			void* nif;
 			void* shapes[10];
-			void* nif = load((testRoot / "FO4/Helmet.nif").u8string().c_str());
+			void* shape;
+			int shapeID;
+			NiShapeBuf shapeBuf;
+			AlphaPropertyBuf alpha;
+			NiShaderBuf shaderBuf;
+			bool hasAlpha;
+			char shaderName[256];
+			char blockName[128];
+
+			nif = load((testRoot / "FO4/Helmet.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 
-			void* shape = shapes[0];
-			AlphaPropertyBuf alpha;
-			bool hasAlpha = getAlphaProperty(nif, shape, &alpha);
-			char shaderName[256];
-			getShaderName(nif, shape, shaderName, 256);
-			const char* blockName;
-			blockName = getShaderBlockName(nif, shape);
+			shape = shapes[0];
+			shapeID = getBlockID(nif, shape);
+			getBlock(nif, shapeID, &shapeBuf);
+			getBlock(nif, shapeBuf.shaderPropertyID, &shaderBuf);
+
+			hasAlpha = getAlphaProperty(nif, shape, &alpha);
+			getBlockname(nif, shapeBuf.shaderPropertyID, blockName, 128);
+			getString(nif, shaderBuf.nameID, 256, shaderName);
 
 			Assert::IsTrue(strcmp(blockName, "BSEffectShaderProperty") == 0, 
 				L"Error did not find BSEffectShaderProperty");
@@ -2378,8 +2455,8 @@ namespace NiflyDLLTests
 			Assert::IsTrue(alpha.flags == 4333, L"Error: Flags not correct");
 			Assert::IsTrue(alpha.threshold == 128, L"Error: Threshold not correct");
 
-			BSESPAttrs attrs;
-			Assert::AreEqual(getEffectShaderAttrs(nif, shape, &attrs), 0, L"ERROR: Could not retrieve shader attributes");
+			NiShaderBuf attrs;
+			Assert::AreEqual(getBlock(nif, shapeBuf.shaderPropertyID, &attrs), 0, L"ERROR: Could not retrieve shader attributes");
 			Assert::IsTrue(attrs.Emissmive_Mult == 1.0, L"ERROR: Emissive multiple wrong");
 			Assert::IsTrue(attrs.Soft_Falloff_Depth == 100.0, L"ERROR: Soft falloff depth wrong");
 
@@ -3693,6 +3770,21 @@ namespace NiflyDLLTests
 			Assert::IsTrue(strcmp(namebuf, "NiControllerSequence") == 0, L"Have correct root node type");
 			getNodeName(rootcheck, namebuf, 64);
 			Assert::IsTrue(strcmp(namebuf, "TestKF") == 0, L"Have correct node name");
+		};
+		TEST_METHOD(readWriteTree) {
+			void* nif = load((testRoot / "FO4/TreeMaplePreWar01Orange.nif").u8string().c_str());
+			void* shapes[10];
+			getShapes(nif, shapes, 10, 0);
+
+			int id = getBlockID(nif, shapes[0]);
+
+			BSMeshLODTriShapeBuf buf;
+			buf.bufType = BUFFER_TYPES::BSMeshLODTriShapeBufType;
+			buf.bufSize = sizeof(BSMeshLODTriShapeBuf);
+			getBlock(nif, id, &buf);
+
+			Assert::IsTrue(buf.vertexCount == 1059, L"Have correct number of vertices");
+			Assert::IsTrue(buf.lodSize0 == 1126, L"Have correct number of vertices");
 		};
 	};
 }
