@@ -11,6 +11,11 @@ from pynifly import *
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 GLOSS_SCALE = 100
 
+NISHADER_IGNORE = ['bufSize', 
+                   'bufType', 
+                   'nameID', 
+                   'controllerID', 
+                   ]
 
 def get_effective_colormaps(mesh):
     """ Return the colormaps we want to use
@@ -114,7 +119,7 @@ class ShaderImporter:
         if not attrs: 
             return
 
-        attrs.extract(self.material)
+        attrs.extract(self.material, ignore=NISHADER_IGNORE)
 
         try:
             self.material['BS_Shader_Block_Name'] = shape.shader_block_name

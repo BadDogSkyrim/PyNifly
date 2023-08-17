@@ -1794,6 +1794,8 @@ class NiShape(NiNode):
 
     def save_shader_attributes(self):
         if self._shader_attrs:
+            name = self.shader_name
+            if name is None: name = ''
             NifFile.nifly.addBlock(self.file._handle, self._shader_name.encode('utf-8'), 
                                    byref(self._shader_attrs), self.id)
             # if type(self._shader_attrs) == BSLSPAttrs:

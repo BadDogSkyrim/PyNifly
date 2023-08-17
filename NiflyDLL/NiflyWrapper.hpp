@@ -191,7 +191,7 @@ struct NiShaderBuf {
 	uint32_t Shader_Type;
 	uint32_t Shader_Flags_1;
 	uint32_t Shader_Flags_2;
-	float Environment_Map_Scale;
+	float Env_Map_Scale;
 	float UV_Offset_U;
 	float UV_Offset_V;
 	float UV_Scale_U;
@@ -224,7 +224,6 @@ struct NiShaderBuf {
 	float Falloff_Start_Opacity;
 	float Falloff_Stop_Opacity;
 	float Soft_Falloff_Depth;
-	float Env_Map_Scale;
 };
 
 //struct BSShaderPropertyBuf : NiShaderBuf {

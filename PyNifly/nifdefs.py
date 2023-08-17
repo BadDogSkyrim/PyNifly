@@ -783,7 +783,7 @@ class NiShaderBuf(pynStructure):
         ('Shader_Type', c_uint32),
 	    ('Shader_Flags_1', c_uint32),
 	    ('Shader_Flags_2', c_uint32),
-        ('Environment_Map_Scale', c_float),
+        ('Env_Map_Scale', c_float),
 	    ('UV_Offset_U', c_float),
 	    ('UV_Offset_V', c_float),
 	    ('UV_Scale_U', c_float),
@@ -815,7 +815,6 @@ class NiShaderBuf(pynStructure):
 	    ('Falloff_Stop_Angle', c_uint32),
 	    ('Falloff_Start_Opacity', c_uint32),
 	    ('Falloff_Stop_Opacity', c_uint32),
-	    ('Env_Map_Scale', c_uint32),
 	    ('Soft_Falloff_Depth', c_uint32),
         ]
     def __init__(self, values=None):

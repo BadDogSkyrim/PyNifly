@@ -2063,7 +2063,7 @@ class NifImporter():
         self.root_object = None
 
         # We don't handle collisions in FO4
-        if not self.nif.game in ['SKYRIM', 'SKYRIMSE']: 
+        if self.nif.game == 'FO4': 
             self.do_import_collisions = False
 
         if self.nif.rootNode.blockname == "NiControllerSequence":
@@ -3834,7 +3834,7 @@ class NifExporter:
         that is a collision.
         """
         # Only do collisions for Skyrim. Fallout is not supported.
-        if self.game not in ['SKYRIM', 'SKYRIMSE']: return
+        if self.game == 'FO4': return
 
         collisions = [x for x in obj.children if x.name.startswith("bhkCollisionObject")]
         if not collisions: return

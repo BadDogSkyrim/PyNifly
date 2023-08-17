@@ -1355,7 +1355,7 @@ int getNiShader(void* nifref, uint32_t id, void* buffer)
     buf->Emissive_Color_B = bssh->GetEmissiveColor().b;
     buf->Emissive_Color_A = bssh->GetEmissiveColor().a;
     buf->Emissmive_Mult = bssh->GetEmissiveMultiple();
-    buf->Environment_Map_Scale = bssh->GetEnvironmentMapScale();
+    buf->Env_Map_Scale = bssh->GetEnvironmentMapScale();
     //if (txtProp) {
     //    NiSyncVector<ShaderTexDesc>* txtdesc = &txtProp->shaderTex;
     //    //buf->Tex_Clamp_Mode = txtdesc->data.clampMode;
@@ -1539,7 +1539,7 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
 
     //shader->SetAlpha(buf->Alpha);
     shader->SetGlossiness(buf->Glossiness);
-    shader->SetEnvironmentMapScale(buf->Environment_Map_Scale);
+    shader->SetEnvironmentMapScale(buf->Env_Map_Scale);
     Vector3 specCol = Vector3(buf->Spec_Color_R, buf->Spec_Color_G, buf->Spec_Color_B);
     shader->SetSpecularColor(specCol);
     shader->SetSpecularStrength(buf->Spec_Str);

@@ -4703,10 +4703,10 @@ def LOAD_RIG():
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
 # Use to resume a test run from the point it failed.
-first_test = ''  
+first_test = 'TEST_FONV'  
 
 # If set, run this test only.
-sole_test = 'TEST_TREE'
+sole_test = ''
 
 m = sys.modules[__name__]
 
