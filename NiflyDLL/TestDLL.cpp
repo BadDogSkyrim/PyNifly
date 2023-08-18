@@ -16,6 +16,7 @@
 #include "CppUnitTest.h"
 #include "Object3d.hpp"
 #include "Anim.h"
+#include "NiflyDefs.hpp"
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 #include "TestDLL.h"
@@ -388,9 +389,10 @@ void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* 
 		getNormalsForShape(sourceNif, sourceShape, norms, sourceBuf.vertexCount * 3, 0);
 	};
 
-	uint16_t shapeOptions = options;
-	void* targetShape = createNifShapeFromData(targetNif, shapeName,
-		verts, uvs, norms, sourceBuf.vertexCount, tris, sourceBuf.triangleCount, &shapeOptions, parent);
+	NiShapeBuf outBuf;
+	outBuf = sourceBuf;
+	void* targetShape = createNifShapeFromData(targetNif, shapeName, &outBuf,
+		verts, uvs, norms, tris, parent);
 
 	//uint32_t f2 = getShaderFlags2(sourceNif, sourceShape);
 	if (sourceShader.Shader_Flags_2 & uint32_t(ShaderProperty2::VERTEX_COLORS)) {
@@ -565,21 +567,6 @@ void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
 
 	Assert::IsTrue(strcmp(blockName1, blockName2) == 0, L"Expected matching shader blocks");
 
-
-	//uint32_t f1_1 = shaderBuf1.Shader_Flags_1;
-	//uint32_t f1_2 = shaderBuf2.Shader_Flags_1;
-	////uint32_t f1_1 = getShaderFlags1(nif1, shape1);
-	////uint32_t f1_2 = getShaderFlags1(nif2, shape2);
-
-	//Assert::IsTrue(f1_1 == f1_2, L"ShaderFlags1 not identicial");
-
-	//uint32_t f2_1 = shaderBuf1.Shader_Flags_2;
-	//uint32_t f2_2 = shaderBuf2.Shader_Flags_2;
-	////uint32_t f2_1 = getShaderFlags2(nif1, shape1);
-	////uint32_t f2_2 = getShaderFlags2(nif2, shape2);
-
-	//Assert::IsTrue(f2_1 == f2_2, L"ShaderFlags2 not identicial");
-
 	if (strcmp(blockName1, "BSLightingShaderProperty") == 0) {
 		Assert::IsTrue(strcmp(name1, name2) == 0, L"Names match");
 		Assert::IsTrue(strcmp(name1, name2) == 0, L"Expected matching shader name");
@@ -630,10 +617,10 @@ void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
 		Assert::IsTrue(TApproxEqual(shaderAttr1.Soft_Falloff_Depth, shaderAttr2.Soft_Falloff_Depth));
 	};
 
-	AlphaPropertyBuf alpha1;
-	AlphaPropertyBuf alpha2;
-	getAlphaProperty(nif1, shape1, &alpha1);
-	getAlphaProperty(nif2, shape2, &alpha2);
+	NiAlphaPropertyBuf alpha1;
+	NiAlphaPropertyBuf alpha2;
+	getBlock(nif1, shapeBuf1.alphaPropertyID, &alpha1);
+	getBlock(nif2, shapeBuf2.alphaPropertyID, &alpha2);
 	Assert::IsTrue(alpha1.flags == alpha2.flags, L"Error: Flags do not match");
 	Assert::IsTrue(alpha1.threshold == alpha2.threshold, L"Error: threshold does not match");
 };
@@ -652,33 +639,19 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 	getBlock(sourceNif, sourceProps.shaderPropertyID, &shaderAttr);
 	getString(sourceNif, shaderAttr.nameID, 500, shaderName);
 
+	addBlock(targetNif, shaderName, &shaderAttr, targetID);
 	for (int i = 0; i < 9; i++) {
 		char texture[300];
 		getShaderTextureSlot(sourceNif, sourceShape, i, texture, 300);
 		setShaderTextureSlot(targetNif, targetShape, i, texture);
 	};
 
-	//getShaderName(sourceNif, sourceShape, shaderName, 500);
-	//setShaderName(targetNif, targetShape, shaderName);
-
-	//const char* shaderBlockname = getShaderBlockName(sourceNif, sourceShape);
-
-	//setShaderName(targetNif, targetShape, shaderName);
-	addBlock(targetNif, shaderName, &shaderAttr, targetID);
-	//if (strcmp(shaderBlockname, "BSLightingShaderProperty") == 0) {
-	//	setShaderName(targetNif, targetShape, shaderName);
-	//	//getShaderAttrs(sourceNif, sourceShape, &shaderAttr);
-	//	addBlock(targetNif, shaderName, &shaderAttr, targetID);
-	//	//setShaderAttrs(targetNif, targetShape, &shaderAttr);
-	//}
-	//else if (strcmp(shaderBlockname, "BSEffectShaderProperty") == 0) {
-	//	setShaderName(targetNif, targetShape, shaderName);
-	//	//getEffectShaderAttrs(sourceNif, sourceShape, &shaderAttr);
-	//	setEffectShaderAttrs(targetNif, targetShape, &shaderAttr);
-	//};
-	AlphaPropertyBuf alpha;
-	if (getAlphaProperty(sourceNif, sourceShape, &alpha))
-		setAlphaProperty(targetNif, targetShape, &alpha);
+	NiAlphaPropertyBuf alpha;
+	if (sourceProps.alphaPropertyID != NIF_NPOS)
+	{
+		getBlock(sourceNif, sourceProps.alphaPropertyID, &alpha);
+		addBlock(targetNif, "", &alpha, targetID);
+	}
 };
 
 void TCompareExtraData(void* nif1, void* shape1, void* nif2, void* shape2) {
@@ -856,9 +829,8 @@ namespace NiflyDLLTests
 			Assert::AreEqual(2115, normCount);
 
 			void* newNif = createNif("SKYRIM", "NiNode", "Scene Root");
-			void* newArmor = createNifShapeFromData(newNif, "Armor", 
-				verts, uv, norms, vertCount, 
-				tris, triCount, 0, nullptr);
+			void* newArmor = createNifShapeFromData(newNif, "Armor", &armorBuf,
+				verts, uv, norms, tris, nullptr);
 			saveNif(newNif, outfile.u8string().c_str());
 			Assert::IsTrue(std::filesystem::exists(outfile));
 
@@ -1424,6 +1396,10 @@ namespace NiflyDLLTests
 			Assert::AreEqual(2, segCount);
 
 			void* theHelmet = shapes[1];
+			int helmetID = getBlockID(nif, theHelmet);
+			NiShapeBuf helmetBuf;
+			getBlock(nif, helmetID, &helmetBuf);
+
 			getSegments(nif, theHelmet, segInfo, 20);
 			// Segments don't have a real ID but nifly assigns one for reference.
 			Assert::AreEqual(0, int(segInfo[0]));
@@ -1454,20 +1430,20 @@ namespace NiflyDLLTests
 			// ------ Now show we can write the file back out -------
 			std::filesystem::path testfileout = testRoot / "Out/geBPFO4Helmet.nif";
 
-			Vector3* verts = new Vector3[2500];
-			Triangle* rawtris = new Triangle[3000];
-			Vector2* uv = new Vector2[2500];
-			Vector3* norms = new Vector3[2500];
+			Vector3* verts = new Vector3[helmetBuf.vertexCount];
+			Triangle* rawtris = new Triangle[helmetBuf.triangleCount];
+			Vector2* uv = new Vector2[helmetBuf.vertexCount];
+			Vector3* norms = new Vector3[helmetBuf.vertexCount];
 
-			int vlen = getVertsForShape(nif, theHelmet, verts, 2500, 0);
-			int tlen = getTriangles(nif, theHelmet, rawtris, 3000, 0);
-			int ulen = getUVs(nif, theHelmet, uv, 2500, 0);
-			int nlen = getNormalsForShape(nif, theHelmet, norms, 2500, 0);
+			int vlen = getVertsForShape(nif, theHelmet, verts, helmetBuf.vertexCount, 0);
+			int tlen = getTriangles(nif, theHelmet, rawtris, helmetBuf.triangleCount, 0);
+			int ulen = getUVs(nif, theHelmet, uv, helmetBuf.vertexCount, 0);
+			int nlen = getNormalsForShape(nif, theHelmet, norms, helmetBuf.vertexCount, 0);
 
 			void* newNif = createNif("FO4", "NiNode", "Scene Root");
-			void* newHelm = createNifShapeFromData(newNif, "Helmet",
-				verts, uv, norms, vlen,
-				rawtris, tlen,
+			void* newHelm = createNifShapeFromData(newNif, "Helmet", &helmetBuf,
+				verts, uv, norms, 
+				rawtris, 
 				nullptr);
 			skinShape(newNif, newHelm);
 
@@ -1533,22 +1509,25 @@ namespace NiflyDLLTests
 
 			void* nif;
 			void* shapes[10];
-			Vector3* verts = new Vector3[1000];
-			Color4* colors = new Color4[1000];
-			Vector3* norms = new Vector3[1000];
-			Vector2* uvs = new Vector2[1000];
-			Triangle* tris = new Triangle[1100];
-
-			// Can load vertex colors
 			nif = load(testfile.u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
-			int vertLen = getVertsForShape(nif, shapes[0], verts, 1000, 0);
-			int colorLen = getColorsForShape(nif, shapes[0], colors, vertLen*4);
-			int triLen = getTriangles(nif, shapes[0], tris, 1100 * 3, 0);
-			int uvLen = getUVs(nif, shapes[0], uvs, vertLen * 2, 0);
-			int normLen = getNormalsForShape(nif, shapes[0], norms, vertLen * 3, 0);
 
-			Assert::AreEqual(vertLen, colorLen);
+			int shapeID = getBlockID(nif, shapes[0]);
+			NiShapeBuf shapeBuf;
+			getBlock(nif, shapeID, &shapeBuf);
+			Vector3* verts = new Vector3[shapeBuf.vertexCount];
+			Color4* colors = new Color4[shapeBuf.vertexCount];
+			Vector3* norms = new Vector3[shapeBuf.vertexCount];
+			Vector2* uvs = new Vector2[shapeBuf.vertexCount];
+			Triangle* tris = new Triangle[shapeBuf.triangleCount];
+
+			// Can load vertex colors
+			int vertLen = getVertsForShape(nif, shapes[0], verts, shapeBuf.vertexCount*3, 0);
+			int colorLen = getColorsForShape(nif, shapes[0], colors, shapeBuf.vertexCount*4);
+			int triLen = getTriangles(nif, shapes[0], tris, shapeBuf.triangleCount * 3, 0);
+			int uvLen = getUVs(nif, shapes[0], uvs, shapeBuf.vertexCount * 2, 0);
+			int normLen = getNormalsForShape(nif, shapes[0], norms, shapeBuf.vertexCount * 3, 0);
+
 			Assert::IsTrue(colors[0].r == 1.0 and
 				colors[0].g == 1.0 and
 				colors[2].b == 1.0 and
@@ -1560,9 +1539,9 @@ namespace NiflyDLLTests
 			std::filesystem::path testfileOut = testRoot / "Out/vertexColors_HeadGear1.nif";
 
 			void* nif2 = createNif("FO4", "NiNode", "Scene Root");
-			void* shape2 = createNifShapeFromData(nif2, "Hood",
-				verts, uvs, norms, vertLen,
-				tris, triLen,
+			void* shape2 = createNifShapeFromData(nif2, "Hood", &shapeBuf,
+				verts, uvs, norms, 
+				tris, 
 				nullptr);
 			setColorsForShape(nif2, shape2, colors, colorLen);
 
@@ -1594,18 +1573,23 @@ namespace NiflyDLLTests
 
 			void* nif;
 			void* shapes[10];
-			Vector3* verts = new Vector3[1000];
-			Vector3* norms = new Vector3[1000];
-			Vector2* uvs = new Vector2[1000];
-			Triangle* tris = new Triangle[1100];
 
 			// Can load nif
 			nif = load(testfile.u8string().c_str());
 			int shapeCount = getShapes(nif, shapes, 10, 0);
-			int vertLen = getVertsForShape(nif, shapes[0], verts, 1000*3, 0);
-			int triLen = getTriangles(nif, shapes[0], tris, 1100 * 3, 0);
-			int uvLen = getUVs(nif, shapes[0], uvs, vertLen * 2, 0);
-			int normLen = getNormalsForShape(nif, shapes[0], norms, vertLen * 3, 0);
+			int shapeID = getBlockID(nif, shapes[0]);
+			NiShapeBuf shapeBuf;
+			getBlock(nif, shapeID, &shapeBuf);
+
+			Vector3* verts = new Vector3[shapeBuf.vertexCount];
+			Vector3* norms = new Vector3[shapeBuf.vertexCount];
+			Vector2* uvs = new Vector2[shapeBuf.vertexCount];
+			Triangle* tris = new Triangle[shapeBuf.triangleCount];
+
+			int vertLen = getVertsForShape(nif, shapes[0], verts, shapeBuf.vertexCount *3, 0);
+			int triLen = getTriangles(nif, shapes[0], tris, shapeBuf.triangleCount * 3, 0);
+			int uvLen = getUVs(nif, shapes[0], uvs, shapeBuf.vertexCount * 2, 0);
+			int normLen = getNormalsForShape(nif, shapes[0], norms, shapeBuf.vertexCount * 3, 0);
 
 			Assert::AreEqual(9, shapeCount, L"Have right number of shapes");
 
@@ -1613,9 +1597,9 @@ namespace NiflyDLLTests
 			std::filesystem::path testfileOut = testRoot / "Out/expImpFNV_9mmscp.nif";
 
 			void* nif2 = createNif("FONV", 0, "Scene Root");
-			void* shape2 = createNifShapeFromData(nif2, "Scope",
-				verts, uvs, norms, vertLen,
-				tris, triLen,
+			void* shape2 = createNifShapeFromData(nif2, "Scope", &shapeBuf,
+				verts, uvs, norms, 
+				tris, 
 				nullptr);
 
 			saveNif(nif2, testfileOut.u8string().c_str());
@@ -1654,6 +1638,10 @@ namespace NiflyDLLTests
 			// Can save nif
 
 			// Get all the data because we didn't above
+			int shapeID = getBlockID(nif, shape);
+			NiShapeBuf shapeBuf, newShapeBuf;
+			getBlock(nif, shapeID, &shapeBuf);
+
 			Vector3* verts2 = new Vector3[vertLen];
 			Vector3* norms2 = new Vector3[vertLen];
 			Vector2* uvs2 = new Vector2[vertLen];
@@ -1666,11 +1654,13 @@ namespace NiflyDLLTests
 
 			void* nif2 = createNif("SKYRIMSE", "NiNode", "Scene Root");
 
+			newShapeBuf = shapeBuf;
+			newShapeBuf.bufType = BUFFER_TYPES::BSDynamicTriShapeBufType;
 			uint16_t options = 1;
-			void* shape2 = createNifShapeFromData(nif2, "KSSMP_Anchor",
-				verts2, uvs2, norms2, vertLen,
-				tris2, triLen,
-				&options);
+			void* shape2 = createNifShapeFromData(nif2, "KSSMP_Anchor", &newShapeBuf,
+				verts2, uvs2, norms2, 
+				tris2, 
+				nullptr);
 
 			skinShape(nif2, shape2);
 
@@ -1734,30 +1724,37 @@ namespace NiflyDLLTests
 
 			void* nif;
 			void* shapes[10];
-			Vector3* verts = new Vector3[1000];
-			Vector3* norms = new Vector3[1000];
-			Vector2* uvs = new Vector2[1000];
-			Triangle* tris = new Triangle[1100];
+			char blockname[50];
+			int shapeID;
+			NiShapeBuf shapeBuf, newShapeBuf;
 
 			nif = load(testfile.u8string().c_str());
 			int shapeCount = getShapes(nif, shapes, 10, 0);
-			char blockname[50];
-			getShapeBlockName(shapes[0], blockname, 50);
+			shapeID = getBlockID(nif, shapes[0]);
+			getBlock(nif, shapeID, &shapeBuf);
+			getBlockname(nif, shapeID, blockname, 50);
+
+			Vector3* verts = new Vector3[shapeBuf.vertexCount];
+			Vector3* norms = new Vector3[shapeBuf.vertexCount];
+			Vector2* uvs = new Vector2[shapeBuf.vertexCount];
+			Triangle* tris = new Triangle[shapeBuf.triangleCount];
+
 			Assert::AreEqual("BSTriShape", blockname, L"Have expected node type");
 
-			int vertLen = getVertsForShape(nif, shapes[0], verts, 1000, 0);
-			int triLen = getTriangles(nif, shapes[0], tris, 1100 * 3, 0);
-			int uvLen = getUVs(nif, shapes[0], uvs, vertLen * 2, 0);
-			int normLen = getNormalsForShape(nif, shapes[0], norms, vertLen * 3, 0);
+			int vertLen = getVertsForShape(nif, shapes[0], verts, shapeBuf.vertexCount * 3, 0);
+			int triLen = getTriangles(nif, shapes[0], tris, shapeBuf.triangleCount * 3, 0);
+			int uvLen = getUVs(nif, shapes[0], uvs, shapeBuf.vertexCount * 2, 0);
+			int normLen = getNormalsForShape(nif, shapes[0], norms, shapeBuf.vertexCount * 3, 0);
 
 			std::filesystem::path testfileOut = testRoot / "Out/loadAndStoreUnskinned.nif";
 
 			void* nif2 = createNif("FO4", "NiNode", "Scene Root");
-			uint16_t options = 2;
-			void* shape2 = createNifShapeFromData(nif2, "AlarmClock",
-				verts, uvs, norms, vertLen,
-				tris, triLen,
-				&options);
+			newShapeBuf = shapeBuf;
+			newShapeBuf.bufType = BUFFER_TYPES::BSTriShapeBufType;
+			void* shape2 = createNifShapeFromData(nif2, "AlarmClock", &newShapeBuf,
+				verts, uvs, norms, 
+				tris, 
+				nullptr);
 
 			saveNif(nif2, testfileOut.u8string().c_str());
 
@@ -2041,18 +2038,19 @@ namespace NiflyDLLTests
 		TEST_METHOD(shadersReadAlpha) {
 			void* nif;
 			void* shapes[10];
-			AlphaPropertyBuf alpha;
+			NiAlphaPropertyBuf alpha;
 			NiShapeBuf shapeBuf;
 			NiShaderBuf shaderBuf;
 
 			nif = load((testRoot / "Skyrim/meshes/actors/character/Lykaios/Tails/maletaillykaios.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 			void* shape = shapes[1];
-			int shapeID = getBlockID(nif, shapes[0]);
+			int shapeID = getBlockID(nif, shapes[1]);
 			getBlock(nif, shapeID, &shapeBuf);
 			getBlock(nif, shapeBuf.shaderPropertyID, &shaderBuf);
 
-			bool hasAlpha = getAlphaProperty(nif, shape, &alpha);
+			bool hasAlpha = (shapeBuf.alphaPropertyID != NIF_NPOS);
+			if (hasAlpha) getBlock(nif, shapeBuf.alphaPropertyID, &alpha);
 
 			Assert::IsTrue(uint32_t(BSLSPShaderType::Skin_Tint) == shaderBuf.Shader_Type,
 				L"Expected shader type Skin_Tint");
@@ -2429,7 +2427,7 @@ namespace NiflyDLLTests
 			void* shape;
 			int shapeID;
 			NiShapeBuf shapeBuf;
-			AlphaPropertyBuf alpha;
+			NiAlphaPropertyBuf alpha;
 			NiShaderBuf shaderBuf;
 			bool hasAlpha;
 			char shaderName[256];
@@ -2443,7 +2441,8 @@ namespace NiflyDLLTests
 			getBlock(nif, shapeID, &shapeBuf);
 			getBlock(nif, shapeBuf.shaderPropertyID, &shaderBuf);
 
-			hasAlpha = getAlphaProperty(nif, shape, &alpha);
+			hasAlpha = (shapeBuf.alphaPropertyID != NIF_NPOS);
+			if (hasAlpha) getBlock(nif, shapeBuf.alphaPropertyID, &alpha);
 			getBlockname(nif, shapeBuf.shaderPropertyID, blockName, 128);
 			getString(nif, shaderBuf.nameID, 256, shaderName);
 

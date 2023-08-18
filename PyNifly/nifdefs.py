@@ -539,12 +539,6 @@ class ShaderFlags2(PynIntFlag):
     EFFECT_LIGHTING = 1 << 30
     HD_LOD_OBJECTS = 1 << 31
 
-class AlphaPropertyBuf(Structure):
-    _fields_ = [('flags', c_uint16), ('threshold', c_uint8)]
-
-AlphaPropertyBuf_p = POINTER(AlphaPropertyBuf)
-
-    
 class bhkCOFlags(PynIntFlag):
     ACTIVE = 1
     NOTIFY = 1 << 2
@@ -768,7 +762,11 @@ class PynBufferTypes(IntEnum):
     bhkSphereShapeBufType = 26
     BSMeshLODTriShapeBufType = 27
     NiShaderBufType = 28
-    COUNT = 29
+    AlphaPropertyBufType = 29
+    BSDynamicTriShapeBufType = 30
+    BSTriShapeBufType = 31
+    BSSubIndexTriShapeBufType = 32
+    COUNT = 33
 
 bufferTypeList = [''] * PynBufferTypes.COUNT
 
@@ -869,6 +867,23 @@ class NiShaderBuf(pynStructure):
 bufferTypeList[PynBufferTypes.NiShaderBufType] = 'NiShader'
 
 
+class AlphaPropertyBuf(pynStructure):
+    _fields_ = [
+	    ('bufSize', c_uint16),
+	    ('bufType', c_uint16),
+        ('nameID', c_uint32),
+        ('controllerID', c_uint32),
+        ('extraDataCount', c_uint16),
+        ('flags', c_uint16), 
+        ('threshold', c_uint8)
+        ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.AlphaPropertyBufType
+
+AlphaPropertyBuf_p = POINTER(AlphaPropertyBuf)
+
+    
 class NiCollisionObjectBuf(pynStructure):
     _fields_ = [
 	    ('bufSize', c_uint16),

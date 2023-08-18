@@ -25,6 +25,25 @@ using namespace nifly;
 
 /* ************************** UTILITY ************************** */
 
+#define CheckID(shaperef) \
+    if (!shaperef) { \
+        niflydll::LogWriteEf("%s called on invalid node."); \
+        return 1; \
+    }
+
+#define CheckBuf(buf, expectedType, expectedBuf) \
+    if (buf->bufType != expectedType || buf->bufSize != sizeof(expectedBuf)) { \
+    niflydll::LogWriteEf("%s called with bad buffer: type=%d, size=%d.", __FUNCTION__, buf->bufType, buf->bufSize); \
+    return 2; \
+    }
+
+#define CheckBuf2(buf, expectedType1, expectedType2, expectedBuf) \
+    if ((buf->bufType != expectedType1 && buf->bufType != expectedType2) || buf->bufSize != sizeof(expectedBuf)) { \
+    niflydll::LogWriteEf("%s called with bad buffer: type=%d, size=%d.", __FUNCTION__, buf->bufType, buf->bufSize); \
+    return 2; \
+    }
+
+
 void assignQ(float* dest, Quaternion source) {
     dest[0] = source.w;
     dest[1] = source.x;
@@ -324,15 +343,9 @@ int getNodeProperties(void* nifref, uint32_t id, void* inbuf) {
     NiNodeBuf* buf = static_cast<NiNodeBuf*>(inbuf);
     nifly::NiNode* node = hdr->GetBlock<NiNode>(id);
 
-    if (!node) {
-        niflydll::LogWrite("ERROR: Node is not a NiTransformController.");
-        return 1;
-    }
+    CheckID(node);
 
-    if (buf->bufSize != sizeof(NiNodeBuf)) {
-        niflydll::LogWrite("ERROR: NiNodeBuf buffer wrong size.");
-        return 2;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiNodeBufType, NiNodeBuf);
 
     getNode(node, buf);
     return 0;
@@ -357,15 +370,9 @@ int setNodeByID(void* nifref, uint32_t id, void* inbuf) {
     NiNodeBuf* buf = static_cast<NiNodeBuf*>(inbuf);
     nifly::NiNode* theNode = hdr->GetBlock<NiNode>(id);
 
-    if (!theNode) {
-        niflydll::LogWrite("ERROR: Node is not a NiNode.");
-        return 1;
-    }
+    CheckID(theNode);
 
-    if (buf->bufSize != sizeof(NiNodeBuf)) {
-        niflydll::LogWrite("ERROR: NiNodeBuf buffer wrong size.");
-        return 2;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiNodeBufType, NiNodeBuf);
 
     theNode->name.SetIndex(buf->nameID);
     theNode->controllerRef.index = buf->controllerID;
@@ -420,20 +427,6 @@ NIFLY_API int getNodeName(void* node, char* buf, int buflen) {
     return int(name.length());
 }
 
-//NIFLY_API void* getNodeController(void* nifref, void* node, NiControllerManagerBuf* buf) {
-//    NifFile* nif = static_cast<NifFile*>(nifref);
-//    NiHeader hdr = nif->GetHeader();
-//    nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
-//    if (!theNode) return nullptr;
-//
-//    if (theNode->controllerRef.IsEmpty()) return nullptr;
-//
-//    auto ctrlr = hdr.GetBlock<NiControllerManager>(theNode->controllerRef.index);
-//    if (ctrlr) getControllerManager(ctrlr, buf);
-//
-//    return ctrlr;
-//}
-
 NIFLY_API void* getNodeParent(void* theNif, void* node) {
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
@@ -480,10 +473,7 @@ int createNode(void* f, const char* name, void* properties, uint32_t parent) {
     NiNode* parentNode = hdr->GetBlock<NiNode>(parent);
     NiNodeBuf* buf = static_cast<NiNodeBuf*>(properties);
 
-    if (buf->bufSize != sizeof(NiNodeBuf)) {
-        niflydll::LogWrite("ERROR: NiNodeBuf buffer wrong size.");
-        return NIF_NPOS;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiNodeBufType, NiNodeBuf);
 
     MatTransform xf;
     for (int i = 0; i < 3; i++) xf.translation[i] = buf->translation[i];
@@ -501,15 +491,9 @@ int assignControllerSequence(void* f, uint32_t id, void* b) {
     NiControllerSequenceBuf* buf = static_cast<NiControllerSequenceBuf*>(b);
     NiControllerSequence* cs = hdr->GetBlock< NiControllerSequence>(id);
 
-    if (!cs) {
-        niflydll::LogWrite("ERROR: Node is not a NiControllerSequence.");
-        return 1;
-    }
+    CheckID(cs);
 
-    if (buf->bufSize != sizeof(NiControllerSequenceBuf)) {
-        niflydll::LogWrite("ERROR: NiControllerSequenceBuf buffer wrong size.");
-        return 2;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiControllerSequenceBufType, NiControllerSequenceBuf);
 
     cs->arrayGrowBy = buf->arrayGrowBy;
     cs->weight = buf->weight;
@@ -690,10 +674,7 @@ int getNiShape(void* nifref, uint32_t id, void* buf) {
     NiShapeBuf* b = static_cast<NiShapeBuf*>(buf);
     nifly::NiShape* node = hdr->GetBlock<NiShape>(id);
 
-    if (!node) {
-        niflydll::LogWrite("ERROR: Node is not a NiShape.");
-        return 1;
-    }
+    CheckID(node);
 
     if (b->bufSize != sizeof(NiShapeBuf)) {
         niflydll::LogWrite("ERROR: NiShapeBuf buffer wrong size.");
@@ -701,6 +682,24 @@ int getNiShape(void* nifref, uint32_t id, void* buf) {
     }
 
     getShape(node, b);
+
+    if (hdr->GetBlock<BSMeshLODTriShape>(id)) {
+        b->bufType = BSMeshLODTriShapeBufType; 
+        return 0;
+    }
+    if (hdr->GetBlock<BSSubIndexTriShape>(id)) {
+        b->bufType = BSSubIndexTriShapeBufType;
+        return 0;
+    }
+    if (hdr->GetBlock<BSDynamicTriShape>(id)) {
+        b->bufType = BSDynamicTriShapeBufType; 
+        return 0;
+    }
+    if (hdr->GetBlock<BSTriShape>(id)) {
+        b->bufType = BSTriShapeBufType;
+        return 0;
+    }
+
     return 0;
 }
 
@@ -711,15 +710,8 @@ int getBSMeshLODTriShape(void* nifref, uint32_t id, void* buf) {
     BSMeshLODTriShapeBuf* meshShapeBuf = static_cast<BSMeshLODTriShapeBuf*>(buf);
     nifly::BSMeshLODTriShape* node = hdr->GetBlock<BSMeshLODTriShape>(id);
 
-    if (!node) {
-        niflydll::LogWrite("ERROR: Node is not a BSMeshLODTriShape.");
-        return 1;
-    }
-
-    if (meshShapeBuf->bufSize != sizeof(BSMeshLODTriShapeBuf)) {
-        niflydll::LogWrite("ERROR: BSMeshLODTriShape buffer wrong size.");
-        return 2;
-    }
+    CheckID(node);
+    CheckBuf(shapebuf, BUFFER_TYPES::BSMeshLODTriShapeBufType, BSMeshLODTriShapeBuf);
 
     getShape(node, shapebuf);
     meshShapeBuf->lodSize0 = node->lodSize0;
@@ -806,12 +798,11 @@ NIFLY_API int getUVs(void* theNif, void* theShape, Vector2* buf, int len, int st
 
 NIFLY_API void* createNifShapeFromData(void* parentNif,
     const char* shapeName,
+    void* buffer,
     const Vector3* verts,
     const Vector2* uv_points,
     const Vector3* norms,
-    int vertCount,
-    const Triangle* tris, int triCount,
-    uint16_t* optionsPtr,
+    const Triangle* tris, 
     void* parentRef)
     /* Create nif shape from the given data
     * verts = (float x, float y float z), ... 
@@ -828,12 +819,13 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     */
 {
     NifFile* nif = static_cast<NifFile*>(parentNif);
+    NiShapeBuf* buf = static_cast<NiShapeBuf*>(buffer);
     std::vector<Vector3> v;
     std::vector<Triangle> t;
     std::vector<Vector2> uv;
     std::vector<Vector3> n;
 
-    for (int i = 0; i < vertCount; i++) {
+    for (int i = 0; i < buf->vertexCount; i++) {
         Vector3 thisv = verts[i];
         v.push_back(thisv);
 
@@ -845,18 +837,20 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
             n.push_back(thisnorm);
         };
     }
-    for (int i = 0; i < triCount; i++) {
+    for (int i = 0; i < buf->triangleCount; i++) {
         Triangle thist = tris[i];
         t.push_back(thist);
     }
 
-    uint16_t opt = 0;
-    if (optionsPtr) opt = *optionsPtr;
+    //uint16_t opt = 0;
+    //if (optionsPtr) opt = *optionsPtr;
     NiNode* parent = nullptr;
     if (parentRef) parent = static_cast<NiNode*>(parentRef);
 
-    return PyniflyCreateShapeFromData(nif, shapeName, 
-            &v, &t, &uv, &n, opt, parent);
+    NiShape* newShape = PyniflyCreateShapeFromData(nif, shapeName, 
+            buf, &v, &t, &uv, &n, parent);
+
+    return newShape;
 }
 
 
@@ -1130,9 +1124,6 @@ NIFLY_API void setShapeBoneWeights(void* nifref, void* shaperef, const char* bon
                     vertex.weightBones[minIndex] = boneID;
                 }
             }
-            //Normalize weights in some kind of finalization step.
-            //float sum = vertex.weights[0] + vertex.weights[1] + vertex.weights[2] + vertex.weights[3];
-            //for (int j = 0; j < 4; j++) vertex.weights[j] = vertex.weights[j] / sum;
         }
     }
     else {
@@ -1157,55 +1148,6 @@ NIFLY_API void setShapeBoneIDList(void* theFile, void* shapeRef, int* boneIDList
 
 
 /* ************************** SHADERS ************************** */
-
-//NIFLY_API int getShaderName(void* nifref, void* shaperef, char* buf, int buflen) {
-///*
-//    Returns length of name string, -1 if there is no shader
-//*/
-//    NifFile* nif = static_cast<NifFile*>(nifref);
-//    NiShape* shape = static_cast<NiShape*>(shaperef);
-//
-//    NiShader* shader = nif->GetShader(shape);
-//
-//    if (!shader)
-//        return -1;
-//    else {
-//        strncpy_s(buf, buflen, shader->name.get().c_str(), buflen);
-//        buf[buflen - 1] = '\0';
-//    };
-//
-//    return int(shader->name.get().length());
-//};
-
-//NIFLY_API uint32_t getShaderFlags1(void* nifref, void* shaperef) {
-//    NifFile* nif = static_cast<NifFile*>(nifref);
-//    NiShape* shape = static_cast<NiShape*>(shaperef);
-//
-//    NiShader* shader = nif->GetShader(shape);
-//    if (!shader)
-//        return 0;
-//    else {
-//        BSLightingShaderProperty* bssh = dynamic_cast<BSLightingShaderProperty*>(shader);
-//        if (bssh) return bssh->shaderFlags1;
-//        BSEffectShaderProperty* bses = dynamic_cast<BSEffectShaderProperty*>(shader);
-//        if (bses) return bses->shaderFlags1;
-//        return 0;
-//    }
-//}
-
-//NIFLY_API uint32_t getShaderFlags2(void* nifref, void* shaperef) {
-//    NifFile* nif = static_cast<NifFile*>(nifref);
-//    NiShape* shape = static_cast<NiShape*>(shaperef);
-//
-//    NiShader* shader = nif->GetShader(shape);
-//    
-//    if (!shader)
-//        return 0;
-//    else {
-//        BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
-//        return (bssh ? bssh->shaderFlags2 : 0);
-//    };
-//}
 
 NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char* buf, int buflen) 
 /*
@@ -1239,79 +1181,6 @@ NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, 
     return static_cast<int>(texture.length());
 };
 
-//NIFLY_API uint32_t getShaderType(void* nifref, void* shaperef) {
-///*
-//    Return value: 0 = no shader or not a LSLightingShader; anything else is the shader type
-//*/
-//    NifFile* nif = static_cast<NifFile*>(nifref);
-//    NiShape* shape = static_cast<NiShape*>(shaperef);
-//
-//    NiShader* shader = nif->GetShader(shape);
-//
-//    if (!shader)
-//        return 0;
-//    else
-//        return shader->GetShaderType();
-//};
-
-//NIFLY_API int getShaderAttrs(void* nifref, void* shaperef, struct BSLSPAttrs* buf)
-///*
-//    Get attributes for a BSLightingShaderProperty
-//    Return value: 0 = success, 1 = no shader, or not a BSLightingShaderProperty
-//*/
-//{
-//    NifFile* nif = static_cast<NifFile*>(nifref);
-//    NiShape* shape = static_cast<NiShape*>(shaperef);
-//
-//    NiShader* shader = nif->GetShader(shape);
-//
-//    if (!shader) return 1;
-//
-//    BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
-//    BSLightingShaderProperty* bslsp = dynamic_cast<BSLightingShaderProperty*>(shader);
-//
-//    if (!bslsp) return 1;
-//
-//    NiTexturingProperty* txtProp = nif->GetTexturingProperty(shape);
-//
-//    FillMemory(buf, sizeof(BSLSPAttrs), 0);
-//
-//    buf->Shader_Type = shader->GetShaderType();
-//    if (bssh) buf->Shader_Flags_1 = bssh->shaderFlags1;
-//    if (bssh) buf->Shader_Flags_2 = bssh->shaderFlags2;
-//    buf->UV_Offset_U = shader->GetUVOffset().u;
-//    buf->UV_Offset_V = shader->GetUVOffset().v;
-//    buf->UV_Scale_U = shader->GetUVScale().u;
-//    buf->UV_Scale_V = shader->GetUVScale().v;
-//    buf->Emissive_Color_R = shader->GetEmissiveColor().r;
-//    buf->Emissive_Color_G = shader->GetEmissiveColor().g;
-//    buf->Emissive_Color_B = shader->GetEmissiveColor().b;
-//    buf->Emissive_Color_A = shader->GetEmissiveColor().a;
-//    buf->Emissmive_Mult = shader->GetEmissiveMultiple();
-//    buf->Environment_Map_Scale = shader->GetEnvironmentMapScale();
-//    if (txtProp) {
-//        NiSyncVector<ShaderTexDesc>* txtdesc = &txtProp->shaderTex;
-//        //buf->Tex_Clamp_Mode = txtdesc->data.clampMode;
-//    };
-//    buf->Alpha = shader->GetAlpha();
-//    buf->Glossiness = shader->GetGlossiness();
-//    buf->Spec_Color_R = shader->GetSpecularColor().x;
-//    buf->Spec_Color_G = shader->GetSpecularColor().y;
-//    buf->Spec_Color_B = shader->GetSpecularColor().z;
-//    buf->Spec_Str = shader->GetSpecularStrength();
-//    if (bslsp) {
-//        buf->Refraction_Str = bslsp->refractionStrength;
-//        buf->Soft_Lighting = bslsp->softlighting;
-//        buf->Rim_Light_Power = bslsp->rimlightPower;
-//        buf->Skin_Tint_Alpha = bslsp->skinTintAlpha;
-//        buf->Skin_Tint_Color_R = bslsp->skinTintColor[0];
-//        buf->Skin_Tint_Color_G = bslsp->skinTintColor[1];
-//        buf->Skin_Tint_Color_B = bslsp->skinTintColor[2];
-//    };
-//
-//    return 0;
-//};
-
 int getNiShader(void* nifref, uint32_t id, void* buffer)
 /*
     Get attributes for one of the NiShaderProperty types.
@@ -1325,14 +1194,8 @@ int getNiShader(void* nifref, uint32_t id, void* buffer)
     BSEffectShaderProperty* bsesp = hdr->GetBlock<BSEffectShaderProperty>(id);
     NiShaderBuf* buf = static_cast<NiShaderBuf*>(buffer);
 
-    if (!bssh) {
-        niflydll::LogWrite("ERROR: Node is not a BSShaderProperty.");
-        return 1;
-    }
-    if (buf->bufSize != sizeof(NiShaderBuf)) {
-        niflydll::LogWrite("getNiShader given wrong size buffer");
-        return 2;
-    }
+    CheckID(bssh);
+    CheckBuf2(buf, BUFFER_TYPES::NiShaderBufType, BUFFER_TYPES::BSEffectShaderPropertyBufType, NiShaderBuf);
 
     //NiTexturingProperty* txtProp = nif->GetTexturingProperty(shape);
 
@@ -1376,6 +1239,7 @@ int getNiShader(void* nifref, uint32_t id, void* buffer)
         buf->Skin_Tint_Color_B = bslsp->skinTintColor[2];
     }
     if (bsesp) {
+        buf->bufType = BUFFER_TYPES::BSEffectShaderPropertyBufType;
         buf->Tex_Clamp_Mode = bsesp->textureClampMode;
         //buf->Lighting_Influence = bsesp->light;
         //buf->Env_Map_Min_LOD = bsesp->getEnvmapMinLOD();
@@ -1389,108 +1253,35 @@ int getNiShader(void* nifref, uint32_t id, void* buffer)
     return 0;
 };
 
-//NIFLY_API int getEffectShaderAttrs(void* nifref, void* shaperef, struct BSESPAttrs* buf)
-///*
-//    Get attributes for a BSEffectShaderProperty
-//    Return value: 0 = success, 1 = no shader, or not a BSEffectShaderProperty
-//*/
-//{
-//    NifFile* nif = static_cast<NifFile*>(nifref);
-//    NiShape* shape = static_cast<NiShape*>(shaperef);
-//
-//    NiShader* shader = nif->GetShader(shape);
-//
-//    if (!shader) return 1;
-//
-//    BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
-//    BSEffectShaderProperty* bsesp = dynamic_cast<BSEffectShaderProperty*>(shader);
-//
-//    if (!bsesp) return 1;
-//
-//    FillMemory(buf, sizeof(BSESPAttrs), 0);
-//
-//    if (bssh) buf->Shader_Flags_1 = bssh->shaderFlags1;
-//    if (bssh) buf->Shader_Flags_2 = bssh->shaderFlags2;
-//    buf->UV_Offset_U = shader->GetUVOffset().u;
-//    buf->UV_Offset_V = shader->GetUVOffset().v;
-//    buf->UV_Scale_U = shader->GetUVScale().u;
-//    buf->UV_Scale_V = shader->GetUVScale().v;
-//    buf->Tex_Clamp_Mode = bsesp->textureClampMode;
-//    //buf->Lighting_Influence = bsesp->light;
-//    //buf->Env_Map_Min_LOD = bsesp->getEnvmapMinLOD();
-//    buf->Falloff_Start_Angle = bsesp->falloffStartAngle;
-//    buf->Falloff_Stop_Angle = bsesp->falloffStopAngle;
-//    buf->Falloff_Start_Opacity = bsesp->falloffStartOpacity;
-//    buf->Falloff_Stop_Opacity = bsesp->falloffStopOpacity;
-//    buf->Emissive_Color_R = shader->GetEmissiveColor().r;
-//    buf->Emissive_Color_G = shader->GetEmissiveColor().g;
-//    buf->Emissive_Color_B = shader->GetEmissiveColor().b;
-//    buf->Emissive_Color_A = shader->GetEmissiveColor().a;
-//    buf->Emissmive_Mult = shader->GetEmissiveMultiple();
-//    buf->Soft_Falloff_Depth = bsesp->softFalloffDepth;
-//    buf->Env_Map_Scale = shader->GetEnvironmentMapScale();
-//
-//    return 0;
-//};
-
-NIFLY_API int getAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr) {
+int getNiAlphaProperty(void* nifref, uint32_t id, void* buffer) {
     NifFile* nif = static_cast<NifFile*>(nifref);
-    NiShape* shape = static_cast<NiShape*>(shaperef);
-    if (shape->HasAlphaProperty()) {
-        NiAlphaProperty* alph = nif->GetAlphaProperty(shape);
-        bufptr->flags = alph->flags;
-        bufptr->threshold = alph->threshold;
-        return 1;
-    }
-    else
-        return 0;
+    NiHeader* hdr = &nif->GetHeader();
+    NiAlphaPropertyBuf* bufptr = static_cast<NiAlphaPropertyBuf*>(buffer);
+    NiAlphaProperty* alph = hdr->GetBlock<NiAlphaProperty>(id);
+
+    CheckID(alph);
+    CheckBuf(bufptr, BUFFER_TYPES::NiAlphaPropertyBufType, NiAlphaPropertyBuf);
+
+    bufptr->flags = alph->flags;
+    bufptr->threshold = alph->threshold;
+    return 0;
 }
 
-NIFLY_API void setAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr) {
+int setNiAlphaProperty(void* nifref, const char* name, void* buffer, uint32_t parent) {
     NifFile* nif = static_cast<NifFile*>(nifref);
-    NiShape* shape = static_cast<NiShape*>(shaperef);
-
+    NiHeader* hdr = &nif->GetHeader();
+    NiAlphaPropertyBuf* bufptr = static_cast<NiAlphaPropertyBuf*>(buffer);
+    
+    CheckBuf(bufptr, BUFFER_TYPES::NiAlphaPropertyBufType, NiAlphaPropertyBuf);
     auto alphaProp = std::make_unique<NiAlphaProperty>();
     alphaProp->flags = bufptr->flags;
     alphaProp->threshold = bufptr->threshold;
-    nif->AssignAlphaProperty(shape, std::move(alphaProp));
+
+    if (parent != NIF_NPOS) {
+        NiShape* shape = hdr->GetBlock<NiShape>(parent);
+        nif->AssignAlphaProperty(shape, std::move(alphaProp));
+    }
 }
-
-//NIFLY_API void setShaderName(void* nifref, void* shaperef, char* name) {
-//    NifFile* nif = static_cast<NifFile*>(nifref);
-//    NiShape* shape = static_cast<NiShape*>(shaperef);
-//
-//    NiShader* shader = nif->GetShader(shape);
-//    shader->name.get() = name;
-//};
-
-//NIFLY_API void setShaderType(void* nifref, void* shaperef, uint32_t shaderType) {
-//    NifFile* nif = static_cast<NifFile*>(nifref);
-//    NiShape* shape = static_cast<NiShape*>(shaperef);
-//
-//    NiShader* shader = nif->GetShader(shape);
-//    return shader->SetShaderType(shaderType);
-//};
-
-//NIFLY_API void setShaderFlags1(void* nifref, void* shaperef, uint32_t flags) {
-//    NifFile* nif = static_cast<NifFile*>(nifref);
-//    NiShape* shape = static_cast<NiShape*>(shaperef);
-//
-//    NiShader* shader = nif->GetShader(shape);
-//    BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
-//
-//    if (bssh) bssh->shaderFlags1 = flags;
-//}
-//
-//NIFLY_API void setShaderFlags2(void* nifref, void* shaperef, uint32_t flags) {
-//    NifFile* nif = static_cast<NifFile*>(nifref);
-//    NiShape* shape = static_cast<NiShape*>(shaperef);
-//
-//    NiShader* shader = nif->GetShader(shape);
-//    BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
-//
-//    if (bssh) bssh->shaderFlags2 = flags;
-//}
 
 NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, const char* buf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -1518,6 +1309,17 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
     BSEffectShaderProperty* bsesp = dynamic_cast<BSEffectShaderProperty*>(shader);
     NiTexturingProperty* txtProp = nif->GetTexturingProperty(shape);
 
+    if (buf->bufType == BSEffectShaderPropertyBufType && !bsesp) {
+        // Caller wants a BSEffectShaderProperty and hasn't got one... switch it over.
+        std::unique_ptr<BSEffectShaderProperty> sh = std::make_unique<BSEffectShaderProperty>();
+        int sh_id = nif->GetHeader().AddBlock(std::move(sh));
+        shape->ShaderPropertyRef()->Clear();
+        shape->ShaderPropertyRef()->index = sh_id;
+        shader = nif->GetShader(shape);
+        bssh = dynamic_cast<BSShaderProperty*>(shader);
+        bslsp = dynamic_cast<BSLightingShaderProperty*>(shader);
+        bsesp = dynamic_cast<BSEffectShaderProperty*>(shader);
+    }
     shader->name.get() = name;
     shader->SetShaderType(buf->Shader_Type);
     if (bssh) {
@@ -1562,41 +1364,6 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
         bsesp->envMapScale = buf->Env_Map_Scale;
     };
 };
-
-//NIFLY_API void setEffectShaderAttrs(void* nifref, void* shaperef, struct BSESPAttrs* buf) {
-//    NifFile* nif = static_cast<NifFile*>(nifref);
-//    NiShape* shape = static_cast<NiShape*>(shaperef);
-//
-//    NiShader* shader = nif->GetShader(shape);;
-//    BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
-//    BSEffectShaderProperty* bsesp= dynamic_cast<BSEffectShaderProperty*>(shader);
-//    NiTexturingProperty* txtProp = nif->GetTexturingProperty(shape);
-//
-//    if (bssh) {
-//        bssh->shaderFlags1 = buf->Shader_Flags_1;
-//        bssh->shaderFlags2 = buf->Shader_Flags_2;
-//    };
-//    Color4 col = Color4(buf->Emissive_Color_R,
-//        buf->Emissive_Color_G,
-//        buf->Emissive_Color_B,
-//        buf->Emissive_Color_A);
-//    shader->SetEmissiveColor(col);
-//    shader->SetEmissiveMultiple(buf->Emissmive_Mult);
-//    if (txtProp) {
-//        NiSyncVector<ShaderTexDesc>* txtdesc = &txtProp->shaderTex;
-//        //txtdesc->data.clampMode = buf->Tex_Clamp_Mode;
-//    };
-//    //shader->SetAlpha(buf->Alpha);
-//    if (bsesp) {
-//        bsesp->textureClampMode = buf->Tex_Clamp_Mode;
-//        bsesp->falloffStartAngle = buf->Falloff_Start_Angle;
-//        bsesp->falloffStopAngle = buf->Falloff_Stop_Angle;
-//        bsesp->falloffStartOpacity = buf->Falloff_Start_Opacity;
-//        bsesp->falloffStopOpacity = buf->Falloff_Stop_Opacity;
-//        bsesp->softFalloffDepth = buf->Soft_Falloff_Depth;
-//        bsesp->envMapScale = buf->Env_Map_Scale;
-//    };
-//};
 
 
 /* ******************** SEGMENTS AND PARTITIONS ****************************** */
@@ -2099,12 +1866,7 @@ int getInvMarker(void* nifref, uint32_t id, void* inbuf)
         return 1;
     }
 
-    if (buf->bufSize != sizeof(BSInvMarkerBuf)) {
-        niflydll::LogWrite("getInvMarker passed invalid buffer: " +
-            std::to_string(buf->bufSize) + " != " + 
-            std::to_string(sizeof(BSInvMarkerBuf)));
-        return 2;
-    }
+    CheckBuf(buf, BUFFER_TYPES::BSInvMarkerBufType, BSInvMarkerBuf);
 
     std::vector<NiStringRef*> strs;
     invm->GetStringRefs(strs);
@@ -2281,10 +2043,7 @@ int getBSXFlags(void* nifref, uint32_t id, void* inbuf)
         return 1;
     }
 
-    if (buf->bufSize != sizeof(BSXFlagsBuf)) {
-        niflydll::LogWrite("getBSXFlags passed invalid buffer");
-        return 2;
-    }
+    CheckBuf(buf, BUFFER_TYPES::BSXFlagsBufType, BSXFlagsBuf);
 
     buf->integerData = f->integerData;
     return 0;
@@ -2296,10 +2055,7 @@ int setBSXFlags(void* nifref, const char* name, void* buffer, uint32_t parent)
     NiHeader* hdr = &nif->GetHeader();
     BSXFlagsBuf* buf = static_cast<BSXFlagsBuf*>(buffer);
 
-    if (buf->bufSize != sizeof(BSXFlagsBuf)) {
-        niflydll::LogWrite("ERROR: BSXFlagsBuf buffer wrong size.");
-        return NIF_NPOS;
-    }
+    CheckBuf(buf, BUFFER_TYPES::BSXFlagsBufType, BSXFlagsBuf);
 
     auto bsx = std::make_unique<BSXFlags>();
     bsx->name.get() = name;
@@ -2348,10 +2104,7 @@ int getCollisionObject(void* nifref, uint32_t blockID, void* inbuf) {
     NiCollisionObjectBuf* coBuf = static_cast<NiCollisionObjectBuf*>(inbuf);
     NiCollisionObject* node = hdr->GetBlock<NiCollisionObject>(blockID);
 
-    if (!node) {
-        niflydll::LogWrite("ERROR: Node is not a NiCollisionObject.");
-        return 1;
-    }
+    CheckID(node);
 
     if (coBuf->bufSize < sizeof(NiCollisionObjectBuf)) {
         niflydll::LogWrite("ERROR: NiCollisionObjectBuf buffer wrong size.");
@@ -2381,10 +2134,7 @@ int getBlendCollisionObject(void* nifref, uint32_t blockID, void* inbuf) {
     bhkBlendCollisionObjectBuf* coBuf = static_cast<bhkBlendCollisionObjectBuf*>(inbuf);
     bhkBlendCollisionObject* node = hdr->GetBlock<bhkBlendCollisionObject>(blockID);
 
-    if (!node) {
-        niflydll::LogWrite("ERROR: Node is not a bhkBlendCollisionObject.");
-        return 1;
-    }
+    CheckID(node);
 
     if (coBuf->bufSize < sizeof(bhkBlendCollisionObjectBuf)) {
         niflydll::LogWrite("ERROR: getBlendCollisionObject buffer wrong size.");
@@ -2421,10 +2171,7 @@ int setCollision(void* nifref, uint32_t id, void* inbuf) {
     uint32_t newid = NIF_NPOS;
     NiCollisionObject* co = hdr->GetBlock<NiCollisionObject>(id);
 
-    if (!co) {
-        niflydll::LogWrite("ERROR: Node is not a NiCollisionObject.");
-        return 1;
-    }
+    CheckID(co);
 
     if (coBuf->targetID != NIF_NPOS) {
         NiAVObject* theTarget = hdr->GetBlock<NiAVObject>(coBuf->targetID);
@@ -2570,13 +2317,11 @@ int setRigidBody(void* nifref, uint32_t blockID, void* buffer) {
     bhkRigidBodyBuf* buf = static_cast<bhkRigidBodyBuf*>(buffer);
     bhkRigidBody* theBody = hdr->GetBlock<bhkRigidBody>(blockID);
 
-    if (!theBody) {
-        niflydll::LogWrite("ERROR: Node is not a bhkRigidBody.");
-        return 1;
-    }
+    CheckID(theBody);
 
-    if (buf->bufSize != sizeof(bhkRigidBodyBuf)) {
-        niflydll::LogWrite("ERROR: NiNodeBuf buffer wrong size.");
+    if ((buf->bufType != BUFFER_TYPES::bhkRigidBodyBufType && buf->bufType != BUFFER_TYPES::bhkRigidBodyTBufType)
+            || buf->bufSize != sizeof(bhkRigidBodyBuf)) {
+		niflydll::LogWriteEf("%s called with bad buffer: type=%d, size=%d.", __FUNCTION__, buf->bufType, buf->bufSize); \
         return 2;
     }
 
@@ -2796,14 +2541,8 @@ int getSimpleShapePhantom(void* nifref, uint32_t nodeIndex, void* inbuf)
     nifly::bhkSimpleShapePhantom* theBody = hdr->GetBlock<bhkSimpleShapePhantom>(nodeIndex);
     bhkSimpleShapePhantomBuf* buf = static_cast<bhkSimpleShapePhantomBuf*>(inbuf);
 
-    if (!theBody) {
-        niflydll::LogWrite("ERROR: Node is not a getSimpleShapePhantom.");
-        return 1;
-    }
-    if (buf->bufSize != sizeof(bhkSimpleShapePhantomBuf)) {
-        niflydll::LogWrite("getSimpleShapePhantom given wrong size buffer");
-        return 2;
-    }
+    CheckID(theBody);
+    CheckBuf(buf, BUFFER_TYPES::bhkSimpleShapePhantomBufType, bhkSimpleShapePhantomBuf);
 
     std::vector<uint32_t> ch;
     theBody->GetChildIndices(ch);
@@ -2829,10 +2568,7 @@ NIFLY_API int getRigidBodyConstraints(void* nifref, uint32_t nodeIndex, uint32_t
     NiHeader* hdr = &nif->GetHeader();
     bhkRigidBody* rb = hdr->GetBlock<bhkRigidBody>(nodeIndex);
 
-    if (!rb) {
-        niflydll::LogWrite("ERROR: Node is not a bhkRigidBody.");
-        return 0;
-    }
+    CheckID(rb);
 
     std::vector<uint32_t> constraintList;
     for (int i = 0; i < buflen; i++) {
@@ -2850,14 +2586,8 @@ int getRagdollConstraint(void* nifref, uint32_t nodeIndex, void* inbuf)
     bhkRagdollConstraint* rd = hdr->GetBlock<bhkRagdollConstraint>(nodeIndex);
     bhkRagdollConstraintBuf* buf = static_cast<bhkRagdollConstraintBuf*>(inbuf);
 
-    if (!rd) {
-        niflydll::LogWrite("ERROR: Node is not a bhkRagdollConstraint.");
-        return 1;
-    }
-    if (buf->bufSize != sizeof(bhkRagdollConstraintBuf)) {
-        niflydll::LogWrite("getRagdollConstraint given wrong size buffer");
-        return 2;
-    }
+    CheckID(rd);
+    CheckBuf(buf, BUFFER_TYPES::bhkRagdollConstraintBufType, bhkRagdollConstraintBuf);
 
     buf->entityCount = rd->entityRefs.GetSize();
     buf->priority = rd->priority;
@@ -2895,10 +2625,7 @@ NIFLY_API int getRagdollEntities(void* nifref, uint32_t nodeIndex, uint32_t* idL
     NiHeader* hdr = &nif->GetHeader();
     bhkRagdollConstraint* rd = hdr->GetBlock<bhkRagdollConstraint>(nodeIndex);
 
-    if (!rd) {
-        niflydll::LogWrite("ERROR: Node is not a bhkRagdollConstraint.");
-        return 0;
-    }
+    CheckID(rd);
 
     std::vector<uint32_t> entityList;
     for (int i = 0; i < buflen; i++) {
@@ -2950,14 +2677,8 @@ NIFLY_API int getCollConvexVertsShapeProps(void* nifref, uint32_t nodeIndex, voi
     BHKConvexVertsShapeBuf* buf = static_cast<BHKConvexVertsShapeBuf*>(buffer);
     bhkConvexVerticesShape* sh = hdr->GetBlock<bhkConvexVerticesShape>(nodeIndex);
 
-    if (!sh) {
-        niflydll::LogWrite("ERROR: Node is not a bhkConvexVerticesShape.");
-        return 1;
-    }
-    if (buf->bufSize != sizeof(BHKConvexVertsShapeBuf)) {
-        niflydll::LogWrite("getCollConvexVertsShapeProps given wrong size buffer");
-        return 2;
-    }
+    CheckID(sh);
+    CheckBuf(buf, BUFFER_TYPES::bhkConvexVerticesShapeBufType, BHKConvexVertsShapeBuf);
 
     buf->material = sh->GetMaterial();
     buf->radius = sh->radius;
@@ -2992,10 +2713,7 @@ NIFLY_API int setCollConvexVerts(
     NiHeader* hdr = &nif->GetHeader();
     bhkConvexVerticesShape* sh = hdr->GetBlock<bhkConvexVerticesShape>(id);
 
-    if (!sh) {
-        niflydll::LogWrite("ERROR: Node is not a bhkConvexVerticesShape.");
-        return 1;
-    }
+    CheckID(sh);
 
     for (int i = 0; i < vertcount * 4; i += 4) {
         Vector4 v = Vector4(verts[i], verts[i + 1], verts[i + 2], verts[i + 3]);
@@ -3072,10 +2790,7 @@ int getCollBoxShapeProps(void* nifref, uint32_t nodeIndex, void* inbuf)
     nifly::bhkBoxShape* sh = hdr->GetBlock<bhkBoxShape>(nodeIndex);
     bhkBoxShapeBuf* buf = static_cast<bhkBoxShapeBuf*>(inbuf);
 
-    if (buf->bufSize != sizeof(bhkBoxShapeBuf)) {
-        niflydll::LogWrite("getCollBoxShapeProps given wrong size buffer");
-        return 1;
-    }
+    CheckBuf(buf, BUFFER_TYPES::bhkBoxShapeBufType, bhkBoxShapeBuf);
 
     if (!sh) {
         niflydll::LogWrite("getCollBoxShapeProps given wrong type of block");
@@ -3119,14 +2834,8 @@ NIFLY_API int getCollListShapeProps(void* nifref, uint32_t nodeIndex, void* buff
     BHKListShapeBuf* buf = static_cast<BHKListShapeBuf*>(buffer);
     nifly::bhkListShape* sh = hdr->GetBlock<bhkListShape>(nodeIndex);
 
-    if (!sh) {
-        niflydll::LogWrite("ERROR: Node is not a bhkListShape.");
-        return 1;
-    }
-    if (buf->bufSize != sizeof(BHKListShapeBuf)) {
-        niflydll::LogWrite("getCollListShapeProps given wrong size buffer");
-        return 2;
-    }
+    CheckID(sh);
+    CheckBuf(buf, BUFFER_TYPES::bhkListShapeBufType, BHKListShapeBuf);
 
     buf->material = sh->GetMaterial();
     buf->childShape_data = sh->childShapeProp.data;
@@ -3206,14 +2915,8 @@ int getCollConvexTransformShapeProps(
     BHKConvexTransformShapeBuf* buf = static_cast<BHKConvexTransformShapeBuf*>(buffer);
     bhkConvexTransformShape* sh = hdr->GetBlock<bhkConvexTransformShape>(nodeIndex);
 
-    if (!sh) {
-        niflydll::LogWrite("ERROR: Node is not a bhkConvexTransformShape.");
-        return 1;
-    }
-    if (buf->bufSize != sizeof(BHKConvexTransformShapeBuf)) {
-        niflydll::LogWrite("getCollConvexTransformShapeProps given wrong size buffer");
-        return 2;
-    }
+    CheckID(sh);
+    CheckBuf(buf, BUFFER_TYPES::bhkConvexTransformShapeBufType, BHKConvexTransformShapeBuf);
     
     buf->shapeID = sh->shapeRef.index;
     buf->material = sh->material;
@@ -3265,14 +2968,8 @@ int getCollCapsuleShapeProps(void* nifref, uint32_t nodeIndex, void* buffer)
     BHKCapsuleShapeBuf* buf = static_cast<BHKCapsuleShapeBuf*>(buffer);
     bhkCapsuleShape* sh = hdr->GetBlock<bhkCapsuleShape>(nodeIndex);
 
-    if (!sh) {
-        niflydll::LogWrite("ERROR: Node is not a bhkCapsuleShape.");
-        return 1;
-    }
-    if (buf->bufSize != sizeof(BHKCapsuleShapeBuf)) {
-        niflydll::LogWrite("getCollCapsuleShapeProps given wrong size buffer");
-        return 2;
-    }
+    CheckID(sh);
+    CheckBuf(buf, BUFFER_TYPES::bhkCapsuleShapeBufType, BHKCapsuleShapeBuf);
 
     buf->material = sh->GetMaterial();
     buf->radius = sh->radius;
@@ -3295,14 +2992,8 @@ int getCollSphereShapeProps(void* nifref, uint32_t nodeIndex, void* buffer)
     bhkSphereShapeBuf* buf = static_cast<bhkSphereShapeBuf*>(buffer);
     bhkSphereShape* sh = hdr->GetBlock<bhkSphereShape>(nodeIndex);
 
-    if (!sh) {
-        niflydll::LogWrite("ERROR: Node is not a bhkSphereShape.");
-        return 1;
-    }
-    if (buf->bufSize != sizeof(bhkSphereShapeBuf)) {
-        niflydll::LogWrite("getCollSphereShapeProps given wrong size buffer");
-        return 2;
-    }
+    CheckID(sh);
+    CheckBuf(buf, BUFFER_TYPES::bhkSphereShapeBufType, bhkSphereShapeBuf);
 
     buf->material = sh->GetMaterial();
     buf->radius = sh->radius;
@@ -3338,15 +3029,9 @@ int getControllerManager(void* nifref, uint32_t id, void* inbuf) {
     NiControllerManager* ncm = hdr->GetBlock<NiControllerManager>(id);
     NiControllerManagerBuf* buf = static_cast<NiControllerManagerBuf*>(inbuf);
 
-    if (!ncm) {
-        niflydll::LogWrite("ERROR: Node is not a NiControllerManager.");
-        return 1;
-    }
+    CheckID(ncm);
 
-    if (buf->bufSize != sizeof(NiControllerManagerBuf)) {
-        niflydll::LogWrite("ERROR: NiControllerManagerBuf buffer wrong size.");
-        return 2;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiControllerManagerBufType, NiControllerManagerBuf);
 
     if (!ncm->nextControllerRef.IsEmpty())
         buf->nextControllerID = ncm->nextControllerRef.index;
@@ -3375,10 +3060,7 @@ int addControllerManager(void* f, const char* name, void* inbuf, uint32_t parent
     //if (buf->targetID != NIF_NPOS) 
     //    target = hdr.GetBlock<NiObjectNET>(buf->targetID);
         
-    if (buf->bufSize != sizeof(NiControllerManagerBuf)) {
-        niflydll::LogWrite("ERROR: NiControllerManagerBuf buffer wrong size.");
-        return NIF_NPOS;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiControllerManagerBufType, NiControllerManagerBuf);
 
     auto cm = std::make_unique<NiControllerManager>();
     cm->nextControllerRef.index = buf->nextControllerID;
@@ -3436,15 +3118,9 @@ int getControllerSequence(void* nifref, uint32_t csID, void* inbuf) {
     NiControllerSequence* cs = hdr.GetBlock< NiControllerSequence>(csID);
     NiControllerSequenceBuf* buf = static_cast<NiControllerSequenceBuf*>(inbuf);
 
-    if (!cs) {
-        niflydll::LogWrite("ERROR: Node is not a NiControllerSequence.");
-        return 1;
-    }
+    CheckID(cs);
 
-    if (buf->bufSize != sizeof(NiControllerSequenceBuf)) {
-        niflydll::LogWrite("getControllerSequence given wrong size buffer");
-        return 2;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiControllerSequenceBufType, NiControllerSequenceBuf);
 
     buf->nameID = cs->name.GetIndex();
     buf->arrayGrowBy = cs->arrayGrowBy;
@@ -3498,10 +3174,7 @@ int getControlledBlocks(void* nifref, uint32_t csID, void* buf) {
     NiControllerSequence* cs = hdr->GetBlock<NiControllerSequence>(csID);
     ControllerLinkBuf* blocks = static_cast<ControllerLinkBuf*>(buf);
 
-    if (!cs) {
-        niflydll::LogWrite("Error: getControlledBlocks called on invalid block type.");
-        return 1;
-    }
+    CheckID(cs);
 
     if (blocks[0].bufSize < sizeof(ControllerLinkBuf) * cs->controlledBlocks.size()) {
         niflydll::LogWrite("ERROR: ControllerLinkBuf buffer wrong size.");
@@ -3565,15 +3238,9 @@ int getTransformInterpolator(void* nifref, uint32_t tiID, void* inbuf) {
     NiTransformInterpolator* ti = hdr->GetBlock<NiTransformInterpolator>(tiID);
     NiTransformInterpolatorBuf* buf = static_cast<NiTransformInterpolatorBuf*>(inbuf);
 
-    if (!ti) {
-        niflydll::LogWrite("ERROR: Node is not a NiTransformInterpolator.");
-        return 1;
-    }
+    CheckID(ti);
 
-    if (buf->bufSize != sizeof(NiTransformInterpolatorBuf)) {
-        niflydll::LogWrite("ERROR: NiTransformInterpolator buffer wrong size.");
-        return 2;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiTransformInterpolatorBufType, NiTransformInterpolatorBuf);
 
     for (int i=0; i < 3; i++) buf->translation[i] = ti->translation[i];
     buf->rotation[0] = ti->rotation.w;
@@ -3591,10 +3258,7 @@ int addTransformInterpolator(void* nifref, const char* name, void* inbuf, uint32
     NiHeader* hdr = &nif->GetHeader();
     NiTransformInterpolatorBuf* buf = static_cast<NiTransformInterpolatorBuf*>(inbuf);
 
-    if (buf->bufSize != sizeof(NiTransformInterpolatorBuf)) {
-        niflydll::LogWrite("ERROR: NiTransformInterpolatorBuf buffer wrong size.");
-        return NIF_NPOS;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiTransformInterpolatorBufType, NiTransformInterpolatorBuf);
 
     auto ti = std::make_unique<NiTransformInterpolator>();
 
@@ -3616,15 +3280,9 @@ int getMultiTargetTransformController(void* nifref, uint32_t mttcID, void* inbuf
     NiMultiTargetTransformController* mttc 
         = hdr.GetBlock<NiMultiTargetTransformController>(uint32_t(mttcID));
 
-    if (!mttc) {
-        niflydll::LogWrite("ERROR: Node is not a NiMultiTargetTransformController.");
-        return 1;
-    }
+    CheckID(mttc);
 
-    if (buf->bufSize != sizeof(NiMultiTargetTransformControllerBuf)) {
-        niflydll::LogWrite("ERROR: NiMultiTargetTransformController buffer wrong size.");
-        return 2;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiMultiTargetTransformControllerBufType, NiMultiTargetTransformControllerBuf);
 
     buf->nextControllerID = mttc->nextControllerRef.index;
     buf->flags = mttc->flags;
@@ -3643,10 +3301,7 @@ int addMultiTargetTransformController(void* nifref, const char* name, void* inbu
     NiHeader* hdr = &nif->GetHeader();
     NiMultiTargetTransformControllerBuf* buf = static_cast<NiMultiTargetTransformControllerBuf*>(inbuf);
 
-    if (buf->bufSize != sizeof(NiMultiTargetTransformControllerBuf)) {
-        niflydll::LogWrite("ERROR: NiMultiTargetTransformControllerBuf buffer wrong size.");
-        return NIF_NPOS;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiMultiTargetTransformControllerBufType, NiMultiTargetTransformControllerBuf);
 
     auto mttc = std::make_unique<NiMultiTargetTransformController>();
     mttc->nextControllerRef.index = buf->nextControllerID;
@@ -3670,15 +3325,9 @@ int getTransformController(void* nifref, uint32_t nodeIndex, void* inbuf)
     NiTransformControllerBuf* buf = static_cast<NiTransformControllerBuf*>(inbuf);
     NiTransformController* sh = hdr->GetBlock<NiTransformController>(nodeIndex);
 
-    if (!sh) {
-        niflydll::LogWrite("ERROR: Node is not a NiTransformController.");
-        return 1;
-    }
+    CheckID(sh);
 
-    if (buf->bufSize != sizeof(NiTransformControllerBuf)) {
-        niflydll::LogWrite("ERROR: NiTransformControllerBuf buffer wrong size.");
-        return 2;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiTransformControllerBufType, NiTransformControllerBuf);
 
     buf->flags = sh->flags;
     buf->frequency = sh->frequency;
@@ -3698,10 +3347,7 @@ int addTransformController(void* nifref, const char* name, void* b, uint32_t par
     NiHeader* hdr = &nif->GetHeader();
     NiTransformControllerBuf* buf = static_cast<NiTransformControllerBuf*>(b);
 
-    if (buf->bufSize != sizeof(NiTransformControllerBuf)) {
-        niflydll::LogWrite("ERROR: NiTransformControllerBuf buffer wrong size.");
-        return NIF_NPOS;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiTransformControllerBufType, NiTransformControllerBuf);
     auto sh = std::make_unique<NiTransformController>();
     sh->flags = buf->flags;
     sh->frequency = buf->frequency;
@@ -3730,15 +3376,9 @@ int getTransformData(void* nifref, uint32_t nodeIndex, void* inbuf)
     nifly::NiTransformData* sh = hdr->GetBlock<NiTransformData>(nodeIndex);
     NiTransformDataBuf* buf = static_cast<NiTransformDataBuf*>(inbuf);
 
-    if (!sh) {
-        niflydll::LogWrite("ERROR: Node is not a NiTransformData.");
-        return 1;
-    }
+    CheckID(sh);
 
-    if (buf->bufSize != sizeof(NiTransformDataBuf)) {
-        niflydll::LogWrite("ERROR: NiTransformData buffer wrong size.");
-        return 2;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiTransformDataBufType, NiTransformDataBuf);
 
     buf->rotationType = sh->rotationType;
     buf->quaternionKeyCount = uint32_t(sh->quaternionKeys.size());
@@ -3766,10 +3406,7 @@ int addTransformData(void* nifref, const char* name, void* b, uint32_t parent)
     NiHeader* hdr = &nif->GetHeader();
     NiTransformDataBuf* buf = static_cast<NiTransformDataBuf*>(b);
     
-    if (buf->bufSize != sizeof(NiTransformDataBuf)) {
-        niflydll::LogWrite("ERROR: NiTransformDataBuf buffer wrong size.");
-        return NIF_NPOS;
-    }
+    CheckBuf(buf, BUFFER_TYPES::NiTransformDataBufType, NiTransformDataBuf);
 
     auto sh = std::make_unique<NiTransformData>();
 
@@ -4075,6 +3712,11 @@ BlockGetterFunction getterFunctions[] = {
     getCollSphereShapeProps, //bhkSphereShapeBufType
     getBSMeshLODTriShape,
     getNiShader, //NiShaderBufType
+    getNiAlphaProperty, //NiAlphaPropertyBuf
+    getNiShape, //BSDynamicTriShapeBufType,
+    getNiShape, //BSTriShapeBufType,
+    getNiShape, //BSSubIndexTriShape
+    getNiShader, //BSEffectShaderPropertyBufType
     nullptr
 };
 
@@ -4123,7 +3765,11 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //bhkSphereShapeBufType
     nullptr, //BSMeshLODTriShapeBufType
     nullptr, //NiShaderBufType
-    nullptr 
+    nullptr, //NiAlphaPropertyBufType
+    nullptr, //BSDynamicTriShapeBufType,
+    nullptr, //BSTriShapeBufType,
+    nullptr, //BSSubIndexTriShape
+    nullptr
 };
 
 NIFLY_API int setBlock(void* f, int id, void* buf)
@@ -4168,7 +3814,13 @@ BlockCreatorFunction creatorFunctions[] = {
     nullptr, //bhkSimpleShapePhantomBufType
     nullptr, //bhkSphereShapeBufType
     nullptr, // BSMeshLODTriShapeBufType
-    setNiShader //NiShaderBufType
+    setNiShader,  //NiShaderBufType
+    setNiAlphaProperty, //NiAlphaPropertyBuf
+    nullptr, //BSDynamicTriShapeBufType,
+    nullptr, //BSTriShapeBufType,
+    nullptr, //BSSubIndexTriShape
+    setNiShader, //BSEffectShaderPropertyBufType
+    nullptr
 };
 
 NIFLY_API int addBlock(void* f, const char* name, void* buf, int parent) {

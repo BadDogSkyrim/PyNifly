@@ -12,6 +12,7 @@
 #include "NifFile.hpp"
 #include "NifUtil.hpp"
 #include "Anim.h"
+#include "NiflyDefs.hpp"
 #include "NiflyFunctions.hpp"
 
 using namespace nifly;
@@ -265,13 +266,13 @@ void GetPartitions(
 	indices = triParts;
 }
 
-NiShape* PyniflyCreateShapeFromData(NifFile* nif, 
+NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 	const std::string& shapeName,
+	NiShapeBuf* buf,
 	const std::vector<Vector3>* v,
 	const std::vector<Triangle>* t,
 	const std::vector<Vector2>* uv,
 	const std::vector<Vector3>* norms,
-	uint32_t options,
 	NiNode* parentRef
 /* 
 	Copy of the nifly routine but handles BSDynamicTriShapes and BSEffectShaderProperties,
@@ -296,7 +297,7 @@ NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 		std::unique_ptr<BSTriShape> triShape;
 		bool isSkinned = false;
 
-		if (options & 1) {
+		if (buf->bufType == BUFFER_TYPES::BSDynamicTriShapeBufType) {
 			triShape = std::make_unique<BSDynamicTriShape>();
 			isSkinned = true; // If a headpart, it's skinned
 		}
@@ -325,7 +326,7 @@ NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 	else if (version.IsFO4() || version.IsFO76()) {
 		std::unique_ptr<BSTriShape> triShape;
 
-		if (options & 2) {
+		if (buf->bufType == BUFFER_TYPES::BSTriShapeBufType) {
 			// Need to make a BSTriShape
 			triShape = std::make_unique<BSTriShape>();
 		}
@@ -337,7 +338,7 @@ NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 		triShape->name.get() = shapeName;
 
 		std::unique_ptr<BSShaderProperty> nifShader;
-		if (options & 4) {
+		if (0) { // (options & 4) {
 			// Make a BSEffectShader
 			nifShader = std::make_unique<BSEffectShaderProperty>();
 		}

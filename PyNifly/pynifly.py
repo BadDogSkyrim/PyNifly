@@ -38,7 +38,16 @@ def load_nifly(nifly_path):
     nifly.clearMessageLog.restype = None
     nifly.createNif.argtypes = [c_char_p, c_char_p, c_char_p]
     nifly.createNif.restype = c_void_p
-    nifly.createNifShapeFromData.argtypes = [c_void_p, c_char_p, c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_void_p]
+    nifly.createNifShapeFromData.argtypes = [
+        c_void_p, # nif
+        c_char_p, # name
+        c_void_p, # buffer
+        c_void_p, # verts
+        c_void_p, # UV
+        c_void_p, # normals
+        c_void_p, # tris
+        c_void_p # parent
+        ]
     nifly.createNifShapeFromData.restype = c_void_p
     nifly.destroy.argtypes = [c_void_p]
     nifly.destroy.restype = None
@@ -48,8 +57,6 @@ def load_nifly(nifly_path):
     nifly.findNodesByType.restype = c_int
     nifly.getAllShapeNames.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getAllShapeNames.restype = c_int
-    nifly.getAlphaProperty.argtypes = [c_void_p, c_void_p, AlphaPropertyBuf_p]
-    nifly.getAlphaProperty.restype = c_int
     nifly.getAnimKeyLinearQuat.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyLinearQuatBuf)]
     nifly.getAnimKeyLinearQuat.restype = None
     nifly.getAnimKeyLinearTrans.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyLinearTransBuf)]
@@ -180,8 +187,6 @@ def load_nifly(nifly_path):
     nifly.saveNif.restype = c_int
     nifly.segmentCount.argtypes = [c_void_p, c_void_p]
     nifly.segmentCount.restype = c_int
-    nifly.setAlphaProperty.argtypes = [c_void_p, c_void_p, AlphaPropertyBuf_p]
-    nifly.setAlphaProperty.restype = None
     nifly.setBGExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
     nifly.setBGExtraData.restype = None
     nifly.setBlock.argtypes = [c_void_p, c_int, c_void_p] 
@@ -1807,22 +1812,25 @@ class NiShape(NiNode):
 
     @property
     def has_alpha_property(self):
-        if self._alpha:
-            return True
-        buf = AlphaPropertyBuf()
-        return NifFile.nifly.getAlphaProperty(self.file._handle, self._handle, byref(buf))
-        
+        return self.alpha_property != None
+    
+    @has_alpha_property.setter
+    def has_alpha_property(self, val):
+        if val and not self._alpha:
+            self._alpha = AlphaPropertyBuf()
+    
     @property
     def alpha_property(self):
-        if self._alpha is None:
+        if self._alpha is None and self.properties.alphaPropertyID != NODEID_NONE:
             buf = AlphaPropertyBuf()
-            NifFile.nifly.getAlphaProperty(self.file._handle, self._handle, byref(buf))
+            NifFile.nifly.getBlock(self.file._handle, self.properties.alphaPropertyID, byref(buf))
             self._alpha = buf
         return self._alpha
 
     def save_alpha_property(self):
         if self._alpha:
-            NifFile.nifly.setAlphaProperty(self.file._handle, self._handle, byref(self._alpha))
+            NifFile.nifly.addBlock(self.file._handle, None, 
+                                   byref(self._alpha), self.id)
 
     @property
     def bone_names(self):
@@ -2211,7 +2219,9 @@ class NifFile:
         return NiNode(handle=nodeh, file=self, parent=parent)
 
     def createShapeFromData(self, shape_name, verts, tris, uvs, normals, 
-                            is_headpart=False, is_skinned=False, is_effectsshader=False,
+                            props:NiShapeBuf=None,
+                            use_type=PynBufferTypes.NiShapeBufType, 
+                            #is_skinned=False, is_effectsshader=False,
                             parent=None):
         """ Create the shape from the data provided
             shape_name = Name of shape
@@ -2221,9 +2231,14 @@ class NifFile:
             normals = [(x, y, z)...] UVs, as many as there are verts
             parent = Parent object or root
             """
+        shapebuf = props if props else NiShapeBuf()
+        shapebuf.vertexCount = len(verts)
+        shapebuf.triangleCount = len(tris)
+
         parenthandle = None
         if parent:
             parenthandle = parent._handle
+
         VERTBUFDEF = c_float * 3 * len(verts)
         vertbuf = VERTBUFDEF()
         normbuf = None
@@ -2235,29 +2250,32 @@ class NifFile:
             norm_len = len(normals)
             for i in range(norm_len):
                 normbuf[i] = normals[i]
+        
         TRIBUFDEF = c_uint16 * 3 * len(tris)
         tribuf = TRIBUFDEF()
         for i, t in enumerate(tris): tribuf[i] = t
+
         UVBUFDEF = c_float * 2 * len(uvs)
         uvbuf = UVBUFDEF()
         for i, u in enumerate(uvs): uvbuf[i] = (u[0], 1-u[1])
-        optbuf = (c_uint16 * 1)()
-        optbuf[0] = (1 if is_headpart else 0) \
-            + (2 if not is_skinned else 0) \
-            + (4 if is_effectsshader else 0)
+
+        shapebuf.bufType = use_type
+
         shape_handle = NifFile.nifly.createNifShapeFromData(
             self._handle, 
             shape_name.encode('utf-8'), 
-            vertbuf, uvbuf, normbuf, len(verts),
-            tribuf, len(tris), 
-            optbuf,
+            byref(shapebuf),
+            vertbuf, uvbuf, normbuf, 
+            tribuf, 
             parenthandle)
+        
         if self._shapes is None:
             self._shapes = []
         sh = NiShape(handle=shape_handle, file=self, parent=parent)
         sh.name = shape_name
         self._shapes.append(sh)
         sh._handle = shape_handle
+
         return sh
 
     @property
@@ -2656,8 +2674,10 @@ class ModuleTest:
                                                 old_shape.tris,
                                                 uv_inv,
                                                 old_shape.normals,
-                                                is_skinned=skinned, 
-                                                is_effectsshader=effectsshader)
+                                                use_type=old_shape.properties.bufType,
+                                                #is_skinned=skinned, 
+                                                #is_effectsshader=effectsshader
+                                                )
         new_shape.transform = old_shape.transform.copy()
         oldxform = old_shape.global_to_skin
         if oldxform is None:
@@ -2718,6 +2738,7 @@ class ModuleTest:
 
         alpha = AlphaPropertyBuf()
         if old_shape.has_alpha_property:
+            new_shape.has_alpha_property = True
             new_shape.alpha_property.flags = old_shape.alpha_property.flags
             new_shape.alpha_property.threshold = old_shape.alpha_property.threshold
             new_shape.save_alpha_property()
@@ -2908,7 +2929,7 @@ class ModuleTest:
         # Skyrim and FO4 work the same way
         newf2 = NifFile()
         newf2.initialize("FO4", "tests/out/testnew02.nif")
-        newf2.createShapeFromData("FirstShape", verts, tris, uvs, norms, is_skinned=False)
+        newf2.createShapeFromData("FirstShape", verts, tris, uvs, norms) # , is_skinned=False)
         newf2.save()
 
         newf2_in = NifFile("tests/out/testnew02.nif")
@@ -3971,6 +3992,7 @@ class ModuleTest:
         boxcheck = bodycheck.shape
         assert [round(x, 4) for x in boxcheck.properties.bhkDimensions] == [0.1574, 0.8238, 0.0136], f"Collision body shape dimensions written correctly"
 
+
     def TEST_CONVEX():
         """Can read and write convex collisions"""
         nif = NifFile(r"tests/Skyrim/cheesewedge01.nif")
@@ -4452,18 +4474,31 @@ class ModuleTest:
     
     def TEST_TREE():
         """Test that the special nodes for trees work correctly."""
+
+        def check_tree(nifcheck):
+            assert nifcheck.rootNode.blockname == "BSLeafAnimNode", f"Have correct root node type"
+
+            tree = nifcheck.shapes[0]
+            assert tree.blockname == "BSMeshLODTriShape", f"Have correct shape node type"
+            assert tree.shader_attributes.shaderflags2_test(ShaderFlags2.TREE_ANIM), f"Tree animation set"
+            assert tree.properties.vertexCount == 1059, f"Have correct vertex count"
+            assert tree.properties.lodSize0 == 1126, f"Have correct lodSize0"
+
         testfile = ModuleTest.test_file(r"tests\FO4\TreeMaplePreWar01Orange.nif")
         outfile = ModuleTest.test_file(r"tests/Out/TEST_TREE.nif")
 
         nif = NifFile(testfile)
-        assert nif.rootNode.blockname == "BSLeafAnimNode", f"Have correct root node type"
+        check_tree(nif)
 
-        tree = nif.shapes[0]
-        assert tree.blockname == "BSMeshLODTriShape", f"Have correct shape node type"
-        assert tree.shader_attributes.shaderflags2_test(ShaderFlags2.TREE_ANIM), f"Tree animation set"
-        assert tree.properties.vertexCount == 1059, f"Have correct vertex count"
-        assert tree.properties.lodSize0 == 1126, f"Have correct lodSize0"
+        print(f"--------write")
+        nifOut = NifFile()
+        nifOut.initialize('FO4', outfile, nif.rootNode.blockname, nif.rootNode.name)
+        ModuleTest.export_shape(nif.shapes[0], nifOut)
+        nifOut.save()
 
+        print(f"--------check")
+        nifCheck = NifFile(outfile)
+        check_tree(nifCheck)
 
     
     @property
@@ -4474,14 +4509,14 @@ class ModuleTest:
     def execute_test(self, t):
         print(f"\n------------- {t} -------------")
         ModuleTest.__dict__[t]()
-        print(f"--------------------------")
+        print(f"--------done")
 
     
     def execute_all(self, start=None):
         print("""\n
-=========================================
-========= Running pynifly tests =========
-=========================================
+=====================================================================
+======================= Running pynifly tests =======================
+=====================================================================
 
 """)
         
@@ -4493,9 +4528,9 @@ class ModuleTest:
 
         print("""
 
-================================================
-========= TESTS COMPLETED SUCCESSFULLY =========
-================================================
+============================================================================
+======================= TESTS COMPLETED SUCCESSFULLY =======================
+============================================================================
 """)
 
 
@@ -4511,9 +4546,9 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    tester.execute_all()
-    # tester.execute_all(start='TEST_SHADER')
-    # tester.execute_test('TEST_TREE')
+    # tester.execute_all()
+    # tester.execute_all(start='TEST_2_TAILS')
+    tester.execute_test('TEST_TREE')
 
 
 
