@@ -850,6 +850,13 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     NiShape* newShape = PyniflyCreateShapeFromData(nif, shapeName, 
             buf, &v, &t, &uv, &n, parent);
 
+    if (buf->bufType == BSMeshLODTriShapeBufType) {
+        BSMeshLODTriShape* meshShape = static_cast<BSMeshLODTriShape*>(newShape);
+        BSMeshLODTriShapeBuf* meshBuf = static_cast<BSMeshLODTriShapeBuf*>(buf);
+        meshShape->lodSize0 = meshBuf->lodSize0;
+        meshShape->lodSize1 = meshBuf->lodSize1;
+        meshShape->lodSize2 = meshBuf->lodSize2;
+    }
     return newShape;
 }
 

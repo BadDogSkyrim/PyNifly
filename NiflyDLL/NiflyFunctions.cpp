@@ -330,6 +330,9 @@ NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 			// Need to make a BSTriShape
 			triShape = std::make_unique<BSTriShape>();
 		}
+		else if (buf->bufType == BUFFER_TYPES::BSMeshLODTriShapeBufType) {
+			triShape = std::make_unique<BSMeshLODTriShape>();
+		}
 		else {
 			triShape = std::make_unique<BSSubIndexTriShape>();
 		}

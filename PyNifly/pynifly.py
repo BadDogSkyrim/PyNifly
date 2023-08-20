@@ -2229,9 +2229,15 @@ class NifFile:
             tris = [(v1, v2, v3)...] triangles
             uvs = [(u, v)...] uvs, as many as there are verts
             normals = [(x, y, z)...] UVs, as many as there are verts
+            props = Properties for the new shape; use defaults if omitted
+            use_tyep = Block type for the new shape; only used if props omitted
             parent = Parent object or root
             """
-        shapebuf = props if props else NiShapeBuf()
+        if props:
+            shapebuf = props
+        else:
+            shapebuf = NiShapeBuf()
+            shapebuf.bufType = use_type
         shapebuf.vertexCount = len(verts)
         shapebuf.triangleCount = len(tris)
 
@@ -2258,8 +2264,6 @@ class NifFile:
         UVBUFDEF = c_float * 2 * len(uvs)
         uvbuf = UVBUFDEF()
         for i, u in enumerate(uvs): uvbuf[i] = (u[0], 1-u[1])
-
-        shapebuf.bufType = use_type
 
         shape_handle = NifFile.nifly.createNifShapeFromData(
             self._handle, 
@@ -2669,12 +2673,15 @@ class ModuleTest:
         # Somehow the UV needs inversion. Probably a bug but we've lived with it so long...
         uv_inv = [(x, 1-y) for x, y in old_shape.uvs]
 
+        # new_props = old_shape.properties.copy()
+        # new_props.nameID = new_props.controllerID = new_props.skinInstanceID = NODEID_NONE
+        # new_props.shaderPropertyID = new_props.alphaPropertyID = NODEID_NONE
         new_shape = new_nif.createShapeFromData(old_shape.name + ".Out", 
                                                 old_shape.verts,
                                                 old_shape.tris,
                                                 uv_inv,
                                                 old_shape.normals,
-                                                use_type=old_shape.properties.bufType,
+                                                use_type = old_shape.properties.bufType,
                                                 #is_skinned=skinned, 
                                                 #is_effectsshader=effectsshader
                                                 )
@@ -3084,7 +3091,7 @@ class ModuleTest:
         ftxf = the_armor.get_shape_skin_to_bone('NPC L ForearmTwist1 [LLt1]')
         ftxf01 = armor01.get_shape_skin_to_bone('NPC L ForearmTwist1 [LLt1]')
         assert int(ftxf01.translation[2]) == -5, \
-            f"ERROR: Skin transform Z should be -5.0, have {xf}"
+            f"ERROR: Skin transform Z should be -5.0, have {ftxf01.translation}"
         assert ftxf.NearEqual(ftxf01), f"ERROR: Skin-to-bone differs: {ftxf01}"
         
 

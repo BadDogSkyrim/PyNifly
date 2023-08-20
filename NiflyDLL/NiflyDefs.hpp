@@ -294,6 +294,12 @@ struct BSMeshLODTriShapeBuf : NiShapeBuf {
 	uint32_t lodSize0 = 0;
 	uint32_t lodSize1 = 0;
 	uint32_t lodSize2 = 0;
+
+	BSMeshLODTriShapeBuf() 
+	{
+		bufSize = sizeof(BSMeshLODTriShapeBuf);
+		bufType = BUFFER_TYPES::BSMeshLODTriShapeBufType;
+	}
 };
 
 struct NiAlphaPropertyBuf {

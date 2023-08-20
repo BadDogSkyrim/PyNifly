@@ -766,7 +766,8 @@ class PynBufferTypes(IntEnum):
     BSDynamicTriShapeBufType = 30
     BSTriShapeBufType = 31
     BSSubIndexTriShapeBufType = 32
-    COUNT = 33
+    BSEffectShaderPropertyBufType = 33
+    COUNT = 34
 
 bufferTypeList = [''] * PynBufferTypes.COUNT
 

@@ -367,38 +367,52 @@ void TCopyExtraData(void* targetNif, void* targetShape, void* sourceNif, void* s
 void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* sourceShape,
 			NifOptions options=NifOptions(0), bool doPartitions = 1, void* parent = nullptr) {
 	int sourceShapeID = getBlockID(sourceNif, sourceShape);
-	NiShapeBuf sourceBuf;
+	char sourceBlockname[100];
+	NiShapeBuf shapeBuf, outBuf;
+	BSMeshLODTriShapeBuf meshShapeBuf, meshOutBuf;
+	NiShapeBuf* sourceBufRef, *outBufRef;
 	NiShaderBuf sourceShader;
-	getBlock(sourceNif, sourceShapeID, &sourceBuf);
-	getBlock(sourceNif, sourceBuf.shaderPropertyID, &sourceShader);
 
-	Vector3* verts = new Vector3[sourceBuf.vertexCount];
-	getVertsForShape(sourceNif, sourceShape, verts, sourceBuf.vertexCount*3, 0);
+	getBlockname(sourceNif, sourceShapeID, sourceBlockname, 100);
+	if (strcmp(sourceBlockname, "BSMeshLODTriShape") == 0) {
+		getBlock(sourceNif, sourceShapeID, &meshShapeBuf);
+		meshOutBuf = meshShapeBuf;
+		sourceBufRef = &meshShapeBuf;
+		outBufRef = &meshOutBuf;
+	}
+	else {
+		getBlock(sourceNif, sourceShapeID, &shapeBuf);
+		outBuf = shapeBuf;
+		sourceBufRef = &shapeBuf;
+		outBufRef = &outBuf;
+	}
+	getBlock(sourceNif, sourceBufRef->shaderPropertyID, &sourceShader);
+
+	Vector3* verts = new Vector3[sourceBufRef->vertexCount];
+	getVertsForShape(sourceNif, sourceShape, verts, sourceBufRef->vertexCount*3, 0);
 
 	int triLen = getTriangles(sourceNif, sourceShape, nullptr, 0, 0);
-	Triangle* tris = new Triangle[sourceBuf.triangleCount];
-	getTriangles(sourceNif, sourceShape, tris, sourceBuf.triangleCount * 3, 0);
+	Triangle* tris = new Triangle[sourceBufRef->triangleCount];
+	getTriangles(sourceNif, sourceShape, tris, sourceBufRef->triangleCount * 3, 0);
 
-	Vector2* uvs = new Vector2[sourceBuf.vertexCount * 2];
-	getUVs(sourceNif, sourceShape, uvs, sourceBuf.vertexCount * 2, 0);
+	Vector2* uvs = new Vector2[sourceBufRef->vertexCount * 2];
+	getUVs(sourceNif, sourceShape, uvs, sourceBufRef->vertexCount * 2, 0);
 
 	Vector3* norms = nullptr;
 	//uint32_t f1 = getShaderFlags1(sourceNif, sourceShape);
 	if (!(sourceShader.Shader_Flags_1 & uint32_t(ShaderProperty1::MODEL_SPACE_NORMALS))) {
-		norms = new Vector3[sourceBuf.vertexCount * 3];
-		getNormalsForShape(sourceNif, sourceShape, norms, sourceBuf.vertexCount * 3, 0);
+		norms = new Vector3[sourceBufRef->vertexCount * 3];
+		getNormalsForShape(sourceNif, sourceShape, norms, sourceBufRef->vertexCount * 3, 0);
 	};
 
-	NiShapeBuf outBuf;
-	outBuf = sourceBuf;
-	void* targetShape = createNifShapeFromData(targetNif, shapeName, &outBuf,
+	void* targetShape = createNifShapeFromData(targetNif, shapeName, outBufRef,
 		verts, uvs, norms, tris, parent);
 
 	//uint32_t f2 = getShaderFlags2(sourceNif, sourceShape);
 	if (sourceShader.Shader_Flags_2 & uint32_t(ShaderProperty2::VERTEX_COLORS)) {
-		Color4* colors = new Color4[sourceBuf.vertexCount];
-		getColorsForShape(sourceNif, sourceShape, colors, sourceBuf.vertexCount *4);
-		setColorsForShape(targetNif, targetShape, colors, sourceBuf.vertexCount);
+		Color4* colors = new Color4[sourceBufRef->vertexCount];
+		getColorsForShape(sourceNif, sourceShape, colors, sourceBufRef->vertexCount *4);
+		setColorsForShape(targetNif, targetShape, colors, sourceBufRef->vertexCount);
 	}
 
 	if (hasSkinInstance(sourceShape)) {
@@ -3770,20 +3784,54 @@ namespace NiflyDLLTests
 			getNodeName(rootcheck, namebuf, 64);
 			Assert::IsTrue(strcmp(namebuf, "TestKF") == 0, L"Have correct node name");
 		};
-		TEST_METHOD(readWriteTree) {
-			void* nif = load((testRoot / "FO4/TreeMaplePreWar01Orange.nif").u8string().c_str());
+		struct TreeData {
 			void* shapes[10];
-			getShapes(nif, shapes, 10, 0);
-
-			int id = getBlockID(nif, shapes[0]);
-
+			char rootBlockName[100];
+			NiNodeBuf rootBuf;
+			char rootName[100];
+			char shapeBlockName[100];
 			BSMeshLODTriShapeBuf buf;
-			buf.bufType = BUFFER_TYPES::BSMeshLODTriShapeBufType;
-			buf.bufSize = sizeof(BSMeshLODTriShapeBuf);
-			getBlock(nif, id, &buf);
+			int shapeID;
+		};
+		void TCheckTree(void* nif, TreeData& td) {
 
-			Assert::IsTrue(buf.vertexCount == 1059, L"Have correct number of vertices");
-			Assert::IsTrue(buf.lodSize0 == 1126, L"Have correct number of vertices");
+			getBlockname(nif, 0, td.rootBlockName, 100);
+			getBlock(nif, 0, &td.rootBuf);
+			getString(nif, td.rootBuf.nameID, 100, td.rootName);
+			Assert::AreEqual("BSLeafAnimNode", td.rootBlockName, L"Have correct root type");
+			Assert::AreEqual("TreeMaplePreWar01Orange", td.rootName, L"Have correct root name");
+
+			int shapeCount = getShapes(nif, td.shapes, 10, 0);
+			Assert::AreEqual(1, shapeCount, L"Have one shape");
+
+			td.buf.bufType = BUFFER_TYPES::BSMeshLODTriShapeBufType;
+			td.buf.bufSize = sizeof(BSMeshLODTriShapeBuf);
+
+			td.shapeID = getBlockID(nif, td.shapes[0]);
+			getBlockname(nif, td.shapeID, td.shapeBlockName, 100);
+			getBlock(nif, td.shapeID, &td.buf);
+
+			Assert::AreEqual("BSMeshLODTriShape", td.shapeBlockName, L"Have correct shape type");
+			Assert::AreEqual(int(BUFFER_TYPES::BSMeshLODTriShapeBufType), int(td.buf.bufType), L"Have correct buffer type");
+			Assert::AreEqual(1059, int(td.buf.vertexCount), L"Have correct number of vertices");
+			Assert::AreEqual(1126, int(td.buf.lodSize0), L"Have correct lodSize0");
+		}
+		TEST_METHOD(readWriteTree) {
+			std::filesystem::path testfile = testRoot / "FO4" / "TreeMaplePreWar01Orange.nif";
+			std::filesystem::path outfile = testRoot / "Out" / "testWrapper_readWriteTree.nif";
+			TreeData tree, treeCheck;
+
+			void* nif = load(testfile.u8string().c_str());
+			TCheckTree(nif, tree);
+
+			void* nifOut = createNif("FO4", "BSLeafAnimNode", "TreeMaplePreWar01Orange");
+			void* shapeOut = TCopyShape(nifOut, "TreeMaplePreWar01Orange:0 - L2_TreeMaplePreWar01Orange:0", nif, tree.shapes[0]);
+			TCopyShader(nifOut, shapeOut, nif, tree.shapes[0]);
+
+			saveNif(nifOut, outfile.u8string().c_str());
+
+			void* nifCheck = load(outfile.u8string().c_str());
+			TCheckTree(nifCheck, treeCheck);
 		};
 	};
 }
