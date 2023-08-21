@@ -1247,7 +1247,7 @@ int getNiShader(void* nifref, uint32_t id, void* buffer)
     }
     if (bsesp) {
         buf->bufType = BUFFER_TYPES::BSEffectShaderPropertyBufType;
-        buf->Tex_Clamp_Mode = bsesp->textureClampMode;
+        buf->Tex_Clamp_Mode = bsesp->textureClampMode & 0xFF;
         //buf->Lighting_Influence = bsesp->light;
         //buf->Env_Map_Min_LOD = bsesp->getEnvmapMinLOD();
         buf->Falloff_Start_Angle = bsesp->falloffStartAngle;

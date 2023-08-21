@@ -1778,6 +1778,8 @@ class NiShape(NiNode):
     def shader_attributes(self) -> NiShaderBuf:
         if self._shader_attrs is None:
             self._shader_attrs = NiShaderBuf()
+            if self.shader_block_name == "BSEffectShaderProperty":
+                self._shader_attrs.bufType = PynBufferTypes.BSEffectShaderPropertyBufType
             NifFile.nifly.getBlock(self.file._handle, self.properties.shaderPropertyID, byref(self._shader_attrs))
             # if self.shader_block_name == "BSLightingShaderProperty":
             #     buf = NiShaderBuf()
@@ -2676,11 +2678,15 @@ class ModuleTest:
         # new_props = old_shape.properties.copy()
         # new_props.nameID = new_props.controllerID = new_props.skinInstanceID = NODEID_NONE
         # new_props.shaderPropertyID = new_props.alphaPropertyID = NODEID_NONE
+        new_prop:NiShapeBuf = old_shape.properties.copy()
+        new_prop.nameID = new_prop.conrollerID = new_prop.collisionID = NODEID_NONE
+        new_prop.skinInstanceID = new_prop.shaderPropertyID = new_prop.alphaPropertyID = NODEID_NONE
         new_shape = new_nif.createShapeFromData(old_shape.name + ".Out", 
                                                 old_shape.verts,
                                                 old_shape.tris,
                                                 uv_inv,
                                                 old_shape.normals,
+                                                props=new_prop,
                                                 use_type = old_shape.properties.bufType,
                                                 #is_skinned=skinned, 
                                                 #is_effectsshader=effectsshader
@@ -2706,6 +2712,7 @@ class ModuleTest:
             new_shape.setShapeWeights(bone_name, weights)
 
         new_shape.shader_name = old_shape.shader_name
+        new_shape.shader_attributes.bufType = old_shape.shader_attributes.bufType
         new_shape.shader_attributes.Shader_Flags_1 = old_shape.shader_attributes.Shader_Flags_1
         new_shape.shader_attributes.Shader_Flags_2 = old_shape.shader_attributes.Shader_Flags_2
         new_shape.shader_attributes.UV_Offset_U = old_shape.shader_attributes.UV_Offset_U
@@ -2936,7 +2943,8 @@ class ModuleTest:
         # Skyrim and FO4 work the same way
         newf2 = NifFile()
         newf2.initialize("FO4", "tests/out/testnew02.nif")
-        newf2.createShapeFromData("FirstShape", verts, tris, uvs, norms) # , is_skinned=False)
+        newf2.createShapeFromData("FirstShape", verts, tris, uvs, norms,
+                                  use_type=PynBufferTypes.BSTriShapeBufType) # , is_skinned=False)
         newf2.save()
 
         newf2_in = NifFile("tests/out/testnew02.nif")
@@ -3902,26 +3910,38 @@ class ModuleTest:
 
     def TEST_EFFECT_SHADER():
         """Can read and write shader flags"""
-        nif = NifFile(r"tests/FO4/Helmet.nif")
-        shape = nif.shapes[0]
-        assert shape.shader_block_name == "BSEffectShaderProperty", f"Expeted BSEffectShaderProperty, got {shape.shader_block_name}"
-        assert shape.shader_attributes.shaderflags1_test(ShaderFlags1.USE_FALLOFF), f"Expected USE_FALLOFF true, got {shape.shader_attributes.shaderflags1_test(ShaderFlags1.USE_FALLOFF)}"
+        testfile = r"tests/FO4/Helmet.nif"
+        outfile = r"tests\out\TEST_EFFECT_SHADER.nif"
 
-        assert shape.textures[0] == "Armor/FlightHelmet/Helmet_03_d.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_d.dds', got {shape.textures[0]}"
-        assert shape.textures[1] == "Armor/FlightHelmet/Helmet_03_n.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_n.dds', got {shape.textures[1]}"
-        assert shape.textures[5] == "Armor/FlightHelmet/Helmet_03_s.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_s.dds', got {shape.textures[5]}"
+        def CheckHelmet(nif):
+            glass:NiShape = next(s for s in nif.shapes if s.name.startswith("glass"))
+            assert glass.shader_block_name == "BSEffectShaderProperty", f"Expected BSEffectShaderProperty, got {glass.shader_block_name}"
+            assert glass.shader_name == r"Materials\Armor\FlightHelmet\glass.BGEM", "Have correct shader name"
+            assert glass.shader_attributes.shaderflags1_test(ShaderFlags1.USE_FALLOFF), f"Expected USE_FALLOFF true, got {glass.shader_attributes.shaderflags1_test(ShaderFlags1.USE_FALLOFF)}"
+            assert glass.shader_attributes.shaderflags1_test(ShaderFlags1.EXTERNAL_EMITTANCE)
+            assert not glass.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
+            assert glass.shader_attributes.shaderflags2_test(ShaderFlags2.EFFECT_LIGHTING)
+            assert not glass.shader_attributes.shaderflags2_test(ShaderFlags2.VERTEX_COLORS)
+
+            assert glass.shader_attributes.Tex_Clamp_Mode == 3
+            assert NearEqual(glass.shader_attributes.Falloff_Start_Opacity, 0.1)
+            assert NearEqual(glass.shader_attributes.Emissive_Mult, 1.0)
+
+            assert glass.textures[0] == "Armor/FlightHelmet/Helmet_03_d.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_d.dds', got {glass.textures[0]}"
+            assert glass.textures[1] == "Armor/FlightHelmet/Helmet_03_n.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_n.dds', got {glass.textures[1]}"
+            assert glass.textures[5] == "Armor/FlightHelmet/Helmet_03_s.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_s.dds', got {glass.textures[5]}"
+
+        nif = NifFile(testfile)
+        CheckHelmet(nif)
 
         """Can read and write shader"""
         nifOut = NifFile()
-        nifOut.initialize('FO4', r"tests\out\TEST_EFFECT_SHADER.nif")
+        nifOut.initialize('FO4', outfile)
         ModuleTest.export_shape(nif.shapes[0], nifOut)
         nifOut.save()
 
-        nifTest = NifFile(r"tests\out\TEST_EFFECT_SHADER.nif")
-        assert len(nifTest.shapes) == 1, f"Error: Expected 1 shape, found {len(nifTest.shapes)}"
-        shapeTest = nifTest.shapes[0]
-        attrsTest = shapeTest.shader_attributes
-        assert attrsTest == shape.shader_attributes, f"Error: Expected same shader attributes"
+        nifTest = NifFile(outfile)
+        CheckHelmet(nifTest)
 
 
     def TEST_BOW():
@@ -4497,13 +4517,13 @@ class ModuleTest:
         nif = NifFile(testfile)
         check_tree(nif)
 
-        print(f"--------write")
+        print(f"------------- write")
         nifOut = NifFile()
         nifOut.initialize('FO4', outfile, nif.rootNode.blockname, nif.rootNode.name)
         ModuleTest.export_shape(nif.shapes[0], nifOut)
         nifOut.save()
 
-        print(f"--------check")
+        print(f"------------- check")
         nifCheck = NifFile(outfile)
         check_tree(nifCheck)
 
@@ -4516,7 +4536,7 @@ class ModuleTest:
     def execute_test(self, t):
         print(f"\n------------- {t} -------------")
         ModuleTest.__dict__[t]()
-        print(f"--------done")
+        print(f"------------- done")
 
     
     def execute_all(self, start=None):
@@ -4553,9 +4573,9 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    # tester.execute_all()
-    # tester.execute_all(start='TEST_2_TAILS')
-    tester.execute_test('TEST_TREE')
+    tester.execute_all()
+    # tester.execute_all(start='TEST_EFFECT_SHADER')
+    # tester.execute_test('TEST_EFFECT_SHADER')
 
 
 

@@ -810,11 +810,11 @@ class NiShaderBuf(pynStructure):
         # BSEffectShaderProperty
         ('Lighting_Influence', c_char),
         ('Env_Map_Min_LOD', c_char),
-	    ('Falloff_Start_Angle', c_uint32),
-	    ('Falloff_Stop_Angle', c_uint32),
-	    ('Falloff_Start_Opacity', c_uint32),
-	    ('Falloff_Stop_Opacity', c_uint32),
-	    ('Soft_Falloff_Depth', c_uint32),
+	    ('Falloff_Start_Angle', c_float),
+	    ('Falloff_Stop_Angle', c_float),
+	    ('Falloff_Start_Opacity', c_float),
+	    ('Falloff_Stop_Opacity', c_float),
+	    ('Soft_Falloff_Depth', c_float),
         ]
     def __init__(self, values=None):
         super().__init__(values=values)
@@ -1316,6 +1316,8 @@ class NiShapeBuf(pynStructure):
         ("alphaPropertyID", c_uint32)
         ]
     def __init__(self, values=None):
+        self.nameID = self.controllerID = self.collisionID = NODEID_NONE
+        self.skinInstanceID = self.shaderPropertyID = self.alphaPropertyID = NODEID_NONE
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiShapeBufType
 bufferTypeList[PynBufferTypes.NiShapeBufType] = 'NiShape'

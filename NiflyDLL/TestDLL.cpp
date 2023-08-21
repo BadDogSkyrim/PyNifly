@@ -2434,58 +2434,90 @@ namespace NiflyDLLTests
 			void* nifcheck = load((testRoot / "Out/writeBadPartitions.nif").u8string().c_str());
 			getShapes(nifcheck, shapescheck, 10, 0);
 		};
-		TEST_METHOD(readWriteGlass) {
-			/* Test we can read and write BSEffectShaderProperty, used for glass */
-			void* nif;
+		void* TGetShape(void* nif, const char* targetName, NiShapeBuf& buf) 
+		/* Convenience routine. Find the shape with the name that starts with "targetName".
+			Return handle and fill the properties buffer. 
+			*/
+		{
 			void* shapes[10];
-			void* shape;
-			int shapeID;
+			char name[100];
+			int shapeCount = getShapes(nif, shapes, 10, 0);
+			for (int i = 0; i < shapeCount; i++) {
+				int id = getBlockID(nif, shapes[i]);
+				getBlock(nif, id, &buf);
+				if (buf.nameID != NIF_NPOS) {
+					getString(nif, buf.nameID, 100, name);
+					if (strncmp(name, targetName, strlen(targetName)) == 0)
+						return shapes[i];
+				}
+			}
+			return nullptr;
+		}
+		struct GlassBuf {
+			void* handle;
+			int id;
 			NiShapeBuf shapeBuf;
-			NiAlphaPropertyBuf alpha;
 			NiShaderBuf shaderBuf;
 			bool hasAlpha;
-			char shaderName[256];
-			char blockName[128];
+			NiAlphaPropertyBuf alpha;
+			char  shaderBlockName[128];
+			char  shaderName[256];
+		};
+		void TCheckHelmet(void* nif, GlassBuf& glass)
+		{
+			glass.handle = TGetShape(nif, "glass", glass.shapeBuf);
+			Assert::AreNotEqual(static_cast<void*>(nullptr), glass.handle);
 
-			nif = load((testRoot / "FO4/Helmet.nif").u8string().c_str());
-			getShapes(nif, shapes, 10, 0);
+			glass.id = getBlockID(nif, glass.handle);
+			getBlock(nif, glass.id, &glass.shapeBuf);
+			getBlock(nif, glass.shapeBuf.shaderPropertyID, &glass.shaderBuf);
 
-			shape = shapes[0];
-			shapeID = getBlockID(nif, shape);
-			getBlock(nif, shapeID, &shapeBuf);
-			getBlock(nif, shapeBuf.shaderPropertyID, &shaderBuf);
+			glass.hasAlpha = (glass.shapeBuf.alphaPropertyID != NIF_NPOS);
+			if (glass.hasAlpha) getBlock(nif, glass.shapeBuf.alphaPropertyID, &glass.alpha);
+			getBlockname(nif, glass.shapeBuf.shaderPropertyID, glass.shaderBlockName, 128);
+			getString(nif, glass.shaderBuf.nameID, 256, glass.shaderName);
 
-			hasAlpha = (shapeBuf.alphaPropertyID != NIF_NPOS);
-			if (hasAlpha) getBlock(nif, shapeBuf.alphaPropertyID, &alpha);
-			getBlockname(nif, shapeBuf.shaderPropertyID, blockName, 128);
-			getString(nif, shaderBuf.nameID, 256, shaderName);
-
-			Assert::IsTrue(strcmp(blockName, "BSEffectShaderProperty") == 0, 
+			Assert::IsTrue(strcmp(glass.shaderBlockName, "BSEffectShaderProperty") == 0,
 				L"Error did not find BSEffectShaderProperty");
 
-			Assert::IsTrue(strcmp(shaderName, "Materials\\Armor\\FlightHelmet\\glass.BGEM") == 0, L"Error: Not the right shader");
-			Assert::IsTrue(hasAlpha, L"Error: Should have alpha property");
-			Assert::IsTrue(alpha.flags == 4333, L"Error: Flags not correct");
-			Assert::IsTrue(alpha.threshold == 128, L"Error: Threshold not correct");
+			Assert::IsTrue(strcmp(glass.shaderName, "Materials\\Armor\\FlightHelmet\\glass.BGEM") == 0, L"Error: Not the right shader");
+			Assert::IsTrue(glass.hasAlpha, L"Error: Should have alpha property");
+			Assert::IsTrue(glass.alpha.flags == 4333, L"Error: Flags not correct");
+			Assert::IsTrue(glass.alpha.threshold == 128, L"Error: Threshold not correct");
 
-			NiShaderBuf attrs;
-			Assert::AreEqual(getBlock(nif, shapeBuf.shaderPropertyID, &attrs), 0, L"ERROR: Could not retrieve shader attributes");
-			Assert::IsTrue(attrs.Emissmive_Mult == 1.0, L"ERROR: Emissive multiple wrong");
-			Assert::IsTrue(attrs.Soft_Falloff_Depth == 100.0, L"ERROR: Soft falloff depth wrong");
+			Assert::AreEqual(getBlock(nif, glass.shapeBuf.shaderPropertyID, &glass.shaderBuf), 0, L"ERROR: Could not retrieve shader attributes");
+			Assert::AreEqual(1.0f, float(glass.shaderBuf.Emissmive_Mult), L"ERROR: Emissive multiple wrong");
+			Assert::AreEqual(100.0f, float(glass.shaderBuf.Soft_Falloff_Depth), L"ERROR: Soft falloff depth wrong");
+			Assert::AreEqual(3, int(glass.shaderBuf.Tex_Clamp_Mode));
+			Assert::AreEqual(0.1f, float(glass.shaderBuf.Falloff_Start_Opacity));
+			Assert::IsTrue(glass.shaderBuf.Shader_Flags_1 & uint32_t(ShaderProperty1::USE_FALLOFF));
+			Assert::IsTrue(glass.shaderBuf.Shader_Flags_1 & uint32_t(ShaderProperty1::EXTERNAL_EMITTANCE));
+			Assert::IsFalse(glass.shaderBuf.Shader_Flags_1 & uint32_t(ShaderProperty1::MODEL_SPACE_NORMALS));
+			Assert::IsTrue(glass.shaderBuf.Shader_Flags_2 & uint32_t(ShaderProperty2::EFFECT_LIGHTING));
+			Assert::IsFalse(glass.shaderBuf.Shader_Flags_2 & uint32_t(ShaderProperty2::VERTEX_COLORS));
 
 			char diff[256];
 			char env[256];
 			char norm[256];
 			char mask[256];
-			Assert::AreNotEqual(getShaderTextureSlot(nif, shape, 0, diff, 256), 0, L"ERROR: getting diffuse texture");
-			Assert::AreNotEqual(getShaderTextureSlot(nif, shape, 4, env, 256), 0, L"ERROR: getting env map texture");
-			Assert::AreNotEqual(getShaderTextureSlot(nif, shape, 1, norm, 256), 0, L"ERROR: getting normal map texture");
-			Assert::AreNotEqual(getShaderTextureSlot(nif, shape, 5, mask, 256), 0, L"ERROR: getting env mask texture");
+			Assert::AreNotEqual(getShaderTextureSlot(nif, glass.handle, 0, diff, 256), 0, L"ERROR: getting diffuse texture");
+			Assert::AreNotEqual(getShaderTextureSlot(nif, glass.handle, 4, env, 256), 0, L"ERROR: getting env map texture");
+			Assert::AreNotEqual(getShaderTextureSlot(nif, glass.handle, 1, norm, 256), 0, L"ERROR: getting normal map texture");
+			Assert::AreNotEqual(getShaderTextureSlot(nif, glass.handle, 5, mask, 256), 0, L"ERROR: getting env mask texture");
 
 			Assert::IsTrue(strcmp(diff, "Armor/FlightHelmet/Helmet_03_d.dds") == 0, L"ERROR: diffuse texture string not correct");
 			Assert::IsTrue(strcmp(env, "shared/cubemaps/shinyglass_e.dds") == 0, L"ERROR: env map texture string not correct");
 			Assert::IsTrue(strcmp(norm, "Armor/FlightHelmet/Helmet_03_n.dds") == 0, L"ERROR: normal map texture string not correct");
 			Assert::IsTrue(strcmp(mask, "Armor/FlightHelmet/Helmet_03_s.dds") == 0, L"ERROR: env mask texture string not correct");
+		}
+		TEST_METHOD(readWriteGlass) {
+			/* Test we can read and write BSEffectShaderProperty, used for glass */
+			void* nif;
+			void* shapes[10];
+			GlassBuf glass, glassTest;
+
+			nif = load((testRoot / "FO4/Helmet.nif").u8string().c_str());
+			TCheckHelmet(nif, glass);
 
 			/* ------------------------------------ */
 			/* Can write effects shaders out to nif */
@@ -2494,18 +2526,20 @@ namespace NiflyDLLTests
 
 			void* nifOut = createNif("FO4", "NiNode", "Scene Root");
 			NifOptions options = NifOptions::FO4EffectShader; 
-			void* shapeOut = TCopyShape(nifOut, "glass:0", nif, shape, options);
-			TCopyShader(nifOut, shapeOut, nif, shape);
+			void* shapeOut = TCopyShape(nifOut, "glass:0", nif, glass.handle, options);
+			TCopyShader(nifOut, shapeOut, nif, glass.handle);
 
 			saveNif(nifOut, testfileO.u8string().c_str());
 
 			// Checkhat we wrote is correct
 
 			void* nifTest = load(testfileO.u8string().c_str());
-			void* shapesTest[10];
-			int shapeCount = getShapes(nifTest, shapesTest, 10, 0);
+			TCheckHelmet(nifTest, glassTest);
 
-			TCompareShaders(nif, shape, nifTest, shapesTest[0]);
+			//void* shapesTest[10];
+			//int shapeCount = getShapes(nifTest, shapesTest, 10, 0);
+
+			//TCompareShaders(nif, shape, nifTest, shapesTest[0]);
 		};
 		TEST_METHOD(writeEmptySegments) {
 			/* Shape with a non-empty segment followed by empty segments writes correctly */
