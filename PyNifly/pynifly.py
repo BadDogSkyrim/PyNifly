@@ -1780,23 +1780,9 @@ class NiShape(NiNode):
             self._shader_attrs = NiShaderBuf()
             if self.shader_block_name == "BSEffectShaderProperty":
                 self._shader_attrs.bufType = PynBufferTypes.BSEffectShaderPropertyBufType
+            
             NifFile.nifly.getBlock(self.file._handle, self.properties.shaderPropertyID, byref(self._shader_attrs))
-            # if self.shader_block_name == "BSLightingShaderProperty":
-            #     buf = NiShaderBuf()
-            #     if NifFile.nifly.getShaderAttrs(self.file._handle, self._handle, 
-            #                                     byref(buf)) == 0:
-            #         self._shader_attrs = buf
-            #     else:
-            #         self._shader_attrs = NiShaderBuf()
-            # elif self.shader_block_name == "BSEffectShaderProperty":
-            #     buf = NiShaderBuf()
-            #     if NifFile.nifly.getEffectShaderAttrs(self.file._handle, self._handle,
-            #                                           byref(buf)) == 0:
-            #         self._shader_attrs = buf
-            #     else:
-            #         self._shader_attrs = BSESPAttrs()
-            # else:
-            #     self._shader_attrs = BSLSPAttrs()
+
         return self._shader_attrs
 
     def save_shader_attributes(self):
@@ -1805,12 +1791,6 @@ class NiShape(NiNode):
             if name is None: name = ''
             NifFile.nifly.addBlock(self.file._handle, self._shader_name.encode('utf-8'), 
                                    byref(self._shader_attrs), self.id)
-            # if type(self._shader_attrs) == BSLSPAttrs:
-            #     NifFile.nifly.setShaderAttrs(self.file._handle, self._shader_name, byref(self._shader_attrs, self.id),
-            #                                  byref(self._shader_attrs))
-            # else:
-            #     NifFile.nifly.setEffectShaderAttrs(self.file._handle, self._handle,
-            #                                        byref(self._shader_attrs))
 
     @property
     def has_alpha_property(self):

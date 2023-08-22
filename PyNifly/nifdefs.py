@@ -823,7 +823,8 @@ class PynBufferTypes(IntEnum):
     BSTriShapeBufType = 31
     BSSubIndexTriShapeBufType = 32
     BSEffectShaderPropertyBufType = 33
-    COUNT = 34
+    NiTriStripsBufType = 34
+    COUNT = 35
 
 bufferTypeList = [''] * PynBufferTypes.COUNT
 blockBuffers = {}
@@ -922,6 +923,7 @@ class NiShaderBuf(pynStructure):
         self.Shader_Flags_2 &= ~flag.value
 
 bufferTypeList[PynBufferTypes.NiShaderBufType] = 'NiShader'
+bufferTypeList[PynBufferTypes.BSEffectShaderPropertyBufType] = 'BSEffectShaderProperty'
 blockBuffers['NiShader'] = NiShaderBuf()
 
 class AlphaPropertyBuf(pynStructure):

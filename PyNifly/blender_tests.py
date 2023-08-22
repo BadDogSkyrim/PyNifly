@@ -4720,7 +4720,7 @@ def LOAD_RIG():
 first_test = 'TEST_FONV'  
 
 # If set, run this test only.
-sole_test = 'TEST_FONV'
+sole_test = ''
 
 
 m = sys.modules[__name__]
