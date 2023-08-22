@@ -58,7 +58,8 @@ enum BUFFER_TYPES : uint16_t {
 	BSDynamicTriShapeBufType,
 	BSTriShapeBufType,
 	BSSubIndexTriShapeBufType,
-	BSEffectShaderPropertyBufType
+	BSEffectShaderPropertyBufType,
+	NiTriStripsBufType
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {

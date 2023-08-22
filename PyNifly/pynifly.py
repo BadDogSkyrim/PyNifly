@@ -2093,21 +2093,27 @@ class NiTriShape(NiShape):
 class BSTriShape(NiShape):
     @classmethod
     def _getbuf(cls, values=None):
-        return NiShapeBuf(values)
+        b = NiShapeBuf(values)
+        b.bufType = PynBufferTypes.BSTriShapeBufType
+        return b
     
 
 # --- BSDynamicTriShape --- #
 class BSDynamicTriShape(NiShape):
     @classmethod
     def _getbuf(cls, values=None):
-        return NiShapeBuf(values)
+        b = NiShapeBuf(values)
+        b.bufType = PynBufferTypes.BSDynamicTriShapeBufType
+        return b
     
 
 # --- BSSubIndexTriShape --- #
 class BSSubIndexTriShape(NiShape):
     @classmethod
     def _getbuf(cls, values=None):
-        return NiShapeBuf(values)
+        b = NiShapeBuf(values)
+        b.bufType = PynBufferTypes.BSSubIndexTriShapeBufType
+        return b
     
 
 # --- NiTriStrips --- #

@@ -1578,52 +1578,73 @@ namespace NiflyDLLTests
 
 			Assert::IsTrue(colors3[561].r == 0);
 		};
-		TEST_METHOD(expImpFNV) {
-			/* NOT WORKING */
-			return;
+		struct GunBuf {
+			void* handle;
+			int id;
+			NiShapeBuf properties;
+			NiShaderBuf shader;
+			char blockName[100];
+			Vector3* verts;
+			Vector3* norms;
+			Vector2* uvs;
+			Triangle* tris;
+		};
+		void TCheckFNVGun(void* nif, GunBuf& gun, int expectedShapeCount) {
+			char errbuf[1000];
+			void* shapes[10];
 
-			/* Can load and save vertex colors */
-			std::filesystem::path testfile = testRoot / "FNV/9mmscp.nif";
+			clearMessageLog();
+			int shapeCount = getShapes(nif, shapes, 10, 0);
+			gun.handle = shapes[0];
+			gun.id = getBlockID(nif, gun.handle);
+			getBlockname(nif, gun.id, gun.blockName, 100);
+			getBlock(nif, gun.id, &gun.properties);
+			Assert::AreNotEqual(NIF_NPOS, gun.properties.shaderPropertyID);
+			getBlock(nif, gun.properties.shaderPropertyID, &gun.shader);
+
+			gun.verts = new Vector3[gun.properties.vertexCount];
+			gun.norms = new Vector3[gun.properties.vertexCount];
+			gun.uvs = new Vector2[gun.properties.vertexCount];
+			gun.tris = new Triangle[gun.properties.triangleCount];
+
+			int vertLen = getVertsForShape(nif, gun.handle, gun.verts, gun.properties.vertexCount * 3, 0);
+			int triLen = getTriangles(nif, gun.handle, gun.tris, gun.properties.triangleCount * 3, 0);
+			int uvLen = getUVs(nif, gun.handle, gun.uvs, gun.properties.vertexCount * 2, 0);
+			int normLen = getNormalsForShape(nif, gun.handle, gun.norms, gun.properties.vertexCount * 3, 0);
+
+			Assert::AreEqual(expectedShapeCount, shapeCount, L"Have right number of shapes");
+			Assert::AreEqual(0, getMessageLog(errbuf, 1000));
+
+			// TODO:: Can't create NiTriStrips shapes. Maybe a nifly limitation?
+			//Assert::AreEqual("NiTriStrips", gun.blockName);
+		}
+		TEST_METHOD(expImpFNV) {
+			/* Can load and save FNV model */
+			std::filesystem::path testfile = testRoot / "FONV/9mmscp.nif";
 
 			void* nif;
-			void* shapes[10];
+			GunBuf gun, gunCheck;
 
 			// Can load nif
 			nif = load(testfile.u8string().c_str());
-			int shapeCount = getShapes(nif, shapes, 10, 0);
-			int shapeID = getBlockID(nif, shapes[0]);
-			NiShapeBuf shapeBuf;
-			getBlock(nif, shapeID, &shapeBuf);
-
-			Vector3* verts = new Vector3[shapeBuf.vertexCount];
-			Vector3* norms = new Vector3[shapeBuf.vertexCount];
-			Vector2* uvs = new Vector2[shapeBuf.vertexCount];
-			Triangle* tris = new Triangle[shapeBuf.triangleCount];
-
-			int vertLen = getVertsForShape(nif, shapes[0], verts, shapeBuf.vertexCount *3, 0);
-			int triLen = getTriangles(nif, shapes[0], tris, shapeBuf.triangleCount * 3, 0);
-			int uvLen = getUVs(nif, shapes[0], uvs, shapeBuf.vertexCount * 2, 0);
-			int normLen = getNormalsForShape(nif, shapes[0], norms, shapeBuf.vertexCount * 3, 0);
-
-			Assert::AreEqual(9, shapeCount, L"Have right number of shapes");
+			TCheckFNVGun(nif, gun, 9);
 
 			// Can save nif
 			std::filesystem::path testfileOut = testRoot / "Out/expImpFNV_9mmscp.nif";
 
-			void* nif2 = createNif("FONV", 0, "Scene Root");
-			void* shape2 = createNifShapeFromData(nif2, "Scope", &shapeBuf,
-				verts, uvs, norms, 
-				tris, 
+			void* nif2 = createNif("FONV", "BSFadeNode", "Scene Root");
+			gun.properties.bufType = BUFFER_TYPES::NiTriStripsBufType;
+			void* shape2 = createNifShapeFromData(nif2, "Scope", &gun.properties,
+				gun.verts, gun.uvs, gun.norms, gun.tris, 
 				nullptr);
 
 			saveNif(nif2, testfileOut.u8string().c_str());
 
 			// And can read them back correctly
-			void* nif3;
-			void* shapes3[10];
+			void* nifCheck;
 
-			nif3 = load(testfileOut.u8string().c_str());
-			getShapes(nif3, shapes3, 10, 0);
+			nifCheck = load(testfileOut.u8string().c_str());
+			TCheckFNVGun(nifCheck, gunCheck, 1);
 
 		};
 		TEST_METHOD(hdtBones) {

@@ -1578,7 +1578,7 @@ def TEST_SHADER_ALPHA():
         f"Error: Texture paths not preserved: '{checkfurshape.textures[7]}' != '{furshape.textures[7]}'"
     assert checkfurshape.shader_attributes == furshape.shader_attributes, f"Error: Shader attributes not preserved:\n{checkfurshape.shader_attributes}\nvs\n{furshape.shader_attributes}"
 
-    assert checkfurshape.has_alpha_property, f"Error: Did not write alpha property"
+    assert checkfurshape.has_alpha_property, f"Have alpha property"
     assert checkfurshape.alpha_property.flags == furshape.alpha_property.flags, f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.flags} != {furshape.alpha_property.flags}"
     assert checkfurshape.alpha_property.threshold == furshape.alpha_property.threshold, f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.threshold} != {furshape.alpha_property.threshold}"
 
@@ -2680,8 +2680,22 @@ def TEST_TREE():
         f"Have no collision objects."
 
     tree = next(obj for obj in bpy.data.objects if obj.name.startswith("Tree") and obj.type == 'MESH')
+    assert 'TREE_ANIM' in tree.active_material['Shader_Flags_2'], f"Have shader flags"
     assert tree['pynBlockName'] == "BSMeshLODTriShape", f"Have correct block type: {tree['pynBlockName']}"
     assert int(tree['lodSize0']) == 1126, f"Have correct LOD0 size"
+
+    # ------- Export
+    BD.ObjectSelect([tree, root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    # ------- Check
+    nifcheck = pyn.NifFile(outfile)
+    assert nifcheck.rootNode.blockname == "BSLeafAnimNode", f"Have correct root node type"
+    treecheck = nifcheck.shapes[0]
+    assert treecheck.blockname == "BSMeshLODTriShape", f"Have correct shape node type"
+    assert treecheck.shader_attributes.shaderflags2_test(pyn.ShaderFlags2.TREE_ANIM), f"Tree animation set"
+    assert treecheck.properties.vertexCount == 1059, f"Have correct vertex count"
+    assert treecheck.properties.lodSize0 == 1126, f"Have correct lodSize0"
 
 
 def TEST_BOW():
@@ -3755,10 +3769,9 @@ def TEST_BABY():
     
     head = bpy.data.objects['Baby_Head:0']
     eyes = bpy.data.objects['Baby_Eyes:0']
+    assert head['pynBlockName'] == "BSTriShape", f"Error: Expected BSTriShape on skinned shape, got {testhead.blockname}"
 
-    bpy.ops.object.select_all(action='DESELECT')
-    head.select_set(True)
-    eyes.select_set(True)
+    BD.ObjectSelect([head, eyes], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True)
 
     testnif = pyn.NifFile(outfile)
@@ -3766,7 +3779,7 @@ def TEST_BABY():
     testeyes = testnif.shape_by_root('Baby_Eyes')
     assert len(testhead.bone_names) > 10, "Error: Head should have bone weights"
     assert len(testeyes.bone_names) > 2, "Error: Eyes should have bone weights"
-    assert testhead.blockname == "BSSubIndexTriShape", f"Error: Expected BSSubIndexTriShape on skinned shape, got {testhead.blockname}"
+    assert testhead.blockname == "BSTriShape", f"Error: Expected BSTriShape on skinned shape, got {testhead.blockname}"
 
 
 def TEST_ROTSTATIC():
@@ -4698,6 +4711,7 @@ def LOAD_RIG():
 
 # LOAD_RIG()  ### Not a test--Load up some shapes for play
 
+
 # --- Quick and Dirty Test Harness ---
 
 # If clear, all tests run in the order they are defined.
@@ -4706,7 +4720,8 @@ def LOAD_RIG():
 first_test = 'TEST_FONV'  
 
 # If set, run this test only.
-sole_test = ''
+sole_test = 'TEST_FONV'
+
 
 m = sys.modules[__name__]
 

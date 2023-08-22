@@ -76,6 +76,62 @@ VECTOR12 = c_float * 12
 MATRIX3 = VECTOR3 * 3
 MATRIX4 = VECTOR4 * 4
 
+pynBufferDefaults = {
+	'broadPhaseType': 0,
+	'collisionFilter_flags': 0,
+	'collisionFilter_group': 0,
+	'prop_data': 0, 
+	'prop_flags': 0,
+	'prop_size': 0,
+    'angularDamping': 0.05,
+    'angularVelocity': (0, 0, 0, 0),
+    'autoRemoveLevel': 0,
+    'bodyFlags': 0,
+    'bodyFlagsInt': 0,
+    'bodyID' : NODEID_NONE,
+    'center': (0, 0, 0, 0),
+    'childCount': 0,
+    'collisionFilter_layer': "STATIC",
+    'collisionFilterCopy_flags': 0,
+    'collisionFilterCopy_group': 0,
+    'collisionFilterCopy_layer': 'STATIC',
+    'collisionResponse': 'SIMPLE_CONTACT',
+    'controllerID' : NODEID_NONE,
+    'ctrlID' : NODEID_NONE,
+    'ctrlType': NODEID_NONE,
+    'deactivatorType': 1,
+    'forceCollideOntoPpu': 0,
+    'friction': 0.5,
+    'gravityFactor': 1.0,
+    'inertiaMatrix': [0] * 12,
+    'interpID' : NODEID_NONE,
+    'interpolatorID' : NODEID_NONE,
+    'linearDamping': 0.1,
+    'linearVelocity': (0, 0, 0, 0),
+    'mass': 1.0,
+    'maxAngularVelocity': 31.57, 
+    'maxLinearVelocity': 104.4, 
+    'motionSystem': 1,
+    'nameID' : NODEID_NONE,
+    'nodeName': NODEID_NONE,
+    'normalsCount': 0,
+    'numShapeKeysInContactPointProps': 0, 
+    'penetrationDepth': 0.15,
+    'processContactCallbackDelay': 0xFFFF,
+    'propType': NODEID_NONE,
+    'qualityType': 1,
+    'responseModifierFlag': 0,
+    'restitution': 0.4, 
+    'rollingFrictionMult': 1.0,
+    'shapeID' : NODEID_NONE,
+    'solverDeactivation': 1, 
+    'targetID': NODEID_NONE,
+    'timeFactor': 1.0,
+    'vertsCount': 0,
+    }
+
+
+
 class pynStructure(Structure):
     def load(self, shape, ignore=[]):
         """
@@ -770,7 +826,7 @@ class PynBufferTypes(IntEnum):
     COUNT = 34
 
 bufferTypeList = [''] * PynBufferTypes.COUNT
-
+blockBuffers = {}
 
 class NiShaderBuf(pynStructure):
     _fields_ = [
@@ -866,7 +922,7 @@ class NiShaderBuf(pynStructure):
         self.Shader_Flags_2 &= ~flag.value
 
 bufferTypeList[PynBufferTypes.NiShaderBufType] = 'NiShader'
-
+blockBuffers['NiShader'] = NiShaderBuf()
 
 class AlphaPropertyBuf(pynStructure):
     _fields_ = [
@@ -895,6 +951,7 @@ class NiCollisionObjectBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiCollisionObjectBufType
 bufferTypeList[PynBufferTypes.NiCollisionObjectBufType] = 'NiCollisionObject'
+blockBuffers['NiCollisionObject'] = NiCollisionObjectBuf
 
 class bhkNiCollisionObjectBuf(pynStructure):
     _fields_ = [
@@ -909,6 +966,7 @@ class bhkNiCollisionObjectBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkNiCollisionObjectBufType
 bufferTypeList[PynBufferTypes.bhkNiCollisionObjectBufType] = 'bhkNiCollisionObject'
+blockBuffers['bhkNiCollisionObject'] = bhkNiCollisionObjectBuf
 
 class bhkBlendCollisionObjectBuf(pynStructure):
     _fields_ = [
@@ -924,7 +982,8 @@ class bhkBlendCollisionObjectBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkBlendCollisionObjectBufType
-bufferTypeList[PynBufferTypes.bhkBlendCollisionObjectBufType] = 'bhkBlendCollisionObjectBuf'
+bufferTypeList[PynBufferTypes.bhkBlendCollisionObjectBufType] = 'bhkBlendCollisionObject'
+blockBuffers['bhkBlendCollisionObject'] = bhkBlendCollisionObjectBuf
 
 class bhkCollisionObjectBuf(pynStructure):
     _fields_ = [
@@ -939,6 +998,7 @@ class bhkCollisionObjectBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkCollisionObjectBufType
 bufferTypeList[PynBufferTypes.bhkCollisionObjectBufType] = 'bhkCollisionObject'
+blockBuffers['bhkCollisionObject'] = bhkCollisionObjectBuf
 
 class bhkPCollisionObjectBuf(pynStructure):
     _fields_ = [
@@ -953,6 +1013,7 @@ class bhkPCollisionObjectBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkPCollisionObjectBufType
 bufferTypeList[PynBufferTypes.bhkPCollisionObjectBufType] = 'bhkPCollisionObject'
+blockBuffers['bhkPCollisionObject'] = bhkPCollisionObjectBuf
 
 class bhkSPCollisionObjectBuf(pynStructure):
     _fields_ = [
@@ -967,6 +1028,7 @@ class bhkSPCollisionObjectBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkSPCollisionObjectBufType
 bufferTypeList[PynBufferTypes.bhkSPCollisionObjectBufType] = 'bhkSPCollisionObject'
+blockBuffers['bhkSPCollisionObject'] = bhkSPCollisionObjectBuf
 
 class bhkRigidBodyProps(pynStructure):
     _fields_ = [
@@ -1025,6 +1087,7 @@ class bhkRigidBodyProps(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkRigidBodyBufType
 bufferTypeList[PynBufferTypes.bhkRigidBodyBufType] = 'bhkRigidBody'
+blockBuffers['bhkRigidBody'] = bhkRigidBodyProps
 
 class bhkSimpleShapePhantomBuf(pynStructure):
     _fields_ = [
@@ -1044,61 +1107,8 @@ class bhkSimpleShapePhantomBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkSimpleShapePhantomBufType
-bufferTypeList[PynBufferTypes.bhkSimpleShapePhantomBufType] = 'bhkSimpleShapePhantomBuf'
-
-pynBufferDefaults = {
-	'broadPhaseType': 0,
-	'collisionFilter_flags': 0,
-	'collisionFilter_group': 0,
-	'prop_data': 0, 
-	'prop_flags': 0,
-	'prop_size': 0,
-    'angularDamping': 0.05,
-    'angularVelocity': (0, 0, 0, 0),
-    'autoRemoveLevel': 0,
-    'bodyFlags': 0,
-    'bodyFlagsInt': 0,
-    'bodyID': NODEID_NONE,
-    'center': (0, 0, 0, 0),
-    'childCount': 0,
-    'collisionFilter_layer': "STATIC",
-    'collisionFilterCopy_flags': 0,
-    'collisionFilterCopy_group': 0,
-    'collisionFilterCopy_layer': 'STATIC',
-    'collisionResponse': 'SIMPLE_CONTACT',
-    'controllerID': NODEID_NONE,
-    'ctrlID': NODEID_NONE,
-    'ctrlType': NODEID_NONE,
-    'deactivatorType': 1,
-    'forceCollideOntoPpu': 0,
-    'friction': 0.5,
-    'gravityFactor': 1.0,
-    'inertiaMatrix': [0] * 12,
-    'interpID': NODEID_NONE,
-    'interpolatorID': NODEID_NONE,
-    'linearDamping': 0.1,
-    'linearVelocity': (0, 0, 0, 0),
-    'mass': 1.0,
-    'maxAngularVelocity': 31.57, 
-    'maxLinearVelocity': 104.4, 
-    'motionSystem': 1,
-    'nodeName': NODEID_NONE,
-    'normalsCount': 0,
-    'numShapeKeysInContactPointProps': 0, 
-    'penetrationDepth': 0.15,
-    'processContactCallbackDelay': 0xFFFF,
-    'propType': NODEID_NONE,
-    'qualityType': 1,
-    'responseModifierFlag': 0,
-    'restitution': 0.4, 
-    'rollingFrictionMult': 1.0,
-    'shapeID': NODEID_NONE,
-    'solverDeactivation': 1, 
-    'targetID': NODEID_NONE,
-    'timeFactor': 1.0,
-    'vertsCount': 0,
-    }
-
+bufferTypeList[PynBufferTypes.bhkSimpleShapePhantomBufType] = 'bhkSimpleShapePhantom'
+blockBuffers['bhkSimpleShapePhantom'] = bhkSimpleShapePhantomBuf
 
 class bhkBoxShapeProps(pynStructure):
     _fields_ = [
@@ -1111,7 +1121,7 @@ class bhkBoxShapeProps(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkBoxShapeBufType
 bufferTypeList[PynBufferTypes.bhkBoxShapeBufType] = 'bhkBoxShape'
-
+blockBuffers['bhkBoxShape'] = bhkBoxShapeProps
 
 class bhkCapsuleShapeProps(pynStructure):
     _fields_ = [
@@ -1127,6 +1137,7 @@ class bhkCapsuleShapeProps(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkCapsuleShapeBufType
 bufferTypeList[PynBufferTypes.bhkCapsuleShapeBufType] = 'bhkCapsuleShape'
+blockBuffers['bhkCapsuleShape'] = bhkCapsuleShapeProps
 
 class bhkSphereShapeBuf(pynStructure):
     _fields_ = [
@@ -1139,6 +1150,7 @@ class bhkSphereShapeBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkSphereShapeBufType
 bufferTypeList[PynBufferTypes.bhkSphereShapeBufType] = 'bhkSphereShape'
+blockBuffers['bhkSphereShape'] = bhkSphereShapeBuf()
 
 class bhkConvexVerticesShapeProps(pynStructure):
     _fields_ = [
@@ -1159,6 +1171,7 @@ class bhkConvexVerticesShapeProps(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkConvexVerticesShapeBufType
 bufferTypeList[PynBufferTypes.bhkConvexVerticesShapeBufType] = 'bhkConvexVerticesShape'
+blockBuffers['bhkConvexVerticesShape'] = bhkConvexVerticesShapeProps
 
 class bhkListShapeProps(pynStructure):
     _fields_ = [
@@ -1176,6 +1189,7 @@ class bhkListShapeProps(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkListShapeBufType
 bufferTypeList[PynBufferTypes.bhkListShapeBufType] = 'bhkListShape'
+blockBuffers['bhkListShape'] = bhkListShapeProps
 
 class bhkConvexTransformShapeProps(pynStructure):
     _fields_ = [
@@ -1189,6 +1203,7 @@ class bhkConvexTransformShapeProps(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkConvexTransformShapeBufType
 bufferTypeList[PynBufferTypes.bhkConvexTransformShapeBufType] = 'bhkConvexTransformShape'
+blockBuffers['bhkConvexTransformShape'] = bhkConvexTransformShapeProps
 
 class bhkRagdollConstraintBuf(pynStructure):
     _fields_ = [
@@ -1228,6 +1243,7 @@ class bhkRagdollConstraintBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkRagdollConstraintBufType
 bufferTypeList[PynBufferTypes.bhkRagdollConstraintBufType] = 'bhkRagdollConstraint'
+blockBuffers['bhkRagdollConstraint'] = bhkRagdollConstraintBuf
 
 
 class FurnitureMarkerBuf(pynStructure):
@@ -1275,6 +1291,7 @@ class BSXFlagsBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSXFlagsBufType
 bufferTypeList[PynBufferTypes.BSXFlagsBufType] = 'BSXFlags'
+blockBuffers['BSXFlags'] = BSXFlagsBuf
 
 class BSInvMarkerBuf(pynStructure):
     _fields_ = [
@@ -1291,6 +1308,7 @@ class BSInvMarkerBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSInvMarkerBufType
 bufferTypeList[PynBufferTypes.BSInvMarkerBufType] = 'BSInvMarker'
+blockBuffers['BSInvMarker'] = BSInvMarkerBuf
 
 class NiShapeBuf(pynStructure):
     _fields_ = [
@@ -1320,7 +1338,18 @@ class NiShapeBuf(pynStructure):
         self.skinInstanceID = self.shaderPropertyID = self.alphaPropertyID = NODEID_NONE
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiShapeBufType
+
 bufferTypeList[PynBufferTypes.NiShapeBufType] = 'NiShape'
+blockBuffers['NiShape'] = NiShapeBuf
+
+bufferTypeList[PynBufferTypes.BSDynamicTriShapeBufType] = 'BSDynamicTriShape'
+blockBuffers['BSDynamicTriShape'] = NiShapeBuf
+
+bufferTypeList[PynBufferTypes.BSTriShapeBufType] = 'BSTriShape'
+blockBuffers['BSTriShape'] = NiShapeBuf
+
+bufferTypeList[PynBufferTypes.BSSubIndexTriShapeBufType] = 'BSSubIndexTriShape'
+blockBuffers['BSSubIndexTriShape'] = NiShapeBuf
 
 class BSMeshLODTriShapeBuf(pynStructure):
     _fields_ = [
@@ -1352,6 +1381,7 @@ class BSMeshLODTriShapeBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSMeshLODTriShapeBufType
 bufferTypeList[PynBufferTypes.BSMeshLODTriShapeBufType] = 'BSMeshLODTriShape'
+blockBuffers['BSMeshLODTriShape'] = BSMeshLODTriShapeBuf
 
 class NiControllerManagerBuf(pynStructure):
     _fields_ = [
@@ -1371,6 +1401,7 @@ class NiControllerManagerBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiControllerManagerBufType
 bufferTypeList[PynBufferTypes.NiControllerManagerBufType] = 'NiControllerManager'
+blockBuffers['NiControllerManager'] = NiControllerManagerBuf
 
 
 class NiMultiTargetTransformControllerBuf(pynStructure):
@@ -1389,6 +1420,7 @@ class NiMultiTargetTransformControllerBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiMultiTargetTransformControllerBufType
 bufferTypeList[PynBufferTypes.NiMultiTargetTransformControllerBufType] = 'NiMultiTargetTransformController'
+blockBuffers['NiMultiTargetTransformController'] = NiMultiTargetTransformControllerBuf
 
 class NiControllerSequenceBuf(pynStructure):
     _fields_ = [
@@ -1412,6 +1444,7 @@ class NiControllerSequenceBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiControllerSequenceBufType
 bufferTypeList[PynBufferTypes.NiControllerSequenceBufType] = 'NiControllerSequence'
+blockBuffers['NiControllerSequence'] = NiControllerSequenceBuf
 
 class ControllerLinkBuf(pynStructure):
     _fields_ = [
@@ -1430,6 +1463,7 @@ class ControllerLinkBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiControllerLinkBufType
 bufferTypeList[PynBufferTypes.NiControllerLinkBufType] = 'NiControllerLink'
+blockBuffers['NiControllerLink'] = ControllerLinkBuf
 
 class CycleType(PynIntEnum):
     CYCLE_LOOP = 0
@@ -1459,6 +1493,7 @@ class NiTransformControllerBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiTransformControllerBufType
 bufferTypeList[PynBufferTypes.NiTransformControllerBufType] = 'NiTransformController'
+blockBuffers['NiTransformController'] = NiTransformControllerBuf
 
 class NiTransformInterpolatorBuf(pynStructure):
     _fields_ = [
@@ -1473,6 +1508,7 @@ class NiTransformInterpolatorBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiTransformInterpolatorBufType
 bufferTypeList[PynBufferTypes.NiTransformInterpolatorBufType] = 'NiTransformInterpolator'
+blockBuffers['NiTransformInterpolator'] = NiTransformInterpolatorBuf
 
 class NiAnimationKeyGroupBuf(pynStructure):
     _fields_ = [
@@ -1496,6 +1532,7 @@ class NiTransformDataBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiTransformDataBufType
 bufferTypeList[PynBufferTypes.NiTransformDataBufType] = 'NiTransformData'
+blockBuffers['NiTransformData'] = NiTransformDataBuf
 
 class NiAnimKeyQuadXYZBuf(pynStructure):
     _fields_ = [

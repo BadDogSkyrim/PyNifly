@@ -27,7 +27,7 @@ using namespace nifly;
 
 #define CheckID(shaperef) \
     if (!shaperef) { \
-        niflydll::LogWriteEf("%s called on invalid node."); \
+        niflydll::LogWriteEf("%s called on invalid node.", __FUNCTION__); \
         return 1; \
     }
 
@@ -236,7 +236,12 @@ void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, const char* rootType,
     //root->SetName(name);
 }
 
-NIFLY_API void* createNif(const char* targetGameName, const char* rootType, const char* rootName) {
+NIFLY_API void* createNif(const char* targetGameName, const char* rootType, const char* rootName) 
+/*
+    Set up to create a new nif. (Not actually created until save.)
+    rootType is the block type of root to create, usually "NiNode". May be omitted.
+*/
+{
     TargetGame targetGame = StrToTargetGame(targetGameName);
     NifFile* workNif = new NifFile();
     std::string rootNameStr = rootName;
@@ -683,6 +688,17 @@ int getNiShape(void* nifref, uint32_t id, void* buf) {
 
     getShape(node, b);
 
+    // Nifly doesn't always properly return the shader in ShaderPropertyRefs, so 
+    // go hunt it on our own.
+    if (b->shaderPropertyID == NIF_NPOS) {
+        for (auto& p : node->propertyRefs) {
+            if (hdr->GetBlock<BSShaderProperty>(p.index)) {
+                b->shaderPropertyID = p.index;
+                break;
+            }
+        }
+    }
+
     if (hdr->GetBlock<BSMeshLODTriShape>(id)) {
         b->bufType = BSMeshLODTriShapeBufType; 
         return 0;
@@ -697,6 +713,10 @@ int getNiShape(void* nifref, uint32_t id, void* buf) {
     }
     if (hdr->GetBlock<BSTriShape>(id)) {
         b->bufType = BSTriShapeBufType;
+        return 0;
+    }
+    if (hdr->GetBlock<NiTriStrips>(id)) {
+        b->bufType = NiTriStripsBufType;
         return 0;
     }
 
@@ -3724,7 +3744,8 @@ BlockGetterFunction getterFunctions[] = {
     getNiShape, //BSTriShapeBufType,
     getNiShape, //BSSubIndexTriShape
     getNiShader, //BSEffectShaderPropertyBufType
-    nullptr
+    getNiShape, //NiTriStripsBufType
+    nullptr //END
 };
 
 NIFLY_API int getBlock(void* nifref, uint32_t blockID, void* buf)
@@ -3776,7 +3797,8 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //BSDynamicTriShapeBufType,
     nullptr, //BSTriShapeBufType,
     nullptr, //BSSubIndexTriShape
-    nullptr
+    nullptr, //NiTriStripsBufType
+    nullptr //END
 };
 
 NIFLY_API int setBlock(void* f, int id, void* buf)
@@ -3827,7 +3849,8 @@ BlockCreatorFunction creatorFunctions[] = {
     nullptr, //BSTriShapeBufType,
     nullptr, //BSSubIndexTriShape
     setNiShader, //BSEffectShaderPropertyBufType
-    nullptr
+    nullptr, //NiTriStripsBufType
+    nullptr //end
 };
 
 NIFLY_API int addBlock(void* f, const char* name, void* buf, int parent) {

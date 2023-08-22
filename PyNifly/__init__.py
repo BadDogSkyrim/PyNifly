@@ -4348,10 +4348,16 @@ class NifExporter:
 
         # Make the shape in the nif file
         #log.debug(f"..Exporting '{obj.name}' to nif: {len(verts)} vertices, {len(tris)} tris, parent {my_parent}")
-        new_shape = self.nif.createShapeFromData(nonunique_name(obj), 
-                                                 verts, tris, uvmap_new, norms_exp,
-                                                 is_headpart, is_skinned, 
-                                                 shaderexp.is_effectshader,
+        try:
+            props = blockBuffers[obj['pynBlockName']](obj)
+            props.bufType = bufferTypeList.index(obj['pynBlockName'])
+        except:
+            props = NiShapeBuf(obj)
+            if is_headpart:
+                props.bufType = PynBufferTypes.BSDynamicTriShapeBufType
+
+        new_shape = self.nif.createShapeFromData(nonunique_name(obj), verts, tris, uvmap_new, norms_exp,
+                                                 props=props,
                                                  parent=my_parent)
         if colors_new:
             new_shape.set_colors(colors_new)
@@ -4460,6 +4466,7 @@ class NifExporter:
             fpath = os.path.join(os.path.dirname(self.filepath), fnamefull)
 
             self.objs_written.clear()
+            NifFile.clear_log()
             self.nif = NifFile()
 
             rt = "NiNode"

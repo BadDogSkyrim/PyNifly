@@ -654,6 +654,7 @@ class ShaderExporter:
         try:
             alpha_input = self.shader_node.inputs['Alpha']
             if alpha_input and alpha_input.is_linked and self.material:
+                shape.has_alpha_property = True
                 if 'NiAlphaProperty_flags' in self.material:
                     shape.alpha_property.flags = self.material['NiAlphaProperty_flags']
                 else:
