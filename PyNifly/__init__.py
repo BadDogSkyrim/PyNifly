@@ -3217,6 +3217,19 @@ class NifExporter:
         else:
             return blender_name
 
+    def unique_name(self, obj):
+        """Return a unique node name for the Blender object. Use the root of the Blender
+        name if possible, because that might match to a name in a trip file. Otherwise use
+        the full Blender name, and if that fails make a unique name."""
+        names = self.nif.getAllShapeNames()
+        simplename = nonunique_name(obj)
+        if simplename not in names: return simplename
+        if obj.name not in names: return obj.name
+        for i in range(0, 100):
+            n = simplename + "-" + i
+            if n not in names: return n
+        return obj.name
+
     def export_shape_data(self, obj, shape):
         """ Export a shape's extra data """
         edlist = []
@@ -4356,7 +4369,8 @@ class NifExporter:
             if is_headpart:
                 props.bufType = PynBufferTypes.BSDynamicTriShapeBufType
 
-        new_shape = self.nif.createShapeFromData(nonunique_name(obj), verts, tris, uvmap_new, norms_exp,
+        new_shape = self.nif.createShapeFromData(self.unique_name(obj), 
+                                                 verts, tris, uvmap_new, norms_exp,
                                                  props=props,
                                                  parent=my_parent)
         if colors_new:

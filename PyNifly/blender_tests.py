@@ -2146,6 +2146,38 @@ def TEST_NEW_COLORS():
         f"ShaderFlags2 vertex colors set: {pyn.ShaderFlags2(shape.shader_attributes.Shader_Flags_2).fullname}"
 
 
+def TEST_COLOR_CUBES():
+    # Two shapes with the same name, both with vertex colors. Exporter should not get
+    # confused.
+    TT.test_title("TEST_COLOR_CUBES", "Can write vertex colors that were created in blender")
+    TT.clear_all()
+    blendfile = TT.test_file(r"tests\SKYRIM\ColorCubes.blend")
+    outfile = TT.test_file(r"tests/Out/TEST_COLOR_CUBES.nif")
+
+    bpy.ops.wm.append(filepath=blendfile,
+                        directory=blendfile + r"\Object",
+                        filename="Cube")
+    bpy.ops.wm.append(filepath=blendfile,
+                        directory=blendfile + r"\Object",
+                        filename="Cube.001")
+    
+    BD.ObjectSelect(bpy.context.scene.objects, active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
+
+    nif = pyn.NifFile(outfile)
+
+    # Find the cube at the origin
+    bluegreen = next(s for s in nif.shapes if Vector(s.transform.translation) == Vector((0,0,0)))
+    redgreen = next(s for s in nif.shapes if Vector(s.transform.translation) != Vector((0,0,0)))
+    
+    assert bluegreen.colors
+    for c in bluegreen.colors:
+        assert c == (0, 0, 1, 1) or c == (0, 1, 0, 1), f"Color is red or green: {c}"
+    assert redgreen.colors
+    for c in redgreen.colors:
+        assert c == (1, 0, 0, 1) or c == (0, 1, 0, 1), f"Color is red or green: {c}"
+        
+
 def TEST_VERTEX_COLOR_IO():
     # On heads, vertex alpha and diffuse alpha work together to determine the final
     # transparency the user sees. We set up Blender shader nodes to provide the same
@@ -4717,10 +4749,10 @@ def LOAD_RIG():
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
 # Use to resume a test run from the point it failed.
-first_test = 'TEST_FONV'  
+first_test = ''  
 
 # If set, run this test only.
-sole_test = ''
+sole_test = 'TEST_COLOR_CUBES'
 
 
 m = sys.modules[__name__]
