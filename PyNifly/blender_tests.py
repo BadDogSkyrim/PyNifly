@@ -4186,6 +4186,16 @@ def TEST_SKEL_HKX_IMPORT():
 
     bpy.ops.import_scene.skeleton_xml(filepath=testfile)
     arma = next(x for x in bpy.data.objects if x.type == 'ARMATURE')
+
+    headbone = arma.data.bones["NPC Head [Head]"]
+    handbone = arma.data.bones["NPC L Hand [LHnd]"]
+    assert BD.NearEqual(headbone.matrix_local.translation[2], 120.3436), f"Head bone where it should be" 
+    assert BD.NearEqual(handbone.matrix_local.translation[0], -28.9358), f"L Hand bone where it should be" 
+    assert headbone.parent.name == "NPC Neck [Neck]", f"Bone has correct parent."
+    # bonesvert = sorted(arma.data.bones, key=lambda b: b.matrix_local.translation)
+    # assert BD.NearEqual(bonesvert[0].matrix_local.translation[2], 0), f"Lowest bone at 0"
+    # assert BD.NearEqual(bonesvert[-1].matrix_local.translation[2], 124), f"Highest bone near 124"
+
     BD.ObjectSelect([arma], active=True)
 
 
@@ -4749,10 +4759,10 @@ def LOAD_RIG():
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
 # Use to resume a test run from the point it failed.
-first_test = 'TEST_BPY_PARENT_B'  
+first_test = ''  
 
 # If set, run this test only.
-sole_test = ''
+sole_test = 'TEST_SKEL_HKX_IMPORT'
 
 
 m = sys.modules[__name__]

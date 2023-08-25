@@ -54,7 +54,7 @@ class SkeletonArmature():
     def bones_from_xml(self, root):
         skel = root.find(".//*[@class='hkaSkeleton']")
         skelname = skel.find("./*[@name='name']").text
-        skelindices = [int(x) for x in skel.find("./*[@name='parentIndices']").text.split()]
+        parentIndices = [int(x) for x in skel.find("./*[@name='parentIndices']").text.split()]
 
         bonelist = []
         skelbones = skel.find("./*[@name='bones']")
@@ -69,8 +69,16 @@ class SkeletonArmature():
         bpy.ops.object.mode_set(mode='OBJECT')
         bpy.ops.object.mode_set(mode='EDIT')
         # for i in range(0, len(bonelist)):
+        mxWorld = [Matrix.Identity(4)] * len(bonelist)
         i = j = 0
         while i < len(poselist) and j < len(bonelist):
+            parent = None
+            parentname = None
+            if parentIndices[j] > 0:
+                parentname = bonelist[parentIndices[j]]
+                if parentname in self.arma.data.edit_bones:
+                    parent = self.arma.data.edit_bones[parentname]
+
             loc = rot = None
             loclist = poselist[i].strip(' ()\t\n').split()
             if len(loclist) == 3:
@@ -82,7 +90,8 @@ class SkeletonArmature():
             # rotlist = [float(x) for x in numseq[i*3+1].split()]
             rotlist = poselist[i+1].strip(' ()\t\n').split()
             if len(rotlist) == 4:
-                rot = Quaternion([float(x) for x in rotlist[1:4]], float(rotlist[0]))
+                rot = Quaternion((float(rotlist[3]), float(rotlist[0]), float(rotlist[1]), float(rotlist[2])))
+                rot.normalize()
             else:
                 self.warn(f"Pose list does not have good rotation at index {j}: {poselist[i+1]}")
             # rot = Quaternion(rotlist[1:4], rotlist[0])
@@ -92,10 +101,16 @@ class SkeletonArmature():
             else:
                 self.warn(f"Pose list does not have good scale at index {j}: {poselist[i+2]}")
             if loc and rot and scale:
+                mxlocal = MatrixLocRotScale(loc, rot, scale)
+                mx = mxlocal.copy()
+                if parent:
+                    mx = mxWorld[parentIndices[j]] @ mxlocal
+                mxWorld[j] = mx
                 new_bone = create_bone(self.arma.data, 
                                        bonelist[j], 
-                                       Matrix.LocRotScale(loc, rot, scale), 
+                                       mx, 
                                        "SKYRIM", 1.0, 0)
+                new_bone.parent = parent
             i += 3
             j += 1
         
