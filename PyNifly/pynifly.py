@@ -12,6 +12,7 @@ import re
 import logging
 from ctypes import *
 from typing import ValuesView # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer, addressof
+import xml.etree.ElementTree as xml
 from niflytools import *
 from nifdefs import *
 
@@ -451,6 +452,8 @@ class ExtraDataType(Enum):
 
 def _read_extra_data(nifHandle, shapeHandle, edtype):
     ed = []
+    if not nifHandle: return ed
+
     namelen = c_int()
     valuelen = c_int()
 
@@ -972,7 +975,7 @@ class NiNode(NiAVObject):
                  properties=None, name=""):
         super().__init__(handle=handle, file=file, id=id, parent=parent, 
                          properties=properties)
-        self._name = ""
+        self._name = name
         self._controller = None
         self._bgdata = None
         self._strdata = None
@@ -988,8 +991,6 @@ class NiNode(NiAVObject):
             buf = create_string_buffer(buflen)
             NifFile.nifly.getNodeName(self._handle, buf, buflen)
             self.name = buf.value.decode('utf-8')
-
-        if name: self.name = name
 
     @property
     def name(self):
@@ -1023,7 +1024,7 @@ class NiNode(NiAVObject):
 
     @property
     def parent(self):
-        if self._parent is None:
+        if self._parent is None and self.file._handle is not None:
             parent_handle = NifFile.nifly.getNodeParent(self.file._handle, self._handle)
             if parent_handle is not None:
                 for n in self.file.nodes.values():
@@ -1032,10 +1033,17 @@ class NiNode(NiAVObject):
         return self._parent
 
     @property
-    def xform_to_global(self):
-        buf = TransformBuf()
-        NifFile.nifly.getNodeTransformToGlobal(self.file._handle, self.name.encode('utf-8'), buf)
-        return buf
+    def global_transform(self):
+        if self.file._handle:
+            buf = TransformBuf()
+            NifFile.nifly.getNodeTransformToGlobal(self.file._handle, self.name.encode('utf-8'), buf)
+            return buf
+        
+        if not self.parent:
+            return self.transform
+        
+        return self.parent.global_transform * self.transform
+    
 
     @property
     def collision_object(self):
@@ -1096,8 +1104,8 @@ class NiNode(NiAVObject):
     @property
     def bsx_flags(self):
         """ Returns bsx flags as [name, value] pair """
+        if not self.file._handle: return None
         buf = BSXFlagsBuf()
-        # if NifFile.nifly.getBSXFlags(self._handle, buf):
         bsxf_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSXFlags")
         if NifFile.nifly.getBlock(self.file._handle, bsxf_id, byref(buf)) == 0:
             return ["BSX", buf.integerData]
@@ -1110,11 +1118,11 @@ class NiNode(NiAVObject):
         buf = BSXFlagsBuf()
         buf.integerData = val[1]
         NifFile.nifly.addBlock(self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
-        # NifFile.nifly.setBSXFlags(self._handle, val[0].encode('utf-8'), val[1])
 
     @property
     def inventory_marker(self):
         """ Reads BSInvMarker as [name, x, y, z, zoom] """
+        if not self.file._handle: return []
         buf = BSInvMarkerBuf()
         namebuf = create_string_buffer(256)
         im_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSInvMarker")
@@ -2167,10 +2175,11 @@ class NifFile:
 
         # We don't actually know which skeleton to use. Assume the basic human skeleton.
         g = "SKYRIM" if self._game == "SKYRIMSE" else self._game
-        skel_path = os.path.join(os.path.dirname(NifFile.nifly_path), "Skeletons", g, "skeleton.nif")
-        if os.path.exists(skel_path):
-            self._ref_skel = NifFile(skel_path)
-            return self._ref_skel
+        if g:
+            skel_path = os.path.join(os.path.dirname(NifFile.nifly_path), "Skeletons", g, "skeleton.nif")
+            if os.path.exists(skel_path):
+                self._ref_skel = NifFile(skel_path)
+                return self._ref_skel
 
         return None
 
@@ -2184,7 +2193,8 @@ class NifFile:
                                                root_name.encode('utf-8'))
         self.dict = gameSkeletons[target_game]
         # Get the root node into the nodes list so it can be found.
-        NiNode(handle=self.root, file=self, name=self.rootName)
+        self.read_node(0)
+        # NiNode(handle=self.root, file=self, name=self.rootName)
 
     def save(self):
         for sh in self.shapes:
@@ -2273,9 +2283,10 @@ class NifFile:
     @property
     def rootName(self):
         """Return name of root node"""
-        buf = create_string_buffer(256)
-        NifFile.nifly.getRootName(self._handle, buf, 256)
-        return buf.value.decode('utf-8')
+        return self.root.name
+        # buf = create_string_buffer(256)
+        # NifFile.nifly.getRootName(self._handle, buf, 256)
+        # return buf.value.decode('utf-8')
     
     @property
     def root(self):
@@ -2322,14 +2333,15 @@ class NifFile:
         if self._shapes is None:
             self._shapes = []
             self._shape_dict = {}
-            nfound = NifFile.nifly.getShapes(self._handle, None, 0, 0)
-            PTRBUF = c_void_p * nfound
-            buf = PTRBUF()
-            nfound = NifFile.nifly.getShapes(self._handle, buf, nfound, 0)
-            for i in range(nfound):
-                new_shape = NiShape.New(file=self, handle=buf[i])
-                self._shapes.append(new_shape) # not handling too many shapes yet
-                self._shape_dict[new_shape.name] = new_shape
+            if self._handle:
+                nfound = NifFile.nifly.getShapes(self._handle, None, 0, 0)
+                PTRBUF = c_void_p * nfound
+                buf = PTRBUF()
+                nfound = NifFile.nifly.getShapes(self._handle, buf, nfound, 0)
+                for i in range(nfound):
+                    new_shape = NiShape.New(file=self, handle=buf[i])
+                    self._shapes.append(new_shape) # not handling too many shapes yet
+                    self._shape_dict[new_shape.name] = new_shape
 
         return self._shapes
     
@@ -2342,6 +2354,7 @@ class NifFile:
 
     def register_node(self, n):
         if n.name: self.nodes[n.name] = n
+        if n.id == 0: self._root = n
 
     @property
     def nodes(self):
@@ -2364,25 +2377,23 @@ class NifFile:
                 return n
         return NiNode(desired_handle, self)
 
-    #@property
-    #def skin(self):
-    #    if self._skin_handle is None:
-    #        self._skin_handle = NifFile.nifly.loadSkinForNif(
-    #            self._handle, self.game.encode('utf-8'))
-    #    return self._skin_handle
 
     def get_node_xform_to_global(self, name):
         """ Get the xform-to-global either from the nif or the reference skeleton """
-        buf = TransformBuf()
-        buf.set_identity()
-        if NifFile.nifly.getNodeTransformToGlobal(self._handle, name.encode('utf-8'), buf):
-            return buf
+        if self._handle:
+            buf = TransformBuf()
+            buf.set_identity()
+            if NifFile.nifly.getNodeTransformToGlobal(self._handle, name.encode('utf-8'), buf):
+                return buf
+        else:
+            return self.nodes[name].global_transform.copy()
 
         if self.reference_skel:
             NifFile.nifly.getNodeTransformToGlobal(self.reference_skel._handle, 
                                                    name.encode('utf-8'), 
                                                    buf)
         return buf
+
 
     @property
     def cloth_data(self):
@@ -2428,11 +2439,12 @@ class NifFile:
     def furniture_markers(self):
         if not self._furniture_markers:
             self._furniture_markers = []
-            for i in range(0, 100):
-                buf = FurnitureMarkerBuf()
-                if not NifFile.nifly.getFurnMarker(self._handle, i, buf):
-                    break
-                self._furniture_markers.append(buf)
+            if self._handle:
+                for i in range(0, 100):
+                    buf = FurnitureMarkerBuf()
+                    if not NifFile.nifly.getFurnMarker(self._handle, i, buf):
+                        break
+                    self._furniture_markers.append(buf)
         return self._furniture_markers
 
     @furniture_markers.setter
@@ -2450,11 +2462,12 @@ class NifFile:
         """
         if not self._connect_pt_par:
             self._connect_pt_par = []
-            for i in range(0, 100):
-                buf = ConnectPointBuf()
-                if not NifFile.nifly.getConnectPointParent(self._handle, i, buf):
-                    break
-                self._connect_pt_par.append(buf)
+            if self._handle:
+                for i in range(0, 100):
+                    buf = ConnectPointBuf()
+                    if not NifFile.nifly.getConnectPointParent(self._handle, i, buf):
+                        break
+                    self._connect_pt_par.append(buf)
         return self._connect_pt_par
 
     @connect_points_parent.setter
@@ -2471,14 +2484,15 @@ class NifFile:
         name = child connect point names, limited to 256 characters"""
         if not self._connect_pt_child:
             self._connect_pt_child = []
-            for i in range(0, 100):
-                buf = (c_char * 256)() 
-                is_skinned = c_char()
-                v = NifFile.nifly.getConnectPointChild(self._handle, i, buf)
-                if v == 0:
-                    break
-                self.connect_pt_child_skinned = (v > 0)
-                self._connect_pt_child.append(buf.value.decode('utf-8'))
+            if self._handle:
+                for i in range(0, 100):
+                    buf = (c_char * 256)() 
+                    is_skinned = c_char()
+                    v = NifFile.nifly.getConnectPointChild(self._handle, i, buf)
+                    if v == 0:
+                        break
+                    self.connect_pt_child_skinned = (v > 0)
+                    self._connect_pt_child.append(buf.value.decode('utf-8'))
         return self._connect_pt_child
 
     @connect_points_child.setter
@@ -2531,6 +2545,9 @@ class NifFile:
         """Return a node object for the given node ID. The node might be anything,
         so use the block name to determine what kind of object to create. 
         """
+        matches = [n for n in self.nodes.values() if n.id == node_id]
+        if matches: return matches[0]
+
         buf = (c_char * (128))()
         NifFile.nifly.getBlockname(self._handle, node_id, buf, 128)
         bn = buf.value.decode('utf-8')
@@ -2572,6 +2589,103 @@ class NifFile:
         return new_collshape
 
 
+class hkxSkeletonFile(NifFile):
+    """
+    Represents a hkx skeleton file. Extends and replaces NifFile's functionality to
+    write to a XML file instead of a nif. 
+    """
+
+    def __init__(self, filepath=None):
+        super().__init__(filepath=None)
+        self.filepath = filepath
+        self.xmlfile = None
+        self.xmlroot = None
+        self._game = "SKYRIM"
+        self.dict = gameSkeletons[self._game]
+        if filepath: self.load_from_file()
+
+
+    @property
+    def name(self):
+        if self.filepath:
+            return Path(self.filepath).stem
+        else:
+            return "None"
+        
+
+    def load_from_file(self):
+        """
+        Load the skeleton from the XML file. Since the XML spreads bone information across
+        multiple constructs it's more convenient to load it all at once.
+        """
+        self.xmlfile = xml.parse(self.filepath)
+        self.xmlroot = self.xmlfile.getroot()
+
+        skel = self.xmlroot.find(".//*[@class='hkaSkeleton']")
+        skelname = skel.find("./*[@name='name']").text
+        parentIndices = [int(x) for x in skel.find("./*[@name='parentIndices']").text.split()]
+
+        bonelist = []
+        skelbones = skel.find("./*[@name='bones']")
+        for b in skelbones.iter('hkobject'):
+            bonelist.append(b.find("./*[@name='name']").text)
+
+        pose = skel.find("./*[@name='referencePose']")
+        poselist = pose.text.strip(' ()\t\n').split(')')
+
+        mxWorld = [None] * len(bonelist)
+        i = j = 0
+        while i < len(poselist) and j < len(bonelist):
+            parent = None
+            parentname = None
+            if parentIndices[j] > 0:
+                parentname = bonelist[parentIndices[j]]
+                if parentname in self.nodes:
+                    parent = self.nodes[parentname]
+
+            loc = rot = None
+            loclist = poselist[i].strip(' ()\t\n').split()
+            if len(loclist) == 3:
+                loc = [float(x) for x in loclist]
+            else:
+                self.warn(f"Pose list does not have translation at index {j}: {poselist[i]}")
+
+            rotlist = poselist[i+1].strip(' ()\t\n').split()
+            if len(rotlist) == 4:
+                # Note this quaternion may not be normalized
+                rot = quaternion_to_matrix(
+                    [float(rotlist[3]), float(rotlist[0]), float(rotlist[1]), float(rotlist[2])])
+            else:
+                self.warn(f"Pose list does not have good rotation at index {j}: {poselist[i+1]}")
+
+            scalelist = poselist[i+2].strip(' ()\t\n').split()
+            if len(scalelist) == 3:
+                scale = [float(x) for x in scalelist]
+            else:
+                self.warn(f"Pose list does not have good scale at index {j}: {poselist[i+2]}")
+            
+            if loc and rot and scale:
+                buf = NiNodeBuf()
+                buf.transform.translation = VECTOR3(*loc)
+                buf.transform.rotation = MATRIX3(VECTOR3(*rot[0]), VECTOR3(*rot[1]), VECTOR3(*rot[2]))
+                buf.transform.scale = scale[0]
+                n = NiNode(file=self, parent=parent, 
+                           properties=buf, name=bonelist[j])
+                n.id = j
+                n._blockname = "NiNode"
+                self.register_node(n)
+
+            i += 3
+            j += 1
+        
+        
+    @property
+    def nodes(self):
+        """Overwrites "nodes" property to get them from the XML file, not a nif file."""
+        if self._nodes is None:
+            self._nodes = {}
+            self.load_from_file()
+        return self._nodes
 
 #
 # ######################################## TESTS ########################################
@@ -2581,58 +2695,6 @@ class NifFile:
 #
 # ######################################## TESTS ########################################
 #
-
-TEST_ALL = True
-TEST_XFORM_INVERSION = False
-TEST_SHAPE_QUERY = False
-TEST_MESH_QUERY = False
-TEST_CREATE_TETRA = False
-TEST_CREATE_WEIGHTS = False
-TEST_READ_WRITE = False
-TEST_XFORM_FO = False
-TEST_2_TAILS = False
-TEST_ROTATIONS = False
-TEST_PARENT = False
-TEST_PYBABY = False
-TEST_BONE_XFORM = False
-TEST_PARTITION_NAMES = False
-TEST_PARTITIONS = False
-TEST_SEGMENTS_EMPTY = False
-TEST_SEGMENTS = False
-TEST_BP_SEGMENTS = False
-TEST_COLORS = False
-TEST_FNV = False
-TEST_BLOCKNAME = False
-TEST_UNSKINNED = False
-TEST_UNI = False
-TEST_SHADER = False
-TEST_ALPHA = False
-TEST_SHEATH = False
-TEST_SHEATH = False
-TEST_FEET = False
-TEST_XFORM_SKY = False
-TEST_XFORM_STATIC = False
-TEST_MUTANT = False
-TEST_BONE_XPORT_POS = False
-TEST_CLOTH_DATA = False
-TEST_PARTITION_SM = False
-TEST_EXP_BODY = False
-TEST_EFFECT_SHADER = False
-TEST_BOW = True
-TEST_CONVEX = False
-TEST_CONVEX_MULTI = False
-TEST_COLLISION_LIST = True
-TEST_COLLISION_CAPSULE = False
-TEST_FURNITURE_MARKER = False
-TEST_MANY_SHAPES = False
-TEST_CONNECT_POINTS = False
-TEST_SKIN_BONE_XF = False
-TEST_WEIGHTS_BY_BONE = False
-TEST_ANIMATION = False
-TEST_ANIMATION_ALDUIN = False
-TEST_KF = False
-TEST_SKEL = False
-TEST_COLLISION_SPHERE = False
 
 class ModuleTest:
     """Quick and dirty test harness."""
@@ -2689,7 +2751,7 @@ class ModuleTest:
         #    new_shape.set_global_to_skin(new_shape_gts)
 
         for bone_name, weights in old_shape.bone_weights.items():
-            new_shape.add_bone(bone_name, old_shape.file.nodes[bone_name].xform_to_global)
+            new_shape.add_bone(bone_name, old_shape.file.nodes[bone_name].global_transform)
 
         for bone_name, weights in old_shape.bone_weights.items():
             sbx = old_shape.get_shape_skin_to_bone(bone_name)
@@ -3937,11 +3999,11 @@ class ModuleTest:
         root = nif.rootNode
         assert root.blockname == "BSFadeNode", f"Top level node should read as BSFadeNode, found '{root.blockname}'"
         assert root.flags == 14, "Root node has flags"
-        assert VNearEqual(root.xform_to_global.translation, [0,0,0]), "Root node transform can be read"
-        assert VNearEqual(root.xform_to_global.rotation[0], [1,0,0]), "Root node transform can be read"
-        assert VNearEqual(root.xform_to_global.rotation[1], [0,1,0]), "Root node transform can be read"
-        assert VNearEqual(root.xform_to_global.rotation[2], [0,0,1]), "Root node transform can be read"
-        assert root.xform_to_global.scale == 1.0, "Root node transform can be read"
+        assert VNearEqual(root.global_transform.translation, [0,0,0]), "Root node transform can be read"
+        assert VNearEqual(root.global_transform.rotation[0], [1,0,0]), "Root node transform can be read"
+        assert VNearEqual(root.global_transform.rotation[1], [0,1,0]), "Root node transform can be read"
+        assert VNearEqual(root.global_transform.rotation[2], [0,0,1]), "Root node transform can be read"
+        assert root.global_transform.scale == 1.0, "Root node transform can be read"
 
         assert root.behavior_graph_data == [('BGED', r"Weapons\Bow\BowProject.hkx", False)], f"Error: Expected behavior graph data, got {nif.behavior_graph_data}"
 
@@ -4358,7 +4420,7 @@ class ModuleTest:
 
 
     def TEST_KF():
-        """KF animation file"""
+        """Read and write KF animation file"""
         nif = NifFile(r"tests/SkyrimSE/1hm_attackpowerright.kf")
         root = nif.rootNode
 
@@ -4513,6 +4575,22 @@ class ModuleTest:
         nifCheck = NifFile(outfile)
         check_tree(nifCheck)
 
+
+    def TEST_HKX_SKELETON():
+        """Test read/write of hkx skeleton files (in XML format)."""
+        testfile = ModuleTest.test_file(r"tests/Skyrim/skeleton.hkx")
+        outfile = ModuleTest.test_file(r"tests/Out/TEST_XML_SKELETON.nif")
+
+        f = hkxSkeletonFile(testfile)
+        assert len(f.nodes) == 99, "Have all bones."
+        assert f.rootNode.name == "NPC Root [Root]"
+        assert len(f.shapes) == 0, "No shapes"
+        assert f.rootName == 'NPC Root [Root]', f"Have root name: {f.rootName}"
+
+        headbone = f.nodes["NPC Head [Head]"]
+        handbone = f.nodes["NPC L Hand [LHnd]"]
+        assert NearEqual(headbone.global_transform.translation[2], 120.3436), "Head bone where it should be."
+        assert NearEqual(handbone.global_transform.translation[0], -28.9358), f"L Hand bone where it should be" 
     
     @property
     def all_tests(self):
@@ -4521,7 +4599,9 @@ class ModuleTest:
         
     def execute_test(self, t):
         print(f"\n------------- {t} -------------")
-        ModuleTest.__dict__[t]()
+        the_test = ModuleTest.__dict__[t]
+        print(the_test.__doc__)
+        the_test()
         print(f"------------- done")
 
     
@@ -4559,9 +4639,9 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    tester.execute_all()
-    # tester.execute_all(start='TEST_EFFECT_SHADER')
-    # tester.execute_test('TEST_EFFECT_SHADER')
+    # tester.execute_all()
+    # tester.execute_all(start='TEST_KF')
+    tester.execute_test('TEST_HKX_SKELETON')
 
 
 

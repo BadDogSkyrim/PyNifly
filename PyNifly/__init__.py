@@ -234,11 +234,11 @@ def armatures_match(a, b):
 
 # ------------- TransformBuf extensions -------
 
-setattr(TransformBuf, "as_matrix", transform_to_matrix)
+# setattr(TransformBuf, "as_matrix", transform_to_matrix)
 
-setattr(TransformBuf, "load_matrix", transform_from_matrix)
+# setattr(TransformBuf, "load_matrix", transform_from_matrix)
 
-setattr(TransformBuf, "from_matrix", classmethod(make_transformbuf))
+# setattr(TransformBuf, "from_matrix", classmethod(make_transformbuf))
 
 # ------ Bone handling ------
 
@@ -287,14 +287,10 @@ def is_compatible_skeleton(skin_xf:Matrix, shape:NiShape, skel:NifFile) -> bool:
     # It's a consistent transform applied to all bones.
     # BUT the transform should already have been applied to the obj, even for 
     # FO4. So don't do it again here.
-    # gts = shape.global_to_skin.as_matrix().inverted()  
-    # else: 
-    #     gts = Matrix.Identity(4)
     for b in shape.bone_names:
         if b in skel.nodes:
-            #m1 = gts @ (skin_xf @ shape.get_shape_skin_to_bone(b).as_matrix().inverted())
-            m1 = skin_xf @ shape.get_shape_skin_to_bone(b).as_matrix().inverted()
-            m2 = skel.nodes[b].xform_to_global.as_matrix()
+            m1 = skin_xf @ transform_to_matrix(shape.get_shape_skin_to_bone(b)).inverted()
+            m2 = transform_to_matrix(skel.nodes[b].global_transform)
             # We give a fairly generous allowance for how close is close enough. 0.03 
             # allows the FO4 meshes to be parented to their skeletons. 
             if not MatNearEqual(m1, m2, 0.03):
@@ -479,7 +475,7 @@ class NifImporter():
         """
         if not hasattr(the_shape, "has_skin_instance") or not the_shape.has_skin_instance:
             # Statics get transformed according to the shape's transform
-            return apply_scale_xf(the_shape.transform.as_matrix(), scale_factor)
+            return apply_scale_xf(transform_to_matrix(the_shape.transform), scale_factor)
 
         # Global-to-skin transform is what offsets all the vertices together, e.g. so that
         # heads can be positioned at the origin. Put the reverse transform on the blender 
@@ -492,8 +488,7 @@ class NifImporter():
         if the_shape.has_global_to_skin:
             # if this transform exists, use it and don't muck with it.
             xform = the_shape.global_to_skin
-            #log.debug(f"Using {the_shape.name}'s global-to-skin transform: {xform.as_matrix().translation}")
-            xf = xform.as_matrix().inverted()
+            xf = transform_to_matrix(xform).inverted()
             offset_consistent = True
         
         offset_xf = None
@@ -501,11 +496,10 @@ class NifImporter():
             # If we're creating missing vanilla bones, we need to know the offset from the
             # bind positions here to the vanilla bind positions, and we need it to be
             # consistent.
-            #log.debug(f"Checking bone offsets from reference skel: {self.reference_skel.filepath}")
             for bn in the_shape.get_used_bones():
                 if bn in self.reference_skel.nodes:
                     skel_bone = self.reference_skel.nodes[bn]
-                    skel_bone_xf= skel_bone.xform_to_global.as_matrix()
+                    skel_bone_xf= transform_to_matrix(skel_bone.global_transform)
                     LogIfBone(bn, f"Bone '{bn}' transform: {skel_bone_xf.translation}/{skel_bone_xf.to_euler()}")
                     bindpos = bind_position(the_shape, bn)
                     LogIfBone(bn, f"Shape {the_shape.name} bind position for '{bn}': {bindpos.translation}/{bindpos.to_euler()}")
@@ -854,20 +848,19 @@ class NifImporter():
             obj["pynRoot"] = True
             obj["PYN_BLENDER_XF"] = MatNearEqual(self.import_xf, blender_import_xf)
             obj['PYN_GAME'] = self.nif.game
-            obj.matrix_local = self.import_xf @ ninode.transform.as_matrix()
+            obj.matrix_local = self.import_xf @ transform_to_matrix(ninode.transform)
             obj.empty_display_type = 'CONE'
             self.root_object = obj
             parent = None
-            #obj.matrix_local = apply_scale_transl(ninode.transform.as_matrix(), self.scale)
         else:
-            obj.matrix_local = ninode.transform.as_matrix()
+            obj.matrix_local = transform_to_matrix(ninode.transform)
 
         if parent:
             if type(parent) == bpy_types.Object:
                 obj.parent = parent
             else:
                 # Can't set a bone as parent, but get the node in the right position
-                obj.matrix_local = apply_scale_xf(ninode.xform_to_global.as_matrix(), self.scale) 
+                obj.matrix_local = apply_scale_xf(transform_to_matrix(ninode.global_transform), self.scale) 
                 obj.parent = self.root_object
         self.objects_created[ninode._handle] = obj
 
@@ -1066,7 +1059,7 @@ class NifImporter():
         arma: armature that will parent bone
         skin_xf: the skin transform applied to all shapes under the armature.
         """
-        bone_xf = shape.get_shape_skin_to_bone(bone).as_matrix()
+        bone_xf = transform_to_matrix(shape.get_shape_skin_to_bone(bone))
         bone_xf = apply_scale_transl(skin_xf, 1/self.scale) @ bone_xf.inverted()
         bone_xf = Matrix.Scale(self.scale, 4) @ bone_xf @ game_rotations[game_axes[shape.file.game]][0]
         return bone_xf
@@ -1087,7 +1080,7 @@ class NifImporter():
         for b in shape.bone_names:
             blend_name = self.blender_name(b)
             if blend_name in arma.data.bones:
-                shape_bone_xf = obj.matrix_local @ apply_scale_xf(bind_position(shape, b), self.scale) # shape.get_shape_skin_to_bone(b).as_matrix()
+                shape_bone_xf = obj.matrix_local @ apply_scale_xf(bind_position(shape, b), self.scale) 
                 arma_xf = get_bone_xform(arma, blend_name, shape.file.game, False, False)
                 LogIfBone(b, f"<find_compatible_arma> Shape {b}: {shape.name} = {shape_bone_xf.translation}")
                 LogIfBone(b, f"<find_compatible_arma> Armature {blend_name}: {arma.name} = {arma_xf.translation}")
@@ -1157,20 +1150,16 @@ class NifImporter():
         # otherwise use the one in the file.
         if self.do_create_bones and self.reference_skel and nifname in self.reference_skel.nodes:
             LogIfBone(bone_name, f"Creating {bone_name} using reference location")
-            bone_xform = self.reference_skel.nodes[nifname].xform_to_global.as_matrix()
+            bone_xform = transform_to_matrix(self.reference_skel.nodes[nifname].global_transform)
             bone = create_bone(armdata, bone_name, bone_xform, 
                                self.nif.game, self.scale, 0)
         else:
             xf = self.nif.get_node_xform_to_global(nifname) 
             LogIfBone(bone_name, f"<add_bone_to_arma> creating bone {nifname} with position \n{xf}")
-            bone_xform = xf.as_matrix()
+            bone_xform = transform_to_matrix(xf)
             # We have the world position of the bone, so we don't need the armature's 
             # skin transform. (We might need the armature object's Blender transform. 
             # But that's always the identity.)
-            # arma_xf = self.calc_skin_transform(arma)
-            # scaled_xf = apply_scale_transl(arma_xf, 1/self.scale)
-            # bone = create_bone(armdata, bone_name, scaled_xf @ bone_xform, 
-            #                    self.nif.game, self.scale, 0)
             bone = create_bone(armdata, bone_name, bone_xform, 
                                self.nif.game, self.scale, 0)
 
@@ -1186,7 +1175,7 @@ class NifImporter():
             if bn in nif.nodes and blname in arma.pose.bones:
                 nif_bone = nif.nodes[bn]
                 if nif_bone.blockname == "NiNode" and nif_bone.name != nif.rootName:
-                    bone_xf = nif_bone.xform_to_global.as_matrix() 
+                    bone_xf = transform_to_matrix(nif_bone.global_transform)
                     pb_xf = apply_scale_transl(bone_xf, self.scale)
                     LogIfBone(bn, f"Bone '{bn}' has base transform in nif: \n{bone_xf}")
                     LogIfBone(bn, f"Bone '{bn}' has pose transform: \n{pb_xf}")
@@ -1449,10 +1438,10 @@ class NifImporter():
                 blname = self.blender_name(bn)
                 if blname not in arma.data.edit_bones:
                     if self.do_create_bones and bn in self.reference_skel.nodes and ref_compat:
-                        bone_shape_xf = self.reference_skel.nodes[bn].xform_to_global.as_matrix()
+                        bone_shape_xf = transform_to_matrix(self.reference_skel.nodes[bn].global_transform)
                         xf = bone_shape_xf
                     else:
-                        bone_shape_xf = nif_shape.get_shape_skin_to_bone(bn).as_matrix().inverted()
+                        bone_shape_xf = transform_to_matrix(nif_shape.get_shape_skin_to_bone(bn)).inverted()
                         xf = skin_xf @ bone_shape_xf
                     LogIfBone(bn, f"Bone '{bn}' has shape {obj.name} xform matrix \n{skin_xf}")
                     LogIfBone(bn, f"Bone '{bn}' has skin-to-bone xform matrix \n{bone_shape_xf}")
@@ -2228,9 +2217,14 @@ class NifImporter():
                 log.info(f"Current object is a mesh, will import as shape key if possible: {self.context.object.name}")
 
         for this_file in self.filename_list:
-            fn = os.path.splitext(os.path.basename(this_file))[0]
+            fn, fext = os.path.splitext(os.path.basename(this_file))
 
-            self.nif = NifFile(this_file)
+            if fext == ".nif":
+                self.nif = NifFile(this_file)
+            elif fext in [".hkx", ".xml"]:
+                self.nif = hkxSkeletonFile(this_file)
+            else:
+                ValueError("Import file of unknown type.")
             if not self.reference_skel:
                 self.reference_skel = self.nif.reference_skel
 
@@ -4181,7 +4175,7 @@ class NifExporter:
             elif this_parent.name in self.objs_written:
                 ninode = self.objs_written[this_parent.name]
             else:
-                xf = TransformBuf.from_matrix(apply_scale_xf(this_parent.matrix_local, 1))
+                xf = make_transformbuf(apply_scale_xf(this_parent.matrix_local, 1))
                 ninode = self.nif.add_node(this_parent.name, xf, last_parent)
                 self.objs_written[this_parent.name] = ninode
                 self.export_collisions(this_parent)
@@ -4267,10 +4261,10 @@ class NifExporter:
         """
         log.info(f"Skinning {obj.name}")
         new_shape.skin()
-        new_shape.transform = TransformBuf.from_matrix(new_xform)
+        new_shape.transform = make_transformbuf(new_xform)
         newxfi = new_xform.copy()
         newxfi.invert()
-        new_shape.set_global_to_skin(TransformBuf.from_matrix(newxfi))
+        new_shape.set_global_to_skin(make_transformbuf(newxfi))
     
         weights_by_bone = get_weights_by_bone(weights_by_vert, arma.data.bones.keys())
 
@@ -4413,7 +4407,7 @@ class NifExporter:
 
             self.export_collisions(arma)
         else:
-            new_shape.transform = TransformBuf.from_matrix(new_xform)
+            new_shape.transform = make_transformbuf(new_xform)
 
         # Write collisions
         self.export_collisions(obj)

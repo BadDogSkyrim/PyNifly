@@ -4184,14 +4184,15 @@ def TEST_SKEL_HKX_IMPORT():
     testfile = TT.test_file("tests/Skyrim/skeleton.hkx")
     # outfile = TT.test_file("tests/out/TEST_SKEL_HKX.xml")
 
-    bpy.ops.import_scene.skeleton_xml(filepath=testfile)
+    # bpy.ops.import_scene.skeleton_xml(filepath=testfile)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
     arma = next(x for x in bpy.data.objects if x.type == 'ARMATURE')
 
-    headbone = arma.data.bones["NPC Head [Head]"]
-    handbone = arma.data.bones["NPC L Hand [LHnd]"]
+    headbone = arma.data.bones["NPC Head"]
+    handbone = arma.data.bones["NPC Hand.L"]
     assert BD.NearEqual(headbone.matrix_local.translation[2], 120.3436), f"Head bone where it should be" 
     assert BD.NearEqual(handbone.matrix_local.translation[0], -28.9358), f"L Hand bone where it should be" 
-    assert headbone.parent.name == "NPC Neck [Neck]", f"Bone has correct parent."
+    assert headbone.parent.name == "NPC Neck", f"Bone has correct parent."
     # bonesvert = sorted(arma.data.bones, key=lambda b: b.matrix_local.translation)
     # assert BD.NearEqual(bonesvert[0].matrix_local.translation[2], 0), f"Lowest bone at 0"
     # assert BD.NearEqual(bonesvert[-1].matrix_local.translation[2], 124), f"Highest bone near 124"
@@ -4755,6 +4756,13 @@ def LOAD_RIG():
 
 
 # --- Quick and Dirty Test Harness ---
+print("""
+=============================================================================
+===                                                                       ===
+===                               TESTING                                 ===
+===                                                                       ===
+=============================================================================
+""")
 
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
@@ -4762,7 +4770,7 @@ def LOAD_RIG():
 first_test = ''  
 
 # If set, run this test only.
-sole_test = 'TEST_SKEL_HKX_IMPORT'
+sole_test = 'TEST_ANIM_HKX'
 
 
 m = sys.modules[__name__]
@@ -4780,9 +4788,9 @@ else:
             bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
 print("""
-############################################################
-##                                                        ##
-##                    TESTS DONE                          ##
-##                                                        ##
-############################################################
+=============================================================================
+===                                                                       ===
+===                               SUCCESS                                 ===
+===                                                                       ===
+=============================================================================
 """)

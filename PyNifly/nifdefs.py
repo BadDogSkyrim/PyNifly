@@ -26,6 +26,34 @@ def is_in_plane(plane, vert):
 
     return round(dp, 4) == 0.0
 
+import math
+
+def multiply_transforms(transform1, transform2):
+    """Combine transform 1 with trnasform 2. Rotations are a 3x3 matrix."""
+    # Extract location, rotation, and scale components from the input transforms
+    loc1, rot1, scale1 = transform1
+    loc2, rot2, scale2 = transform2
+    
+    # Compute the new location by applying rotation and scale to the first location
+    new_loc = [loc1[0] + (rot1[0][0] * scale1[0] * loc2[0]) + (rot1[0][1] * scale1[1] * loc2[1]) + (rot1[0][2] * scale1[2] * loc2[2]),
+               loc1[1] + (rot1[1][0] * scale1[0] * loc2[0]) + (rot1[1][1] * scale1[1] * loc2[1]) + (rot1[1][2] * scale1[2] * loc2[2]),
+               loc1[2] + (rot1[2][0] * scale1[0] * loc2[0]) + (rot1[2][1] * scale1[1] * loc2[1]) + (rot1[2][2] * scale1[2] * loc2[2])]
+    
+    # Compute the new rotation by multiplying rotation matrices
+    new_rot = [[0.0, 0.0, 0.0],
+               [0.0, 0.0, 0.0],
+               [0.0, 0.0, 0.0]]
+    
+    for i in range(3):
+        for j in range(3):
+            new_rot[i][j] = (rot1[i][0] * rot2[0][j]) + (rot1[i][1] * rot2[1][j]) + (rot1[i][2] * rot2[2][j])
+    
+    # Compute the new scale by element-wise multiplication
+    new_scale = [scale1[0] * scale2[0], scale1[1] * scale2[1], scale1[2] * scale2[2]]
+    
+    return new_loc, new_rot, new_scale
+
+
 # We do not actually support all these versions
 game_versions = ["FO3", "FONV", "SKYRIM", "FO4", "SKYRIMSE", "FO4VR", "SKYRIMVR", "FO76"]
 
@@ -278,6 +306,29 @@ class pynStructure(Structure):
 
 # ------ Little bit of matrix math for debugging ----
 #   Real code uses Blender's functions
+
+def quaternion_to_matrix(q):
+    """
+    Convert a quaternion to a 3x3 rotation matrix.
+    
+    :param q: A quaternion in the format (w, x, y, z)
+    :return: The corresponding 3x3 rotation matrix
+    """
+    w, x, y, z = q
+    q_norm = (w**2 + x**2 + y**2 + z**2)**0.5
+    if q_norm == 0:
+        raise ValueError("Quaternion cannot have zero norm.")
+    
+    q = (w/q_norm, x/q_norm, y/q_norm, z/q_norm)
+    
+    q0, q1, q2, q3 = q
+    matrix = [
+        [1 - 2*q2**2 - 2*q3**2, 2*q1*q2 - 2*q0*q3, 2*q1*q3 + 2*q0*q2],
+        [2*q1*q2 + 2*q0*q3, 1 - 2*q1**2 - 2*q3**2, 2*q2*q3 - 2*q0*q1],
+        [2*q1*q3 - 2*q0*q2, 2*q2*q3 + 2*q0*q1, 1 - 2*q1**2 - 2*q2**2]
+    ]
+    
+    return matrix
 
 class pynMatrix:
     def __init__(self, v):
@@ -1279,6 +1330,7 @@ class NiNodeBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiNodeBufType
+        self.nameID = self.controllerID = self.collisionID = NODEID_NONE
 bufferTypeList[PynBufferTypes.NiNodeBufType] = 'NiNode'
 
 class BSXFlagsBuf(pynStructure):
