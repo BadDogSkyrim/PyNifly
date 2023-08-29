@@ -300,6 +300,7 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
         """Write bone poses to the referencePose element"""
         bones = self.export_bones
         adjust_mx = Matrix.Rotation(pi/2, 4, Vector([1,0,0]))
+        adjust_mx = Matrix.Identity(4)
         txt = ""
         for b in bones:
             mx = b.matrix_local.copy()

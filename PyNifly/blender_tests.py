@@ -4209,7 +4209,7 @@ def TEST_SKEL_HKX_IMPORT():
 def TEST_SKEL_XML():
     """Can export selected bones as a skeleton XML file."""
     # TODO: Decide if this functionality is worth it, or whether we should turn this into 
-    # exporting in HKX format. Note TEST_SKEL_SOS_HKX tests export in HKX format.
+    # exporting in HKX format. Note TEST_SKEL_TAIL_HKX tests export in HKX format.
     testfile = TT.test_file("tests/Skyrim/skeletonbeast_vanilla.nif")
     outfile = TT.test_file("tests/out/TEST_SKEL_XML.xml")
 
@@ -4271,10 +4271,43 @@ def TEST_SKEL_XML():
     assert inhead.properties.transform == outhead.properties.transform, f"Have same tail transform"
 
 
-def TEST_SKEL_SOS_HKX():
+def TEST_SKEL_TAIL_HKX():
+    """Can import and export a HKX skeleton file."""
+    testfile = TT.test_file(r"tests\Skyrim\tailskeleton.hkx")
+    outfile = TT.test_file("tests/out/TEST_SKEL_TAIL_HKX.hkx")
+
+    bpy.ops.import_scene.pynifly_hkx(filepath=testfile, 
+                                     use_blender_xf=False, 
+                                     do_rename_bones=False, 
+                                     do_import_collisions=False)
+    
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    assert arma and arma.type=='ARMATURE', f"Loaded armature: {arma}"
+    bpy.ops.object.select_all(action='DESELECT')
+    BD.ObjectSelect([arma], active=True)
+
+    bpy.ops.object.mode_set(mode='POSE')
+    for b in arma.pose.bones:
+        b.bone.select = True
+
+    bpy.ops.export_scene.skeleton_hkx(filepath=outfile)
+
+    TT.hide_all()
+    bpy.ops.import_scene.pynifly_hkx(filepath=outfile, 
+                                     use_blender_xf=False, 
+                                     do_rename_bones=False, 
+                                     do_import_collisions=False)
+    
+    armacheck = bpy.context.object
+    assert BD.MatNearEqual(arma.data.bones['TailBone01'].matrix_local, 
+                           armacheck.data.bones['TailBone01'].matrix_local), \
+        f"Have matching transforms."
+
+
+def TEST_SKEL_SOS_HKX2():
     """Can export selected bones as a HKX file."""
     testfile = TT.test_file(r"tests\SkyrimSE\skeletonbeast_xpse.nif")
-    outfile = TT.test_file("tests/out/TEST_SKEL_SOS_HKX.hkx")
+    outfile = TT.test_file("tests/out/TEST_SKEL_SOS_HKX2.hkx")
 
     target_bones = ['NPC GenitalsBase [GenBase]',
                     'NPC GenitalsScrotum [GenScrot]',
@@ -4777,13 +4810,13 @@ print("""
 =============================================================================
 """)
 
+# If set, run these tests only.
+test_targets = ['TEST_SKEL_TAIL_HKX']
+
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
 # Use to resume a test run from the point it failed.
 first_test = ''  
-
-# If set, run these tests only.
-test_targets = ['TEST_SKEL_HKX_IMPORT', 'TEST_SKEL_XML']
 
 
 m = sys.modules[__name__]

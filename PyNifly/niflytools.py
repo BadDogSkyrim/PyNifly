@@ -35,13 +35,13 @@ def tmp_filepath(filepath, ext=None):
     i = 0
     iter = ""
     fp = ""
-    while i < 1000:
+    while i < 10000:
         if i > 0:
             iter = f"_{i}"
         fp = fpbase + iter + ext
         if not os.path.exists(fp): break
         i += 1
-    if i < 1000: 
+    if i < 10000: 
         return fp
     else:
         return None

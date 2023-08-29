@@ -34,6 +34,14 @@ def clear_all():
         bpy.data.actions.remove(a)
     bpy.context.scene.timeline_markers.clear()
 
+
+def hide_all():
+    if bpy.context.mode != 'OBJECT': bpy.ops.object.mode_set(mode = 'OBJECT')
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.hide_view_set()
+
+
+
 def append_from_file(objname, with_parent, filepath, innerpath, targetobj):
     """ Convenience routine: Load an object from another blender file. 
         Deletes any existing objects with that name first.
