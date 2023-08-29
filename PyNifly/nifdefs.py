@@ -5,6 +5,7 @@
 
 import struct
 from enum import Enum, IntFlag, IntEnum
+import math
 from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer, addressof
 from pynmathutils import *
 
@@ -26,7 +27,6 @@ def is_in_plane(plane, vert):
 
     return round(dp, 4) == 0.0
 
-import math
 
 def multiply_transforms(transform1, transform2):
     """Combine transform 1 with trnasform 2. Rotations are a 3x3 matrix."""
@@ -360,10 +360,14 @@ class TransformBuf(pynStructure):
         ('translation', VECTOR3),
         ('rotation', MATRIX3),
         ('scale', c_float) ]
+    
+    def __init__(self):
+        self.set_identity()
+
 
     def set_identity(self):
         self.translation = VECTOR3(0, 0, 0)
-        self.rotation = MATRIX3((0,0,0), (0,0,0), (0,0,0))
+        self.rotation = MATRIX3((1,0,0), (0,1,0), (0,0,1))
         self.scale = 1
         return self
 
@@ -1328,6 +1332,7 @@ class NiNodeBuf(pynStructure):
         ("effectCount", c_uint16),
     ]
     def __init__(self, values=None):
+        self.transform.set_identity()
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiNodeBufType
         self.nameID = self.controllerID = self.collisionID = NODEID_NONE

@@ -4179,14 +4179,20 @@ def TEST_JIARAN():
 
 
 def TEST_SKEL_HKX_IMPORT():
-    TT.test_title("TEST_SKEL_HKX_IMPORT", "Skeleton import")
-    TT.clear_all()
+    """Skeletons can be imported from HKX files."""
     testfile = TT.test_file("tests/Skyrim/skeleton.hkx")
     # outfile = TT.test_file("tests/out/TEST_SKEL_HKX.xml")
 
     # bpy.ops.import_scene.skeleton_xml(filepath=testfile)
-    bpy.ops.import_scene.pynifly(filepath=testfile)
+    bpy.ops.import_scene.pynifly_hkx(filepath=testfile)
+    
+    rootobj = next(x for x in bpy.data.objects if 'pynRoot' in x)
+    assert BD.VNearEqual(rootobj.scale, [1,1,1]), f"Scale is 1.0"
+
     arma = next(x for x in bpy.data.objects if x.type == 'ARMATURE')
+
+    rootbone = arma.data.bones["NPC Root"]
+    assert rootbone, f"Have root bone"
 
     headbone = arma.data.bones["NPC Head"]
     handbone = arma.data.bones["NPC Hand.L"]
@@ -4200,11 +4206,12 @@ def TEST_SKEL_HKX_IMPORT():
     BD.ObjectSelect([arma], active=True)
 
 
-def TEST_SKEL_HKX():
-    TT.test_title("TEST_SKEL_HKX", "Skeleton export")
-    TT.clear_all()
+def TEST_SKEL_XML():
+    """Can export selected bones as a skeleton XML file."""
+    # TODO: Decide if this functionality is worth it, or whether we should turn this into 
+    # exporting in HKX format. Note TEST_SKEL_SOS_HKX tests export in HKX format.
     testfile = TT.test_file("tests/Skyrim/skeletonbeast_vanilla.nif")
-    outfile = TT.test_file("tests/out/TEST_SKEL_HKX.xml")
+    outfile = TT.test_file("tests/out/TEST_SKEL_XML.xml")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     arma = bpy.data.objects[BD.arma_name('skeletonBeast.nif')]
@@ -4257,13 +4264,17 @@ def TEST_SKEL_HKX():
     skelref = xroot.find("./hksection/hkobject[@class='hkaAnimationContainer']/hkparam[@name='skeletons']")
     assert xskel[0].attrib['name'] == skelref.text, f"Forward ref correct: {xskel[0].attrib['name']} == {skelref.text}"
 
+    incheck = pyn.NifFile(testfile)
+    outcheck = pyn.hkxSkeletonFile(outfile)
+    inhead = incheck.nodes["TailBone05"]
+    outhead = outcheck.nodes["TailBone05"]
+    assert inhead.properties.transform == outhead.properties.transform, f"Have same tail transform"
+
 
 def TEST_SKEL_SOS_HKX():
-    return # TODO: Finish this functionality
-    TT.test_title("TEST_SKEL_SOS_HKX", "Skeleton export")
-    TT.clear_all()
+    """Can export selected bones as a HKX file."""
     testfile = TT.test_file(r"tests\SkyrimSE\skeletonbeast_xpse.nif")
-    outfile = TT.test_file("tests/out/TEST_SKEL_SOS_HKX.xml")
+    outfile = TT.test_file("tests/out/TEST_SKEL_SOS_HKX.hkx")
 
     target_bones = ['NPC GenitalsBase [GenBase]',
                     'NPC GenitalsScrotum [GenScrot]',
@@ -4274,7 +4285,10 @@ def TEST_SKEL_SOS_HKX():
                     'NPC Genitals05 [Gen05]',
                     'NPC Genitals06 [Gen06]']
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, do_rename_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                 use_blender_xf=False, 
+                                 do_rename_bones=False, 
+                                 do_import_collisions=False)
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     assert arma and arma.type=='ARMATURE', f"Loaded armature: {arma}"
     bpy.ops.object.select_all(action='DESELECT')
@@ -4692,9 +4706,7 @@ def TEST_ANIM_KF_RENAME():
 
 
 def TEST_ANIM_HKX():
-    # Can import a HKX animation
-    TT.test_title("TEST_ANIM_HKX", "Read and write HKX animation.")
-    TT.clear_all()
+    """Can import and export a HKX animation."""
 
     # Check that this works when there are spaces in the path name
     testfile = TT.test_file(r"tests\Skyrim\meshes\actors\character\character animations\1hm_staggerbacksmallest.hkx")
@@ -4723,6 +4735,7 @@ def TEST_ANIM_HKX():
     bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=hkx_skel)
 
     assert os.path.exists(outfile)
+
 
 def LOAD_RIG():
     """Load an animation rig for play."""
@@ -4769,23 +4782,28 @@ print("""
 # Use to resume a test run from the point it failed.
 first_test = ''  
 
-# If set, run this test only.
-sole_test = 'TEST_ANIM_HKX'
+# If set, run these tests only.
+test_targets = ['TEST_SKEL_HKX_IMPORT', 'TEST_SKEL_XML']
 
 
 m = sys.modules[__name__]
 
-if sole_test: 
-    m.__dict__[sole_test]()
+if test_targets:
+    testlist = test_targets
 else:
-    all_tests = [k for k in m.__dict__.keys() if k.startswith('TEST_')]
-    doit = True
-    if first_test: doit = False
-    for name in all_tests:
-        if name == first_test: doit = True
-        if doit and name.startswith('TEST_'): 
-            m.__dict__[name]()
-            bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+    testlist = [k for k in m.__dict__.keys() if k.startswith('TEST_')]
+
+doit = True
+if first_test: doit = False
+for name in testlist:
+    if name == first_test: doit = True
+    if doit: 
+        t = m.__dict__[name]
+        TT.test_title(name, t.__doc__)
+        TT.clear_all()
+        t()
+        print (f"------------------------------ {name} ------------------------------\n")
+        bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
 print("""
 =============================================================================

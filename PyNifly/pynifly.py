@@ -552,7 +552,7 @@ class NiObject:
     def properties(self):
         if self._properties == None:
             self._properties = self._getbuf()
-            if self.id != NODEID_NONE:
+            if self.id != NODEID_NONE and self.file._handle:
                 NifFile.nifly.getBlock(self.file._handle, 
                                        self.id, 
                                        byref(self._properties))
@@ -1001,6 +1001,12 @@ class NiNode(NiAVObject):
         self._name = value
         if self.file: self.file.register_node(self)
         
+    def blender_name(self, nif_name):
+        return self.file.dict.blender_name(nif_name)
+
+    def nif_name(self, blender_name):
+        return self.file.dict.nif_name(blender_name)
+    
     @property
     def transform(self):
         return self.properties.transform
@@ -2292,7 +2298,8 @@ class NifFile:
     def root(self):
         """Return handle of root node."""
         if self._root is None:
-            self._root = NifFile.nifly.getRoot(self._handle)
+            #self._root = NifFile.nifly.getRoot(self._handle)
+            self._root = self.read_node(0)
         return self._root
 
     @property 
@@ -2592,7 +2599,7 @@ class NifFile:
 class hkxSkeletonFile(NifFile):
     """
     Represents a hkx skeleton file. Extends and replaces NifFile's functionality to
-    write to a XML file instead of a nif. 
+    read a XML file instead of a nif. 
     """
 
     def __init__(self, filepath=None):
@@ -2621,6 +2628,12 @@ class hkxSkeletonFile(NifFile):
         self.xmlfile = xml.parse(self.filepath)
         self.xmlroot = self.xmlfile.getroot()
 
+        n = NiNode(file=self, name=os.path.basename(self.filepath))
+        n.id = 0
+        n._blockname = "BSFadeNode"
+        n.properties.transform.set_identity()
+        self.register_node(n)
+
         skel = self.xmlroot.find(".//*[@class='hkaSkeleton']")
         skelname = skel.find("./*[@name='name']").text
         parentIndices = [int(x) for x in skel.find("./*[@name='parentIndices']").text.split()]
@@ -2638,7 +2651,7 @@ class hkxSkeletonFile(NifFile):
         while i < len(poselist) and j < len(bonelist):
             parent = None
             parentname = None
-            if parentIndices[j] > 0:
+            if parentIndices[j] >= 0:
                 parentname = bonelist[parentIndices[j]]
                 if parentname in self.nodes:
                     parent = self.nodes[parentname]
@@ -2671,7 +2684,7 @@ class hkxSkeletonFile(NifFile):
                 buf.transform.scale = scale[0]
                 n = NiNode(file=self, parent=parent, 
                            properties=buf, name=bonelist[j])
-                n.id = j
+                n.id = j+1
                 n._blockname = "NiNode"
                 self.register_node(n)
 
@@ -4639,12 +4652,6 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    # tester.execute_all()
+    tester.execute_all()
     # tester.execute_all(start='TEST_KF')
-    tester.execute_test('TEST_HKX_SKELETON')
-
-
-
-    
-
-
+    # tester.execute_test('TEST_HKX_SKELETON')

@@ -6,18 +6,50 @@
 """
 
 import os
-from math import asin, acos, atan2, pi, sin, cos, radians, sqrt
-import operator
-from functools import reduce
+import sys
 import logging
 import re
+import tempfile
+import shutil
 from pathlib import Path
-from typing import Match
 
+
+logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
 log = logging.getLogger("pynifly")
-
+log.setLevel(logging.INFO)
+    
 
 # ###################### FILE HANDLING ##################################
+
+def tmp_filepath(filepath, ext=None):
+    """Return a unique temporary filename. Name is based on the base name of 
+    'filepath', with suffixes to make it unique, and given the extension 'ext'.
+    """
+    base_ext = os.path.basename(filepath)
+    basename, extension = os.path.splitext(base_ext)
+    name = basename.replace(' ', '_')
+    if not name.startswith("tmp_"): name = "tmp_" + name
+    if not ext: ext = extension
+
+    fpbase = os.path.join(tempfile.gettempdir(), name)
+    i = 0
+    iter = ""
+    fp = ""
+    while i < 1000:
+        if i > 0:
+            iter = f"_{i}"
+        fp = fpbase + iter + ext
+        if not os.path.exists(fp): break
+        i += 1
+    if i < 1000: 
+        return fp
+    else:
+        return None
+
+
+def copyfile(fin, fout):
+    shutil.copy(fin.strip('"'), fout)
+
 
 def extend_filenames(root, separator, files):
     """ Extend the given relative path names with the portion of the root before the
@@ -40,9 +72,11 @@ def extend_filenames(root, separator, files):
         sharedpart = rootpath
     return [(str(sharedpart / f) if len(f) > 0 else "") for f in files]
 
+
 def replace_extensions(files, orig, rep):
     """ Replace the extension of files in the given list """
     return [re.sub(orig, rep, f, flags=re.I) for f in files]
+
 
 def check_files(files):
     """ Check that all files in the given list exist """
@@ -54,9 +88,11 @@ def check_files(files):
             exists &= (os.path.exists(f) if len(f) > 0 else True)
         return exists
 
+
 def missing_files(files):
     """ Returns a list containing the files in the given list that don't exist """
     return [x for x in files if x != '' and not os.path.exists(x)]
+
 
 def truncate_filename(filepath: str, root_dir: str)-> str:
     n = filepath.lower().find(root_dir.lower())
@@ -263,18 +299,18 @@ class BoneDict:
             self.active_dict = self.byPynifly
 
     def blender_name(self, nif_name):
-        try:
-            if self.use_niftools:
+        if self.use_niftools:
+            if nif_name in self.byNif:
                 return self.byNif[nif_name].niftools
-            else:
+        else:
+            if nif_name in self.byNif:
                 return self.byNif[nif_name].blender
-        except:
-            return nif_name
+        return nif_name
     
     def nif_name(self, blender_name):
-        try:
+        if blender_name in self.active_dict:
             return self.active_dict[blender_name].nif
-        except:
+        else:
             return blender_name
 
     def bodypart(self, name):

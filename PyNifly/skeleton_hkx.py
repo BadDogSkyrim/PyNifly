@@ -17,6 +17,8 @@ from bpy_extras.io_utils import (
 from blender_defs import *
 import xml.etree.ElementTree as xml
 import hashlib
+from xmltools import XMLFile
+
 
 
 bl_info = {
@@ -167,7 +169,7 @@ def set_param(elem, attribs, txt):
 
 
 class ExportSkel(bpy.types.Operator, ExportHelper):
-    """Export Blender armature to a skeleton HKX file"""
+    """Export Blender armature to a skeleton XML file"""
 
     bl_idname = "export_scene.skeleton_xml"
     bl_label = 'Export skeleton XML'
@@ -364,10 +366,7 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
                            encoding='utf-8')
 
 
-    def execute(self, context):
-        LogStart(bl_info, "EXPORT SKELETON", "XML")
-
-        self.context = context
+    def do_export(self):
         self.write_header()
         self.write_rootlevelcontainer()
         self.write_animationcontainer()
@@ -378,10 +377,16 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
         self.write_animationcontainer_refs()
         self.save()
         log.info(f"Wrote {self.filepath}")
+    
+
+    def execute(self, context):
+        LogStart(bl_info, "EXPORT SKELETON", "XML")
+
+        self.context = context
+        self.do_export()
 
         status = {'FINISHED'}
         return status
-    
 
     @classmethod
     def poll(cls, context):

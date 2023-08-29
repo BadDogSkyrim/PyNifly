@@ -1,0 +1,154 @@
+"""Tools for manipulating XML files"""    
+
+import os
+import shutil
+import tempfile
+import subprocess
+import logging
+import xml.etree.ElementTree as xml
+import niflytools
+
+hkxcmd_path = ""
+
+
+class XMLFile:
+    """A XMLFile can be loaded from an XML text file or a HKX compressed file. If
+    given a HKX file it is converted to XML.
+    """
+    _hkxcmd_path = None
+
+    @classmethod
+    def SetPath(cls, filepath):
+        """Set the filepath to use for hkxcmd.exe"""
+        XMLFile._hkxcmd_path = filepath
+
+    
+    def __init__(self, filepath=None, logger=None):
+        self.file = None
+        self.root = None
+        self.hkx_filepath = None
+        self.xml_filepath = None
+        if logger:
+            self.logger = logger
+        else:
+            self.logger = logging.getLogger("pynifly")
+        if filepath:
+            self.open(filepath)
+
+
+    @classmethod
+    def hkx_to_xml(cls, filepath):
+        """Given a HKX file, convert it to XML and return the XML filepath.
+        
+        The filepath must not have spaces in it.
+        """
+        xml_filepath = niflytools.tmp_filepath(filepath, ext=".xml")
+
+        if not xml_filepath:
+            raise ValueError(f"Could not create temporary XML filepath for {filepath}")
+                
+        stat = subprocess.run([cls._hkxcmd_path, 
+                                "CONVERT", 
+                                "-V:XML",
+                                filepath, 
+                                xml_filepath], 
+                                capture_output=True, check=True)
+        
+        if stat.returncode:
+            s = stat.stderr.decode('utf-8').strip()
+            raise ValueError(s)
+        
+        if not os.path.exists(xml_filepath):
+            raise ValueError(f"Failed to create {xml_filepath}")
+
+        return xml_filepath
+    
+
+    @classmethod
+    def xml_to_hkx(cls, filepath_in, filepath_out):
+        """Given a XML file, convert it to a HKX file at the given path.
+        """
+        # Make a copy of the xml file that is guaranteed not to have spaces in the path.
+        if filepath_in.find(" ") >= 0:
+            xml_filepath = niflytools.tmp_filepath(filepath_in)
+            niflytools.copyfile(filepath_in, xml_filepath)
+        else:
+            xml_filepath = filepath_in
+        hkx_filepath = niflytools.tmp_filepath(filepath_in, ext=".hkx")
+
+        if not hkx_filepath:
+            raise ValueError(f"Could not create temporary HKX filepath for {filepath_in}")
+                
+        stat = subprocess.run([cls._hkxcmd_path, 
+                                "CONVERT", 
+                               "-V:WIN32",
+                                xml_filepath, 
+                                hkx_filepath], 
+                                capture_output=True, check=True)
+        
+        if stat.returncode:
+            s = stat.stderr.decode('utf-8').strip()
+            raise ValueError(s)
+        
+        if not os.path.exists(hkx_filepath):
+            raise ValueError(f"Failed to create {hkx_filepath}")
+
+        return niflytools.copyfile(hkx_filepath, filepath_out)
+    
+
+    def open(self, filepath):
+        """
+        Open the file. If it's a HKX file, convert to XML first.
+        Sets:
+
+        - self.hkx_filepath -- if filepath is a HKX file, we create a temporary copy with
+          short names that hkxcmd can operate on.
+        - self.file -- the file object for the XML parser
+        - self.root -- the XML parser root
+        """
+        ext = os.path.splitext(filepath)[1].upper()
+        if ext == ".XML":
+            fp = filepath
+        elif ext == ".HKX":
+            self.hkx_filepath = niflytools.tmp_filepath(filepath)
+            niflytools.copyfile(filepath, self.hkx_filepath)
+            fp = XMLFile.hkx_to_xml(self.hkx_filepath)
+            self.logger.info(f"Temporary xml file created: {fp}")
+        else:
+            raise ValueError("Need either a XML or HKX file.")
+        
+        self.xml_filepath = fp
+        self.file = xml.parse(fp)
+        self.root = self.file.getroot()
+        
+
+    @property
+    def contains_skeleton(self):
+        skel = self.root.find(".//*[@class='hkaSkeleton']")
+        return skel is not None
+    
+
+    @property
+    def contains_animation(self):
+        anim = self.root.find(".//*[@class='hkaSplineCompressedAnimation']")
+        return anim is not None
+
+            
+# def execute(self, context):
+#         LogStart(bl_info, "IMPORT SKELETON", "XML")
+#         log.info(f"Importing {self.filepath}")
+#         infile = xml.parse(self.filepath)
+#         inroot = infile.getroot()
+#         log.debug(f"Root tag: {inroot.tag}")
+#         log.debug(f"Root attributes: {inroot.attrib}")
+#         log.debug(f"Children: {[x.attrib for x in inroot]}")
+#         sec1 = inroot[0]
+#         log.debug(f"First section: {sec1.attrib}")
+#         if inroot:
+#             arma = SkeletonArmature(Path(self.filepath).stem)
+#             arma.bones_from_xml(inroot)
+#             # arma.connect_armature(inroot)
+
+#         status = {'FINISHED'}
+
+#         return status

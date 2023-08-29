@@ -18,8 +18,8 @@ log = logging.getLogger("pynifly")
 
 
 def test_title(name, desc):
-    print (f"\n\n\n------------------------------ {name} ------------------------------")
-    print (f"--- {desc}")
+    print (f"\n\n\n++++++++++++++++++++++++++++++ {name} ++++++++++++++++++++++++++++++")
+    print (f"{desc}")
 
 def clear_all():
     if bpy.data.objects:

@@ -315,30 +315,6 @@ def get_short_path_name(long_name):
     return os.path.join(output_buf.value, bname)
 
 
-def tmp_filepath(filepath, ext):
-    """Return a unique temporary filename. Name is based on the base name of 
-    'filepath', with suffixes to make it unique, and given the extension 'ext'."""
-
-    bname = os.path.basename(filepath).replace(' ', '_')
-    name = "tmp_" + os.path.splitext(bname)[0]
-    fpbase = os.path.join(tempfile.gettempdir(), name)
-    i = 0
-    iter = ""
-    fp = ""
-    while i < 1000:
-        if i > 0:
-            iter = f"_{i}"
-        fp = fpbase + iter + ext
-        if not os.path.exists(fp): break
-        i += 1
-    if i < 1000: 
-        return fp
-    else:
-        return None
-    
-def copyfile(fin, fout):
-    shutil.copy(fin.strip('"'), fout)
-
 CAMERA_NEUTRAL = MatrixLocRotScale((0, 100, 0), Euler((-pi/2,pi,0), 'XYZ'), (1,1,1))
 
 def cam_to_inv(mx, focal_len):
@@ -361,6 +337,34 @@ def inv_to_cam(im_rot, zoom):
         Euler([v/1000 for v in im_rot], 'XYZ'),
         (1,1,1) )
     return cammx.inverted() @ CAMERA_NEUTRAL, focal_len
+
+
+def highlight_objects(objlist, context):
+    """
+    Highlight the given objects in the viewports. Select them, make sure
+    they are visible in the 3D view, make sure they are visible in the outliner.
+    """
+    ObjectSelect(objlist, active=True)
+
+    context.view_layer.update()
+    for area in [a for a in bpy.context.screen.areas if a.type == 'OUTLINER']:
+        for region in [r for r in area.regions if r.type == 'WINDOW']:
+            override = {'area':area, 'region': region}
+            bpy.ops.outliner.show_active(override)
+
+    # Zoom any 3D view to the selected objects
+    for area in [a for a in context.screen.areas if a.type == 'VIEW_3D']:
+        for region in [r for r in area.regions if r.type == 'WINDOW']:
+            # try:
+            #     with context.temp_override(area=area, region=region):
+            #         bpy.ops.view3d.view_selected()
+            # except:
+                # Older versions of blender before 3.2
+            # ctx = context.copy()
+            # ctx['area'] = area
+            # ctx['region'] = region
+            override = {'area':area, 'region': region}
+            bpy.ops.view3d.view_selected(override)
 
     
 def TEST_CAM():
