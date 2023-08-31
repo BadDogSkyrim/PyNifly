@@ -48,7 +48,6 @@ class SkeletonArmature():
 
     def addbone(self, bonename, xform):
         """Create the bone in the armature. Assume armature is in edit mode."""
-        log.debug(f"Adding bone {bonename} at \n{xform}")
         bone = self.arma.data.edit_bones.new(bonename)
         bone.matrix = xform
 
@@ -62,7 +61,6 @@ class SkeletonArmature():
         skelbones = skel.find("./*[@name='bones']")
         for b in skelbones.iter('hkobject'):
             bonelist.append(b.find("./*[@name='name']").text)
-        log.debug(f"Found bones {bonelist}")
 
         pose = skel.find("./*[@name='referencePose']")
         poselist = pose.text.strip(' ()\t\n').split(')')
@@ -143,11 +141,7 @@ class ImportSkel(bpy.types.Operator, ImportHelper):
         log.info(f"Importing {self.filepath}")
         infile = xml.parse(self.filepath)
         inroot = infile.getroot()
-        log.debug(f"Root tag: {inroot.tag}")
-        log.debug(f"Root attributes: {inroot.attrib}")
-        log.debug(f"Children: {[x.attrib for x in inroot]}")
         sec1 = inroot[0]
-        log.debug(f"First section: {sec1.attrib}")
         if inroot:
             arma = SkeletonArmature(Path(self.filepath).stem)
             arma.bones_from_xml(inroot)
@@ -304,7 +298,6 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
         txt = ""
         for b in bones:
             mx = b.matrix_local.copy()
-            log.debug(f"{b.name} mx before rotation: \n{mx}")
             p = self.find_parent(b)
             if not p:
                 # No parent being exported, this is top-level; export relative to the parent.
@@ -314,9 +307,6 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
                 px = p.matrix_local
                 mx = px.inverted() @ mx
 
-            log.debug(f"mx after global-to-local: \n{mx}")
-            # mx = adjust_mx @ mx
-            # log.debug(f"mx after rotation: \n{mx}")
             xl = mx.translation
             xl.rotate(adjust_mx)
             txt += "({0:0.6f} {1:0.6f} {2:0.6f})".format(*xl)

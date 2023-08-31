@@ -56,7 +56,7 @@ def ObjectSelect(objlist, deselect=True, active=False):
         bpy.ops.object.select_all(action='DESELECT')
     for o in objlist:
         o.select_set(True)
-    if active:
+    if active and objlist:
         bpy.context.view_layer.objects.active = objlist[0]
 
 
@@ -100,7 +100,7 @@ def transform_from_matrix(buf: TransformBuf, m: Matrix):
     buf.rotation = MATRIX3(r[0][:], r[1][:], r[2][:])
     buf.scale = max(s[:])
 
-def make_transformbuf(cls, m: Matrix) -> TransformBuf:
+def make_transformbuf(m: Matrix) -> TransformBuf:
     """ Return a new TransformBuf filled with the data in the matrix """
     buf = TransformBuf()
     transform_from_matrix(buf, m)
@@ -119,7 +119,7 @@ def pose_transform(shape:NiShape, bone: str):
     It's the same for all bones in a nif, unless the nif has the shape in a posed
     position--changing bone positions relative to each other.
     """
-    bonexf = transform_to_matrix(shape.file.nodes[bone].xform_to_global)
+    bonexf = transform_to_matrix(shape.file.nodes[bone].global_transform)
     sk2b = transform_to_matrix(shape.get_shape_skin_to_bone(bone))
     return (bonexf @ sk2b).inverted()
 

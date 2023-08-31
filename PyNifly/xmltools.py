@@ -38,10 +38,8 @@ class XMLFile:
 
     @classmethod
     def hkx_to_xml(cls, filepath):
-        """Given a HKX file, convert it to XML and return the XML filepath.
-        
-        The filepath must not have spaces in it.
-        """
+        """Given a HKX file, convert it to XML and return the XML filepath."""
+        tmp_filepath = niflytools.tmp_copy(filepath)
         xml_filepath = niflytools.tmp_filepath(filepath, ext=".xml")
 
         if not xml_filepath:
@@ -50,7 +48,7 @@ class XMLFile:
         stat = subprocess.run([cls._hkxcmd_path, 
                                 "CONVERT", 
                                 "-V:XML",
-                                filepath, 
+                                tmp_filepath, 
                                 xml_filepath], 
                                 capture_output=True, check=True)
         

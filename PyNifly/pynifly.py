@@ -15,6 +15,7 @@ from typing import ValuesView # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_
 import xml.etree.ElementTree as xml
 from niflytools import *
 from nifdefs import *
+import xmltools
 
 
 def load_nifly(nifly_path):
@@ -1001,9 +1002,11 @@ class NiNode(NiAVObject):
         self._name = value
         if self.file: self.file.register_node(self)
         
+    @property
     def blender_name(self, nif_name):
         return self.file.dict.blender_name(nif_name)
 
+    @property
     def nif_name(self, blender_name):
         return self.file.dict.nif_name(blender_name)
     
@@ -2622,10 +2625,15 @@ class hkxSkeletonFile(NifFile):
 
     def load_from_file(self):
         """
-        Load the skeleton from the XML file. Since the XML spreads bone information across
-        multiple constructs it's more convenient to load it all at once.
+        Load the skeleton from a HKX or XML file. Since the XML spreads bone information
+        across multiple constructs it's more convenient to load it all at once.
         """
-        self.xmlfile = xml.parse(self.filepath)
+        if os.path.splitext(self.filepath)[1].upper() == ".HKX":
+            self.xml_filepath = xmltools.XMLFile.hkx_to_xml(self.filepath)
+        else:
+            self.xml_filepath = self.filepath
+    
+        self.xmlfile = xml.parse(self.xml_filepath)
         self.xmlroot = self.xmlfile.getroot()
 
         n = NiNode(file=self, name=os.path.basename(self.filepath))

@@ -183,8 +183,8 @@ def compare_shapes(inshape, outshape, blshape, e=0.0001, scale=1.0, ignore_trans
     assert MatNearEqual(outshape_bbox, inshape_bbox, e), f"Nif out {outshape.name} bounding box matches nif in: \n{outshape_bbox}==\n{inshape_bbox}"
 
     if ignore_translations:
-        xfin = inshape.xform_to_global
-        xfout = outshape.xform_to_global
+        xfin = inshape.global_transform
+        xfout = outshape.global_transform
         assert MatNearEqual(xfout.rotation, xfin.rotation, 0.01), \
             f"Base transform-to-global unchanged: \n{xfout}\n==\n{xfin}"
 
@@ -193,19 +193,19 @@ def compare_shapes(inshape, outshape, blshape, e=0.0001, scale=1.0, ignore_trans
         assert MatNearEqual(xfout.rotation, xfin.rotation, 0.01), \
             f"Base TriShape transform unchanged: \n{xfout}\n==\n{xfin}"
     else:
-        xfin = inshape.xform_to_global.as_matrix()
-        xfout = outshape.xform_to_global.as_matrix()
+        xfin = BD.transform_to_matrix(inshape.global_transform)
+        xfout = BD.transform_to_matrix(outshape.global_transform)
         assert MatNearEqual(xfout, xfin, 0.01), f"Base transform-to-global unchanged: \n{xfout}\n==\n{xfin}"
 
-        xfin = inshape.transform.as_matrix()
-        xfout = outshape.transform.as_matrix()
+        xfin = BD.transform_to_matrix(inshape.transform)
+        xfout = BD.transform_to_matrix(outshape.transform)
         assert MatNearEqual(xfout, xfin, 0.01), f"Base TriShape transform unchanged: \n{xfout}\n==\n{xfin}"
 
 
 def compare_bones(bone_name, in_nif, out_nif, e=0.0001):
     """Compare bone transforms, fail if different"""
-    xfin = in_nif.get_node_xform_to_global(bone_name).as_matrix()
-    xfout = out_nif.get_node_xform_to_global(bone_name).as_matrix()
+    xfin = BD.transform_to_matrix(in_nif.get_node_xform_to_global(bone_name))
+    xfout = BD.transform_to_matrix(out_nif.get_node_xform_to_global(bone_name))
     assert MatNearEqual(xfout, xfin, e), \
         f"Bone {bone_name} transform unchanged:\n{xfout}\n==\n{xfin}"
 

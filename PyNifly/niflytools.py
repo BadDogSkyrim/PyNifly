@@ -51,6 +51,13 @@ def copyfile(fin, fout):
     shutil.copy(fin.strip('"'), fout)
 
 
+def tmp_copy(filepath) -> str:
+    """Create a temporary copy of the file and return its filepath."""
+    fp = tmp_filepath(filepath)
+    copyfile(filepath, fp)
+    return fp
+
+
 def extend_filenames(root, separator, files):
     """ Extend the given relative path names with the portion of the root before the
         separator. 
