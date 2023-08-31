@@ -75,6 +75,40 @@ def TEST_BODYPART_FO4():
     assert TT.NearEqual(minz, -12.1, epsilon=0.1), f"Min Z ~ -12.1: {minz}"
 
 
+def TEST_BODYPART_XFORM():
+    """Test the body can be brought in with extended skeleton and Blender transform."""
+    # On import, a transform can be applied to make it convenient for handling in Blender.
+    # And the bones in the nif can be extended with the reference skeleton. Using the
+    # child body because it creates problems that the adult body does not.
+    testfile = TT.test_file("tests\Skyrim\childbody.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                 do_create_bones=True,
+                                 use_blender_xf=True,
+                                 do_rename_bones=True)
+
+    # Importer leaves any imported shapes as the selected object.
+    body = bpy.context.object
+    assert body.name == 'BODY', f"Have correct name: {body.name}"
+    
+    # Importer creates an armature for the skinned shape.
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    assert arma, f"Found armature"
+
+    # Root node imported and parents other objects. 
+    root_object = next(n for n in bpy.data.objects if 'pynRoot' in n)
+    assert body.parent == root_object, f"Body parented to root."
+    assert root_object.scale == Vector((0.1,0.1,0.1,)), f"Root applies a 1/10 scale."
+
+    # The new bones from the reference skeleton have the same transform and scale as the
+    # ones that came from the nif.
+    bonez_max = max(b.head.z for b in arma.data.bones)
+    vertz_max = max((body.matrix_local @ v.co).z for v in body.data.vertices)
+    assert bonez_max < vertz_max, f"Armature entirely within body."
+
+    spine1 = arma.data.bones['NPC Spine1']
+    assert "CME Spine" == spine1.parent.name, f"Spine1 has correct parent."
+
+    
 def TEST_SKYRIM_XFORM():
     """Can read & write the Skyrim shape transforms"""
     testfile = TT.test_file(r"tests/Skyrim/MaleHead.nif")
@@ -4662,6 +4696,26 @@ def TEST_ANIM_HKX():
     assert os.path.exists(outfile)
 
 
+def TEST_IMPORT_TAIL():
+    """Regression: Import of a single bodypart onto a skeleton should work correctly."""
+
+    testfile = TT.test_file(r"tests\Skyrim\meshes\actors\character\character animations\1hm_staggerbacksmallest.hkx")
+    # testfile2 = TT.test_file(r"tests\Skyrim\1hm_attackpowerright.hkx")
+    skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    hkx_skel = TT.test_file(r"tests\Skyrim\skeleton.hkx")
+    outfile = TT.test_file(r"tests/Out/created animations/TEST_ANIM_HKX.hkx")
+
+    bpy.context.scene.render.fps = 60
+
+    # Animations are loaded into a skeleton
+    bpy.ops.import_scene.pynifly(filepath=skelfile,
+                                 do_create_bones=False, 
+                                 do_rename_bones=True,
+                                 do_import_collisions=False,
+                                 do_import_animations=False,
+                                 use_blender_xf=True)
+
+
 def LOAD_RIG():
     """Load an animation rig for play. Has to be invoked explicitly."""
     skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
@@ -4688,8 +4742,6 @@ def LOAD_RIG():
                                  use_blender_xf=True)
 
 
-# LOAD_RIG()  ### Not a test--Load up some shapes for play
-
 
 # --- Quick and Dirty Test Harness ---
 print("""
@@ -4701,12 +4753,12 @@ print("""
 """)
 
 # If set, run these tests only (test name as string).
-test_targets = []
+test_targets = ['TEST_BODYPART_XFORM']
 
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
 # Use to resume a test run from the point it failed.
-first_test = 'TEST_SKEL_TAIL_HKX'
+first_test = ''
 
 
 m = sys.modules[__name__]

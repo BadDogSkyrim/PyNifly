@@ -39,12 +39,14 @@ class XMLFile:
     @classmethod
     def hkx_to_xml(cls, filepath):
         """Given a HKX file, convert it to XML and return the XML filepath."""
+        log = logging.getLogger("pynifly")
         tmp_filepath = niflytools.tmp_copy(filepath)
         xml_filepath = niflytools.tmp_filepath(filepath, ext=".xml")
 
         if not xml_filepath:
-            raise ValueError(f"Could not create temporary XML filepath for {filepath}")
+            raise RuntimeError(f"Could not create temporary XML filepath for {filepath}")
                 
+        log.debug(f"HKXCMD CONVERT -V:XML {tmp_filepath} {xml_filepath}")
         stat = subprocess.run([cls._hkxcmd_path, 
                                 "CONVERT", 
                                 "-V:XML",
@@ -54,10 +56,10 @@ class XMLFile:
         
         if stat.returncode:
             s = stat.stderr.decode('utf-8').strip()
-            raise ValueError(s)
+            raise RuntimeError(f"HKXCMD failed with {s}")
         
         if not os.path.exists(xml_filepath):
-            raise ValueError(f"Failed to create {xml_filepath}")
+            raise RuntimeError(f"Failed to create {xml_filepath}")
 
         return xml_filepath
     

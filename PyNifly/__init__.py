@@ -8,7 +8,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (12, 0, 0),  
+    "version": (12, 1, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -492,7 +492,7 @@ class NifImporter():
             # If we're creating missing vanilla bones, we need to know the offset from the
             # bind positions here to the vanilla bind positions, and we need it to be
             # consistent.
-            for bn in the_shape.get_used_bones():
+            for i, bn in enumerate(the_shape.get_used_bones()):
                 if bn in self.reference_skel.nodes:
                     skel_bone = self.reference_skel.nodes[bn]
                     skel_bone_xf= transform_to_matrix(skel_bone.global_transform)
@@ -503,10 +503,20 @@ class NifImporter():
                         offset_xf = this_offset
                         offset_consistent = True
                         #log.debug(f"Shape {the_shape.name} first offset from {bn}: {this_offset.translation}/{this_offset.to_euler()}")
-                    elif not MatNearEqual(this_offset, offset_xf):
+                    elif MatNearEqual(this_offset, offset_xf, epsilon=0.1):
+                        # If the transforms are close, create an average. That's because
+                        # there's often some variation.
+                        offset_xf = offset_xf.lerp(this_offset, 1/i)
+                    else:
+                        # If transforms are way off, something's wrong, like we're trying
+                        # to use an inappropriate reference skeleton. Give up and inform
+                        # the user.
                         offset_consistent = False
+                        log.warn(f"Shape {the_shape.name} does not have consitent offset from reference skeleton {self.reference_skel.filepath}--can't use it to extend the armature.")
+                        self.do_create_bones = False
                         #log.debug(f"Shape {the_shape.name} does not have consistent offset from vanilla: {bn}:{this_offset.translation}/{this_offset.to_euler()} != {offset_xf.translation}/{offset_xf.to_euler()}")
                         break
+
 
             if offset_consistent and offset_xf:
                 #log.debug(f"Shape {the_shape.name} has consistent offset from vanilla: {offset_xf.translation}")
@@ -2307,6 +2317,14 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         name="Reference skeleton",
         description="Reference skeleton to use for the bone hierarchy",
         default="")
+
+
+    def __init__(self):
+        if bpy.context.object and bpy.context.object.type == 'ARMATURE':
+            # We are loading into an existing armature. The various settings should match.
+            arma = bpy.context.object
+            self.use_blender_xf = ('PYN_BLENDER_XF' in arma and arma['PYN_BLENDER_XF'])
+            self.do_rename_bones = ('PYN_RENAME_BONES' in arma and arma['PYN_RENAME_BONES'])
 
 
     def execute(self, context):
