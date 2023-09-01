@@ -272,29 +272,6 @@ def get_bone_xform(arma, bone_name, game, preserve_hierarchy, use_pose) -> Matri
     return bonexf
 
 
-def is_compatible_skeleton(skin_xf:Matrix, shape:NiShape, skel:NifFile) -> bool:
-    """Determine whether the given skeleton file is compatible with the shape. 
-
-    It's compatible if the shape's bones' bind positions are the same as the
-    skeleton's bones. 
-    """
-    # if True or shape.has_global_to_skin:
-    # Global-to-skin is calculated for FO4, taken from the NiSkinData for Skyrim.
-    # It's a consistent transform applied to all bones.
-    # BUT the transform should already have been applied to the obj, even for 
-    # FO4. So don't do it again here.
-    for b in shape.bone_names:
-        if b in skel.nodes:
-            m1 = skin_xf @ transform_to_matrix(shape.get_shape_skin_to_bone(b)).inverted()
-            m2 = transform_to_matrix(skel.nodes[b].global_transform)
-            # We give a fairly generous allowance for how close is close enough. 0.03 
-            # allows the FO4 meshes to be parented to their skeletons. 
-            if not MatNearEqual(m1, m2, 0.03):
-                log.debug(f"Skeleton not compatible on {b}: \n{m1} != \n{m2}")
-                return False
-    return True
-
-
 # ######################################################################## ###
 #                                                                          ###
 # -------------------------------- IMPORT -------------------------------- ###
@@ -481,6 +458,7 @@ class NifImporter():
         #if True: #xform is None:
         xf = Matrix.Identity(4)
         offset_consistent = False
+        expected_variation = 0.8 if "SKYRIM" in self.nif.game else 3
         if the_shape.has_global_to_skin:
             # if this transform exists, use it and don't muck with it.
             xform = the_shape.global_to_skin
@@ -499,22 +477,26 @@ class NifImporter():
                     bindpos = bind_position(the_shape, bn)
                     bindinshape = xf @ bindpos
                     this_offset = skel_bone_xf @ bindinshape.inverted()
+                    
                     if not offset_xf: 
                         offset_xf = this_offset
                         offset_consistent = True
-                        #log.debug(f"Shape {the_shape.name} first offset from {bn}: {this_offset.translation}/{this_offset.to_euler()}")
-                    elif MatNearEqual(this_offset, offset_xf, epsilon=0.1):
-                        # If the transforms are close, create an average. That's because
-                        # there's often some variation.
+                    
+                    # If the transforms are close, create an average. That's because
+                    # there's often some variation, whether it's rounding errors or some
+                    # other reason. We need epsilon as large as it is to cover all the
+                    # nifs we see, especially nifs with multiple meshes that came from
+                    # different sources.
+                    elif MatNearEqual(this_offset, offset_xf, epsilon=expected_variation):
                         offset_xf = offset_xf.lerp(this_offset, 1/i)
+                    
+                    # If transforms are way off, either something's wrong, like we're
+                    # trying to use an inappropriate reference skeleton, or it's FO4. FO4
+                    # is just weird. Inform the user and don't use this for the average.
                     else:
-                        # If transforms are way off, something's wrong, like we're trying
-                        # to use an inappropriate reference skeleton. Give up and inform
-                        # the user.
                         offset_consistent = False
                         log.warn(f"Shape {the_shape.name} does not have consitent offset from reference skeleton {self.reference_skel.filepath}--can't use it to extend the armature.")
                         self.do_create_bones = False
-                        #log.debug(f"Shape {the_shape.name} does not have consistent offset from vanilla: {bn}:{this_offset.translation}/{this_offset.to_euler()} != {offset_xf.translation}/{offset_xf.to_euler()}")
                         break
 
 
@@ -1391,6 +1373,33 @@ class NifImporter():
             bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
 
 
+    def is_compatible_skeleton(self, skin_xf:Matrix, shape:NiShape, skel:NifFile) -> bool:
+        """Determine whether the given skeleton file is compatible with the shape. 
+
+        It's compatible if the shape's bones' bind positions are the same as the
+        skeleton's bones. 
+        """
+        # Global-to-skin is calculated for FO4, taken from the NiSkinData for Skyrim.
+        # It's a consistent transform applied to all bones.
+        # BUT the transform should already have been applied to the obj, even for 
+        # FO4. So don't do it again here.
+
+        # FO4 skin-to-bone is freaking all over the place, so give them a more generous
+        # allowance.
+        variance = 0.03 if "SKYRIM" in self.nif.game else 0.1
+        
+        for b in shape.bone_names:
+            if b in skel.nodes:
+                m1 = skin_xf @ transform_to_matrix(shape.get_shape_skin_to_bone(b)).inverted()
+                m2 = transform_to_matrix(skel.nodes[b].global_transform)
+                # We give a fairly generous allowance for how close is close enough. 0.03 
+                # allows the FO4 meshes to be parented to their skeletons. 
+                if not MatNearEqual(m1, m2, epsilon=variance):
+                    log.debug(f"Skeleton not compatible on {b}: \n{m1} != \n{m2}")
+                    return False
+        return True
+
+
     def set_parent_arma(self, arma, obj, nif_shape:NiShape, s2a_xf:Matrix):
         """Set the given armature as controller for the given object. Ensures all the
         bones referenced by the shape are in the armature.
@@ -1427,8 +1436,7 @@ class NifImporter():
             self.warn(f"{nif_shape.name} has no reference skeleton")
             ref_compat = None
         else:
-            # ref_compat = is_compatible_skeleton(skin_xf, nif_shape, self.reference_skel)
-            ref_compat = is_compatible_skeleton(obj.matrix_local, nif_shape, self.reference_skel)
+            ref_compat = self.is_compatible_skeleton(obj.matrix_local, nif_shape, self.reference_skel)
             if not ref_compat:
                 self.warn(f"{nif_shape.name} is not compatible with skeleton {self.reference_skel.filepath}")
             for bn in nif_shape.bone_names:

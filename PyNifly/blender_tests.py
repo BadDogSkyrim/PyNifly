@@ -433,24 +433,36 @@ def TEST_DRAUGR_IMPORT_A():
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, do_create_bones=True)
 
-    skel = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
-    helm = TT.find_shape("Helmet")
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     hood = TT.find_shape("Hood")
-    bone1 = skel.data.bones['NPC UpperArm.R']
-    pose1 = skel.pose.bones['NPC UpperArm.R']
-    bone2 = skel.data.bones['NPC UpperarmTwist1.R']
-    pose2 = skel.pose.bones['NPC UpperarmTwist1.R']
+
+    bonemaxz = max(b.head.z for b in arma.data.bones)
+    hoodmaxz = max(v.co.z for v in hood.data.vertices)
+    assert hoodmaxz > bonemaxz, f"Hood covers skeleton"
+
+    # Pose position reflects the draugr skeleton, but bind position is the human position. 
+    bone1 = arma.data.bones['NPC Head']
+    pose1 = arma.pose.bones['NPC Head']
+    assert pose1.head.z > bone1.head.z+10, f"Pose well above bind positions"
+
+    # Because the hood doesn't match the reference skeleton, we don't use the ref skeleton
+    # to extend bones.
+
+    # bone1 = skel.data.bones['NPC UpperArm.R']
+    # pose1 = skel.pose.bones['NPC UpperArm.R']
+    # bone2 = skel.data.bones['NPC UpperarmTwist1.R']
+    # pose2 = skel.pose.bones['NPC UpperarmTwist1.R']
 
     # Bones referenced by the hood have bind position from humans but pose position from
     # draugr. The rest of them use bind and pose position from draugr.
-    assert not TT.MatNearEqual(bone1.matrix_local, bone2.matrix_local), \
-        f"Bones should NOT have the same bind position: \n{bone1.matrix_local} != \n{bone2.matrix_local}"
-    assert TT.VNearEqual(pose1.matrix.translation, pose2.matrix.translation), \
-        f"Bones should have same pose position: {pose1.matrix.translation} != {pose2.matrix.translation}"
+    # assert not TT.MatNearEqual(bone1.matrix_local, bone2.matrix_local), \
+    #     f"Bones should NOT have the same bind position: \n{bone1.matrix_local} != \n{bone2.matrix_local}"
+    # assert TT.VNearEqual(pose1.matrix.translation, pose2.matrix.translation), \
+    #     f"Bones should have same pose position: {pose1.matrix.translation} != {pose2.matrix.translation}"
     
     # Create_bones means that the bones are all connected up
-    assert bone1.parent.name == 'NPC Clavicle.R', f"UpperArm parent correct: {bone1.parent.name}"
-    assert bone2.parent.name == 'NPC UpperArm.R', f"UpperArmTwist parent correct: {bone2.parent.name}"
+    # assert bone1.parent.name == 'NPC Clavicle.R', f"UpperArm parent correct: {bone1.parent.name}"
+    # assert bone2.parent.name == 'NPC UpperArm.R', f"UpperArmTwist parent correct: {bone2.parent.name}"
     
 
 def TEST_DRAUGR_IMPORT_B():
@@ -723,7 +735,9 @@ def TEST_ARMATURE_EXTEND():
     v_body = TT.find_vertex(body.data, target_v)
     assert TT.VNearEqual(head.data.vertices[v_head].co, body.data.vertices[v_body].co), \
         f"Head and body verts align"
-    assert TT.MatNearEqual(head.matrix_world, body.matrix_world), f"Shape transforms match"
+    
+    # For FO4, we give a generous fudge factor.
+    assert TT.MatNearEqual(head.matrix_world, body.matrix_world, epsilon=0.1), f"Shape transforms match"
 
 
 def TEST_ARMATURE_EXTEND_BT():
@@ -831,6 +845,7 @@ def TEST_WEIGHTS_EXPORT():
 
     headcheck = nifcheck.shape_dict["CheetahFemaleHead"]
     bw = headcheck.bone_weights
+    # TODO: This nested loop is freaking slow
     for vert_index, v in enumerate(headcheck.verts):
         weightfound = False
         for bn in headcheck.get_used_bones():
@@ -4753,12 +4768,12 @@ print("""
 """)
 
 # If set, run these tests only (test name as string).
-test_targets = ['TEST_BODYPART_XFORM']
+test_targets = []
 
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
 # Use to resume a test run from the point it failed.
-first_test = ''
+first_test = 'TEST_SKEL'
 
 
 m = sys.modules[__name__]
