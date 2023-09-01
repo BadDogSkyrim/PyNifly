@@ -1868,7 +1868,7 @@ class NiShape(NiNode):
     @property
     def bone_weights(self):
         """ Dictionary of bone weights
-            returns {bone-name: (vertex-index, weight...), ...}
+            returns {bone-name: [(vertex-index, weight), ...], ...}
             """
         if self._weights is None:
             self._weights = {}

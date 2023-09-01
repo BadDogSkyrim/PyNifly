@@ -843,15 +843,14 @@ def TEST_WEIGHTS_EXPORT():
     # ------- Check ---------
     nifcheck = pyn.NifFile(outfile)
 
+    # Check that every vertex is weighted to at least one bone.
     headcheck = nifcheck.shape_dict["CheetahFemaleHead"]
-    bw = headcheck.bone_weights
-    # TODO: This nested loop is freaking slow
-    for vert_index, v in enumerate(headcheck.verts):
-        weightfound = False
-        for bn in headcheck.get_used_bones():
-            index_list = [p[0] for p in bw[bn]]
-            weightfound |= (vert_index in index_list)
-        assert weightfound, f"Weight not found for vert #{vert_index}"
+    vert_weights = [0] * len(headcheck.verts)
+    for bn, vertlist in headcheck.bone_weights.items():
+        for vi, wgt in vertlist:
+            vert_weights[vi] = 1
+    assert min(vert_weights) == 1, f"Have a weight for every vertex"
+
 
 
 def TEST_0_WEIGHTS():
@@ -4773,7 +4772,7 @@ test_targets = []
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
 # Use to resume a test run from the point it failed.
-first_test = 'TEST_SKEL'
+first_test = ''
 
 
 m = sys.modules[__name__]
