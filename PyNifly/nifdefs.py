@@ -1727,11 +1727,11 @@ if __name__ == "__main__":
     assert SkyrimHavokMaterial.get_name(3049421844) == "MATERIAL_BONE", f"Material correct: {SkyrimHavokMaterial.get_name(3049421844)}"
     assert SkyrimHavokMaterial.get_name(53) == "53", f"Material correct: {SkyrimHavokMaterial.get_name(53)}"
 
-print("""
-############################################################
-##                                                        ##
-##                    TESTS DONE                          ##
-##                                                        ##
-############################################################
-""")
+    print("""
+    ############################################################
+    ##                                                        ##
+    ##                    TESTS DONE                          ##
+    ##                                                        ##
+    ############################################################
+    """)
 
