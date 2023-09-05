@@ -3699,7 +3699,7 @@ class ModuleTest:
         nifOut.save()
 
         nifTest = NifFile(f"tests\out\SHADER_OUT.nif")
-        assert len(nifTest.shapes) == 1, f"Error: Expected 1 shape, found {len(nif3.shapes)}"
+        assert len(nifTest.shapes) == 1, f"Error: Expected 1 shape, found {len(nifTest.shapes)}"
         shapeTest = nifTest.shapes[0]
         attrsTest = shapeTest.shader_attributes
         assert attrsTest == attrs, f"Error: Expected same shader attributes"
@@ -3709,8 +3709,8 @@ class ModuleTest:
         nif = NifFile(r"tests/Skyrim/meshes/actors/character/Lykaios/Tails/maletaillykaios.nif")
         tailfur = nif.shapes[1]
 
-        assert tailfur.shader_attributes.Shader_Type == BSLSPShaderType.Skin_Tint, f"Error: Skin tint incorrect, got {nif.shader_attributes.Shader_Type}"
-        assert tailfur.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsse.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert tailfur.shader_attributes.Shader_Type == BSLSPShaderType.Skin_Tint, f"Error: Skin tint incorrect, got {tailfur.shader_attributes.Shader_Type}"
+        assert tailfur.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {tailfur.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
         assert tailfur.alpha_property.flags == 4844, f"Error: Alpha flags incorrect, found {tailfur.alpha_property.flags}"
         assert tailfur.alpha_property.threshold == 70, f"Error: Threshold incorrect, found {tailfur.alpha_property.threshold}"
 
@@ -4151,7 +4151,7 @@ class ModuleTest:
         assert cts0.blockname == "bhkConvexTransformShape", f"Child is transform shape: {cts0.blockname}"
         assert cts1.blockname == "bhkConvexTransformShape", f"Child is transform shape: {cts1.blockname}"
         assert cts2.blockname == "bhkConvexTransformShape", f"Child is transform shape: {cts2.blockname}"
-        assert cts0.properties.bhkMaterial == SkyrimHavokMaterial.MATERIAL_BOWS_STAVES, f"Material is correct: {xfshape.properties.bhkMaterial}"
+        assert cts0.properties.bhkMaterial == SkyrimHavokMaterial.MATERIAL_BOWS_STAVES, f"Material is correct: {cts0.properties.bhkMaterial}"
         assert NearEqual(cts0.properties.bhkRadius, 0.009899), "ConvexTransformShape has values"
 
         assert len(staff.bone_weights) == 0, f"Shape not skinned: {staff}"

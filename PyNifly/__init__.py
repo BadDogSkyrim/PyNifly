@@ -406,6 +406,7 @@ class NifImporter():
         self.import_xf = Matrix.Identity(4) # Transform applied to root for blender convenience.
         self.root_object = None  # Blender representation of root object
         self.connect_parents = []
+        self.auxbones = False
 
     def warn(self, text:str):
         self.warnings.append(('WARNING', text))
@@ -1810,12 +1811,16 @@ class NifImporter():
                             group_name:str, 
                             path_name:str, 
                             parentxf:Matrix):
-        """Import an interpolator, including its data block.
-        * Returns the rotation mode that must be set on the target. If this interpolator 
-        is using XYZ rotations, the rotation mode must be set to Euler. 
+        """
+        Import an interpolator, including its data block.
+
+        - Returns the rotation mode that must be set on the target. If this interpolator
+          is using XYZ rotations, the rotation mode must be set to Euler. 
         """
         rotation_mode = "QUATERNION"
 
+        # ti, the parent NiTransformInterpolator, has the transform-to-global necessary
+        # for this animation. It matches the transform of the target being animated.
         have_parent_rotation = False
         if max(ti.properties.rotation[:]) > 3e+38 or min(ti.properties.rotation[:]) < -3e+38:
             tiq = Quaternion()
@@ -1823,6 +1828,7 @@ class NifImporter():
             have_parent_rotation = True
             tiq = Quaternion(ti.properties.rotation)
         qinv = tiq.inverted()
+        # qinv = (parentxf.to_3x3() @ qinv.to_matrix()).to_quaternion()
         tiv = Vector(ti.properties.translation)
         # Some interpolators have bogus translations. Dunno why.
         if tiv[0] <= -1e+30 or tiv[0] >= 1e+30: tiv[0] = 0
@@ -1832,6 +1838,7 @@ class NifImporter():
         tixf = MatrixLocRotScale(ti.properties.translation,
                                  Quaternion(ti.properties.rotation),
                                  [1.0]*3)
+        # tixf = parentxf @ tixf
         tixf.invert()
 
         locbase = tixf.translation
@@ -1911,7 +1918,12 @@ class NifImporter():
 
             for i, k in enumerate(td.qrotations):
                 kq = Quaternion(k.value)
-                vq = qinv @ kq 
+                # Auxbones animations are not correct yet, but they seem to need something
+                # different from animations on the full skeleton.
+                if self.auxbones:
+                    vq = kq 
+                else:
+                    vq = qinv @ kq 
 
                 curveW.keyframe_points.insert(k.time * fps + 1, vq[0])
                 curveX.keyframe_points.insert(k.time * fps + 1, vq[1])
@@ -1932,7 +1944,11 @@ class NifImporter():
                 v = Vector(k.value)
                 # v = qinv @ v
                 # v = Vector()
-                v = v - tiv
+
+                if self.auxbones:
+                    pass 
+                else:
+                    v = v - tiv
                 curveLocX.keyframe_points.insert(k.time * fps + 1, v[0])
                 curveLocY.keyframe_points.insert(k.time * fps + 1, v[1])
                 curveLocZ.keyframe_points.insert(k.time * fps + 1, v[2])
@@ -1949,6 +1965,8 @@ class NifImporter():
         if block.controller_type != "NiTransformController":
             self.warn(f"Nif has unknown controller type: {block.controller_type}")
             return
+
+        xf = Matrix.Identity(4)
         
         if block.node_name in self.nif.nodes:
             target_node = self.nif.nodes[block.node_name]
@@ -1973,6 +1991,7 @@ class NifImporter():
                 path_name = f'pose.bones["{action_group}"]'
                 target_obj = self.armature
                 action_name = seq.name
+                xf = self.armature.data.bones[name].matrix_local.copy()
             else:
                 self.warn(f"Controller target not found: {block.node_name}")
                 return 
@@ -1999,7 +2018,7 @@ class NifImporter():
             new_action, 
             action_group,
             path_name, 
-            target_obj.matrix_local)
+            xf)
         
         if action_group == "Object Transforms":
             target_obj.rotation_mode = rotmode

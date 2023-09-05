@@ -4710,6 +4710,37 @@ def TEST_ANIM_HKX():
     assert os.path.exists(outfile)
 
 
+def TEST_ANIM_AUXBONES():
+    """Can import and export an animation on an auxbones skeleton."""
+    testfile = TT.test_file(r"tests\Skyrim\SOSFastErect.hkx")
+    skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    hkx_skel = TT.test_file(r"tests\Skyrim\SOSskeleton.hkx")
+    outfile = TT.test_file(r"tests/Out/created animations/TEST_ANIM_AUXBONES.hkx")
+
+    bpy.context.scene.render.fps = 60
+
+    # Animations are loaded into a skeleton
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
+                                     do_rename_bones=False,
+                                     do_import_collisions=False,
+                                     do_import_animations=False,
+                                     use_blender_xf=False)
+    
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+    
+    bpy.ops.import_scene.pynifly_hkx(filepath=testfile, 
+                                     reference_skel=hkx_skel)
+
+    baseb = arma.data.bones['NPC GenitalsBase [GenBase]']
+    poseb = arma.pose.bones['NPC GenitalsBase [GenBase]']
+    assert BD.MatNearEqual(baseb.matrix_local, poseb.matrix), f"Starting from base bone position"
+
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=hkx_skel)
+
+    assert os.path.exists(outfile)
+
+
 def TEST_IMPORT_TAIL():
     """Regression: Import of a single bodypart onto a skeleton should work correctly."""
 
@@ -4767,7 +4798,7 @@ print("""
 """)
 
 # If set, run these tests only (test name as string).
-test_targets = []
+test_targets = ['TEST_ANIM_HKX']
 
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
