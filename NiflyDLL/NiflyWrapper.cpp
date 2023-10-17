@@ -249,6 +249,40 @@ NIFLY_API void* createNif(const char* targetGameName, const char* rootType, cons
     return workNif;
 }
 
+void writeSkinBoneWeights(NifFile* nif, BSTriShape* shape) {
+/*
+    Write the bone weights from the BSTriShape vert data to the NiSkinData bone data.
+*/
+    NiHeader* hdr = &nif->GetHeader();
+    NiSkinInstance* skin = hdr->GetBlock<NiSkinInstance>(shape->SkinInstanceRef());
+    if (!skin) return;
+
+    NiSkinData* skinData = hdr->GetBlock<NiSkinData>(skin->dataRef);
+    if (!skinData) return;
+
+    // Clear all the bone vertex weights ready for populating.
+    for (int i = 0; i < skin->boneRefs.GetSize(); i++) 
+        skinData->bones[i].vertexWeights.clear();
+
+    // Write the bone weights to the right vertexWeights list
+    for (uint16_t vid = 0; vid < shape->GetNumVertices(); vid++) {
+        auto& vertex = shape->vertData[vid];
+        for (size_t i = 0; i < 4; i++) {
+            if (vertex.weights[i] != 0.0f) {
+                int boneIndex = vertex.weightBones[i];
+                SkinWeight sw;
+                sw.index = vid;
+                sw.weight = vertex.weights[i];
+                skinData->bones[boneIndex].vertexWeights.push_back(sw);
+            }
+        }
+    }
+
+    // Set the numVertices fields correctly.
+    for (int i = 0; i < skin->boneRefs.GetSize(); i++)
+        skinData->bones[i].numVertices = skinData->bones[i].vertexWeights.size();
+}
+
 NIFLY_API int saveNif(void* the_nif, const char8_t* filename) {
     /*
         Write the nif out to a file.
@@ -258,6 +292,9 @@ NIFLY_API int saveNif(void* the_nif, const char8_t* filename) {
 
     for (auto& shape : nif->GetShapes())
     {
+        auto bsTriShape = dynamic_cast<BSTriShape*>(shape);
+        if (bsTriShape) writeSkinBoneWeights(nif, bsTriShape);
+
         nif->UpdateSkinPartitions(shape);
         shape->UpdateBounds();
         UpdateShapeSkinBoneBounds(nif, shape);
@@ -1054,11 +1091,12 @@ NIFLY_API int getShapeBoneWeightsCount(void* theNif, void* theShape, int boneInd
 
 NIFLY_API int getShapeBoneWeights(void* theNif, void* theShape, int boneIndex,
                                   struct VertexWeightPair* buf, int buflen) {
-    /* Get the bone weights associated with the given bone for the given shape.
-        boneIndex = index of bone in the list of bones associated with this shape 
-        buf = Buffer to hold <vertex index, weight> for every vertex weighted to this bone.
-        returns number of bones
-    */
+/* Get the bone weights associated with the given bone for the given shape.
+* On BSTriShapes, the weights come from the NiSkinPartition not the NiSkinData.
+    boneIndex = index of bone in the list of bones associated with this shape 
+    buf = Buffer to hold <vertex index, weight> for every vertex weighted to this bone.
+    returns number of bones
+*/
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
 
@@ -1067,13 +1105,57 @@ NIFLY_API int getShapeBoneWeights(void* theNif, void* theShape, int boneIndex,
 
     int j = 0;
     for (const auto& [key, value] : boneWeights) {
+        if (j >= buflen) break;
         buf[j].vertex = key;
         buf[j++].weight = value;
-        if (j >= buflen) break;
     }
 
     return numWeights;
 }
+
+NIFLY_API int getShapeSkinWeights(void* theNif, void* theShape, int boneIndex,
+                                  struct BoneWeight* buf, int buflen) {
+/* 
+* Get all the weights associated with the given bone on the given shape. This comes from
+* the NiSkinData block. Bone is referenced by index within the shape.
+*/
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    NiHeader* hdr = &nif->GetHeader();
+    NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    NiSkinInstance* skin = hdr->GetBlock<NiSkinInstance>(shape->SkinInstanceRef());
+    NiSkinData* skinData = hdr->GetBlock<NiSkinData>(skin->dataRef);
+
+    if (!skinData->hasVertWeights) return 0;
+    if (boneIndex < 0 || boneIndex >= skinData->bones.size()) return 0;
+
+    NiSkinData::BoneData* bd = &skinData->bones[boneIndex];
+    int i = 0;
+    for (auto &sw: bd->vertexWeights) {
+        if (i >= buflen) break;
+        buf[i].bone_index = sw.index;
+        buf[i].weight = sw.weight;
+        i++;
+    }
+    return bd->vertexWeights.size();
+}
+
+NIFLY_API void addAllBonesToShape(void* nifref, void* shaperef, int boneCount, int* boneIDs)
+/* 
+*   Add the list of bones referenced by ID to the given shape. Any existing bones and transforms
+*   are removed.
+*/
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    std::vector<int> ids;
+    for (int i = 0; i < boneCount; i++) {
+        ids.push_back(boneIDs[i]);
+    }
+    nif->SetShapeBoneIDList(shape, ids);
+}
+
 
 NIFLY_API void* addBoneToNifShape(void* nifref, void* shaperef, const char* boneName,
     MatTransform* xformToParent, const char* parentName)

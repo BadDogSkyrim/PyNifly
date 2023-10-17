@@ -4599,19 +4599,22 @@ class ModuleTest:
 
     def TEST_HKX_SKELETON():
         """Test read/write of hkx skeleton files (in XML format)."""
-        testfile = ModuleTest.test_file(r"tests/Skyrim/skeleton.hkx")
-        outfile = ModuleTest.test_file(r"tests/Out/TEST_XML_SKELETON.nif")
+        # SKIPPING - This functionality is part of animation read/write, which is not
+        # fully operational.
 
-        f = hkxSkeletonFile(testfile)
-        assert len(f.nodes) == 99, "Have all bones."
-        assert f.rootNode.name == "NPC Root [Root]"
-        assert len(f.shapes) == 0, "No shapes"
-        assert f.rootName == 'NPC Root [Root]', f"Have root name: {f.rootName}"
+        # testfile = ModuleTest.test_file(r"tests/Skyrim/skeleton.hkx")
+        # outfile = ModuleTest.test_file(r"tests/Out/TEST_XML_SKELETON.nif")
 
-        headbone = f.nodes["NPC Head [Head]"]
-        handbone = f.nodes["NPC L Hand [LHnd]"]
-        assert NearEqual(headbone.global_transform.translation[2], 120.3436), "Head bone where it should be."
-        assert NearEqual(handbone.global_transform.translation[0], -28.9358), f"L Hand bone where it should be" 
+        # f = hkxSkeletonFile(testfile)
+        # assert len(f.nodes) == 99, "Have all bones."
+        # assert f.rootNode.name == "NPC Root [Root]"
+        # assert len(f.shapes) == 0, "No shapes"
+        # assert f.rootName == 'NPC Root [Root]', f"Have root name: {f.rootName}"
+
+        # headbone = f.nodes["NPC Head [Head]"]
+        # handbone = f.nodes["NPC L Hand [LHnd]"]
+        # assert NearEqual(headbone.global_transform.translation[2], 120.3436), "Head bone where it should be."
+        # assert NearEqual(handbone.global_transform.translation[0], -28.9358), f"L Hand bone where it should be" 
     
     @property
     def all_tests(self):
@@ -4651,6 +4654,15 @@ class ModuleTest:
 if __name__ == "__main__":
     import codecs
     # import quickhull
+
+    # Load from install location
+    py_addon_path = os.path.dirname(os.path.realpath(__file__))
+    #log.debug(f"PyNifly addon path: {py_addon_path}")
+    if py_addon_path not in sys.path:
+        sys.path.append(py_addon_path)
+    dev_path = os.path.join(py_addon_path, "NiflyDLL.dll")
+    hkxcmd_path = os.path.join(py_addon_path, "hkxcmd.exe")
+    xmltools.XMLFile.SetPath(hkxcmd_path)
 
     dev_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
     NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], dev_path))

@@ -4656,7 +4656,33 @@ def get_default_scale():
     #     #log.debug(f"error: {err}")
     #     return 1.0
     return 1.0
+
+def current_active_object(context):
+    """
+    Determine the object to use as the active object. Only use blender's active object if
+    it is also selected. It's too confusing to be working on an unselected object. If
+    there's no active object choose the first selected object.
+    """
+    if context.object and context.object.select_get():
+        return context.object
+    if context.selected_objects:
+        return context.selected_objects[0]
+    return None
+
     
+def get_default_game_target(context):
+    """Look at currently selected objects to determine game target."""
+    g = "SKYRIM"
+    obj = current_active_object(context)
+    if 'PYN_GAME' in obj:
+        g = obj['PYN_GAME']
+    else:
+        selected_armatures = [a for a in context.selected_objects if a.type == 'ARMATURE']
+        if selected_armatures:
+            g = best_game_fit(selected_armatures[0].data.bones)
+    return g
+    
+
 class ExportNIF(bpy.types.Operator, ExportHelper):
     """Export Blender object(s) to a NIF File"""
 
@@ -4674,7 +4700,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ('FO76', "Fallout 76", ""),
                    ('FO3', "Fallout New Vegas", ""),
                    ('FO3', "Fallout 3", ""),
-                   )
+                   ),
             )
 
     # scale_factor: bpy.props.FloatProperty(
@@ -4723,6 +4749,15 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         name="Chargen extension",
         description="Extension to use for chargen files (not including file extension).",
         default="chargen")
+
+    # For debugging. If False, use the properties passed in with the invocation. If invoked through
+    # the UI it will be true.
+    intuit_defaults: bpy.props.BoolProperty(
+        name="Intuit Defaults",
+        description="Get defaults from current selection",
+        default=True,
+        options={'HIDDEN'},
+    )
     
 
     def __init__(self):
@@ -4747,42 +4782,43 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             if not export_armature:
                 export_armature = fb_arma
 
-        g = ""
-        if 'PYN_GAME' in obj:
-            g = obj['PYN_GAME']
-        else:
-            if export_armature:
-                g = best_game_fit(export_armature.data.bones)
-        if g != "":
-            self.target_game = g
+        if self.intuit_defaults:
+            g = ""
+            if 'PYN_GAME' in obj:
+                g = obj['PYN_GAME']
+            else:
+                if export_armature:
+                    g = best_game_fit(export_armature.data.bones)
+            if g != "":
+                self.target_game = g
         
-        # if obj and 'PYN_SCALE_FACTOR' in obj:
-        #     self.scale_factor = obj['PYN_SCALE_FACTOR']
-        # elif export_armature and 'PYN_SCALE_FACTOR' in export_armature:
-        #     self.scale_factor = export_armature['PYN_SCALE_FACTOR']
+            # if obj and 'PYN_SCALE_FACTOR' in obj:
+            #     self.scale_factor = obj['PYN_SCALE_FACTOR']
+            # elif export_armature and 'PYN_SCALE_FACTOR' in export_armature:
+            #     self.scale_factor = export_armature['PYN_SCALE_FACTOR']
 
-        if obj_root and 'PYN_BLENDER_XF' in obj_root:
-            self.use_blender_xf = obj_root['PYN_BLENDER_XF']
-        elif obj and 'PYN_BLENDER_XF' in obj:
-            self.use_blender_xf = obj['PYN_BLENDER_XF']
-            
-        if export_armature and 'PYN_RENAME_BONES' in export_armature:
-            self.do_rename_bones = export_armature['PYN_RENAME_BONES']
+            if obj_root and 'PYN_BLENDER_XF' in obj_root:
+                self.use_blender_xf = obj_root['PYN_BLENDER_XF']
+            elif obj and 'PYN_BLENDER_XF' in obj:
+                self.use_blender_xf = obj['PYN_BLENDER_XF']
+                
+            if export_armature and 'PYN_RENAME_BONES' in export_armature:
+                self.do_rename_bones = export_armature['PYN_RENAME_BONES']
 
-        if export_armature and 'PYN_RENAME_BONES_NIFTOOLS' in export_armature:
-            self.rename_bones_niftools = export_armature['PYN_RENAME_BONES_NIFTOOLS']
+            if export_armature and 'PYN_RENAME_BONES_NIFTOOLS' in export_armature:
+                self.rename_bones_niftools = export_armature['PYN_RENAME_BONES_NIFTOOLS']
 
-        if obj and 'PYN_PRESERVE_HIERARCHY' in obj:
-            self.preserve_hierarchy = obj['PYN_PRESERVE_HIERARCHY']
+            if obj and 'PYN_PRESERVE_HIERARCHY' in obj:
+                self.preserve_hierarchy = obj['PYN_PRESERVE_HIERARCHY']
 
-        if obj and 'PYN_WRITE_BODYTRI_ED' in obj:
-            self.write_bodytri = obj['PYN_WRITE_BODYTRI_ED']
+            if obj and 'PYN_WRITE_BODYTRI_ED' in obj:
+                self.write_bodytri = obj['PYN_WRITE_BODYTRI_ED']
 
-        if obj and 'PYN_EXPORT_POSE' in obj:
-            self.export_pose = obj['PYN_EXPORT_POSE']
+            if obj and 'PYN_EXPORT_POSE' in obj:
+                self.export_pose = obj['PYN_EXPORT_POSE']
 
-        if obj and 'PYN_CHARGEN_EXT' in obj:
-            self.chargen_ext = obj['PYN_CHARGEN_EXT']
+            if obj and 'PYN_CHARGEN_EXT' in obj:
+                self.chargen_ext = obj['PYN_CHARGEN_EXT']
 
         
     @classmethod

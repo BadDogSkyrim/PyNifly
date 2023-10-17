@@ -190,10 +190,11 @@ def TEST_IMP_EXP_SKY():
 
     testfile = TT.test_file(r"tests/Skyrim/armor_only.nif")
 
-    def do_test(blendxf):
+    def do_test(game, blendxf):
         TT.clear_all()
-        log.debug(f"\n<<<<<Testing with blender transform {blendxf}>>>>>")
-        outfile = TT.test_file(f"tests/Out/TEST_IMP_EXP_SKY_{blendxf}.nif")
+        xftext = '_XF' if blendxf else ''
+        log.debug(f"\n<<<<<Testing with blender transform for {game} {xftext}>>>>>")
+        outfile = TT.test_file(f"tests/Out/TEST_IMP_EXP_SKY_{game}{xftext}.nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=blendxf)
 
@@ -216,15 +217,19 @@ def TEST_IMP_EXP_SKY():
 
         bpy.ops.object.select_all(action='DESELECT')
         armor.select_set(True)
-        bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM", use_blender_xf=blendxf)
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game=game, 
+                                     use_blender_xf=blendxf, intuit_defaults=False)
 
         nifout = pyn.NifFile(outfile)
+        armorout = nifout.shape_dict['Armor']
+        assert nifout.game == game, f"Wrote correct game format: {nifout.game} == {game}"
+        TT.compare_shapes(armorin, armorout, armor, e=0.01)
+        TT.check_unweighted_verts(armorout)
 
-        TT.compare_shapes(armorin, nifout.shape_dict['Armor'], armor, e=0.01)
-        TT.check_unweighted_verts(nifout.shape_dict['Armor'])
-
-    do_test(False)
-    do_test(True)
+    do_test('SKYRIMSE', False)
+    do_test('SKYRIM', False)
+    do_test('SKYRIM', True)
+    do_test('SKYRIMSE', True)
         
 
 def TEST_IMP_EXP_SKY_2():
@@ -4798,7 +4803,7 @@ print("""
 """)
 
 # If set, run these tests only (test name as string).
-test_targets = ['TEST_ANIM_HKX']
+test_targets = ['TEST_IMP_EXP_SKY']
 
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.

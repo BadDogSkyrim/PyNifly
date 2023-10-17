@@ -237,7 +237,7 @@ void* TWriteNode(void* trgNif, void* srcNif, void* srcNode,
 }
 
 void TCopyBones(void* targetNif, void* sourceNif) {
-	// Write bones with their hierarchy from source to target
+	// Write bones (NiNodes) with their hierarchy from source to target
 	std::map<std::string, void*> writtenNodes;
 	void* rootNode = getRoot(sourceNif);
 	char rootName[100];
@@ -268,30 +268,33 @@ void TCopyWeights(void* targetNif, void* targetShape,
 	nifly::MatTransform xformGlobalToSkin;
 	const int BUFLEN = 3000;
 	char boneNameBuf[BUFLEN];
+	int* boneIDs;
 //	int boneIDBuf[BUFLEN];
 
 	int boneCount = getShapeBoneCount(sourceNif, sourceShape);
 	if (boneCount == 0) return;
+	boneIDs = new int[boneCount];
 
 	// Get list of bones the shape needs
 	int boneBufLen = getShapeBoneNames(sourceNif, sourceShape, boneNameBuf, BUFLEN);
 	Assert::IsTrue(boneCount <= BUFLEN);
 	for (int i = 0; i < boneBufLen; i++) if (boneNameBuf[i] == '\n') boneNameBuf[i] = '\0';
 
-	// Make map from node names to node refs
-	std::map<std::string, void*> boneMap;
-	int nodeCount = getNodeCount(sourceNif);
-	void** srcNodes = new void* [nodeCount];
-	getNodes(sourceNif, srcNodes);
-	for (int i = 0; i < nodeCount; i++) {
-		char* name = new char[100];
-		getNodeName(srcNodes[i], name, 100);
-		boneMap[name] = srcNodes[i];
-	};
+	//// Make map from node names to node refs
+	//std::map<std::string, void*> boneMap;
+	//int nodeCount = getNodeCount(sourceNif);
+	//void** srcNodes = new void* [nodeCount];
+	//getNodes(sourceNif, srcNodes);
+	//for (int i = 0; i < nodeCount; i++) {
+	//	char* name = new char[100];
+	//	getNodeName(srcNodes[i], name, 100);
+	//	boneMap[name] = srcNodes[i];
+	//};
 
 	skinShape(targetNif, targetShape);
 
-	if (options & NifOptions::BoneHierarchy) TCopyBones(targetNif, sourceNif);
+	//if (options & NifOptions::BoneHierarchy) 
+		TCopyBones(targetNif, sourceNif);
 
 	MatTransform shapeXform;
 	getNodeTransform(sourceShape, &shapeXform);
@@ -307,24 +310,28 @@ void TCopyWeights(void* targetNif, void* targetShape,
 	for (int i = 0, boneIndex = 0; boneIndex < boneCount; boneIndex++) {
 		// Get xform from the source
 		char* bn = &boneNameBuf[i];
-		void* bref = boneMap[bn];
+		int id;
+		id = findBlockByName(targetNif, bn);
+		boneIDs[boneIndex] = id;
+		//void* bref = boneMap[bn];
 
-		if (options & BoneHierarchy)
-			getNodeTransform(bref, &xform);
-		else
-			getNodeTransformToGlobal(sourceNif, bn, &xform);
+		//if (options & BoneHierarchy)
+		//	getNodeTransform(bref, &xform);
+		//else
+		//	getNodeTransformToGlobal(sourceNif, bn, &xform);
 
-		void* parentRef = getNodeParent(sourceNif, bref);
-		char parentName[100];
-		char* parentP = nullptr;
-		if (parentRef && (options & BoneHierarchy)) {
-			getNodeName(parentRef, parentName, 100);
-			parentP = parentName;
-		}
-		addBoneToNifShape(targetNif, targetShape, bn, &xform, parentP /*parentP*/);
+		//void* parentRef = getNodeParent(sourceNif, bref);
+		//char parentName[100];
+		//char* parentP = nullptr;
+		//if (parentRef && (options & BoneHierarchy)) {
+		//	getNodeName(parentRef, parentName, 100);
+		//	parentP = parentName;
+		//}
+		//addBoneToNifShape(targetNif, targetShape, bn, &xform, parentP /*parentP*/);
 
 		i += int(strlen(&boneNameBuf[i]) + 1);
 	};
+	addAllBonesToShape(targetNif, targetShape, boneCount, boneIDs);
 
 	// Once the shape knows its bones, set the bone weights.
 	for (int i = 0, boneIndex = 0; boneIndex < boneCount; boneIndex++) {
@@ -340,6 +347,22 @@ void TCopyWeights(void* targetNif, void* targetShape,
 
 		i += int(strlen(&boneNameBuf[i]) + 1);
 	};
+
+	// If it's a BSTriShape, set the vertex weights to match.
+	//int targetID;
+	//char blockname[100];
+	//targetID = getBlockID(targetNif, targetShape);
+	//getBlockname(targetNif, targetID, blockname, 100);
+	//if (strcmp(blockname, "BSTriShape") == 0 || strcmp(blockname, "BSDynamicTriShape") == 0) {
+	//	for (int i = 0; i < targetShape.vertCount; i++) {
+	//		
+	//		setShapeVertWeights(
+	//			targetShapeName,
+	//			i,
+	//			boneIds,
+	//			weights);
+	//	}
+	//}
 };
 
 void TCopyExtraData(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape) {
@@ -2225,6 +2248,26 @@ namespace NiflyDLLTests
 			void* head = shapes[0];
 			TSanityCheckShape(nifhead, head);
 
+			// BSTriShape have bones organized by bone in the NiSkinData AND organized by vertex in 
+			// NiSkinPartition. getShapeBoneWeights pulls the weights from NiSkinPartion, even tho they are not 
+			// organized by bone there.
+			int boneCount;
+			VertexWeightPair* boneWeights;
+			int skinCount;
+			BoneWeight* skinWeights;
+
+			boneCount = getShapeBoneWeights(nifhead, head, 0, nullptr, 0);
+			boneWeights = new VertexWeightPair[boneCount];
+			getShapeBoneWeights(nifhead, head, 0, boneWeights, boneCount);
+			Assert::AreEqual(0, int(boneWeights[0].vertex));
+			Assert::IsTrue(TApproxEqual(0.689, boneWeights[0].weight));
+
+			skinCount = getShapeSkinWeights(nifhead, head, 0, nullptr, 0);
+			skinWeights = new BoneWeight[skinCount];
+			getShapeSkinWeights(nifhead, head, 0, skinWeights, skinCount);
+			Assert::AreEqual(0, int(skinWeights[0].bone_index));
+			Assert::IsTrue(TApproxEqual(0.689, skinWeights[0].weight));
+
 			// ### Can wrie the mesh back out
 
 			clearMessageLog();
@@ -2254,6 +2297,23 @@ namespace NiflyDLLTests
 			loglen = getMessageLog(msgbuf, MSGBUFLEN);
 			Assert::IsFalse(strstr(msgbuf, "WARNING:"), L"Error completed with warnings");
 			Assert::IsFalse(strstr(msgbuf, "ERROR:"), L"Error completed with errors");
+
+			// Special check for both types of bone weight. 
+			void* nifCheck = load(fileOut.u8string().c_str());
+			getShapes(nifCheck, shapes, 10, 0);
+			void* headCheck = shapes[0];
+			boneCount = getShapeBoneWeights(nifCheck, headCheck, 0, nullptr, 0);
+			boneWeights = new VertexWeightPair[boneCount];
+			getShapeBoneWeights(nifCheck, headCheck, 0, boneWeights, boneCount);
+			Assert::AreEqual(0, int(boneWeights[0].vertex));
+			Assert::IsTrue(TApproxEqual(0.689, boneWeights[0].weight));
+
+			skinCount = getShapeSkinWeights(nifCheck, headCheck, 0, nullptr, 0);
+			Assert::IsTrue(skinCount > 0, L"Have skin bone weights");
+			skinWeights = new BoneWeight[skinCount];
+			getShapeSkinWeights(nifCheck, headCheck, 0, skinWeights, skinCount);
+			Assert::AreEqual(0, int(skinWeights[0].bone_index));
+			Assert::IsTrue(TApproxEqual(0.689, skinWeights[0].weight));
 		};
 		TEST_METHOD(invalidSkin) {
 			/* Trying to read skin information returns error */
