@@ -60,7 +60,7 @@ void GetPartitions(nifly::NifFile* workNif, nifly::NiShape* shape,
 	nifly::NiVector<nifly::BSDismemberSkinInstance::PartitionInfo>& partitions,
 	std::vector<int>& indices);
 
-nifly::NiShape* PyniflyCreateShapeFromData(nifly::NifFile* nif, const std::string& shapeName, 
+nifly::NiShape* PyniflyCreateShape(nifly::NifFile* nif, const std::string& shapeName, 
 	NiShapeBuf* buffer,
 	const std::vector<nifly::Vector3>* v, 
 	const std::vector<nifly::Triangle>* t, 

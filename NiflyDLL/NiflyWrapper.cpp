@@ -778,6 +778,24 @@ int getBSMeshLODTriShape(void* nifref, uint32_t id, void* buf) {
     return 0;
 }
 
+int getBSLODTriShape(void* nifref, uint32_t id, void* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiShapeBuf* shapebuf = static_cast<NiShapeBuf*>(buf);
+    BSLODTriShapeBuf* meshShapeBuf = static_cast<BSLODTriShapeBuf*>(buf);
+    nifly::BSLODTriShape* node = hdr->GetBlock<BSLODTriShape>(id);
+
+    CheckID(node);
+    CheckBuf(shapebuf, BUFFER_TYPES::BSLODTriShapeBufType, BSLODTriShapeBuf);
+
+    getShape(node, shapebuf);
+    meshShapeBuf->level0 = node->level0;
+    meshShapeBuf->level1 = node->level1;
+    meshShapeBuf->level2 = node->level2;
+
+    return 0;
+}
+
 NIFLY_API int getShapeBlockName(void* theShape, char* buf, int buflen) {
     NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     const char* blockname = shape->GetBlockName();
@@ -862,16 +880,13 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     const Triangle* tris, 
     void* parentRef)
     /* Create nif shape from the given data
+    * buffer = shape properties. bufType defines the type of block to create.
     * verts = (float x, float y float z), ... 
     * uv_points = (float u, float v), matching 1-1 with the verts list
     * norms = (float, float, float) matching 1-1 with the verts list. May be null.
     * vertCount = number of verts in verts list (and uv pairs and normals in those lists)
     * tris = (uint16, uiint16, uint16) indices into the vertex list
     * triCount = # of tris in the tris list (buffer is 3x as long)
-    * optionsPtr == 1: Create SSE head part (so use BSDynamicTriShape)
-    *            == 2: Create FO4 BSTriShape (default is BSSubindexTriShape)
-    *            == 4: Create FO4 BSEffectShaderProperty
-    *            may be omitted
     * parentRef = Node to be parent of the new shape. Root if omitted.
     */
 {
@@ -904,7 +919,7 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     NiNode* parent = nullptr;
     if (parentRef) parent = static_cast<NiNode*>(parentRef);
 
-    NiShape* newShape = PyniflyCreateShapeFromData(nif, shapeName, 
+    NiShape* newShape = PyniflyCreateShape(nif, shapeName,
             buf, &v, &t, &uv, &n, parent);
 
     if (buf->bufType == BSMeshLODTriShapeBufType) {
@@ -913,6 +928,13 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
         meshShape->lodSize0 = meshBuf->lodSize0;
         meshShape->lodSize1 = meshBuf->lodSize1;
         meshShape->lodSize2 = meshBuf->lodSize2;
+    } 
+    else if (buf->bufType == BSLODTriShapeBufType) {
+        BSLODTriShape* lodShape = static_cast<BSLODTriShape*>(newShape);
+        BSLODTriShapeBuf* lodBuf = static_cast<BSLODTriShapeBuf*>(buf);
+        lodShape->level0 = lodBuf->level0;
+        lodShape->level1 = lodBuf->level1;
+        lodShape->level2 = lodBuf->level2;
     }
     return newShape;
 }
@@ -3827,6 +3849,7 @@ BlockGetterFunction getterFunctions[] = {
     getNiShape, //BSSubIndexTriShape
     getNiShader, //BSEffectShaderPropertyBufType
     getNiShape, //NiTriStripsBufType
+    getBSLODTriShape, //BSLODTriShape
     nullptr //END
 };
 
@@ -3880,6 +3903,7 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //BSTriShapeBufType,
     nullptr, //BSSubIndexTriShape
     nullptr, //NiTriStripsBufType
+    nullptr, //BSLODTriShape
     nullptr //END
 };
 
@@ -3932,6 +3956,7 @@ BlockCreatorFunction creatorFunctions[] = {
     nullptr, //BSSubIndexTriShape
     setNiShader, //BSEffectShaderPropertyBufType
     nullptr, //NiTriStripsBufType
+    nullptr, //BSLODTriShape
     nullptr //end
 };
 

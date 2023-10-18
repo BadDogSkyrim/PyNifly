@@ -59,7 +59,8 @@ enum BUFFER_TYPES : uint16_t {
 	BSTriShapeBufType,
 	BSSubIndexTriShapeBufType,
 	BSEffectShaderPropertyBufType,
-	NiTriStripsBufType
+	NiTriStripsBufType, 
+	BSLODTriShapeBufType
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -300,6 +301,18 @@ struct BSMeshLODTriShapeBuf : NiShapeBuf {
 	{
 		bufSize = sizeof(BSMeshLODTriShapeBuf);
 		bufType = BUFFER_TYPES::BSMeshLODTriShapeBufType;
+	}
+};
+
+struct BSLODTriShapeBuf : NiShapeBuf {
+	uint32_t level0 = 0;
+	uint32_t level1 = 0;
+	uint32_t level2 = 0;
+
+	BSLODTriShapeBuf()
+	{
+		bufSize = sizeof(BSLODTriShapeBuf);
+		bufType = BUFFER_TYPES::BSLODTriShapeBufType;
 	}
 };
 

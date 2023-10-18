@@ -393,6 +393,7 @@ void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* 
 	char sourceBlockname[100];
 	NiShapeBuf shapeBuf, outBuf;
 	BSMeshLODTriShapeBuf meshShapeBuf, meshOutBuf;
+	BSLODTriShapeBuf lodShapeBuf, lodOutBuf;
 	NiShapeBuf* sourceBufRef, *outBufRef;
 	NiShaderBuf sourceShader;
 
@@ -402,6 +403,12 @@ void* TCopyShape(void* targetNif, const char* shapeName, void* sourceNif, void* 
 		meshOutBuf = meshShapeBuf;
 		sourceBufRef = &meshShapeBuf;
 		outBufRef = &meshOutBuf;
+	}
+	else if (strcmp(sourceBlockname, "BSLODTriShape") == 0) {
+		getBlock(sourceNif, sourceShapeID, &lodShapeBuf);
+		lodOutBuf = lodShapeBuf;
+		sourceBufRef = &lodShapeBuf;
+		outBufRef = &lodOutBuf;
 	}
 	else {
 		getBlock(sourceNif, sourceShapeID, &shapeBuf);
@@ -3899,6 +3906,7 @@ namespace NiflyDLLTests
 			getNodeName(rootcheck, namebuf, 64);
 			Assert::IsTrue(strcmp(namebuf, "TestKF") == 0, L"Have correct node name");
 		};
+
 		struct TreeData {
 			void* shapes[10];
 			char rootBlockName[100];
@@ -3947,6 +3955,68 @@ namespace NiflyDLLTests
 
 			void* nifCheck = load(outfile.u8string().c_str());
 			TCheckTree(nifCheck, treeCheck);
+		};
+
+		struct DockData {
+			void* shapes[3];
+			char names[3][100];
+			char rootBlockName[100];
+			NiNodeBuf rootBuf;
+			char rootName[100];
+			char shapeBlockName[100];
+			BSLODTriShapeBuf buf;
+			int shapeID;
+		};
+		void TCheckDock(void* nif, DockData& dd) {
+
+			getBlockname(nif, 0, dd.rootBlockName, 100);
+			getBlock(nif, 0, &dd.rootBuf);
+			getString(nif, dd.rootBuf.nameID, 100, dd.rootName);
+			Assert::AreEqual("BSFadeNode", dd.rootBlockName, L"Have correct root type");
+			Assert::AreEqual("DockStepsDownEnd01", dd.rootName, L"Have correct root name");
+
+			int shapeCount = getShapes(nif, dd.shapes, 10, 0);
+			Assert::AreEqual(3, shapeCount, L"Have 3 shapes");
+
+			dd.buf.bufType = BUFFER_TYPES::BSLODTriShapeBufType;
+			dd.buf.bufSize = sizeof(BSLODTriShapeBuf);
+
+			for (int i = 0; i < shapeCount; i++) {
+				getNodeName(dd.shapes[i], dd.names[i], 100);
+				if (strcmp(dd.names[i], "DockStepsDownEnd01:0 - L1_Supports:0") == 0) {
+					dd.shapeID = getBlockID(nif, dd.shapes[i]);
+					getBlockname(nif, dd.shapeID, dd.shapeBlockName, 100);
+					getBlock(nif, dd.shapeID, &dd.buf);
+				}
+			};
+
+			Assert::AreEqual("BSLODTriShape", dd.shapeBlockName, L"Have correct shape type");
+			Assert::AreEqual(int(BUFFER_TYPES::BSLODTriShapeBufType), int(dd.buf.bufType), L"Have correct buffer type");
+			Assert::AreEqual(352, int(dd.buf.vertexCount), L"Have correct number of vertices");
+			Assert::AreEqual(234, int(dd.buf.level0), L"Have correct LOD 0");
+			Assert::AreEqual(88, int(dd.buf.level1), L"Have correct LOD 1");
+		}
+		TEST_METHOD(readWriteDock) {
+			std::filesystem::path testfile = testRoot / "Skyrim" / "dockstepsdownend01.nif";
+			std::filesystem::path outfile = testRoot / "Out" / "testWrapper_readWriteDock.nif";
+			DockData dock, dockCheck;
+
+			void* nif = load(testfile.u8string().c_str());
+			TCheckDock(nif, dock);
+
+			void* shapeOut[3];
+			void* nifOut = createNif("Skyrim", "BSFadeNode", "DockStepsDownEnd01");
+			shapeOut[0] = TCopyShape(nifOut, dock.names[0], nif, dock.shapes[0]);
+			shapeOut[1] = TCopyShape(nifOut, dock.names[1], nif, dock.shapes[1]);
+			shapeOut[2] = TCopyShape(nifOut, dock.names[2], nif, dock.shapes[2]);
+			TCopyShader(nifOut, shapeOut[0], nif, dock.shapes[0]);
+			TCopyShader(nifOut, shapeOut[1], nif, dock.shapes[1]);
+			TCopyShader(nifOut, shapeOut[2], nif, dock.shapes[2]);
+
+			saveNif(nifOut, outfile.u8string().c_str());
+
+			void* nifCheck = load(outfile.u8string().c_str());
+			TCheckDock(nifCheck, dockCheck);
 		};
 	};
 }

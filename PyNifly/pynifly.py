@@ -1593,6 +1593,7 @@ class NiShape(NiNode):
             return cls.subtypes[shapetype](
                 handle=handle, id=id, file=file, parent=parent, properties=properties)
         except:
+            NifFile.log.warning(f"Shape type is not implemented: {shapetype}")
             return None
 
     @classmethod
@@ -2127,6 +2128,13 @@ class BSMeshLODTriShape(NiShape):
         return BSMeshLODTriShapeBuf(values)
     
 
+# --- BSLODTriShape --- #
+class BSLODTriShape(NiShape):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return BSLODTriShapeBuf(values)
+    
+
 # --- NifFile --- #
 class NifFile:
     """ NifFile represents the file itself. Corresponds approximately to a NifFile in the 
@@ -2350,9 +2358,9 @@ class NifFile:
                 nfound = NifFile.nifly.getShapes(self._handle, buf, nfound, 0)
                 for i in range(nfound):
                     new_shape = NiShape.New(file=self, handle=buf[i])
-                    self._shapes.append(new_shape) # not handling too many shapes yet
-                    self._shape_dict[new_shape.name] = new_shape
-
+                    if new_shape:
+                        self._shapes.append(new_shape) # not handling too many shapes yet
+                        self._shape_dict[new_shape.name] = new_shape
         return self._shapes
     
     def shape_by_root(self, rootname):
@@ -2750,7 +2758,7 @@ class ModuleTest:
         new_prop:NiShapeBuf = old_shape.properties.copy()
         new_prop.nameID = new_prop.conrollerID = new_prop.collisionID = NODEID_NONE
         new_prop.skinInstanceID = new_prop.shaderPropertyID = new_prop.alphaPropertyID = NODEID_NONE
-        new_shape = new_nif.createShapeFromData(old_shape.name + ".Out", 
+        new_shape = new_nif.createShapeFromData(old_shape.name, 
                                                 old_shape.verts,
                                                 old_shape.tris,
                                                 uv_inv,
@@ -4597,8 +4605,39 @@ class ModuleTest:
         check_tree(nifCheck)
 
 
+    def TEST_DOCKSTEPSDOWNEND():
+        """Regression: Test that this nif loads correctly."""
+        def check_dock(nif):
+            assert nif.rootNode.blockname == "BSFadeNode", f"Have BSFadeNode as root: {nif.rootNode.blockname}"
+            assert len(nif.shapes) == 3, "Have all shapes"
+            s = nif.shape_dict["DockStepsDownEnd01:0 - L1_Supports:0"]
+            assert s, f"Have supports shape"
+            assert s.blockname == "BSLODTriShape", "Have BSLODTriShape"
+            assert s.properties.level0 == 234, f"Have correct level0: {s.properties.level0}"
+            assert s.properties.level1 == 88, f"Have correct level1: {s.properties.level1}"
+
+        testfile = ModuleTest.test_file(r"tests\Skyrim\dockstepsdownend01.nif")
+        outfile = ModuleTest.test_file(r"tests\out\TEST_DOCKSTEPSDOWNEND.nif")
+
+        print("------------- read")
+        nif = NifFile(testfile)
+        check_dock(nif)
+
+        print("------------- write")
+        nifOut = NifFile()
+        nifOut.initialize('SKYRIM', outfile, nif.rootNode.blockname, nif.rootNode.name)
+        ModuleTest.export_shape(nif.shapes[0], nifOut)
+        ModuleTest.export_shape(nif.shapes[1], nifOut)
+        ModuleTest.export_shape(nif.shapes[2], nifOut)
+        nifOut.save()
+
+        print("------------- check")
+        check_dock(NifFile(outfile))
+
+
     def TEST_HKX_SKELETON():
         """Test read/write of hkx skeleton files (in XML format)."""
+        pass
         # SKIPPING - This functionality is part of animation read/write, which is not
         # fully operational.
 
@@ -4615,6 +4654,7 @@ class ModuleTest:
         # handbone = f.nodes["NPC L Hand [LHnd]"]
         # assert NearEqual(headbone.global_transform.translation[2], 120.3436), "Head bone where it should be."
         # assert NearEqual(handbone.global_transform.translation[0], -28.9358), f"L Hand bone where it should be" 
+
     
     @property
     def all_tests(self):
@@ -4672,6 +4712,6 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    tester.execute_all()
+    # tester.execute_all()
     # tester.execute_all(start='TEST_KF')
-    # tester.execute_test('TEST_HKX_SKELETON')
+    tester.execute_test('TEST_DOCKSTEPSDOWNEND')

@@ -879,7 +879,8 @@ class PynBufferTypes(IntEnum):
     BSSubIndexTriShapeBufType = 32
     BSEffectShaderPropertyBufType = 33
     NiTriStripsBufType = 34
-    COUNT = 35
+    BSLODTriShapeBufType = 35
+    COUNT = 36
 
 bufferTypeList = [''] * PynBufferTypes.COUNT
 blockBuffers = {}
@@ -1441,6 +1442,38 @@ class BSMeshLODTriShapeBuf(pynStructure):
         self.bufType = PynBufferTypes.BSMeshLODTriShapeBufType
 bufferTypeList[PynBufferTypes.BSMeshLODTriShapeBufType] = 'BSMeshLODTriShape'
 blockBuffers['BSMeshLODTriShape'] = BSMeshLODTriShapeBuf
+
+class BSLODTriShapeBuf(pynStructure):
+    _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
+        ("nameID", c_uint32),
+        ("controllerID", c_uint32),
+        ("extraDataCount", c_uint16),
+        ("flags", c_uint32),
+        ("transform", TransformBuf),
+        ("propertyCount", c_uint16),
+        ("collisionID", c_uint32),
+        ("hasVertices", c_uint8),
+        ("hasNormals", c_uint8),
+        ("hasVertexColors", c_uint8),
+        ("hasUV", c_uint8),
+        ("boundingSphereCenter", VECTOR3),
+        ("boundingSphereRadius", c_float),
+        ("vertexCount", c_uint16),
+        ("triangleCount", c_uint16),
+        ("skinInstanceID", c_uint32),
+        ("shaderPropertyID", c_uint32),
+        ("alphaPropertyID", c_uint32),
+        ("level0", c_uint32),
+        ("level1", c_uint32),
+        ("level2", c_uint32),
+        ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BSLODTriShapeBufType
+bufferTypeList[PynBufferTypes.BSLODTriShapeBufType] = 'BSLODTriShape'
+blockBuffers['BSLODTriShape'] = BSLODTriShapeBuf
 
 class NiControllerManagerBuf(pynStructure):
     _fields_ = [

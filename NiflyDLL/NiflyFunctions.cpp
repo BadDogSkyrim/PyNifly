@@ -266,7 +266,7 @@ void GetPartitions(
 	indices = triParts;
 }
 
-NiShape* PyniflyCreateShapeFromData(NifFile* nif,
+NiShape* PyniflyCreateShape(NifFile* nif,
 	const std::string& shapeName,
 	NiShapeBuf* buf,
 	const std::vector<Vector3>* v,
@@ -274,15 +274,11 @@ NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 	const std::vector<Vector2>* uv,
 	const std::vector<Vector3>* norms,
 	NiNode* parentRef
-/* 
-	Copy of the nifly routine but handles BSDynamicTriShapes and BSEffectShaderProperties,
-	also parents other than root
-	* options == 1: Create SSE head part (so use BSDynamicTriShape)
-	*            == 2: Create FO4 BSTriShape (default is BSSubindexTriShape)
-	*            == 4: Create FO4 BSEffectShaderProperty
-	*            may be omitted
-	*/
 ) {
+/* 
+	Copy of the nifly routine but handles BSDynamicTriShapes (and other subtypes of NiShape) 
+	and BSEffectShaderProperties, also parents other than root.
+	*/
 	auto rootNode = nif->GetRootNode();
 	auto parentNode = nif->GetRootNode();
 	if (!rootNode)
@@ -384,36 +380,47 @@ NiShape* PyniflyCreateShapeFromData(NifFile* nif,
 			shaderID = nif->GetHeader().AddBlock(std::move(nifShaderPP));
 		}
 
-		auto nifTriShape = std::make_unique<NiTriShape>();
-		if (version.IsSK())
-			nifTriShape->ShaderPropertyRef()->index = shaderID;
-		else
-			nifTriShape->propertyRefs.AddBlockRef(shaderID);
+		if (buf->bufType == BUFFER_TYPES::BSLODTriShapeBufType) {
+			// Special handling because BSLODTriShape is not a subclass of BSTriShape.
+			auto shape = std::make_unique<BSLODTriShape>();
+			shape->ShaderPropertyRef()->index = shaderID;
+			shape->name.get() = shapeName;
+			auto shapeData = std::make_unique<NiTriShapeData>();
+			shapeData->Create(nif->GetHeader().GetVersion(), v, t, uv, norms);
+			shape->SetGeomData(shapeData.get());
+			int dataID = nif->GetHeader().AddBlock(std::move(shapeData));
+			shape->DataRef()->index = dataID;
+			shape->SetSkinned(false);
+			shapeResult = shape.get();
+			int shapeID = nif->GetHeader().AddBlock(std::move(shape));
+			parentNode->childRefs.AddBlockRef(shapeID);
+		}
+		else {
+			auto nifTriShape = std::make_unique<NiTriShape>();
+			if (version.IsSK())
+				nifTriShape->ShaderPropertyRef()->index = shaderID;
+			else
+				nifTriShape->propertyRefs.AddBlockRef(shaderID);
 
-		nifTriShape->name.get() = shapeName;
+			nifTriShape->name.get() = shapeName;
 
-		auto nifShapeData = std::make_unique<NiTriShapeData>();
-		nifShapeData->Create(nif->GetHeader().GetVersion(), v, t, uv, norms);
-		nifTriShape->SetGeomData(nifShapeData.get());
+			auto nifShapeData = std::make_unique<NiTriShapeData>();
+			nifShapeData->Create(nif->GetHeader().GetVersion(), v, t, uv, norms);
+			nifTriShape->SetGeomData(nifShapeData.get());
 
-		int dataID = nif->GetHeader().AddBlock(std::move(nifShapeData));
-		nifTriShape->DataRef()->index = dataID;
-		nifTriShape->SetSkinned(false);
+			int dataID = nif->GetHeader().AddBlock(std::move(nifShapeData));
+			nifTriShape->DataRef()->index = dataID;
+			nifTriShape->SetSkinned(false);
 
-		shapeResult = nifTriShape.get();
+			shapeResult = nifTriShape.get();
 
-		int shapeID = nif->GetHeader().AddBlock(std::move(nifTriShape));
-		parentNode->childRefs.AddBlockRef(shapeID);
+			int shapeID = nif->GetHeader().AddBlock(std::move(nifTriShape));
+			parentNode->childRefs.AddBlockRef(shapeID);
+		}
 	}
 
 	return shapeResult;
 }
 
-//AnimSkeleton* MakeSkeleton(enum TargetGame theGame) {
-//	AnimSkeleton* skel = AnimSkeleton::MakeInstance();
-//	std::string root;
-//	std::string fn = SkeletonFile(theGame, root);
-//	skel->LoadFromNif(fn, root);
-//	return skel;
-//};
+
 
