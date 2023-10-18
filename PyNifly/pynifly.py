@@ -3222,7 +3222,7 @@ class ModuleTest:
         newnif3.save()
 
         nif3res = NifFile(outfile3)
-        body2res = nif3res.shape_dict["MaleBody.Out"]
+        body2res = nif3res.shape_dict["MaleBody"]
         sstb = body2res.get_shape_skin_to_bone("NPC Spine1 [Spn1]")
 
         # Body doesn't have shape-level transformations so make sure we haven't put in
@@ -4606,7 +4606,7 @@ class ModuleTest:
 
 
     def TEST_DOCKSTEPSDOWNEND():
-        """Regression: Test that this nif loads correctly."""
+        """Test that BSLODTriShape nodes load correctly."""
         def check_dock(nif):
             assert nif.rootNode.blockname == "BSFadeNode", f"Have BSFadeNode as root: {nif.rootNode.blockname}"
             assert len(nif.shapes) == 3, "Have all shapes"
@@ -4669,19 +4669,21 @@ class ModuleTest:
         print(f"------------- done")
 
     
-    def execute_all(self, start=None):
+    def execute(self, start=None, test=None):
         print("""\n
 =====================================================================
 ======================= Running pynifly tests =======================
 =====================================================================
 
 """)
-        
-        doit = (start is None)
-        for name in self.all_tests:
-            if name == start: doit = True
-            if doit:
-                self.execute_test(name)
+        if test:
+            self.execute_test(test)
+        else:
+            doit = (start is None) 
+            for name in self.all_tests:
+                if name == start: doit = True
+                if doit:
+                    self.execute_test(name)
 
         print("""
 
@@ -4712,6 +4714,6 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    # tester.execute_all()
-    # tester.execute_all(start='TEST_KF')
-    tester.execute_test('TEST_DOCKSTEPSDOWNEND')
+    tester.execute()
+    # tester.execute(start='TEST_KF')
+    # tester.execute(test='TEST_DOCKSTEPSDOWNEND')
