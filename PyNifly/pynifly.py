@@ -3660,6 +3660,11 @@ class ModuleTest:
                   r"textures\actors\character\basehumanmale\basemalehead_s.dds"]):
             assert hsfo.textures[i] == t, f"Expected {t}, got '{hsfo.textures[i]}'"
 
+        print("------------- Extract non-default values")
+        v = {}
+        hsse.shader_attributes.extract(v)
+        print(v)
+
         """Can read and write shader"""
         nif = NifFile(r"tests\FO4\AlarmClock.nif")
         assert len(nif.shapes) == 1, f"Error: Expected 1 shape, found {len(nif.shapes)}"
@@ -4686,4 +4691,4 @@ if __name__ == "__main__":
     # tester.execute()
     # tester.execute(start='TEST_KF')
     # tester.execute(test='TEST_SHADER')
-    tester.execute()
+    tester.execute(test='TEST_SHADER')

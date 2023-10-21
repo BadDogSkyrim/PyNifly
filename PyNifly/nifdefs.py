@@ -294,6 +294,22 @@ class pynStructure(Structure):
                         diffs.append((fn, self.__getattribute__(fn), other.__getattribute__(fn)))
         return diffs
 
+    def extract(self, shape, ignore=[]):
+        """
+        Extract fields to the dictionary-like object 'shape'. Extract only fields that
+        differ from their default values. Do not extract any ID fields.
+        """
+        defaults = NiShaderBuf()
+        for fn, t in self._fields_:
+            if fn[-2:] != 'ID' and fn != 'bufType':
+                if '_Array_' in t.__name__:
+                    v1 = [x for x in self.__getattribute__(fn)]
+                    v2 = [x for x in defaults.__getattribute__(fn)]
+                    if v1 != v2:
+                        shape[fn] = repr(v1)
+                else:
+                    if self.__getattribute__(fn) != defaults.__getattribute__(fn):
+                        shape[fn] = self.__getattribute__(fn)
 
     def copy(self):
         """ Return a copy of the object """
@@ -308,47 +324,47 @@ class pynStructure(Structure):
             other.__setattr__(f, self.__getattribute__(f))
         return other
     
-    def extract(self, shape, ignore=[]):
-        """Extract fields to the dictionary-like object 'shape'"""
-        for f, t in self._fields_:
-            v = None
-            if f in ignore:
-                pass
-            elif f == 'Shader_Flags_1':
-                v = ShaderFlags1(self.Shader_Flags_1).fullname
-            elif f == 'Shader_Flags_2': 
-                v = ShaderFlags2(self.Shader_Flags_2).fullname
-            elif f == 'Shader_Type':
-                v = BSLSPShaderType(self.Shader_Type).name
-            elif f in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
-                v = SkyrimCollisionLayer(self.__getattribute__(f)).name
-            elif f == 'broadPhaseType':
-                v = BroadPhaseType(self.broadPhaseType).name
-            elif f == 'collisionResponse':
-                v = hkResponseType(self.collisionResponse).name
-            elif f == 'motionSystem':
-                v = hkMotionType(self.motionSystem).name
-            elif f == 'deactivatorType':
-                v = hkDeactivatorType(self.deactivatorType).name
-            elif f == 'solverDeactivation': 
-                v = hkSolverDeactivation(self.solverDeactivation).name
-            elif f == 'qualityType':
-                v = hkQualityType(self.qualityType).name
-            elif f == 'qualityType':
-                v = hkQualityType(self.qualityType).name
-            elif t.__name__.startswith('c_float_Array') or t.__name__.startswith('c_ushort_Array'):
-                v = repr(self.__getattribute__(f)[:])
-            elif t.__name__ in ['c_uint32', 'c_uint64', 'c_ulong', 'c_ulonglong']:
-                v = repr(self.__getattribute__(f))
-            else:
-                v = self.__getattribute__(f)
+    # def extract(self, shape, ignore=[]):
+    #     """Extract fields to the dictionary-like object 'shape'"""
+    #     for f, t in self._fields_:
+    #         v = None
+    #         if f in ignore:
+    #             pass
+    #         elif f == 'Shader_Flags_1':
+    #             v = ShaderFlags1(self.Shader_Flags_1).fullname
+    #         elif f == 'Shader_Flags_2': 
+    #             v = ShaderFlags2(self.Shader_Flags_2).fullname
+    #         elif f == 'Shader_Type':
+    #             v = BSLSPShaderType(self.Shader_Type).name
+    #         elif f in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
+    #             v = SkyrimCollisionLayer(self.__getattribute__(f)).name
+    #         elif f == 'broadPhaseType':
+    #             v = BroadPhaseType(self.broadPhaseType).name
+    #         elif f == 'collisionResponse':
+    #             v = hkResponseType(self.collisionResponse).name
+    #         elif f == 'motionSystem':
+    #             v = hkMotionType(self.motionSystem).name
+    #         elif f == 'deactivatorType':
+    #             v = hkDeactivatorType(self.deactivatorType).name
+    #         elif f == 'solverDeactivation': 
+    #             v = hkSolverDeactivation(self.solverDeactivation).name
+    #         elif f == 'qualityType':
+    #             v = hkQualityType(self.qualityType).name
+    #         elif f == 'qualityType':
+    #             v = hkQualityType(self.qualityType).name
+    #         elif t.__name__.startswith('c_float_Array') or t.__name__.startswith('c_ushort_Array'):
+    #             v = repr(self.__getattribute__(f)[:])
+    #         elif t.__name__ in ['c_uint32', 'c_uint64', 'c_ulong', 'c_ulonglong']:
+    #             v = repr(self.__getattribute__(f))
+    #         else:
+    #             v = self.__getattribute__(f)
         
-            try:
-                if v:
-                    shape[f] = v
-            except Exception as e:
-                    print(e)
-                #log.error(f"Cannot load value {v} of type {t.__name__} into field {f} of object {shape.name}")
+    #         try:
+    #             if v:
+    #                 shape[f] = v
+    #         except Exception as e:
+    #                 print(e)
+    #             #log.error(f"Cannot load value {v} of type {t.__name__} into field {f} of object {shape.name}")
 
 
 # ------ Little bit of matrix math for debugging ----
