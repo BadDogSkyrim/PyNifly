@@ -617,48 +617,48 @@ void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
 		Assert::IsTrue(shaderAttr1.Shader_Type == shaderAttr2.Shader_Type);
 		Assert::IsTrue(shaderAttr1.Shader_Flags_1 == shaderAttr2.Shader_Flags_1);
 		Assert::IsTrue(shaderAttr1.Shader_Flags_2 == shaderAttr2.Shader_Flags_2);
-		Assert::IsTrue(shaderAttr1.Tex_Clamp_Mode == shaderAttr2.Tex_Clamp_Mode);
+		Assert::IsTrue(shaderAttr1.textureClampMode == shaderAttr2.textureClampMode);
 		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Offset_U, shaderAttr2.UV_Offset_U));
 		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Offset_V, shaderAttr2.UV_Offset_V));
 		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Scale_U, shaderAttr2.UV_Scale_U));
 		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Scale_V, shaderAttr2.UV_Scale_V));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_R, shaderAttr2.Emissive_Color_R));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_G, shaderAttr2.Emissive_Color_G));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_B, shaderAttr2.Emissive_Color_B));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_A, shaderAttr2.Emissive_Color_A));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissmive_Mult, shaderAttr2.Emissmive_Mult));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.emissiveColor[0], shaderAttr2.emissiveColor[0]));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.emissiveColor[1], shaderAttr2.emissiveColor[1]));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.emissiveColor[2], shaderAttr2.emissiveColor[2]));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.emissiveColor[3], shaderAttr2.emissiveColor[3]));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Mult, shaderAttr2.Emissive_Mult));
 		Assert::IsTrue(TApproxEqual(shaderAttr1.Alpha, shaderAttr2.Alpha));
 		Assert::IsTrue(TApproxEqual(shaderAttr1.Refraction_Str, shaderAttr2.Refraction_Str));
 		Assert::IsTrue(TApproxEqual(shaderAttr1.Glossiness, shaderAttr2.Glossiness));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Color_R, shaderAttr2.Spec_Color_R));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Color_G, shaderAttr2.Spec_Color_G));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Color_B, shaderAttr2.Spec_Color_B));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.specularColor[0], shaderAttr2.specularColor[0]));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.specularColor[1], shaderAttr2.specularColor[1]));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.specularColor[2], shaderAttr2.specularColor[2]));
 		Assert::IsTrue(TApproxEqual(shaderAttr1.Spec_Str, shaderAttr2.Spec_Str));
 		Assert::IsTrue(TApproxEqual(shaderAttr1.Soft_Lighting, shaderAttr2.Soft_Lighting));
 		Assert::IsTrue(TApproxEqual(shaderAttr1.Rim_Light_Power, shaderAttr2.Rim_Light_Power));
 		Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Alpha, shaderAttr2.Skin_Tint_Alpha));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_R, shaderAttr2.Skin_Tint_Color_R));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_G, shaderAttr2.Skin_Tint_Color_G));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Skin_Tint_Color_B, shaderAttr2.Skin_Tint_Color_B));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.skinTintColor[0], shaderAttr2.skinTintColor[0]));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.skinTintColor[1], shaderAttr2.skinTintColor[1]));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.skinTintColor[2], shaderAttr2.skinTintColor[2]));
 	}
 	else if (strcmp(blockName1, "BSEffectShaderProperty") == 0) {
 		Assert::IsTrue(shaderAttr1.Shader_Flags_1 == shaderAttr2.Shader_Flags_1);
 		Assert::IsTrue(shaderAttr1.Shader_Flags_2 == shaderAttr2.Shader_Flags_2);
-		Assert::IsTrue(shaderAttr1.Tex_Clamp_Mode == shaderAttr2.Tex_Clamp_Mode);
+		Assert::IsTrue(shaderAttr1.textureClampMode == shaderAttr2.textureClampMode);
 		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Offset_U, shaderAttr2.UV_Offset_U));
 		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Offset_V, shaderAttr2.UV_Offset_V));
 		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Scale_U, shaderAttr2.UV_Scale_U));
 		Assert::IsTrue(TApproxEqual(shaderAttr1.UV_Scale_V, shaderAttr2.UV_Scale_V));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_R, shaderAttr2.Emissive_Color_R));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_G, shaderAttr2.Emissive_Color_G));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_B, shaderAttr2.Emissive_Color_B));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Color_A, shaderAttr2.Emissive_Color_A));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissmive_Mult, shaderAttr2.Emissmive_Mult));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Falloff_Start_Angle, shaderAttr2.Falloff_Start_Angle));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Falloff_Start_Opacity, shaderAttr2.Falloff_Start_Opacity));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Falloff_Stop_Angle, shaderAttr2.Falloff_Stop_Angle));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Falloff_Stop_Opacity, shaderAttr2.Falloff_Stop_Opacity));
-		Assert::IsTrue(TApproxEqual(shaderAttr1.Soft_Falloff_Depth, shaderAttr2.Soft_Falloff_Depth));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.emissiveColor[0], shaderAttr2.emissiveColor[0]));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.emissiveColor[1], shaderAttr2.emissiveColor[1]));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.emissiveColor[2], shaderAttr2.emissiveColor[2]));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.emissiveColor[3], shaderAttr2.emissiveColor[3]));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.Emissive_Mult, shaderAttr2.Emissive_Mult));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.falloffStartAngle, shaderAttr2.falloffStartAngle));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.falloffStartOpacity, shaderAttr2.falloffStartOpacity));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.falloffStopAngle, shaderAttr2.falloffStopAngle));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.falloffStopOpacity, shaderAttr2.falloffStopOpacity));
+		Assert::IsTrue(TApproxEqual(shaderAttr1.softFalloffDepth, shaderAttr2.softFalloffDepth));
 	};
 
 	NiAlphaPropertyBuf alpha1;
@@ -678,10 +678,15 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 	char shaderBlockname[128];
 	NiShaderBuf shaderAttr;
 
-	getBlock(sourceNif, sourceID, &sourceProps);
+	Assert::AreEqual(0, getBlock(sourceNif, sourceID, &sourceProps));
 	getBlockname(sourceNif, sourceProps.shaderPropertyID, shaderBlockname, 128);
-	getBlock(sourceNif, sourceProps.shaderPropertyID, &shaderAttr);
+	Assert::AreEqual(0, getBlock(sourceNif, sourceProps.shaderPropertyID, &shaderAttr));
 	getString(sourceNif, shaderAttr.nameID, 500, shaderName);
+
+	shaderAttr.controllerID = NIF_NPOS;
+	shaderAttr.nameID = NIF_NPOS;
+	shaderAttr.rootMaterialNameID = NIF_NPOS;
+	shaderAttr.textureSetID = NIF_NPOS;
 
 	addBlock(targetNif, shaderName, &shaderAttr, targetID);
 	for (int i = 0; i < 9; i++) {
@@ -1896,7 +1901,7 @@ namespace NiflyDLLTests
 
 			//getShaderAttrs(nif, shapes[0], &shaderAttr);
 			Assert::IsTrue(TApproxEqual(
-				Vector3(shaderAttr.Spec_Color_R, shaderAttr.Spec_Color_G, shaderAttr.Spec_Color_B), 
+				Vector3(shaderAttr.specularColor[0], shaderAttr.specularColor[1], shaderAttr.specularColor[2]),
 				Vector3(0xa1/255.0f, 0xc2/255.0f, 0xff/255.0f)));
 			Assert::IsTrue(TApproxEqual(shaderAttr.Spec_Str, 2.69));
 			Assert::IsTrue(shaderAttr.Shader_Type == uint32_t(BSLSPShaderType::Face_Tint));
@@ -2038,7 +2043,7 @@ namespace NiflyDLLTests
 			};
 
 			Assert::IsTrue(TApproxEqual(
-				Vector3(shaderAttr.Spec_Color_R, shaderAttr.Spec_Color_G, shaderAttr.Spec_Color_B),
+				Vector3(shaderAttr.specularColor[0], shaderAttr.specularColor[1], shaderAttr.specularColor[2]),
 				Vector3(1.0, 1.0, 1.0)));
 			Assert::IsTrue(TApproxEqual(shaderAttr.Spec_Str, 1.0));
 			Assert::IsTrue(shaderAttr.Shader_Type == uint32_t(BSLSPShaderType::Face_Tint));
@@ -2574,10 +2579,10 @@ namespace NiflyDLLTests
 			Assert::IsTrue(glass.alpha.threshold == 128, L"Error: Threshold not correct");
 
 			Assert::AreEqual(getBlock(nif, glass.shapeBuf.shaderPropertyID, &glass.shaderBuf), 0, L"ERROR: Could not retrieve shader attributes");
-			Assert::AreEqual(1.0f, float(glass.shaderBuf.Emissmive_Mult), L"ERROR: Emissive multiple wrong");
-			Assert::AreEqual(100.0f, float(glass.shaderBuf.Soft_Falloff_Depth), L"ERROR: Soft falloff depth wrong");
-			Assert::AreEqual(3, int(glass.shaderBuf.Tex_Clamp_Mode));
-			Assert::AreEqual(0.1f, float(glass.shaderBuf.Falloff_Start_Opacity));
+			Assert::AreEqual(1.0f, float(glass.shaderBuf.Emissive_Mult), L"ERROR: Emissive multiple wrong");
+			Assert::AreEqual(100.0f, float(glass.shaderBuf.softFalloffDepth), L"ERROR: Soft falloff depth wrong");
+			Assert::AreEqual(3, int(glass.shaderBuf.textureClampMode), L"ERROR: textureClampMode wrong");
+			Assert::AreEqual(0.1f, float(glass.shaderBuf.falloffStartOpacity), L"ERROR: falloffStartOpacity wrong");
 			Assert::IsTrue(glass.shaderBuf.Shader_Flags_1 & uint32_t(ShaderProperty1::USE_FALLOFF));
 			Assert::IsTrue(glass.shaderBuf.Shader_Flags_1 & uint32_t(ShaderProperty1::EXTERNAL_EMITTANCE));
 			Assert::IsFalse(glass.shaderBuf.Shader_Flags_1 & uint32_t(ShaderProperty1::MODEL_SPACE_NORMALS));

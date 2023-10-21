@@ -43,6 +43,19 @@ using namespace nifly;
     return 2; \
     }
 
+#define CheckBuf3(buf, expectedType1, expectedType2, expectedType3, expectedBuf) \
+    if ((buf->bufType != expectedType1 && buf->bufType != expectedType2 && buf->bufType != expectedType3) || buf->bufSize != sizeof(expectedBuf)) { \
+    niflydll::LogWriteEf("%s called with bad buffer: type=%d, size=%d.", __FUNCTION__, buf->bufType, buf->bufSize); \
+    return 2; \
+    }
+
+
+#define CheckBuf3(buf, expectedType1, expectedType2, expectedType3, expectedType4, expectedBuf) \
+    if ((buf->bufType != expectedType1 && buf->bufType != expectedType2 && buf->bufType != expectedType3 && buf->bufType != expectedType4) || buf->bufSize != sizeof(expectedBuf)) { \
+    niflydll::LogWriteEf("%s called with bad buffer: type=%d, size=%d.", __FUNCTION__, buf->bufType, buf->bufSize); \
+    return 2; \
+    }
+
 
 void assignQ(float* dest, Quaternion source) {
     dest[0] = source.w;
@@ -1314,72 +1327,165 @@ NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, 
 
 int getNiShader(void* nifref, uint32_t id, void* buffer)
 /*
-    Get attributes for one of the NiShaderProperty types.
+    Get attributes for one of the NiShader types. These all use the same size buffer
+    and the buffer type is set to reflect the actual shader type found, so the 
+    caller doesn't need to know what kind of shader there is.
     Return value: 0 = success, 1 = no shader, or not a BSLightingShaderProperty
 */
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
-    BSShaderProperty* bssh = hdr->GetBlock<BSShaderProperty>(id);
-    BSLightingShaderProperty* bslsp = hdr->GetBlock<BSLightingShaderProperty>(id);
-    BSEffectShaderProperty* bsesp = hdr->GetBlock<BSEffectShaderProperty>(id);
+    BSShaderProperty* bssh;
+    BSLightingShaderProperty* bslsp;
+    BSEffectShaderProperty* bsesp;
+    BSShaderPPLightingProperty* bspp;
     NiShaderBuf* buf = static_cast<NiShaderBuf*>(buffer);
 
-    CheckID(bssh);
-    CheckBuf2(buf, BUFFER_TYPES::NiShaderBufType, BUFFER_TYPES::BSEffectShaderPropertyBufType, NiShaderBuf);
+    if (id == NIF_NPOS) {
+        // No shader block, just return defaults
+        bsesp = new BSEffectShaderProperty();
+        bslsp = new BSLightingShaderProperty();
+        bspp = new BSShaderPPLightingProperty();
+        bssh = bslsp;
+    }
+    else
+    {
+        CheckBuf3(buf,
+            BUFFER_TYPES::NiShaderBufType,
+            BUFFER_TYPES::BSLightingShaderPropertyBufType,
+            BUFFER_TYPES::BSEffectShaderPropertyBufType,
+            BUFFER_TYPES::BSShaderPPLightingPropertyBufType,
+            NiShaderBuf);
 
-    //NiTexturingProperty* txtProp = nif->GetTexturingProperty(shape);
-
-    //FillMemory(buf, sizeof(BSLSPAttrs), 0);
+        bssh = hdr->GetBlock<BSShaderProperty>(id);
+        CheckID(bssh);
+        bslsp = hdr->GetBlock<BSLightingShaderProperty>(id);
+        bsesp = hdr->GetBlock<BSEffectShaderProperty>(id);
+        bspp = hdr->GetBlock<BSShaderPPLightingProperty>(id);
+    };
 
     buf->nameID = bssh->name.GetIndex();
+    buf->bBSLightingShaderProperty = bssh->bBSLightingShaderProperty;
+    buf->bslspShaderType = bssh->bslspShaderType;
     buf->controllerID = bssh->controllerRef.index;
     buf->extraDataCount = bssh->extraDataRefs.GetSize();
 
+    buf->shaderFlags = bssh->shaderFlags;
     buf->Shader_Type = bssh->GetShaderType();
     buf->Shader_Flags_1 = bssh->shaderFlags1;
     buf->Shader_Flags_2 = bssh->shaderFlags2;
+    buf->Env_Map_Scale = bssh->GetEnvironmentMapScale();
+    buf->numSF1 = bssh->numSF1;
+    buf->numSF2 = bssh->numSF2;
     buf->UV_Offset_U = bssh->GetUVOffset().u;
     buf->UV_Offset_V = bssh->GetUVOffset().v;
     buf->UV_Scale_U = bssh->GetUVScale().u;
     buf->UV_Scale_V = bssh->GetUVScale().v;
 
-    buf->Emissive_Color_R = bssh->GetEmissiveColor().r;
-    buf->Emissive_Color_G = bssh->GetEmissiveColor().g;
-    buf->Emissive_Color_B = bssh->GetEmissiveColor().b;
-    buf->Emissive_Color_A = bssh->GetEmissiveColor().a;
-    buf->Emissmive_Mult = bssh->GetEmissiveMultiple();
-    buf->Env_Map_Scale = bssh->GetEnvironmentMapScale();
-    //if (txtProp) {
-    //    NiSyncVector<ShaderTexDesc>* txtdesc = &txtProp->shaderTex;
-    //    //buf->Tex_Clamp_Mode = txtdesc->data.clampMode;
-    //};
-    buf->Alpha = bssh->GetAlpha();
-    buf->Glossiness = bssh->GetGlossiness();
-    buf->Spec_Color_R = bssh->GetSpecularColor().x;
-    buf->Spec_Color_G = bssh->GetSpecularColor().y;
-    buf->Spec_Color_B = bssh->GetSpecularColor().z;
-    buf->Spec_Str = bssh->GetSpecularStrength();
     if (bslsp) {
+        buf->bufType = BUFFER_TYPES::BSLightingShaderPropertyBufType;
+        buf->textureSetID = bslsp->TextureSetRef()->index;
+        for (int i = 0; i < 3; i++) buf->Emissive_Color[i] = bslsp->emissiveColor[i];
+        buf->Emissive_Mult = bslsp->emissiveMultiple;
+        buf->rootMaterialNameID = bslsp->rootMaterialName.GetIndex();
+        buf->textureClampMode = bslsp->textureClampMode;
+        buf->Alpha = bslsp->alpha;
         buf->Refraction_Str = bslsp->refractionStrength;
+        buf->Glossiness = bslsp->glossiness;
+        for (int i = 0; i < 3; i++) buf->specularColor[i] = bslsp->specularColor[i];
+        buf->Spec_Str = bslsp->specularStrength;
         buf->Soft_Lighting = bslsp->softlighting;
         buf->Rim_Light_Power = bslsp->rimlightPower;
+        buf->subsurfaceRolloff = bslsp->subsurfaceRolloff;
+        buf->rimlightPower2 = bslsp->rimlightPower2;
+        buf->backlightPower = bslsp->backlightPower;
+        buf->grayscaleToPaletteScale = bslsp->grayscaleToPaletteScale;
+        buf->fresnelPower = bslsp->fresnelPower;
+        buf->wetnessSpecScale = bslsp->wetnessSpecScale;
+        buf->wetnessSpecPower = bslsp->wetnessSpecPower;
+        buf->wetnessMinVar = bslsp->wetnessMinVar;
+        buf->wetnessEnvmapScale = bslsp->wetnessEnvmapScale;
+        buf->wetnessFresnelPower = bslsp->wetnessFresnelPower;
+        buf->wetnessMetalness = bslsp->wetnessMetalness;
+        buf->lumEmittance = bslsp->lumEmittance;
+        buf->exposureOffset = bslsp->exposureOffset;
+        buf->finalExposureMin = bslsp->finalExposureMin;
+        buf->finalExposureMax = bslsp->finalExposureMax;
+        buf->doTranslucency = bslsp->doTranslucency;
+        buf->subsurfaceColor[0] = bslsp->subsurfaceColor.r;
+        buf->subsurfaceColor[1] = bslsp->subsurfaceColor.g;
+        buf->subsurfaceColor[2] = bslsp->subsurfaceColor.b;
+        buf->transmissiveScale = bslsp->transmissiveScale;
+        buf->turbulence = bslsp->turbulence;
+        buf->thickObject = bslsp->thickObject;
+        buf->mixAlbedo = bslsp->mixAlbedo;
+        buf->hasTextureArrays = bslsp->hasTextureArrays;
+        buf->numTextureArrays = bslsp->numTextureArrays;
+        buf->useSSR = bslsp->useSSR;
+        buf->wetnessUseSSR = bslsp->wetnessUseSSR;
+        for (int i = 0; i < 3; i++) buf->skinTintColor[i] = bslsp->skinTintColor[i];
         buf->Skin_Tint_Alpha = bslsp->skinTintAlpha;
-        buf->Skin_Tint_Color_R = bslsp->skinTintColor[0];
-        buf->Skin_Tint_Color_G = bslsp->skinTintColor[1];
-        buf->Skin_Tint_Color_B = bslsp->skinTintColor[2];
-    }
+        for (int i = 0; i < 3; i++) buf->hairTintColor[i] = bslsp->hairTintColor[i];
+        buf->maxPasses = bslsp->maxPasses;
+        buf->scale = bslsp->scale;
+        buf->parallaxInnerLayerThickness = bslsp->parallaxInnerLayerThickness;
+        buf->parallaxRefractionScale = bslsp->parallaxRefractionScale;
+        buf->parallaxInnerLayerTextureScale[0] = bslsp->parallaxInnerLayerTextureScale.u;
+        buf->parallaxInnerLayerTextureScale[1] = bslsp->parallaxInnerLayerTextureScale.v;
+        buf->parallaxEnvmapStrength = bslsp->parallaxEnvmapStrength;
+        buf->sparkleParameters[0] = bslsp->sparkleParameters.r;
+        buf->sparkleParameters[1] = bslsp->sparkleParameters.g;
+        buf->sparkleParameters[2] = bslsp->sparkleParameters.b;
+        buf->sparkleParameters[3] = bslsp->sparkleParameters.a;
+        buf->eyeCubemapScale = bslsp->eyeCubemapScale;
+        for (int i = 0; i < 3; i++) buf->eyeLeftReflectionCenter[i] = bslsp->eyeLeftReflectionCenter[i];
+        for (int i = 0; i < 3; i++) buf->eyeRightReflectionCenter[i] = bslsp->eyeRightReflectionCenter[i];
+    };
     if (bsesp) {
         buf->bufType = BUFFER_TYPES::BSEffectShaderPropertyBufType;
-        buf->Tex_Clamp_Mode = bsesp->textureClampMode & 0xFF;
-        //buf->Lighting_Influence = bsesp->light;
-        //buf->Env_Map_Min_LOD = bsesp->getEnvmapMinLOD();
-        buf->Falloff_Start_Angle = bsesp->falloffStartAngle;
-        buf->Falloff_Stop_Angle = bsesp->falloffStopAngle;
-        buf->Falloff_Start_Opacity = bsesp->falloffStartOpacity;
-        buf->Falloff_Stop_Opacity = bsesp->falloffStopOpacity;
-        buf->Soft_Falloff_Depth = bsesp->softFalloffDepth;
-    }
+        bsesp->sourceTexture.get().copy(buf->sourceTexture, 256);
+        buf->Emissive_Mult = bsesp->GetEmissiveMultiple();
+        buf->Emissive_Color[0] = bsesp->GetEmissiveColor().r;
+        buf->Emissive_Color[1] = bsesp->GetEmissiveColor().g;
+        buf->Emissive_Color[2] = bsesp->GetEmissiveColor().b;
+        buf->Emissive_Color[3] = bsesp->GetEmissiveColor().a;
+        buf->textureClampMode = bsesp->textureClampMode & 0x0FF;
+        buf->falloffStartAngle = bsesp->falloffStartAngle;
+        buf->falloffStopAngle = bsesp->falloffStopAngle;
+        buf->falloffStartOpacity = bsesp->falloffStartOpacity;
+        buf->falloffStopOpacity = bsesp->falloffStopOpacity;
+        buf->refractionPower = bsesp->refractionPower;
+        buf->baseColor[0] = bsesp->baseColor.r;
+        buf->baseColor[1] = bsesp->baseColor.g;
+        buf->baseColor[2] = bsesp->baseColor.b;
+        buf->baseColor[3] = bsesp->baseColor.a;
+        buf->baseColorScale = bsesp->baseColorScale;
+        buf->softFalloffDepth = bsesp->softFalloffDepth;
+        bsesp->greyscaleTexture.get().copy(buf->greyscaleTexture, 256);
+        bsesp->envMapTexture.get().copy(buf->envMapTexture, 256);
+        bsesp->normalTexture.get().copy(buf->normalTexture, 256);
+        bsesp->envMaskTexture.get().copy(buf->envMaskTexture, 256);
+        buf->envMapScale = bsesp->envMapScale;
+        buf->emittanceColor[0] = bsesp->emittanceColor.r;
+        buf->emittanceColor[1] = bsesp->emittanceColor.g;
+        buf->emittanceColor[2] = bsesp->emittanceColor.b;
+        buf->lumEmittance = bsesp->lumEmittance;
+        buf->exposureOffset = bsesp->exposureOffset;
+        buf->finalExposureMin = bsesp->finalExposureMin;
+        buf->finalExposureMax = bsesp->finalExposureMax;
+        bsesp->emitGradientTexture.get().copy(buf->emitGradientTexture, 256);
+    };
+    if (bspp) {
+        buf->bufType = BUFFER_TYPES::BSShaderPPLightingPropertyBufType;
+        buf->refractionStrength = bspp->refractionStrength;
+        buf->refractionFirePeriod = bspp->refractionFirePeriod;
+        buf->parallaxMaxPasses = bspp->parallaxMaxPasses;
+        buf->parallaxScale = bspp->parallaxScale;
+        buf->emissiveColor[0] = bspp->emissiveColor.r;
+        buf->emissiveColor[1] = bspp->emissiveColor.g;
+        buf->emissiveColor[2] = bspp->emissiveColor.b;
+        buf->emissiveColor[3] = bspp->emissiveColor.a;
+    };
 
     return 0;
 };
@@ -1427,73 +1533,171 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
     /* Create a shader for the shape "parent". Shaders must have a parent. */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
+    NiShaderBuf* buf = static_cast<NiShaderBuf*>(buffer);
     NiShape* shape;
     NiShader* shader;
-    NiShaderBuf* buf = static_cast<NiShaderBuf*>(buffer);
-    
+    NiTexturingProperty* txtProp;
+    int new_id;
+
     if (parent == NIF_NPOS) return NIF_NPOS;
     shape = hdr->GetBlock<NiShape>(parent);
     shader = nif->GetShader(shape);
+    txtProp = nif->GetTexturingProperty(shape);
 
     BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
     BSLightingShaderProperty* bslsp = dynamic_cast<BSLightingShaderProperty*>(shader);
     BSEffectShaderProperty* bsesp = dynamic_cast<BSEffectShaderProperty*>(shader);
-    NiTexturingProperty* txtProp = nif->GetTexturingProperty(shape);
+    BSShaderPPLightingProperty* bspp = dynamic_cast<BSShaderPPLightingProperty*>(shader);
 
-    if (buf->bufType == BSEffectShaderPropertyBufType && !bsesp) {
-        // Caller wants a BSEffectShaderProperty and hasn't got one... switch it over.
+    // Set the shader to the type the caller wants.
+    new_id = NIF_NPOS;
+    if (buf->bufType == BSLightingShaderPropertyBufType && !bslsp) {
+        std::unique_ptr<BSLightingShaderProperty> sh = std::make_unique<BSLightingShaderProperty>();
+        new_id = nif->GetHeader().AddBlock(std::move(sh));
+    }
+    else if (buf->bufType == BSEffectShaderPropertyBufType && !bsesp) {
         std::unique_ptr<BSEffectShaderProperty> sh = std::make_unique<BSEffectShaderProperty>();
-        int sh_id = nif->GetHeader().AddBlock(std::move(sh));
+        new_id = nif->GetHeader().AddBlock(std::move(sh));
+    }
+    else if (buf->bufType == BSShaderPPLightingPropertyBufType && !bspp) {
+        std::unique_ptr<BSShaderPPLightingProperty> sh = std::make_unique<BSShaderPPLightingProperty>();
+        new_id = nif->GetHeader().AddBlock(std::move(sh));
+    }
+    if (new_id != NIF_NPOS) {
         shape->ShaderPropertyRef()->Clear();
-        shape->ShaderPropertyRef()->index = sh_id;
+        shape->ShaderPropertyRef()->index = new_id;
         shader = nif->GetShader(shape);
         bssh = dynamic_cast<BSShaderProperty*>(shader);
         bslsp = dynamic_cast<BSLightingShaderProperty*>(shader);
         bsesp = dynamic_cast<BSEffectShaderProperty*>(shader);
+        bspp = dynamic_cast<BSShaderPPLightingProperty*>(shader);
     }
-    shader->name.get() = name;
-    shader->SetShaderType(buf->Shader_Type);
-    if (bssh) {
-        bssh->shaderFlags1 = buf->Shader_Flags_1;
-        bssh->shaderFlags2 = buf->Shader_Flags_2;
-    };
 
-    Color4 col = Color4(buf->Emissive_Color_R,
-        buf->Emissive_Color_G,
-        buf->Emissive_Color_B,
-        buf->Emissive_Color_A);
-    shader->SetEmissiveColor(col);
-    shader->SetEmissiveMultiple(buf->Emissmive_Mult);
+    bssh->name.get() = name;
+    bssh->bBSLightingShaderProperty = buf->bBSLightingShaderProperty;
+    bssh->bslspShaderType = buf->bslspShaderType;
+    bssh->controllerRef.index = buf->controllerID;
 
-    if (txtProp) {
-        NiSyncVector<ShaderTexDesc>* txtdesc = &txtProp->shaderTex;
-        //txtdesc->data.clampMode = buf->Tex_Clamp_Mode;
-    };
+    bssh->shaderFlags = buf->shaderFlags;
+    bssh->shaderType = BSShaderType(buf->Shader_Type);
+    bssh->shaderFlags1 = buf->Shader_Flags_1;
+    bssh->shaderFlags2 = buf->Shader_Flags_2;
+    bssh->environmentMapScale = buf->Env_Map_Scale;
+    bssh->numSF1 = buf->numSF1;
+    bssh->numSF2 = buf->numSF2;
+    bssh->uvOffset.u = buf->UV_Offset_U;
+    bssh->uvOffset.v = buf->UV_Offset_V;
+    bssh->uvScale.u = buf->UV_Scale_U;
+    bssh->uvScale.v = buf->UV_Scale_V;
 
-    //shader->SetAlpha(buf->Alpha);
-    shader->SetGlossiness(buf->Glossiness);
-    shader->SetEnvironmentMapScale(buf->Env_Map_Scale);
-    Vector3 specCol = Vector3(buf->Spec_Color_R, buf->Spec_Color_G, buf->Spec_Color_B);
-    shader->SetSpecularColor(specCol);
-    shader->SetSpecularStrength(buf->Spec_Str);
     if (bslsp) {
+        //bslsp->TextureSetRef()->index = buf->textureSetID;
+        for (int i=0; i < 3; i++) bslsp->emissiveColor[i] = buf->Emissive_Color[i];
+        bslsp->emissiveMultiple = buf->Emissive_Mult;
+        bslsp->rootMaterialName.SetIndex(buf->rootMaterialNameID);
+        bslsp->textureClampMode = buf->textureClampMode;
+        bslsp->alpha = buf->Alpha;
         bslsp->refractionStrength = buf->Refraction_Str;
+        bslsp->glossiness = buf->Glossiness;
+        for (int i = 0; i < 3; i++) bslsp->specularColor[i] = buf->specularColor[i];
+        bslsp->specularStrength = buf->Spec_Str;
         bslsp->softlighting = buf->Soft_Lighting;
         bslsp->rimlightPower = buf->Rim_Light_Power;
+        bslsp->subsurfaceRolloff = buf->subsurfaceRolloff;
+        bslsp->rimlightPower2 = buf->rimlightPower2;
+        bslsp->backlightPower = buf->backlightPower;
+        bslsp->grayscaleToPaletteScale = buf->grayscaleToPaletteScale;
+        bslsp->fresnelPower = buf->fresnelPower;
+        bslsp->wetnessSpecScale = buf->wetnessSpecScale;
+        bslsp->wetnessSpecPower = buf->wetnessSpecPower;
+        bslsp->wetnessMinVar = buf->wetnessMinVar;
+        bslsp->wetnessEnvmapScale = buf->wetnessEnvmapScale;
+        bslsp->wetnessFresnelPower = buf->wetnessFresnelPower;
+        bslsp->wetnessMetalness = buf->wetnessMetalness;
+        bslsp->lumEmittance = buf->lumEmittance;
+        bslsp->exposureOffset = buf->exposureOffset;
+        bslsp->finalExposureMin = buf->finalExposureMin;
+        bslsp->finalExposureMax = buf->finalExposureMax;
+        bslsp->doTranslucency = buf->doTranslucency;
+        bslsp->subsurfaceColor.r = buf->subsurfaceColor[0];
+        bslsp->subsurfaceColor.g = buf->subsurfaceColor[1];
+        bslsp->subsurfaceColor.b = buf->subsurfaceColor[2];
+        bslsp->transmissiveScale = buf->transmissiveScale;
+        bslsp->turbulence = buf->turbulence;
+        bslsp->thickObject = buf->thickObject;
+        bslsp->mixAlbedo = buf->mixAlbedo;
+        bslsp->hasTextureArrays = buf->hasTextureArrays;
+        bslsp->numTextureArrays = buf->numTextureArrays;
+        bslsp->useSSR = buf->useSSR;
+        bslsp->wetnessUseSSR = buf->wetnessUseSSR;
+        for (int i = 0; i < 3; i++) bslsp->skinTintColor[i] = buf->skinTintColor[i];
         bslsp->skinTintAlpha = buf->Skin_Tint_Alpha;
-        bslsp->skinTintColor[0] = buf->Skin_Tint_Color_R;
-        bslsp->skinTintColor[1] = buf->Skin_Tint_Color_G;
-        bslsp->skinTintColor[2] = buf->Skin_Tint_Color_B;
+        for (int i = 0; i < 3; i++) bslsp->hairTintColor[i] = buf->hairTintColor[i];
+        bslsp->maxPasses = buf->maxPasses;
+        bslsp->scale = buf->scale;
+        bslsp->parallaxInnerLayerThickness = buf->parallaxInnerLayerThickness;
+        bslsp->parallaxRefractionScale = buf->parallaxRefractionScale;
+        bslsp->parallaxInnerLayerTextureScale.u = buf->parallaxInnerLayerTextureScale[0];
+        bslsp->parallaxInnerLayerTextureScale.v = buf->parallaxInnerLayerTextureScale[1];
+        bslsp->parallaxEnvmapStrength = buf->parallaxEnvmapStrength;
+        bslsp->sparkleParameters.r = buf->sparkleParameters[0];
+        bslsp->sparkleParameters.g = buf->sparkleParameters[1];
+        bslsp->sparkleParameters.b = buf->sparkleParameters[2];
+        bslsp->sparkleParameters.a = buf->sparkleParameters[3];
+        bslsp->eyeCubemapScale = buf->eyeCubemapScale;
+        for (int i = 0; i < 3; i++) 
+            bslsp->eyeLeftReflectionCenter[i] = buf->eyeLeftReflectionCenter[i];
+        for (int i = 0; i < 3; i++) 
+            bslsp->eyeRightReflectionCenter[i] = buf->eyeRightReflectionCenter[i];
     };
+
     if (bsesp) {
-        bsesp->textureClampMode = buf->Tex_Clamp_Mode;
-        bsesp->falloffStartAngle = buf->Falloff_Start_Angle;
-        bsesp->falloffStopAngle = buf->Falloff_Stop_Angle;
-        bsesp->falloffStartOpacity = buf->Falloff_Start_Opacity;
-        bsesp->falloffStopOpacity = buf->Falloff_Stop_Opacity;
-        bsesp->softFalloffDepth = buf->Soft_Falloff_Depth;
-        bsesp->envMapScale = buf->Env_Map_Scale;
+        Color4 c4;
+        bsesp->sourceTexture = NiString(buf->sourceTexture);
+        bsesp->SetEmissiveMultiple(buf->Emissive_Mult);
+        c4.r = buf->Emissive_Color[0];
+        c4.g = buf->Emissive_Color[1];
+        c4.b = buf->Emissive_Color[2];
+        c4.a = buf->Emissive_Color[3];
+        bsesp->SetEmissiveColor(c4);
+        bsesp->textureClampMode = buf->textureClampMode;
+        bsesp->falloffStartAngle = buf->falloffStartAngle;
+        bsesp->falloffStopAngle = buf->falloffStopAngle;
+        bsesp->falloffStartOpacity = buf->falloffStartOpacity;
+        bsesp->falloffStopOpacity = buf->falloffStopOpacity;
+        bsesp->refractionPower = buf->refractionPower;
+        bsesp->baseColor.r = buf->baseColor[0];
+        bsesp->baseColor.g = buf->baseColor[1];
+        bsesp->baseColor.b = buf->baseColor[2];
+        bsesp->baseColor.a = buf->baseColor[3];
+        bsesp->baseColorScale = buf->baseColorScale;
+        bsesp->softFalloffDepth = buf->softFalloffDepth;
+        bsesp->greyscaleTexture = NiString(buf->greyscaleTexture);
+        bsesp->envMapTexture = NiString(buf->envMapTexture);
+        bsesp->normalTexture = NiString(buf->normalTexture);
+        bsesp->envMaskTexture = NiString(buf->envMaskTexture);
+        bsesp->envMapScale = buf->envMapScale;
+        bsesp->emittanceColor.r = buf->emittanceColor[0];
+        bsesp->emittanceColor.g = buf->emittanceColor[1];
+        bsesp->emittanceColor.b = buf->emittanceColor[2];
+        bsesp->emitGradientTexture = NiString(buf->emitGradientTexture);
+        bsesp->lumEmittance = buf->lumEmittance;
+        bsesp->exposureOffset = buf->exposureOffset;
+        bsesp->finalExposureMin = buf->finalExposureMin;
+        bsesp->finalExposureMax = buf->finalExposureMax;
     };
+
+    if (bspp) {
+        bspp->refractionStrength = buf->refractionStrength;
+        bspp->refractionFirePeriod = buf->refractionFirePeriod;
+        bspp->parallaxMaxPasses = buf->parallaxMaxPasses;
+        bspp->parallaxScale = buf->parallaxScale;
+        bspp->emissiveColor.r = buf->emissiveColor[0];
+        bspp->emissiveColor.g = buf->emissiveColor[1];
+        bspp->emissiveColor.b = buf->emissiveColor[2];
+        bspp->emissiveColor.a = buf->emissiveColor[3];
+    };
+
 };
 
 
@@ -3850,6 +4054,8 @@ BlockGetterFunction getterFunctions[] = {
     getNiShader, //BSEffectShaderPropertyBufType
     getNiShape, //NiTriStripsBufType
     getBSLODTriShape, //BSLODTriShape
+    getNiShader,  //BSLightingShaderProperty
+    getNiShader,  //BSShaderPPLightingProperty
     nullptr //END
 };
 
@@ -3904,6 +4110,8 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //BSSubIndexTriShape
     nullptr, //NiTriStripsBufType
     nullptr, //BSLODTriShape
+    nullptr,  //BSLightingShaderProperty
+    nullptr,  //BSShaderPPLightingProperty
     nullptr //END
 };
 
@@ -3957,6 +4165,8 @@ BlockCreatorFunction creatorFunctions[] = {
     setNiShader, //BSEffectShaderPropertyBufType
     nullptr, //NiTriStripsBufType
     nullptr, //BSLODTriShape
+    setNiShader,  //BSLightingShaderProperty
+    setNiShader,  //BSShaderPPLightingProperty
     nullptr //end
 };
 

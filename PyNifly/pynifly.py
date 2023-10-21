@@ -1742,17 +1742,12 @@ class NiShape(NiNode):
                     self.file._handle, self._handle, buf, uvCount * 2, 0)
             self._uvs = [(uv[0], uv[1]) for uv in buf]
         return self._uvs
-    
+
     @property
     def shader_block_name(self):
         buf = create_string_buffer(128)
         NifFile.nifly.getBlockname(self.file._handle, self.properties.shaderPropertyID, buf, 128)
         return buf.value.decode('utf-8')
-        # b = NifFile.nifly.getShaderBlockName(self.file._handle, self._handle)
-        # if b:
-        #     return b.decode('utf-8')
-        # else:
-        #     return ''
 
     @property
     def shader_name(self):
@@ -2790,40 +2785,7 @@ class ModuleTest:
 
         new_shape.shader_name = old_shape.shader_name
         new_shape.shader_attributes.bufType = old_shape.shader_attributes.bufType
-        new_shape.shader_attributes.Shader_Flags_1 = old_shape.shader_attributes.Shader_Flags_1
-        new_shape.shader_attributes.Shader_Flags_2 = old_shape.shader_attributes.Shader_Flags_2
-        new_shape.shader_attributes.UV_Offset_U = old_shape.shader_attributes.UV_Offset_U
-        new_shape.shader_attributes.UV_Offset_V = old_shape.shader_attributes.UV_Offset_V
-        new_shape.shader_attributes.UV_Scale_U = old_shape.shader_attributes.UV_Scale_U
-        new_shape.shader_attributes.UV_Scale_V = old_shape.shader_attributes.UV_Scale_V
-        new_shape.shader_attributes.Emissive_Color_R = old_shape.shader_attributes.Emissive_Color_R
-        new_shape.shader_attributes.Emissive_Color_G = old_shape.shader_attributes.Emissive_Color_G
-        new_shape.shader_attributes.Emissive_Color_B = old_shape.shader_attributes.Emissive_Color_B
-        new_shape.shader_attributes.Emissive_Color_A = old_shape.shader_attributes.Emissive_Color_A
-        new_shape.shader_attributes.Emissive_Mult = old_shape.shader_attributes.Emissive_Mult
-        new_shape.shader_attributes.Tex_Clamp_Mode = old_shape.shader_attributes.Tex_Clamp_Mode
-
-        if effectsshader:
-            new_shape.shader_attributes.Falloff_Start_Angle = old_shape.shader_attributes.Falloff_Start_Angle
-            new_shape.shader_attributes.Falloff_Stop_Angle = old_shape.shader_attributes.Falloff_Stop_Angle
-            new_shape.shader_attributes.Falloff_Start_Opacity = old_shape.shader_attributes.Falloff_Start_Opacity
-            new_shape.shader_attributes.Falloff_Stop_Opacity = old_shape.shader_attributes.Falloff_Stop_Opacity
-            new_shape.shader_attributes.Soft_Falloff_Depth = old_shape.shader_attributes.Soft_Falloff_Depth
-        else:
-            new_shape.shader_attributes.Shader_Type = old_shape.shader_attributes.Shader_Type
-            new_shape.shader_attributes.Alpha = old_shape.shader_attributes.Alpha
-            new_shape.shader_attributes.Refraction_Str = old_shape.shader_attributes.Refraction_Str
-            new_shape.shader_attributes.Glossiness = old_shape.shader_attributes.Glossiness
-            new_shape.shader_attributes.Spec_Color_R = old_shape.shader_attributes.Spec_Color_R
-            new_shape.shader_attributes.Spec_Color_G = old_shape.shader_attributes.Spec_Color_G
-            new_shape.shader_attributes.Spec_Color_B = old_shape.shader_attributes.Spec_Color_B
-            new_shape.shader_attributes.Spec_Str = old_shape.shader_attributes.Spec_Str
-            new_shape.shader_attributes.Soft_Lighting = old_shape.shader_attributes.Soft_Lighting
-            new_shape.shader_attributes.Rim_Light_Power = old_shape.shader_attributes.Rim_Light_Power
-            new_shape.shader_attributes.Skin_Tint_Alpha = old_shape.shader_attributes.Skin_Tint_Alpha
-            new_shape.shader_attributes.Skin_Tint_Color_R = old_shape.shader_attributes.Skin_Tint_Color_R
-            new_shape.shader_attributes.Skin_Tint_Color_G = old_shape.shader_attributes.Skin_Tint_Color_G
-            new_shape.shader_attributes.Skin_Tint_Color_B = old_shape.shader_attributes.Skin_Tint_Color_B
+        old_shape.shader_attributes.copyto(new_shape.shader_attributes)
 
         new_shape.save_shader_attributes()
 
@@ -3710,7 +3672,8 @@ class ModuleTest:
         assert len(nifTest.shapes) == 1, f"Error: Expected 1 shape, found {len(nifTest.shapes)}"
         shapeTest = nifTest.shapes[0]
         attrsTest = shapeTest.shader_attributes
-        assert attrsTest == attrs, f"Error: Expected same shader attributes"
+        diffs = attrsTest.compare(attrs)
+        assert diffs == [], f"Error: Expected same shader attributes: {diffs}"
 
     def TEST_ALPHA():
         """Can read and write alpha property"""
@@ -3992,17 +3955,20 @@ class ModuleTest:
 
         def CheckHelmet(nif):
             glass:NiShape = next(s for s in nif.shapes if s.name.startswith("glass"))
+            glass_attr = glass.shader_attributes
             assert glass.shader_block_name == "BSEffectShaderProperty", f"Expected BSEffectShaderProperty, got {glass.shader_block_name}"
             assert glass.shader_name == r"Materials\Armor\FlightHelmet\glass.BGEM", "Have correct shader name"
-            assert glass.shader_attributes.shaderflags1_test(ShaderFlags1.USE_FALLOFF), f"Expected USE_FALLOFF true, got {glass.shader_attributes.shaderflags1_test(ShaderFlags1.USE_FALLOFF)}"
-            assert glass.shader_attributes.shaderflags1_test(ShaderFlags1.EXTERNAL_EMITTANCE)
-            assert not glass.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
-            assert glass.shader_attributes.shaderflags2_test(ShaderFlags2.EFFECT_LIGHTING)
-            assert not glass.shader_attributes.shaderflags2_test(ShaderFlags2.VERTEX_COLORS)
+            assert glass_attr.shaderflags1_test(ShaderFlags1.USE_FALLOFF), f"Expected USE_FALLOFF true, got {glass_attr.shaderflags1_test(ShaderFlags1.USE_FALLOFF)}"
+            assert glass_attr.shaderflags1_test(ShaderFlags1.EXTERNAL_EMITTANCE)
+            assert not glass_attr.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
+            assert glass_attr.shaderflags2_test(ShaderFlags2.EFFECT_LIGHTING)
+            assert not glass_attr.shaderflags2_test(ShaderFlags2.VERTEX_COLORS)
 
-            assert glass.shader_attributes.Tex_Clamp_Mode == 3
-            assert NearEqual(glass.shader_attributes.Falloff_Start_Opacity, 0.1)
-            assert NearEqual(glass.shader_attributes.Emissive_Mult, 1.0)
+            assert glass_attr.textureClampMode == 3
+            assert NearEqual(glass_attr.falloffStartOpacity, 0.1)
+            assert NearEqual(glass_attr.Emissive_Mult, 1.0)
+            assert glass_attr.sourceTexture.decode() == "Armor/FlightHelmet/Helmet_03_d.dds", \
+                f"Source texture correct: {glass_attr.sourceTexture}"
 
             assert glass.textures[0] == "Armor/FlightHelmet/Helmet_03_d.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_d.dds', got {glass.textures[0]}"
             assert glass.textures[1] == "Armor/FlightHelmet/Helmet_03_n.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_n.dds', got {glass.textures[1]}"
@@ -4714,6 +4680,7 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    tester.execute()
+    # tester.execute()
     # tester.execute(start='TEST_KF')
-    # tester.execute(test='TEST_DOCKSTEPSDOWNEND')
+    # tester.execute(test='TEST_SHADER')
+    tester.execute()

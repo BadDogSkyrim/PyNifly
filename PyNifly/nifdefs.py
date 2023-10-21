@@ -97,12 +97,14 @@ class PynIntEnum(IntEnum):
 
 NODEID_NONE = 4294967295
 
+VECTOR2 = c_float * 2
 VECTOR3 = c_float * 3
 VECTOR4 = c_float * 4
 VECTOR6_SHORT = c_uint16 * 6
 VECTOR12 = c_float * 12
 MATRIX3 = VECTOR3 * 3
 MATRIX4 = VECTOR4 * 4
+CHAR256 = c_char * 256
 
 pynBufferDefaults = {
 	'broadPhaseType': 0,
@@ -254,6 +256,41 @@ class pynStructure(Structure):
                 s += f"\t{attr[0]} = {v}"
         return s
 
+    def __eq__(self, other):
+        """
+        Compare two structures to see if their values are equal. ID fields are not
+        compared because they are not expected to be equal across nifs.
+        """
+        if not self or not other:
+            return False
+        for fn, t in self._fields_:
+            if fn[-2:] != 'ID':
+                if '_Array_' in t.__name__:
+                    for x, y in zip(self.__getattribute__(fn), other.__getattribute__(fn)):
+                        if x != y:
+                            return False
+                else:
+                    if self.__getattribute__(fn) != other.__getattribute__(fn):
+                        return False
+        return True
+    
+    def compare(self, other):
+        """
+        Compare two structures, returning any differences in a list.
+        """
+        diffs = []
+        for fn, t in self._fields_:
+            if fn[-2:] != 'ID':
+                if '_Array_' in t.__name__:
+                    for x, y in zip(self.__getattribute__(fn), other.__getattribute__(fn)):
+                        if x != y:
+                            return diffs.append((fn, x, y,))
+                else:
+                    if self.__getattribute__(fn) != other.__getattribute__(fn):
+                        diffs.append((fn, self.__getattribute__(fn), other.__getattribute__(fn)))
+        return diffs
+
+
     def copy(self):
         """ Return a copy of the object """
         n = self.__class__()
@@ -261,6 +298,12 @@ class pynStructure(Structure):
             n.__setattr__(f, self.__getattribute__(f))
         return n
 
+    def copyto(self, other):
+        """ Copy the object's fields to another object """
+        for f, t in self._fields_:
+            other.__setattr__(f, self.__getattribute__(f))
+        return other
+    
     def extract(self, shape, ignore=[]):
         """Extract fields to the dictionary-like object 'shape'"""
         for f, t in self._fields_:
@@ -880,7 +923,9 @@ class PynBufferTypes(IntEnum):
     BSEffectShaderPropertyBufType = 33
     NiTriStripsBufType = 34
     BSLODTriShapeBufType = 35
-    COUNT = 36
+    BSLightingShaderPropertyBufType = 36
+    BSShaderPPLightingPropertyBufType = 37
+    COUNT = 38
 
 bufferTypeList = [''] * PynBufferTypes.COUNT
 blockBuffers = {}
@@ -890,44 +935,97 @@ class NiShaderBuf(pynStructure):
 	    ('bufSize', c_uint16),
 	    ('bufType', c_uint16),
         ('nameID', c_uint32),
+        ('bBSLightingShaderProperty', c_char),
+        ('bslspShaderType', c_uint32),
         ('controllerID', c_uint32),
         ('extraDataCount', c_uint16),
+        ('shaderFlags', c_uint16),
         ('Shader_Type', c_uint32),
 	    ('Shader_Flags_1', c_uint32),
 	    ('Shader_Flags_2', c_uint32),
         ('Env_Map_Scale', c_float),
+        ('numSF1', c_uint32),
+        ('numSF2', c_uint32),
 	    ('UV_Offset_U', c_float),
 	    ('UV_Offset_V', c_float),
 	    ('UV_Scale_U', c_float),
 	    ('UV_Scale_V', c_float),
-	    ('Tex_Clamp_Mode', c_uint32),
-	    ('Emissive_Color_R', c_float),
-	    ('Emissive_Color_G', c_float),
-	    ('Emissive_Color_B', c_float),
-	    ('Emissive_Color_A', c_float),
+        ('textureSetID', c_uint32),
+	    ('Emissive_Color', VECTOR4),
 	    ('Emissive_Mult', c_float),
+        ('rootMaterialNameID', c_uint32),
+	    ('textureClampMode', c_uint32),
         # BSLightingShaderProperty
 	    ('Alpha', c_float),
 	    ('Refraction_Str', c_float),
 	    ('Glossiness', c_float),
-	    ('Spec_Color_R', c_float),
-	    ('Spec_Color_G', c_float),
-	    ('Spec_Color_B', c_float),
+	    ('Spec_Color', VECTOR3),
 	    ('Spec_Str', c_float),
 	    ('Soft_Lighting', c_float),
 	    ('Rim_Light_Power', c_float),
-	    ('Skin_Tint_Alpha', c_float),
-	    ('Skin_Tint_Color_R', c_float),
-	    ('Skin_Tint_Color_G', c_float),
-	    ('Skin_Tint_Color_B', c_float),
+        ('subsurfaceRolloff', c_float),
+        ('rimlightPower2', c_float),
+        ('backlightPower', c_float),
+        ('grayscaleToPaletteScale', c_float),
+        ('fresnelPower', c_float),
+        ('wetnessSpecScale', c_float),
+        ('wetnessSpecPower', c_float),
+        ('wetnessMinVar', c_float),
+        ('wetnessEnvmapScale', c_float),
+        ('wetnessFresnelPower', c_float),
+        ('wetnessMetalness', c_float),
+        ('wetnessUnknown1', c_float),
+        ('wetnessUnknown2', c_float),
+        ('lumEmittance', c_float),
+        ('exposureOffset', c_float),
+        ('finalExposureMin', c_float),
+        ('finalExposureMax', c_float),
+        ('doTranslucency', c_char),
+	    ('subsurfaceColor', VECTOR3),
+        ('transmissiveScale', c_float),
+        ('turbulence', c_float),
+        ('thickObject', c_char),
+        ('mixAlbedo', c_char),
+        ('hasTextureArrays', c_char),
+        ('numTextureArrays', c_uint32),
+        ('useSSR', c_char),
+        ('wetnessUseSSR', c_char),
+        ('skinTintColor', VECTOR3),
+        ('Skin_Tint_Alpha', c_float),
+        ('hairTintColor', VECTOR3),
+        ('maxPasses', c_float),
+        ('scale', c_float),
+        ('parallaxInnerLayerThickness', c_float),
+        ('parallaxRefractionScale', c_float),
+        ('parallaxInnerLayerTextureScale', VECTOR2),
+        ('parallaxEnvmapStrength', c_float),
+        ('sparkleParameters', VECTOR4),
+        ('eyeCubemapScale', c_float),
+        ('eyeLeftReflectionCenter', VECTOR3),
+        ('eyeRightReflectionCenter', VECTOR3),
         # BSEffectShaderProperty
-        ('Lighting_Influence', c_char),
-        ('Env_Map_Min_LOD', c_char),
-	    ('Falloff_Start_Angle', c_float),
-	    ('Falloff_Stop_Angle', c_float),
-	    ('Falloff_Start_Opacity', c_float),
-	    ('Falloff_Stop_Opacity', c_float),
-	    ('Soft_Falloff_Depth', c_float),
+        ('sourceTexture', CHAR256),
+        ('falloffStartAngle', c_float),
+        ('falloffStopAngle', c_float),
+        ('falloffStartOpacity', c_float),
+        ('falloffStopOpacity', c_float),
+        ('refractionPower', c_float),
+        ('baseColor', VECTOR4),
+        ('baseColorScale', c_float),
+        ('softFalloffDepth', c_float),
+        ('greyscaleTexture', CHAR256),
+        ('envMapTexture', CHAR256),
+        ('normalTexture', CHAR256),
+        ('envMaskTexture', CHAR256),
+        ('envMapScale', c_float),
+        ('emittanceColor', VECTOR3),
+        ('emitGradientTexture', CHAR256),
+        # BSShaderPPLightingProperty
+        ('refractionStrength', c_float),
+        ('refractionFirePeriod', c_uint32),
+        ('parallaxMaxPasses', c_float),
+        ('parallaxScale', c_float),
+        ('emissiveColor', VECTOR4),
         ]
     def __init__(self, values=None):
         super().__init__(values=values)
@@ -941,24 +1039,24 @@ class NiShaderBuf(pynStructure):
             s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
         return s
 
-    def __eq__(self, other):
-        return (self.Shader_Flags_1 == other.Shader_Flags_1) and \
-            (self.Shader_Flags_2 == other.Shader_Flags_2) and \
-            (round(self.UV_Offset_U, 4) == round(other.UV_Offset_U, 4)) and \
-            (round(self.UV_Offset_V, 4) == round(other.UV_Offset_V, 4)) and \
-            (round(self.UV_Scale_U, 4) == round(other.UV_Scale_U, 4)) and \
-            (round(self.UV_Scale_V, 4) == round(other.UV_Scale_V, 4)) and \
-            (round(self.Emissive_Color_R, 4) == round(other.Emissive_Color_R, 4)) and \
-            (round(self.Emissive_Color_G, 4) == round(other.Emissive_Color_G, 4)) and \
-            (round(self.Emissive_Color_B, 4) == round(other.Emissive_Color_B, 4)) and \
-            (round(self.Emissive_Color_A, 4) == round(other.Emissive_Color_A, 4)) and \
-            (round(self.Emissive_Mult, 4) == round(other.Emissive_Mult, 4)) and \
-            (self.Tex_Clamp_Mode == other.Tex_Clamp_Mode) and \
-            (self.Falloff_Start_Angle == other.Falloff_Start_Angle) and \
-            (self.Falloff_Stop_Angle == other.Falloff_Stop_Angle) and \
-            (self.Falloff_Start_Opacity == other.Falloff_Start_Opacity) and \
-            (self.Falloff_Stop_Opacity == other.Falloff_Stop_Opacity) and \
-            (self.Soft_Falloff_Depth == other.Soft_Falloff_Depth) 
+    # def __eq__(self, other):
+    #     return (self.Shader_Flags_1 == other.Shader_Flags_1) and \
+    #         (self.Shader_Flags_2 == other.Shader_Flags_2) and \
+    #         (round(self.UV_Offset_U, 4) == round(other.UV_Offset_U, 4)) and \
+    #         (round(self.UV_Offset_V, 4) == round(other.UV_Offset_V, 4)) and \
+    #         (round(self.UV_Scale_U, 4) == round(other.UV_Scale_U, 4)) and \
+    #         (round(self.UV_Scale_V, 4) == round(other.UV_Scale_V, 4)) and \
+    #         (round(self.Emissive_Color_R, 4) == round(other.Emissive_Color_R, 4)) and \
+    #         (round(self.Emissive_Color_G, 4) == round(other.Emissive_Color_G, 4)) and \
+    #         (round(self.Emissive_Color_B, 4) == round(other.Emissive_Color_B, 4)) and \
+    #         (round(self.Emissive_Color_A, 4) == round(other.Emissive_Color_A, 4)) and \
+    #         (round(self.Emissive_Mult, 4) == round(other.Emissive_Mult, 4)) and \
+    #         (self.Tex_Clamp_Mode == other.Tex_Clamp_Mode) and \
+    #         (self.Falloff_Start_Angle == other.Falloff_Start_Angle) and \
+    #         (self.Falloff_Stop_Angle == other.Falloff_Stop_Angle) and \
+    #         (self.Falloff_Start_Opacity == other.Falloff_Start_Opacity) and \
+    #         (self.Falloff_Stop_Opacity == other.Falloff_Stop_Opacity) and \
+    #         (self.Soft_Falloff_Depth == other.Soft_Falloff_Depth) 
 
     def shaderflags1_test(self, flag):
         return (self.Shader_Flags_1 & flag) != 0
@@ -980,6 +1078,7 @@ class NiShaderBuf(pynStructure):
 
 bufferTypeList[PynBufferTypes.NiShaderBufType] = 'NiShader'
 bufferTypeList[PynBufferTypes.BSEffectShaderPropertyBufType] = 'BSEffectShaderProperty'
+bufferTypeList[PynBufferTypes.BSShaderPPLightingPropertyBufType] = 'BSShaderPPLightingProperty'
 blockBuffers['NiShader'] = NiShaderBuf()
 
 class AlphaPropertyBuf(pynStructure):
@@ -1699,6 +1798,14 @@ game_collision_sf = {"FONV": 0.1, "FO3": 0.1, "FO4": 1.0, "FO4VR": 10, "FO76": 1
 
 if __name__ == "__main__":
     print("---------TEST Loader--------")
+
+    print("--- Verifying what we can do with fields ---")
+    class TestFields:
+        _fields_ = [
+            ('field1', c_uint16),
+            ('field2', VECTOR3),
+            ('field3', CHAR256),
+        ]
 
     print("--- Testing matrix and transform math")
     m1 = pynMatrix([[12,7,3],

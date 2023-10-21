@@ -60,7 +60,9 @@ enum BUFFER_TYPES : uint16_t {
 	BSSubIndexTriShapeBufType,
 	BSEffectShaderPropertyBufType,
 	NiTriStripsBufType, 
-	BSLODTriShapeBufType
+	BSLODTriShapeBufType,
+	BSLightingShaderPropertyBufType,
+	BSShaderPPLightingPropertyBufType
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -187,45 +189,107 @@ struct NiShaderBuf {
 	uint16_t bufSize = sizeof(NiShaderBuf);
 	uint16_t bufType = BUFFER_TYPES::NiShaderBufType;
 	uint32_t nameID;
+	char bBSLightingShaderProperty;
+	uint32_t bslspShaderType;
 	uint32_t controllerID;
 	uint16_t extraDataCount;
-	/* BSShaderPropertyBuf */
+
+	/* BSShaderProperty */
+	uint16_t shaderFlags;
 	uint32_t Shader_Type;
 	uint32_t Shader_Flags_1;
 	uint32_t Shader_Flags_2;
 	float Env_Map_Scale;
+	uint32_t numSF1;
+	uint32_t numSF2;
 	float UV_Offset_U;
 	float UV_Offset_V;
 	float UV_Scale_U;
 	float UV_Scale_V;
-	uint32_t Tex_Clamp_Mode;
-	float Emissive_Color_R;
-	float Emissive_Color_G;
-	float Emissive_Color_B;
-	float Emissive_Color_A;
-	float Emissmive_Mult;
+
 	/* BSLightingShaderProperty */
+	uint32_t textureSetID;
+	float Emissive_Color[4]; // RGB
+	float Emissive_Mult;
+	uint32_t rootMaterialNameID;
+	uint32_t textureClampMode;
 	float Alpha;
 	float Refraction_Str;
 	float Glossiness;
-	float Spec_Color_R;
-	float Spec_Color_G;
-	float Spec_Color_B;
+	float specularColor[3];
 	float Spec_Str;
 	float Soft_Lighting;
 	float Rim_Light_Power;
+	float subsurfaceRolloff;
+	float rimlightPower2;
+	float backlightPower;
+	float grayscaleToPaletteScale;
+	float fresnelPower;
+	float wetnessSpecScale;
+	float wetnessSpecPower;
+	float wetnessMinVar;
+	float wetnessEnvmapScale;
+	float wetnessFresnelPower;
+	float wetnessMetalness;
+	float wetnessUnknown1;
+	float wetnessUnknown2;
+	float lumEmittance;
+	float exposureOffset;
+	float finalExposureMin;
+	float finalExposureMax;
+	char doTranslucency;
+	float subsurfaceColor[3];
+	float transmissiveScale;
+	float turbulence;
+	char thickObject;
+	char mixAlbedo;
+	char hasTextureArrays;
+	uint32_t numTextureArrays;
+	char useSSR;
+	char wetnessUseSSR;
+	float skinTintColor[3];
 	float Skin_Tint_Alpha;
-	float Skin_Tint_Color_R;
-	float Skin_Tint_Color_G;
-	float Skin_Tint_Color_B;
+	float hairTintColor[3];
+	float maxPasses;
+	float scale;
+	float parallaxInnerLayerThickness;
+	float parallaxRefractionScale;
+	float parallaxInnerLayerTextureScale[2];
+	float parallaxEnvmapStrength;
+	float sparkleParameters[4];
+	float eyeCubemapScale;
+	float eyeLeftReflectionCenter[3];
+	float eyeRightReflectionCenter[3];
+
 	/* BSEffectShaderProperty */
-	unsigned char Lighting_Influence;
-	unsigned char Env_Map_Min_LOD;
-	float Falloff_Start_Angle;
-	float Falloff_Stop_Angle;
-	float Falloff_Start_Opacity;
-	float Falloff_Stop_Opacity;
-	float Soft_Falloff_Depth;
+	char sourceTexture[256];
+	// uint32_t textureClampMode; // repeat
+	float falloffStartAngle;
+	float falloffStopAngle;
+	float falloffStartOpacity;
+	float falloffStopOpacity;
+	float refractionPower;
+	float baseColor[4];
+	float baseColorScale;
+	float softFalloffDepth;
+	char greyscaleTexture[256];
+	char envMapTexture[256];
+	char normalTexture[256];
+	char envMaskTexture[256];
+	float envMapScale;
+	float emittanceColor[3];
+	char emitGradientTexture[256];
+	//float lumEmittance; // repeat
+	//float exposureOffset;
+	//float finalExposureMin;
+	//float finalExposureMax;
+
+	/* BSShaderPPLightingProperty */
+	float refractionStrength;
+	uint32_t refractionFirePeriod;
+	float parallaxMaxPasses;
+	float parallaxScale;
+	float emissiveColor[4];
 };
 
 struct BlockBuf {
