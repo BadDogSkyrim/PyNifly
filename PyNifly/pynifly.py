@@ -227,6 +227,9 @@ def load_nifly(nifly_path):
     nifly.setTransform.restype = None
     nifly.skinShape.argtypes = [c_void_p, c_void_p]
     nifly.skinShape.restype = None
+
+    pynStructure.nifly = nifly
+
     return nifly
 
 # --- Helper Routines --- #

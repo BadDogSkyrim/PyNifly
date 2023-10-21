@@ -163,6 +163,8 @@ pynBufferDefaults = {
 
 
 class pynStructure(Structure):
+    nifly = None
+
     def load(self, shape, ignore=[]):
         """
         Load fields from the dictionary-like object 'shape'. 
@@ -225,7 +227,9 @@ class pynStructure(Structure):
         super().__init__()
         if "bufSize" in [n for n, t in self._fields_]:
             self.__setattr__("bufSize", sizeof(self))
+                
         self.warnings = []
+
         self.load(pynBufferDefaults)
         if values:
             self.load(values)
@@ -1028,8 +1032,12 @@ class NiShaderBuf(pynStructure):
         ('emissiveColor', VECTOR4),
         ]
     def __init__(self, values=None):
-        super().__init__(values=values)
+        super().__init__()
         self.bufType = PynBufferTypes.NiShaderBufType
+        if pynStructure.nifly:
+            pynStructure.nifly.getBlock(None, NODEID_NONE, byref(self))
+        if values:
+            self.load(values)
 
     def __str__(self):
         s = ""
@@ -1038,25 +1046,6 @@ class NiShaderBuf(pynStructure):
                 s = s + "\n"
             s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
         return s
-
-    # def __eq__(self, other):
-    #     return (self.Shader_Flags_1 == other.Shader_Flags_1) and \
-    #         (self.Shader_Flags_2 == other.Shader_Flags_2) and \
-    #         (round(self.UV_Offset_U, 4) == round(other.UV_Offset_U, 4)) and \
-    #         (round(self.UV_Offset_V, 4) == round(other.UV_Offset_V, 4)) and \
-    #         (round(self.UV_Scale_U, 4) == round(other.UV_Scale_U, 4)) and \
-    #         (round(self.UV_Scale_V, 4) == round(other.UV_Scale_V, 4)) and \
-    #         (round(self.Emissive_Color_R, 4) == round(other.Emissive_Color_R, 4)) and \
-    #         (round(self.Emissive_Color_G, 4) == round(other.Emissive_Color_G, 4)) and \
-    #         (round(self.Emissive_Color_B, 4) == round(other.Emissive_Color_B, 4)) and \
-    #         (round(self.Emissive_Color_A, 4) == round(other.Emissive_Color_A, 4)) and \
-    #         (round(self.Emissive_Mult, 4) == round(other.Emissive_Mult, 4)) and \
-    #         (self.Tex_Clamp_Mode == other.Tex_Clamp_Mode) and \
-    #         (self.Falloff_Start_Angle == other.Falloff_Start_Angle) and \
-    #         (self.Falloff_Stop_Angle == other.Falloff_Stop_Angle) and \
-    #         (self.Falloff_Start_Opacity == other.Falloff_Start_Opacity) and \
-    #         (self.Falloff_Stop_Opacity == other.Falloff_Stop_Opacity) and \
-    #         (self.Soft_Falloff_Depth == other.Soft_Falloff_Depth) 
 
     def shaderflags1_test(self, flag):
         return (self.Shader_Flags_1 & flag) != 0
