@@ -8,6 +8,7 @@ from enum import Enum, IntFlag, IntEnum
 import math
 from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer, addressof
 from pynmathutils import *
+import bgsmaterial
 
 def is_in_plane(plane, vert):
     """ Test whether vert is in the plane defined by the three vectors in plane """
@@ -296,20 +297,16 @@ class pynStructure(Structure):
 
     def extract(self, shape, ignore=[]):
         """
-        Extract fields to the dictionary-like object 'shape'. Extract only fields that
-        differ from their default values. Do not extract any ID fields.
+        Extract fields to the dictionary-like object 'shape'. Do not extract any ID
+        fields.
         """
-        defaults = NiShaderBuf()
         for fn, t in self._fields_:
-            if fn[-2:] != 'ID' and fn != 'bufType':
+            if fn[-2:] != 'ID' and fn != 'bufType' and fn not in ignore:
                 if '_Array_' in t.__name__:
                     v1 = [x for x in self.__getattribute__(fn)]
-                    v2 = [x for x in defaults.__getattribute__(fn)]
-                    if v1 != v2:
-                        shape[fn] = repr(v1)
+                    shape[fn] = repr(v1)
                 else:
-                    if self.__getattribute__(fn) != defaults.__getattribute__(fn):
-                        shape[fn] = self.__getattribute__(fn)
+                    shape[fn] = self.__getattribute__(fn)
 
     def copy(self):
         """ Return a copy of the object """
@@ -532,95 +529,6 @@ class BSXFlags(PynIntFlag):
     MAGIC_SHADER_PARTICLES = 1 << 10
     LIGHTS = 1 << 11
     BREAKABLE = 1 << 12
-
-# class BSLSPAttrs(pynStructure):
-#     _fields_ = [
-# 	    ('Shader_Type', c_uint32),
-# 	    ('Shader_Flags_1', c_uint32),
-# 	    ('Shader_Flags_2', c_uint32),
-# 	    ('UV_Offset_U', c_float),
-# 	    ('UV_Offset_V', c_float),
-# 	    ('UV_Scale_U', c_float),
-# 	    ('UV_Scale_V', c_float),
-# 	    ('Emissive_Color_R', c_float),
-# 	    ('Emissive_Color_G', c_float),
-# 	    ('Emissive_Color_B', c_float),
-# 	    ('Emissive_Color_A', c_float),
-# 	    ('Emissive_Mult', c_float),
-# 	    ('Env_Map_Scale', c_float),
-# 	    ('Tex_Clamp_Mode', c_uint32),
-# 	    ('Alpha', c_float),
-# 	    ('Refraction_Str', c_float),
-# 	    ('Glossiness', c_float),
-# 	    ('Spec_Color_R', c_float),
-# 	    ('Spec_Color_G', c_float),
-# 	    ('Spec_Color_B', c_float),
-# 	    ('Spec_Str', c_float),
-# 	    ('Soft_Lighting', c_float),
-# 	    ('Rim_Light_Power', c_float),
-# 	    ('Skin_Tint_Alpha', c_float),
-# 	    ('Skin_Tint_Color_R', c_float),
-# 	    ('Skin_Tint_Color_G', c_float),
-# 	    ('Skin_Tint_Color_B', c_float)
-#         ]
-#     def __str__(self):
-#         s = ""
-#         for attr in self._fields_:
-#             if len(s) > 0:
-#                 s = s + "\n"
-#             if attr[0].startswith('Shader_Flags'):
-#                 s = s + f"\t{attr[0]} = {getattr(self, attr[0]):32b}"
-#             else:        
-#                 s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
-#         return s
-
-#     def __eq__(self, other):
-#         return (self.Shader_Type == other.Shader_Type) and \
-#             (self.Shader_Flags_1 == other.Shader_Flags_1) and \
-#             (self.Shader_Flags_2 == other.Shader_Flags_2) and \
-#             (round(self.UV_Offset_U, 4) == round(other.UV_Offset_U, 4)) and \
-#             (round(self.UV_Offset_V, 4) == round(other.UV_Offset_V, 4)) and \
-#             (round(self.UV_Scale_U, 4) == round(other.UV_Scale_U, 4)) and \
-#             (round(self.UV_Scale_V, 4) == round(other.UV_Scale_V, 4)) and \
-#             (round(self.Emissive_Color_R, 4) == round(other.Emissive_Color_R, 4)) and \
-#             (round(self.Emissive_Color_G, 4) == round(other.Emissive_Color_G, 4)) and \
-#             (round(self.Emissive_Color_B, 4) == round(other.Emissive_Color_B, 4)) and \
-#             (round(self.Emissive_Color_A, 4) == round(other.Emissive_Color_A, 4)) and \
-#             (round(self.Emissive_Mult, 4) == round(other.Emissive_Mult, 4)) and \
-#             (self.Tex_Clamp_Mode == other.Tex_Clamp_Mode) and \
-#             (round(self.Alpha, 4) == round(other.Alpha, 4)) and \
-#             (round(self.Refraction_Str, 4) == round(other.Refraction_Str, 4)) and \
-#             (round(self.Glossiness, 4) == round(other.Glossiness, 4)) and \
-#             (round(self.Spec_Color_R, 4) == round(other.Spec_Color_R, 4)) and \
-#             (round(self.Spec_Color_G, 4) == round(other.Spec_Color_G, 4)) and \
-#             (round(self.Spec_Color_B, 4) == round(other.Spec_Color_B, 4)) and \
-#             (round(self.Spec_Str, 4) == round(other.Spec_Str, 4)) and \
-#             (round(self.Soft_Lighting, 4) == round(other.Soft_Lighting, 4)) and \
-#             (round(self.Rim_Light_Power, 4) == round(other.Rim_Light_Power, 4)) and \
-#             (round(self.Skin_Tint_Alpha, 4) == round(other.Skin_Tint_Alpha, 4)) and \
-#             (round(self.Skin_Tint_Color_R, 4) == round(other.Skin_Tint_Color_R, 4)) and \
-#             (round(self.Skin_Tint_Color_G, 4) == round(other.Skin_Tint_Color_G, 4)) and \
-#             (round(self.Skin_Tint_Color_B, 4) == round(other.Skin_Tint_Color_B, 4))
-
-#     def shaderflags1_test(self, flag):
-#         return (self.Shader_Flags_1 & flag) != 0
-
-#     def shaderflags1_set(self, flag):
-#         self.Shader_Flags_1 |= flag.value
-
-#     def shaderflags1_clear(self, flag):
-#         self.Shader_Flags_1 &= ~flag.value
-
-#     def shaderflags2_test(self, flag):
-#         return (self.Shader_Flags_2 & flag) != 0
-
-#     def shaderflags2_set(self, flag):
-#         self.Shader_Flags_2 |= flag.value
-
-#     def shaderflags2_clear(self, flag):
-#         self.Shader_Flags_2 &= ~flag.value
-
-# BSLSPAttrs_p = POINTER(BSLSPAttrs)
 
 class BSLSPShaderType(IntFlag):
     Default = 0
@@ -1047,6 +955,7 @@ class NiShaderBuf(pynStructure):
         ('parallaxScale', c_float),
         ('emissiveColor', VECTOR4),
         ]
+    
     def __init__(self, values=None):
         super().__init__()
         self.bufType = PynBufferTypes.NiShaderBufType
@@ -1062,6 +971,45 @@ class NiShaderBuf(pynStructure):
                 s = s + "\n"
             s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
         return s
+
+    def extract(self, shape, ignore=[]):
+        """
+        Extract fields to the dictionary-like object 'shape'. Extract only fields that
+        differ from their default values. Do not extract any ID fields.
+        """
+        defaults = NiShaderBuf()
+        for fn, t in self._fields_:
+            if fn[-2:] != 'ID' and fn != 'bufType':
+                if '_Array_' in t.__name__:
+                    v1 = [x for x in self.__getattribute__(fn)]
+                    v2 = [x for x in defaults.__getattribute__(fn)]
+                    if v1 != v2:
+                        shape[fn] = repr(v1)
+                elif self.__getattribute__(fn) != defaults.__getattribute__(fn):
+                    if fn == 'Shader_Flags_1':
+                        shape[fn] = ShaderFlags1(self.Shader_Flags_1).fullname
+                    elif fn == 'Shader_Flags_2':
+                        shape[fn] = ShaderFlags2(self.Shader_Flags_2).fullname
+                    elif fn == 'Shader_Type':
+                        shape[fn] = BSLSPShaderType(self.Shader_Type).name
+                    elif fn in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
+                        shape[fn] = SkyrimCollisionLayer(self.__getattribute__(fn)).name
+                    elif fn == 'broadPhaseType':
+                        shape[fn] = BroadPhaseType(self.broadPhaseType).name
+                    elif fn == 'collisionResponse':
+                        shape[fn] = hkResponseType(self.collisionResponse).name
+                    elif fn == 'motionSystem':
+                        shape[fn] = hkMotionType(self.motionSystem).name
+                    elif fn == 'deactivatorType':
+                        shape[fn] = hkDeactivatorType(self.deactivatorType).name
+                    elif fn == 'solverDeactivation': 
+                        shape[fn] = hkSolverDeactivation(self.solverDeactivation).name
+                    elif fn == 'qualityType':
+                        shape[fn] = hkQualityType(self.qualityType).name
+                    elif fn == 'qualityType':
+                        shape[fn] = hkQualityType(self.qualityType).name
+                    else:
+                        shape[fn] = self.__getattribute__(fn)
 
     def shaderflags1_test(self, flag):
         return (self.Shader_Flags_1 & flag) != 0
@@ -1085,6 +1033,28 @@ bufferTypeList[PynBufferTypes.NiShaderBufType] = 'NiShader'
 bufferTypeList[PynBufferTypes.BSEffectShaderPropertyBufType] = 'BSEffectShaderProperty'
 bufferTypeList[PynBufferTypes.BSShaderPPLightingPropertyBufType] = 'BSShaderPPLightingProperty'
 blockBuffers['NiShader'] = NiShaderBuf()
+
+class BGSMShader(bgsmaterial.BGSMaterial):
+    """Mimics the NiShader but gets values from a BGSM file."""
+
+    def __init__(self, bgsmfile=None):
+        self.filename = ""
+        if bgsmfile:
+            self.read(bgsmfile)
+            self.filename = bgsmfile
+
+    def shaderflags1_test(self, flag):
+        if flag == ShaderFlags1.MODEL_SPACE_NORMALS:
+            return self.modelSpaceNormals;
+
+    def shaderflags1_set(self, flag=True):
+        if flag == ShaderFlags1.MODEL_SPACE_NORMALS:
+            self.modelSpaceNormals = flag.value;
+
+    def shaderflags1_clear(self, flag=True):
+        if flag == ShaderFlags1.MODEL_SPACE_NORMALS:
+            self.modelSpaceNormals = ~flag.value;
+
 
 class AlphaPropertyBuf(pynStructure):
     _fields_ = [

@@ -1527,6 +1527,7 @@ def TEST_SHADER_FO4():
     assert sh, "Have shader node"
     txt = headFO4.active_material.node_tree.nodes["Image Texture"]
     assert txt and txt.image and txt.image.filepath, "ERROR: Didn't import images"
+    assert headFO4.active_material[""]
 
     print("## Shader attributes are written on export")
 
@@ -4805,12 +4806,12 @@ print("""
 """)
 
 # If set, run these tests only (test name as string).
-test_targets = []
+test_targets = ['TEST_SHADER_FO4']
 
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
 # Use to resume a test run from the point it failed.
-first_test = 'TEST_VERTEX_ALPHA'
+first_test = None
 
 
 m = sys.modules[__name__]

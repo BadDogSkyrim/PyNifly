@@ -976,28 +976,14 @@ class NifImporter():
             for f in new_mesh.polygons:
                 f.use_smooth = True
 
-            #log.debug("Validating mesh")
             new_mesh.validate(verbose=True)
 
-            #log.debug("Creating normals")
             if the_shape.normals:
                 mesh_create_normals(new_object.data, the_shape.normals)
 
-            #log.debug("Creating material")
             shader_io.ShaderImporter().import_material(new_object, the_shape)
-            #log.debug("Creating material DONE")
-        
-            # # Root block type goes on the shape object because there isn't another good place
-            # # to put it.
-            # f = the_shape.file
-            # root = f.nodes[f.rootName]
-            # if root.blockname != "NiNode":
-            #     new_object["pynRootNode_BlockType"] = root.blockname
-            # new_object["pynNodeName"] = root.name
-            # new_object["pynNodeFlags"] = NiAVFlags(root.flags).fullname
 
             if the_shape.collision_object:
-                #log.debug("Importing collisions")
                 self.import_collision_obj(the_shape.collision_object, new_object)
 
             #log.debug("Importing extra data")

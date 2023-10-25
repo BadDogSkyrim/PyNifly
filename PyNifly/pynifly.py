@@ -541,6 +541,10 @@ class NiObject:
         self._properties = properties
         self._blockname = None
     
+    def __getattr__(self, name):
+        """Any attribute not on the object comes from the properties."""
+        return self.properties.__getattribute__(name)
+    
     @property
     def blockname(self):
         if self._blockname == None:
@@ -1559,6 +1563,130 @@ class NiControllerManager(NiTimeController):
         return self._controller_manager_sequences
     
 
+# --- NiShader -- #
+class NiShader(NiObject):
+    """
+    Handles shader attributes for a Nif. In Skyrim, returns values from the underlying
+    shader block. In FO4, most attributes come from the associated materials file.
+    """
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiShaderBuf(values)
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        
+        self._name = None
+        self._textures = None
+
+    @property
+    def name(self):
+        if self._name == None:
+            namebuf = (c_char * self.file.max_string_len)()
+            NifFile.nifly.getString(
+                self.file._handle, self.nameID, self.file.max_string_len, namebuf)
+            self._name = namebuf.value.decode('utf-8')
+        return self._name
+
+    def _readtexture(self, niffile, shape, layer):
+        bufsize = 500
+        buf = create_string_buffer(bufsize)
+        NifFile.nifly.getShaderTextureSlot(niffile, shape, layer-1, buf, bufsize)
+        return buf.value.decode('utf-8')
+
+    @property
+    def textures(self):
+        if self._textures is None:
+            self._textures = {}
+            if self.properties.bufType == PynBufferTypes.BSLightingShaderPropertyBufType:
+                f = self.file._handle
+                s = self._parent._handle
+                self._textures["Diffuse"] = self._readtexture(f, s, 1)
+                self._textures["Normal"] = self._readtexture(f, s, 2)
+
+                if self.properties.shaderflags2_test(ShaderFlags2.GLOW_MAP):
+                    self._textures["Glow"] = self._readtexture(f, s, 3)
+
+                if self.shaderflags2_test(ShaderFlags2.RIM_LIGHTING):
+                    self._textures["RimLighting"] = self._readtexture(f, s, 3)
+
+                if self.shaderflags2_test(ShaderFlags2.SOFT_LIGHTING):
+                    self._textures["SoftLighting"] = self._readtexture(f, s, 3)
+
+                if self.shaderflags2_test(ShaderFlags1.PARALLAX):
+                    self._textures["HeightMap"] = self._readtexture(f, s, 4)
+
+                if self.shaderflags2_test(ShaderFlags1.ENVIRONMENT_MAPPING):
+                    self._textures["EnvMap"] = self._readtexture(f, s, 5)
+
+                if self.shaderflags2_test(ShaderFlags1.ENVIRONMENT_MAPPING):
+                    self._textures["EnvMask"] = self._readtexture(f, s, 6)
+
+                if self.shaderflags2_test(ShaderFlags2.MULTI_LAYER_PARALLAX):
+                    self._textures["InnerLayer"] = self._readtexture(f, s, 7)
+
+                if self.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+                    self._textures["Specular"] = self._readtexture(f, s, 8)
+
+        return self._textures
+
+
+class NiShaderFO4(NiShader):
+    """
+    Shader for FO4 nifs. Alters NiShader behavior to get values from the materials file
+    when necessary.
+    """
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        
+        self.materials = None
+        if self.name:
+            # Some FO4 nifs don't have materials files. Apparently (?) they use the shader
+            # block attributes.
+            fullpath = extend_filenames(self.file.filepath, 'meshes', [self.name])[0]
+            self.materials = bgsmaterial.BGSMaterial(fullpath)
+
+    @property
+    def textures(self):
+        if self.materials:
+            return self.materials.textures
+        else:
+            return super().textures
+
+    @property
+    def shaderflags1(self):
+        v = 0
+        v |= ShaderFlags1.CAST_SHADOWS if self.materials.castShadows else 0
+        v |= ShaderFlags1.DECAL if self.materials.decal else 0
+        v |= ShaderFlags1.ENVIRONMENT_MAPPING if self.materials.environmentMapping else 0
+        v |= ShaderFlags1.EXTERNAL_EMITTANCE if self.materials.externalEmittance else 0
+        v |= ShaderFlags1.EYE_ENVIRONMENT_MAPPING if self.materials.environmentMappingEye else 0
+        v |= ShaderFlags1.HAIR_SOFT_LIGHTING if self.materials.hair else 0
+        v |= ShaderFlags1.MODEL_SPACE_NORMALS if self.materials.modelSpaceNormals else 0
+        v |= ShaderFlags1.OWN_EMIT if self.materials.emitEnabled else 0
+        v |= ShaderFlags1.RECEIVE_SHADOWS if self.materials.receiveShadows else 0
+        v |= ShaderFlags1.SPECULAR if self.materials.specularEnabled else 0
+        v |= ShaderFlags1.ZBUFFER_TEST if self.materials.zbuffertest else 0
+        return v
+        
+    @property
+    def shaderflags2(self):
+        v = 0
+        v |= ShaderFlags2.ANISOTROPIC_LIGHTING if self.materials.anisoLighting else 0
+        v |= ShaderFlags2.ASSUME_SHADOWMASK if self.materials.assumeShadowmask else 0
+        v |= ShaderFlags2.BACK_LIGHTING if self.materials.backLighting else 0
+        v |= ShaderFlags2.DOUBLE_SIDED if self.materials.twoSided else 0
+        v |= ShaderFlags2.GLOW_MAP if self.materials.glowmap else 0
+        v |= ShaderFlags2.RIM_LIGHTING if self.materials.rimLighting else 0
+        v |= ShaderFlags2.SOFT_LIGHTING if self.materials.subsurfaceLighting else 0
+        v |= ShaderFlags2.TREE_ANIM if self.materials.tree else 0
+        v |= ShaderFlags2.ZBUFFER_WRITE if self.materials.zbufferwrite else 0
+        return v
+        
+    def shaderflags1_test(self, flag):
+        return self.shaderflags1 & flag
+
+
 # --- NifShape --- #
 class NiShape(NiNode):
     subtypes = None
@@ -1569,7 +1697,6 @@ class NiShape(NiNode):
         cls.subtypes = {}
         for subc in cls.__subclasses__():
             cls.subtypes[subc.__name__] = subc
-
 
     @classmethod
     def New(cls, handle=None, shapetype=None, id=NODEID_NONE, file=None, parent=None, 
@@ -1622,7 +1749,7 @@ class NiShape(NiNode):
         self._partition_tris = None
         self._segment_file = ''
         self.is_head_part = False
-        self._shader_attrs = None
+        self._shader = None
         self._shader_name = None
         self._alpha = None
 
@@ -1757,7 +1884,7 @@ class NiShape(NiNode):
         if self._shader_name is None:
             buflen = self.file.max_string_len
             buf = (c_char * buflen)()
-            NifFile.nifly.getString(self.file._handle, self.shader_attributes.nameID, buflen, buf)
+            NifFile.nifly.getString(self.file._handle, self.shader.nameID, buflen, buf)
             # buflen = NifFile.nifly.getShaderName(self.file._handle, self._handle, buf, buflen)
             self._shader_name = buf.value.decode('utf-8')
         return self._shader_name
@@ -1777,36 +1904,35 @@ class NiShape(NiNode):
 
     @property
     def textures(self):
-        if self._textures is None:
-            self._textures = []
-            for i in range(0, 9):
-                bufsize = 300
-                buf = create_string_buffer(bufsize)
-                NifFile.nifly.getShaderTextureSlot(self.file._handle, self._handle, i, buf, bufsize)
-                self._textures.append(buf.value.decode('utf-8'))
-        return self._textures
+        return self.shader.textures
 
     def set_texture(self, slot, str):
         NifFile.nifly.setShaderTextureSlot(self.file._handle, self._handle, 
                                            slot, str.encode('utf-8'))
     
     @property
-    def shader_attributes(self) -> NiShaderBuf:
-        if self._shader_attrs is None:
-            self._shader_attrs = NiShaderBuf()
-            if self.shader_block_name == "BSEffectShaderProperty":
-                self._shader_attrs.bufType = PynBufferTypes.BSEffectShaderPropertyBufType
-            
-            NifFile.nifly.getBlock(self.file._handle, self.properties.shaderPropertyID, byref(self._shader_attrs))
+    def shader(self):
+        """
+        Returns a NiShaderBuf-like object associated with the shape. For Skyrim, this is
+        the shader block; for FO4 it's the materials file associated with the shape's
+        shader.
+        """
+        if self._shader is None:
+            if self.file.game == 'FO4':
+                self._shader = NiShaderFO4(
+                    file=self.file, id=self.shaderPropertyID, parent=self)
+            else:
+                self._shader = NiShader(
+                    file=self.file, id=self.shaderPropertyID, parent=self)
 
-        return self._shader_attrs
+        return self._shader
 
     def save_shader_attributes(self):
-        if self._shader_attrs:
+        if self._shader:
             name = self.shader_name
             if name is None: name = ''
             NifFile.nifly.addBlock(self.file._handle, self._shader_name.encode('utf-8'), 
-                                   byref(self._shader_attrs), self.id)
+                                   byref(self._shader), self.id)
 
     @property
     def has_alpha_property(self):
@@ -2787,8 +2913,8 @@ class ModuleTest:
             new_shape.setShapeWeights(bone_name, weights)
 
         new_shape.shader_name = old_shape.shader_name
-        new_shape.shader_attributes.bufType = old_shape.shader_attributes.bufType
-        old_shape.shader_attributes.copyto(new_shape.shader_attributes)
+        new_shape.shader.bufType = old_shape.shader.bufType
+        old_shape.shader.copyto(new_shape.shader)
 
         new_shape.save_shader_attributes()
 
@@ -3608,68 +3734,54 @@ class ModuleTest:
         """Can read shader flags"""
         hnse = NifFile(r"tests\SKYRIMSE\malehead.nif")
         hsse = hnse.shapes[0]
-        assert hsse.shader_attributes.Shader_Type == 4
-        assert hsse.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsse.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
-        assert hsse.shader_attributes.Alpha == 1.0, f"Expected Alpha 1, got {hsse.shader_attributes.Alpha}"
-        assert hsse.shader_attributes.Glossiness == 33.0, f"Expected Glossiness 33, got {hsse.shader_attributes.Glossiness}"
+        assert hsse.shader.Shader_Type == 4
+        assert hsse.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsse.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert hsse.shader.Alpha == 1.0, f"Expected Alpha 1, got {hsse.shader.Alpha}"
+        assert hsse.shader.Glossiness == 33.0, f"Expected Glossiness 33, got {hsse.shader.Glossiness}"
 
         hnle = NifFile(r"tests\SKYRIM\malehead.nif")
         hsle = hnle.shapes[0]
-        assert hsle.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
-        assert hsle.shader_attributes.Glossiness == 33.0, f"Error: Glossiness incorrect: {hsle.shader_attributes.Glossiness}"
+        assert hsle.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert hsle.shader.Glossiness == 33.0, f"Error: Glossiness incorrect: {hsle.shader.Glossiness}"
 
-        hnfo = NifFile(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
+        hnfo = NifFile(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\HeadTest.nif")
         hsfo = hnfo.shapes[0]
-        assert not hsfo.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsfo.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert not hsfo.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsfo.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
         cnle = NifFile(r"tests\Skyrim\noblecrate01.nif")
         csle = cnle.shapes[0]
-        assert not csle.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN false, got {csle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert not csle.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN false, got {csle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
         """Can read texture paths"""
-        for i, t in enumerate([
-                  r"textures\actors\character\male\MaleHead.dds",
-                  r"textures\actors\character\male\MaleHead_msn.dds",
-                  r"textures\actors\character\male\MaleHead_sk.dds",
-                  "",
-                  "",
-                  "",
-                  "",
-                  r"textures\actors\character\male\MaleHead_S.dds"]):
-            assert hsse.textures[i] == t, f"Expected {t}, got '{hsse.textures[i]}'"
+        assert hsse.textures["Diffuse"] == r"textures\actors\character\male\MaleHead.dds"
+        assert hsse.textures["Normal"] == r"textures\actors\character\male\MaleHead_msn.dds"
+        assert hsse.textures["SoftLighting"] == r"textures\actors\character\male\MaleHead_sk.dds"
+        assert hsse.textures["Specular"] == r"textures\actors\character\male\MaleHead_S.dds"
 
-        for i, t in enumerate([
-                  r"textures\actors\character\male\MaleHead.dds",
-                  r"textures\actors\character\male\MaleHead_msn.dds",
-                  r"textures\actors\character\male\MaleHead_sk.dds",
-                  "",
-                  "",
-                  "",
-                  "",
-                  r"textures\actors\character\male\MaleHead_S.dds"]):
-            assert hsse.textures[i] == t, f"Expected {t}, got '{hsse.textures[i]}'"
+        assert hsle.textures["Diffuse"] == r"textures\actors\character\male\MaleHead.dds"
+        assert hsle.textures["Normal"] == r"textures\actors\character\male\MaleHead_msn.dds"
+        assert hsle.textures["SoftLighting"] == r"textures\actors\character\male\MaleHead_sk.dds"
+        assert hsle.textures["Specular"] == r"textures\actors\character\male\MaleHead_S.dds"
 
-        for i, t in enumerate([
-                  r"textures\Actors\Character\BaseHumanMale\BaseMaleHead_d.dds",
-                  r"textures\Actors\Character\BaseHumanMale\BaseMaleHead_n.dds",
-                  "",
-                  "",
-                  "",
-                  "",
-                  "",
-                  r"textures\actors\character\basehumanmale\basemalehead_s.dds"]):
-            assert hsfo.textures[i] == t, f"Expected {t}, got '{hsfo.textures[i]}'"
+        assert hsfo.textures["Diffuse"] == r"Actors/Character/BaseHumanMale/BaseMaleHead_d.dds"
+        assert hsfo.textures["Normal"] == r"Actors/Character/BaseHumanMale/BaseMaleHead_n.dds"
+        assert hsfo.textures["Specular"] == r"actors/character/basehumanmale/basemalehead_s.dds"
+        assert hsfo.textures["EnvMap"] == r"Shared/Cubemaps/mipblur_DefaultOutside1_dielectric.dds"
+        assert hsfo.textures["Wrinkles"] == r"Actors/Character/BaseHumanMale/HeadWrinkles_n.dds"
 
         print("------------- Extract non-default values")
         v = {}
-        hsse.shader_attributes.extract(v)
+        hsse.shader.extract(v)
         print(v)
+        assert 'Shader_Flags_1' in v
+        assert 'Glossiness' in v
+        assert 'textureClampMode' not in v
 
         """Can read and write shader"""
         nif = NifFile(r"tests\FO4\AlarmClock.nif")
         assert len(nif.shapes) == 1, f"Error: Expected 1 shape, found {len(nif.shapes)}"
         shape = nif.shapes[0]
-        attrs = shape.shader_attributes
+        attrs = shape.shader
 
         nifOut = NifFile()
         nifOut.initialize('FO4', r"tests\out\SHADER_OUT.nif")
@@ -3679,7 +3791,7 @@ class ModuleTest:
         nifTest = NifFile(f"tests\out\SHADER_OUT.nif")
         assert len(nifTest.shapes) == 1, f"Error: Expected 1 shape, found {len(nifTest.shapes)}"
         shapeTest = nifTest.shapes[0]
-        attrsTest = shapeTest.shader_attributes
+        attrsTest = shapeTest.shader
         diffs = attrsTest.compare(attrs)
         assert diffs == [], f"Error: Expected same shader attributes: {diffs}"
 
@@ -3688,8 +3800,8 @@ class ModuleTest:
         nif = NifFile(r"tests/Skyrim/meshes/actors/character/Lykaios/Tails/maletaillykaios.nif")
         tailfur = nif.shapes[1]
 
-        assert tailfur.shader_attributes.Shader_Type == BSLSPShaderType.Skin_Tint, f"Error: Skin tint incorrect, got {tailfur.shader_attributes.Shader_Type}"
-        assert tailfur.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {tailfur.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert tailfur.shader.Shader_Type == BSLSPShaderType.Skin_Tint, f"Error: Skin tint incorrect, got {tailfur.shader.Shader_Type}"
+        assert tailfur.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {tailfur.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
         assert tailfur.alpha_property.flags == 4844, f"Error: Alpha flags incorrect, found {tailfur.alpha_property.flags}"
         assert tailfur.alpha_property.threshold == 70, f"Error: Threshold incorrect, found {tailfur.alpha_property.threshold}"
 
@@ -3963,7 +4075,7 @@ class ModuleTest:
 
         def CheckHelmet(nif):
             glass:NiShape = next(s for s in nif.shapes if s.name.startswith("glass"))
-            glass_attr = glass.shader_attributes
+            glass_attr = glass.shader
             assert glass.shader_block_name == "BSEffectShaderProperty", f"Expected BSEffectShaderProperty, got {glass.shader_block_name}"
             assert glass.shader_name == r"Materials\Armor\FlightHelmet\glass.BGEM", "Have correct shader name"
             assert glass_attr.shaderflags1_test(ShaderFlags1.USE_FALLOFF), f"Expected USE_FALLOFF true, got {glass_attr.shaderflags1_test(ShaderFlags1.USE_FALLOFF)}"
@@ -4558,7 +4670,7 @@ class ModuleTest:
 
             tree = nifcheck.shapes[0]
             assert tree.blockname == "BSMeshLODTriShape", f"Have correct shape node type"
-            assert tree.shader_attributes.shaderflags2_test(ShaderFlags2.TREE_ANIM), f"Tree animation set"
+            assert tree.shader.shaderflags2_test(ShaderFlags2.TREE_ANIM), f"Tree animation set"
             assert tree.properties.vertexCount == 1059, f"Have correct vertex count"
             assert tree.properties.lodSize0 == 1126, f"Have correct lodSize0"
 

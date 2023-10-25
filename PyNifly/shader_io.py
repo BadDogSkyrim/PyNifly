@@ -124,7 +124,7 @@ class ShaderImporter:
         try:
             self.material['BS_Shader_Block_Name'] = shape.shader_block_name
             self.material['BSLSP_Shader_Name'] = shape.shader_name
-            self.bsdf.inputs['Emission'].default_value = (attrs.Emissive_Color_R, attrs.Emissive_Color_G, attrs.Emissive_Color_B, attrs.Emissive_Color_A)
+            self.bsdf.inputs['Emission'].default_value = (attrs.Emissive_Color)
             self.bsdf.inputs['Emission Strength'].default_value = attrs.Emissive_Mult
 
             if shape.shader_block_name == 'BSLightingShaderProperty':

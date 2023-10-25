@@ -1312,6 +1312,8 @@ NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, 
 
     std::string texture;
 
+    if (!shader) return 0;
+
     uint32_t val = nif->GetTextureSlot(shape, texture, slotIndex);
 
     if (buflen > 0) buf[0] = '\0';
