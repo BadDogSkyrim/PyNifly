@@ -9,6 +9,7 @@ import math
 from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer, addressof
 from pynmathutils import *
 import bgsmaterial
+import niflytools
 
 def is_in_plane(plane, vert):
     """ Test whether vert is in the plane defined by the three vectors in plane """
@@ -983,9 +984,12 @@ class NiShaderBuf(pynStructure):
                 if '_Array_' in t.__name__:
                     v1 = [x for x in self.__getattribute__(fn)]
                     v2 = [x for x in defaults.__getattribute__(fn)]
-                    if v1 != v2:
-                        shape[fn] = repr(v1)
-                elif self.__getattribute__(fn) != defaults.__getattribute__(fn):
+                else:
+                    v1 = self.__getattribute__(fn) 
+                    v2 = defaults.__getattribute__(fn)
+
+                if (type(v2) == float and not math.isclose(v1, v2, abs_tol=10**-5)) \
+                        or (v1 != v2):
                     if fn == 'Shader_Flags_1':
                         shape[fn] = ShaderFlags1(self.Shader_Flags_1).fullname
                     elif fn == 'Shader_Flags_2':
@@ -1009,7 +1013,10 @@ class NiShaderBuf(pynStructure):
                     elif fn == 'qualityType':
                         shape[fn] = hkQualityType(self.qualityType).name
                     else:
-                        shape[fn] = self.__getattribute__(fn)
+                        if type(v1) == list:
+                            shape[fn] = repr(v1)
+                        else:
+                            shape[fn] = v1
 
     def shaderflags1_test(self, flag):
         return (self.Shader_Flags_1 & flag) != 0
