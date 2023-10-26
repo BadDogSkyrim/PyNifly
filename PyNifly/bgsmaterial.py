@@ -5,19 +5,21 @@ class MaterialFile(Structure):
     """
     Common elements and bhavior for all materials files.
     """
+    log = None
     # Class variables overridden by sublclasses.
     _fields_ = []
     _defaults_ = []
 
     def __init__(self, filepath=None, logger=None):
-        self.log = logger
+        MaterialFile.log = logger
         super().__init__(**self._defaults_)
         self.textures = {}
         if filepath: self.read(filepath)
 
-    def logError(self, msg):
-        if self.log:
-            self.log.error(msg)
+    @classmethod
+    def logError(cls, msg):
+        if MaterialFile.log:
+            MaterialFile.log.error(msg)
     
     def read_field(self, fieldname, ftype):
         """Read a single field from the file."""
@@ -84,7 +86,7 @@ class MaterialFile(Structure):
             with open(filename, 'rb') as f:
                 self._read(f)
         except:
-            self.logError(f"Cannot read materials file '{filename}'")
+            MaterialFile.logError(f"Cannot read materials file '{filename}'")
 
     def extract(self, d):
         for fn, t in self._fields_:
@@ -98,6 +100,28 @@ class MaterialFile(Structure):
                     elif self.__getattribute__(fn) != self._defaults_[fn]:
                         d[fn] = self.__getattribute__(fn)
 
+    @classmethod
+    def Open(cls, filepath, logger=None):
+        """
+        Open the materials file at 'filepath'. Use the signature in the path to decide
+        what type of materials file it is.
+        """
+        if logger: cls.log = logger
+        m = None
+        try:
+            sig = ''
+            with open(filepath, 'rb') as f:
+                sig = struct.unpack('<4s', f.read(4))[0]
+                f.close()
+            if sig == b'BGSM':
+                m = BGSMaterial(filepath)
+            elif sig == b'BGEM':
+                m = BGEMaterial(filepath)
+            else:
+                cls.logError(f"Not a known materials file: {filepath}")
+        except:
+            cls.logError(f"Cannot read materials file '{filepath}'")
+        return m
 
 
 class BGSMaterial(MaterialFile):
@@ -431,8 +455,7 @@ class TestModule:
 
     def TEST_READ_BGSM():
         testfile = r"tests\FO4\Materials\actors\Character\BaseHumanMale\test.bgsm"
-        m = BGSMaterial()
-        m.read(testfile)
+        m = MaterialFile.Open(testfile)
         assert m.signature.decode() == "BGSM", f"Read signature: {m.signature.decode()}"
         assert m.version == 2, f"Read version: {m.version}"
         assert m.textures['Diffuse'] == r"Actors/Character/BaseHumanMale/BaseMaleHead_d.dds", \
@@ -448,8 +471,7 @@ class TestModule:
 
     def TEST_READ_BGEM():
         testfile = r"tests\FO4\Materials\Armor\FlightHelmet\glasstest.BGEM"
-        m = BGEMaterial()
-        m.read(testfile)
+        m = MaterialFile.Open(testfile)
         assert m.signature.decode() == "BGEM", f"Read signature: {m.signature.decode()}"
         assert m.version == 2, f"Read version: {m.version}"
         assert m.textures['Base'] == r"Armor/FlightHelmet/Helmet_03_d.dds", \
