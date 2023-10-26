@@ -1628,7 +1628,56 @@ class NiShader(NiObject):
                 if self.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
                     self._textures["Specular"] = self._readtexture(f, s, 8)
 
+            if self.properties.bufType == PynBufferTypes.BSEffectShaderPropertyBufType:
+                self._textures['Base'] = self.properties.sourceTexture.decode()
+                self._textures['Greyscale'] = self.properties.greyscaleTexture.decode()
+                self._textures['EnvMap'] = self.properties.envMapTexture.decode()
+                self._textures['Normal'] = self.properties.normalTexture.decode()
+                self._textures['EnvMapMask'] = self.properties.envMaskTexture.decode()
+                self._textures['EmitGradient'] = self.properties.emitGradientTexture.decode()
+
         return self._textures
+
+    def set_texture(self, slot, texturepath):
+        """Set texture in the named slot to the given string."""
+        if self.properties.bufType == PynBufferTypes.BSLightingShaderPropertyBufType:
+            if slot == 'Diffuse':
+                NifFile.nifly.setShaderTextureSlot(
+                    self.file._handle, self._parent._handle, 0, texturepath.encode('utf-8'))
+            if slot == 'Normal':
+                NifFile.nifly.setShaderTextureSlot(
+                    self.file._handle, self._parent._handle, 1, texturepath.encode('utf-8'))
+            if slot in ['Glow', 'RimLighting', 'SoftLighting']:
+                NifFile.nifly.setShaderTextureSlot(
+                    self.file._handle, self._parent._handle, 2, texturepath.encode('utf-8'))
+            if slot == 'HeightMap':
+                NifFile.nifly.setShaderTextureSlot(
+                    self.file._handle, self._parent._handle, 3, texturepath.encode('utf-8'))
+            if slot == 'EnvMap':
+                NifFile.nifly.setShaderTextureSlot(
+                    self.file._handle, self._parent._handle, 4, texturepath.encode('utf-8'))
+            if slot == 'EnvMask':
+                NifFile.nifly.setShaderTextureSlot(
+                    self.file._handle, self._parent._handle, 5, texturepath.encode('utf-8'))
+            if slot == 'InnerLayer':
+                NifFile.nifly.setShaderTextureSlot(
+                    self.file._handle, self._parent._handle, 6, texturepath.encode('utf-8'))
+            if slot == 'Specular':
+                NifFile.nifly.setShaderTextureSlot(
+                    self.file._handle, self._parent._handle, 7, texturepath.encode('utf-8'))
+        if self.properties.bufType == PynBufferTypes.BSEffectShaderPropertyBufType:
+            if slot == 'Base':
+                self.properties.sourceTexture = texturepath.encode('utf-8')
+            if slot == 'Greyscale':
+                self.properties.greyscaleTexture = texturepath.encode('utf-8')
+            if slot == 'EnvMap':
+                self.properties.envMapTexture = texturepath.encode('utf-8')
+            if slot == 'Normal':
+                self.properties.normalTexture = texturepath.encode('utf-8')
+            if slot == 'EnvMapMask':
+                self.properties.envMaskTexture = texturepath.encode('utf-8')
+            if slot == 'EmitGradient':
+                self.properties.emitGradientTexture = texturepath.encode('utf-8')
 
 
 class NiShaderFO4(NiShader):
@@ -1643,8 +1692,9 @@ class NiShaderFO4(NiShader):
         if self.name:
             # Some FO4 nifs don't have materials files. Apparently (?) they use the shader
             # block attributes.
-            fullpath = extend_filenames(self.file.filepath, 'meshes', [self.name])[0]
-            self.materials = bgsmaterial.BGSMaterial(fullpath, logger=NifFile.log)
+            # fullpath = extend_filenames(self.file.materialsRoot, 'meshes', [self.name])[0]
+            fullpath = os.path.join(self.file.materialsRoot, self.name)
+            self.materials = bgsmaterial.MaterialFile.Open(fullpath, logger=NifFile.log)
 
     @property
     def textures(self):
@@ -1655,37 +1705,52 @@ class NiShaderFO4(NiShader):
 
     @property
     def shaderflags1(self):
-        v = 0
-        v |= ShaderFlags1.CAST_SHADOWS if self.materials.castShadows else 0
-        v |= ShaderFlags1.DECAL if self.materials.decal else 0
-        v |= ShaderFlags1.ENVIRONMENT_MAPPING if self.materials.environmentMapping else 0
-        v |= ShaderFlags1.EXTERNAL_EMITTANCE if self.materials.externalEmittance else 0
-        v |= ShaderFlags1.EYE_ENVIRONMENT_MAPPING if self.materials.environmentMappingEye else 0
-        v |= ShaderFlags1.HAIR_SOFT_LIGHTING if self.materials.hair else 0
-        v |= ShaderFlags1.MODEL_SPACE_NORMALS if self.materials.modelSpaceNormals else 0
-        v |= ShaderFlags1.OWN_EMIT if self.materials.emitEnabled else 0
-        v |= ShaderFlags1.RECEIVE_SHADOWS if self.materials.receiveShadows else 0
-        v |= ShaderFlags1.SPECULAR if self.materials.specularEnabled else 0
-        v |= ShaderFlags1.ZBUFFER_TEST if self.materials.zbuffertest else 0
-        return v
+        if self.materials:
+            v = 0
+            v |= ShaderFlags1.DECAL if self.materials.decal else 0
+            v |= ShaderFlags1.ENVIRONMENT_MAPPING if self.materials.environmentMapping else 0
+            v |= ShaderFlags1.ZBUFFER_TEST if self.materials.zbuffertest else 0
+            if self.materials.signature == b'BGSM':
+                v |= ShaderFlags1.CAST_SHADOWS if self.materials.castShadows else 0
+                v |= ShaderFlags1.EXTERNAL_EMITTANCE if self.materials.externalEmittance else 0
+                v |= ShaderFlags1.EYE_ENVIRONMENT_MAPPING if self.materials.environmentMappingEye else 0
+                v |= ShaderFlags1.HAIR_SOFT_LIGHTING if self.materials.hair else 0
+                v |= ShaderFlags1.OWN_EMIT if self.materials.emitEnabled else 0
+                v |= ShaderFlags1.MODEL_SPACE_NORMALS if self.materials.modelSpaceNormals else 0
+                v |= ShaderFlags1.RECEIVE_SHADOWS if self.materials.receiveShadows else 0
+                v |= ShaderFlags1.SPECULAR if self.materials.specularEnabled else 0
+            if self.materials.signature == b'BGEM':
+                v |= ShaderFlags1.USE_FALLOFF if self.materials.falloffEnabled else 0
+            return v
+        else:
+            return self.properties.Shader_Flags_1
         
     @property
     def shaderflags2(self):
-        v = 0
-        v |= ShaderFlags2.ANISOTROPIC_LIGHTING if self.materials.anisoLighting else 0
-        v |= ShaderFlags2.ASSUME_SHADOWMASK if self.materials.assumeShadowmask else 0
-        v |= ShaderFlags2.BACK_LIGHTING if self.materials.backLighting else 0
-        v |= ShaderFlags2.DOUBLE_SIDED if self.materials.twoSided else 0
-        v |= ShaderFlags2.GLOW_MAP if self.materials.glowmap else 0
-        v |= ShaderFlags2.RIM_LIGHTING if self.materials.rimLighting else 0
-        v |= ShaderFlags2.SOFT_LIGHTING if self.materials.subsurfaceLighting else 0
-        v |= ShaderFlags2.TREE_ANIM if self.materials.tree else 0
-        v |= ShaderFlags2.ZBUFFER_WRITE if self.materials.zbufferwrite else 0
-        return v
+        if self.materials:
+            v = 0
+            v |= ShaderFlags2.DOUBLE_SIDED if self.materials.twoSided else 0
+            v |= ShaderFlags2.GLOW_MAP if self.materials.glowmap else 0
+            v |= ShaderFlags2.ZBUFFER_WRITE if self.materials.zbufferwrite else 0
+            if self.materials.signature == b'BGSM':
+                v |= ShaderFlags2.ANISOTROPIC_LIGHTING if self.materials.anisoLighting else 0
+                v |= ShaderFlags2.ASSUME_SHADOWMASK if self.materials.assumeShadowmask else 0
+                v |= ShaderFlags2.BACK_LIGHTING if self.materials.backLighting else 0
+                v |= ShaderFlags2.RIM_LIGHTING if self.materials.rimLighting else 0
+                v |= ShaderFlags2.SOFT_LIGHTING if self.materials.subsurfaceLighting else 0
+                v |= ShaderFlags2.TREE_ANIM if self.materials.tree else 0
+            if self.materials.signature == b'BGEM':
+                v |= ShaderFlags2.EFFECT_LIGHTING if self.materials.effectLightingEnabled else 0
+            return v
+        else:
+            return self.properties.Shader_Flags_2
         
     def shaderflags1_test(self, flag):
-        return self.shaderflags1 & flag
-
+        return (self.shaderflags1 & flag) != 0
+    
+    def shaderflags2_test(self, flag):
+        return (self.shaderflags2 & flag) != 0
+    
 
 # --- NifShape --- #
 class NiShape(NiNode):
@@ -1906,9 +1971,11 @@ class NiShape(NiNode):
     def textures(self):
         return self.shader.textures
 
-    def set_texture(self, slot, str):
-        NifFile.nifly.setShaderTextureSlot(self.file._handle, self._handle, 
-                                           slot, str.encode('utf-8'))
+    def set_texture(self, slot, texturepath):
+        """Set texture in the named slot to the given string."""
+        self.shader.set_texture(slot, texturepath)
+        # NifFile.nifly.setShaderTextureSlot(self.file._handle, self._handle, 
+        #                                    slot, str.encode('utf-8'))
     
     @property
     def shader(self):
@@ -2275,7 +2342,12 @@ class NifFile:
         NifFile.nifly = load_nifly(nifly_path)
         NifFile.nifly_path = nifly_path
     
-    def __init__(self, filepath=None):
+    def __init__(self, filepath=None, materialsRoot=None):
+        """
+        Initialize the nif file object.
+        For ease of testing, materialsRoot indicates where to find the materials files. If
+        not provided, the nif's own path will be used.
+        """
         self.filepath = filepath
         self._handle = None
         self._game = None
@@ -2298,6 +2370,11 @@ class NifFile:
         self._connect_pt_child = None
         self.connect_pt_child_skinned = False
         self._ref_skel = None
+        self.materialsRoot = ''
+        if materialsRoot:
+            self.materialsRoot = materialsRoot  
+        elif filepath: 
+            self.materialsRoot = extend_filenames(filepath, 'meshes')
 
     def __del__(self):
         if self._handle:
@@ -2917,8 +2994,8 @@ class ModuleTest:
             new_shape.setShapeWeights(bone_name, weights)
 
         new_shape.shader_name = old_shape.shader_name
-        new_shape.shader.bufType = old_shape.shader.bufType
-        old_shape.shader.copyto(new_shape.shader)
+        new_shape.shader.properties.bufType = old_shape.shader.properties.bufType
+        old_shape.shader.properties.copyto(new_shape.shader.properties)
 
         new_shape.save_shader_attributes()
 
@@ -2929,9 +3006,11 @@ class ModuleTest:
             new_shape.alpha_property.threshold = old_shape.alpha_property.threshold
             new_shape.save_alpha_property()
 
-        for i, t in enumerate(old_shape.textures):
-            if len(t) > 0:
-                new_shape.set_texture(i, t)
+        # for i, t in enumerate(old_shape.textures):
+        #     if len(t) > 0:
+        #         new_shape.set_texture(i, t)
+        for k, t in old_shape.textures.items():
+            new_shape.set_texture(k, t)
 
         new_shape.behavior_graph_data = old_shape.behavior_graph_data
         new_shape.string_data = old_shape.string_data
@@ -3653,11 +3732,14 @@ class ModuleTest:
         assert FO4Subsegment.name_match("FO4 Seg 003 | HP-Neck | HP-Neck") \
             == ("FO4 Seg 003", 33, 0x3D6644AA), "name_match parses subsegments with bodyparts"
 
-        assert FO4Segment.name_match("FO4 Seg 003 | 003 | Lo Arm.R") < 0, "FO4Segment.name_match does not match on subsegments"
+        assert FO4Segment.name_match("FO4 Seg 003 | 003 | Lo Arm.R") < 0, \
+            "FO4Segment.name_match does not match on subsegments"
 
-        assert FO4Subsegment.name_match("FO4 Seg 001 | Hair Top") == ("FO4 Seg 001", 30, -1), "FO4Subsegment.name_match matches subsegments without material"
+        assert FO4Subsegment.name_match("FO4 Seg 001 | Hair Top") == ("FO4 Seg 001", 30, -1), \
+            "FO4Subsegment.name_match matches subsegments without material"
 
-        assert FO4Subsegment.name_match("FO4 Seg 001 | Hair Top | 0x1234") == ("FO4 Seg 001", 30, 0x1234), "FO4Subsegment.name_match matches subsegments with material as number"
+        assert FO4Subsegment.name_match("FO4 Seg 001 | Hair Top | 0x1234") == ("FO4 Seg 001", 30, 0x1234), \
+            "FO4Subsegment.name_match matches subsegments with material as number"
 
 
     def TEST_COLORS():
@@ -3739,22 +3821,26 @@ class ModuleTest:
         hnse = NifFile(r"tests\SKYRIMSE\malehead.nif")
         hsse = hnse.shapes[0]
         assert hsse.shader.Shader_Type == 4
-        assert hsse.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsse.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert hsse.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
+            f"Expected MSN true, got {hsse.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
         assert hsse.shader.Alpha == 1.0, f"Expected Alpha 1, got {hsse.shader.Alpha}"
         assert hsse.shader.Glossiness == 33.0, f"Expected Glossiness 33, got {hsse.shader.Glossiness}"
 
         hnle = NifFile(r"tests\SKYRIM\malehead.nif")
         hsle = hnle.shapes[0]
-        assert hsle.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert hsle.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
+            f"Expected MSN true, got {hsle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
         assert hsle.shader.Glossiness == 33.0, f"Error: Glossiness incorrect: {hsle.shader.Glossiness}"
 
         hnfo = NifFile(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\HeadTest.nif")
         hsfo = hnfo.shapes[0]
-        assert not hsfo.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {hsfo.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert not hsfo.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
+            f"Expected MSN true, got {hsfo.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
         cnle = NifFile(r"tests\Skyrim\noblecrate01.nif")
         csle = cnle.shapes[0]
-        assert not csle.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN false, got {csle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert not csle.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
+            f"Expected MSN false, got {csle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
         """Can read texture paths"""
         assert hsse.textures["Diffuse"] == r"textures\actors\character\male\MaleHead.dds"
@@ -3807,10 +3893,14 @@ class ModuleTest:
         nif = NifFile(r"tests/Skyrim/meshes/actors/character/Lykaios/Tails/maletaillykaios.nif")
         tailfur = nif.shapes[1]
 
-        assert tailfur.shader.Shader_Type == BSLSPShaderType.Skin_Tint, f"Error: Skin tint incorrect, got {tailfur.shader.Shader_Type}"
-        assert tailfur.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), f"Expected MSN true, got {tailfur.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
-        assert tailfur.alpha_property.flags == 4844, f"Error: Alpha flags incorrect, found {tailfur.alpha_property.flags}"
-        assert tailfur.alpha_property.threshold == 70, f"Error: Threshold incorrect, found {tailfur.alpha_property.threshold}"
+        assert tailfur.shader.Shader_Type == BSLSPShaderType.Skin_Tint, \
+            f"Error: Skin tint incorrect, got {tailfur.shader.Shader_Type}"
+        assert tailfur.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
+            f"Expected MSN true, got {tailfur.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert tailfur.alpha_property.flags == 4844, \
+            f"Error: Alpha flags incorrect, found {tailfur.alpha_property.flags}"
+        assert tailfur.alpha_property.threshold == 70, \
+            f"Error: Threshold incorrect, found {tailfur.alpha_property.threshold}"
 
         nifOut = NifFile()
         nifOut.initialize('SKYRIM', r"tests\out\pynifly_TEST_ALPHA.nif")
@@ -4075,10 +4165,45 @@ class ModuleTest:
         # If no CTD we're good
 
 
-    def TEST_EFFECT_SHADER():
+    def TEST_EFFECT_SHADER_SKY():
+        """Can read and write shader flags"""
+        testfile = r"tests\SkyrimSE\meshes\armor\daedric\daedriccuirass_1.nif"
+        outfile = r"tests\out\TEST_EFFECT_SHADER_SKY.nif"
+
+        def CheckNif(nif:NifFile):
+            glow:NiShape = nif.shape_dict["MaleTorsoGlow"]
+            sh = glow.shader
+            assert sh.blockname == "BSEffectShaderProperty", f"Expected BSEffectShaderProperty, got {glass.shader_block_name}"
+            assert sh.shaderflags1_test(ShaderFlags1.VERTEX_ALPHA), f"Expected VERTEX_ALPHA true"
+            assert not sh.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
+            assert sh.shaderflags2_test(ShaderFlags2.NO_FADE)
+            assert NearEqual(sh.UV_Scale_U, 10.0), f"Have correct UV scale: {sh.UV_Scale_U}"
+            assert sh.textureClampMode == 3, f"Have correct textureClampMode: {sh.textureClampMode}"
+
+            assert sh.textures['Base'] == r"textures\effects\VaporTile02.dds", f"Source texture correct: {sh.textures['Base']}"
+            assert sh.textures['Greyscale'] == r"textures\effects\gradients\GradDisguiseShader02.dds", f"Greyscale texture correct {sh.textures['Greyscale']}"
+
+        print("---Read---")
+        nif = NifFile(testfile)
+        CheckNif(nif)
+
+        """Can read and write shader"""
+        print("---Write---")
+        nifOut = NifFile()
+        nifOut.initialize('FO4', outfile)
+        ModuleTest.export_shape(nif.shapes[0], nifOut)
+        ModuleTest.export_shape(nif.shapes[1], nifOut)
+        nifOut.save()
+
+        print("---Check---")
+        nifTest = NifFile(outfile, materialsRoot='tests/FO4')
+        CheckNif(nifTest)
+
+
+    def TEST_EFFECT_SHADER_FO4():
         """Can read and write shader flags"""
         testfile = r"tests/FO4/Helmet.nif"
-        outfile = r"tests\out\TEST_EFFECT_SHADER.nif"
+        outfile = r"tests\out\TEST_EFFECT_SHADER_FO4.nif"
 
         def CheckHelmet(nif):
             glass:NiShape = next(s for s in nif.shapes if s.name.startswith("glass"))
@@ -4086,31 +4211,34 @@ class ModuleTest:
             assert glass.shader_block_name == "BSEffectShaderProperty", f"Expected BSEffectShaderProperty, got {glass.shader_block_name}"
             assert glass.shader_name == r"Materials\Armor\FlightHelmet\glass.BGEM", "Have correct shader name"
             assert glass_attr.shaderflags1_test(ShaderFlags1.USE_FALLOFF), f"Expected USE_FALLOFF true, got {glass_attr.shaderflags1_test(ShaderFlags1.USE_FALLOFF)}"
-            assert glass_attr.shaderflags1_test(ShaderFlags1.EXTERNAL_EMITTANCE)
             assert not glass_attr.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
+            assert glass_attr.shaderflags1_test(ShaderFlags1.ENVIRONMENT_MAPPING)
             assert glass_attr.shaderflags2_test(ShaderFlags2.EFFECT_LIGHTING)
             assert not glass_attr.shaderflags2_test(ShaderFlags2.VERTEX_COLORS)
 
             assert glass_attr.textureClampMode == 3
             assert NearEqual(glass_attr.falloffStartOpacity, 0.1)
             assert NearEqual(glass_attr.Emissive_Mult, 1.0)
-            assert glass_attr.sourceTexture.decode() == "Armor/FlightHelmet/Helmet_03_d.dds", \
-                f"Source texture correct: {glass_attr.sourceTexture}"
+            # assert glass_attr.sourceTexture.decode() == "Armor/FlightHelmet/Helmet_03_d.dds", \
+            #     f"Source texture correct: {glass_attr.sourceTexture}"
 
-            assert glass.textures[0] == "Armor/FlightHelmet/Helmet_03_d.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_d.dds', got {glass.textures[0]}"
-            assert glass.textures[1] == "Armor/FlightHelmet/Helmet_03_n.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_n.dds', got {glass.textures[1]}"
-            assert glass.textures[5] == "Armor/FlightHelmet/Helmet_03_s.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_s.dds', got {glass.textures[5]}"
+            assert glass.textures["Base"] == "Armor/FlightHelmet/Helmet_03_d.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_d.dds', got {glass.textures}"
+            assert glass.textures["Normal"] == "Armor/FlightHelmet/Helmet_03_n.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_n.dds', got {glass.textures[1]}"
+            assert glass.textures["EnvMapMask"] == "Armor/FlightHelmet/Helmet_03_s.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_s.dds', got {glass.textures[5]}"
 
+        print("---Read---")
         nif = NifFile(testfile)
         CheckHelmet(nif)
 
         """Can read and write shader"""
+        print("---Write---")
         nifOut = NifFile()
         nifOut.initialize('FO4', outfile)
         ModuleTest.export_shape(nif.shapes[0], nifOut)
         nifOut.save()
 
-        nifTest = NifFile(outfile)
+        print("---Check---")
+        nifTest = NifFile(outfile, materialsRoot='tests/FO4')
         CheckHelmet(nifTest)
 
 

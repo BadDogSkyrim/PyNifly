@@ -58,9 +58,11 @@ def tmp_copy(filepath) -> str:
     return fp
 
 
-def extend_filenames(root, separator, files):
+def extend_filenames(root, separator, files=None):
     """ Extend the given relative path names with the portion of the root before the
         separator. 
+
+        If there are no files, just return the portion of the root before the separator.
         
         * root = absolute filepath 
         * separator = Folder within the filepath. The part before the separator is the
@@ -77,7 +79,10 @@ def extend_filenames(root, separator, files):
             sharedpart = rootpath.parent
     else:
         sharedpart = rootpath
-    return [(str(sharedpart / f) if len(f) > 0 else "") for f in files]
+    if files:
+        return [(str(sharedpart / f) if len(f) > 0 else "") for f in files]
+    else:
+        return str(sharedpart)
 
 
 def replace_extensions(files, orig, rep):

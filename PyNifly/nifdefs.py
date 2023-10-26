@@ -973,6 +973,13 @@ class NiShaderBuf(pynStructure):
             s = s + f"\t{attr[0]} = {getattr(self, attr[0])}"
         return s
 
+    def copyto(self, other):
+        """Override copyto so that it ignores buffer type and length, and ID fields."""
+        for f, t in self._fields_:
+            if f not in ['bufType', 'bufSize'] and f[-2:] != 'ID':
+                other.__setattr__(f, self.__getattribute__(f))
+        return other
+
     def extract(self, shape, ignore=[]):
         """
         Extract fields to the dictionary-like object 'shape'. Extract only fields that
