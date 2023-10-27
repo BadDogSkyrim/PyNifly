@@ -1607,25 +1607,25 @@ class NiShader(NiObject):
                 if self.properties.shaderflags2_test(ShaderFlags2.GLOW_MAP):
                     self._textures["Glow"] = self._readtexture(f, s, 3)
 
-                if self.shaderflags2_test(ShaderFlags2.RIM_LIGHTING):
+                if self.properties.shaderflags2_test(ShaderFlags2.RIM_LIGHTING):
                     self._textures["RimLighting"] = self._readtexture(f, s, 3)
 
-                if self.shaderflags2_test(ShaderFlags2.SOFT_LIGHTING):
+                if self.properties.shaderflags2_test(ShaderFlags2.SOFT_LIGHTING):
                     self._textures["SoftLighting"] = self._readtexture(f, s, 3)
 
-                if self.shaderflags2_test(ShaderFlags1.PARALLAX):
+                if self.properties.shaderflags2_test(ShaderFlags1.PARALLAX):
                     self._textures["HeightMap"] = self._readtexture(f, s, 4)
 
-                if self.shaderflags2_test(ShaderFlags1.ENVIRONMENT_MAPPING):
+                if self.properties.shaderflags2_test(ShaderFlags1.ENVIRONMENT_MAPPING):
                     self._textures["EnvMap"] = self._readtexture(f, s, 5)
 
-                if self.shaderflags2_test(ShaderFlags1.ENVIRONMENT_MAPPING):
+                if self.properties.shaderflags2_test(ShaderFlags1.ENVIRONMENT_MAPPING):
                     self._textures["EnvMask"] = self._readtexture(f, s, 6)
 
-                if self.shaderflags2_test(ShaderFlags2.MULTI_LAYER_PARALLAX):
+                if self.properties.shaderflags2_test(ShaderFlags2.MULTI_LAYER_PARALLAX):
                     self._textures["InnerLayer"] = self._readtexture(f, s, 7)
 
-                if self.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+                if self.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
                     self._textures["Specular"] = self._readtexture(f, s, 8)
 
             if self.properties.bufType == PynBufferTypes.BSEffectShaderPropertyBufType:
@@ -1638,7 +1638,7 @@ class NiShader(NiObject):
 
         return self._textures
 
-    def set_texture(self, slot, texturepath):
+    def set_texture(self, slot:str, texturepath):
         """Set texture in the named slot to the given string."""
         if self.properties.bufType == PynBufferTypes.BSLightingShaderPropertyBufType:
             if slot == 'Diffuse':
@@ -1971,7 +1971,7 @@ class NiShape(NiNode):
     def textures(self):
         return self.shader.textures
 
-    def set_texture(self, slot, texturepath):
+    def set_texture(self, slot:str, texturepath):
         """Set texture in the named slot to the given string."""
         self.shader.set_texture(slot, texturepath)
         # NifFile.nifly.setShaderTextureSlot(self.file._handle, self._handle, 

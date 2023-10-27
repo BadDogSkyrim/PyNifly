@@ -93,7 +93,7 @@ class ShaderImporter:
         self.alphamap = None
         self.bsdf = None
         self.nodes = None
-        self.textures = []
+        self.textures = {}
         self.diffuse = None
         self.game = None
 
@@ -115,23 +115,20 @@ class ShaderImporter:
         as properties on the material; attributes that have Blender equivalents are used
         to set up Blender nodes and properties.
         """
-        attrs = shape.shader_attributes
-        if not attrs: 
-            return
-
-        attrs.extract(self.material, ignore=NISHADER_IGNORE)
+        shader = shape.shader
+        shader.properties.extract(self.material, ignore=NISHADER_IGNORE)
 
         try:
-            self.material['BS_Shader_Block_Name'] = shape.shader_block_name
-            self.material['BSLSP_Shader_Name'] = shape.shader_name
-            self.bsdf.inputs['Emission'].default_value = (attrs.Emissive_Color)
-            self.bsdf.inputs['Emission Strength'].default_value = attrs.Emissive_Mult
+            self.material['BS_Shader_Block_Name'] = shader.blockname
+            self.material['BSLSP_Shader_Name'] = shader.name
+            self.bsdf.inputs['Emission'].default_value = shader.Emissive_Color
+            self.bsdf.inputs['Emission Strength'].default_value = shader.Emissive_Mult
 
-            if shape.shader_block_name == 'BSLightingShaderProperty':
-                self.bsdf.inputs['Alpha'].default_value = attrs.Alpha
-                self.bsdf.inputs['Metallic'].default_value = attrs.Glossiness/GLOSS_SCALE
+            if shader.blockname == 'BSLightingShaderProperty':
+                self.bsdf.inputs['Alpha'].default_value = shader.Alpha
+                self.bsdf.inputs['Metallic'].default_value = shader.Glossiness/GLOSS_SCALE
             elif shape.shader_block_name == 'BSEffectShaderProperty':
-                self.bsdf.inputs['Alpha'].default_value = attrs.Falloff_Start_Opacity
+                self.bsdf.inputs['Alpha'].default_value = shader.Falloff_Start_Opacity
 
         except Exception as e:
             # Any errors, print the error but continue
@@ -166,47 +163,54 @@ class ShaderImporter:
         to the DDS file.
 
         * shape = shape to read for texture files
-        * self.textures <- list of filepaths to use.
+        * self.textures <- dictionary of filepaths to use.
         """
         # log.debug(f"<find_textures>")
-        self.textures = [''] * 10
+        self.textures = {}
 
-        # Use any textures from Blender's texture directory, if defined
+        # Use any textures from Blender's texture directory, if defined. 
+        # Strip the trailing "textures" directory, if present.
         btextures = None
         blender_dir = bpy.context.preferences.filepaths.texture_directory
-        if os.path.exists(blender_dir):
-            # log.debug(f"Blender texture directory: {blender_dir}")
-            btextures = extend_filenames(blender_dir, None, shape.textures)
-            # log.debug(f"Blender textures: {btextures}")
+        if blender_dir.lower().endswith('textures'):
+            blender_dir = os.path.split(blender_dir)[0]
+        # if os.path.exists(blender_dir):
+        #     btextures = extend_filenames(blender_dir, None, shape.textures)
 
         # Extend relative filenames in nif with nif's own filepath
-        fulltextures = extend_filenames(shape.file.filepath, "meshes", shape.textures)
-        #log.debug(f"fulltextures = {fulltextures}")
-        for i in range(0, len(shape.textures)):
+        # fulltextures = extend_filenames(shape.file.filepath, "meshes", shape.textures)
+
+        # Get the path to the "data" folder containing the nif.
+        nif_dir = extend_filenames(shape.file.filepath, "meshes")
+        
+        for k, t in shape.textures.items():
+            # Sometimes texture paths are missing the "textures" directory. 
+            if not t.lower().startswith('textures'):
+                t = os.path.join('textures', t)
+
             # First option is to use a png from Blender's texture directory, if any
-            if btextures and btextures[i]:
-                fpng = Path(btextures[i]).with_suffix('.png')
-                # log.debug(f"Looking for {fpng}")
+            if blender_dir:
+                fpng = Path(blender_dir, t).with_suffix('.png')
                 if os.path.exists(fpng):
-                    self.textures[i] = str(fpng)
+                    self.textures[k] = str(fpng)
                     continue
 
-            if fulltextures[i]:
-                fpng = Path(fulltextures[i]).with_suffix('.png')
-                # log.debug(f"Looking for {fpng}")
-                if os.path.exists(fpng):
-                    self.textures[i] = str(fpng)
+            # No PNG in Blender's directory, look for one relative to the nif.
+            fpng = Path(nif_dir, t).with_suffix('.png')
+            if os.path.exists(fpng):
+                self.textures[k] = str(fpng)
+                continue
+            
+            # No PNG at all, check for DDS.
+            if blender_dir:
+                fdds = os.path.join(blender_dir, t)
+                if os.path.exists(fdds):
+                    self.textures[k] = fdds
                     continue
             
-            # log.debug(f"Looking for {btextures[i] if btextures else None}")
-            if btextures and btextures[i] and os.path.exists(btextures[i]):
-                self.textures[i] = btextures[i]
-            
-            #log.debug(f"Looking for {fulltextures[i] if fulltextures else None}")
-            if fulltextures[i] and os.path.exists(fulltextures[i]):
-                self.textures[i] = fulltextures[i]
-
-        # log.debug(f"Found textures {self.textures}")
+            fdds = os.path.join(nif_dir, t)
+            if os.path.exists(fdds):
+                self.textures[k] = fdds
             
 
     def link(self, a, b):
@@ -219,7 +223,7 @@ class ShaderImporter:
         #log.debug("Handling diffuse texture")
         txtnode = self.nodes.new("ShaderNodeTexImage")
         try:
-            img = bpy.data.images.load(self.textures[0], check_existing=True)
+            img = bpy.data.images.load(self.textures['Diffuse'], check_existing=True)
             img.colorspace_settings.name = "sRGB"
             txtnode.image = img
         except:
@@ -276,11 +280,11 @@ class ShaderImporter:
     def import_subsurface(self):
         """Set up nodes for subsurface texture"""
         #log.debug("Handling subsurface texture")
-        if len(self.textures) > 2 and self.textures[2]: 
+        if 'SoftLighting' in self.textures: 
             # Have a sk separate from a specular
             skimgnode = self.nodes.new("ShaderNodeTexImage")
             try:
-                skimg = bpy.data.images.load(self.textures[2], check_existing=True)
+                skimg = bpy.data.images.load(self.textures['SoftLighting'], check_existing=True)
                 if skimg != self.diffuse.image:
                     skimg.colorspace_settings.name = "Non-Color"
                 skimgnode.image = skimg
@@ -294,10 +298,10 @@ class ShaderImporter:
     def import_specular(self):
         """Set up nodes for specular texture"""
         #log.debug("Handling specular texture")
-        if len(self.textures) > 7 and self.textures[7]:
+        if 'Specular' in self.textures:
             simgnode = self.nodes.new("ShaderNodeTexImage")
             try:
-                simg = bpy.data.images.load(self.textures[7], check_existing=True)
+                simg = bpy.data.images.load(self.textures['Specular'], check_existing=True)
                 simg.colorspace_settings.name = "Non-Color"
                 simgnode.image = simg
             except:
@@ -332,9 +336,9 @@ class ShaderImporter:
     def import_normal(self, shape):
         """Set up nodes for the normal map"""
         #log.debug("Handling normal map texture")
-        if shape.textures[1]:
+        if 'Normal' in shape.textures:
             nmap = self.nodes.new("ShaderNodeNormalMap")
-            if shape.shader_attributes and shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+            if shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
                 nmap.space = "OBJECT"
             else:
                 nmap.space = "TANGENT"
@@ -342,14 +346,14 @@ class ShaderImporter:
             
             nimgnode = self.nodes.new("ShaderNodeTexImage")
             try:
-                nimg = bpy.data.images.load(self.textures[1], check_existing=True) 
+                nimg = bpy.data.images.load(self.textures['Normal'], check_existing=True) 
                 nimg.colorspace_settings.name = "Non-Color"
                 nimgnode.image = nimg
             except:
                 pass
             nimgnode.location = (self.diffuse.location[0], self.yloc)
             
-            if shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+            if shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
                 # Need to swap green and blue channels for blender
                 try:
                     # 3.3 
@@ -409,8 +413,7 @@ class ShaderImporter:
             self.link(nmap.outputs['Normal'], self.bsdf.inputs['Normal'])
 
             if shape.file.game in ["SKYRIM", "SKYRIMSE"] and \
-                shape.shader_attributes and \
-                not shape.shader_attributes.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+                not shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
                 # Specular is in the normal map alpha channel
                 self.link(nimgnode.outputs['Alpha'], self.bsdf.inputs['Specular'])
                 
@@ -431,8 +434,9 @@ class ShaderImporter:
         self.ytop = self.bsdf.location[1]
 
         # Stash texture strings for future export
-        for i, t in enumerate(shape.textures):
-            self.material['BSShaderTextureSet_' + str(i)] = t
+        for k, t in shape.textures.items():
+            if t:
+                self.material['BSShaderTextureSet_' + k] = t
 
         self.find_textures(shape)
 
@@ -450,10 +454,10 @@ class ShaderImporter:
 
 def set_object_textures(shape: NiShape, mat: bpy.types.Material):
     """Set the shape's textures from the value from the material's custom properties."""
-    for i in range(0, 20):
-        prop = 'BSShaderTextureSet_' + str(i)
-        if mat and prop in mat:
-            shape.set_texture(i, mat[prop])
+    for k, v in mat.items():
+        if k.startswith('BSShaderTextureSet_'):
+            slot = k.lstrip('BSShaderTextureSet_')
+            shape.set_texture(slot, v)
 
     
 def get_image_node(node_input):
@@ -550,17 +554,14 @@ class ShaderExporter:
             if 'BSLSP_Shader_Name' in self.material and self.material['BSLSP_Shader_Name']:
                 shape.shader_name = self.material['BSLSP_Shader_Name']
 
-            shape.shader_attributes.load(self.material)
+            shape.shader.properties.load(self.material)
 
-            shape.shader_attributes.Emissive_Color_R = self.shader_node.inputs['Emission'].default_value[0]
-            shape.shader_attributes.Emissive_Color_G = self.shader_node.inputs['Emission'].default_value[1]
-            shape.shader_attributes.Emissive_Color_B = self.shader_node.inputs['Emission'].default_value[2]
-            shape.shader_attributes.Emissive_Color_A = self.shader_node.inputs['Emission'].default_value[3]
-            shape.shader_attributes.Emissive_Mult = self.shader_node.inputs['Emission Strength'].default_value
+            for i in range(0, 4):
+                shape.shader.Emissive_Color[i] = self.shader_node.inputs['Emission'].default_value[i]
 
-            if shape.shader_block_name == "BSLightingShaderProperty":
-                shape.shader_attributes.Alpha = self.shader_node.inputs['Alpha'].default_value
-                shape.shader_attributes.Glossiness = self.shader_node.inputs['Metallic'].default_value * GLOSS_SCALE
+            if shape.shader.blockname == "BSLightingShaderProperty":
+                shape.shader.Alpha = self.shader_node.inputs['Alpha'].default_value
+                shape.shader.Glossiness = self.shader_node.inputs['Metallic'].default_value * GLOSS_SCALE
         except:
             self.warn("Could not determine shader attributes")
 
@@ -605,17 +606,17 @@ class ShaderExporter:
         return False
     
 
-    def write_texture(self, shape, textureslot:int):
+    def write_texture(self, shape, textureslot:str):
         foundpath = ""
     
         try:
-            if textureslot == 0:
+            if textureslot == 'Diffuse':
                 foundpath = self.get_diffuse()
-            elif textureslot == 1:
+            elif textureslot == 'Normal':
                 foundpath = self.get_normal()
-            elif textureslot == 2:
+            elif textureslot == 'SoftLighting':
                 foundpath = get_image_filepath(self.shader_node.inputs['Subsurface Color'])
-            elif textureslot == 7:
+            elif textureslot == 'Specular':
                 foundpath = self.get_specular()
         except:
             self.warn("Could not follow shader nodes to find texture files")
@@ -647,7 +648,7 @@ class ShaderExporter:
 
         if not self.shader_node: return
 
-        for textureslot in range(0, 9):
+        for textureslot in ['Diffuse', 'Normal', 'SoftLighting', 'Specular']:
             self.write_texture(shape, textureslot)
 
         # Write alpha if any after the textures
@@ -670,20 +671,20 @@ class ShaderExporter:
         self.export_textures(new_shape)
         self.export_shader_attrs(new_shape)
         if self.is_obj_space:
-            new_shape.shader_attributes.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
+            new_shape.shader.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
         else:
-            new_shape.shader_attributes.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
+            new_shape.shader.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
 
         #log.debug(f"Exporting vertex color flag: {self.vertex_colors}")
         if self.vertex_colors:
-            new_shape.shader_attributes.shaderflags2_set(ShaderFlags2.VERTEX_COLORS)
+            new_shape.shader.shaderflags2_set(ShaderFlags2.VERTEX_COLORS)
         else:
-            new_shape.shader_attributes.shaderflags2_clear(ShaderFlags2.VERTEX_COLORS)
+            new_shape.shader.shaderflags2_clear(ShaderFlags2.VERTEX_COLORS)
 
         if self.vertex_alpha:
-            new_shape.shader_attributes.shaderflags1_set(ShaderFlags1.VERTEX_ALPHA)
+            new_shape.shader.shaderflags1_set(ShaderFlags1.VERTEX_ALPHA)
         else:
-            new_shape.shader_attributes.shaderflags1_clear(ShaderFlags1.VERTEX_ALPHA)
+            new_shape.shader.shaderflags1_clear(ShaderFlags1.VERTEX_ALPHA)
             
         new_shape.save_shader_attributes()
 

@@ -5,6 +5,7 @@ https://polynook.com/learn/set-up-blender-addon-development-environment-in-windo
 """
 import os
 import sys
+import shutil
 import math
 import pathlib
 import bpy
@@ -1442,7 +1443,7 @@ def TEST_SHADER_LE():
     bpy.ops.import_scene.pynifly(filepath=fileLE)
 
     nifLE = pyn.NifFile(fileLE)
-    shaderAttrsLE = nifLE.shapes[0].shader_attributes
+    shaderAttrsLE = nifLE.shapes[0].shader.properties
     headLE = bpy.context.object
     shadernodes = headLE.active_material.node_tree.nodes
     assert 'Principled BSDF' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
@@ -1450,7 +1451,8 @@ def TEST_SHADER_LE():
     assert 'Normal Map' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     g = shadernodes['Principled BSDF'].inputs['Metallic'].default_value
     assert round(g, 4) == 33/BD.GLOSS_SCALE, f"Glossiness not correct, value is {g}"
-    assert headLE.active_material['BSShaderTextureSet_2'] == r"textures\actors\character\male\MaleHead_sk.dds", f"Expected stashed texture path, found {headLE.active_material['BSShaderTextureSet_2']}"
+    assert headLE.active_material['BSShaderTextureSet_SoftLighting'] == r"textures\actors\character\male\MaleHead_sk.dds", \
+        f"Expected stashed texture path, found {headLE.active_material['BSShaderTextureSet_2']}"
 
     print("## Shader attributes are written on export")
     bpy.ops.object.select_all(action='SELECT')
@@ -1458,15 +1460,15 @@ def TEST_SHADER_LE():
 
     nifcheckLE = pyn.NifFile(outfile)
     
-    assert nifcheckLE.shapes[0].textures[0].lower() == nifLE.shapes[0].textures[0].lower(), \
-        f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[0]}' != '{nifLE.shapes[0].textures[0]}'"
-    assert nifcheckLE.shapes[0].textures[1].lower() == nifLE.shapes[0].textures[1].lower(), \
-        f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[1]}' != '{nifLE.shapes[0].textures[1]}'"
-    assert nifcheckLE.shapes[0].textures[2].lower() == nifLE.shapes[0].textures[2].lower(), \
-        f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[2]}' != '{nifLE.shapes[0].textures[2]}'"
-    assert nifcheckLE.shapes[0].textures[7].lower() == nifLE.shapes[0].textures[7].lower(), \
-        f"Error: Texture paths not preserved: '{nifcheckLE.shapes[0].textures[7]}' != '{nifLE.shapes[0].textures[7]}'"
-    assert nifcheckLE.shapes[0].shader_attributes == shaderAttrsLE, f"Error: Shader attributes not preserved:\n{nifcheckLE.shapes[0].shader_attributes}\nvs\n{shaderAttrsLE}"
+    check = nifcheckLE.shapes[0].textures
+    original = nifLE.shapes[0].textures
+    assert set(check.keys()) == set(original.keys()), "Have same keys"
+    for k in check:
+        assert check[k].lower() == original[k].lower(), f"Value of {k} texture matches"
+
+    checkattrs = nifcheckLE.shapes[0].shader.properties
+    assert not checkattrs.compare(shaderAttrsLE), \
+        f"Shader properties correct: {checkattrs.compare(shaderAttrsLE)}"
 
 
 def TEST_SHADER_SE():
@@ -1479,7 +1481,7 @@ def TEST_SHADER_SE():
     bpy.ops.import_scene.pynifly(filepath=fileSE)
     nifSE = pyn.NifFile(fileSE)
     nifboots = nifSE.shapes[0]
-    shaderAttrsSE = nifboots.shader_attributes
+    shaderAttrsSE = nifboots.shader.properties
     boots = bpy.context.object
     shadernodes = boots.active_material.node_tree.nodes
     assert len(shadernodes) >= 5, "ERROR: Didn't import shader nodes"
@@ -1496,21 +1498,13 @@ def TEST_SHADER_SE():
     nifcheckSE = pyn.NifFile(outfile)
     bootcheck = nifcheckSE.shapes[0]
     
-    assert bootcheck.textures[0].lower() == nifboots.textures[0].lower(), \
-        f"Error: Texture paths not preserved: '{bootcheck.textures[0]}' != '{nifboots.textures[0]}'"
-    assert bootcheck.textures[1].lower() == nifboots.textures[1].lower(), \
-        f"Error: Texture paths not preserved: '{bootcheck.textures[1]}' != '{nifboots.textures[1]}'"
-    assert bootcheck.textures[2].lower() == nifboots.textures[2].lower(), \
-        f"Error: Texture paths not preserved: '{bootcheck.textures[2]}' != '{nifboots.textures[2]}'"
-    assert bootcheck.textures[4] == nifboots.textures[4], \
-        f"Error: Texture paths not preserved: '{bootcheck.textures[4]}' != '{nifboots.textures[4]}'"
-    assert bootcheck.textures[7].lower() == nifboots.textures[7].lower(), \
-        f"Error: Texture paths not preserved: '{bootcheck.textures[7]}' != '{nifboots.textures[7]}'"
-    assert bootcheck.shader_attributes.Env_Map_Scale == shaderAttrsSE.Env_Map_Scale, \
-        f"Error: Shader attributes not preserved:\n{bootcheck.shader_attributes}\nvs\n{shaderAttrsSE}"
+    assert set(bootcheck.textures.keys()) == set(nifboots.textures.keys()), f"Keys are the same"
+    for k in bootcheck:
+        assert bootcheck.textures[k] == nifboots.textures[k], f"{k} texture matches"
+
+    diffs = bootcheck.shader.properties.compare(shaderAttrsSE)
+    assert not diffs, f"No difference in shader properties: {diffs}"
     assert not bootcheck.has_alpha_property, "Boots have no alpha"
-    assert bootcheck.shader_attributes.Env_Map_Scale == shaderAttrsSE.Env_Map_Scale, \
-        f"Environment map scale written correctly: {bootcheck.shader_attributes.Env_Map_Scale}"
 
 
 def TEST_SHADER_FO4():
@@ -1522,29 +1516,35 @@ def TEST_SHADER_FO4():
     headFO4 = bpy.context.object
     
     nifFO4 = pyn.NifFile(fileFO4)
-    shaderAttrsFO4 = nifFO4.shapes[0].shader_attributes
+    shapeorig = nifFO4.shapes[0]
     sh = headFO4.active_material.node_tree.nodes["Principled BSDF"]
     assert sh, "Have shader node"
     txt = headFO4.active_material.node_tree.nodes["Image Texture"]
     assert txt and txt.image and txt.image.filepath, "ERROR: Didn't import images"
-    assert headFO4.active_material[""]
 
-    print("## Shader attributes are written on export")
+    # Shader attributes are written on export
 
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
+    # Put the materials file where the importer will find it.
+    matdir = os.path.split(shapeorig.shader.name)[0]
+    matdirout = os.path.join(r"tests\out", matdir)
+    shutil.os.makedirs(matdirout, exist_ok=True)
+    shutil.copy(os.path.join(r"tests\FO4", shapeorig.shader.name), 
+                os.path.join(r"tests\out", shapeorig.shader.name))
+
     nifcheckFO4 = pyn.NifFile(outfile)
     
-    assert nifcheckFO4.shapes[0].textures[0] == nifFO4.shapes[0].textures[0], \
-        f"Error: Texture paths not preserved: '{nifcheckFO4.shapes[0].textures[0]}' != '{nifFO4.shapes[0].textures[0]}'"
-    assert nifcheckFO4.shapes[0].textures[1] == nifFO4.shapes[0].textures[1], \
-        f"Error: Texture paths not preserved: '{nifcheckFO4.shapes[0].textures[1]}' != '{nifFO4.shapes[0].textures[1]}'"
-    assert nifcheckFO4.shapes[0].textures[2] == nifFO4.shapes[0].textures[2], \
-        f"Error: Texture paths not preserved: '{nifcheckFO4.shapes[0].textures[2]}' != '{nifFO4.shapes[0].textures[2]}'"
-    assert nifcheckFO4.shapes[0].textures[7] == nifFO4.shapes[0].textures[7], \
-        f"Error: Texture paths not preserved: '{nifcheckFO4.shapes[0].textures[7]}' != '{nifFO4.shapes[0].textures[7]}'"
-    assert nifcheckFO4.shapes[0].shader_attributes == shaderAttrsFO4, f"Error: Shader attributes not preserved:\n{nifcheckFO4.shapes[0].shader_attributes}\nvs\n{shaderAttrsFO4}"
-    assert nifcheckFO4.shapes[0].shader_name == nifFO4.shapes[0].shader_name, f"Error: Shader name not preserved: '{nifcheckFO4.shapes[0].shader_name}' != '{nifFO4.shapes[0].shader_name}'"
+    shapecheck = nifcheckFO4.shapes[0]
+
+    assert set(shapecheck.textures.keys()) == set(shapeorig.textures.keys()), \
+        f"Have same keys: {shapecheck.textures.keys()} == {shapeorig.textures.keys()}"
+    for k in shapecheck.textures:
+        assert shapecheck.textures[k] == shapeorig.textures[k], f"Texture {k} matches"
+
+    assert not shapecheck.properties.compare(shapeorig.properties), \
+        f"Shader attributes preserved: {shapecheck.properties.compare(shapeorig.properties)}"
+    assert shapecheck.name == shapeorig.name, f"Error: Shader name not preserved: '{shapecheck.shader_name}' != '{shapeorig.shader_name}'"
 
 
 def TEST_SHADER_ALPHA():
@@ -1568,22 +1568,16 @@ def TEST_SHADER_ALPHA():
     assert 'Normal Map' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
     assert tail.active_material.blend_method == 'CLIP', f"Error: Alpha blend is '{tail.active_material.blend_method}', not 'CLIP'"
 
-    print("## Shader attributes are written on export")
-
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
 
     nifCheck = pyn.NifFile(outfile)
     checkfurshape = nifCheck.shape_dict["tail_fur"]
     
-    assert checkfurshape.textures[0] == furshape.textures[0], \
-        f"Error: Texture paths not preserved: '{checkfurshape.textures[0]}' != '{furshape.textures[0]}'"
-    assert checkfurshape.textures[1] == furshape.textures[1], \
-        f"Error: Texture paths not preserved: '{checkfurshape.textures[1]}' != '{furshape.textures[1]}'"
-    assert checkfurshape.textures[2] == furshape.textures[2], \
-        f"Error: Texture paths not preserved: '{checkfurshape.textures[2]}' != '{furshape.textures[2]}'"
-    assert checkfurshape.textures[7] == furshape.textures[7], \
-        f"Error: Texture paths not preserved: '{checkfurshape.textures[7]}' != '{furshape.textures[7]}'"
-    assert checkfurshape.shader_attributes == furshape.shader_attributes, f"Error: Shader attributes not preserved:\n{checkfurshape.shader_attributes}\nvs\n{furshape.shader_attributes}"
+    assert set(checkfurshape.shader.textures.keys()) == set(furshape.shader.textures.keys())
+    for k in checkfurshape.shader.textures:
+        assert checkfurshape.shader.textures[k] == furshape.shader.textures[k], f"{k} texture matches"
+    diffs = checkfurshape.shader.properties.compare(furshape.shader.properties)
+    assert not diffs, f"No difference in properties: {diffs}"
 
     assert checkfurshape.has_alpha_property, f"Have alpha property"
     assert checkfurshape.alpha_property.flags == furshape.alpha_property.flags, f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.flags} != {furshape.alpha_property.flags}"
@@ -1607,14 +1601,15 @@ def TEST_SHADER_3_3():
 
     nifcheckSE = pyn.NifFile(outfile)
     
-    assert nifcheckSE.shapes[0].textures[0] == r"textures\actors\character\male\MaleBody_1.dds", \
-        f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[0]}'"
-    assert nifcheckSE.shapes[0].textures[1] == r"textures\actors\character\male\MaleBody_1_msn.dds", \
-        f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[1]}'"
-    assert nifcheckSE.shapes[0].textures[2] == r"textures\actors\character\male\MaleBody_1_sk.dds", \
-        f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[2]}'"
-    assert nifcheckSE.shapes[0].textures[7] == r"textures\actors\character\male\MaleBody_1_S.dds", \
-        f"Error: Texture paths not preserved: '{nifcheckSE.shapes[0].textures[7]}'"
+    shaderch = nifcheckSE.shapes[0].shader
+    assert shaderch.textures['Diffuse'] == r"textures\actors\character\male\MaleBody_1.dds", \
+        f"Error: Texture paths not preserved: '{shaderch.textures['DIffuse']}'"
+    assert shaderch.textures['Normal'] == r"textures\actors\character\male\MaleBody_1_msn.dds", \
+        f"Error: Texture paths not preserved: '{shaderch.textures['Normal']}'"
+    assert shaderch.textures["SoftLighting"] == r"textures\actors\character\male\MaleBody_1_sk.dds", \
+        f"Error: Texture paths not preserved: '{shaderch.textures['SoftLighting']}'"
+    assert shaderch.textures['Specular'] == r"textures\actors\character\male\MaleBody_1_S.dds", \
+        f"Error: Texture paths not preserved: '{shaderch.textures['Specular']}'"
 
 
 def TEST_TEXTURE_PATHS():
@@ -1674,8 +1669,8 @@ def TEST_CAVE_GREEN():
     nifcheck = pyn.NifFile(outfile)
     rootscheck = nifcheck.shape_dict["L2_Roots:5"]
     assert rootscheck.has_alpha_property, f"Roots have alpha: {rootscheck.has_alpha_property}"
-    assert rootscheck.shader_attributes.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS), \
-        f"Have vertex colors: {rootscheck.shader_attributes.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS)}"
+    assert rootscheck.shader.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS), \
+        f"Have vertex colors: {rootscheck.shader.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS)}"
 
 
 def TEST_POT():
@@ -2128,8 +2123,8 @@ def TEST_NEW_COLORS():
     shape = nif.shapes[0]
     assert shape.colors, f"Have colors in shape {shape.name}"
     assert shape.colors[10] == (1.0, 1.0, 1.0, 1.0), f"Colors are as expected: {shape.colors[10]}"
-    assert shape.shader_attributes.shaderflags2_test(pyn.ShaderFlags2.VERTEX_COLORS), \
-        f"ShaderFlags2 vertex colors set: {pyn.ShaderFlags2(shape.shader_attributes.Shader_Flags_2).fullname}"
+    assert shape.shader.shaderflags2_test(pyn.ShaderFlags2.VERTEX_COLORS), \
+        f"ShaderFlags2 vertex colors set: {pyn.ShaderFlags2(shape.shader.Shader_Flags_2).fullname}"
 
 
 def TEST_COLOR_CUBES():
@@ -2237,15 +2232,15 @@ def TEST_VERTEX_ALPHA_IO():
     assert head2.alpha_property.flags == head1.alpha_property.flags, f"Error: Alpha flags incorrect: {head2.alpha_property.flags} != {head1.alpha_property.flags}"
     assert head2.alpha_property.threshold == head1.alpha_property.threshold, f"Error: Alpha flags incorrect: {head2.alpha_property.threshold} != {head1.alpha_property.threshold}"
 
-    assert head2.textures[0] == head1.textures[0], \
-        f"Error: Texture paths not preserved: '{head2.textures[0]}' != '{head1.textures[0]}'"
-    assert head2.textures[1] == head1.textures[1], \
-        f"Error: Texture paths not preserved: '{head2.textures[1]}' != '{head1.textures[1]}'"
-    assert head2.textures[2] == head1.textures[2], \
-        f"Error: Texture paths not preserved: '{head2.textures[2]}' != '{head1.textures[2]}'"
-    assert head2.textures[7] == head1.textures[7], \
-        f"Error: Texture paths not preserved: '{head2.textures[7]}' != '{head1.textures[7]}'"
-    assert head2.shader_attributes == head1.shader_attributes, f"Error: Shader attributes not preserved:\n{head2.shader_attributes}\nvs\n{head1.shader_attributes}"
+    assert head2.textures['Diffuse'] == head1.textures['Diffuse'], \
+        f"Error: Texture paths not preserved: '{head2.textures['Diffuse']}' != '{head1.textures['Diffuse']}'"
+    assert head2.textures['Normal'] == head1.textures['Normal'], \
+        f"Error: Texture paths not preserved: '{head2.textures['Normal']}' != '{head1.textures['Normal']}'"
+    assert head2.textures['SoftLighting'] == head1.textures['SoftLighting'], \
+        f"Error: Texture paths not preserved: '{head2.textures['SoftLighting']}' != '{head1.textures['SoftLighting']}'"
+    assert head2.textures['Specular'] == head1.textures['Specular'], \
+        f"Error: Texture paths not preserved: '{head2.textures['Specular']}' != '{head1.textures['Specular']}'"
+    assert head2.shader.properties == head1.shader.properties, f"Error: Shader attributes not preserved:\n{head2.shader.properties}\nvs\n{head1.shader.properties}"
 
 
 def TEST_VERTEX_ALPHA():
@@ -2259,8 +2254,8 @@ def TEST_VERTEX_ALPHA():
     nifcheck = pyn.NifFile(outfile)
     shapecheck = nifcheck.shapes[0]
 
-    assert shapecheck.shader_attributes.Shader_Flags_1 & pyn.ShaderFlags1.VERTEX_ALPHA, \
-        f"Expected VERTEX_ALPHA set: {pyn.ShaderFlags1(shapecheck.shader_attributes.Shader_Flags_1).fullname}"
+    assert shapecheck.shader.shaderflags1_test(pyn.ShaderFlags1.VERTEX_ALPHA), \
+        f"Expected VERTEX_ALPHA set: {pyn.ShaderFlags1(shapecheck.shader.Shader_Flags_1).fullname}"
     assert shapecheck.colors[0][3] == 0.0, f"Expected 0, found {shapecheck.colors[0]}"
     for c in shapecheck.colors:
         assert c[0] == 1.0 and c[1] == 1.0 and c[2] == 1.0, \
@@ -2700,7 +2695,7 @@ def TEST_TREE():
     assert nifcheck.rootNode.blockname == "BSLeafAnimNode", f"Have correct root node type"
     treecheck = nifcheck.shapes[0]
     assert treecheck.blockname == "BSMeshLODTriShape", f"Have correct shape node type"
-    assert treecheck.shader_attributes.shaderflags2_test(pyn.ShaderFlags2.TREE_ANIM), f"Tree animation set"
+    assert treecheck.shader.shaderflags2_test(pyn.ShaderFlags2.TREE_ANIM), f"Tree animation set"
     assert treecheck.properties.vertexCount == 1059, f"Have correct vertex count"
     assert treecheck.properties.lodSize0 == 1126, f"Have correct lodSize0"
 
@@ -4806,7 +4801,7 @@ print("""
 """)
 
 # If set, run these tests only (test name as string).
-test_targets = ['TEST_SHADER_FO4']
+test_targets = ['TEST_SHADER_LE', 'TEST_SHADER_FO4']
 
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.

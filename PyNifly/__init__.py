@@ -332,7 +332,7 @@ def mesh_create_partition_groups(the_shape, the_object):
 
 def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
     try:
-        if (shape.shader_attributes.Shader_Flags_2 & ShaderFlags2.VERTEX_COLORS) \
+        if shape.shader.shaderflags2_test(ShaderFlags2.VERTEX_COLORS) \
             and shape.colors and len(shape.colors) > 0:
             #log.debug(f"Importing vertex colors for {shape.name}")
             clayer = None

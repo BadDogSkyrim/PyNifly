@@ -273,10 +273,18 @@ class pynStructure(Structure):
             if fn[-2:] != 'ID':
                 if '_Array_' in t.__name__:
                     for x, y in zip(self.__getattribute__(fn), other.__getattribute__(fn)):
-                        if x != y:
+                        if type(x) == float and type(y) == float:
+                            if not math.isclose(x, y, abs_tol=10**-5):
+                                return False
+                        elif x != y:
                             return False
                 else:
-                    if self.__getattribute__(fn) != other.__getattribute__(fn):
+                    x = self.__getattribute__(fn)
+                    y = other.__getattribute__(fn)
+                    if type(x) == float and type(y) == float:
+                        if not math.isclose(x, y, abs_tol=10**-5):
+                            return False
+                    elif x != y:
                         return False
         return True
     
