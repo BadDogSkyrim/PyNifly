@@ -4023,5 +4023,13 @@ namespace NiflyDLLTests
 			void* nifCheck = load(outfile.u8string().c_str());
 			TCheckDock(nifCheck, dockCheck);
 		};
+		/* Hangs. It would be nice if it didn't. */
+		//TEST_METHOD(readCorrupt) {
+		//	std::filesystem::path testfile = testRoot / "FO4" / "Corrupt.nif";
+
+		//	void* nif = load(testfile.u8string().c_str());
+		//	char root[100];
+		//	getRootName(nif, root, 100);
+		//};
 	};
 }

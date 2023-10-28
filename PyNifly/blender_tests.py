@@ -1344,7 +1344,7 @@ def TEST_BP_SEGMENTS():
     print("### Can write FO4 segments")
     bpy.ops.object.select_all(action='SELECT')
     e = bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
-    
+
     nif2 = pyn.NifFile(outfile)
     helm2 = nif2.shape_dict["Helmet:0"]
     assert helm2.name == "Helmet:0", "Have the helmet in the nif file"
@@ -4801,12 +4801,12 @@ print("""
 """)
 
 # If set, run these tests only (test name as string).
-test_targets = ['TEST_SHADER_LE', 'TEST_SHADER_FO4']
+test_targets = ['TEST_BP_SEGMENTS']
 
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
 # Use to resume a test run from the point it failed.
-first_test = None
+first_test = ''
 
 
 m = sys.modules[__name__]

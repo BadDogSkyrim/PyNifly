@@ -310,12 +310,18 @@ class pynStructure(Structure):
         fields.
         """
         for fn, t in self._fields_:
-            if fn[-2:] != 'ID' and fn != 'bufType' and fn not in ignore:
+            if fn != 'bufType' and fn != 'bufSize' and fn[-2:] != 'ID' and fn not in ignore:
                 if '_Array_' in t.__name__:
                     v1 = [x for x in self.__getattribute__(fn)]
                     shape[fn] = repr(v1)
                 else:
-                    shape[fn] = self.__getattribute__(fn)
+                    v = self.__getattribute__(fn)
+                    try:
+                        shape[fn] = v
+                    except Exception as e:
+                        # If the value can't be stored natively, store it as a string.
+                        shape[fn] = repr(v)
+                        # print(f"Error: Could not set attribute {fn}: {e}")
 
     def copy(self):
         """ Return a copy of the object """

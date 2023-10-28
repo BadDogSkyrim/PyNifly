@@ -456,7 +456,7 @@ def set_object_textures(shape: NiShape, mat: bpy.types.Material):
     """Set the shape's textures from the value from the material's custom properties."""
     for k, v in mat.items():
         if k.startswith('BSShaderTextureSet_'):
-            slot = k.lstrip('BSShaderTextureSet_')
+            slot = k[len('BSShaderTextureSet_'):]
             shape.set_texture(slot, v)
 
     
@@ -555,6 +555,15 @@ class ShaderExporter:
                 shape.shader_name = self.material['BSLSP_Shader_Name']
 
             shape.shader.properties.load(self.material)
+            if 'BS_Shader_Block_Name' in self.material:
+                if self.material['BS_Shader_Block_Name'] == "BSLightingShaderProperty":
+                    shape.shader.properties.bufType = PynBufferTypes.BSLightingShaderPropertyBufType
+                elif self.material['BS_Shader_Block_Name'] == "BSEffectShaderProperty":
+                    shape.shader.properties.bufType = PynBufferTypes.BSEffectShaderPropertyBufType
+                elif self.material['BS_Shader_Block_Name'] == "BSShaderPPLightingProperty":
+                    shape.shader.properties.bufType = PynBufferTypes.BSShaderPPLightingPropertyBufType
+                else:
+                    self.warn(f"Unknown shader type: {self.material['BS_Shader_Block_Name']}")
 
             for i in range(0, 4):
                 shape.shader.Emissive_Color[i] = self.shader_node.inputs['Emission'].default_value[i]
@@ -562,6 +571,9 @@ class ShaderExporter:
             if shape.shader.blockname == "BSLightingShaderProperty":
                 shape.shader.Alpha = self.shader_node.inputs['Alpha'].default_value
                 shape.shader.Glossiness = self.shader_node.inputs['Metallic'].default_value * GLOSS_SCALE
+
+            shape.save_shader_attributes()
+            
         except:
             self.warn("Could not determine shader attributes")
 
@@ -668,8 +680,10 @@ class ShaderExporter:
 
     def export(self, new_shape:NiShape):
         """Top-level routine for exporting a shape's texture attributes."""
-        self.export_textures(new_shape)
+        if not self.material: return
+
         self.export_shader_attrs(new_shape)
+        self.export_textures(new_shape)
         if self.is_obj_space:
             new_shape.shader.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
         else:
