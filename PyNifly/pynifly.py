@@ -229,6 +229,7 @@ def load_nifly(nifly_path):
     nifly.skinShape.restype = None
 
     pynStructure.nifly = nifly
+    pynStructure.logger = logging.getLogger("pynifly")
 
     return nifly
 
@@ -1706,41 +1707,67 @@ class NiShaderFO4(NiShader):
     @property
     def shaderflags1(self):
         if self.materials:
-            v = 0
-            v |= ShaderFlags1.DECAL if self.materials.decal else 0
-            v |= ShaderFlags1.ENVIRONMENT_MAPPING if self.materials.environmentMapping else 0
-            v |= ShaderFlags1.ZBUFFER_TEST if self.materials.zbuffertest else 0
+            v = self.properties.Shader_Flags_1
+            v &= ~ShaderFlags1.DECAL | (
+                ShaderFlags1.DECAL if self.materials.decal else 0)
+            v &= ~ShaderFlags1.ENVIRONMENT_MAPPING | (
+                ShaderFlags1.ENVIRONMENT_MAPPING if self.materials.environmentMapping else 0)
+            v &= ~ShaderFlags1.ZBUFFER_TEST | (
+                ShaderFlags1.ZBUFFER_TEST if self.materials.zbuffertest else 0)
             if self.materials.signature == b'BGSM':
-                v |= ShaderFlags1.CAST_SHADOWS if self.materials.castShadows else 0
-                v |= ShaderFlags1.EXTERNAL_EMITTANCE if self.materials.externalEmittance else 0
-                v |= ShaderFlags1.EYE_ENVIRONMENT_MAPPING if self.materials.environmentMappingEye else 0
-                v |= ShaderFlags1.HAIR_SOFT_LIGHTING if self.materials.hair else 0
-                v |= ShaderFlags1.OWN_EMIT if self.materials.emitEnabled else 0
-                v |= ShaderFlags1.MODEL_SPACE_NORMALS if self.materials.modelSpaceNormals else 0
-                v |= ShaderFlags1.RECEIVE_SHADOWS if self.materials.receiveShadows else 0
-                v |= ShaderFlags1.SPECULAR if self.materials.specularEnabled else 0
+                v &= ~ShaderFlags1.CAST_SHADOWS | (
+                    ShaderFlags1.CAST_SHADOWS if self.materials.castShadows else 0)
+                v &= ~ShaderFlags1.EXTERNAL_EMITTANCE | (
+                    ShaderFlags1.EXTERNAL_EMITTANCE if self.materials.externalEmittance else 0)
+                v &= ~ShaderFlags1.EYE_ENVIRONMENT_MAPPING | (
+                    ShaderFlags1.EYE_ENVIRONMENT_MAPPING if self.materials.environmentMappingEye else 0)
+                v &= ~ShaderFlags1.HAIR_SOFT_LIGHTING | (
+                    ShaderFlags1.HAIR_SOFT_LIGHTING if self.materials.hair else 0)
+                v &= ~ShaderFlags1.OWN_EMIT | (
+                    ShaderFlags1.OWN_EMIT if self.materials.emitEnabled else 0)
+                v &= ~ShaderFlags1.MODEL_SPACE_NORMALS | (
+                    ShaderFlags1.MODEL_SPACE_NORMALS if self.materials.modelSpaceNormals else 0)
+                v &= ~ShaderFlags1.RECEIVE_SHADOWS | (
+                    ShaderFlags1.RECEIVE_SHADOWS if self.materials.receiveShadows else 0)
+                v &= ~ShaderFlags1.SPECULAR | (
+                    ShaderFlags1.SPECULAR if self.materials.specularEnabled else 0)
             if self.materials.signature == b'BGEM':
-                v |= ShaderFlags1.USE_FALLOFF if self.materials.falloffEnabled else 0
+                v &= ~ShaderFlags1.USE_FALLOFF | (
+                    ShaderFlags1.USE_FALLOFF if self.materials.falloffEnabled else 0)
             return v
         else:
             return self.properties.Shader_Flags_1
         
     @property
     def shaderflags2(self):
+        """
+        Return shader flags. Get flags held in the materials file from there, if any; get
+        the rest from the shader flags in the nif.
+        """
+        v = self.properties.Shader_Flags_2
         if self.materials:
-            v = 0
-            v |= ShaderFlags2.DOUBLE_SIDED if self.materials.twoSided else 0
-            v |= ShaderFlags2.GLOW_MAP if self.materials.glowmap else 0
-            v |= ShaderFlags2.ZBUFFER_WRITE if self.materials.zbufferwrite else 0
+            v &= ~ShaderFlags2.DOUBLE_SIDED | (
+                ShaderFlags2.DOUBLE_SIDED if self.materials.twoSided else 0)
+            v &= ~ShaderFlags2.GLOW_MAP | (
+                ShaderFlags2.GLOW_MAP if self.materials.glowmap else 0)
+            v &= ~ShaderFlags2.ZBUFFER_WRITE | (
+                ShaderFlags2.ZBUFFER_WRITE if self.materials.zbufferwrite else 0)
             if self.materials.signature == b'BGSM':
-                v |= ShaderFlags2.ANISOTROPIC_LIGHTING if self.materials.anisoLighting else 0
-                v |= ShaderFlags2.ASSUME_SHADOWMASK if self.materials.assumeShadowmask else 0
-                v |= ShaderFlags2.BACK_LIGHTING if self.materials.backLighting else 0
-                v |= ShaderFlags2.RIM_LIGHTING if self.materials.rimLighting else 0
-                v |= ShaderFlags2.SOFT_LIGHTING if self.materials.subsurfaceLighting else 0
-                v |= ShaderFlags2.TREE_ANIM if self.materials.tree else 0
+                v &= ~ShaderFlags2.ANISOTROPIC_LIGHTING | (
+                    ShaderFlags2.ANISOTROPIC_LIGHTING if self.materials.anisoLighting else 0)
+                v &= ~ShaderFlags2.ASSUME_SHADOWMASK | (
+                    ShaderFlags2.ASSUME_SHADOWMASK if self.materials.assumeShadowmask else 0)
+                v &= ~ShaderFlags2.BACK_LIGHTING | (
+                    ShaderFlags2.BACK_LIGHTING if self.materials.backLighting else 0)
+                v &= ~ShaderFlags2.RIM_LIGHTING | (
+                    ShaderFlags2.RIM_LIGHTING if self.materials.rimLighting else 0)
+                v &= ~ShaderFlags2.SOFT_LIGHTING | (
+                    ShaderFlags2.SOFT_LIGHTING if self.materials.subsurfaceLighting else 0)
+                v &= ~ShaderFlags2.TREE_ANIM | (
+                    ShaderFlags2.TREE_ANIM if self.materials.tree else 0)
             if self.materials.signature == b'BGEM':
-                v |= ShaderFlags2.EFFECT_LIGHTING if self.materials.effectLightingEnabled else 0
+                v &= ~ShaderFlags2.EFFECT_LIGHTING | (
+                    ShaderFlags2.EFFECT_LIGHTING if self.materials.effectLightingEnabled else 0)
             return v
         else:
             return self.properties.Shader_Flags_2

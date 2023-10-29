@@ -341,7 +341,7 @@ def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
             except:
                 clayer = mesh.vertex_colors.new()
             alphlayer = None
-            if (shape.shader_attributes.Shader_Flags_1 & ShaderFlags1.VERTEX_ALPHA) \
+            if (shape.shader.Shader_Flags_1 & ShaderFlags1.VERTEX_ALPHA) \
                 or (shape.shader_block_name == 'BSEffectShaderProperty'):
                 # If we have a BSEffectShaderProperty we assume the alpha channel is used 
                 # whether or not VERTEX_ALPHA is set. Some FO4 meshes seem to work this way.

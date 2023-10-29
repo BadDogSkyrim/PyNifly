@@ -6,6 +6,7 @@
 import struct
 from enum import Enum, IntFlag, IntEnum
 import math
+import logging
 from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer, addressof
 from pynmathutils import *
 import bgsmaterial
@@ -166,6 +167,11 @@ pynBufferDefaults = {
 
 class pynStructure(Structure):
     nifly = None
+    logger = None
+
+    def warn(self, msg):
+        if pynStructure.logger: pynStructure.logger.warning(msg)
+        self.warnings.append(msg)
 
     def load(self, shape, ignore=[]):
         """
@@ -220,9 +226,9 @@ class pynStructure(Structure):
                 try:
                     self.__setattr__(f, int(shape[f]))
                 except Exception as e:
-                    self.warnings.append(f"Error setting property {f} <- {shape[f]}")
+                    self.warn(f"Error setting property {f} <- {shape[f]}")
             except Exception as e:
-                self.warnings.append(f"Error setting property {f} <- {shape[f]}")
+                self.warn(f"Error setting property {f} <- {shape[f]}")
 
     def __init__(self, values=None):
         """Initialize structure from 'values'."""
@@ -303,25 +309,45 @@ class pynStructure(Structure):
                     if self.__getattribute__(fn) != other.__getattribute__(fn):
                         diffs.append((fn, self.__getattribute__(fn), other.__getattribute__(fn)))
         return diffs
+    
+    def extract_field(self, shape, fieldname, fieldtype):
+        """
+        Extract a single field from the beffer and set as a key/value pair on the
+        dictionary-like "shape". Subclasses can override this for special handling
+        on fields that are interpreted for the user.
+        """
+        if '_Array_' in fieldtype.__name__:
+            v = [x for x in self.__getattribute__(fieldname)]
+        else:
+            v = self.__getattribute__(fieldname)
+        if type(v) == list:
+            shape[fieldname] = repr(v)
+        else:
+            try:
+                shape[fieldname] = v
+            except Exception as e:
+                # If the value can't be stored natively, store it as a string.
+                # This happens when the top bit of a uint32 is set.
+                shape[fieldname] = repr(v)
 
     def extract(self, shape, ignore=[]):
         """
         Extract fields to the dictionary-like object 'shape'. Do not extract any ID
-        fields.
+        fields. Do not extract fields that match their default values.
         """
+        defaults = self.__class__()
         for fn, t in self._fields_:
             if fn != 'bufType' and fn != 'bufSize' and fn[-2:] != 'ID' and fn not in ignore:
                 if '_Array_' in t.__name__:
                     v1 = [x for x in self.__getattribute__(fn)]
-                    shape[fn] = repr(v1)
+                    v2 = [x for x in defaults.__getattribute__(fn)]
                 else:
-                    v = self.__getattribute__(fn)
-                    try:
-                        shape[fn] = v
-                    except Exception as e:
-                        # If the value can't be stored natively, store it as a string.
-                        shape[fn] = repr(v)
-                        # print(f"Error: Could not set attribute {fn}: {e}")
+                    v1 = self.__getattribute__(fn) 
+                    v2 = defaults.__getattribute__(fn)
+                
+                if (type(v2) == float and not math.isclose(v1, v2, abs_tol=10**-5)) \
+                        or (v1 != v2):
+                    self.extract_field(shape, fn, t)
 
     def copy(self):
         """ Return a copy of the object """
@@ -993,51 +1019,63 @@ class NiShaderBuf(pynStructure):
             if f not in ['bufType', 'bufSize'] and f[-2:] != 'ID':
                 other.__setattr__(f, self.__getattribute__(f))
         return other
+    
+    def extract_field(self, shape, fieldname, fieldtype):
+        """Extract a single field value to the shape."""
+        if fieldname == 'Shader_Flags_1':
+            shape[fieldname] = ShaderFlags1(self.Shader_Flags_1).fullname
+        elif fieldname == 'Shader_Flags_2':
+            shape[fieldname] = ShaderFlags2(self.Shader_Flags_2).fullname
+        elif fieldname == 'Shader_Type':
+            shape[fieldname] = BSLSPShaderType(self.Shader_Type).name
+        else:
+            super().extract_field(shape, fieldname, fieldtype)
 
-    def extract(self, shape, ignore=[]):
-        """
-        Extract fields to the dictionary-like object 'shape'. Extract only fields that
-        differ from their default values. Do not extract any ID fields.
-        """
-        defaults = NiShaderBuf()
-        for fn, t in self._fields_:
-            if fn[-2:] != 'ID' and fn != 'bufType':
-                if '_Array_' in t.__name__:
-                    v1 = [x for x in self.__getattribute__(fn)]
-                    v2 = [x for x in defaults.__getattribute__(fn)]
-                else:
-                    v1 = self.__getattribute__(fn) 
-                    v2 = defaults.__getattribute__(fn)
+    # def extract(self, shape, ignore=[]):
+    #     """
+    #     Extract fields to the dictionary-like object 'shape'. Extract only fields that
+    #     differ from their default values. Do not extract any ID fields.
+    #     """
 
-                if (type(v2) == float and not math.isclose(v1, v2, abs_tol=10**-5)) \
-                        or (v1 != v2):
-                    if fn == 'Shader_Flags_1':
-                        shape[fn] = ShaderFlags1(self.Shader_Flags_1).fullname
-                    elif fn == 'Shader_Flags_2':
-                        shape[fn] = ShaderFlags2(self.Shader_Flags_2).fullname
-                    elif fn == 'Shader_Type':
-                        shape[fn] = BSLSPShaderType(self.Shader_Type).name
-                    elif fn in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
-                        shape[fn] = SkyrimCollisionLayer(self.__getattribute__(fn)).name
-                    elif fn == 'broadPhaseType':
-                        shape[fn] = BroadPhaseType(self.broadPhaseType).name
-                    elif fn == 'collisionResponse':
-                        shape[fn] = hkResponseType(self.collisionResponse).name
-                    elif fn == 'motionSystem':
-                        shape[fn] = hkMotionType(self.motionSystem).name
-                    elif fn == 'deactivatorType':
-                        shape[fn] = hkDeactivatorType(self.deactivatorType).name
-                    elif fn == 'solverDeactivation': 
-                        shape[fn] = hkSolverDeactivation(self.solverDeactivation).name
-                    elif fn == 'qualityType':
-                        shape[fn] = hkQualityType(self.qualityType).name
-                    elif fn == 'qualityType':
-                        shape[fn] = hkQualityType(self.qualityType).name
-                    else:
-                        if type(v1) == list:
-                            shape[fn] = repr(v1)
-                        else:
-                            shape[fn] = v1
+    #     defaults = NiShaderBuf()
+    #     for fn, t in self._fields_:
+    #         if fn[-2:] != 'ID' and fn != 'bufType':
+    #             if '_Array_' in t.__name__:
+    #                 v1 = [x for x in self.__getattribute__(fn)]
+    #                 v2 = [x for x in defaults.__getattribute__(fn)]
+    #             else:
+    #                 v1 = self.__getattribute__(fn) 
+    #                 v2 = defaults.__getattribute__(fn)
+
+    #             if (type(v2) == float and not math.isclose(v1, v2, abs_tol=10**-5)) \
+    #                     or (v1 != v2):
+    #                 if fn == 'Shader_Flags_1':
+    #                     shape[fn] = ShaderFlags1(self.Shader_Flags_1).fullname
+    #                 elif fn == 'Shader_Flags_2':
+    #                     shape[fn] = ShaderFlags2(self.Shader_Flags_2).fullname
+    #                 elif fn == 'Shader_Type':
+    #                     shape[fn] = BSLSPShaderType(self.Shader_Type).name
+    #                 elif fn in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
+    #                     shape[fn] = SkyrimCollisionLayer(self.__getattribute__(fn)).name
+    #                 elif fn == 'broadPhaseType':
+    #                     shape[fn] = BroadPhaseType(self.broadPhaseType).name
+    #                 elif fn == 'collisionResponse':
+    #                     shape[fn] = hkResponseType(self.collisionResponse).name
+    #                 elif fn == 'motionSystem':
+    #                     shape[fn] = hkMotionType(self.motionSystem).name
+    #                 elif fn == 'deactivatorType':
+    #                     shape[fn] = hkDeactivatorType(self.deactivatorType).name
+    #                 elif fn == 'solverDeactivation': 
+    #                     shape[fn] = hkSolverDeactivation(self.solverDeactivation).name
+    #                 elif fn == 'qualityType':
+    #                     shape[fn] = hkQualityType(self.qualityType).name
+    #                 elif fn == 'qualityType':
+    #                     shape[fn] = hkQualityType(self.qualityType).name
+    #                 else:
+    #                     if type(v1) == list:
+    #                         shape[fn] = repr(v1)
+    #                     else:
+    #                         shape[fn] = v1
 
     def shaderflags1_test(self, flag):
         return (self.Shader_Flags_1 & flag) != 0
@@ -1243,9 +1281,30 @@ class bhkRigidBodyProps(pynStructure):
         ('constraintCount', c_uint16),
         ('bodyFlagsInt', c_uint32),
         ('bodyFlags', c_uint16)]
+    
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkRigidBodyBufType
+
+    def extract_field(self, shape, fieldname, fieldtype):
+        """Extract a single field value to the shape."""
+        if fieldname in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
+            shape[fieldname] = SkyrimCollisionLayer(self.__getattribute__(fieldname)).name
+        elif fieldname == 'broadPhaseType':
+            shape[fieldname] = BroadPhaseType(self.broadPhaseType).name
+        elif fieldname == 'collisionResponse':
+            shape[fieldname] = hkResponseType(self.collisionResponse).name
+        elif fieldname == 'motionSystem':
+            shape[fieldname] = hkMotionType(self.motionSystem).name
+        elif fieldname == 'deactivatorType':
+            shape[fieldname] = hkDeactivatorType(self.deactivatorType).name
+        elif fieldname == 'solverDeactivation': 
+            shape[fieldname] = hkSolverDeactivation(self.solverDeactivation).name
+        elif fieldname == 'qualityType':
+            shape[fieldname] = hkQualityType(self.qualityType).name
+        else:
+            super().extract_field(shape, fieldname, fieldtype)
+
 bufferTypeList[PynBufferTypes.bhkRigidBodyBufType] = 'bhkRigidBody'
 blockBuffers['bhkRigidBody'] = bhkRigidBodyProps
 
@@ -1799,82 +1858,123 @@ HAVOC_SCALE_FACTOR = HSF = 69.99125
 game_collision_sf = {"FONV": 0.1, "FO3": 0.1, "FO4": 1.0, "FO4VR": 10, "FO76": 1.0,
                      "SKYRIM": 1.0, "SKYRIMSE": 1.0, "SKYRIMVR": 1.0}
 
+class ModuleTest:
+    """Quick and dirty test harness."""
+
+    @property
+    def all_tests(self):
+        return [k for k in ModuleTest.__dict__.keys() if k.startswith('TEST_')]
+
+        
+    def execute_test(self, t):
+        print(f"\n------------- {t} -------------")
+        the_test = ModuleTest.__dict__[t]
+        print(the_test.__doc__)
+        the_test()
+        print(f"------------- done")
+
+    
+    def execute(self, start=None, test=None):
+        print("""\n
+=====================================================================
+======================= Running nifdefs tests =======================
+=====================================================================
+
+""")
+        if test:
+            self.execute_test(test)
+        else:
+            doit = (start is None) 
+            for name in self.all_tests:
+                if name == start: doit = True
+                if doit:
+                    self.execute_test(name)
+
+        print("""
+
+============================================================================
+======================= TESTS COMPLETED SUCCESSFULLY =======================
+============================================================================
+""")
+
+
+    def TEST_FIELDS():
+        print("--- Verifying what we can do with fields ---")
+        class TestFields:
+            _fields_ = [
+                ('field1', c_uint16),
+                ('field2', VECTOR3),
+                ('field3', CHAR256),
+            ]
+
+
+    def TEST_MATRICES():
+        print("--- Testing matrix and transform math")
+        m1 = pynMatrix([[12,7,3],
+                    [4 ,5,6],
+                    [7 ,8,9]])
+        m2 = pynMatrix([[5,8,1,2],
+                    [6,7,3,0],
+                    [4,5,9,1]])
+        assert m1 * m2 == pynMatrix([[114, 160, 60, 27], 
+                                [74, 97, 73, 14], 
+                                [119, 157, 112, 23]]), f"Can multiply arrays"
+
+        xb1 = TransformBuf()
+        xb1.translation = VECTOR3(1, 2, 3)
+        xb1.rotation = MATRIX3((1,0,0),(0,1,0),(0,0,1))
+        xb1.scale = 1
+        assert xb1.to_matrix() == pynMatrix([[1,0,0,1], [0,1,0,2], [0,0,1,3], [0,0,0,1]]), f"Can convert to matrix"
+
+        xb2 = TransformBuf()
+        xb2.translation = VECTOR3(4, 5, 6)
+        xb2.rotation = MATRIX3((1,0,0),(0,1,0),(0,0,1))
+        xb2.scale = 1
+
+        xbm = xb1 * xb2
+        assert list(xbm.translation) == [5, 7, 9], f"TransformBuf operations are correct"
+
+        xv = xb1 * VECTOR3(8, 9, 10)
+        assert list(xv) == [9, 11, 13], f"Multiplying transform buf by vector produces a transformed vector {list(xv)}"
+
+
+    def TEST_STRUCTURES():
+        print("--- Testing structures")
+        p = bhkRigidBodyProps({"maxLinearVelocity": 555})
+        assert round(p.maxLinearVelocity, 4) == 555, f"Expected 555, found {p.maxLinearVelocity}"
+
+        p = bhkRigidBodyProps()
+        assert round(p.maxLinearVelocity, 4) == 104.4, f"Expected default value 104.4, found {p.maxLinearVelocity}"
+        assert p.collisionFilter_layer == SkyrimCollisionLayer.STATIC.value
+
+        s = {"prop_size": 10,
+            "collisionFilter_layer": "WEAPON"}
+
+        p.load(s)
+
+        assert p.prop_size == 10
+        assert p.collisionFilter_layer == 5
+
+        print("--- Testing that properties report warnings when missing or incomprehensible")
+        p1 = bhkConvexVerticesShapeProps({"bhkMaterial": "BROKEN_STONE"})
+        assert len(p1.warnings) == 0, f"No warnings reported"
+
+        p2 = bhkConvexVerticesShapeProps({"bhkMaterial": "26"})
+        assert len(p2.warnings) == 0, f"Warnings are reported"
+        assert p2.bhkMaterial == 26, f"Material value is correct: {p2.bhkMaterial}"
+
+        p3 = bhkConvexVerticesShapeProps({"bhkRadius": "FOO"})
+        assert len(p3.warnings) > 0, f"Warnings are reported"
+        print(p3.warnings)
+
+        print("---Testing that getting a material name always works")
+        assert SkyrimHavokMaterial.get_name(3049421844) == "MATERIAL_BONE", f"Material correct: {SkyrimHavokMaterial.get_name(3049421844)}"
+        assert SkyrimHavokMaterial.get_name(53) == "53", f"Material correct: {SkyrimHavokMaterial.get_name(53)}"
+
+
 if __name__ == "__main__":
-    print("---------TEST Loader--------")
-
-    print("--- Verifying what we can do with fields ---")
-    class TestFields:
-        _fields_ = [
-            ('field1', c_uint16),
-            ('field2', VECTOR3),
-            ('field3', CHAR256),
-        ]
-
-    print("--- Testing matrix and transform math")
-    m1 = pynMatrix([[12,7,3],
-                 [4 ,5,6],
-                 [7 ,8,9]])
-    m2 = pynMatrix([[5,8,1,2],
-                 [6,7,3,0],
-                 [4,5,9,1]])
-    assert m1 * m2 == pynMatrix([[114, 160, 60, 27], 
-                              [74, 97, 73, 14], 
-                              [119, 157, 112, 23]]), f"Can multiply arrays"
-
-    xb1 = TransformBuf()
-    xb1.translation = VECTOR3(1, 2, 3)
-    xb1.rotation = MATRIX3((1,0,0),(0,1,0),(0,0,1))
-    xb1.scale = 1
-    assert xb1.to_matrix() == pynMatrix([[1,0,0,1], [0,1,0,2], [0,0,1,3], [0,0,0,1]]), f"Can convert to matrix"
-
-    xb2 = TransformBuf()
-    xb2.translation = VECTOR3(4, 5, 6)
-    xb2.rotation = MATRIX3((1,0,0),(0,1,0),(0,0,1))
-    xb2.scale = 1
-
-    xbm = xb1 * xb2
-    assert list(xbm.translation) == [5, 7, 9], f"TransformBuf operations are correct"
-
-    xv = xb1 * VECTOR3(8, 9, 10)
-    assert list(xv) == [9, 11, 13], f"Multiplying transform buf by vector produces a transformed vector {list(xv)}"
-
-    print("--- Testing structures")
-    p = bhkRigidBodyProps({"maxLinearVelocity": 555})
-    assert round(p.maxLinearVelocity, 4) == 555, f"Expected 555, found {p.maxLinearVelocity}"
-
-    p = bhkRigidBodyProps()
-    assert round(p.maxLinearVelocity, 4) == 104.4, f"Expected default value 104.4, found {p.maxLinearVelocity}"
-    assert p.collisionFilter_layer == SkyrimCollisionLayer.STATIC.value
-
-    s = {"prop_size": 10,
-         "collisionFilter_layer": "WEAPON"}
-
-    p.load(s)
-
-    assert p.prop_size == 10
-    assert p.collisionFilter_layer == 5
-
-    print("--- Testing that properties report warnings when missing or incomprehensible")
-    p1 = bhkConvexVerticesShapeProps({"bhkMaterial": "BROKEN_STONE"})
-    assert len(p1.warnings) == 0, f"No warnings reported"
-
-    p2 = bhkConvexVerticesShapeProps({"bhkMaterial": "26"})
-    assert len(p2.warnings) == 0, f"Warnings are reported"
-    assert p2.bhkMaterial == 26, f"Material value is correct: {p2.bhkMaterial}"
-
-    p3 = bhkConvexVerticesShapeProps({"bhkRadius": "FOO"})
-    assert len(p3.warnings) > 0, f"Warnings are reported"
-    print(p3.warnings)
-
-    print("---Testing that getting a material name always works")
-    assert SkyrimHavokMaterial.get_name(3049421844) == "MATERIAL_BONE", f"Material correct: {SkyrimHavokMaterial.get_name(3049421844)}"
-    assert SkyrimHavokMaterial.get_name(53) == "53", f"Material correct: {SkyrimHavokMaterial.get_name(53)}"
-
-    print("""
-    ############################################################
-    ##                                                        ##
-    ##                    TESTS DONE                          ##
-    ##                                                        ##
-    ############################################################
-    """)
+    pynStructure.logger = logging.getLogger("pynifly")
+    logging.basicConfig()
+    pynStructure.logger.setLevel(logging.DEBUG)
+    ModuleTest().execute()
 

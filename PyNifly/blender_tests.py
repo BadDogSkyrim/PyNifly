@@ -1499,7 +1499,7 @@ def TEST_SHADER_SE():
     bootcheck = nifcheckSE.shapes[0]
     
     assert set(bootcheck.textures.keys()) == set(nifboots.textures.keys()), f"Keys are the same"
-    for k in bootcheck:
+    for k in bootcheck.textures:
         assert bootcheck.textures[k] == nifboots.textures[k], f"{k} texture matches"
 
     diffs = bootcheck.shader.properties.compare(shaderAttrsSE)
@@ -1511,6 +1511,8 @@ def TEST_SHADER_FO4():
     """Shader attributes are read and turned into Blender shader nodes"""
     fileFO4 = TT.test_file(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_FO4.nif")
+    matin = TT.test_file(r"tests\FO4\Materials\Actors\Character\BaseHumanMale\basehumanskinHead.bgsm")
+    matout = TT.test_file(r"tests\Out\Materials\Actors\Character\BaseHumanMale\basehumanskinHead.bgsm")
 
     bpy.ops.import_scene.pynifly(filepath=fileFO4)
     headFO4 = bpy.context.object
@@ -1527,11 +1529,10 @@ def TEST_SHADER_FO4():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
     # Put the materials file where the importer will find it.
-    matdir = os.path.split(shapeorig.shader.name)[0]
-    matdirout = os.path.join(r"tests\out", matdir)
-    shutil.os.makedirs(matdirout, exist_ok=True)
-    shutil.copy(os.path.join(r"tests\FO4", shapeorig.shader.name), 
-                os.path.join(r"tests\out", shapeorig.shader.name))
+    if not os.path.exists(matout):
+        matdirout = os.path.split(matout)[0]
+        shutil.os.makedirs(matdirout, exist_ok=True)
+        shutil.copy(matin, matout)
 
     nifcheckFO4 = pyn.NifFile(outfile)
     
@@ -2119,7 +2120,7 @@ def TEST_NEW_COLORS():
                       "SKYRIMSE",
                       outfile)
 
-    nif = pyn.NifFile(r"tests/Out/TEST_NEW_COLORS.nif")
+    nif = pyn.NifFile(outfile)
     shape = nif.shapes[0]
     assert shape.colors, f"Have colors in shape {shape.name}"
     assert shape.colors[10] == (1.0, 1.0, 1.0, 1.0), f"Colors are as expected: {shape.colors[10]}"
@@ -2240,7 +2241,8 @@ def TEST_VERTEX_ALPHA_IO():
         f"Error: Texture paths not preserved: '{head2.textures['SoftLighting']}' != '{head1.textures['SoftLighting']}'"
     assert head2.textures['Specular'] == head1.textures['Specular'], \
         f"Error: Texture paths not preserved: '{head2.textures['Specular']}' != '{head1.textures['Specular']}'"
-    assert head2.shader.properties == head1.shader.properties, f"Error: Shader attributes not preserved:\n{head2.shader.properties}\nvs\n{head1.shader.properties}"
+    dif = head2.shader.properties.compare(head1.shader.properties)
+    assert not dif, f"Error: Shader attributes not preserved: {dif}"
 
 
 def TEST_VERTEX_ALPHA():
@@ -2735,7 +2737,10 @@ def TEST_BOW():
     collbody = coll.children[0]
     assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
     assert collbody['collisionFilter_layer'] == nifdefs.SkyrimCollisionLayer.WEAPON.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
-    assert collbody["collisionResponse"] == nifdefs.hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
+
+    # Default collision response is 1 = SIMPLE_CONTACT, so no property for it.
+    # assert collbody["collisionResponse"] == nifdefs.hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
+
     assert TT.VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
 
     collshape = collbody.children[0]
@@ -3192,7 +3197,7 @@ def TEST_COLLISION_CONVEXVERT():
         collbody = coll.children[0]
         assert collbody.name == 'bhkRigidBody', f"Child of collision is the collision body object"
         assert collbody['collisionFilter_layer'] == nifdefs.SkyrimCollisionLayer.CLUTTER.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
-        assert collbody["collisionResponse"] == nifdefs.hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
+        # assert collbody["collisionResponse"] == nifdefs.hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
 
         collshape = collbody.children[0]
         assert collshape.name == 'bhkConvexVerticesShape', f"Collision shape is child of the collision body"
@@ -4801,12 +4806,12 @@ print("""
 """)
 
 # If set, run these tests only (test name as string).
-test_targets = ['TEST_BP_SEGMENTS']
+test_targets = []
 
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
 # Use to resume a test run from the point it failed.
-first_test = ''
+first_test = 'TEST_NEW_COLORS'
 
 
 m = sys.modules[__name__]
