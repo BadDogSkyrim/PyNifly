@@ -331,6 +331,8 @@ def TEST_IMP_EXP_FO4_2():
     armorin = impnif.shape_dict['Pack_UnderArmor_03_M:0']
     TT.compare_shapes(bodyin, bodyout, body, e=0.001, ignore_translations=True)
     TT.compare_shapes(armorin, armorout, armor, e=0.001, ignore_translations=True)
+    for tl in ['Diffuse', 'Normal', 'Specular']:
+        assert bodyin.textures[tl] == bodyout.textures[tl], f"{tl} textures match"
 
 
 def TEST_ROUND_TRIP():
@@ -4806,12 +4808,12 @@ print("""
 """)
 
 # If set, run these tests only (test name as string).
-test_targets = []
+test_targets = ['TEST_IMP_EXP_FO4_2']
 
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
 # Use to resume a test run from the point it failed.
-first_test = 'TEST_NEW_COLORS'
+first_test = ''
 
 
 m = sys.modules[__name__]

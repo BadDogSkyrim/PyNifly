@@ -168,7 +168,8 @@ def close_bounds(obja, objb, epsilon=1.0):
     assert VNearEqual(objmin, mina, epsilon=1.0), f"Collision just covers bow: {objmin} ~~ {mina}"
 
 def compare_shapes(inshape, outshape, blshape, e=0.0001, scale=1.0, ignore_translations=False):
-    """Compare significant characteristics of two nif shapes and a Blender object.
+    """
+    Compare significant characteristics of two nif shapes and a Blender object.
     Fail with error message if any are different.
     
     *   ignore_transforms indicates that the transform on the base shape should be

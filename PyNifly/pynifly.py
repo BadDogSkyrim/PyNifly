@@ -1626,11 +1626,12 @@ class NiShader(NiObject):
                 if self.properties.shaderflags2_test(ShaderFlags2.MULTI_LAYER_PARALLAX):
                     self._textures["InnerLayer"] = self._readtexture(f, s, 7)
 
-                if self.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+                if (self.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
+                    or self.properties.shaderflags1_test(ShaderFlags1.SPECULAR)):
                     self._textures["Specular"] = self._readtexture(f, s, 8)
 
             if self.properties.bufType == PynBufferTypes.BSEffectShaderPropertyBufType:
-                self._textures['Base'] = self.properties.sourceTexture.decode()
+                self._textures['Diffuse'] = self.properties.sourceTexture.decode()
                 self._textures['Greyscale'] = self.properties.greyscaleTexture.decode()
                 self._textures['EnvMap'] = self.properties.envMapTexture.decode()
                 self._textures['Normal'] = self.properties.normalTexture.decode()
@@ -1667,7 +1668,7 @@ class NiShader(NiObject):
                 NifFile.nifly.setShaderTextureSlot(
                     self.file._handle, self._parent._handle, 7, texturepath.encode('utf-8'))
         if self.properties.bufType == PynBufferTypes.BSEffectShaderPropertyBufType:
-            if slot == 'Base':
+            if slot == 'Diffuse':
                 self.properties.sourceTexture = texturepath.encode('utf-8')
             if slot == 'Greyscale':
                 self.properties.greyscaleTexture = texturepath.encode('utf-8')
@@ -4207,7 +4208,7 @@ class ModuleTest:
             assert NearEqual(sh.UV_Scale_U, 10.0), f"Have correct UV scale: {sh.UV_Scale_U}"
             assert sh.textureClampMode == 3, f"Have correct textureClampMode: {sh.textureClampMode}"
 
-            assert sh.textures['Base'] == r"textures\effects\VaporTile02.dds", f"Source texture correct: {sh.textures['Base']}"
+            assert sh.textures['Diffuse'] == r"textures\effects\VaporTile02.dds", f"Source texture correct: {sh.textures['Diffuse']}"
             assert sh.textures['Greyscale'] == r"textures\effects\gradients\GradDisguiseShader02.dds", f"Greyscale texture correct {sh.textures['Greyscale']}"
 
         print("---Read---")
@@ -4249,7 +4250,7 @@ class ModuleTest:
             # assert glass_attr.sourceTexture.decode() == "Armor/FlightHelmet/Helmet_03_d.dds", \
             #     f"Source texture correct: {glass_attr.sourceTexture}"
 
-            assert glass.textures["Base"] == "Armor/FlightHelmet/Helmet_03_d.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_d.dds', got {glass.textures}"
+            assert glass.textures['Diffuse'] == "Armor/FlightHelmet/Helmet_03_d.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_d.dds', got {glass.textures}"
             assert glass.textures["Normal"] == "Armor/FlightHelmet/Helmet_03_n.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_n.dds', got {glass.textures[1]}"
             assert glass.textures["EnvMapMask"] == "Armor/FlightHelmet/Helmet_03_s.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_s.dds', got {glass.textures[5]}"
 
