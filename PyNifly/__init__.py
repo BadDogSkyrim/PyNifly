@@ -8,7 +8,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (12, 5, 0),  
+    "version": (13, 0, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -4335,13 +4335,22 @@ class NifExporter:
                 xfinv = xfoffs.inverted()
                 tb_bind = pack_xf_to_buf(xfinv, self.scale)
                 new_shape.set_skin_to_bone_xform(nifname, tb_bind)
+                # DEBUGGING
+                if bone_name == 'Chest':
+                    print(f'Chest transform in {obj.name}')
+                    print(tb_bind)
             else:
                 # Have to set skin-to-bone again because adding the bones nuked it
                 xf = get_bone_xform(arma, bone_name, self.game, False, self.export_pose)
                 xfoffs = obj.matrix_local.inverted() @ xf
                 # xfoffs = obj.matrix_world.inverted() @ xf
+                if bone_name == 'Chest':
+                    log.debug(f"Chest bone xf rel = \n{xfoffs}")
                 xfinv = xfoffs.inverted()
                 tb = pack_xf_to_buf(xfinv, self.scale)
+                if bone_name == 'Chest':
+                    log.debug(f"Chest sk2b = \n{xfinv}")
+                    
                 new_shape.set_skin_to_bone_xform(nifname, tb)
 
             self.writtenbones[bone_name] = nifname

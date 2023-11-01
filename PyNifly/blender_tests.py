@@ -185,6 +185,51 @@ def TEST_SKIN_BONE_XF():
     assert TT.NearEqual(sk2b_spine.translation[2], 29.419632), f"Have correct z: {sk2b_spine.translation[2]}"
 
 
+def TEST_BODYPART_ALIGHMENT_FO4():
+    """Should be able to write bodyparts and have the transforms match exactly."""
+    headfile = TT.test_file(r"tests\FO4\FoxFemaleHead.nif")
+    skelfile = TT.test_file(r"tests\FO4\skeleton.nif")
+    bodyfile = TT.test_file(r"tests\FO4\CanineFemBody.nif")
+    headout = TT.test_file(r"tests\out\TEST_BODYPART_ALIGHMENT_FO4_head.nif", output=True)
+    bodyout = TT.test_file(r"tests\out\TEST_BODYPART_ALIGHMENT_FO4_body.nif", output=True)
+
+    # Read the body parts using the same skeleton
+    bpy.ops.import_scene.pynifly(filepath=skelfile, do_create_bones=False)
+    skel = bpy.context.object
+    bpy.ops.import_scene.pynifly(filepath=bodyfile, do_create_bones=False)
+    body = bpy.context.object
+    BD.ObjectSelect([skel], active=True)
+    bpy.ops.import_scene.pynifly(filepath=headfile, do_create_bones=False)
+    head = bpy.context.object
+
+    # Write the body parts
+    BD.ObjectSelect([body], active=True)
+    bpy.ops.export_scene.pynifly(filepath=bodyout)
+    BD.ObjectSelect([head], active=True)
+    bpy.ops.export_scene.pynifly(filepath=headout)
+
+    # Any verts in the same locations must have the same transforms.
+    headNifCheck = pyn.NifFile(headout)
+    headCheck = headNifCheck.shapes[0]
+    bodyNifCheck = pyn.NifFile(bodyout)
+    bodyCheck = bodyNifCheck.shapes[0]
+    matchingPairsHB = [(3, 327), (16, 219), (1915, 1)]
+    for hvi, bvi in matchingPairsHB:
+        assert BD.VNearEqual(headCheck.verts[hvi], bodyCheck.verts[bvi]), "Matching verts at same location"
+    # for i, vh in enumerate(headCheck.verts):
+    #     for j, vb in enumerate(bodyCheck.verts):
+    #         if BD.VNearEqual(vh, vb):
+    #             print(f"Head {i} == Body {j}")
+    for bn in ['Chest', 'Chest_skin', 'RArm_Collarbone_skin']:
+        print(bn)
+        print(headCheck.get_shape_skin_to_bone(bn).translation[:])
+        print(bodyCheck.get_shape_skin_to_bone(bn).translation[:])
+        assert BD.VNearEqual(headCheck.get_shape_skin_to_bone(bn).translation[:], 
+                             bodyCheck.get_shape_skin_to_bone(bn).translation[:],
+                             epsilon=0.0001), \
+            f"Translations don't match: {headCheck.get_shape_skin_to_bone(bn).translation[:]} != {bodyCheck.get_shape_skin_to_bone(bn).translation[:]}"
+
+
 def TEST_IMP_EXP_SKY():
     """Can read the armor nif and spit it back out"""
     # Round trip of ordinary Skyrim armor, with and without scale factor.
@@ -4808,7 +4853,7 @@ print("""
 """)
 
 # If set, run these tests only (test name as string).
-test_targets = ['TEST_IMP_EXP_FO4_2']
+test_targets = []
 
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
@@ -4818,16 +4863,22 @@ first_test = ''
 
 m = sys.modules[__name__]
 
-if test_targets:
-    testlist = test_targets
-else:
-    testlist = [k for k in m.__dict__.keys() if k.startswith('TEST_')]
+if bpy.data:
+    if test_targets:
+        testlist = test_targets
+    else:
+        testlist = [k for k in m.__dict__.keys() if k.startswith('TEST_')]
 
-doit = True
-if first_test: doit = False
-for name in testlist:
-    if name == first_test: doit = True
-    if doit: 
+    try:
+        testlist = testlist[testlist.index(first_test):]
+    except:
+        pass
+
+    for n in testlist:
+        t = m.__dict__[n]
+        print(f"{n:30}{t.__doc__}")
+
+    for name in testlist:
         t = m.__dict__[name]
         print (f"\n\n\n++++++++++++++++++++++++++++++ {name} ++++++++++++++++++++++++++++++")
         if t.__doc__: print (f"{t.__doc__}")
@@ -4836,10 +4887,15 @@ for name in testlist:
         print (      f"------------------------------ {name} ------------------------------\n")
         bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
-print("""
-=============================================================================
-===                                                                       ===
-===                               SUCCESS                                 ===
-===                                                                       ===
-=============================================================================
-""")
+    print("""
+    =============================================================================
+    ===                                                                       ===
+    ===                               SUCCESS                                 ===
+    ===                                                                       ===
+    =============================================================================
+    """)
+else:
+    testlist = [k for k in m.__dict__.keys() if k.startswith('TEST_')]
+    for n in testlist:
+        t = m.__dict__[n]
+        print(f"{n:25}{t.__doc__}")

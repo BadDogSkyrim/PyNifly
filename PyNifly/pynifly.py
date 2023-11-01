@@ -4966,4 +4966,4 @@ if __name__ == "__main__":
     # tester.execute()
     # tester.execute(start='TEST_KF')
     # tester.execute(test='TEST_SHADER')
-    tester.execute()
+    tester.execute('TEST_SHADER')

@@ -394,7 +394,7 @@ class BGEMaterial(MaterialFile):
     
     def _read(self, f):
         super()._read(f)
-        self.read_text('Base')
+        self.read_text('Diffuse')
         self.read_text('Greyscale')
         self.read_text('EnvMap')
         self.read_text('Normal')
@@ -474,8 +474,8 @@ class TestModule:
         m = MaterialFile.Open(testfile)
         assert m.signature.decode() == "BGEM", f"Read signature: {m.signature.decode()}"
         assert m.version == 2, f"Read version: {m.version}"
-        assert m.textures['Base'] == r"Armor/FlightHelmet/Helmet_03_d.dds", \
-            f"Have correct base texture: {m.textures['Base']}"
+        assert m.textures['Diffuse'] == r"Armor/FlightHelmet/Helmet_03_d.dds", \
+            f"Have correct Diffuse texture: {m.textures['Diffuse']}"
         assert m.environmentMappingMaskScale == 1.5, "environmentMappingMaskScale is correct: {m.environmentMappingMaskScale}"
         assert m.bloodEnabled, "bloodEnabled is enabled."
         assert m.falloffEnabled, "Falloff is enabled."
