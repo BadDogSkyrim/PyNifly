@@ -13,6 +13,7 @@ GLOSS_SCALE = 100
 ATTRIBUTE_NODE_HEIGHT = 200
 TEXTURE_NODE_WIDTH = 400
 TEXTURE_NODE_HEIGHT = 290
+INPUT_NODE_HEIGHT = 100
 
 NISHADER_IGNORE = ['bufSize', 
                    'bufType', 
@@ -137,7 +138,8 @@ class ShaderImporter:
 
             if shader.blockname == 'BSLightingShaderProperty':
                 self.bsdf.inputs['Alpha'].default_value = shader.Alpha
-                self.bsdf.inputs['Metallic'].default_value = shader.Glossiness/GLOSS_SCALE
+                self.nodes['Glossiness'].outputs['Value'].default_value = shader.Glossiness
+                # self.bsdf.inputs['Metallic'].default_value = shader.Glossiness/GLOSS_SCALE
             elif shape.shader_block_name == 'BSEffectShaderProperty':
                 self.bsdf.inputs['Alpha'].default_value = shader.Falloff_Start_Opacity
 
@@ -183,8 +185,8 @@ class ShaderImporter:
         self.link(tc.outputs['UV'], self.texmap.inputs['Vector'])
 
         self.ytop = self.bsdf.location[1]
-        uvou = self.make_node('ShaderNodeValue', name='UV_Offset_U', xloc=self.inputs_offset_x)
-        uvov = self.make_node('ShaderNodeValue', name='UV_Offset_V', xloc=self.inputs_offset_x)
+        uvou = self.make_node('ShaderNodeValue', name='UV_Offset_U', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
+        uvov = self.make_node('ShaderNodeValue', name='UV_Offset_V', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
         
         xyc = self.make_node('ShaderNodeCombineXYZ', 
             xloc=self.calc1_offset_x, yloc=uvou.location[1])
@@ -194,8 +196,8 @@ class ShaderImporter:
 
         self.link(xyc.outputs['Vector'], self.texmap.inputs['Location'])
         
-        uvsu = self.make_node('ShaderNodeValue', name='UV_Scale_U', xloc=self.inputs_offset_x)
-        uvsv = self.make_node('ShaderNodeValue', name='UV_Scale_V', xloc=self.inputs_offset_x)
+        uvsu = self.make_node('ShaderNodeValue', name='UV_Scale_U', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
+        uvsv = self.make_node('ShaderNodeValue', name='UV_Scale_V', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT*2)
 
         xys = self.make_node('ShaderNodeCombineXYZ', 
             xloc=self.calc1_offset_x, yloc=uvsu.location[1])
@@ -204,6 +206,13 @@ class ShaderImporter:
         xys.inputs['Z'].default_value = 1.0
 
         self.link(xys.outputs['Vector'], self.texmap.inputs['Scale'])
+
+        gl = self.make_node('ShaderNodeValue', name='Glossiness', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
+        glscale = self.make_node('ShaderNodeMath', xloc=self.calc1_offset_x, yloc=gl.location[1])
+        glscale.operation = 'MULTIPLY'
+        glscale.inputs[1].default_value = 1/GLOSS_SCALE
+        self.link(gl.outputs['Value'], glscale.inputs[0])
+        self.link(glscale.outputs['Value'], self.bsdf.inputs['Metallic'])
         
 
     def import_shader_alpha(self, shape):
@@ -659,7 +668,7 @@ class ShaderExporter:
 
             if shape.shader.blockname == "BSLightingShaderProperty":
                 shape.shader.Alpha = self.shader_node.inputs['Alpha'].default_value
-                shape.shader.Glossiness = self.shader_node.inputs['Metallic'].default_value * GLOSS_SCALE
+                shape.shader.Glossiness = nl['Glossiness'].outputs['Value'].default_value
 
             shape.save_shader_attributes()
             

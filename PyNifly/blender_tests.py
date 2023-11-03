@@ -1496,8 +1496,8 @@ def TEST_SHADER_LE():
     assert 'Principled BSDF' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     assert 'Image Texture' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     assert 'Normal Map' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
-    g = shadernodes['Principled BSDF'].inputs['Metallic'].default_value
-    assert round(g, 4) == 33/BD.GLOSS_SCALE, f"Glossiness not correct, value is {g}"
+    g = shadernodes['Glossiness'].outputs['Value'].default_value
+    assert round(g, 4) == 33, f"Glossiness not correct, value is {g}"
     assert headLE.active_material['BSShaderTextureSet_SoftLighting'] == r"textures\actors\character\male\MaleHead_sk.dds", \
         f"Expected stashed texture path, found {headLE.active_material['BSShaderTextureSet_2']}"
 
@@ -4866,7 +4866,7 @@ print("""
 """)
 
 # If set, run these tests only (test name as string).
-test_targets = ['TEST_SHADER_SCALE']
+test_targets = ['TEST_SHADER_LE']
 
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
