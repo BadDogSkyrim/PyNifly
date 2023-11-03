@@ -10,11 +10,18 @@ from pynifly import *
 
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 GLOSS_SCALE = 100
+ATTRIBUTE_NODE_HEIGHT = 200
+TEXTURE_NODE_WIDTH = 400
+TEXTURE_NODE_HEIGHT = 290
 
 NISHADER_IGNORE = ['bufSize', 
                    'bufType', 
                    'nameID', 
                    'controllerID', 
+                   'UV_Offset_U',
+                   'UV_Offset_V',
+                   'UV_Scale_U',
+                   'UV_Scale_V',
                    ]
 
 def get_effective_colormaps(mesh):
@@ -97,12 +104,16 @@ class ShaderImporter:
         self.diffuse = None
         self.game = None
 
+        self.inputs_offset_x = -1900
+        self.calc1_offset_x = -1700
+        self.calc2_offset_x = -1500
         self.img_offset_x = -1200
         self.cvt_offset_x = -300
         self.inter1_offset_x = -900
         self.inter2_offset_x = -700
         self.inter3_offset_x = -500
         self.offset_y = -300
+        self.gap_y = 10
         self.yloc = 0
         self.ytop = 0
 
@@ -130,10 +141,70 @@ class ShaderImporter:
             elif shape.shader_block_name == 'BSEffectShaderProperty':
                 self.bsdf.inputs['Alpha'].default_value = shader.Falloff_Start_Opacity
 
+            self.nodes['UV_Offset_U'].outputs['Value'].default_value = shape.shader.UV_Offset_U
+            self.nodes['UV_Offset_V'].outputs['Value'].default_value = shape.shader.UV_Offset_V
+            self.nodes['UV_Scale_U'].outputs['Value'].default_value = shape.shader.UV_Scale_U
+            self.nodes['UV_Scale_V'].outputs['Value'].default_value = shape.shader.UV_Scale_V
+
         except Exception as e:
             # Any errors, print the error but continue
             log.warning(str(e))
 
+
+    def make_node(self, nodetype, name=None, xloc=0, yloc=0, height=300):
+        """
+        Make a node.If yloc not provided, use and increment the current ytop location.
+        xloc is relative to the BSDF node. Have to pass the height in because Blender's
+        height isn't correct.
+        """
+        n = self.nodes.new(nodetype)
+        if yloc:
+            n.location = (self.bsdf.location[0] + xloc, yloc)
+        else:
+            n.location = (self.bsdf.location[0] + xloc, self.ytop)
+            self.ytop -= height + self.gap_y
+
+        if name: 
+            n.name = name
+            n.label = name
+
+        return n
+    
+
+    def make_input_nodes(self):
+        """
+        Make the value nodes and calculations that are used as input to the shader.
+        """
+        tc = self.make_node('ShaderNodeTexCoord', xloc=self.calc1_offset_x, yloc=0)
+        tc.location = (tc.location[0], 
+                       self.bsdf.location[1] + 300,)
+
+        self.texmap = self.make_node('ShaderNodeMapping', xloc=self.calc2_offset_x, yloc=0)
+        self.link(tc.outputs['UV'], self.texmap.inputs['Vector'])
+
+        self.ytop = self.bsdf.location[1]
+        uvou = self.make_node('ShaderNodeValue', name='UV_Offset_U', xloc=self.inputs_offset_x)
+        uvov = self.make_node('ShaderNodeValue', name='UV_Offset_V', xloc=self.inputs_offset_x)
+        
+        xyc = self.make_node('ShaderNodeCombineXYZ', 
+            xloc=self.calc1_offset_x, yloc=uvou.location[1])
+        self.link(uvou.outputs['Value'], xyc.inputs['X'])
+        self.link(uvov.outputs['Value'], xyc.inputs['Y'])
+        xyc.inputs['Z'].default_value = 0
+
+        self.link(xyc.outputs['Vector'], self.texmap.inputs['Location'])
+        
+        uvsu = self.make_node('ShaderNodeValue', name='UV_Scale_U', xloc=self.inputs_offset_x)
+        uvsv = self.make_node('ShaderNodeValue', name='UV_Scale_V', xloc=self.inputs_offset_x)
+
+        xys = self.make_node('ShaderNodeCombineXYZ', 
+            xloc=self.calc1_offset_x, yloc=uvsu.location[1])
+        self.link(uvsu.outputs['Value'], xys.inputs['X'])
+        self.link(uvsv.outputs['Value'], xys.inputs['Y'])
+        xys.inputs['Z'].default_value = 1.0
+
+        self.link(xys.outputs['Vector'], self.texmap.inputs['Scale'])
+        
 
     def import_shader_alpha(self, shape):
         if shape.has_alpha_property:
@@ -229,44 +300,48 @@ class ShaderImporter:
         except:
             pass
         txtnode.location = (self.bsdf.location[0] + self.img_offset_x, self.bsdf.location[1])
+        self.link(self.texmap.outputs['Vector'], txtnode.inputs['Vector'])
 
+        colornode = None
         if self.colormap:
-            #log.debug(f"Have colormap: {self.colormap}")
-            attrnode = self.nodes.new("ShaderNodeAttribute")
-            attrnode.location = (txtnode.location[0], 
-                                 self.ytop - attrnode.height - self.offset_y)
+            colornode = self.make_node("ShaderNodeAttribute", "ColorMap", 
+                                      xloc=txtnode.location[0], 
+                                      yloc=txtnode.location[1] + ATTRIBUTE_NODE_HEIGHT)
             
             mixnode = new_mixnode(self.material, 
                                   txtnode.outputs['Color'],
-                                  attrnode.outputs['Color'],
+                                  colornode.outputs['Color'],
                                   self.bsdf.inputs['Base Color'])
-            mixnode.location = (attrnode.location[0] - self.inter2_offset_x, txtnode.location[1])
-            attrnode.attribute_name = self.colormap.name
-            attrnode.attribute_type = "GEOMETRY"
-            self.ytop = attrnode.location[1]
+            mixnode.location = (self.bsdf.location[0] + self.inter1_offset_x, 
+                                txtnode.location[1] - self.offset_y)
+            colornode.attribute_name = self.colormap.name
+            colornode.attribute_type = "GEOMETRY"
+            self.ytop = colornode.location[1]
         else:
             self.link(txtnode.outputs['Color'], self.bsdf.inputs['Base Color'])
 
         if self.alphamap:
-            attrnode = self.nodes.new("ShaderNodeAttribute")
+            attrnode = self.make_node("ShaderNodeAttribute", "AlphaMap",
+                                      xloc=txtnode.location[0],
+                                      yloc=txtnode.location[1] + ATTRIBUTE_NODE_HEIGHT)
             attrnode.attribute_name = ALPHA_MAP_NAME
             attrnode.attribute_type = "GEOMETRY"
-            attrnode.location = (txtnode.location[0], 
-                                 self.ytop - attrnode.height - self.offset_y)
+            if colornode: 
+                colornode.location = (colornode.location[0], txtnode.location[1] + ATTRIBUTE_NODE_HEIGHT*2)
 
             # Magic values make the khajiit head look good. Check against other meshes.
-            mapnode1 = self.nodes.new("ShaderNodeMapRange")
+            mapnode1 = self.make_node("ShaderNodeMapRange",
+                                      xloc=self.bsdf.location[0] + self.inter1_offset_x,
+                                      yloc=txtnode.location[1])
             mapnode1.inputs['From Min'].default_value = 0.29
             mapnode1.inputs['From Max'].default_value = 0.8
-            mapnode1.location = (attrnode.location[0] - self.inter2_offset_x, 
-                                 attrnode.location[1])
             self.link(attrnode.outputs['Color'], mapnode1.inputs['Value'])
             
-            mapnode2 = self.nodes.new("ShaderNodeMapRange")
+            mapnode2 = self.make_node("ShaderNodeMapRange",
+                                      xloc=self.bsdf.location[0] + self.inter2_offset_x,
+                                      yloc = txtnode.location[1])
             mapnode2.inputs['From Min'].default_value = 0.4
             mapnode2.inputs['To Max'].default_value = 0.38
-            mapnode2.location = (attrnode.location[0] - self.inter1_offset_x, 
-                                 attrnode.location[1])
             self.link(mapnode1.outputs['Result'], mapnode2.inputs['To Min'])
             self.link(txtnode.outputs['Alpha'], mapnode2.inputs['Value'])
             self.link(mapnode2.outputs['Result'], self.bsdf.inputs['Alpha'])
@@ -291,6 +366,7 @@ class ShaderImporter:
             except:
                 pass
             skimgnode.location = (self.diffuse.location[0], self.yloc)
+            self.link(self.texmap.outputs['Vector'], skimgnode.inputs['Vector'])
             self.link(skimgnode.outputs['Color'], self.bsdf.inputs["Subsurface Color"])
             self.yloc = skimgnode.location[1] + self.offset_y
             
@@ -307,6 +383,7 @@ class ShaderImporter:
             except:
                 pass
             simgnode.location = (self.diffuse.location[0], self.yloc)
+            self.link(self.texmap.outputs['Vector'], simgnode.inputs['Vector'])
 
             if self.game in ["FO4"]:
                 # specular combines gloss and spec
@@ -352,6 +429,7 @@ class ShaderImporter:
             except:
                 pass
             nimgnode.location = (self.diffuse.location[0], self.yloc)
+            self.link(self.texmap.outputs['Vector'], nimgnode.inputs['Vector'])
             
             if shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
                 # Need to swap green and blue channels for blender
@@ -440,6 +518,7 @@ class ShaderImporter:
 
         self.find_textures(shape)
 
+        self.make_input_nodes()
         self.import_shader_attrs(shape)
         self.colormap, self.alphamap = get_effective_colormaps(obj.data)
 
@@ -564,6 +643,16 @@ class ShaderExporter:
                     shape.shader.properties.bufType = PynBufferTypes.BSShaderPPLightingPropertyBufType
                 else:
                     self.warn(f"Unknown shader type: {self.material['BS_Shader_Block_Name']}")
+
+            nl = self.material.node_tree.nodes
+            if 'UV_Offset_U' in nl:
+                shape.shader.properties.UV_Offset_U = nl['UV_Offset_U'].outputs['Value'].default_value
+            if 'UV_Offset_V' in nl:
+                shape.shader.properties.UV_Offset_V = nl['UV_Offset_V'].outputs['Value'].default_value
+            if 'UV_Scale_U' in nl:
+                shape.shader.properties.UV_Scale_U = nl['UV_Scale_U'].outputs['Value'].default_value
+            if 'UV_Scale_V' in nl:
+                shape.shader.properties.UV_Scale_V = nl['UV_Scale_V'].outputs['Value'].default_value
 
             for i in range(0, 4):
                 shape.shader.Emissive_Color[i] = self.shader_node.inputs['Emission'].default_value[i]

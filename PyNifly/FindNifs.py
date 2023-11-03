@@ -9,8 +9,13 @@ from ctypes import Structure, c_bool, c_char, c_float, c_uint8, c_uint32
 from pathlib import Path
 import pynifly
 
-targetFolder = r"C:\Modding\Fallout4\mods\00 FO4 Assets\Meshes"
+targetFolder = r"C:\Modding\SkyrimSE\mods\00 Vanilla Assets\meshes"
 
+def TestNif(n:pynifly.NifFile):
+    for s in n.shapes:
+        if s.shader.UV_Offset_U != 0.0 or s.shader.UV_Offset_U != 0.0:
+            return True
+    return False
 
 def WalkTree(folder_path):
     """Return all nif files in a directory tree, recursively."""
@@ -45,10 +50,8 @@ def PrintNifs(fp):
     """Find all nifs that match criteria."""
     targ = Path(fp)
     for f in WalkTree(fp):
-        n = pynifly.NifFile(f)
-        for s in n.shapes:
-            if s.shader.UV_Scale_U != 1.0:
-                print(n.filepath)
+        if TestNif(pynifly.NifFile(f)):
+            print(f)
             
 
 # Load from install location

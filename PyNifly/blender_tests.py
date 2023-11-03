@@ -1595,6 +1595,19 @@ def TEST_SHADER_FO4():
     assert shapecheck.name == shapeorig.name, f"Error: Shader name not preserved: '{shapecheck.shader_name}' != '{shapeorig.shader_name}'"
 
 
+def TEST_SHADER_SCALE():
+    """UV offset and scale are preserved."""
+    testfile = TT.test_file(r"tests\SkyrimSE\maleorchair27.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SHADER_SCALE.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    n = pyn.NifFile(outfile)
+    hair = n.shapes[0]
+    assert hair.shader.UV_Scale_U == 1.5, f"Have correct scale: {hair.shader.UV_Scale_U}"
+
+
 def TEST_SHADER_ALPHA():
     """Shader attributes are read and turned into Blender shader nodes"""
     # Alpha property is translated into equivalent Blender nodes.
@@ -4853,7 +4866,7 @@ print("""
 """)
 
 # If set, run these tests only (test name as string).
-test_targets = []
+test_targets = ['TEST_SHADER_SCALE']
 
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
