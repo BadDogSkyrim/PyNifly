@@ -1609,7 +1609,7 @@ def TEST_SHADER_SCALE():
 
 
 def TEST_SHADER_GLOW():
-    """Glow shader elements work correctly."""
+    """Glow shader elements and other extra attributes work correctly."""
     testfile = TT.test_file(r"tests\Skyrim\daedriccuirass_1.nif")
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_GLOW.nif")
 
@@ -1620,7 +1620,12 @@ def TEST_SHADER_GLOW():
     nout = pyn.NifFile(outfile)
     torsoin = n.shape_dict['TorsoLow:0']
     torsoout = nout.shape_dict['TorsoLow:0']
-    assert torsoin.shader.Emissive_Mult == torsoout.shader.Emissive_Mult, f"Emissive_Mult correct: {torsoout.shader.Emissive_Mult}"
+    assert torsoin.shader.Emissive_Mult == torsoout.shader.Emissive_Mult, \
+        f"Emissive_Mult correct: {torsoout.shader.Emissive_Mult}"
+    assert torsoin.shader.textures['EnvMap'] == torsoout.shader.textures['EnvMap'], \
+        f"EnvMap correct: {torsoout.shader.textures['EnvMap']}"
+    assert torsoin.shader.textures['EnvMask'] == torsoout.shader.textures['EnvMask'], \
+        f"EnvMask correct: {torsoout.shader.textures['EnvMask']}"
 
     glowin = n.shape_dict['MaleTorsoGlow']
     glowout = nout.shape_dict['MaleTorsoGlow']

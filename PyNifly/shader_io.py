@@ -121,6 +121,7 @@ class ShaderImporter:
         self.inter1_offset_x = -900
         self.inter2_offset_x = -700
         self.inter3_offset_x = -500
+        self.inter4_offset_x = -300
         self.offset_y = -300
         self.gap_y = 10
         self.xloc = 0
@@ -170,10 +171,10 @@ class ShaderImporter:
         xloc is relative to the BSDF node. Have to pass the height in because Blender's
         height isn't correct.
         """
-        if xloc:
+        if xloc != None:
             self.xloc = xloc
         n = self.nodes.new(nodetype)
-        if yloc:
+        if yloc != None:
             n.location = (self.bsdf.location[0] + self.xloc, yloc)
         else:
             n.location = (self.bsdf.location[0] + self.xloc, self.ytop)
@@ -400,7 +401,7 @@ class ShaderImporter:
     def import_subsurface(self):
         """Set up nodes for subsurface texture"""
         #log.debug("Handling subsurface texture")
-        if 'SoftLighting' in self.textures and self.textures['SoftLighting']: 
+        if 'SoftLighting' in self.textures and self.shape.textures['SoftLighting']: 
             # Have a sk separate from a specular
             skimgnode = self.make_node("ShaderNodeTexImage",
                                        name='Subsurface_Texture',
@@ -420,7 +421,7 @@ class ShaderImporter:
     def import_specular(self):
         """Set up nodes for specular texture"""
         #log.debug("Handling specular texture")
-        if 'Specular' in self.textures and self.textures['Specular']:
+        if 'Specular' in self.textures and self.shape.textures['Specular']:
             simgnode = self.make_node("ShaderNodeTexImage",
                                       name='Specular_Texture',
                                       height=TEXTURE_NODE_HEIGHT)
@@ -463,6 +464,7 @@ class ShaderImporter:
                                       name='Normal_Texture',
                                       xloc=self.diffuse.location[0],
                                       height=TEXTURE_NODE_HEIGHT)
+            self.link(self.texmap.outputs['Vector'], nimgnode.inputs['Vector'])
             try:
                 nimg = bpy.data.images.load(self.textures['Normal'], check_existing=True) 
                 nimg.colorspace_settings.name = "Non-Color"
@@ -471,17 +473,13 @@ class ShaderImporter:
                 pass
 
             nmap = self.make_node("ShaderNodeNormalMap",
-                                  xloc=self.inter3_offset_x + self.bsdf.location[0],
+                                  xloc=self.inter4_offset_x + self.bsdf.location[0],
                                   yloc=nimgnode.location[1])
-            if shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
-                nmap.space = "OBJECT"
-            else:
-                nmap.space = "TANGENT"
-            
-            self.link(self.texmap.outputs['Vector'], nimgnode.inputs['Vector'])
+            nmap.inputs['Strength'].default_value = 2.0 # Make it a little more obvious.
             
             if shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
                 # Need to swap green and blue channels for blender
+                nmap.space = "OBJECT"
                 try:
                     # 3.3 
                     rgbsep = self.make_node("ShaderNodeSeparateColor",
@@ -510,15 +508,56 @@ class ShaderImporter:
                     self.link(rgbsep.outputs['B'], rgbcomb.inputs['G'])
                     self.link(rgbcomb.outputs['Image'], nmap.inputs['Color'])
                     self.link(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
+            # else:
+            #     # Tangent space normals need to invert the green channel.
+            #     nmap.space = "TANGENT"
+            #     ginv = self.make_node("ShaderNodeInvert",
+            #                           xloc=self.bsdf.location[0] + self.inter2_offset_x,
+            #                           yloc=nimgnode.location[1])
+                                            
+            #     try:
+            #         # 3.3 
+            #         rgbsep = self.make_node("ShaderNodeSeparateColor",
+            #                                 xloc=self.bsdf.location[0] + self.inter1_offset_x,
+            #                                 yloc=nimgnode.location[1])
+            #         rgbsep.mode = 'RGB'
+            #         rgbcomb = self.make_node("ShaderNodeCombineColor",
+            #                                   xloc=self.bsdf.location[0] + self.inter3_offset_x,
+            #                                   yloc=nimgnode.location[1])
+            #         rgbcomb.mode = 'RGB'
+            #         self.link(rgbsep.outputs['Red'], rgbcomb.inputs['Red'])
+            #         self.link(rgbsep.outputs['Green'], ginv.inputs['Color'])
+            #         self.link(ginv.outputs['Color'], rgbcomb.inputs['Green'])
+            #         self.link(rgbsep.outputs['Blue'], rgbcomb.inputs['Blue'])
+            #     except:
+            #         # < 3.3
+            #         rgbsep = self.make_node("ShaderNodeSeparateRGB",
+            #                                 xloc=self.bsdf.location[0] + self.inter1_offset_x,
+            #                                 yloc=nimgnode.location[1])
+            #         rgbcomb = self.make_node("ShaderNodeCombineRGB",
+            #                                   xloc=self.bsdf.location[0] + self.inter3_offset_x,
+            #                                   yloc=nimgnode.location[1])
+            #         self.link(rgbsep.outputs['R'], rgbcomb.inputs['R'])
+            #         self.link(rgbsep.outputs['G'], ginv.inputs['Color'])
+            #         self.link(ginv.outputs['Color'], rgbcomb.inputs['G'])
+            #         self.link(rgbsep.outputs['B'], rgbcomb.inputs['B'])
+            #     self.link(rgbcomb.outputs[0], nmap.inputs['Color'])
+            #     self.link(nimgnode.outputs['Color'], rgbsep.inputs[0])
 
-            elif shape.file.game in ['FO4', 'FO76']:
+            else: # shape.file.game in ['FO4', 'FO76']: <-- skyrim too
                 # Need to invert the green channel for blender
                 try:
-                    rgbsep = self.nodes.new("ShaderNodeSeparateColor")
+                    rgbsep = self.make_node("ShaderNodeSeparateColor",
+                                            xloc=self.bsdf.location[0] + self.inter1_offset_x,
+                                            yloc=nimgnode.location[1])
                     rgbsep.mode = 'RGB'
-                    rgbcomb = self.nodes.new("ShaderNodeCombineColor")
+                    rgbcomb = self.make_node("ShaderNodeCombineColor",
+                                             xloc=self.bsdf.location[0] + self.inter3_offset_x,
+                                             yloc=nimgnode.location[1])
                     rgbcomb.mode = 'RGB'
-                    colorinv = self.nodes.new("ShaderNodeInvert")
+                    colorinv = self.make_node("ShaderNodeInvert",
+                                              xloc=self.bsdf.location[0] + self.inter2_offset_x,
+                                              yloc=nimgnode.location[1])
                     self.link(rgbsep.outputs['Red'], rgbcomb.inputs['Red'])
                     self.link(rgbsep.outputs['Blue'], rgbcomb.inputs['Blue'])
                     self.link(rgbsep.outputs['Green'], colorinv.inputs['Color'])
@@ -526,9 +565,15 @@ class ShaderImporter:
                     self.link(rgbcomb.outputs['Color'], nmap.inputs['Color'])
                     self.link(nimgnode.outputs['Color'], rgbsep.inputs['Color'])
                 except:
-                    rgbsep = self.nodes.new("ShaderNodeSeparateRGB")
-                    rgbcomb = self.nodes.new("ShaderNodeCombineRGB")
-                    colorinv = self.nodes.new("ShaderNodeInvert")
+                    rgbsep = self.make_node("ShaderNodeSeparateRGB",
+                                            xloc=self.bsdf.location[0] + self.inter1_offset_x,
+                                            yloc=nimgnode.location[1])
+                    rgbcomb = self.nodes.new("ShaderNodeCombineRGB",
+                                             xloc=self.bsdf.location[0] + self.inter3_offset_x,
+                                             yloc=nimgnode.location[1])
+                    colorinv = self.nodes.new("ShaderNodeInvert",
+                                              xloc=self.bsdf.location[0] + self.inter2_offset_x,
+                                              yloc=nimgnode.location[1])
                     self.link(rgbsep.outputs['R'], rgbcomb.inputs['R'])
                     self.link(rgbsep.outputs['B'], rgbcomb.inputs['B'])
                     self.link(rgbsep.outputs['G'], colorinv.inputs['Color'])
@@ -536,12 +581,9 @@ class ShaderImporter:
                     self.link(rgbcomb.outputs['Image'], nmap.inputs['Color'])
                     self.link(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
 
-                rgbsep.location = (self.bsdf.location[0] + self.inter1_offset_x, self.yloc)
-                rgbcomb.location = (self.bsdf.location[0] + self.inter3_offset_x, self.yloc)
-                colorinv.location = (self.bsdf.location[0] + self.inter2_offset_x, self.yloc - rgbcomb.height * 0.9)
-            else:
-                self.link(nimgnode.outputs['Color'], nmap.inputs['Color'])
-                nmap.location = (self.bsdf.location[0] + self.inter2_offset_x, self.yloc)
+            # else:
+            #     self.link(nimgnode.outputs['Color'], nmap.inputs['Color'])
+            #     nmap.location = (self.bsdf.location[0] + self.inter2_offset_x, self.yloc)
                             
             self.link(nmap.outputs['Normal'], self.bsdf.inputs['Normal'])
 
@@ -550,6 +592,44 @@ class ShaderImporter:
                 # Specular is in the normal map alpha channel
                 self.link(nimgnode.outputs['Alpha'], self.bsdf.inputs['Specular'])
                 
+
+    def import_envmap(self):
+        """Set up nodes for environment map texture"""
+        if self.shape.shader.shaderflags1_test(BSLSPShaderType.Environment_Map) \
+                and 'EnvMap' in self.shape.textures \
+                and self.shape.textures['EnvMap']: 
+            imgnode = self.make_node("ShaderNodeTexImage",
+                                     name='EnvMap_Texture',
+                                     xloc=self.diffuse.location[0],
+                                     height=TEXTURE_NODE_HEIGHT)
+            try:
+                img = bpy.data.images.load(self.textures['EnvMap'], check_existing=True)
+                if img != self.diffuse.image:
+                    img.colorspace_settings.name = "Non-Color"
+                imgnode.image = img
+            except:
+                pass
+            self.link(self.texmap.outputs['Vector'], imgnode.inputs['Vector'])
+            
+
+    def import_envmask(self):
+        """Set up nodes for environment mask texture"""
+        if self.shape.shader.shaderflags1_test(BSLSPShaderType.Environment_Map) \
+                and 'EnvMask' in self.shape.textures \
+                and self.shape.textures['EnvMask']: 
+            imgnode = self.make_node("ShaderNodeTexImage",
+                                     name='EnvMask_Texture',
+                                     xloc=self.diffuse.location[0],
+                                     height=TEXTURE_NODE_HEIGHT)
+            try:
+                img = bpy.data.images.load(self.textures['EnvMask'], check_existing=True)
+                if img != self.diffuse.image:
+                    img.colorspace_settings.name = "Non-Color"
+                imgnode.image = img
+            except:
+                pass
+            self.link(self.texmap.outputs['Vector'], imgnode.inputs['Vector'])
+            
 
     def import_material(self, obj, shape:NiShape):
         """
@@ -582,6 +662,8 @@ class ShaderImporter:
         self.import_subsurface()
         self.import_specular()
         self.import_normal(shape)
+        self.import_envmap()
+        self.import_envmask()
         self.import_shader_alpha(shape)
 
         obj.active_material = self.material
@@ -729,7 +811,8 @@ class ShaderExporter:
     def get_diffuse(self):
         """Get the diffuse filepath, given the material's shader node."""
         try:
-            imgnode = get_image_node(self.shader_node.inputs['Base Color'])
+            # imgnode = get_image_node(self.shader_node.inputs['Base Color'])
+            imgnode = self.material.node_tree.nodes['Diffuse_Texture']
             return imgnode.image.filepath
         except:
             self.warn("Could not find diffuse filepath")
@@ -741,17 +824,31 @@ class ShaderExporter:
         Get the normal map filepath, given the shader node.
         """
         try:
-            image_node = get_image_node(self.normal_node.inputs['Color'])
+            # image_node = get_image_node(self.normal_node.inputs['Color'])
+            image_node = self.material.node_tree.nodes['Normal_Texture']
             return image_node.image.filepath
         except:
             self.warn("Could not find normal filepath")
         return ''
     
 
+    def get_subsurface(self):
+        try:
+            if 'Subsurface_Texture' in self.material.node_tree.nodes:
+                return self.material.node_tree.nodes['Subsurface_Texture'].image.filepath
+            # if self.is_obj_space:
+            #     return get_image_filepath(self.shader_node.inputs['Specular'])
+        except:
+            self.warn("Could not find subsurface texture filepath")
+        return ''
+
+
     def get_specular(self):
         try:
-            if self.is_obj_space:
-                return get_image_filepath(self.shader_node.inputs['Specular'])
+            if 'Specular_Texture' in self.material.node_tree.nodes:
+                return self.material.node_tree.nodes['Specular_Texture'].image.filepath
+            # if self.is_obj_space:
+            #     return get_image_filepath(self.shader_node.inputs['Specular'])
         except:
             self.warn("Could not find specular filepath")
         return ''
@@ -770,14 +867,18 @@ class ShaderExporter:
         foundpath = ""
     
         try:
-            if textureslot == 'Diffuse':
-                foundpath = self.get_diffuse()
-            elif textureslot == 'Normal':
-                foundpath = self.get_normal()
-            elif textureslot == 'SoftLighting':
-                foundpath = get_image_filepath(self.shader_node.inputs['Subsurface Color'])
-            elif textureslot == 'Specular':
-                foundpath = self.get_specular()
+            blname = textureslot
+            if textureslot == 'SoftLighting': blname = 'Subsurface'
+            if blname in self.material.node_tree.nodes:
+                foundpath = self.material.node_tree.nodes[blname].image.filepath
+            # if textureslot == 'Diffuse':
+            #     foundpath = self.get_diffuse()
+            # elif textureslot == 'Normal':
+            #     foundpath = self.get_normal()
+            # elif textureslot == 'SoftLighting':
+            #     foundpath = self.get_subsurface()
+            # elif textureslot == 'Specular':
+            #     foundpath = self.get_specular()
         except:
             self.warn("Could not follow shader nodes to find texture files")
             foundpath = ""
@@ -808,7 +909,7 @@ class ShaderExporter:
 
         if not self.shader_node: return
 
-        for textureslot in ['Diffuse', 'Normal', 'SoftLighting', 'Specular']:
+        for textureslot in ['Diffuse', 'Normal', 'SoftLighting', 'Specular', 'EnvMap', 'EnvMask']:
             self.write_texture(shape, textureslot)
 
         # Write alpha if any after the textures

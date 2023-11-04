@@ -1617,10 +1617,10 @@ class NiShader(NiObject):
                 if self.properties.shaderflags2_test(ShaderFlags1.PARALLAX):
                     self._textures["HeightMap"] = self._readtexture(f, s, 4)
 
-                if self.properties.shaderflags2_test(ShaderFlags1.ENVIRONMENT_MAPPING):
+                if self.properties.shaderflags1_test(ShaderFlags1.ENVIRONMENT_MAPPING):
                     self._textures["EnvMap"] = self._readtexture(f, s, 5)
 
-                if self.properties.shaderflags2_test(ShaderFlags1.ENVIRONMENT_MAPPING):
+                if self.properties.shaderflags1_test(ShaderFlags1.ENVIRONMENT_MAPPING):
                     self._textures["EnvMask"] = self._readtexture(f, s, 6)
 
                 if self.properties.shaderflags2_test(ShaderFlags2.MULTI_LAYER_PARALLAX):
