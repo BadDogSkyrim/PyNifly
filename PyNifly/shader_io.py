@@ -224,12 +224,31 @@ class ShaderImporter:
         self.link(xys.outputs['Vector'], self.texmap.inputs['Scale'])
 
         if self.shape.shader.properties.bufType == PynBufferTypes.BSLightingShaderPropertyBufType:
-            gl = self.make_node('ShaderNodeValue', name='Glossiness', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
-            glscale = self.make_node('ShaderNodeMath', xloc=self.calc1_offset_x, yloc=gl.location[1])
-            glscale.operation = 'MULTIPLY'
-            glscale.inputs[1].default_value = 1/GLOSS_SCALE
-            self.link(gl.outputs['Value'], glscale.inputs[0])
-            self.link(glscale.outputs['Value'], self.bsdf.inputs['Metallic'])
+            # We feed both "metallic" and "roughness" from glossiness because it looks good.
+            gl = self.make_node('ShaderNodeValue', 
+                                name='Glossiness', 
+                                xloc=self.inputs_offset_x, 
+                                height=INPUT_NODE_HEIGHT)
+            
+            metalscale = self.make_node('ShaderNodeMapRange', 
+                                        xloc=self.calc1_offset_x,
+                                        yloc=gl.location[1])
+            metalscale.inputs['From Min'].default_value = 0
+            metalscale.inputs['From Max'].default_value = 60
+            metalscale.inputs['To Min'].default_value = 0
+            metalscale.inputs['To Max'].default_value = 1.0
+            self.link(gl.outputs['Value'], metalscale.inputs['Value'])
+            self.link(metalscale.outputs[0], self.bsdf.inputs['Metallic'])
+
+            roughscale = self.make_node('ShaderNodeMapRange', 
+                                        xloc=self.calc2_offset_x,
+                                        yloc=gl.location[1]-50)
+            roughscale.inputs['From Min'].default_value = 0
+            roughscale.inputs['From Max'].default_value = 60
+            roughscale.inputs['To Min'].default_value = 1.0
+            roughscale.inputs['To Max'].default_value = 0
+            self.link(gl.outputs['Value'], roughscale.inputs['Value'])
+            self.link(roughscale.outputs[0], self.bsdf.inputs['Roughness'])
         
         ec = self.make_node('ShaderNodeRGB',
                             name='Emissive_Color',
@@ -594,7 +613,10 @@ class ShaderImporter:
                 
 
     def import_envmap(self):
-        """Set up nodes for environment map texture"""
+        """
+        Set up nodes for environment map texture. Don't know how to set it up as an actual
+        environment mask so just let it hang out unconnected.
+        """
         if self.shape.shader.shaderflags1_test(BSLSPShaderType.Environment_Map) \
                 and 'EnvMap' in self.shape.textures \
                 and self.shape.textures['EnvMap']: 
@@ -613,7 +635,7 @@ class ShaderImporter:
             
 
     def import_envmask(self):
-        """Set up nodes for environment mask texture"""
+        """Set up nodes for environment mask texture."""
         if self.shape.shader.shaderflags1_test(BSLSPShaderType.Environment_Map) \
                 and 'EnvMask' in self.shape.textures \
                 and self.shape.textures['EnvMask']: 
@@ -621,6 +643,7 @@ class ShaderImporter:
                                      name='EnvMask_Texture',
                                      xloc=self.diffuse.location[0],
                                      height=TEXTURE_NODE_HEIGHT)
+            self.link(self.texmap.outputs['Vector'], imgnode.inputs['Vector'])
             try:
                 img = bpy.data.images.load(self.textures['EnvMask'], check_existing=True)
                 if img != self.diffuse.image:
@@ -628,7 +651,21 @@ class ShaderImporter:
                 imgnode.image = img
             except:
                 pass
-            self.link(self.texmap.outputs['Vector'], imgnode.inputs['Vector'])
+
+            # Env Mask multiplies with the specular.
+            spec_out = self.bsdf.inputs["Specular"].links[0].from_socket
+            if spec_out:
+                bw = self.make_node("ShaderNodeRGBToBW", 
+                                    xloc=self.inter1_offset_x,
+                                    yloc=imgnode.location[1]-50)
+                mult = self.make_node("ShaderNodeMath",
+                                    xloc=self.inter2_offset_x,
+                                    yloc=imgnode.location[1])
+                self.link(imgnode.outputs['Color'], bw.inputs[0])
+                self.link(bw.outputs[0], mult.inputs[1])
+                self.link(spec_out, mult.inputs[0])
+                self.link(mult.outputs[0], self.bsdf.inputs["Specular"])
+
             
 
     def import_material(self, obj, shape:NiShape):
