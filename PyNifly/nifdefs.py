@@ -208,6 +208,8 @@ class pynStructure(Structure):
                     v = hkQualityType[shape[f]].value
                 elif f == 'bhkMaterial':
                     v = SkyrimHavokMaterial[shape[f]].value
+                elif t.__name__ == 'c_float_Array_3':
+                    v = VECTOR3(*eval(shape[f]))
                 elif t.__name__ == 'c_float_Array_4':
                     v = VECTOR4(*eval(shape[f]))
                 elif t.__name__ == 'c_float_Array_12':

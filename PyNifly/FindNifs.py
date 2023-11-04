@@ -13,9 +13,10 @@ targetFolder = r"C:\Modding\SkyrimSE\mods\00 Vanilla Assets\meshes"
 
 def TestNif(n:pynifly.NifFile):
     for s in n.shapes:
-        if s.shader.UV_Offset_U != 0.0 or s.shader.UV_Offset_U != 0.0:
-            return True
-    return False
+        if s.shader.blockname == 'BSEffectShaderProperty':
+            if s.shader.properties.baseColorScale != s.shader.properties.Emissive_Mult:
+                return True, s.name
+    return False, None
 
 def WalkTree(folder_path):
     """Return all nif files in a directory tree, recursively."""
@@ -49,9 +50,17 @@ def FileExistsInPaths(fn, rootlist):
 def PrintNifs(fp):
     """Find all nifs that match criteria."""
     targ = Path(fp)
+    counter = 0
+    foundcount = 0
     for f in WalkTree(fp):
-        if TestNif(pynifly.NifFile(f)):
-            print(f)
+        if counter % 1000 == 0:
+            print(f"Checking [{counter}] {f}")
+        b, n = TestNif(pynifly.NifFile(f))
+        if b:
+            print(f, n)
+            foundcount += 1
+        counter += 1
+    print(f"Done. Found {foundcount} in {counter} files")
             
 
 # Load from install location

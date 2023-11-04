@@ -1494,7 +1494,7 @@ def TEST_SHADER_LE():
     headLE = bpy.context.object
     shadernodes = headLE.active_material.node_tree.nodes
     assert 'Principled BSDF' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
-    assert 'Image Texture' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
+    assert 'Diffuse_Texture' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     assert 'Normal Map' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     g = shadernodes['Glossiness'].outputs['Value'].default_value
     assert round(g, 4) == 33, f"Glossiness not correct, value is {g}"
@@ -1606,6 +1606,30 @@ def TEST_SHADER_SCALE():
     n = pyn.NifFile(outfile)
     hair = n.shapes[0]
     assert hair.shader.UV_Scale_U == 1.5, f"Have correct scale: {hair.shader.UV_Scale_U}"
+
+
+def TEST_SHADER_GLOW():
+    """Glow shader elements work correctly."""
+    testfile = TT.test_file(r"tests\Skyrim\daedriccuirass_1.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SHADER_GLOW.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    n = pyn.NifFile(testfile)
+    nout = pyn.NifFile(outfile)
+    torsoin = n.shape_dict['TorsoLow:0']
+    torsoout = nout.shape_dict['TorsoLow:0']
+    assert torsoin.shader.Emissive_Mult == torsoout.shader.Emissive_Mult, f"Emissive_Mult correct: {torsoout.shader.Emissive_Mult}"
+
+    glowin = n.shape_dict['MaleTorsoGlow']
+    glowout = nout.shape_dict['MaleTorsoGlow']
+    assert glowin.shader.UV_Offset_U == glowout.shader.UV_Offset_U, f"UV_Offset_U correct: {glowout.shader.UV_Offset_U}"
+    assert glowin.shader.UV_Offset_V == glowout.shader.UV_Offset_V, f"UV_Offset_V correct: {glowout.shader.UV_Offset_V}"
+    assert glowin.shader.UV_Scale_U == glowout.shader.UV_Scale_U, f"UV_Scale_U correct: {glowout.shader.UV_Scale_U}"
+    assert glowin.shader.UV_Scale_V == glowout.shader.UV_Scale_V, f"UV_Scale_V correct: {glowout.shader.UV_Scale_V}"
+    assert glowin.shader.Emissive_Mult == glowout.shader.Emissive_Mult, f"Emissive_Mult correct: {glowout.shader.Emissive_Mult}"
+    assert glowin.shader.Emissive_Color[:] == glowout.shader.Emissive_Color[:], f"Emissive_Color correct: {glowout.shader.Emissive_Color}"
 
 
 def TEST_SHADER_ALPHA():
@@ -4866,7 +4890,7 @@ print("""
 """)
 
 # If set, run these tests only (test name as string).
-test_targets = ['TEST_SHADER_LE']
+test_targets = ['TEST_SHADER_GLOW']
 
 # If clear, all tests run in the order they are defined.
 # If set, this and all following tests will be run.
