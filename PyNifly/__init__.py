@@ -118,6 +118,7 @@ EXPORT_POSE_DEF = False
 IMPORT_ANIMS_DEF = True
 IMPORT_COLLISIONS_DEF = True
 IMPORT_SHAPES_DEF = True
+IMPORT_POSE_DEF = True
 PRESERVE_HIERARCHY_DEF = False
 RENAME_BONES_DEF = True
 RENAME_BONES_NIFT_DEF = False
@@ -387,6 +388,7 @@ class NifImporter():
         self.roll_bones_nift = ROLL_BONES_NIFT_DEF
         self.do_import_shapes = IMPORT_SHAPES_DEF
         self.do_apply_skinning = APPLY_SKINNING_DEF
+        self.do_import_pose = IMPORT_POSE_DEF
         self.reference_skel = None
         self.chargen_ext = chargen
         self.mesh_only = False
@@ -1010,15 +1012,17 @@ class NifImporter():
         - the identity matrix
         """
         skin_xf = Matrix.Identity(4)
+        # Check for a transform on the armature. If it's present, this overrules
+        # everything else. 
         if not obj:
             if 'PYN_TRANSFORM' in arma:
                 skin_xf = eval(arma['PYN_TRANSFORM'])
             return skin_xf
 
-        if 'PYN_TRANSFORM' not in arma:
+        if False: # 'PYN_TRANSFORM' not in arma:
             skin_xf = obj.matrix_local.copy()
             arma['PYN_TRANSFORM'] = repr(skin_xf)
-        else:
+        elif 'PYN_TRANSFORM' in arma:
             try:
                 # If the object is being parented to an existing armature, use the skin
                 # transform the armature used.
@@ -1027,9 +1031,13 @@ class NifImporter():
                 if not MatNearEqual(arma_xf, skin_xf): 
                     log.debug(f"Transforms don't match between {arma.name} and {obj.name}" + f"\n{arma_xf.translation} != {skin_xf.translation}")
                     self.warn(f"Skin transform on {obj.name} do not match existing armature. Shapes may be offset.")
+                    return skin_xf @ arma_xf.inverted()
+                return arma_xf
             except Exception as e:
                 self.warn(repr(e))
                 skin_xf = obj.matrix_local.copy()
+        else:
+            skin_xf = obj.matrix_local.copy()
 
         return skin_xf
 
@@ -1080,9 +1088,13 @@ class NifImporter():
     def find_compatible_arma(self, obj, armatures:list):
         """Look through the list of armatures and find one that can be used by the shape. 
 
-        For an armature to be compatible with a shape's skin, the bind positions of the
-        bones in the skin have to be the same as the edit positions of the bones in the
-        armature. 
+        if do_import_pose is set, we return self.armature. That's either the one selected
+        before import, or reflects bone NiNodes in the nif, so it's the one to use either
+        way.
+
+        Otherwise, for an armature to be compatible with a shape's skin, the bind
+        positions of the bones in the skin have to be the same as the edit positions of
+        the bones in the armature. 
 
         If there's not a match, it may be that the bind positions were all offset by the
         same amount--just a transpose. If so, we could add this transpose to the skin
@@ -1094,20 +1106,30 @@ class NifImporter():
 
         Returns (armature, transform-matrix), or None.
         """
-        #log.debug(f"<find_compatible_arma> for {obj.name} in {[x.name for x in armatures] if armatures else armatures}")
         shape = self.nodes_loaded[obj.name]
 
-        for arma in armatures:
-            is_ok, offset_xf, offset_consistent = self.check_armature(obj, shape, arma)
-            if is_ok:
-                #log.debug(f"Armature {arma.name} ok for shape {shape.name} with offset {offset_xf.translation if offset_xf else 'Identity'}")
-                return arma, offset_xf
-            if False and offset_consistent: ### TODO decide if we can do this
-                #log.debug(f"Armature {arma.name} NOT ok, but offset consistent: {offset_xf.translation}")
-                return arma, offset_xf
-            else:
-                #log.debug(f"Armature {arma.name} NOT ok, inconsistent offsets")
-                return None, None
+        if self.do_import_pose and self.armature:
+            # is_ok, offset, offset_consistent = self.check_armature(
+            #     obj, shape, self.armature)
+            return self.armature, None
+            # if 'PYN_TRANSFORM' in self.armature:
+            #     return self.armature, eval(self.armature['PYN_TRANSFORM'])
+            # else:
+        else:
+            for arma in armatures:
+                is_ok, offset, offset_consistent = self.check_armature(obj, shape, arma)
+                if is_ok:
+                    #log.debug(f"Armature {arma.name} ok for shape {shape.name} with offset {offset.translation if offset else 'Identity'}")
+                    return arma, offset
+                if False and offset_consistent: ### TODO decide if we need and can do this
+                    # Have a consistent enough offset between shape and armature that 
+                    # we can do a single translation from one to the other. Somehow,
+                    # we are doing without this now.
+                    #log.debug(f"Armature {arma.name} NOT ok, but offset consistent: {offset.translation}")
+                    return arma, offset
+                else:
+                    #log.debug(f"Armature {arma.name} NOT ok, inconsistent offsets")
+                    return None, None
         return None, None
 
     def add_bone_to_arma(self, arma, bone_name:str, nifname:str):
@@ -1400,7 +1422,6 @@ class NifImporter():
         
         Returns armature with bones from this shape added
         """
-        #log.debug(f"<set_parent_arma> Skinning and parenting object {obj.name} at location {obj.location}")
         if arma is None:
             arma = self.make_armature(self.collection)
 
@@ -1415,43 +1436,48 @@ class NifImporter():
         skin_xf = arma.parent.matrix_world.inverted() @ unscaled_skin_xf
         skin_xf = unscaled_skin_xf.copy()
 
-        # Create bones reflecting the skin-to-bone transforms of the shape (bind position).
+        # Create bones. If do_import_pose, positions are the NiNode positions of the
+        # bone. Otherwise, they are the skin-to-bone transforms (bind position).
         ObjectActive(arma)
         new_bones = []
+        ref_compat = True
         bpy.ops.object.mode_set(mode = 'EDIT')
         if not self.reference_skel:
             self.warn(f"{nif_shape.name} has no reference skeleton")
-            ref_compat = None
         else:
-            ref_compat = self.is_compatible_skeleton(obj.matrix_local, nif_shape, self.reference_skel)
-            if not ref_compat:
-                self.warn(f"{nif_shape.name} is not compatible with skeleton {self.reference_skel.filepath}")
+            if not self.do_import_pose:
+                # If we're importing bind and pose locations, have to care whether the
+                # shape bone locations match the skeleton.
+                ref_compat = self.is_compatible_skeleton(obj.matrix_local, nif_shape, self.reference_skel)
+                if not ref_compat:
+                    self.warn(f"{nif_shape.name} is not compatible with skeleton {self.reference_skel.filepath}")
+            
             for bn in nif_shape.bone_names:
                 blname = self.blender_name(bn)
                 if blname not in arma.data.edit_bones:
-                    if self.do_create_bones and bn in self.reference_skel.nodes and ref_compat:
-                        bone_shape_xf = transform_to_matrix(self.reference_skel.nodes[bn].global_transform)
-                        xf = bone_shape_xf
+                    if self.do_import_pose:
+                        # Using nif locations of bones. 
+                        bone_node = nif_shape.file.nodes[bn]
+                        xf = transform_to_matrix(bone_node.properties.transform)
+                    elif bn in self.reference_skel.nodes and ref_compat:
+                        # Have bone in reference skeleton, get bind position there.
+                        xf = transform_to_matrix(self.reference_skel.nodes[bn].global_transform)
                     else:
+                        # Have to trust the bind position in the nif.
                         bone_shape_xf = transform_to_matrix(nif_shape.get_shape_skin_to_bone(bn)).inverted()
                         xf = skin_xf @ bone_shape_xf
                     create_bone(arma.data, blname, xf, self.nif.game, 1.0, 0)
-                    # create_bone(arma.data, blname, xf, self.nif.game, self.scale, 0)
                     new_bones.append((bn, blname))
 
         # Do the pose in a separate pass so we don't have to flip between modes.
-        bpy.ops.object.mode_set(mode = 'OBJECT')
-        self.set_bone_poses(arma, self.nif, new_bones)
+        if not self.do_import_pose:
+            bpy.ops.object.mode_set(mode = 'OBJECT')
+            self.set_bone_poses(arma, self.nif, new_bones)
         bpy.ops.object.mode_set(mode = 'OBJECT')
 
-        # ObjectSelect([obj])
-        # ObjectActive(arma)
-        # bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
-        # ObjectActive(obj)
         ObjectActive(obj)
         mod = obj.modifiers.new("Armature", "ARMATURE")
         mod.object = arma
-        # obj.parent = arma
         
 
         return arma
@@ -2326,6 +2352,12 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Applies any transforms defined in shapes' partitions to the final mesh.",
         default=APPLY_SKINNING_DEF)
 
+    do_import_pose: bpy.props.BoolProperty(
+        name="Create armature from pose position",
+        description="Creates any armature from the bone NiNode (pose) position.",
+        default=IMPORT_POSE_DEF
+    )
+
     reference_skel: bpy.props.StringProperty(
         name="Reference skeleton",
         description="Reference skeleton to use for the bone hierarchy",
@@ -2338,6 +2370,9 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             arma = bpy.context.object
             self.use_blender_xf = ('PYN_BLENDER_XF' in arma and arma['PYN_BLENDER_XF'])
             self.do_rename_bones = ('PYN_RENAME_BONES' in arma and arma['PYN_RENAME_BONES'])
+            # When loading into an armature, ignore the nif's bind position--use the
+            # armature's.
+            self.do_import_pose = True
 
 
     def execute(self, context):
@@ -2371,6 +2406,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             imp.do_import_anims = self.do_import_animations
             imp.do_import_collisions = self.do_import_collisions
             imp.do_apply_skinning = self.do_apply_skinning
+            imp.do_import_pose = self.do_import_pose
             if self.reference_skel:
                 imp.reference_skel = NifFile(self.reference_skel)
             if self.use_blender_xf:

@@ -7,8 +7,11 @@ from pathlib import Path
 import logging
 import bpy
 from pynifly import *
+from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
+MSN_GROUP_NAME = "MSN_TRANSFORM"
+TANGENT_GROUP_NAME = "TANGENT_TRANSFORM"
 GLOSS_SCALE = 100
 ATTRIBUTE_NODE_HEIGHT = 200
 TEXTURE_NODE_WIDTH = 400
@@ -32,6 +35,159 @@ NISHADER_IGNORE = [
     'UV_Scale_U',
     'UV_Scale_V',
     ]
+
+def find_node(socket, nodetype):
+    """
+    Find node of the given type that feeds the given socket.
+    """
+    if not socket.is_linked:
+        return None
+    
+    n = socket.links[0].from_node
+    if n.bl_idname == nodetype:
+        # This is what we're looking for.
+        return n
+    elif n.bl_idname == "ShaderNodeGroup":
+        # Dive into the group and see if it's in there.
+        gnodes = n.node_tree.nodes
+        goutputs = [x for x in n.node_tree.nodes if x.bl_idname == 'NodeGroupOutput']
+        if goutputs:
+            m = find_node(goutputs[0].inputs[0], nodetype)
+            if m: 
+                return m
+
+    # Not this one, check its inputs.
+    for ns in n.inputs:
+        m = find_node(ns, nodetype) 
+        if m:
+            return m
+    
+    return None
+
+
+def tangent_normal(nodetree, source, destination, location):
+    """
+    Create a group node that handles the transformations for tangent space normals (Skyrim
+    and FO4).
+    """
+    # Create a new shader group
+    shader_group = bpy.data.node_groups.new(type='ShaderNodeTree', name='TangentNormal')
+
+    # create group inputs
+    group_inputs = shader_group.nodes.new('NodeGroupInput')
+    group_inputs.location = (-200,0)
+    shader_group.inputs.new('NodeSocketColor','Image')
+
+    nodelist = shader_group.nodes
+    # Need to invert the green channel for blender
+    try:
+        rgbsep = nodelist.new("ShaderNodeSeparateColor")
+        rgbsep.mode = 'RGB'
+        combine_name = "ShaderNodeCombineColor"
+        socketname = 'Color'
+
+    except:
+        rgbsep = nodelist.new("ShaderNodeSeparateRGB")
+        combine_name = "ShaderNodeCombineRGB"
+        socketname = 'Image'
+    
+    colorinv = nodelist.new("ShaderNodeInvert")
+    colorinv.location = rgbsep.location + Vector((200, -150))
+    rgbcomb = nodelist.new(combine_name)
+    rgbcomb.location = colorinv.location + Vector((200, 150))
+    if combine_name == "ShaderNodeCombineRGB": rgbcomb.mode = 'RGB'
+
+    nmap = nodelist.new("ShaderNodeNormalMap")
+    nmap.location = rgbcomb.location + Vector((200, 0))
+    nmap.space = 'TANGENT'
+    nmap.inputs['Strength'].default_value = 2.0 # Make it a little more obvious.
+
+    shader_group.links.new(rgbsep.outputs[0], rgbcomb.inputs[0])
+    shader_group.links.new(rgbsep.outputs[2], rgbcomb.inputs[2])
+    shader_group.links.new(rgbsep.outputs[1], colorinv.inputs['Color'])
+    shader_group.links.new(colorinv.outputs['Color'], rgbcomb.inputs[1])
+    shader_group.links.new(rgbcomb.outputs[socketname], nmap.inputs['Color'])
+    shader_group.links.new(group_inputs.outputs[0], rgbsep.inputs[socketname])
+    
+    # create group outputs
+    group_outputs = shader_group.nodes.new('NodeGroupOutput')
+    group_outputs.location = nmap.location + Vector((200, 0))
+    shader_group.outputs.new('NodeSocketVector', 'Normal')
+
+    shader_group.links.new(nmap.outputs['Normal'], group_outputs.inputs[0])
+
+    # Make the node in the object's shader that references this group.
+    g = nodetree.nodes.new("ShaderNodeGroup")
+    g.name = TANGENT_GROUP_NAME
+    g.label = "Tangent Normal"
+    g.location = location
+    g.node_tree = shader_group
+    nodetree.links.new(source, g.inputs[0])
+    nodetree.links.new(g.outputs[0], destination)
+
+    return g
+
+
+def modelspace_normal(nodetree, source, destination, location):
+    """
+    Create a group node that handles the transformations for model space normals (Skyrim
+    and FO4).
+    """
+    # Create a new shader group
+    shader_group = bpy.data.node_groups.new(type='ShaderNodeTree', name='TangentNormal')
+
+    # create group inputs
+    group_inputs = shader_group.nodes.new('NodeGroupInput')
+    group_inputs.location = (-200,0)
+    shader_group.inputs.new('NodeSocketColor','Image')
+
+    nodelist = shader_group.nodes
+    # Need to invert the green channel for blender
+    try:
+        rgbsep = nodelist.new("ShaderNodeSeparateColor")
+        rgbsep.mode = 'RGB'
+        combine_name = "ShaderNodeCombineColor"
+        socketname = 'Color'
+
+    except:
+        rgbsep = nodelist.new("ShaderNodeSeparateRGB")
+        combine_name = "ShaderNodeCombineRGB"
+        socketname = 'Image'
+    
+    rgbcomb = nodelist.new(combine_name)
+    rgbcomb.location = rgbsep.location + Vector((200, 0))
+    if combine_name == "ShaderNodeCombineRGB": rgbcomb.mode = 'RGB'
+
+    nmap = nodelist.new("ShaderNodeNormalMap")
+    nmap.location = rgbcomb.location + Vector((200, 0))
+    nmap.space = 'OBJECT'
+    nmap.inputs['Strength'].default_value = 2.0 # Make it a little more obvious.
+
+    # Need to swap green and blue channels for blender
+    shader_group.links.new(group_inputs.outputs[0], rgbsep.inputs[socketname])
+    shader_group.links.new(rgbsep.outputs[0], rgbcomb.inputs[0])
+    shader_group.links.new(rgbsep.outputs[1], rgbcomb.inputs[2])
+    shader_group.links.new(rgbsep.outputs[2], rgbcomb.inputs[1])
+    shader_group.links.new(rgbcomb.outputs[socketname], nmap.inputs['Color'])
+    
+    # create group outputs
+    group_outputs = shader_group.nodes.new('NodeGroupOutput')
+    group_outputs.location = nmap.location + Vector((200, 0))
+    shader_group.outputs.new('NodeSocketVector', 'Normal')
+
+    shader_group.links.new(nmap.outputs['Normal'], group_outputs.inputs[0])
+
+    # Make the node in the object's shader that references this group.
+    g = nodetree.nodes.new("ShaderNodeGroup")
+    g.name = MSN_GROUP_NAME
+    g.label = "Object Normal"
+    g.location = location
+    g.node_tree = shader_group
+    nodetree.links.new(source, g.inputs[0])
+    nodetree.links.new(g.outputs[0], destination)
+
+    return g
+
 
 def get_effective_colormaps(mesh):
     """ Return the colormaps we want to use
@@ -118,7 +274,7 @@ class ShaderImporter:
         self.calc2_offset_x = -1500
         self.img_offset_x = -1200
         self.cvt_offset_x = -300
-        self.inter1_offset_x = -900
+        self.inter1_offset_x = -850
         self.inter2_offset_x = -700
         self.inter3_offset_x = -500
         self.inter4_offset_x = -300
@@ -491,125 +647,25 @@ class ShaderImporter:
             except:
                 pass
 
-            nmap = self.make_node("ShaderNodeNormalMap",
-                                  xloc=self.inter4_offset_x + self.bsdf.location[0],
-                                  yloc=nimgnode.location[1])
-            nmap.inputs['Strength'].default_value = 2.0 # Make it a little more obvious.
-            
             if shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
-                # Need to swap green and blue channels for blender
-                nmap.space = "OBJECT"
-                try:
-                    # 3.3 
-                    rgbsep = self.make_node("ShaderNodeSeparateColor",
-                                            xloc=self.bsdf.location[0] + self.inter1_offset_x,
-                                            yloc=nimgnode.location[1])
-                    rgbsep.mode = 'RGB'
-                    rgbcomb = self.make_node("ShaderNodeCombineColor",
-                                              xloc=self.bsdf.location[0] + self.inter2_offset_x,
-                                              yloc=nimgnode.location[1])
-                    rgbcomb.mode = 'RGB'
-                    self.link(rgbsep.outputs['Red'], rgbcomb.inputs['Red'])
-                    self.link(rgbsep.outputs['Green'], rgbcomb.inputs['Blue'])
-                    self.link(rgbsep.outputs['Blue'], rgbcomb.inputs['Green'])
-                    self.link(rgbcomb.outputs['Color'], nmap.inputs['Color'])
-                    self.link(nimgnode.outputs['Color'], rgbsep.inputs['Color'])
-                except:
-                    # < 3.3
-                    rgbsep = self.make_node("ShaderNodeSeparateRGB",
-                                            xloc=self.bsdf.location[0] + self.inter1_offset_x,
-                                            yloc=nimgnode.location[1])
-                    rgbcomb = self.make_node("ShaderNodeCombineRGB",
-                                              xloc=self.bsdf.location[0] + self.inter2_offset_x,
-                                              yloc=nimgnode.location[1])
-                    self.link(rgbsep.outputs['R'], rgbcomb.inputs['R'])
-                    self.link(rgbsep.outputs['G'], rgbcomb.inputs['B'])
-                    self.link(rgbsep.outputs['B'], rgbcomb.inputs['G'])
-                    self.link(rgbcomb.outputs['Image'], nmap.inputs['Color'])
-                    self.link(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
-            # else:
-            #     # Tangent space normals need to invert the green channel.
-            #     nmap.space = "TANGENT"
-            #     ginv = self.make_node("ShaderNodeInvert",
-            #                           xloc=self.bsdf.location[0] + self.inter2_offset_x,
-            #                           yloc=nimgnode.location[1])
-                                            
-            #     try:
-            #         # 3.3 
-            #         rgbsep = self.make_node("ShaderNodeSeparateColor",
-            #                                 xloc=self.bsdf.location[0] + self.inter1_offset_x,
-            #                                 yloc=nimgnode.location[1])
-            #         rgbsep.mode = 'RGB'
-            #         rgbcomb = self.make_node("ShaderNodeCombineColor",
-            #                                   xloc=self.bsdf.location[0] + self.inter3_offset_x,
-            #                                   yloc=nimgnode.location[1])
-            #         rgbcomb.mode = 'RGB'
-            #         self.link(rgbsep.outputs['Red'], rgbcomb.inputs['Red'])
-            #         self.link(rgbsep.outputs['Green'], ginv.inputs['Color'])
-            #         self.link(ginv.outputs['Color'], rgbcomb.inputs['Green'])
-            #         self.link(rgbsep.outputs['Blue'], rgbcomb.inputs['Blue'])
-            #     except:
-            #         # < 3.3
-            #         rgbsep = self.make_node("ShaderNodeSeparateRGB",
-            #                                 xloc=self.bsdf.location[0] + self.inter1_offset_x,
-            #                                 yloc=nimgnode.location[1])
-            #         rgbcomb = self.make_node("ShaderNodeCombineRGB",
-            #                                   xloc=self.bsdf.location[0] + self.inter3_offset_x,
-            #                                   yloc=nimgnode.location[1])
-            #         self.link(rgbsep.outputs['R'], rgbcomb.inputs['R'])
-            #         self.link(rgbsep.outputs['G'], ginv.inputs['Color'])
-            #         self.link(ginv.outputs['Color'], rgbcomb.inputs['G'])
-            #         self.link(rgbsep.outputs['B'], rgbcomb.inputs['B'])
-            #     self.link(rgbcomb.outputs[0], nmap.inputs['Color'])
-            #     self.link(nimgnode.outputs['Color'], rgbsep.inputs[0])
-
-            else: # shape.file.game in ['FO4', 'FO76']: <-- skyrim too
-                # Need to invert the green channel for blender
-                try:
-                    rgbsep = self.make_node("ShaderNodeSeparateColor",
-                                            xloc=self.bsdf.location[0] + self.inter1_offset_x,
-                                            yloc=nimgnode.location[1])
-                    rgbsep.mode = 'RGB'
-                    rgbcomb = self.make_node("ShaderNodeCombineColor",
-                                             xloc=self.bsdf.location[0] + self.inter3_offset_x,
-                                             yloc=nimgnode.location[1])
-                    rgbcomb.mode = 'RGB'
-                    colorinv = self.make_node("ShaderNodeInvert",
-                                              xloc=self.bsdf.location[0] + self.inter2_offset_x,
-                                              yloc=nimgnode.location[1])
-                    self.link(rgbsep.outputs['Red'], rgbcomb.inputs['Red'])
-                    self.link(rgbsep.outputs['Blue'], rgbcomb.inputs['Blue'])
-                    self.link(rgbsep.outputs['Green'], colorinv.inputs['Color'])
-                    self.link(colorinv.outputs['Color'], rgbcomb.inputs['Green'])
-                    self.link(rgbcomb.outputs['Color'], nmap.inputs['Color'])
-                    self.link(nimgnode.outputs['Color'], rgbsep.inputs['Color'])
-                except:
-                    rgbsep = self.make_node("ShaderNodeSeparateRGB",
-                                            xloc=self.bsdf.location[0] + self.inter1_offset_x,
-                                            yloc=nimgnode.location[1])
-                    rgbcomb = self.nodes.new("ShaderNodeCombineRGB",
-                                             xloc=self.bsdf.location[0] + self.inter3_offset_x,
-                                             yloc=nimgnode.location[1])
-                    colorinv = self.nodes.new("ShaderNodeInvert",
-                                              xloc=self.bsdf.location[0] + self.inter2_offset_x,
-                                              yloc=nimgnode.location[1])
-                    self.link(rgbsep.outputs['R'], rgbcomb.inputs['R'])
-                    self.link(rgbsep.outputs['B'], rgbcomb.inputs['B'])
-                    self.link(rgbsep.outputs['G'], colorinv.inputs['Color'])
-                    self.link(colorinv.outputs['Color'], rgbcomb.inputs['G'])
-                    self.link(rgbcomb.outputs['Image'], nmap.inputs['Color'])
-                    self.link(nimgnode.outputs['Color'], rgbsep.inputs['Image'])
-
-            # else:
-            #     self.link(nimgnode.outputs['Color'], nmap.inputs['Color'])
-            #     nmap.location = (self.bsdf.location[0] + self.inter2_offset_x, self.yloc)
-                            
-            self.link(nmap.outputs['Normal'], self.bsdf.inputs['Normal'])
-
-            if shape.file.game in ["SKYRIM", "SKYRIMSE"] and \
-                not shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
-                # Specular is in the normal map alpha channel
-                self.link(nimgnode.outputs['Alpha'], self.bsdf.inputs['Specular'])
+                modelspace_normal(
+                    self.material.node_tree,
+                    nimgnode.outputs['Color'],
+                    self.bsdf.inputs['Normal'],
+                    (self.bsdf.location[0] + self.inter1_offset_x,
+                        nimgnode.location[1],)
+                )
+            else: 
+                tangent_normal(
+                    self.material.node_tree,
+                    nimgnode.outputs['Color'],
+                    self.bsdf.inputs['Normal'],
+                    (self.bsdf.location[0] + self.inter1_offset_x,
+                        nimgnode.location[1]-100,)
+                )
+                if shape.file.game in ["SKYRIM", "SKYRIMSE"]:
+                    # Specular is in the normal map alpha channel
+                    self.link(nimgnode.outputs['Alpha'], self.bsdf.inputs['Specular'])
                 
 
     def import_envmap(self):
@@ -768,7 +824,6 @@ class ShaderExporter:
         self.obj = blender_obj
         self.is_obj_space = False  # Object vs. tangent normals
         self.is_obj_space = False
-        self.normal_node = None
         self.have_errors = False
 
         self.material = None
@@ -789,9 +844,7 @@ class ShaderExporter:
                 normal_input = self.shader_node.inputs['Normal']
                 if normal_input and normal_input.is_linked:
                     nmap_node = normal_input.links[0].from_node
-                    if nmap_node.bl_idname == 'ShaderNodeNormalMap':
-                        self.normal_node = nmap_node
-                        self.is_obj_space = (nmap_node.space == "OBJECT")
+                    self.is_obj_space = nmap_node.name.startswith(MSN_GROUP_NAME)
 
         self.vertex_colors, self.vertex_alpha = get_effective_colormaps(blender_obj.data)
 
@@ -861,7 +914,8 @@ class ShaderExporter:
         Get the normal map filepath, given the shader node.
         """
         try:
-            # image_node = get_image_node(self.normal_node.inputs['Color'])
+            image_node = find_node(self.bsdf.inputs['Normal'], "ShaderNodeTexImage")
+            normalmap = find_node(self.bsdf.inputs['Normal'], "ShaderNodeNormalMap")
             image_node = self.material.node_tree.nodes['Normal_Texture']
             return image_node.image.filepath
         except:
@@ -900,31 +954,36 @@ class ShaderExporter:
         return False
     
 
-    def write_texture(self, shape, textureslot:str):
-        foundpath = ""
-    
-        try:
-            blname = textureslot
-            if textureslot == 'SoftLighting': blname = 'Subsurface'
-            if blname in self.material.node_tree.nodes:
-                foundpath = self.material.node_tree.nodes[blname].image.filepath
-            # if textureslot == 'Diffuse':
-            #     foundpath = self.get_diffuse()
-            # elif textureslot == 'Normal':
-            #     foundpath = self.get_normal()
-            # elif textureslot == 'SoftLighting':
-            #     foundpath = self.get_subsurface()
-            # elif textureslot == 'Specular':
-            #     foundpath = self.get_specular()
-        except:
-            self.warn("Could not follow shader nodes to find texture files")
-            foundpath = ""
+    slotdict = {'Diffuse': 'Base Color',
+                'SoftLighting': 'Subsurface Color',
+                'Specular': 'Specular',
+                'Normal': 'Normal'}
 
-        # Use the shader node path if it's usable. The path stashed in 
-        # custom properties is already there if not.
-        if foundpath:
-            #log.debug(f"Writing texture: '{foundpath}'")
+    def write_texture(self, shape, textureslot:str):
+        """
+        Write the given texture slot to the nif shape.
+        """
+        foundpath = ""
+        imagenode = None
+        if textureslot == "EnvMap":
+            if "EnvMap_Texture" in self.material.node_tree.nodes:
+                imagenode = self.material.node_tree.nodes["EnvMap_Texture"]
+        elif textureslot == "EnvMask":
+            if "EnvMask_Texture" in self.material.node_tree.nodes:
+                imagenode = self.material.node_tree.nodes["EnvMask_Texture"]
+        else:
+            imagenode = find_node(self.shader_node.inputs[self.slotdict[textureslot]], "ShaderNodeTexImage")
+        
+        if imagenode:
+            if textureslot == 'Specular':
+                # Check to see if the specular is coming from the normal texture. If so,
+                # don't use it.
+                normnode = find_node(self.shader_node.inputs["Normal"], "ShaderNodeTexImage")
+                if normnode == imagenode:
+                    return
+                
             try:
+                foundpath = imagenode.image.filepath
                 fplc = Path(foundpath.lower())
                 if fplc.drive.endswith('textures'):
                     txtindex = 0
@@ -935,8 +994,10 @@ class ShaderExporter:
                 shape.set_texture(textureslot, str(relpath.with_suffix('.dds')))
             except ValueError:
                 self.warn(f"No 'textures' folder found in path: {foundpath}")
-        # else:
-        #     log.debug(f"No texture in slot {textureslot}: '{foundpath}'")
+            except Exception as e:
+                self.warn(f"Texture image in block {imagenode.name} not usable.")
+        else:
+            self.warn(f"Could not find image shader node for {textureslot} layer.")
 
 
     def export_textures(self, shape: NiShape):

@@ -22,14 +22,39 @@ def test_title(name, desc):
     print (f"{desc}")
 
 def clear_all():
-    if bpy.data.objects:
-        if bpy.context.mode != 'OBJECT': bpy.ops.object.mode_set(mode = 'OBJECT')
-        bpy.ops.object.select_all(action='SELECT')
-        bpy.ops.object.delete(use_global=True)
-    # for obj in bpy.data.objects:
-    #     #bpy.data.objects.remove(obj)
+    try:
+        bpy.ops.object.mode_set(mode = 'OBJECT')
+    except:
+        pass
+
+    bpy.ops.object.select_all(action='DESELECT')
+    for obj in bpy.context.scene.objects:
+        if obj.type in ['MESH', 'CURVE', 'SURFACE', 'META', 'FONT', 'ARMATURE', 'LATTICE', 
+                        'EMPTY', 'CAMERA', 'LAMP', 'SPEAKER']:
+            obj.select_set(True)
+        else:
+            obj.select_set(False)
+    bpy.ops.object.delete()
+
+    for block in bpy.data.meshes:
+        if block.users == 0:
+            bpy.data.meshes.remove(block)
+
+    for block in bpy.data.materials:
+        if block.users == 0:
+            bpy.data.materials.remove(block)
+
+    for block in bpy.data.textures:
+        if block.users == 0:
+            bpy.data.textures.remove(block)
+
+    for block in bpy.data.images:
+        if block.users == 0:
+            bpy.data.images.remove(block)
+
     for c in bpy.data.collections:
         bpy.data.collections.remove(c)
+
     for a in bpy.data.actions:
         bpy.data.actions.remove(a)
     bpy.context.scene.timeline_markers.clear()

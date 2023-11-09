@@ -201,6 +201,7 @@ def TEST_BODYPART_ALIGHMENT_FO4():
     BD.ObjectSelect([skel], active=True)
     bpy.ops.import_scene.pynifly(filepath=headfile, do_create_bones=False)
     head = bpy.context.object
+    assert BD.NearEqual(head.location.z, 120.8, epsilon=0.1), f"Head in correct location"
 
     # Write the body parts
     BD.ObjectSelect([body], active=True)
@@ -239,14 +240,14 @@ def TEST_IMP_EXP_SKY():
     def do_test(game, blendxf):
         TT.clear_all()
         xftext = '_XF' if blendxf else ''
-        log.debug(f"\n<<<<<Testing with blender transform for {game} {xftext}>>>>>")
+        print(f"---Testing {'with' if blendxf else 'without'} blender transform for {game}")
         outfile = TT.test_file(f"tests/Out/TEST_IMP_EXP_SKY_{game}{xftext}.nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=blendxf)
+        armor = [obj for obj in bpy.context.selected_objects if obj.name.startswith('Armor')][0]
 
         impnif = pyn.NifFile(testfile)
         armorin = impnif.shape_dict['Armor']
-        armor = TT.find_shape('Armor')
 
         vmin, vmax = TT.get_obj_bbox(armor)
         assert TT.VNearEqual(vmin, Vector([-30.32, -13.31, -90.03]), 0.1), f"Armor min is correct: {vmin}"
@@ -383,7 +384,7 @@ def TEST_IMP_EXP_FO4_2():
 def TEST_ROUND_TRIP():
     """Can do the full round trip: nif -> blender -> nif -> blender"""
     testfile = TT.test_file("tests/Skyrim/test.nif")
-    outfile1 = TT.test_file("tests/Out/testSkyrim03.nif")
+    outfile1 = TT.test_file("tests/Out/TEST_ROUND_TRIP.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -394,6 +395,11 @@ def TEST_ROUND_TRIP():
     assert maxz < 0 and minz > -130, "Error: Vertices are positioned below origin"
     assert len(armor1.data.vertex_colors) == 0, "ERROR: Armor should have no colors"
 
+    arma = bpy.data.objects["Scene Root:ARMATURE"]
+    handl = arma.data.bones["NPC Hand.L"]
+    handlx = handl.matrix_local @ arma.matrix_world
+    assert 40 < handlx.translation.z < 100, f"Hand bone in correct location: {handlx.translation.z}"
+
     print("Exporting  to test file")
     bpy.ops.object.select_all(action='DESELECT')
     armor1.select_set(True)
@@ -401,16 +407,16 @@ def TEST_ROUND_TRIP():
     assert os.path.exists(outfile1), "ERROR: Created output file"
 
     print("Re-importing exported file")
+    TT.clear_all()
     bpy.ops.object.select_all(action='DESELECT')
     bpy.ops.import_scene.pynifly(filepath=outfile1)
 
-    armor2 = bpy.data.objects["Armor.001"]
+    armor2 = [x for x in bpy.data.objects if x.name.startswith("Armor")][0]
 
     assert int(armor2.location.z) == 120, f"ERROR: Exported armor is re-imported with same position: {armor2.location}"
-    maxz = max([v.co.z for v in armor2.data.vertices])
-    minz = min([v.co.z for v in armor2.data.vertices])
-    assert maxz < 0 and minz > -130, "Error: Vertices from exported armor are positioned below origin"
-
+    for v in armor2.data.vertices:
+        assert -120 < v.co.z < 0, f"Vertices positioned below origin: {v.co}"
+        
 
 def TEST_BPY_PARENT_A():
     """Maintain armature structure"""
@@ -484,7 +490,9 @@ def TEST_DRAUGR_IMPORT_A():
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_A.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, do_create_bones=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
+                                 do_create_bones=True,
+                                 do_import_pose=False)
 
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     hood = TT.find_shape("Hood")
@@ -497,25 +505,6 @@ def TEST_DRAUGR_IMPORT_A():
     bone1 = arma.data.bones['NPC Head']
     pose1 = arma.pose.bones['NPC Head']
     assert pose1.head.z > bone1.head.z+10, f"Pose well above bind positions"
-
-    # Because the hood doesn't match the reference skeleton, we don't use the ref skeleton
-    # to extend bones.
-
-    # bone1 = skel.data.bones['NPC UpperArm.R']
-    # pose1 = skel.pose.bones['NPC UpperArm.R']
-    # bone2 = skel.data.bones['NPC UpperarmTwist1.R']
-    # pose2 = skel.pose.bones['NPC UpperarmTwist1.R']
-
-    # Bones referenced by the hood have bind position from humans but pose position from
-    # draugr. The rest of them use bind and pose position from draugr.
-    # assert not TT.MatNearEqual(bone1.matrix_local, bone2.matrix_local), \
-    #     f"Bones should NOT have the same bind position: \n{bone1.matrix_local} != \n{bone2.matrix_local}"
-    # assert TT.VNearEqual(pose1.matrix.translation, pose2.matrix.translation), \
-    #     f"Bones should have same pose position: {pose1.matrix.translation} != {pose2.matrix.translation}"
-    
-    # Create_bones means that the bones are all connected up
-    # assert bone1.parent.name == 'NPC Clavicle.R', f"UpperArm parent correct: {bone1.parent.name}"
-    # assert bone2.parent.name == 'NPC UpperArm.R', f"UpperArmTwist parent correct: {bone2.parent.name}"
     
 
 def TEST_DRAUGR_IMPORT_B():
@@ -530,7 +519,9 @@ def TEST_DRAUGR_IMPORT_B():
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_B.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, do_create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
+                                 do_create_bones=False,
+                                 do_import_pose=False)
 
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     helm = TT.find_shape("Helmet")
@@ -552,7 +543,9 @@ def TEST_DRAUGR_IMPORT_C():
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_C.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, do_create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
+                                 do_create_bones=False,
+                                 do_import_pose=False)
 
     skel = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     helm = TT.find_shape("Helmet")
@@ -574,7 +567,9 @@ def TEST_DRAUGR_IMPORT_D():
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_D.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, do_create_bones=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
+                                 do_create_bones=True,
+                                 do_import_pose=False)
 
     skel = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     helm = TT.find_shape("Helmet")
@@ -602,8 +597,7 @@ def TEST_DRAUGR_IMPORT_E():
     # This nif has two shapes and the bind positions differ. The hood bind position is
     # human, and it's posed to the draugr position. The draugr hood is bound at pose
     # position, so pose and bind positions are the same. The only solution is to import as
-    # two skeletons and let the user sort it out. We could also add a flag to "import at
-    # pose position". We lose the bind position info but end up with the shapes parented
+    # two skeletons and let the user sort it out. We lose the bind position info but end up with the shapes parented
     # to one armature.
 
     # ------- Load --------
@@ -611,7 +605,9 @@ def TEST_DRAUGR_IMPORT_E():
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_E.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, do_create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
+                                 do_create_bones=False,
+                                 do_import_pose=False)
 
     skel = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     helm = TT.find_shape("Helmet")
@@ -1495,7 +1491,7 @@ def TEST_SHADER_LE():
     shadernodes = headLE.active_material.node_tree.nodes
     assert 'Principled BSDF' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     assert 'Diffuse_Texture' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
-    assert 'Normal Map' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
+    assert shadernodes['Principled BSDF'].inputs['Normal'].is_linked, f"Have a normal map"
     g = shadernodes['Glossiness'].outputs['Value'].default_value
     assert round(g, 4) == 33, f"Glossiness not correct, value is {g}"
     assert headLE.active_material['BSShaderTextureSet_SoftLighting'] == r"textures\actors\character\male\MaleHead_sk.dds", \
@@ -1568,7 +1564,7 @@ def TEST_SHADER_FO4():
     shapeorig = nifFO4.shapes[0]
     sh = headFO4.active_material.node_tree.nodes["Principled BSDF"]
     assert sh, "Have shader node"
-    txt = headFO4.active_material.node_tree.nodes["Image Texture"]
+    txt = headFO4.active_material.node_tree.nodes["Diffuse_Texture"]
     assert txt and txt.image and txt.image.filepath, "ERROR: Didn't import images"
 
     # Shader attributes are written on export
@@ -1653,9 +1649,9 @@ def TEST_SHADER_ALPHA():
     furshape = nifAlph.shape_dict["tail_fur"]
     tail = bpy.data.objects["tail_fur"]
     assert 'Principled BSDF' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
-    assert 'Image Texture' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
-    assert 'Attribute' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
-    assert 'Normal Map' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
+    bsdf = tail.active_material.node_tree.nodes['Principled BSDF']
+    assert bsdf.inputs['Normal'].is_linked, f"Have normal map"
+    assert 'Diffuse_Texture' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
     assert tail.active_material.blend_method == 'CLIP', f"Error: Alpha blend is '{tail.active_material.blend_method}', not 'CLIP'"
 
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
@@ -1693,7 +1689,7 @@ def TEST_SHADER_3_3():
     
     shaderch = nifcheckSE.shapes[0].shader
     assert shaderch.textures['Diffuse'] == r"textures\actors\character\male\MaleBody_1.dds", \
-        f"Error: Texture paths not preserved: '{shaderch.textures['DIffuse']}'"
+        f"Error: Texture paths not preserved: '{shaderch.textures['Diffuse']}'"
     assert shaderch.textures['Normal'] == r"textures\actors\character\male\MaleBody_1_msn.dds", \
         f"Error: Texture paths not preserved: '{shaderch.textures['Normal']}'"
     assert shaderch.textures["SoftLighting"] == r"textures\actors\character\male\MaleBody_1_sk.dds", \
@@ -2301,15 +2297,9 @@ def TEST_VERTEX_ALPHA_IO():
     assert shader, f"Found Principled BSDF node"
     mixnode = shader.inputs["Base Color"].links[0].from_node
     diffuse = mixnode.inputs[6].links[0].from_node
-    assert diffuse.name == "Image Texture", f"Found correct diffuse type {diffuse.name}"
+    assert diffuse.bl_idname == "ShaderNodeTexImage", f"Found correct diffuse type {diffuse.name}"
     assert diffuse.image.filepath.endswith('KhajiitMaleHead.dds'), f"Filepath correct: {diffuse.image.filepath}"
-    map1 = shader.inputs['Alpha'].links[0].from_node
-    assert map1.bl_idname == "ShaderNodeMapRange", f"Found first map: {map1}"
-    map2 = map1.inputs['To Min'].links[0].from_node
-    assert map2.bl_idname == "ShaderNodeMapRange", f"Found second map: {map2}"
-    attr = map2.inputs['Value'].links[0].from_node
-    assert attr.bl_idname == "ShaderNodeAttribute", f"Found attribute node: {attr}"
-    assert map1.inputs['Value'].links[0].from_node == diffuse, f"Alpha path correct: {map1.inputs['Value'].links[0].from_node}"
+    assert shader.inputs['Alpha'].is_linked, f"Have alpha map"
 
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
@@ -2372,7 +2362,7 @@ def TEST_BONE_HIERARCHY():
     testfile = TT.test_file(r"tests\SkyrimSE\Anna.nif")
     outfile = TT.test_file(r"tests/Out/TESTS_BONE_HIERARCHY.nif", output=1)
 
-    bpy.ops.import_scene.pynifly(filepath=testfile)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_import_pose=0)
 
     hair = TT.find_shape("KSSMP_Anna")
     skel = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
@@ -3993,7 +3983,10 @@ def TEST_IMP_ANIMATRON():
     outfile = TT.test_file(r"tests/Out/TEST_IMP_ANIMATRON.nif")
     outfile_fb = TT.test_file(r"tests/Out/TEST_IMP_ANIMATRON.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                 do_create_bones=False, 
+                                 do_rename_bones=False, 
+                                 do_import_pose=False)
 
     sh = TT.find_shape('BodyLo:0')
     minv, maxv = TT.get_obj_bbox(sh)
@@ -4093,7 +4086,9 @@ def TEST_SCALING_COLL():
     testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
     outfile = TT.test_file(r"tests/Out/TEST_SCALING_COLL.nif", output=True)
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                 use_blender_xf=True, 
+                                 do_import_pose=False)
     bow = TT.find_shape("ElvenBowSkinned:0")
 
     # Check shape size
@@ -4180,7 +4175,9 @@ def TEST_SCALING_COLL():
     # directly but the math is gnarly.
     TT.clear_all()
     
-    bpy.ops.import_scene.pynifly(filepath=outfile, use_blender_xf=True)
+    bpy.ops.import_scene.pynifly(filepath=outfile, 
+                                 use_blender_xf=True,
+                                 do_import_pose=False)
     obj = TT.find_shape("ElvenBowSkinned:0")
     box = TT.find_shape("bhkBoxShape")
     assert TT.close_bounds(obj, box), f"Collision box covers bow."
@@ -4894,40 +4891,23 @@ print("""
 =============================================================================
 """)
 
-# If set, run these tests only (test name as string).
-test_targets = ['TEST_SHADER_GLOW']
+alltests = [k for k in sys.modules[__name__].__dict__.keys() if k.startswith('TEST_')]
 
-# If clear, all tests run in the order they are defined.
-# If set, this and all following tests will be run.
-# Use to resume a test run from the point it failed.
-first_test = ''
-
-
-m = sys.modules[__name__]
-
-if bpy.data:
-    if test_targets:
-        testlist = test_targets
-    else:
-        testlist = [k for k in m.__dict__.keys() if k.startswith('TEST_')]
-
+def testfrom(starttest):
     try:
-        testlist = testlist[testlist.index(first_test):]
+        return alltests[alltests.index(starttest):]
     except:
-        pass
+        return alltests
 
-    for n in testlist:
-        t = m.__dict__[n]
-        print(f"{n:30}{t.__doc__}")
-
+def do_tests(testlist):
     for name in testlist:
-        t = m.__dict__[name]
+        t = sys.modules[__name__].__dict__[name]
         print (f"\n\n\n++++++++++++++++++++++++++++++ {name} ++++++++++++++++++++++++++++++")
         if t.__doc__: print (f"{t.__doc__}")
         TT.clear_all()
         t()
         print (      f"------------------------------ {name} ------------------------------\n")
-        bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+        # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
     print("""
     =============================================================================
@@ -4936,8 +4916,17 @@ if bpy.data:
     ===                                                                       ===
     =============================================================================
     """)
-else:
-    testlist = [k for k in m.__dict__.keys() if k.startswith('TEST_')]
-    for n in testlist:
+
+def show_all_tests():
+    m = sys.modules[__name__]
+    for n in alltests:
         t = m.__dict__[n]
         print(f"{n:25}{t.__doc__}")
+
+if bpy.data:
+    do_tests(['TEST_WEAPON_PART'])
+    # do_tests(alltests)
+    # do_tests(testfrom('TEST_SCALING_COLL'))
+else:
+    # If running outside blender, just list tests.
+    show_all_tests()
