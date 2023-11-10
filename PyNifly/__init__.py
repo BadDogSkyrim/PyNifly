@@ -8,7 +8,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (13, 1, 0),  
+    "version": (13, 1, 1),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -1274,26 +1274,28 @@ class NifImporter():
 
     def group_bones(self, armature):
         """For convenience, create armature bone groups."""
+        try:
+            groups = {}
+            for g in armature.pose.bone_groups:
+                groups[g.name] = g
 
-        groups = {}
-        for g in armature.pose.bone_groups:
-            groups[g.name] = g
-
-        for b in armature.pose.bones:
-            bg_name = b.name.split()[0]
-            if bg_name not in ARMATURE_BONE_GROUPS:
-                if "_skin" in b.name:
-                    bg_name = "Skin"
-                else:
-                    bg_name = None
-            if bg_name:
-                if bg_name in groups:
-                    target_group = groups[bg_name]
-                else:
-                    target_group = armature.pose.bone_groups.new(name=bg_name)
-                    groups[bg_name] = target_group
-                if target_group:
-                    b.bone_group = target_group
+            for b in armature.pose.bones:
+                bg_name = b.name.split()[0]
+                if bg_name not in ARMATURE_BONE_GROUPS:
+                    if "_skin" in b.name:
+                        bg_name = "Skin"
+                    else:
+                        bg_name = None
+                if bg_name:
+                    if bg_name in groups:
+                        target_group = groups[bg_name]
+                    else:
+                        target_group = armature.pose.bone_groups.new(name=bg_name)
+                        groups[bg_name] = target_group
+                    if target_group:
+                        b.bone_group = target_group
+        except:
+            log.info(f"Cannot create convenience bone groups")
 
 
     def roll_bones(self, arma):
@@ -2435,16 +2437,10 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 
         # Zoom any outliner view to the active objects.
         # Not working. Not sure why.
-        for area in [a for a in context.screen.areas if a.type == 'OUTLINER']:
-            for region in [r for r in area.regions if r.type == 'WINDOW']:
-                override = {'area':area, 'region': region}
-                bpy.ops.outliner.show_active(override)
-                # ctxt = context.copy()
-                # bpy.context.area = area
-                # bpy.context.region = region
-                # bpy.ops.outliner.show_active()
-                # with context.temp_override(area=area, region=region):
-                #     bpy.ops.outliner.show_active()
+        # for area in [a for a in context.screen.areas if a.type == 'OUTLINER']:
+        #     for region in [r for r in area.regions if r.type == 'WINDOW']:
+        #         override = {'area':area, 'region': region}
+        #         bpy.ops.outliner.show_active(override)
 
         return {'FINISHED'}
 
@@ -4012,8 +4008,13 @@ class NifExporter:
         # face normals even on smooth shading.  (TEST_NORMAL_SEAM tests for this.) So use the
         # vertex normal except when there are custom split normals.
         bpy.ops.object.mode_set(mode='OBJECT') #required to get accurate normals
-        mesh.calc_normals()
-        mesh.calc_normals_split()
+        try:
+            # Before Blender 4.0 have to calculate normals. 4.0 doesn't need it and throws
+            # an error.
+            mesh.calc_normals()
+            mesh.calc_normals_split()
+        except:
+            pass
 
         def write_loop_vert(loopseg):
             """ Write one vert, given as a MeshLoop 

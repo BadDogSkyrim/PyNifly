@@ -347,24 +347,24 @@ def highlight_objects(objlist, context):
     ObjectSelect(objlist, active=True)
 
     context.view_layer.update()
-    for area in [a for a in bpy.context.screen.areas if a.type == 'OUTLINER']:
-        for region in [r for r in area.regions if r.type == 'WINDOW']:
-            override = {'area':area, 'region': region}
-            bpy.ops.outliner.show_active(override)
+    try:
+        # Fails on Blender 4.0
+        for area in [a for a in bpy.context.screen.areas if a.type == 'OUTLINER']:
+            for region in [r for r in area.regions if r.type == 'WINDOW']:
+                override = {'area':area, 'region': region}
+                bpy.ops.outliner.show_active(override)
+    except:
+        pass
 
-    # Zoom any 3D view to the selected objects
-    for area in [a for a in context.screen.areas if a.type == 'VIEW_3D']:
-        for region in [r for r in area.regions if r.type == 'WINDOW']:
-            # try:
-            #     with context.temp_override(area=area, region=region):
-            #         bpy.ops.view3d.view_selected()
-            # except:
-                # Older versions of blender before 3.2
-            # ctx = context.copy()
-            # ctx['area'] = area
-            # ctx['region'] = region
-            override = {'area':area, 'region': region}
-            bpy.ops.view3d.view_selected(override)
+    try:
+        # Fails on Blender 4.0
+        # Zoom any 3D view to the selected objects
+        for area in [a for a in context.screen.areas if a.type == 'VIEW_3D']:
+            for region in [r for r in area.regions if r.type == 'WINDOW']:
+                override = {'area':area, 'region': region}
+                bpy.ops.view3d.view_selected(override)
+    except:
+        pass
 
     
 def TEST_CAM():

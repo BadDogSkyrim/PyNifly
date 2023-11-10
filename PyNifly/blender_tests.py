@@ -1492,6 +1492,7 @@ def TEST_SHADER_LE():
     assert 'Principled BSDF' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     assert 'Diffuse_Texture' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     assert shadernodes['Principled BSDF'].inputs['Normal'].is_linked, f"Have a normal map"
+    assert shadernodes['Principled BSDF'].inputs['Base Color'].is_linked, f"Have a base color"
     g = shadernodes['Glossiness'].outputs['Value'].default_value
     assert round(g, 4) == 33, f"Glossiness not correct, value is {g}"
     assert headLE.active_material['BSShaderTextureSet_SoftLighting'] == r"textures\actors\character\male\MaleHead_sk.dds", \
@@ -4924,7 +4925,7 @@ def show_all_tests():
         print(f"{n:25}{t.__doc__}")
 
 if bpy.data:
-    do_tests(['TEST_WEAPON_PART'])
+    do_tests(['TEST_SHADER_LE'])
     # do_tests(alltests)
     # do_tests(testfrom('TEST_SCALING_COLL'))
 else:
