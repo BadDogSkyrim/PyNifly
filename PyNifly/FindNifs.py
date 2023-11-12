@@ -8,14 +8,19 @@ import collections
 from ctypes import Structure, c_bool, c_char, c_float, c_uint8, c_uint32
 from pathlib import Path
 import pynifly
+import nifdefs
 
-targetFolder = r"C:\Modding\SkyrimSE\mods\00 Vanilla Assets\meshes"
+targetFolder = r"C:\Modding\SkyrimSE\mods\00 Vanilla Assets\meshes\actors"
 
 def TestNif(n:pynifly.NifFile):
     for s in n.shapes:
-        if s.shader.blockname == 'BSEffectShaderProperty':
-            if s.shader.properties.baseColorScale != s.shader.properties.Emissive_Mult:
-                return True, s.name
+        if s.shader.blockname == 'BSLightingShaderProperty' \
+            and s.shader.properties.bslspShaderType == nifdefs.BSLSPShaderType.Face_Tint \
+            and s.shader.shaderflags2_test(nifdefs.ShaderFlags2.SOFT_LIGHTING) \
+            and not s.shader.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS):
+            
+            return True, s.name
+        
     return False, None
 
 def WalkTree(folder_path):

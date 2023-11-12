@@ -28,13 +28,21 @@ def clear_all():
         pass
 
     bpy.ops.object.select_all(action='DESELECT')
-    for obj in bpy.context.scene.objects:
-        if obj.type in ['MESH', 'CURVE', 'SURFACE', 'META', 'FONT', 'ARMATURE', 'LATTICE', 
-                        'EMPTY', 'CAMERA', 'LAMP', 'SPEAKER']:
-            obj.select_set(True)
-        else:
-            obj.select_set(False)
-    bpy.ops.object.delete()
+    # for obj in bpy.context.scene.objects:
+    #     if obj.type in ['MESH', 'CURVE', 'SURFACE', 'META', 'FONT', 'ARMATURE', 'LATTICE', 
+    #                     'EMPTY', 'CAMERA', 'LAMP', 'SPEAKER']:
+    #         obj.select_set(True)
+    #     else:
+    #         obj.select_set(False)
+    # bpy.ops.object.delete()
+
+    curlen = len(bpy.data.objects)
+    while curlen > 0:
+        for obj in bpy.data.objects:
+            bpy.data.objects.remove(obj)
+        if len(bpy.data.objects) >= curlen:
+            break
+        curlen = len(bpy.data.objects)
 
     for block in bpy.data.meshes:
         if block.users == 0:

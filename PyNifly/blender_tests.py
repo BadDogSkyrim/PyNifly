@@ -67,7 +67,7 @@ def TEST_BODYPART_FO4():
     # all consistent, so they are put on the shape.
     testfile = TT.test_file("tests\FO4\BaseMaleHead.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    male_head = bpy.data.objects["BaseMaleHead:0"]
+    male_head = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH'][0]
     assert int(male_head.location.z) == 120, f"ERROR: Object {male_head.name} at {male_head.location.z}, not elevated to position"
     assert 'pynRoot' in male_head.parent, "Parenting mesh to root"
     maxz = max([v.co.z for v in male_head.data.vertices])
@@ -1036,7 +1036,6 @@ def TEST_SKEL_SKY():
     assert foot_col, "Have foot collision object"
 
 
-
 def TEST_HEADPART():
     """Can read & write an SE head part"""
     # Tri files can be loaded up into a shape in blender as shape keys. On SE, when there
@@ -1174,11 +1173,6 @@ def TEST_IMPORT_MULTI_OBJECTS():
     testfiles = [{"name": TT.test_file(r"tests\SkyrimSE\malehead.nif")}, 
                  {"name": TT.test_file(r"tests\SkyrimSE\body1m_1.nif")}, ]
     bpy.ops.import_scene.pynifly(files=testfiles)
-
-    for ol_area in [a for a in bpy.context.screen.areas if a.type == 'OUTLINER']:
-        for ol_region in [r for r in ol_area.regions if r.type == 'WINDOW']:
-            override = {'area':ol_area, 'region': ol_region}
-            bpy.ops.outliner.show_active(override)
 
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
     assert len(meshes) == 3, f"Have 3 meshes: {meshes}"
@@ -1673,6 +1667,9 @@ def TEST_SHADER_ALPHA():
 
 def TEST_SHADER_3_3():
     """Shader attributes are read and turned into Blender shader nodes"""
+    # This older shader connects to the Principled BSDF "Subsurface" import port which
+    # went away in V4.0, so it ain't never gonna work.
+    if bpy.app.version[0] >= 4: return
 
     TT.append_from_file("FootMale_Big", True, r"tests\SkyrimSE\feet.3.3.blend", 
                      r"\Object", "FootMale_Big")
@@ -2296,8 +2293,7 @@ def TEST_VERTEX_ALPHA_IO():
     nodes = head.active_material.node_tree.nodes
     shader = nodes["Principled BSDF"]
     assert shader, f"Found Principled BSDF node"
-    mixnode = shader.inputs["Base Color"].links[0].from_node
-    diffuse = mixnode.inputs[6].links[0].from_node
+    diffuse = shader_io.find_node(shader.inputs["Base Color"], "ShaderNodeTexImage")
     assert diffuse.bl_idname == "ShaderNodeTexImage", f"Found correct diffuse type {diffuse.name}"
     assert diffuse.image.filepath.endswith('KhajiitMaleHead.dds'), f"Filepath correct: {diffuse.image.filepath}"
     assert shader.inputs['Alpha'].is_linked, f"Have alpha map"
@@ -2565,10 +2561,7 @@ def TEST_MULT_PART():
 
 
 def TEST_BONE_XPORT_POS():
-    """
-    Test that bones named like vanilla bones but from a different skeleton export to the
-    correct position.
-    """
+    """Vanilla bones coming from a different skeleton export correctly."""
     # Since we use a reference skeleton to make bones, we have to be able to handle
     # the condition where the mesh is not human and the reference skeleton should not
     # be used.
@@ -3097,6 +3090,7 @@ def TEST_ROGUE01():
 
     obj = TT.append_from_file("MHelmetLight:0", False, r"tests\FO4\WonkyNormals.blend", r"\Object", "MHelmetLight:0")
     assert obj.name == "MHelmetLight:0", "Got the right object"
+
     bpy.ops.export_scene.pynifly(filepath=testfile, target_game="FO4")
 
     nif2 = pyn.NifFile(testfile)
@@ -3601,10 +3595,9 @@ def TEST_COLLISION_XFORM():
 
         
 def TEST_CONNECT_POINT():
-    """
-    FO4 has a complex method of attaching shapes to other shapes in game, using
-    connect points. These can be created and manipulated in Blender.
-    """
+    """Connect points import/export correctly"""
+    # FO4 has a complex method of attaching shapes to other shapes in game, using
+    # connect points. These can be created and manipulated in Blender.
 
     testfile = TT.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")
     outfile = TT.test_file(r"tests\Out\TEST_CONNECT_POINT.nif")
@@ -3655,11 +3648,10 @@ def TEST_CONNECT_POINT():
 
 
 def TEST_WEAPON_PART():
-    """
-    When a connect point is selected and then another part is imported that connects
-    to that point, they are connected in Blender.
-    """
-
+    """Selected connect points used to parent new import"""
+    # When a connect point is selected and then another part is imported that connects
+    # to that point, they are connected in Blender.
+    
     testfile = TT.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")
     partfile = TT.test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel_1.nif")
     partfile2 = TT.test_file(r"tests\FO4\Shotgun\DrumMag.nif")
@@ -4892,7 +4884,7 @@ print("""
 =============================================================================
 """)
 
-alltests = [k for k in sys.modules[__name__].__dict__.keys() if k.startswith('TEST_')]
+alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]
 
 def testfrom(starttest):
     try:
@@ -4900,15 +4892,30 @@ def testfrom(starttest):
     except:
         return alltests
 
-def do_tests(testlist):
-    for name in testlist:
-        t = sys.modules[__name__].__dict__[name]
-        print (f"\n\n\n++++++++++++++++++++++++++++++ {name} ++++++++++++++++++++++++++++++")
+def execute_test(t):
+        # t = sys.modules[__name__].__dict__[t.__name__]
+        print (f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
         if t.__doc__: print (f"{t.__doc__}")
         TT.clear_all()
         t()
-        print (      f"------------------------------ {name} ------------------------------\n")
+        print (      f"------------------------------ {t.__name__} ------------------------------\n")
         # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+
+def do_tests(testlist):
+    """Do tests in testlist. Can pass in a single test."""
+    iter = True
+    try:
+        for t in testlist:
+            pass
+        iter = True
+    except:
+        iter = False
+
+    if iter: 
+        for t in testlist:
+            execute_test(t)
+    else:
+        execute_test(testlist)
 
     print("""
     =============================================================================
@@ -4919,15 +4926,13 @@ def do_tests(testlist):
     """)
 
 def show_all_tests():
-    m = sys.modules[__name__]
-    for n in alltests:
-        t = m.__dict__[n]
-        print(f"{n:25}{t.__doc__}")
+    for t in alltests:
+        print(f"{t.__name__:25}{t.__doc__}")
 
-if bpy.data:
-    do_tests(['TEST_SHADER_LE'])
-    # do_tests(alltests)
-    # do_tests(testfrom('TEST_SCALING_COLL'))
-else:
+if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
+else:
+    # do_tests( TEST_ROGUE01 )
+    do_tests(alltests)
+    # do_tests( testfrom(TEST_ROGUE01) )

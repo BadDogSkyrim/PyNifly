@@ -8,7 +8,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (3, 0, 0),
-    "version": (13, 1, 1),  
+    "version": (13, 2, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -2616,13 +2616,17 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
                 imp = f"IMPORT TRIP {list(s)}"
             status = status.union(v)
             #log.debug(f"Imported tri/trip, got status {status}")
-        
-            for area in bpy.context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    ctx = bpy.context.copy()
-                    ctx['area'] = area
-                    ctx['region'] = area.regions[-1]
-                    bpy.ops.view3d.view_selected(ctx)
+
+            try:   
+                # TODO: Fix this for 4.0     
+                for area in bpy.context.screen.areas:
+                    if area.type == 'VIEW_3D':
+                        ctx = bpy.context.copy()
+                        ctx['area'] = area
+                        ctx['region'] = area.regions[-1]
+                        bpy.ops.view3d.view_selected(ctx)
+            except:
+                pass
 
             LogFinish(imp, self.filepath, status, False)
             if 'WARNING' in status:
@@ -4012,17 +4016,15 @@ class NifExporter:
             # Before Blender 4.0 have to calculate normals. 4.0 doesn't need it and throws
             # an error.
             mesh.calc_normals()
-            mesh.calc_normals_split()
         except:
             pass
+        mesh.calc_normals_split()
 
         def write_loop_vert(loopseg):
             """ Write one vert, given as a MeshLoop 
             """
             loops.append(loopseg.vertex_index)
             uvs.append(orig_uvs[loopseg.index])
-            #if colormap or alphamap:
-            #    colors.append(get_loop_color(mesh, loopseg.index, colormap, alphamap))
             if loopcolors:
                 colors.append(loopcolors[loopseg.index])
             if use_loop_normals:
@@ -4031,6 +4033,7 @@ class NifExporter:
                 norms.append(mesh.vertices[loopseg.vertex_index].normal[:])
 
         # Write out the loops as triangles, and partitions to match
+        log.debug(f"Shape has {len(mesh.polygons)} polygons")
         for f in mesh.polygons:
             if f.loop_total < 3:
                 log.warning(f"Degenerate polygons on {mesh.name}: 0={l0}, 1={l1}")
