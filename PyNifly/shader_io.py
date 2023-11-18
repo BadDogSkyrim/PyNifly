@@ -133,6 +133,127 @@ def tangent_normal(nodetree, source, destination, location):
     # return g
 
 
+def make_uv_node(parent, location):
+    """
+    Returns a group node for handling shader UV attributes: U/V origin, scale, and clamp
+    mode.
+    parent = parent node tree to contain the new node.
+    """
+    grp = bpy.data.node_groups.new(type='ShaderNodeTree', name='UV_Converter')
+
+    group_inputs = grp.nodes.new('NodeGroupInput')
+    group_inputs.location = (-200, 0)
+    grp.inputs.new('NodeSocketFloat', 'Offset U')
+    grp.inputs.new('NodeSocketFloat', 'Offset V')
+    grp.inputs.new('NodeSocketFloat', 'Scale U')
+    grp.inputs.new('NodeSocketFloat', 'Scale V')
+    grp.inputs.new('NodeSocketInt', 'Clamp S')
+    grp.inputs.new('NodeSocketInt', 'Clamp T')
+
+    tc = grp.nodes.new('ShaderNodeTexCoord')
+    tc.location = (-200, 400)
+
+    tcsep = grp.nodes.new('ShaderNodeSeparateXYZ')
+    tcsep.location = (tc.location.x + 200, tc.location.y)
+    grp.links.new(tc.outputs['UV'], tcsep.inputs['Vector'])
+
+    # Transform the U value
+
+    u_add = grp.nodes.new('ShaderNodeMath')
+    u_add.location = (tcsep.location.x + 200, tcsep.location.y)
+    u_add.operation = 'ADD'
+    grp.links.new(tcsep.outputs['X'], u_add.inputs[0])
+    grp.links.new(group_inputs.outputs['Offset U'], u_add.inputs[1])
+
+    u_scale = grp.nodes.new('ShaderNodeMath')
+    u_scale.location = (u_add.location.x + 200, u_add.location.y - 50)
+    u_scale.operation = 'MULTIPLY'
+    grp.links.new(u_add.outputs['Value'], u_scale.inputs[0])
+    grp.links.new(group_inputs.outputs['Scale U'], u_scale.inputs[1])
+
+    u_map = grp.nodes.new('ShaderNodeMapRange')
+    u_map.location = (u_scale.location.x + 200, u_scale.location.y - 200)
+    grp.links.new(u_scale.outputs['Value'], u_map.inputs['Value'])
+
+    u_comb = grp.nodes.new('ShaderNodeMix')
+    u_comb.location = (u_map.location.x + 200, u_scale.location.y - 50)
+    grp.links.new(group_inputs.outputs['Clamp S'], u_comb.inputs['Factor'])
+    grp.links.new(u_scale.outputs['Value'], u_comb.inputs['B'])
+    grp.links.new(u_map.outputs['Result'], u_comb.inputs['A'])
+
+    # Transform the V value
+
+    v_add = grp.nodes.new('ShaderNodeMath')
+    v_add.location = (tcsep.location.x + 200, tcsep.location.y - 500)
+    v_add.operation = 'ADD'
+    grp.links.new(tcsep.outputs['Y'], v_add.inputs[0])
+    grp.links.new(group_inputs.outputs['Offset V'], v_add.inputs[1])
+
+    v_scale = grp.nodes.new('ShaderNodeMath')
+    v_scale.location = (v_add.location.x + 200, v_add.location.y - 50)
+    v_scale.operation = 'MULTIPLY'
+    grp.links.new(v_add.outputs['Value'], v_scale.inputs[0])
+    grp.links.new(group_inputs.outputs['Scale V'], v_scale.inputs[1])
+
+    v_map = grp.nodes.new('ShaderNodeMapRange')
+    v_map.location = (v_scale.location.x + 200, v_scale.location.y - 200)
+    grp.links.new(v_scale.outputs['Value'], v_map.inputs['Value'])
+
+    v_comb = grp.nodes.new('ShaderNodeMix')
+    v_comb.location = (v_map.location.x + 200, v_scale.location.y - 50)
+    grp.links.new(group_inputs.outputs['Clamp T'], v_comb.inputs['Factor'])
+    grp.links.new(v_scale.outputs['Value'], v_comb.inputs['B'])
+    grp.links.new(v_map.outputs['Result'], v_comb.inputs['A'])
+
+    # Combine U & V
+
+    uv_comb = grp.nodes.new('ShaderNodeCombineXYZ')
+    uv_comb.location = (u_comb.location.x + 200, 0)
+    grp.links.new(u_comb.outputs['Result'], uv_comb.inputs['X'])
+    grp.links.new(v_comb.outputs['Result'], uv_comb.inputs['Y'])
+
+    group_outputs = grp.nodes.new('NodeGroupOutput')
+    group_outputs.location = (uv_comb.location.x + 200, 0)
+    grp.outputs.new('NodeSocketVector', 'Vector')
+
+    grp.links.new(uv_comb.outputs['Vector'], group_outputs.inputs['Vector'])
+
+
+    # xyc = grp.nodes.new('ShaderNodeCombineXYZ')
+    # xyc.location = (0, 100)
+    # grp.links.new(group_inputs.outputs['Offset U'], xyc.inputs['X'])
+    # grp.links.new(group_inputs.outputs['Offset V'], xyc.inputs['Y'])
+    # xyc.inputs['Z'].default_value = 0
+
+    # self.ytop = self.bsdf.location.y
+    # uvou = self.make_node('ShaderNodeValue', name='UV_Offset_U', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
+    # uvov = self.make_node('ShaderNodeValue', name='UV_Offset_V', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
+    
+    
+    # uvsu = self.make_node('ShaderNodeValue', name='UV_Scale_U', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
+    # uvsv = self.make_node('ShaderNodeValue', name='UV_Scale_V', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT*2)
+
+    # xys = grp.nodes.new('ShaderNodeCombineXYZ')
+    # xys.location = (0, -100)
+    # grp.links.new(group_inputs.outputs['Scale U'], xys.inputs['X'])
+    # grp.links.new(group_inputs.outputs['Scale V'], xys.inputs['Y'])
+    # xys.inputs['Z'].default_value = 1.0
+
+    # texmap = grp.nodes.new('ShaderNodeMapping')
+    # texmap.location = (200, 0)
+    # grp.links.new(tc.outputs['UV'], texmap.inputs['Vector'])
+    # grp.links.new(xyc.outputs['Vector'], texmap.inputs['Location'])
+    # grp.links.new(xys.outputs['Vector'], texmap.inputs['Scale'])
+    # grp.links.new(texmap.outputs['Vector'], group_outputs.inputs['Vector'])
+
+    shader_node = parent.new('ShaderNodeGroup')
+    shader_node.name = shader_node.label = 'UV_Converter'
+    shader_node.location = location
+    shader_node.node_tree = grp
+
+    return shader_node
+
+
 def modelspace_normal(nodetree, source, destination, location):
     """
     Create a group node that handles the transformations for model space normals (Skyrim
@@ -381,37 +502,49 @@ class ShaderImporter:
         """
         Make the value nodes and calculations that are used as input to the shader.
         """
-        tc = self.make_node('ShaderNodeTexCoord', xloc=self.calc1_offset_x, yloc=0)
-        tc.location = (tc.location[0], 
-                       self.bsdf.location.y + 300,)
 
-        self.texmap = self.make_node('ShaderNodeMapping', 
-                                     xloc=self.calc2_offset_x, 
-                                     yloc=self.bsdf.location.y)
-        self.link(tc.outputs['UV'], self.texmap.inputs['Vector'])
+        # tc = self.make_node('ShaderNodeTexCoord', xloc=self.calc1_offset_x, yloc=0)
+        # tc.location = (tc.location[0], 
+        #                self.bsdf.location.y + 300,)
+
+        # self.texmap = self.make_node('ShaderNodeMapping', 
+        #                              xloc=self.calc2_offset_x, 
+        #                              yloc=self.bsdf.location.y)
+        # self.link(tc.outputs['UV'], self.texmap.inputs['Vector'])
 
         self.ytop = self.bsdf.location.y
         uvou = self.make_node('ShaderNodeValue', name='UV_Offset_U', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
         uvov = self.make_node('ShaderNodeValue', name='UV_Offset_V', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
         
-        xyc = self.make_node('ShaderNodeCombineXYZ', 
-            xloc=self.calc1_offset_x, yloc=uvou.location.y)
-        self.link(uvou.outputs['Value'], xyc.inputs['X'])
-        self.link(uvov.outputs['Value'], xyc.inputs['Y'])
-        xyc.inputs['Z'].default_value = 0
+        # xyc = self.make_node('ShaderNodeCombineXYZ', 
+        #     xloc=self.calc1_offset_x, yloc=uvou.location.y)
+        # self.link(uvou.outputs['Value'], xyc.inputs['X'])
+        # self.link(uvov.outputs['Value'], xyc.inputs['Y'])
+        # xyc.inputs['Z'].default_value = 0
 
-        self.link(xyc.outputs['Vector'], self.texmap.inputs['Location'])
+        # self.link(xyc.outputs['Vector'], self.texmap.inputs['Location'])
         
         uvsu = self.make_node('ShaderNodeValue', name='UV_Scale_U', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
-        uvsv = self.make_node('ShaderNodeValue', name='UV_Scale_V', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT*2)
+        uvsv = self.make_node('ShaderNodeValue', name='UV_Scale_V', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
 
-        xys = self.make_node('ShaderNodeCombineXYZ', 
-            xloc=self.calc1_offset_x, yloc=uvsu.location.y)
-        self.link(uvsu.outputs['Value'], xys.inputs['X'])
-        self.link(uvsv.outputs['Value'], xys.inputs['Y'])
-        xys.inputs['Z'].default_value = 1.0
+        # xys = self.make_node('ShaderNodeCombineXYZ', 
+        #     xloc=self.calc1_offset_x, yloc=uvsu.location.y)
+        # self.link(uvsu.outputs['Value'], xys.inputs['X'])
+        # self.link(uvsv.outputs['Value'], xys.inputs['Y'])
+        # xys.inputs['Z'].default_value = 1.0
 
-        self.link(xys.outputs['Vector'], self.texmap.inputs['Scale'])
+        clamps = self.make_node('ShaderNodeValue', name='Clamp_S', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
+        clampt = self.make_node('ShaderNodeValue', name='Clamp_T', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT*2)
+
+        self.texmap = make_uv_node(self.nodes, (self.calc2_offset_x, 0,))
+        self.link(uvou.outputs['Value'], self.texmap.inputs['Offset U'])
+        self.link(uvov.outputs['Value'], self.texmap.inputs['Offset V'])
+        self.link(uvsu.outputs['Value'], self.texmap.inputs['Scale U'])
+        self.link(uvsv.outputs['Value'], self.texmap.inputs['Scale V'])
+        self.link(clamps.outputs['Value'], self.texmap.inputs['Clamp S'])
+        self.link(clampt.outputs['Value'], self.texmap.inputs['Clamp T'])
+
+        # self.link(xys.outputs['Vector'], self.texmap.inputs['Scale'])
 
         if self.shape.shader.properties.bufType == PynBufferTypes.BSLightingShaderPropertyBufType:
             # We feed both "metallic" and "roughness" from glossiness because it looks good.

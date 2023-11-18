@@ -4270,6 +4270,33 @@ class ModuleTest:
         CheckHelmet(nifTest)
 
 
+    def TEST_TEXTURE_CLAMP():
+        """Make sure we don't lose texture clamp mode"""
+        testfile = r"tests\SkyrimSE\evergreen.nif"
+        outfile = r"tests\out\TEST_TEXTURE_CLAMP.nif"
+
+        def CheckNif(nif:NifFile):
+            shape:NiShape = nif.shapes[0]
+            sh = shape.shader
+            assert sh.blockname == "BSLightingShaderProperty", f"Have correct shader"
+            assert sh.textureClampMode == 0, f"Have correct textureClampMode: {sh.textureClampMode}"
+
+        print("---Read---")
+        nif = NifFile(testfile)
+        CheckNif(nif)
+
+        """Can read and write shader"""
+        print("---Write---")
+        nifOut = NifFile()
+        nifOut.initialize('FO4', outfile)
+        ModuleTest.export_shape(nif.shapes[0], nifOut)
+        nifOut.save()
+
+        print("---Check---")
+        nifTest = NifFile(outfile)
+        CheckNif(nifTest)
+
+
     def TEST_BOW():
         """Can read and write special weapon data; also testing BGED"""
         nif = NifFile(r"tests\SkyrimSE\meshes\weapons\glassbowskinned.nif")
@@ -4966,4 +4993,4 @@ if __name__ == "__main__":
     # tester.execute()
     # tester.execute(start='TEST_KF')
     # tester.execute(test='TEST_SHADER')
-    tester.execute('TEST_SHADER')
+    tester.execute(test='TEST_TEXTURE_CLAMP')

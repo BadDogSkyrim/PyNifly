@@ -4846,6 +4846,14 @@ def TEST_IMPORT_TAIL():
                                  do_import_collisions=False,
                                  do_import_animations=False,
                                  use_blender_xf=True)
+    
+
+def TEST_TEXTURE_CLAMP():
+    """Make sure we don't lose texture clamp mode."""
+    testfile = TT.test_file(r"tests\SkyrimSE\evergreen.nif")
+    outfile = TT.test_file(r"tests\out\TEST_TEXTURE_CLAMP.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
 
 
 def LOAD_RIG():
@@ -4933,6 +4941,6 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( TEST_ROGUE01 )
-    do_tests(alltests)
+    do_tests( TEST_TEXTURE_CLAMP )
+    # do_tests(alltests)
     # do_tests( testfrom(TEST_ROGUE01) )
