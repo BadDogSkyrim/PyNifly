@@ -35,6 +35,7 @@ NISHADER_IGNORE = [
     'UV_Offset_V',
     'UV_Scale_U',
     'UV_Scale_V',
+    'textureClampMode',
     ]
 
 def find_node(socket, nodetype):
@@ -468,6 +469,10 @@ class ShaderImporter:
             self.nodes['UV_Offset_V'].outputs['Value'].default_value = shape.shader.UV_Offset_V
             self.nodes['UV_Scale_U'].outputs['Value'].default_value = shape.shader.UV_Scale_U
             self.nodes['UV_Scale_V'].outputs['Value'].default_value = shape.shader.UV_Scale_V
+            self.nodes['Clamp_S'].outputs['Value'].default_value \
+                = (shape.shader.textureClampMode & 2) / 2
+            self.nodes['Clamp_T'].outputs['Value'].default_value \
+                = shape.shader.textureClampMode & 1
 
             self.do_specular = shape.shader.shaderflags1_test(ShaderFlags1.SPECULAR)
 
@@ -1103,6 +1108,13 @@ class ShaderExporter:
                 shape.shader.properties.UV_Scale_U = nl['UV_Scale_U'].outputs['Value'].default_value
             if 'UV_Scale_V' in nl:
                 shape.shader.properties.UV_Scale_V = nl['UV_Scale_V'].outputs['Value'].default_value
+            
+            texmode = 0
+            if 'Clamp_S' in nl:
+                texmode = 2 * max(min(nl['Clamp_S'].outputs['Value'].default_value, 1), 0)
+            if 'Clamp_T' in nl:
+                texmode += max(min(nl['Clamp_T'].outputs['Value'].default_value, 1), 0)
+            shape.shader.properties.textureClampMode = int(texmode)
 
             shape.shader.properties.Emissive_Mult = nl['Emissive_Mult'].outputs[0].default_value
             shape.shader.properties.baseColorScale = nl['Emissive_Mult'].outputs[0].default_value

@@ -4854,6 +4854,12 @@ def TEST_TEXTURE_CLAMP():
     outfile = TT.test_file(r"tests\out\TEST_TEXTURE_CLAMP.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    nifin = pyn.NifFile(testfile)
+    nifout = pyn.NifFile(outfile)
+    assert nifin.shapes[0].shader.textureClampMode == nifout.shapes[0].shader.textureClampMode, \
+        f"Preserved texture clamp mode: {nifout.shapes[0].shader.textureClampMode}"
 
 
 def LOAD_RIG():
@@ -4941,6 +4947,6 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( TEST_TEXTURE_CLAMP )
+    do_tests( [TEST_TEXTURE_CLAMP, TEST_SHADER_LE, TEST_SHADER_SE] )
     # do_tests(alltests)
     # do_tests( testfrom(TEST_ROGUE01) )
