@@ -1557,8 +1557,8 @@ def TEST_SHADER_FO4():
     
     nifFO4 = pyn.NifFile(fileFO4)
     shapeorig = nifFO4.shapes[0]
-    sh = headFO4.active_material.node_tree.nodes["Principled BSDF"]
-    assert sh, "Have shader node"
+    # sh = headFO4.active_material.node_tree.nodes["Principled BSDF"]
+    # assert sh, "Have shader node"
     txt = headFO4.active_material.node_tree.nodes["Diffuse_Texture"]
     assert txt and txt.image and txt.image.filepath, "ERROR: Didn't import images"
 
@@ -4947,6 +4947,6 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_TEXTURE_CLAMP, TEST_SHADER_LE, TEST_SHADER_SE] )
+    do_tests( [TEST_SHADER_FO4] )
     # do_tests(alltests)
     # do_tests( testfrom(TEST_ROGUE01) )
