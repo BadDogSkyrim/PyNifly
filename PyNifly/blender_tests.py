@@ -1477,16 +1477,17 @@ def TEST_SHADER_LE():
 
     fileLE = TT.test_file(r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_LE.nif")
-    bpy.ops.import_scene.pynifly(filepath=fileLE)
+    bpy.ops.import_scene.pynifly(filepath=fileLE, use_blender_xf=True)
 
     nifLE = pyn.NifFile(fileLE)
     shaderAttrsLE = nifLE.shapes[0].shader.properties
     headLE = bpy.context.object
     shadernodes = headLE.active_material.node_tree.nodes
-    assert 'Principled BSDF' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
+    assert 'Skyrim Shader' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
+    bsdf = shadernodes['Skyrim Shader']
     assert 'Diffuse_Texture' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
-    assert shadernodes['Principled BSDF'].inputs['Normal'].is_linked, f"Have a normal map"
-    assert shadernodes['Principled BSDF'].inputs['Base Color'].is_linked, f"Have a base color"
+    assert bsdf.inputs['Normal'].is_linked, f"Have a normal map"
+    assert bsdf.inputs['Diffuse'].is_linked, f"Have a base color"
     g = shadernodes['Glossiness'].outputs['Value'].default_value
     assert round(g, 4) == 33, f"Glossiness not correct, value is {g}"
     assert headLE.active_material['BSShaderTextureSet_SoftLighting'] == r"textures\actors\character\male\MaleHead_sk.dds", \
@@ -1516,17 +1517,15 @@ def TEST_SHADER_SE():
     fileSE = TT.test_file(r"tests\skyrimse\meshes\armor\dwarven\dwarvenboots_envscale.nif")
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_SE.nif")
     
-    bpy.ops.import_scene.pynifly(filepath=fileSE)
+    bpy.ops.import_scene.pynifly(filepath=fileSE, use_blender_xf=True)
     nifSE = pyn.NifFile(fileSE)
     nifboots = nifSE.shapes[0]
     shaderAttrsSE = nifboots.shader.properties
     boots = bpy.context.object
     shadernodes = boots.active_material.node_tree.nodes
     assert len(shadernodes) >= 5, "ERROR: Didn't import shader nodes"
-    shader = shadernodes['Principled BSDF']
     assert boots.active_material['Env_Map_Scale'] == shaderAttrsSE.Env_Map_Scale, \
         f"Read the correct environment map scale: {boots.active_material['Env_Map_Scale']}"
-    assert not shader.inputs['Alpha'].is_linked, f"No alpha property"
 
     print("## Shader attributes are written on export")
     bpy.ops.object.select_all(action='DESELECT')
@@ -1552,15 +1551,16 @@ def TEST_SHADER_FO4():
     matin = TT.test_file(r"tests\FO4\Materials\Actors\Character\BaseHumanMale\basehumanskinHead.bgsm")
     matout = TT.test_file(r"tests\Out\Materials\Actors\Character\BaseHumanMale\basehumanskinHead.bgsm")
 
-    bpy.ops.import_scene.pynifly(filepath=fileFO4)
+    bpy.ops.import_scene.pynifly(filepath=fileFO4, use_blender_xf=True)
     headFO4 = bpy.context.object
     
     nifFO4 = pyn.NifFile(fileFO4)
     shapeorig = nifFO4.shapes[0]
     # sh = headFO4.active_material.node_tree.nodes["Principled BSDF"]
     # assert sh, "Have shader node"
-    txt = headFO4.active_material.node_tree.nodes["Diffuse_Texture"]
-    assert txt and txt.image and txt.image.filepath, "ERROR: Didn't import images"
+    for t in ['Diffuse_Texture', 'Normal_Texture', 'Specular_Texture']:
+        txt = headFO4.active_material.node_tree.nodes[t]
+        assert txt and txt.image and txt.image.filepath, f"Imported texture {t}"
 
     # Shader attributes are written on export
 
@@ -2287,13 +2287,13 @@ def TEST_VERTEX_ALPHA_IO():
     testfile = TT.test_file(r"tests\SkyrimSE\meshes\actors\character\character assets\maleheadkhajiit.nif")
     outfile = TT.test_file(r"tests/Out/TEST_VERTEX_ALPHA_IO.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile)
+    bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
 
     head = bpy.context.object
     nodes = head.active_material.node_tree.nodes
-    shader = nodes["Principled BSDF"]
+    shader = nodes["Skyrim Shader"]
     assert shader, f"Found Principled BSDF node"
-    diffuse = shader_io.find_node(shader.inputs["Base Color"], "ShaderNodeTexImage")
+    diffuse = BD.find_node(shader.inputs["Diffuse"], "ShaderNodeTexImage")[0]
     assert diffuse.bl_idname == "ShaderNodeTexImage", f"Found correct diffuse type {diffuse.name}"
     assert diffuse.image.filepath.endswith('KhajiitMaleHead.dds'), f"Filepath correct: {diffuse.image.filepath}"
     assert shader.inputs['Alpha'].is_linked, f"Have alpha map"
@@ -4947,6 +4947,6 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_SHADER_FO4] )
+    do_tests( [TEST_VERTEX_ALPHA_IO] )
     # do_tests(alltests)
     # do_tests( testfrom(TEST_ROGUE01) )

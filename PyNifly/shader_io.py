@@ -8,6 +8,7 @@ import logging
 import bpy
 from pynifly import *
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
+import blender_defs as BD
 
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 MSN_GROUP_NAME = "MSN_TRANSFORM"
@@ -15,7 +16,7 @@ TANGENT_GROUP_NAME = "TANGENT_TRANSFORM"
 GLOSS_SCALE = 100
 ATTRIBUTE_NODE_HEIGHT = 200
 NODE_WIDTH = 200
-TEXTURE_NODE_WIDTH = 400
+TEXTURE_NODE_WIDTH = 300
 TEXTURE_NODE_HEIGHT = 290
 INPUT_NODE_HEIGHT = 100
 COLOR_NODE_HEIGHT = 200
@@ -38,35 +39,6 @@ NISHADER_IGNORE = [
     'UV_Scale_V',
     'textureClampMode',
     ]
-
-def find_node(socket, nodetype):
-    """
-    Find node of the given type that feeds the given socket.
-    """
-    if not socket.is_linked:
-        return None
-    
-    n = socket.links[0].from_node
-    if n.bl_idname == nodetype:
-        # This is what we're looking for.
-        return n
-    elif n.bl_idname == "ShaderNodeGroup":
-        # Dive into the group and see if it's in there.
-        gnodes = n.node_tree.nodes
-        goutputs = [x for x in n.node_tree.nodes if x.bl_idname == 'NodeGroupOutput']
-        if goutputs:
-            m = find_node(goutputs[0].inputs[0], nodetype)
-            if m: 
-                return m
-
-    # Not this one, check its inputs.
-    for ns in n.inputs:
-        m = find_node(ns, nodetype) 
-        if m:
-            return m
-    
-    return None
-
 
 def tangent_normal(nodetree, source, destination, location):
     """
@@ -154,6 +126,27 @@ def make_separator(nodetree, input, loc):
     return rgbsep
 
 
+def make_specular(nodetree, source, strength, color, bsdf, location=(0, 0)):
+    """'
+    Make nodes to handle specular.
+    source = socket with the source specular map.
+    strength = socket with the specular strength to use.
+    color = socket with the specular color to use.
+    bsdf = shader node to receive specular values.
+    """
+    if 'Specular' in bsdf.inputs:
+        skt = bsdf.inputs['Specular']
+    elif 'Specular IOR Level' in bsdf.inputs:
+        skt = bsdf.inputs['Specular IOR Level']
+    m = new_mixnode(nodetree,
+                    source,
+                    strength,
+                    skt)
+    m.location = location
+
+    nodetree.links.new(color, bsdf.inputs['Specular Tint'])
+   
+
 def make_combiner(nodetree, r, g, b, loc):
     """
     Make a combiner node with inputs from sockets r, g, b. Returns output socket.
@@ -178,6 +171,213 @@ def make_combiner(nodetree, r, g, b, loc):
     return combiner
 
 
+def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
+    """
+    Returns a group node implementing a shader for Skyrim.
+    """
+    grp = bpy.data.node_groups.new(type='ShaderNodeTree', name='SkyrimShader')
+
+    group_inputs = grp.nodes.new('NodeGroupInput')
+    group_inputs.location = (-6*NODE_WIDTH, -0.5 * TEXTURE_NODE_HEIGHT)
+    grp.inputs.new('NodeSocketColor', 'Diffuse')
+    grp.inputs.new('NodeSocketFloat', 'Alpha')
+    grp.inputs.new('NodeSocketFloat', 'Alpha Mult')
+    grp.inputs.new('NodeSocketColor', 'Use Vertex Color')
+    grp.inputs.new('NodeSocketColor', 'Vertex Color')
+    grp.inputs.new('NodeSocketFloat', 'Use Vertex Alpha')
+    grp.inputs.new('NodeSocketFloat', 'Vertex Alpha')
+    grp.inputs.new('NodeSocketColor', 'Subsurface')
+    grp.inputs.new('NodeSocketColor', 'Subsurface Str')
+    grp.inputs.new('NodeSocketColor', 'Specular')
+    grp.inputs.new('NodeSocketColor', 'Specular Color')
+    grp.inputs.new('NodeSocketFloat', 'Specular Str')
+    grp.inputs.new('NodeSocketColor', 'Normal')
+    grp.inputs.new('NodeSocketFloat', 'Glossiness')
+    grp.inputs.new('NodeSocketColor', 'Emission')
+    grp.inputs.new('NodeSocketFloat', 'Emission Strength')
+
+    # Shader output node
+    bsdf = grp.nodes.new('ShaderNodeBsdfPrincipled')
+    bsdf.location = (NODE_WIDTH, 0)
+
+    # Diffuse and alpha
+    mixcolor = new_mixnode(grp, 
+                          group_inputs.outputs['Diffuse'],
+                          group_inputs.outputs['Vertex Color'],
+                          bsdf.inputs['Base Color'])
+    mixcolor.location = group_inputs.location + Vector((2 * NODE_WIDTH, 2*TEXTURE_NODE_HEIGHT,))
+    grp.links.new(group_inputs.outputs['Use Vertex Color'], mixcolor.inputs['Factor'])
+    diffuse_socket = mixcolor.outputs[0]
+    
+    # mixvertalph = new_mixnode(grp, 
+    #                       group_inputs.outputs['Alpha'],
+    #                       group_inputs.outputs['Vertex Alpha'],
+    #                       None)
+    # mixvertalph.location = mixcolor.location + Vector((0, -TEXTURE_NODE_HEIGHT,))
+    # grp.links.new(group_inputs.outputs['Use Vertex Alpha'], mixvertalph.inputs['Factor'])
+    
+    invalph = grp.nodes.new('ShaderNodeMath')
+    invalph.location = mixcolor.location + Vector((0, -TEXTURE_NODE_HEIGHT))
+    invalph.operation = 'SUBTRACT'
+    invalph.inputs[0].default_value = 1.0
+    grp.links.new(group_inputs.outputs['Use Vertex Alpha'], invalph.inputs[1])
+
+    mixvertalph = grp.nodes.new('ShaderNodeMath')
+    mixvertalph.location = invalph.location + Vector((NODE_WIDTH, 0,))
+    mixvertalph.operation = 'MAXIMUM'
+    grp.links.new(invalph.outputs[0], mixvertalph.inputs[0])
+    grp.links.new(group_inputs.outputs['Vertex Alpha'], mixvertalph.inputs[1])
+
+    mixtxtalph = grp.nodes.new('ShaderNodeMath')
+    mixtxtalph.location = mixvertalph.location + Vector((NODE_WIDTH, 0,))
+    mixtxtalph.operation = 'MULTIPLY'
+    grp.links.new(mixvertalph.outputs[0], mixtxtalph.inputs[0])
+    grp.links.new(group_inputs.outputs['Alpha'], mixtxtalph.inputs[1])
+
+    multalph = grp.nodes.new('ShaderNodeMath')
+    multalph.location = mixtxtalph.location + Vector((NODE_WIDTH, 0,))
+    multalph.operation = 'MULTIPLY'
+    grp.links.new(mixtxtalph.outputs[0], multalph.inputs[0])
+    grp.links.new(group_inputs.outputs['Alpha Mult'], multalph.inputs[1])
+    grp.links.new(multalph.outputs[0], bsdf.inputs['Alpha'])
+
+    # Subsurface
+    specsat = grp.nodes.new('ShaderNodeHueSaturation')
+    specsat.location = invalph.location + Vector((NODE_WIDTH, -COLOR_NODE_HEIGHT))
+    grp.links.new(group_inputs.outputs['Subsurface Str'], specsat.inputs['Saturation'])
+    grp.links.new(group_inputs.outputs['Subsurface'], specsat.inputs['Color'])
+
+    if 'Subsurface Weight' in bsdf.inputs:
+        grp.links.new(group_inputs.outputs['Subsurface Str'], bsdf.inputs["Subsurface Weight"])
+    else:
+        grp.links.new(group_inputs.outputs['Subsurface Str'], bsdf.inputs["Subsurface"])
+
+    if "Subsurface Color" in bsdf.inputs:
+        # If there's a color input, connect to that.
+        grp.links.new(specsat.outputs['Color'], bsdf.inputs["Subsurface Color"])
+    else:
+        # No color input. Let the shader do the scattering, but mix the subsurface
+        # color with the base color.
+        m = new_mixnode(grp, 
+                        diffuse_socket,
+                        specsat.outputs['Color'],
+                        bsdf.inputs['Base Color'],
+                        blend_type='SCREEN')
+        m.location = Vector((NODE_WIDTH, -COLOR_NODE_HEIGHT))
+
+    # Specular 
+    make_specular(grp,
+                  group_inputs.outputs['Specular'],
+                  group_inputs.outputs['Specular Str'],
+                  group_inputs.outputs['Specular Color'],
+                  bsdf,
+                  mixcolor.location + Vector((0, -2.2*TEXTURE_NODE_HEIGHT)))
+    # if 'Specular' in bsdf.inputs:
+    #     skt = bsdf.inputs['Specular']
+    # elif 'Specular IOR Level' in bsdf.inputs:
+    #     skt = bsdf.inputs['Specular IOR Level']
+    # m = new_mixnode(grp,
+    #                 group_inputs.outputs['Specular'],
+    #                 group_inputs.outputs['Specular Str'],
+    #                 skt)
+    # m.location = mixcolor.location + Vector((0, -2.2*TEXTURE_NODE_HEIGHT))
+
+    # grp.links.new(group_inputs.outputs['Specular Color'], bsdf.inputs['Specular Tint'])
+
+    # Glossiness
+
+    map = grp.nodes.new('ShaderNodeMapRange')
+    map.location = group_inputs.location + Vector((3 * NODE_WIDTH, -0.8 * TEXTURE_NODE_HEIGHT))
+    map.inputs['From Min'].default_value = 0
+    map.inputs['From Max'].default_value = 200
+    map.inputs['To Min'].default_value = 1
+    map.inputs['To Max'].default_value = 0
+    grp.links.new(group_inputs.outputs['Glossiness'], map.inputs['Value'])
+    grp.links.new(map.outputs[0], bsdf.inputs['Roughness'])
+
+    # # Alternate inputs for Blender 4.0
+    # if 'Specular IOR Level' in self.bsdf.inputs:
+    #     # TODO: This is all wrong. IOR isn't what we want.
+    #     # If there's a direct IOR level input, have to map range 0-1 to 1-2
+    #     tobw = self.make_node('ShaderNodeRGBToBW',
+    #                             xloc=last_node.location.x + 300,
+    #                             yloc=simgnode.location.y)
+    #     self.link(spec_socket, tobw.inputs['Color'])
+
+    #     map = self.make_node('ShaderNodeMapRange',
+    #                             xloc=tobw.location.x + 150,
+    #                             yloc=simgnode.location.y)
+    #     map.inputs['From Min'].default_value = 0
+    #     map.inputs['From Max'].default_value = 1
+    #     map.inputs['To Min'].default_value = 1
+    #     map.inputs['To Max'].default_value = 2
+
+    #     self.link(tobw.outputs['Val'], map.inputs[0])
+    #     self.link(map.outputs[0], self.bsdf.inputs['Specular IOR Level'])
+
+    # else:
+    #     # Just hook to the specular input.
+    #     self.link(spec_socket, self.bsdf.inputs['Specular'])
+
+    # Normal map
+    if msn:
+        sep = make_separator(grp,
+                             group_inputs.outputs['Normal'],
+                             group_inputs.location + Vector((2 * NODE_WIDTH, -2 * TEXTURE_NODE_HEIGHT)))        
+        # Need to swap green and blue channels for blender
+        comb = make_combiner(grp, 
+                             sep.outputs[0],
+                             sep.outputs[2],
+                             sep.outputs[1],
+                             sep.location + Vector((NODE_WIDTH, 0)))
+
+        norm = grp.nodes.new("ShaderNodeNormalMap")
+        norm.location = comb.location + Vector((NODE_WIDTH, 0))
+        norm.space = 'OBJECT'
+        norm.inputs['Strength'].default_value = NORMAL_SCALE
+
+        grp.links.new(comb.outputs[0], norm.inputs['Color'])
+    else:
+        separator = make_separator(
+            grp, 
+            group_inputs.outputs['Normal'], 
+            group_inputs.location + Vector((2 * NODE_WIDTH, -2 * TEXTURE_NODE_HEIGHT)))
+
+        inv = grp.nodes.new("ShaderNodeInvert")
+        inv.location = separator.location + Vector((NODE_WIDTH, 0))
+        grp.links.new(separator.outputs[2], inv.inputs['Color'])
+
+        combiner = make_combiner(
+            grp, 
+            separator.outputs[0], 
+            inv.outputs[0], 
+            separator.outputs[2],
+            inv.location + Vector((NODE_WIDTH, 0, )))
+        
+        norm = grp.nodes.new('ShaderNodeNormalMap')
+        norm.location = combiner.location + Vector((NODE_WIDTH, 0, ))
+        grp.links.new(combiner.outputs[0], norm.inputs['Color'])
+    grp.links.new(norm.outputs['Normal'], bsdf.inputs['Normal'])
+
+    # Emission
+    grp.links.new(group_inputs.outputs['Emission'], bsdf.inputs['Emission'])
+    grp.links.new(group_inputs.outputs['Emission Strength'], bsdf.inputs['Emission Strength'])    
+
+    # Group outpts
+
+    group_outputs = grp.nodes.new('NodeGroupOutput')
+    group_outputs.location = (bsdf.location.x + NODE_WIDTH*2, 0)
+    grp.outputs.new('NodeSocketShader', 'BSDF')
+    grp.links.new(bsdf.outputs['BSDF'], group_outputs.inputs['BSDF'])
+
+    shader_node = parent.nodes.new('ShaderNodeGroup')
+    shader_node.name = shader_node.label = 'Skyrim Shader'
+    shader_node.location = location
+    shader_node.node_tree = grp
+
+    return shader_node
+
+
 def make_shader_fo4(parent, location):
     """
     Returns a group node implementing a shader for FO4.
@@ -188,8 +388,11 @@ def make_shader_fo4(parent, location):
     group_inputs.location = (-NODE_WIDTH, -TEXTURE_NODE_HEIGHT)
     grp.inputs.new('NodeSocketColor', 'Diffuse')
     grp.inputs.new('NodeSocketColor', 'Specular')
+    grp.inputs.new('NodeSocketColor', 'Specular Color')
+    grp.inputs.new('NodeSocketColor', 'Specular Str')
     grp.inputs.new('NodeSocketColor', 'Normal')
     grp.inputs.new('NodeSocketFloat', 'Alpha')
+    grp.inputs.new('NodeSocketFloat', 'Alpha Mult')
     grp.inputs.new('NodeSocketColor', 'Emission')
     grp.inputs.new('NodeSocketFloat', 'Emission Strength')
 
@@ -205,8 +408,38 @@ def make_shader_fo4(parent, location):
     inv = grp.nodes.new("ShaderNodeInvert")
     inv.location = (NODE_WIDTH, separator.location.y-100)
     grp.links.new(separator.outputs[1], inv.inputs['Color'])
-    grp.links.new(separator.outputs[0], bsdf.inputs['Specular'])
     grp.links.new(inv.outputs[0], bsdf.inputs['Roughness'])
+
+    make_specular(grp,
+                  separator.outputs[0],
+                  group_inputs.outputs['Specular Str'],
+                  group_inputs.outputs['Specular Color'],
+                  bsdf,
+                  inv.location + Vector((NODE_WIDTH, INPUT_NODE_HEIGHT)))
+
+    # # Alternate inputs for Blender 4.0
+    # if 'Specular IOR Level' in self.bsdf.inputs:
+    #     # TODO: This is all wrong. IOR isn't what we want.
+    #     # If there's a direct IOR level input, have to map range 0-1 to 1-2
+    #     tobw = self.make_node('ShaderNodeRGBToBW',
+    #                             xloc=last_node.location.x + 300,
+    #                             yloc=simgnode.location.y)
+    #     self.link(spec_socket, tobw.inputs['Color'])
+
+    #     map = self.make_node('ShaderNodeMapRange',
+    #                             xloc=tobw.location.x + 150,
+    #                             yloc=simgnode.location.y)
+    #     map.inputs['From Min'].default_value = 0
+    #     map.inputs['From Max'].default_value = 1
+    #     map.inputs['To Min'].default_value = 1
+    #     map.inputs['To Max'].default_value = 2
+
+    #     self.link(tobw.outputs['Val'], map.inputs[0])
+    #     self.link(map.outputs[0], self.bsdf.inputs['Specular IOR Level'])
+
+    # else:
+    #     # Just hook to the specular input.
+    #     self.link(spec_socket, self.bsdf.inputs['Specular'])
 
     # Normal map
     separator = make_separator(grp, group_inputs.outputs['Normal'], (0, -1.5 * TEXTURE_NODE_HEIGHT))
@@ -473,18 +706,18 @@ def get_effective_colormaps(mesh):
     return colormap, alphamap
 
 
-def new_mixnode(mat, input1, input2, output, blend_type='MULTIPLY'):
+def new_mixnode(nodetree, input1, input2, output, blend_type='MULTIPLY'):
     """
     Create a shader RGB mix node--or fall back if it's an older version of Blender.
     """
     mixnode = None
     try:
         # Blender 3.5
-        mixnode = mat.node_tree.nodes.new("ShaderNodeMix")
+        mixnode = nodetree.nodes.new("ShaderNodeMix")
         mixnode.data_type = 'RGBA'
-        mat.node_tree.links.new(input1, mixnode.inputs[6])
-        mat.node_tree.links.new(input2, mixnode.inputs[7])
-        mat.node_tree.links.new(mixnode.outputs[2], output)
+        nodetree.links.new(input1, mixnode.inputs[6])
+        nodetree.links.new(input2, mixnode.inputs[7])
+        if output: nodetree.links.new(mixnode.outputs[2], output)
         mixnode.blend_type = blend_type
         mixnode.inputs['Factor'].default_value = 1
     except:
@@ -492,10 +725,10 @@ def new_mixnode(mat, input1, input2, output, blend_type='MULTIPLY'):
 
     if not mixnode:
         # Blender 3.1
-        mixnode = mat.node_tree.nodes.new("ShaderNodeMixRGB")
-        mat.node_tree.links.new(input1, mixnode.inputs['Color1'])
-        mat.node_tree.links.new(input2, mixnode.inputs['Color2'])
-        mat.node_tree.links.new(mixnode.outputs['Color'], output)
+        mixnode = nodetree.nodes.new("ShaderNodeMixRGB")
+        nodetree.links.new(input1, mixnode.inputs['Color1'])
+        nodetree.links.new(input2, mixnode.inputs['Color2'])
+        if output: nodetree.links.new(mixnode.outputs['Color'], output)
         mixnode.blend_type = 'MULTIPLY'
         mixnode.inputs[0].default_value = 1
 
@@ -561,9 +794,9 @@ class ShaderImporter:
             self.nodes['Emissive_Mult'].outputs[0].default_value = shader.Emissive_Mult
 
             if shader.blockname == 'BSLightingShaderProperty':
-                self.bsdf.inputs['Alpha'].default_value = shader.Alpha
-                self.nodes['Glossiness'].outputs['Value'].default_value = shader.Glossiness
-                # self.bsdf.inputs['Metallic'].default_value = shader.Glossiness/GLOSS_SCALE
+                self.nodes['Alpha'].outputs[0].default_value = shader.Alpha
+                if 'Glossiness' in self.nodes:
+                    self.nodes['Glossiness'].outputs['Value'].default_value = shader.Glossiness
             elif shape.shader_block_name == 'BSEffectShaderProperty':
                 self.bsdf.inputs['Alpha'].default_value = shader.falloffStartOpacity
 
@@ -575,8 +808,6 @@ class ShaderImporter:
                 = (shape.shader.textureClampMode & 2) / 2
             self.nodes['Clamp_T'].outputs['Value'].default_value \
                 = shape.shader.textureClampMode & 1
-
-            self.do_specular = shape.shader.shaderflags1_test(ShaderFlags1.SPECULAR)
 
         except Exception as e:
             # Any errors, print the error but continue
@@ -620,7 +851,7 @@ class ShaderImporter:
         clamps = self.make_node('ShaderNodeValue', name='Clamp_S', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
         clampt = self.make_node('ShaderNodeValue', name='Clamp_T', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT*2)
 
-        self.texmap = make_uv_node(self.nodes, (self.calc2_offset_x, 0,))
+        self.texmap = make_uv_node(self.nodes, (self.calc1_offset_x, 0,))
         self.link(uvou.outputs['Value'], self.texmap.inputs['Offset U'])
         self.link(uvov.outputs['Value'], self.texmap.inputs['Offset V'])
         self.link(uvsu.outputs['Value'], self.texmap.inputs['Scale U'])
@@ -628,33 +859,34 @@ class ShaderImporter:
         self.link(clamps.outputs['Value'], self.texmap.inputs['Clamp S'])
         self.link(clampt.outputs['Value'], self.texmap.inputs['Clamp T'])
 
+
     def make_input_nodes(self):
         """Make additional input nodes."""
         if self.shape.shader.properties.bufType == PynBufferTypes.BSLightingShaderPropertyBufType:
             if self.game in ['SKYRIM', 'SKYRIMSE']:
                 gl = self.make_node('ShaderNodeValue', 
                                     name='Glossiness', 
-                                    xloc=self.bsdf.location.x + self.img_offset_x, 
+                                    xloc=self.diffuse.location.x, 
                                     height=INPUT_NODE_HEIGHT)
             
-                roughscale = self.make_node('ShaderNodeMapRange', 
-                                            xloc=self.calc2_offset_x,
-                                            yloc=gl.location.y-50)
-                roughscale.inputs['From Min'].default_value = 0
-                roughscale.inputs['From Max'].default_value = 200
-                roughscale.inputs['To Min'].default_value = 1.0
-                roughscale.inputs['To Max'].default_value = 0
-                self.link(gl.outputs['Value'], roughscale.inputs['Value'])
-                self.link(roughscale.outputs[0], self.bsdf.inputs['Roughness'])
+                # roughscale = self.make_node('ShaderNodeMapRange', 
+                #                             xloc=self.calc2_offset_x,
+                #                             yloc=gl.location.y-50)
+                # roughscale.inputs['From Min'].default_value = 0
+                # roughscale.inputs['From Max'].default_value = 200
+                # roughscale.inputs['To Min'].default_value = 1.0
+                # roughscale.inputs['To Max'].default_value = 0
+                self.link(gl.outputs['Value'], self.bsdf.inputs['Glossiness'])
+                # self.link(roughscale.outputs[0], self.bsdf.inputs['Roughness'])
         
         ec = self.make_node('ShaderNodeRGB',
                             name='Emissive_Color',
-                            xloc=self.bsdf.location.x + self.img_offset_x, 
+                            xloc=self.diffuse.location.x, 
                             height=COLOR_NODE_HEIGHT)        
         self.link(ec.outputs['Color'], self.emission_color_skt)
         em = self.make_node('ShaderNodeValue', 
                             name='Emissive_Mult', 
-                            xloc=self.bsdf.location.x + self.img_offset_x, 
+                            xloc=self.diffuse.location.x, 
                             height=INPUT_NODE_HEIGHT)
         self.link(em.outputs['Value'], self.bsdf.inputs['Emission Strength'])
         
@@ -747,7 +979,7 @@ class ShaderImporter:
     def import_diffuse(self):
         """Create nodes for the diffuse texture."""
         #log.debug("Handling diffuse texture")
-        self.ytop = self.bsdf.location.y
+        self.ytop = self.bsdf.location.y + 2 * TEXTURE_NODE_HEIGHT
 
         txtnode = self.make_node("ShaderNodeTexImage",
                                  name='Diffuse_Texture',
@@ -760,48 +992,57 @@ class ShaderImporter:
         except:
             pass
         self.link(self.texmap.outputs['Vector'], txtnode.inputs['Vector'])
+        self.link(txtnode.outputs['Color'], self.bsdf.inputs['Diffuse'])
 
-        colornode = None
-        if self.colormap:
-            colornode = self.make_node("ShaderNodeAttribute", "ColorMap", 
-                                      xloc=txtnode.location[0], 
-                                      yloc=txtnode.location.y + ATTRIBUTE_NODE_HEIGHT)
-            colornode.attribute_name = self.colormap.name
-            colornode.attribute_type = "GEOMETRY"
-            
-            mixnode = new_mixnode(self.material, 
-                                  txtnode.outputs['Color'],
-                                  colornode.outputs['Color'],
-                                  self.bsdf.inputs['Base Color'])
-            mixnode.location = (self.inter2_offset_x, colornode.location.y)
-            
-            if mixnode.bl_idname == "ShaderNodeMix":
-                self.diffuse_socket = mixnode.outputs[2]
-            else:
-                self.diffuse_socket = mixnode.outputs['Color']
+        if self.shape.has_alpha_property:
+            self.link(txtnode.outputs['Alpha'], self.bsdf.inputs['Alpha'])
         else:
-            self.diffuse_socket = txtnode.outputs['Color']
-            if 'Base Color' in self.bsdf.inputs:
-                self.link(self.diffuse_socket, self.bsdf.inputs['Base Color'])
+            alph = self.make_node('ShaderNodeRGB',
+                                  name='Opaque Alpha',
+                                  xloc=txtnode.location.x,
+                                  height=COLOR_NODE_HEIGHT)
+            alph.outputs['Color'].default_value = (1, 1, 1, 1)
+            self.link(alph.outputs['Color'], self.bsdf.inputs['Alpha'])
+
+        alph = self.make_node('ShaderNodeValue',
+                                name='Alpha',
+                                xloc=txtnode.location.x,
+                                height=INPUT_NODE_HEIGHT)
+        self.link(alph.outputs[0], self.bsdf.inputs['Alpha Mult'])
+
+        if 'Use Vertex Color' in self.bsdf.inputs:
+            usecolor = self.make_node('ShaderNodeValue',
+                                name='Use Vertex Color',
+                                height=INPUT_NODE_HEIGHT)
+            self.link(usecolor.outputs[0], self.bsdf.inputs['Use Vertex Color'])
+            if self.colormap:
+                cmap = self.make_node('ShaderNodeAttribute',
+                                    name='Vertex Color',
+                                    xloc=txtnode.location.x,
+                                    height=COLOR_NODE_HEIGHT)
+                cmap.attribute_type = 'GEOMETRY'
+                cmap.attribute_name = self.colormap.name
+                self.link(cmap.outputs['Color'], self.bsdf.inputs['Vertex Color'])
+                usecolor.outputs[0].default_value = 1
             else:
-                self.link(self.diffuse_socket, self.bsdf.inputs['Diffuse'])
+                usecolor.outputs[0].default_value = 0
 
-        if self.alphamap:
-            alphanode = self.make_node("ShaderNodeAttribute", "AlphaMap",
-                                      xloc=txtnode.location[0],
-                                      yloc=txtnode.location.y + ATTRIBUTE_NODE_HEIGHT)
-            alphanode.attribute_name = ALPHA_MAP_NAME
-            alphanode.attribute_type = "GEOMETRY"
-            if colornode: 
-                colornode.location = (colornode.location[0], txtnode.location.y + ATTRIBUTE_NODE_HEIGHT*2)
-
-            m = self.make_node('ShaderNodeMath', 
-                               xloc=self.inter1_offset_x,
-                               yloc=txtnode.location.y)
-            m.operation = 'MULTIPLY'
-            self.link(alphanode.outputs['Color'], m.inputs[0])
-            self.link(txtnode.outputs['Alpha'], m.inputs[1])
-            self.link(m.outputs['Value'], self.bsdf.inputs['Alpha'])
+        if 'Use Vertex Alpha' in self.bsdf.inputs:
+            usealpha = self.make_node('ShaderNodeValue',
+                                name='Use Vertex Alpha',
+                                height=INPUT_NODE_HEIGHT)
+            self.link(usealpha.outputs[0], self.bsdf.inputs['Use Vertex Alpha'])
+            if self.alphamap:
+                vmap = self.make_node('ShaderNodeAttribute',
+                                    name='Vertex Alpha',
+                                    xloc=txtnode.location.x,
+                                    height=COLOR_NODE_HEIGHT)
+                vmap.attribute_type = 'GEOMETRY'
+                vmap.attribute_name = self.alphamap.name
+                self.link(vmap.outputs['Color'], self.bsdf.inputs['Vertex Alpha'])
+                usealpha.outputs[0].default_value = 1
+            else:
+                usealpha.outputs[0].default_value = 0
 
         self.diffuse = txtnode
 
@@ -822,36 +1063,21 @@ class ShaderImporter:
             except:
                 pass
             self.link(self.texmap.outputs['Vector'], skimgnode.inputs['Vector'])
+            self.link(skimgnode.outputs['Color'], self.bsdf.inputs['Subsurface'])
 
-            # Turn on subsurface scattering.
-            if 'Subsurface Weight' in self.bsdf.inputs:
-                self.bsdf.inputs["Subsurface Weight"].default_value = 1.0
-            else:
-                # Scale back on subsurface color so it doesn't overwhelm the diffuse.
-                self.bsdf.inputs["Subsurface"].default_value = 0.25
+            v = self.make_node('ShaderNodeValue',
+                                name='Subsurface Strength',
+                                xloc=skimgnode.location.x,
+                                height=INPUT_NODE_HEIGHT)
+            v.outputs[0].default_value = self.shape.shader.Soft_Lighting
+            self.link(v.outputs['Value'], self.bsdf.inputs['Subsurface Str'])
 
-            if "Subsurface Color" in self.bsdf.inputs:
-                # If there's a color input, connect to that.
-                self.link(skimgnode.outputs['Color'], self.bsdf.inputs["Subsurface Color"])
-            else:
-                # No color input. Let the shader do the scattering, but mix the subsurface
-                # color with the base color.
-                mixnode = new_mixnode(self.material, 
-                                      self.diffuse_socket,
-                                      skimgnode.outputs['Color'],
-                                      self.bsdf.inputs['Base Color'],
-                                      blend_type='SCREEN')
-                mixnode.location = (self.inter3_offset_x, self.diffuse.location.y)
-        else:
-            if 'Subsurface Weight' in self.bsdf.inputs:
-                self.bsdf.inputs["Subsurface Weight"].default_value = 0.0
-            if 'Subsurface' in self.bsdf.inputs:
-                self.bsdf.inputs["Subsurface"].default_value = 0.0
-            
 
     def import_specular(self):
         """Set up nodes for specular texture"""
-        if self.do_specular and 'Specular' in self.textures and self.shape.textures['Specular']:
+        if self.shape.shader.shaderflags1_test(ShaderFlags1.SPECULAR) \
+                and 'Specular' in self.textures \
+                    and self.shape.textures['Specular']:
             # Make the specular texture input node.
             simgnode = self.make_node("ShaderNodeTexImage",
                                       name='Specular_Texture',
@@ -864,57 +1090,49 @@ class ShaderImporter:
             except:
                 pass
             self.link(self.texmap.outputs['Vector'], simgnode.inputs['Vector'])
-            last_node = simgnode
+            self.link(simgnode.outputs['Color'], self.bsdf.inputs['Specular'])
 
-            if self.game in ["FO4"]:
-                # specular combines gloss and spec
-                invg = self.nodes.new("ShaderNodeInvert")
-                invg.location = (self.inter2_offset_x, simgnode.location.y-50)
-                self.link(invg.outputs['Color'], self.bsdf.inputs['Roughness'])
-                last_node = invg
+            c = self.make_node('ShaderNodeRGB',
+                               name='Specular Color',
+                               xloc=simgnode.location.x,
+                               height=COLOR_NODE_HEIGHT)
+            for i, v in enumerate(self.shape.shader.Spec_Color):
+                c.outputs[0].default_value[i] = v
+            self.link(c.outputs[0], self.bsdf.inputs['Specular Color'])
 
-                try:
-                    seprgb = self.make_node("ShaderNodeSeparateColor", 
-                                            xloc=self.inter1_offset_x,
-                                            yloc=simgnode.location.y)
-                    seprgb.mode = 'RGB'
-                    self.link(simgnode.outputs['Color'], seprgb.inputs['Color'])
-                    spec_socket = seprgb.outputs['Red']
-                    self.link(seprgb.outputs['Green'], invg.inputs['Color'])
-                except:
-                    seprgb = self.nodes.new("ShaderNodeSeparateRGB", 
-                                            xloc=self.inter1_offset_x,
-                                            yloc=simgnode.location.y)
-                    self.link(simgnode.outputs['Color'], seprgb.inputs['Image'])
-                    spec_socket = seprgb.outputs['R']
-                    self.link(seprgb.outputs['G'], invg.inputs['Color'])
+            c = self.make_node('ShaderNodeValue',
+                               name='Specular Strength',
+                               xloc=simgnode.location.x,
+                               height=INPUT_NODE_HEIGHT)
+            c.outputs[0].default_value = self.shape.shader.Spec_Str
+            self.link(c.outputs[0], self.bsdf.inputs['Specular Str'])
 
-            else:
-                # Skyrim just has a specular in the specular.
-                spec_socket = simgnode.outputs['Color']
+            # if self.game in ["FO4"]:
+            #     # specular combines gloss and spec
+            #     invg = self.nodes.new("ShaderNodeInvert")
+            #     invg.location = (self.inter2_offset_x, simgnode.location.y-50)
+            #     self.link(invg.outputs['Color'], self.bsdf.inputs['Roughness'])
+            #     last_node = invg
 
-            if 'Specular IOR Level' in self.bsdf.inputs:
-                # TODO: This is all wrong. IOR isn't what we want.
-                # If there's a direct IOR level input, have to map range 0-1 to 1-2
-                tobw = self.make_node('ShaderNodeRGBToBW',
-                                      xloc=last_node.location.x + 300,
-                                      yloc=simgnode.location.y)
-                self.link(spec_socket, tobw.inputs['Color'])
+            #     try:
+            #         seprgb = self.make_node("ShaderNodeSeparateColor", 
+            #                                 xloc=self.inter1_offset_x,
+            #                                 yloc=simgnode.location.y)
+            #         seprgb.mode = 'RGB'
+            #         self.link(simgnode.outputs['Color'], seprgb.inputs['Color'])
+            #         spec_socket = seprgb.outputs['Red']
+            #         self.link(seprgb.outputs['Green'], invg.inputs['Color'])
+            #     except:
+            #         seprgb = self.nodes.new("ShaderNodeSeparateRGB", 
+            #                                 xloc=self.inter1_offset_x,
+            #                                 yloc=simgnode.location.y)
+            #         self.link(simgnode.outputs['Color'], seprgb.inputs['Image'])
+            #         spec_socket = seprgb.outputs['R']
+            #         self.link(seprgb.outputs['G'], invg.inputs['Color'])
 
-                map = self.make_node('ShaderNodeMapRange',
-                                     xloc=tobw.location.x + 150,
-                                     yloc=simgnode.location.y)
-                map.inputs['From Min'].default_value = 0
-                map.inputs['From Max'].default_value = 1
-                map.inputs['To Min'].default_value = 1
-                map.inputs['To Max'].default_value = 2
-
-                self.link(tobw.outputs['Val'], map.inputs[0])
-                self.link(map.outputs[0], self.bsdf.inputs['Specular IOR Level'])
-
-            else:
-                # Just hook to the specular input.
-                self.link(spec_socket, self.bsdf.inputs['Specular'])
+            # else:
+            #     # Skyrim just has a specular in the specular.
+            #     spec_socket = simgnode.outputs['Color']
 
 
     def import_normal(self, shape):
@@ -933,31 +1151,14 @@ class ShaderImporter:
             except:
                 pass
 
-            if self.game == 'FO4':
-                self.link(nimgnode.outputs['Color'], self.bsdf.inputs['Normal'])
-            else:
-                if shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
-                    modelspace_normal(
-                        self.material.node_tree,
-                        nimgnode.outputs['Color'],
-                        self.bsdf.inputs['Normal'],
-                        (self.inter1_offset_x,
-                            nimgnode.location.y,)
-                    )
-                else: 
-                    tangent_normal(
-                        self.material.node_tree,
-                        nimgnode.outputs['Color'],
-                        self.bsdf.inputs['Normal'],
-                        (self.inter1_offset_x,
-                            nimgnode.location.y-100,)
-                    )
-
-                # Specular is in the normal map alpha channel
-                if 'Specular' in self.bsdf.inputs:
-                    self.link(nimgnode.outputs['Alpha'], self.bsdf.inputs['Specular'])
-                elif 'Specular IOR Level' in self.bsdf.inputs:
-                    self.link(nimgnode.outputs['Alpha'], self.bsdf.inputs['Specular IOR Level'])
+            self.link(nimgnode.outputs['Color'], self.bsdf.inputs['Normal'])
+            if self.game in ['SKYRIM', 'SKYRIMSE']:
+                if not shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+                    # Tangent normals have specular in alpha channel.
+                    if 'Specular' in self.bsdf.inputs:
+                        self.link(nimgnode.outputs['Alpha'], self.bsdf.inputs['Specular'])
+                    elif 'Specular IOR Level' in self.bsdf.inputs:
+                        self.link(nimgnode.outputs['Alpha'], self.bsdf.inputs['Specular IOR Level'])
                     
 
     def import_envmap(self):
@@ -989,7 +1190,7 @@ class ShaderImporter:
                 and self.shape.textures['EnvMask']: 
             imgnode = self.make_node("ShaderNodeTexImage",
                                      name='EnvMask_Texture',
-                                     xloc=self.diffuse.location[0],
+                                     xloc=self.diffuse.location.x,
                                      height=TEXTURE_NODE_HEIGHT)
             self.link(self.texmap.outputs['Vector'], imgnode.inputs['Vector'])
             try:
@@ -1000,23 +1201,24 @@ class ShaderImporter:
             except:
                 pass
 
-            # Env Mask multiplies with the specular.
-            spec_out = None
-            if 'Specular' in self.bsdf.inputs:
-                spec_out = self.bsdf.inputs["Specular"].links[0].from_socket
-            elif 'Specular IOL Level' in self.bsdf.inputs:
-                spec_out = self.bsdf.inputs["Specular IOL Level"].links[0].from_socket
-            if spec_out:
-                bw = self.make_node("ShaderNodeRGBToBW", 
-                                    xloc=self.inter1_offset_x,
-                                    yloc=imgnode.location.y-50)
-                mult = self.make_node("ShaderNodeMath",
-                                    xloc=self.inter2_offset_x,
-                                    yloc=imgnode.location.y)
-                self.link(imgnode.outputs['Color'], bw.inputs[0])
-                self.link(bw.outputs[0], mult.inputs[1])
-                self.link(spec_out, mult.inputs[0])
-                self.link(mult.outputs[0], self.bsdf.inputs["Specular"])
+            ## Not doing this yet. For now, just store the texture path.
+            # # Env Mask multiplies with the specular.
+            # spec_out = None
+            # if 'Specular' in self.bsdf.inputs:
+            #     spec_out = self.bsdf.inputs["Specular"].links[0].from_socket
+            # elif 'Specular IOL Level' in self.bsdf.inputs:
+            #     spec_out = self.bsdf.inputs["Specular IOL Level"].links[0].from_socket
+            # if spec_out:
+            #     bw = self.make_node("ShaderNodeRGBToBW", 
+            #                         xloc=imgnode.location.x + TEXTURE_NODE_WIDTH,
+            #                         yloc=imgnode.location.y)
+            #     mult = self.make_node("ShaderNodeMath",
+            #                         xloc=bw.location.x + NODE_WIDTH,
+            #                         yloc=imgnode.location.y)
+            #     self.link(imgnode.outputs['Color'], bw.inputs[0])
+            #     self.link(bw.outputs[0], mult.inputs[1])
+            #     self.link(spec_out, mult.inputs[0])
+            #     self.link(mult.outputs[0], self.bsdf.inputs["Specular"])
 
             
 
@@ -1041,18 +1243,26 @@ class ShaderImporter:
 
         self.find_textures(shape)
 
+        self.nodes.remove(self.nodes["Principled BSDF"])
+        mo = self.nodes['Material Output']
+
         if self.game == 'FO4':
-            self.nodes.remove(self.nodes["Principled BSDF"])
-            mo = self.nodes['Material Output']
             self.bsdf = make_shader_fo4(self.material.node_tree, 
                 (mo.location.x - NODE_WIDTH, mo.location.y))
-            self.link(self.bsdf.outputs['BSDF'], 
-                      self.nodes['Material Output'].inputs['Surface'])
-            self.img_offset_x = -1.5 * TEXTURE_NODE_WIDTH
-            self.calc1_offset_x = self.calc2_offset_x = self.img_offset_x - NODE_WIDTH
-            self.inputs_offset_x = self.img_offset_x - 3*NODE_WIDTH
         else:
-            self.bsdf = self.nodes["Principled BSDF"]
+            self.bsdf = make_shader_skyrim(self.material.node_tree,
+                mo.location + Vector((-NODE_WIDTH, 0)),
+                msn=shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS))
+        
+        self.bsdf.width = 250
+        self.bsdf.location.x -= 100
+        self.link(self.bsdf.outputs['BSDF'], 
+                  self.nodes['Material Output'].inputs['Surface'])
+        
+        self.img_offset_x = -1.5 * TEXTURE_NODE_WIDTH
+        self.calc1_offset_x = self.img_offset_x - NODE_WIDTH*2
+        self.calc2_offset_x = self.img_offset_x - NODE_WIDTH
+        self.inputs_offset_x = self.img_offset_x - 3*NODE_WIDTH
 
         self.ytop = self.bsdf.location.y
         self.inter1_offset_x += self.bsdf.location.x
@@ -1061,7 +1271,6 @@ class ShaderImporter:
         self.inter4_offset_x += self.bsdf.location.x
 
         self.make_uv_nodes()
-        self.import_shader_attrs(shape)
         self.colormap, self.alphamap = get_effective_colormaps(obj.data)
 
         self.import_diffuse()
@@ -1071,6 +1280,7 @@ class ShaderImporter:
         self.make_input_nodes()
         self.import_envmap()
         self.import_envmask()
+        self.import_shader_attrs(shape)
         self.import_shader_alpha(shape)
 
         obj.active_material = self.material
@@ -1116,27 +1326,32 @@ def get_image_filepath(node_input):
 
 
 def has_msn_shader(obj):
+    """
+    Find the normal node and determine its type.
+    We could just walk backwards from the Material Output, but that's inefficient.
+    Instead find the normal input, either on the shader or the group node that's 
+    implementing the shader.
+    """
     val = False
-    if obj.active_material:
-        nodelist = obj.active_material.node_tree.nodes
-        shader_node = None
-        if "Material Output" in nodelist:
-            mat_out = nodelist["Material Output"]
-            if mat_out.inputs["Surface"].is_linked:
-                shader_node = mat_out.inputs['Surface'].links[0].from_node
-        if shader_node:
-            normal_input = shader_node.inputs['Normal']
-            if normal_input and normal_input.is_linked:
-                nmap_node = normal_input.links[0].from_node
-                if nmap_node.bl_idname == 'ShaderNodeNormalMap' and nmap_node.space == "OBJECT":
-                    val = True
+    try:
+        matoutlist = [x for x in obj.active_material.node_tree.nodes if x.bl_idname == 'ShaderNodeOutputMaterial']
+        mat_out = matoutlist[0]
+        surface_skt = mat_out.inputs['Surface']
+        start_node = surface_skt.links[0].from_node
+        if start_node.bl_idname == 'ShaderNodeGroup':
+            grp_outputs = [n for n in start_node.node_tree.nodes if n.bl_idname == 'NodeGroupOutput']
+            group_out = grp_outputs[0]
+            start_node = group_out.inputs[0].links[0].from_node
+        normlist = BD.find_node(start_node.inputs["Normal"], 'ShaderNodeNormalMap')
+        val = normlist[0].space == 'OBJECT'
+    except: 
+        pass
     return val
 
 
 class ShaderExporter:
     def __init__(self, blender_obj):
         self.obj = blender_obj
-        self.is_obj_space = False  # Object vs. tangent normals
         self.is_obj_space = False
         self.have_errors = False
 
@@ -1148,18 +1363,19 @@ class ShaderExporter:
             if not "Material Output" in nodelist:
                 log.warning(f"Have material but no Material Output for {self.material.name}")
             else:
-                mat_out = nodelist["Material Output"]
-                if mat_out.inputs['Surface'].is_linked:
-                    self.shader_node = mat_out.inputs['Surface'].links[0].from_node
+                self.material_output = nodelist["Material Output"]
+                if self.material_output.inputs['Surface'].is_linked:
+                    self.shader_node = self.material_output.inputs['Surface'].links[0].from_node
+                    self.is_obj_space = has_msn_shader(blender_obj)
                 if not self.shader_node:
                     log.warning(f"Have material but no shader node for {self.material.name}")
 
-            if self.shader_node:
-                normal_input = self.shader_node.inputs['Normal']
-                nmap_node = find_node(normal_input, 'ShaderNodeNormalMap')
-                if nmap_node:
-                    self.is_obj_space = (nmap_node.space == 'OBJECT')
-                    # self.is_obj_space = nmap_node.name.startswith(MSN_GROUP_NAME)
+            # if self.shader_node:
+            #     normal_input = self.shader_node.inputs['Normal']
+            #     nmap_nodes = BD.find_node(normal_input, 'ShaderNodeNormalMap')
+            #     if nmap_nodes:
+            #         self.is_obj_space = (nmap_nodes[0].space == 'OBJECT')
+            #         # self.is_obj_space = nmap_node.name.startswith(MSN_GROUP_NAME)
 
         self.vertex_colors, self.vertex_alpha = get_effective_colormaps(blender_obj.data)
 
@@ -1294,32 +1510,36 @@ class ShaderExporter:
             if "SoftLighting_Texture" in self.material.node_tree.nodes:
                 imagenode = self.material.node_tree.nodes["SoftLighting_Texture"]
             elif 'Subsurface Color' in self.shader_node.inputs:
-                imagenode = find_node(self.shader_node.inputs["Subsurface Color"], "ShaderNodeTexImage")
+                imagenodes = BD.find_node(self.shader_node.inputs["Subsurface Color"], "ShaderNodeTexImage")
+                if imagenodes: imagenode = imagenodes[0]
         elif textureslot == "Specular":
             if "Specular_Texture" in self.material.node_tree.nodes:
                 imagenode = self.material.node_tree.nodes["Specular_Texture"]
             else:
                 # Don't have an obvious texture node, walk the BSDF inputs backwards.
                 if "Specular" in self.shader_node.inputs:
-                    imagenode = find_node(self.shader_node.inputs["Specular"], "ShaderNodeTexImage")
+                    imagenodes = BD.find_node(self.shader_node.inputs["Specular"], "ShaderNodeTexImage")
                 elif "Specular IOR Level" in self.shader_node.inputs:
-                    imagenode = find_node(self.shader_node.inputs["Specular IOR Level"], "ShaderNodeTexImage")
+                    imagenodes = BD.find_node(self.shader_node.inputs["Specular IOR Level"], "ShaderNodeTexImage")
+                if imagenodes: imagenode = imagenodes[0]
         elif textureslot == "Diffuse":
             try:
-                imagenode = find_node(self.shader_node.inputs["Base Color"], "ShaderNodeTexImage")
+                imagenodes = BD.find_node(self.shader_node.inputs["Base Color"], "ShaderNodeTexImage")
             except:
-                imagenode = find_node(self.shader_node.inputs["Diffuse"], "ShaderNodeTexImage")
+                imagenodes = BD.find_node(self.shader_node.inputs["Diffuse"], "ShaderNodeTexImage")
+            if imagenodes: imagenode = imagenodes[0]
         else:
             # Look through the node tree behind the texture slot to find the right image
             # node.
-            imagenode = find_node(self.shader_node.inputs[textureslot], "ShaderNodeTexImage")
+            imagenodes = BD.find_node(self.shader_node.inputs[textureslot], "ShaderNodeTexImage")
+            if imagenodes: imagenode = imagenodes[0]
         
         if imagenode:
             if textureslot == 'Specular':
                 # Check to see if the specular is coming from the normal texture. If so,
                 # don't use it.
-                normnode = find_node(self.shader_node.inputs["Normal"], "ShaderNodeTexImage")
-                if normnode == imagenode:
+                normnodes = BD.find_node(self.shader_node.inputs["Normal"], "ShaderNodeTexImage")
+                if normnodes and normnodes[0] == imagenode:
                     return
                 
             try:
@@ -1354,7 +1574,9 @@ class ShaderExporter:
         # Write alpha if any after the textures
         try:
             alpha_input = self.shader_node.inputs['Alpha']
-            if alpha_input and alpha_input.is_linked and self.material:
+            if alpha_input and alpha_input.is_linked \
+                and alpha_input.links[0].from_node.bl_idname == 'ShaderNodeTexImage' \
+                and self.material:
                 shape.has_alpha_property = True
                 if 'NiAlphaProperty_flags' in self.material:
                     shape.alpha_property.flags = self.material['NiAlphaProperty_flags']

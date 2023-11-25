@@ -107,6 +107,7 @@ def missing_files(files):
 
 
 def truncate_filename(filepath: str, root_dir: str)-> str:
+    """Truncate the initial part of a filepath up to the given root (e.g. 'meshes'). """
     n = filepath.lower().find(root_dir.lower())
     if n < 0:
         return filepath

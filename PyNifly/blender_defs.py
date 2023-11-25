@@ -367,6 +367,39 @@ def highlight_objects(objlist, context):
         pass
 
     
+def find_node(socket, nodetype, nodelist=None):
+    """
+    Find all shader nodes of the given type that feed the given socket.
+    Found nodes are appended to the list passed in and it is returned.
+    """
+    if nodelist:
+        nodes = nodelist
+    else:
+        nodes = []
+
+    if not socket.is_linked:
+        return nodes
+    
+    n = socket.links[0].from_node
+    if n.bl_idname == nodetype:
+        # This is what we're looking for. Don't look for any more behind this node.
+        nodes.append(n)
+        return nodes
+    
+    elif n.bl_idname == "ShaderNodeGroup":
+        # Dive into the group and see if it's in there.
+        gnodes = n.node_tree.nodes
+        goutputs = [x for x in n.node_tree.nodes if x.bl_idname == 'NodeGroupOutput']
+        if goutputs:
+            find_node(goutputs[0].inputs[0], nodetype, nodelist=nodes)
+
+    # Check the inputs for more results.
+    for ns in n.inputs:
+        find_node(ns, nodetype, nodelist=nodes) 
+    
+    return nodes
+
+
 def TEST_CAM():
     print('TEST_CAM')
     # Camera at [0, 100, 0] pointed back at origin. This is the default position. 

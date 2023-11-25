@@ -1695,7 +1695,11 @@ class NiShaderFO4(NiShader):
             # Some FO4 nifs don't have materials files. Apparently (?) they use the shader
             # block attributes.
             # fullpath = extend_filenames(self.file.materialsRoot, 'meshes', [self.name])[0]
-            fullpath = os.path.join(self.file.materialsRoot, self.name)
+            fullpath = self.name
+            if not os.path.exists(fullpath):
+                # Target full path doesn't exist. Make it relative to our materials root.
+                relpath = truncate_filename(self.name, 'materials')
+                fullpath = os.path.join(self.file.materialsRoot, self.name)
             self.materials = bgsmaterial.MaterialFile.Open(fullpath, logger=NifFile.log)
 
     @property

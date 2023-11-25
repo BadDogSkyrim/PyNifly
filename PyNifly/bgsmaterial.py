@@ -1,11 +1,12 @@
 import struct
 from ctypes import Structure, c_bool, c_char, c_float, c_uint8, c_uint32
+import logging
 
 class MaterialFile(Structure):
     """
     Common elements and bhavior for all materials files.
     """
-    log = None
+    log = logging.getLogger("pynifly")
     # Class variables overridden by sublclasses.
     _fields_ = []
     _defaults_ = []

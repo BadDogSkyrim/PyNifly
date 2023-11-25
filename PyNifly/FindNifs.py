@@ -13,12 +13,15 @@ import nifdefs
 
 targetFolder = r"C:\Modding\Fallout4\mods\00 FO4 Assets\Meshes"
 
+# Folders to exclude
+targetExcludes = [r'C:\Modding\Fallout4\mods\00 FO4 Assets\Meshes\Actors\Character\FaceGenData']
+
 pynlog = logging.getLogger("pynifly")
 
 def TestNif(n:pynifly.NifFile):
     for s in n.shapes:
         if s.shader.blockname == 'BSLightingShaderProperty' \
-            and s.shader.shaderflags1_test(nifdefs.ShaderFlags2.VERTEX_COLORS):
+            and s.shader.properties.Alpha != 1.0:
             return True, s.name
 
     return False, None
@@ -26,10 +29,12 @@ def TestNif(n:pynifly.NifFile):
 def WalkTree(folder_path):
     """Return all nif files in a directory tree, recursively."""
     for root, directories, files in os.walk(folder_path):
-        for filename in files:
-            if os.path.splitext(filename)[1].upper() == '.NIF':
-                file_path = os.path.join(root, filename)
-                yield file_path
+        excl = [x for x in targetExcludes if root.startswith(x)]
+        if not excl:
+            for filename in files:
+                if os.path.splitext(filename)[1].upper() == '.NIF':
+                    file_path = os.path.join(root, filename)
+                    yield file_path
 
 def FileExistsInPaths(fn, rootlist):
     """Determine whether the given file exists in any of the given mod roots."""
@@ -64,21 +69,19 @@ def PrintNifs(fp):
         try:
             b, n = TestNif(pynifly.NifFile(f))
             if b:
-                foundlist.append((f, n, ))
+                # foundlist.append((f, n, ))
+                print(f, n)
                 foundcount += 1
         except Exception as e:
             pynlog.debug(f + ": " + str(e))
         counter += 1
     print(f"Done. Found {foundcount} in {counter} files")
-    for f, n in foundlist:
-        print(f, n)
-            
+    # for f, n in foundlist:
+    #     print(f, n)
 
-errorlist = []
 
-class LoggerListHandler(logging.Handler):
-    def emit(self, record):
-        errorlist.append(record.msg)
+pynlog = logging.getLogger("pynifly")
+pynlog.addHandler(logging.FileHandler('findnifs.log'))
 
 
 # Load from install location
@@ -90,10 +93,8 @@ dev_path = os.path.join(py_addon_path, "NiflyDLL.dll")
 dev_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
 pynifly.NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], dev_path))
 
-pynlog.addHandler(LoggerListHandler)
+# pynlog.addHandler(LoggerListHandler)
 
 PrintNifs(targetFolder)
-
-print(errorlist[0:10])
 
 print("Done")
