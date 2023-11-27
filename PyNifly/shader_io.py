@@ -23,6 +23,22 @@ INPUT_NODE_HEIGHT = 100
 COLOR_NODE_HEIGHT = 200
 NORMAL_SCALE = 1.0 # Possible to make normal more obvious
 
+# Equivalent nodes that have different names in different versions of blender. Fuckers.
+MIXNODE_IDNAME = 'ShaderNodeMix'
+MIXNODE_IN1 = 'A'
+MIXNODE_IN2 = 'B'
+MIXNODE_FACTOR = 'Factor'
+MIXNODE_OUT = 'Result'
+
+COMBINER_IDNAME = 'ShaderNodeCombineColor'
+COMBINER_OUT = 'Result'
+
+SEPARATOR_IDNAME = 'ShaderNodeSeparateColor'
+SEPARATOR_IN = 'Color'
+SEPARATOR_OUT1 = 'Red'
+SEPARATOR_OUT2 = 'Green'
+SEPARATOR_OUT3 = 'Blue'
+
 NISHADER_IGNORE = [
     'baseColor',
     'baseColorScale',
@@ -41,89 +57,34 @@ NISHADER_IGNORE = [
     'textureClampMode',
     ]
 
-def tangent_normal(nodetree, source, destination, location):
-    """
-    Create a group node that handles the transformations for tangent space normals (Skyrim
-    and FO4).
-    """
-    # # Create a new shader group
-    # shader_group = bpy.data.node_groups.new(type='ShaderNodeTree', name='TangentNormal')
-
-    # # create group inputs
-    # group_inputs = shader_group.nodes.new('NodeGroupInput')
-    # group_inputs.location = (-200,0)
-    # shader_group.inputs.new('NodeSocketColor','Image')
-
-    shader_group = None
-    internal_location = location
-    internal_nodetree = nodetree
-
-    nodelist = internal_nodetree.nodes
-    # Need to invert the green channel for blender
-    try:
-        rgbsep = nodelist.new("ShaderNodeSeparateColor")
-        rgbsep.mode = 'RGB'
-        combine_name = "ShaderNodeCombineColor"
-        socketname = 'Color'
-    except:
-        rgbsep = nodelist.new("ShaderNodeSeparateRGB")
-        combine_name = "ShaderNodeCombineRGB"
-        socketname = 'Image'
-    rgbsep.location = internal_location
-
-    colorinv = nodelist.new("ShaderNodeInvert")
-    colorinv.location = rgbsep.location + Vector((200, -150))
-    rgbcomb = nodelist.new(combine_name)
-    rgbcomb.location = colorinv.location + Vector((200, 150))
-    if combine_name == "ShaderNodeCombineRGB": rgbcomb.mode = 'RGB'
-
-    nmap = nodelist.new("ShaderNodeNormalMap")
-    nmap.location = rgbcomb.location + Vector((200, 0))
-    nmap.space = 'TANGENT'
-    nmap.inputs['Strength'].default_value = 2.0 # Make it a little more obvious.
-
-    internal_nodetree.links.new(rgbsep.outputs[0], rgbcomb.inputs[0])
-    internal_nodetree.links.new(rgbsep.outputs[2], rgbcomb.inputs[2])
-    internal_nodetree.links.new(rgbsep.outputs[1], colorinv.inputs['Color'])
-    internal_nodetree.links.new(colorinv.outputs['Color'], rgbcomb.inputs[1])
-    internal_nodetree.links.new(rgbcomb.outputs[socketname], nmap.inputs['Color'])
-    internal_nodetree.links.new(source, rgbsep.inputs[socketname])
-    
-    # # create group outputs
-    # group_outputs = shader_group.nodes.new('NodeGroupOutput')
-    # group_outputs.location = nmap.location + Vector((200, 0))
-    # shader_group.outputs.new('NodeSocketVector', 'Normal')
-
-    internal_nodetree.links.new(nmap.outputs['Normal'], destination)
-
-    # # Make the node in the object's shader that references this group.
-    # g = nodetree.nodes.new("ShaderNodeGroup")
-    # g.name = TANGENT_GROUP_NAME
-    # g.label = "Tangent Normal"
-    # g.location = location
-    # g.node_tree = shader_group
-    # nodetree.links.new(source, g.inputs[0])
-    # nodetree.links.new(g.outputs[0], destination)
-
-    # return g
 
 def make_separator(nodetree, input, loc):
     """
-    Make a separator node with input connected to socket "input".
+    Make a color separator node with input connected to socket "input".
     Safe for all Blender 3.x and 4.0
     """
+    global SEPARATOR_IDNAME 
+    global SEPARATOR_IN 
+    global SEPARATOR_OUT1 
+    global SEPARATOR_OUT2 
+    global SEPARATOR_OUT3 
     try:
-        rgbsep = nodetree.nodes.new("ShaderNodeSeparateColor")
-        rgbsep.location = loc
+        rgbsep = nodetree.nodes.new(SEPARATOR_IDNAME)
+    except:
+        SEPARATOR_IDNAME = 'ShaderNodeSeparateRGB'
+        SEPARATOR_IN = 'Image'
+        SEPARATOR_OUT1 = 'R'
+        SEPARATOR_OUT2 = 'G'
+        SEPARATOR_OUT3 = 'B'
+        rgbsep = nodetree.nodes.new(SEPARATOR_IDNAME)
+
+    try:
         rgbsep.mode = 'RGB'
-        nodetree.links.new(input, rgbsep.inputs['Color'])
-        return rgbsep
     except:
         pass
 
-    rgbsep = nodetree.nodes.new("ShaderNodeSeparateRGB")
     rgbsep.location = loc
-    nodetree.links.new(input, rgbsep.inputs['Image'])
+    nodetree.links.new(input, rgbsep.inputs[SEPARATOR_IN])
     return rgbsep
 
 
@@ -139,36 +100,48 @@ def make_specular(nodetree, source, strength, color, bsdf, location=(0, 0)):
         skt = bsdf.inputs['Specular']
     elif 'Specular IOR Level' in bsdf.inputs:
         skt = bsdf.inputs['Specular IOR Level']
-    m = new_mixnode(nodetree,
-                    source,
-                    strength,
-                    skt)
-    m.location = location
+    m = make_mixnode(nodetree, source, strength, skt, location=location)
 
     nodetree.links.new(color, bsdf.inputs['Specular Tint'])
    
 
 def make_combiner(nodetree, r, g, b, loc):
     """
-    Make a combiner node with inputs from sockets r, g, b. Returns output socket.
+    Make a combiner node with inputs from sockets r, g, b. Returns created node.
     Safe for all Blender 3.x and 4.0
     """
+    global COMBINER_IDNAME
+    global COMBINER_OUT
     try:
-        combiner = nodetree.nodes.new("ShaderNodeCombineColor")
-        combiner.location = loc
+        combiner = nodetree.nodes.new(COMBINER_IDNAME)
+    except:
+        COMBINER_IDNAME = 'ShaderNodeCombineRGB'
+        COMBINER_OUT = 'Value'
+        combiner = nodetree.nodes.new(COMBINER_IDNAME)
+
+    combiner.location = loc
+    try:
         combiner.mode = 'RGB'
-        nodetree.links.new(r, combiner.inputs[0])
-        nodetree.links.new(g, combiner.inputs[1])
-        nodetree.links.new(b, combiner.inputs[2])
-        return combiner
     except:
         pass
 
-    rgbsep = nodetree.nodes.new("ShaderNodeCombineRGB")
-    combiner.location = loc
     nodetree.links.new(r, combiner.inputs[0])
     nodetree.links.new(g, combiner.inputs[1])
     nodetree.links.new(b, combiner.inputs[2])
+    return combiner
+
+
+def make_combiner_xyz(nodetree, x, y, z, loc):
+    """
+    Make a combiner node with inputs from sockets x, y, z. Returns created node.
+    Safe for all Blender 3.x and 4.0
+    """
+    combiner = nodetree.nodes.new('ShaderNodeCombineXYZ')
+    combiner.location = loc
+
+    nodetree.links.new(x, combiner.inputs[0])
+    nodetree.links.new(y, combiner.inputs[1])
+    if z: nodetree.links.new(z, combiner.inputs[2])
     return combiner
 
 
@@ -221,16 +194,18 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
     bsdf.location = (NODE_WIDTH, 0)
 
     # Diffuse and alpha
-    mixcolor = new_mixnode(grp, 
-                          group_inputs.outputs['Diffuse'],
-                          group_inputs.outputs['Vertex Color'],
-                          bsdf.inputs['Base Color'])
-    mixcolor.location = group_inputs.location + Vector((2 * NODE_WIDTH, 2*TEXTURE_NODE_HEIGHT,))
-    grp.links.new(group_inputs.outputs['Use Vertex Color'], mixcolor.inputs['Factor'])
+    mixcolor = make_mixnode(
+        grp, 
+        group_inputs.outputs['Diffuse'],
+        group_inputs.outputs['Vertex Color'],
+        bsdf.inputs['Base Color'],
+        factor=group_inputs.outputs['Use Vertex Color'],
+        location=group_inputs.location + Vector((2 * NODE_WIDTH, 2*TEXTURE_NODE_HEIGHT,))
+        )
 
-    diffuse_socket = mixcolor.outputs['Result']
+    diffuse_socket = mixcolor.outputs[MIXNODE_OUT]
     
-    # mixvertalph = new_mixnode(grp, 
+    # mixvertalph = make_mixnode(grp, 
     #                       group_inputs.outputs['Alpha'],
     #                       group_inputs.outputs['Vertex Alpha'],
     #                       None)
@@ -279,12 +254,13 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
     else:
         # No color input. Let the shader do the scattering, but mix the subsurface
         # color with the base color.
-        m = new_mixnode(grp, 
-                        diffuse_socket,
-                        group_inputs.outputs['Subsurface'],
-                        bsdf.inputs['Base Color'],
-                        blend_type='SCREEN')
-        m.location = invalph.location + Vector((2*NODE_WIDTH, -COLOR_NODE_HEIGHT))
+        m = make_mixnode(
+            grp, 
+            diffuse_socket,
+            group_inputs.outputs['Subsurface'],
+            bsdf.inputs['Base Color'],
+            blend_type='SCREEN',
+            location=invalph.location + Vector((2*NODE_WIDTH, -COLOR_NODE_HEIGHT)))
 
     # Specular 
     make_specular(grp,
@@ -293,17 +269,6 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
                   group_inputs.outputs['Specular Color'],
                   bsdf,
                   mixcolor.location + Vector((0, -2.2*TEXTURE_NODE_HEIGHT)))
-    # if 'Specular' in bsdf.inputs:
-    #     skt = bsdf.inputs['Specular']
-    # elif 'Specular IOR Level' in bsdf.inputs:
-    #     skt = bsdf.inputs['Specular IOR Level']
-    # m = new_mixnode(grp,
-    #                 group_inputs.outputs['Specular'],
-    #                 group_inputs.outputs['Specular Str'],
-    #                 skt)
-    # m.location = mixcolor.location + Vector((0, -2.2*TEXTURE_NODE_HEIGHT))
-
-    # grp.links.new(group_inputs.outputs['Specular Color'], bsdf.inputs['Specular Tint'])
 
     # Glossiness
 
@@ -456,39 +421,23 @@ def make_shader_fo4(parent, location):
                   bsdf,
                   inv.location + Vector((NODE_WIDTH, INPUT_NODE_HEIGHT)))
 
-    # # Alternate inputs for Blender 4.0
-    # if 'Specular IOR Level' in self.bsdf.inputs:
-    #     # TODO: This is all wrong. IOR isn't what we want.
-    #     # If there's a direct IOR level input, have to map range 0-1 to 1-2
-    #     tobw = self.make_node('ShaderNodeRGBToBW',
-    #                             xloc=last_node.location.x + 300,
-    #                             yloc=simgnode.location.y)
-    #     self.link(spec_socket, tobw.inputs['Color'])
-
-    #     map = self.make_node('ShaderNodeMapRange',
-    #                             xloc=tobw.location.x + 150,
-    #                             yloc=simgnode.location.y)
-    #     map.inputs['From Min'].default_value = 0
-    #     map.inputs['From Max'].default_value = 1
-    #     map.inputs['To Min'].default_value = 1
-    #     map.inputs['To Max'].default_value = 2
-
-    #     self.link(tobw.outputs['Val'], map.inputs[0])
-    #     self.link(map.outputs[0], self.bsdf.inputs['Specular IOR Level'])
-
-    # else:
-    #     # Just hook to the specular input.
-    #     self.link(spec_socket, self.bsdf.inputs['Specular'])
-
     # Normal map
     separator = make_separator(grp, group_inputs.outputs['Normal'], (0, -1.5 * TEXTURE_NODE_HEIGHT))
 
     inv = grp.nodes.new("ShaderNodeInvert")
     inv.location = (NODE_WIDTH, separator.location.y-50)
-    grp.links.new(separator.outputs[2], inv.inputs['Color'])
+    grp.links.new(separator.outputs[SEPARATOR_OUT2], inv.inputs['Color'])
 
-    combiner = make_combiner(grp, separator.outputs[0], inv.outputs[0], separator.outputs[2],
-                             (NODE_WIDTH * 2, separator.location.y))
+    whiteblue = grp.nodes.new("ShaderNodeRGB")
+    whiteblue.location = inv.location + Vector((0, -COLOR_NODE_HEIGHT))
+    whiteblue.outputs['Color'].default_value = (1, 1, 1, 1)
+
+    combiner = make_combiner(
+        grp, 
+        separator.outputs[SEPARATOR_OUT1], 
+        inv.outputs[0], 
+        whiteblue.outputs[0],
+        (NODE_WIDTH * 2, separator.location.y))
     
     norm = grp.nodes.new('ShaderNodeNormalMap')
     norm.location = (NODE_WIDTH * 3, separator.location.y)
@@ -561,11 +510,31 @@ def make_uv_node(parent, location):
     u_map.location = (u_scale.location.x + 200, u_scale.location.y - 200)
     grp.links.new(u_scale.outputs['Value'], u_map.inputs['Value'])
 
-    u_comb = grp.nodes.new('ShaderNodeMix')
-    u_comb.location = (u_map.location.x + 200, u_scale.location.y - 50)
-    grp.links.new(group_inputs.outputs['Clamp S'], u_comb.inputs['Factor'])
-    grp.links.new(u_scale.outputs['Value'], u_comb.inputs['B'])
-    grp.links.new(u_map.outputs['Result'], u_comb.inputs['A'])
+    u_comb = make_mixnode(
+        grp, 
+        u_map.outputs['Result'],
+        u_scale.outputs['Value'],
+        factor=group_inputs.outputs['Clamp S'],
+        blend_type='MIX',
+        location=(u_map.location.x + 200, u_scale.location.y - 50))
+    # u_comb = grp.nodes.new('ShaderNodeVectorMath')
+    # u_comb.location = (u_map.location.x + 200, u_scale.location.y - 50)
+    # u_comb.operation = 'MULTIPLY'
+    # grp.links.new(u_map.outputs['Result'], u_comb.inputs[0])
+    # grp.links.new(u_scale.outputs['Value'], u_comb.inputs[1])
+
+    # try:
+    #     u_comb = grp.nodes.new('ShaderNodeMix')
+    #     u_comb.location = (u_map.location.x + 200, u_scale.location.y - 50)
+    #     grp.links.new(group_inputs.outputs['Clamp S'], u_comb.inputs['Factor'])
+    #     grp.links.new(u_scale.outputs['Value'], u_comb.inputs['B'])
+    #     grp.links.new(u_map.outputs['Result'], u_comb.inputs['A'])
+    # except:
+    #     u_comb = grp.nodes.new('ShaderNodeMixRGB')
+    #     u_comb.location = (u_map.location.x + 200, u_scale.location.y - 50)
+    #     grp.links.new(group_inputs.outputs['Clamp S'], u_comb.inputs['Fac'])
+    #     grp.links.new(u_scale.outputs['Value'], u_comb.inputs['Color2'])
+    #     grp.links.new(u_map.outputs['Result'], u_comb.inputs['Color1'])
 
     # Transform the V value
 
@@ -585,18 +554,28 @@ def make_uv_node(parent, location):
     v_map.location = (v_scale.location.x + 200, v_scale.location.y - 200)
     grp.links.new(v_scale.outputs['Value'], v_map.inputs['Value'])
 
-    v_comb = grp.nodes.new('ShaderNodeMix')
-    v_comb.location = (v_map.location.x + 200, v_scale.location.y - 50)
-    grp.links.new(group_inputs.outputs['Clamp T'], v_comb.inputs['Factor'])
-    grp.links.new(v_scale.outputs['Value'], v_comb.inputs['B'])
-    grp.links.new(v_map.outputs['Result'], v_comb.inputs['A'])
+    v_comb = make_mixnode(
+        grp,
+        v_map.outputs['Result'],
+        v_scale.outputs['Value'],
+        factor=group_inputs.outputs['Clamp T'],
+        blend_type='MIX',
+        location=(v_map.location.x + 200, v_scale.location.y - 50)
+    )
+    # v_comb = grp.nodes.new('ShaderNodeMix')
+    # v_comb.location = (v_map.location.x + 200, v_scale.location.y - 50)
+    # grp.links.new(group_inputs.outputs['Clamp T'], v_comb.inputs['Factor'])
+    # grp.links.new(v_scale.outputs['Value'], v_comb.inputs['B'])
+    # grp.links.new(v_map.outputs['Result'], v_comb.inputs['A'])
 
     # Combine U & V
-
-    uv_comb = grp.nodes.new('ShaderNodeCombineXYZ')
-    uv_comb.location = (u_comb.location.x + 200, 0)
-    grp.links.new(u_comb.outputs['Result'], uv_comb.inputs['X'])
-    grp.links.new(v_comb.outputs['Result'], uv_comb.inputs['Y'])
+    uv_comb = make_combiner_xyz(
+        grp,
+        u_comb.outputs[MIXNODE_OUT],
+        v_comb.outputs[MIXNODE_OUT],
+        None,
+        v_comb.location + Vector((NODE_WIDTH, 50))
+    )
 
     group_outputs = grp.nodes.new('NodeGroupOutput')
     group_outputs.location = (uv_comb.location.x + 200, 0)
@@ -643,82 +622,6 @@ def make_uv_node(parent, location):
     return shader_node
 
 
-def modelspace_normal(nodetree, source, destination, location):
-    """
-    Create a group node that handles the transformations for model space normals (Skyrim
-    and FO4).
-
-    Don't know yet how to handle group inputs and outputs for Blender 4.0, so finess that.
-    """
-    # Create a new shader group
-    # shader_group = None
-    # try:
-    #     shader_group = bpy.data.node_groups.new(type='ShaderNodeTree', name='TangentNormal')
-
-    #     # create group inputs
-    #     group_inputs = shader_group.nodes.new('NodeGroupInput')
-    #     group_inputs.location = (-200,0)
-    #     shader_group.inputs.new('NodeSocketColor','Image')
-    #     internal_location = (0, 0)
-    #     internal_nodetree = shader_group
-    # except:
-    shader_group = None
-    internal_location = location
-    internal_nodetree = nodetree
-
-    nodelist = internal_nodetree.nodes
-    # Need to invert the green channel for blender
-    try:
-        rgbsep = nodelist.new("ShaderNodeSeparateColor")
-        rgbsep.mode = 'RGB'
-        combine_name = "ShaderNodeCombineColor"
-        socketname = 'Color'
-
-    except:
-        rgbsep = nodelist.new("ShaderNodeSeparateRGB")
-        combine_name = "ShaderNodeCombineRGB"
-        socketname = 'Image'
-    
-    rgbsep.location = internal_location
-    rgbcomb = nodelist.new(combine_name)
-    rgbcomb.location = rgbsep.location + Vector((200, 0))
-    if combine_name == "ShaderNodeCombineRGB": rgbcomb.mode = 'RGB'
-
-    nmap = nodelist.new("ShaderNodeNormalMap")
-    nmap.location = rgbcomb.location + Vector((200, 0))
-    nmap.space = 'OBJECT'
-    nmap.inputs['Strength'].default_value = NORMAL_SCALE
-
-    # Need to swap green and blue channels for blender
-    internal_nodetree.links.new(rgbsep.outputs[0], rgbcomb.inputs[0])
-    internal_nodetree.links.new(rgbsep.outputs[1], rgbcomb.inputs[2])
-    internal_nodetree.links.new(rgbsep.outputs[2], rgbcomb.inputs[1])
-    internal_nodetree.links.new(rgbcomb.outputs[socketname], nmap.inputs['Color'])
-    
-    # create group outputs
-    if shader_group:
-        internal_nodetree.links.new(group_inputs.outputs[0], rgbsep.inputs[socketname])
-
-        group_outputs = shader_group.nodes.new('NodeGroupOutput')
-        group_outputs.location = nmap.location + Vector((200, 0))
-        shader_group.outputs.new('NodeSocketVector', 'Normal')
-
-        shader_group.links.new(nmap.outputs['Normal'], group_outputs.inputs[0])
-
-        # Make the node in the object's shader that references this group.
-        g = nodetree.nodes.new("ShaderNodeGroup")
-        g.name = MSN_GROUP_NAME
-        g.label = "Object Normal"
-        g.location = location
-        g.node_tree = shader_group
-
-        nodetree.links.new(source, g.inputs[0])
-        nodetree.links.new(g.outputs[0], destination)
-    else:
-        nodetree.links.new(source, rgbsep.inputs[socketname])
-        nodetree.links.new(nmap.outputs['Normal'], destination)
-
-
 def get_effective_colormaps(mesh):
     """ Return the colormaps we want to use
         Returns (colormap, alphamap)
@@ -759,34 +662,44 @@ def get_effective_colormaps(mesh):
     return colormap, alphamap
 
 
-def new_mixnode(nodetree, input1, input2, output, blend_type='MULTIPLY'):
+def make_mixnode(nodetree, input1, input2, output=None, factor=None, blend_type='MULTIPLY', location=None):
     """
     Create a shader RGB mix node--or fall back if it's an older version of Blender.
     """
+    global MIXNODE_IDNAME 
+    global MIXNODE_IN1 
+    global MIXNODE_IN2 
+    global MIXNODE_FACTOR 
+    global MIXNODE_OUT 
     mixnode = None
     try:
-        # Blender 3.5
-        mixnode = nodetree.nodes.new("ShaderNodeMix")
-        mixnode.data_type = 'RGBA'
-        nodetree.links.new(input1, mixnode.inputs[6])
-        nodetree.links.new(input2, mixnode.inputs[7])
-        if output: nodetree.links.new(mixnode.outputs[2], output)
-        mixnode.blend_type = blend_type
-        mixnode.inputs['Factor'].default_value = 1
+        mixnode = nodetree.nodes.new(MIXNODE_IDNAME)
     except:
+        # Fall back to older names
+        MIXNODE_IDNAME = 'ShaderNodeMixRGB'
+        MIXNODE_IN1 = 'Color1'
+        MIXNODE_IN2 = 'Color2'
+        MIXNODE_OUT = 'Color'
+        MIXNODE_FACTOR = 'Fac'
+        mixnode = nodetree.nodes.new(MIXNODE_IDNAME)
+
+    try:
+        mixnode.data_type = 'RGBA'
+    except: 
         pass
 
-    if not mixnode:
-        # Blender 3.1
-        mixnode = nodetree.nodes.new("ShaderNodeMixRGB")
-        nodetree.links.new(input1, mixnode.inputs['Color1'])
-        nodetree.links.new(input2, mixnode.inputs['Color2'])
-        if output: nodetree.links.new(mixnode.outputs['Color'], output)
-        mixnode.blend_type = 'MULTIPLY'
-        mixnode.inputs[0].default_value = 1
+    nodetree.links.new(input1, mixnode.inputs[MIXNODE_IN1])
+    nodetree.links.new(input2, mixnode.inputs[MIXNODE_IN2])
+    if output: nodetree.links.new(mixnode.outputs[MIXNODE_OUT], output)
+    mixnode.blend_type = blend_type
+    if factor is None:
+        mixnode.inputs[MIXNODE_FACTOR].default_value = 1
+    else:
+        nodetree.links.new(factor, mixnode.inputs[MIXNODE_FACTOR])
+    
+    if location: mixnode.location = location
 
     return mixnode
-
 
 
 class ShaderImporter:

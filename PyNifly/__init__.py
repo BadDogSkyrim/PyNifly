@@ -2020,10 +2020,13 @@ class NifImporter():
 
         if not new_action:
             new_action = bpy.data.actions.new(action_name)
-            new_action.frame_start = seq.properties.startTime * fps + 1
-            new_action.frame_end = seq.properties.stopTime * fps + 1
-            new_action.use_frame_range = True
-            new_action.use_fake_user = True
+            try:
+                new_action.frame_start = seq.properties.startTime * fps + 1
+                new_action.frame_end = seq.properties.stopTime * fps + 1
+                new_action.use_frame_range = True
+                new_action.use_fake_user = True
+            except:
+                pass
             new_action.asset_mark()
 
         rotmode = self.import_interpolator(

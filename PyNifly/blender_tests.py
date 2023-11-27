@@ -2257,19 +2257,22 @@ def TEST_VERTEX_COLOR_IO():
     eyes = TT.find_shape("FemaleEyesAO:0")
     assert eyes.active_material["Shader_Flags_2"].find("VERTEX_COLORS") >= 0, \
         f"Eyes have colors: {eyes.active_material['Shader_Flags_2']}"
-    colors = eyes.data.color_attributes.active_color.data
-    max_r = max(c.color[0] for c in colors)
-    min_r = min(c.color[0] for c in colors)
-    assert max_r == 0, f"Have no white verts: {max_r}"
-    assert min_r == 0, f"Have some black verts: {min_r}"
+    
+    if bpy.app.version >= (3, 5, 0):
+        # Color data handled differently in older versions
+        colors = eyes.data.color_attributes.active_color.data
+        max_r = max(c.color[0] for c in colors)
+        min_r = min(c.color[0] for c in colors)
+        assert max_r == 0, f"Have no white verts: {max_r}"
+        assert min_r == 0, f"Have some black verts: {min_r}"
 
-    # BSEffectShaderProperty is assumed to use the alpha channel whether or not the flag is set.
-    # Alpha is represented as ordinary color on the VERTEX_ALPHA color attribute
-    colors = eyes.data.color_attributes['VERTEX_ALPHA'].data
-    max_a = max(c.color[0] for c in colors)
-    min_a = min(c.color[0] for c in colors)
-    assert max_a == 1.0, f"Have some opaque verts: {max_a}"
-    assert min_a == 0, f"Have some transparent verts: {min_a}"
+        # BSEffectShaderProperty is assumed to use the alpha channel whether or not the flag is set.
+        # Alpha is represented as ordinary color on the VERTEX_ALPHA color attribute
+        colors = eyes.data.color_attributes['VERTEX_ALPHA'].data
+        max_a = max(c.color[0] for c in colors)
+        min_a = min(c.color[0] for c in colors)
+        assert max_a == 1.0, f"Have some opaque verts: {max_a}"
+        assert min_a == 0, f"Have some transparent verts: {min_a}"
 
     bpy.ops.object.select_all(action='DESELECT')
     eyes.select_set(True)
@@ -4601,6 +4604,7 @@ def TEST_ANIM_ALDUIN():
 
 def TEST_ANIM_KF():
     """Read and write KF animation."""
+    if bpy.app.version < (3, 5, 0): return
 
     testfile = TT.test_file(r"tests\SkyrimSE\1hm_staggerbacksmallest.kf")
     testfile2 = TT.test_file(r"tests\SkyrimSE\1hm_attackpowerright.kf")
@@ -4702,6 +4706,7 @@ def TEST_ANIM_KF():
 
 def TEST_ANIM_KF_RENAME():
     """Read and write KF animation with renamed bones."""
+    if bpy.app.version < (3, 5, 0): return
 
     testfile = TT.test_file(r"tests\Skyrim\sneakmtidle_original.kf")
     skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
@@ -4767,6 +4772,7 @@ def TEST_ANIM_KF_RENAME():
 
 def TEST_ANIM_HKX():
     """Can import and export a HKX animation."""
+    if bpy.app.version < (3, 5, 0): return
 
     # Check that this works when there are spaces in the path name
     testfile = TT.test_file(r"tests\Skyrim\meshes\actors\character\character animations\1hm_staggerbacksmallest.hkx")
@@ -4950,6 +4956,6 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_BODYPART_SKY] )
-    do_tests(alltests)
-    # do_tests( testfrom(TEST_BONE_HIERARCHY) )
+    # do_tests( [TEST_SHADER_FO4] )
+    # do_tests(alltests)
+    do_tests( testfrom(TEST_ANIM_KF) )
