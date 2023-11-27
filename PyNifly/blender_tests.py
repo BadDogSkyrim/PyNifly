@@ -1556,8 +1556,6 @@ def TEST_SHADER_FO4():
     
     nifFO4 = pyn.NifFile(fileFO4)
     shapeorig = nifFO4.shapes[0]
-    # sh = headFO4.active_material.node_tree.nodes["Principled BSDF"]
-    # assert sh, "Have shader node"
     for t in ['Diffuse_Texture', 'Normal_Texture', 'Specular_Texture']:
         txt = headFO4.active_material.node_tree.nodes[t]
         assert txt and txt.image and txt.image.filepath, f"Imported texture {t}"
@@ -1643,8 +1641,8 @@ def TEST_SHADER_ALPHA():
     nifAlph = pyn.NifFile(fileAlph)
     furshape = nifAlph.shape_dict["tail_fur"]
     tail = bpy.data.objects["tail_fur"]
-    assert 'Principled BSDF' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
-    bsdf = tail.active_material.node_tree.nodes['Principled BSDF']
+    assert 'Skyrim Shader' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
+    bsdf = tail.active_material.node_tree.nodes['Skyrim Shader']
     assert bsdf.inputs['Normal'].is_linked, f"Have normal map"
     assert 'Diffuse_Texture' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
     assert tail.active_material.blend_method == 'CLIP', f"Error: Alpha blend is '{tail.active_material.blend_method}', not 'CLIP'"
@@ -1716,8 +1714,8 @@ def TEST_TEXTURE_PATHS():
     # Should have found the texture files
     circlet = TT.find_shape('M1:4')
     mat = circlet.active_material
-    bsdf = mat.node_tree.nodes['Principled BSDF']
-    diffuse = shader_io.get_image_filepath(bsdf.inputs['Base Color'])
+    bsdf = mat.node_tree.nodes['Material Output'].inputs['Surface'].links[0].from_node
+    diffuse = shader_io.get_image_filepath(bsdf.inputs['Diffuse'])
     assert diffuse.endswith('Circlet.dds'), f"Found diffuse texture file: '{diffuse}'"
     norm = shader_io.get_image_filepath(bsdf.inputs['Normal'])
     assert norm.endswith('Circlet_n.png'), f"Found normal texture file: '{norm}'"
@@ -1732,15 +1730,20 @@ def TEST_CAVE_GREEN():
 
     wall1 = bpy.data.objects["CaveGHall1Way01:2"]
     mat1 = wall1.active_material
-    mix1 = mat1.node_tree.nodes['Principled BSDF'].inputs['Base Color'].links[0].from_node
-    try:
-        # Blender 3.5
-        diff1 = mix1.inputs[6].links[0].from_node
-    except:
-        # Blender 3.1
-        diff1 = mix1.inputs['Color1'].links[0].from_node
+    bsdf = mat1.node_tree.nodes['Material Output'].inputs['Surface'].links[0].from_node
+    # mix1 = bsdf.inputs['Diffuse'].links[0].from_node
+    # try:
+    #     # Blender 3.5
+    #     diff1 = mix1.inputs[6].links[0].from_node
+    # except:
+    #     # Blender 3.1
+    #     diff1 = mix1.inputs['Color1'].links[0].from_node
 
-    assert diff1.image.filepath.lower()[0:-4].endswith("cavebasewall01"), f"Have correct wall diffuse: {diff1.image.filepath}"
+    diff1 = BD.find_node(bsdf.inputs['Diffuse'], 'ShaderNodeTexImage')[0]
+    assert diff1.image.filepath.lower()[0:-4].endswith("cavebasewall01"), \
+        f"Have correct wall diffuse: {diff1.image.filepath}"
+    uvc = BD.find_node(bsdf.inputs['Use Vertex Color'], 'ShaderNodeValue')[0]
+    assert uvc.outputs[0].default_value == 1.0, f"Using vertex colors"
 
     roots = TT.find_shape("L2_Roots:5")
 
@@ -2292,7 +2295,7 @@ def TEST_VERTEX_ALPHA_IO():
     head = bpy.context.object
     nodes = head.active_material.node_tree.nodes
     shader = nodes["Skyrim Shader"]
-    assert shader, f"Found Principled BSDF node"
+    assert shader, f"Found shader"
     diffuse = BD.find_node(shader.inputs["Diffuse"], "ShaderNodeTexImage")[0]
     assert diffuse.bl_idname == "ShaderNodeTexImage", f"Found correct diffuse type {diffuse.name}"
     assert diffuse.image.filepath.endswith('KhajiitMaleHead.dds'), f"Filepath correct: {diffuse.image.filepath}"
@@ -4947,6 +4950,6 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_VERTEX_ALPHA_IO] )
-    # do_tests(alltests)
-    # do_tests( testfrom(TEST_ROGUE01) )
+    # do_tests( [TEST_BODYPART_SKY] )
+    do_tests(alltests)
+    # do_tests( testfrom(TEST_BONE_HIERARCHY) )

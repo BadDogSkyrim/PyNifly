@@ -372,10 +372,10 @@ def find_node(socket, nodetype, nodelist=None):
     Find all shader nodes of the given type that feed the given socket.
     Found nodes are appended to the list passed in and it is returned.
     """
-    if nodelist:
-        nodes = nodelist
-    else:
+    if nodelist is None:
         nodes = []
+    else:
+        nodes = nodelist
 
     if not socket.is_linked:
         return nodes
@@ -383,7 +383,8 @@ def find_node(socket, nodetype, nodelist=None):
     n = socket.links[0].from_node
     if n.bl_idname == nodetype:
         # This is what we're looking for. Don't look for any more behind this node.
-        nodes.append(n)
+        if n not in nodes:
+            nodes.append(n)
         return nodes
     
     elif n.bl_idname == "ShaderNodeGroup":

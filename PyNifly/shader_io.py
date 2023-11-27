@@ -9,6 +9,7 @@ import bpy
 from pynifly import *
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 import blender_defs as BD
+from nifdefs import ShaderFlags1, ShaderFlags2
 
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 MSN_GROUP_NAME = "MSN_TRANSFORM"
@@ -179,22 +180,41 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
 
     group_inputs = grp.nodes.new('NodeGroupInput')
     group_inputs.location = (-6*NODE_WIDTH, -0.5 * TEXTURE_NODE_HEIGHT)
-    grp.inputs.new('NodeSocketColor', 'Diffuse')
-    grp.inputs.new('NodeSocketFloat', 'Alpha')
-    grp.inputs.new('NodeSocketFloat', 'Alpha Mult')
-    grp.inputs.new('NodeSocketColor', 'Use Vertex Color')
-    grp.inputs.new('NodeSocketColor', 'Vertex Color')
-    grp.inputs.new('NodeSocketFloat', 'Use Vertex Alpha')
-    grp.inputs.new('NodeSocketFloat', 'Vertex Alpha')
-    grp.inputs.new('NodeSocketColor', 'Subsurface')
-    grp.inputs.new('NodeSocketColor', 'Subsurface Str')
-    grp.inputs.new('NodeSocketColor', 'Specular')
-    grp.inputs.new('NodeSocketColor', 'Specular Color')
-    grp.inputs.new('NodeSocketFloat', 'Specular Str')
-    grp.inputs.new('NodeSocketColor', 'Normal')
-    grp.inputs.new('NodeSocketFloat', 'Glossiness')
-    grp.inputs.new('NodeSocketColor', 'Emission')
-    grp.inputs.new('NodeSocketFloat', 'Emission Strength')
+    try:
+        grp.inputs.new('NodeSocketColor', 'Diffuse')
+        grp.inputs.new('NodeSocketFloat', 'Alpha')
+        grp.inputs.new('NodeSocketFloat', 'Alpha Mult')
+        grp.inputs.new('NodeSocketColor', 'Use Vertex Color')
+        grp.inputs.new('NodeSocketColor', 'Vertex Color')
+        grp.inputs.new('NodeSocketFloat', 'Use Vertex Alpha')
+        grp.inputs.new('NodeSocketFloat', 'Vertex Alpha')
+        grp.inputs.new('NodeSocketColor', 'Subsurface')
+        grp.inputs.new('NodeSocketColor', 'Subsurface Str')
+        grp.inputs.new('NodeSocketColor', 'Specular')
+        grp.inputs.new('NodeSocketColor', 'Specular Color')
+        grp.inputs.new('NodeSocketFloat', 'Specular Str')
+        grp.inputs.new('NodeSocketColor', 'Normal')
+        grp.inputs.new('NodeSocketFloat', 'Glossiness')
+        grp.inputs.new('NodeSocketColor', 'Emission')
+        grp.inputs.new('NodeSocketFloat', 'Emission Strength')
+    except:
+        # Blender 4.0
+        grp.interface.new_socket('Diffuse', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Alpha Mult', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Use Vertex Color', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Vertex Color', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Use Vertex Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Vertex Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Subsurface', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Subsurface Str', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Specular', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Specular Color', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Specular Str', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Normal', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Glossiness', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Emission', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Emission Strength', in_out='INPUT', socket_type='NodeSocketFloat')
 
     # Shader output node
     bsdf = grp.nodes.new('ShaderNodeBsdfPrincipled')
@@ -207,7 +227,8 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
                           bsdf.inputs['Base Color'])
     mixcolor.location = group_inputs.location + Vector((2 * NODE_WIDTH, 2*TEXTURE_NODE_HEIGHT,))
     grp.links.new(group_inputs.outputs['Use Vertex Color'], mixcolor.inputs['Factor'])
-    diffuse_socket = mixcolor.outputs[0]
+
+    diffuse_socket = mixcolor.outputs['Result']
     
     # mixvertalph = new_mixnode(grp, 
     #                       group_inputs.outputs['Alpha'],
@@ -242,11 +263,6 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
     grp.links.new(multalph.outputs[0], bsdf.inputs['Alpha'])
 
     # Subsurface
-    specsat = grp.nodes.new('ShaderNodeHueSaturation')
-    specsat.location = invalph.location + Vector((NODE_WIDTH, -COLOR_NODE_HEIGHT))
-    grp.links.new(group_inputs.outputs['Subsurface Str'], specsat.inputs['Saturation'])
-    grp.links.new(group_inputs.outputs['Subsurface'], specsat.inputs['Color'])
-
     if 'Subsurface Weight' in bsdf.inputs:
         grp.links.new(group_inputs.outputs['Subsurface Str'], bsdf.inputs["Subsurface Weight"])
     else:
@@ -254,16 +270,21 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
 
     if "Subsurface Color" in bsdf.inputs:
         # If there's a color input, connect to that.
+        specsat = grp.nodes.new('ShaderNodeHueSaturation')
+        specsat.location = invalph.location + Vector((NODE_WIDTH, -COLOR_NODE_HEIGHT))
+        grp.links.new(group_inputs.outputs['Subsurface Str'], specsat.inputs['Saturation'])
+        grp.links.new(group_inputs.outputs['Subsurface'], specsat.inputs['Color'])
+
         grp.links.new(specsat.outputs['Color'], bsdf.inputs["Subsurface Color"])
     else:
         # No color input. Let the shader do the scattering, but mix the subsurface
         # color with the base color.
         m = new_mixnode(grp, 
                         diffuse_socket,
-                        specsat.outputs['Color'],
+                        group_inputs.outputs['Subsurface'],
                         bsdf.inputs['Base Color'],
                         blend_type='SCREEN')
-        m.location = Vector((NODE_WIDTH, -COLOR_NODE_HEIGHT))
+        m.location = invalph.location + Vector((2*NODE_WIDTH, -COLOR_NODE_HEIGHT))
 
     # Specular 
     make_specular(grp,
@@ -360,14 +381,21 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
     grp.links.new(norm.outputs['Normal'], bsdf.inputs['Normal'])
 
     # Emission
-    grp.links.new(group_inputs.outputs['Emission'], bsdf.inputs['Emission'])
-    grp.links.new(group_inputs.outputs['Emission Strength'], bsdf.inputs['Emission Strength'])    
+    if 'Emission' in bsdf.inputs:
+        grp.links.new(group_inputs.outputs['Emission'], bsdf.inputs['Emission'])
+    else:
+        grp.links.new(group_inputs.outputs['Emission'], bsdf.inputs['Emission Color'])
+    grp.links.new(group_inputs.outputs['Emission Strength'], bsdf.inputs['Emission Strength'])
 
     # Group outpts
 
     group_outputs = grp.nodes.new('NodeGroupOutput')
     group_outputs.location = (bsdf.location.x + NODE_WIDTH*2, 0)
-    grp.outputs.new('NodeSocketShader', 'BSDF')
+    try:
+        grp.outputs.new('NodeSocketShader', 'BSDF')
+    except:
+        # Blender 4.0
+        grp.interface.new_socket('BSDF', in_out='OUTPUT', socket_type='NodeSocketShader')
     grp.links.new(bsdf.outputs['BSDF'], group_outputs.inputs['BSDF'])
 
     shader_node = parent.nodes.new('ShaderNodeGroup')
@@ -386,15 +414,26 @@ def make_shader_fo4(parent, location):
 
     group_inputs = grp.nodes.new('NodeGroupInput')
     group_inputs.location = (-NODE_WIDTH, -TEXTURE_NODE_HEIGHT)
-    grp.inputs.new('NodeSocketColor', 'Diffuse')
-    grp.inputs.new('NodeSocketColor', 'Specular')
-    grp.inputs.new('NodeSocketColor', 'Specular Color')
-    grp.inputs.new('NodeSocketColor', 'Specular Str')
-    grp.inputs.new('NodeSocketColor', 'Normal')
-    grp.inputs.new('NodeSocketFloat', 'Alpha')
-    grp.inputs.new('NodeSocketFloat', 'Alpha Mult')
-    grp.inputs.new('NodeSocketColor', 'Emission')
-    grp.inputs.new('NodeSocketFloat', 'Emission Strength')
+    try:
+        grp.inputs.new('NodeSocketColor', 'Diffuse')
+        grp.inputs.new('NodeSocketColor', 'Specular')
+        grp.inputs.new('NodeSocketColor', 'Specular Color')
+        grp.inputs.new('NodeSocketColor', 'Specular Str')
+        grp.inputs.new('NodeSocketColor', 'Normal')
+        grp.inputs.new('NodeSocketFloat', 'Alpha')
+        grp.inputs.new('NodeSocketFloat', 'Alpha Mult')
+        grp.inputs.new('NodeSocketColor', 'Emission')
+        grp.inputs.new('NodeSocketFloat', 'Emission Strength')
+    except:
+        grp.interface.new_socket('Diffuse', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Specular', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Specular Color', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Specular Str', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Normal', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Alpha Mult', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Emission', in_out='INPUT', socket_type='NodeSocketColor')
+        grp.interface.new_socket('Emission Strength', in_out='INPUT', socket_type='NodeSocketFloat')
 
     # Shader output node
     bsdf = grp.nodes.new('ShaderNodeBsdfPrincipled')
@@ -458,7 +497,10 @@ def make_shader_fo4(parent, location):
 
     group_outputs = grp.nodes.new('NodeGroupOutput')
     group_outputs.location = (bsdf.location.x + NODE_WIDTH*2, 0)
-    grp.outputs.new('NodeSocketShader', 'BSDF')
+    try:
+        grp.outputs.new('NodeSocketShader', 'BSDF')
+    except:
+        grp.interface.new_socket('BSDF', in_out='OUTPUT', socket_type='NodeSocketShader')
     grp.links.new(bsdf.outputs['BSDF'], group_outputs.inputs['BSDF'])
 
     shader_node = parent.nodes.new('ShaderNodeGroup')
@@ -479,12 +521,20 @@ def make_uv_node(parent, location):
 
     group_inputs = grp.nodes.new('NodeGroupInput')
     group_inputs.location = (-200, 0)
-    grp.inputs.new('NodeSocketFloat', 'Offset U')
-    grp.inputs.new('NodeSocketFloat', 'Offset V')
-    grp.inputs.new('NodeSocketFloat', 'Scale U')
-    grp.inputs.new('NodeSocketFloat', 'Scale V')
-    grp.inputs.new('NodeSocketInt', 'Clamp S')
-    grp.inputs.new('NodeSocketInt', 'Clamp T')
+    try:
+        grp.inputs.new('NodeSocketFloat', 'Offset U')
+        grp.inputs.new('NodeSocketFloat', 'Offset V')
+        grp.inputs.new('NodeSocketFloat', 'Scale U')
+        grp.inputs.new('NodeSocketFloat', 'Scale V')
+        grp.inputs.new('NodeSocketInt', 'Clamp S')
+        grp.inputs.new('NodeSocketInt', 'Clamp T')
+    except:
+        grp.interface.new_socket('Offset U', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Offset V', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Scale U', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Scale V', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Clamp S', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Clamp T', in_out='INPUT', socket_type='NodeSocketFloat')
 
     tc = grp.nodes.new('ShaderNodeTexCoord')
     tc.location = (-200, 400)
@@ -550,7 +600,10 @@ def make_uv_node(parent, location):
 
     group_outputs = grp.nodes.new('NodeGroupOutput')
     group_outputs.location = (uv_comb.location.x + 200, 0)
-    grp.outputs.new('NodeSocketVector', 'Vector')
+    try:
+        grp.outputs.new('NodeSocketVector', 'Vector')
+    except:
+        grp.interface.new_socket('Vector', in_out='OUTPUT', socket_type='NodeSocketVector')
 
     grp.links.new(uv_comb.outputs['Vector'], group_outputs.inputs['Vector'])
 
@@ -1492,6 +1545,35 @@ class ShaderExporter:
         return False
     
 
+    texture_slots = {"EnvMap": (1, ShaderFlags1.ENVIRONMENT_MAPPING),
+                     "EnvMask": (2, ShaderFlags2.ENVMAP_LIGHT_FADE),
+                     "SoftLighting": (2, ShaderFlags2.SOFT_LIGHTING),
+                     "Specular": (1, ShaderFlags1.SPECULAR)}
+    
+    def shader_flag_get(self, shape, textureslot):
+        if textureslot in self.texture_slots:
+            n, f = self.texture_slots[textureslot]
+            if n == 1:
+                return shape.shader.shaderflags1_test(f)
+            else:
+                return shape.shader.shaderflags2_test(f)
+    
+    def shader_flag_set(self, shape, textureslot):
+        if textureslot in self.texture_slots:
+            n, f = self.texture_slots[textureslot]
+            if n == 1:
+                shape.shader.shaderflags1_set(f)
+            else:
+                shape.shader.shaderflags2_set(f)
+    
+    def shader_flag_clear(self, shape, textureslot):
+        if textureslot in self.texture_slots:
+            n, f = self.texture_slots[textureslot]
+            if n == 1:
+                shape.shader.shaderflags1_clear(f)
+            else:
+                shape.shader.shaderflags2_clear(f)
+    
     def write_texture(self, shape, textureslot:str):
         """
         Write the given texture slot to the nif shape.
@@ -1504,6 +1586,7 @@ class ShaderExporter:
         elif textureslot == "EnvMask":
             if "EnvMask_Texture" in self.material.node_tree.nodes:
                 imagenode = self.material.node_tree.nodes["EnvMask_Texture"]
+
         elif textureslot == "SoftLighting":
             # Subsurface is hidden behind mixnodes in 4.0 so just grab the node by name.
             # Maybe we should just do this for all texture layers.
@@ -1512,6 +1595,7 @@ class ShaderExporter:
             elif 'Subsurface Color' in self.shader_node.inputs:
                 imagenodes = BD.find_node(self.shader_node.inputs["Subsurface Color"], "ShaderNodeTexImage")
                 if imagenodes: imagenode = imagenodes[0]
+
         elif textureslot == "Specular":
             if "Specular_Texture" in self.material.node_tree.nodes:
                 imagenode = self.material.node_tree.nodes["Specular_Texture"]
@@ -1522,6 +1606,7 @@ class ShaderExporter:
                 elif "Specular IOR Level" in self.shader_node.inputs:
                     imagenodes = BD.find_node(self.shader_node.inputs["Specular IOR Level"], "ShaderNodeTexImage")
                 if imagenodes: imagenode = imagenodes[0]
+
         elif textureslot == "Diffuse":
             try:
                 imagenodes = BD.find_node(self.shader_node.inputs["Base Color"], "ShaderNodeTexImage")
@@ -1535,6 +1620,9 @@ class ShaderExporter:
             if imagenodes: imagenode = imagenodes[0]
         
         if imagenode:
+            # Make sure the shader flags reflect the nodes we found.
+            self.shader_flag_set(shape, textureslot)
+
             if textureslot == 'Specular':
                 # Check to see if the specular is coming from the normal texture. If so,
                 # don't use it.
@@ -1557,11 +1645,24 @@ class ShaderExporter:
             except Exception as e:
                 self.warn(f"Texture image in block {imagenode.name} not usable.")
         else:
-            self.warn(f"Could not find image shader node for {textureslot} layer.")
+            # No texture for the current slot. If the flags say we should have one and we
+            # didn't get one from the object properties, warn and clear the flag. Don't
+            # report on EnvMap_Light_Fade because lots of Skyrim nifs have it set and I'm
+            # not sure the flag isn't being reused in some way. Or else it doesn't matter
+            # if it's set so a bunch of nifs leave it on.
+            if self.shader_flag_get(shape, textureslot) \
+                and textureslot not in shape.shader.textures \
+                    and textureslot != 'EnvMask':
+                self.warn(f"Could not find image shader node for {textureslot} layer.")
+                self.shader_flag_clear(shape, textureslot)
 
 
     def export_textures(self, shape: NiShape):
-        """Create shader in nif from the blender object's material"""
+        """
+        Create shader in nif from the blender object's material. 
+        Handles only the texture types we know how to handle in the shader. The rest are
+        properties on the material and are picked up from there.
+        """
         # Use textures stored in properties as defaults; override them with shader nodes
         set_object_textures(shape, self.material)
 
