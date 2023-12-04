@@ -348,21 +348,15 @@ def highlight_objects(objlist, context):
 
     context.view_layer.update()
     try:
-        # Fails on Blender 4.0
-        for area in [a for a in bpy.context.screen.areas if a.type == 'OUTLINER']:
-            for region in [r for r in area.regions if r.type == 'WINDOW']:
-                override = {'area':area, 'region': region}
-                bpy.ops.outliner.show_active(override)
-    except:
-        pass
-
-    try:
-        # Fails on Blender 4.0
-        # Zoom any 3D view to the selected objects
-        for area in [a for a in context.screen.areas if a.type == 'VIEW_3D']:
-            for region in [r for r in area.regions if r.type == 'WINDOW']:
-                override = {'area':area, 'region': region}
-                bpy.ops.view3d.view_selected(override)
+        for a in bpy.context.screen.areas: 
+            if a.type in ['OUTLINER', 'VIEW_3D']:
+                for r in a.regions:
+                    if r.type == 'WINDOW':
+                        with bpy.context.temp_override(area=a, region=r):
+                            if a.type == 'OUTLINER':
+                                bpy.ops.outliner.show_active()
+                            else:
+                                bpy.ops.view3d.view_selected()
     except:
         pass
 
