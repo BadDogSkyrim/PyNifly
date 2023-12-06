@@ -4457,7 +4457,6 @@ class NifExporter:
             norms_exp = norms_new
 
         # Make the shape in the nif file
-        #log.debug(f"..Exporting '{obj.name}' to nif: {len(verts)} vertices, {len(tris)} tris, parent {my_parent}")
         try:
             props = blockBuffers[obj['pynBlockName']](obj)
             props.bufType = bufferTypeList.index(obj['pynBlockName'])

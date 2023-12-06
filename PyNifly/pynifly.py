@@ -2984,7 +2984,6 @@ class ModuleTest:
     def export_shape(old_shape: NiShape, new_nif: NifFile):
         """ Convenience routine to copy existing shape """
         skinned = (len(old_shape.bone_weights) > 0)
-        effectsshader = (old_shape.shader_block_name == "BSEffectShaderProperty")
 
         # Somehow the UV needs inversion. Probably a bug but we've lived with it so long...
         uv_inv = [(x, 1-y) for x, y in old_shape.uvs]
@@ -3002,8 +3001,6 @@ class ModuleTest:
                                                 old_shape.normals,
                                                 props=new_prop,
                                                 use_type = old_shape.properties.bufType,
-                                                #is_skinned=skinned, 
-                                                #is_effectsshader=effectsshader
                                                 )
         new_shape.transform = old_shape.transform.copy()
         oldxform = old_shape.global_to_skin
@@ -3046,6 +3043,28 @@ class ModuleTest:
 
         new_shape.behavior_graph_data = old_shape.behavior_graph_data
         new_shape.string_data = old_shape.string_data
+
+
+    def TEST_NIFDEFS():
+        """Test nifdefs functionality."""
+        # Easier to do it here.
+
+        # The different shape buffers initialize their ID values, but can also be set from
+        # a dictionary object.
+        b = NiShapeBuf({"flags": 24, "collisionID": 4})
+        assert b.flags == 24, f"Flags are correct"
+        assert b.collisionID == 4, f"collisionID is set"
+        assert b.shaderPropertyID == NODEID_NONE, f"shaderPropertyID is not set"
+
+        b = BSLODTriShapeBuf({"flags": 24, "collisionID": 4})
+        assert b.flags == 24, f"Flags are correct"
+        assert b.collisionID == 4, f"collisionID is set"
+        assert b.shaderPropertyID == NODEID_NONE, f"shaderPropertyID is not set"
+
+        b = blockBuffers['BSLODTriShape']({"flags": 24, "collisionID": 4})
+        assert b.flags == 24, f"Flags are correct"
+        assert b.collisionID == 4, f"collisionID is set"
+        assert b.shaderPropertyID == NODEID_NONE, f"shaderPropertyID is not set"
 
 
     def TEST_SHAPE_QUERY():
@@ -5014,6 +5033,6 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    tester.execute()
+    # tester.execute()
     # tester.execute(start=ModuleTest.TEST_KF)
-    # tester.execute(test=ModuleTest.TEST_CONVEX)
+    tester.execute(test=ModuleTest.TEST_NIFDEFS)

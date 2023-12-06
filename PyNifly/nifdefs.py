@@ -1517,8 +1517,11 @@ class BSMeshLODTriShapeBuf(pynStructure):
         ("lodSize2", c_uint32),
         ]
     def __init__(self, values=None):
+        self.nameID = self.controllerID = self.collisionID = NODEID_NONE
+        self.skinInstanceID = self.shaderPropertyID = self.alphaPropertyID = NODEID_NONE
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSMeshLODTriShapeBufType
+
 bufferTypeList[PynBufferTypes.BSMeshLODTriShapeBufType] = 'BSMeshLODTriShape'
 blockBuffers['BSMeshLODTriShape'] = BSMeshLODTriShapeBuf
 
@@ -1549,8 +1552,11 @@ class BSLODTriShapeBuf(pynStructure):
         ("level2", c_uint32),
         ]
     def __init__(self, values=None):
+        self.nameID = self.controllerID = self.collisionID = NODEID_NONE
+        self.skinInstanceID = self.shaderPropertyID = self.alphaPropertyID = NODEID_NONE
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSLODTriShapeBufType
+        
 bufferTypeList[PynBufferTypes.BSLODTriShapeBufType] = 'BSLODTriShape'
 blockBuffers['BSLODTriShape'] = BSLODTriShapeBuf
 
