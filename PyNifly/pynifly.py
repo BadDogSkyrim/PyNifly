@@ -5033,6 +5033,6 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    # tester.execute()
+    tester.execute()
     # tester.execute(start=ModuleTest.TEST_KF)
-    tester.execute(test=ModuleTest.TEST_NIFDEFS)
+    # tester.execute(test=ModuleTest.TEST_EFFECT_SHADER_FO4)

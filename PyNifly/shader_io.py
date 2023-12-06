@@ -1396,9 +1396,13 @@ class ShaderExporter:
                 shape.shader.properties.baseColor[i] = nl['Emissive_Color'].outputs[0].default_value[i] 
 
             if shape.shader.blockname == "BSLightingShaderProperty":
-                shape.shader.Alpha = self.shader_node.inputs['Alpha'].default_value
+                skt = self.shader_node.inputs['Alpha Mult']
+                if skt.is_linked:
+                    shape.shader.properties.Alpha = skt.links[0].from_socket.default_value
+                else:
+                    shape.shader.properties.Alpha = 1.0
             if 'Glossiness' in nl:
-                shape.shader.Glossiness = nl['Glossiness'].outputs['Value'].default_value
+                shape.shader.properties.Glossiness = nl['Glossiness'].outputs['Value'].default_value
 
             shape.save_shader_attributes()
             

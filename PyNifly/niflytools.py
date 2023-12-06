@@ -71,12 +71,12 @@ def extend_filenames(root, separator, files=None):
         """
     rootpath = Path(root)
     if separator:
-        try:
-            upperpath = [s.upper() for s in rootpath.parts]
-            seploc = upperpath.index(separator.upper())
+        uppersep = separator.upper()
+        upperpath = [s.upper() for s in rootpath.parts]
+        sharedpart = rootpath.parent
+        if uppersep in upperpath:
+            seploc = upperpath.index(uppersep)
             sharedpart = rootpath.parents[len(rootpath.parts) - seploc - 1]
-        except:
-            sharedpart = rootpath.parent
     else:
         sharedpart = rootpath
     if files:

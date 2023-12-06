@@ -344,7 +344,7 @@ def highlight_objects(objlist, context):
     Highlight the given objects in the viewports. Select them, make sure
     they are visible in the 3D view, make sure they are visible in the outliner.
     """
-    ObjectSelect(objlist)
+    ObjectSelect(objlist, active=True)
 
     context.view_layer.update()
     try:

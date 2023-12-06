@@ -24,25 +24,29 @@ class MaterialFile(Structure):
     
     def read_field(self, fieldname, ftype):
         """Read a single field from the file."""
-        if '_Array_' in ftype.__name__:
-            if ftype._type_._type_ == 'c':
-                pat = "<" + str(ftype._length_) + 's'
+        try:
+            if '_Array_' in ftype.__name__:
+                if ftype._type_._type_ == 'c':
+                    pat = "<" + str(ftype._length_) + 's'
+                    s = struct.Struct(pat)
+                    buf = self.sourcefile.read(s.size)
+                    v = s.unpack(buf)
+                    self.__setattr__(fieldname, v[0])
+                else:
+                    pat = "<" + str(ftype._type_._type_ *  ftype._length_)
+                    s = struct.Struct(pat)
+                    buf = self.sourcefile.read(s.size)
+                    v = s.unpack(buf)
+                    self.__setattr__(fieldname, v)
+            else:
+                pat = ("<" + ftype._type_)
                 s = struct.Struct(pat)
                 buf = self.sourcefile.read(s.size)
                 v = s.unpack(buf)
                 self.__setattr__(fieldname, v[0])
-            else:
-                pat = "<" + str(ftype._type_._type_ *  ftype._length_)
-                s = struct.Struct(pat)
-                buf = self.sourcefile.read(s.size)
-                v = s.unpack(buf)
-                self.__setattr__(fieldname, v)
-        else:
-            pat = ("<" + ftype._type_)
-            s = struct.Struct(pat)
-            buf = self.sourcefile.read(s.size)
-            v = s.unpack(buf)
-            self.__setattr__(fieldname, v[0])
+        except:
+            # Maybe hit EOF
+            pass
 
     def read_to(self, lastfield):
         """Read all fields up to and including 'lastfield'."""
