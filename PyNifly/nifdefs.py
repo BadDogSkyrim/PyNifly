@@ -117,12 +117,12 @@ pynBufferDefaults = {
 	'prop_flags': 0,
 	'prop_size': 0,
     'angularDamping': 0.05,
-    'angularVelocity': (0, 0, 0, 0),
+    'angularVelocity': "(0, 0, 0, 0)",
     'autoRemoveLevel': 0,
     'bodyFlags': 0,
     'bodyFlagsInt': 0,
     'bodyID' : NODEID_NONE,
-    'center': (0, 0, 0, 0),
+    'center': "(0, 0, 0, 0)",
     'childCount': 0,
     'collisionFilter_layer': "STATIC",
     'collisionFilterCopy_flags': 0,
@@ -137,12 +137,12 @@ pynBufferDefaults = {
     'forceCollideOntoPpu': 0,
     'friction': 0.5,
     'gravityFactor': 1.0,
-    'inertiaMatrix': [0] * 12,
+    'inertiaMatrix': "[0] * 12",
     'interpID' : NODEID_NONE,
     'interpolatorID' : NODEID_NONE,
     'lightingInfluence' : 255,
     'linearDamping': 0.1,
-    'linearVelocity': (0, 0, 0, 0),
+    'linearVelocity': "(0, 0, 0, 0)",
     'mass': 1.0,
     'maxAngularVelocity': 31.57, 
     'maxLinearVelocity': 104.4, 
@@ -197,19 +197,19 @@ class pynStructure(Structure):
                 elif f == 'collisionFilter_layer' or f == 'collisionFilterCopy_layer':
                     v = SkyrimCollisionLayer[shape[f]].value
                 elif f == 'broadPhaseType':
-                    v = BroadPhaseType[shape[f]].value
+                    v = shape[f] # BroadPhaseType[shape[f]].value
                 elif f == 'collisionResponse':
                     v = hkResponseType[shape[f]].value
                 elif f == 'motionSystem':
-                    v = hkMotionType[shape[f]].value
+                    v = shape[f] # hkMotionType[shape[f]].value
                 elif f == 'deactivatorType':
-                    v = hkDeactivatorType[shape[f]].value
+                    v = shape[f] # hkDeactivatorType[shape[f]].value
                 elif f == 'solverDeactivation': 
-                    v = hkSolverDeactivation[shape[f]].value
+                    v = shape[f] # hkSolverDeactivation[shape[f]].value
                 elif f == 'qualityType':
-                    v = hkQualityType[shape[f]].value
+                    v = shape[f] # hkQualityType[shape[f]].value
                 elif f == 'bhkMaterial':
-                    v = SkyrimHavokMaterial[shape[f]].value
+                    v = shape[f] # SkyrimHavokMaterial[shape[f]].value
                 elif t.__name__ == 'c_float_Array_3':
                     v = VECTOR3(*eval(shape[f]))
                 elif t.__name__ == 'c_float_Array_4':

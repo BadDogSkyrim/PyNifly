@@ -3828,11 +3828,11 @@ class ModuleTest:
             assert not win.shader.shaderflags1_test(ShaderFlags1.VERTEX_ALPHA), f"VERTEX_ALPHA not set"
             assert win.shader.properties.LightingInfluence == 255, f"Have correct lighting influence: {win.shader.properties.LightingInfluence}"
 
-        nif = NifFile(r"tests\SKYRIMSE\blackbriarchalet_test.nif")
+        nif = NifFile(r"tests\Skyrim\blackbriarchalet_test.nif")
         check_nif(nif)
 
         nifout = NifFile()
-        nifout.initialize("SKYRIMSE", r"Tests/Out/TEST_LOD.nif")
+        nifout.initialize("SKYRIM", r"Tests/Out/TEST_LOD.nif")
         ModuleTest.export_shape(nif.shapes[0], nifout)
         nifout.save()
 
@@ -4958,11 +4958,11 @@ class ModuleTest:
     
     @property
     def all_tests(self):
-        return [k for k in ModuleTest.__dict__ if k.name.startswith('TEST_')]
+        return [t for k, t in ModuleTest.__dict__.items() if k.startswith('TEST_')]
 
         
     def execute_test(self, t):
-        print(f"\n------------- {t} -------------")
+        print(f"\n------------- {t.__name__} -------------")
         # the_test = ModuleTest.__dict__[t]
         print(t.__doc__)
         t()
@@ -4981,7 +4981,7 @@ class ModuleTest:
         else:
             doit = (start is None) 
             for t in self.all_tests:
-                if t.name == start: doit = True
+                if t == start: doit = True
                 if doit:
                     self.execute_test(t)
 
@@ -5014,7 +5014,6 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    # tester.execute()
-    # tester.execute(start=TEST_KF)
-    # tester.execute(test=TEST_SHADER)
-    tester.execute(test=ModuleTest.TEST_LOD)
+    tester.execute()
+    # tester.execute(start=ModuleTest.TEST_KF)
+    # tester.execute(test=ModuleTest.TEST_CONVEX)
