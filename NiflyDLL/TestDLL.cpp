@@ -2634,6 +2634,55 @@ namespace NiflyDLLTests
 
 			//TCompareShaders(nif, shape, nifTest, shapesTest[0]);
 		};
+
+		void* TCheckChalet(void* nif) {
+			/* Check the chalet nif is correct; return hanlde of BSLODTriSHape */
+			void* shape;
+			int shapeID;
+			BSLODTriShapeBuf shapeBuf;
+			NiShaderBuf shaderBuf;
+
+			Assert::AreEqual(1, getShapes(nif, &shape, 1, 0), L"Have one shape");
+			shapeID = getBlockID(nif, shape);
+			getBlock(nif, shapeID, &shapeBuf);
+			Assert::AreEqual(134742030, int(shapeBuf.flags), L"Shape flags are correct");
+			Assert::AreEqual(0, int(shapeBuf.level0), L"Shape LOD 0 is correct");
+			Assert::AreEqual(0, int(shapeBuf.level1), L"Shape LOD 1 is correct");
+			Assert::AreEqual(624, int(shapeBuf.level2), L"Shape LOD 2 is correct");
+
+			getBlock(nif, shapeBuf.shaderPropertyID, &shaderBuf);
+			Assert::AreEqual(int(BUFFER_TYPES::BSEffectShaderPropertyBufType), int(shaderBuf.bufType), L"Buffer type is correct");
+			Assert::AreEqual(3, int(shaderBuf.textureClampMode), L"TextureClampMode correct");
+			Assert::AreEqual(255, int(shaderBuf.lightingInfluence) & 0xFF, L"LightingInfluence correct");
+			Assert::AreEqual(0, int(shaderBuf.envMapMinLOD), L"envMapMinLOD correct");
+			Assert::AreEqual(1.5f, shaderBuf.Emissive_Mult, L"Emissive_Mult correct");
+
+			return shape;
+		}
+		TEST_METHOD(readWriteLODTriShape) {
+			/* Test we can read and write BSEffectShaderProperty, used for glass */
+			void* nif;
+			void* shape;
+
+			nif = load((testRoot / "SKYRIM/blackbriarchalet_test.nif").u8string().c_str());
+			shape = TCheckChalet(nif);
+
+			/* ------------------------------------ */
+			/* Can write effects shaders out to nif */
+
+			std::filesystem::path testfileO = testRoot / "Out" / "testWrapper_readWriteLODTriShape.nif";
+
+			void* nifOut = createNif("SKYRIM", "NiNode", "Scene Root");
+			void* shapeOut = TCopyShape(nifOut, "L2_WindowGlow", nif, shape);
+			TCopyShader(nifOut, shapeOut, nif, shape);
+
+			saveNif(nifOut, testfileO.u8string().c_str());
+
+			// Check that we wrote is correct
+
+			void* nifTest = load(testfileO.u8string().c_str());
+			TCheckChalet(nifTest);
+		};
 		TEST_METHOD(writeEmptySegments) {
 			/* Shape with a non-empty segment followed by empty segments writes correctly */
 			void* shapes[10];

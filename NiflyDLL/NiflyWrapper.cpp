@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 13, 3, 0 };
+const int NiflyDDLVersion[3] = { 13, 3, 1 };
  
 using namespace nifly;
 
@@ -50,7 +50,7 @@ using namespace nifly;
     }
 
 
-#define CheckBuf3(buf, expectedType1, expectedType2, expectedType3, expectedType4, expectedBuf) \
+#define CheckBuf4(buf, expectedType1, expectedType2, expectedType3, expectedType4, expectedBuf) \
     if ((buf->bufType != expectedType1 && buf->bufType != expectedType2 && buf->bufType != expectedType3 && buf->bufType != expectedType4) || buf->bufSize != sizeof(expectedBuf)) { \
     niflydll::LogWriteEf("%s called with bad buffer: type=%d, size=%d.", __FUNCTION__, buf->bufType, buf->bufSize); \
     return 2; \
@@ -178,8 +178,10 @@ NIFLY_API void* nifCreate() {
 
 NIFLY_API void destroy(void* f) {
     NifFile* theNif = static_cast<NifFile*>(f);
-    theNif->Clear();
-    delete theNif;
+    if (theNif) {
+        theNif->Clear();
+        delete theNif;
+    }
 }
 
 void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, const char* rootType, std::string name) {
@@ -337,7 +339,9 @@ NIFLY_API void getNodes(void* theNif, void** buf)
         buf[i] = nodes[i];
 }
 
-NIFLY_API int getBlockID(void* nifref, void* blk) {
+NIFLY_API int getBlockID(void* nifref, void* blk) 
+/* Given a pointer to a block, return its ID. */
+{
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     NiObject* obj = static_cast<NiObject*>(blk);
@@ -884,6 +888,57 @@ NIFLY_API int getUVs(void* theNif, void* theShape, Vector2* buf, int len, int st
     return int(uv->size());
 }
 
+int setShapeFromBuf(NifFile* nif, NiShape* theShape, NiShapeBuf* buf)
+/* Set the properties of the NiShape (or subclass) according to the given buffer. */
+{
+    theShape->name.SetIndex(buf->nameID);
+    theShape->controllerRef.index = buf->controllerID;
+    theShape->flags = buf->flags;
+    for (int i = 0; i < 3; i++) theShape->transform.translation[i] = buf->translation[i];
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++)
+            theShape->transform.rotation[r][c] = buf->rotation[r][c];
+    theShape->transform.scale = buf->scale;
+    theShape->collisionRef.index = buf->collisionID;
+
+    if (buf->bufType == BSMeshLODTriShapeBufType) {
+        BSMeshLODTriShape* meshShape = static_cast<BSMeshLODTriShape*>(theShape);
+        BSMeshLODTriShapeBuf* meshBuf = static_cast<BSMeshLODTriShapeBuf*>(buf);
+        meshShape->lodSize0 = meshBuf->lodSize0;
+        meshShape->lodSize1 = meshBuf->lodSize1;
+        meshShape->lodSize2 = meshBuf->lodSize2;
+    }
+    else if (buf->bufType == BSLODTriShapeBufType) {
+        BSLODTriShape* lodShape = static_cast<BSLODTriShape*>(theShape);
+        BSLODTriShapeBuf* lodBuf = static_cast<BSLODTriShapeBuf*>(buf);
+        lodShape->level0 = lodBuf->level0;
+        lodShape->level1 = lodBuf->level1;
+        lodShape->level2 = lodBuf->level2;
+    }
+
+    return 0;
+}
+
+int setNiShape(void* nifref, uint32_t id, void* inbuf)
+/* Set the properties of the NiShape (or subclass) according to the given buffer. */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiShapeBuf* buf = static_cast<NiShapeBuf*>(inbuf);
+    NiShape* theShape = hdr->GetBlock<NiShape>(id);
+
+    CheckID(theShape);
+    CheckBuf3(buf,
+        BUFFER_TYPES::NiShapeBufType,
+        BUFFER_TYPES::BSMeshLODTriShapeBufType,
+        BUFFER_TYPES::BSLODTriShapeBufType,
+        NiNodeBuf);
+
+    setShapeFromBuf(nif, theShape, buf);
+
+    return 0;
+}
+
 NIFLY_API void* createNifShapeFromData(void* parentNif,
     const char* shapeName,
     void* buffer,
@@ -935,20 +990,8 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     NiShape* newShape = PyniflyCreateShape(nif, shapeName,
             buf, &v, &t, &uv, &n, parent);
 
-    if (buf->bufType == BSMeshLODTriShapeBufType) {
-        BSMeshLODTriShape* meshShape = static_cast<BSMeshLODTriShape*>(newShape);
-        BSMeshLODTriShapeBuf* meshBuf = static_cast<BSMeshLODTriShapeBuf*>(buf);
-        meshShape->lodSize0 = meshBuf->lodSize0;
-        meshShape->lodSize1 = meshBuf->lodSize1;
-        meshShape->lodSize2 = meshBuf->lodSize2;
-    } 
-    else if (buf->bufType == BSLODTriShapeBufType) {
-        BSLODTriShape* lodShape = static_cast<BSLODTriShape*>(newShape);
-        BSLODTriShapeBuf* lodBuf = static_cast<BSLODTriShapeBuf*>(buf);
-        lodShape->level0 = lodBuf->level0;
-        lodShape->level1 = lodBuf->level1;
-        lodShape->level2 = lodBuf->level2;
-    }
+    setShapeFromBuf(nif, newShape, buf);
+
     return newShape;
 }
 
@@ -1352,7 +1395,7 @@ int getNiShader(void* nifref, uint32_t id, void* buffer)
     }
     else
     {
-        CheckBuf3(buf,
+        CheckBuf4(buf,
             BUFFER_TYPES::NiShaderBufType,
             BUFFER_TYPES::BSLightingShaderPropertyBufType,
             BUFFER_TYPES::BSEffectShaderPropertyBufType,
@@ -1452,6 +1495,8 @@ int getNiShader(void* nifref, uint32_t id, void* buffer)
         buf->Emissive_Color[2] = bsesp->GetEmissiveColor().b;
         buf->Emissive_Color[3] = bsesp->GetEmissiveColor().a;
         buf->textureClampMode = bsesp->textureClampMode & 0x0FF;
+        buf->lightingInfluence = (bsesp->textureClampMode >> 8) & 0x0FF;
+        buf->envMapMinLOD = (bsesp->textureClampMode >> 16) & 0x0FF;
         buf->falloffStartAngle = bsesp->falloffStartAngle;
         buf->falloffStopAngle = bsesp->falloffStopAngle;
         buf->falloffStartOpacity = bsesp->falloffStartOpacity;
@@ -1520,6 +1565,8 @@ int setNiAlphaProperty(void* nifref, const char* name, void* buffer, uint32_t pa
         NiShape* shape = hdr->GetBlock<NiShape>(parent);
         nif->AssignAlphaProperty(shape, std::move(alphaProp));
     }
+
+    return 0;
 }
 
 NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, const char* buf) {
@@ -1662,7 +1709,10 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
         c4.b = buf->Emissive_Color[2];
         c4.a = buf->Emissive_Color[3];
         bsesp->SetEmissiveColor(c4);
-        bsesp->textureClampMode = buf->textureClampMode;
+        bsesp->textureClampMode = 
+            buf->textureClampMode 
+            | ((buf->lightingInfluence << 8) & 0xFF00) 
+            | ((buf->envMapMinLOD << 16) & 0xFF0000);
         bsesp->falloffStartAngle = buf->falloffStartAngle;
         bsesp->falloffStopAngle = buf->falloffStopAngle;
         bsesp->falloffStartOpacity = buf->falloffStartOpacity;
@@ -1700,6 +1750,7 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
         bspp->emissiveColor.a = buf->emissiveColor[3];
     };
 
+    return 0;
 };
 
 
@@ -4078,7 +4129,7 @@ NIFLY_API int getBlock(void* nifref, uint32_t blockID, void* buf)
 typedef int (*BlockSetterFunction)(void* nifref, uint32_t blockID, void* buf);
 BlockSetterFunction setterFunctions[] = {
     setNodeByID,
-    nullptr, // NiShape
+    setNiShape, // NiShape
     setCollision, //NiCollisionObjectBufType,
     setCollision, //bhkNiCollisionObjectBufType,
     setCollision, //bhkPCollisionObjectBufType,
@@ -4104,14 +4155,14 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //bhkRagdollConstraintBufType
     nullptr, //bhkSimpleShapePhantomBufType
     nullptr, //bhkSphereShapeBufType
-    nullptr, //BSMeshLODTriShapeBufType
+    setNiShape, //BSMeshLODTriShapeBufType
     nullptr, //NiShaderBufType
     nullptr, //NiAlphaPropertyBufType
-    nullptr, //BSDynamicTriShapeBufType,
-    nullptr, //BSTriShapeBufType,
+    setNiShape, //BSDynamicTriShapeBufType,
+    setNiShape, //BSTriShapeBufType,
     nullptr, //BSSubIndexTriShape
     nullptr, //NiTriStripsBufType
-    nullptr, //BSLODTriShape
+    setNiShape, //BSLODTriShape
     nullptr,  //BSLightingShaderProperty
     nullptr,  //BSShaderPPLightingProperty
     nullptr //END

@@ -1694,6 +1694,30 @@ def TEST_SHADER_3_3():
         f"Error: Texture paths not preserved: '{shaderch.textures['Specular']}'"
 
 
+def TEST_SHADER_EFFECT():
+    """BSEffectShaderProperty attributes are read & written correctly."""
+    testfile = TT.test_file(r"tests\SkyrimSE\blackbriarchalet_test.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SHADER_EFFECT.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    nif = pyn.NifFile(testfile)
+    nifcheck = pyn.NifFile(outfile)
+    win = nif.shape_dict["L2_WindowGlow"]
+    wincheck = nifcheck.shape_dict["L2_WindowGlow"]
+
+    assert win.blockname == wincheck.blockname == "BSLODTriShape", \
+        f"Created a LOD shape: {wincheck.blockname}"
+    assert win.shader.blockname == wincheck.shader.blockname, f"Have correct shader: {wincheck.shader.blockname}"
+    assert win.shader.properties.Shader_Flags_1 == wincheck.shader.properties.Shader_Flags_1, \
+        f"Have correct shader flags 1: {pyn.ShaderFlags1(win.shader.properties.Shader_Flags_1).fullname}"
+    assert win.shader.properties.Shader_Flags_2 == wincheck.shader.properties.Shader_Flags_2, \
+        f"Have correct shader flags 1: {pyn.ShaderFlags1(win.shader.properties.Shader_Flags_2).fullname}"
+    assert win.shader.properties.LightingInfluence == wincheck.shader.properties.LightingInfluence, \
+        f"Have correct lighting influence: {wincheck.shader.properties.LightingInfluence}"
+    
+
 def TEST_TEXTURE_PATHS():
     """Texture paths are correctly resolved"""
     testfile = TT.test_file(r"tests\SkyrimSE\circletm1.nif")
@@ -2266,8 +2290,9 @@ def TEST_VERTEX_COLOR_IO():
         assert max_r == 0, f"Have no white verts: {max_r}"
         assert min_r == 0, f"Have some black verts: {min_r}"
 
-        # BSEffectShaderProperty is assumed to use the alpha channel whether or not the flag is set.
-        # Alpha is represented as ordinary color on the VERTEX_ALPHA color attribute
+        # BSEffectShaderProperty is assumed to use the alpha channel if the shape has
+        # transparency, whether or not ShaderFlagflag is set. Alpha is represented as ordinary
+        # color on the VERTEX_ALPHA color attribute.
         colors = eyes.data.color_attributes['VERTEX_ALPHA'].data
         max_a = max(c.color[0] for c in colors)
         min_a = min(c.color[0] for c in colors)
@@ -4956,6 +4981,6 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_SHADER_FO4] )
+    do_tests( [TEST_SHADER_EFFECT] )
     # do_tests(alltests)
-    do_tests( testfrom(TEST_ANIM_KF) )
+    # do_tests( testfrom(TEST_ANIM_KF) )

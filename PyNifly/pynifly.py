@@ -3820,6 +3820,26 @@ class ModuleTest:
         assert nif.shapes[0].blockname == "BSDynamicTriShape", f"Expected 'BSDynamicTriShape', found '{nif.shapes[0].blockname}'"
 
 
+    def TEST_LOD():
+        """BSLODTriShape is handled. Its shader attributes are handled."""
+        def check_nif(nif):
+            win = nif.shape_dict['L2_WindowGlow']
+            assert win.blockname == "BSLODTriShape", f"Expected 'BSDynamicTriShape', found '{nif.shapes[0].blockname}'"
+            assert not win.shader.shaderflags1_test(ShaderFlags1.VERTEX_ALPHA), f"VERTEX_ALPHA not set"
+            assert win.shader.properties.LightingInfluence == 255, f"Have correct lighting influence: {win.shader.properties.LightingInfluence}"
+
+        nif = NifFile(r"tests\SKYRIMSE\blackbriarchalet_test.nif")
+        check_nif(nif)
+
+        nifout = NifFile()
+        nifout.initialize("SKYRIMSE", r"Tests/Out/TEST_LOD.nif")
+        ModuleTest.export_shape(nif.shapes[0], nifout)
+        nifout.save()
+
+        nifcheck = NifFile(r"Tests/Out/TEST_LOD.nif")
+        check_nif(nifcheck)
+
+
     def TEST_UNSKINNED():
         """FO4 unskinned shape uses BSTriShape"""
 
@@ -4938,14 +4958,14 @@ class ModuleTest:
     
     @property
     def all_tests(self):
-        return [k for k in ModuleTest.__dict__.keys() if k.startswith('TEST_')]
+        return [k for k in ModuleTest.__dict__ if k.name.startswith('TEST_')]
 
         
     def execute_test(self, t):
         print(f"\n------------- {t} -------------")
-        the_test = ModuleTest.__dict__[t]
-        print(the_test.__doc__)
-        the_test()
+        # the_test = ModuleTest.__dict__[t]
+        print(t.__doc__)
+        t()
         print(f"------------- done")
 
     
@@ -4960,10 +4980,10 @@ class ModuleTest:
             self.execute_test(test)
         else:
             doit = (start is None) 
-            for name in self.all_tests:
-                if name == start: doit = True
+            for t in self.all_tests:
+                if t.name == start: doit = True
                 if doit:
-                    self.execute_test(name)
+                    self.execute_test(t)
 
         print("""
 
@@ -4995,6 +5015,6 @@ if __name__ == "__main__":
     tester = ModuleTest(mylog)
 
     # tester.execute()
-    # tester.execute(start='TEST_KF')
-    # tester.execute(test='TEST_SHADER')
-    tester.execute(test='TEST_TEXTURE_CLAMP')
+    # tester.execute(start=TEST_KF)
+    # tester.execute(test=TEST_SHADER)
+    tester.execute(test=ModuleTest.TEST_LOD)

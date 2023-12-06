@@ -5,6 +5,7 @@
 import os
 from pathlib import Path
 import logging
+import traceback
 import bpy
 from pynifly import *
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
@@ -39,6 +40,7 @@ SEPARATOR_OUT1 = 'Red'
 SEPARATOR_OUT2 = 'Green'
 SEPARATOR_OUT3 = 'Blue'
 
+# Do not store these shader attributes as properties on the object--they are in the shader.
 NISHADER_IGNORE = [
     'baseColor',
     'baseColorScale',
@@ -47,6 +49,7 @@ NISHADER_IGNORE = [
     'controllerID', 
     'Emissive_Color',
     'Emissive_Mult',
+    'Glossiness',
     'greyscaleTexture',
     'nameID', 
     'sourceTexture',
@@ -1394,12 +1397,13 @@ class ShaderExporter:
 
             if shape.shader.blockname == "BSLightingShaderProperty":
                 shape.shader.Alpha = self.shader_node.inputs['Alpha'].default_value
+            if 'Glossiness' in nl:
                 shape.shader.Glossiness = nl['Glossiness'].outputs['Value'].default_value
 
             shape.save_shader_attributes()
             
-        except:
-            self.warn("Could not determine shader attributes")
+        except Exception as e:
+            self.warn("Could not determine shader attributes: " + traceback.format_exc())
 
 
     # def get_diffuse(self):
@@ -1545,6 +1549,8 @@ class ShaderExporter:
                 
             try:
                 foundpath = imagenode.image.filepath
+                if foundpath.startswith("//"): 
+                    foundpath = foundpath[2:]
                 fplc = Path(foundpath.lower())
                 if fplc.drive.endswith('textures'):
                     txtindex = 0

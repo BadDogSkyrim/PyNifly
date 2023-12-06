@@ -264,6 +264,8 @@ struct NiShaderBuf {
 	/* BSEffectShaderProperty */
 	char sourceTexture[256];
 	// uint32_t textureClampMode; // repeat
+	char lightingInfluence;
+	char envMapMinLOD;
 	float falloffStartAngle;
 	float falloffStopAngle;
 	float falloffStartOpacity;

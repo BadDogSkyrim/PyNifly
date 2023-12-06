@@ -344,16 +344,17 @@ def highlight_objects(objlist, context):
     Highlight the given objects in the viewports. Select them, make sure
     they are visible in the 3D view, make sure they are visible in the outliner.
     """
-    ObjectSelect(objlist, active=True)
+    ObjectSelect(objlist)
 
     context.view_layer.update()
     try:
-        for a in bpy.context.screen.areas: 
+        for a in context.screen.areas: 
             if a.type in ['OUTLINER', 'VIEW_3D']:
                 for r in a.regions:
                     if r.type == 'WINDOW':
-                        with bpy.context.temp_override(area=a, region=r):
+                        with context.temp_override(area=a, region=r):
                             if a.type == 'OUTLINER':
+                                log.info(f"Doing show_active on {context.object}")
                                 bpy.ops.outliner.show_active()
                             else:
                                 bpy.ops.view3d.view_selected()

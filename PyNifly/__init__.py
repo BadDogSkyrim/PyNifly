@@ -7,8 +7,8 @@ bl_info = {
     "name": "NIF format",
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
-    "blender": (3, 0, 0),
-    "version": (13, 3, 0),  
+    "blender": (4, 0, 0),
+    "version": (13, 3, 1),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -3352,7 +3352,8 @@ class NifExporter:
 
 
     def add_object(self, obj):
-        """Adds the given object to the objects to export. Object may be mesh, armature,
+        """
+        Adds the given object to the objects to export. Object may be mesh, armature,
         or anything else. 
         
         * If an armature is selected, all child objects are exported 
@@ -3406,11 +3407,12 @@ class NifExporter:
             else:
                 self.grouping_nodes.add(obj)
                 for c in obj.children:
-                    self.add_object(c)
+                    if not c.hide_get(): self.add_object(c)
 
 
     def set_objects(self, objects:list):
-        """ Set the objects to export from the given list of objects 
+        """ 
+        Set the objects to export from the given list of objects 
         """
         #log.debug(f"<set_objects> {objects}")
         for x in objects:

@@ -133,12 +133,14 @@ pynBufferDefaults = {
     'ctrlID' : NODEID_NONE,
     'ctrlType': NODEID_NONE,
     'deactivatorType': 1,
+    'envMapMinLOD': 0,
     'forceCollideOntoPpu': 0,
     'friction': 0.5,
     'gravityFactor': 1.0,
     'inertiaMatrix': [0] * 12,
     'interpID' : NODEID_NONE,
     'interpolatorID' : NODEID_NONE,
+    'lightingInfluence' : 255,
     'linearDamping': 0.1,
     'linearVelocity': (0, 0, 0, 0),
     'mass': 1.0,
@@ -364,48 +366,6 @@ class pynStructure(Structure):
             other.__setattr__(f, self.__getattribute__(f))
         return other
     
-    # def extract(self, shape, ignore=[]):
-    #     """Extract fields to the dictionary-like object 'shape'"""
-    #     for f, t in self._fields_:
-    #         v = None
-    #         if f in ignore:
-    #             pass
-    #         elif f == 'Shader_Flags_1':
-    #             v = ShaderFlags1(self.Shader_Flags_1).fullname
-    #         elif f == 'Shader_Flags_2': 
-    #             v = ShaderFlags2(self.Shader_Flags_2).fullname
-    #         elif f == 'Shader_Type':
-    #             v = BSLSPShaderType(self.Shader_Type).name
-    #         elif f in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
-    #             v = SkyrimCollisionLayer(self.__getattribute__(f)).name
-    #         elif f == 'broadPhaseType':
-    #             v = BroadPhaseType(self.broadPhaseType).name
-    #         elif f == 'collisionResponse':
-    #             v = hkResponseType(self.collisionResponse).name
-    #         elif f == 'motionSystem':
-    #             v = hkMotionType(self.motionSystem).name
-    #         elif f == 'deactivatorType':
-    #             v = hkDeactivatorType(self.deactivatorType).name
-    #         elif f == 'solverDeactivation': 
-    #             v = hkSolverDeactivation(self.solverDeactivation).name
-    #         elif f == 'qualityType':
-    #             v = hkQualityType(self.qualityType).name
-    #         elif f == 'qualityType':
-    #             v = hkQualityType(self.qualityType).name
-    #         elif t.__name__.startswith('c_float_Array') or t.__name__.startswith('c_ushort_Array'):
-    #             v = repr(self.__getattribute__(f)[:])
-    #         elif t.__name__ in ['c_uint32', 'c_uint64', 'c_ulong', 'c_ulonglong']:
-    #             v = repr(self.__getattribute__(f))
-    #         else:
-    #             v = self.__getattribute__(f)
-        
-    #         try:
-    #             if v:
-    #                 shape[f] = v
-    #         except Exception as e:
-    #                 print(e)
-    #             #log.error(f"Cannot load value {v} of type {t.__name__} into field {f} of object {shape.name}")
-
 
 # ------ Little bit of matrix math for debugging ----
 #   Real code uses Blender's functions
@@ -976,6 +936,8 @@ class NiShaderBuf(pynStructure):
         ('eyeRightReflectionCenter', VECTOR3),
         # BSEffectShaderProperty
         ('sourceTexture', CHAR256),
+        ('LightingInfluence', c_uint8),
+        ('EnvMapMinLOD', c_uint8),
         ('falloffStartAngle', c_float),
         ('falloffStopAngle', c_float),
         ('falloffStartOpacity', c_float),
@@ -1032,52 +994,6 @@ class NiShaderBuf(pynStructure):
             shape[fieldname] = BSLSPShaderType(self.Shader_Type).name
         else:
             super().extract_field(shape, fieldname, fieldtype)
-
-    # def extract(self, shape, ignore=[]):
-    #     """
-    #     Extract fields to the dictionary-like object 'shape'. Extract only fields that
-    #     differ from their default values. Do not extract any ID fields.
-    #     """
-
-    #     defaults = NiShaderBuf()
-    #     for fn, t in self._fields_:
-    #         if fn[-2:] != 'ID' and fn != 'bufType':
-    #             if '_Array_' in t.__name__:
-    #                 v1 = [x for x in self.__getattribute__(fn)]
-    #                 v2 = [x for x in defaults.__getattribute__(fn)]
-    #             else:
-    #                 v1 = self.__getattribute__(fn) 
-    #                 v2 = defaults.__getattribute__(fn)
-
-    #             if (type(v2) == float and not math.isclose(v1, v2, abs_tol=10**-5)) \
-    #                     or (v1 != v2):
-    #                 if fn == 'Shader_Flags_1':
-    #                     shape[fn] = ShaderFlags1(self.Shader_Flags_1).fullname
-    #                 elif fn == 'Shader_Flags_2':
-    #                     shape[fn] = ShaderFlags2(self.Shader_Flags_2).fullname
-    #                 elif fn == 'Shader_Type':
-    #                     shape[fn] = BSLSPShaderType(self.Shader_Type).name
-    #                 elif fn in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
-    #                     shape[fn] = SkyrimCollisionLayer(self.__getattribute__(fn)).name
-    #                 elif fn == 'broadPhaseType':
-    #                     shape[fn] = BroadPhaseType(self.broadPhaseType).name
-    #                 elif fn == 'collisionResponse':
-    #                     shape[fn] = hkResponseType(self.collisionResponse).name
-    #                 elif fn == 'motionSystem':
-    #                     shape[fn] = hkMotionType(self.motionSystem).name
-    #                 elif fn == 'deactivatorType':
-    #                     shape[fn] = hkDeactivatorType(self.deactivatorType).name
-    #                 elif fn == 'solverDeactivation': 
-    #                     shape[fn] = hkSolverDeactivation(self.solverDeactivation).name
-    #                 elif fn == 'qualityType':
-    #                     shape[fn] = hkQualityType(self.qualityType).name
-    #                 elif fn == 'qualityType':
-    #                     shape[fn] = hkQualityType(self.qualityType).name
-    #                 else:
-    #                     if type(v1) == list:
-    #                         shape[fn] = repr(v1)
-    #                     else:
-    #                         shape[fn] = v1
 
     def shaderflags1_test(self, flag):
         return (self.Shader_Flags_1 & flag) != 0

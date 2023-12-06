@@ -24,7 +24,7 @@ pynlog = logging.getLogger("pynifly")
 def TestNif(n:pynifly.NifFile):
     # Find shapes without env map flag but with envmap_light_fade flag
     for s in n.shapes:
-        if s.shader.blockname == 'BSLightingShaderProperty' \
+        if s.shader.blockname == 'BSEffectShaderProperty' \
             and (not s.shader.shaderflags1_test(ShaderFlags1.ENVIRONMENT_MAPPING)) \
             and s.shader.shaderflags2_test(ShaderFlags2.ENVMAP_LIGHT_FADE):
             return True, s.name
