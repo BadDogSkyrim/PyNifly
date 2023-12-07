@@ -343,10 +343,11 @@ def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
                 clayer = mesh.vertex_colors.new()
             alphlayer = None
             if (shape.shader.Shader_Flags_1 & ShaderFlags1.VERTEX_ALPHA) \
-                or (shape.shader_block_name == 'BSEffectShaderProperty'):
-                # If we have a BSEffectShaderProperty we assume the alpha channel is used 
-                # whether or not VERTEX_ALPHA is set. Some FO4 meshes seem to work this way.
-                #log.debug(f"<import_colors> using alpha channel")
+                or ((shape.shader_block_name == 'BSEffectShaderProperty' \
+                     and shape.file.game == 'FO4')):
+                # If we have a BSEffectShaderProperty in FO4 we assume the alpha channel
+                # is used whether or not VERTEX_ALPHA is set. Some FO4 meshes seem to work
+                #this way. log.debug(f"<import_colors> using alpha channel")
                 try:
                     alphlayer = mesh.color_attributes.new(
                         name=ALPHA_MAP_NAME, type='BYTE_COLOR', domain='CORNER')
@@ -4038,7 +4039,6 @@ class NifExporter:
                 norms.append(mesh.vertices[loopseg.vertex_index].normal[:])
 
         # Write out the loops as triangles, and partitions to match
-        log.debug(f"Shape has {len(mesh.polygons)} polygons")
         for f in mesh.polygons:
             if f.loop_total < 3:
                 log.warning(f"Degenerate polygons on {mesh.name}: 0={l0}, 1={l1}")

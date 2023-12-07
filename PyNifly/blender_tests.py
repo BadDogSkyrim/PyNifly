@@ -1712,8 +1712,8 @@ def TEST_SHADER_EFFECT():
     assert win.properties.flags == wincheck.properties.flags, f"Have correct flags: {wincheck.properties.flags}"
     assert win.shader.blockname == wincheck.shader.blockname, f"Have correct shader: {wincheck.shader.blockname}"
     ### Currently writing VERTEX_ALPHA even tho it wasn't originally set.
-    # assert win.shader.properties.Shader_Flags_1 == wincheck.shader.properties.Shader_Flags_1, \
-    #     f"Have correct shader flags 1: {pyn.ShaderFlags1(win.shader.properties.Shader_Flags_1).fullname}"
+    assert win.shader.properties.Shader_Flags_1 == wincheck.shader.properties.Shader_Flags_1, \
+        f"Have correct shader flags 1: {pyn.ShaderFlags1(win.shader.properties.Shader_Flags_1).fullname}"
     assert win.shader.properties.Shader_Flags_2 == wincheck.shader.properties.Shader_Flags_2, \
         f"Have correct shader flags 1: {pyn.ShaderFlags1(win.shader.properties.Shader_Flags_2).fullname}"
     assert win.shader.properties.LightingInfluence == wincheck.shader.properties.LightingInfluence, \
@@ -4983,6 +4983,6 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_COLLISION_CONVEXVERT] )
-    do_tests(alltests)
+    do_tests( [TEST_SHADER_EFFECT] )
+    # do_tests(alltests)
     # do_tests( testfrom(TEST_ANIM_KF) )
