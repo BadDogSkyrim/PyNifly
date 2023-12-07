@@ -1704,20 +1704,32 @@ def TEST_SHADER_EFFECT():
 
     nif = pyn.NifFile(testfile)
     nifcheck = pyn.NifFile(outfile)
-    win = nif.shape_dict["L2_WindowGlow"]
-    wincheck = nifcheck.shape_dict["L2_WindowGlow"]
+    glow = nif.shape_dict["L2_WindowGlow"]
+    glowcheck = nifcheck.shape_dict["L2_WindowGlow"]
 
-    assert win.blockname == wincheck.blockname == "BSLODTriShape", \
-        f"Created a LOD shape: {wincheck.blockname}"
-    assert win.properties.flags == wincheck.properties.flags, f"Have correct flags: {wincheck.properties.flags}"
-    assert win.shader.blockname == wincheck.shader.blockname, f"Have correct shader: {wincheck.shader.blockname}"
+    assert glow.blockname == glowcheck.blockname == "BSLODTriShape", \
+        f"Created a LOD shape: {glowcheck.blockname}"
+    assert glow.properties.flags == glowcheck.properties.flags, f"Have correct flags: {glowcheck.properties.flags}"
+    assert glow.shader.blockname == glowcheck.shader.blockname, f"Have correct shader: {glowcheck.shader.blockname}"
     ### Currently writing VERTEX_ALPHA even tho it wasn't originally set.
-    assert win.shader.properties.Shader_Flags_1 == wincheck.shader.properties.Shader_Flags_1, \
-        f"Have correct shader flags 1: {pyn.ShaderFlags1(win.shader.properties.Shader_Flags_1).fullname}"
-    assert win.shader.properties.Shader_Flags_2 == wincheck.shader.properties.Shader_Flags_2, \
-        f"Have correct shader flags 1: {pyn.ShaderFlags1(win.shader.properties.Shader_Flags_2).fullname}"
-    assert win.shader.properties.LightingInfluence == wincheck.shader.properties.LightingInfluence, \
-        f"Have correct lighting influence: {wincheck.shader.properties.LightingInfluence}"
+    assert glow.shader.properties.Shader_Flags_1 == glowcheck.shader.properties.Shader_Flags_1, \
+        f"Have correct shader flags 1: {pyn.ShaderFlags1(glow.shader.properties.Shader_Flags_1).fullname}"
+    assert glow.shader.properties.Shader_Flags_2 == glowcheck.shader.properties.Shader_Flags_2, \
+        f"Have correct shader flags 1: {pyn.ShaderFlags1(glow.shader.properties.Shader_Flags_2).fullname}"
+    assert glow.shader.properties.LightingInfluence == glowcheck.shader.properties.LightingInfluence, \
+        f"Have correct lighting influence: {glowcheck.shader.properties.LightingInfluence}"
+
+    win = nif.shape_dict["BlackBriarChalet:7"]
+    wincheck = nifcheck.shape_dict["BlackBriarChalet:7"]
+    assert win.shader.properties.parallaxInnerLayerTextureScale \
+        == wincheck.shader.properties.parallaxInnerLayerTextureScale, \
+        f"Have correct parallax: {wincheck.shader.properties.parallaxInnerLayerTextureScale}"
+    assert r"textures\cubemaps\ShinyGlass_e.dds" \
+        == win.shader.textures['EnvMap'] == wincheck.shader.textures['EnvMap'], \
+        f"Have correct envronment map: {wincheck.shader.textures['EnvMap']}"
+    assert r"textures\architecture\riften\RiftenWindowInner01.dds" \
+        == win.shader.textures['InnerLayer'] == wincheck.shader.textures['InnerLayer'], \
+        f"Have correct InnerLayer: {wincheck.shader.textures['InnerLayer']}"
     
 
 def TEST_TEXTURE_PATHS():

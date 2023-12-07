@@ -193,7 +193,10 @@ class pynStructure(Structure):
                 elif f == 'Shader_Flags_2':
                     v = ShaderFlags2.parse(shape[f]).value
                 elif f == 'Shader_Type':
-                    v = BSLSPShaderType[shape[f]].value
+                    if type(shape[f]) == BSLSPShaderType:
+                        v = shape[f].value
+                    else:
+                        v = int(shape[f])
                 elif f == 'collisionFilter_layer' or f == 'collisionFilterCopy_layer':
                     v = SkyrimCollisionLayer[shape[f]].value
                 elif f == 'broadPhaseType':
@@ -213,6 +216,8 @@ class pynStructure(Structure):
                         v = shape[f] 
                     else:
                         v = SkyrimHavokMaterial[shape[f]].value
+                elif t.__name__ == 'c_float_Array_2':
+                    v = VECTOR2(*eval(shape[f]))
                 elif t.__name__ == 'c_float_Array_3':
                     v = VECTOR3(*eval(shape[f]))
                 elif t.__name__ == 'c_float_Array_4':

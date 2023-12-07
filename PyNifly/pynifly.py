@@ -3066,6 +3066,13 @@ class ModuleTest:
         assert b.collisionID == 4, f"collisionID is set"
         assert b.shaderPropertyID == NODEID_NONE, f"shaderPropertyID is not set"
 
+        # Can read and store shader property values.
+        # Regression: parallaxInnerLayerTextureScale gave problems
+        b = NiShaderBuf({"Shader_Type": BSLSPShaderType.Face_Tint, 
+                         "parallaxInnerLayerTextureScale": "[0.949999988079071, 0.949999988079071]"})
+        assert b.Shader_Type == BSLSPShaderType.Face_Tint, f"Have correct face tint"
+        assert VNearEqual(b.parallaxInnerLayerTextureScale[:], [0.95, 0.95]), "Have correct parallaxInnerLayerTextureScale"
+
 
     def TEST_SHAPE_QUERY():
         """NifFile object gives access to a nif"""
@@ -5033,6 +5040,6 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    tester.execute()
+    # tester.execute()
     # tester.execute(start=ModuleTest.TEST_KF)
-    # tester.execute(test=ModuleTest.TEST_EFFECT_SHADER_FO4)
+    tester.execute(test=ModuleTest.TEST_NIFDEFS)
