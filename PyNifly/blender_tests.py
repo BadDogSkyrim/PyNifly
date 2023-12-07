@@ -1721,8 +1721,8 @@ def TEST_SHADER_EFFECT():
 
     win = nif.shape_dict["BlackBriarChalet:7"]
     wincheck = nifcheck.shape_dict["BlackBriarChalet:7"]
-    assert win.shader.properties.parallaxInnerLayerTextureScale \
-        == wincheck.shader.properties.parallaxInnerLayerTextureScale, \
+    assert BD.VNearEqual(win.shader.properties.parallaxInnerLayerTextureScale,
+                         wincheck.shader.properties.parallaxInnerLayerTextureScale), \
         f"Have correct parallax: {wincheck.shader.properties.parallaxInnerLayerTextureScale}"
     assert r"textures\cubemaps\ShinyGlass_e.dds" \
         == win.shader.textures['EnvMap'] == wincheck.shader.textures['EnvMap'], \

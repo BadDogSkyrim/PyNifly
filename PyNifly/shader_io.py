@@ -890,19 +890,16 @@ class ShaderImporter:
         * shape = shape to read for texture files
         * self.textures <- dictionary of filepaths to use.
         """
-        # log.debug(f"<find_textures>")
         self.textures = {}
 
         # Use any textures from Blender's texture directory, if defined. 
-        # Strip the trailing "textures" directory, if present.
-        btextures = None
         blender_dir = bpy.context.preferences.filepaths.texture_directory
+        # Remove any training slash
         if os.path.split(blender_dir)[1] == '':
             blender_dir = os.path.split(blender_dir)[0]
+        # Strip the trailing "textures" directory, if present.
         if os.path.split(blender_dir)[1].lower() == 'textures':
             blender_dir = os.path.split(blender_dir)[0]
-        # if os.path.exists(blender_dir):
-        #     btextures = extend_filenames(blender_dir, None, shape.textures)
 
         # Extend relative filenames in nif with nif's own filepath
         # fulltextures = extend_filenames(shape.file.filepath, "meshes", shape.textures)
@@ -911,6 +908,8 @@ class ShaderImporter:
         nif_dir = extend_filenames(shape.file.filepath, "meshes")
         
         for k, t in shape.textures.items():
+            if not t: continue
+
             # Sometimes texture paths are missing the "textures" directory. 
             if not t.lower().startswith('textures'):
                 t = os.path.join('textures', t)

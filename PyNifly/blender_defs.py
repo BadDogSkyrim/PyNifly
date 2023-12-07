@@ -354,7 +354,6 @@ def highlight_objects(objlist, context):
                     if r.type == 'WINDOW':
                         with context.temp_override(area=a, region=r):
                             if a.type == 'OUTLINER':
-                                log.info(f"Doing show_active on {context.object}")
                                 bpy.ops.outliner.show_active()
                             else:
                                 bpy.ops.view3d.view_selected()

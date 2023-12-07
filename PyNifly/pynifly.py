@@ -1617,7 +1617,8 @@ class NiShader(NiObject):
                 if self.properties.shaderflags2_test(ShaderFlags1.PARALLAX):
                     self._textures["HeightMap"] = self._readtexture(f, s, 4)
 
-                if self.properties.shaderflags1_test(ShaderFlags1.ENVIRONMENT_MAPPING):
+                if self.properties.shaderflags1_test(ShaderFlags1.ENVIRONMENT_MAPPING) \
+                    or self.properties.shaderflags2_test(ShaderFlags2.ENVMAP_LIGHT_FADE):
                     self._textures["EnvMap"] = self._readtexture(f, s, 5)
 
                 if self.properties.shaderflags1_test(ShaderFlags1.ENVIRONMENT_MAPPING):
@@ -3849,10 +3850,13 @@ class ModuleTest:
     def TEST_LOD():
         """BSLODTriShape is handled. Its shader attributes are handled."""
         def check_nif(nif):
-            win = nif.shape_dict['L2_WindowGlow']
-            assert win.blockname == "BSLODTriShape", f"Expected 'BSDynamicTriShape', found '{nif.shapes[0].blockname}'"
-            assert not win.shader.shaderflags1_test(ShaderFlags1.VERTEX_ALPHA), f"VERTEX_ALPHA not set"
-            assert win.shader.properties.LightingInfluence == 255, f"Have correct lighting influence: {win.shader.properties.LightingInfluence}"
+            glow = nif.shape_dict['L2_WindowGlow']
+            assert glow.blockname == "BSLODTriShape", f"Expected 'BSDynamicTriShape', found '{nif.shapes[0].blockname}'"
+            assert not glow.shader.shaderflags1_test(ShaderFlags1.VERTEX_ALPHA), f"VERTEX_ALPHA not set"
+            assert glow.shader.properties.LightingInfluence == 255, f"Have correct lighting influence: {glow.shader.properties.LightingInfluence}"
+
+            win = nif.shape_dict['BlackBriarChalet:7']
+            assert win.shader.textures['EnvMap'] == r"textures\cubemaps\ShinyGlass_e.dds", f"Have correct environment map: {win.shader.textures['EnvMap']}"
 
         nif = NifFile(r"tests\Skyrim\blackbriarchalet_test.nif")
         check_nif(nif)
@@ -3860,6 +3864,7 @@ class ModuleTest:
         nifout = NifFile()
         nifout.initialize("SKYRIM", r"Tests/Out/TEST_LOD.nif")
         ModuleTest.export_shape(nif.shapes[0], nifout)
+        ModuleTest.export_shape(nif.shapes[1], nifout)
         nifout.save()
 
         nifcheck = NifFile(r"Tests/Out/TEST_LOD.nif")
@@ -5042,4 +5047,4 @@ if __name__ == "__main__":
 
     # tester.execute()
     # tester.execute(start=ModuleTest.TEST_KF)
-    tester.execute(test=ModuleTest.TEST_NIFDEFS)
+    tester.execute(test=ModuleTest.TEST_LOD)
