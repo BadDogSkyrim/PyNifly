@@ -2964,7 +2964,9 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
 # ### ---------------------------- EXPORT -------------------------------- ###
 
 def clean_filename(fn):
-    return "".join(c for c in fn.strip() if (c.isalnum() or c in "._- "))
+    s = fn.strip()
+    if fn.endswith(":ROOT"): s = s[0, -5]
+    return "".join(c for c in s if (c.isalnum() or c in "._- "))
 
 def select_all_faces(mesh):
     """ Make sure all mesh elements are visible and all faces are selected """
