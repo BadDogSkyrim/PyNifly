@@ -2965,7 +2965,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
 
 def clean_filename(fn):
     s = fn.strip()
-    if fn.endswith(":ROOT"): s = s[0, -5]
+    if s.endswith(":ROOT"): s = s[0:-5]
     return "".join(c for c in s if (c.isalnum() or c in "._- "))
 
 def select_all_faces(mesh):
