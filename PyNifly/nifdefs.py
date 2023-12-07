@@ -209,7 +209,10 @@ class pynStructure(Structure):
                 elif f == 'qualityType':
                     v = shape[f] # hkQualityType[shape[f]].value
                 elif f == 'bhkMaterial':
-                    v = shape[f] # SkyrimHavokMaterial[shape[f]].value
+                    if type(shape[f]) == int:
+                        v = shape[f] 
+                    else:
+                        v = SkyrimHavokMaterial[shape[f]].value
                 elif t.__name__ == 'c_float_Array_3':
                     v = VECTOR3(*eval(shape[f]))
                 elif t.__name__ == 'c_float_Array_4':

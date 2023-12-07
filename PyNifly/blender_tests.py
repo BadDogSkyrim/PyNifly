@@ -4983,6 +4983,6 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_COLLISION_CONVEXVERT] )
-    # do_tests(alltests)
+    # do_tests( [TEST_COLLISION_CONVEXVERT] )
+    do_tests(alltests)
     # do_tests( testfrom(TEST_ANIM_KF) )
