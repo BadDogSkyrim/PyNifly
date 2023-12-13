@@ -2641,9 +2641,12 @@ namespace NiflyDLLTests
 			int shapeID;
 			BSLODTriShapeBuf shapeBuf;
 			NiShaderBuf shaderBuf;
+			char bname[128];
 
-			Assert::AreEqual(1, getShapes(nif, &shape, 1, 0), L"Have one shape");
+			getShapes(nif, &shape, 1, 0);
 			shapeID = getBlockID(nif, shape);
+			getBlockname(nif, shapeID, bname, 128);
+			Assert::AreEqual(0, strcmp("BSLODTriShape", bname), L"Have correct block name");
 			getBlock(nif, shapeID, &shapeBuf);
 			Assert::AreEqual(134742030, int(shapeBuf.flags), L"Shape flags are correct");
 			Assert::AreEqual(0, int(shapeBuf.level0), L"Shape LOD 0 is correct");

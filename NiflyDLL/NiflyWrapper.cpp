@@ -725,6 +725,9 @@ void getShape(NiShape* theShape, NiShapeBuf* buf) {
     buf->skinInstanceID = theShape->SkinInstanceRef()->index;
     buf->shaderPropertyID = theShape->ShaderPropertyRef()->index;
     buf->alphaPropertyID = theShape->AlphaPropertyRef()->index;
+
+    BSTriShape* ts = static_cast<BSTriShape*>(theShape);
+    if (ts) buf->hasFullPrecision = ts->IsFullPrecision();
 }
 
 int getNiShape(void* nifref, uint32_t id, void* buf) {
@@ -900,6 +903,9 @@ int setShapeFromBuf(NifFile* nif, NiShape* theShape, NiShapeBuf* buf)
             theShape->transform.rotation[r][c] = buf->rotation[r][c];
     theShape->transform.scale = buf->scale;
     theShape->collisionRef.index = buf->collisionID;
+
+    BSTriShape* ts = static_cast<BSTriShape*>(theShape);
+    if (buf->hasFullPrecision && ts) ts->SetFullPrecision(true);
 
     if (buf->bufType == BSMeshLODTriShapeBufType) {
         BSMeshLODTriShape* meshShape = static_cast<BSMeshLODTriShape*>(theShape);

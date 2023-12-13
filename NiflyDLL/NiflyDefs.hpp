@@ -349,6 +349,7 @@ struct NiShapeBuf {
 	uint8_t hasNormals;
 	uint8_t hasVertexColors;
 	uint8_t hasUV;
+	uint8_t hasFullPrecision;
 	float boundingSphereCenter[3];
 	float boundingSphereRadius;
 	uint16_t vertexCount;
