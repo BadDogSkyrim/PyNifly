@@ -2982,7 +2982,7 @@ class ModuleTest:
         return relative_path
 
     
-    def export_shape(old_shape: NiShape, new_nif: NifFile):
+    def export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=None):
         """ Convenience routine to copy existing shape """
         skinned = (len(old_shape.bone_weights) > 0)
 
@@ -2992,11 +2992,14 @@ class ModuleTest:
         # new_props = old_shape.properties.copy()
         # new_props.nameID = new_props.controllerID = new_props.skinInstanceID = NODEID_NONE
         # new_props.shaderPropertyID = new_props.alphaPropertyID = NODEID_NONE
-        new_prop:NiShapeBuf = old_shape.properties.copy()
+        if properties:
+            new_prop:NiShapeBuf = properties.copy()
+        else:
+            new_prop:NiShapeBuf = old_shape.properties.copy()
         new_prop.nameID = new_prop.conrollerID = new_prop.collisionID = NODEID_NONE
         new_prop.skinInstanceID = new_prop.shaderPropertyID = new_prop.alphaPropertyID = NODEID_NONE
         new_shape = new_nif.createShapeFromData(old_shape.name, 
-                                                old_shape.verts,
+                                                verts if verts else old_shape.verts,
                                                 old_shape.tris,
                                                 uv_inv,
                                                 old_shape.normals,
@@ -4966,6 +4969,32 @@ class ModuleTest:
         check_dock(NifFile(outfile))
 
 
+    def TEST_FULLPREC():
+        """Test that we can set full precision on a shape."""
+        testfile = ModuleTest.test_file(r"tests\FO4\OtterFemHead.nif")
+        outfile = ModuleTest.test_file(r"tests\out\TEST_FULLPREC.nif")
+
+        print("------------- read")
+        nif = NifFile(testfile)
+
+        head = nif.shapes[0]
+        newverts = []
+        for v in head.verts:
+            newverts.append((v[0], v[1], v[2]+120,))
+
+        print("------------- write")
+        nifOut = NifFile()
+        nifOut.initialize('FO4', outfile, nif.rootNode.blockname, nif.rootNode.name)
+        p = nif.shapes[0].properties.copy()
+        p.hasFullPrecision = True
+        ModuleTest.export_shape(nif.shapes[0], nifOut, properties=p, verts=newverts)
+        nifOut.save()
+
+        print("------------- check")
+        nifCheck = NifFile(outfile)
+        assert nifCheck.shapes[0].properties.hasFullPrecision, f"Have full precision"
+
+
     def TEST_HKX_SKELETON():
         """Test read/write of hkx skeleton files (in XML format)."""
         pass
@@ -5045,6 +5074,6 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    tester.execute()
+    # tester.execute()
     # tester.execute(start=ModuleTest.TEST_KF)
-    # tester.execute(test=ModuleTest.TEST_LOD)
+    tester.execute(test=ModuleTest.TEST_FULLPREC)

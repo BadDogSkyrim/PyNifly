@@ -1472,6 +1472,7 @@ class NiShapeBuf(pynStructure):
         ("hasNormals", c_uint8),
         ("hasVertexColors", c_uint8),
         ("hasUV", c_uint8),
+        ("hasFullPrecision", c_uint8),
         ("boundingSphereCenter", VECTOR3),
         ("boundingSphereRadius", c_float),
         ("vertexCount", c_uint16),
