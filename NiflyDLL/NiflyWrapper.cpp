@@ -246,7 +246,7 @@ void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, const char* rootType,
         rootNode->name.get() = name;
         hdr.AddBlock(std::move(rootNode));
     }
-    //NiNode* root = nif->GetRootNode();
+    //NiNode* root = nif->GetRootNode(); 
     //std::string nm = root->GetName();
     //root->SetName(name);
 }

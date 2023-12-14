@@ -2653,6 +2653,7 @@ namespace NiflyDLLTests
 			Assert::AreEqual(0, int(shapeBuf.level1), L"Shape LOD 1 is correct");
 			Assert::AreEqual(624, int(shapeBuf.level2), L"Shape LOD 2 is correct");
 
+			//memset(&shaderBuf, 0, sizeof(shaderBuf));
 			getBlock(nif, shapeBuf.shaderPropertyID, &shaderBuf);
 			Assert::AreEqual(int(BUFFER_TYPES::BSEffectShaderPropertyBufType), int(shaderBuf.bufType), L"Buffer type is correct");
 			Assert::AreEqual(3, int(shaderBuf.textureClampMode), L"TextureClampMode correct");

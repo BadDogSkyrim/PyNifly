@@ -559,7 +559,7 @@ class NiObject:
     
     @property
     def properties(self):
-        if self._properties == None:
+        if not self._properties:
             self._properties = self._getbuf()
             if self.id != NODEID_NONE and self.file._handle:
                 NifFile.nifly.getBlock(self.file._handle, 
@@ -992,14 +992,17 @@ class NiNode(NiAVObject):
         self._clothdata = None
         
         if self._handle:
-            NifFile.nifly.getBlock(self.file._handle, 
-                                   self.id, 
-                                   byref(self.properties))
-
+            # NifFile.nifly.getBlock(self.file._handle, 
+            #                        self.id, 
+            #                        byref(self._properties))
+            self.properties
             buflen = self.file.max_string_len
             buf = create_string_buffer(buflen)
             NifFile.nifly.getNodeName(self._handle, buf, buflen)
-            self.name = buf.value.decode('utf-8')
+            self._name = buf.value.decode('utf-8')
+
+        if self._name:
+            self.file.nodes[self._name] = self
 
     @property
     def name(self):
@@ -1818,8 +1821,9 @@ class NiShape(NiNode):
             if not handle:
                 handle = NifFile.nifly.getBlockByID(id)
             
-            return cls.subtypes[shapetype](
+            s = cls.subtypes[shapetype](
                 handle=handle, id=id, file=file, parent=parent, properties=properties)
+            return s
         except:
             NifFile.log.warning(f"Shape type is not implemented: {shapetype}")
             return None
@@ -2623,6 +2627,7 @@ class NifFile:
             NifFile.nifly.getNodes(self._handle, buf)
             for h in buf:
                 this_node = NiNode(handle=h, file=self)
+                self._nodes[this_node.name] = this_node
         return self._nodes
 
     def nodeByHandle(self, desired_handle):
@@ -3854,7 +3859,8 @@ class ModuleTest:
         """BSLODTriShape is handled. Its shader attributes are handled."""
         def check_nif(nif):
             glow = nif.shape_dict['L2_WindowGlow']
-            assert glow.blockname == "BSLODTriShape", f"Expected 'BSDynamicTriShape', found '{nif.shapes[0].blockname}'"
+            assert glow.blockname == "BSLODTriShape", f"Expected 'BSLODTriShape', found '{nif.shapes[0].blockname}'"
+            
             assert not glow.shader.shaderflags1_test(ShaderFlags1.VERTEX_ALPHA), f"VERTEX_ALPHA not set"
             assert glow.shader.properties.LightingInfluence == 255, f"Have correct lighting influence: {glow.shader.properties.LightingInfluence}"
 
@@ -5074,6 +5080,6 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    # tester.execute()
-    # tester.execute(start=ModuleTest.TEST_KF)
-    tester.execute(test=ModuleTest.TEST_FULLPREC)
+    tester.execute()
+    # tester.execute(start=ModuleTest.TEST_BOW)
+    # tester.execute(test=ModuleTest.TEST_LOD)
