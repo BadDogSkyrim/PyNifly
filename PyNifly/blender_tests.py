@@ -4910,6 +4910,27 @@ def TEST_TEXTURE_CLAMP():
         f"Preserved texture clamp mode: {nifout.shapes[0].shader.textureClampMode}"
 
 
+def TEST_FULL_PRECISION():
+    """Can set full precision."""
+    testfile = TT.test_file(r"tests\FO4\OtterFemHead.nif")
+    outfile = TT.test_file(r"tests\out\TEST_FULL_PRECISION.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
+    
+    head = bpy.context.object
+    deltaz = head.location.z
+    for v in head.data.vertices:
+        v.co.z += deltaz
+    head.location.z += -deltaz
+    head['hasFullPrecision'] = 1
+
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    nifout = pyn.NifFile(outfile)
+    assert nifout.shapes[0].properties.hasFullPrecision, \
+        f"Has full precision: {nifout.shapes[0].properties.hasFullPrecision}"
+
+
 def LOAD_RIG():
     """Load an animation rig for play. Has to be invoked explicitly."""
     skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
@@ -4995,6 +5016,6 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_SHADER_EFFECT] )
+    do_tests( [TEST_FULL_PRECISION] )
     # do_tests(alltests)
     # do_tests( testfrom(TEST_ANIM_KF) )
