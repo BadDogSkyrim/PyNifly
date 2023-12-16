@@ -460,9 +460,18 @@ struct bhkRigidBodyBuf {
 	uint16_t childCount;
 	uint8_t collisionResponse;
 	uint16_t processContactCallbackDelay;
+	uint32_t unknownInt1;
 	uint8_t collisionFilterCopy_layer;
 	uint8_t collisionFilterCopy_flags;
 	uint16_t collisionFilterCopy_group;
+	uint8_t unused2_1;
+	uint8_t unused2_2;
+	uint8_t unused2_3;
+	uint8_t unused2_4;
+	uint32_t unknownInt2;
+	uint8_t collisionResponse2;
+	uint8_t unused3;
+	uint16_t processContactCallbackDelay2;
 	float translation_x;
 	float translation_y;
 	float translation_z;

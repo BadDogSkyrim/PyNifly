@@ -4945,6 +4945,28 @@ def TEST_EMPTY_NODES():
     assert "L2_Ivy" in nifout.nodes, f"Has empty node"
 
 
+def TEST_COLLISION_PROPERTIES():
+    """Test some specific collision property values."""
+    testfile = TT.test_file(r"tests\SkyrimSE\SteelDagger.nif")
+    outfile = TT.test_file(r"tests\out\TEST_COLLISION_PROPERTIES.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
+    root = [obj for obj in bpy.data.objects if 'pynRoot' in obj][0]
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    nifout = pyn.NifFile(outfile)
+    coll = nifout.rootNode.collision_object
+    body = coll.body
+    assert body.properties.broadPhaseType == nifdefs.BroadPhaseType.ENTITY, "Have correct broad phase type"
+    assert body.properties.collisionResponse2 == nifdefs.hkResponseType.SIMPLE_CONTACT, "Have correct CollisionResponse2"
+    assert body.properties.processContactCallbackDelay == 65535, "Have correct processContactCallbackDelay"
+    assert body.properties.rollingFrictionMult == 0, "Have correct rollingFrictionMult"
+    assert body.properties.motionSystem == nifdefs.hkMotionType.SPHERE_STABILIZED, "Have correct motionSystem"
+    assert body.properties.solverDeactivation == nifdefs.hkSolverDeactivation.LOW, "Have correct solverDeactivation"
+    assert body.properties.qualityType == nifdefs.hkQualityType.MOVING, "Have correct qualityType"
+
+
 def LOAD_RIG():
     """Load an animation rig for play. Has to be invoked explicitly."""
     skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
@@ -5030,6 +5052,6 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_EMPTY_NODES] )
-    # do_tests(alltests)
+    # do_tests( [TEST_FONV] )
+    do_tests(alltests)
     # do_tests( testfrom(TEST_ANIM_KF) )

@@ -129,6 +129,7 @@ pynBufferDefaults = {
     'collisionFilterCopy_group': 0,
     'collisionFilterCopy_layer': 'STATIC',
     'collisionResponse': 'SIMPLE_CONTACT',
+    'collisionResponse2': 'SIMPLE_CONTACT',
     'controllerID' : NODEID_NONE,
     'ctrlID' : NODEID_NONE,
     'ctrlType': NODEID_NONE,
@@ -200,17 +201,19 @@ class pynStructure(Structure):
                 elif f == 'collisionFilter_layer' or f == 'collisionFilterCopy_layer':
                     v = SkyrimCollisionLayer[shape[f]].value
                 elif f == 'broadPhaseType':
-                    v = shape[f] # BroadPhaseType[shape[f]].value
+                    v = BroadPhaseType[shape[f]].value
                 elif f == 'collisionResponse':
                     v = hkResponseType[shape[f]].value
+                elif f == 'collisionResponse2':
+                    v = hkResponseType[shape[f]].value
                 elif f == 'motionSystem':
-                    v = shape[f] # hkMotionType[shape[f]].value
+                    v = hkMotionType[shape[f]].value
                 elif f == 'deactivatorType':
-                    v = shape[f] # hkDeactivatorType[shape[f]].value
+                    v = hkDeactivatorType[shape[f]].value
                 elif f == 'solverDeactivation': 
-                    v = shape[f] # hkSolverDeactivation[shape[f]].value
+                    v = hkSolverDeactivation[shape[f]].value
                 elif f == 'qualityType':
-                    v = shape[f] # hkQualityType[shape[f]].value
+                    v = hkQualityType[shape[f]].value
                 elif f == 'bhkMaterial':
                     if type(shape[f]) == int:
                         v = shape[f] 
@@ -228,11 +231,11 @@ class pynStructure(Structure):
                     v = VECTOR6_SHORT(*eval(shape[f]))
                 elif t.__name__ == 'c_float':
                     v = float(shape[f])
-                elif t.__name__ in ['c_ubyte', 'c_ulong', 'c_uint32', 'c_ulong', 'c_ulonglong']:
+                elif t.__name__ in ['c_ubyte', 'c_ulong', 'c_uint8', 'c_uint16', 'c_uint32', 'c_ulong', 'c_ulonglong']:
                     v = int(shape[f])
                 else:
                     v = shape[f]
-                if v:
+                if v is not None:
                     self.__setattr__(f, v)
             except KeyError as e:
                 try:
@@ -359,7 +362,10 @@ class pynStructure(Structure):
                 
                 if (type(v2) == float and not math.isclose(v1, v2, abs_tol=10**-5)) \
                         or (v1 != v2):
-                    self.extract_field(shape, fn, t)
+                    try:
+                        self.extract_field(shape, fn, t)
+                    except:
+                        shape[fn] = repr(t)
 
     def copy(self):
         """ Return a copy of the object """
@@ -1170,9 +1176,18 @@ class bhkRigidBodyProps(pynStructure):
         ('collisionResponse', c_uint8),
         ('unusedByte1', c_uint8),
         ('processContactCallbackDelay', c_uint16),
+        ('unknownInt1', c_uint32),
         ('collisionFilterCopy_layer', c_uint8),
         ('collisionFilterCopy_flags', c_uint8),
         ('collisionFilterCopy_group', c_uint16),
+        ('unused2_1', c_uint8),
+        ('unused2_2', c_uint8),
+        ('unused2_3', c_uint8),
+        ('unused2_4', c_uint8),
+        ('unknownInt2', c_uint32),
+        ('collisionResponse2', c_uint8),
+        ('unused3', c_uint8),
+        ('processContactCallbackDelay2', c_uint16),
         ('translation', VECTOR4),
         ('rotation', VECTOR4),
         ('linearVelocity', VECTOR4),
@@ -1214,21 +1229,26 @@ class bhkRigidBodyProps(pynStructure):
 
     def extract_field(self, shape, fieldname, fieldtype):
         """Extract a single field value to the shape."""
-        if fieldname in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
-            shape[fieldname] = SkyrimCollisionLayer(self.__getattribute__(fieldname)).name
-        elif fieldname == 'broadPhaseType':
-            shape[fieldname] = BroadPhaseType(self.broadPhaseType).name
-        elif fieldname == 'collisionResponse':
-            shape[fieldname] = hkResponseType(self.collisionResponse).name
-        elif fieldname == 'motionSystem':
-            shape[fieldname] = hkMotionType(self.motionSystem).name
-        elif fieldname == 'deactivatorType':
-            shape[fieldname] = hkDeactivatorType(self.deactivatorType).name
-        elif fieldname == 'solverDeactivation': 
-            shape[fieldname] = hkSolverDeactivation(self.solverDeactivation).name
-        elif fieldname == 'qualityType':
-            shape[fieldname] = hkQualityType(self.qualityType).name
-        else:
+        try:
+            if fieldname in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
+                shape[fieldname] = SkyrimCollisionLayer(self.__getattribute__(fieldname)).name
+            elif fieldname == 'broadPhaseType':
+                shape[fieldname] = BroadPhaseType(self.broadPhaseType).name
+            elif fieldname == 'collisionResponse':
+                shape[fieldname] = hkResponseType(self.collisionResponse).name
+            elif fieldname == 'collisionResponse2':
+                shape[fieldname] = hkResponseType(self.collisionResponse2).name
+            elif fieldname == 'motionSystem':
+                shape[fieldname] = hkMotionType(self.motionSystem).name
+            elif fieldname == 'deactivatorType':
+                shape[fieldname] = hkDeactivatorType(self.deactivatorType).name
+            elif fieldname == 'solverDeactivation': 
+                shape[fieldname] = hkSolverDeactivation(self.solverDeactivation).name
+            elif fieldname == 'qualityType':
+                shape[fieldname] = hkQualityType(self.qualityType).name
+            else:
+                super().extract_field(shape, fieldname, fieldtype)
+        except:
             super().extract_field(shape, fieldname, fieldtype)
 
 bufferTypeList[PynBufferTypes.bhkRigidBodyBufType] = 'bhkRigidBody'

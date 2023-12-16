@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 13, 5, 0 };
+const int NiflyDDLVersion[3] = { 13, 6, 0 };
  
 using namespace nifly;
 
@@ -2714,9 +2714,9 @@ int setRigidBody(void* nifref, uint32_t blockID, void* buffer) {
     CheckID(theBody);
 
     if ((buf->bufType != BUFFER_TYPES::bhkRigidBodyBufType && buf->bufType != BUFFER_TYPES::bhkRigidBodyTBufType)
-            || buf->bufSize != sizeof(bhkRigidBodyBuf)) {
-		niflydll::LogWriteEf("%s called with bad buffer: type=%d, size=%d.", __FUNCTION__, buf->bufType, buf->bufSize); \
-        return 2;
+        || buf->bufSize != sizeof(bhkRigidBodyBuf)) {
+        niflydll::LogWriteEf("%s called with bad buffer: type=%d, size=%d.", __FUNCTION__, buf->bufType, buf->bufSize); \
+            return 2;
     }
 
     theBody->collisionFilter.layer = buf->collisionFilter_layer;
@@ -2728,9 +2728,16 @@ int setRigidBody(void* nifref, uint32_t blockID, void* buffer) {
     theBody->prop.capacityAndFlags = buf->prop_flags;
     theBody->collisionResponse = static_cast<hkResponseType>(buf->collisionResponse);
     theBody->processContactCallbackDelay = buf->processContactCallbackDelay;
+    theBody->unkInt1 = buf->unknownInt1;
     theBody->collisionFilterCopy.layer = buf->collisionFilterCopy_layer;
     theBody->collisionFilterCopy.flagsAndParts = buf->collisionFilterCopy_flags;
     theBody->collisionFilterCopy.group = buf->collisionFilterCopy_group;
+    theBody->unkShorts2[0] = (buf->unused2_1 & 0xFF) | (buf->unused2_2 << 8);
+    theBody->unkShorts2[1] = (buf->unused2_3 & 0xFF) | (buf->unused2_4 << 8);
+    theBody->unkShorts2[2] = buf->unknownInt2 & 0xFFFF;
+    theBody->unkShorts2[3] = (buf->unknownInt2 >> 8) & 0xFFFF;
+    theBody->unkShorts2[4] = (buf->collisionResponse2 & 0xFF) | (buf->unused2_1 << 8);
+    theBody->unkShorts2[5] = buf->processContactCallbackDelay2;
     theBody->translation.x = buf->translation_x;
     theBody->translation.y = buf->translation_y;
     theBody->translation.z = buf->translation_z;
@@ -2875,9 +2882,18 @@ int getRigidBodyProps(void* nifref, uint32_t nodeIndex, void* inbuf)
     if (theBody) {
         buf->collisionResponse = theBody->collisionResponse;
         buf->processContactCallbackDelay = theBody->processContactCallbackDelay;
+        buf->unknownInt1 = theBody->unkInt1;
         buf->collisionFilterCopy_layer = theBody->collisionFilterCopy.layer;
         buf->collisionFilterCopy_flags = theBody->collisionFilterCopy.flagsAndParts;
         buf->collisionFilterCopy_group = theBody->collisionFilterCopy.group;
+        buf->unused2_1 = theBody->unkShorts2[0] & 0xFF;
+        buf->unused2_2 = (theBody->unkShorts2[0] >> 8) & 0xFF;
+        buf->unused2_3 = theBody->unkShorts2[1] & 0xFF;
+        buf->unused2_4 = (theBody->unkShorts2[1] >> 8) & 0xFF;
+        buf->unknownInt2 = theBody->unkShorts2[2] & (theBody->unkShorts2[3] << 16);
+        buf->collisionResponse2 = theBody->unkShorts2[4] & 0xFF;
+        buf->unused3 = (theBody->unkShorts2[4] >> 8) & 0xFF;
+        buf->processContactCallbackDelay2 = theBody->unkShorts2[5];
         buf->translation_x = theBody->translation.x;
         buf->translation_y = theBody->translation.y;
         buf->translation_z = theBody->translation.z;
