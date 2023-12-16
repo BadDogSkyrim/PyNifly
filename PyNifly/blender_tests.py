@@ -1855,7 +1855,7 @@ def TEST_MULTI_IMP():
     # bodyparts, so we'd like them to load as shape keys if possible. BUT two of these
     # nifs have the same vert count, so they get loaded as shape keys tho they shouldn't.
     #
-    # TODO: Decide if this is work fixing, and how. Maybe key of the _0 and _1 file 
+    # TODO: Decide if this is worth fixing, and how. Maybe key off the _0 and _1 file 
     # extensions?
 
     testfile1 = TT.test_file(r"tests\FO4\FemaleHair25.nif")
@@ -4931,6 +4931,20 @@ def TEST_FULL_PRECISION():
         f"Has full precision: {nifout.shapes[0].properties.hasFullPrecision}"
 
 
+def TEST_EMPTY_NODES():
+    """Empty nodes export with the rest."""
+    testfile = TT.test_file(r"tests\Skyrim\farmhouse01.nif")
+    outfile = TT.test_file(r"tests\out\TEST_EMPTY_NODES.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
+    root = [obj for obj in bpy.data.objects if 'pynRoot' in obj][0]
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    nifout = pyn.NifFile(outfile)
+    assert "L2_Ivy" in nifout.nodes, f"Has empty node"
+
+
 def LOAD_RIG():
     """Load an animation rig for play. Has to be invoked explicitly."""
     skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
@@ -5016,6 +5030,6 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_FULL_PRECISION] )
+    do_tests( [TEST_EMPTY_NODES] )
     # do_tests(alltests)
     # do_tests( testfrom(TEST_ANIM_KF) )

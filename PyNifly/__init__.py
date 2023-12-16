@@ -3407,7 +3407,7 @@ class NifExporter:
             elif obj.name.startswith("bhkCollisionObject"):
                 self.collisions.add(obj)
 
-            else:
+            elif obj.type == 'EMPTY':
                 self.grouping_nodes.add(obj)
                 for c in obj.children:
                     if not c.hide_get(): self.add_object(c)
@@ -4255,6 +4255,15 @@ class NifExporter:
             morphdict, partitions, partition_map
 
 
+    def export_node(self, obj:bpy_types.Object, parent=None) -> NiNode:
+        """Export a NiNode for the given Blender object."""
+        xf = make_transformbuf(apply_scale_xf(obj.matrix_local, 1))
+        ninode = self.nif.add_node(obj.name, xf, parent)
+        self.objs_written[obj.name] = ninode
+        self.export_collisions(obj)
+        return ninode
+   
+
     def export_shape_parents(self, obj) -> NiNode:
         """Export any parent NiNodes the shape might need 
 
@@ -4278,10 +4287,7 @@ class NifExporter:
             elif this_parent.name in self.objs_written:
                 ninode = self.objs_written[this_parent.name]
             else:
-                xf = make_transformbuf(apply_scale_xf(this_parent.matrix_local, 1))
-                ninode = self.nif.add_node(this_parent.name, xf, last_parent)
-                self.objs_written[this_parent.name] = ninode
-                self.export_collisions(this_parent)
+                ninode = self.export_node(this_parent, last_parent)
             
             last_parent = ninode
         
@@ -4631,6 +4637,15 @@ class NifExporter:
             elif self.armature:
                 # Just export the skeleton
                 self.export_armature(self.armature)
+
+            # Make sure any grouping nodes get exported, even if they're empty.
+            for obj in self.grouping_nodes:
+                if 'pynRoot' not in obj and obj.name not in self.objs_written:
+                    par = None
+                    if obj.parent and obj.parent.name in self.objs_written:
+                        par = self.objs_written[obj.parent.name]
+                    self.export_node(obj, par)
+
 
             # Check for bodytri morphs--write the extra data node if needed
             ##log.debug(f"TRIP data: shapes={len(self.trip.shapes)}, bodytri written: {self.bodytri_written}, filepath: {truncate_filename(self.trippath, 'meshes')}")
