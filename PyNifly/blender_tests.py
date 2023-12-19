@@ -477,6 +477,23 @@ def TEST_CONNECTED_SKEL():
     # assert TT.VNearEqual(lthigh.tail_local, (-7.2513, -0.1925, 63.9557)), f"Thigh tail in correct location: {lthigh.tail_local}"
 
 
+# ### Following test works but probably duplicates others. 
+# def TEST_HELM_SMP():
+#     """Import helm with different parts at different offsets."""
+#     testfile = TT.test_file(r"tests\SkyrimSE\helmet-SMP.nif")
+#     outfile = TT.test_file(r"tests\SkyrimSE\TEST_HELM_SMP.nif")
+#     bpy.ops.import_scene.pynifly(filepath=testfile, 
+#                                  use_blender_xf=True,
+#                                  do_create_bones=False,
+#                                  do_import_pose=False)
+
+#     root = [obj for obj in bpy.context.selected_objects if 'pynRoot' in obj][0]
+#     BD.ObjectSelect([root], active=True)
+#     bpy.ops.export_scene.pynifly(filepath=outfile, preserve_hierarchy=True)
+    
+#     nifout = pyn.NifFile(outfile)
+
+
 def TEST_DRAUGR_IMPORT_A():
     """Import hood, extend skeleton, non-vanilla pose"""
     # This nif uses the draugr skeleton, which has bones named like human bones but with
@@ -4967,6 +4984,53 @@ def TEST_COLLISION_PROPERTIES():
     assert body.properties.qualityType == nifdefs.hkQualityType.MOVING, "Have correct qualityType"
 
 
+def TEST_COLLISION_FO4():
+    """
+    FO4 collision export: Not working. Requires an update to Nifly to handle FO4-format
+    bhkRigidBody blocks.
+    """
+    return
+    testfile = TT.test_file(r"tests\FO4\AlarmClock_Bare.nif")
+    outfile = TT.test_file(r"tests\out\TEST_COLLISION_FO4.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
+    root = [obj for obj in bpy.data.objects if 'pynRoot' in obj][0]
+    clock = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH'][0]
+
+    BD.ObjectSelect([clock], active=True)
+    bpy.ops.object.duplicate()
+    collobj = bpy.context.object
+    collobj.name = "bhkConvexVerticesShape"
+
+    bpy.ops.object.add(type='EMPTY')
+    rb = bpy.context.object
+    rb.name = "bhkRigidBody"
+    rb['broadPhaseType'] = "ENTITY"
+    collobj.parent = rb
+
+    bpy.ops.object.add(type='EMPTY')
+    coll = bpy.context.object
+    coll.name = "bhkCollisionObject"
+    coll['pynCollisionFlags'] = "SYNC_ON_UPDATE"
+    rb.parent = coll
+    coll.parent = root
+
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    nifout = pyn.NifFile(outfile)
+    coll = nifout.rootNode.collision_object
+    body = coll.body
+    assert coll.body
+    # assert body.properties.broadPhaseType == nifdefs.BroadPhaseType.ENTITY, "Have correct broad phase type"
+    # assert body.properties.collisionResponse2 == nifdefs.hkResponseType.SIMPLE_CONTACT, "Have correct CollisionResponse2"
+    # assert body.properties.processContactCallbackDelay == 65535, "Have correct processContactCallbackDelay"
+    # assert body.properties.rollingFrictionMult == 0, "Have correct rollingFrictionMult"
+    # assert body.properties.motionSystem == nifdefs.hkMotionType.SPHERE_STABILIZED, "Have correct motionSystem"
+    # assert body.properties.solverDeactivation == nifdefs.hkSolverDeactivation.LOW, "Have correct solverDeactivation"
+    # assert body.properties.qualityType == nifdefs.hkQualityType.MOVING, "Have correct qualityType"
+
+
 def LOAD_RIG():
     """Load an animation rig for play. Has to be invoked explicitly."""
     skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
@@ -5052,6 +5116,6 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_FONV] )
-    do_tests(alltests)
+    do_tests( [TEST_HELM_SMP] )
+    # do_tests(alltests)
     # do_tests( testfrom(TEST_ANIM_KF) )

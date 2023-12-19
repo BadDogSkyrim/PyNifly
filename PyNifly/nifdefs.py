@@ -138,7 +138,7 @@ pynBufferDefaults = {
     'forceCollideOntoPpu': 0,
     'friction': 0.5,
     'gravityFactor': 1.0,
-    'inertiaMatrix': "[0] * 12",
+    'inertiaMatrix': "[1, 0, 0, 0, 1, 0, 0, 0, 1]",
     'interpID' : NODEID_NONE,
     'interpolatorID' : NODEID_NONE,
     'lightingInfluence' : 255,

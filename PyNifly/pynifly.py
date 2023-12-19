@@ -954,14 +954,14 @@ CollisionObject.subtypes['bhkBlendCollisionObject'] = bhkBlendCollisionObject
 
 
 class NiAVObject(NiObject):
-    def add_collision(self, body, flags):
+    def add_collision(self, body, flags=None):
         # targhandle = None
         # if target:
         #     targhandle = target._handle
         # new_coll_hndl = NifFile.nifly.addCollision(self._handle, targhandle, 
         #                                            body.block_index, flags)
         buf = bhkCollisionObjectBuf()
-        buf.flags = flags
+        if flags is not None: buf.flags = flags
         buf.bodyID = NODEID_NONE
         if body: buf.bodyID = body.id
         buf.targetID = self.id

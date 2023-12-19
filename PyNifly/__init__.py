@@ -411,6 +411,26 @@ class NifImporter():
         self.connect_parents = []
         self.auxbones = False
 
+
+    def __str__(self):
+        flags = []
+        if self.do_create_bones: flags.append("CREATE_BONES_DEF")
+        if self.do_rename_bones: flags.append("RENAME_BONES_DEF")
+        if self.do_import_anims: flags.append("IMPORT_ANIMS_DEF")
+        if self.rename_bones_nift: flags.append("RENAME_BONES_NIFT_DEF")
+        if self.roll_bones_nift: flags.append("ROLL_BONES_NIFT_DEF")
+        if self.do_import_shapes: flags.append("IMPORT_SHAPES_DEF")
+        if self.do_apply_skinning: flags.append("APPLY_SKINNING_DEF")
+        if self.do_import_pose: flags.append("IMPORT_POSE_DEF")
+        return f"""
+        Importing nif: {self.filename_list}
+            flags: {'|'.join(flags)}
+            armature: {self.armature} 
+            connect point parents: {list(self.loaded_parent_cp.keys())}
+            mesh objects: {[obj.name for obj in self.loaded_meshes]}
+        """
+
+        
     def warn(self, text:str):
         self.warnings.append(('WARNING', text))
         log.warning(text)
@@ -2255,6 +2275,8 @@ class NifImporter():
                 self.loaded_meshes = [self.context.object]
                 log.info(f"Current object is a mesh, will import as shape key if possible: {self.context.object.name}")
 
+        log.info(str(self))
+
         for this_file in self.filename_list:
             fn, fext = os.path.splitext(os.path.basename(this_file))
 
@@ -2421,9 +2443,10 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         
             # Cleanup. Select all shapes imported, except the root node.
             objlist = [x for x in imp.objects_created.values() if x.type=='MESH']
-            if imp.armature:
-                objlist.append(imp.armature)
             highlight_objects(objlist, context)
+            # if imp.armature:
+            #     objlist.append(imp.armature)
+            ObjectSelect(imp.objects_created.values())
 
             status = set()
             for w in imp.warnings:
@@ -2669,7 +2692,7 @@ class ImportKF(bpy.types.Operator, ExportHelper):
     @classmethod
     def poll(cls, context):
         if (not context.object) or context.object.type != "ARMATURE":
-            log.error("Active object must be an armature.")
+            log.error("Cannot import KF: Active object must be an armature.")
             return False
 
         if context.object.mode != 'OBJECT':
@@ -3927,8 +3950,10 @@ class NifExporter:
         """
         if coll.name in self.objs_written: return
 
-        colnode = targnode.add_collision(
-            None, bhkCOFlags.parse(coll['pynCollisionFlags']).value)
+        flags = None
+        if 'pynCollisionFlags' in coll:
+            flags = bhkCOFlags.parse(coll['pynCollisionFlags']).value
+        colnode = targnode.add_collision(None, flags=flags)
         self.objs_written[coll.name] = colnode
 
         self.export_collision_body(coll, colnode) 
@@ -3940,9 +3965,6 @@ class NifExporter:
         A NiNode can only have one collision, so just export the first child
         that is a collision.
         """
-        # Only do collisions for Skyrim. Fallout is not supported.
-        if self.game == 'FO4': return
-
         collisions = [x for x in obj.children if x.name.startswith("bhkCollisionObject")]
         if not collisions: return
         coll = collisions[0]
