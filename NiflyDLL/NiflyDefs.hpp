@@ -497,12 +497,14 @@ struct bhkRigidBodyBuf {
 	float linearDamping;
 	float angularDamping;
 	float timeFactor;	// User Version >= 12
+	uint8_t unusedByte4;
 	float gravityFactor; // User Version >= 12
 	float friction;
 	float rollingFrictionMult; // User Version >= 12
 	float restitution;
 	float maxLinearVelocity;
 	float maxAngularVelocity;
+	uint8_t unusedByte3;
 	float penetrationDepth;
 	uint8_t motionSystem;
 	uint8_t deactivatorType;

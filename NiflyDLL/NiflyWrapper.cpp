@@ -276,7 +276,7 @@ void writeSkinBoneWeights(NifFile* nif, BSTriShape* shape) {
     if (!skinData) return;
 
     // Clear all the bone vertex weights ready for populating.
-    for (int i = 0; i < skin->boneRefs.GetSize(); i++) 
+    for (unsigned int i = 0; i < skin->boneRefs.GetSize(); i++) 
         skinData->bones[i].vertexWeights.clear();
 
     // Write the bone weights to the right vertexWeights list
@@ -294,8 +294,8 @@ void writeSkinBoneWeights(NifFile* nif, BSTriShape* shape) {
     }
 
     // Set the numVertices fields correctly.
-    for (int i = 0; i < skin->boneRefs.GetSize(); i++)
-        skinData->bones[i].numVertices = skinData->bones[i].vertexWeights.size();
+    for (unsigned int i = 0; i < skin->boneRefs.GetSize(); i++)
+        skinData->bones[i].numVertices = uint16_t(skinData->bones[i].vertexWeights.size());
 }
 
 NIFLY_API int saveNif(void* the_nif, const char8_t* filename) {
@@ -357,7 +357,7 @@ NIFLY_API int getBlockname(void* nifref, int blockID, char* buf, int buflen)
     NiHeader* hdr = &nif->GetHeader();
     NiObject* theNode = hdr->GetBlock<NiObject>(blockID);
 
-    int namelen = 0;
+    size_t namelen = 0;
     if (theNode) {
         std::string name = theNode->GetBlockName();
         int copylen = std::min((int)buflen - 1, (int)name.length());
@@ -515,7 +515,7 @@ NIFLY_API int getNodeChildren(void* nifRef, int nodeID, int buflen, int* buf)
             break;
     }
 
-    return children.size();
+    return int(children.size());
 }
 
 NIFLY_API void* addNode(void* f, const char* name, void* xf, void* parent) {
@@ -621,7 +621,7 @@ buffers conveniently.
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     int m = 0;
-    for (int i = 0; i < hdr.GetStringCount(); i++)
+    for (unsigned int i = 0; i < hdr.GetStringCount(); i++)
         m = std::max(m, int(hdr.GetStringById(i).length()));
     return m;
 }
@@ -638,7 +638,7 @@ NIFLY_API int getString(void* nifref, int strid, int buflen, char* buf)
         buf[i] = str[i];
     if (i < buflen) buf[i] = '\0';
 
-    return str.length();
+    return int(str.length());
 }
 
 NIFLY_API int addString(void* nifref, const char* buf) 
@@ -1220,7 +1220,7 @@ NIFLY_API int getShapeSkinWeights(void* theNif, void* theShape, int boneIndex,
         buf[i].weight = sw.weight;
         i++;
     }
-    return bd->vertexWeights.size();
+    return int(bd->vertexWeights.size());
 }
 
 NIFLY_API void addAllBonesToShape(void* nifref, void* shaperef, int boneCount, int* boneIDs)
@@ -2264,7 +2264,7 @@ int getInvMarker(void* nifref, uint32_t id, void* inbuf)
 
     std::vector<NiStringRef*> strs;
     invm->GetStringRefs(strs);
-    buf->stringRefCount = strs.size();
+    buf->stringRefCount = uint16_t(strs.size());
     buf->nameID = invm->name.GetIndex();
     buf->rot[0] = invm->rotationX;
     buf->rot[1] = invm->rotationY;
@@ -2517,7 +2517,7 @@ int getCollisionObject(void* nifref, uint32_t blockID, void* inbuf) {
         node->GetChildIndices(ch);
         collbuf->bodyID = collNode->bodyRef.index;
         collbuf->flags = collNode->flags;
-        collbuf->childCount = ch.size();
+        collbuf->childCount = uint16_t(ch.size());
     }
     return 0;
 };
@@ -2541,7 +2541,7 @@ int getBlendCollisionObject(void* nifref, uint32_t blockID, void* inbuf) {
     node->GetChildIndices(ch);
     coBuf->bodyID = node->bodyRef.index;
     coBuf->flags = node->flags;
-    coBuf->childCount = ch.size();
+    coBuf->childCount = uint16_t(ch.size());
     coBuf->heirGain = node->heirGain;
     coBuf->velGain = node->velGain;
 
@@ -2869,7 +2869,7 @@ int getRigidBodyProps(void* nifref, uint32_t nodeIndex, void* inbuf)
     if (theWO) {
         std::vector<uint32_t> ch;
         theWO->GetChildIndices(ch);
-        buf->childCount = ch.size();
+        buf->childCount = uint16_t(ch.size());
         buf->shapeID = theWO->shapeRef.index;
         buf->collisionFilter_layer = theWO->collisionFilter.layer;
         buf->collisionFilter_flags = theWO->collisionFilter.flagsAndParts;
@@ -2956,7 +2956,7 @@ int getSimpleShapePhantom(void* nifref, uint32_t nodeIndex, void* inbuf)
 
     std::vector<uint32_t> ch;
     theBody->GetChildIndices(ch);
-    buf->childCount = ch.size();
+    buf->childCount = uint16_t(ch.size());
     buf->shapeID = theBody->shapeRef.index;
     buf->collisionFilter_layer = theBody->collisionFilter.layer;
     buf->collisionFilter_flags = theBody->collisionFilter.flagsAndParts;
@@ -2986,7 +2986,7 @@ NIFLY_API int getRigidBodyConstraints(void* nifref, uint32_t nodeIndex, uint32_t
         idList[i] = constraintList[i];
     }
 
-    return constraintList.size();
+    return int(constraintList.size());
 }
 
 int getRagdollConstraint(void* nifref, uint32_t nodeIndex, void* inbuf)
@@ -3043,7 +3043,7 @@ NIFLY_API int getRagdollEntities(void* nifref, uint32_t nodeIndex, uint32_t* idL
         idList[i] = entityList[i];
     }
 
-    return entityList.size();
+    return int(entityList.size());
 }
 
 void addCollisionChild(NifFile* nif, uint32_t parent, uint32_t childID) {
@@ -3257,7 +3257,7 @@ NIFLY_API int getCollListShapeProps(void* nifref, uint32_t nodeIndex, void* buff
 
     std::vector<uint32_t> children;
     sh->GetChildIndices(children);
-    buf->childCount = children.size(); 
+    buf->childCount = uint32_t(children.size());
     return 0;
 }
 

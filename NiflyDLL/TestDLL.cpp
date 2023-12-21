@@ -3924,7 +3924,6 @@ namespace NiflyDLLTests
 			void* nif = load((testRoot / "Skyrim/noblechest01.nif").u8string().c_str());
 			void* mttc = getNodeByID(nif, 3);
 			char buf[64];
-			char namebuf[64];
 			for (int i = 0; i < 64; i++) buf[i] = 'z';
 			getNodeBlockname(mttc, buf, 10);
 			Assert::IsTrue(buf[11] == 'z', L"Didn't overwrite past end of buffer");
