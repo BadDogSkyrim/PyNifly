@@ -2111,8 +2111,8 @@ class NifImporter():
         self.root_object = None
 
         # We don't handle collisions in FO4
-        if self.nif.game == 'FO4': 
-            self.do_import_collisions = False
+        # if self.nif.game == 'FO4': 
+        #     self.do_import_collisions = False
 
         if self.nif.rootNode.blockname == "NiControllerSequence":
             # Top-level node of a KF animation file is a Controller Sequence. 

@@ -516,6 +516,8 @@ struct bhkRigidBodyBuf {
 	uint8_t forceCollideOntoPpu;
 	uint32_t unusedInts1[3]{};
 	uint8_t unusedBytes2[3]{};
+	uint8_t unkownBytes12[12]{}; // FO4
+	uint8_t unkownBytes04[4]{}; // FO4
 	uint16_t constraintCount;
 	uint32_t bodyFlagsInt;
 	uint16_t bodyFlags;

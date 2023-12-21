@@ -400,10 +400,9 @@ int getNodeProperties(void* nifref, uint32_t id, void* inbuf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     NiNodeBuf* buf = static_cast<NiNodeBuf*>(inbuf);
-    nifly::NiNode* node = hdr->GetBlock<NiNode>(id);
+    nifly::NiNode* node = hdr->GetBlock<NiNode>(id); 
 
     CheckID(node);
-
     CheckBuf(buf, BUFFER_TYPES::NiNodeBufType, NiNodeBuf);
 
     getNode(node, buf);

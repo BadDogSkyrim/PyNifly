@@ -3930,6 +3930,32 @@ namespace NiflyDLLTests
 			getNodeBlockname(mttc, buf, 64);
 			Assert::IsTrue(strcmp(buf, "NiMultiTargetTransformController") == 0, L"Found block name");
 		};
+		TEST_METHOD(readCollisionFO4) {
+			void* nif = load((testRoot / "FO4/AlarmClock Convex Collision.nif").u8string().c_str());
+			int clock = findBlockByName(nif, "AlarmClock:1");
+			NiNodeBuf rootBuf;
+			bhkNiCollisionObjectBuf coBuf;
+			getBlock(nif, 0, &rootBuf);
+			getBlock(nif, rootBuf.collisionID, &coBuf);
+			char collname[128];
+			getBlockname(nif, rootBuf.collisionID, collname, 128);
+			Assert::IsTrue(strcmp(collname, "bhkCollisionObject") == 0, L"Found a bhkCollisionObject");
+
+			char bodyname[128];
+			getBlockname(nif, coBuf.bodyID, bodyname, 128);
+			Assert::IsTrue(strcmp(bodyname, "bhkRigidBody") == 0, L"Can read body blockname");
+
+			bhkRigidBodyBuf bodyprops;
+			bodyprops.bufType = BUFFER_TYPES::bhkRigidBodyTBufType;
+			getBlock(nif, coBuf.bodyID, &bodyprops);
+			Assert::IsTrue(bodyprops.collisionResponse == 1, L"Can read the collision response field");
+			Assert::IsTrue(bodyprops.motionSystem == 1, L"Can read the motion system field");
+
+			BHKConvexVertsShapeBuf boxbuf;
+			getBlock(nif, bodyprops.shapeID, &boxbuf);
+
+			Assert::AreEqual(11, int(boxbuf.vertsCount), L"Have correct vertices");
+		};
 		TEST_METHOD(readWriteKF) {
 			void* nif = load((testRoot / "SkyrimSE/1hm_attackpowerright.kf").u8string().c_str());
 			void* root = getRoot(nif);
