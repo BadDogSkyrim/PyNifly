@@ -1481,7 +1481,8 @@ class NifImporter():
                     if self.do_import_pose:
                         # Using nif locations of bones. 
                         bone_node = nif_shape.file.nodes[bn]
-                        xf = transform_to_matrix(bone_node.properties.transform)
+                        # xf = transform_to_matrix(bone_node.properties.transform)
+                        xf = transform_to_matrix(bone_node.global_transform)
                     elif bn in self.reference_skel.nodes and ref_compat:
                         # Have bone in reference skeleton, get bind position there.
                         xf = transform_to_matrix(self.reference_skel.nodes[bn].global_transform)

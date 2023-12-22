@@ -2864,6 +2864,28 @@ def TEST_BOW():
     assert BD.NearEqual(maxy, 64.4891), f"Have correct max y: {maxy}"
     assert BD.NearEqual(miny, -50.5509), f"Have correct min y: {miny}"
 
+    # Check armature
+    arma = [obj for obj in bpy.context.scene.view_layers[0].objects if obj.type=='ARMATURE'][0]
+    maxx = max(b.matrix_local.translation.x for b in arma.data.bones)
+    minx = min(b.matrix_local.translation.x for b in arma.data.bones)
+    maxy = max(b.matrix_local.translation.y for b in arma.data.bones)
+    miny = min(b.matrix_local.translation.y for b in arma.data.bones)
+    assert maxx > 1.0, f"Armature bind position stretches wide enough"
+    assert miny < -10.0, f"Armature bind stretches low enough"
+    assert maxy > 50.0, f"Armature bind position stretches high enough"
+    assert miny < -50.0, f"Armature bind stretches low enough"
+
+    # Check shape as deformed by armature
+    BD.ObjectSelect([bow], active=True)
+    bpy.ops.object.duplicate()
+    for m in bow.modifiers:
+        if m.type == 'ARMATURE':
+            bpy.ops.object.modifier_apply(modifier=m.name)
+    maxy = max(v.co.y for v in bow.data.vertices)
+    miny = min(v.co.y for v in bow.data.vertices)
+    assert BD.NearEqual(maxy, 64.4891), f"Have correct max y: {maxy}"
+    assert BD.NearEqual(miny, -50.5509), f"Have correct min y: {miny}"
+
     # Check collision info
     coll = TT.find_shape('bhkCollisionObject', type='EMPTY')
     assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
@@ -5116,6 +5138,6 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_HELM_SMP] )
+    do_tests( [TEST_BOW] )
     # do_tests(alltests)
     # do_tests( testfrom(TEST_ANIM_KF) )
