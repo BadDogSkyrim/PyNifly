@@ -152,6 +152,15 @@ NISHAPE_IGNORE = ["bufSize",
                   "alphaPropertyID", 
                   ]
 
+COLLISION_BODY_IGNORE = ['rotation', 'translation', 'guard', 'unusedByte1', 
+                            'unusedInts1_0', 'unusedInts1_1', 'unusedInts1_2',
+                            'unusedBytes2_0', 'unusedBytes2_1', 'unusedBytes2_2',
+                            'bhkRadius', 'linearDamping', 'angularDamping',
+                            'friction', 'mass']
+    
+
+CAPSULE_SHAPE_IGNORE = ['point1', 'point2']
+
 # --------- Helper functions -------------
 
 def LogIf(condition, text):
@@ -364,6 +373,74 @@ def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
                     alphlayer.data[lp.index].color = [alph, alph, alph, 1.0]
     except:
         log.error(f"ERROR: Could not read colors on shape {shape.name}")
+
+
+def create_capsule(pt1, pt2, desired_radius):
+    """
+    Create a capsule shape.
+    pt1, pt2 = endpoints. These are the the centerpoints of the caps.
+    """
+    desired_len = (pt2-pt1).length + 2*desired_radius
+    bpy.ops.mesh.primitive_uv_sphere_add(
+        segments=12, ring_count=7, enter_editmode=True, 
+        align='WORLD', location=(0, 0, 0), 
+        scale=(desired_radius, desired_radius, desired_radius))
+     
+    if desired_len >= 2*desired_radius:
+        # Select verts above the origin
+        bpy.ops.mesh.select_mode(type='VERT')
+        # bpy.ops.transform.translate(value=(0, 0, desired_radius))
+        bpy.ops.mesh.select_all(action='DESELECT')
+        bpy.ops.object.mode_set(mode='OBJECT')
+        for v in bpy.context.object.data.vertices:
+            v.select = (v.co.z > 0)
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.transform.translate(value=(0, 0, desired_len-2*desired_radius))
+    else:
+        # More of a disc than a pill
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.transform.resize(value=(1, 1, desired_len/(2*desired_radius)))
+
+    bpy.ops.object.mode_set(mode='OBJECT')
+    obj = bpy.context.object
+    objtip = Vector((0, 0, desired_len))
+    pt2_relative = pt2-pt1
+    pt2_rot = Vector((0, 0, 1)).rotation_difference(pt2_relative)
+    obj.rotation_mode = 'QUATERNION'
+    obj.rotation_quaternion = pt2_rot
+    obj.location = pt1
+
+    bpy.ops.object.transform_apply()
+
+    return bpy.context.object
+
+
+def find_capsule_ends(obj, rad):
+    """
+    Find the ends of the given capsule. Must have been created with UV spheres making the
+    ends.
+    rad = radius of the cylender because it's hard to calculate.
+    returns (point1, point2), where the points are the centers of the opposite caps.
+    """
+    ObjectSelect([obj], active=True)
+    bpy.ops.object.mode_set(mode='EDIT')
+    bm = bmesh.from_edit_mesh(obj.data)
+
+    # Get the tips of the caps
+    verts = []
+    for v in bm.verts:
+        if len(v.link_edges) > 4:
+            verts.append(Vector(v.co[:]))
+
+    # Go from there to the centers of the caps
+    relvec = verts[1] - verts[0]
+    relvec.normalize()
+    relvec = relvec*rad
+    p1 = verts[1] - relvec
+    p2 = verts[0] + relvec
+
+    bpy.ops.object.mode_set(mode='OBJECT')
+    return p1, p2
 
 
 class NifImporter():
@@ -879,7 +956,6 @@ class NifImporter():
         self.objects_created[ninode._handle] = obj
 
         if ninode.collision_object:
-            #log.debug(f"{ninode.name} has collision object")
             self.import_collision_obj(ninode.collision_object, obj)
 
         self.import_extra(obj, ninode)
@@ -1543,30 +1619,51 @@ class NifImporter():
 
     # ------- COLLISION IMPORT --------
 
-    def import_bhkConvexTransformShape(self, cs:CollisionShape, cb:bpy_types.Object):
-        bpy.ops.object.add(radius=1.0, type='EMPTY')
-        cshape = bpy.context.object
-        cshape['bhkMaterial'] = SkyrimHavokMaterial.get_name(cs.properties.bhkMaterial)
-        cshape['bhkRadius'] = cs.properties.bhkRadius * self.import_scale
+    def import_bhkConvexTransformShape(self, cs:CollisionShape, targobj:bpy_types.Object):
+        """
+        bhkConvexTransformShape just repositions its child. It's not represented
+        in blender--its transform is applied directly to the collision shape.
+        """
+        # bpy.ops.object.add(radius=1.0, type='EMPTY')
+        # cshape = bpy.context.object
+        # cshape['bhkMaterial'] = SkyrimHavokMaterial.get_name(cs.properties.bhkMaterial)
+        # cshape['bhkRadius'] = cs.properties.bhkRadius * self.import_scale
         xf = Matrix(cs.transform)
         xf.translation = xf.translation * HAVOC_SCALE_FACTOR 
         # xf.translation = xf.translation * HAVOC_SCALE_FACTOR * self.scale
-        cshape.matrix_local = xf
+        # cshape.matrix_local = xf
 
-        self.import_collision_shape(cs.child, cshape)
+        childobj = self.import_collision_shape(cs.child, targobj)
+        childobj.matrix_local = childobj.matrix_local @ xf
 
-        return cshape
+        return childobj
 
 
-    def import_bhkListShape(self, cs:CollisionShape, cb:bpy_types.Object):
-        """ Import collision list. cs=collision node in nif. cb=collision body in Blender """
-        bpy.ops.object.add(radius=1.0, type='EMPTY')
+    def import_bhkListShape(self, cs:CollisionShape, targobj:bpy_types.Object):
+        """ 
+        Import collision list. 
+        cs= collision node in nif. 
+        targobj= object in Blender receiving the collision.
+        """
+        bpy.ops.mesh.primitive_cube_add(size=0.01, enter_editmode=False, align='WORLD', 
+                                        location=(0, 0, 0), scale=(1, 1, 1))
         cshape = bpy.context.object
+        cshape.name = 'bhkListShape'
         cshape.show_name = True
         cshape['bhkMaterial'] = SkyrimHavokMaterial.get_name(cs.properties.bhkMaterial)
 
+        # children = []
         for child in cs.children:
-            self.import_collision_shape(child, cshape)
+            # children.append(self.import_collision_shape(child, targobj))
+            childobj = self.import_collision_shape(child, targobj)
+            childobj.parent = cshape
+
+        # listshape = children[0]
+        # xfinv = listshape.matrix_world.inverted()
+        # for c in children[1:]:
+            # xf = c.matrix_local.copy()
+            # c.parent = listshape
+            # c.matrix_local = xf
 
         return cshape
 
@@ -1602,38 +1699,44 @@ class NifImporter():
         return obj
         
     def import_bhkCapsuleShape(self, cs:CollisionShape, cb:bpy_types.Object):
-        prop = cs.properties
-        p1 = Vector(prop.point1)
-        p2 = Vector(prop.point2)
-        vaxis = p2 - p1
-        #log.debug(f"Creating capsule shape between {p1} and {p2}")
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
+        prop = cs.properties
+        p1 = Vector(prop.point1) * sf
+        p2 = Vector(prop.point2) * sf
+        # vaxis = p2 - p1
+
         # sf = HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
-        shapelen = (vaxis.length + prop.radius1 + prop.radius2) * sf
+        # shapelen = (vaxis.length + prop.radius1 + prop.radius2) * sf
         shaperad = prop.radius1 * sf
 
-        bpy.ops.mesh.primitive_cylinder_add(radius=shaperad, depth=shapelen)
-        obj = bpy.context.object
+        obj = create_capsule(p1, p2, shaperad)
+        prop.extract(obj, ignore=CAPSULE_SHAPE_IGNORE)
+        # bpy.ops.mesh.primitive_cylinder_add(radius=shaperad, depth=shapelen)
+        # obj = bpy.context.object
 
-        objtrans = Vector(( (((p2.x - p1.x)/2) + p1.x) * sf,
-                            (((p2.y - p1.y)/2) + p1.y) * sf,
-                            (((p2.z - p1.z)/2) + p1.z) * sf,
-                            ))
-        obj.location = objtrans
+        # objtrans = Vector(( (((p2.x - p1.x)/2) + p1.x) * sf,
+        #                     (((p2.y - p1.y)/2) + p1.y) * sf,
+        #                     (((p2.z - p1.z)/2) + p1.z) * sf,
+        #                     ))
+        # obj.location = objtrans
         
         # obj.rotation_euler = Euler((-pi/2, 0, 0), 'XYZ')
         # obj.rotation_euler.rotate(cb.rotation_euler)
-        objaxis = Vector((0, 0, 1))
-        shaperot = objaxis.rotation_difference(vaxis)
-        cbrot = cb.rotation_euler.to_quaternion()
-        obj.rotation_euler = (shaperot @ cbrot).to_euler()
+        # objaxis = Vector((0, 0, 1))
+        # shaperot = objaxis.rotation_difference(vaxis)
+        # cbrot = cb.rotation_euler.to_quaternion()
+        # obj.rotation_euler = (shaperot @ cbrot).to_euler()
+        # obj.matrix_world = MatrixLocRotScale(objtrans, shaperot, Vector((1,1,1)))
+        # ObjectSelect([obj], active=True)
+        # bpy.ops.object.transform_apply()
 
         for p in obj.data.polygons:
             p.use_smooth = True
         obj.data.update()
         
+        obj.name = 'bhkCapsuleShape'
         obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
-        obj['bhkRadius'] = prop.bhkRadius * self.import_scale
+        obj['bhkRadius'] = prop.bhkRadius
         return obj
         
 
@@ -1651,8 +1754,8 @@ class NifImporter():
             p.use_smooth = True
         obj.data.update()
         
-        obj['material'] = SkyrimHavokMaterial.get_name(prop.material)
-        obj['radius'] = prop.radius * self.import_scale
+        obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
+        obj['bhkRadius'] = prop.bhkRadius * self.import_scale
         return obj
         
 
@@ -1708,9 +1811,8 @@ class NifImporter():
             obj['bhkMaterial'] = str(prop.bhkMaterial)
         obj['bhkRadius'] = prop.bhkRadius * self.import_scale
 
-        #log.info(f"1. Imported bhkConvexVerticesShape {obj.name} matrix: \n{obj.matrix_world}")
-        if log.getEffectiveLevel() == logging.DEBUG:
-            self.show_collision_normals(collisionnode, obj)
+        # if log.getEffectiveLevel() == logging.DEBUG:
+        #     self.show_collision_normals(collisionnode, obj)
         obj.rotation_mode = "QUATERNION"
         q = collisionbody.rotation_quaternion.copy()
         q.invert()
@@ -1719,74 +1821,109 @@ class NifImporter():
         return obj
 
 
-    def import_collision_shape(self, cs:CollisionShape, cb:bpy_types.Object):
+    def import_collision_shape(self, cs:CollisionShape, targobj:bpy_types.Object):
         sh = None
         #log.debug(f"Found collision shape {cs.blockname}")
         if cs.blockname == "bhkBoxShape":
-            sh = self.import_bhkBoxShape(cs, cb)
+            sh = self.import_bhkBoxShape(cs, targobj)
         elif cs.blockname == "bhkConvexVerticesShape":
-            sh = self.import_bhkConvexVerticesShape(cs, cb)
+            sh = self.import_bhkConvexVerticesShape(cs, targobj)
         elif cs.blockname == "bhkListShape":
-            sh = self.import_bhkListShape(cs, cb)
+            sh = self.import_bhkListShape(cs, targobj)
         elif cs.blockname == "bhkConvexTransformShape":
-            sh = self.import_bhkConvexTransformShape(cs, cb)
+            sh = self.import_bhkConvexTransformShape(cs, targobj)
         elif cs.blockname == "bhkCapsuleShape":
-            sh = self.import_bhkCapsuleShape(cs, cb)
+            sh = self.import_bhkCapsuleShape(cs, targobj)
         elif cs.blockname == "bhkSphereShape":
-            sh = self.import_bhkSphereShape(cs, cb)
+            sh = self.import_bhkSphereShape(cs, targobj)
         else:
             self.warn(f"Found unimplemented collision shape: {cs.blockname}")
         
         if sh:
-            sh.name = cs.blockname
-            sh.parent = cb
-            bodytype = cb.name.split('.')[0]
+            bpy.ops.rigidbody.object_add(type='ACTIVE')
+            
+            # Collisions aren't given parents because it's often their parents that 
+            # they are controlling. Just give them their parent's location instead.
+            # if cs.blockname not in ['bhkConvexTransformShape']:
+            #     sh.matrix_world = targobj.matrix_world.copy()
+
+            bodytype = targobj.name.split('.')[0]
             if bodytype in COLLISION_COLOR_MAP:
                 sh.color = COLLISION_COLOR_MAP[bodytype] 
             else:
                 sh.color = COLLISION_COLOR
 
+        return sh
 
-    collision_body_ignore = ['rotation', 'translation', 'guard', 'unusedByte1', 
-                             'unusedInts1_0', 'unusedInts1_1', 'unusedInts1_2',
-                             'unusedBytes2_0', 'unusedBytes2_1', 'unusedBytes2_2']
 
-    def import_collision_body(self, cb:bhkWorldObject, c:bpy_types.Object):
-        """Import the RigidBody node.
-        c = its parent collision object."""
-        bpy.ops.object.add(radius=1.0, type='EMPTY')
-        cbody = bpy.context.object
-        cbody.matrix_world = Matrix() # Set to identity; will be reset if this is a bhkRigidBodyT
-        cbody.parent = c
-        cbody.name = cb.blockname
-        cbody.show_name = True
-        self.incr_loc
+    collision_active_layers = [
+        SkyrimCollisionLayer.CLUTTER, SkyrimCollisionLayer.WEAPON,
+        SkyrimCollisionLayer.PROJECTILE, SkyrimCollisionLayer.TREES,
+        SkyrimCollisionLayer.DEBRIS_LARGE, SkyrimCollisionLayer.DEBRIS_SMALL]
+    
+
+    def import_collision_body(self, cb:bhkWorldObject, obj):
+        """
+        Import the RigidBody node.
+        obj = The target object. (May be mesh, armature bone, or empty.)
+        returns the collision shape
+        """
+        # bpy.ops.object.add(radius=1.0, type='EMPTY')
+        # cbody = bpy.context.object
+        # cbody.matrix_world = Matrix() # Set to identity; will be reset if this is a bhkRigidBodyT
+        # cbody.parent = c
+        # cbody.name = cb.blockname
+        # cbody.show_name = True
+        # self.incr_loc
         #log.debug(f"Made collision body {cb.blockname} at {cbody.location}")
+        if not cb.shape: return None
+        
+        sh = self.import_collision_shape(cb.shape, obj)
 
         p = cb.properties
-        p.extract(cbody, ignore=self.collision_body_ignore)
+        p.extract(sh, ignore=COLLISION_BODY_IGNORE)
+        if not cb.blockname.startswith('bhkRigidBody'):
+            sh['pynRigidBody'] = cb.blockname
 
         # bhkRigidBodyT blocks store rotation as a quaternion with the angle in the 4th
         # position, in radians 
         if p.bufType == PynBufferTypes.bhkRigidBodyTBufType:
             q = Quaternion((p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2],))
-            cbody.rotation_mode = 'QUATERNION'
-            cbody.rotation_quaternion = q
+            sh.rotation_mode = 'QUATERNION'
+            sh.rotation_quaternion = q
             # cbody.rotation_quaternion = (p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2], )
-            cbody.location = Vector(p.translation[0:3]) * HAVOC_SCALE_FACTOR
+            sh.location = Vector(p.translation[0:3]) * HAVOC_SCALE_FACTOR
 
         # bhkSimpleShapePhantom has a transform built in.
         elif p.bufType == PynBufferTypes.bhkSimpleShapePhantomBufType:
             mx = Matrix([r for r in p.transform])
-            cbody.matrix_local = mx
+            sh.matrix_local = mx
 
-        cs = cb.shape
-        if cs:
-            self.import_collision_shape(cs, cbody)
+        ObjectSelect([sh], active=True)
+        rbtype = 'ACTIVE' if p.collisionFilter_layer in self.collision_active_layers else 'PASSIVE'
+        try:
+            sh.rigid_body.mass = p.mass / HAVOC_SCALE_FACTOR
+            sh.rigid_body.friction = p.friction / HAVOC_SCALE_FACTOR
+            sh.rigid_body.use_margin = True
+            sh.rigid_body.collision_margin = cb.shape.properties.bhkRadius # * HAVOC_SCALE_FACTOR
+            sh.rigid_body.linear_damping = p.linearDamping / HAVOC_SCALE_FACTOR
+            sh.rigid_body.angular_damping = p.angularDamping / HAVOC_SCALE_FACTOR
+        except:
+            pass
+            
+        if sh.name.split('.')[0] == 'bhkListShape':
+            sh.rigid_body.collision_shape = 'COMPOUND'
+            for ch in sh.children:
+                ObjectSelect([ch], active=True)
+                bpy.ops.rigidbody.object_add(type=rbtype)
+                
+
+        return sh
 
 
     def import_collision_obj(self, c:CollisionObject, parentObj=None, bone:NiNode=None):
-        """Import collision object. 
+        """
+        Import collision object. 
         * parentObj is target of collision if it's a NiNode. If target is a bone,
         parentObj is armature and "bone" is the NiNode for the bone. 
         * Returns new collision object.
@@ -1795,36 +1932,40 @@ class NifImporter():
 
         col = None
         bpy.ops.object.mode_set(mode='OBJECT')
-        if c.blockname in ["bhkCollisionObject", 
+        if c.blockname not in ["bhkCollisionObject", 
                            "bhkSPCollisionObject", 
                            "bhkNPCollisionObject", 
                            "bhkPCollisionObject",
                            "bhkBlendCollisionObject"]:
-            name_ext = bone.blender_name if bone else parentObj.name if parentObj else ""
-            bpy.ops.object.add(radius=1.0, type='EMPTY')
-            col = self.context.object
-            col.name = c.blockname + "(" + name_ext + ")"
-            col.show_name = True
-            col['pynCollisionFlags'] = bhkCOFlags(c.flags).fullname
-
-            if parentObj:
-                col.parent = parentObj
-                # Setting the parent gives the child the inverse of the parent's
-                # transformation matrix, because someone thatout taht would be helpful.
-                # Change it back. 
-                col.matrix_world = parentObj.matrix_world.copy()
-                if parentObj.type == "ARMATURE" and bone.blender_name in parentObj.data.bones:
-                    # col.matrix_world = col.matrix_world @ self.calc_obj_transform(bone)
-                    col.matrix_world = col.matrix_world \
-                        @ parentObj.pose.bones[bone.blender_name].matrix
-                    col['pynCollisionTarget'] = bone.blender_name
-
-            cb = c.body
-            if cb:
-                self.import_collision_body(cb, col)
-        else:
             self.warn(f"Found an unknown type of collision: {c.blockname}")
-        return col
+            return None
+        if not c.body: return None
+
+        name_ext = bone.blender_name if bone else parentObj.name if parentObj else ""
+        # bpy.ops.object.add(radius=1.0, type='EMPTY')
+        # col = self.context.object
+        # col.name = c.blockname + "(" + name_ext + ")"
+        # col.show_name = True
+
+        sh = self.import_collision_body(c.body, parentObj)
+        sh['pynCollisionFlags'] = bhkCOFlags(c.flags).fullname
+
+        if parentObj:
+            constr = parentObj.constraints.new('COPY_TRANSFORMS')
+            constr.target = sh
+
+        # if parentObj:
+        #     col.parent = parentObj
+        #     # Setting the parent gives the child the inverse of the parent's
+        #     # transformation matrix, because someone thatout taht would be helpful.
+        #     # Change it back. 
+        #     col.matrix_world = parentObj.matrix_world.copy()
+        #     if parentObj.type == "ARMATURE" and bone.blender_name in parentObj.data.bones:
+        #         # col.matrix_world = col.matrix_world @ self.calc_obj_transform(bone)
+        #         col.matrix_world = col.matrix_world \
+        #             @ parentObj.pose.bones[bone.blender_name].matrix
+        #         col['pynCollisionTarget'] = bone.blender_name
+        return sh
 
     # def import_collisions(self):
     #     """Import top-level collision, if any """
@@ -3268,7 +3409,7 @@ class NifExporter:
         self.bsx_flag = None
         self.inv_marker = None
         self.furniture_markers = set()
-        self.collisions = set()
+        # self.collisions = set()
         self.connect_parent = set()
         self.connect_child = set()
         self.trippath = ''
@@ -3305,7 +3446,6 @@ class NifExporter:
             string data: {self.str_data}
             BG data: {self.bg_data}
             cloth data: {self.cloth_data}
-            collisions: {self.collisions}
             armature: {self.armature.name if self.armature else 'None'}
             facebones: {self.facebones.name if self.facebones else 'None'}
             parent connect points: {self.connect_parent}
@@ -3428,8 +3568,8 @@ class NifExporter:
             elif obj.name.startswith("BSConnectPointChildren"):
                 self.connect_child.add(obj)
 
-            elif obj.name.startswith("bhkCollisionObject"):
-                self.collisions.add(obj)
+            # elif obj.name.startswith("bhkCollisionObject"):
+            #     self.collisions.add(obj)
 
             elif obj.type == 'EMPTY':
                 self.grouping_nodes.add(obj)
@@ -3660,6 +3800,7 @@ class NifExporter:
 
         # Capsule covers the extent of the shape
         props = bhkCapsuleShapeProps(s)
+        props.load(s, ignore=CAPSULE_SHAPE_IGNORE)
         # xf = s.matrix_local
         # xfv = [xf @ v.co for v in s.data.vertices]
 
@@ -3685,18 +3826,18 @@ class NifExporter:
         # props.point2[2] = ((minv.z+halfspan.z) / sf) 
 
         # ---New---
-        rot = s.rotation_euler.to_quaternion()
+        # rot = s.rotation_euler.to_quaternion()
         # rot.invert()
 
-        # Capsule shape aligned on z-axis. Length incorporates the caps, so it's 2*radius
-        # longer than it should be.
-        global_xf = self.root_object.matrix_world.inverted() @ s.matrix_world 
-        rad = (max(v.co.x for v in s.data.vertices) \
-               - min(v.co.x for v in s.data.vertices)) / 2
-        zmin = min(v.co.z for v in s.data.vertices) + rad
-        zmax = max(v.co.z for v in s.data.vertices) - rad
-        point1 = global_xf @ Vector((0, 0, zmin)) 
-        point2 = global_xf @ Vector((0, 0, zmax))
+        # # Capsule shape aligned on z-axis. Length incorporates the caps, so it's 2*radius
+        # # longer than it should be.
+        # global_xf = self.root_object.matrix_world.inverted() @ s.matrix_world 
+        # rad = (max(v.co.x for v in s.data.vertices) \
+        #        - min(v.co.x for v in s.data.vertices)) / 2
+        # zmin = min(v.co.z for v in s.data.vertices) + rad
+        # zmax = max(v.co.z for v in s.data.vertices) - rad
+        # point1 = global_xf @ Vector((0, 0, zmin)) 
+        # point2 = global_xf @ Vector((0, 0, zmax))
         
         # Point1, Point2 are locations in havok world space. 
         # transl = (s.location - s.parent.matrix_world.translation)/sf
@@ -3707,16 +3848,18 @@ class NifExporter:
         # point1 += transl
         # point2 += transl
 
-        props.bhkRadius = props.radius1 = props.radius2 = rad/sf
+        if 'bhkRadius' in s:
+            props.bhkRadius = props.bhkRadius1 = props.bhkRadius2 = s['bhkRadius']
+            point1, point2 = find_capsule_ends(s, props.bhkRadius*sf)
 
-        for i, val in enumerate(point1):
-            props.point1[i] = val/sf
-        for i, val in enumerate(point2):
-            props.point2[i] = val/sf
+            for i, val in enumerate(point1):
+                props.point1[i] = val/sf
+            for i, val in enumerate(point2):
+                props.point2[i] = val/sf
 
         cshape = self.nif.add_shape(props)
 
-        return cshape, center
+        return cshape, s.location
 
 
     def export_bhkBoxShape(self, s, xform) -> CollisionShape:
@@ -3758,10 +3901,14 @@ class NifExporter:
     def export_bhkConvexVerticesShape(self, s, xform):
         """Export a convex vertices shape that wraps around whatever the import shape
         is."""
+        # if self.root_object:
+        #     effectiveXF = self.root_object.matrix_world @ xform @ s.matrix_local 
+        # else:
+        #     effectiveXF = xform @ s.matrix_local 
         if self.root_object:
-            effectiveXF = self.root_object.matrix_world @ xform @ s.matrix_local 
+            effectiveXF = self.root_object.matrix_world @ xform
         else:
-            effectiveXF = xform @ s.matrix_local 
+            effectiveXF = xform 
 
         p = bhkConvexVerticesShapeProps(s)
         bm = bmesh.new()
@@ -3788,31 +3935,44 @@ class NifExporter:
 
 
     def export_bhkConvexTransformShape(self, s, xform):
+        """
+        s is the collision shape to be controlled by the bhkConvexTransformShape, which
+        isn't represented directly in the Blender file at all.
+        """
         childxf = xform @ s.matrix_local
-        childnode, childcenter = self.export_collision_shape(s.children, childxf)
+        childnode, childcenter = self.export_collision_shape([s], childxf)
 
         if not childnode:
             return None, None
 
         props = bhkConvexTransformShapeProps(s)
-        props.bhkRadius = s["bhkRadius"] / self.export_scale
+        if s.rigid_body.use_margin:
+            props.bhkRadius = s.rigid_body.collision_margin # / HAVOC_SCALE_FACTOR
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
         havocxf = s.matrix_local.copy()
         havocxf.translation = havocxf.translation / sf
         cshape = self.nif.add_shape(props, transform=havocxf)
-        #log.debug(f"Exporting bhkConvexTransformShape with material {props.F}")
         cshape.child = childnode
         return cshape, xform.translation
 
 
     def export_bhkListShape(self, s, xform):
+        """
+        Collisions actually come from the list shape's children. Since collision shapes
+        don't have transforms themselves, there has to be an intermediate
+        bhkConvexTransform shape to position them.
+        """
         props = bhkListShapeProps(s)
         cshape = self.nif.add_shape(props)
 
         xf = s.matrix_local @ xform
         for ch in s.children: 
             if ch.name.startswith("bhk"):
-                shapenode, nodetransl = self.export_collision_shape([ch], xf)
+                # ctsprops = bhkConvexTransformShapeProps(ch)
+                # xf = ch.matrix_local.copy()
+                # xf.translation = xf.translation / HAVOC_SCALE_FACTOR
+                # ctsprops.transform = 
+                shapenode, nodetransl = self.export_bhkConvexTransformShape(ch, xf)
                 if shapenode:
                     cshape.add_child(shapenode)
 
@@ -3839,53 +3999,60 @@ class NifExporter:
             # TODO: Add bhkSphereShape
         return None, None
 
-    def get_collision_target(self, collisionobj):
-        """Find the target of the given collision. 
-        Return the pair 
-        * world transform matrix for the collision target. 
-        """
-        mx = None
-        targ = collisionobj.parent
-        if targ == None:
-            targ = self.root_object
-        if targ == None:
-            mx = collisionobj.matrix_world.copy()
-            log.warn(f"No target, using collision object: {collisionobj.name}")
-            return mx
+    # def get_collision_target(self, collisionobj):
+    #     """
+    #     Find the target of the given collision. 
+    #     Returns the world transform matrix for the collision target. 
+    #     """
+    #     mx = None
+    #     targ = collisionobj.parent
+    #     if targ == None:
+    #         targ = self.root_object
+    #     if targ == None:
+    #         mx = collisionobj.matrix_world.copy()
+    #         log.warn(f"No target, using collision object: {collisionobj.name}")
+    #         return mx
 
-        if targ.type == 'ARMATURE':
-            targname = collisionobj['pynCollisionTarget']
-            mx = get_bone_xform(targ, targname, self.game, 
-                                self.preserve_hierarchy,
-                                self.export_pose)
-            return mx
+    #     if targ.type == 'ARMATURE':
+    #         targname = collisionobj['pynCollisionTarget']
+    #         mx = get_bone_xform(targ, targname, self.game, 
+    #                             self.preserve_hierarchy,
+    #                             self.export_pose)
+    #         return mx
 
-        mx = targ.matrix_local.copy()
-        return mx
+    #     mx = targ.matrix_local.copy()
+    #     return mx
 
 
-    def export_collision_body(self, coll, colnode):
-        """ Export the collision body for the given collision. Only one collision body
-        allowed, so only first element in list is used. 
-
+    def export_collision_body(self, targobj, coll):
+        """ 
+        Export the collision body for the given collision. 
+        * targobj = Blender object that has the collision.
         * coll = Blender object representing the collision
         * colnode = Nif node representing the collision
         """
-        body = None
-        body_list = [b for b in coll.children 
-                     if b.name.startswith('bhkRigidBody') 
-                     or b.name.startswith("bhkSimpleShapePhantom")]
-        if not body_list: return None
+        if not coll.rigid_body: return
+        if 'pynRigidBody' not in coll: 
+            bodytype = 'bhkRigidBody'
+        else:
+            bodytype = coll['pynRigidBody']
 
-        collbody = body_list[0]
-        bodytype = collbody.name.split('.')[0]
+        # body = None
+        # body_list = [b for b in coll.children 
+        #              if b.name.startswith('bhkRigidBody') 
+        #              or b.name.startswith("bhkSimpleShapePhantom")]
+        # if not body_list: return None
+
+        # collbody = body_list[0]
+        # bodytype = collbody.name.split('.')[0]
 
         # Gonna need relative locations but without the transform the root provides.
         rootinv = Matrix.Identity(4)
         if self.root_object:
             rootinv = self.root_object.matrix_world.inverted()
         
-        targxf = self.get_collision_target(coll) 
+        # targxf = self.get_collision_target(coll) 
+        targxf = targobj.matrix_world
 
         # Coll body can be anywhere. What matters is the location of the collision
         # shape relative to the collision target--that gets stored on the
@@ -3895,25 +4062,28 @@ class NifExporter:
         # Calc transform to collision target. Some collision shapes need this, others
         # depend on having a bhkRigidBodyT do it for them. 
         # Apply the transform from target, but remove any transform introduced by the root.
-        xform = rootinv @ collbody.matrix_world
+        xform = rootinv @ coll.matrix_world
         targxfi = targxf.inverted()
         xform = targxfi @ xform
         # xform = (rootinv @ targxf).inverted() 
 
-        cshape, ctr = self.export_collision_shape(collbody.children, xform) 
+        cshape, ctr = self.export_collision_shape([coll], xform) 
         if not cshape: return None
 
-        props = bhkWorldObject.get_buffer(bodytype, values=collbody)
+        props = bhkWorldObject.get_buffer(bodytype, values=coll)
         if props.bufType == PynBufferTypes.bhkRigidBodyBufType and cshape.needsTransform:
             props.bufType = PynBufferTypes.bhkRigidBodyTBufType
         elif props.bufType == PynBufferTypes.bhkRigidBodyTBufType and not cshape.needsTransform:
             props.bufType = PynBufferTypes.bhkRigidBodyBufType
          
         props.shapeID = cshape.id
+        props.mass = coll.rigid_body.mass
+        props.friction = coll.rigid_body.friction
+        props.linearDamping = coll.rigid_body.linear_damping
+        props.angularDamping = coll.rigid_body.angular_damping
 
         # If there's no target, root is the target. We don't support transforms 
         # on root yet.
-        # TODO: Handle bhkSimpleShapePhantom
         targloc, targq, targscale = targxf.decompose()
 
         targq.invert()
@@ -3940,53 +4110,60 @@ class NifExporter:
                 for j, v in enumerate(r):
                     props.transform[i][j] = v
 
+        colnode = self.objs_written[coll.name]
         body_node = colnode.add_body(props)
-        self.objs_written[collbody.name] = body_node
+        # self.objs_written[collbody.name] = body_node
 
-        return body
+        # return body
 
 
-    def export_collision_object(self, targnode, coll):
-        """Export the given collision object. 
+    def export_collision_object(self, targobj, coll):
+        """
+        Export the given collision object. 
+        targobj = Blender object with the collision.
+        coll = Blender object representing the collision.
         """
         if coll.name in self.objs_written: return
 
         flags = None
         if 'pynCollisionFlags' in coll:
             flags = bhkCOFlags.parse(coll['pynCollisionFlags']).value
+
+        targnode = self.objs_written[targobj.name]
         colnode = targnode.add_collision(None, flags=flags)
         self.objs_written[coll.name] = colnode
 
-        self.export_collision_body(coll, colnode) 
+        self.export_collision_body(targobj, coll) 
 
 
     def export_collisions(self, obj):
-        """Export the object's  collision. 
-                
-        A NiNode can only have one collision, so just export the first child
-        that is a collision.
         """
-        collisions = [x for x in obj.children if x.name.startswith("bhkCollisionObject")]
+        Export the object's  collision. 
+                
+        Collision shapes are tied to their target with a copy-transforms constraint.
+        """
+        collisions = [x for x in obj.constraints if x.type == 'COPY_TRANSFORMS']
         if not collisions: return
-        coll = collisions[0]
-        if coll.name in self.objs_written: return
+        collshape = collisions[0].target
+        if not collshape: return
+        if collshape.name in self.objs_written: return
 
-        # Determine the target of the collision
-        targnode = self.nif.rootNode
-        if obj.type == "ARMATURE":
-            targname = coll['pynCollisionTarget']
-            targnode = self.nif.nodes[targname]
-        else:
-            if obj.name not in self.objs_written:
-                targnode = self.export_shape_parents(coll)
-            else:
-                targnode = self.objs_written[obj.name]
-        if not targnode:
-            targnode = self.nif.rootNode
-            #self.log_warning(f"Target not found for collision {coll.name}")
-            #return
+        # # Determine the target of the collision
+        # targnode = self.nif.rootNode
+        # if obj.type == "ARMATURE":
+        #     targname = coll['pynCollisionTarget']
+        #     targnode = self.nif.nodes[targname]
+        # else:
+        #     if obj.name not in self.objs_written:
+        #         targnode = self.export_shape_parents(coll)
+        #     else:
+        #         targnode = self.objs_written[obj.name]
+        # if not targnode:
+        #     targnode = self.nif.rootNode
+        #     #self.log_warning(f"Target not found for collision {coll.name}")
+        #     #return
 
-        self.export_collision_object(targnode, coll)
+        self.export_collision_object(obj, collshape)
 
 
     def get_loop_partitions(self, face, loops, weights):
@@ -4629,6 +4806,7 @@ class NifExporter:
             
             self.nif.initialize(self.game, fpath, rt, rn)
             if self.root_object:
+                self.objs_written[self.root_object.name] = self.nif.rootNode
                 self.nif.rootNode.flags = NiAVFlags.parse(self.root_object["pynNodeFlags"]).value
             elif "pynNodeFlags" in shape:
                 #log.debug(f"Root node flags are '{shape['pynNodeFlags']}' = '{NiAVFlags.parse(shape['pynNodeFlags']).value}'")
@@ -4678,8 +4856,10 @@ class NifExporter:
                 and  not self.bodytri_written:
                 self.nif.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
 
-            for c in self.collisions:
-                self.export_collision_object(self.nif.rootNode, c)
+            if self.root_object:
+                for c in self.root_object.constraints:
+                    if c.type == 'COPY_TRANSFORMS' and c.target:
+                        self.export_collision_object(self.root_object, c.target)
             self.export_extra_data()
 
             self.nif.save()

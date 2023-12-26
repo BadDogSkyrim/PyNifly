@@ -3091,15 +3091,14 @@ def TEST_COLLISION_HIER():
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    leek4 = TT.find_shape("Leek04")
     leek0 = TT.find_shape("Leek04:0")
     leek1 = TT.find_shape("Leek04:1")
-    c1 = TT.find_shape("bhkCollisionObject", type='EMPTY')
-    rb = TT.find_shape("bhkRigidBody", type='EMPTY')
-    cshape = TT.find_shape("bhkConvexVerticesShape")
-    assert c1.parent.name == "Leek04" in bpy.data.objects, f"Target is a valid object: {c1.parent.name}"
-    assert leek0.parent.name == "Leek04" in bpy.data.objects, f"Target is a valid object: {leek0.parent.name}"
-    assert leek1.parent.name == "Leek04" in bpy.data.objects, f"Target is a valid object: {leek1.parent.name}"
+    leek4 = leek0.parent
+    assert leek4.name == 'Leek04', f"Have correct parent"
+    assert leek0.parent == leek1.parent, f"Have correct parent/child relationships"
+    assert len(leek4.constraints) > 0, f"Have constraint on parent"
+    cshape = leek4.constraints[0].target
+    assert cshape, f"Have collision shape"
     xf = cshape.matrix_world
     minx = min((xf @ v.co).x for v in cshape.data.vertices)
     maxx = max((xf @ v.co).x for v in cshape.data.vertices)
@@ -3299,15 +3298,12 @@ def TEST_COLLISION_MULTI():
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    leek1 = TT.find_shape("Leek01", type='EMPTY')
     leek10 = TT.find_shape("Leek01:0")
     leek11 = TT.find_shape("Leek01:1")
-    leek2 = TT.find_shape("Leek02", type='EMPTY')
-    leek3 = TT.find_shape("Leek03", type='EMPTY')
-    leek4 = TT.find_shape("Leek04", type='EMPTY')
-    c1 = TT.find_shape("bhkCollisionObject", leek1.children, type='EMPTY')
-    c2 = TT.find_shape("bhkCollisionObject", leek2.children, type='EMPTY')
-    assert set(leek1.children) == set( (c1, leek10, leek11) ), f"Children of Leek01 are correct: {leek1.children} == {c1}, {leek10}, {leek11}"
+    leek1 = leek10.parent
+    leek1 == leek10.parent == leek11.parent, f"Parent/child relationships correct"
+    assert leek1.name == "Leek01", f"Have correct parent"
+    assert len(leek1.constraints) > 0, f"Leek has constraints"
     
     # -------- Export --------
     bpy.ops.object.select_all(action='SELECT')
@@ -3337,40 +3333,52 @@ def TEST_COLLISION_CONVEXVERT():
 
         # ------- Load --------
         testfile = TT.test_file(r"tests\Skyrim\cheesewedge01.nif")
-        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_CONVEXVERT.{bx}.nif")
+        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_CONVEXVERT.{'BL' if bx else 'NAT'}.nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=bx)
 
         # Check transform
-        obj = TT.find_shape('CheeseWedge')
-        assert TT.VNearEqual(obj.location, (0,0,0)), f"Cheese wedge at right location: {obj.location}"
-        assert TT.VNearEqual(obj.rotation_euler, (0,0,0)), f"Cheese wedge not rotated: {obj.rotation_euler}"
-        assert obj.scale == Vector((1,1,1)), f"Cheese wedge scale 1"
+        cheese = TT.find_shape('CheeseWedge')
+        assert TT.VNearEqual(cheese.location, (0,0,0)), f"Cheese wedge at right location: {cheese.location}"
+        assert TT.VNearEqual(cheese.rotation_euler, (0,0,0)), f"Cheese wedge not rotated: {cheese.rotation_euler}"
+        assert cheese.scale == Vector((1,1,1)), f"Cheese wedge scale 1"
 
         # Check collision info
-        coll = TT.find_shape('bhkCollisionObject', type='EMPTY')
-        assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
-        assert 'pynRoot' in coll.parent, f"Collision shape's parent is root"
+        root = cheese.parent
+        constr = [c for c in root.constraints if c.type == 'COPY_TRANSFORMS']
+        assert constr, f"Have constraints on root"
+        coll = constr[0].target
+        assert coll, f"Have collision object"
+        assert coll.rigid_body, f"Collision object has physics"
+        assert coll.rigid_body.type == 'ACTIVE'
+        assert BD.NearEqual(coll.rigid_body.mass, 2.5), f"Have correct mass"
+        assert BD.NearEqual(coll.rigid_body.friction, 0.5), f"Have correct friction"
+        assert coll['bhkMaterial'] == 'CLOTH', f"Shape material is a custom property: {coll['bhkMaterial']}"
 
-        collbody = coll.children[0]
-        assert collbody.name == 'bhkRigidBody', f"Child of collision is the collision body object"
-        assert collbody['collisionFilter_layer'] == nifdefs.SkyrimCollisionLayer.CLUTTER.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
+        # coll = TT.find_shape('bhkCollisionObject', type='EMPTY')
+        # assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
+        # assert 'pynRoot' in coll.parent, f"Collision shape's parent is root"
+
+        # collbody = coll.children[0]
+        # assert collbody.name == 'bhkRigidBody', f"Child of collision is the collision body object"
+        # assert collbody['collisionFilter_layer'] == nifdefs.SkyrimCollisionLayer.CLUTTER.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
         # assert collbody["collisionResponse"] == nifdefs.hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
 
-        collshape = collbody.children[0]
-        assert collshape.name == 'bhkConvexVerticesShape', f"Collision shape is child of the collision body"
-        assert collshape['bhkMaterial'] == 'CLOTH', f"Shape material is a custom property: {collshape['bhkMaterial']}"
-        obj = TT.find_shape('CheeseWedge01', collection=bpy.context.selected_objects)
-        xmax1 = max([v.co.x for v in obj.data.vertices])
-        xmax2 = max([v.co.x for v in collshape.data.vertices])
+        # collshape = collbody.children[0]
+        # assert collshape.name == 'bhkConvexVerticesShape', f"Collision shape is child of the collision body"
+        # assert collshape['bhkMaterial'] == 'CLOTH', f"Shape material is a custom property: {collshape['bhkMaterial']}"
+        # obj = TT.find_shape('CheeseWedge01', collection=bpy.context.selected_objects)
+        xmax1 = max([v.co.x for v in cheese.data.vertices])
+        xmax2 = max([v.co.x for v in coll.data.vertices])
         assert abs(xmax1 - xmax2) < 0.5, f"Max x vertex nearly the same: {xmax1} == {xmax2}"
-        corner = collshape.data.vertices[0].co
+        corner = coll.data.vertices[0].co
         assert TT.VNearEqual(corner, (-4.18715, -7.89243, 7.08596)), f"Collision shape in correct position: {corner}"
 
         # ------- Export --------
 
-        bpy.ops.object.select_all(action="SELECT")
-        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', use_blender_xf=bx)
+        BD.ObjectSelect([root], active=True)
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', 
+                                     use_blender_xf=bx)
 
         # ------- Check Results --------
 
@@ -3433,14 +3441,13 @@ def TEST_COLLISION_CAPSULE():
 
         # ------- Load --------
         testfile = TT.test_file(r"tests\Skyrim\staff04.nif")
-        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_CAPSULE.{bx}.nif")
+        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_CAPSULE.{'BL' if bx else 'NAT'}.nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=bx)
 
         staff = TT.find_shape("3rdPersonStaff04")
-        coll = TT.find_shape("bhkCollisionObject", type="EMPTY")
-        collbody = coll.children[0]
-        collshape = collbody.children[0]
+        coll = staff.parent.constraints[0].target
+        assert coll['bhkMaterial'] == 'SOLID_METAL', f"Have correct material"
         strd = TT.find_shape("NiStringExtraData", type="EMPTY")
         bsxf = TT.find_shape("BSXFlags", type="EMPTY")
         invm = TT.find_shape("BSInvMarker", type="EMPTY")
@@ -3448,7 +3455,7 @@ def TEST_COLLISION_CAPSULE():
         # The staff has bits that stick out, so its bounding box is a bit larger than
         # the collision's.
         staffmin, staffmax = TT.get_obj_bbox(staff, worldspace=True)
-        collmin, collmax = TT.get_obj_bbox(collshape, worldspace=True)
+        collmin, collmax = TT.get_obj_bbox(coll, worldspace=True)
         assert staffmax[0] > collmax[0], f"Staff surrounds collision: {staffmax}, {collmax}"
         assert staffmax[1] > collmax[1], f"Staff surrounds collision: {staffmax}, {collmax}"
         assert staffmax[2] > collmax[2], f"Staff surrounds collision: {staffmax}, {collmax}"
@@ -3500,12 +3507,11 @@ def TEST_COLLISION_CAPSULE2():
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=bx)
 
         staff = TT.find_shape("3rdPersonStaff04")
-        coll = TT.find_shape("bhkCollisionObject", type="EMPTY")
-        collbody = coll.children[0]
-        collshape = collbody.children[0]
+        root = staff.parent
+        collshape = root.constraints[0].target
 
         # -------- Export --------
-        BD.ObjectSelect([o for o in bpy.data.objects if 'pynRoot' in o], active=True)
+        BD.ObjectSelect([root], active=True)
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', use_blender_xf=bx)
 
         # ------- Check ---------
@@ -3539,23 +3545,19 @@ def TEST_COLLISION_LIST():
 
         # ------- Load --------
         testfile = TT.test_file(r"tests\Skyrim\falmerstaff.nif")
-        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_LIST{bx}.nif")
+        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_LIST{'BL' if bx else 'NAT'}.nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=bx)
 
         staff = TT.find_shape("Staff3rdPerson:0")
-        coll = TT.find_shape("bhkCollisionObject", type='EMPTY')
-        collbody = coll.children[0]
-        collshape = collbody.children[0]
-        strd = TT.find_shape("NiStringExtraData", type='EMPTY')
-        bsxf = TT.find_shape("BSXFlags", type='EMPTY')
-        invm = TT.find_shape("BSInvMarker", type='EMPTY')
+        root = staff.parent
+        collshape = root.constraints[0].target
 
         assert collshape.name.startswith("bhkListShape"), f"Found list collision shape: {collshape.name}"
         assert len(collshape.children) == 3, f" Collision shape has children"
     
         # -------- Export --------
-        BD.ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
+        BD.ObjectSelect([root], active=True)
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', use_blender_xf=bx)
 
         # ------- Check ---------
@@ -5134,10 +5136,12 @@ def show_all_tests():
     for t in alltests:
         print(f"{t.__name__:25}{t.__doc__}")
 
+
 if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_BOW] )
+    do_tests( [TEST_COLLISION_LIST] )
+    # do_tests([t for t in alltests if t.__name__.startswith('TEST_COLL')])
     # do_tests(alltests)
     # do_tests( testfrom(TEST_ANIM_KF) )
