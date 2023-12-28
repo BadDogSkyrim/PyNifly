@@ -76,8 +76,9 @@ def hide_all():
 
 
 def append_from_file(objname, with_parent, filepath, innerpath, targetobj):
-    """ Convenience routine: Load an object from another blender file. 
-        Deletes any existing objects with that name first.
+    """ 
+    Convenience routine: Load an object from another blender file. Deletes any existing
+    objects with that name first.
     """
     if objname in bpy.data.objects:
         bpy.ops.object.select_all(action='DESELECT')

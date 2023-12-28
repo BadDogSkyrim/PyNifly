@@ -3351,8 +3351,8 @@ def TEST_COLLISION_CONVEXVERT():
         assert coll, f"Have collision object"
         assert coll.rigid_body, f"Collision object has physics"
         assert coll.rigid_body.type == 'ACTIVE'
-        assert BD.NearEqual(coll.rigid_body.mass, 2.5), f"Have correct mass"
-        assert BD.NearEqual(coll.rigid_body.friction, 0.5), f"Have correct friction"
+        assert BD.NearEqual(coll.rigid_body.mass, 2.5 / nifdefs.HSF), f"Have correct mass"
+        assert BD.NearEqual(coll.rigid_body.friction, 0.5 / nifdefs.HSF), f"Have correct friction"
         assert coll['bhkMaterial'] == 'CLOTH', f"Shape material is a custom property: {coll['bhkMaterial']}"
 
         # coll = TT.find_shape('bhkCollisionObject', type='EMPTY')
@@ -3502,7 +3502,8 @@ def TEST_COLLISION_CAPSULE2():
 
         # ------- Load --------
         testfile = TT.test_file(r"tests\Skyrim\staff04-collision.nif")
-        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_CAPSULE2.{bx}.nif")
+        outfile = TT.test_file(
+            f"tests/Out/TEST_COLLISION_CAPSULE2.{'BL' if bx else 'NAT'}.nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=bx)
 
@@ -3530,35 +3531,44 @@ def TEST_COLLISION_CAPSULE2():
             f"Wrote the correct radius: {shapecheck.properties.radius1}"
         
         assert TT.NearEqual(shapeorig.properties.point1[1], 
-                            shapecheck.properties.point1[1]), \
-            f"Wrote the correct radius: {shapecheck.properties.point1[1]}"
+                            shapecheck.properties.point1[1],
+                            epsilon=0.002), \
+            f"Wrote the correct point location: {shapecheck.properties.point1[1]}"
 
     do_test(False)
     do_test(True)
 
 
 def TEST_COLLISION_LIST():
-    """Can read and write shape with collision list and collision transform shapes with and without Blender transform."""
+    """
+    Can read and write shape with collision list and collision transform shapes with and
+    without Blender transform.
+    """
     def run_test(bx):
         print(f"<<<Can read and write shape with collision list and collision transform shapes with Blender transform {bx}>>>")
         TT.clear_all()
 
         # ------- Load --------
         testfile = TT.test_file(r"tests\Skyrim\falmerstaff.nif")
-        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_LIST{'BL' if bx else 'NAT'}.nif")
+        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_LIST_{bx}.nif")
 
-        bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=bx)
+        bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=(bx=='BLENDER'))
 
         staff = TT.find_shape("Staff3rdPerson:0")
         root = staff.parent
         collshape = root.constraints[0].target
+        assert collshape.name.startswith('bhkListShape'), "Have list shape"
+        yvals = set(round(obj.location.y, 1) for obj in collshape.children)
+        expectedy = set(map(lambda x: round(x*BD.HSF, 1), [0.632, -0.19, 0.9]))
+        assert yvals == expectedy, f"Have expected y vals: {yvals} == {expectedy}"
 
         assert collshape.name.startswith("bhkListShape"), f"Found list collision shape: {collshape.name}"
         assert len(collshape.children) == 3, f" Collision shape has children"
     
         # -------- Export --------
         BD.ObjectSelect([root], active=True)
-        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', use_blender_xf=bx)
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', 
+                                     use_blender_xf=(bx=='BLENDER'))
 
         # ------- Check ---------
         niforig = pyn.NifFile(testfile)
@@ -3584,7 +3594,14 @@ def TEST_COLLISION_LIST():
         convex_xf_shape = listcheck.children[0]
         convex_xf = Matrix(convex_xf_shape.properties.transform)
         assert convex_xf.to_scale()[0] == 1.0, f"Have the correct scale: {convex_xf.to_scale()}"
+
         assert convex_xf_shape.child.blockname == "bhkBoxShape", f"Found the box shape"
+
+        # Check that the ConvexTransforms put the collision shapes in the right place,
+        # no matter what order they're written.
+        xflist = set(round(xfs.transform[1][3], 3) for xfs in xfshapesorig)
+        xfcheck = set(round(xfs.transform[1][3], 3) for xfs in xfshapescheck)
+        assert xflist == xfcheck, f"Have same transforms in both files"
 
         cts45check = None
         for cts in listcheck.children:
@@ -3594,8 +3611,8 @@ def TEST_COLLISION_LIST():
         boxdiag = cts45check.child
         assert TT.NearEqual(boxdiag.properties.bhkDimensions[1], 0.170421), f"Diagonal box has correct size: {boxdiag.properties.bhkDimensions[1]}"
 
-    run_test(True)
-    run_test(False)
+    run_test('BLENDER')
+    run_test('NATURAL')
 
 
 def TEST_CHANGE_COLLISION():
@@ -3643,41 +3660,78 @@ def TEST_CHANGE_COLLISION():
 
 
 def TEST_COLLISION_XFORM():
-    """Can read and write shape with collision capsule shapes."""
+    """
+    Can read and write shape with collision we build ourselves in Blender.
+    """
+    # TriShapes provide for a collision to be attached to them directly but vanilla Skyrim
+    # nifs never do that. So make a root node and attach the collision to that.
+    #
+    # Note we then have to export the root node or we don't get the collisions.
     if bpy.app.version[0] >= 3:
         # Blender V2.x does not import the whole parent chain when appending an object from
         # another file, so don't try to run this on that version.
 
         # ------- Load --------
+        blendfile = TT.test_file(r"tests/SkyrimSE/staff.blend")
         outfile = TT.test_file(r"tests/Out/TEST_COLLISION_XFORM.nif")
+        
+        bpy.ops.object.add(radius=1.0, type='EMPTY')
+        root = bpy.context.object
+        root.name = 'Root'
 
-        TT.append_from_file("Staff", True, r"tests\SkyrimSE\staff.blend", r"\Object", "Staff")
-        TT.append_from_file("BSInvMarker", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSInvMarker")
-        TT.append_from_file("BSXFlags", True, r"tests\SkyrimSE\staff.blend", r"\Object", "BSXFlags")
-        TT.append_from_file("NiStringExtraData", True, r"tests\SkyrimSE\staff.blend", r"\Object", "NiStringExtraData")
-        TT.append_from_file("bhkConvexVerticesShape.002", True, r"tests\SkyrimSE\staff.blend", r"\Object", "bhkConvexVerticesShape.002")
+        staff = TT.append_from_file("Staff", True, blendfile, r"\Object", "Staff")
+        inv = TT.append_from_file("BSInvMarker", True, blendfile, r"\Object", "BSInvMarker")
+        flg = TT.append_from_file("BSXFlags", True, blendfile, r"\Object", "BSXFlags")
+        ext = TT.append_from_file("NiStringExtraData", True, blendfile, r"\Object", "NiStringExtraData")
+        c1 = TT.append_from_file("bhkCapsuleShape", True, blendfile, r"\Object", "bhkCapsuleShape")
+        c2 = TT.append_from_file("bhkConvexVerticesShape", True, blendfile, r"\Object", "bhkConvexVerticesShape")
+        c3 = TT.append_from_file("bhkConvexVerticesShape.001", True, blendfile, r"\Object", "bhkConvexVerticesShape.001")
+        c4 = TT.append_from_file("bhkConvexVerticesShape.002", True, blendfile, r"\Object", "bhkConvexVerticesShape.002")
+        listcollision = TT.append_from_file("bhkListShape", True, blendfile, r"\Object", "bhkListShape")
+        c1.parent = listcollision
+        c2.parent = listcollision
+        c3.parent = listcollision
+        c4.parent = listcollision
+        
+        # Append screwed positions up, so fix them.
+        for c in [c1, c2, c3, c4, listcollision]:
+            for v in c.data.vertices:
+                v.co = v.co + Vector((0, listcollision.location.y, 0))
+
+        if len(root.constraints) == 0: constr = root.constraints.new('COPY_TRANSFORMS')
+        root.constraints[0].target = listcollision
+        root['pynRoot'] = True
+        staff.parent = root
+        inv.parent = root
+        flg.parent = root
+        ext.parent = root
+        for obj in bpy.data.objects:
+            if obj.name.startswith('bhkListShape') and obj.name != 'bhkListShape':
+                BD.ObjectSelect([obj], active=True)
+                bpy.ops.object.delete()
 
         # -------- Export --------
-        BD.ObjectSelect([
-            TT.find_shape("Staff"),
-            TT.find_shape("bhkCollisionObject", type="EMPTY"), 
-            TT.find_shape("NiStringExtraData", type='EMPTY'),
-            TT.find_shape("BSXFlags", type='EMPTY'),
-            TT.find_shape("BSInvMarker", type='EMPTY'),
-            ], active=True)
-
+        BD.ObjectSelect([root], active=True)
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
         # ------- Check ---------
-        # NOTE the collision is only on one of the tines
         nifcheck = pyn.NifFile(outfile)
         staffcheck = nifcheck.shape_dict["Staff"]
         collcheck = nifcheck.rootNode.collision_object
         rbcheck = collcheck.body
         listcheck = rbcheck.shape
-        cvShapes = [c for c in listcheck.children if c.blockname == "bhkConvexVerticesShape"]
-        maxz = max([v[2] for v in cvShapes[0].vertices])
-        assert maxz < 0, f"All verts on collisions shape on negative z axis: {maxz}"
+        capsules = [c.child for c in listcheck.children if c.child.blockname == "bhkCapsuleShape"]
+        assert capsules[0].properties.point1[1] < 0 < capsules[0].properties.point2[1], \
+            f"Capsule crosses origin"
+        
+        capcts = listcheck.children[0] 
+        capshape = capcts.child
+        assert capshape.blockname == 'bhkCapsuleShape', f"Have the capsule"
+        capmaxy = (capcts.transform[1][3] + capshape.properties.point2[1]) * BD.HSF
+        assert BD.NearEqual(capmaxy, 67, epsilon=1.0), f"Capsule max y correct: {capmaxy}"
+
+        capminy = (capcts.transform[1][3] + capshape.properties.point1[1]) * BD.HSF
+        assert BD.NearEqual(capminy, -73.4, epsilon=1.0), f"Capsule min y correct: {capminy}"
 
         
 def TEST_CONNECT_POINT():
@@ -5141,7 +5195,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_COLLISION_LIST] )
-    # do_tests([t for t in alltests if t.__name__.startswith('TEST_COLL')])
+    do_tests( [TEST_COLLISION_XFORM] )
+    do_tests([t for t in alltests if t.__name__.startswith('TEST_COLL')])
     # do_tests(alltests)
     # do_tests( testfrom(TEST_ANIM_KF) )

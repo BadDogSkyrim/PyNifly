@@ -11,23 +11,25 @@ from pathlib import Path
 import pynifly
 from nifdefs import ShaderFlags1, ShaderFlags2
 
+# targetFolder = r"C:\Modding\SkyrimLE\mods\00 Vanilla Assets\meshes"
 targetFolder = r"C:\Modding\SkyrimSE\mods\00 Vanilla Assets\meshes"
 # targetFolder = r"C:\Modding\Fallout4\mods\00 FO4 Assets\Meshes"
 
 # Folders to exclude
 targetExcludes = [
     r'C:\Modding\Fallout4\mods\00 FO4 Assets\Meshes\Actors\Character\FaceGenData',
-    r'C:\Modding\SkyrimSE\mods\00 Vanilla Assets\meshes\actors\character\facegendata']
+    r'C:\Modding\SkyrimSE\mods\00 Vanilla Assets\meshes\actors\character\facegendata',
+    r'C:\Modding\SkyrimLE\mods\00 Vanilla Assets\meshes\actors\character\facegendata']
 
 pynlog = logging.getLogger("pynifly")
 
-def TestNif(n:pynifly.NifFile):
+def TestNif(nif:pynifly.NifFile):
     # Find shapes without env map flag but with envmap_light_fade flag
-    for s in n.shapes:
-        if s.shader.blockname == 'BSEffectShaderProperty' \
-            and (not s.shader.shaderflags1_test(ShaderFlags1.ENVIRONMENT_MAPPING)) \
-            and s.shader.shaderflags2_test(ShaderFlags2.ENVMAP_LIGHT_FADE):
-            return True, s.name
+    for k, n in nif.nodes.items():
+        if n.collision_object and \
+            n.collision_object.body and \
+                n.collision_object.body.blockname == 'bhkRigidBodyT':
+            return True, n.name + " \ " + n.collision_object.body.shape.blockname
 
     return False, None
 

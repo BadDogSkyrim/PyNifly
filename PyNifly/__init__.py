@@ -415,12 +415,11 @@ def create_capsule(pt1, pt2, desired_radius):
     return bpy.context.object
 
 
-def find_capsule_ends(obj, rad):
+def find_capsule_ends(obj):
     """
     Find the ends of the given capsule. Must have been created with UV spheres making the
     ends.
-    rad = radius of the cylender because it's hard to calculate.
-    returns (point1, point2), where the points are the centers of the opposite caps.
+    returns (point1, point2, radius), where the points are the centers of the opposite caps.
     """
     ObjectSelect([obj], active=True)
     bpy.ops.object.mode_set(mode='EDIT')
@@ -432,15 +431,36 @@ def find_capsule_ends(obj, rad):
         if len(v.link_edges) > 4:
             verts.append(Vector(v.co[:]))
 
-    # Go from there to the centers of the caps
-    relvec = verts[1] - verts[0]
-    relvec.normalize()
-    relvec = relvec*rad
-    p1 = verts[1] - relvec
-    p2 = verts[0] + relvec
+    # get the radius.
+    r = 0
+    centerline = verts[1] - verts[0]
+    centerpoint = (centerline)/2 + verts[0]
+    # Find the verts closest to the centerpoint in the positive direction. 
+    vertdist = []
+    mindist = math.inf
+    for v in obj.data.vertices:
+        dist = geometry.distance_point_to_plane(
+            v.co, centerpoint, centerline
+        )
+        if dist >= -0.001:
+            vertdist.append((v, dist,))
+            mindist = min(dist, mindist)
+    closeverts = [v for v, d in vertdist if d == mindist]
+
+    # Assume these points form a ring around the centerline. Find the max distance.
+    if len(closeverts) > 1:
+        maxdist = 0
+        for v in closeverts[1:]:
+            maxdist = max(maxdist, (v.co-closeverts[0].co).length)
+        r = maxdist/2
+
+    relvec = centerline.normalized()
+    relvec = relvec*r
+    p1 = verts[1] - relvec 
+    p2 = verts[0] + relvec 
 
     bpy.ops.object.mode_set(mode='OBJECT')
-    return p1, p2
+    return p1, p2, r
 
 
 class NifImporter():
@@ -1624,17 +1644,12 @@ class NifImporter():
         bhkConvexTransformShape just repositions its child. It's not represented
         in blender--its transform is applied directly to the collision shape.
         """
-        # bpy.ops.object.add(radius=1.0, type='EMPTY')
-        # cshape = bpy.context.object
-        # cshape['bhkMaterial'] = SkyrimHavokMaterial.get_name(cs.properties.bhkMaterial)
-        # cshape['bhkRadius'] = cs.properties.bhkRadius * self.import_scale
         xf = Matrix(cs.transform)
         xf.translation = xf.translation * HAVOC_SCALE_FACTOR 
-        # xf.translation = xf.translation * HAVOC_SCALE_FACTOR * self.scale
-        # cshape.matrix_local = xf
-
         childobj = self.import_collision_shape(cs.child, targobj)
-        childobj.matrix_local = childobj.matrix_local @ xf
+
+        # We set the children's location, so ignore any location they already have.
+        childobj.matrix_local = xf
 
         return childobj
 
@@ -1840,12 +1855,13 @@ class NifImporter():
             self.warn(f"Found unimplemented collision shape: {cs.blockname}")
         
         if sh:
+            ObjectSelect([sh], active=True)
             bpy.ops.rigidbody.object_add(type='ACTIVE')
             
             # Collisions aren't given parents because it's often their parents that 
             # they are controlling. Just give them their parent's location instead.
-            # if cs.blockname not in ['bhkConvexTransformShape']:
-            #     sh.matrix_world = targobj.matrix_world.copy()
+            if cs.blockname not in ['bhkConvexTransformShape']:
+                sh.matrix_world = targobj.matrix_world.copy()
 
             bodytype = targobj.name.split('.')[0]
             if bodytype in COLLISION_COLOR_MAP:
@@ -1900,7 +1916,6 @@ class NifImporter():
             sh.matrix_local = mx
 
         ObjectSelect([sh], active=True)
-        rbtype = 'ACTIVE' if p.collisionFilter_layer in self.collision_active_layers else 'PASSIVE'
         try:
             sh.rigid_body.mass = p.mass / HAVOC_SCALE_FACTOR
             sh.rigid_body.friction = p.friction / HAVOC_SCALE_FACTOR
@@ -1912,6 +1927,7 @@ class NifImporter():
             pass
             
         if sh.name.split('.')[0] == 'bhkListShape':
+            rbtype = 'ACTIVE' if p.collisionFilter_layer in self.collision_active_layers else 'PASSIVE'
             sh.rigid_body.collision_shape = 'COMPOUND'
             for ch in sh.children:
                 ObjectSelect([ch], active=True)
@@ -3801,61 +3817,26 @@ class NifExporter:
         # Capsule covers the extent of the shape
         props = bhkCapsuleShapeProps(s)
         props.load(s, ignore=CAPSULE_SHAPE_IGNORE)
-        # xf = s.matrix_local
-        # xfv = [xf @ v.co for v in s.data.vertices]
-
-        # minv = Vector([sys.float_info.max] * 3)
-        # maxv = Vector([-sys.float_info.max] * 3)
-        # for v in xfv:
-        #     for i, n in enumerate(v):
-        #         maxv[i] = max(maxv[i], n)
-        #         minv[i] = min(minv[i], n)
-        # halfspan = (maxv - minv)/2
-        # center = s.matrix_world @ (minv + halfspan)
 
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game] # * self.export_scale
-        # props.bhkRadius = (halfspan.x / sf) 
-        # props.radius1 = (halfspan.x / sf) 
-        # props.radius2 = (halfspan.x / sf) 
 
-        # props.point1[0] = ((minv.x+halfspan.x) / sf) 
-        # props.point1[1] = (maxv.y / sf) 
-        # props.point1[2] = ((minv.z+halfspan.z) / sf) 
-        # props.point2[0] = ((minv.x+halfspan.x) / sf) 
-        # props.point2[1] = (minv.y / sf) 
-        # props.point2[2] = ((minv.z+halfspan.z) / sf) 
-
-        # ---New---
-        # rot = s.rotation_euler.to_quaternion()
-        # rot.invert()
-
-        # # Capsule shape aligned on z-axis. Length incorporates the caps, so it's 2*radius
-        # # longer than it should be.
-        # global_xf = self.root_object.matrix_world.inverted() @ s.matrix_world 
-        # rad = (max(v.co.x for v in s.data.vertices) \
-        #        - min(v.co.x for v in s.data.vertices)) / 2
-        # zmin = min(v.co.z for v in s.data.vertices) + rad
-        # zmax = max(v.co.z for v in s.data.vertices) - rad
-        # point1 = global_xf @ Vector((0, 0, zmin)) 
-        # point2 = global_xf @ Vector((0, 0, zmax))
-        
-        # Point1, Point2 are locations in havok world space. 
-        # transl = (s.location - s.parent.matrix_world.translation)/sf
-        # point1 -= transl
-        # point2 -= transl
-        # point1.rotate(rot)
-        # point2.rotate(rot)
-        # point1 += transl
-        # point2 += transl
-
+        point1, point2, r = find_capsule_ends(s)
         if 'bhkRadius' in s:
-            props.bhkRadius = props.bhkRadius1 = props.bhkRadius2 = s['bhkRadius']
-            point1, point2 = find_capsule_ends(s, props.bhkRadius*sf)
+            r = s['bhkRadius'] 
+        else:
+            r = r / sf
+        props.bhkRadius = props.bhkRadius1 = props.bhkRadius2 = r
+        # Transform passed in is the base for this transform
+        point1 = xform @ s.matrix_local @ point1
+        point2 = xform @ s.matrix_local @ point2
+        # point1 = self.export_xf @ s.matrix_world @ point1
+        # point2 = self.export_xf @ s.matrix_world @ point2
 
-            for i, val in enumerate(point1):
-                props.point1[i] = val/sf
-            for i, val in enumerate(point2):
-                props.point2[i] = val/sf
+
+        for i, val in enumerate(point1):
+            props.point1[i] = val/sf
+        for i, val in enumerate(point2):
+            props.point2[i] = val/sf
 
         cshape = self.nif.add_shape(props)
 
@@ -3949,7 +3930,11 @@ class NifExporter:
         if s.rigid_body.use_margin:
             props.bhkRadius = s.rigid_body.collision_margin # / HAVOC_SCALE_FACTOR
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
-        havocxf = s.matrix_local.copy()
+
+        # We want the transform to be exactly the controlled shape's world transform.
+        # If we have a parent list shape, ignore its location because it doesn't have
+        # one in the nif.
+        havocxf = s.matrix_local.copy() # self.export_xf @ s.matrix_local # .inverted()
         havocxf.translation = havocxf.translation / sf
         cshape = self.nif.add_shape(props, transform=havocxf)
         cshape.child = childnode
@@ -3965,7 +3950,7 @@ class NifExporter:
         props = bhkListShapeProps(s)
         cshape = self.nif.add_shape(props)
 
-        xf = s.matrix_local @ xform
+        xf = s.matrix_local.inverted() @ xform
         for ch in s.children: 
             if ch.name.startswith("bhk"):
                 # ctsprops = bhkConvexTransformShapeProps(ch)
@@ -4114,7 +4099,7 @@ class NifExporter:
         body_node = colnode.add_body(props)
         # self.objs_written[collbody.name] = body_node
 
-        # return body
+        return body_node
 
 
     def export_collision_object(self, targobj, coll):
@@ -4133,7 +4118,7 @@ class NifExporter:
         colnode = targnode.add_collision(None, flags=flags)
         self.objs_written[coll.name] = colnode
 
-        self.export_collision_body(targobj, coll) 
+        body = self.export_collision_body(targobj, coll) 
 
 
     def export_collisions(self, obj):
@@ -4677,6 +4662,8 @@ class NifExporter:
                                                  verts, tris, uvmap_new, norms_exp,
                                                  props=props,
                                                  parent=my_parent)
+        self.objs_written[obj.name] = new_shape
+
         if colors_new:
             new_shape.set_colors(colors_new)
 
@@ -4730,9 +4717,6 @@ class NifExporter:
             and self.game in ['SKYRIM', 'SKYRIMSE'] \
             and len(self.trip.shapes) > 0:
             new_shape.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
-
-        # Remember what we did as defaults for next time
-        self.objs_written[obj.name] = new_shape
 
         obj['PYN_GAME'] = self.game
         #if self.scale != SCALE_DEF: obj['PYN_SCALE_FACTOR'] = self.scale 
@@ -4796,8 +4780,14 @@ class NifExporter:
                 shape = self.armature
 
             if self.root_object:
-                rt = self.root_object["pynBlockName"]
-                rn = self.root_object["pynNodeName"]
+                try:
+                    rt = self.root_object["pynBlockName"]
+                except:
+                    rt = 'NiNode'
+                try:
+                    rn = self.root_object["pynNodeName"]
+                except:
+                    rn = 'Scene Root'
             else:
                 if "pynRootNode_BlockType" in shape:
                     rt = shape["pynRootNode_BlockType"]
@@ -4807,7 +4797,10 @@ class NifExporter:
             self.nif.initialize(self.game, fpath, rt, rn)
             if self.root_object:
                 self.objs_written[self.root_object.name] = self.nif.rootNode
-                self.nif.rootNode.flags = NiAVFlags.parse(self.root_object["pynNodeFlags"]).value
+                try:
+                    self.nif.rootNode.flags = NiAVFlags.parse(self.root_object["pynNodeFlags"]).value
+                except:
+                    pass
             elif "pynNodeFlags" in shape:
                 #log.debug(f"Root node flags are '{shape['pynNodeFlags']}' = '{NiAVFlags.parse(shape['pynNodeFlags']).value}'")
                 self.nif.rootNode.flags = NiAVFlags.parse(shape["pynNodeFlags"]).value

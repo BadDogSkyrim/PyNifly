@@ -5082,4 +5082,4 @@ if __name__ == "__main__":
 
     # tester.execute()
     # tester.execute(start=ModuleTest.TEST_BOW)
-    tester.execute(test=ModuleTest.TEST_CONVEX)
+    tester.execute(test=ModuleTest.TEST_COLLISION_LIST)
