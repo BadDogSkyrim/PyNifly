@@ -2837,7 +2837,7 @@ def TEST_TREE():
     assert treecheck.properties.lodSize0 == 1126, f"Have correct lodSize0"
 
 
-def TEST_BOW():
+def TEST_COLLISION_BOW():
     """Can read and write bow"""
     # The bow has a simple collision that we can import and export.
     # Note the bow nif as shipped by Bethesda throws errors on import, and the 
@@ -2846,7 +2846,7 @@ def TEST_BOW():
 
     # ------- Load --------
     testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_BOW.nif", output=True)
+    outfile = TT.test_file(r"tests/Out/TEST_COLLISION_BOW.nif", output=True)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     obj = bpy.context.object
@@ -2856,7 +2856,8 @@ def TEST_BOW():
     assert root["pynBlockName"] == 'BSFadeNode', "pynRootNode_BlockType holds the type of root node for the given shape"
     assert root["pynNodeName"] == "GlassBowSkinned.nif", "pynRootNode_Name holds the name for the root node"
     assert root["pynNodeFlags"] == "SELECTIVE_UPDATE | SELECTIVE_UPDATE_TRANSF | SELECTIVE_UPDATE_CONTR", f"'pynNodeFlags' holds the flags on the root node: {root['pynRootNode_Flags']}"
-
+    assert len([c for c in root.children if c.type=='MESH']) == 1, f"Have one mesh"
+    
     # Check shape size
     bow = TT.find_shape("ElvenBowSkinned:0")
     maxy = max(v.co.y for v in bow.data.vertices)
@@ -2865,7 +2866,8 @@ def TEST_BOW():
     assert BD.NearEqual(miny, -50.5509), f"Have correct min y: {miny}"
 
     # Check armature
-    arma = [obj for obj in bpy.context.scene.view_layers[0].objects if obj.type=='ARMATURE'][0]
+    arma = bow.modifiers['Armature'].object
+    assert len(arma.data.bones) == 7, f"Have right number of bones"
     maxx = max(b.matrix_local.translation.x for b in arma.data.bones)
     minx = min(b.matrix_local.translation.x for b in arma.data.bones)
     maxy = max(b.matrix_local.translation.y for b in arma.data.bones)
@@ -2875,38 +2877,37 @@ def TEST_BOW():
     assert maxy > 50.0, f"Armature bind position stretches high enough"
     assert miny < -50.0, f"Armature bind stretches low enough"
 
-    # Check shape as deformed by armature
-    BD.ObjectSelect([bow], active=True)
-    bpy.ops.object.duplicate()
-    for m in bow.modifiers:
-        if m.type == 'ARMATURE':
-            bpy.ops.object.modifier_apply(modifier=m.name)
-    maxy = max(v.co.y for v in bow.data.vertices)
-    miny = min(v.co.y for v in bow.data.vertices)
-    assert BD.NearEqual(maxy, 64.4891), f"Have correct max y: {maxy}"
-    assert BD.NearEqual(miny, -50.5509), f"Have correct min y: {miny}"
-
     # Check collision info
-    coll = TT.find_shape('bhkCollisionObject', type='EMPTY')
+    coll = arma.pose.bones['Bow_MidBone'].constraints['bhkCollisionConstraint'].target
+    assert coll.name == 'bhkBoxShape', f"Collision shape is box"
     assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
-    assert coll['pynCollisionTarget'] == 'Bow_MidBone', f"'Target' names the object the collision affects, in this case a bone: {coll['pynCollisionTarget']}"
-
-    collbody = coll.children[0]
-    assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
-    assert collbody['collisionFilter_layer'] == nifdefs.SkyrimCollisionLayer.WEAPON.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
+    assert coll['collisionFilter_layer'] == nifdefs.SkyrimCollisionLayer.WEAPON.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
 
     # Default collision response is 1 = SIMPLE_CONTACT, so no property for it.
-    # assert collbody["collisionResponse"] == nifdefs.hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
+    # assert coll["collisionResponse"] == nifdefs.hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
 
-    assert TT.VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
+    # assert TT.VNearEqual(coll.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
 
-    collshape = collbody.children[0]
-    assert collshape.name == 'bhkBoxShape', f"Collision shape is child of the collision body"
-    assert collshape['bhkMaterial'] == 'MATERIAL_BOWS_STAVES', f"Shape material is a custom property: {collshape['bhkMaterial']}"
-    assert round(collshape['bhkRadius'],4) == 0.0136, f"Radius property available as custom property: {collshape['bhkRadius']}"
-    corner = map(abs, collshape.data.vertices[0].co)
-    assert TT.VNearEqual(corner, [11.01445, 57.6582, 0.95413]), f"Collision shape in correct position: {corner}"
+    assert coll['bhkMaterial'] == 'MATERIAL_BOWS_STAVES', f"Shape material is a custom property: {coll['bhkMaterial']}"
+    assert round(coll['bhkRadius'],4) == 0.0136, f"Radius property available as custom property: {coll['bhkRadius']}"
 
+    # Covers the bow closely in the Y axis
+    bowmax = max((bow.matrix_world @ v.co).y for v in bow.data.vertices)
+    boxmax = max((coll.matrix_world @ v.co).y for v in coll.data.vertices)
+    assert BD.NearEqual(bowmax, boxmax, epsilon=0.1), f"Collision matches bow up"
+    bowmin = min((bow.matrix_world @ v.co).y for v in bow.data.vertices)
+    boxmin = min((coll.matrix_world @ v.co).y for v in coll.data.vertices)
+    assert BD.NearEqual(bowmin, boxmin+0.25, epsilon=0.1), f"Collision matches bow down"
+
+    # Covers the bow badly in the X axis
+    bowmax = max((bow.matrix_world @ v.co).x for v in bow.data.vertices)
+    boxmax = max((coll.matrix_world @ v.co).x for v in coll.data.vertices)
+    assert BD.NearEqual(bowmax, boxmax+5.4, epsilon=0.1), f"Collision matches bow up"
+    bowmin = min((bow.matrix_world @ v.co).x for v in bow.data.vertices)
+    boxmin = min((coll.matrix_world @ v.co).x for v in coll.data.vertices)
+    assert BD.NearEqual(bowmin, boxmin+1.25, epsilon=0.1), f"Collision matches bow down"
+
+    # Check extra data
     bged = TT.find_shape("BSBehaviorGraphExtraData", type='EMPTY')
     assert bged['BSBehaviorGraphExtraData_Value'] == "Weapons\Bow\BowProject.hkx", f"BGED node contains bow project: {bged['BSBehaviorGraphExtraData_Value']}"
 
@@ -2923,13 +2924,25 @@ def TEST_BOW():
     assert invm['BSInvMarker_Name'] == "INV", f"Inventory marker shape has correct name: {invm['BSInvMarker_Name']}"
     assert invm['BSInvMarker_RotX'] == 4712, f"Inventory marker rotation correct: {invm['BSInvMarker_RotX']}"
     assert round(invm['BSInvMarker_Zoom'], 4) == 1.1273, f"Inventory marker zoom correct: {invm['BSInvMarker_Zoom']}"
-    
+
+    # Check shape as deformed by armature
+    BD.ObjectSelect([bow], active=True)
+    bpy.ops.object.duplicate()
+    bpy.context.object.name = 'TEST_COLLISION_BOW_COPY'
+    for m in bow.modifiers:
+        if m.type == 'ARMATURE':
+            bpy.ops.object.modifier_apply(modifier=m.name)
+    maxy = max(v.co.y for v in bow.data.vertices)
+    miny = min(v.co.y for v in bow.data.vertices)
+    assert BD.NearEqual(maxy, 64.4891), f"Have correct max y: {maxy}"
+    assert BD.NearEqual(miny, -50.5509), f"Have correct min y: {miny}"
+
     # ------- Export --------
 
     # Move the edge of the collision box so it covers the bow better
-    for v in collshape.data.vertices:
-        if v.co.x > 0:
-            v.co.x = 16.5
+    for v in coll.data.vertices:
+        if v.co.y > 0:
+            v.co.y += 5.4
 
     # Exporting the root object takes everything with it and sets root properties.
     BD.ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
@@ -2973,12 +2986,12 @@ def TEST_BOW():
     assert TT.VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
 
 
-def TEST_BOW2():
+def TEST_COLLISION_BOW2():
     """Can modify collision shape location"""
 
     # ------- Load --------
     testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile2 = TT.test_file(r"tests/Out/TEST_BOW2.nif")
+    outfile2 = TT.test_file(r"tests/Out/TEST_COLLISION_BOW2.nif")
     
     bpy.ops.import_scene.pynifly(filepath=testfile)
     obj = TT.find_shape('ElvenBowSkinned')
@@ -3024,13 +3037,13 @@ def TEST_BOW2():
     assert TT.VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
 
 
-def TEST_BOW3():
+def TEST_COLLISION_BOW3():
     """Can modify collision shape type"""
     # We can change the collision by editing the Blender shapes
 
     # ------- Load --------
     testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile3 = TT.test_file(r"tests/Out/TEST_BOW3.nif")
+    outfile3 = TT.test_file(r"tests/Out/TEST_COLLISION_BOW3.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     obj = TT.find_shape('ElvenBowSkinned')
@@ -5195,7 +5208,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_COLLISION_XFORM] )
-    do_tests([t for t in alltests if t.__name__.startswith('TEST_COLL')])
-    # do_tests(alltests)
+    do_tests( [TEST_COLLISION_BOW] )
+    # do_tests([t for t in alltests if t.__name__.startswith('TEST_COLL')])
     # do_tests( testfrom(TEST_ANIM_KF) )
+    # do_tests(alltests)
