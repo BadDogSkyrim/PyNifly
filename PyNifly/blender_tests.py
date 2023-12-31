@@ -2871,11 +2871,13 @@ def CheckBow(nif, nifcheck, bow):
     p = bodycheck.properties
     assert p.collisionFilter_layer == nifdefs.SkyrimCollisionLayer.WEAPON, f"Have correct collision layer"
     assert TT.VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
-    assert TT.VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
+    # Rotation and dimensions are related. Could check the bounds, which is a lot of math.
+    # Instead check the values, but make sure the values give a good collision.
+    assert TT.VNearEqual(p.rotation[:], [0.0, 0.0, 0.0, 1.0]), f"Collision body rotation correct: {p.rotation[:]}"
 
     boxcheck = bodycheck.shape
     assert boxcheck.blockname == 'bhkBoxShape', f"Box shape block correct"
-    assert BD.VNearEqual(boxcheck.bhkDimensions, [0.157369, 0.823792, 0.013632]), f"Box dimensions correct."
+    assert BD.VNearEqual(boxcheck.bhkDimensions, [0.823792, 0.195945, 0.013632]), f"Box dimensions correct."
 
 
 def TEST_COLLISION_BOW():
@@ -2987,7 +2989,8 @@ def TEST_COLLISION_BOW():
 
     # Exporting the root object takes everything with it and sets root properties.
     BD.ObjectSelect([root], active=True)
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', 
+                                 preserve_hierarchy=True)
 
     # ------- Check Results --------
     nif = pyn.NifFile(testfile)
@@ -5216,7 +5219,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_COLLISION_BOW, TEST_COLLISION_LIST] )
+    do_tests( [TEST_COLLISION_BOW] )
     # do_tests([t for t in alltests if t.__name__.startswith('TEST_COLL')])
     # do_tests( testfrom(TEST_ANIM_KF) )
     # do_tests(alltests)

@@ -4015,22 +4015,7 @@ class NifExporter:
                 # For edit bones
                 targxf = targobj.matrix_local
                 have_bone = True
-
-        # Coll body can be anywhere. What matters is the location of the collision
-        # shape relative to the collision target--that gets stored on the
-        # collision body
-        # props = bhkRigidBodyProps(collbody)
-        
-        # Calc transform to collision target. Some collision shapes need this, others
-        # depend on having a bhkRigidBodyT do it for them. 
-        # Apply the transform from target, but remove any transform introduced by the root.
                 
-        # Collision body transform should match the target object.
-        xform = rootinv @ coll.matrix_world
-        targxfi = targxf.inverted()
-        xform = targxfi @ xform
-        # xform = (rootinv @ targxf).inverted() 
-
         cshape, ctr = self.export_collision_shape([coll], targxf.inverted()) 
         if not cshape: return None
 
@@ -4051,8 +4036,9 @@ class NifExporter:
         # Use any rotation on the collision shape relative to the target's rotation.
         targq = coll.matrix_local.to_quaternion() @ targq.inverted()
         rv = (rootinv @ ctr) - targloc
-        rv.rotate(targq)
-        rv = coll.matrix_local.translation
+        rv = ctr - targloc
+        rv.rotate(targxf.inverted().to_quaternion())
+
 
         if props.bufType == PynBufferTypes.bhkRigidBodyTBufType:
             props.rotation[0] = targq.x
@@ -4060,12 +4046,9 @@ class NifExporter:
             props.rotation[2] = targq.z
             props.rotation[3] = targq.w
 
-            # Position the collision body where the shape is, not where the empty is
-            # in Blender. So a RigidBodyT gets the offset. (RigidBody just ignores
-            # this.)
-            props.translation[0] = rv.x/HAVOC_SCALE_FACTOR # rv.x / sf
-            props.translation[1] = rv.y/HAVOC_SCALE_FACTOR # rv.y / sf
-            props.translation[2] = rv.z/HAVOC_SCALE_FACTOR # rv.z / sf
+            props.translation[0] = rv.x/HAVOC_SCALE_FACTOR 
+            props.translation[1] = rv.y/HAVOC_SCALE_FACTOR 
+            props.translation[2] = rv.z/HAVOC_SCALE_FACTOR 
             props.translation[3] = 0
 
         elif props.bufType == PynBufferTypes.bhkSimpleShapePhantomBufType:
@@ -4076,7 +4059,6 @@ class NifExporter:
 
         colnode = self.objs_written[coll.name]
         body_node = colnode.add_body(props)
-        # self.objs_written[collbody.name] = body_node
 
         return body_node
 
