@@ -28,8 +28,9 @@ def TestNif(nif:pynifly.NifFile):
     for k, n in nif.nodes.items():
         if n.collision_object and \
             n.collision_object.body and \
-                n.collision_object.body.blockname == 'bhkRigidBodyT':
-            return True, n.name + " \ " + n.collision_object.body.shape.blockname
+                n.collision_object.body.shape and \
+                    n.collision_object.body.shape.blockname == 'bhkSphereShape':
+            return True, n.name
 
     return False, None
 

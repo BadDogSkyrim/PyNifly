@@ -85,6 +85,7 @@ def MatrixLocRotScale(loc, rot, scale):
         m = tm @ rm @ sm
         return m
 
+
 def transform_to_matrix(xf: TransformBuf) -> Matrix:
     """ Extends TransformBuf to get/give contents as a Blender Matrix """
     return MatrixLocRotScale(xf.translation[:], 
@@ -93,6 +94,7 @@ def transform_to_matrix(xf: TransformBuf) -> Matrix:
                                      xf.rotation[2][:] ]), 
                              [xf.scale]*3)
 
+
 def transform_from_matrix(buf: TransformBuf, m: Matrix):
     t, q, s, = m.decompose()
     buf.translation = t[:]
@@ -100,11 +102,39 @@ def transform_from_matrix(buf: TransformBuf, m: Matrix):
     buf.rotation = MATRIX3(r[0][:], r[1][:], r[2][:])
     buf.scale = max(s[:])
 
+
 def make_transformbuf(m: Matrix) -> TransformBuf:
     """ Return a new TransformBuf filled with the data in the matrix """
     buf = TransformBuf()
     transform_from_matrix(buf, m)
     return buf
+
+
+def RigidBodyXF(cb: bhkWorldObject):
+    """
+    Return a matrix representing the transform applied by a collision body.
+    bhkRigidBody objects don't apply a transform; bhkRigidBodyT and bhkSimpleShapePhantom
+    do. Matrix is in nif units, not Havoc units.
+
+    Returns an identity transform if the collision body doesn't apply one.
+    """
+    p = cb.properties
+    if p.bufType == PynBufferTypes.bhkRigidBodyTBufType:
+        # bhkRigidBodyT blocks store rotation as a quaternion with the angle in the 4th
+        # position, in radians 
+        q = Quaternion((p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2],))
+        t = Vector(p.translation[0:3]) * HAVOC_SCALE_FACTOR
+        bodyxf = MatrixLocRotScale(t, q, Vector((1,1,1)))
+
+    # bhkSimpleShapePhantom has a transform built in.
+    # TODO: Should this be translated to nif units?
+    elif p.bufType == PynBufferTypes.bhkSimpleShapePhantomBufType:
+        bodyxf = Matrix([r for r in p.transform])
+
+    else:
+        bodyxf = Matrix.Identity(4)
+
+    return bodyxf
 
 
 def bind_position(shape:NiShape, bone: str) -> Matrix:
@@ -347,18 +377,26 @@ def highlight_objects(objlist, context):
     ObjectSelect(objlist, active=True)
 
     context.view_layer.update()
-    try:
-        for a in context.screen.areas: 
-            if a.type in ['OUTLINER', 'VIEW_3D']:
-                for r in a.regions:
-                    if r.type == 'WINDOW':
-                        with context.temp_override(area=a, region=r):
+    for a in context.screen.areas: 
+        if a.type in ['OUTLINER', 'VIEW_3D']:
+            for r in a.regions:
+                if r.type == 'WINDOW':
+                    with context.temp_override(area=a, region=r):
+                        try:
                             if a.type == 'OUTLINER':
+                                # On Blender 4, outliner.show_active doesn't work from the
+                                # import call. Let Blender set state and then repeat the
+                                # call.
                                 bpy.ops.outliner.show_active()
+                                bpy.app.timers.register(highlight_selected, first_interval=5)
                             else:
                                 bpy.ops.view3d.view_selected()
-    except:
-        pass
+                        except:
+                            pass
+
+
+def highlight_selected():
+    highlight_objects(bpy.context.selected_objects, bpy.context)
 
     
 def find_node(socket, nodetype, nodelist=None):

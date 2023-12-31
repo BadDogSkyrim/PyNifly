@@ -2837,6 +2837,47 @@ def TEST_TREE():
     assert treecheck.properties.lodSize0 == 1126, f"Have correct lodSize0"
 
 
+def CheckBow(nif, nifcheck, bow):
+    """Check that the glass bow nif is correct."""
+    TT.compare_shapes(nif.shape_dict['ElvenBowSkinned:0'],
+                    nifcheck.shape_dict['ElvenBowSkinned:0'],
+                    bow)
+
+    rootcheck = nifcheck.rootNode
+    assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
+    assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
+    assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
+
+    bsxcheck = nifcheck.rootNode.bsx_flags
+    assert bsxcheck == ["BSX", 202], f"BSX Flag node found: {bsxcheck}"
+
+    bsinvcheck = nifcheck.rootNode.inventory_marker
+    assert bsinvcheck[0:4] == ["INV", 4712, 0, 785], f"Inventory marker set: {bsinvcheck}"
+    # assert round(bsinvcheck[4], 4) == 1.1273, f"Inventory marker zoom set: {bsinvcheck[4]}"
+
+    # Check the midbone transform
+    mbc_xf = nifcheck.get_node_xform_to_global("Bow_MidBone")
+    assert TT.VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
+    m = BD.transform_to_matrix(mbc_xf).to_euler()
+    assert TT.VNearEqual(m, [0, 0, -math.pi/2]), f"Midbow rotation is correct: {m}"
+
+    # check the collisions
+    midbowcheck = nifcheck.nodes["Bow_MidBone"]
+    collcheck = midbowcheck.collision_object
+    assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+    assert nifdefs.bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+
+    bodycheck = collcheck.body
+    p = bodycheck.properties
+    assert p.collisionFilter_layer == nifdefs.SkyrimCollisionLayer.WEAPON, f"Have correct collision layer"
+    assert TT.VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
+    assert TT.VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
+
+    boxcheck = bodycheck.shape
+    assert boxcheck.blockname == 'bhkBoxShape', f"Box shape block correct"
+    assert BD.VNearEqual(boxcheck.bhkDimensions, [0.157369, 0.823792, 0.013632]), f"Box dimensions correct."
+
+
 def TEST_COLLISION_BOW():
     """Can read and write bow"""
     # The bow has a simple collision that we can import and export.
@@ -2945,46 +2986,13 @@ def TEST_COLLISION_BOW():
             v.co.y += 5.4
 
     # Exporting the root object takes everything with it and sets root properties.
-    BD.ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
+    BD.ObjectSelect([root], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
     # ------- Check Results --------
-
-    impnif = pyn.NifFile(testfile)
+    nif = pyn.NifFile(testfile)
     nifcheck = pyn.NifFile(outfile)
-    TT.compare_shapes(impnif.shape_dict['ElvenBowSkinned:0'],
-                    nifcheck.shape_dict['ElvenBowSkinned:0'],
-                    obj)
-
-    rootcheck = nifcheck.rootNode
-    assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
-    assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
-    assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
-
-    bsxcheck = nifcheck.rootNode.bsx_flags
-    assert bsxcheck == ["BSX", 202], f"BSX Flag node found: {bsxcheck}"
-
-    bsinvcheck = nifcheck.rootNode.inventory_marker
-    assert bsinvcheck[0:4] == ["INV", 4712, 0, 785], f"Inventory marker set: {bsinvcheck}"
-    # assert round(bsinvcheck[4], 4) == 1.1273, f"Inventory marker zoom set: {bsinvcheck[4]}"
-
-    midbowcheck = nifcheck.nodes["Bow_MidBone"]
-    collcheck = midbowcheck.collision_object
-    assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
-    assert nifdefs.bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
-
-    # Full check of locations and rotations to make sure we got them right
-    mbc_xf = nifcheck.get_node_xform_to_global("Bow_MidBone")
-    assert TT.VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
-    m = BD.transform_to_matrix(mbc_xf).to_euler()
-    assert TT.VNearEqual(m, [0, 0, -math.pi/2]), f"Midbow rotation is correct: {m}"
-
-    bodycheck = collcheck.body
-    p = bodycheck.properties
-    assert p.collisionFilter_layer == nifdefs.SkyrimCollisionLayer.WEAPON, f"Have correct collision layer"
-    assert TT.VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
-    assert TT.VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
-
+    CheckBow(nif, nifcheck, bow)
 
 def TEST_COLLISION_BOW2():
     """Can modify collision shape location"""
@@ -5208,7 +5216,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_COLLISION_BOW] )
+    do_tests( [TEST_COLLISION_BOW, TEST_COLLISION_LIST] )
     # do_tests([t for t in alltests if t.__name__.startswith('TEST_COLL')])
     # do_tests( testfrom(TEST_ANIM_KF) )
     # do_tests(alltests)
