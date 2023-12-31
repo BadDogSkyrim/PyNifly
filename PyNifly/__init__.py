@@ -2258,7 +2258,7 @@ class NifImporter():
         for this_file in self.filename_list:
             fn, fext = os.path.splitext(os.path.basename(this_file))
 
-            if fext == ".nif":
+            if fext.lower() == ".nif":
                 self.nif = NifFile(this_file)
             elif fext in [".hkx", ".xml"]:
                 self.nif = hkxSkeletonFile(this_file)
