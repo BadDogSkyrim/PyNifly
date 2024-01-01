@@ -1038,18 +1038,18 @@ def TEST_SKEL_SKY():
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     root = next(x for x in bpy.data.objects if 'pynRoot' in x)
 
-    bumper_col = next(x for x in arma.children 
-                   if x.name.startswith('bhkSPCollisionObject')
-                   and x['pynCollisionTarget'] == 'CharacterBumper')
+    bumper_bone = arma.pose.bones['CharacterBumper']
+    bumper_constr = bumper_bone.constraints[0]
+    bumper_col = bumper_constr.target
     assert bumper_col, "Have bumper collision"
-    bumper_shape = bumper_col.children[0].children[0]
-    bb = TT.get_obj_bbox(bumper_shape, worldspace=True)
+    bb = TT.get_obj_bbox(bumper_col, worldspace=True)
     assert bb[1][2] - bb[0][2] > bb[1][0] - bb[0][0] \
         and bb[1][2] - bb[0][2] > bb[1][1] - bb[0][1], \
             f"Character bumper long dimension is vertical: {bb}"
 
-    foot_col = [obj for obj in bpy.data.objects 
-                    if 'pynCollisionTarget' in obj and obj['pynCollisionTarget'] == 'NPC Foot.R']
+    foot_bone = arma.pose.bones['NPC Foot.R']
+    foot_constr = foot_bone.constraints[0]
+    foot_col = foot_constr.target
     assert foot_col, "Have foot collision object"
 
 
@@ -1822,9 +1822,7 @@ def TEST_POT():
     assert 'ANCHOR:0' in bpy.data.objects.keys()
 
     anchor = bpy.data.objects['ANCHOR']
-    anchor_col = next(ch for ch in anchor.children if ch.name.startswith('bhkCollisionObject'))
-    anchor_bod = next(bod for bod in anchor_col.children if bod.name.startswith('bhkRigidBody'))
-    anchor_sh = next(sh for sh in anchor_bod.children if sh.name.startswith('bhkSphereShape'))
+    anchor_sh = anchor.constraints[0].target
     assert anchor_sh, "Have collision shape for anchor"
 
     anchor_z = anchor.matrix_world.translation.z
@@ -1832,14 +1830,14 @@ def TEST_POT():
     assert BD.NearEqual(anchor_z, anchor_sh_z), f"Near equal z locations: {anchor_z} == {anchor_sh_z}"
 
     hook = bpy.data.objects['L1_Hook']
-    hook_col = next(ch for ch in hook.children if ch.name.startswith('bhkCollisionObject'))
-    hook_bod = next(bod for bod in hook_col.children if bod.name.startswith('bhkRigidBody'))
-    hook_sh = next(sh for sh in hook_bod.children if sh.name.startswith('bhkBoxShape'))
+    hook_sh = hook.constraints[0].target
     assert hook_sh, "Have collision shape for hook"
 
     hook_z = hook.matrix_world.translation.z
     hook_sh_z = hook_sh.matrix_world.translation.z
-    assert hook_z > hook_sh_z, f"Hook collision below hook: {hook_z} > {hook_sh_z}"
+    assert BD.NearEqual(hook_z, hook_sh_z), f"Hook collision near hook: {hook_z} > {hook_sh_z}"
+    for v in hook_sh.data.vertices:
+        assert v.co.z < 0, f"Hook verts all below hook anchor point: {v.co}"
 
 
 def TEST_NOT_FB():
@@ -2998,17 +2996,17 @@ def TEST_COLLISION_BOW():
     CheckBow(nif, nifcheck, bow)
 
 def TEST_COLLISION_BOW2():
-    """Can modify collision shape location"""
+    """Can modify collision shape location."""
 
     # ------- Load --------
     testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
     outfile2 = TT.test_file(r"tests/Out/TEST_COLLISION_BOW2.nif")
     
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    obj = TT.find_shape('ElvenBowSkinned')
-    coll = TT.find_shape('bhkCollisionObject', type='EMPTY')
-    collbody = coll.children[0]
-    collshape = collbody.children[0]
+    bow = bpy.context.object
+    root = bow.parent
+    arma = bow.modifiers['Armature'].object
+    coll = arma.pose.bones['Bow_MidBone'].constraints['bhkCollisionConstraint'].target
     bged = TT.find_shape("BSBehaviorGraphExtraData", type='EMPTY')
     strd = TT.find_shape("NiStringExtraData", type='EMPTY')
     bsxf = TT.find_shape("BSXFlags", type='EMPTY')
@@ -3016,92 +3014,92 @@ def TEST_COLLISION_BOW2():
 
     # ------- Export --------
     # Move the edge of the collision box so it covers the bow better
-    for v in collshape.data.vertices:
-        if v.co.x > 0:
-            v.co.x = 16.5
+    for v in coll.data.vertices:
+        if v.co.y > 0:
+            v.co.y += 5.4
 
     # Move the collision object 
     coll.location = coll.location + Vector([5, 10, 0])
-    collshape.location = collshape.location + Vector([-5, -10, 0])
 
-    BD.ObjectSelect([obj, coll, bged, strd, bsxf, invm], active=True)
+    BD.ObjectSelect([root], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile2, target_game='SKYRIMSE')
 
     # ------- Check Results 2 --------
-
+    nif = pyn.NifFile(testfile)
     nifcheck2 = pyn.NifFile(outfile2)
+    CheckBow(nif, nifcheck2, bow)
 
-    midbowcheck2 = nifcheck2.nodes["Bow_MidBone"]
-    collcheck2 = midbowcheck2.collision_object
-    assert collcheck2.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck2.blockname}"
-    assert nifdefs.bhkCOFlags(collcheck2.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+    # midbowcheck2 = nifcheck2.nodes["Bow_MidBone"]
+    # collcheck2 = midbowcheck2.collision_object
+    # assert collcheck2.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck2.blockname}"
+    # assert nifdefs.bhkCOFlags(collcheck2.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
 
-    # Full check of locations and rotations to make sure we got them right
-    mbc_xf = nifcheck2.get_node_xform_to_global("Bow_MidBone")
-    assert TT.VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
-    m = BD.transform_to_matrix(mbc_xf).to_euler()
-    assert TT.VNearEqual(m, [0, 0, -math.pi/2]), f"Midbow rotation is correct: {m}"
+    # # Full check of locations and rotations to make sure we got them right
+    # mbc_xf = nifcheck2.get_node_xform_to_global("Bow_MidBone")
+    # assert TT.VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
+    # m = BD.transform_to_matrix(mbc_xf).to_euler()
+    # assert TT.VNearEqual(m, [0, 0, -math.pi/2]), f"Midbow rotation is correct: {m}"
 
-    bodycheck2 = collcheck2.body
-    p = bodycheck2.properties
-    assert TT.VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
-    assert TT.VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
+    # bodycheck2 = collcheck2.body
+    # p = bodycheck2.properties
+    # assert TT.VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
+    # assert TT.VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
 
 
 def TEST_COLLISION_BOW3():
     """Can modify collision shape type"""
-    # We can change the collision by editing the Blender shapes
+    # We can change the collision by editing the Blender shapes. Collision shape has a
+    # rotation and no scale. Check with and without Blender transform.
 
-    # ------- Load --------
-    testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile3 = TT.test_file(r"tests/Out/TEST_COLLISION_BOW3.nif")
+    def do_test(bl):
+        # ------- Load --------
+        testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+        outfile3 = TT.test_file(f"tests/Out/TEST_COLLISION_BOW3_{bl}.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile)
-    obj = TT.find_shape('ElvenBowSkinned')
-    coll = TT.find_shape('bhkCollisionObject', type='EMPTY')
-    collbody = coll.children[0]
-    collshape = collbody.children[0]
-    bged = TT.find_shape("BSBehaviorGraphExtraData", type='EMPTY')
-    strd = TT.find_shape("NiStringExtraData", type='EMPTY')
-    bsxf = TT.find_shape("BSXFlags", type='EMPTY')
-    invm = TT.find_shape("BSInvMarker", type='EMPTY')
+        bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=(bl=='BLENDER'))
+        bow = bpy.context.object
+        root = bow.parent
+        arma = bow.modifiers['Armature'].object
+        coll = arma.pose.bones['Bow_MidBone'].constraints['bhkCollisionConstraint'].target
 
-    # ------- Export --------
+        # ------- Export --------
 
-    # Move the collision object 
-    for v in collshape.data.vertices:
-        if TT.NearEqual(v.co.x, 11.01, epsilon=0.5):
-            v.co.x = 16.875
-            if v.co.y > 0:
-                v.co.y = 26.72
-            else:
-                v.co.y = -26.72
-    collshape.name = "bhkConvexVerticesShape"
-    collbody.name = "bhkRigidBody"
+        # Move the collision object 
+        for v in coll.data.vertices:
+            if TT.NearEqual(v.co.y, 3.3, epsilon=0.5):
+                v.co.y = 9.3
+                if v.co.x > 0:
+                    v.co.x = 30.6
+                else:
+                    v.co.x = -19.5
+        coll.name = "bhkConvexVerticesShape"
 
-    BD.ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
-    bpy.ops.export_scene.pynifly(filepath=outfile3, target_game='SKYRIMSE')
-    
-    # ------- Check Results 3 --------
+        BD.ObjectSelect([root], active=True)
+        bpy.ops.export_scene.pynifly(filepath=outfile3, target_game='SKYRIMSE')
+        
+        # ------- Check Results 3 --------
 
-    nifcheck3 = pyn.NifFile(outfile3)
+        nifcheck3 = pyn.NifFile(outfile3)
 
-    midbowcheck3 = nifcheck3.nodes["Bow_MidBone"]
-    collcheck3 = midbowcheck3.collision_object
-    assert collcheck3.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck3.blockname}"
-    assert nifdefs.bhkCOFlags(collcheck3.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+        midbowcheck3 = nifcheck3.nodes["Bow_MidBone"]
+        collcheck3 = midbowcheck3.collision_object
+        assert collcheck3.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck3.blockname}"
+        assert nifdefs.bhkCOFlags(collcheck3.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
 
-    # Full check of locations and rotations to make sure we got them right
-    mbc_xf = nifcheck3.get_node_xform_to_global("Bow_MidBone")
-    assert TT.VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
-    m = BD.transform_to_matrix(mbc_xf).to_euler()
-    assert TT.VNearEqual(m, [0, 0, -math.pi/2]), f"Midbow rotation is correct: {m}"
+        # Full check of locations and rotations to make sure we got them right
+        mbc_xf = nifcheck3.get_node_xform_to_global("Bow_MidBone")
+        assert TT.VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
+        m = BD.transform_to_matrix(mbc_xf).to_euler()
+        assert TT.VNearEqual(m, [0, 0, -math.pi/2]), f"Midbow rotation is correct: {m}"
 
-    bodycheck3 = collcheck3.body
+        bodycheck3 = collcheck3.body
 
-    cshapecheck3 = bodycheck3.shape
-    assert cshapecheck3.blockname == "bhkConvexVerticesShape", f"Shape is convex vertices: {cshapecheck3.blockname}"
-    assert TT.VNearEqual(cshapecheck3.vertices[0], (-0.73, -0.267, 0.014, 0.0)), f"Convex shape is correct"
+        cshapecheck3 = bodycheck3.shape
+        assert cshapecheck3.blockname == "bhkConvexVerticesShape", f"Shape is convex vertices: {cshapecheck3.blockname}"
+        assert TT.VNearEqual(cshapecheck3.vertices[0], (-0.73, -0.267, 0.014, 0.0)), f"Convex shape is correct"
+
+    do_test('NATURAL')
+    do_test('BLENDER')
 
 
 def TEST_COLLISION_HIER():
@@ -3379,19 +3377,6 @@ def TEST_COLLISION_CONVEXVERT():
         assert BD.NearEqual(coll.rigid_body.friction, 0.5 / nifdefs.HSF), f"Have correct friction"
         assert coll['bhkMaterial'] == 'CLOTH', f"Shape material is a custom property: {coll['bhkMaterial']}"
 
-        # coll = TT.find_shape('bhkCollisionObject', type='EMPTY')
-        # assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
-        # assert 'pynRoot' in coll.parent, f"Collision shape's parent is root"
-
-        # collbody = coll.children[0]
-        # assert collbody.name == 'bhkRigidBody', f"Child of collision is the collision body object"
-        # assert collbody['collisionFilter_layer'] == nifdefs.SkyrimCollisionLayer.CLUTTER.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
-        # assert collbody["collisionResponse"] == nifdefs.hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
-
-        # collshape = collbody.children[0]
-        # assert collshape.name == 'bhkConvexVerticesShape', f"Collision shape is child of the collision body"
-        # assert collshape['bhkMaterial'] == 'CLOTH', f"Shape material is a custom property: {collshape['bhkMaterial']}"
-        # obj = TT.find_shape('CheeseWedge01', collection=bpy.context.selected_objects)
         xmax1 = max([v.co.x for v in cheese.data.vertices])
         xmax2 = max([v.co.x for v in coll.data.vertices])
         assert abs(xmax1 - xmax2) < 0.5, f"Max x vertex nearly the same: {xmax1} == {xmax2}"
@@ -3450,8 +3435,8 @@ def TEST_COLLISION_CONVEXVERT():
         zmin = min([v.co.z for v in impcollshape.data.vertices])
         assert zmin >= -0.01, f"Minimum z is positive: {zmin}"
 
-    do_test(False)
     do_test(True)
+    do_test(False)
 
     
 def TEST_COLLISION_CAPSULE():
@@ -3639,19 +3624,19 @@ def TEST_COLLISION_LIST():
     run_test('NATURAL')
 
 
-def TEST_CHANGE_COLLISION():
+def TEST_COLLISION_BOW_CHANGE():
     """Changing collision type works correctly"""
 
     # ------- Load --------
     testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_CHANGE_COLLISION.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_COLLISION_BOW_CHANGE.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
-    coll = TT.find_shape('bhkCollisionObject', type='EMPTY')
-    collbody = coll.children[0]
-    collshape = TT.find_shape('bhkBoxShape')
+    arma = obj.modifiers['Armature'].object
+    bone = arma.pose.bones['Bow_MidBone']
+    collshape = bone.constraints[0].target
     bged = TT.find_shape("BSBehaviorGraphExtraData", type='EMPTY')
     strd = TT.find_shape("NiStringExtraData", type='EMPTY')
     bsxf = TT.find_shape("BSXFlags", type='EMPTY')
@@ -4230,7 +4215,7 @@ def TEST_COTH_DATA():
     assert len(nif1.cloth_data[0][1]) == 46257, f"Expected 46257 bytes of cloth data, found {len(nif1.cloth_data[0][1])}"
 
 
-def TEST_SCALING_COLL():
+def TEST_COLLISION_BOW_SCALE():
     """Collisions scale correctly on import and export"""
     # Collisions have to be scaled with everything else if the import/export
     # has a scale factor.
@@ -4241,7 +4226,7 @@ def TEST_SCALING_COLL():
 
     # ------- Load --------
     testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SCALING_COLL.nif", output=True)
+    outfile = TT.test_file(r"tests/Out/TEST_COLLISION_BOW_SCALE.nif", output=True)
 
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  use_blender_xf=True, 
@@ -4261,22 +4246,15 @@ def TEST_SCALING_COLL():
     mxpose = arma.pose.bones['Bow_StringBone1'].matrix
     assert BD.MatNearEqual(mxbind, mxpose), f"Bind position same as pose position"
 
-    # # After import with a scale factor, imported object records the scale factor
-    # assert 'PYN_SCALE_FACTOR' in obj, f"Scale fector recorded on {obj.name}"
-    # assert TT.NearEqual(obj['PYN_SCALE_FACTOR'], 0.1), f"Scale factor is correct on {obj.name}: {obj['PYN_SCALE_FACTOR']}"
-    # assert 'PYN_SCALE_FACTOR' in obj.parent, f"Scale fector recorded on {obj.name.parent}"
-    # assert TT.NearEqual(obj.parent['PYN_SCALE_FACTOR'], 0.1), f"Scale factor is correct on {obj.parent.name}: {obj.parent['PYN_SCALE_FACTOR']}"
-
     # Check collision info
     midbone = arma.data.bones['Bow_MidBone']
     midbonew = arma.matrix_world @ midbone.matrix_local
-    coll = TT.find_shape("bhkCollisionObject", type="EMPTY")
-    assert TT.VNearEqual(coll.matrix_world.translation, midbonew.translation), f"Collision positioned at target bone"
+    coll = arma.pose.bones['Bow_MidBone'].constraints[0].target
+    assert TT.VNearEqual(coll.matrix_world.translation, midbonew.translation), \
+        f"Collision positioned at target bone"
 
-    collbody = coll.children[0]
-    assert collbody.name == 'bhkRigidBodyT', f"Child of collision is the collision body object"
-    assert TT.VNearEqual(collbody.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), \
-        f"Collision body rotation correct: {collbody.rotation_quaternion}"
+    assert TT.VNearEqual(coll.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), \
+        f"Collision body rotation correct: {coll.rotation_quaternion}"
 
     # Scale factor applied to bow
     objmin, objmax = TT.get_obj_bbox(bow, worldspace=True)
@@ -5219,7 +5197,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_COLLISION_BOW] )
-    # do_tests([t for t in alltests if t.__name__.startswith('TEST_COLL')])
+    do_tests( [TEST_COLLISION_BOW_SCALE] )
+    # do_tests([t for t in alltests if t.__name__.startswith('TEST_COLLISION')])
     # do_tests( testfrom(TEST_ANIM_KF) )
     # do_tests(alltests)

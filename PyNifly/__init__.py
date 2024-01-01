@@ -423,9 +423,9 @@ def create_capsule(pt1, pt2, desired_radius):
 
 def find_capsule_ends(obj):
     """
-    Find the ends of the given capsule. Must have been created with UV spheres making the
-    ends.
-    returns (point1, point2, radius), where the points are the centers of the opposite caps.
+    Find the ends of the given capsule in local coordinates. Must have been created with
+    UV spheres making the ends.
+    Returns (point1, point2, radius), where the points are the centers of the opposite caps.
     """
     ObjectSelect([obj], active=True)
     bpy.ops.object.mode_set(mode='EDIT')
@@ -1737,7 +1737,7 @@ class NifImporter():
     def import_bhkSphereShape(self, cs:CollisionShape, parentxf:Matrix):
         prop = cs.properties
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
-        shaperad = prop.radius * sf
+        shaperad = prop.bhkRadius * sf
 
         bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8, radius=shaperad, 
                                              calc_uvs=False,
@@ -1775,7 +1775,8 @@ class NifImporter():
     def import_bhkConvexVerticesShape(self, 
                                       collisionnode:CollisionShape,
                                       parentxf:Matrix):
-        """Import a bhkConvexVerticesShape object.
+        """
+        Import a bhkConvexVerticesShape object.
             collisionnode = the bhkConvexVerticesShape node in the nif
             targobj = parent collision body object in Blender 
         """
@@ -1838,6 +1839,11 @@ class NifImporter():
         if sh:
             ObjectSelect([sh], active=True)
             bpy.ops.rigidbody.object_add(type='ACTIVE')
+
+            # if cb.blockname in COLLISION_COLOR_MAP:
+            #     sh.color = COLLISION_COLOR_MAP[cb.blockname] 
+            # else:
+            sh.color = COLLISION_COLOR
             sh.display_type = 'WIRE'
 
             # Shapes now handle their own orientation.
@@ -1855,7 +1861,9 @@ class NifImporter():
         parentxf = parent transform
         returns the collision shape
         """
-        if not cb.shape: return None
+        if not cb.shape: 
+            self.warn(f"Collision has unsupported collision shape")
+            return None
         
         # If collision body provides a transform it adds to the parent transform. The body
         # transform is used to set the collision body vertices; then the parent's
@@ -1867,10 +1875,6 @@ class NifImporter():
         bpy.ops.object.transform_apply()
         sh.matrix_world = parentxf
 
-        # if cb.blockname in COLLISION_COLOR_MAP:
-        #     sh.color = COLLISION_COLOR_MAP[cb.blockname] 
-        # else:
-        #     sh.color = COLLISION_COLOR
         p = cb.properties
         p.extract(sh, ignore=COLLISION_BODY_IGNORE)
         if not cb.blockname.startswith('bhkRigidBody'):
@@ -1923,44 +1927,31 @@ class NifImporter():
         # col.show_name = True
 
         if bone:
-            xf = transform_to_matrix(bone.transform)
+            xf = transform_to_matrix(bone.global_transform)
         else:
             xf = parentObj.matrix_world
         sh = self.import_collision_body(c.body, xf)
+        if not sh:
+            self.warn(f"{parentObj.name} has unsupported collision shape")
+            return
+        
         sh['pynCollisionFlags'] = bhkCOFlags(c.flags).fullname
 
         if parentObj:
-            if parentObj.type == 'ARMATURE' and bone and bone.name in parentObj.data.bones:
-                pb = parentObj.pose.bones[bone.name]
-                constr = pb.constraints.new(type='COPY_TRANSFORMS')
-                constr.target = sh
+            if parentObj.type == 'ARMATURE' and bone:
+                bn = self.blender_name(bone.name)
+                if bn in parentObj.data.bones:
+                    pb = parentObj.pose.bones[bn]
+                    constr = pb.constraints.new(type='COPY_TRANSFORMS')
+                    constr.target = sh
+                else:
+                    self.warn(f"Bone is missing: {bone.name}")
             else:
                 constr = parentObj.constraints.new('COPY_TRANSFORMS')
                 constr.target = sh
             constr.name = ('bhkCollisionConstraint')
 
-        # if parentObj:
-        #     col.parent = parentObj
-        #     # Setting the parent gives the child the inverse of the parent's
-        #     # transformation matrix, because someone thatout taht would be helpful.
-        #     # Change it back. 
-        #     col.matrix_world = parentObj.matrix_world.copy()
-        #     if parentObj.type == "ARMATURE" and bone.blender_name in parentObj.data.bones:
-        #         # col.matrix_world = col.matrix_world @ self.calc_obj_transform(bone)
-        #         col.matrix_world = col.matrix_world \
-        #             @ parentObj.pose.bones[bone.blender_name].matrix
-        #         col['pynCollisionTarget'] = bone.blender_name
         return sh
-
-    # def import_collisions(self):
-    #     """Import top-level collision, if any """
-    #     try:
-    #         r = self.nif.rootNode
-    #         if r.collision_object:
-    #             self.import_collision_obj(r.collision_object, None)
-    #     except:
-    #         traceback.print_exc()
-    #         self.warn(f"Cannot read collisions--collisions not imported")
 
     # ----- End Collisions ----
 
@@ -3798,11 +3789,10 @@ class NifExporter:
             r = r / sf
         props.bhkRadius = props.bhkRadius1 = props.bhkRadius2 = r
         # Transform passed in is the base for this transform
-        point1 = xform @ s.matrix_local @ point1
-        point2 = xform @ s.matrix_local @ point2
         # point1 = self.export_xf @ s.matrix_world @ point1
         # point2 = self.export_xf @ s.matrix_world @ point2
-
+        # point1 = self.export_xf @ point1
+        # point2 = self.export_xf @ point2
 
         for i, val in enumerate(point1):
             props.point1[i] = val/sf
@@ -3817,24 +3807,31 @@ class NifExporter:
     def export_bhkBoxShape(self, box, xform) -> CollisionShape:
         """Export box shape. Box is assumed to be aligned along the local axes.
         * box = collision shape blender object.
-        * xform = transform to apply.
+        * xform = Unused. Transform is set by parent.
         Returns (shape, coordinates)
         * shape = collision shape in the nif object
         * coordinates = center of the shape (in Blender world coordinates) 
         """ 
         cshape = None
         center = Vector()
-        myxf = self.export_xf @ box.matrix_local.to_scale()
         try:
             # Box covers the extent of the shape, whatever it is
             p = bhkBoxShapeProps(box)
             minv = Vector([sys.float_info.max] * 3)
             maxv = Vector([-sys.float_info.max] * 3)
+
+            # Get the box span in local coordinates to get the correct box span.
             for v in box.data.vertices:
-                pt = myxf * v.co
+                pt = v.co
                 for i, n in enumerate(pt):
                     maxv[i] = max(maxv[i], n)
                     minv[i] = min(minv[i], n)
+            
+            # Span in local coordinates now needs to be scaled by the box's own scale
+            # factor plus any scale from the export transform.
+            myscale = self.export_xf.to_scale() * box.matrix_world.to_scale()
+            maxv = myscale * maxv
+            minv = myscale * minv
             halfspan = (maxv - minv)/2
             #for i in range(0, 3): halfspan[i] = (maxv[i] - minv[i])/2
             #center = box.matrix_world @ Vector([minv.x + halfspan.x, minv.y + halfspan.y, minv.z + halfspan.z])
@@ -3853,23 +3850,33 @@ class NifExporter:
         
 
     def export_bhkConvexVerticesShape(self, s, xform):
-        """Export a convex vertices shape that wraps around whatever the import shape
-        is."""
+        """
+        Export a convex vertices shape that wraps around whatever the import shape
+        is.
+        """
         # if self.root_object:
         #     effectiveXF = self.root_object.matrix_world @ xform @ s.matrix_local 
         # else:
         #     effectiveXF = xform @ s.matrix_local 
         if self.root_object:
-            effectiveXF = self.root_object.matrix_world @ xform
+            effectiveXF = self.root_object.matrix_world @ s.matrix_world @ xform
         else:
-            effectiveXF = xform 
+            effectiveXF = s.matrix_world @ xform 
 
         p = bhkConvexVerticesShapeProps(s)
         bm = bmesh.new()
         bm.from_mesh(s.data)
         bmesh.ops.convex_hull(bm, input=bm.verts, use_existing_faces=True)
 
-        verts1 = [effectiveXF @ v.co for v in bm.verts]
+        # Now have hull in local coordinates. We need them in world coordinates, respecting
+        # whatever transform the export has.
+        # OR, bmesh put the verts in world coordinates so we just need to apply the xport
+        # transform.
+        # myxf = self.export_xf 
+        # myxf = self.export_xf @ s.matrix_world # rotation is wrong for bow3
+        myscale = (self.export_xf @ s.matrix_world).to_scale()
+        verts1 = [myscale * v.co for v in bm.verts]
+        # verts1 = [myxf @ v.co for v in bm.verts]
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
         verts = [(v / sf) for v in verts1]
 
@@ -3893,7 +3900,7 @@ class NifExporter:
         s is the collision shape to be controlled by the bhkConvexTransformShape, which
         isn't represented directly in the Blender file at all.
         """
-        childxf = xform @ s.matrix_local
+        childxf = self.export_xf @ xform @ s.matrix_local
         childnode, childcenter = self.export_collision_shape([s], childxf)
 
         if not childnode:
@@ -3923,7 +3930,7 @@ class NifExporter:
         props = bhkListShapeProps(s)
         cshape = self.nif.add_shape(props)
 
-        xf = s.matrix_local.inverted() @ xform
+        xf = s.matrix_local @ xform
         for ch in s.children: 
             if ch.name.startswith("bhk"):
                 # ctsprops = bhkConvexTransformShapeProps(ch)
@@ -3938,12 +3945,15 @@ class NifExporter:
 
 
     def export_collision_shape(self, shape_list, xform=Matrix()):
-        """Export the first collision shape in shape_list. 
+        """
+        Export the first collision shape in shape_list. 
         * shape_list = list of bhk*Shape objects. Should only be one.
-        * xform = additional transform to apply. a bhkRigidBodyT can apply the transform
-        itself--a bhkRigidBody cannot, so we have to do it here.
-        Returns (shape, coordinates)
-        * shape = collision shape in the nif object
+        * xform = additional transform to apply. Shapes that position their verts
+          explicitly must apply this transform. (Shapes that don't get their position set
+          by the RigidBody.)
+        
+        Returns (shape, coordinates) 
+        * shape = collision shape in the nif object 
         * coordinates = center of the shape (in Blender world coordinates) 
         """
         for cs in shape_list:
@@ -3959,30 +3969,6 @@ class NifExporter:
                 return self.export_bhkConvexTransformShape(cs, xform)
             # TODO: Add bhkSphereShape
         return None, None
-
-    # def get_collision_target(self, collisionobj):
-    #     """
-    #     Find the target of the given collision. 
-    #     Returns the world transform matrix for the collision target. 
-    #     """
-    #     mx = None
-    #     targ = collisionobj.parent
-    #     if targ == None:
-    #         targ = self.root_object
-    #     if targ == None:
-    #         mx = collisionobj.matrix_world.copy()
-    #         log.warn(f"No target, using collision object: {collisionobj.name}")
-    #         return mx
-
-    #     if targ.type == 'ARMATURE':
-    #         targname = collisionobj['pynCollisionTarget']
-    #         mx = get_bone_xform(targ, targname, self.game, 
-    #                             self.preserve_hierarchy,
-    #                             self.export_pose)
-    #         return mx
-
-    #     mx = targ.matrix_local.copy()
-    #     return mx
 
 
     def export_collision_body(self, targobj, coll):
@@ -4005,7 +3991,7 @@ class NifExporter:
         
         have_bone = False
         try:
-            targxf = targobj.matrix_world
+            targxf = self.export_xf @  targobj.matrix_local
         except:
             try:
                 # for pose bones

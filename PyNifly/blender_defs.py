@@ -369,7 +369,7 @@ def inv_to_cam(im_rot, zoom):
     return cammx.inverted() @ CAMERA_NEUTRAL, focal_len
 
 
-def highlight_objects(objlist, context):
+def highlight_objects(objlist, context, is_callback=False):
     """
     Highlight the given objects in the viewports. Select them, make sure
     they are visible in the 3D view, make sure they are visible in the outliner.
@@ -388,7 +388,8 @@ def highlight_objects(objlist, context):
                                 # import call. Let Blender set state and then repeat the
                                 # call.
                                 bpy.ops.outliner.show_active()
-                                bpy.app.timers.register(highlight_selected, first_interval=5)
+                                if not is_callback:
+                                    bpy.app.timers.register(highlight_selected, first_interval=5)
                             else:
                                 bpy.ops.view3d.view_selected()
                         except:
@@ -396,7 +397,7 @@ def highlight_objects(objlist, context):
 
 
 def highlight_selected():
-    highlight_objects(bpy.context.selected_objects, bpy.context)
+    highlight_objects(bpy.context.selected_objects, bpy.context, is_callback=True)
 
     
 def find_node(socket, nodetype, nodelist=None):
