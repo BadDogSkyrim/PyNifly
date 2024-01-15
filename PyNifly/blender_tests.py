@@ -2989,14 +2989,13 @@ def TEST_COLLISION_BOW_SCALE():
 
     # Re-import the nif to make sure collisions are right. Could test them in the nif
     # directly but the math is gnarly.
-    bpy.ops.object.select_all(action='DESELECT')
-    bpy.ops.object.hide_view_set()
-    
+    TT.clear_all()
+
     bpy.ops.import_scene.pynifly(filepath=outfile, 
                                  use_blender_xf=True,
                                  do_import_pose=False)
-    obj = bpy.context.object
-    arma = obj.modifiers['Armature'].object
+    bow = bpy.context.object
+    arma = bow.modifiers['Armature'].object
     bone = arma.pose.bones['Bow_MidBone']
     box = bone.constraints[0].target
     mina, maxa = TT.get_obj_bbox(bow, worldspace=True)
@@ -4944,6 +4943,8 @@ def TEST_ANIM_HKX():
     hkx_skel = TT.test_file(r"tests\Skyrim\skeleton.hkx")
     outfile = TT.test_file(r"tests/Out/created animations/TEST_ANIM_HKX.hkx")
 
+    pathlib.Path(outfile).parent.mkdir(parents=True, exist_ok=True)
+
     bpy.context.scene.render.fps = 60
 
     # Animations are loaded into a skeleton
@@ -5316,7 +5317,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_COLLISION_LIST] )
-    do_tests([t for t in alltests if t.__name__.startswith('TEST_COLLISION')])
-    # do_tests( testfrom(TEST_ANIM_KF) )
-    # do_tests(alltests)
+    # do_tests( [TEST_COLLISION_BOW_SCALE] )
+    # do_tests([t for t in alltests if t.__name__.startswith('TEST_COLLISION')])
+    do_tests( testfrom(TEST_ANIM_HKX) )
+    do_tests(alltests)
