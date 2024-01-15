@@ -67,8 +67,9 @@ def ObjectActive(obj):
     bpy.context.view_layer.objects.active = obj
 
 
-def MatrixLocRotScale(loc, rot, scale):
+def MatrixLocRotScale(loc, rot, scale=None):
     """Same as Matrix.LocRotScale, For backwards compatibility."""
+    if scale == None: scale = Vector((1,1,1,))
     try:
         return Matrix.LocRotScale(loc, rot, scale)
     except:
@@ -199,11 +200,13 @@ def find_box_info(box):
     yn = faces[1].normal.copy()
     yn.rotate(xrot.inverted())
     yrot = Vector((0, 1, 0, )).rotation_difference(yn)
+    # Need to return the rotation from neutral, so add the box's local rotation.
+    rot = (xrot @ yrot)
 
     # Calculate the centerpoint 
     ctr =  box.matrix_world @ (faces[0].center + (opposites[0].center - faces[0].center)/2)
 
-    return ctr, box.scale * dimv, xrot @ yrot
+    return ctr, box.matrix_world.to_scale() * dimv, rot
 
 
 def bind_position(shape:NiShape, bone: str) -> Matrix:

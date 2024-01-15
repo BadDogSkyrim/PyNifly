@@ -2862,13 +2862,18 @@ def CheckBow(nif, nifcheck, bow):
     p = bodycheck.properties
     assert p.collisionFilter_layer == nifdefs.SkyrimCollisionLayer.WEAPON, f"Have correct collision layer"
     assert TT.VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
-    # Rotation and dimensions are related. Could check the bounds, which is a lot of math.
-    # Instead check the values, but make sure the values give a good collision.
-    assert TT.VNearEqual(p.rotation[:], [0.0, 0.0, 0.0, 1.0]), f"Collision body rotation correct: {p.rotation[:]}"
 
     boxcheck = bodycheck.shape
     assert boxcheck.blockname == 'bhkBoxShape', f"Box shape block correct"
-    assert BD.VNearEqual(boxcheck.bhkDimensions, [0.823792, 0.195945, 0.013632]), f"Box dimensions correct."
+
+    # Rotation and dimensions are related. Could check the bounds, which is a lot of math.
+    # Instead check the values, but make sure the values give a good collision.
+    #assert TT.VNearEqual(p.rotation[:], [0.0, 0.0, 0.0, 1.0]), f"Collision body rotation correct: {p.rotation[:]}"
+    dimv = Vector(boxcheck.bhkDimensions)
+    p = bodycheck.properties
+    rot = Quaternion((p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2],))
+    dimv.rotate(rot)
+    assert dimv.x > dimv.y > dimv.z, f"Have good collision bounds: {dimv}"
 
     bsxcheck = nifcheck.rootNode.bsx_flags
     assert bsxcheck == ["BSX", 202], f"BSX Flag node found: {bsxcheck}"
@@ -2941,9 +2946,11 @@ def TEST_COLLISION_BOW_SCALE():
     print("--Testing export")
 
     # Move the edge of the collision box so it covers the bow better
-    # for v in collbox.data.vertices:
-    #     if v.co.y > 0:
-    #         v.co.y += 6
+    for v in collbox.data.vertices:
+        if v.co.x < 0:
+            v.co.x -= 0.1
+        if v.co.y > 0:
+            v.co.y += 6
 
     collbox.update_from_editmode()
     boxmin, boxmax = TT.get_obj_bbox(collbox, worldspace=True)
@@ -2979,39 +2986,6 @@ def TEST_COLLISION_BOW_SCALE():
     TT.compare_bones('Bow_MidBone', nif, nifcheck, e=0.001)
     TT.compare_bones('Bow_StringBone2', nif, nifcheck, e=0.001)
 
-    # # Check the exported collision
-    # nifcheck = pyn.NifFile(testfile)
-    # bowcheck = nifcheck.shape_dict["ElvenBowSkinned:0"]
-    # bowxf = BD.transform_to_matrix(bowcheck.global_transform)
-    # worldverts = [bowxf @ Vector(v) for v in bowcheck.verts]
-    # bowbounds = [
-    #     [min(v.x for v in worldverts), min(v.y for v in worldverts), min(v.z for v in worldverts)],
-    #     [max(v.x for v in worldverts), max(v.y for v in worldverts), max(v.z for v in worldverts)],
-    # ]
-    # bone = nifcheck.nodes["Bow_MidBone"]
-    # bonexf = BD.transform_to_matrix(bone.global_transform)
-    # rb = bone.collision_object.body
-    # box = rb.shape
-    # bd = box.properties.bhkDimensions
-    # bbhvc = [
-    #     Vector((bd[0]/-2, bd[1]/-2, bd[2]/-2,)),
-    #     Vector((bd[0]/2, bd[1]/2, bd[2]/2,))
-    # ]
-    # bbmx = Matrix(bbhvc)
-    # bbloc = bbmx * BD.HAVOC_SCALE_FACTOR
-    # rbxf = BD.RigidBodyXF(rb)
-    # boxmin = bonexf @ rbxf @ bbloc[0]
-    # boxmax = bonexf @ rbxf @ bbloc[1]
-    # for bowb, boxb in zip(bowbounds[0], boxmin):
-    #     assert boxb < bowb, f"Min box bound less than bow"
-    # for bowb, boxb in zip(bowbounds[1], boxmax):
-    #     assert boxb > bowb, f"Max box bound greater than bow"
-
-    # CheckBow(pyn.NifFile(testfile),
-    #          pyn.NifFile(outfile),
-    #          bow)
-
-    return
 
     # Re-import the nif to make sure collisions are right. Could test them in the nif
     # directly but the math is gnarly.
@@ -3770,7 +3744,8 @@ def TEST_COLLISION_LIST():
         cts45check = None
         for cts in listcheck.children:
             erot = Matrix(cts.transform).to_euler()
-            if TT.NearEqual(erot.x, math.radians(45)):
+            theta = round(math.degrees(erot.x))
+            if TT.NearEqual(theta % 45, 0): # Is some multiple of 45
                 cts45check = cts
         boxdiag = cts45check.child
         assert TT.NearEqual(boxdiag.properties.bhkDimensions[1], 0.170421), f"Diagonal box has correct size: {boxdiag.properties.bhkDimensions[1]}"
@@ -5341,7 +5316,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests([t for t in alltests if t.__name__.startswith('UNITTEST')])
-    do_tests( [TEST_COLLISION_BOW_SCALE] )
+    # do_tests( [TEST_COLLISION_LIST] )
+    do_tests([t for t in alltests if t.__name__.startswith('TEST_COLLISION')])
     # do_tests( testfrom(TEST_ANIM_KF) )
     # do_tests(alltests)

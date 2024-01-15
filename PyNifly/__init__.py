@@ -3808,7 +3808,7 @@ class NifExporter:
 
         cshape = self.nif.add_shape(props)
 
-        return cshape, s.location
+        return cshape, s.location, Quaternion()
 
 
     def export_bhkBoxShape(self, box, xform) -> CollisionShape:
@@ -3922,7 +3922,7 @@ class NifExporter:
         
         cshape = self.nif.add_shape(p, vertices=verts, normals=norms)
 
-        return cshape, Vector()
+        return cshape, Vector(), Quaternion()
 
 
     def export_bhkConvexTransformShape(self, s, xform):
@@ -3931,24 +3931,37 @@ class NifExporter:
         isn't represented directly in the Blender file at all.
         """
         childxf = self.export_xf @ xform @ s.matrix_local
-        childnode, childcenter = self.export_collision_shape([s], childxf)
+        childnode, childcenter, childrot = self.export_collision_shape([s], childxf)
+
+        # Collision shape rotation is in the shape's own coordinates. Since this is a
+        # child and we are setting the transform, we need the rotation in global
+        # coordnates.
+        childrot = s.matrix_local.to_quaternion() @ childrot
 
         if not childnode:
-            return None, None
+            return None, None, None
 
         props = bhkConvexTransformShapeProps(s)
         if s.rigid_body.use_margin:
             props.bhkRadius = s.rigid_body.collision_margin # / HAVOC_SCALE_FACTOR
+
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
+        targlocw, targqw, targscalew = xform.decompose()
 
         # We want the transform to be exactly the controlled shape's world transform.
         # If we have a parent list shape, ignore its location because it doesn't have
         # one in the nif.
-        havocxf = s.matrix_local.copy() # self.export_xf @ s.matrix_local # .inverted()
-        havocxf.translation = havocxf.translation / sf
+        childtransl = childcenter - targlocw
+        childtransl.rotate(targqw.inverted())
+        childtransl = childtransl * self.export_xf.to_scale()
+        childtransl = childtransl / sf
+
+        # havocxf = s.matrix_local.copy() # self.export_xf @ s.matrix_local # .inverted()
+        # havocxf.translation = havocxf.translation / sf
+        havocxf = MatrixLocRotScale(childtransl, childrot, Vector((1,1,1,)))
         cshape = self.nif.add_shape(props, transform=havocxf)
         cshape.child = childnode
-        return cshape, xform.translation
+        return cshape, xform.translation, Quaternion()
 
 
     def export_bhkListShape(self, s, xform):
@@ -3967,11 +3980,11 @@ class NifExporter:
                 # xf = ch.matrix_local.copy()
                 # xf.translation = xf.translation / HAVOC_SCALE_FACTOR
                 # ctsprops.transform = 
-                shapenode, nodetransl = self.export_bhkConvexTransformShape(ch, xf)
+                shapenode, nodetransl, noderot = self.export_bhkConvexTransformShape(ch, xf)
                 if shapenode:
                     cshape.add_child(shapenode)
 
-        return cshape, s.matrix_local.translation
+        return cshape, s.matrix_local.translation, Quaternion()
 
 
     def export_collision_shape(self, shape_list, xform=Matrix()):
@@ -3999,7 +4012,7 @@ class NifExporter:
             elif cs.name.startswith("bhkConvexTransformShape"):
                 return self.export_bhkConvexTransformShape(cs, xform)
             # TODO: Add bhkSphereShape
-        return None, None, None
+        return None, None, Quaternion()
 
 
     def export_collision_body(self, targobj, coll):
