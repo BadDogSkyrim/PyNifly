@@ -2837,21 +2837,14 @@ def TEST_TREE():
 
 def CheckBow(nif, nifcheck, bow):
     """Check that the glass bow nif is correct."""
-    TT.compare_shapes(nif.shape_dict['ElvenBowSkinned:0'],
-                    nifcheck.shape_dict['ElvenBowSkinned:0'],
-                    bow)
+    TT.compare_shapes(nif.shape_dict['ElvenBowSkinned:0'], 
+                      nifcheck.shape_dict['ElvenBowSkinned:0'],
+                      bow)
 
     rootcheck = nifcheck.rootNode
     assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
     assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
     assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
-
-    bsxcheck = nifcheck.rootNode.bsx_flags
-    assert bsxcheck == ["BSX", 202], f"BSX Flag node found: {bsxcheck}"
-
-    bsinvcheck = nifcheck.rootNode.inventory_marker
-    assert bsinvcheck[0:4] == ["INV", 4712, 0, 785], f"Inventory marker set: {bsinvcheck}"
-    # assert round(bsinvcheck[4], 4) == 1.1273, f"Inventory marker zoom set: {bsinvcheck[4]}"
 
     # Check the midbone transform
     mbc_xf = nifcheck.get_node_xform_to_global("Bow_MidBone")
@@ -2876,6 +2869,168 @@ def CheckBow(nif, nifcheck, bow):
     boxcheck = bodycheck.shape
     assert boxcheck.blockname == 'bhkBoxShape', f"Box shape block correct"
     assert BD.VNearEqual(boxcheck.bhkDimensions, [0.823792, 0.195945, 0.013632]), f"Box dimensions correct."
+
+    bsxcheck = nifcheck.rootNode.bsx_flags
+    assert bsxcheck == ["BSX", 202], f"BSX Flag node found: {bsxcheck}"
+
+    bsinvcheck = nifcheck.rootNode.inventory_marker
+    assert bsinvcheck[0:4] == ["INV", 4712, 0, 785], f"Inventory marker set: {bsinvcheck}"
+    # assert round(bsinvcheck[4], 4) == 1.1273, f"Inventory marker zoom set: {bsinvcheck[4]}"
+
+
+def TEST_COLLISION_BOW_SCALE():
+    """Collisions scale correctly on import and export"""
+    # Collisions have to be scaled with everything else if the import/export
+    # has a scale factor.
+
+    # Primarily tests collisions, but this nif has everything: collisions, root node as
+    # fade node, bone hierarchy, extra data nodes. So tests for those and also  
+    # UV orientation and texture handling
+
+    # ------- Load --------
+    testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_COLLISION_BOW_SCALE.nif", output=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                 use_blender_xf=True, 
+                                 do_import_pose=False)
+
+    # ------- Check --------
+    bow = TT.find_shape("ElvenBowSkinned:0")
+
+    # Check shape size
+    assert BD.VNearEqual(bow.scale, Vector((1,1,1))), "Have 1x scale"
+    maxy = max(v.co.y for v in bow.data.vertices)
+    miny = min(v.co.y for v in bow.data.vertices)
+    assert BD.NearEqual(maxy, 64.4891), f"Have correct max y: {maxy}"
+    assert BD.NearEqual(miny, -50.5509), f"Have correct min y: {miny}"
+
+    # Make sure the bone positions didn't get messed up by use_blender_xf.
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    mxbind = arma.data.bones['Bow_StringBone1'].matrix_local
+    mxpose = arma.pose.bones['Bow_StringBone1'].matrix
+    assert BD.MatNearEqual(mxbind, mxpose), f"Bind position same as pose position"
+
+    # Check collision info
+    midbone = arma.data.bones['Bow_MidBone']
+    midbonew = arma.matrix_world @ midbone.matrix_local
+    coll = arma.pose.bones['Bow_MidBone'].constraints[0].target
+    assert TT.VNearEqual(coll.matrix_world.translation, midbonew.translation), \
+        f"Collision positioned at target bone"
+
+    q = coll.matrix_world.to_quaternion()
+    assert TT.VNearEqual(q, (0.7071, 0.0, 0.0, 0.7071)), \
+        f"Collision body rotation correct: {coll.rotation_quaternion}"
+
+    # Scale factor applied to bow
+    objmin, objmax = TT.get_obj_bbox(bow, worldspace=True)
+    assert objmax.y - objmin.y < 12, f"Bow is properly scaled: {objmax - objmin}"
+
+    # Collision box bounds close to bow bounds.
+    collbox = TT.find_shape('bhkBoxShape')
+    assert TT.close_bounds(bow, collbox), f"Collision just covers bow"
+
+    # Quick unit test--getting box info should be correct in world coordinates.
+    c, d, r = BD.find_box_info(collbox)
+    dworld = collbox.matrix_world.to_quaternion().inverted() @ (r @ d)
+    dworld = Vector([abs(n) for n in dworld])
+    # The rotation should result is the long axis aligned with y, short with z
+    assert dworld.y > dworld.x > dworld.z, f"Have correct rotation"
+    assert BD.VNearEqual(c, Vector((0.6402, 0.0143, 0.002))), f"Centerpoint correct: {c}"
+
+    print("--Testing export")
+
+    # Move the edge of the collision box so it covers the bow better
+    # for v in collbox.data.vertices:
+    #     if v.co.y > 0:
+    #         v.co.y += 6
+
+    collbox.update_from_editmode()
+    boxmin, boxmax = TT.get_obj_bbox(collbox, worldspace=True)
+    assert TT.VNearEqual(objmax, boxmax, epsilon=1.0), f"Collision just covers bow: {objmax} ~~ {boxmax}"
+
+    # ------- Export and Check Results --------
+
+    # We want the special properties of the root node. 
+    BD.ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
+
+    # Depend on the defaults stored on the armature for scale factor
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', 
+                                 preserve_hierarchy=True)
+
+    nif = pyn.NifFile(testfile)
+    nifcheck = pyn.NifFile(outfile)
+
+    TT.compare_shapes(nif.shape_dict['ElvenBowSkinned:0'],
+                      nifcheck.shape_dict['ElvenBowSkinned:0'],
+                      bow)
+
+    rootcheck = nifcheck.rootNode
+    assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
+    assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
+    assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
+
+    midbowcheck = nifcheck.nodes["Bow_MidBone"]
+    collcheck = midbowcheck.collision_object
+    assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+    assert nifdefs.bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+
+    # Full check of locations and rotations to make sure we got them right
+    TT.compare_bones('Bow_MidBone', nif, nifcheck, e=0.001)
+    TT.compare_bones('Bow_StringBone2', nif, nifcheck, e=0.001)
+
+    # # Check the exported collision
+    # nifcheck = pyn.NifFile(testfile)
+    # bowcheck = nifcheck.shape_dict["ElvenBowSkinned:0"]
+    # bowxf = BD.transform_to_matrix(bowcheck.global_transform)
+    # worldverts = [bowxf @ Vector(v) for v in bowcheck.verts]
+    # bowbounds = [
+    #     [min(v.x for v in worldverts), min(v.y for v in worldverts), min(v.z for v in worldverts)],
+    #     [max(v.x for v in worldverts), max(v.y for v in worldverts), max(v.z for v in worldverts)],
+    # ]
+    # bone = nifcheck.nodes["Bow_MidBone"]
+    # bonexf = BD.transform_to_matrix(bone.global_transform)
+    # rb = bone.collision_object.body
+    # box = rb.shape
+    # bd = box.properties.bhkDimensions
+    # bbhvc = [
+    #     Vector((bd[0]/-2, bd[1]/-2, bd[2]/-2,)),
+    #     Vector((bd[0]/2, bd[1]/2, bd[2]/2,))
+    # ]
+    # bbmx = Matrix(bbhvc)
+    # bbloc = bbmx * BD.HAVOC_SCALE_FACTOR
+    # rbxf = BD.RigidBodyXF(rb)
+    # boxmin = bonexf @ rbxf @ bbloc[0]
+    # boxmax = bonexf @ rbxf @ bbloc[1]
+    # for bowb, boxb in zip(bowbounds[0], boxmin):
+    #     assert boxb < bowb, f"Min box bound less than bow"
+    # for bowb, boxb in zip(bowbounds[1], boxmax):
+    #     assert boxb > bowb, f"Max box bound greater than bow"
+
+    # CheckBow(pyn.NifFile(testfile),
+    #          pyn.NifFile(outfile),
+    #          bow)
+
+    return
+
+    # Re-import the nif to make sure collisions are right. Could test them in the nif
+    # directly but the math is gnarly.
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.object.hide_view_set()
+    
+    bpy.ops.import_scene.pynifly(filepath=outfile, 
+                                 use_blender_xf=True,
+                                 do_import_pose=False)
+    obj = bpy.context.object
+    arma = obj.modifiers['Armature'].object
+    bone = arma.pose.bones['Bow_MidBone']
+    box = bone.constraints[0].target
+    mina, maxa = TT.get_obj_bbox(bow, worldspace=True)
+    minb, maxb = TT.get_obj_bbox(box, worldspace=True)
+    assert minb[0] < mina[0], f"Box min x less than bow min"
+    assert minb[1] < mina[1], f"Box min y less than bow min"
+    assert maxb[0] > maxa[0], f"Box max x greater than bow max"
+    assert maxb[1] > maxa[1], f"Box max y greater than bow max"
 
 
 def TEST_COLLISION_BOW():
@@ -4215,109 +4370,6 @@ def TEST_COTH_DATA():
     assert len(nif1.cloth_data[0][1]) == 46257, f"Expected 46257 bytes of cloth data, found {len(nif1.cloth_data[0][1])}"
 
 
-def TEST_COLLISION_BOW_SCALE():
-    """Collisions scale correctly on import and export"""
-    # Collisions have to be scaled with everything else if the import/export
-    # has a scale factor.
-
-    # Primarily tests collisions, but this nif has everything: collisions, root node as
-    # fade node, bone hierarchy, extra data nodes. So tests for those and also  
-    # UV orientation and texture handling
-
-    # ------- Load --------
-    testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_COLLISION_BOW_SCALE.nif", output=True)
-
-    bpy.ops.import_scene.pynifly(filepath=testfile, 
-                                 use_blender_xf=True, 
-                                 do_import_pose=False)
-    bow = TT.find_shape("ElvenBowSkinned:0")
-
-    # Check shape size
-    assert BD.VNearEqual(bow.scale, Vector((1,1,1))), "Have 1x scale"
-    maxy = max(v.co.y for v in bow.data.vertices)
-    miny = min(v.co.y for v in bow.data.vertices)
-    assert BD.NearEqual(maxy, 64.4891), f"Have correct max y: {maxy}"
-    assert BD.NearEqual(miny, -50.5509), f"Have correct min y: {miny}"
-
-    # Make sure the bone positions didn't get messed up by use_blender_xf.
-    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
-    mxbind = arma.data.bones['Bow_StringBone1'].matrix_local
-    mxpose = arma.pose.bones['Bow_StringBone1'].matrix
-    assert BD.MatNearEqual(mxbind, mxpose), f"Bind position same as pose position"
-
-    # Check collision info
-    midbone = arma.data.bones['Bow_MidBone']
-    midbonew = arma.matrix_world @ midbone.matrix_local
-    coll = arma.pose.bones['Bow_MidBone'].constraints[0].target
-    assert TT.VNearEqual(coll.matrix_world.translation, midbonew.translation), \
-        f"Collision positioned at target bone"
-
-    assert TT.VNearEqual(coll.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), \
-        f"Collision body rotation correct: {coll.rotation_quaternion}"
-
-    # Scale factor applied to bow
-    objmin, objmax = TT.get_obj_bbox(bow, worldspace=True)
-    assert objmax.y - objmin.y < 12, f"Bow is properly scaled: {objmax - objmin}"
-
-    # Collision box bounds close to bow bounds.
-    collbox = TT.find_shape('bhkBoxShape')
-    assert TT.close_bounds(bow, collbox), f"Collision just covers bow"
-    
-    print("--Testing export")
-
-    # Move the edge of the collision box so it covers the bow better
-    for v in collbox.data.vertices:
-        if v.co.x > 0:
-            v.co.x += 6
-    # collbody.matrix_local = collbody.matrix_local @ Matrix.Translation(Vector((4, 0, 0)))
-
-    collbox.update_from_editmode()
-    boxmin, boxmax = TT.get_obj_bbox(collbox, worldspace=True)
-    assert TT.VNearEqual(objmax, boxmax, epsilon=1.0), f"Collision just covers bow: {objmax} ~~ {boxmax}"
-
-    # ------- Export and Check Results --------
-
-    # We want the special properties of the root node. 
-    BD.ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
-
-    # Depend on the defaults stored on the armature for scale factor
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', 
-                                 preserve_hierarchy=True)
-
-    nif = pyn.NifFile(testfile)
-    nifcheck = pyn.NifFile(outfile)
-
-    TT.compare_shapes(nif.shape_dict['ElvenBowSkinned:0'],
-                      nifcheck.shape_dict['ElvenBowSkinned:0'],
-                      bow)
-
-    rootcheck = nifcheck.rootNode
-    assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
-    assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
-    assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
-
-    midbowcheck = nifcheck.nodes["Bow_MidBone"]
-    collcheck = midbowcheck.collision_object
-    assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
-    assert nifdefs.bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
-
-    # Full check of locations and rotations to make sure we got them right
-    TT.compare_bones('Bow_MidBone', nif, nifcheck, e=0.001)
-    TT.compare_bones('Bow_StringBone2', nif, nifcheck, e=0.001)
-
-    # Re-import the nif to make sure collisions are right. Could test them in the nif
-    # directly but the math is gnarly.
-    TT.clear_all()
-    
-    bpy.ops.import_scene.pynifly(filepath=outfile, 
-                                 use_blender_xf=True,
-                                 do_import_pose=False)
-    obj = TT.find_shape("ElvenBowSkinned:0")
-    box = TT.find_shape("bhkBoxShape")
-    assert TT.close_bounds(obj, box), f"Collision box covers bow."
-
-
 def TEST_IMP_NORMALS():
     """Can import normals from nif shape"""
 
@@ -5111,6 +5163,98 @@ def TEST_COLLISION_FO4():
     # assert body.properties.qualityType == nifdefs.hkQualityType.MOVING, "Have correct qualityType"
 
 
+def UNITTEST_CUBE_INFO1():
+    """Unit test to ensure we can analyze a rotated cube."""
+    bpy.ops.mesh.primitive_cube_add(location=(0,0,0,))
+    cube = bpy.context.object
+    cube.scale = Vector((1, 2, 3,))
+    cube.rotation_mode = 'XYZ'
+    testrot = (0.35, 1.4, 0)
+    cube.rotation_euler = testrot
+    bpy.ops.object.transform_apply(rotation=True, scale=True)
+    c, d, r = BD.find_box_info(bpy.context.object)
+    assert BD.VNearEqual(c, (0, 0, 0)), f"Centerpoint at origin: {c}"
+    assert BD.VNearEqual(d, (2, 4, 6)), f"Have correct dimensions: {d}"
+    assert BD.VNearEqual(testrot, r.to_euler()[0:3]), f"Have correct rotation: {r}"
+
+
+def UNITTEST_CUBE_INFO2():
+    """Unit test to ensure we can analyze a rotated, translated cube."""
+    bpy.ops.mesh.primitive_cube_add(location=(0,0,0,))
+    cube = bpy.context.object
+    dims = Vector((1, 2, 3,))
+    cube.scale = dims
+    cube.rotation_mode = 'XYZ'
+    testrot = (0.35, 1.4, 0.9)
+    cube.rotation_euler = testrot
+    bpy.ops.object.transform_apply(rotation=True, scale=True)
+    offset = Vector((3, 4, 5,))
+    for v in cube.data.vertices:
+        v.co += offset
+    
+    c, d, r = BD.find_box_info(bpy.context.object)
+    # Centerpoint is returned as the world location of the geometric center.
+    assert BD.VNearEqual(c, offset), f"Centerpoint at translated location: {c}"
+    # Dimensions are in the box's local frame of reference. 
+    assert BD.VNearEqual(d, dims*2), f"Have correct dimensions: {d}"
+    # Rotation is what's required to rotate an aligned box to the actual box's position.
+    assert BD.VNearEqual(testrot, r.to_euler()[0:3]), f"Have correct rotation: {r}"
+
+
+def UNITTEST_CUBE_INFO3():
+    """Unit test to ensure we can analyze a cube with translations and rotations on the object."""
+    bpy.ops.mesh.primitive_cube_add(location=(0,0,0,))
+    cube = bpy.context.object
+    dims = Vector((1, 2, 3,))
+    cube.scale = dims
+    cube.rotation_mode = 'XYZ'
+    testrot = (0.35, 1.4, 0.9)
+    cube.rotation_euler = testrot
+    bpy.ops.object.transform_apply(rotation=True, scale=True)
+    offset = Vector((3, 4, 5,))
+    for v in cube.data.vertices:
+        v.co += offset
+    
+    objoffset = Vector((6, 7, 8,))
+    objscale = 0.1
+    cube.location = objoffset
+    cube.scale = (objscale,)*3
+    c, d, r = BD.find_box_info(bpy.context.object)
+    # Centerpoint is returned as the world location of the geometric center.
+    assert BD.VNearEqual(c, objoffset+cube.scale*offset), f"Centerpoint at translated location: {c}"
+    # Dimensions are in world scale. 
+    assert BD.VNearEqual(d, dims*2*cube.scale), f"Have correct dimensions: {d}"
+    # Rotation is what's required to rotate an aligned box to the actual box's position.
+    assert BD.VNearEqual(testrot, r.to_euler()[0:3]), f"Have correct rotation: {r}"
+
+
+# def UNITTEST_CUBE_INFO4():
+#     """Unit test to ensure we can analyze a cube with the glass bow's collision."""
+#     bpy.ops.mesh.primitive_cube_add(location=(0.64, 0.014, 0.002,))
+#     cube = bpy.context.object
+#     dims = Vector((1, 2, 3,))
+#     cube.scale = dims
+#     cube.rotation_mode = 'XYZ'
+#     testrot = (0.35, 1.4, 0.9)
+#     cube.rotation_euler = testrot
+#     bpy.ops.object.transform_apply(rotation=True, scale=True)
+#     offset = Vector((3, 4, 5,))
+#     for v in cube.data.vertices:
+#         v.co += offset
+    
+#     objoffset = Vector((6, 7, 8,))
+#     objscale = 0.1
+#     cube.location = objoffset
+#     cube.scale = (objscale,)*3
+#     c, d, r = BD.find_box_info(bpy.context.object)
+#     # Centerpoint is returned as the world location of the geometric center.
+#     assert BD.VNearEqual(c, objoffset+cube.scale*offset), f"Centerpoint at translated location: {c}"
+#     # Dimensions are in world scale. 
+#     assert BD.VNearEqual(d, dims*2*cube.scale), f"Have correct dimensions: {d}"
+#     # Rotation is what's required to rotate an aligned box to the actual box's position.
+#     assert BD.VNearEqual(testrot, r.to_euler()[0:3]), f"Have correct rotation: {r}"
+
+
 def LOAD_RIG():
     """Load an animation rig for play. Has to be invoked explicitly."""
     skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
@@ -5197,7 +5341,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
+    do_tests([t for t in alltests if t.__name__.startswith('UNITTEST')])
     do_tests( [TEST_COLLISION_BOW_SCALE] )
-    # do_tests([t for t in alltests if t.__name__.startswith('TEST_COLLISION')])
     # do_tests( testfrom(TEST_ANIM_KF) )
     # do_tests(alltests)

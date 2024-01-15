@@ -386,15 +386,15 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
             return False
         
         if context.object.mode != 'POSE':
-            log.error("Must be in POSE Mode to export skeleton bones")
+            log.debug("Must be in POSE Mode to export skeleton bones")
             return False
 
         try:
             if len([x for x in context.object.pose.bones if x.bone.select]) == 0:
-                log.error("Must select one or more bones in pose mode to export")
+                log.debug("Must select one or more bones in pose mode to export")
                 return False
         except:
-            log.error("Must have a selected armature with selected bones.")
+            log.debug("Must have a selected armature with selected bones.")
             return False
         
         return True

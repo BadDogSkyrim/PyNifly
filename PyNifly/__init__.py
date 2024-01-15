@@ -165,6 +165,7 @@ COLLISION_BODY_IGNORE = ['rotation', 'translation', 'guard', 'unusedByte1',
                             'friction', 'mass']
     
 
+BOX_SHAPE_IGNORE = ['bhkDimensions']
 CAPSULE_SHAPE_IGNORE = ['point1', 'point2']
 
 # --------- Helper functions -------------
@@ -1698,7 +1699,7 @@ class NifImporter():
               [dx, dy, -dz] ]
 
         m.from_pydata(v, [], 
-                      [ (0, 1, 2, 3), 
+                      [ (0, 3, 2, 1), 
                         (4, 5, 6, 7),
                         (0, 1, 5, 4),
                         (2, 3, 7, 6),
@@ -1855,25 +1856,31 @@ class NifImporter():
         return sh
 
 
-    def import_collision_body(self, cb:bhkWorldObject, parentxf):
+    def import_collision_body(self, cb:bhkWorldObject, targetxf):
         """
         Import the RigidBody node.
-        parentxf = parent transform
+
+        targetxf = target's world transform
         returns the collision shape
         """
         if not cb.shape: 
             self.warn(f"Collision has unsupported collision shape")
             return None
         
-        # If collision body provides a transform it adds to the parent transform. The body
-        # transform is used to set the collision body vertices; then the parent's
-        # transform is set on the collision object.
+        # If collision body provides a transform it is relative to the collision target.
+        # Blender's collision object does not have the target as parent because it
+        # confuses Blender. So combine the target transform with the body transform to get
+        # the equivalent.
+        # 
+        # Blender's collision object sets the transform for the collision target, so that
+        # *has* to be the local transform on the collision object. We lose any additional
+        # transform added by the body--but that doesn't change the effective collision. 
         bodyxf = RigidBodyXF(cb)
 
         sh = self.import_collision_shape(cb.shape, bodyxf)
         ObjectSelect([sh], active=True)
         bpy.ops.object.transform_apply()
-        sh.matrix_world = parentxf
+        sh.matrix_world = targetxf.copy()
 
         p = cb.properties
         p.extract(sh, ignore=COLLISION_BODY_IGNORE)
@@ -1927,7 +1934,7 @@ class NifImporter():
         # col.show_name = True
 
         if bone:
-            xf = transform_to_matrix(bone.global_transform)
+            xf = self.import_xf @ transform_to_matrix(bone.global_transform)
         else:
             xf = parentObj.matrix_world
         sh = self.import_collision_body(c.body, xf)
@@ -3805,48 +3812,71 @@ class NifExporter:
 
 
     def export_bhkBoxShape(self, box, xform) -> CollisionShape:
-        """Export box shape. Box is assumed to be aligned along the local axes.
+        """Export box shape. Box is assumed to have 6 faces, all right angles, any orientation.
         * box = collision shape blender object.
         * xform = Unused. Transform is set by parent.
         Returns (shape, coordinates)
         * shape = collision shape in the nif object
         * coordinates = center of the shape (in Blender world coordinates) 
+        * rotation = rotation that must be applied to the shape
         """ 
+        # The transform on the box object has to match the transform on the box target, 
+        # because that's how collisions are implemented in Blender. So if the box is rotated,
+        # we have to recover the rotation from the vert locations.
         cshape = None
         center = Vector()
         try:
             # Box covers the extent of the shape, whatever it is
             p = bhkBoxShapeProps(box)
-            minv = Vector([sys.float_info.max] * 3)
-            maxv = Vector([-sys.float_info.max] * 3)
+            p.load(box, ignore=BOX_SHAPE_IGNORE)
 
-            # Get the box span in local coordinates to get the correct box span.
-            for v in box.data.vertices:
-                pt = v.co
-                for i, n in enumerate(pt):
-                    maxv[i] = max(maxv[i], n)
-                    minv[i] = min(minv[i], n)
+            # Have to take the export scale factor into account.
+            sf = (HAVOC_SCALE_FACTOR * game_collision_sf[self.game] * (1/self.export_xf.to_scale()[0]))
+            ctr, d, r = find_box_info(box)
+            if len(d) == 3:
+                bhkDim = (d / sf) / 2
+                for i in range(0, 3):
+                    p.bhkDimensions[i] = bhkDim[i]
+
+                cshape = self.nif.add_shape(p)
+        except Exception as e:
+            self.log_warning(f"Unexpected error: {e}")
+
+        if not cshape:
+            self.log_warning(f'Cannot create collision shape from {box.name}')
             
-            # Span in local coordinates now needs to be scaled by the box's own scale
-            # factor plus any scale from the export transform.
-            myscale = self.export_xf.to_scale() * box.matrix_world.to_scale()
-            maxv = myscale * maxv
-            minv = myscale * minv
-            halfspan = (maxv - minv)/2
-            #for i in range(0, 3): halfspan[i] = (maxv[i] - minv[i])/2
-            #center = box.matrix_world @ Vector([minv.x + halfspan.x, minv.y + halfspan.y, minv.z + halfspan.z])
-            center = box.matrix_world @ (minv + halfspan)
+        return cshape, ctr, r
+
+        #     minv = Vector([sys.float_info.max] * 3)
+        #     maxv = Vector([-sys.float_info.max] * 3)
+
+        #     # Get the box span in local coordinates to get the correct box span.
+        #     for v in box.data.vertices:
+        #         pt = v.co
+        #         for i, n in enumerate(pt):
+        #             maxv[i] = max(maxv[i], n)
+        #             minv[i] = min(minv[i], n)
+            
+        #     # Span in local coordinates now needs to be scaled by the box's own scale
+        #     # factor plus any scale from the export transform.
+        #     myscale = self.export_xf.to_scale() * box.matrix_world.to_scale()
+        #     maxv = myscale * maxv
+        #     minv = myscale * minv
+        #     halfspan = (maxv - minv)/2
+        #     #for i in range(0, 3): halfspan[i] = (maxv[i] - minv[i])/2
+        #     #center = box.matrix_world @ Vector([minv.x + halfspan.x, minv.y + halfspan.y, minv.z + halfspan.z])
+        #     center = box.matrix_world @ (minv + halfspan)
                 
-            sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game]
+        #     sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game]
 
-            for i in range(0, 3): p.bhkDimensions[i] = (halfspan[i] / sf) 
-            if 'bhkRadius' not in box.keys():
-                p.bhkRadius = max(halfspan) / (sf*self.export_scale) 
-            cshape = self.nif.add_shape(p)
-        except:
-            self.log_warning(f"Cannot create collision shape from {box.name}")
+        #     for i in range(0, 3): p.bhkDimensions[i] = (halfspan[i] / sf) 
+        #     if 'bhkRadius' not in box.keys():
+        #         p.bhkRadius = max(halfspan) / (sf*self.export_scale) 
+        #     cshape = self.nif.add_shape(p)
+        # except:
+        #     self.log_warning(f"Cannot create collision shape from {box.name}")
 
-        return cshape, center
+        # return cshape, center
         
 
     def export_bhkConvexVerticesShape(self, s, xform):
@@ -3955,6 +3985,7 @@ class NifExporter:
         Returns (shape, coordinates) 
         * shape = collision shape in the nif object 
         * coordinates = center of the shape (in Blender world coordinates) 
+        * rotation = rotation to apply to the shape
         """
         for cs in shape_list:
             if cs.name.startswith("bhkBoxShape"):
@@ -3968,16 +3999,19 @@ class NifExporter:
             elif cs.name.startswith("bhkConvexTransformShape"):
                 return self.export_bhkConvexTransformShape(cs, xform)
             # TODO: Add bhkSphereShape
-        return None, None
+        return None, None, None
 
 
     def export_collision_body(self, targobj, coll):
         """ 
-        Export the collision body for the given collision. 
+        Export the collision body for the given collision.
+
         * targobj = Blender object that has the collision.
         * coll = Blender object representing the collision
         * colnode = Nif node representing the collision
         """
+        # Blender's collision object has the same transform as the target (because that's
+        # how we model collisions). But the (TBS)
         if not coll.rigid_body: return
         if 'pynRigidBody' not in coll: 
             bodytype = 'bhkRigidBody'
@@ -3992,17 +4026,20 @@ class NifExporter:
         have_bone = False
         try:
             targxf = self.export_xf @  targobj.matrix_local
+            targparent = targobj
         except:
             try:
                 # for pose bones
+                targparent = targobj.id_data
                 targxf = targobj.matrix
                 have_bone = True
             except:
                 # For edit bones
+                targparent = targobj.id_data
                 targxf = targobj.matrix_local
                 have_bone = True
                 
-        cshape, ctr = self.export_collision_shape([coll], targxf.inverted()) 
+        cshape, ctr, rot = self.export_collision_shape([coll], targxf.inverted()) 
         if not cshape: return None
 
         props = bhkWorldObject.get_buffer(bodytype, values=coll)
@@ -4018,19 +4055,20 @@ class NifExporter:
         props.angularDamping = coll.rigid_body.angular_damping
 
         targloc, targq, targscale = targxf.decompose()
+        targlocw, targqw, targscalew = (targparent.matrix_world @ targxf).decompose()
 
         # Use any rotation on the collision shape relative to the target's rotation.
-        targq = coll.matrix_local.to_quaternion() @ targq.inverted()
-        rv = (rootinv @ ctr) - targloc
-        rv = ctr - targloc
-        rv.rotate(targxf.inverted().to_quaternion())
-
+        targq = coll.matrix_local.to_quaternion() @ rot.inverted()
+        # rv = (rootinv @ ctr) - targloc
+        rv = ctr - targlocw
+        rv.rotate(targqw.inverted())
+        rv = rv * self.export_xf.to_scale()
 
         if props.bufType == PynBufferTypes.bhkRigidBodyTBufType:
-            props.rotation[0] = targq.x
-            props.rotation[1] = targq.y
-            props.rotation[2] = targq.z
-            props.rotation[3] = targq.w
+            props.rotation[0] = rot.x
+            props.rotation[1] = rot.y
+            props.rotation[2] = rot.z
+            props.rotation[3] = rot.w
 
             props.translation[0] = rv.x/HAVOC_SCALE_FACTOR 
             props.translation[1] = rv.y/HAVOC_SCALE_FACTOR 
@@ -5125,11 +5163,11 @@ class ExportKF(bpy.types.Operator, ExportHelper):
     @classmethod
     def poll(cls, context):
         if (not context.object) or context.object.type != 'ARMATURE':
-            log.error("Must select an armature to export animations.")
+            log.debug("Must select an armature to export animations.")
             return False
 
         if (not context.object.animation_data) or (not context.object.animation_data.action):
-            log.error("Active object must have an animation associated with it.")
+            log.debug("Active object must have an animation associated with it.")
             return False
 
         return True

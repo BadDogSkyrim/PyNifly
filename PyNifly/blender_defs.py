@@ -5,6 +5,7 @@ import shutil
 import tempfile
 from enum import IntFlag
 from mathutils import Matrix, Vector, Quaternion, Euler
+from mathutils import geometry
 import bpy
 import bpy_types
 import re
@@ -135,6 +136,74 @@ def RigidBodyXF(cb: bhkWorldObject):
         bodyxf = Matrix.Identity(4)
 
     return bodyxf
+
+
+def orthogonal_faces(m):
+    """
+    Return 3 orthogonal faces of mesh m.
+    Returns: (faces, opposites)
+    Opposites corrospond 1:1 with faces.
+    """
+    faces = [m.polygons[0]] # Faces, all orthogonal to each other
+    opposites = [None] # Opposing faces, 1:1
+
+    for p in m.polygons:
+        pn = p.normal
+        if p not in faces and p not in opposites:
+            # Only keep p if it's orthogonal to faces we have OR parallel to them.
+            is_orth = True
+            for i, f in enumerate(faces):
+                dp = abs(f.normal.dot(pn))
+                if NearEqual(dp, 1.0): 
+                    # Capture opposite (parallel) faces as we go
+                    opposites[i] = p
+                    is_orth = False
+                elif not NearEqual(dp, 0):
+                    is_orth = False
+                if not is_orth: break
+
+            if is_orth:
+                faces.append(p)
+                opposites.append(None)
+
+    return faces, opposites
+
+
+def find_box_info(box):
+    """
+    Given a cube (cuboid, really), return the dimensions and transform. Cube must not be
+    triangularized.
+    Returns:
+    center = centerpoint of box (may not match the object origin) in wolrd coordinates
+    dimensions = (width, height, depth) of cube in world scale
+    rotation = rotation necessary to align dimensions with box's local frame of reference
+    """
+    faces, opposites = orthogonal_faces(box.data)
+
+    ctr = []
+    dimv = Vector([
+        (f2.center-f1.center).length for f1, f2 in zip(faces, opposites)
+    ])
+    # for f1, f2 in zip(faces, opposites):
+    #     # Get the width/height/depth
+    #     p1 = box.matrix_world @ box.data.vertices[f1.vertices[0]].co
+    #     p2 = box.matrix_world @ box.data.vertices[f2.vertices[0]].co
+    #     n2 = box.matrix_world @ f2.normal
+    #     d = abs(geometry.distance_point_to_plane(p1, p2, n2))
+    #     dimensions.append(d)
+
+    # dimv = Vector(dimensions)
+    # In an unrotated cube, the first face points along -X.
+    xrot = Vector((-1, 0, 0,)).rotation_difference(faces[0].normal)
+    # Second face points to +Y, so rotate around X to fix it.
+    yn = faces[1].normal.copy()
+    yn.rotate(xrot.inverted())
+    yrot = Vector((0, 1, 0, )).rotation_difference(yn)
+
+    # Calculate the centerpoint 
+    ctr =  box.matrix_world @ (faces[0].center + (opposites[0].center - faces[0].center)/2)
+
+    return ctr, box.scale * dimv, xrot @ yrot
 
 
 def bind_position(shape:NiShape, bone: str) -> Matrix:
@@ -464,6 +533,7 @@ def TEST_CAM():
             ( 0.0000, 0.0000,  0.0000,    1.0000)))
     inv, z = cam_to_inv(mx, 38)
     assert VNearEqual(inv, [0, 0, 1570], epsilon=2), f"Cam shows right profile: {inv}"
+
 
     
     
