@@ -5317,7 +5317,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_COLLISION_BOW_SCALE] )
+    do_tests( [TEST_COTH_DATA] )
     # do_tests([t for t in alltests if t.__name__.startswith('TEST_COLLISION')])
-    do_tests( testfrom(TEST_ANIM_HKX) )
-    do_tests(alltests)
+    # do_tests( testfrom(TEST_ANIM_HKX) )
+    # do_tests(alltests)
