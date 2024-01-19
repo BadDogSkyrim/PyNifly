@@ -2816,6 +2816,13 @@ class ImportKF(bpy.types.Operator, ExportHelper):
         options={'HIDDEN'},
     )
 
+    files: CollectionProperty(
+        name="File Path",
+        type=bpy.types.OperatorFileListElement,
+    )
+
+    directory: StringProperty()
+
     @classmethod
     def poll(cls, context):
         if (not context.object) or context.object.type != "ARMATURE":
@@ -2845,15 +2852,18 @@ class ImportKF(bpy.types.Operator, ExportHelper):
 
         try:
             NifFile.Load(nifly_path)
-            imp = NifImporter(self.filepath)
-            imp.context = context
-            imp.armature = context.object
-            imp.do_import_anims = True
-            imp.nif = NifFile(self.filepath)
-            imp.import_nif()
-        except:
-            log.exception("Import of KF file failed")
-            self.report({"ERROR"}, "Import of KF failed, see console window for details")
+            for file in self.files:
+                filepath = os.path.join(self.directory, file.name)
+                imp = NifImporter(filepath)
+                imp.context = context
+                imp.armature = context.object
+                imp.do_import_anims = True
+                imp.nif = NifFile(filepath)
+                imp.import_nif()
+
+        except Exception as e:
+            log.exception(f"Import of KF failed: {e}")
+            self.report({"ERROR"}, "Import of KF failed, see console window for details.")
             status = {'CANCELLED'}
             LogFinish("IMPORT", self.filepath, status, True)
 
