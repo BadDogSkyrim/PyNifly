@@ -8,7 +8,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 0, 0),
-    "version": (14, 0, 0),  
+    "version": (14, 1, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -563,7 +563,10 @@ class NifImporter():
             return blender_name
         
     def blender_name(self, nif_name):
-        if self.do_rename_bones or self.rename_bones_nift:
+        if self.is_facegen and nif_name == "Head":
+            # Facegen nifs use a "Head" bone, which appears to be the "HEAD" bone misnamed.
+            return "HEAD"  
+        elif self.do_rename_bones or self.rename_bones_nift:
             return self.nif.blender_name(nif_name)
         else:
             return nif_name
@@ -1591,11 +1594,7 @@ class NifImporter():
                     self.warn(f"{nif_shape.name} is not compatible with skeleton {self.reference_skel.filepath}")
             
             for bn in nif_shape.bone_names:
-                if self.is_facegen and bn == "Head":
-                    skelname = blname = "HEAD"  
-                else:
-                    skelname = bn
-                    blname = self.blender_name(bn)
+                blname = self.blender_name(bn)
                 if blname not in arma.data.edit_bones:
                     if self.do_import_pose and not self.is_facegen:
                         # Using nif locations of bones. 
