@@ -461,7 +461,7 @@ def highlight_objects(objlist, context, is_callback=False):
                                 # call.
                                 bpy.ops.outliner.show_active()
                                 if not is_callback:
-                                    bpy.app.timers.register(highlight_selected, first_interval=5)
+                                    bpy.app.timers.register(highlight_selected, first_interval=0.5)
                             else:
                                 bpy.ops.view3d.view_selected()
                         except:

@@ -5139,6 +5139,22 @@ def TEST_COLLISION_FO4():
     # assert body.properties.qualityType == nifdefs.hkQualityType.MOVING, "Have correct qualityType"
 
 
+def TEST_FACEGEN():
+    """
+    FO4 facegen import works--imported head is not distorted.
+    """
+    testfile = TT.test_file(r"tests\FO4\facegen.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_import_pose=False)
+    head = [obj for obj in bpy.context.selected_objects if obj.name.startswith('FFODeerMaleHead')][0]
+    eyes = [obj for obj in bpy.context.selected_objects if obj.name.startswith('FFOUngulateMaleEyes')][0]
+
+    exmin = min((eyes.matrix_world @ v.co).x for v in eyes.data.vertices)
+    exmax = max((eyes.matrix_world @ v.co).x for v in eyes.data.vertices)
+    assert BD.NearEqual(exmin, -4.7, epsilon=0.1), f"Eye min X correct: {exmin}"
+    assert BD.NearEqual(exmax, 4.7, epsilon=0.1), f"Eye max X correct: {exmax}"
+
+
 def UNITTEST_CUBE_INFO1():
     """Unit test to ensure we can analyze a rotated cube."""
     bpy.ops.mesh.primitive_cube_add(location=(0,0,0,))
@@ -5202,33 +5218,6 @@ def UNITTEST_CUBE_INFO3():
     assert BD.VNearEqual(d, dims*2*cube.scale), f"Have correct dimensions: {d}"
     # Rotation is what's required to rotate an aligned box to the actual box's position.
     assert BD.VNearEqual(testrot, r.to_euler()[0:3]), f"Have correct rotation: {r}"
-
-
-# def UNITTEST_CUBE_INFO4():
-#     """Unit test to ensure we can analyze a cube with the glass bow's collision."""
-#     bpy.ops.mesh.primitive_cube_add(location=(0.64, 0.014, 0.002,))
-#     cube = bpy.context.object
-#     dims = Vector((1, 2, 3,))
-#     cube.scale = dims
-#     cube.rotation_mode = 'XYZ'
-#     testrot = (0.35, 1.4, 0.9)
-#     cube.rotation_euler = testrot
-#     bpy.ops.object.transform_apply(rotation=True, scale=True)
-#     offset = Vector((3, 4, 5,))
-#     for v in cube.data.vertices:
-#         v.co += offset
-    
-#     objoffset = Vector((6, 7, 8,))
-#     objscale = 0.1
-#     cube.location = objoffset
-#     cube.scale = (objscale,)*3
-#     c, d, r = BD.find_box_info(bpy.context.object)
-#     # Centerpoint is returned as the world location of the geometric center.
-#     assert BD.VNearEqual(c, objoffset+cube.scale*offset), f"Centerpoint at translated location: {c}"
-#     # Dimensions are in world scale. 
-#     assert BD.VNearEqual(d, dims*2*cube.scale), f"Have correct dimensions: {d}"
-#     # Rotation is what's required to rotate an aligned box to the actual box's position.
-#     assert BD.VNearEqual(testrot, r.to_euler()[0:3]), f"Have correct rotation: {r}"
 
 
 def LOAD_RIG():
@@ -5317,7 +5306,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_COTH_DATA] )
+    do_tests( [TEST_FACEGEN] )
     # do_tests([t for t in alltests if t.__name__.startswith('TEST_COLLISION')])
     # do_tests( testfrom(TEST_ANIM_HKX) )
     # do_tests(alltests)

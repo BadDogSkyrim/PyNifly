@@ -514,6 +514,7 @@ class NifImporter():
         self.root_object = None  # Blender representation of root object
         self.connect_parents = []
         self.auxbones = False
+        self.is_facegen = True
 
 
     def __str__(self):
@@ -570,6 +571,10 @@ class NifImporter():
     def calc_obj_transform(self, the_shape, scale_factor=1.0) -> Matrix:
         """Returns location of the_shape ready for blender as a transform.
 
+        If the shape isn't skinned, this is just the transform on the shape. If it has a
+        global-to-skin transform (Skyrim), return that. If it doesn't (FO4), calculate it
+        by averaging the bone offsets from the reference skeleton.
+
         scale_factor is applied to the transform but not to its scale component --
         scale_factor is used to transform vert locations so it's not needed on the
         transform.
@@ -599,8 +604,11 @@ class NifImporter():
             # bind positions here to the vanilla bind positions, and we need it to be
             # consistent.
             for i, bn in enumerate(the_shape.get_used_bones()):
-                if bn in self.reference_skel.nodes:
-                    skel_bone = self.reference_skel.nodes[bn]
+                bnref = bn
+                if self.is_facegen and bn == "Head": 
+                    bnref = "HEAD"
+                if bnref in self.reference_skel.nodes:
+                    skel_bone = self.reference_skel.nodes[bnref]
                     skel_bone_xf= transform_to_matrix(skel_bone.global_transform)
                     bindpos = bind_position(the_shape, bn)
                     bindinshape = xf @ bindpos
@@ -626,7 +634,6 @@ class NifImporter():
                         log.warn(f"Shape {the_shape.name} does not have consitent offset from reference skeleton {self.reference_skel.filepath}--can't use it to extend the armature.")
                         self.do_create_bones = False
                         break
-
 
             if offset_consistent and offset_xf:
                 #log.debug(f"Shape {the_shape.name} has consistent offset from vanilla: {offset_xf.translation}")
@@ -1289,10 +1296,15 @@ class NifImporter():
     
 
     def set_bone_poses(self, arma, nif:NifFile, bonelist:list):
-        """Set the pose transform of all the given bones. Pose transform is the transform
-        on the NiNode in the nif being imported.
+        """
+        Set the pose transform of all the given bones. Pose transform is the transform on
+        the NiNode in the nif being imported.
         *   bonelist = [(nif-name, blender-name), ...]
         """
+        if self.is_facegen:
+            # Never use bone pose location in facegen files--it's not set correctly.
+            return
+        
         for bn, blname in bonelist:
             if bn in nif.nodes and blname in arma.pose.bones:
                 nif_bone = nif.nodes[bn]
@@ -1556,7 +1568,9 @@ class NifImporter():
         if s2a_xf:
             unscaled_skin_xf = unscaled_skin_xf.inverted() @ s2a_xf 
 
-        obj.matrix_local = unscaled_skin_xf.copy()
+        # FO4 facegen nifs can have wonky transforms. They can be ignored.
+        if not self.is_facegen:
+            obj.matrix_local = unscaled_skin_xf.copy()
         skin_xf = arma.parent.matrix_world.inverted() @ unscaled_skin_xf
         skin_xf = unscaled_skin_xf.copy()
 
@@ -1569,7 +1583,7 @@ class NifImporter():
         if not self.reference_skel:
             self.warn(f"{nif_shape.name} has no reference skeleton")
         else:
-            if not self.do_import_pose:
+            if not self.do_import_pose or self.is_facegen:
                 # If we're importing bind and pose locations, have to care whether the
                 # shape bone locations match the skeleton.
                 ref_compat = self.is_compatible_skeleton(obj.matrix_local, nif_shape, self.reference_skel)
@@ -1577,25 +1591,30 @@ class NifImporter():
                     self.warn(f"{nif_shape.name} is not compatible with skeleton {self.reference_skel.filepath}")
             
             for bn in nif_shape.bone_names:
-                blname = self.blender_name(bn)
+                if self.is_facegen and bn == "Head":
+                    skelname = blname = "HEAD"  
+                else:
+                    skelname = bn
+                    blname = self.blender_name(bn)
                 if blname not in arma.data.edit_bones:
-                    if self.do_import_pose:
+                    if self.do_import_pose and not self.is_facegen:
                         # Using nif locations of bones. 
                         bone_node = nif_shape.file.nodes[bn]
                         # xf = transform_to_matrix(bone_node.properties.transform)
                         xf = transform_to_matrix(bone_node.global_transform)
-                    elif bn in self.reference_skel.nodes and ref_compat:
+                    elif bn in self.reference_skel.nodes and ref_compat and not self.is_facegen:
                         # Have bone in reference skeleton, get bind position there.
                         xf = transform_to_matrix(self.reference_skel.nodes[bn].global_transform)
                     else:
                         # Have to trust the bind position in the nif.
+                        # Facegen nifs always use the bind position.
                         bone_shape_xf = transform_to_matrix(nif_shape.get_shape_skin_to_bone(bn)).inverted()
                         xf = skin_xf @ bone_shape_xf
                     create_bone(arma.data, blname, xf, self.nif.game, 1.0, 0)
                     new_bones.append((bn, blname))
 
         # Do the pose in a separate pass so we don't have to flip between modes.
-        if not self.do_import_pose:
+        if not self.do_import_pose and not self.is_facegen:
             bpy.ops.object.mode_set(mode = 'OBJECT')
             self.set_bone_poses(arma, self.nif, new_bones)
         bpy.ops.object.mode_set(mode = 'OBJECT')
@@ -1603,7 +1622,6 @@ class NifImporter():
         ObjectActive(obj)
         mod = obj.modifiers.new("Armature", "ARMATURE")
         mod.object = arma
-        
 
         return arma
     
@@ -2245,6 +2263,7 @@ class NifImporter():
             self.import_controller_seq(self.nif.rootNode)
             return
 
+        self.is_facegen = ("BSFaceGenNiNodeSkinned" in self.nif.nodes)
         # Import the root node
         self.import_ninode(None, self.nif.rootNode)
 
