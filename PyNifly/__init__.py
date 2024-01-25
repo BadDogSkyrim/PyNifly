@@ -1574,7 +1574,7 @@ class NifImporter():
         # FO4 facegen nifs can have wonky transforms. They can be ignored.
         if not self.is_facegen:
             obj.matrix_local = unscaled_skin_xf.copy()
-        skin_xf = arma.parent.matrix_world.inverted() @ unscaled_skin_xf
+        # skin_xf = arma.parent.matrix_world.inverted() @ unscaled_skin_xf
         skin_xf = unscaled_skin_xf.copy()
 
         # Create bones. If do_import_pose, positions are the NiNode positions of the
