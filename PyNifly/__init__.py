@@ -2870,8 +2870,14 @@ class ImportKF(bpy.types.Operator, ExportHelper):
 
         try:
             NifFile.Load(nifly_path)
-            for file in self.files:
-                filepath = os.path.join(self.directory, file.name)
+            folderpath = os.path.dirname(self.filepath)
+            filenames = [f.name for f in self.files]
+            if filenames:
+                fullfiles = [os.path.join(folderpath, f.name) for f in self.files]
+            else:
+                fullfiles = [self.filepath]
+            for filename in fullfiles:
+                filepath = os.path.join(self.directory, filename)
                 imp = NifImporter(filepath)
                 imp.context = context
                 imp.armature = context.object

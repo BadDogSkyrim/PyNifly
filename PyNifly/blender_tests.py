@@ -4780,6 +4780,7 @@ def TEST_ANIM_KF():
                                  do_create_bones=False, 
                                  do_rename_bones=False,
                                  do_import_animations=False,
+                                 do_import_collisions=False,
                                  use_blender_xf=False)
     
     BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
@@ -5306,7 +5307,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_FACEGEN] )
+    do_tests( [TEST_ANIM_KF] )
     # do_tests([t for t in alltests if t.__name__.startswith('TEST_COLLISION')])
     # do_tests( testfrom(TEST_ANIM_HKX) )
     # do_tests(alltests)
