@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 14, 2, 0 };
+const int NiflyDDLVersion[3] = { 14, 3, 0 };
  
 using namespace nifly;
 
@@ -774,6 +774,10 @@ int getNiShape(void* nifref, uint32_t id, void* buf) {
     }
     if (hdr->GetBlock<NiTriStrips>(id)) {
         b->bufType = NiTriStripsBufType;
+        return 0;
+    }
+    if (hdr->GetBlock<NiTriShape>(id)) {
+        b->bufType = NiTriShapeBufType;
         return 0;
     }
 
@@ -4131,6 +4135,7 @@ BlockGetterFunction getterFunctions[] = {
     getBSLODTriShape, //BSLODTriShape
     getNiShader,  //BSLightingShaderProperty
     getNiShader,  //BSShaderPPLightingProperty
+    getNiShape, //NiTriShape
     nullptr //END
 };
 
@@ -4187,6 +4192,7 @@ BlockSetterFunction setterFunctions[] = {
     setNiShape, //BSLODTriShape
     nullptr,  //BSLightingShaderProperty
     nullptr,  //BSShaderPPLightingProperty
+    setNiShape, //NiTriShape
     nullptr //END
 };
 
@@ -4242,6 +4248,7 @@ BlockCreatorFunction creatorFunctions[] = {
     nullptr, //BSLODTriShape
     setNiShader,  //BSLightingShaderProperty
     setNiShader,  //BSShaderPPLightingProperty
+    nullptr, //NiTriShape
     nullptr //end
 };
 

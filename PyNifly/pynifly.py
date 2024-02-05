@@ -5080,6 +5080,6 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    # tester.execute()
+    tester.execute()
     # tester.execute(start=ModuleTest.TEST_BOW)
-    tester.execute(test=ModuleTest.TEST_COLLISION_LIST)
+    # tester.execute(test=ModuleTest.TEST_COLLISION_LIST)

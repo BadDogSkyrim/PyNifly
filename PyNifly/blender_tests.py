@@ -3876,6 +3876,8 @@ def TEST_CONNECT_POINT():
     """Connect points import/export correctly"""
     # FO4 has a complex method of attaching shapes to other shapes in game, using
     # connect points. These can be created and manipulated in Blender.
+    # 
+    # Also check that the default shape type created is BSTriShape
 
     testfile = TT.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")
     outfile = TT.test_file(r"tests\Out\TEST_CONNECT_POINT.nif")
@@ -3886,14 +3888,11 @@ def TEST_CONNECT_POINT():
     childnames = ['C-Receiver', 'C-Reciever']
 
     # Empties are not left selected by import
-    shotgun = next(filter(lambda x: x.name.startswith('CombatShotgunReceiver:0'), 
-                          bpy.context.selected_objects))
-    cpparents = list(filter(lambda x: x.name.startswith('BSConnectPointParents'), 
-                            bpy.data.objects))
-    cpchildren = list(filter(lambda x: x.name.startswith('BSConnectPointChildren'), 
-                             bpy.data.objects))
-    cpcasing = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Casing'), 
-                           bpy.data.objects))
+    root = next(o for o in bpy.context.scene.objects if 'pynRoot' in o)
+    shotgun = next(o for o in bpy.context.scene.objects if o.name.startswith('CombatShotgunReceiver:0'))
+    cpparents = [o for o in bpy.context.scene.objects if o.name.startswith('BSConnectPointParents')]
+    cpchildren = [o for o in bpy.context.scene.objects if o.name.startswith('BSConnectPointChildren')]
+    cpcasing = next(o for o in bpy.context.scene.objects if o.name.startswith('BSConnectPointParents::P-Casing'))
     
     assert len(cpparents) == 5, f"Found parent connect points: {cpparents}"
     p = set(x.name.split("::")[1] for x in cpparents)
@@ -3906,6 +3905,12 @@ def TEST_CONNECT_POINT():
 
     # assert TT.NearEqual(cpcasing.rotation_quaternion.w, 0.9098), f"Have correct rotation: {cpcasing.rotation_quaternion}"
     assert cpcasing.parent.name == "CombatShotgunReceiver", f"Casing has correct parent {cpcasing.parent.name}"
+
+    # Shapes remember their block type
+    shotgun['pynBlockName'] == 'BSTriShape'
+
+    # Remove it so we can test the default is correct.
+    del shotgun['pynBlockName']
 
     # -------- Export --------
     bpy.ops.object.select_all(action='SELECT')
@@ -3923,6 +3928,9 @@ def TEST_CONNECT_POINT():
     chnames = nifcheck.connect_points_child
     chnames.sort()
     assert chnames == childnames, f"Wrote correct child names: {chnames}"
+
+    sgcheck = nifcheck.shape_dict['CombatShotgunReceiver:0']
+    assert sgcheck.blockname == 'BSTriShape', f"Have correct blockname: {sgcheck.blockname}"
 
 
 def TEST_WEAPON_PART():
@@ -5307,7 +5315,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_ANIM_KF] )
+    # do_tests( [TEST_FONV] )
     # do_tests([t for t in alltests if t.__name__.startswith('TEST_COLLISION')])
     # do_tests( testfrom(TEST_ANIM_HKX) )
-    # do_tests(alltests)
+    do_tests(alltests)

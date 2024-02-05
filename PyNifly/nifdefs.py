@@ -870,7 +870,8 @@ class PynBufferTypes(IntEnum):
     BSLODTriShapeBufType = 35
     BSLightingShaderPropertyBufType = 36
     BSShaderPPLightingPropertyBufType = 37
-    COUNT = 38
+    NiTriShapeBufType = 38
+    COUNT = 39
 
 bufferTypeList = [''] * PynBufferTypes.COUNT
 blockBuffers = {}
@@ -1521,6 +1522,12 @@ blockBuffers['BSTriShape'] = NiShapeBuf
 
 bufferTypeList[PynBufferTypes.BSSubIndexTriShapeBufType] = 'BSSubIndexTriShape'
 blockBuffers['BSSubIndexTriShape'] = NiShapeBuf
+
+bufferTypeList[PynBufferTypes.NiTriStripsBufType] = 'NiTriStrips'
+blockBuffers['NiTriStrips'] = NiShapeBuf
+
+bufferTypeList[PynBufferTypes.NiTriShapeBufType] = 'NiTriShape'
+blockBuffers['NiTriShape'] = NiShapeBuf
 
 class BSMeshLODTriShapeBuf(pynStructure):
     _fields_ = [

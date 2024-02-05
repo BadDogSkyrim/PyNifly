@@ -8,7 +8,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 0, 0),
-    "version": (14, 2, 0),  
+    "version": (14, 3, 0),  
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -4679,14 +4679,22 @@ class NifExporter:
         else:
             norms_exp = norms_new
 
-        # Make the shape in the nif file
-        try:
-            props = blockBuffers[obj['pynBlockName']](obj)
-            props.bufType = bufferTypeList.index(obj['pynBlockName'])
-        except:
-            props = NiShapeBuf(obj)
-            if is_headpart:
-                props.bufType = PynBufferTypes.BSDynamicTriShapeBufType
+        # Make the shape in the nif file. Use the shape's block type, or choose a
+        # reasonable default.
+        # TODO: Direct support for NiTriShape in lower layers.
+        if 'pynBlockName' in obj:
+            blocktype = obj['pynBlockName']
+        elif is_headpart and self.game == 'SKYRIMSE':
+            blocktype = 'BSDynamicTriShape'
+        elif partitions and self.game == 'FO4':
+            blocktype = 'BSSubIndexTriShape' 
+        elif self.game == 'SKYRIM':
+            blocktype = 'NiTriShape' 
+        else:
+            blocktype = 'BSTriShape'
+        
+        props = blockBuffers[blocktype](obj)
+        props.bufType = bufferTypeList.index(blocktype)
 
         new_shape = self.nif.createShapeFromData(self.unique_name(obj), 
                                                  verts, tris, uvmap_new, norms_exp,
