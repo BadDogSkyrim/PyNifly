@@ -3557,7 +3557,7 @@ class NifExporter:
             # Export the mesh, but use its parent and use any armature modifiers
             self.objects.append(obj)
             for mod in obj.modifiers:
-                if mod.type == 'ARMATURE':
+                if mod.type == 'ARMATURE' and mod.object:
                     # Don't add any of the armature's other children unless they were
                     # independently selected.
                     self.add_armature(mod.object)
