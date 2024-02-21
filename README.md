@@ -1,7 +1,5 @@
 # PyNifly
-Export/Import tools between Blender and the Nif format, using Bodyslide/Outfit Studio's Nifly layer. Works with Blender 2.9 and 3.x. Can handle nifs for Skyrim LE, Skyrim SE, Fallout 4, and Fallout 76, Fallout New Vegas, and Fallout 3.
-
-As per usual, do not expect this to work on any version of Blender higher than 3. They don't believe in backwards compatibility and nothing can be expected to work out of the box.
+Export/Import tools between Blender and the Nif format, using Bodyslide/Outfit Studio's Nifly layer. Works with official Blender versions 2.9 and higher. Can handle nifs for Skyrim LE, Skyrim SE, Fallout 4, and Fallout 76, Fallout New Vegas, and Fallout 3.
 
 Full documentation in the wiki.
 
@@ -13,7 +11,7 @@ Full documentation in the wiki.
 * Import tris into an existing mesh or on their own
 * Supports Bodyslide tri files on import and export for body morphs
 * Handles multiple bodyweights in one step. Export _0 and _1 armor weights for Skyrim from a single mesh.
-* Handles Skyrim and FO4 partitions and also FO4 segments
+* Handles Skyrim and FO4 partitions and FO4 segments
 * Handles skinned and unskinned meshes correctly. Exports head parts to SE correctly.
 * Handles shaders correctly. Set them up in Blender and export.
 * Import-and-forget. What you import will behave correctly on export without fiddling.
