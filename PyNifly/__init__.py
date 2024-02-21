@@ -2663,8 +2663,7 @@ def create_shape_keys(obj, tri: TriFile):
             mesh.update()
 
 def create_trip_shape_keys(obj, trip:TripFile):
-    """Adds the shape keys in trip to obj 
-        """
+    """Adds the shape keys in trip to obj."""
     mesh = obj.data
     verts = mesh.vertices
 
@@ -2685,6 +2684,8 @@ def create_trip_shape_keys(obj, trip:TripFile):
                 mesh_key_verts[vert_index].co[i] = verts[vert_index].co[i] + offsets[i]
         
         mesh.update()
+
+    obj.active_shape_key_index = 0
 
 
 def import_trip(filepath, target_objs):

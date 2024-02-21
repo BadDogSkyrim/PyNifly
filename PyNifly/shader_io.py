@@ -1615,25 +1615,30 @@ class ShaderExporter:
         """Top-level routine for exporting a shape's texture attributes."""
         if not self.material: return
 
-        self.export_shader_attrs(new_shape)
-        self.export_textures(new_shape)
-        if self.is_obj_space:
-            new_shape.shader.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
-        else:
-            new_shape.shader.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
+        try:
+            self.export_shader_attrs(new_shape)
+            self.export_textures(new_shape)
+            if self.is_obj_space:
+                new_shape.shader.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
+            else:
+                new_shape.shader.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
 
-        #log.debug(f"Exporting vertex color flag: {self.vertex_colors}")
-        if self.vertex_colors:
-            new_shape.shader.shaderflags2_set(ShaderFlags2.VERTEX_COLORS)
-        else:
-            new_shape.shader.shaderflags2_clear(ShaderFlags2.VERTEX_COLORS)
+            #log.debug(f"Exporting vertex color flag: {self.vertex_colors}")
+            if self.vertex_colors:
+                new_shape.shader.shaderflags2_set(ShaderFlags2.VERTEX_COLORS)
+            else:
+                new_shape.shader.shaderflags2_clear(ShaderFlags2.VERTEX_COLORS)
 
-        if self.vertex_alpha:
-            new_shape.shader.shaderflags1_set(ShaderFlags1.VERTEX_ALPHA)
-        else:
-            new_shape.shader.shaderflags1_clear(ShaderFlags1.VERTEX_ALPHA)
-            
-        new_shape.save_shader_attributes()
+            if self.vertex_alpha:
+                new_shape.shader.shaderflags1_set(ShaderFlags1.VERTEX_ALPHA)
+            else:
+                new_shape.shader.shaderflags1_clear(ShaderFlags1.VERTEX_ALPHA)
+                
+            new_shape.save_shader_attributes()
+        except Exception as e:
+            # Any errors, print the error but continue
+            log.warn(str(e))
+
 
         if self.have_errors:
             log.warn(f"Shader nodes are not set up for export to nif. Check and fix in generated nif file.")
