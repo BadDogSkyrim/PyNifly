@@ -114,6 +114,50 @@ def truncate_filename(filepath: str, root_dir: str)-> str:
     else:
         return filepath[(n+len(root_dir)+1):]
 
+
+def find_tris(nif):
+    """
+        Return a list of tri files associated with the given nif, if any.
+
+        if nif filepath = fn.ext: return
+            fn.tri
+            fnchargen.tri
+            fn_chargen.tri
+    """
+    trifiles = []
+    fp = Path(nif.filepath)
+
+    ftri = fp.with_suffix(".tri")
+    if ftri.exists():
+        trifiles.append(ftri)
+
+    fchar = ftri.with_stem(fp.stem + 'chargen')
+    if fchar.exists():
+        trifiles.append(fchar)
+    else:
+        fchar = ftri.with_stem(fp.stem + '_chargen')
+        if fchar.exists():
+            trifiles.append(fchar)
+
+    return trifiles
+        
+
+def find_trip(nif):
+    """
+        Return the trip file associated with the given nif, if any.
+    """
+    fp = Path(nif.filepath)
+
+    for v in [s[1] for s in nif.string_data if s[0] == 'BODYTRI']:
+        f = extend_filenames(nif.filepath, 'meshes', [os.path.join('meshes', v)])
+        fp = Path(f[0])
+        if fp.exists():
+            return fp
+
+    return None
+        
+
+
 # ###################### OTHER STUFF ##################################
 
 def find_object(name, coll, fn=lambda x: x):

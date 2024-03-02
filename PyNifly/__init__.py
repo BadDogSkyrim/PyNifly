@@ -124,6 +124,7 @@ EXPORT_POSE_DEF = False
 IMPORT_ANIMS_DEF = True
 IMPORT_COLLISIONS_DEF = True
 IMPORT_SHAPES_DEF = True
+IMPORT_TRIS_DEF = False
 IMPORT_POSE_DEF = True
 PRESERVE_HIERARCHY_DEF = False
 RENAME_BONES_DEF = True
@@ -492,6 +493,7 @@ class NifImporter():
         self.rename_bones_nift = RENAME_BONES_NIFT_DEF
         self.roll_bones_nift = ROLL_BONES_NIFT_DEF
         self.do_import_shapes = IMPORT_SHAPES_DEF
+        self.do_import_tris = IMPORT_TRIS_DEF
         self.do_apply_skinning = APPLY_SKINNING_DEF
         self.do_import_pose = IMPORT_POSE_DEF
         self.reference_skel = None
@@ -525,6 +527,7 @@ class NifImporter():
         if self.rename_bones_nift: flags.append("RENAME_BONES_NIFT_DEF")
         if self.roll_bones_nift: flags.append("ROLL_BONES_NIFT_DEF")
         if self.do_import_shapes: flags.append("IMPORT_SHAPES_DEF")
+        if self.do_import_tris: flags.append("IMPORT_TRIS_DEF")
         if self.do_apply_skinning: flags.append("APPLY_SKINNING_DEF")
         if self.do_import_pose: flags.append("IMPORT_POSE_DEF")
         return f"""
@@ -2344,6 +2347,21 @@ class NifImporter():
             o.parent = self.root_object
 
 
+    def import_tris(self):
+        """Import any tri files associated with the nif."""
+        imported_meshes = [x for x in self.objects_created.values() if x.type == 'MESH']
+        tripfile = find_trip(self.nif)
+        if tripfile:
+            import_trip(tripfile, imported_meshes)
+        elif len(imported_meshes) == 1:
+            # No tri files if there's a trip file; 
+            # must be only a single mesh to have a tri file.
+            trifiles = find_tris(self.nif)
+            for tf in trifiles:
+                import_tri(tf, [x for x in self.objects_created.values() if x.type == 'MESH'][0])
+
+
+
     def merge_shapes(self, filename, obj_list, new_filename, new_obj_list):
         """Merge new_obj_list into obj_list as shape keys. 
            If filenames follow PyNifly's naming conventions, create a shape key for the 
@@ -2444,6 +2462,8 @@ class NifImporter():
             self.loaded_meshes = []
             self.mesh_only = (prior_shapes is not None)
             self.import_nif()
+            if self.do_import_tris:
+                self.import_tris()
 
             if prior_shapes:
                 ##log.debug(f"Merging shapes: {[s.name for s in prior_shapes]} << {[s.name for s in self.loaded_meshes]}")
@@ -2493,48 +2513,53 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
     use_blender_xf: bpy.props.BoolProperty(
         name="Use Blender orientation",
         description="Use Blender's orientation and scale",
-        default=BLENDER_XF_DEF)
+        default=BLENDER_XF_DEF) # type: ignore
 
     do_rename_bones: bpy.props.BoolProperty(
         name="Rename bones",
         description="Rename bones to conform to Blender's left/right conventions.",
-        default=RENAME_BONES_DEF)
+        default=RENAME_BONES_DEF) # type: ignore
 
     do_import_animations: bpy.props.BoolProperty(
         name="Import animations",
         description="Import any animations embedded in the nif.",
-        default=IMPORT_ANIMS_DEF)
+        default=IMPORT_ANIMS_DEF) # type: ignore
 
     do_import_collisions: bpy.props.BoolProperty(
         name="Import collisions",
         description="Import any collisions embedded in the nif.",
-        default=IMPORT_COLLISIONS_DEF)
+        default=IMPORT_COLLISIONS_DEF) # type: ignore
+
+    do_import_tris: bpy.props.BoolProperty(
+        name="Import tri files",
+        description="Import any tri files that appear to be associated with the nif.",
+        default=IMPORT_COLLISIONS_DEF) # type: ignore
 
     rename_bones_niftools: bpy.props.BoolProperty(
         name="Rename bones as per NifTools",
         description="Rename bones using NifTools' naming scheme to conform to Blender's left/right conventions.",
-        default=RENAME_BONES_NIFT_DEF)
+        default=RENAME_BONES_NIFT_DEF) # type: ignore
 
     do_import_shapes: bpy.props.BoolProperty(
         name="Import as shape keys",
         description="Import similar objects as shape keys where possible on multi-file imports.",
-        default=IMPORT_SHAPES_DEF)
+        default=IMPORT_SHAPES_DEF) # type: ignore
 
     do_apply_skinning: bpy.props.BoolProperty(
         name="Apply skin to mesh",
         description="Applies any transforms defined in shapes' partitions to the final mesh.",
-        default=APPLY_SKINNING_DEF)
+        default=APPLY_SKINNING_DEF) # type: ignore
 
     do_import_pose: bpy.props.BoolProperty(
         name="Create armature from pose position",
         description="Creates any armature from the bone NiNode (pose) position.",
         default=IMPORT_POSE_DEF
-    )
+    ) # type: ignore
 
     reference_skel: bpy.props.StringProperty(
         name="Reference skeleton",
         description="Reference skeleton to use for the bone hierarchy",
-        default="")
+        default="") # type: ignore
 
 
     def __init__(self):
@@ -2578,6 +2603,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             imp.do_import_shapes = self.do_import_shapes
             imp.do_import_anims = self.do_import_animations
             imp.do_import_collisions = self.do_import_collisions
+            imp.do_import_tris = self.do_import_tris
             imp.do_apply_skinning = self.do_apply_skinning
             imp.do_import_pose = self.do_import_pose
             if self.reference_skel:
