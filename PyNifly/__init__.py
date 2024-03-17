@@ -22,7 +22,7 @@ import logging
 import traceback
 import subprocess
 import xml.etree.ElementTree as xml
-from mathutils import Matrix, Vector, Quaternion, Euler, geometry
+from mathutils import Matrix, Vector, Quaternion, Euler, geometry, Color
 import codecs
 import importlib
 
@@ -4396,7 +4396,7 @@ class NifExporter:
             else:
                 c = (1.0, 1.0, 1.0, 1.0)
             if alphamap:
-                a = alphamap[i].color
+                a = Color(alphamap[i].color[0:3]).from_srgb_to_scene_linear()
                 c = (c[0], c[1], c[2], (a[0] + a[1] + a[2])/3)
             loopcolors[i] = c
 
