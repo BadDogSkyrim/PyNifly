@@ -139,6 +139,10 @@ blender_import_xf = MatrixLocRotScale(Vector((0,0,0)),
                                       (0.1, 0.1, 0.1))
 blender_export_xf = blender_import_xf.inverted()
 
+fo4_bodypart_xf = MatrixLocRotScale(Vector((0, -0.9342, 120.841,)),
+                                    Quaternion(),
+                                    (1, 1, 1,))
+
 NISHAPE_IGNORE = ["bufSize", 
                   'bufType',
                   "nameID", 
@@ -647,10 +651,14 @@ class NifImporter():
                         break
 
             if offset_consistent and offset_xf:
-                #log.debug(f"Shape {the_shape.name} has consistent offset from vanilla: {offset_xf.translation}")
-                xf = xf @ offset_xf
+                # If the offset is close to the standard FO4 bodypart offset, normalize it 
+                # so all bodyparts are consistent.
+                if self.nif.game == 'FO4' and  MatNearEqual(offset_xf, fo4_bodypart_xf, epsilon=3):
+                    xf = xf @ fo4_bodypart_xf
+                else:
+                    xf = xf @ offset_xf
 
-        if not offset_consistent: 
+        if (not offset_consistent) and self.do_estimate_offset: 
             # If there's no global to skin (FO4) and we haven't found consistent bind
             # offsets, maybe the pose offsets will give us a skin transform. If they are
             # all the same they represent a simple reposition of the entire shape. We can
@@ -670,8 +678,13 @@ class NifImporter():
                 else:
                     pose_xf = bone_xf
             if same: 
-                #log.debug(f"Pose transforms consistent, using it for {the_shape.name}:\n{pose_xf}")
-                xf = xf @ pose_xf
+                # If the offset is close to the standard FO4 bodypart offset, normalize it 
+                # so all bodyparts are consistent.
+                bpi = fo4_bodypart_xf.inverted()
+                if self.nif.game == 'FO4' and  MatNearEqual(pose_xf, bpi, epsilon=3):
+                    xf = xf @ bpi
+                else:
+                    xf = xf @ pose_xf
                 xf.invert()
 
         #log.debug(f"Shape {the_shape.name} has calculated transform {xf.translation}")
