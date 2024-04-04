@@ -2385,8 +2385,27 @@ def TEST_VERTEX_ALPHA():
     """Export shape with vertex alpha values"""
 
     outfile = TT.test_file(r"tests/Out/TEST_VERTEX_ALPHA.nif")
-    cube = TT.append_from_file("Cube", True, r"tests\Skyrim\AlphaCube.blend", r"\Object", "Cube")
-    bpy.context.view_layer.objects.active = cube
+
+    #---Create a shape
+
+    if "Cube" in bpy.data.objects:
+        bpy.data.objects.remove(bpy.data.objects["Cube"])
+
+    bpy.ops.mesh.primitive_cube_add()
+    bpy.context.active_object.data.materials.append(bpy.data.materials.new("Material"))
+    bpy.context.active_object.active_material.use_nodes = True
+    bpy.ops.geometry.color_attribute_add(domain='CORNER', data_type='BYTE_COLOR', color=(1, 1, 1, 1))
+
+    #store alpha 0.5
+    bpy.ops.geometry.color_attribute_add(name=BD.ALPHA_MAP_NAME, domain='CORNER', data_type='BYTE_COLOR', color=(0.5, 0.5, 0.5, 1))
+
+    #check that 0.5 is in fact stored as 188 after internal linear->sRGB conversion
+    for i, c in enumerate(bpy.context.object.data.vertex_colors[BD.ALPHA_MAP_NAME].data):
+        assert math.floor(c.color[1] * 255) == 188, \
+            f"Expected sRGB color {188.0 / 255.0}, found {i}: {c.color[:]}"
+
+    #---Export it and check the NIF
+
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
 
     nifcheck = pyn.NifFile(outfile)
@@ -2394,10 +2413,16 @@ def TEST_VERTEX_ALPHA():
 
     assert shapecheck.shader.shaderflags1_test(pyn.ShaderFlags1.VERTEX_ALPHA), \
         f"Expected VERTEX_ALPHA set: {pyn.ShaderFlags1(shapecheck.shader.Shader_Flags_1).fullname}"
-    assert shapecheck.colors[0][3] == 0.0, f"Expected 0, found {shapecheck.colors[0]}"
+
+    #check that the NIF has alpha 0.5 (to byte precision only)
+    assert math.isclose(shapecheck.colors[0][3], 0.5, abs_tol=1.0 / 255.0), \
+        f"Expected alpha 0.5, found {shapecheck.colors[0]}"
+
     for c in shapecheck.colors:
         assert c[0] == 1.0 and c[1] == 1.0 and c[2] == 1.0, \
             f"Expected all white verts in nif, found {c}"
+
+    #---Import it back
 
     bpy.ops.import_scene.pynifly(filepath=outfile)
     objcheck = bpy.context.object
@@ -2405,8 +2430,11 @@ def TEST_VERTEX_ALPHA():
     assert BD.ALPHA_MAP_NAME in colorscheck.keys(), \
         f"Expected alpha map, found {objcheck.data.vertex_colors.keys()}"
 
-    assert min([c.color[1] for c in colorscheck[BD.ALPHA_MAP_NAME].data]) == 0, \
-        f"Expected some 0 alpha values"
+    #check that imported color is still 188
+    for i, c in enumerate(colorscheck[BD.ALPHA_MAP_NAME].data):
+        assert math.floor(c.color[1] * 255) == 188, \
+            f"Expected sRGB color {188.0 / 255.0}, found {i}: {c.color[:]}"
+
     for i, c in enumerate(objcheck.data.vertex_colors['Col'].data):
         assert c.color[:] == (1.0, 1.0, 1.0, 1.0), \
             f"Expected all white, full alpha in read object, found {i}: {c.color[:]}"
