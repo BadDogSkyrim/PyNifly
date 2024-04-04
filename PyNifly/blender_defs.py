@@ -475,7 +475,7 @@ def highlight_objects(objlist, context, is_callback=False):
 
 
 def highlight_selected():
-    highlight_objects(bpy.context.selected_objects, bpy.context, is_callback=True)
+    highlight_objects([x for x in bpy.context.selected_objects if x.type=="MESH"], bpy.context, is_callback=True)
 
     
 def find_node(socket, nodetype, nodelist=None):

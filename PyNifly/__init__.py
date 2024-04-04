@@ -126,6 +126,7 @@ IMPORT_COLLISIONS_DEF = True
 IMPORT_SHAPES_DEF = True
 IMPORT_TRIS_DEF = False
 IMPORT_POSE_DEF = True
+ESTIMATE_OFFSET_DEF = True
 PRESERVE_HIERARCHY_DEF = False
 RENAME_BONES_DEF = True
 RENAME_BONES_NIFT_DEF = False
@@ -496,6 +497,7 @@ class NifImporter():
         self.do_import_tris = IMPORT_TRIS_DEF
         self.do_apply_skinning = APPLY_SKINNING_DEF
         self.do_import_pose = IMPORT_POSE_DEF
+        self.do_estimate_offset = ESTIMATE_OFFSET_DEF
         self.reference_skel = None
         self.chargen_ext = chargen
         self.mesh_only = False
@@ -521,15 +523,16 @@ class NifImporter():
 
     def __str__(self):
         flags = []
-        if self.do_create_bones: flags.append("CREATE_BONES_DEF")
-        if self.do_rename_bones: flags.append("RENAME_BONES_DEF")
-        if self.do_import_anims: flags.append("IMPORT_ANIMS_DEF")
-        if self.rename_bones_nift: flags.append("RENAME_BONES_NIFT_DEF")
-        if self.roll_bones_nift: flags.append("ROLL_BONES_NIFT_DEF")
-        if self.do_import_shapes: flags.append("IMPORT_SHAPES_DEF")
-        if self.do_import_tris: flags.append("IMPORT_TRIS_DEF")
-        if self.do_apply_skinning: flags.append("APPLY_SKINNING_DEF")
-        if self.do_import_pose: flags.append("IMPORT_POSE_DEF")
+        if self.do_create_bones: flags.append("CREATE_BONES")
+        if self.do_rename_bones: flags.append("RENAME_BONES")
+        if self.do_import_anims: flags.append("IMPORT_ANIMS")
+        if self.rename_bones_nift: flags.append("RENAME_BONES_NIFT")
+        if self.roll_bones_nift: flags.append("ROLL_BONES_NIFT")
+        if self.do_import_shapes: flags.append("IMPORT_SHAPES")
+        if self.do_import_tris: flags.append("IMPORT_TRIS")
+        if self.do_apply_skinning: flags.append("APPLY_SKINNING")
+        if self.do_import_pose: flags.append("IMPORT_POSE")
+        if self.do_estimate_offset: flags.append("ESTIMATE_OFFSET")
         return f"""
         Importing nif: {self.filename_list}
             flags: {'|'.join(flags)}
@@ -575,11 +578,13 @@ class NifImporter():
             return nif_name
 
     def calc_obj_transform(self, the_shape, scale_factor=1.0) -> Matrix:
-        """Returns location of the_shape ready for blender as a transform.
+        """
+        Returns location of the_shape ready for blender as a transform.
 
         If the shape isn't skinned, this is just the transform on the shape. If it has a
-        global-to-skin transform (Skyrim), return that. If it doesn't (FO4), calculate it
-        by averaging the bone offsets from the reference skeleton.
+        global-to-skin transform (Skyrim), return that. If it doesn't (FO4) and
+        do_estimate_offset is set, calculate it by averaging the bone offsets from the
+        reference skeleton.
 
         scale_factor is applied to the transform but not to its scale component --
         scale_factor is used to transform vert locations so it's not needed on the
@@ -605,7 +610,7 @@ class NifImporter():
             offset_consistent = True
         
         offset_xf = None
-        if self.do_create_bones and self.reference_skel:
+        if self.do_create_bones and self.reference_skel and self.do_estimate_offset:
             # If we're creating missing vanilla bones, we need to know the offset from the
             # bind positions here to the vanilla bind positions, and we need it to be
             # consistent.
@@ -1140,10 +1145,11 @@ class NifImporter():
     # ------ ARMATURE IMPORT ------
 
     def calc_skin_transform(self, arma, obj=None) -> Matrix:
-        """Determine the skin transform to use for this shape.
+        """
+        Determine the skin transform to use for this shape.
         Skin transform will be:
-        - the transform on the armature if there is one, combined with the shape's own skin 
-        transform
+        - the transform on the armature if there is one, combined with the shape's own
+        skin transform
         - the skin transform on the shape if there is one
         - the identity matrix
         """
@@ -1222,7 +1228,12 @@ class NifImporter():
 
 
     def find_compatible_arma(self, obj, armatures:list):
-        """Look through the list of armatures and find one that can be used by the shape. 
+        """
+        Look through the list of armatures and find one that can be used by the shape: One
+        that has a global-to-skin transform that is close to that of this shape.
+
+        If do_estimate_offset is clear, return self.armature. If we aren't estimating the
+        global-to-skin transform any armature will do.
 
         if do_import_pose is set, we return self.armature. That's either the one selected
         before import, or reflects bone NiNodes in the nif, so it's the one to use either
@@ -1244,13 +1255,8 @@ class NifImporter():
         """
         shape = self.nodes_loaded[obj.name]
 
-        if self.do_import_pose and self.armature:
-            # is_ok, offset, offset_consistent = self.check_armature(
-            #     obj, shape, self.armature)
+        if (self.do_import_pose or not self.do_estimate_offset): # and self.armature:
             return self.armature, None
-            # if 'PYN_TRANSFORM' in self.armature:
-            #     return self.armature, eval(self.armature['PYN_TRANSFORM'])
-            # else:
         else:
             for arma in armatures:
                 is_ok, offset, offset_consistent = self.check_armature(obj, shape, arma)
@@ -2556,6 +2562,12 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         default=IMPORT_POSE_DEF
     ) # type: ignore
 
+    do_estimate_offset: bpy.props.BoolProperty(
+        name="Apply estimated shape offset",
+        description="Positions skinned shapes at an offset estimated from bone transforms.",
+        default=ESTIMATE_OFFSET_DEF
+    ) # type: ignore
+
     reference_skel: bpy.props.StringProperty(
         name="Reference skeleton",
         description="Reference skeleton to use for the bone hierarchy",
@@ -2606,6 +2618,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             imp.do_import_tris = self.do_import_tris
             imp.do_apply_skinning = self.do_apply_skinning
             imp.do_import_pose = self.do_import_pose
+            imp.do_estimate_offset = self.do_estimate_offset
             if self.reference_skel:
                 imp.reference_skel = NifFile(self.reference_skel)
             if self.use_blender_xf:
@@ -2615,9 +2628,9 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             # Cleanup. Select all shapes imported, except the root node.
             objlist = [x for x in imp.objects_created.values() if x.type=='MESH']
             highlight_objects(objlist, context)
-            # if imp.armature:
-            #     objlist.append(imp.armature)
-            ObjectSelect(imp.objects_created.values())
+            if (not objlist) and imp.armature:
+                objlist.append(imp.armature)
+            ObjectSelect(objlist)
 
             status = set()
             for w in imp.warnings:

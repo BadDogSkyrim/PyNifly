@@ -185,7 +185,7 @@ def TEST_SKIN_BONE_XF():
     assert TT.NearEqual(sk2b_spine.translation[2], 29.419632), f"Have correct z: {sk2b_spine.translation[2]}"
 
 
-def TEST_BODYPART_ALIGHMENT_FO4():
+def TEST_BODYPART_ALIGNMENT_FO4():
     """Should be able to write bodyparts and have the transforms match exactly."""
     headfile = TT.test_file(r"tests\FO4\FoxFemaleHead.nif")
     skelfile = TT.test_file(r"tests\FO4\skeleton.nif")
@@ -195,13 +195,17 @@ def TEST_BODYPART_ALIGHMENT_FO4():
 
     # Read the body parts using the same skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile, do_create_bones=False)
-    skel = bpy.context.object
+    skel = [x for x in bpy.context.selected_objects if x.type == 'ARMATURE'][0]
+    assert skel.type == 'ARMATURE', f"Have armature"
+    BD.ObjectSelect([skel], active=True)
     bpy.ops.import_scene.pynifly(filepath=bodyfile, do_create_bones=False)
     body = bpy.context.object
     BD.ObjectSelect([skel], active=True)
     bpy.ops.import_scene.pynifly(filepath=headfile, do_create_bones=False)
     head = bpy.context.object
     assert BD.NearEqual(head.location.z, 120.8, epsilon=0.1), f"Head in correct location"
+    assert len([x for x in bpy.context.view_layer.objects if x.type=='ARMATURE']) == 1, \
+        f"Used same armature for all imports"
 
     # Write the body parts
     BD.ObjectSelect([body], active=True)
@@ -5343,7 +5347,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_FONV] )
+    do_tests( [TEST_BODYPART_ALIGNMENT_FO4] )
     # do_tests([t for t in alltests if t.__name__.startswith('TEST_COLLISION')])
     # do_tests( testfrom(TEST_ANIM_HKX) )
-    do_tests(alltests)
+    # do_tests(alltests)
