@@ -614,7 +614,8 @@ class NifImporter():
             offset_consistent = True
         
         offset_xf = None
-        if self.do_create_bones and self.reference_skel and self.do_estimate_offset:
+        # if self.do_create_bones and self.reference_skel and self.do_estimate_offset:
+        if self.reference_skel and self.do_estimate_offset:
             # If we're creating missing vanilla bones, we need to know the offset from the
             # bind positions here to the vanilla bind positions, and we need it to be
             # consistent.

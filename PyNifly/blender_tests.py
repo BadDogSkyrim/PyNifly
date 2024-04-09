@@ -4360,7 +4360,24 @@ def TEST_IMP_ANIMATRON():
     sp2_in = impnif.nodes['SPINE2']
     assert TT.MatNearEqual(BD.transform_to_matrix(sp2_out.transform), BD.transform_to_matrix(sp2_in.transform)), \
         f"Transforms are equal: \n{sp2_out.transform}\n==\n{sp2_in.transform}"
-        
+
+
+def TEST_ANIMATRON_2():
+    """Can read the FO4 astronaut animatron nif"""
+    # The animatrons are very complex and their pose and bind positions are different. The
+    # two shapes have slightly different bind positions, though they are a small offset
+    # from each other.
+
+    testfile = TT.test_file(r"tests\FO4\AnimatronicSpaceMan.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_ANIMATRON_2.nif")
+    outfile_fb = TT.test_file(r"tests/Out/TEST_ANIMATRON_2.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                 do_create_bones=False, 
+                                 do_rename_bones=False, 
+                                 do_import_pose=False,
+                                 do_estimate_offset=True)
+ 
 
 def TEST_CUSTOM_BONES():
     """Can handle custom bones correctly"""
@@ -5367,7 +5384,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_BODYPART_ALIGNMENT_FO4_1] )
-    do_tests([t for t in alltests if t.__name__.startswith('TEST_BODYPART_ALIGNMENT_FO4')])
+    do_tests( [TEST_ANIMATRON_2] )
+    # do_tests([t for t in alltests if t.__name__.startswith('TEST_BODYPART_ALIGNMENT_FO4')])
     # do_tests( testfrom(TEST_ANIM_HKX) )
     # do_tests(alltests)
