@@ -112,6 +112,8 @@ def make_combiner(nodetree, r, g, b, loc):
     """
     Make a combiner node with inputs from sockets r, g, b. Returns created node.
     Safe for all Blender 3.x and 4.0
+
+    b can be a socket or float value.
     """
     global COMBINER_IDNAME
     global COMBINER_OUT
@@ -130,7 +132,10 @@ def make_combiner(nodetree, r, g, b, loc):
 
     nodetree.links.new(r, combiner.inputs[0])
     nodetree.links.new(g, combiner.inputs[1])
-    nodetree.links.new(b, combiner.inputs[2])
+    try:
+        nodetree.links.new(b, combiner.inputs[2])
+    except:
+        combiner.inputs[2].default_value = b
     return combiner
 
 
@@ -374,39 +379,86 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
     return shader_node
 
 
-def make_shader_fo4(parent, location):
+def make_shader_fo4(parent, location, facegen=True):
     """
     Returns a group node implementing a shader for FO4.
+
+    If facegen == true, shader includes tint layers.
     """
     grp = bpy.data.node_groups.new(type='ShaderNodeTree', name='FO4Shader')
 
     group_inputs = grp.nodes.new('NodeGroupInput')
-    group_inputs.location = (-NODE_WIDTH, -TEXTURE_NODE_HEIGHT)
+    group_inputs.location = (-NODE_WIDTH*2, 0)
     try:
         grp.inputs.new('NodeSocketColor', 'Diffuse')
+        if facegen:
+            for i in range(0, 3):
+                n = grp.inputs.new('NodeSocketFloat', f'Tint {i+1}')
+                n.default_value = 0.0
+                grp.inputs.new('NodeSocketColor', f'Tint {i+1} Color')
+                n = grp.inputs.new('NodeSocketFloat', f'Tint {i+1} Strength')
+                n.default_value = 1.0
+                n.min_value = 0.0
+                n.max_value = 1.0
         grp.inputs.new('NodeSocketColor', 'Specular')
         grp.inputs.new('NodeSocketColor', 'Specular Color')
         grp.inputs.new('NodeSocketColor', 'Specular Str')
         grp.inputs.new('NodeSocketColor', 'Normal')
-        grp.inputs.new('NodeSocketFloat', 'Alpha')
-        grp.inputs.new('NodeSocketFloat', 'Alpha Mult')
-        grp.inputs.new('NodeSocketColor', 'Emission')
-        grp.inputs.new('NodeSocketFloat', 'Emission Strength')
+        n = grp.inputs.new('NodeSocketFloat', 'Alpha')
+        n.default_value = 1.0
+        n = grp.inputs.new('NodeSocketFloat', 'Alpha Mult')
+        n.default_value = 1.0
+        n = grp.inputs.new('NodeSocketColor', 'Emission')
+        n.default_value = 0
+        n = grp.inputs.new('NodeSocketFloat', 'Emission Strength')
+        n.default_value = 0
     except:
         grp.interface.new_socket('Diffuse', in_out='INPUT', socket_type='NodeSocketColor')
+        if facegen:
+            for i in range(0, 3):
+                s = grp.interface.new_socket(f'Tint {i+1}', in_out='INPUT', socket_type='NodeSocketFloat')
+                s.default_value = 0
+                grp.interface.new_socket(f'Tint {i+1} Color', in_out='INPUT', socket_type='NodeSocketColor')
+                s = grp.interface.new_socket(f'Tint {i+1} Strength', in_out='INPUT', socket_type='NodeSocketFloat')
+                s.default_value = 1.0
+                s.min_value = 0.0
+                s.max_value = 1.0
         grp.interface.new_socket('Specular', in_out='INPUT', socket_type='NodeSocketColor')
         grp.interface.new_socket('Specular Color', in_out='INPUT', socket_type='NodeSocketColor')
         grp.interface.new_socket('Specular Str', in_out='INPUT', socket_type='NodeSocketColor')
         grp.interface.new_socket('Normal', in_out='INPUT', socket_type='NodeSocketColor')
-        grp.interface.new_socket('Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
-        grp.interface.new_socket('Alpha Mult', in_out='INPUT', socket_type='NodeSocketFloat')
-        grp.interface.new_socket('Emission', in_out='INPUT', socket_type='NodeSocketColor')
-        grp.interface.new_socket('Emission Strength', in_out='INPUT', socket_type='NodeSocketFloat')
+        s = grp.interface.new_socket('Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
+        s.default_value = 1.0
+        s = grp.interface.new_socket('Alpha Mult', in_out='INPUT', socket_type='NodeSocketFloat')
+        s.default_value = 1.0
+        s = grp.interface.new_socket('Emission', in_out='INPUT', socket_type='NodeSocketColor')
+        s.default_value = (0,0,0,0,)
+        s = grp.interface.new_socket('Emission Strength', in_out='INPUT', socket_type='NodeSocketFloat')
+        s.default_value = 0
+
+    # Create tint layer mixnodes if needed
+    diffuse_source = group_inputs.outputs['Diffuse']
+    if facegen:
+        for i in range(0, 3):
+            str = make_mixnode(grp,
+                            group_inputs.outputs[i*3+1], # tint
+                            group_inputs.outputs[i*3+3], # tint strength
+                            blend_type='MULTIPLY',
+                            location=(NODE_WIDTH*i, TEXTURE_NODE_HEIGHT*(3-i),)
+                            )
+            mix = make_mixnode(grp,
+                            diffuse_source,
+                            group_inputs.outputs[i*3+2],
+                            factor=str.outputs[MIXNODE_OUT], 
+                            blend_type='MIX',
+                            location=(NODE_WIDTH*(i+1), TEXTURE_NODE_HEIGHT*(3-i),)
+                            )
+            diffuse_source = mix.outputs[MIXNODE_OUT]
 
     # Shader output node
     bsdf = grp.nodes.new('ShaderNodeBsdfPrincipled')
     bsdf.location = (NODE_WIDTH * 4, 0)
-    grp.links.new(group_inputs.outputs['Diffuse'], bsdf.inputs['Base Color'])
+    grp.links.new(diffuse_source, bsdf.inputs['Base Color'])
     grp.links.new(group_inputs.outputs['Alpha'], bsdf.inputs['Alpha'])
 
     # Specular and gloss
@@ -431,15 +483,15 @@ def make_shader_fo4(parent, location):
     inv.location = (NODE_WIDTH, separator.location.y-50)
     grp.links.new(separator.outputs[SEPARATOR_OUT2], inv.inputs['Color'])
 
-    whiteblue = grp.nodes.new("ShaderNodeRGB")
-    whiteblue.location = inv.location + Vector((0, -COLOR_NODE_HEIGHT))
-    whiteblue.outputs['Color'].default_value = (1, 1, 1, 1)
+    # whiteblue = grp.nodes.new("ShaderNodeRGB")
+    # whiteblue.location = inv.location + Vector((0, -COLOR_NODE_HEIGHT))
+    # whiteblue.outputs['Color'].default_value = (1, 1, 1, 1)
 
     combiner = make_combiner(
         grp, 
         separator.outputs[SEPARATOR_OUT1], 
         inv.outputs[0], 
-        whiteblue.outputs[0],
+        1.0,
         (NODE_WIDTH * 2, separator.location.y))
     
     norm = grp.nodes.new('ShaderNodeNormalMap')
@@ -456,7 +508,7 @@ def make_shader_fo4(parent, location):
     grp.links.new(bsdf.outputs['BSDF'], group_outputs.inputs['BSDF'])
 
     shader_node = parent.nodes.new('ShaderNodeGroup')
-    shader_node.name = shader_node.label = 'FO4 Shader'
+    shader_node.name = shader_node.label = ('FO4 Face Shader' if facegen else 'FO4 Shader')
     shader_node.location = location
     shader_node.node_tree = grp
 
@@ -665,7 +717,8 @@ def get_effective_colormaps(mesh):
     return colormap, alphamap
 
 
-def make_mixnode(nodetree, input1, input2, output=None, factor=None, blend_type='MULTIPLY', location=None):
+def make_mixnode(nodetree, input1, input2, output=None, factor=None, 
+                 blend_type='MULTIPLY', location=None):
     """
     Create a shader RGB mix node--or fall back if it's an older version of Blender.
     """
@@ -965,12 +1018,13 @@ class ShaderImporter:
         if self.shape.has_alpha_property:
             self.link(txtnode.outputs['Alpha'], self.bsdf.inputs['Alpha'])
         else:
-            alph = self.make_node('ShaderNodeRGB',
-                                  name='Opaque Alpha',
-                                  xloc=txtnode.location.x,
-                                  height=COLOR_NODE_HEIGHT)
-            alph.outputs['Color'].default_value = (1, 1, 1, 1)
-            self.link(alph.outputs['Color'], self.bsdf.inputs['Alpha'])
+            pass
+            # alph = self.make_node('ShaderNodeRGB',
+            #                       name='Opaque Alpha',
+            #                       xloc=txtnode.location.x,
+            #                       height=COLOR_NODE_HEIGHT)
+            # alph.outputs['Color'].default_value = (1, 1, 1, 1)
+            # self.link(alph.outputs['Color'], self.bsdf.inputs['Alpha'])
 
         alph = self.make_node('ShaderNodeValue',
                                 name='Alpha',
@@ -1213,10 +1267,13 @@ class ShaderImporter:
 
         self.nodes.remove(self.nodes["Principled BSDF"])
         mo = self.nodes['Material Output']
+        have_face = False
 
         if self.game == 'FO4':
+            have_face = (shape.shader.properties.Shader_Type == BSLSPShaderType.Face_Tint)
             self.bsdf = make_shader_fo4(self.material.node_tree, 
-                (mo.location.x - NODE_WIDTH, mo.location.y))
+                (mo.location.x - NODE_WIDTH, mo.location.y),
+                facegen=have_face)
         else:
             self.bsdf = make_shader_skyrim(self.material.node_tree,
                 mo.location + Vector((-NODE_WIDTH, 0)),
