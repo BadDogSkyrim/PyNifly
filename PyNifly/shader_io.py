@@ -153,7 +153,7 @@ def make_combiner_xyz(nodetree, x, y, z, loc):
     return combiner
 
 
-def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
+def make_shader_skyrim(parent, location, msn=False, facegen=True, colormap_name='Col'):
     """
     Returns a group node implementing a shader for Skyrim.
     """
@@ -181,8 +181,23 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
     except:
         # Blender 4.0
         grp.interface.new_socket('Diffuse', in_out='INPUT', socket_type='NodeSocketColor')
-        grp.interface.new_socket('Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
-        grp.interface.new_socket('Alpha Mult', in_out='INPUT', socket_type='NodeSocketFloat')
+        if facegen:
+            for i in range(0, 3):
+                s = grp.interface.new_socket(f'Tint {i+1}', in_out='INPUT', socket_type='NodeSocketFloat')
+                s.default_value = 0
+                grp.interface.new_socket(f'Tint {i+1} Color', in_out='INPUT', socket_type='NodeSocketColor')
+                s = grp.interface.new_socket(f'Tint {i+1} Strength', in_out='INPUT', socket_type='NodeSocketFloat')
+                s.default_value = 1.0
+                s.min_value = 0.0
+                s.max_value = 1.0
+        s = grp.interface.new_socket('Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
+        s.default_value = 1.0
+        s.min_value = 0.0
+        s.max_value = 1.0
+        s = grp.interface.new_socket('Alpha Mult', in_out='INPUT', socket_type='NodeSocketFloat')
+        s.default_value = 1.0
+        s.min_value = 0.0
+        s.max_value = 1.0
         grp.interface.new_socket('Use Vertex Color', in_out='INPUT', socket_type='NodeSocketColor')
         grp.interface.new_socket('Vertex Color', in_out='INPUT', socket_type='NodeSocketColor')
         grp.interface.new_socket('Use Vertex Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
@@ -199,9 +214,9 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
 
     # Shader output node
     bsdf = grp.nodes.new('ShaderNodeBsdfPrincipled')
-    bsdf.location = (NODE_WIDTH, 0)
+    bsdf.location = (NODE_WIDTH*3, 0)
 
-    # Diffuse and alpha
+    # Diffuse includes vertex colors
     mixcolor = make_mixnode(
         grp, 
         group_inputs.outputs['Diffuse'],
@@ -213,6 +228,25 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
 
     diffuse_socket = mixcolor.outputs[MIXNODE_OUT]
     
+    if facegen:
+        for i in range(0, 3):
+            str = make_mixnode(grp,
+                            group_inputs.outputs[i*3+1], # tint
+                            group_inputs.outputs[i*3+3], # tint strength
+                            blend_type='MULTIPLY',
+                            location=group_inputs.location + 
+                                Vector((NODE_WIDTH*(i+3), TEXTURE_NODE_HEIGHT*(4-i),))
+                            )
+            mix = make_mixnode(grp,
+                            diffuse_socket,
+                            group_inputs.outputs[i*3+2],
+                            factor=str.outputs[MIXNODE_OUT], 
+                            blend_type='MIX',
+                            location=group_inputs.location + 
+                                Vector((NODE_WIDTH*(i+4), TEXTURE_NODE_HEIGHT*(4-i),))
+                            )
+            diffuse_socket = mix.outputs[MIXNODE_OUT]
+
     # mixvertalph = make_mixnode(grp, 
     #                       group_inputs.outputs['Alpha'],
     #                       group_inputs.outputs['Vertex Alpha'],
@@ -268,7 +302,7 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
             group_inputs.outputs['Subsurface'],
             bsdf.inputs['Base Color'],
             blend_type='SCREEN',
-            location=invalph.location + Vector((2*NODE_WIDTH, -COLOR_NODE_HEIGHT)))
+            location=invalph.location + Vector((5*NODE_WIDTH, -COLOR_NODE_HEIGHT)))
 
     # Specular 
     make_specular(grp,
@@ -288,30 +322,6 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
     map.inputs['To Max'].default_value = 0
     grp.links.new(group_inputs.outputs['Glossiness'], map.inputs['Value'])
     grp.links.new(map.outputs[0], bsdf.inputs['Roughness'])
-
-    # # Alternate inputs for Blender 4.0
-    # if 'Specular IOR Level' in self.bsdf.inputs:
-    #     # TODO: This is all wrong. IOR isn't what we want.
-    #     # If there's a direct IOR level input, have to map range 0-1 to 1-2
-    #     tobw = self.make_node('ShaderNodeRGBToBW',
-    #                             xloc=last_node.location.x + 300,
-    #                             yloc=simgnode.location.y)
-    #     self.link(spec_socket, tobw.inputs['Color'])
-
-    #     map = self.make_node('ShaderNodeMapRange',
-    #                             xloc=tobw.location.x + 150,
-    #                             yloc=simgnode.location.y)
-    #     map.inputs['From Min'].default_value = 0
-    #     map.inputs['From Max'].default_value = 1
-    #     map.inputs['To Min'].default_value = 1
-    #     map.inputs['To Max'].default_value = 2
-
-    #     self.link(tobw.outputs['Val'], map.inputs[0])
-    #     self.link(map.outputs[0], self.bsdf.inputs['Specular IOR Level'])
-
-    # else:
-    #     # Just hook to the specular input.
-    #     self.link(spec_socket, self.bsdf.inputs['Specular'])
 
     # Normal map
     if msn:
@@ -372,7 +382,7 @@ def make_shader_skyrim(parent, location, msn=False, colormap_name='Col'):
     grp.links.new(bsdf.outputs['BSDF'], group_outputs.inputs['BSDF'])
 
     shader_node = parent.nodes.new('ShaderNodeGroup')
-    shader_node.name = shader_node.label = 'Skyrim Shader'
+    shader_node.name = shader_node.label = ('Skyrim Face Shader' if facegen else 'Skyrim Shader')
     shader_node.location = location
     shader_node.node_tree = grp
 
