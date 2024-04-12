@@ -5142,7 +5142,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     write_bodytri: bpy.props.BoolProperty(
         name="Export BODYTRI Extra Data",
         description="Write an extra data node pointing to the BODYTRI file, if there are any bodytri shape keys. Not needed if exporting for Bodyslide, because they write their own.",
-        default=False)
+        default=True)
 
     export_pose: bpy.props.BoolProperty(
         name="Export pose position",
