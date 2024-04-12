@@ -301,8 +301,15 @@ def make_shader_skyrim(parent, location, msn=False, facegen=True, colormap_name=
             diffuse_socket,
             group_inputs.outputs['Subsurface'],
             bsdf.inputs['Base Color'],
-            blend_type='SCREEN',
+            blend_type='MIX',
             location=invalph.location + Vector((5*NODE_WIDTH, -COLOR_NODE_HEIGHT)))
+        m.inputs[MIXNODE_FACTOR].default_value = 0.1
+
+    try:
+        grp.links.new(group_inputs.outputs['Subsurface'], bsdf.inputs['Subsurface Radius'])
+        bsdf.inputs['Subsurface Scale'].default_value = 2 # Reduce for scaled-down meshes
+    except:
+        pass
 
     # Specular 
     make_specular(grp,
