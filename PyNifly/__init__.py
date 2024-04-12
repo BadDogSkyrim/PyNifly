@@ -614,8 +614,50 @@ class NifImporter():
             offset_consistent = True
         
         offset_xf = None
-        # if self.do_create_bones and self.reference_skel and self.do_estimate_offset:
-        if self.reference_skel and self.do_estimate_offset:
+        if offset_xf == None and self.armature and self.do_estimate_offset:
+            # If we already imported from this nif, check the offset from the shape to the
+            # armature we've created. If it's consistent, we just apply that offset.
+            for i, bn in enumerate(the_shape.get_used_bones()):
+                bnref = bn
+                if self.is_facegen and bn == "Head": 
+                    bnref = "HEAD"
+                if bnref in self.armature.data.bones:
+                    skel_bone = self.armature.data.bones[bnref]
+                    skel_bone_xf= skel_bone.matrix_local
+                    bindpos = bind_position(the_shape, bn)
+                    bindinshape = xf @ bindpos
+                    this_offset = skel_bone_xf @ bindinshape.inverted()
+                    
+                    if not offset_xf: 
+                        offset_xf = this_offset
+                        offset_consistent = True
+                    
+                    # If the transforms are close, create an average. That's because
+                    # there's often some variation, whether it's rounding errors or some
+                    # other reason. We need epsilon as large as it is to cover all the
+                    # nifs we see, especially nifs with multiple meshes that came from
+                    # different sources.
+                    elif MatNearEqual(this_offset, offset_xf, epsilon=expected_variation):
+                        offset_xf = offset_xf.lerp(this_offset, 1/i)
+                    
+                    # If transforms are way off, either something's wrong, like we're
+                    # trying to use an inappropriate reference skeleton, or it's FO4. FO4
+                    # is just weird. Inform the user and don't use this for the average.
+                    else:
+                        offset_consistent = False
+                        log.warn(f"Shape {the_shape.name} does not have consitent offset from nif armature--can't use it to extend the armature.")
+                        self.do_create_bones = False
+                        break
+
+            if offset_consistent and offset_xf:
+                # If the offset is close to the standard FO4 bodypart offset, normalize it 
+                # so all bodyparts are consistent.
+                if self.nif.game == 'FO4' and  MatNearEqual(offset_xf, fo4_bodypart_xf, epsilon=3):
+                    xf = xf @ fo4_bodypart_xf
+                else:
+                    xf = xf @ offset_xf
+
+        if offset_xf == None and self.reference_skel and self.do_estimate_offset:
             # If we're creating missing vanilla bones, we need to know the offset from the
             # bind positions here to the vanilla bind positions, and we need it to be
             # consistent.
@@ -1078,6 +1120,17 @@ class NifImporter():
                 new_vg.add((v,), w, 'ADD')
     
 
+    def set_object_xf(self, the_shape, new_object):
+        # Set the object transform to reflect the skin transform in the nif. This
+        # positions the object conveniently for editing.
+        mx = self.calc_obj_transform(the_shape, scale_factor=self.scale)
+        if new_object.parent: 
+            # Have to set matrix_world because setting matrix_local doesn't seem to work.
+            new_object.matrix_world = new_object.parent.matrix_world @ mx
+        else:
+            new_object.matrix_world = mx
+            
+
     def import_shape(self, the_shape: NiShape):
         """ Import the shape to a Blender object, translating bone names if requested
             
@@ -1115,14 +1168,16 @@ class NifImporter():
             if parent: # and parent != self.root_object: # and not the_shape.bone_names:
                 new_object.parent = parent
 
-            # Set the object transform to reflect the skin transform in the nif. This
-            # positions the object conveniently for editing.
-            mx = self.calc_obj_transform(the_shape, scale_factor=self.scale)
-            if new_object.parent: 
-                # Have to set matrix_world because setting matrix_local doesn't seem to work.
-                new_object.matrix_world = new_object.parent.matrix_world @ mx
-            else:
-                new_object.matrix_world = mx
+            ### TRIAL: Set object location later
+            # self.set_object_xf(the_shape, new_object)
+            # # Set the object transform to reflect the skin transform in the nif. This
+            # # positions the object conveniently for editing.
+            # mx = self.calc_obj_transform(the_shape, scale_factor=self.scale)
+            # if new_object.parent: 
+            #     # Have to set matrix_world because setting matrix_local doesn't seem to work.
+            #     new_object.matrix_world = new_object.parent.matrix_world @ mx
+            # else:
+            #     new_object.matrix_world = mx
             
             #log.debug("Creating UVs")
             mesh_create_uv(new_object.data, the_shape.uvs)
@@ -1526,22 +1581,22 @@ class NifImporter():
         return arma
 
 
-    def connect_to_arma(self, arma, obj):
-        """Do the actual work of connecting obj to arma. If obj has no parent, parent to the arma; 
-        if it does, just create an arma modifier.
-        """
-        if obj.parent:
-            #log.debug(f"<connect_to_arma> Connecting {obj.name} to {arma.name}")
-            ObjectActive(obj)
-            i = len(obj.modifiers)
-            bpy.ops.object.modifier_add(type='ARMATURE')
-            mod = obj.modifiers[i]
-            mod.object = arma
-        else:
-            ObjectSelect([obj])
-            ObjectActive(arma)
-            #log.debug(f"<connect_to_arma> Setting parent of {obj.name} to {arma.name} (with transforms)")
-            bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
+    # def connect_to_arma(self, arma, obj):
+    #     """Do the actual work of connecting obj to arma. If obj has no parent, parent to the arma; 
+    #     if it does, just create an arma modifier.
+    #     """
+    #     if obj.parent:
+    #         #log.debug(f"<connect_to_arma> Connecting {obj.name} to {arma.name}")
+    #         ObjectActive(obj)
+    #         i = len(obj.modifiers)
+    #         bpy.ops.object.modifier_add(type='ARMATURE')
+    #         mod = obj.modifiers[i]
+    #         mod.object = arma
+    #     else:
+    #         ObjectSelect([obj])
+    #         ObjectActive(arma)
+    #         #log.debug(f"<connect_to_arma> Setting parent of {obj.name} to {arma.name} (with transforms)")
+    #         bpy.ops.object.parent_set(type='ARMATURE_NAME', xmirror=False, keep_transform=False)
 
 
     def is_compatible_skeleton(self, skin_xf:Matrix, shape:NiShape, skel:NifFile) -> bool:
@@ -2299,8 +2354,12 @@ class NifImporter():
         orphan_shapes = set([o for o in self.objects_created.values() 
                              if o.parent==None and not 'pynRoot' in o])
             
-        if not self.mesh_only:
-            # Import armature
+        if self.mesh_only:
+            for obj in self.loaded_meshes:
+                sh = self.nodes_loaded[obj.name]
+                self.set_object_xf(sh, obj)
+        else:
+            # Make armature
             if len(self.nif.shapes) == 0:
                 log.info(f"No shapes in nif, importing bones as skeleton")
                 if not self.armature:
@@ -2318,6 +2377,7 @@ class NifImporter():
                 if self.do_apply_skinning:
                     for obj in self.loaded_meshes:
                         sh = self.nodes_loaded[obj.name]
+                        self.set_object_xf(sh, obj)
                         if sh.has_skin_instance:
                             target_arma, target_xf = self.find_compatible_arma(obj, self.imported_armatures)
                             self.armature = target_arma
@@ -2336,6 +2396,11 @@ class NifImporter():
                     self.group_bones(arma)
                     self.animate_armature(self.armature)
     
+            # # Set object positions relative to armature.
+            # for sh in self.nif.shapes:
+            #     if sh._handle in self.objects_created:
+            #         self.set_object_xf(sh, self.objects_created[sh._handle])
+            
             # Gather up any NiNodes that weren't captured any other way 
             self.import_loose_ninodes(self.nif)
 

@@ -153,7 +153,7 @@ def make_combiner_xyz(nodetree, x, y, z, loc):
     return combiner
 
 
-def make_shader_skyrim(parent, location, msn=False, facegen=True, colormap_name='Col'):
+def make_shader_skyrim(parent, location, msn=False, facegen=False, colormap_name='Col'):
     """
     Returns a group node implementing a shader for Skyrim.
     """
@@ -1292,9 +1292,11 @@ class ShaderImporter:
                 (mo.location.x - NODE_WIDTH, mo.location.y),
                 facegen=have_face)
         else:
+            have_face = (shape.shader.properties.Shader_Type == BSLSPShaderType.Face_Tint)
             self.bsdf = make_shader_skyrim(self.material.node_tree,
                 mo.location + Vector((-NODE_WIDTH, 0)),
-                msn=shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS))
+                msn=shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS),
+                facegen=have_face)
         
         self.bsdf.width = 250
         self.bsdf.location.x -= 100

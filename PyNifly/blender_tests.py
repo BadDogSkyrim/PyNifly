@@ -248,7 +248,9 @@ def do_bodypart_alignment_fo4(create_bones, estimate_offset, use_pose):
 
 def TEST_BODYPART_ALIGNMENT_FO4_1():
     """Read & write bodyparts and have the transforms match exactly, when estimating global-to-skin offset."""
-    do_bodypart_alignment_fo4(create_bones=False, estimate_offset=True, use_pose=True)
+    do_bodypart_alignment_fo4(create_bones=False, 
+                              estimate_offset=True, 
+                              use_pose=True)
 
 def TEST_BODYPART_ALIGNMENT_FO4_2():
     """Read & write bodyparts and have the transforms match exactly, when NOT estimating global-to-skin offset."""
@@ -403,6 +405,28 @@ def TEST_IMP_EXP_FO4_2():
     TT.compare_shapes(armorin, armorout, armor, e=0.001, ignore_translations=True)
     for tl in ['Diffuse', 'Normal', 'Specular']:
         assert bodyin.textures[tl] == bodyout.textures[tl], f"{tl} textures match"
+
+
+def TEST_IMP_EXP_FO4_3():
+    """Can read clothes + body and they come in sensibly"""
+
+    testfile = TT.test_file(r"tests\FO4\bathrobe.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_IMP_EXP_FO4_3.nif")
+
+    # Setting do_import_pose=False results in a good import but the 
+    # shapes jump around in edit mode.
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                 do_create_bones=False,
+                                 do_import_pose=True)
+    body = TT.find_shape('CBBE')
+    robe = TT.find_shape('OutfitF_0')
+    bodymax = max((body.matrix_world @ v.co).z for v in body.data.vertices)
+    robemax = max((robe.matrix_world @ v.co).z for v in robe.data.vertices)
+    assert bodymax < robemax, f"Robe goes higher than body: {robemax} > {bodymax}"
+    bodymin = min((body.matrix_world @ v.co).z for v in body.data.vertices)
+    robemin = min((robe.matrix_world @ v.co).z for v in robe.data.vertices)
+    assert robemin < bodymin, f"Robe extends below body: {robemin} < {bodymin}"
+
 
 
 def TEST_ROUND_TRIP():
@@ -1524,8 +1548,9 @@ def TEST_SHADER_LE():
     shaderAttrsLE = nifLE.shapes[0].shader.properties
     headLE = bpy.context.object
     shadernodes = headLE.active_material.node_tree.nodes
-    assert 'Skyrim Shader' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
-    bsdf = shadernodes['Skyrim Shader']
+    assert 'Skyrim Face Shader' in shadernodes, \
+        f"Shader nodes complete: {shadernodes.keys()}"
+    bsdf = shadernodes['Skyrim Face Shader']
     assert 'Diffuse_Texture' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     assert bsdf.inputs['Normal'].is_linked, f"Have a normal map"
     assert bsdf.inputs['Diffuse'].is_linked, f"Have a base color"
@@ -2375,7 +2400,7 @@ def TEST_VERTEX_ALPHA_IO():
 
     head = bpy.context.object
     nodes = head.active_material.node_tree.nodes
-    shader = nodes["Skyrim Shader"]
+    shader = nodes["Skyrim Face Shader"]
     assert shader, f"Found shader"
     diffuse = BD.find_node(shader.inputs["Diffuse"], "ShaderNodeTexImage")[0]
     assert diffuse.bl_idname == "ShaderNodeTexImage", f"Found correct diffuse type {diffuse.name}"
@@ -4376,7 +4401,7 @@ def TEST_ANIMATRON_2():
                                  do_create_bones=False, 
                                  do_rename_bones=False, 
                                  do_import_pose=False,
-                                 do_estimate_offset=True)
+                                 do_estimate_offset=False)
  
 
 def TEST_CUSTOM_BONES():
@@ -5384,7 +5409,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_ANIMATRON_2] )
+    # do_tests( [TEST_ANIMATRON_2] )
     # do_tests([t for t in alltests if t.__name__.startswith('TEST_BODYPART_ALIGNMENT_FO4')])
-    # do_tests( testfrom(TEST_ANIM_HKX) )
+    do_tests( testfrom(TEST_VERTEX_ALPHA_IO) )
     # do_tests(alltests)
