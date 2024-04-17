@@ -3377,7 +3377,10 @@ def TEST_NORM():
     bpy.ops.import_scene.pynifly(filepath=testfile)
     head = TT.find_shape("CheetahMaleHead")
 
-    head.data.calc_normals_split()
+    try:
+        head.data.calc_normals_split()
+    except:
+        pass
 
     vi =  TT.find_vertex(head.data, (-4.92188, 0.646485, -10.0156), epsilon=0.01)
     targetvert = head.data.vertices[vi]
@@ -4125,7 +4128,10 @@ def TEST_FO4_CHAIR():
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
     
     assert len(fmarkers) == 4, f"Found furniture markers: {fmarkers}"
-    mk = bpy.data.objects['BSFurnitureMarkerNode']
+    # Lowest points forward off the seat
+    seatmarker = [m for m in fmarkers if BD.NearEqual(m.location.z, 34, epsilon=1)]
+    assert len(seatmarker) == 1, f"Have one marker on the seat"
+    mk = seatmarker[0]
     assert TT.VNearEqual(mk.rotation_euler, (-math.pi/2, 0, 0)), \
         f"Marker {mk.name} points the right direction: {mk.rotation_euler, (-math.pi/2, 0, 0)}"
 
@@ -4400,7 +4406,7 @@ def TEST_ANIMATRON_2():
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  do_create_bones=False, 
                                  do_rename_bones=False, 
-                                 do_import_pose=False,
+                                 do_import_pose=True,
                                  do_estimate_offset=False)
  
 
@@ -4454,7 +4460,10 @@ def TEST_IMP_NORMALS():
 
     # all loop custom normals point off at diagonals
     obj = bpy.context.object
-    obj.data.calc_normals_split()
+    try:
+        obj.data.calc_normals_split()
+    except:
+        pass
     for l in obj.data.loops:
         for i in [0, 1, 2]:
             assert round(abs(l.normal[i]), 3) == 0.577, f"Expected diagonal normal, got loop {l.index}/{i} = {l.normal[i]}"
@@ -5409,7 +5418,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_ANIMATRON_2] )
+    # do_tests( [TEST_FO4_CHAIR] )
     # do_tests([t for t in alltests if t.__name__.startswith('TEST_BODYPART_ALIGNMENT_FO4')])
-    do_tests( testfrom(TEST_VERTEX_ALPHA_IO) )
-    # do_tests(alltests)
+    # do_tests( testfrom(TEST_UV_SPLIT) )
+    do_tests(alltests)

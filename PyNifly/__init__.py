@@ -8,7 +8,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 0, 0),
-    "version": (14, 4, 0),  
+    "version": (14, 5, 2),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -310,7 +310,10 @@ def mesh_create_normals(the_mesh, normals):
     if normals:
         # Make sure the normals are unit length
         # Magic incantation to set custom normals
-        the_mesh.use_auto_smooth = True
+        try:
+            the_mesh.use_auto_smooth = True
+        except:
+            pass
         the_mesh.normals_split_custom_set([(0, 0, 0)] * len(the_mesh.loops))
         the_mesh.normals_split_custom_set_from_vertices([Vector(v).normalized() for v in normals])
 
@@ -4358,9 +4361,9 @@ class NifExporter:
             # Before Blender 4.0 have to calculate normals. 4.0 doesn't need it and throws
             # an error.
             mesh.calc_normals()
+            mesh.calc_normals_split()
         except:
             pass
-        mesh.calc_normals_split()
 
         def write_loop_vert(loopseg):
             """ Write one vert, given as a MeshLoop 
