@@ -3615,9 +3615,11 @@ class NifExporter:
             return blender_name
 
     def unique_name(self, obj):
-        """Return a unique node name for the Blender object. Use the root of the Blender
-        name if possible, because that might match to a name in a trip file. Otherwise use
-        the full Blender name, and if that fails make a unique name."""
+        """
+        Return a unique node name for the Blender object. Use the root of the Blender name
+        if possible, because that might match to a name in a trip file. Otherwise use the
+        full Blender name, and if that fails make a unique name.
+        """
         names = self.nif.getAllShapeNames()
         simplename = nonunique_name(obj)
         if simplename not in names: return simplename
@@ -3815,7 +3817,7 @@ class NifExporter:
                 if k[0] == '>':
                     n = k[1:]
                     expdict[n] = v
-            self.trip.set_morphs(obj.name, expdict, verts)
+            self.trip.set_morphs(self.objs_written[obj.name].name, expdict, verts)
             
         return result
 
@@ -4470,15 +4472,15 @@ class NifExporter:
             alphamap = vc[ALPHA_MAP_NAME].data
             alphamapname = ALPHA_MAP_NAME
             colorlen = len(alphamap)
-        if vc.active.data == alphamap:
-            # Alpha map is active--see if theres another map to use for colors. If not, 
+        if alphamap and vc.active and vc.active.data == alphamap:
+            # Alpha map is active--see if there's another map to use for colors. If not,
             # colors will be set to white
             for c in vc:
                 if c.data != alphamap:
                     colormap = c.data
                     colormapname = c.name
                     break
-        else:
+        elif vc.active:
             colormap = vc.active.data
             colormapname = vc.active.name
             colorlen = len(colormap)
@@ -4906,12 +4908,14 @@ class NifExporter:
 
 
     def export_file_set(self, suffix=''):
-        """ Create a set of nif files from the given object, using the given armature and appending
-            the suffix. One file is created per shape key with the shape key used as suffix. Associated
-            TRIP files are exported if there is TRIP info.
-                suffix = suffix to append to the filenames, after the shape key suffix. 
-                    Empty string for regular nifs, non-empty for facebones nifs
-            """
+        """ 
+        Create a set of nif files from the given object, using the given armature and
+        appending the suffix. One file is created per shape key with the shape key used as
+        suffix. Associated TRIP files are exported if there is TRIP info.
+                
+        * suffix = suffix to append to the filenames, after the shape key suffix. Empty
+          string for regular nifs, non-empty for facebones nifs
+        """
         if self.file_keys is None or len(self.file_keys) == 0:
             shape_keys = ['']
         else:
@@ -5002,11 +5006,10 @@ class NifExporter:
 
 
             # Check for bodytri morphs--write the extra data node if needed
-            ##log.debug(f"TRIP data: shapes={len(self.trip.shapes)}, bodytri written: {self.bodytri_written}, filepath: {truncate_filename(self.trippath, 'meshes')}")
             if self.write_bodytri \
-                and self.game in ['FO4', 'FO76'] \
-                and len(self.trip.shapes) > 0 \
-                and  not self.bodytri_written:
+                    and self.game in ['FO4', 'FO76'] \
+                    and len(self.trip.shapes) > 0 \
+                    and  not self.bodytri_written:
                 self.nif.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
 
             if self.root_object:
@@ -5023,9 +5026,8 @@ class NifExporter:
                 self.message_log.append(self.nif.message_log())
 
         if len(self.trip.shapes) > 0:
-            #log.debug(f"First shape in trip file has shapes: {self.trip.shapes[next(iter(self.trip.shapes))].keys()}")
             self.trip.write(self.trippath)
-            log.info(f"..Wrote {self.trippath}")
+            log.info(f"Wrote {self.trippath}")
 
 
     def execute(self):

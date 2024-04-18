@@ -731,11 +731,13 @@ class TripFile():
         return 0
 
     def set_morphs(self, shapename, morphdict, vertlist):
-        """ Set the morphs property from a morph dictionary 
-        name of the shape the morphs are for    
-        morphdict = { morph-name: [(x,y,z), ...], ...} - xyz coordinates are 1:1 with vertlist
-            vertlist = [(x,y,z), ...] - shape vertices
-            """
+        """ 
+        Set the morphs property from a morph dictionary.
+        * shapename = name of the shape the morphs are for
+        * morphdict = { morph-name: [(x,y,z), ...], ...} - xyz coordinates are 1:1 with
+          vertlist
+        * vertlist = [(x,y,z), ...] - shape vertices
+        """
         offsetmorphs = {}
         for name, coords in morphdict.items():
             #self.log.debug(f"[TRIP] Writing morph {name}")

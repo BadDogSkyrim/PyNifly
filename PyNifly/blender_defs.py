@@ -41,6 +41,9 @@ class pynFlags(IntFlag):
 name_pat = re.compile('(.+)\.\d\d\d')
 
 def nonunique_name(obj):
+    """
+    Returns the root name of an object, before Blender added '.00n' to make it unique.
+    """
     m = name_pat.search(obj.name)
     if m:
         return m.group(1)

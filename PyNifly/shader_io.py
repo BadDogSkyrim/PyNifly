@@ -720,7 +720,7 @@ def get_effective_colormaps(mesh):
     if not vertcolors:
         return None, None
         
-    if colormap.name == ALPHA_MAP_NAME:
+    if colormap and colormap.name == ALPHA_MAP_NAME:
         alphamap = colormap
         colormap = None
         for vc in vertcolors:
