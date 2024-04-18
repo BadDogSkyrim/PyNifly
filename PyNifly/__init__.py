@@ -5249,6 +5249,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         res = set()
+        selected_objs = context.selected_objects
+        active_obj = context.object
 
         if not self.poll(context):
             self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
@@ -5315,6 +5317,9 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, "Export of nif failed, see console window for details")
             res.add("CANCELLED")
             LogFinish("EXPORT", self.objects_to_export, {"ERROR"}, True)
+
+        ObjectSelect(selected_objs)
+        ObjectActive(active_obj)
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 
