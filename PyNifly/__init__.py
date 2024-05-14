@@ -34,6 +34,7 @@ if 'PYNIFLY_DEV_ROOT' in os.environ:
     pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
     nifly_path = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll")
     hkxcmd_path = os.path.join(pynifly_dev_path, "hkxcmd.exe")
+    asset_path = os.path.join(pynifly_dev_path, "blender_assets")
 
 if nifly_path and os.path.exists(nifly_path):
     if pynifly_dev_path not in sys.path:
@@ -46,6 +47,7 @@ else:
         sys.path.append(py_addon_path)
     nifly_path = os.path.join(py_addon_path, "NiflyDLL.dll")
     hkxcmd_path = os.path.join(py_addon_path, "hkxcmd.exe")
+    asset_path = os.path.join(py_addon_path, "blender_assets")
 
 # Pynifly tools
 from niflytools import *
@@ -1196,7 +1198,7 @@ class NifImporter():
             if the_shape.normals:
                 mesh_create_normals(new_object.data, the_shape.normals)
 
-            shader_io.ShaderImporter().import_material(new_object, the_shape)
+            shader_io.ShaderImporter().import_material(new_object, the_shape, asset_path)
 
             if the_shape.collision_object:
                 self.import_collision_obj(the_shape.collision_object, new_object)

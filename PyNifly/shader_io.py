@@ -396,12 +396,25 @@ def make_shader_skyrim(parent, location, msn=False, facegen=False, colormap_name
     return shader_node
 
 
-def make_shader_fo4(parent, location, facegen=True):
+def make_shader_fo4(parent, shader_path, location, facegen=True):
     """
     Returns a group node implementing a shader for FO4.
 
     If facegen == true, shader includes tint layers.
     """
+    try:
+        with bpy.data.libraries.load(shader_path) as (data_from, data_to):
+            data_to.node_groups = ["Fallout 4 MTS - Face"]
+
+        shader_node = parent.nodes.new('ShaderNodeGroup')
+        shader_node.name = shader_node.label = ('FO4 Face Shader' if facegen else 'FO4 Shader')
+        shader_node.location = location
+        shader_node.node_tree = data_to.node_groups[0]
+
+        return shader_node
+    except Exception as e:
+        log.warn(f"Could not load shader from assets file: {traceback.format_exc()}; building nodes directly")
+
     grp = bpy.data.node_groups.new(type='ShaderNodeTree', name='FO4Shader')
 
     group_inputs = grp.nodes.new('NodeGroupInput')
@@ -788,6 +801,7 @@ class ShaderImporter:
         self.diffuse_socket = None
         self.game = None
         self.do_specular = False
+        self.asset_path = False
 
         self.inputs_offset_x = -1900
         self.calc1_offset_x = -1700
@@ -928,7 +942,8 @@ class ShaderImporter:
                             xloc=self.diffuse.location.x, 
                             height=INPUT_NODE_HEIGHT)
         self.link(em.outputs['Value'], self.bsdf.inputs['Emission Strength'])
-        
+        # self.emission_color_skt.default_value = (0,0,0,0)
+        # self.bsdf.inputs['Emission Strength'].default_value = 1.0
 
     def import_shader_alpha(self, shape):
         if shape.has_alpha_property:
@@ -1016,7 +1031,6 @@ class ShaderImporter:
 
     def import_diffuse(self):
         """Create nodes for the diffuse texture."""
-        #log.debug("Handling diffuse texture")
         self.ytop = self.bsdf.location.y + 2 * TEXTURE_NODE_HEIGHT
 
         txtnode = self.make_node("ShaderNodeTexImage",
@@ -1036,12 +1050,6 @@ class ShaderImporter:
             self.link(txtnode.outputs['Alpha'], self.bsdf.inputs['Alpha'])
         else:
             pass
-            # alph = self.make_node('ShaderNodeRGB',
-            #                       name='Opaque Alpha',
-            #                       xloc=txtnode.location.x,
-            #                       height=COLOR_NODE_HEIGHT)
-            # alph.outputs['Color'].default_value = (1, 1, 1, 1)
-            # self.link(alph.outputs['Color'], self.bsdf.inputs['Alpha'])
 
         alph = self.make_node('ShaderNodeValue',
                                 name='Alpha',
@@ -1261,7 +1269,7 @@ class ShaderImporter:
 
             
 
-    def import_material(self, obj, shape:NiShape):
+    def import_material(self, obj, shape:NiShape, asset_path):
         """
         Import the shader info from shape and create a Blender representation using shader
         nodes.
@@ -1270,6 +1278,7 @@ class ShaderImporter:
 
         self.shape = shape
         self.game = shape.file.game
+        self.asset_path = os.path.join(asset_path, "shaders.blend")
 
         self.material = bpy.data.materials.new(name=(obj.name + ".Mat"))
         self.material.use_nodes = True
@@ -1289,8 +1298,9 @@ class ShaderImporter:
         if self.game == 'FO4':
             have_face = (shape.shader.properties.Shader_Type == BSLSPShaderType.Face_Tint)
             self.bsdf = make_shader_fo4(self.material.node_tree, 
-                (mo.location.x - NODE_WIDTH, mo.location.y),
-                facegen=have_face)
+                                        self.asset_path, 
+                                        (mo.location.x - NODE_WIDTH, mo.location.y),
+                                        facegen=have_face)
         else:
             have_face = (shape.shader.properties.Shader_Type == BSLSPShaderType.Face_Tint)
             self.bsdf = make_shader_skyrim(self.material.node_tree,

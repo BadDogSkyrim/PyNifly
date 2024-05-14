@@ -5418,7 +5418,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_FO4_CHAIR] )
+    do_tests( [TEST_SHADER_FO4] )
     # do_tests([t for t in alltests if t.__name__.startswith('TEST_BODYPART_ALIGNMENT_FO4')])
     # do_tests( testfrom(TEST_UV_SPLIT) )
-    do_tests(alltests)
+    # do_tests(alltests)
