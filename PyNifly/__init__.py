@@ -4737,13 +4737,8 @@ class NifExporter:
                 # Have to set skin-to-bone again because adding the bones nuked it
                 xf = get_bone_xform(arma, bone_name, self.game, False, self.export_pose)
                 xfoffs = obj.matrix_local.inverted() @ xf
-                # xfoffs = obj.matrix_world.inverted() @ xf
-                if bone_name == 'Chest':
-                    log.debug(f"Chest bone xf rel = \n{xfoffs}")
                 xfinv = xfoffs.inverted()
                 tb = pack_xf_to_buf(xfinv, self.scale)
-                if bone_name == 'Chest':
-                    log.debug(f"Chest sk2b = \n{xfinv}")
                     
                 new_shape.set_skin_to_bone_xform(nifname, tb)
 

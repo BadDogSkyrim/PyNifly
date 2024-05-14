@@ -842,9 +842,11 @@ class ShaderImporter:
             self.material['BS_Shader_Block_Name'] = shader.blockname
             self.material['BSLSP_Shader_Name'] = shader.name
 
-            for i, v in enumerate(shader.Emissive_Color):
-                self.nodes['Emissive_Color'].outputs[0].default_value[i] = v
-            self.nodes['Emissive_Mult'].outputs[0].default_value = shader.Emissive_Mult
+            self.bsdf.inputs['Emission'].default_value = shader.Emissive_Color[:]
+            # for i, v in enumerate(shader.Emissive_Color):
+            #     self.nodes['Emissive_Color'].outputs[0].default_value[i] = v
+            self.bsdf.inputs['Emission Strength'].default_value = shader.Emissive_Mult
+            # self.nodes['Emissive_Mult'].outputs[0].default_value = shader.Emissive_Mult
 
             if shader.blockname == 'BSLightingShaderProperty':
                 self.nodes['Alpha'].outputs[0].default_value = shader.Alpha
@@ -932,18 +934,16 @@ class ShaderImporter:
                 self.link(gl.outputs['Value'], self.bsdf.inputs['Glossiness'])
                 # self.link(roughscale.outputs[0], self.bsdf.inputs['Roughness'])
         
-        ec = self.make_node('ShaderNodeRGB',
-                            name='Emissive_Color',
-                            xloc=self.diffuse.location.x, 
-                            height=COLOR_NODE_HEIGHT)        
-        self.link(ec.outputs['Color'], self.emission_color_skt)
-        em = self.make_node('ShaderNodeValue', 
-                            name='Emissive_Mult', 
-                            xloc=self.diffuse.location.x, 
-                            height=INPUT_NODE_HEIGHT)
-        self.link(em.outputs['Value'], self.bsdf.inputs['Emission Strength'])
-        # self.emission_color_skt.default_value = (0,0,0,0)
-        # self.bsdf.inputs['Emission Strength'].default_value = 1.0
+        # ec = self.make_node('ShaderNodeRGB',
+        #                     name='Emissive_Color',
+        #                     xloc=self.diffuse.location.x, 
+        #                     height=COLOR_NODE_HEIGHT)        
+        # self.link(ec.outputs['Color'], self.emission_color_skt)
+        # em = self.make_node('ShaderNodeValue', 
+        #                     name='Emissive_Mult', 
+        #                     xloc=self.diffuse.location.x, 
+        #                     height=INPUT_NODE_HEIGHT)
+        # self.link(em.outputs['Value'], self.bsdf.inputs['Emission Strength'])
 
     def import_shader_alpha(self, shape):
         if shape.has_alpha_property:
@@ -1474,11 +1474,15 @@ class ShaderExporter:
                 texmode += max(min(nl['Clamp_T'].outputs['Value'].default_value, 1), 0)
             shape.shader.properties.textureClampMode = int(texmode)
 
-            shape.shader.properties.Emissive_Mult = nl['Emissive_Mult'].outputs[0].default_value
-            shape.shader.properties.baseColorScale = nl['Emissive_Mult'].outputs[0].default_value
+            shape.shader.properties.Emissive_Mult = self.shader_node.inputs['Emission Strength'].default_value
+            # shape.shader.properties.Emissive_Mult = nl['Emissive_Mult'].outputs[0].default_value
+            shape.shader.properties.baseColorScale = self.shader_node.inputs['Emission Strength'].default_value
+            # shape.shader.properties.baseColorScale = nl['Emissive_Mult'].outputs[0].default_value
             for i in range(0, 4):
-                shape.shader.properties.Emissive_Color[i] = nl['Emissive_Color'].outputs[0].default_value[i] 
-                shape.shader.properties.baseColor[i] = nl['Emissive_Color'].outputs[0].default_value[i] 
+                shape.shader.properties.Emissive_Color[i] = self.shader_node.inputs['Emission'].default_value[i]
+                # shape.shader.properties.Emissive_Color[i] = nl['Emissive_Color'].outputs[0].default_value[i] 
+                shape.shader.properties.baseColor[i] = self.shader_node.inputs['Emission'].default_value[i] 
+                # shape.shader.properties.baseColor[i] = nl['Emissive_Color'].outputs[0].default_value[i] 
 
             if shape.shader.blockname == "BSLightingShaderProperty":
                 skt = self.shader_node.inputs['Alpha Mult']

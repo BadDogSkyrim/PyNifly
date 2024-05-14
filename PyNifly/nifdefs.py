@@ -196,6 +196,11 @@ class pynStructure(Structure):
                 elif f == 'Shader_Type':
                     if type(shape[f]) == BSLSPShaderType:
                         v = shape[f].value
+                    elif type(shape[f]) == str:
+                        mykey = str(shape[f])
+                        myenum = BSLSPShaderType[mykey]
+                        myval = myenum.value
+                        v = myval
                     else:
                         v = int(shape[f])
                 elif f == 'collisionFilter_layer' or f == 'collisionFilterCopy_layer':
