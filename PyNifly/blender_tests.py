@@ -133,7 +133,43 @@ def TEST_SKYRIM_XFORM():
     assert int(headcheck.global_to_skin.translation[2]) == -120, f"Shape global-to-skin not written correctly, found {headcheck.global_to_skin.translation[2]}"
 
 
-def TEST_SKIN_BONE_XF():
+def TEST_FO4_XFORM():
+    """Can read & write FO4 shape transforms"""
+    testfile = TT.test_file(r"tests/FO4/BaseMaleHead.nif")
+    outfile1 = TT.test_file(r"tests/Out/TEST_FO4_XFORM1.nif")
+    outfile2 = TT.test_file(r"tests/Out/TEST_FO4_XFORM2.nif")
+
+    # Reading the nif and calculating the offset from bone offsets
+    bpy.ops.import_scene.pynifly(filepath=testfile,
+                                 do_create_bones=True,
+                                 do_import_tris=False,
+                                 do_import_pose=False,
+                                 do_estimate_offset=False)
+
+    obj = bpy.context.object
+
+    BD.ObjectSelect([obj], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile1,
+                                 export_pose=False)
+
+    # # Change obj transform and export again. 
+    # BD.ObjectSelect([obj], active=True)
+    # bpy.ops.object.transform_apply()
+    # bpy.ops.export_scene.pynifly(filepath=outfile2)
+
+    # Testing simple round trip. Export should have same transforms.
+    
+    nif1:pyn.NiShape = pyn.NifFile(outfile1)
+    head1 = nif1.shapes[0]
+    xf1 = BD.transform_to_matrix(head1.get_shape_skin_to_bone('Chest'))
+    nif0 = pyn.NifFile(testfile)
+    head0:pyn.NiShape = nif0.shapes[0]
+    xf0 = BD.transform_to_matrix(head0.get_shape_skin_to_bone('Chest'))
+
+    assert BD.MatNearEqual(xf0, xf1), f"Matrices are near equal: \n{xf0}\n=\n{xf1}"
+
+
+def TEST_SKIN_BONE_XFORM():
     """Skin-to-bone transforms work correctly"""
     # The Argonian head has no global-to-skin transform and the bone pose locations are
     # exactly the vanilla locations, and yet the verts are organized around the origin.
@@ -252,9 +288,10 @@ def TEST_BODYPART_ALIGNMENT_FO4_1():
                               estimate_offset=True, 
                               use_pose=True)
 
-def TEST_BODYPART_ALIGNMENT_FO4_2():
-    """Read & write bodyparts and have the transforms match exactly, when NOT estimating global-to-skin offset."""
-    do_bodypart_alignment_fo4(create_bones=False, estimate_offset=False, use_pose=False)
+## Now useing a better calc for the transform--don't need "estimate_offset"
+# def TEST_BODYPART_ALIGNMENT_FO4_2():
+#     """Read & write bodyparts and have the transforms match exactly, when NOT estimating global-to-skin offset."""
+#     do_bodypart_alignment_fo4(create_bones=False, estimate_offset=False, use_pose=False)
 
 
 def TEST_IMP_EXP_SKY():
@@ -4434,6 +4471,8 @@ def TEST_COTH_DATA():
     """Can read and write cloth data"""
     # Cloth data is extra bones that are enabled by HDT-type physics. Since they aren't 
     # part of the skeleton they can create problems.
+    #
+    # Also tests that we handle grayscale shading while we're here.
 
     testfile = TT.test_file(r"tests/FO4/HairLong01.nif")
     outfile = TT.test_file(r"tests/Out/TEST_COTH_DATA.nif")
@@ -5418,7 +5457,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_SHADER_FO4] )
+    # do_tests( [TEST_BODYPART_ALIGNMENT_FO4_1] )
     # do_tests([t for t in alltests if t.__name__.startswith('TEST_BODYPART_ALIGNMENT_FO4')])
-    # do_tests( testfrom(TEST_UV_SPLIT) )
-    # do_tests(alltests)
+    # do_tests( testfrom(TEST_DRAUGR_IMPORT_B) )
+    do_tests(alltests)

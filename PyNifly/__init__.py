@@ -586,7 +586,7 @@ class NifImporter():
         else:
             return nif_name
 
-    def calc_obj_transform(self, the_shape, scale_factor=1.0) -> Matrix:
+    def calc_obj_transform(self, the_shape:NiShape, scale_factor=1.0) -> Matrix:
         """
         Returns location of the_shape ready for blender as a transform.
 
@@ -612,14 +612,28 @@ class NifImporter():
         xf = Matrix.Identity(4)
         offset_consistent = False
         expected_variation = 0.8 if "SKYRIM" in self.nif.game else 3
+
+        # If there's a global-to-skin transform, combine it with the shape's own transform
+        # and use that with the transform implied in the bones. If there's no
+        # global-to-skin, the only transform that applies is the one in the bones.
+        xform_shape = transform_to_matrix(the_shape.transform)
+        xform_calc = transform_to_matrix(the_shape.calc_global_to_skin()) 
         if the_shape.has_global_to_skin:
-            # if this transform exists, use it and don't muck with it.
-            xform = the_shape.global_to_skin
-            xf = transform_to_matrix(xform).inverted()
-            offset_consistent = True
+            xform = transform_to_matrix(the_shape.global_to_skin)
+            xf = (xform_shape @ xform @ xform_calc).inverted()
+        else:
+            xf = xform_calc.inverted()
+            
+        offset_consistent = True
+        # if the_shape.has_global_to_skin:
+        #     # if this transform exists, use it and don't muck with it.
+        #     xform = the_shape.global_to_skin
+        #     xf = transform_to_matrix(xform).inverted()
+        #     offset_consistent = True
         
+        ## All of this is unreachable now.
         offset_xf = None
-        if offset_xf == None and self.armature and self.do_estimate_offset:
+        if not offset_consistent and  offset_xf == None and self.armature and self.do_estimate_offset:
             # If we already imported from this nif, check the offset from the shape to the
             # armature we've created. If it's consistent, we just apply that offset.
             for i, bn in enumerate(the_shape.get_used_bones()):
@@ -662,7 +676,7 @@ class NifImporter():
                 else:
                     xf = xf @ offset_xf
 
-        if offset_xf == None and self.reference_skel and self.do_estimate_offset:
+        if not offset_consistent and offset_xf == None and self.reference_skel and self.do_estimate_offset:
             # If we're creating missing vanilla bones, we need to know the offset from the
             # bind positions here to the vanilla bind positions, and we need it to be
             # consistent.
@@ -2657,6 +2671,12 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Reference skeleton to use for the bone hierarchy",
         default="") # type: ignore
 
+    # # For debugging. Updating the UI when debugging tends to crash blender.
+    # update_ui: bpy.props.BoolProperty(
+    #     name="Update UI",
+    #     default=True,
+    #     options={'HIDDEN'}
+    # )
 
     def __init__(self):
         if bpy.context.object and bpy.context.object.type == 'ARMATURE':

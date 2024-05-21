@@ -2129,6 +2129,12 @@ class NiShape(NiNode):
         buf = TransformBuf()
         return NifFile.nifly.getShapeGlobalToSkin(self.file._handle, self._handle, buf)
     
+    def calc_global_to_skin(self):
+        """Calculate the global-to-skin transform (whether or not it exists)."""
+        buf = TransformBuf()
+        NifFile.nifly.calcShapeGlobalToSkin(self.file._handle, self._handle, buf)
+        return buf
+    
     @property
     def global_to_skin(self):
         """Return the global-to-skin transform on this shape; calculate it if not
