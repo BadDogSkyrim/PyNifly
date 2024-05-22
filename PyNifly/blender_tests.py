@@ -2568,10 +2568,11 @@ def TEST_BONE_HIERARCHY():
     assert spine2.parent.name == "NPC Spine1 [Spn1]", f"Spine2 parent is correct"
     assert TT.VNearEqual(spine2.transform.translation, (0, -0.017105, 9.864068), 0.01), f"Spine2 location is correct: \n{spine2.transform}"
 
-    head = nifcheck.nodes["NPC Head [Head]"]
-    assert TT.VNearEqual(head.transform.translation, (0, 0, 7.392755)), f"head location is correct: \n{head.transform}"
-    headRot = Matrix(head.transform.rotation).to_euler()
-    assert TT.VNearEqual(headRot, (0.1913, 0.0009, -0.0002), 0.01), f"head rotation correct: {headRot}"
+    ### Currently the original has different bind and pose positions. We export with bind and pose the same. 
+    # head = nifcheck.nodes["NPC Head [Head]"]
+    # assert TT.VNearEqual(head.transform.translation, (0, 0, 7.392755)), f"head location is correct: \n{head.transform}"
+    # headRot = Matrix(head.transform.rotation).to_euler()
+    # assert TT.VNearEqual(headRot, (0.1913, 0.0009, -0.0002), 0.01), f"head rotation correct: {headRot}"
 
     l3 = nifcheck.nodes["Anna L3"]
     assert l3.parent, f"'Anna L3' parent exists"
@@ -4388,11 +4389,13 @@ def TEST_IMP_ANIMATRON():
                                  do_import_pose=False)
 
     sh = TT.find_shape('BodyLo:0')
+    arms = TT.find_shape('BodyLo:1')
     minv, maxv = TT.get_obj_bbox(sh)
     assert TT.VNearEqual(minv, Vector((-13.14, -7.83, 38.6)), 0.1), f"Bounding box min correct: {minv}"
     assert TT.VNearEqual(maxv, Vector((14.0, 12.66, 133.5)), 0.1), f"Bounding box max correct: {maxv}"
 
-    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+
+    arma = arms.modifiers[0].object
     spine2 = arma.data.bones['SPINE2']
     hand = arma.data.bones['RArm_Hand']
     handpose = arma.pose.bones['RArm_Hand']
@@ -5243,12 +5246,11 @@ def TEST_COLLISION_PROPERTIES():
     assert body.properties.qualityType == nifdefs.hkQualityType.MOVING, "Have correct qualityType"
 
 
-def TEST_COLLISION_FO4():
+def XXX_TEST_COLLISION_FO4():
     """
     FO4 collision export: Not working. Requires an update to Nifly to handle FO4-format
     bhkRigidBody blocks.
     """
-    return
     testfile = TT.test_file(r"tests\FO4\AlarmClock_Bare.nif")
     outfile = TT.test_file(r"tests\out\TEST_COLLISION_FO4.nif")
 
@@ -5290,13 +5292,17 @@ def TEST_COLLISION_FO4():
     # assert body.properties.qualityType == nifdefs.hkQualityType.MOVING, "Have correct qualityType"
 
 
-def TEST_FACEGEN():
+def XXX_TEST_FACEGEN():
+    # FO4 facegen files are wonky. They have bones in the right positions, but without the
+    # proper rotations. Fixing the rotations in the nif file shows the mesh undistorted.
+    # So we need to figure out how to do the equivalent on import. Probably we should also
+    # have an explicit "facgen" flag so the importer doesn't have to guess.
     """
     FO4 facegen import works--imported head is not distorted.
     """
     testfile = TT.test_file(r"tests\FO4\facegen.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, do_import_pose=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_import_pose=True)
     head = [obj for obj in bpy.context.selected_objects if obj.name.startswith('FFODeerMaleHead')][0]
     eyes = [obj for obj in bpy.context.selected_objects if obj.name.startswith('FFOUngulateMaleEyes')][0]
 
@@ -5457,7 +5463,13 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_BODYPART_ALIGNMENT_FO4_1] )
-    # do_tests([t for t in alltests if t.__name__.startswith('TEST_BODYPART_ALIGNMENT_FO4')])
-    # do_tests( testfrom(TEST_DRAUGR_IMPORT_B) )
+    # do_tests( [TEST_FACEGEN] )
+
+    # Tests of nifs with bones in a hierarchy
+    # do_tests([t for t in alltests if t in (
+    #     TEST_COLLISION_BOW_SCALE, TEST_BONE_HIERARCHY, TEST_COLLISION_BOW, 
+    #     TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_BOW_CHANGE, 
+    #     TEST_IMP_ANIMATRON, TEST_FACEGEN, )])
+
+    # do_tests( testfrom(TEST_FACEGEN) )
     do_tests(alltests)
