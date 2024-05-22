@@ -5463,7 +5463,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_FACEGEN] )
+    do_tests( [TEST_SKEL_SKY] )
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
@@ -5472,4 +5472,4 @@ else:
     #     TEST_IMP_ANIMATRON, TEST_FACEGEN, )])
 
     # do_tests( testfrom(TEST_FACEGEN) )
-    do_tests(alltests)
+    # do_tests(alltests)

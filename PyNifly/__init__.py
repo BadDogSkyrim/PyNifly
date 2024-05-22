@@ -1479,27 +1479,53 @@ class NifImporter():
 
     def group_bones(self, armature):
         """For convenience, create armature bone groups."""
+        ok = False
         try:
-            groups = {}
-            for g in armature.pose.bone_groups:
-                groups[g.name] = g
-
-            for b in armature.pose.bones:
+            # Blender 4.x
+            for b in armature.data.bones:
                 bg_name = b.name.split()[0]
                 if bg_name not in ARMATURE_BONE_GROUPS:
-                    if "_skin" in b.name:
+                    if b.name.endswith("_skin"):
                         bg_name = "Skin"
+                    elif '_CBP_' in b.name:
+                        bg_name = 'CBP'
                     else:
                         bg_name = None
                 if bg_name:
-                    if bg_name in groups:
-                        target_group = groups[bg_name]
+                    if bg_name not in armature.data.collections:
+                        c = armature.data.collections.new(name=bg_name)
                     else:
-                        target_group = armature.pose.bone_groups.new(name=bg_name)
-                        groups[bg_name] = target_group
-                    if target_group:
-                        b.bone_group = target_group
+                        c = armature.data.collections[bg_name].assign(b)
+                    # b.color.pallet = f'THEME0{c.index+1}'
         except:
+            pass
+
+        if not ok:
+            try:
+                # Blender 3.x
+                groups = {}
+                for g in armature.pose.bone_groups:
+                    groups[g.name] = g
+
+                for b in armature.pose.bones:
+                    bg_name = b.name.split()[0]
+                    if bg_name not in ARMATURE_BONE_GROUPS:
+                        if "_skin" in b.name:
+                            bg_name = "Skin"
+                        else:
+                            bg_name = None
+                    if bg_name:
+                        if bg_name in groups:
+                            target_group = groups[bg_name]
+                        else:
+                            target_group = armature.pose.bone_groups.new(name=bg_name)
+                            groups[bg_name] = target_group
+                        if target_group:
+                            b.bone_group = target_group
+            except:
+                pass
+        
+        if not ok:
             log.info(f"Cannot create convenience bone groups")
 
 
