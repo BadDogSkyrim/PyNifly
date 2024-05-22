@@ -330,6 +330,7 @@
     <PostBuildEvent>
       <Command>xcopy /y $(OutDir)NiflyDLL.dll  $(OutDir)io_scene_nifly\
 xcopy /y/s/i $(ProjectDir)..\pynifly\skeletons $(OutDir)io_scene_nifly\skeletons
+xcopy /y/s/i $(ProjectDir)..\pynifly\blender_assets $(OutDir)io_scene_nifly\blender_assets
 copy /y $(ProjectDir)..\pynifly\*.py  $(OutDir)io_scene_nifly\
 copy /y $(ProjectDir)..\pynifly\hkxcmd.exe  $(OutDir)io_scene_nifly\
 7z a -tzip $(OutDir)io_scene_nifly.zip $(OutDir)io_scene_nifly</Command>

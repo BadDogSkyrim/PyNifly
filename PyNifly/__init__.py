@@ -8,7 +8,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 0, 0),
-    "version": (14, 6, 0),   
+    "version": (14, 6, 2),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -4292,7 +4292,10 @@ class NifExporter:
             else:
                 c = (1.0, 1.0, 1.0, 1.0)
             if alphamap:
-                a = Color(alphamap[i].color[0:3]).from_srgb_to_scene_linear()
+                try:
+                    a = Color(alphamap[i].color[0:3]).from_srgb_to_scene_linear()
+                except:
+                    a = Color(alphamap[i].color[0:3])
                 c = (c[0], c[1], c[2], (a[0] + a[1] + a[2])/3)
             loopcolors[i] = c
 

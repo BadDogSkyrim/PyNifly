@@ -462,19 +462,22 @@ def highlight_objects(objlist, context, is_callback=False):
         if a.type in ['OUTLINER', 'VIEW_3D']:
             for r in a.regions:
                 if r.type == 'WINDOW':
-                    with context.temp_override(area=a, region=r):
-                        try:
-                            if a.type == 'OUTLINER':
-                                # On Blender 4, outliner.show_active doesn't work from the
-                                # import call. Let Blender set state and then repeat the
-                                # call.
-                                bpy.ops.outliner.show_active()
-                                if not is_callback:
-                                    bpy.app.timers.register(highlight_selected, first_interval=0.5)
-                            else:
-                                bpy.ops.view3d.view_selected()
-                        except:
-                            pass
+                    try:
+                        with context.temp_override(area=a, region=r):
+                            try:
+                                if a.type == 'OUTLINER':
+                                    # On Blender 4, outliner.show_active doesn't work from the
+                                    # import call. Let Blender set state and then repeat the
+                                    # call.
+                                    bpy.ops.outliner.show_active()
+                                    if not is_callback:
+                                        bpy.app.timers.register(highlight_selected, first_interval=0.5)
+                                else:
+                                    bpy.ops.view3d.view_selected()
+                            except:
+                                pass
+                    except:
+                        pass
 
 
 def highlight_selected():
