@@ -2841,6 +2841,7 @@ namespace NiflyDLLTests
 			NiNodeBuf bowBuf;
 			bhkNiCollisionObjectBuf coBuf;
 			getBlock(nif, bow_midbone, &bowBuf);
+
 			getBlock(nif, bowBuf.collisionID, &coBuf);
 			char collname[128];
 			getBlockname(nif, bowBuf.collisionID, collname, 128);
@@ -2963,6 +2964,17 @@ namespace NiflyDLLTests
 			//int boxIDCheck = getRigidBodyShapeID(nifcheck, bodyIDCheck);
 			getBlock(nifcheck, bodyCheckBuf.shapeID, &boxbufCheck);
 			//getCollBoxShapeProps(nifcheck, boxIDCheck, &boxbufCheck);
+		};
+		TEST_METHOD(calcBowTransform) {
+			/* Test we can calculate the bow transform correctly. */
+			void* nif = load((testRoot / "SkyrimSE/meshes/weapons/glassbowskinned.nif").u8string().c_str());
+			void* shapes[10];
+			getShapes(nif, shapes, 10, 0);
+			void* theBow = shapes[0];
+
+			MatTransform g2s;
+			calcShapeGlobalToSkin(nif, theBow, &g2s);
+			Assert::IsTrue(TApproxEqual(-0.136406, g2s.translation.z), L"ERROR: should have -0.136406 translation");
 		};
 		TEST_METHOD(readCollisionConvex) {
 			/* Test we can read and write collisions (and other nodes in bow file */
