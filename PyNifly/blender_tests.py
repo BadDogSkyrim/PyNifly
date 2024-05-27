@@ -5291,7 +5291,7 @@ def XXX_TEST_COLLISION_FO4():
     # assert body.properties.qualityType == nifdefs.hkQualityType.MOVING, "Have correct qualityType"
 
 
-def XXX_TEST_FACEGEN():
+def TEST_FACEGEN():
     # FO4 facegen files are wonky. They have bones in the right positions, but without the
     # proper rotations. Fixing the rotations in the nif file shows the mesh undistorted.
     # So we need to figure out how to do the equivalent on import. Probably we should also
@@ -5301,10 +5301,17 @@ def XXX_TEST_FACEGEN():
     """
     testfile = TT.test_file(r"tests\FO4\facegen.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, do_import_pose=True)
+    # Can't import pose locations for facegen files. This is testing that it works
+    # correctly anyway.
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                 do_create_bones=False,
+                                 do_import_pose=True)
     head = [obj for obj in bpy.context.selected_objects if obj.name.startswith('FFODeerMaleHead')][0]
     eyes = [obj for obj in bpy.context.selected_objects if obj.name.startswith('FFOUngulateMaleEyes')][0]
 
+    # Head in world coordinates should be taller than wide.
+    diag = TT.get_obj_bbox(head, worldspace=True);
+    assert diag[1].x-diag[0].x < diag[1].z-diag[0].z, f"Head is taller than wide: {diag[1]-diag[0]}"
     exmin = min((eyes.matrix_world @ v.co).x for v in eyes.data.vertices)
     exmax = max((eyes.matrix_world @ v.co).x for v in eyes.data.vertices)
     assert BD.NearEqual(exmin, -4.7, epsilon=0.1), f"Eye min X correct: {exmin}"
@@ -5470,5 +5477,5 @@ else:
     #     TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_BOW_CHANGE, 
     #     TEST_IMP_ANIMATRON, TEST_FACEGEN, )])
 
-    do_tests( testfrom(TEST_COLLISION_BOW_CHANGE) )
+    do_tests( testfrom(TEST_FACEGEN) )
     # do_tests(alltests)
