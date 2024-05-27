@@ -143,8 +143,7 @@ def TEST_FO4_XFORM():
     bpy.ops.import_scene.pynifly(filepath=testfile,
                                  do_create_bones=True,
                                  do_import_tris=False,
-                                 do_import_pose=False,
-                                 do_estimate_offset=False)
+                                 do_import_pose=False)
 
     obj = bpy.context.object
 
@@ -232,20 +231,17 @@ def do_bodypart_alignment_fo4(create_bones, estimate_offset, use_pose):
     # Read the body parts using the same skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile, 
                                  do_create_bones=create_bones,
-                                 do_estimate_offset=estimate_offset,
                                  do_import_pose=use_pose)
     skel = [x for x in bpy.context.selected_objects if x.type == 'ARMATURE'][0]
     assert skel.type == 'ARMATURE', f"Have armature"
     BD.ObjectSelect([skel], active=True)
     bpy.ops.import_scene.pynifly(filepath=bodyfile, 
                                  do_create_bones=create_bones,
-                                 do_estimate_offset=estimate_offset,
                                  do_import_pose=use_pose)
     body = bpy.context.object
     BD.ObjectSelect([skel], active=True)
     bpy.ops.import_scene.pynifly(filepath=headfile, 
                                  do_create_bones=create_bones,
-                                 do_estimate_offset=estimate_offset,
                                  do_import_pose=use_pose)
     head = bpy.context.object
     if estimate_offset:
@@ -4445,8 +4441,7 @@ def TEST_ANIMATRON_2():
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  do_create_bones=False, 
                                  do_rename_bones=False, 
-                                 do_import_pose=True,
-                                 do_estimate_offset=False)
+                                 do_import_pose=True)
  
 
 def TEST_CUSTOM_BONES():
@@ -5477,5 +5472,5 @@ else:
     #     TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_BOW_CHANGE, 
     #     TEST_IMP_ANIMATRON, TEST_FACEGEN, )])
 
-    do_tests( testfrom(TEST_FACEGEN) )
-    # do_tests(alltests)
+    # do_tests( testfrom(TEST_FACEGEN) )
+    do_tests(alltests)
