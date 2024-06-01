@@ -1581,9 +1581,9 @@ def TEST_SHADER_LE():
     shaderAttrsLE = nifLE.shapes[0].shader.properties
     headLE = bpy.context.object
     shadernodes = headLE.active_material.node_tree.nodes
-    assert 'Skyrim Face Shader' in shadernodes, \
+    assert 'Skyrim Shader - Face' in shadernodes, \
         f"Shader nodes complete: {shadernodes.keys()}"
-    bsdf = shadernodes['Skyrim Face Shader']
+    bsdf = shadernodes['Skyrim Shader - Face']
     assert 'Diffuse_Texture' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     assert bsdf.inputs['Normal'].is_linked, f"Have a normal map"
     assert bsdf.inputs['Diffuse'].is_linked, f"Have a base color"
@@ -1740,11 +1740,14 @@ def TEST_SHADER_ALPHA():
     nifAlph = pyn.NifFile(fileAlph)
     furshape = nifAlph.shape_dict["tail_fur"]
     tail = bpy.data.objects["tail_fur"]
-    assert 'Skyrim Shader' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
-    bsdf = tail.active_material.node_tree.nodes['Skyrim Shader']
+    assert 'Skyrim Shader - MSN' in tail.active_material.node_tree.nodes.keys(), \
+        f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
+    bsdf = tail.active_material.node_tree.nodes['Skyrim Shader - MSN']
     assert bsdf.inputs['Normal'].is_linked, f"Have normal map"
-    assert 'Diffuse_Texture' in tail.active_material.node_tree.nodes.keys(), f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
-    assert tail.active_material.blend_method == 'CLIP', f"Error: Alpha blend is '{tail.active_material.blend_method}', not 'CLIP'"
+    assert 'Diffuse_Texture' in tail.active_material.node_tree.nodes.keys(), \
+        f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
+    assert tail.active_material.blend_method == 'CLIP', \
+        f"Error: Alpha blend is '{tail.active_material.blend_method}', not 'CLIP'"
 
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
 
@@ -1758,8 +1761,10 @@ def TEST_SHADER_ALPHA():
     assert not diffs, f"No difference in properties: {diffs}"
 
     assert checkfurshape.has_alpha_property, f"Have alpha property"
-    assert checkfurshape.alpha_property.flags == furshape.alpha_property.flags, f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.flags} != {furshape.alpha_property.flags}"
-    assert checkfurshape.alpha_property.threshold == furshape.alpha_property.threshold, f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.threshold} != {furshape.alpha_property.threshold}"
+    assert checkfurshape.alpha_property.flags == furshape.alpha_property.flags, \
+        f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.flags} != {furshape.alpha_property.flags}"
+    assert checkfurshape.alpha_property.threshold == furshape.alpha_property.threshold, \
+        f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.threshold} != {furshape.alpha_property.threshold}"
 
 
 def TEST_SHADER_3_3():
@@ -1879,8 +1884,11 @@ def TEST_CAVE_GREEN():
     diff1 = BD.find_node(bsdf.inputs['Diffuse'], 'ShaderNodeTexImage')[0]
     assert diff1.image.filepath.lower()[0:-4].endswith("cavebasewall01"), \
         f"Have correct wall diffuse: {diff1.image.filepath}"
-    uvc = BD.find_node(bsdf.inputs['Use Vertex Color'], 'ShaderNodeValue')[0]
-    assert uvc.outputs[0].default_value == 1.0, f"Using vertex colors"
+    
+    assert bsdf.inputs['Vertex Color'].is_linked, "Vertex Color linked to node"
+    n = BD.find_node(bsdf.inputs['Vertex Color'], 'ShaderNodeAttribute')[0]
+    assert n.attribute_name == "Col", f"Using vertex colors"
+    assert n.attribute_type == "GEOMETRY", f"Using vertex colors"
 
     roots = TT.find_shape("L2_Roots:5")
 
@@ -5465,13 +5473,16 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_CAVE_GREEN] )
+    # do_tests( [TEST_SHADER_LE] )
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
     #     TEST_COLLISION_BOW_SCALE, TEST_BONE_HIERARCHY, TEST_COLLISION_BOW, 
     #     TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_BOW_CHANGE, 
     #     TEST_IMP_ANIMATRON, TEST_FACEGEN, )])
+
+    # Shader tests
+    do_tests([t for t in alltests if 'SHADER' in t.__name__])
 
     # do_tests( testfrom(TEST_FACEGEN) )
     # do_tests(alltests)

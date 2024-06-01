@@ -159,11 +159,22 @@ def make_shader_skyrim(parent, shader_path, location, msn=False, facegen=False, 
     """
     # Get the shader from the assets file. If that fails, build it here.
     try: 
-        with bpy.data.libraries.load(shader_path) as (data_from, data_to):
-            data_to.node_groups = ["SkyrimShader"]
+        if facegen:
+            with bpy.data.libraries.load(shader_path) as (data_from, data_to):
+                data_to.node_groups = ["SkyrimShader:Face"]
+            shader_node = parent.nodes.new('ShaderNodeGroup')
+            shader_node.name = shader_node.label = ('Skyrim Shader - Face')
+        elif msn:
+            with bpy.data.libraries.load(shader_path) as (data_from, data_to):
+                data_to.node_groups = ["SkyrimShader:MSN"]
+            shader_node = parent.nodes.new('ShaderNodeGroup')
+            shader_node.name = shader_node.label = ('Skyrim Shader - MSN')
+        else:
+            with bpy.data.libraries.load(shader_path) as (data_from, data_to):
+                data_to.node_groups = ["SkyrimShader:TSN"]
+            shader_node = parent.nodes.new('ShaderNodeGroup')
+            shader_node.name = shader_node.label = ('Skyrim Shader - TSN')
 
-        shader_node = parent.nodes.new('ShaderNodeGroup')
-        shader_node.name = shader_node.label = ('Skyrim Shader')
         shader_node.location = location
         shader_node.node_tree = data_to.node_groups[0]
 
@@ -1072,11 +1083,7 @@ class ShaderImporter:
                                 height=INPUT_NODE_HEIGHT)
         self.link(alph.outputs[0], self.bsdf.inputs['Alpha Mult'])
 
-        if 'Use Vertex Color' in self.bsdf.inputs:
-            usecolor = self.make_node('ShaderNodeValue',
-                                name='Use Vertex Color',
-                                height=INPUT_NODE_HEIGHT)
-            self.link(usecolor.outputs[0], self.bsdf.inputs['Use Vertex Color'])
+        if 'Vertex Color' in self.bsdf.inputs:
             if self.colormap:
                 cmap = self.make_node('ShaderNodeAttribute',
                                     name='Vertex Color',
@@ -1085,15 +1092,8 @@ class ShaderImporter:
                 cmap.attribute_type = 'GEOMETRY'
                 cmap.attribute_name = self.colormap.name
                 self.link(cmap.outputs['Color'], self.bsdf.inputs['Vertex Color'])
-                usecolor.outputs[0].default_value = 1
-            else:
-                usecolor.outputs[0].default_value = 0
 
-        if 'Use Vertex Alpha' in self.bsdf.inputs:
-            usealpha = self.make_node('ShaderNodeValue',
-                                name='Use Vertex Alpha',
-                                height=INPUT_NODE_HEIGHT)
-            self.link(usealpha.outputs[0], self.bsdf.inputs['Use Vertex Alpha'])
+        if 'Vertex Alpha' in self.bsdf.inputs:
             if self.alphamap:
                 vmap = self.make_node('ShaderNodeAttribute',
                                     name='Vertex Alpha',
@@ -1102,9 +1102,6 @@ class ShaderImporter:
                 vmap.attribute_type = 'GEOMETRY'
                 vmap.attribute_name = self.alphamap.name
                 self.link(vmap.outputs['Color'], self.bsdf.inputs['Vertex Alpha'])
-                usealpha.outputs[0].default_value = 1
-            else:
-                usealpha.outputs[0].default_value = 0
 
         self.diffuse = txtnode
 
