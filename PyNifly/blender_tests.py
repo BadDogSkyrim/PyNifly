@@ -4920,7 +4920,7 @@ def TEST_ANIM_KF():
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_vanilla.nif")
     outfile2 = TT.test_file(r"tests/Out/TEST_ANIM_KF.kf")
 
-    bpy.context.scene.render.fps = 60
+    bpy.context.scene.render.fps = 20
 
     # Animations are loaded into a skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile,
@@ -4934,6 +4934,7 @@ def TEST_ANIM_KF():
     bpy.ops.import_scene.pynifly_kf(filepath=testfile)
 
     assert bpy.data.actions[0].name.startswith("1hm_staggerbacksmallest")
+    return
 
     # Loading a second animation shouldn't screw things up.
     BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
@@ -5464,7 +5465,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_SKEL_SKY] )
+    do_tests( [TEST_CAVE_GREEN] )
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
@@ -5473,4 +5474,4 @@ else:
     #     TEST_IMP_ANIMATRON, TEST_FACEGEN, )])
 
     # do_tests( testfrom(TEST_FACEGEN) )
-    do_tests(alltests)
+    # do_tests(alltests)

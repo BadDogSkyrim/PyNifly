@@ -153,10 +153,24 @@ def make_combiner_xyz(nodetree, x, y, z, loc):
     return combiner
 
 
-def make_shader_skyrim(parent, location, msn=False, facegen=False, colormap_name='Col'):
+def make_shader_skyrim(parent, shader_path, location, msn=False, facegen=False, colormap_name='Col'):
     """
     Returns a group node implementing a shader for Skyrim.
     """
+    # Get the shader from the assets file. If that fails, build it here.
+    try: 
+        with bpy.data.libraries.load(shader_path) as (data_from, data_to):
+            data_to.node_groups = ["SkyrimShader"]
+
+        shader_node = parent.nodes.new('ShaderNodeGroup')
+        shader_node.name = shader_node.label = ('Skyrim Shader')
+        shader_node.location = location
+        shader_node.node_tree = data_to.node_groups[0]
+
+        return shader_node
+    except Exception as e:
+        log.warn(f"Could not load shader from assets file: {traceback.format_exc()}; building nodes directly")
+
     grp = bpy.data.node_groups.new(type='ShaderNodeTree', name='SkyrimShader')
 
     group_inputs = grp.nodes.new('NodeGroupInput')
@@ -403,8 +417,9 @@ def make_shader_fo4(parent, shader_path, location, facegen=True):
     If facegen == true, shader includes tint layers.
     """
     try:
+        shadername = "Fallout 4 MTS - Face" if facegen else "Fallout 4 MTS"
         with bpy.data.libraries.load(shader_path) as (data_from, data_to):
-            data_to.node_groups = ["Fallout 4 MTS - Face"]
+            data_to.node_groups = [shadername]
 
         shader_node = parent.nodes.new('ShaderNodeGroup')
         shader_node.name = shader_node.label = ('FO4 Face Shader' if facegen else 'FO4 Shader')
@@ -1295,18 +1310,18 @@ class ShaderImporter:
         mo = self.nodes['Material Output']
         have_face = False
 
+        have_face = (shape.shader.properties.Shader_Type == BSLSPShaderType.Face_Tint)
         if self.game == 'FO4':
-            have_face = (shape.shader.properties.Shader_Type == BSLSPShaderType.Face_Tint)
             self.bsdf = make_shader_fo4(self.material.node_tree, 
                                         self.asset_path, 
                                         (mo.location.x - NODE_WIDTH, mo.location.y),
                                         facegen=have_face)
         else:
-            have_face = (shape.shader.properties.Shader_Type == BSLSPShaderType.Face_Tint)
             self.bsdf = make_shader_skyrim(self.material.node_tree,
-                mo.location + Vector((-NODE_WIDTH, 0)),
-                msn=shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS),
-                facegen=have_face)
+                                           self.asset_path,
+                                           mo.location + Vector((-NODE_WIDTH, 0)),
+                                           msn=shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS),
+                                           facegen=have_face)
         
         self.bsdf.width = 250
         self.bsdf.location.x -= 100

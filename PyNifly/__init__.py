@@ -29,6 +29,10 @@ import importlib
 # Locate the DLL and other files we need either in their development or install locations.
 nifly_path = None
 hkxcmd_path = None
+pynifly_dev_root = None
+pynifly_dev_path = None
+asset_path = None
+
 if 'PYNIFLY_DEV_ROOT' in os.environ:
     pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
     pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
@@ -56,10 +60,6 @@ from pynifly import *
 from trihandler import *
 import xmltools
 
-log.debug(f"Running pynifly DLL from {nifly_path}")
-log.debug(f"Running hkxcmd from {hkxcmd_path}")
-
-
 # Blender libraries
 import bpy
 import bpy_types
@@ -80,14 +80,10 @@ from blender_defs import *
 import shader_io 
 import skeleton_hkx
 
-
-log.info(f"Loading pynifly version {bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}")
-
 if 'PYNIFLY_DEV_ROOT' in os.environ:
     importlib.reload(skeleton_hkx)
     importlib.reload(shader_io)
     importlib.reload(xmltools)
-
 
 NO_PARTITION_GROUP = "*NO_PARTITIONS*"
 MULTIPLE_PARTITION_GROUP = "*MULTIPLE_PARTITIONS*"
@@ -2663,6 +2659,14 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             self.do_import_pose = True
 
 
+    @classmethod
+    def poll(cls, context):
+        if not nifly_path:
+            log.error("pyNifly DLL not found--pyNifly disabled")
+            return False
+        return True
+
+
     def execute(self, context):
         LogStart(bl_info, "IMPORT", "NIF")
         status = {'FINISHED'}
@@ -2951,6 +2955,10 @@ class ImportKF(bpy.types.Operator, ExportHelper):
 
     @classmethod
     def poll(cls, context):
+        if not nifly_path:
+            log.error("pyNifly DLL not found--pyNifly disabled")
+            return False
+
         if (not context.object) or context.object.type != "ARMATURE":
             log.error("Cannot import KF: Active object must be an armature.")
             return False
@@ -3055,10 +3063,12 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
 
     @classmethod
     def poll(cls, context):
+        if not nifly_path:
+            log.error("pyNifly DLL not found--pyNifly disabled")
+            return False
         if not hkxcmd_path:
             log.error("hkxcmd.exe not found--HKX I/O not available.")
             return False
-
         return True
     
 
@@ -5045,6 +5055,10 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         
     @classmethod
     def poll(cls, context):
+        if not nifly_path:
+            log.error("pyNifly DLL not found--pyNifly disabled")
+            return False
+
         if len(context.selected_objects) == 0:
             log.error("Must select an object to export")
             return False
@@ -5152,8 +5166,13 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         description="Frames per second for export",
         default=30)
 
+
     @classmethod
     def poll(cls, context):
+        if not nifly_path:
+            log.error("pyNifly DLL not found--pyNifly disabled")
+            return False
+
         if (not context.object) or context.object.type != 'ARMATURE':
             log.debug("Must select an armature to export animations.")
             return False
@@ -5164,6 +5183,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
 
         return True
     
+
     def __init__(self):
         self.messages = []
         self.errors = set()
@@ -5570,6 +5590,19 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
 
     filename_ext = ".hkx"
 
+    @classmethod
+    def poll(cls, context):
+        if (not context.object) or context.object.type != 'ARMATURE':
+            log.error("Must select an armature to export animations.")
+            return False
+
+        if not hkxcmd_path:
+            log.error("hkxcmd.exe not found--skeleton export not available.")
+            return False
+
+        return True
+
+
     def execute(self, context):
         LogStart(bl_info, "EXPORT SKELETON", "HKX")
 
@@ -5656,6 +5689,19 @@ def register():
         except:
             pass
     skeleton_hkx.register()
+
+    if nifly_path:
+        log.info(f"Loading pyNifly version {bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}")
+        log.debug(f"Running pyNifly DLL from {nifly_path}.")
+    else: 
+        log.error(f"Could not locate pyNifly DLL--pyNifly is disabled.")
+    if hkxcmd_path:
+        log.debug(f"Running hkxcmd from {hkxcmd_path}")
+    else:
+        log.error(f"Could not locate hkxcmd in the pyNifly install. Animations cannot be exported to HKX format.")
+
+    if not asset_path:
+        log.error(f"Could not find pyNifly asset library. Shader import will be limited.")
 
 
 if __name__ == "__main__":
