@@ -123,7 +123,7 @@ IMPORT_ANIMS_DEF = True
 IMPORT_COLLISIONS_DEF = True
 IMPORT_SHAPES_DEF = True
 IMPORT_TRIS_DEF = False
-IMPORT_POSE_DEF = True
+IMPORT_POSE_DEF = False
 ESTIMATE_OFFSET_DEF = True
 PRESERVE_HIERARCHY_DEF = False
 RENAME_BONES_DEF = True
@@ -1626,7 +1626,7 @@ class NifImporter():
                 # We give a fairly generous allowance for how close is close enough. 0.03 
                 # allows the FO4 meshes to be parented to their skeletons. 
                 if not MatNearEqual(m1, m2, epsilon=variance):
-                    log.debug(f"Skeleton not compatible on {b}: \n{m1} != \n{m2}")
+                    # log.debug(f"Skeleton not compatible on {b}: \n{m1} != \n{m2}")
                     return False
         return True
 

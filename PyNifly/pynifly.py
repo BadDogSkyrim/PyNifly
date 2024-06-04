@@ -1620,6 +1620,9 @@ class NiShader(NiObject):
                 if self.properties.shaderflags2_test(ShaderFlags1.PARALLAX):
                     self._textures["HeightMap"] = self._readtexture(f, s, 4)
 
+                if self.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_COLOR):
+                    self._textures["Greyscale"] = self._readtexture(f, s, 4)
+
                 if self.properties.shaderflags1_test(ShaderFlags1.ENVIRONMENT_MAPPING) \
                     or self.properties.shaderflags2_test(ShaderFlags2.ENVMAP_LIGHT_FADE):
                     self._textures["EnvMap"] = self._readtexture(f, s, 5)

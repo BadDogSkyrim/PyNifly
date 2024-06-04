@@ -857,6 +857,7 @@ class ShaderImporter:
         self.game = None
         self.do_specular = False
         self.asset_path = False
+        self.have_errors = False
 
         self.inputs_offset_x = -1900
         self.calc1_offset_x = -1700
@@ -885,6 +886,11 @@ class ShaderImporter:
         if 'Emission' in self.bsdf.inputs:
             return self.bsdf.inputs['Emission']
         
+
+    def warn(self, msg):
+        self.log.warn(msg)
+        self.have_errors = True
+
 
     def import_shader_attrs(self, shape:NiShape):
         """
@@ -1069,16 +1075,19 @@ class ShaderImporter:
         """Create nodes for the diffuse texture."""
         self.ytop = self.bsdf.location.y + 2 * TEXTURE_NODE_HEIGHT
 
+        if not ('Diffuse' in self.shape.textures and self.shape.textures['Diffuse']):
+            return
+        
         txtnode = self.make_node("ShaderNodeTexImage",
                                  name='Diffuse_Texture',
                                  xloc=self.bsdf.location.x + self.img_offset_x,
                                  height=TEXTURE_NODE_HEIGHT)
-        try:
+        if 'Diffuse' in self.textures and self.textures['Diffuse']:
             img = bpy.data.images.load(self.textures['Diffuse'], check_existing=True)
             img.colorspace_settings.name = "sRGB"
             txtnode.image = img
-        except:
-            self.warn(f"Could not load diffuse texture '{self.textures['Diffuse']}")
+        else:
+            self.warn(f"Could not load diffuse texture '{self.shape.textures['Diffuse']}")
         self.link(self.texmap.outputs['Vector'], txtnode.inputs['Vector'])
 
         if self.shape.shader.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_COLOR):
@@ -1098,12 +1107,12 @@ class ShaderImporter:
                                          name='Palette Vector',
                                          xloc=gtpvector.location.x + gtpvector.width + self.gap_x,
                                          yloc=txtnode.location.y)
-            try:
+            if 'Greyscale' in self.textures and self.textures['Greyscale']:
                 imgp = bpy.data.images.load(self.textures['Greyscale'])
                 imgp.colorspace_settings.name = "sRGB"
                 palettenode.image = imgp
-            except:
-                self.warn(f"Could not load greyscale texture '{self.textures['Greyscale']}")
+            else:
+                self.warn(f"Could not load greyscale texture '{self.shape.textures['Greyscale']}")
             self.link(gtpvector.outputs[0], palettenode.inputs[0])
 
             gtpcolor = append_groupnode(self,
@@ -1163,19 +1172,19 @@ class ShaderImporter:
 
     def import_subsurface(self):
         """Set up nodes for subsurface texture"""
-        if 'SoftLighting' in self.textures and self.shape.textures['SoftLighting']: 
+        if 'SoftLighting' in self.shape.textures and self.shape.textures['SoftLighting']: 
             # Have a sk separate from a specular. Make an image node.
             skimgnode = self.make_node("ShaderNodeTexImage",
                                        name='Subsurface_Texture',
                                        xloc=self.bsdf.location.x + self.img_offset_x,
                                        height=TEXTURE_NODE_HEIGHT)
-            try:
+            if 'SoftLighting' in self.textures and self.textures['SoftLighting']:
                 skimg = bpy.data.images.load(self.textures['SoftLighting'], check_existing=True)
                 if skimg != self.diffuse.image:
                     skimg.colorspace_settings.name = "Non-Color"
                 skimgnode.image = skimg
-            except:
-                self.warn(f"Could not load subsurface texture '{self.textures['SoftLighting']}")
+            else:
+                self.warn(f"Could not load subsurface texture '{self.shape.textures['SoftLighting']}")
             self.link(self.texmap.outputs['Vector'], skimgnode.inputs['Vector'])
             self.link(skimgnode.outputs['Color'], self.bsdf.inputs['Subsurface'])
 
@@ -1197,12 +1206,12 @@ class ShaderImporter:
                                       name='Specular_Texture',
                                       xloc=self.bsdf.location.x + self.img_offset_x,
                                       height=TEXTURE_NODE_HEIGHT)
-            try:
+            if 'Specular' in self.textures and self.textures['Specular']:
                 simg = bpy.data.images.load(self.textures['Specular'], check_existing=True)
                 simg.colorspace_settings.name = "Non-Color"
                 simgnode.image = simg
-            except:
-                self.warn(f"Could not load specular texture '{self.textures['Specular']}")
+            else:
+                self.warn(f"Could not load specular texture '{self.shape.textures['Specular']}")
             self.link(self.texmap.outputs['Vector'], simgnode.inputs['Vector'])
             try: 
                 self.link(simgnode.outputs['Color'], self.bsdf.inputs['Smooth Spec'])
@@ -1263,25 +1272,24 @@ class ShaderImporter:
             #     spec_socket = simgnode.outputs['Color']
 
 
-    def import_normal(self, shape):
+    def import_normal(self):
         """Set up nodes for the normal map"""
-        #log.debug("Handling normal map texture")
-        if 'Normal' in shape.textures and shape.textures['Normal']:
+        if 'Normal' in self.shape.textures and self.shape.textures['Normal']:
             nimgnode = self.make_node("ShaderNodeTexImage",
-                                      name='Normal_Texture',
-                                      xloc=self.bsdf.location.x + self.img_offset_x,
-                                      height=TEXTURE_NODE_HEIGHT)
+                                        name='Normal_Texture',
+                                        xloc=self.bsdf.location.x + self.img_offset_x,
+                                        height=TEXTURE_NODE_HEIGHT)
             self.link(self.texmap.outputs['Vector'], nimgnode.inputs['Vector'])
-            try:
+            if 'Normal' in self.textures and self.textures['Normal']:
                 nimg = bpy.data.images.load(self.textures['Normal'], check_existing=True) 
                 nimg.colorspace_settings.name = "Non-Color"
                 nimgnode.image = nimg
-            except:
-                self.warn(f"Could not load normal texture '{self.textures['Normal']}")
+            else:
+                self.warn(f"Could not load normal texture '{self.shape.textures['Normal']}")
 
             self.link(nimgnode.outputs['Color'], self.bsdf.inputs['Normal'])
             if self.game in ['SKYRIM', 'SKYRIMSE']:
-                if not shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+                if not self.shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
                     # Tangent normals have specular in alpha channel.
                     if 'Specular' in self.bsdf.inputs:
                         self.link(nimgnode.outputs['Alpha'], self.bsdf.inputs['Specular'])
@@ -1301,13 +1309,13 @@ class ShaderImporter:
                                      name='EnvMap_Texture',
                                      xloc=self.bsdf.location.x + self.img_offset_x,
                                      height=TEXTURE_NODE_HEIGHT)
-            try:
+            if 'EnvMap' in self.textures and self.textures['EnvMap']:
                 img = bpy.data.images.load(self.textures['EnvMap'], check_existing=True)
                 if img != self.diffuse.image:
                     img.colorspace_settings.name = "Non-Color"
                 imgnode.image = img
-            except:
-                self.warn(f"Could not load environment map texture '{self.textures['EnvMap']}")
+            else:
+                self.warn(f"Could not load environment map texture '{self.shape.textures['EnvMap']}")
             self.link(self.texmap.outputs['Vector'], imgnode.inputs['Vector'])
             
 
@@ -1321,13 +1329,13 @@ class ShaderImporter:
                                      xloc=self.diffuse.location.x,
                                      height=TEXTURE_NODE_HEIGHT)
             self.link(self.texmap.outputs['Vector'], imgnode.inputs['Vector'])
-            try:
+            if 'EnvMask' in self.textures and self.textures['EnvMask']:
                 img = bpy.data.images.load(self.textures['EnvMask'], check_existing=True)
                 if img != self.diffuse.image:
                     img.colorspace_settings.name = "Non-Color"
                 imgnode.image = img
-            except:
-                self.warn(f"Could not load environment mask texture '{self.textures['EnvMask']}")
+            else:
+                self.warn(f"Could not load environment mask texture '{self.shape.textures['EnvMask']}")
 
             ## Not doing this yet. For now, just store the texture path.
             # # Env Mask multiplies with the specular.
@@ -1415,7 +1423,7 @@ class ShaderImporter:
         self.import_diffuse()
         self.import_subsurface()
         self.import_specular()
-        self.import_normal(shape)
+        self.import_normal()
         self.make_input_nodes()
         self.import_envmap()
         self.import_envmask()
