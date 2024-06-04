@@ -350,19 +350,19 @@ def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
     try:
         if shape.shader.shaderflags2_test(ShaderFlags2.VERTEX_COLORS) \
             and shape.colors and len(shape.colors) > 0:
-            #log.debug(f"Importing vertex colors for {shape.name}")
             clayer = None
             try: #Post V3.5
                 clayer = mesh.color_attributes.new(type='BYTE_COLOR', domain='CORNER')
             except:
                 clayer = mesh.vertex_colors.new()
             alphlayer = None
-            if (shape.shader.Shader_Flags_1 & ShaderFlags1.VERTEX_ALPHA) \
-                or ((shape.shader_block_name == 'BSEffectShaderProperty' \
-                     and shape.file.game == 'FO4')):
+            if ((shape.shader.Shader_Flags_1 & ShaderFlags1.VERTEX_ALPHA) 
+                or (shape.file.game == 'FO4')):
+                # FO4 appears to combine vertex alpha with vertex color, so always provide alpha.
+                # or ((shape.shader_block_name == 'BSEffectShaderProperty' and shape.file.game == 'FO4'))
                 # If we have a BSEffectShaderProperty in FO4 we assume the alpha channel
                 # is used whether or not VERTEX_ALPHA is set. Some FO4 meshes seem to work
-                #this way. log.debug(f"<import_colors> using alpha channel")
+                # this way. 
                 try:
                     alphlayer = mesh.color_attributes.new(
                         name=ALPHA_MAP_NAME, type='BYTE_COLOR', domain='CORNER')

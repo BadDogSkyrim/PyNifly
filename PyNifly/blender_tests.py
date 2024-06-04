@@ -1587,7 +1587,7 @@ def TEST_SHADER_LE():
     assert 'Diffuse_Texture' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     assert bsdf.inputs['Normal'].is_linked, f"Have a normal map"
     assert bsdf.inputs['Diffuse'].is_linked, f"Have a base color"
-    g = shadernodes['Glossiness'].outputs['Value'].default_value
+    g = bsdf.inputs['Glossiness'].default_value
     assert round(g, 4) == 33, f"Glossiness not correct, value is {g}"
     assert headLE.active_material['BSShaderTextureSet_SoftLighting'] == r"textures\actors\character\male\MaleHead_sk.dds", \
         f"Expected stashed texture path, found {headLE.active_material['BSShaderTextureSet_2']}"
@@ -1681,6 +1681,49 @@ def TEST_SHADER_FO4():
     assert not shapecheck.properties.compare(shapeorig.properties), \
         f"Shader attributes preserved: {shapecheck.properties.compare(shapeorig.properties)}"
     assert shapecheck.name == shapeorig.name, f"Error: Shader name not preserved: '{shapecheck.shader_name}' != '{shapeorig.shader_name}'"
+
+
+def TEST_SHADER_GRAYSCALE_COLOR():
+    """Test that grayscale color is handled directly"""
+    testfile = TT.test_file(r"tests\FO4\FemaleHair25.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SHADER_GRAYSCALE_COLOR.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    h = TT.find_shape("FemaleHair25:0")
+    m = h.active_material
+    bsdf = m.node_tree.nodes['Material Output'].inputs['Surface'].links[0].from_node
+
+    # Greyscale palette correct
+    vecnode = BD.find_node(bsdf.inputs['Diffuse'], 'ShaderNodeTexImage')[0]
+    assert 'HairColor_Lgrad_d' in vecnode.image.filepath, f"Have vector palette: {vecnode.image.filepath}"
+    difnode = BD.find_node(vecnode.inputs['Vector'], 'ShaderNodeTexImage')[0]
+    assert 'HairCurly_d' in difnode.image.filepath, f"Have diffuse: {difnode.image.filepath}"
+    
+    # UV scale correct
+    uvnode = m.node_tree.nodes['UV_Converter']
+    assert uvnode.inputs['Scale U'].default_value == uvnode.inputs['Scale V'].default_value == 1.0, f"Have 1x1 scale"
+    
+    # Vertex alpha correct
+    vertalph = BD.find_node(bsdf.inputs['Vertex Alpha'], 'ShaderNodeAttribute')[0]
+    assert vertalph.attribute_type == 'GEOMETRY', f"Getting geometry: {vertalph.attribute_type}"
+    assert vertalph.attribute_name == 'VERTEX_ALPHA', f"Getting vertex alpha: {vertalph.attribute_name}"
+
+    # Specular texture connected
+    specnode = BD.find_node(bsdf.inputs['Smooth Spec'], 'ShaderNodeTexImage')[0]
+    assert 'HairCurly_s' in specnode.image.filepath, f"Specular node attached: {specnode.image.filepath}"
+
+    # Test export
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    # Testing the attributes on the shader node, which is fine because they do get set.
+    n1 = pyn.NifFile(testfile)
+    n2 = pyn.NifFile(outfile)
+    hair1 = n1.shapes[0]
+    hair2 = n2.shapes[0]
+    assert hair2.shader.UV_Scale_U == hair1.shader.UV_Scale_U, f"Have correct scale: {hair2.shader.UV_Scale_U}"
+    assert (hair2.shader.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS) 
+            == hair1.shader.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS)), \
+                f"Have vertex colors/alpha: {hair2.shader.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS) }"
 
 
 def TEST_SHADER_SCALE():
@@ -4928,7 +4971,7 @@ def TEST_ANIM_KF():
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_vanilla.nif")
     outfile2 = TT.test_file(r"tests/Out/TEST_ANIM_KF.kf")
 
-    bpy.context.scene.render.fps = 20
+    bpy.context.scene.render.fps = 24
 
     # Animations are loaded into a skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile,
@@ -5102,7 +5145,7 @@ def TEST_ANIM_HKX():
 
     pathlib.Path(outfile).parent.mkdir(parents=True, exist_ok=True)
 
-    bpy.context.scene.render.fps = 60
+    bpy.context.scene.render.fps = 30
 
     # Animations are loaded into a skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile,
@@ -5473,7 +5516,8 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_SHADER_LE] )
+    # do_tests( [TEST_ANIM_HKX] )
+    do_tests( [TEST_SHADER_SCALE] )
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
