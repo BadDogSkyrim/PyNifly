@@ -2484,7 +2484,7 @@ def TEST_VERTEX_ALPHA_IO():
 
     head = bpy.context.object
     nodes = head.active_material.node_tree.nodes
-    shader = nodes["Skyrim Face Shader"]
+    shader = nodes["Skyrim Shader - Face"]
     assert shader, f"Found shader"
     diffuse = BD.find_node(shader.inputs["Diffuse"], "ShaderNodeTexImage")[0]
     assert diffuse.bl_idname == "ShaderNodeTexImage", f"Found correct diffuse type {diffuse.name}"
@@ -5516,8 +5516,8 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    # do_tests( [TEST_ANIM_HKX] )
-    do_tests( [TEST_SHADER_SCALE] )
+    # do_tests( [TEST_MULTI_IMP] )
+    do_tests( [TEST_SHADER_GRAYSCALE_COLOR] )
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
@@ -5526,7 +5526,7 @@ else:
     #     TEST_IMP_ANIMATRON, TEST_FACEGEN, )])
 
     # Shader tests
-    do_tests([t for t in alltests if 'SHADER' in t.__name__])
+    # do_tests([t for t in alltests if 'SHADER' in t.__name__])
 
     # do_tests( testfrom(TEST_FACEGEN) )
     # do_tests(alltests)

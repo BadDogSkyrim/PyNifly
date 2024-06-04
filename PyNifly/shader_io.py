@@ -1078,7 +1078,7 @@ class ShaderImporter:
             img.colorspace_settings.name = "sRGB"
             txtnode.image = img
         except:
-            pass
+            self.warn(f"Could not load diffuse texture '{self.textures['Diffuse']}")
         self.link(self.texmap.outputs['Vector'], txtnode.inputs['Vector'])
 
         if self.shape.shader.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_COLOR):
@@ -1098,9 +1098,12 @@ class ShaderImporter:
                                          name='Palette Vector',
                                          xloc=gtpvector.location.x + gtpvector.width + self.gap_x,
                                          yloc=txtnode.location.y)
-            imgp = bpy.data.images.load(self.textures['Greyscale'])
-            imgp.colorspace_settings.name = "sRGB"
-            palettenode.image = imgp
+            try:
+                imgp = bpy.data.images.load(self.textures['Greyscale'])
+                imgp.colorspace_settings.name = "sRGB"
+                palettenode.image = imgp
+            except:
+                self.warn(f"Could not load greyscale texture '{self.textures['Greyscale']}")
             self.link(gtpvector.outputs[0], palettenode.inputs[0])
 
             gtpcolor = append_groupnode(self,
@@ -1172,7 +1175,7 @@ class ShaderImporter:
                     skimg.colorspace_settings.name = "Non-Color"
                 skimgnode.image = skimg
             except:
-                pass
+                self.warn(f"Could not load subsurface texture '{self.textures['SoftLighting']}")
             self.link(self.texmap.outputs['Vector'], skimgnode.inputs['Vector'])
             self.link(skimgnode.outputs['Color'], self.bsdf.inputs['Subsurface'])
 
@@ -1199,7 +1202,7 @@ class ShaderImporter:
                 simg.colorspace_settings.name = "Non-Color"
                 simgnode.image = simg
             except:
-                pass
+                self.warn(f"Could not load specular texture '{self.textures['Specular']}")
             self.link(self.texmap.outputs['Vector'], simgnode.inputs['Vector'])
             try: 
                 self.link(simgnode.outputs['Color'], self.bsdf.inputs['Smooth Spec'])
@@ -1274,7 +1277,7 @@ class ShaderImporter:
                 nimg.colorspace_settings.name = "Non-Color"
                 nimgnode.image = nimg
             except:
-                pass
+                self.warn(f"Could not load normal texture '{self.textures['Normal']}")
 
             self.link(nimgnode.outputs['Color'], self.bsdf.inputs['Normal'])
             if self.game in ['SKYRIM', 'SKYRIMSE']:
@@ -1304,7 +1307,7 @@ class ShaderImporter:
                     img.colorspace_settings.name = "Non-Color"
                 imgnode.image = img
             except:
-                pass
+                self.warn(f"Could not load environment map texture '{self.textures['EnvMap']}")
             self.link(self.texmap.outputs['Vector'], imgnode.inputs['Vector'])
             
 
@@ -1324,7 +1327,7 @@ class ShaderImporter:
                     img.colorspace_settings.name = "Non-Color"
                 imgnode.image = img
             except:
-                pass
+                self.warn(f"Could not load environment mask texture '{self.textures['EnvMask']}")
 
             ## Not doing this yet. For now, just store the texture path.
             # # Env Mask multiplies with the specular.
