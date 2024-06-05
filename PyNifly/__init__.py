@@ -8,7 +8,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 0, 0),
-    "version": (14, 7, 0),   
+    "version": (14, 8, 0),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -3573,7 +3573,7 @@ class NifExporter:
         if simplename not in names: return simplename
         if obj.name not in names: return obj.name
         for i in range(0, 100):
-            n = simplename + "-" + i
+            n = simplename + "-" + f"{i:03}"
             if n not in names: return n
         return obj.name
 
