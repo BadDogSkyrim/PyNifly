@@ -1712,6 +1712,7 @@ class ShaderExporter:
                 if imagenodes: imagenode = imagenodes[0]
 
         elif textureslot == "Specular":
+            imagenodes = None
             if "Specular_Texture" in self.material.node_tree.nodes:
                 imagenode = self.material.node_tree.nodes["Specular_Texture"]
             else:
