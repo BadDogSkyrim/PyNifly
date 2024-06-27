@@ -1604,53 +1604,6 @@ class ShaderExporter:
             self.warn("Could not determine shader attributes: " + traceback.format_exc())
 
 
-    # def get_diffuse(self):
-    #     """Get the diffuse filepath, given the material's shader node."""
-    #     try:
-    #         # imgnode = get_image_node(self.shader_node.inputs['Base Color'])
-    #         imgnode = self.material.node_tree.nodes['Diffuse_Texture']
-    #         return imgnode.image.filepath
-    #     except:
-    #         self.warn("Could not find diffuse filepath")
-    #     return ''
-    
-
-    # def get_normal(self):
-    #     """
-    #     Get the normal map filepath, given the shader node.
-    #     """
-    #     try:
-    #         image_node = find_node(self.bsdf.inputs['Normal'], "ShaderNodeTexImage")
-    #         normalmap = find_node(self.bsdf.inputs['Normal'], "ShaderNodeNormalMap")
-    #         image_node = self.material.node_tree.nodes['Normal_Texture']
-    #         return image_node.image.filepath
-    #     except:
-    #         self.warn("Could not find normal filepath")
-    #     return ''
-    
-
-    # def get_subsurface(self):
-    #     try:
-    #         if 'Subsurface_Texture' in self.material.node_tree.nodes:
-    #             return self.material.node_tree.nodes['Subsurface_Texture'].image.filepath
-    #         # if self.is_obj_space:
-    #         #     return get_image_filepath(self.shader_node.inputs['Specular'])
-    #     except:
-    #         self.warn("Could not find subsurface texture filepath")
-    #     return ''
-
-
-    # def get_specular(self):
-    #     try:
-    #         if 'Specular_Texture' in self.material.node_tree.nodes:
-    #             return self.material.node_tree.nodes['Specular_Texture'].image.filepath
-    #         # if self.is_obj_space:
-    #         #     return get_image_filepath(self.shader_node.inputs['Specular'])
-    #     except:
-    #         self.warn("Could not find specular filepath")
-    #     return ''
-
-
     @property
     def is_effectshader(self):
         try:
@@ -1689,6 +1642,7 @@ class ShaderExporter:
             else:
                 shape.shader.shaderflags2_clear(f)
     
+
     def write_texture(self, shape, textureslot:str):
         """
         Write the given texture slot to the nif shape.
@@ -1729,6 +1683,10 @@ class ShaderExporter:
             except:
                 imagenodes = BD.find_node(self.shader_node.inputs["Diffuse"], "ShaderNodeTexImage")
             if imagenodes: imagenode = imagenodes[0]
+            # Check whether this is a greyscale texture. If so, look for the diffuse behind it.
+            if imagenode.label == 'Palette Vector':
+                imagenodes = BD.find_node(imagenode.inputs['Vector'], 'ShaderNodeTexImage')
+                if imagenodes: imagenode = imagenodes[0]
         else:
             # Look through the node tree behind the texture slot to find the right image
             # node.

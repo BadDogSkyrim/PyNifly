@@ -4271,7 +4271,7 @@ class NifExporter:
                         if loop_partition:
                             partition_map.append(obj_partitions[loop_partition].id)
                         else:
-                            log.warning(f"Writing first partition for face without partitions {obj_partitions}")
+                            log.warning(f"Writing first partition for face without partitions: {f.index}")
                             partition_map.append(next(iter(obj_partitions.values())).id)
                     l1 = loopseg
 
@@ -4327,7 +4327,12 @@ class NifExporter:
             Returns [c.color[:] for c in editmesh.vertex_colors.active.data]
                 This is 1:1 with loops
             """
-        vc = mesh.vertex_colors
+        try:
+            vc = mesh.color_attributes
+            active_color = vc.active_color
+        except:
+            vc = mesh.vertex_colors
+            active_color = vc.active
         alphamap = None
         alphamapname = ''
         colormap = None
@@ -4337,7 +4342,7 @@ class NifExporter:
             alphamap = vc[ALPHA_MAP_NAME].data
             alphamapname = ALPHA_MAP_NAME
             colorlen = len(alphamap)
-        if alphamap and vc.active and vc.active.data == alphamap:
+        if alphamap and active_color and active_color.data == alphamap:
             # Alpha map is active--see if there's another map to use for colors. If not,
             # colors will be set to white
             for c in vc:
@@ -4345,9 +4350,9 @@ class NifExporter:
                     colormap = c.data
                     colormapname = c.name
                     break
-        elif vc.active:
-            colormap = vc.active.data
-            colormapname = vc.active.name
+        elif active_color:
+            colormap = active_color.data
+            colormapname = active_color.name
             colorlen = len(colormap)
 
         loopcolors = [(0.0, 0.0, 0.0, 0.0)] * colorlen
@@ -4407,8 +4412,12 @@ class NifExporter:
         
             # Pull out vertex colors first because trying to access them later crashes
             bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
-            if len(editmesh.vertex_colors) > 0:
+            try:
+                c = editmesh.color_attributes.active_color
                 loopcolors = self.extract_colors(editmesh)
+            except:
+                if len(editmesh.vertex_colors) > 0:
+                    loopcolors = self.extract_colors(editmesh)
         
             # Apply shape key verts to the mesh so normals will be correct.  If the mesh has
             # custom normals, fukkit -- use the custom normals and assume the deformation

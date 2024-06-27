@@ -1879,6 +1879,29 @@ def TEST_SHADER_EFFECT():
         f"Have correct InnerLayer: {wincheck.shader.textures['InnerLayer']}"
     
 
+def TEST_SHADER_EFFECT_GHOUL():
+    """BSEffectShaderProperty attributes are read & written correctly."""
+    testfile = TT.test_file(r"tests\FO4\glowingone.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SHADER_EFFECT_GHOUL.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=False)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    nif = pyn.NifFile(testfile)
+    nifcheck = pyn.NifFile(outfile)
+    glow = nif.shape_dict["GlowingOneBodyFlash:1"]
+    glowcheck = nifcheck.shape_dict["GlowingOneBodyFlash:1"]
+
+    assert glow.blockname == glowcheck.blockname == "BSSubIndexTriShape", \
+        f"Created a BSSubIndexTriShape: {glowcheck.blockname}"
+    assert glow.properties.flags == glowcheck.properties.flags, f"Have correct flags: {glowcheck.properties.flags}"
+    assert glow.shader.blockname == glowcheck.shader.blockname, f"Have correct shader: {glowcheck.shader.blockname}"
+    assert glow.shader.properties.sourceTexture.upper() == glowcheck.shader.properties.sourceTexture.upper(), \
+        f"Have correct source texture: {glowcheck.shader.properties.sourceTexture}"
+    assert glow.shader.properties.greyscaleTexture.upper() == glowcheck.shader.properties.greyscaleTexture.upper(), \
+        f"Have correct source texture: {glowcheck.shader.properties.greyscaleTexture}"
+    
+
 def TEST_TEXTURE_PATHS():
     """Texture paths are correctly resolved"""
     testfile = TT.test_file(r"tests\SkyrimSE\circletm1.nif")
@@ -5516,7 +5539,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_MULTI_IMP] )
+    do_tests( [TEST_SHADER_EFFECT_GHOUL] )
     # do_tests( [TEST_SHADER_GRAYSCALE_COLOR] )
 
     # Tests of nifs with bones in a hierarchy
