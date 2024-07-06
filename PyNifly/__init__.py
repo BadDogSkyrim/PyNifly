@@ -118,6 +118,7 @@ BLENDER_XF_DEF = False
 CHARGEN_EXT_DEF = "chargen"
 CREATE_BONES_DEF = True
 EXPORT_MODIFIERS_DEF = False
+EXPORT_COLORS_DEF = True
 EXPORT_POSE_DEF = False
 IMPORT_ANIMS_DEF = True
 IMPORT_COLLISIONS_DEF = True
@@ -3486,6 +3487,7 @@ class NifExporter:
         self.write_bodytri = WRITE_BODYTRI_DEF
         self.export_pose = EXPORT_POSE_DEF
         self.export_modifiers = EXPORT_MODIFIERS_DEF
+        self.export_colors = EXPORT_COLORS_DEF
         self.active_obj = None
         self.scale = scale
         self.root_object = None
@@ -3529,6 +3531,7 @@ class NifExporter:
         if self.write_bodytri: flags.append("WRITE_BODYTRI")
         if self.export_pose: flags.append("EXPORT_POSE")
         if self.export_modifiers: flags.append("EXPORT_MODIFIERS")
+        if self.export_colors: flags.append("EXPORT_COLORS")
         return f"""
         Exporting objects: {[o.name for o in self.objects]}
             flags: {'|'.join(flags)}
@@ -4412,12 +4415,13 @@ class NifExporter:
         
             # Pull out vertex colors first because trying to access them later crashes
             bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
-            try:
-                c = editmesh.color_attributes.active_color
-                loopcolors = self.extract_colors(editmesh)
-            except:
-                if len(editmesh.vertex_colors) > 0:
+            if self.export_colors:
+                try:
+                    c = editmesh.color_attributes.active_color
                     loopcolors = self.extract_colors(editmesh)
+                except:
+                    if len(editmesh.vertex_colors) > 0:
+                        loopcolors = self.extract_colors(editmesh)
         
             # Apply shape key verts to the mesh so normals will be correct.  If the mesh has
             # custom normals, fukkit -- use the custom normals and assume the deformation
@@ -4991,6 +4995,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         description="Export all active modifiers (including shape keys)",
         default=False)
 
+    export_colors: bpy.props.BoolProperty(
+        name="Export vertex color/alpha",
+        description="Use vertex color attributes as vertex color",
+        default=False)
+
     chargen_ext: bpy.props.StringProperty(
         name="Chargen extension",
         description="Extension to use for chargen files (not including file extension).",
@@ -5105,6 +5114,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             exporter.write_bodytri = self.write_bodytri
             exporter.export_pose = self.export_pose
             exporter.export_modifiers = self.export_modifiers
+            exporter.export_colors = self.export_colors
             if self.use_blender_xf:
                 exporter.export_xf = blender_export_xf
             exporter.export(self.objects_to_export)
