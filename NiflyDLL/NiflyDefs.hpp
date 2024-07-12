@@ -59,11 +59,19 @@ enum BUFFER_TYPES : uint16_t {
 	BSTriShapeBufType,
 	BSSubIndexTriShapeBufType,
 	BSEffectShaderPropertyBufType,
-	NiTriStripsBufType, 
+	NiTriStripsBufType,
 	BSLODTriShapeBufType,
 	BSLightingShaderPropertyBufType,
 	BSShaderPPLightingPropertyBufType,
-	NiTriShapeBufType
+	NiTriShapeBufType,
+	BSEffectShaderPropertyColorControllerBufType,
+	NiPoint3InterpolatorBufType,
+	NiPosDataBufType,
+	BSEffectShaderPropertyFloatControllerBufType,
+	NiFloatInterpolatorBufType,
+	NiFloatDataBufType,
+	NiBlendPoint3InterpolatorBufType, 
+	NiBlendFloatInterpolatorBufType
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -181,6 +189,23 @@ enum class BSLSPShaderType : uint32_t {
 	LOD_Landscape_Noise,
 	Multitexture_Landscape_LOD_Blend,
 	FO4_Dismemberment
+};
+
+enum class EffectShaderControlledColorType : uint32_t {
+	Emissive_Color = 0
+};
+
+enum class EffectShaderControlledVariable: uint32_t {
+	Emissive_Multiple = 0,
+	Falloff_Start_Angle,
+	Falloff_Stop_Angle,
+	Falloff_Start_Opacity,
+	Falloff_Stop_Opacity,
+	Alpha_Transparency,
+	U_Offset,
+	U_Scale,
+	V_Offset,
+	V_Scale
 };
 
 /* To make it simpler to deal with shaders, there's only one buffer for all of them.
@@ -681,6 +706,34 @@ struct NiMultiTargetTransformControllerBuf {
 	uint16_t targetCount;
 };
 
+struct BSEffectShaderPropertyColorControllerBuf {
+	uint16_t bufSize = sizeof(BSEffectShaderPropertyColorControllerBuf);
+	uint16_t bufType = BUFFER_TYPES::BSEffectShaderPropertyColorControllerBufType;
+	uint32_t nextControllerID;
+	uint16_t flags = 0x000C;
+	float frequency = 1.0f;
+	float phase = 0.0f;
+	float startTime = nifly::NiFloatMax;
+	float stopTime = nifly::NiFloatMin;
+	uint32_t targetID;
+	uint32_t interpolatorID;
+	uint32_t controlledColorType;
+};
+
+struct BSEffectShaderPropertyFloatControllerBuf {
+	uint16_t bufSize = sizeof(BSEffectShaderPropertyFloatControllerBuf);
+	uint16_t bufType = BUFFER_TYPES::BSEffectShaderPropertyFloatControllerBufType;
+	uint32_t nextControllerID;
+	uint16_t flags = 0x000C;
+	float frequency = 1.0f;
+	float phase = 0.0f;
+	float startTime = nifly::NiFloatMax;
+	float stopTime = nifly::NiFloatMin;
+	uint32_t targetID;
+	uint32_t interpolatorID;
+	uint32_t controlledVariable;
+};
+
 struct NiControllerSequenceBuf {
 	uint16_t bufSize = sizeof(NiControllerSequenceBuf);
 	uint16_t bufType = BUFFER_TYPES::NiControllerSequenceBufType;
@@ -719,6 +772,38 @@ struct NiTransformInterpolatorBuf {
 	float rotation[4];
 	float scale = 0.0f;
 	uint32_t dataID;
+};
+
+struct NiPoint3InterpolatorBuf {
+	uint16_t bufSize = sizeof(NiPoint3InterpolatorBuf);
+	uint16_t bufType = BUFFER_TYPES::NiPoint3InterpolatorBufType;
+	float value[3];
+	uint32_t dataID;
+};
+
+struct NiBlendPoint3InterpolatorBuf {
+	uint16_t bufSize = sizeof(NiBlendPoint3InterpolatorBuf);
+	uint16_t bufType = BUFFER_TYPES::NiBlendPoint3InterpolatorBufType;
+	uint16_t flags = nifly::InterpBlendFlags::INTERP_BLEND_MANAGER_CONTROLLED;
+	uint8_t arraySize = 0;
+	float weightThreshold = 0.0f;
+	float value[3];
+};
+
+struct NiFloatInterpolatorBuf {
+	uint16_t bufSize = sizeof(NiFloatInterpolatorBuf);
+	uint16_t bufType = BUFFER_TYPES::NiFloatInterpolatorBufType;
+	float value;
+	uint32_t dataID;
+};
+
+struct NiBlendFloatInterpolatorBuf {
+	uint16_t bufSize = sizeof(NiBlendFloatInterpolatorBuf);
+	uint16_t bufType = BUFFER_TYPES::NiBlendFloatInterpolatorBufType;
+	uint16_t flags = nifly::InterpBlendFlags::INTERP_BLEND_MANAGER_CONTROLLED;
+	uint8_t arraySize = 0;
+	float weightThreshold = 0.0f;
+	float value;
 };
 
 struct NiTransformControllerBuf {
@@ -774,7 +859,7 @@ struct NiAnimationKeyFloatBuf {
 	float tbcContinuity = 0.0f;
 };
 
-struct NiAnimatinoKeyGroupBuf {
+struct NiAnimationKeyGroupBuf {
 	uint32_t numKeys;
 	uint32_t interpolation;
 };
@@ -784,11 +869,23 @@ struct NiTransformDataBuf {
 	uint16_t bufType = BUFFER_TYPES::NiTransformDataBufType;
 	uint32_t rotationType;
 	uint32_t quaternionKeyCount;
-	NiAnimatinoKeyGroupBuf xRotations;
-	NiAnimatinoKeyGroupBuf yRotations;
-	NiAnimatinoKeyGroupBuf zRotations;
-	NiAnimatinoKeyGroupBuf translations;
-	NiAnimatinoKeyGroupBuf scales;
+	NiAnimationKeyGroupBuf xRotations;
+	NiAnimationKeyGroupBuf yRotations;
+	NiAnimationKeyGroupBuf zRotations;
+	NiAnimationKeyGroupBuf translations;
+	NiAnimationKeyGroupBuf scales;
+};
+
+struct NiPosDataBuf {
+	uint16_t bufSize = sizeof(NiPosDataBuf);
+	uint16_t bufType = BUFFER_TYPES::NiPosDataBufType;
+	NiAnimationKeyGroupBuf keys;
+};
+
+struct NiFloatDataBuf {
+	uint16_t bufSize = sizeof(NiFloatDataBuf);
+	uint16_t bufType = BUFFER_TYPES::NiFloatDataBufType;
+	NiAnimationKeyGroupBuf keys;
 };
 
 struct NiAnimKeyLinearTransBuf {

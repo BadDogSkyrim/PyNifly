@@ -3694,6 +3694,72 @@ int addTransformInterpolator(void* nifref, const char* name, void* inbuf, uint32
     return hdr->AddBlock(std::move(ti));
 }
 
+int getNiPoint3Interpolator(void* nifref, uint32_t tiID, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiPoint3Interpolator* ti = hdr->GetBlock<NiPoint3Interpolator>(tiID);
+    NiPoint3InterpolatorBuf* buf = static_cast<NiPoint3InterpolatorBuf*>(inbuf);
+
+    CheckID(ti);
+
+    CheckBuf(buf, BUFFER_TYPES::NiPoint3InterpolatorBufType, NiPoint3InterpolatorBuf);
+
+    for (int i = 0; i < 3; i++) buf->value[i] = ti->point3Value[i];
+    buf->dataID = ti->dataRef.index;
+
+    return 0;
+}
+
+int getNiBlendPoint3Interpolator(void* nifref, uint32_t tiID, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiBlendPoint3Interpolator* ti = hdr->GetBlock<nifly::NiBlendPoint3Interpolator>(tiID);
+    NiBlendPoint3InterpolatorBuf* buf = static_cast<NiBlendPoint3InterpolatorBuf*>(inbuf);
+
+    CheckID(ti);
+    CheckBuf(buf, BUFFER_TYPES::NiBlendPoint3InterpolatorBufType, NiBlendPoint3InterpolatorBuf);
+
+    buf->arraySize = ti->arraySize;
+    buf->flags = ti->flags;
+    buf->weightThreshold = ti->weightThreshold;
+    for (int i = 0; i < 3; i++) buf->value[i] = ti->point[i];
+
+    return 0;
+}
+
+int getNiFloatInterpolator(void* nifref, uint32_t tiID, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiFloatInterpolator* ti = hdr->GetBlock<NiFloatInterpolator>(tiID);
+    NiFloatInterpolatorBuf* buf = static_cast<NiFloatInterpolatorBuf*>(inbuf);
+
+    CheckID(ti);
+
+    CheckBuf(buf, BUFFER_TYPES::NiFloatInterpolatorBufType, NiFloatInterpolatorBuf);
+
+    buf->value = ti->floatValue;
+    buf->dataID = ti->dataRef.index;
+
+    return 0;
+}
+
+int getNiBlendFloatInterpolator(void* nifref, uint32_t tiID, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiBlendFloatInterpolator* ti = hdr->GetBlock<nifly::NiBlendFloatInterpolator>(tiID);
+    NiBlendFloatInterpolatorBuf* buf = static_cast<NiBlendFloatInterpolatorBuf*>(inbuf);
+
+    CheckID(ti);
+    CheckBuf(buf, BUFFER_TYPES::NiBlendFloatInterpolatorBufType, NiBlendFloatInterpolatorBuf);
+
+    buf->arraySize = ti->arraySize;
+    buf->flags = ti->flags;
+    buf->weightThreshold = ti->weightThreshold;
+    buf->value = ti->value;
+
+    return 0;
+}
+
 int getMultiTargetTransformController(void* nifref, uint32_t mttcID, void* inbuf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
@@ -3847,6 +3913,44 @@ int addTransformData(void* nifref, const char* name, void* b, uint32_t parent)
     return td;
 };
 
+int getNiPosData(void* nifref, uint32_t nodeIndex, void* inbuf)
+/*
+    Return a NiPosData block.
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiPosData* sh = hdr->GetBlock<NiPosData>(nodeIndex);
+    NiPosDataBuf* buf = static_cast<NiPosDataBuf*>(inbuf);
+
+    CheckID(sh);
+    CheckBuf(buf, BUFFER_TYPES::NiPosDataBufType, NiPosDataBuf);
+
+    buf->keys.numKeys = sh->data.GetNumKeys();
+    buf->keys.interpolation = sh->data.GetInterpolationType();
+
+    return 0;
+};
+
+int getNiFloatData(void* nifref, uint32_t nodeIndex, void* inbuf)
+/*
+    Return a NiFloatData block.
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiFloatData* sh = hdr->GetBlock<NiFloatData>(nodeIndex);
+    NiFloatDataBuf* buf = static_cast<NiFloatDataBuf*>(inbuf);
+
+    CheckID(sh);
+    CheckBuf(buf, BUFFER_TYPES::NiFloatDataBufType, NiFloatDataBuf);
+
+    buf->keys.numKeys = sh->data.GetNumKeys();
+    buf->keys.interpolation = sh->data.GetInterpolationType();
+
+    return 0;
+};
+
 void readKey(NiAnimKeyQuadXYZBuf& kb, NiAnimationKey<float> k) {
     kb.time = k.time;
     kb.value = k.value;
@@ -3886,6 +3990,19 @@ NIFLY_API void addAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, NiAnimK
     else if (dimension == 'Y') td->yRotations.AddKey(k);
     else if (dimension == 'Z') td->zRotations.AddKey(k);
     else if (dimension == 'S') td->scales.AddKey(k);
+}
+
+NIFLY_API void getAnimKeyQuadFloat(void* nifref, int tdID, int frame, NiAnimKeyQuadXYZBuf* buf)
+/* Get the animation key for frame 'frame'. */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::NiFloatData* td = hdr.GetBlock<NiFloatData>(tdID);
+
+    buf->time = td->data.GetKey(frame).time;
+    buf->value = td->data.GetKey(frame).value;
+    buf->forward = td->data.GetKey(frame).forward;
+    buf->backward = td->data.GetKey(frame).backward;
 }
 
 NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyLinearXYZBuf *buf)
@@ -3971,12 +4088,24 @@ NIFLY_API void getAnimKeyQuadTrans(void* nifref, int tdID, int frame, NiAnimKeyQ
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::NiTransformData* td = hdr.GetBlock<NiTransformData>(tdID);
+    if (td) {
+        auto k = td->translations.GetKey(frame);
+        buf->time = k.time;
+        for (int i = 0; i < 3; i++) buf->value[i] = k.value[i];
+        for (int i = 0; i < 3; i++) buf->forward[i] = k.forward[i];
+        for (int i = 0; i < 3; i++) buf->backward[i] = k.backward[i];
+        return;
+    };
     
-    auto k = td->translations.GetKey(frame);
-    buf->time = k.time;
-    for (int i=0; i < 3; i++) buf->value[i] = k.value[i];
-    for (int i=0; i < 3; i++) buf->forward[i] = k.forward[i];
-    for (int i=0; i < 3; i++) buf->backward[i] = k.backward[i];
+    nifly::NiPosData* pd = hdr.GetBlock<NiPosData>(tdID);
+    if (pd) {
+        auto k = pd->data.GetKey(frame);
+        buf->time = k.time;
+        for (int i = 0; i < 3; i++) buf->value[i] = k.value[i];
+        for (int i = 0; i < 3; i++) buf->forward[i] = k.forward[i];
+        for (int i = 0; i < 3; i++) buf->backward[i] = k.backward[i];
+        return;
+    }
 }
 
 
@@ -4081,6 +4210,56 @@ NIFLY_API int getTransformDataValues(void* nifref, int nodeIndex,
         return 0;
 };
 
+int getEffectShaderPropertyColorController(void* nifref, uint32_t nodeIndex, void* inbuf)
+/*
+    Return a color controller block.
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSEffectShaderPropertyColorControllerBuf* buf = static_cast<BSEffectShaderPropertyColorControllerBuf*>(inbuf);
+    BSEffectShaderPropertyColorController* sh = hdr->GetBlock<BSEffectShaderPropertyColorController>(nodeIndex);
+
+    CheckID(sh);
+
+    CheckBuf(buf, BUFFER_TYPES::BSEffectShaderPropertyColorControllerBufType, BSEffectShaderPropertyColorControllerBuf);
+
+    buf->flags = sh->flags;
+    buf->frequency = sh->frequency;
+    buf->phase = sh->phase;
+    buf->startTime = sh->startTime;
+    buf->stopTime = sh->stopTime;
+    buf->targetID = sh->targetRef.index;
+    buf->interpolatorID = sh->interpolatorRef.index;
+    buf->controlledColorType = sh->typeOfControlledColor;
+    return 0;
+};
+
+int getEffectShaderPropertyFloatController(void* nifref, uint32_t nodeIndex, void* inbuf)
+/*
+    Return a Float controller block.
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSEffectShaderPropertyFloatControllerBuf* buf = static_cast<BSEffectShaderPropertyFloatControllerBuf*>(inbuf);
+    BSEffectShaderPropertyFloatController* sh = hdr->GetBlock<BSEffectShaderPropertyFloatController>(nodeIndex);
+
+    CheckID(sh);
+
+    CheckBuf(buf, BUFFER_TYPES::BSEffectShaderPropertyFloatControllerBufType, BSEffectShaderPropertyFloatControllerBuf);
+
+    buf->flags = sh->flags;
+    buf->frequency = sh->frequency;
+    buf->phase = sh->phase;
+    buf->startTime = sh->startTime;
+    buf->stopTime = sh->stopTime;
+    buf->targetID = sh->targetRef.index;
+    buf->interpolatorID = sh->interpolatorRef.index;
+    buf->controlledVariable = sh->typeOfControlledVariable;
+    return 0;
+};
+
 NIFLY_API int getExtraData(void* nifref, uint32_t id, const char* extraDataBlockType) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
@@ -4143,6 +4322,14 @@ BlockGetterFunction getterFunctions[] = {
     getNiShader,  //BSLightingShaderProperty
     getNiShader,  //BSShaderPPLightingProperty
     getNiShape, //NiTriShape
+    getEffectShaderPropertyColorController,
+    getNiPoint3Interpolator,
+    getNiPosData,
+    getEffectShaderPropertyFloatController,
+    getNiFloatInterpolator,
+    getNiFloatData,
+    getNiBlendPoint3Interpolator,
+    getNiBlendFloatInterpolator,
     nullptr //END
 };
 
@@ -4200,6 +4387,14 @@ BlockSetterFunction setterFunctions[] = {
     nullptr,  //BSLightingShaderProperty
     nullptr,  //BSShaderPPLightingProperty
     setNiShape, //NiTriShape
+    nullptr, //getEffectShaderPropertyColorController,
+    nullptr, //NiPoint3InterpolatorBufType
+    nullptr, //NiPosData
+    nullptr, //BSEffectShaderPropertyFloatController
+    nullptr, //getNiFloatInterpolator
+    nullptr, //getNiFloatData
+    nullptr, //NiBlendPoint3InterpolatorBuf
+    nullptr, //NiBlendFloatInterpolatorBuf
     nullptr //END
 };
 
@@ -4256,6 +4451,14 @@ BlockCreatorFunction creatorFunctions[] = {
     setNiShader,  //BSLightingShaderProperty
     setNiShader,  //BSShaderPPLightingProperty
     nullptr, //NiTriShape
+    nullptr, //EffectShaderPropertyColorController,
+    nullptr, //NiPoint3InterpolatorBufType
+    nullptr, //NiPosData
+    nullptr, //BSEffectShaderPropertyFloatController
+    nullptr, //getNiFloatInterpolator
+    nullptr, //getNiFloatData
+    nullptr, //NiBlendPoint3InterpolatorBuf
+    nullptr, //NiBlendFloatInterpolatorBuf
     nullptr //end
 };
 

@@ -2227,12 +2227,12 @@ class NifImporter():
         return rotation_mode
 
 
-    def import_controlled_block(self, seq:NiSequence, block:ControllerLink):
+    def import_color_controller(self, seq:NiSequence, block:ControllerLink):
         """Import one controlled block."""
-        if block.controller_type != "NiTransformController":
-            self.warn(f"Nif has unknown controller type: {block.controller_type}")
-            return
-
+        xf = Matrix.Identity(4)
+        
+    def import_transform_controller(self, seq:NiSequence, block:ControllerLink):
+        """Import one controlled block."""
         xf = Matrix.Identity(4)
         
         if block.node_name in self.nif.nodes:
@@ -2297,6 +2297,17 @@ class NifImporter():
 
         if not target_obj.animation_data.action:
             target_obj.animation_data.action = new_action
+
+
+    def import_controlled_block(self, seq:NiSequence, block:ControllerLink):
+        """Import one controlled block."""
+        if block.controller_type == "NiTransformController":
+            self.import_transform_controller(seq, block)
+        elif block.controller_type == 'BSEffectShaderPropertyColorController':
+            self.import_color_controller(seq, block)
+        else:
+            self.warn(f"Nif has unknown controller type: {block.controller_type}")
+            return
 
 
     def import_sequences(self, seq):

@@ -3501,11 +3501,12 @@ namespace NiflyDLLTests
 			Assert::IsFalse(strstr(msgbuf, "WARNING:"), L"Error completed with warnings");
 			Assert::IsFalse(strstr(msgbuf, "ERROR:"), L"Error completed with errors");
 		};
+
 		struct DwemerChestData {
 			NiControllerManagerBuf controllerManager;
 			NiMultiTargetTransformControllerBuf mttc;
-			NiControllerSequenceBuf ctrlrSeq[2];
-			ControllerLinkBuf ctrlrLink[9];
+			NiControllerSequenceBuf ctlrSeq[2];
+			ControllerLinkBuf ctlrLink[9];
 			int openIndex, closeIndex;
 			NiTransformInterpolatorBuf transformInterp[9];
 			NiTransformDataBuf transformData[9];
@@ -3542,14 +3543,14 @@ namespace NiflyDLLTests
 			uint32_t* cs = new uint32_t[data.controllerManager.controllerSequenceCount];
 			getControllerManagerSeq(nif, rootbuf.controllerID, data.controllerManager.controllerSequenceCount, cs);
 
-			getBlock(nif, cs[0], &data.ctrlrSeq[0]);
-			getBlock(nif, cs[1], &data.ctrlrSeq[1]);
-			Assert::IsTrue(TApproxEqual(0.6, data.ctrlrSeq[0].stopTime), L"StopTime correct");
+			getBlock(nif, cs[0], &data.ctlrSeq[0]);
+			getBlock(nif, cs[1], &data.ctlrSeq[1]);
+			Assert::IsTrue(TApproxEqual(0.6, data.ctlrSeq[0].stopTime), L"StopTime correct");
 
 			char* csName0 = new char[64];
 			char* csName1 = new char[64];
-			getString(nif, data.ctrlrSeq[0].nameID, 64, csName0);
-			getString(nif, data.ctrlrSeq[1].nameID, 64, csName1);
+			getString(nif, data.ctlrSeq[0].nameID, 64, csName0);
+			getString(nif, data.ctlrSeq[1].nameID, 64, csName1);
 
 			data.openIndex = -1;
 			data.closeIndex = -1;
@@ -3560,15 +3561,15 @@ namespace NiflyDLLTests
 			Assert::IsTrue(data.openIndex != -1 && data.closeIndex != -1, L"Have correct names");
 
 			char* namebuf = new char[64];
-			int cbCount = data.ctrlrSeq[data.openIndex].controlledBlocksCount;
+			int cbCount = data.ctlrSeq[data.openIndex].controlledBlocksCount;
 			Assert::IsTrue(cbCount == 9 || cbCount == 2, L"Found 9 (2) controller links");
-			data.ctrlrLink[0].bufSize = sizeof(ControllerLinkBuf) * cbCount;
-			getBlock(nif, cs[data.openIndex], data.ctrlrLink);
-			getString(nif, data.ctrlrLink[0].nodeName, 64, namebuf);
+			data.ctlrLink[0].bufSize = sizeof(ControllerLinkBuf) * cbCount;
+			getBlock(nif, cs[data.openIndex], data.ctlrLink);
+			getString(nif, data.ctlrLink[0].nodeName, 64, namebuf);
 			Assert::IsTrue(strcmp("Object01", namebuf) == 0, L"Have correct node name");
 
 			// First interpolator does linear movement of the chest's lid. So no rotation keys.
-			getBlock(nif, data.ctrlrLink[0].interpolatorID, &data.transformInterp[0]);
+			getBlock(nif, data.ctlrLink[0].interpolatorID, &data.transformInterp[0]);
 			getBlock(nif, data.transformInterp[0].dataID, &data.transformData[0]);
 			Assert::AreEqual(0, int(data.transformData[0].quaternionKeyCount), L"Have correct number of rotation keys");
 			Assert::AreEqual(18, int(data.transformData[0].translations.numKeys), L"Have correct number of translations");
@@ -3580,9 +3581,9 @@ namespace NiflyDLLTests
 			Assert::IsTrue(TApproxEqual(1.1176f, data.animKeyLin[2].value[0]), L"X location good");
 
 			// Second interpolator does the revolution of the screw in the worm drive. 
-			getString(nif, data.ctrlrLink[1].nodeName, 64, namebuf);
+			getString(nif, data.ctlrLink[1].nodeName, 64, namebuf);
 			Assert::IsTrue(strcmp("Gear08", namebuf) == 0, L"Have correct node name");
-			getBlock(nif, data.ctrlrLink[1].interpolatorID, &data.transformInterp[1]);
+			getBlock(nif, data.ctlrLink[1].interpolatorID, &data.transformInterp[1]);
 			getBlock(nif, data.transformInterp[1].dataID, &data.transformData[1]);
 			Assert::AreEqual(1, int(data.transformData[1].xRotations.numKeys), L"Have correct number of X rotation keys");
 			Assert::AreEqual(2, int(data.transformData[1].zRotations.numKeys), L"Have correct number of Z rotation keys");
@@ -3722,7 +3723,7 @@ namespace NiflyDLLTests
 			// that adds it to the manager's list of sequences.
 			//uint32_t nameID = addString(nifOut, "Open");
 			uint32_t accumRootNameID = addString(nifOut, "DwarvenChest01"); 
-			NiControllerSequenceBuf openbufOut = data.ctrlrSeq[data.openIndex];
+			NiControllerSequenceBuf openbufOut = data.ctlrSeq[data.openIndex];
 			openbufOut.controlledBlocksCount = 0;
 			openbufOut.animNotesCount = 0;
 			openbufOut.textKeyID = NIF_NPOS;
@@ -3748,7 +3749,7 @@ namespace NiflyDLLTests
 			clbufOut2.ctrlType = addString(nifOut, "NiTransformController");
 			addBlock(nifOut, "Gear08", &clbufOut2, csOpenOut);
 
-			NiControllerSequenceBuf closebufOut = data.ctrlrSeq[data.closeIndex];
+			NiControllerSequenceBuf closebufOut = data.ctlrSeq[data.closeIndex];
 			closebufOut.controlledBlocksCount = 0;
 			closebufOut.animNotesCount = 0;
 			closebufOut.textKeyID = NIF_NPOS;
@@ -3761,6 +3762,119 @@ namespace NiflyDLLTests
 			DwemerChestData dataCheck;
 			void* nifcheck = load(fileOut.u8string().c_str());
 			TCheckDwemerChest(nifcheck, dataCheck);
+		};
+
+		struct GlowingOneData {
+			NiControllerManagerBuf controllerManager;
+			NiMultiTargetTransformControllerBuf mttc;
+			NiControllerSequenceBuf ctlrSeq[2];
+			ControllerLinkBuf ctlrLink[9];
+			BSEffectShaderPropertyColorControllerBuf ctlrColor;
+			NiBlendPoint3InterpolatorBuf blend3PointInterp;
+			NiPoint3InterpolatorBuf colorInterpolator;
+			NiPosDataBuf colorInterpData;
+			NiAnimKeyQuadTransBuf colorKeyQuad[10];
+			BSEffectShaderPropertyFloatControllerBuf ctlrFloat;
+			NiFloatInterpolatorBuf floatInterpolator;
+			NiFloatDataBuf floatInterpData;
+			NiAnimKeyQuadXYZBuf floatKeyQuad[10];
+			NiBlendFloatInterpolatorBuf blendFloatInterp;
+		};
+		void TCheckGlowingOne(void* nif, GlowingOneData& data)
+		{
+
+			/* Check that the glowing one is read correctly. */
+			NiNodeBuf rootbuf;
+			getBlock(nif, 0, &rootbuf);
+
+			// We can find controller blocks directly, by type.
+			//int ncmCount = findNodesByType(nif, root, "NiControllerManager", 1, &ncm);
+			//Assert::AreEqual(1, ncmCount, L"Found 1 controller manager");
+
+			// Root block has a controller manager
+			getBlock(nif, rootbuf.controllerID, &data.controllerManager);
+
+			//getControllerManager(ncm, &controllerManager);
+			//getBlock(nif, "NiControllerManager", &controllerManager)
+			Assert::AreEqual(1.0f, data.controllerManager.frequency, L"Frequency value correct");
+
+			// Controller manager has 2 controller sequences, partA and partB
+			getBlock(nif, data.controllerManager.nextControllerID, &data.mttc);
+			Assert::AreEqual(108, int(data.mttc.flags), L"Flags are correct");
+			Assert::AreEqual(2, int(data.controllerManager.controllerSequenceCount), L"Have right number of controller sequences");
+
+			uint32_t* cs = new uint32_t[data.controllerManager.controllerSequenceCount];
+			getControllerManagerSeq(nif, rootbuf.controllerID, data.controllerManager.controllerSequenceCount, cs);
+
+			getBlock(nif, cs[0], &data.ctlrSeq[0]);
+			getBlock(nif, cs[1], &data.ctlrSeq[1]);
+			Assert::IsTrue(TApproxEqual(3.3333, data.ctlrSeq[0].stopTime), L"StopTime correct");
+			Assert::AreEqual(2, int(data.controllerManager.controllerSequenceCount), L"Have correct number of sequences");
+
+			NiControllerSequenceBuf* seq = nullptr;
+			char* csName0 = new char[64];
+			char* csName1 = new char[64];
+			getString(nif, data.ctlrSeq[0].nameID, 64, csName0);
+			getString(nif, data.ctlrSeq[1].nameID, 64, csName1);
+			Assert::AreEqual(std::string("partA"), std::string(csName0), L"Have partA");
+			Assert::AreEqual(std::string("partB"), std::string(csName1), L"Have partB");
+
+			Assert::AreEqual(int(nifly::CYCLE_LOOP), int(data.ctlrSeq[0].cycleType), L"Have correct cycle type");
+
+			// Controller sequence partA has 7 controller link blocks
+			char* namebuf = new char[64];
+			int cbCount = data.ctlrSeq[0].controlledBlocksCount;
+			Assert::IsTrue(cbCount == 7, L"Found 7 controller links");
+			data.ctlrLink[0].bufSize = sizeof(ControllerLinkBuf) * cbCount;
+			getBlock(nif, cs[0], data.ctlrLink);
+			getString(nif, data.ctlrLink[0].nodeName, 64, namebuf);
+			Assert::AreEqual(std::string("GlowingOneGlowFXstreak:0"), std::string(namebuf), L"Have correct node name");
+
+			// First controller link block references a color controller and an interpolator
+			getBlock(nif, data.ctlrLink[0].controllerID, &data.ctlrColor);
+			Assert::AreEqual(104, int(data.ctlrColor.flags), L"Have correct flags");
+			Assert::AreEqual(int(EffectShaderControlledColorType::Emissive_Color), int(data.ctlrColor.controlledColorType),
+				L"Have correct controlled color type");
+			Assert::IsTrue(TApproxEqual(11.3333, data.ctlrColor.stopTime), L"StopTime correct");
+
+			getBlock(nif, data.ctlrLink[0].interpolatorID, &data.colorInterpolator);
+			getBlock(nif, data.colorInterpolator.dataID, &data.colorInterpData);
+			Assert::AreEqual(int(NiKeyType::QUADRATIC_KEY), int(data.colorInterpData.keys.interpolation), L"Have interpolation type");
+			
+			getBlock(nif, data.ctlrColor.interpolatorID, &data.blend3PointInterp);
+			Assert::AreEqual(2, int(data.blend3PointInterp.arraySize), L"Have correct array size");
+
+			Assert::AreEqual(9, int(data.colorInterpData.keys.numKeys), L"Have correct number of keys");
+			for (int i = 0; i < data.colorInterpData.keys.numKeys; i++)
+				getAnimKeyQuadTrans(nif, data.colorInterpolator.dataID, i, &data.colorKeyQuad[i]);
+			Assert::AreEqual(0.8f, data.colorKeyQuad[2].time, L"Have correct time");
+
+			// Second controller link block references a float controller
+			getBlock(nif, data.ctlrLink[1].controllerID, &data.ctlrFloat);
+			Assert::AreEqual(108, int(data.ctlrFloat.flags), L"Have correct flags");
+			Assert::AreEqual(int(EffectShaderControlledVariable::Alpha_Transparency), int(data.ctlrFloat.controlledVariable),
+				L"Have correct controlled variable");
+			Assert::IsTrue(TApproxEqual(11.3333, data.ctlrFloat.stopTime), L"StopTime correct");
+
+			getBlock(nif, data.ctlrLink[1].interpolatorID, &data.floatInterpolator);
+			getBlock(nif, data.floatInterpolator.dataID, &data.floatInterpData);
+			Assert::AreEqual(int(NiKeyType::QUADRATIC_KEY), int(data.floatInterpData.keys.interpolation), L"Have interpolation type");
+			Assert::AreEqual(2, int(data.floatInterpData.keys.numKeys), L"Have correct number of keys");
+			for (int i = 0; i < data.floatInterpData.keys.numKeys; i++)
+				getAnimKeyQuadFloat(nif, data.floatInterpolator.dataID, i, &data.floatKeyQuad[i]);
+			Assert::IsTrue(TApproxEqual(3.3333f, data.floatKeyQuad[1].time), L"Have correct time");
+
+			getBlock(nif, data.ctlrFloat.interpolatorID, &data.blendFloatInterp);
+			Assert::AreEqual(2, int(data.blendFloatInterp.arraySize), L"Have correct array size");
+		};
+		TEST_METHOD(colorController) {
+			/* Can import and export nif with animations (GlowingOne) */
+
+			void* nif = load((testRoot / "FO4/GlowingOne.nif").u8string().c_str());
+			int strlen = getMaxStringLen(nif);
+
+			GlowingOneData data;
+			TCheckGlowingOne(nif, data);
 		};
 
 		void TCheckAlduin(void* nif) {
