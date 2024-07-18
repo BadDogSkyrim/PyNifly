@@ -65,6 +65,8 @@ def load_nifly(nifly_path):
     nifly.getAnimKeyLinearTrans.restype = None
     nifly.getAnimKeyLinearXYZ.argtypes = [c_void_p, c_int, c_char, c_int, POINTER(NiAnimKeyLinearXYZBuf)]
     nifly.getAnimKeyLinearXYZ.restype = None
+    nifly.getAnimKeyQuadFloat.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyQuadXYZBuf)]
+    nifly.getAnimKeyQuadFloat.restype = None
     nifly.getAnimKeyQuadTrans.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyQuadTransBuf)]
     nifly.getAnimKeyQuadTrans.restype = None
     nifly.getAnimKeyQuadXYZ.argtypes = [c_void_p, c_int, c_char, c_int, POINTER(NiAnimKeyQuadXYZBuf)]
@@ -1077,7 +1079,7 @@ class NiNode(NiAVObject):
     @property
     def controller(self):
         if self._controller: return self._controller
-        
+        if self.properties.controllerID == NODEID_NONE: return None
         self._controller = self.file.read_node(node_id=self.properties.controllerID, parent=self)
         return self._controller
 
@@ -1247,6 +1249,36 @@ class QuadVectorKey:
         return f"<QuadVectorKey>(time={self.time}, value={self.value[:]}, forward={self.forward[:]}, backward={self.backward[:]})"
 
 
+class NiFloatData(NiObject):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, props=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=props, parent=parent)
+        if self._handle == None and self.id == NODEID_NONE:
+            self.id = NifFile.nifly.addBlock(
+                self.file._handle, 
+                None, 
+                byref(self.properties), 
+                parent.id if parent else NODEID_NONE)
+            self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
+        self._blockname = "NiFloatData"
+        self.keys = []
+
+        if self.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
+            self._readquadkey()
+
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiFloatDataBuf(values)
+    
+    def _readquadkey(self):
+        """Read keys when the type is QUADRATIC_KEY. These are time, value, forward, backward.
+        """
+        for frame in range(0, self.properties.keys.numKeys):
+            buf = NiAnimKeyQuadXYZBuf()
+            NifFile.nifly.getAnimKeyQuadFloat(self.file._handle, self.id, frame, buf)
+            k = QuadScalarKey(buf)
+            self.keys.append(k)
+
+
 class NiTransformData(NiKeyFrameData):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, props=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=props, parent=parent)
@@ -1339,7 +1371,6 @@ class NiTransformData(NiKeyFrameData):
         NifFile.nifly.addAnimKeyLinearQuat(self.file._handle, self.id, buf)
 
 
-
 class NiTransformInterpolator(NiObject):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, props=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=props, parent=parent)
@@ -1360,11 +1391,33 @@ class NiTransformInterpolator(NiObject):
     @property
     def data(self):
         if self._data: return self._data
-
         self._data = NiTransformData(file=self.file, id=self.properties.dataID)
         return self._data
 
+class NiFloatInterpolator(NiObject):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, props=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=props, parent=parent)
+        if self._handle == None and self.id == NODEID_NONE:
+            self.id = NifFile.nifly.addBlock(
+                self.file._handle, 
+                None, 
+                byref(self.properties), 
+                parent.id if parent else NODEID_NONE)
+            self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
+        self._data = None
+        self._blockname = "NiFloatInterpolator"
         
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiFloatInterpolatorBuf(values)
+    
+    @property
+    def data(self):
+        if self._data: return self._data
+
+        self._data = NiFloatData(file=self.file, id=self.properties.dataID)
+        return self._data
+
 class NiTimeController(NiObject):
     """Abstract class for time controllers. Keeping the chain of subclasses below
     because we'll likely need them eventually.
@@ -1376,10 +1429,8 @@ class NiTimeController(NiObject):
         else:
             return self.file.read_node(self.properties.nextControllerID)
 
-
 class NiInterpController(NiTimeController):
     pass
-
 
 class NiSingleInterpController(NiInterpController):
     @property 
@@ -1390,10 +1441,8 @@ class NiSingleInterpController(NiInterpController):
             return self.file.read_node(node_id=self.properties.interpolatorID,
                                        parent=self)
 
-
 class NiKeyframeController(NiSingleInterpController):
     pass
-
 
 class NiTransformController(NiKeyframeController):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
@@ -1411,6 +1460,15 @@ class NiMultiTargetTransformController(NiInterpController):
         # NifFile.nifly.getMultiTargetTransformController(
         #     self.file._handle, self.id, self.properties)
     
+class NiFloatInterpController(NiSingleInterpController):
+    pass
+
+class BSEffectShaderPropertyFloatController(NiFloatInterpController):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
+        super().__init__(handle=handle, file=file, id=id, parent=parent)
+        self._properties = BSEffectShaderPropertyFloatControllerBuf()
+        NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
+
 
 class ControllerLink:
     _nodename = None
@@ -1582,6 +1640,7 @@ class NiShader(NiObject):
         
         self._name = None
         self._textures = None
+        self._controller = None
 
     @property
     def name(self):
@@ -1688,6 +1747,13 @@ class NiShader(NiObject):
             if slot == 'EmitGradient':
                 self.properties.emitGradientTexture = texturepath.encode('utf-8')
 
+    @property
+    def controller(self):
+        if self._controller: return self._controller
+        if self.properties.controllerID == NODEID_NONE: return None
+        self._controller = self.file.read_node(node_id=self.properties.controllerID, parent=self)
+        return self._controller
+        
 
 class NiShaderFO4(NiShader):
     """
@@ -2809,6 +2875,9 @@ class NifFile:
         "NiTransformController": NiTransformController,
         "NiTransformInterpolator": NiTransformInterpolator,
         "NiControllerManager": NiControllerManager,
+        "BSEffectShaderPropertyFloatController": BSEffectShaderPropertyFloatController,
+        "NiFloatInterpolator": NiFloatInterpolator,
+        "NiFloatData": NiFloatData
     }
 
     def read_node(self, node_id, parent=None):
@@ -4797,6 +4866,27 @@ class ModuleTest:
         assert NearEqual(tdthighl.qrotations[0].value[0], 0.2911), f"Have correct angle: {tdthighl.qrotations[0].value}"
 
 
+    def TEST_ANIMATION_SHADER():
+        """Embedded animations on shaders"""
+        nif = NifFile(r"tests/Skyrim/daedriccuirass_1.nif")
+        root = nif.rootNode
+
+        # BSEffectShaderProperty can have a controller.
+        glowshape = nif.shape_dict['MaleTorsoGlow']
+        ctlr = glowshape.shader.controller
+        assert ctlr, f"Have shader controller {ctlr.blockname}"
+        assert ctlr.flags == 72, f"Have controller flags"
+        assert ctlr.controlledVariable == EffectShaderControlledVariable.V_Offset, f"Have correct controlled variable"
+        interp = ctlr.interpolator
+        assert interp, f"Have interpolator"
+        assert interp.data, f"Have interpolator data"
+        d = interp.data
+        assert d.properties.keys.numKeys == 3, f"Have correct number of keys"
+        assert NearEqual(d.keys[1].time, 3.333), f"Have correct time at 1"
+        assert NearEqual(d.keys[1].backward, -1), f"Have correct backwards value at 1"
+        return
+
+
     def TEST_KF():
         """Read and write KF animation file"""
         nif = NifFile(r"tests/SkyrimSE/1hm_attackpowerright.kf")
@@ -5089,6 +5179,6 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    tester.execute()
+    # tester.execute()
     # tester.execute(start=ModuleTest.TEST_BOW)
-    # tester.execute(test=ModuleTest.TEST_COLLISION_LIST)
+    tester.execute(test=ModuleTest.TEST_ANIMATION_SHADER)

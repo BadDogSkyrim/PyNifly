@@ -835,6 +835,18 @@ class SkyrimHavokMaterial(IntEnum):
             return SkyrimHavokMaterial(val).name
         except:
             return str(val)
+        
+class EffectShaderControlledVariable(IntEnum):
+	Emissive_Multiple = 0
+	Falloff_Start_Angle = 1
+	Falloff_Stop_Angle = 2
+	Falloff_Start_Opacity = 3
+	Falloff_Stop_Opacity = 4
+	Alpha_Transparency = 5
+	U_Offset = 6
+	U_Scale = 7
+	V_Offset = 8
+	V_Scale = 9
 
 class PynBufferTypes(IntEnum):
     NiNodeBufType = 0
@@ -876,7 +888,15 @@ class PynBufferTypes(IntEnum):
     BSLightingShaderPropertyBufType = 36
     BSShaderPPLightingPropertyBufType = 37
     NiTriShapeBufType = 38
-    COUNT = 39
+    BSEffectShaderPropertyColorControllerBufType = 39
+    NiPoint3InterpolatorBufType = 40
+    NiPosDataBufType = 41
+    BSEffectShaderPropertyFloatControllerBufType = 42
+    NiFloatInterpolatorBufType = 43
+    NiFloatDataBufType = 44
+    NiBlendPoint3InterpolatorBufType = 45 
+    NiBlendFloatInterpolatorBufType = 46   
+    COUNT = 47
 
 bufferTypeList = [''] * PynBufferTypes.COUNT
 blockBuffers = {}
@@ -1718,6 +1738,26 @@ class NiTransformControllerBuf(pynStructure):
 bufferTypeList[PynBufferTypes.NiTransformControllerBufType] = 'NiTransformController'
 blockBuffers['NiTransformController'] = NiTransformControllerBuf
 
+class BSEffectShaderPropertyFloatControllerBuf(pynStructure):
+    _fields_ = [
+	    ("bufSize", c_uint16),
+        ("bufType", c_uint16),
+        ("nextControllerID", c_uint32),
+        ("flags", c_uint16),
+        ("frequency", c_float),
+        ("phase", c_float),
+        ("startTime", c_float),
+        ("stopTime", c_float),
+	    ("targetID", c_uint32),
+        ("interpolatorID", c_uint32),
+        ("controlledVariable", c_uint32),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BSEffectShaderPropertyFloatControllerBufType
+bufferTypeList[PynBufferTypes.BSEffectShaderPropertyFloatControllerBufType] = 'BSEffectShaderPropertyFloatController'
+blockBuffers['BSEffectShaderPropertyFloatController'] = BSEffectShaderPropertyFloatControllerBuf
+
 class NiTransformInterpolatorBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
@@ -1732,6 +1772,19 @@ class NiTransformInterpolatorBuf(pynStructure):
         self.bufType = PynBufferTypes.NiTransformInterpolatorBufType
 bufferTypeList[PynBufferTypes.NiTransformInterpolatorBufType] = 'NiTransformInterpolator'
 blockBuffers['NiTransformInterpolator'] = NiTransformInterpolatorBuf
+
+class NiFloatInterpolatorBuf(pynStructure):
+    _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
+        ("floatValue", c_float),
+        ("dataID", c_uint32),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.NiFloatInterpolatorBufType
+bufferTypeList[PynBufferTypes.NiFloatInterpolatorBufType] = 'NiFloatInterpolator'
+blockBuffers['NiFloatInterpolator'] = NiFloatInterpolatorBuf
 
 class NiAnimationKeyGroupBuf(pynStructure):
     _fields_ = [
@@ -1756,6 +1809,18 @@ class NiTransformDataBuf(pynStructure):
         self.bufType = PynBufferTypes.NiTransformDataBufType
 bufferTypeList[PynBufferTypes.NiTransformDataBufType] = 'NiTransformData'
 blockBuffers['NiTransformData'] = NiTransformDataBuf
+
+class NiFloatDataBuf(pynStructure):
+    _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
+        ("keys", NiAnimationKeyGroupBuf), 
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.NiFloatDataBufType
+bufferTypeList[PynBufferTypes.NiFloatDataBufType] = 'NiTransformData'
+blockBuffers['NiTransformData'] = NiFloatDataBuf
 
 class NiAnimKeyQuadXYZBuf(pynStructure):
     _fields_ = [

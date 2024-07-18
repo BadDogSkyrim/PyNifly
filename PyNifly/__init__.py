@@ -2229,7 +2229,21 @@ class NifImporter():
 
     def import_color_controller(self, seq:NiSequence, block:ControllerLink):
         """Import one controlled block."""
-        xf = Matrix.Identity(4)
+        if block.node_name in self.nif.nodes:
+            target_node = self.nif.nodes[block.node_name]
+
+            if target_node._handle in self.objects_created:
+                target_obj = self.objects_created[target_node._handle]
+            else:
+                self.warn(f"Target object was not imported: {block.node_name}")
+                return
+        else:
+            self.warn(f"Target block not found in nif. Is it corrupt? ({block.node_name})")
+
+        action_group = "Color Property Transforms"
+        path_name = None
+        action_name = f"{block.node_name}_{seq.name}"
+
         
     def import_transform_controller(self, seq:NiSequence, block:ControllerLink):
         """Import one controlled block."""

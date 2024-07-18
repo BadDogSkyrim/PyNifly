@@ -5539,8 +5539,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_SHADER_EFFECT_GHOUL] )
-    # do_tests( [TEST_SHADER_GRAYSCALE_COLOR] )
+    do_tests( [TEST_SHADER_GRAYSCALE_COLOR] )
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
