@@ -16,6 +16,8 @@ Full documentation in the wiki.
 * Handles Skyrim and FO4 partitions and FO4 segments
 * Handles skinned and unskinned meshes correctly. Exports head parts to SE correctly.
 * Handles shaders correctly. Set them up in Blender and export.
+* Special handling for FO4 connect points on weapons, armor, and workshop parts.
+* Some support for animations in nifs.
 * Import-and-forget. What you import will behave correctly on export without fiddling.
 
 **Background**
