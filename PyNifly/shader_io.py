@@ -1221,55 +1221,34 @@ class ShaderImporter:
                 except:
                     self.link(simgnode.outputs['Color'], self.bsdf.inputs['Specular'])
 
-            # c = self.make_node('ShaderNodeRGB',
-            #                    name='Specular Color',
-            #                    xloc=simgnode.location.x,
-            #                    height=COLOR_NODE_HEIGHT)
-            # for i, v in enumerate(self.shape.shader.Spec_Color):
-            #     c.outputs[0].default_value[i] = v
-            # self.link(c.outputs[0], self.bsdf.inputs['Specular Color'])
             for i, v in enumerate(self.shape.shader.Spec_Color):
                 self.bsdf.inputs['Specular Color'].default_value[i] = v
 
-            # c = self.make_node('ShaderNodeValue',
-            #                    name='Specular Strength',
-            #                    xloc=simgnode.location.x,
-            #                    height=INPUT_NODE_HEIGHT)
-            # c.outputs[0].default_value = self.shape.shader.Spec_Str
-            # try:
-            #     self.bsdf.inputs['Specular Multiplier'].default_value = self.shape.shader.Spec_Str
-            #     # self.link(c.outputs[0], self.bsdf.inputs['Specular Multiplier'])
-            # except:
             if 'Specular Str' in self.bsdf.inputs:
                 self.bsdf.inputs['Specular Str'].default_value = self.shape.shader.Spec_Str
-                # self.link(c.outputs[0], self.bsdf.inputs['Specular Str'])
 
-            # if self.game in ["FO4"]:
-            #     # specular combines gloss and spec
-            #     invg = self.nodes.new("ShaderNodeInvert")
-            #     invg.location = (self.inter2_offset_x, simgnode.location.y-50)
-            #     self.link(invg.outputs['Color'], self.bsdf.inputs['Roughness'])
-            #     last_node = invg
 
-            #     try:
-            #         seprgb = self.make_node("ShaderNodeSeparateColor", 
-            #                                 xloc=self.inter1_offset_x,
-            #                                 yloc=simgnode.location.y)
-            #         seprgb.mode = 'RGB'
-            #         self.link(simgnode.outputs['Color'], seprgb.inputs['Color'])
-            #         spec_socket = seprgb.outputs['Red']
-            #         self.link(seprgb.outputs['Green'], invg.inputs['Color'])
-            #     except:
-            #         seprgb = self.nodes.new("ShaderNodeSeparateRGB", 
-            #                                 xloc=self.inter1_offset_x,
-            #                                 yloc=simgnode.location.y)
-            #         self.link(simgnode.outputs['Color'], seprgb.inputs['Image'])
-            #         spec_socket = seprgb.outputs['R']
-            #         self.link(seprgb.outputs['G'], invg.inputs['Color'])
-
-            # else:
-            #     # Skyrim just has a specular in the specular.
-            #     spec_socket = simgnode.outputs['Color']
+    def import_glowmap(self):
+        """Set up nodes for glow map texture"""
+        if self.shape.shader.shaderflags2_test(ShaderFlags2.GLOW_MAP) \
+                and 'Glow' in self.textures \
+                    and self.shape.textures['Glow']:
+            # Make the glow map texture input node.
+            simgnode = self.make_node("ShaderNodeTexImage",
+                                      name='Glow_Map_Texture',
+                                      xloc=self.bsdf.location.x + self.img_offset_x,
+                                      height=TEXTURE_NODE_HEIGHT)
+            if 'Glow' in self.textures and self.textures['Glow']:
+                simg = bpy.data.images.load(self.textures['Glow'], check_existing=True)
+                simg.colorspace_settings.name = "Non-Color"
+                simgnode.image = simg
+            else:
+                self.warn(f"Could not load glow map texture '{self.shape.textures['Glow']}")
+            self.link(self.texmap.outputs['Vector'], simgnode.inputs['Vector'])
+            try: 
+                self.link(simgnode.outputs['Color'], self.bsdf.inputs['Glow Map'])
+            except:
+                pass
 
 
     def import_normal(self):
@@ -1424,6 +1403,7 @@ class ShaderImporter:
         self.import_subsurface()
         self.import_specular()
         self.import_normal()
+        self.import_glowmap()
         self.make_input_nodes()
         self.import_envmap()
         self.import_envmask()
@@ -1616,7 +1596,8 @@ class ShaderExporter:
     texture_slots = {"EnvMap": (1, ShaderFlags1.ENVIRONMENT_MAPPING),
                      "EnvMask": (2, ShaderFlags2.ENVMAP_LIGHT_FADE),
                      "SoftLighting": (2, ShaderFlags2.SOFT_LIGHTING),
-                     "Specular": (1, ShaderFlags1.SPECULAR)}
+                     "Specular": (1, ShaderFlags1.SPECULAR),
+                     "Glow": (2, ShaderFlags2.GLOW_MAP)}
     
     def shader_flag_get(self, shape, textureslot):
         if textureslot in self.texture_slots:

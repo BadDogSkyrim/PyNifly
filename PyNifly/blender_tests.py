@@ -1768,6 +1768,28 @@ def TEST_SHADER_GLOW():
     assert glowin.shader.Emissive_Color[:] == glowout.shader.Emissive_Color[:], f"Emissive_Color correct: {glowout.shader.Emissive_Color}"
 
 
+def TEST_SHADER_SPRIGGAN():
+    """Test that the special spriggan elements work correctly."""
+    testfile = TT.test_file(r"tests\Skyrim\spriggan.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SHADER_SPRIGGAN.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    bod = TT.find_object('SprigganFxTestUnified:0', bpy.context.selected_objects, fn=lambda x: x.name)
+    assert len([x for x in bod.active_material.node_tree.nodes 
+                if x.type=='TEX_IMAGE' and 'spriggan_g' in x.image.name.lower()]
+                ), f"Spriggan loaded with glow map"
+
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+    testnif = pyn.NifFile(testfile)
+    testbod = testnif.shape_dict['SprigganFxTestUnified:0']
+    outnif = pyn.NifFile(outfile)
+    outbod = outnif.shape_dict['SprigganFxTestUnified:0']
+    assert outbod.shader.shaderflags2_test(nifdefs.ShaderFlags2.GLOW_MAP), \
+        f"Glow map flag is set"
+    assert outbod.shader.textures['Glow'].lower().endswith('spriggan_g.dds')
+
+
+
 def TEST_SHADER_ALPHA():
     """Shader attributes are read and turned into Blender shader nodes"""
     # Alpha property is translated into equivalent Blender nodes.
@@ -5539,7 +5561,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_SHADER_GRAYSCALE_COLOR] )
+    do_tests( [TEST_SHADER_SPRIGGAN] )
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (

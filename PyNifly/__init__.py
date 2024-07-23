@@ -2675,7 +2675,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
     # )
 
     def __init__(self):
-        if bpy.context.object and bpy.context.object.type == 'ARMATURE':
+        if bpy.context.object and bpy.context.object.select_get() and bpy.context.object.type == 'ARMATURE':
             # We are loading into an existing armature. The various settings should match.
             arma = bpy.context.object
             self.use_blender_xf = ('PYN_BLENDER_XF' in arma and arma['PYN_BLENDER_XF'])
