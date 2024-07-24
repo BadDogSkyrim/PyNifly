@@ -172,7 +172,9 @@ def append_groupnode(parent, name, label, shader_path, location):
         log.warn(f"Could not load shader nodes {name} from assets file: {traceback.format_exc()}")
 
 
-def make_shader_skyrim(parent, shader_path, location, msn=False, facegen=False, colormap_name='Col'):
+def make_shader_skyrim(parent, shader_path, location, 
+                       msn=False, facegen=False, effect_shader=False, 
+                       colormap_name='Col'):
     """
     Returns a group node implementing a shader for Skyrim.
     """
@@ -188,6 +190,11 @@ def make_shader_skyrim(parent, shader_path, location, msn=False, facegen=False, 
                 data_to.node_groups = ["SkyrimShader:MSN"]
             shader_node = parent.nodes.new('ShaderNodeGroup')
             shader_node.name = shader_node.label = ('Skyrim Shader - MSN')
+        elif effect_shader:
+            with bpy.data.libraries.load(shader_path) as (data_from, data_to):
+                data_to.node_groups = ["SkyrimShader:Effect"]
+            shader_node = parent.nodes.new('ShaderNodeGroup')
+            shader_node.name = shader_node.label = ('Skyrim Shader - Effect')
         else:
             with bpy.data.libraries.load(shader_path) as (data_from, data_to):
                 data_to.node_groups = ["SkyrimShader:TSN"]
@@ -439,23 +446,32 @@ def make_shader_skyrim(parent, shader_path, location, msn=False, facegen=False, 
     return shader_node
 
 
-def make_shader_fo4(parent, shader_path, location, facegen=True):
+def make_shader_fo4(parent, shader_path, location, facegen=True, effect_shader=False):
     """
     Returns a group node implementing a shader for FO4.
 
-    If facegen == true, shader includes tint layers.
+    facegen == true: shader includes tint layers
+    effect_shader == true: Modeling a BSEffectShaderProperty
     """
     try:
-        shadername = "Fallout 4 MTS - Face" if facegen else "Fallout 4 MTS"
+        shadername = shaderlabel = "Fallout 4 MTS"
+        if effect_shader:
+            shadername = "Fallout 4 Effect"
+            shaderlabel = "FO4 Effect Shader"
+        elif facegen:
+            shadername = "Fallout 4 MTS - Face"  
+            shaderlabel = "FO4 Face Shader"
+
         with bpy.data.libraries.load(shader_path) as (data_from, data_to):
             data_to.node_groups = [shadername]
 
         shader_node = parent.nodes.new('ShaderNodeGroup')
-        shader_node.name = shader_node.label = ('FO4 Face Shader' if facegen else 'FO4 Shader')
+        shader_node.name = shader_node.label = shaderlabel
         shader_node.location = location
         shader_node.node_tree = data_to.node_groups[0]
 
         return shader_node
+    
     except Exception as e:
         log.warn(f"Could not load shader from assets file: {traceback.format_exc()}; building nodes directly")
 
@@ -802,7 +818,7 @@ def get_effective_colormaps(mesh):
     return colormap, alphamap
 
 
-def make_mixnode(nodetree, input1, input2, output=None, factor=None, 
+def make_mixnode(nodetree, input1, input2, output=None, factor=1.0, 
                  blend_type='MULTIPLY', location=None):
     """
     Create a shader RGB mix node--or fall back if it's an older version of Blender.
@@ -830,13 +846,17 @@ def make_mixnode(nodetree, input1, input2, output=None, factor=None,
         pass
 
     nodetree.links.new(input1, mixnode.inputs[MIXNODE_IN1])
-    nodetree.links.new(input2, mixnode.inputs[MIXNODE_IN2])
+    try:
+        nodetree.links.new(input2, mixnode.inputs[MIXNODE_IN2])
+    except:
+        for i, v in enumerate(input2):
+            mixnode.inputs[MIXNODE_IN2].default_value[i] = v
     if output: nodetree.links.new(mixnode.outputs[MIXNODE_OUT], output)
     mixnode.blend_type = blend_type
-    if factor is None:
-        mixnode.inputs[MIXNODE_FACTOR].default_value = 1
-    else:
+    try:
         nodetree.links.new(factor, mixnode.inputs[MIXNODE_FACTOR])
+    except:
+        mixnode.inputs[MIXNODE_FACTOR].default_value = factor
     
     if location: mixnode.location = location
 
@@ -858,6 +878,8 @@ class ShaderImporter:
         self.do_specular = False
         self.asset_path = False
         self.have_errors = False
+        self.is_lighting_shader = True
+        self.is_effect_shader = False
 
         self.inputs_offset_x = -1900
         self.calc1_offset_x = -1700
@@ -908,13 +930,9 @@ class ShaderImporter:
             self.bsdf.inputs['Emission Color'].default_value = shader.Emissive_Color[:]
             self.bsdf.inputs['Emission Strength'].default_value = shader.Emissive_Mult
 
-            if (shader.blockname == 'BSLightingShaderProperty'
-                and 'Glossiness' in self.bsdf.inputs):
-                # self.nodes['Alpha'].outputs[0].default_value = shader.Alpha
-                # if 'Glossiness' in self.nodes:
-                #     self.nodes['Glossiness'].outputs['Value'].default_value = shader.Glossiness
+            if (self.is_lighting_shader and 'Glossiness' in self.bsdf.inputs):
                 self.bsdf.inputs['Glossiness'].default_value = shader.Glossiness
-            elif shape.shader_block_name == 'BSEffectShaderProperty':
+            elif self.is_effect_shader:
                 self.bsdf.inputs['Alpha'].default_value = shader.falloffStartOpacity
 
             self.texmap.inputs['Offset U'].default_value = shape.shader.UV_Offset_U
@@ -923,6 +941,8 @@ class ShaderImporter:
             self.texmap.inputs['Scale V'].default_value = shape.shader.UV_Scale_V
             self.texmap.inputs['Clamp S'].default_value = (shape.shader.textureClampMode & 2) / 2
             self.texmap.inputs['Clamp T'].default_value = shape.shader.textureClampMode & 1
+
+            self.material.use_backface_culling = not shape.shader.shaderflags2_test(ShaderFlags2.DOUBLE_SIDED)
 
         except Exception as e:
             # Any errors, print the error but continue
@@ -974,18 +994,6 @@ class ShaderImporter:
         # self.link(clamps.outputs['Value'], self.texmap.inputs['Clamp S'])
         # self.link(clampt.outputs['Value'], self.texmap.inputs['Clamp T'])
 
-
-    def make_input_nodes(self):
-        """Make additional input nodes."""
-        pass # Not separating nif values into their own value nodes anymore
-        # if self.shape.shader.properties.bufType == PynBufferTypes.BSLightingShaderPropertyBufType:
-        #     if self.game in ['SKYRIM', 'SKYRIMSE']:
-        #         gl = self.make_node('ShaderNodeValue', 
-        #                             name='Glossiness', 
-        #                             xloc=self.diffuse.location.x, 
-        #                             height=INPUT_NODE_HEIGHT)
-            
-        #         self.link(gl.outputs['Value'], self.bsdf.inputs['Glossiness'])
 
     def import_shader_alpha(self, shape):
         if shape.has_alpha_property:
@@ -1073,7 +1081,6 @@ class ShaderImporter:
 
     def import_diffuse(self):
         """Create nodes for the diffuse texture."""
-        self.ytop = self.bsdf.location.y + 2 * TEXTURE_NODE_HEIGHT
 
         if not ('Diffuse' in self.shape.textures and self.shape.textures['Diffuse']):
             return
@@ -1082,6 +1089,7 @@ class ShaderImporter:
                                  name='Diffuse_Texture',
                                  xloc=self.bsdf.location.x + self.img_offset_x,
                                  height=TEXTURE_NODE_HEIGHT)
+        txtnode.width = txtnode.width * 1.2
         if 'Diffuse' in self.textures and self.textures['Diffuse']:
             img = bpy.data.images.load(self.textures['Diffuse'], check_existing=True)
             img.colorspace_settings.name = "sRGB"
@@ -1089,6 +1097,21 @@ class ShaderImporter:
         else:
             self.warn(f"Could not load diffuse texture '{self.shape.textures['Diffuse']}")
         self.link(self.texmap.outputs['Vector'], txtnode.inputs['Vector'])
+        txt_outskt = txtnode.outputs['Color']
+        loc = Vector((txtnode.location.x + txtnode.width + self.gap_x, 
+                      txtnode.location.y))
+
+        # # Seems like Emissive Color should affect diffuse.
+        # if self.shape.shader.shaderflags1_test(ShaderFlags1.EXTERNAL_EMITTANCE):
+        #     mix_emit = make_mixnode(self.material.node_tree, 
+        #                             txtnode.outputs['Color'],
+        #                             self.shape.shader.properties.emittanceColor,
+        #                             None,
+        #                             0.5,
+        #                             'MIX',
+        #                             loc)
+        #     txt_outskt = mix_emit.outputs['Result']
+        #     loc += Vector((mix_emit.width + self.gap_x, 0))
 
         if self.shape.shader.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_COLOR):
             # Extra nodes to handle greyscale color mapping
@@ -1097,16 +1120,22 @@ class ShaderImporter:
                                          "Fallout 4 MTS - Greyscale To Palette Vector",
                                          "Greyscale to Palette Vector",
                                          self.asset_path,
-                                         (txtnode.location.x + txtnode.width + self.gap_x, 
-                                          txtnode.location.y))
+                                         loc)
             gtpvector.width = txtnode.width
-            gtpvector.inputs['Palette'].default_value = self.shape.shader.properties.grayscaleToPaletteScale
-            self.link(txtnode.outputs['Color'], gtpvector.inputs['Diffuse'])
+            loc += Vector((gtpvector.width + self.gap_x, 0))
+            if self.is_effect_shader:
+                # EffectShader doesn't have a grayscaleToPaletteScale value. Use 0.99
+                # instead of 1.0 because 1.0 wraps around to 0.
+                gtpvector.inputs['Palette'].default_value = 0.99
+            else:
+                gtpvector.inputs['Palette'].default_value = self.shape.shader.properties.grayscaleToPaletteScale
+            self.link(txt_outskt, gtpvector.inputs['Diffuse'])
 
             palettenode = self.make_node("ShaderNodeTexImage",
                                          name='Palette Vector',
-                                         xloc=gtpvector.location.x + gtpvector.width + self.gap_x,
-                                         yloc=txtnode.location.y)
+                                         xloc=loc.x,
+                                         yloc=loc.y)
+            loc += Vector((palettenode.width + self.gap_x, 0))
             if 'Greyscale' in self.textures and self.textures['Greyscale']:
                 imgp = bpy.data.images.load(self.textures['Greyscale'])
                 imgp.colorspace_settings.name = "sRGB"
@@ -1119,9 +1148,9 @@ class ShaderImporter:
                                         "Fallout 4 MTS - Greyscale To Palette Color",
                                         "Greyscale To Palette Color", 
                                          self.asset_path,
-                                        (palettenode.location.x + palettenode.width + self.gap_x,
-                                          palettenode.location.y))
+                                        loc)
             gtpcolor.width = txtnode.width
+            loc += Vector((gtpcolor.width + self.gap_x, 0))
             self.link(palettenode.outputs["Color"], gtpcolor.inputs['Greyscale'])
             self.link(gtpcolor.outputs['Diffuse'], self.bsdf.inputs['Diffuse'])
             # self.bsdf.location.x += self.img_offset_x*4
@@ -1130,7 +1159,7 @@ class ShaderImporter:
             self.bsdf_xadjust = gtpcolor.location.x + gtpcolor.width - gtpvector.location.x
 
         else:
-            self.link(txtnode.outputs['Color'], self.bsdf.inputs['Diffuse'])
+            self.link(txt_outskt, self.bsdf.inputs['Diffuse'])
 
         if self.shape.has_alpha_property:
             self.link(txtnode.outputs['Alpha'], self.bsdf.inputs['Alpha'])
@@ -1198,9 +1227,9 @@ class ShaderImporter:
 
     def import_specular(self):
         """Set up nodes for specular texture"""
-        if self.shape.shader.shaderflags1_test(ShaderFlags1.SPECULAR) \
-                and 'Specular' in self.textures \
-                    and self.shape.textures['Specular']:
+        if self.shape.shader.shaderflags1_test(ShaderFlags1.SPECULAR):
+                # and 'Specular' in self.textures \
+                #     and self.shape.textures['Specular']:
             # Make the specular texture input node.
             simgnode = self.make_node("ShaderNodeTexImage",
                                       name='Specular_Texture',
@@ -1346,6 +1375,10 @@ class ShaderImporter:
 
         self.shape = shape
         self.game = shape.file.game
+        self.is_effect_shader = (shape.shader.blockname == 'BSEffectShaderProperty')
+        self.is_lighting_shader = (shape.shader.blockname == 'BSLightingShaderProperty')
+        have_face = (self.is_lighting_shader and 
+                     shape.shader.properties.Shader_Type == BSLSPShaderType.Face_Tint)
         self.asset_path = os.path.join(asset_path, "shaders.blend")
 
         self.material = bpy.data.materials.new(name=(obj.name + ".Mat"))
@@ -1363,18 +1396,19 @@ class ShaderImporter:
         mo = self.nodes['Material Output']
         have_face = False
 
-        have_face = (shape.shader.properties.Shader_Type == BSLSPShaderType.Face_Tint)
         if self.game == 'FO4':
             self.bsdf = make_shader_fo4(self.material.node_tree, 
                                         self.asset_path, 
                                         (mo.location.x - NODE_WIDTH, mo.location.y),
-                                        facegen=have_face)
+                                        facegen=have_face,
+                                        effect_shader=self.is_effect_shader)
         else:
             self.bsdf = make_shader_skyrim(self.material.node_tree,
                                            self.asset_path,
                                            mo.location + Vector((-NODE_WIDTH, 0)),
                                            msn=shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS),
-                                           facegen=have_face)
+                                           facegen=have_face,
+                                           effect_shader=self.is_effect_shader)
         
         self.bsdf.width = 250
         self.bsdf.location.x -= 100
@@ -1404,7 +1438,6 @@ class ShaderImporter:
         self.import_specular()
         self.import_normal()
         self.import_glowmap()
-        self.make_input_nodes()
         self.import_envmap()
         self.import_envmask()
         self.import_shader_attrs(shape)
@@ -1550,11 +1583,6 @@ class ShaderExporter:
             if 'UV_Scale_V' in nl:
                 shape.shader.properties.UV_Scale_V = nl['UV_Scale_V'].outputs['Value'].default_value
             
-            # texmode = 0
-            # if 'Clamp_S' in nl:
-            #     texmode = 2 * max(min(nl['Clamp_S'].outputs['Value'].default_value, 1), 0)
-            # if 'Clamp_T' in nl:
-            #     texmode += max(min(nl['Clamp_T'].outputs['Value'].default_value, 1), 0)
             texmode = (2*nl['UV_Converter'].inputs['Clamp S'].default_value 
                        + nl['UV_Converter'].inputs['Clamp T'].default_value)
             shape.shader.properties.textureClampMode = int(texmode)
@@ -1569,7 +1597,7 @@ class ShaderExporter:
                 shape.shader.properties.baseColor[i] = self.shader_node.inputs['Emission Color'].default_value[i] 
                 # shape.shader.properties.baseColor[i] = nl['Emissive_Color'].outputs[0].default_value[i] 
 
-            if shape.shader.blockname == "BSLightingShaderProperty":
+            if not self.is_effectshader:
                 skt = self.shader_node.inputs['Alpha Mult']
                 if skt.is_linked:
                     shape.shader.properties.Alpha = skt.links[0].from_socket.default_value
@@ -1671,8 +1699,11 @@ class ShaderExporter:
         else:
             # Look through the node tree behind the texture slot to find the right image
             # node.
-            imagenodes = BD.find_node(self.shader_node.inputs[textureslot], "ShaderNodeTexImage")
-            if imagenodes: imagenode = imagenodes[0]
+            try:
+                imagenodes = BD.find_node(self.shader_node.inputs[textureslot], "ShaderNodeTexImage")
+                if imagenodes: imagenode = imagenodes[0]
+            except:
+                pass
         
         if imagenode:
             # Make sure the shader flags reflect the nodes we found.

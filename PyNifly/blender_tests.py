@@ -1776,7 +1776,7 @@ def TEST_SHADER_SPRIGGAN():
     bpy.ops.import_scene.pynifly(filepath=testfile)
     bod = TT.find_object('SprigganFxTestUnified:0', bpy.context.selected_objects, fn=lambda x: x.name)
     assert len([x for x in bod.active_material.node_tree.nodes 
-                if x.type=='TEX_IMAGE' and 'spriggan_g' in x.image.name.lower()]
+                if x.type=='TEX_IMAGE' and x.image and 'spriggan_g' in x.image.name.lower()]
                 ), f"Spriggan loaded with glow map"
 
     bpy.ops.export_scene.pynifly(filepath=outfile)
@@ -1787,6 +1787,8 @@ def TEST_SHADER_SPRIGGAN():
     assert outbod.shader.shaderflags2_test(nifdefs.ShaderFlags2.GLOW_MAP), \
         f"Glow map flag is set"
     assert outbod.shader.textures['Glow'].lower().endswith('spriggan_g.dds')
+    outleaves = outnif.shape_dict['SprigganBodyLeaves']
+    assert outleaves.shader.blockname == 'BSEffectShaderProperty', f"Leaves have effect shader"
 
 
 
@@ -5561,7 +5563,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_SHADER_SPRIGGAN] )
+    do_tests( [TEST_SHADER_EFFECT_GHOUL] )
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
