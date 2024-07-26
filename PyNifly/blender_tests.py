@@ -1745,7 +1745,8 @@ def TEST_SHADER_GLOW():
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_GLOW.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    bpy.ops.export_scene.pynifly(filepath=outfile)
+    bpy.ops.export_scene.pynifly(filepath=outfile,
+                                 export_colors=True)
 
     n = pyn.NifFile(testfile)
     nout = pyn.NifFile(outfile)
@@ -1766,6 +1767,7 @@ def TEST_SHADER_GLOW():
     assert glowin.shader.UV_Scale_V == glowout.shader.UV_Scale_V, f"UV_Scale_V correct: {glowout.shader.UV_Scale_V}"
     assert glowin.shader.Emissive_Mult == glowout.shader.Emissive_Mult, f"Emissive_Mult correct: {glowout.shader.Emissive_Mult}"
     assert glowin.shader.Emissive_Color[:] == glowout.shader.Emissive_Color[:], f"Emissive_Color correct: {glowout.shader.Emissive_Color}"
+    assert glowin.hasVertexColors == glowout.hasVertexColors == 1, f"Vertex colors exported correctly"
 
 
 def TEST_SHADER_SPRIGGAN():
@@ -5563,7 +5565,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_SHADER_EFFECT_GHOUL] )
+    do_tests( [TEST_SHADER_SPRIGGAN] )
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
