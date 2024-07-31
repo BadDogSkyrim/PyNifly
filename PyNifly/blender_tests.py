@@ -22,10 +22,12 @@ from trihandler import *
 import importlib
 import skeleton_hkx
 import shader_io
+import controller
 importlib.reload(pyn)
 importlib.reload(TT)
 importlib.reload(BD)
 importlib.reload(shader_io)
+importlib.reload(controller)
 importlib.reload(skeleton_hkx)
 
 log = logging.getLogger("pynifly")
@@ -1768,6 +1770,8 @@ def TEST_SHADER_GLOW():
     assert glowin.shader.Emissive_Mult == glowout.shader.Emissive_Mult, f"Emissive_Mult correct: {glowout.shader.Emissive_Mult}"
     assert glowin.shader.Emissive_Color[:] == glowout.shader.Emissive_Color[:], f"Emissive_Color correct: {glowout.shader.Emissive_Color}"
     assert glowin.hasVertexColors == glowout.hasVertexColors == 1, f"Vertex colors exported correctly"
+
+    assert glowout.shader.controller, f"Have shader controller on output"
 
 
 def TEST_SHADER_SPRIGGAN():
@@ -5565,7 +5569,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_SHADER_SPRIGGAN] )
+    do_tests( [TEST_SHADER_GLOW] )
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (

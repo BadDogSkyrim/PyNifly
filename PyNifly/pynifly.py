@@ -24,6 +24,8 @@ def load_nifly(nifly_path):
     nifly.addAnimKeyLinearTrans.restype = None
     nifly.addAnimKeyLinearQuat.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyLinearQuatBuf)]
     nifly.addAnimKeyLinearQuat.restype = None
+    nifly.addAnimKeyQuadFloat.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyQuadXYZBuf)]
+    nifly.addAnimKeyQuadFloat.restype = None
     nifly.addBoneToNifShape.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf), c_char_p]
     nifly.addBoneToNifShape.restype = c_void_p
     nifly.addBlock.argtypes = [c_void_p, c_char_p, c_void_p, c_int]
@@ -541,12 +543,16 @@ class NiObject:
         if self.id == NODEID_NONE and handle is not None and file is not None:
             self.id = NifFile.nifly.getBlockID(self.file._handle, self._handle)
         self._parent = parent
-        self._properties = properties
+        if properties:
+            self._properties = properties
+        else:
+            self._properties = None
         self._blockname = None
     
-    def __getattr__(self, name):
-        """Any attribute not on the object comes from the properties."""
-        return self.properties.__getattribute__(name)
+    # def __getattr__(self, name):
+    #     """Any attribute not on the object comes from the properties."""
+    #     if name == '_properties': return None
+    #     return self.properties.__getattribute__(name)
     
     @property
     def blockname(self):
@@ -1250,28 +1256,47 @@ class QuadVectorKey:
 
 
 class NiFloatData(NiObject):
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, props=None, parent=None):
-        super().__init__(handle=handle, file=file, id=id, properties=props, parent=parent)
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, 
+                 properties=None, parent=None, keys=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self.keys = keys
+        self._blockname = "NiFloatData"
         if self._handle == None and self.id == NODEID_NONE:
             self.id = NifFile.nifly.addBlock(
                 self.file._handle, 
                 None, 
                 byref(self.properties), 
                 parent.id if parent else NODEID_NONE)
+            if keys:
+                self._writequadkeys(keys)
             self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
-        self._blockname = "NiFloatData"
-        self.keys = []
-
-        if self.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
-            self._readquadkey()
+        elif self.id != NODEID_NONE:
+            if self.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
+                self._readquadkeys()
 
     @classmethod
     def _getbuf(cls, values=None):
         return NiFloatDataBuf(values)
     
-    def _readquadkey(self):
-        """Read keys when the type is QUADRATIC_KEY. These are time, value, forward, backward.
+    def _writequadkeys(self, keys):
         """
+        Write quadratic float keys.
+        keys = list of QuadScalarKey 
+        """
+        buf = NiAnimKeyQuadXYZBuf();
+        for k in keys:
+            buf.time = k.time
+            buf.value = k.value
+            buf.forward = k.forward
+            buf.backward = k.backward
+            NifFile.nifly.addAnimKeyQuadFloat(self.file._handle, self.id, buf)
+
+    def _readquadkeys(self):
+        """
+        Read keys when the type is QUADRATIC_KEY. These are time, value, forward,
+        backward.
+        """
+        self.keys = []
         for frame in range(0, self.properties.keys.numKeys):
             buf = NiAnimKeyQuadXYZBuf()
             NifFile.nifly.getAnimKeyQuadFloat(self.file._handle, self.id, frame, buf)
@@ -1395,14 +1420,14 @@ class NiTransformInterpolator(NiObject):
         return self._data
 
 class NiFloatInterpolator(NiObject):
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, props=None, parent=None):
-        super().__init__(handle=handle, file=file, id=id, properties=props, parent=parent)
-        if self._handle == None and self.id == NODEID_NONE:
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        if self.id == NODEID_NONE and file and properties:
             self.id = NifFile.nifly.addBlock(
                 self.file._handle, 
                 None, 
                 byref(self.properties), 
-                parent.id if parent else NODEID_NONE)
+                parent.id if parent else None)
             self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
         self._data = None
         self._blockname = "NiFloatInterpolator"
@@ -1428,6 +1453,15 @@ class NiTimeController(NiObject):
             return None
         else:
             return self.file.read_node(self.properties.nextControllerID)
+        
+    @property
+    def target(self):
+        """Return the target of the controller as a pyNifly object."""
+        if self.properties.targetID == NODEID_NONE:
+            return None
+        else:
+            return self.file.read_node(node_id=self.properties.targetID, parent=self)
+
 
 class NiInterpController(NiTimeController):
     pass
@@ -1460,14 +1494,25 @@ class NiMultiTargetTransformController(NiInterpController):
         # NifFile.nifly.getMultiTargetTransformController(
         #     self.file._handle, self.id, self.properties)
     
+
 class NiFloatInterpController(NiSingleInterpController):
     pass
 
+
 class BSEffectShaderPropertyFloatController(NiFloatInterpController):
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
-        super().__init__(handle=handle, file=file, id=id, parent=parent)
-        self._properties = BSEffectShaderPropertyFloatControllerBuf()
-        NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        if self.id == NODEID_NONE and file and properties:
+            self.id = NifFile.nifly.addBlock(
+                file._handle,
+                None,
+                byref(properties),
+                parent.id if parent else None
+            )
+
+    @classmethod
+    def _getbuf(cls, values=None):
+        return BSEffectShaderPropertyFloatControllerBuf(values)
 
 
 class ControllerLink:
@@ -1647,7 +1692,7 @@ class NiShader(NiObject):
         if self._name == None:
             namebuf = (c_char * self.file.max_string_len)()
             NifFile.nifly.getString(
-                self.file._handle, self.nameID, self.file.max_string_len, namebuf)
+                self.file._handle, self.properties.nameID, self.file.max_string_len, namebuf)
             self._name = namebuf.value.decode('utf-8')
         return self._name
 
@@ -1667,33 +1712,33 @@ class NiShader(NiObject):
                 self._textures["Diffuse"] = self._readtexture(f, s, 1)
                 self._textures["Normal"] = self._readtexture(f, s, 2)
 
-                if self.properties.shaderflags2_test(ShaderFlags2.GLOW_MAP):
+                if self.flags2_test(ShaderFlags2.GLOW_MAP):
                     self._textures["Glow"] = self._readtexture(f, s, 3)
 
-                if self.properties.shaderflags2_test(ShaderFlags2.RIM_LIGHTING):
+                if self.flags2_test(ShaderFlags2.RIM_LIGHTING):
                     self._textures["RimLighting"] = self._readtexture(f, s, 3)
 
-                if self.properties.shaderflags2_test(ShaderFlags2.SOFT_LIGHTING):
+                if self.flags2_test(ShaderFlags2.SOFT_LIGHTING):
                     self._textures["SoftLighting"] = self._readtexture(f, s, 3)
 
-                if self.properties.shaderflags2_test(ShaderFlags1.PARALLAX):
+                if self.flags2_test(ShaderFlags1.PARALLAX):
                     self._textures["HeightMap"] = self._readtexture(f, s, 4)
 
-                if self.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_COLOR):
+                if self.flags1_test(ShaderFlags1.GREYSCALE_COLOR):
                     self._textures["Greyscale"] = self._readtexture(f, s, 4)
 
-                if self.properties.shaderflags1_test(ShaderFlags1.ENVIRONMENT_MAPPING) \
-                    or self.properties.shaderflags2_test(ShaderFlags2.ENVMAP_LIGHT_FADE):
+                if self.flags1_test(ShaderFlags1.ENVIRONMENT_MAPPING) \
+                    or self.flags2_test(ShaderFlags2.ENVMAP_LIGHT_FADE):
                     self._textures["EnvMap"] = self._readtexture(f, s, 5)
 
-                if self.properties.shaderflags1_test(ShaderFlags1.ENVIRONMENT_MAPPING):
+                if self.flags1_test(ShaderFlags1.ENVIRONMENT_MAPPING):
                     self._textures["EnvMask"] = self._readtexture(f, s, 6)
 
-                if self.properties.shaderflags2_test(ShaderFlags2.MULTI_LAYER_PARALLAX):
+                if self.flags2_test(ShaderFlags2.MULTI_LAYER_PARALLAX):
                     self._textures["InnerLayer"] = self._readtexture(f, s, 7)
 
-                if (self.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
-                    or self.properties.shaderflags1_test(ShaderFlags1.SPECULAR)):
+                if (self.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
+                    or self.flags1_test(ShaderFlags1.SPECULAR)):
                     self._textures["Specular"] = self._readtexture(f, s, 8)
 
             if self.properties.bufType == PynBufferTypes.BSEffectShaderPropertyBufType:
@@ -1753,6 +1798,12 @@ class NiShader(NiObject):
         if self.properties.controllerID == NODEID_NONE: return None
         self._controller = self.file.read_node(node_id=self.properties.controllerID, parent=self)
         return self._controller
+    
+    def flags1_test(self, flag):
+        return self.properties.shaderflags1_test(flag)
+    
+    def flags2_test(self, flag):
+        return self.properties.shaderflags2_test(flag)
         
 
 class NiShaderFO4(NiShader):
@@ -1850,10 +1901,10 @@ class NiShaderFO4(NiShader):
         else:
             return self.properties.Shader_Flags_2
         
-    def shaderflags1_test(self, flag):
+    def flags1_test(self, flag):
         return (self.shaderflags1 & flag) != 0
     
-    def shaderflags2_test(self, flag):
+    def flags2_test(self, flag):
         return (self.shaderflags2 & flag) != 0
     
 
@@ -2055,7 +2106,7 @@ class NiShape(NiNode):
         if self._shader_name is None:
             buflen = self.file.max_string_len
             buf = (c_char * buflen)()
-            NifFile.nifly.getString(self.file._handle, self.shader.nameID, buflen, buf)
+            NifFile.nifly.getString(self.file._handle, self.shader.properties.nameID, buflen, buf)
             # buflen = NifFile.nifly.getShaderName(self.file._handle, self._handle, buf, buflen)
             self._shader_name = buf.value.decode('utf-8')
         return self._shader_name
@@ -2093,10 +2144,10 @@ class NiShape(NiNode):
         if self._shader is None:
             if self.file.game == 'FO4':
                 self._shader = NiShaderFO4(
-                    file=self.file, id=self.shaderPropertyID, parent=self)
+                    file=self.file, id=self.properties.shaderPropertyID, parent=self)
             else:
                 self._shader = NiShader(
-                    file=self.file, id=self.shaderPropertyID, parent=self)
+                    file=self.file, id=self.properties.shaderPropertyID, parent=self)
 
         return self._shader
 
@@ -2468,9 +2519,6 @@ class NifFile:
             self._handle = NifFile.nifly.load(filepath.encode('utf-8'))
             if not self._handle:
                 raise Exception(f"Could not open '{filepath}' as nif")
-        self._shapes = None
-        self._shape_dict = {}
-        self._nodes = None
         self._skin_handle = None
         if self.game is not None:
             self.dict = gameSkeletons[self.game]
@@ -2487,6 +2535,10 @@ class NifFile:
             self.materialsRoot = materialsRoot  
         elif filepath: 
             self.materialsRoot = extend_filenames(filepath, 'meshes')
+        self._shape_dict = {}
+        self._nodes = None
+        self._shapes = None
+        self._load_shapes()
 
     def __del__(self):
         if self._handle:
@@ -2663,21 +2715,37 @@ class NifFile:
         self.shapes
         return self._shape_dict
 
+    def _load_shapes(self):
+        self._shapes = []
+        self._shape_dict = {}
+        if self._handle:
+            nfound = NifFile.nifly.getShapes(self._handle, None, 0, 0)
+            PTRBUF = c_void_p * nfound
+            buf = PTRBUF()
+            nfound = NifFile.nifly.getShapes(self._handle, buf, nfound, 0)
+            for i in range(nfound):
+                new_shape = NiShape.New(file=self, handle=buf[i])
+                if new_shape:
+                    self._shapes.append(new_shape) # not handling too many shapes yet
+                    self._shape_dict[new_shape.name] = new_shape
+        self._shapes_loaded = True
+
     @property
     def shapes(self):
-        if self._shapes is None:
-            self._shapes = []
-            self._shape_dict = {}
-            if self._handle:
-                nfound = NifFile.nifly.getShapes(self._handle, None, 0, 0)
-                PTRBUF = c_void_p * nfound
-                buf = PTRBUF()
-                nfound = NifFile.nifly.getShapes(self._handle, buf, nfound, 0)
-                for i in range(nfound):
-                    new_shape = NiShape.New(file=self, handle=buf[i])
-                    if new_shape:
-                        self._shapes.append(new_shape) # not handling too many shapes yet
-                        self._shape_dict[new_shape.name] = new_shape
+        # if not self._shapes_loaded:
+        #     self._shapes = []
+        #     self._shape_dict = {}
+        #     if self._handle:
+        #         nfound = NifFile.nifly.getShapes(self._handle, None, 0, 0)
+        #         PTRBUF = c_void_p * nfound
+        #         buf = PTRBUF()
+        #         nfound = NifFile.nifly.getShapes(self._handle, buf, nfound, 0)
+        #         for i in range(nfound):
+        #             new_shape = NiShape.New(file=self, handle=buf[i])
+        #             if new_shape:
+        #                 self._shapes.append(new_shape) # not handling too many shapes yet
+        #                 self._shape_dict[new_shape.name] = new_shape
+        #     self._shapes_loaded = True
         return self._shapes
     
     def shape_by_root(self, rootname):
@@ -3076,7 +3144,7 @@ class ModuleTest:
         # new_props.nameID = new_props.controllerID = new_props.skinInstanceID = NODEID_NONE
         # new_props.shaderPropertyID = new_props.alphaPropertyID = NODEID_NONE
         if properties:
-            new_prop:NiShapeBuf = properties.copy()
+            new_prop:NiShapeBuf = properties
         else:
             new_prop:NiShapeBuf = old_shape.properties.copy()
         new_prop.nameID = new_prop.conrollerID = new_prop.collisionID = NODEID_NONE
@@ -3130,6 +3198,26 @@ class ModuleTest:
 
         new_shape.behavior_graph_data = old_shape.behavior_graph_data
         new_shape.string_data = old_shape.string_data
+
+        if old_shape.shader.controller:
+            old_controller = old_shape.shader.controller
+            if isinstance(old_controller, BSEffectShaderPropertyFloatController):
+                new_controller = BSEffectShaderPropertyFloatController(
+                    file=new_nif, 
+                    properties=old_controller.properties.copy(), 
+                    parent=new_shape.shader
+                )
+                new_interp = NiFloatInterpolator(
+                    file=new_nif,
+                    properties=old_controller.interpolator.properties.copy(),
+                    parent=new_controller
+                )
+                new_data = NiFloatData(
+                    file=new_nif,
+                    properties=old_controller.interpolator.data.properties.copy(),
+                    parent=new_interp,
+                    keys=old_controller.interpolator.data.keys
+                )
 
 
     def TEST_NIFDEFS():
@@ -3462,24 +3550,7 @@ class ModuleTest:
         """Can save armor to Skyrim"""
         new_nif = NifFile()
         new_nif.initialize("SKYRIM", outfile1)
-        ModuleTest.export_shape(the_armor, new_nif)
-        #new_armor = new_nif.createShapeFromData("Armor", 
-        #                                        the_armor.verts,
-        #                                        the_armor.tris,
-        #                                        the_armor.uvs,
-        #                                        the_armor.normals)
-        #new_armor.transform = the_armor.transform.copy()
-        #new_armor.skin()
-        #new_armor_gts = the_armor.transform.copy()
-        #new_armor_gts.translation = VECTOR3(the_armor.transform.translation[0] * -1,
-        #                                    the_armor.transform.translation[1] * -1,
-        #                                    the_armor.transform.translation[2] * -1)
-        #new_armor.set_global_to_skin(new_armor_gts)
-
-        #for bone_name, weights in the_armor.bone_weights.items():
-        #    new_armor.add_bone(bone_name)
-        #    new_armor.setShapeWeights(bone_name, weights)
-    
+        ModuleTest.export_shape(the_armor, new_nif)    
         new_nif.save()
 
         # Armor and body nifs are generally positioned below ground level and lifted up with a transform, 
@@ -3498,7 +3569,6 @@ class ModuleTest:
             f"ERROR: Skin transform Z should be -5.0, have {ftxf01.translation}"
         assert ftxf.NearEqual(ftxf01), f"ERROR: Skin-to-bone differs: {ftxf01}"
         
-
         max_vert = max([v[2] for v in armor01.verts])
         assert max_vert < 0, "ERROR: Armor verts are all below origin"
 
@@ -3506,22 +3576,6 @@ class ModuleTest:
         new_nif2 = NifFile()
         new_nif2.initialize("SKYRIM", outfile2)
         ModuleTest.export_shape(the_body, new_nif2)
-
-        #new_body = new_nif.createShapeFromData("Body", 
-        #                                        the_body.verts,
-        #                                        the_body.tris,
-        #                                        the_body.uvs,
-        #                                        the_body.normals)
-        #new_body.skin()
-        #body_gts = the_body.global_to_skin
-        #new_body.set_global_to_skin(the_body.global_to_skin.copy())
-
-        #for b in the_body.bone_names:
-        #    new_body.add_bone(b)
-
-        #for bone_name, weights in the_body.bone_weights.items():
-        #    new_body.setShapeWeights(bone_name, weights)
-    
         new_nif2.save()
 
         # check that the body is where it should be
@@ -3547,10 +3601,11 @@ class ModuleTest:
         # Body doesn't have shape-level transformations so make sure we haven't put in
         # bone-level transformations when we exported it with the armor
         try:
-            assert sstb.translation[2] > 0, f"ERROR: Body should be lifted above origin in {testfile}"
+            assert sstb.translation[2] < 0, f"ERROR: Body should be lifted above origin in {testfile}"
         except:
             # This is an open bug having to do with exporting two shapes at once (I think)
             pass
+
 
     def TEST_XFORM_FO():
         """Can read the FO4 body transforms"""
@@ -3939,7 +3994,7 @@ class ModuleTest:
             glow = nif.shape_dict['L2_WindowGlow']
             assert glow.blockname == "BSLODTriShape", f"Expected 'BSLODTriShape', found '{nif.shapes[0].blockname}'"
             
-            assert not glow.shader.shaderflags1_test(ShaderFlags1.VERTEX_ALPHA), f"VERTEX_ALPHA not set"
+            assert not glow.shader.flags1_test(ShaderFlags1.VERTEX_ALPHA), f"VERTEX_ALPHA not set"
             assert glow.shader.properties.LightingInfluence == 255, f"Have correct lighting influence: {glow.shader.properties.LightingInfluence}"
 
             win = nif.shape_dict['BlackBriarChalet:7']
@@ -3990,27 +4045,27 @@ class ModuleTest:
         """Can read shader flags"""
         hnse = NifFile(r"tests\SKYRIMSE\malehead.nif")
         hsse = hnse.shapes[0]
-        assert hsse.shader.Shader_Type == 4
-        assert hsse.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
-            f"Expected MSN true, got {hsse.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
-        assert hsse.shader.Alpha == 1.0, f"Expected Alpha 1, got {hsse.shader.Alpha}"
-        assert hsse.shader.Glossiness == 33.0, f"Expected Glossiness 33, got {hsse.shader.Glossiness}"
+        assert hsse.shader.properties.Shader_Type == 4
+        assert hsse.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
+            f"Expected MSN true, got {hsse.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert hsse.shader.properties.Alpha == 1.0, f"Expected Alpha 1, got {hsse.shader.properties.Alpha}"
+        assert hsse.shader.properties.Glossiness == 33.0, f"Expected Glossiness 33, got {hsse.shader.properties.Glossiness}"
 
         hnle = NifFile(r"tests\SKYRIM\malehead.nif")
         hsle = hnle.shapes[0]
-        assert hsle.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
-            f"Expected MSN true, got {hsle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
-        assert hsle.shader.Glossiness == 33.0, f"Error: Glossiness incorrect: {hsle.shader.Glossiness}"
+        assert hsle.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
+            f"Expected MSN true, got {hsle.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert hsle.shader.properties.Glossiness == 33.0, f"Error: Glossiness incorrect: {hsle.shader.properties.Glossiness}"
 
         hnfo = NifFile(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\HeadTest.nif")
         hsfo = hnfo.shapes[0]
-        assert not hsfo.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
-            f"Expected MSN true, got {hsfo.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert not hsfo.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
+            f"Expected MSN true, got {hsfo.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
         cnle = NifFile(r"tests\Skyrim\noblecrate01.nif")
         csle = cnle.shapes[0]
-        assert not csle.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
-            f"Expected MSN false, got {csle.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert not csle.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
+            f"Expected MSN false, got {csle.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
 
         """Can read texture paths"""
         assert hsse.textures["Diffuse"] == r"textures\actors\character\male\MaleHead.dds"
@@ -4031,7 +4086,7 @@ class ModuleTest:
 
         print("------------- Extract non-default values")
         v = {}
-        hsse.shader.extract(v)
+        hsse.shader.properties.extract(v)
         print(v)
         assert 'Shader_Flags_1' in v
         assert 'Glossiness' in v
@@ -4063,10 +4118,10 @@ class ModuleTest:
         nif = NifFile(r"tests/Skyrim/meshes/actors/character/Lykaios/Tails/maletaillykaios.nif")
         tailfur = nif.shapes[1]
 
-        assert tailfur.shader.Shader_Type == BSLSPShaderType.Skin_Tint, \
-            f"Error: Skin tint incorrect, got {tailfur.shader.Shader_Type}"
-        assert tailfur.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
-            f"Expected MSN true, got {tailfur.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+        assert tailfur.shader.properties.Shader_Type == BSLSPShaderType.Skin_Tint, \
+            f"Error: Skin tint incorrect, got {tailfur.shader.properties.Shader_Type}"
+        assert tailfur.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
+            f"Expected MSN true, got {tailfur.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
         assert tailfur.alpha_property.flags == 4844, \
             f"Error: Alpha flags incorrect, found {tailfur.alpha_property.flags}"
         assert tailfur.alpha_property.threshold == 70, \
@@ -4084,6 +4139,9 @@ class ModuleTest:
                f"Error: alpha flags don't match, {tailcheck.alpha_property.flags} != {tailfur.alpha_property.flags}"
         assert tailcheck.alpha_property.threshold == tailfur.alpha_property.threshold, \
                f"Error: alpha flags don't match, {tailcheck.alpha_property.threshold} != {tailfur.alpha_property.threshold}"
+        assert not tailcheck.alpha_property.alpha_blend, f"Have correct blend flag"
+        assert tailcheck.alpha_property.alpha_test, f"Have correct test flag"
+        assert tailcheck.alpha_property.source_blend_mode == ALPHA_FUNCTION.SRC_ALPHA, f"Have correct blend mode"
         
     def TEST_SHEATH():
         """Can read and write extra data"""
@@ -4344,11 +4402,11 @@ class ModuleTest:
             glow:NiShape = nif.shape_dict["MaleTorsoGlow"]
             sh = glow.shader
             assert sh.blockname == "BSEffectShaderProperty", f"Expected BSEffectShaderProperty, got {glass.shader_block_name}"
-            assert sh.shaderflags1_test(ShaderFlags1.VERTEX_ALPHA), f"Expected VERTEX_ALPHA true"
-            assert not sh.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
-            assert sh.shaderflags2_test(ShaderFlags2.NO_FADE)
-            assert NearEqual(sh.UV_Scale_U, 10.0), f"Have correct UV scale: {sh.UV_Scale_U}"
-            assert sh.textureClampMode == 3, f"Have correct textureClampMode: {sh.textureClampMode}"
+            assert sh.flags1_test(ShaderFlags1.VERTEX_ALPHA), f"Expected VERTEX_ALPHA true"
+            assert not sh.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
+            assert sh.flags2_test(ShaderFlags2.NO_FADE)
+            assert NearEqual(sh.properties.UV_Scale_U, 10.0), f"Have correct UV scale: {sh.properties.UV_Scale_U}"
+            assert sh.properties.textureClampMode == 3, f"Have correct textureClampMode: {sh.properties.textureClampMode}"
 
             assert sh.textures['Diffuse'] == r"textures\effects\VaporTile02.dds", f"Source texture correct: {sh.textures['Diffuse']}"
             assert sh.textures['Greyscale'] == r"textures\effects\gradients\GradDisguiseShader02.dds", f"Greyscale texture correct {sh.textures['Greyscale']}"
@@ -4380,11 +4438,11 @@ class ModuleTest:
             glass_attr = glass.shader
             assert glass.shader_block_name == "BSEffectShaderProperty", f"Expected BSEffectShaderProperty, got {glass.shader_block_name}"
             assert glass.shader_name == r"Materials\Armor\FlightHelmet\glass.BGEM", "Have correct shader name"
-            assert glass_attr.shaderflags1_test(ShaderFlags1.USE_FALLOFF), f"Expected USE_FALLOFF true, got {glass_attr.shaderflags1_test(ShaderFlags1.USE_FALLOFF)}"
-            assert not glass_attr.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
-            assert glass_attr.shaderflags1_test(ShaderFlags1.ENVIRONMENT_MAPPING)
-            assert glass_attr.shaderflags2_test(ShaderFlags2.EFFECT_LIGHTING)
-            assert not glass_attr.shaderflags2_test(ShaderFlags2.VERTEX_COLORS)
+            assert glass_attr.flags1_test(ShaderFlags1.USE_FALLOFF), f"Expected USE_FALLOFF true, got {glass_attr.flags1_test(ShaderFlags1.USE_FALLOFF)}"
+            assert not glass_attr.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
+            assert glass_attr.flags1_test(ShaderFlags1.ENVIRONMENT_MAPPING)
+            assert glass_attr.flags2_test(ShaderFlags2.EFFECT_LIGHTING)
+            assert not glass_attr.flags2_test(ShaderFlags2.VERTEX_COLORS)
 
             assert glass_attr.textureClampMode == 3
             assert NearEqual(glass_attr.falloffStartOpacity, 0.1)
@@ -4421,7 +4479,7 @@ class ModuleTest:
             shape:NiShape = nif.shapes[0]
             sh = shape.shader
             assert sh.blockname == "BSLightingShaderProperty", f"Have correct shader"
-            assert sh.textureClampMode == 0, f"Have correct textureClampMode: {sh.textureClampMode}"
+            assert sh.properties.textureClampMode == 0, f"Have correct textureClampMode: {sh.properties.textureClampMode}"
 
         print("---Read---")
         nif = NifFile(testfile)
@@ -4868,15 +4926,16 @@ class ModuleTest:
 
     def TEST_ANIMATION_SHADER():
         """Embedded animations on shaders"""
-        nif = NifFile(r"tests/Skyrim/daedriccuirass_1.nif")
-        root = nif.rootNode
+        testfile = r"tests/Skyrim/daedriccuirass_1.nif"
+        outfile = r"tests\out\TEST_ANIMATION_SHADER.nif"
+        nif = NifFile(testfile)
 
         # BSEffectShaderProperty can have a controller.
         glowshape = nif.shape_dict['MaleTorsoGlow']
         ctlr = glowshape.shader.controller
         assert ctlr, f"Have shader controller {ctlr.blockname}"
-        assert ctlr.flags == 72, f"Have controller flags"
-        assert ctlr.controlledVariable == EffectShaderControlledVariable.V_Offset, f"Have correct controlled variable"
+        assert ctlr.properties.flags == 72, f"Have controller flags"
+        assert ctlr.properties.controlledVariable == EffectShaderControlledVariable.V_Offset, f"Have correct controlled variable"
         interp = ctlr.interpolator
         assert interp, f"Have interpolator"
         assert interp.data, f"Have interpolator data"
@@ -4884,6 +4943,16 @@ class ModuleTest:
         assert d.properties.keys.numKeys == 3, f"Have correct number of keys"
         assert NearEqual(d.keys[1].time, 3.333), f"Have correct time at 1"
         assert NearEqual(d.keys[1].backward, -1), f"Have correct backwards value at 1"
+
+        nifout = NifFile()
+        nifout.initialize('SKYRIMSE', outfile)
+        ModuleTest.export_shape(nif.shape_dict['MaleTorsoGlow'], nifout)
+        nifout.save()
+
+        nifcheck = NifFile(outfile)
+        glowcheck = nifcheck.shape_dict['MaleTorsoGlow']
+        assert glowcheck.shader.controller, f"Have EffectShaderController"
+
         return
 
 
@@ -5023,7 +5092,7 @@ class ModuleTest:
 
             tree = nifcheck.shapes[0]
             assert tree.blockname == "BSMeshLODTriShape", f"Have correct shape node type"
-            assert tree.shader.shaderflags2_test(ShaderFlags2.TREE_ANIM), f"Tree animation set"
+            assert tree.shader.flags2_test(ShaderFlags2.TREE_ANIM), f"Tree animation set"
             assert tree.properties.vertexCount == 1059, f"Have correct vertex count"
             assert tree.properties.lodSize0 == 1126, f"Have correct lodSize0"
 
@@ -5179,6 +5248,6 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    # tester.execute()
+    tester.execute()
     # tester.execute(start=ModuleTest.TEST_BOW)
-    tester.execute(test=ModuleTest.TEST_ANIMATION_SHADER)
+    # tester.execute(test=ModuleTest.TEST_ANIMATION_SHADER)

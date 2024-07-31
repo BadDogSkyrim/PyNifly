@@ -1619,15 +1619,15 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
     new_id = NIF_NPOS;
     if (buf->bufType == BSLightingShaderPropertyBufType && !bslsp) {
         std::unique_ptr<BSLightingShaderProperty> sh = std::make_unique<BSLightingShaderProperty>();
-        new_id = nif->GetHeader().AddBlock(std::move(sh));
+        new_id = hdr->AddBlock(std::move(sh));
     }
     else if (buf->bufType == BSEffectShaderPropertyBufType && !bsesp) {
         std::unique_ptr<BSEffectShaderProperty> sh = std::make_unique<BSEffectShaderProperty>();
-        new_id = nif->GetHeader().AddBlock(std::move(sh));
+        new_id = hdr->AddBlock(std::move(sh));
     }
     else if (buf->bufType == BSShaderPPLightingPropertyBufType && !bspp) {
         std::unique_ptr<BSShaderPPLightingProperty> sh = std::make_unique<BSShaderPPLightingProperty>();
-        new_id = nif->GetHeader().AddBlock(std::move(sh));
+        new_id = hdr->AddBlock(std::move(sh));
     }
     if (new_id != NIF_NPOS) {
         shape->ShaderPropertyRef()->Clear();
@@ -1637,6 +1637,7 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
         bslsp = dynamic_cast<BSLightingShaderProperty*>(shader);
         bsesp = dynamic_cast<BSEffectShaderProperty*>(shader);
         bspp = dynamic_cast<BSShaderPPLightingProperty*>(shader);
+        new_id = hdr->GetBlockID(shader);
     }
 
     bssh->name.get() = name;
@@ -1767,7 +1768,7 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
         bspp->emissiveColor.a = buf->emissiveColor[3];
     };
 
-    return 0;
+    return new_id;
 };
 
 
@@ -3743,6 +3744,21 @@ int getNiFloatInterpolator(void* nifref, uint32_t tiID, void* inbuf) {
     return 0;
 }
 
+int addNiFloatInterpolator(void* nifref, const char* name, void* inbuf, uint32_t parentID) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiFloatInterpolatorBuf* buf = static_cast<NiFloatInterpolatorBuf*>(inbuf);
+
+    CheckBuf(buf, BUFFER_TYPES::NiFloatInterpolatorBufType, NiFloatInterpolatorBuf);
+
+    auto ti = std::make_unique<NiFloatInterpolator>();
+
+    ti->floatValue = buf->value;
+    ti->dataRef.index = buf->dataID;
+
+    return hdr->AddBlock(std::move(ti));
+}
+
 int getNiBlendFloatInterpolator(void* nifref, uint32_t tiID, void* inbuf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
@@ -3951,6 +3967,31 @@ int getNiFloatData(void* nifref, uint32_t nodeIndex, void* inbuf)
     return 0;
 };
 
+int addNiFloatData(void* nifref, const char* name, void* b, uint32_t parent)
+/*
+    Add a NiFloatData block. If supplied, parent is the NiFloatInterpolator that
+    uses this data.
+    */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiFloatDataBuf* buf = static_cast<NiFloatDataBuf*>(b);
+
+    CheckBuf(buf, BUFFER_TYPES::NiFloatDataBufType, NiFloatDataBuf);
+
+    auto sh = std::make_unique<NiFloatData>();
+
+    sh->data.SetInterpolationType(NiKeyType(buf->keys.interpolation));
+
+    int td = hdr->AddBlock(std::move(sh));
+    if (parent != NIF_NPOS) {
+        NiFloatInterpolator* ti = hdr->GetBlock<NiFloatInterpolator>(parent);
+        ti->dataRef.index = td;
+    }
+
+    return td;
+};
+
 void readKey(NiAnimKeyQuadXYZBuf& kb, NiAnimationKey<float> k) {
     kb.time = k.time;
     kb.value = k.value;
@@ -4003,6 +4044,17 @@ NIFLY_API void getAnimKeyQuadFloat(void* nifref, int tdID, int frame, NiAnimKeyQ
     buf->value = td->data.GetKey(frame).value;
     buf->forward = td->data.GetKey(frame).forward;
     buf->backward = td->data.GetKey(frame).backward;
+}
+
+NIFLY_API void addAnimKeyQuadFloat(void* nifref, int dataBlockID, NiAnimKeyQuadXYZBuf* buf)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiFloatData* dataBlock = hdr->GetBlock<NiFloatData>(dataBlockID);
+
+    NiAnimationKey<float> k;
+    setKey(k, *buf);
+    dataBlock->data.AddKey(k);
 }
 
 NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyLinearXYZBuf *buf)
@@ -4260,6 +4312,33 @@ int getEffectShaderPropertyFloatController(void* nifref, uint32_t nodeIndex, voi
     return 0;
 };
 
+int addEffectShaderPropertyFloatController(void* nifref, const char* name, void* b, uint32_t parent)
+/* Create a BSEffectShaderPropertyFloatController block. */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSEffectShaderPropertyFloatControllerBuf* buf = static_cast<BSEffectShaderPropertyFloatControllerBuf*>(b);
+
+    CheckBuf(buf, BUFFER_TYPES::BSEffectShaderPropertyFloatControllerBufType, BSEffectShaderPropertyFloatControllerBuf);
+    auto sh = std::make_unique<BSEffectShaderPropertyFloatController>();
+    sh->flags = buf->flags;
+    sh->frequency = buf->frequency;
+    sh->phase = buf->phase;
+    sh->startTime = buf->startTime;
+    sh->stopTime = buf->stopTime;
+    sh->targetRef.index = buf->targetID;
+    sh->interpolatorRef.index = buf->interpolatorID;
+    sh->nextControllerRef.index = buf->nextControllerID;
+    sh->typeOfControlledVariable = buf->controlledVariable;
+    int newid = hdr->AddBlock(std::move(sh));
+
+    if (parent != NIF_NPOS) {
+        NiShader* p = hdr->GetBlock<NiShader>(parent);
+        p->controllerRef.index = newid;
+    }
+    return newid;
+};
+
 NIFLY_API int getExtraData(void* nifref, uint32_t id, const char* extraDataBlockType) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
@@ -4454,15 +4533,18 @@ BlockCreatorFunction creatorFunctions[] = {
     nullptr, //EffectShaderPropertyColorController,
     nullptr, //NiPoint3InterpolatorBufType
     nullptr, //NiPosData
-    nullptr, //BSEffectShaderPropertyFloatController
-    nullptr, //getNiFloatInterpolator
-    nullptr, //getNiFloatData
+    addEffectShaderPropertyFloatController, //BSEffectShaderPropertyFloatController
+    addNiFloatInterpolator, //getNiFloatInterpolator
+    addNiFloatData, //getNiFloatData
     nullptr, //NiBlendPoint3InterpolatorBuf
     nullptr, //NiBlendFloatInterpolatorBuf
     nullptr //end
 };
 
 NIFLY_API int addBlock(void* f, const char* name, void* buf, int parent) {
+    /* Add a block to the nif, type defined in the buffer.
+        Returns ID of the new block.
+    */
     BlockBuf* theBuf = static_cast<BlockBuf*>(buf);
     if (!creatorFunctions[theBuf->bufType]) return NIF_NPOS;
     return creatorFunctions[theBuf->bufType](f, name, buf, parent);

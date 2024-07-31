@@ -683,12 +683,13 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 	Assert::AreEqual(0, getBlock(sourceNif, sourceProps.shaderPropertyID, &shaderAttr));
 	getString(sourceNif, shaderAttr.nameID, 500, shaderName);
 
+	uint32_t srcController = shaderAttr.controllerID;
 	shaderAttr.controllerID = NIF_NPOS;
 	shaderAttr.nameID = NIF_NPOS;
 	shaderAttr.rootMaterialNameID = NIF_NPOS;
 	shaderAttr.textureSetID = NIF_NPOS;
 
-	addBlock(targetNif, shaderName, &shaderAttr, targetID);
+	uint32_t targetShaderID = addBlock(targetNif, shaderName, &shaderAttr, targetID);
 	for (int i = 0; i < 9; i++) {
 		char texture[300];
 		getShaderTextureSlot(sourceNif, sourceShape, i, texture, 300);
@@ -700,6 +701,16 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 	{
 		getBlock(sourceNif, sourceProps.alphaPropertyID, &alpha);
 		addBlock(targetNif, "", &alpha, targetID);
+	}
+
+	if (srcController != NIF_NPOS) {
+		BSEffectShaderPropertyFloatControllerBuf ctlr;
+		if (getBlock(sourceNif, srcController, &ctlr) == 0) {
+			ctlr.nextControllerID = NIF_NPOS;
+			ctlr.targetID = NIF_NPOS;
+			ctlr.interpolatorID = NIF_NPOS;
+			addBlock(targetNif, "", &ctlr, targetShaderID);
+		}
 	}
 };
 
@@ -3423,10 +3434,10 @@ namespace NiflyDLLTests
 			void* shapes[10];
 			int shapeCount = getShapes(nif, shapes, 10, 0);
 
-			void* nifOut = createNif("FO4",  0, "readConnectPoints");
+			void* nifOut = createNif("FO4",  "NiNode", "readConnectPoints");
 			uint16_t options = 0;
 
-			void* shapeOut = TCopyShape(nifOut, "CombatShotgunReceiver:0", nif, shapes[0], 0, nullptr, 0);
+			void* shapeOut = TCopyShape(nifOut, "CombatShotgunReceiver:0", nif, shapes[0], NifOptions(0), 0);
 			TCopyShader(nifOut, shapeOut, nif, shapes[0]);
 			setConnectPointsParent(nifOut, 3, buf);
 			char children[256];
@@ -3515,7 +3526,6 @@ namespace NiflyDLLTests
 		};
 		void TCheckDwemerChest(void* nif, DwemerChestData& data)
 		{
-
 			/* Check that the dwemer chest is read correctly. Useful to ensure that it can be read and
 			that what was written is correct.
 			*/
@@ -3762,6 +3772,74 @@ namespace NiflyDLLTests
 			DwemerChestData dataCheck;
 			void* nifcheck = load(fileOut.u8string().c_str());
 			TCheckDwemerChest(nifcheck, dataCheck);
+		};
+
+		//void TCheckDaedricArmor(void* nif, )
+		//{
+		//	/* Check that the daedric armor is correct..
+		//	*/
+		//	NiNodeBuf rootbuf;
+		//	getBlock(nif, 0, &rootbuf);
+
+		//	// We can find controller blocks directly, by type.
+		//	//int ncmCount = findNodesByType(nif, root, "NiControllerManager", 1, &ncm);
+		//	//Assert::AreEqual(1, ncmCount, L"Found 1 controller manager");
+
+		//	getBlock(nif, rootbuf.controllerID, &data.controllerManager);
+
+		//	//getControllerManager(ncm, &controllerManager);
+		//	//getBlock(nif, "NiControllerManager", &controllerManager)
+		//	Assert::AreEqual(1.0f, data.controllerManager.frequency, L"Frequency value correct");
+		//};
+		TEST_METHOD(shaderController) { 
+			/* Can import and export nif with animations (Daedric Armor). Only checks the animations. */
+			std::filesystem::path testfile = testRoot / "SkyrimSE" / "meshes" / "armor" / "daedric" / "daedriccuirass_1.nif";
+			std::filesystem::path outfile = testRoot / "Out" / "shaderController.nif";
+
+			void* nif = load((testRoot / testfile).u8string().c_str());
+			int strlen = getMaxStringLen(nif);
+
+			void* shapes[2];
+			int shapeCount;
+			char name[256];
+			NiShapeBuf shapedata;
+			NiShaderBuf shaderdata;
+			
+			shapeCount = getShapes(nif, shapes, 2, 0);
+			int glowID = findBlockByName(nif, "MaleTorsoGlow");
+
+			void* nifOut = createNif("SKYRIM", "NiNode", "Armor");
+
+			for (int i = 0; i < 2; i++) {
+				getShapeName(shapes[i], name, 256);
+				void* shapeOut = TCopyShape(
+					nifOut,
+					name,
+					nif,
+					shapes[i],
+					NifOptions(0),
+					false,
+					nullptr);
+				TCopyShader(nifOut, shapeOut, nif, shapes[i]);
+			};
+
+			saveNif(nifOut, outfile.u8string().c_str());
+
+			/* Check the results. */
+			void* nifcheck = load(outfile.u8string().c_str());
+			shapeCount = getShapes(nifcheck, shapes, 2, 0);
+			for (int i = 0; i < shapeCount; i++) {
+				getShapeName(shapes[i], name, 256);
+				if (strcmp(name, "MaleTorsoGlow") == 0) {
+					int shapeID;
+					shapeID = getBlockID(nifcheck, shapes[i]);
+					Assert::AreEqual(0, 
+						getBlock(nifcheck, shapeID, &shapedata));
+					Assert::AreEqual(0,
+						getBlock(nifcheck, shapedata.shaderPropertyID, &shaderdata));
+					Assert::AreNotEqual(NIF_NPOS, shaderdata.controllerID);
+				}
+			}
 		};
 
 		struct GlowingOneData {

@@ -372,17 +372,19 @@ class pynStructure(Structure):
                     except:
                         shape[fn] = repr(t)
 
-    def copy(self):
+    def copy(self, exclude=[]):
         """ Return a copy of the object """
         n = self.__class__()
         for f, t in self._fields_:
-            n.__setattr__(f, self.__getattribute__(f))
+            if not f in exclude:
+                n.__setattr__(f, self.__getattribute__(f))
         return n
 
-    def copyto(self, other):
+    def copyto(self, other, exclude=[]):
         """ Copy the object's fields to another object """
         for f, t in self._fields_:
-            other.__setattr__(f, self.__getattribute__(f))
+            if not f in exclude:
+                other.__setattr__(f, self.__getattribute__(f))
         return other
     
 
@@ -1080,6 +1082,29 @@ class BGSMShader(bgsmaterial.BGSMaterial):
             self.modelSpaceNormals = ~flag.value;
 
 
+class ALPHA_FUNCTION(IntEnum):
+    ONE = 0
+    ZERO = 1
+    SRC_COLOR = 2
+    INV_SRC_COLOR = 3
+    DEST_COLOR = 4
+    INV_DEST_COLOR = 5
+    SRC_ALPHA = 6
+    INV_SRC_ALPHA = 7
+    DEST_ALPHA = 8
+    INV_DEST_ALPHA = 9
+    SRC_ALPHA_SATURATE = 10
+
+class ALPHA_FLAG_MASK:
+    ALPHA_BLEND = 0x0001
+    SOURCE_BLEND_MODE = 0x001E
+    DST_BLEND_MODE = 0x01E0
+    ALPHA_TEST = 0x0200
+    TEST_FUNC = 0x1C00
+    NO_SORTER = 0x2000
+    CLONE_UNIQUE = 0x4000
+    EDITOR_ALPHA_THRESHOLD = 0x8000
+
 class AlphaPropertyBuf(pynStructure):
     _fields_ = [
 	    ('bufSize', c_uint16),
@@ -1093,6 +1118,35 @@ class AlphaPropertyBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.AlphaPropertyBufType
+
+    @property
+    def alpha_blend(self):
+        return (self.flags & ALPHA_FLAG_MASK.ALPHA_BLEND)
+    @alpha_blend.setter
+    def alpha_blend(self, val):
+        if val:
+            self.flags |= ALPHA_FLAG_MASK.ALPHA_BLEND
+        else:
+            self.flags &= ~ALPHA_FLAG_MASK.ALPHA_BLEND
+
+    @property
+    def alpha_test(self):
+        return (self.flags & ALPHA_FLAG_MASK.ALPHA_TEST)
+    @alpha_blend.setter
+    def alpha_blend(self, val):
+        if val:
+            self.flags |= ALPHA_FLAG_MASK.ALPHA_TEST
+        else:
+            self.flags &= ~ALPHA_FLAG_MASK.ALPHA_TEST
+
+    @property
+    def source_blend_mode(self):
+        return (self.flags & ALPHA_FLAG_MASK.SOURCE_BLEND_MODE) >> 1
+    @alpha_blend.setter
+    def alpha_blend(self, val):
+        self.flags &= ~ALPHA_FLAG_MASK.SOURCE_BLEND_MODE
+        self.flags |= ALPHA_FLAG_MASK.SOURCE_BLEND_MODE & (val << 1)
+
 
 AlphaPropertyBuf_p = POINTER(AlphaPropertyBuf)
 
@@ -1738,6 +1792,18 @@ class NiTransformControllerBuf(pynStructure):
 bufferTypeList[PynBufferTypes.NiTransformControllerBufType] = 'NiTransformController'
 blockBuffers['NiTransformController'] = NiTransformControllerBuf
 
+class CONTROLLED_VARIABLE_TYPES(PynIntEnum):
+	Emissive_Multiple = 0
+	Falloff_Start_Angle = 1
+	Falloff_Stop_Angle = 2
+	Falloff_Start_Opacity = 3
+	Falloff_Stop_Opacity = 4
+	Alpha_Transparency = 5
+	U_Offset = 6
+	U_Scale = 7
+	V_Offset = 8
+	V_Scale = 9
+
 class BSEffectShaderPropertyFloatControllerBuf(pynStructure):
     _fields_ = [
 	    ("bufSize", c_uint16),
@@ -1755,8 +1821,24 @@ class BSEffectShaderPropertyFloatControllerBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSEffectShaderPropertyFloatControllerBufType
+
+    def copy(self, exclude=[]):
+        c = super().copy(exclude=exclude)
+        c.nextControllerID = NODEID_NONE
+        c.targetID = NODEID_NONE
+        c.interpolatorID = NODEID_NONE
+        return c
+    
+    def copyto(self, other, exclude=[]):
+        c = super().copyto(other, exclude=exclude)
+        c.nextControllerID = NODEID_NONE
+        c.targetID = NODEID_NONE
+        c.interpolatorID = NODEID_NONE
+        return c
+
 bufferTypeList[PynBufferTypes.BSEffectShaderPropertyFloatControllerBufType] = 'BSEffectShaderPropertyFloatController'
 blockBuffers['BSEffectShaderPropertyFloatController'] = BSEffectShaderPropertyFloatControllerBuf
+
 
 class NiTransformInterpolatorBuf(pynStructure):
     _fields_ = [
@@ -1770,8 +1852,20 @@ class NiTransformInterpolatorBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiTransformInterpolatorBufType
+
+    def copy(self, exclude=[]):
+        c = super().copy(exclude=exclude)
+        c.dataID = NODEID_NONE
+        return c
+    
+    def copyto(self, other, exclude=[]):
+        c = super().copyto(other, exclude=exclude)
+        c.dataID = NODEID_NONE
+        return c
+
 bufferTypeList[PynBufferTypes.NiTransformInterpolatorBufType] = 'NiTransformInterpolator'
 blockBuffers['NiTransformInterpolator'] = NiTransformInterpolatorBuf
+
 
 class NiFloatInterpolatorBuf(pynStructure):
     _fields_ = [
@@ -1783,14 +1877,27 @@ class NiFloatInterpolatorBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiFloatInterpolatorBufType
+
+    def copy(self, exclude=[]):
+        c = super().copy(exclude=exclude)
+        c.dataID = NODEID_NONE
+        return c
+    
+    def copyto(self, other, exclude=[]):
+        c = super().copyto(other, exclude=exclude)
+        c.dataID = NODEID_NONE
+        return c
+
 bufferTypeList[PynBufferTypes.NiFloatInterpolatorBufType] = 'NiFloatInterpolator'
 blockBuffers['NiFloatInterpolator'] = NiFloatInterpolatorBuf
+
 
 class NiAnimationKeyGroupBuf(pynStructure):
     _fields_ = [
         ("numKeys", c_uint32),
         ("interpolation", c_uint32)
     ]
+
 
 class NiTransformDataBuf(pynStructure):
     _fields_ = [
@@ -1810,6 +1917,7 @@ class NiTransformDataBuf(pynStructure):
 bufferTypeList[PynBufferTypes.NiTransformDataBufType] = 'NiTransformData'
 blockBuffers['NiTransformData'] = NiTransformDataBuf
 
+
 class NiFloatDataBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
@@ -1819,8 +1927,9 @@ class NiFloatDataBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiFloatDataBufType
-bufferTypeList[PynBufferTypes.NiFloatDataBufType] = 'NiTransformData'
-blockBuffers['NiTransformData'] = NiFloatDataBuf
+bufferTypeList[PynBufferTypes.NiFloatDataBufType] = 'NiFloatData'
+blockBuffers['NiFloatData'] = NiFloatDataBuf
+
 
 class NiAnimKeyQuadXYZBuf(pynStructure):
     _fields_ = [
