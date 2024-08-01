@@ -1088,6 +1088,11 @@ class NiNode(NiAVObject):
         if self.properties.controllerID == NODEID_NONE: return None
         self._controller = self.file.read_node(node_id=self.properties.controllerID, parent=self)
         return self._controller
+    
+    @controller.setter
+    def controller(self, c):
+        self._controller = c
+        self.properties.controllerID = c.id
 
     @property
     def behavior_graph_data(self):
@@ -1270,6 +1275,7 @@ class NiFloatData(NiObject):
             if keys:
                 self._writequadkeys(keys)
             self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
+            if parent: parent.data = self
         elif self.id != NODEID_NONE:
             if self.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
                 self._readquadkeys()
@@ -1427,8 +1433,9 @@ class NiFloatInterpolator(NiObject):
                 self.file._handle, 
                 None, 
                 byref(self.properties), 
-                parent.id if parent else None)
+                parent.id if parent else NODEID_NONE)
             self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
+            if parent: parent.interpolator = self
         self._data = None
         self._blockname = "NiFloatInterpolator"
         
@@ -1439,10 +1446,15 @@ class NiFloatInterpolator(NiObject):
     @property
     def data(self):
         if self._data: return self._data
-
+        if self.properties.dataID == NODEID_NONE: return None
         self._data = NiFloatData(file=self.file, id=self.properties.dataID)
         return self._data
 
+    @data.setter
+    def data(self, c):
+        self._data = c
+        self.properties.dataID = c.id
+    
 class NiTimeController(NiObject):
     """Abstract class for time controllers. Keeping the chain of subclasses below
     because we'll likely need them eventually.
@@ -1501,6 +1513,7 @@ class NiFloatInterpController(NiSingleInterpController):
 
 class BSEffectShaderPropertyFloatController(NiFloatInterpController):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        self._interpolator = None
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         if self.id == NODEID_NONE and file and properties:
             self.id = NifFile.nifly.addBlock(
@@ -1509,10 +1522,25 @@ class BSEffectShaderPropertyFloatController(NiFloatInterpController):
                 byref(properties),
                 parent.id if parent else None
             )
+            if parent: parent.controller = self
 
     @classmethod
     def _getbuf(cls, values=None):
         return BSEffectShaderPropertyFloatControllerBuf(values)
+
+    @property
+    def interpolator(self):
+        if self._interpolator: return self._interpolator
+        if self.properties.interpolatorID == NODEID_NONE: return None
+        self._interpolator = self.file.read_node(
+            node_id=self.properties.interpolatorID, parent=self)
+        return self._interpolator
+    
+    @interpolator.setter
+    def interpolator(self, c):
+        self._interpolator = c
+        self.properties.interpolatorID = c.id
+    
 
 
 class ControllerLink:
@@ -1798,6 +1826,11 @@ class NiShader(NiObject):
         if self.properties.controllerID == NODEID_NONE: return None
         self._controller = self.file.read_node(node_id=self.properties.controllerID, parent=self)
         return self._controller
+    
+    @controller.setter
+    def controller(self, c):
+        self._controller = c
+        self.properties.controllerID = c.id
     
     def flags1_test(self, flag):
         return self.properties.shaderflags1_test(flag)
@@ -2159,8 +2192,13 @@ class NiShape(NiNode):
         if self._shader and self._shader._properties:
             name = self.shader_name
             if name is None: name = ''
-            NifFile.nifly.addBlock(self.file._handle, self._shader_name.encode('utf-8'), 
-                                   byref(self._shader._properties), self.id)
+            shader_id = NifFile.nifly.addBlock(
+                self.file._handle, 
+                self._shader_name.encode('utf-8'), 
+                byref(self._shader._properties), 
+                self.id)
+            self._shader.id = shader_id
+            self.properties.shaderPropertyID = shader_id
 
     @property
     def has_alpha_property(self):
@@ -2298,12 +2336,9 @@ class NiShape(NiNode):
             to have verts around the origin but to be positioned properly when skinned.
             Works whether or not there is a SkinInstance block
             """
-        #if self.file._skin_handle is None:
-        #    self.file.createSkin()
         if not self._is_skinned:
             self.skin()
         NifFile.nifly.setShapeGlobalToSkin(self.file._handle, self._handle, transform)
-        #NifFile.nifly.setGlobalToSkinXform(self.file._skin_handle, self._handle, transform)
 
     def add_bone(self, bone_name, xform=None, parent_name=None):
         """Add bone to shape. This resets all the shape's bone information, so 
@@ -2327,14 +2362,6 @@ class NiShape(NiNode):
                                             par)
         NiNode(handle=h, file=self.file, name=bone_name)
 
-    #def set_global_to_skindata(self, xform):
-    #    """ Sets the NiSkinData transformation. Only call this on nifs that have them. """
-    #    NifFile.nifly.setShapeGlobalToSkin(self.file._handle, self._handle, xform)
-    #    #if self.file._skin_handle is None:
-    #    #    self.file.createSkin()
-    #    #if not self._is_skinned:
-    #    #    self.skin()
-    #    #NifFile.nifly.setShapeGlobalToSkinXform(self.file._skin_handle, self._handle, xform)
         
     def setShapeWeights(self, bone_name, vert_weights):
         """ Set the weights for a bone in a shape. 
@@ -2349,9 +2376,6 @@ class NiShape(NiNode):
         NifFile.nifly.setShapeBoneWeights(self.file._handle, self._handle, 
                                       bone_name.encode('utf-8'),
                                       vert_buf, len(vert_weights))
-        #NifFile.nifly.setShapeWeights(self.file._skin_handle, self._handle, 
-        #                              bone_name.encode('utf-8'),
-        #                              vert_buf, len(vert_weights), xfbuf)
        
     def set_partitions(self, partitionlist, trilist):
         """ Set the partitions for a shape
@@ -3140,9 +3164,6 @@ class ModuleTest:
         # Somehow the UV needs inversion. Probably a bug but we've lived with it so long...
         uv_inv = [(x, 1-y) for x, y in old_shape.uvs]
 
-        # new_props = old_shape.properties.copy()
-        # new_props.nameID = new_props.controllerID = new_props.skinInstanceID = NODEID_NONE
-        # new_props.shaderPropertyID = new_props.alphaPropertyID = NODEID_NONE
         if properties:
             new_prop:NiShapeBuf = properties
         else:
@@ -3157,16 +3178,15 @@ class ModuleTest:
                                                 props=new_prop,
                                                 use_type = old_shape.properties.bufType,
                                                 )
+
+        new_shape.set_colors(old_shape.colors)
+
         new_shape.transform = old_shape.transform.copy()
         oldxform = old_shape.global_to_skin
         if oldxform is None:
             oldxform = old_shape.transform
         new_shape_gts = oldxform # no inversion?
         if skinned: new_shape.set_global_to_skin(new_shape_gts)
-        #if old_shape.parent.game in ("SKYRIM", "SKYRIMSE"):
-        #    new_shape.set_global_to_skindata(new_shape_gts) # only for skyrim
-        #else:
-        #    new_shape.set_global_to_skin(new_shape_gts)
 
         for bone_name, weights in old_shape.bone_weights.items():
             new_shape.add_bone(bone_name, old_shape.file.nodes[bone_name].global_transform)
@@ -3190,9 +3210,6 @@ class ModuleTest:
             new_shape.alpha_property.threshold = old_shape.alpha_property.threshold
             new_shape.save_alpha_property()
 
-        # for i, t in enumerate(old_shape.textures):
-        #     if len(t) > 0:
-        #         new_shape.set_texture(i, t)
         for k, t in old_shape.textures.items():
             new_shape.set_texture(k, t)
 
@@ -3202,21 +3219,31 @@ class ModuleTest:
         if old_shape.shader.controller:
             old_controller = old_shape.shader.controller
             if isinstance(old_controller, BSEffectShaderPropertyFloatController):
-                new_controller = BSEffectShaderPropertyFloatController(
-                    file=new_nif, 
-                    properties=old_controller.properties.copy(), 
-                    parent=new_shape.shader
-                )
-                new_interp = NiFloatInterpolator(
-                    file=new_nif,
-                    properties=old_controller.interpolator.properties.copy(),
-                    parent=new_controller
-                )
+                blkname = create_string_buffer(128)
+                NifFile.nifly.getBlockname(new_nif._handle, new_shape.shader.id, blkname, 128)
+                name = blkname.value.decode('utf-8') 
+                assert name == "BSEffectShaderProperty", f"Have correct block type {name}"
+                
+                controller_prop = old_controller.properties.copy()
+                controller_prop.targetID = NODEID_NONE
+                controller_prop.nextControllerID = NODEID_NONE
+                interpolator_prop = old_controller.interpolator.properties.copy()
+                data_prop = old_controller.interpolator.data.properties.copy()
                 new_data = NiFloatData(
                     file=new_nif,
-                    properties=old_controller.interpolator.data.properties.copy(),
-                    parent=new_interp,
+                    properties=data_prop,
                     keys=old_controller.interpolator.data.keys
+                )
+                interpolator_prop.dataID = new_data.id
+                new_interp = NiFloatInterpolator(
+                    file=new_nif,
+                    properties=interpolator_prop
+                )
+                controller_prop.interpolatorID = new_interp.id
+                new_controller = BSEffectShaderPropertyFloatController(
+                    file=new_nif, 
+                    properties=controller_prop, 
+                    parent=new_shape.shader
                 )
 
 
@@ -4444,9 +4471,9 @@ class ModuleTest:
             assert glass_attr.flags2_test(ShaderFlags2.EFFECT_LIGHTING)
             assert not glass_attr.flags2_test(ShaderFlags2.VERTEX_COLORS)
 
-            assert glass_attr.textureClampMode == 3
-            assert NearEqual(glass_attr.falloffStartOpacity, 0.1)
-            assert NearEqual(glass_attr.Emissive_Mult, 1.0)
+            assert glass_attr.properties.textureClampMode == 3
+            assert NearEqual(glass_attr.properties.falloffStartOpacity, 0.1)
+            assert NearEqual(glass_attr.properties.Emissive_Mult, 1.0)
             # assert glass_attr.sourceTexture.decode() == "Armor/FlightHelmet/Helmet_03_d.dds", \
             #     f"Source texture correct: {glass_attr.sourceTexture}"
 
@@ -4926,7 +4953,7 @@ class ModuleTest:
 
     def TEST_ANIMATION_SHADER():
         """Embedded animations on shaders"""
-        testfile = r"tests/Skyrim/daedriccuirass_1.nif"
+        testfile = r"tests/SkyrimSE/meshes/armor/daedric/daedriccuirass_1.nif"
         outfile = r"tests\out\TEST_ANIMATION_SHADER.nif"
         nif = NifFile(testfile)
 
@@ -4945,15 +4972,15 @@ class ModuleTest:
         assert NearEqual(d.keys[1].backward, -1), f"Have correct backwards value at 1"
 
         nifout = NifFile()
-        nifout.initialize('SKYRIMSE', outfile)
+        nifout.initialize('SKYRIM', outfile)
+        ModuleTest.export_shape(nif.shape_dict['TorsoLow:0'], nifout)
         ModuleTest.export_shape(nif.shape_dict['MaleTorsoGlow'], nifout)
         nifout.save()
+        assert NifFile.message_log() == "", f"No messages: {NifFile.message_log()}"
 
         nifcheck = NifFile(outfile)
         glowcheck = nifcheck.shape_dict['MaleTorsoGlow']
         assert glowcheck.shader.controller, f"Have EffectShaderController"
-
-        return
 
 
     def TEST_KF():
@@ -5196,6 +5223,7 @@ class ModuleTest:
 
         
     def execute_test(self, t):
+        NifFile.clear_log()
         print(f"\n------------- {t.__name__} -------------")
         # the_test = ModuleTest.__dict__[t]
         print(t.__doc__)
@@ -5249,5 +5277,5 @@ if __name__ == "__main__":
     tester = ModuleTest(mylog)
 
     tester.execute()
-    # tester.execute(start=ModuleTest.TEST_BOW)
+    # tester.execute(start=ModuleTest.TEST_EFFECT_SHADER_FO4)
     # tester.execute(test=ModuleTest.TEST_ANIMATION_SHADER)

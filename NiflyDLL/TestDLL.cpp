@@ -704,11 +704,18 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 	}
 
 	if (srcController != NIF_NPOS) {
+		bool ok;
 		BSEffectShaderPropertyFloatControllerBuf ctlr;
-		if (getBlock(sourceNif, srcController, &ctlr) == 0) {
+		NiFloatInterpolatorBuf interp;
+		NiFloatDataBuf data;
+		ok = (getBlock(sourceNif, srcController, &ctlr) == 0);
+		if (ok) ok = (getBlock(sourceNif, ctlr.interpolatorID, &interp) == 0);
+		if (ok) ok = (getBlock(sourceNif, interp.dataID, &data) == 0);
+		if (ok) {
+			interp.dataID = addBlock(targetNif, "", &data, NIF_NPOS);
+			ctlr.interpolatorID = addBlock(targetNif, "", &interp, NIF_NPOS);
 			ctlr.nextControllerID = NIF_NPOS;
 			ctlr.targetID = NIF_NPOS;
-			ctlr.interpolatorID = NIF_NPOS;
 			addBlock(targetNif, "", &ctlr, targetShaderID);
 		}
 	}
@@ -3793,7 +3800,8 @@ namespace NiflyDLLTests
 		//};
 		TEST_METHOD(shaderController) { 
 			/* Can import and export nif with animations (Daedric Armor). Only checks the animations. */
-			std::filesystem::path testfile = testRoot / "SkyrimSE" / "meshes" / "armor" / "daedric" / "daedriccuirass_1.nif";
+			//std::filesystem::path testfile = testRoot / "SkyrimSE" / "meshes" / "armor" / "daedric" / "daedriccuirass_1.nif";
+			std::filesystem::path testfile = testRoot / "Skyrim" / "daedriccuirass_1.nif";
 			std::filesystem::path outfile = testRoot / "Out" / "shaderController.nif";
 
 			void* nif = load((testRoot / testfile).u8string().c_str());
@@ -3804,6 +3812,9 @@ namespace NiflyDLLTests
 			char name[256];
 			NiShapeBuf shapedata;
 			NiShaderBuf shaderdata;
+			BSEffectShaderPropertyFloatControllerBuf controllerdata;
+			NiFloatInterpolatorBuf interpdata;
+			NiFloatDataBuf floatdata;
 			
 			shapeCount = getShapes(nif, shapes, 2, 0);
 			int glowID = findBlockByName(nif, "MaleTorsoGlow");
@@ -3825,7 +3836,7 @@ namespace NiflyDLLTests
 
 			saveNif(nifOut, outfile.u8string().c_str());
 
-			/* Check the results. */
+			/* Check that the controller structure is present. */
 			void* nifcheck = load(outfile.u8string().c_str());
 			shapeCount = getShapes(nifcheck, shapes, 2, 0);
 			for (int i = 0; i < shapeCount; i++) {
@@ -3838,6 +3849,12 @@ namespace NiflyDLLTests
 					Assert::AreEqual(0,
 						getBlock(nifcheck, shapedata.shaderPropertyID, &shaderdata));
 					Assert::AreNotEqual(NIF_NPOS, shaderdata.controllerID);
+					Assert::AreEqual(0,
+						getBlock(nifcheck, shaderdata.controllerID, &controllerdata));
+					Assert::AreEqual(0,
+						getBlock(nifcheck, controllerdata.interpolatorID, &interpdata));
+					Assert::AreEqual(0,
+						getBlock(nifcheck, interpdata.dataID, &floatdata));
 				}
 			}
 		};
