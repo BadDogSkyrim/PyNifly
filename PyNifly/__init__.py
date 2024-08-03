@@ -7,7 +7,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 0, 0),
-    "version": (15, 0, 0),   
+    "version": (15, 0, 1),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -349,7 +349,7 @@ def mesh_create_partition_groups(the_shape, the_object):
 
 def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
     try:
-        if shape.shader.shaderflags2_test(ShaderFlags2.VERTEX_COLORS) \
+        if shape.shader.flags2_test(ShaderFlags2.VERTEX_COLORS) \
             and shape.colors and len(shape.colors) > 0:
             clayer = None
             try: #Post V3.5
@@ -357,7 +357,7 @@ def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
             except:
                 clayer = mesh.vertex_colors.new()
             alphlayer = None
-            if ((shape.shader.Shader_Flags_1 & ShaderFlags1.VERTEX_ALPHA) 
+            if (shape.shader.flags1_test(ShaderFlags1.VERTEX_ALPHA) 
                 or (shape.file.game == 'FO4')):
                 # FO4 appears to combine vertex alpha with vertex color, so always provide alpha.
                 # or ((shape.shader_block_name == 'BSEffectShaderProperty' and shape.file.game == 'FO4'))
@@ -1080,8 +1080,7 @@ class NifImporter():
         if self.root_object != obj and ninode.controller and self.do_import_anims: 
             # import animations if this isn't the root node. If it is, they may reference
             # any of the root's children and so wait until those can be imported.
-            ctlr = controller.ControllerHandler(
-                self.nif, self.objects_created, msghandler=self)
+            ctlr = controller.ControllerHandler(self)
             ctlr.import_controller(ninode.controller)
             # self.import_animations(ninode.controller)
 
@@ -4774,7 +4773,8 @@ class NifExporter:
 
         # Write other block types
         self.export_collisions(obj)
-        if obj.active_material.node_tree.animation_data:
+        if obj.active_material and obj.active_material.node_tree \
+                and obj.active_material.node_tree.animation_data:
             controller.ControllerHandler.export_shader_controller(obj, new_shape)
 
         # Write tri file
@@ -5044,7 +5044,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     export_colors: bpy.props.BoolProperty(
         name="Export vertex color/alpha",
         description="Use vertex color attributes as vertex color",
-        default=False)
+        default=True)
 
     chargen_ext: bpy.props.StringProperty(
         name="Chargen extension",

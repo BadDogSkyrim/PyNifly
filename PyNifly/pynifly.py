@@ -1835,9 +1835,21 @@ class NiShader(NiObject):
     def flags1_test(self, flag):
         return self.properties.shaderflags1_test(flag)
     
+    def flags1_set(self, flag):
+        self.properties.shaderflags1_set(flag)
+    
+    def flags1_clear(self, flag):
+        self.properties.shaderflags1_clear(flag)
+    
     def flags2_test(self, flag):
         return self.properties.shaderflags2_test(flag)
         
+    def flags2_set(self, flag):
+        self.properties.shaderflags2_set(flag)
+    
+    def flags2_clear(self, flag):
+        self.properties.shaderflags2_clear(flag)
+    
 
 class NiShaderFO4(NiShader):
     """

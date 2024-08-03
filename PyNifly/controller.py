@@ -291,20 +291,20 @@ class ControllerHandler():
             animated_obj.animation_data_create()
         
         action_group = "Shader Nodetree"
-        if ctlr.controlledVariable == CONTROLLED_VARIABLE_TYPES.U_Offset:
+        if ctlr.properties.controlledVariable == CONTROLLED_VARIABLE_TYPES.U_Offset:
             controlled_node = "UV_Converter"
             controlled_input = 0
-        elif ctlr.controlledVariable == CONTROLLED_VARIABLE_TYPES.V_Offset:
+        elif ctlr.properties.controlledVariable == CONTROLLED_VARIABLE_TYPES.V_Offset:
             controlled_node = "UV_Converter"
             controlled_input = 1
-        elif ctlr.controlledVariable == CONTROLLED_VARIABLE_TYPES.U_Scale:
+        elif ctlr.properties.controlledVariable == CONTROLLED_VARIABLE_TYPES.U_Scale:
             controlled_node = "UV_Converter"
             controlled_input = 2
-        elif ctlr.controlledVariable == CONTROLLED_VARIABLE_TYPES.V_Scale:
+        elif ctlr.properties.controlledVariable == CONTROLLED_VARIABLE_TYPES.V_Scale:
             controlled_node = "UV_Converter"
             controlled_input = 3
         else:
-            self.parent.warn(f"Cannot handle controlled variable {ctlr.controlledVariable}")
+            self.parent.warn(f"Cannot handle controlled variable {ctlr.properties.controlledVariable}")
             return
 
         action_name = f"{target_obj.name}_Controlled_Shader"
@@ -377,12 +377,12 @@ class ControllerHandler():
 
     def import_controller(self, ctlr, target_object=None):
         """Import the animation defined by a controller block."""
-        if ctlr.blockname == "NiControllerSequence": 
+        if ctlr.blockname == "BSEffectShaderPropertyFloatController":
+            self.import_float_controller(ctlr, target_object)
+        else: # ctlr.blockname == "NiControllerSequence": 
             for seq in ctlr.sequences.values():
                 self.import_sequences(seq)
-            return
-        elif ctlr.blockname == "BSEffectShaderPropertyFloatController":
-            self.import_float_controller(ctlr, target_object)
+
 
     @classmethod
     def import_block(controller_class, controller_block, parent, target_object=None):

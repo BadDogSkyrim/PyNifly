@@ -927,13 +927,13 @@ class ShaderImporter:
             self.material['BS_Shader_Block_Name'] = shader.blockname
             self.material['BSLSP_Shader_Name'] = shader.name
 
-            self.bsdf.inputs['Emission Color'].default_value = shader.Emissive_Color[:]
-            self.bsdf.inputs['Emission Strength'].default_value = shader.Emissive_Mult
+            self.bsdf.inputs['Emission Color'].default_value = shader.properties.Emissive_Color[:]
+            self.bsdf.inputs['Emission Strength'].default_value = shader.properties.Emissive_Mult
 
             if (self.is_lighting_shader and 'Glossiness' in self.bsdf.inputs):
-                self.bsdf.inputs['Glossiness'].default_value = shader.Glossiness
+                self.bsdf.inputs['Glossiness'].default_value = shader.properties.Glossiness
             elif self.is_effect_shader:
-                self.bsdf.inputs['Alpha'].default_value = shader.falloffStartOpacity
+                self.bsdf.inputs['Alpha'].default_value = shader.properties.falloffStartOpacity
                 if not self.shape.alpha_property.alpha_blend:
                     self.bsdf.inputs['Alpha Adjust'].default_value = 1.0
                 elif self.shape.alpha_property.alpha_test:
@@ -942,14 +942,14 @@ class ShaderImporter:
                     self.bsdf.inputs['Alpha Adjust'].default_value = 0.1
 
 
-            self.texmap.inputs['Offset U'].default_value = shape.shader.UV_Offset_U
-            self.texmap.inputs['Offset V'].default_value = shape.shader.UV_Offset_V
-            self.texmap.inputs['Scale U'].default_value = shape.shader.UV_Scale_U
-            self.texmap.inputs['Scale V'].default_value = shape.shader.UV_Scale_V
-            self.texmap.inputs['Clamp S'].default_value = (shape.shader.textureClampMode & 2) / 2
-            self.texmap.inputs['Clamp T'].default_value = shape.shader.textureClampMode & 1
+            self.texmap.inputs['Offset U'].default_value = shape.shader.properties.UV_Offset_U
+            self.texmap.inputs['Offset V'].default_value = shape.shader.properties.UV_Offset_V
+            self.texmap.inputs['Scale U'].default_value = shape.shader.properties.UV_Scale_U
+            self.texmap.inputs['Scale V'].default_value = shape.shader.properties.UV_Scale_V
+            self.texmap.inputs['Clamp S'].default_value = (shape.shader.properties.textureClampMode & 2) / 2
+            self.texmap.inputs['Clamp T'].default_value = shape.shader.properties.textureClampMode & 1
 
-            self.material.use_backface_culling = not shape.shader.shaderflags2_test(ShaderFlags2.DOUBLE_SIDED)
+            self.material.use_backface_culling = not shape.shader.flags2_test(ShaderFlags2.DOUBLE_SIDED)
 
         except Exception as e:
             # Any errors, print the error but continue
@@ -1109,7 +1109,7 @@ class ShaderImporter:
                       txtnode.location.y))
 
         # # Seems like Emissive Color should affect diffuse.
-        # if self.shape.shader.shaderflags1_test(ShaderFlags1.EXTERNAL_EMITTANCE):
+        # if self.shape.shader.flags1_test(ShaderFlags1.EXTERNAL_EMITTANCE):
         #     mix_emit = make_mixnode(self.material.node_tree, 
         #                             txtnode.outputs['Color'],
         #                             self.shape.shader.properties.emittanceColor,
@@ -1228,13 +1228,13 @@ class ShaderImporter:
                                 name='Subsurface Strength',
                                 xloc=skimgnode.location.x,
                                 height=INPUT_NODE_HEIGHT)
-            v.outputs[0].default_value = self.shape.shader.Soft_Lighting
+            v.outputs[0].default_value = self.shape.shader.properties.Soft_Lighting
             self.link(v.outputs['Value'], self.bsdf.inputs['Subsurface Str'])
 
 
     def import_specular(self):
         """Set up nodes for specular texture"""
-        if self.shape.shader.shaderflags1_test(ShaderFlags1.SPECULAR):
+        if self.shape.shader.flags1_test(ShaderFlags1.SPECULAR):
                 # and 'Specular' in self.textures \
                 #     and self.shape.textures['Specular']:
             # Make the specular texture input node.
@@ -1247,7 +1247,7 @@ class ShaderImporter:
                 simg.colorspace_settings.name = "Non-Color"
                 simgnode.image = simg
             else:
-                self.warn(f"Could not load specular texture '{self.shape.textures['Specular']}")
+                self.warn(f"Could not load specular texture")
             self.link(self.texmap.outputs['Vector'], simgnode.inputs['Vector'])
             try: 
                 self.link(simgnode.outputs['Color'], self.bsdf.inputs['Smooth Spec'])
@@ -1257,16 +1257,16 @@ class ShaderImporter:
                 except:
                     self.link(simgnode.outputs['Color'], self.bsdf.inputs['Specular'])
 
-            for i, v in enumerate(self.shape.shader.Spec_Color):
+            for i, v in enumerate(self.shape.shader.properties.Spec_Color):
                 self.bsdf.inputs['Specular Color'].default_value[i] = v
 
             if 'Specular Str' in self.bsdf.inputs:
-                self.bsdf.inputs['Specular Str'].default_value = self.shape.shader.Spec_Str
+                self.bsdf.inputs['Specular Str'].default_value = self.shape.shader.properties.Spec_Str
 
 
     def import_glowmap(self):
         """Set up nodes for glow map texture"""
-        if self.shape.shader.shaderflags2_test(ShaderFlags2.GLOW_MAP) \
+        if self.shape.shader.flags2_test(ShaderFlags2.GLOW_MAP) \
                 and 'Glow' in self.textures \
                     and self.shape.textures['Glow']:
             # Make the glow map texture input node.
@@ -1304,7 +1304,7 @@ class ShaderImporter:
 
             self.link(nimgnode.outputs['Color'], self.bsdf.inputs['Normal'])
             if self.game in ['SKYRIM', 'SKYRIMSE']:
-                if not self.shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+                if not self.shape.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
                     # Tangent normals have specular in alpha channel.
                     if 'Specular' in self.bsdf.inputs:
                         self.link(nimgnode.outputs['Alpha'], self.bsdf.inputs['Specular'])
@@ -1317,7 +1317,7 @@ class ShaderImporter:
         Set up nodes for environment map texture. Don't know how to set it up as an actual
         environment mask so just let it hang out unconnected.
         """
-        if self.shape.shader.shaderflags1_test(BSLSPShaderType.Environment_Map) \
+        if self.shape.shader.flags1_test(BSLSPShaderType.Environment_Map) \
                 and 'EnvMap' in self.shape.textures \
                 and self.shape.textures['EnvMap']: 
             imgnode = self.make_node("ShaderNodeTexImage",
@@ -1336,7 +1336,7 @@ class ShaderImporter:
 
     def import_envmask(self):
         """Set up nodes for environment mask texture."""
-        if self.shape.shader.shaderflags1_test(BSLSPShaderType.Environment_Map) \
+        if self.shape.shader.flags1_test(BSLSPShaderType.Environment_Map) \
                 and 'EnvMask' in self.shape.textures \
                 and self.shape.textures['EnvMask']: 
             imgnode = self.make_node("ShaderNodeTexImage",
@@ -1401,7 +1401,6 @@ class ShaderImporter:
 
         self.nodes.remove(self.nodes["Principled BSDF"])
         mo = self.nodes['Material Output']
-        have_face = False
 
         if self.game == 'FO4':
             self.bsdf = make_shader_fo4(self.material.node_tree, 
@@ -1413,7 +1412,7 @@ class ShaderImporter:
             self.bsdf = make_shader_skyrim(self.material.node_tree,
                                            self.asset_path,
                                            mo.location + Vector((-NODE_WIDTH, 0)),
-                                           msn=shape.shader.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS),
+                                           msn=shape.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS),
                                            facegen=have_face,
                                            effect_shader=self.is_effect_shader)
         
@@ -1638,25 +1637,25 @@ class ShaderExporter:
         if textureslot in self.texture_slots:
             n, f = self.texture_slots[textureslot]
             if n == 1:
-                return shape.shader.shaderflags1_test(f)
+                return shape.shader.flags1_test(f)
             else:
-                return shape.shader.shaderflags2_test(f)
+                return shape.shader.flags2_test(f)
     
     def shader_flag_set(self, shape, textureslot):
         if textureslot in self.texture_slots:
             n, f = self.texture_slots[textureslot]
             if n == 1:
-                shape.shader.shaderflags1_set(f)
+                shape.shader.flags1_set(f)
             else:
-                shape.shader.shaderflags2_set(f)
+                shape.shader.flags2_set(f)
     
     def shader_flag_clear(self, shape, textureslot):
         if textureslot in self.texture_slots:
             n, f = self.texture_slots[textureslot]
             if n == 1:
-                shape.shader.shaderflags1_clear(f)
+                shape.shader.flags1_clear(f)
             else:
-                shape.shader.shaderflags2_clear(f)
+                shape.shader.flags2_clear(f)
     
 
     def write_texture(self, shape, textureslot:str):
@@ -1675,8 +1674,10 @@ class ShaderExporter:
         elif textureslot == "SoftLighting":
             # Subsurface is hidden behind mixnodes in 4.0 so just grab the node by name.
             # Maybe we should just do this for all texture layers.
-            if "SoftLighting_Texture" in self.material.node_tree.nodes:
-                imagenode = self.material.node_tree.nodes["SoftLighting_Texture"]
+            if "Subsurface" in self.shader_node.inputs:
+                # imagenode = self.material.node_tree.nodes["SoftLighting_Texture"]
+                imagenodes = BD.find_node(self.shader_node.inputs["Subsurface"], "ShaderNodeTexImage")
+                if imagenodes: imagenode = imagenodes[0]
             elif 'Subsurface Color' in self.shader_node.inputs:
                 imagenodes = BD.find_node(self.shader_node.inputs["Subsurface Color"], "ShaderNodeTexImage")
                 if imagenodes: imagenode = imagenodes[0]
@@ -1700,7 +1701,7 @@ class ShaderExporter:
                 imagenodes = BD.find_node(self.shader_node.inputs["Diffuse"], "ShaderNodeTexImage")
             if imagenodes: imagenode = imagenodes[0]
             # Check whether this is a greyscale texture. If so, look for the diffuse behind it.
-            if imagenode.label == 'Palette Vector':
+            if imagenode and imagenode.label == 'Palette Vector':
                 imagenodes = BD.find_node(imagenode.inputs['Vector'], 'ShaderNodeTexImage')
                 if imagenodes: imagenode = imagenodes[0]
         else:
@@ -1792,26 +1793,25 @@ class ShaderExporter:
             self.export_shader_attrs(new_shape)
             self.export_textures(new_shape)
             if self.is_obj_space:
-                new_shape.shader.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
+                new_shape.shader.flags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
             else:
-                new_shape.shader.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
+                new_shape.shader.flags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
 
             #log.debug(f"Exporting vertex color flag: {self.vertex_colors}")
             if self.vertex_colors:
-                new_shape.shader.shaderflags2_set(ShaderFlags2.VERTEX_COLORS)
+                new_shape.shader.flags2_set(ShaderFlags2.VERTEX_COLORS)
             else:
-                new_shape.shader.shaderflags2_clear(ShaderFlags2.VERTEX_COLORS)
+                new_shape.shader.flags2_clear(ShaderFlags2.VERTEX_COLORS)
 
             if self.vertex_alpha:
-                new_shape.shader.shaderflags1_set(ShaderFlags1.VERTEX_ALPHA)
+                new_shape.shader.flags1_set(ShaderFlags1.VERTEX_ALPHA)
             else:
-                new_shape.shader.shaderflags1_clear(ShaderFlags1.VERTEX_ALPHA)
+                new_shape.shader.flags1_clear(ShaderFlags1.VERTEX_ALPHA)
                 
             new_shape.save_shader_attributes()
         except Exception as e:
             # Any errors, print the error but continue
             log.warn(str(e))
-
 
         if self.have_errors:
             log.warn(f"Shader nodes are not set up for export to nif. Check and fix in generated nif file.")

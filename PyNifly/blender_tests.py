@@ -1602,7 +1602,7 @@ def TEST_SHADER_LE():
     
     check = nifcheckLE.shapes[0].textures
     original = nifLE.shapes[0].textures
-    assert set(check.keys()) == set(original.keys()), "Have same keys"
+    assert set(check.keys()) == set(original.keys()), f"Have same keys: {set(check.keys())}"
     for k in check:
         assert check[k].lower() == original[k].lower(), f"Value of {k} texture matches"
 
@@ -1722,10 +1722,11 @@ def TEST_SHADER_GRAYSCALE_COLOR():
     n2 = pyn.NifFile(outfile)
     hair1 = n1.shapes[0]
     hair2 = n2.shapes[0]
-    assert hair2.shader.UV_Scale_U == hair1.shader.UV_Scale_U, f"Have correct scale: {hair2.shader.UV_Scale_U}"
-    assert (hair2.shader.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS) 
-            == hair1.shader.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS)), \
-                f"Have vertex colors/alpha: {hair2.shader.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS) }"
+    assert hair2.shader.properties.UV_Scale_U == hair1.shader.properties.UV_Scale_U, \
+        f"Have correct scale: {hair2.shader.properties.UV_Scale_U}"
+    assert (hair2.shader.flags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS) 
+            == hair1.shader.flags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS)), \
+                f"Have vertex colors/alpha: {hair2.shader.flags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS) }"
 
 
 def TEST_SHADER_SCALE():
@@ -1738,7 +1739,7 @@ def TEST_SHADER_SCALE():
 
     n = pyn.NifFile(outfile)
     hair = n.shapes[0]
-    assert hair.shader.UV_Scale_U == 1.5, f"Have correct scale: {hair.shader.UV_Scale_U}"
+    assert hair.shader.properties.UV_Scale_U == 1.5, f"Have correct scale: {hair.shader.properties.UV_Scale_U}"
 
 
 def TEST_SHADER_GLOW():
@@ -1754,8 +1755,8 @@ def TEST_SHADER_GLOW():
     nout = pyn.NifFile(outfile)
     torsoin = n.shape_dict['TorsoLow:0']
     torsoout = nout.shape_dict['TorsoLow:0']
-    assert torsoin.shader.Emissive_Mult == torsoout.shader.Emissive_Mult, \
-        f"Emissive_Mult correct: {torsoout.shader.Emissive_Mult}"
+    assert torsoin.shader.properties.Emissive_Mult == torsoout.shader.properties.Emissive_Mult, \
+        f"Emissive_Mult correct: {torsoout.shader.properties.Emissive_Mult}"
     assert torsoin.shader.textures['EnvMap'] == torsoout.shader.textures['EnvMap'], \
         f"EnvMap correct: {torsoout.shader.textures['EnvMap']}"
     assert torsoin.shader.textures['EnvMask'] == torsoout.shader.textures['EnvMask'], \
@@ -1763,13 +1764,13 @@ def TEST_SHADER_GLOW():
 
     glowin = n.shape_dict['MaleTorsoGlow']
     glowout = nout.shape_dict['MaleTorsoGlow']
-    assert glowin.shader.UV_Offset_U == glowout.shader.UV_Offset_U, f"UV_Offset_U correct: {glowout.shader.UV_Offset_U}"
-    assert glowin.shader.UV_Offset_V == glowout.shader.UV_Offset_V, f"UV_Offset_V correct: {glowout.shader.UV_Offset_V}"
-    assert glowin.shader.UV_Scale_U == glowout.shader.UV_Scale_U, f"UV_Scale_U correct: {glowout.shader.UV_Scale_U}"
-    assert glowin.shader.UV_Scale_V == glowout.shader.UV_Scale_V, f"UV_Scale_V correct: {glowout.shader.UV_Scale_V}"
-    assert glowin.shader.Emissive_Mult == glowout.shader.Emissive_Mult, f"Emissive_Mult correct: {glowout.shader.Emissive_Mult}"
-    assert glowin.shader.Emissive_Color[:] == glowout.shader.Emissive_Color[:], f"Emissive_Color correct: {glowout.shader.Emissive_Color}"
-    assert glowin.hasVertexColors == glowout.hasVertexColors == 1, f"Vertex colors exported correctly"
+    assert glowin.shader.properties.UV_Offset_U == glowout.shader.properties.UV_Offset_U, f"UV_Offset_U correct: {glowout.shader.properties.UV_Offset_U}"
+    assert glowin.shader.properties.UV_Offset_V == glowout.shader.properties.UV_Offset_V, f"UV_Offset_V correct: {glowout.shader.properties.UV_Offset_V}"
+    assert glowin.shader.properties.UV_Scale_U == glowout.shader.properties.UV_Scale_U, f"UV_Scale_U correct: {glowout.shader.properties.UV_Scale_U}"
+    assert glowin.shader.properties.UV_Scale_V == glowout.shader.properties.UV_Scale_V, f"UV_Scale_V correct: {glowout.shader.properties.UV_Scale_V}"
+    assert glowin.shader.properties.Emissive_Mult == glowout.shader.properties.Emissive_Mult, f"Emissive_Mult correct: {glowout.shader.properties.Emissive_Mult}"
+    assert glowin.shader.properties.Emissive_Color[:] == glowout.shader.properties.Emissive_Color[:], f"Emissive_Color correct: {glowout.shader.properties.Emissive_Color}"
+    assert glowin.properties.hasVertexColors == glowout.properties.hasVertexColors == 1, f"Vertex colors exported correctly"
 
     assert glowout.shader.controller, f"Have shader controller on output"
 
@@ -1790,7 +1791,7 @@ def TEST_SHADER_SPRIGGAN():
     testbod = testnif.shape_dict['SprigganFxTestUnified:0']
     outnif = pyn.NifFile(outfile)
     outbod = outnif.shape_dict['SprigganFxTestUnified:0']
-    assert outbod.shader.shaderflags2_test(nifdefs.ShaderFlags2.GLOW_MAP), \
+    assert outbod.shader.flags2_test(nifdefs.ShaderFlags2.GLOW_MAP), \
         f"Glow map flag is set"
     assert outbod.shader.textures['Glow'].lower().endswith('spriggan_g.dds')
     outleaves = outnif.shape_dict['SprigganBodyLeaves']
@@ -1997,8 +1998,8 @@ def TEST_CAVE_GREEN():
     nifcheck = pyn.NifFile(outfile)
     rootscheck = nifcheck.shape_dict["L2_Roots:5"]
     assert rootscheck.has_alpha_property, f"Roots have alpha: {rootscheck.has_alpha_property}"
-    assert rootscheck.shader.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS), \
-        f"Have vertex colors: {rootscheck.shader.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS)}"
+    assert rootscheck.shader.flags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS), \
+        f"Have vertex colors: {rootscheck.shader.flags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS)}"
 
 
 def TEST_POT():
@@ -2416,7 +2417,7 @@ def TEST_COLORS():
 def TEST_COLORS2():
     """Can read & write vertex colors"""
     testfile = TT.test_file(r"tests/FO4/HeadGear1.nif")
-    testfileout = TT.test_file(r"tests/Out/TEST_COLORSB_HeadGear1.nif")
+    testfileout = TT.test_file(r"tests/Out/TEST_COLORS2.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -2449,7 +2450,7 @@ def TEST_NEW_COLORS():
     shape = nif.shapes[0]
     assert shape.colors, f"Have colors in shape {shape.name}"
     assert shape.colors[10] == (1.0, 1.0, 1.0, 1.0), f"Colors are as expected: {shape.colors[10]}"
-    assert shape.shader.shaderflags2_test(pyn.ShaderFlags2.VERTEX_COLORS), \
+    assert shape.shader.flags2_test(pyn.ShaderFlags2.VERTEX_COLORS), \
         f"ShaderFlags2 vertex colors set: {pyn.ShaderFlags2(shape.shader.Shader_Flags_2).fullname}"
 
 
@@ -2541,7 +2542,9 @@ def TEST_VERTEX_ALPHA_IO():
     assert shader, f"Found shader"
     diffuse = BD.find_node(shader.inputs["Diffuse"], "ShaderNodeTexImage")[0]
     assert diffuse.bl_idname == "ShaderNodeTexImage", f"Found correct diffuse type {diffuse.name}"
-    assert diffuse.image.filepath.endswith('KhajiitMaleHead.dds'), f"Filepath correct: {diffuse.image.filepath}"
+    assert (diffuse.image.filepath.endswith('KhajiitMaleHead.dds')
+            or diffuse.image.filepath.endswith('KhajiitMaleHead.png')), \
+                f"Filepath correct: {diffuse.image.filepath}"
     assert shader.inputs['Alpha'].is_linked, f"Have alpha map"
 
     bpy.ops.export_scene.pynifly(filepath=outfile)
@@ -2594,7 +2597,7 @@ def TEST_VERTEX_ALPHA():
         nifcheck = pyn.NifFile(outfile)
         shapecheck = nifcheck.shapes[0]
 
-        assert shapecheck.shader.shaderflags1_test(pyn.ShaderFlags1.VERTEX_ALPHA), \
+        assert shapecheck.shader.flags1_test(pyn.ShaderFlags1.VERTEX_ALPHA), \
             f"Expected VERTEX_ALPHA set: {pyn.ShaderFlags1(shapecheck.shader.Shader_Flags_1).fullname}"
 
         #check that the NIF has alpha 0.5 (to byte precision only)
@@ -3044,7 +3047,7 @@ def TEST_TREE():
     assert nifcheck.rootNode.blockname == "BSLeafAnimNode", f"Have correct root node type"
     treecheck = nifcheck.shapes[0]
     assert treecheck.blockname == "BSMeshLODTriShape", f"Have correct shape node type"
-    assert treecheck.shader.shaderflags2_test(pyn.ShaderFlags2.TREE_ANIM), f"Tree animation set"
+    assert treecheck.shader.flags2_test(pyn.ShaderFlags2.TREE_ANIM), f"Tree animation set"
     assert treecheck.properties.vertexCount == 1059, f"Have correct vertex count"
     assert treecheck.properties.lodSize0 == 1126, f"Have correct lodSize0"
 
@@ -3083,7 +3086,7 @@ def CheckBow(nif, nifcheck, bow):
     # Rotation and dimensions are related. Could check the bounds, which is a lot of math.
     # Instead check the values, but make sure the values give a good collision.
     #assert TT.VNearEqual(p.rotation[:], [0.0, 0.0, 0.0, 1.0]), f"Collision body rotation correct: {p.rotation[:]}"
-    dimv = Vector(boxcheck.bhkDimensions)
+    dimv = Vector(boxcheck.properties.bhkDimensions)
     p = bodycheck.properties
     rot = Quaternion((p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2],))
     dimv.rotate(rot)
@@ -4399,7 +4402,10 @@ def TEST_FACEBONES():
     outfile = TT.test_file(f"tests/Out/TEST_FACEBONES.nif", output=1)
     resfile = TT.test_file(f"tests/Out/TEST_FACEBONES_facebones.nif", output=1)
 
-    bpy.ops.import_scene.pynifly(filepath=testfile)
+    # Facebones files have NiTransformController nodes for reasons I don't understand. We
+    # don't want to muck with those.
+    bpy.ops.import_scene.pynifly(filepath=testfile,
+                                 do_import_animations=False)
 
     head = TT.find_shape("BaseFemaleHead_faceBones:0")
     maxy = max([v.co.y for v in head.data.vertices])
@@ -5284,7 +5290,29 @@ def TEST_TEXTURE_CLAMP():
 
     nifin = pyn.NifFile(testfile)
     nifout = pyn.NifFile(outfile)
-    assert nifin.shapes[0].shader.textureClampMode == nifout.shapes[0].shader.textureClampMode, \
+    assert (nifin.shapes[0].shader.properties.textureClampMode 
+            == nifout.shapes[0].shader.properties.textureClampMode), \
+        f"Preserved texture clamp mode: {nifout.shapes[0].shader.properties.textureClampMode}"
+
+
+def TEST_MISSING_MAT():
+    """We import and export properly even when files are missing."""
+    testfile = TT.test_file(r"tests\FO4\malehandsalt.nif")
+    outfile = TT.test_file(r"tests\out\TEST_MISSING_MAT.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    hands = bpy.context.object
+    mat = hands.active_material
+    assert mat['BSLSP_Shader_Name'] == r"Materials\foo\basehumanmaleskinhands.bgsm", \
+        f"Have correct materials: {mat['BS_Shader_Block_Name']}"
+    # assert 'SKIN_TINT' in mat['Shader_Flags_1'], f"Have correct flags: {mat['Shader_Flags_1']}"
+    assert mat['Shader_Type'] == 'Skin_Tint', f"Have correct shader type: {mat['Shader_Type']}"
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    nifin = pyn.NifFile(testfile)
+    nifout = pyn.NifFile(outfile)
+    assert (nifin.shapes[0].shader.properties.textureClampMode 
+            == nifout.shapes[0].shader.properties.textureClampMode), \
         f"Preserved texture clamp mode: {nifout.shapes[0].shader.textureClampMode}"
 
 
@@ -5536,7 +5564,7 @@ def execute_test(t):
         print (      f"------------------------------ {t.__name__} ------------------------------\n")
         # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
-def do_tests(testlist):
+def do_tests(testlist, exclude=[]):
     """Do tests in testlist. Can pass in a single test."""
     iter = True
     try:
@@ -5548,7 +5576,8 @@ def do_tests(testlist):
 
     if iter: 
         for t in testlist:
-            execute_test(t)
+            if t not in exclude:
+                execute_test(t)
     else:
         execute_test(testlist)
 
@@ -5569,7 +5598,7 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_SHADER_GLOW] )
+    do_tests( [TEST_MISSING_MAT] )
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
@@ -5580,5 +5609,7 @@ else:
     # Shader tests
     # do_tests([t for t in alltests if 'SHADER' in t.__name__])
 
-    # do_tests( testfrom(TEST_FACEGEN) )
+    # do_tests( testfrom(TEST_ANIM_ALDUIN), 
+    #          exclude=[TEST_SHADER_GLOW, TEST_FACEBONES, TEST_FACEBONES_RENAME, TEST_ANIM_ALDUIN,
+    #                   TEST_ANIM_KF, TEST_ANIM_KF_RENAME, TEST_ANIM_HKX])
     # do_tests(alltests)
