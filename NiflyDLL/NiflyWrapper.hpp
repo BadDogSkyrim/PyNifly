@@ -103,9 +103,6 @@ extern "C" NIFLY_API void setShapeWeights(void * anim, void * theShape, const ch
 	VertexWeightPair * vertWeights, int vertWeightLen, nifly::MatTransform * skinToBoneXform);
 
 extern "C" NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char* buf, int buflen);
-extern "C" NIFLY_API void setShaderType(void* nifref, void* shaperef, uint32_t shaderType);
-extern "C" NIFLY_API void setShaderFlags1(void* nifref, void* shaperef, uint32_t flags);
-extern "C" NIFLY_API void setShaderFlags2(void* nifref, void* shaperef, uint32_t flags);
 extern "C" NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, const char* buf);
 
 //extern "C" NIFLY_API int getAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr);

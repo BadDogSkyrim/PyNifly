@@ -1619,15 +1619,15 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
     new_id = NIF_NPOS;
     if (buf->bufType == BSLightingShaderPropertyBufType && !bslsp) {
         std::unique_ptr<BSLightingShaderProperty> sh = std::make_unique<BSLightingShaderProperty>();
-        new_id = nif->GetHeader().AddBlock(std::move(sh));
+        new_id = hdr->AddBlock(std::move(sh));
     }
     else if (buf->bufType == BSEffectShaderPropertyBufType && !bsesp) {
         std::unique_ptr<BSEffectShaderProperty> sh = std::make_unique<BSEffectShaderProperty>();
-        new_id = nif->GetHeader().AddBlock(std::move(sh));
+        new_id = hdr->AddBlock(std::move(sh));
     }
     else if (buf->bufType == BSShaderPPLightingPropertyBufType && !bspp) {
         std::unique_ptr<BSShaderPPLightingProperty> sh = std::make_unique<BSShaderPPLightingProperty>();
-        new_id = nif->GetHeader().AddBlock(std::move(sh));
+        new_id = hdr->AddBlock(std::move(sh));
     }
     if (new_id != NIF_NPOS) {
         shape->ShaderPropertyRef()->Clear();
@@ -1638,6 +1638,8 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
         bsesp = dynamic_cast<BSEffectShaderProperty*>(shader);
         bspp = dynamic_cast<BSShaderPPLightingProperty*>(shader);
     }
+    else
+        new_id = hdr->GetBlockID(bssh);
 
     bssh->name.get() = name;
     bssh->bBSLightingShaderProperty = buf->bBSLightingShaderProperty;
@@ -1660,7 +1662,7 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
         //bslsp->TextureSetRef()->index = buf->textureSetID;
         for (int i=0; i < 3; i++) bslsp->emissiveColor[i] = buf->Emissive_Color[i];
         bslsp->emissiveMultiple = buf->Emissive_Mult;
-        bslsp->rootMaterialName.SetIndex(buf->rootMaterialNameID);
+        bslsp->rootMaterialName = hdr->GetStringById(buf->rootMaterialNameID);
         bslsp->textureClampMode = buf->textureClampMode;
         bslsp->alpha = buf->Alpha;
         bslsp->refractionStrength = buf->Refraction_Str;
@@ -1767,7 +1769,7 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
         bspp->emissiveColor.a = buf->emissiveColor[3];
     };
 
-    return 0;
+    return new_id;
 };
 
 
