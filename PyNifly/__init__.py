@@ -3065,7 +3065,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
     """Import HKX file--either a skeleton or an animation to an armature"""
 
     bl_idname = "import_scene.pynifly_hkx"
-    bl_label = 'Import HKX file (pyNifly)'
+    bl_label = 'Import HKX (pyNifly)'
     bl_options = {'PRESET'}
 
     filename_ext = ".hkx"
@@ -5690,69 +5690,68 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
             LogFinish("IMPORT", out_filepath, status, True)
 
 
-def nifly_menu_import_nif(self, context):
-    self.layout.operator(ImportNIF.bl_idname, text="Nif file with pyNifly (.nif)")
+class ImportMenu(bpy.types.Menu):
+    bl_idname = "import_scene.nifly_menu_import"
+    bl_label = "pyNifly"
 
-def nifly_menu_import_tri(self, context):
-    self.layout.operator(ImportTRI.bl_idname, text="Tri file with pyNifly (.tri)")
+    def draw(self, context):
+        layout = self.layout
+        layout.operator(ImportNIF.bl_idname, text="Nif File (.nif)")
+        layout.operator(ImportTRI.bl_idname, text="Tri File (.tri)")
+        layout.operator(ImportKF.bl_idname, text="KF File (.kf)")
+        layout.operator(ImportHKX.bl_idname, text="HKX Animation/Skeleton File (.hkx)")
 
-def nifly_menu_import_kf(self, context):
-    self.layout.operator(ImportKF.bl_idname, text="KF file with pyNifly (.kf)")
+class ExportMenu(bpy.types.Menu):
+    bl_idname = "export_scene.nifly_menu_export"
+    bl_label = "pyNifly"
 
-def nifly_menu_import_hkx(self, context):
-    self.layout.operator(ImportHKX.bl_idname, text="HKX animation or skeleton file with pyNifly (.hkx)")
+    def draw(self, context):
+        layout = self.layout
+        layout.operator(ExportNIF.bl_idname, text="Nif File (.nif)")
+        layout.operator(ExportKF.bl_idname, text="KF File (.kf)")
+        layout.operator(ExportHKX.bl_idname, text="HKX File (.hkx)")
+        layout.operator(ExportSkelHKX.bl_idname, text="Skeleton File (.hkx)")
 
-def nifly_menu_export_nif(self, context):
-    self.layout.operator(ExportNIF.bl_idname, text="Nif file with pyNifly (.nif)")
+def nifly_menu_import(self, context):
+    layout = self.layout
+    layout.menu('import_scene.nifly_menu_import', text='Import with pyNifly...')
 
-def nifly_menu_export_kf(self, context):
-    self.layout.operator(ExportKF.bl_idname, text="KF file with pyNifly (.kf)")
+def nifly_menu_export(self, context):
+    layout = self.layout
+    layout.menu('export_scene.nifly_menu_export', text='Export with pyNifly...')
 
-def nifly_menu_export_hkx(self, context):
-    self.layout.operator(ExportHKX.bl_idname, text="HKX file with pyNifly (.hkx)")
-
-def nifly_menu_export_skelhkx(self, context):
-    self.layout.operator(ExportSkelHKX.bl_idname, text="Skeleton file with pyNifly (.hkx)")
-
-pyn_registry = [('i', nifly_menu_import_nif, ImportNIF),
-                ('i', nifly_menu_import_tri, ImportTRI),
-                ('i', nifly_menu_import_kf, ImportKF),
-                ('i', nifly_menu_import_hkx, ImportHKX),
-                ('e', nifly_menu_export_nif, ExportNIF),
-                ('e', nifly_menu_export_kf, ExportKF),
-                ('e', nifly_menu_export_hkx, ExportHKX),
-                ('e', nifly_menu_export_skelhkx, ExportSkelHKX),
-                ]
+pyn_registry = [(ImportMenu),
+               (ImportNIF),
+               (ImportTRI),
+               (ImportKF),
+               (ImportHKX),
+               (ExportMenu),
+               (ExportNIF),
+               (ExportKF),
+               (ExportHKX),
+               (ExportSkelHKX),
+               ]
 
 def unregister():
-    for d, f, c in pyn_registry:
-        try:
-            if d == 'i':
-                bpy.types.TOPBAR_MT_file_import.remove(f)
-            else:
-                bpy.types.TOPBAR_MT_file_export.remove(f)
-        except: 
-            pass
+    for c in pyn_registry:
         try:
             bpy.utils.unregister_class(c) 
         except:
             pass
 
+    bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import)
+    bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export)
     skeleton_hkx.unregister()
 
 def register():
-    for d, f, c in pyn_registry:
+    for c in pyn_registry:
         try:
             bpy.utils.register_class(c)
         except:
             pass
-        try:
-            if d == 'i':
-                bpy.types.TOPBAR_MT_file_import.append(f)
-            else:
-                bpy.types.TOPBAR_MT_file_export.append(f)
-        except:
-            pass
+
+    bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import)
+    bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export)
     skeleton_hkx.register()
 
     if nifly_path:
