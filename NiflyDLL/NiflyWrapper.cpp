@@ -1639,6 +1639,8 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
         bspp = dynamic_cast<BSShaderPPLightingProperty*>(shader);
         new_id = hdr->GetBlockID(shader);
     }
+    else
+        new_id = hdr->GetBlockID(bssh);
 
     bssh->name.get() = name;
     bssh->bBSLightingShaderProperty = buf->bBSLightingShaderProperty;
@@ -1661,7 +1663,7 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
         //bslsp->TextureSetRef()->index = buf->textureSetID;
         for (int i=0; i < 3; i++) bslsp->emissiveColor[i] = buf->Emissive_Color[i];
         bslsp->emissiveMultiple = buf->Emissive_Mult;
-        bslsp->rootMaterialName.SetIndex(buf->rootMaterialNameID);
+        bslsp->rootMaterialName = hdr->GetStringById(buf->rootMaterialNameID);
         bslsp->textureClampMode = buf->textureClampMode;
         bslsp->alpha = buf->Alpha;
         bslsp->refractionStrength = buf->Refraction_Str;

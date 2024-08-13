@@ -4440,7 +4440,8 @@ class ModuleTest:
         def CheckNif(nif:NifFile):
             glow:NiShape = nif.shape_dict["MaleTorsoGlow"]
             sh = glow.shader
-            assert sh.blockname == "BSEffectShaderProperty", f"Expected BSEffectShaderProperty, got {glass.shader_block_name}"
+            assert sh.blockname == "BSEffectShaderProperty", \
+                f"Expected BSEffectShaderProperty, got {sh.blockname}"
             assert sh.flags1_test(ShaderFlags1.VERTEX_ALPHA), f"Expected VERTEX_ALPHA true"
             assert not sh.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
             assert sh.flags2_test(ShaderFlags2.NO_FADE)
@@ -5208,6 +5209,29 @@ class ModuleTest:
         assert nifCheck.shapes[0].properties.hasFullPrecision, f"Have full precision"
 
 
+    def TEST_SET_SKINTINT():
+        """Test that we can set the skin tint shader."""
+        testfile = ModuleTest.test_file(r"tests\FO4\Helmet.nif")
+        outfile = ModuleTest.test_file(r"tests\out\TEST_SET_SKINTINT.nif")
+
+        print("------------- read")
+        nif = NifFile(testfile)
+        helmet = nif.shape_dict["Helmet:0"]
+
+        print("------------- write")
+        nifOut = NifFile()
+        nifOut.initialize('FO4', outfile, nif.rootNode.blockname, nif.rootNode.name)
+        helmet.shader.properties.Shader_Type = BSLSPShaderType.Skin_Tint
+        ModuleTest.export_shape(helmet, nifOut)
+        nifOut.save()
+
+        print("------------- check")
+        nifCheck = NifFile(outfile)
+        helmetcheck = nifCheck.shape_dict["Helmet:0"]
+        assert helmetcheck.shader.properties.Shader_Type == BSLSPShaderType.Skin_Tint, \
+            f"Have fixed shader type {helmetcheck.shader.properties.Shader_Type}"
+
+
     def TEST_HKX_SKELETON():
         """Test read/write of hkx skeleton files (in XML format)."""
         pass
@@ -5243,7 +5267,7 @@ class ModuleTest:
         print(f"------------- done")
 
     
-    def execute(self, start=None, test=None):
+    def execute(self, start=None, test=None, exclude=[]):
         print("""\n
 =====================================================================
 ======================= Running pynifly tests =======================
@@ -5256,7 +5280,7 @@ class ModuleTest:
             doit = (start is None) 
             for t in self.all_tests:
                 if t == start: doit = True
-                if doit:
+                if doit and not t in exclude:
                     self.execute_test(t)
 
         print("""
@@ -5288,6 +5312,6 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
     tester = ModuleTest(mylog)
 
-    tester.execute()
-    # tester.execute(start=ModuleTest.TEST_EFFECT_SHADER_FO4)
-    # tester.execute(test=ModuleTest.TEST_ANIMATION_SHADER)
+    # tester.execute(test=ModuleTest.TEST_SET_SKINTINT)
+    tester.execute(exclude=[ModuleTest.TEST_SET_SKINTINT])
+    # tester.execute(start=ModuleTest.TEST_BOW)

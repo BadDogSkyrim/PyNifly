@@ -1612,7 +1612,7 @@ class ShaderExporter:
             if 'Glossiness' in self.shader_node.inputs:
                 shape.shader.properties.Glossiness = self.shader_node.inputs['Glossiness'].default_value
 
-            # shape.save_shader_attributes()
+            shape.save_shader_attributes()
             
         except Exception as e:
             self.warn("Could not determine shader attributes: " + traceback.format_exc())
@@ -1690,6 +1690,8 @@ class ShaderExporter:
                 # Don't have an obvious texture node, walk the BSDF inputs backwards.
                 if "Specular" in self.shader_node.inputs:
                     imagenodes = BD.find_node(self.shader_node.inputs["Specular"], "ShaderNodeTexImage")
+                elif "Specular Color" in self.shader_node.inputs:
+                    imagenodes = BD.find_node(self.shader_node.inputs["Specular Color"], "ShaderNodeTexImage")
                 elif "Specular IOR Level" in self.shader_node.inputs:
                     imagenodes = BD.find_node(self.shader_node.inputs["Specular IOR Level"], "ShaderNodeTexImage")
                 if imagenodes: imagenode = imagenodes[0]

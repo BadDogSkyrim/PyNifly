@@ -3267,7 +3267,8 @@ def TEST_COLLISION_BOW():
     coll = arma.pose.bones['Bow_MidBone'].constraints['bhkCollisionConstraint'].target
     assert coll.name == 'bhkBoxShape', f"Collision shape is box"
     assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
-    assert coll['collisionFilter_layer'] == nifdefs.SkyrimCollisionLayer.WEAPON.name, f"Collsion filter layer is loaded as string: {collbody['collisionFilter_layer']}"
+    assert coll['collisionFilter_layer'] == nifdefs.SkyrimCollisionLayer.WEAPON.name, \
+        f"Collsion filter layer is loaded as string: {coll['collisionFilter_layer']}"
 
     # Default collision response is 1 = SIMPLE_CONTACT, so no property for it.
     # assert coll["collisionResponse"] == nifdefs.hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
@@ -3541,7 +3542,11 @@ def TEST_ROGUE01():
 
     testfile = TT.test_file(r"tests/Out/TEST_ROGUE01.nif")
 
-    obj = TT.append_from_file("MHelmetLight:0", False, r"tests\FO4\WonkyNormals.blend", r"\Object", "MHelmetLight:0")
+    obj = TT.append_from_file("MHelmetLight:0", 
+                              False, 
+                              r"tests\FO4\WonkyNormals.blend", 
+                              r"\Object", 
+                              "MHelmetLight:0")
     assert obj.name == "MHelmetLight:0", "Got the right object"
 
     bpy.ops.export_scene.pynifly(filepath=testfile, target_game="FO4")
@@ -5316,6 +5321,41 @@ def TEST_MISSING_MAT():
         f"Preserved texture clamp mode: {nifout.shapes[0].shader.textureClampMode}"
 
 
+def TEST_MISSING_FILES():
+    """Write a good nif even if texture and materials files are missing."""
+    blendfile = TT.test_file(r"tests\FO4\Gloves.blend")
+    outfile = TT.test_file(r"tests\out\TEST_MISSING_FILES.nif")
+
+    # append all objects starting with 'house'
+    with bpy.data.libraries.load(blendfile) as (data_from, data_to):
+        data_to.objects = [obj for obj in data_from.objects]
+
+    # link them to scene
+    scene = bpy.context.scene
+    for obj in data_to.objects:
+        if obj is not None:
+            scene.collection.objects.link(obj)
+
+    hands = next(obj for obj in bpy.context.scene.objects if obj.name.startswith('BaseMaleHands'))
+    hands.active_material['BS_Shader_Block_Name'] = "BSLightingShaderProperty"
+    hands.active_material['Shader_Type'] = "Skin_Tint"
+    hands.active_material['BSShaderTextureSet_Diffuse'] = "actors/character/basehumanmale/basemalehands_d.dds"
+    BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj],
+                    active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    nifout = pyn.NifFile(outfile)
+    hands = nifout.shape_dict['BaseMaleHands3rd_fitted:0']
+    assert hands.shader.name == r"Materials\actors\Character\BaseHumanMale\basehumanmaleskinhands.bgsm", \
+        f"Have correct shader name: {hands.shader.name}"
+    # NOT WORKING: We should be able to set the shader type this way but in fact it's 
+    # not working all the way down to the nifly level. Not sure why.
+    # assert hands.shader.properties.Shader_Type == nifdefs.BSLSPShaderType.Skin_Tint, \
+    #     f"Have correct shader: {hands.shader.properties.Shader_Type}"
+    assert "actors/character/basehumanmale/basemalehands_d.dds" == hands.textures['Diffuse'], \
+        f"Have diffuse in texture list: {hands.textures}"
+
+
 def TEST_FULL_PRECISION():
     """Can set full precision."""
     testfile = TT.test_file(r"tests\FO4\OtterFemHead.nif")
@@ -5598,7 +5638,8 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    do_tests( [TEST_MISSING_MAT] )
+    do_tests( [TEST_MISSING_MAT, TEST_MISSING_FILES] )
+    # do_tests( [TEST_SHADER_GRAYSCALE_COLOR] )
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (

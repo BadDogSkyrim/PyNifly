@@ -669,27 +669,42 @@ void TCompareShaders(void* nif1, void* shape1, void* nif2, void* shape2)
 	Assert::IsTrue(alpha1.threshold == alpha2.threshold, L"Error: threshold does not match");
 };
 
-void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape)
+void TSetSkinType(void* nif, NiShaderBuf& p) {
+	p.Shader_Type = uint32_t(1);
+	p.Shader_Flags_1 |= (1 << 21);
+};
+void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape,
+	void tweak(void* nif, NiShaderBuf &attr)=nullptr, const char* shaderName=nullptr)
 {
 	int sourceID = getBlockID(sourceNif, sourceShape);
 	int targetID = getBlockID(targetNif, targetShape);
 	NiShapeBuf sourceProps;
-	char shaderName[500];
+	char shaderNameBuf[500];
 	char shaderBlockname[128];
 	NiShaderBuf shaderAttr;
+	const char* n;
 
-	Assert::AreEqual(0, getBlock(sourceNif, sourceID, &sourceProps));
+	Assert::AreEqual(0, 
+		getBlock(sourceNif, sourceID, &sourceProps));
 	getBlockname(sourceNif, sourceProps.shaderPropertyID, shaderBlockname, 128);
-	Assert::AreEqual(0, getBlock(sourceNif, sourceProps.shaderPropertyID, &shaderAttr));
-	getString(sourceNif, shaderAttr.nameID, 500, shaderName);
+	Assert::AreEqual(0, 
+		getBlock(sourceNif, sourceProps.shaderPropertyID, &shaderAttr));
+	if (shaderName)
+		n = shaderName;
+	else {
+		getString(sourceNif, shaderAttr.nameID, 500, shaderNameBuf);
+		n = shaderNameBuf;
+	}
 
 	uint32_t srcController = shaderAttr.controllerID;
 	shaderAttr.controllerID = NIF_NPOS;
 	shaderAttr.nameID = NIF_NPOS;
 	shaderAttr.rootMaterialNameID = NIF_NPOS;
 	shaderAttr.textureSetID = NIF_NPOS;
+	if (tweak) tweak(targetNif, shaderAttr);
 
-	uint32_t targetShaderID = addBlock(targetNif, shaderName, &shaderAttr, targetID);
+	Assert::AreNotEqual(int(NIF_NPOS), 
+		addBlock(targetNif, n, &shaderAttr, targetID), L"Successfully added shader block");
 	for (int i = 0; i < 9; i++) {
 		char texture[300];
 		getShaderTextureSlot(sourceNif, sourceShape, i, texture, 300);
@@ -956,6 +971,7 @@ namespace NiflyDLLTests
 			Triangle* tris = new Triangle[18000];
 			Vector2* uv = new Vector2[9000];
 			Vector3* norms = new Vector3[9000];
+			void* targetShape;
 
 			int vertCount = getVertsForShape(nif, theBody[0], verts, 9000 * 3, 0);
 			Assert::AreEqual(8717, vertCount);
@@ -969,7 +985,9 @@ namespace NiflyDLLTests
 			clearMessageLog();
 
 			void* newNif = createNif("FO4", "NiNode", "Scene Root");
-			TCopyShape(newNif, "BaseMaleBody:0", nif, theBody[0]);
+			targetShape =
+				TCopyShape(newNif, "BaseMaleBody:0", nif, theBody[0]);
+			TCopyShader(newNif, targetShape, nif, theBody[0]);
 			saveNif(newNif, outfile.u8string().c_str());
 			Assert::IsTrue(std::filesystem::exists(outfile));
 
@@ -984,6 +1002,18 @@ namespace NiflyDLLTests
 				testfile, "BaseMaleBody:0",
 				outfile, "BaseMaleBody:0",
 				targetVert, "Spine1_skin");
+
+			void* nifCheck;
+			void* shapes[5];
+			int shapeID, shaderID;
+			NiShapeBuf shapeBuf;
+			NiShaderBuf shaderBuf;
+			nifCheck = load(outfile.u8string().c_str());
+			getShapes(nifCheck, shapes, 5, 0);
+			shapeID = getBlockID(nifCheck, shapes[0]);
+			getBlock(nifCheck, shapeID, &shapeBuf);
+			getBlock(nifCheck, shapeBuf.shaderPropertyID, &shaderBuf);
+			Assert::AreEqual(5, int(shaderBuf.Shader_Type), L"Have correct shader type");
 		};
 		/* Here's about skinning */
 		TEST_METHOD(SkinTransformsFO4)
@@ -4322,13 +4352,62 @@ namespace NiflyDLLTests
 			void* nifCheck = load(outfile.u8string().c_str());
 			TCheckDock(nifCheck, dockCheck);
 		};
-		/* Hangs. It would be nice if it didn't. */
-		//TEST_METHOD(readCorrupt) {
-		//	std::filesystem::path testfile = testRoot / "FO4" / "Corrupt.nif";
+		/* Check that we can write shader name. */
+		TEST_METHOD(setShaderType) {
+			std::filesystem::path testfile = testRoot / "FO4" / "helmet.nif";
+			std::filesystem::path outfile1 = testRoot / "Out" / "testWrapper_setShaderType1.nif";
+			int shapeCount;
+			void* shapes[2];
+			char name[2][128];
+			int targetIndex = -1;
 
-		//	void* nif = load(testfile.u8string().c_str());
-		//	char root[100];
-		//	getRootName(nif, root, 100);
-		//};
+			void* nif = load(testfile.u8string().c_str());
+			shapeCount = getShapes(nif, shapes, 2, 0);
+
+			Assert::AreEqual(2, shapeCount, L"Have 2 shapes");
+			for (int i = 0; i < 2; i++) {
+				getShapeName(shapes[i], name[i], 128);
+				if (strcmp("Helmet:0", name[i]) == 0) targetIndex = i;
+			};
+
+			void* shapeOut[2];
+			void* nifOut = createNif("FO4", "NiNode", "Fingers");
+			shapeOut[0] = TCopyShape(nifOut, name[targetIndex], nif, shapes[targetIndex]);
+			TCopyShader(nifOut, shapeOut[0], nif, shapes[targetIndex], TSetSkinType, "materials/test.bgsm");
+
+			saveNif(nifOut, outfile1.u8string().c_str());
+
+			void* nifCheck = load(outfile1.u8string().c_str());
+			shapeCount = getShapes(nifCheck, shapes, 2, 0);
+			int shapeID = getBlockID(nifCheck, shapes[0]);
+			NiShapeBuf shapeProps;
+			NiShaderBuf shaderProps;
+			char nameBuf[100];
+
+			Assert::AreEqual(0, 
+				getBlock(nifCheck, shapeID, &shapeProps));
+			Assert::AreEqual(0, 
+				getBlock(nifCheck, shapeProps.shaderPropertyID, &shaderProps));
+			getString(nifCheck, shaderProps.nameID, 100, nameBuf);
+			Assert::AreEqual("materials/test.bgsm", nameBuf, L"Have correct shader name");
+
+			/* Check to see if we can change the shader type to Skin_Tint. We can't.
+				Not sure why, but at a guess there are other attributes that have to be set in parallel,
+				and there's a check in the nifly code that sets it back to default. But I haven't been
+				able to find it if so and we can set Skin_Tint when we need to (see LoadAndStoreFO4) so
+				it doesn't seem worth chasing.
+			*/
+			//Assert::AreEqual(1, int(shaderProps.Shader_Type), L"Have correct shader type");
+
+
+		};
+		/* Hangs. It would be nice if it didn't. */
+		TEST_METHOD(readCorrupt) {
+			std::filesystem::path testfile = testRoot / "FO4" / "Corrupt.nif";
+
+			void* nif = load(testfile.u8string().c_str());
+			char root[100];
+			getRootName(nif, root, 100);
+		};
 	};
 }
