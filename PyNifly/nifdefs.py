@@ -1784,7 +1784,7 @@ class NiTransformControllerBuf(pynStructure):
         ("phase", c_float),
         ("startTime", c_float),
         ("stopTime", c_float),
-        ("targetIndex", c_uint32),
+        ("targetID", c_uint32),
     ]
     def __init__(self, values=None):
         super().__init__(values=values)

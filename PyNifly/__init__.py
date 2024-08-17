@@ -518,6 +518,7 @@ class NifImporter():
         self.connect_parents = []
         self.auxbones = False
         self.ref_compat = False
+        self.controller_mgr = None
 
 
     def __str__(self):
@@ -1080,9 +1081,7 @@ class NifImporter():
         if self.root_object != obj and ninode.controller and self.do_import_anims: 
             # import animations if this isn't the root node. If it is, they may reference
             # any of the root's children and so wait until those can be imported.
-            ctlr = controller.ControllerHandler(self)
-            ctlr.import_controller(ninode.controller)
-            # self.import_animations(ninode.controller)
+            self.controller_mgr.import_controller(ninode.controller, arma if arma else obj, obj)
 
         return obj
 
@@ -1107,7 +1106,8 @@ class NifImporter():
 
 
     def import_loose_ninodes(self, nif, arma=None):
-        """Import any NiNodes that don't have any special purpose--likely skeleton bones
+        """
+        Import any NiNodes that don't have any special purpose--likely skeleton bones
         that aren't used in shapes.
         """
         original_bones = set()
@@ -1203,17 +1203,17 @@ class NifImporter():
             if the_shape.collision_object:
                 self.import_collision_obj(the_shape.collision_object, new_object)
 
-            if the_shape.controller:
-                controller.ControllerHandler.import_block(
+            if the_shape.controller and self.controller_mgr:
+                self.controller_mgr.import_controller(
                     the_shape.controller,
-                    self,
-                    target_object=new_object)
+                    target_object=new_object,
+                    target_element=new_object)
                 
-            if the_shape.shader.controller:
-                controller.ControllerHandler.import_block(
+            if the_shape.shader.controller and self.controller_mgr:
+                self.controller_mgr.import_controller(
                     the_shape.shader.controller,
-                    self,
-                    target_object=new_object)
+                    target_object=new_object, 
+                    target_element=new_object.active_material)
                 
             self.import_extra(new_object, the_shape)
 
@@ -1757,38 +1757,56 @@ class NifImporter():
         #         pb.rotation_quaternion = relxf.to_quaternion()
 
     
-    def animate_bone(self, arma, boneobj, bone:NiNode):
-        if not bone.controller: return
+    # def animate_bone(self, arma, boneobj, bone:NiNode):
+    #     if not bone.controller: return
 
-        p = bone.controller.properties
-        self.context.scene.frame_end = 1 + int(p.stopTime - p.startTime) * self.context.scene.render.fps
+    #     p = bone.controller.properties
+    #     self.context.scene.frame_end = 1 + int(p.stopTime - p.startTime) * self.context.scene.render.fps
 
-        if not arma.animation_data: arma.animation_data_create()
-        a = arma.animation_data.action
-        if not a:
-            action_name = arma.name
-            a = bpy.data.actions.new(action_name)
-            a.use_fake_user = True
-            a.asset_mark()
-            arma.animation_data.action = a
+    #     if not arma.animation_data: arma.animation_data_create()
+    #     a = arma.animation_data.action
+    #     if not a:
+    #         action_name = arma.name
+    #         a = bpy.data.actions.new(action_name)
+    #         a.use_fake_user = True
+    #         a.asset_mark()
+    #         arma.animation_data.action = a
         
-        rotmode = self.import_interpolator(
-            bone.controller.interpolator, 
-            arma, 
-            a, 
-            boneobj.name,
-            f'pose.bones["{boneobj.name}"]',
-            boneobj.matrix_local)
-        arma.pose.bones[boneobj.name].rotation_mode = rotmode
+    #     rotmode = self.import_interpolator(
+    #         bone.controller.interpolator, 
+    #         arma, 
+    #         a, 
+    #         boneobj.name,
+    #         f'pose.bones["{boneobj.name}"]',
+    #         boneobj.matrix_local)
+    #     arma.pose.bones[boneobj.name].rotation_mode = rotmode
 
 
-    def animate_armature(self, arma):
-        """Load any animations associated with the armature."""
-        if not self.do_import_anims: return
-        for b in arma.data.bones:
-            nifname = self.nif_name(b.name)
-            if nifname in self.nif.nodes: 
-                self.animate_bone(arma, b, self.nif.nodes[nifname])
+    # def animate_armature(self, arma):
+    #     """Load any animations associated with the armature."""
+    #     if not self.do_import_anims: return
+
+    #     # There appears to be no reason why animations on different bones should be the
+    #     # same length. If they aren't, they can't be one Blender action. But usually
+    #     # (always?) they will be. So collect all bones with the same length animation and
+    #     # animate them together.
+    #     bonegroups = {}
+    #     for b in arma.data.bones:
+    #         nifname = self.nif_name(b.name)
+    #         if nifname in self.nif.nodes: 
+    #             nifbone = self.nif.nodes[nifname]
+    #             if nifbone.controller:
+    #                 c = nifbone.controller
+    #                 bonegroups[(c.properties.startTime, c.properties.stopTime,
+    #                             c.properties.phase, c.properties.frequency)]
+        
+    #     for b in arma.data.bones:
+    #         nifname = self.nif_name(b.name)
+    #         if nifname in self.nif.nodes: 
+    #             cimp = controller.ControllerHandler(self)
+    #             cimp.new_animation(self)
+    #             cimp.new_action(b.name, "Bone")
+    #             cimp.animate_bone(arma, b, self.nif.nodes[nifname])
 
 
     # ------- COLLISION IMPORT --------
@@ -2004,7 +2022,6 @@ class NifImporter():
         returns the collision shape
         """
         if not cb.shape: 
-            self.warn(f"Collision has unsupported collision shape")
             return None
         
         # If collision body provides a transform it is relative to the collision target.
@@ -2099,292 +2116,21 @@ class NifImporter():
     # ----- End Collisions ----
 
 
-    # ----- Begin Animations ----
-
-    # def import_interpolator(self, ti:NiTransformInterpolator, 
-    #                         target_node:bpy.types.Object, 
-    #                         action:bpy.types.Action, 
-    #                         group_name:str, 
-    #                         path_name:str, 
-    #                         parentxf:Matrix):
-    #     """
-    #     Import an interpolator, including its data block.
-
-    #     - Returns the rotation mode that must be set on the target. If this interpolator
-    #       is using XYZ rotations, the rotation mode must be set to Euler. 
-    #     """
-    #     rotation_mode = "QUATERNION"
-
-    #     # ti, the parent NiTransformInterpolator, has the transform-to-global necessary
-    #     # for this animation. It matches the transform of the target being animated.
-    #     have_parent_rotation = False
-    #     if max(ti.properties.rotation[:]) > 3e+38 or min(ti.properties.rotation[:]) < -3e+38:
-    #         tiq = Quaternion()
-    #     else:
-    #         have_parent_rotation = True
-    #         tiq = Quaternion(ti.properties.rotation)
-    #     qinv = tiq.inverted()
-    #     # qinv = (parentxf.to_3x3() @ qinv.to_matrix()).to_quaternion()
-    #     tiv = Vector(ti.properties.translation)
-    #     # Some interpolators have bogus translations. Dunno why.
-    #     if tiv[0] <= -1e+30 or tiv[0] >= 1e+30: tiv[0] = 0
-    #     if tiv[1] <= -1e+30 or tiv[1] >= 1e+30: tiv[1] = 0
-    #     if tiv[2] <= -1e+30 or tiv[2] >= 1e+30: tiv[2] = 0
-
-    #     tixf = MatrixLocRotScale(ti.properties.translation,
-    #                              Quaternion(ti.properties.rotation),
-    #                              [1.0]*3)
-    #     # tixf = parentxf @ tixf
-    #     tixf.invert()
-
-    #     locbase = tixf.translation
-    #     rotbase = tixf.to_euler()
-    #     quatbase = tixf.to_quaternion()
-    #     scalebase = -ti.properties.scale
-    #     td = ti.data
-    #     fps = self.context.scene.render.fps
-
-    #     if path_name:
-    #         path_prefix = path_name + "."
-    #     else:
-    #         path_prefix = ""
-
-    #     if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
-    #         rotation_mode = "XYZ"
-    #         if td.xrotations or td.yrotations or td.zrotations:
-    #             curveX = action.fcurves.new(path_prefix + "rotation_euler", index=0, action_group=group_name)
-    #             curveY = action.fcurves.new(path_prefix + "rotation_euler", index=1, action_group=group_name)
-    #             curveZ = action.fcurves.new(path_prefix + "rotation_euler", index=2, action_group=group_name)
-
-    #             if len(td.xrotations) == len(td.yrotations) and len(td.xrotations) == len(td.zrotations):
-    #                 for x, y, z in zip(td.xrotations, td.yrotations, td.zrotations):
-    #                     # In theory the X/Y/Z dimensions do not have to have key frames at
-    #                     # the same time signatures. But an Euler rotation needs all 3.
-    #                     # Probably they will all line up because generating them any other
-    #                     # way is surely hard. So hope for that and post a warning if not.
-    #                     if not (NearEqual(x.time, y.time) and NearEqual(x.time, z.time)):
-    #                         self.warn(f"Keyframes do not align for '{path_name}. Animations may be incorrect.")
-
-    #                     # Need to apply the parent rotation. If we stay in Eulers, we may
-    #                     # have gimbal lock. If we convert to quaternions, we may lose the
-    #                     # distinction between +180 and -180, which are different things
-    #                     # for animations. So only apply the parent rotation if there is
-    #                     # one; in those cases we're just hoping it comes out right.
-    #                     ve = Euler(Vector((x.value, y.value, z.value)), 'XYZ')
-    #                     if have_parent_rotation:
-    #                         ke = ve.copy()
-    #                         kq = ke.to_quaternion()
-    #                         vq = qinv @ kq
-    #                         ve = vq.to_euler()
-    #                     curveX.keyframe_points.insert(x.time * fps + 1, ve[0])
-    #                     curveY.keyframe_points.insert(y.time * fps + 1, ve[1])
-    #                     curveZ.keyframe_points.insert(z.time * fps + 1, ve[2])
-                        
-    #             else:
-    #                 # This method of getting the inverse of the Euler doesn't always
-    #                 # work, maybe because of gimbal lock.
-    #                 ve = tiq.to_euler()
-
-    #                 for i, k in enumerate(td.xrotations):
-    #                     val = k.value - ve[0]
-    #                     curveX.keyframe_points.insert(k.time * fps + 1, val)
-    #                 for i, k in enumerate(td.yrotations):
-    #                     val = k.value - ve[1]
-    #                     curveY.keyframe_points.insert(k.time * fps + 1, val)
-    #                 for i, k in enumerate(td.zrotations):
-    #                     val = k.value - ve[2]
-    #                     curveZ.keyframe_points.insert(k.time * fps + 1, val)
-        
-    #     elif td.properties.rotationType in [NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY]:
-    #         rotation_mode = "QUATERNION"
-
-    #         curveW = action.fcurves.new(path_prefix + "rotation_quaternion", index=0, action_group=group_name)
-    #         curveX = action.fcurves.new(path_prefix + "rotation_quaternion", index=1, action_group=group_name)
-    #         curveY = action.fcurves.new(path_prefix + "rotation_quaternion", index=2, action_group=group_name)
-    #         curveZ = action.fcurves.new(path_prefix + "rotation_quaternion", index=3, action_group=group_name)
-
-    #         for i, k in enumerate(td.qrotations):
-    #             kq = Quaternion(k.value)
-    #             # Auxbones animations are not correct yet, but they seem to need something
-    #             # different from animations on the full skeleton.
-    #             if self.auxbones:
-    #                 vq = kq 
-    #             else:
-    #                 vq = qinv @ kq 
-
-    #             curveW.keyframe_points.insert(k.time * fps + 1, vq[0])
-    #             curveX.keyframe_points.insert(k.time * fps + 1, vq[1])
-    #             curveY.keyframe_points.insert(k.time * fps + 1, vq[2])
-    #             curveZ.keyframe_points.insert(k.time * fps + 1, vq[3])
-
-    #     elif td.properties.rotationType == NiKeyType.NO_INTERP:
-    #         pass
-    #     else:
-    #         self.warn(f"Nif contains unimplemented rotation type at {path_name}: {td.properties.rotationType}")
-
-    #     # Seems like a value of + or - infinity in the Transform
-    #     if len(td.translations) > 0:
-    #         curveLocX = action.fcurves.new(path_prefix + "location", index=0, action_group=group_name)
-    #         curveLocY = action.fcurves.new(path_prefix + "location", index=1, action_group=group_name)
-    #         curveLocZ = action.fcurves.new(path_prefix + "location", index=2, action_group=group_name)
-    #         for k in td.translations:
-    #             v = Vector(k.value)
-
-    #             if self.auxbones:
-    #                 pass 
-    #             else:
-    #                 v = v - tiv
-    #             curveLocX.keyframe_points.insert(k.time * fps + 1, v[0])
-    #             curveLocY.keyframe_points.insert(k.time * fps + 1, v[1])
-    #             curveLocZ.keyframe_points.insert(k.time * fps + 1, v[2])
-
-    #     return rotation_mode
-
-
-    # def import_color_controller(self, seq:NiSequence, block:ControllerLink):
-    #     """Import one controlled block."""
-    #     if block.node_name in self.nif.nodes:
-    #         target_node = self.nif.nodes[block.node_name]
-
-    #         if target_node._handle in self.objects_created:
-    #             target_obj = self.objects_created[target_node._handle]
-    #         else:
-    #             self.warn(f"Target object was not imported: {block.node_name}")
-    #             return
-    #     else:
-    #         self.warn(f"Target block not found in nif. Is it corrupt? ({block.node_name})")
-
-    #     action_group = "Color Property Transforms"
-    #     path_name = None
-    #     action_name = f"{block.node_name}_{seq.name}"
-
-        
-    # def import_transform_controller(self, seq:NiSequence, block:ControllerLink):
-    #     """Import one controlled block."""
-    #     xf = Matrix.Identity(4)
-        
-    #     if block.node_name in self.nif.nodes:
-    #         target_node = self.nif.nodes[block.node_name]
-
-    #         if target_node._handle in self.objects_created:
-    #             target_obj = self.objects_created[target_node._handle]
-    #         else:
-    #             self.warn(f"Target object was not imported: {block.node_name}")
-    #             return
-    #         action_group = "Object Transforms"
-    #         path_name = None
-    #         action_name = f"{block.node_name}_{seq.name}"
-    #     else:
-    #         # Armature may have had bone names converted or not. Check both ways.
-    #         name = block.node_name
-    #         if name not in self.armature.data.bones:
-    #             name = self.blender_name(name)
-    #             if name not in self.armature.data.bones:
-    #                 name = None
-    #         if name:
-    #             action_group = name
-    #             path_name = f'pose.bones["{action_group}"]'
-    #             target_obj = self.armature
-    #             action_name = seq.name
-    #             xf = self.armature.data.bones[name].matrix_local.copy()
-    #         else:
-    #             self.warn(f"Controller target not found: {block.node_name}")
-    #             return 
-
-    #     fps = self.context.scene.render.fps
-    #     if not target_obj.animation_data:
-    #         target_obj.animation_data_create()
-
-    #     new_action = None
-    #     if action_group != "Object Transforms":
-    #         new_action = target_obj.animation_data.action
-
-    #     if not new_action:
-    #         new_action = bpy.data.actions.new(action_name)
-    #         try:
-    #             new_action.frame_start = seq.properties.startTime * fps + 1
-    #             new_action.frame_end = seq.properties.stopTime * fps + 1
-    #             new_action.use_frame_range = True
-    #             new_action.use_fake_user = True
-    #         except:
-    #             pass
-    #         new_action.asset_mark()
-
-    #     rotmode = self.import_interpolator(
-    #         block.interpolator, 
-    #         target_obj, 
-    #         new_action, 
-    #         action_group,
-    #         path_name, 
-    #         xf)
-        
-    #     if action_group == "Object Transforms":
-    #         target_obj.rotation_mode = rotmode
-    #     else:
-    #         target_obj.pose.bones[name].rotation_mode = rotmode
-
-    #     if not target_obj.animation_data.action:
-    #         target_obj.animation_data.action = new_action
-
-
-    # def import_controlled_block(self, seq:NiSequence, block:ControllerLink):
-    #     """Import one controlled block."""
-    #     if block.controller_type == "NiTransformController":
-    #         self.import_transform_controller(seq, block)
-    #     elif block.controller_type == 'BSEffectShaderPropertyColorController':
-    #         self.import_color_controller(seq, block)
-    #     else:
-    #         self.warn(f"Nif has unknown controller type: {block.controller_type}")
-    #         return
-
-
-    # def import_sequences(self, seq):
-    #     """Import a single controller sequence."""
-    #     self.context.scene.frame_end = 1 + int(
-    #         (seq.properties.stopTime - seq.properties.startTime) * self.context.scene.render.fps)
-    #     for cb in seq.controlled_blocks:
-    #         self.import_controlled_block(seq, cb)
-        
-
-    def import_controller_seq(self, cseq:NiControllerSequence):
-        """Import a ControllerSequence node and children."""
-        if not self.armature:
-            return
-        
-        if self.armature.animation_data:
-            self.armature.animation_data.action = None
-
-        for cb in cseq.controlled_blocks:
-            self.import_controlled_block(cseq, cb)
-
-        if self.armature.animation_data and self.armature.animation_data.action:
-            bpy.context.scene.frame_end \
-                = int(self.armature.animation_data.action.curve_frame_range[1])
-    
-    # def import_animations(self, ctrlr: NiTimeController):
-    #     """Import the animation defined by this controller."""
-    #     if not self.do_import_anims: return
-        
-        # if ctrlr and hasattr(ctrlr, "sequences"): 
-        #     for seq in ctrlr.sequences.values():
-        #         self.import_sequences(seq)
-
-
-
-    # ----- End Animations ----
-
-
     def import_nif(self):
         """Import a single file."""
         log.info(f"Importing {self.nif.game} file {self.nif.filepath}")
         
+        if self.do_import_anims:
+            self.controller_mgr = controller.ControllerHandler(self)
+
         # Each file gets its own root object in Blender.
         self.root_object = None
 
-        if self.nif.rootNode.blockname == "NiControllerSequence":
+        if self.nif.rootNode.blockname == "NiControllerSequence" and self.controller_mgr:
             # Top-level node of a KF animation file is a Controller Sequence. 
             # Import it and done.
-            self.import_controller_seq(self.nif.rootNode)
+            self.controller_mgr.import_controller(
+                self.nif.rootNode, target_object=self.armature, target_element=self.armature)
             return
 
         self.is_facegen = ("BSFaceGenNiNodeSkinned" in self.nif.nodes)
@@ -2443,7 +2189,8 @@ class NifImporter():
                         self.add_bones_to_arma(arma, self.nif, bonenames)
                     self.connect_armature(arma)
                     self.group_bones(arma)
-                    self.animate_armature(self.armature)
+                    if self.controller_mgr:
+                        self.controller_mgr.import_bone_animations(self.armature)
     
             # Gather up any NiNodes that weren't captured any other way 
             self.import_loose_ninodes(self.nif)
@@ -2452,19 +2199,15 @@ class NifImporter():
             self.import_connect_points()
         
             # Import top-level animations
-            if self.nif.rootNode.controller:
-                controller.ControllerHandler.import_block(
-                    self.nif.rootNode.controller, self)
-            # self.import_animations(self.nif.rootNode.controller)
+            if self.controller_mgr and self.nif.rootNode.controller:
+                self.controller_mgr.import_controller(
+                    self.nif.rootNode.controller, self.root_object, self.root_object)
 
             # Everything gets parented to the child connect point, if any.
             for o in self.objects_created.values(): 
                 if self.created_child_cp and o.parent == None and o != self.created_child_cp:
                     o.parent = self.created_child_cp
                     if o in orphan_shapes: orphan_shapes.remove(o)
-
-        # THink this should not be here...
-        # controller.ControllerHandler.import_block(self.nif.rootNode.controller, self)
 
         # Anything not yet parented gets put under the root.
         for o in orphan_shapes:
@@ -2483,7 +2226,6 @@ class NifImporter():
             trifiles = find_tris(self.nif)
             for tf in trifiles:
                 import_tri(tf, [x for x in self.objects_created.values() if x.type == 'MESH'][0])
-
 
 
     def merge_shapes(self, filename, obj_list, new_filename, new_obj_list):
@@ -2719,10 +2461,12 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         #log.debug(f"Filepath is {self.filepath}")
 
         fullfiles = ''
+        self.context = context
+        self.initial_frame = context.scene.frame_current
         try:
-            NifFile.Load(nifly_path)
+            context.scene.frame_set(1)
 
-            # bpy.ops.object.select_all(action='DESELECT')
+            NifFile.Load(nifly_path)
 
             folderpath = os.path.dirname(self.filepath)
             filenames = [f.name for f in self.files]
@@ -2771,6 +2515,9 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             self.report({"ERROR"}, "Import of nif failed, see console window for details")
             status = {'CANCELLED'}
             LogFinish("IMPORT", fullfiles, status, True)
+
+        finally:
+            self.context.scene.frame_set(self.initial_frame)
                 
         return {'FINISHED'}
 
@@ -5137,6 +4884,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         res = set()
         selected_objs = context.selected_objects
         active_obj = context.object
+        initial_frame = context.scene.frame_current
 
         if not self.poll(context):
             self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
@@ -5150,6 +4898,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         NifFile.Load(nifly_path)
 
         try:
+            context.scene.frame_set(1)
             exporter = NifExporter(self.filepath, 
                                    self.target_game, 
                                    chargen=self.chargen_ext)
@@ -5205,8 +4954,10 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             res.add("CANCELLED")
             LogFinish("EXPORT", self.objects_to_export, {"ERROR"}, True)
 
-        ObjectSelect(selected_objs)
-        ObjectActive(active_obj)
+        finally:
+            context.scene.frame_set(initial_frame)
+            ObjectSelect(selected_objs)
+            ObjectActive(active_obj)
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 

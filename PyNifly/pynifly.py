@@ -1493,9 +1493,17 @@ class NiKeyframeController(NiSingleInterpController):
 class NiTransformController(NiKeyframeController):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
         super().__init__(handle=handle, file=file, id=id, parent=parent)
+        self._target = None
         self._properties = NiTransformControllerBuf()
         NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
-        # NifFile.nifly.getTransformController(self.file._handle, self.id, self.properties)
+        
+    @property
+    def target(self):
+        if self._target: return self._target
+        if self.properties.targetID == NODEID_NONE: return None
+        self._target = self.file.read_node(
+            node_id=self.properties.targetID, parent=self)
+        return self._target
 
 
 class NiMultiTargetTransformController(NiInterpController):
@@ -1544,13 +1552,14 @@ class BSEffectShaderPropertyFloatController(NiFloatInterpController):
 
 
 class ControllerLink:
-    _nodename = None
-    _controller_type = None
-    _interpolator = None
 
     def __init__(self, props:ControllerLinkBuf, parent):
         self.properties = props.copy()
         self.parent = parent
+        self._controller = None
+        self._nodename = None
+        self._controller_type = None
+        self._interpolator = None
 
     @property
     def node_name(self):
@@ -1583,6 +1592,13 @@ class ControllerLink:
             file=self.parent.file, id=self.properties.interpolatorID
         )
         return self._interpolator
+
+    @property
+    def controller(self):
+        if self._controller: return self._controller
+        if self.properties.controllerID == NODEID_NONE: return None
+        self._controller = self.parent.file.read_node(node_id=self.properties.controllerID, parent=self)
+        return self._controller
 
 
 class NiSequence(NiObject):
@@ -1667,6 +1683,16 @@ class NiControllerSequence(NiSequence):
     def __init__(self, handle=None, file=None, parent=None, id=NODEID_NONE):
         super().__init__(handle=handle, file=file, parent=parent, id=id)
         self._blockname = "NiControllerSequence"
+
+    @property
+    def accumRootName(self):
+        namebuf = (c_char * self.file.max_string_len)()
+        NifFile.nifly.getString(
+            self.file._handle, 
+            self.properties.accumRootNameID, 
+            self.file.max_string_len, 
+            namebuf)
+        return namebuf.value.decode('utf-8')
 
 
 class NiControllerManager(NiTimeController):
