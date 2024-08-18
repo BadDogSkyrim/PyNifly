@@ -7,7 +7,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 0, 0),
-    "version": (15, 0, 1),   
+    "version": (16, 0, 0),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -1736,78 +1736,6 @@ class NifImporter():
             mnew = obj.modifiers.new("Armature", 'ARMATURE')
             mnew.object = arma
     
-        # for b in arma.data.bones:
-        #     nifname = self.nif_name(b.name)
-        #     if nifname in self.reference_skel.nodes:
-        #         rb = self.reference_skel.nodes[nifname]
-        #         xf = transform_to_matrix(rb.transform)
-        #         xfloc, xfrot, xfscale = xf.decompose()
-        #         b.matrix = xfrot.to_matrix()
-        # return
-        # for pb in arma.pose.bones:
-        #     nifname = self.nif_name(pb.name)
-        #     if nifname in self.reference_skel.nodes:
-        #         rb = self.reference_skel.nodes[nifname]
-        #         xf = transform_to_matrix(rb.transform)
-        #         xfloc, xfrot, xfscale = xf.decompose()
-
-        #         # Pose transform is relative to bone, so take bone transform out.
-        #         b = arma.data.bones[pb.name]
-        #         relxf = b.matrix.inverted() @ xfrot.to_matrix()
-        #         pb.rotation_quaternion = relxf.to_quaternion()
-
-    
-    # def animate_bone(self, arma, boneobj, bone:NiNode):
-    #     if not bone.controller: return
-
-    #     p = bone.controller.properties
-    #     self.context.scene.frame_end = 1 + int(p.stopTime - p.startTime) * self.context.scene.render.fps
-
-    #     if not arma.animation_data: arma.animation_data_create()
-    #     a = arma.animation_data.action
-    #     if not a:
-    #         action_name = arma.name
-    #         a = bpy.data.actions.new(action_name)
-    #         a.use_fake_user = True
-    #         a.asset_mark()
-    #         arma.animation_data.action = a
-        
-    #     rotmode = self.import_interpolator(
-    #         bone.controller.interpolator, 
-    #         arma, 
-    #         a, 
-    #         boneobj.name,
-    #         f'pose.bones["{boneobj.name}"]',
-    #         boneobj.matrix_local)
-    #     arma.pose.bones[boneobj.name].rotation_mode = rotmode
-
-
-    # def animate_armature(self, arma):
-    #     """Load any animations associated with the armature."""
-    #     if not self.do_import_anims: return
-
-    #     # There appears to be no reason why animations on different bones should be the
-    #     # same length. If they aren't, they can't be one Blender action. But usually
-    #     # (always?) they will be. So collect all bones with the same length animation and
-    #     # animate them together.
-    #     bonegroups = {}
-    #     for b in arma.data.bones:
-    #         nifname = self.nif_name(b.name)
-    #         if nifname in self.nif.nodes: 
-    #             nifbone = self.nif.nodes[nifname]
-    #             if nifbone.controller:
-    #                 c = nifbone.controller
-    #                 bonegroups[(c.properties.startTime, c.properties.stopTime,
-    #                             c.properties.phase, c.properties.frequency)]
-        
-    #     for b in arma.data.bones:
-    #         nifname = self.nif_name(b.name)
-    #         if nifname in self.nif.nodes: 
-    #             cimp = controller.ControllerHandler(self)
-    #             cimp.new_animation(self)
-    #             cimp.new_action(b.name, "Bone")
-    #             cimp.animate_bone(arma, b, self.nif.nodes[nifname])
-
 
     # ------- COLLISION IMPORT --------
 

@@ -1778,10 +1778,10 @@ def TEST_ANIM_SHADER_GLOW():
     # assert glowout.shader.controller, f"Have shader controller on output"
 
 
-def TEST_SHADER_SPRIGGAN():
+def TEST_ANIM_SHADER_SPRIGGAN():
     """Test that the special spriggan elements work correctly."""
     testfile = TT.test_file(r"tests\Skyrim\spriggan.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SHADER_SPRIGGAN.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_ANIM_SHADER_SPRIGGAN.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     bod = TT.find_object('SprigganFxTestUnified:0', bpy.context.selected_objects, fn=lambda x: x.name)
@@ -5669,9 +5669,9 @@ else:
     #     TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_BOW_CHANGE, 
     #     TEST_ANIM_ANIMATRON, TEST_FACEGEN, )])
 
-    # do_tests( [TEST_ANIM_ANIMATRON] ) 
+    do_tests( [TEST_ANIM_SHADER_SPRIGGAN] ) 
     # All tests with animations
     # do_tests([t for t in alltests if '_ANIM_' in t.__name__])
 
     # do_tests(testfrom(TEST_ANIM_CHEST), exclude=badtests)
-    do_tests(alltests, exclude=badtests)
+    # do_tests(alltests, exclude=badtests)
