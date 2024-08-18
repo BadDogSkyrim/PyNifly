@@ -5671,11 +5671,11 @@ else:
     #     TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_BOW_CHANGE, 
     #     TEST_ANIM_ANIMATRON, TEST_FACEGEN, )])
 
-    do_tests( [TEST_SHADER_ALPHA] ) 
+    # do_tests( [TEST_BODYPART_ALIGNMENT_FO4_1] ) 
 
     # All tests with animations
     # do_tests([t for t in alltests if '_ANIM_' in t.__name__])
 
     # do_tests(testfrom(TEST_ARMATURE_EXTEND), exclude=badtests)
 
-    # do_tests(alltests, exclude=badtests)
+    do_tests(alltests, exclude=badtests)

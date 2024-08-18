@@ -1028,7 +1028,10 @@ class ShaderImporter:
 
             return True
         else:
-            self.diffuse.image.alpha_mode = 'NONE'
+            try:
+                self.diffuse.image.alpha_mode = 'NONE'
+            except:
+                pass
             return False
 
 
