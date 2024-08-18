@@ -1822,8 +1822,10 @@ def TEST_SHADER_ALPHA():
     assert bsdf.inputs['Normal'].is_linked, f"Have normal map"
     assert 'Diffuse_Texture' in tail.active_material.node_tree.nodes.keys(), \
         f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
-    assert tail.active_material.blend_method == 'CLIP', \
-        f"Error: Alpha blend is '{tail.active_material.blend_method}', not 'CLIP'"
+    assert "Alpha Threshold" in tail.active_material.node_tree.nodes, \
+        f"Have alpha clip nodes in node tree: {tail.active_material.node_tree.nodes.keys()}"
+    # assert tail.active_material.blend_method == 'CLIP', \
+    #     f"Error: Alpha blend is '{tail.active_material.blend_method}', not 'CLIP'"
 
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
 
@@ -5669,9 +5671,11 @@ else:
     #     TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_BOW_CHANGE, 
     #     TEST_ANIM_ANIMATRON, TEST_FACEGEN, )])
 
-    do_tests( [TEST_ANIM_SHADER_SPRIGGAN] ) 
+    do_tests( [TEST_SHADER_ALPHA] ) 
+
     # All tests with animations
     # do_tests([t for t in alltests if '_ANIM_' in t.__name__])
 
-    # do_tests(testfrom(TEST_ANIM_CHEST), exclude=badtests)
+    # do_tests(testfrom(TEST_ARMATURE_EXTEND), exclude=badtests)
+
     # do_tests(alltests, exclude=badtests)

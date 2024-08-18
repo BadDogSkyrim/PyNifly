@@ -17,8 +17,6 @@ bl_info = {
 import sys
 import os
 import os.path
-import logging
-import traceback
 import subprocess
 import xml.etree.ElementTree as xml
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry, Color

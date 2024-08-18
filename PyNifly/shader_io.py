@@ -22,6 +22,7 @@ TEXTURE_NODE_WIDTH = 300
 TEXTURE_NODE_HEIGHT = 290
 INPUT_NODE_HEIGHT = 100
 COLOR_NODE_HEIGHT = 200
+HORIZONTAL_GAP = 50
 NORMAL_SCALE = 1.0 # Possible to make normal more obvious
 
 # Equivalent nodes that have different names in different versions of blender. Fuckers.
@@ -742,34 +743,6 @@ def make_uv_node(parent, shader_path, location):
 
     grp.links.new(uv_comb.outputs['Vector'], group_outputs.inputs['Vector'])
 
-
-    # xyc = grp.nodes.new('ShaderNodeCombineXYZ')
-    # xyc.location = (0, 100)
-    # grp.links.new(group_inputs.outputs['Offset U'], xyc.inputs['X'])
-    # grp.links.new(group_inputs.outputs['Offset V'], xyc.inputs['Y'])
-    # xyc.inputs['Z'].default_value = 0
-
-    # self.ytop = self.bsdf.location.y
-    # uvou = self.make_node('ShaderNodeValue', name='UV_Offset_U', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
-    # uvov = self.make_node('ShaderNodeValue', name='UV_Offset_V', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
-    
-    
-    # uvsu = self.make_node('ShaderNodeValue', name='UV_Scale_U', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
-    # uvsv = self.make_node('ShaderNodeValue', name='UV_Scale_V', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT*2)
-
-    # xys = grp.nodes.new('ShaderNodeCombineXYZ')
-    # xys.location = (0, -100)
-    # grp.links.new(group_inputs.outputs['Scale U'], xys.inputs['X'])
-    # grp.links.new(group_inputs.outputs['Scale V'], xys.inputs['Y'])
-    # xys.inputs['Z'].default_value = 1.0
-
-    # texmap = grp.nodes.new('ShaderNodeMapping')
-    # texmap.location = (200, 0)
-    # grp.links.new(tc.outputs['UV'], texmap.inputs['Vector'])
-    # grp.links.new(xyc.outputs['Vector'], texmap.inputs['Location'])
-    # grp.links.new(xys.outputs['Vector'], texmap.inputs['Scale'])
-    # grp.links.new(texmap.outputs['Vector'], group_outputs.inputs['Vector'])
-
     shader_node = parent.new('ShaderNodeGroup')
     shader_node.name = shader_node.label = 'UV_Converter'
     shader_node.location = location
@@ -861,6 +834,25 @@ def make_mixnode(nodetree, input1, input2, output=None, factor=1.0,
     if location: mixnode.location = location
 
     return mixnode
+
+
+def make_maprange(nodetree, in_value=None, 
+                  in_from_min=None, in_from_max=None,
+                  in_to_min=None, in_to_max=None, 
+                  location=None):
+    """
+    Create a map range node
+    """
+    node = nodetree.nodes.new("ShaderNodeMapRange")
+    if in_value: nodetree.links.new(in_value, node.inputs['Value'])
+    if in_from_min: nodetree.links.new(in_from_min, node.inputs['From Min'])
+    if in_from_max: nodetree.links.new(in_from_max, node.inputs['From Max'])
+    if in_to_min: nodetree.links.new(in_to_min, node.inputs['To Min'])
+    if in_to_max: nodetree.links.new(in_to_max, node.inputs['To Max'])
+
+    if location: node.location = location
+
+    return node
 
 
 class ShaderImporter:
@@ -982,44 +974,62 @@ class ShaderImporter:
         """
         Make the value nodes and calculations that are used as input to the shader.
         """
-
         self.ytop = self.bsdf.location.y
-        # uvou = self.make_node('ShaderNodeValue', name='UV_Offset_U', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
-        # uvov = self.make_node('ShaderNodeValue', name='UV_Offset_V', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
-        
-        # uvsu = self.make_node('ShaderNodeValue', name='UV_Scale_U', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
-        # uvsv = self.make_node('ShaderNodeValue', name='UV_Scale_V', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
-
-        # clamps = self.make_node('ShaderNodeValue', name='Clamp_S', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT)
-        # clampt = self.make_node('ShaderNodeValue', name='Clamp_T', xloc=self.inputs_offset_x, height=INPUT_NODE_HEIGHT*2)
-
         self.texmap = make_uv_node(self.nodes, self.asset_path, (self.calc1_offset_x, 0,))
-        # self.link(uvou.outputs['Value'], self.texmap.inputs['Offset U'])
-        # self.link(uvov.outputs['Value'], self.texmap.inputs['Offset V'])
-        # self.link(uvsu.outputs['Value'], self.texmap.inputs['Scale U'])
-        # self.link(uvsv.outputs['Value'], self.texmap.inputs['Scale V'])
-        # self.link(clamps.outputs['Value'], self.texmap.inputs['Clamp S'])
-        # self.link(clampt.outputs['Value'], self.texmap.inputs['Clamp T'])
+
+
+    def make_alpha_clip(self, shape:NiShape):
+        """
+        Implement alpha clip shading.
+
+        Blender 4.2 REMOVED alpha clip mode, so we have to implement it with shader nodes.
+        """
+        alphathr = self.make_node("ShaderNodeValue",
+                                  name='Alpha Threshold',
+                                  xloc=self.bsdf.location.x + self.img_offset_x,
+                                  height=INPUT_NODE_HEIGHT)
+        alphathr.outputs[0].default_value = shape.alpha_property.threshold
+
+        math = self.nodes.new("ShaderNodeMath")
+        math.operation = 'DIVIDE'
+        self.link(alphathr.outputs[0], math.inputs[0])
+        math.inputs[1].default_value = 255
+        math.location = alphathr.location + Vector((alphathr.width + HORIZONTAL_GAP, 0))
+
+        map1 = make_maprange(self.material.node_tree, 
+                             in_value=self.diffuse.outputs['Alpha'],
+                             in_from_max=math.outputs[0],
+                             location=math.location + Vector((math.width + HORIZONTAL_GAP, 0)))
+        map2 = make_maprange(self.material.node_tree, 
+                             in_value=map1.outputs[0],
+                             in_from_min=math.outputs[0],
+                             location=map1.location + Vector((map1.width + HORIZONTAL_GAP, 0)))
+        self.link(map2.outputs[0], self.bsdf.inputs['Alpha'])
+
+        self.bsdf.location += map1.location - alphathr.location
+        self.nodes['Material Output'].location += map1.location - alphathr.location
 
 
     def import_shader_alpha(self, shape):
         if shape.has_alpha_property:
             self.material.alpha_threshold = shape.alpha_property.threshold
-            if shape.alpha_property.flags & 1:
+            if shape.alpha_property.flags & ALPHA_FLAG_MASK.ALPHA_BLEND:
                 self.material.blend_method = 'BLEND'
                 self.material.alpha_threshold = shape.alpha_property.threshold/255
+                if self.diffuse and self.bsdf and not self.bsdf.inputs['Alpha'].is_linked:
+                    # Alpha input may already have been hooked up if there are vertex alphas
+                    self.link(self.diffuse.outputs['Alpha'], self.bsdf.inputs['Alpha'])
             else:
                 self.material.blend_method = 'CLIP'
-                self.material.alpha_threshold = shape.alpha_property.threshold/255
+                self.make_alpha_clip(shape)
+
             self.material['NiAlphaProperty_flags'] = shape.alpha_property.flags
             self.material['NiAlphaProperty_threshold'] = shape.alpha_property.threshold
 
-            if self.diffuse and self.bsdf and not self.bsdf.inputs['Alpha'].is_linked:
-                # Alpha input may already have been hooked up if there are vertex alphas
-                self.link(self.diffuse.outputs['Alpha'], self.bsdf.inputs['Alpha'])
-
             return True
-        return False
+        else:
+            self.diffuse.image.alpha_mode = 'NONE'
+            return False
 
 
     def find_textures(self, shape:NiShape):
@@ -1773,15 +1783,19 @@ class ShaderExporter:
         # Write alpha if any after the textures
         try:
             alpha_input = self.shader_node.inputs['Alpha']
-            if alpha_input and alpha_input.is_linked \
-                and alpha_input.links[0].from_node.bl_idname == 'ShaderNodeTexImage' \
-                and self.material:
+            if alpha_input and alpha_input.is_linked and self.material:
                 shape.has_alpha_property = True
                 if 'NiAlphaProperty_flags' in self.material:
                     shape.alpha_property.flags = self.material['NiAlphaProperty_flags']
                 else:
                     shape.alpha_property.flags = 4844
-                shape.alpha_property.threshold = int(self.material.alpha_threshold * 255)
+                if alpha_input.links[0].from_node.bl_idname == 'ShaderNodeTexImage':
+                    shape.alpha_property.threshold = int(self.material.alpha_threshold * 255)
+                    shape.alpha_property.flags &= not ALPHA_FLAG_MASK.ALPHA_TEST
+                else:
+                    value_node = BD.find_node(alpha_input, "ShaderNodeValue")[0]
+                    shape.alpha_property.threshold = int(value_node.outputs[0].default_value)
+                    shape.alpha_property.flags |= ALPHA_FLAG_MASK.ALPHA_TEST
                 shape.save_alpha_property()
         except:
             self.warn("Could not determine alpha property")
