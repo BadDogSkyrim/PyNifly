@@ -1748,6 +1748,15 @@ def TEST_ANIM_SHADER_GLOW():
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_GLOW.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
+    glow = TT.find_object('MaleTorsoGlow', bpy.context.selected_objects, fn=lambda x: x.name)
+    uv_node = glow.active_material.node_tree.nodes['UV_Converter']
+
+    bpy.context.scene.frame_set(0)
+    assert uv_node.inputs['Offset V'].default_value == 1, f"V offset starts at 0: {uv_node.inputs['Offset V'].default_value}"
+    bpy.context.scene.frame_set(400)
+    assert 0.1 < uv_node.inputs['Offset V'].default_value < 0.9, f"V offset is changing: {uv_node.inputs['Offset V'].default_value}"
+    bpy.context.scene.frame_set(0)
+
     bpy.ops.export_scene.pynifly(filepath=outfile,
                                  export_colors=True)
 
@@ -5676,7 +5685,9 @@ else:
 
     # All tests with collisions
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
+    
+    do_tests([TEST_ANIM_SHADER_GLOW])
 
     # do_tests(testfrom(TEST_COLLISION_CONVEXVERT), exclude=badtests)
 
-    do_tests(alltests, exclude=badtests)
+    # do_tests(alltests, exclude=badtests)

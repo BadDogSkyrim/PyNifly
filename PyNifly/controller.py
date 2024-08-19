@@ -275,6 +275,7 @@ class ControllerHandler():
         if not self.action_target:
             self.warn("No target object")
 
+        self.action_group = "Shader Nodetree"
         self._new_action("Shader")
         
         self.action_group = "Shader Nodetree"
@@ -576,7 +577,7 @@ class ControllerHandler():
 
     ### EXPORT ###
 
-    def export_curves(self, arma, curve_list):
+    def _export_curves(self, arma, curve_list):
         """
         Export a group of curves from the list to a TransformInterpolator/TransformData pair. 
         A group maps to a controlled object, so each group should be one such pair.
@@ -675,6 +676,33 @@ class ControllerHandler():
 
         return group, ti
                 
+
+    @classmethod
+    def export_animation(cls, parent_handler, arma):
+        """Export one action to one animation KF file."""
+        exporter = ControllerHandler(parent_handler)
+        exporter.nif = parent_handler.nif
+
+        exporter.action = arma.animation_data.action
+        controller = exporter.nif.rootNode
+        cp = controller.properties.copy()
+        cp.startTime = (exporter.action.curve_frame_range[0]-1)/exporter.fps
+        cp.stopTime = (exporter.action.curve_frame_range[1]-1)/exporter.fps
+        cp.cycleType = CycleType.CYCLE_LOOP if exporter.action.use_cyclic else CycleType.CYCLE_CLAMP
+        cp.frequency = 1.0
+        controller.properties = cp
+
+        # Collect list of curves. They will be picked off in clumps until the list is empty.
+        curve_list = list(exporter.action.fcurves)
+        while curve_list:
+            targname, ti = exporter._export_curves(arma, curve_list)
+            if targname and ti:
+                controller.add_controlled_block(
+                    name=exporter.nif.nif_name(targname),
+                    interpolator=ti,
+                    node_name = exporter.nif.nif_name(targname),
+                    controller_type = "NiTransformController")
+
 
     @classmethod
     def export_shader_controller(cclass, obj, trishape):

@@ -1087,7 +1087,7 @@ class NifImporter():
                 self.controller_mgr.import_controller(
                     the_shape.shader.controller,
                     target_object=new_object, 
-                    target_element=new_object.active_material)
+                    target_element=new_object.active_material.node_tree)
                 
             self.import_extra(new_object, the_shape)
 
@@ -4203,7 +4203,13 @@ class ExportKF(bpy.types.Operator, ExportHelper):
 
         try:
             # Export whatever animation is attached to the active object.
-            self.export_animation(context.object)
+            self.nif = NifFile()
+            self.nif.initialize("SKYRIM", self.filepath, "NiControllerSequence", 
+                                os.path.splitext(os.path.basename(self.filepath))[0])
+            
+            controller.ControllerHandler.export_animation(self, context.object)
+
+            self.nif.save()
 
         except:
             log.exception("Export of KF failed")
@@ -4236,134 +4242,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         log.warning(msg)
         self.errors.add("WARNING")
         self.messages.append("WARNING: " + msg)
-
-
-    def export_curves(self, arma, curve_list):
-        """Export a group of curves from the list to a TransformInterpolator/TransformData pair. 
-        A group maps to a controlled object, so each group should be one such pair.
-        The curves that are used are picked off the list.
-        * Returns (group name, TransformInterpolator for the set of curves).
-        """
-        if not curve_list: return None, None
-        
-        group = curve_list[0].group.name
-        scene_fps = self.context.scene.render.fps
-        
-        loc = []
-        eu = []
-        quat = []
-        scale = []
-        while curve_list and curve_list[0].group.name == group:
-            dp = curve_list[0].data_path
-            if ".location" in dp:
-                loc.append(curve_list[0])
-                curve_list.pop(0)
-            elif ".rotation_quaternion" in dp:
-                quat.append(curve_list[0])
-                curve_list.pop(0)
-            elif ".scale" in dp:
-                scale.append(curve_list[0])
-                curve_list.pop(0)
-            else:
-                self.error(f"Unknown curve type: {dp}")
-                return None, None
-        
-        if scale:
-            if not self.given_scale_warning:
-                self.report({"INFO"}, f"Ignoring scale transforms--not used in Skyrim")
-                self.given_scale_warning = True
-
-        if len(loc) != 3 and len(eu) != 3 and len(quat) != 4:
-            self.error(f"No useable transforms in group {group}")
-            return None, None
-
-        if not group in arma.data.bones:
-            self.error(f"Target bone not found in armature: {group}")
-            return None, None
-        
-        targ = arma.data.bones[group]
-        if targ.parent:
-            targ_xf = targ.parent.matrix_local.inverted() @ targ.matrix_local
-        else:
-            targ_xf = targ.matrix_local
-        targ_trans = targ_xf.translation
-        targ_q = targ_xf.to_quaternion()
-
-        tibuf = NiTransformInterpolatorBuf()
-        tibuf.translation = targ_trans[:]
-        tibuf.rotation = targ_q[:]
-        tibuf.scale = 1.0
-        ti = NiTransformInterpolator(file=self.nif, props=tibuf)
-        
-        tdbuf = NiTransformDataBuf()
-        if quat:
-            tdbuf.rotationType = NiKeyType.QUADRATIC_KEY
-        elif eu:
-            tdbuf.rotationType = NiKeyType.XYZ_ROTATION_KEY
-        if loc:
-            tdbuf.translations.interpolation = NiKeyType.LINEAR_KEY
-        td = NiTransformData(file=self.nif, props=tdbuf, parent=ti)
-
-        # Lots of error-checking because the user could have done any damn thing.
-        if len(quat) == 4:
-            timemax = max(q.range()[1]-1 for q in quat)/scene_fps
-            timemin = min(q.range()[0]-1 for q in quat)/scene_fps
-            timestep = 1/self.fps
-            timesig = timemin
-            while timesig < timemax + 0.0001:
-                fr = timesig * scene_fps + 1
-                tdq = Quaternion([quat[0].evaluate(fr), 
-                                  quat[1].evaluate(fr), 
-                                  quat[2].evaluate(fr), 
-                                  quat[3].evaluate(fr)])
-                kq = targ_q @ tdq
-                td.add_qrotation_key(timesig, kq)
-                timesig += timestep
-
-        if len(loc) == 3:
-            timemax = max(v.range()[1]-1 for v in loc)/scene_fps
-            timemin = min(v.range()[0]-1 for v in loc)/scene_fps
-            timestep = 1/self.fps
-            timesig = timemin
-            while timesig < timemax + 0.0001:
-                fr = timesig * scene_fps + 1
-                kv =Vector([loc[0].evaluate(fr), 
-                            loc[1].evaluate(fr), 
-                            loc[2].evaluate(fr)])
-                rv = kv + targ_trans
-                td.add_translation_key(timesig, rv)
-                timesig += timestep
-
-        return group, ti
                 
-
-    def export_animation(self, arma):
-        """Export one action to one animation KF file."""
-        action = arma.animation_data.action
-        fps = self.context.scene.render.fps
-        self.nif = NifFile()
-        self.nif.initialize("SKYRIM", self.filepath, "NiControllerSequence", 
-                            os.path.splitext(os.path.basename(self.filepath))[0])
-        controller = self.nif.rootNode
-        cp = controller.properties.copy()
-        cp.startTime = (action.curve_frame_range[0]-1)/fps
-        cp.stopTime = (action.curve_frame_range[1]-1)/fps
-        cp.cycleType = CycleType.CYCLE_LOOP if action.use_cyclic else CycleType.CYCLE_CLAMP
-        cp.frequency = 1.0
-        controller.properties = cp
-
-        # Collect list of curves. They will be picked off in clumps until the list is empty.
-        curve_list = list(action.fcurves)
-        while curve_list:
-            targname, ti = self.export_curves(arma, curve_list)
-            if targname and ti:
-                controller.add_controlled_block(
-                    name=self.nif.nif_name(targname),
-                    interpolator=ti,
-                    node_name = self.nif.nif_name(targname),
-                    controller_type = "NiTransformController")
-
-        self.nif.save()
 
 
 ################################################################################

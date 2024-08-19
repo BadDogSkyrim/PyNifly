@@ -1455,10 +1455,15 @@ class NiFloatInterpolator(NiObject):
         self._data = c
         self.properties.dataID = c.id
     
+    
 class NiTimeController(NiObject):
     """Abstract class for time controllers. Keeping the chain of subclasses below
     because we'll likely need them eventually.
     """
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._target = None
+
     @property 
     def next_controller(self):
         if self.properties.nextControllerID == NODEID_NONE:
@@ -1468,74 +1473,22 @@ class NiTimeController(NiObject):
         
     @property
     def target(self):
-        """Return the target of the controller as a pyNifly object."""
-        if self.properties.targetID == NODEID_NONE:
-            return None
-        else:
-            return self.file.read_node(node_id=self.properties.targetID, parent=self)
-
-
-class NiInterpController(NiTimeController):
-    pass
-
-class NiSingleInterpController(NiInterpController):
-    @property 
-    def interpolator(self):
-        if self.properties.interpolatorID == NODEID_NONE:
-            return None
-        else:
-            return self.file.read_node(node_id=self.properties.interpolatorID,
-                                       parent=self)
-
-class NiKeyframeController(NiSingleInterpController):
-    pass
-
-class NiTransformController(NiKeyframeController):
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
-        super().__init__(handle=handle, file=file, id=id, parent=parent)
-        self._target = None
-        self._properties = NiTransformControllerBuf()
-        NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
-        
-    @property
-    def target(self):
         if self._target: return self._target
         if self.properties.targetID == NODEID_NONE: return None
         self._target = self.file.read_node(
             node_id=self.properties.targetID, parent=self)
         return self._target
-
-
-class NiMultiTargetTransformController(NiInterpController):
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
-        super().__init__(handle=handle, file=file, id=id)
-        self._properties = NiMultiTargetTransformControllerBuf()
-        NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
-        # NifFile.nifly.getMultiTargetTransformController(
-        #     self.file._handle, self.id, self.properties)
     
 
-class NiFloatInterpController(NiSingleInterpController):
+class NiInterpController(NiTimeController):
     pass
 
 
-class BSEffectShaderPropertyFloatController(NiFloatInterpController):
+class NiSingleInterpController(NiInterpController):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
-        self._interpolator = None
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
-        if self.id == NODEID_NONE and file and properties:
-            self.id = NifFile.nifly.addBlock(
-                file._handle,
-                None,
-                byref(properties),
-                parent.id if parent else None
-            )
-            if parent: parent.controller = self
-
-    @classmethod
-    def _getbuf(cls, values=None):
-        return BSEffectShaderPropertyFloatControllerBuf(values)
-
+        self._interpolator = None
+        
     @property
     def interpolator(self):
         if self._interpolator: return self._interpolator
@@ -1549,6 +1502,51 @@ class BSEffectShaderPropertyFloatController(NiFloatInterpController):
         self._interpolator = c
         self.properties.interpolatorID = c.id
     
+
+class NiKeyframeController(NiSingleInterpController):
+    pass
+
+
+class NiTransformController(NiKeyframeController):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
+        super().__init__(handle=handle, file=file, id=id, parent=parent)
+        self._target = None
+        self._properties = NiTransformControllerBuf()
+        NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
+        
+
+class NiMultiTargetTransformController(NiInterpController):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
+        super().__init__(handle=handle, file=file, id=id)
+        self._properties = NiMultiTargetTransformControllerBuf()
+        NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
+        # NifFile.nifly.getMultiTargetTransformController(
+        #     self.file._handle, self.id, self.properties)
+    
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiMultiTargetTransformControllerBuf(values)
+
+
+class NiFloatInterpController(NiSingleInterpController):
+    pass
+
+
+class BSEffectShaderPropertyFloatController(NiFloatInterpController):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        if self.id == NODEID_NONE and file and properties: 
+            self.id = NifFile.nifly.addBlock(
+                file._handle,
+                None,
+                byref(properties),
+                parent.id if parent else None
+            )
+            if parent: parent.controller = self
+
+    @classmethod
+    def _getbuf(cls, values=None):
+        return BSEffectShaderPropertyFloatControllerBuf(values)
 
 
 class ControllerLink:
