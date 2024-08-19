@@ -121,31 +121,12 @@ def make_transformbuf(m: Matrix) -> TransformBuf:
     return buf
 
 
-def RigidBodyXF(cb: bhkWorldObject):
-    """
-    Return a matrix representing the transform applied by a collision body.
-    bhkRigidBody objects don't apply a transform; bhkRigidBodyT and bhkSimpleShapePhantom
-    do. Matrix is in nif units, not Havoc units.
-
-    Returns an identity transform if the collision body doesn't apply one.
-    """
-    p = cb.properties
-    if p.bufType == PynBufferTypes.bhkRigidBodyTBufType:
-        # bhkRigidBodyT blocks store rotation as a quaternion with the angle in the 4th
-        # position, in radians 
-        q = Quaternion((p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2],))
-        t = Vector(p.translation[0:3]) * HAVOC_SCALE_FACTOR
-        bodyxf = MatrixLocRotScale(t, q, Vector((1,1,1)))
-
-    # bhkSimpleShapePhantom has a transform built in.
-    # TODO: Should this be translated to nif units?
-    elif p.bufType == PynBufferTypes.bhkSimpleShapePhantomBufType:
-        bodyxf = Matrix([r for r in p.transform])
-
-    else:
-        bodyxf = Matrix.Identity(4)
-
-    return bodyxf
+def append_if_new(theList, theVector, errorfactor):
+    """ Append vector to list if not already present (to within errorfactor) """
+    for a in theList:
+        if VNearEqual(a, theVector, epsilon=errorfactor):
+            return
+    theList.append(theVector)
 
 
 def orthogonal_faces(m):
