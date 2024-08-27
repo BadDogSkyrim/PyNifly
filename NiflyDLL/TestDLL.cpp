@@ -673,6 +673,24 @@ void TSetSkinType(void* nif, NiShaderBuf& p) {
 	p.Shader_Type = uint32_t(1);
 	p.Shader_Flags_1 |= (1 << 21);
 };
+int TCopyFloatData(void* targetNif, void* sourceNif, int floatDataID) {
+	NiFloatDataBuf data;
+	NiFloatDataBuf dataOut;
+	int floatDataOutID;
+
+	Assert::AreEqual(0, 
+		getBlock(sourceNif, floatDataID, &data));
+	dataOut = data;
+	dataOut.keys.numKeys = 0;
+	floatDataOutID = addBlock(targetNif, "", &dataOut, NIF_NPOS);
+	Assert::AreNotEqual(int(NIF_NPOS), floatDataOutID, L"Created float data");
+	for (int i = 0; i < data.keys.numKeys; i++) {
+		NiAnimKeyQuadXYZBuf keybuf;
+		getAnimKeyQuadFloat(sourceNif, floatDataID, i, &keybuf);
+		addAnimKeyQuadFloat(targetNif, floatDataOutID, &keybuf);
+	}
+	return floatDataOutID;
+}
 void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape,
 	void tweak(void* nif, NiShaderBuf &attr)=nullptr, const char* shaderName=nullptr)
 {
@@ -720,20 +738,25 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 	}
 
 	if (srcController != NIF_NPOS) {
-		bool ok;
-		BSEffectShaderPropertyFloatControllerBuf ctlr;
-		NiFloatInterpolatorBuf interp;
-		NiFloatDataBuf data;
-		ok = (getBlock(sourceNif, srcController, &ctlr) == 0);
-		if (ok) ok = (getBlock(sourceNif, ctlr.interpolatorID, &interp) == 0);
-		if (ok) ok = (getBlock(sourceNif, interp.dataID, &data) == 0);
-		if (ok) {
-			interp.dataID = addBlock(targetNif, "", &data, NIF_NPOS);
-			ctlr.interpolatorID = addBlock(targetNif, "", &interp, NIF_NPOS);
-			ctlr.nextControllerID = NIF_NPOS;
-			ctlr.targetID = NIF_NPOS;
-			addBlock(targetNif, "", &ctlr, targetShaderID);
+		BSEffectShaderPropertyFloatControllerBuf ctlr, ctlrOut;
+		NiFloatInterpolatorBuf interp, interpOut;
+		Assert::AreEqual(0,	
+			getBlock(sourceNif, srcController, &ctlr), L"Read controller from source");
+		ctlrOut = ctlr;
+		Assert::AreEqual(0, 
+			getBlock(sourceNif, ctlr.interpolatorID, &interp), L"Read interpolator from source");
+		interpOut = interp;
+
+		if (interp.dataID != NIF_NPOS) {
+			interpOut.dataID = TCopyFloatData(targetNif, sourceNif, interp.dataID);
+			Assert::AreNotEqual(NIF_NPOS, interpOut.dataID, L"Create data block in target nif");
 		}
+		ctlrOut.interpolatorID = addBlock(targetNif, "", &interpOut, NIF_NPOS);
+		Assert::AreNotEqual(NIF_NPOS, ctlrOut.interpolatorID, L"Create interpolator in target nif");
+		ctlrOut.nextControllerID = NIF_NPOS;
+		ctlrOut.targetID = NIF_NPOS;
+		Assert::AreNotEqual(int(NIF_NPOS),
+			addBlock(targetNif, "", &ctlrOut, targetShaderID), L"Create controller in target nif");
 	}
 };
 
@@ -3892,10 +3915,11 @@ namespace NiflyDLLTests
 		TEST_METHOD(shaderController) { 
 			/* Can import and export nif with animations (Daedric Armor). Only checks the animations. */
 			//std::filesystem::path testfile = testRoot / "SkyrimSE" / "meshes" / "armor" / "daedric" / "daedriccuirass_1.nif";
-			std::filesystem::path testfile = testRoot / "Skyrim" / "daedriccuirass_1.nif";
+			std::filesystem::path testfile = testRoot / "SkyrimSE" 
+				/ "Meshes" / "Armor" / "Daedric" / "daedriccuirass_1.nif";
 			std::filesystem::path outfile = testRoot / "Out" / "shaderController.nif";
 
-			void* nif = load((testRoot / testfile).u8string().c_str());
+			void* nif = load(testfile.u8string().c_str());
 			int strlen = getMaxStringLen(nif);
 
 			void* shapes[2];
@@ -3930,24 +3954,27 @@ namespace NiflyDLLTests
 			/* Check that the controller structure is present. */
 			void* nifcheck = load(outfile.u8string().c_str());
 			shapeCount = getShapes(nifcheck, shapes, 2, 0);
+			
+			int shapeID = NIF_NPOS;
 			for (int i = 0; i < shapeCount; i++) {
 				getShapeName(shapes[i], name, 256);
 				if (strcmp(name, "MaleTorsoGlow") == 0) {
-					int shapeID;
 					shapeID = getBlockID(nifcheck, shapes[i]);
-					Assert::AreEqual(0, 
-						getBlock(nifcheck, shapeID, &shapedata));
-					Assert::AreEqual(0,
-						getBlock(nifcheck, shapedata.shaderPropertyID, &shaderdata));
-					Assert::AreNotEqual(NIF_NPOS, shaderdata.controllerID);
-					Assert::AreEqual(0,
-						getBlock(nifcheck, shaderdata.controllerID, &controllerdata));
-					Assert::AreEqual(0,
-						getBlock(nifcheck, controllerdata.interpolatorID, &interpdata));
-					Assert::AreEqual(0,
-						getBlock(nifcheck, interpdata.dataID, &floatdata));
 				}
-			}
+			};
+			Assert::AreNotEqual(int(NIF_NPOS), shapeID, L"Found glow shape");
+			Assert::AreEqual(0, 
+				getBlock(nifcheck, shapeID, &shapedata), L"Read glow shape data");
+			Assert::AreEqual(0,
+				getBlock(nifcheck, shapedata.shaderPropertyID, &shaderdata), L"Read shader dta");
+			Assert::AreNotEqual(NIF_NPOS, shaderdata.controllerID, L"Found shader controller");
+			Assert::AreEqual(0,
+				getBlock(nifcheck, shaderdata.controllerID, &controllerdata), L"Read controller data");
+			Assert::AreEqual(0,
+				getBlock(nifcheck, controllerdata.interpolatorID, &interpdata), L"Read interpolator data");
+			Assert::AreEqual(0,
+				getBlock(nifcheck, interpdata.dataID, &floatdata), L"Read float data");
+			Assert::AreEqual(3, int(floatdata.keys.numKeys), L"Have correct keys");
 		};
 
 		struct GlowingOneData {

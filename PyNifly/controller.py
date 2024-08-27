@@ -13,26 +13,12 @@ from nifdefs import *
 
 KFP_HANDLE_OFFSET = 10
 
-def key_nif_to_blender(frame1, v1, b1, frame2, v2, fwd2):
-    """
-    Calculate Blender values for handles given an interval from the nif.
-
-    frame1 = frame index of beginning of interval
-    v1 = y value at beginning of interval
-    b1 = "backwards" value of beginning of interval
-    frame2 = frame index of end of interval
-    v2 = y value at end of interval
-    fwd1 = "forward" value of end of interval
-
-    return = coordinate of right handle of beginning, left handle of end
-    """
-    # Not trying to do an exact Hermite-to-Bezier conversion because I'm not sure Blender
-    # fcurve control points are exactly Beziers. 
-    w = frame2 - frame1
-    vdiff = v2 - v1
-    h2 = Vector((frame2 - w/2, v2 + fwd2*vdiff/2))
-    return h2, h2
-
+controlled_variables_uv = {
+    "Offset U": CONTROLLED_VARIABLE_TYPES.U_Offset,
+    "Offset V": CONTROLLED_VARIABLE_TYPES.V_Offset,
+    "Scale U": CONTROLLED_VARIABLE_TYPES.U_Scale,
+    "Scale V": CONTROLLED_VARIABLE_TYPES.V_Scale,
+    }
 
 class ControllerHandler():
     def __init__(self, parent_handler):
@@ -48,14 +34,18 @@ class ControllerHandler():
         self.action_target = None # 
 
         # Necessary context from the parent.
-        self.blender_objects = parent_handler.objects_created
         self.nif = parent_handler.nif
-        self.auxbones = parent_handler.auxbones
         self.context = parent_handler.context
         self.fps = parent_handler.context.scene.render.fps
         self.warn = parent_handler.warn
-        self.nif_name = parent_handler.nif_name
-        self.blender_name = parent_handler.blender_name
+        if hasattr(parent_handler, "objects_created"): 
+            self.blender_objects = parent_handler.objects_created
+        if hasattr(parent_handler, "auxbones"): 
+            self.auxbones = parent_handler.auxbones
+        if hasattr(parent_handler, "nif_name"): 
+            self.nif_name = parent_handler.nif_name
+        if hasattr(parent_handler, "blender_name"): 
+            self.blender_name = parent_handler.blender_name
 
 
     def _find_target(self, nifname):
@@ -221,31 +211,51 @@ class ControllerHandler():
         return rotation_mode
 
 
+    def _key_nif_to_blender(self, key0, key1, key2):
+        """
+        Return blender fcurve handle values for key1.
+
+        key0 and key2 may be omitted if key1 is first or last.
+        """
+        frame1 = key1.time*self.fps+1
+        if key2:
+            frame2 = key2.time*self.fps+1
+            frame_delt_r = (frame2 - frame1)
+            slope_right = key1.backward/frame_delt_r
+        else:
+            frame_delt_r = 1
+            slope_right = key1.backward
+
+        if key0:
+            frame0 = key0.time * self.fps + 1
+            frame_delt_l = (frame1 - frame0)
+            slope_left = key1.forward/frame_delt_l
+        else:
+            frame_delt_l = 1
+            slope_left = key1.forward
+
+        partial = 1/3
+        handle_l = Vector((frame1 - frame_delt_l*partial, key1.value - slope_left*frame_delt_l*partial))
+        handle_r = Vector((frame1 + frame_delt_r*partial, key1.value + slope_right*frame_delt_r*partial))
+        
+        return handle_l, handle_r
+
+
     def _import_float_interpolator(self, fi:NiFloatInterpolator):
         """Import a float interpolator block."""
         td:NiFloatData = fi.data
         curve = self.action.fcurves.new(self.path_name)
         if td.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
-            for i, k in enumerate(td.keys):
-                curve.keyframe_points.insert(k.time*self.fps+1, k.value)
-                kfp = curve.keyframe_points[i]
+            keys = [None]
+            keys.extend(td.keys)
+            keys.append(None)
+            while keys[1]:
+                frame = keys[1].time*self.fps+1
+                kfp = curve.keyframe_points.insert(frame, keys[1].value)
                 kfp.handle_left_type = "FREE"
                 kfp.handle_right_type = "FREE"
-                if i > 0:
-                    prior_kf = curve.keyframe_points[i-1]
-                    prior_k = td.keys[i-1]
-                    rh1, lh2 = key_nif_to_blender(
-                        prior_kf.co[0], prior_kf.co[1], prior_k.backward,
-                            kfp.co[0], kfp.co[1], k.forward)
-                    kfp.handle_left = lh2
-                    prior_kf.handle_right = rh1
-            # Patch up first and last keyframes
-            curve.keyframe_points[0].handle_left = \
-                curve.keyframe_points[0].co + \
-                (curve.keyframe_points[-1].handle_left - curve.keyframe_points[-1].co)
-            curve.keyframe_points[-1].handle_right = \
-                curve.keyframe_points[0].co + \
-                (curve.keyframe_points[0].handle_right - curve.keyframe_points[0].co)
+                kfp.handle_left, kfp.handle_right = self._key_nif_to_blender(keys[0], keys[1], keys[2])
+                keys.pop(0)
         else:
             self.warn(f"Unknown interpolation type for NiFloatInterpolator: {td.keys.interpolation}")
 
@@ -292,7 +302,7 @@ class ControllerHandler():
             controlled_node = "UV_Converter"
             controlled_input = 3
         else:
-            self.warn(f"Cannot handle controlled variable {ctlr.properties.controlledVariable}")
+            self.warn(f"NYI: Cannot handle controlled variable {repr(CONTROLLED_VARIABLE_TYPES(ctlr.properties.controlledVariable))}") 
             return
 
         self.path_name = f'nodes["{controlled_node}"].inputs[{controlled_input}].default_value'
@@ -337,6 +347,7 @@ class ControllerHandler():
         self.path_name = ""
         self.frame_start = anim_context.properties.startTime * self.fps + 1
         self.frame_end = anim_context.properties.stopTime * self.fps + 1
+        self.is_cyclic = anim_context.is_cyclic
 
         # if the animation context has a target, set action_target
         try:
@@ -364,6 +375,7 @@ class ControllerHandler():
         self.action.frame_start = self.frame_start
         self.action.frame_end = self.frame_end
         self.action.use_frame_range = True
+        self.action.use_cyclic = self.is_cyclic 
 
         # Some nifs have multiple animations with different names. Others just animate
         # various nif blocks. If there's a name, make this an asset so we can track them.
@@ -577,7 +589,77 @@ class ControllerHandler():
 
     ### EXPORT ###
 
-    def _export_curves(self, arma, curve_list):
+    def _get_controlled_variable(self, activated_obj):
+        c = self.action.fcurves[0]
+        dp = c.data_path
+        if not dp.endswith(".default_value"):
+            self.warn(f"FCurve has unknown data path: {dp}")
+            return 0
+        if "UV_Converter" not in dp:
+            self.warn(f"NYI: Cannot handle fcurve {dp}")
+            return 0
+
+        try:
+            target_attr = eval(repr(activated_obj) + "." + dp[:-14])
+            return controlled_variables_uv[target_attr.name]
+        except:
+            self.warn(f"NYI: Can't handle fcurve {dp}")
+            return 0
+
+
+    def _key_blender_to_nif(self, kfp0, kfp1, kfp2):
+        """
+        Return nif key values for keyframe point kfp1.
+
+        kfp0 and kfp2 may be omitted if kfp1 is first or last.
+        """
+        slope_right = (kfp1.handle_right[1]-kfp1.co.y) / (kfp1.handle_right[0]-kfp1.co.x)
+        slope_left = (kfp1.handle_left[1]-kfp1.co.y) / (kfp1.handle_left[0]-kfp1.co.x)
+        
+        if kfp0:
+            forward = slope_left * (kfp1.co.x-kfp0.co.x)
+        else:
+            forward = slope_left
+        if kfp2:
+            backward = slope_right * (kfp2.co.x-kfp1.co.x)
+        else:
+            backward = slope_right
+
+        return forward, backward
+
+
+    def _export_float_curves(self, activated_obj, parent_ctlr=None):
+        """
+        Export a float curve from the list to a NiFloatInterpolator/NiFloatData pair. 
+        The curve is picked off the list.
+
+        * Returns (group name, NiFloatInterpolator for the set of curves).
+        """
+        c = self.action.fcurves[0]
+        keys = []
+        # prior_kf = None
+        # prior_k = None
+        points = [None]
+        points.extend(list(c.keyframe_points))
+        points.append(None)
+        while points[1]:
+            k = NiAnimKeyQuadXYZBuf()
+            k.time = (points[1].co.x-1) / self.fps
+            k.value = points[1].co.y
+            k.forward, k.backward = self._key_blender_to_nif(points[0], points[1], points[2])
+            keys.append(k)
+            points.pop(0)
+        fdp = NiFloatDataBuf()
+        fdp.keys.interpolation = NiKeyType.QUADRATIC_KEY
+        fd = NiFloatData(file=self.nif, properties=fdp, keys=keys)
+
+        fip = NiFloatInterpolatorBuf()
+        fip.dataID = fd.id
+        fi = NiFloatInterpolator(file=self.nif, properties=fip, parent=parent_ctlr)
+        return fi
+
+    
+    def _export_transform_curves(self, arma, curve_list):
         """
         Export a group of curves from the list to a TransformInterpolator/TransformData pair. 
         A group maps to a controlled object, so each group should be one such pair.
@@ -675,7 +757,61 @@ class ControllerHandler():
                 timesig += timestep
 
         return group, ti
-                
+    
+
+    def _export_activated_obj(self, activated_obj, nifnode):
+        """
+        Export a single activated object--an object with animation_data on it.
+        """
+        self.action = activated_obj.animation_data.action
+        if activated_obj.type == 'ARMATURE':
+            controller = self.nif.rootNode
+            cp = controller.properties.copy()
+        elif activated_obj.type == 'SHADER':
+            controller = BSEffectShaderPropertyFloatController(
+                file=self.nif,
+                parent=nifnode.shader)
+            cp = controller.properties.copy()
+        cp.startTime = (self.action.curve_frame_range[0]-1)/self.fps
+        cp.stopTime = (self.action.curve_frame_range[1]-1)/self.fps
+        cp.cycleType = CycleType.CYCLE_LOOP if self.action.use_cyclic else CycleType.CYCLE_CLAMP
+        cp.frequency = 1.0
+        controller.properties = cp
+
+        if activated_obj.type == 'ARMATURE':
+            # Collect list of curves. They will be picked off in clumps until the list is empty.
+            curve_list = list(self.action.fcurves)
+            while curve_list:
+                targname, ti = self._export_transform_curves(activated_obj, curve_list)
+                if targname and ti:
+                    controller.add_controlled_block(
+                        name=self.nif.nif_name(targname),
+                        interpolator=ti,
+                        node_name = self.nif.nif_name(targname),
+                        controller_type = "NiTransformController")
+            
+
+    def _set_controller_props(self, props):
+        props.startTime = (self.action.curve_frame_range[0]-1)/self.fps
+        props.stopTime = (self.action.curve_frame_range[1]-1)/self.fps
+        props.frequency = 1.0
+        props.flags = (1 << 3) | (1 << 6) | ((0 if self.action.use_cyclic else 2) << 1)
+        try:
+            props.cycleType = CycleType.CYCLE_LOOP if self.action.use_cyclic else CycleType.CYCLE_CLAMP
+        except:
+            pass
+
+
+    def _export_shader(self, activated_obj, nifshape):
+        fi = self._export_float_curves(activated_obj)
+
+        fcp = BSEffectShaderPropertyFloatControllerBuf()
+        self._set_controller_props(fcp)
+        fcp.controlledVariable = self._get_controlled_variable(activated_obj)
+        fcp.interpolatorID = fi.id
+        fc = BSEffectShaderPropertyFloatController(
+            file=self.nif, properties=fcp, parent=nifshape.shader)
+
 
     @classmethod
     def export_animation(cls, parent_handler, arma):
@@ -695,7 +831,7 @@ class ControllerHandler():
         # Collect list of curves. They will be picked off in clumps until the list is empty.
         curve_list = list(exporter.action.fcurves)
         while curve_list:
-            targname, ti = exporter._export_curves(arma, curve_list)
+            targname, ti = exporter._export_transform_curves(arma, curve_list)
             if targname and ti:
                 controller.add_controlled_block(
                     name=exporter.nif.nif_name(targname),
@@ -705,5 +841,10 @@ class ControllerHandler():
 
 
     @classmethod
-    def export_shader_controller(cclass, obj, trishape):
+    def export_shader_controller(cls, parent_handler, obj, trishape):
         """Export an obj that has an animated shader."""
+        exporter = ControllerHandler(parent_handler)
+        exporter.nif = parent_handler.nif
+        exporter.action = obj.active_material.node_tree.animation_data.action
+        exporter._export_shader(obj.active_material.node_tree, trishape)
+

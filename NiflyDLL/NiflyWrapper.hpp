@@ -147,7 +147,7 @@ extern "C" NIFLY_API int getControlledBlocks(void* nifref, uint32_t csID, int bu
 int addMultiTargetTransformController(void* nifref, NiMultiTargetTransformControllerBuf* buf);
 extern "C" NIFLY_API void getAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyQuadXYZBuf * buf);
 extern "C" NIFLY_API void addAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, NiAnimKeyQuadXYZBuf * buf);
-extern "C" NIFLY_API void getAnimKeyQuadFloat(void* nifref, int tdID, int frame, NiAnimKeyQuadXYZBuf* buf);
+extern "C" NIFLY_API int getAnimKeyQuadFloat(void* nifref, int tdID, int frame, NiAnimKeyQuadXYZBuf* buf);
 extern "C" NIFLY_API void addAnimKeyQuadFloat(void* nifref, int dataBlockID, NiAnimKeyQuadXYZBuf* buf);
 extern "C" NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyLinearXYZBuf * buf);
 extern "C" NIFLY_API void getAnimKeyLinearQuat(void* nifref, int tdID, int frame, NiAnimKeyLinearQuatBuf * buf);

@@ -1744,13 +1744,16 @@ def TEST_SHADER_SCALE():
 
 def TEST_ANIM_SHADER_GLOW():
     """Glow shader elements and other extra attributes work correctly."""
-    testfile = TT.test_file(r"tests\Skyrim\daedriccuirass_1.nif")
+    testfile = TT.test_file(r"tests\SkyrimSE\meshes\armor\daedric\daedriccuirass_1.nif")
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_GLOW.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     glow = TT.find_object('MaleTorsoGlow', bpy.context.selected_objects, fn=lambda x: x.name)
-    uv_node = glow.active_material.node_tree.nodes['UV_Converter']
 
+    action = glow.active_material.node_tree.animation_data.action
+    assert action.use_cyclic, f"Cyclic animation: {action.use_cyclic}"
+
+    uv_node = glow.active_material.node_tree.nodes['UV_Converter']
     bpy.context.scene.frame_set(0)
     assert uv_node.inputs['Offset V'].default_value == 1, f"V offset starts at 0: {uv_node.inputs['Offset V'].default_value}"
     bpy.context.scene.frame_set(400)
@@ -1772,19 +1775,31 @@ def TEST_ANIM_SHADER_GLOW():
         f"EnvMask correct: {torsoout.shader.textures['EnvMask']}"
 
     glowin = n.shape_dict['MaleTorsoGlow']
+    shaderinp = glowin.shader.properties
     glowout = nout.shape_dict['MaleTorsoGlow']
-    assert glowin.shader.properties.UV_Offset_U == glowout.shader.properties.UV_Offset_U, \
-        f"UV_Offset_U correct: {glowin.shader.properties.UV_Offset_U} == {glowout.shader.properties.UV_Offset_U}"
-    assert glowin.shader.properties.UV_Offset_V == glowout.shader.properties.UV_Offset_V, \
-        f"UV_Offset_V correct: {glowin.shader.properties.UV_Offset_V} == {glowout.shader.properties.UV_Offset_V}"
-    assert glowin.shader.properties.UV_Scale_U == glowout.shader.properties.UV_Scale_U, f"UV_Scale_U correct: {glowout.shader.properties.UV_Scale_U}"
-    assert glowin.shader.properties.UV_Scale_V == glowout.shader.properties.UV_Scale_V, f"UV_Scale_V correct: {glowout.shader.properties.UV_Scale_V}"
-    assert glowin.shader.properties.Emissive_Mult == glowout.shader.properties.Emissive_Mult, f"Emissive_Mult correct: {glowout.shader.properties.Emissive_Mult}"
-    assert glowin.shader.properties.Emissive_Color[:] == glowout.shader.properties.Emissive_Color[:], f"Emissive_Color correct: {glowout.shader.properties.Emissive_Color}"
+    shaderoutp = glowout.shader.properties
+    assert shaderinp.UV_Offset_U == shaderoutp.UV_Offset_U, \
+        f"UV_Offset_U correct: {shaderinp.UV_Offset_U} == {shaderoutp.UV_Offset_U}"
+    assert shaderinp.UV_Offset_V == shaderoutp.UV_Offset_V, \
+        f"UV_Offset_V correct: {shaderinp.UV_Offset_V} == {shaderoutp.UV_Offset_V}"
+    assert shaderinp.UV_Scale_U == shaderoutp.UV_Scale_U, f"UV_Scale_U correct: {shaderoutp.UV_Scale_U}"
+    assert shaderinp.UV_Scale_V == shaderoutp.UV_Scale_V, f"UV_Scale_V correct: {shaderoutp.UV_Scale_V}"
+    assert shaderinp.Emissive_Mult == shaderoutp.Emissive_Mult, f"Emissive_Mult correct: {shaderoutp.Emissive_Mult}"
+    assert shaderinp.Emissive_Color[:] == shaderoutp.Emissive_Color[:], f"Emissive_Color correct: {shaderoutp.Emissive_Color}"
     assert glowin.properties.hasVertexColors == glowout.properties.hasVertexColors == 1, f"Vertex colors exported correctly"
+    assert glowin.alpha_property.flags == glowout.alpha_property.flags, \
+        f"Have correct alpha flags: {glowout.alpha_property.flags}"
 
-    # TODO: Output shader controller
-    # assert glowout.shader.controller, f"Have shader controller on output"
+    assert glowout.shader.controller, f"Have shader controller on output"
+    assert glowout.shader.controller.properties.flags == 72, \
+        f"Have correct flags: {glowout.shader.controller.properties.flags}"
+    assert BD.NearEqual(33.3333, glowout.shader.controller.properties.stopTime), \
+        f"Have correct stop time: {glowout.shader.controller.properties.stopTime}"
+    
+    dataout = glowout.shader.controller.interpolator.data
+    assert BD.NearEqual(33.3333, dataout.keys[2].time), f"Last keyframe time correct: {dataout.keys[2].time}"
+    assert BD.NearEqual(-1.0, dataout.keys[2].forward), f"Last keyframe forward correct: {dataout.keys[2].forward}"
+    assert BD.NearEqual(0.0, dataout.keys[2].backward), f"Last keyframe backward correct: {dataout.keys[2].backward}"
 
 
 def TEST_ANIM_SHADER_SPRIGGAN():
@@ -5686,8 +5701,8 @@ else:
     # All tests with collisions
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
     
-    do_tests([TEST_ANIM_SHADER_GLOW])
+    # do_tests([TEST_ANIM_SHADER_SPRIGGAN])
 
     # do_tests(testfrom(TEST_COLLISION_CONVEXVERT), exclude=badtests)
 
-    # do_tests(alltests, exclude=badtests)
+    do_tests(alltests, exclude=badtests)

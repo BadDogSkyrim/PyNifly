@@ -790,7 +790,7 @@ class CollisionHandler():
         exporter.objs_written = parent_handler.objs_written
         exporter.game = parent_handler.game
         exporter.export_xf = parent_handler.export_xf
-        exporter.warn = parent_handler.log_warning
+        exporter.warn = parent_handler.warn
 
         targobj = obj
         if obj.type == 'ARMATURE':

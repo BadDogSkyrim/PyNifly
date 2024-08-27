@@ -1788,7 +1788,10 @@ class NiTransformControllerBuf(pynStructure):
     ]
     def __init__(self, values=None):
         super().__init__(values=values)
+        self.interpolatorID = NODEID_NONE
+        self.nextControllerID = NODEID_NONE
         self.bufType = PynBufferTypes.NiTransformControllerBufType
+
 bufferTypeList[PynBufferTypes.NiTransformControllerBufType] = 'NiTransformController'
 blockBuffers['NiTransformController'] = NiTransformControllerBuf
 
@@ -1820,6 +1823,9 @@ class BSEffectShaderPropertyFloatControllerBuf(pynStructure):
     ]
     def __init__(self, values=None):
         super().__init__(values=values)
+        self.nextControllerID = NODEID_NONE
+        self.targetID = NODEID_NONE
+        self.interpolatorID = NODEID_NONE
         self.bufType = PynBufferTypes.BSEffectShaderPropertyFloatControllerBufType
 
     def copy(self, exclude=[]):
@@ -1876,6 +1882,7 @@ class NiFloatInterpolatorBuf(pynStructure):
     ]
     def __init__(self, values=None):
         super().__init__(values=values)
+        self.dataID = NODEID_NONE
         self.bufType = PynBufferTypes.NiFloatInterpolatorBufType
 
     def copy(self, exclude=[]):
@@ -1938,6 +1945,11 @@ class NiAnimKeyQuadXYZBuf(pynStructure):
         ("forward", c_float),
         ("backward", c_float),
     ]
+    def __init__(self):
+        self.time = 0
+        self.value = 0
+        self.forward = 0
+        self.backward = 0
 
 class NiAnimKeyLinearXYZBuf(pynStructure):
     _fields_ = [

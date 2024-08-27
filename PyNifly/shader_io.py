@@ -929,7 +929,7 @@ class ShaderImporter:
                 if not self.shape.alpha_property.alpha_blend:
                     self.bsdf.inputs['Alpha Adjust'].default_value = 1.0
                 elif self.shape.alpha_property.alpha_test:
-                    self.bsdf.inputs['Alpha Adjust'].default_value = 255/self.shape.alpha_property.threshold
+                    self.bsdf.inputs['Alpha Adjust'].default_value = self.shape.alpha_property.threshold/255
                 else:
                     self.bsdf.inputs['Alpha Adjust'].default_value = 0.1
 
@@ -945,7 +945,7 @@ class ShaderImporter:
 
         except Exception as e:
             # Any errors, print the error but continue
-            log.warning(str(e))
+            log.warning("Error importing shader attributes: " + str(e))
 
 
     def make_node(self, nodetype, name=None, xloc=None, yloc=None, height=300):
@@ -1567,7 +1567,7 @@ class ShaderExporter:
         self.have_errors = True
 
 
-    def export_shader_attrs(self, shape):
+    def _export_shader_attrs(self, shape):
         try:
             if not self.material:
                 return
@@ -1768,7 +1768,31 @@ class ShaderExporter:
                 self.shader_flag_clear(shape, textureslot)
 
 
-    def export_textures(self, shape: NiShape):
+    def _export_alpha(self, shape:NiShape):
+        """
+        Export the alpha property.
+        """
+        try:
+            alpha_input = self.shader_node.inputs['Alpha']
+            if alpha_input and alpha_input.is_linked and self.material:
+                shape.has_alpha_property = True
+                if 'NiAlphaProperty_flags' in self.material:
+                    shape.alpha_property.flags = self.material['NiAlphaProperty_flags']
+                else:
+                    shape.alpha_property.flags = 4844
+                if alpha_input.links[0].from_node.bl_idname == 'ShaderNodeTexImage':
+                    shape.alpha_property.threshold = int(self.material.alpha_threshold * 255)
+                    shape.alpha_property.flags &= ~ALPHA_FLAG_MASK.ALPHA_TEST
+                else:
+                    value_node = BD.find_node(alpha_input, "ShaderNodeValue")[0]
+                    shape.alpha_property.threshold = int(value_node.outputs[0].default_value)
+                    shape.alpha_property.flags |= ALPHA_FLAG_MASK.ALPHA_TEST
+                shape.save_alpha_property()
+        except:
+            self.warn("Could not determine alpha property")
+
+
+    def _export_textures(self, shape: NiShape):
         """
         Create shader in nif from the blender object's material. 
         Handles only the texture types we know how to handle in the shader. The rest are
@@ -1783,34 +1807,15 @@ class ShaderExporter:
                             'EnvMap', 'EnvMask']:
             self.write_texture(shape, textureslot)
 
-        # Write alpha if any after the textures
-        try:
-            alpha_input = self.shader_node.inputs['Alpha']
-            if alpha_input and alpha_input.is_linked and self.material:
-                shape.has_alpha_property = True
-                if 'NiAlphaProperty_flags' in self.material:
-                    shape.alpha_property.flags = self.material['NiAlphaProperty_flags']
-                else:
-                    shape.alpha_property.flags = 4844
-                if alpha_input.links[0].from_node.bl_idname == 'ShaderNodeTexImage':
-                    shape.alpha_property.threshold = int(self.material.alpha_threshold * 255)
-                    shape.alpha_property.flags &= not ALPHA_FLAG_MASK.ALPHA_TEST
-                else:
-                    value_node = BD.find_node(alpha_input, "ShaderNodeValue")[0]
-                    shape.alpha_property.threshold = int(value_node.outputs[0].default_value)
-                    shape.alpha_property.flags |= ALPHA_FLAG_MASK.ALPHA_TEST
-                shape.save_alpha_property()
-        except:
-            self.warn("Could not determine alpha property")
-
 
     def export(self, new_shape:NiShape):
         """Top-level routine for exporting a shape's texture attributes."""
         if not self.material: return
 
         try:
-            self.export_shader_attrs(new_shape)
-            self.export_textures(new_shape)
+            self._export_shader_attrs(new_shape)
+            self._export_textures(new_shape)
+            self._export_alpha(new_shape)
             if self.is_obj_space:
                 new_shape.shader.flags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
             else:

@@ -535,7 +535,7 @@ class NifImporter():
                     # is just weird. Inform the user and don't use this for the average.
                     else:
                         offset_consistent = False
-                        log.warn(f"Shape {the_shape.name} does not have consitent offset from nif armature--can't use it to extend the armature.")
+                        log.warn(f"Shape {the_shape.name} does not have consistent offset from nif armature--can't use it to extend the armature.")
                         self.do_create_bones = False
                         break
 
@@ -2835,9 +2835,15 @@ class NifExporter:
             to file: {self.filepath}
         """
 
-    def log_warning(self, msg):
-            log.warning(msg)
-            self.warnings.add('WARNING')
+    def warn(self, msg, tags=[]):
+        """
+        Report a warning-level error message to the log, and capture any tags
+        for later reporting.
+        """
+        self.warnings.add('WARNING')
+        log.warning(msg)
+        for t in tags:
+            self.warnings.add(t)
 
     @property
     def export_scale(self):
@@ -3693,9 +3699,12 @@ class NifExporter:
 
         # Write other block types
         collision.CollisionHandler.export_collisions(self, obj)
-        if obj.active_material and obj.active_material.node_tree \
-                and obj.active_material.node_tree.animation_data:
-            controller.ControllerHandler.export_shader_controller(obj, new_shape)
+        try:
+            if obj.active_material and obj.active_material.node_tree and obj.active_material.node_tree.animation_data:
+                controller.ControllerHandler.export_shader_controller(
+                    self, obj, new_shape)
+        except Exception as e:
+            self.warn(f"Error exporting controller: {repr(e)}")
 
         # Write tri file
         retval |= self.export_tris(obj, verts, tris, uvmap_new, morphdict)
@@ -3855,8 +3864,7 @@ class NifExporter:
 
     def execute(self):
         if not self.objects and not self.armature:
-            log.warning(f"No objects selected for export")
-            self.warnings.add('NOTHING')
+            self.warn(f"No objects selected for export", tags=["NOTHING"])
             return
 
         log.info(str(self))
@@ -4077,6 +4085,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                                    self.target_game, 
                                    chargen=self.chargen_ext)
 
+            exporter.context = context
             exporter.do_rename_bones = self.do_rename_bones
             exporter.rename_bones_nift = self.rename_bones_niftools
             exporter.preserve_hierarchy = self.preserve_hierarchy
@@ -4237,7 +4246,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         self.errors.add("ERROR")
         self.messages.append("ERROR: " + msg)
 
-    def warning(self, msg):
+    def warn(self, msg):
         """Log a warning message."""
         log.warning(msg)
         self.errors.add("WARNING")
@@ -4551,7 +4560,7 @@ def register():
         except:
             pass
         try:
-            if d == 'i':
+            if d == 'i': 
                 bpy.types.TOPBAR_MT_file_import.append(f)
             else:
                 bpy.types.TOPBAR_MT_file_export.append(f)

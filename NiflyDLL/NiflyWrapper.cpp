@@ -4035,17 +4035,29 @@ NIFLY_API void addAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, NiAnimK
     else if (dimension == 'S') td->scales.AddKey(k);
 }
 
-NIFLY_API void getAnimKeyQuadFloat(void* nifref, int tdID, int frame, NiAnimKeyQuadXYZBuf* buf)
+NIFLY_API int getAnimKeyQuadFloat(void* nifref, int tdID, int frame, NiAnimKeyQuadXYZBuf* buf)
 /* Get the animation key for frame 'frame'. */
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::NiFloatData* td = hdr.GetBlock<NiFloatData>(tdID);
 
+    if (!td) {
+        niflydll::LogWriteEf("getAnimKeyQuadFloat called on invalid node %d", tdID); 
+        return -1;
+    }
+
+    if (frame >= td->data.GetNumKeys()) {
+        niflydll::LogWriteEf("getAnimKeyQuadFloat called on invalid frame %d", frame);
+        return -1;
+    }
+
     buf->time = td->data.GetKey(frame).time;
     buf->value = td->data.GetKey(frame).value;
     buf->forward = td->data.GetKey(frame).forward;
     buf->backward = td->data.GetKey(frame).backward;
+
+    return 0;
 }
 
 NIFLY_API void addAnimKeyQuadFloat(void* nifref, int dataBlockID, NiAnimKeyQuadXYZBuf* buf)
