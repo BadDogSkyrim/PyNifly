@@ -38,20 +38,20 @@ class ControllerHandler():
         self.context = parent_handler.context
         self.fps = parent_handler.context.scene.render.fps
         self.warn = parent_handler.warn
-        if hasattr(parent_handler, "objects_created"): 
-            self.blender_objects = parent_handler.objects_created
         if hasattr(parent_handler, "auxbones"): 
             self.auxbones = parent_handler.auxbones
         if hasattr(parent_handler, "nif_name"): 
             self.nif_name = parent_handler.nif_name
         if hasattr(parent_handler, "blender_name"): 
             self.blender_name = parent_handler.blender_name
+        if hasattr(parent_handler, "objects_created"):
+            self.objects_created = parent_handler.objects_created
 
 
     def _find_target(self, nifname):
         try:
             nifnode = self.nif.nodes[nifname]
-            return self.blender_objects[nifnode._handle]
+            return self.objects_created.find_nifnode(nifnode).blender_obj
         except:
             return None
 
@@ -314,17 +314,16 @@ class ControllerHandler():
         if block.node_name in self.nif.nodes:
             target_node = self.nif.nodes[block.node_name]
 
-            if target_node._handle in self.blender_objects:
-                target_obj = self.blender_objects[target_node._handle]
-            else:
+            target_obj = self.objects_created.find_nifnode(target_node).blender_obj
+            if not target_obj:
                 self.warn(f"Target object was not imported: {block.node_name}")
                 return
         else:
             self.warn(f"Target block not found in nif. Is it corrupt? ({block.node_name})")
 
-        action_group = "Color Property Transforms"
-        path_name = None
-        action_name = f"{block.node_name}_{seq.name}"
+        self.action_group = "Color Property Transforms"
+        self.path_name = None
+        self.action_name = f"{block.node_name}_{seq.name}"
 
 
     def _new_animation(self, anim_context):
@@ -467,7 +466,7 @@ class ControllerHandler():
             self._new_bone_anim(ctlr)
         else:
             self._new_animation(ctlr)
-            self._new_action("Transform")
+            # self._new_action("Transform")
             self._new_element_action(ctlr, ctlr.target.name, "Transform")
         self._import_transform_controller(ctlr)
 

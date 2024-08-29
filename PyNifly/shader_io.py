@@ -926,13 +926,12 @@ class ShaderImporter:
                 self.bsdf.inputs['Glossiness'].default_value = shader.properties.Glossiness
             elif self.is_effect_shader:
                 self.bsdf.inputs['Alpha'].default_value = shader.properties.falloffStartOpacity
-                if not self.shape.alpha_property.alpha_blend:
-                    self.bsdf.inputs['Alpha Adjust'].default_value = 1.0
-                elif self.shape.alpha_property.alpha_test:
-                    self.bsdf.inputs['Alpha Adjust'].default_value = self.shape.alpha_property.threshold/255
-                else:
-                    self.bsdf.inputs['Alpha Adjust'].default_value = 0.1
-
+                self.bsdf.inputs['Alpha Adjust'].default_value = 1.0
+                if self.shape.alpha_property:
+                    if self.shape.alpha_property.alpha_test:
+                        self.bsdf.inputs['Alpha Adjust'].default_value = self.shape.alpha_property.threshold/255
+                    else:
+                        self.bsdf.inputs['Alpha Adjust'].default_value = 0.1
 
             self.texmap.inputs['Offset U'].default_value = shape.shader.properties.UV_Offset_U
             self.texmap.inputs['Offset V'].default_value = shape.shader.properties.UV_Offset_V

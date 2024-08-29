@@ -180,7 +180,7 @@ def TEST_SKIN_BONE_XFORM():
     outfile = TT.test_file(r"tests\out\TEST_SKIN_BONE_XF.nif", output=True)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    head = TT.find_object("_ArgonianMaleHead", bpy.context.selected_objects, fn=lambda x: x.name)
+    head = TT.find_object("_ArgonianMaleHead")
     assert TT.NearEqual(head.location.z, 120.344), f"Head is positioned at head position: {head.location}"
     minz = min(v[2] for v in head.bound_box)
     maxz = max(v[2] for v in head.bound_box)
@@ -1748,7 +1748,7 @@ def TEST_ANIM_SHADER_GLOW():
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_GLOW.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    glow = TT.find_object('MaleTorsoGlow', bpy.context.selected_objects, fn=lambda x: x.name)
+    glow = TT.find_object('MaleTorsoGlow')
 
     action = glow.active_material.node_tree.animation_data.action
     assert action.use_cyclic, f"Cyclic animation: {action.use_cyclic}"
@@ -1808,7 +1808,7 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     outfile = TT.test_file(r"tests/Out/TEST_ANIM_SHADER_SPRIGGAN.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    bod = TT.find_object('SprigganFxTestUnified:0', bpy.context.selected_objects, fn=lambda x: x.name)
+    bod = TT.find_object('SprigganFxTestUnified:0')
     assert len([x for x in bod.active_material.node_tree.nodes 
                 if x.type=='TEX_IMAGE' and x.image and 'spriggan_g' in x.image.name.lower()]
                 ), f"Spriggan loaded with glow map"
@@ -4193,28 +4193,41 @@ def TEST_WEAPON_PART():
     
     testfile = TT.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")
     partfile = TT.test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel_1.nif")
-    partfile2 = TT.test_file(r"tests\FO4\Shotgun\DrumMag.nif")
+    partfile2 = TT.test_file(r"tests\FO4\Shotgun\CombatShotgunGlowPinSight.nif")
     outfile = TT.test_file(r"tests\Out\TEST_WEAPON_PART.nif")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
+    # Import of mesh with parent connect points works correctly.
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                 do_create_bones=False, 
+                                 do_rename_bones=False)
 
-    barrelpcp = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Barrel'), 
-                            bpy.data.objects))
+    barrelpcp = TT.find_object('BSConnectPointParents::P-Barrel')
     assert barrelpcp, f"Found the connect point for barrel parts"
-    magpcp = next(filter(lambda x: x.name.startswith('BSConnectPointParents::P-Mag'), 
-                         bpy.data.objects))
+    magpcp = TT.find_object('BSConnectPointParents::P-Mag')
     assert magpcp, f"Found the connect point for magazine parts"
+    scopepcp = TT.find_object('BSConnectPointParents::P-Scope')
 
-    BD.ObjectSelect([barrelpcp], active=True)
-
-    bpy.ops.import_scene.pynifly(filepath=partfile, do_create_bones=False, do_rename_bones=False)
-
-    barrelccp = next((x for x in bpy.data.objects 
-                      if x.name.startswith('BSConnectPointChildren')), 
-                      None)
+    # Import of child mesh connects correctly.
+    BD.ObjectSelect([barrelpcp, magpcp, scopepcp], active=True)
+    bpy.ops.import_scene.pynifly(filepath=partfile, 
+                                 do_create_bones=False, 
+                                 do_rename_bones=False)
+    
+    barrelccp = TT.find_object('BSConnectPointChildren::C-Barrel')
     assert barrelccp, f"Barrel's child connect point found {barrelccp}"
-    assert barrelccp.parent == barrelpcp, f"Child connect point parented to parent connect point: {barrelccp.parent}"
+    assert barrelccp.constraints['Copy Transforms'].target == barrelpcp, \
+        f"Child connect point connected to parent connect point: {barrelccp.constraints['Copy Transforms'].target}"
 
+    BD.ObjectSelect([barrelpcp, magpcp, scopepcp], active=True)
+    bpy.ops.import_scene.pynifly(filepath=partfile2, 
+                                 do_create_bones=False, 
+                                 do_rename_bones=False)
+    
+    scopeccp = TT.find_object('BSConnectPointChildren::C-Scope')
+    assert scopeccp, f"Scope's child connect point found {scopeccp}"
+    assert scopeccp.constraints['Copy Transforms'].target == scopepcp, \
+        f"Child connect point connected to parent connect point: {scopeccp.constraints['Copy Transforms'].target}"
+    
 
 def TEST_IMPORT_MULT_CP():
     """When multiple weapon parts are imported in one command, they are connected up"""
@@ -5701,8 +5714,8 @@ else:
     # All tests with collisions
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
     
-    # do_tests([TEST_ANIM_SHADER_SPRIGGAN])
+    do_tests([TEST_WEAPON_PART])
 
     # do_tests(testfrom(TEST_COLLISION_CONVEXVERT), exclude=badtests)
 
-    do_tests(alltests, exclude=badtests)
+    # do_tests(alltests, exclude=badtests)

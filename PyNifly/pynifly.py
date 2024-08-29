@@ -2977,7 +2977,7 @@ class NifFile:
 
     @property
     def connect_points_child(self):
-        """Reads a nif's child connect points as a pair of [bool, (name, name, ...)]
+        """Reads a nif's child connect point names as [name, name, ...]
         where bool = skinned/not skinned
         name = child connect point names, limited to 256 characters"""
         if not self._connect_pt_child:

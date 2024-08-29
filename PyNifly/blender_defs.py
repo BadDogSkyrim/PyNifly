@@ -531,6 +531,49 @@ def TEST_CAM():
     assert VNearEqual(inv, [0, 0, 1570], epsilon=2), f"Cam shows right profile: {inv}"
 
 
+class ReprObject():
+    """Object that is represented in both nif and Blender"""
+    def __init__(self, blender_obj=None, nifnode=None):
+        self.blender_obj = blender_obj
+        self.nifnode = nifnode
+
+
+class ReprObjectCollection():
+    """Collection of represented objects. Adds dictionaries for fast lookup."""
+    def __init__(self):
+        self._collection = set()
+        # Blender dict indexed by name
+        self._blenderdict = {}
+        # nifdict indexed by ID because tho nodes should have different names, it's not a
+        # hard requirement.
+        self._nifdict = {}
+
+    def add(self, reprobj):
+        """
+        Add a ReprObject to the collection. 
+        """
+        self._collection.add(reprobj)
+        if reprobj.blender_obj:
+            self._blenderdict[reprobj.blender_obj.name] = reprobj
+        if reprobj.nifnode:
+            self._nifdict[reprobj.nifnode.id] = reprobj
+
+    def find_nifnode(self, nifnode):
+        try: 
+            return self._nifdict[nifnode.id]
+        except KeyError:
+            return None
+        
+    def find_nifname(self, name):
+        for reprobj in self._collection:
+            if reprobj.nifnode and reprobj.nifnode.name == name: 
+                return reprobj
+        return None
+        
+    def blender_objects(self):
+        for ro in self._collection:
+            if ro.blender_obj:
+                yield ro.blender_obj
     
     
 if __name__ == "__main__":

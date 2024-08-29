@@ -289,3 +289,28 @@ def assert_le(actual, expected, msg, e=0.0001):
 def assert_gt(actual, expected, msg, e=0.0001):
     """Assert actual is greater than expected."""
     assert actual > expected, f"Values actual greater than expected for {msg}: {actual} < {expected}"
+
+
+def find_object(name, coll=bpy.context.scene.objects, fn=lambda x: x.name):
+    """Find an object by name with the given list of objects
+        name = name to find. Blocks in nifs aren't supposed to have the same
+            name but sometimes they do. Also, a Blend file might contain imports from several nifs. 
+            So we can't be sure the Blender name is exactly the name in the nif. Blender may have 
+            appended .### to it, where ### is some number to make it unique.
+        coll = list or dictionary of objects
+        fn = function to return the name from an object in the collection. Default is for when
+            the collection is just a list of objects with names.
+        Return = object from list, or None. Object either has the exact name or the name followed 
+            by .###
+    """
+    foundobj = None
+    for obj in coll:
+        n = fn(obj)
+        # Exact matches always take precedence
+        if n == name:
+            foundobj = obj
+            break
+        if re.search(name + r'\.\d\d\d', n):
+            foundobj = obj
+            break
+    return foundobj

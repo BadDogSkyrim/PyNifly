@@ -76,6 +76,7 @@ from blender_defs import *
 import shader_io 
 import controller 
 import collision 
+import connectpoint as CP
 import skeleton_hkx
 
 if 'PYNIFLY_DEV_ROOT' in os.environ:
@@ -83,14 +84,13 @@ if 'PYNIFLY_DEV_ROOT' in os.environ:
     importlib.reload(shader_io)
     importlib.reload(controller)
     importlib.reload(collision)
+    importlib.reload(CP)
     importlib.reload(xmltools)
 
 NO_PARTITION_GROUP = "*NO_PARTITIONS*"
 MULTIPLE_PARTITION_GROUP = "*MULTIPLE_PARTITIONS*"
 UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
-
-CONNECT_POINT_SCALE = 1.0
 
 ARMATURE_BONE_GROUPS = ['NPC', 'CME']
 
@@ -110,6 +110,7 @@ IMPORT_COLLISIONS_DEF = True
 IMPORT_SHAPES_DEF = True
 IMPORT_TRIS_DEF = False
 IMPORT_POSE_DEF = False
+IMPORT_COLLECTIONS_DEF = False
 ESTIMATE_OFFSET_DEF = True
 PRESERVE_HIERARCHY_DEF = False
 RENAME_BONES_DEF = True
@@ -375,6 +376,7 @@ class NifImporter():
         self.do_import_tris = IMPORT_TRIS_DEF
         self.do_apply_skinning = APPLY_SKINNING_DEF
         self.do_import_pose = IMPORT_POSE_DEF
+        self.do_create_collection = IMPORT_COLLECTIONS_DEF
         self.is_facegen = False
         # self.do_estimate_offset = ESTIMATE_OFFSET_DEF
         self.reference_skel = None
@@ -385,7 +387,7 @@ class NifImporter():
         self.is_new_armature = True # Armature is derived from current nif; set false if adding to existing arma
         self.created_child_cp = None
         self.bones = set()
-        self.objects_created = {} # Dictionary of objects created, indexed by node handle
+        self.objects_created = ReprObjectCollection() # Dictionary of objects created, indexed by node handle
                                   # (or object name, if no handle)
         self.nodes_loaded = {} # Dictionary of nodes from the nif file loaded, indexed by Blender name
         self.loaded_meshes = [] # Holds blender objects created from shapes in a nif
@@ -395,10 +397,11 @@ class NifImporter():
         self.warnings = []
         self.import_xf = Matrix.Identity(4) # Transform applied to root for blender convenience.
         self.root_object = None  # Blender representation of root object
-        self.connect_parents = []
+        # CP self.connect_parents = []
         self.auxbones = False
         self.ref_compat = False
         self.controller_mgr = None
+        self.connect_points = CP.ConnectPointCollection()
 
 
     def __str__(self):
@@ -412,13 +415,14 @@ class NifImporter():
         if self.do_import_tris: flags.append("IMPORT_TRIS")
         if self.do_apply_skinning: flags.append("APPLY_SKINNING")
         if self.do_import_pose: flags.append("IMPORT_POSE")
+        if self.do_create_collection: flags.append("CREATE_COLLECTIONS")
         if self.is_facegen: flags.append("FACEGEN_FILE")
         # if self.do_estimate_offset: flags.append("ESTIMATE_OFFSET")
         return f"""
         Importing nif: {self.filename_list}
             flags: {'|'.join(flags)}
             armature: {self.armature} 
-            connect point parents: {list(self.loaded_parent_cp.keys())}
+            connect point parents: {list(self.connect_points.parents)} 
             mesh objects: {[obj.name for obj in self.loaded_meshes]}
         """
 
@@ -626,23 +630,23 @@ class NifImporter():
 
     # -----------------------------  EXTRA DATA  -------------------------------
 
-    def add_to_parents(self, obj):
-        """Add the given object to our list of parent connect points loaded in this operation.
-        obj must be a valid BSConnectPointParents object. """
-        connectname = obj.name[len('BSConnectPointParents::P-'):]
-        self.loaded_parent_cp[connectname] = obj
+    # def add_to_parents(self, obj):
+    #     """Add the given object to our list of parent connect points loaded in this operation.
+    #     obj must be a valid BSConnectPointParents object. """
+    #     connectname = obj.name[len('BSConnectPointParents::P-'):]
+    #     self.loaded_parent_cp[connectname] = obj
 
 
-    def add_to_child_cp(self, obj):
-        """Add the given object to our list of children connect points loaded in this operation.
-        obj must be a valid BSConnectPointChildren object. """
-        for i in range(100):
-            try:
-                n = obj[f"PYN_CONNECT_CHILD_{i}"]
-            except:
-                break
-            connectname = n[2:]
-            self.loaded_child_cp[connectname] = obj
+    # def add_to_child_cp(self, obj):
+    #     """Add the given object to our list of children connect points loaded in this operation.
+    #     obj must be a valid BSConnectPointChildren object. """
+    #     for i in range(100):
+    #         try:
+    #             n = obj[f"PYN_CONNECT_CHILD_{i}"]
+    #         except:
+    #             break
+    #         connectname = n[2:]
+    #         self.loaded_child_cp[connectname] = obj
 
 
     def import_bsx(self, node, parent_obj):
@@ -657,7 +661,7 @@ class NifImporter():
             ed['BSXFlags_Value'] = BSXFlags(b[1]).fullname
             ed.parent = parent_obj
             # extradata.append(ed)
-            self.objects_created[ed.name] = ed
+            self.objects_created.add(ReprObject(blender_obj=ed))
 
 
     def import_inventory_marker(self, node, parent_obj):
@@ -689,7 +693,7 @@ class NifImporter():
             ed['BSInvMarker_Zoom'] = invm[4]
 
             ed.parent = parent_obj
-            self.objects_created[ed.name] = ed
+            self.objects_created.add(ReprObject(blender_obj=ed))
 
             # Set up the render resolution to work for the inventory marker camera.
             self.context.scene.render.resolution_x = 1400
@@ -714,77 +718,77 @@ class NifImporter():
             obj['AnimationType'] = FurnAnimationType.GetName(fm.animation_type)
             obj['EntryPoints'] = FurnEntryPoints(fm.entry_points).fullname
             obj.parent = parent_obj
-            self.objects_created[obj.name] = obj
+            self.objects_created.add(ReprObject(blender_obj=obj))
 
 
-    def import_connect_points_parent(self):
-        """
-        Parent connect points apply to the whole nif.
-        """
-        for cp in self.nif.connect_points_parent:
-            bpy.ops.object.add(radius=self.scale, type='EMPTY')
-            obj = bpy.context.object
-            obj.name = "BSConnectPointParents" + "::" + cp.name.decode('utf-8')
-            obj.show_name = True
-            obj.empty_display_type = 'ARROWS'
-            mx = Matrix.LocRotScale(
-                Vector(cp.translation[:]) * self.scale,
-                Quaternion(cp.rotation[:]),
-                ((cp.scale * CONNECT_POINT_SCALE * self.scale),) * 3
-            )
-            obj.matrix_world = self.root_object.matrix_world @ mx
+    # def import_connect_points_parent(self):
+    #     """
+    #     Parent connect points apply to the whole nif.
+    #     """
+    #     for cp in self.nif.connect_points_parent:
+    #         obj = CP.ConnectPointParent.New(self.scale, cp, self.root_object)
+            # CP
+            # bpy.ops.object.add(radius=self.scale, type='EMPTY')
+            # obj = bpy.context.object
+            # obj.name = "BSConnectPointParents" + "::" + cp.name.decode('utf-8')
+            # obj.show_name = True
+            # obj.empty_display_type = 'ARROWS'
+            # mx = Matrix.LocRotScale(
+            #     Vector(cp.translation[:]) * self.scale,
+            #     Quaternion(cp.rotation[:]),
+            #     ((cp.scale * CONNECT_POINT_SCALE * self.scale),) * 3
+            # )
+            # obj.matrix_world = self.root_object.matrix_world @ mx
 
-            parname = cp.parent.decode('utf-8')
+            # parname = cp.parent.decode('utf-8')
 
-            if parname and not parname.startswith("BSConnectPointChildren") \
-                and not parname.startswith("BSConnectPointParents"):
-                obj["pynConnectParent"] = parname
-                parnamebl = self.blender_name(parname)
-                if self.armature and parnamebl in self.armature.data.bones:
-                    # log.info(f"Connect point {obj.name} is parented to bone {parnamebl}")
-                    parbone = self.armature.data.bones[parnamebl]
-                    obj.parent = self.armature
-                    obj.matrix_world = self.root_object.matrix_world @ (parbone.matrix_local @ mx)
-                elif parname in self.nif.nodes:
-                    parnode = self.nif.nodes[parname]
-                    if parnode._handle in self.objects_created:
-                        obj.parent = self.objects_created[parnode._handle]
-                        #log.debug(f"Created parent cp {obj.name} with parent {obj.parent.name}")
-                    else:
-                        self.warn(f"Parent node {parname} not imported")
-                else:
-                    self.warn(f"Could not find parent node {parname} for connect point {obj.name}")
-            else:
-                obj.parent = self.root_object
+            # if parname and not parname.startswith("BSConnectPointChildren") \
+            #     and not parname.startswith("BSConnectPointParents"):
+            #     obj["pynConnectParent"] = parname
+            #     parnamebl = self.blender_name(parname)
+            #     if self.armature and parnamebl in self.armature.data.bones:
+            #         parbone = self.armature.data.bones[parnamebl]
+            #         obj.parent = self.armature
+            #         obj.matrix_world = self.root_object.matrix_world @ (parbone.matrix_local @ mx)
+            #     elif parname in self.nif.nodes:
+            #         parnode = self.nif.nodes[parname]
+            #         if parnode._handle in self.objects_created:
+            #             obj.parent = self.objects_created[parnode._handle]
+            #         else:
+            #             self.warn(f"Parent node {parname} not imported")
+            #     else:
+            #         self.warn(f"Could not find parent node {parname} for connect point {obj.name}")
+            # else:
+            #     obj.parent = self.root_object
 
-            self.objects_created[obj.name] = obj
-            self.add_to_parents(obj)
+            # self.objects_created[obj.name] = obj
+            # self.add_to_parents(obj)
 
 
-    def import_connect_points_child(self):
-        """
-        Import the child connect point. There's only one and it applies to the
-        whole nif, so only do it if we're working with the root node.
-        """
-        if self.nif.connect_points_child:
-            childname = self.nif.connect_points_child[0].split('-')[1]
-            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
-            obj = bpy.context.object
-            obj.name = "BSConnectPointChildren::" + childname
-            obj.show_name = True
-            obj.empty_display_type = 'SPHERE'
-            obj.location = (0,0,0)
-            obj['PYN_CONNECT_CHILD_SKINNED'] = self.nif.connect_pt_child_skinned
-            for i, n in enumerate(self.nif.connect_points_child):
-                obj[f'PYN_CONNECT_CHILD_{i}'] = n
-            for pcp in self.connect_parents:
-                # If we had a selected parent connect point that matches, parent to it.
-                if pcp.name.split('::')[1][2:] == childname:
-                    obj.parent = pcp
-            if not obj.parent: obj.parent = self.root_object
-            self.created_child_cp = obj
-            self.objects_created[obj.name] = obj
-            self.add_to_child_cp(obj)
+    # def import_connect_points_child(self):
+    #     """
+    #     Import the child connect point. There's only one and it applies to the
+    #     whole nif, so only do it if we're working with the root node.
+    #     """
+        # if self.nif.connect_points_child:
+        #     childname = self.nif.connect_points_child[0].split('-')[1]
+        #     bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+        #     obj = bpy.context.object
+        #     obj.name = "BSConnectPointChildren::" + childname
+        #     obj.show_name = True
+        #     obj.empty_display_type = 'SPHERE'
+        #     obj.location = (0,0,0)
+        #     obj['PYN_CONNECT_CHILD_SKINNED'] = self.nif.connect_pt_child_skinned
+        #     for i, n in enumerate(self.nif.connect_points_child):
+        #         obj[f'PYN_CONNECT_CHILD_{i}'] = n
+        #     for pcp in self.connect_parents:
+        #         # If we had a selected parent connect point that matches, parent to it.
+        #         if pcp.name.split('::')[1][2:] == childname:
+        #             obj.parent = pcp
+        #     if not obj.parent: obj.parent = self.root_object
+        #     self.created_child_cp = obj
+        #     self.objects_created[obj.name] = obj
+        #     self.add_to_child_cp(obj)
 
 
     def import_stringdata(self, node, parent_obj):
@@ -798,7 +802,7 @@ class NifImporter():
             ed['NiStringExtraData_Value'] = s[1]
             ed.parent = parent_obj
             # extradata.append(ed)
-            self.objects_created[ed.name] = ed
+            self.objects_created.add(ReprObject(blender_obj=ed))
 
 
     def import_behavior_graph_data(self, node, parent_obj):
@@ -812,8 +816,7 @@ class NifImporter():
             ed['BSBehaviorGraphExtraData_Value'] = s[1]
             ed['BSBehaviorGraphExtraData_CBS'] = s[2]
             ed.parent = parent_obj
-            # extradata.append(ed)
-            self.objects_created[ed.name] = ed
+            self.objects_created.add(ReprObject(blender_obj=ed))
 
 
     def import_cloth_data(self, node, parent_obj):
@@ -826,7 +829,7 @@ class NifImporter():
             ed['BSClothExtraData_Name'] = c[0]
             ed['BSClothExtraData_Value'] = codecs.encode(c[1], 'base64')
             ed.parent = parent_obj
-            self.objects_created[ed.name] = ed
+            self.objects_created.add(ReprObject(blender_obj=ed))
 
 
     def import_extra(self, parent_obj:bpy_types.Object, n:NiNode):
@@ -844,14 +847,15 @@ class NifImporter():
         self.import_cloth_data(n, parent_obj)
 
 
-    def import_connect_points(self):
-        """ 
-        Import connect point information from the file. Connect points affect the whole
-        nif rather than being attached to a shape. They should be dealt with last because
-        they refer to other nodes.
-        """
-        self.import_connect_points_parent()
-        self.import_connect_points_child()
+    # CP
+    # def import_connect_points(self):
+    #     """ 
+    #     Import connect point information from the file. Connect points affect the whole
+    #     nif rather than being attached to a shape. They should be dealt with last because
+    #     they refer to other nodes.
+    #     """
+    #     self.connect_points.add_parents(self.scale, self.nif, self.root_object)
+    #     self.connect_points.new_child(self.scale, self.nif, self.next_loc())
 
 
     def bone_in_armatures(self, bone_name):
@@ -876,21 +880,15 @@ class NifImporter():
         * Returns the Blender representation of the node, either an object or a bone, or
           none
         """
+        robj = self.objects_created.find_nifnode(ninode)
+        if robj: return robj.blender_obj
         obj = None
-        # if ninode.name == ninode.file.rootName:
-        #     return None
+
+        bl_name = self.blender_name(ninode.name)
+        bn = self.bone_in_armatures(bl_name)
+        if bn: return bn 
 
         if not parent: parent = self.root_object
-
-        # Nothing to do if we've already imported this object. 
-        bl_name = self.blender_name(ninode.name)
-        if ninode._handle in self.objects_created:
-            return self.objects_created[ninode._handle]
-
-        bn = self.bone_in_armatures(bl_name)
-        if bn: 
-            return bn 
-
         skelbone = None
         if self.reference_skel and ninode.name in self.reference_skel.nodes:
             skelbone = self.reference_skel.nodes[ninode.name]
@@ -912,7 +910,7 @@ class NifImporter():
 
         # If not a known skeleton bone, just import as an EMPTY object
         if self.context.object: bpy.ops.object.mode_set(mode = 'OBJECT')
-        bpy.ops.object.add(radius=1.0, type='EMPTY')
+        bpy.ops.object.add(radius=1.0, type='EMPTY', )
         obj = bpy.context.object
         obj.name = ninode.name
         obj["pynBlockName"] = ninode.blockname
@@ -927,6 +925,9 @@ class NifImporter():
             obj["PYN_BLENDER_XF"] = MatNearEqual(self.import_xf, blender_import_xf)
             obj['PYN_GAME'] = self.nif.game
             obj.empty_display_type = 'CONE'
+            c = obj.users_collection[0]
+            c.objects.unlink(obj)
+            self.collection.objects.link(obj)
 
             mx = self.import_xf @ transform_to_matrix(ninode.transform)
             obj.matrix_local = mx
@@ -943,7 +944,7 @@ class NifImporter():
                 # Can't set a bone as parent, but get the node in the right position
                 obj.matrix_local = apply_scale_xf(transform_to_matrix(ninode.global_transform), self.scale) 
                 obj.parent = self.root_object
-        self.objects_created[ninode._handle] = obj
+        self.objects_created.add(ReprObject(blender_obj=obj, nifnode=ninode))
 
         if ninode.collision_object and self.do_import_collisions:
             collision.CollisionHandler.import_collision_obj(
@@ -1049,7 +1050,7 @@ class NifImporter():
         self.nodes_loaded[new_object.name] = the_shape
     
         if not self.mesh_only:
-            self.objects_created[the_shape._handle] = new_object
+            self.objects_created.add(ReprObject(new_object, the_shape))
             
             import_colors(new_mesh, the_shape)
 
@@ -1616,6 +1617,10 @@ class NifImporter():
     def import_nif(self):
         """Import a single file."""
         log.info(f"Importing {self.nif.game} file {self.nif.filepath}")
+
+        if self.do_create_collection:
+            self.collection = bpy.data.collections.new(os.path.basename(self.nif.filepath))
+            bpy.context.scene.collection.children.link(self.collection)
         
         if self.do_import_anims:
             self.controller_mgr = controller.ControllerHandler(self)
@@ -1642,7 +1647,7 @@ class NifImporter():
             self.nif.dict.use_niftools = self.rename_bones_nift
             self.import_shape(s)
 
-        orphan_shapes = set([o for o in self.objects_created.values() 
+        orphan_shapes = set([o for o in self.objects_created.blender_objects()
                              if o.parent==None and not 'pynRoot' in o])
             
         if self.mesh_only:
@@ -1693,18 +1698,29 @@ class NifImporter():
             self.import_loose_ninodes(self.nif)
 
             # Import nif-level elements
-            self.import_connect_points()
+            self.connect_points.import_points(
+                self.nif, self.root_object, self.objects_created, self.scale, self.next_loc())
         
             # Import top-level animations
             if self.controller_mgr and self.nif.rootNode.controller:
                 self.controller_mgr.import_controller(
                     self.nif.rootNode.controller, self.root_object, self.root_object)
 
+            cp = self.connect_points.child_in_nif(self.nif)
+            if cp:
+                self.root_object.parent = cp.blender_obj
+            # CP
             # Everything gets parented to the child connect point, if any.
-            for o in self.objects_created.values(): 
-                if self.created_child_cp and o.parent == None and o != self.created_child_cp:
-                    o.parent = self.created_child_cp
-                    if o in orphan_shapes: orphan_shapes.remove(o)
+            # for robj in self.objects_created: 
+            #     for child_cp in self.connect_points.child:
+            #         if child_cp.obj.nifnode.file == robj.nifnode.file:
+            #             robj.blender_obj.parent = child_cp.obj.blender_obj
+            #             if robj.blender_obj in orphan_shapes: 
+            #                 orphan_shapes.remove(robj.blender_obj)
+                # CP
+                # if self.created_child_cp and o.parent == None and o != self.created_child_cp:
+                #     o.parent = self.created_child_cp
+                #     if o in orphan_shapes: orphan_shapes.remove(o)
 
         # Anything not yet parented gets put under the root.
         for o in orphan_shapes:
@@ -1713,7 +1729,7 @@ class NifImporter():
 
     def import_tris(self):
         """Import any tri files associated with the nif."""
-        imported_meshes = [x for x in self.objects_created.values() if x.type == 'MESH']
+        imported_meshes = [x for x in self.objects_created.blender_objects() if x.type == 'MESH']
         tripfile = find_trip(self.nif)
         if tripfile:
             import_trip(tripfile, imported_meshes)
@@ -1722,7 +1738,7 @@ class NifImporter():
             # must be only a single mesh to have a tri file.
             trifiles = find_tris(self.nif)
             for tf in trifiles:
-                import_tri(tf, [x for x in self.objects_created.values() if x.type == 'MESH'][0])
+                import_tri(tf, imported_meshes[0])
 
 
     def merge_shapes(self, filename, obj_list, new_filename, new_obj_list):
@@ -1755,28 +1771,38 @@ class NifImporter():
                 obj.data.shape_keys.key_blocks[-1].name = '_' + new_fn_parts[-1]
 
 
-    def connect_children_parents(self, parent_shapes, child_shapes):
-        """If any of the child connect points in dictionary child_shapes should connect to the
-        parent connect points in dictionary parent_shapes, parent them up
-        """
-        for connectname, parent in parent_shapes.items():
-            # Find children that should connect to this parent. Could be more than one. 
-            # Also the same child may be in the dictionary more than once under different
-            # spellings of the name.
-            try: 
-                child = child_shapes[connectname]
-                if not child.parent:
-                    child.parent = parent
-            except:
-                pass
+    # CP
+    # def connect_children_parents(self, parent_shapes, child_shapes):
+    #     """
+    #     If any of the child connect points in dictionary child_shapes should connect to the
+    #     parent connect points in dictionary parent_shapes, parent them up
+    #     """
+    #     for connectname, parent in parent_shapes.items():
+    #         # Find children that should connect to this parent. Could be more than one. 
+    #         # Also the same child may be in the dictionary more than once under different
+    #         # spellings of the name.
+    #         try: 
+    #             child = child_shapes[connectname]
+    #             if not child.constraints or "Copy Transforms" not in child.constraints:
+    #                 # If there's a child connect point the hierarchy is root -> child cp -> mesh
+    #                 child.parent = self.root_object
+    #                 c = child.constraints.new(type='COPY_TRANSFORMS')
+    #                 c.target = parent
+
+    #             # if not child.parent:
+    #             #     child.parent = parent
+    #         except KeyError:
+    #             pass
 
 
     def execute(self):
         """Perform the import operation as previously defined"""
         NifFile.clear_log()
 
-        self.connect_parents = [p for p in self.context.selected_objects \
-                                if p.name.startswith('BSConnectPointParents')]
+        # CP
+        # self.connect_parents = [p for p in self.context.selected_objects \
+        #                         if p.name.startswith('BSConnectPointParents')]
+        self.connect_points.add_all(self.context.selected_objects)
         self.loaded_parent_cp = {}
         self.loaded_child_cp = {}
         prior_vertcounts = []
@@ -1787,9 +1813,11 @@ class NifImporter():
             if self.context.object.type == "ARMATURE":
                 self.armature = self.context.object
                 log.info(f"Current object is an armature, parenting shapes to {self.armature.name}")
-            elif self.context.object.type == "EMPTY" and self.context.object.name.startswith("BSConnectPointParents"):
-                self.add_to_parents(self.context.object)
-                log.info(f"Current object is a parent connect point, parenting shapes to {self.context.object.name}")
+            # CP
+            # elif CP.is_parent(self.context.object) # self.context.object.type == "EMPTY" and self.context.object.name.startswith("BSConnectPointParents"):
+            #     # CP self.add_to_parents(self.context.object)
+            #     self.connect_points.add_object(self.context.object)
+            #     log.info(f"Current object is a parent connect point, parenting shapes to {self.context.object.name}")
             elif self.context.object.type == 'MESH':
                 prior_vertcounts = [len(self.context.object.data.vertices)]
                 self.loaded_meshes = [self.context.object]
@@ -1831,7 +1859,8 @@ class NifImporter():
                 prior_fn = fn
 
         # Connect up all the children loaded in this batch with all the parents loaded in this batch
-        self.connect_children_parents(self.loaded_parent_cp, self.loaded_child_cp)
+        # CP self.connect_children_parents(self.loaded_parent_cp, self.loaded_child_cp)
+        self.connect_points.connect_all()
 
 
     @classmethod
@@ -1851,16 +1880,16 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
     filter_glob: StringProperty(
         default="*.nif",
         options={'HIDDEN'},
-    )
+    ) # type: ignore
 
     files: CollectionProperty(
         type=bpy.types.OperatorFileListElement,
-        options={'HIDDEN', 'SKIP_SAVE'},)
+        options={'HIDDEN', 'SKIP_SAVE'},) # type: ignore
 
     do_create_bones: bpy.props.BoolProperty(
         name="Create bones",
         description="Create vanilla bones as needed to make skeleton complete.",
-        default=CREATE_BONES_DEF)
+        default=CREATE_BONES_DEF) # type: ignore
 
     # scale_factor: bpy.props.FloatProperty(
     #     name="Scale correction",
@@ -1912,6 +1941,11 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Creates any armature from the bone NiNode (pose) position.",
         default=IMPORT_POSE_DEF
     ) # type: ignore
+
+    do_create_collections: bpy.props.BoolProperty(
+        name="Import to collections",
+        description="Import each nif to its own new collection.",
+        default=IMPORT_COLLECTIONS_DEF) # type: ignore
 
     # do_estimate_offset: bpy.props.BoolProperty(
     #     name="Apply estimated shape offset",
@@ -1985,6 +2019,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             imp.do_import_tris = self.do_import_tris
             imp.do_apply_skinning = self.do_apply_skinning
             imp.do_import_pose = self.do_import_pose
+            imp.do_create_collection = self.do_create_collections
             # imp.do_estimate_offset = self.do_estimate_offset
             if self.reference_skel:
                 imp.reference_skel = NifFile(self.reference_skel)
@@ -1993,7 +2028,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             imp.execute()
         
             # Cleanup. Select all shapes imported, except the root node.
-            objlist = [x for x in imp.objects_created.values() if x.type=='MESH']
+            objlist = [x for x in imp.objects_created.blender_objects() if x.type=='MESH']
             highlight_objects(objlist, context)
             if (not objlist) and imp.armature:
                 objlist.append(imp.armature)
@@ -2166,7 +2201,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
     filter_glob: StringProperty(
         default="*.tri",
         options={'HIDDEN'},
-    )
+    ) # type: ignore
 
     def execute(self, context):
         LogStart(bl_info, "IMPORT", "TRI")
@@ -2232,14 +2267,14 @@ class ImportKF(bpy.types.Operator, ExportHelper):
     filter_glob: StringProperty(
         default="*.kf",
         options={'HIDDEN'},
-    )
+    ) # type: ignore
 
     files: CollectionProperty(
         name="File Path",
         type=bpy.types.OperatorFileListElement,
-    )
+    ) # type: ignore
 
-    directory: StringProperty()
+    directory: StringProperty() # type: ignore
 
     @classmethod
     def poll(cls, context):
@@ -2316,38 +2351,37 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
     filter_glob: StringProperty(
         default="*.hkx",
         options={'HIDDEN'},
-    )
+    ) # type: ignore
 
     use_blender_xf: bpy.props.BoolProperty(
         name="Use Blender orientation",
         description="Use Blender's orientation and scale",
-        default=BLENDER_XF_DEF)
+        default=BLENDER_XF_DEF) # type: ignore
 
     do_rename_bones: bpy.props.BoolProperty(
         name="Rename bones",
         description="Rename bones to conform to Blender's left/right conventions.",
-        default=RENAME_BONES_DEF)
+        default=RENAME_BONES_DEF) # type: ignore
 
     do_import_animations: bpy.props.BoolProperty(
         name="Import animations",
         description="Import any animations embedded in the nif.",
-        default=IMPORT_ANIMS_DEF)
+        default=IMPORT_ANIMS_DEF) # type: ignore
 
     do_import_collisions: bpy.props.BoolProperty(
         name="Import collisions",
         description="Import any collisions embedded in the nif.",
-        default=IMPORT_COLLISIONS_DEF)
+        default=IMPORT_COLLISIONS_DEF) # type: ignore
 
     rename_bones_niftools: bpy.props.BoolProperty(
         name="Rename bones as per NifTools",
         description="Rename bones using NifTools' naming scheme to conform to Blender's left/right conventions.",
-        default=RENAME_BONES_NIFT_DEF)
+        default=RENAME_BONES_NIFT_DEF) # type: ignore
     
     reference_skel: bpy.props.StringProperty(
         name="Reference skeleton",
         description="HKX reference skeleton to use for animation binding",
-        default="")
-
+        default="") # type: ignore
 
     @classmethod
     def poll(cls, context):
@@ -2444,7 +2478,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         if self.use_blender_xf:
             imp.import_xf = blender_import_xf
         imp.execute()
-        objlist = [x for x in imp.objects_created.values() if x.type=='MESH']
+        objlist = [x for x in imp.objects_created.blender_objects() if x.type=='MESH']
         if imp.armature:
             objlist.append(imp.armature)
         highlight_objects(objlist, self.context)
@@ -3116,7 +3150,7 @@ class NifExporter:
                     = cp.matrix_world.translation[:]
                 buf.rotation[0], buf.rotation[1], buf.rotation[2], buf.rotation[3] \
                     = cp.matrix_world.to_quaternion()[:]
-                buf.scale = cp.matrix_world.to_scale()[0] / CONNECT_POINT_SCALE
+                buf.scale = cp.matrix_world.to_scale()[0] / CP.CONNECT_POINT_SCALE
             elif cp.parent and cp.parent.type == 'ARMATURE':
                 parentname = ''
                 if 'pynConnectParent' in cp:
@@ -3134,7 +3168,7 @@ class NifExporter:
                     buf.translation[2] = mx.translation[2]
                     buf.rotation[0], buf.rotation[1], buf.rotation[2], buf.rotation[3] \
                         = mx.to_quaternion()[:]
-                    buf.scale = mx.to_scale()[0] / CONNECT_POINT_SCALE
+                    buf.scale = mx.to_scale()[0] / CP.CONNECT_POINT_SCALE
             
             connect_par.append(buf)
         if connect_par:
@@ -3143,10 +3177,8 @@ class NifExporter:
         child_names = []
         for cp in self.connect_child:
             self.nif.connect_pt_child_skinned = cp['PYN_CONNECT_CHILD_SKINNED']
-            ##log.debug(f"Extending child names with {[cp[x] for x in cp.keys() if x != 'PYN_CONNECT_CHILD_SKINNED' and x.startswith('PYN_CONNECT_CHILD')]}")
             child_names.extend([cp[x] for x in cp.keys() if x != 'PYN_CONNECT_CHILD_SKINNED' and x.startswith('PYN_CONNECT_CHILD')])
         if child_names:
-            ##log.debug(f"Writing connect point children: {child_names}")
             self.nif.connect_points_child = child_names
 
 
@@ -3432,9 +3464,11 @@ class NifExporter:
                 for i, lp in enumerate(loops):
                     colors_new[lp] = loopcolors[i]
         
+        except:
+            pass
+
         finally:
             obj.active_shape_key_index = saved_sk
-            pass
 
         return verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, \
             morphdict, partitions, partition_map
@@ -3845,9 +3879,6 @@ class NifExporter:
 
             if self.root_object:
                 collision.CollisionHandler.export_collisions(self, self.root_object)
-                # for c in self.root_object.constraints:
-                    # if c.type == 'COPY_TRANSFORMS' and c.target:
-                        # self.export_collision_object(self.root_object, c.target)
             self.export_extra_data()
 
             self.nif.save()
@@ -3932,53 +3963,53 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ('FO3', "Fallout New Vegas", ""),
                    ('FO3', "Fallout 3", ""),
                    ),
-            )
+            ) # type: ignore
 
     use_blender_xf: bpy.props.BoolProperty(
         name="Use Blender orientation",
         description="Use Blender's orientation and scale.",
         default=BLENDER_XF_DEF
-        )
+        ) # type: ignore
     
     do_rename_bones: bpy.props.BoolProperty(
         name="Rename Bones",
         description="Rename bones from Blender conventions back to nif.",
-        default=True)
+        default=True) # type: ignore
 
     rename_bones_niftools: bpy.props.BoolProperty(
         name="Rename Bones as per NifTools",
         description="Rename bones from NifTools' Blender conventions back to nif.",
-        default=False)
+        default=False) # type: ignore
 
     preserve_hierarchy: bpy.props.BoolProperty(
         name="Preserve Bone Hierarchy",
         description="Preserve bone hierarchy in exported nif.",
-        default=False)
+        default=False) # type: ignore
 
     write_bodytri: bpy.props.BoolProperty(
         name="Export BODYTRI Extra Data",
         description="Write an extra data node pointing to the BODYTRI file, if there are any bodytri shape keys. Not needed if exporting for Bodyslide, because they write their own.",
-        default=True)
+        default=True) # type: ignore
 
     export_pose: bpy.props.BoolProperty(
         name="Export pose position",
         description="Export bones in pose position.",
-        default=False)
+        default=False) # type: ignore
     
     export_modifiers: bpy.props.BoolProperty(
         name="Export modifiers",
         description="Export all active modifiers (including shape keys)",
-        default=False)
+        default=False) # type: ignore
 
     export_colors: bpy.props.BoolProperty(
         name="Export vertex color/alpha",
         description="Use vertex color attributes as vertex color",
-        default=True)
+        default=True) # type: ignore
 
     chargen_ext: bpy.props.StringProperty(
         name="Chargen extension",
         description="Extension to use for chargen files (not including file extension).",
-        default="chargen")
+        default="chargen") # type: ignore
 
     # For debugging. If False, use the properties passed in with the invocation. If invoked through
     # the UI it will be true.
@@ -3987,7 +4018,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         description="Get defaults from current selection",
         default=True,
         options={'HIDDEN'},
-    )
+    ) # type: ignore
     
 
     def __init__(self):
@@ -4163,8 +4194,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
     fps: bpy.props.FloatProperty(
         name="FPS",
         description="Frames per second for export",
-        default=30)
-
+        default=30) # type: ignore
 
     @classmethod
     def poll(cls, context):
@@ -4272,12 +4302,12 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
     reference_skel: bpy.props.StringProperty(
         name="Reference skeleton",
         description="Reference skeleton (HKX) to use for animation binding",
-        default="")
+        default="") # type: ignore
 
     fps: bpy.props.FloatProperty(
         name="FPS",
         description="Frames per second for export",
-        default=30)
+        default=30) # type: ignore
 
     def __init__(self):
         obj = bpy.context.object
