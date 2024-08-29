@@ -10,11 +10,15 @@ CONNECT_POINT_SCALE = 1.0
 
 def connection_name_root(s): 
     """Return the root part of a connection name ('P-Foo' -> 'Foo')"""
-    return s.split('-', 1)[1]
+    parts = s.split('-', 1)
+    if len(parts) < 2:
+        print(f"WARNING: connection name malformed: {s}")
+        return parts[0]
+    return parts[-1]
 
 
 def blender_to_nif(obj):
-    return obj.name.split('::', 1)[1]
+    return obj.name.split('::', 1)[-1]
 
 
 def is_parent(obj):
@@ -72,6 +76,8 @@ class ConnectPointParent():
         else:
             pcp.parent = blendparent
 
+        BD.link_to_collection(blendparent.users_collection[0], pcp)
+
         ro = BD.ReprObject(blender_obj=pcp, nifnode=cp)
         return ConnectPointParent(cpname, ro)
 
@@ -87,7 +93,7 @@ class ConnectPointChild():
         return self.obj.blender_obj
 
     @classmethod
-    def new(cls, scale, nif, location):
+    def new(cls, scale, nif, location, coll):
         """
         Create a representation of a nif's child connect point in Blender.
         """
@@ -102,6 +108,7 @@ class ConnectPointChild():
         obj['PYN_CONNECT_CHILD_SKINNED'] = nif.connect_pt_child_skinned
         for i, n in enumerate(nif.connect_points_child):
             obj[f'PYN_CONNECT_CHILD_{i}'] = n
+        BD.link_to_collection(coll, obj)
         
         ro = BD.ReprObject(blender_obj=obj)
         return ConnectPointChild(nif.connect_points_child, ro, nif=nif)
@@ -139,7 +146,7 @@ class ConnectPointCollection():
 
 
     def import_points(self, nif, root_object, objectlist, scale, location):
-        self.add(ConnectPointChild.new(scale, nif, location))
+        self.add(ConnectPointChild.new(scale, nif, location, root_object.users_collection[0]))
         for cp in nif.connect_points_parent:
             self.add(ConnectPointParent.new(scale, cp, root_object, objectlist))
 

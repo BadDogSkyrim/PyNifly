@@ -4199,7 +4199,8 @@ def TEST_WEAPON_PART():
     # Import of mesh with parent connect points works correctly.
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  do_create_bones=False, 
-                                 do_rename_bones=False)
+                                 do_rename_bones=False, 
+                                 do_create_collections=True)
 
     barrelpcp = TT.find_object('BSConnectPointParents::P-Barrel')
     assert barrelpcp, f"Found the connect point for barrel parts"
@@ -4211,7 +4212,8 @@ def TEST_WEAPON_PART():
     BD.ObjectSelect([barrelpcp, magpcp, scopepcp], active=True)
     bpy.ops.import_scene.pynifly(filepath=partfile, 
                                  do_create_bones=False, 
-                                 do_rename_bones=False)
+                                 do_rename_bones=False, 
+                                 do_create_collections=True)
     
     barrelccp = TT.find_object('BSConnectPointChildren::C-Barrel')
     assert barrelccp, f"Barrel's child connect point found {barrelccp}"
@@ -4221,7 +4223,8 @@ def TEST_WEAPON_PART():
     BD.ObjectSelect([barrelpcp, magpcp, scopepcp], active=True)
     bpy.ops.import_scene.pynifly(filepath=partfile2, 
                                  do_create_bones=False, 
-                                 do_rename_bones=False)
+                                 do_rename_bones=False, 
+                                 do_create_collections=True)
     
     scopeccp = TT.find_object('BSConnectPointChildren::C-Scope')
     assert scopeccp, f"Scope's child connect point found {scopeccp}"

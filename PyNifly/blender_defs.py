@@ -531,6 +531,13 @@ def TEST_CAM():
     assert VNearEqual(inv, [0, 0, 1570], epsilon=2), f"Cam shows right profile: {inv}"
 
 
+def link_to_collection(coll, obj):
+    if obj.users_collection:
+        c = obj.users_collection[0]
+        c.objects.unlink(obj)
+    coll.objects.link(obj)
+
+
 class ReprObject():
     """Object that is represented in both nif and Blender"""
     def __init__(self, blender_obj=None, nifnode=None):

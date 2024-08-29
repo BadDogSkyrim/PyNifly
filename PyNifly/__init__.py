@@ -662,6 +662,7 @@ class NifImporter():
             ed.parent = parent_obj
             # extradata.append(ed)
             self.objects_created.add(ReprObject(blender_obj=ed))
+            link_to_collection(self.collection, ed)
 
 
     def import_inventory_marker(self, node, parent_obj):
@@ -694,6 +695,7 @@ class NifImporter():
 
             ed.parent = parent_obj
             self.objects_created.add(ReprObject(blender_obj=ed))
+            link_to_collection(self.collection, ed)
 
             # Set up the render resolution to work for the inventory marker camera.
             self.context.scene.render.resolution_x = 1400
@@ -719,6 +721,7 @@ class NifImporter():
             obj['EntryPoints'] = FurnEntryPoints(fm.entry_points).fullname
             obj.parent = parent_obj
             self.objects_created.add(ReprObject(blender_obj=obj))
+            link_to_collection(self.collection, obj)
 
 
     # def import_connect_points_parent(self):
@@ -803,6 +806,7 @@ class NifImporter():
             ed.parent = parent_obj
             # extradata.append(ed)
             self.objects_created.add(ReprObject(blender_obj=ed))
+            link_to_collection(self.collection, ed)
 
 
     def import_behavior_graph_data(self, node, parent_obj):
@@ -817,6 +821,7 @@ class NifImporter():
             ed['BSBehaviorGraphExtraData_CBS'] = s[2]
             ed.parent = parent_obj
             self.objects_created.add(ReprObject(blender_obj=ed))
+            link_to_collection(self.collection, ed)
 
 
     def import_cloth_data(self, node, parent_obj):
@@ -830,6 +835,7 @@ class NifImporter():
             ed['BSClothExtraData_Value'] = codecs.encode(c[1], 'base64')
             ed.parent = parent_obj
             self.objects_created.add(ReprObject(blender_obj=ed))
+            link_to_collection(self.collection, ed)
 
 
     def import_extra(self, parent_obj:bpy_types.Object, n:NiNode):
@@ -925,9 +931,6 @@ class NifImporter():
             obj["PYN_BLENDER_XF"] = MatNearEqual(self.import_xf, blender_import_xf)
             obj['PYN_GAME'] = self.nif.game
             obj.empty_display_type = 'CONE'
-            c = obj.users_collection[0]
-            c.objects.unlink(obj)
-            self.collection.objects.link(obj)
 
             mx = self.import_xf @ transform_to_matrix(ninode.transform)
             obj.matrix_local = mx
@@ -945,6 +948,7 @@ class NifImporter():
                 obj.matrix_local = apply_scale_xf(transform_to_matrix(ninode.global_transform), self.scale) 
                 obj.parent = self.root_object
         self.objects_created.add(ReprObject(blender_obj=obj, nifnode=ninode))
+        link_to_collection(self.collection, obj)
 
         if ninode.collision_object and self.do_import_collisions:
             collision.CollisionHandler.import_collision_obj(
@@ -1098,7 +1102,7 @@ class NifImporter():
             if self.rename_bones_nift != RENAME_BONES_NIFT_DEF:
                 new_object['PYN_RENAME_BONES_NIFT'] = self.rename_bones_nift 
 
-        self.collection.objects.link(new_object)
+        link_to_collection(self.collection, new_object)
 
 
     # ------ ARMATURE IMPORT ------
@@ -1477,7 +1481,7 @@ class NifImporter():
         arm_data = bpy.data.armatures.new(arma_name(name_prefix + self.nif.rootName))
         arma = bpy.data.objects.new(arma_name(name_prefix + self.nif.rootName), arm_data)
         arma.parent = self.root_object
-        the_coll.objects.link(arma)
+        link_to_collection(the_coll, arma)
 
         # bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
         # ObjectSelect([arma], active=True)
@@ -1620,7 +1624,7 @@ class NifImporter():
 
         if self.do_create_collection:
             self.collection = bpy.data.collections.new(os.path.basename(self.nif.filepath))
-            bpy.context.scene.collection.children.link(self.collection)
+            self.context.scene.collection.children.link(self.collection)
         
         if self.do_import_anims:
             self.controller_mgr = controller.ControllerHandler(self)
