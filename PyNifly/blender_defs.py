@@ -551,9 +551,8 @@ class ReprObjectCollection():
         self._collection = set()
         # Blender dict indexed by name
         self._blenderdict = {}
-        # nifdict indexed by ID because tho nodes should have different names, it's not a
-        # hard requirement.
-        self._nifdict = {}
+        # Need a separate dictionary for each file imported, indexed by filepath.
+        self._filedict = {}
 
     def add(self, reprobj):
         """
@@ -563,17 +562,27 @@ class ReprObjectCollection():
         if reprobj.blender_obj:
             self._blenderdict[reprobj.blender_obj.name] = reprobj
         if reprobj.nifnode:
-            self._nifdict[reprobj.nifnode.id] = reprobj
+            fp = reprobj.nifnode.file.filepath
+            try:
+                d = self._filedict[fp]
+            except KeyError:
+                self._filedict[fp] = {}
+                d = self._filedict[fp]
+            d[reprobj.nifnode.id] = reprobj
 
     def find_nifnode(self, nifnode):
         try: 
-            return self._nifdict[nifnode.id]
+            fp = nifnode.file.filepath
+            d = self._filedict[fp]
+            return d[nifnode.id]
         except KeyError:
             return None
         
-    def find_nifname(self, name):
+    def find_nifname(self, nif, name):
         for reprobj in self._collection:
-            if reprobj.nifnode and reprobj.nifnode.name == name: 
+            if reprobj.nifnode \
+                and reprobj.nifnode.file == nif \
+                and reprobj.nifnode.name == name: 
                 return reprobj
         return None
         

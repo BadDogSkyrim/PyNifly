@@ -397,7 +397,6 @@ class NifImporter():
         self.warnings = []
         self.import_xf = Matrix.Identity(4) # Transform applied to root for blender convenience.
         self.root_object = None  # Blender representation of root object
-        # CP self.connect_parents = []
         self.auxbones = False
         self.ref_compat = False
         self.controller_mgr = None
@@ -422,7 +421,7 @@ class NifImporter():
         Importing nif: {self.filename_list}
             flags: {'|'.join(flags)}
             armature: {self.armature} 
-            connect point parents: {list(self.connect_points.parents)} 
+            connect points: {[x.name for x in self.connect_points.parents]}, {[x.names for x in self.connect_points.child]} 
             mesh objects: {[obj.name for obj in self.loaded_meshes]}
         """
 
@@ -724,76 +723,6 @@ class NifImporter():
             link_to_collection(self.collection, obj)
 
 
-    # def import_connect_points_parent(self):
-    #     """
-    #     Parent connect points apply to the whole nif.
-    #     """
-    #     for cp in self.nif.connect_points_parent:
-    #         obj = CP.ConnectPointParent.New(self.scale, cp, self.root_object)
-            # CP
-            # bpy.ops.object.add(radius=self.scale, type='EMPTY')
-            # obj = bpy.context.object
-            # obj.name = "BSConnectPointParents" + "::" + cp.name.decode('utf-8')
-            # obj.show_name = True
-            # obj.empty_display_type = 'ARROWS'
-            # mx = Matrix.LocRotScale(
-            #     Vector(cp.translation[:]) * self.scale,
-            #     Quaternion(cp.rotation[:]),
-            #     ((cp.scale * CONNECT_POINT_SCALE * self.scale),) * 3
-            # )
-            # obj.matrix_world = self.root_object.matrix_world @ mx
-
-            # parname = cp.parent.decode('utf-8')
-
-            # if parname and not parname.startswith("BSConnectPointChildren") \
-            #     and not parname.startswith("BSConnectPointParents"):
-            #     obj["pynConnectParent"] = parname
-            #     parnamebl = self.blender_name(parname)
-            #     if self.armature and parnamebl in self.armature.data.bones:
-            #         parbone = self.armature.data.bones[parnamebl]
-            #         obj.parent = self.armature
-            #         obj.matrix_world = self.root_object.matrix_world @ (parbone.matrix_local @ mx)
-            #     elif parname in self.nif.nodes:
-            #         parnode = self.nif.nodes[parname]
-            #         if parnode._handle in self.objects_created:
-            #             obj.parent = self.objects_created[parnode._handle]
-            #         else:
-            #             self.warn(f"Parent node {parname} not imported")
-            #     else:
-            #         self.warn(f"Could not find parent node {parname} for connect point {obj.name}")
-            # else:
-            #     obj.parent = self.root_object
-
-            # self.objects_created[obj.name] = obj
-            # self.add_to_parents(obj)
-
-
-    # def import_connect_points_child(self):
-    #     """
-    #     Import the child connect point. There's only one and it applies to the
-    #     whole nif, so only do it if we're working with the root node.
-    #     """
-        # if self.nif.connect_points_child:
-        #     childname = self.nif.connect_points_child[0].split('-')[1]
-        #     bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
-        #     obj = bpy.context.object
-        #     obj.name = "BSConnectPointChildren::" + childname
-        #     obj.show_name = True
-        #     obj.empty_display_type = 'SPHERE'
-        #     obj.location = (0,0,0)
-        #     obj['PYN_CONNECT_CHILD_SKINNED'] = self.nif.connect_pt_child_skinned
-        #     for i, n in enumerate(self.nif.connect_points_child):
-        #         obj[f'PYN_CONNECT_CHILD_{i}'] = n
-        #     for pcp in self.connect_parents:
-        #         # If we had a selected parent connect point that matches, parent to it.
-        #         if pcp.name.split('::')[1][2:] == childname:
-        #             obj.parent = pcp
-        #     if not obj.parent: obj.parent = self.root_object
-        #     self.created_child_cp = obj
-        #     self.objects_created[obj.name] = obj
-        #     self.add_to_child_cp(obj)
-
-
     def import_stringdata(self, node, parent_obj):
         for s in node.string_data:
             bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
@@ -851,17 +780,6 @@ class NifImporter():
         self.import_stringdata(n, parent_obj)
         self.import_behavior_graph_data(n, parent_obj)
         self.import_cloth_data(n, parent_obj)
-
-
-    # CP
-    # def import_connect_points(self):
-    #     """ 
-    #     Import connect point information from the file. Connect points affect the whole
-    #     nif rather than being attached to a shape. They should be dealt with last because
-    #     they refer to other nodes.
-    #     """
-    #     self.connect_points.add_parents(self.scale, self.nif, self.root_object)
-    #     self.connect_points.new_child(self.scale, self.nif, self.next_loc())
 
 
     def bone_in_armatures(self, bone_name):
@@ -1703,7 +1621,7 @@ class NifImporter():
 
             # Import nif-level elements
             self.connect_points.import_points(
-                self.nif, self.root_object, self.objects_created, self.scale, self.next_loc())
+                self.nif, self.root_object, self.armature, self.objects_created, self.scale, self.next_loc())
         
             # Import top-level animations
             if self.controller_mgr and self.nif.rootNode.controller:
@@ -1713,18 +1631,6 @@ class NifImporter():
             cp = self.connect_points.child_in_nif(self.nif)
             if cp:
                 self.root_object.parent = cp.blender_obj
-            # CP
-            # Everything gets parented to the child connect point, if any.
-            # for robj in self.objects_created: 
-            #     for child_cp in self.connect_points.child:
-            #         if child_cp.obj.nifnode.file == robj.nifnode.file:
-            #             robj.blender_obj.parent = child_cp.obj.blender_obj
-            #             if robj.blender_obj in orphan_shapes: 
-            #                 orphan_shapes.remove(robj.blender_obj)
-                # CP
-                # if self.created_child_cp and o.parent == None and o != self.created_child_cp:
-                #     o.parent = self.created_child_cp
-                #     if o in orphan_shapes: orphan_shapes.remove(o)
 
         # Anything not yet parented gets put under the root.
         for o in orphan_shapes:
@@ -1775,37 +1681,10 @@ class NifImporter():
                 obj.data.shape_keys.key_blocks[-1].name = '_' + new_fn_parts[-1]
 
 
-    # CP
-    # def connect_children_parents(self, parent_shapes, child_shapes):
-    #     """
-    #     If any of the child connect points in dictionary child_shapes should connect to the
-    #     parent connect points in dictionary parent_shapes, parent them up
-    #     """
-    #     for connectname, parent in parent_shapes.items():
-    #         # Find children that should connect to this parent. Could be more than one. 
-    #         # Also the same child may be in the dictionary more than once under different
-    #         # spellings of the name.
-    #         try: 
-    #             child = child_shapes[connectname]
-    #             if not child.constraints or "Copy Transforms" not in child.constraints:
-    #                 # If there's a child connect point the hierarchy is root -> child cp -> mesh
-    #                 child.parent = self.root_object
-    #                 c = child.constraints.new(type='COPY_TRANSFORMS')
-    #                 c.target = parent
-
-    #             # if not child.parent:
-    #             #     child.parent = parent
-    #         except KeyError:
-    #             pass
-
-
     def execute(self):
         """Perform the import operation as previously defined"""
         NifFile.clear_log()
 
-        # CP
-        # self.connect_parents = [p for p in self.context.selected_objects \
-        #                         if p.name.startswith('BSConnectPointParents')]
         self.connect_points.add_all(self.context.selected_objects)
         self.loaded_parent_cp = {}
         self.loaded_child_cp = {}
@@ -1817,11 +1696,6 @@ class NifImporter():
             if self.context.object.type == "ARMATURE":
                 self.armature = self.context.object
                 log.info(f"Current object is an armature, parenting shapes to {self.armature.name}")
-            # CP
-            # elif CP.is_parent(self.context.object) # self.context.object.type == "EMPTY" and self.context.object.name.startswith("BSConnectPointParents"):
-            #     # CP self.add_to_parents(self.context.object)
-            #     self.connect_points.add_object(self.context.object)
-            #     log.info(f"Current object is a parent connect point, parenting shapes to {self.context.object.name}")
             elif self.context.object.type == 'MESH':
                 prior_vertcounts = [len(self.context.object.data.vertices)]
                 self.loaded_meshes = [self.context.object]
@@ -1863,7 +1737,6 @@ class NifImporter():
                 prior_fn = fn
 
         # Connect up all the children loaded in this batch with all the parents loaded in this batch
-        # CP self.connect_children_parents(self.loaded_parent_cp, self.loaded_child_cp)
         self.connect_points.connect_all()
 
 
@@ -2827,8 +2700,7 @@ class NifExporter:
         self.bsx_flag = None
         self.inv_marker = None
         self.furniture_markers = set()
-        self.connect_parent = set()
-        self.connect_child = set()
+        self.connect_points = CP.ConnectPointCollection()
         self.trippath = ''
         self.chargen_ext = chargen
         self.writtenbones = {}
@@ -2865,8 +2737,7 @@ class NifExporter:
             cloth data: {self.cloth_data}
             armature: {self.armature.name if self.armature else 'None'}
             facebones: {self.facebones.name if self.facebones else 'None'}
-            parent connect points: {self.connect_parent}
-            child connect points: {self.connect_child}
+            connect points: {[x.name for x in self.connect_points.parents]}, {[x.names for x in self.connect_points.child]}
             orientation: {self.export_xf.to_euler()}
             scale factor: {round(self.export_scale, 4)}
             shapes: {self.file_keys}
@@ -2967,6 +2838,9 @@ class NifExporter:
         elif obj.type == 'CAMERA':
             self.inv_marker = obj
 
+        elif CP.is_connectpoint(obj):
+            self.connect_points.add(obj)
+
         elif obj.type == 'EMPTY':
             if 'BSBehaviorGraphExtraData_Name' in obj.keys():
                 self.bg_data.add(obj)
@@ -2983,16 +2857,11 @@ class NifExporter:
             elif obj.name.startswith("BSFurnitureMarkerNode"):
                 self.furniture_markers.add(obj)
 
-            elif obj.name.startswith("BSConnectPointParents"):
-                self.connect_parent.add(obj)
-
-            elif obj.name.startswith("BSConnectPointChildren"):
-                self.connect_child.add(obj)
-
-            elif obj.type == 'EMPTY':
+            elif (obj.type == 'EMPTY') and (not CP.is_connectpoint(obj)):
                 self.grouping_nodes.add(obj)
                 for c in obj.children:
-                    if not c.hide_get(): self.add_object(c)
+                    if not c.hide_get(): 
+                        self.add_object(c)
 
 
     def set_objects(self, objects:list):
@@ -3003,6 +2872,7 @@ class NifExporter:
             self.add_object(x)
             if "pynRoot" in x:
                 self.root_object = x
+        self.connect_points.add_all(objects)
         self.file_keys = get_with_uscore(get_common_shapes(self.objects))
 
 
@@ -3143,47 +3013,6 @@ class NifExporter:
         
         if fmklist:
             self.nif.furniture_markers = fmklist
-
-        connect_par = []
-        for cp in self.connect_parent:
-            buf = ConnectPointBuf()
-            buf.name = cp.name.split("::")[1].encode('utf-8')
-            if cp.parent and cp.parent.type != 'ARMATURE':
-                buf.parent = nonunique_name(cp.parent).encode('utf-8')
-                buf.translation[0], buf.translation[1], buf.translation[2] \
-                    = cp.matrix_world.translation[:]
-                buf.rotation[0], buf.rotation[1], buf.rotation[2], buf.rotation[3] \
-                    = cp.matrix_world.to_quaternion()[:]
-                buf.scale = cp.matrix_world.to_scale()[0] / CP.CONNECT_POINT_SCALE
-            elif cp.parent and cp.parent.type == 'ARMATURE':
-                parentname = ''
-                if 'pynConnectParent' in cp:
-                    parentname = cp['pynConnectParent']
-                elif 'PYN_CONNECT_PARENT' in cp:
-                    # Older representation of parent
-                    parentname = cp['PYN_CONNECT_PARENT']
-                buf.parent = parentname.encode('utf-8')
-                parentnamebl = self.nif.dict.blender_name(parentname)
-                if parentnamebl in cp.parent.data.bones:
-                    parentbone = cp.parent.data.bones[parentnamebl]
-                    mx = parentbone.matrix_local.inverted() @ cp.matrix_local
-                    buf.translation[0] = mx.translation[0]
-                    buf.translation[1] = mx.translation[1]
-                    buf.translation[2] = mx.translation[2]
-                    buf.rotation[0], buf.rotation[1], buf.rotation[2], buf.rotation[3] \
-                        = mx.to_quaternion()[:]
-                    buf.scale = mx.to_scale()[0] / CP.CONNECT_POINT_SCALE
-            
-            connect_par.append(buf)
-        if connect_par:
-            self.nif.connect_points_parent = connect_par
-
-        child_names = []
-        for cp in self.connect_child:
-            self.nif.connect_pt_child_skinned = cp['PYN_CONNECT_CHILD_SKINNED']
-            child_names.extend([cp[x] for x in cp.keys() if x != 'PYN_CONNECT_CHILD_SKINNED' and x.startswith('PYN_CONNECT_CHILD')])
-        if child_names:
-            self.nif.connect_points_child = child_names
 
 
     def get_loop_partitions(self, face, loops, weights):
@@ -3884,6 +3713,7 @@ class NifExporter:
             if self.root_object:
                 collision.CollisionHandler.export_collisions(self, self.root_object)
             self.export_extra_data()
+            self.connect_points.export_all(self.nif)
 
             self.nif.save()
             log.info(f"..Wrote {fpath}")

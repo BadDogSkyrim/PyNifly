@@ -2794,9 +2794,11 @@ class NifFile:
         return self._game
 
     def blender_name(self, nif_name):
+        """Convert name in nif to name for blender"""
         return self.dict.blender_name(nif_name)
 
     def nif_name(self, blender_name):
+        """Convert name in blender to name for nif"""
         return self.dict.nif_name(blender_name)
     
     def getAllShapeNames(self):

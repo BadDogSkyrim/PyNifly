@@ -1057,7 +1057,7 @@ def TEST_3BBB():
     assert arma2.name == arma.name, f"Should have parented to same armature: {arma2.name} != {arma.name}"
 
 
-def TEST_SKEL():
+def TEST_CONNECT_SKEL():
     """Can import and export FO4 skeleton file with no shapes"""
     def do_test(use_xf):
         print(f"Can import and export FO4 skeleton file with no shapes, transform {use_xf}")
@@ -1067,7 +1067,8 @@ def TEST_SKEL():
         outfile = TT.test_file(r"tests/out/" + testname + ".nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, 
-                                     do_create_bones=False, use_blender_xf=use_xf)
+                                     do_create_bones=False, 
+                                     use_blender_xf=use_xf)
 
         arma = [a for a in bpy.data.objects if a.type == 'ARMATURE'][0]
         assert 'Root' in arma.data.bones, "Have Root bone"
@@ -1089,12 +1090,13 @@ def TEST_SKEL():
         # but they get transposed based on the armature bones' transforms.
         cp_lleg = bpy.data.objects['BSConnectPointParents::P-ArmorLleg']
         assert cp_lleg.parent.type == 'ARMATURE', f"cp_lleg has armature as parent: {cp_lleg.parent}"
-        assert TT.NearEqual(cp_lleg.location[0], -8.748), \
-            f"Armor left leg connect point at relative position: {cp_lleg.location}"
+        assert TT.NearEqual(cp_lleg.location[0], 33.745487), \
+            f"Armor left leg connect point at position: {cp_lleg.location}"
 
         BD.ObjectSelect([bpy.data.objects['skeleton.nif:ROOT']], active=True)
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', 
-                                    preserve_hierarchy=True, use_blender_xf=use_xf)
+                                     preserve_hierarchy=True, 
+                                     use_blender_xf=use_xf)
 
         skel_in = pyn.NifFile(testfile)
         skel_out = pyn.NifFile(outfile)
@@ -4186,7 +4188,7 @@ def TEST_CONNECT_POINT():
     assert sgcheck.blockname == 'BSTriShape', f"Have correct blockname: {sgcheck.blockname}"
 
 
-def TEST_WEAPON_PART():
+def TEST_CONNECT_WEAPON_PART():
     """Selected connect points used to parent new import"""
     # When a connect point is selected and then another part is imported that connects
     # to that point, they are connected in Blender.
@@ -4194,7 +4196,6 @@ def TEST_WEAPON_PART():
     testfile = TT.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")
     partfile = TT.test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel_1.nif")
     partfile2 = TT.test_file(r"tests\FO4\Shotgun\CombatShotgunGlowPinSight.nif")
-    outfile = TT.test_file(r"tests\Out\TEST_WEAPON_PART.nif")
 
     # Import of mesh with parent connect points works correctly.
     bpy.ops.import_scene.pynifly(filepath=testfile, 
@@ -4232,7 +4233,7 @@ def TEST_WEAPON_PART():
         f"Child connect point connected to parent connect point: {scopeccp.constraints['Copy Transforms'].target}"
     
 
-def TEST_IMPORT_MULT_CP():
+def TEST_CONNECT_IMPORT_MULT():
     """When multiple weapon parts are imported in one command, they are connected up"""
 
     testfiles = [{"name": TT.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")}, 
@@ -5717,7 +5718,8 @@ else:
     # All tests with collisions
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
     
-    do_tests([TEST_WEAPON_PART])
+    # do_tests([TEST_CONNECT_WEAPON_PART])
+    do_tests([t for t in alltests if '_CONNECT_' in t.__name__])
 
     # do_tests(testfrom(TEST_COLLISION_CONVEXVERT), exclude=badtests)
 
