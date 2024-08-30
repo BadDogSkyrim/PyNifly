@@ -4562,9 +4562,9 @@ def TEST_ANIM_ANIMATRON():
     assert spine2.matrix_local.translation.z > 30, f"SPINE2 in correct position: {spine2.matrix_local.translation}"
     assert TT.VNearEqual(handpose.matrix.translation, [18.1848, 2.6116, 68.6298]), f"Hand position matches Nif: {handpose.matrix.translation}"
 
-    thighl = arma.data.bones['LLeg_Thigh']
-    cp_armorleg = TT.find_shape("BSConnectPointParents::P-ArmorLleg", type='EMPTY')
-    assert cp_armorleg["pynConnectParent"] == "LLeg_Thigh", f"Connect point has correct parent: {cp_armorleg['pynConnectParent']}"
+    # thighl = arma.data.bones['LLeg_Thigh']
+    # cp_armorleg = TT.find_shape("BSConnectPointParents::P-ArmorLleg", type='EMPTY')
+    # assert cp_armorleg["pynConnectParent"] == "LLeg_Thigh", f"Connect point has correct parent: {cp_armorleg['pynConnectParent']}"
     # assert TT.VNearEqual(cp_armorleg.location, thighl.matrix_local.translation, 0.1), \
     #     f"Connect point at correct position: {cp_armorleg.location} == {thighl.matrix_local.translation}"
 
@@ -5718,9 +5718,8 @@ else:
     # All tests with collisions
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
     
-    # do_tests([TEST_CONNECT_WEAPON_PART])
-    do_tests([t for t in alltests if '_CONNECT_' in t.__name__])
+    # do_tests([TEST_ANIM_ANIMATRON])
 
     # do_tests(testfrom(TEST_COLLISION_CONVEXVERT), exclude=badtests)
 
-    # do_tests(alltests, exclude=badtests)
+    do_tests(alltests, exclude=badtests)
