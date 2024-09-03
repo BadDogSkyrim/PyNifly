@@ -7,7 +7,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 0, 0),
-    "version": (16, 1, 0),   
+    "version": (17, 0, 0),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -628,25 +628,6 @@ class NifImporter():
 
 
     # -----------------------------  EXTRA DATA  -------------------------------
-
-    # def add_to_parents(self, obj):
-    #     """Add the given object to our list of parent connect points loaded in this operation.
-    #     obj must be a valid BSConnectPointParents object. """
-    #     connectname = obj.name[len('BSConnectPointParents::P-'):]
-    #     self.loaded_parent_cp[connectname] = obj
-
-
-    # def add_to_child_cp(self, obj):
-    #     """Add the given object to our list of children connect points loaded in this operation.
-    #     obj must be a valid BSConnectPointChildren object. """
-    #     for i in range(100):
-    #         try:
-    #             n = obj[f"PYN_CONNECT_CHILD_{i}"]
-    #         except:
-    #             break
-    #         connectname = n[2:]
-    #         self.loaded_child_cp[connectname] = obj
-
 
     def import_bsx(self, node, parent_obj):
         b = node.bsx_flags
@@ -4416,6 +4397,7 @@ def unregister():
             pass
 
     skeleton_hkx.unregister()
+    controller.unregister()
 
 def register():
     for d, f, c in pyn_registry:
@@ -4431,6 +4413,7 @@ def register():
         except:
             pass
     skeleton_hkx.register()
+    controller.register()
 
     if nifly_path:
         log.info(f"Loading pyNifly version {bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}")

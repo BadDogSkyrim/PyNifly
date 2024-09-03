@@ -5718,8 +5718,8 @@ else:
     # All tests with collisions
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
     
-    # do_tests([TEST_ANIM_ANIMATRON])
+    do_tests([TEST_ANIM_CHEST])
 
     # do_tests(testfrom(TEST_COLLISION_CONVEXVERT), exclude=badtests)
 
-    do_tests(alltests, exclude=badtests)
+    # do_tests(alltests, exclude=badtests)

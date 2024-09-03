@@ -499,38 +499,6 @@ def find_node(socket, nodetype, nodelist=None):
     return nodes
 
 
-def TEST_CAM():
-    print('TEST_CAM')
-    # Camera at [0, 100, 0] pointed back at origin. This is the default position. 
-    # Camera is behind Suzanne. 
-    mx = Matrix((
-            (-1.0000,  0.0000, 0.0000,   0.0000),
-            ( 0.0000, -0.0000, 1.0000, 100.0000),
-            ( 0.0000,  1.0000, 0.0000,   0.0000),
-            ( 0.0000,  0.0000, 0.0000,   1.0000) ))
-    inv, z = cam_to_inv(mx, 38) 
-    assert inv == [0, 0, 0], f"Cam at default position: {inv}"
-
-    # Camera at [0, -100, 0], pointed at origin. This puts the cam on the other side.
-    # Camera pointed at Suzanne's face.
-    mx = Matrix((
-            ( 1.0000, -0.0000,  0.0000,  0),
-            (-0.0000, -0.0000, -1.0000, -100),
-            ( 0.0000,  1.0000, -0.0000,  0),
-            ( 0.0000,  0.0000,  0.0000,  1.0000)))
-    inv, z = cam_to_inv(mx, 38)
-    assert VNearEqual(inv, [0, 0, 3142], epsilon=2), f"Cam on opposite side of model: {inv}"
-
-    # Camera on negative X axis, pointed at origin. Shows Suzanne looking to the right.
-    mx = Matrix((
-            ( 0.0000, 0.0000, -1.0000, -100.0000),
-            (-1.0000, 0.0000, -0.0000,   -0.0000),
-            ( 0.0000, 1.0000,  0.0000,    0.0000),
-            ( 0.0000, 0.0000,  0.0000,    1.0000)))
-    inv, z = cam_to_inv(mx, 38)
-    assert VNearEqual(inv, [0, 0, 1570], epsilon=2), f"Cam shows right profile: {inv}"
-
-
 def link_to_collection(coll, obj):
     if obj.users_collection:
         c = obj.users_collection[0]
@@ -592,6 +560,38 @@ class ReprObjectCollection():
                 yield ro.blender_obj
     
     
+def TEST_CAM():
+    print('TEST_CAM')
+    # Camera at [0, 100, 0] pointed back at origin. This is the default position. 
+    # Camera is behind Suzanne. 
+    mx = Matrix((
+            (-1.0000,  0.0000, 0.0000,   0.0000),
+            ( 0.0000, -0.0000, 1.0000, 100.0000),
+            ( 0.0000,  1.0000, 0.0000,   0.0000),
+            ( 0.0000,  0.0000, 0.0000,   1.0000) ))
+    inv, z = cam_to_inv(mx, 38) 
+    assert inv == [0, 0, 0], f"Cam at default position: {inv}"
+
+    # Camera at [0, -100, 0], pointed at origin. This puts the cam on the other side.
+    # Camera pointed at Suzanne's face.
+    mx = Matrix((
+            ( 1.0000, -0.0000,  0.0000,  0),
+            (-0.0000, -0.0000, -1.0000, -100),
+            ( 0.0000,  1.0000, -0.0000,  0),
+            ( 0.0000,  0.0000,  0.0000,  1.0000)))
+    inv, z = cam_to_inv(mx, 38)
+    assert VNearEqual(inv, [0, 0, 3142], epsilon=2), f"Cam on opposite side of model: {inv}"
+
+    # Camera on negative X axis, pointed at origin. Shows Suzanne looking to the right.
+    mx = Matrix((
+            ( 0.0000, 0.0000, -1.0000, -100.0000),
+            (-1.0000, 0.0000, -0.0000,   -0.0000),
+            ( 0.0000, 1.0000,  0.0000,    0.0000),
+            ( 0.0000, 0.0000,  0.0000,    1.0000)))
+    inv, z = cam_to_inv(mx, 38)
+    assert VNearEqual(inv, [0, 0, 1570], epsilon=2), f"Cam shows right profile: {inv}"
+
+
 if __name__ == "__main__":
     print("------------RUNNING TESTS--------------")
     TEST_CAM()

@@ -6,8 +6,9 @@ from pathlib import Path
 import logging
 import traceback
 import bpy
-from pynifly import *
+import bpy.props 
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
+from pynifly import *
 import blender_defs as BD
 from nifdefs import *
 
@@ -82,6 +83,7 @@ class ControllerHandler():
             return None
         
         rotation_mode = "QUATERNION"
+        self.action_group = "Object Transforms"
 
         # ti, the parent NiTransformInterpolator, has the transform-to-global necessary
         # for this animation. It matches the transform of the target being animated.
@@ -841,9 +843,90 @@ class ControllerHandler():
 
     @classmethod
     def export_shader_controller(cls, parent_handler, obj, trishape):
-        """Export an obj that has an animated shader."""
+        # """Export an obj that has an animated shader."""
         exporter = ControllerHandler(parent_handler)
         exporter.nif = parent_handler.nif
         exporter.action = obj.active_material.node_tree.animation_data.action
         exporter._export_shader(obj.active_material.node_tree, trishape)
 
+
+def assign_action(obj, act):
+    """Assign the given action to the given object."""
+    for g in act.groups:
+        if g.name == 'Object Transforms':
+            if not obj.animation_data:
+                obj.animation_data_create()
+            obj.animation_data.action = act
+
+
+def apply_animation(anim_name, ctxt=bpy.context):
+    """Apply the named animation to the currently visible objects."""
+    anim_pat = "ANIM|" + anim_name + "|"
+    matches = []
+    for act in bpy.data.actions:
+        if act.name.startswith(anim_pat):
+            matches.append(act)
+    
+    for act in matches:
+        objname = act.name.split("|", 2)[2]
+        if objname in ctxt.scene.objects:
+            assign_action(ctxt.scene.objects[objname], act)
+
+
+class AssignAnimPanel(bpy.types.Panel):
+    bl_idname = "PYNIFLY_apply_anim"
+    bl_label = "Apply Animation"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "object"
+
+    def draw(self, context):
+        self.layout.label(text="Apply Animation")
+
+
+def _current_animations(self, context):
+    """Find all assets that appear to be animation actions."""
+    anim_pat = "ANIM|"
+    matches = []
+    for act in bpy.data.actions:
+        if act.name.startswith(anim_pat):
+            animname = act.name.split("|", 2)[1]
+            matches.append(("pyn_" + animname, animname, "Animation", len(matches), ))
+    return matches
+
+
+class WM_OT_ApplyAnim(bpy.types.Operator):
+    bl_idname = "wm.apply_anim"
+    bl_label = "Apply Animation"
+    bl_options = {'REGISTER', 'UNDO'}
+    bl_property = "Apply Animation"
+    # bl_property = "anim_name"
+    bl_property = "anim_pulldown"
+
+    # anim_name : bpy.props.StringProperty(name="Apply Animation") # type: ignore
+    anim_pulldown : bpy.props.EnumProperty(items=_current_animations,
+                                           name="Animation Selection",
+                                           default=0) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return True
+
+    def invoke(self, context, event): # Used for user interaction
+        wm = context.window_manager
+        return wm.invoke_props_dialog(self)
+
+    def draw(self, context): # Draw options (typically displayed in the tool-bar)
+        row = self.layout
+        row.prop(self, "anim_pulldown", text="Animation name")
+
+    def execute(self, context): # Runs by default 
+        apply_animation(self.anim_pulldown, context)
+        return {'FINISHED'}
+
+
+def register():
+    bpy.utils.register_class(WM_OT_ApplyAnim)
+
+def unregister():
+    bpy.utils.unregister_class(WM_OT_ApplyAnim)
