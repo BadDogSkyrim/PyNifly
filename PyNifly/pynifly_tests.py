@@ -36,7 +36,7 @@ def _test_file(relative_path):
     return relative_path
 
 
-def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=None):
+def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=None, parent=None):
     """ 
     Convenience routine to copy an existing shape from a source nif to a test file.
     """
@@ -57,7 +57,8 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
                                             uv_inv,
                                             old_shape.normals,
                                             props=new_prop,
-                                            use_type = old_shape.properties.bufType,
+                                            use_type=old_shape.properties.bufType,
+                                            parent=parent
                                             )
 
     new_shape.set_colors(old_shape.colors)
@@ -1739,7 +1740,7 @@ def TEST_WEIGHTS_BY_BONE():
 
 
 def TEST_ANIMATION():
-    """Embedded animations"""
+    """Can read embedded animations"""
     nif = NifFile(r"tests/Skyrim/dwechest01.nif")
     root = nif.rootNode
     assert nif.max_string_len > 10, f"Have reasonable {nif.max_string_len}"
@@ -1808,6 +1809,123 @@ def TEST_ANIMATION():
         f"Have correct translation: {td189.translations[3].value}"
     assert VNearEqual(td189.translations[4].value, [-20.963652, -0.159790, 17.789375]), \
         f"Have correct translation: {td189.translations[3].value}"
+    
+
+def TEST_ANIMATION_NOBLECHEST():
+    """Can read embedded animations."""
+    # NobleChest has a simple open and close animation.
+    testfile = r"tests/Skyrim/noblechest01.nif"
+    outfile = r"tests/out/TEST_ANIMATION_NOBLECHEST.nif"
+
+    # READ
+
+    nif = NifFile(testfile)
+    root = nif.rootNode
+
+    # The Open and Close animations are associated with a controller manager on the root
+    # node.
+    cm = root.controller
+    assert cm, f"Have root controller"
+
+    assert len(cm.sequences) == 2, f"Have 2 controller manager sequences: {cm.sequences}"
+    assert set(cm.sequences.keys()) == set(["Open", "Close"]), f"Have correct name: {cm.sequences.keys()}"
+
+    # WRITE
+    nifout = NifFile()
+    nifout.initialize("SKYRIM", outfile, "BSFadeNode", "NobleChest")
+    bodynode = nifout.add_node("Chest01", nif.nodes["Chest01"].transform)
+    _export_shape(nif.nodes["Chest01:1"], nifout, parent=bodynode)
+    lidnode = nifout.add_node("Lid01", nif.nodes["Lid01"].transform)
+    _export_shape(nif.nodes["Lid01:1"], nifout, parent=lidnode)
+
+    nifout.root.bsx_flags = ['BSX', 11]
+
+    openmtt = NiMultiTargetTransformController.New(
+        file=nifout, flags=108, target=nifout.root)
+
+    cmout = NiControllerManager.New(
+        file=nifout, 
+        flags=TimeControllerFlags(active=True, cycle_type=CycleType.CLAMP),
+        next_controller=openmtt,
+        parent=nifout.root)
+
+    # Create a controller sequence for the manager. The relationship between them is set
+    # by passing the manager as the parent.
+    openseq = NiControllerSequence.New(
+        file=nifout, 
+        name="Open", 
+        accum_root_name="NobleChest01",
+        start_time=0,
+        stop_time=0.5,
+        cycle_type = CycleType.CLAMP,
+        parent=cmout, 
+    )
+    
+    # Transform data. The transform type is set with the Transform Data block, both the
+    # rotation type and the interpolation type for each dimension. Then the keys are
+    # added.
+    opendata = NiTransformData.New(
+        file=nifout, 
+        rotation_type=NiKeyType.XYZ_ROTATION_KEY,
+        interpolations={"X": NiKeyType.QUADRATIC_KEY,
+                        "Y": NiKeyType.QUADRATIC_KEY,
+                        "Z": NiKeyType.QUADRATIC_KEY,
+                        "S": NiKeyType.QUADRATIC_KEY})
+
+    # Can add keys by frame or by curve
+    opendata.add_xyz_rotation_keys("X", [[0, 0, 0, 0]])
+    opendata.add_xyz_rotation_keys("Y", [[0, 0, 0, 0]])
+    opendata.add_xyz_rotation_keys("Z", [[0, 0, 0, 0]])
+
+    opendata.add_xyz_rotation_keys("X", [[0.5 , -0.1222, 0, 0]])
+    opendata.add_xyz_rotation_keys("Y", [[0.5 , 0, 0, 0]])
+    opendata.add_xyz_rotation_keys("Z", [[0.5 , 0, 0, 0]])
+    
+    # opendata.add_xyz_rotation_keys("X", [
+    #     [0, 0, 0, 0],
+    #     [0.5 , -0.1222, 0, 0]
+    # ])
+    # opendata.add_xyz_rotation_keys("Y", [
+    #     [0, 0, 0, 0],
+    #     [0.5 , 0, 0, 0]
+    # ])
+    # opendata.add_xyz_rotation_keys("Z", [
+    #     [0, 0, 0, 0],
+    #     [0.5 , 0, 0, 0]
+    # ])
+    openinterp = NiTransformInterpolator.New(file=nifout, data_block=opendata)
+    
+    openseq.add_controlled_block(
+        "Lid01",
+        interpolator=openinterp,
+        controller=openmtt,
+        node_name="Lid01",
+        controller_type="NiTransformController",
+    )
+
+    nifout.save()
+
+    # CHECK
+
+    nifcheck = NifFile(outfile)
+    rootcheck = nifcheck.root
+    cmcheck:NiControllerManager = rootcheck.controller
+    assert cmcheck, f"Wrote root controller"
+    assert cmcheck.properties.flags == 76, f"Have correct flags: {cmcheck.properties.flags}"
+    assert "Open" in cmcheck.sequences, f"Have 'open' sequence"
+    seqcheck:NiControllerSequence = cmcheck.sequences["Open"]
+    assert seqcheck.properties.cycleType == CycleType.CLAMP, f"Have correct cycle type"
+    assert len(seqcheck.controlled_blocks) == 1, f"Have controlled block"
+    cbcheck:ControllerLink = seqcheck.controlled_blocks[0]
+    assert cbcheck.node_name == "Lid01"
+    tdcheck:NiTransformData = cbcheck.interpolator.data
+    assert tdcheck.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY
+    assert len(tdcheck.xrotations) == 2, f"Have 2 rotations"
+    assert tdcheck.properties.xRotations.interpolation == NiKeyType.QUADRATIC_KEY, "Have quad key"
+    assert NearEqual(tdcheck.xrotations[1].time, 0.5), f"have correct time: {tdcheck.xrotations[1].time}"
+    assert NearEqual(tdcheck.xrotations[1].value, -0.1222), f"have correct value: {tdcheck.xrotations[1].value}"
+    mttcheck:NiMultiTargetTransformController = cbcheck.controller
+    assert mttcheck.properties.targetID == 0, f"Have root as target"
 
 
 def TEST_ANIMATION_ALDUIN():
@@ -1892,11 +2010,12 @@ def TEST_KF():
     rootout.properties = root.properties
 
     # First key: Linear translation.
-    tiprops = NiTransformInterpolatorBuf()
-    ti = NiTransformInterpolator(file=nifout, parent=nifout.rootNode)
-    tdprops = NiTransformDataBuf()
-    tdprops.translations.interpolation = NiKeyType.LINEAR_KEY
-    td = NiTransformData(file=nifout, props=tdprops, parent=ti)
+    ti = NiTransformInterpolator.New(file=nifout, parent=nifout.rootNode)
+    td = NiTransformData.New(
+        file=nifout, 
+        rotation_type=NiKeyType.QUADRATIC_KEY, 
+        interpolations={"T": NiKeyType.LINEAR_KEY}, 
+        parent=ti)
     td.add_translation_key(0, (-0.029318, -0.229634, 0))
 
     rootout.add_controlled_block(
@@ -1906,16 +2025,16 @@ def TEST_KF():
         controller_type = "NiTransformController")
 
     # Second key: Quadratic rotation.
-    tiprops = NiTransformInterpolatorBuf()
-    ti = NiTransformInterpolator(file=nifout, parent=nifout.rootNode)
-    tdprops = NiTransformDataBuf()
-    tdprops.rotationType = NiKeyType.QUADRATIC_KEY
-    td = NiTransformData(file=nifout, props=tdprops, parent=ti)
-    td.add_qrotation_key(0, (0.8452, 0.0518, -0.0010, -0.5320))
+    ti2 = NiTransformInterpolator(file=nifout, parent=nifout.rootNode)
+    td2 = NiTransformData.New(
+        file=nifout,
+        rotation_type=NiKeyType.QUADRATIC_KEY,
+        parent=ti2)
+    td2.add_qrotation_key(0, (0.8452, 0.0518, -0.0010, -0.5320))
 
     rootout.add_controlled_block(
         name="NPC Pelvis [Pelv]",
-        interpolator=ti,
+        interpolator=ti2,
         node_name = "NPC Root [Root]",
         controller_type = "NPC Pelvis [Pelv]")
 
@@ -1943,6 +2062,7 @@ def TEST_KF():
     ti2 = cb2.interpolator
     td2 = ti2.data
     assert len(td2.qrotations) > 0, "Have rotations"
+
 
 def TEST_SKEL():
     """Import of skeleton file with collisions"""
@@ -2174,8 +2294,6 @@ mylog = logging.getLogger("pynifly")
 logging.basicConfig()
 mylog.setLevel(logging.DEBUG)
 
-execute(test=TEST_ANIMATION_SHADER)
-execute(test=TEST_ANIMATION_SHADER)
-execute(test=TEST_ANIMATION_SHADER)
-# tester.execute(exclude=[TEST_SET_SKINTINT])
-# tester.execute(start=TEST_BOW)
+# execute(test=TEST_ANIMATION_NOBLECHEST)
+# execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
+execute(exclude=[TEST_SET_SKINTINT])

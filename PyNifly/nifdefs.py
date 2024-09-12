@@ -1680,6 +1680,66 @@ class BSLODTriShapeBuf(pynStructure):
 bufferTypeList[PynBufferTypes.BSLODTriShapeBufType] = 'BSLODTriShape'
 blockBuffers['BSLODTriShape'] = BSLODTriShapeBuf
 
+
+class AnimType(PynIntEnum):
+    APP_TIME = 0
+    APP_INIT = 1
+
+class CycleType(PynIntEnum):
+    LOOP = 0
+    REVERSE = 1
+    CLAMP = 2
+
+class TimeControllerFlags:
+    # <bitfield name="TimeControllerFlags" storage="ushort">
+    #     Flags for NiTimeController
+    #     <member width="1" pos="0" mask="0x0001" name="Anim Type" type="AnimType" />
+    #     <member width="2" pos="1" mask="0x0006" name="Cycle Type" type="CycleType" default="CYCLE_CLAMP" />
+    #     <member width="1" pos="3" mask="0x0008" name="Active" type="bool" default="true" />
+    #     <member width="1" pos="4" mask="0x0010" name="Play Backwards" type="bool" />
+    #     <member width="1" pos="5" mask="0x0020" name="Manager Controlled" type="bool" />
+    #     <member width="1" pos="6" mask="0x0040" name="Compute Scaled Time" type="bool" default="true" />
+    #     <member width="1" pos="7" mask="0x0080" name="Forced Update" type="bool" />
+    # </bitfield>
+    def __init__(self,
+                 anim_type=AnimType.APP_TIME,
+                 cycle_type=CycleType.LOOP,
+                 active=True,
+                 play_backwards=False,
+                 manager_controlled=False,
+                 compute_scaled=True,
+                 forced_update=False):
+        self.anim_type = anim_type
+        self.cycle_type = cycle_type
+        self.active = active
+        self.play_backwards = play_backwards
+        self.manager_controlled = manager_controlled
+        self.compute_scaled = compute_scaled
+        self.forced_update = forced_update
+
+    @property
+    def flags(self):
+        return (
+            self.anim_type
+            | (self.cycle_type << 1)
+            | ((1 if self.active else 0) << 3)
+            | ((1 if self.play_backwards else 0) << 4)
+            | ((1 if self.manager_controlled else 0) << 5)
+            | ((1 if self.compute_scaled else 0) << 6)
+            | ((1 if self.forced_update else 0) << 7)
+        )
+    
+    @flags.setter
+    def flags(self, val):
+        self.anim_type = val & 1
+        self.cycle_type = (val >> 1) & 3
+        self.active = (((val >> 3) & 1) != 0)
+        self.play_backwards = (((val >> 4) & 1) != 0)
+        self.manager_controlled = (((val >> 5) & 1) != 0)
+        self.compute_scaled = (((val >> 6) & 1) != 0)
+        self.forced_update = (((val >> 7) & 1) != 0)
+
+
 class NiControllerManagerBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
@@ -1695,6 +1755,9 @@ class NiControllerManagerBuf(pynStructure):
         ("controllerSequenceCount", c_uint16),
         ("objectPaletteID", c_uint32)]
     def __init__(self, values=None):
+        self.nextControllerID = NODEID_NONE
+        self.targetID = NODEID_NONE
+        self.objectPaletteID = NODEID_NONE
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiControllerManagerBufType
 bufferTypeList[PynBufferTypes.NiControllerManagerBufType] = 'NiControllerManager'
@@ -1714,6 +1777,8 @@ class NiMultiTargetTransformControllerBuf(pynStructure):
         ("targetID", c_uint32),
         ("targetCount", c_uint16)]
     def __init__(self, values=None):
+        self.nextControllerID = NODEID_NONE
+        self.targetID = NODEID_NONE
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiMultiTargetTransformControllerBufType
 bufferTypeList[PynBufferTypes.NiMultiTargetTransformControllerBufType] = 'NiMultiTargetTransformController'
@@ -1738,8 +1803,14 @@ class NiControllerSequenceBuf(pynStructure):
         ("animNotesCount", c_uint16),
     ]
     def __init__(self, values=None):
+        self.arrayGrowBy = 1
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiControllerSequenceBufType
+        self.nameID = NODEID_NONE
+        self.textKeyID = NODEID_NONE
+        self.managerID = NODEID_NONE
+        self.accumRootNameID = NODEID_NONE
+        self.animNotesID = NODEID_NONE
 bufferTypeList[PynBufferTypes.NiControllerSequenceBufType] = 'NiControllerSequence'
 blockBuffers['NiControllerSequence'] = NiControllerSequenceBuf
 
@@ -1759,13 +1830,15 @@ class ControllerLinkBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiControllerLinkBufType
+        self.interpolatorID = NODEID_NONE
+        self.controllerID = NODEID_NONE
+        self.nodeName = NODEID_NONE
+        self.propType = NODEID_NONE
+        self.ctrlType = NODEID_NONE
+        self.ctrlID = NODEID_NONE
+        self.interpID = NODEID_NONE
 bufferTypeList[PynBufferTypes.NiControllerLinkBufType] = 'NiControllerLink'
 blockBuffers['NiControllerLink'] = ControllerLinkBuf
-
-class CycleType(PynIntEnum):
-    CYCLE_LOOP = 0
-    CYCLE_REVERSE = 1
-    CYCLE_CLAMP = 2
 
 class NiTransformControllerBuf(pynStructure):
     _fields_ = [

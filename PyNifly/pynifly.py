@@ -26,6 +26,8 @@ def load_nifly(nifly_path):
     nifly.addAnimKeyLinearQuat.restype = None
     nifly.addAnimKeyQuadFloat.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyQuadXYZBuf)]
     nifly.addAnimKeyQuadFloat.restype = None
+    nifly.addAnimKeyQuadXYZ.argtypes = [c_void_p, c_int, c_char, POINTER(NiAnimKeyQuadXYZBuf)]
+    nifly.addAnimKeyQuadXYZ.restype = None
     nifly.addBoneToNifShape.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf), c_char_p]
     nifly.addBoneToNifShape.restype = c_void_p
     nifly.addBlock.argtypes = [c_void_p, c_char_p, c_void_p, c_int]
@@ -1072,7 +1074,6 @@ class NiNode(NiAVObject):
         
         return self.parent.global_transform * self.transform
     
-
     @property
     def collision_object(self):
         # n = NifFile.nifly.getCollision(self.file._handle, self._handle)
@@ -1337,8 +1338,8 @@ class NiFloatData(NiObject):
 
 
 class NiTransformData(NiKeyFrameData):
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, props=None, parent=None):
-        super().__init__(handle=handle, file=file, id=id, properties=props, parent=parent)
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         if self._handle == None and self.id == NODEID_NONE:
             self.id = NifFile.nifly.addBlock(
                 self.file._handle, 
@@ -1378,6 +1379,18 @@ class NiTransformData(NiKeyFrameData):
     def _getbuf(cls, values=None):
         return NiTransformDataBuf(values)
     
+    @classmethod 
+    def New(cls, file, rotation_type, interpolations={}, parent=None):
+        p:NiTransformDataBuf = NiTransformDataBuf()
+        p.rotationType = rotation_type
+        if "T" in interpolations: p.translations.interpolation = interpolations["T"]
+        if "X" in interpolations: p.xRotations.interpolation = interpolations["X"]
+        if "Y" in interpolations: p.yRotations.interpolation = interpolations["Y"]
+        if "Z" in interpolations: p.zRotations.interpolation = interpolations["Z"]
+        if "S" in interpolations: p.scales.interpolation = interpolations["S"]
+        td = NiTransformData(file=file, properties=p, parent=parent)
+        return td
+    
     def _readlinrot(self):
         """Read keys when the type is LINEAR_KEY or QUADRATIC_KEY. These are time, value
         pairs where the value is a quaternion. 
@@ -1387,7 +1400,6 @@ class NiTransformData(NiKeyFrameData):
             NifFile.nifly.getAnimKeyLinearQuat(self.file._handle, self.id, frame, buf)
             k = LinearQuatKey(buf)
             self.qrotations.append(k)
-
 
     def _readxyzrot(self):
         """Read keys when the type is XYZ_ROTATION_KEY. X, Y, and Z values are in separate
@@ -1420,17 +1432,46 @@ class NiTransformData(NiKeyFrameData):
         NifFile.nifly.addAnimKeyLinearTrans(self.file._handle, self.id, buf)
 
     def add_qrotation_key(self, time, q):
-        """Add a key that does a rotation given as a quaternion, linear interpolation. 
-        Keys must be added in time order."""
+        """
+        Add a key that does a rotation given as a quaternion, linear interpolation. 
+        Keys must be added in time order.
+        """
         buf = NiAnimKeyLinearQuatBuf()
         buf.time = time
         buf.value = q[:]
         NifFile.nifly.addAnimKeyLinearQuat(self.file._handle, self.id, buf)
 
+    def add_xyz_rotation_keys(self, dimension, key_list):
+        """
+        Add XYZ rotation keys.
+        """
+        keytype = ''
+        if dimension == "X": 
+            keytype = self.properties.xRotations.interpolation
+        elif dimension == "Y": 
+            keytype = self.properties.yRotations.interpolation
+        elif dimension == "Z": 
+            keytype = self.properties.zRotations.interpolation
+        elif dimension == "S": 
+            keytype = self.properties.scales.interpolation
+        
+        if keytype == NiKeyType.QUADRATIC_KEY:
+            d = c_char()
+            d.value = dimension.encode('utf-8')
+            for t, v, f, b in key_list:
+                # Each key is a list of time, value, forward, backward
+                buf = NiAnimKeyQuadXYZBuf()
+                buf.time = t
+                buf.value = v
+                buf.forward = f
+                buf.backward = b
+                NifFile.nifly.addAnimKeyQuadXYZ(
+                    self.file._handle, self.id, d, byref(buf))
+
 
 class NiTransformInterpolator(NiObject):
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, props=None, parent=None):
-        super().__init__(handle=handle, file=file, id=id, properties=props, parent=parent)
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         if self._handle == None and self.id == NODEID_NONE:
             self.id = NifFile.nifly.addBlock(
                 self.file._handle, 
@@ -1444,6 +1485,12 @@ class NiTransformInterpolator(NiObject):
     @classmethod
     def _getbuf(cls, values=None):
         return NiTransformInterpolatorBuf(values)
+    
+    @classmethod
+    def New(cls, file, data_block=None, parent=None):
+        p = NiTransformInterpolatorBuf()
+        p.dataID = data_block.id if data_block else NODEID_NONE
+        return NiTransformInterpolator(file=file, properties=p, parent=parent)
     
     @property
     def data(self):
@@ -1483,8 +1530,9 @@ class NiFloatInterpolator(NiObject):
     
     
 class NiTimeController(NiObject):
-    """Abstract class for time controllers. Keeping the chain of subclasses below
-    because we'll likely need them eventually.
+    """
+    Abstract class for time controllers. Keeping the chain of subclasses below because
+    we'll likely need them eventually.
     """
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
@@ -1546,17 +1594,31 @@ class NiTransformController(NiKeyframeController):
         
 
 class NiMultiTargetTransformController(NiInterpController):
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
-        super().__init__(handle=handle, file=file, id=id)
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._properties = NiMultiTargetTransformControllerBuf()
         NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
         # NifFile.nifly.getMultiTargetTransformController(
         #     self.file._handle, self.id, self.properties)
-    
+
     @classmethod
     def _getbuf(cls, values=None):
         return NiMultiTargetTransformControllerBuf(values)
-
+    
+    @classmethod
+    def New(cls, file, flags, target, parent=None):
+        p = NiMultiTargetTransformControllerBuf()
+        p.flags = flags
+        p.targetID = target.id
+        id = NifFile.nifly.addBlock(
+            file._handle, 
+            None, 
+            byref(p), 
+            parent.id if parent else NODEID_NONE)
+        tc = NiMultiTargetTransformController(
+            file=file, id=id, properties=p, parent=parent)
+        return tc
+    
 
 class NiFloatInterpController(NiSingleInterpController):
     pass
@@ -1627,11 +1689,26 @@ class ControllerLink:
         if self.properties.controllerID == NODEID_NONE: return None
         self._controller = self.parent.file.read_node(node_id=self.properties.controllerID, parent=self)
         return self._controller
+    
+    @classmethod
+    def New(cls, node_name, controller_type, file, properties=ControllerLinkBuf(), 
+            parent=None):
+        properties.nodeName = NifFile.nifly.addString(
+            file._handle, node_name.encode('utf-8'))
+        properties.ctrlType = NifFile.nifly.addString(
+            file._handle, controller_type.encode('utf-8'))
+        parent.add_controlled_block(
+            node_name,
+            properties.interpolatorID,
+        )
+        
 
 
 class NiSequence(NiObject):
-    _name = None
-    _controlled_blocks = None
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._name = None
+        self._controlled_blocks = None
 
     @property
     def name(self):
@@ -1704,12 +1781,8 @@ class NiSequence(NiObject):
 
 
 class NiControllerSequence(NiSequence):
-    @classmethod
-    def _getbuf(cls, values=None):
-        return NiControllerSequenceBuf(values)
-    
-    def __init__(self, handle=None, file=None, parent=None, id=NODEID_NONE):
-        super().__init__(handle=handle, file=file, parent=parent, id=id)
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._blockname = "NiControllerSequence"
 
     @property
@@ -1726,6 +1799,43 @@ class NiControllerSequence(NiSequence):
     def is_cyclic(self):
         return self.properties.cycleType == 0
 
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiControllerSequenceBuf(values)
+    
+    @classmethod
+    def New(cls, file, name, accum_root_name=None, frequency=1, phase=0,
+            start_time=0, stop_time=0, cycle_type=CycleType.CLAMP, weight=1.0,
+            parent=None, 
+            ):
+        """
+        Create a new controller sequence block.
+        """
+        p = NiControllerSequenceBuf()
+        p.frequency = frequency
+        p.phase = phase
+        p.startTime = start_time
+        p.stopTime = stop_time
+        p.cycleType = cycle_type
+        p.weight = weight
+
+        if parent: p.managerID = parent.id
+        if accum_root_name is not None:
+            p.accumRootNameID = NifFile.nifly.addString(
+                file._handle, 
+                accum_root_name.encode('utf-8'))
+
+        id = NifFile.nifly.addBlock(file._handle, 
+                                    name.encode('utf-8'), 
+                                    byref(p), 
+                                    parent.id if parent else None)
+        
+        if id != NODEID_NONE:
+            cs = NiControllerSequence(file=file, id=id, parent=parent, properties=p)
+            cs._name = name
+            if parent: parent.add_sequence(cs)
+            return cs
+        
 
 class NiControllerManager(NiTimeController):
     _controller_manager_sequences = None
@@ -1755,6 +1865,35 @@ class NiControllerManager(NiTimeController):
 
         return self._controller_manager_sequences
     
+    def add_sequence(self, seq):
+        """
+        Add the given controller sequence to the mananger.
+
+        The nif file is not changed. 
+        """
+        self._controller_manager_sequences[seq.name] = seq
+    
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiControllerManagerBuf(values)
+    
+    @classmethod
+    def New(cls, file, flags, next_controller=None, parent=None):
+        """
+        Create a new controller manager block within the target file.
+        """
+        p = NiControllerManagerBuf()
+        p.targetID = parent.id if parent else NODEID_NONE
+        p.nextControllerID = next_controller.id if next_controller else NODEID_NONE
+        p.flags = flags.flags
+        id = NifFile.nifly.addBlock(file._handle, None, byref(p), p.targetID)
+        if id != NODEID_NONE:
+            cm = NiControllerManager(file=file, id=id, parent=parent)
+            cm._controller_manager_sequences = {}
+            return cm
+        else:
+            return None
+
 
 # --- NiShader -- #
 class NiShader(NiObject):
