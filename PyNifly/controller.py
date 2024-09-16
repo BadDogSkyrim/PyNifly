@@ -21,6 +21,80 @@ controlled_variables_uv = {
     "Scale V": CONTROLLED_VARIABLE_TYPES.V_Scale,
     }
 
+
+def current_animations(nif, refobjs:BD.ReprObjectCollection):
+    """Find all assets that appear to be animation actions."""
+    anim_pat = "ANIM|"
+    matches = {}
+    for act in bpy.data.actions:
+        if act.name.startswith(anim_pat):
+            name_parts = act.name.split("|", 2)
+            anim_name = name_parts[1]
+            target_name = name_parts[2]
+            if target_name in refobjs.blenderdict:
+                if anim_name not in matches:
+                    matches[anim_name] = []
+                matches[anim_name].append(
+                    [act, refobjs.find_nifname(nif, target_name)])
+            # animname = act.name.split("|", 2)[1]
+            # matches.append(("pyn_" + animname, animname, "Animation", len(matches), ))
+    return matches
+
+
+def _current_animations():
+    """Find all assets that appear to be animation actions."""
+    anim_pat = "ANIM|"
+    matches = []
+    for act in bpy.data.actions:
+        if act.name.startswith(anim_pat):
+            animname = act.name.split("|", 2)[1]
+            matches.append(("pyn_" + animname, animname, "Animation", len(matches), ))
+    return matches
+
+
+def apply_animation(anim_name, ctxt=bpy.context):
+    """
+    Apply the named animation to the currently visible objects.
+    Returns a dictionary of animation values.
+    """
+    res = {
+        "start_time": 0,
+        "stop_time": 0,
+        "cycle_type": CycleType.LOOP,
+        "frequency": 1.0,
+    }
+    anim_pat = "ANIM|" + anim_name + "|"
+    matches = []
+    for act in bpy.data.actions:
+        if act.name.startswith(anim_pat):
+            matches.append(act)
+    
+    for act in matches:
+        objname = act.name.split("|", 2)[2]
+        if objname in ctxt.scene.objects:
+            assign_action(ctxt.scene.objects[objname], act)
+            res["start_time"] = min(
+                res["start_time"],
+                (act.curve_frame_range[0]-1)/ctxt.scene.render.fps)
+            res["stop_time"] = max(
+                res["stop_time"], 
+                (act.curve_frame_range[1]-1)/ctxt.scene.render.fps)
+            if (not act.use_cyclic): res["cycle_type"] = CycleType.CLAMP 
+
+    return res
+
+
+def curve_target(curve):
+    """
+    Return the curve target for the curve. The target is the bone name if any,
+    otherwise ''.
+    """
+    if curve.data_path.startswith("pose.bones"):
+        return eval(curve.data_path.split('[', 1)[1].split(']', 1)[0])
+    else:
+        return ''
+
+
 class ControllerHandler():
     def __init__(self, parent_handler):
         self.action = None
@@ -33,6 +107,8 @@ class ControllerHandler():
         self.path_name = None
         self.animation_target = None  
         self.action_target = None # 
+        self.accum_root = None
+        self.multitarget_controller = None
 
         # Necessary context from the parent.
         self.nif = parent_handler.nif
@@ -629,19 +705,14 @@ class ControllerHandler():
         return forward, backward
 
 
-    def _export_float_curves(self, activated_obj, parent_ctlr=None):
+    def _get_curve_quad_values(self, curve):
         """
-        Export a float curve from the list to a NiFloatInterpolator/NiFloatData pair. 
-        The curve is picked off the list.
-
-        * Returns (group name, NiFloatInterpolator for the set of curves).
+        Transform a blender curve into nif keys. 
+        Returns [[time, value, forward, backward]...] for each keyframe in the curve.
         """
-        c = self.action.fcurves[0]
         keys = []
-        # prior_kf = None
-        # prior_k = None
         points = [None]
-        points.extend(list(c.keyframe_points))
+        points.extend(list(curve.keyframe_points))
         points.append(None)
         while points[1]:
             k = NiAnimKeyQuadXYZBuf()
@@ -650,6 +721,16 @@ class ControllerHandler():
             k.forward, k.backward = self._key_blender_to_nif(points[0], points[1], points[2])
             keys.append(k)
             points.pop(0)
+        return keys
+
+    def _export_float_curves(self, activated_obj, parent_ctlr=None):
+        """
+        Export a float curve from the list to a NiFloatInterpolator/NiFloatData pair. 
+        The curve is picked off the list.
+
+        * Returns (group name, NiFloatInterpolator for the set of curves).
+        """
+        keys = self._get_curve_quad_values(self.action.fcurves[0])
         fdp = NiFloatDataBuf()
         fdp.keys.interpolation = NiKeyType.QUADRATIC_KEY
         fd = NiFloatData(file=self.nif, properties=fdp, keys=keys)
@@ -660,36 +741,40 @@ class ControllerHandler():
         return fi
 
     
-    def _export_transform_curves(self, arma, curve_list):
+    def _export_transform_curves(self, targetobj, curve_list):
         """
-        Export a group of curves from the list to a TransformInterpolator/TransformData pair. 
-        A group maps to a controlled object, so each group should be one such pair.
+        Export a group of curves from the list to a TransformInterpolator/TransformData
+        pair. A group maps to a controlled object, so each group should be one such pair.
         The curves that are used are picked off the list.
         * Returns (group name, TransformInterpolator for the set of curves).
         """
         if not curve_list: return None, None
         
-        group = curve_list[0].group.name
+        targetname = curve_target(curve_list[0])
         scene_fps = self.context.scene.render.fps
         
         loc = []
         eu = []
         quat = []
         scale = []
-        while curve_list and curve_list[0].group.name == group:
-            dp = curve_list[0].data_path
-            if ".location" in dp:
-                loc.append(curve_list[0])
-                curve_list.pop(0)
-            elif ".rotation_quaternion" in dp:
-                quat.append(curve_list[0])
-                curve_list.pop(0)
-            elif ".scale" in dp:
-                scale.append(curve_list[0])
-                curve_list.pop(0)
+        timemax = -10000
+        timemin = 10000
+        timestep = 1/self.fps
+        while curve_list and curve_target(curve_list[0]) == targetname:
+            c = curve_list.pop(0)
+            timemax = max(timemax, (c.range()[1]-1)/scene_fps)
+            timemin = min(timemin, (c.range()[0]-1)/scene_fps)
+            dp = c.data_path
+            if "location" in dp:
+                loc.append(c)
+            elif "rotation_quaternion" in dp:
+                quat.append(c)
+            elif "rotation_euler" in dp:
+                eu.append(c)
+            elif "scale" in dp:
+                scale.append(c)
             else:
-                self.error(f"Unknown curve type: {dp}")
-                return None, None
+                self.warn(f"Unknown curve type: {dp}")
         
         if scale:
             if not self.given_scale_warning:
@@ -697,41 +782,43 @@ class ControllerHandler():
                 self.given_scale_warning = True
 
         if len(loc) != 3 and len(eu) != 3 and len(quat) != 4:
-            self.error(f"No useable transforms in group {group}")
+            self.warn(f"No useable transforms in group {targetobj.name}/{targetname}")
             return None, None
-
-        if not group in arma.data.bones:
-            self.error(f"Target bone not found in armature: {group}")
-            return None, None
-        
-        targ = arma.data.bones[group]
-        if targ.parent:
-            targ_xf = targ.parent.matrix_local.inverted() @ targ.matrix_local
-        else:
-            targ_xf = targ.matrix_local
-        targ_trans = targ_xf.translation
-        targ_q = targ_xf.to_quaternion()
 
         tibuf = NiTransformInterpolatorBuf()
+        if targetobj.type == 'ARMATURE':
+            if not targetname in targetobj.data.bones:
+                self.warn(f"Target bone not found in armature: {targetobj.name}/{targetname}")
+                return None, None
+            
+            targ = targetobj.data.bones[targetname]
+            if targ.parent:
+                targ_xf = targ.parent.matrix_local.inverted() @ targ.matrix_local
+            else:
+                targ_xf = targ.matrix_local
+        else:
+            targ_xf = Matrix.Identity(4)
+        targ_trans = targ_xf.translation
+        targ_q = targ_xf.to_quaternion()            
         tibuf.translation = targ_trans[:]
         tibuf.rotation = targ_q[:]
         tibuf.scale = 1.0
-        ti = NiTransformInterpolator(file=self.nif, props=tibuf)
+        ti = NiTransformInterpolator(file=self.nif, properties=tibuf)
         
-        tdbuf = NiTransformDataBuf()
+        tdbuf:NiTransformDataBuf = NiTransformDataBuf()
         if quat:
             tdbuf.rotationType = NiKeyType.QUADRATIC_KEY
         elif eu:
             tdbuf.rotationType = NiKeyType.XYZ_ROTATION_KEY
+            tdbuf.xRotations.interpolation = NiKeyType.QUADRATIC_KEY
+            tdbuf.yRotations.interpolation = NiKeyType.QUADRATIC_KEY
+            tdbuf.zRotations.interpolation = NiKeyType.QUADRATIC_KEY
         if loc:
             tdbuf.translations.interpolation = NiKeyType.LINEAR_KEY
-        td = NiTransformData(file=self.nif, props=tdbuf, parent=ti)
+        td:NiTransformData = NiTransformData(file=self.nif, properties=tdbuf, parent=ti)
 
         # Lots of error-checking because the user could have done any damn thing.
         if len(quat) == 4:
-            timemax = max(q.range()[1]-1 for q in quat)/scene_fps
-            timemin = min(q.range()[0]-1 for q in quat)/scene_fps
-            timestep = 1/self.fps
             timesig = timemin
             while timesig < timemax + 0.0001:
                 fr = timesig * scene_fps + 1
@@ -744,9 +831,6 @@ class ControllerHandler():
                 timesig += timestep
 
         if len(loc) == 3:
-            timemax = max(v.range()[1]-1 for v in loc)/scene_fps
-            timemin = min(v.range()[0]-1 for v in loc)/scene_fps
-            timestep = 1/self.fps
             timesig = timemin
             while timesig < timemax + 0.0001:
                 fr = timesig * scene_fps + 1
@@ -757,27 +841,41 @@ class ControllerHandler():
                 td.add_translation_key(timesig, rv)
                 timesig += timestep
 
-        return group, ti
+        if len(eu) == 3:
+            td.add_xyz_rotation_keys("X", self._get_curve_quad_values(eu[0]))
+            td.add_xyz_rotation_keys("Y", self._get_curve_quad_values(eu[1]))
+            td.add_xyz_rotation_keys("Z", self._get_curve_quad_values(eu[2]))
+
+        return targetname if targetname else targetobj.name, ti
     
 
-    def _export_activated_obj(self, activated_obj, nifnode):
+    def _export_activated_obj(self, target:BD.ReprObject,  controller=None):
         """
         Export a single activated object--an object with animation_data on it.
+
+        * target = Object with animation data on it to export
         """
+        activated_obj = target.blender_obj
         self.action = activated_obj.animation_data.action
-        if activated_obj.type == 'ARMATURE':
-            controller = self.nif.rootNode
+        if controller == None:
+            if activated_obj.type == 'ARMATURE':
+                # KF animation
+                controller = self.nif.rootNode
+            elif activated_obj.type == 'SHADER':
+                # Shader animation
+                controller = BSEffectShaderPropertyFloatController(
+                    file=self.nif,
+                    parent=target.nifnode.shader)
+            else:
+                self.warn(f"Unknowned activated object type: {activated_obj.type}")
+                return
+        
             cp = controller.properties.copy()
-        elif activated_obj.type == 'SHADER':
-            controller = BSEffectShaderPropertyFloatController(
-                file=self.nif,
-                parent=nifnode.shader)
-            cp = controller.properties.copy()
-        cp.startTime = (self.action.curve_frame_range[0]-1)/self.fps
-        cp.stopTime = (self.action.curve_frame_range[1]-1)/self.fps
-        cp.cycleType = CycleType.CYCLE_LOOP if self.action.use_cyclic else CycleType.CYCLE_CLAMP
-        cp.frequency = 1.0
-        controller.properties = cp
+            cp.startTime = (self.action.curve_frame_range[0]-1)/self.fps
+            cp.stopTime = (self.action.curve_frame_range[1]-1)/self.fps
+            cp.cycleType = CycleType.CYCLE_LOOP if self.action.use_cyclic else CycleType.CYCLE_CLAMP
+            cp.frequency = 1.0
+            controller.properties = cp
 
         if activated_obj.type == 'ARMATURE':
             # Collect list of curves. They will be picked off in clumps until the list is empty.
@@ -789,6 +887,31 @@ class ControllerHandler():
                         name=self.nif.nif_name(targname),
                         interpolator=ti,
                         node_name = self.nif.nif_name(targname),
+                        controller_type = "NiTransformController")
+                    
+        elif activated_obj.type == 'SHADER':
+            self.warn(f"NYI: Shader controller export")
+
+        elif activated_obj.type == 'EMPTY':
+            curve_list = list(self.action.fcurves)
+            while curve_list:
+                targname, ti = self._export_transform_curves(activated_obj, curve_list)
+                if self.multitarget_controller:
+                    mttc = self.multitarget_controller
+                    self.multitarget_controller = None
+                else:
+                    mttc = NiMultiTargetTransformController.New(
+                        file=self.nif,
+                        flags=TimeControllerFlags(
+                            active=True, cycle_type=controller.properties.cycleType).flags,
+                        target=self.accum_root,
+                    )
+                if targname and ti:
+                    controller.add_controlled_block(
+                        name=target.nifnode.name,
+                        interpolator=ti,
+                        controller=mttc,
+                        node_name = target.nifnode.name,
                         controller_type = "NiTransformController")
             
 
@@ -812,6 +935,41 @@ class ControllerHandler():
         fcp.interpolatorID = fi.id
         fc = BSEffectShaderPropertyFloatController(
             file=self.nif, properties=fcp, parent=nifshape.shader)
+        
+
+    def _export_animations(self, anims):
+        """
+        Export the given animations to the target nif.
+        
+        * Anims = {"anim name": [(action, obj), ..], ...}
+            a dictionary of animation names to list of action/object pairs that implement
+            that animation.
+        """
+        self.accum_root = self.nif.rootNode
+        self.multitarget_controller = NiMultiTargetTransformController.New(
+            file=self.nif, flags=108, target=self.nif.rootNode)
+        
+        cm = NiControllerManager.New(
+            file=self.parent.nif, 
+            flags=TimeControllerFlags(cycle_type=CycleType.CLAMP),
+            next_controller=self.multitarget_controller,
+            parent=self.accum_root)
+
+        for anim_name, actionlist in anims.items(): 
+            vals = apply_animation(anim_name)
+            cs:NiControllerSequence = NiControllerSequence.New(
+                file=self.parent.nif,
+                name=anim_name,
+                accum_root_name=self.parent.nif.rootName,
+                start_time=vals["start_time"],
+                stop_time=vals["stop_time"],
+                cycle_type=vals["cycle_type"],
+                frequency=vals["frequency"],
+                parent=cm
+            )
+
+            for act, reprobj in actionlist:
+                self._export_activated_obj(reprobj, cs)
 
 
     @classmethod
@@ -825,7 +983,7 @@ class ControllerHandler():
         cp = controller.properties.copy()
         cp.startTime = (exporter.action.curve_frame_range[0]-1)/exporter.fps
         cp.stopTime = (exporter.action.curve_frame_range[1]-1)/exporter.fps
-        cp.cycleType = CycleType.CYCLE_LOOP if exporter.action.use_cyclic else CycleType.CYCLE_CLAMP
+        cp.cycleType = CycleType.LOOP if exporter.action.use_cyclic else CycleType.CLAMP
         cp.frequency = 1.0
         controller.properties = cp
 
@@ -850,6 +1008,20 @@ class ControllerHandler():
         exporter._export_shader(obj.active_material.node_tree, trishape)
 
 
+    @classmethod
+    def export_named_animations(cls, parent_handler, object_dict:BD.ReprObjectCollection):
+        """
+        Export a ControllerManager to manage all named animations (if any). 
+        Only animations controlling objects in the given list count.
+
+        * object_dict = dictionary of objects to consider
+        """
+        exporter = ControllerHandler(parent_handler)
+        anims = current_animations(parent_handler.nif, object_dict)
+        if not anims: return
+        exporter._export_animations(anims)
+
+
 def assign_action(obj, act):
     """Assign the given action to the given object."""
     for g in act.groups:
@@ -857,20 +1029,6 @@ def assign_action(obj, act):
             if not obj.animation_data:
                 obj.animation_data_create()
             obj.animation_data.action = act
-
-
-def apply_animation(anim_name, ctxt=bpy.context):
-    """Apply the named animation to the currently visible objects."""
-    anim_pat = "ANIM|" + anim_name + "|"
-    matches = []
-    for act in bpy.data.actions:
-        if act.name.startswith(anim_pat):
-            matches.append(act)
-    
-    for act in matches:
-        objname = act.name.split("|", 2)[2]
-        if objname in ctxt.scene.objects:
-            assign_action(ctxt.scene.objects[objname], act)
 
 
 class AssignAnimPanel(bpy.types.Panel):
@@ -882,17 +1040,6 @@ class AssignAnimPanel(bpy.types.Panel):
 
     def draw(self, context):
         self.layout.label(text="Apply Animation")
-
-
-def _current_animations(self, context):
-    """Find all assets that appear to be animation actions."""
-    anim_pat = "ANIM|"
-    matches = []
-    for act in bpy.data.actions:
-        if act.name.startswith(anim_pat):
-            animname = act.name.split("|", 2)[1]
-            matches.append(("pyn_" + animname, animname, "Animation", len(matches), ))
-    return matches
 
 
 class WM_OT_ApplyAnim(bpy.types.Operator):
@@ -921,7 +1068,7 @@ class WM_OT_ApplyAnim(bpy.types.Operator):
         row.prop(self, "anim_pulldown", text="Animation name")
 
     def execute(self, context): # Runs by default 
-        apply_animation(self.anim_pulldown, context)
+        anim_dict = apply_animation(self.anim_pulldown, context)
         return {'FINISHED'}
 
 

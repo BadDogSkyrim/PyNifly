@@ -1444,6 +1444,7 @@ class NiTransformData(NiKeyFrameData):
     def add_xyz_rotation_keys(self, dimension, key_list):
         """
         Add XYZ rotation keys.
+        key_list = [NiAnimKeyQuadXYZBuf, ...]
         """
         keytype = ''
         if dimension == "X": 
@@ -1458,15 +1459,9 @@ class NiTransformData(NiKeyFrameData):
         if keytype == NiKeyType.QUADRATIC_KEY:
             d = c_char()
             d.value = dimension.encode('utf-8')
-            for t, v, f, b in key_list:
-                # Each key is a list of time, value, forward, backward
-                buf = NiAnimKeyQuadXYZBuf()
-                buf.time = t
-                buf.value = v
-                buf.forward = f
-                buf.backward = b
+            for q in key_list:
                 NifFile.nifly.addAnimKeyQuadXYZ(
-                    self.file._handle, self.id, d, byref(buf))
+                    self.file._handle, self.id, d, byref(q))
 
 
 class NiTransformInterpolator(NiObject):
@@ -1555,7 +1550,9 @@ class NiTimeController(NiObject):
     
     @property
     def is_cyclic(self):
-        return ((self.properties.flags >> 1) & 3) == CycleType.CYCLE_LOOP
+        f = TimeControllerFlags()
+        f.flags = self.properties.flags
+        return f.cycle_type == CycleType.LOOP
     
 
 class NiInterpController(NiTimeController):
@@ -1878,7 +1875,7 @@ class NiControllerManager(NiTimeController):
         return NiControllerManagerBuf(values)
     
     @classmethod
-    def New(cls, file, flags, next_controller=None, parent=None):
+    def New(cls, file, flags:TimeControllerFlags, next_controller=None, parent=None):
         """
         Create a new controller manager block within the target file.
         """

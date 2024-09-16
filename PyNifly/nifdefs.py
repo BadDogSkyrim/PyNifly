@@ -2018,11 +2018,11 @@ class NiAnimKeyQuadXYZBuf(pynStructure):
         ("forward", c_float),
         ("backward", c_float),
     ]
-    def __init__(self):
-        self.time = 0
-        self.value = 0
-        self.forward = 0
-        self.backward = 0
+    def __init__(self, time=0, value=0, forward=0, backward=0):
+        self.time = time
+        self.value = value
+        self.forward = forward
+        self.backward = backward
 
 class NiAnimKeyLinearXYZBuf(pynStructure):
     _fields_ = [

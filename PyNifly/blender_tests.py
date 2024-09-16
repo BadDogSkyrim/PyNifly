@@ -4941,6 +4941,37 @@ def TEST_ANIM_CHEST():
     for n in animations:
         assert n in bpy.data.actions, f"Loaded animation {n}"
 
+    chestroot = bpy.data.objects['NobleChest01:ROOT']
+    BD.ObjectSelect([chestroot], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    nifcheck = pyn.NifFile(outfile)
+    checkroot = nifcheck.rootNode
+    checkcm:pyn.NiControllerManager = checkroot.controller
+    assert checkcm.properties.flags == 76, f"Have correct flags {checkcm.properties.flags}"
+    assert len(checkcm.sequences) == 2, f"Have 2 sequences"
+    assert "Open" in checkcm.sequences, f"Have all sequences"
+    assert "Close" in checkcm.sequences, f"Have all sequences"
+    openseq:pyn.NiControllerSequence = checkcm.sequences["Open"]
+    assert BD.NearEqual(openseq.properties.startTime, 0.0), \
+        f"Have correct start time: {openseq.properties.startTime}"
+    assert BD.NearEqual(openseq.properties.stopTime, 0.5), \
+        f"Have correct stop time: {openseq.properties.stopTime}"
+    assert len(openseq.controlled_blocks) == 1, f"Have one controlled block"
+    cb:pyn.ControllerLink = openseq.controlled_blocks[0]
+    assert cb.node_name == "Lid01", f"Have lid as controlled target"
+    interp:pyn.NiTransformInterpolator = cb.interpolator
+    dat:pyn.NiTransformData = interp.data
+    assert dat.properties.rotationType == pyn.NiKeyType.XYZ_ROTATION_KEY, \
+        f"Have correct key type: {dat.properties.rotationType}"
+    assert len(dat.xrotations) == 2, f"Have correct x rotation count: {dat.xrotations}"
+    assert dat.properties.xRotations.interpolation == pyn.NiKeyType.QUADRATIC_KEY, \
+        f"Have correct x rotation type: {dat.properties.xRotations.interpolation}"
+    assert BD.NearEqual(dat.xrotations[1].time, 0.5), f"Have correct end key time"
+    assert BD.NearEqual(dat.xrotations[1].value, -0.1222), f"Have correct end key value"
+    contr:pyn.NiMultiTargetTransformController = cb.controller
+    assert contr.target.id == 0, f"Target is root"
+
 
 def TEST_ANIM_CRATE():
     """Read and write the animation of chest opening and shutting."""
@@ -5706,6 +5737,8 @@ if not bpy.data:
 else:
     badtests = []
 
+    do_tests([TEST_COLLISION_BOW_SCALE])
+
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
     #     TEST_COLLISION_BOW_SCALE, TEST_BONE_HIERARCHY, TEST_COLLISION_BOW, 
@@ -5718,8 +5751,6 @@ else:
     # All tests with collisions
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
     
-    do_tests([TEST_ANIM_CHEST])
-
     # do_tests(testfrom(TEST_COLLISION_CONVEXVERT), exclude=badtests)
 
-    # do_tests(alltests, exclude=badtests)
+    do_tests(alltests, exclude=badtests)

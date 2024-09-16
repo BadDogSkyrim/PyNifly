@@ -1873,13 +1873,17 @@ def TEST_ANIMATION_NOBLECHEST():
                         "S": NiKeyType.QUADRATIC_KEY})
 
     # Can add keys by frame or by curve
-    opendata.add_xyz_rotation_keys("X", [[0, 0, 0, 0]])
-    opendata.add_xyz_rotation_keys("Y", [[0, 0, 0, 0]])
-    opendata.add_xyz_rotation_keys("Z", [[0, 0, 0, 0]])
+    opendata.add_xyz_rotation_keys("X", [NiAnimKeyQuadXYZBuf(0, 0, 0, 0)])
+    opendata.add_xyz_rotation_keys("Y", [NiAnimKeyQuadXYZBuf(0, 0, 0, 0)])
+    opendata.add_xyz_rotation_keys("Z", [NiAnimKeyQuadXYZBuf(0, 0, 0, 0)])
 
-    opendata.add_xyz_rotation_keys("X", [[0.5 , -0.1222, 0, 0]])
-    opendata.add_xyz_rotation_keys("Y", [[0.5 , 0, 0, 0]])
-    opendata.add_xyz_rotation_keys("Z", [[0.5 , 0, 0, 0]])
+    q1x = NiAnimKeyQuadXYZBuf()
+    q1x.time = 0.5
+    q1x.value = -0.1222
+    q1x.forward = q1x.backward = 0
+    opendata.add_xyz_rotation_keys("X", [NiAnimKeyQuadXYZBuf(0.5, -0.1222, 0, 0)])
+    opendata.add_xyz_rotation_keys("Y", [NiAnimKeyQuadXYZBuf(0.5, 0, 0, 0)])
+    opendata.add_xyz_rotation_keys("Z", [NiAnimKeyQuadXYZBuf(0.5, 0, 0, 0)])
     
     # opendata.add_xyz_rotation_keys("X", [
     #     [0, 0, 0, 0],

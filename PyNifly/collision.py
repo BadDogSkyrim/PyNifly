@@ -673,16 +673,18 @@ class CollisionHandler():
         return None, None, Quaternion()
 
 
-    def export_collision_body(self, targobj, coll):
+    def export_collision_body(self, targobj, collpair:BD.ReprObject):
         """ 
         Export the collision body for the given collision.
 
         * targobj = Blender object that has the collision.
-        * coll = Blender object representing the collision
+        * coll = ReprObject object representing the collision
         * colnode = Nif node representing the collision
         """
+        coll = collpair.blender_obj
+
         # Blender's collision object has the same transform as the target (because that's
-        # how we model collisions). But the (TBS)
+        # how we model collisions). 
         if not coll.rigid_body: return
         if 'pynRigidBody' not in coll: 
             bodytype = 'bhkRigidBody'
@@ -751,8 +753,8 @@ class CollisionHandler():
                 for j, v in enumerate(r):
                     props.transform[i][j] = v
 
-        colnode = self.objs_written[coll.name]
-        body_node = colnode.add_body(props)
+        # colnode = self.objs_written[coll.name]
+        body_node = collpair.nifnode.add_body(props)
 
         return body_node
 
@@ -763,20 +765,27 @@ class CollisionHandler():
         targobj = Blender object with the collision.
         coll = Blender object representing the collision.
         """
-        if coll.name in self.objs_written: return
+        if self.objs_written.find_blend(coll): return
 
         flags = None
         if 'pynCollisionFlags' in coll:
             flags = bhkCOFlags.parse(coll['pynCollisionFlags']).value
 
-        try:
-            targnode = self.objs_written[targobj.name]
-        except:
+        targpair = self.objs_written.find_blend(targobj)
+        if targpair:
+            targnode = targpair.nifnode
+        else:
             targnode = self.nif.nodes[targobj.name]
+        # try:
+        #     targnode = self.objs_written[targobj.name]
+        # except:
+        #     targnode = self.nif.nodes[targobj.name]
         colnode = targnode.add_collision(None, flags=flags)
-        self.objs_written[coll.name] = colnode
+        collpair = BD.ReprObject(coll, colnode)
+        self.objs_written.add(collpair)
+        # self.objs_written[coll.name] = colnode
 
-        body = self.export_collision_body(targobj, coll) 
+        body = self.export_collision_body(targobj, collpair) 
 
 
     @classmethod
@@ -806,7 +815,7 @@ class CollisionHandler():
 
         collshape = collisions[0].target
         if not collshape: return
-        if collshape.name in parent_handler.objs_written: return
+        if parent_handler.objs_written.find_blend(collshape): return 
 
         exporter.export_collision_object(targobj, collshape)
 

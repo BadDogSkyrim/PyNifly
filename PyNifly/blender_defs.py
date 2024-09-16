@@ -518,7 +518,7 @@ class ReprObjectCollection():
     def __init__(self):
         self._collection = set()
         # Blender dict indexed by name
-        self._blenderdict = {}
+        self.blenderdict = {}
         # Need a separate dictionary for each file imported, indexed by filepath.
         self._filedict = {}
 
@@ -528,7 +528,7 @@ class ReprObjectCollection():
         """
         self._collection.add(reprobj)
         if reprobj.blender_obj:
-            self._blenderdict[reprobj.blender_obj.name] = reprobj
+            self.blenderdict[reprobj.blender_obj.name] = reprobj
         if reprobj.nifnode:
             fp = reprobj.nifnode.file.filepath
             try:
@@ -538,11 +538,20 @@ class ReprObjectCollection():
                 d = self._filedict[fp]
             d[reprobj.nifnode.id] = reprobj
 
+    def add_pair(self, obj, nifnode):
+        self.add(ReprObject(obj, nifnode))
+
     def find_nifnode(self, nifnode):
         try: 
             fp = nifnode.file.filepath
             d = self._filedict[fp]
             return d[nifnode.id]
+        except KeyError:
+            return None
+        
+    def find_blend(self, blendobj):
+        try: 
+            return self.blenderdict[blendobj.name]
         except KeyError:
             return None
         

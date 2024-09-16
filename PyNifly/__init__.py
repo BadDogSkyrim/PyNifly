@@ -2695,9 +2695,7 @@ class NifExporter:
         self.objs_no_part = set()
         self.arma_game = []
         self.bodytri_written = False
-
-        # Dictionary of objects written to nif. {Blender object name: NiNode}
-        self.objs_written = {}
+        self.objs_written = ReprObjectCollection()
 
         self.message_log = []
 
@@ -2763,23 +2761,23 @@ class NifExporter:
             if n not in names: return n
         return obj.name
 
-    def export_shape_data(self, obj, shape):
+    def export_shape_data(self, robj:ReprObject):
         """ Export a shape's extra data """
         edlist = []
         strlist = []
-        for ch in obj.children:
+        for ch in robj.blender_obj.children:
              if 'NiStringExtraData_Name' in ch:
                 strlist.append( (ch['NiStringExtraData_Name'], ch['NiStringExtraData_Value']) )
-                self.objs_written[ch.name] = shape
+                self.objs_written.add(ReprObject(ch, None)) # [ch.name] = shape
              if 'BSBehaviorGraphExtraData_Name' in ch:
                 edlist.append( (ch['BSBehaviorGraphExtraData_Name'], 
                                ch['BSBehaviorGraphExtraData_Value']) )
-                self.objs_written[ch.name] = shape
+                self.objs_written.add(ReprObject(ch, None)) # [ch.name] = shape
+        
         if len(strlist) > 0:
-            shape.string_data = strlist
-    
+            robj.nifnode.string_data = strlist
         if len(edlist) > 0:
-            shape.behavior_graph_data = edlist
+            robj.nifnode.behavior_graph_data = edlist
 
 
     def add_armature(self, arma):
@@ -2859,13 +2857,14 @@ class NifExporter:
 
     # --------- DO THE EXPORT ---------
 
-    def export_tris(self, obj, verts, tris, uvs, morphdict):
+    def export_tris(self, robj:ReprObject, verts, tris, uvs, morphdict):
         """ Export a tri file to go along with the given nif file, if there are shape keys 
             and it's not a faceBones nif.
             dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
         """
         result = {'FINISHED'}
 
+        obj = robj.blender_obj
         if obj.data.shape_keys is None or len(morphdict) == 0:
             return result
 
@@ -2928,7 +2927,7 @@ class NifExporter:
                 if k[0] == '>':
                     n = k[1:]
                     expdict[n] = v
-            self.trip.set_morphs(self.objs_written[obj.name].name, expdict, verts)
+            self.trip.set_morphs(robj.nifnode.name, expdict, verts)
             
         return result
 
@@ -2942,7 +2941,7 @@ class NifExporter:
             if st['NiStringExtraData_Name'] != 'BODYTRI' or self.game not in ['FO4', 'FO76']:
                 # FO4 bodytris go at the top level
                 sdlist.append( (st['NiStringExtraData_Name'], st['NiStringExtraData_Value']) )
-                self.objs_written[st.name] = self.nif
+                self.objs_written.add_pair(st, self.nif.rootNode) # [st.name] = self.nif
                 self.bodytri_written |= (st['NiStringExtraData_Name'] == 'BODYTRI')
 
         if len(sdlist) > 0:
@@ -2953,7 +2952,7 @@ class NifExporter:
             bglist.append( (bg['BSBehaviorGraphExtraData_Name'], 
                             bg['BSBehaviorGraphExtraData_Value'], 
                             bg['BSBehaviorGraphExtraData_CBS']) )
-            self.objs_written[bg.name] = self.nif
+            self.objs_written.add(ReprObject(bg, self.nif.rootNode)) # [bg.name] = self.nif
 
         if len(bglist) > 0:
             self.nif.behavior_graph_data = bglist 
@@ -2962,7 +2961,7 @@ class NifExporter:
         for cd in self.cloth_data:
             cdlist.append( (cd['BSClothExtraData_Name'], 
                             codecs.decode(cd['BSClothExtraData_Value'], "base64")) )
-            self.objs_written[cd.name] = self.nif
+            self.objs_written.add(ReprObject(cd, self.nif.rootNode)) # [cd.name] = self.nif
 
         if len(cdlist) > 0:
             self.nif.cloth_data = cdlist 
@@ -2970,7 +2969,7 @@ class NifExporter:
         if self.bsx_flag:
             self.nif.rootNode.bsx_flags = [self.bsx_flag['BSXFlags_Name'],
                                   BSXFlags.parse(self.bsx_flag['BSXFlags_Value'])]
-            self.objs_written[self.bsx_flag.name] = self.nif
+            self.objs_written.add(ReprObject(self.bsx_flag, self.nif.rootNode)) # [self.bsx_flag.name] = self.nif
 
         if self.inv_marker:
             inv_rot, inv_zoom = cam_to_inv(self.inv_marker.matrix_world, self.inv_marker.data.lens)
@@ -2981,7 +2980,7 @@ class NifExporter:
                 inv_rot[1],
                 inv_rot[2],
                 inv_zoom]
-            self.objs_written[self.inv_marker.name] = self.nif
+            self.objs_written.add(ReprObject(self.inv_marker, self.nif.rootNode)) # [self.inv_marker.name] = self.nif
 
         fmklist = []
         for fm in self.furniture_markers:
@@ -3288,13 +3287,14 @@ class NifExporter:
             morphdict, partitions, partition_map
 
 
-    def export_node(self, obj:bpy_types.Object, parent=None) -> NiNode:
+    def export_node(self, obj:bpy_types.Object, parent:ReprObject=None) -> NiNode:
         """Export a NiNode for the given Blender object."""
         xf = make_transformbuf(apply_scale_xf(obj.matrix_local, 1))
-        ninode = self.nif.add_node(obj.name, xf, parent)
-        self.objs_written[obj.name] = ninode
+        ninode = self.nif.add_node(obj.name, xf, parent.nifnode if parent else None)
+        ref = ReprObject(obj, ninode) # [obj.name] = ninode
+        self.objs_written.add(ref) 
         collision.CollisionHandler.export_collisions(self, obj)
-        return ninode
+        return ref
    
 
     def export_shape_parents(self, obj) -> NiNode:
@@ -3311,20 +3311,33 @@ class NifExporter:
             p = p.parent
 
         last_parent = None
+        ref = None
         ninode = None
         for this_parent in ancestors:
-            if 'pynRoot' in this_parent:
-                # Only return the root's handle if we wrote it already.
-                if this_parent.name in self.objs_written:
-                    ninode = self.objs_written[this_parent.name]
-            elif this_parent.name in self.objs_written:
-                ninode = self.objs_written[this_parent.name]
-            else:
-                ninode = self.export_node(this_parent, last_parent)
+            ref = self.objs_written.find_blend(this_parent)
+            if (not ref) and  ('pynRoot' not in this_parent):
+                ref = self.export_node(this_parent, last_parent)
+            # if 'pynRoot' in this_parent:
+            #     # Only return the root's handle if we wrote it already.
+            #     rootref = self.objs_written.find_blend(this_parent)
+            #     if rootref: ninode = rootref.ninode
+            #     # if this_parent.name in self.objs_written.find_blend(this_parent):
+            #     #     ninode = self.objs_written[this_parent.name]
+            # else:
+            #     ref = self.objs_written.find_blend(this_parent)
+            #     if ref: 
+            #         ninode = ref.nifnode
+            #     else:
+            #         ref = self.export_node(this_parent, last_parent)
+            #         ninode = ref.nifnode
+            # # elif this_parent.name in self.objs_written:
+            # #     ninode = self.objs_written[this_parent.name]
+            # # else:
+            # #     ninode = self.export_node(this_parent, last_parent)
             
-            last_parent = ninode
+            last_parent = ref
         
-        return ninode
+        return ref
 
 
     def get_bone_xforms(self, arma, bone_names, shape):
@@ -3445,7 +3458,7 @@ class NifExporter:
             target_key = shape key to export
             arma = armature to skin to
             """
-        if obj.name in self.objs_written or nonunique_name(obj) in collision.collision_names:
+        if self.objs_written.find_blend(obj) or nonunique_name(obj) in collision.collision_names:
             return
         log.info(f"Exporting {obj.name}")
 
@@ -3507,13 +3520,14 @@ class NifExporter:
         new_shape = self.nif.createShapeFromData(self.unique_name(obj), 
                                                  verts, tris, uvmap_new, norms_exp,
                                                  props=props,
-                                                 parent=my_parent)
-        self.objs_written[obj.name] = new_shape
+                                                 parent=my_parent.nifnode if my_parent else None)
+        robj = ReprObject(obj, new_shape)
+        self.objs_written.add(robj)
 
         if colors_new:
             new_shape.set_colors(colors_new)
 
-        self.export_shape_data(obj, new_shape)
+        self.export_shape_data(robj)
         
         shaderexp.export(new_shape)
 
@@ -3555,7 +3569,7 @@ class NifExporter:
             self.warn(f"Error exporting controller: {repr(e)}")
 
         # Write tri file
-        retval |= self.export_tris(obj, verts, tris, uvmap_new, morphdict)
+        retval |= self.export_tris(robj, verts, tris, uvmap_new, morphdict)
 
         # Write TRIP extra data 
         if self.write_bodytri \
@@ -3589,14 +3603,118 @@ class NifExporter:
             self.write_bone(None, arma, b.name, arma.data.bones.keys())
 
 
+    def export_nif(self, fpath, suffix, sk):
+        """
+        Export to a single nif file.
+
+        * fpath = file path to write
+        * suffix = None or "_facebones" when a filebones nif is to be written
+        * sk = target shape key to export
+        """
+        self.objs_written = ReprObjectCollection()
+        NifFile.clear_log()
+        self.nif = NifFile()
+
+        rt = "NiNode"
+        rn = "Scene Root"
+
+        if self.objects:
+            shape = next(iter(self.objects))
+        else:
+            shape = self.armature
+
+        if self.root_object:
+            try:
+                rt = self.root_object["pynBlockName"]
+            except:
+                rt = 'NiNode'
+            try:
+                rn = self.root_object["pynNodeName"]
+            except:
+                rn = 'Scene Root'
+        else:
+            if "pynRootNode_BlockType" in shape:
+                rt = shape["pynRootNode_BlockType"]
+            if "pynNodeName" in shape:
+                rn = shape["pynNodeName"]
+        
+        self.nif.initialize(self.game, fpath, rt, rn)
+        if self.root_object:
+            self.objs_written.add_pair(self.root_object, self.nif.rootNode) # [self.root_object.name] = self.nif.rootNode
+            try:
+                self.nif.rootNode.flags = NiAVFlags.parse(self.root_object["pynNodeFlags"]).value
+            except:
+                pass
+        elif "pynNodeFlags" in shape:
+            self.nif.rootNode.flags = NiAVFlags.parse(shape["pynNodeFlags"]).value
+
+        if suffix == '_faceBones':
+            self.nif.dict = fo4FaceDict
+
+        self.nif.dict.use_niftools = self.rename_bones_nift
+        self.writtenbones = {}
+
+        if self.objects:
+            for obj in self.objects:
+                if suffix == "_faceBones" and self.facebones:
+                    # Have exporting the facebones variant and have a facebones armature
+                    self.export_shape(obj, sk, self.facebones)
+                elif (not suffix) and self.armature:
+                    # Exporting the main file and have an armature to do it with. 
+                    self.export_shape(obj, sk, self.armature)
+                elif (not suffix) and self.facebones:
+                    # Exporting the main file and have a facebones armature to do it
+                    # with. Facebones armatures generally have all the necessary bones
+                    # for export, so it's fine to use them.
+                    self.export_shape(obj, sk, self.facebones)
+                elif (not self.facebones) and (not self.armature):
+                    # No armatures, just export the shape.
+                    self.export_shape(obj, sk)
+        elif self.armature:
+            # Just export the skeleton
+            self.export_armature(self.armature)
+
+        # Make sure any grouping nodes get exported, even if they're empty.
+        for obj in self.grouping_nodes:
+            if 'pynRoot' not in obj and not self.objs_written.find_blend(obj):
+                par = None
+                if obj.parent:
+                    par = self.objs_written.find_blend(obj.parent)
+                # if obj.parent and obj.parent.name in self.objs_written:
+                #     par = self.objs_written[obj.parent.name]
+                self.export_node(obj, par)
+
+        # Check for bodytri morphs--write the extra data node if needed
+        if self.write_bodytri \
+                and self.game in ['FO4', 'FO76'] \
+                and len(self.trip.shapes) > 0 \
+                and  not self.bodytri_written:
+            self.nif.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
+
+        if self.root_object:
+            collision.CollisionHandler.export_collisions(self, self.root_object)
+        self.export_extra_data()
+        self.connect_points.export_all(self.nif)
+        controller.ControllerHandler.export_named_animations(
+            self, self.objs_written)
+
+        self.nif.save()
+        log.info(f"..Wrote {fpath}")
+        msgs = list(filter(lambda x: not x.startswith('Info: Loaded skeleton') and len(x)>0, 
+                            self.nif.message_log().split('\n')))
+        if msgs:
+            self.message_log.append(self.nif.message_log())
+
+
     def export_file_set(self, suffix=''):
         """ 
-        Create a set of nif files from the given object, using the given armature and
+        Create a set of nif files from the target objects, using the given armature and
         appending the suffix. One file is created per shape key with the shape key used as
         suffix. Associated TRIP files are exported if there is TRIP info.
                 
         * suffix = suffix to append to the filenames, after the shape key suffix. Empty
           string for regular nifs, non-empty for facebones nifs
+        * self.objects = Objects to export
         """
         if self.file_keys is None or len(self.file_keys) == 0:
             shape_keys = ['']
@@ -3613,95 +3731,7 @@ class NifExporter:
             fnamefull = fbasename + fname_ext[1]
             fpath = os.path.join(os.path.dirname(self.filepath), fnamefull)
 
-            self.objs_written.clear()
-            NifFile.clear_log()
-            self.nif = NifFile()
-
-            rt = "NiNode"
-            rn = "Scene Root"
-
-            if self.objects:
-                shape = next(iter(self.objects))
-            else:
-                shape = self.armature
-
-            if self.root_object:
-                try:
-                    rt = self.root_object["pynBlockName"]
-                except:
-                    rt = 'NiNode'
-                try:
-                    rn = self.root_object["pynNodeName"]
-                except:
-                    rn = 'Scene Root'
-            else:
-                if "pynRootNode_BlockType" in shape:
-                    rt = shape["pynRootNode_BlockType"]
-                if "pynNodeName" in shape:
-                    rn = shape["pynNodeName"]
-            
-            self.nif.initialize(self.game, fpath, rt, rn)
-            if self.root_object:
-                self.objs_written[self.root_object.name] = self.nif.rootNode
-                try:
-                    self.nif.rootNode.flags = NiAVFlags.parse(self.root_object["pynNodeFlags"]).value
-                except:
-                    pass
-            elif "pynNodeFlags" in shape:
-                self.nif.rootNode.flags = NiAVFlags.parse(shape["pynNodeFlags"]).value
-
-            if suffix == '_faceBones':
-                self.nif.dict = fo4FaceDict
-
-            self.nif.dict.use_niftools = self.rename_bones_nift
-            self.writtenbones = {}
-
-            if self.objects:
-                for obj in self.objects:
-                    if suffix == "_faceBones" and self.facebones:
-                        # Have exporting the facebones variant and have a facebones armature
-                        self.export_shape(obj, sk, self.facebones)
-                    elif (not suffix) and self.armature:
-                        # Exporting the main file and have an armature to do it with. 
-                        self.export_shape(obj, sk, self.armature)
-                    elif (not suffix) and self.facebones:
-                        # Exporting the main file and have a facebones armature to do it
-                        # with. Facebones armatures generally have all the necessary bones
-                        # for export, so it's fine to use them.
-                        self.export_shape(obj, sk, self.facebones)
-                    elif (not self.facebones) and (not self.armature):
-                        # No armatures, just export the shape.
-                        self.export_shape(obj, sk)
-            elif self.armature:
-                # Just export the skeleton
-                self.export_armature(self.armature)
-
-            # Make sure any grouping nodes get exported, even if they're empty.
-            for obj in self.grouping_nodes:
-                if 'pynRoot' not in obj and obj.name not in self.objs_written:
-                    par = None
-                    if obj.parent and obj.parent.name in self.objs_written:
-                        par = self.objs_written[obj.parent.name]
-                    self.export_node(obj, par)
-
-            # Check for bodytri morphs--write the extra data node if needed
-            if self.write_bodytri \
-                    and self.game in ['FO4', 'FO76'] \
-                    and len(self.trip.shapes) > 0 \
-                    and  not self.bodytri_written:
-                self.nif.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
-
-            if self.root_object:
-                collision.CollisionHandler.export_collisions(self, self.root_object)
-            self.export_extra_data()
-            self.connect_points.export_all(self.nif)
-
-            self.nif.save()
-            log.info(f"..Wrote {fpath}")
-            msgs = list(filter(lambda x: not x.startswith('Info: Loaded skeleton') and len(x)>0, 
-                               self.nif.message_log().split('\n')))
-            if msgs:
-                self.message_log.append(self.nif.message_log())
+            self.export_nif(fpath, suffix, sk)
 
         if len(self.trip.shapes) > 0:
             self.trip.write(self.trippath)
