@@ -2515,6 +2515,22 @@ def TEST_COLOR_CUBES():
         assert c == (1, 0, 0, 1) or c == (0, 1, 0, 1), f"Color is red or green: {c}"
         
 
+def TEST_NOTEXTURES():
+    """Can read a nif with no texture paths."""
+    testfile = TT.test_file(r"tests/FO4/HeadGear1 - NoTextures.nif")
+    testfileout = TT.test_file(r"tests/Out/TEST_NOTEXTURES.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    obj = bpy.context.object
+    colordata = obj.data.vertex_colors.active.data
+    targetv = TT.find_vertex(obj.data, (1.62, 7.08, 0.37))
+    assert colordata[0].color[:] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not read correctly: {colordata[0].color[:]}"
+    for lp in obj.data.loops:
+        if lp.vertex_index == targetv:
+            assert colordata[lp.index].color[:] == (0.0, 0.0, 0.0, 1.0), f"Color for vert not read correctly: {colordata[lp.index].color[:]}"
+
+
 def TEST_VERTEX_COLOR_IO():
     """Vertex colors can be read and written"""
     # On heads, vertex alpha and diffuse alpha work together to determine the final
@@ -5737,7 +5753,7 @@ if not bpy.data:
 else:
     badtests = []
 
-    do_tests([TEST_COLLISION_BOW_SCALE])
+    do_tests([TEST_NOTEXTURES])
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
@@ -5753,4 +5769,4 @@ else:
     
     # do_tests(testfrom(TEST_COLLISION_CONVEXVERT), exclude=badtests)
 
-    do_tests(alltests, exclude=badtests)
+    # do_tests(alltests, exclude=badtests)

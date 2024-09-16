@@ -984,9 +984,9 @@ class ShaderImporter:
         Blender 4.2 REMOVED alpha clip mode, so we have to implement it with shader nodes.
         """
         alphathr = self.make_node("ShaderNodeValue",
-                                  name='Alpha Threshold',
-                                  xloc=self.bsdf.location.x + self.img_offset_x,
-                                  height=INPUT_NODE_HEIGHT)
+                                name='Alpha Threshold',
+                                xloc=self.bsdf.location.x + self.img_offset_x,
+                                height=INPUT_NODE_HEIGHT)
         alphathr.outputs[0].default_value = shape.alpha_property.threshold
 
         math = self.nodes.new("ShaderNodeMath")
@@ -995,14 +995,17 @@ class ShaderImporter:
         math.inputs[1].default_value = 255
         math.location = alphathr.location + Vector((alphathr.width + HORIZONTAL_GAP, 0))
 
+        dif = None
+        if self.diffuse and 'Alpha' in self.diffuse.outputs:
+            dif = self.diffuse.outputs['Alpha']
         map1 = make_maprange(self.material.node_tree, 
-                             in_value=self.diffuse.outputs['Alpha'],
-                             in_from_max=math.outputs[0],
-                             location=math.location + Vector((math.width + HORIZONTAL_GAP, 0)))
+                            in_value=dif,
+                            in_from_max=math.outputs[0],
+                            location=math.location + Vector((math.width + HORIZONTAL_GAP, 0)))
         map2 = make_maprange(self.material.node_tree, 
-                             in_value=map1.outputs[0],
-                             in_from_min=math.outputs[0],
-                             location=map1.location + Vector((map1.width + HORIZONTAL_GAP, 0)))
+                            in_value=map1.outputs[0],
+                            in_from_min=math.outputs[0],
+                            location=map1.location + Vector((map1.width + HORIZONTAL_GAP, 0)))
         self.link(map2.outputs[0], self.bsdf.inputs['Alpha'])
 
         self.bsdf.location += map1.location - alphathr.location
