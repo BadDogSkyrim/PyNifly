@@ -158,19 +158,15 @@ def append_groupnode(parent, name, label, shader_path, location):
     """
     Load a group node from the assets file.
     """
-    try:
-        with bpy.data.libraries.load(shader_path) as (data_from, data_to):
-            data_to.node_groups = [name]
+    with bpy.data.libraries.load(shader_path) as (data_from, data_to):
+        data_to.node_groups = [name]
 
-        shader_node = parent.nodes.new('ShaderNodeGroup')
-        shader_node.label = label
-        shader_node.name = name
-        shader_node.location = location
-        shader_node.node_tree = data_to.node_groups[0]
-        return shader_node
-    
-    except Exception as e:
-        log.warn(f"Could not load shader nodes {name} from assets file: {traceback.format_exc()}")
+    shader_node = parent.nodes.new('ShaderNodeGroup')
+    shader_node.label = label
+    shader_node.name = name
+    shader_node.location = location
+    shader_node.node_tree = data_to.node_groups[0]
+    return shader_node
 
 
 def make_shader_skyrim(parent, shader_path, location, 
@@ -856,7 +852,11 @@ def make_maprange(nodetree, in_value=None,
 
 
 class ShaderImporter:
-    def __init__(self):
+    def __init__(self, logger):
+        """
+        Machinery to handle importing shaders. 
+        * Logger: implements a "warn" routine to report problems.
+        """
         self.material = None
         self.shape = None
         self.colormap = None
@@ -869,9 +869,9 @@ class ShaderImporter:
         self.game = None
         self.do_specular = False
         self.asset_path = False
-        self.have_errors = False
         self.is_lighting_shader = True
         self.is_effect_shader = False
+        self.logger = logger
 
         self.inputs_offset_x = -1900
         self.calc1_offset_x = -1700
@@ -902,8 +902,7 @@ class ShaderImporter:
         
 
     def warn(self, msg):
-        self.log.warn(msg)
-        self.have_errors = True
+        self.logger.warn(msg)
 
 
     def import_shader_attrs(self, shape:NiShape):
@@ -1100,44 +1099,16 @@ class ShaderImporter:
         """Create a link between two nodes"""
         self.material.node_tree.links.new(a, b)
 
+    
+    def import_grayscale(self, txtnode):
+        """
+        Import shader nodes to handle grayscale coloring.
+        """
+        try:
+            loc = Vector((txtnode.location.x + txtnode.width + self.gap_x, 
+                        txtnode.location.y))
 
-    def import_diffuse(self):
-        """Create nodes for the diffuse texture."""
-
-        if not ('Diffuse' in self.shape.textures and self.shape.textures['Diffuse']):
-            return
-        
-        txtnode = self.make_node("ShaderNodeTexImage",
-                                 name='Diffuse_Texture',
-                                 xloc=self.bsdf.location.x + self.img_offset_x,
-                                 height=TEXTURE_NODE_HEIGHT)
-        txtnode.width = txtnode.width * 1.2
-        if 'Diffuse' in self.textures and self.textures['Diffuse']:
-            img = bpy.data.images.load(self.textures['Diffuse'], check_existing=True)
-            img.colorspace_settings.name = "sRGB"
-            txtnode.image = img
-        else:
-            self.warn(f"Could not load diffuse texture '{self.shape.textures['Diffuse']}'")
-        self.link(self.texmap.outputs['Vector'], txtnode.inputs['Vector'])
-        txt_outskt = txtnode.outputs['Color']
-        loc = Vector((txtnode.location.x + txtnode.width + self.gap_x, 
-                      txtnode.location.y))
-
-        # # Seems like Emissive Color should affect diffuse.
-        # if self.shape.shader.flags1_test(ShaderFlags1.EXTERNAL_EMITTANCE):
-        #     mix_emit = make_mixnode(self.material.node_tree, 
-        #                             txtnode.outputs['Color'],
-        #                             self.shape.shader.properties.emittanceColor,
-        #                             None,
-        #                             0.5,
-        #                             'MIX',
-        #                             loc)
-        #     txt_outskt = mix_emit.outputs['Result']
-        #     loc += Vector((mix_emit.width + self.gap_x, 0))
-
-        if self.shape.shader.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_COLOR):
-            # Extra nodes to handle greyscale color mapping
-            # txtnode.location.x -= 4*(txtnode.width + self.gap_x)
+            txt_outskt = txtnode.outputs['Color']
             gtpvector = append_groupnode(self,
                                          "Fallout 4 MTS - Greyscale To Palette Vector",
                                          "Greyscale to Palette Vector",
@@ -1179,9 +1150,36 @@ class ShaderImporter:
             # self.nodes['Material Output'].location.x += self.img_offset_x*4
 
             self.bsdf_xadjust = gtpcolor.location.x + gtpcolor.width - gtpvector.location.x
+    
+        except:
+            self.warn(f"Could not load shader nodes from assets file: {traceback.format_exc()}")
+
+
+    def import_diffuse(self):
+        """Create nodes for the diffuse texture."""
+
+        if not ('Diffuse' in self.shape.textures and self.shape.textures['Diffuse']):
+            return
+        
+        txtnode = self.make_node("ShaderNodeTexImage",
+                                 name='Diffuse_Texture',
+                                 xloc=self.bsdf.location.x + self.img_offset_x,
+                                 height=TEXTURE_NODE_HEIGHT)
+        txtnode.width = txtnode.width * 1.2
+        if 'Diffuse' in self.textures and self.textures['Diffuse']:
+            img = bpy.data.images.load(self.textures['Diffuse'], check_existing=True)
+            img.colorspace_settings.name = "sRGB"
+            txtnode.image = img
+        else:
+            self.warn(f"Could not load diffuse texture '{self.shape.textures['Diffuse']}'")
+        self.link(self.texmap.outputs['Vector'], txtnode.inputs['Vector'])
+        if self.shape.shader.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_COLOR):
+            # Extra nodes to handle greyscale color mapping
+            # txtnode.location.x -= 4*(txtnode.width + self.gap_x)
+            self.import_grayscale(txtnode)
 
         else:
-            self.link(txt_outskt, self.bsdf.inputs['Diffuse'])
+            self.link(txtnode.outputs['Color'], self.bsdf.inputs['Diffuse'])
 
         if self.shape.has_alpha_property:
             self.link(txtnode.outputs['Alpha'], self.bsdf.inputs['Alpha'])
@@ -1392,82 +1390,87 @@ class ShaderImporter:
         """
         Import the shader info from shape and create a Blender representation using shader
         nodes.
+        * logger: Implemenets the "warn" function to report errors.
         """
-        if obj.type == 'EMPTY': return 
-
-        self.shape = shape
-        self.game = shape.file.game
-        self.is_effect_shader = (shape.shader.blockname == 'BSEffectShaderProperty')
-        self.is_lighting_shader = (shape.shader.blockname == 'BSLightingShaderProperty')
-        have_face = (self.is_lighting_shader and 
-                     shape.shader.properties.Shader_Type == BSLSPShaderType.Face_Tint)
-        self.asset_path = os.path.join(asset_path, "shaders.blend")
-
-        self.material = bpy.data.materials.new(name=(obj.name + ".Mat"))
-        self.material.use_nodes = True
-        self.nodes = self.material.node_tree.nodes
-
-        # Stash texture strings for future export
-        for k, t in shape.textures.items():
-            if t:
-                self.material['BSShaderTextureSet_' + k] = t
-
-        self.find_textures(shape)
-
-        self.nodes.remove(self.nodes["Principled BSDF"])
-        mo = self.nodes['Material Output']
-
-        if self.game == 'FO4':
-            self.bsdf = make_shader_fo4(self.material.node_tree, 
-                                        self.asset_path, 
-                                        (mo.location.x - NODE_WIDTH, mo.location.y),
-                                        facegen=have_face,
-                                        effect_shader=self.is_effect_shader)
-        else:
-            self.bsdf = make_shader_skyrim(self.material.node_tree,
-                                           self.asset_path,
-                                           mo.location + Vector((-NODE_WIDTH, 0)),
-                                           msn=shape.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS),
-                                           facegen=have_face,
-                                           effect_shader=self.is_effect_shader)
-        
-        self.bsdf.width = 250
-        self.bsdf.location.x -= 100
         try:
-            self.link(self.bsdf.outputs['Material'], 
-                    self.nodes['Material Output'].inputs['Surface'])
-        except:
-            self.link(self.bsdf.outputs['BSDF'], 
-                    self.nodes['Material Output'].inputs['Surface'])
-        
-        self.img_offset_x = -1.5 * TEXTURE_NODE_WIDTH
-        self.calc1_offset_x = self.img_offset_x - NODE_WIDTH*2
-        self.calc2_offset_x = self.img_offset_x - NODE_WIDTH
-        self.inputs_offset_x = self.img_offset_x - 3*NODE_WIDTH
+            if obj.type == 'EMPTY': return 
 
-        self.ytop = self.bsdf.location.y
-        self.inter1_offset_x += self.bsdf.location.x
-        self.inter2_offset_x += self.bsdf.location.x
-        self.inter3_offset_x += self.bsdf.location.x
-        self.inter4_offset_x += self.bsdf.location.x
+            self.shape = shape
+            self.game = shape.file.game
+            self.is_effect_shader = (shape.shader.blockname == 'BSEffectShaderProperty')
+            self.is_lighting_shader = (shape.shader.blockname == 'BSLightingShaderProperty')
+            have_face = (self.is_lighting_shader and 
+                        shape.shader.properties.Shader_Type == BSLSPShaderType.Face_Tint)
+            self.asset_path = os.path.join(asset_path, "shaders.blend")
 
-        self.make_uv_nodes()
-        self.colormap, self.alphamap = get_effective_colormaps(obj.data)
+            self.material = bpy.data.materials.new(name=(obj.name + ".Mat"))
+            self.material.use_nodes = True
+            self.nodes = self.material.node_tree.nodes
 
-        self.import_diffuse()
-        self.import_subsurface()
-        self.import_specular()
-        self.import_normal()
-        self.import_glowmap()
-        self.import_envmap()
-        self.import_envmask()
-        self.import_shader_attrs(shape)
-        self.import_shader_alpha(shape)
+            # Stash texture strings for future export
+            for k, t in shape.textures.items():
+                if t:
+                    self.material['BSShaderTextureSet_' + k] = t
 
-        self.bsdf.location.x += self.bsdf_xadjust
-        mo.location.x += self.bsdf_xadjust
+            self.find_textures(shape)
 
-        obj.active_material = self.material
+            self.nodes.remove(self.nodes["Principled BSDF"])
+            mo = self.nodes['Material Output']
+
+            if self.game == 'FO4':
+                self.bsdf = make_shader_fo4(self.material.node_tree, 
+                                            self.asset_path, 
+                                            (mo.location.x - NODE_WIDTH, mo.location.y),
+                                            facegen=have_face,
+                                            effect_shader=self.is_effect_shader)
+            else:
+                self.bsdf = make_shader_skyrim(self.material.node_tree,
+                                            self.asset_path,
+                                            mo.location + Vector((-NODE_WIDTH, 0)),
+                                            msn=shape.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS),
+                                            facegen=have_face,
+                                            effect_shader=self.is_effect_shader)
+            
+            self.bsdf.width = 250
+            self.bsdf.location.x -= 100
+            try:
+                self.link(self.bsdf.outputs['Material'], 
+                        self.nodes['Material Output'].inputs['Surface'])
+            except:
+                self.link(self.bsdf.outputs['BSDF'], 
+                        self.nodes['Material Output'].inputs['Surface'])
+            
+            self.img_offset_x = -1.5 * TEXTURE_NODE_WIDTH
+            self.calc1_offset_x = self.img_offset_x - NODE_WIDTH*2
+            self.calc2_offset_x = self.img_offset_x - NODE_WIDTH
+            self.inputs_offset_x = self.img_offset_x - 3*NODE_WIDTH
+
+            self.ytop = self.bsdf.location.y
+            self.inter1_offset_x += self.bsdf.location.x
+            self.inter2_offset_x += self.bsdf.location.x
+            self.inter3_offset_x += self.bsdf.location.x
+            self.inter4_offset_x += self.bsdf.location.x
+
+            self.make_uv_nodes()
+            self.colormap, self.alphamap = get_effective_colormaps(obj.data)
+
+            self.import_diffuse()
+            self.import_subsurface()
+            self.import_specular()
+            self.import_normal()
+            self.import_glowmap()
+            self.import_envmap()
+            self.import_envmask()
+            self.import_shader_attrs(shape)
+            self.import_shader_alpha(shape)
+
+            self.bsdf.location.x += self.bsdf_xadjust
+            mo.location.x += self.bsdf_xadjust
+
+            obj.active_material = self.material
+        except Exception as e:
+            self.warn(f"Could not import material for {obj.name}: " + traceback.format_exc())
+            
 
 
 def set_object_textures(shape: NiShape, mat: bpy.types.Material):
@@ -1535,10 +1538,10 @@ def has_msn_shader(obj):
 
 
 class ShaderExporter:
-    def __init__(self, blender_obj):
+    def __init__(self, blender_obj, logger):
         self.obj = blender_obj
         self.is_obj_space = False
-        self.have_errors = False
+        self.logger = logger
 
         self.material = None
         self.shader_node = None
@@ -1565,8 +1568,7 @@ class ShaderExporter:
         self.vertex_colors, self.vertex_alpha = get_effective_colormaps(blender_obj.data)
 
     def warn(self, msg):
-        log.warn(msg)
-        self.have_errors = True
+        self.logger.warn(msg)
 
 
     def _export_shader_attrs(self, shape):
@@ -1837,8 +1839,8 @@ class ShaderExporter:
             new_shape.save_shader_attributes()
         except Exception as e:
             # Any errors, print the error but continue
-            log.warn(str(e))
+            self.warn(str(e))
 
-        if self.have_errors:
-            log.warn(f"Shader nodes are not set up for export to nif. Check and fix in generated nif file.")
+        # if self.have_errors:
+        #     log.warn(f"Shader nodes are not set up for export to nif. Check and fix in generated nif file.")
 

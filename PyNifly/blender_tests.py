@@ -5753,7 +5753,7 @@ if not bpy.data:
 else:
     badtests = []
 
-    do_tests([TEST_NOTEXTURES])
+    # do_tests([TEST_NOTEXTURES])
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
@@ -5769,4 +5769,4 @@ else:
     
     # do_tests(testfrom(TEST_COLLISION_CONVEXVERT), exclude=badtests)
 
-    # do_tests(alltests, exclude=badtests)
+    do_tests(alltests, exclude=badtests)

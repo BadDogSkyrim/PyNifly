@@ -975,7 +975,7 @@ class NifImporter():
             if the_shape.normals:
                 mesh_create_normals(new_object.data, the_shape.normals)
 
-            shader_io.ShaderImporter().import_material(new_object, the_shape, asset_path)
+            shader_io.ShaderImporter(self).import_material(new_object, the_shape, asset_path)
 
             if the_shape.collision_object and self.do_import_collisions:
                 collision.CollisionHandler.import_collision_obj(
@@ -3494,7 +3494,7 @@ class NifExporter:
                 and len(self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
 
         obj.data.update()
-        shaderexp = shader_io.ShaderExporter(obj)
+        shaderexp = shader_io.ShaderExporter(obj, self)
 
         if shaderexp.is_obj_space:
             norms_exp = None
