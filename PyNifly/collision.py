@@ -157,8 +157,12 @@ class CollisionHandler():
         self.import_xf = None
         self.nif = parent_handler.nif
         self.objs_written = None
-        self.warn = None
+        self.logger = logging.getLogger("pynifly")
     
+
+    def warn(self, msg):
+        self.logger.warning(msg)
+
 
     # ------- COLLISION IMPORT --------
 
@@ -436,7 +440,6 @@ class CollisionHandler():
         """
         importer = CollisionHandler(parent_handler)
         importer.import_xf = parent_handler.import_xf
-        importer.warn = parent_handler.warn
         importer.blender_name = parent_handler.blender_name
         importer.collection = parent_handler.collection
 
@@ -799,7 +802,6 @@ class CollisionHandler():
         exporter.objs_written = parent_handler.objs_written
         exporter.game = parent_handler.game
         exporter.export_xf = parent_handler.export_xf
-        exporter.warn = parent_handler.warn
 
         targobj = obj
         if obj.type == 'ARMATURE':

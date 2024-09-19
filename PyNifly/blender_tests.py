@@ -5753,7 +5753,7 @@ if not bpy.data:
 else:
     badtests = []
 
-    # do_tests([TEST_NOTEXTURES])
+    do_tests([TEST_SKEL_XML])
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (

@@ -114,7 +114,7 @@ class ControllerHandler():
         self.nif = parent_handler.nif
         self.context = parent_handler.context
         self.fps = parent_handler.context.scene.render.fps
-        self.warn = parent_handler.warn
+        self.logger = logging.getLogger("pynifly")
         if hasattr(parent_handler, "auxbones"): 
             self.auxbones = parent_handler.auxbones
         if hasattr(parent_handler, "nif_name"): 
@@ -123,6 +123,10 @@ class ControllerHandler():
             self.blender_name = parent_handler.blender_name
         if hasattr(parent_handler, "objects_created"):
             self.objects_created = parent_handler.objects_created
+
+
+    def warn(self, msg):
+        self.logger.warning(msg)
 
 
     def _find_target(self, nifname):

@@ -12,7 +12,7 @@ class MaterialFile(Structure):
     _defaults_ = []
 
     def __init__(self, filepath=None, logger=None):
-        MaterialFile.log = logger
+        if logger: MaterialFile.log = logger
         super().__init__(**self._defaults_)
         self.textures = {}
         if filepath: self.read(filepath)
@@ -21,6 +21,11 @@ class MaterialFile(Structure):
     def logError(cls, msg):
         if MaterialFile.log:
             MaterialFile.log.error(msg)
+    
+    @classmethod
+    def logWarning(cls, msg):
+        if MaterialFile.log:
+            MaterialFile.log.warning(msg)
     
     def read_field(self, fieldname, ftype):
         """Read a single field from the file."""
@@ -91,7 +96,7 @@ class MaterialFile(Structure):
             with open(filename, 'rb') as f:
                 self._read(f)
         except:
-            MaterialFile.logError(f"Cannot read materials file '{filename}'")
+            MaterialFile.logWarning(f"Cannot read materials file '{filename}'")
 
     def extract(self, d):
         for fn, t in self._fields_:
@@ -125,7 +130,7 @@ class MaterialFile(Structure):
             else:
                 cls.logError(f"Not a known materials file: {filepath}")
         except:
-            cls.logError(f"Cannot read materials file '{filepath}'")
+            cls.logWarning(f"Cannot read materials file '{filepath}'")
         return m
 
 

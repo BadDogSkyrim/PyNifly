@@ -852,7 +852,7 @@ def make_maprange(nodetree, in_value=None,
 
 
 class ShaderImporter:
-    def __init__(self, logger):
+    def __init__(self):
         """
         Machinery to handle importing shaders. 
         * Logger: implements a "warn" routine to report problems.
@@ -871,7 +871,7 @@ class ShaderImporter:
         self.asset_path = False
         self.is_lighting_shader = True
         self.is_effect_shader = False
-        self.logger = logger
+        self.logger = logging.getLogger("pynifly")
 
         self.inputs_offset_x = -1900
         self.calc1_offset_x = -1700
@@ -890,8 +890,6 @@ class ShaderImporter:
         self.ytop = 0
         self.bsdf_xadjust = 0
 
-        self.log = logging.getLogger("pynifly")
-
     
     @property 
     def emission_color_skt(self):
@@ -902,7 +900,7 @@ class ShaderImporter:
         
 
     def warn(self, msg):
-        self.logger.warn(msg)
+        self.logger.warning(msg)
 
 
     def import_shader_attrs(self, shape:NiShape):
@@ -1538,10 +1536,10 @@ def has_msn_shader(obj):
 
 
 class ShaderExporter:
-    def __init__(self, blender_obj, logger):
+    def __init__(self, blender_obj):
         self.obj = blender_obj
         self.is_obj_space = False
-        self.logger = logger
+        self.logger = logging.getLogger("pynifly")
 
         self.material = None
         self.shader_node = None

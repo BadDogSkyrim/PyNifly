@@ -43,7 +43,6 @@ if nifly_path and os.path.exists(nifly_path):
 else:
     # Load from install location
     py_addon_path = os.path.dirname(os.path.realpath(__file__))
-    #log.debug(f"PyNifly addon path: {py_addon_path}")
     if py_addon_path not in sys.path:
         sys.path.append(py_addon_path)
     nifly_path = os.path.join(py_addon_path, "NiflyDLL.dll")
@@ -152,11 +151,6 @@ NISHAPE_IGNORE = ["bufSize",
 
 # --------- Helper functions -------------
 
-def LogIf(condition, text):
-    if condition:
-        log.debug(text)
-
-
 def is_in_plane(plane, vert):
     """ Test whether vert is in the plane defined by the three vectors in plane """
     #find the plane's normal. p0, p1, and p2 are simply points on the plane (in world space)
@@ -203,14 +197,11 @@ def pack_xf_to_buf(xf, scale_factor: float):
 def armatures_match(a, b):
     """Returns true if all bones of the first armature have the same position in the second"""
     bpy.ops.object.mode_set(mode = 'OBJECT')
-    #log.debug(f"<armatures_match> comparing {a.name} with {b.name}")
     for bone in a.data.bones:
         if bone.name in b.data.bones:
             if not MatNearEqual(bone.matrix_local, b.data.bones[bone.name].matrix_local):
-                #log.debug(f"Bone {bone.name} positions do not match {a.name} vs {b.name}: \n{bone.matrix_local}!=\n{b.data.bones[bone.name].matrix_local}")
                 return False
             elif not MatNearEqual(a.pose.bones[bone.name].matrix, b.pose.bones[bone.name].matrix):
-                #log.debug(f"Bone {bone.name} pose positions do not match {a.name} vs {b.name}: \n{a.pose.bones[bone.name].matrix}!=\n{b.pose.bones[bone.name].matrix}")
                 return False
             else:
                 pass
@@ -312,7 +303,6 @@ def mesh_create_partition_groups(the_shape, the_object):
                 this_loop = mesh.loops[lp]
                 this_vg.add((this_loop.vertex_index,), 1.0, 'ADD')
     if len(the_shape.segment_file) > 0:
-        #log.debug(f"..Putting segment file '{the_shape.segment_file}' on '{the_object.name}'")
         the_object['FO4_SEGMENT_FILE'] = the_shape.segment_file
 
 
@@ -348,7 +338,7 @@ def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
                     alph = colors[lp.vertex_index][3]
                     alphlayer.data[lp.index].color = [alph, alph, alph, 1.0]
     except:
-        log.error(f"ERROR: Could not read colors on shape {shape.name}")
+        log.error(f"Could not read colors on shape {shape.name}")
 
 
 class NifImporter():
@@ -356,8 +346,6 @@ class NifImporter():
     filename can be a single filepath string or a list of filepaths
     """
     def __init__(self, filename, chargen="chargen", scale=1.0):
-
-        #log.debug(f"Importing {filename} with flags {f}")
         if type(filename) == str:
             self.filename = filename
             self.filename_list = [filename]
@@ -538,7 +526,7 @@ class NifImporter():
                     # is just weird. Inform the user and don't use this for the average.
                     else:
                         offset_consistent = False
-                        log.warn(f"Shape {the_shape.name} does not have consistent offset from nif armature--can't use it to extend the armature.")
+                        log.warning(f"Shape {the_shape.name} does not have consistent offset from nif armature--can't use it to extend the armature.")
                         self.do_create_bones = False
                         break
 
@@ -582,7 +570,7 @@ class NifImporter():
                     # is just weird. Inform the user and don't use this for the average.
                     else:
                         offset_consistent = False
-                        log.warn(f"Shape {the_shape.name} does not have consitent offset from reference skeleton {self.reference_skel.filepath}--can't use it to extend the armature.")
+                        log.warning(f"Shape {the_shape.name} does not have consitent offset from reference skeleton {self.reference_skel.filepath}--can't use it to extend the armature.")
                         self.do_create_bones = False
                         break
 
@@ -608,7 +596,6 @@ class NifImporter():
                     # fudge factor. Reducing epsilon here will result in their shape not
                     # getting adjusted to the armature location. 
                     if not MatNearEqual(pose_xf, bone_xf, epsilon=0.5):
-                        #log.debug(f"Pose transform not consistent in {the_shape.name} with bone {b}:\n{pose_xf}\n!=\n{bone_xf}")
                         same = False
                         break
                 else:
@@ -623,7 +610,6 @@ class NifImporter():
                     xf = xf @ pose_xf
                 xf.invert()
 
-        #log.debug(f"Shape {the_shape.name} has calculated transform {xf.translation}")
         return apply_scale_xf(xf, scale_factor)
 
 
@@ -801,12 +787,10 @@ class NifImporter():
         elif ninode.file.game == "FO4" and ninode.name in fo4FaceDict.byNif:
             skelbone = fo4FaceDict.byNif[ninode.name]
 
-        #log.debug(f"Found for {ninode.name} {skelbone} to add to {arma}")
         if skelbone and arma:
             # Have not created this as bone in an armature already AND it's a known
             # skeleton bone, AND we have an armature, create it as an armature bone even
             # tho it's not used in the shape
-            #log.debug(f"Creating bone for {bl_name}")
             ObjectSelect([arma], active=True)
             bpy.ops.object.mode_set(mode = 'EDIT')
             bn = self.add_bone_to_arma(arma, self.blender_name(ninode.name), ninode.name)
@@ -903,7 +887,6 @@ class NifImporter():
             # Set the pose position for the bones we just added
             new_bones = set(arma.data.bones.keys()).difference(original_bones)
             bone_names = [(self.nif_name(n), n) for n in new_bones]
-            #log.debug(f"Setting pose locations for {bone_names}")
             self.set_bone_poses(arma, nif, bone_names)
 
 
@@ -975,7 +958,7 @@ class NifImporter():
             if the_shape.normals:
                 mesh_create_normals(new_object.data, the_shape.normals)
 
-            shader_io.ShaderImporter(self).import_material(new_object, the_shape, asset_path)
+            shader_io.ShaderImporter().import_material(new_object, the_shape, asset_path)
 
             if the_shape.collision_object and self.do_import_collisions:
                 collision.CollisionHandler.import_collision_obj(
@@ -1081,7 +1064,6 @@ class NifImporter():
                     if offset_xf:
                         if not MatNearEqual(this_offset, offset_xf):
                             offset_consistent = False
-                                #log.debug(f"Offsets different for {b}: {this_offset.translation} != {offset_xf.translation}")
                             break
                     else:
                         offset_xf = this_offset
@@ -1206,7 +1188,6 @@ class NifImporter():
                 RENAME_BONES_NIFTOOLS - rename bones to conform with blender conventions
             Returns list of bone nodes with collisions found along the way
             """
-        #log.debug(f"<connect_armature> {arma.name}={arma.data.bones.keys()}")
         ObjectActive(arma)
         
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -1241,10 +1222,8 @@ class NifImporter():
                         except:
                             parentnifname = niparent.name
                         parentname = self.blender_name(niparent.name)
-                        #log.debug(f"Found parent in armature: {parentname}/{parentnifname} for {bonename}/{nifname}")
 
                 if parentname is None and self.do_create_bones and not is_facebone(bonename):
-                    ##log.debug(f"No parent for '{nifname}' in the nif. If it's a known bone, get parent from skeleton")
                     if self.reference_skel and \
                         nifname in self.reference_skel.nodes and \
                             nifname != self.reference_skel.rootName:
@@ -1257,7 +1236,6 @@ class NifImporter():
                 if parentname:
                     if parentname not in arm_data.edit_bones:
                         # Add parent bones and put on our list so we can get its parent
-                        #log.debug(f"<connect_armature> adding bone {parentname}/{parentnifname}")
                         new_parent = self.add_bone_to_arma(arma, parentname, parentnifname)
                         bones_to_parent.append(parentname)  
                         arm_data.edit_bones[bonename].parent = new_parent
@@ -1421,7 +1399,6 @@ class NifImporter():
                 # We give a fairly generous allowance for how close is close enough. 0.03 
                 # allows the FO4 meshes to be parented to their skeletons. 
                 if not MatNearEqual(m1, m2, epsilon=variance):
-                    # log.debug(f"Skeleton not compatible on {b}: \n{m1} != \n{m2}")
                     return False
         return True
 
@@ -1700,7 +1677,6 @@ class NifImporter():
             this_vertcounts = [len(s.verts) for s in self.nif.shapes]
             if self.do_import_shapes:
                 if len(this_vertcounts) > 0 and this_vertcounts == prior_vertcounts:
-                    #log.debug(f"Vert count of all shapes in nif match shapes in prior nif. They will be loaded as a single shape with shape keys")
                     prior_shapes = self.loaded_meshes
             
             self.loaded_meshes = []
@@ -1710,7 +1686,6 @@ class NifImporter():
                 self.import_tris()
 
             if prior_shapes:
-                ##log.debug(f"Merging shapes: {[s.name for s in prior_shapes]} << {[s.name for s in self.loaded_meshes]}")
                 self.merge_shapes(prior_fn, prior_shapes, fn, self.loaded_meshes)
                 self.loaded_meshes = prior_shapes
             else:
@@ -1843,12 +1818,9 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
 
     def execute(self, context):
-        LogStart(bl_info, "IMPORT", "NIF")
-        status = {'FINISHED'}
+        self.log_handler = LogHandler.New(bl_info, "IMPORT", "NIF")
 
-        #log.debug(f"Filepaths are {[f.name for f in self.files]}")
-        #log.debug(f"Filepath is {self.filepath}")
-
+        self.status = {'FINISHED'}
         fullfiles = ''
         self.context = context
         self.initial_frame = context.scene.frame_current
@@ -1892,24 +1864,16 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 objlist.append(imp.armature)
             ObjectSelect(objlist)
 
-            status = set()
-            for w in imp.warnings:
-                #log.debug(f"Message is {w}")
-                status.add(w[0])
-                self.report({w[0]}, w[1])
-
-            LogFinish("IMPORT", fullfiles, status, False)
-
         except:
-            log.exception("Import of nif failed")
+            self.log_handler.log.exception("Import of nif failed")
             self.report({"ERROR"}, "Import of nif failed, see console window for details")
-            status = {'CANCELLED'}
-            LogFinish("IMPORT", fullfiles, status, True)
+            self.status = {'CANCELLED'}
 
         finally:
+            self.log_handler.finish("IMPORT", fullfiles)
             self.context.scene.frame_set(self.initial_frame)
                 
-        return {'FINISHED'}
+        return self.status
 
 
 # ### ---------------------------- TRI Files -------------------------------- ###
@@ -1919,7 +1883,6 @@ def create_shape_keys(obj, tri: TriFile):
         """
     mesh = obj.data
     if mesh.shape_keys is None:
-        #log.debug(f"Adding first shape key to {obj.name}")
         newsk = obj.shape_key_add()
         mesh.shape_keys.use_relative=True
         newsk.name = "Basis"
@@ -2062,8 +2025,9 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
     ) # type: ignore
 
     def execute(self, context):
-        LogStart(bl_info, "IMPORT", "TRI")
-        status = {'FINISHED'}
+        self.log_handler = LogHandler()
+        self.log_handler.start(bl_info, "IMPORT", "TRI")
+        self.status = {'FINISHED'}
 
         try:
             
@@ -2080,7 +2044,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
             else:
                 # Have a TRIP file
                 imp = f"IMPORT TRIP {list(s)}"
-            status = status.union(v)
+            self.status = self.status.union(v)
 
             try:   
                 # TODO: Fix this for 4.0     
@@ -2093,17 +2057,17 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
             except:
                 pass
 
-            LogFinish(imp, self.filepath, status, False)
-            if 'WARNING' in status:
-                self.report({"ERROR"}, "Import completed with warnings, see console for details")
+            self.log_handler.finish(imp, self.filepath)
 
         except:
-            log.exception("Import of tri failed")
+            self.log_handler.log.exception("Import of tri failed")
             self.report({"ERROR"}, "Import of tri failed, see console window for details")
-            status = {'CANCELLED'}
-            LogFinish(imp, self.filepath, status, True)
+            self.status = {'CANCELLED'}
         
-        return status.intersection({'FINISHED', 'CANCELLED'})
+        finally:
+            self.log_handler.finish(imp, self.filepath)
+        
+        return self.status.intersection({'FINISHED', 'CANCELLED'})
 
 
 
@@ -2163,7 +2127,8 @@ class ImportKF(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, f"Cannot run importer--see system console for details")
             return {'CANCELLED'} 
 
-        LogStart(bl_info, "IMPORT", "KF")
+        self.log_handler = LogHandler()
+        self.log_handler.start(bl_info, "IMPORT", "KF")
 
         try:
             NifFile.Load(nifly_path)
@@ -2183,10 +2148,11 @@ class ImportKF(bpy.types.Operator, ExportHelper):
                 imp.import_nif()
 
         except Exception as e:
-            log.exception(f"Import of KF failed: {e}")
+            self.log_handler.log.exception(f"Import of KF failed: {e}")
             self.report({"ERROR"}, "Import of KF failed, see console window for details.")
-            status = {'CANCELLED'}
-            LogFinish("IMPORT", self.filepath, status, True)
+
+        finally:
+            self.log_handler.finish("IMPORT", self.filepath)
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
     
@@ -2270,7 +2236,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         self.fps = context.scene.render.fps
 
         try:
-            LogStart(bl_info, "IMPORT", "HKX")
+            self.log_handler = LogHandler.New(bl_info, "IMPORT", "HKX")
 
             NifFile.Load(nifly_path)
             xmltools.XMLFile.SetPath(hkxcmd_path)
@@ -2300,11 +2266,12 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
                 res.add(self.import_animation())
 
         except:
-            log.exception("Import of HKX file failed")
+            self.log_handler.log.exception("Import of HKX file failed")
             self.error("Import of HKX failed, see console window for details")
             res.add('CANCELLED')
-            
-        LogFinish("IMPORT", self.filepath, self.errors, False)
+
+        finally: 
+            self.log_handler.finish("IMPORT", self.filepath)
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
     
@@ -3043,7 +3010,6 @@ class NifExporter:
         for f in mesh.polygons:
             for i in f.loop_indices:
                 orig_uvs.append(uvlayer[i].uv[:])
-                ##log.debug(f"....Adding uv index {uvlayer[i].uv[:]}")
 
         # CANNOT figure out how to get the loop normals correctly.  They seem to follow the
         # face normals even on smooth shading.  (TEST_NORMAL_SEAM tests for this.) So use the
@@ -3494,7 +3460,7 @@ class NifExporter:
                 and len(self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
 
         obj.data.update()
-        shaderexp = shader_io.ShaderExporter(obj, self)
+        shaderexp = shader_io.ShaderExporter(obj)
 
         if shaderexp.is_obj_space:
             norms_exp = None
@@ -3952,7 +3918,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, "No objects selected for export")
             return {'CANCELLED'}
 
-        LogStart(bl_info, "EXPORT", "NIF")
+        self.log_handler = LogHandler.New(bl_info, "EXPORT", "NIF")
         NifFile.Load(nifly_path)
 
         try:
@@ -4005,15 +3971,14 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 rep = True
             if not rep:
                 self.report({'INFO'}, f"Export successful")
-            LogFinish("EXPORT", self.objects_to_export, status, False)
             
         except:
-            log.exception("Export of nif failed")
+            self.log_handler.log.exception("Export of nif failed")
             self.report({"ERROR"}, "Export of nif failed, see console window for details")
             res.add("CANCELLED")
-            LogFinish("EXPORT", self.objects_to_export, {"ERROR"}, True)
 
         finally:
+            self.log_handler.finish("EXPORT", self.objects_to_export)
             context.scene.frame_set(initial_frame)
             ObjectSelect(selected_objs)
             ObjectActive(active_obj)
@@ -4081,7 +4046,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, f"FPS outside of valid range, using 30fps: {self.fps}")
             self.fps = 30
 
-        LogStart(bl_info, "EXPORT", "KF")
+        self.log_handler = LogHandler.New(bl_info, "EXPORT", "KF")
         NifFile.Load(nifly_path)
         NifFile.clear_log()
 
@@ -4096,36 +4061,30 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             self.nif.save()
 
         except:
-            log.exception("Export of KF failed")
-            self.error("Export of KF failed")
+            self.log_handler.log.exception("Export of KF failed")
 
         if "ERROR" in self.errors:
             self.report({"ERROR"}, "Export of KF failed, see console window for details")
             res.add("CANCELLED")
-            LogFinish("EXPORT", self.filepath, {"ERROR"}, True)
+            self.log_handler.finish("EXPORT", self.filepath)
         elif "WARNING" in self.errors:
             self.report({"ERROR"}, "Export of KF completed with warnings, see console window for details")
             res.add("CANCELLED")
-            LogFinish("EXPORT", self.filepath, {"WARNING"}, True)
+            self.log_handler.finish("EXPORT", self.filepath)
         else:
             self.report({"INFO"}, "Export of KF completed successfully")
             res.add("SUCCESS")
-            LogFinish("EXPORT", self.filepath, {"SUCCESS"})
+            self.log_handler.finish("EXPORT", self.filepath)
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
-    
 
     def error(self, msg):
         """Log an error message."""
-        log.error(msg)
-        self.errors.add("ERROR")
-        self.messages.append("ERROR: " + msg)
+        self.log_handler.log.error(msg)
 
     def warn(self, msg):
         """Log a warning message."""
-        log.warning(msg)
-        self.errors.add("WARNING")
-        self.messages.append("WARNING: " + msg)
+        self.log_handler.log.warning(msg)
                 
 
 
@@ -4192,12 +4151,11 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
         self.context = context
         self.fps = context.scene.render.fps
-        self.errors = set()
         self.has_markers = (len(context.scene.timeline_markers) > 0)
         self.hkx_tmp_filepath = tmp_filepath(self.filepath, ext=".hkx")
         self.xml_filepath = None
         self.xml_filepath_out = None
-        LogStart(bl_info, "EXPORT", "HKX")
+        self.log_handler = LogHandler.New(bl_info, "EXPORT", "HKX")
         NifFile.Load(nifly_path)
         NifFile.clear_log()
 
@@ -4217,26 +4175,23 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
             res.add('FINISHED')
         except:
-            log.exception("Export of HKX failed")
-            self.error("Export of HKX failed")
+            self.log_handler.log.exception("Export of HKX failed")
             res.add('CANCELLED')
 
-        LogFinish("EXPORT", self.filepath, self.errors, False)
+        finally:
+            self.log_handler.finish("EXPORT", self.filepath)
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
     
 
     def warn(self, msg):
-        self.report({"WARNING"}, msg)
-        self.errors.add("WARNING")
+        self.log_handler.log.warning(msg)
 
     def error(self, msg):
-        self.report({"ERROR"}, msg)
-        self.errors.add("ERROR")
+        self.log_handler.log.error(msg)
 
     def info(self, msg):
-        log.info(msg)
-        self.report({"INFO"}, msg)
+        self.log_handler.log.info(msg)
 
     def generate_hkx(self, filepath):
         """Generates an HKX file from a KF file. Also generates an XML file."""
@@ -4357,7 +4312,7 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
 
 
     def execute(self, context):
-        LogStart(bl_info, "EXPORT SKELETON", "HKX")
+        self.log_handler = LogHandler.New(bl_info, "EXPORT SKELETON", "HKX")
 
         try:
             self.context = context
@@ -4372,10 +4327,9 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
             status = {'FINISHED'}
             return status
         except:
-            log.exception("Import of HKX failed")
-            self.report({"ERROR"}, "Import of HKX failed, see console window for details")
+            self.log_handler.log.exception("Import of HKX failed")
             status = {'CANCELLED'}
-            LogFinish("IMPORT", out_filepath, status, True)
+            self.log_handler.finish("IMPORT", out_filepath)
 
 
 def nifly_menu_import_nif(self, context):

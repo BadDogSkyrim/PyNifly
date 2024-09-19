@@ -2063,7 +2063,7 @@ class NiShaderFO4(NiShader):
                 # Target full path doesn't exist. Make it relative to our materials root.
                 relpath = truncate_filename(self.name, 'materials')
                 fullpath = os.path.join(self.file.materialsRoot, self.name)
-            self.materials = bgsmaterial.MaterialFile.Open(fullpath, logger=NifFile.log)
+            self.materials = bgsmaterial.MaterialFile.Open(fullpath)
 
     @property
     def textures(self):

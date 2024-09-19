@@ -129,27 +129,36 @@ class ImportSkel(bpy.types.Operator, ImportHelper):
     filter_glob: StringProperty(
         default="*.xml",
         options={'HIDDEN'},
-    )
+    ) # type: ignore
 
     files: CollectionProperty(
         type=bpy.types.OperatorFileListElement,
-        options={'HIDDEN', 'SKIP_SAVE'},)
+        options={'HIDDEN', 'SKIP_SAVE'},) # type: ignore
     
 
     def execute(self, context):
-        LogStart(bl_info, "IMPORT SKELETON", "XML")
+        self.log_handler = LogHandler.New(bl_info, "IMPORT SKELETON", "XML")
         log.info(f"Importing {self.filepath}")
-        infile = xml.parse(self.filepath)
-        inroot = infile.getroot()
-        sec1 = inroot[0]
-        if inroot:
-            arma = SkeletonArmature(Path(self.filepath).stem)
-            arma.bones_from_xml(inroot)
-            # arma.connect_armature(inroot)
+        try:
+            infile = xml.parse(self.filepath)
+            inroot = infile.getroot()
+            sec1 = inroot[0]
+            if inroot:
+                arma = SkeletonArmature(Path(self.filepath).stem)
+                arma.bones_from_xml(inroot)
+                # arma.connect_armature(inroot)
 
-        status = {'FINISHED'}
+            self.status = {'FINISHED'}
 
-        return status
+        except:
+            self.log_handler.log.exception("Import of skeleton failed")
+            self.report({"ERROR"}, "Import of skeleton failed, see console window for details")
+            self.status = {'CANCELLED'}
+        
+        finally:
+            self.log_handler.finish("IMPORT", self.filepath)
+
+        return self.status
 
 
 # ----------------------- EXPORT -------------------------------------
@@ -371,13 +380,23 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
     
 
     def execute(self, context):
-        LogStart(bl_info, "EXPORT SKELETON", "XML")
+        self.log_handler = LogHandler.New(bl_info, "EXPORT SKELETON", "XML")
 
-        self.context = context
-        self.do_export()
+        try:
+            self.context = context
+            self.do_export()
 
-        status = {'FINISHED'}
-        return status
+            self.status = {'FINISHED'}
+
+        except:
+            self.log_handler.log.exception("Export of skeleton failed")
+            self.report({"ERROR"}, "Export failed, see console window for details")
+            self.status = {'CANCELLED'}
+        
+        finally:
+            self.log_handler.finish("EXPORT", self.filepath)
+
+        return self.status
 
     @classmethod
     def poll(cls, context):

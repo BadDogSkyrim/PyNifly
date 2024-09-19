@@ -325,68 +325,74 @@ def get_export_objects(ctxt:bpy_types.Context) -> list:
     # Doing this at the ImportNif level so why do it here? 
     return ctxt.selected_objects
 
-    # export_objects = []
-    # for obj in ctxt.selected_objects:
-    #     if obj not in export_objects:
-    #         par = obj.parent
-    #         gpar = par.parent if par else None
-    #         gparname = gpar.name if gpar else ''
-    #         if not gparname.startswith('bhkCollisionObject'): 
-    #             #log.debug(f"Adding {obj.name} to export objects")
-    #             if obj == ctxt.object:
-    #                 export_objects.insert(0, obj)
-    #             else:
-    #                 export_objects.append(obj) 
-    #             if obj.type == 'ARMATURE':
-    #                 for child in obj.children:
-    #                     if child not in export_objects: export_objects.append(child)
-    #             else:
-    #                 arma, fb_arma = find_armatures(obj)
-    #                 if arma:
-    #                     export_objects.append(arma)
-    #                 if fb_arma:
-    #                     export_objects.append(fb_arma)
 
-    # return export_objects
+class LogHandler(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.max_error = 0
+        self.log = None
 
 
-def LogStart(bl_info, action, importtype):
-    log.info(f"""
+    def __del__(self):
+        if self.log:
+            self.log.removeHandler(self)
 
 
-====================================
-PYNIFLY {action} {importtype} V{bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}
+    def emit(self, record):
+        self.max_error = max(self.max_error, record.levelno)
 
-""")
 
-def LogFinish(action, files, status, is_exception=False):
-    if is_exception or 'ERROR' in status:
-        errmsg = "WITH ERRORS"
-    elif 'WARNING' in status:
-        errmsg = "WITH WARNINGS"
-    else:
-        errmsg = "SUCCESSFULLY"
+    def start(self, bl_info, action, importtype):
+        """
+        Start logging for an operation. Return the log and its handler.
+        """
+        self.log = logging.getLogger("pynifly")
+        self.log.addHandler(self)
+        self.log.info(f"""
 
-    if type(files) == str:
-        fn = os.path.basename(files)
-    else:
-        s = set()
-        for f in files:
-            try:
-                if type(f) == str:
-                    s.add(os.path.basename(f))
-                else:
-                    s.add(f.name)
-            except:
-                pass
-        fn = str(s)
 
-    log.info(f"""
+    ====================================
+    PYNIFLY {action} {importtype} V{bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}
 
-PyNifly {action} of {fn} completed {errmsg} 
-====================================
+    """)
 
-""")
+
+    def finish(self, action, files):
+        if self.max_error >= logging.ERROR:
+            errmsg = "WITH ERRORS"
+        elif self.max_error >= logging.WARNING:
+            errmsg = "WITH WARNINGS"
+        else:
+            errmsg = "SUCCESSFULLY"
+
+        if type(files) == str:
+            fn = os.path.basename(files)
+        else:
+            s = set()
+            for f in files:
+                try:
+                    if type(f) == str:
+                        s.add(os.path.basename(f))
+                    else:
+                        s.add(f.name)
+                except:
+                    pass
+            fn = str(s)
+
+        log.info(f"""
+
+    PyNifly {action} of {fn} completed {errmsg} 
+    ====================================
+
+    """)
+        
+
+    @classmethod
+    def New(cls, bl_info, action, importtype):
+        lh = LogHandler()
+        lh.start(bl_info, action, importtype)
+        return lh
+
 
 def get_short_path_name(long_name):
     """
