@@ -314,3 +314,10 @@ def find_object(name, coll=bpy.context.scene.objects, fn=lambda x: x.name):
             foundobj = obj
             break
     return foundobj
+
+
+def test_value(name, v1, v2):
+    assert v1 == v2, f"{name} value is correct: {v1} == {v2}"
+
+def test_floatarray(name, v1, v2, epsilon=0.0001):
+    assert BD.VNearEqual(v1, v2, epsilon=epsilon), f"{name} value is correct: {v1} == {v2}"

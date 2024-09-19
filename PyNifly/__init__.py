@@ -3145,10 +3145,14 @@ class NifExporter:
             else:
                 c = (1.0, 1.0, 1.0, 1.0)
             if alphamap:
-                try:
-                    a = Color(alphamap[i].color[0:3]).from_srgb_to_scene_linear()
-                except:
-                    a = Color(alphamap[i].color[0:3])
+                a = Color(alphamap[i].color[0:3])
+                # There was a theory that the alpha needed to be converted from sRGB
+                # because that's how Blender stores colors. In fact, it seems not to
+                # be necessary. See tests TEST_VERTEX_ALPHA and TEST_COLORS3.
+                # try:
+                #     a = Color(alphamap[i].color[0:3]).from_srgb_to_scene_linear()
+                # except:
+                #     a = Color(alphamap[i].color[0:3])
                 c = (c[0], c[1], c[2], (a[0] + a[1] + a[2])/3)
             loopcolors[i] = c
 

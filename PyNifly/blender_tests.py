@@ -2466,6 +2466,24 @@ def TEST_COLORS2():
     assert nif2.shapes[0].colors[561] == (0.0, 0.0, 0.0, 1.0), f"Color 561 not reread correctly: {nif2.shapes[0].colors[561]}"
 
 
+def TEST_COLORS3():
+    """Can read & write vertex colors"""
+    testfile = TT.test_file(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\Hair\Male\Hair26_Hairline.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_COLORS3.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
+
+    nif = pyn.NifFile(testfile)
+    nif2 = pyn.NifFile(outfile)
+    colors = nif.shapes[0].colors
+    colors2 = nif2.shapes[0].colors
+    for i in range(0, len(colors)):
+        TT.test_floatarray(f"color {i}", colors[i], colors2[i], epsilon=(1.0/255.0))
+        # assert colors[i] == colors2[i], f"Have correct colors, {colors[i]} == {colors2[i]}"
+
+
 def TEST_NEW_COLORS():
     """Can write vertex colors that were created in blender"""
     # Regression: There have been issues dealing with how Blender handles colors.
@@ -2624,12 +2642,13 @@ def TEST_VERTEX_ALPHA():
     bpy.ops.mesh.primitive_cube_add()
     bpy.context.active_object.data.materials.append(bpy.data.materials.new("Material"))
     bpy.context.active_object.active_material.use_nodes = True
-    try:
-        # Blender 4.x only
-        bpy.ops.geometry.color_attribute_add(domain='CORNER', data_type='BYTE_COLOR', color=(1, 1, 1, 1))
+    if bpy.app.version[0] >= 4:
+        bpy.ops.geometry.color_attribute_add(
+            domain='CORNER', data_type='BYTE_COLOR', color=(1, 1, 1, 1))
 
         #store alpha 0.5
-        bpy.ops.geometry.color_attribute_add(name=BD.ALPHA_MAP_NAME, domain='CORNER', data_type='BYTE_COLOR', color=(0.5, 0.5, 0.5, 1))
+        bpy.ops.geometry.color_attribute_add(
+            name=BD.ALPHA_MAP_NAME, domain='CORNER', data_type='BYTE_COLOR', color=(0.5, 0.5, 0.5, 1))
 
         #check that 0.5 is in fact stored as 188 after internal linear->sRGB conversion
         for i, c in enumerate(bpy.context.object.data.vertex_colors[BD.ALPHA_MAP_NAME].data):
@@ -2648,7 +2667,7 @@ def TEST_VERTEX_ALPHA():
 
         #check that the NIF has alpha 0.5 (to byte precision only)
         assert math.isclose(shapecheck.colors[0][3], 0.5, abs_tol=1.0 / 255.0), \
-            f"Expected alpha 0.5, found {shapecheck.colors[0]}"
+            f"Expected alpha 0.5, found {shapecheck.colors[0][3]}"
 
         for c in shapecheck.colors:
             assert c[0] == 1.0 and c[1] == 1.0 and c[2] == 1.0, \
@@ -2670,8 +2689,6 @@ def TEST_VERTEX_ALPHA():
         for i, c in enumerate(objcheck.data.vertex_colors['Col'].data):
             assert c.color[:] == (1.0, 1.0, 1.0, 1.0), \
                 f"Expected all white, full alpha in read object, found {i}: {c.color[:]}"
-    except:
-        pass
 
 
 def TEST_BONE_HIERARCHY():
@@ -5753,7 +5770,8 @@ if not bpy.data:
 else:
     badtests = []
 
-    do_tests([TEST_SKEL_XML])
+    do_tests([TEST_VERTEX_ALPHA, TEST_COLORS3])
+    # do_tests([TEST_COLORS3])
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
@@ -5769,4 +5787,4 @@ else:
     
     # do_tests(testfrom(TEST_COLLISION_CONVEXVERT), exclude=badtests)
 
-    do_tests(alltests, exclude=badtests)
+    # do_tests(alltests, exclude=badtests)
