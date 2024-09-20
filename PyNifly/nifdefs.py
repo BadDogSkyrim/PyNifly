@@ -1055,6 +1055,25 @@ class NiShaderBuf(pynStructure):
     def shaderflags2_clear(self, flag):
         self.Shader_Flags_2 &= ~flag.value
 
+    @property
+    def clamp_mode_s(self):
+        return self.textureClampMode & 1
+    
+    @clamp_mode_s.setter
+    def clamp_mode_s(self, v):
+        self.textureClampMode = (self.textureClampMode & 0xFFFE) | (0 if v == 0 else 1)
+
+    @property
+    def clamp_mode_t(self):
+        return 1 if (self.textureClampMode & 2) else 0
+    
+    @clamp_mode_t.setter
+    def clamp_mode_t(self, v):
+        self.textureClampMode = (self.textureClampMode & 0xFFFD) | (0 if v == 0 else 2)
+        
+    
+    
+
 bufferTypeList[PynBufferTypes.NiShaderBufType] = 'NiShader'
 bufferTypeList[PynBufferTypes.BSEffectShaderPropertyBufType] = 'BSEffectShaderProperty'
 bufferTypeList[PynBufferTypes.BSShaderPPLightingPropertyBufType] = 'BSShaderPPLightingProperty'

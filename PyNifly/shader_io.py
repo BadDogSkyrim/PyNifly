@@ -934,14 +934,14 @@ class ShaderImporter:
             self.texmap.inputs['Offset V'].default_value = shape.shader.properties.UV_Offset_V
             self.texmap.inputs['Scale U'].default_value = shape.shader.properties.UV_Scale_U
             self.texmap.inputs['Scale V'].default_value = shape.shader.properties.UV_Scale_V
-            self.texmap.inputs['Clamp S'].default_value = (shape.shader.properties.textureClampMode & 2) / 2
-            self.texmap.inputs['Clamp T'].default_value = shape.shader.properties.textureClampMode & 1
+            self.texmap.inputs['Clamp S'].default_value = shape.shader.properties.clamp_mode_s
+            self.texmap.inputs['Clamp T'].default_value = shape.shader.properties.clamp_mode_t
 
             self.material.use_backface_culling = not shape.shader.flags2_test(ShaderFlags2.DOUBLE_SIDED)
 
         except Exception as e:
             # Any errors, print the error but continue
-            log.warning("Error importing shader attributes: " + str(e))
+            log.exception("Error importing shader attributes")
 
 
     def make_node(self, nodetype, name=None, xloc=None, yloc=None, height=300):
@@ -1595,6 +1595,12 @@ class ShaderExporter:
                 shape.shader.properties.UV_Offset_V = uv['Offset V'].default_value
                 shape.shader.properties.UV_Scale_U = uv['Scale U'].default_value
                 shape.shader.properties.UV_Scale_V = uv['Scale V'].default_value
+
+                # texmode = (2*uv['Clamp S'].default_value 
+                #         + uv['Clamp T'].default_value)
+                shape.shader.properties.clamp_mode_s = uv['Clamp S'].default_value 
+                shape.shader.properties.clamp_mode_t = uv['Clamp T'].default_value 
+
             if 'UV_Offset_U' in nl:
                 shape.shader.properties.UV_Offset_U = nl['UV_Offset_U'].outputs['Value'].default_value
             if 'UV_Offset_V' in nl:
@@ -1604,26 +1610,24 @@ class ShaderExporter:
             if 'UV_Scale_V' in nl:
                 shape.shader.properties.UV_Scale_V = nl['UV_Scale_V'].outputs['Value'].default_value
             
-            texmode = (2*nl['UV_Converter'].inputs['Clamp S'].default_value 
-                       + nl['UV_Converter'].inputs['Clamp T'].default_value)
-            shape.shader.properties.textureClampMode = int(texmode)
 
             shape.shader.properties.Emissive_Mult = self.shader_node.inputs['Emission Strength'].default_value
-            # shape.shader.properties.Emissive_Mult = nl['Emission Strength'].outputs[0].default_value
             shape.shader.properties.baseColorScale = self.shader_node.inputs['Emission Strength'].default_value
-            # shape.shader.properties.baseColorScale = nl['Emission Strength'].outputs[0].default_value
+            if 'Emission Color' in self.shader_node.inputs:
+                em = 'Emission Color'
+            else:
+                em = 'Emission'
             for i in range(0, 4):
-                shape.shader.properties.Emissive_Color[i] = self.shader_node.inputs['Emission Color'].default_value[i]
-                # shape.shader.properties.Emissive_Color[i] = nl['Emissive_Color'].outputs[0].default_value[i] 
-                shape.shader.properties.baseColor[i] = self.shader_node.inputs['Emission Color'].default_value[i] 
-                # shape.shader.properties.baseColor[i] = nl['Emissive_Color'].outputs[0].default_value[i] 
+                shape.shader.properties.Emissive_Color[i] = self.shader_node.inputs[em].default_value[i]
+                shape.shader.properties.baseColor[i] = self.shader_node.inputs[em].default_value[i] 
 
             if not self.is_effectshader:
-                skt = self.shader_node.inputs['Alpha Mult']
-                if skt.is_linked:
-                    shape.shader.properties.Alpha = skt.links[0].from_socket.default_value
-                else:
-                    shape.shader.properties.Alpha = 1.0
+                if 'Alpha Mult' in self.shader_node.inputs:
+                    skt = self.shader_node.inputs['Alpha Mult']
+                    if skt.is_linked:
+                        shape.shader.properties.Alpha = skt.links[0].from_socket.default_value
+                    else:
+                        shape.shader.properties.Alpha = 1.0
             if 'Glossiness' in self.shader_node.inputs:
                 shape.shader.properties.Glossiness = self.shader_node.inputs['Glossiness'].default_value
 
@@ -1689,12 +1693,12 @@ class ShaderExporter:
         elif textureslot == "SoftLighting":
             # Subsurface is hidden behind mixnodes in 4.0 so just grab the node by name.
             # Maybe we should just do this for all texture layers.
-            if "Subsurface" in self.shader_node.inputs:
+            if 'Subsurface Color' in self.shader_node.inputs:
+                imagenodes = BD.find_node(self.shader_node.inputs["Subsurface Color"], "ShaderNodeTexImage")
+                if imagenodes: imagenode = imagenodes[0]
+            elif "Subsurface" in self.shader_node.inputs:
                 # imagenode = self.material.node_tree.nodes["SoftLighting_Texture"]
                 imagenodes = BD.find_node(self.shader_node.inputs["Subsurface"], "ShaderNodeTexImage")
-                if imagenodes: imagenode = imagenodes[0]
-            elif 'Subsurface Color' in self.shader_node.inputs:
-                imagenodes = BD.find_node(self.shader_node.inputs["Subsurface Color"], "ShaderNodeTexImage")
                 if imagenodes: imagenode = imagenodes[0]
 
         elif textureslot == "Specular":

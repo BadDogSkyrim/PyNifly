@@ -90,6 +90,7 @@ NO_PARTITION_GROUP = "*NO_PARTITIONS*"
 MULTIPLE_PARTITION_GROUP = "*MULTIPLE_PARTITIONS*"
 UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
+COLOR_MAP_NAME = "Col"
 
 ARMATURE_BONE_GROUPS = ['NPC', 'CME']
 
@@ -312,7 +313,7 @@ def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
             and shape.colors and len(shape.colors) > 0:
             clayer = None
             try: #Post V3.5
-                clayer = mesh.color_attributes.new(type='BYTE_COLOR', domain='CORNER')
+                clayer = mesh.color_attributes.new(name=COLOR_MAP_NAME, type='FLOAT_COLOR', domain='POINT')
             except:
                 clayer = mesh.vertex_colors.new()
             alphlayer = None
@@ -325,20 +326,30 @@ def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
                 # this way. 
                 try:
                     alphlayer = mesh.color_attributes.new(
-                        name=ALPHA_MAP_NAME, type='BYTE_COLOR', domain='CORNER')
+                        name=ALPHA_MAP_NAME, type='FLOAT_COLOR', domain='POINT')
                 except:
                     alphlayer = mesh.vertex_colors.new()
                 alphlayer.name = ALPHA_MAP_NAME
         
             colors = shape.colors
-            for lp in mesh.loops:
-                c = colors[lp.vertex_index]
-                clayer.data[lp.index].color = (c[0], c[1], c[2], 1.0)
-                if alphlayer:
-                    alph = colors[lp.vertex_index][3]
-                    alphlayer.data[lp.index].color = [alph, alph, alph, 1.0]
+            if clayer.domain == 'POINT':
+                for i in range(0, len(mesh.vertices)):
+                    c = colors[i]
+                    clayer.data[i].color = (c[0], c[1], c[2], 1.0)
+                    if alphlayer:
+                        alph = colors[i][3] 
+                        cv = list(Color([alph, alph, alph]).from_scene_linear_to_srgb())
+                        cv.append(1.0)
+                        alphlayer.data[i].color = cv
+            else:
+                for lp in mesh.loops:
+                    c = colors[lp.vertex_index]
+                    clayer.data[lp.index].color = (c[0], c[1], c[2], 1.0)
+                    if alphlayer:
+                        alph = colors[lp.vertex_index][3]
+                        alphlayer.data[lp.index].color = [alph, alph, alph, 1.0]
     except:
-        log.error(f"Could not read colors on shape {shape.name}")
+        log.exception(f"Could not read colors on shape {shape.name}")
 
 
 class NifImporter():
@@ -2695,10 +2706,7 @@ class NifExporter:
         Report a warning-level error message to the log, and capture any tags
         for later reporting.
         """
-        self.warnings.add('WARNING')
         log.warning(msg)
-        for t in tags:
-            self.warnings.add(t)
 
     @property
     def export_scale(self):
@@ -3015,11 +3023,15 @@ class NifExporter:
         # face normals even on smooth shading.  (TEST_NORMAL_SEAM tests for this.) So use the
         # vertex normal except when there are custom split normals.
         bpy.ops.object.mode_set(mode='OBJECT') #required to get accurate normals
+
+        # Before Blender 4.0 have to calculate normals. 4.0 doesn't need it and throws
+        # an error.
         try:
-            # Before Blender 4.0 have to calculate normals. 4.0 doesn't need it and throws
-            # an error.
-            mesh.calc_normals()
             mesh.calc_normals_split()
+        except:
+            pass
+        try:
+            mesh.calc_normals()
         except:
             pass
 
@@ -3104,12 +3116,13 @@ class NifExporter:
         return list(partitions.values()), tri_indices
 
 
-    def extract_colors(self, mesh):
-        """Extract vertex color data from the given mesh. Use the VERTEX_ALPHA color map
-            for alpha values if it exists.
-            Returns [c.color[:] for c in editmesh.vertex_colors.active.data]
-                This is 1:1 with loops
-            """
+    def find_colormaps(self, mesh):
+        """
+        Find the color maps for the given mesh. Use the VERTEX_ALPHA color map for alpha
+        values if it exists.
+
+        Returns [color map, alpha map] -- Either may be None
+        """
         try:
             vc = mesh.color_attributes
             active_color = vc.active_color
@@ -3117,44 +3130,60 @@ class NifExporter:
             vc = mesh.vertex_colors
             active_color = vc.active
         alphamap = None
-        alphamapname = ''
         colormap = None
-        colormapname = ''
-        colorlen = 0
         if ALPHA_MAP_NAME in vc.keys():
-            alphamap = vc[ALPHA_MAP_NAME].data
-            alphamapname = ALPHA_MAP_NAME
-            colorlen = len(alphamap)
-        if alphamap and active_color and active_color.data == alphamap:
+            alphamap = vc[ALPHA_MAP_NAME]
+        if alphamap and active_color and active_color.data == alphamap.data:
             # Alpha map is active--see if there's another map to use for colors. If not,
             # colors will be set to white
             for c in vc:
-                if c.data != alphamap:
-                    colormap = c.data
-                    colormapname = c.name
+                if c.data != alphamap.data:
+                    colormap = c
                     break
         elif active_color:
-            colormap = active_color.data
-            colormapname = active_color.name
-            colorlen = len(colormap)
+            colormap = active_color
 
-        loopcolors = [(0.0, 0.0, 0.0, 0.0)] * colorlen
-        for i in range(0, colorlen):
-            if colormap:
-                c = colormap[i].color[:]
-            else:
-                c = (1.0, 1.0, 1.0, 1.0)
-            if alphamap:
-                a = Color(alphamap[i].color[0:3])
-                # There was a theory that the alpha needed to be converted from sRGB
-                # because that's how Blender stores colors. In fact, it seems not to
-                # be necessary. See tests TEST_VERTEX_ALPHA and TEST_COLORS3.
-                # try:
-                #     a = Color(alphamap[i].color[0:3]).from_srgb_to_scene_linear()
-                # except:
-                #     a = Color(alphamap[i].color[0:3])
-                c = (c[0], c[1], c[2], (a[0] + a[1] + a[2])/3)
-            loopcolors[i] = c
+        return colormap, alphamap
+
+
+    def extract_colors(self, mesh):
+        """
+        Extract vertex color data from the given mesh. Use the VERTEX_ALPHA color map for
+        alpha values if it exists.
+
+        Returns [(r, g, b, a)...], 1:1 with loops whether the color map is using corners
+        or points.
+        """
+        colormap, alphamap = self.find_colormaps(mesh)
+        if colormap == None and alphamap == None: return
+
+        loopcolors = None
+        if colormap:
+            mapping_scheme = color_mapping(colormap)
+
+            loopcolors = [(0.0, 0.0, 0.0, 0.0)] * len(mesh.loops)
+            if mapping_scheme == "CORNER":
+                for i, c in enumerate(colormap.data):
+                    loopcolors[i] = c.color[:]
+                    
+            elif mapping_scheme == "POINT":
+                for i, loop in enumerate(mesh.loops):
+                    loopcolors[i] = colormap.data[loop.vertex_index].color[:]
+
+        if alphamap:
+            mapping_scheme = color_mapping(alphamap)
+
+            if loopcolors == None: loopcolors = [(0.0, 0.0, 0.0, 0.0)] * len(mesh.loops)
+            if mapping_scheme == "CORNER":
+                for i, alph in enumerate(alphamap.data):
+                    c = loopcolors[i]
+                    a = alph.color[0:3]
+                    loopcolors[i] = (c[0], c[1], c[2], (a[0] + a[1] + a[2])/3)
+            elif mapping_scheme == 'POINT':
+                for i, loop in enumerate(mesh.loops):
+                    c = loopcolors[loop.vertex_index]
+                    a = alphamap.data[loop.vertex_index].color[0:3]
+                    loopcolors[loop.vertex_index] = (c[0], c[1], c[2], (a[0] + a[1] + a[2])/3)
 
         return loopcolors
 
@@ -3178,80 +3207,76 @@ class NifExporter:
         loopcolors = None
         saved_sk = obj.active_shape_key_index
         
-        try:
-            ObjectSelect([obj])
-            ObjectActive(obj)
+        ObjectSelect([obj])
+        ObjectActive(obj)
+            
+        # This next little dance ensures the mesh.vertices locations are correct
+        if self.export_modifiers:
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            obj1 = obj.evaluated_get(depsgraph) 
+        else:
+            obj1 = obj           
+        obj1.active_shape_key_index = 0
+        bpy.ops.object.mode_set(mode = 'EDIT')
+        bpy.ops.object.mode_set(mode = 'OBJECT')
+        editmesh = obj1.data
+        editmesh.update()
+        
+        verts, weights_by_vert, morphdict \
+            = extract_vert_info(obj1, editmesh, arma, target_key, self.scale)
+    
+        # Pull out vertex colors first because trying to access them later crashes
+        bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
+        if self.export_colors:
+            export = False
+            try:
+                c = editmesh.color_attributes.active_color
+                export = True
+            except:
+                export = (len(editmesh.vertex_colors) > 0)
+            if export: loopcolors = self.extract_colors(editmesh)
+    
+        # Apply shape key verts to the mesh so normals will be correct.  If the mesh has
+        # custom normals, fukkit -- use the custom normals and assume the deformation
+        # won't be so great that it looks bad.
+        bpy.ops.object.mode_set(mode = 'OBJECT') 
+        uvlayer = editmesh.uv_layers.active.data
+        if target_key != '' and \
+            editmesh.shape_keys and \
+            target_key in editmesh.shape_keys.key_blocks.keys() and \
+            not editmesh.has_custom_normals:
+            editmesh = mesh_from_key(editmesh, verts, target_key)
                 
-            # This next little dance ensures the mesh.vertices locations are correct
-            if self.export_modifiers:
-                depsgraph = bpy.context.evaluated_depsgraph_get()
-                obj1 = obj.evaluated_get(depsgraph) 
-            else:
-                obj1 = obj           
-            obj1.active_shape_key_index = 0
-            bpy.ops.object.mode_set(mode = 'EDIT')
-            bpy.ops.object.mode_set(mode = 'OBJECT')
-            editmesh = obj1.data
-            editmesh.update()
-         
-            verts, weights_by_vert, morphdict \
-                = extract_vert_info(obj1, editmesh, arma, target_key, self.scale)
-        
-            # Pull out vertex colors first because trying to access them later crashes
-            bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
-            if self.export_colors:
-                try:
-                    c = editmesh.color_attributes.active_color
-                    loopcolors = self.extract_colors(editmesh)
-                except:
-                    if len(editmesh.vertex_colors) > 0:
-                        loopcolors = self.extract_colors(editmesh)
-        
-            # Apply shape key verts to the mesh so normals will be correct.  If the mesh has
-            # custom normals, fukkit -- use the custom normals and assume the deformation
-            # won't be so great that it looks bad.
-            bpy.ops.object.mode_set(mode = 'OBJECT') 
-            uvlayer = editmesh.uv_layers.active.data
-            if target_key != '' and \
-                editmesh.shape_keys and \
-                target_key in editmesh.shape_keys.key_blocks.keys() and \
-                not editmesh.has_custom_normals:
-                editmesh = mesh_from_key(editmesh, verts, target_key)
-                    
-            # Extracting and triangularizing
-            partitions = partitions_from_vert_groups(obj1)
-            loops, uvs, norms, loopcolors, partition_map = \
-                self.extract_face_info(
-                    editmesh, uvlayer, loopcolors, weights_by_vert, partitions,
-                    use_loop_normals=editmesh.has_custom_normals)
-        
-            mesh_split_by_uv(verts, loops, norms, uvs, weights_by_vert, morphdict)
+        # Extracting and triangularizing
+        partitions = partitions_from_vert_groups(obj1)
+        loops, uvs, norms, loopcolors, partition_map = \
+            self.extract_face_info(
+                editmesh, uvlayer, loopcolors, weights_by_vert, partitions,
+                use_loop_normals=editmesh.has_custom_normals)
+    
+        mesh_split_by_uv(verts, loops, norms, uvs, weights_by_vert, morphdict)
 
-            # Make uv and norm lists 1:1 with verts (rather than with loops)
-            uvmap_new = [(0.0, 0.0)] * len(verts)
-            norms_new = [(0.0, 0.0, 0.0)] * len(verts)
-            for i, vi in enumerate(loops):
-                assert vi < len(verts), f"Error: Invalid vert index in loops: {vi} >= {len(verts)}"
-                uvmap_new[vi] = uvs[i]
-                norms_new[vi] = norms[i]
+        # Make uv and norm lists 1:1 with verts (rather than with loops)
+        uvmap_new = [(0.0, 0.0)] * len(verts)
+        norms_new = [(0.0, 0.0, 0.0)] * len(verts)
+        for i, vi in enumerate(loops):
+            assert vi < len(verts), f"Error: Invalid vert index in loops: {vi} >= {len(verts)}"
+            uvmap_new[vi] = uvs[i]
+            norms_new[vi] = norms[i]
+    
+        ## Our "loops" list matches 1:1 with the mesh's loops. So we can use the polygons
+        ## to pull the loops
+        tris = []
+        for i in range(0, len(loops), 3):
+            tris.append((loops[i], loops[i+1], loops[i+2]))
+    
+        colors_new = None
+        if len(loopcolors) > 0:
+            colors_new = [(0.0, 0.0, 0.0, 0.0)] * len(verts)
+            for i, lp in enumerate(loops):
+                colors_new[lp] = loopcolors[i]
         
-            ## Our "loops" list matches 1:1 with the mesh's loops. So we can use the polygons
-            ## to pull the loops
-            tris = []
-            for i in range(0, len(loops), 3):
-                tris.append((loops[i], loops[i+1], loops[i+2]))
-        
-            colors_new = None
-            if len(loopcolors) > 0:
-                colors_new = [(0.0, 0.0, 0.0, 0.0)] * len(verts)
-                for i, lp in enumerate(loops):
-                    colors_new[lp] = loopcolors[i]
-        
-        except:
-            pass
-
-        finally:
-            obj.active_shape_key_index = saved_sk
+        obj.active_shape_key_index = saved_sk
 
         return verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, \
             morphdict, partitions, partition_map

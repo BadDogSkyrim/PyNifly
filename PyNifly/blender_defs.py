@@ -470,6 +470,18 @@ def highlight_objects(objlist, context, is_callback=False):
 def highlight_selected():
     highlight_objects([x for x in bpy.context.selected_objects if x.type=="MESH"], bpy.context, is_callback=True)
 
+
+def color_mapping(colormap):
+    """
+    Determine what type of mapping scheme a color attribute uses, in a
+    blender-version-independent way.
+    """
+    try:
+        mapping_scheme = colormap.domain
+    except:
+        # Older
+        mapping_scheme = 'CORNER'
+    return mapping_scheme
     
 def find_node(socket, nodetype, nodelist=None):
     """

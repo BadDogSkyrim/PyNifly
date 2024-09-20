@@ -2452,12 +2452,14 @@ def TEST_COLORS2():
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
-    colordata = obj.data.vertex_colors.active.data
+    assert obj.data.attributes['Col'].domain == 'POINT', f"Have vertec colors in Blender"
+    colordata = obj.data.attributes['Col'].data
     targetv = TT.find_vertex(obj.data, (1.62, 7.08, 0.37))
     assert colordata[0].color[:] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not read correctly: {colordata[0].color[:]}"
-    for lp in obj.data.loops:
-        if lp.vertex_index == targetv:
-            assert colordata[lp.index].color[:] == (0.0, 0.0, 0.0, 1.0), f"Color for vert not read correctly: {colordata[lp.index].color[:]}"
+    assert colordata[targetv].color[:] == (0.0, 0.0, 0.0, 1.0), f"Color for vert not read correctly: {colordata[targetv].color[:]}"
+    # for lp in obj.data.loops:
+    #     if lp.vertex_index == targetv:
+    #         assert colordata[lp.index].color[:] == (0.0, 0.0, 0.0, 1.0), f"Color for vert not read correctly: {colordata[lp.index].color[:]}"
 
     bpy.ops.export_scene.pynifly(filepath=testfileout, target_game="FO4")
 
@@ -2541,12 +2543,11 @@ def TEST_NOTEXTURES():
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
-    colordata = obj.data.vertex_colors.active.data
+    assert obj.data.attributes['Col'].domain == 'POINT', "Have vertex colors"
+    colordata = obj.data.attributes['Col'].data
     targetv = TT.find_vertex(obj.data, (1.62, 7.08, 0.37))
     assert colordata[0].color[:] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not read correctly: {colordata[0].color[:]}"
-    for lp in obj.data.loops:
-        if lp.vertex_index == targetv:
-            assert colordata[lp.index].color[:] == (0.0, 0.0, 0.0, 1.0), f"Color for vert not read correctly: {colordata[lp.index].color[:]}"
+    assert colordata[targetv].color[:] == (0.0, 0.0, 0.0, 1.0), f"Color for vert not read correctly: {colordata[targetv].color[:]}"
 
 
 def TEST_VERTEX_COLOR_IO():
@@ -2576,8 +2577,8 @@ def TEST_VERTEX_COLOR_IO():
         colors = eyes.data.color_attributes['VERTEX_ALPHA'].data
         max_a = max(c.color[0] for c in colors)
         min_a = min(c.color[0] for c in colors)
-        assert max_a == 1.0, f"Have some opaque verts: {max_a}"
-        assert min_a == 0, f"Have some transparent verts: {min_a}"
+        assert math.isclose(max_a, 1.0, abs_tol=0.001), f"Have some opaque verts: {max_a}"
+        assert math.isclose(min_a, 0, abs_tol=0.001), f"Have some transparent verts: {min_a}"
 
     bpy.ops.object.select_all(action='DESELECT')
     eyes.select_set(True)
@@ -2666,7 +2667,8 @@ def TEST_VERTEX_ALPHA():
             f"Expected VERTEX_ALPHA set: {pyn.ShaderFlags1(shapecheck.shader.Shader_Flags_1).fullname}"
 
         #check that the NIF has alpha 0.5 (to byte precision only)
-        assert math.isclose(shapecheck.colors[0][3], 0.5, abs_tol=1.0 / 255.0), \
+            # Works when alpha is read with alph.color
+        assert math.isclose(shapecheck.colors[0][3], 0.5, abs_tol=(1.0 / 255.0)), \
             f"Expected alpha 0.5, found {shapecheck.colors[0][3]}"
 
         for c in shapecheck.colors:
@@ -2677,16 +2679,18 @@ def TEST_VERTEX_ALPHA():
 
         bpy.ops.import_scene.pynifly(filepath=outfile)
         objcheck = bpy.context.object
-        colorscheck = objcheck.data.vertex_colors
-        assert BD.ALPHA_MAP_NAME in colorscheck.keys(), \
-            f"Expected alpha map, found {objcheck.data.vertex_colors.keys()}"
+        try:
+            alphamap = objcheck.data.attributes[BD.ALPHA_MAP_NAME]
+        except:
+            alphamap = objcheck.data.vertex_colors[BD.ALPHA_MAP_NAME]
+        assert alphamap.name == BD.ALPHA_MAP_NAME, f"Expected alpha map"
 
         #check that imported color is still 188
-        for i, c in enumerate(colorscheck[BD.ALPHA_MAP_NAME].data):
-            assert math.floor(c.color[1] * 255) == 188, \
+        for i, c in enumerate(alphamap.data):
+            assert round(c.color[1]*255) == 188, \
                 f"Expected sRGB color {188.0 / 255.0}, found {i}: {c.color[:]}"
 
-        for i, c in enumerate(objcheck.data.vertex_colors['Col'].data):
+        for i, c in enumerate(objcheck.data.attributes['Col'].data):
             assert c.color[:] == (1.0, 1.0, 1.0, 1.0), \
                 f"Expected all white, full alpha in read object, found {i}: {c.color[:]}"
 
@@ -3598,12 +3602,12 @@ def TEST_NORM():
         f"Custom normal different from vertex normal: {custnormal}"
 
 
-def TEST_ROGUE01():
+def TEST_SPLIT_NORMALS():
     """Mesh with wonky normals exports correctly"""
     # Custom split normals change the direction light bounces off an object. They may be
     # set to eliminate seams between parts of a mesh, or between two meshes.
 
-    testfile = TT.test_file(r"tests/Out/TEST_ROGUE01.nif")
+    testfile = TT.test_file(r"tests/Out/TEST_SPLIT_NORMALS.nif")
 
     obj = TT.append_from_file("MHelmetLight:0", 
                               False, 
@@ -3617,19 +3621,10 @@ def TEST_ROGUE01():
     nif2 = pyn.NifFile(testfile)
     shape2 = nif2.shapes[0]
 
-    assert round(shape2.normals[44][0]) == 0, f"Normal should point sraight up, found {shape2.normals[44]}"
-    assert round(shape2.normals[44][1]) == 0, f"Normal should point sraight up, found {shape2.normals[44]}"
-    assert round(shape2.normals[44][2]) == 1, f"Normal should point sraight up, found {shape2.normals[44]}"
-
-    assert 6.82 == round(shape2.verts[12][0], 2), f"Vert location wrong: 6.82 != {shape2.verts[12][0]}"
-    assert 0.58 == round(shape2.verts[12][1], 2), f"Vert location wrong: 0.58 != {shape2.verts[12][0]}"
-    assert 9.05 == round(shape2.verts[12][2], 2), f"Vert location wrong: 9.05 != {shape2.verts[12][0]}"
-    assert 0.13 == round(shape2.verts[5][0], 2), f"Vert location wrong: 0.13 != {shape2.verts[5][0]}"
-    assert 9.24 == round(shape2.verts[5][1], 2), f"Vert location wrong: 9.24 != {shape2.verts[5][0]}"
-    assert 8.91 == round(shape2.verts[5][2], 2), f"Vert location wrong: 8.91 != {shape2.verts[5][0]}"
-    assert -3.21 == round(shape2.verts[33][0], 2), f"Vert location wrong: -3.21 != {shape2.verts[33][0]}"
-    assert -1.75 == round(shape2.verts[33][1], 2), f"Vert location wrong: -1.75 != {shape2.verts[33][0]}"
-    assert 12.94 == round(shape2.verts[33][2], 2), f"Vert location wrong: 12.94 != {shape2.verts[33][0]}"
+    TT.test_floatarray("Normal 44", shape2.normals[44], [0, 0, 1], epsilon=0.1)
+    TT.test_floatarray("Vert 12 location", shape2.verts[12], [6.82, 0.58, 9.05], epsilon=0.01)
+    TT.test_floatarray("Vert 5 location", shape2.verts[5], [0.13, 9.24, 8.91], epsilon=0.01)
+    TT.test_floatarray("Vert 33 location", shape2.verts[33], [-3.21, -1.75, 12.94], epsilon=0.01)
 
     # Original has a tri <12, 13, 14>. Find it in the original and then in the exported object
 
@@ -5456,6 +5451,9 @@ def TEST_MISSING_FILES():
     blendfile = TT.test_file(r"tests\FO4\Gloves.blend")
     outfile = TT.test_file(r"tests\out\TEST_MISSING_FILES.nif")
 
+    # Can't load the test blend file in 3.x
+    if bpy.app.version[0] <= 3: return
+
     # append all objects starting with 'house'
     with bpy.data.libraries.load(blendfile) as (data_from, data_to):
         data_to.objects = [obj for obj in data_from.objects]
@@ -5732,11 +5730,12 @@ def execute_test(t):
         TT.clear_all()
         t()
         print (      f"------------------------------ {t.__name__} ------------------------------\n")
-        # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+
 
 def do_tests(testlist, exclude=[]):
     """Do tests in testlist. Can pass in a single test."""
     iter = True
+    passing_tests = []
     try:
         for t in testlist:
             pass
@@ -5744,12 +5743,17 @@ def do_tests(testlist, exclude=[]):
     except:
         iter = False
 
-    if iter: 
-        for t in testlist:
-            if t not in exclude:
-                execute_test(t)
-    else:
-        execute_test(testlist)
+    try:
+        if iter: 
+            for t in testlist:
+                if t not in exclude:
+                    execute_test(t)
+                    passing_tests.append(t)
+        else:
+            execute_test(testlist)
+            passing_tests.append(t)
+    finally:
+        print(f"TESTS PASSED: {', '.join(t.__name__ for t in passing_tests)}")
 
     print("""
     =============================================================================
@@ -5768,10 +5772,9 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    badtests = []
+    excludetests = []
 
-    do_tests([TEST_VERTEX_ALPHA, TEST_COLORS3])
-    # do_tests([TEST_COLORS3])
+    # do_tests([TEST_SPLIT_NORMALS])
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
@@ -5785,6 +5788,6 @@ else:
     # All tests with collisions
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
     
-    # do_tests(testfrom(TEST_COLLISION_CONVEXVERT), exclude=badtests)
+    # do_tests(testfrom(TEST_MISSING_FILES), exclude=excludetests)
 
-    # do_tests(alltests, exclude=badtests)
+    do_tests(alltests, exclude=excludetests)
