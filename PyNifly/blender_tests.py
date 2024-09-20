@@ -5774,7 +5774,7 @@ if not bpy.data:
 else:
     excludetests = []
 
-    # do_tests([TEST_SPLIT_NORMALS])
+    do_tests([TEST_SHADER_SE])
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
@@ -5790,4 +5790,4 @@ else:
     
     # do_tests(testfrom(TEST_MISSING_FILES), exclude=excludetests)
 
-    do_tests(alltests, exclude=excludetests)
+    # do_tests(alltests, exclude=excludetests)
