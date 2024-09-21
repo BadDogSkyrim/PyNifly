@@ -1812,7 +1812,7 @@ def TEST_ANIMATION():
     
 
 def TEST_ANIMATION_NOBLECHEST():
-    """Can read embedded animations."""
+    """Can read & write embedded animations."""
     # NobleChest has a simple open and close animation.
     testfile = r"tests/Skyrim/noblechest01.nif"
     outfile = r"tests/out/TEST_ANIMATION_NOBLECHEST.nif"
@@ -1821,21 +1821,32 @@ def TEST_ANIMATION_NOBLECHEST():
 
     nif = NifFile(testfile)
     root = nif.rootNode
+    lid01 = nif.nodes["Lid01"]
 
     # The Open and Close animations are associated with a controller manager on the root
     # node.
-    cm = root.controller
+    cm:NiControllerManager = root.controller
     assert cm, f"Have root controller"
 
     assert len(cm.sequences) == 2, f"Have 2 controller manager sequences: {cm.sequences}"
     assert set(cm.sequences.keys()) == set(["Open", "Close"]), f"Have correct name: {cm.sequences.keys()}"
 
+    # Object palettes can be accessed through the Controller Manager.
+    assert cm.object_palette.properties.objCount == 4, f"Have an object count"
+
+    # Referenced objects are a list of pairs, [("object name", object), ...]
+    assert len(cm.object_palette.objects) == 4, f"Have referenced objects"
+    assert ("Lid01", lid01) in cm.object_palette.objects, f"Have Lid01"
+    chestshape = [x[1] for x in cm.object_palette.objects if x[0] == 'Chest01:1'][0]
+    assert chestshape.properties.flags == 524302, f"Have corret chest shape"
+
     # WRITE
+    
     nifout = NifFile()
     nifout.initialize("SKYRIM", outfile, "BSFadeNode", "NobleChest")
     bodynode = nifout.add_node("Chest01", nif.nodes["Chest01"].transform)
     _export_shape(nif.nodes["Chest01:1"], nifout, parent=bodynode)
-    lidnode = nifout.add_node("Lid01", nif.nodes["Lid01"].transform)
+    lidnode = nifout.add_node("Lid01", lid01.transform)
     _export_shape(nif.nodes["Lid01:1"], nifout, parent=lidnode)
 
     nifout.root.bsx_flags = ['BSX', 11]
@@ -2298,6 +2309,7 @@ mylog = logging.getLogger("pynifly")
 logging.basicConfig()
 mylog.setLevel(logging.DEBUG)
 
-# execute(test=TEST_ANIMATION_NOBLECHEST)
-# execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
+# execute(test=TEST_SKEL)
+# execute(start=TEST_TREE, exclude=[TEST_SET_SKINTINT])
 execute(exclude=[TEST_SET_SKINTINT])
+#

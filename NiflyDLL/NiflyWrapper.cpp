@@ -4047,7 +4047,7 @@ NIFLY_API int getAnimKeyQuadFloat(void* nifref, int tdID, int frame, NiAnimKeyQu
         return -1;
     }
 
-    if (frame >= td->data.GetNumKeys()) {
+    if (uint32_t(frame) >= td->data.GetNumKeys()) {
         niflydll::LogWriteEf("getAnimKeyQuadFloat called on invalid frame %d", frame);
         return -1;
     }
@@ -4373,6 +4373,119 @@ NIFLY_API int getExtraData(void* nifref, uint32_t id, const char* extraDataBlock
     return NIF_NPOS;
 }
 
+int getAVObjectPalette(void* nifref, uint32_t id, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiDefaultAVObjectPalette* op = hdr->GetBlock<nifly::NiDefaultAVObjectPalette>(id);
+    NiDefaultAVObjectPaletteBuf* buf = static_cast<NiDefaultAVObjectPaletteBuf*>(inbuf);
+
+    CheckID(id);
+    CheckBuf(buf, BUFFER_TYPES::NiDefaultAVObjectPaletteBufType, NiDefaultAVObjectPaletteBuf);
+
+    buf->sceneID = op->sceneRef.index;
+    buf->objCount = op->objects.size();
+
+    return 0;
+}
+
+NIFLY_API int getAVObjectPaletteObject(
+    void* nifref, uint32_t paletteID, int objindex, int namesize, char* name, uint32_t& objid)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiDefaultAVObjectPalette* op = hdr->GetBlock<nifly::NiDefaultAVObjectPalette>(paletteID);
+
+    objid = op->objects[objindex].objectRef.index;
+    strncpy_s(name, namesize, op->objects[objindex].name.get().c_str(), namesize);
+    name[namesize - 1] = '\0';
+    return 0;
+}
+
+int addAVObjectPalette(void* nifref, const char* name, void* b, uint32_t parent)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiDefaultAVObjectPaletteBuf* buf = static_cast<NiDefaultAVObjectPaletteBuf*>(b);
+
+    CheckBuf(buf, BUFFER_TYPES::NiDefaultAVObjectPaletteBufType, NiDefaultAVObjectPaletteBuf);
+
+    auto sh = std::make_unique<NiDefaultAVObjectPalette>();
+    sh->sceneRef.index = buf->sceneID;
+
+    return hdr->AddBlock(std::move(sh));
+}
+
+NIFLY_API int addAVObjectPaletteObject(
+    void* nifref, uint32_t paletteID, char* name, int objid)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiDefaultAVObjectPalette* op = hdr->GetBlock<nifly::NiDefaultAVObjectPalette>(paletteID);
+
+    AVObject obj;
+    obj.name = std::string(name);
+    obj.objectRef.index = objid;
+    op->objects.push_back(obj);
+    return 0;
+}
+
+
+int getNiTextKeyExtraData(void* nifref, uint32_t id, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiTextKeyExtraData* tk = hdr->GetBlock<nifly::NiTextKeyExtraData>(id);
+    NiTextKeyExtraDataBuf* buf = static_cast<NiTextKeyExtraDataBuf*>(inbuf);
+
+    CheckID(id);
+    CheckBuf(buf, BUFFER_TYPES::NiTextKeyExtraDataBufType, NiTextKeyExtraDataBuf);
+
+    buf->nameID = tk->name.GetIndex();
+    buf->textKeyCount = tk->textKeys.size();
+
+    return 0;
+}
+
+NIFLY_API int getNiTextKey(
+    void* nifref, uint32_t tkedID, int keyindex, void* b)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiTextKeyExtraData* tk = hdr->GetBlock<nifly::NiTextKeyExtraData>(tkedID);
+    TextKeyBuf* buf = static_cast<TextKeyBuf*>(b);
+
+    buf->time = tk->textKeys[keyindex].time;
+    buf->valueID = tk->textKeys[keyindex].value.GetIndex();
+    return 0;
+}
+
+int addNiTextKeyExtraData(void* nifref, const char* name, void* b, uint32_t parent)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiTextKeyExtraDataBuf* buf = static_cast<NiTextKeyExtraDataBuf*>(b);
+
+    CheckBuf(buf, BUFFER_TYPES::NiTextKeyExtraDataBufType, NiTextKeyExtraDataBuf);
+
+    auto sh = std::make_unique<NiTextKeyExtraData>();
+    sh->name = std::string(name);
+
+    return hdr->AddBlock(std::move(sh));
+}
+
+NIFLY_API int addTextKey(void* nifref, uint32_t tkedID, float time, char* name)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiTextKeyExtraData* tk = hdr->GetBlock<nifly::NiTextKeyExtraData>(tkedID);
+
+    NiTextKey key;
+    key.time = time;
+    key.value.SetIndex(addString(nifref, name));
+    tk->textKeys.push_back(key);
+    return 0;
+}
+
+
 // Getter functions match 1:1 with BUFFER_TYPES
 typedef int (*BlockGetterFunction)(void* nifref, uint32_t blockID, void* buf);
 BlockGetterFunction getterFunctions[] = {
@@ -4423,6 +4536,8 @@ BlockGetterFunction getterFunctions[] = {
     getNiFloatData,
     getNiBlendPoint3Interpolator,
     getNiBlendFloatInterpolator,
+    getAVObjectPalette,
+    getNiTextKeyExtraData,
     nullptr //END
 };
 
@@ -4488,6 +4603,8 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //getNiFloatData
     nullptr, //NiBlendPoint3InterpolatorBuf
     nullptr, //NiBlendFloatInterpolatorBuf
+    nullptr, //AVObjectPalette,
+    nullptr, //NiTextKeyExtraData,
     nullptr //END
 };
 
@@ -4552,6 +4669,8 @@ BlockCreatorFunction creatorFunctions[] = {
     addNiFloatData, //getNiFloatData
     nullptr, //NiBlendPoint3InterpolatorBuf
     nullptr, //NiBlendFloatInterpolatorBuf
+    addAVObjectPalette,
+    addNiTextKeyExtraData,
     nullptr //end
 };
 

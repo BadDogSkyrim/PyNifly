@@ -75,6 +75,8 @@ def load_nifly(nifly_path):
     nifly.getAnimKeyQuadTrans.restype = None
     nifly.getAnimKeyQuadXYZ.argtypes = [c_void_p, c_int, c_char, c_int, POINTER(NiAnimKeyQuadXYZBuf)]
     nifly.getAnimKeyQuadXYZ.restype = None
+    nifly.getAVObjectPaletteObject.argtypes = [c_void_p, c_uint32, c_int, c_int, c_char_p, POINTER(c_uint32)]
+    nifly.getAVObjectPaletteObject.restype = c_int
     nifly.getBGExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int, c_void_p]
     nifly.getBGExtraData.restype = c_int
     nifly.getBGExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
@@ -238,6 +240,11 @@ def load_nifly(nifly_path):
     pynStructure.logger = logging.getLogger("pynifly")
 
     return nifly
+
+# These are the types of blocks we can create from an ID. Eventaully should probably
+# be all of them. This could be done with reflection but we're keeping things simple.
+block_types = {}
+
 
 # --- Helper Routines --- #
 
@@ -538,7 +545,7 @@ class NiObject:
 
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         self._handle = handle
-        self.file = file
+        self.file:NifFile = file
         self.id = id
         if handle is None and id != NODEID_NONE and file is not None:
             self._handle = NifFile.nifly.getNodeByID(file._handle, id)
@@ -572,9 +579,13 @@ class NiObject:
         if not self._properties:
             self._properties = self._getbuf()
             if self.id != NODEID_NONE and self.file._handle:
-                NifFile.nifly.getBlock(self.file._handle, 
-                                       self.id, 
-                                       byref(self._properties))
+                NifFile.clear_log()
+                err = NifFile.nifly.getBlock(
+                    self.file._handle, 
+                    self.id, 
+                    byref(self._properties))
+                if err != 0:
+                    raise Exception(NifFile.message_log())
         return self._properties
     
     @properties.setter
@@ -586,7 +597,6 @@ class NiObject:
 # --- Collisions --- #
 
 class CollisionShape(NiObject):
-    subtypes = {}
 
     @classmethod
     def New(cls, collisiontype=None, id=NODEID_NONE, file=None, parent=None, 
@@ -604,8 +614,8 @@ class CollisionShape(NiObject):
                     None, 
                     byref(properties), 
                     parent.id if parent else None)
-            return cls.subtypes[collisiontype](
-                id=id, file=file, parent=parent, properties=properties)
+            return file.read_node(
+                id=id, parent=parent, properties=properties)
         except:
             return None
 
@@ -616,7 +626,7 @@ class CollisionBoxShape(CollisionShape):
     def _getbuf(cls, values=None):
         return bhkBoxShapeProps(values)
     
-CollisionShape.subtypes['bhkBoxShape'] = CollisionBoxShape
+block_types['bhkBoxShape'] = CollisionBoxShape
 
 class CollisionCapsuleShape(CollisionShape):
     needsTransform = False
@@ -625,7 +635,7 @@ class CollisionCapsuleShape(CollisionShape):
     def _getbuf(cls, values=None):
         return bhkCapsuleShapeProps(values)
 
-CollisionShape.subtypes['bhkCapsuleShape'] = CollisionCapsuleShape
+block_types['bhkCapsuleShape'] = CollisionCapsuleShape
 
 class CollisionSphereShape(CollisionShape):
     needsTransform = False
@@ -634,7 +644,7 @@ class CollisionSphereShape(CollisionShape):
     def _getbuf(cls, values=None):
         return bhkSphereShapeBuf(values)
 
-CollisionShape.subtypes['bhkSphereShape'] = CollisionSphereShape
+block_types['bhkSphereShape'] = CollisionSphereShape
 
 class CollisionConvexVerticesShape(CollisionShape):
     needsTransform = False
@@ -669,7 +679,7 @@ class CollisionConvexVerticesShape(CollisionShape):
             self._normals = [tuple(v) for v in norms]
         return self._normals
 
-CollisionShape.subtypes['bhkConvexVerticesShape'] = CollisionConvexVerticesShape
+block_types['bhkConvexVerticesShape'] = CollisionConvexVerticesShape
 
 
 class CollisionListShape(CollisionShape):
@@ -713,7 +723,7 @@ class CollisionListShape(CollisionShape):
         #     self.file._handle, self.id, child.id)
         return child
 
-CollisionShape.subtypes['bhkListShape'] = CollisionListShape
+block_types['bhkListShape'] = CollisionListShape
 
 
 class CollisionConvexTransformShape(CollisionShape):
@@ -767,7 +777,7 @@ class CollisionConvexTransformShape(CollisionShape):
                                                        self.id,
                                                        value.id)
 
-CollisionShape.subtypes['bhkConvexTransformShape'] = CollisionConvexTransformShape
+block_types['bhkConvexTransformShape'] = CollisionConvexTransformShape
 
 
 class bhkConstraint(NiObject):
@@ -794,15 +804,13 @@ class bhkConstraint(NiObject):
 
 
 class bhkWorldObject(NiObject):
-    subtypes = {}
-
     @classmethod
     def _getbuf(cls, values=None):
         assert False, "bhkWorldObject should never be instantiated directly."
 
     @classmethod
     def get_buffer(cls, bodytype, values=None):
-        return cls.subtypes[bodytype]._getbuf(values=values)
+        return block_types[bodytype]._getbuf(values=values)
 
     @classmethod
     def New(cls, objtype=None, id=NODEID_NONE, file=None, parent=None, properties=None):
@@ -812,17 +820,16 @@ class bhkWorldObject(NiObject):
             buf = create_string_buffer(128)
             NifFile.nifly.getBlockname(file._handle, id, buf, 128)
             objtype = buf.value.decode('utf-8')
-        try:
-            if id == NODEID_NONE:
-                id = NifFile.nifly.addBlock(
-                    file._handle, 
-                    None, 
-                    byref(properties), 
-                    parent.id if parent else None)
-            return cls.subtypes[objtype](
-                id=id, file=file, parent=parent, properties=properties)
-        except:
-            return None
+        # try:
+        if id == NODEID_NONE:
+            id = NifFile.nifly.addBlock(
+                file._handle, 
+                None, 
+                byref(properties), 
+                parent.id if parent else None)
+        return file.read_node(id=id, parent=parent, properties=properties)
+        # except:
+        #     return None
 
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
@@ -860,13 +867,15 @@ class bhkWorldObject(NiObject):
         return self.file.add_shape(properties=properties, parent=self, 
                                    vertices=vertices, normals=normals, transform=transform)
 
+
 class bhkRigidBody(bhkWorldObject):
 
     @classmethod
     def _getbuf(cls, values=None):
         return bhkRigidBodyProps(values)
 
-bhkWorldObject.subtypes['bhkRigidBody'] = bhkRigidBody
+block_types['bhkRigidBody'] = bhkRigidBody
+
 
 class bhkRigidBodyT(bhkRigidBody):
 
@@ -876,7 +885,8 @@ class bhkRigidBodyT(bhkRigidBody):
         buf.bufType = PynBufferTypes.bhkRigidBodyTBufType
         return buf
 
-bhkWorldObject.subtypes['bhkRigidBodyT'] = bhkRigidBodyT
+block_types['bhkRigidBodyT'] = bhkRigidBodyT
+
 
 class bhkSimpleShapePhantom(bhkWorldObject):
 
@@ -884,18 +894,19 @@ class bhkSimpleShapePhantom(bhkWorldObject):
     def _getbuf(cls, values=None):
         return bhkSimpleShapePhantomBuf(values)
 
-bhkWorldObject.subtypes['bhkSimpleShapePhantom'] = bhkSimpleShapePhantom
+block_types['bhkSimpleShapePhantom'] = bhkSimpleShapePhantom
+
 
 class CollisionObject(NiObject):
-    """Represents a bhkNiCollisionObject."""
-    subtypes = {}
+    """Represents various collision objects."""
 
     @classmethod
     def _getbuf(cls, values=None):
         return bhkNiCollisionObjectBuf(values)
 
     @classmethod
-    def New(cls, collisiontype=None, id=NODEID_NONE, file=None, parent=None, 
+    def New(cls, 
+            collisiontype=None, id=NODEID_NONE, file=None, parent=None, 
             properties=None):
         if properties:
             collisiontype = bufferTypeList[properties.bufType]
@@ -910,11 +921,7 @@ class CollisionObject(NiObject):
                     None, 
                     byref(properties), 
                     parent.id if parent else None)
-            if collisiontype in cls.subtypes:
-                return cls.subtypes[collisiontype](
-                    id=id, file=file, parent=parent, properties=properties)
-            else:
-                return CollisionObject(id=id, file=file, parent=parent, properties=properties)
+            return file.read_node(id=id, parent=parent, properties=properties)
         except:
             return None
 
@@ -952,15 +959,40 @@ class CollisionObject(NiObject):
             self.file._handle, None, byref(properties), self.id)
         self._body = bhkWorldObject(id=rb_index, file=self.file, parent=self, properties=properties)
         return self._body
-    
+
+block_types['bhkCollisionObject'] = CollisionObject
+
+
+class bhkNiCollisionObject(CollisionObject):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return bhkNiCollisionObjectBuf(values)
+
+block_types['bhkNiCollisionObject'] = CollisionObject
+
+
+class bhkPCollisionObject(bhkNiCollisionObject):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return bhkNiCollisionObjectBuf(values)
+
+block_types['bhkPCollisionObject'] = bhkPCollisionObject
+
+
+class bhkSPCollisionObject(CollisionObject):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return bhkSPCollisionObjectBuf(values)
+
+block_types['bhkSPCollisionObject'] = bhkSPCollisionObject
+
 
 class bhkBlendCollisionObject(CollisionObject):
-
     @classmethod
     def _getbuf(cls, values=None):
         return bhkBlendCollisionObjectBuf(values)
 
-CollisionObject.subtypes['bhkBlendCollisionObject'] = bhkBlendCollisionObject
+block_types['bhkBlendCollisionObject'] = bhkBlendCollisionObject
 
 
 class NiAVObject(NiObject):
@@ -1087,7 +1119,7 @@ class NiNode(NiAVObject):
     def controller(self):
         if self._controller: return self._controller
         if self.properties.controllerID == NODEID_NONE: return None
-        self._controller = self.file.read_node(node_id=self.properties.controllerID, parent=self)
+        self._controller = self.file.read_node(id=self.properties.controllerID, parent=self)
         return self._controller
     
     @controller.setter
@@ -1181,6 +1213,10 @@ class NiNode(NiAVObject):
         buf.rot2 = val[3]
         buf.zoom = val[4]
         NifFile.nifly.addBlock(self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
+
+block_types["NiNode"] = NiNode
+block_types["BSFadeNode"] = NiNode
+block_types["BSLeafAnimNode"] = NiNode
 
 
 class NiKeyFrameData(NiObject):
@@ -1335,6 +1371,8 @@ class NiFloatData(NiObject):
         buf.forward = k.forward
         buf.backward = k.backward
         NifFile.nifly.addAnimKeyQuadFloat(self.file._handle, self.id, buf)
+
+block_types["NiFloatData"] = NiFloatData
 
 
 class NiTransformData(NiKeyFrameData):
@@ -1493,6 +1531,9 @@ class NiTransformInterpolator(NiObject):
         self._data = NiTransformData(file=self.file, id=self.properties.dataID)
         return self._data
 
+block_types["NiTransformInterpolator"] = NiTransformInterpolator
+
+
 class NiFloatInterpolator(NiObject):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
@@ -1522,7 +1563,9 @@ class NiFloatInterpolator(NiObject):
     def data(self, c):
         self._data = c
         self.properties.dataID = c.id
-    
+
+block_types["NiFloatInterpolator"] = NiFloatInterpolator
+
     
 class NiTimeController(NiObject):
     """
@@ -1545,7 +1588,7 @@ class NiTimeController(NiObject):
         if self._target: return self._target
         if self.properties.targetID == NODEID_NONE: return None
         self._target = self.file.read_node(
-            node_id=self.properties.targetID, parent=self)
+            id=self.properties.targetID, parent=self)
         return self._target
     
     @property
@@ -1560,8 +1603,10 @@ class NiInterpController(NiTimeController):
 
 
 class NiSingleInterpController(NiInterpController):
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
-        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+    def __init__(self, 
+                 handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(
+            handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._interpolator = None
         
     @property
@@ -1569,7 +1614,7 @@ class NiSingleInterpController(NiInterpController):
         if self._interpolator: return self._interpolator
         if self.properties.interpolatorID == NODEID_NONE: return None
         self._interpolator = self.file.read_node(
-            node_id=self.properties.interpolatorID, parent=self)
+            id=self.properties.interpolatorID, parent=self)
         return self._interpolator
     
     @interpolator.setter
@@ -1583,12 +1628,16 @@ class NiKeyframeController(NiSingleInterpController):
 
 
 class NiTransformController(NiKeyframeController):
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
-        super().__init__(handle=handle, file=file, id=id, parent=parent)
+    def __init__(self, 
+                 handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(
+            handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._target = None
         self._properties = NiTransformControllerBuf()
         NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
-        
+
+block_types["NiTransformController"] = NiTransformController
+
 
 class NiMultiTargetTransformController(NiInterpController):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
@@ -1615,7 +1664,9 @@ class NiMultiTargetTransformController(NiInterpController):
         tc = NiMultiTargetTransformController(
             file=file, id=id, properties=p, parent=parent)
         return tc
-    
+
+block_types["NiMultiTargetTransformController"] = NiMultiTargetTransformController
+
 
 class NiFloatInterpController(NiSingleInterpController):
     pass
@@ -1636,6 +1687,8 @@ class BSEffectShaderPropertyFloatController(NiFloatInterpController):
     @classmethod
     def _getbuf(cls, values=None):
         return BSEffectShaderPropertyFloatControllerBuf(values)
+
+block_types["BSEffectShaderPropertyFloatController"] = BSEffectShaderPropertyFloatController
 
 
 class ControllerLink:
@@ -1684,7 +1737,7 @@ class ControllerLink:
     def controller(self):
         if self._controller: return self._controller
         if self.properties.controllerID == NODEID_NONE: return None
-        self._controller = self.parent.file.read_node(node_id=self.properties.controllerID, parent=self)
+        self._controller = self.parent.file.read_node(id=self.properties.controllerID, parent=self)
         return self._controller
     
     @classmethod
@@ -1832,21 +1885,24 @@ class NiControllerSequence(NiSequence):
             cs._name = name
             if parent: parent.add_sequence(cs)
             return cs
-        
+
+block_types["NiControllerSequence"] = NiControllerSequence
+
 
 class NiControllerManager(NiTimeController):
-    _controller_manager_sequences = None
 
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None):
-        super().__init__(handle=handle, file=file, id=id, parent=parent)
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._properties = NiControllerManagerBuf()
+        self._controller_manager_sequences = None
+        self._object_palette = None
         NifFile.nifly.getBlock(self.file._handle, 
                                self.id, 
                                byref(self._properties))
 
     @property
     def sequences(self):
-        if self._controller_manager_sequences:
+        if self._controller_manager_sequences != None:
             return self._controller_manager_sequences
         
         cms_count = NifFile.nifly.getControllerManagerSequences(
@@ -1869,7 +1925,18 @@ class NiControllerManager(NiTimeController):
         The nif file is not changed. 
         """
         self._controller_manager_sequences[seq.name] = seq
-    
+
+    @property
+    def object_palette(self):
+        if self._object_palette != None:
+            return self._object_palette
+        elif self.properties.objectPaletteID == NODEID_NONE:
+            return None
+        else:
+            self._object_palette = self.file.read_node(
+                self.properties.objectPaletteID)
+            return self._object_palette
+
     @classmethod
     def _getbuf(cls, values=None):
         return NiControllerManagerBuf(values)
@@ -1890,6 +1957,39 @@ class NiControllerManager(NiTimeController):
             return cm
         else:
             return None
+        
+block_types["NiControllerManager"] = NiControllerManager
+
+
+class NiDefaultAVObjectPalette(NiObject):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._objects = None
+
+
+    @classmethod 
+    def _getbuf(cls, values=None):
+        return NiDefaultAVObjectPaletteBuf(values)
+    
+    @property
+    def objects(self):
+        if self._objects is None:
+            self._objects = []
+            for i in range(0, self.properties.objCount):
+                name = create_string_buffer(256)
+                refid = (c_uint32)()
+                NifFile.nifly.getAVObjectPaletteObject(
+                    self.file._handle,
+                    self.id,
+                    i, 
+                    256, name,
+                    refid
+                )
+                refnode = self.file.read_node(refid.value)
+                self._objects.append((name.value.decode('utf-8'), refnode,))
+        return self._objects
+
+block_types["NiDefaultAVObjectPalette"] = NiDefaultAVObjectPalette
 
 
 # --- NiShader -- #
@@ -2018,7 +2118,7 @@ class NiShader(NiObject):
     def controller(self):
         if self._controller: return self._controller
         if self.properties.controllerID == NODEID_NONE: return None
-        self._controller = self.file.read_node(node_id=self.properties.controllerID, parent=self)
+        self._controller = self.file.read_node(id=self.properties.controllerID, parent=self)
         return self._controller
     
     @controller.setter
@@ -2149,19 +2249,18 @@ class NiShaderFO4(NiShader):
 
 # --- NifShape --- #
 class NiShape(NiNode):
-    subtypes = None
 
-    @classmethod
-    def load_subclasses(cls):
-        if cls.subtypes: return 
-        cls.subtypes = {}
-        for subc in cls.__subclasses__():
-            cls.subtypes[subc.__name__] = subc
+    # @classmethod
+    # def load_subclasses(cls):
+    #     if cls.subtypes: return 
+    #     cls.subtypes = {}
+    #     for subc in cls.__subclasses__():
+    #         cls.subtypes[subc.__name__] = subc
 
     @classmethod
     def New(cls, handle=None, shapetype=None, id=NODEID_NONE, file=None, parent=None, 
             properties=None):
-        cls.load_subclasses()
+        # cls.load_subclasses()
         if properties:
             shapetype = bufferTypeList[properties.bufType]
         if not shapetype:
@@ -2180,8 +2279,8 @@ class NiShape(NiNode):
             if not handle:
                 handle = NifFile.nifly.getBlockByID(id)
             
-            s = cls.subtypes[shapetype](
-                handle=handle, id=id, file=file, parent=parent, properties=properties)
+            s = file.read_node(
+                handle=handle, id=id, parent=parent, properties=properties)
             return s
         except:
             NifFile.log.warning(f"Shape type is not implemented: {shapetype}")
@@ -2674,6 +2773,8 @@ class NiTriShape(NiShape):
     def _getbuf(cls, values=None):
         return NiShapeBuf(values)
     
+block_types["NiTriShape"] = NiTriShape
+    
 
 # --- BSTriShape --- #
 class BSTriShape(NiShape):
@@ -2682,7 +2783,9 @@ class BSTriShape(NiShape):
         b = NiShapeBuf(values)
         b.bufType = PynBufferTypes.BSTriShapeBufType
         return b
-    
+
+block_types["BSTriShape"] = BSTriShape
+
 
 # --- BSDynamicTriShape --- #
 class BSDynamicTriShape(NiShape):
@@ -2691,7 +2794,9 @@ class BSDynamicTriShape(NiShape):
         b = NiShapeBuf(values)
         b.bufType = PynBufferTypes.BSDynamicTriShapeBufType
         return b
-    
+
+block_types["BSDynamicTriShape"] = BSDynamicTriShape
+
 
 # --- BSSubIndexTriShape --- #
 class BSSubIndexTriShape(NiShape):
@@ -2700,28 +2805,36 @@ class BSSubIndexTriShape(NiShape):
         b = NiShapeBuf(values)
         b.bufType = PynBufferTypes.BSSubIndexTriShapeBufType
         return b
-    
+
+block_types["BSSubIndexTriShape"] = BSSubIndexTriShape
+
 
 # --- NiTriStrips --- #
 class NiTriStrips(NiShape):
     @classmethod
     def _getbuf(cls, values=None):
         return NiShapeBuf(values)
-    
+
+block_types["NiTriStrips"] = NiTriStrips
+
 
 # --- BSMeshLODTriShape --- #
 class BSMeshLODTriShape(NiShape):
     @classmethod
     def _getbuf(cls, values=None):
         return BSMeshLODTriShapeBuf(values)
-    
+
+block_types["BSMeshLODTriShape"] = BSMeshLODTriShape
+
 
 # --- BSLODTriShape --- #
 class BSLODTriShape(NiShape):
     @classmethod
     def _getbuf(cls, values=None):
         return BSLODTriShapeBuf(values)
-    
+
+block_types["BSLODTriShape"] = BSLODTriShape
+
 
 # --- NifFile --- #
 class NifFile:
@@ -2766,6 +2879,7 @@ class NifFile:
         elif filepath: 
             self.materialsRoot = extend_filenames(filepath, 'meshes')
         self._shape_dict = {}
+        self.node_ids = {}
         self._nodes = None
         self._shapes = None
         self._load_shapes()
@@ -2811,6 +2925,7 @@ class NifFile:
         # Get the root node into the nodes list so it can be found.
         self.read_node(0)
         # NiNode(handle=self.root, file=self, name=self.rootName)
+
 
     def save(self):
         for sh in self.shapes:
@@ -3001,17 +3116,19 @@ class NifFile:
             buf = PTRBUF()
             NifFile.nifly.getNodes(self._handle, buf)
             for h in buf:
-                this_node = NiNode(handle=h, file=self)
-                self._nodes[this_node.name] = this_node
+                this_node = self.read_node(handle=h)
         return self._nodes
 
+
     def nodeByHandle(self, desired_handle):
-        """ Returns the node with the given handle. If not found assumes it's a node that 
-        doesn't appear in the nodes list and makes a NiNode for it. """
-        for n in self.nodes.values():
+        """ 
+        Returns the node with the given handle. If not found assumes it's a node that
+        doesn't appear in the nodes list and makes a NiNode for it. 
+        """
+        for n in self.node_ids.values():
             if n._handle == desired_handle:
                 return n
-        return NiNode(desired_handle, self)
+        return self.read_node(handle=desired_handle)
 
 
     def get_node_xform_to_global(self, name):
@@ -3164,37 +3281,31 @@ class NifFile:
         NifFile.nifly.getMessageLog(buf, msgsize)
         return buf.value.decode('utf-8')
 
-    # These are the types of blocks we can create from an ID. Eventaully should probably
-    # be all of them. This could be done with reflection but we're keeping things simple.
-    block_types = {
-        "NiNode": NiNode,
-        "BSFadeNode": NiNode,
-        "BSLeafAnimNode": NiNode,
-        "NiMultiTargetTransformController": NiMultiTargetTransformController,
-        "NiControllerSequence": NiControllerSequence,
-        "NiTransformController": NiTransformController,
-        "NiTransformInterpolator": NiTransformInterpolator,
-        "NiControllerManager": NiControllerManager,
-        "BSEffectShaderPropertyFloatController": BSEffectShaderPropertyFloatController,
-        "NiFloatInterpolator": NiFloatInterpolator,
-        "NiFloatData": NiFloatData
-    }
-
-    def read_node(self, node_id, parent=None):
-        """Return a node object for the given node ID. The node might be anything,
-        so use the block name to determine what kind of object to create. 
+    def read_node(self, id=None, handle=None, properties=None, parent=None):
         """
-        matches = [n for n in self.nodes.values() if n.id == node_id]
-        if matches: return matches[0]
+        Return a node object for the given node ID. The node might be anything, so use the
+        block name to determine what kind of object to create. 
+        """
+        if id is None:
+            id = NifFile.nifly.getBlockID(self._handle, handle)
+        if id in self.node_ids:
+            return self.node_ids[id]
 
         buf = (c_char * (128))()
-        NifFile.nifly.getBlockname(self._handle, node_id, buf, 128)
+        NifFile.nifly.getBlockname(self._handle, id, buf, 128)
         bn = buf.value.decode('utf-8')
-        if bn in NifFile.block_types:
-            return NifFile.block_types[bn](id=node_id, file=self, parent=parent)
+        if bn in block_types:
+            node = block_types[bn](
+                id=id, file=self, handle=handle, properties=properties, parent=parent)
+            self.node_ids[id] = node
+            try:
+                if node.name: self._nodes[node.name] = node
+            except:
+                pass
+            return node
         else:
             return None
-        
+
 
     def add_shape(self, properties, parent=None, vertices=None, normals=None, transform=None):
         """ Create collision shape in the Nif file. It can be connected to a body later.

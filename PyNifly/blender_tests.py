@@ -5774,7 +5774,7 @@ if not bpy.data:
 else:
     excludetests = []
 
-    do_tests([TEST_SHADER_SE])
+    do_tests([TEST_ANIM_CHEST])
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (

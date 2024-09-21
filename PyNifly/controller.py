@@ -40,16 +40,19 @@ def current_animations(nif, refobjs:BD.ReprObjectCollection):
             # matches.append(("pyn_" + animname, animname, "Animation", len(matches), ))
     return matches
 
-
 def _current_animations():
     """Find all assets that appear to be animation actions."""
     anim_pat = "ANIM|"
-    matches = []
+    WM_OT_ApplyAnim._animations_found = []
     for act in bpy.data.actions:
         if act.name.startswith(anim_pat):
             animname = act.name.split("|", 2)[1]
-            matches.append(("pyn_" + animname, animname, "Animation", len(matches), ))
-    return matches
+            WM_OT_ApplyAnim._animations_found.append(
+                ("pyn_" + animname, 
+                 animname, 
+                 "Animation", 
+                 len(WM_OT_ApplyAnim._animations_found), ))
+    return WM_OT_ApplyAnim._animations_found
 
 
 def apply_animation(anim_name, ctxt=bpy.context):
@@ -1052,16 +1055,22 @@ class WM_OT_ApplyAnim(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     bl_property = "Apply Animation"
     # bl_property = "anim_name"
-    bl_property = "anim_pulldown"
+    bl_property = "anim_chooser"
 
-    # anim_name : bpy.props.StringProperty(name="Apply Animation") # type: ignore
-    anim_pulldown : bpy.props.EnumProperty(items=_current_animations,
-                                           name="Animation Selection",
-                                           default=0) # type: ignore
+    # Keeping the list of animations in a module-level variable because EnumProperty doesn't
+    # like it if the list contents goes away.
+    _animations_found = []
+
+    # Should be able to create a pulldown. That isn't working.
+    anim_chooser : bpy.props.StringProperty(name="Apply Animation") # type: ignore
+    # anim_chooser : bpy.props.EnumProperty(name="Animation Selection",
+    #                                        items=_animations_found,
+    #                                        )  # type: ignore
+    
 
     @classmethod
     def poll(cls, context):
-        return True
+        return _current_animations()
 
     def invoke(self, context, event): # Used for user interaction
         wm = context.window_manager
@@ -1069,10 +1078,10 @@ class WM_OT_ApplyAnim(bpy.types.Operator):
 
     def draw(self, context): # Draw options (typically displayed in the tool-bar)
         row = self.layout
-        row.prop(self, "anim_pulldown", text="Animation name")
+        row.prop(self, "anim_chooser", text="Animation name")
 
     def execute(self, context): # Runs by default 
-        anim_dict = apply_animation(self.anim_pulldown, context)
+        anim_dict = apply_animation(self.anim_chooser, context)
         return {'FINISHED'}
 
 

@@ -71,7 +71,9 @@ enum BUFFER_TYPES : uint16_t {
 	NiFloatInterpolatorBufType,
 	NiFloatDataBufType,
 	NiBlendPoint3InterpolatorBufType, 
-	NiBlendFloatInterpolatorBufType
+	NiBlendFloatInterpolatorBufType,
+	NiDefaultAVObjectPaletteBufType,
+	NiTextKeyExtraDataBufType
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -917,3 +919,21 @@ struct NiAnimKeyLinearQuatBuf {
 	float value[4];
 };
 
+struct NiDefaultAVObjectPaletteBuf {
+	uint16_t bufSize = sizeof(NiDefaultAVObjectPaletteBuf);
+	uint16_t bufType = BUFFER_TYPES::NiDefaultAVObjectPaletteBufType;
+	uint32_t sceneID;
+	uint16_t objCount;
+};
+
+struct NiTextKeyExtraDataBuf {
+	uint16_t bufSize = sizeof(NiTextKeyExtraDataBuf);
+	uint16_t bufType = BUFFER_TYPES::NiTextKeyExtraDataBufType;
+	uint32_t nameID;
+	uint16_t textKeyCount;
+};
+
+struct TextKeyBuf {
+	float time;
+	uint32_t valueID;
+};

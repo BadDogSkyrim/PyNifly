@@ -898,7 +898,9 @@ class PynBufferTypes(IntEnum):
     NiFloatDataBufType = 44
     NiBlendPoint3InterpolatorBufType = 45 
     NiBlendFloatInterpolatorBufType = 46   
-    COUNT = 47
+    NiDefaultAVObjectPaletteBufType = 47
+    NiTextKeyExtraDataBufType = 48
+    COUNT = 49
 
 bufferTypeList = [''] * PynBufferTypes.COUNT
 blockBuffers = {}
@@ -2067,6 +2069,38 @@ class NiAnimKeyQuadTransBuf(pynStructure):
         ("value", VECTOR3),
         ("forward", VECTOR3),
         ("backward", VECTOR3),
+    ]
+
+class NiDefaultAVObjectPaletteBuf(pynStructure):
+    _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
+        ("sceneID", c_uint32),
+        ("objCount", c_uint16),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.NiDefaultAVObjectPaletteBufType
+bufferTypeList[PynBufferTypes.NiDefaultAVObjectPaletteBufType] = 'NiDefaultAVObjectPalette'
+blockBuffers['NiDefaultAVObjectPalette'] = NiDefaultAVObjectPaletteBuf
+
+class NiTextKeyExtraDataBuf(pynStructure):
+    _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
+        ("nameID", c_uint32),
+        ("textKeyCount", c_uint16),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.NiTextKeyExtraDataBufType
+bufferTypeList[PynBufferTypes.NiTextKeyExtraDataBufType] = 'NiTextKeyExtraData'
+blockBuffers['NiTextKeyExtraData'] = NiTextKeyExtraDataBuf
+
+class TextKeyBuf(pynStructure):
+    _fields_ = [
+        ("time", c_float),
+        ("valueID", c_uint32),
     ]
 
 class NiKeyType(PynIntEnum):

@@ -3730,8 +3730,10 @@ namespace NiflyDLLTests
 
 		TEST_METHOD(transformController) {
 			/* Can import and export nif with animations (Dwemer chest) */
+			std::filesystem::path testfile = testRoot / "Skyrim/dwechest01.nif";
+			std::filesystem::path outfile = testRoot / "Out/testWrapper_transformController.nif";
 
-			void* nif = load((testRoot / "Skyrim/dwechest01.nif").u8string().c_str());
+			void* nif = load(testfile.u8string().c_str());
 			int strlen = getMaxStringLen(nif);
 
 			DwemerChestData data;
@@ -3739,7 +3741,6 @@ namespace NiflyDLLTests
 
 			/* ********** export ******** */
 			clearMessageLog();
-			std::filesystem::path fileOut = testRoot / "Out/testWrapper_transformController.nif";
 
 			void* nifOut = createNif("SKYRIM", "BSFadeNode", "DwarvenChest01");
 			uint16_t options = 0;
@@ -3887,11 +3888,11 @@ namespace NiflyDLLTests
 			closebufOut.managerID = controllerOut;
 			int csCloseOut = addBlock(nifOut, "Close", &closebufOut, NIF_NPOS);
 
-			saveNif(nifOut, fileOut.u8string().c_str());
+			saveNif(nifOut, outfile.u8string().c_str());
 
 			/* Check the results. */
 			DwemerChestData dataCheck;
-			void* nifcheck = load(fileOut.u8string().c_str());
+			void* nifcheck = load(outfile.u8string().c_str());
 			TCheckDwemerChest(nifcheck, dataCheck);
 		};
 
