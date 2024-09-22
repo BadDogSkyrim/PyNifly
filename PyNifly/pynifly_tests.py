@@ -39,6 +39,8 @@ def _test_file(relative_path):
 def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=None, parent=None):
     """ 
     Convenience routine to copy an existing shape from a source nif to a test file.
+
+    Returns the created shape.
     """
     skinned = (len(old_shape.bone_weights) > 0)
 
@@ -127,6 +129,8 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
                 properties=controller_prop, 
                 parent=new_shape.shader
             )
+    
+    return new_shape
 
 
 def TEST_NIFDEFS():
@@ -1811,21 +1815,12 @@ def TEST_ANIMATION():
         f"Have correct translation: {td189.translations[3].value}"
     
 
-def TEST_ANIMATION_NOBLECHEST():
-    """Can read & write embedded animations."""
-    # NobleChest has a simple open and close animation.
-    testfile = r"tests/Skyrim/noblechest01.nif"
-    outfile = r"tests/out/TEST_ANIMATION_NOBLECHEST.nif"
-
-    # READ
-
-    nif = NifFile(testfile)
-    root = nif.rootNode
-    lid01 = nif.nodes["Lid01"]
-
+def check_noblechest(nif:NifFile):
     # The Open and Close animations are associated with a controller manager on the root
     # node.
-    cm:NiControllerManager = root.controller
+    lid01 = nif.nodes["Lid01"]
+
+    cm:NiControllerManager = nif.root.controller
     assert cm, f"Have root controller"
 
     assert len(cm.sequences) == 2, f"Have 2 controller manager sequences: {cm.sequences}"
@@ -1840,14 +1835,54 @@ def TEST_ANIMATION_NOBLECHEST():
     chestshape = [x[1] for x in cm.object_palette.objects if x[0] == 'Chest01:1'][0]
     assert chestshape.properties.flags == 524302, f"Have corret chest shape"
 
+    # Text keys are related to the Controller Sequence and can be read as 
+    # [(time, "name"), ...] pairs
+    openseq = cm.sequences["Open"]
+    assert len(openseq.text_key_data.keys) == 2, f"Have right # of text keys"
+    assert "end" in [x[1] for x in openseq.text_key_data.keys], "Have 'end' key"
+
+    # Ca read Controller Sequence properties
+    assert cm.properties.flags == 76, f"Have correct flags: {cm.properties.flags}"
+    openseq:NiControllerSequence = cm.sequences["Open"]
+    assert openseq.properties.cycleType == CycleType.CLAMP, f"Have correct cycle type"
+
+    # Controller sequences have controlled blocks
+    assert len(openseq.controlled_blocks) == 1, f"Have controlled block"
+    cb:ControllerLink = openseq.controlled_blocks[0]
+    assert cb.node_name == "Lid01"
+
+    # Controlled blocks have interpolators and transform data
+    td:NiTransformData = cb.interpolator.data
+    assert td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY
+    assert len(td.xrotations) == 2, f"Have 2 rotations"
+    assert td.properties.xRotations.interpolation == NiKeyType.QUADRATIC_KEY, "Have quad key"
+    assert NearEqual(td.xrotations[1].time, 0.5), f"have correct time: {td.xrotations[1].time}"
+    assert NearEqual(td.xrotations[1].value, -0.1222), f"have correct value: {td.xrotations[1].value}"
+    
+    # Controlled blocks have MultiTargetTransformControllers
+    mtt:NiMultiTargetTransformController = cb.controller
+    assert mtt.properties.targetID == 0, f"Have root as target"
+
+
+def TEST_ANIMATION_NOBLECHEST():
+    """Can read & write embedded animations."""
+    # NobleChest has a simple open and close animation.
+    testfile = r"tests/Skyrim/noblechest01.nif"
+    outfile = r"tests/out/TEST_ANIMATION_NOBLECHEST.nif"
+
+    # READ
+
+    nif = NifFile(testfile)
+    lid01 = nif.nodes["Lid01"]
+
     # WRITE
     
     nifout = NifFile()
     nifout.initialize("SKYRIM", outfile, "BSFadeNode", "NobleChest")
     bodynode = nifout.add_node("Chest01", nif.nodes["Chest01"].transform)
-    _export_shape(nif.nodes["Chest01:1"], nifout, parent=bodynode)
+    chestout = _export_shape(nif.nodes["Chest01:1"], nifout, parent=bodynode)
     lidnode = nifout.add_node("Lid01", lid01.transform)
-    _export_shape(nif.nodes["Lid01:1"], nifout, parent=lidnode)
+    lidout = _export_shape(nif.nodes["Lid01:1"], nifout, parent=lidnode)
 
     nifout.root.bsx_flags = ['BSX', 11]
 
@@ -1860,6 +1895,24 @@ def TEST_ANIMATION_NOBLECHEST():
         next_controller=openmtt,
         parent=nifout.root)
 
+    # Text key extra data created along with its keys
+    tk = NiTextKeyExtraData.New(
+        file=nifout,
+        keys=[(0.0, "start",), (0.5, "end",)])
+
+    # Object palette created along with object references
+    objp = NiDefaultAVObjectPalette.New(
+        file=nifout,
+        scene=nifout.rootNode,
+        objects=[
+            (chestout.name, chestout,),
+            (lidout.name, lidout,),
+            (lidnode.name, lidnode,),
+            (bodynode.name, bodynode,),
+        ],
+        parent=cmout,
+    )
+
     # Create a controller sequence for the manager. The relationship between them is set
     # by passing the manager as the parent.
     openseq = NiControllerSequence.New(
@@ -1869,6 +1922,7 @@ def TEST_ANIMATION_NOBLECHEST():
         start_time=0,
         stop_time=0.5,
         cycle_type = CycleType.CLAMP,
+        text_key_data = tk,
         parent=cmout, 
     )
     
@@ -1896,18 +1950,6 @@ def TEST_ANIMATION_NOBLECHEST():
     opendata.add_xyz_rotation_keys("Y", [NiAnimKeyQuadXYZBuf(0.5, 0, 0, 0)])
     opendata.add_xyz_rotation_keys("Z", [NiAnimKeyQuadXYZBuf(0.5, 0, 0, 0)])
     
-    # opendata.add_xyz_rotation_keys("X", [
-    #     [0, 0, 0, 0],
-    #     [0.5 , -0.1222, 0, 0]
-    # ])
-    # opendata.add_xyz_rotation_keys("Y", [
-    #     [0, 0, 0, 0],
-    #     [0.5 , 0, 0, 0]
-    # ])
-    # opendata.add_xyz_rotation_keys("Z", [
-    #     [0, 0, 0, 0],
-    #     [0.5 , 0, 0, 0]
-    # ])
     openinterp = NiTransformInterpolator.New(file=nifout, data_block=opendata)
     
     openseq.add_controlled_block(
@@ -1918,30 +1960,23 @@ def TEST_ANIMATION_NOBLECHEST():
         controller_type="NiTransformController",
     )
 
+    closeseq = NiControllerSequence.New(
+        file=nifout, 
+        name="Close", 
+        accum_root_name="NobleChest01",
+        start_time=0,
+        stop_time=0.5,
+        cycle_type = CycleType.CLAMP,
+        parent=cmout, 
+    )
+
+
     nifout.save()
 
     # CHECK
 
     nifcheck = NifFile(outfile)
-    rootcheck = nifcheck.root
-    cmcheck:NiControllerManager = rootcheck.controller
-    assert cmcheck, f"Wrote root controller"
-    assert cmcheck.properties.flags == 76, f"Have correct flags: {cmcheck.properties.flags}"
-    assert "Open" in cmcheck.sequences, f"Have 'open' sequence"
-    seqcheck:NiControllerSequence = cmcheck.sequences["Open"]
-    assert seqcheck.properties.cycleType == CycleType.CLAMP, f"Have correct cycle type"
-    assert len(seqcheck.controlled_blocks) == 1, f"Have controlled block"
-    cbcheck:ControllerLink = seqcheck.controlled_blocks[0]
-    assert cbcheck.node_name == "Lid01"
-    tdcheck:NiTransformData = cbcheck.interpolator.data
-    assert tdcheck.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY
-    assert len(tdcheck.xrotations) == 2, f"Have 2 rotations"
-    assert tdcheck.properties.xRotations.interpolation == NiKeyType.QUADRATIC_KEY, "Have quad key"
-    assert NearEqual(tdcheck.xrotations[1].time, 0.5), f"have correct time: {tdcheck.xrotations[1].time}"
-    assert NearEqual(tdcheck.xrotations[1].value, -0.1222), f"have correct value: {tdcheck.xrotations[1].value}"
-    mttcheck:NiMultiTargetTransformController = cbcheck.controller
-    assert mttcheck.properties.targetID == 0, f"Have root as target"
-
+    check_noblechest(nifcheck)
 
 def TEST_ANIMATION_ALDUIN():
     """Animated skinned nif"""
@@ -2309,7 +2344,7 @@ mylog = logging.getLogger("pynifly")
 logging.basicConfig()
 mylog.setLevel(logging.DEBUG)
 
-# execute(test=TEST_SKEL)
+execute(test=TEST_ANIMATION_NOBLECHEST)
 # execute(start=TEST_TREE, exclude=[TEST_SET_SKINTINT])
-execute(exclude=[TEST_SET_SKINTINT])
+# execute(exclude=[TEST_SET_SKINTINT])
 #

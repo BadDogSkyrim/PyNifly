@@ -171,5 +171,5 @@ extern "C" NIFLY_API int addAVObjectPaletteObject(void* nifref, uint32_t palette
 
 extern "C" NIFLY_API int getNiTextKey(void* nifref, uint32_t tkedID, int keyindex, void* b);
 
-extern "C" NIFLY_API int addTextKey(void* nifref, uint32_t tkedID, float time, char* name);
+extern "C" NIFLY_API int addTextKey(void* nifref, uint32_t tkedID, float time, const char* name);
 

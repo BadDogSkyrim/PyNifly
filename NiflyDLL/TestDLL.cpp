@@ -2433,7 +2433,7 @@ namespace NiflyDLLTests
 			//void* nifCheck = load(fileOut.u8string().c_str());
 			//void* shapesCheck[10];
 			//getShapes(nifCheck, shapesCheck, 10, 0);
-			Vector3 tV = Vector3(0.954437, 4.977112, -11.012909);
+			Vector3 tV = Vector3(0.954437f, 4.977112f, -11.012909f);
 			TCheckAccuracy(fileIn, "MaleHeadIMF", fileOut, "MaleHeadIMF", tV, "NPC Spine2 [Spn2]");
 
 			//TCompareExtraData(nifhead, nullptr, nifCheck, nullptr);
@@ -3329,7 +3329,7 @@ namespace NiflyDLLTests
 
 			Assert::IsTrue(d.listShapeBuf.childCount == 3, L"Have correct child count");
 			getCollListShapeChildren(nif, d.rbBuf.shapeID, d.listShapeChildren, 3);
-			for (int i = 0; i < d.listShapeBuf.childCount; i++) {
+			for (uint32_t i = 0; i < d.listShapeBuf.childCount; i++) {
 				getBlock(nif, d.listShapeChildren[i], &d.convexTransBuf[i]);
 				getBlock(nif, d.convexTransBuf[i].shapeID, &d.boxShapeBuf[i]);
 
@@ -3401,9 +3401,9 @@ namespace NiflyDLLTests
 			bhkBoxShapeBuf boxBuf[3];
 			for (int i = 0; i < 3; i++) {
 				ctOutBuf[i].material = 1607128641;
-				ctOutBuf[i].radius = 0.009899;
+				ctOutBuf[i].radius = 0.009899f;
 				boxBuf[i].material = 1607128641;
-				boxBuf[i].radius = 0.009899;
+				boxBuf[i].radius = 0.009899f;
 				int ctOutID = addBlock(nifOut, nullptr, &ctOutBuf[i], lsOutID);
 				int box1OutID = addBlock(nifOut, nullptr, &boxBuf[i], ctOutID);
 			}
@@ -4297,7 +4297,12 @@ namespace NiflyDLLTests
 			Assert::AreEqual(11, int(boxbuf.vertsCount), L"Have correct vertices");
 		};
 		TEST_METHOD(readWriteKF) {
-			void* nif = load((testRoot / "SkyrimSE/1hm_attackpowerright.kf").u8string().c_str());
+			std::filesystem::path testfile = testRoot / "SkyrimSE/1hm_attackpowerright.kf";
+			std::filesystem::path outfile = testRoot / "SkyrimSE/readWriteKF.kf";
+
+			//// READ ////
+
+			void* nif = load(testfile.u8string().c_str());
 			void* root = getRoot(nif);
 			char namebuf[64];
 			getNodeBlockname(root, namebuf, 64);
@@ -4313,13 +4318,25 @@ namespace NiflyDLLTests
 			getString(nif, cblist[0].ctrlType, 64, namebuf);
 			Assert::IsTrue(strcmp(namebuf, "NiTransformController") == 0, L"Found controller type");
 
+			//// WRITE ////
+
 			void* nifout = createNif("SKYRIM", "NiControllerSequence", "TestKF");
 			void* rootout = getRoot(nifout);
 
 			// We can read a root name that hasn't been saved to a nif file yet.
 			getRootName(nifout, namebuf, 64);
 			Assert::IsTrue(strcmp(namebuf, "TestKF") == 0, L"Have root name");
-			saveNif(nifout, (testRoot / "SkyrimSE/readWriteKF.kf").u8string().c_str());
+
+			// Can create NiTextKeyExtraData
+			NiTextKeyExtraDataBuf tkbuf;
+			tkbuf.nameID = NIF_NPOS;
+			int tkID = addBlock(nifout, nullptr, &tkbuf, 0);
+f			addTextKey(nifout, tkID, 0.0f, "start");
+			addTextKey(nifout, tkID, 0.5f, "end");
+
+			saveNif(nifout, outfile.u8string().c_str());
+
+			//// CHECK ////
 
 			// Can get type and name of a block that is not a NiNode.
 			void* nifcheck = load((testRoot / "SkyrimSE/readWriteKF.kf").u8string().c_str());
@@ -4328,6 +4345,22 @@ namespace NiflyDLLTests
 			Assert::IsTrue(strcmp(namebuf, "NiControllerSequence") == 0, L"Have correct root node type");
 			getNodeName(rootcheck, namebuf, 64);
 			Assert::IsTrue(strcmp(namebuf, "TestKF") == 0, L"Have correct node name");
+
+			NiControllerSequenceBuf seqcheck;
+			getBlock(nifcheck, 0, &seqcheck);
+
+			Assert::AreNotEqual(NIF_NPOS, seqcheck.textKeyID, L"Have text key block");
+
+			NiTextKeyExtraDataBuf tkedcheck;
+			getBlock(nifcheck, seqcheck.textKeyID, &tkedcheck);
+			Assert::AreEqual(2, int(tkedcheck.textKeyCount), L"Correct number of text keys");
+
+			TextKeyBuf tk1;
+			char tk1_name[256];
+			getNiTextKey(nifcheck, seqcheck.textKeyID, 1, &tk1);
+			getString(nifcheck, tk1.valueID, 256, tk1_name);
+			Assert::AreEqual(0.5f, tk1.time, L"Correct time");
+			Assert::AreEqual("end", tk1_name, L"Correct value");
 		};
 
 		struct TreeData {

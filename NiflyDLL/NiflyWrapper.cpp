@@ -4412,7 +4412,14 @@ int addAVObjectPalette(void* nifref, const char* name, void* b, uint32_t parent)
     auto sh = std::make_unique<NiDefaultAVObjectPalette>();
     sh->sceneRef.index = buf->sceneID;
 
-    return hdr->AddBlock(std::move(sh));
+    int newid = hdr->AddBlock(std::move(sh));
+
+    if (parent != NIF_NPOS) {
+        NiControllerManager* p = hdr->GetBlock<NiControllerManager>(parent);
+        p->objectPaletteRef.index = newid;
+    }
+
+    return newid;
 }
 
 NIFLY_API int addAVObjectPaletteObject(
@@ -4467,12 +4474,19 @@ int addNiTextKeyExtraData(void* nifref, const char* name, void* b, uint32_t pare
     CheckBuf(buf, BUFFER_TYPES::NiTextKeyExtraDataBufType, NiTextKeyExtraDataBuf);
 
     auto sh = std::make_unique<NiTextKeyExtraData>();
-    sh->name = std::string(name);
+    if (name) sh->name = std::string(name);
 
-    return hdr->AddBlock(std::move(sh));
+    int newid = hdr->AddBlock(std::move(sh));
+
+    if (parent != NIF_NPOS) {
+        NiControllerSequence* p = hdr->GetBlock<NiControllerSequence>(parent);
+        p->textKeyRef.index = newid;
+    }
+
+    return newid;
 }
 
-NIFLY_API int addTextKey(void* nifref, uint32_t tkedID, float time, char* name)
+NIFLY_API int addTextKey(void* nifref, uint32_t tkedID, float time, const char* name)
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
@@ -4480,7 +4494,7 @@ NIFLY_API int addTextKey(void* nifref, uint32_t tkedID, float time, char* name)
 
     NiTextKey key;
     key.time = time;
-    key.value.SetIndex(addString(nifref, name));
+    key.value.get() = name;
     tk->textKeys.push_back(key);
     return 0;
 }

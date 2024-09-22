@@ -28,6 +28,8 @@ def load_nifly(nifly_path):
     nifly.addAnimKeyQuadFloat.restype = None
     nifly.addAnimKeyQuadXYZ.argtypes = [c_void_p, c_int, c_char, POINTER(NiAnimKeyQuadXYZBuf)]
     nifly.addAnimKeyQuadXYZ.restype = None
+    nifly.addAVObjectPaletteObject.argtypes = [c_void_p, c_uint32, c_char_p, c_uint32]
+    nifly.addAVObjectPaletteObject.restype = c_int
     nifly.addBoneToNifShape.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf), c_char_p]
     nifly.addBoneToNifShape.restype = c_void_p
     nifly.addBlock.argtypes = [c_void_p, c_char_p, c_void_p, c_int]
@@ -38,6 +40,8 @@ def load_nifly(nifly_path):
     nifly.addNode.restype = c_void_p
     nifly.addString.argtypes = [c_void_p, c_char_p]
     nifly.addString.restype = c_int
+    nifly.addTextKey.argtypes = [c_void_p, c_uint32, c_float, c_char_p]
+    nifly.addTextKey.restype = c_int
     nifly.calcShapeGlobalToSkin.argtypes = [c_void_p, c_void_p, POINTER(TransformBuf)]
     nifly.calcShapeGlobalToSkin.restype = None
     nifly.clearMessageLog.argtypes = []
@@ -119,6 +123,8 @@ def load_nifly(nifly_path):
     nifly.getMaxStringLen.restype = c_int
     nifly.getMessageLog.argtypes = [c_char_p, c_int]
     nifly.getMessageLog.restype = c_int
+    nifly.getNiTextKey.argtypes = [c_void_p, c_uint32, c_int, POINTER(TextKeyBuf)]
+    nifly.getNiTextKey.restype = c_int
     nifly.getNode.argtypes = [c_void_p, POINTER(NiNodeBuf)]
     nifly.getNode.restype = None
     nifly.getNodeBlockname.argtypes = [c_void_p, c_char_p, c_int]
@@ -1834,6 +1840,7 @@ class NiControllerSequence(NiSequence):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._blockname = "NiControllerSequence"
+        self._text_key_data = None
 
     @property
     def accumRootName(self):
@@ -1848,6 +1855,13 @@ class NiControllerSequence(NiSequence):
     @property
     def is_cyclic(self):
         return self.properties.cycleType == 0
+    
+    @property
+    def text_key_data(self):
+        if self._text_key_data is None:
+            self._text_key_data = self.file.read_node(
+                id=self.properties.textKeyID)
+        return self._text_key_data
 
     @classmethod
     def _getbuf(cls, values=None):
@@ -1856,7 +1870,7 @@ class NiControllerSequence(NiSequence):
     @classmethod
     def New(cls, file, name, accum_root_name=None, frequency=1, phase=0,
             start_time=0, stop_time=0, cycle_type=CycleType.CLAMP, weight=1.0,
-            parent=None, 
+            text_key_data=None, parent=None, 
             ):
         """
         Create a new controller sequence block.
@@ -1867,6 +1881,7 @@ class NiControllerSequence(NiSequence):
         p.startTime = start_time
         p.stopTime = stop_time
         p.cycleType = cycle_type
+        p.textKeyID = text_key_data.id if text_key_data else NODEID_NONE
         p.weight = weight
 
         if parent: p.managerID = parent.id
@@ -1891,7 +1906,8 @@ block_types["NiControllerSequence"] = NiControllerSequence
 
 class NiControllerManager(NiTimeController):
 
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, 
+                 properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._properties = NiControllerManagerBuf()
         self._controller_manager_sequences = None
@@ -1942,7 +1958,8 @@ class NiControllerManager(NiTimeController):
         return NiControllerManagerBuf(values)
     
     @classmethod
-    def New(cls, file, flags:TimeControllerFlags, next_controller=None, parent=None):
+    def New(cls, file, flags:TimeControllerFlags, next_controller=None, 
+            object_palette=None, parent=None):
         """
         Create a new controller manager block within the target file.
         """
@@ -1950,22 +1967,71 @@ class NiControllerManager(NiTimeController):
         p.targetID = parent.id if parent else NODEID_NONE
         p.nextControllerID = next_controller.id if next_controller else NODEID_NONE
         p.flags = flags.flags
+        p.objectPaletteID = object_palette.id if object_palette else NODEID_NONE
         id = NifFile.nifly.addBlock(file._handle, None, byref(p), p.targetID)
         if id != NODEID_NONE:
-            cm = NiControllerManager(file=file, id=id, parent=parent)
+            cm = NiControllerManager(file=file, id=id, properties=p, parent=parent)
             cm._controller_manager_sequences = {}
             return cm
         else:
-            return None
+            raise Exception("Could not create NiControllerManager")
         
 block_types["NiControllerManager"] = NiControllerManager
 
+
+class NiTextKeyExtraData(NiObject):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._keys = None
+
+    @classmethod 
+    def _getbuf(cls, values=None):
+        return NiTextKeyExtraDataBuf(values)
+
+    @property 
+    def keys(self):
+        """
+        Text keys returned as [(time, "value"), ...]
+        """
+        if self._keys is None:
+            self._keys = []
+            for i in range(0, self.properties.textKeyCount):
+                buf = TextKeyBuf()
+                valuebuf = create_string_buffer(256)
+                NifFile.nifly.getNiTextKey(
+                    self.file._handle, self.id, i, byref(buf))
+                n = NifFile.nifly.getString(
+                    self.file._handle, buf.valueID, 256, valuebuf)
+                self._keys.append((buf.time, valuebuf.value.decode('utf-8'),))
+        return self._keys
+    
+    def add_key(self, time, val):
+        if self._keys is None: self._keys = []
+        err = NifFile.nifly.addTextKey(
+            self.file._handle, self.id, time, val.encode('utf-8'))
+        self._keys.append((time, val,))
+
+    @classmethod
+    def New(cls, file, name='', keys=[], parent=None):
+        p = NiTextKeyExtraDataBuf()
+        parentid = parent.id if parent else NODEID_NONE
+        id = NifFile.nifly.addBlock(
+            file._handle, name.encode('utf-8'), byref(p), parentid)
+        if id != NODEID_NONE:
+            tk = NiTextKeyExtraData(file=file, id=id, properties=p, parent=parent)
+            for t, v in keys:
+                tk.add_key(t, v)
+            return tk
+        else:
+            raise Exception("Could not create NiControllerManager")
+
+block_types["NiTextKeyExtraData"] = NiTextKeyExtraData
+    
 
 class NiDefaultAVObjectPalette(NiObject):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._objects = None
-
 
     @classmethod 
     def _getbuf(cls, values=None):
@@ -1973,6 +2039,9 @@ class NiDefaultAVObjectPalette(NiObject):
     
     @property
     def objects(self):
+        """
+        Objects returned as [("obj name", obj,)...]
+        """
         if self._objects is None:
             self._objects = []
             for i in range(0, self.properties.objCount):
@@ -1988,6 +2057,28 @@ class NiDefaultAVObjectPalette(NiObject):
                 refnode = self.file.read_node(refid.value)
                 self._objects.append((name.value.decode('utf-8'), refnode,))
         return self._objects
+    
+    def add_object(self, objname, obj):
+        NifFile.nifly.addAVObjectPaletteObject(
+            self.file._handle,
+            self.id,
+            objname.encode('utf8'),
+            obj.id
+        )
+    
+    @classmethod
+    def New(cls, file, scene=None, objects=[], parent=None):
+        p = NiDefaultAVObjectPaletteBuf()
+        p.sceneID = scene.id if scene else NODEID_NONE
+        parentid = parent.id if parent else NODEID_NONE
+        id = NifFile.nifly.addBlock(file._handle, None, byref(p), parentid)
+        if id != NODEID_NONE:
+            objp = NiDefaultAVObjectPalette(file=file, id=id, properties=p, parent=parent)
+            for name, obj in objects:
+                objp.add_object(name, obj)
+            return objp
+        else:
+            raise Exception("Could not create NiControllerManager")
 
 block_types["NiDefaultAVObjectPalette"] = NiDefaultAVObjectPalette
 
