@@ -540,6 +540,13 @@ class ReprObjectCollection():
         # Need a separate dictionary for each file imported, indexed by filepath.
         self._filedict = {}
 
+    def __len__(self):
+        return len(self._collection)
+    
+    def __iter__(self):
+        for ro in self._collection:
+            yield ro
+
     def add(self, reprobj):
         """
         Add a ReprObject to the collection. 
@@ -568,6 +575,9 @@ class ReprObjectCollection():
             return None
         
     def find_blend(self, blendobj):
+        """
+        Find a blender object in the collection.
+        """
         try: 
             return self.blenderdict[blendobj.name]
         except KeyError:

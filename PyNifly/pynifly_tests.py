@@ -1831,9 +1831,9 @@ def check_noblechest(nif:NifFile):
 
     # Referenced objects are a list of pairs, [("object name", object), ...]
     assert len(cm.object_palette.objects) == 4, f"Have referenced objects"
-    assert ("Lid01", lid01) in cm.object_palette.objects, f"Have Lid01"
-    chestshape = [x[1] for x in cm.object_palette.objects if x[0] == 'Chest01:1'][0]
-    assert chestshape.properties.flags == 524302, f"Have corret chest shape"
+    assert cm.object_palette.objects["Lid01"] == lid01, f"Have Lid01"
+    assert cm.object_palette.objects["Chest01:1"].properties.flags == 524302, \
+        f"Have corret chest shape"
 
     # Text keys are related to the Controller Sequence and can be read as 
     # [(time, "name"), ...] pairs
@@ -1904,12 +1904,12 @@ def TEST_ANIMATION_NOBLECHEST():
     objp = NiDefaultAVObjectPalette.New(
         file=nifout,
         scene=nifout.rootNode,
-        objects=[
-            (chestout.name, chestout,),
-            (lidout.name, lidout,),
-            (lidnode.name, lidnode,),
-            (bodynode.name, bodynode,),
-        ],
+        objects={
+            chestout.name: chestout,
+            lidout.name: lidout,
+            lidnode.name: lidnode,
+            bodynode.name: bodynode,
+        },
         parent=cmout,
     )
 

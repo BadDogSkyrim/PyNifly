@@ -112,20 +112,27 @@ class ControllerHandler():
         self.action_target = None # 
         self.accum_root = None
         self.multitarget_controller = None
+        self.controlled_objects = set()
 
         # Necessary context from the parent.
         self.nif = parent_handler.nif
         self.context = parent_handler.context
         self.fps = parent_handler.context.scene.render.fps
         self.logger = logging.getLogger("pynifly")
+        self.auxbones = None
         if hasattr(parent_handler, "auxbones"): 
             self.auxbones = parent_handler.auxbones
+        self.nif_name = None
         if hasattr(parent_handler, "nif_name"): 
             self.nif_name = parent_handler.nif_name
+        self.blender_name = None
         if hasattr(parent_handler, "blender_name"): 
             self.blender_name = parent_handler.blender_name
+        self.objects_created = None
         if hasattr(parent_handler, "objects_created"):
-            self.objects_created = parent_handler.objects_created
+            self.objects_created:BD.ReprObjectCollection = parent_handler.objects_created
+        if hasattr(parent_handler, "objs_written"):
+            self.objects_created:BD.ReprObjectCollection = parent_handler.objs_written
 
 
     def warn(self, msg):
@@ -421,6 +428,8 @@ class ControllerHandler():
         """
         self.context.scene.frame_end = 1 + int(
             (anim_context.properties.stopTime - anim_context.properties.startTime) * self.fps)
+        self.context.scene.timeline_markers.clear()
+        self.animation_actions = []
 
         try:
             self.anim_name = anim_context.name
@@ -469,6 +478,7 @@ class ControllerHandler():
 
         self.action_target.animation_data_create()
         self.action_target.animation_data.action = self.action
+        self.animation_actions.append(self.action)
 
 
     def _animate_bone(self, bone_name):
@@ -605,6 +615,15 @@ class ControllerHandler():
             self.animation_target.rotation_mode = rotmode
 
 
+    def _import_text_keys(self, tk:NiTextKeyExtraData):
+        for time, val in tk.keys:
+            self.context.scene.timeline_markers.new(val, frame=round(time*self.fps)+1)
+            for a in self.animation_actions:
+                if "pynMarkers" not in a:
+                    a["pynMarkers"] = {}
+                a["pynMarkers"][val] = time
+
+
     def _new_controller_seq_anim(self, seq:NiControllerSequence):
         """
         Import a single controller sequence block.
@@ -614,14 +633,23 @@ class ControllerHandler():
         full, separate blocks in the nif file.) Each Controller Link block controls one
         element being animated.
 
-        * seq = NiControllerSequence block
+        A ControllerSequence maps to multiple Blender actions, because several objects may
+        be animated. The actions are marked as assets so they persist. 
+
+        There may be text keys associated with this animation. They are represented as
+        Blender TimelineMarker objects and apply across all the different actions that
+        make up the animation. They are aso stored as a dictionary on the actions so they
+        can be recovered when the user switches between animations.
         """
         self._new_animation(seq)
+
         if self.animation_target.type == 'ARMATURE':
             self._new_armature_action(seq)
 
         for cb in seq.controlled_blocks:
             self._import_controller_link(seq, cb)
+
+        if seq.text_key_data: self._import_text_keys(seq.text_key_data)
 
     # --- PUBLIC FUNCTIONS ---
 
@@ -856,6 +884,26 @@ class ControllerHandler():
         return targetname if targetname else targetobj.name, ti
     
 
+    def _add_controlled_object(self, obj:BD.ReprObject):
+        """
+        Add the object and all its children recursively to the set of controlled objects.
+        """
+        self.controlled_objects.add(obj)
+        for child in obj.blender_obj.children:
+            if child.type in ['EMPTY', 'MESH']:
+                ro = self.objects_created.find_blend(child)
+                if ro: self._add_controlled_object(ro)
+        
+
+    def _write_controlled_objects(self, cm:NiControllerManager):
+        if len(self.controlled_objects) == 0: return
+
+        objp = NiDefaultAVObjectPalette.New(self.nif, self.nif.rootNode, parent=cm)
+        
+        for obj in self.controlled_objects:
+            objp.add_object(obj.nifnode.name, obj.nifnode)
+
+
     def _export_activated_obj(self, target:BD.ReprObject,  controller=None):
         """
         Export a single activated object--an object with animation_data on it.
@@ -899,7 +947,7 @@ class ControllerHandler():
         elif activated_obj.type == 'SHADER':
             self.warn(f"NYI: Shader controller export")
 
-        elif activated_obj.type == 'EMPTY':
+        elif activated_obj.type in ['EMPTY', 'MESH']:
             curve_list = list(self.action.fcurves)
             while curve_list:
                 targname, ti = self._export_transform_curves(activated_obj, curve_list)
@@ -920,6 +968,7 @@ class ControllerHandler():
                         controller=mttc,
                         node_name = target.nifnode.name,
                         controller_type = "NiTransformController")
+            self._add_controlled_object(target)
             
 
     def _set_controller_props(self, props):
@@ -942,7 +991,7 @@ class ControllerHandler():
         fcp.interpolatorID = fi.id
         fc = BSEffectShaderPropertyFloatController(
             file=self.nif, properties=fcp, parent=nifshape.shader)
-        
+    
 
     def _export_animations(self, anims):
         """
@@ -953,6 +1002,7 @@ class ControllerHandler():
             that animation.
         """
         self.accum_root = self.nif.rootNode
+        self.controlled_objects = BD.ReprObjectCollection()
         self.multitarget_controller = NiMultiTargetTransformController.New(
             file=self.nif, flags=108, target=self.nif.rootNode)
         
@@ -977,6 +1027,8 @@ class ControllerHandler():
 
             for act, reprobj in actionlist:
                 self._export_activated_obj(reprobj, cs)
+
+        self._write_controlled_objects(cm)
 
 
     @classmethod
@@ -1089,4 +1141,7 @@ def register():
     bpy.utils.register_class(WM_OT_ApplyAnim)
 
 def unregister():
-    bpy.utils.unregister_class(WM_OT_ApplyAnim)
+    try:
+        bpy.utils.unregister_class(WM_OT_ApplyAnim)
+    except:
+        pass

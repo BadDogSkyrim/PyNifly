@@ -4960,6 +4960,8 @@ def TEST_ANIM_CHEST():
     testfile = TT.test_file(r"tests\Skyrim\noblechest01.nif")
     outfile =TT.test_file(r"tests/Out/TEST_ANIM_CHEST.nif")
 
+    #### READ ####
+
     bpy.ops.import_scene.pynifly(filepath=testfile)
     lid = bpy.data.objects["Lid01"]
     animations = ["ANIM|Open|Lid01", "ANIM|Close|Lid01"]
@@ -4969,25 +4971,41 @@ def TEST_ANIM_CHEST():
     for n in animations:
         assert n in bpy.data.actions, f"Loaded animation {n}"
 
+    assert bpy.context.scene.timeline_markers[1].name == "end", f"Marker exists"
+    assert bpy.context.scene.timeline_markers[1].frame == 13, f"Correct frame"
+    assert math.isclose(
+        bpy.data.actions["ANIM|Close|Lid01"]["pynMarkers"]["end"], 0.5, abs_tol=0.0001), f"Have markers on aactions"
+
+    ### WRITE ###
     chestroot = bpy.data.objects['NobleChest01:ROOT']
     BD.ObjectSelect([chestroot], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
+    ### CHECK ###
+
     nifcheck = pyn.NifFile(outfile)
     checkroot = nifcheck.rootNode
+    
+    # Controller Manager
     checkcm:pyn.NiControllerManager = checkroot.controller
     assert checkcm.properties.flags == 76, f"Have correct flags {checkcm.properties.flags}"
     assert len(checkcm.sequences) == 2, f"Have 2 sequences"
     assert "Open" in checkcm.sequences, f"Have all sequences"
     assert "Close" in checkcm.sequences, f"Have all sequences"
+
+    # Controller sequence
     openseq:pyn.NiControllerSequence = checkcm.sequences["Open"]
     assert BD.NearEqual(openseq.properties.startTime, 0.0), \
         f"Have correct start time: {openseq.properties.startTime}"
     assert BD.NearEqual(openseq.properties.stopTime, 0.5), \
         f"Have correct stop time: {openseq.properties.stopTime}"
     assert len(openseq.controlled_blocks) == 1, f"Have one controlled block"
+
+    # Controller Link
     cb:pyn.ControllerLink = openseq.controlled_blocks[0]
     assert cb.node_name == "Lid01", f"Have lid as controlled target"
+
+    # Transform interpolator and data
     interp:pyn.NiTransformInterpolator = cb.interpolator
     dat:pyn.NiTransformData = interp.data
     assert dat.properties.rotationType == pyn.NiKeyType.XYZ_ROTATION_KEY, \
@@ -4997,8 +5015,14 @@ def TEST_ANIM_CHEST():
         f"Have correct x rotation type: {dat.properties.xRotations.interpolation}"
     assert BD.NearEqual(dat.xrotations[1].time, 0.5), f"Have correct end key time"
     assert BD.NearEqual(dat.xrotations[1].value, -0.1222), f"Have correct end key value"
+
+    # Transform controller
     contr:pyn.NiMultiTargetTransformController = cb.controller
     assert contr.target.id == 0, f"Target is root"
+
+    # Object palette
+    objp:pyn.NiDefaultAVObjectPalette = checkcm.object_palette
+    assert "Lid01" in objp.objects, f"Have LID01 in palette: {objp.objects}"
 
 
 def TEST_ANIM_CRATE():

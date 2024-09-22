@@ -2040,10 +2040,10 @@ class NiDefaultAVObjectPalette(NiObject):
     @property
     def objects(self):
         """
-        Objects returned as [("obj name", obj,)...]
+        Objects returned as dict {}"object name": object, ...}
         """
         if self._objects is None:
-            self._objects = []
+            self._objects = {}
             for i in range(0, self.properties.objCount):
                 name = create_string_buffer(256)
                 refid = (c_uint32)()
@@ -2055,7 +2055,7 @@ class NiDefaultAVObjectPalette(NiObject):
                     refid
                 )
                 refnode = self.file.read_node(refid.value)
-                self._objects.append((name.value.decode('utf-8'), refnode,))
+                self._objects[name.value.decode('utf-8')] = refnode
         return self._objects
     
     def add_object(self, objname, obj):
@@ -2067,14 +2067,14 @@ class NiDefaultAVObjectPalette(NiObject):
         )
     
     @classmethod
-    def New(cls, file, scene=None, objects=[], parent=None):
+    def New(cls, file, scene=None, objects={}, parent=None):
         p = NiDefaultAVObjectPaletteBuf()
         p.sceneID = scene.id if scene else NODEID_NONE
         parentid = parent.id if parent else NODEID_NONE
         id = NifFile.nifly.addBlock(file._handle, None, byref(p), parentid)
         if id != NODEID_NONE:
             objp = NiDefaultAVObjectPalette(file=file, id=id, properties=p, parent=parent)
-            for name, obj in objects:
+            for name, obj in objects.items():
                 objp.add_object(name, obj)
             return objp
         else:
