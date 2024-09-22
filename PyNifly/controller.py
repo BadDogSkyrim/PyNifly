@@ -66,6 +66,8 @@ def apply_animation(anim_name, ctxt=bpy.context):
         "cycle_type": CycleType.LOOP,
         "frequency": 1.0,
     }
+    ctxt.scene.timeline_markers.clear()
+
     anim_pat = "ANIM|" + anim_name + "|"
     matches = []
     for act in bpy.data.actions:
@@ -83,6 +85,12 @@ def apply_animation(anim_name, ctxt=bpy.context):
                 res["stop_time"], 
                 (act.curve_frame_range[1]-1)/ctxt.scene.render.fps)
             if (not act.use_cyclic): res["cycle_type"] = CycleType.CLAMP 
+
+            if "pynMarkers" in act:
+                for name, val in act["pynMarkers"].items():
+                    if name not in ctxt.scene.timeline_markers:
+                        ctxt.scene.timeline_markers.new(
+                            name, frame=int(val * ctxt.scene.render.fps)+1)
 
     return res
 
@@ -116,7 +124,7 @@ class ControllerHandler():
 
         # Necessary context from the parent.
         self.nif = parent_handler.nif
-        self.context = parent_handler.context
+        self.context:bpy.types.Context = parent_handler.context
         self.fps = parent_handler.context.scene.render.fps
         self.logger = logging.getLogger("pynifly")
         self.auxbones = None
@@ -475,10 +483,10 @@ class ControllerHandler():
         if self.anim_name:
             self.action.use_fake_user = True
             self.action.asset_mark()
+            self.animation_actions.append(self.action)
 
         self.action_target.animation_data_create()
         self.action_target.animation_data.action = self.action
-        self.animation_actions.append(self.action)
 
 
     def _animate_bone(self, bone_name):
@@ -982,6 +990,16 @@ class ControllerHandler():
             pass
 
 
+    def _export_text_keys(self, cs:NiControllerSequence):
+        """
+        Export any timeline markers to the given NiControllerSequence as text keys.
+        """
+        if len(self.context.scene.timeline_markers) == 0: return
+
+        tked = NiTextKeyExtraData.New(file=self.nif, parent=cs)
+        for tm in self.context.scene.timeline_markers:
+            tked.add_key((tm.frame-1)/self.fps, tm.name)
+
     def _export_shader(self, activated_obj, nifshape):
         fi = self._export_float_curves(activated_obj)
 
@@ -1024,6 +1042,8 @@ class ControllerHandler():
                 frequency=vals["frequency"],
                 parent=cm
             )
+
+            self._export_text_keys(cs)
 
             for act, reprobj in actionlist:
                 self._export_activated_obj(reprobj, cs)

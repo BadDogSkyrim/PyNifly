@@ -4977,6 +4977,7 @@ def TEST_ANIM_CHEST():
         bpy.data.actions["ANIM|Close|Lid01"]["pynMarkers"]["end"], 0.5, abs_tol=0.0001), f"Have markers on aactions"
 
     ### WRITE ###
+
     chestroot = bpy.data.objects['NobleChest01:ROOT']
     BD.ObjectSelect([chestroot], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile)
@@ -5000,6 +5001,11 @@ def TEST_ANIM_CHEST():
     assert BD.NearEqual(openseq.properties.stopTime, 0.5), \
         f"Have correct stop time: {openseq.properties.stopTime}"
     assert len(openseq.controlled_blocks) == 1, f"Have one controlled block"
+
+    # Text keys
+    end_key = [k for k in openseq.text_key_data.keys if k[1] == "end"][0]
+    assert end_key[1] == "end", f"'end' key"
+    assert BD.NearEqual(end_key[0], 0.5), f"End key time correct"
 
     # Controller Link
     cb:pyn.ControllerLink = openseq.controlled_blocks[0]

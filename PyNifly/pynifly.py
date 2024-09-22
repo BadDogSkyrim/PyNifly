@@ -1836,6 +1836,55 @@ class NiSequence(NiObject):
         self._controlled_blocks.append(ControllerLink(buf, self))
 
 
+class NiTextKeyExtraData(NiObject):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._keys = None
+
+    @classmethod 
+    def _getbuf(cls, values=None):
+        return NiTextKeyExtraDataBuf(values)
+
+    @property 
+    def keys(self):
+        """
+        Text keys returned as [(time, "value"), ...]
+        """
+        if self._keys is None:
+            self._keys = []
+            for i in range(0, self.properties.textKeyCount):
+                buf = TextKeyBuf()
+                valuebuf = create_string_buffer(256)
+                NifFile.nifly.getNiTextKey(
+                    self.file._handle, self.id, i, byref(buf))
+                n = NifFile.nifly.getString(
+                    self.file._handle, buf.valueID, 256, valuebuf)
+                self._keys.append((buf.time, valuebuf.value.decode('utf-8'),))
+        return self._keys
+    
+    def add_key(self, time, val):
+        if self._keys is None: self._keys = []
+        err = NifFile.nifly.addTextKey(
+            self.file._handle, self.id, time, val.encode('utf-8'))
+        self._keys.append((time, val,))
+
+    @classmethod
+    def New(cls, file, name='', keys=[], parent=None):
+        p = NiTextKeyExtraDataBuf()
+        parentid = parent.id if parent else NODEID_NONE
+        id = NifFile.nifly.addBlock(
+            file._handle, name.encode('utf-8'), byref(p), parentid)
+        if id != NODEID_NONE:
+            tk = NiTextKeyExtraData(file=file, id=id, properties=p, parent=parent)
+            for t, v in keys:
+                tk.add_key(t, v)
+            return tk
+        else:
+            raise Exception("Could not create NiControllerManager")
+
+block_types["NiTextKeyExtraData"] = NiTextKeyExtraData
+    
+
 class NiControllerSequence(NiSequence):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
@@ -1857,7 +1906,7 @@ class NiControllerSequence(NiSequence):
         return self.properties.cycleType == 0
     
     @property
-    def text_key_data(self):
+    def text_key_data(self) -> NiTextKeyExtraData:
         if self._text_key_data is None:
             self._text_key_data = self.file.read_node(
                 id=self.properties.textKeyID)
@@ -1978,55 +2027,6 @@ class NiControllerManager(NiTimeController):
         
 block_types["NiControllerManager"] = NiControllerManager
 
-
-class NiTextKeyExtraData(NiObject):
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
-        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
-        self._keys = None
-
-    @classmethod 
-    def _getbuf(cls, values=None):
-        return NiTextKeyExtraDataBuf(values)
-
-    @property 
-    def keys(self):
-        """
-        Text keys returned as [(time, "value"), ...]
-        """
-        if self._keys is None:
-            self._keys = []
-            for i in range(0, self.properties.textKeyCount):
-                buf = TextKeyBuf()
-                valuebuf = create_string_buffer(256)
-                NifFile.nifly.getNiTextKey(
-                    self.file._handle, self.id, i, byref(buf))
-                n = NifFile.nifly.getString(
-                    self.file._handle, buf.valueID, 256, valuebuf)
-                self._keys.append((buf.time, valuebuf.value.decode('utf-8'),))
-        return self._keys
-    
-    def add_key(self, time, val):
-        if self._keys is None: self._keys = []
-        err = NifFile.nifly.addTextKey(
-            self.file._handle, self.id, time, val.encode('utf-8'))
-        self._keys.append((time, val,))
-
-    @classmethod
-    def New(cls, file, name='', keys=[], parent=None):
-        p = NiTextKeyExtraDataBuf()
-        parentid = parent.id if parent else NODEID_NONE
-        id = NifFile.nifly.addBlock(
-            file._handle, name.encode('utf-8'), byref(p), parentid)
-        if id != NODEID_NONE:
-            tk = NiTextKeyExtraData(file=file, id=id, properties=p, parent=parent)
-            for t, v in keys:
-                tk.add_key(t, v)
-            return tk
-        else:
-            raise Exception("Could not create NiControllerManager")
-
-block_types["NiTextKeyExtraData"] = NiTextKeyExtraData
-    
 
 class NiDefaultAVObjectPalette(NiObject):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
