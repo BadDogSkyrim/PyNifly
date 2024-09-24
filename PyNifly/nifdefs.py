@@ -900,7 +900,8 @@ class PynBufferTypes(IntEnum):
     NiBlendFloatInterpolatorBufType = 46   
     NiDefaultAVObjectPaletteBufType = 47
     NiTextKeyExtraDataBufType = 48
-    COUNT = 49
+    BSNiAlphaPropertyTestRefControllerBufType = 49
+    COUNT = 50
 
 bufferTypeList = [''] * PynBufferTypes.COUNT
 blockBuffers = {}
@@ -1905,6 +1906,7 @@ class BSEffectShaderPropertyFloatControllerBuf(pynStructure):
     _fields_ = [
 	    ("bufSize", c_uint16),
         ("bufType", c_uint16),
+        # NiTimeController
         ("nextControllerID", c_uint32),
         ("flags", c_uint16),
         ("frequency", c_float),
@@ -1912,14 +1914,16 @@ class BSEffectShaderPropertyFloatControllerBuf(pynStructure):
         ("startTime", c_float),
         ("stopTime", c_float),
 	    ("targetID", c_uint32),
+        # NiSingleInterpController
         ("interpolatorID", c_uint32),
+        # BSEffectShaderPropertyFloatController
         ("controlledVariable", c_uint32),
     ]
     def __init__(self, values=None):
-        super().__init__(values=values)
         self.nextControllerID = NODEID_NONE
         self.targetID = NODEID_NONE
         self.interpolatorID = NODEID_NONE
+        super().__init__(values=values)
         self.bufType = PynBufferTypes.BSEffectShaderPropertyFloatControllerBufType
 
     def copy(self, exclude=[]):
@@ -1938,6 +1942,46 @@ class BSEffectShaderPropertyFloatControllerBuf(pynStructure):
 
 bufferTypeList[PynBufferTypes.BSEffectShaderPropertyFloatControllerBufType] = 'BSEffectShaderPropertyFloatController'
 blockBuffers['BSEffectShaderPropertyFloatController'] = BSEffectShaderPropertyFloatControllerBuf
+
+
+class BSNiAlphaPropertyTestRefControllerBuf(pynStructure):
+    _fields_ = [
+	    ("bufSize", c_uint16),
+        ("bufType", c_uint16),
+        # NiTimeController
+        ("nextControllerID", c_uint32),
+        ("flags", c_uint16),
+        ("frequency", c_float),
+        ("phase", c_float),
+        ("startTime", c_float),
+        ("stopTime", c_float),
+	    ("targetID", c_uint32),
+        # NiSingleInterpController
+        ("interpolatorID", c_uint32),
+    ]
+    def __init__(self, values=None):
+        self.nextControllerID = NODEID_NONE
+        self.targetID = NODEID_NONE
+        self.interpolatorID = NODEID_NONE
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BSNiAlphaPropertyTestRefControllerBufType
+
+    def copy(self, exclude=[]):
+        c = super().copy(exclude=exclude)
+        c.nextControllerID = NODEID_NONE
+        c.targetID = NODEID_NONE
+        c.interpolatorID = NODEID_NONE
+        return c
+    
+    def copyto(self, other, exclude=[]):
+        c = super().copyto(other, exclude=exclude)
+        c.nextControllerID = NODEID_NONE
+        c.targetID = NODEID_NONE
+        c.interpolatorID = NODEID_NONE
+        return c
+
+bufferTypeList[PynBufferTypes.BSNiAlphaPropertyTestRefControllerBufType] = 'BSNiAlphaPropertyTestRefController'
+blockBuffers['BSNiAlphaPropertyTestRefController'] = BSNiAlphaPropertyTestRefControllerBuf
 
 
 class NiTransformInterpolatorBuf(pynStructure):
@@ -1991,6 +2035,45 @@ class NiFloatInterpolatorBuf(pynStructure):
 
 bufferTypeList[PynBufferTypes.NiFloatInterpolatorBufType] = 'NiFloatInterpolator'
 blockBuffers['NiFloatInterpolator'] = NiFloatInterpolatorBuf
+
+
+class InterpBlendFlags(PynIntFlag):
+    NONE = 0, 
+    MANAGER_CONTROLLED = 1
+
+class InterpBlendItem(pynStructure):
+	("interpolatorID", c_uint32),
+	("weight", c_float),
+	("normalizedWeight", c_float),
+	("priority", c_uint8),
+	("easeSpinner", c_float),
+
+class NiBlendFloatInterpolatorBuf(pynStructure):
+    _fields_ = [
+        # NiFloatInterpolator
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
+        ("flags", c_uint8),
+        ("arraySize", c_uint8),
+        ("weightThreshold", c_float),
+        ("interpCount", c_uint8),
+        ("singleIndex", c_uint8),
+        ("highPriority", c_char),
+        ("nextHighPriority", c_char),
+        ("singleTime", c_float),
+        ("highWeightsSum", c_float),
+        ("nextHighWeightsSum", c_float),
+        ("highEaseSpinner", c_float),
+        # NIBlendFloatInterpolator
+        ("floatValue", c_float),
+    ]
+    def __init__(self, values=None):
+        self.flags = InterpBlendFlags.MANAGER_CONTROLLED
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.NiFloatInterpolatorBufType
+
+bufferTypeList[PynBufferTypes.NiFloatInterpolatorBufType] = 'NiBlendFloatInterpolator'
+blockBuffers['NiBlendFloatInterpolator'] = NiBlendFloatInterpolatorBuf
 
 
 class NiAnimationKeyGroupBuf(pynStructure):

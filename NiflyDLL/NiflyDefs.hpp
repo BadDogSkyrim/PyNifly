@@ -73,7 +73,8 @@ enum BUFFER_TYPES : uint16_t {
 	NiBlendPoint3InterpolatorBufType, 
 	NiBlendFloatInterpolatorBufType,
 	NiDefaultAVObjectPaletteBufType,
-	NiTextKeyExtraDataBufType
+	NiTextKeyExtraDataBufType,
+	BSNiAlphaPropertyTestRefControllerBufType
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -720,6 +721,19 @@ struct BSEffectShaderPropertyColorControllerBuf {
 	uint32_t targetID;
 	uint32_t interpolatorID;
 	uint32_t controlledColorType;
+};
+
+struct NiSingleInterpControllerBuf {
+	uint16_t bufSize;
+	uint16_t bufType;
+	uint32_t nextControllerID;
+	uint16_t flags = 0x000C;
+	float frequency = 1.0f;
+	float phase = 0.0f;
+	float startTime = nifly::NiFloatMax;
+	float stopTime = nifly::NiFloatMin;
+	uint32_t targetID;
+	uint32_t interpolatorID;
 };
 
 struct BSEffectShaderPropertyFloatControllerBuf {

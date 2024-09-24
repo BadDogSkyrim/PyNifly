@@ -164,151 +164,12 @@ class ControllerHandler():
             return None
 
 
-    def _import_transform_interpolator(self, ti:NiTransformInterpolator):
-        """
-        Import a transform interpolator, including its data block.
-
-        - Returns the rotation mode that must be set on the target. If this interpolator
-          is using XYZ rotations, the rotation mode must be set to Euler. 
-        """
-        if not self.action:
-            self.warn("NO ACTION CREATED")
-            return None
-        
-        if not ti.data:
-            # Some NiTransformController blocks have null duration and no data. Not sure
-            # how to interpret those, so ignore them.
-            return None
-        
-        rotation_mode = "QUATERNION"
-        self.action_group = "Object Transforms"
-
-        # ti, the parent NiTransformInterpolator, has the transform-to-global necessary
-        # for this animation. It matches the transform of the target being animated.
-        have_parent_rotation = False
-        if max(ti.properties.rotation[:]) > 3e+38 or min(ti.properties.rotation[:]) < -3e+38:
-            tiq = Quaternion()
-        else:
-            have_parent_rotation = True
-            tiq = Quaternion(ti.properties.rotation)
-        qinv = tiq.inverted()
-        tiv = Vector(ti.properties.translation)
-
-        # Some interpolators have bogus translations. Dunno why.
-        if tiv[0] <= -1e+30 or tiv[0] >= 1e+30: tiv[0] = 0
-        if tiv[1] <= -1e+30 or tiv[1] >= 1e+30: tiv[1] = 0
-        if tiv[2] <= -1e+30 or tiv[2] >= 1e+30: tiv[2] = 0
-
-        tixf = BD.MatrixLocRotScale(ti.properties.translation, 
-                                    Quaternion(ti.properties.rotation),
-                                    [1.0]*3)
-        tixf.invert()
-
-        locbase = tixf.translation
-        rotbase = tixf.to_euler()
-        quatbase = tixf.to_quaternion()
-        scalebase = -ti.properties.scale
-        td = ti.data
-
-        if self.path_name:
-            path_prefix = self.path_name + "."
-        else:
-            path_prefix = ""
-
-        if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
-            rotation_mode = "XYZ"
-            if td.xrotations or td.yrotations or td.zrotations:
-                curveX = self.action.fcurves.new(path_prefix + "rotation_euler", index=0, action_group=self.action_group)
-                curveY = self.action.fcurves.new(path_prefix + "rotation_euler", index=1, action_group=self.action_group)
-                curveZ = self.action.fcurves.new(path_prefix + "rotation_euler", index=2, action_group=self.action_group)
-
-                if len(td.xrotations) == len(td.yrotations) and len(td.xrotations) == len(td.zrotations):
-                    for x, y, z in zip(td.xrotations, td.yrotations, td.zrotations):
-                        # In theory the X/Y/Z dimensions do not have to have key frames at
-                        # the same time signatures. But an Euler rotation needs all 3.
-                        # Probably they will all line up because generating them any other
-                        # way is surely hard. So hope for that and post a warning if not.
-                        if not (NearEqual(x.time, y.time) and NearEqual(x.time, z.time)):
-                            self.warn(f"Keyframes do not align for '{self.path_name}. Animations may be incorrect.")
-
-                        # Need to apply the parent rotation. If we stay in Eulers, we may
-                        # have gimbal lock. If we convert to quaternions, we may lose the
-                        # distinction between +180 and -180, which are different things
-                        # for animations. So only apply the parent rotation if there is
-                        # one; in those cases we're just hoping it comes out right.
-                        ve = Euler(Vector((x.value, y.value, z.value)), 'XYZ')
-                        if have_parent_rotation:
-                            ke = ve.copy()
-                            kq = ke.to_quaternion()
-                            vq = qinv @ kq
-                            ve = vq.to_euler()
-                        curveX.keyframe_points.insert(x.time * self.fps + 1, ve[0])
-                        curveY.keyframe_points.insert(y.time * self.fps + 1, ve[1])
-                        curveZ.keyframe_points.insert(z.time * self.fps + 1, ve[2])
-                        
-                else:
-                    # This method of getting the inverse of the Euler doesn't always
-                    # work, maybe because of gimbal lock.
-                    ve = tiq.to_euler()
-
-                    for i, k in enumerate(td.xrotations):
-                        val = k.value - ve[0]
-                        curveX.keyframe_points.insert(k.time * self.fps + 1, val)
-                    for i, k in enumerate(td.yrotations):
-                        val = k.value - ve[1]
-                        curveY.keyframe_points.insert(k.time * self.fps + 1, val)
-                    for i, k in enumerate(td.zrotations):
-                        val = k.value - ve[2]
-                        curveZ.keyframe_points.insert(k.time * self.fps + 1, val)
-        
-        elif td.properties.rotationType in [NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY]:
-            rotation_mode = "QUATERNION"
-
-            try:
-                # The curve may already have been started.
-                curveW = self.action.fcurves.new(path_prefix + "rotation_quaternion", index=0, action_group=self.action_group)
-                curveX = self.action.fcurves.new(path_prefix + "rotation_quaternion", index=1, action_group=self.action_group)
-                curveY = self.action.fcurves.new(path_prefix + "rotation_quaternion", index=2, action_group=self.action_group)
-                curveZ = self.action.fcurves.new(path_prefix + "rotation_quaternion", index=3, action_group=self.action_group)
-            except:
-                curveW = self.action.fcurves[path_prefix + "rotation_quaternion"]
-
-            for i, k in enumerate(td.qrotations):
-                kq = Quaternion(k.value)
-                # Auxbones animations are not correct yet, but they seem to need something
-                # different from animations on the full skeleton.
-                if self.auxbones:
-                    vq = kq 
-                else:
-                    vq = qinv @ kq 
-
-                curveW.keyframe_points.insert(k.time * self.fps + 1, vq[0])
-                curveX.keyframe_points.insert(k.time * self.fps + 1, vq[1])
-                curveY.keyframe_points.insert(k.time * self.fps + 1, vq[2])
-                curveZ.keyframe_points.insert(k.time * self.fps + 1, vq[3])
-
-        elif td.properties.rotationType == NiKeyType.NO_INTERP:
-            pass
-        else:
-            self.warn(f"Not Yet Implemented: Rotation type {td.properties.rotationType} at {self.path_name}")
-
-        # Seems like a value of + or - infinity in the Transform
-        if len(td.translations) > 0:
-            curveLocX = self.action.fcurves.new(path_prefix + "location", index=0, action_group=self.action_group)
-            curveLocY = self.action.fcurves.new(path_prefix + "location", index=1, action_group=self.action_group)
-            curveLocZ = self.action.fcurves.new(path_prefix + "location", index=2, action_group=self.action_group)
-            for k in td.translations:
-                v = Vector(k.value)
-
-                if self.auxbones:
-                    pass 
-                else:
-                    v = v - tiv
-                curveLocX.keyframe_points.insert(k.time * self.fps + 1, v[0])
-                curveLocY.keyframe_points.insert(k.time * self.fps + 1, v[1])
-                curveLocZ.keyframe_points.insert(k.time * self.fps + 1, v[2])
-
-        return rotation_mode
+    # def _import_interpolator(self, interp:NiInterpolator):
+    #     if issubclass(type(interp), NiTransformInterpolator):
+    #         return self._import_transform_interpolator(interp)
+    #     else:
+    #         self.warn(f"NYI: Interpolator type {type(interp)}")
+    #         return None
 
 
     def _key_nif_to_blender(self, key0, key1, key2):
@@ -341,46 +202,30 @@ class ControllerHandler():
         return handle_l, handle_r
 
 
-    def _import_float_interpolator(self, fi:NiFloatInterpolator):
-        """Import a float interpolator block."""
-        td:NiFloatData = fi.data
-        curve = self.action.fcurves.new(self.path_name)
-        if td.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
-            keys = [None]
-            keys.extend(td.keys)
-            keys.append(None)
-            while keys[1]:
-                frame = keys[1].time*self.fps+1
-                kfp = curve.keyframe_points.insert(frame, keys[1].value)
-                kfp.handle_left_type = "FREE"
-                kfp.handle_right_type = "FREE"
-                kfp.handle_left, kfp.handle_right = self._key_nif_to_blender(keys[0], keys[1], keys[2])
-                keys.pop(0)
-        else:
-            self.warn(f"Unknown interpolation type for NiFloatInterpolator: {td.keys.interpolation}")
+    def _import_interp_controller(self, fi:NiInterpController, interp:NiInterpController):
+        """Import a subclass of NiInterpController."""
+        fi.import_node(self, interp)
+
+        # if issubclass(type(fi), NiFloatInterpolator):
+        #     self._import_float_interpolator(fi, interp)
+        # elif issubclass(type(fi), BSNiAlphaPropertyTestRefController):
+        #     self._import_alphatest_controller(fi, interp)
+        # elif issubclass(type(fi), NiBlendInterpolator):
+        #     self.warn("NYI: NiBlendInterpolator") # Don't know how to interpret
+        # else:
+        #     self.warn(f"Unknown interpolation type for NiFloatInterpolator: {fi.keys.interpolation}")
 
 
-    def _import_transform_controller(self, block:ControllerLink):
-        """Import transform controller block."""
-        self.action_group = "Object Transforms"
-        if self.animation_target:
-            rotmode = self._import_transform_interpolator(block.interpolator)
-            if rotmode: self.animation_target.rotation_mode = rotmode
-        else:
-            self.warn("Found no target for NiTransformController")
+    # def _import_transform_controller(self, block:ControllerLink):
+    #     """Import transform controller block."""
+    #     self.action_group = "Object Transforms"
+    #     if self.animation_target:
+    #         block.interpolator.import_node(self)
+    #     else:
+    #         self.warn("Found no target for NiTransformController")
 
 
-    def _import_multitarget_transform_controller(self, control_ctxt:NiSequence, block:ControllerLink):
-        """Import multitarget transform controller block from a controller link block."""
-        # NiMultiTargetTransformController doesn't actually link to a controller or an
-        # interpolator. It just references the target objects. The parent Control Link
-        # block references the interpolator.
-        rotmode = self._import_transform_interpolator(block.interpolator)
-        self.animation_target.rotation_mode = rotmode
-
-
-    def _new_float_controller_action(
-            self, ctlr:BSEffectShaderPropertyFloatController):
+    def _new_float_controller_action(self, ctlr:NiInterpController, interp:NiInterpController):
         """Import float controller block."""
         if not self.action_target:
             self.warn("No target object")
@@ -401,12 +246,15 @@ class ControllerHandler():
         elif ctlr.properties.controlledVariable == CONTROLLED_VARIABLE_TYPES.V_Scale:
             controlled_node = "UV_Converter"
             controlled_input = 3
+        elif ctlr.properties.controlledVariable == CONTROLLED_VARIABLE_TYPES.Alpha_Transparency:
+            controlled_node = "Skyrim Shader - Effect"
+            controlled_input = 4
         else:
             self.warn(f"NYI: Cannot handle controlled variable {repr(CONTROLLED_VARIABLE_TYPES(ctlr.properties.controlledVariable))}") 
             return
 
         self.path_name = f'nodes["{controlled_node}"].inputs[{controlled_input}].default_value'
-        self._import_float_interpolator(ctlr.interpolator)
+        self._import_interp_controller(ctlr.interpolator, interp)
     
 
     def _import_color_controller(self, seq:NiSequence, block:ControllerLink):
@@ -571,7 +419,7 @@ class ControllerHandler():
             self._new_animation(ctlr)
             # self._new_action("Transform")
             self._new_element_action(ctlr, ctlr.target.name, "Transform")
-        self._import_transform_controller(ctlr)
+        ctlr.import_node(self)
 
 
     def _new_armature_action(self, anim_context):
@@ -583,6 +431,18 @@ class ControllerHandler():
         """
         self._new_action("Pose")
         self.action_group = "Object Transforms"
+
+
+    # def _get_rotation_mode(interpolator):
+    #     rotation_mode = "QUATERNION"
+    #     td = interpolator.data
+    #     if td:
+    #         if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
+    #             rotation_mode = "XYZ"
+    #         elif td.properties.rotationType in [NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY]:
+    #             rotation_mode = "QUATERNION"
+
+    #     return rotation_mode
 
 
     def _import_controller_link(self, seq:NiSequence, block:ControllerLink):
@@ -601,26 +461,27 @@ class ControllerHandler():
                 return
 
         if block.controller:
-            # Controller will reference the interpolator.
-            if block.controller_type == "NiTransformController":
-                if block.controller.blockname == "NiMultiTargetTransformController":
-                    self._import_multitarget_transform_controller(seq, block)
-                elif block.controller.blockname == "NiTransformData":
-                    self._import_transform_controller(block.controller)
-                else:
-                    self.warn(f"Not yet implemented: {block.controller.blockname} controller type")
-            elif block.controller_type == 'BSEffectShaderPropertyColorController':
-                self._import_color_controller(seq, block)
-            elif block.controller_type == 'BSEffectShaderPropertyFloatController':
-                self._new_float_controller_action(block.controller)
-            else:
-                self.warn(f"Not Yet Implemented: controller type {block.controller_type}")
-                return
+            block.controller.import_node(self)
+            # # Controller will reference the interpolator.
+            # if block.controller_type == "NiTransformController":
+            #     if block.controller.blockname == "NiMultiTargetTransformController":
+            #         self._import_multitarget_transform_controller(seq, block)
+            #     elif block.controller.blockname == "NiTransformData":
+            #         self._import_transform_controller(block.controller)
+            #     else:
+            #         self.warn(f"Not yet implemented: {block.controller.blockname} controller type")
+            # elif block.controller_type == 'BSEffectShaderPropertyColorController':
+            #     self._import_color_controller(seq, block)
+            # elif block.controller_type == 'BSEffectShaderPropertyFloatController':
+            #     self._new_float_controller_action(block.controller, block.interpolator)
+            # else:
+            #     self.warn(f"Not Yet Implemented: controller type {block.controller_type}")
+            #     return
             
-        elif block.interpolator:
+        if block.interpolator:
             # If there's no controller, everything is done by the interpolator.
-            rotmode = self._import_transform_interpolator(block.interpolator)
-            self.animation_target.rotation_mode = rotmode
+            block.interpolator.import_node(self, None)
+            # self._import_node(block.interpolator)
 
 
     def _import_text_keys(self, tk:NiTextKeyExtraData):
@@ -659,6 +520,7 @@ class ControllerHandler():
 
         if seq.text_key_data: self._import_text_keys(seq.text_key_data)
 
+
     # --- PUBLIC FUNCTIONS ---
 
     def import_controller(self, ctlr, target_object=None, target_element=None, target_bone=None):
@@ -673,7 +535,7 @@ class ControllerHandler():
         self.bone_target = target_bone
         if ctlr.blockname == "BSEffectShaderPropertyFloatController":
             self._new_animation(ctlr)
-            self._new_float_controller_action(ctlr)
+            self._new_float_controller_action(ctlr, None)
         elif ctlr.blockname == "NiTransformController":
             self._new_transform_anim(ctlr)
         elif ctlr.blockname == "NiControllerSequence": 
@@ -828,7 +690,7 @@ class ControllerHandler():
             self.warn(f"No useable transforms in group {targetobj.name}/{targetname}")
             return None, None
 
-        tibuf = NiTransformInterpolatorBuf()
+        # tibuf = NiTransformInterpolatorBuf()
         if targetobj.type == 'ARMATURE':
             if not targetname in targetobj.data.bones:
                 self.warn(f"Target bone not found in armature: {targetobj.name}/{targetname}")
@@ -841,24 +703,31 @@ class ControllerHandler():
                 targ_xf = targ.matrix_local
         else:
             targ_xf = Matrix.Identity(4)
-        targ_trans = targ_xf.translation
-        targ_q = targ_xf.to_quaternion()            
-        tibuf.translation = targ_trans[:]
-        tibuf.rotation = targ_q[:]
-        tibuf.scale = 1.0
-        ti = NiTransformInterpolator(file=self.nif, properties=tibuf)
+
+        ti = NiTransformInterpolator.New(
+            file=self.nif,
+            translation=targ_xf.translation[:],
+            rotation=targ_xf.to_quaternion()[:],
+            scale=1.0,
+        )
         
-        tdbuf:NiTransformDataBuf = NiTransformDataBuf()
+        td:NiTransformData = None
         if quat:
-            tdbuf.rotationType = NiKeyType.QUADRATIC_KEY
+            td = NiTransformData.New(
+                file=self.nif, 
+                rotation_type=NiKeyType.QUADRATIC_KEY,
+                parent=ti)
         elif eu:
-            tdbuf.rotationType = NiKeyType.XYZ_ROTATION_KEY
-            tdbuf.xRotations.interpolation = NiKeyType.QUADRATIC_KEY
-            tdbuf.yRotations.interpolation = NiKeyType.QUADRATIC_KEY
-            tdbuf.zRotations.interpolation = NiKeyType.QUADRATIC_KEY
+            td = NiTransformData.New(
+                file=self.nif, 
+                rotation_type=NiKeyType.XYZ_ROTATION_KEY,
+                xyz_rotation_types=(NiKeyType.QUADRATIC_KEY, )*3,
+                parent=ti)
         if loc:
-            tdbuf.translations.interpolation = NiKeyType.LINEAR_KEY
-        td:NiTransformData = NiTransformData(file=self.nif, properties=tdbuf, parent=ti)
+            td = NiTransformData.New(
+                file=self.nif, 
+                translate_type=NiKeyType.LINEAR_KEY,
+                parent=ti)
 
         # Lots of error-checking because the user could have done any damn thing.
         if len(quat) == 4:
@@ -869,7 +738,7 @@ class ControllerHandler():
                                   quat[1].evaluate(fr), 
                                   quat[2].evaluate(fr), 
                                   quat[3].evaluate(fr)])
-                kq = targ_q @ tdq
+                kq = targ_xf.to_quaternion()  @ tdq
                 td.add_qrotation_key(timesig, kq)
                 timesig += timestep
 
@@ -880,7 +749,7 @@ class ControllerHandler():
                 kv =Vector([loc[0].evaluate(fr), 
                             loc[1].evaluate(fr), 
                             loc[2].evaluate(fr)])
-                rv = kv + targ_trans
+                rv = kv + targ_xf.translation
                 td.add_translation_key(timesig, rv)
                 timesig += timestep
 
@@ -1099,6 +968,225 @@ class ControllerHandler():
         anims = current_animations(parent_handler.nif, object_dict)
         if not anims: return
         exporter._export_animations(anims)
+
+
+### Handlers for importing different types of blocks
+
+def _import_float_data(td, importer:ControllerHandler):
+    curve = importer.action.fcurves.new(importer.path_name)
+    if td.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
+        keys = [None]
+        keys.extend(td.keys)
+        keys.append(None)
+        while keys[1]:
+            frame = keys[1].time*importer.fps+1
+            kfp = curve.keyframe_points.insert(frame, keys[1].value)
+            kfp.handle_left_type = "FREE"
+            kfp.handle_right_type = "FREE"
+            kfp.handle_left, kfp.handle_right = importer._key_nif_to_blender(keys[0], keys[1], keys[2])
+            keys.pop(0)
+
+NiFloatData.import_node = _import_float_data
+
+
+def _import_transform_controller(tc, importer:ControllerHandler):
+    """Import transform controller block."""
+    importer.action_group = "Object Transforms"
+    if importer.animation_target and tc.interpolator:
+        tc.interpolator.import_node(importer)
+    else:
+        importer.warn(f"Found no target for {type(tc)}")
+
+NiTransformController.import_node = _import_transform_controller
+
+
+def _import_float_interpolator(fi:NiFloatInterpolator, 
+                               importer:ControllerHandler, 
+                               interp:NiInterpController):
+    """
+    "interp" is the controller to use when this interpolator doesn't have one.
+    """
+    td = fi.data
+    if td: td.import_node(importer)
+    
+NiFloatInterpolator.import_node = _import_float_interpolator
+
+
+def _import_transform_interpolator(ti:NiTransformInterpolator, 
+                                   importer:ControllerHandler, 
+                                   interp:NiInterpController):
+    """
+    Import a transform interpolator, including its data block.
+
+    - Returns the rotation mode that must be set on the target. If this interpolator
+        is using XYZ rotations, the rotation mode must be set to Euler. 
+    """
+    if not importer.action:
+        importer.warn("NO ACTION CREATED")
+        return None
+    
+    if not ti.data:
+        # Some NiTransformController blocks have null duration and no data. Not sure
+        # how to interpret those, so ignore them.
+        return None
+    
+    importer.action_group = "Object Transforms"
+
+    # ti, the parent NiTransformInterpolator, has the transform-to-global necessary
+    # for this animation. It matches the transform of the target being animated.
+    have_parent_rotation = False
+    if max(ti.properties.rotation[:]) > 3e+38 or min(ti.properties.rotation[:]) < -3e+38:
+        tiq = Quaternion()
+    else:
+        have_parent_rotation = True
+        tiq = Quaternion(ti.properties.rotation)
+    qinv = tiq.inverted()
+    tiv = Vector(ti.properties.translation)
+
+    # Some interpolators have bogus translations. Dunno why.
+    if tiv[0] <= -1e+30 or tiv[0] >= 1e+30: tiv[0] = 0
+    if tiv[1] <= -1e+30 or tiv[1] >= 1e+30: tiv[1] = 0
+    if tiv[2] <= -1e+30 or tiv[2] >= 1e+30: tiv[2] = 0
+
+    tixf = BD.MatrixLocRotScale(ti.properties.translation, 
+                                Quaternion(ti.properties.rotation),
+                                [1.0]*3)
+    tixf.invert()
+
+    locbase = tixf.translation
+    rotbase = tixf.to_euler()
+    quatbase = tixf.to_quaternion()
+    scalebase = -ti.properties.scale
+    td = ti.data
+
+    if importer.path_name:
+        path_prefix = importer.path_name + "."
+    else:
+        path_prefix = ""
+
+    importer.animation_target.rotation_mode = "QUATERNION"
+    if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
+        importer.animation_target.rotation_mode = "XYZ"
+        if td.xrotations or td.yrotations or td.zrotations:
+            curveX = importer.action.fcurves.new(path_prefix + "rotation_euler", index=0, action_group=importer.action_group)
+            curveY = importer.action.fcurves.new(path_prefix + "rotation_euler", index=1, action_group=importer.action_group)
+            curveZ = importer.action.fcurves.new(path_prefix + "rotation_euler", index=2, action_group=importer.action_group)
+
+            if len(td.xrotations) == len(td.yrotations) and len(td.xrotations) == len(td.zrotations):
+                for x, y, z in zip(td.xrotations, td.yrotations, td.zrotations):
+                    # In theory the X/Y/Z dimensions do not have to have key frames at
+                    # the same time signatures. But an Euler rotation needs all 3.
+                    # Probably they will all line up because generating them any other
+                    # way is surely hard. So hope for that and post a warning if not.
+                    if not (NearEqual(x.time, y.time) and NearEqual(x.time, z.time)):
+                        importer.warn(f"Keyframes do not align for '{importer.path_name}. Animations may be incorrect.")
+
+                    # Need to apply the parent rotation. If we stay in Eulers, we may
+                    # have gimbal lock. If we convert to quaternions, we may lose the
+                    # distinction between +180 and -180, which are different things
+                    # for animations. So only apply the parent rotation if there is
+                    # one; in those cases we're just hoping it comes out right.
+                    ve = Euler(Vector((x.value, y.value, z.value)), 'XYZ')
+                    if have_parent_rotation:
+                        ke = ve.copy()
+                        kq = ke.to_quaternion()
+                        vq = qinv @ kq
+                        ve = vq.to_euler()
+                    curveX.keyframe_points.insert(x.time * importer.fps + 1, ve[0])
+                    curveY.keyframe_points.insert(y.time * importer.fps + 1, ve[1])
+                    curveZ.keyframe_points.insert(z.time * importer.fps + 1, ve[2])
+                    
+            else:
+                # This method of getting the inverse of the Euler doesn't always
+                # work, maybe because of gimbal lock.
+                ve = tiq.to_euler()
+
+                for i, k in enumerate(td.xrotations):
+                    val = k.value - ve[0]
+                    curveX.keyframe_points.insert(k.time * importer.fps + 1, val)
+                for i, k in enumerate(td.yrotations):
+                    val = k.value - ve[1]
+                    curveY.keyframe_points.insert(k.time * importer.fps + 1, val)
+                for i, k in enumerate(td.zrotations):
+                    val = k.value - ve[2]
+                    curveZ.keyframe_points.insert(k.time * importer.fps + 1, val)
+    
+    elif td.properties.rotationType in [NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY]:
+        try:
+            # The curve may already have been started.
+            curveW = importer.action.fcurves.new(path_prefix + "rotation_quaternion", index=0, action_group=importer.action_group)
+            curveX = importer.action.fcurves.new(path_prefix + "rotation_quaternion", index=1, action_group=importer.action_group)
+            curveY = importer.action.fcurves.new(path_prefix + "rotation_quaternion", index=2, action_group=importer.action_group)
+            curveZ = importer.action.fcurves.new(path_prefix + "rotation_quaternion", index=3, action_group=importer.action_group)
+        except:
+            curveW = importer.action.fcurves[path_prefix + "rotation_quaternion"]
+
+        for i, k in enumerate(td.qrotations):
+            kq = Quaternion(k.value)
+            # Auxbones animations are not correct yet, but they seem to need something
+            # different from animations on the full skeleton.
+            if importer.auxbones:
+                vq = kq 
+            else:
+                vq = qinv @ kq 
+
+            curveW.keyframe_points.insert(k.time * importer.fps + 1, vq[0])
+            curveX.keyframe_points.insert(k.time * importer.fps + 1, vq[1])
+            curveY.keyframe_points.insert(k.time * importer.fps + 1, vq[2])
+            curveZ.keyframe_points.insert(k.time * importer.fps + 1, vq[3])
+
+    elif td.properties.rotationType == NiKeyType.NO_INTERP:
+        pass
+    else:
+        importer.warn(f"Not Yet Implemented: Rotation type {td.properties.rotationType} at {importer.path_name}")
+
+    # Seems like a value of + or - infinity in the Transform
+    if len(td.translations) > 0:
+        curveLocX = importer.action.fcurves.new(path_prefix + "location", index=0, action_group=importer.action_group)
+        curveLocY = importer.action.fcurves.new(path_prefix + "location", index=1, action_group=importer.action_group)
+        curveLocZ = importer.action.fcurves.new(path_prefix + "location", index=2, action_group=importer.action_group)
+        for k in td.translations:
+            v = Vector(k.value)
+
+            if importer.auxbones:
+                pass 
+            else:
+                v = v - tiv
+            curveLocX.keyframe_points.insert(k.time * importer.fps + 1, v[0])
+            curveLocY.keyframe_points.insert(k.time * importer.fps + 1, v[1])
+            curveLocZ.keyframe_points.insert(k.time * importer.fps + 1, v[2])
+
+NiTransformInterpolator.import_node = _import_transform_interpolator
+
+
+def _import_alphatest_controller(ctlr:BSNiAlphaPropertyTestRefController, 
+                                 importer:ControllerHandler,
+                                 interp:NiInterpController):
+    targetnode = ctlr.target
+    targetshape = targetnode.parent
+    alphinterp = ctlr.interpolator
+    importer.path_name = ""
+    if (not alphinterp) or (alphinterp.flags == InterpBlendFlags.MANAGER_CONTROLLED):
+        alphinterp = interp
+    if not alphinterp: 
+        importer.warn(f"No interpolator available for controller {ctlr.id}")
+        return
+    
+    td = alphinterp.data
+    if td: td.import_node(importer)
+    
+BSNiAlphaPropertyTestRefController.import_node = _import_alphatest_controller
+
+
+def _import_multitarget_transform_controller( 
+        block:ControllerLink, importer:ControllerHandler, ):
+    """Import multitarget transform controller block from a controller link block."""
+    # NiMultiTargetTransformController doesn't actually link to a controller or an
+    # interpolator. It just references the target objects. The parent Control Link
+    # block references the interpolator.
+    pass
+
+NiMultiTargetTransformController.import_node = _import_multitarget_transform_controller
 
 
 def assign_action(obj, act):

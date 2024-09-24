@@ -3694,7 +3694,7 @@ namespace NiflyDLLTests
 			char* namebuf = new char[64];
 			int cbCount = data.ctlrSeq[data.openIndex].controlledBlocksCount;
 			Assert::IsTrue(cbCount == 9 || cbCount == 2, L"Found 9 (2) controller links");
-			data.ctlrLink[0].bufSize = sizeof(ControllerLinkBuf) * cbCount;
+			data.ctlrLink[0].bufSize = uint16_t(sizeof(ControllerLinkBuf) * cbCount);
 			getBlock(nif, cs[data.openIndex], data.ctlrLink);
 			getString(nif, data.ctlrLink[0].nodeName, 64, namebuf);
 			Assert::IsTrue(strcmp("Object01", namebuf) == 0, L"Have correct node name");
@@ -4039,7 +4039,7 @@ namespace NiflyDLLTests
 			char* namebuf = new char[64];
 			int cbCount = data.ctlrSeq[0].controlledBlocksCount;
 			Assert::IsTrue(cbCount == 7, L"Found 7 controller links");
-			data.ctlrLink[0].bufSize = sizeof(ControllerLinkBuf) * cbCount;
+			data.ctlrLink[0].bufSize = uint16_t(sizeof(ControllerLinkBuf) * cbCount);
 			getBlock(nif, cs[0], data.ctlrLink);
 			getString(nif, data.ctlrLink[0].nodeName, 64, namebuf);
 			Assert::AreEqual(std::string("GlowingOneGlowFXstreak:0"), std::string(namebuf), L"Have correct node name");
@@ -4331,7 +4331,7 @@ namespace NiflyDLLTests
 			NiTextKeyExtraDataBuf tkbuf;
 			tkbuf.nameID = NIF_NPOS;
 			int tkID = addBlock(nifout, nullptr, &tkbuf, 0);
-f			addTextKey(nifout, tkID, 0.0f, "start");
+			addTextKey(nifout, tkID, 0.0f, "start");
 			addTextKey(nifout, tkID, 0.5f, "end");
 
 			saveNif(nifout, outfile.u8string().c_str());

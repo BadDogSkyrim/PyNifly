@@ -2344,7 +2344,7 @@ mylog = logging.getLogger("pynifly")
 logging.basicConfig()
 mylog.setLevel(logging.DEBUG)
 
-execute(test=TEST_ANIMATION_NOBLECHEST)
+# execute(test=TEST_ANIMATION_NOBLECHEST)
 # execute(start=TEST_TREE, exclude=[TEST_SET_SKINTINT])
-# execute(exclude=[TEST_SET_SKINTINT])
+execute(exclude=[TEST_SET_SKINTINT])
 #

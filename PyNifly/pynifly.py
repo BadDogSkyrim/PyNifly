@@ -599,6 +599,11 @@ class NiObject:
         self._properties = value.copy()
         NifFile.nifly.setBlock(self.file._handle, self.id, byref(self._properties))
 
+    @classmethod
+    def _default_import_func(cls, importer, nifnode):
+        importer.warn(f"NYI: Import of block {cls.__name__}")
+    
+    import_node = _default_import_func
 
 # --- Collisions --- #
 
@@ -1323,10 +1328,6 @@ class NiFloatData(NiObject):
         #     if self.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
         #         self._readquadkeys()
 
-    @classmethod
-    def _getbuf(cls, values=None):
-        return NiFloatDataBuf(values)
-    
     def _writequadkeys(self, keys):
         """
         Write quadratic float keys.
@@ -1339,18 +1340,6 @@ class NiFloatData(NiObject):
             buf.forward = k.forward
             buf.backward = k.backward
             NifFile.nifly.addAnimKeyQuadFloat(self.file._handle, self.id, buf)
-
-    # def _readquadkeys(self):
-    #     """
-    #     Read keys when the type is QUADRATIC_KEY. These are time, value, forward,
-    #     backward.
-    #     """
-    #     self.keys = []
-    #     for frame in range(0, self.properties.keys.numKeys):
-    #         buf = NiAnimKeyQuadXYZBuf()
-    #         NifFile.nifly.getAnimKeyQuadFloat(self.file._handle, self.id, frame, buf)
-    #         k = QuadScalarKey(buf)
-    #         self.keys.append(k)
 
     @property
     def keys(self):
@@ -1378,19 +1367,16 @@ class NiFloatData(NiObject):
         buf.backward = k.backward
         NifFile.nifly.addAnimKeyQuadFloat(self.file._handle, self.id, buf)
 
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiFloatDataBuf(values)
+        
 block_types["NiFloatData"] = NiFloatData
 
 
 class NiTransformData(NiKeyFrameData):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
-        if self._handle == None and self.id == NODEID_NONE:
-            self.id = NifFile.nifly.addBlock(
-                self.file._handle, 
-                None, 
-                byref(self.properties), 
-                parent.id if parent else NODEID_NONE)
-            self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
         self._blockname = "NiTransformData"
         
         self.xrotations = []
@@ -1424,15 +1410,25 @@ class NiTransformData(NiKeyFrameData):
         return NiTransformDataBuf(values)
     
     @classmethod 
-    def New(cls, file, rotation_type, interpolations={}, parent=None):
+    def New(cls, file, 
+            rotation_type=NiKeyType.LINEAR_KEY, 
+            xyz_rotation_types=(NiKeyType.QUADRATIC_KEY, )*3,
+            translate_type=NiKeyType.LINEAR_KEY,
+            scale_type=NiKeyType.LINEAR_KEY,
+            parent=None):
         p:NiTransformDataBuf = NiTransformDataBuf()
         p.rotationType = rotation_type
-        if "T" in interpolations: p.translations.interpolation = interpolations["T"]
-        if "X" in interpolations: p.xRotations.interpolation = interpolations["X"]
-        if "Y" in interpolations: p.yRotations.interpolation = interpolations["Y"]
-        if "Z" in interpolations: p.zRotations.interpolation = interpolations["Z"]
-        if "S" in interpolations: p.scales.interpolation = interpolations["S"]
-        td = NiTransformData(file=file, properties=p, parent=parent)
+        p.translations.interpolation = translate_type
+        p.xRotations.interpolation = xyz_rotation_types[0]
+        p.yRotations.interpolation = xyz_rotation_types[1]
+        p.zRotations.interpolation = xyz_rotation_types[2]
+        p.scales.interpolation = scale_type
+        id = NifFile.nifly.addBlock(
+            file._handle, 
+            None, 
+            byref(p), 
+            parent.id if parent else NODEID_NONE)
+        td = NiTransformData(file=file, id=id, properties=p, parent=parent)
         return td
     
     def _readlinrot(self):
@@ -1508,35 +1504,54 @@ class NiTransformData(NiKeyFrameData):
                     self.file._handle, self.id, d, byref(q))
 
 
-class NiTransformInterpolator(NiObject):
+class NiInterpolator(NiObject):
+    pass
+    
+
+class NiKeyBasedInterpolator(NiInterpolator):
+    pass
+
+
+class NiTransformInterpolator(NiKeyBasedInterpolator):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
-        if self._handle == None and self.id == NODEID_NONE:
-            self.id = NifFile.nifly.addBlock(
-                self.file._handle, 
-                None, 
-                byref(self.properties), 
-                parent.id if parent else NODEID_NONE)
-            self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
+        # if self._handle == None and self.id == NODEID_NONE:
+        #     self.id = NifFile.nifly.addBlock(
+        #         self.file._handle, 
+        #         None, 
+        #         byref(self.properties), 
+        #         parent.id if parent else NODEID_NONE)
+        #     self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
         self._data = None
         self._blockname = "NiTransformInterpolator"
         
-    @classmethod
-    def _getbuf(cls, values=None):
-        return NiTransformInterpolatorBuf(values)
-    
-    @classmethod
-    def New(cls, file, data_block=None, parent=None):
-        p = NiTransformInterpolatorBuf()
-        p.dataID = data_block.id if data_block else NODEID_NONE
-        return NiTransformInterpolator(file=file, properties=p, parent=parent)
-    
     @property
     def data(self):
         if self._data: return self._data
         self._data = NiTransformData(file=self.file, id=self.properties.dataID)
         return self._data
-
+    
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiTransformInterpolatorBuf(values)
+    
+    @classmethod
+    def New(cls, file, 
+            translation=(0,0,0), rotation=(1,0,0,0), scale=1.0, 
+            data_block=None, parent=None):
+        p = NiTransformInterpolatorBuf()
+        p.translation = translation
+        p.rotation = rotation[:]
+        p.scale = scale
+        p.dataID = data_block.id if data_block else NODEID_NONE
+        id = NifFile.nifly.addBlock(
+            file._handle, 
+            None, 
+            byref(p), 
+            parent.id if parent else NODEID_NONE)
+        ti = NiTransformInterpolator(file=file, id=id, properties=p, parent=parent)
+        return ti
+    
 block_types["NiTransformInterpolator"] = NiTransformInterpolator
 
 
@@ -1554,10 +1569,6 @@ class NiFloatInterpolator(NiObject):
         self._data = None
         self._blockname = "NiFloatInterpolator"
         
-    @classmethod
-    def _getbuf(cls, values=None):
-        return NiFloatInterpolatorBuf(values)
-    
     @property
     def data(self):
         if self._data: return self._data
@@ -1570,7 +1581,46 @@ class NiFloatInterpolator(NiObject):
         self._data = c
         self.properties.dataID = c.id
 
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiFloatInterpolatorBuf(values)
+
 block_types["NiFloatInterpolator"] = NiFloatInterpolator
+
+    
+class NiBlendInterpolator(NiObject):
+    """Abstract class"""
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        if parent: parent.interpolator = self
+        
+    @property
+    def data(self):
+        if self._data: return self._data
+        if self.properties.dataID == NODEID_NONE: return None
+        self._data = NiFloatData(file=self.file, id=self.properties.dataID)
+        return self._data
+
+    @data.setter
+    def data(self, c):
+        self._data = c
+        self.properties.dataID = c.id
+
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiBlendFloatInterpolatorBuf(values)
+    
+
+class NiBlendFloatInterpolator(NiBlendInterpolator):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._blockname = "NiBlendFloatInterpolator"
+        
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiBlendFloatInterpolatorBuf(values)
+    
+block_types["NiBlendFloatInterpolator"] = NiBlendFloatInterpolator
 
     
 class NiTimeController(NiObject):
@@ -1581,6 +1631,7 @@ class NiTimeController(NiObject):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._target = None
+        if parent: parent.controller = self
 
     @property 
     def next_controller(self):
@@ -1697,6 +1748,18 @@ class BSEffectShaderPropertyFloatController(NiFloatInterpController):
 block_types["BSEffectShaderPropertyFloatController"] = BSEffectShaderPropertyFloatController
 
 
+class NiAlphaController(NiFloatInterpController):
+    pass
+
+
+class BSNiAlphaPropertyTestRefController(NiAlphaController):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return BSNiAlphaPropertyTestRefControllerBuf(values)
+
+block_types["BSNiAlphaPropertyTestRefController"] = BSNiAlphaPropertyTestRefController
+
+
 class ControllerLink:
 
     def __init__(self, props:ControllerLinkBuf, parent):
@@ -1734,9 +1797,8 @@ class ControllerLink:
     @property
     def interpolator(self):
         if self._interpolator: return self._interpolator
-        self._interpolator = NiTransformInterpolator(
-            file=self.parent.file, id=self.properties.interpolatorID
-        )
+        self._interpolator = self.parent.file.read_node(
+            id=self.properties.interpolatorID, parent=self.parent)
         return self._interpolator
 
     @property
@@ -1745,6 +1807,10 @@ class ControllerLink:
         if self.properties.controllerID == NODEID_NONE: return None
         self._controller = self.parent.file.read_node(id=self.properties.controllerID, parent=self)
         return self._controller
+    
+    @controller.setter
+    def controller(self, node):
+        self._controller = node
     
     @classmethod
     def New(cls, node_name, controller_type, file, properties=ControllerLinkBuf(), 

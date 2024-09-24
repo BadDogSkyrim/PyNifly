@@ -4301,6 +4301,36 @@ int getEffectShaderPropertyColorController(void* nifref, uint32_t nodeIndex, voi
     return 0;
 };
 
+void getNiSingleInterpController(NifFile* nif, NiSingleInterpController *sh, void *inbuf)
+/*
+    Return a NiSingleInterpController block.
+    */
+{
+    NiSingleInterpControllerBuf* buf = static_cast<NiSingleInterpControllerBuf*>(inbuf);
+    buf->flags = sh->flags;
+    buf->frequency = sh->frequency;
+    buf->phase = sh->phase;
+    buf->startTime = sh->startTime;
+    buf->stopTime = sh->stopTime;
+    buf->targetID = sh->targetRef.index;
+    buf->interpolatorID = sh->interpolatorRef.index;
+};
+
+void addNiSingleInterpController(NifFile* nif, NiSingleInterpController* sh, void* b)
+/* Create a NiSingleInterpController block. */
+{
+    NiSingleInterpControllerBuf* buf = static_cast<NiSingleInterpControllerBuf*>(b);
+
+    sh->flags = buf->flags;
+    sh->frequency = buf->frequency;
+    sh->phase = buf->phase;
+    sh->startTime = buf->startTime;
+    sh->stopTime = buf->stopTime;
+    sh->targetRef.index = buf->targetID;
+    sh->interpolatorRef.index = buf->interpolatorID;
+    sh->nextControllerRef.index = buf->nextControllerID;
+};
+
 int getEffectShaderPropertyFloatController(void* nifref, uint32_t nodeIndex, void* inbuf)
 /*
     Return a Float controller block.
@@ -4312,16 +4342,9 @@ int getEffectShaderPropertyFloatController(void* nifref, uint32_t nodeIndex, voi
     BSEffectShaderPropertyFloatController* sh = hdr->GetBlock<BSEffectShaderPropertyFloatController>(nodeIndex);
 
     CheckID(sh);
-
     CheckBuf(buf, BUFFER_TYPES::BSEffectShaderPropertyFloatControllerBufType, BSEffectShaderPropertyFloatControllerBuf);
 
-    buf->flags = sh->flags;
-    buf->frequency = sh->frequency;
-    buf->phase = sh->phase;
-    buf->startTime = sh->startTime;
-    buf->stopTime = sh->stopTime;
-    buf->targetID = sh->targetRef.index;
-    buf->interpolatorID = sh->interpolatorRef.index;
+    getNiSingleInterpController(nif, sh, buf);
     buf->controlledVariable = sh->typeOfControlledVariable;
     return 0;
 };
@@ -4335,15 +4358,45 @@ int addEffectShaderPropertyFloatController(void* nifref, const char* name, void*
 
     CheckBuf(buf, BUFFER_TYPES::BSEffectShaderPropertyFloatControllerBufType, BSEffectShaderPropertyFloatControllerBuf);
     auto sh = std::make_unique<BSEffectShaderPropertyFloatController>();
-    sh->flags = buf->flags;
-    sh->frequency = buf->frequency;
-    sh->phase = buf->phase;
-    sh->startTime = buf->startTime;
-    sh->stopTime = buf->stopTime;
-    sh->targetRef.index = buf->targetID;
-    sh->interpolatorRef.index = buf->interpolatorID;
-    sh->nextControllerRef.index = buf->nextControllerID;
+
+    addNiSingleInterpController(nif, sh.get(), buf);
+    
     sh->typeOfControlledVariable = buf->controlledVariable;
+    int newid = hdr->AddBlock(std::move(sh));
+
+    if (parent != NIF_NPOS) {
+        NiShader* p = hdr->GetBlock<NiShader>(parent);
+        p->controllerRef.index = newid;
+    }
+    return newid;
+};
+
+int getBSNiAlphaPropertyTestRefController(void* nifref, uint32_t nodeIndex, void* inbuf)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiSingleInterpControllerBuf* buf = static_cast<NiSingleInterpControllerBuf*>(inbuf);
+    BSNiAlphaPropertyTestRefController* sh = hdr->GetBlock<BSNiAlphaPropertyTestRefController>(nodeIndex);
+
+    CheckID(sh);
+    CheckBuf(buf, BUFFER_TYPES::BSNiAlphaPropertyTestRefControllerBufType, NiSingleInterpControllerBuf);
+
+    getNiSingleInterpController(nif, sh, buf);
+    return 0;
+};
+
+int addBSNiAlphaPropertyTestRefController(void* nifref, const char* name, void* b, uint32_t parent)
+/* Create a BSNiAlphaPropertyTestRefController block. */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiSingleInterpControllerBuf* buf = static_cast<NiSingleInterpControllerBuf*>(b);
+
+    CheckBuf(buf, BUFFER_TYPES::BSNiAlphaPropertyTestRefControllerBufType, NiSingleInterpControllerBuf);
+    auto sh = std::make_unique<BSNiAlphaPropertyTestRefController>();
+
+    addNiSingleInterpController(nif, sh.get(), buf);
+    
     int newid = hdr->AddBlock(std::move(sh));
 
     if (parent != NIF_NPOS) {
@@ -4552,6 +4605,7 @@ BlockGetterFunction getterFunctions[] = {
     getNiBlendFloatInterpolator,
     getAVObjectPalette,
     getNiTextKeyExtraData,
+    getBSNiAlphaPropertyTestRefController,
     nullptr //END
 };
 
@@ -4619,6 +4673,7 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //NiBlendFloatInterpolatorBuf
     nullptr, //AVObjectPalette,
     nullptr, //NiTextKeyExtraData,
+    nullptr, //BSNiAlphaPropertyTestRefController
     nullptr //END
 };
 
@@ -4685,6 +4740,7 @@ BlockCreatorFunction creatorFunctions[] = {
     nullptr, //NiBlendFloatInterpolatorBuf
     addAVObjectPalette,
     addNiTextKeyExtraData,
+    addBSNiAlphaPropertyTestRefController,
     nullptr //end
 };
 

@@ -1257,8 +1257,8 @@ class ShaderImporter:
                 simg = bpy.data.images.load(self.textures['Specular'], check_existing=True)
                 simg.colorspace_settings.name = "Non-Color"
                 simgnode.image = simg
-            else:
-                self.warn(f"Could not load specular texture")
+            # else:
+            #     self.warn(f"Could not load specular texture")
             self.link(self.texmap.outputs['Vector'], simgnode.inputs['Vector'])
             try: 
                 self.link(simgnode.outputs['Color'], self.bsdf.inputs['Smooth Spec'])

@@ -33,6 +33,9 @@ importlib.reload(skeleton_hkx)
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
 
+PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimLE\mods\00 Vanilla Assets"
+PYNIFLY_TEXTURES_FO4 = r"C:\Modding\Fallout4\mods\00 FO4 Assets"
+
 
 def TEST_BODYPART_SKY():
     """Basic test that a Skyrim bodypart is imported correctly. """
@@ -1749,6 +1752,8 @@ def TEST_ANIM_SHADER_GLOW():
     testfile = TT.test_file(r"tests\SkyrimSE\meshes\armor\daedric\daedriccuirass_1.nif")
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_GLOW.nif")
 
+    ### READ ###
+
     bpy.ops.import_scene.pynifly(filepath=testfile)
     glow = TT.find_object('MaleTorsoGlow')
 
@@ -1762,8 +1767,12 @@ def TEST_ANIM_SHADER_GLOW():
     assert 0.1 < uv_node.inputs['Offset V'].default_value < 0.9, f"V offset is changing: {uv_node.inputs['Offset V'].default_value}"
     bpy.context.scene.frame_set(0)
 
+    ### WRITE ###
+
     bpy.ops.export_scene.pynifly(filepath=outfile,
                                  export_colors=True)
+
+    ### CHECK ###
 
     n = pyn.NifFile(testfile)
     nout = pyn.NifFile(outfile)
@@ -1809,12 +1818,16 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     testfile = TT.test_file(r"tests\Skyrim\spriggan.nif")
     outfile = TT.test_file(r"tests/Out/TEST_ANIM_SHADER_SPRIGGAN.nif")
 
+    ### READ ###
+
     bpy.ops.import_scene.pynifly(filepath=testfile)
     bod = TT.find_object('SprigganFxTestUnified:0')
     assert len([x for x in bod.active_material.node_tree.nodes 
                 if x.type=='TEX_IMAGE' and x.image and 'spriggan_g' in x.image.name.lower()]
                 ), f"Spriggan loaded with glow map"
 
+    ### WRITE ###
+    
     bpy.ops.export_scene.pynifly(filepath=outfile)
     testnif = pyn.NifFile(testfile)
     testbod = testnif.shape_dict['SprigganFxTestUnified:0']
@@ -4971,8 +4984,10 @@ def TEST_ANIM_CHEST():
     for n in animations:
         assert n in bpy.data.actions, f"Loaded animation {n}"
 
+    cur_fps = bpy.context.scene.render.fps
+    end_frame = 0.5 * cur_fps + 1
     assert bpy.context.scene.timeline_markers[1].name == "end", f"Marker exists"
-    assert bpy.context.scene.timeline_markers[1].frame == 13, f"Correct frame"
+    assert bpy.context.scene.timeline_markers[1].frame == end_frame, f"Correct frame"
     assert math.isclose(
         bpy.data.actions["ANIM|Close|Lid01"]["pynMarkers"]["end"], 0.5, abs_tol=0.0001), f"Have markers on aactions"
 
@@ -5031,10 +5046,11 @@ def TEST_ANIM_CHEST():
     assert "Lid01" in objp.objects, f"Have LID01 in palette: {objp.objects}"
 
 
-def TEST_ANIM_CRATE():
+def TEST_ANIM_DWEMER_CHEST():
     """Read and write the animation of chest opening and shutting."""
     testfile = TT.test_file(r"tests\Skyrim\dwechest01.nif")
-    outfile =TT.test_file(r"tests/Out/TEST_ANIM_CRATE.nif")
+    outfile =TT.test_file(r"tests/Out/TEST_ANIM_DWEMER_CHEST.nif")
+    bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_SKYRIM
     bpy.context.scene.frame_end = 37
     bpy.context.scene.render.fps = 60 
 
@@ -5804,7 +5820,7 @@ if not bpy.data:
 else:
     excludetests = []
 
-    do_tests([TEST_ANIM_CHEST])
+    # do_tests([TEST_ANIM_DWEMER_CHEST])
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
@@ -5813,7 +5829,7 @@ else:
     #     TEST_ANIM_ANIMATRON, TEST_FACEGEN, )])
 
     # All tests with animations
-    # do_tests([t for t in alltests if '_ANIM_' in t.__name__])
+    do_tests([t for t in alltests if '_ANIM_' in t.__name__])
 
     # All tests with collisions
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
