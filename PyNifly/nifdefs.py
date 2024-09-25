@@ -1073,14 +1073,12 @@ class NiShaderBuf(pynStructure):
     @clamp_mode_t.setter
     def clamp_mode_t(self, v):
         self.textureClampMode = (self.textureClampMode & 0xFFFD) | (0 if v == 0 else 2)
-        
-    
-    
 
 bufferTypeList[PynBufferTypes.NiShaderBufType] = 'NiShader'
 bufferTypeList[PynBufferTypes.BSEffectShaderPropertyBufType] = 'BSEffectShaderProperty'
 bufferTypeList[PynBufferTypes.BSShaderPPLightingPropertyBufType] = 'BSShaderPPLightingProperty'
 blockBuffers['NiShader'] = NiShaderBuf()
+
 
 class BGSMShader(bgsmaterial.BGSMaterial):
     """Mimics the NiShader but gets values from a BGSM file."""
@@ -2070,7 +2068,7 @@ class NiBlendFloatInterpolatorBuf(pynStructure):
     def __init__(self, values=None):
         self.flags = InterpBlendFlags.MANAGER_CONTROLLED
         super().__init__(values=values)
-        self.bufType = PynBufferTypes.NiFloatInterpolatorBufType
+        self.bufType = PynBufferTypes.NiBlendFloatInterpolatorBufType
 
 bufferTypeList[PynBufferTypes.NiFloatInterpolatorBufType] = 'NiBlendFloatInterpolator'
 blockBuffers['NiBlendFloatInterpolator'] = NiBlendFloatInterpolatorBuf

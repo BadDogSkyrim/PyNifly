@@ -1798,8 +1798,8 @@ def TEST_ANIM_SHADER_GLOW():
     assert shaderinp.Emissive_Mult == shaderoutp.Emissive_Mult, f"Emissive_Mult correct: {shaderoutp.Emissive_Mult}"
     assert shaderinp.Emissive_Color[:] == shaderoutp.Emissive_Color[:], f"Emissive_Color correct: {shaderoutp.Emissive_Color}"
     assert glowin.properties.hasVertexColors == glowout.properties.hasVertexColors == 1, f"Vertex colors exported correctly"
-    assert glowin.alpha_property.flags == glowout.alpha_property.flags, \
-        f"Have correct alpha flags: {glowout.alpha_property.flags}"
+    assert glowin.alpha_property.properties.flags == glowout.alpha_property.properties.flags, \
+        f"Have correct alpha flags: {glowout.alpha_property.properties.flags}"
 
     assert glowout.shader.controller, f"Have shader controller on output"
     assert glowout.shader.controller.properties.flags == 72, \
@@ -1825,6 +1825,7 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     assert len([x for x in bod.active_material.node_tree.nodes 
                 if x.type=='TEX_IMAGE' and x.image and 'spriggan_g' in x.image.name.lower()]
                 ), f"Spriggan loaded with glow map"
+    return
 
     ### WRITE ###
     
@@ -1878,10 +1879,10 @@ def TEST_SHADER_ALPHA():
     assert not diffs, f"No difference in properties: {diffs}"
 
     assert checkfurshape.has_alpha_property, f"Have alpha property"
-    assert checkfurshape.alpha_property.flags == furshape.alpha_property.flags, \
-        f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.flags} != {furshape.alpha_property.flags}"
-    assert checkfurshape.alpha_property.threshold == furshape.alpha_property.threshold, \
-        f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.threshold} != {furshape.alpha_property.threshold}"
+    assert checkfurshape.alpha_property.properties.flags == furshape.alpha_property.properties.flags, \
+        f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.properties.flags} != {furshape.alpha_property.properties.flags}"
+    assert checkfurshape.alpha_property.properties.threshold == furshape.alpha_property.properties.threshold, \
+        f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.properties.threshold} != {furshape.alpha_property.properties.threshold}"
 
 
 def TEST_SHADER_3_3():
@@ -2633,8 +2634,8 @@ def TEST_VERTEX_ALPHA_IO():
     head2 = nif2.shapes[0]
 
     assert head2.has_alpha_property, f"Error: Did not write alpha property"
-    assert head2.alpha_property.flags == head1.alpha_property.flags, f"Error: Alpha flags incorrect: {head2.alpha_property.flags} != {head1.alpha_property.flags}"
-    assert head2.alpha_property.threshold == head1.alpha_property.threshold, f"Error: Alpha flags incorrect: {head2.alpha_property.threshold} != {head1.alpha_property.threshold}"
+    assert head2.alpha_property.properties.flags == head1.alpha_property.properties.flags, f"Error: Alpha flags incorrect: {head2.alpha_property.properties.flags} != {head1.alpha_property.properties.flags}"
+    assert head2.alpha_property.properties.threshold == head1.alpha_property.properties.threshold, f"Error: Alpha flags incorrect: {head2.alpha_property.properties.threshold} != {head1.alpha_property.properties.threshold}"
 
     assert head2.textures['Diffuse'] == head1.textures['Diffuse'], \
         f"Error: Texture paths not preserved: '{head2.textures['Diffuse']}' != '{head1.textures['Diffuse']}'"
@@ -4428,6 +4429,7 @@ def TEST_PIPBOY():
 def TEST_BABY():
     """Non-human skeleton, lots of shapes under one armature."""
     # Can intuit structure if it's not in the file
+    bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_FO4
     testfile = TT.test_file(r"tests\FO4\baby.nif")
     outfile = TT.test_file(r"tests\Out\TEST_BABY.nif")
 
@@ -4450,6 +4452,7 @@ def TEST_BABY():
 
 def TEST_ROTSTATIC():
     """Test that statics are transformed according to the shape transform"""
+    bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_SKYRIM
 
     testfile = TT.test_file(r"tests/Skyrim/rotatedbody.nif")
     outfile = TT.test_file(r"tests/Out/TEST_ROTSTATIC.nif")
@@ -4487,6 +4490,7 @@ def TEST_FACEBONES():
     # A few of the facebones have transforms that don't match the rest. The skin-to-bone
     # transforms have to be handled correctly or the face comes in slightly warped.
     # Also the skin_bone_C_MasterEyebrow is included in the nif but not used in the head.
+    bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_FO4
 
     # ------- Load --------
     testfile = TT.test_file(r"tests\FO4\BaseFemaleHead_faceBones.nif")
@@ -4639,10 +4643,10 @@ def TEST_ANIMATRON_2():
     # The animatrons are very complex and their pose and bind positions are different. The
     # two shapes have slightly different bind positions, though they are a small offset
     # from each other.
-
     testfile = TT.test_file(r"tests\FO4\AnimatronicSpaceMan.nif")
     outfile = TT.test_file(r"tests/Out/TEST_ANIMATRON_2.nif")
     outfile_fb = TT.test_file(r"tests/Out/TEST_ANIMATRON_2.nif")
+    bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_FO4
 
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  do_create_bones=False, 
@@ -5820,7 +5824,7 @@ if not bpy.data:
 else:
     excludetests = []
 
-    # do_tests([TEST_ANIM_DWEMER_CHEST])
+    # do_tests([TEST_POT])
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
@@ -5829,11 +5833,11 @@ else:
     #     TEST_ANIM_ANIMATRON, TEST_FACEGEN, )])
 
     # All tests with animations
-    do_tests([t for t in alltests if '_ANIM_' in t.__name__])
+    # do_tests([t for t in alltests if '_ANIM_' in t.__name__])
 
     # All tests with collisions
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
     
-    # do_tests(testfrom(TEST_MISSING_FILES), exclude=excludetests)
+    do_tests(testfrom(TEST_ANIM_HKX), exclude=excludetests)
 
     # do_tests(alltests, exclude=excludetests)

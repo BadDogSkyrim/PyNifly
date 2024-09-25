@@ -1644,8 +1644,7 @@ class NiTimeController(NiObject):
     def target(self):
         if self._target: return self._target
         if self.properties.targetID == NODEID_NONE: return None
-        self._target = self.file.read_node(
-            id=self.properties.targetID, parent=self)
+        self._target = self.file.read_node(id=self.properties.targetID)
         return self._target
     
     @property
@@ -1753,6 +1752,17 @@ class NiAlphaController(NiFloatInterpController):
 
 
 class BSNiAlphaPropertyTestRefController(NiAlphaController):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._target = None
+
+    @property
+    def target(self):
+        if self._target: return self._target
+        if self.properties.targetID == NODEID_NONE: return None
+        self._target = self.file.read_node(id=self.properties.targetID)
+        return self._target
+
     @classmethod
     def _getbuf(cls, values=None):
         return BSNiAlphaPropertyTestRefControllerBuf(values)
@@ -2149,7 +2159,25 @@ class NiDefaultAVObjectPalette(NiObject):
 block_types["NiDefaultAVObjectPalette"] = NiDefaultAVObjectPalette
 
 
-# --- NiShader -- #
+# --- Shaders -- #
+
+class NiAlphaProperty(NiObject):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return AlphaPropertyBuf(values)
+
+    @property
+    def parent(self):
+        if not self._parent:
+            for sh in self.file.shapes:
+                if sh.properties.alphaPropertyID == self.id:
+                    self._parent = sh
+                    break 
+        return self._parent
+
+block_types["NiAlphaProperty"] = NiAlphaProperty
+
+
 class NiShader(NiObject):
     """
     Handles shader attributes for a Nif. In Skyrim, returns values from the underlying
@@ -2174,6 +2202,16 @@ class NiShader(NiObject):
                 self.file._handle, self.properties.nameID, self.file.max_string_len, namebuf)
             self._name = namebuf.value.decode('utf-8')
         return self._name
+    
+    @property
+    def parent(self):
+        if not self._parent:
+            for sh in self.file.shapes:
+                if sh.properties.shaderPropertyID == self.id:
+                    self._parent = sh
+                    break 
+        return self._parent
+
 
     def _readtexture(self, niffile, shape, layer):
         bufsize = 500
@@ -2301,6 +2339,10 @@ class NiShader(NiObject):
     def flags2_clear(self, flag):
         self.properties.shaderflags2_clear(flag)
     
+block_types["BSLightingShaderProperty"] = NiShader
+block_types["BSEffectShaderProperty"] = NiShader
+block_types["BSShaderPPLightingProperty"] = NiShader
+
 
 class NiShaderFO4(NiShader):
     """
@@ -2669,20 +2711,19 @@ class NiShape(NiNode):
     @has_alpha_property.setter
     def has_alpha_property(self, val):
         if val and not self._alpha:
-            self._alpha = AlphaPropertyBuf()
+            self._alpha = NiAlphaProperty(file=self.file, parent=self)
     
     @property
     def alpha_property(self):
         if self._alpha is None and self.properties.alphaPropertyID != NODEID_NONE:
-            buf = AlphaPropertyBuf()
-            NifFile.nifly.getBlock(self.file._handle, self.properties.alphaPropertyID, byref(buf))
-            self._alpha = buf
+            self._alpha = NiAlphaProperty(
+                file=self.file, id=self.properties.alphaPropertyID, parent=self)
         return self._alpha
 
     def save_alpha_property(self):
         if self._alpha:
             NifFile.nifly.addBlock(self.file._handle, None, 
-                                   byref(self._alpha), self.id)
+                                   byref(self._alpha.properties), self.id)
 
     @property
     def bone_names(self):
@@ -3189,7 +3230,8 @@ class NifFile:
         """Return the root node of the nif. 
         NOT TRUE: Note this causes all nodes to be loaded and nif.nodes to be filled.
         """
-        return self.read_node(0)
+        #return self.read_node(0)
+        return self.root
     
     @property
     def game(self):
@@ -3533,11 +3575,11 @@ class hkxSkeletonFile(NifFile):
         self.xmlfile = xml.parse(self.xml_filepath)
         self.xmlroot = self.xmlfile.getroot()
 
-        n = NiNode(file=self, name=os.path.basename(self.filepath))
-        n.id = 0
-        n._blockname = "BSFadeNode"
-        n.properties.transform.set_identity()
-        self.register_node(n)
+        self._root = NiNode(file=self, name=os.path.basename(self.filepath))
+        self._root.id = 0
+        self._root._blockname = "BSFadeNode"
+        self._root.properties.transform.set_identity()
+        self.register_node(self._root)
 
         skel = self.xmlroot.find(".//*[@class='hkaSkeleton']")
         skelname = skel.find("./*[@name='name']").text

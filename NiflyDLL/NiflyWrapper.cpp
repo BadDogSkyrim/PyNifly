@@ -3773,6 +3773,13 @@ int getNiBlendFloatInterpolator(void* nifref, uint32_t tiID, void* inbuf) {
     buf->arraySize = ti->arraySize;
     buf->flags = ti->flags;
     buf->weightThreshold = ti->weightThreshold;
+    buf->interpCount = ti->interpCount;
+    buf->singleIndex = ti->singleIndex;
+    buf->highPriority = ti->highPriority;
+    buf->nextHighPriority = ti->nextHighPriority;
+    buf->singleTime = ti->singleTime;
+    buf->highWeightsSum = ti->highWeightsSum;
+    buf->highEaseSpinner = ti->highEaseSpinner;
     buf->value = ti->value;
 
     return 0;

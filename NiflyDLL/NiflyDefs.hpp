@@ -819,6 +819,15 @@ struct NiBlendFloatInterpolatorBuf {
 	uint16_t flags = nifly::InterpBlendFlags::INTERP_BLEND_MANAGER_CONTROLLED;
 	uint8_t arraySize = 0;
 	float weightThreshold = 0.0f;
+	uint8_t interpCount = 0;
+	uint8_t singleIndex;
+	char highPriority;
+	char nextHighPriority;
+	float singleTime;
+	float highWeightsSum;
+	float nextHighWeightsSum;
+	float highEaseSpinner;
+	// NiBlendFloatInterpolator
 	float value;
 };
 

@@ -925,8 +925,8 @@ class ShaderImporter:
                 self.bsdf.inputs['Alpha'].default_value = shader.properties.falloffStartOpacity
                 self.bsdf.inputs['Alpha Adjust'].default_value = 1.0
                 if self.shape.alpha_property:
-                    if self.shape.alpha_property.alpha_test:
-                        self.bsdf.inputs['Alpha Adjust'].default_value = self.shape.alpha_property.threshold/255
+                    if self.shape.alpha_property.properties.alpha_test:
+                        self.bsdf.inputs['Alpha Adjust'].default_value = self.shape.alpha_property.properties.threshold/255
                     else:
                         self.bsdf.inputs['Alpha Adjust'].default_value = 0.1
 
@@ -984,7 +984,7 @@ class ShaderImporter:
                                 name='Alpha Threshold',
                                 xloc=self.bsdf.location.x + self.img_offset_x,
                                 height=INPUT_NODE_HEIGHT)
-        alphathr.outputs[0].default_value = shape.alpha_property.threshold
+        alphathr.outputs[0].default_value = shape.alpha_property.properties.threshold
 
         math = self.nodes.new("ShaderNodeMath")
         math.operation = 'DIVIDE'
@@ -1011,10 +1011,10 @@ class ShaderImporter:
 
     def import_shader_alpha(self, shape):
         if shape.has_alpha_property:
-            self.material.alpha_threshold = shape.alpha_property.threshold
-            if shape.alpha_property.flags & ALPHA_FLAG_MASK.ALPHA_BLEND:
+            self.material.alpha_threshold = shape.alpha_property.properties.threshold
+            if shape.alpha_property.properties.flags & ALPHA_FLAG_MASK.ALPHA_BLEND:
                 self.material.blend_method = 'BLEND'
-                self.material.alpha_threshold = shape.alpha_property.threshold/255
+                self.material.alpha_threshold = shape.alpha_property.properties.threshold/255
                 if self.diffuse and self.bsdf and not self.bsdf.inputs['Alpha'].is_linked:
                     # Alpha input may already have been hooked up if there are vertex alphas
                     self.link(self.diffuse.outputs['Alpha'], self.bsdf.inputs['Alpha'])
@@ -1022,8 +1022,8 @@ class ShaderImporter:
                 self.material.blend_method = 'CLIP'
                 self.make_alpha_clip(shape)
 
-            self.material['NiAlphaProperty_flags'] = shape.alpha_property.flags
-            self.material['NiAlphaProperty_threshold'] = shape.alpha_property.threshold
+            self.material['NiAlphaProperty_flags'] = shape.alpha_property.properties.flags
+            self.material['NiAlphaProperty_threshold'] = shape.alpha_property.properties.threshold
 
             return True
         else:
@@ -1783,16 +1783,16 @@ class ShaderExporter:
             if alpha_input and alpha_input.is_linked and self.material:
                 shape.has_alpha_property = True
                 if 'NiAlphaProperty_flags' in self.material:
-                    shape.alpha_property.flags = self.material['NiAlphaProperty_flags']
+                    shape.alpha_property.properties.flags = self.material['NiAlphaProperty_flags']
                 else:
-                    shape.alpha_property.flags = 4844
+                    shape.alpha_property.properties.flags = 4844
                 if alpha_input.links[0].from_node.bl_idname == 'ShaderNodeTexImage':
-                    shape.alpha_property.threshold = int(self.material.alpha_threshold * 255)
-                    shape.alpha_property.flags &= ~ALPHA_FLAG_MASK.ALPHA_TEST
+                    shape.alpha_property.properties.threshold = int(self.material.alpha_threshold * 255)
+                    shape.alpha_property.properties.flags &= ~ALPHA_FLAG_MASK.ALPHA_TEST
                 else:
                     value_node = BD.find_node(alpha_input, "ShaderNodeValue")[0]
-                    shape.alpha_property.threshold = int(value_node.outputs[0].default_value)
-                    shape.alpha_property.flags |= ALPHA_FLAG_MASK.ALPHA_TEST
+                    shape.alpha_property.properties.threshold = int(value_node.outputs[0].default_value)
+                    shape.alpha_property.properties.flags |= ALPHA_FLAG_MASK.ALPHA_TEST
                 shape.save_alpha_property()
         except:
             self.warn("Could not determine alpha property")

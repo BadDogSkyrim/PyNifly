@@ -300,7 +300,7 @@ class ControllerHandler():
 
         # if the animation context has a target, set action_target
         try:
-            if not self.action_target or self.action_target.type != 'ARMATURE':
+            if (not self.action_target) and (self.action_target.type != 'ARMATURE'):
                 self.action_target = self._find_target(anim_context.target.name)
             elif self.action_target and self.action_target.type == 'ARMATURE' and not self.bone_target:
                 self.bone_target = self._find_target(anim_context.target.name)
@@ -419,7 +419,7 @@ class ControllerHandler():
             self._new_animation(ctlr)
             # self._new_action("Transform")
             self._new_element_action(ctlr, ctlr.target.name, "Transform")
-        ctlr.import_node(self)
+        ctlr.import_node(self, ctlr.interpolator)
 
 
     def _new_armature_action(self, anim_context):
@@ -461,7 +461,7 @@ class ControllerHandler():
                 return
 
         if block.controller:
-            block.controller.import_node(self)
+            block.controller.import_node(self, block.interpolator)
             # # Controller will reference the interpolator.
             # if block.controller_type == "NiTransformController":
             #     if block.controller.blockname == "NiMultiTargetTransformController":
@@ -973,7 +973,15 @@ class ControllerHandler():
 ### Handlers for importing different types of blocks
 
 def _import_float_data(td, importer:ControllerHandler):
-    curve = importer.action.fcurves.new(importer.path_name)
+    if not importer.path_name: return
+
+    exists = False
+    try:
+        curve = importer.action.fcurves.new(importer.path_name)
+    except:
+        exists = True
+    if exists: return
+
     if td.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
         keys = [None]
         keys.extend(td.keys)
@@ -989,16 +997,8 @@ def _import_float_data(td, importer:ControllerHandler):
 NiFloatData.import_node = _import_float_data
 
 
-def _import_transform_controller(tc, importer:ControllerHandler):
-    """Import transform controller block."""
-    importer.action_group = "Object Transforms"
-    if importer.animation_target and tc.interpolator:
-        tc.interpolator.import_node(importer)
-    else:
-        importer.warn(f"Found no target for {type(tc)}")
-
-NiTransformController.import_node = _import_transform_controller
-
+# #####################################
+# Importers for NiInterpolator blocks. 
 
 def _import_float_interpolator(fi:NiFloatInterpolator, 
                                importer:ControllerHandler, 
@@ -1010,6 +1010,15 @@ def _import_float_interpolator(fi:NiFloatInterpolator,
     if td: td.import_node(importer)
     
 NiFloatInterpolator.import_node = _import_float_interpolator
+
+
+def _import_blendfloat_interpolator(fi:NiBlendFloatInterpolator, 
+                               importer:ControllerHandler, 
+                               interp:NiInterpController):
+    if fi.properties.flags != InterpBlendFlags.MANAGER_CONTROLLED:
+        importer.warn(f"NYI: BlendFloatInterpolator that is not MANAGER_CONTROLLED")
+    
+NiBlendFloatInterpolator.import_node = _import_blendfloat_interpolator
 
 
 def _import_transform_interpolator(ti:NiTransformInterpolator, 
@@ -1159,6 +1168,25 @@ def _import_transform_interpolator(ti:NiTransformInterpolator,
 NiTransformInterpolator.import_node = _import_transform_interpolator
 
 
+# #####################################
+# Importers for NiTimeController blocks. Controllers usually have their own interpolators,
+# but may not. If not, they get the interpolator from a parent ControllerLink, so it has
+# to be passed in.
+
+def _import_transform_controller(tc:NiTransformController, 
+                                 importer:ControllerHandler, 
+                                 interp:NiInterpController):
+    """Import transform controller block."""
+    importer.action_group = "Object Transforms"
+    if tc.interpolator: interp = tc.interpolator
+    if importer.animation_target and interp:
+        interp.import_node(importer, None)
+    else:
+        importer.warn(f"Found no target for {type(tc)}")
+
+NiTransformController.import_node = _import_transform_controller
+
+
 def _import_alphatest_controller(ctlr:BSNiAlphaPropertyTestRefController, 
                                  importer:ControllerHandler,
                                  interp:NiInterpController):
@@ -1166,7 +1194,7 @@ def _import_alphatest_controller(ctlr:BSNiAlphaPropertyTestRefController,
     targetshape = targetnode.parent
     alphinterp = ctlr.interpolator
     importer.path_name = ""
-    if (not alphinterp) or (alphinterp.flags == InterpBlendFlags.MANAGER_CONTROLLED):
+    if (not alphinterp) or (alphinterp.properties.flags == InterpBlendFlags.MANAGER_CONTROLLED):
         alphinterp = interp
     if not alphinterp: 
         importer.warn(f"No interpolator available for controller {ctlr.id}")
@@ -1178,8 +1206,30 @@ def _import_alphatest_controller(ctlr:BSNiAlphaPropertyTestRefController,
 BSNiAlphaPropertyTestRefController.import_node = _import_alphatest_controller
 
 
+def _import_ESPFloat_controller(ctlr:BSEffectShaderPropertyFloatController, 
+                                 importer:ControllerHandler,
+                                 interp:NiInterpController):
+    targetnode = ctlr.target
+    targetshape = targetnode.parent
+    alphinterp = ctlr.interpolator
+    controlled_node = "Alpha Threshold"
+    importer.path_name = f'nodes["{controlled_node}"].outputs[0].default_value'
+    if (not alphinterp) or (alphinterp.properties.flags == InterpBlendFlags.MANAGER_CONTROLLED):
+        alphinterp = interp
+    if not alphinterp: 
+        importer.warn(f"No interpolator available for controller {ctlr.id}")
+        return
+    
+    td = alphinterp.data
+    if td: td.import_node(importer)
+    
+BSEffectShaderPropertyFloatController.import_node = _import_ESPFloat_controller
+
+
 def _import_multitarget_transform_controller( 
-        block:ControllerLink, importer:ControllerHandler, ):
+        block:ControllerLink, 
+        importer:ControllerHandler, 
+        interp:NiInterpController, ):
     """Import multitarget transform controller block from a controller link block."""
     # NiMultiTargetTransformController doesn't actually link to a controller or an
     # interpolator. It just references the target objects. The parent Control Link
