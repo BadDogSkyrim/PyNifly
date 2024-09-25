@@ -7,7 +7,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 0, 0),
-    "version": (18, 1, 0),   
+    "version": (18, 2, 0),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -3181,9 +3181,9 @@ class NifExporter:
                     loopcolors[i] = (c[0], c[1], c[2], (a[0] + a[1] + a[2])/3)
             elif mapping_scheme == 'POINT':
                 for i, loop in enumerate(mesh.loops):
-                    c = loopcolors[loop.vertex_index]
-                    a = alphamap.data[loop.vertex_index].color[0:3]
-                    loopcolors[loop.vertex_index] = (c[0], c[1], c[2], (a[0] + a[1] + a[2])/3)
+                    c = loopcolors[i]
+                    a = Color(alphamap.data[loop.vertex_index].color[0:3]).from_srgb_to_scene_linear()
+                    loopcolors[i] = (c[0], c[1], c[2], (a[0] + a[1] + a[2])/3)
 
         return loopcolors
 

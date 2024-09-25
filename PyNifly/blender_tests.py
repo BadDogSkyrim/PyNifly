@@ -2483,8 +2483,10 @@ def TEST_COLORS2():
 
 
 def TEST_COLORS3():
-    """Can read & write vertex colors"""
-    testfile = TT.test_file(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\Hair\Male\Hair26_Hairline.nif")
+    """Can read & write vertex colors & alpha"""
+    bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_FO4
+    testfile = TT.test_file(r"tests\FO4\FemaleHair05_Hairline.nif")
+    # testfile = TT.test_file(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\Hair\Male\Hair26_Hairline.nif")
     outfile = TT.test_file(r"tests/Out/TEST_COLORS3.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -5824,7 +5826,7 @@ if not bpy.data:
 else:
     excludetests = []
 
-    # do_tests([TEST_POT])
+    # do_tests([TEST_COLORS2])
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
@@ -5838,6 +5840,6 @@ else:
     # All tests with collisions
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
     
-    do_tests(testfrom(TEST_ANIM_HKX), exclude=excludetests)
+    # do_tests(testfrom(TEST_ANIM_HKX), exclude=excludetests)
 
-    # do_tests(alltests, exclude=excludetests)
+    do_tests(alltests, exclude=excludetests)
