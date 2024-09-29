@@ -1815,7 +1815,8 @@ def TEST_ANIM_SHADER_GLOW():
 
 def TEST_ANIM_SHADER_SPRIGGAN():
     """Test that the special spriggan elements work correctly."""
-    testfile = TT.test_file(r"tests\Skyrim\spriggan.nif")
+    # Spriggan with limited controllers
+    testfile = TT.test_file(r"tests\Skyrim\spriggan1.nif")
     outfile = TT.test_file(r"tests/Out/TEST_ANIM_SHADER_SPRIGGAN.nif")
 
     ### READ ###
@@ -5826,7 +5827,7 @@ if not bpy.data:
 else:
     excludetests = []
 
-    # do_tests([TEST_COLORS2])
+    do_tests([TEST_ANIM_SHADER_SPRIGGAN])
 
     # Tests of nifs with bones in a hierarchy
     # do_tests([t for t in alltests if t in (
@@ -5842,4 +5843,4 @@ else:
     
     # do_tests(testfrom(TEST_ANIM_HKX), exclude=excludetests)
 
-    do_tests(alltests, exclude=excludetests)
+    # do_tests(alltests, exclude=excludetests)

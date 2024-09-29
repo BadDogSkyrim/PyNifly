@@ -23,7 +23,12 @@ TEXTURE_NODE_HEIGHT = 290
 INPUT_NODE_HEIGHT = 100
 COLOR_NODE_HEIGHT = 200
 HORIZONTAL_GAP = 50
+VERTICAL_GAP = 50
 NORMAL_SCALE = 1.0 # Possible to make normal more obvious
+POS_TOP = 0
+POS_MIDDLE = 1
+POS_BOTTOM = 2
+POS_BELOW = 3
 
 # Equivalent nodes that have different names in different versions of blender. Fuckers.
 MIXNODE_IDNAME = 'ShaderNodeMix'
@@ -60,6 +65,72 @@ NISHADER_IGNORE = [
     'UV_Scale_V',
     'textureClampMode',
     ]
+
+shader_node_height = {
+    'ShaderNodeTexImage': 271,
+    'ShaderNodeMapRange': 241,
+    'ShaderNodeMath': 148,
+    'ShaderNodeValue': 79,
+    'ShaderNodeAttribute': 170,
+}
+
+
+shader_group_nodes = {
+    'Skyrim Shader - Face': "Alpha Mult",
+    'Skyrim Shader - MSN': "Alpha Mult", 
+    'Skyrim Shader - Effect': "Alpha Adjust", 
+    'Skyrim Shader - TSN': "Alpha Mult",
+    "Fallout 4 MTS": "Alpha Mult", 
+    "Fallout 4 Effect": "Alpha", # may be wrong
+    "Fallout 4 MTS - Face": "Alpha Mult"
+}
+
+
+def get_alpha_input(mat):
+    """
+    Different shaders have different names. Return the Fallout OR Skyrim shader, TSN, MSN,
+    or effect shader. Return the alpha input node for the shader.
+    """
+    if mat: 
+        for n in mat.node_tree.nodes:
+            if n.name in shader_group_nodes:
+                return n.name, shader_group_nodes[n.name]
+        
+    return "", ""
+            
+
+def relative_loc(nodelist, vpos=POS_BOTTOM):
+    """
+    Calculate a location relative to the given node list: to the right of the rightmost
+    and at the same level as the lowest.
+    """
+    x = -10000
+    maxy = -10000
+    miny = lowy = 10000
+    for n in nodelist:
+        x = max(x, n.location.x + n.width + HORIZONTAL_GAP)
+        maxy = max(maxy, n.location.y)
+        miny = min(miny, n.location.y)
+        lowy = min(lowy, n.location.y - n.dimensions[1] - VERTICAL_GAP)
+
+    if vpos == POS_TOP:
+        y = maxy
+    elif vpos == POS_BOTTOM:
+        y = miny
+    elif vpos == POS_BELOW:
+        y = lowy
+    else:
+        y = miny + (maxy-miny)/2 - 100
+
+    return Vector((x, y))
+
+
+def reposition(node, vpos=POS_BOTTOM, padding=Vector((0, 0))):
+    inputlist = []
+    for inp in node.inputs:
+        if inp.is_linked:
+            inputlist.append(inp.links[0].from_node)
+    node.location = relative_loc(inputlist, vpos=vpos) + padding
 
 
 def make_separator(nodetree, input, loc):
@@ -154,7 +225,7 @@ def make_combiner_xyz(nodetree, x, y, z, loc):
     return combiner
 
 
-def append_groupnode(parent, name, label, shader_path, location):
+def append_groupnode(parent, name, label, shader_path, location=None):
     """
     Load a group node from the assets file.
     """
@@ -164,7 +235,7 @@ def append_groupnode(parent, name, label, shader_path, location):
     shader_node = parent.nodes.new('ShaderNodeGroup')
     shader_node.label = label
     shader_node.name = name
-    shader_node.location = location
+    if location: shader_node.location = location
     shader_node.node_tree = data_to.node_groups[0]
     return shader_node
 
@@ -670,24 +741,6 @@ def make_uv_node(parent, shader_path, location):
         factor=group_inputs.outputs['Clamp S'],
         blend_type='MIX',
         location=(u_map.location.x + 200, u_scale.location.y - 50))
-    # u_comb = grp.nodes.new('ShaderNodeVectorMath')
-    # u_comb.location = (u_map.location.x + 200, u_scale.location.y - 50)
-    # u_comb.operation = 'MULTIPLY'
-    # grp.links.new(u_map.outputs['Result'], u_comb.inputs[0])
-    # grp.links.new(u_scale.outputs['Value'], u_comb.inputs[1])
-
-    # try:
-    #     u_comb = grp.nodes.new('ShaderNodeMix')
-    #     u_comb.location = (u_map.location.x + 200, u_scale.location.y - 50)
-    #     grp.links.new(group_inputs.outputs['Clamp S'], u_comb.inputs['Factor'])
-    #     grp.links.new(u_scale.outputs['Value'], u_comb.inputs['B'])
-    #     grp.links.new(u_map.outputs['Result'], u_comb.inputs['A'])
-    # except:
-    #     u_comb = grp.nodes.new('ShaderNodeMixRGB')
-    #     u_comb.location = (u_map.location.x + 200, u_scale.location.y - 50)
-    #     grp.links.new(group_inputs.outputs['Clamp S'], u_comb.inputs['Fac'])
-    #     grp.links.new(u_scale.outputs['Value'], u_comb.inputs['Color2'])
-    #     grp.links.new(u_map.outputs['Result'], u_comb.inputs['Color1'])
 
     # Transform the V value
 
@@ -715,11 +768,6 @@ def make_uv_node(parent, shader_path, location):
         blend_type='MIX',
         location=(v_map.location.x + 200, v_scale.location.y - 50)
     )
-    # v_comb = grp.nodes.new('ShaderNodeMix')
-    # v_comb.location = (v_map.location.x + 200, v_scale.location.y - 50)
-    # grp.links.new(group_inputs.outputs['Clamp T'], v_comb.inputs['Factor'])
-    # grp.links.new(v_scale.outputs['Value'], v_comb.inputs['B'])
-    # grp.links.new(v_map.outputs['Result'], v_comb.inputs['A'])
 
     # Combine U & V
     uv_comb = make_combiner_xyz(
@@ -815,19 +863,26 @@ def make_mixnode(nodetree, input1, input2, output=None, factor=1.0,
         pass
 
     nodetree.links.new(input1, mixnode.inputs[MIXNODE_IN1])
+    inputlist = [input1.node]
     try:
         nodetree.links.new(input2, mixnode.inputs[MIXNODE_IN2])
+        inputlist.append(input2.node)
     except:
         for i, v in enumerate(input2):
             mixnode.inputs[MIXNODE_IN2].default_value[i] = v
-    if output: nodetree.links.new(mixnode.outputs[MIXNODE_OUT], output)
+    if output: 
+        nodetree.links.new(mixnode.outputs[MIXNODE_OUT], output)
     mixnode.blend_type = blend_type
     try:
         nodetree.links.new(factor, mixnode.inputs[MIXNODE_FACTOR])
+        inputlist.append(factor.node)
     except:
         mixnode.inputs[MIXNODE_FACTOR].default_value = factor
     
-    if location: mixnode.location = location
+    if location: 
+        mixnode.location = location
+    else:
+        mixnode.location = relative_loc(inputlist)
 
     return mixnode
 
@@ -835,18 +890,75 @@ def make_mixnode(nodetree, input1, input2, output=None, factor=1.0,
 def make_maprange(nodetree, in_value=None, 
                   in_from_min=None, in_from_max=None,
                   in_to_min=None, in_to_max=None, 
-                  location=None):
+                  location=None,
+                  neighbor=None):
     """
-    Create a map range node
+    Create a map range node. Min/max values can be numbers or links from another node.
     """
+    nodelist = []
     node = nodetree.nodes.new("ShaderNodeMapRange")
-    if in_value: nodetree.links.new(in_value, node.inputs['Value'])
-    if in_from_min: nodetree.links.new(in_from_min, node.inputs['From Min'])
-    if in_from_max: nodetree.links.new(in_from_max, node.inputs['From Max'])
-    if in_to_min: nodetree.links.new(in_to_min, node.inputs['To Min'])
-    if in_to_max: nodetree.links.new(in_to_max, node.inputs['To Max'])
+    if in_value: 
+        nodetree.links.new(in_value, node.inputs['Value'])
+        nodelist.append(in_value.node)
+    if in_from_min: 
+        try:
+            nodetree.links.new(in_from_min, node.inputs['From Min'])
+            nodelist.append(in_from_min)
+        except:
+            node.inputs['From Min'].default_value = in_from_min
+    if in_from_max: 
+        try:
+            nodetree.links.new(in_from_max, node.inputs['From Max'])
+            nodelist.append(in_from_max)
+        except:
+            node.inputs['From Max'].default_value = in_from_max
+    if in_to_min: 
+        try:
+            nodetree.links.new(in_to_min, node.inputs['To Min'])
+            nodelist.append(in_to_min)
+        except:
+            node.inputs['To Min'].default_value = in_to_min
+    if in_to_max: 
+        try:
+            nodetree.links.new(in_to_max, node.inputs['To Max'])
+            nodelist.append(in_to_max)
+        except:
+            node.inputs['To Max'].default_value = in_to_max
 
-    if location: node.location = location
+    if neighbor:
+        node.location = neighbor.location + Vector((neighbor.width + HORIZONTAL_GAP, 0))
+    elif location: 
+        node.location = location
+    else:
+        node.location = relative_loc(nodelist)
+
+    return node
+
+
+def make_mathnode(nodetree, 
+                  op="MULTIPLY",
+                  value1=None, 
+                  value2=None,  
+                  location=None,
+                  neighbor=None):
+    """
+    Create a math node
+    """
+    nodelist = []
+    node = nodetree.nodes.new("ShaderNodeMath")
+    node.operation = op
+    if value1: 
+        nodetree.links.new(value1, node.inputs[0])
+        nodelist.append(value1.node)
+    if value2: 
+        nodetree.links.new(value2, node.inputs[1])
+        nodelist.append(value2.node)
+
+    node.location = relative_loc(nodelist)
+    # if neighbor:
+    #     node.location = neighbor.location + Vector((neighbor.width + HORIZONTAL_GAP, 0))
+    # elif location: 
+    #     node.location = location
 
     return node
 
@@ -861,6 +973,7 @@ class ShaderImporter:
         self.shape = None
         self.colormap = None
         self.alphamap = None
+        self.vertex_alpha = None
         self.bsdf = None
         self.nodes = None
         self.textures = {}
@@ -944,9 +1057,9 @@ class ShaderImporter:
             log.exception("Error importing shader attributes")
 
 
-    def make_node(self, nodetype, name=None, xloc=None, yloc=None, height=300):
+    def make_node(self, nodetype, name=None, xloc=None, yloc=None, height=0):
         """
-        Make a node.If yloc not provided, use and increment the current ytop location.
+        Make a node. If yloc not provided, use and increment the current ytop location.
         xloc is relative to the BSDF node. Have to pass the height in because Blender's
         height isn't correct.
         """
@@ -957,7 +1070,13 @@ class ShaderImporter:
             n.location = (self.bsdf.location[0] + self.xloc, yloc)
         else:
             n.location = (self.bsdf.location[0] + self.xloc, self.ytop)
-            self.ytop -= height + self.gap_y
+            h = height
+            if h == 0:
+                try:
+                    h = shader_node_height[nodetype]
+                except:
+                    h = 150
+            self.ytop -= h + VERTICAL_GAP
 
         if name: 
             n.name = name
@@ -971,56 +1090,74 @@ class ShaderImporter:
         Make the value nodes and calculations that are used as input to the shader.
         """
         self.ytop = self.bsdf.location.y
-        self.texmap = make_uv_node(self.nodes, self.asset_path, (self.calc1_offset_x, 0,))
+        self.texmap = make_uv_node(
+            self.nodes, 
+            self.asset_path, 
+            (self.inputs_offset_x-TEXTURE_NODE_WIDTH-HORIZONTAL_GAP, 0,))
 
 
-    def make_alpha_clip(self, shape:NiShape):
+    def make_alpha_test(self, shape:NiShape):
         """
-        Implement alpha clip shading.
+        Implement alpha test shading.
 
-        Blender 4.2 REMOVED alpha clip mode, so we have to implement it with shader nodes.
+        Blender 4.2 REMOVED alpha clip mode, so we have to implement threshold testing
+        with shader nodes.
         """
         alphathr = self.make_node("ShaderNodeValue",
-                                name='Alpha Threshold',
-                                xloc=self.bsdf.location.x + self.img_offset_x,
-                                height=INPUT_NODE_HEIGHT)
+                                  name='Alpha Threshold',
+                                  xloc=self.inputs_offset_x,
+                                  height=shader_node_height["ShaderNodeMapRange"])
         alphathr.outputs[0].default_value = shape.alpha_property.properties.threshold
 
-        math = self.nodes.new("ShaderNodeMath")
-        math.operation = 'DIVIDE'
-        self.link(alphathr.outputs[0], math.inputs[0])
-        math.inputs[1].default_value = 255
-        math.location = alphathr.location + Vector((alphathr.width + HORIZONTAL_GAP, 0))
-
-        dif = None
+        difalph = vertalph = None
         if self.diffuse and 'Alpha' in self.diffuse.outputs:
-            dif = self.diffuse.outputs['Alpha']
-        map1 = make_maprange(self.material.node_tree, 
-                            in_value=dif,
-                            in_from_max=math.outputs[0],
-                            location=math.location + Vector((math.width + HORIZONTAL_GAP, 0)))
-        map2 = make_maprange(self.material.node_tree, 
-                            in_value=map1.outputs[0],
-                            in_from_min=math.outputs[0],
-                            location=map1.location + Vector((map1.width + HORIZONTAL_GAP, 0)))
-        self.link(map2.outputs[0], self.bsdf.inputs['Alpha'])
+            difalph = self.diffuse.outputs['Alpha']
+        if self.vertex_alpha:
+            vertalph = self.vertex_alpha.outputs['Fac']
 
-        self.bsdf.location += map1.location - alphathr.location
-        self.nodes['Material Output'].location += map1.location - alphathr.location
+        nodetree = self.material.node_tree
+        if vertalph:
+            calcalph = make_mathnode(
+                nodetree,
+                op='MULTIPLY',
+                value1=difalph,
+                value2=vertalph)
+            alphout = calcalph.outputs[0]
+        else:
+            alphout = difalph
+        map255 = make_maprange(nodetree, 
+                               in_value=alphathr.outputs[0],
+                               in_from_min=0,
+                               in_from_max=255,
+                               in_to_min=0,
+                               in_to_max=1.0)
+        xmax = -100
+        gt = make_mathnode(nodetree,
+                            op='GREATER_THAN',
+                            value1=alphout,
+                            value2=map255.outputs[0],
+                            location=[map255])
+        atest = make_mathnode(nodetree,
+                                op='MULTIPLY',
+                                value1=difalph,
+                                value2=gt.outputs[0])
+        xmax = atest.location.x + atest.width + HORIZONTAL_GAP
+
+        self.link(atest.outputs[0], self.bsdf.inputs['Alpha'])
 
 
     def import_shader_alpha(self, shape):
         if shape.has_alpha_property:
-            self.material.alpha_threshold = shape.alpha_property.properties.threshold
+            self.material.alpha_threshold = shape.alpha_property.properties.threshold/255
             if shape.alpha_property.properties.flags & ALPHA_FLAG_MASK.ALPHA_BLEND:
                 self.material.blend_method = 'BLEND'
-                self.material.alpha_threshold = shape.alpha_property.properties.threshold/255
                 if self.diffuse and self.bsdf and not self.bsdf.inputs['Alpha'].is_linked:
                     # Alpha input may already have been hooked up if there are vertex alphas
                     self.link(self.diffuse.outputs['Alpha'], self.bsdf.inputs['Alpha'])
             else:
                 self.material.blend_method = 'CLIP'
-                self.make_alpha_clip(shape)
+            if shape.alpha_property.properties.flags & ALPHA_FLAG_MASK.ALPHA_TEST:
+                self.make_alpha_test(shape)
 
             self.material['NiAlphaProperty_flags'] = shape.alpha_property.properties.flags
             self.material['NiAlphaProperty_threshold'] = shape.alpha_property.properties.threshold
@@ -1103,17 +1240,16 @@ class ShaderImporter:
         Import shader nodes to handle grayscale coloring.
         """
         try:
-            loc = Vector((txtnode.location.x + txtnode.width + self.gap_x, 
-                        txtnode.location.y))
+            # loc = Vector((txtnode.location.x + txtnode.width + self.gap_x, 
+            #             txtnode.location.y))
 
             txt_outskt = txtnode.outputs['Color']
             gtpvector = append_groupnode(self,
                                          "Fallout 4 MTS - Greyscale To Palette Vector",
                                          "Greyscale to Palette Vector",
-                                         self.asset_path,
-                                         loc)
+                                         self.asset_path)
             gtpvector.width = txtnode.width
-            loc += Vector((gtpvector.width + self.gap_x, 0))
+            # loc += Vector((gtpvector.width + self.gap_x, 0))
             if self.is_effect_shader:
                 # EffectShader doesn't have a grayscaleToPaletteScale value. Use 0.99
                 # instead of 1.0 because 1.0 wraps around to 0.
@@ -1121,12 +1257,10 @@ class ShaderImporter:
             else:
                 gtpvector.inputs['Palette'].default_value = self.shape.shader.properties.grayscaleToPaletteScale
             self.link(txt_outskt, gtpvector.inputs['Diffuse'])
+            reposition(gtpvector)
 
             palettenode = self.make_node("ShaderNodeTexImage",
-                                         name='Palette Vector',
-                                         xloc=loc.x,
-                                         yloc=loc.y)
-            loc += Vector((palettenode.width + self.gap_x, 0))
+                                         name='Palette Vector')
             if 'Greyscale' in self.textures and self.textures['Greyscale']:
                 imgp = bpy.data.images.load(self.textures['Greyscale'])
                 imgp.colorspace_settings.name = "sRGB"
@@ -1134,20 +1268,16 @@ class ShaderImporter:
             else:
                 self.warn(f"Could not load greyscale texture '{self.shape.textures['Greyscale']}'")
             self.link(gtpvector.outputs[0], palettenode.inputs[0])
+            reposition(palettenode)
 
             gtpcolor = append_groupnode(self,
                                         "Fallout 4 MTS - Greyscale To Palette Color",
                                         "Greyscale To Palette Color", 
-                                         self.asset_path,
-                                        loc)
+                                         self.asset_path)
             gtpcolor.width = txtnode.width
-            loc += Vector((gtpcolor.width + self.gap_x, 0))
             self.link(palettenode.outputs["Color"], gtpcolor.inputs['Greyscale'])
             self.link(gtpcolor.outputs['Diffuse'], self.bsdf.inputs['Diffuse'])
-            # self.bsdf.location.x += self.img_offset_x*4
-            # self.nodes['Material Output'].location.x += self.img_offset_x*4
-
-            self.bsdf_xadjust = gtpcolor.location.x + gtpcolor.width - gtpvector.location.x
+            reposition(gtpcolor)
     
         except:
             self.warn(f"Could not load shader nodes from assets file: {traceback.format_exc()}")
@@ -1161,8 +1291,7 @@ class ShaderImporter:
         
         txtnode = self.make_node("ShaderNodeTexImage",
                                  name='Diffuse_Texture',
-                                 xloc=self.bsdf.location.x + self.img_offset_x,
-                                 height=TEXTURE_NODE_HEIGHT)
+                                 xloc=self.inputs_offset_x)
         txtnode.width = txtnode.width * 1.2
         if 'Diffuse' in self.textures and self.textures['Diffuse']:
             img = bpy.data.images.load(self.textures['Diffuse'], check_existing=True)
@@ -1194,8 +1323,7 @@ class ShaderImporter:
             if self.colormap:
                 cmap = self.make_node('ShaderNodeAttribute',
                                     name='Vertex Color',
-                                    xloc=txtnode.location.x,
-                                    height=COLOR_NODE_HEIGHT)
+                                    xloc=self.inputs_offset_x)
                 cmap.attribute_type = 'GEOMETRY'
                 cmap.attribute_name = self.colormap.name
                 self.link(cmap.outputs['Color'], self.bsdf.inputs['Vertex Color'])
@@ -1208,11 +1336,11 @@ class ShaderImporter:
             if self.alphamap:
                 vmap = self.make_node('ShaderNodeAttribute',
                                     name='Vertex Alpha',
-                                    xloc=txtnode.location.x,
-                                    height=COLOR_NODE_HEIGHT)
+                                    xloc=self.inputs_offset_x)
                 vmap.attribute_type = 'GEOMETRY'
                 vmap.attribute_name = self.alphamap.name
-                self.link(vmap.outputs['Color'], self.bsdf.inputs['Vertex Alpha'])
+                self.link(vmap.outputs['Fac'], self.bsdf.inputs['Vertex Alpha'])
+                self.vertex_alpha = vmap
 
         self.diffuse = txtnode
 
@@ -1223,8 +1351,7 @@ class ShaderImporter:
             # Have a sk separate from a specular. Make an image node.
             skimgnode = self.make_node("ShaderNodeTexImage",
                                        name='Subsurface_Texture',
-                                       xloc=self.bsdf.location.x + self.img_offset_x,
-                                       height=TEXTURE_NODE_HEIGHT)
+                                       xloc=self.inputs_offset_x)
             if 'SoftLighting' in self.textures and self.textures['SoftLighting']:
                 skimg = bpy.data.images.load(self.textures['SoftLighting'], check_existing=True)
                 if skimg != self.diffuse.image:
@@ -1234,11 +1361,12 @@ class ShaderImporter:
                 self.warn(f"Could not load subsurface texture '{self.shape.textures['SoftLighting']}'")
             self.link(self.texmap.outputs['Vector'], skimgnode.inputs['Vector'])
             self.link(skimgnode.outputs['Color'], self.bsdf.inputs['Subsurface'])
+            reposition(skimgnode, vpos=POS_BELOW)
+            skimgnode.location.x = self.bsdf.location.x + self.img_offset_x,
 
             v = self.make_node('ShaderNodeValue',
                                 name='Subsurface Strength',
-                                xloc=skimgnode.location.x,
-                                height=INPUT_NODE_HEIGHT)
+                                xloc=self.inputs_offset_x)
             v.outputs[0].default_value = self.shape.shader.properties.Soft_Lighting
             self.link(v.outputs['Value'], self.bsdf.inputs['Subsurface Str'])
 
@@ -1251,8 +1379,7 @@ class ShaderImporter:
             # Make the specular texture input node.
             simgnode = self.make_node("ShaderNodeTexImage",
                                       name='Specular_Texture',
-                                      xloc=self.bsdf.location.x + self.img_offset_x,
-                                      height=TEXTURE_NODE_HEIGHT)
+                                      xloc=self.inputs_offset_x)
             if 'Specular' in self.textures and self.textures['Specular']:
                 simg = bpy.data.images.load(self.textures['Specular'], check_existing=True)
                 simg.colorspace_settings.name = "Non-Color"
@@ -1283,8 +1410,7 @@ class ShaderImporter:
             # Make the glow map texture input node.
             simgnode = self.make_node("ShaderNodeTexImage",
                                       name='Glow_Map_Texture',
-                                      xloc=self.bsdf.location.x + self.img_offset_x,
-                                      height=TEXTURE_NODE_HEIGHT)
+                                      xloc=self.inputs_offset_x)
             if 'Glow' in self.textures and self.textures['Glow']:
                 simg = bpy.data.images.load(self.textures['Glow'], check_existing=True)
                 simg.colorspace_settings.name = "Non-Color"
@@ -1303,8 +1429,7 @@ class ShaderImporter:
         if 'Normal' in self.shape.textures and self.shape.textures['Normal']:
             nimgnode = self.make_node("ShaderNodeTexImage",
                                         name='Normal_Texture',
-                                        xloc=self.bsdf.location.x + self.img_offset_x,
-                                        height=TEXTURE_NODE_HEIGHT)
+                                        xloc=self.inputs_offset_x)
             self.link(self.texmap.outputs['Vector'], nimgnode.inputs['Vector'])
             if 'Normal' in self.textures and self.textures['Normal']:
                 nimg = bpy.data.images.load(self.textures['Normal'], check_existing=True) 
@@ -1333,8 +1458,7 @@ class ShaderImporter:
                 and self.shape.textures['EnvMap']: 
             imgnode = self.make_node("ShaderNodeTexImage",
                                      name='EnvMap_Texture',
-                                     xloc=self.bsdf.location.x + self.img_offset_x,
-                                     height=TEXTURE_NODE_HEIGHT)
+                                     xloc=self.inputs_offset_x)
             if 'EnvMap' in self.textures and self.textures['EnvMap']:
                 img = bpy.data.images.load(self.textures['EnvMap'], check_existing=True)
                 if img != self.diffuse.image:
@@ -1352,8 +1476,7 @@ class ShaderImporter:
                 and self.shape.textures['EnvMask']: 
             imgnode = self.make_node("ShaderNodeTexImage",
                                      name='EnvMask_Texture',
-                                     xloc=self.diffuse.location.x,
-                                     height=TEXTURE_NODE_HEIGHT)
+                                     xloc=self.inputs_offset_x)
             self.link(self.texmap.outputs['Vector'], imgnode.inputs['Vector'])
             if 'EnvMask' in self.textures and self.textures['EnvMask']:
                 img = bpy.data.images.load(self.textures['EnvMask'], check_existing=True)
@@ -1453,17 +1576,17 @@ class ShaderImporter:
             self.colormap, self.alphamap = get_effective_colormaps(obj.data)
 
             self.import_diffuse()
+            self.import_shader_attrs(shape)
+            self.import_shader_alpha(shape)
             self.import_subsurface()
             self.import_specular()
             self.import_normal()
             self.import_glowmap()
             self.import_envmap()
             self.import_envmask()
-            self.import_shader_attrs(shape)
-            self.import_shader_alpha(shape)
 
-            self.bsdf.location.x += self.bsdf_xadjust
-            mo.location.x += self.bsdf_xadjust
+            reposition(self.bsdf, vpos=POS_TOP, padding=Vector((HORIZONTAL_GAP*2, 0)))
+            reposition(mo)
 
             obj.active_material = self.material
         except Exception as e:

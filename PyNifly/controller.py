@@ -11,6 +11,8 @@ from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 from pynifly import *
 import blender_defs as BD
 from nifdefs import *
+import shader_io
+
 
 KFP_HANDLE_OFFSET = 10
 
@@ -148,6 +150,9 @@ class ControllerHandler():
 
 
     def _find_target(self, nifname):
+        """
+        Find the blender object 
+        """
         try:
             nifnode = self.nif.nodes[nifname]
             return self.objects_created.find_nifnode(nifnode).blender_obj
@@ -225,38 +230,6 @@ class ControllerHandler():
     #         self.warn("Found no target for NiTransformController")
 
 
-    def _new_float_controller_action(self, ctlr:NiInterpController, interp:NiInterpController):
-        """Import float controller block."""
-        if not self.action_target:
-            self.warn("No target object")
-
-        self.action_group = "Shader Nodetree"
-        self._new_action("Shader")
-        
-        self.action_group = "Shader Nodetree"
-        if ctlr.properties.controlledVariable == CONTROLLED_VARIABLE_TYPES.U_Offset:
-            controlled_node = "UV_Converter"
-            controlled_input = 0
-        elif ctlr.properties.controlledVariable == CONTROLLED_VARIABLE_TYPES.V_Offset:
-            controlled_node = "UV_Converter"
-            controlled_input = 1
-        elif ctlr.properties.controlledVariable == CONTROLLED_VARIABLE_TYPES.U_Scale:
-            controlled_node = "UV_Converter"
-            controlled_input = 2
-        elif ctlr.properties.controlledVariable == CONTROLLED_VARIABLE_TYPES.V_Scale:
-            controlled_node = "UV_Converter"
-            controlled_input = 3
-        elif ctlr.properties.controlledVariable == CONTROLLED_VARIABLE_TYPES.Alpha_Transparency:
-            controlled_node = "Skyrim Shader - Effect"
-            controlled_input = 4
-        else:
-            self.warn(f"NYI: Cannot handle controlled variable {repr(CONTROLLED_VARIABLE_TYPES(ctlr.properties.controlledVariable))}") 
-            return
-
-        self.path_name = f'nodes["{controlled_node}"].inputs[{controlled_input}].default_value'
-        self._import_interp_controller(ctlr.interpolator, interp)
-    
-
     def _import_color_controller(self, seq:NiSequence, block:ControllerLink):
         """Import one color controller block."""
         if block.node_name in self.nif.nodes:
@@ -282,8 +255,14 @@ class ControllerHandler():
         Blender actions are associated with a single element. So it may require mulitple
         blender actions to represent a nif animation. 
         """
-        self.context.scene.frame_end = 1 + int(
-            (anim_context.properties.stopTime - anim_context.properties.startTime) * self.fps)
+        try:
+            self.context.scene.frame_end = 1 + int(
+                (anim_context.properties.stopTime - anim_context.properties.startTime) 
+                * self.fps)
+        except:
+            # If the animation times are set on some other block, these values may be
+            # bogus.
+            self.context.scene.frame_end = 0
         self.context.scene.timeline_markers.clear()
         self.animation_actions = []
 
@@ -379,7 +358,7 @@ class ControllerHandler():
         self.action_group = name
 
 
-    def _new_element_action(self, anim_context, target_name, suffix):
+    def _new_element_action(self, anim_context, target_name, property_type, suffix):
         """
         Create an action to animate a single element (bone, shader, node). This may be
         part of a larger nif animation. 
@@ -389,7 +368,13 @@ class ControllerHandler():
         Returns TRUE if the target element was found, FALSE otherwise.
         """
         try:
-            self.action_target = self._find_target(target_name)
+            # self.action_target = self._find_target(target_name)
+            targ = self.objects_created.find_nifname(self.nif, target_name)
+            if property_type in ['BSEffectShaderProperty', 'BSLightingShaderProperty',
+                                 'NiAlphaProperty']:
+                self.action_target = targ.blender_obj.active_material.node_tree
+            else:
+                self.action_target = targ.blender_obj
             if self.action_target:
                 self.animation_target = self.action_target
                 self._new_action(suffix)
@@ -401,7 +386,7 @@ class ControllerHandler():
         return False
             
 
-    def _new_transform_anim(self, ctlr):
+    def _new_transform_action(self, ctlr):
         """
         Create a new standalone NiTransform animation.
 
@@ -457,26 +442,12 @@ class ControllerHandler():
             if not self._animate_bone(block.node_name):
                 return
         else:
-            if not self._new_element_action(seq, block.node_name, None):
+            if not self._new_element_action(
+                seq, block.node_name, block.property_type, None):
                 return
 
         if block.controller:
             block.controller.import_node(self, block.interpolator)
-            # # Controller will reference the interpolator.
-            # if block.controller_type == "NiTransformController":
-            #     if block.controller.blockname == "NiMultiTargetTransformController":
-            #         self._import_multitarget_transform_controller(seq, block)
-            #     elif block.controller.blockname == "NiTransformData":
-            #         self._import_transform_controller(block.controller)
-            #     else:
-            #         self.warn(f"Not yet implemented: {block.controller.blockname} controller type")
-            # elif block.controller_type == 'BSEffectShaderPropertyColorController':
-            #     self._import_color_controller(seq, block)
-            # elif block.controller_type == 'BSEffectShaderPropertyFloatController':
-            #     self._new_float_controller_action(block.controller, block.interpolator)
-            # else:
-            #     self.warn(f"Not Yet Implemented: controller type {block.controller_type}")
-            #     return
             
         if block.interpolator:
             # If there's no controller, everything is done by the interpolator.
@@ -493,34 +464,6 @@ class ControllerHandler():
                 a["pynMarkers"][val] = time
 
 
-    def _new_controller_seq_anim(self, seq:NiControllerSequence):
-        """
-        Import a single controller sequence block.
-        
-        A controller sequence represents a single animation. It contains a list of
-        ControllerLink structures, called "Controlled Block" in NifSkope. (They are not
-        full, separate blocks in the nif file.) Each Controller Link block controls one
-        element being animated.
-
-        A ControllerSequence maps to multiple Blender actions, because several objects may
-        be animated. The actions are marked as assets so they persist. 
-
-        There may be text keys associated with this animation. They are represented as
-        Blender TimelineMarker objects and apply across all the different actions that
-        make up the animation. They are aso stored as a dictionary on the actions so they
-        can be recovered when the user switches between animations.
-        """
-        self._new_animation(seq)
-
-        if self.animation_target.type == 'ARMATURE':
-            self._new_armature_action(seq)
-
-        for cb in seq.controlled_blocks:
-            self._import_controller_link(seq, cb)
-
-        if seq.text_key_data: self._import_text_keys(seq.text_key_data)
-
-
     # --- PUBLIC FUNCTIONS ---
 
     def import_controller(self, ctlr, target_object=None, target_element=None, target_bone=None):
@@ -533,18 +476,22 @@ class ControllerHandler():
         self.animation_target = target_object
         self.action_target = target_element
         self.bone_target = target_bone
-        if ctlr.blockname == "BSEffectShaderPropertyFloatController":
-            self._new_animation(ctlr)
-            self._new_float_controller_action(ctlr, None)
-        elif ctlr.blockname == "NiTransformController":
-            self._new_transform_anim(ctlr)
-        elif ctlr.blockname == "NiControllerSequence": 
-            self._new_controller_seq_anim(ctlr)
-        elif ctlr.blockname == "NiControllerManager": 
-            for seq in ctlr.sequences.values():
-                self._new_controller_seq_anim(seq)
-        else:
-            self.warn(f"Not Yet Implemented: {ctlr.blockname} controller type")
+        self._new_animation(ctlr)
+        ctlr.import_node(self, None)
+        # if ctlr.blockname == "BSEffectShaderPropertyFloatController":
+        #     self._new_float_controller_action(ctlr, None)
+        # elif ctlr.blockname == "NiTransformController":
+        #     self._new_animation(ctlr)
+        #     self.self._new_transform_action(ctlr)
+        # elif ctlr.blockname == "NiControllerSequence": 
+        #     self._new_animation(ctlr)
+        #     self._new_controller_seq_action(ctlr)
+        # elif ctlr.blockname == "NiControllerManager": 
+        #     for seq in ctlr.sequences.values():
+        #         self._new_animation(ctlr)
+        #         self._new_controller_seq_action(seq)
+        # else:
+        #     self.warn(f"Not Yet Implemented: {ctlr.blockname} controller type")
 
 
     def import_bone_animations(self, arma):
@@ -1173,6 +1120,20 @@ NiTransformInterpolator.import_node = _import_transform_interpolator
 # but may not. If not, they get the interpolator from a parent ControllerLink, so it has
 # to be passed in.
 
+shader_node_control = {
+        CONTROLLED_VARIABLE_TYPES.U_Offset: [("UV_Converter", "Offset U")],
+        CONTROLLED_VARIABLE_TYPES.V_Offset: [("UV_Converter", "Offset V")],
+        CONTROLLED_VARIABLE_TYPES.U_Scale: [("UV_Converter", "Scale U")],
+        CONTROLLED_VARIABLE_TYPES.V_Scale: [("UV_Converter", "Scale V")],
+        CONTROLLED_VARIABLE_TYPES.Alpha_Transparency: (
+            ("Skyrim Shader - Effect", 'Alpha Adjust'),
+            ("Skyrim Shader - TSN", 'Alpha Mult')
+        ),
+        CONTROLLED_VARIABLE_TYPES.Emissive_Multiple: [
+            ("Skyrim Shader - Effect", "Emission Strength")]
+}
+
+
 def _import_transform_controller(tc:NiTransformController, 
                                  importer:ControllerHandler, 
                                  interp:NiInterpController):
@@ -1190,10 +1151,10 @@ NiTransformController.import_node = _import_transform_controller
 def _import_alphatest_controller(ctlr:BSNiAlphaPropertyTestRefController, 
                                  importer:ControllerHandler,
                                  interp:NiInterpController):
-    targetnode = ctlr.target
-    targetshape = targetnode.parent
+    # 'nodes["Alpha Threshold"].outputs[0].default_value'
+    # action should be on node_tree
+    importer.path_name = f'nodes["Alpha Threshold"].outputs[0].default_value'
     alphinterp = ctlr.interpolator
-    importer.path_name = ""
     if (not alphinterp) or (alphinterp.properties.flags == InterpBlendFlags.MANAGER_CONTROLLED):
         alphinterp = interp
     if not alphinterp: 
@@ -1209,19 +1170,42 @@ BSNiAlphaPropertyTestRefController.import_node = _import_alphatest_controller
 def _import_ESPFloat_controller(ctlr:BSEffectShaderPropertyFloatController, 
                                  importer:ControllerHandler,
                                  interp:NiInterpController):
-    targetnode = ctlr.target
-    targetshape = targetnode.parent
-    alphinterp = ctlr.interpolator
-    controlled_node = "Alpha Threshold"
-    importer.path_name = f'nodes["{controlled_node}"].outputs[0].default_value'
-    if (not alphinterp) or (alphinterp.properties.flags == InterpBlendFlags.MANAGER_CONTROLLED):
-        alphinterp = interp
-    if not alphinterp: 
-        importer.warn(f"No interpolator available for controller {ctlr.id}")
-        return
+    """
+    Import float controller block.
+    importer.action_target should be the material node_tree the action affects.
+    """
+    if not importer.action_target:
+        importer.warn("No target object")
+
+    importer.action_group = "Shader Nodetree"
+    importer._new_action("Shader")
     
-    td = alphinterp.data
-    if td: td.import_node(importer)
+    importer.action_group = "Shader Nodetree"
+    importer.path_name = ""
+    try:
+        v = shader_node_control[ctlr.properties.controlledVariable]
+        for nodename, inputname in v:
+            if nodename in importer.action_target.nodes:
+                n = importer.action_target.nodes[nodename]
+                if inputname in n.inputs:
+                    importer.path_name = \
+                        f'nodes["{nodename}"].inputs["{inputname}"].default_value'
+                    break
+    except:
+        pass
+
+    if not importer.path_name: 
+        importer.warn(f"NYI: Cannot handle controlled variable {repr(CONTROLLED_VARIABLE_TYPES(ctlr.properties.controlledVariable))}") 
+    else:    
+        effective_interp = ctlr.interpolator
+        if (not effective_interp) or (effective_interp.properties.flags == InterpBlendFlags.MANAGER_CONTROLLED):
+            effective_interp = interp
+        if not effective_interp: 
+            importer.warn(f"No interpolator available for controller {ctlr.id}")
+            return
+        
+        td = effective_interp.data
+        if td: td.import_node(importer)
     
 BSEffectShaderPropertyFloatController.import_node = _import_ESPFloat_controller
 
@@ -1237,6 +1221,47 @@ def _import_multitarget_transform_controller(
     pass
 
 NiMultiTargetTransformController.import_node = _import_multitarget_transform_controller
+
+
+def _import_controller_sequence(seq:NiControllerSequence, 
+                                importer:ControllerHandler,):
+    """
+    Import a single controller sequence block.
+    
+    A controller sequence represents a single animation. It contains a list of
+    ControllerLink structures, called "Controlled Block" in NifSkope. (They are not
+    full, separate blocks in the nif file.) Each Controller Link block controls one
+    element being animated.
+
+    A ControllerSequence maps to multiple Blender actions, because several objects may
+    be animated. The actions are marked as assets so they persist. 
+
+    There may be text keys associated with this animation. They are represented as
+    Blender TimelineMarker objects and apply across all the different actions that
+    make up the animation. They are aso stored as a dictionary on the actions so they
+    can be recovered when the user switches between animations.
+    """
+    importer._new_animation(seq)
+
+    if importer.animation_target.type == 'ARMATURE':
+        importer._new_armature_action(seq)
+
+    for cb in seq.controlled_blocks:
+        importer._import_controller_link(seq, cb)
+
+    if seq.text_key_data: importer._import_text_keys(seq.text_key_data)
+
+NiControllerSequence.import_node = _import_controller_sequence
+
+
+def _import_controller_manager(cm:NiControllerManager, 
+                                importer:ControllerHandler, 
+                                interp):
+    for seq in cm.sequences.values():
+        # importer._new_controller_seq_action(seq)
+        seq.import_node(importer)
+
+NiControllerManager.import_node = _import_controller_manager
 
 
 def assign_action(obj, act):

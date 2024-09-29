@@ -599,12 +599,6 @@ class NiObject:
         self._properties = value.copy()
         NifFile.nifly.setBlock(self.file._handle, self.id, byref(self._properties))
 
-    @classmethod
-    def _default_import_func(cls, importer, nifnode):
-        importer.warn(f"NYI: Import of block {cls.__name__}")
-    
-    import_node = _default_import_func
-
 # --- Collisions --- #
 
 class CollisionShape(NiObject):
@@ -1505,7 +1499,10 @@ class NiTransformData(NiKeyFrameData):
 
 
 class NiInterpolator(NiObject):
-    pass
+    def _default_import_func(interp, importer, nifnode):
+        importer.warn(f"NYI: Import of interpolator {interp.id} {interp}")
+    
+    import_node = _default_import_func
     
 
 class NiKeyBasedInterpolator(NiInterpolator):
@@ -1653,6 +1650,11 @@ class NiTimeController(NiObject):
         f.flags = self.properties.flags
         return f.cycle_type == CycleType.LOOP
     
+    def _default_import_func(ctlr, importer, nifnode):
+        importer.warn(f"NYI: Import of controller {ctlr.id} {ctlr}")
+    
+    import_node = _default_import_func
+
 
 class NiInterpController(NiTimeController):
     pass
@@ -1778,31 +1780,26 @@ class ControllerLink:
         self._controller = None
         self._nodename = None
         self._controller_type = None
+        self._property_type = None
         self._interpolator = None
 
     @property
     def node_name(self):
-        if self._nodename: return self._nodename
-
-        buflen = self.parent.file.max_string_len
-        buf = (c_char * buflen)()
-        NifFile.nifly.getString(self.parent.file._handle, 
-                                self.properties.nodeName,
-                                buflen, buf)
-        self._nodename = buf.value.decode('utf-8')
+        if self._nodename is None: 
+            self._nodename = self.parent.file.get_string(self.properties.nodeName)
         return self._nodename
     
     @property
     def controller_type(self):
-        if self._controller_type: return self._controller_type
-
-        buflen = self.parent.file.max_string_len
-        buf = (c_char * buflen)()
-        NifFile.nifly.getString(self.parent.file._handle, 
-                                self.properties.ctrlType,
-                                buflen, buf)
-        self._controller_type = buf.value.decode('utf-8')
+        if self._controller_type is None: 
+            self._controller_type = self.parent.file.get_string(self.properties.ctrlType)
         return self._controller_type
+    
+    @property
+    def property_type(self):
+        if self._property_type is None: 
+            self._property_type = self.parent.file.get_string(self.properties.propType)
+        return self._property_type
     
     @property
     def interpolator(self):
@@ -1911,6 +1908,13 @@ class NiSequence(NiObject):
         if self._controlled_blocks is None: self._controlled_blocks = []
         self._controlled_blocks.append(ControllerLink(buf, self))
 
+    def _default_import_func(self, importer):
+        importer.warn(f"NYI: Import of NiSequence {self.id} {self.name}")
+    
+    import_node = _default_import_func
+    
+
+
 
 class NiTextKeyExtraData(NiObject):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
@@ -1956,7 +1960,7 @@ class NiTextKeyExtraData(NiObject):
                 tk.add_key(t, v)
             return tk
         else:
-            raise Exception("Could not create NiControllerManager")
+            raise Exception("Could not create NiTextKeyExtraData")
 
 block_types["NiTextKeyExtraData"] = NiTextKeyExtraData
     
@@ -3134,6 +3138,12 @@ class NifFile:
         else:
             NifFile.nifly.saveNif(self._handle, self.filepath.encode('utf-8'))
 
+    def get_string(self, string_id):
+        buflen = self.max_string_len
+        buf = (c_char * buflen)()
+        NifFile.nifly.getString(self._handle, string_id, buflen, buf)
+        return buf.value.decode('utf-8')
+
     def add_node(self, name, xform, parent=None):
         """Add NiNode object to the file."""
         phandle = None
@@ -3503,6 +3513,7 @@ class NifFile:
                 pass
             return node
         else:
+            log.warning(f"Unknown block type: {bn}")
             return None
 
 
