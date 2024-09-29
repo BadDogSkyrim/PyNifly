@@ -217,6 +217,8 @@ class TriFile():
         data = unpack('<I', tmp_data)
         blockLength = data[0]
         
+        new_verts = []
+        
         if blockLength > 0:
             nextMorphVertIdx = 0
             tmp_buffer = file.read(INT_LEN*blockLength)
@@ -227,7 +229,6 @@ class TriFile():
             
             nextMorphVertIdx += 1
             
-            new_verts = []
             for ii, nv in enumerate(self._vertices):
                 if (data[0] == ii) and (blockLength >= 0) and (vertsAdd_Index < vertsAdd_listLength):
                     blockLength = blockLength - 1
@@ -243,9 +244,9 @@ class TriFile():
         
         #Else, the morph is the same as the base mesh? I think.
         else:
-            for ii, nv in enumerate(mesh_key_verts):
-                new_verts.append((verts_list[ii][0], verts_list[ii][1], verts_list[ii][2]))
-        return morphName, new_verts
+            for ii, nv in enumerate(self._vertices):
+                new_verts.append((self._vertices[ii][0], self._vertices[ii][1], self._vertices[ii][2]))
+        return morphSubName, new_verts
 
 
     def read(self, file):
@@ -358,7 +359,8 @@ class TriFile():
             vertsAdd_listLength = len(vertsAdd_list)
 
             for i in range(self.header.addMorphNum):
-                name, verts = self.read_modmorph(file)
+                #    def read_modmorph(self, file, i, vertsAdd_Index, vertsAdd_list, vertsAdd_listLength, verts_list):
+                name, verts = self.read_modmorph(file, i, vertsAdd_Index, vertsAdd_list, vertsAdd_listLength, self._vertices)
                 self.modmorphs[name] = verts
 
 
