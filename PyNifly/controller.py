@@ -235,14 +235,6 @@ class ControllerHandler():
             return None
 
 
-    # def _import_interpolator(self, interp:NiInterpolator):
-    #     if issubclass(type(interp), NiTransformInterpolator):
-    #         return self._import_transform_interpolator(interp)
-    #     else:
-    #         self.warn(f"NYI: Interpolator type {type(interp)}")
-    #         return None
-
-
     def _key_nif_to_blender(self, key0, key1, key2):
         """
         Return blender fcurve handle values for key1.
@@ -304,24 +296,6 @@ class ControllerHandler():
     def _import_interp_controller(self, fi:NiInterpController, interp:NiInterpController):
         """Import a subclass of NiInterpController."""
         fi.import_node(self, interp)
-
-        # if issubclass(type(fi), NiFloatInterpolator):
-        #     self._import_float_interpolator(fi, interp)
-        # elif issubclass(type(fi), BSNiAlphaPropertyTestRefController):
-        #     self._import_alphatest_controller(fi, interp)
-        # elif issubclass(type(fi), NiBlendInterpolator):
-        #     self.warn("NYI: NiBlendInterpolator") # Don't know how to interpret
-        # else:
-        #     self.warn(f"Unknown interpolation type for NiFloatInterpolator: {fi.keys.interpolation}")
-
-
-    # def _import_transform_controller(self, block:ControllerLink):
-    #     """Import transform controller block."""
-    #     self.action_group = "Object Transforms"
-    #     if self.animation_target:
-    #         block.interpolator.import_node(self)
-    #     else:
-    #         self.warn("Found no target for NiTransformController")
 
 
     def _import_color_controller(self, seq:NiSequence, block:ControllerLink):
@@ -435,8 +409,6 @@ class ControllerHandler():
             
         self.bone_target = self.animation_target.pose.bones[name]
         self.path_name = f'pose.bones["{name}"]'
-        # self.animation_target = self.action_target.pose.bones[name]
-        # self.action_group = name
         return True
 
 
@@ -521,18 +493,6 @@ class ControllerHandler():
         self.action_group = "Object Transforms"
 
 
-    # def _get_rotation_mode(interpolator):
-    #     rotation_mode = "QUATERNION"
-    #     td = interpolator.data
-    #     if td:
-    #         if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
-    #             rotation_mode = "XYZ"
-    #         elif td.properties.rotationType in [NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY]:
-    #             rotation_mode = "QUATERNION"
-
-    #     return rotation_mode
-
-
     def _import_controller_link(self, seq:NiSequence, block:ControllerLink):
         """
         Import one controlled block.
@@ -555,7 +515,6 @@ class ControllerHandler():
         if block.interpolator:
             # If there's no controller, everything is done by the interpolator.
             block.interpolator.import_node(self, None)
-            # self._import_node(block.interpolator)
 
 
     def _import_text_keys(self, tk:NiTextKeyExtraData):
@@ -581,20 +540,6 @@ class ControllerHandler():
         self.bone_target = target_bone
         self._new_animation(ctlr)
         ctlr.import_node(self)
-        # if ctlr.blockname == "BSEffectShaderPropertyFloatController":
-        #     self._new_float_controller_action(ctlr, None)
-        # elif ctlr.blockname == "NiTransformController":
-        #     self._new_animation(ctlr)
-        #     self.self._new_transform_action(ctlr)
-        # elif ctlr.blockname == "NiControllerSequence": 
-        #     self._new_animation(ctlr)
-        #     self._new_controller_seq_action(ctlr)
-        # elif ctlr.blockname == "NiControllerManager": 
-        #     for seq in ctlr.sequences.values():
-        #         self._new_animation(ctlr)
-        #         self._new_controller_seq_action(seq)
-        # else:
-        #     self.warn(f"Not Yet Implemented: {ctlr.blockname} controller type")
 
 
     def import_bone_animations(self, arma):
@@ -1097,32 +1042,6 @@ def _import_transform_data(td:NiTransformData,
     - Returns the rotation mode that must be set on the target. If this interpolator
         is using XYZ rotations, the rotation mode must be set to Euler. 
     """
-    # ti, the parent NiTransformInterpolator, has the transform-to-global necessary
-    # for this animation. It matches the transform of the target being animated.
-    # have_parent_rotation = False
-    # if max(ti.properties.rotation[:]) > 3e+38 or min(ti.properties.rotation[:]) < -3e+38:
-    #     tiq = Quaternion()
-    # else:
-    #     have_parent_rotation = True
-    #     tiq = Quaternion(ti.properties.rotation)
-    # qinv = tiq.inverted()
-    # tiv = Vector(ti.properties.translation)
-
-    # # Some interpolators have bogus translations. Dunno why.
-    # if tiv[0] <= -1e+30 or tiv[0] >= 1e+30: tiv[0] = 0
-    # if tiv[1] <= -1e+30 or tiv[1] >= 1e+30: tiv[1] = 0
-    # if tiv[2] <= -1e+30 or tiv[2] >= 1e+30: tiv[2] = 0
-
-    # tixf = BD.MatrixLocRotScale(ti.properties.translation, 
-    #                             Quaternion(ti.properties.rotation),
-    #                             [1.0]*3)
-    # tixf.invert()
-
-    # locbase = tixf.translation
-    # rotbase = tixf.to_euler()
-    # quatbase = tixf.to_quaternion()
-    # scalebase = -ti.properties.scale
-
     if importer.path_name:
         path_prefix = importer.path_name + "."
     else:
@@ -1377,8 +1296,6 @@ NiTransformController.import_node = _import_transform_controller
 def _import_alphatest_controller(ctlr:BSNiAlphaPropertyTestRefController, 
                                  importer:ControllerHandler,
                                  interp:NiInterpController=None):
-    # 'nodes["Alpha Threshold"].outputs[0].default_value'
-    # action should be on node_tree
     importer.action_group = "Shader"
     importer.path_name = f'nodes["Alpha Threshold"].outputs[0].default_value'
     if not interp:
@@ -1603,16 +1520,11 @@ class WM_OT_ApplyAnim(bpy.types.Operator):
     bl_idname = "wm.apply_anim"
     bl_label = "Apply Animation"
     bl_options = {'REGISTER', 'UNDO'}
-    # bl_property = "Apply Animation"
-    # bl_property = "anim_name"
-    # bl_property = "anim_chooser"
 
     # Keeping the list of animations in a module-level variable because EnumProperty doesn't
     # like it if the list contents goes away.
     _animations_found = []
 
-    # Should be able to create a pulldown. That isn't working.
-    # anim_name : bpy.props.StringProperty(name="Apply Animation") # type: ignore
     anim_chooser : bpy.props.EnumProperty(name="Animation Selection",
                                            items=_animations_for_pulldown,
                                            )  # type: ignore
@@ -1621,7 +1533,6 @@ class WM_OT_ApplyAnim(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return True
-        # return _animations_for_pulldown()
 
     def invoke(self, context, event): # Used for user interaction
         wm = context.window_manager
@@ -1629,7 +1540,6 @@ class WM_OT_ApplyAnim(bpy.types.Operator):
 
     def draw(self, context): # Draw options (typically displayed in the tool-bar)
         row = self.layout
-        # row.prop(self, "anim_name", text="Animation name")
         row.prop(self, "anim_chooser", text="Animation name")
 
     def execute(self, context): # Runs by default 

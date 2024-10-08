@@ -95,8 +95,6 @@ def load_nifly(nifly_path):
     nifly.getClothExtraData.restype = c_int
     nifly.getClothExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
     nifly.getClothExtraDataLen.restype = c_int
-    # nifly.getCollConvexTransformShapeChildID.argtypes = [c_void_p, c_int]
-    # nifly.getCollConvexTransformShapeChildID.restype = c_int
     nifly.getCollListShapeChildren.argtypes = [c_void_p, c_int, c_void_p, c_int]
     nifly.getCollListShapeChildren.restype = c_int
     nifly.getCollShapeNormals.argtypes = [c_void_p, c_int, c_void_p, c_int]
@@ -348,7 +346,6 @@ class FO4Segment(Partition):
     fo4segmatch1 = re.compile('FO4 Seg +([0-9]+)\Z')
 
     def __init__(self, part_id=0, index=0, subsegments=0, namedict=fo4Dict, name=None):
-        #log.debug(f"New FO4 segment: {part_id}, {subsegments}, {name}")
         super().__init__(part_id, namedict=namedict, name=name)
         self._index = index
         self.subseg_count = subsegments
@@ -365,10 +362,6 @@ class FO4Segment(Partition):
 
     @classmethod
     def name_match(cls, name):
-        #bp = fo4Dict.bodypart(name)
-        #if bp:
-        #    return 1
-        
         m = FO4Segment.fo4segmatch1.match(name)
         if m:
             return int(m.group(1))
@@ -380,7 +373,6 @@ class FO4Segment(Partition):
             return -1
 
 class FO4Subsegment(FO4Segment):
-    #fo4subsegm = re.compile('((\AFO4 \w+ [0-9]+) \| [\w\-\d\. ]+)')
     fo4subsegm1 = re.compile(r'(FO4 Seg [0-9]+) \| ([^\|]+)( \| (.+))?\Z')
     fo4subsegm = re.compile('\AFO4 *.*')
     fo4bpm = re.compile('\AFO4 *(\d+) - ')
@@ -394,7 +386,6 @@ class FO4Subsegment(FO4Segment):
         namedict = dictionary to use
         name = name for the subsegment. If not provided, will be constructed.
         """
-        #log.debug(f"New subsegment: {part_id}, {user_slot}, {material}")
         super().__init__(part_id, user_slot, 0, namedict, name)
         self.user_slot = user_slot
         self.material = material
@@ -431,10 +422,6 @@ class FO4Subsegment(FO4Segment):
             Returns: name of parent, ID (body part # or dismember hash), dismember hash of parent
         """
         mat = 0
-        #bp = fo4Dict.bodypart(name)
-        #if bp:
-        #    return bp.parentname, bp.id, bp.material
-
         m = FO4Subsegment.fo4subsegm1.match(name)
         if m:
             id = 0
@@ -563,11 +550,6 @@ class NiObject:
         else:
             self._properties = None
         self._blockname = None
-    
-    # def __getattr__(self, name):
-    #     """Any attribute not on the object comes from the properties."""
-    #     if name == '_properties': return None
-    #     return self.properties.__getattribute__(name)
     
     @property
     def blockname(self):
@@ -724,8 +706,6 @@ class CollisionListShape(CollisionShape):
         if not self._children:
             self._children = []
         self._children.append(child)
-        # NifFile.nifly.addCollListChild(
-        #     self.file._handle, self.id, child.id)
         return child
 
 block_types['bhkListShape'] = CollisionListShape
@@ -764,15 +744,11 @@ class CollisionConvexTransformShape(CollisionShape):
         child = CollisionShape.New(file=self.file, properties=childprops, parent=self)
         self._child = child
         self.properties.shapeID = child.id
-        # NifFile.nifly.addCollListChild(
-        #     self.file._handle, self.id, child.id)
         return child
 
     @property
     def child(self):
         if self._child: return self._child
-
-        # ch = NifFile.nifly.getCollConvexTransformShapeChildID(self.file._handle, self.id)
         self._child = CollisionShape.New(id=self.properties.shapeID, file=self.file, parent=self)
         return self._child
 
@@ -858,7 +834,6 @@ class bhkWorldObject(NiObject):
     def shape(self):
         if not self._shape:
             shape_index =self.properties.shapeID
-            # shape_index = NifFile.nifly.getRigidBodyShapeID(self._file._handle, self.block_index)
             self._shape = CollisionShape.New(
                 id=shape_index, file=self.file, parent=self)
         return self._shape
@@ -938,7 +913,6 @@ class CollisionObject(NiObject):
     def flags(self):
         """ Return the collision object flags """
         return self.properties.flags
-        # return NifFile.nifly.getCollFlags(self._handle)
 
     @property
     def target(self):
@@ -950,16 +924,12 @@ class CollisionObject(NiObject):
     def body(self):
         """ Return the collision body object """
         if not self._body:
-            # body_prop = bhkRigidBodyProps()
-            # NifFile.nifly.getBlock(self.file._handle, self.properties.bodyID, byref(body_prop))
             if self.properties.bodyID != NODEID_NONE:
                 self._body = bhkWorldObject.New(id=self.properties.bodyID, file=self.file, parent=self)
         return self._body
 
-    # def add_rigid_body(self, blocktype, properties, collshape):
     def add_body(self, properties):
         """ Create a rigid body for this collision object """
-        # rb_index = NifFile.nifly.addRigidBody(self._handle, blocktype.encode('utf-8'), collshape.block_index, properties)
         rb_index = NifFile.nifly.addBlock(
             self.file._handle, None, byref(properties), self.id)
         self._body = bhkWorldObject(id=rb_index, file=self.file, parent=self, properties=properties)
@@ -1002,11 +972,6 @@ block_types['bhkBlendCollisionObject'] = bhkBlendCollisionObject
 
 class NiAVObject(NiObject):
     def add_collision(self, body, flags=None):
-        # targhandle = None
-        # if target:
-        #     targhandle = target._handle
-        # new_coll_hndl = NifFile.nifly.addCollision(self._handle, targhandle, 
-        #                                            body.block_index, flags)
         buf = bhkCollisionObjectBuf()
         if flags is not None: buf.flags = flags
         buf.bodyID = NODEID_NONE
@@ -1039,9 +1004,6 @@ class NiNode(NiAVObject):
         self._clothdata = None
         
         if self._handle:
-            # NifFile.nifly.getBlock(self.file._handle, 
-            #                        self.id, 
-            #                        byref(self._properties))
             self.properties
             buflen = self.file.max_string_len
             buf = create_string_buffer(buflen)
@@ -1113,8 +1075,6 @@ class NiNode(NiAVObject):
     
     @property
     def collision_object(self):
-        # n = NifFile.nifly.getCollision(self.file._handle, self._handle)
-        # if n:
         if self.properties.collisionID != NODEID_NONE:
             return CollisionObject.New(id=self.properties.collisionID, file=self.file, parent=self)
         else:
@@ -1201,10 +1161,6 @@ class NiNode(NiAVObject):
             NifFile.nifly.getBlock(self.file._handle, im_id, byref(buf))
             NifFile.nifly.getString(self.file._handle, buf.nameID, 256, namebuf)
 
-            # namebuf = (c_char * 128)()
-            # rotbuf = (c_int * 3)();
-            # zoombuf = (c_float * 1)();
-            # if NifFile.nifly.getInvMarker(self._handle, namebuf, 128, rotbuf, zoombuf):
             return [namebuf.value.decode('utf-8'), buf.rot0, buf.rot1, buf.rot2, buf.zoom]
         else:
             return []
@@ -1372,21 +1328,6 @@ class NiPosData(NiObject):
                  properties=None, parent=None, keys=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._keys = None
-        # # self.keys = keys
-        # self._blockname = "NiFloatData"
-        # if self._handle == None and self.id == NODEID_NONE:
-        #     self.id = NifFile.nifly.addBlock(
-        #         self.file._handle, 
-        #         None, 
-        #         byref(self.properties), 
-        #         parent.id if parent else NODEID_NONE)
-        #     if keys:
-        #         self._writequadkeys(keys)
-        #     self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
-        #     if parent: parent.data = self
-        # # elif self.id != NODEID_NONE:
-        # #     if self.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
-        # #         self._readquadkeys()
 
     def _writequadkeys(self, keys):
         """
@@ -1588,13 +1529,6 @@ class NiKeyBasedInterpolator(NiInterpolator):
 class NiTransformInterpolator(NiKeyBasedInterpolator):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
-        # if self._handle == None and self.id == NODEID_NONE:
-        #     self.id = NifFile.nifly.addBlock(
-        #         self.file._handle, 
-        #         None, 
-        #         byref(self.properties), 
-        #         parent.id if parent else NODEID_NONE)
-        #     self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
         self._data = None
         
     @classmethod
@@ -2014,8 +1948,6 @@ class NiSequence(NiObject):
             buf[i].bufSize = sizeof(ControllerLinkBuf)
         buf[0].bufSize = sizeof(ControllerLinkBuf) * self.properties.controlledBlocksCount
         NifFile.nifly.getBlock(self.file._handle, self.id, byref(buf))
-        # NifFile.nifly.getControlledBlocks(
-        #     self.file._handle, self.id, self.properties.controlledBlocksCount, buf)
         self._controlled_blocks = []
         for b in buf:
             self._controlled_blocks.append(ControllerLink(b, self))
@@ -2057,7 +1989,6 @@ class NiSequence(NiObject):
             buf.interpID = NifFile.nifly.addString(
                 self.file._handle, interpolator_id.encode('utf-8'))
         
-        # NifFile.nifly.addControlledBlock(self.file._handle, self.id, name.encode('utf-8'), buf)
         NifFile.nifly.addBlock(self.file._handle, name.encode('utf-8'), byref(buf), self.id)
         if self._controlled_blocks is None: self._controlled_blocks = []
         self._controlled_blocks.append(ControllerLink(buf, self))
@@ -2066,8 +1997,6 @@ class NiSequence(NiObject):
         importer.warn(f"NYI: Import of NiSequence {self.id} {self.name}")
     
     import_node = _default_import_func
-    
-
 
 
 class NiTextKeyExtraData(NiObject):
@@ -2513,7 +2442,6 @@ class NiShaderFO4(NiShader):
         if self.name:
             # Some FO4 nifs don't have materials files. Apparently (?) they use the shader
             # block attributes.
-            # fullpath = extend_filenames(self.file.materialsRoot, 'meshes', [self.name])[0]
             fullpath = self.name
             if not os.path.exists(fullpath):
                 # Target full path doesn't exist. Make it relative to our materials root.
@@ -2606,13 +2534,6 @@ class NiShaderFO4(NiShader):
 # --- NifShape --- #
 class NiShape(NiNode):
 
-    # @classmethod
-    # def load_subclasses(cls):
-    #     if cls.subtypes: return 
-    #     cls.subtypes = {}
-    #     for subc in cls.__subclasses__():
-    #         cls.subtypes[subc.__name__] = subc
-
     @classmethod
     def New(cls, handle=None, shapetype=None, id=NODEID_NONE, file=None, parent=None, 
             properties=None):
@@ -2675,8 +2596,6 @@ class NiShape(NiNode):
     @property
     def verts(self):
         if not self._verts:
-            # totalCount = NifFile.nifly.getVertsForShape(
-            #     self.file._handle, self._handle, None, 0, 0)
             verts = (c_float * 3 * self.properties.vertexCount)()
             NifFile.nifly.getVertsForShape(
                 self.file._handle, self._handle, verts, self.properties.vertexCount * 3, 0)
@@ -2700,9 +2619,6 @@ class NiShape(NiNode):
     def normals(self):
         if not self._normals:
             buflen = self.properties.vertexCount 
-            # norms = (c_float*3)()
-            # totalCount = NifFile.nifly.getNormalsForShape(
-            #     self.file._handle, self._handle, norms, 0, 0)
             if buflen > 0:
                 norms = (c_float * 3 * buflen)()
                 NifFile.nifly.getNormalsForShape(
@@ -2808,7 +2724,6 @@ class NiShape(NiNode):
     @shader_name.setter
     def shader_name(self, val):
         self._shader_name = val
-        # NifFile.nifly.setShaderName(self.file._handle, self._handle, val.encode('utf-8'))
 
     @property
     def shaderflags1(self):
@@ -2825,8 +2740,6 @@ class NiShape(NiNode):
     def set_texture(self, slot:str, texturepath):
         """Set texture in the named slot to the given string."""
         self.shader.set_texture(slot, texturepath)
-        # NifFile.nifly.setShaderTextureSlot(self.file._handle, self._handle, 
-        #                                    slot, str.encode('utf-8'))
     
     @property
     def shader(self):
@@ -3050,8 +2963,6 @@ class NiShape(NiNode):
         if len(parts) == 0:
             return
 
-        #NifFile.log.debug(f"....Exporting partitions {[(type(p), p.name) for p in parts]}, ssf '{self._segment_file}'")
-
         parts_lookup = {}
         
         tbuf = (c_uint16 * len(trilist))()
@@ -3094,22 +3005,17 @@ class NiShape(NiNode):
 
             sslist = []
             for seg in parts:
-                #NifFile.log.debug(f"....Exporting '{seg.name}'")
                 for sseg in seg.subsegments:
-                    #NifFile.log.debug(f"....Exporting '{seg.name}' subseg '{sseg.name}': {sseg.id}, {sseg.user_slot}, {hex(sseg.material)}")
                     sslist.extend([sseg.id, seg.id, sseg.user_slot, sseg.material])
             sbuf = (c_uint32 * len(sslist))()
             for i, s in enumerate(sslist):
                 sbuf[i] = s
 
-            #NifFile.log.debug(f"....Partition IDs: {[x for x in pbuf]}")
-            #NifFile.log.debug(f"....setSegments({len(parts)}, int({len(sslist)}/4), {len(trilist)}, {trilist[0:4]})")
             NifFile.nifly.setSegments(self.file._handle, self._handle,
                                       pbuf, len(parts),
                                       sbuf, int(len(sslist)/4),
                                       tbuf, len(trilist),
                                       self._segment_file.encode('utf-8'))
-            #NifFile.log.debug(f"......setSegments successful")
 
     def set_colors(self, colors):
         buf = (c_float * 4 * len(colors))()
@@ -3279,7 +3185,6 @@ class NifFile:
         self.dict = gameSkeletons[target_game]
         # Get the root node into the nodes list so it can be found.
         self.read_node(0)
-        # NiNode(handle=self.root, file=self, name=self.rootName)
 
 
     def save(self):
@@ -3311,7 +3216,6 @@ class NifFile:
     def createShapeFromData(self, shape_name, verts, tris, uvs, normals, 
                             props:NiShapeBuf=None,
                             use_type=PynBufferTypes.NiShapeBufType, 
-                            #is_skinned=False, is_effectsshader=False,
                             parent=None):
         """ Create the shape from the data provided
             shape_name = Name of shape
@@ -3376,15 +3280,11 @@ class NifFile:
     def rootName(self):
         """Return name of root node"""
         return self.root.name
-        # buf = create_string_buffer(256)
-        # NifFile.nifly.getRootName(self._handle, buf, 256)
-        # return buf.value.decode('utf-8')
     
     @property
     def root(self):
         """Return handle of root node."""
         if self._root is None:
-            #self._root = NifFile.nifly.getRoot(self._handle)
             self._root = self.read_node(0)
         return self._root
 
@@ -3393,7 +3293,6 @@ class NifFile:
         """Return the root node of the nif. 
         NOT TRUE: Note this causes all nodes to be loaded and nif.nodes to be filled.
         """
-        #return self.read_node(0)
         return self.root
     
     @property
@@ -3441,20 +3340,6 @@ class NifFile:
 
     @property
     def shapes(self):
-        # if not self._shapes_loaded:
-        #     self._shapes = []
-        #     self._shape_dict = {}
-        #     if self._handle:
-        #         nfound = NifFile.nifly.getShapes(self._handle, None, 0, 0)
-        #         PTRBUF = c_void_p * nfound
-        #         buf = PTRBUF()
-        #         nfound = NifFile.nifly.getShapes(self._handle, buf, nfound, 0)
-        #         for i in range(nfound):
-        #             new_shape = NiShape.New(file=self, handle=buf[i])
-        #             if new_shape:
-        #                 self._shapes.append(new_shape) # not handling too many shapes yet
-        #                 self._shape_dict[new_shape.name] = new_shape
-        #     self._shapes_loaded = True
         return self._shapes
     
     def shape_by_root(self, rootname):
