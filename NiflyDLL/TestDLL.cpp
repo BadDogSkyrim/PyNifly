@@ -702,6 +702,7 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 	NiShaderBuf shaderAttr;
 	const char* n;
 	int targetShaderID;
+	int err;
 
 	Assert::AreEqual(0, 
 		getBlock(sourceNif, sourceID, &sourceProps));
@@ -738,13 +739,13 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 	}
 
 	if (srcController != NIF_NPOS) {
-		BSEffectShaderPropertyFloatControllerBuf ctlr, ctlrOut;
+		NiSingleInterpControllerBuf ctlr, ctlrOut;
 		NiFloatInterpolatorBuf interp, interpOut;
-		Assert::AreEqual(0,	
-			getBlock(sourceNif, srcController, &ctlr), L"Read controller from source");
+		err = getBlock(sourceNif, srcController, &ctlr);
+		Assert::AreEqual(0,	err, L"Read controller from source");
 		ctlrOut = ctlr;
-		Assert::AreEqual(0, 
-			getBlock(sourceNif, ctlr.interpolatorID, &interp), L"Read interpolator from source");
+		err = getBlock(sourceNif, ctlr.interpolatorID, &interp);
+		Assert::AreEqual(0, err, L"Read interpolator from source");
 		interpOut = interp;
 
 		if (interp.dataID != NIF_NPOS) {
@@ -3928,7 +3929,7 @@ namespace NiflyDLLTests
 			char name[256];
 			NiShapeBuf shapedata;
 			NiShaderBuf shaderdata;
-			BSEffectShaderPropertyFloatControllerBuf controllerdata;
+			NiSingleInterpControllerBuf controllerdata;
 			NiFloatInterpolatorBuf interpdata;
 			NiFloatDataBuf floatdata;
 			
@@ -3983,16 +3984,16 @@ namespace NiflyDLLTests
 			NiMultiTargetTransformControllerBuf mttc;
 			NiControllerSequenceBuf ctlrSeq[2];
 			ControllerLinkBuf ctlrLink[9];
-			BSEffectShaderPropertyColorControllerBuf ctlrColor;
-			NiBlendPoint3InterpolatorBuf blend3PointInterp;
+			NiSingleInterpControllerBuf ctlrColor;
+			NiBlendInterpolatorBuf blend3PointInterp;
 			NiPoint3InterpolatorBuf colorInterpolator;
 			NiPosDataBuf colorInterpData;
 			NiAnimKeyQuadTransBuf colorKeyQuad[10];
-			BSEffectShaderPropertyFloatControllerBuf ctlrFloat;
+			NiSingleInterpControllerBuf ctlrFloat;
 			NiFloatInterpolatorBuf floatInterpolator;
 			NiFloatDataBuf floatInterpData;
 			NiAnimKeyQuadXYZBuf floatKeyQuad[10];
-			NiBlendFloatInterpolatorBuf blendFloatInterp;
+			NiBlendInterpolatorBuf blendFloatInterp;
 		};
 		void TCheckGlowingOne(void* nif, GlowingOneData& data)
 		{
@@ -4047,7 +4048,7 @@ namespace NiflyDLLTests
 			// First controller link block references a color controller and an interpolator
 			getBlock(nif, data.ctlrLink[0].controllerID, &data.ctlrColor);
 			Assert::AreEqual(104, int(data.ctlrColor.flags), L"Have correct flags");
-			Assert::AreEqual(int(EffectShaderControlledColorType::Emissive_Color), int(data.ctlrColor.controlledColorType),
+			Assert::AreEqual(int(EffectShaderControlledColorType::Emissive_Color), int(data.ctlrColor.controlledVariable),
 				L"Have correct controlled color type");
 			Assert::IsTrue(TApproxEqual(11.3333, data.ctlrColor.stopTime), L"StopTime correct");
 
@@ -4056,7 +4057,6 @@ namespace NiflyDLLTests
 			Assert::AreEqual(int(NiKeyType::QUADRATIC_KEY), int(data.colorInterpData.keys.interpolation), L"Have interpolation type");
 			
 			getBlock(nif, data.ctlrColor.interpolatorID, &data.blend3PointInterp);
-			Assert::AreEqual(2, int(data.blend3PointInterp.arraySize), L"Have correct array size");
 
 			Assert::AreEqual(9, int(data.colorInterpData.keys.numKeys), L"Have correct number of keys");
 			for (int i = 0; i < data.colorInterpData.keys.numKeys; i++)
@@ -4079,7 +4079,6 @@ namespace NiflyDLLTests
 			Assert::IsTrue(TApproxEqual(3.3333f, data.floatKeyQuad[1].time), L"Have correct time");
 
 			getBlock(nif, data.ctlrFloat.interpolatorID, &data.blendFloatInterp);
-			Assert::AreEqual(2, int(data.blendFloatInterp.arraySize), L"Have correct array size");
 		};
 		TEST_METHOD(colorController) {
 			/* Can import and export nif with animations (GlowingOne) */
@@ -4097,7 +4096,7 @@ namespace NiflyDLLTests
 
 			// Each node in this nif has a controller.
 			NiNodeBuf thighbuf;
-			NiTransformControllerBuf cbuf;
+			NiSingleInterpControllerBuf cbuf;
 			NiTransformInterpolatorBuf tibuf;
 			NiTransformDataBuf tdbuf;
 			NiAnimKeyLinearQuatBuf qbuf;
@@ -4110,7 +4109,7 @@ namespace NiflyDLLTests
 
 			getNode(thigh, &thighbuf);
 			getBlock(nif, thighbuf.controllerID, & cbuf);
-			getBlock(nif, cbuf.interpolatorIndex, &tibuf);
+			getBlock(nif, cbuf.interpolatorID, &tibuf);
 			getBlock(nif, tibuf.dataID, &tdbuf);
 			Assert::IsTrue(tdbuf.rotationType == NiKeyType::LINEAR_KEY);
 			Assert::IsTrue(tdbuf.quaternionKeyCount == 161);
@@ -4170,16 +4169,16 @@ namespace NiflyDLLTests
 			return tdOut;
 		}
 
-		int TCopyInterpolator(void* nifOut, int tcOut, NiTransformControllerBuf* bufOut,
-			void* nif, int controller, NiTransformControllerBuf* buf) {
+		int TCopyInterpolator(void* nifOut, int tcOut, NiSingleInterpControllerBuf* bufOut,
+			void* nif, int controller, NiSingleInterpControllerBuf* buf) {
 			NiTransformInterpolatorBuf tibuf, tibufOut;
 			char blockname[64];
 
-			getBlockname(nif, buf->interpolatorIndex, blockname, 64);
+			getBlockname(nif, buf->interpolatorID, blockname, 64);
 			Assert::IsTrue(strcmp(blockname, "NiTransformInterpolator") == 0, L"Have transform interpolator");
-			getBlock(nif, buf->interpolatorIndex, &tibuf);
+			getBlock(nif, buf->interpolatorID, &tibuf);
 
-			int tdOut = TCopyTransformData(nifOut, NIF_NPOS, &tibufOut, nif, buf->interpolatorIndex, &tibuf);
+			int tdOut = TCopyTransformData(nifOut, NIF_NPOS, &tibufOut, nif, buf->interpolatorID, &tibuf);
 
 			tibufOut = tibuf;
 			tibufOut.dataID = tdOut;
@@ -4190,7 +4189,7 @@ namespace NiflyDLLTests
 
 		int TCopyController(void* nifOut, int boneOut, NiNodeBuf* bufOut,
 							void* nif, int bone, NiNodeBuf* buf) {
-			NiTransformControllerBuf tcbuf, tcbufOut;
+			NiSingleInterpControllerBuf tcbuf, tcbufOut;
 			char blockname[64];
 			getBlockname(nif, buf->controllerID, blockname, 64);
 			Assert::IsTrue(strcmp(blockname, "NiTransformController") == 0, L"Have transform controller");
@@ -4199,7 +4198,7 @@ namespace NiflyDLLTests
 			int tiOut = TCopyInterpolator(nifOut, NIF_NPOS, nullptr, nif, buf->controllerID, &tcbuf);
 
 			tcbufOut = tcbuf;
-			tcbufOut.interpolatorIndex = tiOut;
+			tcbufOut.interpolatorID = tiOut;
 			int tcOut = addBlock(nifOut, nullptr, &tcbufOut, boneOut);
 
 			return tcOut;

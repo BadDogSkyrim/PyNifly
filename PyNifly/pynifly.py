@@ -24,9 +24,9 @@ def load_nifly(nifly_path):
     nifly.addAnimKeyLinearTrans.restype = None
     nifly.addAnimKeyLinearQuat.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyLinearQuatBuf)]
     nifly.addAnimKeyLinearQuat.restype = None
-    nifly.addAnimKeyQuadFloat.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyQuadXYZBuf)]
+    nifly.addAnimKeyQuadFloat.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyFloatBuf)]
     nifly.addAnimKeyQuadFloat.restype = None
-    nifly.addAnimKeyQuadXYZ.argtypes = [c_void_p, c_int, c_char, POINTER(NiAnimKeyQuadXYZBuf)]
+    nifly.addAnimKeyQuadXYZ.argtypes = [c_void_p, c_int, c_char, POINTER(NiAnimKeyFloatBuf)]
     nifly.addAnimKeyQuadXYZ.restype = None
     nifly.addAVObjectPaletteObject.argtypes = [c_void_p, c_uint32, c_char_p, c_uint32]
     nifly.addAVObjectPaletteObject.restype = c_int
@@ -73,11 +73,11 @@ def load_nifly(nifly_path):
     nifly.getAnimKeyLinearTrans.restype = None
     nifly.getAnimKeyLinearXYZ.argtypes = [c_void_p, c_int, c_char, c_int, POINTER(NiAnimKeyLinearXYZBuf)]
     nifly.getAnimKeyLinearXYZ.restype = None
-    nifly.getAnimKeyQuadFloat.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyQuadXYZBuf)]
+    nifly.getAnimKeyQuadFloat.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyFloatBuf)]
     nifly.getAnimKeyQuadFloat.restype = c_int
     nifly.getAnimKeyQuadTrans.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyQuadTransBuf)]
     nifly.getAnimKeyQuadTrans.restype = None
-    nifly.getAnimKeyQuadXYZ.argtypes = [c_void_p, c_int, c_char, c_int, POINTER(NiAnimKeyQuadXYZBuf)]
+    nifly.getAnimKeyQuadXYZ.argtypes = [c_void_p, c_int, c_char, c_int, POINTER(NiAnimKeyFloatBuf)]
     nifly.getAnimKeyQuadXYZ.restype = None
     nifly.getAVObjectPaletteObject.argtypes = [c_void_p, c_uint32, c_int, c_int, c_char_p, POINTER(c_uint32)]
     nifly.getAVObjectPaletteObject.restype = c_int
@@ -1265,7 +1265,7 @@ class LinearQuatKey:
         return f"<LinearQuatKey>(time={self.time}, value=[{self.value[0]:f}, {self.value[1]:f}, {self.value[2]:f}, {self.value[3]:f}])"
 
 class QuadScalarKey:
-    def __init__(self, buf:NiAnimKeyQuadXYZBuf):
+    def __init__(self, buf:NiAnimKeyFloatBuf):
         self.time = buf.time
         self.value = buf.value
         self.forward = buf.forward
@@ -1307,7 +1307,6 @@ class NiFloatData(NiObject):
                  properties=None, parent=None, keys=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         # self.keys = keys
-        self._blockname = "NiFloatData"
         if self._handle == None and self.id == NODEID_NONE:
             self.id = NifFile.nifly.addBlock(
                 self.file._handle, 
@@ -1327,7 +1326,7 @@ class NiFloatData(NiObject):
         Write quadratic float keys.
         keys = list of QuadScalarKey 
         """
-        buf = NiAnimKeyQuadXYZBuf();
+        buf = NiAnimKeyFloatBuf();
         for k in keys:
             buf.time = k.time
             buf.value = k.value
@@ -1343,7 +1342,7 @@ class NiFloatData(NiObject):
             return None
         keys = []
         for frame in range(0, self.properties.keys.numKeys):
-            buf = NiAnimKeyQuadXYZBuf()
+            buf = NiAnimKeyFloatBuf()
             if NifFile.nifly.getAnimKeyQuadFloat(self.file._handle, self.id, frame, buf) != 0:
                 raise Exception(f"Error reading NiFloatDataKey: {NifFile.message_log()}")            
             k = QuadScalarKey(buf)
@@ -1354,7 +1353,7 @@ class NiFloatData(NiObject):
         """
         Write quadratic float key.
         """
-        buf = NiAnimKeyQuadXYZBuf()
+        buf = NiAnimKeyFloatBuf()
         buf.time = k.time
         buf.value = k.value
         buf.forward = k.forward
@@ -1368,10 +1367,69 @@ class NiFloatData(NiObject):
 block_types["NiFloatData"] = NiFloatData
 
 
+class NiPosData(NiObject):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, 
+                 properties=None, parent=None, keys=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._keys = None
+        # # self.keys = keys
+        # self._blockname = "NiFloatData"
+        # if self._handle == None and self.id == NODEID_NONE:
+        #     self.id = NifFile.nifly.addBlock(
+        #         self.file._handle, 
+        #         None, 
+        #         byref(self.properties), 
+        #         parent.id if parent else NODEID_NONE)
+        #     if keys:
+        #         self._writequadkeys(keys)
+        #     self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
+        #     if parent: parent.data = self
+        # # elif self.id != NODEID_NONE:
+        # #     if self.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
+        # #         self._readquadkeys()
+
+    def _writequadkeys(self, keys):
+        """
+        Write quadratic float keys.
+        keys = list of NiAnimKeyQuadTransBuf 
+        """
+        for k in keys:
+            NifFile.nifly.addAnimKeyQuadTrans(self.file._handle, self.id, k)
+
+    @property
+    def keys(self):
+        if (self._keys is None) and (self.id != NODEID_NONE):
+            NifFile.clear_log()
+            if self.properties.keys.interpolation != NiKeyType.QUADRATIC_KEY:
+                raise Exception(f"Unknown controller key type: {self.properties.keys.interpolation}")
+            self._keys = []
+            for frame in range(0, self.properties.keys.numKeys):
+                buf = NiAnimKeyQuadTransBuf()
+                NifFile.nifly.getAnimKeyQuadTrans(self.file._handle, self.id, frame, buf) 
+                self._keys.append(buf)
+        return self._keys
+
+    def keys_add(self, t, v, f, b):
+        """
+        Write one key.
+        """
+        buf = NiAnimKeyQuadTransBuf()
+        buf.time = t
+        buf.value = v
+        buf.forward = f[:]
+        buf.backward = b[:]
+        NifFile.nifly.addAnimKeyQuadTrans(self.file._handle, self.id, buf)
+
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiPosDataBuf(values)
+        
+block_types["NiPosData"] = NiPosData
+
+
 class NiTransformData(NiKeyFrameData):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
-        self._blockname = "NiTransformData"
         
         self.xrotations = []
         self.yrotations = []
@@ -1449,7 +1507,7 @@ class NiTransformData(NiKeyFrameData):
         dimension = c_char()
         dimension.value = d.encode('utf-8')
         if rots.interpolation == NiKeyType.QUADRATIC_KEY:
-            buf = NiAnimKeyQuadXYZBuf()
+            buf = NiAnimKeyFloatBuf()
             NifFile.nifly.getAnimKeyQuadXYZ(self.file._handle, self.id, dimension, frame, buf)
             k = QuadScalarKey(buf)
         elif rots.interpolation == NiKeyType.LINEAR_KEY:
@@ -1478,7 +1536,7 @@ class NiTransformData(NiKeyFrameData):
     def add_xyz_rotation_keys(self, dimension, key_list):
         """
         Add XYZ rotation keys.
-        key_list = [NiAnimKeyQuadXYZBuf, ...]
+        key_list = [NiAnimKeyFloatBuf, ...]
         """
         keytype = ''
         if dimension == "X": 
@@ -1497,8 +1555,26 @@ class NiTransformData(NiKeyFrameData):
                 NifFile.nifly.addAnimKeyQuadXYZ(
                     self.file._handle, self.id, d, byref(q))
 
+block_types["NiTransformData"] = NiTransformData
+
 
 class NiInterpolator(NiObject):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._data = None
+
+    @property
+    def data(self):
+        if self._data: return self._data
+        if self.properties.dataID == NODEID_NONE: return None
+        self._data = self.file.read_node(id=self.properties.dataID, parent=self)
+        return self._data
+
+    @data.setter
+    def data(self, c):
+        self._data = c
+        self.properties.dataID = c.id
+
     def _default_import_func(interp, importer, nifnode):
         importer.warn(f"NYI: Import of interpolator {interp.id} {interp}")
     
@@ -1520,14 +1596,7 @@ class NiTransformInterpolator(NiKeyBasedInterpolator):
         #         parent.id if parent else NODEID_NONE)
         #     self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
         self._data = None
-        self._blockname = "NiTransformInterpolator"
         
-    @property
-    def data(self):
-        if self._data: return self._data
-        self._data = NiTransformData(file=self.file, id=self.properties.dataID)
-        return self._data
-    
     @classmethod
     def _getbuf(cls, values=None):
         return NiTransformInterpolatorBuf(values)
@@ -1552,7 +1621,7 @@ class NiTransformInterpolator(NiKeyBasedInterpolator):
 block_types["NiTransformInterpolator"] = NiTransformInterpolator
 
 
-class NiFloatInterpolator(NiObject):
+class NiFloatInterpolator(NiKeyBasedInterpolator):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         if self.id == NODEID_NONE and file and properties:
@@ -1564,27 +1633,23 @@ class NiFloatInterpolator(NiObject):
             self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
             if parent: parent.interpolator = self
         self._data = None
-        self._blockname = "NiFloatInterpolator"
         
-    @property
-    def data(self):
-        if self._data: return self._data
-        if self.properties.dataID == NODEID_NONE: return None
-        self._data = NiFloatData(file=self.file, id=self.properties.dataID)
-        return self._data
-
-    @data.setter
-    def data(self, c):
-        self._data = c
-        self.properties.dataID = c.id
-
     @classmethod
     def _getbuf(cls, values=None):
         return NiFloatInterpolatorBuf(values)
 
 block_types["NiFloatInterpolator"] = NiFloatInterpolator
 
+
+class NiPoint3Interpolator(NiKeyBasedInterpolator):
+
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiPoint3InterpolatorBuf(values)
+
+block_types["NiPoint3Interpolator"] = NiPoint3Interpolator
     
+
 class NiBlendInterpolator(NiObject):
     """Abstract class"""
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
@@ -1605,19 +1670,39 @@ class NiBlendInterpolator(NiObject):
 
     @classmethod
     def _getbuf(cls, values=None):
-        return NiBlendFloatInterpolatorBuf(values)
+        return NiBlendInterpolatorBuf(values)
     
 
+class NiBlendBoolInterpolator(NiBlendInterpolator):
+    @property
+    def value(self):
+        return self.properties.boolValue
+    
+block_types["NiBlendBoolInterpolator"] = NiBlendBoolInterpolator
+
+    
 class NiBlendFloatInterpolator(NiBlendInterpolator):
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
-        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
-        self._blockname = "NiBlendFloatInterpolator"
-        
-    @classmethod
-    def _getbuf(cls, values=None):
-        return NiBlendFloatInterpolatorBuf(values)
+    @property
+    def value(self):
+        return self.properties.floatValue
     
 block_types["NiBlendFloatInterpolator"] = NiBlendFloatInterpolator
+
+    
+class NiBlendPoint3Interpolator(NiBlendInterpolator):
+    @property
+    def value(self):
+        return self.properties.point3Value[:]
+    
+block_types["NiBlendPoint3Interpolator"] = NiBlendPoint3Interpolator
+
+    
+class NiBlendTransformInterpolator(NiBlendInterpolator):
+    @property
+    def value(self):
+        return None
+    
+block_types["NiBlendTransformInterpolator"] = NiBlendTransformInterpolator
 
     
 class NiTimeController(NiObject):
@@ -1747,6 +1832,75 @@ class BSEffectShaderPropertyFloatController(NiFloatInterpController):
         return BSEffectShaderPropertyFloatControllerBuf(values)
 
 block_types["BSEffectShaderPropertyFloatController"] = BSEffectShaderPropertyFloatController
+
+
+class BSLightingShaderPropertyColorController(NiFloatInterpController):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return BSLightingShaderPropertyColorControllerBuf(values)
+
+    @classmethod
+    def New(cls, file, flags, target, 
+            color_type=LightingShaderControlledColor.SPECULAR, 
+            parent=None):
+        p = BSLightingShaderPropertyColorControllerBuf()
+        p.flags = flags
+        p.targetID = target.id
+        p.typeOfControlledColor = color_type
+        id = NifFile.nifly.addBlock(
+            file._handle, 
+            None, 
+            byref(p), 
+            parent.id if parent else NODEID_NONE)
+        tc = BSLightingShaderPropertyColorController(
+            file=file, id=id, properties=p, parent=parent)
+        return tc
+
+block_types["BSLightingShaderPropertyColorController"] = BSLightingShaderPropertyColorController
+
+
+class BSEffectShaderPropertyFloatController(NiFloatInterpController):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        if self.id == NODEID_NONE and file and properties: 
+            self.id = NifFile.nifly.addBlock(
+                file._handle,
+                None,
+                byref(properties),
+                parent.id if parent else None
+            )
+            if parent: parent.controller = self
+
+    @classmethod
+    def _getbuf(cls, values=None):
+        return BSEffectShaderPropertyFloatControllerBuf(values)
+
+block_types["BSEffectShaderPropertyFloatController"] = BSEffectShaderPropertyFloatController
+
+
+class BSLightingShaderPropertyFloatController(NiFloatInterpController):
+    @classmethod
+    def _getbuf(cls, values=None):
+        return BSLightingShaderPropertyFloatControllerBuf(values)
+
+    @classmethod
+    def New(cls, file, flags, target, 
+            color_type=LightingShaderControlledFloat.Emissive_Multiple, 
+            parent=None):
+        p = BSLightingShaderPropertyFloatControllerBuf()
+        p.flags = flags
+        p.targetID = target.id
+        p.typeOfControlledColor = color_type
+        id = NifFile.nifly.addBlock(
+            file._handle, 
+            None, 
+            byref(p), 
+            parent.id if parent else NODEID_NONE)
+        tc = BSLightingShaderPropertyFloatController(
+            file=file, id=id, properties=p, parent=parent)
+        return tc
+
+block_types["BSLightingShaderPropertyFloatController"] = BSLightingShaderPropertyFloatController
 
 
 class NiAlphaController(NiFloatInterpController):
@@ -1968,7 +2122,6 @@ block_types["NiTextKeyExtraData"] = NiTextKeyExtraData
 class NiControllerSequence(NiSequence):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
-        self._blockname = "NiControllerSequence"
         self._text_key_data = None
 
     @property

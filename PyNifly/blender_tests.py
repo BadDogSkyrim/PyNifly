@@ -1707,7 +1707,7 @@ def TEST_SHADER_GRAYSCALE_COLOR():
     assert 'HairCurly_d' in difnode.image.filepath, f"Have diffuse: {difnode.image.filepath}"
     
     # UV scale correct
-    uvnode = m.node_tree.nodes['UV_Converter']
+    uvnode = m.node_tree.nodes['UV Converter']
     assert uvnode.inputs['Scale U'].default_value == uvnode.inputs['Scale V'].default_value == 1.0, f"Have 1x1 scale"
     
     # Vertex alpha correct
@@ -1760,9 +1760,10 @@ def TEST_ANIM_SHADER_GLOW():
     action = glow.active_material.node_tree.animation_data.action
     assert action.use_cyclic, f"Cyclic animation: {action.use_cyclic}"
 
-    uv_node = glow.active_material.node_tree.nodes['UV_Converter']
+    uv_node = glow.active_material.node_tree.nodes['UV Converter']
     bpy.context.scene.frame_set(0)
-    assert uv_node.inputs['Offset V'].default_value == 1, f"V offset starts at 0: {uv_node.inputs['Offset V'].default_value}"
+    assert uv_node.inputs['Offset V'].default_value == 1, \
+        f"V offset starts at 0: {uv_node.inputs['Offset V'].default_value}"
     bpy.context.scene.frame_set(400)
     assert 0.1 < uv_node.inputs['Offset V'].default_value < 0.9, f"V offset is changing: {uv_node.inputs['Offset V'].default_value}"
     bpy.context.scene.frame_set(0)
@@ -1816,7 +1817,7 @@ def TEST_ANIM_SHADER_GLOW():
 def TEST_ANIM_SHADER_SPRIGGAN():
     """Test that the special spriggan elements work correctly."""
     # Spriggan with limited controllers
-    testfile = TT.test_file(r"tests\Skyrim\spriggan1.nif")
+    testfile = TT.test_file(r"tests\Skyrim\spriggan.nif")
     outfile = TT.test_file(r"tests/Out/TEST_ANIM_SHADER_SPRIGGAN.nif")
 
     ### READ ###
@@ -1826,6 +1827,37 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     assert len([x for x in bod.active_material.node_tree.nodes 
                 if x.type=='TEX_IMAGE' and x.image and 'spriggan_g' in x.image.name.lower()]
                 ), f"Spriggan loaded with glow map"
+    act_names = [a.name.split('|') for a in bpy.data.actions if a.name.startswith('ANIM|')]
+    anim_names = set([an[1] for an in act_names])
+    assert anim_names == set([
+        'LeavesLandedLoop',
+        'LeavesScared',
+        'LeavesAwayLoop',
+        'LeavesLanding',
+        'LeavesToHand',
+        'LeavesOnHandLoop',
+        'LeavesOffHand',
+        'LeavesToHandDark',
+        'LeavesOnHandDarkLoop',
+        'LeavesOffHandDark',
+        'KillFX',
+    ]), f"Have all animations"
+    lth_targets = set(an[2] for an in act_names if an[1] == 'LeavesToHand')
+    assert lth_targets == set([
+        'SprigganFxHandCovers',
+        'SprigganHandLeaves',
+        'SprigganBodyLeaves',
+        'SprigganFxTestUnified:0',
+    ])
+    # Didn't create a dup action when there are two things to do to a shader.
+    alist = [a for a in bpy.data.actions if a.name.startswith('ANIM|LeavesLandedLoop|SprigganFxTestUnified:0|Shader')]
+    assert len(alist) == 1, f"No dup actions"
+    act = alist[0]
+    assert set(c.data_path for c in act.fcurves) == set([
+        'nodes["Skyrim Shader - TSN"].inputs["Emission Color"].default_value',
+        'nodes["Skyrim Shader - TSN"].inputs["Emission Strength"].default_value',
+        ])
+    
     return
 
     ### WRITE ###
@@ -5081,7 +5113,8 @@ def TEST_ANIM_DWEMER_CHEST():
     assert gear07.animation_data.action.name in animations, \
         f"Gear animation exists: {gear07.animation_data.action.name}"
     assert len(gear07.animation_data.action.fcurves) > 0, f"Have curves"
-    gear07z = gear07.animation_data.action.fcurves[2]
+    anim = bpy.data.actions['ANIM|Close|Gear07']
+    gear07z = anim.fcurves[2]
     assert gear07z.data_path == "rotation_euler", f"Have correct data path: {gear07z.data_path}"
     assert BD.NearEqual(gear07z.keyframe_points[-1].co[0], 37.0), f"Have correct time: {gear07z.keyframe_points[1].co}"
     assert BD.NearEqual(gear07z.keyframe_points[0].co[1], 3.1136), f"Have correct value: {gear07z.keyframe_points[1].co}"
@@ -5769,6 +5802,8 @@ print("""
 """)
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]
+passed_tests = []
+failed_tests = []
 
 def testfrom(starttest):
     try:
@@ -5776,45 +5811,71 @@ def testfrom(starttest):
     except:
         return alltests
 
-def execute_test(t):
+def execute_test(t, stop_on_fail=True):
         # t = sys.modules[__name__].__dict__[t.__name__]
+        if not t: return
+
         print (f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
         if t.__doc__: print (f"{t.__doc__}")
         TT.clear_all()
-        t()
+        if stop_on_fail:
+            t()
+            passed_tests.append(t)
+        else:
+            try:
+                t()
+                passed_tests.append(t)
+            except:
+                failed_tests.append(t)
         print (      f"------------------------------ {t.__name__} ------------------------------\n")
 
 
-def do_tests(testlist, exclude=[]):
+def do_tests(
+        target_tests=[],
+        run_all=True,
+        stop_on_fail=False,
+        startfrom=None,
+        exclude=[]):
     """Do tests in testlist. Can pass in a single test."""
-    iter = True
-    passing_tests = []
     try:
-        for t in testlist:
-            pass
-        iter = True
+        for t in target_tests:
+            break
     except:
-        iter = False
+        target_tests = [target_tests]
 
-    try:
-        if iter: 
-            for t in testlist:
-                if t not in exclude:
-                    execute_test(t)
-                    passing_tests.append(t)
-        else:
-            execute_test(testlist)
-            passing_tests.append(t)
-    finally:
-        print(f"TESTS PASSED: {', '.join(t.__name__ for t in passing_tests)}")
+    startindex = 0
+    if startfrom:
+        try:
+            startindex = alltests.index(startfrom)
+        except:
+            pass
+    for t in target_tests:
+        if t not in exclude and t not in passed_tests and t not in failed_tests:
+            execute_test(t, stop_on_fail=stop_on_fail)
+    if run_all:
+        for t in alltests[startindex:]:
+            if t not in exclude and t not in passed_tests and t not in failed_tests:
+                execute_test(t, stop_on_fail=stop_on_fail)
 
-    print("""
-    =============================================================================
-    ===                                                                       ===
-    ===                               SUCCESS                                 ===
-    ===                                                                       ===
-    =============================================================================
-    """)
+    if not failed_tests:
+        print("""
+        =============================================================================
+        ===                                                                       ===
+        ===                               SUCCESS                                 ===
+        ===                                                                       ===
+        =============================================================================
+        """)
+    else:
+        print(f"""
+        =============================================================================
+        ===                                                                       ===
+        ===                           TESTS FAILED                                ===
+        ===                                                                       ===
+        {", ".join([t.__name__ for t in failed_tests])}
+        ===                                                                       ===
+        =============================================================================
+        """)
+
 
 def show_all_tests():
     for t in alltests:
@@ -5825,22 +5886,22 @@ if not bpy.data:
     # If running outside blender, just list tests.
     show_all_tests()
 else:
-    excludetests = []
-
-    do_tests([TEST_ANIM_SHADER_SPRIGGAN])
-
     # Tests of nifs with bones in a hierarchy
-    # do_tests([t for t in alltests if t in (
+    # target_tests = [
     #     TEST_COLLISION_BOW_SCALE, TEST_BONE_HIERARCHY, TEST_COLLISION_BOW, 
     #     TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_BOW_CHANGE, 
-    #     TEST_ANIM_ANIMATRON, TEST_FACEGEN, )])
+    #     TEST_ANIM_ANIMATRON, TEST_FACEGEN,]
 
     # All tests with animations
-    # do_tests([t for t in alltests if '_ANIM_' in t.__name__])
+    # target_tests = [t for t in alltests if '_ANIM_' in t.__name__]
 
     # All tests with collisions
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
-    
-    # do_tests(testfrom(TEST_ANIM_HKX), exclude=excludetests)
 
-    # do_tests(alltests, exclude=excludetests)
+    do_tests(
+        target_tests=[TEST_CONNECT_POINT],
+        run_all=True,
+        stop_on_fail=False,
+        startfrom=None,
+        exclude=[]
+        )

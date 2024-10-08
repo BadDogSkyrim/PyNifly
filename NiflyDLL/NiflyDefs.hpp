@@ -74,7 +74,13 @@ enum BUFFER_TYPES : uint16_t {
 	NiBlendFloatInterpolatorBufType,
 	NiDefaultAVObjectPaletteBufType,
 	NiTextKeyExtraDataBufType,
-	BSNiAlphaPropertyTestRefControllerBufType
+	BSNiAlphaPropertyTestRefControllerBufType,
+	BSLightingShaderPropertyColorControllerBufType,
+	NiSingleInterpControllerBufType,
+	BSLightingShaderPropertyFloatControllerBufType,
+	NiBlendInterpolatorBufType,
+	NiBlendBoolInterpolatorBufType,
+	NiBlendTransformInterpolatorBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -292,7 +298,6 @@ struct NiShaderBuf {
 
 	/* BSEffectShaderProperty */
 	char sourceTexture[256];
-	// uint32_t textureClampMode; // repeat
 	char lightingInfluence;
 	char envMapMinLOD;
 	float falloffStartAngle;
@@ -310,10 +315,6 @@ struct NiShaderBuf {
 	float envMapScale;
 	float emittanceColor[3];
 	char emitGradientTexture[256];
-	//float lumEmittance; // repeat
-	//float exposureOffset;
-	//float finalExposureMin;
-	//float finalExposureMax;
 
 	/* BSShaderPPLightingProperty */
 	float refractionStrength;
@@ -709,47 +710,6 @@ struct NiMultiTargetTransformControllerBuf {
 	uint16_t targetCount;
 };
 
-struct BSEffectShaderPropertyColorControllerBuf {
-	uint16_t bufSize = sizeof(BSEffectShaderPropertyColorControllerBuf);
-	uint16_t bufType = BUFFER_TYPES::BSEffectShaderPropertyColorControllerBufType;
-	uint32_t nextControllerID;
-	uint16_t flags = 0x000C;
-	float frequency = 1.0f;
-	float phase = 0.0f;
-	float startTime = nifly::NiFloatMax;
-	float stopTime = nifly::NiFloatMin;
-	uint32_t targetID;
-	uint32_t interpolatorID;
-	uint32_t controlledColorType;
-};
-
-struct NiSingleInterpControllerBuf {
-	uint16_t bufSize;
-	uint16_t bufType;
-	uint32_t nextControllerID;
-	uint16_t flags = 0x000C;
-	float frequency = 1.0f;
-	float phase = 0.0f;
-	float startTime = nifly::NiFloatMax;
-	float stopTime = nifly::NiFloatMin;
-	uint32_t targetID;
-	uint32_t interpolatorID;
-};
-
-struct BSEffectShaderPropertyFloatControllerBuf {
-	uint16_t bufSize = sizeof(BSEffectShaderPropertyFloatControllerBuf);
-	uint16_t bufType = BUFFER_TYPES::BSEffectShaderPropertyFloatControllerBufType;
-	uint32_t nextControllerID;
-	uint16_t flags = 0x000C;
-	float frequency = 1.0f;
-	float phase = 0.0f;
-	float startTime = nifly::NiFloatMax;
-	float stopTime = nifly::NiFloatMin;
-	uint32_t targetID;
-	uint32_t interpolatorID;
-	uint32_t controlledVariable;
-};
-
 struct NiControllerSequenceBuf {
 	uint16_t bufSize = sizeof(NiControllerSequenceBuf);
 	uint16_t bufType = BUFFER_TYPES::NiControllerSequenceBufType;
@@ -797,13 +757,30 @@ struct NiPoint3InterpolatorBuf {
 	uint32_t dataID;
 };
 
-struct NiBlendPoint3InterpolatorBuf {
-	uint16_t bufSize = sizeof(NiBlendPoint3InterpolatorBuf);
-	uint16_t bufType = BUFFER_TYPES::NiBlendPoint3InterpolatorBufType;
-	uint16_t flags = nifly::InterpBlendFlags::INTERP_BLEND_MANAGER_CONTROLLED;
-	uint8_t arraySize = 0;
-	float weightThreshold = 0.0f;
-	float value[3];
+struct NiTimeControllerBuf {
+	uint16_t bufSize;
+	uint16_t bufType;
+	uint32_t nextControllerID;
+	uint16_t flags;
+	float frequency;
+	float phase;
+	float startTime;
+	float stopTime;
+	uint32_t targetID;
+};
+
+struct NiSingleInterpControllerBuf {
+	uint16_t bufSize = sizeof(NiSingleInterpControllerBuf);
+	uint16_t bufType = NiSingleInterpControllerBufType;
+	uint32_t nextControllerID = nifly::NIF_NPOS;
+	uint16_t flags = 0x000C;
+	float frequency = 1.0f;
+	float phase = 0.0f;
+	float startTime = nifly::NiFloatMax;
+	float stopTime = nifly::NiFloatMin;
+	uint32_t targetID = nifly::NIF_NPOS;
+	uint32_t interpolatorID = nifly::NIF_NPOS;
+	uint32_t controlledVariable;
 };
 
 struct NiFloatInterpolatorBuf {
@@ -813,9 +790,9 @@ struct NiFloatInterpolatorBuf {
 	uint32_t dataID;
 };
 
-struct NiBlendFloatInterpolatorBuf {
-	uint16_t bufSize = sizeof(NiBlendFloatInterpolatorBuf);
-	uint16_t bufType = BUFFER_TYPES::NiBlendFloatInterpolatorBufType;
+struct NiBlendInterpolatorBuf {
+	uint16_t bufSize = sizeof(NiBlendInterpolatorBuf);
+	uint16_t bufType = BUFFER_TYPES::NiBlendInterpolatorBufType;
 	uint16_t flags = nifly::InterpBlendFlags::INTERP_BLEND_MANAGER_CONTROLLED;
 	uint8_t arraySize = 0;
 	float weightThreshold = 0.0f;
@@ -827,28 +804,13 @@ struct NiBlendFloatInterpolatorBuf {
 	float highWeightsSum;
 	float nextHighWeightsSum;
 	float highEaseSpinner;
+	// NiBlendBoolInterpreter
+	uint8_t boolValue;
 	// NiBlendFloatInterpolator
-	float value;
-};
-
-struct NiTransformControllerBuf {
-	uint16_t bufSize = sizeof(NiTransformControllerBuf);
-	uint16_t bufType = BUFFER_TYPES::NiTransformControllerBufType;
-	uint32_t interpolatorIndex;
-	uint32_t nextControllerIndex;
-	uint16_t flags;
-	/* Controller flags.
-		Bit 0 : Anim type, 0 = APP_TIME 1 = APP_INIT
-		Bit 1 - 2 : Cycle type, 00 = Loop 01 = Reverse 10 = Clamp
-		Bit 3 : Active
-		Bit 4 : Play backwards
-		Bit 5 : Is manager controlled
-		Bit 6 : Always seems to be set in Skyrim and Fallout NIFs, unknown function */
-	float frequency;
-	float phase;
-	float startTime;
-	float stopTime;
-	uint32_t targetIndex;
+	float floatValue;
+	// NiBlendPoint3Interpolator
+	nifly::Vector3 point3Value;
+	// NiBlendTransformInterpolator (no special value (?))
 };
 
 struct NiAnimationKeyQuatBuf {

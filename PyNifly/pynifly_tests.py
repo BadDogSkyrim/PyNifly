@@ -90,8 +90,8 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
     alpha = AlphaPropertyBuf()
     if old_shape.has_alpha_property:
         new_shape.has_alpha_property = True
-        new_shape.alpha_property.flags = old_shape.alpha_property.flags
-        new_shape.alpha_property.threshold = old_shape.alpha_property.threshold
+        new_shape.alpha_property.properties.flags = old_shape.alpha_property.properties.flags
+        new_shape.alpha_property.properties.threshold = old_shape.alpha_property.properties.threshold
         new_shape.save_alpha_property()
 
     for k, t in old_shape.textures.items():
@@ -1035,10 +1035,10 @@ def TEST_ALPHA():
         f"Error: Skin tint incorrect, got {tailfur.shader.properties.Shader_Type}"
     assert tailfur.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
         f"Expected MSN true, got {tailfur.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
-    assert tailfur.alpha_property.flags == 4844, \
-        f"Error: Alpha flags incorrect, found {tailfur.alpha_property.flags}"
-    assert tailfur.alpha_property.threshold == 70, \
-        f"Error: Threshold incorrect, found {tailfur.alpha_property.threshold}"
+    assert tailfur.alpha_property.properties.flags == 4844, \
+        f"Error: Alpha flags incorrect, found {tailfur.alpha_property.properties.flags}"
+    assert tailfur.alpha_property.properties.threshold == 70, \
+        f"Error: Threshold incorrect, found {tailfur.alpha_property.properties.threshold}"
 
     nifOut = NifFile()
     nifOut.initialize('SKYRIM', r"tests\out\pynifly_TEST_ALPHA.nif")
@@ -1048,13 +1048,13 @@ def TEST_ALPHA():
     nifcheck = NifFile(r"tests\out\pynifly_TEST_ALPHA.nif")
     tailcheck = nifcheck.shapes[0]
 
-    assert tailcheck.alpha_property.flags == tailfur.alpha_property.flags, \
-            f"Error: alpha flags don't match, {tailcheck.alpha_property.flags} != {tailfur.alpha_property.flags}"
-    assert tailcheck.alpha_property.threshold == tailfur.alpha_property.threshold, \
-            f"Error: alpha flags don't match, {tailcheck.alpha_property.threshold} != {tailfur.alpha_property.threshold}"
-    assert not tailcheck.alpha_property.alpha_blend, f"Have correct blend flag"
-    assert tailcheck.alpha_property.alpha_test, f"Have correct test flag"
-    assert tailcheck.alpha_property.source_blend_mode == ALPHA_FUNCTION.SRC_ALPHA, f"Have correct blend mode"
+    assert tailcheck.alpha_property.properties.flags == tailfur.alpha_property.properties.flags, \
+            f"Error: alpha flags don't match, {tailcheck.alpha_property.properties.flags} != {tailfur.alpha_property.properties.flags}"
+    assert tailcheck.alpha_property.properties.threshold == tailfur.alpha_property.properties.threshold, \
+            f"Error: alpha flags don't match, {tailcheck.alpha_property.properties.threshold} != {tailfur.alpha_property.properties.threshold}"
+    assert not tailcheck.alpha_property.properties.alpha_blend, f"Have correct blend flag"
+    assert tailcheck.alpha_property.properties.alpha_test, f"Have correct test flag"
+    assert tailcheck.alpha_property.properties.source_blend_mode == ALPHA_FUNCTION.SRC_ALPHA, f"Have correct blend mode"
     
 def TEST_SHEATH():
     """Can read and write extra data"""
@@ -1932,23 +1932,21 @@ def TEST_ANIMATION_NOBLECHEST():
     opendata = NiTransformData.New(
         file=nifout, 
         rotation_type=NiKeyType.XYZ_ROTATION_KEY,
-        interpolations={"X": NiKeyType.QUADRATIC_KEY,
-                        "Y": NiKeyType.QUADRATIC_KEY,
-                        "Z": NiKeyType.QUADRATIC_KEY,
-                        "S": NiKeyType.QUADRATIC_KEY})
+        xyz_rotation_types=(NiKeyType.QUADRATIC_KEY, NiKeyType.QUADRATIC_KEY, NiKeyType.QUADRATIC_KEY, ),
+        scale_type=NiKeyType.QUADRATIC_KEY)
 
     # Can add keys by frame or by curve
-    opendata.add_xyz_rotation_keys("X", [NiAnimKeyQuadXYZBuf(0, 0, 0, 0)])
-    opendata.add_xyz_rotation_keys("Y", [NiAnimKeyQuadXYZBuf(0, 0, 0, 0)])
-    opendata.add_xyz_rotation_keys("Z", [NiAnimKeyQuadXYZBuf(0, 0, 0, 0)])
+    opendata.add_xyz_rotation_keys("X", [NiAnimKeyFloatBuf(0, 0, 0, 0)])
+    opendata.add_xyz_rotation_keys("Y", [NiAnimKeyFloatBuf(0, 0, 0, 0)])
+    opendata.add_xyz_rotation_keys("Z", [NiAnimKeyFloatBuf(0, 0, 0, 0)])
 
-    q1x = NiAnimKeyQuadXYZBuf()
+    q1x = NiAnimKeyFloatBuf()
     q1x.time = 0.5
     q1x.value = -0.1222
     q1x.forward = q1x.backward = 0
-    opendata.add_xyz_rotation_keys("X", [NiAnimKeyQuadXYZBuf(0.5, -0.1222, 0, 0)])
-    opendata.add_xyz_rotation_keys("Y", [NiAnimKeyQuadXYZBuf(0.5, 0, 0, 0)])
-    opendata.add_xyz_rotation_keys("Z", [NiAnimKeyQuadXYZBuf(0.5, 0, 0, 0)])
+    opendata.add_xyz_rotation_keys("X", [NiAnimKeyFloatBuf(0.5, -0.1222, 0, 0)])
+    opendata.add_xyz_rotation_keys("Y", [NiAnimKeyFloatBuf(0.5, 0, 0, 0)])
+    opendata.add_xyz_rotation_keys("Z", [NiAnimKeyFloatBuf(0.5, 0, 0, 0)])
     
     openinterp = NiTransformInterpolator.New(file=nifout, data_block=opendata)
     
@@ -1984,6 +1982,7 @@ def TEST_ANIMATION_ALDUIN():
     tail2 = nif.nodes["NPC Tail2"]
     assert tail2.controller is not None, f"Have transform controller"
     assert tail2.controller.blockname == "NiTransformController", f"Created type correctly"
+    assert math.isclose(tail2.controller.properties.stopTime, 28, abs_tol=0.001), "Have correct stop time"
     tdtail2 = tail2.controller.interpolator.data
     assert tdtail2.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY, f"Have correct rotation type"
     assert tdtail2.properties.xRotations.numKeys == 16, f"Have correct number of keys"
@@ -2008,6 +2007,107 @@ def TEST_ANIMATION_SHADER():
     nif = NifFile(testfile)
 
     # BSEffectShaderProperty can have a controller.
+    glowshape = nif.shape_dict['MaleTorsoGlow']
+    ctlr = glowshape.shader.controller
+    assert ctlr, f"Have shader controller {ctlr.blockname}"
+    assert ctlr.properties.flags == 72, f"Have controller flags"
+    assert ctlr.properties.controlledVariable == EffectShaderControlledVariable.V_Offset, f"Have correct controlled variable"
+    interp = ctlr.interpolator
+    assert interp, f"Have interpolator"
+    assert interp.data, f"Have interpolator data"
+    d = interp.data
+    assert d.properties.keys.numKeys == 3, f"Have correct number of keys"
+    assert NearEqual(d.keys[1].time, 3.333), f"Have correct time at 1"
+    assert NearEqual(d.keys[1].backward, -1), f"Have correct backwards value at 1"
+
+    nifout = NifFile()
+    nifout.initialize('SKYRIM', outfile)
+    _export_shape(nif.shape_dict['TorsoLow:0'], nifout)
+    _export_shape(nif.shape_dict['MaleTorsoGlow'], nifout)
+    nifout.save()
+    assert NifFile.message_log() == "", f"No messages: {NifFile.message_log()}"
+
+    nifcheck = NifFile(outfile)
+    glowcheck = nifcheck.shape_dict['MaleTorsoGlow']
+    assert glowcheck.shader.controller, f"Have EffectShaderController"
+
+
+def TEST_ANIMATION_SHADER_SPRIGGAN():
+    """Embedded animations on shaders"""
+    # Tests cover all controller types used by spriggans: 
+    # NiControllerManager
+    # NiControllerSequence
+    # ControllerLink
+    # BSEffectShaderPropertyFloatController
+    # BSLightingShaderPropertyColorController
+    # BSLightingShaderPropertyFloatController
+    # BSNiAlphaPropertyTestRefController
+    # BSNiAlphaPropertyTestRefController
+    # NiBlendFloatInterpolator
+    # NiBlendPoint3Interpolator
+    # NiFloatInterpolator
+    # NiPoint3Interpolator
+    # NiFloatData
+    # NiPosData
+    testfile = r"tests\Skyrim\spriggan.nif"
+    outfile = r"tests\out\TEST_ANIMATION_SHADER_SPRIGGAN.nif"
+    nif = NifFile(testfile)
+    cm:NiControllerManager = nif.root.controller
+
+    # CONTROLLER SEQUENCE: LeavesLandedLoop 
+    leaveslanded:NiControllerSequence = cm.sequences["LeavesLandedLoop"]
+
+    # CONTROLLER LINK: Spriggan hand covers 
+    handcovers:ControllerLink = next(
+        cl for cl in leaveslanded.controlled_blocks 
+        if cl.node_name == "SprigganFxHandCovers"
+    )
+    handcoversctl:BSEffectShaderPropertyFloatController = handcovers.controller
+    assert math.isclose(handcoversctl.properties.stopTime, 11.933, abs_tol=0.001), f"Have correct float controller"
+    
+    # Because they are managed by a ControllerSequence, they have a blend interpolator
+    hcblendint:NiBlendFloatInterpolator = handcoversctl.interpolator
+    assert hcblendint.properties.flags == InterpBlendFlags.MANAGER_CONTROLLED, f"Blend is manager controlled"
+
+    # Float interpolator with data
+    hcfi:NiFloatInterpolator = handcovers.interpolator
+    hcdat:NiFloatData = hcfi.data
+    assert hcdat.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY, f"Correct key type"
+    assert math.isclose(hcdat.keys[1].time, 1.333, abs_tol=0.001), f"Correct key time"
+
+    # CONTROLLER LINK: Spriggan leaves
+    bodyctl:ControllerLink = next(
+        cl for cl in leaveslanded.controlled_blocks 
+        if cl.node_name == "SprigganHandLeaves"
+    )
+    leavesctl:BSNiAlphaPropertyTestRefController = bodyctl.controller
+    assert math.isclose(leavesctl.properties.stopTime, 15.333, abs_tol=0.001), f"Have correct alpha controller"
+
+    # CONTROLLER LINK: Spriggan body color
+    bodyctl, body2ctl = [
+        cl for cl in leaveslanded.controlled_blocks 
+        if cl.node_name == "SprigganFxTestUnified:0"
+    ]
+    colorctl:BSLightingShaderPropertyColorController = bodyctl.controller
+    assert math.isclose(colorctl.properties.stopTime, 15.2333, abs_tol=0.01), f"stopTime correct"
+    assert colorctl.properties.controlledVariable == LightingShaderControlledColor.EMISSIVE
+
+    colorblendinterp:NiBlendPoint3Interpolator = colorctl.interpolator
+    colorblendinterp.properties.flags == InterpBlendFlags.MANAGER_CONTROLLED, f"Correct control"
+
+    colorinterp:NiPoint3Interpolator = bodyctl.interpolator
+    colordat:NiPosData = colorinterp.data
+    assert colordat.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY, f"Correct key type"
+    assert math.isclose(colordat.keys[1].time, 2.0, abs_tol=0.001), f"Time is correct"
+    assert math.isclose(colordat.keys[1].value[0], 0.5294, abs_tol=0.001), f"Have correct value"
+    assert math.isclose(colordat.keys[1].value[1], 0.992157, abs_tol=0.001), f"Value is correct"
+
+    # CONTROLLER LINK: Spriggan body emissive
+    emissctl:BSLightingShaderPropertyFloatController = body2ctl.controller
+    assert math.isclose(emissctl.properties.stopTime, 15.333, abs_tol=0.001), "Emissive stop correct"
+    assert emissctl.properties.controlledVariable == LightingShaderControlledFloat.Emissive_Multiple, "Have correct controlled variable"
+    return
+
     glowshape = nif.shape_dict['MaleTorsoGlow']
     ctlr = glowshape.shader.controller
     assert ctlr, f"Have shader controller {ctlr.blockname}"
@@ -2064,7 +2164,7 @@ def TEST_KF():
     td = NiTransformData.New(
         file=nifout, 
         rotation_type=NiKeyType.QUADRATIC_KEY, 
-        interpolations={"T": NiKeyType.LINEAR_KEY}, 
+        translate_type=NiKeyType.LINEAR_KEY, 
         parent=ti)
     td.add_translation_key(0, (-0.029318, -0.229634, 0))
 
@@ -2075,7 +2175,9 @@ def TEST_KF():
         controller_type = "NiTransformController")
 
     # Second key: Quadratic rotation.
-    ti2 = NiTransformInterpolator(file=nifout, parent=nifout.rootNode)
+    ti2 = NiTransformInterpolator.New(
+        file=nifout, 
+        parent=nifout.rootNode)
     td2 = NiTransformData.New(
         file=nifout,
         rotation_type=NiKeyType.QUADRATIC_KEY,
@@ -2293,37 +2395,58 @@ def TEST_HKX_SKELETON():
 
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]
-
+passed_tests = []
+failed_tests = []
+stop_on_fail = False
     
 def execute_test(t):
     NifFile.clear_log()
     print(f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
     # the_test = __dict__[t]
     print(t.__doc__)
-    t()
+    if stop_on_fail:
+        t()
+    else:
+        try:
+            t()
+            passed_tests.append(t)
+        except:
+            failed_tests.append(t)
     print(f"------------- done")
 
 
-def execute(start=None, test=None, exclude=[]):
+def execute(start=None, testlist=None, exclude=[]):
     print("""\n
 =====================================================================
 ======================= Running pynifly tests =======================
 =====================================================================
 
 """)
-    if test:
-        execute_test(test)
+    if testlist:
+        for test in testlist:
+            if test not in passed_tests and test not in failed_tests:
+                execute_test(test)
     else:
         doit = (start is None) 
         for t in alltests:
             if t == start: doit = True
-            if doit and not t in exclude:
+            if doit and not t in exclude and t not in passed_tests and t not in failed_tests:
                 execute_test(t)
 
-    print("""
+    if stop_on_fail:
+        print("""
 
 ============================================================================
 ======================= TESTS COMPLETED SUCCESSFULLY =======================
+============================================================================
+""")
+    else:
+        print(f"""
+============================================================================
+============================ TESTS PASSED ==================================
+{", ".join([t.__name__ for t in passed_tests])}
+============================ TESTS FAILED ==================================
+{", ".join([t.__name__ for t in failed_tests])}
 ============================================================================
 """)
 
@@ -2344,7 +2467,9 @@ mylog = logging.getLogger("pynifly")
 logging.basicConfig()
 mylog.setLevel(logging.DEBUG)
 
-# execute(test=TEST_ANIMATION_NOBLECHEST)
-# execute(start=TEST_TREE, exclude=[TEST_SET_SKINTINT])
+# ############## TESTS TO RUN #############
+stop_on_fail = False
+execute(testlist=[TEST_ANIMATION_ALDUIN])
+# execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
 execute(exclude=[TEST_SET_SKINTINT])
 #

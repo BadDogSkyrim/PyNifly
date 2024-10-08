@@ -1,6 +1,8 @@
 """Handles import/export of controller nodes."""
 # Copyright © 2024, Bad Dog.
 
+# TODO: Make sure flags on mesh allow animations
+
 import os
 from pathlib import Path
 import logging
@@ -14,48 +16,109 @@ from nifdefs import *
 import shader_io
 
 
+ANIMATION_NAME_MARKER = "ANIM"
+ANIMATION_NAME_SEP = "|"
 KFP_HANDLE_OFFSET = 10
 
 controlled_variables_uv = {
-    "Offset U": CONTROLLED_VARIABLE_TYPES.U_Offset,
-    "Offset V": CONTROLLED_VARIABLE_TYPES.V_Offset,
-    "Scale U": CONTROLLED_VARIABLE_TYPES.U_Scale,
-    "Scale V": CONTROLLED_VARIABLE_TYPES.V_Scale,
+    "Offset U": EffectShaderControlledVariable.U_Offset,
+    "Offset V": EffectShaderControlledVariable.V_Offset,
+    "Scale U": EffectShaderControlledVariable.U_Scale,
+    "Scale V": EffectShaderControlledVariable.V_Scale,
     }
+
+active_animation = ""
+
+_animation_pulldown_items = []
+
+
+def sanitize_name(name:str):
+    return name.replace(ANIMATION_NAME_SEP, ANIMATION_NAME_SEP*2)
+
+def desanitize_name(name:str):
+    return name.replace(ANIMATION_NAME_SEP*2, ANIMATION_NAME_SEP)
+
+def make_action_name(animation_name=None, target_obj=None, target_elem=None):
+    """
+    Build an animation name suitable for applying to an action.
+    """
+    if not animation_name: animation_name = "-"
+    an = sanitize_name(animation_name)
+    tn = sanitize_name(target_obj.name)
+    n = ANIMATION_NAME_SEP.join([ANIMATION_NAME_MARKER, an, tn])
+    if target_elem:
+        n = n + "|" + target_elem
+    return n
+
+def parse_animation_name(name):
+    """
+    Parse an animation name and return the parts.
+    Returns (animation_name, target_obj_name, target_element).
+    """
+    n = desanitize_name(name)
+    parts = n.split("|")
+    if not parts[0] == ANIMATION_NAME_MARKER: return None
+    if len(parts) < 4:
+        parts.append("")
+    else:
+        # Remove any numbers appended by blender to disambiguate
+        parts[3] = BD.nonunique_name(parts[3])
+    return parts[1:]
+
+def all_animation_actions(animation:str=""):
+    """
+    Iterator returning all actions that are animations.
+    animation = If provided, only actions that implement the animation are returned.
+    """
+    marker = ANIMATION_NAME_MARKER + ANIMATION_NAME_SEP
+    if animation: marker = marker + animation + ANIMATION_NAME_SEP
+    noname_marker = marker + "-|"
+    for act in bpy.data.actions:
+        if act.name.startswith(marker) and not act.name.startswith(noname_marker):
+            yield act
 
 
 def current_animations(nif, refobjs:BD.ReprObjectCollection):
-    """Find all assets that appear to be animation actions."""
-    anim_pat = "ANIM|"
+    """
+    Find all assets that appear to be animation actions.
+    Returns a dictionary: {animation_name: [action, ReprObject], ...}
+    """
     matches = {}
-    for act in bpy.data.actions:
-        if act.name.startswith(anim_pat):
-            name_parts = act.name.split("|", 2)
-            anim_name = name_parts[1]
-            target_name = name_parts[2]
-            if target_name in refobjs.blenderdict:
-                if anim_name not in matches:
-                    matches[anim_name] = []
-                matches[anim_name].append(
-                    [act, refobjs.find_nifname(nif, target_name)])
-            # animname = act.name.split("|", 2)[1]
-            # matches.append(("pyn_" + animname, animname, "Animation", len(matches), ))
+    for act in all_animation_actions():
+        anim_name, target_name, elem_name = parse_animation_name(act.name)
+        if target_name in refobjs.blenderdict:
+            if anim_name not in matches:
+                matches[anim_name] = []
+            matches[anim_name].append(
+                [act, refobjs.find_nifname(nif, target_name)])
     return matches
 
-def _current_animations():
-    """Find all assets that appear to be animation actions."""
-    anim_pat = "ANIM|"
-    WM_OT_ApplyAnim._animations_found = []
-    for act in bpy.data.actions:
-        if act.name.startswith(anim_pat):
-            animname = act.name.split("|", 2)[1]
-            WM_OT_ApplyAnim._animations_found.append(
-                ("pyn_" + animname, 
-                 animname, 
-                 "Animation", 
-                 len(WM_OT_ApplyAnim._animations_found), ))
-    return WM_OT_ApplyAnim._animations_found
 
+def _animations_for_pulldown(self, context):
+    """Find all animations and return them in a form suitable for a Blender pulldown."""
+    _animation_pulldown_items = []
+    found_names = set()
+    for act in all_animation_actions():
+        animname = parse_animation_name(act.name)[0]
+        if animname not in found_names:
+            _animation_pulldown_items.append(
+                (animname, animname, "Animation"), )
+            found_names.add(animname)
+    return _animation_pulldown_items
+
+
+def assign_action(obj, elem, act):
+    """Assign the given action to the given object."""
+    targ = None
+    if elem == 'Shader':
+        targ = obj.active_material.node_tree
+    else:
+        targ = obj
+    if targ:
+        if not targ.animation_data:
+            targ.animation_data_create()
+        targ.animation_data.action = act
+                
 
 def apply_animation(anim_name, ctxt=bpy.context):
     """
@@ -63,29 +126,29 @@ def apply_animation(anim_name, ctxt=bpy.context):
     Returns a dictionary of animation values.
     """
     res = {
-        "start_time": 0,
-        "stop_time": 0,
+        "start_time": 10000.0,
+        "stop_time": -10000.0,
+        "start_frame": 10000,
+        "stop_frame": -10000,
         "cycle_type": CycleType.LOOP,
         "frequency": 1.0,
     }
     ctxt.scene.timeline_markers.clear()
 
-    anim_pat = "ANIM|" + anim_name + "|"
-    matches = []
-    for act in bpy.data.actions:
-        if act.name.startswith(anim_pat):
-            matches.append(act)
-    
-    for act in matches:
-        objname = act.name.split("|", 2)[2]
+    for act in all_animation_actions(anim_name):
+        log.debug(f"Applying animation action {act.name}")
+        n, objname, elemname = parse_animation_name(act.name)
         if objname in ctxt.scene.objects:
-            assign_action(ctxt.scene.objects[objname], act)
+            obj = ctxt.scene.objects[objname]
+            assign_action(ctxt.scene.objects[objname], elemname, act)
             res["start_time"] = min(
                 res["start_time"],
                 (act.curve_frame_range[0]-1)/ctxt.scene.render.fps)
             res["stop_time"] = max(
                 res["stop_time"], 
                 (act.curve_frame_range[1]-1)/ctxt.scene.render.fps)
+            res["start_frame"] = min(res["start_frame"], int(act.curve_frame_range[0]))
+            res["stop_frame"] = max(res["stop_frame"], int(act.curve_frame_range[1]))
             if (not act.use_cyclic): res["cycle_type"] = CycleType.CLAMP 
 
             if "pynMarkers" in act:
@@ -94,6 +157,7 @@ def apply_animation(anim_name, ctxt=bpy.context):
                         ctxt.scene.timeline_markers.new(
                             name, frame=int(val * ctxt.scene.render.fps)+1)
 
+    active_animation = anim_name
     return res
 
 
@@ -123,6 +187,8 @@ class ControllerHandler():
         self.accum_root = None
         self.multitarget_controller = None
         self.controlled_objects = set()
+        self.start_time = sys.float_info.max
+        self.end_time = sys.float_info.min
 
         # Necessary context from the parent.
         self.nif = parent_handler.nif
@@ -207,6 +273,34 @@ class ControllerHandler():
         return handle_l, handle_r
 
 
+    def _point3key_nif_to_blender(self, key0, key1, key2, i):
+        """
+        Return blender fcurve handle values for key1.
+
+        key0 and key2 may be omitted if key1 is first or last.
+        """
+        _key0 = None
+        if key0:
+            _key0 = NiAnimKeyFloatBuf(time=key0.time,
+                                      value=key0.value[i],
+                                      forward=key0.forward[i],
+                                      backward=key0.backward[i],)
+        _key1 = None
+        if key1:
+            _key1 = NiAnimKeyFloatBuf(time=key1.time,
+                                      value=key1.value[i],
+                                      forward=key1.forward[i],
+                                      backward=key1.backward[i],)
+        _key2 = None
+        if key2:
+            _key2 = NiAnimKeyFloatBuf(time=key2.time,
+                                      value=key2.value[i],
+                                      forward=key2.forward[i],
+                                      backward=key2.backward[i],)
+
+        return self._key_nif_to_blender(_key0, _key1, _key2)
+
+
     def _import_interp_controller(self, fi:NiInterpController, interp:NiInterpController):
         """Import a subclass of NiInterpController."""
         fi.import_node(self, interp)
@@ -287,36 +381,42 @@ class ControllerHandler():
             pass
 
 
-    def _new_action(self, name_suffix):
+    def _new_action(self, name_suffix=None):
         """
         Create a new action to represent all or part of a nif animation.
         """
         if not self.animation_target:
             self.warn("No animation target") 
 
-        n = ["ANIM"]
-        if self.anim_name: n.append(self.anim_name)
-        n.append(self.animation_target.name)
-        if name_suffix: n.append(name_suffix)
-        self.action_name = "|".join(n)
-        self.action = bpy.data.actions.new(self.action_name)
-        self.action.frame_start = self.frame_start
-        self.action.frame_end = self.frame_end
-        self.action.use_frame_range = True
-        self.action.use_cyclic = self.is_cyclic 
+        suf = name_suffix
+        if suf is None:
+            suf = self.action_group
+        self.action_name = make_action_name(self.anim_name, self.animation_target, suf)
 
-        # Some nifs have multiple animations with different names. Others just animate
-        # various nif blocks. If there's a name, make this an asset so we can track them.
-        if self.anim_name:
-            self.action.use_fake_user = True
-            self.action.asset_mark()
-            self.animation_actions.append(self.action)
+        if self.action_target.animation_data and self.action_target.animation_data.action \
+            and self.action_target.animation_data.action.name == self.action_name:
+            # If the target already has an action and it matches the one we're to create,
+            # use it. We will add more fcurves to animate whatever this action wants.
+            self.action = self.action_target.animation_data.action
+        else:
+            self.action = bpy.data.actions.new(self.action_name)
+            self.action.frame_start = self.frame_start
+            self.action.frame_end = self.frame_end
+            self.action.use_frame_range = True
+            self.action.use_cyclic = self.is_cyclic 
 
-        self.action_target.animation_data_create()
-        self.action_target.animation_data.action = self.action
+            # Some nifs have multiple animations with different names. Others just animate
+            # various nif blocks. If there's a name, make this an asset so we can track them.
+            if self.anim_name:
+                self.action.use_fake_user = True
+                self.action.asset_mark()
+                self.animation_actions.append(self.action)
+                
+            self.action_target.animation_data_create()
+            self.action_target.animation_data.action = self.action
 
 
-    def _animate_bone(self, bone_name):
+    def _animate_bone(self, bone_name:str):
         """
         Set up to import the animation of a bone as part of a larger animation. 
         
@@ -324,18 +424,19 @@ class ControllerHandler():
         """
         # Armature may have had bone names converted or not. Check both ways.
         name = bone_name
-        if name not in self.action_target.data.bones:
+        if name not in self.animation_target.data.bones:
             name = self.blender_name(name)
-            if name not in self.action_target.data.bones:
+            if name not in self.animation_target.data.bones:
                 # Some nodes are uppercase in the skeleton but not in the animations.
                 # Don't know if they are ignored in game or if the game is doing
                 # case-insensitive matching.
                 self.warn(f"Controller target not found: {bone_name}")
                 return False
-
+            
+        self.bone_target = self.animation_target.pose.bones[name]
         self.path_name = f'pose.bones["{name}"]'
         # self.animation_target = self.action_target.pose.bones[name]
-        self.action_group = name
+        # self.action_group = name
         return True
 
 
@@ -360,8 +461,9 @@ class ControllerHandler():
 
     def _new_element_action(self, anim_context, target_name, property_type, suffix):
         """
-        Create an action to animate a single element (bone, shader, node). This may be
-        part of a larger nif animation. 
+        Set up info to create an action to animate a single element (bone, shader, node).
+        This may be part of a larger nif animation. The actual action isn't created until
+        we load the interpolator, because for various reasons we might never get there.
 
         target_name is the name of the target in the nif file.
          
@@ -370,14 +472,15 @@ class ControllerHandler():
         try:
             # self.action_target = self._find_target(target_name)
             targ = self.objects_created.find_nifname(self.nif, target_name)
+            self.animation_target = targ.blender_obj
             if property_type in ['BSEffectShaderProperty', 'BSLightingShaderProperty',
                                  'NiAlphaProperty']:
                 self.action_target = targ.blender_obj.active_material.node_tree
+                suffix = "Shader"
             else:
                 self.action_target = targ.blender_obj
             if self.action_target:
-                self.animation_target = self.action_target
-                self._new_action(suffix)
+                # self._new_action(suffix)
                 return True
         except:
             pass
@@ -477,7 +580,7 @@ class ControllerHandler():
         self.action_target = target_element
         self.bone_target = target_bone
         self._new_animation(ctlr)
-        ctlr.import_node(self, None)
+        ctlr.import_node(self)
         # if ctlr.blockname == "BSEffectShaderPropertyFloatController":
         #     self._new_float_controller_action(ctlr, None)
         # elif ctlr.blockname == "NiTransformController":
@@ -567,7 +670,7 @@ class ControllerHandler():
         points.extend(list(curve.keyframe_points))
         points.append(None)
         while points[1]:
-            k = NiAnimKeyQuadXYZBuf()
+            k = NiAnimKeyFloatBuf()
             k.time = (points[1].co.x-1) / self.fps
             k.value = points[1].co.y
             k.forward, k.backward = self._key_blender_to_nif(points[0], points[1], points[2])
@@ -728,25 +831,29 @@ class ControllerHandler():
             objp.add_object(obj.nifnode.name, obj.nifnode)
 
 
-    def _export_activated_obj(self, target:BD.ReprObject,  controller=None):
+    def _export_activated_obj(self, target:BD.ReprObject,  action, controller=None):
         """
         Export a single activated object--an object with animation_data on it.
 
-        * target = Object with animation data on it to export
+        * target = Blender object to animate
         """
-        activated_obj = target.blender_obj
-        self.action = activated_obj.animation_data.action
+        anim_name, target_name, element = parse_animation_name(action.name)
+        if element == "Shader":
+            action_target = target.blender_obj.active_material.node_tree
+        else:
+            action_target = target.blender_obj
+        self.action = action_target.animation_data.action
         if controller == None:
-            if activated_obj.type == 'ARMATURE':
+            if action_target.type == 'ARMATURE':
                 # KF animation
                 controller = self.nif.rootNode
-            elif activated_obj.type == 'SHADER':
+            elif action_target.type == 'SHADER':
                 # Shader animation
                 controller = BSEffectShaderPropertyFloatController(
                     file=self.nif,
                     parent=target.nifnode.shader)
             else:
-                self.warn(f"Unknowned activated object type: {activated_obj.type}")
+                self.warn(f"Unknowned activated object type: {action_target.type}")
                 return
         
             cp = controller.properties.copy()
@@ -756,11 +863,11 @@ class ControllerHandler():
             cp.frequency = 1.0
             controller.properties = cp
 
-        if activated_obj.type == 'ARMATURE':
+        if action_target.type == 'ARMATURE':
             # Collect list of curves. They will be picked off in clumps until the list is empty.
             curve_list = list(self.action.fcurves)
             while curve_list:
-                targname, ti = self._export_transform_curves(activated_obj, curve_list)
+                targname, ti = self._export_transform_curves(action_target, curve_list)
                 if targname and ti:
                     controller.add_controlled_block(
                         name=self.nif.nif_name(targname),
@@ -768,13 +875,13 @@ class ControllerHandler():
                         node_name = self.nif.nif_name(targname),
                         controller_type = "NiTransformController")
                     
-        elif activated_obj.type == 'SHADER':
+        elif action_target.type == 'SHADER':
             self.warn(f"NYI: Shader controller export")
 
-        elif activated_obj.type in ['EMPTY', 'MESH']:
+        elif action_target.type in ['EMPTY', 'MESH']:
             curve_list = list(self.action.fcurves)
             while curve_list:
-                targname, ti = self._export_transform_curves(activated_obj, curve_list)
+                targname, ti = self._export_transform_curves(action_target, curve_list)
                 if self.multitarget_controller:
                     mttc = self.multitarget_controller
                     self.multitarget_controller = None
@@ -862,7 +969,7 @@ class ControllerHandler():
             self._export_text_keys(cs)
 
             for act, reprobj in actionlist:
-                self._export_activated_obj(reprobj, cs)
+                self._export_activated_obj(reprobj, act, cs)
 
         self._write_controlled_objects(cm)
 
@@ -924,7 +1031,9 @@ def _import_float_data(td, importer:ControllerHandler):
 
     exists = False
     try:
-        curve = importer.action.fcurves.new(importer.path_name)
+        curve = importer.action.fcurves.new(
+            importer.path_name,
+            action_group=importer.action_group)
     except:
         exists = True
     if exists: return
@@ -939,90 +1048,92 @@ def _import_float_data(td, importer:ControllerHandler):
             kfp.handle_left_type = "FREE"
             kfp.handle_right_type = "FREE"
             kfp.handle_left, kfp.handle_right = importer._key_nif_to_blender(keys[0], keys[1], keys[2])
+            importer.start_time = min(importer.start_time, keys[1].time)
+            importer.end_time = max(importer.end_time, keys[1].time)
             keys.pop(0)
 
 NiFloatData.import_node = _import_float_data
 
 
-# #####################################
-# Importers for NiInterpolator blocks. 
+def _import_pos_data(td:NiPosData, importer:ControllerHandler):
+    if not importer.path_name: return
 
-def _import_float_interpolator(fi:NiFloatInterpolator, 
-                               importer:ControllerHandler, 
-                               interp:NiInterpController):
+    if td.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
+        for i in range(0, 3):
+            try:
+                curve = importer.action.fcurves.new(
+                    importer.path_name,
+                    index=i, 
+                    action_group=importer.action_group)
+            except:
+                break
+            keys = [None]
+            keys.extend(td.keys)
+            keys.append(None)
+            while keys[1]:
+                frame = keys[1].time*importer.fps+1
+                kfp = curve.keyframe_points.insert(frame, keys[1].value[i])
+                kfp.handle_left_type = "FREE"
+                kfp.handle_right_type = "FREE"
+                kfp.handle_left, kfp.handle_right \
+                    = importer._point3key_nif_to_blender(keys[0], keys[1], keys[2], i)
+                importer.start_time = min(importer.start_time, keys[1].time)
+                importer.end_time = max(importer.end_time, keys[1].time)
+                keys.pop(0)
+    else:
+        importer.warn(f"NYI: NiPosData type {td.properties.keys.interpolation}")
+
+NiPosData.import_node = _import_pos_data
+
+
+def _import_transform_data(td:NiTransformData, 
+                           importer:ControllerHandler, 
+                           have_parent_rotation,
+                           tiv,
+                           tiq):
     """
-    "interp" is the controller to use when this interpolator doesn't have one.
-    """
-    td = fi.data
-    if td: td.import_node(importer)
-    
-NiFloatInterpolator.import_node = _import_float_interpolator
-
-
-def _import_blendfloat_interpolator(fi:NiBlendFloatInterpolator, 
-                               importer:ControllerHandler, 
-                               interp:NiInterpController):
-    if fi.properties.flags != InterpBlendFlags.MANAGER_CONTROLLED:
-        importer.warn(f"NYI: BlendFloatInterpolator that is not MANAGER_CONTROLLED")
-    
-NiBlendFloatInterpolator.import_node = _import_blendfloat_interpolator
-
-
-def _import_transform_interpolator(ti:NiTransformInterpolator, 
-                                   importer:ControllerHandler, 
-                                   interp:NiInterpController):
-    """
-    Import a transform interpolator, including its data block.
+    Import transform data.
 
     - Returns the rotation mode that must be set on the target. If this interpolator
         is using XYZ rotations, the rotation mode must be set to Euler. 
     """
-    if not importer.action:
-        importer.warn("NO ACTION CREATED")
-        return None
-    
-    if not ti.data:
-        # Some NiTransformController blocks have null duration and no data. Not sure
-        # how to interpret those, so ignore them.
-        return None
-    
-    importer.action_group = "Object Transforms"
-
     # ti, the parent NiTransformInterpolator, has the transform-to-global necessary
     # for this animation. It matches the transform of the target being animated.
-    have_parent_rotation = False
-    if max(ti.properties.rotation[:]) > 3e+38 or min(ti.properties.rotation[:]) < -3e+38:
-        tiq = Quaternion()
-    else:
-        have_parent_rotation = True
-        tiq = Quaternion(ti.properties.rotation)
-    qinv = tiq.inverted()
-    tiv = Vector(ti.properties.translation)
+    # have_parent_rotation = False
+    # if max(ti.properties.rotation[:]) > 3e+38 or min(ti.properties.rotation[:]) < -3e+38:
+    #     tiq = Quaternion()
+    # else:
+    #     have_parent_rotation = True
+    #     tiq = Quaternion(ti.properties.rotation)
+    # qinv = tiq.inverted()
+    # tiv = Vector(ti.properties.translation)
 
-    # Some interpolators have bogus translations. Dunno why.
-    if tiv[0] <= -1e+30 or tiv[0] >= 1e+30: tiv[0] = 0
-    if tiv[1] <= -1e+30 or tiv[1] >= 1e+30: tiv[1] = 0
-    if tiv[2] <= -1e+30 or tiv[2] >= 1e+30: tiv[2] = 0
+    # # Some interpolators have bogus translations. Dunno why.
+    # if tiv[0] <= -1e+30 or tiv[0] >= 1e+30: tiv[0] = 0
+    # if tiv[1] <= -1e+30 or tiv[1] >= 1e+30: tiv[1] = 0
+    # if tiv[2] <= -1e+30 or tiv[2] >= 1e+30: tiv[2] = 0
 
-    tixf = BD.MatrixLocRotScale(ti.properties.translation, 
-                                Quaternion(ti.properties.rotation),
-                                [1.0]*3)
-    tixf.invert()
+    # tixf = BD.MatrixLocRotScale(ti.properties.translation, 
+    #                             Quaternion(ti.properties.rotation),
+    #                             [1.0]*3)
+    # tixf.invert()
 
-    locbase = tixf.translation
-    rotbase = tixf.to_euler()
-    quatbase = tixf.to_quaternion()
-    scalebase = -ti.properties.scale
-    td = ti.data
+    # locbase = tixf.translation
+    # rotbase = tixf.to_euler()
+    # quatbase = tixf.to_quaternion()
+    # scalebase = -ti.properties.scale
 
     if importer.path_name:
         path_prefix = importer.path_name + "."
     else:
         path_prefix = ""
+    qinv = tiq.inverted()
 
-    importer.animation_target.rotation_mode = "QUATERNION"
+    targ = importer.bone_target if importer.bone_target else importer.action_target
+    
+    targ.rotation_mode = "QUATERNION"
     if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
-        importer.animation_target.rotation_mode = "XYZ"
+        targ.rotation_mode = "XYZ"
         if td.xrotations or td.yrotations or td.zrotations:
             curveX = importer.action.fcurves.new(path_prefix + "rotation_euler", index=0, action_group=importer.action_group)
             curveY = importer.action.fcurves.new(path_prefix + "rotation_euler", index=1, action_group=importer.action_group)
@@ -1051,6 +1162,8 @@ def _import_transform_interpolator(ti:NiTransformInterpolator,
                     curveX.keyframe_points.insert(x.time * importer.fps + 1, ve[0])
                     curveY.keyframe_points.insert(y.time * importer.fps + 1, ve[1])
                     curveZ.keyframe_points.insert(z.time * importer.fps + 1, ve[2])
+                    importer.start_time = min(importer.start_time, x.time, y.time, z.time)
+                    importer.end_time = max(importer.end_time, x.time, y.time, z.time)
                     
             else:
                 # This method of getting the inverse of the Euler doesn't always
@@ -1060,12 +1173,18 @@ def _import_transform_interpolator(ti:NiTransformInterpolator,
                 for i, k in enumerate(td.xrotations):
                     val = k.value - ve[0]
                     curveX.keyframe_points.insert(k.time * importer.fps + 1, val)
+                    importer.start_time = min(importer.start_time, k.time)
+                    importer.end_time = max(importer.end_time, k.time)
                 for i, k in enumerate(td.yrotations):
                     val = k.value - ve[1]
                     curveY.keyframe_points.insert(k.time * importer.fps + 1, val)
+                    importer.start_time = min(importer.start_time, k.time)
+                    importer.end_time = max(importer.end_time, k.time)
                 for i, k in enumerate(td.zrotations):
                     val = k.value - ve[2]
                     curveZ.keyframe_points.insert(k.time * importer.fps + 1, val)
+                    importer.start_time = min(importer.start_time, k.time)
+                    importer.end_time = max(importer.end_time, k.time)
     
     elif td.properties.rotationType in [NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY]:
         try:
@@ -1090,6 +1209,8 @@ def _import_transform_interpolator(ti:NiTransformInterpolator,
             curveX.keyframe_points.insert(k.time * importer.fps + 1, vq[1])
             curveY.keyframe_points.insert(k.time * importer.fps + 1, vq[2])
             curveZ.keyframe_points.insert(k.time * importer.fps + 1, vq[3])
+            importer.start_time = min(importer.start_time, k.time)
+            importer.end_time = max(importer.end_time, k.time)
 
     elif td.properties.rotationType == NiKeyType.NO_INTERP:
         pass
@@ -1111,6 +1232,81 @@ def _import_transform_interpolator(ti:NiTransformInterpolator,
             curveLocX.keyframe_points.insert(k.time * importer.fps + 1, v[0])
             curveLocY.keyframe_points.insert(k.time * importer.fps + 1, v[1])
             curveLocZ.keyframe_points.insert(k.time * importer.fps + 1, v[2])
+            importer.start_time = min(importer.start_time, k.time)
+            importer.end_time = max(importer.end_time, k.time)
+
+NiTransformData.import_node = _import_transform_data
+
+
+# #####################################
+# Importers for NiInterpolator blocks. 
+
+def _import_float_interpolator(fi:NiFloatInterpolator, 
+                               importer:ControllerHandler, 
+                               interp:NiInterpController):
+    """
+    "interp" is the controller to use when this interpolator doesn't have one.
+    """
+    td = fi.data
+    if td: td.import_node(importer)
+    
+NiFloatInterpolator.import_node = _import_float_interpolator
+
+
+def _import_point3_interpolator(fi:NiPoint3Interpolator, 
+                                importer:ControllerHandler, 
+                                interp:NiInterpController):
+    """
+    "interp" is the controller to use when this interpolator doesn't have one.
+    """
+    td = fi.data
+    if td: td.import_node(importer)
+    
+NiPoint3Interpolator.import_node = _import_point3_interpolator
+
+
+def _import_blendfloat_interpolator(fi:NiBlendFloatInterpolator, 
+                               importer:ControllerHandler, 
+                               interp:NiInterpController):
+    if fi.properties.flags != InterpBlendFlags.MANAGER_CONTROLLED:
+        importer.warn(f"NYI: BlendFloatInterpolator that is not MANAGER_CONTROLLED")
+    
+NiBlendFloatInterpolator.import_node = _import_blendfloat_interpolator
+
+
+def _import_transform_interpolator(ti:NiTransformInterpolator, 
+                                   importer:ControllerHandler, 
+                                   interp:NiInterpController):
+    """
+    Import a transform interpolator, including its data block.
+
+    - Returns the rotation mode that must be set on the target. If this interpolator
+        is using XYZ rotations, the rotation mode must be set to Euler. 
+    """
+    if not ti.data:
+        # Some NiTransformController blocks have null duration and no data. Not sure
+        # how to interpret those, so ignore them.
+        return None
+    
+    importer.action_group = "Object Transforms"
+
+    # ti, the parent NiTransformInterpolator, has the transform-to-global necessary
+    # for this animation. It matches the transform of the target being animated.
+    have_parent_rotation = False
+    if max(ti.properties.rotation[:]) > 3e+38 or min(ti.properties.rotation[:]) < -3e+38:
+        tiq = Quaternion()
+    else:
+        have_parent_rotation = True
+        tiq = Quaternion(ti.properties.rotation)
+    # qinv = tiq.inverted()
+    tiv = Vector(ti.properties.translation)
+
+    # Some interpolators have bogus translations. Dunno why.
+    if tiv[0] <= -1e+30 or tiv[0] >= 1e+30: tiv[0] = 0
+    if tiv[1] <= -1e+30 or tiv[1] >= 1e+30: tiv[1] = 0
+    if tiv[2] <= -1e+30 or tiv[2] >= 1e+30: tiv[2] = 0
+
+    ti.data.import_node(importer, have_parent_rotation, tiv, tiq)
 
 NiTransformInterpolator.import_node = _import_transform_interpolator
 
@@ -1120,27 +1316,57 @@ NiTransformInterpolator.import_node = _import_transform_interpolator
 # but may not. If not, they get the interpolator from a parent ControllerLink, so it has
 # to be passed in.
 
-shader_node_control = {
-        CONTROLLED_VARIABLE_TYPES.U_Offset: [("UV_Converter", "Offset U")],
-        CONTROLLED_VARIABLE_TYPES.V_Offset: [("UV_Converter", "Offset V")],
-        CONTROLLED_VARIABLE_TYPES.U_Scale: [("UV_Converter", "Scale U")],
-        CONTROLLED_VARIABLE_TYPES.V_Scale: [("UV_Converter", "Scale V")],
-        CONTROLLED_VARIABLE_TYPES.Alpha_Transparency: (
+effect_shader_control_variables = {
+        EffectShaderControlledVariable.U_Offset: [("UV Converter", "Offset U")],
+        EffectShaderControlledVariable.V_Offset: [("UV Converter", "Offset V")],
+        EffectShaderControlledVariable.U_Scale: [("UV Converter", "Scale U")],
+        EffectShaderControlledVariable.V_Scale: [("UV Converter", "Scale V")],
+        EffectShaderControlledVariable.Alpha_Transparency: (
             ("Skyrim Shader - Effect", 'Alpha Adjust'),
-            ("Skyrim Shader - TSN", 'Alpha Mult')
         ),
-        CONTROLLED_VARIABLE_TYPES.Emissive_Multiple: [
+        EffectShaderControlledVariable.Emissive_Multiple: [
             ("Skyrim Shader - Effect", "Emission Strength")]
 }
+
+lighting_shader_control_colors = {
+    LightingShaderControlledColor.EMISSIVE: [['Skyrim Shader - TSN', 'Emission Color']],
+    LightingShaderControlledColor.SPECULAR: [['Skyrim Shader - TSN', 'Specular Color']],
+}
+
+lighting_shader_control_variables = {
+    LightingShaderControlledFloat.Alpha: [['Skyrim Shader - TSN', 'Alpha Mult']],
+    LightingShaderControlledFloat.Emissive_Multiple: [['Skyrim Shader - TSN', 'Emission Strength']],
+    LightingShaderControlledFloat.Glossiness: [['Skyrim Shader - TSN', 'Glossiness']],
+    LightingShaderControlledFloat.Specular_Strength: [['Skyrim Shader - TSN', 'Specular Str']],
+    LightingShaderControlledFloat.U_Offset: [['UV Converter', "Offset U"]],
+    LightingShaderControlledFloat.U_Scale: [['UV Converter', "Scale U"]],
+    LightingShaderControlledFloat.V_Offset: [['UV Converter', "Offset V"]],
+    LightingShaderControlledFloat.V_Scale: [['UV Converter', "Scale V"]],
+}
+
+
+def _ignore_interp(interp):
+    """Determine whether to ignore an interpolator."""
+    return ((not interp) 
+            or (isinstance(interp, NiBlendInterpolator) 
+                and interp.properties.flags == InterpBlendFlags.MANAGER_CONTROLLED))
 
 
 def _import_transform_controller(tc:NiTransformController, 
                                  importer:ControllerHandler, 
-                                 interp:NiInterpController):
+                                 interp:NiInterpController=None):
     """Import transform controller block."""
     importer.action_group = "Object Transforms"
-    if tc.interpolator: interp = tc.interpolator
+    if not interp:
+        interp = tc.interpolator
+
     if importer.animation_target and interp:
+        if importer.animation_target.type == 'ARMATURE':
+            importer._animate_bone(tc.target.name)
+            if not importer.action:
+                importer._new_action()
+        else:
+            importer._new_action()
         interp.import_node(importer, None)
     else:
         importer.warn(f"Found no target for {type(tc)}")
@@ -1150,26 +1376,28 @@ NiTransformController.import_node = _import_transform_controller
 
 def _import_alphatest_controller(ctlr:BSNiAlphaPropertyTestRefController, 
                                  importer:ControllerHandler,
-                                 interp:NiInterpController):
+                                 interp:NiInterpController=None):
     # 'nodes["Alpha Threshold"].outputs[0].default_value'
     # action should be on node_tree
+    importer.action_group = "Shader"
     importer.path_name = f'nodes["Alpha Threshold"].outputs[0].default_value'
-    alphinterp = ctlr.interpolator
-    if (not alphinterp) or (alphinterp.properties.flags == InterpBlendFlags.MANAGER_CONTROLLED):
-        alphinterp = interp
-    if not alphinterp: 
-        importer.warn(f"No interpolator available for controller {ctlr.id}")
+    if not interp:
+        interp = ctlr.interpolator
+    if _ignore_interp(interp):
+        log.debug(f"No interpolator available for controller {ctlr.id}")
         return
     
-    td = alphinterp.data
-    if td: td.import_node(importer)
+    td = interp.data
+    if td: 
+        importer._new_action()
+        td.import_node(importer)
     
 BSNiAlphaPropertyTestRefController.import_node = _import_alphatest_controller
 
 
 def _import_ESPFloat_controller(ctlr:BSEffectShaderPropertyFloatController, 
                                  importer:ControllerHandler,
-                                 interp:NiInterpController):
+                                 interp:NiInterpController=None):
     """
     Import float controller block.
     importer.action_target should be the material node_tree the action affects.
@@ -1177,13 +1405,10 @@ def _import_ESPFloat_controller(ctlr:BSEffectShaderPropertyFloatController,
     if not importer.action_target:
         importer.warn("No target object")
 
-    importer.action_group = "Shader Nodetree"
-    importer._new_action("Shader")
-    
-    importer.action_group = "Shader Nodetree"
+    importer.action_group = "Shader"
     importer.path_name = ""
     try:
-        v = shader_node_control[ctlr.properties.controlledVariable]
+        v = effect_shader_control_variables[ctlr.properties.controlledVariable]
         for nodename, inputname in v:
             if nodename in importer.action_target.nodes:
                 n = importer.action_target.nodes[nodename]
@@ -1195,19 +1420,107 @@ def _import_ESPFloat_controller(ctlr:BSEffectShaderPropertyFloatController,
         pass
 
     if not importer.path_name: 
-        importer.warn(f"NYI: Cannot handle controlled variable {repr(CONTROLLED_VARIABLE_TYPES(ctlr.properties.controlledVariable))}") 
+        importer.warn(f"NYI: Cannot handle controlled variable {repr(EffectShaderControlledVariable(ctlr.properties.controlledVariable))}") 
     else:    
-        effective_interp = ctlr.interpolator
-        if (not effective_interp) or (effective_interp.properties.flags == InterpBlendFlags.MANAGER_CONTROLLED):
-            effective_interp = interp
-        if not effective_interp: 
-            importer.warn(f"No interpolator available for controller {ctlr.id}")
+        if not interp:
+            interp = ctlr.interpolator
+        if _ignore_interp(interp):
+            log.debug(f"No interpolator available for controller {ctlr.id}")
             return
-        
-        td = effective_interp.data
-        if td: td.import_node(importer)
+        td = interp.data
+        if td: 
+            importer._new_action()
+            td.import_node(importer)
     
 BSEffectShaderPropertyFloatController.import_node = _import_ESPFloat_controller
+
+
+def _import_LSPColorController(ctlr:BSLightingShaderPropertyColorController, 
+                               importer:ControllerHandler,
+                               interp:NiInterpController=None):
+    """
+    Import controller block.
+    importer.action_target should be the material node_tree the action affects.
+    """
+    if not interp:
+        interp = ctlr.interpolator
+    if _ignore_interp(interp):
+        # If no usable interpolator, just skip. This is part of a ControllerSequence and
+        # we'll find it again when we load that.
+        log.debug(f"No interpolator available for controller {ctlr.id}")
+        return
+
+    if not importer.action_target:
+        importer.warn("No target object")
+
+    importer.action_group = "Shader"
+    importer.path_name = ""
+    try:
+        pairs = lighting_shader_control_colors[ctlr.properties.controlledVariable]
+        for nodename, inputname in pairs:
+            if nodename in importer.action_target.nodes:
+                n = importer.action_target.nodes[nodename]
+                if inputname in n.inputs:
+                    importer.path_name = \
+                        f'nodes["{nodename}"].inputs["{inputname}"].default_value'
+                    break
+    except:
+        pass
+
+    if not importer.path_name: 
+        importer.warn(f"NYI: Cannot handle controlled variable {repr(LightingShaderControlledColor(ctlr.properties.controlledVariable))}") 
+    else:    
+        
+        td = interp.data
+        if td: 
+            importer._new_action()
+            td.import_node(importer)
+    
+BSLightingShaderPropertyColorController.import_node = _import_LSPColorController
+
+
+def _import_LSPFloatController(ctlr:BSLightingShaderPropertyFloatController, 
+                               importer:ControllerHandler,
+                               interp:NiInterpController=None):
+    """
+    Import controller block.
+    importer.action_target should be the material node_tree the action affects.
+    """
+    if not interp:
+        interp = ctlr.interpolator
+    if _ignore_interp(interp):
+        # If no usable interpolator, just skip. This is part of a ControllerSequence and
+        # we'll find it again when we load that.
+        log.debug(f"No interpolator available for controller {ctlr.id}")
+        return
+
+    if not importer.action_target:
+        raise Exception("No target object")
+
+    importer.action_group = "Shader"
+    importer.path_name = ""
+    try:
+        pairs = lighting_shader_control_variables[ctlr.properties.controlledVariable]
+        for nodename, inputname in pairs:
+            if nodename in importer.action_target.nodes:
+                n = importer.action_target.nodes[nodename]
+                if inputname in n.inputs:
+                    importer.path_name = \
+                        f'nodes["{nodename}"].inputs["{inputname}"].default_value'
+                    break
+    except:
+        pass
+
+    if not importer.path_name: 
+        importer.warn(f"NYI: Cannot handle controlled variable {ctlr.properties.controlledVariable} on {ctlr.id}") 
+    else:    
+        
+        td = interp.data
+        if td: 
+            importer._new_action()
+            td.import_node(importer)
+    
+BSLightingShaderPropertyFloatController.import_node = _import_LSPFloatController
 
 
 def _import_multitarget_transform_controller( 
@@ -1218,13 +1531,16 @@ def _import_multitarget_transform_controller(
     # NiMultiTargetTransformController doesn't actually link to a controller or an
     # interpolator. It just references the target objects. The parent Control Link
     # block references the interpolator.
-    pass
+    importer.action_group = None
+    importer.path_name = ""
+    importer._new_action()
 
 NiMultiTargetTransformController.import_node = _import_multitarget_transform_controller
 
 
 def _import_controller_sequence(seq:NiControllerSequence, 
-                                importer:ControllerHandler,):
+                                importer:ControllerHandler,
+                                interp=None):
     """
     Import a single controller sequence block.
     
@@ -1242,6 +1558,8 @@ def _import_controller_sequence(seq:NiControllerSequence,
     can be recovered when the user switches between animations.
     """
     importer._new_animation(seq)
+    importer.start_time = min(importer.start_time, seq.properties.startTime)
+    importer.end_time = max(importer.end_time, seq.properties.stopTime)
 
     if importer.animation_target.type == 'ARMATURE':
         importer._new_armature_action(seq)
@@ -1256,21 +1574,18 @@ NiControllerSequence.import_node = _import_controller_sequence
 
 def _import_controller_manager(cm:NiControllerManager, 
                                 importer:ControllerHandler, 
-                                interp):
+                                interp=None):
+    anim = None
     for seq in cm.sequences.values():
         # importer._new_controller_seq_action(seq)
         seq.import_node(importer)
+        if not anim: anim = seq.name
+    if anim: 
+        anim_dict = apply_animation(anim)
+        bpy.context.scene.frame_start = anim_dict["start_frame"]
+        bpy.context.scene.frame_end= anim_dict["stop_frame"]
 
 NiControllerManager.import_node = _import_controller_manager
-
-
-def assign_action(obj, act):
-    """Assign the given action to the given object."""
-    for g in act.groups:
-        if g.name == 'Object Transforms':
-            if not obj.animation_data:
-                obj.animation_data_create()
-            obj.animation_data.action = act
 
 
 class AssignAnimPanel(bpy.types.Panel):
@@ -1288,24 +1603,25 @@ class WM_OT_ApplyAnim(bpy.types.Operator):
     bl_idname = "wm.apply_anim"
     bl_label = "Apply Animation"
     bl_options = {'REGISTER', 'UNDO'}
-    bl_property = "Apply Animation"
+    # bl_property = "Apply Animation"
     # bl_property = "anim_name"
-    bl_property = "anim_chooser"
+    # bl_property = "anim_chooser"
 
     # Keeping the list of animations in a module-level variable because EnumProperty doesn't
     # like it if the list contents goes away.
     _animations_found = []
 
     # Should be able to create a pulldown. That isn't working.
-    anim_chooser : bpy.props.StringProperty(name="Apply Animation") # type: ignore
-    # anim_chooser : bpy.props.EnumProperty(name="Animation Selection",
-    #                                        items=_animations_found,
-    #                                        )  # type: ignore
+    # anim_name : bpy.props.StringProperty(name="Apply Animation") # type: ignore
+    anim_chooser : bpy.props.EnumProperty(name="Animation Selection",
+                                           items=_animations_for_pulldown,
+                                           )  # type: ignore
     
 
     @classmethod
     def poll(cls, context):
-        return _current_animations()
+        return True
+        # return _animations_for_pulldown()
 
     def invoke(self, context, event): # Used for user interaction
         wm = context.window_manager
@@ -1313,14 +1629,21 @@ class WM_OT_ApplyAnim(bpy.types.Operator):
 
     def draw(self, context): # Draw options (typically displayed in the tool-bar)
         row = self.layout
+        # row.prop(self, "anim_name", text="Animation name")
         row.prop(self, "anim_chooser", text="Animation name")
 
     def execute(self, context): # Runs by default 
         anim_dict = apply_animation(self.anim_chooser, context)
+        context.scene.frame_start = anim_dict["start_frame"]
+        context.scene.frame_end= anim_dict["stop_frame"]
         return {'FINISHED'}
 
 
 def register():
+    try:
+        bpy.utils.unregister_class(WM_OT_ApplyAnim)
+    except:
+        pass
     bpy.utils.register_class(WM_OT_ApplyAnim)
 
 def unregister():

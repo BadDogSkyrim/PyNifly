@@ -29,6 +29,8 @@ POS_TOP = 0
 POS_MIDDLE = 1
 POS_BOTTOM = 2
 POS_BELOW = 3
+POS_LEFT = 0
+POS_RIGHT = 1
 
 # Equivalent nodes that have different names in different versions of blender. Fuckers.
 MIXNODE_IDNAME = 'ShaderNodeMix'
@@ -72,6 +74,7 @@ shader_node_height = {
     'ShaderNodeMath': 148,
     'ShaderNodeValue': 79,
     'ShaderNodeAttribute': 170,
+    'ShaderNodeGroup': 200,
 }
 
 
@@ -99,20 +102,27 @@ def get_alpha_input(mat):
     return "", ""
             
 
-def relative_loc(nodelist, vpos=POS_BOTTOM):
+def relative_loc(nodelist, xpos=POS_RIGHT, vpos=POS_BOTTOM):
     """
     Calculate a location relative to the given node list: to the right of the rightmost
     and at the same level as the lowest.
     """
-    x = -10000
+    maxx = -10000
+    minx = 10000
     maxy = -10000
     miny = lowy = 10000
     for n in nodelist:
-        x = max(x, n.location.x + n.width + HORIZONTAL_GAP)
+        maxx = max(maxx, n.location.x + n.width + HORIZONTAL_GAP)
+        minx = min(minx, n.location.x)
         maxy = max(maxy, n.location.y)
         miny = min(miny, n.location.y)
-        lowy = min(lowy, n.location.y - n.dimensions[1] - VERTICAL_GAP)
+        h = shader_node_height[n.bl_idname]
+        lowy = min(lowy, n.location.y - h - VERTICAL_GAP)
 
+    if xpos == POS_RIGHT:
+        x = maxx
+    else:
+        x = minx
     if vpos == POS_TOP:
         y = maxy
     elif vpos == POS_BOTTOM:
@@ -125,12 +135,18 @@ def relative_loc(nodelist, vpos=POS_BOTTOM):
     return Vector((x, y))
 
 
-def reposition(node, vpos=POS_BOTTOM, padding=Vector((0, 0))):
+def reposition(node, vpos=POS_BOTTOM, xpos=POS_RIGHT, padding=Vector((0, 0)), reference=None):
+    """
+    Reposition a node relative to the reference node, or to its own inputs.
+    """
+    n = reference
+    if not n: n = node
     inputlist = []
-    for inp in node.inputs:
+    for inp in n.inputs:
         if inp.is_linked:
-            inputlist.append(inp.links[0].from_node)
-    node.location = relative_loc(inputlist, vpos=vpos) + padding
+            fn = inp.links[0].from_node
+            if fn != node: inputlist.append(fn)
+    node.location = relative_loc(inputlist, xpos=xpos, vpos=vpos) + padding
 
 
 def make_separator(nodetree, input, loc):
@@ -682,7 +698,7 @@ def make_uv_node(parent, shader_path, location):
     try:
         with bpy.data.libraries.load(shader_path) as (data_from, data_to):
             data_to.node_groups = ["UV_Converter"]
-        shader_node = parent.nodes.new('ShaderNodeGroup')
+        shader_node = parent.new('ShaderNodeGroup')
         shader_node.name = shader_node.label = ('UV Converter')
         shader_node.location = location
         shader_node.node_tree = data_to.node_groups[0]
@@ -690,7 +706,7 @@ def make_uv_node(parent, shader_path, location):
     except:
         pass
 
-    grp = bpy.data.node_groups.new(type='ShaderNodeTree', name='UV_Converter')
+    grp = bpy.data.node_groups.new(type='ShaderNodeTree', name='UV Converter')
 
     group_inputs = grp.nodes.new('NodeGroupInput')
     group_inputs.location = (-200, 0)
@@ -788,7 +804,7 @@ def make_uv_node(parent, shader_path, location):
     grp.links.new(uv_comb.outputs['Vector'], group_outputs.inputs['Vector'])
 
     shader_node = parent.new('ShaderNodeGroup')
-    shader_node.name = shader_node.label = 'UV_Converter'
+    shader_node.name = shader_node.label = 'UV Converter'
     shader_node.location = location
     shader_node.node_tree = grp
 
@@ -1037,11 +1053,11 @@ class ShaderImporter:
             elif self.is_effect_shader:
                 self.bsdf.inputs['Alpha'].default_value = shader.properties.falloffStartOpacity
                 self.bsdf.inputs['Alpha Adjust'].default_value = 1.0
-                if self.shape.alpha_property:
-                    if self.shape.alpha_property.properties.alpha_test:
-                        self.bsdf.inputs['Alpha Adjust'].default_value = self.shape.alpha_property.properties.threshold/255
-                    else:
-                        self.bsdf.inputs['Alpha Adjust'].default_value = 0.1
+                # if self.shape.alpha_property:
+                #     if self.shape.alpha_property.properties.alpha_test:
+                #         self.bsdf.inputs['Alpha Adjust'].default_value = self.shape.alpha_property.properties.threshold/255
+                #     else:
+                #         self.bsdf.inputs['Alpha Adjust'].default_value = 0.1
 
             self.texmap.inputs['Offset U'].default_value = shape.shader.properties.UV_Offset_U
             self.texmap.inputs['Offset V'].default_value = shape.shader.properties.UV_Offset_V
@@ -1361,8 +1377,8 @@ class ShaderImporter:
                 self.warn(f"Could not load subsurface texture '{self.shape.textures['SoftLighting']}'")
             self.link(self.texmap.outputs['Vector'], skimgnode.inputs['Vector'])
             self.link(skimgnode.outputs['Color'], self.bsdf.inputs['Subsurface'])
-            reposition(skimgnode, vpos=POS_BELOW)
-            skimgnode.location.x = self.bsdf.location.x + self.img_offset_x,
+            reposition(skimgnode, xpos=POS_LEFT, vpos=POS_BELOW, reference=self.bsdf)
+            # skimgnode.location.x = self.bsdf.location.x + self.img_offset_x,
 
             v = self.make_node('ShaderNodeValue',
                                 name='Subsurface Strength',
@@ -1712,8 +1728,8 @@ class ShaderExporter:
                     self.warn(f"Unknown shader type: {self.material['BS_Shader_Block_Name']}")
 
             nl = self.material.node_tree.nodes
-            if 'UV_Converter' in nl:
-                uv = nl['UV_Converter'].inputs
+            if 'UV Converter' in nl:
+                uv = nl['UV Converter'].inputs
                 shape.shader.properties.UV_Offset_U = uv['Offset U'].default_value
                 shape.shader.properties.UV_Offset_V = uv['Offset V'].default_value
                 shape.shader.properties.UV_Scale_U = uv['Scale U'].default_value

@@ -43,11 +43,16 @@ name_pat = re.compile('(.+)\.\d\d\d')
 def nonunique_name(obj):
     """
     Returns the root name of an object, before Blender added '.00n' to make it unique.
+    Accepts either an object or a string.
     """
-    m = name_pat.search(obj.name)
+    if type(obj) is str:
+        s = obj
+    else:
+        s = obj.name
+    m = name_pat.search(s)
     if m:
         return m.group(1)
-    return obj.name
+    return s
 
 
 def ObjectSelect(objlist, deselect=True, active=False):
