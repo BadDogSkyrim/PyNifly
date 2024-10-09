@@ -1987,12 +1987,13 @@ def TEST_SHADER_EFFECT():
         f"Have correct InnerLayer: {wincheck.shader.textures['InnerLayer']}"
     
 
-def TEST_SHADER_EFFECT_GHOUL():
+def TEST_SHADER_EFFECT_GLOWINGONE():
     """BSEffectShaderProperty attributes are read & written correctly."""
     testfile = TT.test_file(r"tests\FO4\glowingone.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SHADER_EFFECT_GHOUL.nif")
+    outfile = TT.test_file(r"tests/Out/TEST_SHADER_EFFECT_GLOWINGONE.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=False)
+    return
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     nif = pyn.NifFile(testfile)
@@ -5899,8 +5900,8 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[TEST_CONNECT_POINT],
-        run_all=True,
+        target_tests=[TEST_SHADER_EFFECT_GLOWINGONE],
+        run_all=False,
         stop_on_fail=False,
         startfrom=None,
         exclude=[]

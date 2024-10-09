@@ -1669,7 +1669,7 @@ class NiTimeController(NiObject):
         f.flags = self.properties.flags
         return f.cycle_type == CycleType.LOOP
     
-    def _default_import_func(ctlr, importer, nifnode):
+    def _default_import_func(ctlr, importer, nifnode=None):
         importer.warn(f"NYI: Import of controller {ctlr.id} {ctlr}")
     
     import_node = _default_import_func
@@ -1766,6 +1766,25 @@ class BSEffectShaderPropertyFloatController(NiFloatInterpController):
         return BSEffectShaderPropertyFloatControllerBuf(values)
 
 block_types["BSEffectShaderPropertyFloatController"] = BSEffectShaderPropertyFloatController
+
+
+class BSEffectShaderPropertyColorController(NiFloatInterpController):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        if self.id == NODEID_NONE and file and properties: 
+            self.id = NifFile.nifly.addBlock(
+                file._handle,
+                None,
+                byref(properties),
+                parent.id if parent else None
+            )
+            if parent: parent.controller = self
+
+    @classmethod
+    def _getbuf(cls, values=None):
+        return BSEffectShaderPropertyColorControllerBuf(values)
+
+block_types["BSEffectShaderPropertyColorController"] = BSEffectShaderPropertyColorController
 
 
 class BSLightingShaderPropertyColorController(NiFloatInterpController):

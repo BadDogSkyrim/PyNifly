@@ -1895,6 +1895,9 @@ class LightingShaderControlledFloat(PynIntEnum):
     V_Offset = 22
     V_Scale = 23
 
+class EffectShaderControlledColor(PynIntEnum):
+    EMISSIVE = 0
+
 class NiSingleInterpControllerBuf(pynStructure):
     _fields_ = [
 	    ("bufSize", c_uint16),
@@ -1941,6 +1944,15 @@ class BSEffectShaderPropertyFloatControllerBuf(NiSingleInterpControllerBuf):
 
 bufferTypeList[PynBufferTypes.BSEffectShaderPropertyFloatControllerBufType] = 'BSEffectShaderPropertyFloatController'
 blockBuffers['BSEffectShaderPropertyFloatController'] = BSEffectShaderPropertyFloatControllerBuf
+
+
+class BSEffectShaderPropertyColorControllerBuf(NiSingleInterpControllerBuf):
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BSEffectShaderPropertyColorControllerBufType
+
+bufferTypeList[PynBufferTypes.BSEffectShaderPropertyColorControllerBufType] = 'BSEffectShaderPropertyColorController'
+blockBuffers['BSEffectShaderPropertyColorController'] = BSEffectShaderPropertyColorControllerBuf
 
 
 class BSNiAlphaPropertyTestRefControllerBuf(NiSingleInterpControllerBuf):

@@ -1049,7 +1049,7 @@ class ShaderImporter:
 
         except Exception as e:
             # Any errors, print the error but continue
-            log.exception("Error importing shader attributes")
+            log.exception(f"Error importing shader attributes for shape {shape.name}")
 
 
     def make_node(self, nodetype, name=None, xloc=None, yloc=None, height=0):

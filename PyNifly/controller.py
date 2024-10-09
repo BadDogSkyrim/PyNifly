@@ -1242,9 +1242,12 @@ effect_shader_control_variables = {
         EffectShaderControlledVariable.V_Scale: [("UV Converter", "Scale V")],
         EffectShaderControlledVariable.Alpha_Transparency: (
             ("Skyrim Shader - Effect", 'Alpha Adjust'),
+            ("FO4 Effect Shader", 'Alpha Adjust'),
         ),
         EffectShaderControlledVariable.Emissive_Multiple: [
-            ("Skyrim Shader - Effect", "Emission Strength")]
+            ("Skyrim Shader - Effect", "Emission Strength"),
+            ("FO4 Effect Shader", "Emission Strength"),
+            ]
 }
 
 lighting_shader_control_colors = {
@@ -1337,7 +1340,7 @@ def _import_ESPFloat_controller(ctlr:BSEffectShaderPropertyFloatController,
         pass
 
     if not importer.path_name: 
-        importer.warn(f"NYI: Cannot handle controlled variable {repr(EffectShaderControlledVariable(ctlr.properties.controlledVariable))}") 
+        importer.warn(f"NYI: Cannot handle controlled variable on controller {ctlr.id}: {repr(EffectShaderControlledVariable(ctlr.properties.controlledVariable))}") 
     else:    
         if not interp:
             interp = ctlr.interpolator
@@ -1350,6 +1353,33 @@ def _import_ESPFloat_controller(ctlr:BSEffectShaderPropertyFloatController,
             td.import_node(importer)
     
 BSEffectShaderPropertyFloatController.import_node = _import_ESPFloat_controller
+
+
+def _import_ESPColor_controller(ctlr:BSEffectShaderPropertyFloatController, 
+                                 importer:ControllerHandler,
+                                 interp:NiInterpController=None):
+    """
+    Import float controller block.
+    importer.action_target should be the material node_tree the action affects.
+    """
+    if not importer.action_target:
+        importer.warn("No target object")
+
+    importer.action_group = "Shader"
+    importer.path_name = ""
+    importer.path_name = f'nodes["FO4 Effect Shader"].inputs["Emission Color"].default_value'
+
+    if not interp:
+        interp = ctlr.interpolator
+    if _ignore_interp(interp):
+        log.debug(f"No interpolator available for controller {ctlr.id}")
+        return
+    td = interp.data
+    if td: 
+        importer._new_action()
+        td.import_node(importer)
+    
+BSEffectShaderPropertyColorController.import_node = _import_ESPColor_controller
 
 
 def _import_LSPColorController(ctlr:BSLightingShaderPropertyColorController, 
@@ -1385,7 +1415,7 @@ def _import_LSPColorController(ctlr:BSLightingShaderPropertyColorController,
         pass
 
     if not importer.path_name: 
-        importer.warn(f"NYI: Cannot handle controlled variable {repr(LightingShaderControlledColor(ctlr.properties.controlledVariable))}") 
+        importer.warn(f"NYI: Cannot handle controlled variable on controller {ctlr.id}: {repr(LightingShaderControlledColor(ctlr.properties.controlledVariable))}") 
     else:    
         
         td = interp.data
@@ -1429,7 +1459,7 @@ def _import_LSPFloatController(ctlr:BSLightingShaderPropertyFloatController,
         pass
 
     if not importer.path_name: 
-        importer.warn(f"NYI: Cannot handle controlled variable {ctlr.properties.controlledVariable} on {ctlr.id}") 
+        importer.warn(f"NYI: Cannot handle controlled variable on controller {ctlr.id}: {ctlr.properties.controlledVariable} on {ctlr.id}") 
     else:    
         
         td = interp.data
