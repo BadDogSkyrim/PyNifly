@@ -572,7 +572,7 @@ class ControllerHandler():
         if not dp.endswith(".default_value"):
             self.warn(f"FCurve has unknown data path: {dp}")
             return 0
-        if "UV_Converter" not in dp:
+        if "UV Converter" not in dp:
             self.warn(f"NYI: Cannot handle fcurve {dp}")
             return 0
 

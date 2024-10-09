@@ -1802,11 +1802,14 @@ def TEST_ANIM_SHADER_GLOW():
     assert glowin.alpha_property.properties.flags == glowout.alpha_property.properties.flags, \
         f"Have correct alpha flags: {glowout.alpha_property.properties.flags}"
 
-    assert glowout.shader.controller, f"Have shader controller on output"
-    assert glowout.shader.controller.properties.flags == 72, \
-        f"Have correct flags: {glowout.shader.controller.properties.flags}"
-    assert BD.NearEqual(33.3333, glowout.shader.controller.properties.stopTime), \
-        f"Have correct stop time: {glowout.shader.controller.properties.stopTime}"
+    espFloatCtlr:pyn.BSEffectShaderPropertyFloatController = glowout.shader.controller
+    assert espFloatCtlr, f"Have shader controller on output"
+    assert espFloatCtlr.properties.flags == 72, \
+        f"Have correct flags: {espFloatCtlr.properties.flags}"
+    assert BD.NearEqual(33.3333, espFloatCtlr.properties.stopTime), \
+        f"Have correct stop time: {espFloatCtlr.properties.stopTime}"
+    assert espFloatCtlr.properties.controlledVariable == pyn.EffectShaderControlledVariable.V_Offset, \
+        f"Have correct variable: {espFloatCtlr.properties.controlledVariable}"
     
     dataout = glowout.shader.controller.interpolator.data
     assert BD.NearEqual(33.3333, dataout.keys[2].time), f"Last keyframe time correct: {dataout.keys[2].time}"
@@ -5899,9 +5902,9 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[TEST_SHADER_EFFECT_GLOWINGONE],
+        target_tests=[TEST_ANIM_SHADER_GLOW],
         run_all=False,
-        stop_on_fail=False,
+        stop_on_fail=True,
         startfrom=None,
         exclude=[]
         )
