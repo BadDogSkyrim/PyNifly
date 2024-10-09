@@ -245,6 +245,7 @@ def load_nifly(nifly_path):
 
     return nifly
 
+
 # These are the types of blocks we can create from an ID. Eventaully should probably
 # be all of them. This could be done with reflection but we're keeping things simple.
 block_types = {}
@@ -936,6 +937,7 @@ class CollisionObject(NiObject):
         return self._body
 
 block_types['bhkCollisionObject'] = CollisionObject
+block_types['bhkNPCollisionObject'] = CollisionObject
 
 
 class bhkNiCollisionObject(CollisionObject):
@@ -1176,8 +1178,22 @@ class NiNode(NiAVObject):
         NifFile.nifly.addBlock(self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
 
 block_types["NiNode"] = NiNode
+# Types we do not support directly
+block_types["BSFaceGenNiNode"] = NiNode
 block_types["BSFadeNode"] = NiNode
 block_types["BSLeafAnimNode"] = NiNode
+block_types["BSMasterParticleSystem"] = NiNode
+block_types["BSMultiBoundNode"] = NiNode
+block_types["BSOrderedNode"] = NiNode
+block_types["BSRangeNode"] = NiNode
+block_types["BSTreeNode"] = NiNode
+block_types["BSValueNode"] = NiNode
+block_types["BSWeakReferenceNode"] = NiNode
+block_types["NiBillboardNode"] = NiNode
+block_types["NiBone"] = NiNode
+block_types["NiLODNode"] = NiNode
+block_types["NiSortAdjustNode"] = NiNode
+block_types["NiSwitchNode"] = NiNode
 
 
 class NiKeyFrameData(NiObject):
@@ -1553,6 +1569,7 @@ class NiTransformInterpolator(NiKeyBasedInterpolator):
         return ti
     
 block_types["NiTransformInterpolator"] = NiTransformInterpolator
+block_types["BSRotAccumTransfInterpolator"] = NiTransformInterpolator
 
 
 class NiFloatInterpolator(NiKeyBasedInterpolator):
@@ -2444,9 +2461,24 @@ class NiShader(NiObject):
     def flags2_clear(self, flag):
         self.properties.shaderflags2_clear(flag)
     
-block_types["BSLightingShaderProperty"] = NiShader
+block_types["BSDistantTreeShaderProperty"] = NiShader
 block_types["BSEffectShaderProperty"] = NiShader
+block_types["BSLightingShaderProperty"] = NiShader
+block_types["BSShaderLightingProperty"] = NiShader
+block_types["BSShaderNoLightingProperty"] = NiShader
 block_types["BSShaderPPLightingProperty"] = NiShader
+block_types["BSShaderProperty"] = NiShader
+block_types["BSSkyShaderProperty"] = NiShader
+block_types["BSWaterShaderProperty"] = NiShader
+block_types["DistantLODShaderProperty"] = NiShader
+block_types["HairShaderProperty"] = NiShader
+block_types["Lighting30ShaderProperty"] = NiShader
+block_types["NiMaterialProperty"] = NiShader
+block_types["SkyShaderProperty"] = NiShader
+block_types["TallGrassShaderProperty"] = NiShader
+block_types["TileShaderProperty"] = NiShader
+block_types["VolumetricFogShaderProperty"] = NiShader
+block_types["WaterShaderProperty"] = NiShader
 
 
 class NiShaderFO4(NiShader):
@@ -3054,6 +3086,8 @@ class NiTriShape(NiShape):
         return NiShapeBuf(values)
     
 block_types["NiTriShape"] = NiTriShape
+block_types["BSSegmentedTriShape"] = NiTriShape
+block_types["NiScreenElements"] = NiTriShape
     
 
 # --- BSTriShape --- #

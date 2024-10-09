@@ -1993,7 +1993,6 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_EFFECT_GLOWINGONE.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=False)
-    return
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     nif = pyn.NifFile(testfile)
