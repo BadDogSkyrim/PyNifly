@@ -1366,15 +1366,15 @@ class NiPosData(NiObject):
                 self._keys.append(buf)
         return self._keys
 
-    def keys_add(self, t, v, f, b):
+    def add_key(self, key):
         """
         Write one key.
         """
         buf = NiAnimKeyQuadTransBuf()
-        buf.time = t
-        buf.value = v
-        buf.forward = f[:]
-        buf.backward = b[:]
+        buf.time = key.time
+        buf.value = key.value
+        buf.forward = key.forward[:]
+        buf.backward = key.backward[:]
         NifFile.nifly.addAnimKeyQuadTrans(self.file._handle, self.id, buf)
 
     @classmethod
@@ -1536,7 +1536,21 @@ class NiInterpolator(NiObject):
         importer.warn(f"NYI: Import of interpolator {interp.id} {interp}")
     
     import_node = _default_import_func
-    
+
+    @classmethod
+    def New(cls, file, data=None, parent=None):
+        p = cls._getbuf()
+        p.data = (data.id if data else NODEID_NONE)
+        id = NifFile.nifly.addBlock(
+            file._handle, 
+            None, 
+            byref(p), 
+            parent.id if parent else NODEID_NONE)
+        interp = cls(file=file, id=id, properties=p, parent=parent)
+        if data:
+            interp.data = data
+        return interp
+
 
 class NiKeyBasedInterpolator(NiInterpolator):
     pass
@@ -1597,7 +1611,7 @@ class NiPoint3Interpolator(NiKeyBasedInterpolator):
     @classmethod
     def _getbuf(cls, values=None):
         return NiPoint3InterpolatorBuf(values)
-
+    
 block_types["NiPoint3Interpolator"] = NiPoint3Interpolator
     
 
@@ -1715,7 +1729,36 @@ class NiSingleInterpController(NiInterpController):
     def interpolator(self, c):
         self._interpolator = c
         self.properties.interpolatorID = c.id
-    
+
+    @classmethod
+    def New(cls, file, 
+            flags=108, 
+            next_controller=None, 
+            start_time=sys.float_info.max, stop_time=sys.float_info.min, 
+            frequency=1.0,
+            phase=0,
+            interpolator=None, 
+            target=None, 
+            var=0, 
+            parent=None):
+        p = cls._getbuf()
+        p.flags = flags
+        p.nextControllerID = (next_controller.id if next_controller else NODEID_NONE)
+        p.startTime = start_time
+        p.stopTime = stop_time
+        p.frequency = frequency
+        p.phase = phase
+        p.controlledVariable = var
+        if target: p.targetID = (target.id if target else NODEID_NONE)
+        if interpolator: p.interpolatorID = (interpolator.id if interpolator else NODEID_NONE)
+        id = NifFile.nifly.addBlock(
+            file._handle, 
+            None, 
+            byref(p), 
+            parent.id if parent else NODEID_NONE)
+        c = cls(file=file, id=id, properties=p, parent=parent)
+        return c
+
 
 class NiKeyframeController(NiSingleInterpController):
     pass
@@ -1738,8 +1781,6 @@ class NiMultiTargetTransformController(NiInterpController):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._properties = NiMultiTargetTransformControllerBuf()
         NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
-        # NifFile.nifly.getMultiTargetTransformController(
-        #     self.file._handle, self.id, self.properties)
 
     @classmethod
     def _getbuf(cls, values=None):

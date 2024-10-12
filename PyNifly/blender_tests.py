@@ -33,10 +33,6 @@ importlib.reload(skeleton_hkx)
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
 
-PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimLE\mods\00 Vanilla Assets"
-PYNIFLY_TEXTURES_FO4 = r"C:\Modding\Fallout4\mods\00 FO4 Assets"
-
-
 def TEST_BODYPART_SKY():
     """Basic test that a Skyrim bodypart is imported correctly. """
     # Verts are organized around the origin, but skin transform is put on the shape 
@@ -1804,17 +1800,15 @@ def TEST_ANIM_SHADER_GLOW():
 
     espFloatCtlr:pyn.BSEffectShaderPropertyFloatController = glowout.shader.controller
     assert espFloatCtlr, f"Have shader controller on output"
-    assert espFloatCtlr.properties.flags == 72, \
-        f"Have correct flags: {espFloatCtlr.properties.flags}"
-    assert BD.NearEqual(33.3333, espFloatCtlr.properties.stopTime), \
-        f"Have correct stop time: {espFloatCtlr.properties.stopTime}"
-    assert espFloatCtlr.properties.controlledVariable == pyn.EffectShaderControlledVariable.V_Offset, \
-        f"Have correct variable: {espFloatCtlr.properties.controlledVariable}"
+    TT.assert_eq(espFloatCtlr.properties.flags, 72, "controller flags")
+    TT.assert_equiv(espFloatCtlr.properties.frequency, 1.0, "controller freqency")
+    TT.assert_equiv(33.3333, espFloatCtlr.properties.stopTime, "controller stop time")
+    TT.assert_eq(espFloatCtlr.properties.controlledVariable, pyn.EffectShaderControlledVariable.V_Offset, "controlled variable")
     
     dataout = glowout.shader.controller.interpolator.data
-    assert BD.NearEqual(33.3333, dataout.keys[2].time), f"Last keyframe time correct: {dataout.keys[2].time}"
-    assert BD.NearEqual(-1.0, dataout.keys[2].forward), f"Last keyframe forward correct: {dataout.keys[2].forward}"
-    assert BD.NearEqual(0.0, dataout.keys[2].backward), f"Last keyframe backward correct: {dataout.keys[2].backward}"
+    TT.assert_equiv(33.3333, dataout.keys[2].time, "last keyframe time")
+    TT.assert_equiv(-1.0, dataout.keys[2].forward, "last keyframe forward value")
+    TT.assert_equiv(0.0, dataout.keys[2].backward, "last keyframe backward value")
 
 
 def TEST_ANIM_SHADER_SPRIGGAN():
@@ -1860,21 +1854,26 @@ def TEST_ANIM_SHADER_SPRIGGAN():
         'nodes["Skyrim Shader - TSN"].inputs["Emission Color"].default_value',
         'nodes["Skyrim Shader - TSN"].inputs["Emission Strength"].default_value',
         ])
-    
-    return
 
     ### WRITE ###
     
     bpy.ops.export_scene.pynifly(filepath=outfile)
     testnif = pyn.NifFile(testfile)
     testbod = testnif.shape_dict['SprigganFxTestUnified:0']
-    outnif = pyn.NifFile(outfile)
-    outbod = outnif.shape_dict['SprigganFxTestUnified:0']
-    assert outbod.shader.flags2_test(nifdefs.ShaderFlags2.GLOW_MAP), \
+    nifout = pyn.NifFile(outfile)
+    bodout = nifout.shape_dict['SprigganFxTestUnified:0']
+    assert bodout.shader.flags2_test(nifdefs.ShaderFlags2.GLOW_MAP), \
         f"Glow map flag is set"
-    assert outbod.shader.textures['Glow'].lower().endswith('spriggan_g.dds')
-    outleaves = outnif.shape_dict['SprigganBodyLeaves']
-    assert outleaves.shader.blockname == 'BSEffectShaderProperty', f"Leaves have effect shader"
+    assert bodout.shader.textures['Glow'].lower().endswith('spriggan_g.dds')
+    leavesout = nifout.shape_dict['SprigganBodyLeaves']
+    TT.assert_eq(leavesout.shader.blockname, 'BSEffectShaderProperty', f"Leaf shader block type")
+
+    outcm:pyn.NiControllerManager = nifout.root.controller
+    TT.assert_seteq([s for s in outcm.sequences], 
+                    ["LeavesLandedLoop", "LeavesScared", "LeavesAwayLoop", "LeavesLanding", "LeavesToHand", 
+                     "LeavesOnHandLoop", "LeavesOffHand", "LeavesToHandDark", "LeavesOnHandDarkLoop", 
+                     "LeavesOffHandDark", "KillFX", ],
+                     "Sequence names")
 
 
 def TEST_SHADER_ALPHA():
@@ -2520,7 +2519,6 @@ def TEST_COLORS2():
 
 def TEST_COLORS3():
     """Can read & write vertex colors & alpha"""
-    bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_FO4
     testfile = TT.test_file(r"tests\FO4\FemaleHair05_Hairline.nif")
     # testfile = TT.test_file(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\Hair\Male\Hair26_Hairline.nif")
     outfile = TT.test_file(r"tests/Out/TEST_COLORS3.nif")
@@ -4467,7 +4465,6 @@ def TEST_PIPBOY():
 def TEST_BABY():
     """Non-human skeleton, lots of shapes under one armature."""
     # Can intuit structure if it's not in the file
-    bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_FO4
     testfile = TT.test_file(r"tests\FO4\baby.nif")
     outfile = TT.test_file(r"tests\Out\TEST_BABY.nif")
 
@@ -4490,8 +4487,6 @@ def TEST_BABY():
 
 def TEST_ROTSTATIC():
     """Test that statics are transformed according to the shape transform"""
-    bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_SKYRIM
-
     testfile = TT.test_file(r"tests/Skyrim/rotatedbody.nif")
     outfile = TT.test_file(r"tests/Out/TEST_ROTSTATIC.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -4528,7 +4523,6 @@ def TEST_FACEBONES():
     # A few of the facebones have transforms that don't match the rest. The skin-to-bone
     # transforms have to be handled correctly or the face comes in slightly warped.
     # Also the skin_bone_C_MasterEyebrow is included in the nif but not used in the head.
-    bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_FO4
 
     # ------- Load --------
     testfile = TT.test_file(r"tests\FO4\BaseFemaleHead_faceBones.nif")
@@ -4684,7 +4678,6 @@ def TEST_ANIMATRON_2():
     testfile = TT.test_file(r"tests\FO4\AnimatronicSpaceMan.nif")
     outfile = TT.test_file(r"tests/Out/TEST_ANIMATRON_2.nif")
     outfile_fb = TT.test_file(r"tests/Out/TEST_ANIMATRON_2.nif")
-    bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_FO4
 
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  do_create_bones=False, 
@@ -5092,7 +5085,9 @@ def TEST_ANIM_DWEMER_CHEST():
     """Read and write the animation of chest opening and shutting."""
     testfile = TT.test_file(r"tests\Skyrim\dwechest01.nif")
     outfile =TT.test_file(r"tests/Out/TEST_ANIM_DWEMER_CHEST.nif")
-    bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_SKYRIM
+
+    #### READ ####
+
     bpy.context.scene.frame_end = 37
     bpy.context.scene.render.fps = 60 
 
@@ -5124,6 +5119,27 @@ def TEST_ANIM_DWEMER_CHEST():
 
     gear07obj = gear07.children[0]
     assert len(gear07obj.data.vertices) == 476, f"Have right number of vertices"
+
+    #### WRITE ####
+
+    BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj],
+                    active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    #### CHECK ####
+
+    nif2:pyn.NifFile = pyn.NifFile(outfile)
+    cm2:pyn.NiControllerManager = nif2.root.controller
+    mtt2:pyn.NiMultiTargetTransformController = cm2.next_controller
+    # TT.assert_seteq([n.name for n in mtt2.extra_targets],
+    #                 ["Object01", "Object02", "Object188", "Object189", "Gear07", 
+    #                  "Gear08", "Gear09", "Handle", "Box01"],
+    #                  f"MultiTargetTransformController {mtt2.id} extra targets")
+    TT.assert_seteq([s for s in cm2.sequences], ["Open", "Close"], "Controller Sequences")
+    open2:pyn.NiControllerSequence = cm2.sequences["Close"]
+    openblk:pyn.ControllerLink = next(b for b in open2.controlled_blocks if b.node_name == "Object01")
+    TT.assert_eq(openblk.controller.id, mtt2.id, "Controller IDs")
+
 
 def TEST_ANIM_ALDUIN():
     """Read and write animation using bones."""

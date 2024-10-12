@@ -13,19 +13,123 @@ from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 from pynifly import *
 import blender_defs as BD
 from nifdefs import *
-import shader_io
+import re
 
 
 ANIMATION_NAME_MARKER = "ANIM"
 ANIMATION_NAME_SEP = "|"
 KFP_HANDLE_OFFSET = 10
 
-controlled_variables_uv = {
-    "Offset U": EffectShaderControlledVariable.U_Offset,
-    "Offset V": EffectShaderControlledVariable.V_Offset,
-    "Scale U": EffectShaderControlledVariable.U_Scale,
-    "Scale V": EffectShaderControlledVariable.V_Scale,
-    }
+
+# effect_shader_control_variables = {
+#         EffectShaderControlledVariable.U_Offset: [("UV Converter", "Offset U")],
+#         EffectShaderControlledVariable.V_Offset: [("UV Converter", "Offset V")],
+#         EffectShaderControlledVariable.U_Scale: [("UV Converter", "Scale U")],
+#         EffectShaderControlledVariable.V_Scale: [("UV Converter", "Scale V")],
+#         EffectShaderControlledVariable.Alpha_Transparency: (
+#             ("Skyrim Shader - Effect", 'Alpha Adjust'),
+#             ("FO4 Effect Shader", 'Alpha Adjust'),
+#         ),
+#         EffectShaderControlledVariable.Emissive_Multiple: [
+#             ("Skyrim Shader - Effect", "Emission Strength"),
+#             ("FO4 Effect Shader", "Emission Strength"),
+#             ]
+# }
+
+# lighting_shader_control_colors = {
+#     LightingShaderControlledColor.EMISSIVE: [['Skyrim Shader - TSN', 'Emission Color']],
+#     LightingShaderControlledColor.SPECULAR: [['Skyrim Shader - TSN', 'Specular Color']],
+# }
+
+# lighting_shader_control_variables = {
+#     LightingShaderControlledFloat.Alpha: [['Skyrim Shader - TSN', 'Alpha Mult']],
+#     LightingShaderControlledFloat.Emissive_Multiple: [['Skyrim Shader - TSN', 'Emission Strength']],
+#     LightingShaderControlledFloat.Glossiness: [['Skyrim Shader - TSN', 'Glossiness']],
+#     LightingShaderControlledFloat.Specular_Strength: [['Skyrim Shader - TSN', 'Specular Str']],
+#     LightingShaderControlledFloat.U_Offset: [['UV Converter', "Offset U"]],
+#     LightingShaderControlledFloat.U_Scale: [['UV Converter', "Scale U"]],
+#     LightingShaderControlledFloat.V_Offset: [['UV Converter', "Offset V"]],
+#     LightingShaderControlledFloat.V_Scale: [['UV Converter', "Scale V"]],
+# }
+
+# controlvar_effect = {
+#     "Offset U": EffectShaderControlledVariable.U_Offset,
+#     "Offset V": EffectShaderControlledVariable.V_Offset,
+#     "Scale U": EffectShaderControlledVariable.U_Scale,
+#     "Scale V": EffectShaderControlledVariable.V_Scale,
+#     }
+
+# controlvar_effectshaderfloat = {
+#     "Alpha Adjust": EffectShaderControlledVariable.Alpha_Transparency,
+#     "Emission Strength": EffectShaderControlledVariable.Emissive_Multiple, 
+#     "Offset U": EffectShaderControlledVariable.U_Offset,
+#     "Offset V": EffectShaderControlledVariable.V_Offset,
+#     "Scale U": EffectShaderControlledVariable.U_Scale,
+#     "Scale V": EffectShaderControlledVariable.V_Scale,
+# }
+
+# controlvar_lighting = {
+#     "Emission Color": LightingShaderControlledColor.EMISSIVE,
+#     "Specular Color": LightingShaderControlledColor.SPECULAR,
+#     "Offset U": LightingShaderControlledFloat.U_Offset,
+#     "Scale U": LightingShaderControlledFloat.U_Scale,
+#     "Offset V": LightingShaderControlledFloat.V_Offset,
+#     "Scale V": LightingShaderControlledFloat.V_Scale,
+#     'Alpha Mult': LightingShaderControlledFloat.Alpha,
+#     'Emission Strength': LightingShaderControlledFloat.Emissive_Multiple,
+#     'Glossiness': LightingShaderControlledFloat.Glossiness,
+#     'Specular Str': LightingShaderControlledFloat.Specular_Strength,
+# }
+
+shader_nodes = {    
+    "Fallout 4 MTS": "Lighting", 
+    "FO4 Effect Shader": "Effect", 
+    "Skyrim Shader - Effect": "Effect", 
+    "Skyrim Shader - TSN": "Lighting", 
+} 
+
+class ControlledVariable:
+    def __init__(self, var_list):
+        self.variables = var_list
+
+    def blend_find(self, node, socket):
+        """Find the right controlled variable given blender shader node and socket."""
+        for n, s, d, t, v in self.variables:
+            if n == node and s == socket:
+                return t, v
+        return None, None
+    
+    def nif_find(self, game, ctltype, varid):
+        for n, s, d, t, v in self.variables:
+            if t == ctltype and varid == v:
+                for nodename, nodetype in shader_nodes.items():
+                    if nodetype == n:
+                        if game == 'FO4' and 'Skyrim' not in nodename:
+                            return nodename, s, d
+                        if game in ['SKYRIM', 'SKYRIMSE'] and 'Skyrim' in nodename:
+                            return nodename, s, d
+                return n, s, d
+        return None, None, None
+        
+
+controlled_vars = ControlledVariable([
+    ("Alpha Threshold", "0", "outputs", BSNiAlphaPropertyTestRefController, EffectShaderControlledVariable.Alpha_Transparency),
+    ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Emissive_Multiple),
+    ("Lighting", 'Alpha Mult', "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.Alpha),
+    ("Lighting", 'Emission Strength', "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.Emissive_Multiple),
+    ("Lighting", 'Glossiness', "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.Glossiness),
+    ("Lighting", 'Specular Str', "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.Specular_Strength),
+    ("Lighting", "Emission Color", "inputs", BSLightingShaderPropertyColorController, LightingShaderControlledColor.EMISSIVE),
+    ("Lighting", "Specular Color", "inputs", BSLightingShaderPropertyColorController, LightingShaderControlledColor.SPECULAR),
+    ("UV Converter", "Offset U", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.U_Offset),
+    ("UV Converter", "Offset U", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.U_Offset),
+    ("UV Converter", "Offset V", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.V_Offset),
+    ("UV Converter", "Offset V", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.V_Offset),
+    ("UV Converter", "Scale U", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.U_Scale),
+    ("UV Converter", "Scale U", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.U_Scale),
+    ("UV Converter", "Scale V", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.V_Scale),
+    ("UV Converter", "Scale V", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.V_Scale),
+])
 
 active_animation = ""
 
@@ -185,7 +289,12 @@ class ControllerHandler():
         self.animation_target = None  
         self.action_target = None # 
         self.accum_root = None
-        self.multitarget_controller = None
+
+        # Single MultiTargetTransformController and ObjectPalette to use fo all controller
+        # sequences in a ControllerManager
+        self.cm_controller = None 
+        self.cm_obj_palette = None
+        
         self.controlled_objects = set()
         self.start_time = sys.float_info.max
         self.end_time = sys.float_info.min
@@ -566,22 +675,22 @@ class ControllerHandler():
 
     ### EXPORT ###
 
-    def _get_controlled_variable(self, activated_obj):
-        c = self.action.fcurves[0]
-        dp = c.data_path
-        if not dp.endswith(".default_value"):
-            self.warn(f"FCurve has unknown data path: {dp}")
-            return 0
-        if "UV Converter" not in dp:
-            self.warn(f"NYI: Cannot handle fcurve {dp}")
-            return 0
+    # def _get_controlled_variable(self, activated_obj):
+    #     c = self.action.fcurves[0]
+    #     dp = c.data_path
+    #     if not dp.endswith(".default_value"):
+    #         self.warn(f"FCurve has unknown data path: {dp}")
+    #         return 0
+    #     if "UV Converter" not in dp:
+    #         self.warn(f"NYI: Cannot handle fcurve {dp}")
+    #         return 0
 
-        try:
-            target_attr = eval(repr(activated_obj) + "." + dp[:-14])
-            return controlled_variables_uv[target_attr.name]
-        except:
-            self.warn(f"NYI: Can't handle fcurve {dp}")
-            return 0
+    #     try:
+    #         target_attr = eval(repr(activated_obj) + "." + dp[:-14])
+    #         return controlvar_uv[target_attr.name]
+    #     except:
+    #         self.warn(f"NYI: Can't handle fcurve {dp}")
+    #         return 0
 
 
     def _key_blender_to_nif(self, kfp0, kfp1, kfp2):
@@ -611,9 +720,7 @@ class ControllerHandler():
         Returns [[time, value, forward, backward]...] for each keyframe in the curve.
         """
         keys = []
-        points = [None]
-        points.extend(list(curve.keyframe_points))
-        points.append(None)
+        points = [None] + list(curve.keyframe_points) + [None]
         while points[1]:
             k = NiAnimKeyFloatBuf()
             k.time = (points[1].co.x-1) / self.fps
@@ -623,14 +730,16 @@ class ControllerHandler():
             points.pop(0)
         return keys
 
-    def _export_float_curves(self, activated_obj, parent_ctlr=None):
+
+    def _export_float_curves(self, fcurves, parent_ctlr=None):
         """
         Export a float curve from the list to a NiFloatInterpolator/NiFloatData pair. 
         The curve is picked off the list.
 
         * Returns (group name, NiFloatInterpolator for the set of curves).
         """
-        keys = self._get_curve_quad_values(self.action.fcurves[0])
+        fc = fcurves.pop(0)
+        keys = self._get_curve_quad_values(fc)
         fdp = NiFloatDataBuf()
         fdp.keys.interpolation = NiKeyType.QUADRATIC_KEY
         fd = NiFloatData(file=self.nif, properties=fdp, keys=keys)
@@ -638,7 +747,7 @@ class ControllerHandler():
         fip = NiFloatInterpolatorBuf()
         fip.dataID = fd.id
         fi = NiFloatInterpolator(file=self.nif, properties=fip, parent=parent_ctlr)
-        return fi
+        return "", fi
 
     
     def _export_transform_curves(self, targetobj, curve_list):
@@ -753,7 +862,7 @@ class ControllerHandler():
             td.add_xyz_rotation_keys("Y", self._get_curve_quad_values(eu[1]))
             td.add_xyz_rotation_keys("Z", self._get_curve_quad_values(eu[2]))
 
-        return targetname if targetname else targetobj.name, ti
+        return (targetname if targetname else targetobj.name), ti
     
 
     def _add_controlled_object(self, obj:BD.ReprObject):
@@ -770,13 +879,139 @@ class ControllerHandler():
     def _write_controlled_objects(self, cm:NiControllerManager):
         if len(self.controlled_objects) == 0: return
 
-        objp = NiDefaultAVObjectPalette.New(self.nif, self.nif.rootNode, parent=cm)
-        
         for obj in self.controlled_objects:
-            objp.add_object(obj.nifnode.name, obj.nifnode)
+            self.cm_obj_palette.add_object(obj.nifnode.name, obj.nifnode)
 
 
-    def _export_activated_obj(self, target:BD.ReprObject,  action, controller=None):
+    # def _make_fcurve_controller(self, target:BD.ReprObject, target_node:str, in_out:str, 
+    #                             target_socket:str, prior_controller=None):
+    #     """
+    #     Make a controller to handle the given fcurve.
+    #     """
+    #     ctlr = target_shader.add(
+    #         next_controller=prior_controller,
+    #         start_time=(self.action.curve_frame_range[0]-1)/self.fps,
+    #         stop_time=(self.action.curve_frame_range[1]-1)/self.fps,
+    #         target=target.nifnode,
+    #         var=target_var)
+    #     return ctlr
+    
+
+    def _select_controller(self, dp):
+        """
+        Determine the controller class and controlled variable needed for an fcurve.
+        """
+        if (dp.startswith("location") or dp.startswith("rotation")):
+            ctlclass = NiTransformController
+            return ctlclass, None
+        elif dp.startswith("node"):
+            fcurve_match = re.match(
+                """nodes\[['"]([^]]+)['"]\].(inputs|outputs)\[['"]([^]]+)['"]\]""", dp)
+            if not fcurve_match:
+                raise Exception(f"Could not handle animation fcurve: {dp}")
+            
+            node_name, i_o, socket_name = fcurve_match.groups()
+            if node_name in shader_nodes:
+                node_type = shader_nodes[node_name]
+            else: 
+                node_type = node_name
+            return controlled_vars.blend_find(node_type, socket_name)
+
+
+    def _export_color_curves(self, curve_list):
+        """
+        Export fcurves controlling a color value. The 3 color channels are popped off the
+        curve list. Returns the interpolator.
+        """
+        dat = NiPosData.New(self.nif, key_inerp=NiKeyType.QUADRATIC_KEY)
+        fcv = (curve_list.pop[0], curve_list.pop[0], curve_list.pop[0], )
+
+        # Have to assume all channels have the same keyframes.
+        keyframes = [(None, None, None, )]
+        for k1, k2, k3 in zip(fcv[0].keyframe_points, fcv[1].keyframe_points, fcv[2].keyframe_points):
+            if k1.co[0] != k2.co[0] or k1.co[0] != k3.co[0]:
+                raise Exception(f"Cannot handle color fcurves with mismatched keyframes")
+            keyframes.append((k1, k2, k3,))
+        keyframes.append((None, None, None, ))
+
+        for i in range(1, len(keyframes)-1):
+            kfr, kfg, kfb = keyframes[i]
+            kfbuf = NiAnimKeyQuadTransBuf()
+            kfbuf.time = (kfr.co[0]-1)/self.fps
+            for j in range(0, 3):
+                kfbuf.value[j] = kfr.co[1]
+                kfbuf.forward[j], kfbuf.backward[j] = self._key_blender_to_nif(
+                    kfp0=keyframes[i-1][j],
+                    kfp1=keyframes[i][j],
+                    kfp2=keyframes[i+1][j]
+                )
+            dat.add_key(kfbuf)
+
+        interp = NiPoint3Interpolator.New(self.nif, data=dat)
+        return "", interp
+
+
+    def _export_fcurves(self, controller_class, targetobj:BD.ReprObject, fcurves):
+        """
+        Export fcurves off the front of the list to a interpolator/data pair. fcurves used
+        are removed from the list.
+        """
+        if issubclass(controller_class, NiTransformController):
+            return self._export_transform_curves(targetobj.blender_obj, fcurves)
+        
+        if (issubclass(controller_class, BSLightingShaderPropertyColorController) 
+            or issubclass(controller_class, BSEffectShaderPropertyColorController)):
+            return self._export_color_curves(fcurves)
+        
+        if (issubclass(controller_class, BSLightingShaderPropertyFloatController)
+            or issubclass(controller_class, BSEffectShaderPropertyFloatController)):
+            return self._export_float_curves(fcurves)
+
+
+    def _export_activated_obj(self, targetobj:BD.ReprObject, targetelem, theaction):
+        """
+        Export a single activated object--an object with animation_data on it. 
+
+        * targetobj = Blender object to animate
+
+        Returns a list of controller/interpolator pairs created. May have to be more than
+        one if several variables are controlled, or if both variables and color are
+        controlled.
+        """
+        interps_created = []
+        target_fc = (None, None, None)
+        controller = self.cm_controller
+        ctlvar = ctlvar_cur = None
+        ctlclass = ctlclass_cur = None
+        self.action = theaction
+        fcurves = list(self.action.fcurves)
+        while fcurves:
+            ctlclass, ctlvar = self._select_controller(fcurves[0].data_path)
+            if ((ctlclass != ctlclass_cur) or (ctlvar != ctlvar_cur)
+                or (ctlclass_cur is None)):
+                # New node type needed, start a new controller/interpolator pair
+                grp, interp = self._export_fcurves(ctlclass, targetobj, fcurves)
+                if (ctlclass != NiTransformController or not self.cm_controller):
+                    controller = ctlclass.New(
+                        file=self.nif,
+                        flags=TimeControllerFlags(
+                            cycle_type=CycleType.LOOP if self.action.use_cyclic else CycleType.CLAMP,
+                        ).flags,
+                        next_controller=controller,
+                        start_time=(self.action.curve_frame_range[0]-1)/self.fps,
+                        stop_time=(self.action.curve_frame_range[1]-1)/self.fps,
+                        interpolator=interp,
+                        target=targetobj.nifnode.shader,
+                        var=ctlvar,
+                        parent=targetobj.nifnode.shader)
+                interps_created.append((controller, interp))
+            ctlclass_cur = ctlclass
+            ctlvar_cur = ctlvar
+        return interps_created
+
+            
+
+    def _export_activated_obj_old(self, target:BD.ReprObject,  action, controller=None):
         """
         Export a single activated object--an object with animation_data on it.
 
@@ -827,9 +1062,8 @@ class ControllerHandler():
             curve_list = list(self.action.fcurves)
             while curve_list:
                 targname, ti = self._export_transform_curves(action_target, curve_list)
-                if self.multitarget_controller:
-                    mttc = self.multitarget_controller
-                    self.multitarget_controller = None
+                if self.cm_controller:
+                    mttc = self.cm_controller
                 else:
                     mttc = NiMultiTargetTransformController.New(
                         file=self.nif,
@@ -868,20 +1102,22 @@ class ControllerHandler():
         for tm in self.context.scene.timeline_markers:
             tked.add_key((tm.frame-1)/self.fps, tm.name)
 
-    def _export_shader(self, activated_obj, nifshape):
-        fi = self._export_float_curves(activated_obj)
 
-        fcp = BSEffectShaderPropertyFloatControllerBuf()
-        self._set_controller_props(fcp)
-        fcp.controlledVariable = self._get_controlled_variable(activated_obj)
-        fcp.interpolatorID = fi.id
-        fc = BSEffectShaderPropertyFloatController(
-            file=self.nif, properties=fcp, parent=nifshape.shader)
+    # def _export_shader(self, activated_obj, activated_elem, nifshape):
+    #     fcurve_list = list(activated_elem.animation_data.action.fcurves)
+    #     fi = self._export_float_curves(fcurve_list)
+
+    #     fcp = BSEffectShaderPropertyFloatControllerBuf()
+    #     self._set_controller_props(fcp)
+    #     fcp.controlledVariable = self._get_controlled_variable(activated_elem)
+    #     fcp.interpolatorID = fi.id
+    #     fc = BSEffectShaderPropertyFloatController(
+    #         file=self.nif, properties=fcp, parent=nifshape.shader)
     
 
     def _export_animations(self, anims):
         """
-        Export the given animations to the target nif.
+        Export the given named animations to the target nif.
         
         * Anims = {"anim name": [(action, obj), ..], ...}
             a dictionary of animation names to list of action/object pairs that implement
@@ -889,14 +1125,17 @@ class ControllerHandler():
         """
         self.accum_root = self.nif.rootNode
         self.controlled_objects = BD.ReprObjectCollection()
-        self.multitarget_controller = NiMultiTargetTransformController.New(
+
+        self.cm_controller = NiMultiTargetTransformController.New(
             file=self.nif, flags=108, target=self.nif.rootNode)
         
         cm = NiControllerManager.New(
             file=self.parent.nif, 
             flags=TimeControllerFlags(cycle_type=CycleType.CLAMP),
-            next_controller=self.multitarget_controller,
+            next_controller=self.cm_controller,
             parent=self.accum_root)
+
+        self.cm_obj_palette = NiDefaultAVObjectPalette.New(self.nif, self.nif.rootNode, parent=cm)
 
         for anim_name, actionlist in anims.items(): 
             vals = apply_animation(anim_name)
@@ -914,7 +1153,24 @@ class ControllerHandler():
             self._export_text_keys(cs)
 
             for act, reprobj in actionlist:
-                self._export_activated_obj(reprobj, act, cs)
+                # if the target is an ARMATURE, do something different
+                interps = []
+                try:
+                    interps = self._export_activated_obj(reprobj, act)
+                except:
+                    log.exception(f"Could not export animation {act.name} on object {reprobj.blender_obj.name}")
+                
+                for ctlr, intp in interps:
+                    cs.add_controlled_block(
+                        name=reprobj.nifnode.name,
+                        interpolator=intp,
+                        controller=ctlr,
+                        node_name=reprobj.nifnode.name,
+                        controller_type=(ctlr.blockname 
+                                         if ctlr.blockname != 'NiMultiTargetTransformController'
+                                         else 'NiTransformController'),
+                    )
+                self.cm_obj_palette.add_object(reprobj.nifnode.name, reprobj.nifnode)
 
         self._write_controlled_objects(cm)
 
@@ -947,12 +1203,12 @@ class ControllerHandler():
 
 
     @classmethod
-    def export_shader_controller(cls, parent_handler, obj, trishape):
+    def export_shader_controller(cls, parent_handler, activeobj:BD.ReprObject, activeelem):
         # """Export an obj that has an animated shader."""
         exporter = ControllerHandler(parent_handler)
         exporter.nif = parent_handler.nif
-        exporter.action = obj.active_material.node_tree.animation_data.action
-        exporter._export_shader(obj.active_material.node_tree, trishape)
+        # exporter._export_shader(activeobj, activeelem)
+        exporter._export_activated_obj(activeobj, activeelem, activeelem.animation_data.action)
 
 
     @classmethod
@@ -963,9 +1219,9 @@ class ControllerHandler():
 
         * object_dict = dictionary of objects to consider
         """
-        exporter = ControllerHandler(parent_handler)
         anims = current_animations(parent_handler.nif, object_dict)
         if not anims: return
+        exporter = ControllerHandler(parent_handler)
         exporter._export_animations(anims)
 
 
@@ -1235,38 +1491,6 @@ NiTransformInterpolator.import_node = _import_transform_interpolator
 # but may not. If not, they get the interpolator from a parent ControllerLink, so it has
 # to be passed in.
 
-effect_shader_control_variables = {
-        EffectShaderControlledVariable.U_Offset: [("UV Converter", "Offset U")],
-        EffectShaderControlledVariable.V_Offset: [("UV Converter", "Offset V")],
-        EffectShaderControlledVariable.U_Scale: [("UV Converter", "Scale U")],
-        EffectShaderControlledVariable.V_Scale: [("UV Converter", "Scale V")],
-        EffectShaderControlledVariable.Alpha_Transparency: (
-            ("Skyrim Shader - Effect", 'Alpha Adjust'),
-            ("FO4 Effect Shader", 'Alpha Adjust'),
-        ),
-        EffectShaderControlledVariable.Emissive_Multiple: [
-            ("Skyrim Shader - Effect", "Emission Strength"),
-            ("FO4 Effect Shader", "Emission Strength"),
-            ]
-}
-
-lighting_shader_control_colors = {
-    LightingShaderControlledColor.EMISSIVE: [['Skyrim Shader - TSN', 'Emission Color']],
-    LightingShaderControlledColor.SPECULAR: [['Skyrim Shader - TSN', 'Specular Color']],
-}
-
-lighting_shader_control_variables = {
-    LightingShaderControlledFloat.Alpha: [['Skyrim Shader - TSN', 'Alpha Mult']],
-    LightingShaderControlledFloat.Emissive_Multiple: [['Skyrim Shader - TSN', 'Emission Strength']],
-    LightingShaderControlledFloat.Glossiness: [['Skyrim Shader - TSN', 'Glossiness']],
-    LightingShaderControlledFloat.Specular_Strength: [['Skyrim Shader - TSN', 'Specular Str']],
-    LightingShaderControlledFloat.U_Offset: [['UV Converter', "Offset U"]],
-    LightingShaderControlledFloat.U_Scale: [['UV Converter', "Scale U"]],
-    LightingShaderControlledFloat.V_Offset: [['UV Converter', "Offset V"]],
-    LightingShaderControlledFloat.V_Scale: [['UV Converter', "Scale V"]],
-}
-
-
 def _ignore_interp(interp):
     """Determine whether to ignore an interpolator."""
     return ((not interp) 
@@ -1328,19 +1552,17 @@ def _import_ESPFloat_controller(ctlr:BSEffectShaderPropertyFloatController,
     importer.action_group = "Shader"
     importer.path_name = ""
     try:
-        v = effect_shader_control_variables[ctlr.properties.controlledVariable]
-        for nodename, inputname in v:
-            if nodename in importer.action_target.nodes:
-                n = importer.action_target.nodes[nodename]
-                if inputname in n.inputs:
-                    importer.path_name = \
-                        f'nodes["{nodename}"].inputs["{inputname}"].default_value'
-                    break
+        nodename, inputname, in_out = controlled_vars.nif_find(
+            importer.nif.game,
+            BSEffectShaderPropertyFloatController, 
+            ctlr.properties.controlledVariable)
+        importer.path_name = \
+            f'nodes["{nodename}"].{in_out}["{inputname}"].default_value'
     except:
         pass
 
     if not importer.path_name: 
-        importer.warn(f"NYI: Cannot handle controlled variable on controller {ctlr.id}: {repr(EffectShaderControlledVariable(ctlr.properties.controlledVariable))}") 
+        raise Exception(f"NYI: Cannot handle controlled variable on controller {ctlr.id}: {repr(EffectShaderControlledVariable(ctlr.properties.controlledVariable))}") 
     else:    
         if not interp:
             interp = ctlr.interpolator
@@ -1403,14 +1625,12 @@ def _import_LSPColorController(ctlr:BSLightingShaderPropertyColorController,
     importer.action_group = "Shader"
     importer.path_name = ""
     try:
-        pairs = lighting_shader_control_colors[ctlr.properties.controlledVariable]
-        for nodename, inputname in pairs:
-            if nodename in importer.action_target.nodes:
-                n = importer.action_target.nodes[nodename]
-                if inputname in n.inputs:
-                    importer.path_name = \
-                        f'nodes["{nodename}"].inputs["{inputname}"].default_value'
-                    break
+        nodename, inputname, in_out = controlled_vars.nif_find(
+            importer.nif.game,
+            BSLightingShaderPropertyColorController, 
+            ctlr.properties.controlledVariable)
+        importer.path_name = \
+                f'nodes["{nodename}"].{in_out}["{inputname}"].default_value'
     except:
         pass
 
@@ -1447,14 +1667,12 @@ def _import_LSPFloatController(ctlr:BSLightingShaderPropertyFloatController,
     importer.action_group = "Shader"
     importer.path_name = ""
     try:
-        pairs = lighting_shader_control_variables[ctlr.properties.controlledVariable]
-        for nodename, inputname in pairs:
-            if nodename in importer.action_target.nodes:
-                n = importer.action_target.nodes[nodename]
-                if inputname in n.inputs:
-                    importer.path_name = \
-                        f'nodes["{nodename}"].inputs["{inputname}"].default_value'
-                    break
+        nodename, inputname, in_out = controlled_vars.nif_find(
+            importer.nif.game,
+            BSLightingShaderPropertyFloatController, 
+            ctlr.properties.controlledVariable)
+        importer.path_name = \
+            f'nodes["{nodename}"].{in_out}["{inputname}"].default_value'
     except:
         pass
 

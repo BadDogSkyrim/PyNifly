@@ -3,6 +3,7 @@
     Value and type definitions for nif structures
 """
 
+import sys
 import struct
 from enum import Enum, IntFlag, IntEnum
 import math
@@ -1805,6 +1806,11 @@ class NiMultiTargetTransformControllerBuf(pynStructure):
     def __init__(self, values=None):
         self.nextControllerID = NODEID_NONE
         self.targetID = NODEID_NONE
+        self.flags = 108
+        self.frequency = 1.0
+        self.phase = 0
+        self.startTime = sys.float_info.max
+        self.stopTime = sys.float_info.min
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiMultiTargetTransformControllerBufType
 bufferTypeList[PynBufferTypes.NiMultiTargetTransformControllerBufType] = 'NiMultiTargetTransformController'
@@ -2056,8 +2062,8 @@ class NiPoint3InterpolatorBuf(pynStructure):
         ("dataID", c_uint32),
     ]
     def __init__(self, values=None):
-        super().__init__(values=values)
         self.dataID = NODEID_NONE
+        super().__init__(values=values)
         self.bufType = PynBufferTypes.NiPoint3InterpolatorBufType
 
     def copy(self, exclude=[]):

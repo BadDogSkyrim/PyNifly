@@ -3559,9 +3559,9 @@ class NifExporter:
         try:
             if obj.active_material and obj.active_material.node_tree and obj.active_material.node_tree.animation_data:
                 controller.ControllerHandler.export_shader_controller(
-                    self, obj, new_shape)
-        except Exception as e:
-            self.warn(f"Error exporting controller: {repr(e)}")
+                    self, robj, obj.active_material.node_tree)
+        except:
+            log.exception(f"Error exporting controller for object {obj.name}")
 
         # Write tri file
         retval |= self.export_tris(robj, verts, tris, uvmap_new, morphdict)

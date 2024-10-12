@@ -3,6 +3,7 @@
 import sys
 import os
 import os.path
+import pathlib
 import logging
 import bpy
 from mathutils import Matrix, Vector, Quaternion, Euler
@@ -15,6 +16,10 @@ pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
 
 
 log = logging.getLogger("pynifly")
+
+
+PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimLE\mods\00 Vanilla Assets"
+PYNIFLY_TEXTURES_FO4 = r"C:\Modding\Fallout4\mods\00 FO4 Assets"
 
 
 def test_title(name, desc):
@@ -124,10 +129,14 @@ def remove_file(fn):
 
 
 def test_file(filename, output=False):
+    path = pathlib.Path(filename)
+    if path.parts[1] in ["Skyrim", "SkyrimSE"]:
+        bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_SKYRIM
+    elif path.parts[1] in ["FO4"]:
+        bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_FO4
+
     fullname = os.path.join(pynifly_dev_path, filename)
-    if "TESTS/OUT/" in filename.upper() or "TESTS\\OUT\\" in filename.upper():
-        output=True
-    if output:
+    if path.parts[1].upper() == "OUT":
         remove_file(fullname)
     return fullname
 
@@ -263,7 +272,7 @@ def check_unweighted_verts(nifshape):
 
 
 def assert_equiv(actual, expected, msg, e=0.0001):
-    """Assert two values are equal. Values may be scalars, vectors, or matrices."""
+    """Assert two values are nearly equal. Values may be scalars, vectors, or matrices."""
     try:
         assert MatNearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
     except AssertionError:
@@ -275,6 +284,12 @@ def assert_equiv(actual, expected, msg, e=0.0001):
             raise
         except:
             assert NearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
+
+
+def assert_eq(actual, expected, msg):
+    """Assert actual is same as expected."""
+    assert actual == expected, f"{msg} not the same: {actual} != {expected}"
+
 
 def assert_lt(actual, expected, msg, e=0.0001):
     """Assert actual is less than expected."""
@@ -289,6 +304,19 @@ def assert_le(actual, expected, msg, e=0.0001):
 def assert_gt(actual, expected, msg, e=0.0001):
     """Assert actual is greater than expected."""
     assert actual > expected, f"Values actual greater than expected for {msg}: {actual} < {expected}"
+
+
+def assert_seteq(actual, expected, msg):
+    """Assert two lists have the same members."""
+    if type(actual) == set:
+        s1 = actual
+    else:
+        s1 = set(actual)
+    if type(expected) == set:
+        s2 = expected
+    else:
+        s2 = set(expected)
+    assert s1 == s2, f"{msg} not the same: {actual} != {expected}"
 
 
 def find_object(name, coll=bpy.context.scene.objects, fn=lambda x: x.name):
