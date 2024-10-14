@@ -1148,7 +1148,7 @@ class AlphaPropertyBuf(pynStructure):
 
     @property
     def alpha_blend(self):
-        return (self.flags & ALPHA_FLAG_MASK.ALPHA_BLEND)
+        return (self.flags & ALPHA_FLAG_MASK.ALPHA_BLEND) != 0
     @alpha_blend.setter
     def alpha_blend(self, val):
         if val:
@@ -1158,9 +1158,9 @@ class AlphaPropertyBuf(pynStructure):
 
     @property
     def alpha_test(self):
-        return (self.flags & ALPHA_FLAG_MASK.ALPHA_TEST)
-    @alpha_blend.setter
-    def alpha_blend(self, val):
+        return (self.flags & ALPHA_FLAG_MASK.ALPHA_TEST) != 0
+    @alpha_test.setter
+    def alpha_test(self, val):
         if val:
             self.flags |= ALPHA_FLAG_MASK.ALPHA_TEST
         else:
@@ -1169,8 +1169,8 @@ class AlphaPropertyBuf(pynStructure):
     @property
     def source_blend_mode(self):
         return (self.flags & ALPHA_FLAG_MASK.SOURCE_BLEND_MODE) >> 1
-    @alpha_blend.setter
-    def alpha_blend(self, val):
+    @source_blend_mode.setter
+    def source_blend_mode(self, val):
         self.flags &= ~ALPHA_FLAG_MASK.SOURCE_BLEND_MODE
         self.flags |= ALPHA_FLAG_MASK.SOURCE_BLEND_MODE & (val << 1)
 

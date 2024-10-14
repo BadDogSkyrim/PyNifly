@@ -731,140 +731,6 @@ class ControllerHandler():
         return keys
 
 
-    def _export_float_curves(self, fcurves, parent_ctlr=None):
-        """
-        Export a float curve from the list to a NiFloatInterpolator/NiFloatData pair. 
-        The curve is picked off the list.
-
-        * Returns (group name, NiFloatInterpolator for the set of curves).
-        """
-        fc = fcurves.pop(0)
-        keys = self._get_curve_quad_values(fc)
-        fdp = NiFloatDataBuf()
-        fdp.keys.interpolation = NiKeyType.QUADRATIC_KEY
-        fd = NiFloatData(file=self.nif, properties=fdp, keys=keys)
-
-        fip = NiFloatInterpolatorBuf()
-        fip.dataID = fd.id
-        fi = NiFloatInterpolator(file=self.nif, properties=fip, parent=parent_ctlr)
-        return "", fi
-
-    
-    def _export_transform_curves(self, targetobj, curve_list):
-        """
-        Export a group of curves from the list to a TransformInterpolator/TransformData
-        pair. A group maps to a controlled object, so each group should be one such pair.
-        The curves that are used are picked off the list.
-        * Returns (group name, TransformInterpolator for the set of curves).
-        """
-        if not curve_list: return None, None
-        
-        targetname = curve_target(curve_list[0])
-        scene_fps = self.context.scene.render.fps
-        
-        loc = []
-        eu = []
-        quat = []
-        scale = []
-        timemax = -10000
-        timemin = 10000
-        timestep = 1/self.fps
-        while curve_list and curve_target(curve_list[0]) == targetname:
-            c = curve_list.pop(0)
-            timemax = max(timemax, (c.range()[1]-1)/scene_fps)
-            timemin = min(timemin, (c.range()[0]-1)/scene_fps)
-            dp = c.data_path
-            if "location" in dp:
-                loc.append(c)
-            elif "rotation_quaternion" in dp:
-                quat.append(c)
-            elif "rotation_euler" in dp:
-                eu.append(c)
-            elif "scale" in dp:
-                scale.append(c)
-            else:
-                self.warn(f"Unknown curve type: {dp}")
-        
-        if scale:
-            if not self.given_scale_warning:
-                self.report({"INFO"}, f"Ignoring scale transforms--not used in Skyrim")
-                self.given_scale_warning = True
-
-        if len(loc) != 3 and len(eu) != 3 and len(quat) != 4:
-            self.warn(f"No useable transforms in group {targetobj.name}/{targetname}")
-            return None, None
-
-        # tibuf = NiTransformInterpolatorBuf()
-        if targetobj.type == 'ARMATURE':
-            if not targetname in targetobj.data.bones:
-                self.warn(f"Target bone not found in armature: {targetobj.name}/{targetname}")
-                return None, None
-            
-            targ = targetobj.data.bones[targetname]
-            if targ.parent:
-                targ_xf = targ.parent.matrix_local.inverted() @ targ.matrix_local
-            else:
-                targ_xf = targ.matrix_local
-        else:
-            targ_xf = Matrix.Identity(4)
-
-        ti = NiTransformInterpolator.New(
-            file=self.nif,
-            translation=targ_xf.translation[:],
-            rotation=targ_xf.to_quaternion()[:],
-            scale=1.0,
-        )
-        
-        td:NiTransformData = None
-        if quat:
-            td = NiTransformData.New(
-                file=self.nif, 
-                rotation_type=NiKeyType.QUADRATIC_KEY,
-                parent=ti)
-        elif eu:
-            td = NiTransformData.New(
-                file=self.nif, 
-                rotation_type=NiKeyType.XYZ_ROTATION_KEY,
-                xyz_rotation_types=(NiKeyType.QUADRATIC_KEY, )*3,
-                parent=ti)
-        if loc:
-            td = NiTransformData.New(
-                file=self.nif, 
-                translate_type=NiKeyType.LINEAR_KEY,
-                parent=ti)
-
-        # Lots of error-checking because the user could have done any damn thing.
-        if len(quat) == 4:
-            timesig = timemin
-            while timesig < timemax + 0.0001:
-                fr = timesig * scene_fps + 1
-                tdq = Quaternion([quat[0].evaluate(fr), 
-                                  quat[1].evaluate(fr), 
-                                  quat[2].evaluate(fr), 
-                                  quat[3].evaluate(fr)])
-                kq = targ_xf.to_quaternion()  @ tdq
-                td.add_qrotation_key(timesig, kq)
-                timesig += timestep
-
-        if len(loc) == 3:
-            timesig = timemin
-            while timesig < timemax + 0.0001:
-                fr = timesig * scene_fps + 1
-                kv =Vector([loc[0].evaluate(fr), 
-                            loc[1].evaluate(fr), 
-                            loc[2].evaluate(fr)])
-                rv = kv + targ_xf.translation
-                td.add_translation_key(timesig, rv)
-                timesig += timestep
-
-        if len(eu) == 3:
-            td.add_xyz_rotation_keys("X", self._get_curve_quad_values(eu[0]))
-            td.add_xyz_rotation_keys("Y", self._get_curve_quad_values(eu[1]))
-            td.add_xyz_rotation_keys("Z", self._get_curve_quad_values(eu[2]))
-
-        return (targetname if targetname else targetobj.name), ti
-    
-
     def _add_controlled_object(self, obj:BD.ReprObject):
         """
         Add the object and all its children recursively to the set of controlled objects.
@@ -882,20 +748,6 @@ class ControllerHandler():
         for obj in self.controlled_objects:
             self.cm_obj_palette.add_object(obj.nifnode.name, obj.nifnode)
 
-
-    # def _make_fcurve_controller(self, target:BD.ReprObject, target_node:str, in_out:str, 
-    #                             target_socket:str, prior_controller=None):
-    #     """
-    #     Make a controller to handle the given fcurve.
-    #     """
-    #     ctlr = target_shader.add(
-    #         next_controller=prior_controller,
-    #         start_time=(self.action.curve_frame_range[0]-1)/self.fps,
-    #         stop_time=(self.action.curve_frame_range[1]-1)/self.fps,
-    #         target=target.nifnode,
-    #         var=target_var)
-    #     return ctlr
-    
 
     def _select_controller(self, dp):
         """
@@ -916,56 +768,6 @@ class ControllerHandler():
             else: 
                 node_type = node_name
             return controlled_vars.blend_find(node_type, socket_name)
-
-
-    def _export_color_curves(self, curve_list):
-        """
-        Export fcurves controlling a color value. The 3 color channels are popped off the
-        curve list. Returns the interpolator.
-        """
-        dat = NiPosData.New(self.nif, key_inerp=NiKeyType.QUADRATIC_KEY)
-        fcv = (curve_list.pop[0], curve_list.pop[0], curve_list.pop[0], )
-
-        # Have to assume all channels have the same keyframes.
-        keyframes = [(None, None, None, )]
-        for k1, k2, k3 in zip(fcv[0].keyframe_points, fcv[1].keyframe_points, fcv[2].keyframe_points):
-            if k1.co[0] != k2.co[0] or k1.co[0] != k3.co[0]:
-                raise Exception(f"Cannot handle color fcurves with mismatched keyframes")
-            keyframes.append((k1, k2, k3,))
-        keyframes.append((None, None, None, ))
-
-        for i in range(1, len(keyframes)-1):
-            kfr, kfg, kfb = keyframes[i]
-            kfbuf = NiAnimKeyQuadTransBuf()
-            kfbuf.time = (kfr.co[0]-1)/self.fps
-            for j in range(0, 3):
-                kfbuf.value[j] = kfr.co[1]
-                kfbuf.forward[j], kfbuf.backward[j] = self._key_blender_to_nif(
-                    kfp0=keyframes[i-1][j],
-                    kfp1=keyframes[i][j],
-                    kfp2=keyframes[i+1][j]
-                )
-            dat.add_key(kfbuf)
-
-        interp = NiPoint3Interpolator.New(self.nif, data=dat)
-        return "", interp
-
-
-    def _export_fcurves(self, controller_class, targetobj:BD.ReprObject, fcurves):
-        """
-        Export fcurves off the front of the list to a interpolator/data pair. fcurves used
-        are removed from the list.
-        """
-        if issubclass(controller_class, NiTransformController):
-            return self._export_transform_curves(targetobj.blender_obj, fcurves)
-        
-        if (issubclass(controller_class, BSLightingShaderPropertyColorController) 
-            or issubclass(controller_class, BSEffectShaderPropertyColorController)):
-            return self._export_color_curves(fcurves)
-        
-        if (issubclass(controller_class, BSLightingShaderPropertyFloatController)
-            or issubclass(controller_class, BSEffectShaderPropertyFloatController)):
-            return self._export_float_curves(fcurves)
 
 
     def _export_activated_obj(self, targetobj:BD.ReprObject, targetelem, theaction):
@@ -990,7 +792,8 @@ class ControllerHandler():
             if ((ctlclass != ctlclass_cur) or (ctlvar != ctlvar_cur)
                 or (ctlclass_cur is None)):
                 # New node type needed, start a new controller/interpolator pair
-                grp, interp = self._export_fcurves(ctlclass, targetobj, fcurves)
+                grp, interp = ctlclass.fcurve_exporter(self, fcurves, targetobj)
+                # grp, interp = self._export_fcurves(ctlclass, targetobj, fcurves)
                 if (ctlclass != NiTransformController or not self.cm_controller):
                     controller = ctlclass.New(
                         file=self.nif,
@@ -1751,6 +1554,179 @@ def _import_controller_manager(cm:NiControllerManager,
         bpy.context.scene.frame_end= anim_dict["stop_frame"]
 
 NiControllerManager.import_node = _import_controller_manager
+
+
+def _export_transform_curves(exporter, curve_list, targetobj=None):
+    """
+    Export a group of curves from the list to a TransformInterpolator/TransformData pair.
+    A group maps to a controlled object, so each group should be one such pair. The curves
+    that are used are picked off the list.
+
+    * Returns (group name, TransformInterpolator for the set of curves).
+    """
+    if not curve_list: return None, None
+    
+    targetname = curve_target(curve_list[0])
+    scene_fps = exporter.context.scene.render.fps
+    
+    loc = []
+    eu = []
+    quat = []
+    scale = []
+    timemax = -10000
+    timemin = 10000
+    timestep = 1/exporter.fps
+    while curve_list and curve_target(curve_list[0]) == targetname:
+        c = curve_list.pop(0)
+        timemax = max(timemax, (c.range()[1]-1)/scene_fps)
+        timemin = min(timemin, (c.range()[0]-1)/scene_fps)
+        dp = c.data_path
+        if "location" in dp:
+            loc.append(c)
+        elif "rotation_quaternion" in dp:
+            quat.append(c)
+        elif "rotation_euler" in dp:
+            eu.append(c)
+        elif "scale" in dp:
+            scale.append(c)
+        else:
+            raise Exception(f"Unknown curve type: {dp}")
+    
+    if scale:
+        if not exporter.given_scale_warning:
+            exporter.report({"INFO"}, f"Ignoring scale transforms--not used in Skyrim")
+            exporter.given_scale_warning = True
+
+    if len(loc) != 3 and len(eu) != 3 and len(quat) != 4:
+        raise Exception(f"No useable transforms in group {targetobj.name}/{targetname}")
+
+    # tibuf = NiTransformInterpolatorBuf()
+    if targetobj.type == 'ARMATURE':
+        if not targetname in targetobj.data.bones:
+            raise Exception(f"Target bone not found in armature: {targetobj.name}/{targetname}")
+        
+        targ = targetobj.data.bones[targetname]
+        if targ.parent:
+            targ_xf = targ.parent.matrix_local.inverted() @ targ.matrix_local
+        else:
+            targ_xf = targ.matrix_local
+    else:
+        targ_xf = Matrix.Identity(4)
+
+    ti = NiTransformInterpolator.New(
+        file=exporter.nif,
+        translation=targ_xf.translation[:],
+        rotation=targ_xf.to_quaternion()[:],
+        scale=1.0,
+    )
+    
+    td:NiTransformData = None
+    if quat:
+        td = NiTransformData.New(
+            file=exporter.nif, 
+            rotation_type=NiKeyType.QUADRATIC_KEY,
+            parent=ti)
+    elif eu:
+        td = NiTransformData.New(
+            file=exporter.nif, 
+            rotation_type=NiKeyType.XYZ_ROTATION_KEY,
+            xyz_rotation_types=(NiKeyType.QUADRATIC_KEY, )*3,
+            parent=ti)
+    if loc:
+        td = NiTransformData.New(
+            file=exporter.nif, 
+            translate_type=NiKeyType.LINEAR_KEY,
+            parent=ti)
+
+    # Lots of error-checking because the user could have done any damn thing.
+    if len(quat) == 4:
+        timesig = timemin
+        while timesig < timemax + 0.0001:
+            fr = timesig * scene_fps + 1
+            tdq = Quaternion([quat[0].evaluate(fr), 
+                                quat[1].evaluate(fr), 
+                                quat[2].evaluate(fr), 
+                                quat[3].evaluate(fr)])
+            kq = targ_xf.to_quaternion()  @ tdq
+            td.add_qrotation_key(timesig, kq)
+            timesig += timestep
+
+    if len(loc) == 3:
+        timesig = timemin
+        while timesig < timemax + 0.0001:
+            fr = timesig * scene_fps + 1
+            kv =Vector([loc[0].evaluate(fr), 
+                        loc[1].evaluate(fr), 
+                        loc[2].evaluate(fr)])
+            rv = kv + targ_xf.translation
+            td.add_translation_key(timesig, rv)
+            timesig += timestep
+
+    if len(eu) == 3:
+        td.add_xyz_rotation_keys("X", exporter._get_curve_quad_values(eu[0]))
+        td.add_xyz_rotation_keys("Y", exporter._get_curve_quad_values(eu[1]))
+        td.add_xyz_rotation_keys("Z", exporter._get_curve_quad_values(eu[2]))
+
+    return (targetname if targetname else targetobj.name), ti
+
+NiTransformController.fcurve_exporter = _export_transform_curves
+
+def _export_color_curves(exporter, curve_list, target_obj=None):
+    """
+    Export fcurves controlling a color value. The 3 color channels are popped off the
+    curve list. Returns the interpolator.
+    """
+    dat = NiPosData.New(exporter.nif, key_inerp=NiKeyType.QUADRATIC_KEY)
+    fcv = (curve_list.pop[0], curve_list.pop[0], curve_list.pop[0], )
+
+    # Have to assume all channels have the same keyframes.
+    keyframes = [(None, None, None, )]
+    for k1, k2, k3 in zip(fcv[0].keyframe_points, fcv[1].keyframe_points, fcv[2].keyframe_points):
+        if k1.co[0] != k2.co[0] or k1.co[0] != k3.co[0]:
+            raise Exception(f"Cannot handle color fcurves with mismatched keyframes")
+        keyframes.append((k1, k2, k3,))
+    keyframes.append((None, None, None, ))
+
+    for i in range(1, len(keyframes)-1):
+        kfr, kfg, kfb = keyframes[i]
+        kfbuf = NiAnimKeyQuadTransBuf()
+        kfbuf.time = (kfr.co[0]-1)/exporter.fps
+        for j in range(0, 3):
+            kfbuf.value[j] = kfr.co[1]
+            kfbuf.forward[j], kfbuf.backward[j] = exporter._key_blender_to_nif(
+                kfp0=keyframes[i-1][j],
+                kfp1=keyframes[i][j],
+                kfp2=keyframes[i+1][j]
+            )
+        dat.add_key(kfbuf)
+
+    interp = NiPoint3Interpolator.New(exporter.nif, data=dat)
+    return "", interp
+
+BSLightingShaderPropertyColorController.fcurve_exporter = _export_color_curves
+BSEffectShaderPropertyColorController.fcurve_exporter = _export_color_curves
+
+
+def _export_float_curves(exporter, fcurves, target_obj=None):
+    """
+    Export a float curve from the list to a NiFloatInterpolator/NiFloatData pair. 
+    The curve is picked off the list.
+
+    * Returns (group name, NiFloatInterpolator for the set of curves).
+    """
+    fc = fcurves.pop(0)
+    keys = exporter._get_curve_quad_values(fc)
+    fdp = NiFloatDataBuf()
+    fdp.keys.interpolation = NiKeyType.QUADRATIC_KEY
+    fd = NiFloatData(file=exporter.nif, properties=fdp, keys=keys)
+
+    fip = NiFloatInterpolatorBuf()
+    fip.dataID = fd.id
+    fi = NiFloatInterpolator(file=exporter.nif, properties=fip)
+    return "", fi
+
+BSLightingShaderPropertyFloatController.fcurve_exporter = _export_float_curves
+BSEffectShaderPropertyFloatController.fcurve_exporter = _export_float_curves
 
 
 class AssignAnimPanel(bpy.types.Panel):

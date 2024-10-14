@@ -1098,12 +1098,6 @@ class ShaderImporter:
         Blender 4.2 REMOVED alpha clip mode, so we have to implement threshold testing
         with shader nodes.
         """
-        alphathr = self.make_node("ShaderNodeValue",
-                                  name='Alpha Threshold',
-                                  xloc=self.inputs_offset_x,
-                                  height=shader_node_height["ShaderNodeMapRange"])
-        alphathr.outputs[0].default_value = shape.alpha_property.properties.threshold
-
         difalph = vertalph = None
         if self.diffuse and 'Alpha' in self.diffuse.outputs:
             difalph = self.diffuse.outputs['Alpha']
@@ -1111,34 +1105,46 @@ class ShaderImporter:
             vertalph = self.vertex_alpha.outputs['Fac']
 
         nodetree = self.material.node_tree
-        if vertalph:
-            calcalph = make_mathnode(
-                nodetree,
-                op='MULTIPLY',
-                value1=difalph,
-                value2=vertalph)
-            alphout = calcalph.outputs[0]
-        else:
-            alphout = difalph
-        map255 = make_maprange(nodetree, 
-                               in_value=alphathr.outputs[0],
-                               in_from_min=0,
-                               in_from_max=255,
-                               in_to_min=0,
-                               in_to_max=1.0)
-        xmax = -100
-        gt = make_mathnode(nodetree,
-                            op='GREATER_THAN',
-                            value1=alphout,
-                            value2=map255.outputs[0],
-                            location=[map255])
-        atest = make_mathnode(nodetree,
-                                op='MULTIPLY',
-                                value1=difalph,
-                                value2=gt.outputs[0])
-        xmax = atest.location.x + atest.width + HORIZONTAL_GAP
 
-        self.link(atest.outputs[0], self.bsdf.inputs['Alpha'])
+        if "Alpha Test" in self.bsdf.inputs:
+            self.bsdf.inputs["Alpha Test"].default_value = shape.alpha_property.properties.alpha_test
+            self.bsdf.inputs["Alpha Threshold"].default_value = shape.alpha_property.properties.threshold
+            self.bsdf.inputs["Alpha Blend"].default_value = shape.alpha_property.properties.alpha_blend 
+        else:
+            alphathr = self.make_node("ShaderNodeValue",
+                                    name='Alpha Threshold',
+                                    xloc=self.inputs_offset_x,
+                                    height=shader_node_height["ShaderNodeMapRange"])
+            alphathr.outputs[0].default_value = shape.alpha_property.properties.threshold
+
+            if vertalph:
+                calcalph = make_mathnode(
+                    nodetree,
+                    op='MULTIPLY',
+                    value1=difalph,
+                    value2=vertalph)
+                alphout = calcalph.outputs[0]
+            else:
+                alphout = difalph
+            map255 = make_maprange(nodetree, 
+                                in_value=alphathr.outputs[0],
+                                in_from_min=0,
+                                in_from_max=255,
+                                in_to_min=0,
+                                in_to_max=1.0)
+            xmax = -100
+            gt = make_mathnode(nodetree,
+                                op='GREATER_THAN',
+                                value1=alphout,
+                                value2=map255.outputs[0],
+                                location=[map255])
+            atest = make_mathnode(nodetree,
+                                    op='MULTIPLY',
+                                    value1=difalph,
+                                    value2=gt.outputs[0])
+            xmax = atest.location.x + atest.width + HORIZONTAL_GAP
+
+            self.link(atest.outputs[0], self.bsdf.inputs['Alpha'])
 
 
     def import_shader_alpha(self, shape):

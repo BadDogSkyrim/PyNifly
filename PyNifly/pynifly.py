@@ -1701,9 +1701,13 @@ class NiTimeController(NiObject):
         return f.cycle_type == CycleType.LOOP
     
     def _default_import_func(ctlr, importer, nifnode=None):
-        importer.warn(f"NYI: Import of controller {ctlr.id} {ctlr}")
+        raise Exception(f"NYI: Import of controller {ctlr.id} {ctlr}")
+    
+    def _default_fcurve_export(fcurves, target_obj):
+        raise Exception(f"NYI: Export of fcurves on {target_obj.name}")
     
     import_node = _default_import_func
+    fcurve_exporter = _default_import_func
 
 
 class NiInterpController(NiTimeController):

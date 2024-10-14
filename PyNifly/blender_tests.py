@@ -5200,6 +5200,15 @@ def TEST_ANIM_ALDUIN():
     lcalf = arma.data.bones['NPC LLegCalf']
     lcalfp = arma.pose.bones['NPC LLegCalf']
 
+    # This nif has an alpha threshold, tho apparently not used, and vertex alpha. Make
+    # sure the values come in correctly.
+    alduin = TT.find_object('AlduinAnim:0')
+    anodes = alduin.active_material.node_tree.nodes
+    bsdf = [s for s in anodes if 'Shader' in s.name][0]
+    TT.assert_eq(bsdf.inputs['Alpha Threshold'].default_value, 5, "Alpha Threshold")
+    TT.assert_eq(bsdf.inputs['Alpha Test'].default_value, True, "Alpha Test")
+    TT.assert_eq(bsdf.inputs['Alpha Blend'].default_value, False, "Alpha Blend")
+
     def dump_anim():
         """Dump keyframe 0 animation data if any. If no animation data, dump pose
         locations."""
@@ -5918,7 +5927,7 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[TEST_ANIM_SHADER_GLOW],
+        target_tests=[TEST_ANIM_ALDUIN],
         run_all=False,
         stop_on_fail=True,
         startfrom=None,
