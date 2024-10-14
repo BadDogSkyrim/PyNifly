@@ -160,7 +160,7 @@ def find_trip(nif):
 
 # ###################### OTHER STUFF ##################################
 
-def find_object(name, coll=bpy.context.scene.objects, fn=lambda x: x):
+def find_object(name, coll, fn=lambda x: x):
     """Find an object by name with the given list of objects
         name = name to find. Blocks in nifs aren't supposed to have the same
             name but sometimes they do. Also, a Blend file might contain imports from several nifs. 
