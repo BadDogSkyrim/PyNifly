@@ -1363,22 +1363,22 @@ class ShaderImporter:
     def import_specular(self):
         """Set up nodes for specular texture"""
         if self.shape.shader.flags1_test(ShaderFlags1.SPECULAR):
-            # Make the specular texture input node.
-            simgnode = self.make_node("ShaderNodeTexImage",
-                                      name='Specular_Texture',
-                                      xloc=self.inputs_offset_x)
             if 'Specular' in self.textures and self.textures['Specular']:
+                # Make the specular texture input node.
+                simgnode = self.make_node("ShaderNodeTexImage",
+                                        name='Specular_Texture',
+                                        xloc=self.inputs_offset_x)
                 simg = bpy.data.images.load(self.textures['Specular'], check_existing=True)
                 simg.colorspace_settings.name = "Non-Color"
                 simgnode.image = simg
-            self.link(self.texmap.outputs['Vector'], simgnode.inputs['Vector'])
-            try: 
-                self.link(simgnode.outputs['Color'], self.bsdf.inputs['Smooth Spec'])
-            except:
-                try:
-                    self.link(simgnode.outputs['Color'], self.bsdf.inputs['Specular Color'])
+                self.link(self.texmap.outputs['Vector'], simgnode.inputs['Vector'])
+                try: 
+                    self.link(simgnode.outputs['Color'], self.bsdf.inputs['Smooth Spec'])
                 except:
-                    self.link(simgnode.outputs['Color'], self.bsdf.inputs['Specular'])
+                    try:
+                        self.link(simgnode.outputs['Color'], self.bsdf.inputs['Specular Color'])
+                    except:
+                        self.link(simgnode.outputs['Color'], self.bsdf.inputs['Specular'])
 
             for i, v in enumerate(self.shape.shader.properties.Spec_Color):
                 self.bsdf.inputs['Specular Color'].default_value[i] = v
