@@ -5187,6 +5187,7 @@ def TEST_ANIM_ALDUIN():
                                  do_import_animations=True,
                                  use_blender_xf=True)
     
+    # Transforms are correct for selected bones
     nif = pyn.NifFile(testfile)
     check_xf(nif.nodes["NPC COM"])
     check_xf(nif.nodes["NPC Pelvis"])
@@ -5199,6 +5200,10 @@ def TEST_ANIM_ALDUIN():
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     lcalf = arma.data.bones['NPC LLegCalf']
     lcalfp = arma.pose.bones['NPC LLegCalf']
+    TT.assert_eq(lcalfp.rotation_mode, "QUATERNION", "L calf bone rotation mode")
+    lcalf_fc = [fc for fc in arma.animation_data.action.fcurves 
+                if 'NPC LLegCalf' in fc.data_path and 'location' not in fc.data_path]
+    TT.assert_seteq([fc.keyframe_points[5].interpolation for fc in lcalf_fc], ['LINEAR'], "Left calf keyframe interpolation")
 
     # This nif has an alpha threshold, tho apparently not used, and vertex alpha. Make
     # sure the values come in correctly.
@@ -5260,6 +5265,24 @@ def TEST_ANIM_ALDUIN():
         print(f"\t{i}\t{v}\t{difv}")
         lastv = v
         
+    ### EXPORT ###
+
+    BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile,
+                                 preserve_hierarchy=True,)
+
+    nifcheck = pyn.NifFile(outfile)
+    TT.assert_eq(len(nifcheck.node_ids), len(nifcheck.nodes), "No dup node names")
+    rootbone = nifcheck.nodes['NPC Root [Root]']
+    rootctlr = rootbone.controller
+    TT.assert_equiv(rootctlr.properties.stopTime, 28.0, "stopTime")
+    neckhub:pyn.NiNode = nifcheck.nodes['NPC NeckHub']
+    neckctlr:pyn.NiTransformController = neckhub.controller
+    neckinterp:pyn.NiTransformInterpolator = neckctlr.interpolator
+    neckdat:pyn.NiTransformData = neckinterp.data
+    TT.assert_gt(len(neckdat.zrotations), 0, "Neck Z rotation count")
+    TT.assert_eq(neckdat.proerties.zRotations.interpolation, pyn.NiKeyType.QUADRATIC_KEY, "Rotation type")
+
 
 def TEST_ANIM_KF():
     """Read and write KF animation."""
@@ -5927,7 +5950,7 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[TEST_ANIM_SHADER_GLOW],
+        target_tests=[TEST_ANIM_ALDUIN],
         run_all=False,
         stop_on_fail=True,
         startfrom=None,

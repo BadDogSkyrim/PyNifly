@@ -270,8 +270,11 @@ def curve_target(curve):
     Return the curve target for the curve. The target is the bone name if any,
     otherwise ''.
     """
-    if curve.data_path.startswith("pose.bones"):
-        return eval(curve.data_path.split('[', 1)[1].split(']', 1)[0])
+    m = re.match("""pose.bones\[('|")(.*)('|")""", curve.data_path)
+    if m: 
+        return m.groups()[1]
+    # if curve.data_path.startswith("pose.bones"):
+    #     return eval(curve.data_path.split('[', 1)[1].split(']', 1)[0])
     else:
         return ''
 
@@ -318,6 +321,8 @@ class ControllerHandler():
             self.objects_created:BD.ReprObjectCollection = parent_handler.objects_created
         if hasattr(parent_handler, "objs_written"):
             self.objects_created:BD.ReprObjectCollection = parent_handler.objs_written
+
+        self.export_each_frame = False
 
 
     def warn(self, msg):
@@ -714,10 +719,24 @@ class ControllerHandler():
         return forward, backward
 
 
+    def _get_curve_linear_values(self, curve):
+        """
+        Transform a blender curve into nif keys. 
+        Returns [[time, value]...] for each keyframe in the curve.
+        """
+        keys = []
+        for k in curve.keyframe_points:
+            k = NiAnimKeyLinearXYZBuf()
+            k.time = (k.co.x-1) / self.fps
+            k.value = k.co.y
+            keys.append(k)
+        return keys
+
+
     def _get_curve_quad_values(self, curve):
         """
         Transform a blender curve into nif keys. 
-        Returns [[time, value, forward, backward]...] for each keyframe in the curve.
+        Returns [NiAnimKeyFloatBuf, ...] for each keyframe in the curve.
         """
         keys = []
         points = [None] + list(curve.keyframe_points) + [None]
@@ -729,6 +748,36 @@ class ControllerHandler():
             keys.append(k)
             points.pop(0)
         return keys
+
+
+    def _get_curve_quad_vector(self, curvexyz):
+        """
+        Transform a blender curve into nif keys. 
+
+        curvexyz = List of 3 fcurves, holding the x, y, & z curves.
+        Returns [NiAnimKeyQuadTransBuf, ...] for each keyframe in the curve.
+        """
+        kx = self._get_curve_quad_values(curvexyz[0])
+        ky = self._get_curve_quad_values(curvexyz[1])
+        kz = self._get_curve_quad_values(curvexyz[2])
+
+        out_list = []
+        for x, y, z in zip(kx, ky, kz):
+            k = NiAnimKeyQuadTransBuf()
+            if not all_NearEqual([x.time, y.time, z.time]):
+                raise Exception(f"Time values do not match")
+            k.time = x.time
+            k.value[0] = x.value
+            k.value[1] = y.value
+            k.value[2] = z.value
+            k.forward[0] = x.forward
+            k.forward[1] = y.forward
+            k.forward[2] = z.forward
+            k.backward[0] = x.backward
+            k.backward[1] = y.backward
+            k.backward[2] = z.backward
+            out_list.append(k)
+        return out_list
 
 
     def _add_controlled_object(self, obj:BD.ReprObject):
@@ -788,28 +837,31 @@ class ControllerHandler():
         self.action = theaction
         fcurves = list(self.action.fcurves)
         while fcurves:
-            ctlclass, ctlvar = self._select_controller(fcurves[0].data_path)
-            if ((ctlclass != ctlclass_cur) or (ctlvar != ctlvar_cur)
-                or (ctlclass_cur is None)):
-                # New node type needed, start a new controller/interpolator pair
-                grp, interp = ctlclass.fcurve_exporter(self, fcurves, targetobj)
-                # grp, interp = self._export_fcurves(ctlclass, targetobj, fcurves)
-                if (ctlclass != NiTransformController or not self.cm_controller):
-                    controller = ctlclass.New(
-                        file=self.nif,
-                        flags=TimeControllerFlags(
-                            cycle_type=CycleType.LOOP if self.action.use_cyclic else CycleType.CLAMP,
-                        ).flags,
-                        next_controller=controller,
-                        start_time=(self.action.curve_frame_range[0]-1)/self.fps,
-                        stop_time=(self.action.curve_frame_range[1]-1)/self.fps,
-                        interpolator=interp,
-                        target=targetobj.nifnode.shader,
-                        var=ctlvar,
-                        parent=targetobj.nifnode.shader)
-                interps_created.append((controller, interp))
-            ctlclass_cur = ctlclass
-            ctlvar_cur = ctlvar
+            try:
+                ctlclass, ctlvar = self._select_controller(fcurves[0].data_path)
+                if ((ctlclass != ctlclass_cur) or (ctlvar != ctlvar_cur)
+                    or (ctlclass_cur is None)):
+                    # New node type needed, start a new controller/interpolator pair
+                    grp, interp = ctlclass.fcurve_exporter(self, fcurves, targetobj)
+                    # grp, interp = self._export_fcurves(ctlclass, targetobj, fcurves)
+                    if (ctlclass != NiTransformController or not self.cm_controller):
+                        controller = ctlclass.New(
+                            file=self.nif,
+                            flags=TimeControllerFlags(
+                                cycle_type=CycleType.LOOP if self.action.use_cyclic else CycleType.CLAMP,
+                            ).flags,
+                            next_controller=controller,
+                            start_time=(self.action.curve_frame_range[0]-1)/self.fps,
+                            stop_time=(self.action.curve_frame_range[1]-1)/self.fps,
+                            interpolator=interp,
+                            target=targetobj.nifnode.shader,
+                            var=ctlvar,
+                            parent=targetobj.nifnode.shader)
+                    interps_created.append((controller, interp))
+                ctlclass_cur = ctlclass
+                ctlvar_cur = ctlvar
+            except:
+                log.exception(f"Error exporting fcurves for {targetobj.name}")
         return interps_created
 
             
@@ -1006,6 +1058,34 @@ class ControllerHandler():
 
 
     @classmethod
+    def export_animated_armature(cls, parent_handler, arma):
+        """
+        Export an animated skinned mesh (loadscreenalduinwall.nif).
+        """
+        if not arma.animation_data:return
+
+        exporter = ControllerHandler(parent_handler)
+        exporter.nif = parent_handler.nif
+
+        exporter.action = arma.animation_data.action
+        curves = list(exporter.action.fcurves)
+        while curves:
+            bonename, ti = NiTransformController.fcurve_exporter(exporter, curves, arma)
+            nifbone = exporter.nif.nodes[exporter.nif.nif_name(bonename)]
+            ctlr = NiTransformController.New(
+                file=exporter.nif,
+                flags=TimeControllerFlags(
+                        cycle_type=CycleType.LOOP if exporter.action.use_cyclic else CycleType.CLAMP)
+                        .flags,
+                start_time=(exporter.action.curve_frame_range[0]-1)/exporter.fps,
+                stop_time=(exporter.action.curve_frame_range[1]-1)/exporter.fps,
+                interpolator=ti,
+                target=nifbone,
+                parent=nifbone
+            )
+
+
+    @classmethod
     def export_shader_controller(cls, parent_handler, activeobj:BD.ReprObject, activeelem):
         # """Export an obj that has an animated shader."""
         exporter = ControllerHandler(parent_handler)
@@ -1117,13 +1197,19 @@ def _import_transform_data(td:NiTransformData,
             curveY = importer.action.fcurves.new(path_prefix + "rotation_euler", index=1, action_group=importer.action_group)
             curveZ = importer.action.fcurves.new(path_prefix + "rotation_euler", index=2, action_group=importer.action_group)
 
-            if len(td.xrotations) == len(td.yrotations) and len(td.xrotations) == len(td.zrotations):
+            if all_equal([len(td.xrotations), len(td.yrotations), len(td.zrotations)]):
+                x_rot = ('LINEAR' if td.properties.xRotations.interpolation == NiKeyType.LINEAR_KEY
+                            else 'BEZIER')
+                y_rot = ('LINEAR' if td.properties.yRotations.interpolation == NiKeyType.LINEAR_KEY
+                            else 'BEZIER')
+                z_rot = ('LINEAR' if td.properties.zRotations.interpolation == NiKeyType.LINEAR_KEY
+                            else 'BEZIER')
                 for x, y, z in zip(td.xrotations, td.yrotations, td.zrotations):
                     # In theory the X/Y/Z dimensions do not have to have key frames at
                     # the same time signatures. But an Euler rotation needs all 3.
                     # Probably they will all line up because generating them any other
                     # way is surely hard. So hope for that and post a warning if not.
-                    if not (NearEqual(x.time, y.time) and NearEqual(x.time, z.time)):
+                    if not all_NearEqual([x.time, y.time, z.time]):
                         importer.warn(f"Keyframes do not align for '{importer.path_name}. Animations may be incorrect.")
 
                     # Need to apply the parent rotation. If we stay in Eulers, we may
@@ -1137,9 +1223,12 @@ def _import_transform_data(td:NiTransformData,
                         kq = ke.to_quaternion()
                         vq = qinv @ kq
                         ve = vq.to_euler()
-                    curveX.keyframe_points.insert(x.time * importer.fps + 1, ve[0])
-                    curveY.keyframe_points.insert(y.time * importer.fps + 1, ve[1])
-                    curveZ.keyframe_points.insert(z.time * importer.fps + 1, ve[2])
+                    kx = curveX.keyframe_points.insert(x.time * importer.fps + 1, ve[0])
+                    kx.interpolation = x_rot
+                    ky = curveY.keyframe_points.insert(y.time * importer.fps + 1, ve[1])
+                    ky.interpolation = y_rot
+                    kz = curveZ.keyframe_points.insert(z.time * importer.fps + 1, ve[2])
+                    kz.interpolation = z_rot
                     importer.start_time = min(importer.start_time, x.time, y.time, z.time)
                     importer.end_time = max(importer.end_time, x.time, y.time, z.time)
                     
@@ -1165,6 +1254,10 @@ def _import_transform_data(td:NiTransformData,
                     importer.end_time = max(importer.end_time, k.time)
     
     elif td.properties.rotationType in [NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY]:
+        if td.properties.rotationType == NiKeyType.LINEAR_KEY:
+            key_type = 'LINEAR'
+        else:
+            key_type = 'BEZIER'
         try:
             # The curve may already have been started.
             curveW = importer.action.fcurves.new(path_prefix + "rotation_quaternion", index=0, action_group=importer.action_group)
@@ -1183,10 +1276,14 @@ def _import_transform_data(td:NiTransformData,
             else:
                 vq = qinv @ kq 
 
-            curveW.keyframe_points.insert(k.time * importer.fps + 1, vq[0])
-            curveX.keyframe_points.insert(k.time * importer.fps + 1, vq[1])
-            curveY.keyframe_points.insert(k.time * importer.fps + 1, vq[2])
-            curveZ.keyframe_points.insert(k.time * importer.fps + 1, vq[3])
+            kw = curveW.keyframe_points.insert(k.time * importer.fps + 1, vq[0])
+            kw.interpolation = key_type
+            kx = curveX.keyframe_points.insert(k.time * importer.fps + 1, vq[1])
+            kx.interpolation = key_type
+            ky = curveY.keyframe_points.insert(k.time * importer.fps + 1, vq[2])
+            ky.interpolation = key_type
+            kz = curveZ.keyframe_points.insert(k.time * importer.fps + 1, vq[3])
+            kz.interpolation = key_type
             importer.start_time = min(importer.start_time, k.time)
             importer.end_time = max(importer.end_time, k.time)
 
@@ -1556,7 +1653,7 @@ def _import_controller_manager(cm:NiControllerManager,
 NiControllerManager.import_node = _import_controller_manager
 
 
-def _export_transform_curves(exporter, curve_list, targetobj=None):
+def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=None):
     """
     Export a group of curves from the list to a TransformInterpolator/TransformData pair.
     A group maps to a controlled object, so each group should be one such pair. The curves
@@ -1567,8 +1664,10 @@ def _export_transform_curves(exporter, curve_list, targetobj=None):
     if not curve_list: return None, None
     
     targetname = curve_target(curve_list[0])
-    scene_fps = exporter.context.scene.render.fps
-    
+    if not targetname in targetobj.data.bones:
+        log.warning(f"Target bone not found in armature: {targetobj.name}/{targetname}")
+        return
+        
     loc = []
     eu = []
     quat = []
@@ -1576,19 +1675,29 @@ def _export_transform_curves(exporter, curve_list, targetobj=None):
     timemax = -10000
     timemin = 10000
     timestep = 1/exporter.fps
+
+    # Decide what type of keyframes to export based on the interpolation value of the
+    # Blender keyframes. Assume all keyframes are the same, so just look at the first to
+    # decide.
+    rot_is_bezier = transl_is_bezier = scale_is_bezier = False
+
     while curve_list and curve_target(curve_list[0]) == targetname:
         c = curve_list.pop(0)
-        timemax = max(timemax, (c.range()[1]-1)/scene_fps)
-        timemin = min(timemin, (c.range()[0]-1)/scene_fps)
+        timemax = max(timemax, (c.range()[1]-1)/exporter.fps)
+        timemin = min(timemin, (c.range()[0]-1)/exporter.fps)
         dp = c.data_path
         if "location" in dp:
             loc.append(c)
+            transl_is_bezier |= (c.keyframe_points[0].interpolation == 'BEZIER')
         elif "rotation_quaternion" in dp:
             quat.append(c)
+            rot_is_bezier |= (c.keyframe_points[0].interpolation == 'BEZIER')
         elif "rotation_euler" in dp:
             eu.append(c)
+            rot_is_bezier |= (c.keyframe_points[0].interpolation == 'BEZIER')
         elif "scale" in dp:
             scale.append(c)
+            scale_is_bezier |= (c.keyframe_points[0].interpolation == 'BEZIER')
         else:
             raise Exception(f"Unknown curve type: {dp}")
     
@@ -1600,11 +1709,7 @@ def _export_transform_curves(exporter, curve_list, targetobj=None):
     if len(loc) != 3 and len(eu) != 3 and len(quat) != 4:
         raise Exception(f"No useable transforms in group {targetobj.name}/{targetname}")
 
-    # tibuf = NiTransformInterpolatorBuf()
     if targetobj.type == 'ARMATURE':
-        if not targetname in targetobj.data.bones:
-            raise Exception(f"Target bone not found in armature: {targetobj.name}/{targetname}")
-        
         targ = targetobj.data.bones[targetname]
         if targ.parent:
             targ_xf = targ.parent.matrix_local.inverted() @ targ.matrix_local
@@ -1620,56 +1725,120 @@ def _export_transform_curves(exporter, curve_list, targetobj=None):
         scale=1.0,
     )
     
-    td:NiTransformData = None
-    if quat:
-        td = NiTransformData.New(
-            file=exporter.nif, 
-            rotation_type=NiKeyType.QUADRATIC_KEY,
-            parent=ti)
-    elif eu:
-        td = NiTransformData.New(
-            file=exporter.nif, 
-            rotation_type=NiKeyType.XYZ_ROTATION_KEY,
-            xyz_rotation_types=(NiKeyType.QUADRATIC_KEY, )*3,
-            parent=ti)
-    if loc:
-        td = NiTransformData.New(
-            file=exporter.nif, 
-            translate_type=NiKeyType.LINEAR_KEY,
-            parent=ti)
+    rot_type = (NiKeyType.QUADRATIC_KEY if rot_is_bezier else NiKeyType.LINEAR_KEY)
+    transl_type = (NiKeyType.QUADRATIC_KEY if transl_is_bezier else NiKeyType.LINEAR_KEY)
+        
+    td:NiTransformData = NiTransformData.New(
+        file=exporter.nif,
+        rotation_type=rot_type,
+        xyz_rotation_types=(rot_type, )*3,
+        translate_type=transl_type,
+        parent=ti,
+    )
+    # if quat:
+    #     td = NiTransformData.New(
+    #         file=exporter.nif, 
+    #         rotation_type=rot_type,
+    #         parent=ti)
+    # elif eu:
+    #     td = NiTransformData.New(
+    #         file=exporter.nif, 
+    #         rotation_type=rot_type,
+    #         xyz_rotation_types=(NiKeyType.QUADRATIC_KEY, )*3,
+    #         parent=ti)
+
+    # if loc:
+    #     td = NiTransformData.New(
+    #         file=exporter.nif, 
+    #         translate_type=transl_type,
+    #         parent=ti)
 
     # Lots of error-checking because the user could have done any damn thing.
     if len(quat) == 4:
-        timesig = timemin
-        while timesig < timemax + 0.0001:
-            fr = timesig * scene_fps + 1
-            tdq = Quaternion([quat[0].evaluate(fr), 
-                                quat[1].evaluate(fr), 
-                                quat[2].evaluate(fr), 
-                                quat[3].evaluate(fr)])
-            kq = targ_xf.to_quaternion()  @ tdq
-            td.add_qrotation_key(timesig, kq)
-            timesig += timestep
+        if exporter.export_each_frame:
+            timesig = timemin
+            while timesig < timemax + 0.0001:
+                fr = timesig * exporter.fps + 1
+                tdq = Quaternion([quat[0].evaluate(fr), 
+                                    quat[1].evaluate(fr), 
+                                    quat[2].evaluate(fr), 
+                                    quat[3].evaluate(fr)])
+                kq = targ_xf.to_quaternion()  @ tdq
+                td.add_qrotation_key(timesig, kq)
+                timesig += timestep
 
-    if len(loc) == 3:
-        timesig = timemin
-        while timesig < timemax + 0.0001:
-            fr = timesig * scene_fps + 1
-            kv =Vector([loc[0].evaluate(fr), 
-                        loc[1].evaluate(fr), 
-                        loc[2].evaluate(fr)])
-            rv = kv + targ_xf.translation
-            td.add_translation_key(timesig, rv)
-            timesig += timestep
+        else:
+            # In theory, each channel of an fcurve could have different keyframes. But it's
+            # not likely so assume we don't need to worry about it.
+            if not all_equal([len(quat[0].keyframe_points), len(quat[1].keyframe_points), 
+                              len(quat[2].keyframe_points), len(quat[3].keyframe_points)]):
+                raise Exception(f"Quaternion rotations keyframes for {exporter.action_target.name} do not match")
+            
+            if rot_is_bezier:
+                raise Exception(f"NYI: Quaternion keys with quadratic interpolation on bone {targetname}")
+            else:
+                for k1, k2, k3, k4 in zip(quat[0].keyframe_points, quat[1].keyframe_points, 
+                                        quat[2].keyframe_points, quat[3].keyframe_points):
+                    if not all_NearEqual([k1.co[0], k2.co[0], k3.co[0], k4.co[0]]):
+                        raise Exception (f"Quaternion keys not at matching frames for {exporter.action_target.name}")
+                    
+                    tdq = Quaternion([k1.co[1], k2.co[1], k3.co[1], k4.co[1]])
+                    timesig = (k1.co[0]-1)/exporter.fps
+                    kq = targ_xf.to_quaternion()  @ tdq
+                    td.add_qrotation_key(timesig, kq)
 
     if len(eu) == 3:
-        td.add_xyz_rotation_keys("X", exporter._get_curve_quad_values(eu[0]))
-        td.add_xyz_rotation_keys("Y", exporter._get_curve_quad_values(eu[1]))
-        td.add_xyz_rotation_keys("Z", exporter._get_curve_quad_values(eu[2]))
+        if exporter.export_each_frame:
+            raise Exception("NYI: Exporting each keyframe for Euler rotations")
+        else:
+            if not all_equal([len(eu[0].keyframe_points), len(eu[1].keyframe_points), 
+                                len(eu[2].keyframe_points)]):
+                raise Exception(f"Euler rotations keyframes for {exporter.action_target.name} do not match")
+            
+            if rot_is_bezier:
+                td.add_xyz_rotation_keys("X", exporter._get_curve_quad_values(eu[0]))
+                td.add_xyz_rotation_keys("Y", exporter._get_curve_quad_values(eu[1]))
+                td.add_xyz_rotation_keys("Z", exporter._get_curve_quad_values(eu[2]))
+            else:
+                td.add_xyz_rotation_keys("X", exporter._get_curve_linear_values(eu[0]))
+                td.add_xyz_rotation_keys("Y", exporter._get_curve_linear_values(eu[1]))
+                td.add_xyz_rotation_keys("Z", exporter._get_curve_linear_values(eu[2]))
+            
+    if len(loc) == 3:
+        if exporter.export_each_frame:
+            timesig = timemin
+            while timesig < timemax + 0.0001:
+                fr = timesig * exporter.fps + 1
+                kv =Vector([loc[0].evaluate(fr), 
+                            loc[1].evaluate(fr), 
+                            loc[2].evaluate(fr)])
+                rv = kv + targ_xf.translation
+                td.add_translation_key(timesig, rv)
+                timesig += timestep
+
+        else:
+            if not all_equal([len(loc[0].keyframe_points), 
+                                len(loc[1].keyframe_points), 
+                                len(loc[2].keyframe_points)]):
+                raise Exception(f"Translation keyframes do not match for {exporter.action_target.name}")
+            
+            if transl_is_bezier:
+                td.add_quad_translation_keys(exporter._get_curve_quad_vector(loc))
+            else:
+                for k0, k1, k2 in zip(loc[0].keyframe_points, loc[1].keyframe_points, loc[2].keyframe_points):
+                    if not all_NearEqual([k1.co.x, k2.co.x, k3.co.x]):
+                        raise Exception (f"Translation keys not at matching frames for {exporter.action_target.name}")
+                    
+                    timesig = (k0.co.x-1)/exporter.fps
+                    kv = Vector([k0.co.y, k1.co.y, k2.co.y])
+                    rv = kv + targ_xf.translation
+                    td.add_translation_key(timesig, rv)
+
 
     return (targetname if targetname else targetobj.name), ti
 
 NiTransformController.fcurve_exporter = _export_transform_curves
+
 
 def _export_color_curves(exporter, curve_list, target_obj=None):
     """

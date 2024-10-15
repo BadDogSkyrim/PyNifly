@@ -26,6 +26,8 @@ def load_nifly(nifly_path):
     nifly.addAnimKeyLinearQuat.restype = None
     nifly.addAnimKeyQuadFloat.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyFloatBuf)]
     nifly.addAnimKeyQuadFloat.restype = None
+    nifly.addAnimKeyQuadTrans.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyQuadTransBuf)]
+    nifly.addAnimKeyQuadTrans.restype = None
     nifly.addAnimKeyQuadXYZ.argtypes = [c_void_p, c_int, c_char, POINTER(NiAnimKeyFloatBuf)]
     nifly.addAnimKeyQuadXYZ.restype = None
     nifly.addAVObjectPaletteObject.argtypes = [c_void_p, c_uint32, c_char_p, c_uint32]
@@ -1480,6 +1482,14 @@ class NiTransformData(NiKeyFrameData):
         buf.value = loc[:]
         NifFile.nifly.addAnimKeyLinearTrans(self.file._handle, self.id, buf)
 
+    def add_quad_translation_keys(self, keys):
+        """
+        Add tranlation keys with quadratic interpolation.
+        keys = [NiAnimKeyQuadTransBuf, ...]
+        """
+        for k in keys:
+            NifFile.nifly.addAnimKeyQuadTrans(self.file._handle, self.id, k)
+
     def add_qrotation_key(self, time, q):
         """
         Add a key that does a rotation given as a quaternion, linear interpolation. 
@@ -1777,6 +1787,10 @@ class NiTransformController(NiKeyframeController):
         self._properties = NiTransformControllerBuf()
         NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
 
+    @classmethod
+    def _getbuf(cls, values=None):
+        return NiTransformControllerBuf(values)
+    
 block_types["NiTransformController"] = NiTransformController
 
 

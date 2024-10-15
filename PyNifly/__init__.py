@@ -3351,6 +3351,7 @@ class NifExporter:
     
         return result
 
+
     def write_bone(self, shape:NiShape, arma, bone_name, bones_to_write):
         """ 
         Write a shape's bone, writing all parent bones first if necessary Returns the name
@@ -3368,12 +3369,13 @@ class NifExporter:
         if not bone_name in bones_to_write and not self.preserve_hierarchy:
             return None
 
+        nifname = self.nif_name(bone_name)
+        self.writtenbones[bone_name] = nifname
+        
         bone_parent = arma.data.bones[bone_name].parent
         parname = None
         if bone_parent:
             parname = self.write_bone(shape, arma, bone_parent.name, bones_to_write)
-        
-        nifname = self.nif_name(bone_name)
 
         xf = get_bone_xform(arma, bone_name, self.game, 
                             self.preserve_hierarchy,
@@ -3387,7 +3389,6 @@ class NifExporter:
             # Not a shape bone but needed for the hierarchy
             self.nif.add_node(nifname, tb, parname)
         
-        self.writtenbones[bone_name] = nifname
         return nifname
 
 
@@ -3397,7 +3398,7 @@ class NifExporter:
         connected (do Blender armatures have to be fully connected?). 
         used_bones - list of bone names to write. 
         """
-        self.writtenbones = {}
+        # self.writtenbones = {}
         for bone_name in used_bones:
             if bone_name in arma.data.bones:
                 self.write_bone(shape, arma, bone_name)
@@ -3416,7 +3417,6 @@ class NifExporter:
     
         weights_by_bone = get_weights_by_bone(weights_by_vert, arma.data.bones.keys())
 
-        self.writtenbones = {}
         for bone_name in  weights_by_bone.keys():
             self.write_bone(new_shape, arma, bone_name, weights_by_bone.keys())
 
@@ -3692,6 +3692,8 @@ class NifExporter:
         self.connect_points.export_all(self.nif)
         controller.ControllerHandler.export_named_animations(
             self, self.objs_written)
+        if self.armature:
+            controller.ControllerHandler.export_animated_armature(self, self.armature)
 
         self.nif.save()
         log.info(f"..Wrote {fpath}")
@@ -4085,7 +4087,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             self.nif.initialize("SKYRIM", self.filepath, "NiControllerSequence", 
                                 os.path.splitext(os.path.basename(self.filepath))[0])
             
-            controller.ControllerHandler.export_animation(self, context.object)
+            controller.ControllerHandler.export_animated_armature(self, context.object)
 
             self.nif.save()
 

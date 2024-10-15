@@ -288,7 +288,7 @@ def assert_equiv(actual, expected, msg, e=0.0001):
 
 def assert_eq(actual, expected, msg):
     """Assert actual is same as expected."""
-    assert actual == expected, f"{msg} not the same: {actual} != {expected}"
+    assert actual == expected, f"{msg} not the same: {actual} = {expected}"
 
 
 def assert_lt(actual, expected, msg, e=0.0001):
@@ -298,12 +298,12 @@ def assert_lt(actual, expected, msg, e=0.0001):
 
 def assert_le(actual, expected, msg, e=0.0001):
     """Assert actual is less than expected."""
-    assert actual <= expected, f"Values actual less than expected for {msg}: {actual} < {expected}"
+    assert actual <= expected, f"Values actual less than expected for {msg}: {actual} <= {expected}"
 
 
 def assert_gt(actual, expected, msg, e=0.0001):
     """Assert actual is greater than expected."""
-    assert actual > expected, f"Values actual greater than expected for {msg}: {actual} < {expected}"
+    assert actual > expected, f"Values actual greater than expected for {msg}: {actual} > {expected}"
 
 
 def assert_seteq(actual, expected, msg):
@@ -316,7 +316,7 @@ def assert_seteq(actual, expected, msg):
         s2 = expected
     else:
         s2 = set(expected)
-    assert s1 == s2, f"{msg} not the same: {actual} != {expected}"
+    assert s1 == s2, f"{msg} not the same: {actual} == {expected}"
 
 
 def find_object(name, coll=bpy.context.scene.objects, fn=lambda x: x.name):

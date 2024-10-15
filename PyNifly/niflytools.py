@@ -223,6 +223,19 @@ def XFNearEqual(x1, x2, epsilon=0.001):
         and MatNearEqual(x1.rotation, x2.rotation, epsilon) \
         and NearEqual(x1.scale, x2.scale, epsilon)
 
+def all_equal(the_list):
+    if the_list:
+        return the_list[:-1] == the_list[1:]
+    return True
+
+def all_NearEqual(the_list, epsilon=0.001):
+    if the_list:
+        a = the_list[0]
+        for b in the_list[1:]:
+            if not NearEqual(a, b, epsilon=epsilon):
+                return False
+    return True
+
 
 def vert_uv_key(vert_index, uv):
     return str(vert_index) + "_" + str(uv)

@@ -154,6 +154,7 @@ extern "C" NIFLY_API void getAnimKeyLinearQuat(void* nifref, int tdID, int frame
 extern "C" NIFLY_API void addAnimKeyLinearQuat(void* nifref, int tdID, NiAnimKeyLinearQuatBuf * buf);
 extern "C" NIFLY_API void getAnimKeyLinearTrans(void* nifref, int tdID, int frame, NiAnimKeyLinearTransBuf * buf);
 extern "C" NIFLY_API void getAnimKeyQuadTrans(void* nifref, int tdID, int frame, NiAnimKeyQuadTransBuf * buf);
+extern "C" NIFLY_API void addAnimKeyQuadTrans(void* nifref, int tdID, NiAnimKeyQuadTransBuf* buf);
 extern "C" NIFLY_API void addAnimKeyLinearTrans(void* nifref, int tdID, NiAnimKeyLinearTransBuf * buf);
 extern "C" NIFLY_API int getTransformDataValues(void* nifref, int nodeIndex,
 	NiAnimationKeyQuatBuf * qBuf,

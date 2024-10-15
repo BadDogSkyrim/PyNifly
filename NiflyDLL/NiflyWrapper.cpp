@@ -1111,6 +1111,12 @@ NIFLY_API void setShapeSkinToBone(void* nifPtr, void* shapePtr, const char* bone
         nif->SetShapeTransformSkinToBone(shape, boneID, buf);
 }
 
+// OBSOLETE (used in tests)
+NIFLY_API void getNodeTransform(void* theNode, MatTransform* buf) {
+    nifly::NiNode* node = static_cast<nifly::NiNode*>(theNode);
+    *buf = node->GetTransformToParent();
+}
+
 NIFLY_API int getNodeTransformToGlobal(void* nifref, const char* nodeName, MatTransform* buf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     return nif->GetNodeTransformToGlobal(nodeName, *buf)? 1 : 0;
@@ -4130,6 +4136,31 @@ NIFLY_API void getAnimKeyQuadTrans(void* nifref, int tdID, int frame, NiAnimKeyQ
         for (int i = 0; i < 3; i++) buf->value[i] = k.value[i];
         for (int i = 0; i < 3; i++) buf->forward[i] = k.forward[i];
         for (int i = 0; i < 3; i++) buf->backward[i] = k.backward[i];
+        return;
+    }
+}
+
+
+NIFLY_API void addAnimKeyQuadTrans(void* nifref, int tdID, NiAnimKeyQuadTransBuf *buf)
+/* Add a quad animation key. */ {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::NiAnimationKey<Vector3> k;
+    k.time = buf->time;
+    k.value[0] = buf->value[0];
+    k.value[1] = buf->value[1];
+    k.value[2] = buf->value[2];
+
+
+    nifly::NiTransformData* td = hdr.GetBlock<NiTransformData>(tdID);
+    if (td) {
+        td->translations.AddKey(k);
+        return;
+    };
+    
+    nifly::NiPosData* pd = hdr.GetBlock<NiPosData>(tdID);
+    if (pd) {
+        pd->data.AddKey(k);
         return;
     }
 }

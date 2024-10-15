@@ -4095,11 +4095,14 @@ namespace NiflyDLLTests
 			don't check for that. We just care that the skeleton is animated. */
 
 			// Each node in this nif has a controller.
-			NiNodeBuf thighbuf;
+			NiNodeBuf thighbuf, pelvisbuf;
 			NiSingleInterpControllerBuf cbuf;
 			NiTransformInterpolatorBuf tibuf;
 			NiTransformDataBuf tdbuf;
 			NiAnimKeyLinearQuatBuf qbuf;
+			NiAnimKeyQuadXYZBuf qxyzbuf;
+			NiAnimKeyQuadTransBuf qtransbuf;
+			NiAnimKeyLinearTransBuf ltransbuf;
 			char pelvName[64];
 
 			void* thigh = findNodeByName(nif, "NPC LLegThigh");
@@ -4107,15 +4110,41 @@ namespace NiflyDLLTests
 			getNodeName(pelvis, pelvName, 64);
 			Assert::IsTrue(strcmp(pelvName, "NPC Pelvis") == 0, L"Have correct parent");
 
+			// Pelvis has Euler rotations
+			getNode(pelvis, &pelvisbuf);
+			getBlock(nif, pelvisbuf.controllerID, & cbuf);
+			getBlock(nif, cbuf.interpolatorID, &tibuf);
+			getBlock(nif, tibuf.dataID, &tdbuf);
+			Assert::AreEqual(int(NiKeyType::XYZ_ROTATION_KEY), int(tdbuf.rotationType));
+			Assert::AreEqual(16, int(tdbuf.xRotations.numKeys));
+
+			// Pelvis rotations use quadratic interpolation
+			Assert::AreEqual(int(NiKeyType::QUADRATIC_KEY), int(tdbuf.xRotations.interpolation));
+			getAnimKeyQuadXYZ(nif, tibuf.dataID, 'X', 1, &qxyzbuf);
+			Assert::IsTrue(TApproxEqual(qxyzbuf.time, 2.0), L"Have correct quad buf");
+			
+			// Pelvis translations use quadratic interpolation
+			Assert::AreEqual(16, int(tdbuf.translations.numKeys), L"Have correct translation count");
+			Assert::AreEqual(int(NiKeyType::QUADRATIC_KEY), int(tdbuf.translations.interpolation), L"Have correct interpolation");
+			getAnimKeyQuadTrans(nif, tibuf.dataID, 0, &qtransbuf);
+			Assert::IsTrue(TApproxEqual(qtransbuf.value[0], 338.3771), L"Have correct translation value");
+
+			// Thigh rotations are quaternions with no interpolation (linear)
 			getNode(thigh, &thighbuf);
 			getBlock(nif, thighbuf.controllerID, & cbuf);
 			getBlock(nif, cbuf.interpolatorID, &tibuf);
 			getBlock(nif, tibuf.dataID, &tdbuf);
 			Assert::IsTrue(tdbuf.rotationType == NiKeyType::LINEAR_KEY);
 			Assert::IsTrue(tdbuf.quaternionKeyCount == 161);
-
 			getAnimKeyLinearQuat(nif, tibuf.dataID, 0, &qbuf);
 			Assert::IsTrue(TApproxEqual(qbuf.value[0], 0.291), L"Have correct quaternion");
+
+			// Thigh translations are linear 
+			Assert::AreEqual(161, int(tdbuf.translations.numKeys), L"Have correct translation count");
+			Assert::AreEqual(int(NiKeyType::LINEAR_KEY), int(tdbuf.translations.interpolation), L"Have correct interpolation");
+			getAnimKeyLinearTrans(nif, tibuf.dataID, 0, &ltransbuf);
+			Assert::IsTrue(TApproxEqual(ltransbuf.value[2], 46.6265), L"Have correct translation value");
+
 		}
 
 		void TCopyQuadXYZKeys(void* nifOut, int tdOut, void* nif, int td, int numkeys, char dimension) {
@@ -4152,6 +4181,23 @@ namespace NiflyDLLTests
 				Assert::Fail(L"Unexpected key type");
 		}
 
+		void TCopyTranslationKeys(void* nifOut, int tdOut, void* nif, int td, NiTransformDataBuf* buf) {
+			if (buf->translations.interpolation == NiKeyType(LINEAR_KEY)) {
+				NiAnimKeyLinearTransBuf k;
+				for (int f = 0; f < buf->translations.numKeys; f++) {
+					getAnimKeyLinearTrans(nif, td, f, &k);\
+					addAnimKeyLinearTrans(nifOut, tdOut, &k);
+				}
+			}
+			else if (buf->translations.interpolation == NiKeyType(QUADRATIC_KEY)) {
+				NiAnimKeyQuadTransBuf k;
+				for (int f = 0; f < buf->translations.numKeys; f++) {
+					getAnimKeyQuadTrans(nif, td, f, &k);\
+					addAnimKeyQuadTrans(nifOut, tdOut, &k);
+				}
+			}
+		}
+
 		int TCopyTransformData(void* nifOut, int tiOut, NiTransformInterpolatorBuf* bufOut,
 			void* nif, int ti, NiTransformInterpolatorBuf* buf) {
 			NiTransformDataBuf tdbuf, tdbufOut;
@@ -4165,6 +4211,7 @@ namespace NiflyDLLTests
 			int tdOut = addBlock(nifOut, nullptr, &tdbufOut, tiOut);
 
 			TCopyRotationKeys(nifOut, tdOut, nif, buf->dataID, &tdbuf);
+			TCopyTranslationKeys(nifOut, tdOut, nif, buf->dataID, &tdbuf);
 
 			return tdOut;
 		}
