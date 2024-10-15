@@ -5265,6 +5265,8 @@ def TEST_ANIM_ALDUIN():
         print(f"\t{i}\t{v}\t{difv}")
         lastv = v
         
+    return
+
     ### EXPORT ###
 
     BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj], active=True)

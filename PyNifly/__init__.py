@@ -288,8 +288,11 @@ def mesh_create_partition_groups(the_shape, the_object):
     vg = the_object.vertex_groups
     partn_groups = []
     for p in the_shape.partitions:
-        new_vg = vg.new(name=p.name)
-        partn_groups.append(new_vg)
+        if p.name in vg:
+            new_vg = vg[p.name]
+        else:
+            new_vg = vg.new(name=p.name)
+            partn_groups.append(new_vg)
         try:
             # Walk through subsegments, if any. Skyrim doesn't have them.
             for sseg in p.subsegments:
@@ -298,8 +301,8 @@ def mesh_create_partition_groups(the_shape, the_object):
         except:
             pass
     for part_idx, face in zip(the_shape.partition_tris, mesh.polygons):
-        if part_idx < len(partn_groups):
-            this_vg = partn_groups[part_idx]
+        if part_idx < len(the_shape.partitions):
+            this_vg = vg[the_shape.partitions[part_idx].name]
             for lp in face.loop_indices:
                 this_loop = mesh.loops[lp]
                 this_vg.add((this_loop.vertex_index,), 1.0, 'ADD')
