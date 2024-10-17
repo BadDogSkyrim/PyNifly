@@ -5146,58 +5146,20 @@ def TEST_ANIM_ALDUIN():
     testfile = TT.test_file(r"tests\SkyrimSE\loadscreenalduinwall.nif")
     outfile = TT.test_file(r"tests/Out/TEST_ANIM_ALDUIN.nif")
 
-    def check_xf(node: pyn.NiNode):
-        """Check that the transform on the first animation keyframe is the same as the
-        transform on the parent interpolator. This animation starts at the base pose
-        position so all frame 0 transforms should be null."""
-        c:pyn.NiTimeController = node.controller
-        ti:pyn.NiTransformInterpolator = c.interpolator
-        td:pyn.NiTransformData = ti.data
-
-        if td.properties.rotationType == pyn.NiKeyType.XYZ_ROTATION_KEY:
-            f0 = [td.xrotations[0].value, td.yrotations[0].value, td.zrotations[0].value]
-            e = Euler(f0, 'XYZ')
-            q = e.to_quaternion()
-        elif td.properties.rotationType == pyn.NiKeyType.LINEAR_KEY:
-            q = Quaternion(td.qrotations[0].value)
-            e = q.to_euler()
-
-        print(e)
-        print(q)
-        print(q.to_axis_angle())
-        # m = BD.transform_to_matrix(combone.properties.transform)
-        tiq = Quaternion(ti.properties.rotation)
-        assert TT.MatNearEqual(tiq.to_matrix(), e.to_matrix()), f"{node.name} First keyframe has same rotation as parent TD: {tiq.to_euler()} == {e}"
-        nullq = tiq.inverted() @ e.to_quaternion()
-        assert TT.MatNearEqual(nullq.to_matrix(), Matrix.Identity(4)), f"{node.name} can invert rotation: {nullq}"
-        ve = Vector([round(v, 6) % math.pi for v in e[0:3]])
-        vtiq = Vector([round(v, 6) % math.pi for v in tiq.to_euler()[0:3]])
-        nulle = Euler(ve - vtiq, 'XYZ')
-        # if not TT.MatNearEqual(nulle.to_matrix(), Matrix.Identity(3)):
-        #     assert TT.MatNearEqual(nulle.to_matrix(), Matrix.Identity(3)), f"{node.name} can invert euler rotation: {nulle}"
-
-        tiv = Vector(ti.properties.translation)
-        v = Vector(td.translations[0].value)
-        assert TT.VNearEqual(tiv, v), f"{node.name} translations are the same: {tiv} == {v}"
-        assert TT.VNearEqual(v - tiv, [0,0,0]), f"{node.name} can subtract vector"
-
     bpy.ops.import_scene.pynifly(filepath=testfile,
                                  do_create_bones=False, 
                                  do_rename_bones=False,
                                  do_import_animations=True,
                                  use_blender_xf=True)
     
+    # Didn't rename the bones on import
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    assert "NPC COM" in arma.data.bones, "Have 'NPC COM'"
+
     # Transforms are correct for selected bones
     nif = pyn.NifFile(testfile)
-    check_xf(nif.nodes["NPC COM"])
-    check_xf(nif.nodes["NPC Pelvis"])
-    check_xf(nif.nodes["NPC LLegThigh"])
-    check_xf(nif.nodes["NPC LLegCalf"])
-    check_xf(nif.nodes["NPC LFinger12"])
-    check_xf(nif.nodes["NPC LLBrow"])
     assert 'pynRoot' in bpy.data.objects["MagicEffectsNode"].parent, f"Magic effect node not orphaned"
 
-    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     lcalf = arma.data.bones['NPC LLegCalf']
     lcalfp = arma.pose.bones['NPC LLegCalf']
     TT.assert_eq(lcalfp.rotation_mode, "QUATERNION", "L calf bone rotation mode")
@@ -5241,49 +5203,78 @@ def TEST_ANIM_ALDUIN():
             # print(f"{calffc[0].data_path}")
             # for i in range(0, 7): print(f"LLegCalf {i}: {calffc[i].keyframe_points[0].co[1]:0.4f}")
 
-    # Dump the entire Pelvis location curves from Blender and from the nif.
-    if arma.animation_data and arma.animation_data.action:
-        pelvc = [c for c in arma.animation_data.action.fcurves if "NPC Pelvis" in c.data_path]
-        locc = [c for c in pelvc if "location" in c.data_path]
-        print("---Blender X Curve---")
-        lastv = Vector()
-        for i, xyz in enumerate(zip(locc[0].keyframe_points, 
-                                  locc[1].keyframe_points, 
-                                  locc[2].keyframe_points)):
-            v = Vector((xyz[0].co[1], xyz[1].co[1], xyz[2].co[1]))
-            difv = v - lastv
-            print(f"\t{i}\t{v}  \t{difv}")
-            lastv = v
+    # # Dump the entire Pelvis location curves from Blender and from the nif.
+    # if arma.animation_data and arma.animation_data.action:
+    #     pelvc = [c for c in arma.animation_data.action.fcurves if "NPC Pelvis" in c.data_path]
+    #     locc = [c for c in pelvc if "location" in c.data_path]
+    #     print("---Blender X Curve---")
+    #     lastv = Vector()
+    #     for i, xyz in enumerate(zip(locc[0].keyframe_points, 
+    #                               locc[1].keyframe_points, 
+    #                               locc[2].keyframe_points)):
+    #         v = Vector((xyz[0].co[1], xyz[1].co[1], xyz[2].co[1]))
+    #         difv = v - lastv
+    #         print(f"\t{i}\t{v}  \t{difv}")
+    #         lastv = v
 
-    print("---Nif Translation Data---")
-    pelv = nif.nodes["NPC Pelvis"]
-    td = pelv.controller.interpolator.data
-    lastv = Vector()
-    for i, k in enumerate(td.translations):
-        v = Vector(k.value)
-        difv = v - lastv
-        print(f"\t{i}\t{v}\t{difv}")
-        lastv = v
+    # print("---Nif Translation Data---")
+    # pelv = nif.nodes["NPC Pelvis"]
+    # td = pelv.controller.interpolator.data
+    # lastv = Vector()
+    # for i, k in enumerate(td.translations):
+    #     v = Vector(k.value)
+    #     difv = v - lastv
+    #     print(f"\t{i}\t{v}\t{difv}")
+    #     lastv = v
         
-    return
-
     ### EXPORT ###
 
     BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile,
                                  preserve_hierarchy=True,)
 
+    # No nodes are emitted more than once--no duplicate names.
     nifcheck = pyn.NifFile(outfile)
     TT.assert_eq(len(nifcheck.node_ids), len(nifcheck.nodes), "No dup node names")
     rootbone = nifcheck.nodes['NPC Root [Root]']
+
+    # Eyes are skinned
+    eyes = nifcheck.nodes['AlduinAnim:1']
+    TT.assert_seteq(eyes.bone_names, ['NPC Head'], "Eyes are skinned to head")
+
+    # Rootbone's controller sets the time frame
     rootctlr = rootbone.controller
     TT.assert_equiv(rootctlr.properties.stopTime, 28.0, "stopTime")
+
+    # We have not changed the name to "NPC COM [COM ]" because we picked up the setting
+    # from the armature.
+    assert "NPC COM" in nifcheck.nodes, "Have 'NPC COM'"
+    
+    # Check all the bone and interpolator transforms.
+    TT.check_bone_controllers(nif, nifcheck, ["NPC Root [Root]", "NPC COM", "NPC Pelvis"])
+    nodenames1 = set()
+    for s in nif.shapes:
+        for bn in s.bone_names:
+            nodenames1.add(bn)
+    nodenames2 = set()
+    for s in nifcheck.shapes:
+        for bn in s.bone_names:
+            nodenames2.add(bn)
+    TT.assert_seteq(nodenames2, nodenames1, "Nodes")
+    TT.check_bone_controllers(nif, nifcheck, nodenames2)
+
+    # combone_in:pyn.NiNode = nif.nodes['NPC COM']
+    # cominterp_in:pyn.NiTransformInterpolator = combone_in.controller.interpolator
+    # assert NT.VNearEqual(cominterp.properties.translation, cominterp_in.properties.translation), f"Have correct translation"
+    # assert NT.VNearEqual(cominterp.properties.rotation, cominterp_in.properties.rotation), f"Have correct rotation"
+
+    # Neck hub rotates around Z with quadratic interpolation.
     neckhub:pyn.NiNode = nifcheck.nodes['NPC NeckHub']
     neckctlr:pyn.NiTransformController = neckhub.controller
     neckinterp:pyn.NiTransformInterpolator = neckctlr.interpolator
     neckdat:pyn.NiTransformData = neckinterp.data
     TT.assert_gt(len(neckdat.zrotations), 0, "Neck Z rotation count")
-    TT.assert_eq(neckdat.proerties.zRotations.interpolation, pyn.NiKeyType.QUADRATIC_KEY, "Rotation type")
+    TT.assert_eq(neckdat.properties.zRotations.interpolation, pyn.NiKeyType.QUADRATIC_KEY, "Rotation type")
 
 
 def TEST_ANIM_KF():
@@ -5952,7 +5943,7 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[TEST_ANIM_ALDUIN],
+        target_tests=[TEST_ANIM_DWEMER_CHEST],
         run_all=False,
         stop_on_fail=True,
         startfrom=None,

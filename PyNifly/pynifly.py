@@ -1474,7 +1474,8 @@ class NiTransformData(NiKeyFrameData):
             NifFile.nifly.getAnimKeyLinearXYZ(self.file._handle, self.id, dimension, frame, buf)
             k = LinearScalarKey(buf)
         return k
-    
+
+
     def add_translation_key(self, time, loc):
         """Add a key that does a translation. Keys must be added in time order."""
         buf = NiAnimKeyLinearTransBuf()
@@ -1570,6 +1571,10 @@ class NiTransformInterpolator(NiKeyBasedInterpolator):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._data = None
+
+    @property
+    def rotation(self):
+        return self.properties.rotation
         
     @classmethod
     def _getbuf(cls, values=None):
@@ -2316,12 +2321,16 @@ class NiDefaultAVObjectPalette(NiObject):
         return self._objects
     
     def add_object(self, objname, obj):
-        NifFile.nifly.addAVObjectPaletteObject(
-            self.file._handle,
-            self.id,
-            objname.encode('utf8'),
-            obj.id
-        )
+        if self._objects is None: 
+            self._objects = {}
+        if objname not in self._objects:
+            NifFile.nifly.addAVObjectPaletteObject(
+                self.file._handle,
+                self.id,
+                objname.encode('utf8'),
+                obj.id
+            )
+            self._objects[objname] = obj
     
     @classmethod
     def New(cls, file, scene=None, objects={}, parent=None):

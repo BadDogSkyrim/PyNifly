@@ -2666,6 +2666,7 @@ class NifExporter:
         self.trippath = ''
         self.chargen_ext = chargen
         self.writtenbones = {}
+        self.shape_bones = {}
         
         # Shape keys that start with underscore trigger a separate file export
         # for each shape key
@@ -3366,18 +3367,18 @@ class NifExporter:
         * bones_to_write - list of bones that the shape needs. If the bone isn't in this
           list, only write it if it's needed for the hierarchy.
         """
-        if bone_name in self.writtenbones:
-            return self.writtenbones[bone_name]
+        if bone_name in self.shape_bones:
+            return self.shape_bones[bone_name]
 
         if not bone_name in bones_to_write and not self.preserve_hierarchy:
             return None
 
         nifname = self.nif_name(bone_name)
-        self.writtenbones[bone_name] = nifname
+        self.shape_bones[bone_name] = nifname
         
         bone_parent = arma.data.bones[bone_name].parent
         parname = None
-        if bone_parent:
+        if bone_parent and bone_name not in self.writtenbones:
             parname = self.write_bone(shape, arma, bone_parent.name, bones_to_write)
 
         xf = get_bone_xform(arma, bone_name, self.game, 
@@ -3388,9 +3389,11 @@ class NifExporter:
         if bone_name in bones_to_write and shape:
             shape.add_bone(nifname, tb, 
                            (parname if self.preserve_hierarchy else None))
-        elif self.preserve_hierarchy or not shape:
+        elif bone_name not in self.writtenbones and (self.preserve_hierarchy or not shape):
             # Not a shape bone but needed for the hierarchy
             self.nif.add_node(nifname, tb, parname)
+        
+        self.writtenbones[bone_name] = nifname
         
         return nifname
 
@@ -3461,6 +3464,7 @@ class NifExporter:
         log.info(f"Exporting {obj.name}")
 
         self.active_obj = obj
+        self.shape_bones = {}
 
         # If there's a hierarchy, export parents (recursively) first
         my_parent = self.export_shape_parents(obj)
@@ -3905,6 +3909,17 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 
             if export_armature and 'PYN_RENAME_BONES' in export_armature:
                 self.do_rename_bones = export_armature['PYN_RENAME_BONES']
+            else:
+                # User might have selected a root or an object, not an armature. Pick up
+                # the rename flag from whetever they did select.
+                objs = self.objects_to_export
+                i = 0
+                while i < len(objs):
+                    objs.extend(objs[i].children)
+                    i += 1
+                objs_flagged = [x for x in objs if 'PYN_RENAME_BONES' in x]
+                if objs_flagged:
+                    self.do_rename_bones = all(x['PYN_RENAME_BONES'] for x in objs_flagged)
 
             if export_armature and 'PYN_RENAME_BONES_NIFTOOLS' in export_armature:
                 self.rename_bones_niftools = export_armature['PYN_RENAME_BONES_NIFTOOLS']

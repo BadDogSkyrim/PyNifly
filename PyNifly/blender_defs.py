@@ -126,6 +126,19 @@ def make_transformbuf(m: Matrix) -> TransformBuf:
     return buf
 
 
+def key_rotation(ti:NiTransformData, frame):
+    """
+    Return the rotation element at the given frame as a quaternion.
+    """
+    if ti.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
+        f0 = [ti.xrotations[frame].value, ti.yrotations[frame].value, ti.zrotations[frame].value]
+        td_rot_euler = Euler(f0, 'XYZ')
+        td_rot_quat = td_rot_euler.to_quaternion()
+    elif ti.properties.rotationType == NiKeyType.LINEAR_KEY:
+        td_rot_quat = Quaternion(ti.qrotations[frame].value)
+    return td_rot_quat
+
+
 def append_if_new(theList, theVector, errorfactor):
     """ Append vector to list if not already present (to within errorfactor) """
     for a in theList:
@@ -534,6 +547,11 @@ class ReprObject():
     def __init__(self, blender_obj=None, nifnode=None):
         self.blender_obj = blender_obj
         self.nifnode = nifnode
+
+    @property
+    def name(self):
+        if self.blender_obj: return self.blender_obj.name
+        return self.nifnode.name
 
 
 class ReprObjectCollection():

@@ -265,7 +265,7 @@ def apply_animation(anim_name, ctxt=bpy.context):
     return res
 
 
-def curve_target(curve):
+def curve_bone_target(curve):
     """
     Return the curve target for the curve. The target is the bone name if any,
     otherwise ''.
@@ -750,7 +750,7 @@ class ControllerHandler():
         return keys
 
 
-    def _get_curve_quad_vector(self, curvexyz):
+    def _get_curve_quad_vector(self, curvexyz, basexf=Matrix.Identity(4)):
         """
         Transform a blender curve into nif keys. 
 
@@ -767,9 +767,9 @@ class ControllerHandler():
             if not all_NearEqual([x.time, y.time, z.time]):
                 raise Exception(f"Time values do not match")
             k.time = x.time
-            k.value[0] = x.value
-            k.value[1] = y.value
-            k.value[2] = z.value
+            k.value[0] = x.value + basexf.translation.x
+            k.value[1] = y.value + basexf.translation.y
+            k.value[2] = z.value + basexf.translation.z
             k.forward[0] = x.forward
             k.forward[1] = y.forward
             k.forward[2] = z.forward
@@ -905,14 +905,11 @@ class ControllerHandler():
                 targname, ti = self._export_transform_curves(action_target, curve_list)
                 if targname and ti:
                     controller.add_controlled_block(
-                        name=self.nif.nif_name(targname),
+                        name=self.nif_name(targname),
                         interpolator=ti,
-                        node_name = self.nif.nif_name(targname),
+                        node_name = self.nif_name(targname),
                         controller_type = "NiTransformController")
                     
-        elif action_target.type == 'SHADER':
-            self.warn(f"NYI: Shader controller export")
-
         elif action_target.type in ['EMPTY', 'MESH']:
             curve_list = list(self.action.fcurves)
             while curve_list:
@@ -934,6 +931,10 @@ class ControllerHandler():
                         node_name = target.nifnode.name,
                         controller_type = "NiTransformController")
             self._add_controlled_object(target)
+        
+        else:
+            raise Exception(f"NYI: Export of controller for type {action_target.type}")
+
             
 
     def _set_controller_props(self, props):
@@ -1011,7 +1012,7 @@ class ControllerHandler():
                 # if the target is an ARMATURE, do something different
                 interps = []
                 try:
-                    interps = self._export_activated_obj(reprobj, act)
+                    interps = self._export_activated_obj(reprobj, None, act)
                 except:
                     log.exception(f"Could not export animation {act.name} on object {reprobj.blender_obj.name}")
                 
@@ -1051,9 +1052,9 @@ class ControllerHandler():
             targname, ti = exporter._export_transform_curves(arma, curve_list)
             if targname and ti:
                 controller.add_controlled_block(
-                    name=exporter.nif.nif_name(targname),
+                    name=exporter.nif_name(targname),
                     interpolator=ti,
-                    node_name = exporter.nif.nif_name(targname),
+                    node_name = exporter.nif_name(targname),
                     controller_type = "NiTransformController")
 
 
@@ -1071,7 +1072,7 @@ class ControllerHandler():
         curves = list(exporter.action.fcurves)
         while curves:
             bonename, ti = NiTransformController.fcurve_exporter(exporter, curves, arma)
-            nifbone = exporter.nif.nodes[exporter.nif.nif_name(bonename)]
+            nifbone = exporter.nif.nodes[exporter.nif_name(bonename)]
             ctlr = NiTransformController.New(
                 file=exporter.nif,
                 flags=TimeControllerFlags(
@@ -1373,7 +1374,7 @@ def _import_transform_interpolator(ti:NiTransformInterpolator,
     else:
         have_parent_rotation = True
         tiq = Quaternion(ti.properties.rotation)
-    # qinv = tiq.inverted()
+    qinv = tiq.inverted()
     tiv = Vector(ti.properties.translation)
 
     # Some interpolators have bogus translations. Dunno why.
@@ -1663,10 +1664,12 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
     """
     if not curve_list: return None, None
     
-    targetname = curve_target(curve_list[0])
-    if not targetname in targetobj.data.bones:
-        log.warning(f"Target bone not found in armature: {targetobj.name}/{targetname}")
-        return
+    targetname = curve_bone_target(curve_list[0])
+    if targetname:
+        # Bone target implies targetobj is an armature containing that bone.
+        if not targetname in targetobj.data.bones:
+            raise Exception(f"Target bone not found in armature: {targetobj.name}/{targetname}")
+        # Else targetobj is a ReprObject for a node being manipulated.
         
     loc = []
     eu = []
@@ -1681,7 +1684,7 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
     # decide.
     rot_is_bezier = transl_is_bezier = scale_is_bezier = False
 
-    while curve_list and curve_target(curve_list[0]) == targetname:
+    while curve_list and curve_bone_target(curve_list[0]) == targetname:
         c = curve_list.pop(0)
         timemax = max(timemax, (c.range()[1]-1)/exporter.fps)
         timemin = min(timemin, (c.range()[0]-1)/exporter.fps)
@@ -1709,7 +1712,7 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
     if len(loc) != 3 and len(eu) != 3 and len(quat) != 4:
         raise Exception(f"No useable transforms in group {targetobj.name}/{targetname}")
 
-    if targetobj.type == 'ARMATURE':
+    if targetname:
         targ = targetobj.data.bones[targetname]
         if targ.parent:
             targ_xf = targ.parent.matrix_local.inverted() @ targ.matrix_local
@@ -1717,40 +1720,38 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
             targ_xf = targ.matrix_local
     else:
         targ_xf = Matrix.Identity(4)
+    targ_q = targ_xf.to_quaternion()
 
     ti = NiTransformInterpolator.New(
         file=exporter.nif,
         translation=targ_xf.translation[:],
-        rotation=targ_xf.to_quaternion()[:],
+        rotation=targ_q[:],
         scale=1.0,
     )
     
-    rot_type = (NiKeyType.QUADRATIC_KEY if rot_is_bezier else NiKeyType.LINEAR_KEY)
-    transl_type = (NiKeyType.QUADRATIC_KEY if transl_is_bezier else NiKeyType.LINEAR_KEY)
-        
     td:NiTransformData = NiTransformData.New(
         file=exporter.nif,
-        rotation_type=rot_type,
-        xyz_rotation_types=(rot_type, )*3,
-        translate_type=transl_type,
+        rotation_type=(NiKeyType.XYZ_ROTATION_KEY if eu else NiKeyType.LINEAR_KEY),
+        xyz_rotation_types=((NiKeyType.QUADRATIC_KEY if rot_is_bezier else NiKeyType.LINEAR_KEY), )*3,
+        translate_type=(NiKeyType.QUADRATIC_KEY if transl_is_bezier else NiKeyType.LINEAR_KEY),
         parent=ti,
     )
     # if quat:
     #     td = NiTransformData.New(
     #         file=exporter.nif, 
-    #         rotation_type=rot_type,
+    #         rotation_type=rot_interpl,
     #         parent=ti)
     # elif eu:
     #     td = NiTransformData.New(
     #         file=exporter.nif, 
-    #         rotation_type=rot_type,
+    #         rotation_type=rot_interpl,
     #         xyz_rotation_types=(NiKeyType.QUADRATIC_KEY, )*3,
     #         parent=ti)
 
     # if loc:
     #     td = NiTransformData.New(
     #         file=exporter.nif, 
-    #         translate_type=transl_type,
+    #         translate_type=trans_interpl,
     #         parent=ti)
 
     # Lots of error-checking because the user could have done any damn thing.
@@ -1763,7 +1764,7 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
                                     quat[1].evaluate(fr), 
                                     quat[2].evaluate(fr), 
                                     quat[3].evaluate(fr)])
-                kq = targ_xf.to_quaternion()  @ tdq
+                kq = targ_q  @ tdq
                 td.add_qrotation_key(timesig, kq)
                 timesig += timestep
 
@@ -1772,19 +1773,19 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
             # not likely so assume we don't need to worry about it.
             if not all_equal([len(quat[0].keyframe_points), len(quat[1].keyframe_points), 
                               len(quat[2].keyframe_points), len(quat[3].keyframe_points)]):
-                raise Exception(f"Quaternion rotations keyframes for {exporter.action_target.name} do not match")
+                raise Exception(f"Quaternion rotations keyframes for {targetobj.name}/{targetname} do not match")
             
             if rot_is_bezier:
-                raise Exception(f"NYI: Quaternion keys with quadratic interpolation on bone {targetname}")
+                raise Exception(f"NYI: Quaternion keys with quadratic interpolation on {targetobj.name}/{targetname}")
             else:
                 for k1, k2, k3, k4 in zip(quat[0].keyframe_points, quat[1].keyframe_points, 
                                         quat[2].keyframe_points, quat[3].keyframe_points):
                     if not all_NearEqual([k1.co[0], k2.co[0], k3.co[0], k4.co[0]]):
-                        raise Exception (f"Quaternion keys not at matching frames for {exporter.action_target.name}")
+                        raise Exception (f"Quaternion keys not at matching frames for {targetobj.name}/{targetname}")
                     
                     tdq = Quaternion([k1.co[1], k2.co[1], k3.co[1], k4.co[1]])
                     timesig = (k1.co[0]-1)/exporter.fps
-                    kq = targ_xf.to_quaternion()  @ tdq
+                    kq = targ_q  @ tdq
                     td.add_qrotation_key(timesig, kq)
 
     if len(eu) == 3:
@@ -1793,16 +1794,29 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
         else:
             if not all_equal([len(eu[0].keyframe_points), len(eu[1].keyframe_points), 
                                 len(eu[2].keyframe_points)]):
-                raise Exception(f"Euler rotations keyframes for {exporter.action_target.name} do not match")
+                raise Exception(f"Euler rotations keyframes for {targetobj.name}/{targetname} do not match")
             
             if rot_is_bezier:
-                td.add_xyz_rotation_keys("X", exporter._get_curve_quad_values(eu[0]))
-                td.add_xyz_rotation_keys("Y", exporter._get_curve_quad_values(eu[1]))
-                td.add_xyz_rotation_keys("Z", exporter._get_curve_quad_values(eu[2]))
+                xkeys = exporter._get_curve_quad_values(eu[0])
+                ykeys = exporter._get_curve_quad_values(eu[1])
+                zkeys = exporter._get_curve_quad_values(eu[2])
             else:
-                td.add_xyz_rotation_keys("X", exporter._get_curve_linear_values(eu[0]))
-                td.add_xyz_rotation_keys("Y", exporter._get_curve_linear_values(eu[1]))
-                td.add_xyz_rotation_keys("Z", exporter._get_curve_linear_values(eu[2]))
+                xkeys = exporter._get_curve_linear_values(eu[0])
+                ykeys = exporter._get_curve_linear_values(eu[1])
+                zkeys = exporter._get_curve_linear_values(eu[2])
+
+            for xk, yk, zk in zip(xkeys, ykeys, zkeys):
+                euk = Euler([xk.value, yk.value, zk.value])
+                quatk = euk.to_quaternion()
+                quatk1 = targ_q @ quatk
+                euk1 = quatk1.to_euler()
+                xk.value = euk1[0]
+                yk.value = euk1[1]
+                zk.value = euk1[2]
+
+            td.add_xyz_rotation_keys("X", xkeys)
+            td.add_xyz_rotation_keys("Y", ykeys)
+            td.add_xyz_rotation_keys("Z", zkeys)
             
     if len(loc) == 3:
         if exporter.export_each_frame:
@@ -1823,7 +1837,7 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
                 raise Exception(f"Translation keyframes do not match for {exporter.action_target.name}")
             
             if transl_is_bezier:
-                td.add_quad_translation_keys(exporter._get_curve_quad_vector(loc))
+                td.add_quad_translation_keys(exporter._get_curve_quad_vector(loc, targ_xf))
             else:
                 for k0, k1, k2 in zip(loc[0].keyframe_points, loc[1].keyframe_points, loc[2].keyframe_points):
                     if not all_NearEqual([k1.co.x, k2.co.x, k3.co.x]):

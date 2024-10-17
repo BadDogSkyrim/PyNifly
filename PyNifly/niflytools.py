@@ -223,6 +223,9 @@ def XFNearEqual(x1, x2, epsilon=0.001):
         and MatNearEqual(x1.rotation, x2.rotation, epsilon) \
         and NearEqual(x1.scale, x2.scale, epsilon)
 
+def QNearEqual(q1, q2, epsilon=0.001):
+    return NearEqual(abs(q1.dot(q2)), 1.0, epsilon=epsilon)
+
 def all_equal(the_list):
     if the_list:
         return the_list[:-1] == the_list[1:]

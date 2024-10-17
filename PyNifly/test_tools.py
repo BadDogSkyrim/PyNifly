@@ -5,11 +5,12 @@ import os
 import os.path
 import pathlib
 import logging
+import math
 import bpy
 from mathutils import Matrix, Vector, Quaternion, Euler
 from niflytools import *
 import blender_defs as BD
-
+import pynifly as pyn
 
 pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
 pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
@@ -316,7 +317,7 @@ def assert_seteq(actual, expected, msg):
         s2 = expected
     else:
         s2 = set(expected)
-    assert s1 == s2, f"{msg} not the same: {actual} == {expected}"
+    assert len(s1.symmetric_difference(s2)) == 0, f"{msg} not the same: {s1.symmetric_difference(s2)}"
 
 
 def find_object(name, coll=bpy.context.scene.objects, fn=lambda x: x.name):
@@ -344,8 +345,42 @@ def find_object(name, coll=bpy.context.scene.objects, fn=lambda x: x.name):
     return foundobj
 
 
-def test_value(name, v1, v2):
-    assert v1 == v2, f"{name} value is correct: {v1} == {v2}"
-
 def test_floatarray(name, v1, v2, epsilon=0.0001):
     assert BD.VNearEqual(v1, v2, epsilon=epsilon), f"{name} value is correct: {v1} == {v2}"
+
+
+def check_xf(node1:pyn.NiNode, node2:pyn.NiNode):
+    """
+    Check that the transform on the node, interpolator, and first animation keyframe 
+    match between nodes.
+    """
+    c1:pyn.NiTimeController = node1.controller
+    ti1:pyn.NiTransformInterpolator = c1.interpolator
+    td1:pyn.NiTransformData = ti1.data
+    c2:pyn.NiTimeController = node2.controller
+    ti2:pyn.NiTransformInterpolator = c2.interpolator
+    td2:pyn.NiTransformData = ti2.data
+
+    assert node1.properties.transform.NearEqual(node2.properties.transform, epsilon=0.001), \
+        f"{node1.name} transforms match"
+    assert QNearEqual(Quaternion(ti1.rotation), Quaternion(ti2.rotation), epsilon=0.001), \
+        f"{node1.name} interpolators have same rotation"
+    assert QNearEqual(BD.key_rotation(td1, 0), BD.key_rotation(td2, 0), epsilon=0.1), \
+        f"{node1.name} transform data rotations are same on first keyframe: {BD.key_rotation(td1, 0)} == {BD.key_rotation(td2, 0)}"
+    assert VNearEqual(td1.translations[0].value, td2.translations[0].value), \
+        f"{node1.name} transform data translations are same on first keyframe"
+
+    tiv = Vector(ti1.properties.translation)
+    v = Vector(td1.translations[0].value)
+    assert VNearEqual(tiv, v), f"{node1.name} translations are the same: {tiv} == {v}"
+
+
+def check_bone_controllers(nif1, nif2, nodenames):
+    """
+    Compare all nodes in "nodenames" and ensure transforms, controllers, transforms on
+    interpolators, and transform data matches.
+    """
+    for bname in nodenames:
+        b1:pyn.NiNode = nif1.nodes[bname]
+        b2:pyn.NiNode = nif2.nodes[bname]
+        check_xf(b1, b2)
