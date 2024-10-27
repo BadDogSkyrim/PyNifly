@@ -5899,7 +5899,7 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[TEST_SHADER_EFFECT_GLOWINGONE],
+        target_tests=[TEST_SEGMENTS],
         run_all=False,
         stop_on_fail=False,
         startfrom=None,
