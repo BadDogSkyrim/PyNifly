@@ -124,6 +124,17 @@ def find_vertex(mesh, targetloc, epsilon=0.01):
     return -1
 
 
+def vertices_in_group(obj, groupname):
+    """Return all vertices in the given group."""
+    gi = obj.vertex_groups[groupname].index
+    verts = []
+    for v in obj.data.vertices:
+        for g in v.groups:
+            if g.group == gi:
+                verts.append(v)
+    return verts
+
+
 def remove_file(fn):
     if os.path.exists(fn):
         os.remove(fn)
@@ -287,9 +298,12 @@ def assert_equiv(actual, expected, msg, e=0.0001):
             assert NearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
 
 
-def assert_eq(actual, expected, msg):
-    """Assert actual is same as expected."""
-    assert actual == expected, f"{msg} not the same: {actual} = {expected}"
+def assert_eq(*args):
+    """Assert all elements but the last are equal. The last is the message to use."""
+    msg = args[-1]
+    values = args[0:-1]
+    assert values[0:-1] == values[1:], f"{msg} have same value: {values}"
+    # assert actual == expected, f"{msg} not the same: {actual} = {expected}"
 
 
 def assert_lt(actual, expected, msg, e=0.0001):
@@ -307,8 +321,12 @@ def assert_gt(actual, expected, msg, e=0.0001):
     assert actual > expected, f"Values actual greater than expected for {msg}: {actual} > {expected}"
 
 
+def assert_contains(element, collection, message):
+    assert element in collection, f"{message} {element} in {collection}"
+
+
 def assert_seteq(actual, expected, msg):
-    """Assert two lists have the same members."""
+    """Assert two lists have the same members. Members may be duplicated."""
     if type(actual) == set:
         s1 = actual
     else:
@@ -318,6 +336,12 @@ def assert_seteq(actual, expected, msg):
     else:
         s2 = set(expected)
     assert len(s1.symmetric_difference(s2)) == 0, f"{msg} not the same: {s1.symmetric_difference(s2)}"
+
+
+def assert_samemembers(actual, expected, msg):
+    """Assert two lists have the same members, maybe not in the same order."""
+    assert_seteq(actual, expected, msg)
+    assert len(actual) == len(expected), f"{msg} not the same: {actual} == {expected}"
 
 
 def find_object(name, coll=bpy.context.scene.objects, fn=lambda x: x.name):
@@ -343,6 +367,14 @@ def find_object(name, coll=bpy.context.scene.objects, fn=lambda x: x.name):
             foundobj = obj
             break
     return foundobj
+
+
+def select_object(name, coll=bpy.context.scene.objects, fn=lambda x: x.name):
+    obj = find_object(name, coll, fn)
+    for o in coll:
+        o.select_set(True if o == obj else False)
+    if obj: bpy.context.view_layer.objects.active = obj
+
 
 
 def test_floatarray(name, v1, v2, epsilon=0.0001):

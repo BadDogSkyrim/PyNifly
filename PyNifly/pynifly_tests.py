@@ -149,7 +149,7 @@ def TEST_NIFDEFS():
     assert b.collisionID == 4, f"collisionID is set"
     assert b.shaderPropertyID == NODEID_NONE, f"shaderPropertyID is not set"
 
-    b = blockBuffers['BSLODTriShape']({"flags": 24, "collisionID": 4})
+    b = BSLODTriShapeBuf({"flags": 24, "collisionID": 4})
     assert b.flags == 24, f"Flags are correct"
     assert b.collisionID == 4, f"collisionID is set"
     assert b.shaderPropertyID == NODEID_NONE, f"shaderPropertyID is not set"
@@ -733,7 +733,12 @@ def TEST_SEGMENTS():
     subseg_names = [x.name for x in subsegs]
     assert len(subsegs) > 0, "Shapes have subsegments"
     assert subsegs[0].name == "FO4 Seg 002 | 000 | Up Arm.R", f"Subsegments have human-readable names: '{subsegs[0].name}'"
-    assert "FO4 Seg 002 | 003 | Lo Arm.R" in subseg_names, f"Missing lower arm subsegment in {subseg_names}"
+    assert "FO4 Seg 002 | 003 | Lo Arm.R" in subseg_names, f"Have lower arm subsegment in {subseg_names}"
+
+    # Vertices are associated with subsegments or segments.
+    t = body.partition_tris[10]
+    for i in t:
+        print(body.partitions[i].name)
 
     """Can write segments back out"""
     # When writing segments, the tri list refers to segments/subsegments by ID *not*
@@ -1954,8 +1959,8 @@ def TEST_ANIMATION_NOBLECHEST():
         "Lid01",
         interpolator=openinterp,
         controller=openmtt,
-        node_name="Lid01",
-        controller_type="NiTransformController",
+        #node_name="Lid01",
+        #controller_type="NiTransformController",
     )
 
     closeseq = NiControllerSequence.New(
@@ -2468,8 +2473,8 @@ logging.basicConfig()
 mylog.setLevel(logging.DEBUG)
 
 # ############## TESTS TO RUN #############
-stop_on_fail = False
-# execute(testlist=[TEST_ANIMATION_ALDUIN])
+stop_on_fail = True
+execute(testlist=[TEST_SEGMENTS])
 # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
-execute(exclude=[TEST_SET_SKINTINT])
+# execute(exclude=[TEST_SET_SKINTINT])
 #

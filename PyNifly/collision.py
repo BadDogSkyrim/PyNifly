@@ -175,7 +175,7 @@ class CollisionHandler():
         return self.import_xf.to_scale()[0]
 
 
-    def import_bhkConvexTransformShape(self, cs:CollisionShape, parentxf:Matrix):
+    def import_bhkConvexTransformShape(self, cs:bhkShape, parentxf:Matrix):
         """
         bhkConvexTransformShape just repositions its child. It's not represented
         in blender--its transform is applied directly to the collision shape.
@@ -190,7 +190,7 @@ class CollisionHandler():
         return childobj
 
 
-    def import_bhkListShape(self, cs:CollisionShape, parentxf:Matrix):
+    def import_bhkListShape(self, cs:bhkShape, parentxf:Matrix):
         """ 
         Import collision list. 
         cs= collision node in nif. 
@@ -213,7 +213,7 @@ class CollisionHandler():
         return cshape
 
 
-    def import_bhkBoxShape(self, cs:CollisionShape, parentxf):
+    def import_bhkBoxShape(self, cs:bhkShape, parentxf):
         m = bpy.data.meshes.new(cs.blockname)
         prop = cs.properties
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
@@ -245,7 +245,7 @@ class CollisionHandler():
 
         return obj
         
-    def import_bhkCapsuleShape(self, cs:CollisionShape, parentxf:Matrix):
+    def import_bhkCapsuleShape(self, cs:bhkShape, parentxf:Matrix):
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
         prop = cs.properties
         p1 = Vector(prop.point1) * sf
@@ -266,7 +266,7 @@ class CollisionHandler():
         return obj
         
 
-    def import_bhkSphereShape(self, cs:CollisionShape, parentxf:Matrix):
+    def import_bhkSphereShape(self, cs:bhkShape, parentxf:Matrix):
         prop = cs.properties
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
         shaperad = prop.bhkRadius * sf
@@ -286,7 +286,7 @@ class CollisionHandler():
         return obj
         
 
-    def show_collision_normals(self, cs:CollisionShape, cso):
+    def show_collision_normals(self, cs:bhkShape, cso):
         #norms = [Vector(n)*HAVOC_SCALE_FACTOR for n in cs.normals]
         sf = -HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
         # sf = -HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
@@ -305,7 +305,7 @@ class CollisionHandler():
             
 
     def import_bhkConvexVerticesShape(self, 
-                                      collisionnode:CollisionShape,
+                                      collisionnode:bhkShape,
                                       parentxf:Matrix):
         """
         Import a bhkConvexVerticesShape object.
@@ -350,7 +350,7 @@ class CollisionHandler():
         return obj
 
 
-    def import_collision_shape(self, cs:CollisionShape, parentxf):
+    def import_collision_shape(self, cs:bhkShape, parentxf):
         sh = None
         #log.debug(f"Found collision shape {cs.blockname}")
         if cs.blockname == "bhkBoxShape":
@@ -430,7 +430,7 @@ class CollisionHandler():
 
     @classmethod
     def import_collision_obj(
-        cls, parent_handler, c:CollisionObject, parentObj=None, bone:NiNode=None):
+        cls, parent_handler, c:NiCollisionObject, parentObj=None, bone:NiNode=None):
         """
         Import collision object. 
         
@@ -516,7 +516,7 @@ class CollisionHandler():
         return cshape, s.location, Quaternion()
 
 
-    def export_bhkBoxShape(self, box, xform) -> CollisionShape:
+    def export_bhkBoxShape(self, box, xform) -> bhkShape:
         """Export box shape. Box is assumed to have 6 faces, all right angles, any orientation.
         * box = collision shape blender object.
         * xform = Unused. Transform is set by parent.

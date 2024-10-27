@@ -3678,6 +3678,7 @@ namespace NiflyDLLTests
 			getBlock(nif, cs[0], &data.ctlrSeq[0]);
 			getBlock(nif, cs[1], &data.ctlrSeq[1]);
 			Assert::IsTrue(TApproxEqual(0.6, data.ctlrSeq[0].stopTime), L"StopTime correct");
+			Assert::AreEqual(int(rootbuf.controllerID), int(data.ctlrSeq[0].managerID), L"Manaager ID correct");
 
 			char* csName0 = new char[64];
 			char* csName1 = new char[64];

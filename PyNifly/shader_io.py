@@ -269,28 +269,33 @@ def make_shader_skyrim(parent, shader_path, location,
                 data_to.node_groups = ["SkyrimShader:Face"]
             shader_node = parent.nodes.new('ShaderNodeGroup')
             shader_node.name = shader_node.label = ('Skyrim Shader - Face')
-        elif msn:
-            with bpy.data.libraries.load(shader_path) as (data_from, data_to):
-                data_to.node_groups = ["SkyrimShader:MSN"]
-            shader_node = parent.nodes.new('ShaderNodeGroup')
-            shader_node.name = shader_node.label = ('Skyrim Shader - MSN')
+            shader_node.node_tree = data_to.node_groups[0]
+        # elif msn:
+        #     with bpy.data.libraries.load(shader_path) as (data_from, data_to):
+        #         data_to.node_groups = ["SkyrimShader:MSN"]
+        #     shader_node = parent.nodes.new('ShaderNodeGroup')
+        #     shader_node.name = shader_node.label = ('Skyrim Shader - MSN')
         elif effect_shader:
             with bpy.data.libraries.load(shader_path) as (data_from, data_to):
                 data_to.node_groups = ["SkyrimShader:Effect"]
             shader_node = parent.nodes.new('ShaderNodeGroup')
             shader_node.name = shader_node.label = ('Skyrim Shader - Effect')
+            shader_node.node_tree = data_to.node_groups[0]
         else:
             with bpy.data.libraries.load(shader_path) as (data_from, data_to):
-                data_to.node_groups = ["SkyrimShader:TSN"]
+                data_to.node_groups = ["SkyrimShader:Default"]
             shader_node = parent.nodes.new('ShaderNodeGroup')
-            shader_node.name = shader_node.label = ('Skyrim Shader - TSN')
+            shader_node.name = shader_node.label = ('Skyrim Shader')
+            shader_node.node_tree = data_to.node_groups[0]
+            shader_node.inputs["MSN"].default_value = bool(msn)
 
         shader_node.location = location
-        shader_node.node_tree = data_to.node_groups[0]
 
         return shader_node
+    
     except Exception as e:
-        log.warn(f"Could not load shader from assets file: {traceback.format_exc()}; building nodes directly")
+        log.warning(f"Could not load shader from assets file: {traceback.format_exc()}; building nodes directly")
+        
 
     grp = bpy.data.node_groups.new(type='ShaderNodeTree', name='SkyrimShader')
 
@@ -1034,9 +1039,6 @@ class ShaderImporter:
 
             if (self.is_lighting_shader and 'Glossiness' in self.bsdf.inputs):
                 self.bsdf.inputs['Glossiness'].default_value = shader.properties.Glossiness
-            elif self.is_effect_shader:
-                self.bsdf.inputs['Alpha'].default_value = shader.properties.falloffStartOpacity
-                self.bsdf.inputs['Alpha Adjust'].default_value = 1.0
 
             self.texmap.inputs['Offset U'].default_value = shape.shader.properties.UV_Offset_U
             self.texmap.inputs['Offset V'].default_value = shape.shader.properties.UV_Offset_V
@@ -1091,84 +1093,96 @@ class ShaderImporter:
             (self.inputs_offset_x-TEXTURE_NODE_WIDTH-HORIZONTAL_GAP, 0,))
 
 
-    def make_alpha_test(self, shape:NiShape):
-        """
-        Implement alpha test shading.
+    # def make_alpha_test(self, shape:NiShape):
+    #     """
+    #     Implement alpha test shading.
 
-        Blender 4.2 REMOVED alpha clip mode, so we have to implement threshold testing
-        with shader nodes.
-        """
-        difalph = vertalph = None
-        if self.diffuse and 'Alpha' in self.diffuse.outputs:
-            difalph = self.diffuse.outputs['Alpha']
-        if self.vertex_alpha:
-            vertalph = self.vertex_alpha.outputs['Fac']
+    #     Blender 4.2 REMOVED alpha clip mode, so we have to implement threshold testing
+    #     with shader nodes.
+    #     """
+    #     difalph = vertalph = None
+    #     if self.diffuse and 'Alpha' in self.diffuse.outputs:
+    #         difalph = self.diffuse.outputs['Alpha']
+    #     if self.vertex_alpha:
+    #         vertalph = self.vertex_alpha.outputs['Fac']
 
-        nodetree = self.material.node_tree
+    #     nodetree = self.material.node_tree
 
-        if "Alpha Test" in self.bsdf.inputs:
-            self.bsdf.inputs["Alpha Test"].default_value = shape.alpha_property.properties.alpha_test
-            self.bsdf.inputs["Alpha Threshold"].default_value = shape.alpha_property.properties.threshold
-            self.bsdf.inputs["Alpha Blend"].default_value = shape.alpha_property.properties.alpha_blend 
-        else:
-            alphathr = self.make_node("ShaderNodeValue",
-                                    name='Alpha Threshold',
-                                    xloc=self.inputs_offset_x,
-                                    height=shader_node_height["ShaderNodeMapRange"])
-            alphathr.outputs[0].default_value = shape.alpha_property.properties.threshold
+    #     if "Alpha Test" in self.bsdf.inputs:
+    #         self.bsdf.inputs["Alpha Test"].default_value = shape.alpha_property.properties.alpha_test
+    #         self.bsdf.inputs["Alpha Threshold"].default_value = shape.alpha_property.properties.threshold
+    #         self.bsdf.inputs["Alpha Blend"].default_value = shape.alpha_property.properties.alpha_blend 
+    #     else:
+    #         alphathr = self.make_node("ShaderNodeValue",
+    #                                 name='Alpha Threshold',
+    #                                 xloc=self.inputs_offset_x,
+    #                                 height=shader_node_height["ShaderNodeMapRange"])
+    #         alphathr.outputs[0].default_value = shape.alpha_property.properties.threshold
 
-            if vertalph:
-                calcalph = make_mathnode(
-                    nodetree,
-                    op='MULTIPLY',
-                    value1=difalph,
-                    value2=vertalph)
-                alphout = calcalph.outputs[0]
-            else:
-                alphout = difalph
-            map255 = make_maprange(nodetree, 
-                                in_value=alphathr.outputs[0],
-                                in_from_min=0,
-                                in_from_max=255,
-                                in_to_min=0,
-                                in_to_max=1.0)
-            xmax = -100
-            gt = make_mathnode(nodetree,
-                                op='GREATER_THAN',
-                                value1=alphout,
-                                value2=map255.outputs[0],
-                                location=[map255])
-            atest = make_mathnode(nodetree,
-                                    op='MULTIPLY',
-                                    value1=difalph,
-                                    value2=gt.outputs[0])
-            xmax = atest.location.x + atest.width + HORIZONTAL_GAP
+    #         if vertalph:
+    #             calcalph = make_mathnode(
+    #                 nodetree,
+    #                 op='MULTIPLY',
+    #                 value1=difalph,
+    #                 value2=vertalph)
+    #             alphout = calcalph.outputs[0]
+    #         else:
+    #             alphout = difalph
+    #         map255 = make_maprange(nodetree, 
+    #                             in_value=alphathr.outputs[0],
+    #                             in_from_min=0,
+    #                             in_from_max=255,
+    #                             in_to_min=0,
+    #                             in_to_max=1.0)
+    #         xmax = -100
+    #         gt = make_mathnode(nodetree,
+    #                             op='GREATER_THAN',
+    #                             value1=alphout,
+    #                             value2=map255.outputs[0],
+    #                             location=[map255])
+    #         atest = make_mathnode(nodetree,
+    #                                 op='MULTIPLY',
+    #                                 value1=difalph,
+    #                                 value2=gt.outputs[0])
+    #         xmax = atest.location.x + atest.width + HORIZONTAL_GAP
 
-            self.link(atest.outputs[0], self.bsdf.inputs['Alpha'])
+    #         self.link(atest.outputs[0], self.bsdf.inputs['Alpha'])
 
 
     def import_shader_alpha(self, shape):
+        if 'Alpha Mult' in self.bsdf.inputs:
+            self.bsdf.inputs['Alpha Mult'].default_value = shape.shader.properties.Alpha
+
         if shape.has_alpha_property:
-            self.material.alpha_threshold = shape.alpha_property.properties.threshold/255
-            if shape.alpha_property.properties.flags & ALPHA_FLAG_MASK.ALPHA_BLEND:
-                self.material.blend_method = 'BLEND'
-                if self.diffuse and self.bsdf and not self.bsdf.inputs['Alpha'].is_linked:
-                    # Alpha input may already have been hooked up if there are vertex alphas
-                    self.link(self.diffuse.outputs['Alpha'], self.bsdf.inputs['Alpha'])
-            else:
-                self.material.blend_method = 'CLIP'
-            if shape.alpha_property.properties.flags & ALPHA_FLAG_MASK.ALPHA_TEST:
-                self.make_alpha_test(shape)
+            props:AlphaPropertyBuf = shape.alpha_property.properties
+
+            alpha = append_groupnode(self, "AlphaProperty",  "Alpha Property", self.asset_path)
+            alpha.width = TEXTURE_NODE_WIDTH
+            self.link(alpha.outputs[0], self.bsdf.inputs['Alpha Property'])
+            self.link(self.diffuse.outputs['Alpha'], alpha.inputs['Alpha'])
+            
+            if self.alphamap:
+                self.link(self.vertex_alpha.outputs['Color'], alpha.inputs['Vertex Alpha'])
+
+            self.material.alpha_threshold = 1 # Not using the material's alpha threshold
+            alpha.inputs['Alpha Test'].default_value = bool(props.alpha_test)
+            if props.alpha_test:
+                alpha.inputs['Alpha Threshold'].default_value = props.threshold
+
+            alpha.inputs['Alpha Blend'].default_value = bool(props.alpha_blend)
 
             self.material['NiAlphaProperty_flags'] = shape.alpha_property.properties.flags
             self.material['NiAlphaProperty_threshold'] = shape.alpha_property.properties.threshold
 
             return True
         else:
+            if self.vertex_alpha:
+                self.link(self.vertex_alpha.outputs['Color'], self.bsdf.inputs['Vertex Alpha'])
             try:
                 self.diffuse.image.alpha_mode = 'NONE'
             except:
                 pass
+            
             return False
 
 
@@ -1304,11 +1318,6 @@ class ShaderImporter:
         else:
             self.link(txtnode.outputs['Color'], self.bsdf.inputs['Diffuse'])
 
-        if self.shape.has_alpha_property:
-            self.link(txtnode.outputs['Alpha'], self.bsdf.inputs['Alpha'])
-        else:
-            pass
-
         if 'Vertex Color' in self.bsdf.inputs:
             if self.colormap:
                 cmap = self.make_node('ShaderNodeAttribute',
@@ -1318,9 +1327,10 @@ class ShaderImporter:
                 cmap.attribute_name = self.colormap.name
                 self.link(cmap.outputs['Color'], self.bsdf.inputs['Vertex Color'])
 
-                # FO4 vertex alpha is part of the vertex color info
-                if self.game == "FO4" and 'Vertex Alpha' in self.bsdf.inputs:
-                    self.link(cmap.outputs['Alpha'], self.bsdf.inputs['Vertex Alpha'])
+                # # FO4 vertex alpha is part of the vertex color info
+                # if self.game == "FO4" and 'Vertex Alpha' in self.bsdf.inputs:
+                #     if self.
+                #     self.link(cmap.outputs['Alpha'], self.bsdf.inputs['Vertex Alpha'])
 
         if 'Vertex Alpha' in self.bsdf.inputs:
             if self.alphamap:
@@ -1329,7 +1339,6 @@ class ShaderImporter:
                                     xloc=self.inputs_offset_x)
                 vmap.attribute_type = 'GEOMETRY'
                 vmap.attribute_name = self.alphamap.name
-                self.link(vmap.outputs['Fac'], self.bsdf.inputs['Vertex Alpha'])
                 self.vertex_alpha = vmap
 
         self.diffuse = txtnode
@@ -1618,7 +1627,10 @@ class ShaderExporter:
                 self.material_output = nodelist["Material Output"]
                 if self.material_output.inputs['Surface'].is_linked:
                     self.shader_node = self.material_output.inputs['Surface'].links[0].from_node
-                    self.is_obj_space = has_msn_shader(blender_obj)
+                    if 'MSN' in self.shader_node.inputs:
+                        self.is_obj_space = bool(self.shader_node.inputs['MSN'].default_value)
+                    else:
+                        self.is_obj_space = has_msn_shader(blender_obj)
                 if not self.shader_node:
                     log.warning(f"Have material but no shader node for {self.material.name}")
 
@@ -1679,11 +1691,7 @@ class ShaderExporter:
 
             if not self.is_effectshader:
                 if 'Alpha Mult' in self.shader_node.inputs:
-                    skt = self.shader_node.inputs['Alpha Mult']
-                    if skt.is_linked:
-                        shape.shader.properties.Alpha = skt.links[0].from_socket.default_value
-                    else:
-                        shape.shader.properties.Alpha = 1.0
+                    shape.shader.properties.Alpha = self.shader_node.inputs['Alpha Mult'].default_value
             if 'Glossiness' in self.shader_node.inputs:
                 shape.shader.properties.Glossiness = self.shader_node.inputs['Glossiness'].default_value
 
@@ -1833,24 +1841,30 @@ class ShaderExporter:
         """
         Export the alpha property.
         """
+        if 'Alpha Property' in self.shader_node.inputs:
+            alpha_input = self.shader_node.inputs['Alpha Property']
+        else:
+            alpha_input = None
+
+        if (not alpha_input) or (not alpha_input.is_linked):
+            return
+        
+        shape.has_alpha_property = True
+
+        alphanode = alpha_input.links[0].from_node
+        alpha = shape.alpha_property.properties
         try:
-            alpha_input = self.shader_node.inputs['Alpha']
-            if alpha_input and alpha_input.is_linked and self.material:
-                shape.has_alpha_property = True
-                if 'NiAlphaProperty_flags' in self.material:
-                    shape.alpha_property.properties.flags = self.material['NiAlphaProperty_flags']
-                else:
-                    shape.alpha_property.properties.flags = 4844
-                if alpha_input.links[0].from_node.bl_idname == 'ShaderNodeTexImage':
-                    shape.alpha_property.properties.threshold = int(self.material.alpha_threshold * 255)
-                    shape.alpha_property.properties.flags &= ~ALPHA_FLAG_MASK.ALPHA_TEST
-                else:
-                    value_node = BD.find_node(alpha_input, "ShaderNodeValue")[0]
-                    shape.alpha_property.properties.threshold = int(value_node.outputs[0].default_value)
-                    shape.alpha_property.properties.flags |= ALPHA_FLAG_MASK.ALPHA_TEST
-                shape.save_alpha_property()
+            alpha.alpha_test = bool(alphanode.inputs['Alpha Test'].default_value)
+            if alpha.alpha_test:
+                alpha.threshold = int(alphanode.inputs['Alpha Threshold'].default_value)
+            alpha.alpha_blend = bool(alphanode.inputs['Alpha Blend'].default_value)
         except:
-            self.warn("Could not determine alpha property")
+            if 'NiAlphaProperty_flags' in self.material:
+                shape.alpha_property.properties.flags = self.material['NiAlphaProperty_flags']
+            else:
+                log.warning(f"Shader nodes not set up for alpha on {shape.name}")
+
+        shape.save_alpha_property()
 
 
     def _export_textures(self, shape: NiShape):

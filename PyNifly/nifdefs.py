@@ -911,8 +911,8 @@ class PynBufferTypes(IntEnum):
     NiBlendTransformInterpolatorBufType = 55
     COUNT = 56
 
-bufferTypeList = [''] * PynBufferTypes.COUNT
-blockBuffers = {}
+# bufferTypeList = [''] * PynBufferTypes.COUNT
+# blockBuffers = {}
 
 class NiShaderBuf(pynStructure):
     _fields_ = [
@@ -1082,11 +1082,6 @@ class NiShaderBuf(pynStructure):
     def clamp_mode_t(self, v):
         self.textureClampMode = (self.textureClampMode & 0xFFFD) | (0 if v == 0 else 2)
 
-bufferTypeList[PynBufferTypes.NiShaderBufType] = 'NiShader'
-bufferTypeList[PynBufferTypes.BSEffectShaderPropertyBufType] = 'BSEffectShaderProperty'
-bufferTypeList[PynBufferTypes.BSShaderPPLightingPropertyBufType] = 'BSShaderPPLightingProperty'
-blockBuffers['NiShader'] = NiShaderBuf()
-
 
 class BGSMShader(bgsmaterial.BGSMaterial):
     """Mimics the NiShader but gets values from a BGSM file."""
@@ -1144,6 +1139,7 @@ class AlphaPropertyBuf(pynStructure):
         ('threshold', c_uint8)
         ]
     def __init__(self, values=None):
+        self.flags = 4844
         super().__init__(values=values)
         self.bufType = PynBufferTypes.AlphaPropertyBufType
 
@@ -1188,8 +1184,6 @@ class NiCollisionObjectBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiCollisionObjectBufType
-bufferTypeList[PynBufferTypes.NiCollisionObjectBufType] = 'NiCollisionObject'
-blockBuffers['NiCollisionObject'] = NiCollisionObjectBuf
 
 class bhkNiCollisionObjectBuf(pynStructure):
     _fields_ = [
@@ -1203,8 +1197,6 @@ class bhkNiCollisionObjectBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkNiCollisionObjectBufType
-bufferTypeList[PynBufferTypes.bhkNiCollisionObjectBufType] = 'bhkNiCollisionObject'
-blockBuffers['bhkNiCollisionObject'] = bhkNiCollisionObjectBuf
 
 class bhkBlendCollisionObjectBuf(pynStructure):
     _fields_ = [
@@ -1220,8 +1212,6 @@ class bhkBlendCollisionObjectBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkBlendCollisionObjectBufType
-bufferTypeList[PynBufferTypes.bhkBlendCollisionObjectBufType] = 'bhkBlendCollisionObject'
-blockBuffers['bhkBlendCollisionObject'] = bhkBlendCollisionObjectBuf
 
 class bhkCollisionObjectBuf(pynStructure):
     _fields_ = [
@@ -1235,8 +1225,6 @@ class bhkCollisionObjectBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkCollisionObjectBufType
-bufferTypeList[PynBufferTypes.bhkCollisionObjectBufType] = 'bhkCollisionObject'
-blockBuffers['bhkCollisionObject'] = bhkCollisionObjectBuf
 
 class bhkPCollisionObjectBuf(pynStructure):
     _fields_ = [
@@ -1250,8 +1238,6 @@ class bhkPCollisionObjectBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkPCollisionObjectBufType
-bufferTypeList[PynBufferTypes.bhkPCollisionObjectBufType] = 'bhkPCollisionObject'
-blockBuffers['bhkPCollisionObject'] = bhkPCollisionObjectBuf
 
 class bhkSPCollisionObjectBuf(pynStructure):
     _fields_ = [
@@ -1265,8 +1251,6 @@ class bhkSPCollisionObjectBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkSPCollisionObjectBufType
-bufferTypeList[PynBufferTypes.bhkSPCollisionObjectBufType] = 'bhkSPCollisionObject'
-blockBuffers['bhkSPCollisionObject'] = bhkSPCollisionObjectBuf
 
 class bhkRigidBodyProps(pynStructure):
     _fields_ = [
@@ -1362,8 +1346,6 @@ class bhkRigidBodyProps(pynStructure):
         except:
             super().extract_field(shape, fieldname, fieldtype)
 
-bufferTypeList[PynBufferTypes.bhkRigidBodyBufType] = 'bhkRigidBody'
-blockBuffers['bhkRigidBody'] = bhkRigidBodyProps
 
 class bhkSimpleShapePhantomBuf(pynStructure):
     _fields_ = [
@@ -1383,8 +1365,6 @@ class bhkSimpleShapePhantomBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkSimpleShapePhantomBufType
-bufferTypeList[PynBufferTypes.bhkSimpleShapePhantomBufType] = 'bhkSimpleShapePhantom'
-blockBuffers['bhkSimpleShapePhantom'] = bhkSimpleShapePhantomBuf
 
 class bhkBoxShapeProps(pynStructure):
     _fields_ = [
@@ -1396,8 +1376,6 @@ class bhkBoxShapeProps(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkBoxShapeBufType
-bufferTypeList[PynBufferTypes.bhkBoxShapeBufType] = 'bhkBoxShape'
-blockBuffers['bhkBoxShape'] = bhkBoxShapeProps
 
 class bhkCapsuleShapeProps(pynStructure):
     _fields_ = [
@@ -1412,8 +1390,6 @@ class bhkCapsuleShapeProps(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkCapsuleShapeBufType
-bufferTypeList[PynBufferTypes.bhkCapsuleShapeBufType] = 'bhkCapsuleShape'
-blockBuffers['bhkCapsuleShape'] = bhkCapsuleShapeProps
 
 class bhkSphereShapeBuf(pynStructure):
     _fields_ = [
@@ -1425,8 +1401,6 @@ class bhkSphereShapeBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkSphereShapeBufType
-bufferTypeList[PynBufferTypes.bhkSphereShapeBufType] = 'bhkSphereShape'
-blockBuffers['bhkSphereShape'] = bhkSphereShapeBuf()
 
 class bhkConvexVerticesShapeProps(pynStructure):
     _fields_ = [
@@ -1446,8 +1420,6 @@ class bhkConvexVerticesShapeProps(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkConvexVerticesShapeBufType
-bufferTypeList[PynBufferTypes.bhkConvexVerticesShapeBufType] = 'bhkConvexVerticesShape'
-blockBuffers['bhkConvexVerticesShape'] = bhkConvexVerticesShapeProps
 
 class bhkListShapeProps(pynStructure):
     _fields_ = [
@@ -1464,8 +1436,6 @@ class bhkListShapeProps(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkListShapeBufType
-bufferTypeList[PynBufferTypes.bhkListShapeBufType] = 'bhkListShape'
-blockBuffers['bhkListShape'] = bhkListShapeProps
 
 class bhkConvexTransformShapeProps(pynStructure):
     _fields_ = [
@@ -1478,8 +1448,6 @@ class bhkConvexTransformShapeProps(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkConvexTransformShapeBufType
-bufferTypeList[PynBufferTypes.bhkConvexTransformShapeBufType] = 'bhkConvexTransformShape'
-blockBuffers['bhkConvexTransformShape'] = bhkConvexTransformShapeProps
 
 class bhkRagdollConstraintBuf(pynStructure):
     _fields_ = [
@@ -1518,8 +1486,6 @@ class bhkRagdollConstraintBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkRagdollConstraintBufType
-bufferTypeList[PynBufferTypes.bhkRagdollConstraintBufType] = 'bhkRagdollConstraint'
-blockBuffers['bhkRagdollConstraint'] = bhkRagdollConstraintBuf
 
 
 class FurnitureMarkerBuf(pynStructure):
@@ -1529,6 +1495,7 @@ class FurnitureMarkerBuf(pynStructure):
         ("animation_type", c_uint16),
         ("entry_points", c_uint16) ]
 
+
 class ConnectPointBuf(pynStructure):
     _fields_ = [
         ("parent", c_char * 256),
@@ -1537,6 +1504,7 @@ class ConnectPointBuf(pynStructure):
         ("translation", VECTOR3),
         ("scale", c_float)]
     
+
 class NiNodeBuf(pynStructure):
     _fields_ = [
         ('bufSize', c_uint16),
@@ -1555,7 +1523,7 @@ class NiNodeBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiNodeBufType
         self.nameID = self.controllerID = self.collisionID = NODEID_NONE
-bufferTypeList[PynBufferTypes.NiNodeBufType] = 'NiNode'
+
 
 class BSXFlagsBuf(pynStructure):
     _fields_ = [
@@ -1568,8 +1536,7 @@ class BSXFlagsBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSXFlagsBufType
-bufferTypeList[PynBufferTypes.BSXFlagsBufType] = 'BSXFlags'
-blockBuffers['BSXFlags'] = BSXFlagsBuf
+
 
 class BSInvMarkerBuf(pynStructure):
     _fields_ = [
@@ -1585,8 +1552,7 @@ class BSInvMarkerBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSInvMarkerBufType
-bufferTypeList[PynBufferTypes.BSInvMarkerBufType] = 'BSInvMarker'
-blockBuffers['BSInvMarker'] = BSInvMarkerBuf
+
 
 class NiShapeBuf(pynStructure):
     _fields_ = [
@@ -1618,23 +1584,38 @@ class NiShapeBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiShapeBufType
 
-bufferTypeList[PynBufferTypes.NiShapeBufType] = 'NiShape'
-blockBuffers['NiShape'] = NiShapeBuf
 
-bufferTypeList[PynBufferTypes.BSDynamicTriShapeBufType] = 'BSDynamicTriShape'
-blockBuffers['BSDynamicTriShape'] = NiShapeBuf
 
-bufferTypeList[PynBufferTypes.BSTriShapeBufType] = 'BSTriShape'
-blockBuffers['BSTriShape'] = NiShapeBuf
+class BSDynamicTriShapeBuf(NiShapeBuf):
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BSDynamicTriShapeBufType
 
-bufferTypeList[PynBufferTypes.BSSubIndexTriShapeBufType] = 'BSSubIndexTriShape'
-blockBuffers['BSSubIndexTriShape'] = NiShapeBuf
 
-bufferTypeList[PynBufferTypes.NiTriStripsBufType] = 'NiTriStrips'
-blockBuffers['NiTriStrips'] = NiShapeBuf
 
-bufferTypeList[PynBufferTypes.NiTriShapeBufType] = 'NiTriShape'
-blockBuffers['NiTriShape'] = NiShapeBuf
+class BSTriShapeBuf(NiShapeBuf):
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BSTriShapeBufType
+
+
+class BSSubIndexTriShapeBuf(NiShapeBuf):
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BSSubIndexTriShapeBufType
+
+
+class NiTriStripsBuf(NiShapeBuf):
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.NiTriStripsBufType
+
+
+class NiTriShapeBuf(NiShapeBuf):
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.NiTriShapeBufType
+
 
 class BSMeshLODTriShapeBuf(pynStructure):
     _fields_ = [
@@ -1669,8 +1650,6 @@ class BSMeshLODTriShapeBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSMeshLODTriShapeBufType
 
-bufferTypeList[PynBufferTypes.BSMeshLODTriShapeBufType] = 'BSMeshLODTriShape'
-blockBuffers['BSMeshLODTriShape'] = BSMeshLODTriShapeBuf
 
 class BSLODTriShapeBuf(pynStructure):
     _fields_ = [
@@ -1705,9 +1684,6 @@ class BSLODTriShapeBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSLODTriShapeBufType
         
-bufferTypeList[PynBufferTypes.BSLODTriShapeBufType] = 'BSLODTriShape'
-blockBuffers['BSLODTriShape'] = BSLODTriShapeBuf
-
 
 class AnimType(PynIntEnum):
     APP_TIME = 0
@@ -1786,10 +1762,14 @@ class NiControllerManagerBuf(pynStructure):
         self.nextControllerID = NODEID_NONE
         self.targetID = NODEID_NONE
         self.objectPaletteID = NODEID_NONE
+        self.flags = 76
+        self.frequency = 1.0
+        self.phase = 0
+        self.startTime = sys.float_info.max
+        self.stopTime = sys.float_info.min
+        self.cumulative = False
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiControllerManagerBufType
-bufferTypeList[PynBufferTypes.NiControllerManagerBufType] = 'NiControllerManager'
-blockBuffers['NiControllerManager'] = NiControllerManagerBuf
 
 
 class NiMultiTargetTransformControllerBuf(pynStructure):
@@ -1814,8 +1794,6 @@ class NiMultiTargetTransformControllerBuf(pynStructure):
         self.stopTime = sys.float_info.min
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiMultiTargetTransformControllerBufType
-bufferTypeList[PynBufferTypes.NiMultiTargetTransformControllerBufType] = 'NiMultiTargetTransformController'
-blockBuffers['NiMultiTargetTransformController'] = NiMultiTargetTransformControllerBuf
 
 class NiControllerSequenceBuf(pynStructure):
     _fields_ = [
@@ -1844,8 +1822,6 @@ class NiControllerSequenceBuf(pynStructure):
         self.managerID = NODEID_NONE
         self.accumRootNameID = NODEID_NONE
         self.animNotesID = NODEID_NONE
-bufferTypeList[PynBufferTypes.NiControllerSequenceBufType] = 'NiControllerSequence'
-blockBuffers['NiControllerSequence'] = NiControllerSequenceBuf
 
 class ControllerLinkBuf(pynStructure):
     _fields_ = [
@@ -1870,8 +1846,6 @@ class ControllerLinkBuf(pynStructure):
         self.ctrlType = NODEID_NONE
         self.ctrlID = NODEID_NONE
         self.interpID = NODEID_NONE
-bufferTypeList[PynBufferTypes.NiControllerLinkBufType] = 'NiControllerLink'
-blockBuffers['NiControllerLink'] = ControllerLinkBuf
 
 
 class EffectShaderControlledVariable(PynIntEnum):
@@ -1940,17 +1914,11 @@ class NiSingleInterpControllerBuf(pynStructure):
         c.interpolatorID = NODEID_NONE
         return c
 
-bufferTypeList[PynBufferTypes.NiSingleInterpControllerBufType] = 'NiSingleInterpController'
-blockBuffers['NiSingleInterpController'] = NiSingleInterpControllerBuf
-
 
 class BSEffectShaderPropertyFloatControllerBuf(NiSingleInterpControllerBuf):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSEffectShaderPropertyFloatControllerBufType
-
-bufferTypeList[PynBufferTypes.BSEffectShaderPropertyFloatControllerBufType] = 'BSEffectShaderPropertyFloatController'
-blockBuffers['BSEffectShaderPropertyFloatController'] = BSEffectShaderPropertyFloatControllerBuf
 
 
 class BSEffectShaderPropertyColorControllerBuf(NiSingleInterpControllerBuf):
@@ -1958,26 +1926,17 @@ class BSEffectShaderPropertyColorControllerBuf(NiSingleInterpControllerBuf):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSEffectShaderPropertyColorControllerBufType
 
-bufferTypeList[PynBufferTypes.BSEffectShaderPropertyColorControllerBufType] = 'BSEffectShaderPropertyColorController'
-blockBuffers['BSEffectShaderPropertyColorController'] = BSEffectShaderPropertyColorControllerBuf
-
 
 class BSNiAlphaPropertyTestRefControllerBuf(NiSingleInterpControllerBuf):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSNiAlphaPropertyTestRefControllerBufType
 
-bufferTypeList[PynBufferTypes.BSNiAlphaPropertyTestRefControllerBufType] = 'BSNiAlphaPropertyTestRefController'
-blockBuffers['BSNiAlphaPropertyTestRefController'] = BSNiAlphaPropertyTestRefControllerBuf
-
 
 class NiTransformControllerBuf(NiSingleInterpControllerBuf):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiTransformControllerBufType
-
-bufferTypeList[PynBufferTypes.NiTransformControllerBufType] = 'NiTransformController'
-blockBuffers['NiTransformController'] = NiTransformControllerBuf
 
 
 class LightingShaderControlledColor(PynIntEnum): 
@@ -1989,17 +1948,11 @@ class BSLightingShaderPropertyColorControllerBuf(NiSingleInterpControllerBuf):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSLightingShaderPropertyColorControllerBufType
 
-bufferTypeList[PynBufferTypes.BSLightingShaderPropertyColorControllerBufType] = 'NiTransformController'
-blockBuffers['BSLightingShaderPropertyColorController'] = BSLightingShaderPropertyColorControllerBuf
-
 
 class BSLightingShaderPropertyFloatControllerBuf(NiSingleInterpControllerBuf):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSLightingShaderPropertyFloatControllerBufType
-
-bufferTypeList[PynBufferTypes.BSLightingShaderPropertyFloatControllerBufType] = 'NiTransformController'
-blockBuffers['BSLightingShaderPropertyFloatController'] = BSLightingShaderPropertyFloatControllerBuf
 
 
 class NiTransformInterpolatorBuf(pynStructure):
@@ -2025,9 +1978,6 @@ class NiTransformInterpolatorBuf(pynStructure):
         c.dataID = NODEID_NONE
         return c
 
-bufferTypeList[PynBufferTypes.NiTransformInterpolatorBufType] = 'NiTransformInterpolator'
-blockBuffers['NiTransformInterpolator'] = NiTransformInterpolatorBuf
-
 
 class NiFloatInterpolatorBuf(pynStructure):
     _fields_ = [
@@ -2037,8 +1987,9 @@ class NiFloatInterpolatorBuf(pynStructure):
         ("dataID", c_uint32),
     ]
     def __init__(self, values=None):
-        super().__init__(values=values)
+        self.floatValue = sys.float_info.min
         self.dataID = NODEID_NONE
+        super().__init__(values=values)
         self.bufType = PynBufferTypes.NiFloatInterpolatorBufType
 
     def copy(self, exclude=[]):
@@ -2050,9 +2001,6 @@ class NiFloatInterpolatorBuf(pynStructure):
         c = super().copyto(other, exclude=exclude)
         c.dataID = NODEID_NONE
         return c
-
-bufferTypeList[PynBufferTypes.NiFloatInterpolatorBufType] = 'NiFloatInterpolator'
-blockBuffers['NiFloatInterpolator'] = NiFloatInterpolatorBuf
 
 
 class NiPoint3InterpolatorBuf(pynStructure):
@@ -2076,9 +2024,6 @@ class NiPoint3InterpolatorBuf(pynStructure):
         c = super().copyto(other, exclude=exclude)
         c.dataID = NODEID_NONE
         return c
-
-bufferTypeList[PynBufferTypes.NiPoint3InterpolatorBufType] = 'NiPoint3Interpolator'
-blockBuffers['NiPoint3Interpolator'] = NiPoint3InterpolatorBuf
 
 
 class InterpBlendFlags(PynIntFlag):
@@ -2120,13 +2065,6 @@ class NiBlendInterpolatorBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiBlendInterpolatorBufType
 
-bufferTypeList[PynBufferTypes.NiBlendInterpolatorBufType] = 'NiBlendInterpolator'
-blockBuffers['NiBlendInterpolator'] = NiBlendInterpolatorBuf
-blockBuffers['NiBlendBoolInterpolator'] = NiBlendInterpolatorBuf
-blockBuffers['NiBlendFloatInterpolator'] = NiBlendInterpolatorBuf
-blockBuffers['NiBlendPoint3Interpolator'] = NiBlendInterpolatorBuf
-blockBuffers['NiBlendTransformInterpolator'] = NiBlendInterpolatorBuf
-
 
 class NiAnimationKeyGroupBuf(pynStructure):
     _fields_ = [
@@ -2150,8 +2088,6 @@ class NiTransformDataBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiTransformDataBufType
-bufferTypeList[PynBufferTypes.NiTransformDataBufType] = 'NiTransformData'
-blockBuffers['NiTransformData'] = NiTransformDataBuf
 
 
 class NiPoint3InterpolatorBuf(pynStructure):
@@ -2164,8 +2100,6 @@ class NiPoint3InterpolatorBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiPoint3InterpolatorBufType
-bufferTypeList[PynBufferTypes.NiPoint3InterpolatorBufType] = 'NiPoint3Interpolator'
-blockBuffers['NiPoint3Interpolator'] = NiPoint3InterpolatorBuf
 
 
 class NiPosDataBuf(pynStructure):
@@ -2177,8 +2111,6 @@ class NiPosDataBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiPosDataBufType
-bufferTypeList[PynBufferTypes.NiPosDataBufType] = 'NiPosData'
-blockBuffers['NiPosData'] = NiPosDataBuf
 
 
 class NiFloatDataBuf(pynStructure):
@@ -2190,8 +2122,6 @@ class NiFloatDataBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiFloatDataBufType
-bufferTypeList[PynBufferTypes.NiFloatDataBufType] = 'NiFloatData'
-blockBuffers['NiFloatData'] = NiFloatDataBuf
 
 
 class NiAnimKeyFloatBuf(pynStructure):
@@ -2243,8 +2173,6 @@ class NiDefaultAVObjectPaletteBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiDefaultAVObjectPaletteBufType
-bufferTypeList[PynBufferTypes.NiDefaultAVObjectPaletteBufType] = 'NiDefaultAVObjectPalette'
-blockBuffers['NiDefaultAVObjectPalette'] = NiDefaultAVObjectPaletteBuf
 
 class NiTextKeyExtraDataBuf(pynStructure):
     _fields_ = [
@@ -2256,8 +2184,6 @@ class NiTextKeyExtraDataBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiTextKeyExtraDataBufType
-bufferTypeList[PynBufferTypes.NiTextKeyExtraDataBufType] = 'NiTextKeyExtraData'
-blockBuffers['NiTextKeyExtraData'] = NiTextKeyExtraDataBuf
 
 class TextKeyBuf(pynStructure):
     _fields_ = [

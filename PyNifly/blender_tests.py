@@ -1451,8 +1451,14 @@ def TEST_SEGMENTS():
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
-    assert "FO4 Seg 003" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names: 'FO4 Seg 003'"
-    assert "FO4 Seg 004 | 000 | Up Arm.L" in obj.vertex_groups, "FO4 body segments read in as vertex groups with sensible names: 'FO4 Seg 004 | 000 | Up Arm.L'"
+
+    # FO4 segments have convenient names
+    TT.assert_contains("FO4 Seg 003", obj.vertex_groups, "Segment 003")
+    TT.assert_contains("FO4 Seg 004 | 000 | Up Arm.L", obj.vertex_groups, "Upper Arm Left")
+
+    # The vertex groups actually have vertices in them.
+    verts = TT.vertices_in_group(obj, "FO4 Seg 004 | 000 | Up Arm.L")
+    assert len(verts) > 3, f"Have verts in group: {len(verts)}"
     assert r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf" == obj['FO4_SEGMENT_FILE'], "Should have FO4 segment file read and saved for later use"
 
     obj.select_set(True)
@@ -1698,22 +1704,26 @@ def TEST_SHADER_GRAYSCALE_COLOR():
 
     # Greyscale palette correct
     vecnode = BD.find_node(bsdf.inputs['Diffuse'], 'ShaderNodeTexImage')[0]
-    assert 'HairColor_Lgrad_d' in vecnode.image.filepath, f"Have vector palette: {vecnode.image.filepath}"
+    TT.assert_contains('HairColor_Lgrad_d', vecnode.image.filepath, "Vector palette")
     difnode = BD.find_node(vecnode.inputs['Vector'], 'ShaderNodeTexImage')[0]
-    assert 'HairCurly_d' in difnode.image.filepath, f"Have diffuse: {difnode.image.filepath}"
+    TT.assert_contains('HairCurly_d', difnode.image.filepath, "Diffuse texture")
     
     # UV scale correct
     uvnode = m.node_tree.nodes['UV Converter']
-    assert uvnode.inputs['Scale U'].default_value == uvnode.inputs['Scale V'].default_value == 1.0, f"Have 1x1 scale"
+    TT.assert_eq(uvnode.inputs['Scale U'].default_value, 
+                 uvnode.inputs['Scale V'].default_value, 
+                 1.0, 
+                 "UV Scale")
     
     # Vertex alpha correct
-    vertalph = BD.find_node(bsdf.inputs['Vertex Alpha'], 'ShaderNodeAttribute')[0]
-    assert vertalph.attribute_type == 'GEOMETRY', f"Getting geometry: {vertalph.attribute_type}"
-    assert vertalph.attribute_name == 'VERTEX_ALPHA', f"Getting vertex alpha: {vertalph.attribute_name}"
+    alpha = bsdf.inputs['Alpha Property'].links[0].from_node
+    vertalph = alpha.inputs['Vertex Alpha'].links[0].from_node
+    TT.assert_eq(vertalph.attribute_type, 'GEOMETRY', "Geometry type") 
+    TT.assert_eq(vertalph.attribute_name, 'VERTEX_ALPHA', "Attribute name")
 
     # Specular texture connected
     specnode = BD.find_node(bsdf.inputs['Smooth Spec'], 'ShaderNodeTexImage')[0]
-    assert 'HairCurly_s' in specnode.image.filepath, f"Specular node attached: {specnode.image.filepath}"
+    TT.assert_contains('HairCurly_s', specnode.image.filepath, "specular")
 
     # Test export
     bpy.ops.export_scene.pynifly(filepath=outfile)
@@ -1753,10 +1763,18 @@ def TEST_ANIM_SHADER_GLOW():
     bpy.ops.import_scene.pynifly(filepath=testfile)
     glow = TT.find_object('MaleTorsoGlow')
 
+    # Check the shader
+    shadernodes = glow.active_material.node_tree.nodes
+    shader = shadernodes['Material Output'].inputs['Surface'].links[0].from_node
+    alpha = shader.inputs['Alpha Property'].links[0].from_node
+    TT.assert_eq(alpha.inputs['Alpha Blend'].default_value, True, "Alpha Blend")
+    TT.assert_eq(alpha.inputs['Alpha Test'].default_value, False, "Alpha Test")
+
+    # Check the shader animation is correct.
     action = glow.active_material.node_tree.animation_data.action
     assert action.use_cyclic, f"Cyclic animation: {action.use_cyclic}"
 
-    uv_node = glow.active_material.node_tree.nodes['UV Converter']
+    uv_node = shadernodes['UV Converter']
     bpy.context.scene.frame_set(0)
     assert uv_node.inputs['Offset V'].default_value == 1, \
         f"V offset starts at 0: {uv_node.inputs['Offset V'].default_value}"
@@ -1786,17 +1804,16 @@ def TEST_ANIM_SHADER_GLOW():
     shaderinp = glowin.shader.properties
     glowout = nout.shape_dict['MaleTorsoGlow']
     shaderoutp = glowout.shader.properties
-    assert shaderinp.UV_Offset_U == shaderoutp.UV_Offset_U, \
-        f"UV_Offset_U correct: {shaderinp.UV_Offset_U} == {shaderoutp.UV_Offset_U}"
-    assert shaderinp.UV_Offset_V == shaderoutp.UV_Offset_V, \
-        f"UV_Offset_V correct: {shaderinp.UV_Offset_V} == {shaderoutp.UV_Offset_V}"
-    assert shaderinp.UV_Scale_U == shaderoutp.UV_Scale_U, f"UV_Scale_U correct: {shaderoutp.UV_Scale_U}"
-    assert shaderinp.UV_Scale_V == shaderoutp.UV_Scale_V, f"UV_Scale_V correct: {shaderoutp.UV_Scale_V}"
-    assert shaderinp.Emissive_Mult == shaderoutp.Emissive_Mult, f"Emissive_Mult correct: {shaderoutp.Emissive_Mult}"
-    assert shaderinp.Emissive_Color[:] == shaderoutp.Emissive_Color[:], f"Emissive_Color correct: {shaderoutp.Emissive_Color}"
-    assert glowin.properties.hasVertexColors == glowout.properties.hasVertexColors == 1, f"Vertex colors exported correctly"
-    assert glowin.alpha_property.properties.flags == glowout.alpha_property.properties.flags, \
-        f"Have correct alpha flags: {glowout.alpha_property.properties.flags}"
+
+    TT.assert_eq(shaderoutp.UV_Offset_U, shaderinp.UV_Offset_U, "UV Offset U")
+    TT.assert_eq(shaderoutp.UV_Offset_V, shaderinp.UV_Offset_V, "UV Offset V")
+    TT.assert_eq(shaderoutp.UV_Scale_U, shaderinp.UV_Scale_U, "UV Scale U")
+    TT.assert_eq(shaderoutp.UV_Scale_V, shaderinp.UV_Scale_V, "UV Scale V")
+
+    TT.assert_eq(shaderoutp.Emissive_Mult, shaderinp.Emissive_Mult, "Emissive Strength")
+    TT.assert_eq(shaderoutp.Emissive_Color[:], shaderinp.Emissive_Color[:], "Emissive Color")
+    TT.assert_eq(glowout.properties.hasVertexColors, glowin.properties.hasVertexColors, "Vertex Colors")
+    TT.assert_eq(glowout.alpha_property.properties.flags, glowin.alpha_property.properties.flags, "Alpha flags")
 
     espFloatCtlr:pyn.BSEffectShaderPropertyFloatController = glowout.shader.controller
     assert espFloatCtlr, f"Have shader controller on output"
@@ -1820,13 +1837,16 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     ### READ ###
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # Have a glow map
     bod = TT.find_object('SprigganFxTestUnified:0')
     assert len([x for x in bod.active_material.node_tree.nodes 
                 if x.type=='TEX_IMAGE' and x.image and 'spriggan_g' in x.image.name.lower()]
                 ), f"Spriggan loaded with glow map"
+    
+    # Have all animations
     act_names = [a.name.split('|') for a in bpy.data.actions if a.name.startswith('ANIM|')]
-    anim_names = set([an[1] for an in act_names])
-    assert anim_names == set([
+    expected_animations = [
         'LeavesLandedLoop',
         'LeavesScared',
         'LeavesAwayLoop',
@@ -1837,24 +1857,56 @@ def TEST_ANIM_SHADER_SPRIGGAN():
         'LeavesToHandDark',
         'LeavesOnHandDarkLoop',
         'LeavesOffHandDark',
-        'KillFX',
-    ]), f"Have all animations"
-    lth_targets = set(an[2] for an in act_names if an[1] == 'LeavesToHand')
-    assert lth_targets == set([
-        'SprigganFxHandCovers',
-        'SprigganHandLeaves',
-        'SprigganBodyLeaves',
-        'SprigganFxTestUnified:0',
-    ])
+        'KillFX',]
+    TT.assert_seteq(
+        [an[1] for an in act_names],
+        expected_animations,
+        "Animation names")
+
+    # LeavesToHand has all targets
+    lth_targets = [an[2] for an in act_names if an[1] == 'LeavesToHand']
+    TT.assert_seteq(
+        lth_targets, 
+        ['SprigganFxHandCovers',
+         'SprigganHandLeaves',
+         'SprigganBodyLeaves',
+         'SprigganFxTestUnified:0',],
+         "LeavesToHand controlled targets")
+    
     # Didn't create a dup action when there are two things to do to a shader.
     alist = [a for a in bpy.data.actions if a.name.startswith('ANIM|LeavesLandedLoop|SprigganFxTestUnified:0|Shader')]
     assert len(alist) == 1, f"No dup actions"
     act = alist[0]
-    assert set(c.data_path for c in act.fcurves) == set([
-        'nodes["Skyrim Shader - TSN"].inputs["Emission Color"].default_value',
-        'nodes["Skyrim Shader - TSN"].inputs["Emission Strength"].default_value',
-        ])
+    TT.assert_samemembers(
+        [c.data_path for c in act.fcurves],
+        ['nodes["Skyrim Shader - TSN"].inputs["Emission Color"].default_value',
+         'nodes["Skyrim Shader - TSN"].inputs["Emission Color"].default_value',
+         'nodes["Skyrim Shader - TSN"].inputs["Emission Color"].default_value',
+         'nodes["Skyrim Shader - TSN"].inputs["Emission Strength"].default_value',],
+        "fcurve data_path values")
+    
+    # No bogus data paths
+    for target in lth_targets:
+        obj = bpy.data.objects[target]
+        for c in obj.active_material.node_tree.animation_data.action.fcurves:
+            assert 'None' not in c.data_path, f"No data path contains 'None'"
 
+    # LeavesLandedLoop hand covers fcurve data path is correct.
+    lllhc_actions = [a for a in bpy.data.actions if a.name.startswith('ANIM|LeavesLandedLoop|SprigganFxHandCovers|Shader')]
+    assert len(lllhc_actions) == 1, f"Have one action"
+    lllhc = lllhc_actions[0]
+    TT.assert_samemembers(
+        [c.data_path for c in lllhc.fcurves],
+        ['nodes["Skyrim Shader - Effect"].inputs["Alpha Adjust"].default_value'],
+        "SprigganFXHandCovers fcurves")
+    
+    # KillFX body leaves fcurve data path is correct.
+    killact = [a for a in bpy.data.actions if a.name.startswith('ANIM|KillFX|SprigganBodyLeaves|Shader')][0]
+    TT.assert_eq(killact.fcurves[0].data_path, 
+                 'nodes["Skyrim Shader - Effect"].inputs["Alpha Threshold"].default_value',
+                 "Effect shader alpha threshold data path")
+
+    
     ### WRITE ###
     
     bpy.ops.export_scene.pynifly(filepath=outfile)
@@ -1869,11 +1921,22 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     TT.assert_eq(leavesout.shader.blockname, 'BSEffectShaderProperty', f"Leaf shader block type")
 
     outcm:pyn.NiControllerManager = nifout.root.controller
-    TT.assert_seteq([s for s in outcm.sequences], 
-                    ["LeavesLandedLoop", "LeavesScared", "LeavesAwayLoop", "LeavesLanding", "LeavesToHand", 
-                     "LeavesOnHandLoop", "LeavesOffHand", "LeavesToHandDark", "LeavesOnHandDarkLoop", 
-                     "LeavesOffHandDark", "KillFX", ],
-                     "Sequence names")
+    TT.assert_equiv(outcm.properties.frequency, 1.0, "Controller Manager frequency")
+    TT.assert_seteq([s for s in outcm.sequences], expected_animations, "Sequence names")
+
+    for csname, cs in outcm.sequences.items():
+        for cb in cs.controlled_blocks:
+            assert cb.node_name is not None and cb.node_name is not '', f"Have actual node name for sequence {csname}"    
+            assert cb.property_type is not None and cb.property_type is not '', f"Have actual property type for sequence {csname}"    
+            assert cb.controller_type is not None and cb.controller_type is not '', f"Have actual controller type for sequence {csname}"
+            assert cb.interpolator.id != pyn.NODEID_NONE and cb.interpolator.id != 0, f"Have interpolator for sequence {csname}"
+            assert cb.controller.id != pyn.NODEID_NONE and cb.controller.id != 0, f"Have controller for sequence {csname}"
+
+    lllseq:pyn.NiControllerSequence = outcm.sequences['LeavesLandedLoop']
+    bodyleavescb:pyn.ControllerLink = [b for b in lllseq.controlled_blocks 
+                                       if b.node_name == 'SprigganBodyLeaves'][0]
+    ctlr = bodyleavescb.controller
+    isinstance(ctlr, pyn.BSNiAlphaPropertyTestRefController), f"Have alpha controller"
 
 
 def TEST_SHADER_ALPHA():
@@ -1891,34 +1954,31 @@ def TEST_SHADER_ALPHA():
     nifAlph = pyn.NifFile(fileAlph)
     furshape = nifAlph.shape_dict["tail_fur"]
     tail = bpy.data.objects["tail_fur"]
-    assert 'Skyrim Shader - MSN' in tail.active_material.node_tree.nodes.keys(), \
-        f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
-    bsdf = tail.active_material.node_tree.nodes['Skyrim Shader - MSN']
+    TT.assert_contains('Skyrim Shader', tail.active_material.node_tree.nodes.keys(), "Shader")
+    bsdf = tail.active_material.node_tree.nodes['Skyrim Shader']
     assert bsdf.inputs['Normal'].is_linked, f"Have normal map"
-    assert 'Diffuse_Texture' in tail.active_material.node_tree.nodes.keys(), \
-        f"Have shader nodes: {tail.active_material.node_tree.nodes.keys()}"
-    assert "Alpha Threshold" in tail.active_material.node_tree.nodes, \
-        f"Have alpha clip nodes in node tree: {tail.active_material.node_tree.nodes.keys()}"
-    # assert tail.active_material.blend_method == 'CLIP', \
-    #     f"Error: Alpha blend is '{tail.active_material.blend_method}', not 'CLIP'"
+    TT.assert_contains('Diffuse_Texture', tail.active_material.node_tree.nodes.keys(), "Diffuse texture node")
+    alpha = bsdf.inputs['Alpha Property'].links[0].from_node
+    TT.assert_eq(alpha.inputs['Alpha Test'].default_value, True, "Alpha Test")
+    TT.assert_eq(alpha.inputs['Alpha Blend'].default_value, False, "Alpha Blend")
 
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
 
     nifCheck = pyn.NifFile(outfile)
     checkfurshape = nifCheck.shape_dict["tail_fur"]
     
-    assert set(checkfurshape.shader.textures.keys()) == set(furshape.shader.textures.keys())
+    TT.assert_seteq(checkfurshape.shader.textures.keys(), furshape.shader.textures.keys(), "Textures")
     for k in checkfurshape.shader.textures:
-        assert checkfurshape.shader.textures[k] == furshape.shader.textures[k], f"{k} texture matches"
+        TT.assert_eq(checkfurshape.shader.textures[k], furshape.shader.textures[k], f"{k} texture")
     diffs = checkfurshape.shader.properties.compare(furshape.shader.properties)
     assert not diffs, f"No difference in properties: {diffs}"
 
     assert checkfurshape.has_alpha_property, f"Have alpha property"
-    assert checkfurshape.alpha_property.properties.flags == furshape.alpha_property.properties.flags, \
-        f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.properties.flags} != {furshape.alpha_property.properties.flags}"
-    assert checkfurshape.alpha_property.properties.threshold == furshape.alpha_property.properties.threshold, \
-        f"Error: Alpha flags incorrect: {checkfurshape.alpha_property.properties.threshold} != {furshape.alpha_property.properties.threshold}"
-
+    TT.assert_eq(checkfurshape.alpha_property.properties.flags, furshape.alpha_property.properties.flags, 
+                 "Alpha flags")
+    TT.assert_eq(checkfurshape.alpha_property.properties.threshold, furshape.alpha_property.properties.threshold, 
+                 "Alpha threshold")
+    
 
 def TEST_SHADER_3_3():
     """Shader attributes are read and turned into Blender shader nodes"""
@@ -1995,6 +2055,9 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_EFFECT_GLOWINGONE.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=False)
+    body = TT.find_object("GlowingOneBody:0")
+    assert 'FO4 Seg 006 | 008 | Ghoul Foot.L' in body.vertex_groups, f"No segmentation"
+
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     nif = pyn.NifFile(testfile)
@@ -2660,7 +2723,7 @@ def TEST_VERTEX_ALPHA_IO():
     assert (diffuse.image.filepath.endswith('KhajiitMaleHead.dds')
             or diffuse.image.filepath.endswith('KhajiitMaleHead.png')), \
                 f"Filepath correct: {diffuse.image.filepath}"
-    assert shader.inputs['Alpha'].is_linked, f"Have alpha map"
+    assert shader.inputs['Alpha Property'].is_linked, f"Have alpha map"
 
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
@@ -5003,10 +5066,10 @@ def TEST_FONV_BOD():
                    body)
 
 
-def TEST_ANIM_CHEST():
+def TEST_ANIM_NOBLECHEST():
     """Read and write the animation of chest opening and shutting."""
     testfile = TT.test_file(r"tests\Skyrim\noblechest01.nif")
-    outfile =TT.test_file(r"tests/Out/TEST_ANIM_CHEST.nif")
+    outfile =TT.test_file(r"tests/Out/TEST_ANIM_NOBLECHEST.nif")
 
     #### READ ####
 
@@ -5172,9 +5235,10 @@ def TEST_ANIM_ALDUIN():
     alduin = TT.find_object('AlduinAnim:0')
     anodes = alduin.active_material.node_tree.nodes
     bsdf = [s for s in anodes if 'Shader' in s.name][0]
-    TT.assert_eq(bsdf.inputs['Alpha Threshold'].default_value, 5, "Alpha Threshold")
-    TT.assert_eq(bsdf.inputs['Alpha Test'].default_value, True, "Alpha Test")
-    TT.assert_eq(bsdf.inputs['Alpha Blend'].default_value, False, "Alpha Blend")
+    alpha = bsdf.inputs['Alpha Property'].links[0].from_node
+    TT.assert_eq(alpha.inputs['Alpha Threshold'].default_value, 5, "Alpha Threshold")
+    TT.assert_eq(alpha.inputs['Alpha Test'].default_value, True, "Alpha Test")
+    TT.assert_eq(alpha.inputs['Alpha Blend'].default_value, False, "Alpha Blend")
 
     def dump_anim():
         """Dump keyframe 0 animation data if any. If no animation data, dump pose
@@ -5407,7 +5471,10 @@ def TEST_ANIM_KF_RENAME():
     BD.ObjectSelect([arma], active=True)
     bpy.ops.import_scene.pynifly_kf(filepath=testfile)
 
-    assert len([fc for fc in arma.animation_data.action.fcurves if 'NPC Pelvis' in fc.data_path]) > 0, f"Animating translated bone names"
+    anim = arma.animation_data.action
+    assert len([fc for fc in anim.fcurves if 'NPC Pelvis' in fc.data_path]) > 0, f"Animating translated bone names"
+    translation_curve = [fc for fc in anim.fcurves if 'Foot.L' in fc.data_path and 'location' in fc.data_path][0]
+    TT.assert_eq(translation_curve.keyframe_points[0].interpolation, 'LINEAR', "Keyframe point interpolation")
 
     ### Export ###
 
@@ -5425,19 +5492,18 @@ def TEST_ANIM_KF_RENAME():
     assert 'NPC Pelvis [Pelv]' in names, f"Have nif name"
     assert 'NPC Pelvis' not in names, f"Don't have Blender name"
 
-    footcb = next(x for x in nifcheck.rootNode.controlled_blocks if x.node_name == 'NPC L Foot [Lft ]')
+    footcb:pyn.ControllerLink = next(x for x in nifcheck.rootNode.controlled_blocks if x.node_name == 'NPC L Foot [Lft ]')
+    TT.assert_eq(footcb.controller_type, 'NiTransformController', "Controller Type")
     foottd = footcb.interpolator.data
-    assert len(foottd.qrotations) == 333, f"Have correct number of rotation frames: {len(foottd.qrotations)}"
-    assert 250 <= len(foottd.translations) <= 333, f"Have correct number of translation frames: {len(foottd.translations)}"
+    TT.assert_eq(len(foottd.qrotations), 333, f"Number of L Foot rotations")
+    TT.assert_eq(foottd.properties.translations.interpolation, pyn.NiKeyType.LINEAR_KEY, "L Foot translation interpolation")
+    TT.assert_eq(len(foottd.translations), 2, "Number of translation frames")
     timeinterval = foottd.qrotations[10].time - foottd.qrotations[9].time
-    assert BD.NearEqual(timeinterval, 1/30), f"Have correct rotation time interval: {timeinterval}"
-    timeinterval = foottd.translations[10].time - foottd.translations[9].time
-    assert BD.NearEqual(timeinterval, 1/30), f"Have correct location time interval: {timeinterval}"
+    TT.assert_equiv(timeinterval, 1/30, "Rotation time interval")
+    TT.assert_equiv(foottd.translations[1].time, 8.5333, "Second keyframe time")
 
-    assert BD.NearEqual(foottd.qrotations[10].time, tdin.qrotations[10].time), f"Have near time signatures"
-    # assert BD.VNearEqual(foottd.qrotations[10].value, tdin.qrotations[10].value), f"Have near quaternion values"
-    # assert BD.NearEqual(foottd.translations[10].time, tdin.translations[10].time), f"Have near time signatures"
-    assert BD.VNearEqual(foottd.translations[10].value, tdin.translations[1].value), f"Have near quaternion values"
+    TT.assert_equiv(foottd.qrotations[10].time, tdin.qrotations[10].time, "time signatures")
+    TT.assert_equiv(foottd.translations[1].value, tdin.translations[1].value, f"translation values")
 
     comcb_in = next(x for x in nifin.rootNode.controlled_blocks if x.node_name == 'NPC COM [COM ]')
     comtd_in = comcb_in.interpolator.data
@@ -5943,9 +6009,13 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[TEST_ANIM_DWEMER_CHEST],
+        # target_tests=[TEST_SHADER_ALPHA],
+        target_tests=[TEST_SEGMENTS, ],
+        # target_tests=[TEST_SHADER_EFFECT_GLOWINGONE, TEST_SHADER_GRAYSCALE_COLOR, TEST_POT, TEST_VERTEX_COLOR_IO, TEST_TREE, TEST_COLLISION_BOW_SCALE, TEST_COLLISION_BOW, TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_HIER, TEST_COLLISION_MULTI, TEST_COLLISION_CONVEXVERT, TEST_COLLISION_CAPSULE, TEST_COLLISION_CAPSULE2, TEST_COLLISION_LIST, TEST_COLLISION_BOW_CHANGE, TEST_COLLISION_XFORM, TEST_FONV, TEST_COLLISION_PROPERTIES, ],
+        # target_tests=[TEST_ANIM_KF_RENAME, TEST_ANIM_ALDUIN, TEST_ANIM_HKX, TEST_ANIM_SHADER_GLOW, TEST_SHADER_ALPHA, TEST_VERTEX_ALPHA_IO, TEST_ANIM_NOBLECHEST, TEST_ANIM_DWEMER_CHEST, ],
         run_all=False,
         stop_on_fail=True,
         startfrom=None,
         exclude=[]
         )
+

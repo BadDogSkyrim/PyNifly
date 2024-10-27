@@ -933,72 +933,78 @@ class NifImporter():
           extended with this shape.
         * self.nodes_loaded = Dictionary mapping blender name : NiShape from nif
         """
-        v = the_shape.verts
-        t = the_shape.tris
-        if self.scale == 1.0:
+        try:
             v = the_shape.verts
-        else:
-            v = [(n[0]*self.scale, n[1]*self.scale, n[2]*self.scale) for n in the_shape.verts]
+            t = the_shape.tris
+            if self.scale == 1.0:
+                v = the_shape.verts
+            else:
+                v = [(n[0]*self.scale, n[1]*self.scale, n[2]*self.scale) for n in the_shape.verts]
 
-        new_mesh = bpy.data.meshes.new(the_shape.name)
-        new_mesh.from_pydata(v, [], t)
-        new_mesh.update(calc_edges=True, calc_edges_loose=True)
-        new_object = bpy.data.objects.new(the_shape.name, new_mesh)
-        new_object['pynBlockName'] = the_shape.blockname
-        the_shape.properties.extract(new_object, ignore=NISHAPE_IGNORE)
-        self.loaded_meshes.append(new_object)
-        self.nodes_loaded[new_object.name] = the_shape
-    
-        if not self.mesh_only:
-            self.objects_created.add(ReprObject(new_object, the_shape))
-            
-            import_colors(new_mesh, the_shape)
-
-            parent = self.import_node_parents(None, the_shape) 
-
-            # Parent the shape. Skinned meshes will be parented to the parent found in 
-            # the nif, not to the armature. 
-            if parent: # and parent != self.root_object: # and not the_shape.bone_names:
-                new_object.parent = parent
-
-            mesh_create_uv(new_object.data, the_shape.uvs)
-            self.mesh_create_bone_groups(the_shape, new_object)
-            mesh_create_partition_groups(the_shape, new_object)
-            for f in new_mesh.polygons:
-                f.use_smooth = True
-
-            new_mesh.validate(verbose=True)
-
-            if the_shape.normals:
-                mesh_create_normals(new_object.data, the_shape.normals)
-
-            shader_io.ShaderImporter().import_material(new_object, the_shape, asset_path)
-
-            if the_shape.collision_object and self.do_import_collisions:
-                collision.CollisionHandler.import_collision_obj(
-                    self, the_shape.collision_object, new_object)
-
-            if the_shape.controller and self.controller_mgr:
-                self.controller_mgr.import_controller(
-                    the_shape.controller,
-                    target_object=new_object,
-                    target_element=new_object)
+            new_mesh = bpy.data.meshes.new(the_shape.name)
+            new_mesh.from_pydata(v, [], t)
+            new_mesh.update(calc_edges=True, calc_edges_loose=True)
+            new_object = bpy.data.objects.new(the_shape.name, new_mesh)
+            new_object['pynBlockName'] = the_shape.blockname
+            the_shape.properties.extract(new_object, ignore=NISHAPE_IGNORE)
+            self.loaded_meshes.append(new_object)
+            self.nodes_loaded[new_object.name] = the_shape
+        
+            if not self.mesh_only:
+                self.objects_created.add(ReprObject(new_object, the_shape))
                 
-            if the_shape.shader.controller and self.controller_mgr:
-                self.controller_mgr.import_controller(
-                    the_shape.shader.controller,
-                    target_object=new_object, 
-                    target_element=new_object.active_material.node_tree)
-                
-            self.import_extra(new_object, the_shape)
+                import_colors(new_mesh, the_shape)
 
-            new_object['PYN_GAME'] = self.nif.game
-            new_object['PYN_BLENDER_XF'] = MatNearEqual(self.import_xf, blender_import_xf)
-            new_object['PYN_RENAME_BONES'] = self.do_rename_bones 
-            if self.rename_bones_nift != RENAME_BONES_NIFT_DEF:
-                new_object['PYN_RENAME_BONES_NIFT'] = self.rename_bones_nift 
+                parent = self.import_node_parents(None, the_shape) 
 
-        link_to_collection(self.collection, new_object)
+                # Parent the shape. Skinned meshes will be parented to the parent found in 
+                # the nif, not to the armature. 
+                if parent: # and parent != self.root_object: # and not the_shape.bone_names:
+                    new_object.parent = parent
+
+                mesh_create_uv(new_object.data, the_shape.uvs)
+                self.mesh_create_bone_groups(the_shape, new_object)
+                mesh_create_partition_groups(the_shape, new_object)
+                for f in new_mesh.polygons:
+                    f.use_smooth = True
+
+                new_mesh.validate(verbose=True)
+
+                if the_shape.normals:
+                    mesh_create_normals(new_object.data, the_shape.normals)
+
+                shader_io.ShaderImporter().import_material(new_object, the_shape, asset_path)
+
+                if the_shape.collision_object and self.do_import_collisions:
+                    collision.CollisionHandler.import_collision_obj(
+                        self, the_shape.collision_object, new_object)
+
+                if self.controller_mgr:
+                    # Importing animations.
+                    if the_shape.controller:
+                        self.controller_mgr.import_controller(
+                            the_shape.controller,
+                            target_object=new_object,
+                            target_element=new_object)
+                        
+                    elif the_shape.shader.controller:
+                        self.controller_mgr.import_controller(
+                            the_shape.shader.controller,
+                            target_object=new_object, 
+                            target_element=new_object.active_material.node_tree)
+                    
+                self.import_extra(new_object, the_shape)
+
+                new_object['PYN_GAME'] = self.nif.game
+                new_object['PYN_BLENDER_XF'] = MatNearEqual(self.import_xf, blender_import_xf)
+                new_object['PYN_RENAME_BONES'] = self.do_rename_bones 
+                if self.rename_bones_nift != RENAME_BONES_NIFT_DEF:
+                    new_object['PYN_RENAME_BONES_NIFT'] = self.rename_bones_nift 
+
+            link_to_collection(self.collection, new_object)
+
+        except:
+            log.exception(f"Error importing shape {the_shape.name}")
 
 
     # ------ ARMATURE IMPORT ------
@@ -1879,7 +1885,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             ObjectSelect(objlist)
 
         except:
-            self.log_handler.log.exception("Import of nif failed")
+            log.exception("Import of nif failed")
             self.report({"ERROR"}, "Import of nif failed, see console window for details")
             self.status = {'CANCELLED'}
 
@@ -2988,12 +2994,13 @@ class NifExporter:
                 self.warnings.add('NO_PARTITION')
                 self.objs_no_part.add(self.active_obj)
                 create_group_from_verts(self.active_obj, NO_PARTITION_GROUP, face_verts)
-                return 0
+                return None
             elif len(p) > 1:
                 log.warning(f'Face {face.index} has too many partitions: {p}')
                 self.warnings.add('MANY_PARITITON')
                 self.objs_mult_part.add(self.active_obj)
                 create_group_from_verts(self.active_obj, MULTIPLE_PARTITION_GROUP, face_verts)
+                None
 
         return p.pop()
 
@@ -3052,12 +3059,15 @@ class NifExporter:
                 norms.append(mesh.vertices[loopseg.vertex_index].normal[:])
 
         # Write out the loops as triangles, and partitions to match
+        have_partitions = True
+        partition_err = False
         for f in mesh.polygons:
             if f.loop_total < 3:
                 log.warning(f"Degenerate polygons on {mesh.name}: 0={l0}, 1={l1}")
             else:
                 if obj_partitions and len(obj_partitions) > 0:
                     loop_partition = self.get_loop_partitions(f, mesh.loops, weights)
+                    if not loop_partition: partition_err = True
                 l0 = mesh.loops[f.loop_start]
                 l1 = mesh.loops[f.loop_start+1]
                 for i in range(f.loop_start+2, f.loop_start+f.loop_total):
@@ -3070,9 +3080,14 @@ class NifExporter:
                         if loop_partition:
                             partition_map.append(obj_partitions[loop_partition].id)
                         else:
-                            log.warning(f"Writing first partition for face without partitions: {f.index}")
+                            have_partitions = False
                             partition_map.append(next(iter(obj_partitions.values())).id)
                     l1 = loopseg
+
+        if not have_partitions:
+            log.warning(f"Wrote faces without partitions on {mesh}")
+        if partition_err:
+            log.warning(f"Some faces are in multiple partitions, or no partition")
 
         return loops, uvs, norms, colors, partition_map
 
@@ -3516,8 +3531,8 @@ class NifExporter:
         else:
             blocktype = 'BSTriShape'
         
-        props = blockBuffers[blocktype](obj)
-        props.bufType = bufferTypeList.index(blocktype)
+        blockclass = NiObject.block_types[blocktype]
+        props = blockclass.getbuf(obj)
 
         new_shape = self.nif.createShapeFromData(self.unique_name(obj), 
                                                  verts, tris, uvmap_new, norms_exp,
@@ -4055,6 +4070,16 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         description="Frames per second for export",
         default=30) # type: ignore
 
+    do_rename_bones: bpy.props.BoolProperty(
+        name="Rename Bones",
+        description="Rename bones from Blender conventions back to nif.",
+        default=True) # type: ignore
+
+    rename_bones_niftools: bpy.props.BoolProperty(
+        name="Rename Bones as per NifTools",
+        description="Rename bones from NifTools' Blender conventions back to nif.",
+        default=False) # type: ignore
+
     @classmethod
     def poll(cls, context):
         if not nifly_path:
@@ -4105,12 +4130,12 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             self.nif.initialize("SKYRIM", self.filepath, "NiControllerSequence", 
                                 os.path.splitext(os.path.basename(self.filepath))[0])
             
-            controller.ControllerHandler.export_animated_armature(self, context.object)
+            controller.ControllerHandler.export_animation(self, context.object)
 
             self.nif.save()
 
         except:
-            self.log_handler.log.exception("Export of KF failed")
+            log.exception("Export of KF failed")
 
         if "ERROR" in self.errors:
             self.report({"ERROR"}, "Export of KF failed, see console window for details")
@@ -4126,6 +4151,12 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             self.log_handler.finish("EXPORT", self.filepath)
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
+
+    def nif_name(self, blender_name):
+        if self.do_rename_bones or self.rename_bones_nift:
+            return self.nif.nif_name(blender_name)
+        else:
+            return blender_name
 
     def error(self, msg):
         """Log an error message."""

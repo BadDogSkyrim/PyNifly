@@ -227,6 +227,9 @@ def QNearEqual(q1, q2, epsilon=0.001):
     return NearEqual(abs(q1.dot(q2)), 1.0, epsilon=epsilon)
 
 def all_equal(the_list):
+    """Determine whether all the values in the list are the same:
+    [A, B, C] -> A == B == C
+    """
     if the_list:
         return the_list[:-1] == the_list[1:]
     return True
