@@ -733,12 +733,28 @@ def TEST_SEGMENTS():
     subseg_names = [x.name for x in subsegs]
     assert len(subsegs) > 0, "Shapes have subsegments"
     assert subsegs[0].name == "FO4 Seg 002 | 000 | Up Arm.R", f"Subsegments have human-readable names: '{subsegs[0].name}'"
-    assert "FO4 Seg 002 | 003 | Lo Arm.R" in subseg_names, f"Have lower arm subsegment in {subseg_names}"
+    assert "FO4 Seg 002 | 003 | Lo Arm.R" in subseg_names, f"Missing lower arm subsegment in {subseg_names}"
 
-    # Vertices are associated with subsegments or segments.
-    t = body.partition_tris[10]
-    for i in t:
-        print(body.partitions[i].name)
+    # Segments and subsegments have IDs that run linearly increasing, in order. (This is a
+    # bit of an accident, but the blender layer uses it.)
+    allsegments = []
+    allnames = []
+    for p in body.partitions:
+        allsegments.append(p.id)
+        allnames.append(p.name)
+        for s in p.subsegments:
+            allsegments.append(s.id)
+            allnames.append(s.name)
+
+    for i, n in enumerate(allsegments):
+        assert i == n, f"Indicies are continuous"
+
+    # Segments and subsegments are associated with triangles. There should be a
+    # (sub)segment common to all verts of every triangle.
+    assert len(body.tris) == len(body.partition_tris)
+    t10 = body.tris[0]
+    s10 = body.partition_tris[10]
+    assert allnames[s10] == "FO4 Seg 002 | 000 | Up Arm.R", f"Have correct segment: {allnames[s10]}"
 
     """Can write segments back out"""
     # When writing segments, the tri list refers to segments/subsegments by ID *not*
@@ -2416,6 +2432,7 @@ def execute_test(t):
             t()
             passed_tests.append(t)
         except:
+            log.exception("Test failed with exception")
             failed_tests.append(t)
     print(f"------------- done")
 
@@ -2473,7 +2490,7 @@ logging.basicConfig()
 mylog.setLevel(logging.DEBUG)
 
 # ############## TESTS TO RUN #############
-stop_on_fail = True
+stop_on_fail = False
 execute(testlist=[TEST_SEGMENTS])
 # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
 # execute(exclude=[TEST_SET_SKINTINT])
