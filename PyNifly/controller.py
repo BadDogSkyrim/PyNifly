@@ -25,7 +25,7 @@ shader_nodes = {
     "Fallout 4 MTS": "Lighting", 
     "FO4 Effect Shader": "Effect", 
     "Skyrim Shader - Effect": "Effect", 
-    "Skyrim Shader - TSN": "Lighting", 
+    "Skyrim Shader": "Lighting", 
 } 
 
 def _shader_game(nodename):
@@ -55,6 +55,7 @@ class ControlledVariable:
         return None, None
     
     def nif_find(self, game, ctltype, varid):
+        """Find the right shader node and socket given a nif controller target."""
         for n, s, d, t, v in self.variables:
             if t == ctltype and varid == v:
                 for nodename, nodetype in shader_nodes.items():
@@ -68,15 +69,15 @@ class ControlledVariable:
         
 
 controlled_vars = ControlledVariable([
+    ("AlphaProperty", "Alpha Threshold", "inputs", BSNiAlphaPropertyTestRefController, 0),
     ("Effect", "Alpha Adjust", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Alpha_Transparency),
-    ("Effect", "Alpha Threshold", "inputs", BSNiAlphaPropertyTestRefController, 0),
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Emissive_Multiple),
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Falloff_Start_Angle),
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Falloff_Start_Opacity),
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Falloff_Stop_Angle),
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Falloff_Stop_Opacity),
+    ("Effect", "Emission Color", "inputs", BSEffectShaderPropertyColorController, EffectShaderControlledColor.EMISSIVE),
     ("Lighting", "Alpha Mult", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.Alpha),
-    ("Lighting", "Alpha Threshold", "inputs", BSNiAlphaPropertyTestRefController, 0),
     ("Lighting", "Emission Color", "inputs", BSLightingShaderPropertyColorController, LightingShaderControlledColor.EMISSIVE),
     ("Lighting", "Emission Strength", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.Emissive_Multiple),
     ("Lighting", "Glossiness", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.Glossiness),
@@ -267,7 +268,7 @@ class ControllerHandler():
         
         self.controlled_objects = set()
         self.start_time = sys.float_info.max
-        self.end_time = sys.float_info.min
+        self.end_time = -sys.float_info.max
 
         # Necessary context from the parent.
         self.nif = parent_handler.nif
@@ -1459,12 +1460,7 @@ def _import_alphatest_controller(ctlr:BSNiAlphaPropertyTestRefController,
                                  importer:ControllerHandler,
                                  interp:NiInterpController=None):
     importer.action_group = "Shader"
-    socketname = "Alpha Threshold"
-    nodename = _determine_shader_name(importer.nif.game, "Effect")
-    if not nodename:
-        raise Exception(f"Could not determine fcurve data path for alpha controller {ctlr.id}")
-    
-    importer.path_name = f'nodes["{nodename}"].inputs["{socketname}"].default_value'
+    importer.path_name = f'nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value'
     if not interp:
         interp = ctlr.interpolator
     if _ignore_interp(interp):

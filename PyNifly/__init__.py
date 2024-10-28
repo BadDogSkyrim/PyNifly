@@ -292,7 +292,7 @@ def mesh_create_partition_groups(the_shape, the_object):
             new_vg = vg[p.name]
         else:
             new_vg = vg.new(name=p.name)
-            partn_groups.append(new_vg)
+        partn_groups.append(new_vg)
         try:
             # Walk through subsegments, if any. Skyrim doesn't have them.
             for sseg in p.subsegments:
@@ -301,8 +301,8 @@ def mesh_create_partition_groups(the_shape, the_object):
         except:
             pass
     for part_idx, face in zip(the_shape.partition_tris, mesh.polygons):
-        if part_idx < len(the_shape.partitions):
-            this_vg = vg[the_shape.partitions[part_idx].name]
+        if part_idx < len(partn_groups):
+            this_vg = vg[partn_groups[part_idx].name]
             for lp in face.loop_indices:
                 this_loop = mesh.loops[lp]
                 this_vg.add((this_loop.vertex_index,), 1.0, 'ADD')
@@ -2990,13 +2990,13 @@ class NifExporter:
         if len(p) != 1:
             face_verts = [lp.vertex_index for lp in loops[face.loop_start:face.loop_start+face.loop_total]]
             if len(p) == 0:
-                log.warning(f'Face {face.index} has no partitions')
+                # log.warning(f'Face {face.index} has no partitions')
                 self.warnings.add('NO_PARTITION')
                 self.objs_no_part.add(self.active_obj)
                 create_group_from_verts(self.active_obj, NO_PARTITION_GROUP, face_verts)
                 return None
             elif len(p) > 1:
-                log.warning(f'Face {face.index} has too many partitions: {p}')
+                # log.warning(f'Face {face.index} has too many partitions: {p}')
                 self.warnings.add('MANY_PARITITON')
                 self.objs_mult_part.add(self.active_obj)
                 create_group_from_verts(self.active_obj, MULTIPLE_PARTITION_GROUP, face_verts)

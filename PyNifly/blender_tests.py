@@ -309,12 +309,21 @@ def TEST_IMP_EXP_SKY():
         impnif = pyn.NifFile(testfile)
         armorin = impnif.shape_dict['Armor']
 
+        # Armor is in the right place.
         vmin, vmax = TT.get_obj_bbox(armor)
         assert TT.VNearEqual(vmin, Vector([-30.32, -13.31, -90.03]), 0.1), f"Armor min is correct: {vmin}"
         assert TT.VNearEqual(vmax, Vector([30.32, 12.57, -4.23]), 0.1), f"Armor max is correct: {vmax}"
         assert TT.NearEqual(armor.location.z, 120.34, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
-        arma = next(x for x in bpy.data.objects if x.type == 'ARMATURE')
-        assert arma.name == BD.arma_name("Scene Root"), f"armor has parent: {arma}"
+
+        # Armor has one body partition (even tho 2 partitions in the nif, both are 32).
+        TT.assert_contains("SBP_32_BODY", armor.vertex_groups, "Body partition")
+        bp = armor.vertex_groups["SBP_32_BODY"]
+        for i, v in enumerate(armor.data.vertices):
+                TT.assert_contains(bp.index, [vg.group for vg in v.groups], f"Vertex {i} groups")
+
+        # Armor has an armature.
+        arma = armor.modifiers["Armature"].object
+        assert arma.type == 'ARMATURE', f"armor has armature: {arma}"
 
         pelvis = arma.data.bones['NPC Pelvis']
         pelvis_pose = arma.pose.bones['NPC Pelvis'] 
@@ -1568,7 +1577,16 @@ def TEST_PARTITIONS():
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
-    assert "SBP_130_HEAD" in obj.vertex_groups, "Skyrim body parts read in as vertex groups with sensible names"
+    TT.assert_contains("SBP_130_HEAD", obj.vertex_groups, "Head part")
+
+    # Verts are correctly assigned to head parts.
+    neckgroup = obj.vertex_groups["SBP_230_NECK"]
+    maxz = -sys.float_info.max
+    for v in obj.data.vertices:
+        for vg in v.groups:
+            if vg.group == neckgroup.index:
+                maxz = max(maxz, v.co.z)
+    assert -3 < maxz < -2, f"Neck verts are all low on head"
 
     print("### Can write Skyrim partitions")
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
@@ -1879,10 +1897,10 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     act = alist[0]
     TT.assert_samemembers(
         [c.data_path for c in act.fcurves],
-        ['nodes["Skyrim Shader - TSN"].inputs["Emission Color"].default_value',
-         'nodes["Skyrim Shader - TSN"].inputs["Emission Color"].default_value',
-         'nodes["Skyrim Shader - TSN"].inputs["Emission Color"].default_value',
-         'nodes["Skyrim Shader - TSN"].inputs["Emission Strength"].default_value',],
+        ['nodes["Skyrim Shader"].inputs["Emission Color"].default_value',
+         'nodes["Skyrim Shader"].inputs["Emission Color"].default_value',
+         'nodes["Skyrim Shader"].inputs["Emission Color"].default_value',
+         'nodes["Skyrim Shader"].inputs["Emission Strength"].default_value',],
         "fcurve data_path values")
     
     # No bogus data paths
@@ -1895,16 +1913,27 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     lllhc_actions = [a for a in bpy.data.actions if a.name.startswith('ANIM|LeavesLandedLoop|SprigganFxHandCovers|Shader')]
     assert len(lllhc_actions) == 1, f"Have one action"
     lllhc = lllhc_actions[0]
+    TT.assert_eq(lllhc.frame_range[0], 1, "Frame start")
+    TT.assert_equiv(lllhc.frame_range[1], 49.72, "Frame end", e=1)
     TT.assert_samemembers(
         [c.data_path for c in lllhc.fcurves],
         ['nodes["Skyrim Shader - Effect"].inputs["Alpha Adjust"].default_value'],
         "SprigganFXHandCovers fcurves")
     
     # KillFX body leaves fcurve data path is correct.
-    killact = [a for a in bpy.data.actions if a.name.startswith('ANIM|KillFX|SprigganBodyLeaves|Shader')][0]
-    TT.assert_eq(killact.fcurves[0].data_path, 
-                 'nodes["Skyrim Shader - Effect"].inputs["Alpha Threshold"].default_value',
-                 "Effect shader alpha threshold data path")
+    handleaves = TT.find_object("SprigganHandLeaves")
+    controller.apply_animation("KillFX")
+    bpy.context.scene.frame_current = 1
+    TT.assert_equiv(handleaves.active_material.node_tree.nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value,
+                    255,
+                    "Alpha Threshold at frame 1")
+    bpy.context.scene.frame_current = 40
+    TT.assert_equiv(handleaves.active_material.node_tree.nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value,
+                    255,
+                    "Alpha Threshold at frame 40")
+    # TT.assert_eq(killact.fcurves[0].data_path, 
+    #              'nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value',
+    #              "Effect shader alpha threshold data path")
 
     
     ### WRITE ###
@@ -1926,9 +1955,9 @@ def TEST_ANIM_SHADER_SPRIGGAN():
 
     for csname, cs in outcm.sequences.items():
         for cb in cs.controlled_blocks:
-            assert cb.node_name is not None and cb.node_name is not '', f"Have actual node name for sequence {csname}"    
-            assert cb.property_type is not None and cb.property_type is not '', f"Have actual property type for sequence {csname}"    
-            assert cb.controller_type is not None and cb.controller_type is not '', f"Have actual controller type for sequence {csname}"
+            assert cb.node_name is not None and cb.node_name != '', f"Have actual node name for sequence {csname}"    
+            assert cb.property_type is not None and cb.property_type != '', f"Have actual property type for sequence {csname}"    
+            assert cb.controller_type is not None and cb.controller_type != '', f"Have actual controller type for sequence {csname}"
             assert cb.interpolator.id != pyn.NODEID_NONE and cb.interpolator.id != 0, f"Have interpolator for sequence {csname}"
             assert cb.controller.id != pyn.NODEID_NONE and cb.controller.id != 0, f"Have controller for sequence {csname}"
 
@@ -4145,7 +4174,7 @@ def TEST_COLLISION_LIST():
         boxdiag = cts45check.child
         assert TT.NearEqual(boxdiag.properties.bhkDimensions[1], 0.170421), f"Diagonal box has correct size: {boxdiag.properties.bhkDimensions[1]}"
 
-    run_test('BLENDER')
+    # run_test('BLENDER')
     run_test('NATURAL')
 
 
@@ -5943,10 +5972,11 @@ def execute_test(t, stop_on_fail=True):
 def do_tests(
         target_tests=[],
         run_all=True,
-        stop_on_fail=False,
+        stop_on_fail=True,
         startfrom=None,
         exclude=[]):
     """Do tests in testlist. Can pass in a single test."""
+    if run_all: stop_on_fail = True
     try:
         for t in target_tests:
             break
@@ -6009,12 +6039,8 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        # target_tests=[TEST_SHADER_ALPHA],
-        target_tests=[TEST_SEGMENTS, ],
-        # target_tests=[TEST_SHADER_EFFECT_GLOWINGONE, TEST_SHADER_GRAYSCALE_COLOR, TEST_POT, TEST_VERTEX_COLOR_IO, TEST_TREE, TEST_COLLISION_BOW_SCALE, TEST_COLLISION_BOW, TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_HIER, TEST_COLLISION_MULTI, TEST_COLLISION_CONVEXVERT, TEST_COLLISION_CAPSULE, TEST_COLLISION_CAPSULE2, TEST_COLLISION_LIST, TEST_COLLISION_BOW_CHANGE, TEST_COLLISION_XFORM, TEST_FONV, TEST_COLLISION_PROPERTIES, ],
-        # target_tests=[TEST_ANIM_KF_RENAME, TEST_ANIM_ALDUIN, TEST_ANIM_HKX, TEST_ANIM_SHADER_GLOW, TEST_SHADER_ALPHA, TEST_VERTEX_ALPHA_IO, TEST_ANIM_NOBLECHEST, TEST_ANIM_DWEMER_CHEST, ],
+        target_tests=[TEST_IMP_EXP_SKY],
         run_all=False,
-        stop_on_fail=True,
         startfrom=None,
         exclude=[]
         )

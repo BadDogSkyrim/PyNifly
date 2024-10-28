@@ -19,7 +19,7 @@ pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
 log = logging.getLogger("pynifly")
 
 
-PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimLE\mods\00 Vanilla Assets"
+PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimSE\mods\00 Vanilla Assets"
 PYNIFLY_TEXTURES_FO4 = r"C:\Modding\Fallout4\mods\00 FO4 Assets"
 
 
@@ -302,7 +302,7 @@ def assert_eq(*args):
     """Assert all elements but the last are equal. The last is the message to use."""
     msg = args[-1]
     values = args[0:-1]
-    assert values[0:-1] == values[1:], f"{msg} have same value: {values}"
+    assert values[0:-1] == values[1:], f"{msg} are equal: {values}"
     # assert actual == expected, f"{msg} not the same: {actual} = {expected}"
 
 
@@ -344,7 +344,7 @@ def assert_samemembers(actual, expected, msg):
     assert len(actual) == len(expected), f"{msg} not the same: {actual} == {expected}"
 
 
-def find_object(name, coll=bpy.context.scene.objects, fn=lambda x: x.name):
+def find_object(name, coll=None, fn=lambda x: x.name):
     """Find an object by name with the given list of objects
         name = name to find. Blocks in nifs aren't supposed to have the same
             name but sometimes they do. Also, a Blend file might contain imports from several nifs. 
@@ -356,6 +356,7 @@ def find_object(name, coll=bpy.context.scene.objects, fn=lambda x: x.name):
         Return = object from list, or None. Object either has the exact name or the name followed 
             by .###
     """
+    if coll is None: coll = bpy.context.scene.objects
     foundobj = None
     for obj in coll:
         n = fn(obj)
@@ -369,7 +370,8 @@ def find_object(name, coll=bpy.context.scene.objects, fn=lambda x: x.name):
     return foundobj
 
 
-def select_object(name, coll=bpy.context.scene.objects, fn=lambda x: x.name):
+def select_object(name, coll=None, fn=lambda x: x.name):
+    if coll is None: coll = bpy.context.scene.objects
     obj = find_object(name, coll, fn)
     for o in coll:
         o.select_set(True if o == obj else False)

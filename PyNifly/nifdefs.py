@@ -1766,7 +1766,7 @@ class NiControllerManagerBuf(pynStructure):
         self.frequency = 1.0
         self.phase = 0
         self.startTime = sys.float_info.max
-        self.stopTime = sys.float_info.min
+        self.stopTime = -sys.float_info.max
         self.cumulative = False
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiControllerManagerBufType
@@ -1791,7 +1791,7 @@ class NiMultiTargetTransformControllerBuf(pynStructure):
         self.frequency = 1.0
         self.phase = 0
         self.startTime = sys.float_info.max
-        self.stopTime = sys.float_info.min
+        self.stopTime = -sys.float_info.max
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiMultiTargetTransformControllerBufType
 
@@ -1987,7 +1987,7 @@ class NiFloatInterpolatorBuf(pynStructure):
         ("dataID", c_uint32),
     ]
     def __init__(self, values=None):
-        self.floatValue = sys.float_info.min
+        self.floatValue = -sys.float_info.max
         self.dataID = NODEID_NONE
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiFloatInterpolatorBufType

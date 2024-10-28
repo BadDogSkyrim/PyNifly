@@ -963,6 +963,13 @@ class bhkNiCollisionObject(NiCollisionObject):
         return bhkNiCollisionObjectBuf(values)
 
 
+class bhkCollisionObject(bhkNiCollisionObject):
+    buffer_type = PynBufferTypes.bhkCollisionObjectBufType
+    @classmethod
+    def getbuf(cls, values=None):
+        return bhkCollisionObjectBuf(values)
+
+
 class bhkPCollisionObject(bhkNiCollisionObject):
     buffer_type = PynBufferTypes.bhkPCollisionObjectBufType
     @classmethod
@@ -970,14 +977,14 @@ class bhkPCollisionObject(bhkNiCollisionObject):
         return bhkNiCollisionObjectBuf(values)
 
 
-class bhkSPCollisionObject(NiCollisionObject):
+class bhkSPCollisionObject(bhkPCollisionObject):
     buffer_type = PynBufferTypes.bhkSPCollisionObjectBufType
     @classmethod
     def getbuf(cls, values=None):
         return bhkSPCollisionObjectBuf(values)
 
 
-class bhkBlendCollisionObject(NiCollisionObject):
+class bhkBlendCollisionObject(bhkCollisionObject):
     buffer_type = PynBufferTypes.bhkBlendCollisionObjectBufType
 
     @classmethod
@@ -1868,7 +1875,7 @@ class NiSingleInterpController(NiInterpController):
     def New(cls, file, 
             flags=108, 
             next_controller=None, 
-            start_time=sys.float_info.max, stop_time=sys.float_info.min, 
+            start_time=sys.float_info.max, stop_time=-sys.float_info.max, 
             frequency=1.0,
             phase=0,
             interpolator=None, 
