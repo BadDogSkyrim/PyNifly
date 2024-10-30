@@ -2084,24 +2084,61 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_EFFECT_GLOWINGONE.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=False)
-    body = TT.find_object("GlowingOneBody:0")
-    assert 'FO4 Seg 006 | 008 | Ghoul Foot.L' in body.vertex_groups, f"No segmentation"
 
+    # Check we have segments and subsegments.
+    body = TT.find_object("GlowingOneBody:0")
+    TT.assert_contains('FO4 Seg 006 | 008 | Ghoul Foot.L', body.vertex_groups, "Foot segment")
+
+    # Have to export the root object for the flags to carry over.
+    BD.ObjectSelect([o for o in bpy.context.scene.objects if 'pynRoot' in o], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     nif = pyn.NifFile(testfile)
     nifcheck = pyn.NifFile(outfile)
+
+    # Make sure root node flags got carried over.
+    TT.assert_eq(nifcheck.rootNode.properties.flags,
+                 nif.rootNode.properties.flags,
+                 "Root node flags")
+
+    # The 'flash' body has an effect shader with alpha. The alpha node uses blending, but
+    # with peculiar settings that seem to mimic translucency even tho the diffuse alpha is
+    # opaque.
     glow = nif.shape_dict["GlowingOneBodyFlash:1"]
     glowcheck = nifcheck.shape_dict["GlowingOneBodyFlash:1"]
 
-    assert glow.blockname == glowcheck.blockname == "BSSubIndexTriShape", \
-        f"Created a BSSubIndexTriShape: {glowcheck.blockname}"
-    assert glow.properties.flags == glowcheck.properties.flags, f"Have correct flags: {glowcheck.properties.flags}"
-    assert glow.shader.blockname == glowcheck.shader.blockname, f"Have correct shader: {glowcheck.shader.blockname}"
-    assert glow.shader.properties.sourceTexture.upper() == glowcheck.shader.properties.sourceTexture.upper(), \
-        f"Have correct source texture: {glowcheck.shader.properties.sourceTexture}"
-    assert glow.shader.properties.greyscaleTexture.upper() == glowcheck.shader.properties.greyscaleTexture.upper(), \
-        f"Have correct source texture: {glowcheck.shader.properties.greyscaleTexture}"
+    # Check the shader.
+    TT.assert_eq(glow.blockname, glowcheck.blockname, "BSSubIndexTriShape", "Shape type")
+    TT.assert_eq(glow.properties.flags, glowcheck.properties.flags, "Shape flags")
+    TT.assert_eq(glow.shader.blockname, glowcheck.shader.blockname, "Shader type")
+    TT.assert_eq(glow.shader.properties.sourceTexture.upper(), 
+                 glowcheck.shader.properties.sourceTexture.upper(), 
+                 "Source texture")
+    TT.assert_eq(glow.shader.properties.greyscaleTexture.upper(), 
+                 glowcheck.shader.properties.greyscaleTexture.upper(), 
+                 "Grayscale texture")
+    
+    # Check the alpha
+    alphacheck = glowcheck.alpha_property
+    TT.assert_eq(alphacheck.properties.flags, 4109, "Alpha flags")
+
+    # "PartA" sequence has a color controller that affects the emissive color of
+    # "GlowingOneGlowFXstreak:0". (Which is not emissive color at all--emissive color is
+    # used for the palette color of the greyscale texture.)
+    cm:pyn.NiControllerManager = nifcheck.rootNode.controller
+    seq:pyn.NiControllerSequence = cm.sequences["partA"]
+    cblist = [cb for cb in seq.controlled_blocks if cb.node_name == "GlowingOneGlowFXstreak:0"]
+    TT.assert_samemembers([b.controller_type for b in cblist], 
+                          ["BSEffectShaderPropertyColorController", "BSEffectShaderPropertyFloatController"],
+                          "PartA Controller types")
+    cb = [b for b in cblist if b.controller_type == "BSEffectShaderPropertyColorController"][0]
+    dat = cb.interpolator.data
+    dat1 = dat.keys[1]
+    TT.assert_equiv(dat1.time, 0.3, "Key 1 time")
+    TT.assert_equiv(dat1.value[0], 0.894199, "Key 1 value")
+    TT.assert_equiv(dat1.backward[0], -0.151786, "Key 1 backward", e=0.1)
+
+
     
 
 def TEST_TEXTURE_PATHS():
@@ -6039,7 +6076,7 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[TEST_IMP_EXP_SKY],
+        target_tests=[TEST_SHADER_EFFECT_GLOWINGONE],
         run_all=False,
         startfrom=None,
         exclude=[]

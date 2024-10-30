@@ -1171,6 +1171,14 @@ class AlphaPropertyBuf(pynStructure):
         self.flags &= ~ALPHA_FLAG_MASK.SOURCE_BLEND_MODE
         self.flags |= ALPHA_FLAG_MASK.SOURCE_BLEND_MODE & (val << 1)
 
+    @property
+    def dst_blend_mode(self):
+        return (self.flags & ALPHA_FLAG_MASK.DST_BLEND_MODE) >> 5
+    @dst_blend_mode.setter
+    def dst_blend_mode(self, val):
+        self.flags &= ~ALPHA_FLAG_MASK.DST_BLEND_MODE
+        self.flags |= ALPHA_FLAG_MASK.DST_BLEND_MODE & (val << 5)
+
 
 AlphaPropertyBuf_p = POINTER(AlphaPropertyBuf)
 

@@ -70,13 +70,13 @@ class ControlledVariable:
 
 controlled_vars = ControlledVariable([
     ("AlphaProperty", "Alpha Threshold", "inputs", BSNiAlphaPropertyTestRefController, 0),
-    ("Effect", "Alpha Adjust", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Alpha_Transparency),
+    # ("Effect", "Alpha Adjust", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Alpha_Transparency),
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Emissive_Multiple),
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Falloff_Start_Angle),
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Falloff_Start_Opacity),
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Falloff_Stop_Angle),
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Falloff_Stop_Opacity),
-    ("Effect", "Emission Color", "inputs", BSEffectShaderPropertyColorController, EffectShaderControlledColor.EMISSIVE),
+    ("Fallout 4 MTS - Greyscale To Palette Vector", "Palette", "inputs", BSEffectShaderPropertyColorController, EffectShaderControlledColor.EMISSIVE),
     ("Lighting", "Alpha Mult", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.Alpha),
     ("Lighting", "Emission Color", "inputs", BSLightingShaderPropertyColorController, LightingShaderControlledColor.EMISSIVE),
     ("Lighting", "Emission Strength", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.Emissive_Multiple),
@@ -152,7 +152,7 @@ def all_animation_actions(animation:str=""):
 def current_animations(nif, refobjs:BD.ReprObjectCollection):
     """
     Find all assets that appear to be animation actions.
-    Returns a dictionary: {animation_name: [action, ReprObject], ...}
+    Returns a dictionary: {animation_name: [action, ReprObject, target], ...}
     """
     matches = {}
     for act in all_animation_actions():
@@ -161,7 +161,7 @@ def current_animations(nif, refobjs:BD.ReprObjectCollection):
             if anim_name not in matches:
                 matches[anim_name] = []
             matches[anim_name].append(
-                [act, refobjs.find_nifname(nif, target_name)])
+                [act, refobjs.find_nifname(nif, target_name), elem_name])
     return matches
 
 
@@ -583,21 +583,24 @@ class ControllerHandler():
         block. One element will be animated by this link block, but may require multiple
         fcurves.
         """
-        if self.animation_target.type == 'ARMATURE':
-            if not self._animate_bone(block.node_name):
-                return
-        else:
-            if not self._new_element_action(
-                seq, block.node_name, block.property_type, None):
-                return
+        try:
+            if self.animation_target.type == 'ARMATURE':
+                if not self._animate_bone(block.node_name):
+                    return
+            else:
+                if not self._new_element_action(
+                    seq, block.node_name, block.property_type, None):
+                    return
 
-        if block.controller:
-            block.controller.import_node(self, block.interpolator)
-            
-        if block.interpolator:
-            # If there's no controller, everything is done by the interpolator.
-            block.interpolator.import_node(self, None)
+            if block.controller:
+                block.controller.import_node(self, block.interpolator)
+                
+            if block.interpolator:
+                # If there's no controller, everything is done by the interpolator.
+                block.interpolator.import_node(self, None)
 
+        except:
+            log.exception(f"Error importing sequence {seq.name}")
 
     def _import_text_keys(self, tk:NiTextKeyExtraData):
         for time, val in tk.keys:
@@ -817,6 +820,8 @@ class ControllerHandler():
                     or (ctlclass_cur is None)):
 
                     # New node type needed, start a new controller/interpolator pair
+                    mytarget = targetobj.blender_obj
+                    ctlr_type = None
                     if issubclass(ctlclass, BSNiAlphaPropertyTestRefController):
                         mytarget = targetobj.nifnode.alpha_property
                     elif targetelem.type == 'SHADER':
@@ -831,7 +836,7 @@ class ControllerHandler():
                         myinterp = interp
                         myparent = targetobj.nifnode.shader
 
-                    if self.cm_controller:
+                    if self.cm_controller and issubclass(ctlclass, NiTransformController):
                         controller = self.cm_controller
 
                     elif (ctlclass != NiTransformController):
@@ -893,7 +898,7 @@ class ControllerHandler():
     #         # Collect list of curves. They will be picked off in clumps until the list is empty.
     #         curve_list = list(self.action.fcurves)
     #         while curve_list:
-    #             targname, ti = self._export_transform_curves_old(action_target, curve_list)
+    #             targname, ti = self._export_transform_curves(action_target, curve_list)
     #             if targname and ti:
     #                 controller.add_controlled_block(
     #                     name=self.nif_name(targname),
@@ -904,7 +909,7 @@ class ControllerHandler():
     #     elif action_target.type in ['EMPTY', 'MESH']:
     #         curve_list = list(self.action.fcurves)
     #         while curve_list:
-    #             targname, ti = self._export_transform_curves_old(action_target, curve_list)
+    #             targname, ti = self._export_transform_curves(action_target, curve_list)
     #             if self.cm_controller:
     #                 mttc = self.cm_controller
     #             else:
@@ -999,11 +1004,15 @@ class ControllerHandler():
 
             self._export_text_keys(self.controller_sequence)
 
-            for act, reprobj in actionlist:
+            for act, reprobj, anim_targ in actionlist:
                 # if the target is an ARMATURE, do something different
                 interps = []
                 try:
-                    interps = self._export_activated_obj(reprobj, reprobj.blender_obj, act)
+                    interps = self._export_activated_obj(
+                        reprobj, 
+                        reprobj.blender_obj.active_material.node_tree if anim_targ == 'Shader'
+                            else None, 
+                        act)
                 except:
                     log.exception(f"Could not export animation {act.name} on object {reprobj.blender_obj.name}")
                 
@@ -1012,9 +1021,9 @@ class ControllerHandler():
                         name=reprobj.nifnode.name,
                         interpolator=intp,
                         controller=ctlr,
-                        # controller_type=(ctlr.blockname 
-                        #                  if ctlr.blockname != 'NiMultiTargetTransformController'
-                        #                  else 'NiTransformController'),
+                        controller_type=(ctlr.blockname 
+                                         if ctlr.blockname != 'NiMultiTargetTransformController'
+                                         else 'NiTransformController'),
                     )
                 self.cm_obj_palette.add_object(reprobj.nifnode.name, reprobj.nifnode)
 
@@ -1038,7 +1047,7 @@ class ControllerHandler():
         # Collect list of curves. They will be picked off in clumps until the list is empty.
         curve_list = list(exporter.action.fcurves)
         while curve_list:
-            # targname, ti = exporter._export_transform_curves_old(arma, curve_list)
+            # targname, ti = exporter._export_transform_curves(arma, curve_list)
             bonename, ti = NiTransformController.fcurve_exporter(exporter, curve_list, arma)
             nifbonename = exporter.nif_name(bonename)
 
@@ -1498,6 +1507,8 @@ def _import_ESPFloat_controller(ctlr:BSEffectShaderPropertyFloatController,
             importer.nif.game,
             BSEffectShaderPropertyFloatController, 
             ctlr.properties.controlledVariable)
+        if nodename is None:
+            raise Exception(f"Invalid controlled target on controller {ctlr.id}")
         importer.path_name = \
             f'nodes["{nodename}"].{in_out}["{inputname}"].default_value'
     except:
@@ -1514,7 +1525,7 @@ def _import_ESPFloat_controller(ctlr:BSEffectShaderPropertyFloatController,
 BSEffectShaderPropertyFloatController.import_node = _import_ESPFloat_controller
 
 
-def _import_ESPColor_controller(ctlr:BSEffectShaderPropertyFloatController, 
+def _import_ESPColor_controller(ctlr:BSEffectShaderPropertyColorController, 
                                  importer:ControllerHandler,
                                  interp:NiInterpController=None):
     """
@@ -1525,8 +1536,10 @@ def _import_ESPColor_controller(ctlr:BSEffectShaderPropertyFloatController,
         importer.warn("No target object")
 
     importer.action_group = "Shader"
-    importer.path_name = ""
-    importer.path_name = f'nodes["FO4 Effect Shader"].inputs["Emission Color"].default_value'
+    if "Fallout 4 MTS - Greyscale To Palette Vector" in importer.action_target.nodes:
+        importer.path_name = f'nodes["Fallout 4 MTS - Greyscale To Palette Vector"].inputs["Palette"].default_value'
+    else:
+        importer.path_name = f'nodes["FO4 Effect Shader"].inputs["Emission Color"].default_value'
 
     if not interp:
         interp = ctlr.interpolator
@@ -1966,7 +1979,7 @@ def _export_loc_curves(exporter, td, loc, targ_xf):
                 td.add_translation_key(timesig, rv)
 
 
-def _export_transform_curves_old(exporter:ControllerHandler, curve_list, targetobj=None):
+def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=None):
     """
     Export a group of curves from the list to a TransformInterpolator/TransformData pair.
     A group maps to a controlled object, so each group should be one such pair. The curves
@@ -2059,7 +2072,7 @@ def _export_transform_curves_old(exporter:ControllerHandler, curve_list, targeto
 
     return (targetname if targetname else targetobj.name), ti
 
-NiTransformController.fcurve_exporter = _export_transform_curves_old
+NiTransformController.fcurve_exporter = _export_transform_curves
 
 
 def _create_blend_transform(exporter):
@@ -2087,14 +2100,25 @@ def _export_color_curves(exporter, curve_list, target_obj=None):
     for i in range(1, len(keyframes)-1):
         kfr, kfg, kfb = keyframes[i]
         kfbuf = NiAnimKeyQuadTransBuf()
-        kfbuf.time = (kfr.co[0]-1)/exporter.fps
-        for j in range(0, 3):
-            kfbuf.value[j] = kfr.co[1]
-            kfbuf.forward[j], kfbuf.backward[j] = exporter._key_blender_to_nif(
-                kfp0=keyframes[i-1][j],
-                kfp1=keyframes[i][j],
-                kfp2=keyframes[i+1][j]
-            )
+        kfbuf.time = (kfr.co.x-1)/exporter.fps
+        kfbuf.value[0] = kfr.co.y
+        kfbuf.forward[0], kfbuf.backward[0] = exporter._key_blender_to_nif(
+            kfp0=keyframes[i-1][0],
+            kfp1=keyframes[i][0],
+            kfp2=keyframes[i+1][0]
+        )
+        kfbuf.value[1] = kfg.co.y
+        kfbuf.forward[1], kfbuf.backward[1] = exporter._key_blender_to_nif(
+            kfp0=keyframes[i-1][1],
+            kfp1=keyframes[i][1],
+            kfp2=keyframes[i+1][1]
+        )
+        kfbuf.value[2] = kfb.co.y
+        kfbuf.forward[2], kfbuf.backward[2] = exporter._key_blender_to_nif(
+            kfp0=keyframes[i-1][2],
+            kfp1=keyframes[i][2],
+            kfp2=keyframes[i+1][2]
+        )
         dat.add_key(kfbuf)
 
     interp = NiPoint3Interpolator.New(exporter.nif, data=dat)

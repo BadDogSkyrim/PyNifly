@@ -1170,6 +1170,8 @@ class ShaderImporter:
                 alpha.inputs['Alpha Threshold'].default_value = props.threshold
 
             alpha.inputs['Alpha Blend'].default_value = bool(props.alpha_blend)
+            alpha.inputs['Source Blend Mode'].default_value = props.source_blend_mode
+            alpha.inputs['Destination Blend Mode'].default_value = props.dst_blend_mode
 
             self.material['NiAlphaProperty_flags'] = shape.alpha_property.properties.flags
             self.material['NiAlphaProperty_threshold'] = shape.alpha_property.properties.threshold
@@ -1268,6 +1270,7 @@ class ShaderImporter:
             else:
                 gtpvector.inputs['Palette'].default_value = self.shape.shader.properties.grayscaleToPaletteScale
             self.link(txt_outskt, gtpvector.inputs['Diffuse'])
+            txtnode.image.colorspace_settings.name = "Non-Color"
             reposition(gtpvector)
 
             palettenode = self.make_node("ShaderNodeTexImage",
@@ -1858,6 +1861,8 @@ class ShaderExporter:
             if alpha.alpha_test:
                 alpha.threshold = int(alphanode.inputs['Alpha Threshold'].default_value)
             alpha.alpha_blend = bool(alphanode.inputs['Alpha Blend'].default_value)
+            alpha.source_blend_mode = alphanode.inputs['Source Blend Mode'].default_value
+            alpha.dst_blend_mode = alphanode.inputs['Destination Blend Mode'].default_value
         except:
             if 'NiAlphaProperty_flags' in self.material:
                 shape.alpha_property.properties.flags = self.material['NiAlphaProperty_flags']

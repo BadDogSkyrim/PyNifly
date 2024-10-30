@@ -2225,9 +2225,11 @@ class NiSequence(NiObject):
             if controller_type is None:
                 controller_type = controller.blockname
 
-        if controller_type is None: controller_type = ''
-        buf.ctrlType = NifFile.nifly.addString(
-            self.file._handle, controller_type.encode('utf-8'))
+        if controller_type is None: 
+            buf.ctrlType = NODEID_NONE
+        else:
+            buf.ctrlType = NifFile.nifly.addString(
+                self.file._handle, controller_type.encode('utf-8'))
 
         # Not adding the controller ID or interpoator ID string values because those can
         # change when nifly does cleanup on save. If this turns out to be a problem, we'll

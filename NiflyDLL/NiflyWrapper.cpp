@@ -4229,6 +4229,12 @@ NIFLY_API void addAnimKeyQuadTrans(void* nifref, int tdID, NiAnimKeyQuadTransBuf
     k.value[0] = buf->value[0];
     k.value[1] = buf->value[1];
     k.value[2] = buf->value[2];
+    k.backward[0] = buf->backward[0];
+    k.backward[1] = buf->backward[1];
+    k.backward[2] = buf->backward[2];
+    k.forward[0] = buf->forward[0];
+    k.forward[1] = buf->forward[1];
+    k.forward[2] = buf->forward[2];
 
 
     nifly::NiTransformData* td = hdr.GetBlock<NiTransformData>(tdID);
