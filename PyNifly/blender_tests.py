@@ -6058,7 +6058,7 @@ def do_tests(
         startfrom=None,
         exclude=[]):
     """Do tests in testlist. Can pass in a single test."""
-    if run_all: stop_on_fail = True
+    if run_all: stop_on_fail = False
     try:
         for t in target_tests:
             break
@@ -6121,8 +6121,9 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[TEST_SHADER_EFFECT_GLOWINGONE],
+        target_tests=[TEST_COLLISION_BOW_SCALE],
         run_all=False,
+        stop_on_fail=True,
         startfrom=None,
         exclude=[]
         )

@@ -823,11 +823,11 @@ class ControllerHandler():
                     or (ctlclass_cur is None)):
 
                     # New node type needed, start a new controller/interpolator pair
-                    mytarget = targetobj.blender_obj
+                    mytarget = targetobj.nifnode
                     ctlr_type = None
                     if issubclass(ctlclass, BSNiAlphaPropertyTestRefController):
                         mytarget = targetobj.nifnode.alpha_property
-                    elif targetelem.type == 'SHADER':
+                    elif targetelem and targetelem.type == 'SHADER':
                         mytarget = targetobj.nifnode.shader
 
                     grp, interp = ctlclass.fcurve_exporter(self, fcurves, targetobj)

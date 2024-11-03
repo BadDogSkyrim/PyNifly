@@ -893,7 +893,8 @@ class NifImporter():
         for nm, n in nif.nodes.items():
             # If it's a bhk (collision) node, only consider it if we're importing
             # collisions.
-            if not nm.startswith('bhk') or self.do_import_collisions:
+            if ((not nm.startswith('bhk') or self.do_import_collisions) 
+                and not n.__class__.__name__.startswith('NiShader')): # isinstance not working somehow
                 p = self.import_node_parents(arma, n)
                 self.import_ninode(arma, n, p)
         

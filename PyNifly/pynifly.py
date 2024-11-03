@@ -606,9 +606,9 @@ class NiObject:
 
 
 class NiObjectNET(NiObject):
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None, name=""):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
-        self._name = None
+        self._name = name
         self._controller = None
         self._bgdata = None
         self._strdata = None
@@ -1103,16 +1103,17 @@ class NiAVObject(NiObjectNET):
 # --- NiNode --- #
 
 class NiNode(NiAVObject):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None, 
+                 properties=None, name=""):
+        super().__init__(handle=handle, file=file, id=id, parent=parent, 
+                         properties=properties, name=name)
+        
     buffer_type = PynBufferTypes.NiNodeBufType
 
     @classmethod
     def getbuf(cls, values=None):
         return NiNodeBuf(values)
     
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, parent=None, 
-                 properties=None, name=""):
-        super().__init__(handle=handle, file=file, id=id, parent=parent, 
-                         properties=properties)
     @property
     def blender_name(self, nif_name):
         return self.file.dict.blender_name(nif_name)
@@ -3893,7 +3894,8 @@ class NifFile:
                 id=id, file=self, handle=handle, properties=properties, parent=parent)
             self.node_ids[id] = node
             try:
-                if node.name: self._nodes[node.name] = node
+                if node.name and isinstance(node, NiNode): 
+                    self._nodes[node.name] = node
             except:
                 pass
             return node
