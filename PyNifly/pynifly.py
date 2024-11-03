@@ -219,6 +219,8 @@ def load_nifly(nifly_path):
     nifly.setConnectPointsChild.restype = None
     nifly.setConnectPointsParent.argtypes = [c_void_p, c_int, POINTER(ConnectPointBuf)]
     nifly.setConnectPointsParent.restype = None
+    nifly.setController.argtypes = [c_void_p, c_int, c_int]
+    nifly.setController.restype = c_int
     nifly.setFurnMarkers.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
     nifly.setFurnMarkers.restype = None
     nifly.setNodeFlags.argtypes = [c_void_p, c_int]
@@ -601,6 +603,97 @@ class NiObject:
     def getbuf(cls, values=None):
         """To be overwritten by subclasses."""
         assert False, "getbuf should have been overwritten."
+
+
+class NiObjectNET(NiObject):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._name = None
+        self._controller = None
+        self._bgdata = None
+        self._strdata = None
+        self._clothdata = None
+
+        if self._handle:
+            self.properties
+            buflen = self.file.max_string_len
+            buf = create_string_buffer(buflen)
+            NifFile.nifly.getNodeName(self._handle, buf, buflen)
+            self._name = buf.value.decode('utf-8')
+
+        if self._name:
+            self.file.nodes[self._name] = self
+
+    @property
+    def name(self):
+        if self._name == None:
+            namebuf = (c_char * self.file.max_string_len)()
+            NifFile.nifly.getString(
+                self.file._handle, self.properties.nameID, self.file.max_string_len, namebuf)
+            self._name = namebuf.value.decode('utf-8')
+        return self._name
+    
+    @name.setter
+    def name(self, value):
+        self._name = value
+        if self.file: self.file.register_node(self)
+        
+    @property
+    def controller(self):
+        if self._controller: return self._controller
+        if self.properties.controllerID == NODEID_NONE: return None
+        self._controller = self.file.read_node(id=self.properties.controllerID, parent=self)
+        return self._controller
+    
+    @controller.setter
+    def controller(self, c):
+        self._controller = c
+        self.properties.controllerID = c.id
+        NifFile.nifly.setController(self.file._handle, self.id, c.id)
+    
+    @property
+    def behavior_graph_data(self):
+        if self._bgdata is None:
+            self._bgdata = _read_extra_data(self.file._handle, self._handle,
+                                           ExtraDataType.BehaviorGraph)
+        return self._bgdata
+
+    @behavior_graph_data.setter
+    def behavior_graph_data(self, val):
+        self._bgdata = val
+        _write_extra_data(self.file._handle, self._handle, 
+                         ExtraDataType.BehaviorGraph, self._bgdata)
+
+    @property
+    def string_data(self):
+        if self._strdata is None:
+            self._strdata = _read_extra_data(self.file._handle, self._handle,
+                                           ExtraDataType.String)
+        return self._strdata
+
+    @string_data.setter
+    def string_data(self, val):
+        self._strdata = val
+        _write_extra_data(self.file._handle, self._handle, 
+                         ExtraDataType.String, self._strdata)
+
+    @property
+    def cloth_data(self):
+        if self._clothdata is None:
+            self._clothdata = _read_extra_data(self.file._handle, 
+                                               self._handle,
+                                               ExtraDataType.Cloth)
+        return self._clothdata
+
+    @cloth_data.setter
+    def cloth_data(self, val):
+        self._clothdata = val
+        _write_extra_data(self.file._handle, self._handle, 
+                         ExtraDataType.Cloth, self._clothdata)
+
+
+class NiProperty(NiObjectNET):
+    pass
 
 
 # --- Collisions --- #
@@ -992,7 +1085,7 @@ class bhkBlendCollisionObject(bhkCollisionObject):
         return bhkBlendCollisionObjectBuf(values)
 
 
-class NiAVObject(NiObject):
+class NiAVObject(NiObjectNET):
     def add_collision(self, body, flags=None):
         buf = bhkCollisionObjectBuf()
         if flags is not None: buf.flags = flags
@@ -1020,32 +1113,6 @@ class NiNode(NiAVObject):
                  properties=None, name=""):
         super().__init__(handle=handle, file=file, id=id, parent=parent, 
                          properties=properties)
-        self._name = name
-        self._controller = None
-        self._bgdata = None
-        self._strdata = None
-        self._clothdata = None
-        self._clothdata = None
-        
-        if self._handle:
-            self.properties
-            buflen = self.file.max_string_len
-            buf = create_string_buffer(buflen)
-            NifFile.nifly.getNodeName(self._handle, buf, buflen)
-            self._name = buf.value.decode('utf-8')
-
-        if self._name:
-            self.file.nodes[self._name] = self
-
-    @property
-    def name(self):
-        return self._name
-    
-    @name.setter
-    def name(self, value):
-        self._name = value
-        if self.file: self.file.register_node(self)
-        
     @property
     def blender_name(self, nif_name):
         return self.file.dict.blender_name(nif_name)
@@ -1103,58 +1170,6 @@ class NiNode(NiAVObject):
             return NiCollisionObject.New(id=self.properties.collisionID, file=self.file, parent=self)
         else:
             return None
-
-    @property
-    def controller(self):
-        if self._controller: return self._controller
-        if self.properties.controllerID == NODEID_NONE: return None
-        self._controller = self.file.read_node(id=self.properties.controllerID, parent=self)
-        return self._controller
-    
-    @controller.setter
-    def controller(self, c):
-        self._controller = c
-        self.properties.controllerID = c.id
-
-    @property
-    def behavior_graph_data(self):
-        if self._bgdata is None:
-            self._bgdata = _read_extra_data(self.file._handle, self._handle,
-                                           ExtraDataType.BehaviorGraph)
-        return self._bgdata
-
-    @behavior_graph_data.setter
-    def behavior_graph_data(self, val):
-        self._bgdata = val
-        _write_extra_data(self.file._handle, self._handle, 
-                         ExtraDataType.BehaviorGraph, self._bgdata)
-
-    @property
-    def string_data(self):
-        if self._strdata is None:
-            self._strdata = _read_extra_data(self.file._handle, self._handle,
-                                           ExtraDataType.String)
-        return self._strdata
-
-    @string_data.setter
-    def string_data(self, val):
-        self._strdata = val
-        _write_extra_data(self.file._handle, self._handle, 
-                         ExtraDataType.String, self._strdata)
-
-    @property
-    def cloth_data(self):
-        if self._clothdata is None:
-            self._clothdata = _read_extra_data(self.file._handle, 
-                                               self._handle,
-                                               ExtraDataType.Cloth)
-        return self._clothdata
-
-    @cloth_data.setter
-    def cloth_data(self, val):
-        self._clothdata = val
-        _write_extra_data(self.file._handle, self._handle, 
-                         ExtraDataType.Cloth, self._clothdata)
 
     @property
     def bsx_flags(self):
@@ -2516,7 +2531,7 @@ class NiAlphaProperty(NiObject):
         return self._parent
 
 
-class NiShader(NiObject):
+class NiShader(NiProperty):
     """
     Handles shader attributes for a Nif. In Skyrim, returns values from the underlying
     shader block. In FO4, most attributes come from the associated materials file.
@@ -2530,19 +2545,8 @@ class NiShader(NiObject):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         
-        self._name = None
         self._textures = None
-        self._controller = None
 
-    @property
-    def name(self):
-        if self._name == None:
-            namebuf = (c_char * self.file.max_string_len)()
-            NifFile.nifly.getString(
-                self.file._handle, self.properties.nameID, self.file.max_string_len, namebuf)
-            self._name = namebuf.value.decode('utf-8')
-        return self._name
-    
     @property
     def parent(self):
         if not self._parent:
@@ -2649,18 +2653,6 @@ class NiShader(NiObject):
             if slot == 'EmitGradient':
                 self.properties.emitGradientTexture = texturepath.encode('utf-8')
 
-    @property
-    def controller(self):
-        if self._controller: return self._controller
-        if self.properties.controllerID == NODEID_NONE: return None
-        self._controller = self.file.read_node(id=self.properties.controllerID, parent=self)
-        return self._controller
-    
-    @controller.setter
-    def controller(self, c):
-        self._controller = c
-        self.properties.controllerID = c.id
-    
     def flags1_test(self, flag):
         return self.properties.shaderflags1_test(flag)
     

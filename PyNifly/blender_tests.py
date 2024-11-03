@@ -2080,7 +2080,7 @@ def TEST_SHADER_EFFECT():
 
 def TEST_SHADER_EFFECT_GLOWINGONE():
     """BSEffectShaderProperty attributes are read & written correctly."""
-    testfile = TT.test_file(r"tests\FO4\glowingone.nif")
+    testfile = TT.test_file(r"tests\FO4\glowingoneTEST.nif")
     outfile = TT.test_file(r"tests/Out/TEST_SHADER_EFFECT_GLOWINGONE.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=False)
@@ -2089,8 +2089,45 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
     body = TT.find_object("GlowingOneBody:0")
     TT.assert_contains('FO4 Seg 006 | 008 | Ghoul Foot.L', body.vertex_groups, "Foot segment")
 
-    # Have to export the root object for the flags to carry over.
+    # Simplify.
+    
+    # # The following just animates the FXstreak layer.
+    # for act in [a for a in bpy.data.actions if "partB" in a.name]:
+    #     bpy.data.actions.remove(act)
+    # for act in [a for a in bpy.data.actions if "GlowingOneGlowFXstreak" not in a.name]:
+    #     bpy.data.actions.remove(act)
+    # for act in [a for a in bpy.data.actions if "GlowingOneGlowFXstreak" in a.name]:
+    #     for c in list(fc for fc in act.fcurves if "Palette" not in fc.data_path):
+    #         act.fcurves.remove(c)
+
+    # # The following just animates the alpha channel on the BodyFlash
+    # a = bpy.data.actions["ANIM|partA|GlowingOneBodyFlash:1|Shader"]
+    # for act in bpy.data.actions:
+    #     if act is not a:
+    #         bpy.data.actions.remove(act)
+    # ecurves = [c for c in a.fcurves if "Alpha Adjust" not in c.data_path]
+    # for c in ecurves:
+    #     a.fcurves.remove(c)
+    # for c in a.fcurves:
+    #     c.keyframe_points[-1].co[1] = 0
+
+    # # Don't export the flash layer
+    # for o in bpy.context.scene.objects:
+    #     if (o.name in ["GlowingOneBodyFlash:1", "GlowingOneHeadFlash:0"]):
+    #         o.hide_set(True)
+
+    # # Have to export the root object for the flags to carry over.
     BD.ObjectSelect([o for o in bpy.context.scene.objects if 'pynRoot' in o], active=True)
+    # BD.ObjectSelect([o for o in bpy.context.scene.objects if 'pynRoot' in o], active=True)
+    # TT.select_object("GlowingOneGlowFXstreak:0")
+    # for a in bpy.data.actions:
+    #     if a.name != "ANIM|partA|GlowingOneGlowFXstreak:0|Shader":
+    #         bpy.data.actions.remove(a)
+    # a = bpy.data.actions["ANIM|partA|GlowingOneGlowFXstreak:0|Shader"]
+    # for c in a.fcurves:
+    #     if "Alpha Adjust" in c.data_path:
+    #         a.fcurves.remove(c)
+    # a.name = "ANIM|-|GlowingOneGlowFXstreak:0|Shader"
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     nif = pyn.NifFile(testfile)
@@ -2118,6 +2155,9 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
                  glowcheck.shader.properties.greyscaleTexture.upper(), 
                  "Grayscale texture")
     
+    # Shader knows it has a controller.
+    assert glowcheck.shader.controller is not None, f"Shader has a controller"
+    
     # Check the alpha
     alphacheck = glowcheck.alpha_property
     TT.assert_eq(alphacheck.properties.flags, 4109, "Alpha flags")
@@ -2129,14 +2169,19 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
     seq:pyn.NiControllerSequence = cm.sequences["partA"]
     cblist = [cb for cb in seq.controlled_blocks if cb.node_name == "GlowingOneGlowFXstreak:0"]
     TT.assert_samemembers([b.controller_type for b in cblist], 
-                          ["BSEffectShaderPropertyColorController", "BSEffectShaderPropertyFloatController"],
+                          ["BSEffectShaderPropertyColorController", 
+                           "BSEffectShaderPropertyFloatController", 
+                           "BSEffectShaderPropertyFloatController"],
                           "PartA Controller types")
     cb = [b for b in cblist if b.controller_type == "BSEffectShaderPropertyColorController"][0]
+    
+    # Interpolator data has reasonable values, including forward/back values.
     dat = cb.interpolator.data
     dat1 = dat.keys[1]
     TT.assert_equiv(dat1.time, 0.3, "Key 1 time")
     TT.assert_equiv(dat1.value[0], 0.894199, "Key 1 value")
     TT.assert_equiv(dat1.backward[0], -0.151786, "Key 1 backward", e=0.1)
+
 
 
     

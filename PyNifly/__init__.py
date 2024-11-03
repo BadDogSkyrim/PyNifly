@@ -2833,9 +2833,10 @@ class NifExporter:
         Set the objects to export from the given list of objects 
         """
         for x in objects:
-            self.add_object(x)
-            if "pynRoot" in x:
-                self.root_object = x
+            if not x.hide_get():
+                self.add_object(x)
+                if "pynRoot" in x:
+                    self.root_object = x
         self.connect_points.add_all(objects)
         self.file_keys = get_with_uscore(get_common_shapes(self.objects))
 

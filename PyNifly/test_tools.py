@@ -335,7 +335,7 @@ def assert_seteq(actual, expected, msg):
         s2 = expected
     else:
         s2 = set(expected)
-    assert len(s1.symmetric_difference(s2)) == 0, f"{msg} not the same: {s1.symmetric_difference(s2)}"
+    assert len(s1.symmetric_difference(s2)) == 0, f"{msg} not the same: {s1} vs {s2}"
 
 
 def assert_samemembers(actual, expected, msg):

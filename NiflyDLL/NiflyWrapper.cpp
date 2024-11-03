@@ -4494,6 +4494,15 @@ int addNiSingleInterpController(void* nifref, const char* name, void* b, uint32_
     return newid;
 };
 
+NIFLY_API int setController(void* nifref, uint32_t id, uint32_t controller_id) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiObjectNET* node = hdr->GetBlock<NiObjectNET>(id);
+    node->controllerRef.index = controller_id;
+    return 0;
+}
+
+
 NIFLY_API int getExtraData(void* nifref, uint32_t id, const char* extraDataBlockType) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();

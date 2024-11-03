@@ -70,7 +70,7 @@ class ControlledVariable:
 
 controlled_vars = ControlledVariable([
     ("AlphaProperty", "Alpha Threshold", "inputs", BSNiAlphaPropertyTestRefController, 0),
-    # ("Effect", "Alpha Adjust", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Alpha_Transparency),
+    ("Effect", "Alpha Adjust", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Alpha_Transparency),
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Emissive_Multiple),
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Falloff_Start_Angle),
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Falloff_Start_Opacity),
@@ -767,6 +767,9 @@ class ControllerHandler():
 
         for obj in self.controlled_objects:
             self.cm_obj_palette.add_object(obj.nifnode.name, obj.nifnode)
+        # for name, n in self.nif.nodes.items():
+        #     if isinstance(n, NiNode) or isinstance(n, NiShape):
+        #         self.cm_obj_palette.add_object(name, n)
 
 
     def _select_controller(self, dp):
@@ -854,8 +857,15 @@ class ControllerHandler():
                             parent=myparent)
                         
                     interps_created.append((controller, interp))
+
                 ctlclass_cur = ctlclass
                 ctlvar_cur = ctlvar
+
+            # Target has to point to the first controller in the chain (but the chain
+            # was built from last to first).
+            if mytarget.properties.controllerID == NODEID_NONE and interps_created:
+                mytarget.controller = interps_created[-1][0]
+                
         except:
             log.exception(f"Error exporting fcurves to class {ctlclass} for {targetobj.name}")
         
@@ -989,7 +999,10 @@ class ControllerHandler():
 
         self.cm_obj_palette = NiDefaultAVObjectPalette.New(self.nif, self.nif.rootNode, parent=cm)
 
-        for anim_name, actionlist in anims.items(): 
+        keys = list(anims.keys())
+        keys.sort()
+        for anim_name in keys: 
+            actionlist = anims[anim_name]
             vals = apply_animation(anim_name)
             self.controller_sequence:NiControllerSequence = NiControllerSequence.New(
                 file=self.parent.nif,
@@ -1515,7 +1528,11 @@ def _import_ESPFloat_controller(ctlr:BSEffectShaderPropertyFloatController,
         pass
 
     if not importer.path_name: 
-        raise Exception(f"NYI: Cannot handle controlled variable on controller {ctlr.id}: {repr(EffectShaderControlledVariable(ctlr.properties.controlledVariable))}") 
+        if ctlr.properties.controlledVariable == EffectShaderControlledVariable.Alpha_Transparency:
+            log.info(f"Common error: Nif controller {ctlr.id} attempting to control effect shader alpha transparency, which does not exist.")
+            return
+        else:
+            raise Exception(f"NYI: Cannot handle controlled variable on controller {ctlr.id}: {repr(EffectShaderControlledVariable(ctlr.properties.controlledVariable))}") 
 
     td = interp.data
     if td: 
