@@ -10,7 +10,7 @@ import bpy
 from pynifly import *
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 import blender_defs as BD
-from nifdefs import ShaderFlags1, ShaderFlags2
+from nifdefs import ShaderFlags1, ShaderFlags2, ShaderFlags1FO4, ShaderFlags2FO4
 
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 MSN_GROUP_NAME = "MSN_TRANSFORM"
@@ -1028,9 +1028,10 @@ class ShaderImporter:
         to set up Blender nodes and properties.
         """
         shader:NiShader = shape.shader
-        shader.properties.extract(self.material, ignore=NISHADER_IGNORE)
 
         try:
+            shader.properties.extract(self.material, ignore=NISHADER_IGNORE, game=self.game)
+
             self.material['BS_Shader_Block_Name'] = shader.blockname
             self.material['BSLSP_Shader_Name'] = shader.name
 
@@ -1614,10 +1615,11 @@ def has_msn_shader(obj):
 
 
 class ShaderExporter:
-    def __init__(self, blender_obj):
+    def __init__(self, blender_obj, game):
         self.obj = blender_obj
         self.is_obj_space = False
         self.logger = logging.getLogger("pynifly")
+        self.game = game
 
         self.material = None
         self.shader_node = None
@@ -1635,7 +1637,7 @@ class ShaderExporter:
                     else:
                         self.is_obj_space = has_msn_shader(blender_obj)
                 if not self.shader_node:
-                    log.warning(f"Have material but no shader node for {self.material.name}")
+                    raise Exception(f"Have material but no shader node for {self.material.name}")
 
         self.vertex_colors, self.vertex_alpha = get_effective_colormaps(blender_obj.data)
 
@@ -1651,7 +1653,7 @@ class ShaderExporter:
             if 'BSLSP_Shader_Name' in self.material and self.material['BSLSP_Shader_Name']:
                 shape.shader_name = self.material['BSLSP_Shader_Name']
 
-            shape.shader.properties.load(self.material)
+            shape.shader.properties.load(self.material, game=self.game)
             if 'BS_Shader_Block_Name' in self.material:
                 if self.material['BS_Shader_Block_Name'] == "BSLightingShaderProperty":
                     shape.shader.properties.bufType = PynBufferTypes.BSLightingShaderPropertyBufType
@@ -1701,7 +1703,7 @@ class ShaderExporter:
             shape.save_shader_attributes()
             
         except Exception as e:
-            self.warn("Could not determine shader attributes: " + traceback.format_exc())
+            log.exception(f"Could not determine shader attributes: for {shape.name}")
 
 
     @property

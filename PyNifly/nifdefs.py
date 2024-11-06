@@ -79,10 +79,15 @@ class PynIntFlag(IntFlag):
         valuelist = value.split("|")
         flags = 0
         for v in valuelist:
+            have_val = False
             try:
                 flags |= cls[v.strip()]
+                have_val = True
             except:
+                pass
+            if not have_val:
                 flags |= int(v, 0)
+
         return flags
 
 class PynIntEnum(IntEnum):
@@ -178,7 +183,7 @@ class pynStructure(Structure):
         if pynStructure.logger: pynStructure.logger.warning(msg)
         self.warnings.append(msg)
 
-    def load(self, shape, ignore=[]):
+    def load(self, shape, ignore=[], game='SKYRIM'):
         """
         Load fields from the dictionary-like object 'shape'. 
         Return list of warnings if any fields can't be set. 
@@ -186,73 +191,79 @@ class pynStructure(Structure):
         self.warnings = []
         for f, t in self._fields_:
             v = None
-            try:
-                if f in ignore:
-                    pass
-                elif not (f in shape.keys()):
-                    pass
-                elif f == 'Shader_Flags_1':
+            # try:
+            if f in ignore:
+                pass
+            elif not (f in shape.keys()):
+                pass
+            elif f == 'Shader_Flags_1':
+                if game in ['SKYRIM', 'SKYRIMSE']:
                     v = ShaderFlags1.parse(shape[f]).value
-                elif f == 'Shader_Flags_2':
-                    v = ShaderFlags2.parse(shape[f]).value
-                elif f == 'Shader_Type':
-                    if type(shape[f]) == BSLSPShaderType:
-                        v = shape[f].value
-                    elif type(shape[f]) == str:
-                        mykey = str(shape[f])
-                        myenum = BSLSPShaderType[mykey]
-                        myval = myenum.value
-                        v = myval
-                    else:
-                        v = int(shape[f])
-                elif f == 'collisionFilter_layer' or f == 'collisionFilterCopy_layer':
-                    v = SkyrimCollisionLayer[shape[f]].value
-                elif f == 'broadPhaseType':
-                    v = BroadPhaseType[shape[f]].value
-                elif f == 'collisionResponse':
-                    v = hkResponseType[shape[f]].value
-                elif f == 'collisionResponse2':
-                    v = hkResponseType[shape[f]].value
-                elif f == 'motionSystem':
-                    v = hkMotionType[shape[f]].value
-                elif f == 'deactivatorType':
-                    v = hkDeactivatorType[shape[f]].value
-                elif f == 'solverDeactivation': 
-                    v = hkSolverDeactivation[shape[f]].value
-                elif f == 'qualityType':
-                    v = hkQualityType[shape[f]].value
-                elif f == 'bhkMaterial':
-                    if type(shape[f]) == int:
-                        v = shape[f] 
-                    else:
-                        v = SkyrimHavokMaterial[shape[f]].value
-                elif t.__name__ == 'c_float_Array_2':
-                    v = VECTOR2(*eval(shape[f]))
-                elif t.__name__ == 'c_float_Array_3':
-                    v = VECTOR3(*eval(shape[f]))
-                elif t.__name__ == 'c_float_Array_4':
-                    v = VECTOR4(*eval(shape[f]))
-                elif t.__name__ == 'c_float_Array_12':
-                    v = VECTOR12(*eval(shape[f]))
-                elif t.__name__ == 'c_ushort_Array_6':
-                    v = VECTOR6_SHORT(*eval(shape[f]))
-                elif t.__name__ == 'c_float':
-                    v = float(shape[f])
-                elif t.__name__ in ['c_ubyte', 'c_ulong', 'c_uint8', 'c_uint16', 'c_uint32', 'c_ulong', 'c_ulonglong']:
-                    v = int(shape[f])
                 else:
-                    v = shape[f]
-                if v is not None:
-                    self.__setattr__(f, v)
-            except KeyError as e:
-                try:
-                    self.__setattr__(f, int(shape[f]))
-                except Exception as e:
-                    self.warn(f"Error setting property {f} <- {shape[f]}")
-            except Exception as e:
-                self.warn(f"Error setting property {f} <- {shape[f]}")
+                    v = ShaderFlags1FO4.parse(shape[f]).value
+            elif f == 'Shader_Flags_2':
+                if game in ['SKYRIM', 'SKYRIMSE']:
+                    v = ShaderFlags2.parse(shape[f]).value
+                else:
+                    v = ShaderFlags2FO4.parse(shape[f]).value
+            elif f == 'Shader_Type':
+                if type(shape[f]) == BSLSPShaderType:
+                    v = shape[f].value
+                elif type(shape[f]) == str:
+                    mykey = str(shape[f])
+                    myenum = BSLSPShaderType[mykey]
+                    myval = myenum.value
+                    v = myval
+                else:
+                    v = int(shape[f])
+            elif f == 'collisionFilter_layer' or f == 'collisionFilterCopy_layer':
+                v = SkyrimCollisionLayer[shape[f]].value
+            elif f == 'broadPhaseType':
+                v = BroadPhaseType[shape[f]].value
+            elif f == 'collisionResponse':
+                v = hkResponseType[shape[f]].value
+            elif f == 'collisionResponse2':
+                v = hkResponseType[shape[f]].value
+            elif f == 'motionSystem':
+                v = hkMotionType[shape[f]].value
+            elif f == 'deactivatorType':
+                v = hkDeactivatorType[shape[f]].value
+            elif f == 'solverDeactivation': 
+                v = hkSolverDeactivation[shape[f]].value
+            elif f == 'qualityType':
+                v = hkQualityType[shape[f]].value
+            elif f == 'bhkMaterial':
+                if type(shape[f]) == int:
+                    v = shape[f] 
+                else:
+                    v = SkyrimHavokMaterial[shape[f]].value
+            elif t.__name__ == 'c_float_Array_2':
+                v = VECTOR2(*eval(shape[f]))
+            elif t.__name__ == 'c_float_Array_3':
+                v = VECTOR3(*eval(shape[f]))
+            elif t.__name__ == 'c_float_Array_4':
+                v = VECTOR4(*eval(shape[f]))
+            elif t.__name__ == 'c_float_Array_12':
+                v = VECTOR12(*eval(shape[f]))
+            elif t.__name__ == 'c_ushort_Array_6':
+                v = VECTOR6_SHORT(*eval(shape[f]))
+            elif t.__name__ == 'c_float':
+                v = float(shape[f])
+            elif t.__name__ in ['c_ubyte', 'c_ulong', 'c_uint8', 'c_uint16', 'c_uint32', 'c_ulong', 'c_ulonglong']:
+                v = int(shape[f])
+            else:
+                v = shape[f]
+            if v is not None:
+                self.__setattr__(f, v)
+            # except KeyError as e:
+            #     try:
+            #         self.__setattr__(f, int(shape[f]))
+            #     except Exception as e:
+            #         self.warn(f"Error setting property {f} <- {shape[f]}")
+            # except Exception as e:
+            #     self.warn(f"Error setting property {f} <- {shape[f]}")
 
-    def __init__(self, values=None):
+    def __init__(self, values=None, game='SKYRIM'):
         """Initialize structure from 'values'."""
         super().__init__()
         if "bufSize" in [n for n, t in self._fields_]:
@@ -260,9 +271,9 @@ class pynStructure(Structure):
                 
         self.warnings = []
 
-        self.load(pynBufferDefaults)
+        self.load(pynBufferDefaults, game=game)
         if values:
-            self.load(values)
+            self.load(values, game=game)
 
     def __str__(self):
         s = ""
@@ -332,7 +343,7 @@ class pynStructure(Structure):
                         diffs.append((fn, self.__getattribute__(fn), other.__getattribute__(fn)))
         return diffs
     
-    def extract_field(self, shape, fieldname, fieldtype):
+    def extract_field(self, shape, fieldname, fieldtype, game='SKYRIM'):
         """
         Extract a single field from the beffer and set as a key/value pair on the
         dictionary-like "shape". Subclasses can override this for special handling
@@ -352,7 +363,7 @@ class pynStructure(Structure):
                 # This happens when the top bit of a uint32 is set.
                 shape[fieldname] = repr(v)
 
-    def extract(self, shape, ignore=[]):
+    def extract(self, shape, ignore=[], game='SKYRIM'):
         """
         Extract fields to the dictionary-like object 'shape'. Do not extract any ID
         fields. Do not extract fields that match their default values.
@@ -370,7 +381,7 @@ class pynStructure(Structure):
                 if (type(v2) == float and not math.isclose(v1, v2, abs_tol=10**-5)) \
                         or (v1 != v2):
                     try:
-                        self.extract_field(shape, fn, t)
+                        self.extract_field(shape, fn, t, game=game)
                     except:
                         shape[fn] = repr(t)
 
@@ -646,6 +657,75 @@ class ShaderFlags2(PynIntFlag):
     TREE_ANIM = 1 << 29
     EFFECT_LIGHTING = 1 << 30
     HD_LOD_OBJECTS = 1 << 31
+    
+class ShaderFlags1FO4(PynIntFlag):
+	SPECULAR = 1 << 0
+	SKINNED = 1 << 1
+	TEMP_REFRACTION = 1 << 2
+	VERTEX_ALPHA = 1 << 3
+	GREYSCALETOPALETTE_COLOR = 1 << 4
+	GREYSCALETOPALETTE_ALPHA = 1 << 5
+	USE_FALLOFF = 1 << 6
+	ENVIRONMENT_MAPPING = 1 << 7
+	RGB_FALLOFF = 1 << 8
+	CAST_SHADOWS = 1 << 9
+	FACE = 1 << 10
+	UI_MASK_RECTS = 1 << 11
+	MODEL_SPACE_NORMALS = 1 << 12
+	NON_PROJECTIVE_SHADOWS = 1 << 13
+	LANDSCAPE = 1 << 14
+	REFRACTION = 1 << 15
+	FIRE_REFRACTION = 1 << 16
+	EYE_ENVIRONMENT_MAPPING = 1 << 17
+	HAIR = 1 << 18
+	SCREENDOOR_ALPHA_FADE = 1 << 19
+	LOCALMAP_HIDE_SECRET = 1 << 20
+	SKIN_TINT = 1 << 21
+	OWN_EMIT = 1 << 22
+	PROJECTED_UV = 1 << 23
+	MULTIPLE_TEXTURES = 1 << 24
+	TESSELLATE = 1 << 25
+	DECAL = 1 << 26
+	DYNAMIC_DECAL = 1 << 27
+	CHARACTER_LIGHTING = 1 << 28
+	EXTERNAL_EMITTANCE = 1 << 29
+	SOFT_EFFECT = 1 << 30
+	ZBUFFER_TEST = 1 << 31
+
+class ShaderFlags2FO4(PynIntFlag):
+	ZBUFFER_WRITE = 1 << 0
+	LOD_LANDSCAPE = 1 << 1
+	LOD_OBJECTS = 1 << 2
+	NO_FADE = 1 << 3
+	DOUBLE_SIDED = 1 << 4
+	VERTEX_COLORS = 1 << 5
+	GLOW_MAP = 1 << 6
+	TRANSFORM_CHANGED = 1 << 7
+	DISMEMBERMENT_MEATCUFF = 1 << 8
+	TINT = 1 << 9
+	GRASS_VERTEX_LIGHTING = 1 << 10
+	GRASS_UNIFORM_SCALE = 1 << 11
+	GRASS_FIT_SLOPE = 1 << 12
+	GRASS_BILLBOARD = 1 << 13
+	NO_LOD_LAND_BLEND = 1 << 14
+	DISMEMBERMENT = 1 << 15
+	WIREFRAME = 1 << 16
+	WEAPON_BLOOD = 1 << 17
+	HIDE_ON_LOCAL_MAP = 1 << 18
+	PREMULT_ALPHA = 1 << 19
+	VATS_TARGET = 1 << 20
+	ANISOTROPIC_LIGHTING = 1 << 21
+	SKEW_SPECULAR_ALPHA = 1 << 22
+	MENU_SCREEN = 1 << 23
+	MULTI_LAYER_PARALLAX = 1 << 24
+	ALPHA_TEST = 1 << 25
+	GRADIENT_REMAP = 1 << 26
+	VATS_TARGET_DRAW_ALL = 1 << 27
+	PIPBOY_SCREEN = 1 << 28
+	TREE_ANIM = 1 << 29
+	EFFECT_LIGHTING = 1 << 30
+	REFRACTION_WRITES_DEPTH = 1 << 31
+
 
 class bhkCOFlags(PynIntFlag):
     ACTIVE = 1
@@ -1014,13 +1094,13 @@ class NiShaderBuf(pynStructure):
         ('emissiveColor', VECTOR4),
         ]
     
-    def __init__(self, values=None):
+    def __init__(self, values=None, game='SKYRIM'):
         super().__init__()
         self.bufType = PynBufferTypes.NiShaderBufType
         if pynStructure.nifly:
             pynStructure.nifly.getBlock(None, NODEID_NONE, byref(self))
         if values:
-            self.load(values)
+            self.load(values, game=game)
 
     def __str__(self):
         s = ""
@@ -1037,16 +1117,22 @@ class NiShaderBuf(pynStructure):
                 other.__setattr__(f, self.__getattribute__(f))
         return other
     
-    def extract_field(self, shape, fieldname, fieldtype):
+    def extract_field(self, shape, fieldname, fieldtype, game='SKYRIM'):
         """Extract a single field value to the shape."""
         if fieldname == 'Shader_Flags_1':
-            shape[fieldname] = ShaderFlags1(self.Shader_Flags_1).fullname
+            if game in ['SKYRIM', 'SKYRIMSE']:
+                shape[fieldname] = ShaderFlags1(self.Shader_Flags_1).fullname
+            else:
+                shape[fieldname] = ShaderFlags1FO4(self.Shader_Flags_1).fullname
         elif fieldname == 'Shader_Flags_2':
-            shape[fieldname] = ShaderFlags2(self.Shader_Flags_2).fullname
+            if game in ['SKYRIM', 'SKYRIMSE']:
+                shape[fieldname] = ShaderFlags2(self.Shader_Flags_2).fullname
+            else:
+                shape[fieldname] = ShaderFlags2FO4(self.Shader_Flags_2).fullname
         elif fieldname == 'Shader_Type':
             shape[fieldname] = BSLSPShaderType(self.Shader_Type).name
         else:
-            super().extract_field(shape, fieldname, fieldtype)
+            super().extract_field(shape, fieldname, fieldtype, game=game)
 
     def shaderflags1_test(self, flag):
         return (self.Shader_Flags_1 & flag) != 0
@@ -1330,7 +1416,7 @@ class bhkRigidBodyProps(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkRigidBodyBufType
 
-    def extract_field(self, shape, fieldname, fieldtype):
+    def extract_field(self, shape, fieldname, fieldtype, game='SKYRIM'):
         """Extract a single field value to the shape."""
         try:
             if fieldname in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
@@ -1350,9 +1436,9 @@ class bhkRigidBodyProps(pynStructure):
             elif fieldname == 'qualityType':
                 shape[fieldname] = hkQualityType(self.qualityType).name
             else:
-                super().extract_field(shape, fieldname, fieldtype)
+                super().extract_field(shape, fieldname, fieldtype, game=game)
         except:
-            super().extract_field(shape, fieldname, fieldtype)
+            super().extract_field(shape, fieldname, fieldtype, game=game)
 
 
 class bhkSimpleShapePhantomBuf(pynStructure):

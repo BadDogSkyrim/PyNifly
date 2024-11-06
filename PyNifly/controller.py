@@ -191,7 +191,7 @@ def assign_action(obj, elem, act):
         targ.animation_data.action = act
                 
 
-def apply_animation(anim_name, ctxt=bpy.context):
+def apply_animation(anim_name, myscene):
     """
     Apply the named animation to the currently visible objects.
     Returns a dictionary of animation values.
@@ -204,29 +204,29 @@ def apply_animation(anim_name, ctxt=bpy.context):
         "cycle_type": CycleType.LOOP,
         "frequency": 1.0,
     }
-    ctxt.scene.timeline_markers.clear()
+    myscene.timeline_markers.clear()
 
     for act in all_animation_actions(anim_name):
         log.debug(f"Applying animation action {act.name}")
         n, objname, elemname = parse_animation_name(act.name)
-        if objname in ctxt.scene.objects:
-            obj = ctxt.scene.objects[objname]
-            assign_action(ctxt.scene.objects[objname], elemname, act)
+        if objname in myscene.objects:
+            obj = myscene.objects[objname]
+            assign_action(myscene.objects[objname], elemname, act)
             res["start_time"] = min(
                 res["start_time"],
-                (act.curve_frame_range[0]-1)/ctxt.scene.render.fps)
+                (act.curve_frame_range[0]-1)/myscene.render.fps)
             res["stop_time"] = max(
                 res["stop_time"], 
-                (act.curve_frame_range[1]-1)/ctxt.scene.render.fps)
+                (act.curve_frame_range[1]-1)/myscene.render.fps)
             res["start_frame"] = min(res["start_frame"], int(act.curve_frame_range[0]))
             res["stop_frame"] = max(res["stop_frame"], int(act.curve_frame_range[1]))
             if (not act.use_cyclic): res["cycle_type"] = CycleType.CLAMP 
 
             if "pynMarkers" in act:
                 for name, val in act["pynMarkers"].items():
-                    if name not in ctxt.scene.timeline_markers:
-                        ctxt.scene.timeline_markers.new(
-                            name, frame=int(val * ctxt.scene.render.fps)+1)
+                    if name not in myscene.timeline_markers:
+                        myscene.timeline_markers.new(
+                            name, frame=int(val * myscene.render.fps)+1)
 
     active_animation = anim_name
     return res
@@ -1003,7 +1003,7 @@ class ControllerHandler():
         keys.sort()
         for anim_name in keys: 
             actionlist = anims[anim_name]
-            vals = apply_animation(anim_name)
+            vals = apply_animation(anim_name, self.context.scene)
             self.controller_sequence:NiControllerSequence = NiControllerSequence.New(
                 file=self.parent.nif,
                 name=anim_name,
@@ -1713,7 +1713,7 @@ def _import_controller_manager(cm:NiControllerManager,
         seq.import_node(importer)
         if not anim: anim = seq.name
     if anim: 
-        anim_dict = apply_animation(anim)
+        anim_dict = apply_animation(anim, importer.context.scene)
         bpy.context.scene.frame_start = anim_dict["start_frame"]
         bpy.context.scene.frame_end= anim_dict["stop_frame"]
 
@@ -2221,7 +2221,7 @@ class WM_OT_ApplyAnim(bpy.types.Operator):
         row.prop(self, "anim_chooser", text="Animation name")
 
     def execute(self, context): # Runs by default 
-        anim_dict = apply_animation(self.anim_chooser, context)
+        anim_dict = apply_animation(self.anim_chooser, context.scene)
         context.scene.frame_start = anim_dict["start_frame"]
         context.scene.frame_end= anim_dict["stop_frame"]
         return {'FINISHED'}

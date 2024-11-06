@@ -6089,14 +6089,14 @@ def do_tests(
         """)
     else:
         print(f"""
-        =============================================================================
-        ===                                                                       ===
-        ===                           TESTS FAILED                                ===
-        ===                                                                       ===
-        {", ".join([t.__name__ for t in failed_tests])}
-        ===                                                                       ===
-        =============================================================================
-        """)
+=============================================================================
+===                                                                       ===
+===                           TESTS FAILED                                ===
+===                                                                       ===
+{", ".join([t.__name__ for t in failed_tests])}
+===                                                                       ===
+=============================================================================
+""")
 
 
 def show_all_tests():
@@ -6121,7 +6121,7 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[TEST_COLLISION_BOW_SCALE],
+        target_tests=[TEST_SHADER_EFFECT_GLOWINGONE],
         run_all=False,
         stop_on_fail=True,
         startfrom=None,

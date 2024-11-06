@@ -3513,7 +3513,7 @@ class NifExporter:
                 and len(self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
 
         obj.data.update()
-        shaderexp = shader_io.ShaderExporter(obj)
+        shaderexp = shader_io.ShaderExporter(obj, self.nif.game)
 
         if shaderexp.is_obj_space:
             norms_exp = None
