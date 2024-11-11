@@ -1646,10 +1646,10 @@ class ShaderExporter:
 
 
     def _export_shader_attrs(self, shape):
+        if not self.material:
+            return
+        
         try:
-            if not self.material:
-                return
-            
             if 'BSLSP_Shader_Name' in self.material and self.material['BSLSP_Shader_Name']:
                 shape.shader_name = self.material['BSLSP_Shader_Name']
 
@@ -1699,11 +1699,11 @@ class ShaderExporter:
                     shape.shader.properties.Alpha = self.shader_node.inputs['Alpha Mult'].default_value
             if 'Glossiness' in self.shader_node.inputs:
                 shape.shader.properties.Glossiness = self.shader_node.inputs['Glossiness'].default_value
-
-            shape.save_shader_attributes()
             
         except Exception as e:
             log.exception(f"Could not determine shader attributes: for {shape.name}")
+
+            shape.save_shader_attributes()
 
 
     @property

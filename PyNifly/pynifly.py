@@ -2790,14 +2790,14 @@ class NiShaderFO4(NiShader):
                     ShaderFlags1FO4.EXTERNAL_EMITTANCE if self.materials.externalEmittance else 0)
                 v &= ~ShaderFlags1FO4.EYE_ENVIRONMENT_MAPPING | (
                     ShaderFlags1FO4.EYE_ENVIRONMENT_MAPPING if self.materials.environmentMappingEye else 0)
-                v &= ~ShaderFlags1FO4.HAIR_SOFT_LIGHTING | (
-                    ShaderFlags1FO4.HAIR_SOFT_LIGHTING if self.materials.hair else 0)
+                v &= ~ShaderFlags1FO4.HAIR | (
+                    ShaderFlags1FO4.HAIR if self.materials.hair else 0)
                 v &= ~ShaderFlags1FO4.OWN_EMIT | (
                     ShaderFlags1FO4.OWN_EMIT if self.materials.emitEnabled else 0)
                 v &= ~ShaderFlags1FO4.MODEL_SPACE_NORMALS | (
                     ShaderFlags1FO4.MODEL_SPACE_NORMALS if self.materials.modelSpaceNormals else 0)
-                v &= ~ShaderFlags1FO4.RECEIVE_SHADOWS | (
-                    ShaderFlags1FO4.RECEIVE_SHADOWS if self.materials.receiveShadows else 0)
+                v &= ~ShaderFlags1FO4.RGB_FALLOFF | (
+                    ShaderFlags1FO4.RGB_FALLOFF if self.materials.receiveShadows else 0)
                 v &= ~ShaderFlags1FO4.SPECULAR | (
                     ShaderFlags1FO4.SPECULAR if self.materials.specularEnabled else 0)
             if self.materials.signature == b'BGEM':
@@ -2824,14 +2824,14 @@ class NiShaderFO4(NiShader):
             if self.materials.signature == b'BGSM':
                 v &= ~ShaderFlags2FO4.ANISOTROPIC_LIGHTING | (
                     ShaderFlags2FO4.ANISOTROPIC_LIGHTING if self.materials.anisoLighting else 0)
-                v &= ~ShaderFlags2FO4.ASSUME_SHADOWMASK | (
-                    ShaderFlags2FO4.ASSUME_SHADOWMASK if self.materials.assumeShadowmask else 0)
-                v &= ~ShaderFlags2FO4.BACK_LIGHTING | (
-                    ShaderFlags2FO4.BACK_LIGHTING if self.materials.backLighting else 0)
-                v &= ~ShaderFlags2FO4.RIM_LIGHTING | (
-                    ShaderFlags2FO4.RIM_LIGHTING if self.materials.rimLighting else 0)
-                v &= ~ShaderFlags2FO4.SOFT_LIGHTING | (
-                    ShaderFlags2FO4.SOFT_LIGHTING if self.materials.subsurfaceLighting else 0)
+                v &= ~ShaderFlags2FO4.TRANSFORM_CHANGED | (
+                    ShaderFlags2FO4.TRANSFORM_CHANGED if self.materials.assumeShadowmask else 0)
+                v &= ~ShaderFlags2FO4.VATS_TARGET_DRAW_ALL | (
+                    ShaderFlags2FO4.VATS_TARGET_DRAW_ALL if self.materials.backLighting else 0)
+                v &= ~ShaderFlags2FO4.GRADIENT_REMAP | (
+                    ShaderFlags2FO4.GRADIENT_REMAP if self.materials.rimLighting else 0)
+                v &= ~ShaderFlags2FO4.ALPHA_TEST | (
+                    ShaderFlags2FO4.ALPHA_TEST if self.materials.subsurfaceLighting else 0)
                 v &= ~ShaderFlags2FO4.TREE_ANIM | (
                     ShaderFlags2FO4.TREE_ANIM if self.materials.tree else 0)
             if self.materials.signature == b'BGEM':
