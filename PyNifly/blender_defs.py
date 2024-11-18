@@ -369,10 +369,10 @@ class LogHandler(logging.Handler):
         self.log.info(f"""
 
 
-    ====================================
-    PYNIFLY {action} {importtype} V{bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}
+====================================
+PYNIFLY {action} {importtype} V{bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}
 
-    """)
+""")
 
 
     def finish(self, action, files):
@@ -399,10 +399,10 @@ class LogHandler(logging.Handler):
 
         log.info(f"""
 
-    PyNifly {action} of {fn} completed {errmsg} 
-    ====================================
+PyNifly {action} of {fn} completed {errmsg} 
+====================================
 
-    """)
+""")
         
 
     @classmethod

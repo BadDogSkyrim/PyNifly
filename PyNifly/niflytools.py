@@ -6,7 +6,7 @@
 """
 
 import os
-import sys
+import time
 import logging
 import re
 import tempfile
@@ -36,19 +36,29 @@ def tmp_filepath(filepath, ext=None):
     iter = ""
     fp = ""
     while i < 10000:
-        if i > 0:
-            iter = f"_{i}"
+        iter = f"_{(int(time.time()*1000) & 0xFFFFFF):06X}"
         fp = fpbase + iter + ext
         if not os.path.exists(fp): break
         i += 1
     if i < 10000: 
         return fp
     else:
-        return None
+        raise Exception("Could not create temporary file")
+    
+
+def nospace_filepath(filepath):
+    """Return the input filepath if no spaces, else a new temp filepath."""
+    try:
+        n = filepath.index(' ')
+        return tmp_filepath(filepath)
+    except ValueError:
+        return filepath
 
 
 def copyfile(fin, fout):
-    shutil.copy(fin.strip('"'), fout)
+    fin_clean = fin.strip('"')
+    if fin_clean != fout:
+        shutil.copy(fin_clean, fout)
 
 
 def tmp_copy(filepath) -> str:
@@ -56,6 +66,21 @@ def tmp_copy(filepath) -> str:
     fp = tmp_filepath(filepath)
     copyfile(filepath, fp)
     return fp
+
+
+def tmp_copy_nospace(filepath) -> str:
+    """
+    If the filepath contains spaces, create a temporary copy of the file and return its
+    filepath. Otherwise just return the original.
+    """
+    try:
+        n = filepath.index(' ')
+        fp = tmp_filepath(filepath)
+        copyfile(filepath, fp)
+        return fp
+    except:
+        pass
+    return filepath
 
 
 def extend_filenames(root, separator, files=None):

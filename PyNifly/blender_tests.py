@@ -5664,6 +5664,59 @@ def TEST_ANIM_HKX():
     assert os.path.exists(outfile)
 
 
+def TEST_ANIM_HKX_2():
+    """Can import and export a non-human HKX animation."""
+    if bpy.app.version < (3, 5, 0): return
+
+    testfile = TT.test_file(r"tests\Skyrim\troll.nif")
+    skelfile = TT.test_file(r"tests\Skyrim\skeleton_troll.nif")
+    hkx_skel = TT.test_file(r"tests\Skyrim\skeleton_troll.hkx")
+    hkx_anim = TT.test_file(r"tests\Skyrim\troll_h2hattackleftd.hkx")
+    outfile = TT.test_file(r"tests/Out/created animations/TEST_ANIM_HKX_2.hkx")
+
+    pathlib.Path(outfile).parent.mkdir(parents=True, exist_ok=True)
+
+    bpy.context.scene.render.fps = 30
+
+    # Load the skeleton
+    bpy.ops.import_scene.pynifly(filepath=skelfile,
+                                 do_create_bones=False, 
+                                 do_rename_bones=False,
+                                 do_import_collisions=False,
+                                 do_import_animations=False)
+    
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+    
+    # Load the mesh
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # Import an animation
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
+                                     reference_skel=hkx_skel)
+    
+    assert arma.animation_data.action is not None, f"Have animation loaded"
+    act = arma.animation_data.action
+    clavcurv = [c for c in act.fcurves if c.data_path.startswith('pose.bones["NPC L Clavicle [LClv]"]')]
+    assert len(clavcurv) > 0, f"Have LClv curves"
+
+    # # Create a simple pose animation
+    # BD.ObjectSelect([arma], active=True)
+    # bpy.ops.object.mode_set(mode = 'POSE')
+    # bpy.ops.pose.select_all(action='SELECT')
+    # bpy.data.scenes["Scene"].frame_current = 1
+    # bpy.ops.anim.keyframe_insert()
+    # bpy.data.scenes["Scene"].frame_current = 2
+    # bpy.ops.anim.keyframe_insert()
+    # bpy.ops.object.mode_set(mode = 'OBJECT')
+
+    # Export the animation
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=hkx_skel)
+
+    assert os.path.exists(outfile)
+
+
 def TEST_ANIM_AUXBONES():
     """Can import and export an animation on an auxbones skeleton."""
     # SKIPPING
@@ -6121,7 +6174,7 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[TEST_COLORS3],
+        target_tests=[TEST_ANIM_HKX_2],
         run_all=False,
         stop_on_fail=True,
         startfrom=None,

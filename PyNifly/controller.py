@@ -259,6 +259,7 @@ class ControllerHandler():
         self.animation_target = None  
         self.action_target = None # 
         self.accum_root = None
+        self.given_scale_warning = False
 
         # Single MultiTargetTransformController and ObjectPalette to use fo all controller
         # sequences in a ControllerManager
@@ -489,6 +490,7 @@ class ControllerHandler():
                 self.warn(f"Controller target not found: {bone_name}")
                 return False
             
+        self.action_group = name
         self.bone_target = self.animation_target.pose.bones[name]
         self.path_name = f'pose.bones["{name}"]'
         return True
@@ -650,24 +652,6 @@ class ControllerHandler():
 
 
     ### EXPORT ###
-
-    # def _get_controlled_variable(self, activated_obj):
-    #     c = self.action.fcurves[0]
-    #     dp = c.data_path
-    #     if not dp.endswith(".default_value"):
-    #         self.warn(f"FCurve has unknown data path: {dp}")
-    #         return 0
-    #     if "UV Converter" not in dp:
-    #         self.warn(f"NYI: Cannot handle fcurve {dp}")
-    #         return 0
-
-    #     try:
-    #         target_attr = eval(repr(activated_obj) + "." + dp[:-14])
-    #         return controlvar_uv[target_attr.name]
-    #     except:
-    #         self.warn(f"NYI: Can't handle fcurve {dp}")
-    #         return 0
-
 
     def _key_blender_to_nif(self, kfp0, kfp1, kfp2):
         """
@@ -872,88 +856,6 @@ class ControllerHandler():
         return interps_created
             
 
-    # def _export_activated_obj_old(self, target:BD.ReprObject,  action, controller=None):
-    #     """
-    #     Export a single activated object--an object with animation_data on it.
-
-    #     * target = Blender object to animate
-    #     """
-    #     anim_name, target_name, element = parse_animation_name(action.name)
-    #     if element == "Shader":
-    #         action_target = target.blender_obj.active_material.node_tree
-    #     else:
-    #         action_target = target.blender_obj
-    #     self.action = action_target.animation_data.action
-    #     if controller == None:
-    #         if action_target.type == 'ARMATURE':
-    #             # KF animation
-    #             controller = self.nif.rootNode
-    #         elif action_target.type == 'SHADER':
-    #             # Shader animation
-    #             controller = BSEffectShaderPropertyFloatController(
-    #                 file=self.nif,
-    #                 parent=target.nifnode.shader)
-    #         else:
-    #             self.warn(f"Unknowned activated object type: {action_target.type}")
-    #             return
-        
-    #         cp = controller.properties.copy()
-    #         cp.startTime = (self.action.curve_frame_range[0]-1)/self.fps
-    #         cp.stopTime = (self.action.curve_frame_range[1]-1)/self.fps
-    #         cp.cycleType = CycleType.CYCLE_LOOP if self.action.use_cyclic else CycleType.CYCLE_CLAMP
-    #         cp.frequency = 1.0
-    #         controller.properties = cp
-
-    #     if action_target.type == 'ARMATURE':
-    #         # Collect list of curves. They will be picked off in clumps until the list is empty.
-    #         curve_list = list(self.action.fcurves)
-    #         while curve_list:
-    #             targname, ti = self._export_transform_curves(action_target, curve_list)
-    #             if targname and ti:
-    #                 controller.add_controlled_block(
-    #                     name=self.nif_name(targname),
-    #                     interpolator=ti,
-    #                     node_name = self.nif_name(targname),
-    #                     controller_type = "NiTransformController")
-                    
-    #     elif action_target.type in ['EMPTY', 'MESH']:
-    #         curve_list = list(self.action.fcurves)
-    #         while curve_list:
-    #             targname, ti = self._export_transform_curves(action_target, curve_list)
-    #             if self.cm_controller:
-    #                 mttc = self.cm_controller
-    #             else:
-    #                 mttc = NiMultiTargetTransformController.New(
-    #                     file=self.nif,
-    #                     flags=TimeControllerFlags(
-    #                         active=True, cycle_type=controller.properties.cycleType).flags,
-    #                     target=self.accum_root,
-    #                 )
-    #             if targname and ti:
-    #                 controller.add_controlled_block(
-    #                     name=target.nifnode.name,
-    #                     interpolator=ti,
-    #                     controller=mttc,
-    #                     node_name = target.nifnode.name,
-    #                     controller_type = "NiTransformController")
-    #         self._add_controlled_object(target)
-        
-    #     else:
-    #         raise Exception(f"NYI: Export of controller for type {action_target.type}")
-
-            
-
-    # def _set_controller_props(self, props):
-    #     props.startTime = (self.action.curve_frame_range[0]-1)/self.fps
-    #     props.stopTime = (self.action.curve_frame_range[1]-1)/self.fps
-    #     props.frequency = 1.0
-    #     props.flags = (1 << 3) | (1 << 6) | ((0 if self.action.use_cyclic else 2) << 1)
-    #     try:
-    #         props.cycleType = CycleType.CYCLE_LOOP if self.action.use_cyclic else CycleType.CYCLE_CLAMP
-    #     except:
-    #         pass
-
-
     def _export_text_keys(self, cs:NiControllerSequence):
         """
         Export any timeline markers to the given NiControllerSequence as text keys.
@@ -964,18 +866,6 @@ class ControllerHandler():
         for tm in self.context.scene.timeline_markers:
             tked.add_key((tm.frame-1)/self.fps, tm.name)
 
-
-    # def _export_shader(self, activated_obj, activated_elem, nifshape):
-    #     fcurve_list = list(activated_elem.animation_data.action.fcurves)
-    #     fi = self._export_float_curves(fcurve_list)
-
-    #     fcp = BSEffectShaderPropertyFloatControllerBuf()
-    #     self._set_controller_props(fcp)
-    #     fcp.controlledVariable = self._get_controlled_variable(activated_elem)
-    #     fcp.interpolatorID = fi.id
-    #     fc = BSEffectShaderPropertyFloatController(
-    #         file=self.nif, properties=fcp, parent=nifshape.shader)
-    
 
     def _export_animations(self, anims):
         """
@@ -1103,31 +993,6 @@ class ControllerHandler():
                     target=nifbone,
                     parent=nifbone
                     )
-
-
-    # @classmethod
-    # def export_animation_file(cls, parent_handler, arma):
-    #     """
-    #     Export a file containing a single animation (KF file).
-        
-    #     File has no bones--root is a NiSequenceController. And has no controllers, just
-    #     interpolators.
-    #     """
-    #     exporter = ControllerHandler(parent_handler)
-    #     exporter.nif = parent_handler.nif
-    #     exporter.controller_sequence = exporter.nif.rootNode
-    #     exporter.action = arma.animation_data.action
-    #     exporter.start_time=(exporter.action.curve_frame_range[0]-1)/exporter.fps
-    #     exporter.stop_time=(exporter.action.curve_frame_range[1]-1)/exporter.fps
-    #     curves = list(exporter.action.fcurves)
-    #     while curves:
-    #         bonename, ti = NiTransformController.fcurve_exporter(exporter, curves, arma)
-    #         nifbonename = exporter.nif_name(bonename)
-
-    #         exporter.controller_sequence.add_controlled_block(
-    #             name=nifbonename,
-    #             interpolator=ti,
-    #         )
 
 
     @classmethod
@@ -1421,8 +1286,6 @@ def _import_transform_interpolator(ti:NiTransformInterpolator,
         # how to interpret those, so ignore them.
         return None
     
-    importer.action_group = "Object Transforms"
-
     # ti, the parent NiTransformInterpolator, has the transform-to-global necessary
     # for this animation. It matches the transform of the target being animated.
     have_parent_rotation = False
@@ -1460,7 +1323,6 @@ def _import_transform_controller(tc:NiTransformController,
                                  importer:ControllerHandler, 
                                  interp:NiInterpController=None):
     """Import transform controller block."""
-    importer.action_group = "Object Transforms"
     if not interp:
         interp = tc.interpolator
 
@@ -1470,6 +1332,7 @@ def _import_transform_controller(tc:NiTransformController,
             if not importer.action:
                 importer._new_action()
         else:
+            importer.action_group = "Object Transforms"
             importer._new_action()
         interp.import_node(importer, None)
     else:
@@ -1718,61 +1581,6 @@ def _import_controller_manager(cm:NiControllerManager,
         bpy.context.scene.frame_end= anim_dict["stop_frame"]
 
 NiControllerManager.import_node = _import_controller_manager
-
-
-# def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=None):
-#     """
-#     Export a group of curves from the list to a TransformInterpolator/TransformData pair.
-#     A group maps to a controlled object, so each group should be one such pair. The curves
-#     that are used are picked off the list.
-
-#     * Returns (group name, TransformInterpolator for the set of curves).
-#     """
-#     if not curve_list: return None, None
-
-#     # Bone target implies targetobj is an armature containing that bone. Otherwise
-#     # targetobj is a ReprObject for a node being manipulated.
-#     targetname = curve_bone_target(curve_list[0])
-#     if targetname:
-#         if not targetname in targetobj.data.bones:
-#             raise Exception(f"Target bone not found in armature: {targetobj.name}/{targetname}")
-#         targ = targetobj.data.bones[targetname]
-#         if targ.parent:
-#             targ_xf = targ.parent.matrix_local.inverted() @ targ.matrix_local
-#         else:
-#             targ_xf = targ.matrix_local
-#     else:
-#         targ_xf = Matrix.Identity(4)
-#     targ_q = targ_xf.to_quaternion()
-
-#     ti = NiTransformInterpolator.New(
-#         file=exporter.nif,
-#         translation=targ_xf.translation[:],
-#         rotation=targ_q[:],
-#         scale=1.0,
-#     )
-    
-#     td:NiTransformData = None
-#     NiTransformData.New(
-#         file=exporter.nif,
-#         rotation_type=(NiKeyType.XYZ_ROTATION_KEY if eu else NiKeyType.LINEAR_KEY),
-#         xyz_rotation_types=((NiKeyType.QUADRATIC_KEY if rot_is_bezier else NiKeyType.LINEAR_KEY), )*3,
-#         translate_type=(NiKeyType.QUADRATIC_KEY if transl_is_bezier else NiKeyType.LINEAR_KEY),
-#         parent=ti,
-#     )
-#     quat_channel = 0
-#     euler_channel = 0
-#     loc_channel = 0
-#     # There is no guarantee that the keyframes in the channels of a transform data block
-#     # line up (Skyrim dwechest01.nif). So we have to export each channel separately.
-#     while curve_list and curve_bone_target(curve_list[0]) == targetname:
-#         # Export next cuve for this target.
-#         c = curve_list.pop(0)
-#         timemax = max(timemax, (c.range()[1]-1)/exporter.fps)
-#         timemin = min(timemin, (c.range()[0]-1)/exporter.fps)
-#         dp = c.data_path
-#         if dp.startswith("location"):
-#             _export_transform_loc(loc_channel, c)
 
 
 def _get_interpolation_type(curvelist):
@@ -2030,7 +1838,7 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
 
     if scale:
         if not exporter.given_scale_warning:
-            exporter.report({"INFO"}, f"Ignoring scale transforms--not used in Skyrim")
+            log.info(f"Ignoring scale transforms--not used in Skyrim")
             exporter.given_scale_warning = True
 
     ti = NiTransformInterpolator.New(

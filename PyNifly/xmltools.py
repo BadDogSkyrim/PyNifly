@@ -40,7 +40,7 @@ class XMLFile:
     def hkx_to_xml(cls, filepath):
         """Given a HKX file, convert it to XML and return the XML filepath."""
         log = logging.getLogger("pynifly")
-        tmp_filepath = niflytools.tmp_copy(filepath)
+        tmp_filepath = niflytools.tmp_copy_nospace(filepath)
         xml_filepath = niflytools.tmp_filepath(filepath, ext=".xml")
 
         if not xml_filepath:

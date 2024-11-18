@@ -152,6 +152,13 @@ NISHAPE_IGNORE = ["bufSize",
 
 # --------- Helper functions -------------
 
+def get_setting(obj, setting_name, default_value):
+    if setting_name in obj:
+        return obj[setting_name]
+    else:
+        return default_value
+
+
 def is_in_plane(plane, vert):
     """ Test whether vert is in the plane defined by the three vectors in plane """
     #find the plane's normal. p0, p1, and p2 are simply points on the plane (in world space)
@@ -1823,8 +1830,9 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         if bpy.context.object and bpy.context.object.select_get() and bpy.context.object.type == 'ARMATURE':
             # We are loading into an existing armature. The various settings should match.
             arma = bpy.context.object
-            self.use_blender_xf = ('PYN_BLENDER_XF' in arma and arma['PYN_BLENDER_XF'])
-            self.do_rename_bones = ('PYN_RENAME_BONES' in arma and arma['PYN_RENAME_BONES'])
+            self.use_blender_xf = get_setting(arma, 'PYN_BLENDER_XF', BLENDER_XF_DEF)
+            self.do_rename_bones = get_setting(arma, 'PYN_RENAME_BONES', RENAME_BONES_DEF)
+            self.rename_bones_niftools = get_setting(arma, 'PYN_RENAME_BONES_NIFTOOLS', RENAME_BONES_NIFT_DEF)
             # When loading into an armature, ignore the nif's bind position--use the
             # armature's.
             self.do_import_pose = True
@@ -2140,6 +2148,12 @@ class ImportKF(bpy.types.Operator, ExportHelper):
         self.nif:NifFile = None
         self.armature = None
     
+        obj = bpy.context.object
+        if obj and obj.type == 'ARMATURE':
+            self.reference_skel = get_setting(obj, 'PYN_SKELETON_FILE', '')
+            self.do_rename_bones = get_setting(obj, 'PYN_RENAME_BONES', RENAME_BONES_DEF)
+            self.rename_bones_niftools = get_setting(obj, 'PYN_RENAME_BONES_NIFTOOLS', RENAME_BONES_NIFT_DEF)
+
 
     def execute(self, context):
         res = set()
@@ -2247,8 +2261,9 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
 
         obj = bpy.context.object
         if obj and obj.type == 'ARMATURE':
-            if 'PYN_SKELETON_FILE'in obj:
-                self.reference_skel = obj['PYN_SKELETON_FILE']
+            self.reference_skel = get_setting(obj, 'PYN_SKELETON_FILE', self.reference_skel)
+            self.do_rename_bones = get_setting(obj, 'PYN_RENAME_BONES', self.do_rename_bones)
+            self.rename_bones_niftools = get_setting(obj, 'PYN_RENAME_BONES_NIFTOOLS', self.rename_bones_niftools)
     
 
     def execute(self, context):
@@ -2270,25 +2285,26 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
                     self.reference_skel = self.reference_skel.strip('"')
                     fp, ext = os.path.splitext(self.reference_skel)
                     if ext.lower() != ".hkx":
-                        self.error(f"Must have an HKX file to use as reference skeleton.")
+                        log.error(f"Must have an HKX file to use as reference skeleton.")
                         return {'CANCELLED'}
-                    self.reference_skel_short = tmp_filepath(self.reference_skel)
+                    self.reference_skel_short = nospace_filepath(self.reference_skel)
                     copyfile(self.reference_skel, self.reference_skel_short)
 
                 if not context.object:
-                    self.error(f"Must have selected object for animation.")
+                    log.error(f"Must have selected object for animation.")
                     return {'CANCELLED'}
                 if not self.reference_skel:
-                    self.error(f"Must provide a reference skeleton for the animation.")
+                    log.error(f"Must provide a reference skeleton for the animation.")
                     return {'CANCELLED'}
                 if self.reference_skel:
                     context.object['PYN_SKELETON_FILE'] = self.reference_skel
 
-                res.add(self.import_animation())
+                stat = self.import_animation()
+                res.add(stat)
 
         except:
             self.log_handler.log.exception("Import of HKX file failed")
-            self.error("Import of HKX failed, see console window for details")
+            log.error("Import of HKX failed, see console window for details")
             res.add('CANCELLED')
 
         finally: 
@@ -2344,7 +2360,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
             imp.import_nif()
             self.import_annotations()
             highlight_objects([imp.armature], self.context)
-            self.info('Import of HKX animation completed successfully')
+            log.info('Import of HKX animation completed successfully')
             return('FINISHED')
 
 
@@ -2369,12 +2385,12 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         if stat.stderr:
             s = stat.stderr.decode('utf-8').strip()
             if not s.startswith("Exporting"):
-                self.error(s)
+                log.error(s)
                 return None
         if not os.path.exists(self.kf_filepath):
-            self.error(f"Failed to create {self.kf_filepath}")
+            log.error(f"Failed to create {self.kf_filepath}")
             return None
-        self.info(f"Temporary KF file created: {self.kf_filepath}")
+        log.info(f"Temporary KF file created: {self.kf_filepath}")
 
         return NifFile(self.kf_filepath)
     
@@ -4058,6 +4074,40 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 #                                                                              #
 ################################################################################
 
+class KFExporter():
+    def __init__(self, filepath, context, 
+                 fps=30, do_rename_bones=True, rename_bones_niftools=False):
+        self.filepath = filepath
+        self.context = context
+        self.filename_base = os.path.splitext(os.path.basename(filepath))[0]
+        self.fps = fps
+        self.do_rename_bones = do_rename_bones
+        self.rename_bones_niftools = rename_bones_niftools
+
+        
+    def nif_name(self, blender_name):
+        if self.do_rename_bones or self.rename_bones_nift:
+            return self.nif.nif_name(blender_name)
+        else:
+            return blender_name
+
+
+    @classmethod
+    def Export(cls, filepath, context,
+               fps=30, do_rename_bones=True, rename_bones_niftools=False):
+        kfx = KFExporter(filepath, context,
+            fps=30, do_rename_bones=True, rename_bones_niftools=False)
+
+        # Export whatever animation is attached to the active object.
+        kfx.nif = NifFile()
+        kfx.nif.initialize("SKYRIM", filepath, "NiControllerSequence", 
+                            kfx.filename_base)
+        
+        controller.ControllerHandler.export_animation(kfx, context.object)
+
+        kfx.nif.save()
+
+
 class ExportKF(bpy.types.Operator, ExportHelper):
     """Export Blender object(s) to a NIF File"""
 
@@ -4082,6 +4132,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         description="Rename bones from NifTools' Blender conventions back to nif.",
         default=False) # type: ignore
 
+
     @classmethod
     def poll(cls, context):
         if not nifly_path:
@@ -4104,15 +4155,20 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         self.errors = set()
         self.given_scale_warning = False
 
-        if not self.filepath \
-            and bpy.context.object.animation_data \
-                and bpy.context.object.animation_data.action:
-            self.filepath =  bpy.context.object.animation_data.action.name
-            
+        NifFile.Load(nifly_path)
+
+        if bpy.context.object and bpy.context.object.type == 'ARMATURE':
+            arma = bpy.context.object
+            if 'PYN_RENAME_BONES' in arma:
+                self.do_rename_bones = arma['PYN_RENAME_BONES']
+            if 'PYN_RENAME_BONES_NIFTOOLS' in arma:
+                self.do_rename_bones_niftools = arma['PYN_RENAME_BONES_NIFTOOLS']
+
 
     def execute(self, context):
         self.context = context
         res = set()
+        self.log_handler = LogHandler.New(bl_info, "EXPORT", "KF")
 
         if not self.poll(context):
             self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
@@ -4122,28 +4178,23 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, f"FPS outside of valid range, using 30fps: {self.fps}")
             self.fps = 30
 
-        self.log_handler = LogHandler.New(bl_info, "EXPORT", "KF")
-        NifFile.Load(nifly_path)
-        NifFile.clear_log()
-
-        try:
-            # Export whatever animation is attached to the active object.
-            self.nif = NifFile()
-            self.nif.initialize("SKYRIM", self.filepath, "NiControllerSequence", 
-                                os.path.splitext(os.path.basename(self.filepath))[0])
+        if not self.filepath \
+            and bpy.context.object.animation_data \
+                and bpy.context.object.animation_data.action:
+            self.filepath =  bpy.context.object.animation_data.action.name
             
-            controller.ControllerHandler.export_animation(self, context.object)
-
-            self.nif.save()
-
+        try:
+            KFExporter.Export(self.filepath, context,
+                fps=self.fps, do_rename_bones=self.do_rename_bones, 
+                rename_bones_niftools=self.rename_bones_niftools)
         except:
             log.exception("Export of KF failed")
 
-        if "ERROR" in self.errors:
+        if self.log_handler.max_error >= logging.ERROR:
             self.report({"ERROR"}, "Export of KF failed, see console window for details")
             res.add("CANCELLED")
             self.log_handler.finish("EXPORT", self.filepath)
-        elif "WARNING" in self.errors:
+        elif self.log_handler.max_error >= logging.WARNING:
             self.report({"ERROR"}, "Export of KF completed with warnings, see console window for details")
             res.add("CANCELLED")
             self.log_handler.finish("EXPORT", self.filepath)
@@ -4154,19 +4205,13 @@ class ExportKF(bpy.types.Operator, ExportHelper):
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 
-    def nif_name(self, blender_name):
-        if self.do_rename_bones or self.rename_bones_nift:
-            return self.nif.nif_name(blender_name)
-        else:
-            return blender_name
+    # def error(self, msg):
+    #     """Log an error message."""
+    #     self.log_handler.log.error(msg)
 
-    def error(self, msg):
-        """Log an error message."""
-        self.log_handler.log.error(msg)
-
-    def warn(self, msg):
-        """Log a warning message."""
-        self.log_handler.log.warning(msg)
+    # def warn(self, msg):
+    #     """Log a warning message."""
+    #     self.log_handler.log.warning(msg)
                 
 
 
@@ -4187,7 +4232,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
     reference_skel: bpy.props.StringProperty(
         name="Reference skeleton",
-        description="Reference skeleton (HKX) to use for animation binding",
+        description="HKX reference skeleton to use for animation binding",
         default="") # type: ignore
 
     fps: bpy.props.FloatProperty(
@@ -4218,67 +4263,20 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
         return True
     
+    # def warn(self, msg):
+    #     self.log_handler.log.warning(msg)
 
-    def execute(self, context):
-        res = set()
-        self.reference_skel_short = tmp_filepath(self.reference_skel, ext=".hkx")
-        copyfile(self.reference_skel, self.reference_skel_short)
-        self.filepath_short = tmp_filepath(self.filepath, ext=".hkx")
-        if self.reference_skel:
-            context.object['PYN_SKELETON_FILE'] = self.reference_skel
+    # def error(self, msg):
+    #     self.log_handler.log.error(msg)
 
-        if not self.poll(context):
-            self.error(f"Cannot run exporter--see system console for details")
-            return {'CANCELLED'} 
-
-        self.context = context
-        self.fps = context.scene.render.fps
-        self.has_markers = (len(context.scene.timeline_markers) > 0)
-        self.hkx_tmp_filepath = tmp_filepath(self.filepath, ext=".hkx")
-        self.xml_filepath = None
-        self.xml_filepath_out = None
-        self.log_handler = LogHandler.New(bl_info, "EXPORT", "HKX")
-        NifFile.Load(nifly_path)
-        NifFile.clear_log()
-
-        try:
-            # Export whatever animation is attached to the active object.
-            self.kf_filepath = tmp_filepath(self.filepath, ext=".kf")
-            bpy.ops.export_scene.pynifly_kf(filepath=self.kf_filepath, fps=self.fps)
-            self.info(f"Temporary kf file created: {self.kf_filepath}")
-            if self.has_markers:
-                self.xml_filepath = tmp_filepath(self.filepath, ext=".xml")
-                self.generate_hkx(self.hkx_tmp_filepath)
-                self.write_annotations()
-                self.generate_final_hkx()
-            else:
-                self.generate_hkx(self.filepath_short)
-            self.rename_output()
-
-            res.add('FINISHED')
-        except:
-            self.log_handler.log.exception("Export of HKX failed")
-            res.add('CANCELLED')
-
-        finally:
-            self.log_handler.finish("EXPORT", self.filepath)
-
-        return res.intersection({'CANCELLED'}, {'FINISHED'})
-    
-
-    def warn(self, msg):
-        self.log_handler.log.warning(msg)
-
-    def error(self, msg):
-        self.log_handler.log.error(msg)
-
-    def info(self, msg):
-        self.log_handler.log.info(msg)
+    # def info(self, msg):
+    #     self.log_handler.log.info(msg)
 
     def generate_hkx(self, filepath):
         """Generates an HKX file from a KF file. Also generates an XML file."""
 
         # Generate HKX from KF
+        log.debug(f"{hkxcmd_path} CONVERTKF {self.reference_skel_short} {self.kf_filepath} {filepath}")
         stat = subprocess.run([hkxcmd_path, 
                                "CONVERTKF", 
                                self.reference_skel_short, 
@@ -4287,12 +4285,12 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
                                capture_output=True, check=True)
         if stat.returncode:
             s = stat.stderr.decode('utf-8').strip()
-            self.error(s)
+            log.error(s)
             return None
         if not os.path.exists(filepath):
-            self.error(f"Failed to create {filepath}")
+            log.error(f"Failed to create {filepath}")
             return None
-        self.info(f"Created temporary HKX file: {filepath}")
+        log.info(f"Created temporary HKX file: {filepath}")
 
         if self.xml_filepath:
             # Generate XML from HKX
@@ -4304,13 +4302,13 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
                                 capture_output=True, check=True)
             if stat.returncode:
                 s = stat.stderr.decode('utf-8').strip()
-                self.error(s)
+                log.error(s)
                 return None
             if not os.path.exists(self.xml_filepath):
-                self.error(f"Failed to create {self.xml_filepath}")
+                log.error(f"Failed to create {self.xml_filepath}")
                 return None
             
-            self.info(f"Created temporary XML file: {self.xml_filepath}")
+            log.info(f"Created temporary XML file: {self.xml_filepath}")
 
     def write_annotations(self):
         """Write animation text annotations to the intermediate xml file.
@@ -4342,15 +4340,15 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         
         self.xml_filepath_out = tmp_filepath(self.filepath, ext='.xml')
         xmlfile.write(self.xml_filepath_out)
-        self.info(f"Created final XML file: {self.xml_filepath_out}")
+        log.info(f"Created final XML file: {self.xml_filepath_out}")
         
         return True
     
+
     def rename_output(self):
         """If we renamed our output to deal with spaces in names, set it back to what it
         should be."""
         copyfile(self.filepath_short, self.filepath)
-
 
 
     def generate_final_hkx(self):
@@ -4362,14 +4360,66 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
                                capture_output=True, check=True)
         if stat.returncode:
             s = stat.stderr.decode('utf-8').strip()
-            self.error(s)
+            log.error(s)
             return None
         if not os.path.exists(self.filepath_short):
-            self.error(f"Failed to create {self.filepath_short}")
+            log.error(f"Failed to create {self.filepath_short}")
             return None
     
-        self.info(f"Created HKX file: {self.filepath_short}")
+        log.info(f"Created HKX file: {self.filepath_short}")
 
+
+    def execute(self, context):
+        res = set()
+        self.reference_skel_short = tmp_filepath(self.reference_skel, ext=".hkx")
+        copyfile(self.reference_skel, self.reference_skel_short)
+        self.filepath_short = tmp_filepath(self.filepath, ext=".hkx")
+        if self.reference_skel:
+            context.object['PYN_SKELETON_FILE'] = self.reference_skel
+
+        if not self.poll(context):
+            log.error(f"Cannot run exporter--see system console for details")
+            return {'CANCELLED'} 
+
+        self.context = context
+        self.fps = context.scene.render.fps
+        self.has_markers = (len(context.scene.timeline_markers) > 0)
+        self.hkx_tmp_filepath = tmp_filepath(self.filepath, ext=".hkx")
+        self.xml_filepath = None
+        self.xml_filepath_out = None
+        self.log_handler = LogHandler.New(bl_info, "EXPORT", "HKX")
+        NifFile.Load(nifly_path)
+        NifFile.clear_log()
+
+        # Export whatever animation is attached to the active object.
+        self.kf_filepath = tmp_filepath(self.filepath, ext=".kf")
+        try:
+            KFExporter.Export(self.kf_filepath, context, fps=self.fps)
+            # bpy.ops.export_scene.pynifly_kf(filepath=self.kf_filepath, fps=self.fps)
+            log.info(f"Created temporary kf file: {self.kf_filepath}")
+        except:
+            log.exception("Creation of temporary KF file failed")
+
+        if self.log_handler.max_error <= logging.WARNING:
+            try:
+                if self.has_markers:
+                    self.xml_filepath = tmp_filepath(self.filepath, ext=".xml")
+                    self.generate_hkx(self.hkx_tmp_filepath)
+                    self.write_annotations()
+                    self.generate_final_hkx()
+                else:
+                    self.generate_hkx(self.filepath_short)
+                self.rename_output()
+
+                res.add('FINISHED')
+            except:
+                self.log_handler.log.exception("Export of HKX failed")
+                res.add('CANCELLED')
+
+        self.log_handler.finish("EXPORT", self.filepath)
+
+        return res.intersection({'CANCELLED'}, {'FINISHED'})
+    
 
 class ExportSkelHKX(skeleton_hkx.ExportSkel):
     """Export Blender armature to a skeleton HKX file"""
