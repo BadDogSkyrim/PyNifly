@@ -117,7 +117,7 @@ MATRIX4 = VECTOR4 * 4
 CHAR256 = c_char * 256
 
 pynBufferDefaults = {
-	'broadPhaseType': 0,
+	'broadPhaseType': 'INVALID',
 	'collisionFilter_flags': 0,
 	'collisionFilter_group': 0,
 	'prop_data': 0, 
@@ -140,7 +140,7 @@ pynBufferDefaults = {
     'controllerID' : NODEID_NONE,
     'ctrlID' : NODEID_NONE,
     'ctrlType': NODEID_NONE,
-    'deactivatorType': 1,
+    'deactivatorType': 'NEVER',
     'envMapMinLOD': 0,
     'forceCollideOntoPpu': 0,
     'friction': 0.5,
@@ -154,7 +154,7 @@ pynBufferDefaults = {
     'mass': 1.0,
     'maxAngularVelocity': 31.57, 
     'maxLinearVelocity': 104.4, 
-    'motionSystem': 1,
+    'motionSystem': 'DYNAMIC',
     'nameID' : NODEID_NONE,
     'nodeName': NODEID_NONE,
     'normalsCount': 0,
@@ -162,12 +162,12 @@ pynBufferDefaults = {
     'penetrationDepth': 0.15,
     'processContactCallbackDelay': 0xFFFF,
     'propType': NODEID_NONE,
-    'qualityType': 1,
+    'qualityType': 'FIXED',
     'responseModifierFlag': 0,
     'restitution': 0.4, 
     'rollingFrictionMult': 1.0,
     'shapeID' : NODEID_NONE,
-    'solverDeactivation': 1, 
+    'solverDeactivation': 'OFF', 
     'targetID': NODEID_NONE,
     'timeFactor': 1.0,
     'vertsCount': 0,
@@ -237,6 +237,8 @@ class pynStructure(Structure):
                     v = shape[f] 
                 else:
                     v = SkyrimHavokMaterial[shape[f]].value
+            elif t.__name__ == 'c_char_Array_256':
+                v = shape[f].encode('utf-8')
             elif t.__name__ == 'c_float_Array_2':
                 v = VECTOR2(*eval(shape[f]))
             elif t.__name__ == 'c_float_Array_3':
@@ -254,14 +256,15 @@ class pynStructure(Structure):
             else:
                 v = shape[f]
             if v is not None:
-                self.__setattr__(f, v)
+                try:
+                    self.__setattr__(f, v)
             # except KeyError as e:
             #     try:
             #         self.__setattr__(f, int(shape[f]))
             #     except Exception as e:
             #         self.warn(f"Error setting property {f} <- {shape[f]}")
-            # except Exception as e:
-            #     self.warn(f"Error setting property {f} <- {shape[f]}")
+                except Exception as e:
+                    raise Exception(f"Error setting property {f} <- {shape[f]}")
 
     def __init__(self, values=None, game='SKYRIM'):
         """Initialize structure from 'values'."""
@@ -349,7 +352,9 @@ class pynStructure(Structure):
         dictionary-like "shape". Subclasses can override this for special handling
         on fields that are interpreted for the user.
         """
-        if '_Array_' in fieldtype.__name__:
+        if fieldtype.__name__ == 'c_char_Array_256':
+            v = self.__getattribute__(fieldname).decode()
+        elif '_Array_' in fieldtype.__name__:
             v = [x for x in self.__getattribute__(fieldname)]
         else:
             v = self.__getattribute__(fieldname)

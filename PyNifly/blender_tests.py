@@ -33,6 +33,42 @@ importlib.reload(skeleton_hkx)
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
 
+
+class TestLogHandler(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.log = logging.getLogger("pynifly")
+        self.log.addHandler(self)
+
+    def __del__(self):
+        if self.log:
+            self.log.removeHandler(self)
+
+    def emit(self, record):
+        self.max_error = max(self.max_error, record.levelno)
+
+    def start(self):
+        """
+        Start logging for an operation. Return the log and its handler.
+        """
+        self.max_error = 0
+        
+    def check(self):
+        assert self.max_error < logging.ERROR, f"No errors reported during test"        
+
+    def finish(self):
+        self.check()        
+
+    @classmethod
+    def New(cls):
+        lh = TestLogHandler()
+        lh.start()
+        return lh
+
+
+test_loghandler:TestLogHandler = TestLogHandler.New()
+
+
 def TEST_BODYPART_SKY():
     """Basic test that a Skyrim bodypart is imported correctly. """
     # Verts are organized around the origin, but skin transform is put on the shape 
@@ -1493,10 +1529,13 @@ def TEST_BP_SEGMENTS():
 
     assert visor.name == "glass:0", "Read the visor object"
     assert "FO4 Seg 001 | Hair Top" in visor.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
+    TT.assert_eq(visor.active_material['envMapTexture'], "shared/cubemaps/shinyglass_e.dds", 
+                 "Environment map texture")
 
     print("### Can write FO4 segments")
     bpy.ops.object.select_all(action='SELECT')
     e = bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
+    test_loghandler.check()
 
     nif2 = pyn.NifFile(outfile)
     helm2 = nif2.shape_dict["Helmet:0"]
@@ -6090,6 +6129,8 @@ def execute_test(t, stop_on_fail=True):
         if not t: return
 
         print (f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
+        test_loghandler.start()
+
         if t.__doc__: print (f"{t.__doc__}")
         TT.clear_all()
         if stop_on_fail:
@@ -6101,6 +6142,8 @@ def execute_test(t, stop_on_fail=True):
                 passed_tests.append(t)
             except:
                 failed_tests.append(t)
+
+        test_loghandler.finish()
         print (      f"------------------------------ {t.__name__} ------------------------------\n")
 
 
@@ -6173,8 +6216,9 @@ else:
     # All tests with collisions
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
+    # TEST_BP_SEGMENTS, TEST_ANIM_SHADER_SPRIGGAN, TEST_CAVE_GREEN, TEST_POT, TEST_SCALING, TEST_SCALING_OBJ, TEST_COLLISION_BOW_SCALE, TEST_COLLISION_BOW, TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_HIER, TEST_COLLISION_MULTI, TEST_COLLISION_CONVEXVERT, TEST_COLLISION_CAPSULE, TEST_COLLISION_CAPSULE2, TEST_COLLISION_LIST, TEST_COLLISION_BOW_CHANGE, TEST_COLLISION_XFORM, TEST_FURN_MARKER1, TEST_FURN_MARKER2, TEST_ROTSTATIC, TEST_SKEL_XML, TEST_SKEL_TAIL_HKX, TEST_AUXBONES_EXTRACT, TEST_FONV, TEST_ANIM_NOBLECHEST, TEST_ANIM_DWEMER_CHEST, TEST_EMPTY_NODES, TEST_COLLISION_PROPERTIES
     do_tests(
-        target_tests=[TEST_ANIM_HKX_2],
+        target_tests=[TEST_ANIM_SHADER_SPRIGGAN, TEST_CAVE_GREEN, TEST_POT, TEST_SCALING, TEST_SCALING_OBJ, TEST_COLLISION_BOW_SCALE, TEST_COLLISION_BOW, TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_HIER, TEST_COLLISION_MULTI, TEST_COLLISION_CONVEXVERT, TEST_COLLISION_CAPSULE, TEST_COLLISION_CAPSULE2, TEST_COLLISION_LIST, TEST_COLLISION_BOW_CHANGE, TEST_COLLISION_XFORM, TEST_FURN_MARKER1, TEST_FURN_MARKER2, TEST_ROTSTATIC, TEST_SKEL_XML, TEST_SKEL_TAIL_HKX, TEST_AUXBONES_EXTRACT, TEST_FONV, TEST_ANIM_NOBLECHEST, TEST_ANIM_DWEMER_CHEST, TEST_EMPTY_NODES, TEST_COLLISION_PROPERTIES],
         run_all=False,
         stop_on_fail=True,
         startfrom=None,
