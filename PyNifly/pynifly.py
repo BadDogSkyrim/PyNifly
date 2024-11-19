@@ -3949,7 +3949,8 @@ class hkxSkeletonFile(NifFile):
         self.xmlroot = None
         self._game = "SKYRIM"
         self.dict = gameSkeletons[self._game]
-        if filepath: self.load_from_file()
+        if filepath: 
+            self.load_from_file()
 
 
     @property
@@ -3965,6 +3966,10 @@ class hkxSkeletonFile(NifFile):
         Load the skeleton from a HKX or XML file. Since the XML spreads bone information
         across multiple constructs it's more convenient to load it all at once.
         """
+        if self.xmlroot:
+            # Prevent recursive call from NiNode().
+            return
+        
         if os.path.splitext(self.filepath)[1].upper() == ".HKX":
             self.xml_filepath = xmltools.XMLFile.hkx_to_xml(self.filepath)
         else:
@@ -3973,7 +3978,7 @@ class hkxSkeletonFile(NifFile):
         self.xmlfile = xml.parse(self.xml_filepath)
         self.xmlroot = self.xmlfile.getroot()
 
-        self._root = NiNode(file=self, name=os.path.basename(self.filepath))
+        self._root = NiNode(file=self, name=os.path.basename(self.xml_filepath))
         self._root.id = 0
         self._root._blockname = "BSFadeNode"
         self._root.properties.transform.set_identity()

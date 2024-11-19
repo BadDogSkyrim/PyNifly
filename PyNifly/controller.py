@@ -1105,6 +1105,7 @@ def _import_transform_data(td:NiTransformData,
     qinv = tiq.inverted()
 
     targ = importer.bone_target if importer.bone_target else importer.action_target
+    if  not importer.action_group: importer.action_group = "Object Transforms"
     
     targ.rotation_mode = "QUATERNION"
     if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:

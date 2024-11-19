@@ -7,7 +7,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 0, 0),
-    "version": (18, 3, 0),   
+    "version": (19, 0, 0),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -4371,9 +4371,9 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         res = set()
-        self.reference_skel_short = tmp_filepath(self.reference_skel, ext=".hkx")
+        self.reference_skel_short = nospace_filepath(self.reference_skel, ext=".hkx")
         copyfile(self.reference_skel, self.reference_skel_short)
-        self.filepath_short = tmp_filepath(self.filepath, ext=".hkx")
+        self.filepath_short = nospace_filepath(self.filepath, ext=".hkx")
         if self.reference_skel:
             context.object['PYN_SKELETON_FILE'] = self.reference_skel
 
@@ -4454,7 +4454,6 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
 
             xmltools.XMLFile.SetPath(hkxcmd_path)
             xmltools.XMLFile.xml_to_hkx(self.filepath, out_filepath)
-            log.info(f"Wrote {out_filepath}")
 
             status = {'FINISHED'}
             return status

@@ -46,13 +46,20 @@ def tmp_filepath(filepath, ext=None):
         raise Exception("Could not create temporary file")
     
 
-def nospace_filepath(filepath):
+def nospace_filepath(filepath, ext=None):
     """Return the input filepath if no spaces, else a new temp filepath."""
     try:
         n = filepath.index(' ')
-        return tmp_filepath(filepath)
+        return tmp_filepath(filepath, ext=ext)
     except ValueError:
-        return filepath
+        pass
+
+    fp = filepath
+    if ext is not None:
+        bn, e = os.path.splitext(filepath)
+        if not e:
+            fp = bn + ext
+    return fp
 
 
 def copyfile(fin, fout):

@@ -216,27 +216,46 @@ class pynStructure(Structure):
                     v = myval
                 else:
                     v = int(shape[f])
-            elif f == 'collisionFilter_layer' or f == 'collisionFilterCopy_layer':
-                v = SkyrimCollisionLayer[shape[f]].value
+            elif f in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
+                try:
+                    v = SkyrimCollisionLayer[shape[f]].value
+                except:
+                    v = int(shape[f])
             elif f == 'broadPhaseType':
-                v = BroadPhaseType[shape[f]].value
-            elif f == 'collisionResponse':
-                v = hkResponseType[shape[f]].value
-            elif f == 'collisionResponse2':
-                v = hkResponseType[shape[f]].value
+                try:
+                    v = BroadPhaseType[shape[f]].value
+                except:
+                    v = int(shape[f])
+            elif f in ['collisionResponse', 'collisionResponse2']:
+                try:
+                    v = hkResponseType[shape[f]].value
+                except:
+                    v = int(shape[f])
             elif f == 'motionSystem':
-                v = hkMotionType[shape[f]].value
+                try:
+                    v = hkMotionType[shape[f]].value
+                except:
+                    v = int(shape[f])
             elif f == 'deactivatorType':
-                v = hkDeactivatorType[shape[f]].value
+                try:
+                    v = hkDeactivatorType[shape[f]].value
+                except:
+                    v = int(shape[f])
             elif f == 'solverDeactivation': 
-                v = hkSolverDeactivation[shape[f]].value
+                try:
+                    v = hkSolverDeactivation[shape[f]].value
+                except:
+                    v = int(shape[f])
             elif f == 'qualityType':
-                v = hkQualityType[shape[f]].value
+                try:
+                    v = hkQualityType[shape[f]].value
+                except:
+                    v = int(shape[f])
             elif f == 'bhkMaterial':
-                if type(shape[f]) == int:
-                    v = shape[f] 
-                else:
+                try:
                     v = SkyrimHavokMaterial[shape[f]].value
+                except:
+                    v = int(shape[f])
             elif t.__name__ == 'c_char_Array_256':
                 v = shape[f].encode('utf-8')
             elif t.__name__ == 'c_float_Array_2':

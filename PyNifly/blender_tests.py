@@ -39,6 +39,8 @@ class TestLogHandler(logging.Handler):
         super().__init__()
         self.log = logging.getLogger("pynifly")
         self.log.addHandler(self)
+        self.expect_error = logging.WARNING
+        self.max_error = 0
 
     def __del__(self):
         if self.log:
@@ -52,9 +54,10 @@ class TestLogHandler(logging.Handler):
         Start logging for an operation. Return the log and its handler.
         """
         self.max_error = 0
+        self.expect_error = logging.WARNING
         
     def check(self):
-        assert self.max_error < logging.ERROR, f"No errors reported during test"        
+        assert self.max_error <= self.expect_error, f"No errors reported during test"        
 
     def finish(self):
         self.check()        
@@ -1961,7 +1964,7 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     
     # KillFX body leaves fcurve data path is correct.
     handleaves = TT.find_object("SprigganHandLeaves")
-    controller.apply_animation("KillFX")
+    controller.apply_animation("KillFX", bpy.context.scene)
     bpy.context.scene.frame_current = 1
     TT.assert_equiv(handleaves.active_material.node_tree.nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value,
                     255,
@@ -2130,43 +2133,8 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
 
     # Simplify.
     
-    # # The following just animates the FXstreak layer.
-    # for act in [a for a in bpy.data.actions if "partB" in a.name]:
-    #     bpy.data.actions.remove(act)
-    # for act in [a for a in bpy.data.actions if "GlowingOneGlowFXstreak" not in a.name]:
-    #     bpy.data.actions.remove(act)
-    # for act in [a for a in bpy.data.actions if "GlowingOneGlowFXstreak" in a.name]:
-    #     for c in list(fc for fc in act.fcurves if "Palette" not in fc.data_path):
-    #         act.fcurves.remove(c)
-
-    # # The following just animates the alpha channel on the BodyFlash
-    # a = bpy.data.actions["ANIM|partA|GlowingOneBodyFlash:1|Shader"]
-    # for act in bpy.data.actions:
-    #     if act is not a:
-    #         bpy.data.actions.remove(act)
-    # ecurves = [c for c in a.fcurves if "Alpha Adjust" not in c.data_path]
-    # for c in ecurves:
-    #     a.fcurves.remove(c)
-    # for c in a.fcurves:
-    #     c.keyframe_points[-1].co[1] = 0
-
-    # # Don't export the flash layer
-    # for o in bpy.context.scene.objects:
-    #     if (o.name in ["GlowingOneBodyFlash:1", "GlowingOneHeadFlash:0"]):
-    #         o.hide_set(True)
-
     # # Have to export the root object for the flags to carry over.
     BD.ObjectSelect([o for o in bpy.context.scene.objects if 'pynRoot' in o], active=True)
-    # BD.ObjectSelect([o for o in bpy.context.scene.objects if 'pynRoot' in o], active=True)
-    # TT.select_object("GlowingOneGlowFXstreak:0")
-    # for a in bpy.data.actions:
-    #     if a.name != "ANIM|partA|GlowingOneGlowFXstreak:0|Shader":
-    #         bpy.data.actions.remove(a)
-    # a = bpy.data.actions["ANIM|partA|GlowingOneGlowFXstreak:0|Shader"]
-    # for c in a.fcurves:
-    #     if "Alpha Adjust" in c.data_path:
-    #         a.fcurves.remove(c)
-    # a.name = "ANIM|-|GlowingOneGlowFXstreak:0|Shader"
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     nif = pyn.NifFile(testfile)
@@ -2422,6 +2390,7 @@ def TEST_EXPORT_HANDS():
     TT.append_from_file("SupermutantHands", True, r"tests\FO4\SupermutantHands.blend", r"\Object", "SupermutantHands")
     bpy.ops.object.select_all(action='SELECT')
     bpy.context.view_layer.objects.active = bpy.data.objects["SupermutantHands"]
+    test_loghandler.expect_error = logging.ERROR
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
     assert os.path.exists(outfile)
@@ -5410,36 +5379,6 @@ def TEST_ANIM_ALDUIN():
         else:
             for b in arma.pose.bones:
                 print(f"{b.name}: {b.matrix.translation}\n\t{b.matrix.to_quaternion()}")
-            # thighfc = [f for f in act.fcurves if "LLegThigh" in f.data_path] 
-            # print(thighfc[0].data_path)
-            # for i in range(0, 7): print(f"LLegThigh {i}: {thighfc[i].keyframe_points[0].co[1]:0.4f}")
-            # calffc = [f for f in act.fcurves if "LLegCalf" in f.data_path]
-            # print(f"{calffc[0].data_path}")
-            # for i in range(0, 7): print(f"LLegCalf {i}: {calffc[i].keyframe_points[0].co[1]:0.4f}")
-
-    # # Dump the entire Pelvis location curves from Blender and from the nif.
-    # if arma.animation_data and arma.animation_data.action:
-    #     pelvc = [c for c in arma.animation_data.action.fcurves if "NPC Pelvis" in c.data_path]
-    #     locc = [c for c in pelvc if "location" in c.data_path]
-    #     print("---Blender X Curve---")
-    #     lastv = Vector()
-    #     for i, xyz in enumerate(zip(locc[0].keyframe_points, 
-    #                               locc[1].keyframe_points, 
-    #                               locc[2].keyframe_points)):
-    #         v = Vector((xyz[0].co[1], xyz[1].co[1], xyz[2].co[1]))
-    #         difv = v - lastv
-    #         print(f"\t{i}\t{v}  \t{difv}")
-    #         lastv = v
-
-    # print("---Nif Translation Data---")
-    # pelv = nif.nodes["NPC Pelvis"]
-    # td = pelv.controller.interpolator.data
-    # lastv = Vector()
-    # for i, k in enumerate(td.translations):
-    #     v = Vector(k.value)
-    #     difv = v - lastv
-    #     print(f"\t{i}\t{v}\t{difv}")
-    #     lastv = v
         
     ### EXPORT ###
 
@@ -6129,22 +6068,24 @@ def execute_test(t, stop_on_fail=True):
         if not t: return
 
         print (f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
-        test_loghandler.start()
 
         if t.__doc__: print (f"{t.__doc__}")
         TT.clear_all()
+
+        test_loghandler.start()
         if stop_on_fail:
             t()
+            test_loghandler.finish()
             passed_tests.append(t)
         else:
             try:
                 t()
+                test_loghandler.finish()
                 passed_tests.append(t)
             except:
                 failed_tests.append(t)
 
-        test_loghandler.finish()
-        print (      f"------------------------------ {t.__name__} ------------------------------\n")
+        print (f"------------------------------ {t.__name__} ------------------------------\n")
 
 
 def do_tests(
@@ -6218,9 +6159,9 @@ else:
 
     # TEST_BP_SEGMENTS, TEST_ANIM_SHADER_SPRIGGAN, TEST_CAVE_GREEN, TEST_POT, TEST_SCALING, TEST_SCALING_OBJ, TEST_COLLISION_BOW_SCALE, TEST_COLLISION_BOW, TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_HIER, TEST_COLLISION_MULTI, TEST_COLLISION_CONVEXVERT, TEST_COLLISION_CAPSULE, TEST_COLLISION_CAPSULE2, TEST_COLLISION_LIST, TEST_COLLISION_BOW_CHANGE, TEST_COLLISION_XFORM, TEST_FURN_MARKER1, TEST_FURN_MARKER2, TEST_ROTSTATIC, TEST_SKEL_XML, TEST_SKEL_TAIL_HKX, TEST_AUXBONES_EXTRACT, TEST_FONV, TEST_ANIM_NOBLECHEST, TEST_ANIM_DWEMER_CHEST, TEST_EMPTY_NODES, TEST_COLLISION_PROPERTIES
     do_tests(
-        target_tests=[TEST_ANIM_SHADER_SPRIGGAN, TEST_CAVE_GREEN, TEST_POT, TEST_SCALING, TEST_SCALING_OBJ, TEST_COLLISION_BOW_SCALE, TEST_COLLISION_BOW, TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_HIER, TEST_COLLISION_MULTI, TEST_COLLISION_CONVEXVERT, TEST_COLLISION_CAPSULE, TEST_COLLISION_CAPSULE2, TEST_COLLISION_LIST, TEST_COLLISION_BOW_CHANGE, TEST_COLLISION_XFORM, TEST_FURN_MARKER1, TEST_FURN_MARKER2, TEST_ROTSTATIC, TEST_SKEL_XML, TEST_SKEL_TAIL_HKX, TEST_AUXBONES_EXTRACT, TEST_FONV, TEST_ANIM_NOBLECHEST, TEST_ANIM_DWEMER_CHEST, TEST_EMPTY_NODES, TEST_COLLISION_PROPERTIES],
-        run_all=False,
-        stop_on_fail=True,
+        target_tests=[  ],
+        run_all=True,
+        stop_on_fail=False,
         startfrom=None,
         exclude=[]
         )

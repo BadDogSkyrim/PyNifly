@@ -40,7 +40,9 @@ class XMLFile:
     def hkx_to_xml(cls, filepath):
         """Given a HKX file, convert it to XML and return the XML filepath."""
         log = logging.getLogger("pynifly")
-        tmp_filepath = niflytools.tmp_copy_nospace(filepath)
+        # Putting a copy of the input file in the temporary directory because HKXCMD seems
+        # to want input and output together.
+        tmp_filepath = niflytools.tmp_copy(filepath)
         xml_filepath = niflytools.tmp_filepath(filepath, ext=".xml")
 
         if not xml_filepath:
@@ -52,7 +54,8 @@ class XMLFile:
                                 "-V:XML",
                                 tmp_filepath, 
                                 xml_filepath], 
-                                capture_output=True, check=True)
+                                capture_output=True, 
+                                check=True)
         
         if stat.returncode:
             s = stat.stderr.decode('utf-8').strip()
@@ -66,19 +69,15 @@ class XMLFile:
 
     @classmethod
     def xml_to_hkx(cls, filepath_in, filepath_out):
-        """Given a XML file, convert it to a HKX file at the given path.
+        """
+        Given a XML file, convert it to a HKX file at the given path.
         """
         # Make a copy of the xml file that is guaranteed not to have spaces in the path.
-        if filepath_in.find(" ") >= 0:
-            xml_filepath = niflytools.tmp_filepath(filepath_in)
-            niflytools.copyfile(filepath_in, xml_filepath)
-        else:
-            xml_filepath = filepath_in
-        hkx_filepath = niflytools.tmp_filepath(filepath_in, ext=".hkx")
+        xml_filepath = niflytools.nospace_filepath(filepath_in)
+        hkx_filepath = niflytools.nospace_filepath(filepath_out, ".hkx")
 
-        if not hkx_filepath:
-            raise ValueError(f"Could not create temporary HKX filepath for {filepath_in}")
-                
+
+        niflytools.log.info(f"HKXCMD CONVERT -V:WIN32 {xml_filepath} {hkx_filepath}")
         stat = subprocess.run([cls._hkxcmd_path, 
                                 "CONVERT", 
                                "-V:WIN32",
@@ -88,12 +87,16 @@ class XMLFile:
         
         if stat.returncode:
             s = stat.stderr.decode('utf-8').strip()
-            raise ValueError(s)
+            niflytools.log.error("Could not create HKX file")
+            raise Exception(s)
         
         if not os.path.exists(hkx_filepath):
-            raise ValueError(f"Failed to create {hkx_filepath}")
+            raise Exception(f"Failed to create {hkx_filepath}")
 
-        return niflytools.copyfile(hkx_filepath, filepath_out)
+        niflytools.log.info(f"Wrote {hkx_filepath}")
+        if hkx_filepath != filepath_out:
+            niflytools.copyfile(hkx_filepath, filepath_out)
+            niflytools.log.info(f"Wrote {filepath_out}")
     
 
     def open(self, filepath):
