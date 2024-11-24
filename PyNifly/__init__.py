@@ -4052,18 +4052,22 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 self.report(status, f"Export completed with warnings. Check the console window.")
                 rep = True
             if not rep:
-                self.report({'INFO'}, f"Export successful")
+                if self.log_handler.max_error <= logging.INFO:
+                    self.report({'INFO'}, f"Export successful")
+                elif self.log_handler.max_error <= logging.WARNING:
+                    self.report({'WARNING'}, f"Export completed with warnings")
+                elif self.log_handler.max_error <= logging.WARNING:
+                    self.report({'ERROR'}, f"Export failed, see console window for details")
             
         except:
             self.log_handler.log.exception("Export of nif failed")
             self.report({"ERROR"}, "Export of nif failed, see console window for details")
             res.add("CANCELLED")
 
-        finally:
-            self.log_handler.finish("EXPORT", self.objects_to_export)
-            context.scene.frame_set(initial_frame)
-            ObjectSelect(selected_objs)
-            ObjectActive(active_obj)
+        self.log_handler.finish("EXPORT", self.objects_to_export)
+        context.scene.frame_set(initial_frame)
+        ObjectSelect(selected_objs)
+        ObjectActive(active_obj)
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 

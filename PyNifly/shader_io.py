@@ -1703,7 +1703,7 @@ class ShaderExporter:
         except Exception as e:
             log.exception(f"Could not determine shader attributes: for {shape.name}")
 
-            shape.save_shader_attributes()
+            # shape.save_shader_attributes()
 
 
     @property

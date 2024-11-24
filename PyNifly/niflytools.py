@@ -47,16 +47,19 @@ def tmp_filepath(filepath, ext=None):
     
 
 def nospace_filepath(filepath, ext=None):
-    """Return the input filepath if no spaces, else a new temp filepath."""
+    """
+    Return the input filepath if no spaces, else a new temp filepath.
+    Also remove any surrounding quotes.
+    """
+    fp = filepath.strip('"').strip("'")
     try:
-        n = filepath.index(' ')
-        return tmp_filepath(filepath, ext=ext)
+        n = fp.index(' ')
+        return tmp_filepath(fp, ext=ext)
     except ValueError:
         pass
 
-    fp = filepath
     if ext is not None:
-        bn, e = os.path.splitext(filepath)
+        bn, e = os.path.splitext(fp)
         if not e:
             fp = bn + ext
     return fp

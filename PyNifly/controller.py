@@ -234,16 +234,16 @@ def apply_animation(anim_name, myscene):
 
 def curve_bone_target(curve):
     """
-    Return the curve target for the curve. The target is the bone name if any,
-    otherwise ''.
+    Return the curve target and type for the curve. The target is the bone name if any,
+    otherwise ''. Type is '.location', '.scale', etc.
     """
-    m = re.match("""pose.bones\[('|")(.*)('|")""", curve.data_path)
+    m = re.match("""pose.bones\[('|")([^'"]+)('|")\]\.?(.*)""", curve.data_path)
     if m: 
-        return m.groups()[1]
+        return m.groups()[1], m.groups()[3]
     # if curve.data_path.startswith("pose.bones"):
     #     return eval(curve.data_path.split('[', 1)[1].split(']', 1)[0])
     else:
-        return ''
+        return '', curve.data_path
 
 
 class ControllerHandler():
@@ -1617,26 +1617,29 @@ def _parse_transform_curves(exporter:ControllerHandler, curve_list):
     quat = []
     scale = []
     props = NiTransformDataBuf()
+    c = None
 
-    targetname = curve_bone_target(curve_list[0])
-    dp = curve_list[0].data_path
-    while curve_list and curve_bone_target(curve_list[0]) == targetname:
+    targetname, curve_type = curve_bone_target(curve_list[0])
+    while curve_list:
         c = curve_list.pop(0)
-
-        dp = c.data_path
-        if "location" in dp:
+        if curve_type == "location":
             loc.append(c)
-        elif "rotation_quaternion" in dp:
+        elif curve_type == "rotation_quaternion":
             quat.append(c)
-        elif "rotation_euler" in dp:
+        elif curve_type == "rotation_euler":
             eu.append(c)
-        elif "scale" in dp:
+        elif curve_type == "scale":
             scale.append(c)
         else:
-            raise Exception(f"Unknown curve type: {dp}")
+            log.warning(f"Unknown curve type: {c.data_path}")
+        
+        if not curve_list: break
+        t1, curve_type = curve_bone_target(curve_list[0]) 
+        if t1 != targetname: break
+        targetname = t1
     
     if len(loc) != 3 and len(eu) != 3 and len(quat) != 4:
-        raise Exception(f"No useable transforms in fcurves for {dp}")
+        raise Exception(f"No useable transforms in fcurves for {c.data_path}")
 
     if loc: 
         props.translations.interpolation = _get_interpolation_type(loc)
@@ -1817,7 +1820,7 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
     
     # Bone target implies targetobj is an armature containing that bone. Else targetobj is
     # a ReprObject for a node being manipulated.
-    targetname = curve_bone_target(curve_list[0])
+    targetname, curve_type = curve_bone_target(curve_list[0])
     if targetname:
         if not targetname in targetobj.data.bones:
             raise Exception(f"Target bone not found in armature: {targetobj.name}/{targetname}")
