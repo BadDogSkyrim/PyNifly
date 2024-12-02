@@ -1237,6 +1237,40 @@ def TEST_HEADPART():
     assert len(head4.verts) < 300, f"Head has decimated verts: {head4.verts}"
 
 
+def TEST_TRI_SIMPLE():
+    """Can create and export a mesh with shapekeys to a tri file."""
+    tricubenif = TT.test_file(r"tests\Out\tricube01.nif")
+    tricubeniftri = TT.test_file(r"tests\Out\tricube01.tri")
+    tricubenifchg = TT.test_file(r"tests\Out\tricube01chargen.tri")
+
+    bpy.ops.mesh.primitive_cube_add()
+    cube = bpy.context.selected_objects[0]
+    cube.name = "TriCube"
+    sk1 = cube.shape_key_add()
+    sk1.name = "Aah"
+    sk2 = cube.shape_key_add()
+    sk2.name = "CombatAnger"
+    sk3 = cube.shape_key_add()
+    sk3.name = "*Extra"
+    sk4 = cube.shape_key_add()
+    sk4.name = "BrowIn"
+    bpy.ops.export_scene.pynifly(filepath=tricubenif, target_game='SKYRIM')
+
+    assert os.path.exists(tricubenif), f"Error: Should have exported {tricubenif}"
+    assert os.path.exists(tricubeniftri), f"Error: Should have exported {tricubeniftri}"
+    assert os.path.exists(tricubenifchg), f"Error: Should have exported {tricubenifchg}"
+    
+    cubetri = TriFile.from_file(tricubeniftri)
+    assert "Aah" in cubetri.morphs, f"Error: 'Aah' should be in tri"
+    assert "BrowIn" not in cubetri.morphs, f"Error: 'BrowIn' should not be in tri"
+    assert "*Extra" not in cubetri.morphs, f"Error: '*Extra' should not be in tri"
+    
+    cubechg = TriFile.from_file(tricubenifchg)
+    assert "Aah" not in cubechg.morphs, f"Error: 'Aah' should not be in chargen"
+    assert "BrowIn" in cubechg.morphs, f"Error: 'BrowIn' should be in chargen"
+    assert "*Extra" not in cubechg.morphs, f"Error: '*Extra' should not be in chargen"
+    
+
 def TEST_TRI():
     """Can load a tri file into an existing mesh"""
 
@@ -1246,9 +1280,6 @@ def TEST_TRI():
     testout2 = TT.test_file(r"tests\Out\CheetahMaleHead02.nif")
     testout2tri = TT.test_file(r"tests\Out\CheetahMaleHead02.tri")
     testout2chg = TT.test_file(r"tests\Out\CheetahMaleHead02chargen.tri")
-    tricubenif = TT.test_file(r"tests\Out\tricube01.nif")
-    tricubeniftri = TT.test_file(r"tests\Out\tricube01.tri")
-    tricubenifchg = TT.test_file(r"tests\Out\tricube01chargen.tri")
 
     bpy.ops.object.select_all(action='DESELECT')
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -1287,33 +1318,6 @@ def TEST_TRI():
     
     print('### Tri and chargen export as expected')
 
-    bpy.ops.mesh.primitive_cube_add()
-    cube = bpy.context.selected_objects[0]
-    cube.name = "TriCube"
-    sk1 = cube.shape_key_add()
-    sk1.name = "Aah"
-    sk2 = cube.shape_key_add()
-    sk2.name = "CombatAnger"
-    sk3 = cube.shape_key_add()
-    sk3.name = "*Extra"
-    sk4 = cube.shape_key_add()
-    sk4.name = "BrowIn"
-    bpy.ops.export_scene.pynifly(filepath=tricubenif, target_game='SKYRIM')
-
-    assert os.path.exists(tricubenif), f"Error: Should have exported {tricubenif}"
-    assert os.path.exists(tricubeniftri), f"Error: Should have exported {tricubeniftri}"
-    assert os.path.exists(tricubenifchg), f"Error: Should have exported {tricubenifchg}"
-    
-    cubetri = TriFile.from_file(tricubeniftri)
-    assert "Aah" in cubetri.morphs, f"Error: 'Aah' should be in tri"
-    assert "BrowIn" not in cubetri.morphs, f"Error: 'BrowIn' should not be in tri"
-    assert "*Extra" not in cubetri.morphs, f"Error: '*Extra' should not be in tri"
-    
-    cubechg = TriFile.from_file(tricubenifchg)
-    assert "Aah" not in cubechg.morphs, f"Error: 'Aah' should not be in chargen"
-    assert "BrowIn" in cubechg.morphs, f"Error: 'BrowIn' should be in chargen"
-    assert "*Extra" not in cubechg.morphs, f"Error: '*Extra' should not be in chargen"
-    
 
 def TEST_IMPORT_MULTI_OBJECTS():
     """Can import 2 meshes as objects"""
@@ -6118,12 +6122,12 @@ def do_tests(
 
     if not failed_tests:
         print("""
-        =============================================================================
-        ===                                                                       ===
-        ===                               SUCCESS                                 ===
-        ===                                                                       ===
-        =============================================================================
-        """)
+=============================================================================
+===                                                                       ===
+===                               SUCCESS                                 ===
+===                                                                       ===
+=============================================================================
+""")
     else:
         print(f"""
 =============================================================================
@@ -6158,9 +6162,10 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[ TEST_ANIM_SHADER_SPRIGGAN ],
+        target_tests=[ TEST_TRI ],
+        # target_tests=[t for t in alltests if 'IMP_EXP' in t.__name__],
         run_all=False,
-        stop_on_fail=False,
+        stop_on_fail=True,
         startfrom=None,
         exclude=[]
         )

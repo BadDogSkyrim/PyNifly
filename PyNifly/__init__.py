@@ -119,6 +119,21 @@ ROLL_BONES_NIFT_DEF = False
 SCALE_DEF = 1.0
 WRITE_BODYTRI_DEF = False
 
+class ImportSettings(PynIntFlag):
+    create_bones = 1
+    rename_bones = 1<<1
+    import_anims = 1<<2
+    rename_bones_nift = 1<<3
+    roll_bones_nift = 1<<4
+    import_shapekeys = 1<<5
+    import_tris = 1<<6
+    apply_skinning = 1<<7
+    import_pose = 1<<8
+    create_collection = 1<<9
+    mesh_only = 1<<10
+    import_collisions = 1<<11
+
+
 blender_import_xf = MatrixLocRotScale(Vector((0,0,0)),
                                       Quaternion(Vector((0,0,1)), pi),
                                       (0.1, 0.1, 0.1))
@@ -363,36 +378,36 @@ def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
 
 
 class NifImporter():
-    """Does the work of importing a nif, independent of Blender's operator interface.
-    filename can be a single filepath string or a list of filepaths
     """
-    def __init__(self, filename, chargen="chargen", scale=1.0):
-        if type(filename) == str:
-            self.filename = filename
-            self.filename_list = [filename]
-        else:
-            self.filename = filename[0]
-            self.filename_list = filename
+    Does the work of importing a nif, independent of Blender's operator interface.
+    """
+    def __init__(self, 
+                 filename_list, # Files may be combined into one Blender object
+                 target_objects, # Object to fold imported objects into, if possible
+                 target_armatures, # Armatures to use for imported objects
+                 import_settings, # Dictionary of settings
+                 collection=None, # Collection to link objects into, null to create new collection 
+                 reference_skel=None, # Reference skeleton for bone creation (NifFile)
+                 base_transform=Matrix.Identity(4), # Transform to apply to root
+                 context=bpy.context,
+                 chargen_ext=CHARGEN_EXT_DEF, # Extension for chargen tri files
+                 scale=1.0,
+                 ):
+        
+        self.filename_list = filename_list
+        self.loaded_meshes = set(target_objects)
+        self.target_armatures = set(target_armatures)
+        self.collection = collection
+        self.settings = import_settings
+        self.reference_skel = reference_skel
+        self.import_xf = base_transform # Transform applied to root for blender convenience.
+        self.context = context
+        self.chargen_ext = chargen_ext
+        self.scale = scale
 
-        self.context = bpy.context # can be overwritten
-        self.collection = None
-        self.do_create_bones = CREATE_BONES_DEF
-        self.do_rename_bones = RENAME_BONES_DEF
-        self.do_import_anims = IMPORT_ANIMS_DEF
-        self.rename_bones_nift = RENAME_BONES_NIFT_DEF
-        self.roll_bones_nift = ROLL_BONES_NIFT_DEF
-        self.do_import_shapes = IMPORT_SHAPES_DEF
-        self.do_import_tris = IMPORT_TRIS_DEF
-        self.do_apply_skinning = APPLY_SKINNING_DEF
-        self.do_import_pose = IMPORT_POSE_DEF
-        self.do_create_collection = IMPORT_COLLECTIONS_DEF
+        self.armature = None # Armature used for current shape import
+        self.context = bpy.context 
         self.is_facegen = False
-        # self.do_estimate_offset = ESTIMATE_OFFSET_DEF
-        self.reference_skel = None
-        self.chargen_ext = chargen
-        self.mesh_only = False
-        self.armature = None
-        self.imported_armatures = []
         self.is_new_armature = True # Armature is derived from current nif; set false if adding to existing arma
         self.created_child_cp = None
         self.bones = set()
@@ -400,41 +415,42 @@ class NifImporter():
                                   # (or object name, if no handle)
         self.nodes_loaded = {} # Dictionary of nodes from the nif file loaded, indexed by Blender name
         self.loaded_meshes = [] # Holds blender objects created from shapes in a nif
+
+        self.connect_points = CP.ConnectPointCollection()
+        self.connect_points.add_all(target_objects)
+        self.loaded_parent_cp = {}
+        self.loaded_child_cp = {}
+        
         self.nif = None # NifFile(filename)
         self.loc = Vector((0, 0, 0))   # location for new objects 
-        self.scale = scale
         self.warnings = []
-        self.import_xf = Matrix.Identity(4) # Transform applied to root for blender convenience.
         self.root_object = None  # Blender representation of root object
         self.auxbones = False
         self.ref_compat = False
         self.controller_mgr = None
-        self.connect_points = CP.ConnectPointCollection()
 
 
     def __str__(self):
-        flags = []
-        if self.do_create_bones: flags.append("CREATE_BONES")
-        if self.do_rename_bones: flags.append("RENAME_BONES")
-        if self.do_import_anims: flags.append("IMPORT_ANIMS")
-        if self.rename_bones_nift: flags.append("RENAME_BONES_NIFT")
-        if self.roll_bones_nift: flags.append("ROLL_BONES_NIFT")
-        if self.do_import_shapes: flags.append("IMPORT_SHAPES")
-        if self.do_import_tris: flags.append("IMPORT_TRIS")
-        if self.do_apply_skinning: flags.append("APPLY_SKINNING")
-        if self.do_import_pose: flags.append("IMPORT_POSE")
-        if self.do_create_collection: flags.append("CREATE_COLLECTIONS")
-        if self.is_facegen: flags.append("FACEGEN_FILE")
-        # if self.do_estimate_offset: flags.append("ESTIMATE_OFFSET")
         return f"""
-        Importing nif: {self.filename_list}
-            flags: {'|'.join(flags)}
+        Importing nif: {self.filename_list} {"(FACEGEN_FILE)" if self.is_facegen else ""}
+            flags: {self.settings.fullname} 
             armature: {self.armature} 
             connect points: {[x.name for x in self.connect_points.parents]}, {[x.names for x in self.connect_points.child]} 
             mesh objects: {[obj.name for obj in self.loaded_meshes]}
         """
 
-        
+    def is_set(self, setting):
+        """Return an import setting as a true/false value."""
+        return True if self.settings & setting else False
+    
+    def set_setting(self, setting, val):
+        """Set an import setting flag."""
+        if val:
+            self.settings |= setting
+        else:
+            self.settings &= ~setting
+
+    
     def warn(self, text:str):
         self.warnings.append(('WARNING', text))
         log.warning(text)
@@ -448,7 +464,7 @@ class NifImporter():
         return l
     
     def nif_name(self, blender_name):
-        if self.do_rename_bones or self.rename_bones_nift:
+        if self.is_set(ImportSettings.rename_bones) or self.is_set(ImportSettings.rename_bones_nift):
             return self.nif.nif_name(blender_name)
         else:
             return blender_name
@@ -457,7 +473,7 @@ class NifImporter():
         if self.is_facegen and nif_name == "Head":
             # Facegen nifs use a "Head" bone, which appears to be the "HEAD" bone misnamed.
             return "HEAD"  
-        elif self.do_rename_bones or self.rename_bones_nift:
+        elif self.is_set(ImportSettings.rename_bones) or self.is_set(ImportSettings.rename_bones_nift):
             return self.nif.blender_name(nif_name)
         else:
             return nif_name
@@ -548,7 +564,7 @@ class NifImporter():
                     else:
                         offset_consistent = False
                         log.warning(f"Shape {the_shape.name} does not have consistent offset from nif armature--can't use it to extend the armature.")
-                        self.do_create_bones = False
+                        self.settings &= ~ImportSettings.create_bones
                         break
 
             if offset_consistent and offset_xf:
@@ -592,7 +608,7 @@ class NifImporter():
                     else:
                         offset_consistent = False
                         log.warning(f"Shape {the_shape.name} does not have consitent offset from reference skeleton {self.reference_skel.filepath}--can't use it to extend the armature.")
-                        self.do_create_bones = False
+                        self.settings &= ~ImportSettings.create_bones
                         break
 
             if offset_consistent and offset_xf:
@@ -774,7 +790,7 @@ class NifImporter():
         """Determine whether a bone is in one of the armatures we've imported.
         Returns the bone or None.
         """
-        for arma in self.imported_armatures:
+        for arma in self.target_armatures:
             if bone_name in arma.data.bones:
                 return arma.data.bones[bone_name]
         return None
@@ -819,7 +835,8 @@ class NifImporter():
             return bn
 
         # If not a known skeleton bone, just import as an EMPTY object
-        if self.context.object: bpy.ops.object.mode_set(mode = 'OBJECT')
+        if self.context.object and (not self.context.object.hide_get()): 
+            bpy.ops.object.mode_set(mode = 'OBJECT')
         bpy.ops.object.add(radius=1.0, type='EMPTY', )
         obj = bpy.context.object
         obj.name = ninode.name
@@ -854,13 +871,13 @@ class NifImporter():
         self.objects_created.add(ReprObject(blender_obj=obj, nifnode=ninode))
         link_to_collection(self.collection, obj)
 
-        if ninode.collision_object and self.do_import_collisions:
+        if ninode.collision_object and self.is_set(ImportSettings.import_collisions):
             collision.CollisionHandler.import_collision_obj(
                 self, ninode.collision_object, obj)
 
         self.import_extra(obj, ninode)
 
-        if self.root_object != obj and ninode.controller and self.do_import_anims: 
+        if self.root_object != obj and ninode.controller and self.is_set(ImportSettings.import_anims): 
             # import animations if this isn't the root node. If it is, they may reference
             # any of the root's children and so wait until those can be imported.
             self.controller_mgr.import_controller(ninode.controller, arma if arma else obj, obj)
@@ -900,7 +917,7 @@ class NifImporter():
         for nm, n in nif.nodes.items():
             # If it's a bhk (collision) node, only consider it if we're importing
             # collisions.
-            if ((not nm.startswith('bhk') or self.do_import_collisions) 
+            if ((not nm.startswith('bhk') or self.is_set(ImportSettings.import_collisions)) 
                 and not n.__class__.__name__.startswith('NiShader')): # isinstance not working somehow
                 p = self.import_node_parents(arma, n)
                 self.import_ninode(arma, n, p)
@@ -958,7 +975,7 @@ class NifImporter():
             self.loaded_meshes.append(new_object)
             self.nodes_loaded[new_object.name] = the_shape
         
-            if not self.mesh_only:
+            if not self.is_set(ImportSettings.mesh_only):
                 self.objects_created.add(ReprObject(new_object, the_shape))
                 
                 import_colors(new_mesh, the_shape)
@@ -983,7 +1000,7 @@ class NifImporter():
 
                 shader_io.ShaderImporter().import_material(new_object, the_shape, asset_path)
 
-                if the_shape.collision_object and self.do_import_collisions:
+                if the_shape.collision_object and self.is_set(ImportSettings.import_collisions):
                     collision.CollisionHandler.import_collision_obj(
                         self, the_shape.collision_object, new_object)
 
@@ -1005,9 +1022,10 @@ class NifImporter():
 
                 new_object['PYN_GAME'] = self.nif.game
                 new_object['PYN_BLENDER_XF'] = MatNearEqual(self.import_xf, blender_import_xf)
-                new_object['PYN_RENAME_BONES'] = self.do_rename_bones 
-                if self.rename_bones_nift != RENAME_BONES_NIFT_DEF:
-                    new_object['PYN_RENAME_BONES_NIFT'] = self.rename_bones_nift 
+                new_object['PYN_RENAME_BONES'] = (
+                    True if self.is_set(ImportSettings.rename_bones) else False)
+                if self.is_set(ImportSettings.rename_bones_nift) != RENAME_BONES_NIFT_DEF:
+                    new_object['PYN_RENAME_BONES_NIFT'] = self.is_set(ImportSettings.rename_bones_nift)
 
             link_to_collection(self.collection, new_object)
 
@@ -1127,7 +1145,7 @@ class NifImporter():
         """
         shape = self.nodes_loaded[obj.name]
 
-        if self.do_import_pose:
+        if self.is_set(ImportSettings.import_pose):
             return self.armature, None
         else:
             for arma in armatures:
@@ -1153,7 +1171,8 @@ class NifImporter():
     
         # Use the transform from the reference skeleton if we're extending bones; 
         # otherwise use the one in the file.
-        if self.do_create_bones and self.reference_skel and nifname in self.reference_skel.nodes:
+        if ((self.settings & ImportSettings.create_bones) and self.reference_skel 
+                and nifname in self.reference_skel.nodes):
             bone_xform = transform_to_matrix(self.reference_skel.nodes[nifname].global_transform)
             bone = create_bone(armdata, bone_name, bone_xform, 
                                self.nif.game, self.scale, 0)
@@ -1251,7 +1270,8 @@ class NifImporter():
                             parentnifname = niparent.name
                         parentname = self.blender_name(niparent.name)
 
-                if parentname is None and self.do_create_bones and not is_facebone(bonename):
+                if (parentname is None and (self.settings & ImportSettings.create_bones) 
+                        and not is_facebone(bonename)):
                     if self.reference_skel and \
                         nifname in self.reference_skel.nodes and \
                             nifname != self.reference_skel.rootName:
@@ -1280,7 +1300,7 @@ class NifImporter():
         self.set_all_bone_poses(arma, self.nif)
         bpy.ops.object.mode_set(mode='OBJECT')
 
-        if self.do_import_collisions:
+        if self.is_set(ImportSettings.import_collisions):
             for bonenode in collisions:
                 collision.CollisionHandler.import_collision_obj(
                     self, bonenode.collision_object, arma, bonenode)
@@ -1401,9 +1421,9 @@ class NifImporter():
 
         #if self.scale != SCALE_DEF: arma['PYN_SCALE_FACTOR'] = self.scale 
         arma['PYN_BLENDER_XF'] = MatNearEqual(self.import_xf, blender_import_xf)
-        arma['PYN_RENAME_BONES'] = self.do_rename_bones
-        if self.rename_bones_nift != RENAME_BONES_NIFT_DEF:
-            arma['PYN_RENAME_BONES_NIFTOOLS'] = self.rename_bones_nift 
+        arma['PYN_RENAME_BONES'] = self.is_set(ImportSettings.rename_bones)
+        if self.is_set(ImportSettings.rename_bones_nift) != RENAME_BONES_NIFT_DEF:
+            arma['PYN_RENAME_BONES_NIFTOOLS'] = self.is_set(ImportSettings.rename_bones_nift)
 
         return arma
 
@@ -1476,7 +1496,7 @@ class NifImporter():
                     # skeleton instead.
                     bone_node = self.reference_skel.nodes['HEAD' if bn=='Head' else bn]
                     xf = transform_to_matrix(bone_node.global_transform)
-                elif self.do_import_pose: ### and not self.is_facegen:
+                elif self.is_set(ImportSettings.import_pose): ### and not self.is_facegen:
                     # Using nif locations of bones. 
                     bone_node = nif_shape.file.nodes[bn]
                     # xf = transform_to_matrix(bone_node.properties.transform)
@@ -1490,7 +1510,7 @@ class NifImporter():
                 new_bones.append((bn, blname))
 
         # Do the pose in a separate pass so we don't have to flip between modes.
-        if not self.do_import_pose:
+        if not self.is_set(ImportSettings.import_pose):
             bpy.ops.object.mode_set(mode = 'OBJECT')
             self.set_bone_poses(arma, self.nif, new_bones)
         bpy.ops.object.mode_set(mode = 'OBJECT')
@@ -1526,11 +1546,11 @@ class NifImporter():
         """Import a single file."""
         log.info(f"Importing {self.nif.game} file {self.nif.filepath}")
 
-        if self.do_create_collection:
+        if self.is_set(ImportSettings.create_collection):
             self.collection = bpy.data.collections.new(os.path.basename(self.nif.filepath))
             self.context.scene.collection.children.link(self.collection)
         
-        if self.do_import_anims:
+        if self.is_set(ImportSettings.import_anims):
             self.controller_mgr = controller.ControllerHandler(self)
 
         # Each file gets its own root object in Blender.
@@ -1544,7 +1564,7 @@ class NifImporter():
             return
 
         self.is_facegen = ("BSFaceGenNiNodeSkinned" in self.nif.nodes)
-        if self.is_facegen: self.do_import_pose = False
+        if self.is_facegen: self.set_setting(ImportSettings.import_pose, False)
         # Import the root node
         self.import_ninode(None, self.nif.rootNode)
 
@@ -1552,13 +1572,13 @@ class NifImporter():
         for s in self.nif.shapes:
             if self.nif.game in ['FO4', 'FO76'] and is_facebones(s.bone_names):
                 self.nif.dict = fo4FaceDict
-            self.nif.dict.use_niftools = self.rename_bones_nift
+            self.nif.dict.use_niftools = self.is_set(ImportSettings.rename_bones_nift)
             self.import_shape(s)
 
         orphan_shapes = set([o for o in self.objects_created.blender_objects()
                              if o.parent==None and not 'pynRoot' in o])
             
-        if self.mesh_only:
+        if self.is_set(ImportSettings.mesh_only):
             for obj in self.loaded_meshes:
                 sh = self.nodes_loaded[obj.name]
                 self.set_object_xf(sh, obj)
@@ -1569,31 +1589,31 @@ class NifImporter():
                 if not self.armature:
                     self.armature = self.make_armature(self.collection)
                 self.add_bones_to_arma(self.armature, self.nif, self.nif.nodes.keys())
-                self.imported_armatures.append(self.armature)
+                self.target_armatures.append(self.armature)
                 self.connect_armature(self.armature)
                 self.group_bones(self.armature)
             else:
                 # List of armatures available for shapes
                 if self.armature:
-                    self.imported_armatures = [self.armature] 
+                    self.target_armatures.add(self.armature) 
 
-                if self.do_apply_skinning:
+                if self.is_set(ImportSettings.apply_skinning):
                     for obj in self.loaded_meshes:
                         sh = self.nodes_loaded[obj.name]
                         self.ref_compat = self.is_compatible_skeleton(obj.matrix_local, sh, self.reference_skel)
                         self.set_object_xf(sh, obj)
                         if sh.has_skin_instance:
-                            target_arma, target_xf = self.find_compatible_arma(obj, self.imported_armatures)
+                            target_arma, target_xf = self.find_compatible_arma(obj, self.target_armatures)
                             self.armature = target_arma
                             new_arma = self.set_parent_arma(target_arma, obj, sh, target_xf) #target_xf)
                             if self.is_facegen: self.facegen_cleanup(obj)
                             if not target_arma:
-                                self.imported_armatures.append(new_arma)
+                                self.target_armatures.add(new_arma)
                                 self.armature = new_arma
                             orphan_shapes.discard(obj)
 
-                for arma in self.imported_armatures:
-                    if self.do_create_bones:
+                for arma in self.target_armatures:
+                    if (self.settings & ImportSettings.create_bones):
                         bonenames = [n.name for n in self.nif.nodes.values()
                                      if n.blockname == 'NiNode']
                         self.add_bones_to_arma(arma, self.nif, bonenames)
@@ -1671,21 +1691,8 @@ class NifImporter():
         """Perform the import operation as previously defined"""
         NifFile.clear_log()
 
-        self.connect_points.add_all(self.context.selected_objects)
-        self.loaded_parent_cp = {}
-        self.loaded_child_cp = {}
         prior_vertcounts = []
         prior_fn = ''
-
-        # Only use the active object if it's selected. Too confusing otherwise.
-        if self.context.object and self.context.object.select_get():
-            if self.context.object.type == "ARMATURE":
-                self.armature = self.context.object
-                log.info(f"Current object is an armature, parenting shapes to {self.armature.name}")
-            elif self.context.object.type == 'MESH':
-                prior_vertcounts = [len(self.context.object.data.vertices)]
-                self.loaded_meshes = [self.context.object]
-                log.info(f"Current object is a mesh, will import as shape key if possible: {self.context.object.name}")
 
         log.info(str(self))
 
@@ -1703,14 +1710,14 @@ class NifImporter():
 
             prior_shapes = None
             this_vertcounts = [len(s.verts) for s in self.nif.shapes]
-            if self.do_import_shapes:
+            if self.is_set(ImportSettings.import_shapekeys):
                 if len(this_vertcounts) > 0 and this_vertcounts == prior_vertcounts:
                     prior_shapes = self.loaded_meshes
             
             self.loaded_meshes = []
-            self.mesh_only = (prior_shapes is not None)
+            self.set_setting(ImportSettings.mesh_only, (prior_shapes is not None))
             self.import_nif()
-            if self.do_import_tris:
+            if self.is_set(ImportSettings.import_tris):
                 self.import_tris()
 
             if prior_shapes:
@@ -1725,8 +1732,29 @@ class NifImporter():
 
 
     @classmethod
-    def do_import(cls, filename, chargen="chargen", scale=1.0):
-        imp = NifImporter(filename, chargen=chargen, scale=scale)
+    def do_import(cls, filename, settings=None, collection=None, reference_skel=None,
+                  context=bpy.context, chargen="chargen", scale=1.0):
+        """
+        Perform a nif import operation.
+        """
+
+        armatures = set()
+        targ_objs = []
+
+        # Only use the active object if it's selected and visible. Too confusing otherwise.
+        obj = bpy.context.object
+        if obj and obj.select_get() and (not obj.hide_get()):
+            if obj.type == "ARMATURE":
+                armatures.add(obj)
+                log.info(f"Active object is an armature, parenting shapes to {obj.name}")
+            elif obj.type == 'MESH':
+                prior_vertcounts = [len(obj.data.vertices)]
+                targ_objs = [obj]
+                log.info(f"Active object is a mesh, will import as shape key if possible: {obj.name}")
+
+        imp = NifImporter(filename, targ_objs, armatures, import_settings=settings, 
+                          collection=collection, reference_skel=reference_skel, 
+                          context=context, chargen_ext=chargen, scale=scale)
         imp.execute()
         return imp
 
@@ -1818,13 +1846,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         name="Reference skeleton",
         description="Reference skeleton to use for the bone hierarchy",
         default="") # type: ignore
-
-    # # For debugging. Updating the UI when debugging tends to crash blender.
-    # update_ui: bpy.props.BoolProperty(
-    #     name="Update UI",
-    #     default=True,
-    #     options={'HIDDEN'}
-    # )
+    
 
     def __init__(self):
         if bpy.context.object and bpy.context.object.select_get() and bpy.context.object.type == 'ARMATURE':
@@ -1864,28 +1886,57 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 fullfiles = [os.path.join(folderpath, f.name) for f in self.files]
             else:
                 fullfiles = [self.filepath]
-            imp = NifImporter(fullfiles, chargen=CHARGEN_EXT_DEF)
-            imp.context = context
-            if context.view_layer.active_layer_collection: 
-                imp.collection = context.view_layer.active_layer_collection.collection
-            imp.do_create_bones = self.do_create_bones
-            # imp.roll_bones_nift = self.roll_bones
-            imp.do_rename_bones = self.do_rename_bones
-            imp.rename_bones_nift = self.rename_bones_niftools
-            imp.do_import_shapes = self.do_import_shapes
-            imp.do_import_anims = self.do_import_animations
-            imp.do_import_collisions = self.do_import_collisions
-            imp.do_import_tris = self.do_import_tris
-            imp.do_apply_skinning = self.do_apply_skinning
-            imp.do_import_pose = self.do_import_pose
-            imp.do_create_collection = self.do_create_collections
-            # imp.do_estimate_offset = self.do_estimate_offset
+
+            armatures = set()
+            targ_objs = []
+
+            # Only use the active object if it's selected and visible. Too confusing otherwise.
+            obj = bpy.context.object
+            if obj and obj.select_get() and (not obj.hide_get()):
+                if obj.type == "ARMATURE":
+                    armatures.add(obj)
+                    log.info(f"Active object is an armature, parenting shapes to {obj.name}")
+                elif obj.type == 'MESH':
+                    prior_vertcounts = [len(obj.data.vertices)]
+                    targ_objs = [obj]
+                    log.info(f"Active object is a mesh, will import as shape key if possible: {obj.name}")
+
+            import_flags = 0
+            if self.do_create_bones: import_flags |= ImportSettings.create_bones
+            if self.do_rename_bones: import_flags |= ImportSettings.rename_bones
+            if self.rename_bones_niftools: import_flags |= ImportSettings.rename_bones_nift
+            if self.do_import_shapes: import_flags |= ImportSettings.import_shapekeys
+            if self.do_import_animations: import_flags |= ImportSettings.import_anims
+            if self.do_import_collisions: import_flags |= ImportSettings.import_collisions
+            if self.do_import_tris: import_flags |= ImportSettings.import_tris
+            if self.do_apply_skinning: import_flags |= ImportSettings.apply_skinning
+            if self.do_import_pose: import_flags |= ImportSettings.import_pose
+            if self.do_create_collections: import_flags |= ImportSettings.create_collection
+
+            skel = None
             if self.reference_skel:
-                imp.reference_skel = NifFile(self.reference_skel)
+                skel = NifFile(self.reference_skel)
+            
+            xf = Matrix.Identity(4)
             if self.use_blender_xf:
-                imp.import_xf = blender_import_xf
+                xf = blender_import_xf
+
+            coll = None
+            if context.view_layer.active_layer_collection:
+                coll = context.view_layer.active_layer_collection.collection
+            
+            imp = NifImporter(
+                fullfiles, 
+                targ_objs, 
+                armatures, 
+                import_settings=import_flags, 
+                collection=coll, 
+                reference_skel=skel,
+                base_transform=xf,
+                context=context, 
+                )
             imp.execute()
-        
+
             # Cleanup. Select all shapes imported, except the root node.
             objlist = [x for x in imp.objects_created.blender_objects() if x.type=='MESH']
             highlight_objects(objlist, context)

@@ -174,7 +174,6 @@ pynBufferDefaults = {
     }
 
 
-
 class pynStructure(Structure):
     nifly = None
     logger = None
@@ -2386,6 +2385,18 @@ class ModuleTest:
 """)
 
 
+    def TEST_ENUM():
+        class ImportSettings(PynIntFlag):
+            create_bones = 1
+            rename_bones = 1<<1
+            import_anims = 1<<2
+            rename_bones_nift = 1<<3
+
+        flags = ImportSettings.create_bones | ImportSettings.rename_bones
+        print(f"flags = {flags}")
+        print(f"Fullname = {flags.fullname}")
+
+
     def TEST_FIELDS():
         print("--- Verifying what we can do with fields ---")
         class TestFields:
@@ -2451,9 +2462,11 @@ class ModuleTest:
         assert len(p2.warnings) == 0, f"Warnings are reported"
         assert p2.bhkMaterial == 26, f"Material value is correct: {p2.bhkMaterial}"
 
-        p3 = bhkConvexVerticesShapeProps({"bhkRadius": "FOO"})
-        assert len(p3.warnings) > 0, f"Warnings are reported"
-        print(p3.warnings)
+        try:
+            p3 = bhkConvexVerticesShapeProps({"bhkRadius": "FOO"})
+            assert False, "Should have thrown an error"
+        except:
+            pass
 
         print("---Testing that getting a material name always works")
         assert SkyrimHavokMaterial.get_name(3049421844) == "MATERIAL_BONE", f"Material correct: {SkyrimHavokMaterial.get_name(3049421844)}"

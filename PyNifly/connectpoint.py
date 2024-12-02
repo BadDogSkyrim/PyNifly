@@ -228,7 +228,7 @@ class ConnectPointCollection():
 
     def add_all(self, objects):
         """
-        Add all blender objects in objects representing connect points to this collection.
+        Add all blender objects in "objects" representing connect points to this collection.
         """
         for obj in objects:
             self.add(obj)
