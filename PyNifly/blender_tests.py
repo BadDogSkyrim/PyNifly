@@ -2711,9 +2711,14 @@ def TEST_COLORS3():
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
+    nif = pyn.NifFile(testfile)
+    c1229_nif = nif.shapes[0].colors[1229]
+    blend_alphamap = bpy.context.object.data.attributes['VERTEX_ALPHA']
+    c1229_blend = blend_alphamap.data[1229].color
+    TT.assert_equiv(c1229_blend[0], c1229_nif[3], "Vertex alpha", e=1.0/255.0)
+
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
 
-    nif = pyn.NifFile(testfile)
     nif2 = pyn.NifFile(outfile)
     colors = nif.shapes[0].colors
     colors2 = nif2.shapes[0].colors
@@ -6162,7 +6167,7 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[ TEST_TRI ],
+        target_tests=[ TEST_COLORS3 ],
         # target_tests=[t for t in alltests if 'IMP_EXP' in t.__name__],
         run_all=False,
         stop_on_fail=True,

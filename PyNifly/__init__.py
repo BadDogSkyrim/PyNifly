@@ -363,7 +363,8 @@ def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
                     clayer.data[i].color = (c[0], c[1], c[2], 1.0)
                     if alphlayer:
                         alph = colors[i][3] 
-                        cv = list(Color([alph, alph, alph]).from_scene_linear_to_srgb())
+                        cv = list(Color([alph, alph, alph]))
+                        # cv = list(Color([alph, alph, alph]).from_scene_linear_to_srgb())
                         cv.append(1.0)
                         alphlayer.data[i].color = cv
             else:
@@ -1589,7 +1590,7 @@ class NifImporter():
                 if not self.armature:
                     self.armature = self.make_armature(self.collection)
                 self.add_bones_to_arma(self.armature, self.nif, self.nif.nodes.keys())
-                self.target_armatures.append(self.armature)
+                self.target_armatures.add(self.armature)
                 self.connect_armature(self.armature)
                 self.group_bones(self.armature)
             else:
@@ -1939,9 +1940,9 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
             # Cleanup. Select all shapes imported, except the root node.
             objlist = [x for x in imp.objects_created.blender_objects() if x.type=='MESH']
-            highlight_objects(objlist, context)
             if (not objlist) and imp.armature:
-                objlist.append(imp.armature)
+                objlist = [imp.armature]
+            highlight_objects(objlist, context)
             ObjectSelect(objlist)
 
         except:
@@ -3270,7 +3271,8 @@ class NifExporter:
             elif mapping_scheme == 'POINT':
                 for i, loop in enumerate(mesh.loops):
                     c = loopcolors[i]
-                    a = Color(alphamap.data[loop.vertex_index].color[0:3]).from_srgb_to_scene_linear()
+                    a = Color(alphamap.data[loop.vertex_index].color[0:3])
+                    # a = Color(alphamap.data[loop.vertex_index].color[0:3]).from_srgb_to_scene_linear()
                     loopcolors[i] = (c[0], c[1], c[2], (a[0] + a[1] + a[2])/3)
 
         return loopcolors
