@@ -53,7 +53,6 @@ else:
 from niflytools import *
 from nifdefs import *
 from pynifly import *
-from trihandler import *
 import xmltools
 
 # Blender libraries
@@ -77,6 +76,7 @@ import controller
 import collision 
 import connectpoint as CP
 import skeleton_hkx
+import trihandler
 
 if 'PYNIFLY_DEV_ROOT' in os.environ:
     importlib.reload(skeleton_hkx)
@@ -85,6 +85,7 @@ if 'PYNIFLY_DEV_ROOT' in os.environ:
     importlib.reload(collision)
     importlib.reload(CP)
     importlib.reload(xmltools)
+    importlib.reload(trihandler)
 
 NO_PARTITION_GROUP = "*NO_PARTITIONS*"
 MULTIPLE_PARTITION_GROUP = "*MULTIPLE_PARTITIONS*"
@@ -1959,7 +1960,43 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
 # ### ---------------------------- TRI Files -------------------------------- ###
 
-def create_shape_keys(obj, tri: TriFile):
+def read_morph(obj, base_verts, game_dict, game_morph_name, morph_verts, is_rel):
+    """
+    Read a single morph and create a shape key for it.
+    """
+    if game_dict and game_morph_name in game_dict.morph_dic_blender:
+        morph_name = game_dict.morph_dic_blender[game_morph_name]
+    else:
+        morph_name = game_morph_name
+
+    mesh = obj.data
+    if morph_name not in mesh.shape_keys.key_blocks:
+        newsk = obj.shape_key_add()
+        newsk.name = morph_name
+
+        obj.active_shape_key_index = len(mesh.shape_keys.key_blocks) - 1
+            #This is a pointer, not a copy
+        mesh_key_verts = mesh.shape_keys.key_blocks[obj.active_shape_key_index].data
+        if is_rel:
+            # We may be applying the morphs to a different shape than the one stored in 
+            # the tri file. But the morphs in the tri file are absolute locations, as are 
+            # shape key locations. So we need to calculate the offset in the tri and apply that 
+            # to our shape keys.
+            for key_vert, morph_vert, base_vert in zip(mesh_key_verts, morph_verts, base_verts):
+                key_vert.co[0] += morph_vert[0] - base_vert[0]
+                key_vert.co[1] += morph_vert[1] - base_vert[1]
+                key_vert.co[2] += morph_vert[2] - base_vert[2]
+        else:
+            # These morphs hold relative locations.
+            for key_vert, morph_vert, base_vert in zip(mesh_key_verts, morph_verts, base_verts):
+                key_vert.co[0] += morph_vert[0] - base_vert[0]
+                key_vert.co[1] += morph_vert[1] - base_vert[1]
+                key_vert.co[2] += morph_vert[2] - base_vert[2]
+        
+        mesh.update()
+
+
+def create_shape_keys(obj, tri: trihandler.TriFile):
     """Adds the shape keys in tri to obj 
         """
     mesh = obj.data
@@ -1969,8 +2006,6 @@ def create_shape_keys(obj, tri: TriFile):
         newsk.name = "Basis"
         mesh.update()
 
-    base_verts = tri.vertices
-
     dict = None
     obj_arma = [m.object for m in obj.modifiers if m.type == 'ARMATURE']
     if obj_arma:
@@ -1979,29 +2014,12 @@ def create_shape_keys(obj, tri: TriFile):
             dict = gameSkeletons[g]
 
     for game_morph_name, morph_verts in sorted(tri.morphs.items()):
-        if dict and game_morph_name in dict.morph_dic_blender:
-            morph_name = dict.morph_dic_blender[game_morph_name]
-        else:
-            morph_name = game_morph_name
-        if morph_name not in mesh.shape_keys.key_blocks:
-            newsk = obj.shape_key_add()
-            newsk.name = morph_name
+        read_morph(obj, tri.vertices, dict, game_morph_name, morph_verts, True)
+    for game_morph_name, morph_verts in sorted(tri.modmorphs.items()):
+        read_morph(obj, tri.vertices, dict, game_morph_name, morph_verts, False)
 
-            obj.active_shape_key_index = len(mesh.shape_keys.key_blocks) - 1
-            #This is a pointer, not a copy
-            mesh_key_verts = mesh.shape_keys.key_blocks[obj.active_shape_key_index].data
-            # We may be applying the morphs to a different shape than the one stored in 
-            # the tri file. But the morphs in the tri file are absolute locations, as are 
-            # shape key locations. So we need to calculate the offset in the tri and apply that 
-            # to our shape keys.
-            for key_vert, morph_vert, base_vert in zip(mesh_key_verts, morph_verts, base_verts):
-                key_vert.co[0] += morph_vert[0] - base_vert[0]
-                key_vert.co[1] += morph_vert[1] - base_vert[1]
-                key_vert.co[2] += morph_vert[2] - base_vert[2]
-        
-            mesh.update()
 
-def create_trip_shape_keys(obj, trip:TripFile):
+def create_trip_shape_keys(obj, trip:trihandler.TripFile):
     """Adds the shape keys in trip to obj."""
     mesh = obj.data
     verts = mesh.vertices
@@ -2036,7 +2054,7 @@ def import_trip(filepath, target_objs):
        """
     result = set()
     shapelist = []
-    trip = TripFile.from_file(filepath)
+    trip = trihandler.TripFile.from_file(filepath)
     if trip.is_valid:
         shapelist = trip.shapes.keys()
         for shapename, offsetmorphs in trip.shapes.items():
@@ -2056,8 +2074,8 @@ def import_tri(filepath, cobj):
     """Import the tris from filepath into cobj
        If cobj is None or if the verts don't match, create a new object
        """
-    tri = TriFile.from_file(filepath)
-    if not type(tri) == TriFile:
+    tri = trihandler.TriFile.from_file(filepath)
+    if not type(tri) == trihandler.TriFile:
         log.error(f"Error reading tri file")
         return None
 
@@ -2947,7 +2965,7 @@ class NifExporter:
             result = {'WARNING'}
 
         if len(expression_morphs) > 0:
-            tri = TriFile()
+            tri = trihandler.TriFile()
             tri.vertices = verts
             tri.faces = tris
             tri.uv_pos = uvs
@@ -2964,7 +2982,7 @@ class NifExporter:
             tri.write(fname_tri) # Only expression morphs to write at this point
 
         if len(chargen_morphs) > 0:
-            tri = TriFile()
+            tri = trihandler.TriFile()
             tri.vertices = verts
             tri.faces = tris
             tri.uv_pos = uvs
@@ -3813,7 +3831,7 @@ class NifExporter:
 
         # One TRIP file is written even if we have variants of the mesh ("_" prefix)
         fname_ext = os.path.splitext(os.path.basename(self.filepath))
-        self.trip = TripFile()
+        self.trip = trihandler.TripFile()
         self.trippath = os.path.join(os.path.dirname(self.filepath), fname_ext[0]) + ".tri"
 
         for sk in shape_keys:

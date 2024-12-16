@@ -1319,6 +1319,12 @@ def TEST_TRI():
     print('### Tri and chargen export as expected')
 
 
+def TEST_TRI_EYES():
+    """Child eyes tris are odd--handle them correctly."""
+    testfile = TT.test_file(r"tests\Skyrim\eyeschild.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+
 def TEST_IMPORT_MULTI_OBJECTS():
     """Can import 2 meshes as objects"""
     # When two files are selected for import, they are connected into a single armature.
@@ -6167,7 +6173,7 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[ TEST_COLORS3 ],
+        target_tests=[ TEST_TRI_EYES ],
         # target_tests=[t for t in alltests if 'IMP_EXP' in t.__name__],
         run_all=False,
         stop_on_fail=True,
