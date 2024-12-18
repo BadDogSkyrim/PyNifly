@@ -2882,6 +2882,21 @@ def TEST_VERTEX_ALPHA_IO():
     assert not dif, f"Error: Shader attributes not preserved: {dif}"
 
 
+def TEST_ALPHA_THRESHOLD_CHANGE():
+    """Regression: Alpha threshold should not change on export."""
+    testfile = TT.test_file(r"tests\SkyrimSE\CRSTSkinKalaar.nif")
+    outfile1 = TT.test_file(r"tests\Out\TEST_ALPHA_THRESHOLD_CHANGE1.nif")
+    outfile2 = TT.test_file(r"tests\Out\TEST_ALPHA_THRESHOLD_CHANGE2.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    obj = bpy.context.object
+    mat = bpy.context.object.active_material
+    alphanode = mat.node_tree.nodes['AlphaProperty']
+    TT.assert_equiv(alphanode.inputs['Alpha Threshold'].default_value, 6.0, "Alpha Threshold")
+    bpy.ops.export_scene.pynifly(filepath=outfile1)
+    TT.assert_equiv(alphanode.inputs['Alpha Threshold'].default_value, 6.0, "Alpha Threshold")
+
+
+
 def TEST_VERTEX_ALPHA():
     """Export shape with vertex alpha values"""
     outfile = TT.test_file(r"tests/Out/TEST_VERTEX_ALPHA.nif")
@@ -6173,9 +6188,9 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[ TEST_TRI_EYES ],
+        target_tests=[  ],
         # target_tests=[t for t in alltests if 'IMP_EXP' in t.__name__],
-        run_all=False,
+        run_all=True,
         stop_on_fail=True,
         startfrom=None,
         exclude=[]
