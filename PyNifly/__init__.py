@@ -408,6 +408,7 @@ class NifImporter():
         self.scale = scale
 
         self.armature = None # Armature used for current shape import
+        if target_armatures: self.armature = next(iter(target_armatures))
         self.context = bpy.context 
         self.is_facegen = False
         self.is_new_armature = True # Armature is derived from current nif; set false if adding to existing arma
@@ -419,7 +420,7 @@ class NifImporter():
         self.loaded_meshes = [] # Holds blender objects created from shapes in a nif
 
         self.connect_points = CP.ConnectPointCollection()
-        self.connect_points.add_all(target_objects)
+        self.connect_points.add_all(context.selected_objects)
         self.loaded_parent_cp = {}
         self.loaded_child_cp = {}
         
@@ -844,7 +845,11 @@ class NifImporter():
         obj.name = ninode.name
         obj["pynBlockName"] = ninode.blockname
         obj["pynNodeName"] = ninode.name
-        obj["pynNodeFlags"] = NiAVFlags(ninode.flags).fullname
+        try:
+            # NiControllerSequence blocks don't have flags
+            obj["pynNodeFlags"] = NiAVFlags(ninode.flags).fullname
+        except:
+            pass
 
         # Only the root node gets the import transform. It gets applied to all children automatically.
         if ninode.name == self.nif.rootName: 
@@ -855,7 +860,10 @@ class NifImporter():
             obj['PYN_GAME'] = self.nif.game
             obj.empty_display_type = 'CONE'
 
-            mx = self.import_xf @ transform_to_matrix(ninode.transform)
+            try:
+                mx = self.import_xf @ transform_to_matrix(ninode.transform)
+            except:
+                mx = Matrix.Identity(4)
             obj.matrix_local = mx
 
             self.root_object = obj
@@ -873,17 +881,26 @@ class NifImporter():
         self.objects_created.add(ReprObject(blender_obj=obj, nifnode=ninode))
         link_to_collection(self.collection, obj)
 
-        if ninode.collision_object and self.is_set(ImportSettings.import_collisions):
-            collision.CollisionHandler.import_collision_obj(
-                self, ninode.collision_object, obj)
+        try:
+            if ninode.collision_object and self.is_set(ImportSettings.import_collisions):
+                collision.CollisionHandler.import_collision_obj(
+                    self, ninode.collision_object, obj)
+        except:
+            pass
 
-        self.import_extra(obj, ninode)
+        try:
+            self.import_extra(obj, ninode)
+        except:
+            pass
 
-        if self.root_object != obj and ninode.controller and self.is_set(ImportSettings.import_anims): 
-            # import animations if this isn't the root node. If it is, they may reference
-            # any of the root's children and so wait until those can be imported.
-            self.controller_mgr.import_controller(ninode.controller, arma if arma else obj, obj)
-
+        try:
+            if self.root_object != obj and ninode.controller and self.is_set(ImportSettings.import_anims): 
+                # import animations if this isn't the root node. If it is, they may reference
+                # any of the root's children and so wait until those can be imported.
+                self.controller_mgr.import_controller(ninode.controller, arma if arma else obj, obj)
+        except:
+            pass
+        
         return obj
 
 
@@ -2217,6 +2234,7 @@ class ImportKF(bpy.types.Operator, ExportHelper):
     def __init__(self):
         self.nif:NifFile = None
         self.armature = None
+        self.import_flags = ImportSettings.import_anims
     
         obj = bpy.context.object
         if obj and obj.type == 'ARMATURE':
@@ -2235,6 +2253,10 @@ class ImportKF(bpy.types.Operator, ExportHelper):
         self.log_handler = LogHandler()
         self.log_handler.start(bl_info, "IMPORT", "KF")
 
+        if self.do_rename_bones: import_flags |= ImportSettings.rename_bones
+        if self.rename_bones_niftools: import_flags |= ImportSettings.rename_bones_nift
+        self.collection = bpy.data.collections.new(os.path.basename(self.filepath))
+        context.scene.collection.children.link(self.collection)
         try:
             NifFile.Load(nifly_path)
             folderpath = os.path.dirname(self.filepath)
@@ -2245,10 +2267,10 @@ class ImportKF(bpy.types.Operator, ExportHelper):
                 fullfiles = [self.filepath]
             for filename in fullfiles:
                 filepath = os.path.join(self.directory, filename)
-                imp = NifImporter(filepath)
+                imp = NifImporter(filepath, [], [], self.import_flags,
+                                  collection=self.collection)
                 imp.context = context
                 imp.armature = context.object
-                imp.do_import_anims = True
                 imp.nif = NifFile(filepath)
                 imp.import_nif()
 
@@ -2328,6 +2350,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         self.armature = None
         self.errors = set()
         self.xml_filepath = None
+        self.import_flags = ImportSettings(0)
 
         obj = bpy.context.object
         if obj and obj.type == 'ARMATURE':
@@ -2336,10 +2359,23 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
             self.rename_bones_niftools = get_setting(obj, 'PYN_RENAME_BONES_NIFTOOLS', self.rename_bones_niftools)
     
 
+    def __str__(self):
+        return f"""
+        Importing HXK: {self.filename_list} 
+            setings: {self.import_flags.fullname}
+            armature: {self.armature} 
+        """
+
+
     def execute(self, context):
         res = set()
         self.context = context
         self.fps = context.scene.render.fps
+
+        if self.do_rename_bones: 
+            self.import_flags |= ImportSettings.rename_bones
+        if self.rename_bones_niftools: 
+            self.import_flags |= ImportSettings.rename_bones_nift
 
         try:
             self.log_handler = LogHandler.New(bl_info, "IMPORT", "HKX")
@@ -2397,7 +2433,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
 
     def import_skeleton(self):
         """self.xmlfile has a skeleton in it. Import the skeleton."""
-        imp = NifImporter([self.xmlfile.xml_filepath])
+        imp = NifImporter([self.xmlfile.xml_filepath], [], [], self.import_flags)
         imp.context = self.context
         if self.context.view_layer.active_layer_collection: 
             imp.collection = self.context.view_layer.active_layer_collection.collection
@@ -2422,10 +2458,14 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         if not kf_file:
             return('CANCELLED')
         else:
-            imp = NifImporter(self.kf_filepath)
+            self.import_flags |= ImportSettings.import_anims
+            imp = NifImporter(self.kf_filepath, 
+                              [], 
+                              [self.context.object],
+                              self.import_flags)
             imp.context = self.context
-            imp.armature = self.context.object
-            imp.do_import_anims = True
+            # imp.armature = self.context.object
+            # imp.do_import_anims = True
             imp.nif = kf_file
             imp.import_nif()
             self.import_annotations()

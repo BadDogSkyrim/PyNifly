@@ -972,7 +972,7 @@ def TEST_UNI():
     _export_shape(nif.shapes[0], nif2)
     nif2.save()
 
-    nif3 = NifFile(f"tests\out\будильник.nif")
+    nif3 = NifFile(r"tests\out\будильник.nif")
     assert len(nif3.shapes) == 1, f"Error: Expected 1 shape, found {len(nif3.shapes)}"
 
 def TEST_SHADER():
@@ -1037,13 +1037,13 @@ def TEST_SHADER():
     _export_shape(nif.shapes[0], nifOut)
     nifOut.save()
 
-    nifTest = NifFile(f"tests\out\SHADER_OUT.nif")
+    nifTest = NifFile(r"tests\out\SHADER_OUT.nif")
     assert len(nifTest.shapes) == 1, f"Error: Expected 1 shape, found {len(nifTest.shapes)}"
     shapeTest = nifTest.shapes[0]
     attrsTest = shapeTest.shader
     # We didn't write a materials file, but on reading what we wrote we read the same
     # materials file, so we should still read the same values.
-    assert attrs.name == attrsTest.name, f"Maintained path to materials file."
+    assert attrs.name == attrsTest.name, "Maintained path to materials file."
     # diffs = attrsTest.properties.compare(attrs.properties)
     # assert diffs == [], f"Error: Expected same shader attributes: {diffs}"
 

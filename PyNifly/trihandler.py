@@ -80,7 +80,7 @@ class TRIHeader:
         self.uvNum = 0			#number of Vectors for the UV on the base mesh
         self.addMorphNum = 0		#number of modifier morphs
         self.addVertexNum = 0	#number of additional vertices for modifier morphs
-        self.errlog = logging.getLogger("pynifly")
+        self.log = logging.getLogger("pynifly")
 
     def write(self):
         """ Return packed header, ready for writing """
@@ -102,9 +102,9 @@ class TRIHeader:
         try:
             tmp_data = file.read(0x40)
         except ValueError:
-            self.errlog.error("Cannot read header for file")
+            self.log.error("Cannot read header for file")
             raise ValueError("Error reading TRI file")
-        data = unpack('<8s10I16x', tmp_data)
+        data = unpack('<8s10I16x', tmp_data) 
         self.str = data[0].decode("iso-8859-15")
         self.vertexNum = data[1]
         self.faceNum = data[2]
@@ -148,13 +148,13 @@ class TriFile():
         morph_index = len(self.morphs) 
         tmp_data = file.read(INT_LEN)
         if len(tmp_data) < INT_LEN:
-            self.error_write("EOF reading morph header\nError on morph number " + str(morph_index) + "\nFile appears to be corrupt")
+            self.log.error("EOF reading morph header\nError on morph number " + str(morph_index) + "\nFile appears to be corrupt")
             raise ValueError("Error reading TRI file")
         
         data = unpack('<I', tmp_data)
         tmp_data = file.read(data[0])
         if len(tmp_data) < data[0]:
-            self.error_write("EOF reading morph header\nError on morph number " + str(morph_index) + "\nFile appears to be corrupt")
+            self.log.error("EOF reading morph header\nError on morph number " + str(morph_index) + "\nFile appears to be corrupt")
             raise ValueError("Error reading TRI file")
         
         data = unpack('<'+str(data[0]-1)+'sx', tmp_data)
@@ -164,14 +164,14 @@ class TriFile():
         tmp_data = file.read(FLOAT_LEN)
         
         if len(tmp_data) < FLOAT_LEN:
-            self.error_write("EOF reading morph header\nError on morph number " + str(morph_index) + "\n  \"" + morphSubName + "\"\nFile appears to be corrupt")
+            self.log.error("EOF reading morph header\nError on morph number " + str(morph_index) + "\n  \"" + morphSubName + "\"\nFile appears to be corrupt")
             raise ValueError("Error reading TRI file")
         data = unpack('<f', tmp_data)
         baseDiff = data[0]
         
         tmp_buffer = file.read(SHORT_LEN * 3 * self.header.vertexNum)
         if len(tmp_buffer) < SHORT_LEN * 3 * self.header.vertexNum:
-            self.error_write("EOF reading morph data vertices\nError on morph number " + str(morph_index) + "\n  \"" + morphSubName + "\"\nMorph has valid header, but appears to be corrupt\nFile appears to be corrupt")
+            self.log.error("EOF reading morph data vertices\nError on morph number " + str(morph_index) + "\n  \"" + morphSubName + "\"\nMorph has valid header, but appears to be corrupt\nFile appears to be corrupt")
             raise ValueError("Error reading TRI file")		
 
         morph_verts = [] 
@@ -197,13 +197,13 @@ class TriFile():
         # Read the morph name
         tmp_data = file.read(INT_LEN)
         if len(tmp_data) < INT_LEN:
-            self.error_write("EOF reading MOD-morph header\nError on MOD-morph number " + str(morph_index) + "\nFile appears to be corrupt")
+            self.log.error("EOF reading MOD-morph header\nError on MOD-morph number " + str(morph_index) + "\nFile appears to be corrupt")
             raise ValueError("Error reading TRI file")
         data = unpack('<I', tmp_data)
 
         tmp_data = file.read(data[0])
         if len(tmp_data) < data[0]:
-            self.error_write("EOF reading MOD-morph header\nError on MOD-morph number " + str(morph_index) + "\nFile appears to be corrupt")
+            self.log.error("EOF reading MOD-morph header\nError on MOD-morph number " + str(morph_index) + "\nFile appears to be corrupt")
             raise ValueError("Error reading TRI file")
         data = unpack('<'+str(data[0]-1)+'sx', tmp_data)
         morphSubName = data[0].decode("iso-8859-15")
@@ -212,7 +212,7 @@ class TriFile():
         # Read the morph block (array of affected vertex indices)
         tmp_data = file.read(INT_LEN)
         if len(tmp_data) < INT_LEN:
-            self.error_write("EOF reading MOD-morph header\nError on MOD-morph number " + str(morph_index) + "\n  \"" + morphSubName + "\"\nFile appears to be corrupt")
+            self.log.error("EOF reading MOD-morph header\nError on MOD-morph number " + str(morph_index) + "\n  \"" + morphSubName + "\"\nFile appears to be corrupt")
             raise ValueError("Error reading TRI file")
         data = unpack('<I', tmp_data)
         blockLength = data[0]
@@ -221,7 +221,7 @@ class TriFile():
             nextMorphVertIdx = 0
             tmp_buffer = file.read(INT_LEN*blockLength)
             if len(tmp_buffer) < INT_LEN*blockLength:
-                self.error_write("EOF reading MOD-morph data verticies\nError on MOD-morph number " + str(i+1) + "\n  \"" + morphSubName + "\"\nMorph has valid header, but appears to be corrupt\nFile appears to be corrupt")
+                self.log.error("EOF reading MOD-morph data verticies\nError on MOD-morph number " + str(i+1) + "\n  \"" + morphSubName + "\"\nMorph has valid header, but appears to be corrupt\nFile appears to be corrupt")
                 raise ValueError("Error reading TRI file")	
             
             new_verts = self._vertices.copy()
@@ -253,7 +253,7 @@ class TriFile():
         
         # #Else, the morph is the same as the base mesh? I think.
         # else:
-        #     self.error_write("Null block length on 'addMorph'")
+        #     self.log.error("Null block length on 'addMorph'")
         #     for ii, nv in enumerate(mesh_key_verts):
         #         new_verts.append((verts_list[ii][0], verts_list[ii][1], verts_list[ii][2]))
 
@@ -272,7 +272,7 @@ class TriFile():
         verts_list = []
         tmp_buffer = file.read(FLOAT_LEN * 3 * self.header.vertexNum)
         if len(tmp_buffer) < FLOAT_LEN * 3 * self.header.vertexNum:
-            self.errlog.error("EOF reading base model verticies - Should read " + str(self.header.vertexNum) \
+            self.log.error("EOF reading base model verticies - Should read " + str(self.header.vertexNum) \
                 + " vertices with\n" + str(FLOAT_LEN*3*self.header.vertexNum) + " bytes but only read " \
                 + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
             raise ValueError("Error reading TRI file")
@@ -288,7 +288,7 @@ class TriFile():
         vertsAdd_list = []
         tmp_buffer = file.read(FLOAT_LEN*3*self.header.addVertexNum)
         if len(tmp_buffer) < FLOAT_LEN*3*self.header.addVertexNum:
-            # self.errlog.error("\n----=| Tri Import Error |=----\nEOF reading mod-morph vertices\nShould read " + str(self.header.addVertexNum) + " mod verticies with\n" + str(FLOAT_LEN*3*header.addVertexNum) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
+            # self.log.error("\n----=| Tri Import Error |=----\nEOF reading mod-morph vertices\nShould read " + str(self.header.addVertexNum) + " mod verticies with\n" + str(FLOAT_LEN*3*header.addVertexNum) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
             raise ValueError(f"Error reading TRI file: Not enough mod vertices")
         
         for i in range(self.header.addVertexNum):
@@ -299,7 +299,7 @@ class TriFile():
         self._faces = []
         tmp_buffer = file.read(INT_LEN*3*self.header.faceNum)
         if len(tmp_buffer) < INT_LEN*3*self.header.faceNum:
-            self.errlog.error("\n----=| Tri Import Error |=----\nEOF reading model faces\nShould read " + str(self.header.faceNum) + " faces with\n" + str(INT_LEN*3*self.header.faceNum) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
+            self.log.error("\n----=| Tri Import Error |=----\nEOF reading model faces\nShould read " + str(self.header.faceNum) + " faces with\n" + str(INT_LEN*3*self.header.faceNum) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
             raise ValueError("Error reading TRI file")
 
         for i in range(self.header.faceNum):
@@ -311,7 +311,7 @@ class TriFile():
         self.uv_pos = []
         tmp_buffer = file.read(FLOAT_LEN*2 * self.header.uvNum)
         if len(tmp_buffer) < FLOAT_LEN*2*self.header.uvNum:
-            self.errlog.error("\n----=| Tri Import Error |=----\nEOF reading UV Coordinates\nShould read " + str(self.header.uvNum) + " UVs with \n" + str(FLOAT_LEN*2*self.header.uvNum) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
+            self.log.error("\n----=| Tri Import Error |=----\nEOF reading UV Coordinates\nShould read " + str(self.header.uvNum) + " UVs with \n" + str(FLOAT_LEN*2*self.header.uvNum) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
             raise ValueError("Error reading TRI file")
 
         for i in range(self.header.uvNum):
@@ -322,7 +322,7 @@ class TriFile():
 
         #I'm assuming that tri files will always have 1 UV per vertex, but i wasn't able to conirm this for sure.. so:
         if numUV != len(verts_list):
-            self.errlog.warning(f"Number of verticies differs from number of UV coordinates: {numUV} != {len(verts_list)}; importing without UV")
+            self.log.warning(f"Number of verticies differs from number of UV coordinates: {numUV} != {len(verts_list)}; importing without UV")
             self.import_uv = False
 
         # NOTE --- For future reference. UV's are placed "on a vertex" but indirectly. Each loop contains one vertex index that is supposed to be tied into
@@ -337,7 +337,7 @@ class TriFile():
 
         tmp_buffer = file.read(INT_LEN * 3 * numFaces)
         if len(tmp_buffer) < INT_LEN * 3 * numFaces:
-            # self.errlog.error("EOF reading Face Vertex Index to UV Index array - should have " + str(len(mesh.polygons)) + " indicies with \n" + str(INT_LEN*3*len(mesh.polygons)) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
+            # self.log.error("EOF reading Face Vertex Index to UV Index array - should have " + str(len(mesh.polygons)) + " indicies with \n" + str(INT_LEN*3*len(mesh.polygons)) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
             raise ValueError("Error reading TRI file: Not enough faces")
 
         # face_uvs array: For each face we have 3 (u,v) locations (3 cuz faces are triangles)
@@ -634,7 +634,7 @@ class TriFile():
         try:
             file = open(filepath,'wb')
         except:
-            self.error_write(f"Error opening '{filepath}' as output file")
+            self.log.error(f"Error opening '{filepath}' as output file")
             raise
         file.write(self.header.write()
                         + vertexDataPacked

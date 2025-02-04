@@ -344,6 +344,13 @@ def assert_samemembers(actual, expected, msg):
     assert len(actual) == len(expected), f"{msg} not the same: {actual} == {expected}"
 
 
+def assert_exists(objname):
+    """Assert an object exists in the blender file."""
+    obj = find_object(objname)
+    assert obj, f"{objname} exists"
+    return obj
+
+
 def find_object(name, coll=None, fn=lambda x: x.name):
     """Find an object by name with the given list of objects
         name = name to find. Blocks in nifs aren't supposed to have the same

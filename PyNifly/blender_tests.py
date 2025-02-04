@@ -121,7 +121,7 @@ def TEST_BODYPART_XFORM():
     # On import, a transform can be applied to make it convenient for handling in Blender.
     # And the bones in the nif can be extended with the reference skeleton. Using the
     # child body because it creates problems that the adult body does not.
-    testfile = TT.test_file("tests\Skyrim\childbody.nif")
+    testfile = TT.test_file(r"tests\Skyrim\childbody.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  do_create_bones=True,
                                  use_blender_xf=True,
@@ -279,6 +279,8 @@ def do_bodypart_alignment_fo4(create_bones, estimate_offset, use_pose):
                                  do_create_bones=create_bones,
                                  do_import_pose=use_pose)
     body = bpy.context.object
+    bodyarma = body.modifiers['Armature'].object
+    TT.assert_eq(bodyarma, skel, "existing skeleton")
     BD.ObjectSelect([skel], active=True)
     bpy.ops.import_scene.pynifly(filepath=headfile, 
                                  do_create_bones=create_bones,
@@ -2891,9 +2893,9 @@ def TEST_ALPHA_THRESHOLD_CHANGE():
     obj = bpy.context.object
     mat = bpy.context.object.active_material
     alphanode = mat.node_tree.nodes['AlphaProperty']
-    TT.assert_equiv(alphanode.inputs['Alpha Threshold'].default_value, 6.0, "Alpha Threshold")
+    TT.assert_equiv(alphanode.inputs['Alpha Threshold'].default_value, 6.0, "Alpha Threshold pre-export")
     bpy.ops.export_scene.pynifly(filepath=outfile1)
-    TT.assert_equiv(alphanode.inputs['Alpha Threshold'].default_value, 6.0, "Alpha Threshold")
+    TT.assert_equiv(alphanode.inputs['Alpha Threshold'].default_value, 6.0, "Alpha Threshold post-export")
 
 
 
@@ -2903,8 +2905,9 @@ def TEST_VERTEX_ALPHA():
 
     #---Create a shape
     bpy.ops.mesh.primitive_cube_add()
-    bpy.context.active_object.data.materials.append(bpy.data.materials.new("Material"))
-    bpy.context.active_object.active_material.use_nodes = True
+    cube = bpy.context.object
+    cube.data.materials.append(bpy.data.materials.new("Material"))
+    cube.active_material.use_nodes = True
     if bpy.app.version[0] >= 4:
         bpy.ops.geometry.color_attribute_add(
             domain='CORNER', data_type='BYTE_COLOR', color=(1, 1, 1, 1))
@@ -2914,9 +2917,12 @@ def TEST_VERTEX_ALPHA():
             name=BD.ALPHA_MAP_NAME, domain='CORNER', data_type='BYTE_COLOR', color=(0.5, 0.5, 0.5, 1))
 
         #check that 0.5 is in fact stored as 188 after internal linear->sRGB conversion
-        for i, c in enumerate(bpy.context.object.data.vertex_colors[BD.ALPHA_MAP_NAME].data):
-            assert math.floor(c.color[1] * 255) == 188, \
-                f"Expected sRGB color {188.0 / 255.0}, found {i}: {c.color[:]}"
+        # for i, c in enumerate(bpy.context.object.data.vertex_colors[BD.ALPHA_MAP_NAME].data):
+        #     assert math.floor(c.color[1] * 255) == 188, \
+        #         f"Expected sRGB color {188.0 / 255.0}, found {i}: {c.color[:]}"
+        # Go through and set the colors explicitly because Blender does sRGB conversion
+        for c in cube.data.vertex_colors[BD.ALPHA_MAP_NAME].data:
+            c.color = (0.5, 0.5, 0.5, 1.0)
 
         #---Export it and check the NIF
 
@@ -4493,11 +4499,9 @@ def TEST_CONNECT_WEAPON_PART():
                                  do_rename_bones=False, 
                                  do_create_collections=True)
 
-    barrelpcp = TT.find_object('BSConnectPointParents::P-Barrel')
-    assert barrelpcp, f"Found the connect point for barrel parts"
-    magpcp = TT.find_object('BSConnectPointParents::P-Mag')
-    assert magpcp, f"Found the connect point for magazine parts"
-    scopepcp = TT.find_object('BSConnectPointParents::P-Scope')
+    barrelpcp = TT.assert_exists('BSConnectPointParents::P-Barrel')
+    magpcp = TT.assert_exists('BSConnectPointParents::P-Mag')
+    scopepcp = TT.assert_exists('BSConnectPointParents::P-Scope')
 
     # Import of child mesh connects correctly.
     BD.ObjectSelect([barrelpcp, magpcp, scopepcp], active=True)
@@ -5469,7 +5473,7 @@ def TEST_ANIM_KF():
     skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_vanilla.nif")
     outfile2 = TT.test_file(r"tests/Out/TEST_ANIM_KF.kf")
 
-    bpy.context.scene.render.fps = 24
+    bpy.context.scene.render.fps = 30
 
     # Animations are loaded into a skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile,
@@ -5486,13 +5490,12 @@ def TEST_ANIM_KF():
     assert action.name.startswith("ANIM|1hm_staggerbacksmallest"), \
         f"Have correct action name: {bpy.data.actions[0].name}"
     assert len(action.fcurves) > 0, f"Have fcurves: {len(action.fcurves)}"
-    return
 
     # Loading a second animation shouldn't screw things up.
     BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
     bpy.ops.import_scene.pynifly_kf(filepath=testfile2)
 
-    assert len([a for a in bpy.data.actions if a.name.startswith("1hm_attackpowerright")])
+    assert len([a for a in bpy.data.actions if a.name.startswith("ANIM|1hm_attackpowerright")])
 
     ### Export ###
 
@@ -5511,43 +5514,48 @@ def TEST_ANIM_KF():
     curve20orig = Quaternion(ti2qorig.inverted() @ k20orig)
     print(f"Calculated curve quaternion: {curve20orig}")
 
-    # The animation we wrote is correctNiControllerSequence
+    # The animation we wrote is correct
     kfout = pyn.NifFile(outfile2)
     csout = kfout.rootNode
-    assert csout.name == 'TEST_ANIM_KF', f"Have good root node name: {kfout.rootNode.name}"
-    assert csout.blockname == 'NiControllerSequence', f"Have good root node name: {kfout.rootNode.name}"
-    assert csout.properties.cycleType == nifdefs.CycleType.CYCLE_CLAMP, f"Have correct cycle type"
-    assert BD.NearEqual(csout.properties.stopTime, 1.166667), f"Have correct stop time"
+    TT.assert_eq(csout.name, 'TEST_ANIM_KF', "root node name")
+    TT.assert_eq(csout.blockname, 'NiControllerSequence', "block type")
+    TT.assert_eq(csout.properties.cycleType, nifdefs.CycleType.CLAMP, "cycle type")
+    TT.assert_equiv(csout.properties.stopTime, 1.166667, "stop time")
     cb0 = csout.controlled_blocks[0]
     ti0 = cb0.interpolator
     td0 = ti0.data
-    assert td0.properties.translations.interpolation == pyn.NiKeyType.LINEAR_KEY, f"Have correct key type: {td0.translations.interpolation}"
-    assert td0.translations[0].time == 0, f"First time is 0: {td0.translations[0].time}"
-    assert BD.VNearEqual(td0.translations[0].value, (0.0, 0.0001, 57.8815)), f"Have correct translation: {td0.translations[0].value}"
+    TT.assert_eq(td0.properties.translations.interpolation, pyn.NiKeyType.LINEAR_KEY, "key type")
+    TT.assert_eq(td0.translations[0].time, 0, "First time value")
+    TT.assert_equiv(td0.translations[0].value, (0.0, 0.0001, 57.8815), "translation", e=0.001)
+
+    # Text key extra data
+    TT.assert_eq([x[1] for x in csout.text_key_data.keys], 
+                 [x[1] for x in csorig.text_key_data.keys], 
+                 "text key labels")
+    TT.assert_equiv([x[0] for x in csout.text_key_data.keys], 
+                    [x[0] for x in csorig.text_key_data.keys], 
+                    "text key values")
 
     controlled_block_thigh_out = [cb for cb in csout.controlled_blocks if cb.node_name == 'NPC L Thigh [LThg]'][0]
     ti_thigh_out = controlled_block_thigh_out.interpolator
     td_thigh_out = ti_thigh_out.data
 
     # The interpolator's transform must be correct (to match the bone).
-    assert BD.VNearEqual(ti_thigh_out.properties.translation, ti_thigh_in.properties.translation), \
-        f"Thigh Interpolator translation correct: {ti_thigh_out.properties.translation[:]} == {ti_thigh_in.properties.translation[:]}"
+    TT.assert_equiv(ti_thigh_out.properties.translation, ti_thigh_in.properties.translation, "Thigh Interpolator translation")
     mxout = Quaternion(ti_thigh_out.properties.rotation).to_matrix()
     mxorig = Quaternion(ti_thigh_in.properties.rotation).to_matrix()
-    assert BD.MatNearEqual(mxout, mxorig), \
-        f"Thigh Interpolator rotation correct: {mxout} == {mxorig}"
+    TT.assert_equiv(mxout, mxorig, "Thigh Interpolator rotation")
     
     # We've calculated the rotations properly--the rotation we wrote matches the original.
     k2mx = Quaternion(td_thigh_out.qrotations[0].value).to_matrix()
     k2mxorig = Quaternion(td_thigh_in.qrotations[0].value).to_matrix()
-    assert BD.MatNearEqual(k2mx, k2mxorig), f"Have same rotation keys: {k2mx} == {k2mxorig}"
+    TT.assert_equiv(k2mx, k2mxorig, "rotation keys")
 
     # Time signatures are calculated correctly.
     # We output at 30 fps so the number isn't exact.
     klast_out = td_thigh_out.qrotations[-1]
     klast_in = td_thigh_in.qrotations[-1]
-    assert BD.NearEqual(klast_out.time, klast_in.time), \
-        f"Have correct final time signature: {klast_out.time} == {klast_in.time}"
+    TT.assert_equiv(klast_out.time, klast_in.time, "final time signature")
 
     # Check feet transforms
     cb_foot_in = [cb for cb in csorig.controlled_blocks if cb.node_name == 'NPC L Foot [Lft ]'][0]
@@ -5556,12 +5564,10 @@ def TEST_ANIM_KF():
     cb_foot_out = [cb for cb in csout.controlled_blocks if cb.node_name == 'NPC L Foot [Lft ]'][0]
     ti_foot_out = cb_foot_out.interpolator
     td_foot_out = ti_foot_out.data
-    assert BD.VNearEqual(ti_foot_out.properties.translation, ti_foot_in.properties.translation), \
-        f"Foot Interpolator translation correct: {ti_foot_out.properties.translation[:]} == {ti_foot_in.properties.translation[:]}"
+    TT.assert_equiv(ti_foot_out.properties.translation, ti_foot_in.properties.translation, "Foot Interpolator translation")
     mxout = Quaternion(ti_foot_out.properties.rotation).to_matrix()
     mxin = Quaternion(ti_foot_in.properties.rotation).to_matrix()
-    assert BD.MatNearEqual(mxout, mxin), \
-        f"Foot Interpolator rotation correct: {mxout} == {mxin}"
+    TT.assert_equiv(mxout, mxin, "Foot Interpolator rotation")
 
     assert len(td_foot_out.qrotations) > 30 and len(td_foot_out.qrotations) < 40, \
         f"Have reasonable number of frames: {td_foot_out.qrotations}"
@@ -6188,10 +6194,9 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[  ],
-        # target_tests=[t for t in alltests if 'IMP_EXP' in t.__name__],
-        run_all=True,
-        stop_on_fail=True,
+        target_tests=[ TEST_VERTEX_ALPHA, TEST_BONE_XPORT_POS, TEST_CONNECT_WEAPON_PART, TEST_ANIM_KF, TEST_ANIM_KF_RENAME, TEST_ANIM_HKX, TEST_ANIM_HKX_2 ], run_all=False, stop_on_fail=True,
+        # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
+        # run_all=True, stop_on_fail=False,
         startfrom=None,
         exclude=[]
         )

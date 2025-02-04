@@ -154,9 +154,9 @@ class ConnectPointCollection():
     Handle a collection of connect points, which may have unknown parent/child relationships.
     """
     def __init__(self):
-        self.parents = []
-        self.child = []
-        self.keys = {} 
+        self.parents = [] # Parent connect points
+        self.child = [] # Child connect points
+        self.keys = {} # Dict of {root_name: [[parent connect points], [child points]]}
     
 
     def add(self, cp):
@@ -232,6 +232,8 @@ class ConnectPointCollection():
         """
         for obj in objects:
             self.add(obj)
+            for child in obj.children:
+                self.add(child)
             # t = connectpoint_type(obj)
             # if t == 'PARENT':
             #     cp = ConnectPointParent(get_nifname(obj), BD.ReprObject(blender_obj=obj))

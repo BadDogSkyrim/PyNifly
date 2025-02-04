@@ -232,6 +232,45 @@ def apply_animation(anim_name, myscene):
     return res
 
 
+def analyze_animation(anim_name, myscene):
+    """
+    Analyze the given animation but do not apply it.
+    Returns a dictionary of animation values.
+    """
+    res = {
+        "start_time": 10000.0,
+        "stop_time": -10000.0,
+        "start_frame": 10000,
+        "stop_frame": -10000,
+        "cycle_type": CycleType.LOOP,
+        "frequency": 1.0,
+        "markers": {}
+    }
+    for act in all_animation_actions(anim_name):
+        n, objname, elemname = parse_animation_name(act.name)
+        if objname in myscene.objects:
+            # assign_action(myscene.objects[objname], elemname, act)
+            res["start_time"] = min(
+                res["start_time"],
+                (act.curve_frame_range[0]-1)/myscene.render.fps)
+            res["stop_time"] = max(
+                res["stop_time"], 
+                (act.curve_frame_range[1]-1)/myscene.render.fps)
+            res["start_frame"] = min(res["start_frame"], int(act.curve_frame_range[0]))
+            res["stop_frame"] = max(res["stop_frame"], int(act.curve_frame_range[1]))
+            if (not act.use_cyclic): res["cycle_type"] = CycleType.CLAMP 
+
+            if "pynMarkers" in act:
+                for name, val in act["pynMarkers"].items():
+                    res['markers'][name] = val
+                    # if name not in myscene.timeline_markers:
+                    #     myscene.timeline_markers.new(
+                    #         name, frame=int(val * myscene.render.fps)+1)
+
+    # active_animation = anim_name
+    return res
+
+
 def curve_bone_target(curve):
     """
     Return the curve target and type for the curve. The target is the bone name if any,
@@ -867,6 +906,19 @@ class ControllerHandler():
             tked.add_key((tm.frame-1)/self.fps, tm.name)
 
 
+    def _export_anim_markers(self, cs:NiControllerSequence, markers):
+        """
+        Export any timeline markers to the given NiControllerSequence as text keys.
+        markers = {name, timestamp}
+        """
+        ordered_markers = [(v, n) for n, v in markers.items()]
+        if ordered_markers:
+            ordered_markers.sort()
+            tked = NiTextKeyExtraData.New(file=self.nif, parent=cs)
+            for v, n in ordered_markers:
+                tked.add_key(v, n)
+
+
     def _export_animations(self, anims):
         """
         Export the given named animations to the target nif.
@@ -893,7 +945,7 @@ class ControllerHandler():
         keys.sort()
         for anim_name in keys: 
             actionlist = anims[anim_name]
-            vals = apply_animation(anim_name, self.context.scene)
+            vals = analyze_animation(anim_name, self.context.scene)
             self.controller_sequence:NiControllerSequence = NiControllerSequence.New(
                 file=self.parent.nif,
                 name=anim_name,
@@ -905,7 +957,8 @@ class ControllerHandler():
                 parent=cm
             )
 
-            self._export_text_keys(self.controller_sequence)
+            # self._export_text_keys(self.controller_sequence)
+            self._export_anim_markers(self.controller_sequence, vals['markers'])
 
             for act, reprobj, anim_targ in actionlist:
                 # if the target is an ARMATURE, do something different
@@ -946,6 +999,7 @@ class ControllerHandler():
         cp.cycleType = CycleType.LOOP if exporter.action.use_cyclic else CycleType.CLAMP
         cp.frequency = 1.0
         exporter.controller_sequence.properties = cp
+        exporter._export_text_keys(exporter.controller_sequence)
 
         # Collect list of curves. They will be picked off in clumps until the list is empty.
         curve_list = list(exporter.action.fcurves)

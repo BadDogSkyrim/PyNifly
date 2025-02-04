@@ -3810,7 +3810,7 @@ class NifFile:
         """
         if not self._connect_pt_par:
             self._connect_pt_par = []
-            if self._handle:
+            if self._handle and isinstance(self.rootNode, NiNode):
                 for i in range(0, 100):
                     buf = ConnectPointBuf()
                     if not NifFile.nifly.getConnectPointParent(self._handle, i, buf):
@@ -3832,7 +3832,7 @@ class NifFile:
         name = child connect point names, limited to 256 characters"""
         if not self._connect_pt_child:
             self._connect_pt_child = []
-            if self._handle:
+            if self._handle and isinstance(self.rootNode, NiNode):
                 for i in range(0, 100):
                     buf = (c_char * 256)() 
                     is_skinned = c_char()
