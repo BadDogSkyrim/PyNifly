@@ -420,7 +420,10 @@ class NifImporter():
         self.loaded_meshes = [] # Holds blender objects created from shapes in a nif
 
         self.connect_points = CP.ConnectPointCollection()
-        self.connect_points.add_all(context.selected_objects)
+        try:
+            self.connect_points.add_all(context.selected_objects)
+        except:
+            self.connect_points.add_all(bpy.context.selected_objects)
         self.loaded_parent_cp = {}
         self.loaded_child_cp = {}
         
@@ -2253,8 +2256,8 @@ class ImportKF(bpy.types.Operator, ExportHelper):
         self.log_handler = LogHandler()
         self.log_handler.start(bl_info, "IMPORT", "KF")
 
-        if self.do_rename_bones: import_flags |= ImportSettings.rename_bones
-        if self.rename_bones_niftools: import_flags |= ImportSettings.rename_bones_nift
+        if self.do_rename_bones: self.import_flags |= ImportSettings.rename_bones
+        if self.rename_bones_niftools: self.import_flags |= ImportSettings.rename_bones_nift
         self.collection = bpy.data.collections.new(os.path.basename(self.filepath))
         context.scene.collection.children.link(self.collection)
         try:

@@ -3202,15 +3202,15 @@ def TEST_BONE_XPORT_POS():
     assert thsk2b.NearEqual(thigh_sk2b_check), f"Entire skin-to-bone transform correct: {thigh_sk2b_check}"
 
     # --- Check we can import correctly ---
-    bpy.ops.import_scene.pynifly(filepath=outfile)
+    bpy.ops.import_scene.pynifly(filepath=outfile, do_rename_bones=False)
     impcheck = pyn.NifFile(outfile)
     nifbone = impcheck.nodes['NPC Spine2 [Spn2]']
-    assert round(nifbone.transform.translation[2], 2) == 102.36, f"Expected nif location at z 102.36, found {nifbone.transform.translation[2]}"
+    TT.assert_equiv(nifbone.transform.translation[2], 102.36, "Spine2 translation in nif", e=0.01)
 
     draugrcheck = bpy.context.object
     draugrcheck_arma = next(m.object for m in draugrcheck.modifiers if m.type == 'ARMATURE')
     spine2check = draugrcheck_arma.data.bones['NPC Spine2 [Spn2]']
-    assert round(spine2check.head[2], 2) == 102.36, f"Expected location at z 102.36, found {spine2check.head[2]}"
+    TT.assert_equiv(spine2check.matrix_local.translation[2], 102.36, "Spine2 translation in blender", e=0.01)
 
 
 def TEST_INV_MARKER():
@@ -6189,7 +6189,7 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[ TEST_VERTEX_ALPHA, TEST_BONE_XPORT_POS, TEST_CONNECT_WEAPON_PART, TEST_ANIM_KF, TEST_ANIM_KF_RENAME, TEST_ANIM_HKX, TEST_ANIM_HKX_2 ], run_all=False, stop_on_fail=True,
+        target_tests=[ TEST_BONE_XPORT_POS, ], run_all=False, stop_on_fail=True,
         # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
         # run_all=True, stop_on_fail=False,
         startfrom=None,
