@@ -2910,19 +2910,16 @@ def TEST_VERTEX_ALPHA():
     cube.active_material.use_nodes = True
     if bpy.app.version[0] >= 4:
         bpy.ops.geometry.color_attribute_add(
-            domain='CORNER', data_type='BYTE_COLOR', color=(1, 1, 1, 1))
+            name='COLOR', domain='POINT', data_type='FLOAT_COLOR', color=(1, 1, 1, 1))
 
         #store alpha 0.5
         bpy.ops.geometry.color_attribute_add(
-            name=BD.ALPHA_MAP_NAME, domain='CORNER', data_type='BYTE_COLOR', color=(0.5, 0.5, 0.5, 1))
+            name=BD.ALPHA_MAP_NAME, domain='POINT', data_type='FLOAT_COLOR', color=(0.5, 0.5, 0.5, 1))
 
         #check that 0.5 is in fact stored as 188 after internal linear->sRGB conversion
         # for i, c in enumerate(bpy.context.object.data.vertex_colors[BD.ALPHA_MAP_NAME].data):
         #     assert math.floor(c.color[1] * 255) == 188, \
         #         f"Expected sRGB color {188.0 / 255.0}, found {i}: {c.color[:]}"
-        # Go through and set the colors explicitly because Blender does sRGB conversion
-        for c in cube.data.vertex_colors[BD.ALPHA_MAP_NAME].data:
-            c.color = (0.5, 0.5, 0.5, 1.0)
 
         #---Export it and check the NIF
 
@@ -2955,12 +2952,10 @@ def TEST_VERTEX_ALPHA():
 
         #check that imported color is still 188
         for i, c in enumerate(alphamap.data):
-            assert round(c.color[1]*255) == 188, \
-                f"Expected sRGB color {188.0 / 255.0}, found {i}: {c.color[:]}"
+            TT.assert_equiv(c.color[1], 0.5, "alpha value")
 
         for i, c in enumerate(objcheck.data.attributes['Col'].data):
-            assert c.color[:] == (1.0, 1.0, 1.0, 1.0), \
-                f"Expected all white, full alpha in read object, found {i}: {c.color[:]}"
+            TT.assert_equiv(c.color, (1.0, 1.0, 1.0, 1.0), "color value")
 
 
 def TEST_BONE_HIERARCHY():
