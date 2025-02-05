@@ -6126,6 +6126,7 @@ def do_tests(
         startfrom=None,
         exclude=[]):
     """Do tests in testlist. Can pass in a single test."""
+    failed_tests = []
     if run_all: stop_on_fail = False
     try:
         for t in target_tests:
@@ -6189,9 +6190,9 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[ TEST_BONE_XPORT_POS, ], run_all=False, stop_on_fail=True,
+        # target_tests=[ ], run_all=False, stop_on_fail=True,
         # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
-        # run_all=True, stop_on_fail=False,
+        run_all=True, stop_on_fail=True,
         startfrom=None,
         exclude=[]
         )
