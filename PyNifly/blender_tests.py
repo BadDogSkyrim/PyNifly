@@ -4472,8 +4472,45 @@ def TEST_CONNECT_POINT():
     assert TT.VNearEqual(pcasing.rotation[:], pcasingsrc.rotation[:]), f"Have correct rotation: {pcasing}"
 
     chnames = nifcheck.connect_points_child
-    chnames.sort()
-    assert chnames == childnames, f"Wrote correct child names: {chnames}"
+    TT.assert_samemembers(chnames, childnames, "child connect point names")
+
+    sgcheck = nifcheck.shape_dict['CombatShotgunReceiver:0']
+    assert sgcheck.blockname == 'BSTriShape', f"Have correct blockname: {sgcheck.blockname}"
+
+
+def TEST_CONNECT_POINT_MULT():
+    """Regression: Blend file creates duplicate connect points."""
+
+    testfile = TT.test_file(r"tests\FO4\rifleCP.blend")
+    outfile = TT.test_file(r"tests\Out\TEST_CONNECT_POINT_MULT.nif")
+
+    fp = os.path.join(TT.pynifly_dev_path, testfile)
+    bpy.ops.wm.append(filepath=fp,
+                      directory=fp + r"\Collection",
+                      filename="RECEIVER",
+                      use_recursive=True)
+
+    chcp = bpy.data.objects['BSConnectPointChildren::C-Receiver']
+    BD.ObjectSelect([chcp], active=True)    
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    parentnames = ['P-Barrel', 'P-Casing', 'P-Grip', 'P-Grip2', 'P-Mag', 'P-Scope', 'P-Stock']
+    childnames = ['C-Receiver']
+
+    ## --------- Check ----------
+    nifcheck = pyn.NifFile(outfile)
+    chnames = nifcheck.connect_points_child
+    TT.assert_samemembers(chnames, childnames, "child connect point names")
+    parnames = [p.name.decode() for p in nifcheck.connect_points_parent]
+    TT.assert_samemembers(parnames, parentnames, "parent connect point names")
+    return
+
+    pcheck = set(x.name.decode() for x in nifcheck.connect_points_parent)
+    assert pcheck == parentnames, f"Wrote correct parent names: {pcheck}"
+    pcasingsrc = [cp for cp in nifsrc.connect_points_parent if cp.name.decode()=="P-Casing"][0]
+    pcasing = [cp for cp in nifcheck.connect_points_parent if cp.name.decode()=="P-Casing"][0]
+    assert TT.VNearEqual(pcasing.rotation[:], pcasingsrc.rotation[:]), f"Have correct rotation: {pcasing}"
+
 
     sgcheck = nifcheck.shape_dict['CombatShotgunReceiver:0']
     assert sgcheck.blockname == 'BSTriShape', f"Have correct blockname: {sgcheck.blockname}"
@@ -6190,9 +6227,9 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        # target_tests=[ ], run_all=False, stop_on_fail=True,
+        target_tests=[ TEST_CONNECT_POINT_MULT ], run_all=False, stop_on_fail=True,
         # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
-        run_all=True, stop_on_fail=True,
+        # run_all=True, stop_on_fail=True,
         startfrom=None,
         exclude=[]
         )

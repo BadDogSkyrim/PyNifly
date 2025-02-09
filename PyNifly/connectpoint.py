@@ -183,8 +183,9 @@ class ConnectPointCollection():
 
         elif is_parent(cp):
             n = get_nifname(cp)
-            p = ConnectPointParent(n, BD.ReprObject(cp, None))
-            self.add(p)
+            if not n in [p.name for p in self.parents]:
+                p = ConnectPointParent(n, BD.ReprObject(cp, None))
+                self.add(p)
 
         elif is_child(cp):
             names = set()
