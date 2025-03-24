@@ -1870,7 +1870,8 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         default="") # type: ignore
     
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         if bpy.context.object and bpy.context.object.select_get() and bpy.context.object.type == 'ARMATURE':
             # We are loading into an existing armature. The various settings should match.
             arma = bpy.context.object
@@ -4017,7 +4018,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     ) # type: ignore
     
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.objects_to_export = bpy.context.selected_objects # get_export_objects(bpy.context)
 
         if not self.objects_to_export:
@@ -4268,7 +4270,8 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         return True
     
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.messages = []
         self.errors = set()
         self.given_scale_warning = False
@@ -4358,7 +4361,8 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         description="Frames per second for export",
         default=30) # type: ignore
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         obj = bpy.context.object
         if obj and obj.type == 'ARMATURE':
             if 'PYN_SKELETON_FILE'in obj:
