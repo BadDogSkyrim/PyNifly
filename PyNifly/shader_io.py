@@ -1045,8 +1045,8 @@ class ShaderImporter:
             self.texmap.inputs['Offset V'].default_value = shape.shader.properties.UV_Offset_V
             self.texmap.inputs['Scale U'].default_value = shape.shader.properties.UV_Scale_U
             self.texmap.inputs['Scale V'].default_value = shape.shader.properties.UV_Scale_V
-            self.texmap.inputs['Clamp S'].default_value = shape.shader.properties.clamp_mode_s
-            self.texmap.inputs['Clamp T'].default_value = shape.shader.properties.clamp_mode_t
+            self.texmap.inputs['Clamp S'].default_value = (0 if shape.shader.UV_Clamp_U else 1)
+            self.texmap.inputs['Clamp T'].default_value = (0 if shape.shader.UV_Clamp_V else 1)
 
             self.material.use_backface_culling = not shape.shader.flags2_test(ShaderFlags2.DOUBLE_SIDED)
 

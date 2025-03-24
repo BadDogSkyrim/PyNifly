@@ -2299,6 +2299,14 @@ def TEST_POT():
         assert v.co.z < 0, f"Hook verts all below hook anchor point: {v.co}"
 
 
+def TEST_BRICKWALL():
+    """FO4 brick wall with greyscale, wild UV."""
+    testfile = TT.test_file(r"tests\FO4\Meshes\Architecture\DiamondCity\DExt\DExBrickColumn01.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
+    TT.assert_equiv(bpy.data.materials["DExBrickColumn01:0.Mat"].node_tree.nodes["UV Converter"].inputs[4].default_value,
+                    1.0, "UV S is clamped")
+
+
 def TEST_NOT_FB():
     """Test that nif that looked like facebones skel can be imported"""
     # This nif has a body where the skin-to-bone transforms don't define a simple translation
@@ -6227,10 +6235,10 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        # target_tests=[ TEST_BODYPART_SKY ], run_all=False, stop_on_fail=True,
+        target_tests=[ TEST_BRICKWALL ], run_all=False, stop_on_fail=True,
         # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
-        run_all=True, stop_on_fail=True,
-        startfrom=TEST_SEGMENTS,
+        # run_all=True, stop_on_fail=True,
+        startfrom=None,
         exclude=[]
         )
 

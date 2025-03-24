@@ -2557,7 +2557,6 @@ class NiShader(NiProperty):
                     break 
         return self._parent
 
-
     def _readtexture(self, niffile, shape, layer):
         bufsize = 500
         buf = create_string_buffer(bufsize)
@@ -2672,6 +2671,13 @@ class NiShader(NiProperty):
     def flags2_clear(self, flag):
         self.properties.shaderflags2_clear(flag)
     
+    def get_clamp_u(self):
+        return self.properties.clamp_mode_s
+    
+    def get_clamp_v(self):
+        return self.properties.clamp_mode_t
+    
+
 class BSDistantTreeShaderProperty(NiShader):
     pass
 
@@ -2763,7 +2769,7 @@ class NiShaderFO4(NiShader):
             if not os.path.exists(fullpath):
                 # Target full path doesn't exist. Make it relative to our materials root.
                 relpath = truncate_filename(self.name, 'materials')
-                fullpath = os.path.join(self.file.materialsRoot, self.name)
+                fullpath = os.path.join(self.file.materialsRoot, 'materials', relpath)
             self.materials = bgsmaterial.MaterialFile.Open(fullpath)
 
     @property
@@ -2846,7 +2852,22 @@ class NiShaderFO4(NiShader):
     
     def flags2_test(self, flag):
         return (self.shaderflags2 & flag) != 0
+
+    @property
+    def UV_Clamp_U(self):
+        if self.materials:
+            return (self.materials.tileFlags and 1) == 0
+        else:
+            return self.properties.clamp_mode_s
     
+    @property
+    def UV_Clamp_V(self):
+        if self.materials:
+            return (self.materials.tileFlags and 2) == 0
+        else:
+            return self.properties.clamp_mode_t
+    
+
 
 # --- NifShape --- #
 class NiShape(NiNode):
