@@ -2305,6 +2305,7 @@ def TEST_BRICKWALL():
     bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
     TT.assert_equiv(bpy.data.materials["DExBrickColumn01:0.Mat"].node_tree.nodes["UV Converter"].inputs[4].default_value,
                     1.0, "UV S is clamped")
+    assert bpy.data.materials["DExBrickColumn01:0.Mat"].node_tree.nodes["Fallout 4 MTS - Greyscale To Palette Vector"], "Have palette node"
 
 
 def TEST_NOT_FB():

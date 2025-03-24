@@ -1315,7 +1315,7 @@ class ShaderImporter:
         else:
             self.warn(f"Could not load diffuse texture '{self.shape.textures['Diffuse']}'")
         self.link(self.texmap.outputs['Vector'], txtnode.inputs['Vector'])
-        if self.shape.shader.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_COLOR):
+        if self.shape.shader.greyscale_color:
             # Extra nodes to handle greyscale color mapping
             self.import_grayscale(txtnode)
 

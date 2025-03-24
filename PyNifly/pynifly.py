@@ -2677,6 +2677,10 @@ class NiShader(NiProperty):
     def get_clamp_v(self):
         return self.properties.clamp_mode_t
     
+    @property
+    def greyscale_color(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_COLOR)
+
 
 class BSDistantTreeShaderProperty(NiShader):
     pass
@@ -2866,6 +2870,13 @@ class NiShaderFO4(NiShader):
             return (self.materials.tileFlags and 2) == 0
         else:
             return self.properties.clamp_mode_t
+        
+    @property
+    def greyscale_color(self):
+        if self.materials:
+            return self.materials.grayscaleToPaletteColor
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_COLOR)
     
 
 
