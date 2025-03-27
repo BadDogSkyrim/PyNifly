@@ -3719,7 +3719,7 @@ int addNiPoint3Interpolator(void* nifref, const char* name, void* inbuf, uint32_
     CheckBuf(buf, BUFFER_TYPES::NiPoint3InterpolatorBufType, NiPoint3InterpolatorBuf);
 
     auto ti = std::make_unique<NiPoint3Interpolator>();
-    for (int i = 0; i++; i < 3) ti->point3Value[i] = buf->value[i];
+    for (int i = 0; i < 3; i++) ti->point3Value[i] = buf->value[i];
     ti->dataRef.index = buf->dataID;
 
     return hdr->AddBlock(std::move(ti));
@@ -3836,6 +3836,7 @@ int addNiBlendInterpolator(void* nifref, const char* name, void* inbuf, uint32_t
         return hdr->AddBlock(std::move(intp));
     }
 
+    return NIF_NPOS;
 }
 
 void getTimeController(NifFile* nif, NiTimeController* tc, void* inbuf) {

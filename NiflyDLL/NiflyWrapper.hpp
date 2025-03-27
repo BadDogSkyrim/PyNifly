@@ -39,7 +39,6 @@ extern "C" NIFLY_API void calcShapeGlobalToSkin(void* nifRef, void* shapeRef, ni
 extern "C" NIFLY_API int hasSkinInstance(void* shapeRef);
 extern "C" NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const  char* boneName, nifly::MatTransform& buf);
 extern "C" NIFLY_API void setShapeSkinToBone(void* nifPtr, void* shapePtr, const char* boneName, const nifly::MatTransform & buf);
-extern "C" NIFLY_API void getTransform(void* theShape, float* buf);
 extern "C" NIFLY_API void getNodeTransform(void* theNode, nifly::MatTransform* buf);
 extern "C" NIFLY_API int getNodeTransformToGlobal(void* nifref, const char* nodeName, nifly::MatTransform* buf);
 extern "C" NIFLY_API int getUVs(void* theNif, void* theShape, nifly::Vector2* buf, int len, int start);
@@ -76,8 +75,6 @@ extern "C" NIFLY_API int getMaxStringLen(void* nifref);
 extern "C" NIFLY_API int getString(void* nifref, int strid, int buflen, char* buf);
 extern "C" NIFLY_API int addString(void* nifref, const char* buf);
 extern "C" NIFLY_API void skinShape(void* f, void* shapeRef);
-extern "C" NIFLY_API void setShapeVertWeights(void* theFile, void* theShape, int vertIdx, const uint8_t * vertex_bones, const float* vertex_weights);
-extern "C" NIFLY_API void setShapeBoneWeightsFlex(void* nifref, void* shaperef, const char* boneName, VertexWeightPair * vertWeightsIn, int vertWeightLen);
 extern "C" NIFLY_API void setShapeBoneWeights(void* theFile, void* theShape, const char* boneName, VertexWeightPair * weights, int weightsLen);
 extern "C" NIFLY_API void setShapeBoneIDList(void* f, void* shapeRef, int* boneIDList, int listLen);
 extern "C" NIFLY_API int saveNif(void* the_nif, const char8_t* filename);
@@ -94,13 +91,8 @@ extern "C" NIFLY_API void setColorsForShape(void* nifref, void* shaperef, nifly:
 extern "C" NIFLY_API int getClothExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen);
 extern "C" NIFLY_API int getClothExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen);
 extern "C" NIFLY_API void setClothExtraData(void* nifref, void* shaperef, char* name, char* buf, int buflen);
-extern "C" NIFLY_API void addBoneToSkin(void* anim, const char* boneName, void* xformPtr, const char* parentName);
-extern "C" NIFLY_API void addBoneToShape(void * anim, void * theShape, const char* boneName, void* xformPtr, const char* parentName);
 extern "C" NIFLY_API void* addBoneToNifShape(void* nifref, void* shaperef, const char* boneName, nifly::MatTransform* xformToParent, const char* parentName);
-extern "C" NIFLY_API void setShapeGlobalToSkinXform(void* animPtr, void* shapePtr, void* gtsXformPtr);
 extern "C" NIFLY_API void setShapeGlobalToSkin(void* nifref, void* shaperef, nifly::MatTransform* xformBuf);
-extern "C" NIFLY_API void setShapeWeights(void * anim, void * theShape, const char* boneName,
-	VertexWeightPair * vertWeights, int vertWeightLen, nifly::MatTransform * skinToBoneXform);
 
 extern "C" NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, char* buf, int buflen);
 extern "C" NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, const char* buf);
@@ -120,7 +112,6 @@ extern "C" NIFLY_API int getConnectPointChild(void* nifref, int index, char* buf
 extern "C" NIFLY_API void setConnectPointsChild(void* nifref, int isSkinned, int buflen, const char* buf);
 extern "C" NIFLY_API int getFurnMarker(void* nifref, int index, FurnitureMarkerBuf* buf);
 extern "C" NIFLY_API void setFurnMarkers(void* nifref, int buflen, FurnitureMarkerBuf * buf);
-extern "C" NIFLY_API int getBSXFlags(void* nifref, int* buf);
 extern "C" NIFLY_API void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf, int controlsBaseSkel);
 
 /* ********************* ERROR REPORTING ********************* */
@@ -136,15 +127,9 @@ extern "C" NIFLY_API int getCollShapeVerts(void* nifref, int nodeIndex, float* b
 extern "C" NIFLY_API int getCollShapeNormals(void* nifref, int nodeIndex, float* buf, int buflen);
 extern "C" NIFLY_API int getCollListShapeChildren(void* nifref, int nodeIndex, uint32_t * buf, int buflen);
 extern "C" NIFLY_API void addCollListChild(void* nifref, const uint32_t id, uint32_t child_id);
-extern "C" NIFLY_API int setCollListChildren(void* nifref, const uint32_t id, uint32_t* buf, int buflen);
 extern "C" NIFLY_API void setCollConvexTransformShapeChild(void* nifref, const uint32_t id, uint32_t child_id);
-int addControllerManager(void* f, const char* name, NiControllerManagerBuf * buf, void* parent);
 extern "C" NIFLY_API int getControllerManagerSequences(void* nifref, void* ncmref, int buflen, uint32_t* seqptrs);
 extern "C" NIFLY_API int getControllerManagerSeq(void* nifref, int ncmID, int buflen, uint32_t* seqptrs);
-extern "C" NIFLY_API void getControllerSequence(void* nifref, uint32_t csID, NiControllerSequenceBuf * buf);
-int addControllerSequence(void* nifref, const char* name, NiControllerSequenceBuf* buf);
-extern "C" NIFLY_API int getControlledBlocks(void* nifref, uint32_t csID, int buflen, ControllerLinkBuf * blocks);
-int addMultiTargetTransformController(void* nifref, NiMultiTargetTransformControllerBuf* buf);
 extern "C" NIFLY_API void getAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyQuadXYZBuf * buf);
 extern "C" NIFLY_API void addAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, NiAnimKeyQuadXYZBuf * buf);
 extern "C" NIFLY_API int getAnimKeyQuadFloat(void* nifref, int tdID, int frame, NiAnimKeyQuadXYZBuf* buf);

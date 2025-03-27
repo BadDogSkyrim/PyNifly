@@ -684,7 +684,7 @@ int TCopyFloatData(void* targetNif, void* sourceNif, int floatDataID) {
 	dataOut.keys.numKeys = 0;
 	floatDataOutID = addBlock(targetNif, "", &dataOut, NIF_NPOS);
 	Assert::AreNotEqual(int(NIF_NPOS), floatDataOutID, L"Created float data");
-	for (int i = 0; i < data.keys.numKeys; i++) {
+	for (unsigned int i = 0; i < data.keys.numKeys; i++) {
 		NiAnimKeyQuadXYZBuf keybuf;
 		getAnimKeyQuadFloat(sourceNif, floatDataID, i, &keybuf);
 		addAnimKeyQuadFloat(targetNif, floatDataOutID, &keybuf);
@@ -914,7 +914,7 @@ namespace NiflyDLLTests
 
 			void* shapes[2];
 			shapeCount = getShapes(nif, shapes, 2, 0);
-			int bodyID, armorID;
+			int armorID;
 			NiShapeBuf bodyBuf, armorBuf;
 			void* theBody = shapes[0];
 			void* theArmor = shapes[1];
@@ -1030,7 +1030,7 @@ namespace NiflyDLLTests
 
 			void* nifCheck;
 			void* shapes[5];
-			int shapeID, shaderID;
+			int shapeID;
 			NiShapeBuf shapeBuf;
 			NiShaderBuf shaderBuf;
 			nifCheck = load(outfile.u8string().c_str());
@@ -2739,7 +2739,6 @@ namespace NiflyDLLTests
 		TEST_METHOD(readWriteGlass) {
 			/* Test we can read and write BSEffectShaderProperty, used for glass */
 			void* nif;
-			void* shapes[10];
 			GlassBuf glass, glassTest;
 
 			nif = load((testRoot / "FO4/Helmet.nif").u8string().c_str());
@@ -3708,7 +3707,7 @@ namespace NiflyDLLTests
 			Assert::AreEqual(18, int(data.transformData[0].translations.numKeys), L"Have correct number of translations");
 			Assert::AreEqual(1, int(data.transformData[0].translations.interpolation), L"Have correct interpolation");
 
-			for (int i = 0; i < data.transformData[0].translations.numKeys; i++)
+			for (unsigned int i = 0; i < data.transformData[0].translations.numKeys; i++)
 				getAnimKeyLinearTrans(nif, data.transformInterp[0].dataID, i, &data.animKeyLin[i]);
 			Assert::IsTrue(TApproxEqual(0.06667f, data.animKeyLin[2].time), L"First time value good");
 			Assert::IsTrue(TApproxEqual(1.1176f, data.animKeyLin[2].value[0]), L"X location good");
@@ -3722,7 +3721,7 @@ namespace NiflyDLLTests
 			Assert::AreEqual(2, int(data.transformData[1].zRotations.numKeys), L"Have correct number of Z rotation keys");
 			Assert::AreEqual(int(NiKeyType::QUADRATIC_KEY), int(data.transformData[1].zRotations.interpolation), L"Have quadratic interpolation");
 
-			for (int i = 0; i < data.transformData[1].zRotations.numKeys; i++) {
+			for (unsigned int i = 0; i < data.transformData[1].zRotations.numKeys; i++) {
 				getAnimKeyQuadXYZ(nif, data.transformInterp[1].dataID, 'Z', i, &data.animKeyQuad[1][i]);
 			}
 
@@ -3801,7 +3800,7 @@ namespace NiflyDLLTests
 			tdbufOut1.translations.interpolation = NiKeyType(LINEAR_KEY);
 			int tdOut1 = addBlock(nifOut, nullptr, &tdbufOut1, NIF_NPOS);
 
-			for (int i = 0; i < data.transformData[0].translations.numKeys; i++) {
+			for (unsigned int i = 0; i < data.transformData[0].translations.numKeys; i++) {
 				addAnimKeyLinearTrans(nifOut, tdOut1, &data.animKeyLin[i]);
 			}
 
@@ -3829,7 +3828,7 @@ namespace NiflyDLLTests
 			xk.value = 0;
 			addAnimKeyQuadXYZ(nifOut, tdOut2, 'X', &xk);
 			addAnimKeyQuadXYZ(nifOut, tdOut2, 'Y', &xk);
-			for (int i = 0; i < data.transformData[1].zRotations.numKeys; i++) {
+			for (unsigned int i = 0; i < data.transformData[1].zRotations.numKeys; i++) {
 				addAnimKeyQuadXYZ(nifOut, tdOut2, 'Z', & data.animKeyQuad[1][i]);
 			}
 			
@@ -4060,7 +4059,7 @@ namespace NiflyDLLTests
 			getBlock(nif, data.ctlrColor.interpolatorID, &data.blend3PointInterp);
 
 			Assert::AreEqual(9, int(data.colorInterpData.keys.numKeys), L"Have correct number of keys");
-			for (int i = 0; i < data.colorInterpData.keys.numKeys; i++)
+			for (unsigned int i = 0; i < data.colorInterpData.keys.numKeys; i++)
 				getAnimKeyQuadTrans(nif, data.colorInterpolator.dataID, i, &data.colorKeyQuad[i]);
 			Assert::AreEqual(0.8f, data.colorKeyQuad[2].time, L"Have correct time");
 
@@ -4075,7 +4074,7 @@ namespace NiflyDLLTests
 			getBlock(nif, data.floatInterpolator.dataID, &data.floatInterpData);
 			Assert::AreEqual(int(NiKeyType::QUADRATIC_KEY), int(data.floatInterpData.keys.interpolation), L"Have interpolation type");
 			Assert::AreEqual(2, int(data.floatInterpData.keys.numKeys), L"Have correct number of keys");
-			for (int i = 0; i < data.floatInterpData.keys.numKeys; i++)
+			for (unsigned int i = 0; i < data.floatInterpData.keys.numKeys; i++)
 				getAnimKeyQuadFloat(nif, data.floatInterpolator.dataID, i, &data.floatKeyQuad[i]);
 			Assert::IsTrue(TApproxEqual(3.3333f, data.floatKeyQuad[1].time), L"Have correct time");
 
@@ -4084,7 +4083,7 @@ namespace NiflyDLLTests
 		TEST_METHOD(colorController) {
 			/* Can import and export nif with animations (GlowingOne) */
 
-			void* nif = load((testRoot / "FO4/GlowingOne.nif").u8string().c_str());
+			void* nif = load((testRoot / "FO4/GlowingOneTEST.nif").u8string().c_str());
 			int strlen = getMaxStringLen(nif);
 
 			GlowingOneData data;
@@ -4173,7 +4172,7 @@ namespace NiflyDLLTests
 			}
 			else if (buf->rotationType == NiKeyType(LINEAR_KEY)) {
 				NiAnimKeyLinearQuatBuf k;
-				for (int f = 0; f < buf->quaternionKeyCount; f++) {
+				for (unsigned int f = 0; f < buf->quaternionKeyCount; f++) {
 					getAnimKeyLinearQuat(nif, td, f, &k);
 					addAnimKeyLinearQuat(nifOut, tdOut, &k);
 				}
@@ -4185,14 +4184,14 @@ namespace NiflyDLLTests
 		void TCopyTranslationKeys(void* nifOut, int tdOut, void* nif, int td, NiTransformDataBuf* buf) {
 			if (buf->translations.interpolation == NiKeyType(LINEAR_KEY)) {
 				NiAnimKeyLinearTransBuf k;
-				for (int f = 0; f < buf->translations.numKeys; f++) {
+				for (unsigned int f = 0; f < buf->translations.numKeys; f++) {
 					getAnimKeyLinearTrans(nif, td, f, &k);\
 					addAnimKeyLinearTrans(nifOut, tdOut, &k);
 				}
 			}
 			else if (buf->translations.interpolation == NiKeyType(QUADRATIC_KEY)) {
 				NiAnimKeyQuadTransBuf k;
-				for (int f = 0; f < buf->translations.numKeys; f++) {
+				for (unsigned int f = 0; f < buf->translations.numKeys; f++) {
 					getAnimKeyQuadTrans(nif, td, f, &k);\
 					addAnimKeyQuadTrans(nifOut, tdOut, &k);
 				}
