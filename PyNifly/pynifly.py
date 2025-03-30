@@ -2858,20 +2858,6 @@ class NiShaderFO4(NiShader):
         return (self.shaderflags2 & flag) != 0
 
     @property
-    def UV_Clamp_U(self):
-        if self.materials:
-            return (self.materials.tileFlags and 1) == 0
-        else:
-            return self.properties.clamp_mode_s
-    
-    @property
-    def UV_Clamp_V(self):
-        if self.materials:
-            return (self.materials.tileFlags and 2) == 0
-        else:
-            return self.properties.clamp_mode_t
-        
-    @property
     def greyscale_color(self):
         if self.materials:
             return self.materials.grayscaleToPaletteColor

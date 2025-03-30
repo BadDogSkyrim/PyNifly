@@ -20,6 +20,7 @@ import codecs
 import ctypes 
 from niflytools import *
 from nifdefs import *
+import test_tools as TT
 from pynifly import *
 
 """Quick and dirty test harness."""
@@ -979,44 +980,44 @@ def TEST_SHADER():
     """Can read shader flags"""
     hnse = NifFile(r"tests\SKYRIMSE\malehead.nif")
     hsse = hnse.shapes[0]
-    assert hsse.shader.properties.Shader_Type == 4
-    assert hsse.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
-        f"Expected MSN true, got {hsse.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
-    assert hsse.shader.properties.Alpha == 1.0, f"Expected Alpha 1, got {hsse.shader.properties.Alpha}"
-    assert hsse.shader.properties.Glossiness == 33.0, f"Expected Glossiness 33, got {hsse.shader.properties.Glossiness}"
+    TT.assert_eq(hsse.shader.properties.Shader_Type, 4, "Shader_Type")
+    TT.assert_eq(hsse.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), True, "MODEL_SPACE_NORMALS")
+    TT.assert_eq(hsse.shader.properties.Alpha, 1.0, "Alpha")
+    TT.assert_equiv(hsse.shader.properties.Glossiness, 33.0, "Glossiness")
+    TT.assert_eq(hsse.shader.properties.clamp_mode_t, 1, "clamp_mode_t")
 
     hnle = NifFile(r"tests\SKYRIM\malehead.nif")
     hsle = hnle.shapes[0]
-    assert hsle.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
-        f"Expected MSN true, got {hsle.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
-    assert hsle.shader.properties.Glossiness == 33.0, f"Error: Glossiness incorrect: {hsle.shader.properties.Glossiness}"
+    TT.assert_eq(hsle.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), True, "MODEL_SPACE_NORMALS")
+    TT.assert_eq(hsle.shader.properties.Glossiness, 33.0, "Glossiness")
+    TT.assert_eq(hsle.shader.properties.clamp_mode_t, 1, "clamp_mode_t")
 
     hnfo = NifFile(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\HeadTest.nif")
     hsfo = hnfo.shapes[0]
-    assert not hsfo.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
-        f"Expected MSN true, got {hsfo.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+    TT.assert_eq(hsfo.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), False, "MODEL_SPACE_NORMALS")
+    TT.assert_eq(hsfo.shader.properties.clamp_mode_t, 1, "clamp_mode_t")
 
     cnle = NifFile(r"tests\Skyrim\noblecrate01.nif")
     csle = cnle.shapes[0]
-    assert not csle.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
-        f"Expected MSN false, got {csle.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+    TT.assert_eq(csle.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), False, "MODEL_SPACE_NORMALS")
+    TT.assert_eq(csle.shader.properties.clamp_mode_t, 1, "clamp_mode_t")
 
     """Can read texture paths"""
-    assert hsse.textures["Diffuse"] == r"textures\actors\character\male\MaleHead.dds"
-    assert hsse.textures["Normal"] == r"textures\actors\character\male\MaleHead_msn.dds"
-    assert hsse.textures["SoftLighting"] == r"textures\actors\character\male\MaleHead_sk.dds"
-    assert hsse.textures["Specular"] == r"textures\actors\character\male\MaleHead_S.dds"
+    TT.assert_eq(hsse.textures["Diffuse"], r"textures\actors\character\male\MaleHead.dds", "Diffuse")
+    TT.assert_eq(hsse.textures["Normal"], r"textures\actors\character\male\MaleHead_msn.dds", "Normal")
+    TT.assert_eq(hsse.textures["SoftLighting"], r"textures\actors\character\male\MaleHead_sk.dds", "SoftLighting")
+    TT.assert_eq(hsse.textures["Specular"], r"textures\actors\character\male\MaleHead_S.dds", "Specular")
 
-    assert hsle.textures["Diffuse"] == r"textures\actors\character\male\MaleHead.dds"
-    assert hsle.textures["Normal"] == r"textures\actors\character\male\MaleHead_msn.dds"
-    assert hsle.textures["SoftLighting"] == r"textures\actors\character\male\MaleHead_sk.dds"
-    assert hsle.textures["Specular"] == r"textures\actors\character\male\MaleHead_S.dds"
+    TT.assert_eq(hsle.textures["Diffuse"], r"textures\actors\character\male\MaleHead.dds", "Diffuse")
+    TT.assert_eq(hsle.textures["Normal"], r"textures\actors\character\male\MaleHead_msn.dds", "Normal")
+    TT.assert_eq(hsle.textures["SoftLighting"], r"textures\actors\character\male\MaleHead_sk.dds", "SoftLighting")
+    TT.assert_eq(hsle.textures["Specular"], r"textures\actors\character\male\MaleHead_S.dds", "Specular")
 
-    assert hsfo.textures["Diffuse"] == r"Actors/Character/BaseHumanMale/BaseMaleHead_d.dds"
-    assert hsfo.textures["Normal"] == r"Actors/Character/BaseHumanMale/BaseMaleHead_n.dds"
-    assert hsfo.textures["Specular"] == r"actors/character/basehumanmale/basemalehead_s.dds"
-    assert hsfo.textures["EnvMap"] == r"Shared/Cubemaps/mipblur_DefaultOutside1_dielectric.dds"
-    assert hsfo.textures["Wrinkles"] == r"Actors/Character/BaseHumanMale/HeadWrinkles_n.dds"
+    TT.assert_eq(hsfo.textures["Diffuse"], r"Actors/Character/BaseHumanMale/BaseMaleHead_d.dds", "Diffuse")
+    TT.assert_eq(hsfo.textures["Normal"], r"Actors/Character/BaseHumanMale/BaseMaleHead_n.dds", "Normal")
+    TT.assert_eq(hsfo.textures["Specular"], r"actors/character/basehumanmale/basemalehead_s.dds", "Specular")
+    TT.assert_eq(hsfo.textures["EnvMap"], r"Shared/Cubemaps/mipblur_DefaultOutside1_dielectric.dds", "EnvMap")
+    TT.assert_eq(hsfo.textures["Wrinkles"], r"Actors/Character/BaseHumanMale/HeadWrinkles_n.dds", "Wrinkles")
 
     print("------------- Extract non-default values")
     v = {}
@@ -1335,16 +1336,16 @@ def TEST_EFFECT_SHADER_SKY():
     def CheckNif(nif:NifFile):
         glow:NiShape = nif.shape_dict["MaleTorsoGlow"]
         sh = glow.shader
-        assert sh.blockname == "BSEffectShaderProperty", \
-            f"Expected BSEffectShaderProperty, got {sh.blockname}"
-        assert sh.flags1_test(ShaderFlags1.VERTEX_ALPHA), f"Expected VERTEX_ALPHA true"
-        assert not sh.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
-        assert sh.flags2_test(ShaderFlags2.NO_FADE)
-        assert NearEqual(sh.properties.UV_Scale_U, 10.0), f"Have correct UV scale: {sh.properties.UV_Scale_U}"
-        assert sh.properties.textureClampMode == 3, f"Have correct textureClampMode: {sh.properties.textureClampMode}"
+        TT.assert_eq(sh.blockname, "BSEffectShaderProperty", "block name")
+        TT.assert_eq(sh.flags1_test(ShaderFlags1.VERTEX_ALPHA), True, "VERTEX_ALPHA")
+        TT.assert_eq(sh.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), False, "MODEL_SPACE_NORMALS")
+        TT.assert_eq(sh.flags2_test(ShaderFlags2.NO_FADE), True, "NO_FADE")
+        TT.assert_equiv(sh.properties.UV_Scale_U, 10.0, "UV scale U")
+        TT.assert_eq(sh.properties.textureClampMode, 3, "textureClampMode")
+        TT.assert_eq(sh.properties.clamp_mode_s, 1, f"clamp mode s")
 
-        assert sh.textures['Diffuse'] == r"textures\effects\VaporTile02.dds", f"Source texture correct: {sh.textures['Diffuse']}"
-        assert sh.textures['Greyscale'] == r"textures\effects\gradients\GradDisguiseShader02.dds", f"Greyscale texture correct {sh.textures['Greyscale']}"
+        TT.assert_eq(sh.textures['Diffuse'], r"textures\effects\VaporTile02.dds", "Diffuse texture")
+        TT.assert_eq(sh.textures['Greyscale'], r"textures\effects\gradients\GradDisguiseShader02.dds", "Greyscale texture")
 
     print("---Read---")
     nif = NifFile(testfile)
@@ -2491,7 +2492,7 @@ mylog.setLevel(logging.DEBUG)
 
 # ############## TESTS TO RUN #############
 stop_on_fail = False
-execute(testlist=[TEST_SEGMENTS])
+execute(testlist=[TEST_EFFECT_SHADER_SKY, TEST_EFFECT_SHADER_FO4, TEST_SHADER])
 # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
 # execute(exclude=[TEST_SET_SKINTINT])
 #

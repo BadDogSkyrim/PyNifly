@@ -6,8 +6,8 @@ bl_info = {
     "name": "NIF format",
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
-    "blender": (4, 0, 0),
-    "version": (19, 5, 0),   
+    "blender": (4, 4, 0),
+    "version": (19, 6, 0),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -2235,7 +2235,8 @@ class ImportKF(bpy.types.Operator, ExportHelper):
         return True
     
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.nif:NifFile = None
         self.armature = None
         self.import_flags = ImportSettings.import_anims
@@ -2349,7 +2350,8 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         return True
     
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.kf:NifFile = None
         self.armature = None
         self.errors = set()

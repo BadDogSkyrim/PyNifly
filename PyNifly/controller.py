@@ -189,6 +189,8 @@ def assign_action(obj, elem, act):
         if not targ.animation_data:
             targ.animation_data_create()
         targ.animation_data.action = act
+        if len(act.slots) > 0:
+            targ.animation_data.action_slot = act.slots[0]
                 
 
 def apply_animation(anim_name, myscene):
@@ -500,6 +502,16 @@ class ControllerHandler():
             self.action.frame_end = self.frame_end
             self.action.use_frame_range = True
             self.action.use_cyclic = self.is_cyclic 
+            try:
+                t = ''
+                if self.action_target.type == 'SHADER':
+                    t = 'NODETREE'
+                if self.action_target.type == 'EMPTY':
+                    t = 'OBJECT'
+                if t:
+                    self.action.slots.new(t, 'XXLegacy Slot')
+            except:
+                pass # prior to 4.4
 
             # Some nifs have multiple animations with different names. Others just animate
             # various nif blocks. If there's a name, make this an asset so we can track them.
@@ -510,6 +522,8 @@ class ControllerHandler():
                 
             self.action_target.animation_data_create()
             self.action_target.animation_data.action = self.action
+            if len(self.action.slots) > 0:
+                self.action_target.animation_data.action_slot = self.action.slots[0]
 
 
     def _animate_bone(self, bone_name:str):

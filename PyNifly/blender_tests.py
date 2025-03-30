@@ -11,7 +11,7 @@ import pathlib
 import bpy
 import bpy_types
 from mathutils import Matrix, Vector, Quaternion, Euler
-import test_tools as TT
+import test_tools_bpy as TT
 import niflytools as NT
 import nifdefs
 import pynifly as pyn
@@ -1703,9 +1703,9 @@ def TEST_SHADER_SE():
     shaderAttrsSE = nifboots.shader.properties
     boots = bpy.context.object
     shadernodes = boots.active_material.node_tree.nodes
-    assert len(shadernodes) >= 5, "ERROR: Didn't import shader nodes"
-    assert boots.active_material['Env_Map_Scale'] == shaderAttrsSE.Env_Map_Scale, \
-        f"Read the correct environment map scale: {boots.active_material['Env_Map_Scale']}"
+    TT.assert_gt(len(shadernodes), 4, "Number of shader nodes")
+    TT.assert_eq(boots.active_material['Env_Map_Scale'], shaderAttrsSE.Env_Map_Scale, "environment map scale")
+    TT.assert_eq(bpy.data.materials["Shoes.Mat"].node_tree.nodes["UV Converter"].inputs[4].default_value, 1, "Wrap U")
 
     print("## Shader attributes are written on export")
     bpy.ops.object.select_all(action='DESELECT')
@@ -1715,13 +1715,13 @@ def TEST_SHADER_SE():
     nifcheckSE = pyn.NifFile(outfile)
     bootcheck = nifcheckSE.shapes[0]
     
-    assert set(bootcheck.textures.keys()) == set(nifboots.textures.keys()), f"Keys are the same"
+    TT.assert_samemembers(bootcheck.textures.keys(), nifboots.textures.keys(), "Same textures")
     for k in bootcheck.textures:
-        assert bootcheck.textures[k] == nifboots.textures[k], f"{k} texture matches"
+        TT.assert_eq(bootcheck.textures[k], nifboots.textures[k], f"{k} texture")
 
     diffs = bootcheck.shader.properties.compare(shaderAttrsSE)
-    assert not diffs, f"No difference in shader properties: {diffs}"
-    assert not bootcheck.has_alpha_property, "Boots have no alpha"
+    TT.assert_samemembers(diffs, [], f"difference in shader properties: {diffs}")
+    TT.assert_eq(bootcheck.has_alpha_property, False, "has_alpha_property")
 
 
 def TEST_SHADER_FO4():
@@ -6236,9 +6236,9 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        # target_tests=[ TEST_BRICKWALL ], run_all=False, stop_on_fail=True,
-        # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
-        run_all=True, stop_on_fail=False,
+        # target_tests=[ TEST_ANIM_SHADER_SPRIGGAN ], run_all=False, stop_on_fail=True,
+        target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
+        # run_all=True, stop_on_fail=False,
         startfrom=None,
         exclude=[]
         )

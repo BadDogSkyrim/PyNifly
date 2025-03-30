@@ -708,15 +708,15 @@ def make_uv_node(parent, shader_path, location):
         grp.inputs.new('NodeSocketFloat', 'Offset V')
         grp.inputs.new('NodeSocketFloat', 'Scale U')
         grp.inputs.new('NodeSocketFloat', 'Scale V')
-        grp.inputs.new('NodeSocketInt', 'Clamp S')
-        grp.inputs.new('NodeSocketInt', 'Clamp T')
+        grp.inputs.new('NodeSocketInt', 'Wrap U')
+        grp.inputs.new('NodeSocketInt', 'Wrap V')
     except:
         grp.interface.new_socket('Offset U', in_out='INPUT', socket_type='NodeSocketFloat')
         grp.interface.new_socket('Offset V', in_out='INPUT', socket_type='NodeSocketFloat')
         grp.interface.new_socket('Scale U', in_out='INPUT', socket_type='NodeSocketFloat')
         grp.interface.new_socket('Scale V', in_out='INPUT', socket_type='NodeSocketFloat')
-        grp.interface.new_socket('Clamp S', in_out='INPUT', socket_type='NodeSocketFloat')
-        grp.interface.new_socket('Clamp T', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Wrap U', in_out='INPUT', socket_type='NodeSocketFloat')
+        grp.interface.new_socket('Wrap V', in_out='INPUT', socket_type='NodeSocketFloat')
 
     tc = grp.nodes.new('ShaderNodeTexCoord')
     tc.location = (-200, 400)
@@ -747,7 +747,7 @@ def make_uv_node(parent, shader_path, location):
         grp, 
         u_map.outputs['Result'],
         u_scale.outputs['Value'],
-        factor=group_inputs.outputs['Clamp S'],
+        factor=group_inputs.outputs['Wrap S'],
         blend_type='MIX',
         location=(u_map.location.x + 200, u_scale.location.y - 50))
 
@@ -773,7 +773,7 @@ def make_uv_node(parent, shader_path, location):
         grp,
         v_map.outputs['Result'],
         v_scale.outputs['Value'],
-        factor=group_inputs.outputs['Clamp T'],
+        factor=group_inputs.outputs['Wrap T'],
         blend_type='MIX',
         location=(v_map.location.x + 200, v_scale.location.y - 50)
     )
@@ -1045,8 +1045,8 @@ class ShaderImporter:
             self.texmap.inputs['Offset V'].default_value = shape.shader.properties.UV_Offset_V
             self.texmap.inputs['Scale U'].default_value = shape.shader.properties.UV_Scale_U
             self.texmap.inputs['Scale V'].default_value = shape.shader.properties.UV_Scale_V
-            self.texmap.inputs['Clamp S'].default_value = (0 if shape.shader.UV_Clamp_U else 1)
-            self.texmap.inputs['Clamp T'].default_value = (0 if shape.shader.UV_Clamp_V else 1)
+            self.texmap.inputs['Wrap U'].default_value = shape.shader.properties.clamp_mode_s
+            self.texmap.inputs['Wrap V'].default_value = shape.shader.properties.clamp_mode_t
 
             self.material.use_backface_culling = not shape.shader.flags2_test(ShaderFlags2.DOUBLE_SIDED)
 
@@ -1513,8 +1513,11 @@ class ShaderImporter:
 
             self.find_textures(shape)
 
-            self.nodes.remove(self.nodes["Principled BSDF"])
-            mo = self.nodes['Material Output']
+            for n in self.nodes:
+                if n.type == 'OUTPUT_MATERIAL': 
+                    mo = self.nodes
+                if 'BSDF' in n.type: 
+                    self.nodes.remove(n)
 
             if self.game == 'FO4':
                 self.bsdf = make_shader_fo4(self.material.node_tree, 
@@ -1532,12 +1535,7 @@ class ShaderImporter:
             
             self.bsdf.width = 250
             self.bsdf.location.x -= 100
-            try:
-                self.link(self.bsdf.outputs['Material'], 
-                        self.nodes['Material Output'].inputs['Surface'])
-            except:
-                self.link(self.bsdf.outputs['BSDF'], 
-                        self.nodes['Material Output'].inputs['Surface'])
+            self.link(self.bsdf.outputs[0], mo.inputs[0])
             
             self.img_offset_x = -1.5 * TEXTURE_NODE_WIDTH
             self.calc1_offset_x = self.img_offset_x - NODE_WIDTH*2
@@ -1601,7 +1599,7 @@ def has_msn_shader(obj):
     try:
         matoutlist = [x for x in obj.active_material.node_tree.nodes if x.bl_idname == 'ShaderNodeOutputMaterial']
         mat_out = matoutlist[0]
-        surface_skt = mat_out.inputs['Surface']
+        surface_skt = mat_out.inputs[0]
         start_node = surface_skt.links[0].from_node
         if start_node.bl_idname == 'ShaderNodeGroup':
             grp_outputs = [n for n in start_node.node_tree.nodes if n.bl_idname == 'NodeGroupOutput']
@@ -1630,8 +1628,8 @@ class ShaderExporter:
                 log.warning(f"Have material but no Material Output for {self.material.name}")
             else:
                 self.material_output = nodelist["Material Output"]
-                if self.material_output.inputs['Surface'].is_linked:
-                    self.shader_node = self.material_output.inputs['Surface'].links[0].from_node
+                if self.material_output.inputs[0].is_linked:
+                    self.shader_node = self.material_output.inputs[0].links[0].from_node
                     if 'MSN' in self.shader_node.inputs:
                         self.is_obj_space = bool(self.shader_node.inputs['MSN'].default_value)
                     else:
@@ -1672,8 +1670,12 @@ class ShaderExporter:
                 shape.shader.properties.UV_Scale_U = uv['Scale U'].default_value
                 shape.shader.properties.UV_Scale_V = uv['Scale V'].default_value
 
-                shape.shader.properties.clamp_mode_s = uv['Clamp S'].default_value 
-                shape.shader.properties.clamp_mode_t = uv['Clamp T'].default_value 
+                try:
+                    shape.shader.properties.clamp_mode_s = uv['Wrap U'].default_value 
+                    shape.shader.properties.clamp_mode_t = uv['Wrap V'].default_value 
+                except:
+                    shape.shader.properties.clamp_mode_s = uv['Clamp S'].default_value 
+                    shape.shader.properties.clamp_mode_t = uv['Clamp T'].default_value 
 
             if 'UV_Offset_U' in nl:
                 shape.shader.properties.UV_Offset_U = nl['UV_Offset_U'].outputs['Value'].default_value
