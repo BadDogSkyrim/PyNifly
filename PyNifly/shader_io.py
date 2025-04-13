@@ -1515,7 +1515,7 @@ class ShaderImporter:
 
             for n in self.nodes:
                 if n.type == 'OUTPUT_MATERIAL': 
-                    mo = self.nodes
+                    mo = n
                 if 'BSDF' in n.type: 
                     self.nodes.remove(n)
 
