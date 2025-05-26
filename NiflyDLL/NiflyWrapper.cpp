@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 19, 6, 0 };
+const int NiflyDDLVersion[3] = { 20, 0, 0 };
  
 using namespace nifly;
 
@@ -987,7 +987,7 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     std::vector<Vector2> uv;
     std::vector<Vector3> n;
 
-    for (int i = 0; i < buf->vertexCount; i++) {
+    for (long i = 0; i < long(buf->vertexCount); i++) {
         Vector3 thisv = verts[i];
         v.push_back(thisv);
 
@@ -999,7 +999,7 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
             n.push_back(thisnorm);
         };
     }
-    for (int i = 0; i < buf->triangleCount; i++) {
+    for (long i = 0; i < long(buf->triangleCount); i++) {
         Triangle thist = tris[i];
         t.push_back(thist);
     }

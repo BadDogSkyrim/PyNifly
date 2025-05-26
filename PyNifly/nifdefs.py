@@ -1689,8 +1689,8 @@ class NiShapeBuf(pynStructure):
         ("hasFullPrecision", c_uint8),
         ("boundingSphereCenter", VECTOR3),
         ("boundingSphereRadius", c_float),
-        ("vertexCount", c_uint16),
-        ("triangleCount", c_uint16),
+        ("vertexCount", c_uint32),
+        ("triangleCount", c_uint32),
         ("skinInstanceID", c_uint32),
         ("shaderPropertyID", c_uint32),
         ("alphaPropertyID", c_uint32)
