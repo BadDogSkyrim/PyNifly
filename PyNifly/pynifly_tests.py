@@ -2500,7 +2500,7 @@ mylog.setLevel(logging.DEBUG)
 
 # ############## TESTS TO RUN #############
 stop_on_fail = False
-execute(testlist=[TEST_BodyRegression])
+# execute(testlist=[TEST_LOD])
 # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
-# execute(exclude=[TEST_SET_SKINTINT])
+execute(exclude=[TEST_SET_SKINTINT])
 #
