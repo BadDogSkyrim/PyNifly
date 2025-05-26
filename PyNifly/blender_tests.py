@@ -6236,8 +6236,8 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        # target_tests=[ TEST_ANIM_SHADER_SPRIGGAN ], run_all=False, stop_on_fail=True,
-        target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
+        target_tests=[ TEST_BODYPART_SKY ], run_all=False, stop_on_fail=True,
+        # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
         # run_all=True, stop_on_fail=False,
         startfrom=None,
         exclude=[]

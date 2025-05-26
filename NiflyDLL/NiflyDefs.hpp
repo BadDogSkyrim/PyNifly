@@ -382,8 +382,8 @@ struct NiShapeBuf {
 	uint8_t hasFullPrecision;
 	float boundingSphereCenter[3];
 	float boundingSphereRadius;
-	uint16_t vertexCount;
-	uint16_t triangleCount;
+	uint32_t vertexCount;
+	uint32_t triangleCount;
 	uint32_t skinInstanceID;
 	uint32_t shaderPropertyID;
 	uint32_t alphaPropertyID;

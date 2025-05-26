@@ -4569,6 +4569,23 @@ namespace NiflyDLLTests
 
 
 		};
+		TEST_METHOD(BodyRegression)
+		{
+			/* Regression: Opens with too few tris */
+			std::filesystem::path testfile = testRoot / "FO4/BodyRegression/MaleBody.nif";
+			void* shapes[2];
+			int shapeCount;
+			int shapeID;
+			NiShapeBuf shapeProps;
+
+			void* nif = load(testfile.u8string().c_str());
+			shapeCount = getShapes(nif, shapes, 1, 0);
+			shapeID = getBlockID(nif, shapes[0]);
+			Assert::AreEqual(0,
+				getBlock(nif, shapeID, &shapeProps));
+			Assert::AreEqual(long(39489), long(shapeProps.vertexCount), L"Have correct vertex count");
+			Assert::AreEqual(long(76231), long(shapeProps.triangleCount), L"Have correct tri count");
+		};
 		/* Hangs. It would be nice if it didn't. */
 		//TEST_METHOD(readCorrupt) {
 		//	std::filesystem::path testfile = testRoot / "FO4" / "Corrupt.nif";

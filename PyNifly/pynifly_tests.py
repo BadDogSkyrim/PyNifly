@@ -296,6 +296,14 @@ def TEST_SHAPE_QUERY():
     assert len(body.bone_weights['NPC L Foot [Lft ]']) == 13, "ERRROR: Wrong number of bone weights"
 
 
+def TEST_BodyRegression():
+    """Test troublesome nif file"""
+
+    f = NifFile("tests/FO4/BodyRegression/MaleBody.nif")
+    assert len(f.shapes[0].verts) > 39000, "Have very many verts"
+    assert len(f.shapes[0].tris) > 76000, "Have very many tris"
+
+
 def TEST_CREATE_TETRA():
     """Can create new files with content: tetrahedron"""
     # Vertices are a list of triples defining the coordinates of each vertex
@@ -2492,7 +2500,7 @@ mylog.setLevel(logging.DEBUG)
 
 # ############## TESTS TO RUN #############
 stop_on_fail = False
-execute(testlist=[TEST_EFFECT_SHADER_SKY, TEST_EFFECT_SHADER_FO4, TEST_SHADER])
+execute(testlist=[TEST_BodyRegression])
 # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
 # execute(exclude=[TEST_SET_SKINTINT])
 #
