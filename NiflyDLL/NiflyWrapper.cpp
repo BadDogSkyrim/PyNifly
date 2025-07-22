@@ -21,7 +21,7 @@
 
 const int NiflyDDLVersion[3] = { 20, 0, 0 };
  
-using namespace nifly;
+using namespace nifly; 
 
 /* ************************** UTILITY ************************** */
 
