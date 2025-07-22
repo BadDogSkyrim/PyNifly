@@ -1,4 +1,4 @@
-"""Helper routins for tests"""
+"""Helper routines for tests"""
 
 import sys
 import os

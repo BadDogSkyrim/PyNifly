@@ -207,7 +207,7 @@ class TriFile():
             raise ValueError("Error reading TRI file")
         data = unpack('<'+str(data[0]-1)+'sx', tmp_data)
         morphSubName = data[0].decode("iso-8859-15")
-        self.log.info(f"Read modmorph {morphSubName}")
+        self.log.debug(f"Read modmorph {morphSubName}")
 
         # Read the morph block (array of affected vertex indices)
         tmp_data = file.read(INT_LEN)
@@ -234,6 +234,8 @@ class TriFile():
                                          vertsAdd_list[vertsAdd_Index][2],)
                 vertsAdd_Index += 1
             
+            return morphSubName, vertsAdd_Index, new_verts
+
         #     nextMorphVertIdx += 1
             
         #     for mvi in range(0, blockLength-1):
@@ -257,7 +259,7 @@ class TriFile():
         #     for ii, nv in enumerate(mesh_key_verts):
         #         new_verts.append((verts_list[ii][0], verts_list[ii][1], verts_list[ii][2]))
 
-        return morphSubName, vertsAdd_Index, new_verts
+        return morphSubName, 0, None
 
 
     def read(self, file):
@@ -266,7 +268,10 @@ class TriFile():
             header = TRIheader object to use for this import
             returns (obj with shape keys, mesh with vertex locations)
         """
-        # read primary mesh
+        self.log.debug(f"""
+            Reading tri file: 
+            {self.header}
+            """)
 
         # load vertex data
         verts_list = []
@@ -376,7 +381,9 @@ class TriFile():
                     vertsAdd_listLength,
                     verts_list
                     )
-                self.modmorphs[name] = verts
+                if verts:
+                    self.modmorphs[name] = verts
+                    self.log.debug(f"Read morph {name}")
 
 
     @classmethod

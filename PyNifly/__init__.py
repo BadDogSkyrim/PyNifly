@@ -104,6 +104,7 @@ BLENDER_XF_DEF = False
 CHARGEN_EXT_DEF = "chargen"
 CREATE_BONES_DEF = True
 EXPORT_MODIFIERS_DEF = False
+EXPORT_ANIMATIONS_DEF = False
 EXPORT_COLORS_DEF = True
 EXPORT_POSE_DEF = False
 IMPORT_ANIMS_DEF = True
@@ -2786,6 +2787,7 @@ class NifExporter:
         self.write_bodytri = WRITE_BODYTRI_DEF
         self.export_pose = EXPORT_POSE_DEF
         self.export_modifiers = EXPORT_MODIFIERS_DEF
+        self.export_animations = EXPORT_ANIMATIONS_DEF
         self.export_colors = EXPORT_COLORS_DEF
         self.active_obj = None
         self.scale = scale
@@ -2828,6 +2830,7 @@ class NifExporter:
         if self.write_bodytri: flags.append("WRITE_BODYTRI")
         if self.export_pose: flags.append("EXPORT_POSE")
         if self.export_modifiers: flags.append("EXPORT_MODIFIERS")
+        if self.export_animations: flags.append("EXPORT_ANIMATIONS")
         if self.export_colors: flags.append("EXPORT_COLORS")
         return f"""
         Exporting objects: {[o.name for o in self.objects]}
@@ -3714,7 +3717,10 @@ class NifExporter:
         # Write other block types
         collision.CollisionHandler.export_collisions(self, obj)
         try:
-            if obj.active_material and obj.active_material.node_tree and obj.active_material.node_tree.animation_data:
+            if (self.export_animations 
+                and obj.active_material 
+                and obj.active_material.node_tree 
+                and obj.active_material.node_tree.animation_data):
                 controller.ControllerHandler.export_shader_controller(
                     self, robj, obj.active_material.node_tree)
         except:
@@ -4000,6 +4006,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         description="Export all active modifiers (including shape keys)",
         default=False) # type: ignore
 
+    export_animations: bpy.props.BoolProperty(
+        name="Export animations",
+        description="Export animations embedded in the nif file",
+        default=False) # type: ignore
+
     export_colors: bpy.props.BoolProperty(
         name="Export vertex color/alpha",
         description="Use vertex color attributes as vertex color",
@@ -4134,6 +4145,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             exporter.write_bodytri = self.write_bodytri
             exporter.export_pose = self.export_pose
             exporter.export_modifiers = self.export_modifiers
+            exporter.export_animations = self.export_animations
             exporter.export_colors = self.export_colors
             if self.use_blender_xf:
                 exporter.export_xf = blender_export_xf
@@ -4637,6 +4649,8 @@ def unregister():
 
     skeleton_hkx.unregister()
     controller.unregister()
+    356
+    +900
 
 def register():
     for d, f, c in pyn_registry:

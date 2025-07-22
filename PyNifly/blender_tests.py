@@ -11,7 +11,8 @@ import pathlib
 import bpy
 import bpy_types
 from mathutils import Matrix, Vector, Quaternion, Euler
-import test_tools_bpy as TT
+import test_tools as TT
+import test_tools_bpy as TTB
 import niflytools as NT
 import nifdefs
 import pynifly as pyn
@@ -57,7 +58,8 @@ class TestLogHandler(logging.Handler):
         self.expect_error = logging.WARNING
         
     def check(self):
-        assert self.max_error <= self.expect_error, f"No errors reported during test"        
+        assert self.max_error <= self.expect_error, \
+            f"No errors reported during test {self.max_error} > {self.expect_error}"        
 
     def finish(self):
         self.check()        
@@ -76,7 +78,7 @@ def TEST_BODYPART_SKY():
     """Basic test that a Skyrim bodypart is imported correctly. """
     # Verts are organized around the origin, but skin transform is put on the shape 
     # and that lifts them to the head position.  
-    testfile = TT.test_file("tests\Skyrim\malehead.nif")
+    testfile = TTB.test_file("tests\Skyrim\malehead.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     # Importer leaves any imported shapes as the selected object.
@@ -105,7 +107,7 @@ def TEST_BODYPART_FO4():
     """Basic test that a FO4 bodypart imports correctly. """
     # Verts are organized around the origin but the skin-to-bone transforms are 
     # all consistent, so they are put on the shape.
-    testfile = TT.test_file("tests\FO4\BaseMaleHead.nif")
+    testfile = TTB.test_file("tests\FO4\BaseMaleHead.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     male_head = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH'][0]
     assert int(male_head.location.z) == 120, f"ERROR: Object {male_head.name} at {male_head.location.z}, not elevated to position"
@@ -121,7 +123,7 @@ def TEST_BODYPART_XFORM():
     # On import, a transform can be applied to make it convenient for handling in Blender.
     # And the bones in the nif can be extended with the reference skeleton. Using the
     # child body because it creates problems that the adult body does not.
-    testfile = TT.test_file(r"tests\Skyrim\childbody.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\childbody.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  do_create_bones=True,
                                  use_blender_xf=True,
@@ -152,8 +154,8 @@ def TEST_BODYPART_XFORM():
     
 def TEST_SKYRIM_XFORM():
     """Can read & write the Skyrim shape transforms"""
-    testfile = TT.test_file(r"tests/Skyrim/MaleHead.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SKYRIM_XFORM.nif")
+    testfile = TTB.test_file(r"tests/Skyrim/MaleHead.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SKYRIM_XFORM.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -175,9 +177,9 @@ def TEST_SKYRIM_XFORM():
 
 def TEST_FO4_XFORM():
     """Can read & write FO4 shape transforms"""
-    testfile = TT.test_file(r"tests/FO4/BaseMaleHead.nif")
-    outfile1 = TT.test_file(r"tests/Out/TEST_FO4_XFORM1.nif")
-    outfile2 = TT.test_file(r"tests/Out/TEST_FO4_XFORM2.nif")
+    testfile = TTB.test_file(r"tests/FO4/BaseMaleHead.nif")
+    outfile1 = TTB.test_file(r"tests/Out/TEST_FO4_XFORM1.nif")
+    outfile2 = TTB.test_file(r"tests/Out/TEST_FO4_XFORM2.nif")
 
     # Reading the nif and calculating the offset from bone offsets
     bpy.ops.import_scene.pynifly(filepath=testfile,
@@ -214,8 +216,8 @@ def TEST_SKIN_BONE_XFORM():
     # exactly the vanilla locations, and yet the verts are organized around the origin.
     # The head is lifted into position with the skin-to-bone transforms (same way as FO4).
 
-    testfile = TT.test_file(r"tests\SkyrimSE\maleheadargonian.nif")
-    outfile = TT.test_file(r"tests\out\TEST_SKIN_BONE_XF.nif", output=True)
+    testfile = TTB.test_file(r"tests\SkyrimSE\maleheadargonian.nif")
+    outfile = TTB.test_file(r"tests\out\TEST_SKIN_BONE_XF.nif", output=True)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     head = TT.find_object("_ArgonianMaleHead")
@@ -262,11 +264,11 @@ def TEST_SKIN_BONE_XFORM():
 
 def do_bodypart_alignment_fo4(create_bones, estimate_offset, use_pose):
     """Should be able to write bodyparts and have the transforms match exactly."""
-    headfile = TT.test_file(r"tests\FO4\FoxFemaleHead.nif")
-    skelfile = TT.test_file(r"tests\FO4\skeleton.nif")
-    bodyfile = TT.test_file(r"tests\FO4\CanineFemBody.nif")
-    headout = TT.test_file(r"tests\out\TEST_BODYPART_ALIGHMENT_FO4_head.nif", output=True)
-    bodyout = TT.test_file(r"tests\out\TEST_BODYPART_ALIGHMENT_FO4_body.nif", output=True)
+    headfile = TTB.test_file(r"tests\FO4\FoxFemaleHead.nif")
+    skelfile = TTB.test_file(r"tests\FO4\skeleton.nif")
+    bodyfile = TTB.test_file(r"tests\FO4\CanineFemBody.nif")
+    headout = TTB.test_file(r"tests\out\TEST_BODYPART_ALIGHMENT_FO4_head.nif", output=True)
+    bodyout = TTB.test_file(r"tests\out\TEST_BODYPART_ALIGHMENT_FO4_body.nif", output=True)
 
     # Read the body parts using the same skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile, 
@@ -336,13 +338,13 @@ def TEST_IMP_EXP_SKY():
     """Can read the armor nif and spit it back out"""
     # Round trip of ordinary Skyrim armor, with and without scale factor.
 
-    testfile = TT.test_file(r"tests/Skyrim/armor_only.nif")
+    testfile = TTB.test_file(r"tests/Skyrim/armor_only.nif")
 
     def do_test(game, blendxf):
-        TT.clear_all()
+        TTB.clear_all()
         xftext = '_XF' if blendxf else ''
         print(f"---Testing {'with' if blendxf else 'without'} blender transform for {game}")
-        outfile = TT.test_file(f"tests/Out/TEST_IMP_EXP_SKY_{game}{xftext}.nif")
+        outfile = TTB.test_file(f"tests/Out/TEST_IMP_EXP_SKY_{game}{xftext}.nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=blendxf)
         armor = [obj for obj in bpy.context.selected_objects if obj.name.startswith('Armor')][0]
@@ -396,14 +398,14 @@ def TEST_IMP_EXP_SKY_2():
     # to be. The armor does have the usual transform on the shape and the skin, and the
     # verts are all below the origin. They have to be loaded into one armature.
 
-    #testfile = TT.test_file(r"tests/Skyrim/test.nif") 
+    #testfile = TTB.test_file(r"tests/Skyrim/test.nif") 
     # 
     # The test.nif meshes are a bit wonky--one was pasted in by hand from SOS, the other
     # is a vanilla armor. The ForearmTwist2.L bind rotation is off by some hundredths.  
     # So do the test with the vanilla male body, which has two parts and is consistent.
-    testfile = TT.test_file(r"tests/Skyrim/malebody_1.nif")
-    # skelfile = TT.test_file(r"tests/Skyrim/skeleton_vanilla.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_IMP_EXP_SKY_2.nif")
+    testfile = TTB.test_file(r"tests/Skyrim/malebody_1.nif")
+    # skelfile = TTB.test_file(r"tests/Skyrim/skeleton_vanilla.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_IMP_EXP_SKY_2.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -432,8 +434,8 @@ def TEST_IMP_EXP_SKY_2():
 def TEST_IMP_EXP_FO4():
     """Can read the body nif and spit it back out"""
 
-    testfile = TT.test_file(r"tests\FO4\BTMaleBody.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_IMP_EXP_FO4.nif")
+    testfile = TTB.test_file(r"tests\FO4\BTMaleBody.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_IMP_EXP_FO4.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -460,8 +462,8 @@ def TEST_IMP_EXP_FO4():
 def TEST_IMP_EXP_FO4_2():
     """Can read the body armor with 2 parts"""
 
-    testfile = TT.test_file(r"tests\FO4\Pack_UnderArmor_03_M.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_IMP_EXP_FO4_2.nif")
+    testfile = TTB.test_file(r"tests\FO4\Pack_UnderArmor_03_M.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_IMP_EXP_FO4_2.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -494,8 +496,8 @@ def TEST_IMP_EXP_FO4_2():
 def TEST_IMP_EXP_FO4_3():
     """Can read clothes + body and they come in sensibly"""
 
-    testfile = TT.test_file(r"tests\FO4\bathrobe.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_IMP_EXP_FO4_3.nif")
+    testfile = TTB.test_file(r"tests\FO4\bathrobe.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_IMP_EXP_FO4_3.nif")
 
     # Setting do_import_pose=False results in a good import but the 
     # shapes jump around in edit mode.
@@ -515,8 +517,8 @@ def TEST_IMP_EXP_FO4_3():
 
 def TEST_ROUND_TRIP():
     """Can do the full round trip: nif -> blender -> nif -> blender"""
-    testfile = TT.test_file("tests/Skyrim/test.nif")
-    outfile1 = TT.test_file("tests/Out/TEST_ROUND_TRIP.nif")
+    testfile = TTB.test_file("tests/Skyrim/test.nif")
+    outfile1 = TTB.test_file("tests/Out/TEST_ROUND_TRIP.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -539,7 +541,7 @@ def TEST_ROUND_TRIP():
     assert os.path.exists(outfile1), "ERROR: Created output file"
 
     print("Re-importing exported file")
-    TT.clear_all()
+    TTB.clear_all()
     bpy.ops.object.select_all(action='DESELECT')
     bpy.ops.import_scene.pynifly(filepath=outfile1)
 
@@ -552,7 +554,7 @@ def TEST_ROUND_TRIP():
 
 def TEST_BPY_PARENT_A():
     """Maintain armature structure"""
-    testfile = TT.test_file(r"tests\Skyrim\test.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\test.nif")
     
     # Can intuit structure if it's not in the file
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -563,7 +565,7 @@ def TEST_BPY_PARENT_A():
 
 def TEST_BPY_PARENT_B():
     """Maintain armature structure"""
-    testfile2 = TT.test_file(r"tests\FO4\bear_tshirt_turtleneck.nif")
+    testfile2 = TTB.test_file(r"tests\FO4\bear_tshirt_turtleneck.nif")
     
     ## Can read structure if it comes from file
     bpy.ops.object.select_all(action='DESELECT')
@@ -575,7 +577,7 @@ def TEST_BPY_PARENT_B():
 
 def TEST_RENAME():
     """Test that NOT renaming bones works correctly"""
-    testfile = TT.test_file(r"tests\Skyrim\femalebody_1.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\femalebody_1.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, do_rename_bones=False)
 
@@ -595,7 +597,7 @@ def TEST_CONNECTED_SKEL():
     # Check that the bones of the armature are connected correctly.
 
     bpy.ops.object.select_all(action='DESELECT')
-    testfile = TT.test_file(r"tests\FO4\vanillaMaleBody.nif")
+    testfile = TTB.test_file(r"tests\FO4\vanillaMaleBody.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     s = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
@@ -612,8 +614,8 @@ def TEST_CONNECTED_SKEL():
 # ### Following test works but probably duplicates others. 
 # def TEST_HELM_SMP():
 #     """Import helm with different parts at different offsets."""
-#     testfile = TT.test_file(r"tests\SkyrimSE\helmet-SMP.nif")
-#     outfile = TT.test_file(r"tests\SkyrimSE\TEST_HELM_SMP.nif")
+#     testfile = TTB.test_file(r"tests\SkyrimSE\helmet-SMP.nif")
+#     outfile = TTB.test_file(r"tests\SkyrimSE\TEST_HELM_SMP.nif")
 #     bpy.ops.import_scene.pynifly(filepath=testfile, 
 #                                  use_blender_xf=True,
 #                                  do_create_bones=False,
@@ -635,9 +637,9 @@ def TEST_DRAUGR_IMPORT_A():
     # those bind positions. 
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests\SkyrimSE\draugr lich01 hood.nif")
-    skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_A.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\draugr lich01 hood.nif")
+    skelfile = TTB.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_A.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
                                  do_create_bones=True,
@@ -664,9 +666,9 @@ def TEST_DRAUGR_IMPORT_B():
     # shape.
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests\SkyrimSE\draugr lich01 hood.nif")
-    skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_B.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\draugr lich01 hood.nif")
+    skelfile = TTB.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_B.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
                                  do_create_bones=False,
@@ -688,9 +690,9 @@ def TEST_DRAUGR_IMPORT_C():
     """Import helm, don't extend skeleton"""
     # The helm has bones that are in the draugr's vanilla bind position.
 
-    testfile = TT.test_file(r"tests\SkyrimSE\draugr lich01 helm.nif")
-    skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_C.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\draugr lich01 helm.nif")
+    skelfile = TTB.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_C.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
                                  do_create_bones=False,
@@ -712,9 +714,9 @@ def TEST_DRAUGR_IMPORT_D():
     # Fo the helm, when we import WITH adding bones, we get a full draugr skeleton.
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests\SkyrimSE\draugr lich01 helm.nif")
-    skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_D.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\draugr lich01 helm.nif")
+    skelfile = TTB.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_D.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
                                  do_create_bones=True,
@@ -750,9 +752,9 @@ def TEST_DRAUGR_IMPORT_E():
     # to one armature.
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests\SkyrimSE\draugr lich01 simple.nif")
-    skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_E.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\draugr lich01 simple.nif")
+    skelfile = TTB.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_E.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
                                  do_create_bones=False,
@@ -827,8 +829,8 @@ def TEST_DRAUGR_IMPORT_E():
 def TEST_SCALING_BP():
     """Can scale bodyparts"""
 
-    testfile = TT.test_file(r"tests\Skyrim\malebody_1.nif")
-    outfile = TT.test_file(r"tests\Out\TEST_SCALING_BP.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\malebody_1.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_SCALING_BP.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  rename_bones_niftools=True,
@@ -879,8 +881,8 @@ def TEST_IMP_EXP_SCALE_2():
     # Regression: Making sure that the scale factor doesn't mess up importing under one
     # armature.
 
-    testfile = TT.test_file(r"tests/Skyrim/malebody_1.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_IMP_EXP_SCALE_2.nif")
+    testfile = TTB.test_file(r"tests/Skyrim/malebody_1.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_IMP_EXP_SCALE_2.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
 
@@ -902,8 +904,8 @@ def TEST_ARMATURE_EXTEND():
     # Can import a shape with an armature and then import another shape to the same armature. 
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests\FO4\MaleBody.nif")
-    testfile2 = TT.test_file(r"tests\FO4\BaseMaleHead.nif")
+    testfile = TTB.test_file(r"tests\FO4\MaleBody.nif")
+    testfile2 = TTB.test_file(r"tests\FO4\BaseMaleHead.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     
@@ -949,8 +951,8 @@ def TEST_ARMATURE_EXTEND_BT():
     # which pyNifly handles, and put them into the skeleton consistently with the rest.
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests\FO4\BTBaseMaleBody.nif")
-    testfile2 = TT.test_file(r"tests\FO4\BaseMaleHead.nif")
+    testfile = TTB.test_file(r"tests\FO4\BTBaseMaleBody.nif")
+    testfile2 = TTB.test_file(r"tests\FO4\BaseMaleHead.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     
@@ -987,10 +989,10 @@ def TEST_EXPORT_WEIGHTS():
     # 
     # Also check that when we have multiple objects under a skeleton and only select one,
     # only that one gets written. 
-    testfile = TT.test_file(r"tests\Skyrim\test.nif")
-    filepath_armor = TT.test_file("tests/out/testArmorSkyrim02.nif")
-    filepath_armor_fo = TT.test_file(r"tests\Out\testArmorFO02.nif")
-    filepath_body = TT.test_file(r"tests\Out\testBodySkyrim02.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\test.nif")
+    filepath_armor = TTB.test_file("tests/out/testArmorSkyrim02.nif")
+    filepath_armor_fo = TTB.test_file(r"tests\Out\testArmorFO02.nif")
+    filepath_body = TTB.test_file(r"tests\Out\testBodySkyrim02.nif")
 
     # Import body and armor
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -1028,7 +1030,7 @@ def TEST_EXPORT_WEIGHTS():
 
 def TEST_WEIGHTS_EXPORT():
     """Exporting this head weights all verts correctly"""
-    outfile = TT.test_file(r"tests/Out/TEST_WEIGHTS_EXPORT.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_WEIGHTS_EXPORT.nif")
 
     head = TT.append_from_file("CheetahFemaleHead", True, r"tests\FO4\CheetahHead.blend", 
                             r"\Object", "CheetahFemaleHead")
@@ -1053,7 +1055,7 @@ def TEST_WEIGHTS_EXPORT():
 
 def TEST_0_WEIGHTS():
     """Gives warning on export with 0 weights"""
-    testfile = TT.test_file(r"tests\Out\weight0.nif")
+    testfile = TTB.test_file(r"tests\Out\weight0.nif")
 
     baby = TT.append_from_file("TestBabyhead", True, r"tests\FO4\Test0Weights.blend", r"\Collection", "BabyCollection")
     baby.parent.name == "BabyExportRoot", f"Error: Should have baby and armature"
@@ -1067,10 +1069,10 @@ def TEST_0_WEIGHTS():
 
 def TEST_TIGER_EXPORT():
     """Tiger head exports without errors"""
-    f = TT.test_file(r"tests/Out/TEST_TIGER_EXPORT.nif")
-    fb = TT.test_file(r"tests/Out/TEST_TIGER_EXPORT_faceBones.nif")
-    ftri = TT.test_file(r"tests/Out/TEST_TIGER_EXPORT.tri")
-    fchargen = TT.test_file(r"tests/Out/TEST_TIGER_EXPORT_chargen.tri")
+    f = TTB.test_file(r"tests/Out/TEST_TIGER_EXPORT.nif")
+    fb = TTB.test_file(r"tests/Out/TEST_TIGER_EXPORT_faceBones.nif")
+    ftri = TTB.test_file(r"tests/Out/TEST_TIGER_EXPORT.tri")
+    fchargen = TTB.test_file(r"tests/Out/TEST_TIGER_EXPORT_chargen.tri")
 
     TT.append_from_file("TigerMaleHead", True, r"tests\FO4\Tiger.blend", r"\Object", "TigerMaleHead")
 
@@ -1089,8 +1091,8 @@ def TEST_TIGER_EXPORT():
 def TEST_3BBB():
     """Test that this mesh imports with the right transforms"""
 
-    testfile = TT.test_file(r"tests/SkyrimSE/3BBB_femalebody_1.nif")
-    testfile2 = TT.test_file(r"tests/SkyrimSE/3BBB_femalehands_1.nif")
+    testfile = TTB.test_file(r"tests/SkyrimSE/3BBB_femalebody_1.nif")
+    testfile2 = TTB.test_file(r"tests/SkyrimSE/3BBB_femalehands_1.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     
     obj = bpy.context.object
@@ -1110,10 +1112,10 @@ def TEST_CONNECT_SKEL():
     """Can import and export FO4 skeleton file with no shapes"""
     def do_test(use_xf):
         print(f"Can import and export FO4 skeleton file with no shapes, transform {use_xf}")
-        TT.clear_all()
+        TTB.clear_all()
         testname = "TEST_SKEL_" + str(use_xf)
-        testfile = TT.test_file(r"skeletons\FO4\skeleton.nif")
-        outfile = TT.test_file(r"tests/out/" + testname + ".nif")
+        testfile = TTB.test_file(r"skeletons\FO4\skeleton.nif")
+        outfile = TTB.test_file(r"tests/out/" + testname + ".nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, 
                                      do_create_bones=False, 
@@ -1164,8 +1166,8 @@ def TEST_CONNECT_SKEL():
 
 def TEST_SKEL_SKY():
     """Can import and export Skyrim skeleton file with no shapes"""
-    testfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
-    outfile = TT.test_file(r"tests/out/TEST_SKEL_SKY.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    outfile = TTB.test_file(r"tests/out/TEST_SKEL_SKY.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False)
 
@@ -1191,11 +1193,11 @@ def TEST_HEADPART():
     """Can read & write an SE head part"""
     # Tri files can be loaded up into a shape in blender as shape keys. On SE, when there
     # are shape keys a BSDynamicTriShape is used on export.
-    testfile = TT.test_file(r"tests/SKYRIMSE/malehead.nif")
-    testtri = TT.test_file(r"tests/SKYRIMSE/malehead.tri")
-    testfileout = TT.test_file(r"tests/out/TEST_HEADPART.nif")
-    testfileout2 = TT.test_file(r"tests/out/TEST_HEADPART2.nif")
-    testfileout3 = TT.test_file(r"tests/out/TEST_HEADPART3.nif")
+    testfile = TTB.test_file(r"tests/SKYRIMSE/malehead.nif")
+    testtri = TTB.test_file(r"tests/SKYRIMSE/malehead.tri")
+    testfileout = TTB.test_file(r"tests/out/TEST_HEADPART.nif")
+    testfileout2 = TTB.test_file(r"tests/out/TEST_HEADPART2.nif")
+    testfileout3 = TTB.test_file(r"tests/out/TEST_HEADPART3.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     obj = bpy.context.object
@@ -1241,9 +1243,9 @@ def TEST_HEADPART():
 
 def TEST_TRI_SIMPLE():
     """Can create and export a mesh with shapekeys to a tri file."""
-    tricubenif = TT.test_file(r"tests\Out\tricube01.nif")
-    tricubeniftri = TT.test_file(r"tests\Out\tricube01.tri")
-    tricubenifchg = TT.test_file(r"tests\Out\tricube01chargen.tri")
+    tricubenif = TTB.test_file(r"tests\Out\tricube01.nif")
+    tricubeniftri = TTB.test_file(r"tests\Out\tricube01.tri")
+    tricubenifchg = TTB.test_file(r"tests\Out\tricube01chargen.tri")
 
     bpy.ops.mesh.primitive_cube_add()
     cube = bpy.context.selected_objects[0]
@@ -1276,12 +1278,12 @@ def TEST_TRI_SIMPLE():
 def TEST_TRI():
     """Can load a tri file into an existing mesh"""
 
-    testfile = TT.test_file(r"tests\FO4\CheetahMaleHead.nif")
-    testtri2 = TT.test_file(r"tests\FO4\CheetahMaleHead.tri")
-    testtri3 = TT.test_file(r"tests\FO4\CheetahMaleHead.tri")
-    testout2 = TT.test_file(r"tests\Out\CheetahMaleHead02.nif")
-    testout2tri = TT.test_file(r"tests\Out\CheetahMaleHead02.tri")
-    testout2chg = TT.test_file(r"tests\Out\CheetahMaleHead02chargen.tri")
+    testfile = TTB.test_file(r"tests\FO4\CheetahMaleHead.nif")
+    testtri2 = TTB.test_file(r"tests\FO4\CheetahMaleHead.tri")
+    testtri3 = TTB.test_file(r"tests\FO4\CheetahMaleHead.tri")
+    testout2 = TTB.test_file(r"tests\Out\CheetahMaleHead02.nif")
+    testout2tri = TTB.test_file(r"tests\Out\CheetahMaleHead02.tri")
+    testout2chg = TTB.test_file(r"tests\Out\CheetahMaleHead02chargen.tri")
 
     bpy.ops.object.select_all(action='DESELECT')
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -1323,16 +1325,32 @@ def TEST_TRI():
 
 def TEST_TRI_EYES():
     """Child eyes tris are odd--handle them correctly."""
-    testfile = TT.test_file(r"tests\Skyrim\eyeschild.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\eyeschild.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
+
+
+def TEST_TRI_HIMBO():
+    """HIMBO tris are odd."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\himbo.nif")
+    testfile2 = TTB.test_file(r"tests\SkyrimSE\himbo.tri")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    assert len(bpy.data.objects) > 2, f"Have more than 2 objects: {bpy.data.objects}"
+    bpy.ops.import_scene.pyniflytri(filepath=testfile2)
+
+
+def TEST_TRI_WILLOW():
+    """Import tri file correctly"""
+    testfile = TTB.test_file(r"tests\FONV\headfemale_willow.tri")
+    bpy.ops.import_scene.pyniflytri(filepath=testfile)
+    assert bpy.context.object.name is not None, f"Imported tri file: {bpy.context.object.name}"
 
 
 def TEST_IMPORT_MULTI_OBJECTS():
     """Can import 2 meshes as objects"""
     # When two files are selected for import, they are connected into a single armature.
 
-    testfiles = [{"name": TT.test_file(r"tests\SkyrimSE\malehead.nif")}, 
-                 {"name": TT.test_file(r"tests\SkyrimSE\body1m_1.nif")}, ]
+    testfiles = [{"name": TTB.test_file(r"tests\SkyrimSE\malehead.nif")}, 
+                 {"name": TTB.test_file(r"tests\SkyrimSE\body1m_1.nif")}, ]
     bpy.ops.import_scene.pynifly(files=testfiles)
 
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
@@ -1353,8 +1371,8 @@ def TEST_IMPORT_AS_SHAPES():
     # When two files are selected for import, they are imported as shape keys if possible.
     """Can import 2 meshes as shape keys"""
 
-    testfiles = [{"name": TT.test_file(r"tests\SkyrimSE\body1m_0.nif")}, 
-                 {"name": TT.test_file(r"tests\SkyrimSE\body1m_1.nif")}, ]
+    testfiles = [{"name": TTB.test_file(r"tests\SkyrimSE\body1m_0.nif")}, 
+                 {"name": TTB.test_file(r"tests\SkyrimSE\body1m_1.nif")}, ]
     bpy.ops.import_scene.pynifly(files=testfiles)
 
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
@@ -1372,11 +1390,11 @@ def TEST_IMPORT_MULT_SHAPES():
     # When multiple files are selected for a single import, they are connected up as 
     # shape keys if possible.
 
-    testfiles = [{"name": TT.test_file(r"tests\FO4\PoliceGlasses\Glasses_Cat.nif")}, 
-                    {"name": TT.test_file(r"tests\FO4\PoliceGlasses\Glasses_CatF.nif")}, 
-                    {"name": TT.test_file(r"tests\FO4\PoliceGlasses\Glasses_Horse.nif")}, 
-                    {"name": TT.test_file(r"tests\FO4\PoliceGlasses\Glasses_Hyena.nif")}, 
-                    {"name": TT.test_file(r"tests\FO4\PoliceGlasses\Glasses_LionLyk.nif")}, 
+    testfiles = [{"name": TTB.test_file(r"tests\FO4\PoliceGlasses\Glasses_Cat.nif")}, 
+                    {"name": TTB.test_file(r"tests\FO4\PoliceGlasses\Glasses_CatF.nif")}, 
+                    {"name": TTB.test_file(r"tests\FO4\PoliceGlasses\Glasses_Horse.nif")}, 
+                    {"name": TTB.test_file(r"tests\FO4\PoliceGlasses\Glasses_Hyena.nif")}, 
+                    {"name": TTB.test_file(r"tests\FO4\PoliceGlasses\Glasses_LionLyk.nif")}, 
                     ]
     bpy.ops.import_scene.pynifly(files=testfiles)
 
@@ -1398,9 +1416,9 @@ def TEST_EXP_SK_RENAMED():
     # naming conventions.
     #
     # Doesn't work on 2.x. Not sure why.
-    outfile = TT.test_file(r"tests/Out/TEST_EXP_SK_RENAMED.nif")
-    trifile = TT.test_file(r"tests/Out/TEST_EXP_SK_RENAMED.tri")
-    chargenfile = TT.test_file(r"tests/Out/TEST_EXP_SK_RENAMEDchargen.tri")
+    outfile = TTB.test_file(r"tests/Out/TEST_EXP_SK_RENAMED.nif")
+    trifile = TTB.test_file(r"tests/Out/TEST_EXP_SK_RENAMED.tri")
+    chargenfile = TTB.test_file(r"tests/Out/TEST_EXP_SK_RENAMEDchargen.tri")
 
     TT.append_from_file("BaseFemaleHead:0", True, r"tests\FO4\FemaleHead.blend", 
                      r"\Object", "BaseFemaleHead:0")
@@ -1446,9 +1464,9 @@ def TEST_EXP_SK_RENAMED():
 def TEST_SK_MULT():
     """Export multiple objects with only some shape keys"""
 
-    outfile = TT.test_file(r"tests/Out/TEST_SK_MULT.nif")
-    outfile0 = TT.test_file(r"tests/Out/TEST_SK_MULT_0.nif")
-    outfile1 = TT.test_file(r"tests/Out/TEST_SK_MULT_1.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SK_MULT.nif")
+    outfile0 = TTB.test_file(r"tests/Out/TEST_SK_MULT_0.nif")
+    outfile1 = TTB.test_file(r"tests/Out/TEST_SK_MULT_1.nif")
 
     TT.append_from_file("CheMaleMane", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "CheMaleMane")
     TT.append_from_file("MaleTail", True, r"tests\SkyrimSE\Neck ruff.blend", r"\Object", "MaleTail")
@@ -1474,8 +1492,8 @@ def TEST_SK_MULT():
 
 def TEST_TRI2():
     """Regression: Test correct improt of tri"""
-    testfile = TT.test_file(r"tests/Skyrim/OtterMaleHead.nif")
-    trifile = TT.test_file(r"tests/Skyrim/OtterMaleHeadChargen.tri")
+    testfile = TTB.test_file(r"tests/Skyrim/OtterMaleHead.nif")
+    trifile = TTB.test_file(r"tests/Skyrim/OtterMaleHeadChargen.tri")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -1491,8 +1509,8 @@ def TEST_BAD_TRI():
     # Tri files have UVs in them, but it's mostly not used, and some tris have messed up
     # UVs. Make sure they can be read anyway.
 
-    testfile = TT.test_file(r"tests/Skyrim/bad_tri.tri")
-    testfile2 = TT.test_file(r"tests/Skyrim/bad_tri_2.tri")
+    testfile = TTB.test_file(r"tests/Skyrim/bad_tri.tri")
+    testfile2 = TTB.test_file(r"tests/Skyrim/bad_tri_2.tri")
     
     bpy.ops.import_scene.pyniflytri(filepath=testfile)
     obj = bpy.context.object
@@ -1506,8 +1524,8 @@ def TEST_BAD_TRI():
 def TEST_SEGMENTS():
     """Can read FO4 segments"""
 
-    testfile = TT.test_file(r"tests/FO4/VanillaMaleBody.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SEGMENTS.nif")
+    testfile = TTB.test_file(r"tests/FO4/VanillaMaleBody.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SEGMENTS.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
@@ -1532,8 +1550,8 @@ def TEST_SEGMENTS():
 def TEST_BP_SEGMENTS():
     """Can read FO4 bodypart segments"""
 
-    testfile = TT.test_file(r"tests/FO4/Helmet.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_BP_SEGMENTS.nif")
+    testfile = TTB.test_file(r"tests/FO4/Helmet.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_BP_SEGMENTS.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     helmet = bpy.data.objects['Helmet:0']
@@ -1576,7 +1594,7 @@ def TEST_EXP_SEGMENTS_BAD():
     """Verts export in the correct segments"""
     # Game can get crashy if there are a bunch of empty segments at the end of the list.
 
-    outfile = TT.test_file(r"tests/Out/TEST_EXP_SEGMENTS_BAD.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_EXP_SEGMENTS_BAD.nif")
 
     TT.append_from_file("ArmorUnder", True, r"tests\FO4\ArmorExportsBadSegments.blend", r"\Object", "ArmorUnder")
 
@@ -1599,7 +1617,7 @@ def TEST_EXP_SEG_ORDER():
     if bpy.app.version[0] < 3: return 
 
     # Order matters for the segments, so make sure it's right.
-    outfile = TT.test_file(r"tests/Out/TEST_EXP_SEG_ORDER.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_EXP_SEG_ORDER.nif")
 
     gen1bod = TT.append_from_file("SynthGen1Body", True, r"tests\FO4\SynthGen1BodyTest.blend", r"\Object", "SynthGen1Body")
 
@@ -1625,8 +1643,8 @@ def TEST_EXP_SEG_ORDER():
 
 def TEST_PARTITIONS():
     """Can read Skyrim partions"""
-    testfile = TT.test_file(r"tests/Skyrim/MaleHead.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_PARTITIONS.nif")
+    testfile = TTB.test_file(r"tests/Skyrim/MaleHead.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_PARTITIONS.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -1654,8 +1672,8 @@ def TEST_PARTITIONS():
 def TEST_SHADER_LE():
     """Shader attributes are read and turned into Blender shader nodes"""
 
-    fileLE = TT.test_file(r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SHADER_LE.nif")
+    fileLE = TTB.test_file(r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SHADER_LE.nif")
     bpy.ops.import_scene.pynifly(filepath=fileLE, use_blender_xf=True)
 
     nifLE = pyn.NifFile(fileLE)
@@ -1694,8 +1712,8 @@ def TEST_SHADER_SE():
     """Shader attributes are read and turned into Blender shader nodes"""
     # Basic test of texture paths on shaders.
 
-    fileSE = TT.test_file(r"tests\skyrimse\meshes\armor\dwarven\dwarvenboots_envscale.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SHADER_SE.nif")
+    fileSE = TTB.test_file(r"tests\skyrimse\meshes\armor\dwarven\dwarvenboots_envscale.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SHADER_SE.nif")
     
     bpy.ops.import_scene.pynifly(filepath=fileSE, use_blender_xf=True)
     nifSE = pyn.NifFile(fileSE)
@@ -1726,10 +1744,10 @@ def TEST_SHADER_SE():
 
 def TEST_SHADER_FO4():
     """Shader attributes are read and turned into Blender shader nodes"""
-    fileFO4 = TT.test_file(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SHADER_FO4.nif")
-    matin = TT.test_file(r"tests\FO4\Materials\Actors\Character\BaseHumanMale\basehumanskinHead.bgsm")
-    matout = TT.test_file(r"tests\Out\Materials\Actors\Character\BaseHumanMale\basehumanskinHead.bgsm")
+    fileFO4 = TTB.test_file(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SHADER_FO4.nif")
+    matin = TTB.test_file(r"tests\FO4\Materials\Actors\Character\BaseHumanMale\basehumanskinHead.bgsm")
+    matout = TTB.test_file(r"tests\Out\Materials\Actors\Character\BaseHumanMale\basehumanskinHead.bgsm")
 
     bpy.ops.import_scene.pynifly(filepath=fileFO4, use_blender_xf=True)
     headFO4 = bpy.context.object
@@ -1766,8 +1784,8 @@ def TEST_SHADER_FO4():
 
 def TEST_SHADER_GRAYSCALE_COLOR():
     """Test that grayscale color is handled directly"""
-    testfile = TT.test_file(r"tests\FO4\FemaleHair25.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SHADER_GRAYSCALE_COLOR.nif")
+    testfile = TTB.test_file(r"tests\FO4\FemaleHair25.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SHADER_GRAYSCALE_COLOR.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     h = TT.find_shape("FemaleHair25:0")
@@ -1814,8 +1832,8 @@ def TEST_SHADER_GRAYSCALE_COLOR():
 
 def TEST_SHADER_SCALE():
     """UV offset and scale are preserved."""
-    testfile = TT.test_file(r"tests\SkyrimSE\maleorchair27.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SHADER_SCALE.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\maleorchair27.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SHADER_SCALE.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     bpy.ops.export_scene.pynifly(filepath=outfile)
@@ -1827,8 +1845,8 @@ def TEST_SHADER_SCALE():
 
 def TEST_ANIM_SHADER_GLOW():
     """Glow shader elements and other extra attributes work correctly."""
-    testfile = TT.test_file(r"tests\SkyrimSE\meshes\armor\daedric\daedriccuirass_1.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SHADER_GLOW.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\armor\daedric\daedriccuirass_1.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SHADER_GLOW.nif")
 
     ### READ ###
 
@@ -1903,8 +1921,8 @@ def TEST_ANIM_SHADER_GLOW():
 def TEST_ANIM_SHADER_SPRIGGAN():
     """Test that the special spriggan elements work correctly."""
     # Spriggan with limited controllers
-    testfile = TT.test_file(r"tests\Skyrim\spriggan.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_ANIM_SHADER_SPRIGGAN.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\spriggan.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_ANIM_SHADER_SPRIGGAN.nif")
 
     ### READ ###
 
@@ -2029,8 +2047,8 @@ def TEST_SHADER_ALPHA():
     # Note this nif uses a MSN with a _n suffix. Import goes by the shader flag not the
     # suffix.
 
-    fileAlph = TT.test_file(r"tests\Skyrim\meshes\actors\character\Lykaios\Tails\maletaillykaios.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SHADER_ALPH.nif")
+    fileAlph = TTB.test_file(r"tests\Skyrim\meshes\actors\character\Lykaios\Tails\maletaillykaios.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SHADER_ALPH.nif")
 
     bpy.ops.import_scene.pynifly(filepath=fileAlph)
     
@@ -2075,7 +2093,7 @@ def TEST_SHADER_3_3():
     obj = TT.find_shape("FootMale_Big")
 
     print("## Shader attributes are written on export")
-    outfile = TT.test_file(r"tests/Out/TEST_SHADER_3_3.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SHADER_3_3.nif")
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
@@ -2096,8 +2114,8 @@ def TEST_SHADER_3_3():
 
 def TEST_SHADER_EFFECT():
     """BSEffectShaderProperty attributes are read & written correctly."""
-    testfile = TT.test_file(r"tests\Skyrim\blackbriarchalet_test.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SHADER_EFFECT.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\blackbriarchalet_test.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SHADER_EFFECT.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
     bpy.ops.export_scene.pynifly(filepath=outfile)
@@ -2134,8 +2152,8 @@ def TEST_SHADER_EFFECT():
 
 def TEST_SHADER_EFFECT_GLOWINGONE():
     """BSEffectShaderProperty attributes are read & written correctly."""
-    testfile = TT.test_file(r"tests\FO4\glowingoneTEST.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SHADER_EFFECT_GLOWINGONE.nif")
+    testfile = TTB.test_file(r"tests\FO4\glowingoneTEST.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SHADER_EFFECT_GLOWINGONE.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=False)
 
@@ -2207,8 +2225,8 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
 
 def TEST_TEXTURE_PATHS():
     """Texture paths are correctly resolved"""
-    testfile = TT.test_file(r"tests\SkyrimSE\circletm1.nif")
-    txtdir = TT.test_file(r"tests\SkyrimSE")
+    testfile = TTB.test_file(r"tests\SkyrimSE\circletm1.nif")
+    txtdir = TTB.test_file(r"tests\SkyrimSE")
 
     # Use temp_override to redirect the texture directory
     assert type(bpy.context) == bpy_types.Context, f"Context type is expected :{type(bpy.context)}"
@@ -2235,8 +2253,8 @@ def TEST_TEXTURE_PATHS():
 def TEST_CAVE_GREEN():
     """Cave nif can be exported correctly"""
     # Regression: Make sure the transparency is exported on this nif.
-    testfile = TT.test_file(r"tests\SkyrimSE\meshes\dungeons\caves\green\smallhall\caveghall1way01.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_CAVE_GREEN.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\dungeons\caves\green\smallhall\caveghall1way01.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_CAVE_GREEN.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     wall1 = bpy.data.objects["CaveGHall1Way01:2"]
@@ -2276,7 +2294,7 @@ def TEST_CAVE_GREEN():
 
 def TEST_POT():
     """Test that pot shaders doesn't throw an error; also collisions"""
-    testfile = TT.test_file(r"tests\SkyrimSE\spitpotopen01.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\spitpotopen01.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
     assert 'ANCHOR:0' in bpy.data.objects.keys()
 
@@ -2301,7 +2319,7 @@ def TEST_POT():
 
 def TEST_BRICKWALL():
     """FO4 brick wall with greyscale, wild UV."""
-    testfile = TT.test_file(r"tests\FO4\Meshes\Architecture\DiamondCity\DExt\DExBrickColumn01.nif")
+    testfile = TTB.test_file(r"tests\FO4\Meshes\Architecture\DiamondCity\DExt\DExBrickColumn01.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
     TT.assert_equiv(bpy.data.materials["DExBrickColumn01:0.Mat"].node_tree.nodes["UV Converter"].inputs[4].default_value,
                     1.0, "UV S is clamped")
@@ -2323,7 +2341,7 @@ def TEST_NOT_FB():
     #
     # TODO: Figure out a fix, expand the test.
 
-    testfile = TT.test_file(r"tests\FO4\6SuitM_Test.nif")
+    testfile = TTB.test_file(r"tests\FO4\6SuitM_Test.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     body = TT.find_shape("body_Cloth:0")
@@ -2341,10 +2359,10 @@ def TEST_MULTI_IMP():
     # TODO: Decide if this is worth fixing, and how. Maybe key off the _0 and _1 file 
     # extensions?
 
-    testfile1 = TT.test_file(r"tests\FO4\FemaleHair25.nif")
-    testfile2 = TT.test_file(r"tests\FO4\FemaleHair25_Hairline1.nif")
-    testfile3 = TT.test_file(r"tests\FO4\FemaleHair25_Hairline2.nif")
-    testfile4 = TT.test_file(r"tests\FO4\FemaleHair25_Hairline3.nif")
+    testfile1 = TTB.test_file(r"tests\FO4\FemaleHair25.nif")
+    testfile2 = TTB.test_file(r"tests\FO4\FemaleHair25_Hairline1.nif")
+    testfile3 = TTB.test_file(r"tests\FO4\FemaleHair25_Hairline2.nif")
+    testfile4 = TTB.test_file(r"tests\FO4\FemaleHair25_Hairline3.nif")
     bpy.ops.import_scene.pynifly(files=[{"name": testfile1}, 
                                         {"name": testfile2}, 
                                         {"name": testfile3}, 
@@ -2361,8 +2379,8 @@ def TEST_WELWA():
     # export.
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests\SkyrimSE\welwa.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_WELWA.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\welwa.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_WELWA.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, do_rename_bones=False, do_create_bones=False)
 
@@ -2386,7 +2404,7 @@ def TEST_WELWA():
 
 def TEST_MUTANT():
     """Test that the supermutant body imports correctly the *second* time"""
-    testfile = TT.test_file(r"tests/FO4/testsupermutantbody.nif")
+    testfile = TTB.test_file(r"tests/FO4/testsupermutantbody.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, do_rename_bones=False, do_create_bones=False)
 
@@ -2406,7 +2424,7 @@ def TEST_MUTANT():
 def TEST_EXPORT_HANDS():
     """Test that hand mesh doesn't throw an error"""
     # When there are problems with the mesh we don't want to crash and burn.
-    outfile = TT.test_file(r"tests/Out/TEST_EXPORT_HANDS.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_EXPORT_HANDS.nif")
 
     TT.append_from_file("SupermutantHands", True, r"tests\FO4\SupermutantHands.blend", r"\Object", "SupermutantHands")
     bpy.ops.object.select_all(action='SELECT')
@@ -2425,7 +2443,7 @@ def TEST_PARTITION_ERRORS():
     # shape. If that's not the case, we return an error.
     #
     # Doesn't run on 2.x, don't know why
-    testfile = TT.test_file(r"tests/Out/TEST_TIGER_EXPORT.nif")
+    testfile = TTB.test_file(r"tests/Out/TEST_TIGER_EXPORT.nif")
 
     TT.append_from_file("SynthMaleBody", True, r"tests\FO4\SynthBody02.blend", r"\Object", "SynthMaleBody")
 
@@ -2443,8 +2461,8 @@ def TEST_SHEATH():
     # The sheath has extra data nodes for Havok. These are imported as Blender empty
     # objects, and can be exported again.
 
-    testfile = TT.test_file(r"tests/Skyrim/sheath_p1_1.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_SHEATH.nif")
+    testfile = TTB.test_file(r"tests/Skyrim/sheath_p1_1.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SHEATH.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     bglist = [obj for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")]
@@ -2481,8 +2499,8 @@ def TEST_FEET():
     """Extra data nodes are imported and exported"""
     # Feet have extra data nodes that are children of the feet mesh. This parent/child
     # relationship must be preserved on import and export.
-    testfile = TT.test_file(r"tests/SkyrimSE/caninemalefeet_1.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_FEET.nif")
+    testfile = TTB.test_file(r"tests/SkyrimSE/caninemalefeet_1.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_FEET.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -2506,8 +2524,8 @@ def TEST_FEET():
 def TEST_SCALING():
     """Test that scale factors happen correctly"""
 
-    testfile = TT.test_file(r"tests\Skyrim\statuechampion.nif")
-    testout = TT.test_file(r"tests\Out\TEST_SCALING.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\statuechampion.nif")
+    testout = TTB.test_file(r"tests\Out\TEST_SCALING.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     
     base = bpy.data.objects['basis1']
@@ -2540,8 +2558,8 @@ def TEST_SCALING():
 
 def TEST_SCALING_OBJ():
     """Can scale simple object with furniture markers"""
-    testfile = TT.test_file(r"tests\SkyrimSE\farmbench01.nif")
-    outfile = TT.test_file(r"tests\Out\TEST_SCALING_OBJ.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\farmbench01.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_SCALING_OBJ.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
 
@@ -2585,7 +2603,7 @@ def TEST_UNIFORM_SCALE():
     cube.name = "TestCube"
     cube.scale = Vector((4.0, 4.0, 4.0))
 
-    testfile = TT.test_file(r"tests\Out\TEST_UNIFORM_SCALE.nif")
+    testfile = TTB.test_file(r"tests\Out\TEST_UNIFORM_SCALE.nif")
     bpy.ops.export_scene.pynifly(filepath=testfile, target_game='SKYRIM')
 
     nifcheck = pyn.NifFile(testfile)
@@ -2598,7 +2616,7 @@ def TEST_UNIFORM_SCALE():
 def TEST_NONUNIFORM_SCALE():
     """Can export objects with non-uniform scaling"""
 
-    testfile = TT.test_file(r"tests\Out\TEST_NONUNIFORM_SCALE.nif")
+    testfile = TTB.test_file(r"tests\Out\TEST_NONUNIFORM_SCALE.nif")
     bpy.ops.mesh.primitive_cube_add()
     cube = bpy.context.selected_objects[0]
     cube.name = "TestCube"
@@ -2616,9 +2634,9 @@ def TEST_NONUNIFORM_SCALE():
 def TEST_TRIP_SE():
     """Bodypart tri extra data and file are written on export"""
     # Special bodytri files allow for Bodyslide or FO4 body morphing.
-    outfile = TT.test_file(r"tests/Out/TEST_TRIP_SE.nif")
-    outfile1 = TT.test_file(r"tests/Out/TEST_TRIP_SE_1.nif")
-    outfiletrip = TT.test_file(r"tests/Out/TEST_TRIP_SE.tri")
+    outfile = TTB.test_file(r"tests/Out/TEST_TRIP_SE.nif")
+    outfile1 = TTB.test_file(r"tests/Out/TEST_TRIP_SE_1.nif")
+    outfiletrip = TTB.test_file(r"tests/Out/TEST_TRIP_SE.tri")
 
     TT.append_from_file("Penis_CBBE", True, r"tests\SkyrimSE\HorseFuta.blend", 
                      r"\Object", "Penis_CBBE")
@@ -2650,8 +2668,8 @@ def TEST_TRIP_SE():
 
 def TEST_TRIP():
     """Body tri extra data and file are written on export"""
-    outfile = TT.test_file(r"tests/Out/TEST_TRIP.nif")
-    outfiletrip = TT.test_file(r"tests/Out/TEST_TRIP.tri")
+    outfile = TTB.test_file(r"tests/Out/TEST_TRIP.nif")
+    outfiletrip = TTB.test_file(r"tests/Out/TEST_TRIP.tri")
 
     TT.append_from_file("BaseMaleBody", True, r"tests\FO4\BodyTalk.blend", r"\Object", "BaseMaleBody")
     bpy.ops.object.select_all(action='DESELECT')
@@ -2683,7 +2701,7 @@ def TEST_TRIP():
 def TEST_COLORS():
     """Can read & write vertex colors"""
     # Blender's vertex color layers are used to define vertex colors in the nif.
-    outfile = TT.test_file(r"tests/Out/TEST_COLORS_Plane.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLORS_Plane.nif")
     TT.export_from_blend(r"tests\FO4\VertexColors.blend", "Plane",
                       "FO4", outfile)
 
@@ -2698,8 +2716,8 @@ def TEST_COLORS():
 
 def TEST_COLORS2():
     """Can read & write vertex colors"""
-    testfile = TT.test_file(r"tests/FO4/HeadGear1.nif")
-    testfileout = TT.test_file(r"tests/Out/TEST_COLORS2.nif")
+    testfile = TTB.test_file(r"tests/FO4/HeadGear1.nif")
+    testfileout = TTB.test_file(r"tests/Out/TEST_COLORS2.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -2722,9 +2740,9 @@ def TEST_COLORS2():
 
 def TEST_COLORS3():
     """Can read & write vertex colors & alpha"""
-    testfile = TT.test_file(r"tests\FO4\FemaleHair05_Hairline.nif")
-    # testfile = TT.test_file(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\Hair\Male\Hair26_Hairline.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_COLORS3.nif")
+    testfile = TTB.test_file(r"tests\FO4\FemaleHair05_Hairline.nif")
+    # testfile = TTB.test_file(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\Hair\Male\Hair26_Hairline.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLORS3.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -2747,7 +2765,7 @@ def TEST_COLORS3():
 def TEST_NEW_COLORS():
     """Can write vertex colors that were created in blender"""
     # Regression: There have been issues dealing with how Blender handles colors.
-    outfile = TT.test_file(r"tests/Out/TEST_NEW_COLORS.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_NEW_COLORS.nif")
 
     TT.export_from_blend(r"tests\SKYRIMSE\BirdHead.blend",
                       "HeadWhole",
@@ -2766,8 +2784,8 @@ def TEST_COLOR_CUBES():
     """Can write vertex colors that were created in blender"""
     # Two shapes with the same name, both with vertex colors. Exporter should not get
     # confused.
-    blendfile = TT.test_file(r"tests\SKYRIM\ColorCubes.blend")
-    outfile = TT.test_file(r"tests/Out/TEST_COLOR_CUBES.nif")
+    blendfile = TTB.test_file(r"tests\SKYRIM\ColorCubes.blend")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLOR_CUBES.nif")
 
     bpy.ops.wm.append(filepath=blendfile,
                         directory=blendfile + r"\Object",
@@ -2795,8 +2813,8 @@ def TEST_COLOR_CUBES():
 
 def TEST_NOTEXTURES():
     """Can read a nif with no texture paths."""
-    testfile = TT.test_file(r"tests/FO4/HeadGear1 - NoTextures.nif")
-    testfileout = TT.test_file(r"tests/Out/TEST_NOTEXTURES.nif")
+    testfile = TTB.test_file(r"tests/FO4/HeadGear1 - NoTextures.nif")
+    testfileout = TTB.test_file(r"tests/Out/TEST_NOTEXTURES.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -2813,8 +2831,8 @@ def TEST_VERTEX_COLOR_IO():
     # On heads, vertex alpha and diffuse alpha work together to determine the final
     # transparency the user sees. We set up Blender shader nodes to provide the same
     # effect.
-    testfile = TT.test_file(r"tests\FO4\FemaleEyesAO.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_VERTEX_COLOR_IO.nif", output=1)
+    testfile = TTB.test_file(r"tests\FO4\FemaleEyesAO.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_VERTEX_COLOR_IO.nif", output=1)
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     eyes = TT.find_shape("FemaleEyesAO:0")
@@ -2854,8 +2872,8 @@ def TEST_VERTEX_COLOR_IO():
 
 def TEST_VERTEX_ALPHA_IO():
     """Import & export shape with vertex alpha values"""
-    testfile = TT.test_file(r"tests\SkyrimSE\meshes\actors\character\character assets\maleheadkhajiit.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_VERTEX_ALPHA_IO.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\actors\character\character assets\maleheadkhajiit.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_VERTEX_ALPHA_IO.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
 
@@ -2895,9 +2913,9 @@ def TEST_VERTEX_ALPHA_IO():
 
 def TEST_ALPHA_THRESHOLD_CHANGE():
     """Regression: Alpha threshold should not change on export."""
-    testfile = TT.test_file(r"tests\SkyrimSE\CRSTSkinKalaar.nif")
-    outfile1 = TT.test_file(r"tests\Out\TEST_ALPHA_THRESHOLD_CHANGE1.nif")
-    outfile2 = TT.test_file(r"tests\Out\TEST_ALPHA_THRESHOLD_CHANGE2.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\CRSTSkinKalaar.nif")
+    outfile1 = TTB.test_file(r"tests\Out\TEST_ALPHA_THRESHOLD_CHANGE1.nif")
+    outfile2 = TTB.test_file(r"tests\Out\TEST_ALPHA_THRESHOLD_CHANGE2.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     obj = bpy.context.object
     mat = bpy.context.object.active_material
@@ -2910,7 +2928,7 @@ def TEST_ALPHA_THRESHOLD_CHANGE():
 
 def TEST_VERTEX_ALPHA():
     """Export shape with vertex alpha values"""
-    outfile = TT.test_file(r"tests/Out/TEST_VERTEX_ALPHA.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_VERTEX_ALPHA.nif")
 
     #---Create a shape
     bpy.ops.mesh.primitive_cube_add()
@@ -2971,8 +2989,8 @@ def TEST_BONE_HIERARCHY():
     """Bone hierarchy can be written on export"""
     # This hair has a complex custom bone hierarchy which have moved with havok.
     # Turns out the bones must be exported in a hierarchy for that to work.
-    testfile = TT.test_file(r"tests\SkyrimSE\Anna.nif")
-    outfile = TT.test_file(r"tests/Out/TESTS_BONE_HIERARCHY.nif", output=1)
+    testfile = TTB.test_file(r"tests\SkyrimSE\Anna.nif")
+    outfile = TTB.test_file(r"tests/Out/TESTS_BONE_HIERARCHY.nif", output=1)
 
     bpy.ops.import_scene.pynifly(filepath=testfile, do_import_pose=0)
 
@@ -3037,12 +3055,12 @@ def TEST_FACEBONE_EXPORT():
     # both selected or if there's an armature modifier for both on the shape. 
     # This test doesn't check that second condition.
 
-    outfile = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT.nif", output=True)
-    outfile_fb = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT_faceBones.nif", output=True)
-    outfile_tri = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT.tri", output=True)
-    outfile_chargen = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT_chargen.tri")
-    outfile2 = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT2.nif", output=True)
-    outfile2_fb = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT2_faceBones.nif", output=True)
+    outfile = TTB.test_file(r"tests/Out/TEST_FACEBONE_EXPORT.nif", output=True)
+    outfile_fb = TTB.test_file(r"tests/Out/TEST_FACEBONE_EXPORT_faceBones.nif", output=True)
+    outfile_tri = TTB.test_file(r"tests/Out/TEST_FACEBONE_EXPORT.tri", output=True)
+    outfile_chargen = TTB.test_file(r"tests/Out/TEST_FACEBONE_EXPORT_chargen.tri")
+    outfile2 = TTB.test_file(r"tests/Out/TEST_FACEBONE_EXPORT2.nif", output=True)
+    outfile2_fb = TTB.test_file(r"tests/Out/TEST_FACEBONE_EXPORT2_faceBones.nif", output=True)
 
     # Have a head shape parented to the normal skeleton but with facebone weights as well
     obj = TT.append_from_file("HorseFemaleHead", False, r"tests\FO4\HeadFaceBones.blend", r"\Object", "HorseFemaleHead")
@@ -3100,8 +3118,8 @@ def TEST_FACEBONE_EXPORT2():
     """Test can export facebones + regular nif; shapes with hidden verts export correctly"""
     # Regression. Test that facebones and regular mesh are both exported.
 
-    outfile = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT2.nif")
-    outfile_fb = TT.test_file(r"tests/Out/TEST_FACEBONE_EXPORT2_faceBones.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_FACEBONE_EXPORT2.nif")
+    outfile_fb = TTB.test_file(r"tests/Out/TEST_FACEBONE_EXPORT2_faceBones.nif")
 
     # Have a head shape parented to the normal skeleton but with facebone weights as well
     obj = TT.append_from_file("FemaleHead.Export.001", False, r"tests\FO4\Animatron Space Simple.blend", r"\Object", "FemaleHead.Export.001")
@@ -3124,7 +3142,7 @@ def TEST_HYENA_PARTITIONS():
     # not always add up to 1. That turns out to screw up the rendering. So check that 
     # the export normalizes them. This isn't done by pynifly or the wrapper layers.
 
-    outfile = TT.test_file(r"tests/Out/TEST_HYENA_PARTITIONS.nif", output=True)
+    outfile = TTB.test_file(r"tests/Out/TEST_HYENA_PARTITIONS.nif", output=True)
 
     head = TT.append_from_file("HyenaMaleHead", True, r"tests\FO4\HyenaHead.blend", r"\Object", "HyenaMaleHead")
     TT.append_from_file("Skeleton", True, r"tests\FO4\HyenaHead.blend", r"\Object", "Skeleton")
@@ -3166,7 +3184,7 @@ def TEST_MULT_PART():
     """Export shape with face that might fall into multiple partititions"""
     # Check that we DON'T throw a multiple-partitions error when it's not necessary.
 
-    outfile = TT.test_file(r"tests/Out/TEST_MULT_PART.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_MULT_PART.nif")
     TT.append_from_file("MaleHead", True, r"tests\SkyrimSE\multiple_partitions.blend", r"\Object", "MaleHead")
     obj = bpy.data.objects["MaleHead"]
     obj.select_set(True)
@@ -3181,8 +3199,8 @@ def TEST_BONE_XPORT_POS():
     # Since we use a reference skeleton to make bones, we have to be able to handle
     # the condition where the mesh is not human and the reference skeleton should not
     # be used.
-    testfile = TT.test_file(r"tests\Skyrim\draugr.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_BONE_XPORT_POS.nif", output=True)
+    testfile = TTB.test_file(r"tests\Skyrim\draugr.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_BONE_XPORT_POS.nif", output=True)
     bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
     
     draugr = bpy.context.object
@@ -3236,12 +3254,12 @@ def TEST_INV_MARKER():
     assert BD.MatNearEqual(mx, mx_face, epsilon=0.1), f"Inventory matrix is 180 around z: {mx.to_euler()}"
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests\SkyrimSE\Suzanne.nif")
-    outfile1 = TT.test_file(r"tests/Out/TEST_INV_MARKER1.nif")
-    outfile2 = TT.test_file(r"tests/Out/TEST_INV_MARKER2.nif")
-    outfile3 = TT.test_file(r"tests/Out/TEST_INV_MARKER3.nif")
-    outfile4 = TT.test_file(r"tests/Out/TEST_INV_MARKER4.nif")
-    outfile5 = TT.test_file(r"tests/Out/TEST_INV_MARKER5.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\Suzanne.nif")
+    outfile1 = TTB.test_file(r"tests/Out/TEST_INV_MARKER1.nif")
+    outfile2 = TTB.test_file(r"tests/Out/TEST_INV_MARKER2.nif")
+    outfile3 = TTB.test_file(r"tests/Out/TEST_INV_MARKER3.nif")
+    outfile4 = TTB.test_file(r"tests/Out/TEST_INV_MARKER4.nif")
+    outfile5 = TTB.test_file(r"tests/Out/TEST_INV_MARKER5.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     cam = next(obj for obj in bpy.data.objects if obj.type == 'CAMERA')
@@ -3324,7 +3342,7 @@ def TEST_INV_MARKER():
     bpy.ops.export_scene.pynifly(filepath=outfile5)
 
     # Imports
-    TT.clear_all()
+    TTB.clear_all()
 
     # First test had the camera at the neutral position (back of Suzanne's head).
     bpy.ops.import_scene.pynifly(filepath=outfile1)
@@ -3332,7 +3350,7 @@ def TEST_INV_MARKER():
     assert BD.MatNearEqual(im.matrix_world, BD.CAMERA_NEUTRAL), f"Inventory matrix neutral: {im.matrix_world.to_euler()}"
 
     # Second test had the camera at the front of Suzanne's head.
-    TT.clear_all()
+    TTB.clear_all()
     bpy.ops.import_scene.pynifly(filepath=outfile2)
     im = next(obj for obj in bpy.data.objects if obj.type=='CAMERA')
     assert BD.MatNearEqual(im.matrix_world, 
@@ -3344,7 +3362,7 @@ def TEST_INV_MARKER():
             ), f"Inventory matrix neutral: {im.matrix_world.to_euler()}"
 
     # Third test, suzanne looks right.
-    TT.clear_all()
+    TTB.clear_all()
     bpy.ops.import_scene.pynifly(filepath=outfile3)
     im = next(obj for obj in bpy.data.objects if obj.type=='CAMERA')
     assert BD.MatNearEqual(im.matrix_world, 
@@ -3361,8 +3379,8 @@ def TEST_TREE():
     # Trees in FO4 use a special root node and a special shape node.
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests\FO4\TreeMaplePreWar01Orange.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_TREE.nif", output=True)
+    testfile = TTB.test_file(r"tests\FO4\TreeMaplePreWar01Orange.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_TREE.nif", output=True)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     root = next(obj for obj in bpy.data.objects if 'pynRoot' in obj)
@@ -3449,8 +3467,8 @@ def TEST_COLLISION_BOW_SCALE():
     # UV orientation and texture handling
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_COLLISION_BOW_SCALE.nif", output=True)
+    testfile = TTB.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_BOW_SCALE.nif", output=True)
 
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  use_blender_xf=True, 
@@ -3545,7 +3563,7 @@ def TEST_COLLISION_BOW_SCALE():
 
     # Re-import the nif to make sure collisions are right. Could test them in the nif
     # directly but the math is gnarly.
-    TT.clear_all()
+    TTB.clear_all()
 
     bpy.ops.import_scene.pynifly(filepath=outfile, 
                                  use_blender_xf=True,
@@ -3570,8 +3588,8 @@ def TEST_COLLISION_BOW():
     # export because it was too ugly.
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_COLLISION_BOW.nif", output=True)
+    testfile = TTB.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_BOW.nif", output=True)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     obj = bpy.context.object
@@ -3684,8 +3702,8 @@ def TEST_COLLISION_BOW2():
     """Can modify collision shape location."""
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile2 = TT.test_file(r"tests/Out/TEST_COLLISION_BOW2.nif")
+    testfile = TTB.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+    outfile2 = TTB.test_file(r"tests/Out/TEST_COLLISION_BOW2.nif")
     
     bpy.ops.import_scene.pynifly(filepath=testfile)
     bow = bpy.context.object
@@ -3738,8 +3756,8 @@ def TEST_COLLISION_BOW3():
 
     def do_test(bl):
         # ------- Load --------
-        testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-        outfile3 = TT.test_file(f"tests/Out/TEST_COLLISION_BOW3_{bl}.nif")
+        testfile = TTB.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+        outfile3 = TTB.test_file(f"tests/Out/TEST_COLLISION_BOW3_{bl}.nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=(bl=='BLENDER'))
         bow = bpy.context.object
@@ -3793,8 +3811,8 @@ def TEST_COLLISION_HIER():
     # NiNode. 
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests\Skyrim\grilledleekstest.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_COLLISION_HIER.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\grilledleekstest.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_HIER.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -3852,7 +3870,7 @@ def TEST_COLLISION_HIER():
 
 def TEST_NORM():
     """Normals are read correctly"""
-    testfile = TT.test_file(r"tests/FO4/CheetahMaleHead.nif")
+    testfile = TTB.test_file(r"tests/FO4/CheetahMaleHead.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     head = TT.find_shape("CheetahMaleHead")
@@ -3879,7 +3897,7 @@ def TEST_SPLIT_NORMALS():
     # Custom split normals change the direction light bounces off an object. They may be
     # set to eliminate seams between parts of a mesh, or between two meshes.
 
-    testfile = TT.test_file(r"tests/Out/TEST_SPLIT_NORMALS.nif")
+    testfile = TTB.test_file(r"tests/Out/TEST_SPLIT_NORMALS.nif")
 
     obj = TT.append_from_file("MHelmetLight:0", 
                               False, 
@@ -3925,8 +3943,8 @@ def TEST_ROGUE02():
     # mesh, what direction should a custom normal face after the warp? We just preserve
     # the direction and leave it to the user to separate out the shape key if they don't
     # like the result.
-    testfile = TT.test_file(r"tests/Out/TEST_ROGUE02.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_ROGUE02_warp.nif")
+    testfile = TTB.test_file(r"tests/Out/TEST_ROGUE02.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_ROGUE02_warp.nif")
 
     TT.export_from_blend(r"tests\Skyrim\ROGUE02-normals.blend",
                          "Plane", "SKYRIM", testfile, "_warp")
@@ -3942,8 +3960,8 @@ def TEST_ROGUE02():
 
 def TEST_NORMAL_SEAM():
     """Normals on a split seam are seamless"""
-    testfile = TT.test_file(r"tests/Out/TEST_NORMAL_SEAM.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_NORMAL_SEAM_Dog.nif")
+    testfile = TTB.test_file(r"tests/Out/TEST_NORMAL_SEAM.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_NORMAL_SEAM_Dog.nif")
 
     TT.export_from_blend(r"tests\FO4\TestKnitCap.blend", "MLongshoremansCap:0",
                       "FO4", testfile)
@@ -3962,7 +3980,7 @@ def TEST_NIFTOOLS_NAMES():
     # us to use their animation tools, but this is not that day.
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests\Skyrim\malebody_1.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\malebody_1.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones_niftools=True, 
                                  do_create_bones=False, use_blender_xf=True)
@@ -3998,8 +4016,8 @@ def TEST_COLLISION_MULTI():
     """Can read and write shape with multiple collision shapes"""
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests\Skyrim\grilledleeks01.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_COLLISION_MULTI.nif", output=True)
+    testfile = TTB.test_file(r"tests\Skyrim\grilledleeks01.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_MULTI.nif", output=True)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -4034,11 +4052,11 @@ def TEST_COLLISION_CONVEXVERT():
     """"Can read and write shape with convex verts collision shape at scale."""
     def do_test(bx):
         print(f"<<<Can read and write shape with convex verts collision shape at scale {bx}>>>")
-        TT.clear_all()
+        TTB.clear_all()
 
         # ------- Load --------
-        testfile = TT.test_file(r"tests\Skyrim\cheesewedge01.nif")
-        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_CONVEXVERT.{'BL' if bx else 'NAT'}.nif")
+        testfile = TTB.test_file(r"tests\Skyrim\cheesewedge01.nif")
+        outfile = TTB.test_file(f"tests/Out/TEST_COLLISION_CONVEXVERT.{'BL' if bx else 'NAT'}.nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=bx)
 
@@ -4110,7 +4128,7 @@ def TEST_COLLISION_CONVEXVERT():
         #
         # There have been issues with importing the exported nif and having the 
         # collision be wrong
-        TT.clear_all()
+        TTB.clear_all()
         bpy.ops.import_scene.pynifly(filepath=outfile)
 
         impcollshape = TT.find_shape("bhkConvexVerticesShape")
@@ -4129,11 +4147,11 @@ def TEST_COLLISION_CAPSULE():
     # they didn't do a collision for the protrusions.
     def do_test(bx):
         print(f"<<<Can read and write shape with collision capsule shapes with Blender transforms {bx}>>>")
-        TT.clear_all()
+        TTB.clear_all()
 
         # ------- Load --------
-        testfile = TT.test_file(r"tests\Skyrim\staff04.nif")
-        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_CAPSULE.{'BL' if bx else 'NAT'}.nif")
+        testfile = TTB.test_file(r"tests\Skyrim\staff04.nif")
+        outfile = TTB.test_file(f"tests/Out/TEST_COLLISION_CAPSULE.{'BL' if bx else 'NAT'}.nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=bx)
 
@@ -4190,11 +4208,11 @@ def TEST_COLLISION_CAPSULE2():
     # they didn't do a collision for the protrusions.
     def do_test(bx):
         print(f"<<<Can read and write shape with collision capsule shapes with Blender transforms {bx}>>>")
-        TT.clear_all()
+        TTB.clear_all()
 
         # ------- Load --------
-        testfile = TT.test_file(r"tests\Skyrim\staff04-collision.nif")
-        outfile = TT.test_file(
+        testfile = TTB.test_file(r"tests\Skyrim\staff04-collision.nif")
+        outfile = TTB.test_file(
             f"tests/Out/TEST_COLLISION_CAPSULE2.{'BL' if bx else 'NAT'}.nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=bx)
@@ -4238,11 +4256,11 @@ def TEST_COLLISION_LIST():
     """
     def run_test(bx):
         print(f"<<<Can read and write shape with collision list and collision transform shapes with Blender transform {bx}>>>")
-        TT.clear_all()
+        TTB.clear_all()
 
         # ------- Load --------
-        testfile = TT.test_file(r"tests\Skyrim\falmerstaff.nif")
-        outfile = TT.test_file(f"tests/Out/TEST_COLLISION_LIST_{bx}.nif")
+        testfile = TTB.test_file(r"tests\Skyrim\falmerstaff.nif")
+        outfile = TTB.test_file(f"tests/Out/TEST_COLLISION_LIST_{bx}.nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=(bx=='BLENDER'))
 
@@ -4312,8 +4330,8 @@ def TEST_COLLISION_BOW_CHANGE():
     """Changing collision type works correctly"""
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_COLLISION_BOW_CHANGE.nif")
+    testfile = TTB.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_BOW_CHANGE.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -4365,8 +4383,8 @@ def TEST_COLLISION_XFORM():
         # another file, so don't try to run this on that version.
 
         # ------- Load --------
-        blendfile = TT.test_file(r"tests/SkyrimSE/staff.blend")
-        outfile = TT.test_file(r"tests/Out/TEST_COLLISION_XFORM.nif")
+        blendfile = TTB.test_file(r"tests/SkyrimSE/staff.blend")
+        outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_XFORM.nif")
         
         bpy.ops.object.add(radius=1.0, type='EMPTY')
         root = bpy.context.object
@@ -4434,8 +4452,8 @@ def TEST_CONNECT_POINT():
     # 
     # Also check that the default shape type created is BSTriShape
 
-    testfile = TT.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")
-    outfile = TT.test_file(r"tests\Out\TEST_CONNECT_POINT.nif")
+    testfile = TTB.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_CONNECT_POINT.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -4490,8 +4508,8 @@ def TEST_CONNECT_POINT():
 def TEST_CONNECT_POINT_MULT():
     """Regression: Blend file creates duplicate connect points."""
 
-    testfile = TT.test_file(r"tests\FO4\rifleCP.blend")
-    outfile = TT.test_file(r"tests\Out\TEST_CONNECT_POINT_MULT.nif")
+    testfile = TTB.test_file(r"tests\FO4\rifleCP.blend")
+    outfile = TTB.test_file(r"tests\Out\TEST_CONNECT_POINT_MULT.nif")
 
     fp = os.path.join(TT.pynifly_dev_path, testfile)
     bpy.ops.wm.append(filepath=fp,
@@ -4530,9 +4548,9 @@ def TEST_CONNECT_WEAPON_PART():
     # When a connect point is selected and then another part is imported that connects
     # to that point, they are connected in Blender.
     
-    testfile = TT.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")
-    partfile = TT.test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel_1.nif")
-    partfile2 = TT.test_file(r"tests\FO4\Shotgun\CombatShotgunGlowPinSight.nif")
+    testfile = TTB.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")
+    partfile = TTB.test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel_1.nif")
+    partfile2 = TTB.test_file(r"tests\FO4\Shotgun\CombatShotgunGlowPinSight.nif")
 
     # Import of mesh with parent connect points works correctly.
     bpy.ops.import_scene.pynifly(filepath=testfile, 
@@ -4571,9 +4589,9 @@ def TEST_CONNECT_WEAPON_PART():
 def TEST_CONNECT_IMPORT_MULT():
     """When multiple weapon parts are imported in one command, they are connected up"""
 
-    testfiles = [{"name": TT.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")}, 
-                 {"name": TT.test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel.nif")}, 
-                 {"name": TT.test_file(r"tests\FO4\Shotgun\Stock.nif")} ]
+    testfiles = [{"name": TTB.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")}, 
+                 {"name": TTB.test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel.nif")}, 
+                 {"name": TTB.test_file(r"tests\FO4\Shotgun\Stock.nif")} ]
     bpy.ops.import_scene.pynifly(files=testfiles, do_rename_bones=False, do_create_bones=False)
 
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
@@ -4589,8 +4607,8 @@ def TEST_CONNECT_IMPORT_MULT():
 def TEST_FURN_MARKER1():
     """Furniture markers work"""
 
-    testfile = TT.test_file(r"tests\SkyrimSE\farmbench01.nif")
-    outfile = TT.test_file(r"tests\Out\TEST_FURN_MARKER1.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\farmbench01.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_FURN_MARKER1.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
@@ -4619,8 +4637,8 @@ def TEST_FURN_MARKER1():
 def TEST_FURN_MARKER2():
     """Furniture markers work"""
 
-    testfile = TT.test_file(r"tests\SkyrimSE\commonchair01.nif")
-    outfile = TT.test_file(r"tests\Out\TEST_FURN_MARKER2.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\commonchair01.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_FURN_MARKER2.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
@@ -4646,8 +4664,8 @@ def TEST_FURN_MARKER2():
 def TEST_FO4_CHAIR():
     """Furniture markers are imported and exported"""
 
-    testfile = TT.test_file(r"tests\FO4\FederalistChairOffice01.nif")
-    outfile = TT.test_file(r"tests\Out\TEST_FO4_CHAIR.nif")
+    testfile = TTB.test_file(r"tests\FO4\FederalistChairOffice01.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_FO4_CHAIR.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
@@ -4688,8 +4706,8 @@ def TEST_PIPBOY():
         bxf = BD.transform_to_matrix(b.global_transform)
         assert TT.MatNearEqual(axf, bxf), f"{a.name} transform preserved: \n{axf}\n != \n{bxf}"
 
-    testfile = TT.test_file(r"tests\FO4\PipBoy_Simple.nif")
-    outfile = TT.test_file(f"tests/Out/TEST_PIPBOY.nif", output=1)
+    testfile = TTB.test_file(r"tests\FO4\PipBoy_Simple.nif")
+    outfile = TTB.test_file(f"tests/Out/TEST_PIPBOY.nif", output=1)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     bpy.ops.object.select_all(action='SELECT')
@@ -4722,8 +4740,8 @@ def TEST_PIPBOY():
 def TEST_BABY():
     """Non-human skeleton, lots of shapes under one armature."""
     # Can intuit structure if it's not in the file
-    testfile = TT.test_file(r"tests\FO4\baby.nif")
-    outfile = TT.test_file(r"tests\Out\TEST_BABY.nif")
+    testfile = TTB.test_file(r"tests\FO4\baby.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_BABY.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
     
@@ -4744,8 +4762,8 @@ def TEST_BABY():
 
 def TEST_ROTSTATIC():
     """Test that statics are transformed according to the shape transform"""
-    testfile = TT.test_file(r"tests/Skyrim/rotatedbody.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_ROTSTATIC.nif")
+    testfile = TTB.test_file(r"tests/Skyrim/rotatedbody.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_ROTSTATIC.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     body = bpy.data.objects["LykaiosBody"]
@@ -4766,7 +4784,7 @@ def TEST_ROTSTATIC():
 def TEST_ROTSTATIC2():
     """Test that statics are transformed according to the shape transform"""
 
-    testfile = TT.test_file(r"tests/FO4/Meshes/SetDressing/Vehicles/Crane03_simplified.nif")
+    testfile = TTB.test_file(r"tests/FO4/Meshes/SetDressing/Vehicles/Crane03_simplified.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     glass = bpy.data.objects["Glass:0"]
@@ -4782,10 +4800,10 @@ def TEST_FACEBONES():
     # Also the skin_bone_C_MasterEyebrow is included in the nif but not used in the head.
 
     # ------- Load --------
-    testfile = TT.test_file(r"tests\FO4\BaseFemaleHead_faceBones.nif")
-    goodfile = TT.test_file(r"tests\FO4\BaseFemaleHead.nif")
-    outfile = TT.test_file(f"tests/Out/TEST_FACEBONES.nif", output=1)
-    resfile = TT.test_file(f"tests/Out/TEST_FACEBONES_facebones.nif", output=1)
+    testfile = TTB.test_file(r"tests\FO4\BaseFemaleHead_faceBones.nif")
+    goodfile = TTB.test_file(r"tests\FO4\BaseFemaleHead.nif")
+    outfile = TTB.test_file(f"tests/Out/TEST_FACEBONES.nif", output=1)
+    resfile = TTB.test_file(f"tests/Out/TEST_FACEBONES_facebones.nif", output=1)
 
     # Facebones files have NiTransformController nodes for reasons I don't understand. We
     # don't want to muck with those.
@@ -4847,9 +4865,9 @@ Transforms for output and input node {nm} match:
 def TEST_FACEBONES_RENAME():
     """Facebones are renamed from Blender to the game's names"""
 
-    testfile = TT.test_file(r"tests/FO4/basemalehead_facebones.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_FACEBONES_RENAME.nif")
-    outfile2 = TT.test_file(r"tests/Out/TEST_FACEBONES_RENAME_facebones.nif")
+    testfile = TTB.test_file(r"tests/FO4/basemalehead_facebones.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_FACEBONES_RENAME.nif")
+    outfile2 = TTB.test_file(r"tests/Out/TEST_FACEBONES_RENAME_facebones.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
@@ -4873,9 +4891,9 @@ def TEST_ANIM_ANIMATRON():
     # two shapes have slightly different bind positions, though they are a small offset
     # from each other.
 
-    testfile = TT.test_file(r"tests/FO4/AnimatronicNormalWoman-body.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_ANIM_ANIMATRON.nif")
-    outfile_fb = TT.test_file(r"tests/Out/TEST_ANIM_ANIMATRON.nif")
+    testfile = TTB.test_file(r"tests/FO4/AnimatronicNormalWoman-body.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_ANIM_ANIMATRON.nif")
+    outfile_fb = TTB.test_file(r"tests/Out/TEST_ANIM_ANIMATRON.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  do_create_bones=False, 
@@ -4932,9 +4950,9 @@ def TEST_ANIMATRON_2():
     # The animatrons are very complex and their pose and bind positions are different. The
     # two shapes have slightly different bind positions, though they are a small offset
     # from each other.
-    testfile = TT.test_file(r"tests\FO4\AnimatronicSpaceMan.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_ANIMATRON_2.nif")
-    outfile_fb = TT.test_file(r"tests/Out/TEST_ANIMATRON_2.nif")
+    testfile = TTB.test_file(r"tests\FO4\AnimatronicSpaceMan.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_ANIMATRON_2.nif")
+    outfile_fb = TTB.test_file(r"tests/Out/TEST_ANIMATRON_2.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  do_create_bones=False, 
@@ -4946,9 +4964,9 @@ def TEST_CUSTOM_BONES():
     """Can handle custom bones correctly"""
     # These nifs have bones that are not part of the vanilla skeleton.
 
-    testfile = TT.test_file(r"tests\FO4\VulpineInariTailPhysics.nif")
-    testfile = TT.test_file(r"tests\FO4\BrushTail_Male_Simple.nif")
-    outfile = TT.test_file(r"tests\Out\TEST_CUSTOM_BONES.nif")
+    testfile = TTB.test_file(r"tests\FO4\VulpineInariTailPhysics.nif")
+    testfile = TTB.test_file(r"tests\FO4\BrushTail_Male_Simple.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_CUSTOM_BONES.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     nifimp = pyn.NifFile(testfile)
     bone_in_xf = BD.transform_to_matrix(nifimp.nodes['Bone_Cloth_H_003'].global_transform)
@@ -4969,8 +4987,8 @@ def TEST_COTH_DATA():
     #
     # Also tests that we handle grayscale shading while we're here.
 
-    testfile = TT.test_file(r"tests/FO4/HairLong01.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_COTH_DATA.nif")
+    testfile = TTB.test_file(r"tests/FO4/HairLong01.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COTH_DATA.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     
     assert 'BSClothExtraData' in bpy.data.objects.keys(), f"Found no cloth extra data in {bpy.data.objects.keys()}"
@@ -4989,7 +5007,7 @@ def TEST_COTH_DATA():
 def TEST_IMP_NORMALS():
     """Can import normals from nif shape"""
 
-    testfile = TT.test_file(r"tests/Skyrim/cube.nif")
+    testfile = TTB.test_file(r"tests/Skyrim/cube.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     # all loop custom normals point off at diagonals
@@ -5005,7 +5023,7 @@ def TEST_IMP_NORMALS():
 
 def TEST_UV_SPLIT():
     """Can split UVs properly"""
-    filepath = TT.test_file("tests/Out/TEST_UV_SPLIT.nif")
+    filepath = TTB.test_file("tests/Out/TEST_UV_SPLIT.nif")
 
     bpy.ops.mesh.primitive_cube_add()
     bpy.ops.export_scene.pynifly(filepath=filepath, target_game="SKYRIM")
@@ -5020,7 +5038,7 @@ def TEST_UV_SPLIT():
 
 def TEST_JIARAN():
     """Armature with no stashed transforms exports correctly"""
-    outfile =TT.test_file(r"tests/Out/TEST_JIARAN.nif")
+    outfile =TTB.test_file(r"tests/Out/TEST_JIARAN.nif")
      
     TT.export_from_blend(r"tests\SKYRIMSE\jiaran.blend", "hair.001", 'SKYRIMSE', outfile)
 
@@ -5030,8 +5048,8 @@ def TEST_JIARAN():
 
 def TEST_SKEL_HKX_IMPORT():
     """Skeletons can be imported from HKX files."""
-    testfile = TT.test_file("tests/Skyrim/skeleton.hkx")
-    # outfile = TT.test_file("tests/out/TEST_SKEL_HKX.xml")
+    testfile = TTB.test_file("tests/Skyrim/skeleton.hkx")
+    # outfile = TTB.test_file("tests/out/TEST_SKEL_HKX.xml")
 
     # bpy.ops.import_scene.skeleton_xml(filepath=testfile)
     bpy.ops.import_scene.pynifly_hkx(filepath=testfile)
@@ -5060,8 +5078,8 @@ def TEST_SKEL_XML():
     """Can export selected bones as a skeleton XML file."""
     # TODO: Decide if this functionality is worth it, or whether we should turn this into 
     # exporting in HKX format. Note TEST_SKEL_TAIL_HKX tests export in HKX format.
-    testfile = TT.test_file("tests/Skyrim/skeletonbeast_vanilla.nif")
-    outfile = TT.test_file("tests/out/TEST_SKEL_XML.xml")
+    testfile = TTB.test_file("tests/Skyrim/skeletonbeast_vanilla.nif")
+    outfile = TTB.test_file("tests/out/TEST_SKEL_XML.xml")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     arma = bpy.data.objects[BD.arma_name('skeletonBeast.nif')]
@@ -5123,8 +5141,8 @@ def TEST_SKEL_XML():
 
 def TEST_SKEL_TAIL_HKX():
     """Can import and export a HKX skeleton file."""
-    testfile = TT.test_file(r"tests\Skyrim\tailskeleton.hkx")
-    outfile = TT.test_file("tests/out/TEST_SKEL_TAIL_HKX.hkx")
+    testfile = TTB.test_file(r"tests\Skyrim\tailskeleton.hkx")
+    outfile = TTB.test_file("tests/out/TEST_SKEL_TAIL_HKX.hkx")
 
     bpy.ops.import_scene.pynifly_hkx(filepath=testfile, 
                                      use_blender_xf=False, 
@@ -5163,9 +5181,9 @@ def TEST_SKEL_TAIL_HKX():
 
 def TEST_AUXBONES_EXTRACT():
     """Can extract an auxbones skeleton from a full skeleton."""
-    testfile = TT.test_file(r"tests\Skyrim\skeletonbeast_vanilla.nif")
-    outfile = TT.test_file("tests/out/TEST_AUXBONES_EXTRACT.hkx")
-    checkfile = TT.test_file(r"tests\Skyrim\tailskeleton.hkx")
+    testfile = TTB.test_file(r"tests\Skyrim\skeletonbeast_vanilla.nif")
+    outfile = TTB.test_file("tests/out/TEST_AUXBONES_EXTRACT.hkx")
+    checkfile = TTB.test_file(r"tests\Skyrim\tailskeleton.hkx")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  use_blender_xf=False, 
@@ -5198,8 +5216,8 @@ def TEST_AUXBONES_EXTRACT():
 
 def TEST_FONV():
     """Basic FONV mesh import and export"""
-    testfile = TT.test_file("tests/FONV/9mmscp.nif")
-    outfile =TT.test_file(r"tests/Out/TEST_FONV.nif")
+    testfile = TTB.test_file("tests/FONV/9mmscp.nif")
+    outfile =TTB.test_file(r"tests/Out/TEST_FONV.nif")
      
     bpy.ops.import_scene.pynifly(filepath=testfile)
     grip = bpy.data.objects['Ninemm:0']
@@ -5241,8 +5259,8 @@ def TEST_FONV():
 
 def TEST_FONV_BOD():
     """Basic FONV body part import and export"""
-    testfile = TT.test_file(r"tests\FONV\outfitf_simple.nif")
-    outfile =TT.test_file(r"tests/Out/TEST_FONV_BOD.nif")
+    testfile = TTB.test_file(r"tests\FONV\outfitf_simple.nif")
+    outfile =TTB.test_file(r"tests/Out/TEST_FONV_BOD.nif")
      
     bpy.ops.import_scene.pynifly(filepath=testfile)
     body = bpy.data.objects['Arms01']
@@ -5262,8 +5280,8 @@ def TEST_FONV_BOD():
 
 def TEST_ANIM_NOBLECHEST():
     """Read and write the animation of chest opening and shutting."""
-    testfile = TT.test_file(r"tests\Skyrim\noblechest01.nif")
-    outfile =TT.test_file(r"tests/Out/TEST_ANIM_NOBLECHEST.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\noblechest01.nif")
+    outfile =TTB.test_file(r"tests/Out/TEST_ANIM_NOBLECHEST.nif")
 
     #### READ ####
 
@@ -5340,8 +5358,8 @@ def TEST_ANIM_NOBLECHEST():
 
 def TEST_ANIM_DWEMER_CHEST():
     """Read and write the animation of chest opening and shutting."""
-    testfile = TT.test_file(r"tests\Skyrim\dwechest01.nif")
-    outfile =TT.test_file(r"tests/Out/TEST_ANIM_DWEMER_CHEST.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\dwechest01.nif")
+    outfile =TTB.test_file(r"tests/Out/TEST_ANIM_DWEMER_CHEST.nif")
 
     #### READ ####
 
@@ -5400,8 +5418,8 @@ def TEST_ANIM_DWEMER_CHEST():
 
 def TEST_ANIM_ALDUIN():
     """Read and write animation using bones."""
-    testfile = TT.test_file(r"tests\SkyrimSE\loadscreenalduinwall.nif")
-    outfile = TT.test_file(r"tests/Out/TEST_ANIM_ALDUIN.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\loadscreenalduinwall.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_ANIM_ALDUIN.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile,
                                  do_create_bones=False, 
@@ -5509,10 +5527,10 @@ def TEST_ANIM_KF():
     """Read and write KF animation."""
     if bpy.app.version < (3, 5, 0): return
 
-    testfile = TT.test_file(r"tests\SkyrimSE\1hm_staggerbacksmallest.kf")
-    testfile2 = TT.test_file(r"tests\SkyrimSE\1hm_attackpowerright.kf")
-    skelfile = TT.test_file(r"tests\SkyrimSE\skeleton_vanilla.nif")
-    outfile2 = TT.test_file(r"tests/Out/TEST_ANIM_KF.kf")
+    testfile = TTB.test_file(r"tests\SkyrimSE\1hm_staggerbacksmallest.kf")
+    testfile2 = TTB.test_file(r"tests\SkyrimSE\1hm_attackpowerright.kf")
+    skelfile = TTB.test_file(r"tests\SkyrimSE\skeleton_vanilla.nif")
+    outfile2 = TTB.test_file(r"tests/Out/TEST_ANIM_KF.kf")
 
     bpy.context.scene.render.fps = 30
 
@@ -5618,9 +5636,9 @@ def TEST_ANIM_KF_RENAME():
     """Read and write KF animation with renamed bones."""
     if bpy.app.version < (3, 5, 0): return
 
-    testfile = TT.test_file(r"tests\Skyrim\sneakmtidle_original.kf")
-    skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
-    outfile = TT.test_file(r"tests\Out\TEST_ANIM_KF_RENAME.kf")
+    testfile = TTB.test_file(r"tests\Skyrim\sneakmtidle_original.kf")
+    skelfile = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_ANIM_KF_RENAME.kf")
 
     bpy.context.scene.render.fps = 30
     # bpy.context.scene.frame_end = 665
@@ -5688,11 +5706,11 @@ def TEST_ANIM_HKX():
     if bpy.app.version < (3, 5, 0): return
 
     # Check that this works when there are spaces in the path name
-    testfile = TT.test_file(r"tests\Skyrim\meshes\actors\character\character animations\1hm_staggerbacksmallest.hkx")
-    # testfile2 = TT.test_file(r"tests\Skyrim\1hm_attackpowerright.hkx")
-    skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
-    hkx_skel = TT.test_file(r"tests\Skyrim\skeleton.hkx")
-    outfile = TT.test_file(r"tests/Out/created animations/TEST_ANIM_HKX.hkx")
+    testfile = TTB.test_file(r"tests\Skyrim\meshes\actors\character\character animations\1hm_staggerbacksmallest.hkx")
+    # testfile2 = TTB.test_file(r"tests\Skyrim\1hm_attackpowerright.hkx")
+    skelfile = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+    outfile = TTB.test_file(r"tests/Out/created animations/TEST_ANIM_HKX.hkx")
 
     pathlib.Path(outfile).parent.mkdir(parents=True, exist_ok=True)
 
@@ -5723,11 +5741,11 @@ def TEST_ANIM_HKX_2():
     """Can import and export a non-human HKX animation."""
     if bpy.app.version < (3, 5, 0): return
 
-    testfile = TT.test_file(r"tests\Skyrim\troll.nif")
-    skelfile = TT.test_file(r"tests\Skyrim\skeleton_troll.nif")
-    hkx_skel = TT.test_file(r"tests\Skyrim\skeleton_troll.hkx")
-    hkx_anim = TT.test_file(r"tests\Skyrim\troll_h2hattackleftd.hkx")
-    outfile = TT.test_file(r"tests/Out/created animations/TEST_ANIM_HKX_2.hkx")
+    testfile = TTB.test_file(r"tests\Skyrim\troll.nif")
+    skelfile = TTB.test_file(r"tests\Skyrim\skeleton_troll.nif")
+    hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton_troll.hkx")
+    hkx_anim = TTB.test_file(r"tests\Skyrim\troll_h2hattackleftd.hkx")
+    outfile = TTB.test_file(r"tests/Out/created animations/TEST_ANIM_HKX_2.hkx")
 
     pathlib.Path(outfile).parent.mkdir(parents=True, exist_ok=True)
 
@@ -5776,10 +5794,10 @@ def TEST_ANIM_AUXBONES():
     """Can import and export an animation on an auxbones skeleton."""
     # SKIPPING
     print("Skipping TEST_ANIM_AUXBONES")
-    # testfile = TT.test_file(r"tests\Skyrim\SOSFastErect.hkx")
-    # skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
-    # hkx_skel = TT.test_file(r"tests\Skyrim\SOSskeleton.hkx")
-    # outfile = TT.test_file(r"tests/Out/created animations/TEST_ANIM_AUXBONES.hkx")
+    # testfile = TTB.test_file(r"tests\Skyrim\SOSFastErect.hkx")
+    # skelfile = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    # hkx_skel = TTB.test_file(r"tests\Skyrim\SOSskeleton.hkx")
+    # outfile = TTB.test_file(r"tests/Out/created animations/TEST_ANIM_AUXBONES.hkx")
 
     # bpy.context.scene.render.fps = 60
 
@@ -5808,11 +5826,11 @@ def TEST_ANIM_AUXBONES():
 def TEST_IMPORT_TAIL():
     """Regression: Import of a single bodypart onto a skeleton should work correctly."""
 
-    testfile = TT.test_file(r"tests\Skyrim\meshes\actors\character\character animations\1hm_staggerbacksmallest.hkx")
-    # testfile2 = TT.test_file(r"tests\Skyrim\1hm_attackpowerright.hkx")
-    skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
-    hkx_skel = TT.test_file(r"tests\Skyrim\skeleton.hkx")
-    outfile = TT.test_file(r"tests/Out/created animations/TEST_ANIM_HKX.hkx")
+    testfile = TTB.test_file(r"tests\Skyrim\meshes\actors\character\character animations\1hm_staggerbacksmallest.hkx")
+    # testfile2 = TTB.test_file(r"tests\Skyrim\1hm_attackpowerright.hkx")
+    skelfile = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+    outfile = TTB.test_file(r"tests/Out/created animations/TEST_ANIM_HKX.hkx")
 
     bpy.context.scene.render.fps = 60
 
@@ -5827,8 +5845,8 @@ def TEST_IMPORT_TAIL():
 
 def TEST_TEXTURE_CLAMP():
     """Make sure we don't lose texture clamp mode."""
-    testfile = TT.test_file(r"tests\SkyrimSE\evergreen.nif")
-    outfile = TT.test_file(r"tests\out\TEST_TEXTURE_CLAMP.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\evergreen.nif")
+    outfile = TTB.test_file(r"tests\out\TEST_TEXTURE_CLAMP.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
     bpy.ops.export_scene.pynifly(filepath=outfile)
@@ -5842,8 +5860,8 @@ def TEST_TEXTURE_CLAMP():
 
 def TEST_MISSING_MAT():
     """We import and export properly even when files are missing."""
-    testfile = TT.test_file(r"tests\FO4\malehandsalt.nif")
-    outfile = TT.test_file(r"tests\out\TEST_MISSING_MAT.nif")
+    testfile = TTB.test_file(r"tests\FO4\malehandsalt.nif")
+    outfile = TTB.test_file(r"tests\out\TEST_MISSING_MAT.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     hands = bpy.context.object
@@ -5863,8 +5881,8 @@ def TEST_MISSING_MAT():
 
 def TEST_MISSING_FILES():
     """Write a good nif even if texture and materials files are missing."""
-    blendfile = TT.test_file(r"tests\FO4\Gloves.blend")
-    outfile = TT.test_file(r"tests\out\TEST_MISSING_FILES.nif")
+    blendfile = TTB.test_file(r"tests\FO4\Gloves.blend")
+    outfile = TTB.test_file(r"tests\out\TEST_MISSING_FILES.nif")
 
     # Can't load the test blend file in 3.x
     if bpy.app.version[0] <= 3: return
@@ -5901,8 +5919,8 @@ def TEST_MISSING_FILES():
 
 def TEST_FULL_PRECISION():
     """Can set full precision."""
-    testfile = TT.test_file(r"tests\FO4\OtterFemHead.nif")
-    outfile = TT.test_file(r"tests\out\TEST_FULL_PRECISION.nif")
+    testfile = TTB.test_file(r"tests\FO4\OtterFemHead.nif")
+    outfile = TTB.test_file(r"tests\out\TEST_FULL_PRECISION.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
     
@@ -5922,8 +5940,8 @@ def TEST_FULL_PRECISION():
 
 def TEST_EMPTY_NODES():
     """Empty nodes export with the rest."""
-    testfile = TT.test_file(r"tests\Skyrim\farmhouse01.nif")
-    outfile = TT.test_file(r"tests\out\TEST_EMPTY_NODES.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\farmhouse01.nif")
+    outfile = TTB.test_file(r"tests\out\TEST_EMPTY_NODES.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
     root = [obj for obj in bpy.data.objects if 'pynRoot' in obj][0]
@@ -5936,8 +5954,8 @@ def TEST_EMPTY_NODES():
 
 def TEST_COLLISION_PROPERTIES():
     """Test some specific collision property values."""
-    testfile = TT.test_file(r"tests\SkyrimSE\SteelDagger.nif")
-    outfile = TT.test_file(r"tests\out\TEST_COLLISION_PROPERTIES.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\SteelDagger.nif")
+    outfile = TTB.test_file(r"tests\out\TEST_COLLISION_PROPERTIES.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
     root = [obj for obj in bpy.data.objects if 'pynRoot' in obj][0]
@@ -5961,8 +5979,8 @@ def XXX_TEST_COLLISION_FO4():
     FO4 collision export: Not working. Requires an update to Nifly to handle FO4-format
     bhkRigidBody blocks.
     """
-    testfile = TT.test_file(r"tests\FO4\AlarmClock_Bare.nif")
-    outfile = TT.test_file(r"tests\out\TEST_COLLISION_FO4.nif")
+    testfile = TTB.test_file(r"tests\FO4\AlarmClock_Bare.nif")
+    outfile = TTB.test_file(r"tests\out\TEST_COLLISION_FO4.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
     root = [obj for obj in bpy.data.objects if 'pynRoot' in obj][0]
@@ -6010,7 +6028,7 @@ def TEST_FACEGEN():
     """
     FO4 facegen import works--imported head is not distorted.
     """
-    testfile = TT.test_file(r"tests\FO4\facegen.nif")
+    testfile = TTB.test_file(r"tests\FO4\facegen.nif")
 
     # Can't import pose locations for facegen files. This is testing that it works
     # correctly anyway.
@@ -6096,12 +6114,12 @@ def UNITTEST_CUBE_INFO3():
 
 def LOAD_RIG():
     """Load an animation rig for play. Has to be invoked explicitly."""
-    skelfile = TT.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
-    hkxskelfile = TT.test_file(r"tests\Skyrim\skeleton.hkx")
-    bpfile1 = TT.test_file(r"tests\Skyrim\malebody_1.nif")
-    bpfile2 = TT.test_file(r"tests\Skyrim\malehands_1.nif")
-    bpfile3 = TT.test_file(r"tests\Skyrim\malefeet_1.nif")
-    bpfile4 = TT.test_file(r"tests\Skyrim\malehead.nif")
+    skelfile = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    hkxskelfile = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+    bpfile1 = TTB.test_file(r"tests\Skyrim\malebody_1.nif")
+    bpfile2 = TTB.test_file(r"tests\Skyrim\malehands_1.nif")
+    bpfile3 = TTB.test_file(r"tests\Skyrim\malefeet_1.nif")
+    bpfile4 = TTB.test_file(r"tests\Skyrim\malehead.nif")
 
     bpy.ops.import_scene.pynifly(filepath=skelfile,
                                  do_create_bones=False, 
@@ -6147,7 +6165,7 @@ def execute_test(t, stop_on_fail=True):
         print (f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
 
         if t.__doc__: print (f"{t.__doc__}")
-        TT.clear_all()
+        TTB.clear_all()
 
         test_loghandler.start()
         if stop_on_fail:
@@ -6236,10 +6254,11 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[ TEST_BODYPART_SKY ], run_all=False, stop_on_fail=True,
+        target_tests=[ TEST_TRI_WILLOW ], run_all=False, stop_on_fail=True,
         # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
         # run_all=True, stop_on_fail=False,
         startfrom=None,
         exclude=[]
         )
+    
 

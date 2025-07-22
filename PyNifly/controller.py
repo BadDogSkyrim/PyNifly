@@ -278,7 +278,7 @@ def curve_bone_target(curve):
     Return the curve target and type for the curve. The target is the bone name if any,
     otherwise ''. Type is '.location', '.scale', etc.
     """
-    m = re.match("""pose.bones\[('|")([^'"]+)('|")\]\.?(.*)""", curve.data_path)
+    m = re.match(r"""pose.bones\[('|")([^'"]+)('|")\]\.?(.*)""", curve.data_path)
     if m: 
         return m.groups()[1], m.groups()[3]
     # if curve.data_path.startswith("pose.bones"):
@@ -819,7 +819,7 @@ class ControllerHandler():
             return ctlclass, None
         elif dp.startswith("node"):
             fcurve_match = re.match(
-                """nodes\[['"]([^]]+)['"]\].(inputs|outputs)\[['"]([^]]+)['"]\]""", dp)
+                r"""nodes\[['"]([^]]+)['"]\].(inputs|outputs)\[['"]([^]]+)['"]\]""", dp)
             if not fcurve_match:
                 raise Exception(f"Could not handle animation fcurve: {dp}")
             

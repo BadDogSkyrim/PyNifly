@@ -4,7 +4,7 @@ import sys
 import os
 import os.path
 import logging
-from niflytools import *
+import niflytools as NT 
 
 pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
 pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
@@ -25,16 +25,16 @@ def remove_file(fn):
 def assert_equiv(actual, expected, msg, e=0.0001):
     """Assert two values are nearly equal. Values may be scalars, vectors, or matrices."""
     try:
-        assert MatNearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
+        assert NT.MatNearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
     except AssertionError:
         raise
     except:
         try:
-            assert VNearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
+            assert NT.VNearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
         except AssertionError:
             raise
         except:
-            assert NearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
+            assert NT.NearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
 
 
 def assert_eq(*args):
@@ -85,7 +85,7 @@ def assert_samemembers(actual, expected, msg):
 
 def assert_exists(objname):
     """Assert an object exists in the blender file."""
-    obj = find_object(objname)
+    obj = NT.find_object(objname)
     assert obj, f"{objname} exists"
     return obj
 
