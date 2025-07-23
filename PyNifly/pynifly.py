@@ -3298,7 +3298,10 @@ class NiShape(NiNode):
         if len(partitionlist) == 0:
             return
 
-        parts = list(filter(lambda x: type(x).__name__ in ["SkyPartition", "FO4Segment"], partitionlist))
+        parts = list(filter(
+            lambda x: type(x).__name__ in ["SkyPartition", "FO4Segment"], 
+            partitionlist))
+        
         if len(parts) == 0:
             return
 

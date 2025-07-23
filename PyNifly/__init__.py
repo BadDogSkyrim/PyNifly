@@ -3229,47 +3229,47 @@ class NifExporter:
         return loops, uvs, norms, colors, partition_map
 
 
-    def export_partitions(self, obj, weights_by_vert, tris):
-        """ Export partitions described by vertex groups
-            weights = [dict[group-name: weight], ...] vertex weights, 1:1 with verts. For 
-                partitions, can assume the weights are 1.0
-            tris = [(v1, v2, v3)...] where v1-3 are indices into the vertex list
-            returns (partitions, tri_indices)
-                partitions = list of partition objects
-                tri_indices = list of paritition indices, 1:1 with the shape's tri list
-        """
-        partitions = partitions_from_vert_groups(obj)
+    # def export_partitions(self, obj, weights_by_vert, tris):
+    #     """ Export partitions described by vertex groups
+    #         weights = [dict[group-name: weight], ...] vertex weights, 1:1 with verts. For 
+    #             partitions, can assume the weights are 1.0
+    #         tris = [(v1, v2, v3)...] where v1-3 are indices into the vertex list
+    #         returns (partitions, tri_indices)
+    #             partitions = list of partition objects
+    #             tri_indices = list of paritition indices, 1:1 with the shape's tri list
+    #     """
+    #     partitions = partitions_from_vert_groups(obj)
 
-        if len(partitions) == 0:
-            return [], []
+    #     if len(partitions) == 0:
+    #         return [], []
 
-        partition_set = set(list(partitions.keys()))
+    #     partition_set = set(list(partitions.keys()))
 
-        tri_indices = [0] * len(tris)
+    #     tri_indices = [0] * len(tris)
 
-        for i, t in enumerate(tris):
-            # All 3 have to be in the same vertex group to count
-            vg0 = all_vertex_groups(weights_by_vert[t[0]])
-            vg1 = all_vertex_groups(weights_by_vert[t[1]])
-            vg2 = all_vertex_groups(weights_by_vert[t[2]])
-            tri_partitions = vg0.intersection(vg1).intersection(vg2).intersection(partition_set)
-            if len(tri_partitions) > 0:
-                if len(tri_partitions) > 1:
-                    log.warning(f"Found multiple partitions for tri {t} in object {obj.name}: {tri_partitions}")
-                    self.warnings.add('MANY_PARITITON')
-                    self.objs_mult_part.add(obj)
-                    create_group_from_verts(obj, MULTIPLE_PARTITION_GROUP, t)
+    #     for i, t in enumerate(tris):
+    #         # All 3 have to be in the same vertex group to count
+    #         vg0 = all_vertex_groups(weights_by_vert[t[0]])
+    #         vg1 = all_vertex_groups(weights_by_vert[t[1]])
+    #         vg2 = all_vertex_groups(weights_by_vert[t[2]])
+    #         tri_partitions = vg0.intersection(vg1).intersection(vg2).intersection(partition_set)
+    #         if len(tri_partitions) > 0:
+    #             if len(tri_partitions) > 1:
+    #                 log.warning(f"Found multiple partitions for tri {t} in object {obj.name}: {tri_partitions}")
+    #                 self.warnings.add('MANY_PARITITON')
+    #                 self.objs_mult_part.add(obj)
+    #                 create_group_from_verts(obj, MULTIPLE_PARTITION_GROUP, t)
 
-                # Triangulation may put some tris in two partitions. Just choose one--
-                # exact division doesn't matter (if it did user should have put in an edge)
-                tri_indices[i] = partitions[next(iter(tri_partitions))].id
-            else:
-                log.warning(f"Tri {t} is not assigned any partition")
-                self.warnings.add('NO_PARTITION')
-                self.objs_no_part.add(obj)
-                create_group_from_verts(obj, NO_PARTITION_GROUP, t)
+    #             # Triangulation may put some tris in two partitions. Just choose one--
+    #             # exact division doesn't matter (if it did user should have put in an edge)
+    #             tri_indices[i] = partitions[next(iter(tri_partitions))].id
+    #         else:
+    #             log.warning(f"Tri {t} is not assigned any partition")
+    #             self.warnings.add('NO_PARTITION')
+    #             self.objs_no_part.add(obj)
+    #             create_group_from_verts(obj, NO_PARTITION_GROUP, t)
 
-        return list(partitions.values()), tri_indices
+    #     return list(partitions.values()), tri_indices
 
 
     def find_colormaps(self, mesh):
@@ -3359,13 +3359,15 @@ class NifExporter:
             tris = list of (t1, t2, t3) vert indices to define triangles
             weights_by_vert = [dict[group-name: weight], ...] 1:1 with verts
             morphdict = {shape-key: [verts...], ...} XXX>only if "target_key" is NOT specified
+            paretitions = list of Partition objects, one for each partition
+            partition_map = [n, ...] list of partition IDs, 1:1 with verts
+        
         NOTE this routine changes selection and switches to edit mode and back
         """
         loopcolors = None
         saved_sk = obj.active_shape_key_index
         
-        ObjectSelect([obj])
-        ObjectActive(obj)
+        ObjectSelect([obj], active=True)
             
         # This next little dance ensures the mesh.vertices locations are correct
         if self.export_modifiers:
@@ -3708,7 +3710,9 @@ class NifExporter:
                 if 'FO4_SEGMENT_FILE' in obj.keys():
                     new_shape.segment_file = obj['FO4_SEGMENT_FILE']
 
-                new_shape.set_partitions(partitions.values(), partition_map)
+                new_shape.set_partitions(
+                    [p for p in partitions.values() if p.id in partition_map], 
+                    partition_map)
 
             collision.CollisionHandler.export_collisions(self, arma)
         else:

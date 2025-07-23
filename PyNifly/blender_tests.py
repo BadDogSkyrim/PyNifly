@@ -1669,6 +1669,23 @@ def TEST_PARTITIONS():
     assert set([p.id for p in head.partitions]) == set([130, 143, 230]), "Have all head parts"
 
 
+def TEST_PARTITIONS_EMPTY():
+    """Do not write empty partitions"""
+    testfile = TTB.test_file(r"tests\SkyrimSE\Head_EmptyPartition.blend")
+    outfile = TTB.test_file(r"tests/Out/TEST_PARTITIONS_EMPTY.nif")
+
+    TTB.append_from_file("MaleHeadIMF", True, testfile, r"\Object", "MaleHeadIMF")
+    obj = TTB.find_shape("MaleHeadIMF")
+
+    BD.ObjectSelect([obj], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIMSE")
+    
+    nif2 = pyn.NifFile(outfile)
+    head = nif2.shapes[0]
+    assert len(nif2.shapes[0].partitions) == 2, "Have only partitions with content"
+    assert set([p.id for p in head.partitions]) == set([130, 230]), "Have all head parts"
+
+
 def TEST_SHADER_LE():
     """Shader attributes are read and turned into Blender shader nodes"""
 
@@ -6254,7 +6271,7 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[ TEST_TRI_WILLOW ], run_all=False, stop_on_fail=True,
+        target_tests=[ TEST_PARTITIONS_EMPTY ], run_all=False, stop_on_fail=True,
         # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
         # run_all=True, stop_on_fail=False,
         startfrom=None,

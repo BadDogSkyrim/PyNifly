@@ -236,29 +236,6 @@ class TriFile():
             
             return morphSubName, vertsAdd_Index, new_verts
 
-        #     nextMorphVertIdx += 1
-            
-        #     for mvi in range(0, blockLength-1):
-
-        #     for ii, nv in enumerate(self._vertices):
-        #         if (data[0] == ii) and (blockLength >= 0) and (vertsAdd_Index < vertsAdd_listLength):
-        #             blockLength = blockLength - 1
-        #             new_verts.append((vertsAdd_list[vertsAdd_Index][0],
-        #                               vertsAdd_list[vertsAdd_Index][1],
-        #                               vertsAdd_list[vertsAdd_Index][2] ))
-        #             vertsAdd_Index += 1
-        #             if blockLength > 0:
-        #                 data = unpack('<I', tmp_buffer[INT_LEN*nextMorphVertIdx:(INT_LEN*nextMorphVertIdx)+INT_LEN])
-        #                 nextMorphVertIdx += 1
-        #         else:
-        #             new_verts.append(self._vertices[ii])
-        
-        # #Else, the morph is the same as the base mesh? I think.
-        # else:
-        #     self.log.error("Null block length on 'addMorph'")
-        #     for ii, nv in enumerate(mesh_key_verts):
-        #         new_verts.append((verts_list[ii][0], verts_list[ii][1], verts_list[ii][2]))
-
         return morphSubName, 0, None
 
 
