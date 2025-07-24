@@ -1444,45 +1444,6 @@ class ShaderImporter:
                         self.link(nimgnode.outputs['Alpha'], self.bsdf.inputs['Specular'])
                     elif 'Specular IOR Level' in self.bsdf.inputs:
                         self.link(nimgnode.outputs['Alpha'], self.bsdf.inputs['Specular IOR Level'])
-                    
-
-    def import_envmap(self):
-        """
-        Set up nodes for environment map texture. Don't know how to set it up as an actual
-        environment mask so just let it hang out unconnected.
-        """
-        if self.shape.shader.flags1_test(BSLSPShaderType.Environment_Map) \
-                and 'EnvMap' in self.shape.textures \
-                and self.shape.textures['EnvMap']: 
-            imgnode = self.make_node("ShaderNodeTexImage",
-                                     name='EnvMap_Texture',
-                                     xloc=self.inputs_offset_x)
-            if 'EnvMap' in self.textures and self.textures['EnvMap']:
-                img = bpy.data.images.load(self.textures['EnvMap'], check_existing=True)
-                if img != self.diffuse.image:
-                    img.colorspace_settings.name = "Non-Color"
-                imgnode.image = img
-            else:
-                self.warn(f"Could not load environment map texture '{self.shape.textures['EnvMap']}'")
-            self.link(self.texmap.outputs['Vector'], imgnode.inputs['Vector'])
-            
-
-    def import_envmask(self):
-        """Set up nodes for environment mask texture."""
-        if self.shape.shader.flags1_test(BSLSPShaderType.Environment_Map) \
-                and 'EnvMask' in self.shape.textures \
-                and self.shape.textures['EnvMask']: 
-            imgnode = self.make_node("ShaderNodeTexImage",
-                                     name='EnvMask_Texture',
-                                     xloc=self.inputs_offset_x)
-            self.link(self.texmap.outputs['Vector'], imgnode.inputs['Vector'])
-            if 'EnvMask' in self.textures and self.textures['EnvMask']:
-                img = bpy.data.images.load(self.textures['EnvMask'], check_existing=True)
-                if img != self.diffuse.image:
-                    img.colorspace_settings.name = "Non-Color"
-                imgnode.image = img
-            else:
-                self.warn(f"Could not load environment mask texture '{self.shape.textures['EnvMask']}'")
 
 
     def import_material(self, obj, shape:NiShape, asset_path):
@@ -1558,8 +1519,6 @@ class ShaderImporter:
             self.import_specular()
             self.import_normal()
             self.import_glowmap()
-            self.import_envmap()
-            self.import_envmask()
 
             reposition(self.bsdf, vpos=POS_TOP, padding=Vector((HORIZONTAL_GAP*2, 0)))
             reposition(mo)
@@ -1567,7 +1526,6 @@ class ShaderImporter:
             obj.active_material = self.material
         except Exception as e:
             self.warn(f"Could not import material for {obj.name}: " + traceback.format_exc())
-            
 
 
 def set_object_textures(shape: NiShape, mat: bpy.types.Material):
@@ -1721,7 +1679,12 @@ class ShaderExporter:
                      "EnvMask": (2, ShaderFlags2.ENVMAP_LIGHT_FADE),
                      "SoftLighting": (2, ShaderFlags2.SOFT_LIGHTING),
                      "Specular": (1, ShaderFlags1.SPECULAR),
-                     "Glow": (2, ShaderFlags2.GLOW_MAP)}
+                     "Glow": (2, ShaderFlags2.GLOW_MAP),
+                     "HeightMap": (1, ShaderFlags1.PARALLAX),
+                     "Greyscale": (1, ShaderFlags1.GREYSCALE_COLOR),
+                     "FacegenDetail": (1, ShaderFlags1.FACEGEN_DETAIL_MAP),
+                     "InnerLayer": (2, ShaderFlags2.MULTI_LAYER_PARALLAX),
+                     }
     
     def shader_flag_get(self, shape, textureslot):
         if textureslot in self.texture_slots:
@@ -1754,14 +1717,14 @@ class ShaderExporter:
         """
         foundpath = ""
         imagenode = None
-        if textureslot == "EnvMap":
-            if "EnvMap_Texture" in self.material.node_tree.nodes:
-                imagenode = self.material.node_tree.nodes["EnvMap_Texture"]
-        elif textureslot == "EnvMask":
-            if "EnvMask_Texture" in self.material.node_tree.nodes:
-                imagenode = self.material.node_tree.nodes["EnvMask_Texture"]
+        # if textureslot == "EnvMap":
+        #     if "EnvMap_Texture" in self.material.node_tree.nodes:
+        #         imagenode = self.material.node_tree.nodes["EnvMap_Texture"]
+        # elif textureslot == "EnvMask":
+        #     if "EnvMask_Texture" in self.material.node_tree.nodes:
+        #         imagenode = self.material.node_tree.nodes["EnvMask_Texture"]
 
-        elif textureslot == "SoftLighting":
+        if textureslot == "SoftLighting":
             # Subsurface is hidden behind mixnodes in 4.0 so just grab the node by name.
             # Maybe we should just do this for all texture layers.
             if 'Subsurface Color' in self.shader_node.inputs:

@@ -2582,16 +2582,19 @@ class NiShader(NiProperty):
                         self._textures["RimLighting"] = self._readtexture(f, s, 3)
                     if self.flags2_test(ShaderFlags2.SOFT_LIGHTING):
                         self._textures["SoftLighting"] = self._readtexture(f, s, 3)
-                    if self.flags2_test(ShaderFlags1.PARALLAX):
+                    if self.flags1_test(ShaderFlags1.PARALLAX):
                         self._textures["HeightMap"] = self._readtexture(f, s, 4)
                     if self.flags1_test(ShaderFlags1.GREYSCALE_COLOR):
                         self._textures["Greyscale"] = self._readtexture(f, s, 4)
                     if self.flags2_test(ShaderFlags2.ENVMAP_LIGHT_FADE):
                         self._textures["EnvMap"] = self._readtexture(f, s, 5)
+                    if self.flags1_test(ShaderFlags1.FACEGEN_DETAIL_MAP):
+                        self._textures["FacegenDetail"] = self._readtexture(f, s, 7)
                 except:
                     pass
 
-                if self.flags1_test(ShaderFlags1.ENVIRONMENT_MAPPING):
+                if (self.flags1_test(ShaderFlags1.ENVIRONMENT_MAPPING) 
+                        or self.flags1_test(ShaderFlags1.EYE_ENVIRONMENT_MAPPING)):
                     self._textures["EnvMap"] = self._readtexture(f, s, 5)
                     self._textures["EnvMask"] = self._readtexture(f, s, 6)
 
@@ -2633,7 +2636,7 @@ class NiShader(NiProperty):
             if slot == 'EnvMask':
                 NifFile.nifly.setShaderTextureSlot(
                     self.file._handle, self._parent._handle, 5, texturepath.encode('utf-8'))
-            if slot == 'InnerLayer':
+            if slot in ['FacegenDetail', 'InnerLayer']:
                 NifFile.nifly.setShaderTextureSlot(
                     self.file._handle, self._parent._handle, 6, texturepath.encode('utf-8'))
             if slot == 'Specular':

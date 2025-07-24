@@ -986,7 +986,7 @@ def TEST_UNI():
 
 def TEST_SHADER():
     """Can read shader flags"""
-    hnse = NifFile(r"tests\SKYRIMSE\malehead.nif")
+    hnse = NifFile(r"tests\SKYRIMSE\maleheadAllTextures.nif")
     hsse = hnse.shapes[0]
     TT.assert_eq(hsse.shader.properties.Shader_Type, 4, "Shader_Type")
     TT.assert_eq(hsse.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), True, "MODEL_SPACE_NORMALS")
@@ -1014,6 +1014,10 @@ def TEST_SHADER():
     TT.assert_eq(hsse.textures["Diffuse"], r"textures\actors\character\male\MaleHead.dds", "Diffuse")
     TT.assert_eq(hsse.textures["Normal"], r"textures\actors\character\male\MaleHead_msn.dds", "Normal")
     TT.assert_eq(hsse.textures["SoftLighting"], r"textures\actors\character\male\MaleHead_sk.dds", "SoftLighting")
+    TT.assert_eq(hsse.textures["HeightMap"], r"textures\actors\character\male\height.dds", "HeightMap")
+    TT.assert_eq(hsse.textures["EnvMap"], r"textures\actors\character\male\EnvMap.dds", "EnvMap")
+    TT.assert_eq(hsse.textures["EnvMask"], r"textures\actors\character\male\EnvMask.dds", "EnvMask")
+    TT.assert_eq(hsse.textures["FacegenDetail"], r"textures\actors\character\male\Inner.dds", "FacegenDetail")
     TT.assert_eq(hsse.textures["Specular"], r"textures\actors\character\male\MaleHead_S.dds", "Specular")
 
     TT.assert_eq(hsle.textures["Diffuse"], r"textures\actors\character\male\MaleHead.dds", "Diffuse")
@@ -2500,7 +2504,7 @@ mylog.setLevel(logging.DEBUG)
 
 # ############## TESTS TO RUN #############
 stop_on_fail = False
-# execute(testlist=[TEST_LOD])
+execute(testlist=[TEST_SHADER])
 # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
-execute(exclude=[TEST_SET_SKINTINT])
+# execute(exclude=[TEST_SET_SKINTINT])
 #

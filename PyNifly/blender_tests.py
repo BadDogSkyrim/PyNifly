@@ -1860,6 +1860,44 @@ def TEST_SHADER_SCALE():
     assert hair.shader.properties.UV_Scale_U == 1.5, f"Have correct scale: {hair.shader.properties.UV_Scale_U}"
 
 
+def TEST_SHADER_ALL():
+    """Test that all texture slots are imported and exported correctly."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\maleheadAllTextures.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SHADER_ALL.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    n = pyn.NifFile(outfile)
+    head = n.shapes[0]
+    TT.assert_contains('MaleHead.dds', head.shader.textures['Diffuse'], 'diffuse texture')
+    TT.assert_contains('MaleHead_msn.dds', head.shader.textures['Normal'], 'MSN texture')
+    TT.assert_contains('MaleHead_sk.dds', head.shader.textures['SoftLighting'], 'Subsurface texture')
+    TT.assert_contains('height.dds', head.shader.textures['HeightMap'], 'Height map texture')
+    TT.assert_contains('EnvMap.dds', head.shader.textures['EnvMap'], 'Environment map texture')
+    TT.assert_contains('EnvMask.dds', head.shader.textures['EnvMask'], 'Environment mask texture')
+    TT.assert_contains('Inner.dds', head.shader.textures['FacegenDetail'], 'Facegen texture')
+    TT.assert_contains('MaleHead_S.dds', head.shader.textures['Specular'], 'Specular texture')
+    TT.assert_eq(len(head.shader.textures), 8, "Head texture count")
+
+
+def TEST_SHADER_EYE():
+    """Test that all texture slots are imported and exported correctly."""
+    testfile2 = TTB.test_file(r"tests\SkyrimSE\eyesmale.nif")
+    outfile2 = TTB.test_file(r"tests/Out/TEST_SHADER_EYE.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile2)
+    bpy.ops.export_scene.pynifly(filepath=outfile2)
+
+    n = pyn.NifFile(outfile2)
+    eye = n.shapes[0]
+    TT.assert_contains('EyeBrown.dds', eye.shader.textures['Diffuse'], 'diffuse texture')
+    TT.assert_contains('EyeBrown_n.dds', eye.shader.textures['Normal'], 'Normal texture')
+    TT.assert_contains('EyeBrown_sk.dds', eye.shader.textures['SoftLighting'], 'Subsurface texture')
+    TT.assert_contains('EyeCubeMap.dds', eye.shader.textures['EnvMap'], 'Environment map texture')
+    TT.assert_contains('EyeEnvironmentMask_M.dds', eye.shader.textures['EnvMask'], 'Environment mask texture')
+
+
 def TEST_ANIM_SHADER_GLOW():
     """Glow shader elements and other extra attributes work correctly."""
     testfile = TTB.test_file(r"tests\SkyrimSE\meshes\armor\daedric\daedriccuirass_1.nif")
@@ -6271,7 +6309,7 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[ TEST_PARTITIONS_EMPTY ], run_all=False, stop_on_fail=True,
+        target_tests=[ TEST_SHADER_EYE ], run_all=False, stop_on_fail=True,
         # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
         # run_all=True, stop_on_fail=False,
         startfrom=None,
