@@ -1998,7 +1998,7 @@ def read_morph(obj, base_verts, game_dict, game_morph_name, morph_verts, is_rel)
 
         obj.active_shape_key_index = len(mesh.shape_keys.key_blocks) - 1
             #This is a pointer, not a copy
-        mesh_key_verts = mesh.shape_keys.key_blocks[obj.active_shape_key_index].data
+        mesh_key_verts = mesh.shape_keys.key_blocks[obj.active_shape_key_index].data[0:len(morph_verts)]
         if is_rel:
             # We may be applying the morphs to a different shape than the one stored in 
             # the tri file. But the morphs in the tri file are absolute locations, as are 
@@ -2019,8 +2019,9 @@ def read_morph(obj, base_verts, game_dict, game_morph_name, morph_verts, is_rel)
 
 
 def create_shape_keys(obj, tri: trihandler.TriFile):
-    """Adds the shape keys in tri to obj 
-        """
+    """
+    Adds the shape keys in tri to obj. Obj may have more verts than tri.
+    """
     mesh = obj.data
     if mesh.shape_keys is None:
         newsk = obj.shape_key_add()
@@ -2092,9 +2093,10 @@ def import_trip(filepath, target_objs):
     return (result, shapelist)
 
 
-def import_tri(filepath, cobj):
+def import_tri(filepath, cobj, allow_extra_verts=True):
     """Import the tris from filepath into cobj
        If cobj is None or if the verts don't match, create a new object
+       allow_extra_verts: if True, allow the obj mesh to have more verts than the tri.
        """
     tri = trihandler.TriFile.from_file(filepath)
     if not type(tri) == trihandler.TriFile:
@@ -2104,7 +2106,9 @@ def import_tri(filepath, cobj):
     new_object = None
 
     # Check whether selected object should receive shape keys
-    if cobj and cobj.type == "MESH" and len(cobj.data.vertices) == len(tri.vertices):
+    if (cobj and cobj.type == "MESH" 
+        and (len(cobj.data.vertices) == len(tri.vertices)
+             or (len(cobj.data.vertices) > len(tri.vertices) and allow_extra_verts))):
         new_object = cobj
         new_mesh = new_object.data
         log.info(f"Verts match, loading tri into existing shape {new_object.name}")
@@ -2139,11 +2143,24 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
     bl_label = "Import TRI (Nifly)"
     bl_options = {'PRESET', 'UNDO'}
 
+    do_apply_active: bpy.props.BoolProperty(
+        name="Apply to active object",
+        description="Apply tri to active object if possible.",
+        default=True) # type: ignore
+
     filename_ext = ".tri"
     filter_glob: StringProperty(
         default="*.tri",
         options={'HIDDEN'},
     ) # type: ignore
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.do_apply_active = (
+            bpy.context.object is not None and
+            bpy.context.object.select_get() and
+            bpy.context.object.type == 'MESH'
+        )
 
     def execute(self, context):
         self.log_handler = LogHandler()
@@ -2157,7 +2174,9 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
             if 'NOT_TRIP' in v:
                 imp = "IMPORT TRI"
                 cobj = bpy.context.object
-                obj = import_tri(self.filepath, cobj)
+                obj = import_tri(self.filepath, 
+                                 (cobj if self.do_apply_active else None), 
+                                 allow_extra_verts=self.do_apply_active)
                 if obj == cobj:
                     imp = f"IMPORT TRI into {cobj.name}"
                 else:

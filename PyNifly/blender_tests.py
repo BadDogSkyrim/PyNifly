@@ -1345,6 +1345,19 @@ def TEST_TRI_WILLOW():
     assert bpy.context.object.name is not None, f"Imported tri file: {bpy.context.object.name}"
 
 
+def TEST_TRI_BASEMALEHEAD():
+    """Import tri file correctly when the nif has more verts than the tri."""
+    testfile = TTB.test_file(r"tests\FO4\basemalehead.nif")
+    testfile2 = TTB.test_file(r"tests\FO4\basemalehead.tri")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    assert bpy.context.object.name is not None, f"Imported nif file: {bpy.context.object.name}"
+    meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
+    assert len(meshes) == 1, f"Have one mesh: {meshes}"
+    mesh = meshes[0]
+    assert mesh.data.shape_keys is not None, "Mesh has shape keys"
+    assert len(mesh.data.shape_keys.key_blocks) > 5, f"Expected more than 5 shape keys, got {len(mesh.data.shape_keys.key_blocks)}"
+
+
 def TEST_IMPORT_MULTI_OBJECTS():
     """Can import 2 meshes as objects"""
     # When two files are selected for import, they are connected into a single armature.
@@ -6309,7 +6322,7 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[ TEST_SHADER_EYE ], run_all=False, stop_on_fail=True,
+        target_tests=[ TEST_TRI_BASEMALEHEAD ], run_all=False, stop_on_fail=True,
         # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
         # run_all=True, stop_on_fail=False,
         startfrom=None,
