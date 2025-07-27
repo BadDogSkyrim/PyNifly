@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import logging
 import traceback
+from contextlib import suppress
 import bpy
 from pynifly import *
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
@@ -1554,7 +1555,7 @@ def has_msn_shader(obj):
     implementing the shader.
     """
     val = False
-    try:
+    with suppress(IndexError):
         matoutlist = [x for x in obj.active_material.node_tree.nodes if x.bl_idname == 'ShaderNodeOutputMaterial']
         mat_out = matoutlist[0]
         surface_skt = mat_out.inputs[0]
@@ -1565,8 +1566,6 @@ def has_msn_shader(obj):
             start_node = group_out.inputs[0].links[0].from_node
         normlist = BD.find_node(start_node.inputs["Normal"], 'ShaderNodeNormalMap')
         val = normlist[0].space == 'OBJECT'
-    except: 
-        pass
     return val
 
 

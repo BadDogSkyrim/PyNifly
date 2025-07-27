@@ -20,6 +20,12 @@ ANIMATION_NAME_MARKER = "ANIM"
 ANIMATION_NAME_SEP = "|"
 KFP_HANDLE_OFFSET = 10
 
+# action_target_slots = {
+#     "SHADER": "NODETREE",
+#     "ARMATURE": "ARMATURE",
+#     "EMPTY": "OBJECT",
+# }
+
 
 shader_nodes = {    
     "Fallout 4 MTS": "Lighting", 
@@ -458,10 +464,6 @@ class ControllerHandler():
         self.context.scene.timeline_markers.clear()
         self.animation_actions = []
 
-        try:
-            self.anim_name = anim_context.name
-        except:
-            self.anim_name = None
         self.action_name = ""
         self.action_group = ""
         self.path_name = ""
@@ -502,15 +504,17 @@ class ControllerHandler():
             self.action.frame_end = self.frame_end
             self.action.use_frame_range = True
             self.action.use_cyclic = self.is_cyclic 
+
             try:
-                t = ''
                 if self.action_target.type == 'SHADER':
-                    t = 'NODETREE'
-                if self.action_target.type == 'EMPTY':
-                    t = 'OBJECT'
-                if t:
-                    self.action.slots.new(t, 'XXLegacy Slot')
+                    self.action.slots.new('NODETREE', 'Legacy Slot')
+                elif self.action_target.type == 'EMPTY':
+                    self.action.slots.new('OBJECT', 'Legacy Slot')
+                # TODO: Figure out why this doesn't work vv
+                # elif self.action_target.type == 'ARMATURE':
+                #     self.action.slots.new('ARMATURE', 'Legacy Slot')
             except:
+                log.exception("Error creating action slot for controller action")
                 pass # prior to 4.4
 
             # Some nifs have multiple animations with different names. Others just animate
@@ -521,6 +525,15 @@ class ControllerHandler():
                 self.animation_actions.append(self.action)
                 
             self.action_target.animation_data_create()
+
+            # try: # 4.4 and later
+            #     track = self.action_target.animation_data.nla_tracks.new()
+            #     strip = track.strips.new(name=self.anim_name, start=1, action=self.action)
+            #     strip.action_frame_start = self.action.frame_range[0]
+            #     strip.action_frame_end = self.action.frame_range[1]
+            # except:
+            #     self.action_target.animation_data.action = self.action
+
             self.action_target.animation_data.action = self.action
             if len(self.action.slots) > 0:
                 self.action_target.animation_data.action_slot = self.action.slots[0]
@@ -668,7 +681,8 @@ class ControllerHandler():
 
     # --- PUBLIC FUNCTIONS ---
 
-    def import_controller(self, ctlr, target_object=None, target_element=None, target_bone=None):
+    def import_controller(self, ctlr, target_object=None, target_element=None, target_bone=None,
+                          animation_name=None):
         """
         Import the animation defined by a controller block.
         
@@ -678,6 +692,7 @@ class ControllerHandler():
         self.animation_target = target_object
         self.action_target = target_element
         self.bone_target = target_bone
+        self.anim_name = animation_name if animation_name else ctlr.name
         self._new_animation(ctlr)
         ctlr.import_node(self)
 

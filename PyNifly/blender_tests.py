@@ -5798,7 +5798,8 @@ def TEST_ANIM_HKX():
     bpy.ops.import_scene.pynifly_hkx(filepath=testfile, 
                                      reference_skel=hkx_skel)
 
-    assert len([fc for fc in arma.animation_data.action.fcurves if 'NPC Pelvis' in fc.data_path]) > 0, f"Animating translated bone names"
+    assert len([fc for fc in arma.animation_data.action.fcurves if 'NPC Pelvis' in fc.data_path]) > 0, \
+        f"Animating translated bone names"
 
     bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=hkx_skel)
 
@@ -6254,7 +6255,7 @@ def execute_test(t, stop_on_fail=True):
 def do_tests(
         target_tests=[],
         run_all=True,
-        stop_on_fail=True,
+        stop_on_fail=False,
         startfrom=None,
         exclude=[]):
     """Do tests in testlist. Can pass in a single test."""
@@ -6322,11 +6323,8 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        target_tests=[ TEST_TRI_BASEMALEHEAD ], run_all=False, stop_on_fail=True,
+        # target_tests=[ TEST_ANIM_HKX ], run_all=False, stop_on_fail=True,
         # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
-        # run_all=True, stop_on_fail=False,
-        startfrom=None,
-        exclude=[]
         )
     
 

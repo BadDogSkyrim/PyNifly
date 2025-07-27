@@ -7,7 +7,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 4, 0),
-    "version": (20, 0, 0),   
+    "version": (20, 1, 0),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -17,6 +17,7 @@ bl_info = {
 import sys
 import os
 import os.path
+from contextlib import suppress
 import subprocess
 import xml.etree.ElementTree as xml
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry, Color
@@ -280,9 +281,10 @@ def get_bone_xform(arma, bone_name, game, preserve_hierarchy, use_pose) -> Matri
 # -----------------------------  MESH CREATION -------------------------------
 
 def mesh_create_normals(the_mesh, normals):
-    """ Create custom normals in Blender to match those on the object 
+    """ 
+    Create custom normals in Blender to match those on the object 
         normals = [(x, y, z)... ] 1:1 with mesh verts
-        """
+    """
     if normals:
         # Make sure the normals are unit length
         # Magic incantation to set custom normals
@@ -317,13 +319,11 @@ def mesh_create_partition_groups(the_shape, the_object):
         else:
             new_vg = vg.new(name=p.name)
         partn_groups.append(new_vg)
-        try:
+        with suppress(AttributeError):
             # Walk through subsegments, if any. Skyrim doesn't have them.
             for sseg in p.subsegments:
                 new_vg = vg.new(name=sseg.name)
                 partn_groups.append(new_vg)
-        except:
-            pass
     for part_idx, face in zip(the_shape.partition_tris, mesh.polygons):
         if part_idx < len(partn_groups):
             this_vg = vg[partn_groups[part_idx].name]
@@ -394,6 +394,7 @@ class NifImporter():
                  base_transform=Matrix.Identity(4), # Transform to apply to root
                  context=bpy.context,
                  chargen_ext=CHARGEN_EXT_DEF, # Extension for chargen tri files
+                 animation_name=None, # Base name of animation being imported, if any
                  scale=1.0,
                  ):
         
@@ -406,6 +407,7 @@ class NifImporter():
         self.import_xf = base_transform # Transform applied to root for blender convenience.
         self.context = context
         self.chargen_ext = chargen_ext
+        self.animation_name = animation_name
         self.scale = scale
 
         self.armature = None # Armature used for current shape import
@@ -890,12 +892,12 @@ class NifImporter():
                 collision.CollisionHandler.import_collision_obj(
                     self, ninode.collision_object, obj)
         except:
-            pass
+            log.exception(f"Error importing collisions {ninode.name}")
 
         try:
             self.import_extra(obj, ninode)
         except:
-            pass
+            log.exception(f"Error importing extra data {ninode.name}")
 
         try:
             if self.root_object != obj and ninode.controller and self.is_set(ImportSettings.import_anims): 
@@ -903,7 +905,7 @@ class NifImporter():
                 # any of the root's children and so wait until those can be imported.
                 self.controller_mgr.import_controller(ninode.controller, arma if arma else obj, obj)
         except:
-            pass
+            log.exception(f"Error importing controllers {ninode.name}")
         
         return obj
 
@@ -1232,7 +1234,7 @@ class NifImporter():
                             bloc, brot, bscale = bone_xf.decompose()
                             bone_xf = MatrixLocRotScale(bloc, skbrot, bscale)
                         except:
-                            pass
+                            log.exception(f"Error handling facegen bone rotations {bn}")
 
                     pb_xf = apply_scale_transl(bone_xf, self.scale)
                     pose_bone = arma.pose.bones[blname]
@@ -1436,11 +1438,10 @@ class NifImporter():
         # bpy.ops.object.mode_set(mode='EDIT', toggle=False)
 
         if self.nif.dict.use_niftools:
-            try:
+            with suppress(AttributeError):
+                # Support NifTools axis settings
                 arm_data.niftools.axis_forward = "Z"
                 arm_data.niftools.axis_up = "-X"
-            except:
-                pass
 
         #if self.scale != SCALE_DEF: arma['PYN_SCALE_FACTOR'] = self.scale 
         arma['PYN_BLENDER_XF'] = MatNearEqual(self.import_xf, blender_import_xf)
@@ -1583,7 +1584,8 @@ class NifImporter():
             # Top-level node of a KF animation file is a Controller Sequence. 
             # Import it and done.
             self.controller_mgr.import_controller(
-                self.nif.rootNode, target_object=self.armature, target_element=self.armature)
+                self.nif.rootNode, target_object=self.armature, target_element=self.armature,
+                animation_name=self.animation_name)
             return
 
         self.is_facegen = ("BSFaceGenNiNodeSkinned" in self.nif.nodes)
@@ -2195,7 +2197,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
                         ctx['region'] = area.regions[-1]
                         bpy.ops.view3d.view_selected(ctx)
             except:
-                pass
+                pass # log exception?
 
             self.log_handler.finish(imp, self.filepath)
 
@@ -2377,6 +2379,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         self.errors = set()
         self.xml_filepath = None
         self.import_flags = ImportSettings(0)
+        self.animation_name = None
 
         obj = bpy.context.object
         if obj and obj.type == 'ARMATURE':
@@ -2431,6 +2434,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
                 if self.reference_skel:
                     context.object['PYN_SKELETON_FILE'] = self.reference_skel
 
+                self.animation_name = os.path.splitext(os.path.basename(self.filepath))[0]
                 stat = self.import_animation()
                 res.add(stat)
 
@@ -2488,7 +2492,8 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
             imp = NifImporter(self.kf_filepath, 
                               [], 
                               [self.context.object],
-                              self.import_flags)
+                              self.import_flags,
+                              animation_name=self.animation_name,)
             imp.context = self.context
             # imp.armature = self.context.object
             # imp.do_import_anims = True
@@ -3193,14 +3198,12 @@ class NifExporter:
 
         # Before Blender 4.0 have to calculate normals. 4.0 doesn't need it and throws
         # an error.
-        try:
+        with suppress(AttributeError):
+            # Blender 4.0+ has normals in the loops, so no need to calculate them
             mesh.calc_normals_split()
-        except:
-            pass
-        try:
+        with suppress(AttributeError):
+            # Blender 3.0+ has normals in the vertices, so no need to calculate them
             mesh.calc_normals()
-        except:
-            pass
 
         def write_loop_vert(loopseg):
             """ Write one vert, given as a MeshLoop 
