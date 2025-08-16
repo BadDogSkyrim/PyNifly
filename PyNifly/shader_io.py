@@ -1564,7 +1564,7 @@ def has_msn_shader(obj):
             grp_outputs = [n for n in start_node.node_tree.nodes if n.bl_idname == 'NodeGroupOutput']
             group_out = grp_outputs[0]
             start_node = group_out.inputs[0].links[0].from_node
-        normlist = BD.find_node(start_node.inputs["Normal"], 'ShaderNodeNormalMap')
+        normlist = BD.find_node(start_node.inputs.get("Normal"), 'ShaderNodeNormalMap') if "Normal" in start_node.inputs else []
         val = normlist[0].space == 'OBJECT'
     return val
 
