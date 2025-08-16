@@ -560,13 +560,13 @@ class TriFile():
 
         #Pack Morph
         for morphNum, diffValue in enumerate(morphKeysDiffValuesArrayToPack):
-            morphKeysPacked += pack('<I'+ str(len(fullMorphNameList[morphNum])) +'sx', len(fullMorphNameList[morphNum])+1, fullMorphNameList[morphNum].encode("iso-8859-15") )
+            morphKeysPacked += pack('<I'+ str(len(fullMorphNameList[morphNum])) +'sx', len(fullMorphNameList[morphNum])+1, fullMorphNameList[morphNum].encode("utf-8") )
             morphKeysPacked += pack('<f', diffValue)
             morphKeysPacked += pack('<' + str(len(morphKeysArrayToPack[morphNum])*3) + 'h', *[k for j in morphKeysArrayToPack[morphNum] for k in j] )
 
         #Pack Mod-Morph
         for morphNum, headerArray in enumerate(modHeaderArrayToPack):
-            modHeaderPacked += pack('<I'+ str(len(modMorphNameList[morphNum])) +'sx', len(modMorphNameList[morphNum])+1, modMorphNameList[morphNum].encode("iso-8859-15") )
+            modHeaderPacked += pack('<I'+ str(len(modMorphNameList[morphNum])) +'sx', len(modMorphNameList[morphNum])+1, modMorphNameList[morphNum].encode("utf-8") )
             modHeaderPacked += pack('<I', headerArray[0] )
             modHeaderPacked += pack('<' + str( len(headerArray)-1 ) + 'I', *headerArray[1:]  )
             modVerticePacked += pack('<' + str(len(modVerticeArrayToPack[morphNum])*3) + 'f', *[k for j in modVerticeArrayToPack[morphNum] for k in j] )
