@@ -113,9 +113,9 @@ def TEST_BODYPART_FO4():
     assert int(male_head.location.z) == 120, f"ERROR: Object {male_head.name} at {male_head.location.z}, not elevated to position"
     assert 'pynRoot' in male_head.parent, "Parenting mesh to root"
     maxz = max([v.co.z for v in male_head.data.vertices])
-    assert TT.NearEqual(maxz, 8.3, epsilon=0.1), f"Max Z ~ 8.3: {maxz}"
+    TT.assert_equiv(maxz, 8.3, "Max Z", e=0.1)
     minz = min([v.co.z for v in male_head.data.vertices])
-    assert TT.NearEqual(minz, -12.1, epsilon=0.1), f"Min Z ~ -12.1: {minz}"
+    TT.assert_equiv(minz, -12.1, "Min Z", e=0.1)
 
 
 def TEST_BODYPART_XFORM():
@@ -6282,10 +6282,10 @@ def do_tests(
                 execute_test(t, stop_on_fail=stop_on_fail)
 
     if not failed_tests:
-        print("""
+        print(f"""
 =============================================================================
 ===                                                                       ===
-===                               SUCCESS                                 ===
+===                      SUCCESS: {len(passed_tests):3d} test{"s" if len(passed_tests) != 1 else ""} passed{"" if len(passed_tests) != 1 else " "}                        ===
 ===                                                                       ===
 =============================================================================
 """)
@@ -6323,8 +6323,9 @@ else:
     # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
     do_tests(
-        # target_tests=[ TEST_ANIM_HKX ], run_all=False, stop_on_fail=True,
+        # target_tests=[ TEST_BODYPART_FO4 ], run_all=False, stop_on_fail=True,
         # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
+        stop_on_fail=True
         )
     
 
