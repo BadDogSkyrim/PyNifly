@@ -22,6 +22,8 @@ from niflytools import *
 from nifdefs import *
 import test_tools as TT
 from pynifly import *
+from test_nifchecker import CheckNif
+
 
 """Quick and dirty test harness."""
 
@@ -2039,19 +2041,20 @@ def TEST_ANIMATION_SHADER():
     outfile = r"tests\out\TEST_ANIMATION_SHADER.nif"
     nif = NifFile(testfile)
 
-    # BSEffectShaderProperty can have a controller.
-    glowshape = nif.shape_dict['MaleTorsoGlow']
-    ctlr = glowshape.shader.controller
-    assert ctlr, f"Have shader controller {ctlr.blockname}"
-    assert ctlr.properties.flags == 72, f"Have controller flags"
-    assert ctlr.properties.controlledVariable == EffectShaderControlledVariable.V_Offset, f"Have correct controlled variable"
-    interp = ctlr.interpolator
-    assert interp, f"Have interpolator"
-    assert interp.data, f"Have interpolator data"
-    d = interp.data
-    assert d.properties.keys.numKeys == 3, f"Have correct number of keys"
-    assert NearEqual(d.keys[1].time, 3.333), f"Have correct time at 1"
-    assert NearEqual(d.keys[1].backward, -1), f"Have correct backwards value at 1"
+    # # BSEffectShaderProperty can have a controller.
+    # glowshape = nif.shape_dict['MaleTorsoGlow']
+    # ctlr = glowshape.shader.controller
+    # assert ctlr, f"Have shader controller {ctlr.blockname}"
+    # assert ctlr.properties.flags == 72, f"Have controller flags"
+    # assert ctlr.properties.controlledVariable == EffectShaderControlledVariable.V_Offset, f"Have correct controlled variable"
+    # interp = ctlr.interpolator
+    # assert interp, f"Have interpolator"
+    # assert interp.data, f"Have interpolator data"
+    # d = interp.data
+    # assert d.properties.keys.numKeys == 3, f"Have correct number of keys"
+    # assert NearEqual(d.keys[1].time, 3.333), f"Have correct time at 1"
+    # assert NearEqual(d.keys[1].backward, -1), f"Have correct backwards value at 1"
+    CheckNif(nif)
 
     nifout = NifFile()
     nifout.initialize('SKYRIM', outfile)
@@ -2061,33 +2064,15 @@ def TEST_ANIMATION_SHADER():
     assert NifFile.message_log() == "", f"No messages: {NifFile.message_log()}"
 
     nifcheck = NifFile(outfile)
-    glowcheck = nifcheck.shape_dict['MaleTorsoGlow']
-    assert glowcheck.shader.controller, f"Have EffectShaderController"
+    CheckNif(nifcheck, source=testfile)
+    # glowcheck = nifcheck.shape_dict['MaleTorsoGlow']
+    # assert glowcheck.shader.controller, f"Have EffectShaderController"
 
 
 def TEST_ANIMATION_SHADER_BSLSP():
     """Embedded animations on BSLightingShaderProperty shaders"""
     testfile = r"tests/SkyrimSE\voidshade_1.nif"
     outfile = r"tests\out\TEST_ANIMATION_SHADER_BSLSP.nif"
-
-    def CheckNif(nif:NifFile):
-        # BSLightingShaderProperty can have a controller.
-        headshape = nif.shape_dict['head']
-        ctlr = headshape.shader.controller
-        assert ctlr, f"Have shader controller"
-        assert ctlr.blockname == "BSLightingShaderPropertyFloatController", \
-            f"Correct controller type: {ctlr.blockname}"
-        assert ctlr.properties.flags == 72, f"Have controller flags"
-        assert ctlr.properties.controlledVariable == LightingShaderControlledVariable.V_Offset, \
-            f"Have correct controlled variable"
-        interp = ctlr.interpolator
-        assert interp, f"Have interpolator"
-        assert interp.blockname == "NiFloatInterpolator", f"Correct interpolator type: {interp.blockname}"
-        assert interp.data, f"Have interpolator data"
-        d = interp.data
-        assert d.properties.keys.numKeys == 2, f"Have correct number of keys"
-        assert NearEqual(d.keys[1].time, 16.0), f"Have correct time at 1"
-        assert NearEqual(d.keys[1].value, 0.0), f"Have correct value at 1"
 
     nif = NifFile(testfile)
     CheckNif(nif)
@@ -2099,7 +2084,7 @@ def TEST_ANIMATION_SHADER_BSLSP():
     assert NifFile.message_log() == "", f"No messages: {NifFile.message_log()}"
 
     nifcheck = NifFile(outfile)
-    CheckNif(nifcheck)
+    CheckNif(nifcheck, source=testfile)
 
 
 def TEST_ANIMATION_SHADER_SPRIGGAN():
@@ -2543,7 +2528,7 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = False
-    execute(testlist=[TEST_ANIMATION_SHADER_BSLSP])
+    # execute(testlist=[TEST_ANIMATION_SHADER])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
-    # execute()
+    execute()
     #

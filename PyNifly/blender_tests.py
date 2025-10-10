@@ -19,6 +19,7 @@ import pynifly as pyn
 import xml.etree.ElementTree as xml
 import blender_defs as BD
 from trihandler import *
+from test_nifchecker import CheckNif
 
 import importlib
 import skeleton_hkx
@@ -2022,38 +2023,9 @@ def TEST_ANIM_SHADER_BSLSP():
 
     ### CHECK ###
 
-    n = pyn.NifFile(testfile)
+    # n = pyn.NifFile(testfile)
     nout = pyn.NifFile(outfile)
-
-    # TT.assert_property(nout, ['head', 'BSLightingShaderProperty', 'NiAlphaProperty', 'UV Offset V'], 1.0)
-    head_in = n.shape_dict['head']
-    head_out = nout.shape_dict['head']
-
-    shaderinp = head_in.shader.properties
-    shaderoutp = head_out.shader.properties
-
-    TT.assert_equiv(shaderoutp.UV_Offset_U, shaderinp.UV_Offset_U, "UV Offset U")
-    TT.assert_equiv(shaderoutp.UV_Offset_V, 1.0, "UV Offset V")
-    TT.assert_equiv(shaderoutp.UV_Scale_U, shaderinp.UV_Scale_U, "UV Scale U")
-    TT.assert_equiv(shaderoutp.UV_Scale_V, shaderinp.UV_Scale_V, "UV Scale V")
-
-    TT.assert_equiv(shaderoutp.Emissive_Mult, shaderinp.Emissive_Mult, "Emissive Strength")
-    TT.assert_eq(shaderoutp.Emissive_Color[:], shaderinp.Emissive_Color[:], "Emissive Color")
-    TT.assert_eq(head_out.properties.hasVertexColors, head_in.properties.hasVertexColors, "Vertex Colors")
-    TT.assert_eq(head_out.alpha_property.properties.flags, head_in.alpha_property.properties.flags, "Alpha flags")
-
-    floatctlr:pyn.BSEffectShaderPropertyFloatController = head_out.shader.controller
-    assert floatctlr, f"Have shader controller on output"
-    TT.assert_eq(floatctlr.properties.flags, 72, "controller flags")
-    TT.assert_equiv(floatctlr.properties.frequency, 1.0, "controller freqency")
-    TT.assert_equiv(16.0, floatctlr.properties.stopTime, "controller stop time")
-    TT.assert_eq(floatctlr.properties.controlledVariable, pyn.EffectShaderControlledVariable.V_Offset, "controlled variable")
-    
-    TT.assert_eq(floatctlr.interpolator.blockname, 'NiFloatInterpolator', 'interpolator type')
-    dataout = floatctlr.interpolator.data
-    TT.assert_equiv(1.0, dataout.keys[0].value, "first keyframe value")
-    TT.assert_equiv(16.0, dataout.keys[1].time, "last keyframe time")
-    TT.assert_equiv(0.0, dataout.keys[1].value, "last keyframe value")
+    CheckNif(nout, source=testfile)
 
 
 def TEST_ANIM_SHADER_SPRIGGAN():

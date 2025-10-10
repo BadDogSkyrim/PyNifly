@@ -53,11 +53,12 @@ class ControlledVariable:
     def __init__(self, var_list):
         self.variables = var_list
 
-    def blend_find(self, node, socket):
+    def blend_find(self, node, socket, shader_type=None):
         """Find the right controlled variable given blender shader node and socket."""
         for n, s, d, t, v in self.variables:
             if n == node and s == socket:
-                return t, v
+                if (not shader_type) or t.__name__.startswith(shader_type):
+                    return t, v
         return None, None
     
     def nif_find(self, game, ctltype, varid):
@@ -837,7 +838,7 @@ class ControllerHandler():
         #         self.cm_obj_palette.add_object(name, n)
 
 
-    def _select_controller(self, dp):
+    def _select_controller(self, dp, shader_type=None):
         """
         Determine the controller class and controlled variable needed to represent an
         fcurve in a nif file.
@@ -856,7 +857,7 @@ class ControllerHandler():
                 node_type = shader_nodes[node_name]
             else: 
                 node_type = node_name
-            return controlled_vars.blend_find(node_type, socket_name)
+            return controlled_vars.blend_find(node_type, socket_name, shader_type)
 
 
     def _export_activated_obj(self, targetobj:BD.ReprObject, targetelem, theaction):
@@ -881,9 +882,12 @@ class ControllerHandler():
         self.start_time=(self.action.curve_frame_range[0]-1)/self.fps
         self.stop_time=(self.action.curve_frame_range[1]-1)/self.fps
         fcurves = list(self.action.fcurves)
+        shader_type = None
+        if targetelem and targetelem.name == 'Shader Nodetree':
+            shader_type = targetobj.nifnode.shader.blockname
         try:
             while fcurves:
-                ctlclass, ctlvar = self._select_controller(fcurves[0].data_path)
+                ctlclass, ctlvar = self._select_controller(fcurves[0].data_path, shader_type)
                 if ((ctlclass != ctlclass_cur) or (ctlvar != ctlvar_cur)
                     or (ctlclass_cur is None)):
 
@@ -2046,6 +2050,8 @@ def _export_float_curves(exporter, fcurves, target_obj=None):
     keys = exporter._get_curve_quad_values(fc)
     fdp = NiFloatDataBuf()
     fdp.keys.interpolation = NiKeyType.QUADRATIC_KEY
+    if len(keys) > 0 and type(keys[0]) is LinearScalarKey:
+        fdp.keys.interpolation = NiKeyType.LINEAR_KEY
     fd = NiFloatData(file=exporter.nif, properties=fdp, keys=keys)
 
     fip = NiFloatInterpolatorBuf()

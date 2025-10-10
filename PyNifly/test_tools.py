@@ -5,6 +5,7 @@ import os
 import os.path
 import logging
 import niflytools as NT 
+import nifdefs as ND
 
 pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
 pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
@@ -30,7 +31,7 @@ def assert_equiv(actual, expected, msg, e=0.0001):
         raise
     except:
         try:
-            assert NT.VNearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
+            assert NT.VNearEqual(actual[:], expected, epsilon=e), f"Values are equal for {msg}: {actual[:]} != {expected}"
         except AssertionError:
             raise
         except:
@@ -89,3 +90,54 @@ def assert_exists(objname):
     assert obj, f"{objname} exists"
     return obj
 
+
+def get_property(nif, property_path):
+    """ Get a property in a nif file by following the given path.
+        property_path = list of names to follow to get to the property.
+            The first name is the name of a block in the nif file.
+            Each subsequent name is either the name of a property in the previous block,
+            or the name of a block contained in the previous block.
+        Return = value of the final property, or None if not found.
+    """
+    current = None
+    for i, name in enumerate(property_path):
+        if i == 0:
+            assert name in nif.shape_dict, f"Have shape {name}"
+            current = nif.shape_dict[name]
+        else:
+            if hasattr(current, '__getitem__'):
+                if name == 'len()':
+                    current = len(current)
+                else:
+                    current = current[int(name)]
+            elif name == 'NiAlphaProperty':
+                current = current.parent.alpha_property
+            elif name.startswith('ShaderFlags2'):
+                current = 1 if (current & ND.ShaderFlags2[name[13:]]) else 0
+            elif name.startswith('properties.'):
+                current = getattr(current.properties, name[11:])
+            elif hasattr(current, 'shader') and current.shader and current.shader.blockname == name:
+                current = current.shader
+            elif hasattr(current, 'controller') and current.controller and current.controller.blockname == name:
+                current = current.controller
+            elif hasattr(current, 'interpolator') and current.interpolator and current.interpolator.blockname == name:
+                current = current.interpolator
+            elif hasattr(current, 'data') and current.data and current.data.blockname == name:
+                current = current.data
+            elif hasattr(current, name):
+                current = getattr(current, name)
+            elif hasattr(current.properties, name):
+                current = getattr(current.properties, name)
+            else:
+                raise AssertionError(f"Have property {name} in {'/'.join(property_path[0:i])}")
+            
+    return current
+
+
+def assert_property(nif, property_path, expected_value):
+    """Assert a property in a nif file has the expected value."""
+    v = get_property(nif, property_path)
+    if type(v).__name__ in ["float", "c_float_Array_2", "c_float_Array_3", "c_float_Array_4"]:
+        assert_equiv(v, expected_value, "/".join(property_path))
+    else:
+        assert_eq(v, expected_value, "/".join(property_path))
