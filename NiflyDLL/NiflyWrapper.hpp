@@ -134,7 +134,9 @@ extern "C" NIFLY_API void getAnimKeyQuadXYZ(void* nifref, int tdID, char dimensi
 extern "C" NIFLY_API void addAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, NiAnimKeyQuadXYZBuf * buf);
 extern "C" NIFLY_API int getAnimKeyQuadFloat(void* nifref, int tdID, int frame, NiAnimKeyQuadXYZBuf* buf);
 extern "C" NIFLY_API void addAnimKeyQuadFloat(void* nifref, int dataBlockID, NiAnimKeyQuadXYZBuf* buf);
-extern "C" NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyLinearXYZBuf * buf);
+extern "C" NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyLinearBuf * buf);
+extern "C" NIFLY_API int getAnimKeyLinear(void* nifref, int tdID, int frame, NiAnimKeyLinearBuf * buf);
+extern "C" NIFLY_API void addAnimKeyLinear(void* nifref, int blockID, NiAnimKeyLinearBuf* buf);
 extern "C" NIFLY_API void getAnimKeyLinearQuat(void* nifref, int tdID, int frame, NiAnimKeyLinearQuatBuf * buf);
 extern "C" NIFLY_API void addAnimKeyLinearQuat(void* nifref, int tdID, NiAnimKeyLinearQuatBuf * buf);
 extern "C" NIFLY_API void getAnimKeyLinearTrans(void* nifref, int tdID, int frame, NiAnimKeyLinearTransBuf * buf);

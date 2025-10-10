@@ -32,13 +32,13 @@ void FindProjectRoot() {
 
 	if (!projectRoot.empty()) return;
 
-	if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+	if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
 			GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-			(LPCSTR)&SkeletonFile, &hm) == 0) {
+			(LPCSTR) & SkeletonFile, &hm) == 0) {
 		//int ret = GetLastError();
 		niflydll::LogWrite("Failed to get a handle to the DLL module");
 	}
-	if (GetModuleFileName(hm, (LPSTR)path, sizeof(path)) == 0)
+	if (GetModuleFileNameA(hm, (LPSTR)path, sizeof(path)) == 0)
 	{
 		//int ret = GetLastError();
 		niflydll::LogWrite("Failed to get the filename of the DLL");

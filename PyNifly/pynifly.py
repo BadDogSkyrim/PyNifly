@@ -17,6 +17,7 @@ from niflytools import *
 from nifdefs import *
 import xmltools
 
+nifly = None
 
 def load_nifly(nifly_path):
     nifly = cdll.LoadLibrary(nifly_path)
@@ -24,6 +25,8 @@ def load_nifly(nifly_path):
     nifly.addAnimKeyLinearTrans.restype = None
     nifly.addAnimKeyLinearQuat.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyLinearQuatBuf)]
     nifly.addAnimKeyLinearQuat.restype = None
+    nifly.addAnimKeyLinear.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyLinearBuf)]
+    nifly.addAnimKeyLinear.restype = None
     nifly.addAnimKeyQuadFloat.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyFloatBuf)]
     nifly.addAnimKeyQuadFloat.restype = None
     nifly.addAnimKeyQuadTrans.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyQuadTransBuf)]
@@ -73,8 +76,10 @@ def load_nifly(nifly_path):
     nifly.getAnimKeyLinearQuat.restype = None
     nifly.getAnimKeyLinearTrans.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyLinearTransBuf)]
     nifly.getAnimKeyLinearTrans.restype = None
-    nifly.getAnimKeyLinearXYZ.argtypes = [c_void_p, c_int, c_char, c_int, POINTER(NiAnimKeyLinearXYZBuf)]
+    nifly.getAnimKeyLinearXYZ.argtypes = [c_void_p, c_int, c_char, c_int, POINTER(NiAnimKeyLinearBuf)]
     nifly.getAnimKeyLinearXYZ.restype = None
+    nifly.getAnimKeyLinear.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyLinearBuf)]
+    nifly.getAnimKeyLinear.restype = c_int
     nifly.getAnimKeyQuadFloat.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyFloatBuf)]
     nifly.getAnimKeyQuadFloat.restype = c_int
     nifly.getAnimKeyQuadTrans.argtypes = [c_void_p, c_int, c_int, POINTER(NiAnimKeyQuadTransBuf)]
@@ -1266,9 +1271,11 @@ class NiKeyFrameData(NiObject):
 
 
 class LinearScalarKey:
-    def __init__(self, buf:NiAnimKeyLinearXYZBuf):
-        self.time = buf.time
-        self.value = buf.value
+    def __init__(self, buf:NiAnimKeyLinearBuf=None):
+        if buf:
+            self.time = buf.time
+            self.value = buf.value
+        self.addKey = NifFile.nifly.addAnimKeyLinear
 
     def __eq__(self, other):
         return NearEqual(self.time, other.time) \
@@ -1276,6 +1283,13 @@ class LinearScalarKey:
     
     def __str__(self): 
         return f"<LinearScalarKey>(time={self.time}, value={self.value:f})"
+
+    def getbuf(self):
+        buf = NiAnimKeyLinearBuf()
+        buf.time = self.time
+        buf.value = self.value
+        return buf
+
 
 class LinearVectorKey:
     def __init__(self, buf):
@@ -1289,6 +1303,7 @@ class LinearVectorKey:
     def __str__(self): 
         return f"<LinearVectorKey>(time={self.time}, value=[{self.value[0]:f}, {self.value[1]:f}, {self.value[2]:f}])"
 
+
 class LinearQuatKey:
     def __init__(self, buf):
         self.time = buf.time
@@ -1301,12 +1316,16 @@ class LinearQuatKey:
     def __str__(self): 
         return f"<LinearQuatKey>(time={self.time}, value=[{self.value[0]:f}, {self.value[1]:f}, {self.value[2]:f}, {self.value[3]:f}])"
 
+
 class QuadScalarKey:
-    def __init__(self, buf:NiAnimKeyFloatBuf):
-        self.time = buf.time
-        self.value = buf.value
-        self.forward = buf.forward
-        self.backward = buf.backward
+
+    def __init__(self, buf:NiAnimKeyFloatBuf=None):
+        if buf:
+            self.time = buf.time
+            self.value = buf.value
+            self.forward = buf.forward
+            self.backward = buf.backward
+        self.addKey = NifFile.nifly.addAnimKeyQuadFloat
 
     def __eq__(self, other):
         return NearEqual(self.time, other.time) \
@@ -1316,6 +1335,15 @@ class QuadScalarKey:
 
     def __str__(self): 
         return f"<QuadScalarKey>(time={self.time}, value={self.value[:]}, forward={self.forward[:]}, backward={self.backward[:]})"
+    
+    def getbuf(self):
+        buf = NiAnimKeyFloatBuf()
+        buf.time = self.time
+        buf.value = self.value
+        buf.forward = self.forward
+        buf.backward = self.backward
+        return buf
+
 
 class QuadVectorKey:
     time = 0.0
@@ -1353,39 +1381,46 @@ class NiFloatData(NiObject):
                 byref(self.properties), 
                 parent.id if parent else NODEID_NONE)
             if keys:
-                self._writequadkeys(keys)
+                for k in keys:
+                    buf = k.getbuf()
+                    k.addKey(self.file._handle, self.id, buf)
             self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
             if parent: parent.data = self
-        # elif self.id != NODEID_NONE:
-        #     if self.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
-        #         self._readquadkeys()
 
-    def _writequadkeys(self, keys):
-        """
-        Write quadratic float keys.
-        keys = list of QuadScalarKey 
-        """
-        buf = NiAnimKeyFloatBuf();
-        for k in keys:
-            buf.time = k.time
-            buf.value = k.value
-            buf.forward = k.forward
-            buf.backward = k.backward
-            NifFile.nifly.addAnimKeyQuadFloat(self.file._handle, self.id, buf)
+    # def _writequadkeys(self, keys):
+    #     """
+    #     Write quadratic float keys.
+    #     keys = list of QuadScalarKey 
+    #     """
+    #     buf = NiAnimKeyFloatBuf();
+    #     for k in keys:
+    #         buf.time = k.time
+    #         buf.value = k.value
+    #         buf.forward = k.forward
+    #         buf.backward = k.backward
+    #         NifFile.nifly.addAnimKeyQuadFloat(self.file._handle, self.id, buf)
 
     @property
     def keys(self):
         NifFile.clear_log()
         if self.id == NODEID_NONE: return None
-        if self.properties.keys.interpolation != NiKeyType.QUADRATIC_KEY:
-            return None
         keys = []
-        for frame in range(0, self.properties.keys.numKeys):
-            buf = NiAnimKeyFloatBuf()
-            if NifFile.nifly.getAnimKeyQuadFloat(self.file._handle, self.id, frame, buf) != 0:
-                raise Exception(f"Error reading NiFloatDataKey: {NifFile.message_log()}")            
-            k = QuadScalarKey(buf)
-            keys.append(k)
+        if self.properties.keys.interpolation in (
+                NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY):
+            for frame in range(0, self.properties.keys.numKeys):
+                if self.properties.keys.interpolation == NiKeyType.LINEAR_KEY:
+                    buf = NiAnimKeyLinearBuf()
+                    if NifFile.nifly.getAnimKeyLinear(self.file._handle, self.id, frame, buf) != 0:
+                        raise Exception(f"Error reading NiFloatDataKey: {NifFile.message_log()}")            
+                    k = LinearScalarKey(buf)
+                else:
+                    buf = NiAnimKeyFloatBuf()
+                    if NifFile.nifly.getAnimKeyQuadFloat(self.file._handle, self.id, frame, buf) != 0:
+                        raise Exception(f"Error reading NiFloatDataKey: {NifFile.message_log()}")            
+                    k = QuadScalarKey(buf)
+                keys.append(k)
+        else:
+            raise Exception(f"Unknown controller key type: {self.properties.keys.interpolation}")
         return keys
 
     def keys_add(self, k):
@@ -1551,7 +1586,7 @@ class NiTransformData(NiKeyFrameData):
             NifFile.nifly.getAnimKeyQuadXYZ(self.file._handle, self.id, dimension, frame, buf)
             k = QuadScalarKey(buf)
         elif rots.interpolation == NiKeyType.LINEAR_KEY:
-            buf = NiAnimKeyLinearXYZBuf()
+            buf = NiAnimKeyLinearBuf()
             NifFile.nifly.getAnimKeyLinearXYZ(self.file._handle, self.id, dimension, frame, buf)
             k = LinearScalarKey(buf)
         return k

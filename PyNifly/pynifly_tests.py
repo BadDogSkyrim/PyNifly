@@ -103,11 +103,10 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
 
     if old_shape.shader.controller:
         old_controller = old_shape.shader.controller
-        if isinstance(old_controller, BSEffectShaderPropertyFloatController):
+        if isinstance(old_controller, NiFloatInterpController):
             blkname = ctypes.create_string_buffer(128)
             NifFile.nifly.getBlockname(new_nif._handle, new_shape.shader.id, blkname, 128)
             name = blkname.value.decode('utf-8') 
-            assert name == "BSEffectShaderProperty", f"Have correct block type {name}"
             
             controller_prop = old_controller.properties.copy()
             controller_prop.targetID = NODEID_NONE
@@ -2066,6 +2065,43 @@ def TEST_ANIMATION_SHADER():
     assert glowcheck.shader.controller, f"Have EffectShaderController"
 
 
+def TEST_ANIMATION_SHADER_BSLSP():
+    """Embedded animations on BSLightingShaderProperty shaders"""
+    testfile = r"tests/SkyrimSE\voidshade_1.nif"
+    outfile = r"tests\out\TEST_ANIMATION_SHADER_BSLSP.nif"
+
+    def CheckNif(nif:NifFile):
+        # BSLightingShaderProperty can have a controller.
+        headshape = nif.shape_dict['head']
+        ctlr = headshape.shader.controller
+        assert ctlr, f"Have shader controller"
+        assert ctlr.blockname == "BSLightingShaderPropertyFloatController", \
+            f"Correct controller type: {ctlr.blockname}"
+        assert ctlr.properties.flags == 72, f"Have controller flags"
+        assert ctlr.properties.controlledVariable == LightingShaderControlledVariable.V_Offset, \
+            f"Have correct controlled variable"
+        interp = ctlr.interpolator
+        assert interp, f"Have interpolator"
+        assert interp.blockname == "NiFloatInterpolator", f"Correct interpolator type: {interp.blockname}"
+        assert interp.data, f"Have interpolator data"
+        d = interp.data
+        assert d.properties.keys.numKeys == 2, f"Have correct number of keys"
+        assert NearEqual(d.keys[1].time, 16.0), f"Have correct time at 1"
+        assert NearEqual(d.keys[1].value, 0.0), f"Have correct value at 1"
+
+    nif = NifFile(testfile)
+    CheckNif(nif)
+
+    nifout = NifFile()
+    nifout.initialize('SKYRIMSE', outfile)
+    _export_shape(nif.shape_dict['head'], nifout)
+    nifout.save()
+    assert NifFile.message_log() == "", f"No messages: {NifFile.message_log()}"
+
+    nifcheck = NifFile(outfile)
+    CheckNif(nifcheck)
+
+
 def TEST_ANIMATION_SHADER_SPRIGGAN():
     """Embedded animations on shaders"""
     # Tests cover all controller types used by spriggans: 
@@ -2139,7 +2175,7 @@ def TEST_ANIMATION_SHADER_SPRIGGAN():
     # CONTROLLER LINK: Spriggan body emissive
     emissctl:BSLightingShaderPropertyFloatController = body2ctl.controller
     assert math.isclose(emissctl.properties.stopTime, 15.333, abs_tol=0.001), "Emissive stop correct"
-    assert emissctl.properties.controlledVariable == LightingShaderControlledFloat.Emissive_Multiple, "Have correct controlled variable"
+    assert emissctl.properties.controlledVariable == LightingShaderControlledVariable.Emissive_Multiple, "Have correct controlled variable"
     return
 
     glowshape = nif.shape_dict['MaleTorsoGlow']
@@ -2427,12 +2463,12 @@ def TEST_HKX_SKELETON():
     # assert NearEqual(headbone.global_transform.translation[2], 120.3436), "Head bone where it should be."
     # assert NearEqual(handbone.global_transform.translation[0], -28.9358), f"L Hand bone where it should be" 
 
-
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]
 passed_tests = []
 failed_tests = []
 stop_on_fail = False
-    
+
+
 def execute_test(t):
     NifFile.clear_log()
     print(f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
@@ -2486,25 +2522,28 @@ def execute(start=None, testlist=None, exclude=[]):
 """)
 
 
-# Load from install location
-py_addon_path = os.path.dirname(os.path.realpath(__file__))
-#log.debug(f"PyNifly addon path: {py_addon_path}")
-if py_addon_path not in sys.path:
-    sys.path.append(py_addon_path)
-dev_path = os.path.join(py_addon_path, "NiflyDLL.dll")
-hkxcmd_path = os.path.join(py_addon_path, "hkxcmd.exe")
-xmltools.XMLFile.SetPath(hkxcmd_path)
+if __name__ == "__main__":
 
-dev_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
-NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], dev_path))
+    # Load from install location
+    py_addon_path = os.path.dirname(os.path.realpath(__file__))
+    #log.debug(f"PyNifly addon path: {py_addon_path}")
+    if py_addon_path not in sys.path:
+        sys.path.append(py_addon_path)
+    dev_path = os.path.join(py_addon_path, "NiflyDLL.dll")
+    hkxcmd_path = os.path.join(py_addon_path, "hkxcmd.exe")
+    xmltools.XMLFile.SetPath(hkxcmd_path)
+    os.chdir(py_addon_path)
 
-mylog = logging.getLogger("pynifly")
-logging.basicConfig()
-mylog.setLevel(logging.DEBUG)
+    dev_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
+    NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], dev_path))
 
-# ############## TESTS TO RUN #############
-stop_on_fail = False
-execute(testlist=[TEST_SHADER])
-# execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
-# execute(exclude=[TEST_SET_SKINTINT])
-#
+    mylog = logging.getLogger("pynifly")
+    logging.basicConfig()
+    mylog.setLevel(logging.DEBUG)
+
+    # ############## TESTS TO RUN #############
+    stop_on_fail = False
+    execute(testlist=[TEST_ANIMATION_SHADER_BSLSP])
+    # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
+    # execute()
+    #

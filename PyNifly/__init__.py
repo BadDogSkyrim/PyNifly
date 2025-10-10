@@ -7,7 +7,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 4, 0),
-    "version": (20, 1, 0),   
+    "version": (20, 2, 0),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -3744,9 +3744,9 @@ class NifExporter:
         collision.CollisionHandler.export_collisions(self, obj)
         try:
             if (self.export_animations 
-                and obj.active_material 
-                and obj.active_material.node_tree 
-                and obj.active_material.node_tree.animation_data):
+                    and obj.active_material 
+                    and obj.active_material.node_tree 
+                    and obj.active_material.node_tree.animation_data):
                 controller.ControllerHandler.export_shader_controller(
                     self, robj, obj.active_material.node_tree)
         except:

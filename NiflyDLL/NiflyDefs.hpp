@@ -887,7 +887,7 @@ struct NiAnimKeyQuadTransBuf {
 	float backward[3];
 };
 
-struct NiAnimKeyLinearXYZBuf {
+struct NiAnimKeyLinearBuf {
 	float time = 0.0f;
 	float value;
 };

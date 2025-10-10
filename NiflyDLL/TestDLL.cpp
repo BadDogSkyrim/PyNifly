@@ -4090,6 +4090,52 @@ namespace NiflyDLLTests
 			TCheckGlowingOne(nif, data);
 		};
 
+		struct VoidShadeData {
+			void* shape;
+			NiShapeBuf shapeData;
+			NiShaderBuf shaderData;
+			NiSingleInterpControllerBuf ctlrData;
+			NiFloatInterpolatorBuf interpData;
+			NiFloatDataBuf floatData;
+		};
+		void TCheckVoidShader(void* nif, VoidShadeData& data)
+		{
+			NiNodeBuf rootbuf;
+			getBlock(nif, 0, &rootbuf);
+
+			data.shape = findNodeByName(nif, "head");
+			int shID = getBlockID(nif, data.shape);
+			getBlock(nif, shID, &data.shapeData);
+			getBlock(nif, data.shapeData.shaderPropertyID, &data.shaderData);
+
+			getBlock(nif, data.shaderData.controllerID, &data.ctlrData);
+			Assert::AreEqual(72, (int) data.ctlrData.flags);
+			Assert::AreEqual(16.0f, data.ctlrData.stopTime);
+
+			getBlock(nif, data.ctlrData.interpolatorID, &data.interpData);
+			getBlock(nif, data.interpData.dataID, &data.floatData);
+			Assert::AreEqual(2, (int) data.floatData.keys.numKeys);
+		};
+		TEST_METHOD(BSLSPFloatInterpolator) {
+			/* Can import and export nif with float interpolator shader animation. */
+			std::filesystem::path testfileO = testRoot / "Out" / "BSLSPFloatInterpolator.nif";
+
+			void* nif = load((testRoot / "SkyrimSE/voidshade_1.nif").u8string().c_str());
+			int strlen = getMaxStringLen(nif);
+
+			VoidShadeData data;
+			TCheckVoidShader(nif, data);
+
+			void* nifOut = createNif("SKYRIMSE", "NiNode", "Scene Root");
+			void* shapeOut = TCopyShape(nifOut, "head", nif, data.shape);
+			TCopyShader(nifOut, shapeOut, nif, data.shape);
+
+			saveNif(nifOut, testfileO.u8string().c_str());
+
+			void* nifTest = load(testfileO.u8string().c_str());
+			TCheckVoidShader(nifTest, data);
+		};
+
 		void TCheckAlduin(void* nif) {
 			/* Check that Alduin is correct. NB the mesh is not properly rigged to the skeleton and we 
 			don't check for that. We just care that the skeleton is animated. */
@@ -4335,6 +4381,7 @@ namespace NiflyDLLTests
 			bodyprops.bufType = BUFFER_TYPES::bhkRigidBodyTBufType;
 			getBlock(nif, coBuf.bodyID, &bodyprops);
 			Assert::IsTrue(bodyprops.collisionResponse == 1, L"Can read the collision response field");
+			// ERROR: Motion system is being read incorrectly, apparently at the nifly level
 			Assert::IsTrue(bodyprops.motionSystem == 1, L"Can read the motion system field");
 
 			BHKConvexVertsShapeBuf boxbuf;

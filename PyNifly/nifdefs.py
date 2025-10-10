@@ -1977,7 +1977,7 @@ class EffectShaderControlledVariable(PynIntEnum):
 	V_Offset = 8
 	V_Scale = 9
 
-class LightingShaderControlledFloat(PynIntEnum):
+class LightingShaderControlledVariable(PynIntEnum):
     Refraction_Strength = 0
     Unknown_3 = 3
     Unknown_4 = 4
@@ -2241,7 +2241,12 @@ class NiFloatDataBuf(pynStructure):
         self.bufType = PynBufferTypes.NiFloatDataBufType
 
 
-class NiAnimKeyFloatBuf(pynStructure):
+class KeyDataBuf(pynStructure):
+    def getbuf(self):
+        return self
+    
+
+class NiAnimKeyFloatBuf(KeyDataBuf):
     _fields_ = [
         ("time", c_float),
         ("value", c_float),
@@ -2254,25 +2259,25 @@ class NiAnimKeyFloatBuf(pynStructure):
         self.forward = forward
         self.backward = backward
 
-class NiAnimKeyLinearXYZBuf(pynStructure):
+class NiAnimKeyLinearBuf(KeyDataBuf):
     _fields_ = [
         ("time", c_float),
         ("value", c_float)
     ]
 
-class NiAnimKeyLinearQuatBuf(pynStructure):
+class NiAnimKeyLinearQuatBuf(KeyDataBuf):
     _fields_ = [
         ("time", c_float),
         ("value", VECTOR4)
     ]
 
-class NiAnimKeyLinearTransBuf(pynStructure):
+class NiAnimKeyLinearTransBuf(KeyDataBuf):
     _fields_ = [
         ("time", c_float),
         ("value", VECTOR3)
     ]
 
-class NiAnimKeyQuadTransBuf(pynStructure):
+class NiAnimKeyQuadTransBuf(KeyDataBuf):
     _fields_ = [
         ("time", c_float),
         ("value", VECTOR3),

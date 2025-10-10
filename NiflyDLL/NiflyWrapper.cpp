@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 20, 1, 0 };
+const int NiflyDDLVersion[3] = { 20, 2, 0 };
  
 using namespace nifly; 
 
@@ -4117,7 +4117,8 @@ NIFLY_API void addAnimKeyQuadFloat(void* nifref, int dataBlockID, NiAnimKeyQuadX
     dataBlock->data.AddKey(k);
 }
 
-NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyLinearXYZBuf *buf)
+NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyLinearBuf *buf)
+/* Return linear data (time, value). If dimension is X, Y, or Z look for that dimension in transform data rotaions.  */
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
@@ -4130,6 +4131,46 @@ NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int f
 
     buf->time = k.time; 
     buf->value = k.value;
+}
+
+NIFLY_API int getAnimKeyLinear(void* nifref, int blockID, int frame, NiAnimKeyLinearBuf *buf)
+/* Return linear data (time, value) from an NiFloatData block. */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    nifly::NiFloatData* fd = hdr.GetBlock<NiFloatData>(blockID);
+
+    if (!fd) {
+        niflydll::LogWriteEf("getAnimKeyLinear called on invalid node %d", blockID);
+        return -1;
+    }
+
+    if (uint32_t(frame) >= fd->data.GetNumKeys()) {
+        niflydll::LogWriteEf("getAnimKeyQuadFloat called on invalid frame %d", frame);
+        return -1;
+    }
+
+    NiAnimationKey<float> k;
+    k = fd->data.GetKey(frame);
+
+    buf->time = k.time; 
+    buf->value = k.value;
+
+    return 0;
+}
+
+NIFLY_API void addAnimKeyLinear(void* nifref, int blockID, NiAnimKeyLinearBuf* buf)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiFloatData* fd = hdr->GetBlock<NiFloatData>(blockID);
+
+    NiAnimationKey<float> k;
+
+    k.time = buf->time;
+    k.value = buf->value;
+
+    fd->data.AddKey(k);
 }
 
 NIFLY_API void getAnimKeyLinearQuat(void* nifref, int tdID, int frame, NiAnimKeyLinearQuatBuf* buf)

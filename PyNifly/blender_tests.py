@@ -5,7 +5,7 @@ https://polynook.com/learn/set-up-blender-addon-development-environment-in-windo
 """
 import os
 import sys
-import shutil
+import shutil 
 import math
 import pathlib
 import bpy
@@ -1984,6 +1984,76 @@ def TEST_ANIM_SHADER_GLOW():
     TT.assert_equiv(33.3333, dataout.keys[2].time, "last keyframe time")
     TT.assert_equiv(-1.0, dataout.keys[2].forward, "last keyframe forward value")
     TT.assert_equiv(0.0, dataout.keys[2].backward, "last keyframe backward value")
+
+
+def TEST_ANIM_SHADER_BSLSP():
+    """Controllers on BSLightingShaders work correctly."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\voidshade_1.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_ANIM_SHADER_BSLSP.nif")
+
+    ### READ ###
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    head = TTB.find_object('head')
+
+    # Check the shader
+    shadernodes = head.active_material.node_tree.nodes
+    shader = shadernodes['Material Output'].inputs['Surface'].links[0].from_node
+    alpha = shader.inputs['Alpha Property'].links[0].from_node
+    TT.assert_eq(alpha.inputs['Alpha Blend'].default_value, True, "Alpha Blend")
+    TT.assert_eq(alpha.inputs['Alpha Test'].default_value, False, "Alpha Test")
+
+    # Check the shader animation is correct.
+    action = head.active_material.node_tree.animation_data.action
+    assert action.use_cyclic, f"Cyclic animation: {action.use_cyclic}"
+
+    uv_node = shadernodes['UV Converter']
+    bpy.context.scene.frame_set(1)
+    TT.assert_eq(uv_node.inputs['Offset V'].default_value, 1, "Offset V")
+    bpy.context.scene.frame_set(385)
+    assert 0.0 <= uv_node.inputs['Offset V'].default_value <= 0.5, f"V offset is changing: {uv_node.inputs['Offset V'].default_value}"
+    bpy.context.scene.frame_set(0)
+
+    ### WRITE ###
+
+    bpy.ops.export_scene.pynifly(filepath=outfile,
+                                 export_colors=True,
+                                 export_animations=True)
+
+    ### CHECK ###
+
+    n = pyn.NifFile(testfile)
+    nout = pyn.NifFile(outfile)
+
+    # TT.assert_property(nout, ['head', 'BSLightingShaderProperty', 'NiAlphaProperty', 'UV Offset V'], 1.0)
+    head_in = n.shape_dict['head']
+    head_out = nout.shape_dict['head']
+
+    shaderinp = head_in.shader.properties
+    shaderoutp = head_out.shader.properties
+
+    TT.assert_equiv(shaderoutp.UV_Offset_U, shaderinp.UV_Offset_U, "UV Offset U")
+    TT.assert_equiv(shaderoutp.UV_Offset_V, 1.0, "UV Offset V")
+    TT.assert_equiv(shaderoutp.UV_Scale_U, shaderinp.UV_Scale_U, "UV Scale U")
+    TT.assert_equiv(shaderoutp.UV_Scale_V, shaderinp.UV_Scale_V, "UV Scale V")
+
+    TT.assert_equiv(shaderoutp.Emissive_Mult, shaderinp.Emissive_Mult, "Emissive Strength")
+    TT.assert_eq(shaderoutp.Emissive_Color[:], shaderinp.Emissive_Color[:], "Emissive Color")
+    TT.assert_eq(head_out.properties.hasVertexColors, head_in.properties.hasVertexColors, "Vertex Colors")
+    TT.assert_eq(head_out.alpha_property.properties.flags, head_in.alpha_property.properties.flags, "Alpha flags")
+
+    floatctlr:pyn.BSEffectShaderPropertyFloatController = head_out.shader.controller
+    assert floatctlr, f"Have shader controller on output"
+    TT.assert_eq(floatctlr.properties.flags, 72, "controller flags")
+    TT.assert_equiv(floatctlr.properties.frequency, 1.0, "controller freqency")
+    TT.assert_equiv(16.0, floatctlr.properties.stopTime, "controller stop time")
+    TT.assert_eq(floatctlr.properties.controlledVariable, pyn.EffectShaderControlledVariable.V_Offset, "controlled variable")
+    
+    TT.assert_eq(floatctlr.interpolator.blockname, 'NiFloatInterpolator', 'interpolator type')
+    dataout = floatctlr.interpolator.data
+    TT.assert_equiv(1.0, dataout.keys[0].value, "first keyframe value")
+    TT.assert_equiv(16.0, dataout.keys[1].time, "last keyframe time")
+    TT.assert_equiv(0.0, dataout.keys[1].value, "last keyframe value")
 
 
 def TEST_ANIM_SHADER_SPRIGGAN():
@@ -6209,14 +6279,6 @@ def LOAD_RIG():
 
 
 # --- Quick and Dirty Test Harness ---
-print("""
-=============================================================================
-===                                                                       ===
-===                               TESTING                                 ===
-===                                                                       ===
-=============================================================================
-""")
-
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]
 passed_tests = []
 failed_tests = []
@@ -6306,26 +6368,34 @@ def show_all_tests():
         print(f"{t.__name__:25}{t.__doc__}")
 
 
-if not bpy.data:
-    # If running outside blender, just list tests.
-    show_all_tests()
-else:
-    # Tests of nifs with bones in a hierarchy
-    # target_tests = [
-    #     TEST_COLLISION_BOW_SCALE, TEST_BONE_HIERARCHY, TEST_COLLISION_BOW, 
-    #     TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_BOW_CHANGE, 
-    #     TEST_ANIM_ANIMATRON, TEST_FACEGEN,]
+if __name__ == "__main__":
+    print("""
+=============================================================================
+===                                                                       ===
+===                               TESTING                                 ===
+===                                                                       ===
+=============================================================================
+""")
 
-    # All tests with animations
-    # target_tests = [t for t in alltests if '_ANIM_' in t.__name__]
+    if not bpy.data:
+        # If running outside blender, just list tests.
+        show_all_tests()
+    else:
+        # Tests of nifs with bones in a hierarchy
+        # target_tests = [
+        #     TEST_COLLISION_BOW_SCALE, TEST_BONE_HIERARCHY, TEST_COLLISION_BOW, 
+        #     TEST_COLLISION_BOW2, TEST_COLLISION_BOW3, TEST_COLLISION_BOW_CHANGE, 
+        #     TEST_ANIM_ANIMATRON, TEST_FACEGEN,]
 
-    # All tests with collisions
-    # do_tests([t for t in alltests if 'COLL' in t.__name__])
+        # All tests with animations
+        # target_tests = [t for t in alltests if '_ANIM_' in t.__name__]
 
-    do_tests(
-        # target_tests=[ TEST_BODYPART_FO4 ], run_all=False, stop_on_fail=True,
-        # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
-        stop_on_fail=True
-        )
-    
+        # All tests with collisions
+        # do_tests([t for t in alltests if 'COLL' in t.__name__])
+
+        do_tests(
+            target_tests=[ TEST_ANIM_SHADER_BSLSP ], run_all=False, stop_on_fail=True,
+            # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
+            )
+        
 

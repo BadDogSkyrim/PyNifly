@@ -83,20 +83,20 @@ controlled_vars = ControlledVariable([
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Falloff_Stop_Angle),
     ("Effect", "Emission Strength", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.Falloff_Stop_Opacity),
     ("Fallout 4 MTS - Greyscale To Palette Vector", "Palette", "inputs", BSEffectShaderPropertyColorController, EffectShaderControlledColor.EMISSIVE),
-    ("Lighting", "Alpha Mult", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.Alpha),
+    ("Lighting", "Alpha Mult", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledVariable.Alpha),
     ("Lighting", "Emission Color", "inputs", BSLightingShaderPropertyColorController, LightingShaderControlledColor.EMISSIVE),
-    ("Lighting", "Emission Strength", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.Emissive_Multiple),
-    ("Lighting", "Glossiness", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.Glossiness),
+    ("Lighting", "Emission Strength", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledVariable.Emissive_Multiple),
+    ("Lighting", "Glossiness", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledVariable.Glossiness),
     ("Lighting", "Specular Color", "inputs", BSLightingShaderPropertyColorController, LightingShaderControlledColor.SPECULAR),
-    ("Lighting", "Specular Str", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.Specular_Strength),
+    ("Lighting", "Specular Str", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledVariable.Specular_Strength),
     ("UV Converter", "Offset U", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.U_Offset),
-    ("UV Converter", "Offset U", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.U_Offset),
+    ("UV Converter", "Offset U", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledVariable.U_Offset),
     ("UV Converter", "Offset V", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.V_Offset),
-    ("UV Converter", "Offset V", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.V_Offset),
+    ("UV Converter", "Offset V", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledVariable.V_Offset),
     ("UV Converter", "Scale U", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.U_Scale),
-    ("UV Converter", "Scale U", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.U_Scale),
+    ("UV Converter", "Scale U", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledVariable.U_Scale),
     ("UV Converter", "Scale V", "inputs", BSEffectShaderPropertyFloatController, EffectShaderControlledVariable.V_Scale),
-    ("UV Converter", "Scale V", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledFloat.V_Scale),
+    ("UV Converter", "Scale V", "inputs", BSLightingShaderPropertyFloatController, LightingShaderControlledVariable.V_Scale),
     # ("Alpha Threshold", "0", "outputs", BSNiAlphaPropertyTestRefController, EffectShaderControlledVariable.Alpha_Transparency),
 ])
 
@@ -692,7 +692,13 @@ class ControllerHandler():
         self.animation_target = target_object
         self.action_target = target_element
         self.bone_target = target_bone
-        self.anim_name = animation_name if animation_name else ctlr.name
+        self.anim_name = animation_name
+        if not self.anim_name:
+            try:
+                self.anim_name = ctlr.name
+            except:
+                # Animation is attached to a block, no name needed.
+                pass
         self._new_animation(ctlr)
         ctlr.import_node(self)
 
@@ -764,10 +770,17 @@ class ControllerHandler():
         keys = []
         points = [None] + list(curve.keyframe_points) + [None]
         while points[1]:
-            k = NiAnimKeyFloatBuf()
+            if points[1].interpolation == 'BEZIER':
+                k = QuadScalarKey()
+            elif points[1].interpolation == 'LINEAR':
+                k = LinearScalarKey()
+            else:
+                k = LinearScalarKey()
+                self.warn(f"Unsupported interpolation type {points[1].interpolation}, using LINEAR")
             k.time = (points[1].co.x-1) / self.fps
             k.value = points[1].co.y
-            k.forward, k.backward = self._key_blender_to_nif(points[0], points[1], points[2])
+            if points[1].interpolation == 'BEZIER':
+                k.forward, k.backward = self._key_blender_to_nif(points[0], points[1], points[2])
             keys.append(k)
             points.pop(0)
         return keys
@@ -1122,19 +1135,26 @@ def _import_float_data(td, importer:ControllerHandler):
         exists = True
     if exists: return
 
-    if td.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
+    if td.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY \
+            or td.properties.keys.interpolation == NiKeyType.LINEAR_KEY:
         keys = [None]
         keys.extend(td.keys)
         keys.append(None)
         while keys[1]:
-            frame = keys[1].time*importer.fps+1
+            frame = keys[1].time * importer.fps + 1
             kfp = curve.keyframe_points.insert(frame, keys[1].value)
-            kfp.handle_left_type = "FREE"
-            kfp.handle_right_type = "FREE"
-            kfp.handle_left, kfp.handle_right = importer._key_nif_to_blender(keys[0], keys[1], keys[2])
+            if td.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
+                kfp.interpolation = 'BEZIER'
+                kfp.handle_left_type = "FREE"
+                kfp.handle_right_type = "FREE"
+                kfp.handle_left, kfp.handle_right = importer._key_nif_to_blender(keys[0], keys[1], keys[2])
+            else:
+                kfp.interpolation = 'LINEAR'
             importer.start_time = min(importer.start_time, keys[1].time)
             importer.end_time = max(importer.end_time, keys[1].time)
             keys.pop(0)
+    else:
+        importer.warn(f"NYI: NiFloatData type {td.properties.keys.interpolation}")
 
 NiFloatData.import_node = _import_float_data
 
@@ -1943,38 +1963,6 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
 
     if len(quat) == 4:
         _export_quaterion_curves(exporter, td, quat, props.rotationType, targ_q)
-        # Can't do quadratic interpolation quaternions, so
-
-        # timesig = timemin
-        # while timesig < timemax + 0.0001:
-        #     fr = timesig * exporter.fps + 1
-        #     tdq = Quaternion([quat[0].evaluate(fr), 
-        #                         quat[1].evaluate(fr), 
-        #                         quat[2].evaluate(fr), 
-        #                         quat[3].evaluate(fr)])
-        #     kq = targ_q  @ tdq
-        #     td.add_qrotation_key(timesig, kq)
-        #     timesig += timestep
-
-        # else:
-        #     # Each fcurve of the quaternion could have different keyframes. But it's not
-        #     # likely and nifs don't support it, so don't allow it.
-        #     if not all_equal([len(quat[0].keyframe_points), len(quat[1].keyframe_points), 
-        #                       len(quat[2].keyframe_points), len(quat[3].keyframe_points)]):
-        #         raise Exception(f"Quaternion rotations keyframes for {targetobj.name}/{targetname} do not match")
-            
-        #     if rot_is_bezier:
-        #         raise Exception(f"NYI: Quaternion keys with quadratic interpolation on {targetobj.name}/{targetname}")
-        #     else:
-        #         for k1, k2, k3, k4 in zip(quat[0].keyframe_points, quat[1].keyframe_points, 
-        #                                 quat[2].keyframe_points, quat[3].keyframe_points):
-        #             if not all_NearEqual([k1.co[0], k2.co[0], k3.co[0], k4.co[0]]):
-        #                 raise Exception (f"Quaternion keys not at matching frames for {targetobj.name}/{targetname}")
-                    
-        #             tdq = Quaternion([k1.co[1], k2.co[1], k3.co[1], k4.co[1]])
-        #             timesig = (k1.co[0]-1)/exporter.fps
-        #             kq = targ_q  @ tdq
-        #             td.add_qrotation_key(timesig, kq)
 
     if len(eu) == 3:
         _export_euler_curves(exporter, td, eu, (targ_q if targetname else None))
