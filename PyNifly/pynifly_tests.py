@@ -636,18 +636,8 @@ def TEST_PYBABY():
 def TEST_BONE_XFORM():
     print('### TEST_BONE_XFORM: Can read bone transforms')
 
-    nif = NifFile(r"tests/Skyrim/MaleHead.nif")
-
-    # node-to-global transform combines all the transforms to show node's position
-    # in space. Since this nif doesn't contain bone relationships, that's just
-    # the transform on the bone.
-    mat = nif.get_node_xform_to_global("NPC Spine2 [Spn2]")
-    assert NearEqual(mat.translation[2], 91.2488), f"Error: Translation should not be 0, found {mat.translation[2]}"
-
-    # If the bone isn't in the nif, the node-to-global is retrieved from
-    # the reference skeleton.
-    mat2 = nif.get_node_xform_to_global("NPC L Forearm [LLar]")
-    assert NearEqual(mat2.translation[2], 85.7311), f"Error: Translation should not be 0, found {mat2.translation[2]}"
+    nif = NifFile(r"tests/Skyrim/malehead.nif")
+    CheckNif(nif)
 
     nif = NifFile(r"tests/FO4/BaseMaleHead.nif")
     mat3 = nif.get_node_xform_to_global("Neck")
@@ -655,21 +645,13 @@ def TEST_BONE_XFORM():
     mat4 = nif.get_node_xform_to_global("SPINE1")
     assert NearEqual(mat4.translation[2], 72.7033), f"Error: Translation should not be 0: {mat4.translation[2]}"
 
+
 def TEST_PARTITIONS():
     print('### TEST_PARTITIONS: Can read partitions')
 
-    nif = NifFile(r"tests/Skyrim/MaleHead.nif")
-    # partitions property holds partition info. Head has 3
-    assert len(nif.shapes[0].partitions) == 3
-    
-    # First of the partitions is the neck body part
-    assert nif.shapes[0].partitions[0].id == 230
-    assert nif.shapes[0].partitions[0].name == "SBP_230_NECK"
-
-    # Partition tri list matches tris 1:1, so has same as number of tris. Refers 
-    # to the partitions by index into the partitioin list.
-    assert len(nif.shapes[0].partition_tris) == 1694
-    assert max(nif.shapes[0].partition_tris) < len(nif.shapes[0].partitions), f"tri index out of range"
+    testfile = r"tests/Skyrim/malehead.nif"
+    nif = NifFile(testfile)
+    CheckNif(nif)
 
     """Can write partitions back out"""
     nif2 = NifFile()
@@ -684,12 +666,8 @@ def TEST_PARTITIONS():
     nif2.save()
 
     nif3 = NifFile(r"tests/Out/PartitionsMaleHead.nif")
-    assert len(nif3.shapes[0].partitions) == 3, "Have the same number of partitions as before"
-    assert nif3.shapes[0].partitions[0].id == 230, "Partition IDs same as before"
-    assert nif3.shapes[0].partitions[1].id == 130, "Partition IDs same as before"
-    assert nif3.shapes[0].partitions[2].id == 143, "Partition IDs same as before"
-    assert len(nif3.shapes[0].partition_tris) == 1694, "Same number of tri indices as before"
-    assert (nif3.shapes[0].partitions[0].flags and 1) == 1, "First partition has start-net-boneset set"
+    CheckNif(nif3, testfile)
+
 
 def TEST_SEGMENTS_EMPTY():
     """Can write FO4 segments when some are empty"""
@@ -2528,7 +2506,7 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = False
-    # execute(testlist=[TEST_ANIMATION_SHADER])
+    # execute(testlist=[TEST_BONE_XFORM])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
     execute()
     #

@@ -155,7 +155,7 @@ def TEST_BODYPART_XFORM():
     
 def TEST_SKYRIM_XFORM():
     """Can read & write the Skyrim shape transforms"""
-    testfile = TTB.test_file(r"tests/Skyrim/MaleHead.nif")
+    testfile = TTB.test_file(r"tests/Skyrim/malehead.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_SKYRIM_XFORM.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -167,13 +167,7 @@ def TEST_SKYRIM_XFORM():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
     
     nifcheck = pyn.NifFile(outfile)
-    headcheck = nifcheck.shapes[0]
-
-    # Make sure we didn't export the root
-    assert headcheck.parent.name == nifcheck.rootName, f"Head parented to root"
-
-    assert int(headcheck.transform.translation[2]) == 120, f"Shape offset not written correctly, found {headcheck.transform.translation[2]}"
-    assert int(headcheck.global_to_skin.translation[2]) == -120, f"Shape global-to-skin not written correctly, found {headcheck.global_to_skin.translation[2]}"
+    CheckNif(nifcheck, source=testfile)
 
 
 def TEST_FO4_XFORM():
@@ -1678,9 +1672,7 @@ def TEST_PARTITIONS():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
     
     nif2 = pyn.NifFile(outfile)
-    head = nif2.shapes[0]
-    assert len(nif2.shapes[0].partitions) == 3, "Have all skyrim partitions"
-    assert set([p.id for p in head.partitions]) == set([130, 143, 230]), "Have all head parts"
+    CheckNif(nif2, testfile)
 
 
 def TEST_PARTITIONS_EMPTY():
@@ -1920,7 +1912,7 @@ def TEST_ANIM_SHADER_GLOW():
     ### READ ###
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    glow = TT.find_object('MaleTorsoGlow')
+    glow = bpy.data.objects['MaleTorsoGlow']
 
     # Check the shader
     shadernodes = glow.active_material.node_tree.nodes
@@ -1944,47 +1936,14 @@ def TEST_ANIM_SHADER_GLOW():
     ### WRITE ###
 
     bpy.ops.export_scene.pynifly(filepath=outfile,
-                                 export_colors=True)
+                                 export_colors=True,
+                                 export_animations=True)
 
     ### CHECK ###
 
-    n = pyn.NifFile(testfile)
+    # n = pyn.NifFile(testfile)
     nout = pyn.NifFile(outfile)
-    torsoin = n.shape_dict['TorsoLow:0']
-    torsoout = nout.shape_dict['TorsoLow:0']
-    assert torsoin.shader.properties.Emissive_Mult == torsoout.shader.properties.Emissive_Mult, \
-        f"Emissive_Mult correct: {torsoout.shader.properties.Emissive_Mult}"
-    assert torsoin.shader.textures['EnvMap'] == torsoout.shader.textures['EnvMap'], \
-        f"EnvMap correct: {torsoout.shader.textures['EnvMap']}"
-    assert torsoin.shader.textures['EnvMask'] == torsoout.shader.textures['EnvMask'], \
-        f"EnvMask correct: {torsoout.shader.textures['EnvMask']}"
-
-    glowin = n.shape_dict['MaleTorsoGlow']
-    shaderinp = glowin.shader.properties
-    glowout = nout.shape_dict['MaleTorsoGlow']
-    shaderoutp = glowout.shader.properties
-
-    TT.assert_eq(shaderoutp.UV_Offset_U, shaderinp.UV_Offset_U, "UV Offset U")
-    TT.assert_eq(shaderoutp.UV_Offset_V, shaderinp.UV_Offset_V, "UV Offset V")
-    TT.assert_eq(shaderoutp.UV_Scale_U, shaderinp.UV_Scale_U, "UV Scale U")
-    TT.assert_eq(shaderoutp.UV_Scale_V, shaderinp.UV_Scale_V, "UV Scale V")
-
-    TT.assert_eq(shaderoutp.Emissive_Mult, shaderinp.Emissive_Mult, "Emissive Strength")
-    TT.assert_eq(shaderoutp.Emissive_Color[:], shaderinp.Emissive_Color[:], "Emissive Color")
-    TT.assert_eq(glowout.properties.hasVertexColors, glowin.properties.hasVertexColors, "Vertex Colors")
-    TT.assert_eq(glowout.alpha_property.properties.flags, glowin.alpha_property.properties.flags, "Alpha flags")
-
-    espFloatCtlr:pyn.BSEffectShaderPropertyFloatController = glowout.shader.controller
-    assert espFloatCtlr, f"Have shader controller on output"
-    TT.assert_eq(espFloatCtlr.properties.flags, 72, "controller flags")
-    TT.assert_equiv(espFloatCtlr.properties.frequency, 1.0, "controller freqency")
-    TT.assert_equiv(33.3333, espFloatCtlr.properties.stopTime, "controller stop time")
-    TT.assert_eq(espFloatCtlr.properties.controlledVariable, pyn.EffectShaderControlledVariable.V_Offset, "controlled variable")
-    
-    dataout = glowout.shader.controller.interpolator.data
-    TT.assert_equiv(33.3333, dataout.keys[2].time, "last keyframe time")
-    TT.assert_equiv(-1.0, dataout.keys[2].forward, "last keyframe forward value")
-    TT.assert_equiv(0.0, dataout.keys[2].backward, "last keyframe backward value")
+    CheckNif(nout, source=testfile)
 
 
 def TEST_ANIM_SHADER_BSLSP():

@@ -23,7 +23,7 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 BT.do_tests(
-    target_tests=[ BT.TEST_ANIM_SHADER_BSLSP ], run_all=False, stop_on_fail=True,
+    target_tests=[ BT.TEST_ANIM_SHADER_GLOW ], run_all=False, stop_on_fail=True,
     # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
     )
 

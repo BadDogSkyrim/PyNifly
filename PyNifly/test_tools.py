@@ -105,13 +105,17 @@ def get_property(nif, property_path):
             assert name in nif.shape_dict, f"Have shape {name}"
             current = nif.shape_dict[name]
         else:
-            if hasattr(current, '__getitem__'):
+            if type(current) == dict:
+                current = current[name]
+            elif hasattr(current, '__getitem__'):
                 if name == 'len()':
                     current = len(current)
                 else:
                     current = current[int(name)]
             elif name == 'NiAlphaProperty':
                 current = current.parent.alpha_property
+            elif name == 'BSShaderTextureSet':
+                current = current.textures
             elif name.startswith('ShaderFlags2'):
                 current = 1 if (current & ND.ShaderFlags2[name[13:]]) else 0
             elif name.startswith('properties.'):
