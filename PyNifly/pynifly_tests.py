@@ -84,9 +84,15 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
 
         new_shape.setShapeWeights(bone_name, weights)
 
-    new_shape.shader_name = old_shape.shader_name
-    new_shape.shader.properties.bufType = old_shape.shader.properties.bufType
-    old_shape.shader.properties.copyto(new_shape.shader.properties)
+    # Copy shader property from the original nif. We have mucked with the properties 
+    # because of handling materials files, so this ensures we get the original values.
+    new_shape.shader.name = old_shape.shader.name
+    p = BSLightingShaderProperty.getbuf()
+    NifFile.nifly.getBlock(
+            old_shape.file._handle, 
+            old_shape.shader.id, 
+            byref(p))
+    new_shape.shader._properties = p
 
     new_shape.save_shader_attributes()
 
@@ -694,129 +700,68 @@ def TEST_SEGMENTS_EMPTY():
 
 
 def TEST_SEGMENTS():
-    print ("### TEST_SEGMENTS: Can read FO4 segments")
+    print ("### TEST_SEGMENTS: Can read and write FO4 segments")
+    testfile = r"tests/FO4/VanillaMaleBody.nif"
+    outfile  = r"tests/Out/TEST_SEGMENTS.nif"
 
-    nif = NifFile(r"tests/FO4/VanillaMaleBody.nif")
-    body = nif.shapes[0]
-
-    # partitions property holds segment info for FO4 nifs. Body has 7 top-level segments
-    assert len(body.partitions) == 7, f"Found wrong number of segments: 7 <> {len(nif.shapes[0].partitions)}"
-    
-    # IDs assigned by nifly for reference
-    segment_names = set([x.name for x in body.partitions])
-    assert segment_names == set(["FO4 Seg 000", "FO4 Seg 001", "FO4 Seg 002", "FO4 Seg 003", "FO4 Seg 004", "FO4 Seg 005", "FO4 Seg 006"]), f"Didn't find full list of partitions: {segment_names}"
-
-    # Partition tri list gives the index of the associated partition for each tri in
-    # the shape, so it's the same size as number of tris in shape
-    assert len(body.partition_tris) == 2698
-
-    # Shape has a segment file external to the nif
-    assert body.segment_file == r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf"
-
-    # Subsegments hang off the segment/partition they are a part of.  They are given
-    # names based on their "material" property.  That name includes the name of their
-    # parent, so the parent figures out its own name from its subsegments.  This is
-    # magic figured out by OS.
-    subsegs = body.partitions[2].subsegments
-    subseg_names = [x.name for x in subsegs]
-    assert len(subsegs) > 0, "Shapes have subsegments"
-    assert subsegs[0].name == "FO4 Seg 002 | 000 | Up Arm.R", f"Subsegments have human-readable names: '{subsegs[0].name}'"
-    assert "FO4 Seg 002 | 003 | Lo Arm.R" in subseg_names, f"Missing lower arm subsegment in {subseg_names}"
-
-    # Segments and subsegments have IDs that run linearly increasing, in order. (This is a
-    # bit of an accident, but the blender layer uses it.)
-    allsegments = []
-    allnames = []
-    for p in body.partitions:
-        allsegments.append(p.id)
-        allnames.append(p.name)
-        for s in p.subsegments:
-            allsegments.append(s.id)
-            allnames.append(s.name)
-
-    for i, n in enumerate(allsegments):
-        assert i == n, f"Indicies are continuous"
-
-    # Segments and subsegments are associated with triangles. There should be a
-    # (sub)segment common to all verts of every triangle.
-    assert len(body.tris) == len(body.partition_tris)
-    t10 = body.tris[0]
-    s10 = body.partition_tris[10]
-    assert allnames[s10] == "FO4 Seg 002 | 000 | Up Arm.R", f"Have correct segment: {allnames[s10]}"
+    nif = NifFile(testfile)
+    CheckNif(nif)
 
     """Can write segments back out"""
     # When writing segments, the tri list refers to segments/subsegments by ID *not*
     # by index into the partitions list (becuase it only has segments, not
     # subsegments, and it's the subsegments the tri list wants to reference).
     nif2 = NifFile()
-    nif2.initialize('FO4', r"tests/Out/SegmentsMaleBody.nif")
+    nif2.initialize('FO4', outfile)
     _export_shape(nif.shapes[0], nif2)
-    nif2.shapes[0].segment_file = r"Meshes\Actors\Character\CharacterAssets\MaleBodyOut.ssf"
+    nif2.shapes[0].segment_file = r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf"
     nif2.shapes[0].set_partitions(nif.shapes[0].partitions, 
                                     nif.shapes[0].partition_tris)
     nif2.save()
 
-    nif3 = NifFile(r"tests/Out/SegmentsMaleBody.nif")
-    assert len(nif3.shapes[0].partitions) == 7, f"Error: Expected the same number of partitions as before, found {len(nif3.shapes[0].partitions)} != 7"
-    assert nif3.shapes[0].partitions[2].id != 0, "Partition IDs same as before"
-    assert nif3.shapes[0].partitions[2].name == "FO4 Seg 002"
-    assert len(nif3.shapes[0].partitions[2].subsegments) == 4, "Shapes have subsegments"
-    assert nif3.shapes[0].partitions[2].subsegments[0].name == "FO4 Seg 002 | 000 | Up Arm.R", "Subsegments have human-readable names"
-    assert nif3.shapes[0].segment_file == r"Meshes\Actors\Character\CharacterAssets\MaleBodyOut.ssf"
+    nif3 = NifFile(outfile)
+    CheckNif(nif3, testfile)
 
 
 def TEST_BP_SEGMENTS():
-    print ("### TEST_BP_SEGMENTS: Can read FO4 body part segments")
+    print ("### TEST_BP_SEGMENTS: Can read & write FO4 body part segments & shaders")
+    testfile = r"tests/FO4/Helmet.nif"
+    outfile = r"tests/Out/TEST_BP_SEGMENTS.nif"
 
-    nif = NifFile(r"tests/FO4/Helmet.nif")
-
-    # partitions property holds segment info for FO4 nifs. Helmet has 2 top-level segments
-    helm = nif.shapes[1]
-    assert helm.name == "Helmet:0", "Have helmet as expected"
-    assert len(helm.partitions) == 2
-    
-    # IDs assigned by nifly for reference
-    assert helm.partitions[1].id != 0
-    assert helm.partitions[1].name == "FO4 Seg 001"
-
-    # Partition tri list gives the index of the associated partition for each tri in
-    # the shape, so it's the same size as number of tris in shape
-    assert len(helm.partition_tris) == 2878, "Found expected tris"
-
-    # Shape has a segment file external to the nif
-    assert helm.segment_file == r"Meshes\Armor\FlightHelmet\Helmet.ssf"
-
-    # Bodypart subsegments hang off the segment/partition they are a part of.  They are given
-    # names based on their user_slot property. 
-    assert len(helm.partitions[1].subsegments) > 0, "Shapes have subsegments"
-    assert helm.partitions[1].subsegments[0].name == "FO4 Seg 001 | Hair Top | Head", "Subsegments have human-readable names"
-
-    visor = nif.shapes[0]
-    assert visor.name == "glass:0", "Have visor"
-    assert visor.partitions[1].subsegments[0].name == "FO4 Seg 001 | Hair Top", "Visor has no bone ID"
+    nif = NifFile(testfile)
+    CheckNif(nif)
 
     """Can write segments back out"""
     # When writing segments, the tri list refers to segments/subsegments by ID *not*
     # by index into the partitions list (becuase it only has segments, not
     # subsegments, and it's the subsegments the tri list wants to reference).
     nif2 = NifFile()
-    nif2.initialize('FO4', r"tests/Out/SegmentsHelmet.nif")
-    _export_shape(helm, nif2)
-    nif2.shapes[0].segment_file = r"Meshes\Armor\FlightHelmet\Helmet.ssf"
+    nif2.initialize('FO4', outfile)
+    new_helm = _export_shape(nif.shape_dict['Helmet:0'], nif2)
 
-    p1 = FO4Segment(0, 0)
-    p2 = FO4Segment(1, 0)
-    ss1 = FO4Subsegment(2, 30, 0x86b72980, p2)
-    nif2.shapes[0].set_partitions([p1, p2], helm.partition_tris)
+    new_helm.segment_file = r"Meshes\Armor\FlightHelmet\Helmet.ssf"
+    p0 = FO4Segment(0, 0, name="FO4 Seg 000")
+    p1 = FO4Segment(1, 0, name="FO4 Seg 001")
+    ss1 = FO4Subsegment(2, user_slot=30, material=0x86b72980, parent=p1, 
+                        name="FO4 Seg 001 | Hair Top | Head")
+    # All helmet tris go in segment 1, subsegment 2
+    pt = [2] * len(new_helm.tris)
+    new_helm.set_partitions([p0, p1], pt)
+
+    new_glass = _export_shape(nif.shape_dict['glass:0'], nif2)
+    new_glass.segment_file = r"Meshes\Armor\FlightHelmet\Helmet.ssf"
+    p0 = FO4Segment(0, 0, name="FO4 Seg 000")
+    p1 = FO4Segment(1, 0, name="FO4 Seg 001")
+    ss1 = FO4Subsegment(2, user_slot=30, parent=p1, 
+                        name="FO4 Seg 001 | Hair Top")
+    pt = [ss1.id] * len(new_glass.tris)
+    new_glass.set_partitions([p0, p1], pt)
+
     nif2.save()
 
-    nif3 = NifFile(r"tests/Out/SegmentsHelmet.nif")
-    assert len(nif3.shapes[0].partitions) == 2, "Have the same number of partitions as before"
-    assert nif3.shapes[0].partitions[1].id != 0, "Partition IDs same as before"
-    assert nif3.shapes[0].partitions[1].name == "FO4 Seg 001"
-    assert len(nif3.shapes[0].partitions[1].subsegments) > 0, "Shapes have subsegments"
-    assert nif3.shapes[0].partitions[1].subsegments[0].name.startswith("FO4 Seg 001 | Hair Top | Head"), "Subsegments have human-readable names"
-    assert nif3.shapes[0].segment_file == r"Meshes\Armor\FlightHelmet\Helmet.ssf"
+    nif3 = NifFile(outfile)
+    CheckNif(nif3, testfile)
+
 
 def TEST_PARTITION_NAMES():
     """Can parse various forms of partition name"""
@@ -912,6 +857,9 @@ def TEST_BLOCKNAME():
 
 def TEST_LOD():
     """BSLODTriShape is handled. Its shader attributes are handled."""
+    testfile = r"tests\Skyrim\blackbriarchalet_test.nif"
+    outfile = r"Tests/Out/TEST_LOD.nif"
+
     def check_nif(nif):
         glow = nif.shape_dict['L2_WindowGlow']
         assert glow.blockname == "BSLODTriShape", f"Expected 'BSLODTriShape', found '{nif.shapes[0].blockname}'"
@@ -922,16 +870,16 @@ def TEST_LOD():
         win = nif.shape_dict['BlackBriarChalet:7']
         assert win.shader.textures['EnvMap'] == r"textures\cubemaps\ShinyGlass_e.dds", f"Have correct environment map: {win.shader.textures['EnvMap']}"
 
-    nif = NifFile(r"tests\Skyrim\blackbriarchalet_test.nif")
+    nif = NifFile(testfile)
     check_nif(nif)
 
     nifout = NifFile()
-    nifout.initialize("SKYRIM", r"Tests/Out/TEST_LOD.nif")
+    nifout.initialize("SKYRIM", outfile)
     _export_shape(nif.shapes[0], nifout)
     _export_shape(nif.shapes[1], nifout)
     nifout.save()
 
-    nifcheck = NifFile(r"Tests/Out/TEST_LOD.nif")
+    nifcheck = NifFile(outfile)
     check_nif(nifcheck)
 
 
@@ -1038,6 +986,13 @@ def TEST_SHADER():
     assert attrs.name == attrsTest.name, "Maintained path to materials file."
     # diffs = attrsTest.properties.compare(attrs.properties)
     # assert diffs == [], f"Error: Expected same shader attributes: {diffs}"
+
+
+def TEST_SHADER_WALL():
+    testfile = r"tests\FO4\Meshes\Architecture\DiamondCity\DExt\DExBrickColumn01.nif"
+    nif = NifFile(testfile)
+    CheckNif(nif)
+
 
 def TEST_ALPHA():
     """Can read and write alpha property"""
@@ -1353,48 +1308,6 @@ def TEST_EFFECT_SHADER_SKY():
     print("---Check---")
     nifTest = NifFile(outfile, materialsRoot='tests/FO4')
     CheckNif(nifTest)
-
-
-def TEST_EFFECT_SHADER_FO4():
-    """Can read and write shader flags"""
-    testfile = r"tests/FO4/Helmet.nif"
-    outfile = r"tests\out\TEST_EFFECT_SHADER_FO4.nif"
-
-    def CheckHelmet(nif):
-        glass:NiShape = next(s for s in nif.shapes if s.name.startswith("glass"))
-        glass_attr = glass.shader
-        assert glass.shader_block_name == "BSEffectShaderProperty", f"Expected BSEffectShaderProperty, got {glass.shader_block_name}"
-        assert glass.shader_name == r"Materials\Armor\FlightHelmet\glass.BGEM", "Have correct shader name"
-        assert glass_attr.flags1_test(ShaderFlags1.USE_FALLOFF), f"Expected USE_FALLOFF true, got {glass_attr.flags1_test(ShaderFlags1.USE_FALLOFF)}"
-        assert not glass_attr.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
-        assert glass_attr.flags1_test(ShaderFlags1.ENVIRONMENT_MAPPING)
-        assert glass_attr.flags2_test(ShaderFlags2.EFFECT_LIGHTING)
-        assert not glass_attr.flags2_test(ShaderFlags2.VERTEX_COLORS)
-
-        assert glass_attr.properties.textureClampMode == 3
-        assert NearEqual(glass_attr.properties.falloffStartOpacity, 0.1)
-        assert NearEqual(glass_attr.properties.Emissive_Mult, 1.0)
-        # assert glass_attr.sourceTexture.decode() == "Armor/FlightHelmet/Helmet_03_d.dds", \
-        #     f"Source texture correct: {glass_attr.sourceTexture}"
-
-        assert glass.textures['Diffuse'] == "Armor/FlightHelmet/Helmet_03_d.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_d.dds', got {glass.textures}"
-        assert glass.textures["Normal"] == "Armor/FlightHelmet/Helmet_03_n.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_n.dds', got {glass.textures[1]}"
-        assert glass.textures["EnvMapMask"] == "Armor/FlightHelmet/Helmet_03_s.dds", f"Expected 'Armor/FlightHelmet/Helmet_03_s.dds', got {glass.textures[5]}"
-
-    print("---Read---")
-    nif = NifFile(testfile)
-    CheckHelmet(nif)
-
-    """Can read and write shader"""
-    print("---Write---")
-    nifOut = NifFile()
-    nifOut.initialize('FO4', outfile)
-    _export_shape(nif.shapes[0], nifOut)
-    nifOut.save()
-
-    print("---Check---")
-    nifTest = NifFile(outfile, materialsRoot='tests/FO4')
-    CheckHelmet(nifTest)
 
 
 def TEST_TEXTURE_CLAMP():
@@ -1828,55 +1741,6 @@ def TEST_ANIMATION():
         f"Have correct translation: {td189.translations[3].value}"
     
 
-def check_noblechest(nif:NifFile):
-    # The Open and Close animations are associated with a controller manager on the root
-    # node.
-    lid01 = nif.nodes["Lid01"]
-
-    cm:NiControllerManager = nif.root.controller
-    assert cm, f"Have root controller"
-
-    assert len(cm.sequences) == 2, f"Have 2 controller manager sequences: {cm.sequences}"
-    assert set(cm.sequences.keys()) == set(["Open", "Close"]), f"Have correct name: {cm.sequences.keys()}"
-
-    # Object palettes can be accessed through the Controller Manager.
-    assert cm.object_palette.properties.objCount == 4, f"Have an object count"
-
-    # Referenced objects are a list of pairs, [("object name", object), ...]
-    assert len(cm.object_palette.objects) == 4, f"Have referenced objects"
-    assert cm.object_palette.objects["Lid01"] == lid01, f"Have Lid01"
-    assert cm.object_palette.objects["Chest01:1"].properties.flags == 524302, \
-        f"Have corret chest shape"
-
-    # Text keys are related to the Controller Sequence and can be read as 
-    # [(time, "name"), ...] pairs
-    openseq = cm.sequences["Open"]
-    assert len(openseq.text_key_data.keys) == 2, f"Have right # of text keys"
-    assert "end" in [x[1] for x in openseq.text_key_data.keys], "Have 'end' key"
-
-    # Ca read Controller Sequence properties
-    assert cm.properties.flags == 76, f"Have correct flags: {cm.properties.flags}"
-    openseq:NiControllerSequence = cm.sequences["Open"]
-    assert openseq.properties.cycleType == CycleType.CLAMP, f"Have correct cycle type"
-
-    # Controller sequences have controlled blocks
-    assert len(openseq.controlled_blocks) == 1, f"Have controlled block"
-    cb:ControllerLink = openseq.controlled_blocks[0]
-    assert cb.node_name == "Lid01"
-
-    # Controlled blocks have interpolators and transform data
-    td:NiTransformData = cb.interpolator.data
-    assert td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY
-    assert len(td.xrotations) == 2, f"Have 2 rotations"
-    assert td.properties.xRotations.interpolation == NiKeyType.QUADRATIC_KEY, "Have quad key"
-    assert NearEqual(td.xrotations[1].time, 0.5), f"have correct time: {td.xrotations[1].time}"
-    assert NearEqual(td.xrotations[1].value, -0.1222), f"have correct value: {td.xrotations[1].value}"
-    
-    # Controlled blocks have MultiTargetTransformControllers
-    mtt:NiMultiTargetTransformController = cb.controller
-    assert mtt.properties.targetID == 0, f"Have root as target"
-
-
 def TEST_ANIMATION_NOBLECHEST():
     """Can read & write embedded animations."""
     # NobleChest has a simple open and close animation.
@@ -1891,10 +1755,14 @@ def TEST_ANIMATION_NOBLECHEST():
     # WRITE
     
     nifout = NifFile()
-    nifout.initialize("SKYRIM", outfile, "BSFadeNode", "NobleChest")
+    nifout.initialize("SKYRIM", outfile, "BSFadeNode", "NobleChest01")
     bodynode = nifout.add_node("Chest01", nif.nodes["Chest01"].transform)
     chestout = _export_shape(nif.nodes["Chest01:1"], nifout, parent=bodynode)
     lidnode = nifout.add_node("Lid01", lid01.transform)
+    p = lidnode.properties.copy()
+    p.flags = 524430  
+    lidnode.properties = p
+    
     lidout = _export_shape(nif.nodes["Lid01:1"], nifout, parent=lidnode)
 
     nifout.root.bsx_flags = ['BSX', 11]
@@ -1981,13 +1849,13 @@ def TEST_ANIMATION_NOBLECHEST():
         parent=cmout, 
     )
 
-
     nifout.save()
 
     # CHECK
 
     nifcheck = NifFile(outfile)
-    check_noblechest(nifcheck)
+    CheckNif(nifcheck, source=testfile)
+
 
 def TEST_ANIMATION_ALDUIN():
     """Animated skinned nif"""
@@ -2019,19 +1887,6 @@ def TEST_ANIMATION_SHADER():
     outfile = r"tests\out\TEST_ANIMATION_SHADER.nif"
     nif = NifFile(testfile)
 
-    # # BSEffectShaderProperty can have a controller.
-    # glowshape = nif.shape_dict['MaleTorsoGlow']
-    # ctlr = glowshape.shader.controller
-    # assert ctlr, f"Have shader controller {ctlr.blockname}"
-    # assert ctlr.properties.flags == 72, f"Have controller flags"
-    # assert ctlr.properties.controlledVariable == EffectShaderControlledVariable.V_Offset, f"Have correct controlled variable"
-    # interp = ctlr.interpolator
-    # assert interp, f"Have interpolator"
-    # assert interp.data, f"Have interpolator data"
-    # d = interp.data
-    # assert d.properties.keys.numKeys == 3, f"Have correct number of keys"
-    # assert NearEqual(d.keys[1].time, 3.333), f"Have correct time at 1"
-    # assert NearEqual(d.keys[1].backward, -1), f"Have correct backwards value at 1"
     CheckNif(nif)
 
     nifout = NifFile()
@@ -2043,8 +1898,6 @@ def TEST_ANIMATION_SHADER():
 
     nifcheck = NifFile(outfile)
     CheckNif(nifcheck, source=testfile)
-    # glowcheck = nifcheck.shape_dict['MaleTorsoGlow']
-    # assert glowcheck.shader.controller, f"Have EffectShaderController"
 
 
 def TEST_ANIMATION_SHADER_BSLSP():
@@ -2506,7 +2359,7 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = False
-    # execute(testlist=[TEST_BONE_XFORM])
+    # execute(testlist=[TEST_ANIMATION_NOBLECHEST])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
     execute()
     #

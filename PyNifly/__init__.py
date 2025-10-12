@@ -2730,7 +2730,10 @@ def partitions_from_vert_groups(obj):
                     if parent_name:
                         if not parent_name in val:
                             # Create parent segments if not there
-                            val[parent_name] = FO4Segment(len(val), 0, parent_name)
+                            val[parent_name] = FO4Segment(
+                                part_id=len(val), 
+                                index=FO4Segment.name_match(parent_name), 
+                                name=parent_name)
                         p = val[parent_name]
                         val[vg.name] = FO4Subsegment(len(val), subseg_id, material, p, name=vg.name)
     
@@ -3467,6 +3470,8 @@ class NifExporter:
         """Export a NiNode for the given Blender object."""
         xf = make_transformbuf(apply_scale_xf(obj.matrix_local, 1))
         ninode = self.nif.add_node(obj.name, xf, parent.nifnode if parent else None)
+        if "pynNodeFlags" in obj:
+            ninode.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
         ref = ReprObject(obj, ninode) # [obj.name] = ninode
         self.objs_written.add(ref) 
         collision.CollisionHandler.export_collisions(self, obj)
@@ -3700,6 +3705,8 @@ class NifExporter:
                                                  verts, tris, uvmap_new, norms_exp,
                                                  props=props,
                                                  parent=my_parent.nifnode if my_parent else None)
+        if "pynNodeFlags" in obj:
+            new_shape.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
         robj = ReprObject(obj, new_shape)
         self.objs_written.add(robj)
 

@@ -12,6 +12,7 @@ from pynifly import *
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 import blender_defs as BD
 from nifdefs import ShaderFlags1, ShaderFlags2, ShaderFlags1FO4, ShaderFlags2FO4
+from niflytools import find_referenced_file
 
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 MSN_GROUP_NAME = "MSN_TRANSFORM"
@@ -1188,7 +1189,7 @@ class ShaderImporter:
                 pass
             
             return False
-
+        
 
     def find_textures(self, shape:NiShape):
         """
@@ -1202,51 +1203,66 @@ class ShaderImporter:
         """
         self.textures = {}
 
-        # Use any textures from Blender's texture directory, if defined. 
-        blender_dir = bpy.context.preferences.filepaths.texture_directory
-        # Remove any training slash
-        if os.path.split(blender_dir)[1] == '':
-            blender_dir = os.path.split(blender_dir)[0]
-        # Strip the trailing "textures" directory, if present.
-        if os.path.split(blender_dir)[1].lower() == 'textures':
-            blender_dir = os.path.split(blender_dir)[0]
+        # # Use any textures from Blender's texture directory, if defined. 
+        # blender_dir = bpy.context.preferences.filepaths.texture_directory
+        # # Remove any training slash
+        # if os.path.split(blender_dir)[1] == '':
+        #     blender_dir = os.path.split(blender_dir)[0]
+        # # Strip the trailing "textures" directory, if present.
+        # if os.path.split(blender_dir)[1].lower() == 'textures':
+        #     blender_dir = os.path.split(blender_dir)[0]
 
         # Extend relative filenames in nif with nif's own filepath
         # fulltextures = extend_filenames(shape.file.filepath, "meshes", shape.textures)
 
         # Get the path to the "data" folder containing the nif.
-        nif_dir = extend_filenames(shape.file.filepath, "meshes")
+        # nif_dir = extend_filenames(shape.file.filepath, "meshes")
         
         for k, t in shape.textures.items():
             if not t: continue
+            if k == 'RootMaterialPath':
+                p = find_referenced_file(
+                    t,
+                    nifpath=shape.file.filepath, 
+                    root='materials',
+                    alt_suffix=None, 
+                    alt_path=bpy.context.preferences.filepaths.texture_directory)
+            else:
+                p = find_referenced_file(
+                    t,
+                    nifpath=shape.file.filepath, 
+                    alt_suffix='.png', 
+                    alt_path=bpy.context.preferences.filepaths.texture_directory)
+            if p:
+                self.textures[k] = p
 
-            # Sometimes texture paths are missing the "textures" directory. 
-            if not t.lower().startswith('textures'):
-                t = os.path.join('textures', t)
+            # # Sometimes texture paths are missing the "textures" directory. 
+            # if not t.lower().startswith('textures'):
+            #     t = os.path.join('textures', t)
 
-            # First option is to use a png from Blender's texture directory, if any
-            if blender_dir:
-                fpng = Path(blender_dir, t).with_suffix('.png')
-                if os.path.exists(fpng):
-                    self.textures[k] = str(fpng)
-                    continue
+            # # First option is to use a png from Blender's texture directory, if any
+            # if blender_dir:
+            #     fpng = Path(blender_dir, t).with_suffix('.png')
+            #     if os.path.exists(fpng):
+            #         self.textures[k] = str(fpng)
+            #         continue
 
-            # No PNG in Blender's directory, look for one relative to the nif.
-            fpng = Path(nif_dir, t).with_suffix('.png')
-            if os.path.exists(fpng):
-                self.textures[k] = str(fpng)
-                continue
+            # # No PNG in Blender's directory, look for one relative to the nif.
+            # fpng = Path(nif_dir, t).with_suffix('.png')
+            # if os.path.exists(fpng):
+            #     self.textures[k] = str(fpng)
+            #     continue
             
-            # No PNG at all, check for DDS.
-            if blender_dir:
-                fdds = os.path.join(blender_dir, t)
-                if os.path.exists(fdds):
-                    self.textures[k] = fdds
-                    continue
+            # # No PNG at all, check for DDS.
+            # if blender_dir:
+            #     fdds = os.path.join(blender_dir, t)
+            #     if os.path.exists(fdds):
+            #         self.textures[k] = fdds
+            #         continue
             
-            fdds = os.path.join(nif_dir, t)
-            if os.path.exists(fdds):
-                self.textures[k] = fdds
+            # fdds = os.path.join(nif_dir, t)
+            # if os.path.exists(fdds):
+            #     self.textures[k] = fdds
             
 
     def link(self, a, b):

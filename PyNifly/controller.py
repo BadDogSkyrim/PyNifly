@@ -57,7 +57,12 @@ class ControlledVariable:
         """Find the right controlled variable given blender shader node and socket."""
         for n, s, d, t, v in self.variables:
             if n == node and s == socket:
-                if (not shader_type) or t.__name__.startswith(shader_type):
+                # If we were not given a shader type take any match. If the match isn't
+                # for a shader, take it. If it is for a shader, has to match on the shader
+                # type.
+                if (not shader_type) or (
+                    not (t.__name__.startswith("BSEffect") or t.__name__.startswith("BSLighting"))
+                    ) or (t.__name__[0:8] == shader_type[0:8]):
                     return t, v
         return None, None
     
@@ -888,6 +893,11 @@ class ControllerHandler():
         try:
             while fcurves:
                 ctlclass, ctlvar = self._select_controller(fcurves[0].data_path, shader_type)
+                if ctlclass is None:
+                    self.warn(f"Could not export fcurve {fcurves[0].data_path} on {targetobj.name}")
+                    fcurves.pop(0)
+                    continue
+
                 if ((ctlclass != ctlclass_cur) or (ctlvar != ctlvar_cur)
                     or (ctlclass_cur is None)):
 
@@ -1661,6 +1671,7 @@ def _import_controller_sequence(seq:NiControllerSequence,
     can be recovered when the user switches between animations.
     """
     importer._new_animation(seq)
+    importer.anim_name = seq.name
     importer.start_time = min(importer.start_time, seq.properties.startTime)
     importer.end_time = max(importer.end_time, seq.properties.stopTime)
 

@@ -73,7 +73,7 @@ ROTATE_X90 = 0
 # Header
 class TRIHeader:
     def __init__(self):
-        self.str = ''			#Header with version number / magic number
+        self.signature = ''			#Header with version number / magic number
         self.vertexNum = 0		#number of vertices on the base mesh
         self.faceNum = 0			#number of faces on the base mesh
         self.morphNum = 0		#number of regular morphs
@@ -84,7 +84,7 @@ class TRIHeader:
 
     def write(self):
         """ Return packed header, ready for writing """
-        return pack('<8s14I',	self.str.encode("iso-8859-15"),	#str
+        return pack('<8s14I',	self.signature.encode("iso-8859-15"),	#signature
             self.vertexNum,			#vertexNum
             self.faceNum,			#faceNum
             0,0,0,				#number of quads, of labelled vertices, of labelled surface points
@@ -105,21 +105,27 @@ class TRIHeader:
             self.log.error("Cannot read header for file")
             raise ValueError("Error reading TRI file")
         data = unpack('<8s10I16x', tmp_data) 
-        self.str = data[0].decode("iso-8859-15")
-        self.vertexNum = data[1]
-        self.faceNum = data[2]
-        self.uvNum = data[6]
-        self.morphNum = data[8]
-        self.addMorphNum = data[9]
-        self.addVertexNum = data[10]
+        self.signature = data[0].decode("iso-8859-15")
+        if self.signature == VERSION_STRING:
+            self.vertexNum = data[1]
+            self.faceNum = data[2]
+            self.uvNum = data[6]
+            self.morphNum = data[8]
+            self.addMorphNum = data[9]
+            self.addVertexNum = data[10]
 
     def __str__(self):
-        s = "TRI Header:\n"
-        s += "Base Vertices : " + str(self.vertexNum) + "\n"
-        s += "Faces:          " + str(self.faceNum) + "\n"
-        s += "UV Coordinates: " + str(self.uvNum) + "\n"
-        s += "Morphs:         " + str(self.morphNum) + "\n"
-        s += "Mod Morphs:     " + str(self.addMorphNum) + " with " + str(self.addVertexNum) + " vertices\n"
+        if self.signature == VERSION_STRING:
+            s = "TRI Header:\n"
+            s += "Base Vertices : " + str(self.vertexNum) + "\n"
+            s += "Faces:          " + str(self.faceNum) + "\n"
+            s += "UV Coordinates: " + str(self.uvNum) + "\n"
+            s += "Morphs:         " + str(self.morphNum) + "\n"
+            s += "Mod Morphs:     " + str(self.addMorphNum) + " with " + str(self.addVertexNum) + " vertices\n"
+        elif self.signature[0:4] == 'PIRT':
+            s = "TRIP File"
+        else:
+            s = f"Not a TRI file: {self.signature}"
         return s
 
 
@@ -385,11 +391,11 @@ class TriFile():
             return {'CANCELLED'}
 
         # version check
-        if tri.header.str != VERSION_STRING:
+        if tri.header.signature[0:5] != 'FRITRI' and tri.header.signature[0:4] != 'PRIT':
             # file.close()
-            #raise ValueError(f"'{filepath}' is not formatted as a tri file. Format given as [{tri.header.str}] when it should be [FRTRI003]")
-            log.warning(f"'{filepath}' is not formatted as a tri file. Format given as [{tri.header.str}] when it should be [FRTRI003]")
-            #log.error(f"File is not of correct format. Format given as [{tri.header.str}] when it should be [FRTRI003]")
+            #raise ValueError(f"'{filepath}' is not formatted as a tri file. Format given as [{tri.header.signature}] when it should be [FRTRI003]")
+            log.warning(f"'{filepath}' is not formatted as a tri file. Format given as [{tri.header.signature}]")
+            #log.error(f"File is not of correct format. Format given as [{tri.header.signature}] when it should be [FRTRI003]")
             #return {'CANCELLED'}
 
         try:
@@ -434,7 +440,7 @@ class TriFile():
             export_morphs = subset of morph names to write
         """
        
-        self.header.str = VERSION_STRING
+        self.header.signature = VERSION_STRING
 
         ### NOT WORKING because I have to pass in loops ###
         #Mapping for re-order of verts to  match a 'sequential face list' index = vertex index, value = index to remap to
@@ -675,9 +681,9 @@ class TripFile():
         else:
             return ''
         
-    def _write_count_str(self, file, str):
-        file.write(pack('<B', len(str)))
-        file.write(pack(f'<{len(str)}s', str.encode("iso-8859-15")))
+    def _write_count_str(self, file, s):
+        file.write(pack('<B', len(s)))
+        file.write(pack(f'<{len(s)}s', s.encode("iso-8859-15")))
         
     def _coord_nonzero(self, coords):
         return abs(coords[0]) > 0.0001 or abs(coords[1]) > 0.0001 or abs(coords[2]) > 0.0001 

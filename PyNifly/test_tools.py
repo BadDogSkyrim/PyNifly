@@ -14,8 +14,8 @@ pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
 log = logging.getLogger("pynifly")
 
 
-PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimSE\mods\00 Vanilla Assets"
-PYNIFLY_TEXTURES_FO4 = r"C:\Modding\Fallout4\mods\00 FO4 Assets"
+PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimSEAssets\00 Vanilla Assets"
+PYNIFLY_TEXTURES_FO4 = r"C:\Modding\FalloutAssets\00 FO4 Assets"
 
 
 def remove_file(fn):
@@ -102,20 +102,24 @@ def get_property(nif, property_path):
     current = None
     for i, name in enumerate(property_path):
         if i == 0:
-            assert name in nif.shape_dict, f"Have shape {name}"
-            current = nif.shape_dict[name]
+            if name == '[ROOT]':
+                current = nif.root
+            else:
+                assert name in nif.shape_dict, f"Have shape {name}"
+                current = nif.shape_dict[name]
         else:
-            if type(current) == dict:
+            if name == 'len()':
+                current = len(current)
+            elif type(current) == dict:
                 current = current[name]
             elif hasattr(current, '__getitem__'):
-                if name == 'len()':
-                    current = len(current)
-                else:
-                    current = current[int(name)]
+                current = current[int(name)]
             elif name == 'NiAlphaProperty':
                 current = current.parent.alpha_property
             elif name == 'BSShaderTextureSet':
                 current = current.textures
+            elif hasattr(current, 'sequences') and current.sequences and 'sequences' == name:
+                current = current.sequences
             elif name.startswith('ShaderFlags2'):
                 current = 1 if (current & ND.ShaderFlags2[name[13:]]) else 0
             elif name.startswith('properties.'):
@@ -128,6 +132,12 @@ def get_property(nif, property_path):
                 current = current.interpolator
             elif hasattr(current, 'data') and current.data and current.data.blockname == name:
                 current = current.data
+            elif hasattr(current, 'object_palette') and current.object_palette and current.object_palette.blockname == name:
+                current = current.object_palette
+            elif hasattr(current, 'text_key_data') and current.text_key_data and current.text_key_data.blockname == name:
+                current = current.text_key_data
+            elif hasattr(current, 'target') and current.target and current.target.blockname == name:
+                current = current.target
             elif hasattr(current, name):
                 current = getattr(current, name)
             elif hasattr(current.properties, name):

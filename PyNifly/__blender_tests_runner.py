@@ -1,6 +1,6 @@
 """ Quick and Dirty Test Harness """
 
-import blender_tests as BT
+from blender_tests import *
 
 print("""
 =============================================================================
@@ -22,9 +22,10 @@ print("""
 # All tests with collisions
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
-BT.do_tests(
-    target_tests=[ BT.TEST_ANIM_SHADER_GLOW ], run_all=False, stop_on_fail=True,
+do_tests(
+    target_tests=[ TEST_BRICKWALL, TEST_COLORS, TEST_COLORS3, TEST_NEW_COLORS, TEST_ALPHA_THRESHOLD_CHANGE, TEST_COLLISION_BOW_SCALE, TEST_SPLIT_NORMALS, TEST_ROGUE02, TEST_NORMAL_SEAM, TEST_CONNECT_WEAPON_PART, TEST_ANIM_ANIMATRON, TEST_JIARAN, TEST_ANIM_ALDUIN ], run_all=False, stop_on_fail=True,
     # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
+    # stop_on_fail=True
     )
 
 

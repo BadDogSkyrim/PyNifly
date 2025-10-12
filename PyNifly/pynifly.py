@@ -352,7 +352,7 @@ class FO4Segment(Partition):
 
     def __init__(self, part_id=0, index=0, subsegments=0, namedict=fo4Dict, name=None):
         super().__init__(part_id, namedict=namedict, name=name)
-        self._index = index
+        self.index = index
         self.subseg_count = subsegments
         self.subsegments = []
 
@@ -363,7 +363,7 @@ class FO4Segment(Partition):
         if self._name:
             return self._name
         else:
-            return f"FO4 Seg " + '{:0>3d}'.format(self._index)
+            return f"FO4 Seg " + '{:0>3d}'.format(self.index)
 
     @classmethod
     def name_match(cls, name):
@@ -382,7 +382,7 @@ class FO4Subsegment(FO4Segment):
     fo4subsegm = re.compile('\AFO4 *.*')
     fo4bpm = re.compile('\AFO4 *(\d+) - ')
 
-    def __init__(self, part_id, user_slot, material, parent, namedict=fo4Dict, name=None):
+    def __init__(self, part_id, user_slot, material=-1, parent=None, namedict=fo4Dict, name=None):
         """ 
         part_id = unique id used inside the nif
         user_slot = user index 
@@ -634,7 +634,7 @@ class NiObjectNET(NiObject):
         if self._name == None:
             namebuf = (c_char * self.file.max_string_len)()
             NifFile.nifly.getString(
-                self.file._handle, self.properties.nameID, self.file.max_string_len, namebuf)
+                self.file._handle, self._properties.nameID, self.file.max_string_len, namebuf)
             self._name = namebuf.value.decode('utf-8')
         return self._name
     
@@ -1636,7 +1636,7 @@ class NiTransformData(NiKeyFrameData):
             d.value = dimension.encode('utf-8')
             for q in key_list:
                 NifFile.nifly.addAnimKeyQuadXYZ(
-                    self.file._handle, self.id, d, byref(q))
+                    self.file._handle, self.id, d, byref(q.getbuf()))
 
 
 class NiInterpolator(NiObject):
@@ -2709,16 +2709,125 @@ class NiShader(NiProperty):
     def flags2_clear(self, flag):
         self.properties.shaderflags2_clear(flag)
     
-    def get_clamp_u(self):
-        return self.properties.clamp_mode_s
-    
-    def get_clamp_v(self):
-        return self.properties.clamp_mode_t
-    
+    # Individual getter routines for shader flags so the caller doesn't have to worry
+    # about Skyrim vs FO4.
+
     @property
-    def greyscale_color(self):
+    def flag_facegen_RBG_tint(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.FACEGEN_RGB_TINT)
+
+    @property
+    def flag_greyscale_color(self):
         return self.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_COLOR)
 
+    @property
+    def flag_greyscale_alpha(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_ALPHA)
+
+    @property
+    def flag_decal(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.DECAL)
+
+    @property
+    def flag_environment_mapping(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.ENVIRONMENT_MAPPING)
+
+    @property
+    def flag_zbuffer_test(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.ZBUFFER_TEST)
+
+    @property
+    def flag_cast_shadows(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.CAST_SHADOWS)
+        
+    @property
+    def flag_external_emittance(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.EXTERNAL_EMITTANCE)
+        
+    @property
+    def flag_eye_environment_mapping(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.EYE_ENVIRONMENT_MAPPING)
+
+    @property
+    def flag_hair(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.HAIR)
+
+    @property
+    def flag_own_emit(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.OWN_EMIT)
+
+    @property
+    def flag_model_space_normals(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)
+
+    @property
+    def flag_rgb_falloff(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.RGB_FALLOFF)
+
+    @property
+    def flag_specular(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.SPECULAR)
+        
+    @property
+    def flag_use_falloff(self):
+        return self.properties.shaderflags1_test(ShaderFlags1.USE_FALLOFF)
+
+    @property
+    def flag_double_sided(self):
+        if self.materials:
+            return self.materials.twoSided
+        else:
+            return self.properties.shaderflags2_test(ShaderFlags2.DOUBLE_SIDED)
+
+    @property
+    def flag_glow_map(self):
+        if self.materials:
+            return self.materials.glowmap
+        else:
+            return self.properties.shaderflags2_test(ShaderFlags2.GLOW_MAP)
+
+    @property
+    def flag_zbuffer_write(self):
+        if self.materials:
+            return self.materials.zbufferwrite
+        else:
+            return self.properties.shaderflags2_test(ShaderFlags2.ZBUFFER_WRITE)
+
+    @property
+    def flag_anisotropic_lighting(self):
+        return self.properties.shaderflags2_test(ShaderFlags2.ANISOTROPIC_LIGHTING)
+
+    @property
+    def flag_transform_changed(self):
+        return self.properties.shaderflags2_test(ShaderFlags2.TRANSFORM_CHANGED)
+
+    @property
+    def flag_vats_target_draw_all(self):
+        return self.properties.shaderflags2_test(ShaderFlags2.VATS_TARGET_DRAW_ALL)
+
+    @property
+    def flag_gradient_remap(self):
+        return self.properties.shaderflags2_test(ShaderFlags2.GRADIENT_REMAP)
+
+    @property
+    def flag_alpha_test(self):
+        return self.properties.shaderflags2_test(ShaderFlags2.ALPHA_TEST)
+
+    @property
+    def flag_tree_anim(self):
+        return self.properties.shaderflags2_test(ShaderFlags2.TREE_ANIM)
+        
+    @property
+    def flag_effect_lighting(self):
+        return self.properties.shaderflags2_test(ShaderFlags2.EFFECT_LIGHTING)
+
+    @property
+    def texture_clamp_mode(self):
+        return self.properties.textureClampMode
+    
+    @texture_clamp_mode.setter
+    def texture_clamp_mode(self, value):
+        self.properties.textureClampMode = value
 
 class BSDistantTreeShaderProperty(NiShader):
     pass
@@ -2780,7 +2889,7 @@ class BSEffectShaderProperty(NiShader):
 
     @classmethod
     def getbuf(cls, values=None):
-        b = NiShapeBuf(values)
+        b = NiShaderBuf(values)
         b.bufType = PynBufferTypes.BSEffectShaderPropertyBufType
         return b
 
@@ -2790,7 +2899,7 @@ class BSShaderPPLightingProperty(NiShader):
 
     @classmethod
     def getbuf(cls, values=None):
-        b = NiShapeBuf(values)
+        b = NiShaderBuf(values)
         b.bufType = PynBufferTypes.BSShaderPPLightingPropertyBufType
         return b
 
@@ -2801,19 +2910,153 @@ class NiShaderFO4(NiShader):
     when necessary.
     """
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        self.materials = None
+        self._checked_for_materials = False
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         
-        self.materials = None
-        if self.name:
-            # Some FO4 nifs don't have materials files. Apparently (?) they use the shader
-            # block attributes.
-            fullpath = self.name
-            if not os.path.exists(fullpath):
-                # Target full path doesn't exist. Make it relative to our materials root.
-                relpath = truncate_filename(self.name, 'materials')
-                fullpath = os.path.join(self.file.materialsRoot, 'materials', relpath)
-            self.materials = bgsmaterial.MaterialFile.Open(fullpath)
+    def _load_properties_from_materials(self):
+        """Load materials properties into shader properties so the rest of the world doesn't have to care."""
+        if not self.materials: return
 
+        p = self._properties
+        p.textureClampMode = self.materials.tileFlags
+        p.UV_Offset_U = self.materials.UV_Offset_U
+        p.UV_Offset_V = self.materials.UV_Offset_V
+        p.UV_Scale_U = self.materials.UV_Scale_U
+        p.UV_Scale_V = self.materials.UV_Scale_V
+        p.Alpha = self.materials.Alpha
+        p.Env_Map_Scale = self.materials.environmentMappingMaskScale
+        p.Emissive_Color[0] = self.materials.emittanceColor[0]
+        p.Emissive_Color[1] = self.materials.emittanceColor[1]
+        p.Emissive_Color[2] = self.materials.emittanceColor[2]
+        p.Emissive_Color[3] = 1.0
+        p.Emissive_Mult = self.materials.emittanceMult
+        p.Refraction_Str = self.materials.refractionPower
+        p.Glossiness = self.materials.smoothness
+        p.Rim_Light_Power = self.materials.rimPower
+        p.subsurfaceRolloff = self.materials.subsurfaceRolloff
+        p.fresnelPower = self.materials.fresnelPower
+
+        # Shader flags 1
+        p.Shader_Flags_1 = 0
+        p.Shader_Flags_2 = 0
+        if self.materials.decal:
+            p.shaderflags1_set(ShaderFlags1.DECAL)
+        else:
+            p.shaderflags1_clear(ShaderFlags1.DECAL)
+
+        if self.materials.environmentMapping:
+            p.shaderflags1_set(ShaderFlags1.ENVIRONMENT_MAPPING)
+        else:
+            p.shaderflags1_clear(ShaderFlags1.ENVIRONMENT_MAPPING)
+
+        if self.materials.zbuffertest:
+            p.shaderflags1_set(ShaderFlags1.ZBUFFER_TEST)
+        else:
+            p.shaderflags1_clear(ShaderFlags1.ZBUFFER_TEST)
+
+        if self.materials.twoSided:
+            p.shaderflags2_set(ShaderFlags2.DOUBLE_SIDED)
+        else:
+            p.shaderflags2_clear(ShaderFlags2.DOUBLE_SIDED)
+
+        if self.materials.glowmap:
+            p.shaderflags2_set(ShaderFlags2.GLOW_MAP)
+        else:
+            p.shaderflags2_clear(ShaderFlags2.GLOW_MAP)
+
+        if self.materials.zbufferwrite:
+            p.shaderflags2_set(ShaderFlags2.ZBUFFER_WRITE)
+        else:
+            p.shaderflags2_clear(ShaderFlags2.ZBUFFER_WRITE)
+
+        if self.materials.signature == b'BGSM':
+            if self.materials.skinTint:
+                p.shaderflags1_set(ShaderFlags1.FACEGEN_RGB_TINT)
+            else:
+                p.shaderflags1_clear(ShaderFlags1.FACEGEN_RGB_TINT)
+
+            if self.materials.castShadows:
+                p.shaderflags1_set(ShaderFlags1.CAST_SHADOWS)
+            else:
+                p.shaderflags1_clear(ShaderFlags1.CAST_SHADOWS)
+
+            if self.materials.anisoLighting:
+                p.shaderflags2_set(ShaderFlags2.ANISOTROPIC_LIGHTING)
+            else:
+                p.shaderflags2_clear(ShaderFlags2.ANISOTROPIC_LIGHTING)
+
+            if self.materials.tree:
+                p.shaderflags2_set(ShaderFlags2.TREE_ANIM)
+            else:
+                p.shaderflags2_clear(ShaderFlags2.TREE_ANIM)
+
+            if self.materials.externalEmittance:
+                p.shaderflags1_set(ShaderFlags1.EXTERNAL_EMITTANCE)
+            else:
+                p.shaderflags1_clear(ShaderFlags1.EXTERNAL_EMITTANCE)
+
+            if self.materials.environmentMappingEye:
+                p.shaderflags1_set(ShaderFlags1.EYE_ENVIRONMENT_MAPPING)
+            else:
+                p.shaderflags1_clear(ShaderFlags1.EYE_ENVIRONMENT_MAPPING)
+
+            if self.materials.hair:
+                p.shaderflags1_set(ShaderFlags1.HAIR_SOFT_LIGHTING)
+            else:
+                p.shaderflags1_clear(ShaderFlags1.HAIR_SOFT_LIGHTING)
+
+            if self.materials.emitEnabled:
+                p.shaderflags1_set(ShaderFlags1.OWN_EMIT)
+            else:
+                p.shaderflags1_clear(ShaderFlags1.OWN_EMIT)
+
+            if self.materials.modelSpaceNormals:
+                p.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
+            else:
+                p.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
+
+            if self.materials.specularEnabled:
+                p.shaderflags1_set(ShaderFlags1.SPECULAR)
+            else:
+                p.shaderflags1_clear(ShaderFlags1.SPECULAR)
+
+        if self.materials.signature == b'BGEM':
+            if self.materials.falloffEnabled:
+                p.shaderflags1_set(ShaderFlags1.USE_FALLOFF)
+            else:
+                p.shaderflags1_clear(ShaderFlags1.USE_FALLOFF)
+
+            if self.materials.effectLightingEnabled:
+                p.shaderflags2_set(ShaderFlags2.EFFECT_LIGHTING)
+            else:
+                p.shaderflags2_clear(ShaderFlags2.EFFECT_LIGHTING)
+
+    @property
+    def properties(self):
+        """
+        Return shader properties. Return the materials file properties if any; caller will
+        have to deal with any properties that differ between FO4 and Skyrim. Return the
+        properties buffer if no materials file.
+        """
+        if not self._properties:
+            super().properties
+
+        if not self._checked_for_materials:
+            # Find and read the materials file if any. This is where the shader properties
+            # will come from. Some FO4 nifs don't have materials files. Apparently (?)
+            # they use the shader block attributes.
+            self._name = None
+            if self.name:
+                fullpath = find_referenced_file(self.name, self.file.filepath, root='materials', 
+                                                alt_path=self.file.materialsRoot)
+                if fullpath:
+                    self.materials = bgsmaterial.MaterialFile.Open(fullpath)
+                    self._load_properties_from_materials()
+            self._checked_for_materials = True
+
+        return self._properties
+        
     @property
     def textures(self):
         if self.materials:
@@ -2822,9 +3065,111 @@ class NiShaderFO4(NiShader):
             return super().textures
 
     @property
+    def texture_clamp_mode(self):
+        return self.materials.tileFlags
+    
+    @property
+    def flag_greyscale_color(self):
+        if self.materials:
+            return self.materials.grayscaleToPaletteColor
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1FO4.GREYSCALE_COLOR)
+
+    @property
+    def flag_greyscale_alpha(self):
+        if self.materials:
+            return self.materials.grayscaleToPaletteAlpha
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1FO4.GREYSCALE_ALPHA)
+
+    @property
+    def flag_decal(self):
+        if self.materials:
+            return self.materials.decal
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1FO4.DECAL)
+
+    @property
+    def flag_environment_mapping(self):
+        if self.materials:
+            return self.materials.environmentMapping
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1FO4.ENVIRONMENT_MAPPING)
+
+    @property
+    def flag_zbuffer_test(self):
+        if self.materials:
+            return self.materials.zbuffertest
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1FO4.ZBUFFER_TEST)
+
+    @property
+    def flag_cast_shadows(self):
+        if self.materials and self.materials.signature == b'BGSM':
+            return self.materials.castShadows
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1FO4.CAST_SHADOWS)
+        
+    @property
+    def flag_external_emittance(self):
+        if self.materials and self.materials.signature == b'BGSM':
+            return self.materials.externalEmittance
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1FO4.EXTERNAL_EMITTANCE)
+        
+    @property
+    def flag_eye_environment_mapping(self):
+        if self.materials and self.materials.signature == b'BGSM':
+            return self.materials.environmentMappingEye
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1FO4.EYE_ENVIRONMENT_MAPPING)
+
+    @property
+    def flag_hair(self):
+        if self.materials and self.materials.signature == b'BGSM':
+            return self.materials.hair
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1FO4.HAIR)
+
+    @property
+    def flag_own_emit(self):
+        if self.materials and self.materials.signature == b'BGSM':
+            return self.materials.emitEnabled
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1FO4.OWN_EMIT)
+
+    @property
+    def flag_model_space_normals(self):
+        if self.materials and self.materials.signature == b'BGSM':
+            return self.materials.modelSpaceNormals
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1FO4.MODEL_SPACE_NORMALS)
+
+    @property
+    def flag_rgb_falloff(self):
+        if self.materials and self.materials.signature == b'BGSM':
+            return self.materials.receiveShadows
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1FO4.RGB_FALLOFF)
+
+    @property
+    def flag_specular(self):
+        if self.materials and self.materials.signature == b'BGSM':
+            return self.materials.specularEnabled
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1FO4.SPECULAR)
+        
+    @property
+    def flag_use_falloff(self):
+        if self.materials and self.materials.signature == b'BGEM':
+            return self.materials.falloffEnabled
+        else:
+            return self.properties.shaderflags1_test(ShaderFlags1FO4.USE_FALLOFF)
+
+    @property
     def shaderflags1(self):
         if self.materials:
-            v = self.properties.Shader_Flags_1
+            v = 0
             v &= ~ShaderFlags1FO4.DECAL | (
                 ShaderFlags1FO4.DECAL if self.materials.decal else 0)
             v &= ~ShaderFlags1FO4.ENVIRONMENT_MAPPING | (
@@ -2854,15 +3199,85 @@ class NiShaderFO4(NiShader):
             return v
         else:
             return self.properties.Shader_Flags_1
+    
+    @property
+    def flag_double_sided(self):
+        if self.materials:
+            return self.materials.twoSided
+        else:
+            return self.properties.shaderflags2_test(ShaderFlags2FO4.DOUBLE_SIDED)
+
+    @property
+    def flag_glow_map(self):
+        if self.materials:
+            return self.materials.glowmap
+        else:
+            return self.properties.shaderflags2_test(ShaderFlags2FO4.GLOW_MAP)
+
+    @property
+    def flag_zbuffer_write(self):
+        if self.materials:
+            return self.materials.zbufferwrite
+        else:
+            return self.properties.shaderflags2_test(ShaderFlags2FO4.ZBUFFER_WRITE)
+
+    @property
+    def flag_anisotropic_lighting(self):
+        if self.materials and self.materials.signature == b'BGSM':
+            return self.materials.anisoLighting
+        else:
+            return self.properties.shaderflags2_test(ShaderFlags2FO4.ANISOTROPIC_LIGHTING)
+
+    @property
+    def flag_transform_changed(self):
+        if self.materials and self.materials.signature == b'BGSM':
+            return self.materials.assumeShadowmask
+        else:
+            return self.properties.shaderflags2_test(ShaderFlags2FO4.TRANSFORM_CHANGED)
+
+    @property
+    def flag_vats_target_draw_all(self):
+        if self.materials and self.materials.signature == b'BGSM':
+            return self.materials.backLighting
+        else:
+            return self.properties.shaderflags2_test(ShaderFlags2FO4.VATS_TARGET_DRAW_ALL)
+
+    @property
+    def flag_gradient_remap(self):
+        if self.materials and self.materials.signature == b'BGSM':
+            return self.materials.rimLighting
+        else:
+            return self.properties.shaderflags2_test(ShaderFlags2FO4.GRADIENT_REMAP)
+
+    @property
+    def flag_alpha_test(self):
+        if self.materials and self.materials.signature == b'BGSM':
+            return self.materials.subsurfaceLighting
+        else:
+            return self.properties.shaderflags2_test(ShaderFlags2FO4.ALPHA_TEST)
+
+    @property
+    def flag_tree_anim(self):
+        if self.materials and self.materials.signature == b'BGSM':
+            return self.materials.tree
+        else:
+            return self.properties.shaderflags2_test(ShaderFlags2FO4.TREE_ANIM)
         
+    @property
+    def flag_effect_lighting(self):
+        if self.materials and self.materials.signature == b'BGEM':
+            return self.materials.effectLightingEnabled
+        else:
+            return self.properties.shaderflags2_test(ShaderFlags2FO4.EFFECT_LIGHTING)
+
     @property
     def shaderflags2(self):
         """
         Return shader flags. Get flags held in the materials file from there, if any; get
         the rest from the shader flags in the nif.
         """
-        v = self.properties.Shader_Flags_2
         if self.materials:
+            v = 0
             v &= ~ShaderFlags2FO4.DOUBLE_SIDED | (
                 ShaderFlags2FO4.DOUBLE_SIDED if self.materials.twoSided else 0)
             v &= ~ShaderFlags2FO4.GLOW_MAP | (
@@ -2895,14 +3310,6 @@ class NiShaderFO4(NiShader):
     def flags2_test(self, flag):
         return (self.shaderflags2 & flag) != 0
 
-    @property
-    def greyscale_color(self):
-        if self.materials:
-            return self.materials.grayscaleToPaletteColor
-        else:
-            return self.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_COLOR)
-    
-
 
 # --- NifShape --- #
 class NiShape(NiNode):
@@ -2921,7 +3328,9 @@ class NiShape(NiNode):
             NifFile.nifly.getBlockname(file._handle, id, buf, 128)
             shapetype = buf.value.decode('utf-8')
         try:
+            new_shape = False
             if not handle and id == NODEID_NONE:
+                new_shape = True
                 id = NifFile.nifly.addBlock(
                     file._handle, 
                     None, 
@@ -2932,6 +3341,8 @@ class NiShape(NiNode):
             
             s = file.read_node(
                 handle=handle, id=id, parent=parent, properties=properties)
+            if new_shape:
+                s._partitions = []
             return s
         except:
             NifFile.log.warning(f"Shape type is not implemented: {shapetype}")
@@ -2961,7 +3372,6 @@ class NiShape(NiNode):
         self._segment_file = ''
         self.is_head_part = False
         self._shader = None
-        self._shader_name = None
         self._alpha = None
 
     def _setShapeXform(self):
@@ -3047,6 +3457,7 @@ class NiShape(NiNode):
 
     @property
     def partition_tris(self):
+        """Returns a list of partition indices matching 1-1 with tris"""
         if self._partition_tris is None:
             buf = (c_uint16 * 1)()
             pc = NifFile.nifly.getPartitionTris(self.file._handle, self._handle, None, 0)
@@ -3085,19 +3496,19 @@ class NiShape(NiNode):
         NifFile.nifly.getBlockname(self.file._handle, self.properties.shaderPropertyID, buf, 128)
         return buf.value.decode('utf-8')
 
-    @property
-    def shader_name(self):
-        if self._shader_name is None:
-            buflen = self.file.max_string_len
-            buf = (c_char * buflen)()
-            NifFile.nifly.getString(self.file._handle, self.shader.properties.nameID, buflen, buf)
-            # buflen = NifFile.nifly.getShaderName(self.file._handle, self._handle, buf, buflen)
-            self._shader_name = buf.value.decode('utf-8')
-        return self._shader_name
+    # @property
+    # def shader_name(self):
+    #     if self._shader_name is None:
+    #         buflen = self.file.max_string_len
+    #         buf = (c_char * buflen)()
+    #         NifFile.nifly.getString(self.file._handle, self.shader.properties.nameID, buflen, buf)
+    #         # buflen = NifFile.nifly.getShaderName(self.file._handle, self._handle, buf, buflen)
+    #         self._shader_name = buf.value.decode('utf-8')
+    #     return self._shader_name
 
-    @shader_name.setter
-    def shader_name(self, val):
-        self._shader_name = val
+    # @shader_name.setter
+    # def shader_name(self, val):
+    #     self._shader_name = val
 
     @property
     def shaderflags1(self):
@@ -3138,11 +3549,11 @@ class NiShape(NiNode):
         to the nif, not to a separate materials file.
         """
         if self._shader and self._shader._properties:
-            name = self.shader_name
+            name = self.shader.name
             if name is None: name = ''
             shader_id = NifFile.nifly.addBlock(
                 self.file._handle, 
-                self._shader_name.encode('utf-8'), 
+                self._shader.name.encode('utf-8'), 
                 byref(self._shader._properties), 
                 self.id)
             self._shader.id = shader_id
@@ -3335,10 +3746,45 @@ class NiShape(NiNode):
             """
         if len(partitionlist) == 0:
             return
+        
+        # In FO4, create a clean list of segments covering subsegments in partitionlist.
+        # In Skyrim, just use the partitionlist as given.
+        if self.file.game == 'FO4':
+            pdict = {}
+            maxid = max([p.id for p in partitionlist])
+            for p in partitionlist:
+                if type(p).__name__ == "FO4Subsegment":
+                    seg_new = p.parent
+                elif type(p).__name__ == "FO4Segment":
+                    seg_new = p
+                if not seg_new.name in pdict:
+                    pdict[seg_new.name] = seg_new
+                # All prior segments must also be included
+                for i in range(0, seg_new.index):
+                    if not f"FO4 Seg {i:03d}" in pdict:
+                        maxid += 1
+                        pdict[f"FO4 Seg {i:03d}"] = FO4Segment(part_id=maxid, index=i)
+            parts = list(pdict.values())
+            parts.sort(key=lambda x: x.index)
+        else:
+            parts = list(filter(
+                lambda x: type(x).__name__ == "SkyPartition", 
+                partitionlist))
 
-        parts = list(filter(
-            lambda x: type(x).__name__ in ["SkyPartition", "FO4Segment"], 
-            partitionlist))
+        # # There may be subsegments without their parent segment. Add the parent segment if so.
+        # partitions = list(partitionlist) # Copy so we can modify
+        # if len([p for p in partitionlist if type(p).__name__.startswith("FO4")]) > 0:
+        #     if not "FO4 Seg 000" in [p.name for p in partitions]:
+        #         partitions.append(FO4Segment(part_id=0, index=0))
+        
+        # for p in partitionlist:
+        #     if type(p).__name__ == "FO4Subsegment":
+        #         if p.parent not in partitionlist:
+        #             partitions.append(p.parent)
+
+        # parts = list(filter(
+        #     lambda x: type(x).__name__ in ["SkyPartition", "FO4Segment"], 
+        #     partitions))
         
         if len(parts) == 0:
             return
@@ -3347,7 +3793,7 @@ class NiShape(NiNode):
         
         tbuf = (c_uint16 * len(trilist))()
 
-        if type(parts[0]).__name__ == "SkyPartition":
+        if self.file.game in ['SKYRIM', 'SKYRIMSE']:
             # the trilist passed in refers to partition IDs, but nifly wants indices into
             # the given partition list.
             pbuf = (c_uint16 * 2 * len(parts))()
@@ -3678,6 +4124,7 @@ class NifFile:
             self._shapes = []
         sh = NiShape(handle=shape_handle, file=self, parent=parent)
         sh.name = shape_name
+        sh._partitions = []
         self._shapes.append(sh)
         sh._handle = shape_handle
 

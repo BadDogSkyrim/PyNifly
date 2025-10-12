@@ -118,6 +118,52 @@ def extend_filenames(root, separator, files=None):
         return [(str(sharedpart / f) if len(f) > 0 else "") for f in files]
     else:
         return str(sharedpart)
+    
+
+def find_referenced_file(filepath:str, nifpath:str, root='textures', alt_suffix=None, alt_path=None) -> str:
+    """
+    Look for a texture file with either a PNG or DDS extension.
+    filepath may or may not be absolute. If relative, may or may not start with "textures".
+    if relative, look in basedir/textures. If not there, look in blender's texture directory.
+    Look for both the dds and png extension.
+    Return the path if found, else None.
+    """
+    fp = Path(filepath.lower())
+
+    # If relative, must start with "textures"
+    if (not fp.is_absolute()) and fp.parts[0] != root:
+        fp = Path(root) / fp
+    
+    # If fp is absolute, check for DDS or PNG variant and return whichever exists
+    if fp.is_absolute():
+        if alt_suffix and fp.with_suffix(alt_suffix).exists():
+            return str(fp.with_suffix(alt_suffix))
+        if fp.exists():
+            return str(fp)
+        # Absolute path not found, treat path as relative
+        fp = Path(*fp.parts[fp.parts.index(root):])
+
+    # If relative, look in nifpath first
+    bd = Path(nifpath.lower())
+    if 'meshes' in bd.parts:
+        bd = Path(*bd.parts[:bd.parts.index('meshes')])
+        fullp = bd / fp
+        if alt_suffix and fullp.with_suffix(alt_suffix).exists():
+            return str(fullp.with_suffix(alt_suffix))
+        if fullp.exists():
+            return str(fullp)
+        
+    # Not found, look in alternative texture directory
+    if alt_path:
+        bd = Path(alt_path.lower())
+        if root in bd.parts:
+            bd = Path(*bd.parts[:bd.parts.index(alt_suffix)-1])
+        fullp = bd / fp
+        if alt_suffix and fullp.with_suffix(alt_suffix).exists():
+            return str(fullp.with_suffix(alt_suffix))
+        if fullp.exists():
+            return str(fullp)
+    return None
 
 
 def replace_extensions(files, orig, rep):
@@ -253,13 +299,16 @@ def MatNearEqual(m1, m2, epsilon=0.001):
         r = r and VNearEqual(a, b, epsilon)
     return r
 
+
 def XFNearEqual(x1, x2, epsilon=0.001):
     return VNearEqual(x1.translation, x2.translation, epsilon) \
         and MatNearEqual(x1.rotation, x2.rotation, epsilon) \
         and NearEqual(x1.scale, x2.scale, epsilon)
 
+
 def QNearEqual(q1, q2, epsilon=0.001):
     return NearEqual(abs(q1.dot(q2)), 1.0, epsilon=epsilon)
+
 
 def all_equal(the_list):
     """Determine whether all the values in the list are the same:
@@ -268,6 +317,7 @@ def all_equal(the_list):
     if the_list:
         return the_list[:-1] == the_list[1:]
     return True
+
 
 def all_NearEqual(the_list, epsilon=0.001):
     if the_list:
@@ -1949,137 +1999,6 @@ if __name__ == "__main__":
     assert gameSkeletons["SKYRIM"].nif_name('NPC Finger20.L') == 'NPC L Finger20 [LF20]', "Error: Name translation incorrect"
     assert gameSkeletons["FO4"].nif_name('FOOBAR') == 'FOOBAR', "Error: Name translation incorrect"
     
-
-#    print("""
-###############################################################################
-#Vectors and quarternions
-#""")
-
-#    v1 = Vector([1, 2, 3])
-#    v2 = Vector([4, 5, 6])
-#    assert v1.dot(v2) == 32, f"Vector dot product works: {v1.dot(v2)}"
-#    v3 = Vector([1, 0, 0])
-#    v4 = Vector([0, 1, 0])
-#    assert v3.cross(v4)[:] == [0, 0, 1], f"Vector cross product works: {v3.cross(v4)}"
-#    v5 = Vector([1, 1, 0])
-#    v6 = Vector([-1, 1, 0])
-#    assert list(map(lambda x: round(x, 4), v5.cross(v6)[:])) == [0, 0, 2], f"Vector cross product works: {v5.cross(v6)}"
-
-#    v7 = Vector([.5, 3, 1])
-#    v8 = Vector([.5000001, 3, 1])
-#    assert v7 == v8, f"Vector comparison works"
-
-#    assert not (Vector([1, 2]) == Vector([1, 2, 3])), f"Vector comparison works 2"
-#    assert not (Vector([1, 2, 4]) == Vector([1, 2, 3])), f"Vector comparison works 3"
-
-#    assert v1.scale(2) == Vector([2, 4, 6]), f"Scaling vectors works: {v1.scale(2)}"
-
-#    assert (v1 + v2) == Vector([5, 7, 9]), f"Adding vectors works: {v1 + v2}"
-
-#    q5 = Quaternion.make_rotation([2*pi/3, 1, 1, 1]) # Rotate all 3 axes
-#    v5 = Vector([1, 0, 0]) # Vector on X axis
-#    r51 = q5.rotate(v5)
-#    assert r51 == Vector([0, 1, 0]), f"Rotation of axes works 1: {r51}"
-#    assert q5.rotate(q5.rotate(q5.rotate(v5))) == v5, f"3 rotations returns us home"
-
-#    rm5 = RotationMatrix.from_quaternion(q5)
-#    r52 = rm5.by_vector(v5)
-#    assert r51 == r52, f"Rotation matrix produces same result as quat"
-
-#    r90z = Quaternion.make_rotation([pi/2, 0, 0, 1]) # 90deg about the z axis
-#    x1 = Vector([1,0,0])
-#    assert r90z.rotate(x1) == Vector([0,1,0]), f"Can rotate abou tthe z axis"
-
-#    print("""
-###############################################################################
-#RotationMatrix provides handling for bone rotations and such.
-#""")
-#    rm = RotationMatrix([[-0.0072, 0.9995, -0.0313],
-#                         [-0.0496, -0.0316, -0.9983],
-#                         [-0.9987, -0.0056, 0.0498]])
-    
-#    # by_vector creates a rotation matrix from a vector 
-#    assert rm.by_vector([5,0,0]) == Vector([-0.036, -0.248, -4.9935]), "Error: Applying rotation matrix"
-
-#    # identity is the do-nothing rotation
-#    # invert() is the inverse rotation
-#    identity = RotationMatrix()
-#    assert identity.invert() == identity, "Error: Inverting identity should give itself"
-
-#    # euler_deg() returns the rotation in euler degrees
-#    rm = RotationMatrix([(0,0,1), (1,0,0), (0,1,0)])
-#    assert rm.euler_deg() == (90.0, 90.0, 0), "Error: Euler degrees reflect same rotation"
-#    # No idea if this is actually correct, need to figure out rotations
-#    assert rm.invert().euler_deg() == (-90.0, 0, -90.0), "Error: Euler degrees reflect inverse rotation"
-
-#    rm = RotationMatrix.from_euler(0, 0, 0)
-#    assert rm == identity, "Error: null euler rotation generates null rotation"
-
-#    # Not working... what we want to do with blender
-#    bone_rot = (87.1, -1.8, -90.4)
-#    bone_mat = RotationMatrix.from_euler(bone_rot[0], bone_rot[1], bone_rot[2])
-#    rot_vec = bone_mat.by_vector((1, 0, 0))
-#    res_mat = RotationMatrix.from_vector(rot_vec)
-#    res_euler = res_mat.euler()
-
-#    # from_euler() creates a rotation matrix from euler angles
-#    r = RotationMatrix.from_euler(20, 30, 40)
-#    # rotation_vector() returns a vector showing a matrix's rotation
-#    # from_vector() creates a rotation matrix from a vector
-#    r1 = RotationMatrix.from_vector(r.rotation_vector())
-#    # So convert a rotation to a vector and back should be identity
-#    assert r == r1, "Error: Rotation vectors should be reversable"
-
-#    print("Matrixes can be multiplied, which allows trainsforms to be combined.")
-#    a = RotationMatrix([(1, 2, 3), (4, 5, 6), (7, 8, 9)])
-#    b = RotationMatrix([(10,20,30), (40, 50, 60), (70, 80, 90)])
-#    c = a @ b
-#    assert c == RotationMatrix([(300, 360, 420), (660, 810, 960), (1020, 1260, 1500)]), "Error: Matrix multiplication failure"
-
-#    rm5 = RotationMatrix.from_quaternion(q5)
-#    v = Vector ([1, 0.2, 0.3])
-#    v1 = rm5.rotate(v)
-#    v2 = q5.rotate(v)
-#    assert v1 == v2, f"Rotation by matrix == rotation by quaternion {v1} == {v2}"
-
-#    print("Bones have transforms which are turned into head and tail positions")
-#    bone_mx = RotationMatrix.from_euler(30, 0, 0)
-#    print(f"bone_mx = \n{bone_mx}")
-#    bone_v = bone_mx.by_vector([1, 0, 0])
-#    print("Can re-create the rotation matrix from the vector")
-#    new_mx = RotationMatrix.from_vector([n * -1 for n in bone_v], 0)
-#    # Can't recreate the maxtrix because the vector loses info if the mx
-#    # rotates it about its own axis. Can code rotation in the lenght of the vector
-#    # but not convenient for blender. 
-#    # assert new_mx == bone_mx, "Error: can't recreate rotation matrix from vector"
-
-#    print("### Transform inversion works correctly")
-#    mat = MatTransform((1, 2, 3), [(1,0,0),(0,1,0),(0,0,1)], 2.0)
-#    imat = mat.invert()
-#    assert list(mat.translation) == [1,2,3], "ERROR: Source matrix should not be changed"
-#    assert list(imat.translation) == [-1,-2,-3], "ERROR: Translation should be inverse"
-#    assert imat.rotation.matrix[1][1] == 1.0, "ERROR: Rotation should be inverse"
-#    assert imat.scale == 0.5, "Error: Scale should be inverse"
-
-#    ### Need to test euler -> matrix -> euler
-#    ### Don't trust the euler conversion, so make rotation matrix from quat
-#    q6a = Quaternion.make_rotation([pi/2, 0, 0, 1]) # rotate around z
-#    q6b = Quaternion.make_rotation([pi/2, 0, 1, 0]) # rotate around y
-#    m6a = MatTransform([1, 2, 3], RotationMatrix.from_quaternion(q6a))
-#    m6b = MatTransform([0.1,0.2,0.3], RotationMatrix.from_quaternion(q6b))
-
-#    mm = m6a @ m6b
-#    v1 = Vector([1,0,0])
-    
-#    v1a = m6a @ v1
-#    v1ab = m6b @ v1a
-#    vmm = mm @ v1
-#    # v1ab != vmm because when the MTs are combined the second happens in the transformed
-#    # coordinates of the first; when one is applied after the other the second happens
-#    # in world coordinates
-#    assert v1ab == vmm, f"Vector transforms correct: {v1ab} == {vmm}"
-
-
 
     # ####################################################################################
     print(

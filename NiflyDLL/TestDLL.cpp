@@ -4567,6 +4567,35 @@ namespace NiflyDLLTests
 			void* nifCheck = load(outfile.u8string().c_str());
 			TCheckDock(nifCheck, dockCheck);
 		};
+		TEST_METHOD(readClampMode) {
+			std::filesystem::path testfile = testRoot / "FO4" / "Meshes"/"Architecture"/"DiamondCity"/"DExt"/"DExBrickColumn01.nif";
+			int shapeCount;
+			void* shapes[2];
+			int shapeID;
+			NiShapeBuf shapeProps;
+			NiShaderBuf shaderProps;
+
+			void* nif = load(testfile.u8string().c_str());
+			shapeCount = getShapes(nif, shapes, 2, 0);
+
+			shapeID = getBlockID(nif, shapes[0]);
+
+			Assert::AreEqual(0, getBlock(nif, shapeID, &shapeProps));
+			Assert::AreEqual(0,getBlock(nif, shapeProps.shaderPropertyID, &shaderProps));
+			Assert::AreEqual(0, (int)shaderProps.textureClampMode); // Clamp S, Clamp T
+
+			testfile = testRoot / "FO4" / "AlarmClock.nif";
+
+			nif = load(testfile.u8string().c_str());
+			shapeCount = getShapes(nif, shapes, 2, 0);
+
+			shapeID = getBlockID(nif, shapes[0]);
+
+			Assert::AreEqual(0, getBlock(nif, shapeID, &shapeProps));
+			Assert::AreEqual(0,getBlock(nif, shapeProps.shaderPropertyID, &shaderProps));
+			Assert::AreEqual(3, (int)shaderProps.textureClampMode); // Wrap S, Wrap T
+
+		};
 		/* Check that we can write shader name. */
 		TEST_METHOD(setShaderType) {
 			std::filesystem::path testfile = testRoot / "FO4" / "helmet.nif";
