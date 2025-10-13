@@ -76,7 +76,8 @@ class MaterialFile(Structure):
         if condition:
             n = struct.unpack('<I', self.sourcefile.read(4))[0]
             t = self.sourcefile.read(n).decode().rstrip('\x00')
-            self.textures[fieldname] = t
+            if t:
+                self.textures[fieldname] = t
 
     def _read(self, f):
         """Read common fields from the given file."""

@@ -1047,10 +1047,12 @@ class ShaderImporter:
             self.texmap.inputs['Offset V'].default_value = shape.shader.properties.UV_Offset_V
             self.texmap.inputs['Scale U'].default_value = shape.shader.properties.UV_Scale_U
             self.texmap.inputs['Scale V'].default_value = shape.shader.properties.UV_Scale_V
-            self.texmap.inputs['Wrap U'].default_value = shape.shader.properties.clamp_mode_s
-            self.texmap.inputs['Wrap V'].default_value = shape.shader.properties.clamp_mode_t
+            self.texmap.inputs['Wrap U'].default_value = \
+                1 if shape.shader.properties.textureClampMode & 2 else 0
+            self.texmap.inputs['Wrap V'].default_value = \
+                1 if shape.shader.properties.textureClampMode & 1 else 0
 
-            self.material.use_backface_culling = not shape.shader.flags2_test(ShaderFlags2.DOUBLE_SIDED)
+            self.material.use_backface_culling = not shape.shader.flag_double_sided
 
         except Exception as e:
             # Any errors, print the error but continue
@@ -1094,62 +1096,6 @@ class ShaderImporter:
             self.nodes, 
             self.asset_path, 
             (self.inputs_offset_x-TEXTURE_NODE_WIDTH-HORIZONTAL_GAP, 0,))
-
-
-    # def make_alpha_test(self, shape:NiShape):
-    #     """
-    #     Implement alpha test shading.
-
-    #     Blender 4.2 REMOVED alpha clip mode, so we have to implement threshold testing
-    #     with shader nodes.
-    #     """
-    #     difalph = vertalph = None
-    #     if self.diffuse and 'Alpha' in self.diffuse.outputs:
-    #         difalph = self.diffuse.outputs['Alpha']
-    #     if self.vertex_alpha:
-    #         vertalph = self.vertex_alpha.outputs['Fac']
-
-    #     nodetree = self.material.node_tree
-
-    #     if "Alpha Test" in self.bsdf.inputs:
-    #         self.bsdf.inputs["Alpha Test"].default_value = shape.alpha_property.properties.alpha_test
-    #         self.bsdf.inputs["Alpha Threshold"].default_value = shape.alpha_property.properties.threshold
-    #         self.bsdf.inputs["Alpha Blend"].default_value = shape.alpha_property.properties.alpha_blend 
-    #     else:
-    #         alphathr = self.make_node("ShaderNodeValue",
-    #                                 name='Alpha Threshold',
-    #                                 xloc=self.inputs_offset_x,
-    #                                 height=shader_node_height["ShaderNodeMapRange"])
-    #         alphathr.outputs[0].default_value = shape.alpha_property.properties.threshold
-
-    #         if vertalph:
-    #             calcalph = make_mathnode(
-    #                 nodetree,
-    #                 op='MULTIPLY',
-    #                 value1=difalph,
-    #                 value2=vertalph)
-    #             alphout = calcalph.outputs[0]
-    #         else:
-    #             alphout = difalph
-    #         map255 = make_maprange(nodetree, 
-    #                             in_value=alphathr.outputs[0],
-    #                             in_from_min=0,
-    #                             in_from_max=255,
-    #                             in_to_min=0,
-    #                             in_to_max=1.0)
-    #         xmax = -100
-    #         gt = make_mathnode(nodetree,
-    #                             op='GREATER_THAN',
-    #                             value1=alphout,
-    #                             value2=map255.outputs[0],
-    #                             location=[map255])
-    #         atest = make_mathnode(nodetree,
-    #                                 op='MULTIPLY',
-    #                                 value1=difalph,
-    #                                 value2=gt.outputs[0])
-    #         xmax = atest.location.x + atest.width + HORIZONTAL_GAP
-
-    #         self.link(atest.outputs[0], self.bsdf.inputs['Alpha'])
 
 
     def import_shader_alpha(self, shape):
@@ -1203,21 +1149,6 @@ class ShaderImporter:
         """
         self.textures = {}
 
-        # # Use any textures from Blender's texture directory, if defined. 
-        # blender_dir = bpy.context.preferences.filepaths.texture_directory
-        # # Remove any training slash
-        # if os.path.split(blender_dir)[1] == '':
-        #     blender_dir = os.path.split(blender_dir)[0]
-        # # Strip the trailing "textures" directory, if present.
-        # if os.path.split(blender_dir)[1].lower() == 'textures':
-        #     blender_dir = os.path.split(blender_dir)[0]
-
-        # Extend relative filenames in nif with nif's own filepath
-        # fulltextures = extend_filenames(shape.file.filepath, "meshes", shape.textures)
-
-        # Get the path to the "data" folder containing the nif.
-        # nif_dir = extend_filenames(shape.file.filepath, "meshes")
-        
         for k, t in shape.textures.items():
             if not t: continue
             if k == 'RootMaterialPath':
@@ -1236,34 +1167,6 @@ class ShaderImporter:
             if p:
                 self.textures[k] = p
 
-            # # Sometimes texture paths are missing the "textures" directory. 
-            # if not t.lower().startswith('textures'):
-            #     t = os.path.join('textures', t)
-
-            # # First option is to use a png from Blender's texture directory, if any
-            # if blender_dir:
-            #     fpng = Path(blender_dir, t).with_suffix('.png')
-            #     if os.path.exists(fpng):
-            #         self.textures[k] = str(fpng)
-            #         continue
-
-            # # No PNG in Blender's directory, look for one relative to the nif.
-            # fpng = Path(nif_dir, t).with_suffix('.png')
-            # if os.path.exists(fpng):
-            #     self.textures[k] = str(fpng)
-            #     continue
-            
-            # # No PNG at all, check for DDS.
-            # if blender_dir:
-            #     fdds = os.path.join(blender_dir, t)
-            #     if os.path.exists(fdds):
-            #         self.textures[k] = fdds
-            #         continue
-            
-            # fdds = os.path.join(nif_dir, t)
-            # if os.path.exists(fdds):
-            #     self.textures[k] = fdds
-            
 
     def link(self, a, b):
         """Create a link between two nodes"""
@@ -1332,7 +1235,7 @@ class ShaderImporter:
         else:
             self.warn(f"Could not load diffuse texture '{self.shape.textures['Diffuse']}'")
         self.link(self.texmap.outputs['Vector'], txtnode.inputs['Vector'])
-        if self.shape.shader.greyscale_color:
+        if self.shape.shader.flag_greyscale_color:
             # Extra nodes to handle greyscale color mapping
             self.import_grayscale(txtnode)
 
@@ -1392,7 +1295,7 @@ class ShaderImporter:
 
     def import_specular(self):
         """Set up nodes for specular texture"""
-        if self.shape.shader.flags1_test(ShaderFlags1.SPECULAR):
+        if self.shape.shader.properties.shaderflags1_test(ShaderFlags1.SPECULAR):
             if 'Specular' in self.textures and self.textures['Specular']:
                 # Make the specular texture input node.
                 simgnode = self.make_node("ShaderNodeTexImage",
@@ -1419,7 +1322,7 @@ class ShaderImporter:
 
     def import_glowmap(self):
         """Set up nodes for glow map texture"""
-        if self.shape.shader.flags2_test(ShaderFlags2.GLOW_MAP) \
+        if self.shape.shader.properties.shaderflags2_test(ShaderFlags2.GLOW_MAP) \
                 and 'Glow' in self.textures \
                     and self.shape.textures['Glow']:
             # Make the glow map texture input node.
@@ -1455,7 +1358,7 @@ class ShaderImporter:
 
             self.link(nimgnode.outputs['Color'], self.bsdf.inputs['Normal'])
             if self.game in ['SKYRIM', 'SKYRIMSE']:
-                if not self.shape.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
+                if not self.shape.shader.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
                     # Tangent normals have specular in alpha channel.
                     if 'Specular' in self.bsdf.inputs:
                         self.link(nimgnode.outputs['Alpha'], self.bsdf.inputs['Specular'])
@@ -1507,7 +1410,7 @@ class ShaderImporter:
                 self.bsdf = make_shader_skyrim(self.material.node_tree,
                                             self.asset_path,
                                             mo.location + Vector((-NODE_WIDTH, 0)),
-                                            msn=shape.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS),
+                                            msn=shape.shader.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS),
                                             facegen=have_face,
                                             effect_shader=self.is_effect_shader)
             
@@ -1622,7 +1525,7 @@ class ShaderExporter:
         
         try:
             if 'BSLSP_Shader_Name' in self.material and self.material['BSLSP_Shader_Name']:
-                shape.shader_name = self.material['BSLSP_Shader_Name']
+                shape.shader.name = self.material['BSLSP_Shader_Name']
 
             shape.shader.properties.load(self.material, game=self.game)
             if 'BS_Shader_Block_Name' in self.material:
@@ -1644,11 +1547,13 @@ class ShaderExporter:
                 shape.shader.properties.UV_Scale_V = uv['Scale V'].default_value
 
                 try:
-                    shape.shader.properties.clamp_mode_s = uv['Wrap U'].default_value 
-                    shape.shader.properties.clamp_mode_t = uv['Wrap V'].default_value 
+                    shape.shader.properties.textureClampMode = \
+                        (2 if uv['Wrap U'].default_value == 1 else 0) \
+                        + (1 if uv['Wrap V'].default_value == 1 else 0)
                 except:
-                    shape.shader.properties.clamp_mode_s = uv['Clamp S'].default_value 
-                    shape.shader.properties.clamp_mode_t = uv['Clamp T'].default_value 
+                    shape.shader.properties.textureClampMode = \
+                        (2 if uv['Clamp S'].default_value == 1 else 0) \
+                        + (1 if uv['Clamp T'].default_value == 1 else 0)
 
             if 'UV_Offset_U' in nl:
                 shape.shader.properties.UV_Offset_U = nl['UV_Offset_U'].outputs['Value'].default_value
@@ -1705,25 +1610,25 @@ class ShaderExporter:
         if textureslot in self.texture_slots:
             n, f = self.texture_slots[textureslot]
             if n == 1:
-                return shape.shader.flags1_test(f)
+                return shape.shader.properties.shaderflags1_test(f)
             else:
-                return shape.shader.flags2_test(f)
+                return shape.shader.properties.shaderflags2_test(f)
     
     def shader_flag_set(self, shape, textureslot):
         if textureslot in self.texture_slots:
             n, f = self.texture_slots[textureslot]
             if n == 1:
-                shape.shader.flags1_set(f)
+                shape.shader.properties.shaderflags1_set(f)
             else:
-                shape.shader.flags2_set(f)
+                shape.shader.properties.shaderflags2_set(f)
     
     def shader_flag_clear(self, shape, textureslot):
         if textureslot in self.texture_slots:
             n, f = self.texture_slots[textureslot]
             if n == 1:
-                shape.shader.flags1_clear(f)
+                shape.shader.properties.shaderflags1_clear(f)
             else:
-                shape.shader.flags2_clear(f)
+                shape.shader.properties.shaderflags2_clear(f)
     
 
     def write_texture(self, shape, textureslot:str):
@@ -1781,34 +1686,52 @@ class ShaderExporter:
                 if imagenodes: imagenode = imagenodes[0]
             except:
                 pass
-        
-        if imagenode:
-            # Make sure the shader flags reflect the nodes we found.
-            self.shader_flag_set(shape, textureslot)
 
+        foundpath = relpath = None
+        if imagenode:
             if textureslot == 'Specular':
                 # Check to see if the specular is coming from the normal texture. If so,
                 # don't use it.
                 normnodes = BD.find_node(self.shader_node.inputs["Normal"], "ShaderNodeTexImage")
                 if normnodes and normnodes[0] == imagenode:
                     return
-                
             try:
                 foundpath = imagenode.image.filepath
-                if foundpath.startswith("//"): 
-                    foundpath = foundpath[2:]
-                fplc = Path(foundpath.lower())
-                if fplc.drive.endswith('textures'):
-                    txtindex = 0
-                else:
-                    txtindex = fplc.parts.index('textures')
-                fp = Path(foundpath)
+                relpath = Path(foundpath)
+            except:
+                pass
+            # Clean up the path for export
+            fp = Path(foundpath.lower())
+            try:
+                txtindex = fp.parts.index('textures')
                 relpath = Path(*fp.parts[txtindex:])
-                shape.set_texture(textureslot, str(relpath.with_suffix('.dds')))
             except ValueError:
-                self.warn(f"No 'textures' folder found in path: {foundpath}")
-            except Exception as e:
-                self.warn(f"Texture image in block {imagenode.name} not usable.")
+                relpath = fp
+        # else:
+        #     # No image node for the current slot. See if there's a texture path in the
+        #     # custom properties. Export that as is.
+        #     if 'BSShaderTextureSet_' + textureslot in self.material:
+        #         foundpath = Path(self.material['BSShaderTextureSet_' + textureslot])
+
+        if relpath:
+            # Make sure the shader flags reflect the nodes we found.
+            self.shader_flag_set(shape, textureslot)
+            shape.set_texture(textureslot, str(relpath.with_suffix('.dds')))
+            # try:
+            #     if foundpath.startswith("//"): 
+            #         foundpath = foundpath[2:]
+            #     fplc = Path(foundpath.lower())
+            #     if fplc.drive.endswith('textures'):
+            #         txtindex = 0
+            #     else:
+            #         txtindex = fplc.parts.index('textures')
+            #     fp = Path(foundpath)
+            #     relpath = Path(*fp.parts[txtindex:])
+            #     shape.set_texture(textureslot, str(relpath.with_suffix('.dds')))
+            # except ValueError:
+            #     self.warn(f"No 'textures' folder found in path: {foundpath}")
+            # except Exception as e:
+            #     self.warn(f"Texture image {foundpath} not usable.")
         else:
             # No texture for the current slot. If the flags say we should have one and we
             # didn't get one from the object properties, warn and clear the flag. Don't
@@ -1865,6 +1788,8 @@ class ShaderExporter:
 
         if not self.shader_node: return
 
+        # Write the textures we can write. 'Wrinkles' and 'RootMaterialPath' appear in
+        # the materials file only.
         for textureslot in ['Diffuse', 'Normal', 'SoftLighting', 'Specular', 
                             'EnvMap', 'EnvMask']:
             self.write_texture(shape, textureslot)
@@ -1879,20 +1804,20 @@ class ShaderExporter:
             self._export_textures(new_shape)
             self._export_alpha(new_shape)
             if self.is_obj_space:
-                new_shape.shader.flags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
+                new_shape.shader.properties.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)
             else:
-                new_shape.shader.flags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
+                new_shape.shader.properties.shaderflags1_clear(ShaderFlags1.MODEL_SPACE_NORMALS)
 
             if self.vertex_colors:
-                new_shape.shader.flags2_set(ShaderFlags2.VERTEX_COLORS)
+                new_shape.shader.properties.shaderflags2_set(ShaderFlags2.VERTEX_COLORS)
             else:
-                new_shape.shader.flags2_clear(ShaderFlags2.VERTEX_COLORS)
+                new_shape.shader.properties.shaderflags2_clear(ShaderFlags2.VERTEX_COLORS)
 
             if self.vertex_alpha:
-                new_shape.shader.flags1_set(ShaderFlags1.VERTEX_ALPHA)
+                new_shape.shader.properties.shaderflags1_set(ShaderFlags1.VERTEX_ALPHA)
             else:
-                new_shape.shader.flags1_clear(ShaderFlags1.VERTEX_ALPHA)
-                
+                new_shape.shader.properties.shaderflags1_clear(ShaderFlags1.VERTEX_ALPHA)
+
             new_shape.save_shader_attributes()
         except Exception as e:
             # Any errors, print the error but continue

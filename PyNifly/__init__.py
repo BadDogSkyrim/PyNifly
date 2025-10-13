@@ -7,7 +7,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 4, 0),
-    "version": (20, 3, 0),   
+    "version": (20, 4, 0),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -336,7 +336,21 @@ def mesh_create_partition_groups(the_shape, the_object):
 
 def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
     try:
-        if shape.shader.flags2_test(ShaderFlags2.VERTEX_COLORS) \
+        use_vertex_colors = False
+        use_vertex_alpha = False
+        if shape.file.game in ['SKYRIM', 'SKYRIMSE']:
+            use_vertex_colors = shape.shader.properties.shaderflags2_test(ShaderFlags2.VERTEX_COLORS)
+            use_vertex_alpha = shape.shader.properties.shaderflags1_test(ShaderFlags1.VERTEX_ALPHA)
+        else:
+            if shape.properties.hasVertexColors or shape.shader.blockname == 'BSEffectShaderProperty':
+                # FO4 appears to combine vertex alpha with vertex color, so always provide alpha.
+                # or ((shape.shader_block_name == 'BSEffectShaderProperty' and shape.file.game == 'FO4'))
+                # If we have a BSEffectShaderProperty in FO4 we assume the alpha channel
+                # is used whether or not VERTEX_ALPHA is set. Some FO4 meshes seem to work
+                # this way. 
+                use_vertex_colors = True
+                use_vertex_alpha = True
+        if use_vertex_colors \
             and shape.colors and len(shape.colors) > 0:
             clayer = None
             try: #Post V3.5
@@ -344,13 +358,7 @@ def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
             except:
                 clayer = mesh.vertex_colors.new()
             alphlayer = None
-            if (shape.shader.flags1_test(ShaderFlags1.VERTEX_ALPHA) 
-                or (shape.file.game == 'FO4')):
-                # FO4 appears to combine vertex alpha with vertex color, so always provide alpha.
-                # or ((shape.shader_block_name == 'BSEffectShaderProperty' and shape.file.game == 'FO4'))
-                # If we have a BSEffectShaderProperty in FO4 we assume the alpha channel
-                # is used whether or not VERTEX_ALPHA is set. Some FO4 meshes seem to work
-                # this way. 
+            if use_vertex_alpha:
                 try:
                     alphlayer = mesh.color_attributes.new(
                         name=ALPHA_MAP_NAME, type='FLOAT_COLOR', domain='POINT')
@@ -2707,7 +2715,7 @@ def is_partition(name):
     return False
 
 
-def partitions_from_vert_groups(obj):
+def partitions_from_vert_groups(obj, game):
     """ Return dictionary of Partition objects for all vertex groups that match the partition 
         name pattern. These are all partition objects including subsegments.
     """
@@ -2716,10 +2724,12 @@ def partitions_from_vert_groups(obj):
         vg_sorted = sorted([g.name for g in obj.vertex_groups])
         for nm in vg_sorted:
             vg = obj.vertex_groups[nm]
-            skyid = SkyPartition.name_match(vg.name)
+            skyid = -1
+            if game in ['SKYRIM', 'SKYRIMSE']:
+                skyid = SkyPartition.name_match(vg.name)
             if skyid >= 0:
                 val[vg.name] = SkyPartition(part_id=skyid, flags=0, name=vg.name)
-            else:
+            elif game in ['FO4', 'FO76', 'FO3' 'FONV']:
                 segid = FO4Segment.name_match(vg.name)
                 if segid >= 0:
                     val[vg.name] = FO4Segment(part_id=len(val), index=segid, name=vg.name)
@@ -3432,7 +3442,7 @@ class NifExporter:
             editmesh = mesh_from_key(editmesh, verts, target_key)
                 
         # Extracting and triangularizing
-        partitions = partitions_from_vert_groups(obj1)
+        partitions = partitions_from_vert_groups(obj1, self.game)
         loops, uvs, norms, loopcolors, partition_map = \
             self.extract_face_info(
                 editmesh, uvlayer, loopcolors, weights_by_vert, partitions,

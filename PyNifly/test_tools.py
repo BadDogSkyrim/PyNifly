@@ -3,6 +3,7 @@
 import sys
 import os
 import os.path
+from pathlib import Path
 import logging
 import niflytools as NT 
 import nifdefs as ND
@@ -38,11 +39,23 @@ def assert_equiv(actual, expected, msg, e=0.0001):
             assert NT.NearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
 
 
+def assert_patheq(actual, expected, msg):
+    a = Path(actual)
+    b = Path(expected)
+    assert a == b, f"Paths are equal for {msg}: {a} != {b}"
+
+
 def assert_eq(*args):
     """Assert all elements but the last are equal. The last is the message to use."""
     msg = args[-1]
     values = args[0:-1]
     assert values[0:-1] == values[1:], f"{msg} are equal: {values}"
+    # assert actual == expected, f"{msg} not the same: {actual} = {expected}"
+
+
+def assert_eq_nocase(actual, expected, msg):
+    """Assert all elements but the last are equal. The last is the message to use."""
+    assert actual.lower() == expected.lower(), f"{msg} are equal: {actual} != {expected}"
     # assert actual == expected, f"{msg} not the same: {actual} = {expected}"
 
 

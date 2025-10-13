@@ -8,7 +8,7 @@ well. So a lot of the tests use direct function calls.
 from pathlib import Path
 from pynifly import NifFile
 from nifdefs import CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, \
-    NiKeyType, CycleType, ShaderFlags1FO4, ShaderFlags2FO4
+    NiKeyType, CycleType, ShaderFlags1, ShaderFlags2, BSLSPShaderType
 from niflytools import NearEqual, VNearEqual, MatNearEqual
 import test_tools as TT
 
@@ -22,7 +22,10 @@ def Check_daedriccuirass(nif:NifFile):
     TT.assert_property(nif, ['MaleTorsoGlow', 'BSEffectShaderProperty', 'UV_Offset_V'], 1.0)
     TT.assert_property(nif, ['MaleTorsoGlow', 'BSEffectShaderProperty', 'UV_Scale_U'], 10.0)
     TT.assert_property(nif, ['MaleTorsoGlow', 'BSEffectShaderProperty', 'UV_Scale_V'], 10.0)
-    TT.assert_property(nif, ['MaleTorsoGlow', 'BSEffectShaderProperty', 'Shader_Flags_2', 'ShaderFlags2.VERTEX_COLORS'], 1)
+    TT.assert_property(nif, ['MaleTorsoGlow', 'BSEffectShaderProperty', 'flag_vertex_alpha'], 1)
+    TT.assert_property(nif, ['MaleTorsoGlow', 'BSEffectShaderProperty', 'flag_vertex_colors'], 1)
+    TT.assert_property(nif, ['MaleTorsoGlow', 'BSEffectShaderProperty', 'flag_no_fade'], 1)
+    TT.assert_property(nif, ['MaleTorsoGlow', 'BSEffectShaderProperty', 'textureClampMode'], 3)
     TT.assert_property(nif, ['MaleTorsoGlow', 'BSEffectShaderProperty', 'NiAlphaProperty', 'flags'], 4333)
     TT.assert_property(nif, ['MaleTorsoGlow', 'BSEffectShaderProperty', 'BSEffectShaderPropertyFloatController', 'flags'], 72)
     TT.assert_property(nif, ['MaleTorsoGlow', 'BSEffectShaderProperty', 'BSEffectShaderPropertyFloatController', 'frequency'], 1.0)
@@ -32,6 +35,9 @@ def Check_daedriccuirass(nif:NifFile):
     TT.assert_property(nif, ['MaleTorsoGlow', 'BSEffectShaderProperty', 'BSEffectShaderPropertyFloatController', 'NiFloatInterpolator', 'NiFloatData', 'keys', 'len()'], 3)
     TT.assert_property(nif, ['MaleTorsoGlow', 'BSEffectShaderProperty', 'BSEffectShaderPropertyFloatController', 'NiFloatInterpolator', 'NiFloatData', 'keys', '1', 'time'], 3.3333)
     TT.assert_property(nif, ['MaleTorsoGlow', 'BSEffectShaderProperty', 'BSEffectShaderPropertyFloatController', 'NiFloatInterpolator', 'NiFloatData', 'keys', '1', 'backward'], -1)
+
+    TT.assert_patheq(nif.shape_dict['MaleTorsoGlow'].textures['Diffuse'], r"textures\effects\VaporTile02.dds", "Diffuse texture")
+    TT.assert_patheq(nif.shape_dict['MaleTorsoGlow'].textures['Greyscale'], r"textures\effects\gradients\GradDisguiseShader02.dds", "Greyscale texture")
 
 
 def Check_malehead(nif:NifFile):
@@ -227,14 +233,57 @@ def Check_fo4Helmet(nif:NifFile):
     TT.assert_eq(glass.textures["EnvMapMask"], "Armor/FlightHelmet/Helmet_03_s.dds", "EnvMapMask")
 
 
+def Check_blackbriarchalet(nif:NifFile):
+        glow = nif.shape_dict['L2_WindowGlow']
+        TT.assert_eq(glow.blockname, "BSLODTriShape", "shape type")
+        
+        assert not glow.shader.properties.shaderflags1_test(ShaderFlags1.VERTEX_ALPHA), f"VERTEX_ALPHA not set"
+        TT.assert_eq(glow.shader.properties.LightingInfluence, 255, "lighting influence")
+
+        win = nif.shape_dict['BlackBriarChalet:7']
+        TT.assert_patheq(win.shader.textures['EnvMap'], r"textures\cubemaps\ShinyGlass_e.dds", "EnvMap texture")
+
+
+def Check_dwarvenboots(nif:NifFile):
+    boots = nif.shape_dict['Shoes']
+    TT.assert_eq(boots.shader.blockname, "BSLightingShaderProperty", "shader type")
+    TT.assert_eq(boots.shader.flag_environment_mapping, True, "environment mapping flag")
+    TT.assert_eq(boots.shader.flag_rim_lighting, True, "rim lighting flag")
+    TT.assert_eq(boots.shader.flag_environment_mapping, True, "environment mapping flag")
+    TT.assert_eq(boots.shader.properties.Env_Map_Scale, 5, "env map scale")
+    TT.assert_eq(boots.shader.properties.Glossiness, 80, "glossiness")
+    TT.assert_equiv(boots.shader.properties.Spec_Color, [0.8353, 0.5843, 0.4157], "spec color")
+    TT.assert_patheq(boots.shader.textures['EnvMap'], r"textures\cubemaps\Bronze_e.dds", "EnvMap texture")
+    TT.assert_patheq(boots.shader.textures['EnvMask'], r"textures\armor\dwarven\m\DwarvenBoots_M.dds", "EnvMask texture")
+
+
+def Check_khajiithead(nif:NifFile):
+    head = nif.shape_dict['_Neutral']
+    TT.assert_eq(head.blockname, "BSDynamicTriShape", "shader type") # has tri morphs
+    TT.assert_eq(head.shader.blockname, "BSLightingShaderProperty", "shader type")
+    TT.assert_eq(head.shader.properties.Shader_Type, BSLSPShaderType.Face_Tint, "shader type")
+    TT.assert_eq(head.shader.flag_environment_mapping, False, "environment mapping flag")
+    TT.assert_eq(head.shader.flag_vertex_alpha, True, "vertex alpha flag")
+    TT.assert_eq(head.shader.flag_model_space_normals, True, "model space normals flag")
+    TT.assert_eq(head.shader.flag_soft_lighting, True, "soft lighting flag")
+    TT.assert_equiv(head.shader.properties.Spec_Color, [0.631, 0.761, 1.0], "spec color", e=0.01)
+    TT.assert_patheq(head.shader.textures['Diffuse'], r"textures\actors\character\khajiitmale\KhajiitMaleHead.dds", "Diffuse texture")
+    TT.assert_patheq(head.shader.textures['Normal'], r"textures\actors\character\khajiitmale\KhajiitMaleHead_msn.dds", "Normal texture")
+    TT.assert_patheq(head.shader.textures['SoftLighting'], r"textures\actors\character\male\MaleHead_sk.dds", "SoftLighting texture")
+    TT.assert_patheq(head.shader.textures['Specular'], r"textures\actors\character\khajiitmale\KhajiitMaleHead_s.dds", "Specular texture")
+
+
 test_files = {
-    ("FO4", "VanillaMaleBody.nif"): Check_fo4MaleBody,
     ("FO4", "DExBrickColumn01.nif"): Check_brickcolumn,
     ("FO4", "Helmet.nif"): Check_fo4Helmet,
-    ("SkyrimSE", "voidshade_1.nif"): CheckNif_voidshade,
-    ("SkyrimSE","daedriccuirass_1.nif"): Check_daedriccuirass,
+    ("FO4", "VanillaMaleBody.nif"): Check_fo4MaleBody,
+    ("Skyrim", "blackbriarchalet_test.nif"): Check_blackbriarchalet,
     ("Skyrim", "malehead.nif"): Check_malehead,
     ("Skyrim", "noblechest01.nif"): Check_noblechest01,
+    ("SkyrimSE", "voidshade_1.nif"): CheckNif_voidshade,
+    ("SkyrimSE","daedriccuirass_1.nif"): Check_daedriccuirass,
+    ("SkyrimSE","dwarvenboots_envscale.nif"): Check_dwarvenboots,
+    ("SkyrimSE","maleheadkhajiit.nif"): Check_khajiithead,
 }
 
 def CheckNif(nif, source=None):

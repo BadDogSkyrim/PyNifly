@@ -7,7 +7,7 @@ import os
 import sys
 import shutil 
 import math
-import pathlib
+from pathlib import Path
 import bpy
 import bpy_types
 from mathutils import Matrix, Vector, Quaternion, Euler
@@ -485,7 +485,7 @@ def TEST_IMP_EXP_FO4_2():
     TTB.compare_shapes(bodyin, bodyout, body, e=0.001, ignore_translations=True)
     TTB.compare_shapes(armorin, armorout, armor, e=0.001, ignore_translations=True)
     for tl in ['Diffuse', 'Normal', 'Specular']:
-        assert bodyin.textures[tl] == bodyout.textures[tl], f"{tl} textures match"
+        TT.assert_patheq(bodyin.textures[tl], bodyout.textures[tl], f"{tl} textures match")
 
 
 def TEST_IMP_EXP_FO4_3():
@@ -1734,7 +1734,7 @@ def TEST_SHADER_SE():
     """Shader attributes are read and turned into Blender shader nodes"""
     # Basic test of texture paths on shaders.
 
-    fileSE = TTB.test_file(r"tests\skyrimse\meshes\armor\dwarven\dwarvenboots_envscale.nif")
+    fileSE = TTB.test_file(r"tests\SkyrimSE\meshes\armor\dwarven\dwarvenboots_envscale.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_SHADER_SE.nif")
     
     bpy.ops.import_scene.pynifly(filepath=fileSE, use_blender_xf=True)
@@ -1753,11 +1753,12 @@ def TEST_SHADER_SE():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
     nifcheckSE = pyn.NifFile(outfile)
+    CheckNif(nifcheckSE, fileSE)
     bootcheck = nifcheckSE.shapes[0]
     
     TT.assert_samemembers(bootcheck.textures.keys(), nifboots.textures.keys(), "Same textures")
     for k in bootcheck.textures:
-        TT.assert_eq(bootcheck.textures[k], nifboots.textures[k], f"{k} texture")
+        TT.assert_patheq(bootcheck.textures[k], nifboots.textures[k], f"{k} texture")
 
     diffs = bootcheck.shader.properties.compare(shaderAttrsSE)
     TT.assert_samemembers(diffs, [], f"difference in shader properties: {diffs}")
@@ -1797,7 +1798,7 @@ def TEST_SHADER_FO4():
     assert set(shapecheck.textures.keys()) == set(shapeorig.textures.keys()), \
         f"Have same keys: {shapecheck.textures.keys()} == {shapeorig.textures.keys()}"
     for k in shapecheck.textures:
-        assert shapecheck.textures[k] == shapeorig.textures[k], f"Texture {k} matches"
+        TT.assert_patheq(shapecheck.textures[k], shapeorig.textures[k], f"Texture {k} matches")
 
     assert not shapecheck.properties.compare(shapeorig.properties), \
         f"Shader attributes preserved: {shapecheck.properties.compare(shapeorig.properties)}"
@@ -1816,9 +1817,9 @@ def TEST_SHADER_GRAYSCALE_COLOR():
 
     # Greyscale palette correct
     vecnode = BD.find_node(bsdf.inputs['Diffuse'], 'ShaderNodeTexImage')[0]
-    TT.assert_contains('HairColor_Lgrad_d', vecnode.image.filepath, "Vector palette")
+    assert Path(vecnode.image.filepath).parts.index('haircolor_lgrad_d.dds') >= 0,  "Vector palette"
     difnode = BD.find_node(vecnode.inputs['Vector'], 'ShaderNodeTexImage')[0]
-    TT.assert_contains('HairCurly_d', difnode.image.filepath, "Diffuse texture")
+    assert Path(difnode.image.filepath).parts.index('haircurly_d.dds') >= 0,  "Diffuse texture"
     
     # UV scale correct
     uvnode = m.node_tree.nodes['UV Converter']
@@ -1835,7 +1836,7 @@ def TEST_SHADER_GRAYSCALE_COLOR():
 
     # Specular texture connected
     specnode = BD.find_node(bsdf.inputs['Smooth Spec'], 'ShaderNodeTexImage')[0]
-    TT.assert_contains('HairCurly_s', specnode.image.filepath, "specular")
+    assert Path(specnode.image.filepath).parts.index('haircurly_s.dds') >= 0, "specular"
 
     # Test export
     bpy.ops.export_scene.pynifly(filepath=outfile)
@@ -1845,11 +1846,8 @@ def TEST_SHADER_GRAYSCALE_COLOR():
     n2 = pyn.NifFile(outfile)
     hair1 = n1.shapes[0]
     hair2 = n2.shapes[0]
-    assert hair2.shader.properties.UV_Scale_U == hair1.shader.properties.UV_Scale_U, \
-        f"Have correct scale: {hair2.shader.properties.UV_Scale_U}"
-    assert (hair2.shader.flags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS) 
-            == hair1.shader.flags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS)), \
-                f"Have vertex colors/alpha: {hair2.shader.flags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS) }"
+    TT.assert_eq(hair2.shader.properties.UV_Scale_U, hair1.shader.properties.UV_Scale_U, "UV scale U")
+    TT.assert_eq(hair2.properties.hasVertexColors, hair1.properties.hasVertexColors, "Vertex colors")
 
 
 def TEST_SHADER_SCALE():
@@ -1875,14 +1873,14 @@ def TEST_SHADER_ALL():
 
     n = pyn.NifFile(outfile)
     head = n.shapes[0]
-    TT.assert_contains('MaleHead.dds', head.shader.textures['Diffuse'], 'diffuse texture')
-    TT.assert_contains('MaleHead_msn.dds', head.shader.textures['Normal'], 'MSN texture')
-    TT.assert_contains('MaleHead_sk.dds', head.shader.textures['SoftLighting'], 'Subsurface texture')
-    TT.assert_contains('height.dds', head.shader.textures['HeightMap'], 'Height map texture')
-    TT.assert_contains('EnvMap.dds', head.shader.textures['EnvMap'], 'Environment map texture')
-    TT.assert_contains('EnvMask.dds', head.shader.textures['EnvMask'], 'Environment mask texture')
-    TT.assert_contains('Inner.dds', head.shader.textures['FacegenDetail'], 'Facegen texture')
-    TT.assert_contains('MaleHead_S.dds', head.shader.textures['Specular'], 'Specular texture')
+    TT.assert_eq_nocase(Path(head.shader.textures['Diffuse']).name, 'MaleHead.dds', 'diffuse texture')
+    TT.assert_eq_nocase(Path(head.shader.textures['Normal']).name, 'MaleHead_msn.dds', 'MSN texture')
+    TT.assert_eq_nocase(Path(head.shader.textures['SoftLighting']).name, 'MaleHead_sk.dds', 'Subsurface texture')
+    TT.assert_eq_nocase(Path(head.shader.textures['HeightMap']).name, 'height.dds', 'Height map texture')
+    TT.assert_eq_nocase(Path(head.shader.textures['EnvMap']).name, 'EnvMap.dds', 'Environment map texture')
+    TT.assert_eq_nocase(Path(head.shader.textures['EnvMask']).name, 'EnvMask.dds', 'Environment mask texture')
+    TT.assert_eq_nocase(Path(head.shader.textures['FacegenDetail']).name, 'Inner.dds', 'Facegen texture')
+    TT.assert_eq_nocase(Path(head.shader.textures['Specular']).name, 'MaleHead_S.dds', 'Specular texture')
     TT.assert_eq(len(head.shader.textures), 8, "Head texture count")
 
 
@@ -1896,11 +1894,11 @@ def TEST_SHADER_EYE():
 
     n = pyn.NifFile(outfile2)
     eye = n.shapes[0]
-    TT.assert_contains('EyeBrown.dds', eye.shader.textures['Diffuse'], 'diffuse texture')
-    TT.assert_contains('EyeBrown_n.dds', eye.shader.textures['Normal'], 'Normal texture')
-    TT.assert_contains('EyeBrown_sk.dds', eye.shader.textures['SoftLighting'], 'Subsurface texture')
-    TT.assert_contains('EyeCubeMap.dds', eye.shader.textures['EnvMap'], 'Environment map texture')
-    TT.assert_contains('EyeEnvironmentMask_M.dds', eye.shader.textures['EnvMask'], 'Environment mask texture')
+    TT.assert_eq_nocase(Path(eye.shader.textures['Diffuse']).name, 'EyeBrown.dds', 'diffuse texture')
+    TT.assert_eq_nocase(Path(eye.shader.textures['Normal']).name, 'EyeBrown_n.dds', 'Normal texture')
+    TT.assert_eq_nocase(Path(eye.shader.textures['SoftLighting']).name, 'EyeBrown_sk.dds', 'Subsurface texture')
+    TT.assert_eq_nocase(Path(eye.shader.textures['EnvMap']).name, 'EyeCubeMap.dds', 'Environment map texture')
+    TT.assert_eq_nocase(Path(eye.shader.textures['EnvMask']).name, 'EyeEnvironmentMask_M.dds', 'Environment mask texture')
 
 
 def TEST_ANIM_SHADER_GLOW():
@@ -2083,7 +2081,7 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     testbod = testnif.shape_dict['SprigganFxTestUnified:0']
     nifout = pyn.NifFile(outfile)
     bodout = nifout.shape_dict['SprigganFxTestUnified:0']
-    assert bodout.shader.flags2_test(nifdefs.ShaderFlags2.GLOW_MAP), \
+    assert bodout.shader.properties.shaderflags2_test(nifdefs.ShaderFlags2.GLOW_MAP), \
         f"Glow map flag is set"
     assert bodout.shader.textures['Glow'].lower().endswith('spriggan_g.dds')
     leavesout = nifout.shape_dict['SprigganBodyLeaves']
@@ -2288,9 +2286,6 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
     TT.assert_equiv(dat1.backward[0], -0.151786, "Key 1 backward", e=0.1)
 
 
-
-    
-
 def TEST_TEXTURE_PATHS():
     """Texture paths are correctly resolved"""
     testfile = TTB.test_file(r"tests\SkyrimSE\circletm1.nif")
@@ -2313,9 +2308,9 @@ def TEST_TEXTURE_PATHS():
     mat = circlet.active_material
     bsdf = mat.node_tree.nodes['Material Output'].inputs['Surface'].links[0].from_node
     diffuse = shader_io.get_image_filepath(bsdf.inputs['Diffuse'])
-    assert diffuse.endswith('Circlet.dds'), f"Found diffuse texture file: '{diffuse}'"
+    TT.assert_eq_nocase(Path(diffuse).name, 'Circlet.dds', f"diffuse texture path")
     norm = shader_io.get_image_filepath(bsdf.inputs['Normal'])
-    assert norm.endswith('Circlet_n.png'), f"Found normal texture file: '{norm}'"
+    TT.assert_eq_nocase(Path(norm).name, 'Circlet_n.png', "normal texture path")
 
 
 def TEST_CAVE_GREEN():
@@ -2356,8 +2351,8 @@ def TEST_CAVE_GREEN():
     nifcheck = pyn.NifFile(outfile)
     rootscheck = nifcheck.shape_dict["L2_Roots:5"]
     assert rootscheck.has_alpha_property, f"Roots have alpha: {rootscheck.has_alpha_property}"
-    assert rootscheck.shader.flags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS), \
-        f"Have vertex colors: {rootscheck.shader.flags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS)}"
+    assert rootscheck.shader.properties.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS), \
+        f"Have vertex colors: {rootscheck.shader.properties.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS)}"
 
 
 def TEST_POT():
@@ -2771,7 +2766,7 @@ def TEST_COLORS():
     """Can read & write vertex colors"""
     # Blender's vertex color layers are used to define vertex colors in the nif.
     outfile = TTB.test_file(r"tests/Out/TEST_COLORS_Plane.nif")
-    TT.export_from_blend(r"tests\FO4\VertexColors.blend", "Plane",
+    TTB.export_from_blend(r"tests\FO4\VertexColors.blend", "Plane",
                       "FO4", outfile)
 
     nif3 = pyn.NifFile(outfile)
@@ -2827,7 +2822,7 @@ def TEST_COLORS3():
     colors = nif.shapes[0].colors
     colors2 = nif2.shapes[0].colors
     for i in range(0, len(colors)):
-        TT.test_floatarray(f"color {i}", colors[i], colors2[i], epsilon=(1.0/255.0))
+        TTB.test_floatarray(f"color {i}", colors[i], colors2[i], epsilon=(1.0/255.0))
         # assert colors[i] == colors2[i], f"Have correct colors, {colors[i]} == {colors2[i]}"
 
 
@@ -2836,7 +2831,7 @@ def TEST_NEW_COLORS():
     # Regression: There have been issues dealing with how Blender handles colors.
     outfile = TTB.test_file(r"tests/Out/TEST_NEW_COLORS.nif")
 
-    TT.export_from_blend(r"tests\SKYRIMSE\BirdHead.blend",
+    TTB.export_from_blend(r"tests\SKYRIMSE\BirdHead.blend",
                       "HeadWhole",
                       "SKYRIMSE",
                       outfile)
@@ -2845,7 +2840,7 @@ def TEST_NEW_COLORS():
     shape = nif.shapes[0]
     assert shape.colors, f"Have colors in shape {shape.name}"
     assert shape.colors[10] == (1.0, 1.0, 1.0, 1.0), f"Colors are as expected: {shape.colors[10]}"
-    assert shape.shader.flags2_test(pyn.ShaderFlags2.VERTEX_COLORS), \
+    assert shape.shader.properties.shaderflags2_test(pyn.ShaderFlags2.VERTEX_COLORS), \
         f"ShaderFlags2 vertex colors set: {pyn.ShaderFlags2(shape.shader.Shader_Flags_2).fullname}"
 
 
@@ -2951,38 +2946,37 @@ def TEST_VERTEX_ALPHA_IO():
     shader = nodes["Skyrim Shader - Face"]
     assert shader, f"Found shader"
     diffuse = BD.find_node(shader.inputs["Diffuse"], "ShaderNodeTexImage")[0]
-    assert diffuse.bl_idname == "ShaderNodeTexImage", f"Found correct diffuse type {diffuse.name}"
-    assert (diffuse.image.filepath.endswith('KhajiitMaleHead.dds')
-            or diffuse.image.filepath.endswith('KhajiitMaleHead.png')), \
-                f"Filepath correct: {diffuse.image.filepath}"
+    TT.assert_eq(diffuse.bl_idname, "ShaderNodeTexImage", "diffuse shader node")
+    TT.assert_eq_nocase(Path(diffuse.image.filepath).stem, 'KhajiitMaleHead', "diffuse file name")
     assert shader.inputs['Alpha Property'].is_linked, f"Have alpha map"
 
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
-    nif = pyn.NifFile(testfile)
-    head1 = nif.shapes[0]
+    # nif = pyn.NifFile(testfile)
+    # head1 = nif.shapes[0]
     nif2 = pyn.NifFile(outfile)
-    head2 = nif2.shapes[0]
+    CheckNif(nif2, testfile)
+    # head2 = nif2.shapes[0]
 
-    assert head2.has_alpha_property, f"Error: Did not write alpha property"
-    assert head2.alpha_property.properties.flags == head1.alpha_property.properties.flags, f"Error: Alpha flags incorrect: {head2.alpha_property.properties.flags} != {head1.alpha_property.properties.flags}"
-    assert head2.alpha_property.properties.threshold == head1.alpha_property.properties.threshold, f"Error: Alpha flags incorrect: {head2.alpha_property.properties.threshold} != {head1.alpha_property.properties.threshold}"
+    # assert head2.has_alpha_property, f"Error: Did not write alpha property"
+    # assert head2.alpha_property.properties.flags == head1.alpha_property.properties.flags, f"Error: Alpha flags incorrect: {head2.alpha_property.properties.flags} != {head1.alpha_property.properties.flags}"
+    # assert head2.alpha_property.properties.threshold == head1.alpha_property.properties.threshold, f"Error: Alpha flags incorrect: {head2.alpha_property.properties.threshold} != {head1.alpha_property.properties.threshold}"
 
-    assert head2.textures['Diffuse'] == head1.textures['Diffuse'], \
-        f"Error: Texture paths not preserved: '{head2.textures['Diffuse']}' != '{head1.textures['Diffuse']}'"
-    assert head2.textures['Normal'] == head1.textures['Normal'], \
-        f"Error: Texture paths not preserved: '{head2.textures['Normal']}' != '{head1.textures['Normal']}'"
-    assert head2.textures['SoftLighting'] == head1.textures['SoftLighting'], \
-        f"Error: Texture paths not preserved: '{head2.textures['SoftLighting']}' != '{head1.textures['SoftLighting']}'"
-    assert head2.textures['Specular'] == head1.textures['Specular'], \
-        f"Error: Texture paths not preserved: '{head2.textures['Specular']}' != '{head1.textures['Specular']}'"
-    dif = head2.shader.properties.compare(head1.shader.properties)
-    assert not dif, f"Error: Shader attributes not preserved: {dif}"
+    # assert head2.textures['Diffuse'] == head1.textures['Diffuse'], \
+    #     f"Error: Texture paths not preserved: '{head2.textures['Diffuse']}' != '{head1.textures['Diffuse']}'"
+    # assert head2.textures['Normal'] == head1.textures['Normal'], \
+    #     f"Error: Texture paths not preserved: '{head2.textures['Normal']}' != '{head1.textures['Normal']}'"
+    # assert head2.textures['SoftLighting'] == head1.textures['SoftLighting'], \
+    #     f"Error: Texture paths not preserved: '{head2.textures['SoftLighting']}' != '{head1.textures['SoftLighting']}'"
+    # assert head2.textures['Specular'] == head1.textures['Specular'], \
+    #     f"Error: Texture paths not preserved: '{head2.textures['Specular']}' != '{head1.textures['Specular']}'"
+    # dif = head2.shader.properties.compare(head1.shader.properties)
+    # assert not dif, f"Error: Shader attributes not preserved: {dif}"
 
 
 def TEST_ALPHA_THRESHOLD_CHANGE():
     """Regression: Alpha threshold should not change on export."""
-    testfile = TTB.test_file(r"tests\SkyrimSE\CRSTSkinKalaar.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\CRSTSkinKalaar.nif")
     outfile1 = TTB.test_file(r"tests\Out\TEST_ALPHA_THRESHOLD_CHANGE1.nif")
     outfile2 = TTB.test_file(r"tests\Out\TEST_ALPHA_THRESHOLD_CHANGE2.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -3024,7 +3018,7 @@ def TEST_VERTEX_ALPHA():
         nifcheck = pyn.NifFile(outfile)
         shapecheck = nifcheck.shapes[0]
 
-        assert shapecheck.shader.flags1_test(pyn.ShaderFlags1.VERTEX_ALPHA), \
+        assert shapecheck.shader.properties.shaderflags1_test(pyn.ShaderFlags1.VERTEX_ALPHA), \
             f"Expected VERTEX_ALPHA set: {pyn.ShaderFlags1(shapecheck.shader.Shader_Flags_1).fullname}"
 
         #check that the NIF has alpha 0.5 (to byte precision only)
@@ -3473,7 +3467,7 @@ def TEST_TREE():
     assert nifcheck.rootNode.blockname == "BSLeafAnimNode", f"Have correct root node type"
     treecheck = nifcheck.shapes[0]
     assert treecheck.blockname == "BSMeshLODTriShape", f"Have correct shape node type"
-    assert treecheck.shader.flags2_test(pyn.ShaderFlags2.TREE_ANIM), f"Tree animation set"
+    assert treecheck.shader.properties.shaderflags2_test(pyn.ShaderFlags2.TREE_ANIM), f"Tree animation set"
     assert treecheck.properties.vertexCount == 1059, f"Have correct vertex count"
     assert treecheck.properties.lodSize0 == 1126, f"Have correct lodSize0"
 
@@ -3576,14 +3570,17 @@ def TEST_COLLISION_BOW_SCALE():
 
     # Collision box bounds close to bow bounds.
     collbox = TTB.find_shape('bhkBoxShape')
-    assert TT.close_bounds(bow, collbox), f"Collision just covers bow"
+    assert TTB.close_bounds(bow, collbox), f"Collision just covers bow"
 
     # Quick unit test--getting box info should be correct in world coordinates.
     c, d, r = BD.find_box_info(collbox)
     dworld = collbox.matrix_world.to_quaternion().inverted() @ (r @ d)
     dworld = Vector([abs(n) for n in dworld])
+
     # The rotation should result is the long axis aligned with y, short with z
     assert dworld.y > dworld.x > dworld.z, f"Have correct rotation"
+
+    # Centerpoint of collision box is just offset from origin
     assert BD.VNearEqual(c, Vector((0.6402, 0.0143, 0.002))), f"Centerpoint correct: {c}"
 
     print("--Testing export")
@@ -3626,8 +3623,8 @@ def TEST_COLLISION_BOW_SCALE():
     assert nifdefs.bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
 
     # Full check of locations and rotations to make sure we got them right
-    TT.compare_bones('Bow_MidBone', nif, nifcheck, e=0.001)
-    TT.compare_bones('Bow_StringBone2', nif, nifcheck, e=0.001)
+    TTB.compare_bones('Bow_MidBone', nif, nifcheck, e=0.001)
+    TTB.compare_bones('Bow_StringBone2', nif, nifcheck, e=0.001)
 
 
     # Re-import the nif to make sure collisions are right. Could test them in the nif
@@ -3980,10 +3977,10 @@ def TEST_SPLIT_NORMALS():
     nif2 = pyn.NifFile(testfile)
     shape2 = nif2.shapes[0]
 
-    TT.test_floatarray("Normal 44", shape2.normals[44], [0, 0, 1], epsilon=0.1)
-    TT.test_floatarray("Vert 12 location", shape2.verts[12], [6.82, 0.58, 9.05], epsilon=0.01)
-    TT.test_floatarray("Vert 5 location", shape2.verts[5], [0.13, 9.24, 8.91], epsilon=0.01)
-    TT.test_floatarray("Vert 33 location", shape2.verts[33], [-3.21, -1.75, 12.94], epsilon=0.01)
+    TTB.test_floatarray("Normal 44", shape2.normals[44], [0, 0, 1], epsilon=0.1)
+    TTB.test_floatarray("Vert 12 location", shape2.verts[12], [6.82, 0.58, 9.05], epsilon=0.01)
+    TTB.test_floatarray("Vert 5 location", shape2.verts[5], [0.13, 9.24, 8.91], epsilon=0.01)
+    TTB.test_floatarray("Vert 33 location", shape2.verts[33], [-3.21, -1.75, 12.94], epsilon=0.01)
 
     # Original has a tri <12, 13, 14>. Find it in the original and then in the exported object
 
@@ -4015,7 +4012,7 @@ def TEST_ROGUE02():
     testfile = TTB.test_file(r"tests/Out/TEST_ROGUE02.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_ROGUE02_warp.nif")
 
-    TT.export_from_blend(r"tests\Skyrim\ROGUE02-normals.blend",
+    TTB.export_from_blend(r"tests\Skyrim\ROGUE02-normals.blend",
                          "Plane", "SKYRIM", testfile, "_warp")
 
     nif2 = pyn.NifFile(outfile)
@@ -4032,7 +4029,7 @@ def TEST_NORMAL_SEAM():
     testfile = TTB.test_file(r"tests/Out/TEST_NORMAL_SEAM.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_NORMAL_SEAM_Dog.nif")
 
-    TT.export_from_blend(r"tests\FO4\TestKnitCap.blend", "MLongshoremansCap:0",
+    TTB.export_from_blend(r"tests\FO4\TestKnitCap.blend", "MLongshoremansCap:0",
                       "FO4", testfile)
 
     nif2 = pyn.NifFile(outfile)
@@ -4627,9 +4624,9 @@ def TEST_CONNECT_WEAPON_PART():
                                  do_rename_bones=False, 
                                  do_create_collections=True)
 
-    barrelpcp = TT.assert_exists('BSConnectPointParents::P-Barrel')
-    magpcp = TT.assert_exists('BSConnectPointParents::P-Mag')
-    scopepcp = TT.assert_exists('BSConnectPointParents::P-Scope')
+    barrelpcp = TTB.assert_exists('BSConnectPointParents::P-Barrel')
+    magpcp = TTB.assert_exists('BSConnectPointParents::P-Mag')
+    scopepcp = TTB.assert_exists('BSConnectPointParents::P-Scope')
 
     # Import of child mesh connects correctly.
     BD.ObjectSelect([barrelpcp, magpcp, scopepcp], active=True)
@@ -5004,7 +5001,7 @@ def TEST_ANIM_ANIMATRON():
     nifout = pyn.NifFile(outfile_fb)
     sh_out = nifout.shapes[0]
     assert sh_out.name == 'BodyLo:0', f"Exported shape: {sh_out.name}"
-    minv_out, maxv_out = TT.get_shape_bbox(sh_out)
+    minv_out, maxv_out = TTB.get_shape_bbox(sh_out)
     assert NT.VNearEqual(minv_out, minv), f"Minimum bounds equal: {minv_out} == {minv}"
     assert NT.VNearEqual(maxv_out, maxv), f"Minimum bounds equal: {maxv_out} == {maxv}"
     sp2_out = nifout.nodes['SPINE2']
@@ -5109,7 +5106,7 @@ def TEST_JIARAN():
     """Armature with no stashed transforms exports correctly"""
     outfile =TTB.test_file(r"tests/Out/TEST_JIARAN.nif")
      
-    TT.export_from_blend(r"tests\SKYRIMSE\jiaran.blend", "hair.001", 'SKYRIMSE', outfile)
+    TTB.export_from_blend(r"tests\SKYRIMSE\jiaran.blend", "hair.001", 'SKYRIMSE', outfile)
 
     nif1 = pyn.NifFile(outfile)
     assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
@@ -5525,7 +5522,7 @@ def TEST_ANIM_ALDUIN():
     assert "NPC COM" in nifcheck.nodes, "Have 'NPC COM'"
     
     # Check all the bone and interpolator transforms.
-    TT.check_bone_controllers(nif, nifcheck, ["NPC Root [Root]", "NPC COM", "NPC Pelvis"])
+    TTB.check_bone_controllers(nif, nifcheck, ["NPC Root [Root]", "NPC COM", "NPC Pelvis"])
     nodenames1 = set()
     for s in nif.shapes:
         for bn in s.bone_names:
@@ -5535,7 +5532,7 @@ def TEST_ANIM_ALDUIN():
         for bn in s.bone_names:
             nodenames2.add(bn)
     TT.assert_seteq(nodenames2, nodenames1, "Nodes")
-    TT.check_bone_controllers(nif, nifcheck, nodenames2)
+    TTB.check_bone_controllers(nif, nifcheck, nodenames2)
 
     # combone_in:pyn.NiNode = nif.nodes['NPC COM']
     # cominterp_in:pyn.NiTransformInterpolator = combone_in.controller.interpolator
@@ -5740,7 +5737,7 @@ def TEST_ANIM_HKX():
     hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
     outfile = TTB.test_file(r"tests/Out/created animations/TEST_ANIM_HKX.hkx")
 
-    pathlib.Path(outfile).parent.mkdir(parents=True, exist_ok=True)
+    Path(outfile).parent.mkdir(parents=True, exist_ok=True)
 
     bpy.context.scene.render.fps = 30
 
@@ -5776,7 +5773,7 @@ def TEST_ANIM_HKX_2():
     hkx_anim = TTB.test_file(r"tests\Skyrim\troll_h2hattackleftd.hkx")
     outfile = TTB.test_file(r"tests/Out/created animations/TEST_ANIM_HKX_2.hkx")
 
-    pathlib.Path(outfile).parent.mkdir(parents=True, exist_ok=True)
+    Path(outfile).parent.mkdir(parents=True, exist_ok=True)
 
     bpy.context.scene.render.fps = 30
 
@@ -5882,9 +5879,9 @@ def TEST_TEXTURE_CLAMP():
 
     nifin = pyn.NifFile(testfile)
     nifout = pyn.NifFile(outfile)
-    assert (nifin.shapes[0].shader.properties.textureClampMode 
-            == nifout.shapes[0].shader.properties.textureClampMode), \
-        f"Preserved texture clamp mode: {nifout.shapes[0].shader.properties.textureClampMode}"
+    TT.assert_eq(nifin.shapes[0].shader.properties.textureClampMode,
+            nifout.shapes[0].shader.properties.textureClampMode, \
+            "clamp mode")
 
 
 def TEST_MISSING_MAT():

@@ -23,7 +23,7 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 do_tests(
-    target_tests=[ TEST_BRICKWALL, TEST_COLORS, TEST_COLORS3, TEST_NEW_COLORS, TEST_ALPHA_THRESHOLD_CHANGE, TEST_COLLISION_BOW_SCALE, TEST_SPLIT_NORMALS, TEST_ROGUE02, TEST_NORMAL_SEAM, TEST_CONNECT_WEAPON_PART, TEST_ANIM_ANIMATRON, TEST_JIARAN, TEST_ANIM_ALDUIN ], run_all=False, stop_on_fail=True,
+    target_tests=[ TEST_COLLISION_BOW_SCALE ], run_all=False, stop_on_fail=True,
     # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
     # stop_on_fail=True
     )

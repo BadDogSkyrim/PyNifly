@@ -170,6 +170,25 @@ def TEST_NIFDEFS():
     assert VNearEqual(b.parallaxInnerLayerTextureScale[:], [0.95, 0.95]), "Have correct parallaxInnerLayerTextureScale"
 
 
+def TEST_KHAJIIT_RW():
+    """Test khajiit head nif from Skyrim"""
+    testfile = r"tests\SkyrimSE\meshes\actors\character\character assets\maleheadkhajiit.nif"
+    outfile = 'tests/out/TEST_KHAJIIT_RW.nif'
+    nif = NifFile(testfile)
+    CheckNif(nif)
+
+    nifout = NifFile()
+    nifout.initialize("SKYRIMSE", outfile)
+
+    for s in nif.shapes:
+        _export_shape(s, nifout)
+
+    nifout.save()
+
+    nifnew = NifFile(outfile)
+    CheckNif(nifnew, source=testfile)
+
+
 def TEST_SHAPE_QUERY():
     """NifFile object gives access to a nif"""
 
@@ -860,18 +879,8 @@ def TEST_LOD():
     testfile = r"tests\Skyrim\blackbriarchalet_test.nif"
     outfile = r"Tests/Out/TEST_LOD.nif"
 
-    def check_nif(nif):
-        glow = nif.shape_dict['L2_WindowGlow']
-        assert glow.blockname == "BSLODTriShape", f"Expected 'BSLODTriShape', found '{nif.shapes[0].blockname}'"
-        
-        assert not glow.shader.flags1_test(ShaderFlags1.VERTEX_ALPHA), f"VERTEX_ALPHA not set"
-        assert glow.shader.properties.LightingInfluence == 255, f"Have correct lighting influence: {glow.shader.properties.LightingInfluence}"
-
-        win = nif.shape_dict['BlackBriarChalet:7']
-        assert win.shader.textures['EnvMap'] == r"textures\cubemaps\ShinyGlass_e.dds", f"Have correct environment map: {win.shader.textures['EnvMap']}"
-
     nif = NifFile(testfile)
-    check_nif(nif)
+    CheckNif(nif)
 
     nifout = NifFile()
     nifout.initialize("SKYRIM", outfile)
@@ -880,7 +889,7 @@ def TEST_LOD():
     nifout.save()
 
     nifcheck = NifFile(outfile)
-    check_nif(nifcheck)
+    CheckNif(nifcheck, testfile)
 
 
 def TEST_UNSKINNED():
@@ -916,25 +925,25 @@ def TEST_SHADER():
     hnse = NifFile(r"tests\SKYRIMSE\maleheadAllTextures.nif")
     hsse = hnse.shapes[0]
     TT.assert_eq(hsse.shader.properties.Shader_Type, 4, "Shader_Type")
-    TT.assert_eq(hsse.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), True, "MODEL_SPACE_NORMALS")
+    TT.assert_eq(hsse.shader.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), True, "MODEL_SPACE_NORMALS")
     TT.assert_eq(hsse.shader.properties.Alpha, 1.0, "Alpha")
     TT.assert_equiv(hsse.shader.properties.Glossiness, 33.0, "Glossiness")
     TT.assert_eq(hsse.shader.properties.clamp_mode_t, 1, "clamp_mode_t")
 
     hnle = NifFile(r"tests\SKYRIM\malehead.nif")
     hsle = hnle.shapes[0]
-    TT.assert_eq(hsle.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), True, "MODEL_SPACE_NORMALS")
+    TT.assert_eq(hsle.shader.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), True, "MODEL_SPACE_NORMALS")
     TT.assert_eq(hsle.shader.properties.Glossiness, 33.0, "Glossiness")
     TT.assert_eq(hsle.shader.properties.clamp_mode_t, 1, "clamp_mode_t")
 
     hnfo = NifFile(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\HeadTest.nif")
     hsfo = hnfo.shapes[0]
-    TT.assert_eq(hsfo.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), False, "MODEL_SPACE_NORMALS")
+    TT.assert_eq(hsfo.shader.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), False, "MODEL_SPACE_NORMALS")
     TT.assert_eq(hsfo.shader.properties.clamp_mode_t, 1, "clamp_mode_t")
 
     cnle = NifFile(r"tests\Skyrim\noblecrate01.nif")
     csle = cnle.shapes[0]
-    TT.assert_eq(csle.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), False, "MODEL_SPACE_NORMALS")
+    TT.assert_eq(csle.shader.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), False, "MODEL_SPACE_NORMALS")
     TT.assert_eq(csle.shader.properties.clamp_mode_t, 1, "clamp_mode_t")
 
     """Can read texture paths"""
@@ -1001,8 +1010,8 @@ def TEST_ALPHA():
 
     assert tailfur.shader.properties.Shader_Type == BSLSPShaderType.Skin_Tint, \
         f"Error: Skin tint incorrect, got {tailfur.shader.properties.Shader_Type}"
-    assert tailfur.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
-        f"Expected MSN true, got {tailfur.shader.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
+    assert tailfur.shader.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), \
+        f"Expected MSN true, got {tailfur.shader.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS)}"
     assert tailfur.alpha_property.properties.flags == 4844, \
         f"Error: Alpha flags incorrect, found {tailfur.alpha_property.properties.flags}"
     assert tailfur.alpha_property.properties.threshold == 70, \
@@ -1279,19 +1288,19 @@ def TEST_EFFECT_SHADER_SKY():
     testfile = r"tests\SkyrimSE\meshes\armor\daedric\daedriccuirass_1.nif"
     outfile = r"tests\out\TEST_EFFECT_SHADER_SKY.nif"
 
-    def CheckNif(nif:NifFile):
-        glow:NiShape = nif.shape_dict["MaleTorsoGlow"]
-        sh = glow.shader
-        TT.assert_eq(sh.blockname, "BSEffectShaderProperty", "block name")
-        TT.assert_eq(sh.flags1_test(ShaderFlags1.VERTEX_ALPHA), True, "VERTEX_ALPHA")
-        TT.assert_eq(sh.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), False, "MODEL_SPACE_NORMALS")
-        TT.assert_eq(sh.flags2_test(ShaderFlags2.NO_FADE), True, "NO_FADE")
-        TT.assert_equiv(sh.properties.UV_Scale_U, 10.0, "UV scale U")
-        TT.assert_eq(sh.properties.textureClampMode, 3, "textureClampMode")
-        TT.assert_eq(sh.properties.clamp_mode_s, 1, f"clamp mode s")
+    # def CheckNif(nif:NifFile):
+    #     glow:NiShape = nif.shape_dict["MaleTorsoGlow"]
+    #     sh = glow.shader
+    #     TT.assert_eq(sh.blockname, "BSEffectShaderProperty", "block name")
+    #     TT.assert_eq(sh.flags1_test(ShaderFlags1.VERTEX_ALPHA), True, "VERTEX_ALPHA")
+    #     TT.assert_eq(sh.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), False, "MODEL_SPACE_NORMALS")
+    #     TT.assert_eq(sh.flags2_test(ShaderFlags2.NO_FADE), True, "NO_FADE")
+    #     TT.assert_equiv(sh.properties.UV_Scale_U, 10.0, "UV scale U")
+    #     TT.assert_eq(sh.properties.textureClampMode, 3, "textureClampMode")
+    #     TT.assert_eq(sh.properties.clamp_mode_s, 1, f"clamp mode s")
 
-        TT.assert_eq(sh.textures['Diffuse'], r"textures\effects\VaporTile02.dds", "Diffuse texture")
-        TT.assert_eq(sh.textures['Greyscale'], r"textures\effects\gradients\GradDisguiseShader02.dds", "Greyscale texture")
+    #     TT.assert_eq(sh.textures['Diffuse'], r"textures\effects\VaporTile02.dds", "Diffuse texture")
+    #     TT.assert_eq(sh.textures['Greyscale'], r"textures\effects\gradients\GradDisguiseShader02.dds", "Greyscale texture")
 
     print("---Read---")
     nif = NifFile(testfile)
@@ -1307,7 +1316,7 @@ def TEST_EFFECT_SHADER_SKY():
 
     print("---Check---")
     nifTest = NifFile(outfile, materialsRoot='tests/FO4')
-    CheckNif(nifTest)
+    CheckNif(nifTest, testfile)
 
 
 def TEST_TEXTURE_CLAMP():
@@ -2159,7 +2168,7 @@ def TEST_TREE():
 
         tree = nifcheck.shapes[0]
         assert tree.blockname == "BSMeshLODTriShape", f"Have correct shape node type"
-        assert tree.shader.flags2_test(ShaderFlags2.TREE_ANIM), f"Tree animation set"
+        assert tree.shader.properties.shaderflags2_test(ShaderFlags2.TREE_ANIM), f"Tree animation set"
         assert tree.properties.vertexCount == 1059, f"Have correct vertex count"
         assert tree.properties.lodSize0 == 1126, f"Have correct lodSize0"
 
@@ -2358,8 +2367,8 @@ if __name__ == "__main__":
     mylog.setLevel(logging.DEBUG)
 
     # ############## TESTS TO RUN #############
-    stop_on_fail = False
-    # execute(testlist=[TEST_ANIMATION_NOBLECHEST])
+    stop_on_fail = True
+    # execute(testlist=[TEST_KHAJIIT_RW])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
-    execute()
+    execute(exclude=[TEST_SET_SKINTINT])
     #
