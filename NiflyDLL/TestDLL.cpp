@@ -921,6 +921,7 @@ namespace NiflyDLLTests
 
 			armorID = getBlockID(nif, theArmor);
 			getBlock(nif, armorID, &armorBuf);
+			Assert::AreEqual(0, int(armorBuf.vertexDesc & nifly::VF_EYEDATA), L"Eye data not set");
 
 			Vector3* verts = new Vector3[armorBuf.vertexCount];
 			Triangle* tris = new Triangle[armorBuf.triangleCount];
@@ -1040,6 +1041,26 @@ namespace NiflyDLLTests
 			getBlock(nifCheck, shapeBuf.shaderPropertyID, &shaderBuf);
 			Assert::AreEqual(5, int(shaderBuf.Shader_Type), L"Have correct shader type");
 		};
+
+		TEST_METHOD(ReadVertexFlags)
+		{
+			/* Can read vertex flags */
+			std::filesystem::path testfile = testRoot / "SkyrimSE" / "eyesmale.nif";
+
+			void* nif = load(testfile.u8string().c_str());
+
+			void* shapes[2];
+			int shapeCount = getShapes(nif, shapes, 2, 0);
+			int eyeID;
+			NiShapeBuf buf;
+			void* theEye = shapes[0];
+
+			eyeID = getBlockID(nif, shapes[0]);
+			getBlock(nif, eyeID, &buf);
+
+			Assert::AreNotEqual(0, int(buf.vertexDesc & nifly::VF_EYEDATA), L"Eye data set");
+		};
+
 		/* Here's about skinning */
 		TEST_METHOD(SkinTransformsFO4)
 		{

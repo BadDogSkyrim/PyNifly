@@ -59,6 +59,11 @@ def assert_eq_nocase(actual, expected, msg):
     # assert actual == expected, f"{msg} not the same: {actual} = {expected}"
 
 
+def assert_ne(actual, expected, msg):
+    """Assert actual is not equal to expected."""
+    assert actual != expected, f"Values equal for {msg}: {actual} <> {expected}"
+
+
 def assert_lt(actual, expected, msg, e=0.0001):
     """Assert actual is less than expected."""
     assert actual < expected, f"Values actual less than expected for {msg}: {actual} < {expected}"

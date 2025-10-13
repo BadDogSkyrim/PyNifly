@@ -387,6 +387,8 @@ struct NiShapeBuf {
 	uint32_t skinInstanceID;
 	uint32_t shaderPropertyID;
 	uint32_t alphaPropertyID;
+	uint64_t vertexDesc;
+
 };
 
 struct BSMeshLODTriShapeBuf : NiShapeBuf {

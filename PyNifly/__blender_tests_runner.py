@@ -23,7 +23,7 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 do_tests(
-    target_tests=[ TEST_COLLISION_BOW_SCALE ], run_all=False, stop_on_fail=True,
+    target_tests=[ TEST_SHADER_EYE ], run_all=False, stop_on_fail=True,
     # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
     # stop_on_fail=True
     )

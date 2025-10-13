@@ -146,26 +146,29 @@ fo4_bodypart_xf = MatrixLocRotScale(Vector((0, -0.9342, 120.841,)),
                                     Quaternion(),
                                     (1, 1, 1,))
 
-NISHAPE_IGNORE = ["bufSize", 
-                  'bufType',
-                  "nameID", 
-                  "controllerID", 
-                  "extraDataCount", 
-                  "transform",
-                  "propertyCount",
-                  "collisionID",
-                  "hasVertices", 
-                  "hasNormals", 
-                  "hasVertexColors",
-                  "hasUV", 
-                  "boundingSphereCenter",
-                  "boundingSphereRadius",
-                  "vertexCount",
-                  "triangleCount", 
-                  "skinInstanceID",
-                  "shaderPropertyID", 
-                  "alphaPropertyID", 
-                  ]
+NISHAPE_IGNORE = [
+    "bufSize", 
+    'bufType',
+    "nameID", 
+    "controllerID", 
+    "extraDataCount", 
+    "transform",
+    "propertyCount",
+    "collisionID",
+    "hasVertices", 
+    "hasNormals", 
+    "hasVertexColors",
+    "hasUV", 
+    "boundingSphereCenter",
+    "boundingSphereRadius",
+    "vertexCount",
+    "triangleCount", 
+    "skinInstanceID",
+    "shaderPropertyID", 
+    "alphaPropertyID", 
+    "flags",
+    "vertexFlags",
+    ]
 
 
 # --------- Helper functions -------------
@@ -1005,6 +1008,8 @@ class NifImporter():
             new_object = bpy.data.objects.new(the_shape.name, new_mesh)
             new_object['pynBlockName'] = the_shape.blockname
             the_shape.properties.extract(new_object, ignore=NISHAPE_IGNORE)
+            new_object["pynNodeFlags"] = NiAVFlags(the_shape.flags).fullname
+            new_object["pynVertexDesc"] = VertexFlags(the_shape.properties.vertexDesc).fullname
             self.loaded_meshes.append(new_object)
             self.nodes_loaded[new_object.name] = the_shape
         
@@ -3717,6 +3722,9 @@ class NifExporter:
                                                  parent=my_parent.nifnode if my_parent else None)
         if "pynNodeFlags" in obj:
             new_shape.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
+        if "pynVertexDesc" in obj:
+            new_shape.properties.vertexDesc = VertexFlags.parse(obj["pynVertexDesc"]).value
+
         robj = ReprObject(obj, new_shape)
         self.objs_written.add(robj)
 

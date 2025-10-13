@@ -943,6 +943,28 @@ class SkyrimHavokMaterial(IntEnum):
         except:
             return str(val)
         
+class VertexFlags(PynIntFlag):
+    VERTEX = 1 << 0
+    UV = 1 << 1
+    UV_2 = 1 << 2
+    NORMAL = 1 << 3
+    TANGENT = 1 << 4
+    COLORS = 1 << 5
+    SKINNED = 1 << 6
+    LANDDATA = 1 << 7
+    EYEDATA = 1 << 8
+    INSTANCE = 1 << 9
+    FULLPREC = 1 << 10
+
+    @classmethod
+    def get_name(cls, val):
+        """Turns the material enum into a string--if not found, just returns the input."""
+        try:
+            return VertexFlags(val).name
+        except:
+            return str(val)
+
+
 class EffectShaderControlledVariable(IntEnum):
 	Emissive_Multiple = 0
 	Falloff_Start_Angle = 1
@@ -1693,7 +1715,8 @@ class NiShapeBuf(pynStructure):
         ("triangleCount", c_uint32),
         ("skinInstanceID", c_uint32),
         ("shaderPropertyID", c_uint32),
-        ("alphaPropertyID", c_uint32)
+        ("alphaPropertyID", c_uint32),
+        ("vertexDesc", c_uint64),
         ]
     def __init__(self, values=None):
         self.nameID = self.controllerID = self.collisionID = NODEID_NONE
@@ -1757,6 +1780,7 @@ class BSMeshLODTriShapeBuf(pynStructure):
         ("skinInstanceID", c_uint32),
         ("shaderPropertyID", c_uint32),
         ("alphaPropertyID", c_uint32),
+        ("vertexDesc", c_uint64),
         ("lodSize0", c_uint32),
         ("lodSize1", c_uint32),
         ("lodSize2", c_uint32),
@@ -1791,6 +1815,7 @@ class BSLODTriShapeBuf(pynStructure):
         ("skinInstanceID", c_uint32),
         ("shaderPropertyID", c_uint32),
         ("alphaPropertyID", c_uint32),
+        ("vertexDesc", c_uint64),
         ("level0", c_uint32),
         ("level1", c_uint32),
         ("level2", c_uint32),

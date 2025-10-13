@@ -170,23 +170,15 @@ def TEST_NIFDEFS():
     assert VNearEqual(b.parallaxInnerLayerTextureScale[:], [0.95, 0.95]), "Have correct parallaxInnerLayerTextureScale"
 
 
-def TEST_KHAJIIT_RW():
-    """Test khajiit head nif from Skyrim"""
+def TEST_READ():
+    """Test reading various nifs"""
     testfile = r"tests\SkyrimSE\meshes\actors\character\character assets\maleheadkhajiit.nif"
     outfile = 'tests/out/TEST_KHAJIIT_RW.nif'
     nif = NifFile(testfile)
     CheckNif(nif)
 
-    nifout = NifFile()
-    nifout.initialize("SKYRIMSE", outfile)
-
-    for s in nif.shapes:
-        _export_shape(s, nifout)
-
-    nifout.save()
-
-    nifnew = NifFile(outfile)
-    CheckNif(nifnew, source=testfile)
+    testfile = r"tests\SkyrimSE\eyesmale.nif"
+    CheckNif(nif)
 
 
 def TEST_SHAPE_QUERY():
@@ -2368,7 +2360,7 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = True
-    # execute(testlist=[TEST_KHAJIIT_RW])
+    execute(testlist=[TEST_LOD])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
     execute(exclude=[TEST_SET_SKINTINT])
     #

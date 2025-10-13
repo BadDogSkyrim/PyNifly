@@ -8,7 +8,7 @@ well. So a lot of the tests use direct function calls.
 from pathlib import Path
 from pynifly import NifFile
 from nifdefs import CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, \
-    NiKeyType, CycleType, ShaderFlags1, ShaderFlags2, BSLSPShaderType
+    NiKeyType, CycleType, ShaderFlags1, ShaderFlags2, BSLSPShaderType, VertexFlags
 from niflytools import NearEqual, VNearEqual, MatNearEqual
 import test_tools as TT
 
@@ -273,6 +273,20 @@ def Check_khajiithead(nif:NifFile):
     TT.assert_patheq(head.shader.textures['Specular'], r"textures\actors\character\khajiitmale\KhajiitMaleHead_s.dds", "Specular texture")
 
 
+def Check_eye(nif:NifFile):
+    eye = nif.shape_dict['EyesMale']
+    TT.assert_eq(eye.blockname, "BSDynamicTriShape", "shape block type") # has tri morphs
+    TT.assert_ne(eye.properties.vertexDesc & VertexFlags.EYEDATA, 0, "has eye data")
+    TT.assert_eq(eye.shader.blockname, "BSLightingShaderProperty", "shader block type")
+    TT.assert_eq(eye.shader.properties.Shader_Type, BSLSPShaderType.Eye_Envmap, "shader type")
+    TT.assert_eq(eye.shader.properties.Glossiness, 479, "glossiness")
+    TT.assert_patheq(eye.shader.textures['Diffuse'], r"textures\actors\character\eyes\EyeBrown.dds", "Diffuse texture")
+    TT.assert_patheq(eye.shader.textures['Normal'], r"textures\actors\character\eyes\EyeBrown_n.dds", "Normal texture")
+    TT.assert_patheq(eye.shader.textures['SoftLighting'], r"textures\actors\character\eyes\EyeBrown_sk.dds", "Subsurface texture")
+    TT.assert_patheq(eye.shader.textures['EnvMap'], r"textures\cubemaps\EyeCubeMap.dds", "cube map texture")
+    TT.assert_patheq(eye.shader.textures['EnvMask'], r"textures\actors\character\eyes\EyeEnvironmentMask_M.dds", "mask texture")
+
+
 test_files = {
     ("FO4", "DExBrickColumn01.nif"): Check_brickcolumn,
     ("FO4", "Helmet.nif"): Check_fo4Helmet,
@@ -283,6 +297,7 @@ test_files = {
     ("SkyrimSE", "voidshade_1.nif"): CheckNif_voidshade,
     ("SkyrimSE","daedriccuirass_1.nif"): Check_daedriccuirass,
     ("SkyrimSE","dwarvenboots_envscale.nif"): Check_dwarvenboots,
+    ("SkyrimSE", "eyesmale.nif"): Check_eye,
     ("SkyrimSE","maleheadkhajiit.nif"): Check_khajiithead,
 }
 

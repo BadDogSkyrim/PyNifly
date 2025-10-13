@@ -740,7 +740,23 @@ void getShape(NiShape* theShape, NiShapeBuf* buf) {
     buf->alphaPropertyID = theShape->AlphaPropertyRef()->index;
 
     BSTriShape* ts = static_cast<BSTriShape*>(theShape);
-    if (ts) buf->hasFullPrecision = ts->IsFullPrecision();
+    if (ts) {
+        buf->hasFullPrecision = ts->IsFullPrecision();
+        // vertexDesc is stored in an odd way and doesn't allow access to the full flags value.
+        // So get them bit by bit. 
+        // This dups other fields like hasFullPrecision, which could be removed at some point.
+        buf->vertexDesc = (ts->vertexDesc.HasFlag(VF_VERTEX)? VF_VERTEX : 0)
+            | (ts->vertexDesc.HasFlag(VF_UV) ? VF_UV : 0)
+            | (ts->vertexDesc.HasFlag(VF_UV_2) ? VF_UV_2 : 0)
+            | (ts->vertexDesc.HasFlag(VF_NORMAL) ? VF_NORMAL : 0)
+            | (ts->vertexDesc.HasFlag(VF_TANGENT) ? VF_TANGENT : 0)
+            | (ts->vertexDesc.HasFlag(VF_COLORS) ? VF_COLORS : 0)
+            | (ts->vertexDesc.HasFlag(VF_SKINNED) ? VF_SKINNED : 0)
+            | (ts->vertexDesc.HasFlag(VF_LANDDATA) ? VF_LANDDATA : 0)
+            | (ts->vertexDesc.HasFlag(VF_EYEDATA) ? VF_EYEDATA : 0)
+            | (ts->vertexDesc.HasFlag(VF_FULLPREC) ? VF_FULLPREC: 0)
+            ;
+    }
 }
 
 int getNiShape(void* nifref, uint32_t id, void* buf) {
@@ -921,7 +937,13 @@ int setShapeFromBuf(NifFile* nif, NiShape* theShape, NiShapeBuf* buf)
     theShape->collisionRef.index = buf->collisionID;
 
     BSTriShape* ts = static_cast<BSTriShape*>(theShape);
-    if (buf->hasFullPrecision && ts) ts->SetFullPrecision(true);
+    if (ts) {
+        if (buf->hasFullPrecision) ts->SetFullPrecision(true);
+
+        // Handle the vertex flags which aren't dealt with elsewhere
+        if (buf->vertexDesc & VF_EYEDATA) ts->vertexDesc.SetFlag(VF_EYEDATA); else ts->vertexDesc.RemoveFlag(VF_EYEDATA);
+        if (buf->vertexDesc & VF_LANDDATA) ts->vertexDesc.SetFlag(VF_LANDDATA); else ts->vertexDesc.RemoveFlag(VF_LANDDATA);
+    }
 
     if (buf->bufType == BSMeshLODTriShapeBufType) {
         BSMeshLODTriShape* meshShape = static_cast<BSMeshLODTriShape*>(theShape);

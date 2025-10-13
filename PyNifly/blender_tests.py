@@ -1893,12 +1893,7 @@ def TEST_SHADER_EYE():
     bpy.ops.export_scene.pynifly(filepath=outfile2)
 
     n = pyn.NifFile(outfile2)
-    eye = n.shapes[0]
-    TT.assert_eq_nocase(Path(eye.shader.textures['Diffuse']).name, 'EyeBrown.dds', 'diffuse texture')
-    TT.assert_eq_nocase(Path(eye.shader.textures['Normal']).name, 'EyeBrown_n.dds', 'Normal texture')
-    TT.assert_eq_nocase(Path(eye.shader.textures['SoftLighting']).name, 'EyeBrown_sk.dds', 'Subsurface texture')
-    TT.assert_eq_nocase(Path(eye.shader.textures['EnvMap']).name, 'EyeCubeMap.dds', 'Environment map texture')
-    TT.assert_eq_nocase(Path(eye.shader.textures['EnvMask']).name, 'EyeEnvironmentMask_M.dds', 'Environment mask texture')
+    CheckNif(n, source=testfile2)
 
 
 def TEST_ANIM_SHADER_GLOW():
