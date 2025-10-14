@@ -117,6 +117,7 @@ def export_from_blend(blendfile, objname, game, outfile, shapekey=''):
 
 
 def find_vertex(mesh, targetloc, epsilon=0.01):
+    """Find a vertex close to the given location. Return -1 if not found."""
     for v in mesh.vertices:
         if VNearEqual(v.co, targetloc, epsilon=epsilon):
             return v.index

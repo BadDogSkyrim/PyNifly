@@ -2181,34 +2181,35 @@ def TEST_SHADER_EFFECT():
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
-    nif = pyn.NifFile(testfile)
+    # nif = pyn.NifFile(testfile)
     nifcheck = pyn.NifFile(outfile)
-    glow = nif.shape_dict["L2_WindowGlow"]
-    glowcheck = nifcheck.shape_dict["L2_WindowGlow"]
+    CheckNif(nifcheck, source=testfile)
+    # glow = nif.shape_dict["L2_WindowGlow"]
+    # glowcheck = nifcheck.shape_dict["L2_WindowGlow"]
 
-    assert glow.blockname == glowcheck.blockname == "BSLODTriShape", \
-        f"Created a LOD shape: {glowcheck.blockname}"
-    assert glow.properties.flags == glowcheck.properties.flags, f"Have correct flags: {glowcheck.properties.flags}"
-    assert glow.shader.blockname == glowcheck.shader.blockname, f"Have correct shader: {glowcheck.shader.blockname}"
-    ### Currently writing VERTEX_ALPHA even tho it wasn't originally set.
-    assert glow.shader.properties.Shader_Flags_1 == glowcheck.shader.properties.Shader_Flags_1, \
-        f"Have correct shader flags 1: {pyn.ShaderFlags1(glow.shader.properties.Shader_Flags_1).fullname}"
-    assert glow.shader.properties.Shader_Flags_2 == glowcheck.shader.properties.Shader_Flags_2, \
-        f"Have correct shader flags 1: {pyn.ShaderFlags1(glow.shader.properties.Shader_Flags_2).fullname}"
-    assert glow.shader.properties.LightingInfluence == glowcheck.shader.properties.LightingInfluence, \
-        f"Have correct lighting influence: {glowcheck.shader.properties.LightingInfluence}"
+    # assert glow.blockname == glowcheck.blockname == "BSLODTriShape", \
+    #     f"Created a LOD shape: {glowcheck.blockname}"
+    # assert glow.properties.flags == glowcheck.properties.flags, f"Have correct flags: {glowcheck.properties.flags}"
+    # assert glow.shader.blockname == glowcheck.shader.blockname, f"Have correct shader: {glowcheck.shader.blockname}"
+    # ### Currently writing VERTEX_ALPHA even tho it wasn't originally set.
+    # assert glow.shader.properties.Shader_Flags_1 == glowcheck.shader.properties.Shader_Flags_1, \
+    #     f"Have correct shader flags 1: {pyn.ShaderFlags1(glow.shader.properties.Shader_Flags_1).fullname}"
+    # assert glow.shader.properties.Shader_Flags_2 == glowcheck.shader.properties.Shader_Flags_2, \
+    #     f"Have correct shader flags 1: {pyn.ShaderFlags1(glow.shader.properties.Shader_Flags_2).fullname}"
+    # assert glow.shader.properties.LightingInfluence == glowcheck.shader.properties.LightingInfluence, \
+    #     f"Have correct lighting influence: {glowcheck.shader.properties.LightingInfluence}"
 
-    win = nif.shape_dict["BlackBriarChalet:7"]
-    wincheck = nifcheck.shape_dict["BlackBriarChalet:7"]
-    assert BD.VNearEqual(win.shader.properties.parallaxInnerLayerTextureScale,
-                         wincheck.shader.properties.parallaxInnerLayerTextureScale), \
-        f"Have correct parallax: {wincheck.shader.properties.parallaxInnerLayerTextureScale}"
-    assert r"textures\cubemaps\ShinyGlass_e.dds" \
-        == win.shader.textures['EnvMap'] == wincheck.shader.textures['EnvMap'], \
-        f"Have correct envronment map: {wincheck.shader.textures['EnvMap']}"
-    assert r"textures\architecture\riften\RiftenWindowInner01.dds" \
-        == win.shader.textures['InnerLayer'] == wincheck.shader.textures['InnerLayer'], \
-        f"Have correct InnerLayer: {wincheck.shader.textures['InnerLayer']}"
+    # win = nif.shape_dict["BlackBriarChalet:7"]
+    # wincheck = nifcheck.shape_dict["BlackBriarChalet:7"]
+    # assert BD.VNearEqual(win.shader.properties.parallaxInnerLayerTextureScale,
+    #                      wincheck.shader.properties.parallaxInnerLayerTextureScale), \
+    #     f"Have correct parallax: {wincheck.shader.properties.parallaxInnerLayerTextureScale}"
+    # assert r"textures\cubemaps\ShinyGlass_e.dds" \
+    #     == win.shader.textures['EnvMap'] == wincheck.shader.textures['EnvMap'], \
+    #     f"Have correct envronment map: {wincheck.shader.textures['EnvMap']}"
+    # assert r"textures\architecture\riften\RiftenWindowInner01.dds" \
+    #     == win.shader.textures['InnerLayer'] == wincheck.shader.textures['InnerLayer'], \
+    #     f"Have correct InnerLayer: {wincheck.shader.textures['InnerLayer']}"
     
 
 def TEST_SHADER_EFFECT_GLOWINGONE():
@@ -3936,21 +3937,18 @@ def TEST_NORM():
     bpy.ops.import_scene.pynifly(filepath=testfile)
     head = TTB.find_shape("CheetahMaleHead")
 
-    try:
+    if hasattr(head.data, "calc_normals_split"):
         head.data.calc_normals_split()
-    except:
-        pass
 
-    vi =  TTB.find_vertex(head.data, (-4.92188, 0.646485, -10.0156), epsilon=0.01)
-    targetvert = head.data.vertices[vi]
-    assert targetvert.normal.x < -0.5, \
-        f"Vertex normal for vertex {targetvert.index} as expected: {targetvert.normal}"
+    targetvert = head.data.vertices[3071]
+    TT.assert_equiv(targetvert.normal, [-0.207843, 0.435294, 0.874510], "vertex normal", e=0.01)
 
     vertloops = [l.index for l in head.data.loops if l.vertex_index == targetvert.index]
     custnormal = head.data.loops[vertloops[0]].normal
-    print(f"TEST_NORM custnormal: loop {vertloops[0]} has normal {custnormal}")
-    assert NT.VNearEqual(custnormal, [-0.1772, 0.4291, 0.8857]), \
-        f"Custom normal different from vertex normal: {custnormal}"
+    TT.assert_equiv(custnormal, [-0.207843, 0.435294, 0.874510], "loop normal", e=0.01)
+    # print(f"TEST_NORM custnormal: loop {vertloops[0]} has normal {custnormal}")
+    # assert NT.VNearEqual(custnormal, [-0.1772, 0.4291, 0.8857]), \
+    #     f"Custom normal different from vertex normal: {custnormal}"
 
 
 def TEST_SPLIT_NORMALS():

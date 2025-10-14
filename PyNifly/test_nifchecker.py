@@ -8,7 +8,7 @@ well. So a lot of the tests use direct function calls.
 from pathlib import Path
 from pynifly import NifFile
 from nifdefs import CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, \
-    NiKeyType, CycleType, ShaderFlags1, ShaderFlags2, BSLSPShaderType, VertexFlags
+    NiKeyType, CycleType, ShaderFlags1, ShaderFlags2, BSLSPShaderType, VertexFlags, NiAVFlags
 from niflytools import NearEqual, VNearEqual, MatNearEqual
 import test_tools as TT
 
@@ -236,12 +236,24 @@ def Check_fo4Helmet(nif:NifFile):
 def Check_blackbriarchalet(nif:NifFile):
         glow = nif.shape_dict['L2_WindowGlow']
         TT.assert_eq(glow.blockname, "BSLODTriShape", "shape type")
+        TT.assert_eq(NiAVFlags(glow.properties.flags).fullname, 
+                     'SELECTIVE_UPDATE | SELECTIVE_UPDATE_TRANSF | SELECTIVE_UPDATE_CONTR | NO_ANIM_SYNC_S | MESH_LOD_SKY',
+                     "shape flags")
+        TT.assert_eq(glow.shader.blockname, "BSEffectShaderProperty", "shader type")
+        TT.assert_eq(ShaderFlags1(glow.shader.properties.Shader_Flags_1).fullname,
+                     'DECAL | DYNAMIC_DECAL | EXTERNAL_EMITTANCE | ZBUFFER_TEST',
+                     "shader flags 1")
+        TT.assert_eq(ShaderFlags2(glow.shader.properties.Shader_Flags_2).fullname,
+                     'VERTEX_COLORS | EFFECT_LIGHTING',
+                     "shader flags 2")
         
-        assert not glow.shader.properties.shaderflags1_test(ShaderFlags1.VERTEX_ALPHA), f"VERTEX_ALPHA not set"
         TT.assert_eq(glow.shader.properties.LightingInfluence, 255, "lighting influence")
 
         win = nif.shape_dict['BlackBriarChalet:7']
+        TT.assert_equiv(win.shader.properties.parallaxInnerLayerTextureScale, [0.95, 0.95], "parallax inner layer texture scale")
+        TT.assert_patheq(win.shader.textures['Diffuse'], r"textures\architecture\riften\RiftenWindows02.dds", "Diffuse texture")
         TT.assert_patheq(win.shader.textures['EnvMap'], r"textures\cubemaps\ShinyGlass_e.dds", "EnvMap texture")
+        TT.assert_patheq(win.shader.textures['InnerLayer'], r"textures\architecture\riften\RiftenWindowInner01.dds", "InnerLayer texture")
 
 
 def Check_dwarvenboots(nif:NifFile):

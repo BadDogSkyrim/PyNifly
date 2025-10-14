@@ -556,6 +556,7 @@ class NiAVFlags(PynIntFlag):
     DISPLAY_OBJECT = 1 << 5
     DISABLE_SORTING = 1 << 6
     SEL_UPD_TRANSF_OVERRIDE = 1 << 7
+    UNKNOWN_8 = 1 << 8
     SAVE_EXT_GEOM_DATA = 1 << 9
     NO_DECALS = 1 << 10
     ALWAYS_DRAW = 1 << 11
@@ -574,6 +575,8 @@ class NiAVFlags(PynIntFlag):
     HIGH_DETAIL = 1 << 24
     FORCE_UPDATE = 1 << 25
     PREPROCESSED_NODE = 1 << 26
+    MESH_LOD_SKY = 1 << 27
+    UNKNOWN_28 = 1 << 28
 
 class BSXFlags(PynIntFlag):
     ANIMATED = 1
