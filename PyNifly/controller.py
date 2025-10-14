@@ -363,12 +363,10 @@ class ControllerHandler():
 
 
     def _find_nif_target(self, blendname):
-        try:
-            nifname = self.nif_name(blendname)
-            nifnode = self.nif.nodes[nifname]
-            return nifnode
-        except:
-            return None
+        nifname = self.nif_name(blendname)
+        if nifname in self.nif.nodes:
+            return self.nif.nodes[nifname]
+        return None
 
 
     def _key_nif_to_blender(self, key0, key1, key2):
@@ -2096,7 +2094,7 @@ class AssignAnimPanel(bpy.types.Panel):
 
 class WM_OT_ApplyAnim(bpy.types.Operator):
     bl_idname = "wm.apply_anim"
-    bl_label = "Apply Animation"
+    bl_label = "Apply Nif Animation"
     bl_options = {'REGISTER', 'UNDO'}
 
     # Keeping the list of animations in a module-level variable because EnumProperty doesn't
@@ -2107,7 +2105,6 @@ class WM_OT_ApplyAnim(bpy.types.Operator):
                                            items=_animations_for_pulldown,
                                            )  # type: ignore
     
-
     @classmethod
     def poll(cls, context):
         return True
@@ -2127,15 +2124,21 @@ class WM_OT_ApplyAnim(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def _draw_apply_animation_menu_entry(self, context):
+    self.layout.operator(WM_OT_ApplyAnim.bl_idname)
+
 def register():
     try:
+        bpy.types.VIEW3D_MT_view.remove(_draw_apply_animation_menu_entry)
         bpy.utils.unregister_class(WM_OT_ApplyAnim)
     except:
         pass
+    bpy.types.VIEW3D_MT_view.append(_draw_apply_animation_menu_entry)
     bpy.utils.register_class(WM_OT_ApplyAnim)
 
 def unregister():
     try:
+        bpy.types.VIEW3D_MT_view.remove(_draw_apply_animation_menu_entry)
         bpy.utils.unregister_class(WM_OT_ApplyAnim)
     except:
         pass

@@ -5,6 +5,7 @@ import os
 import os.path
 import pathlib
 import logging
+from contextlib import suppress
 import math
 import bpy
 from mathutils import Matrix, Vector, Quaternion, Euler
@@ -28,10 +29,8 @@ def test_title(name, desc):
     print (f"{desc}")
 
 def clear_all():
-    try:
+    with suppress(RuntimeError):
         bpy.ops.object.mode_set(mode = 'OBJECT')
-    except:
-        pass
 
     bpy.ops.object.select_all(action='DESELECT')
     # for obj in bpy.context.scene.objects:

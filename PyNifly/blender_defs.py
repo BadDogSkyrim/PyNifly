@@ -579,9 +579,9 @@ class ReprObjectCollection():
             self.blenderdict[reprobj.blender_obj.name] = reprobj
         if reprobj.nifnode:
             fp = reprobj.nifnode.file.filepath
-            try:
+            if fp in self._filedict:
                 d = self._filedict[fp]
-            except KeyError:
+            else:
                 self._filedict[fp] = {}
                 d = self._filedict[fp]
             d[reprobj.nifnode.id] = reprobj
@@ -589,23 +589,26 @@ class ReprObjectCollection():
     def add_pair(self, obj, nifnode):
         self.add(ReprObject(obj, nifnode))
 
+
     def find_nifnode(self, nifnode):
-        try: 
-            fp = nifnode.file.filepath
+        fp = nifnode.file.filepath
+        if fp in self._filedict:
             d = self._filedict[fp]
-            return d[nifnode.id]
-        except KeyError:
-            return None
-        
+            if nifnode.id in d:
+                return d[nifnode.id]
+        return None
+
+
+
     def find_blend(self, blendobj):
         """
         Find a blender object in the collection.
         """
-        try: 
+        if blendobj.name in self.blenderdict: 
             return self.blenderdict[blendobj.name]
-        except KeyError:
-            return None
-        
+        return None
+
+
     def find_nifname(self, nif, name):
         for reprobj in self._collection:
             if reprobj.nifnode \

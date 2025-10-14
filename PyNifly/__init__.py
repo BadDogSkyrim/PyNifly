@@ -291,10 +291,8 @@ def mesh_create_normals(the_mesh, normals):
     if normals:
         # Make sure the normals are unit length
         # Magic incantation to set custom normals
-        try:
+        if hasattr(the_mesh, "use_auto_smooth"):
             the_mesh.use_auto_smooth = True
-        except:
-            pass
         the_mesh.normals_split_custom_set([(0, 0, 0)] * len(the_mesh.loops))
         the_mesh.normals_split_custom_set_from_vertices([Vector(v).normalized() for v in normals])
 
@@ -322,7 +320,7 @@ def mesh_create_partition_groups(the_shape, the_object):
         else:
             new_vg = vg.new(name=p.name)
         partn_groups.append(new_vg)
-        with suppress(AttributeError):
+        if hasattr(p, "subsegments"):
             # Walk through subsegments, if any. Skyrim doesn't have them.
             for sseg in p.subsegments:
                 new_vg = vg.new(name=sseg.name)
@@ -1009,7 +1007,8 @@ class NifImporter():
             new_object['pynBlockName'] = the_shape.blockname
             the_shape.properties.extract(new_object, ignore=NISHAPE_IGNORE)
             new_object["pynNodeFlags"] = NiAVFlags(the_shape.flags).fullname
-            new_object["pynVertexDesc"] = VertexFlags(the_shape.properties.vertexDesc).fullname
+            if the_shape.properties.vertexDesc:
+                new_object["pynVertexDesc"] = VertexFlags(the_shape.properties.vertexDesc).fullname
             self.loaded_meshes.append(new_object)
             self.nodes_loaded[new_object.name] = the_shape
         
@@ -3216,10 +3215,10 @@ class NifExporter:
 
         # Before Blender 4.0 have to calculate normals. 4.0 doesn't need it and throws
         # an error.
-        with suppress(AttributeError):
+        if hasattr(mesh, "calc_normals_split"):
             # Blender 4.0+ has normals in the loops, so no need to calculate them
             mesh.calc_normals_split()
-        with suppress(AttributeError):
+        if hasattr(mesh, "calc_normals"):
             # Blender 3.0+ has normals in the vertices, so no need to calculate them
             mesh.calc_normals()
 
@@ -3722,7 +3721,7 @@ class NifExporter:
                                                  parent=my_parent.nifnode if my_parent else None)
         if "pynNodeFlags" in obj:
             new_shape.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
-        if "pynVertexDesc" in obj:
+        if "pynVertexDesc" in obj and obj["pynVertexDesc"]:
             new_shape.properties.vertexDesc = VertexFlags.parse(obj["pynVertexDesc"]).value
 
         robj = ReprObject(obj, new_shape)
@@ -4693,15 +4692,13 @@ def unregister():
                 bpy.types.TOPBAR_MT_file_export.remove(f)
         except: 
             pass
-        try:
+        with suppress(RuntimeError):
             bpy.utils.unregister_class(c) 
-        except:
-            pass
 
     skeleton_hkx.unregister()
     controller.unregister()
-    356
-    +900
+    # 356
+    # +900
 
 def register():
     for d, f, c in pyn_registry:

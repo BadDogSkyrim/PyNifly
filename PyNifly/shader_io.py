@@ -1305,12 +1305,12 @@ class ShaderImporter:
                 simg.colorspace_settings.name = "Non-Color"
                 simgnode.image = simg
                 self.link(self.texmap.outputs['Vector'], simgnode.inputs['Vector'])
-                try: 
+                if 'Smooth Spec' in self.bsdf.inputs: 
                     self.link(simgnode.outputs['Color'], self.bsdf.inputs['Smooth Spec'])
-                except:
-                    try:
+                else:
+                    if 'Specular Color' in self.bsdf.inputs:
                         self.link(simgnode.outputs['Color'], self.bsdf.inputs['Specular Color'])
-                    except:
+                    else:
                         self.link(simgnode.outputs['Color'], self.bsdf.inputs['Specular'])
 
             for i, v in enumerate(self.shape.shader.properties.Spec_Color):
@@ -1669,9 +1669,9 @@ class ShaderExporter:
                 if imagenodes: imagenode = imagenodes[0]
 
         elif textureslot == "Diffuse":
-            try:
+            if "Base Color" in self.shader_node.inputs:
                 imagenodes = BD.find_node(self.shader_node.inputs["Base Color"], "ShaderNodeTexImage")
-            except:
+            else:
                 imagenodes = BD.find_node(self.shader_node.inputs["Diffuse"], "ShaderNodeTexImage")
             if imagenodes: imagenode = imagenodes[0]
             # Check whether this is a greyscale texture. If so, look for the diffuse behind it.
@@ -1681,11 +1681,9 @@ class ShaderExporter:
         else:
             # Look through the node tree behind the texture slot to find the right image
             # node.
-            try:
+            if textureslot in self.shader_node.inputs:
                 imagenodes = BD.find_node(self.shader_node.inputs[textureslot], "ShaderNodeTexImage")
                 if imagenodes: imagenode = imagenodes[0]
-            except:
-                pass
 
         foundpath = relpath = None
         if imagenode:
