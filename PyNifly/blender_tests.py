@@ -1498,6 +1498,49 @@ def TEST_SK_MULT():
     assert 'NPC L Clavicle [LClv]' in nif0.nodes, "Found clavicle in _0 file"
 
 
+def TEST_NOSETTINGS():
+    """Can import with all settings off (regression)."""
+    testfile = TTB.test_file("tests\SkyrimSE\circlet_celebrimbor.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_NOSETTINGS.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile,
+                                 do_create_bones=False,
+                                 use_blender_xf=False,
+                                 do_rename_bones=False,
+                                 do_import_animations=False,
+                                 do_import_collisions=False,
+                                 do_import_tris=False,
+                                 rename_bones_niftools=False,
+                                 do_import_shapes=False,
+                                 do_apply_skinning=False,
+                                 do_import_pose=False,)                                                                                           
+
+
+def TEST_CIRCLET():
+    """This high-precision circlet imports correctly and can be exported as a ground object."""
+    testfile = TTB.test_file("tests\SkyrimSE\circlet_celebrimbor.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_CIRCLET.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile,
+                                 do_create_bones=False,
+                                 use_blender_xf=False,
+                                 do_rename_bones=False,
+                                 do_import_animations=False,
+                                 do_import_collisions=False,
+                                 do_import_tris=False,
+                                 rename_bones_niftools=False,
+                                 do_import_shapes=False,
+                                 do_apply_skinning=False,
+                                 do_import_pose=False,)                                                                                           
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    obj = bpy.context.object
+
+    bbox = TTB.get_obj_bbox(obj, worldspace=True)
+    TT.assert_lt(bbox[0][0], -2, "X")
+    TT.assert_gt(bbox[1][0], 2, "X")
+    TT.assert_eq(TTB.find_vertex(obj.data, [0.0, 0.0, 0.0]), -1, "No vertex near origin")
+
+
 def TEST_TRI2():
     """Regression: Test correct improt of tri"""
     testfile = TTB.test_file(r"tests/Skyrim/OtterMaleHead.nif")

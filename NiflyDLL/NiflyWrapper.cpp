@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 20, 5, 0 };
+const int NiflyDDLVersion[3] = { 20, 6, 0 };
  
 using namespace nifly; 
 
@@ -868,9 +868,24 @@ NIFLY_API int getVertsForShape(void* theNif, void* theShape, Vector3* buf, int l
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     std::vector<nifly::Vector3> verts;
-    nif->GetVertsForShape(shape, verts);
-    for (int i = start, j = 0; i < verts.size() && j < len; i++, j += 3)
-        buf[i] = verts.at(i);
+
+    // BSDynamicTriShape stores vert data in a different array from the BSTriShape. Normally vert
+    // data gets read correctly, but not if the shape is skinned (which it really shouldn't be). 
+    // So get the verts ourselves in that case.
+    nifly::BSDynamicTriShape* dts = static_cast<nifly::BSDynamicTriShape*>(theShape);
+    if (dts && strcmp(shape->GetBlockName(), "BSDynamicTriShape") == 0) {
+        verts.resize(dts->dynamicData.size());
+        for (int i = start, j = 0; i < verts.size() && j < len; i++, j+=3) {
+            buf[i].x = dts->dynamicData[i].x;
+            buf[i].y = dts->dynamicData[i].y;
+            buf[i].z = dts->dynamicData[i].z;
+        }
+    }
+    else {
+        nif->GetVertsForShape(shape, verts);
+        for (int i = start, j = 0; i < verts.size() && j < len; i++, j += 3)
+            buf[i] = verts.at(i);
+    }
 
     return int(verts.size());
 }

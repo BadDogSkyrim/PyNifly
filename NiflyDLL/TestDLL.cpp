@@ -4683,6 +4683,31 @@ namespace NiflyDLLTests
 			Assert::AreEqual(long(39489), long(shapeProps.vertexCount), L"Have correct vertex count");
 			Assert::AreEqual(long(76231), long(shapeProps.triangleCount), L"Have correct tri count");
 		};
+		TEST_METHOD(readFullPrecision)
+		{
+			/* Can read full-precision vertices. */
+			std::filesystem::path testfile = testRoot / "SkyrimSE/circlet_celebrimbor.nif";
+			void* shapes[2];
+			int shapeCount;
+			int shapeID;
+			NiShapeBuf shapeProps;
+
+			void* nif = load(testfile.u8string().c_str());
+			shapeCount = getShapes(nif, shapes, 1, 0);
+			shapeID = getBlockID(nif, shapes[0]);
+			Assert::AreEqual(0,
+				getBlock(nif, shapeID, &shapeProps));
+			Assert::IsTrue((shapeProps.vertexDesc & VF_FULLPREC) != 0, L"Full precision vertices");
+			Assert::AreEqual(long(2978), long(shapeProps.vertexCount), L"Have correct vertex count");
+
+			Vector3* verts = new Vector3[shapeProps.vertexCount];
+			int vertCountDyn = getVertsForShape(nif, shapes[0], verts, shapeProps.vertexCount*3, 0);
+			Assert::AreEqual((int) shapeProps.vertexCount, (int) vertCountDyn, L"Vertex counts match");
+			Assert::AreEqual(2978, (int)vertCountDyn, L"Correct vertex count");
+			for (int i = 0; i < 2978; i++) {
+				Assert::IsFalse(TApproxEqual(verts[i], Vector3(0, 0, 0)), L"No vertices at origin");
+			}
+		};
 		/* Hangs. It would be nice if it didn't. */
 		//TEST_METHOD(readCorrupt) {
 		//	std::filesystem::path testfile = testRoot / "FO4" / "Corrupt.nif";
