@@ -23,7 +23,7 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 do_tests(
-    # target_tests=[ TEST_BODYPART_FO4, TEST_IMP_EXP_FO4, TEST_IMP_EXP_FO4_2, TEST_IMP_EXP_FO4_3 ], run_all=False, stop_on_fail=True,
+    target_tests=[ TEST_SHADER_LE, TEST_SHADER_SCALE, TEST_ANIM_SHADER_GLOW, TEST_ANIM_SHADER_BSLSP, TEST_SHADER_ALPHA, TEST_VERTEX_ALPHA_IO, TEST_COLLISION_BOW_SCALE, TEST_TEXTURE_CLAMP ], run_all=False, stop_on_fail=True,
     # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
     # stop_on_fail=True
     )

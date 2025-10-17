@@ -1745,9 +1745,9 @@ def TEST_SHADER_LE():
     shaderAttrsLE = nifLE.shapes[0].shader.properties
     headLE = bpy.context.object
     shadernodes = headLE.active_material.node_tree.nodes
-    assert 'Skyrim Shader - Face' in shadernodes, \
+    assert 'SkyrimShader:Face' in shadernodes, \
         f"Shader nodes complete: {shadernodes.keys()}"
-    bsdf = shadernodes['Skyrim Shader - Face']
+    bsdf = shadernodes['SkyrimShader:Face']
     assert 'Diffuse_Texture' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
     assert bsdf.inputs['Normal'].is_linked, f"Have a normal map"
     assert bsdf.inputs['Diffuse'].is_linked, f"Have a base color"
@@ -2073,10 +2073,10 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     act = alist[0]
     TT.assert_samemembers(
         [c.data_path for c in act.fcurves],
-        ['nodes["Skyrim Shader"].inputs["Emission Color"].default_value',
-         'nodes["Skyrim Shader"].inputs["Emission Color"].default_value',
-         'nodes["Skyrim Shader"].inputs["Emission Color"].default_value',
-         'nodes["Skyrim Shader"].inputs["Emission Strength"].default_value',],
+        ['nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value',
+         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value',
+         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value',
+         'nodes["SkyrimShader:Default"].inputs["Emission Strength"].default_value',],
         "fcurve data_path values")
     
     # No bogus data paths
@@ -2093,7 +2093,7 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     TT.assert_equiv(lllhc.frame_range[1], 49.72, "Frame end", e=1)
     TT.assert_samemembers(
         [c.data_path for c in lllhc.fcurves],
-        ['nodes["Skyrim Shader - Effect"].inputs["Alpha Adjust"].default_value'],
+        ['nodes["SkyrimShader:Effect"].inputs["Alpha Adjust"].default_value'],
         "SprigganFXHandCovers fcurves")
     
     # KillFX body leaves fcurve data path is correct.
@@ -2159,8 +2159,8 @@ def TEST_SHADER_ALPHA():
     nifAlph = pyn.NifFile(fileAlph)
     furshape = nifAlph.shape_dict["tail_fur"]
     tail = bpy.data.objects["tail_fur"]
-    TT.assert_contains('Skyrim Shader', tail.active_material.node_tree.nodes.keys(), "Shader")
-    bsdf = tail.active_material.node_tree.nodes['Skyrim Shader']
+    TT.assert_contains('SkyrimShader:Default', tail.active_material.node_tree.nodes.keys(), "Shader")
+    bsdf = tail.active_material.node_tree.nodes['SkyrimShader:Default']
     assert bsdf.inputs['Normal'].is_linked, f"Have normal map"
     TT.assert_contains('Diffuse_Texture', tail.active_material.node_tree.nodes.keys(), "Diffuse texture node")
     alpha = bsdf.inputs['Alpha Property'].links[0].from_node
@@ -2982,7 +2982,7 @@ def TEST_VERTEX_ALPHA_IO():
 
     head = bpy.context.object
     nodes = head.active_material.node_tree.nodes
-    shader = nodes["Skyrim Shader - Face"]
+    shader = nodes["SkyrimShader:Face"]
     assert shader, f"Found shader"
     diffuse = BD.find_node(shader.inputs["Diffuse"], "ShaderNodeTexImage")[0]
     TT.assert_eq(diffuse.bl_idname, "ShaderNodeTexImage", "diffuse shader node")

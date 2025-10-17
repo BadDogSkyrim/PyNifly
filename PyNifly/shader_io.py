@@ -677,12 +677,12 @@ def make_uv_node(parent, shader_path, location):
     parent = parent node tree to contain the new node.
     """
     try: 
-        shader_node = append_groupnode(parent, "UV_Converter", "UV Converter", shader_path, location)
+        shader_node = append_groupnode(parent, "UV_Converter", "UV_Converter", shader_path, location)
         return shader_node
     except:
         pass
 
-    grp = bpy.data.node_groups.new(type='ShaderNodeTree', name='UV Converter')
+    grp = bpy.data.node_groups.new(type='ShaderNodeTree', name='UV_Converter')
 
     group_inputs = grp.nodes.new('NodeGroupInput')
     group_inputs.location = (-200, 0)
@@ -780,7 +780,7 @@ def make_uv_node(parent, shader_path, location):
     grp.links.new(uv_comb.outputs['Vector'], group_outputs.inputs['Vector'])
 
     shader_node = parent.new('ShaderNodeGroup')
-    shader_node.name = shader_node.label = 'UV Converter'
+    shader_node.name = shader_node.label = 'UV_Converter'
     shader_node.location = location
     shader_node.node_tree = grp
 
@@ -1520,8 +1520,8 @@ class ShaderExporter:
                     self.warn(f"Unknown shader type: {self.material['BS_Shader_Block_Name']}")
 
             nl = self.material.node_tree.nodes
-            if 'UV Converter' in nl:
-                uv = nl['UV Converter'].inputs
+            if 'UV_Converter' in nl:
+                uv = nl['UV_Converter'].inputs
                 shape.shader.properties.UV_Offset_U = uv['Offset U'].default_value
                 shape.shader.properties.UV_Offset_V = uv['Offset V'].default_value
                 shape.shader.properties.UV_Scale_U = uv['Scale U'].default_value
