@@ -23,7 +23,7 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 do_tests(
-    # target_tests=[ TEST_CIRCLET ], run_all=False, stop_on_fail=True,
+    # target_tests=[ TEST_BODYPART_FO4, TEST_IMP_EXP_FO4, TEST_IMP_EXP_FO4_2, TEST_IMP_EXP_FO4_3 ], run_all=False, stop_on_fail=True,
     # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
     # stop_on_fail=True
     )

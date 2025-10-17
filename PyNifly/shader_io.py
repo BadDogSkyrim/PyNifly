@@ -81,10 +81,10 @@ shader_node_height = {
 
 
 shader_group_nodes = {
-    'Skyrim Shader - Face': "Alpha Mult",
-    'Skyrim Shader - MSN': "Alpha Mult", 
-    'Skyrim Shader - Effect': "Alpha Adjust", 
-    'Skyrim Shader - TSN': "Alpha Mult",
+    'SkyrimShader:Face': "Alpha Mult",
+    'SkyrimShader:Default - MSN': "Alpha Mult", 
+    'SkyrimShader:Effect': "Alpha Adjust", 
+    'SkyrimShader:Default - TSN': "Alpha Mult",
     "Fallout 4 MTS": "Alpha Mult", 
     "Fallout 4 Effect": "Alpha", # may be wrong
     "Fallout 4 MTS - Face": "Alpha Mult"
@@ -93,7 +93,7 @@ shader_group_nodes = {
 
 def get_alpha_input(mat):
     """
-    Different shaders have different names. Return the Fallout OR Skyrim shader, TSN, MSN,
+    Different shaders have different names. Return the Fallout OR SkyrimShader:Default, TSN, MSN,
     or effect shader. Return the alpha input node for the shader.
     """
     if mat: 
@@ -247,14 +247,18 @@ def append_groupnode(parent, name, label, shader_path, location=None):
     """
     Load a group node from the assets file.
     """
-    with bpy.data.libraries.load(shader_path) as (data_from, data_to):
-        data_to.node_groups = [name]
+    g = bpy.data.node_groups.get(name)
+    if not g:
+        with bpy.data.libraries.load(shader_path) as (data_from, data_to):
+            data_to.node_groups = [name]
+        g = data_to.node_groups[0]
 
     shader_node = parent.nodes.new('ShaderNodeGroup')
     shader_node.label = label
     shader_node.name = name
     if location: shader_node.location = location
-    shader_node.node_tree = data_to.node_groups[0]
+    shader_node.node_tree = g
+
     return shader_node
 
 
@@ -267,31 +271,12 @@ def make_shader_skyrim(parent, shader_path, location,
     # Get the shader from the assets file. If that fails, build it here.
     try: 
         if facegen:
-            with bpy.data.libraries.load(shader_path) as (data_from, data_to):
-                data_to.node_groups = ["SkyrimShader:Face"]
-            shader_node = parent.nodes.new('ShaderNodeGroup')
-            shader_node.name = shader_node.label = ('Skyrim Shader - Face')
-            shader_node.node_tree = data_to.node_groups[0]
-        # elif msn:
-        #     with bpy.data.libraries.load(shader_path) as (data_from, data_to):
-        #         data_to.node_groups = ["SkyrimShader:MSN"]
-        #     shader_node = parent.nodes.new('ShaderNodeGroup')
-        #     shader_node.name = shader_node.label = ('Skyrim Shader - MSN')
+            shader_node = append_groupnode(parent, "SkyrimShader:Face", "SkyrimShader:Face", shader_path, location)
         elif effect_shader:
-            with bpy.data.libraries.load(shader_path) as (data_from, data_to):
-                data_to.node_groups = ["SkyrimShader:Effect"]
-            shader_node = parent.nodes.new('ShaderNodeGroup')
-            shader_node.name = shader_node.label = ('Skyrim Shader - Effect')
-            shader_node.node_tree = data_to.node_groups[0]
+            shader_node = append_groupnode(parent, "SkyrimShader:Effect", "SkyrimShader:Effect", shader_path, location)
         else:
-            with bpy.data.libraries.load(shader_path) as (data_from, data_to):
-                data_to.node_groups = ["SkyrimShader:Default"]
-            shader_node = parent.nodes.new('ShaderNodeGroup')
-            shader_node.name = shader_node.label = ('Skyrim Shader')
-            shader_node.node_tree = data_to.node_groups[0]
+            shader_node = append_groupnode(parent, "SkyrimShader:Default", "SkyrimShader:Default", shader_path, location)
             shader_node.inputs["MSN"].default_value = bool(msn)
-
-        shader_node.location = location
 
         return shader_node
     
@@ -522,7 +507,7 @@ def make_shader_skyrim(parent, shader_path, location,
     grp.links.new(bsdf.outputs['BSDF'], group_outputs.inputs['BSDF'])
 
     shader_node = parent.nodes.new('ShaderNodeGroup')
-    shader_node.name = shader_node.label = ('Skyrim Face Shader' if facegen else 'Skyrim Shader')
+    shader_node.name = shader_node.label = ('Skyrim Face Shader' if facegen else 'SkyrimShader:Default')
     shader_node.location = location
     shader_node.node_tree = grp
 
@@ -545,13 +530,14 @@ def make_shader_fo4(parent, shader_path, location, facegen=True, effect_shader=F
             shadername = "Fallout 4 MTS - Face"  
             shaderlabel = "FO4 Face Shader"
 
-        with bpy.data.libraries.load(shader_path) as (data_from, data_to):
-            data_to.node_groups = [shadername]
+        shader_node = append_groupnode(parent, shadername, shaderlabel, shader_path, location)
+        # with bpy.data.libraries.load(shader_path) as (data_from, data_to):
+        #     data_to.node_groups = [shadername]
 
-        shader_node = parent.nodes.new('ShaderNodeGroup')
-        shader_node.name = shader_node.label = shaderlabel
-        shader_node.location = location
-        shader_node.node_tree = data_to.node_groups[0]
+        # shader_node = parent.nodes.new('ShaderNodeGroup')
+        # shader_node.name = shader_node.label = shaderlabel
+        # shader_node.location = location
+        # shader_node.node_tree = data_to.node_groups[0]
 
         return shader_node
     
@@ -690,13 +676,8 @@ def make_uv_node(parent, shader_path, location):
     mode.
     parent = parent node tree to contain the new node.
     """
-    try:
-        with bpy.data.libraries.load(shader_path) as (data_from, data_to):
-            data_to.node_groups = ["UV_Converter"]
-        shader_node = parent.new('ShaderNodeGroup')
-        shader_node.name = shader_node.label = ('UV Converter')
-        shader_node.location = location
-        shader_node.node_tree = data_to.node_groups[0]
+    try: 
+        shader_node = append_groupnode(parent, "UV_Converter", "UV Converter", shader_path, location)
         return shader_node
     except:
         pass
@@ -840,8 +821,8 @@ def get_effective_colormaps(mesh):
                 colormap = vc
                 break
 
-    if not alphamap and ALPHA_MAP_NAME in vertcolors.keys():
-        alphamap = vertcolors[ALPHA_MAP_NAME]
+    if not alphamap:
+        alphamap = vertcolors.get(ALPHA_MAP_NAME)
 
     return colormap, alphamap
 
@@ -1093,7 +1074,7 @@ class ShaderImporter:
         """
         self.ytop = self.bsdf.location.y
         self.texmap = make_uv_node(
-            self.nodes, 
+            self, 
             self.asset_path, 
             (self.inputs_offset_x-TEXTURE_NODE_WIDTH-HORIZONTAL_GAP, 0,))
 

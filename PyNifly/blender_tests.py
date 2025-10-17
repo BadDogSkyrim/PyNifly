@@ -1788,7 +1788,7 @@ def TEST_SHADER_SE():
     shadernodes = boots.active_material.node_tree.nodes
     TT.assert_gt(len(shadernodes), 4, "Number of shader nodes")
     TT.assert_eq(boots.active_material['Env_Map_Scale'], shaderAttrsSE.Env_Map_Scale, "environment map scale")
-    TT.assert_eq(bpy.data.materials["Shoes.Mat"].node_tree.nodes["UV Converter"].inputs[4].default_value, 1, "Wrap U")
+    TT.assert_eq(bpy.data.materials["Shoes.Mat"].node_tree.nodes["UV_Converter"].inputs[4].default_value, 1, "Wrap U")
 
     print("## Shader attributes are written on export")
     bpy.ops.object.select_all(action='DESELECT')
@@ -1865,7 +1865,7 @@ def TEST_SHADER_GRAYSCALE_COLOR():
     assert Path(difnode.image.filepath).parts.index('haircurly_d.dds') >= 0,  "Diffuse texture"
     
     # UV scale correct
-    uvnode = m.node_tree.nodes['UV Converter']
+    uvnode = m.node_tree.nodes['UV_Converter']
     TT.assert_eq(uvnode.inputs['Scale U'].default_value, 
                  uvnode.inputs['Scale V'].default_value, 
                  1.0, 
@@ -1960,7 +1960,7 @@ def TEST_ANIM_SHADER_GLOW():
     action = glow.active_material.node_tree.animation_data.action
     assert action.use_cyclic, f"Cyclic animation: {action.use_cyclic}"
 
-    uv_node = shadernodes['UV Converter']
+    uv_node = shadernodes['UV_Converter']
     bpy.context.scene.frame_set(0)
     assert uv_node.inputs['Offset V'].default_value == 1, \
         f"V offset starts at 0: {uv_node.inputs['Offset V'].default_value}"
@@ -2002,7 +2002,7 @@ def TEST_ANIM_SHADER_BSLSP():
     action = head.active_material.node_tree.animation_data.action
     assert action.use_cyclic, f"Cyclic animation: {action.use_cyclic}"
 
-    uv_node = shadernodes['UV Converter']
+    uv_node = shadernodes['UV_Converter']
     bpy.context.scene.frame_set(1)
     TT.assert_eq(uv_node.inputs['Offset V'].default_value, 1, "Offset V")
     bpy.context.scene.frame_set(385)
@@ -2424,7 +2424,7 @@ def TEST_BRICKWALL():
     testfile = TTB.test_file(r"tests\FO4\Meshes\Architecture\DiamondCity\DExt\DExBrickColumn01.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
     # This nif has clamped UVs in the nif, but the materials says they wrap. Make sure they wrap.
-    TT.assert_eq(bpy.data.materials["DExBrickColumn01:0.Mat"].node_tree.nodes["UV Converter"].inputs[4].default_value,
+    TT.assert_eq(bpy.data.materials["DExBrickColumn01:0.Mat"].node_tree.nodes["UV_Converter"].inputs[4].default_value,
                     1, "UV S is clamped")
     assert bpy.data.materials["DExBrickColumn01:0.Mat"].node_tree.nodes["Fallout 4 MTS - Greyscale To Palette Vector"], "Have palette node"
 
