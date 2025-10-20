@@ -426,6 +426,21 @@ def TEST_IMP_EXP_SKY_2():
     assert "NPC R Hand [RHnd]" not in bpy.data.objects, f"Did not create extra nodes representing the bones"
         
 
+def TEST_CHILDHEAD():
+    """The child head has face tint but tangent space normals. Check it exports correctly."""
+
+    testfile = TTB.test_file(r"tests\SkyrimSE\childhead.nif")
+    outfile = TTB.test_file(r"tests/out/TEST_CHILDHEAD.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    head = bpy.context.object
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIMSE")
+
+    nifout = pyn.NifFile(outfile)
+    CheckNif(nifout, source=testfile)
+
+
 def TEST_IMP_EXP_FO4():
     """Can read the body nif and spit it back out"""
 

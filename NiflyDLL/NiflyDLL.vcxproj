@@ -384,6 +384,7 @@ copy /y $(ProjectDir)..\pynifly\hkxcmd.exe  $(OutDir)io_scene_nifly\
     <ClCompile Include="..\..\Nifly\src\Factory.cpp" />
     <ClCompile Include="..\..\Nifly\src\Geometry.cpp" />
     <ClCompile Include="..\..\Nifly\src\NifFile.cpp" />
+    <ClCompile Include="..\..\Nifly\src\NifUtil.cpp" />
     <ClCompile Include="..\..\Nifly\src\Nodes.cpp" />
     <ClCompile Include="..\..\Nifly\src\Object3d.cpp" />
     <ClCompile Include="..\..\Nifly\src\Objects.cpp" />

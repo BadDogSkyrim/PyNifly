@@ -299,6 +299,19 @@ def Check_eye(nif:NifFile):
     TT.assert_patheq(eye.shader.textures['EnvMask'], r"textures\actors\character\eyes\EyeEnvironmentMask_M.dds", "mask texture")
 
 
+def Check_childhead(nif:NifFile):
+    head = nif.shape_dict['ChildHead']
+    TT.assert_eq(head.blockname, "BSDynamicTriShape", "shader type") # has tri morphs
+    TT.assert_eq(head.shader.blockname, "BSLightingShaderProperty", "shader type")
+    TT.assert_eq(head.shader.properties.Shader_Type, BSLSPShaderType.Face_Tint, "shader type")
+    TT.assert_eq(head.shader.flag_vertex_alpha, False, "vertex alpha flag")
+    TT.assert_eq(head.shader.flag_model_space_normals, False, "model space normals flag")
+    TT.assert_eq(head.shader.properties.Glossiness, 80, "glossiness")
+    TT.assert_equiv(head.shader.properties.Spec_Color, [1.0, 1.0, 1.0], "spec color", e=0.01)
+    TT.assert_patheq(head.shader.textures['Diffuse'], r"textures\actors\character\malechild\HeadHuman.dds", "Diffuse texture")
+    TT.assert_patheq(head.shader.textures['Normal'], r"textures\actors\character\malechild\HeadHuman_n.dds", "Normal texture")
+
+
 test_files = {
     ("FO4", "DExBrickColumn01.nif"): Check_brickcolumn,
     ("FO4", "Helmet.nif"): Check_fo4Helmet,
@@ -311,6 +324,7 @@ test_files = {
     ("SkyrimSE","dwarvenboots_envscale.nif"): Check_dwarvenboots,
     ("SkyrimSE", "eyesmale.nif"): Check_eye,
     ("SkyrimSE","maleheadkhajiit.nif"): Check_khajiithead,
+    ("SkyrimSE","childhead.nif"): Check_childhead,
 }
 
 def CheckNif(nif, source=None):

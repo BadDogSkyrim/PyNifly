@@ -161,6 +161,9 @@
     <ClCompile Include="Anim.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Nifly\src\NifUtil.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="NiflyDLL.rc">

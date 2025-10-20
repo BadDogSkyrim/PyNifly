@@ -3827,10 +3827,10 @@ int getNiBlendInterpolator(void* nifref, uint32_t tiID, void* inbuf) {
         BUFFER_TYPES::NiBlendTransformInterpolatorBufType,
         NiBlendInterpolatorBuf);
 
-    buf->arraySize = interp->arraySize;
+    buf->arraySize = (uint8_t) interp->arraySize;
     buf->flags = interp->flags;
     buf->weightThreshold = interp->weightThreshold;
-    buf->interpCount = interp->interpCount;
+    buf->interpCount = (uint8_t) interp->interpCount;
     buf->singleIndex = interp->singleIndex;
     buf->highPriority = interp->highPriority;
     buf->nextHighPriority = interp->nextHighPriority;
