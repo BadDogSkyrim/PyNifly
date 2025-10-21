@@ -1006,9 +1006,12 @@ class NifImporter():
             new_object = bpy.data.objects.new(the_shape.name, new_mesh)
             new_object['pynBlockName'] = the_shape.blockname
             the_shape.properties.extract(new_object, ignore=NISHAPE_IGNORE)
-            new_object["pynNodeFlags"] = NiAVFlags(the_shape.flags).fullname
-            if the_shape.properties.vertexDesc:
-                new_object["pynVertexDesc"] = VertexFlags(the_shape.properties.vertexDesc).fullname
+            try:
+                new_object["pynNodeFlags"] = NiAVFlags(the_shape.flags).fullname
+                if the_shape.properties.vertexDesc:
+                    new_object["pynVertexDesc"] = VertexFlags(the_shape.properties.vertexDesc).fullname
+            except Exception as e:
+                log.warn(f"Error setting pynVertexDesc for {new_object.name}: {e}")
             self.loaded_meshes.append(new_object)
             self.nodes_loaded[new_object.name] = the_shape
         
@@ -3485,7 +3488,10 @@ class NifExporter:
         xf = make_transformbuf(apply_scale_xf(obj.matrix_local, 1))
         ninode = self.nif.add_node(obj.name, xf, parent.nifnode if parent else None)
         if "pynNodeFlags" in obj:
-            ninode.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
+            try:
+                ninode.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
+            except Exception as e:
+                log.warn(f"Error setting pynNodeFlags for {obj.name}: {e}")
         ref = ReprObject(obj, ninode) # [obj.name] = ninode
         self.objs_written.add(ref) 
         collision.CollisionHandler.export_collisions(self, obj)
@@ -3720,9 +3726,15 @@ class NifExporter:
                                                  props=props,
                                                  parent=my_parent.nifnode if my_parent else None)
         if "pynNodeFlags" in obj:
-            new_shape.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
+            try:
+                new_shape.flags = NiAVFlags.parse(obj['pynNodeFlags']).value
+            except Exception as e:
+                log.warn(f"Error setting pynNodeFlags for {obj.name}: pynNodeFlags={obj['pynNodeFlags']}")
         if "pynVertexDesc" in obj and obj["pynVertexDesc"]:
-            new_shape.properties.vertexDesc = VertexFlags.parse(obj["pynVertexDesc"]).value
+            try:
+                new_shape.properties.vertexDesc = VertexFlags.parse(obj['pynVertexDesc']).value
+            except Exception as e:
+                log.warn(f"Error setting pynVertexDesc for {obj.name}: pynVertexDesc={obj['pynVertexDesc']}")
 
         robj = ReprObject(obj, new_shape)
         self.objs_written.add(robj)
@@ -3851,10 +3863,12 @@ class NifExporter:
             self.objs_written.add_pair(self.root_object, self.nif.rootNode) # [self.root_object.name] = self.nif.rootNode
             try:
                 self.nif.rootNode.flags = NiAVFlags.parse(self.root_object["pynNodeFlags"]).value
-            except:
-                pass
-        elif "pynNodeFlags" in shape:
-            self.nif.rootNode.flags = NiAVFlags.parse(shape["pynNodeFlags"]).value
+            except Exception as e:
+                log.warn(f"Error setting pynNodeFlags for root object {self.root_object.name}: pynNodeFlags={self.root_object['pynNodeFlags']}")
+        ### Used to set the root flags from the first object's pynNodeFlags, but now that
+        ### we have a root object, keep the flags on the object for the object.
+        # elif "pynNodeFlags" in shape:
+        #     self.nif.rootNode.flags = NiAVFlags.parse(shape["pynNodeFlags"]).value
 
         if suffix == '_faceBones':
             self.nif.dict = fo4FaceDict

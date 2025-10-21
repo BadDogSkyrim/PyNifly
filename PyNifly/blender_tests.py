@@ -6029,6 +6029,24 @@ def TEST_EMPTY_NODES():
     assert "L2_Ivy" in nifout.nodes, f"Has empty node"
 
 
+def TEST_EMPTY_FLAGS():
+    """Empty pyNodeFlags doesn't cause an error."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\farmbench01.nif")
+    outfile = TTB.test_file(r"tests\out\TEST_EMPTY_FLAGS.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
+    
+    obj = bpy.context.object
+    assert obj['pynNodeFlags'] != "", f"pynNodeFlags is not empty"
+
+    obj['pynNodeFlags'] = "XYZ"
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    nifout = pyn.NifFile(outfile)
+    assert "FarmBench01:5" in nifout.nodes, f"Has object"
+    assert nifout.nodes["FarmBench01:5"].properties.flags == 0, f"Has zero flags"
+
+
 def TEST_COLLISION_PROPERTIES():
     """Test some specific collision property values."""
     testfile = TTB.test_file(r"tests\SkyrimSE\SteelDagger.nif")
