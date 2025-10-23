@@ -2395,6 +2395,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         self.xml_filepath = None
         self.import_flags = ImportSettings(0)
         self.animation_name = None
+        self.kf_filepath:Path = None
 
         obj = bpy.context.object
         if obj and obj.type == 'ARMATURE':
@@ -2499,12 +2500,12 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
 
     def import_animation(self):
         """self.xmlfile has an animation in it. Import the animation."""
-        kf_file = self.make_kf(self.xmlfile.hkx_filepath)
+        kf_file = self.make_kf(self.xmlfile.hkx_filepath, is_temp=True)
         if not kf_file:
             return('CANCELLED')
         else:
             self.import_flags |= ImportSettings.import_anims
-            imp = NifImporter(self.kf_filepath, 
+            imp = NifImporter(str(self.kf_filepath), 
                               [], 
                               [self.context.object],
                               self.import_flags,
@@ -2520,23 +2521,26 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
             return('FINISHED')
 
 
-    def make_kf(self, filepath_working) -> NifFile:
+    def make_kf(self, filepath_working:str, is_temp=False) -> NifFile:
         """
         Creates a kf file from a hkx file.  
         
         Returns 
         * KF file is opened and returned as a NifFile. 
         """
-        self.kf_filepath = tmp_filepath(filepath_working, ext=".kf")
+        if is_temp:
+            self.kf_filepath = Path(filepath_working).with_suffix('.kf')
+        else:
+            self.kf_filepath = Path(tmp_filepath(filepath_working, ext=".kf"))
 
         if not self.kf_filepath:
-            raise RuntimeError(f"Could not create temporary file")
+            raise RuntimeError(f"Could not create temporary file {self.kf_filepath}")
         
         stat = subprocess.run([hkxcmd_path, 
                                "EXPORTKF", 
                                self.reference_skel_short, 
                                filepath_working, 
-                               self.kf_filepath], 
+                               str(self.kf_filepath)], 
                                capture_output=True, check=True)
         if stat.stderr:
             s = stat.stderr.decode('utf-8').strip()
@@ -2544,11 +2548,11 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
                 log.error(s)
                 return None
         if not os.path.exists(self.kf_filepath):
-            log.error(f"Failed to create {self.kf_filepath}")
+            log.error(f"HKXCMD failed to create {self.kf_filepath}")
             return None
         log.info(f"Temporary KF file created: {self.kf_filepath}")
 
-        return NifFile(self.kf_filepath)
+        return NifFile(str(self.kf_filepath))
     
 
     def import_annotations(self):
@@ -4291,14 +4295,14 @@ class KFExporter():
 
 
     @classmethod
-    def Export(cls, filepath, context,
+    def Export(cls, filepath:Path, context,
                fps=30, do_rename_bones=True, rename_bones_niftools=False):
         kfx = KFExporter(filepath, context,
             fps=30, do_rename_bones=True, rename_bones_niftools=False)
 
         # Export whatever animation is attached to the active object.
         kfx.nif = NifFile()
-        kfx.nif.initialize("SKYRIM", filepath, "NiControllerSequence", 
+        kfx.nif.initialize("SKYRIM", str(filepath), "NiControllerSequence", 
                             kfx.filename_base)
         
         controller.ControllerHandler.export_animation(kfx, context.object)
@@ -4480,7 +4484,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         stat = subprocess.run([hkxcmd_path, 
                                "CONVERTKF", 
                                self.reference_skel_short, 
-                               self.kf_filepath, 
+                               str(self.kf_filepath), 
                                filepath], 
                                capture_output=True, check=True)
         if stat.returncode:
@@ -4592,7 +4596,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         NifFile.clear_log()
 
         # Export whatever animation is attached to the active object.
-        self.kf_filepath = tmp_filepath(self.filepath, ext=".kf")
+        self.kf_filepath = Path(tmp_filepath(self.filepath, ext=".kf"))
         try:
             KFExporter.Export(self.kf_filepath, context, fps=self.fps)
             # bpy.ops.export_scene.pynifly_kf(filepath=self.kf_filepath, fps=self.fps)

@@ -39,6 +39,30 @@ def assert_equiv(actual, expected, msg, e=0.0001):
             assert NT.NearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
 
 
+def assert_equiv_not(actual, expected, msg, e=0.0001):
+    """Assert two values are not nearly equal. Values may be scalars, vectors, or matrices."""
+    if hasattr(actual, '__getitem__'):
+        if hasattr(actual[0], '__getitem__'):
+            assert not NT.MatNearEqual(actual, expected, epsilon=e), f"Values are not equal for {msg}: {actual} != {expected}"
+        else:
+            assert not NT.VNearEqual(actual[:], expected, epsilon=e), f"Values are not equal for {msg}: {actual} != {expected}"
+    else:
+        assert not NT.NearEqual(actual, expected, epsilon=e), f"Values are not equal for {msg}: {actual} != {expected}"
+
+
+    # try:
+    #     assert not NT.MatNearEqual(actual, expected, epsilon=e), f"Values are not equal for {msg}: {actual} != {expected}"
+    # except AssertionError:
+    #     raise
+    # except:
+    #     try:
+    #         assert not NT.VNearEqual(actual[:], expected, epsilon=e), f"Values are not equal for {msg}: {actual[:]} != {expected}"
+    #     except AssertionError:
+    #         raise
+    #     except:
+    #         assert not NT.NearEqual(actual, expected, epsilon=e), f"Values are not equal for {msg}: {actual} != {expected}"
+
+
 def assert_patheq(actual, expected, msg):
     a = Path(actual)
     b = Path(expected)

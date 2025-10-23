@@ -63,14 +63,22 @@ def ObjectSelect(objlist, deselect=True, active=False):
         pass
     if deselect:
         bpy.ops.object.select_all(action='DESELECT')
-    for o in objlist:
+    if hasattr(objlist, "__iter__"):
+        for o in objlist:
+            try:
+                o.select_set(True)
+            except:
+                pass
+        o1 = objlist[0] if len(objlist) > 0 else None
+    else:
         try:
-            o.select_set(True)
+            objlist.select_set(True)
         except:
             pass
+        o1 = objlist
     if active and objlist:
         try:
-            bpy.context.view_layer.objects.active = objlist[0]
+            bpy.context.view_layer.objects.active = o1
         except:
             pass
 

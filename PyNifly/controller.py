@@ -123,6 +123,9 @@ def make_action_name(animation_name=None, target_obj=None, target_elem=None):
     """
     Build an animation name suitable for applying to an action.
     """
+    if animation_name:
+        return animation_name
+    
     if not animation_name: animation_name = "-"
     an = sanitize_name(animation_name)
     tn = sanitize_name(target_obj.name)
@@ -139,7 +142,9 @@ def parse_animation_name(name):
     """
     n = desanitize_name(name)
     parts = n.split("|")
-    if not parts[0] == ANIMATION_NAME_MARKER: return None
+    if parts and not parts[0] == ANIMATION_NAME_MARKER: 
+        ## TODO: eventually get rid of formatted animation names
+        return name
     if len(parts) < 4:
         parts.append("")
     else:
@@ -153,12 +158,15 @@ def all_animation_actions(animation:str=""):
     Iterator returning all actions that are animations.
     animation = If provided, only actions that implement the animation are returned.
     """
-    marker = ANIMATION_NAME_MARKER + ANIMATION_NAME_SEP
-    if animation: marker = marker + animation + ANIMATION_NAME_SEP
-    noname_marker = marker + "-|"
-    for act in bpy.data.actions:
-        if act.name.startswith(marker) and not act.name.startswith(noname_marker):
-            yield act
+    if animation: 
+        ## TODO: Evetually all animations can be found by name & won't need to build the formatted name
+        yield bpy.data.actions.get(animation)
+    else:
+        marker = ANIMATION_NAME_MARKER + ANIMATION_NAME_SEP
+        noname_marker = marker + "-|"
+        for act in bpy.data.actions:
+            if act.name.startswith(marker) and not act.name.startswith(noname_marker):
+                yield act
 
 
 def current_animations(nif, refobjs:BD.ReprObjectCollection):
@@ -467,6 +475,7 @@ class ControllerHandler():
             self.context.scene.frame_end = 0
         self.context.scene.timeline_markers.clear()
         self.animation_actions = []
+        self.action = None
 
         self.action_name = ""
         self.action_group = ""
@@ -477,7 +486,8 @@ class ControllerHandler():
 
         # if the animation context has a target, set action_target
         try:
-            if (not self.action_target) and (self.action_target.type != 'ARMATURE'):
+            # if (not self.action_target) and (self.action_target.type != 'ARMATURE'):
+            if self.action_target and (self.action_target.type != 'ARMATURE'):
                 self.action_target = self._find_target(anim_context.target.name)
             elif self.action_target and self.action_target.type == 'ARMATURE' and not self.bone_target:
                 self.bone_target = self._find_target(anim_context.target.name)
@@ -497,50 +507,55 @@ class ControllerHandler():
             suf = self.action_group
         self.action_name = make_action_name(self.anim_name, self.animation_target, suf)
 
-        if self.action_target.animation_data and self.action_target.animation_data.action \
-            and self.action_target.animation_data.action.name == self.action_name:
-            # If the target already has an action and it matches the one we're to create,
-            # use it. We will add more fcurves to animate whatever this action wants.
-            self.action = self.action_target.animation_data.action
-        else:
-            self.action = bpy.data.actions.new(self.action_name)
-            self.action.frame_start = self.frame_start
-            self.action.frame_end = self.frame_end
-            self.action.use_frame_range = True
-            self.action.use_cyclic = self.is_cyclic 
+        ## Create the action. Ignore any existing action on the target.
+        # if self.action_target.animation_data and self.action_target.animation_data.action \
+        #     and self.action_target.animation_data.action.name == self.action_name:
+        #     # If the target already has an action and it matches the one we're to create,
+        #     # use it. We will add more fcurves to animate whatever this action wants.
+        #     self.action = self.action_target.animation_data.action
+        # else:
+        self.action = bpy.data.actions.new(self.action_name)
+        self.action.frame_start = self.frame_start
+        self.action.frame_end = self.frame_end
+        self.action.use_frame_range = True
+        self.action.use_cyclic = self.is_cyclic 
+        self.anim_name = self.action.name # Just in case Blender added a suffix
 
+        try:
+            if self.action_target.type == 'SHADER':
+                self.action.slots.new('NODETREE', 'Legacy Slot')
+            elif self.action_target.type == 'EMPTY':
+                self.action.slots.new('OBJECT', self.action_target.name)
+            # TODO: Figure out why this doesn't work vv
+            elif self.action_target.type == 'ARMATURE':
+                self.action.slots.new('OBJECT', self.anim_name)
+        except:
+            log.exception("Error creating action slot for controller action")
+            pass # prior to 4.4
+
+        # Some nifs have multiple animations with different names. Others just animate
+        # various nif blocks. If there's a name, make this an asset so we can track them.
+        if self.anim_name:
+            self.action.use_fake_user = True
+            self.action.asset_mark()
+            self.animation_actions.append(self.action)
+            
+        self.action_target.animation_data_create()
+
+        # try: # 4.4 and later
+        #     track = self.action_target.animation_data.nla_tracks.new()
+        #     strip = track.strips.new(name=self.anim_name, start=1, action=self.action)
+        #     strip.action_frame_start = self.action.frame_range[0]
+        #     strip.action_frame_end = self.action.frame_range[1]
+        # except:
+        #     self.action_target.animation_data.action = self.action
+
+        self.action_target.animation_data.action = self.action
+        if len(self.action.slots) > 0:
             try:
-                if self.action_target.type == 'SHADER':
-                    self.action.slots.new('NODETREE', 'Legacy Slot')
-                elif self.action_target.type == 'EMPTY':
-                    self.action.slots.new('OBJECT', 'Legacy Slot')
-                # TODO: Figure out why this doesn't work vv
-                # elif self.action_target.type == 'ARMATURE':
-                #     self.action.slots.new('ARMATURE', 'Legacy Slot')
-            except:
-                log.exception("Error creating action slot for controller action")
-                pass # prior to 4.4
-
-            # Some nifs have multiple animations with different names. Others just animate
-            # various nif blocks. If there's a name, make this an asset so we can track them.
-            if self.anim_name:
-                self.action.use_fake_user = True
-                self.action.asset_mark()
-                self.animation_actions.append(self.action)
-                
-            self.action_target.animation_data_create()
-
-            # try: # 4.4 and later
-            #     track = self.action_target.animation_data.nla_tracks.new()
-            #     strip = track.strips.new(name=self.anim_name, start=1, action=self.action)
-            #     strip.action_frame_start = self.action.frame_range[0]
-            #     strip.action_frame_end = self.action.frame_range[1]
-            # except:
-            #     self.action_target.animation_data.action = self.action
-
-            self.action_target.animation_data.action = self.action
-            if len(self.action.slots) > 0:
                 self.action_target.animation_data.action_slot = self.action.slots[0]
+            except Exception as e:
+                    log.warn(f"Could not assign action slot for {self.action_target}: {e}")
 
 
     def _animate_bone(self, bone_name:str):
@@ -587,9 +602,10 @@ class ControllerHandler():
 
     def _new_element_action(self, anim_context, target_name, property_type, suffix):
         """
-        Set up info to create an action to animate a single element (bone, shader, node).
-        This may be part of a larger nif animation. The actual action isn't created until
-        we load the interpolator, because for various reasons we might never get there.
+        Set up info to create an action slot to animate a single element (bone, shader,
+        node). This may be part of a larger nif animation/blender action. The actual
+        action and action slot aren't created until we load the interpolator, because for
+        various reasons we might never get there.
 
         target_name is the name of the target in the nif file.
          
@@ -606,7 +622,6 @@ class ControllerHandler():
             else:
                 self.action_target = targ.blender_obj
             if self.action_target:
-                # self._new_action(suffix)
                 return True
         except:
             pass
@@ -690,6 +705,7 @@ class ControllerHandler():
         """
         Import the animation defined by a controller block.
         
+        ctlr = May be a NiControllerManager containg multiple named sequences
         target_object = The blender object controlled by the animation, e.g. armature, mesh object.
         target_element = The blender object an action must be bound to, e.g. bone, material.
         """
@@ -1691,7 +1707,7 @@ def _import_controller_manager(cm:NiControllerManager,
     for seq in cm.sequences.values():
         # importer._new_controller_seq_action(seq)
         seq.import_node(importer)
-        if not anim: anim = seq.name
+        if not anim: anim = importer.anim_name
     if anim: 
         anim_dict = apply_animation(anim, importer.context.scene)
         bpy.context.scene.frame_start = anim_dict["start_frame"]

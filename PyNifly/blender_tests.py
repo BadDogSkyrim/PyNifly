@@ -5397,19 +5397,20 @@ def TEST_FONV_BOD():
 
 def TEST_ANIM_NOBLECHEST():
     """Read and write the animation of chest opening and shutting."""
+    # The chest has two top-level named animations, Open and Close
     testfile = TTB.test_file(r"tests\Skyrim\noblechest01.nif")
     outfile =TTB.test_file(r"tests/Out/TEST_ANIM_NOBLECHEST.nif")
 
     #### READ ####
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
+
     lid = bpy.data.objects["Lid01"]
-    animations = ["ANIM|Open|Lid01", "ANIM|Close|Lid01"]
+    animations = ["Open", "Close"]
     assert lid.animation_data is not None
-    assert lid.animation_data.action.name in animations, \
-        f"Animation has correct name: {lid.animation_data.action.name}"
-    for n in animations:
-        assert n in bpy.data.actions, f"Loaded animation {n}"
+    TT.assert_contains(lid.animation_data.action.name, animations, "animations exist")
+    TT.assert_samemembers(animations, bpy.data.actions.keys(), "Have all animations")
+    TT.assert_gt(bpy.context.scene.frame_end, 12, "Have enough frames for animation")
 
     cur_fps = bpy.context.scene.render.fps
     end_frame = 0.5 * cur_fps + 1
@@ -5618,19 +5619,27 @@ def TEST_ANIM_KF():
                                  do_import_collisions=False,
                                  use_blender_xf=False)
     
-    BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect(arma, active=True)
     bpy.ops.import_scene.pynifly_kf(filepath=testfile)
 
-    action = bpy.data.actions[0]
-    assert action.name.startswith("ANIM|1hm_staggerbacksmallest"), \
-        f"Have correct action name: {bpy.data.actions[0].name}"
-    assert len(action.fcurves) > 0, f"Have fcurves: {len(action.fcurves)}"
+    a = arma.animation_data.action
+    TT.assert_eq(a.name, "1hm_staggerbacksmallest", "action name")
+    TT.assert_gt(len(a.fcurves), 0, "fcurve count")
+
+    # Check that the head moves over the course of the animation
+    bpy.context.scene.frame_set(1)
+    headpos = arma.pose.bones["NPC COM [COM ]"].location.copy()
+    bpy.context.scene.frame_set(8)
+    headpos2 = arma.pose.bones["NPC COM [COM ]"].location.copy()
+    TT.assert_equiv_not(headpos, headpos2, "Head motion", e=0.001)
 
     # Loading a second animation shouldn't screw things up.
     BD.ObjectSelect([obj for obj in bpy.data.objects if obj.type == 'ARMATURE'], active=True)
     bpy.ops.import_scene.pynifly_kf(filepath=testfile2)
 
-    assert len([a for a in bpy.data.actions if a.name.startswith("ANIM|1hm_attackpowerright")])
+    TT.assert_eq(arma.animation_data.action.name, "1hm_attackpowerright", "action name after second import")
+    TT.assert_contains("1hm_staggerbacksmallest", bpy.data.actions, "first action still exists")
 
     ### Export ###
 
