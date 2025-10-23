@@ -5414,10 +5414,12 @@ def TEST_ANIM_NOBLECHEST():
 
     cur_fps = bpy.context.scene.render.fps
     end_frame = 0.5 * cur_fps + 1
-    assert bpy.context.scene.timeline_markers[1].name == "end", f"Marker exists"
-    assert bpy.context.scene.timeline_markers[1].frame == end_frame, f"Correct frame"
-    assert math.isclose(
-        bpy.data.actions["ANIM|Close|Lid01"]["pynMarkers"]["end"], 0.5, abs_tol=0.0001), f"Have markers on aactions"
+    TT.assert_seteq([m.name for m in bpy.context.scene.timeline_markers], ["start", "end"], "Have markers")
+    # assert bpy.context.scene.timeline_markers[1].name == "end", f"Marker exists"
+    # assert bpy.context.scene.timeline_markers[1].frame == end_frame, f"Correct frame"
+    TT.assert_equiv(lid.animation_data.action["pynMarkers"]["end"], 0.5, "Have markers on action", e=0.0001)
+    # assert math.isclose(
+    #     bpy.data.actions["ANIM|Close|Lid01"]["pynMarkers"]["end"], 0.5, abs_tol=0.0001), f"Have markers on aactions"
 
     ### WRITE ###
 

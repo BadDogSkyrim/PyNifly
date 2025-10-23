@@ -198,6 +198,7 @@ def _animations_for_pulldown(self, context):
     return _animation_pulldown_items
 
 
+## TODO: Obsolete
 def assign_action(obj, elem, act):
     """Assign the given action to the given object."""
     targ = None
@@ -211,8 +212,24 @@ def assign_action(obj, elem, act):
         targ.animation_data.action = act
         if len(act.slots) > 0:
             targ.animation_data.action_slot = act.slots[0]
-                
 
+
+def apply_action(act):
+    """Make the given action active in the scene."""
+    for s in act.slots:
+        if s.target_id_type == 'OBJECT':
+            objname = s.name_display
+            if objname in bpy.context.scene.objects:
+                obj = bpy.context.scene.objects[objname]
+                if not obj.animation_data:
+                    obj.animation_data_create()
+                obj.animation_data.action = act
+                obj.animation_data.action_slot = s
+    bpy.context.scene.frame_start = int(act.frame_start)
+    bpy.context.scene.frame_end = int(act.frame_end)
+
+
+## TODO: Obsolete
 def apply_animation(anim_name, myscene):
     """
     Apply the named animation to the currently visible objects.
@@ -480,8 +497,8 @@ class ControllerHandler():
         self.action_name = ""
         self.action_group = ""
         self.path_name = ""
-        self.frame_start = anim_context.properties.startTime * self.fps + 1
-        self.frame_end = anim_context.properties.stopTime * self.fps + 1
+        self.frame_start = int(anim_context.properties.startTime * self.fps + 1)
+        self.frame_end = int(anim_context.properties.stopTime * self.fps + 1)
         self.is_cyclic = anim_context.is_cyclic
 
         # if the animation context has a target, set action_target
@@ -1703,15 +1720,16 @@ NiControllerSequence.import_node = _import_controller_sequence
 def _import_controller_manager(cm:NiControllerManager, 
                                 importer:ControllerHandler, 
                                 interp=None):
-    anim = None
+    a = None
     for seq in cm.sequences.values():
         # importer._new_controller_seq_action(seq)
         seq.import_node(importer)
-        if not anim: anim = importer.anim_name
-    if anim: 
-        anim_dict = apply_animation(anim, importer.context.scene)
-        bpy.context.scene.frame_start = anim_dict["start_frame"]
-        bpy.context.scene.frame_end= anim_dict["stop_frame"]
+        if not a: a = importer.action
+    if a: 
+        apply_action(a)
+        # anim_dict = apply_animation(anim, importer.context.scene)
+        # bpy.context.scene.frame_start = anim_dict["start_frame"]
+        # bpy.context.scene.frame_end= anim_dict["stop_frame"]
 
 NiControllerManager.import_node = _import_controller_manager
 
