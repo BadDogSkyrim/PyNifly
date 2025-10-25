@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import logging
 import traceback
+from dataclasses import dataclass
 import bpy
 import bpy.props 
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
@@ -153,6 +154,7 @@ def parse_animation_name(name):
     return parts[1:]
 
 
+## TODO: Obsolete
 def all_animation_actions(animation:str=""):
     """
     Iterator returning all actions that are animations.
@@ -171,17 +173,30 @@ def all_animation_actions(animation:str=""):
 
 def current_animations(nif, refobjs:BD.ReprObjectCollection):
     """
-    Find all assets that appear to be animation actions.
-    Returns a dictionary: {animation_name: [action, ReprObject, target], ...}
+    Find all exportable animations for objects in refobjs.
+    Returns a dictionary: {animation_name: [Animation], ...}
     """
     matches = {}
-    for act in all_animation_actions():
-        anim_name, target_name, elem_name = parse_animation_name(act.name)
-        if target_name in refobjs.blenderdict:
-            if anim_name not in matches:
-                matches[anim_name] = []
-            matches[anim_name].append(
-                [act, refobjs.find_nifname(nif, target_name), elem_name])
+    for act in bpy.data.actions: 
+        animdesc = None
+        for s in act.slots:
+            for u in s.users():
+                t = (u in refobjs.blenderdict)
+                t = t or (u.active_material and u.active_material.node_tree)
+                if t:
+                    animdesc = analyze_animation(act, s, bpy.context.scene, animdesc)
+                    if act.name not in matches:
+                        matches[act.name] = []
+                    matches[act.name].append(s)
+        # if len(s for s in a.slots if s.name_display in refobjs.blenderdict) > 0]:
+        # matches[act.name] = (act, )
+    # for act in all_animation_actions():
+    #     anim_name, target_name, elem_name = parse_animation_name(act.name)
+    #     if target_name in refobjs.blenderdict:
+    #         if anim_name not in matches:
+    #             matches[anim_name] = []
+    #         matches[anim_name].append(
+    #             [act, refobjs.find_nifname(nif, target_name), elem_name])
     return matches
 
 
@@ -271,42 +286,132 @@ def apply_animation(anim_name, myscene):
     return res
 
 
-def analyze_animation(anim_name, myscene):
-    """
-    Analyze the given animation but do not apply it.
-    Returns a dictionary of animation values.
-    """
-    res = {
-        "start_time": 10000.0,
-        "stop_time": -10000.0,
-        "start_frame": 10000,
-        "stop_frame": -10000,
-        "cycle_type": CycleType.LOOP,
-        "frequency": 1.0,
-        "markers": {}
-    }
-    for act in all_animation_actions(anim_name):
-        n, objname, elemname = parse_animation_name(act.name)
-        if objname in myscene.objects:
-            # assign_action(myscene.objects[objname], elemname, act)
-            res["start_time"] = min(
-                res["start_time"],
-                (act.curve_frame_range[0]-1)/myscene.render.fps)
-            res["stop_time"] = max(
-                res["stop_time"], 
-                (act.curve_frame_range[1]-1)/myscene.render.fps)
-            res["start_frame"] = min(res["start_frame"], int(act.curve_frame_range[0]))
-            res["stop_frame"] = max(res["stop_frame"], int(act.curve_frame_range[1]))
-            if (not act.use_cyclic): res["cycle_type"] = CycleType.CLAMP 
+@dataclass
+class AnimationData:
+    name: str = ""
+    action = None
+    slot = None
+    target_obj = None
+    target_elem = None
+    start_time: float = 10000.0
+    stop_time: float = -10000.0
+    start_frame: int = 10000
+    stop_frame: int = -10000
+    cycle_type: CycleType = CycleType.LOOP
+    frequency: float = 1.0
+    markers: dict = None
 
+
+def all_actions():
+    """Iterator returning all actions and slots."""
+    for act in bpy.data.actions:
+        for slot in act.slots:
+            yield act, slot
+
+
+def all_named_animations(export_objs:BD.ReprObjectCollection) -> AnimationData:
+    """
+    Iterator returning all actions/slots that are exportable as named animations
+    representable as controller sequences. They must have a target that is being exported
+    and has the 'pynActionSlots' property.
+    """
+    ## TODO: What if they animate something we can't export? Maybe return everything and 
+    ## let later parts of the code decide.
+
+    for act, slot in all_actions():
+        targ = elem = None
+        for reprobj in export_objs:
+            obj = reprobj.blender_obj
+            if slot.target_id_type == 'NODETREE':
+                if obj.active_material and 'pynActionSlots' in obj.active_material:
+                    for h in obj.active_material['pynActionSlots']:
+                        if h == slot.handle:
+                            targ = export_objs[obj.name]
+                            elem = obj.active_material.node_tree
+                            break
+            else: 
+                if 'pynActionSlots' in obj:
+                    for h in obj['pynActionSlots']:
+                        if h == slot.handle:
+                            targ = reprobj
+                            elem = None
+                            break
+
+        if targ:
+            res = AnimationData()
+            res.name = act.name
+            res.action = act
+            res.slot = slot
+            res.target_obj = targ
+            res.target_elem = elem
+            res.start_time = (act.frame_start - 1) / bpy.context.scene.render.fps
+            res.stop_time = (act.frame_end - 1) / bpy.context.scene.render.fps
+            res.start_frame = act.frame_start
+            res.stop_frame = act.frame_end
+            res.cycle_type = CycleType.LOOP if act.use_cyclic else CycleType.CLAMP
+
+            res.markers = {}
             if "pynMarkers" in act:
                 for name, val in act["pynMarkers"].items():
-                    res['markers'][name] = val
-                    # if name not in myscene.timeline_markers:
-                    #     myscene.timeline_markers.new(
-                    #         name, frame=int(val * myscene.render.fps)+1)
+                    res.markers[name] = val
 
-    # active_animation = anim_name
+            yield res
+
+
+def actionslot_fcurves(action:bpy.types.Action, slot:bpy.types.ActionSlot) -> list[bpy.types.FCurve]:
+    res = []
+    for layer in action.layers:
+        for strip in layer.strips:
+            cb = strip.channelbag(slot)
+            if cb:
+                res.extend(cb.fcurves)
+    return res
+
+
+def analyze_animation(anim:bpy.types.Action, slot:bpy.types.ActionSlot, 
+                      myscene, export_objs:BD.ReprObjectCollection) -> AnimationData:
+    """
+    Analyze the given action and slot but do not apply it. If it's exportable as an
+    animation, return an AnimationData object. Otherwise return None.
+    """
+    targ = None
+    for t in slot.users():
+        if t in export_objs.blenderdict:
+            targ = t
+            break
+        if t.active_material and t.active_material.node_tree:
+            targ = t.active_material.node_tree
+            break
+
+
+    res = AnimationData()
+
+    # for act in all_animation_actions(anim_name):
+    #     n, objname, elemname = parse_animation_name(act.name)
+    #     if objname in myscene.objects:
+    #         # assign_action(myscene.objects[objname], elemname, act)
+    # res["start_time"] = min(
+    #     res["start_time"],
+    #     (act.curve_frame_range[0]-1)/myscene.render.fps)
+    # res["stop_time"] = max(
+    #     res["stop_time"], 
+    #     (act.curve_frame_range[1]-1)/myscene.render.fps)
+    # res["start_frame"] = min(res["start_frame"], int(act.curve_frame_range[0]))
+    # res["stop_frame"] = max(res["stop_frame"], int(act.curve_frame_range[1]))
+    # if (not act.use_cyclic): res["cycle_type"] = CycleType.CLAMP 
+    res.name = anim.name
+    res.start_time = (anim.frame_start - 1) / myscene.render.fps
+    res.stop_time = (anim.frame_end - 1) / myscene.render.fps
+    res.start_frame = anim.frame_start
+    res.stop_frame = anim.frame_end
+    res.cycle_type = CycleType.LOOP if anim.use_cyclic else CycleType.CLAMP
+    # res.frequency = anim.fcurves[0].modifiers[0].factor if anim.fcurves else 1.0
+
+    res.markers = {}
+    if "pynMarkers" in anim:
+        for name, val in anim["pynMarkers"].items():
+            res.markers[name] = val
+
     return res
 
 
@@ -325,7 +430,7 @@ def curve_bone_target(curve):
 
 
 class ControllerHandler():
-    def __init__(self, parent_handler):
+    def __init__(self, parent_handler, objlist:BD.ReprObjectCollection=None):
         self.action = None
         self.action_group = ""
         self.action_name = ""
@@ -338,6 +443,7 @@ class ControllerHandler():
         self.action_target = None # 
         self.accum_root = None
         self.given_scale_warning = False
+        self.export_objs = objlist
 
         # Single MultiTargetTransformController and ObjectPalette to use fo all controller
         # sequences in a ControllerManager
@@ -540,7 +646,7 @@ class ControllerHandler():
 
         try:
             if self.action_target.type == 'SHADER':
-                self.action.slots.new('NODETREE', 'Legacy Slot')
+                self.action.slots.new('NODETREE', self.action_target.name)
             elif self.action_target.type == 'EMPTY':
                 self.action.slots.new('OBJECT', self.action_target.name)
             # TODO: Figure out why this doesn't work vv
@@ -559,20 +665,15 @@ class ControllerHandler():
             
         self.action_target.animation_data_create()
 
-        # try: # 4.4 and later
-        #     track = self.action_target.animation_data.nla_tracks.new()
-        #     strip = track.strips.new(name=self.anim_name, start=1, action=self.action)
-        #     strip.action_frame_start = self.action.frame_range[0]
-        #     strip.action_frame_end = self.action.frame_range[1]
-        # except:
-        #     self.action_target.animation_data.action = self.action
-
         self.action_target.animation_data.action = self.action
-        if len(self.action.slots) > 0:
+        for s in self.action.slots:
             try:
-                self.action_target.animation_data.action_slot = self.action.slots[0]
+                self.action_target.animation_data.action_slot = s
+                if 'pynActionSlots' not in self.action_target:
+                    self.action_target['pynActionSlots'] = ()
+                self.action_target['pynActionSlots'] = self.action_target['pynActionSlots'][:] + (s.handle, )
             except Exception as e:
-                    log.warn(f"Could not assign action slot for {self.action_target}: {e}")
+                log.warn(f"Could not assign action slot for {self.action_target}: {e}")
 
 
     def _animate_bone(self, bone_name:str):
@@ -896,36 +997,30 @@ class ControllerHandler():
             return controlled_vars.blend_find(node_type, socket_name, shader_type)
 
 
-    def _export_activated_obj(self, targetobj:BD.ReprObject, targetelem, theaction):
+    def _export_activated_obj(self, anim:AnimationData):
         """
         Export a single activated object--an object with animation_data on it. 
-
-        * targetobj = Blender object to animate
-
-        * targetelem = Blender element with the animation_data on it--either targetobj or
-          some property of it, such as a shader.
 
         Returns a list of controller/interpolator pairs created. May have to be more than
         one if several variables are controlled, or if both variables and color are
         controlled.
         """
         interps_created = []
-        target_fc = (None, None, None)
         controller = None # self.cm_controller
         ctlvar = ctlvar_cur = None
         ctlclass = ctlclass_cur = None
-        self.action = theaction
+        self.action = anim.action
         self.start_time=(self.action.curve_frame_range[0]-1)/self.fps
         self.stop_time=(self.action.curve_frame_range[1]-1)/self.fps
-        fcurves = list(self.action.fcurves)
+        fcurves = actionslot_fcurves(anim.action, anim.slot)
         shader_type = None
-        if targetelem and targetelem.name == 'Shader Nodetree':
-            shader_type = targetobj.nifnode.shader.blockname
+        if anim.target_elem and anim.target_elem.type == 'SHADER':
+            shader_type = anim.target_obj.nifnode.shader.blockname
         try:
             while fcurves:
                 ctlclass, ctlvar = self._select_controller(fcurves[0].data_path, shader_type)
                 if ctlclass is None:
-                    self.warn(f"Could not export fcurve {fcurves[0].data_path} on {targetobj.name}")
+                    self.warn(f"Could not export fcurve {fcurves[0].data_path} on {anim.target_obj.name}")
                     fcurves.pop(0)
                     continue
 
@@ -933,21 +1028,20 @@ class ControllerHandler():
                     or (ctlclass_cur is None)):
 
                     # New node type needed, start a new controller/interpolator pair
-                    mytarget = targetobj.nifnode
-                    ctlr_type = None
+                    mytarget = anim.target_obj.nifnode
                     if issubclass(ctlclass, BSNiAlphaPropertyTestRefController):
-                        mytarget = targetobj.nifnode.alpha_property
-                    elif targetelem and targetelem.type == 'SHADER':
-                        mytarget = targetobj.nifnode.shader
+                        mytarget = anim.target_obj.nifnode.alpha_property
+                    elif anim.target_elem and anim.target_elem.type == 'SHADER':
+                        mytarget = anim.target_elem.nifnode.shader
 
-                    grp, interp = ctlclass.fcurve_exporter(self, fcurves, targetobj)
+                    grp, interp = ctlclass.fcurve_exporter(self, fcurves, anim.target_obj)
 
                     if self.controller_sequence:
                         myinterp = ctlclass.blend_interpolator(self)
                         myparent = None
                     else:
                         myinterp = interp
-                        myparent = targetobj.nifnode.shader
+                        myparent = anim.target_obj.nifnode.shader
 
                     if self.cm_controller and issubclass(ctlclass, NiTransformController):
                         controller = self.cm_controller
@@ -1006,69 +1100,61 @@ class ControllerHandler():
                 tked.add_key(v, n)
 
 
-    def _export_animations(self, anims):
+    def _export_animations(self):
         """
-        Export the given named animations to the target nif.
-        
-        * Anims = {"anim name": [(action, obj), ..], ...}
-            a dictionary of animation names to list of action/object pairs that implement
-            that animation.
+        Export any actions that represent named nif animations to the target nif.
         """
         self.accum_root = self.nif.rootNode
         self.controlled_objects = BD.ReprObjectCollection()
 
-        self.cm_controller = NiMultiTargetTransformController.New(
-            file=self.nif, flags=108, target=self.nif.rootNode)
-        
-        cm = NiControllerManager.New(
-            file=self.parent.nif, 
-            flags=TimeControllerFlags(cycle_type=CycleType.CLAMP),
-            next_controller=self.cm_controller,
-            parent=self.accum_root)
+        cm:NiControllerManager = None
 
-        self.cm_obj_palette = NiDefaultAVObjectPalette.New(self.nif, self.nif.rootNode, parent=cm)
+        for anim in all_named_animations(self.export_objs):
+            # Don't create the nif container blocks until we need them.
+            if not self.cm_controller:
+                self.cm_controller = NiMultiTargetTransformController.New(
+                    file=self.nif, flags=108, target=self.nif.rootNode)
+                
+            if not cm:
+                cm = NiControllerManager.New(
+                    file=self.parent.nif, 
+                    flags=TimeControllerFlags(cycle_type=CycleType.CLAMP),
+                    next_controller=self.cm_controller,
+                    parent=self.accum_root)
 
-        keys = list(anims.keys())
-        keys.sort()
-        for anim_name in keys: 
-            actionlist = anims[anim_name]
-            vals = analyze_animation(anim_name, self.context.scene)
+            if not self.cm_obj_palette:
+                self.cm_obj_palette = NiDefaultAVObjectPalette.New(self.nif, self.nif.rootNode, parent=cm)
+
             self.controller_sequence:NiControllerSequence = NiControllerSequence.New(
                 file=self.parent.nif,
-                name=anim_name,
+                name=anim.name,
                 accum_root_name=self.parent.nif.rootName,
-                start_time=vals["start_time"],
-                stop_time=vals["stop_time"],
-                cycle_type=vals["cycle_type"],
-                frequency=vals["frequency"],
+                start_time=anim.start_time,
+                stop_time=anim.stop_time,
+                cycle_type=anim.cycle_type,
+                frequency=anim.frequency,
                 parent=cm
             )
 
-            # self._export_text_keys(self.controller_sequence)
-            self._export_anim_markers(self.controller_sequence, vals['markers'])
+            self._export_anim_markers(self.controller_sequence, anim.markers)
 
-            for act, reprobj, anim_targ in actionlist:
-                # if the target is an ARMATURE, do something different
-                interps = []
-                try:
-                    interps = self._export_activated_obj(
-                        reprobj, 
-                        reprobj.blender_obj.active_material.node_tree if anim_targ == 'Shader'
-                            else None, 
-                        act)
-                except:
-                    log.exception(f"Could not export animation {act.name} on object {reprobj.blender_obj.name}")
-                
-                for ctlr, intp in interps:
-                    self.controller_sequence.add_controlled_block(
-                        name=reprobj.nifnode.name,
-                        interpolator=intp,
-                        controller=ctlr,
-                        controller_type=(ctlr.blockname 
-                                         if ctlr.blockname != 'NiMultiTargetTransformController'
-                                         else 'NiTransformController'),
-                    )
-                self.cm_obj_palette.add_object(reprobj.nifnode.name, reprobj.nifnode)
+            # if the target is an ARMATURE, do something different
+            interps = []
+            try:
+                interps = self._export_activated_obj(anim)
+            except:
+                log.exception(f"Could not export animation {anim.name} on object {anim.target_obj.blender_obj.name}")
+            
+            for ctlr, intp in interps:
+                self.controller_sequence.add_controlled_block(
+                    name=anim.target_obj.nifnode.name,
+                    interpolator=intp,
+                    controller=ctlr,
+                    controller_type=(ctlr.blockname 
+                                        if ctlr.blockname != 'NiMultiTargetTransformController'
+                                        else 'NiTransformController'),
+                )
+            self.cm_obj_palette.add_object(anim.target_obj.nifnode.name, anim.target_obj.nifnode)
 
         self._write_controlled_objects(cm)
 
@@ -1146,7 +1232,7 @@ class ControllerHandler():
         name, target, animtype = parse_animation_name(a.name)
         if name and name != "-": return
 
-        exporter = ControllerHandler(parent_handler)
+        exporter = ControllerHandler(parent_handler, [activeobj])
         exporter.nif = parent_handler.nif
         # exporter._export_shader(activeobj, activeelem)
         exporter._export_activated_obj(activeobj, activeelem, activeelem.animation_data.action)
@@ -1160,10 +1246,10 @@ class ControllerHandler():
 
         * object_dict = dictionary of objects to consider
         """
-        anims = current_animations(parent_handler.nif, object_dict)
-        if not anims: return
-        exporter = ControllerHandler(parent_handler)
-        exporter._export_animations(anims)
+        # anims = current_animations(parent_handler.nif, object_dict)
+        # if not anims: return
+        exporter = ControllerHandler(parent_handler, object_dict)
+        exporter._export_animations()
 
 
 ### Handlers for importing different types of blocks

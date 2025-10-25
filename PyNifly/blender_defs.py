@@ -594,6 +594,7 @@ class ReprObjectCollection():
                 d = self._filedict[fp]
             d[reprobj.nifnode.id] = reprobj
 
+
     def add_pair(self, obj, nifnode):
         self.add(ReprObject(obj, nifnode))
 
@@ -605,7 +606,6 @@ class ReprObjectCollection():
             if nifnode.id in d:
                 return d[nifnode.id]
         return None
-
 
 
     def find_blend(self, blendobj):
@@ -624,7 +624,8 @@ class ReprObjectCollection():
                 and reprobj.nifnode.name == name: 
                 return reprobj
         return None
-        
+
+
     def blender_objects(self):
         for ro in self._collection:
             if ro.blender_obj:

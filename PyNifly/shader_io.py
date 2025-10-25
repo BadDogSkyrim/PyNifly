@@ -1675,17 +1675,19 @@ class ShaderExporter:
                 if normnodes and normnodes[0] == imagenode:
                     return
             try:
-                foundpath = imagenode.image.filepath
-                relpath = Path(foundpath)
+                if imagenode.image:
+                    foundpath = imagenode.image.filepath
+                    relpath = Path(foundpath)
             except:
                 pass
             # Clean up the path for export
-            fp = Path(foundpath.lower())
-            try:
-                txtindex = fp.parts.index('textures')
-                relpath = Path(*fp.parts[txtindex:])
-            except ValueError:
-                relpath = fp
+            if foundpath:
+                fp = Path(foundpath.lower())
+                try:
+                    txtindex = fp.parts.index('textures')
+                    relpath = Path(*fp.parts[txtindex:])
+                except ValueError:
+                    relpath = fp
         # else:
         #     # No image node for the current slot. See if there's a texture path in the
         #     # custom properties. Export that as is.
