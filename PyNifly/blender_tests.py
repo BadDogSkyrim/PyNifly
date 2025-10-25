@@ -5403,6 +5403,7 @@ def TEST_ANIM_NOBLECHEST():
 
     #### READ ####
 
+    bpy.context.scene.render.fps = 30
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     lid = bpy.data.objects["Lid01"]
@@ -5417,7 +5418,7 @@ def TEST_ANIM_NOBLECHEST():
     TT.assert_seteq([m.name for m in lid.animation_data.action.pose_markers], ["start", "end"], "Have markers")
     # assert bpy.context.scene.timeline_markers[1].name == "end", f"Marker exists"
     # assert bpy.context.scene.timeline_markers[1].frame == end_frame, f"Correct frame"
-    TT.assert_equiv(lid.animation_data.action.pose_markers[1].frame, 13, "Have markers on action", e=0.0001)
+    TT.assert_equiv(lid.animation_data.action.pose_markers[1].frame, 16, "Have markers on action", e=0.0001)
     # assert math.isclose(
     #     bpy.data.actions["ANIM|Close|Lid01"]["pynMarkers"]["end"], 0.5, abs_tol=0.0001), f"Have markers on aactions"
 
@@ -5642,6 +5643,7 @@ def TEST_ANIM_KF():
 
     TT.assert_eq(arma.animation_data.action.name, "1hm_attackpowerright", "action name after second import")
     TT.assert_contains("1hm_staggerbacksmallest", bpy.data.actions, "first action still exists")
+    TT.assert_eq(bpy.context.scene.frame_end, 36, "frame end updated")
 
     ### Export ###
 

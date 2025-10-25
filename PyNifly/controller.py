@@ -591,7 +591,7 @@ class ControllerHandler():
         blender actions to represent a nif animation. 
         """
         try:
-            self.context.scene.frame_end = 1 + int(
+            self.context.scene.frame_end = 1 + round(
                 (anim_context.properties.stopTime - anim_context.properties.startTime) 
                 * self.fps)
         except:
@@ -1080,15 +1080,15 @@ class ControllerHandler():
         return interps_created
             
 
-    def _export_text_keys(self, cs:NiControllerSequence):
+    def _export_text_keys(self, action:bpy.types.Action, cs:NiControllerSequence):
         """
         Export any timeline markers to the given NiControllerSequence as text keys.
         """
-        if len(self.context.scene.timeline_markers) == 0: return
-
-        tked = NiTextKeyExtraData.New(file=self.nif, parent=cs)
-        for tm in self.context.scene.timeline_markers:
-            tked.add_key((tm.frame-1)/self.fps, tm.name)
+        tked = None
+        for m in action.pose_markers:
+            if not tked:
+                tked = NiTextKeyExtraData.New(file=self.nif, parent=cs)
+            tked.add_key((m.frame-1)/self.fps, m.name)
 
 
     def _export_anim_markers(self, cs:NiControllerSequence, markers):
@@ -1176,7 +1176,7 @@ class ControllerHandler():
         cp.cycleType = CycleType.LOOP if exporter.action.use_cyclic else CycleType.CLAMP
         cp.frequency = 1.0
         exporter.controller_sequence.properties = cp
-        exporter._export_text_keys(exporter.controller_sequence)
+        exporter._export_text_keys(exporter.action, exporter.controller_sequence)
 
         # Collect list of curves. They will be picked off in clumps until the list is empty.
         curve_list = list(exporter.action.fcurves)
