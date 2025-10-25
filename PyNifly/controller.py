@@ -276,11 +276,11 @@ def apply_animation(anim_name, myscene):
             res["stop_frame"] = max(res["stop_frame"], int(act.curve_frame_range[1]))
             if (not act.use_cyclic): res["cycle_type"] = CycleType.CLAMP 
 
-            if "pynMarkers" in act:
-                for name, val in act["pynMarkers"].items():
-                    if name not in myscene.timeline_markers:
-                        myscene.timeline_markers.new(
-                            name, frame=int(val * myscene.render.fps)+1)
+            # if "pynMarkers" in act:
+            #     for name, val in act["pynMarkers"].items():
+            #         if name not in myscene.timeline_markers:
+            #             myscene.timeline_markers.new(
+            #                 name, frame=int(val * myscene.render.fps)+1)
 
     active_animation = anim_name
     return res
@@ -351,9 +351,11 @@ def all_named_animations(export_objs:BD.ReprObjectCollection) -> AnimationData:
             res.cycle_type = CycleType.LOOP if act.use_cyclic else CycleType.CLAMP
 
             res.markers = {}
-            if "pynMarkers" in act:
-                for name, val in act["pynMarkers"].items():
-                    res.markers[name] = val
+            for m in act.pose_markers:
+                res.markers[m.name] = (m.frame - 1) / bpy.context.scene.render.fps
+            # if "pynMarkers" in act:
+            #     for name, val in act["pynMarkers"].items():
+            #         res.markers[name] = val
 
             yield res
 
@@ -809,11 +811,13 @@ class ControllerHandler():
 
     def _import_text_keys(self, tk:NiTextKeyExtraData):
         for time, val in tk.keys:
-            self.context.scene.timeline_markers.new(val, frame=round(time*self.fps)+1)
-            for a in self.animation_actions:
-                if "pynMarkers" not in a:
-                    a["pynMarkers"] = {}
-                a["pynMarkers"][val] = time
+            # self.context.scene.timeline_markers.new(val, frame=round(time*self.fps)+1)
+            m = self.action.pose_markers.new(val)
+            m.frame = round(time*self.fps)+1
+            # for a in self.animation_actions:
+            #     if "pynMarkers" not in a:
+            #         a["pynMarkers"] = {}
+            #     a["pynMarkers"][val] = time
 
 
     # --- PUBLIC FUNCTIONS ---
