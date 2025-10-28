@@ -578,6 +578,19 @@ class ReprObjectCollection():
         for ro in self._collection:
             yield ro
 
+
+    @classmethod
+    def New(cls, blender_objs=None):
+        """
+        Create a new ReprObjectCollection, optionally prefilled with the given blender objects.
+        """
+        roc = ReprObjectCollection()
+        if blender_objs:
+            for obj in blender_objs:
+                roc.add(ReprObject(blender_obj=obj))
+        return roc
+
+
     def add(self, reprobj):
         """
         Add a ReprObject to the collection. 

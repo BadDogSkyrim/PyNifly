@@ -1069,8 +1069,8 @@ class NifImporter():
 
             link_to_collection(self.collection, new_object)
 
-        except:
-            log.exception(f"Error importing shape {the_shape.name}")
+        except Exception as e:
+            log.exception(f"Error importing shape {the_shape.name}: {e}")
 
 
     # ------ ARMATURE IMPORT ------
@@ -3789,8 +3789,8 @@ class NifExporter:
                     and obj.active_material.node_tree.animation_data):
                 controller.ControllerHandler.export_shader_controller(
                     self, robj, obj.active_material.node_tree)
-        except:
-            log.exception(f"Error exporting controller for object {obj.name}")
+        except Exception as e:
+            log.exception(f"Error exporting controller for object {obj.name}: {e}")
 
         # Write tri file
         retval |= self.export_tris(robj, verts, tris, uvmap_new, morphdict)

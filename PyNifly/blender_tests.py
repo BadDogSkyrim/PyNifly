@@ -5448,32 +5448,37 @@ def TEST_ANIM_DWEMER_CHEST():
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     lid = bpy.data.objects["Box01"]
-    animations = ['ANIM|Close|Box01', 'ANIM|Close|Gear07', 'ANIM|Close|Gear08', 
-                  'ANIM|Close|Gear09', 'ANIM|Close|Handle', 'ANIM|Close|Object01', 
-                  'ANIM|Close|Object02', 'ANIM|Close|Object188', 'ANIM|Close|Object189',
-                  'ANIM|Open|Box01', 'ANIM|Open|Gear07', 'ANIM|Open|Gear08', 
-                  'ANIM|Open|Gear09', 'ANIM|Open|Handle', 'ANIM|Open|Object01', 
-                  'ANIM|Open|Object02', 'ANIM|Open|Object188', 'ANIM|Open|Object189']
+    # animations = ['ANIM|Close|Box01', 'ANIM|Close|Gear07', 'ANIM|Close|Gear08', 
+    #               'ANIM|Close|Gear09', 'ANIM|Close|Handle', 'ANIM|Close|Object01', 
+    #               'ANIM|Close|Object02', 'ANIM|Close|Object188', 'ANIM|Close|Object189',
+    #               'ANIM|Open|Box01', 'ANIM|Open|Gear07', 'ANIM|Open|Gear08', 
+    #               'ANIM|Open|Gear09', 'ANIM|Open|Handle', 'ANIM|Open|Object01', 
+    #               'ANIM|Open|Object02', 'ANIM|Open|Object188', 'ANIM|Open|Object189']
+    animations = ['Close', 'Open']
     for anim in animations:
-        assert anim in bpy.data.actions, f"Imported {anim}"
+        TT.assert_contains(anim, bpy.data.actions, f"Animations")
     assert lid.animation_data is not None
-    assert lid.animation_data.action.name in animations, \
-        f"Animation has correct name: {lid.animation_data.action.name}"
-    assert len(lid.animation_data.action.fcurves) > 0, f"Have curves: {len(lid.animation_data.action.fcurves)}"
-    assert lid.animation_data.action.fcurves[0].data_path == "location", f"Have correct data path"
+    TT.assert_contains(lid.animation_data.action.name, animations, "Active animation")
+    TT.assert_gt(len(lid.animation_data.action.fcurves), 0, "Have curves")
+    TT.assert_eq(lid.animation_data.action.fcurves[0].data_path, "location", "data path")
 
     gear07 = bpy.data.objects["Gear07"]
-    assert gear07.animation_data.action.name in animations, \
-        f"Gear animation exists: {gear07.animation_data.action.name}"
-    assert len(gear07.animation_data.action.fcurves) > 0, f"Have curves"
-    anim = bpy.data.actions['ANIM|Close|Gear07']
-    gear07z = anim.fcurves[2]
-    assert gear07z.data_path == "rotation_euler", f"Have correct data path: {gear07z.data_path}"
-    assert BD.NearEqual(gear07z.keyframe_points[-1].co[0], 37.0), f"Have correct time: {gear07z.keyframe_points[1].co}"
-    assert BD.NearEqual(gear07z.keyframe_points[0].co[1], 3.1136), f"Have correct value: {gear07z.keyframe_points[1].co}"
+    TT.assert_contains(gear07.animation_data.action.name, animations, "Gear animation")
+    gear_slot = gear07.animation_data.action_slot
+    gear_fcurves = None
+    cb = gear07.animation_data.action.layers[0].strips[0].channelbag(gear_slot)
+    if cb:
+        gear_fcurves = cb.fcurves
+    assert gear_fcurves, "Have gear fcurves from action slot"
+    TT.assert_eq(len(gear_fcurves), 3, "Have curves")
+    gear07z = gear_fcurves[2]
+    TT.assert_eq(gear07z.data_path, "rotation_euler", "Have correct data path")
+    TT.assert_equiv(gear07z.keyframe_points[-1].co[0], 37.0, "Have correct time")
+    TT.assert_equiv(gear07z.keyframe_points[0].co[1], 0, "Start Z value")
+    TT.assert_equiv(gear07z.keyframe_points[-1].co[1], 3.1416, "End Z value")
 
     gear07obj = gear07.children[0]
-    assert len(gear07obj.data.vertices) == 476, f"Have right number of vertices"
+    TT.assert_eq(len(gear07obj.data.vertices), 476, "Have right number of vertices")
 
     #### WRITE ####
 
@@ -5490,7 +5495,7 @@ def TEST_ANIM_DWEMER_CHEST():
     #                 ["Object01", "Object02", "Object188", "Object189", "Gear07", 
     #                  "Gear08", "Gear09", "Handle", "Box01"],
     #                  f"MultiTargetTransformController {mtt2.id} extra targets")
-    TT.assert_seteq([s for s in cm2.sequences], ["Open", "Close"], "Controller Sequences")
+    TT.assert_samemembers([s for s in cm2.sequences], ["Open", "Close"], "Controller Sequences")
     open2:pyn.NiControllerSequence = cm2.sequences["Close"]
     openblk:pyn.ControllerLink = next(b for b in open2.controlled_blocks if b.node_name == "Object01")
     TT.assert_eq(openblk.controller.id, mtt2.id, "Controller IDs")

@@ -185,7 +185,7 @@ def get_property(nif, property_path):
             elif hasattr(current.properties, name):
                 current = getattr(current.properties, name)
             else:
-                raise AssertionError(f"Have property {name} in {'/'.join(property_path[0:i])}")
+                raise AssertionError(f"Have property {name} in {'/'.join(property_path[0:i])} in {nif.filepath}")
             
     return current
 

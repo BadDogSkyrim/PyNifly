@@ -23,8 +23,8 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 do_tests(
-    # target_tests=[ TEST_ANIM_NOBLECHEST ], run_all=False, stop_on_fail=True,
-    target_tests=[ TEST_ANIM_KF, TEST_ANIM_NOBLECHEST ], run_all=False, stop_on_fail=True,
+    target_tests=[ TEST_ANIM_SHADER_GLOW, TEST_ANIM_DWEMER_CHEST, TEST_ANIM_KF, TEST_ANIM_NOBLECHEST ], run_all=False, stop_on_fail=True,
+    # target_tests=[ TEST_ANIM_DWEMER_CHEST, TEST_ANIM_KF, TEST_ANIM_NOBLECHEST ], run_all=False, stop_on_fail=True,
     # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
     # stop_on_fail=True
     )
