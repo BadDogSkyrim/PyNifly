@@ -644,6 +644,15 @@ class ReprObjectCollection():
             if ro.blender_obj:
                 yield ro.blender_obj
     
+
+def action_fcurves(action):
+    """Generator to yield all fcurves in an action."""
+    for lay in action.layers:
+        for strip in lay.strips:
+            for cb in strip.channelbags:
+                for fc in cb.fcurves:
+                    yield fc
+
     
 def TEST_CAM():
     print('TEST_CAM')

@@ -8,6 +8,7 @@ from pathlib import Path
 import logging
 import traceback
 from dataclasses import dataclass
+from collections.abc import Iterator
 import bpy
 import bpy.props 
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
@@ -31,8 +32,8 @@ KFP_HANDLE_OFFSET = 10
 shader_nodes = {    
     "Fallout 4 MTS": "Lighting", 
     "FO4 Effect Shader": "Effect", 
-    "Skyrim Shader - Effect": "Effect", 
-    "Skyrim Shader": "Lighting", 
+    "SkyrimShader:Effect": "Effect", 
+    "SkyrimShader:Default": "Lighting", 
 } 
 
 def _shader_game(nodename):
@@ -272,7 +273,7 @@ def all_actions():
             yield act, slot
 
 
-def all_named_animations(export_objs:BD.ReprObjectCollection) -> AnimationData:
+def all_named_animations(export_objs:BD.ReprObjectCollection) -> Iterator[AnimationData]:
     """
     Iterator returning all actions/slots that are exportable as named animations
     representable as controller sequences. They must have a target that is being exported
@@ -286,10 +287,10 @@ def all_named_animations(export_objs:BD.ReprObjectCollection) -> AnimationData:
         for reprobj in export_objs:
             obj = reprobj.blender_obj
             if slot.target_id_type == 'NODETREE':
-                if obj.active_material and 'pynActionSlots' in obj.active_material:
-                    for h in obj.active_material['pynActionSlots']:
+                if obj.active_material and 'pynActionSlots' in obj.active_material.node_tree:
+                    for h in obj.active_material.node_tree['pynActionSlots']:
                         if h == slot.handle:
-                            targ = export_objs[obj.name]
+                            targ = reprobj
                             elem = obj.active_material.node_tree
                             break
             else: 
@@ -338,7 +339,7 @@ def apply_animation(anim_name, myscene) -> AnimationData:
     return ad
 
 
-def actionslot_fcurves(action:bpy.types.Action, slot:bpy.types.ActionSlot) -> list[bpy.types.FCurve]:
+def actionslot_fcurves(action, slot):
     """Return all fcurves in the given action slot."""
     res = []
     for layer in action.layers:
@@ -623,7 +624,10 @@ class ControllerHandler():
 
 
     def _new_slot(self):
-        """Create a new action slot for the controller action."""
+        """
+        Set up to store fcurves in a new action slot for the controller action.
+        The slot itself is created when the first fcurve is addded.
+        """
         try:
             # if (not self.action_target) and (self.action_target.type != 'ARMATURE'):
             # if self.action_target and (self.action_target.type != 'ARMATURE'):
@@ -635,24 +639,28 @@ class ControllerHandler():
             self.action_target = None
         if not self.action_target: return
 
-        s = None
-        try:
-            if self.action_target.type == 'SHADER':
-                s = self.action.slots.new('NODETREE', self.action_target.name)
-            elif self.action_target.type == 'EMPTY':
-                s = self.action.slots.new('OBJECT', self.action_target.name)
-            elif self.action_target.type == 'ARMATURE':
-                s = self.action.slots.new('OBJECT', self.anim_name)
-        except:
-            log.exception("Error creating action slot for controller action")
-            pass # prior to 4.4
+        # s = None
+        # try:
+        #     if self.action_target.type == 'SHADER':
+        #         s = self.action.slots.new('NODETREE', self.action_target.name)
+        #     elif self.action_target.type == 'EMPTY':
+        #         s = self.action.slots.new('OBJECT', self.action_target.name)
+        #     elif self.action_target.type == 'ARMATURE':
+        #         s = self.action.slots.new('OBJECT', self.anim_name)
+        # except:
+        #     log.exception("Error creating action slot for controller action")
+        #     pass # prior to 4.4
 
-        if not s: return
+        # if not s: return
 
-        self.action_slot = s
-        self.action_target.animation_data_create()
-        self.action_target.animation_data.action = self.action
-        self.action_target.animation_data.action_slot = s
+        # self.action_slot = s
+        if (not self.action_target.animation_data) or (
+                self.action_target.animation_data.action != self.action):
+            self.action_target.animation_data_clear()
+            self.action_target.animation_data_create()
+            self.action_target.animation_data.action = self.action
+            self.action_target.animation_data.action_slot = None
+        # self.action_target.animation_data.action_slot = s
 
         # The channelbag will be created when we add fcurves.
         self.channelbag = None
@@ -663,19 +671,26 @@ class ControllerHandler():
         #             self.channelbag = cb
         #             break
 
-         # Record the action slot handle on the target object for export later.
-         # An object may have multiple action slots if it has multiple animations.
-         # We store them in a custom property 'pynActionSlots' as a tuple of integers.
-         # Each integer is an action slot handle.
-         # During export, we look for this property to find which action slots
-         # apply to this object.
-        try:
-            if 'pynActionSlots' in self.action_target:
-                self.action_target['pynActionSlots'] = self.action_target['pynActionSlots'][:] + (s.handle, )
-            else:
-                self.action_target['pynActionSlots'] = (s.handle, )
-        except Exception as e:
-            log.warn(f"Could not assign action slot for {self.action_target}: {e}")
+
+    def _record_slot(self):
+        """
+        Record the action slot handle on the target object for export later. An object may
+        have multiple action slots if it has multiple named animations or if multiple
+        properties are being animated. We store slot handles in a custom property
+        'pynActionSlots' as a tuple of integers. Each integer is an action slot handle.
+        During export, we look for this property to find which action slots apply to this
+        object.
+        """
+        if self.action_target.animation_data and self.action_target.animation_data.action_slot:
+            s = self.action_target.animation_data.action_slot
+            try:
+                if 'pynActionSlots' in self.action_target:
+                    if s.handle not in self.action_target['pynActionSlots']:
+                        self.action_target['pynActionSlots'] = self.action_target['pynActionSlots'][:] + (s.handle, )
+                else:
+                    self.action_target['pynActionSlots'] = (s.handle, )
+            except Exception as e:
+                log.warn(f"Could not assign action slot for {self.action_target}: {e}")
 
 
     def _animate_bone(self, bone_name:str):
@@ -766,7 +781,6 @@ class ControllerHandler():
             self._new_bone_anim(ctlr)
         else:
             self._new_animation(ctlr)
-            # self._new_action("Transform")
             self._new_element_action(ctlr, ctlr.target.name, "Transform")
         ctlr.import_node(self, ctlr.interpolator)
 
@@ -804,13 +818,14 @@ class ControllerHandler():
                     return
                 self._new_slot()
 
-
             if block.controller:
                 block.controller.import_node(self, block.interpolator)
                 
             if block.interpolator:
                 # If there's no controller, everything is done by the interpolator.
                 block.interpolator.import_node(self, None)
+
+            self._record_slot()
 
         except Exception as e:
             log.exception(f"Error importing sequence {seq.name}: {e}")
@@ -1603,11 +1618,10 @@ def _import_transform_controller(tc:NiTransformController,
     if importer.animation_target and interp:
         if importer.animation_target.type == 'ARMATURE':
             importer._animate_bone(tc.target.name)
-            if not importer.action:
-                importer._new_action()
+            if not importer.action: importer._new_action()
         else:
             importer.action_group = "Object Transforms"
-            importer._new_action()
+            if not importer.action: importer._new_action()
         interp.import_node(importer, None)
     else:
         importer.warn(f"Found no target for {type(tc)}")
@@ -1628,9 +1642,10 @@ def _import_alphatest_controller(ctlr:BSNiAlphaPropertyTestRefController,
     
     td = interp.data
     if td: 
-        importer._new_action()
+        if not importer.action: importer._new_action()
         importer._new_slot()
         td.import_node(importer)
+        importer._record_slot()
     
 BSNiAlphaPropertyTestRefController.import_node = _import_alphatest_controller
 
@@ -1674,9 +1689,10 @@ def _import_ESPFloat_controller(ctlr:BSEffectShaderPropertyFloatController,
 
     td = interp.data
     if td: 
-        importer._new_action()
+        if not importer.action: importer._new_action()
         importer._new_slot()
         td.import_node(importer)
+        importer._record_slot()
     
 BSEffectShaderPropertyFloatController.import_node = _import_ESPFloat_controller
 
@@ -1704,9 +1720,10 @@ def _import_ESPColor_controller(ctlr:BSEffectShaderPropertyColorController,
         return
     td = interp.data
     if td: 
-        importer._new_action()
+        if not importer.action: importer._new_action()
         importer._new_slot()
         td.import_node(importer)
+        importer._record_slot()
     
 BSEffectShaderPropertyColorController.import_node = _import_ESPColor_controller
 
@@ -1747,9 +1764,10 @@ def _import_LSPColorController(ctlr:BSLightingShaderPropertyColorController,
         
         td = interp.data
         if td: 
-            importer._new_action()
+            if not importer.action: importer._new_action()
             importer._new_slot()
             td.import_node(importer)
+            importer._record_slot()
     
 BSLightingShaderPropertyColorController.import_node = _import_LSPColorController
 
@@ -1790,9 +1808,10 @@ def _import_LSPFloatController(ctlr:BSLightingShaderPropertyFloatController,
         
         td = interp.data
         if td: 
-            importer._new_action()
+            if not importer.action: importer._new_action()
             importer._new_slot()
             td.import_node(importer)
+            importer._record_slot()
     
 BSLightingShaderPropertyFloatController.import_node = _import_LSPFloatController
 

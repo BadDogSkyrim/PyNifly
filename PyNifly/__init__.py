@@ -2262,11 +2262,11 @@ class ImportKF(bpy.types.Operator, ExportHelper):
             return False
 
         if (not context.object) or context.object.type != "ARMATURE":
-            log.error("Cannot import KF: Active object must be an armature.")
+            # log.error("Cannot import KF: Active object must be an armature.")
             return False
 
         if context.object.mode != 'OBJECT':
-            log.error("Must be in Object Mode to import")
+            # log.error("Must be in Object Mode to import")
             return False
 
         return True
@@ -4342,11 +4342,11 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             return False
 
         if (not context.object) or context.object.type != 'ARMATURE':
-            log.debug("Must select an armature to export animations.")
+            # log.debug("Must select an armature to export animations.")
             return False
 
         if (not context.object.animation_data) or (not context.object.animation_data.action):
-            log.debug("Active object must have an animation associated with it.")
+            # log.debug("Active object must have an animation associated with it.")
             return False
 
         return True
@@ -4374,7 +4374,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         self.log_handler = LogHandler.New(bl_info, "EXPORT", "KF")
 
         if not self.poll(context):
-            self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
+            # self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
             return {'CANCELLED'} 
 
         if self.fps <= 0 or self.fps >= 200:
@@ -4454,11 +4454,11 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
     @classmethod
     def poll(cls, context):
         if (not context.object) or context.object.type != 'ARMATURE':
-            log.error("Must select an armature to export animations.")
+            # log.error("Must select an armature to export animations.")
             return False
 
         if (not context.object.animation_data) or (not context.object.animation_data.action):
-            log.error("Active object must have an animation associated with it.")
+            # log.error("Active object must have an animation associated with it.")
             return False
 
         if not hkxcmd_path:
@@ -4637,7 +4637,7 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
     @classmethod
     def poll(cls, context):
         if (not context.object) or context.object.type != 'ARMATURE':
-            log.error("Must select an armature to export animations.")
+            # log.error("Must select an armature to export animations.")
             return False
 
         if not hkxcmd_path:

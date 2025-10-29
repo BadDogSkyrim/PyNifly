@@ -2054,7 +2054,7 @@ def TEST_ANIM_SHADER_SPRIGGAN():
                 ), f"Spriggan loaded with glow map"
     
     # Have all animations
-    act_names = [a.name.split('|') for a in bpy.data.actions if a.name.startswith('ANIM|')]
+    # act_names = [a.name.split('|') for a in bpy.data.actions if a.name.startswith('ANIM|')]
     expected_animations = [
         'LeavesLandedLoop',
         'LeavesScared',
@@ -2067,49 +2067,47 @@ def TEST_ANIM_SHADER_SPRIGGAN():
         'LeavesOnHandDarkLoop',
         'LeavesOffHandDark',
         'KillFX',]
-    TT.assert_seteq(
-        [an[1] for an in act_names],
-        expected_animations,
-        "Animation names")
+    TT.assert_samemembers(bpy.data.actions.keys(), expected_animations, "Animation names")
 
     # LeavesToHand has all targets
-    lth_targets = [an[2] for an in act_names if an[1] == 'LeavesToHand']
-    TT.assert_seteq(
-        lth_targets, 
+    scene_objs = BD.ReprObjectCollection.New(obj for obj in bpy.context.scene.objects if obj.type == 'MESH')
+    lth_targets = [ad.target_obj for ad in 
+                   controller.all_named_animations(scene_objs)
+                   if ad.name == 'LeavesToHand']
+
+    # act_targets = [a.action_target for a in 
+    #                controller.all_named_animations(BD.ReprObjectCollection.New(bpy.context.scene.objects))
+    #                if a.name == 'LeavesToHand']
+    
+    # lth_targets = [an[2] for an in act_names if an[1] == 'LeavesToHand']
+    # lth_target_names = [s.name_display for s in bpy.data.actions['LeavesToHand'].slots]
+    lth_targnames = [t.name for t in lth_targets]
+    TT.assert_samemembers(
+        lth_targnames,
         ['SprigganFxHandCovers',
          'SprigganHandLeaves',
          'SprigganBodyLeaves',
          'SprigganFxTestUnified:0',],
          "LeavesToHand controlled targets")
     
-    # Didn't create a dup action when there are two things to do to a shader.
-    alist = [a for a in bpy.data.actions if a.name.startswith('ANIM|LeavesLandedLoop|SprigganFxTestUnified:0|Shader')]
-    assert len(alist) == 1, f"No dup actions"
-    act = alist[0]
+    act = bpy.data.actions['LeavesLandedLoop']
+    TT.assert_eq(len(act.slots), 4, "LeavesLandedLoop requires 4 slots")
+    fcurve_targets = [fc.data_path for fc in BD.action_fcurves(act)]
     TT.assert_samemembers(
-        [c.data_path for c in act.fcurves],
-        ['nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value',
-         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value',
-         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value',
-         'nodes["SkyrimShader:Default"].inputs["Emission Strength"].default_value',],
+        fcurve_targets,
+        ['nodes["SkyrimShader:Effect"].inputs["Alpha Adjust"].default_value', 
+         'nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value', 
+         'nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value', 
+         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value', 
+         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value', 
+         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value', 
+         'nodes["SkyrimShader:Default"].inputs["Emission Strength"].default_value'],
         "fcurve data_path values")
     
-    # No bogus data paths
-    for target in lth_targets:
-        obj = bpy.data.objects[target]
-        for c in obj.active_material.node_tree.animation_data.action.fcurves:
-            assert 'None' not in c.data_path, f"No data path contains 'None'"
-
     # LeavesLandedLoop hand covers fcurve data path is correct.
-    lllhc_actions = [a for a in bpy.data.actions if a.name.startswith('ANIM|LeavesLandedLoop|SprigganFxHandCovers|Shader')]
-    assert len(lllhc_actions) == 1, f"Have one action"
-    lllhc = lllhc_actions[0]
-    TT.assert_eq(lllhc.frame_range[0], 1, "Frame start")
-    TT.assert_equiv(lllhc.frame_range[1], 49.72, "Frame end", e=1)
-    TT.assert_samemembers(
-        [c.data_path for c in lllhc.fcurves],
-        ['nodes["SkyrimShader:Effect"].inputs["Alpha Adjust"].default_value'],
-        "SprigganFXHandCovers fcurves")
+    TT.assert_eq(act.frame_range[0], 1, "Frame start")
+    TT.assert_equiv(act.frame_range[1], 49, "Frame end", e=1)
+
     
     # KillFX body leaves fcurve data path is correct.
     handleaves = TTB.find_object("SprigganHandLeaves")
