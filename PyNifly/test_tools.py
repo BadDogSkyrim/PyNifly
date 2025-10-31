@@ -4,6 +4,7 @@ import sys
 import os
 import os.path
 from pathlib import Path
+from collections.abc import Iterable
 import logging
 import niflytools as NT 
 import nifdefs as ND
@@ -26,17 +27,13 @@ def remove_file(fn):
 
 def assert_equiv(actual, expected, msg, e=0.0001):
     """Assert two values are nearly equal. Values may be scalars, vectors, or matrices."""
-    try:
-        assert NT.MatNearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
-    except AssertionError:
-        raise
-    except:
-        try:
+    if hasattr(actual, '__getitem__'):
+        if hasattr(actual[0], '__getitem__'):
+            assert NT.MatNearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
+        else:
             assert NT.VNearEqual(actual[:], expected, epsilon=e), f"Values are equal for {msg}: {actual[:]} != {expected}"
-        except AssertionError:
-            raise
-        except:
-            assert NT.NearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
+    else:
+        assert NT.NearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
 
 
 def assert_equiv_not(actual, expected, msg, e=0.0001):

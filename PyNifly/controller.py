@@ -22,11 +22,8 @@ ANIMATION_NAME_MARKER = "ANIM"
 ANIMATION_NAME_SEP = "|"
 KFP_HANDLE_OFFSET = 10
 
-# action_target_slots = {
-#     "SHADER": "NODETREE",
-#     "ARMATURE": "ARMATURE",
-#     "EMPTY": "OBJECT",
-# }
+# Animations come in at twice the speed. Not sure why. Apply an adjustment factor.
+ANIMATION_TIME_ADJUST = 2
 
 
 shader_nodes = {    
@@ -127,14 +124,17 @@ def make_action_name(animation_name=None, target_obj=None, target_elem=None):
     """
     if animation_name:
         return animation_name
-    
-    if not animation_name: animation_name = "-"
-    an = sanitize_name(animation_name)
-    tn = sanitize_name(target_obj.name)
-    n = ANIMATION_NAME_SEP.join([ANIMATION_NAME_MARKER, an, tn])
-    if target_elem:
-        n = n + "|" + target_elem
-    return n
+    elif target_obj is not None:
+        return target_obj.name
+    else:
+        return "Animation"
+    # if not animation_name: animation_name = "-"
+    # an = sanitize_name(animation_name)
+    # tn = sanitize_name(target_obj.name)
+    # n = ANIMATION_NAME_SEP.join([ANIMATION_NAME_MARKER, an, tn])
+    # if target_elem:
+    #     n = n + "|" + target_elem
+    # return n
 
 
 def parse_animation_name(name):
@@ -273,6 +273,31 @@ def all_actions():
             yield act, slot
 
 
+def all_obj_animations(export_objs:BD.ReprObjectCollection):
+    """Iterator returning quads: (action, slot, target_obj, target_elem)"""
+    for act in bpy.data.actions:
+        for slot in act.slots:
+            targ = elem = None
+            for reprobj in export_objs:
+                obj = reprobj.blender_obj
+                if slot.target_id_type == 'NODETREE':
+                    if obj.active_material and 'pynActionSlots' in obj.active_material.node_tree:
+                        for avail_actions in obj.active_material.node_tree['pynActionSlots'].split('||'):
+                            actionname, slotname = avail_actions.split('|')
+                            if actionname == act.name and slotname == slot.name_display:
+                                targ = reprobj
+                                elem = obj.active_material.node_tree
+                                yield act, slot, targ, elem
+                else: 
+                    if 'pynActionSlots' in obj:
+                        for avail_actions in obj['pynActionSlots'].split('||'):
+                            actionname, slotname = avail_actions.split('|')
+                            if actionname == act.name and slotname == slot.name_display:
+                                targ = reprobj
+                                elem = None
+                                yield act, slot, targ, elem
+
+
 def all_named_animations(export_objs:BD.ReprObjectCollection) -> Iterator[AnimationData]:
     """
     Iterator returning all actions/slots that are exportable as named animations
@@ -282,61 +307,59 @@ def all_named_animations(export_objs:BD.ReprObjectCollection) -> Iterator[Animat
     ## TODO: What if they animate something we can't export? Maybe return everything and 
     ## let later parts of the code decide.
 
-    for act, slot in all_actions():
-        targ = elem = None
-        for reprobj in export_objs:
-            obj = reprobj.blender_obj
-            if slot.target_id_type == 'NODETREE':
-                if obj.active_material and 'pynActionSlots' in obj.active_material.node_tree:
-                    for h in obj.active_material.node_tree['pynActionSlots']:
-                        if h == slot.handle:
-                            targ = reprobj
-                            elem = obj.active_material.node_tree
-                            break
-            else: 
-                if 'pynActionSlots' in obj:
-                    for h in obj['pynActionSlots']:
-                        if h == slot.handle:
-                            targ = reprobj
-                            elem = None
-                            break
+    for act, slot, targ, elem in all_obj_animations(export_objs):
+        res = AnimationData()
+        res.name = act.name
+        res.action = act
+        res.slot = slot
+        res.target_obj = targ
+        res.target_elem = elem
+        res.start_time = (act.frame_start - 1) / bpy.context.scene.render.fps
+        res.stop_time = (act.frame_end - 1) / bpy.context.scene.render.fps
+        res.start_frame = act.frame_start
+        res.stop_frame = act.frame_end
+        res.cycle_type = CycleType.LOOP if act.use_cyclic else CycleType.CLAMP
 
-        if targ:
-            res = AnimationData()
-            res.name = act.name
-            res.action = act
-            res.slot = slot
-            res.target_obj = targ
-            res.target_elem = elem
-            res.start_time = (act.frame_start - 1) / bpy.context.scene.render.fps
-            res.stop_time = (act.frame_end - 1) / bpy.context.scene.render.fps
-            res.start_frame = act.frame_start
-            res.stop_frame = act.frame_end
-            res.cycle_type = CycleType.LOOP if act.use_cyclic else CycleType.CLAMP
+        res.markers = {}
+        for m in act.pose_markers:
+            res.markers[m.name] = (m.frame - 1) / bpy.context.scene.render.fps
+        # if "pynMarkers" in act:
+        #     for name, val in act["pynMarkers"].items():
+        #         res.markers[name] = val
 
-            res.markers = {}
-            for m in act.pose_markers:
-                res.markers[m.name] = (m.frame - 1) / bpy.context.scene.render.fps
-            # if "pynMarkers" in act:
-            #     for name, val in act["pynMarkers"].items():
-            #         res.markers[name] = val
-
-            yield res
+        yield res
 
 
-def apply_animation(anim_name, myscene) -> AnimationData:
+def apply_animation(anim_name, myscene):
     """
     Apply the named animation to the currently visible objects.
-    Returns a dictionary of animation values.
     """
-    ad = bpy.data.actions.get(anim_name)
-    if ad:
-        apply_action(ad)
-    else:
-        log.error(f"Animation action not found: {anim_name}")
+    act = None
+    for act, slot, targobj, elem in all_obj_animations(
+            BD.ReprObjectCollection.New(myscene.objects)):
+        if act.name == anim_name:
+            if elem:
+                targ = elem
+            else:
+                targ = targobj.blender_obj
+            targ.animation_data_clear()
+            targ.animation_data_create()
+            targ.animation_data.action = act
+            targ.animation_data.action_slot = slot
+            myscene.frame_start = int(act.frame_start)
+            myscene.frame_end = int(act.frame_end)
+    if not act:
+        log = logging.getLogger("pynifly")
+        log.error(f"Animation not found: {anim_name}")
+
+    # ad = bpy.data.actions.get(anim_name)
+    # if ad:
+    #     apply_action(ad)
+    # else:
+    #     log.error(f"Animation action not found: {anim_name}")
         
-    active_animation = anim_name
-    return ad
+    # active_animation = anim_name
+    # return ad
 
 
 def actionslot_fcurves(action, slot):
@@ -485,9 +508,9 @@ class ControllerHandler():
 
         key0 and key2 may be omitted if key1 is first or last.
         """
-        frame1 = key1.time*self.fps+1
+        frame1 = key1.time*(self.fps * ANIMATION_TIME_ADJUST)+1
         if key2:
-            frame2 = key2.time*self.fps+1
+            frame2 = key2.time*(self.fps * ANIMATION_TIME_ADJUST)+1
             frame_delt_r = (frame2 - frame1)
             slope_right = key1.backward/frame_delt_r
         else:
@@ -495,7 +518,7 @@ class ControllerHandler():
             slope_right = key1.backward
 
         if key0:
-            frame0 = key0.time * self.fps + 1
+            frame0 = key0.time * (self.fps * ANIMATION_TIME_ADJUST) + 1
             frame_delt_l = (frame1 - frame0)
             slope_left = key1.forward/frame_delt_l
         else:
@@ -585,6 +608,8 @@ class ControllerHandler():
         self.frame_start = int(anim_context.properties.startTime * self.fps + 1)
         self.frame_end = int(anim_context.properties.stopTime * self.fps + 1)
         self.is_cyclic = anim_context.is_cyclic
+        self.action_slot = None
+        self.channelbag = None
 
 
     def _new_action(self, name_suffix=None):
@@ -683,12 +708,13 @@ class ControllerHandler():
         """
         if self.action_target.animation_data and self.action_target.animation_data.action_slot:
             s = self.action_target.animation_data.action_slot
+            val = f"{self.action.name}|{s.name_display}"
             try:
                 if 'pynActionSlots' in self.action_target:
-                    if s.handle not in self.action_target['pynActionSlots']:
-                        self.action_target['pynActionSlots'] = self.action_target['pynActionSlots'][:] + (s.handle, )
+                    if val not in self.action_target['pynActionSlots']:
+                        self.action_target['pynActionSlots'] = f"{self.action_target['pynActionSlots']}||{val}"
                 else:
-                    self.action_target['pynActionSlots'] = (s.handle, )
+                    self.action_target['pynActionSlots'] = val
             except Exception as e:
                 log.warn(f"Could not assign action slot for {self.action_target}: {e}")
 
@@ -820,7 +846,7 @@ class ControllerHandler():
 
             if block.controller:
                 block.controller.import_node(self, block.interpolator)
-                
+
             if block.interpolator:
                 # If there's no controller, everything is done by the interpolator.
                 block.interpolator.import_node(self, None)
@@ -834,7 +860,7 @@ class ControllerHandler():
         for time, val in tk.keys:
             # self.context.scene.timeline_markers.new(val, frame=round(time*self.fps)+1)
             m = self.action.pose_markers.new(val)
-            m.frame = round(time*self.fps)+1
+            m.frame = round(time*(self.fps * ANIMATION_TIME_ADJUST))+1
             # for a in self.animation_actions:
             #     if "pynMarkers" not in a:
             #         a["pynMarkers"] = {}
@@ -924,7 +950,7 @@ class ControllerHandler():
         keys = []
         for k in curve.keyframe_points:
             k = NiAnimKeyLinearXYZBuf()
-            k.time = (k.co.x-1) / self.fps
+            k.time = (k.co.x-1) / ( self.fps * ANIMATION_TIME_ADJUST)
             k.value = k.co.y
             keys.append(k)
         return keys
@@ -945,7 +971,7 @@ class ControllerHandler():
             else:
                 k = LinearScalarKey()
                 self.warn(f"Unsupported interpolation type {points[1].interpolation}, using LINEAR")
-            k.time = (points[1].co.x-1) / self.fps
+            k.time = (points[1].co.x-1) / (self.fps * ANIMATION_TIME_ADJUST)
             k.value = points[1].co.y
             if points[1].interpolation == 'BEZIER':
                 k.forward, k.backward = self._key_blender_to_nif(points[0], points[1], points[2])
@@ -1040,8 +1066,8 @@ class ControllerHandler():
         ctlvar = ctlvar_cur = None
         ctlclass = ctlclass_cur = None
         self.action = anim.action
-        self.start_time=(self.action.curve_frame_range[0]-1)/self.fps
-        self.stop_time=(self.action.curve_frame_range[1]-1)/self.fps
+        self.start_time=(self.action.curve_frame_range[0]-1)/(self.fps * ANIMATION_TIME_ADJUST)
+        self.stop_time=(self.action.curve_frame_range[1]-1)/(self.fps * ANIMATION_TIME_ADJUST)
         fcurves = actionslot_fcurves(anim.action, anim.slot)
         shader_type = None
         if anim.target_elem and anim.target_elem.type == 'SHADER':
@@ -1115,7 +1141,7 @@ class ControllerHandler():
         for m in action.pose_markers:
             if not tked:
                 tked = NiTextKeyExtraData.New(file=self.nif, parent=cs)
-            tked.add_key((m.frame-1)/self.fps, m.name)
+            tked.add_key((m.frame-1)/(self.fps * ANIMATION_TIME_ADJUST), m.name)
 
 
     def _export_anim_markers(self, cs:NiControllerSequence, markers):
@@ -1313,7 +1339,7 @@ def _import_float_data(td, importer:ControllerHandler):
         keys.extend(td.keys)
         keys.append(None)
         while keys[1]:
-            frame = keys[1].time * importer.fps + 1
+            frame = keys[1].time * (importer.fps * ANIMATION_TIME_ADJUST) + 1
             kfp = curve.keyframe_points.insert(frame, keys[1].value)
             if td.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
                 kfp.interpolation = 'BEZIER'
@@ -1348,7 +1374,7 @@ def _import_pos_data(td:NiPosData, importer:ControllerHandler):
             keys.extend(td.keys)
             keys.append(None)
             while keys[1]:
-                frame = keys[1].time*importer.fps+1
+                frame = keys[1].time * (importer.fps * ANIMATION_TIME_ADJUST) + 1
                 kfp = curve.keyframe_points.insert(frame, keys[1].value[i])
                 kfp.handle_left_type = "FREE"
                 kfp.handle_right_type = "FREE"
@@ -1421,11 +1447,11 @@ def _import_transform_data(td:NiTransformData,
                         kq = ke.to_quaternion()
                         vq = qinv @ kq
                         ve = vq.to_euler()
-                    kx = curveX.keyframe_points.insert(x.time * importer.fps + 1, ve[0])
+                    kx = curveX.keyframe_points.insert(x.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, ve[0])
                     kx.interpolation = x_rot
-                    ky = curveY.keyframe_points.insert(y.time * importer.fps + 1, ve[1])
+                    ky = curveY.keyframe_points.insert(y.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, ve[1])
                     ky.interpolation = y_rot
-                    kz = curveZ.keyframe_points.insert(z.time * importer.fps + 1, ve[2])
+                    kz = curveZ.keyframe_points.insert(z.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, ve[2])
                     kz.interpolation = z_rot
                     importer.start_time = min(importer.start_time, x.time, y.time, z.time)
                     importer.end_time = max(importer.end_time, x.time, y.time, z.time)
@@ -1437,17 +1463,17 @@ def _import_transform_data(td:NiTransformData,
 
                 for i, k in enumerate(td.xrotations):
                     val = k.value - ve[0]
-                    curveX.keyframe_points.insert(k.time * importer.fps + 1, val)
+                    curveX.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, val)
                     importer.start_time = min(importer.start_time, k.time)
                     importer.end_time = max(importer.end_time, k.time)
                 for i, k in enumerate(td.yrotations):
                     val = k.value - ve[1]
-                    curveY.keyframe_points.insert(k.time * importer.fps + 1, val)
+                    curveY.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, val)
                     importer.start_time = min(importer.start_time, k.time)
                     importer.end_time = max(importer.end_time, k.time)
                 for i, k in enumerate(td.zrotations):
                     val = k.value - ve[2]
-                    curveZ.keyframe_points.insert(k.time * importer.fps + 1, val)
+                    curveZ.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, val)
                     importer.start_time = min(importer.start_time, k.time)
                     importer.end_time = max(importer.end_time, k.time)
     
@@ -1479,13 +1505,13 @@ def _import_transform_data(td:NiTransformData,
             else:
                 vq = qinv @ kq 
 
-            kw = curveW.keyframe_points.insert(k.time * importer.fps + 1, vq[0])
+            kw = curveW.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, vq[0])
             kw.interpolation = key_type
-            kx = curveX.keyframe_points.insert(k.time * importer.fps + 1, vq[1])
+            kx = curveX.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, vq[1])
             kx.interpolation = key_type
-            ky = curveY.keyframe_points.insert(k.time * importer.fps + 1, vq[2])
+            ky = curveY.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, vq[2])
             ky.interpolation = key_type
-            kz = curveZ.keyframe_points.insert(k.time * importer.fps + 1, vq[3])
+            kz = curveZ.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, vq[3])
             kz.interpolation = key_type
             importer.start_time = min(importer.start_time, k.time)
             importer.end_time = max(importer.end_time, k.time)
@@ -1513,11 +1539,11 @@ def _import_transform_data(td:NiTransformData,
                 pass 
             else:
                 v = v - tiv
-            k1 = curveLocX.keyframe_points.insert(k.time * importer.fps + 1, v[0])
+            k1 = curveLocX.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, v[0])
             k1.interpolation = xlate_interp
-            k2 = curveLocY.keyframe_points.insert(k.time * importer.fps + 1, v[1])
+            k2 = curveLocY.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, v[1])
             k2.interpolation = xlate_interp
-            k3 = curveLocZ.keyframe_points.insert(k.time * importer.fps + 1, v[2])
+            k3 = curveLocZ.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, v[2])
             k3.interpolation = xlate_interp
             importer.start_time = min(importer.start_time, k.time)
             importer.end_time = max(importer.end_time, k.time)
@@ -1966,10 +1992,10 @@ def _export_quaterion_curves(exporter, td, quat, rot_type, targ_q):
     # export keys using the current fps.
     if rot_type == NiKeyType.QUADRATIC_KEY:
         timesig = exporter.start_time
-        timestep = 1/exporter.fps
+        timestep = 1/(exporter.fps * ANIMATION_TIME_ADJUST)
 
         while timesig < exporter.stop_time + 0.0001:
-            fr = timesig * exporter.fps + 1
+            fr = timesig * (exporter.fps * ANIMATION_TIME_ADJUST) + 1
             tdq = Quaternion([quat[0].evaluate(fr), 
                                 quat[1].evaluate(fr), 
                                 quat[2].evaluate(fr), 
@@ -1992,7 +2018,7 @@ def _export_quaterion_curves(exporter, td, quat, rot_type, targ_q):
                 raise Exception (f"Quaternion keyframes not at matching times")
             
             tdq = Quaternion([k1.co[1], k2.co[1], k3.co[1], k4.co[1]])
-            timesig = (k1.co[0]-1)/exporter.fps
+            timesig = (k1.co[0]-1)/(exporter.fps * ANIMATION_TIME_ADJUST)
             kq = targ_q  @ tdq
             td.add_qrotation_key(timesig, kq)
 
@@ -2079,9 +2105,9 @@ def _export_loc_curves(exporter, td, loc, targ_xf):
     """
     if exporter.export_each_frame:
         timesig = exporter.start_time
-        timestep = 1/exporter.fps
+        timestep = 1/(exporter.fps * ANIMATION_TIME_ADJUST)
         while timesig < exporter.stop_time + 0.0001:
-            fr = timesig * exporter.fps + 1
+            fr = timesig * (exporter.fps * ANIMATION_TIME_ADJUST) + 1
             kv =Vector([loc[0].evaluate(fr), 
                             loc[1].evaluate(fr), 
                             loc[2].evaluate(fr)])
@@ -2098,8 +2124,8 @@ def _export_loc_curves(exporter, td, loc, targ_xf):
             for k0, k1, k2 in zip(loc[0].keyframe_points, loc[1].keyframe_points, loc[2].keyframe_points):
                 if not all_NearEqual([k0.co.x, k1.co.x, k2.co.x]):
                     raise Exception (f"Translation keys not at matching frames for {exporter.action_target.name}")
-                    
-                timesig = (k0.co.x-1)/exporter.fps
+
+                timesig = (k0.co.x-1)/(exporter.fps * ANIMATION_TIME_ADJUST)
                 kv = Vector([k0.co.y, k1.co.y, k2.co.y])
                 rv = kv + targ_xf.translation
                 td.add_translation_key(timesig, rv)
@@ -2194,7 +2220,7 @@ def _export_color_curves(exporter, curve_list, target_obj=None):
     for i in range(1, len(keyframes)-1):
         kfr, kfg, kfb = keyframes[i]
         kfbuf = NiAnimKeyQuadTransBuf()
-        kfbuf.time = (kfr.co.x-1)/exporter.fps
+        kfbuf.time = (kfr.co.x-1)/(exporter.fps * ANIMATION_TIME_ADJUST)
         kfbuf.value[0] = kfr.co.y
         kfbuf.forward[0], kfbuf.backward[0] = exporter._key_blender_to_nif(
             kfp0=keyframes[i-1][0],
@@ -2299,7 +2325,7 @@ class WM_OT_ApplyAnim(bpy.types.Operator):
         row.prop(self, "anim_chooser", text="Animation name")
 
     def execute(self, context): # Runs by default 
-        ad = apply_animation(self.anim_chooser, context.scene)
+        apply_animation(self.anim_chooser, context.scene)
         return {'FINISHED'}
 
 

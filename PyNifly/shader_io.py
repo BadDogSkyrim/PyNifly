@@ -276,6 +276,7 @@ def make_shader_skyrim(parent, shader_path, location,
             shader_node = append_groupnode(parent, "SkyrimShader:Effect", "SkyrimShader:Effect", shader_path, location)
         else:
             shader_node = append_groupnode(parent, "SkyrimShader:Default", "SkyrimShader:Default", shader_path, location)
+        if "MSN" in shader_node.inputs.keys():
             shader_node.inputs["MSN"].default_value = bool(msn)
 
         return shader_node

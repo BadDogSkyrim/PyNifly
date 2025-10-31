@@ -17,7 +17,9 @@ import os
 # from nifdefs import *
 # import xmltools
 import codecs
-import ctypes 
+import ctypes
+
+from requests import head 
 from niflytools import *
 from nifdefs import *
 import test_tools as TT
@@ -179,6 +181,26 @@ def TEST_READ():
 
     testfile = r"tests\SkyrimSE\eyesmale.nif"
     CheckNif(nif)
+
+
+def TEST_RW_HEAD():
+    """Test reading and writing the male head"""
+    testfile = r"tests\Skyrim\malehead.nif"
+    outfile = r"tests/Out/TEST_RW_HEAD.nif"
+
+    nif = NifFile(testfile)
+    CheckNif(nif)
+
+    nifout = NifFile()
+    nifout.initialize('SKYRIM', outfile)
+    _export_shape(nif.shapes[0], nifout)
+    trilist = [nif.shapes[0].partitions[t].id for t in nif.shapes[0].partition_tris]
+    nifout.shapes[0].set_partitions(nif.shapes[0].partitions, trilist)
+    nifout.save()
+
+    nifcheck = NifFile(outfile)
+    CheckNif(nifcheck, testfile)
+
 
 
 def TEST_SHAPE_QUERY():
@@ -653,9 +675,6 @@ def TEST_PYBABY():
 def TEST_BONE_XFORM():
     print('### TEST_BONE_XFORM: Can read bone transforms')
 
-    nif = NifFile(r"tests/Skyrim/malehead.nif")
-    CheckNif(nif)
-
     nif = NifFile(r"tests/FO4/BaseMaleHead.nif")
     mat3 = nif.get_node_xform_to_global("Neck")
     assert NearEqual(mat3.translation[2], 113.2265), f"Error: Translation should not be 0: {mat3.translation[2]}"
@@ -859,11 +878,11 @@ def TEST_FNV():
     nif2.save()
 
 
-def TEST_BLOCKNAME():
-    """Can get block type as a string"""
+# def TEST_BLOCKNAME():
+#     """Can get block type as a string"""
 
-    nif = NifFile(r"tests\SKYRIMSE\malehead.nif")
-    assert nif.shapes[0].blockname == "BSDynamicTriShape", f"Expected 'BSDynamicTriShape', found '{nif.shapes[0].blockname}'"
+#     nif = NifFile(r"tests\SKYRIMSE\malehead.nif")
+#     assert nif.shapes[0].blockname == "BSDynamicTriShape", f"Expected 'BSDynamicTriShape', found '{nif.shapes[0].blockname}'"
 
 
 def TEST_LOD():
@@ -921,12 +940,6 @@ def TEST_SHADER():
     TT.assert_eq(hsse.shader.properties.Alpha, 1.0, "Alpha")
     TT.assert_equiv(hsse.shader.properties.Glossiness, 33.0, "Glossiness")
     TT.assert_eq(hsse.shader.properties.clamp_mode_t, 1, "clamp_mode_t")
-
-    hnle = NifFile(r"tests\SKYRIM\malehead.nif")
-    hsle = hnle.shapes[0]
-    TT.assert_eq(hsle.shader.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), True, "MODEL_SPACE_NORMALS")
-    TT.assert_eq(hsle.shader.properties.Glossiness, 33.0, "Glossiness")
-    TT.assert_eq(hsle.shader.properties.clamp_mode_t, 1, "clamp_mode_t")
 
     hnfo = NifFile(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\HeadTest.nif")
     hsfo = hnfo.shapes[0]
@@ -1092,29 +1105,6 @@ def TEST_FEET():
     assert s[0][0] == 'SDTA', f"Error: Expected string data, got {s}"
     assert s[0][1].startswith('[{"name"'), f"Error: Expected string data, got {s}"
 
-def TEST_XFORM_SKY():
-    """Can read and set the Skyrim body transforms"""
-    """Can read Skyrim head transforms"""
-    nif = NifFile(r"tests\Skyrim\malehead.nif")
-    head = nif.shapes[0]
-    xfshape = head.transform
-    xfskin = head.global_to_skin
-    assert int(xfshape.translation[2]) == 120, "ERROR: Skyrim head shape has a 120 z translation"
-    assert int(xfskin.translation[2]) == -120, "ERROR: Skyrim head shape has a -120 z skin translation"
-
-    nifout = NifFile()
-    nifout.initialize('SKYRIM', r"tests/Out/TEST_XFORM_SKY.nif")
-    _export_shape(head, nifout)
-    #xfshapeout = xfshape.copy()
-    #xfshapeout.translation = VECTOR3(0, -1.5475, 120.3436)
-    nifout.save()
-
-    nifcheck = NifFile(r"tests/Out/TEST_XFORM_SKY.nif")
-    headcheck = nifcheck.shapes[0]
-    xfshapecheck = headcheck.transform
-    xfskincheck = headcheck.global_to_skin
-    assert int(xfshapecheck.translation[2]) == 120, "ERROR: Skyrim head shape has a 120 z translation"
-    assert int(xfskincheck.translation[2]) == -120, "ERROR: Skyrim head shape has a -120 z skin translation"
 
 def TEST_XFORM_STATIC():
     """Can read static transforms"""
@@ -1125,6 +1115,7 @@ def TEST_XFORM_STATIC():
     assert glass.name == "Glass:0", f"Error: Expected glass first, found {glass.name}"
     assert round(glass.transform.translation[0]) == -108, f"Error: X translation wrong: {glass.transform.translation[0]}"
     assert round(glass.transform.rotation[1][0]) == 1, f"Error: Rotation incorrect, got {glass.transform.rotation[1]}"
+
 
 def TEST_MUTANT():
     """can read the mutant nif correctly"""
@@ -2360,7 +2351,7 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = True
-    execute(testlist=[TEST_FULLPREC])
+    execute(testlist=[TEST_RW_HEAD])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
     # execute(exclude=[TEST_SET_SKINTINT])
     #

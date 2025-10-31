@@ -2037,6 +2037,128 @@ def TEST_ANIM_SHADER_BSLSP():
     CheckNif(nout, source=testfile)
 
 
+def Spriggan_LeavesLandedLoop_Check(lllaction):
+    # LeavesLandedLoop has correct range
+    TT.assert_eq(lllaction.frame_range[0], 1, "Frame start")
+    TT.assert_equiv(lllaction.frame_range[1], 49, "Frame end", e=1)
+
+    # Is controlling correct targets
+    TT.assert_eq(len(lllaction.slots), 4, "LeavesLandedLoop requires 4 slots")
+    scene_objs = BD.ReprObjectCollection.New(obj for obj in bpy.context.scene.objects if obj.type == 'MESH')
+    lllanims = [ad for ad in controller.all_named_animations(scene_objs) if ad.name == 'LeavesLandedLoop']
+    llltargets = [ad.target_obj.blender_obj.name for ad in lllanims]
+    TT.assert_samemembers(llltargets, 
+                          ['SprigganFxHandCovers',
+                           'SprigganBodyLeaves', 
+                           'SprigganHandLeaves', 
+                           'SprigganFxTestUnified:0', 
+                           ],
+                          "LeavesLandedLoop controlled targets")
+
+    # Fcurve targets correct
+    fcurve_targets = [fc.data_path for fc in BD.action_fcurves(lllaction)]
+    TT.assert_samemembers(
+        fcurve_targets,
+        ['nodes["SkyrimShader:Effect"].inputs["Alpha Adjust"].default_value', 
+         'nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value', 
+         'nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value', 
+         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value', 
+         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value', 
+         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value', 
+         'nodes["SkyrimShader:Default"].inputs["Emission Strength"].default_value'],
+        "fcurve data_path values")
+    
+    # Is controlling SprigganFxHandCovers correctly
+    lllhcbag = next((cb for cb in lllaction.layers[0].strips[0].channelbags
+                    if 'Alpha Adjust' in cb.fcurves[0].data_path), None)
+    TT.assert_eq(len(lllhcbag.fcurves), 1, "SprigganFxHandCovers fcurves")
+    TT.assert_eq(len(lllhcbag.fcurves[0].keyframe_points), 3, "SprigganFxHandCovers keyframes")
+    TT.assert_equiv(lllhcbag.fcurves[0].keyframe_points[0].co[1], 0, "First keyframe value")
+    TT.assert_equiv(lllhcbag.fcurves[0].keyframe_points[-1].co[1], 0, "Last keyframe value")
+    
+    # Is controlling SprigganBodyLeaves correctly.
+    lllfxbag = next((cb for cb in lllaction.layers[0].strips[0].channelbags
+                     if 'Alpha Threshold' in cb.fcurves[0].data_path
+                        and len(cb.fcurves[0].keyframe_points) == 7), None)
+    assert lllfxbag is not None, "Found SprigganBodyLeaves channelbag"
+    TT.assert_eq(len(lllfxbag.fcurves), 1, "SprigganBodyLeaves fcurves")
+    TT.assert_equiv(lllfxbag.fcurves[0].keyframe_points[0].co[1], 0, "First keyframe value")
+    TT.assert_equiv(lllfxbag.fcurves[0].keyframe_points[1].co[1], 70, "Second keyframe value")
+    TT.assert_equiv(lllfxbag.fcurves[0].keyframe_points[2].co[1], 0, "Third keyframe value")
+
+
+def Spriggan_KillFX_Check(kfxaction):
+    """Check that the KillFx animation sequence was imported correctly."""
+    # KillFX has correct range
+    TT.assert_eq(kfxaction.frame_range[0], 1, "Frame start")
+    TT.assert_equiv(kfxaction.frame_range[1], 49, "Frame end", e=1)
+
+    # Is controlling correct targets
+    TT.assert_eq(len(kfxaction.slots), 4, "KillFX requires 4 slots")
+
+    # Fcurve targets correct
+    fcurve_targets = [fc.data_path for fc in BD.action_fcurves(kfxaction)]
+    TT.assert_samemembers(
+        fcurve_targets,
+        ['nodes["SkyrimShader:Effect"].inputs["Alpha Adjust"].default_value', 
+         'nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value', 
+         'nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value', 
+         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value', 
+         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value', 
+         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value', 
+         'nodes["SkyrimShader:Default"].inputs["Emission Strength"].default_value'],
+        "fcurve data_path values")
+
+    # Is controlling SprigganFxHandCovers correctly
+    kfxhcbag = [cb for cb in kfxaction.layers[0].strips[0].channelbags
+                    if 'Alpha Adjust' in cb.fcurves[0].data_path][0]
+    TT.assert_eq(len(kfxhcbag.fcurves), 1, "SprigganFxHandCovers fcurves")
+    TT.assert_eq(len(kfxhcbag.fcurves[0].keyframe_points), 2, "KillFX SprigganFxHandCovers keyframes")
+    TT.assert_equiv(kfxhcbag.fcurves[0].keyframe_points[0].co[1], 0, "KillFX SprigganFxHandCovers First keyframe value")
+    TT.assert_equiv(kfxhcbag.fcurves[0].keyframe_points[-1].co[1], 0, "KillFX SprigganFxHandCovers Last keyframe value")
+
+    # Is controlling SprigganBodyLeaves correctly.
+    kfxfxbag = next((cb for cb in kfxaction.layers[0].strips[0].channelbags
+                    if len(cb.fcurves) > 1), None)
+    TT.assert_eq(len(kfxfxbag.fcurves), 4, "KillFXSprigganBodyLeaves fcurves")
+    TT.assert_contains("Emission Strength", kfxfxbag.fcurves[3].data_path, "KillFX SprigganBodyLeaves controlled property")
+    TT.assert_eq(len(kfxfxbag.fcurves[3].keyframe_points), 2, "KillFX SprigganBodyLeaves keyframes")
+    TT.assert_equiv(kfxfxbag.fcurves[3].keyframe_points[0].co[1], 8, "KillFX SprigganBodyLeaves First keyframe value")
+    TT.assert_equiv(kfxfxbag.fcurves[3].keyframe_points[1].co[1], 0, "KillFX SprigganBodyLeaves Second keyframe value")
+
+
+
+    # scene_objs = BD.ReprObjectCollection.New(obj for obj in bpy.context.scene.objects if obj.type == 'MESH')
+    # kfxanims = [ad for ad in controller.all_named_animations(scene_objs) if ad.name == 'KillFX']
+    # kfxtargets = [ad.target_obj.blender_obj.name for ad in kfxanims]
+    # TT.assert_samemembers(kfxtargets, 
+    #                       ['SprigganFxHandCovers',
+    #                        'SprigganBodyLeaves', 
+    #                        'SprigganHandLeaves', 
+    #                        'SprigganFxTestUnified:0', 
+    #                        ],
+    #                       "KillFX controlled targets")
+    
+    # # Is controlling SprigganFxHandCovers correctly
+    # kfxhcanim = next(ad for ad in kfxanims if ad.target_obj.blender_obj.name == 'SprigganFxHandCovers')
+    # kfxhcbag = kfxaction.layers[0].strips[0].channelbag(kfxhcanim.slot)
+    # TT.assert_eq(len(kfxhcbag.fcurves), 1, "SprigganFxHandCovers fcurves")
+    # TT.assert_contains("Alpha Adjust", kfxhcbag.fcurves[0].data_path, "KillFX SprigganFxHandCovers controlled property")
+    # TT.assert_eq(len(kfxhcbag.fcurves[0].keyframe_points), 2, "KillFX SprigganFxHandCovers keyframes")
+    # TT.assert_equiv(kfxhcbag.fcurves[0].keyframe_points[0].co[1], 0, "KillFX SprigganFxHandCovers First keyframe value")
+    # TT.assert_equiv(kfxhcbag.fcurves[0].keyframe_points[-1].co[1], 0, "KillFX SprigganFxHandCovers Last keyframe value")
+    
+    # # Is controlling SprigganBodyLeaves correctly.
+    # kfxfxanim = next(ad for ad in kfxanims if ad.target_obj.blender_obj.name == 'SprigganBodyLeaves')
+    # kfxfxbag = kfxaction.layers[0].strips[0].channelbag(kfxhcanim.slot)
+    # TT.assert_eq(len(kfxfxbag.fcurves), 1, "KillFXSprigganBodyLeaves fcurves")
+    # TT.assert_contains("Alpha Threshold", kfxfxbag.fcurves[0].data_path, "KillFX SprigganBodyLeaves controlled property")
+    # TT.assert_eq(len(kfxfxbag.fcurves[0].keyframe_points), 7, "KillFX SprigganBodyLeaves keyframes")
+    # TT.assert_equiv(kfxfxbag.fcurves[0].keyframe_points[0].co[1], 9.444294, "KillFX SprigganBodyLeaves First keyframe value")
+    # TT.assert_equiv(kfxfxbag.fcurves[0].keyframe_points[1].co[1], 0.000000, "KillFX SprigganBodyLeaves Second keyframe value")
+    # TT.assert_equiv(kfxfxbag.fcurves[0].keyframe_points[2].co[1], 131.984894, "KillFX SprigganBodyLeaves Third keyframe value")
+
+
 def TEST_ANIM_SHADER_SPRIGGAN():
     """Test that the special spriggan elements work correctly."""
     # Spriggan with limited controllers
@@ -2069,60 +2191,52 @@ def TEST_ANIM_SHADER_SPRIGGAN():
         'KillFX',]
     TT.assert_samemembers(bpy.data.actions.keys(), expected_animations, "Animation names")
 
-    # LeavesToHand has all targets
-    scene_objs = BD.ReprObjectCollection.New(obj for obj in bpy.context.scene.objects if obj.type == 'MESH')
-    lth_targets = [ad.target_obj for ad in 
-                   controller.all_named_animations(scene_objs)
-                   if ad.name == 'LeavesToHand']
+    Spriggan_KillFX_Check(bpy.data.actions['KillFX'])
+    Spriggan_LeavesLandedLoop_Check(bpy.data.actions['LeavesLandedLoop'])
 
-    # act_targets = [a.action_target for a in 
-    #                controller.all_named_animations(BD.ReprObjectCollection.New(bpy.context.scene.objects))
-    #                if a.name == 'LeavesToHand']
-    
-    # lth_targets = [an[2] for an in act_names if an[1] == 'LeavesToHand']
-    # lth_target_names = [s.name_display for s in bpy.data.actions['LeavesToHand'].slots]
-    lth_targnames = [t.name for t in lth_targets]
-    TT.assert_samemembers(
-        lth_targnames,
-        ['SprigganFxHandCovers',
-         'SprigganHandLeaves',
-         'SprigganBodyLeaves',
-         'SprigganFxTestUnified:0',],
-         "LeavesToHand controlled targets")
-    
-    act = bpy.data.actions['LeavesLandedLoop']
-    TT.assert_eq(len(act.slots), 4, "LeavesLandedLoop requires 4 slots")
-    fcurve_targets = [fc.data_path for fc in BD.action_fcurves(act)]
-    TT.assert_samemembers(
-        fcurve_targets,
-        ['nodes["SkyrimShader:Effect"].inputs["Alpha Adjust"].default_value', 
-         'nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value', 
-         'nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value', 
-         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value', 
-         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value', 
-         'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value', 
-         'nodes["SkyrimShader:Default"].inputs["Emission Strength"].default_value'],
-        "fcurve data_path values")
-    
-    # LeavesLandedLoop hand covers fcurve data path is correct.
-    TT.assert_eq(act.frame_range[0], 1, "Frame start")
-    TT.assert_equiv(act.frame_range[1], 49, "Frame end", e=1)
-
-    
-    # KillFX body leaves fcurve data path is correct.
-    handleaves = TTB.find_object("SprigganHandLeaves")
+    # Can properly apply KillFX 
     controller.apply_animation("KillFX", bpy.context.scene)
+    handleaves = TTB.find_object("SprigganHandLeaves")
     bpy.context.scene.frame_current = 1
+    bpy.context.view_layer.update()
+    bpy.context.scene.frame_set(bpy.context.scene.frame_current)
     TT.assert_equiv(handleaves.active_material.node_tree.nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value,
                     255,
                     "Alpha Threshold at frame 1")
     bpy.context.scene.frame_current = 40
+    bpy.context.view_layer.update()
+    bpy.context.scene.frame_set(bpy.context.scene.frame_current)
     TT.assert_equiv(handleaves.active_material.node_tree.nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value,
                     255,
                     "Alpha Threshold at frame 40")
-    # TT.assert_eq(killact.fcurves[0].data_path, 
-    #              'nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value',
-    #              "Effect shader alpha threshold data path")
+
+    # Can properly apply LeavesLandedLoop 
+    controller.apply_animation("LeavesLandedLoop", bpy.context.scene)
+    bpy.context.scene.frame_current = 1
+    bpy.context.view_layer.update()
+    bpy.context.scene.frame_set(bpy.context.scene.frame_current)
+    fxbody = TTB.find_object("SprigganFxTestUnified:0")
+    TT.assert_equiv(fxbody.active_material.node_tree.nodes["SkyrimShader:Default"]
+                        .inputs["Emission Strength"].default_value,
+                    8,
+                    "Emission Strength at frame 1",
+                    e=0.1)
+    bpy.context.scene.frame_current = 9
+    bpy.context.view_layer.update()
+    bpy.context.scene.frame_set(bpy.context.scene.frame_current)
+    TT.assert_equiv(fxbody.active_material.node_tree.nodes["SkyrimShader:Default"]
+                        .inputs["Emission Strength"].default_value,
+                    6,
+                    "Emission Strength at frame 9",
+                    e=0.1)
+    bpy.context.scene.frame_current = 18
+    bpy.context.view_layer.update()
+    bpy.context.scene.frame_set(bpy.context.scene.frame_current)
+    TT.assert_equiv(fxbody.active_material.node_tree.nodes["SkyrimShader:Default"]
+                        .inputs["Emission Strength"].default_value,
+                    13.1765,
+                    "Emission Strength at frame 18",
+                    e=0.1)
 
     
     ### WRITE ###
@@ -3032,13 +3146,22 @@ def TEST_ALPHA_THRESHOLD_CHANGE():
     outfile1 = TTB.test_file(r"tests\Out\TEST_ALPHA_THRESHOLD_CHANGE1.nif")
     outfile2 = TTB.test_file(r"tests\Out\TEST_ALPHA_THRESHOLD_CHANGE2.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    controller.apply_animation("stage1", bpy.context.scene)
+    bpy.context.scene.frame_current = 1
+    bpy.context.view_layer.update()
+    bpy.context.scene.frame_set(bpy.context.scene.frame_current)
+
     obj = bpy.context.object
     mat = bpy.context.object.active_material
     alphanode = mat.node_tree.nodes['AlphaProperty']
     TT.assert_equiv(alphanode.inputs['Alpha Threshold'].default_value, 6.0, "Alpha Threshold pre-export")
+
     bpy.ops.export_scene.pynifly(filepath=outfile1)
     TT.assert_equiv(alphanode.inputs['Alpha Threshold'].default_value, 6.0, "Alpha Threshold post-export")
 
+    nifout = pyn.NifFile(outfile1)
+    assert nifout.shapes[0].alpha_property.controller is not None, f"Have alpha property controller"
 
 
 def TEST_VERTEX_ALPHA():

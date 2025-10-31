@@ -41,34 +41,92 @@ def Check_daedriccuirass(nif:NifFile):
 
 
 def Check_malehead(nif:NifFile):
-    """Check the head """
-    assert nif.shapes[0].parent.name == nif.rootName, f"Head parented to root"
+    """
+    Check the Skyrim male head.
+    Checks transforms, block types, shader properties, textures.
+    """
+    TT.assert_eq(nif.shapes[0].parent.name, nif.rootName, f"Head parent")
+    if nif.game == 'SKYRIMSE':
+        TT.assert_eq(nif.shapes[0].blockname, "BSDynamicTriShape", f"Head shape blockname")
+    else:
+        TT.assert_eq(nif.shapes[0].blockname, "NiTriShape", f"Head shape blockname")
 
     # Transforms
-    TT.assert_property(nif, ['MaleHeadIMF', 'transform', 'translation', '2'], 120.343582)
-    assert int(nif.shapes[0].global_to_skin.translation[2]) == -120, \
-        f"Shape global-to-skin not written correctly, found {nif.shapes[0].global_to_skin.translation[2]}"
-    
+    TT.assert_equiv(nif.shapes[0].transform.translation[2], 120.3, "z translation", e=0.1)
+    TT.assert_equiv(nif.shapes[0].global_to_skin.translation[2], -120.3, "z global-to-skin translation", e=0.1)
+
     # node-to-global transform combines all the transforms to show node's position
     # in space. Since this nif doesn't contain bone relationships, that's just
     # the transform on the bone.
     mat = nif.get_node_xform_to_global("NPC Spine2 [Spn2]")
-    assert NearEqual(mat.translation[2], 91.2488), f"Error: Translation should not be 0, found {mat.translation[2]}"
+    TT.assert_equiv(mat.translation[2], 91.2488, f"xform to global for spine2")
 
     # If the bone isn't in the nif, the node-to-global is retrieved from
     # the reference skeleton.
     mat2 = nif.get_node_xform_to_global("NPC L Forearm [LLar]")
-    assert NearEqual(mat2.translation[2], 85.7311), f"Error: Translation should not be 0, found {mat2.translation[2]}"
+    TT.assert_equiv(mat2.translation[2], 85.7311, f"NPC L Forearm from ref skeleton")
 
     # Partitions
-    assert len(nif.shapes[0].partitions) == 3, "Have all skyrim partitions"
-    assert set([p.id for p in nif.shapes[0].partitions]) == set([130, 143, 230]), "Have all head parts"
-    assert (nif.shapes[0].partitions[0].flags and 1) == 1, "First partition has start-net-boneset set"
+    TT.assert_eq(len(nif.shapes[0].partitions), 3, "partition count")
+    TT.assert_seteq(set([p.id for p in nif.shapes[0].partitions]), set([130, 143, 230]), "Partitions")
+    TT.assert_eq(nif.shapes[0].partitions[0].flags and 1, 1, "start-net-boneset")
 
     # Partition tri list matches tris 1:1, so has same as number of tris. Refers 
     # to the partitions by index into the partitioin list.
-    assert len(nif.shapes[0].partition_tris) == 1694
-    assert max(nif.shapes[0].partition_tris) < len(nif.shapes[0].partitions), f"tri index out of range"
+    TT.assert_eq(len(nif.shapes[0].partition_tris), 1694, "tri count")
+    TT.assert_lt(max(nif.shapes[0].partition_tris), len(nif.shapes[0].partitions), f"max tri index")
+
+    # Shader properties accessible
+    TT.assert_eq(nif.shapes[0].shader_block_name, "BSLightingShaderProperty", "shader block name")
+    TT.assert_eq(nif.shapes[0].shader.properties.Shader_Type, BSLSPShaderType.Face_Tint, "shader type")
+    f1_expected = ShaderFlags1(
+        ShaderFlags1.SPECULAR 
+        | ShaderFlags1.SKINNED
+        | ShaderFlags1.RECEIVE_SHADOWS
+        | ShaderFlags1.CAST_SHADOWS
+        | ShaderFlags1.FACEGEN_DETAIL_MAP
+        | ShaderFlags1.MODEL_SPACE_NORMALS
+        | ShaderFlags1.OWN_EMIT
+        | ShaderFlags1.REMAPPABLE_TEXTURES
+        | ShaderFlags1.ZBUFFER_TEST
+        )
+    TT.assert_eq(nif.shapes[0].shader.properties.Shader_Flags_1, f1_expected, "shader flags 1")
+    
+    f2_expected = ShaderFlags2(
+        ShaderFlags2.ZBUFFER_WRITE
+        | ShaderFlags2.VERTEX_COLORS
+        | ShaderFlags2.ENVMAP_LIGHT_FADE
+        | ShaderFlags2.SOFT_LIGHTING
+        )
+    TT.assert_eq(nif.shapes[0].shader.properties.Shader_Flags_2, f2_expected, "shader flags 2")
+
+    TT.assert_equiv(nif.shapes[0].shader.properties.UV_Offset_U, 0.0, "uv offset u")
+    TT.assert_equiv(nif.shapes[0].shader.properties.UV_Offset_V, 0.0, "uv offset v")
+    TT.assert_equiv(nif.shapes[0].shader.properties.UV_Scale_U, 1.0, "uv scale u")
+    TT.assert_equiv(nif.shapes[0].shader.properties.UV_Scale_V, 1.0, "uv scale v")
+    TT.assert_equiv(nif.shapes[0].shader.properties.Emissive_Color, (0.0, 0.0, 0.0, 0.0), 
+                    "emissive color", e=0.01)
+    TT.assert_equiv(nif.shapes[0].shader.properties.Emissive_Mult, 1.0, "emissive mult")
+    TT.assert_eq(nif.shapes[0].shader.properties.textureClampMode, 3, "texture clamp mode")
+    TT.assert_equiv(nif.shapes[0].shader.properties.Alpha, 1.0, "alpha")
+    TT.assert_equiv(nif.shapes[0].shader.properties.Refraction_Str, 0.0, "refraction strength")
+    TT.assert_equiv(nif.shapes[0].shader.properties.Glossiness, 33.0, "glossiness")
+    TT.assert_equiv(nif.shapes[0].shader.properties.Spec_Color, (0.631, 0.761, 1.000,), 
+                    "specular color", e=0.01)
+    TT.assert_equiv(nif.shapes[0].shader.properties.Spec_Str, 2.69, "specular strength")
+    TT.assert_equiv(nif.shapes[0].shader.properties.Soft_Lighting, 0.4, "soft lighting")
+    TT.assert_equiv(nif.shapes[0].shader.properties.Rim_Light_Power, 10.0, "rim light power")
+
+    # Textures are accessible through a dictionary. There may be texture slots with empty values.
+    TT.assert_samemembers([k for k, v in nif.shapes[0].textures.items() if v],
+                          {'Diffuse', 'Normal', 'SoftLighting', 'Specular'},
+                          "texture slots")
+    TT.assert_samemembers([v for v in nif.shapes[0].textures.values() if v],
+                          {r'textures\actors\character\male\MaleHead.dds', 
+                           r'textures\actors\character\male\MaleHead_msn.dds', 
+                           r'textures\actors\character\male\MaleHead_S.dds', 
+                           r'textures\actors\character\male\MaleHead_sk.dds'},
+                          "texture paths")
 
 
 def Check_noblechest01(nif:NifFile):
