@@ -103,6 +103,15 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
         new_shape.has_alpha_property = True
         new_shape.alpha_property.properties.flags = old_shape.alpha_property.properties.flags
         new_shape.alpha_property.properties.threshold = old_shape.alpha_property.properties.threshold
+        # if old_shape.alpha_property.controller:
+        #     assert old_shape.alpha_property.controller.blockname == 'NiAlphaPropertyTestRefController', \
+        #         "Only handling NiAlphaPropertyTestRefController"
+        #     controller_prop = old_shape.alpha_property.controller.properties.copy()
+        #     controller_prop.targetID = NODEID_NONE
+        #     controller_prop.nextControllerID = NODEID_NONE
+        #     interpolator_prop = old_shape.alpha_property.controller.interpolator.properties.copy()
+        #     data_prop = old_shape.alpha_property.controller.interpolator.data.properties.copy()
+
         new_shape.save_alpha_property()
 
     for k, t in old_shape.textures.items():
@@ -1271,20 +1280,6 @@ def TEST_EFFECT_SHADER_SKY():
     testfile = r"tests\SkyrimSE\meshes\armor\daedric\daedriccuirass_1.nif"
     outfile = r"tests\out\TEST_EFFECT_SHADER_SKY.nif"
 
-    # def CheckNif(nif:NifFile):
-    #     glow:NiShape = nif.shape_dict["MaleTorsoGlow"]
-    #     sh = glow.shader
-    #     TT.assert_eq(sh.blockname, "BSEffectShaderProperty", "block name")
-    #     TT.assert_eq(sh.flags1_test(ShaderFlags1.VERTEX_ALPHA), True, "VERTEX_ALPHA")
-    #     TT.assert_eq(sh.flags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), False, "MODEL_SPACE_NORMALS")
-    #     TT.assert_eq(sh.flags2_test(ShaderFlags2.NO_FADE), True, "NO_FADE")
-    #     TT.assert_equiv(sh.properties.UV_Scale_U, 10.0, "UV scale U")
-    #     TT.assert_eq(sh.properties.textureClampMode, 3, "textureClampMode")
-    #     TT.assert_eq(sh.properties.clamp_mode_s, 1, f"clamp mode s")
-
-    #     TT.assert_eq(sh.textures['Diffuse'], r"textures\effects\VaporTile02.dds", "Diffuse texture")
-    #     TT.assert_eq(sh.textures['Greyscale'], r"textures\effects\gradients\GradDisguiseShader02.dds", "Greyscale texture")
-
     print("---Read---")
     nif = NifFile(testfile)
     CheckNif(nif)
@@ -1300,6 +1295,29 @@ def TEST_EFFECT_SHADER_SKY():
     print("---Check---")
     nifTest = NifFile(outfile, materialsRoot='tests/FO4')
     CheckNif(nifTest, testfile)
+
+
+# TODO: Setting up to test the alpha threshold controller when there are multiple 
+# sequences is a PITA. Do it at the Blender level.
+# def TEST_ALPHA_THRESHOLD_CONTROLLER():
+#     """Can read and write alpha threshold controller"""
+#     testfile = r"tests\SkyrimSE\meshes\CRSTSkinKalaar.nif"
+#     outfile = r"tests\out\TEST_ALPHA_THRESHOLD_CONTROLLER.nif"
+
+#     print("---Read---")
+#     nif = NifFile(testfile)
+#     CheckNif(nif)
+
+#     """Can read and write shader"""
+#     print("---Write---")
+#     nifOut = NifFile()
+#     nifOut.initialize('SKYRIMSE', outfile)
+#     _export_shape(nif.shapes[0], nifOut)
+#     nifOut.save()
+
+#     print("---Check---")
+#     nifTest = NifFile(outfile)
+#     CheckNif(nifTest, testfile)
 
 
 def TEST_TEXTURE_CLAMP():
@@ -2351,7 +2369,7 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = True
-    execute(testlist=[TEST_RW_HEAD])
+    # execute(testlist=[TEST_ALPHA_THRESHOLD_CONTROLLER])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
-    # execute(exclude=[TEST_SET_SKINTINT])
+    execute(exclude=[TEST_SET_SKINTINT])
     #

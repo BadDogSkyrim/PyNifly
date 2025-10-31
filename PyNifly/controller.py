@@ -1106,7 +1106,8 @@ class ControllerHandler():
                         controller = ctlclass.New(
                             file=self.nif,
                             flags=TimeControllerFlags(
-                                cycle_type=CycleType.LOOP if self.action.use_cyclic else CycleType.CLAMP,
+                                cycle_type=(CycleType.LOOP if self.action.use_cyclic else CycleType.CLAMP),
+                                manager_controlled=(self.cm_controller is not None)
                             ).flags,
                             target=mytarget,
                             start_time=self.start_time,

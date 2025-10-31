@@ -3163,6 +3163,17 @@ def TEST_ALPHA_THRESHOLD_CHANGE():
     nifout = pyn.NifFile(outfile1)
     assert nifout.shapes[0].alpha_property.controller is not None, f"Have alpha property controller"
 
+    # The alpha property can have only one controller, so all sequences must reference it.
+    TT.assert_samemembers(nifout.root.controller.sequences.keys(),
+                          ("stage1", "stage2", "stage3"),
+                          "animation sequences")
+    TT.assert_eq(nifout.root.controller.sequences['stage1'].controlled_blocks[0].controller.id,
+                 nifout.root.controller.sequences['stage2'].controlled_blocks[0].controller.id,
+                 "alpha property controller")
+    TT.assert_eq(nifout.root.controller.sequences['stage1'].controlled_blocks[0].controller.id,
+                 nifout.root.controller.sequences['stage3'].controlled_blocks[0].controller.id,
+                 "alpha property controller")
+
 
 def TEST_VERTEX_ALPHA():
     """Export shape with vertex alpha values"""

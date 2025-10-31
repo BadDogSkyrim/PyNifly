@@ -7,7 +7,7 @@ well. So a lot of the tests use direct function calls.
 
 from pathlib import Path
 from pynifly import NifFile
-from nifdefs import CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, \
+from nifdefs import NODEID_NONE, CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, \
     NiKeyType, CycleType, ShaderFlags1, ShaderFlags2, BSLSPShaderType, VertexFlags, NiAVFlags
 from niflytools import NearEqual, VNearEqual, MatNearEqual
 import test_tools as TT
@@ -370,6 +370,11 @@ def Check_childhead(nif:NifFile):
     TT.assert_patheq(head.shader.textures['Normal'], r"textures\actors\character\malechild\HeadHuman_n.dds", "Normal texture")
 
 
+def Check_kalaar(nif:NifFile):
+    """Unqiue thing about this nif is the alpha property controller."""
+    TT.assert_ne(nif.shapes[0].alpha_property.properties.controllerID, NODEID_NONE, f"Have alpha property controller")
+
+
 test_files = {
     ("FO4", "DExBrickColumn01.nif"): Check_brickcolumn,
     ("FO4", "Helmet.nif"): Check_fo4Helmet,
@@ -383,6 +388,7 @@ test_files = {
     ("SkyrimSE", "eyesmale.nif"): Check_eye,
     ("SkyrimSE","maleheadkhajiit.nif"): Check_khajiithead,
     ("SkyrimSE","childhead.nif"): Check_childhead,
+    ("SkyrimSE","CRSTSkinKalaar.nif"): Check_kalaar,
 }
 
 def CheckNif(nif, source=None):
@@ -392,6 +398,7 @@ def CheckNif(nif, source=None):
         p = Path(nif.filepath)
     k = (p.parts[p.parts.index('tests')+1], p.name)
     if k in test_files:
+        print(f"Checking nif file {nif.filepath}")
         test_files[k](nif)
     else:
         raise ValueError(f"No test defined for {p.name}")

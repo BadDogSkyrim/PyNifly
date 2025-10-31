@@ -1610,6 +1610,9 @@ int getNiAlphaProperty(void* nifref, uint32_t id, void* buffer) {
     CheckID(alph);
     CheckBuf(bufptr, BUFFER_TYPES::NiAlphaPropertyBufType, NiAlphaPropertyBuf);
 
+    bufptr->nameID = alph->name.GetIndex();
+    bufptr->controllerID = alph->controllerRef.index;
+    bufptr->extraDataCount = alph->extraDataRefs.GetSize();
     bufptr->flags = alph->flags;
     bufptr->threshold = alph->threshold;
     return 0;
@@ -1622,6 +1625,7 @@ int setNiAlphaProperty(void* nifref, const char* name, void* buffer, uint32_t pa
     
     CheckBuf(bufptr, BUFFER_TYPES::NiAlphaPropertyBufType, NiAlphaPropertyBuf);
     auto alphaProp = std::make_unique<NiAlphaProperty>();
+    alphaProp->controllerRef.index = bufptr->controllerID;
     alphaProp->flags = bufptr->flags;
     alphaProp->threshold = bufptr->threshold;
 

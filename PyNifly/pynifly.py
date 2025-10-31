@@ -547,6 +547,7 @@ class NiObject:
     
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         self._handle = handle
+        self._controller = None
         self.file:NifFile = file
         self.id = id
         if handle is None and id != NODEID_NONE and file is not None:
@@ -599,6 +600,19 @@ class NiObject:
             NiObject.buffer_types[sc.buffer_type] = sc
             subclasses = subclasses + sc.__subclasses__()
 
+    @property
+    def controller(self):
+        if self._controller: return self._controller
+        if self.properties.controllerID == NODEID_NONE: return None
+        self._controller = self.file.read_node(id=self.properties.controllerID, parent=self)
+        return self._controller
+    
+    @controller.setter
+    def controller(self, c):
+        self._controller = c
+        self.properties.controllerID = c.id
+        NifFile.nifly.setController(self.file._handle, self.id, c.id)
+    
     @classmethod
     def _buftype_name(cls, buftype):
         """Given a buffer type id, return the associated class name."""
@@ -643,19 +657,6 @@ class NiObjectNET(NiObject):
         self._name = value
         if self.file: self.file.register_node(self)
         
-    @property
-    def controller(self):
-        if self._controller: return self._controller
-        if self.properties.controllerID == NODEID_NONE: return None
-        self._controller = self.file.read_node(id=self.properties.controllerID, parent=self)
-        return self._controller
-    
-    @controller.setter
-    def controller(self, c):
-        self._controller = c
-        self.properties.controllerID = c.id
-        NifFile.nifly.setController(self.file._handle, self.id, c.id)
-    
     @property
     def behavior_graph_data(self):
         if self._bgdata is None:
