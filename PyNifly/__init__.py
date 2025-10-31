@@ -3865,14 +3865,11 @@ class NifExporter:
         self.nif.initialize(self.game, fpath, rt, rn)
         if self.root_object:
             self.objs_written.add_pair(self.root_object, self.nif.rootNode) # [self.root_object.name] = self.nif.rootNode
-            try:
-                self.nif.rootNode.flags = NiAVFlags.parse(self.root_object["pynNodeFlags"]).value
-            except Exception as e:
-                log.warn(f"Error setting pynNodeFlags for root object {self.root_object.name}: pynNodeFlags={self.root_object['pynNodeFlags']}")
-        ### Used to set the root flags from the first object's pynNodeFlags, but now that
-        ### we have a root object, keep the flags on the object for the object.
-        # elif "pynNodeFlags" in shape:
-        #     self.nif.rootNode.flags = NiAVFlags.parse(shape["pynNodeFlags"]).value
+            if "pynNodeFlags" in self.root_object:
+                try:
+                    self.nif.rootNode.flags = NiAVFlags.parse(self.root_object["pynNodeFlags"]).value
+                except Exception as e:
+                    log.warn(f"Error setting pynNodeFlags for root object {self.root_object.name}: pynNodeFlags={self.root_object['pynNodeFlags']}")
 
         if suffix == '_faceBones':
             self.nif.dict = fo4FaceDict

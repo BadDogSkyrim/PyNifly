@@ -121,11 +121,11 @@ def Check_malehead(nif:NifFile):
     TT.assert_samemembers([k for k, v in nif.shapes[0].textures.items() if v],
                           {'Diffuse', 'Normal', 'SoftLighting', 'Specular'},
                           "texture slots")
-    TT.assert_samemembers([v for v in nif.shapes[0].textures.values() if v],
-                          {r'textures\actors\character\male\MaleHead.dds', 
-                           r'textures\actors\character\male\MaleHead_msn.dds', 
-                           r'textures\actors\character\male\MaleHead_S.dds', 
-                           r'textures\actors\character\male\MaleHead_sk.dds'},
+    TT.assert_samemembers([v.lower() for v in nif.shapes[0].textures.values() if v],
+                          {r'textures\actors\character\male\malehead.dds',
+                           r'textures\actors\character\male\malehead_msn.dds',
+                           r'textures\actors\character\male\malehead_s.dds',
+                           r'textures\actors\character\male\malehead_sk.dds'},
                           "texture paths")
 
 

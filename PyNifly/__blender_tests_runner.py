@@ -23,8 +23,8 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 do_tests(
-    target_tests=[ TEST_ALPHA_THRESHOLD_CHANGE, ], run_all=False, stop_on_fail=True,
-    # target_tests=[ TEST_COLLISION_BOW_SCALE, TEST_COLLISION_XFORM, TEST_PIPBOY, TEST_FACEBONES_RENAME, TEST_ANIM_ALDUIN, ], run_all=False, stop_on_fail=True,
+    target_tests=[ TEST_PIPBOY, ], run_all=False, stop_on_fail=True,
+    # target_tests=[ TEST_SKYRIM_XFORM, TEST_PARTITIONS, TEST_PIPBOY, ], run_all=False, stop_on_fail=True,
     # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
     # stop_on_fail=True
     )

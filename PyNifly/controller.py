@@ -23,7 +23,7 @@ ANIMATION_NAME_SEP = "|"
 KFP_HANDLE_OFFSET = 10
 
 # Animations come in at twice the speed. Not sure why. Apply an adjustment factor.
-ANIMATION_TIME_ADJUST = 2
+ANIMATION_TIME_ADJUST = 1
 
 
 shader_nodes = {    
@@ -875,24 +875,22 @@ class ControllerHandler():
         Import the animation defined by a controller block.
         
         ctlr = May be a NiControllerManager containg multiple named sequences
+            May be a NiTransformController on an individual bone, part of the armature's animation.
         target_object = The blender object controlled by the animation, e.g. armature, mesh object.
         target_element = The blender object an action must be bound to, e.g. bone, material.
         """
-        self.animation_target = target_object
-        self.action_target = target_element
+        if not self.action:
+            self.animation_target = target_object
+            self.action_target = target_element
+            self.anim_name = animation_name
+            if not self.anim_name:
+                try:
+                    self.anim_name = ctlr.name
+                except:
+                    # Animation is attached to a block, no name needed.
+                    pass
+            self._new_animation(ctlr)
         self.bone_target = target_bone
-        self.anim_name = animation_name
-        if not self.anim_name:
-            try:
-                self.anim_name = ctlr.name
-            except:
-                # Animation is attached to a block, no name needed.
-                pass
-        self._new_animation(ctlr)
-        # ControllerManagers have an action for each sequence. Other controllers need one now.
-        # if not isinstance(ctlr, NiControllerManager):
-        #     self._new_action()
-        #     self._new_slot()
 
         ctlr.import_node(self)
 
@@ -1102,20 +1100,23 @@ class ControllerHandler():
                     if self.cm_controller and issubclass(ctlclass, NiTransformController):
                         controller = self.cm_controller
 
-                    elif (ctlclass != NiTransformController):
-                        controller = ctlclass.New(
-                            file=self.nif,
-                            flags=TimeControllerFlags(
-                                cycle_type=(CycleType.LOOP if self.action.use_cyclic else CycleType.CLAMP),
-                                manager_controlled=(self.cm_controller is not None)
-                            ).flags,
-                            target=mytarget,
-                            start_time=self.start_time,
-                            stop_time=self.stop_time,
-                            next_controller=controller,
-                            interpolator=myinterp,
-                            var=ctlvar,
-                            parent=myparent)
+                    elif (ctlclass != NiTransformController): 
+                        if mytarget.controller is None:
+                            controller = ctlclass.New(
+                                file=self.nif,
+                                flags=TimeControllerFlags(
+                                    cycle_type=(CycleType.LOOP if self.action.use_cyclic else CycleType.CLAMP),
+                                    manager_controlled=(self.cm_controller is not None)
+                                ).flags,
+                                target=mytarget,
+                                start_time=self.start_time,
+                                stop_time=self.stop_time,
+                                next_controller=controller,
+                                interpolator=myinterp,
+                                var=ctlvar,
+                                parent=myparent)
+                        else:
+                            controller = mytarget.controller
                         
                     interps_created.append((controller, interp))
 
@@ -1646,10 +1647,14 @@ def _import_transform_controller(tc:NiTransformController,
         if importer.animation_target.type == 'ARMATURE':
             importer._animate_bone(tc.target.name)
             if not importer.action: importer._new_action()
+            importer._new_slot()
+            interp.import_node(importer, None)
         else:
             importer.action_group = "Object Transforms"
             if not importer.action: importer._new_action()
-        interp.import_node(importer, None)
+            importer._new_slot()
+            interp.import_node(importer, None)
+            importer._record_slot()
     else:
         importer.warn(f"Found no target for {type(tc)}")
 

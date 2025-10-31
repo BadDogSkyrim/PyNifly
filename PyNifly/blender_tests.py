@@ -3174,6 +3174,11 @@ def TEST_ALPHA_THRESHOLD_CHANGE():
                  nifout.root.controller.sequences['stage3'].controlled_blocks[0].controller.id,
                  "alpha property controller")
 
+    ## TODO: Ensure extra targets are correct
+    ## TODO: Check the output nif visually. See that stage3 does the full fade out.    
+    # # Not really sure what extra targets do, but make sure they're right
+    # TT.assert_eq(len(nifout.root.controller.next_controller.extra_targets), 1, "extra targets count")
+
 
 def TEST_VERTEX_ALPHA():
     """Export shape with vertex alpha values"""
@@ -6431,7 +6436,6 @@ def do_tests(
     failed_tests = []
 
     failed_tests = []
-    if run_all: stop_on_fail = False
     try:
         for t in target_tests:
             break
