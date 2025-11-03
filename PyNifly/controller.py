@@ -308,26 +308,27 @@ def all_named_animations(export_objs:BD.ReprObjectCollection) -> Iterator[Animat
     ## let later parts of the code decide.
 
     for act, slot, targ, elem in all_obj_animations(export_objs):
-        res = AnimationData()
-        res.name = act.name
-        res.action = act
-        res.slot = slot
-        res.target_obj = targ
-        res.target_elem = elem
-        res.start_time = (act.frame_start - 1) / bpy.context.scene.render.fps
-        res.stop_time = (act.frame_end - 1) / bpy.context.scene.render.fps
-        res.start_frame = act.frame_start
-        res.stop_frame = act.frame_end
-        res.cycle_type = CycleType.LOOP if act.use_cyclic else CycleType.CLAMP
+        if act.get('pynController', '') == 'NiControllerSequence':
+            res = AnimationData()
+            res.name = act.name
+            res.action = act
+            res.slot = slot
+            res.target_obj = targ
+            res.target_elem = elem
+            res.start_time = (act.frame_start - 1) / bpy.context.scene.render.fps
+            res.stop_time = (act.frame_end - 1) / bpy.context.scene.render.fps
+            res.start_frame = act.frame_start
+            res.stop_frame = act.frame_end
+            res.cycle_type = CycleType.LOOP if act.use_cyclic else CycleType.CLAMP
 
-        res.markers = {}
-        for m in act.pose_markers:
-            res.markers[m.name] = (m.frame - 1) / bpy.context.scene.render.fps
-        # if "pynMarkers" in act:
-        #     for name, val in act["pynMarkers"].items():
-        #         res.markers[name] = val
+            res.markers = {}
+            for m in act.pose_markers:
+                res.markers[m.name] = (m.frame - 1) / bpy.context.scene.render.fps
+            # if "pynMarkers" in act:
+            #     for name, val in act["pynMarkers"].items():
+            #         res.markers[name] = val
 
-        yield res
+            yield res
 
 
 def apply_animation(anim_name, myscene):
@@ -346,8 +347,12 @@ def apply_animation(anim_name, myscene):
             targ.animation_data_create()
             targ.animation_data.action = act
             targ.animation_data.action_slot = slot
-            myscene.frame_start = int(act.frame_start)
-            myscene.frame_end = int(act.frame_end)
+            myscene.frame_start = math.floor(act.curve_frame_range[0])
+            myscene.frame_end = math.ceil(act.curve_frame_range[1])
+            # myscene.frame_start = int(max([
+            #     fc.keyframe_points[-1].co[0] for fc in BD.action_fcurves(act)]))
+            # myscene.frame_end = int(min([
+            #     fc.keyframe_points[-1].co[0] for fc in BD.action_fcurves(act)]))
     if not act:
         log = logging.getLogger("pynifly")
         log.error(f"Animation not found: {anim_name}")
@@ -590,14 +595,14 @@ class ControllerHandler():
         Blender actions are associated with a single element. So it may require mulitple
         blender actions to represent a nif animation. 
         """
-        try:
-            self.context.scene.frame_end = 1 + round(
-                (anim_context.properties.stopTime - anim_context.properties.startTime) 
-                * self.fps)
-        except:
-            # If the animation times are set on some other block, these values may be
-            # bogus.
-            self.context.scene.frame_end = 0
+        # try:
+        #     self.context.scene.frame_end = 1 + round(
+        #         (anim_context.properties.stopTime - anim_context.properties.startTime) 
+        #         * self.fps)
+        # except:
+        #     # If the animation times are set on some other block, these values may be
+        #     # bogus.
+        #     self.context.scene.frame_end = 0
         self.context.scene.timeline_markers.clear()
         self.animation_actions = []
         self.action = None
@@ -605,8 +610,10 @@ class ControllerHandler():
         self.action_name = ""
         self.action_group = ""
         self.path_name = ""
-        self.frame_start = int(anim_context.properties.startTime * self.fps + 1)
-        self.frame_end = int(anim_context.properties.stopTime * self.fps + 1)
+        # self.frame_start = int(anim_context.properties.startTime * self.fps + 1)
+        # self.frame_end = int(anim_context.properties.stopTime * self.fps + 1)
+        self.frame_start = 1
+        self.frame_end = 1
         self.is_cyclic = anim_context.is_cyclic
         self.action_slot = None
         self.channelbag = None
@@ -637,6 +644,8 @@ class ControllerHandler():
         self.action.use_frame_range = True
         self.action.use_cyclic = self.is_cyclic 
         self.anim_name = self.action.name # Just in case Blender added a suffix
+        if self.controller_sequence:
+            self.action['pynController'] = 'NiControllerSequence'
         self.action_slot = None
         self.channelbag = None
 
@@ -705,6 +714,8 @@ class ControllerHandler():
         'pynActionSlots' as a tuple of integers. Each integer is an action slot handle.
         During export, we look for this property to find which action slots apply to this
         object.
+
+        Also set the frame range to include these fcurves.
         """
         if self.action_target.animation_data and self.action_target.animation_data.action_slot:
             s = self.action_target.animation_data.action_slot
@@ -717,6 +728,16 @@ class ControllerHandler():
                     self.action_target['pynActionSlots'] = val
             except Exception as e:
                 log.warn(f"Could not assign action slot for {self.action_target}: {e}")
+
+            # Expand the action's frame range to cover these fcurves.
+            mintime = min([
+                fc.keyframe_points[0].co[0] for fc in BD.action_fcurves(self.action)])
+            maxtime = max([
+                fc.keyframe_points[-1].co[0] for fc in BD.action_fcurves(self.action)])
+            self.action.frame_start = round(min(self.action.frame_start, mintime))
+            self.action.frame_end = round(max(self.action.frame_end, maxtime))
+            self.context.scene.frame_start = round(self.action.frame_start)
+            self.context.scene.frame_end = round(self.action.frame_end)
 
 
     def _animate_bone(self, bone_name:str):
@@ -874,21 +895,33 @@ class ControllerHandler():
         """
         Import the animation defined by a controller block.
         
-        ctlr = May be a NiControllerManager containg multiple named sequences
-            May be a NiTransformController on an individual bone, part of the armature's animation.
+        ctlr = 
+            May be a NiControllerManager containg multiple named sequences. Each sequence
+            is a separate action with slots for each target object/material.
+
+            May be a NiTransformController on an individual bone, part of the armature's
+            animation. it will be imported as additional fcurves on the armature action.
+
+            May be a NiTransformController on a node in a nif. The nif may have other animated
+            nodes. Animations will be imported as slots on a single action.
+
         target_object = The blender object controlled by the animation, e.g. armature, mesh object.
+        
         target_element = The blender object an action must be bound to, e.g. bone, material.
         """
+        self.animation_target = target_object
+        self.action_target = target_element
         if not self.action:
-            self.animation_target = target_object
-            self.action_target = target_element
-            self.anim_name = animation_name
-            if not self.anim_name:
-                try:
-                    self.anim_name = ctlr.name
-                except:
-                    # Animation is attached to a block, no name needed.
-                    pass
+            if hasattr(ctlr, "name"):
+                self.anim_name = ctlr.name
+            else:
+                self.anim_name = Path(ctlr.file.filepath).stem
+            # self.anim_name = animation_name
+            # if not self.anim_name:
+            #     try:
+            #     except:
+            #         # Animation is attached to a block, no name needed.
+            #         pass
             self._new_animation(ctlr)
         self.bone_target = target_bone
 
@@ -1284,14 +1317,59 @@ class ControllerHandler():
 
 
     @classmethod
+    def export_animated_obj(cls, parent_handler, obj):
+        """
+        Export an animated object.
+        """
+        if not obj.animation_data: return
+        if not obj.animation_data.action: return
+        if obj.animation_data.action.get('pynController', '') == 'NiControllerSequence':
+            return
+
+        exporter = ControllerHandler(parent_handler)
+        exporter.nif = parent_handler.nif
+
+        exporter.action = obj.animation_data.action
+        exporter.action_slot = obj.animation_data.action_slot
+        exporter.start_time=(exporter.action.curve_frame_range[0]-1)/exporter.fps
+        exporter.stop_time=(exporter.action.curve_frame_range[1]-1)/exporter.fps
+        curves = []
+        for lay in exporter.action.layers:
+            for strip in lay.strips:
+                for b in strip.channelbags:
+                    if b.slot == exporter.action_slot:
+                        curves = list(b.fcurves)
+                        break
+
+        while curves:
+            targetnodename, ti = NiTransformController.fcurve_exporter(exporter, curves, obj)
+            nifnodename = exporter.nif_name(targetnodename)
+            # KF animation files have no controllers, so only create one if the target
+            # bone exists in the nif.
+            if nifnodename in exporter.nif.nodes:
+                nifnode = exporter.nif.nodes[nifnodename]
+                ctlr = NiTransformController.New(
+                    file=exporter.nif,
+                    flags=TimeControllerFlags(
+                            cycle_type=CycleType.LOOP if exporter.action.use_cyclic else CycleType.CLAMP)
+                            .flags,
+                    start_time=exporter.start_time,
+                    stop_time=exporter.stop_time,
+                    interpolator=ti,
+                    target=nifnode,
+                    parent=nifnode
+                    )
+
+
+    @classmethod
     def export_shader_controller(cls, parent_handler, activeobj:BD.ReprObject, activeelem):
         # """Export an obj that has an animated shader."""
 
-        # XXX If the animation is a named animation, it will be part of a controller 
-        # XXX sequence so we don't need to export it now.
         a = activeelem.animation_data.action
-        # name, target, animtype = parse_animation_name(a.name)
-        # if name and name != "-": return
+
+        # If the animation is a named animation, it will be part of a controller 
+        # sequence so we don't need to export it now.
+        if a.get('pynController', '') == 'NiControllerSequence': return
 
         # If the animation has multiple slots, don't export this one individually
         if len(a.slots) > 1: return
@@ -1884,6 +1962,7 @@ def _import_controller_sequence(seq:NiControllerSequence,
     """
     importer._new_animation(seq)
     importer.anim_name = seq.name
+    importer.controller_sequence = seq
     importer.start_time = min(importer.start_time, seq.properties.startTime)
     importer.end_time = max(importer.end_time, seq.properties.stopTime)
 

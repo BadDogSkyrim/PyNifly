@@ -2040,7 +2040,7 @@ def TEST_ANIM_SHADER_BSLSP():
 def Spriggan_LeavesLandedLoop_Check(lllaction):
     # LeavesLandedLoop has correct range
     TT.assert_eq(lllaction.frame_range[0], 1, "Frame start")
-    TT.assert_equiv(lllaction.frame_range[1], 49, "Frame end", e=1)
+    TT.assert_equiv(lllaction.frame_range[1], 50, "Frame end", e=1)
 
     # Is controlling correct targets
     TT.assert_eq(len(lllaction.slots), 4, "LeavesLandedLoop requires 4 slots")
@@ -4953,7 +4953,10 @@ def TEST_FO4_CHAIR():
 
 
 def TEST_PIPBOY():
-    """Test pipboy import/export--very complex node hierarchy"""
+    """
+    Test pipboy import/export. Very complex node hierarchy. Animations on multiple nodes
+    but no controller sequences.
+    """
 
     def cmp_xf(a, b):
         axf = BD.transform_to_matrix(a.global_transform)
@@ -4964,31 +4967,40 @@ def TEST_PIPBOY():
     outfile = TTB.test_file(f"tests/Out/TEST_PIPBOY.nif", output=1)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
+    TT.assert_true(bpy.data.objects['TapeDeckLid'].animation_data is not None, \
+                   "TapeDeckLid animation data")
+    TT.assert_eq(max([fc.keyframe_points[-1].co[0] 
+                      for fc in BD.action_fcurves(bpy.data.objects['TapeDeckLid'].animation_data.action)]), 
+                      49, 
+                      "Max keyframe")
+    TT.assert_eq(bpy.context.scene.frame_end, 49, "Scene end frame")
+
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True)
 
     nifcheck = pyn.NifFile(outfile)
-    pbb = nifcheck.nodes["PipboyBody"]
-    assert pbb, f"Exported PipboyBody"
-    td1 = nifcheck.nodes["TapeDeck01"]
-    assert td1.parent.name == pbb.name, f"TapeDeck01 has parent {td1.parent.name}"
-    tdl = nifcheck.nodes["TapeDeckLid"]
-    assert tdl.parent.name == td1.name, f"TapeDeckLid has parent {tdl.parent.name}"
-    tdlm = nifcheck.nodes["TapeDeckLid_mesh"]
-    assert tdlm.parent.name == tdl.name, f"TapeDeckLid_mesh has parent {tdlm.parent.name}"
-    tdlm1 = nifcheck.shape_dict["TapeDeckLid_mesh:1"]
-    assert tdlm1.parent.name == tdlm.name, f"TapeDeckLid_mesh:1 has parent {tdlm1.parent.name}"
+    TT.assert_true(nifcheck.nodes.get("PipboyBody"), f"Exported PipboyBody")
+    TT.assert_true(nifcheck.nodes.get("TapeDeck01"), f"Exported TapeDeck01")
+    TT.assert_eq(nifcheck.nodes["TapeDeck01"].parent.name, nifcheck.nodes["PipboyBody"].name, 
+                 f"TapeDeck01 parent")
+    TT.assert_eq(nifcheck.nodes["TapeDeckLid"].parent.name, nifcheck.nodes["TapeDeck01"].name, 
+                 f"TapeDeckLid parent")
+    TT.assert_eq(nifcheck.nodes["TapeDeckLid_mesh"].parent.name, nifcheck.nodes["TapeDeckLid"].name, 
+                 f"TapeDeckLid_mesh parent")
+    TT.assert_eq(nifcheck.shape_dict["TapeDeckLid_mesh:1"].parent.name,
+                 nifcheck.nodes["TapeDeckLid_mesh"].name, 
+                 f"TapeDeckLid_mesh:1 parent")
 
     niftest = pyn.NifFile(testfile)
-    td1test = niftest.nodes["TapeDeck01"]
-    tdltest = niftest.nodes["TapeDeckLid"]
-    tdlmtest = niftest.nodes["TapeDeckLid_mesh"]
-    tdlm1test = niftest.shape_dict["TapeDeckLid_mesh:1"]
 
-    cmp_xf(td1, td1test)
-    cmp_xf(tdl, tdltest)
-    cmp_xf(tdlm, tdlmtest)
-    cmp_xf(tdlm1, tdlm1test)
+    cmp_xf(nifcheck.nodes["TapeDeck01"], niftest.nodes["TapeDeck01"])
+    cmp_xf(nifcheck.nodes["TapeDeckLid"], niftest.nodes["TapeDeckLid"])
+    cmp_xf(nifcheck.nodes["TapeDeckLid_mesh"], niftest.nodes["TapeDeckLid_mesh"])
+    cmp_xf(nifcheck.shape_dict["TapeDeckLid_mesh:1"], niftest.shape_dict["TapeDeckLid_mesh:1"])
+
+    assert nifcheck.rootNode.controller is None, "Root controller is None"
+    assert nifcheck.nodes["PipboyBody"].controller is not None, "PipboyBody controller is not None"
+    assert nifcheck.nodes["TapeDeckLid"].controller is not None, "TapeDeckLid controller is not None"
 
 
 def TEST_BABY():
@@ -5655,7 +5667,7 @@ def TEST_ANIM_ALDUIN():
 
     # Transforms are correct for selected bones
     nif = pyn.NifFile(testfile)
-    assert 'pynRoot' in bpy.data.objects["MagicEffectsNode"].parent, f"Magic effect node not orphaned"
+    TT.assert_contains("MagicEffectsNode", arma.data.bones, "Have magic effect node")
 
     lcalf = arma.data.bones['NPC LLegCalf']
     lcalfp = arma.pose.bones['NPC LLegCalf']
@@ -5784,8 +5796,9 @@ def TEST_ANIM_KF():
     bpy.ops.import_scene.pynifly_kf(filepath=testfile2)
 
     TT.assert_eq(arma.animation_data.action.name, "1hm_attackpowerright", "action name after second import")
+    TT.assert_eq(bpy.context.scene.frame_end, 36, "end frame")
+
     TT.assert_contains("1hm_staggerbacksmallest", bpy.data.actions, "first action still exists")
-    TT.assert_eq(bpy.context.scene.frame_end, 36, "frame end updated")
 
     ### Export ###
 

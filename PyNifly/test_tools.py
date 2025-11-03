@@ -25,6 +25,11 @@ def remove_file(fn):
         os.remove(fn)
 
 
+def assert_true(val, msg, e=0.0001):
+    """Assert the value is truthy."""
+    assert val, f"{msg}: Value is {val} should be True"
+
+
 def assert_equiv(actual, expected, msg, e=0.0001):
     """Assert two values are nearly equal. Values may be scalars, vectors, or matrices."""
     if hasattr(actual, '__getitem__'):

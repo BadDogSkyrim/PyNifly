@@ -842,10 +842,12 @@ class NifImporter():
         elif ninode.file.game == "FO4" and ninode.name in fo4FaceDict.byNif:
             skelbone = fo4FaceDict.byNif[ninode.name]
 
-        if skelbone and arma:
-            # Have not created this as bone in an armature already AND it's a known
-            # skeleton bone, AND we have an armature, create it as an armature bone even
-            # tho it's not used in the shape
+        if (skelbone and arma) or (parent and type(parent) == bpy_types.Bone):
+            # IF have not created this as bone in an armature already AND it's a known
+            # skeleton bone, AND we have an armature, OR if its parent is abone in the
+            # armature THEN create it as an armature bone even tho it's not used in the
+            # shape
+            arma = self.armature
             ObjectSelect([arma], active=True)
             bpy.ops.object.mode_set(mode = 'EDIT')
             bn = self.add_bone_to_arma(arma, self.blender_name(ninode.name), ninode.name)
@@ -3499,6 +3501,7 @@ class NifExporter:
         ref = ReprObject(obj, ninode) # [obj.name] = ninode
         self.objs_written.add(ref) 
         collision.CollisionHandler.export_collisions(self, obj)
+        controller.ControllerHandler.export_animated_obj(self, obj)
         return ref
    
 
