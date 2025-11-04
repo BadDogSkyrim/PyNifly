@@ -1388,19 +1388,6 @@ class NiFloatData(NiObject):
             self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
             if parent: parent.data = self
 
-    # def _writequadkeys(self, keys):
-    #     """
-    #     Write quadratic float keys.
-    #     keys = list of QuadScalarKey 
-    #     """
-    #     buf = NiAnimKeyFloatBuf();
-    #     for k in keys:
-    #         buf.time = k.time
-    #         buf.value = k.value
-    #         buf.forward = k.forward
-    #         buf.backward = k.backward
-    #         NifFile.nifly.addAnimKeyQuadFloat(self.file._handle, self.id, buf)
-
     @property
     def keys(self):
         NifFile.clear_log()
@@ -1469,6 +1456,7 @@ class NiPosData(NiObject):
                 self._keys.append(buf)
         return self._keys
 
+
     def add_key(self, key):
         """
         Write one key.
@@ -1480,17 +1468,16 @@ class NiPosData(NiObject):
         buf.backward = key.backward
         NifFile.nifly.addAnimKeyQuadTrans(self.file._handle, self.id, buf)
 
+
     @classmethod
     def New(cls, file, interpolation, parent=None):
         p = NiPosDataBuf()
         p.keys.interpolation = interpolation
 
         pd = file.add_block(None, p, parent)
-        # id = NifFile.nifly.addBlock(
-        #     file._handle, None, byref(p), 
-        #     parent.id if parent else NODEID_NONE)
-        # pd = NiPosData(file=file, id=id, properties=p, parent=parent)
+
         return pd
+
 
     @classmethod
     def getbuf(cls, values=None):
@@ -1551,12 +1538,6 @@ class NiTransformData(NiKeyFrameData):
             p.zRotations.interpolation = xyz_rotation_types[2]
             p.scales.interpolation = scale_type
         td = file.add_block(None, p, parent)
-        # id = NifFile.nifly.addBlock(
-        #     file._handle, 
-        #     None, 
-        #     byref(p), 
-        #     parent.id if parent else NODEID_NONE)
-        # td = NiTransformData(file=file, id=id, properties=p, parent=parent)
         return td
     
     def _readlinrot(self):
@@ -1668,12 +1649,6 @@ class NiInterpolator(NiObject):
     def New(cls, file, data=None, parent=None):
         p = cls.getbuf()
         p.dataID = (data.id if data else NODEID_NONE)
-        # id = NifFile.nifly.addBlock(
-        #     file._handle, 
-        #     None, 
-        #     byref(p), 
-        #     parent.id if parent else NODEID_NONE)
-        # interp = cls(file=file, id=id, properties=p, parent=parent)
         interp = file.add_block(None, p, parent)
         if data:
             interp._data = data
@@ -1709,12 +1684,6 @@ class NiTransformInterpolator(NiKeyBasedInterpolator):
         p.scale = scale
         p.dataID = data_block.id if data_block else NODEID_NONE
         ti = file.add_block(None, p, parent)
-        # id = NifFile.nifly.addBlock(
-        #     file._handle, 
-        #     None, 
-        #     byref(p), 
-        #     parent.id if parent else NODEID_NONE)
-        # ti = NiTransformInterpolator(file=file, id=id, properties=p, parent=parent)
         return ti
 
 class BSRotAccumTransfInterpolator(NiTransformInterpolator):
@@ -1777,12 +1746,6 @@ class NiBlendInterpolator(NiObject):
     def New(cls, file, parent=None):
         p = cls.getbuf()
         intp = file.add_block(None, p, parent)
-        # id = NifFile.nifly.addBlock(
-        #     file._handle, 
-        #     None, 
-        #     byref(p), 
-        #     parent.id if parent else NODEID_NONE)
-        # intp = cls(file=file, id=id, properties=p, parent=parent)
         return intp
     
     def _default_creator(exporter):
@@ -1947,13 +1910,6 @@ class NiSingleInterpController(NiInterpController):
         c = file.add_block(None, p, parent)
         c._target = target
         c._interpolator = interpolator
-        # id = NifFile.nifly.addBlock(
-        #     file._handle, 
-        #     None, 
-        #     byref(p), 
-        #     parent.id if parent else NODEID_NONE)
-        # c = cls(file=file, id=id, properties=p, parent=parent, 
-        #         target=target, interpolator=interpolator)
         return c
 
 
@@ -2000,13 +1956,6 @@ class NiMultiTargetTransformController(NiInterpController):
         p.targetID = target.id
         tc = file.add_block(None, p, parent)
         tc._target = target
-        # id = NifFile.nifly.addBlock(
-        #     file._handle, 
-        #     None, 
-        #     byref(p), 
-        #     parent.id if parent else NODEID_NONE)
-        # tc = NiMultiTargetTransformController(
-        #     file=file, id=id, properties=p, parent=parent, target=target)
         return tc
 
 
@@ -2079,13 +2028,6 @@ class BSLightingShaderPropertyColorController(NiFloatInterpController):
         p.interpolatorID = interpolator.id if interpolator else NODEID_NONE
         p.typeOfControlledColor = var
         tc = file.add_block(None, p, parent)
-        # id = NifFile.nifly.addBlock(
-        #     file._handle, 
-        #     None, 
-        #     byref(p), 
-        #     parent.id if parent else NODEID_NONE)
-        # tc = BSLightingShaderPropertyColorController(
-        #     file=file, id=id, properties=p, parent=parent)
         return tc
 
 
@@ -2246,12 +2188,6 @@ class NiSequence(NiObject):
         buf.interpolatorID = interpolator.id if interpolator else NODEID_NONE
         buf.controllerID = controller.id if controller else NODEID_NONE
         buf.priority = priority
-        # if node_name: 
-        #     buf.nodeName = NifFile.nifly.addString(
-        #         self.file._handle, node_name.encode('utf-8'))
-        # if prop_type: 
-        #     buf.propType = NifFile.nifly.addString(
-        #         self.file._handle, prop_type.encode('utf-8'))
         buf.nodeName = NODEID_NONE
         buf.ctrlType = NODEID_NONE
         buf.ctrlID = NODEID_NONE
@@ -2286,14 +2222,7 @@ class NiSequence(NiObject):
         # Not adding the controller ID or interpoator ID string values because those can
         # change when nifly does cleanup on save. If this turns out to be a problem, we'll
         # have to set them after cleanup.
-
-            # buf.ctrlID = NifFile.nifly.addString(
-            #     self.file._handle, str(controller.id).encode('utf-8'))
-
         buf.interpID = NODEID_NONE
-        # if interpolator: 
-        #     buf.interpID = NifFile.nifly.addString(
-        #         self.file._handle, str(interpolator.id).encode('utf-8'))
         
         NifFile.nifly.addBlock(self.file._handle, name.encode('utf-8'), byref(buf), self.id)
         if self._controlled_blocks is None: self._controlled_blocks = []
@@ -2343,11 +2272,6 @@ class NiTextKeyExtraData(NiObject):
     def New(cls, file, name='', keys=[], parent=None):
         p = NiTextKeyExtraDataBuf()
         tk = file.add_block(name, p, parent)
-        # parentid = parent.id if parent else NODEID_NONE
-        # id = NifFile.nifly.addBlock()
-        #     file._handle, name.encode('utf-8'), byref(p), parentid)
-        # if id != NODEID_NONE:
-        #     tk = NiTextKeyExtraData(file=file, id=id, properties=p, parent=parent)
         for t, v in keys:
             tk.add_key(t, v)
         return tk
@@ -2409,13 +2333,6 @@ class NiControllerSequence(NiSequence):
                 accum_root_name.encode('utf-8'))
 
         cs = file.add_block(name, p, parent)
-        # id = NifFile.nifly.addBlock(file._handle, 
-        #                             name.encode('utf-8'), 
-        #                             byref(p), 
-        #                             parent.id if parent else None)
-        
-        # if id != NODEID_NONE:
-        #     cs = NiControllerSequence(file=file, id=id, parent=parent, properties=p)
         cs._name = name
         if parent: parent.add_sequence(cs)
         return cs
@@ -2487,9 +2404,6 @@ class NiControllerManager(NiTimeController):
         p.flags = flags.flags
         p.objectPaletteID = object_palette.id if object_palette else NODEID_NONE
         cm = file.add_block(None, p, parent)
-        # id = NifFile.nifly.addBlock(file._handle, None, byref(p), p.targetID)
-        # if id != NODEID_NONE:
-        #     cm = NiControllerManager(file=file, id=id, properties=p, parent=parent)
         cm._controller_manager_sequences = {}
         return cm
 
@@ -2543,9 +2457,6 @@ class NiDefaultAVObjectPalette(NiObject):
         p = NiDefaultAVObjectPaletteBuf()
         p.sceneID = scene.id if scene else NODEID_NONE
         objp = file.add_block(None, p, parent)
-        # id = NifFile.nifly.addBlock(file._handle, None, byref(p), parentid)
-        # if id != NODEID_NONE:
-        #     objp = NiDefaultAVObjectPalette(file=file, id=id, properties=p, parent=parent)
         for name, obj in objects.items():
             objp.add_object(name, obj)
         return objp
@@ -2696,24 +2607,6 @@ class NiShader(NiProperty):
             if slot == 'EmitGradient':
                 self.properties.emitGradientTexture = texturepath.encode('utf-8')
 
-    # def flags1_test(self, flag):
-    #     return self.properties.shaderflags1_test(flag)
-    
-    # def flags1_set(self, flag):
-    #     self.properties.shaderflags1_set(flag)
-    
-    # def flags1_clear(self, flag):
-    #     self.properties.shaderflags1_clear(flag)
-    
-    # def flags2_test(self, flag):
-    #     return self.properties.shaderflags2_test(flag)
-        
-    # def flags2_set(self, flag):
-    #     self.properties.shaderflags2_set(flag)
-    
-    # def flags2_clear(self, flag):
-    #     self.properties.shaderflags2_clear(flag)
-    
     # Individual getter routines for shader flags so the caller doesn't have to worry
     # about Skyrim vs FO4.
 
@@ -3085,108 +2978,6 @@ class NiShaderFO4(NiShader):
         else:
             return super().textures
 
-    # @property
-    # def texture_clamp_mode(self):
-    #     return self.materials.tileFlags
-    
-    # @property
-    # def flag_greyscale_color(self):
-    #     if self.materials:
-    #         return self.materials.grayscaleToPaletteColor
-    #     else:
-    #         return self.properties.shaderflags1_test(ShaderFlags1FO4.GREYSCALE_COLOR)
-
-    # @property
-    # def flag_greyscale_alpha(self):
-    #     if self.materials:
-    #         return self.materials.grayscaleToPaletteAlpha
-    #     else:
-    #         return self.properties.shaderflags1_test(ShaderFlags1FO4.GREYSCALE_ALPHA)
-
-    # @property
-    # def flag_decal(self):
-    #     if self.materials:
-    #         return self.materials.decal
-    #     else:
-    #         return self.properties.shaderflags1_test(ShaderFlags1FO4.DECAL)
-
-    # @property
-    # def flag_environment_mapping(self):
-    #     if self.materials:
-    #         return self.materials.environmentMapping
-    #     else:
-    #         return self.properties.shaderflags1_test(ShaderFlags1FO4.ENVIRONMENT_MAPPING)
-
-    # @property
-    # def flag_zbuffer_test(self):
-    #     if self.materials:
-    #         return self.materials.zbuffertest
-    #     else:
-    #         return self.properties.shaderflags1_test(ShaderFlags1FO4.ZBUFFER_TEST)
-
-    # @property
-    # def flag_cast_shadows(self):
-    #     if self.materials and self.materials.signature == b'BGSM':
-    #         return self.materials.castShadows
-    #     else:
-    #         return self.properties.shaderflags1_test(ShaderFlags1FO4.CAST_SHADOWS)
-        
-    # @property
-    # def flag_external_emittance(self):
-    #     if self.materials and self.materials.signature == b'BGSM':
-    #         return self.materials.externalEmittance
-    #     else:
-    #         return self.properties.shaderflags1_test(ShaderFlags1FO4.EXTERNAL_EMITTANCE)
-        
-    # @property
-    # def flag_eye_environment_mapping(self):
-    #     if self.materials and self.materials.signature == b'BGSM':
-    #         return self.materials.environmentMappingEye
-    #     else:
-    #         return self.properties.shaderflags1_test(ShaderFlags1FO4.EYE_ENVIRONMENT_MAPPING)
-
-    # @property
-    # def flag_hair(self):
-    #     if self.materials and self.materials.signature == b'BGSM':
-    #         return self.materials.hair
-    #     else:
-    #         return self.properties.shaderflags1_test(ShaderFlags1FO4.HAIR)
-
-    # @property
-    # def flag_own_emit(self):
-    #     if self.materials and self.materials.signature == b'BGSM':
-    #         return self.materials.emitEnabled
-    #     else:
-    #         return self.properties.shaderflags1_test(ShaderFlags1FO4.OWN_EMIT)
-
-    # @property
-    # def flag_model_space_normals(self):
-    #     if self.materials and self.materials.signature == b'BGSM':
-    #         return self.materials.modelSpaceNormals
-    #     else:
-    #         return self.properties.shaderflags1_test(ShaderFlags1FO4.MODEL_SPACE_NORMALS)
-
-    # @property
-    # def flag_rgb_falloff(self):
-    #     if self.materials and self.materials.signature == b'BGSM':
-    #         return self.materials.receiveShadows
-    #     else:
-    #         return self.properties.shaderflags1_test(ShaderFlags1FO4.RGB_FALLOFF)
-
-    # @property
-    # def flag_specular(self):
-    #     if self.materials and self.materials.signature == b'BGSM':
-    #         return self.materials.specularEnabled
-    #     else:
-    #         return self.properties.shaderflags1_test(ShaderFlags1FO4.SPECULAR)
-        
-    # @property
-    # def flag_use_falloff(self):
-    #     if self.materials and self.materials.signature == b'BGEM':
-    #         return self.materials.falloffEnabled
-    #     else:
-    #         return self.properties.shaderflags1_test(ShaderFlags1FO4.USE_FALLOFF)
-
     @property
     def shaderflags1(self):
         if self.materials:
@@ -3221,76 +3012,6 @@ class NiShaderFO4(NiShader):
         else:
             return self.properties.Shader_Flags_1
     
-    # @property
-    # def flag_double_sided(self):
-    #     if self.materials:
-    #         return self.materials.twoSided
-    #     else:
-    #         return self.properties.shaderflags2_test(ShaderFlags2FO4.DOUBLE_SIDED)
-
-    # @property
-    # def flag_glow_map(self):
-    #     if self.materials:
-    #         return self.materials.glowmap
-    #     else:
-    #         return self.properties.shaderflags2_test(ShaderFlags2FO4.GLOW_MAP)
-
-    # @property
-    # def flag_zbuffer_write(self):
-    #     if self.materials:
-    #         return self.materials.zbufferwrite
-    #     else:
-    #         return self.properties.shaderflags2_test(ShaderFlags2FO4.ZBUFFER_WRITE)
-
-    # @property
-    # def flag_anisotropic_lighting(self):
-    #     if self.materials and self.materials.signature == b'BGSM':
-    #         return self.materials.anisoLighting
-    #     else:
-    #         return self.properties.shaderflags2_test(ShaderFlags2FO4.ANISOTROPIC_LIGHTING)
-
-    # @property
-    # def flag_transform_changed(self):
-    #     if self.materials and self.materials.signature == b'BGSM':
-    #         return self.materials.assumeShadowmask
-    #     else:
-    #         return self.properties.shaderflags2_test(ShaderFlags2FO4.TRANSFORM_CHANGED)
-
-    # @property
-    # def flag_vats_target_draw_all(self):
-    #     if self.materials and self.materials.signature == b'BGSM':
-    #         return self.materials.backLighting
-    #     else:
-    #         return self.properties.shaderflags2_test(ShaderFlags2FO4.VATS_TARGET_DRAW_ALL)
-
-    # @property
-    # def flag_gradient_remap(self):
-    #     if self.materials and self.materials.signature == b'BGSM':
-    #         return self.materials.rimLighting
-    #     else:
-    #         return self.properties.shaderflags2_test(ShaderFlags2FO4.GRADIENT_REMAP)
-
-    # @property
-    # def flag_alpha_test(self):
-    #     if self.materials and self.materials.signature == b'BGSM':
-    #         return self.materials.subsurfaceLighting
-    #     else:
-    #         return self.properties.shaderflags2_test(ShaderFlags2FO4.ALPHA_TEST)
-
-    # @property
-    # def flag_tree_anim(self):
-    #     if self.materials and self.materials.signature == b'BGSM':
-    #         return self.materials.tree
-    #     else:
-    #         return self.properties.shaderflags2_test(ShaderFlags2FO4.TREE_ANIM)
-        
-    # @property
-    # def flag_effect_lighting(self):
-    #     if self.materials and self.materials.signature == b'BGEM':
-    #         return self.materials.effectLightingEnabled
-    #     else:
-    #         return self.properties.shaderflags2_test(ShaderFlags2FO4.EFFECT_LIGHTING)
-
     @property
     def shaderflags2(self):
         """
@@ -3516,20 +3237,6 @@ class NiShape(NiNode):
         buf = create_string_buffer(128)
         NifFile.nifly.getBlockname(self.file._handle, self.properties.shaderPropertyID, buf, 128)
         return buf.value.decode('utf-8')
-
-    # @property
-    # def shader_name(self):
-    #     if self._shader_name is None:
-    #         buflen = self.file.max_string_len
-    #         buf = (c_char * buflen)()
-    #         NifFile.nifly.getString(self.file._handle, self.shader.properties.nameID, buflen, buf)
-    #         # buflen = NifFile.nifly.getShaderName(self.file._handle, self._handle, buf, buflen)
-    #         self._shader_name = buf.value.decode('utf-8')
-    #     return self._shader_name
-
-    # @shader_name.setter
-    # def shader_name(self, val):
-    #     self._shader_name = val
 
     @property
     def shaderflags1(self):
@@ -3792,21 +3499,6 @@ class NiShape(NiNode):
                 lambda x: type(x).__name__ == "SkyPartition", 
                 partitionlist))
 
-        # # There may be subsegments without their parent segment. Add the parent segment if so.
-        # partitions = list(partitionlist) # Copy so we can modify
-        # if len([p for p in partitionlist if type(p).__name__.startswith("FO4")]) > 0:
-        #     if not "FO4 Seg 000" in [p.name for p in partitions]:
-        #         partitions.append(FO4Segment(part_id=0, index=0))
-        
-        # for p in partitionlist:
-        #     if type(p).__name__ == "FO4Subsegment":
-        #         if p.parent not in partitionlist:
-        #             partitions.append(p.parent)
-
-        # parts = list(filter(
-        #     lambda x: type(x).__name__ in ["SkyPartition", "FO4Segment"], 
-        #     partitions))
-        
         if len(parts) == 0:
             return
 

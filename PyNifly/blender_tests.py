@@ -2038,10 +2038,13 @@ def TEST_ANIM_SHADER_BSLSP():
 
     uv_node = shadernodes['UV_Converter']
     bpy.context.scene.frame_set(1)
+    bpy.context.view_layer.update()
     TT.assert_eq(uv_node.inputs['Offset V'].default_value, 1, "Offset V")
     bpy.context.scene.frame_set(385)
+    bpy.context.view_layer.update()
     assert 0.0 <= uv_node.inputs['Offset V'].default_value <= 0.5, f"V offset is changing: {uv_node.inputs['Offset V'].default_value}"
-    bpy.context.scene.frame_set(0)
+    bpy.context.scene.frame_set(1)
+    bpy.context.view_layer.update()
 
     ### WRITE ###
 

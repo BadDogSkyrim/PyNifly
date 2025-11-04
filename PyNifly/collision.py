@@ -75,7 +75,6 @@ def create_capsule(pt1, pt2, desired_radius):
     if desired_len >= 2*desired_radius:
         # Select verts above the origin
         bpy.ops.mesh.select_mode(type='VERT')
-        # bpy.ops.transform.translate(value=(0, 0, desired_radius))
         bpy.ops.mesh.select_all(action='DESELECT')
         bpy.ops.object.mode_set(mode='OBJECT')
         for v in bpy.context.object.data.vertices:
@@ -206,7 +205,6 @@ class CollisionHandler():
 
         # children = []
         for child in cs.children:
-            # children.append(self.import_collision_shape(child, targobj))
             childobj = self.import_collision_shape(child, parentxf)
             childobj.parent = cshape
 
@@ -287,9 +285,7 @@ class CollisionHandler():
         
 
     def show_collision_normals(self, cs:bhkShape, cso):
-        #norms = [Vector(n)*HAVOC_SCALE_FACTOR for n in cs.normals]
         sf = -HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
-        # sf = -HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
         bpy.ops.object.select_all(action='DESELECT')
         for n in cs.normals:
             bpy.ops.object.add(radius=1.0, type='EMPTY')
@@ -315,11 +311,7 @@ class CollisionHandler():
         prop = collisionnode.properties
 
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
-        # sf = HAVOC_SCALE_FACTOR * self.scale * game_collision_sf[self.nif.game]
-
-        #log.debug(f"Convex verts bounds X RAW: {min(v[0] for v in collisionnode.vertices)}, {max(v[0] for v in collisionnode.vertices)}")
         sourceverts = [Vector(v[0:3])*sf for v in collisionnode.vertices]
-
         m = bpy.data.meshes.new(collisionnode.blockname)
         bm = bmesh.new()
         m.from_pydata(sourceverts, [], [])
@@ -339,11 +331,6 @@ class CollisionHandler():
             obj['bhkMaterial'] = str(prop.bhkMaterial)
         obj['bhkRadius'] = prop.bhkRadius * self.import_scale
 
-        # if log.getEffectiveLevel() == logging.DEBUG:
-        #     self.show_collision_normals(collisionnode, obj)
-        # This gets rotation from target quaternion--is this the same as matrix_world?
-        # obj.rotation_mode = "QUATERNION"
-        # q = targobj.rotation_quaternion.copy()
         q = parentxf.to_quaternion()
         q.invert()
         obj.rotation_quaternion = q
@@ -352,7 +339,6 @@ class CollisionHandler():
 
     def import_collision_shape(self, cs:bhkShape, parentxf):
         sh = None
-        #log.debug(f"Found collision shape {cs.blockname}")
         if cs.blockname == "bhkBoxShape":
             sh = self.import_bhkBoxShape(cs, parentxf)
         elif cs.blockname == "bhkConvexVerticesShape":
@@ -414,7 +400,7 @@ class CollisionHandler():
             sh.rigid_body.use_margin = True
             sh.rigid_body.linear_damping = p.linearDamping / HAVOC_SCALE_FACTOR
             sh.rigid_body.angular_damping = p.angularDamping / HAVOC_SCALE_FACTOR
-            sh.rigid_body.collision_margin = cb.shape.properties.bhkRadius # * HAVOC_SCALE_FACTOR
+            sh.rigid_body.collision_margin = cb.shape.properties.bhkRadius 
         except:
             pass
             
@@ -497,7 +483,7 @@ class CollisionHandler():
         props = bhkCapsuleShapeProps(s)
         props.load(s, ignore=CAPSULE_SHAPE_IGNORE)
 
-        sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game] # * self.export_scale
+        sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game] 
 
         point1, point2, r = find_capsule_ends(s)
         if 'bhkRadius' in s:
@@ -558,11 +544,6 @@ class CollisionHandler():
         Export a convex vertices shape that wraps around whatever the import shape
         is.
         """
-        # if self.root_object:
-        #     effectiveXF = self.root_object.matrix_world @ s.matrix_world @ xform
-        # else:
-        #     effectiveXF = s.matrix_world @ xform 
-
         p = bhkConvexVerticesShapeProps(s)
         bm = bmesh.new()
         bm.from_mesh(s.data)
@@ -694,11 +675,6 @@ class CollisionHandler():
         else:
             bodytype = coll['pynRigidBody']
 
-        # Gonna need relative locations but without the transform the root provides.
-        # rootinv = Matrix.Identity(4)
-        # if self.root_object:
-        #     rootinv = self.root_object.matrix_world.inverted()
-        
         have_bone = False
         try:
             targxf = self.export_xf @  targobj.matrix_local
@@ -779,14 +755,10 @@ class CollisionHandler():
             targnode = targpair.nifnode
         else:
             targnode = self.nif.nodes[targobj.name]
-        # try:
-        #     targnode = self.objs_written[targobj.name]
-        # except:
-        #     targnode = self.nif.nodes[targobj.name]
+
         colnode = targnode.add_collision(None, flags=flags)
         collpair = BD.ReprObject(coll, colnode)
         self.objs_written.add(collpair)
-        # self.objs_written[coll.name] = colnode
 
         body = self.export_collision_body(targobj, collpair) 
 

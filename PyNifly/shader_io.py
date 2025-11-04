@@ -327,9 +327,7 @@ def make_shader_skyrim(parent, shader_path, location,
         s.default_value = 1.0
         s.min_value = 0.0
         s.max_value = 1.0
-        # grp.interface.new_socket('Use Vertex Color', in_out='INPUT', socket_type='NodeSocketColor')
         grp.interface.new_socket('Vertex Color', in_out='INPUT', socket_type='NodeSocketColor')
-        # grp.interface.new_socket('Use Vertex Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
         grp.interface.new_socket('Vertex Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
         grp.interface.new_socket('Subsurface', in_out='INPUT', socket_type='NodeSocketColor')
         grp.interface.new_socket('Subsurface Str', in_out='INPUT', socket_type='NodeSocketColor')
@@ -533,13 +531,6 @@ def make_shader_fo4(parent, shader_path, location, facegen=True, effect_shader=F
             shaderlabel = "FO4 Face Shader"
 
         shader_node = append_groupnode(parent, shadername, shaderlabel, shader_path, location)
-        # with bpy.data.libraries.load(shader_path) as (data_from, data_to):
-        #     data_to.node_groups = [shadername]
-
-        # shader_node = parent.nodes.new('ShaderNodeGroup')
-        # shader_node.name = shader_node.label = shaderlabel
-        # shader_node.location = location
-        # shader_node.node_tree = data_to.node_groups[0]
 
         return shader_node
     
@@ -588,7 +579,6 @@ def make_shader_fo4(parent, shader_path, location, facegen=True, effect_shader=F
         grp.interface.new_socket('Specular Color', in_out='INPUT', socket_type='NodeSocketColor')
         grp.interface.new_socket('Specular Str', in_out='INPUT', socket_type='NodeSocketColor')
         grp.interface.new_socket('Normal', in_out='INPUT', socket_type='NodeSocketColor')
-        # s = grp.interface.new_socket('Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
         s.default_value = 1.0
         s = grp.interface.new_socket('Alpha Mult', in_out='INPUT', socket_type='NodeSocketFloat')
         s.default_value = 1.0
@@ -1236,11 +1226,6 @@ class ShaderImporter:
                 cmap.attribute_name = self.colormap.name
                 self.link(cmap.outputs['Color'], self.bsdf.inputs['Vertex Color'])
 
-                # # FO4 vertex alpha is part of the vertex color info
-                # if self.game == "FO4" and 'Vertex Alpha' in self.bsdf.inputs:
-                #     if self.
-                #     self.link(cmap.outputs['Alpha'], self.bsdf.inputs['Vertex Alpha'])
-
         if 'Vertex Alpha' in self.bsdf.inputs:
             if self.alphamap:
                 vmap = self.make_node('ShaderNodeAttribute',
@@ -1444,7 +1429,6 @@ def set_object_textures(shape: NiShape, mat: bpy.types.Material):
 def get_image_filepath(node_input):
     try:
         nl = BD.find_node(node_input, 'ShaderNodeTexImage')
-        # n = get_image_node(node_input)
         return nl[0].image.filepath
     except:
         pass
@@ -1569,8 +1553,6 @@ class ShaderExporter:
         except Exception as e:
             log.exception(f"Could not determine shader attributes: for {shape.name}")
 
-            # shape.save_shader_attributes()
-
 
     @property
     def is_effectshader(self):
@@ -1623,12 +1605,6 @@ class ShaderExporter:
         """
         foundpath = ""
         imagenode = None
-        # if textureslot == "EnvMap":
-        #     if "EnvMap_Texture" in self.material.node_tree.nodes:
-        #         imagenode = self.material.node_tree.nodes["EnvMap_Texture"]
-        # elif textureslot == "EnvMask":
-        #     if "EnvMask_Texture" in self.material.node_tree.nodes:
-        #         imagenode = self.material.node_tree.nodes["EnvMask_Texture"]
 
         if textureslot == "SoftLighting":
             # Subsurface is hidden behind mixnodes in 4.0 so just grab the node by name.
@@ -1693,31 +1669,11 @@ class ShaderExporter:
                     relpath = Path(*fp.parts[txtindex:])
                 except ValueError:
                     relpath = fp
-        # else:
-        #     # No image node for the current slot. See if there's a texture path in the
-        #     # custom properties. Export that as is.
-        #     if 'BSShaderTextureSet_' + textureslot in self.material:
-        #         foundpath = Path(self.material['BSShaderTextureSet_' + textureslot])
 
         if relpath:
             # Make sure the shader flags reflect the nodes we found.
             self.shader_flag_set(shape, textureslot)
             shape.set_texture(textureslot, str(relpath.with_suffix('.dds')))
-            # try:
-            #     if foundpath.startswith("//"): 
-            #         foundpath = foundpath[2:]
-            #     fplc = Path(foundpath.lower())
-            #     if fplc.drive.endswith('textures'):
-            #         txtindex = 0
-            #     else:
-            #         txtindex = fplc.parts.index('textures')
-            #     fp = Path(foundpath)
-            #     relpath = Path(*fp.parts[txtindex:])
-            #     shape.set_texture(textureslot, str(relpath.with_suffix('.dds')))
-            # except ValueError:
-            #     self.warn(f"No 'textures' folder found in path: {foundpath}")
-            # except Exception as e:
-            #     self.warn(f"Texture image {foundpath} not usable.")
         else:
             # No texture for the current slot. If the flags say we should have one and we
             # didn't get one from the object properties, warn and clear the flag. Don't
@@ -1735,8 +1691,6 @@ class ShaderExporter:
         """
         Export the alpha property.
         """
-        if self.is_effectshader: return ## XXX
-
         if 'Alpha Property' in self.shader_node.inputs:
             alpha_input = self.shader_node.inputs['Alpha Property']
         else:
@@ -1771,8 +1725,6 @@ class ShaderExporter:
         Handles only the texture types we know how to handle in the shader. The rest are
         properties on the material and are picked up from there.
         """
-        if  self.is_effectshader: return
-
         # Use textures stored in properties as defaults; override them with shader nodes
         set_object_textures(shape, self.material)
 

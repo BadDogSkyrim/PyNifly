@@ -542,11 +542,6 @@ class NifImporter():
             xf = xform_calc.inverted()
             
         offset_consistent = True
-        # if the_shape.has_global_to_skin:
-        #     # if this transform exists, use it and don't muck with it.
-        #     xform = the_shape.global_to_skin
-        #     xf = transform_to_matrix(xform).inverted()
-        #     offset_consistent = True
         
         ### All of this is unreachable now.
         offset_xf = None
@@ -703,9 +698,7 @@ class NifImporter():
                                    Euler(Vector(invm[1:4])/1000, 'XYZ'),
                                    (1,1,1))
             ed.matrix_world = mx @ neut
-            # ed.data.lens = CAMERA_LENS * invm[4] 
             mx, focal_len = inv_to_cam(invm[1:4], invm[4])
-            # ed.matrix_world = mx
             ed.data.lens = focal_len
 
             ed['BSInvMarker_Name'] = invm[0]
@@ -755,7 +748,6 @@ class NifImporter():
             ed['NiStringExtraData_Name'] = s[0]
             ed['NiStringExtraData_Value'] = s[1]
             ed.parent = parent_obj
-            # extradata.append(ed)
             self.objects_created.add(ReprObject(blender_obj=ed))
             link_to_collection(self.collection, ed)
 
@@ -1117,18 +1109,6 @@ class NifImporter():
         return skin_xf
 
 
-    # def bone_nif_to_blender(self, shape:NiShape, bone:str, skin_xf:Matrix) -> Matrix:
-    #     """Return bone's final position in blender
-        
-    #     arma: armature that will parent bone
-    #     skin_xf: the skin transform applied to all shapes under the armature.
-    #     """
-    #     bone_xf = transform_to_matrix(shape.get_shape_skin_to_bone(bone))
-    #     bone_xf = apply_scale_transl(skin_xf, 1/self.scale) @ bone_xf.inverted()
-    #     bone_xf = Matrix.Scale(self.scale, 4) @ bone_xf @ game_rotations[game_axes[shape.file.game]][0]
-    #     return bone_xf
-    
-
     def check_armature(self, obj, shape, arma):
         """Check whether an armature is consistent with the shape's bone bind positioins. 
         If a single transform will make the armature consistent, return that transform. 
@@ -1333,8 +1313,6 @@ class NifImporter():
                     else:
                         arm_data.edit_bones[bonename].parent = arm_data.edit_bones[parentname]
 
-                        # if saved_pose:
-                        #     arma.pose.bones[bonename].matrix = saved_pose 
             i += 1
 
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -1368,8 +1346,6 @@ class NifImporter():
                         c = armature.data.collections.new(name=bg_name)
                     else:
                         c = armature.data.collections[bg_name].assign(b)
-                    # Can't set color; not sure how this is supposed to work
-                    # b.color.pallet = f'THEME0{c.index+1}'
             ok = True
         except:
             pass
@@ -1407,13 +1383,10 @@ class NifImporter():
         ObjectSelect([arma])
         ObjectActive(arma)
         bpy.ops.object.mode_set(mode='EDIT')
-        # print(f"Bone roll for 'NPC Calf [Clf].L' = {arma.data.edit_bones['NPC Calf [Clf].L'].roll}")
         for b in arma.data.edit_bones:
             b.roll += -90 * pi / 180
-        # print(f"Bone roll for 'NPC Calf [Clf].L' = {arma.data.edit_bones['NPC Calf [Clf].L'].roll}")
         bpy.ops.object.mode_set(mode='OBJECT')
         arma.update_from_editmode()
-
 
     
     def add_bones_to_arma(self, arma, nif, bone_names):
@@ -1450,17 +1423,12 @@ class NifImporter():
         arma.parent = self.root_object
         link_to_collection(the_coll, arma)
 
-        # bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
-        # ObjectSelect([arma], active=True)
-        # bpy.ops.object.mode_set(mode='EDIT', toggle=False)
-
         if self.nif.dict.use_niftools:
             with suppress(AttributeError):
                 # Support NifTools axis settings
                 arm_data.niftools.axis_forward = "Z"
                 arm_data.niftools.axis_up = "-X"
 
-        #if self.scale != SCALE_DEF: arma['PYN_SCALE_FACTOR'] = self.scale 
         arma['PYN_BLENDER_XF'] = MatNearEqual(self.import_xf, blender_import_xf)
         arma['PYN_RENAME_BONES'] = self.is_set(ImportSettings.rename_bones)
         if self.is_set(ImportSettings.rename_bones_nift) != RENAME_BONES_NIFT_DEF:
@@ -1516,9 +1484,7 @@ class NifImporter():
             unscaled_skin_xf = unscaled_skin_xf.inverted() @ s2a_xf 
 
         # FO4 facegen nifs can have wonky transforms. They can be ignored. ### Is this true?
-        if True: ### not self.is_facegen:
-            obj.matrix_local = unscaled_skin_xf.copy()
-        # skin_xf = arma.parent.matrix_world.inverted() @ unscaled_skin_xf
+        obj.matrix_local = unscaled_skin_xf.copy()
         skin_xf = unscaled_skin_xf.copy()
 
         # Create bones. If do_import_pose, positions are the NiNode positions of the
@@ -1540,7 +1506,6 @@ class NifImporter():
                 elif self.is_set(ImportSettings.import_pose): ### and not self.is_facegen:
                     # Using nif locations of bones. 
                     bone_node = nif_shape.file.nodes[bn]
-                    # xf = transform_to_matrix(bone_node.properties.transform)
                     xf = transform_to_matrix(bone_node.global_transform)
                 else:
                     # Have to trust the bind position in the nif.
@@ -1822,11 +1787,6 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Create vanilla bones as needed to make skeleton complete.",
         default=CREATE_BONES_DEF) # type: ignore
 
-    # scale_factor: bpy.props.FloatProperty(
-    #     name="Scale correction",
-    #     description="Scale import - set to 0.1 to match NifTools default",
-    #     default=SCALE_DEF)
-
     use_blender_xf: bpy.props.BoolProperty(
         name="Use Blender orientation",
         description="Use Blender's orientation and scale",
@@ -1877,12 +1837,6 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         name="Import to collections",
         description="Import each nif to its own new collection.",
         default=IMPORT_COLLECTIONS_DEF) # type: ignore
-
-    # do_estimate_offset: bpy.props.BoolProperty(
-    #     name="Apply estimated shape offset",
-    #     description="Positions skinned shapes at an offset estimated from bone transforms.",
-    #     default=ESTIMATE_OFFSET_DEF
-    # ) # type: ignore
 
     reference_skel: bpy.props.StringProperty(
         name="Reference skeleton",
@@ -2513,8 +2467,6 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
                               self.import_flags,
                               animation_name=self.animation_name,)
             imp.context = self.context
-            # imp.armature = self.context.object
-            # imp.do_import_anims = True
             imp.nif = kf_file
             imp.import_nif()
             self.import_annotations()
@@ -3177,13 +3129,11 @@ class NifExporter:
         if len(p) != 1:
             face_verts = [lp.vertex_index for lp in loops[face.loop_start:face.loop_start+face.loop_total]]
             if len(p) == 0:
-                # log.warning(f'Face {face.index} has no partitions')
                 self.warnings.add('NO_PARTITION')
                 self.objs_no_part.add(self.active_obj)
                 create_group_from_verts(self.active_obj, NO_PARTITION_GROUP, face_verts)
                 return None
             elif len(p) > 1:
-                # log.warning(f'Face {face.index} has too many partitions: {p}')
                 self.warnings.add('MANY_PARITITON')
                 self.objs_mult_part.add(self.active_obj)
                 create_group_from_verts(self.active_obj, MULTIPLE_PARTITION_GROUP, face_verts)
@@ -3277,49 +3227,6 @@ class NifExporter:
         return loops, uvs, norms, colors, partition_map
 
 
-    # def export_partitions(self, obj, weights_by_vert, tris):
-    #     """ Export partitions described by vertex groups
-    #         weights = [dict[group-name: weight], ...] vertex weights, 1:1 with verts. For 
-    #             partitions, can assume the weights are 1.0
-    #         tris = [(v1, v2, v3)...] where v1-3 are indices into the vertex list
-    #         returns (partitions, tri_indices)
-    #             partitions = list of partition objects
-    #             tri_indices = list of paritition indices, 1:1 with the shape's tri list
-    #     """
-    #     partitions = partitions_from_vert_groups(obj)
-
-    #     if len(partitions) == 0:
-    #         return [], []
-
-    #     partition_set = set(list(partitions.keys()))
-
-    #     tri_indices = [0] * len(tris)
-
-    #     for i, t in enumerate(tris):
-    #         # All 3 have to be in the same vertex group to count
-    #         vg0 = all_vertex_groups(weights_by_vert[t[0]])
-    #         vg1 = all_vertex_groups(weights_by_vert[t[1]])
-    #         vg2 = all_vertex_groups(weights_by_vert[t[2]])
-    #         tri_partitions = vg0.intersection(vg1).intersection(vg2).intersection(partition_set)
-    #         if len(tri_partitions) > 0:
-    #             if len(tri_partitions) > 1:
-    #                 log.warning(f"Found multiple partitions for tri {t} in object {obj.name}: {tri_partitions}")
-    #                 self.warnings.add('MANY_PARITITON')
-    #                 self.objs_mult_part.add(obj)
-    #                 create_group_from_verts(obj, MULTIPLE_PARTITION_GROUP, t)
-
-    #             # Triangulation may put some tris in two partitions. Just choose one--
-    #             # exact division doesn't matter (if it did user should have put in an edge)
-    #             tri_indices[i] = partitions[next(iter(tri_partitions))].id
-    #         else:
-    #             log.warning(f"Tri {t} is not assigned any partition")
-    #             self.warnings.add('NO_PARTITION')
-    #             self.objs_no_part.add(obj)
-    #             create_group_from_verts(obj, NO_PARTITION_GROUP, t)
-
-    #     return list(partitions.values()), tri_indices
-
-
     def find_colormaps(self, mesh):
         """
         Find the color maps for the given mesh. Use the VERTEX_ALPHA color map for alpha
@@ -3387,7 +3294,6 @@ class NifExporter:
                 for i, loop in enumerate(mesh.loops):
                     c = loopcolors[i]
                     a = Color(alphamap.data[loop.vertex_index].color[0:3])
-                    # a = Color(alphamap.data[loop.vertex_index].color[0:3]).from_srgb_to_scene_linear()
                     loopcolors[i] = (c[0], c[1], c[2], (a[0] + a[1] + a[2])/3)
 
         return loopcolors
@@ -3498,7 +3404,7 @@ class NifExporter:
                 ninode.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
             except Exception as e:
                 log.warn(f"Error setting pynNodeFlags for {obj.name}: {e}")
-        ref = ReprObject(obj, ninode) # [obj.name] = ninode
+        ref = ReprObject(obj, ninode) 
         self.objs_written.add(ref) 
         collision.CollisionHandler.export_collisions(self, obj)
         controller.ControllerHandler.export_animated_obj(self, obj)
@@ -3525,24 +3431,6 @@ class NifExporter:
             ref = self.objs_written.find_blend(this_parent)
             if (not ref) and  ('pynRoot' not in this_parent):
                 ref = self.export_node(this_parent, last_parent)
-            # if 'pynRoot' in this_parent:
-            #     # Only return the root's handle if we wrote it already.
-            #     rootref = self.objs_written.find_blend(this_parent)
-            #     if rootref: ninode = rootref.ninode
-            #     # if this_parent.name in self.objs_written.find_blend(this_parent):
-            #     #     ninode = self.objs_written[this_parent.name]
-            # else:
-            #     ref = self.objs_written.find_blend(this_parent)
-            #     if ref: 
-            #         ninode = ref.nifnode
-            #     else:
-            #         ref = self.export_node(this_parent, last_parent)
-            #         ninode = ref.nifnode
-            # # elif this_parent.name in self.objs_written:
-            # #     ninode = self.objs_written[this_parent.name]
-            # # else:
-            # #     ninode = self.export_node(this_parent, last_parent)
-            
             last_parent = ref
         
         return ref
@@ -3613,7 +3501,6 @@ class NifExporter:
         connected (do Blender armatures have to be fully connected?). 
         used_bones - list of bone names to write. 
         """
-        # self.writtenbones = {}
         for bone_name in used_bones:
             if bone_name in arma.data.bones:
                 self.write_bone(shape, arma, bone_name)
@@ -3867,7 +3754,7 @@ class NifExporter:
         
         self.nif.initialize(self.game, fpath, rt, rn)
         if self.root_object:
-            self.objs_written.add_pair(self.root_object, self.nif.rootNode) # [self.root_object.name] = self.nif.rootNode
+            self.objs_written.add_pair(self.root_object, self.nif.rootNode) 
             if "pynNodeFlags" in self.root_object:
                 try:
                     self.nif.rootNode.flags = NiAVFlags.parse(self.root_object["pynNodeFlags"]).value
@@ -3906,8 +3793,6 @@ class NifExporter:
                 par = None
                 if obj.parent:
                     par = self.objs_written.find_blend(obj.parent)
-                # if obj.parent and obj.parent.name in self.objs_written:
-                #     par = self.objs_written[obj.parent.name]
                 self.export_node(obj, par)
 
         # Check for bodytri morphs--write the extra data node if needed
@@ -3988,9 +3873,11 @@ class NifExporter:
     @classmethod
     def do_export(cls, filepath, game, objects, scale=1.0):
         return NifExporter(filepath, game, scale=scale).export(objects)
-        
+
+
 def get_default_scale():
     return 1.0
+
 
 def current_active_object(context):
     """
@@ -4101,7 +3988,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.objects_to_export = bpy.context.selected_objects # get_export_objects(bpy.context)
+        self.objects_to_export = bpy.context.selected_objects 
 
         if not self.objects_to_export:
             self.report({"ERROR"}, "No objects selected for export")
@@ -4374,7 +4261,6 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         self.log_handler = LogHandler.New(bl_info, "EXPORT", "KF")
 
         if not self.poll(context):
-            # self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
             return {'CANCELLED'} 
 
         if self.fps <= 0 or self.fps >= 200:
@@ -4408,14 +4294,6 @@ class ExportKF(bpy.types.Operator, ExportHelper):
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 
-    # def error(self, msg):
-    #     """Log an error message."""
-    #     self.log_handler.log.error(msg)
-
-    # def warn(self, msg):
-    #     """Log a warning message."""
-    #     self.log_handler.log.warning(msg)
-                
 
 
 ################################################################################
@@ -4467,14 +4345,6 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
         return True
     
-    # def warn(self, msg):
-    #     self.log_handler.log.warning(msg)
-
-    # def error(self, msg):
-    #     self.log_handler.log.error(msg)
-
-    # def info(self, msg):
-    #     self.log_handler.log.info(msg)
 
     def generate_hkx(self, filepath):
         """Generates an HKX file from a KF file. Also generates an XML file."""
@@ -4599,7 +4469,6 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         self.kf_filepath = Path(tmp_filepath(self.filepath, ext=".kf"))
         try:
             KFExporter.Export(self.kf_filepath, context, fps=self.fps)
-            # bpy.ops.export_scene.pynifly_kf(filepath=self.kf_filepath, fps=self.fps)
             log.info(f"Created temporary kf file: {self.kf_filepath}")
         except:
             log.exception("Creation of temporary KF file failed")
@@ -4633,6 +4502,7 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
     bl_options = {'PRESET'}
 
     filename_ext = ".hkx"
+
 
     @classmethod
     def poll(cls, context):
