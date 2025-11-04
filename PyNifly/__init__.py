@@ -7,7 +7,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 5, 0),
-    "version": (20, 6, 0),   
+    "version": (21, 0, 0),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -545,49 +545,6 @@ class NifImporter():
         
         ### All of this is unreachable now.
         offset_xf = None
-        if not offset_consistent and  offset_xf == None and self.armature:
-            # If we already imported from this nif, check the offset from the shape to the
-            # armature we've created. If it's consistent, we just apply that offset.
-            for i, bn in enumerate(the_shape.get_used_bones()):
-                bnref = bn
-                if self.is_facegen and bn == "Head": 
-                    bnref = "HEAD"
-                if bnref in self.armature.data.bones:
-                    skel_bone = self.armature.data.bones[bnref]
-                    skel_bone_xf= skel_bone.matrix_local
-                    bindpos = bind_position(the_shape, bn)
-                    bindinshape = xf @ bindpos
-                    this_offset = skel_bone_xf @ bindinshape.inverted()
-                    
-                    if not offset_xf: 
-                        offset_xf = this_offset
-                        offset_consistent = True
-                    
-                    # If the transforms are close, create an average. That's because
-                    # there's often some variation, whether it's rounding errors or some
-                    # other reason. We need epsilon as large as it is to cover all the
-                    # nifs we see, especially nifs with multiple meshes that came from
-                    # different sources.
-                    elif MatNearEqual(this_offset, offset_xf, epsilon=expected_variation):
-                        offset_xf = offset_xf.lerp(this_offset, 1/i)
-                    
-                    # If transforms are way off, either something's wrong, like we're
-                    # trying to use an inappropriate reference skeleton, or it's FO4. FO4
-                    # is just weird. Inform the user and don't use this for the average.
-                    else:
-                        offset_consistent = False
-                        log.warning(f"Shape {the_shape.name} does not have consistent offset from nif armature--can't use it to extend the armature.")
-                        self.settings &= ~ImportSettings.create_bones
-                        break
-
-            if offset_consistent and offset_xf:
-                # If the offset is close to the standard FO4 bodypart offset, normalize it 
-                # so all bodyparts are consistent.
-                if self.nif.game == 'FO4' and  MatNearEqual(offset_xf, fo4_bodypart_xf, epsilon=3):
-                    xf = xf @ fo4_bodypart_xf
-                else:
-                    xf = xf @ offset_xf
-
         if not offset_consistent and offset_xf == None and self.reference_skel:
             # If we're creating missing vanilla bones, we need to know the offset from the
             # bind positions here to the vanilla bind positions, and we need it to be
