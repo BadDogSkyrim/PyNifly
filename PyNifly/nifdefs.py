@@ -196,17 +196,23 @@ class pynStructure(Structure):
             elif not (f in shape.keys()):
                 pass
             elif f == 'Shader_Flags_1':
-                if game in ['SKYRIM', 'SKYRIMSE']:
+                if not shape[f]:
+                    v = 0
+                elif game in ['SKYRIM', 'SKYRIMSE']:
                     v = ShaderFlags1.parse(shape[f]).value
                 else:
                     v = ShaderFlags1FO4.parse(shape[f]).value
             elif f == 'Shader_Flags_2':
-                if game in ['SKYRIM', 'SKYRIMSE']:
+                if not shape[f]:
+                    v = 0
+                elif game in ['SKYRIM', 'SKYRIMSE']:
                     v = ShaderFlags2.parse(shape[f]).value
                 else:
                     v = ShaderFlags2FO4.parse(shape[f]).value
             elif f == 'Shader_Type':
-                if type(shape[f]) == BSLSPShaderType:
+                if not shape[f]:
+                    v = 0
+                elif type(shape[f]) == BSLSPShaderType:
                     v = shape[f].value
                 elif type(shape[f]) == str:
                     mykey = str(shape[f])
@@ -393,7 +399,10 @@ class pynStructure(Structure):
         """
         defaults = self.__class__()
         for fn, t in self._fields_:
-            if fn != 'bufType' and fn != 'bufSize' and fn[-2:] != 'ID' and fn not in ignore:
+            if fn != 'bufType' and fn != 'bufSize' and fn[-2:] != 'ID' \
+                and (fn not in ignore) \
+                and not (fn == 'Shader_Type' and self.bufType == PynBufferTypes.BSEffectShaderPropertyBufType):
+
                 if '_Array_' in t.__name__:
                     v1 = [x for x in self.__getattribute__(fn)]
                     v2 = [x for x in defaults.__getattribute__(fn)]

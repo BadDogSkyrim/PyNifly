@@ -56,6 +56,7 @@ NISHADER_IGNORE = [
     'baseColorScale',
     'bufSize', 
     'bufType', 
+    'bBSLightingShaderProperty',
     'controllerID', 
     'Emissive_Color',
     'Emissive_Mult',
@@ -67,7 +68,7 @@ NISHADER_IGNORE = [
     'UV_Offset_V',
     'UV_Scale_U',
     'UV_Scale_V',
-    'textureClampMode',
+    'textureClampMode'
     ]
 
 shader_node_height = {
@@ -1517,6 +1518,7 @@ class ShaderExporter:
                     shape.shader.properties.bufType = PynBufferTypes.BSLightingShaderPropertyBufType
                 elif self.material['BS_Shader_Block_Name'] == "BSEffectShaderProperty":
                     shape.shader.properties.bufType = PynBufferTypes.BSEffectShaderPropertyBufType
+                    shape.shader.properties.bBSLightingShaderProperty = 0
                 elif self.material['BS_Shader_Block_Name'] == "BSShaderPPLightingProperty":
                     shape.shader.properties.bufType = PynBufferTypes.BSShaderPPLightingPropertyBufType
                 else:
@@ -1733,6 +1735,8 @@ class ShaderExporter:
         """
         Export the alpha property.
         """
+        if self.is_effectshader: return ## XXX
+
         if 'Alpha Property' in self.shader_node.inputs:
             alpha_input = self.shader_node.inputs['Alpha Property']
         else:
@@ -1767,6 +1771,8 @@ class ShaderExporter:
         Handles only the texture types we know how to handle in the shader. The rest are
         properties on the material and are picked up from there.
         """
+        if  self.is_effectshader: return
+
         # Use textures stored in properties as defaults; override them with shader nodes
         set_object_textures(shape, self.material)
 

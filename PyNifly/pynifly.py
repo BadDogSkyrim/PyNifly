@@ -4421,7 +4421,7 @@ class NifFile:
                 id=id, file=self, handle=handle, properties=properties, parent=parent)
             self.node_ids[id] = node
             try:
-                if node.name and isinstance(node, NiNode): 
+                if hasattr(node, 'name') and node.name and isinstance(node, NiNode): 
                     self._nodes[node.name] = node
             except:
                 pass

@@ -1963,10 +1963,14 @@ def TEST_SHADER_LIGHTBULB():
 
     obj = bpy.data.objects['BulbGlow:2']
     TT.assert_contains("Fallout 4 Effect", obj.active_material.node_tree.nodes, "Effect shader")
+    TT.assert_eq(obj.active_material['BS_Shader_Block_Name'], "BSEffectShaderProperty", "Shader block name")
     assert obj.active_material.node_tree.nodes["Fallout 4 Effect"].inputs['Alpha Property'].is_linked, \
         "Alpha linked"
 
     bpy.ops.export_scene.pynifly(filepath=outfile)
+    n = pyn.NifFile(outfile)
+    TT.assert_contains('BulbGlow:2', n.shape_dict, "glow shape")
+    TT.assert_contains('Bulb001:3', n.shape_dict, "bulb shape")
 
 
 def TEST_ANIM_SHADER_GLOW():
