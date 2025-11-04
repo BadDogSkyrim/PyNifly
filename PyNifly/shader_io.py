@@ -1090,7 +1090,9 @@ class ShaderImporter:
             alpha = append_groupnode(self, "AlphaProperty",  "Alpha Property", self.asset_path)
             alpha.width = TEXTURE_NODE_WIDTH
             self.link(alpha.outputs[0], self.bsdf.inputs['Alpha Property'])
-            self.link(self.diffuse.outputs['Alpha'], alpha.inputs['Alpha'])
+
+            if self.diffuse:
+                self.link(self.diffuse.outputs['Alpha'], alpha.inputs['Alpha'])
             
             if self.alphamap:
                 self.link(self.vertex_alpha.outputs['Color'], alpha.inputs['Vertex Alpha'])

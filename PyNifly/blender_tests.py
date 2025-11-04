@@ -1954,6 +1954,21 @@ def TEST_SHADER_EYE():
     CheckNif(n, source=testfile2)
 
 
+def TEST_SHADER_LIGHTBULB():
+    """Test that effect shader imports correctly."""
+    testfile = TTB.test_file(r"tests\FO4\WorkshopLightbulbHanging01.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SHADER_LIGHTBULB.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    obj = bpy.data.objects['BulbGlow:2']
+    TT.assert_contains("Fallout 4 Effect", obj.active_material.node_tree.nodes, "Effect shader")
+    assert obj.active_material.node_tree.nodes["Fallout 4 Effect"].inputs['Alpha Property'].is_linked, \
+        "Alpha linked"
+
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+
 def TEST_ANIM_SHADER_GLOW():
     """Glow shader elements and other extra attributes work correctly."""
     testfile = TTB.test_file(r"tests\SkyrimSE\meshes\armor\daedric\daedriccuirass_1.nif")
