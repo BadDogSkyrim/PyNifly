@@ -5607,6 +5607,38 @@ def TEST_ANIM_NOBLECHEST():
     CheckNif(nifcheck, testfile)
 
 
+def TEST_ANIM_CIGARETTE():
+    """Check we don't get extra objects in the object palette."""
+    # TODO: This mesh gets exported with duplicate extra targets in its
+    # NiMultiTargetTransformController. It's unclear if this is a problem, but the extra
+    # targets are down in the nifly layer and are not exposed by pyNifly. Need to figure
+    # out if this is a problem.
+    testfile = TTB.test_file(r"tests\FO4\CigaretteMachine.nif")
+    outfile =TTB.test_file(r"tests/Out/TEST_ANIM_CIGARETTE.nif")
+
+    #### READ ####
+
+    bpy.context.scene.render.fps = 30
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    TT.assert_samemembers(("Open", "Close", "OpenClose"), bpy.data.actions.keys(), "animations")
+    assert bpy.data.objects["Object003"].animation_data is not None
+
+    ### WRITE ###
+
+    r = bpy.data.objects['Dummy001:ROOT']
+    BD.ObjectSelect([r], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    ### CHECK ###
+
+    nifcheck = pyn.NifFile(outfile)
+    TT.assert_contains("Object003", 
+                       nifcheck.rootNode.controller.object_palette.objects.keys(),
+                       "Have Object003 in object palette")
+
+
+
 def TEST_ANIM_DWEMER_CHEST():
     """Read and write the animation of chest opening and shutting."""
     testfile = TTB.test_file(r"tests\Skyrim\dwechest01.nif")
