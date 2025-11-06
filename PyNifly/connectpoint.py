@@ -20,8 +20,9 @@ def connection_name_root(s):
 
 
 def get_nifname(obj):
-    n = BD.nonunique_name(obj)
-    return n.split('::', 1)[-1]
+    """Return the name for the nif. It may have a suffix like ".001"."""
+    # n = BD.nonunique_name(obj)
+    return obj.name.split('::', 1)[-1]
 
 
 def is_parent(obj):
@@ -213,8 +214,8 @@ class ConnectPointCollection():
         their parents.
         """
         for cp in self.child:
-            # A child could have multiple parents if the user has imported 
-            # multiple parents at once. If so, choose one.
+            # A child could have multiple parents if the user has imported multiple
+            # parents at once. If so, choose one.
             p = None
             for n in cp.names:
                 k = connection_name_root(n)
@@ -235,13 +236,6 @@ class ConnectPointCollection():
             self.add(obj)
             for child in obj.children:
                 self.add(child)
-            # t = connectpoint_type(obj)
-            # if t == 'PARENT':
-            #     cp = ConnectPointParent(get_nifname(obj), BD.ReprObject(blender_obj=obj))
-            #     self.add(cp)
-            # elif t == 'CHILD':
-            #     cp = ConnectPointChild([get_nifname(obj)], BD.ReprObject(blender_obj=obj))
-            #     self.add(cp)
 
 
     def child_in_nif(self, nif): 
@@ -261,17 +255,12 @@ class ConnectPointCollection():
         for cp in self.parents:
             obj = cp.obj.blender_obj
             buf = nifdefs.ConnectPointBuf()
-            buf.name = (cp.name).encode('utf-8')
+            buf.name = BD.nonunique_name(cp.name).encode('utf-8')
             buf.translation[0], buf.translation[1], buf.translation[2] \
                 = obj.matrix_local.translation[:]
             buf.rotation[0], buf.rotation[1], buf.rotation[2], buf.rotation[3] \
                 = obj.matrix_local.to_quaternion()[:]
             buf.scale = obj.matrix_local.to_scale()[0] / CONNECT_POINT_SCALE
-            # buf.translation[0], buf.translation[1], buf.translation[2] \
-            #     = obj.matrix_world.translation[:]
-            # buf.rotation[0], buf.rotation[1], buf.rotation[2], buf.rotation[3] \
-            #     = obj.matrix_world.to_quaternion()[:]
-            # buf.scale = obj.matrix_world.to_scale()[0] / CONNECT_POINT_SCALE
 
             if obj and obj.parent:
                 buf.parent = BD.nonunique_name(obj.parent).encode('utf-8')

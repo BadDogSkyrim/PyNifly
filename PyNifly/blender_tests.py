@@ -4880,6 +4880,35 @@ def TEST_CONNECT_IMPORT_MULT():
     assert len(barrelchild) == 1, f"Have a single barrel child {barrelchild}"
     
 
+def TEST_CONNECT_WORKSHOP():
+    """Test meshes with many connect points, some with the same names."""
+
+    testfile = TTB.test_file(r"tests\FO4\ShackPrefabMid01.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_CONNECT_WORKSHOP.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_rename_bones=False, do_create_bones=False)
+
+    ### Read ###
+    TT.assert_eq(len([obj for obj in bpy.context.scene.objects 
+                      if obj.name.startswith('BSConnectPointParents')]), 17, 
+                     "Number of connect points")
+    TT.assert_eq(len([obj for obj in bpy.context.scene.objects 
+                      if obj.name.startswith('BSConnectPointParents::P-Floor')]), 4, 
+                     "Number of floor connect points")
+    
+    ### Write ###
+    BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj], active=True)    
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    ### Check ###
+    nif = pyn.NifFile(outfile)
+    TT.assert_eq(len(nif.connect_points_parent), 17, "Number of connect points")
+    ccp_names = [c.name.decode('utf-8') for c in nif.connect_points_parent]
+    TT.assert_eq(len([c for c in ccp_names if c == 'P-Floor']), 4, 
+                     "Number of floor connect points")
+    TT.assert_eq(len([c for c in ccp_names if c == 'P-WS-Origin']), 1, 
+                     "Number of origin connect points")
+    
+
 def TEST_FURN_MARKER1():
     """Furniture markers work"""
 
