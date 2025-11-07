@@ -2298,6 +2298,8 @@ namespace NiflyDLLTests
 			getShapes(nifCheck, shapesCheck, 10, 0);
 			TCompareShaders(nif, shape, nifCheck, shapesCheck[0]);
 		};
+
+
 		TEST_METHOD(extraDataBody) {
 			void* shapes[10];
 			int namelen, vallen;
@@ -2458,6 +2460,13 @@ namespace NiflyDLLTests
 			Vector3 tV = Vector3(0.954437f, 4.977112f, -11.012909f);
 			TCheckAccuracy(fileIn, "MaleHeadIMF", fileOut, "MaleHeadIMF", tV, "NPC Spine2 [Spn2]");
 
+			// Check the no anim sync s flag
+			NiNodeBuf buf;
+			int spine2ID;
+			spine2ID = findBlockByName(nifOut, "NPC Spine2 [Spn2]");
+			getBlock(nifOut, spine2ID, &buf);
+			Assert::AreEqual(14, int(buf.flags), L"Flags are correct");
+
 			//TCompareExtraData(nifhead, nullptr, nifCheck, nullptr);
 			//TCompareExtraData(nifhead, head, nifCheck, shapesCheck[0]);
 			loglen = getMessageLog(msgbuf, MSGBUFLEN);
@@ -2481,6 +2490,8 @@ namespace NiflyDLLTests
 			Assert::AreEqual(0, int(skinWeights[0].bone_index));
 			Assert::IsTrue(TApproxEqual(0.689, skinWeights[0].weight));
 		};
+
+
 		TEST_METHOD(invalidSkin) {
 			/* Trying to read skin information returns error */
 			void* shapes[10];

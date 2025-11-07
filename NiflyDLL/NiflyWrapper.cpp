@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 21, 0, 0 };
+const int NiflyDDLVersion[3] = { 21, 1, 0 };
  
 using namespace nifly; 
 
@@ -536,6 +536,7 @@ NIFLY_API void* addNode(void* f, const char* name, void* xf, void* parent) {
     NiNode* parentNode = static_cast<NiNode*>(parent);
     MatTransform* xfptr = static_cast<MatTransform*>(xf);
     NiNode* theNode = nif->AddNode(name, *xfptr, parentNode);
+    theNode->flags = 14; // Clear the no anim sync flag by default
     return theNode;
 }
 
@@ -553,6 +554,7 @@ int createNode(void* f, const char* name, void* properties, uint32_t parent) {
         for (int j = 0; j < 3; j++) 
             xf.rotation[i][j] = buf->rotation[i][j];
     NiNode* theNode = nif->AddNode(name, xf, parentNode);
+    theNode->flags = 14; // Clear the no anim sync flag by default
     
     return hdr->GetBlockID(theNode);
 }
@@ -1323,6 +1325,7 @@ NIFLY_API void* addBoneToNifShape(void* nifref, void* shaperef, const char* bone
         NiNode* pnode = nullptr;
         if (parentName) pnode = nif->FindBlockByName<NiNode>(parentName);
         node = nif->AddNode(boneName, *xformToParent, pnode);
+        node->flags = 14;
     }
 
     std::vector<int> boneIDs;

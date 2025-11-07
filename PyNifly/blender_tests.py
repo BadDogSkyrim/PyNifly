@@ -14,7 +14,9 @@ from mathutils import Matrix, Vector, Quaternion, Euler
 import test_tools as TT
 import test_tools_bpy as TTB
 import niflytools as NT
-import nifdefs
+from nifdefs import NiAVFlags, ShaderFlags2, bhkCOFlags, SkyrimCollisionLayer, HSF, \
+    SkyrimHavokMaterial, PynBufferTypes, CycleType, hkResponseType, BSLSPShaderType, \
+    BroadPhaseType, hkMotionType, hkSolverDeactivation, hkQualityType
 import pynifly as pyn
 import xml.etree.ElementTree as xml
 import blender_defs as BD
@@ -336,6 +338,8 @@ def TEST_IMP_EXP_SKY():
     testfile = TTB.test_file(r"tests/Skyrim/armor_only.nif")
 
     def do_test(game, blendxf):
+        ### IMPORT ###
+
         TTB.clear_all()
         xftext = '_XF' if blendxf else ''
         print(f"---Testing {'with' if blendxf else 'without'} blender transform for {game}")
@@ -369,6 +373,8 @@ def TEST_IMP_EXP_SKY():
         assert NT.VNearEqual(pelvis.matrix_local.translation, pelvis_pose.matrix.translation), \
             f"Pelvis pose position matches bone position: {pelvis.matrix_local.translation} == {pelvis_pose.matrix.translation}"
 
+        ### EXPORT ###
+
         bpy.ops.object.select_all(action='DESELECT')
         armor.select_set(True)
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game=game, 
@@ -379,6 +385,12 @@ def TEST_IMP_EXP_SKY():
         assert nifout.game == game, f"Wrote correct game format: {nifout.game} == {game}"
         TTB.compare_shapes(armorin, armorout, armor, e=0.01)
         TTB.check_unweighted_verts(armorout)
+
+        TT.assert_eq(nifout.nodes['NPC Pelvis [Pelv]'].flags, 
+                     NiAVFlags.SELECTIVE_UPDATE 
+                     + NiAVFlags.SELECTIVE_UPDATE_TRANSF
+                     + NiAVFlags.SELECTIVE_UPDATE_CONTR,
+                     "bone flags")
 
     do_test('SKYRIMSE', False)
     do_test('SKYRIM', False)
@@ -2268,7 +2280,7 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     testbod = testnif.shape_dict['SprigganFxTestUnified:0']
     nifout = pyn.NifFile(outfile)
     bodout = nifout.shape_dict['SprigganFxTestUnified:0']
-    assert bodout.shader.properties.shaderflags2_test(nifdefs.ShaderFlags2.GLOW_MAP), \
+    assert bodout.shader.properties.shaderflags2_test(ShaderFlags2.GLOW_MAP), \
         f"Glow map flag is set"
     assert bodout.shader.textures['Glow'].lower().endswith('spriggan_g.dds')
     leavesout = nifout.shape_dict['SprigganBodyLeaves']
@@ -2539,8 +2551,8 @@ def TEST_CAVE_GREEN():
     nifcheck = pyn.NifFile(outfile)
     rootscheck = nifcheck.shape_dict["L2_Roots:5"]
     assert rootscheck.has_alpha_property, f"Roots have alpha: {rootscheck.has_alpha_property}"
-    assert rootscheck.shader.properties.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS), \
-        f"Have vertex colors: {rootscheck.shader.properties.shaderflags2_test(nifdefs.ShaderFlags2.VERTEX_COLORS)}"
+    assert rootscheck.shader.properties.shaderflags2_test(ShaderFlags2.VERTEX_COLORS), \
+        f"Have vertex colors: {rootscheck.shader.properties.shaderflags2_test(ShaderFlags2.VERTEX_COLORS)}"
 
 
 def TEST_POT():
@@ -3706,11 +3718,11 @@ def CheckBow(nif, nifcheck, bow):
     midbowcheck = nifcheck.nodes["Bow_MidBone"]
     collcheck = midbowcheck.collision_object
     assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
-    assert nifdefs.bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+    assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
 
     bodycheck = collcheck.body
     p = bodycheck.properties
-    assert p.collisionFilter_layer == nifdefs.SkyrimCollisionLayer.WEAPON, f"Have correct collision layer"
+    assert p.collisionFilter_layer == SkyrimCollisionLayer.WEAPON, f"Have correct collision layer"
     assert NT.VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
 
     boxcheck = bodycheck.shape
@@ -3833,7 +3845,7 @@ def TEST_COLLISION_BOW_SCALE():
     midbowcheck = nifcheck.nodes["Bow_MidBone"]
     collcheck = midbowcheck.collision_object
     assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
-    assert nifdefs.bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+    assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
 
     # Full check of locations and rotations to make sure we got them right
     TTB.compare_bones('Bow_MidBone', nif, nifcheck, e=0.001)
@@ -3903,11 +3915,11 @@ def TEST_COLLISION_BOW():
     coll = arma.pose.bones['Bow_MidBone'].constraints['bhkCollisionConstraint'].target
     assert coll.name == 'bhkBoxShape', f"Collision shape is box"
     assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
-    assert coll['collisionFilter_layer'] == nifdefs.SkyrimCollisionLayer.WEAPON.name, \
+    assert coll['collisionFilter_layer'] == SkyrimCollisionLayer.WEAPON.name, \
         f"Collsion filter layer is loaded as string: {coll['collisionFilter_layer']}"
 
     # Default collision response is 1 = SIMPLE_CONTACT, so no property for it.
-    # assert coll["collisionResponse"] == nifdefs.hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
+    # assert coll["collisionResponse"] == hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
 
     # assert NT.VNearEqual(coll.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
 
@@ -4014,7 +4026,7 @@ def TEST_COLLISION_BOW2():
     # midbowcheck2 = nifcheck2.nodes["Bow_MidBone"]
     # collcheck2 = midbowcheck2.collision_object
     # assert collcheck2.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck2.blockname}"
-    # assert nifdefs.bhkCOFlags(collcheck2.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+    # assert bhkCOFlags(collcheck2.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
 
     # # Full check of locations and rotations to make sure we got them right
     # mbc_xf = nifcheck2.get_node_xform_to_global("Bow_MidBone")
@@ -4066,7 +4078,7 @@ def TEST_COLLISION_BOW3():
         midbowcheck3 = nifcheck3.nodes["Bow_MidBone"]
         collcheck3 = midbowcheck3.collision_object
         assert collcheck3.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck3.blockname}"
-        assert nifdefs.bhkCOFlags(collcheck3.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+        assert bhkCOFlags(collcheck3.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
 
         # Full check of locations and rotations to make sure we got them right
         mbc_xf = nifcheck3.get_node_xform_to_global("Bow_MidBone")
@@ -4350,8 +4362,8 @@ def TEST_COLLISION_CONVEXVERT():
         assert coll, f"Have collision object"
         assert coll.rigid_body, f"Collision object has physics"
         assert coll.rigid_body.type == 'ACTIVE'
-        assert BD.NearEqual(coll.rigid_body.mass, 2.5 / nifdefs.HSF), f"Have correct mass"
-        assert BD.NearEqual(coll.rigid_body.friction, 0.5 / nifdefs.HSF), f"Have correct friction"
+        assert BD.NearEqual(coll.rigid_body.mass, 2.5 / HSF), f"Have correct mass"
+        assert BD.NearEqual(coll.rigid_body.friction, 0.5 / HSF), f"Have correct friction"
         assert coll['bhkMaterial'] == 'CLOTH', f"Shape material is a custom property: {coll['bhkMaterial']}"
 
         xmax1 = max([v.co.x for v in cheese.data.vertices])
@@ -4389,7 +4401,7 @@ def TEST_COLLISION_CONVEXVERT():
         assert bodycheck.blockname == "bhkRigidBody", f"Correctly wrote bhkRigidBody: {bodycheck.blockname}"
 
         assert cvscheck.blockname == "bhkConvexVerticesShape", f"Collision body's shape property returns the collision shape"
-        assert cvscheck.properties.bhkMaterial == nifdefs.SkyrimHavokMaterial.CLOTH, \
+        assert cvscheck.properties.bhkMaterial == SkyrimHavokMaterial.CLOTH, \
             "Collision body shape material is readable"
 
         minxch = min(v[0] for v in cvscheck.vertices)
@@ -4636,7 +4648,7 @@ def TEST_COLLISION_BOW_CHANGE():
     collcheck = midbowcheck.collision_object
     assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
     bodycheck = collcheck.body
-    assert bodycheck.properties.bufType == nifdefs.PynBufferTypes.bhkRigidBodyBufType, f"Have correct buffer type"
+    assert bodycheck.properties.bufType == PynBufferTypes.bhkRigidBodyBufType, f"Have correct buffer type"
 
     names = [x[0] for x in nifcheck.behavior_graph_data]
     assert "BGED" in names, f"Error: Expected BGED in {names}"
@@ -5905,7 +5917,7 @@ def TEST_ANIM_KF():
     csout = kfout.rootNode
     TT.assert_eq(csout.name, 'TEST_ANIM_KF', "root node name")
     TT.assert_eq(csout.blockname, 'NiControllerSequence', "block type")
-    TT.assert_eq(csout.properties.cycleType, nifdefs.CycleType.CLAMP, "cycle type")
+    TT.assert_eq(csout.properties.cycleType, CycleType.CLAMP, "cycle type")
     TT.assert_equiv(csout.properties.stopTime, 1.166667, "stop time")
     cb0 = csout.controlled_blocks[0]
     ti0 = cb0.interpolator
@@ -6239,7 +6251,7 @@ def TEST_MISSING_FILES():
         f"Have correct shader name: {handsout.shader.name}"
     # NOT WORKING: We should be able to set the shader type this way but in fact it's 
     # not working all the way down to the nifly level. Not sure why.
-    # assert handsout.shader.properties.Shader_Type == nifdefs.BSLSPShaderType.Skin_Tint, \
+    # assert handsout.shader.properties.Shader_Type == BSLSPShaderType.Skin_Tint, \
     #     f"Have correct shader: {handsout.shader.properties.Shader_Type}"
     assert r"textures\actors\character\basehumanmale\basemalehands_d.dds" == handsout.textures['Diffuse'], \
         f"Have diffuse in texture list: {handsout.textures}"
@@ -6311,13 +6323,13 @@ def TEST_COLLISION_PROPERTIES():
     nifout = pyn.NifFile(outfile)
     coll = nifout.rootNode.collision_object
     body = coll.body
-    assert body.properties.broadPhaseType == nifdefs.BroadPhaseType.ENTITY, "Have correct broad phase type"
-    assert body.properties.collisionResponse2 == nifdefs.hkResponseType.SIMPLE_CONTACT, "Have correct CollisionResponse2"
+    assert body.properties.broadPhaseType == BroadPhaseType.ENTITY, "Have correct broad phase type"
+    assert body.properties.collisionResponse2 == hkResponseType.SIMPLE_CONTACT, "Have correct CollisionResponse2"
     assert body.properties.processContactCallbackDelay == 65535, "Have correct processContactCallbackDelay"
     assert body.properties.rollingFrictionMult == 0, "Have correct rollingFrictionMult"
-    assert body.properties.motionSystem == nifdefs.hkMotionType.SPHERE_STABILIZED, "Have correct motionSystem"
-    assert body.properties.solverDeactivation == nifdefs.hkSolverDeactivation.LOW, "Have correct solverDeactivation"
-    assert body.properties.qualityType == nifdefs.hkQualityType.MOVING, "Have correct qualityType"
+    assert body.properties.motionSystem == hkMotionType.SPHERE_STABILIZED, "Have correct motionSystem"
+    assert body.properties.solverDeactivation == hkSolverDeactivation.LOW, "Have correct solverDeactivation"
+    assert body.properties.qualityType == hkQualityType.MOVING, "Have correct qualityType"
 
 
 def XXX_TEST_COLLISION_FO4():
@@ -6357,13 +6369,13 @@ def XXX_TEST_COLLISION_FO4():
     coll = nifout.rootNode.collision_object
     body = coll.body
     assert coll.body
-    # assert body.properties.broadPhaseType == nifdefs.BroadPhaseType.ENTITY, "Have correct broad phase type"
-    # assert body.properties.collisionResponse2 == nifdefs.hkResponseType.SIMPLE_CONTACT, "Have correct CollisionResponse2"
+    # assert body.properties.broadPhaseType == BroadPhaseType.ENTITY, "Have correct broad phase type"
+    # assert body.properties.collisionResponse2 == hkResponseType.SIMPLE_CONTACT, "Have correct CollisionResponse2"
     # assert body.properties.processContactCallbackDelay == 65535, "Have correct processContactCallbackDelay"
     # assert body.properties.rollingFrictionMult == 0, "Have correct rollingFrictionMult"
-    # assert body.properties.motionSystem == nifdefs.hkMotionType.SPHERE_STABILIZED, "Have correct motionSystem"
-    # assert body.properties.solverDeactivation == nifdefs.hkSolverDeactivation.LOW, "Have correct solverDeactivation"
-    # assert body.properties.qualityType == nifdefs.hkQualityType.MOVING, "Have correct qualityType"
+    # assert body.properties.motionSystem == hkMotionType.SPHERE_STABILIZED, "Have correct motionSystem"
+    # assert body.properties.solverDeactivation == hkSolverDeactivation.LOW, "Have correct solverDeactivation"
+    # assert body.properties.qualityType == hkQualityType.MOVING, "Have correct qualityType"
 
 
 def TEST_FACEGEN():
