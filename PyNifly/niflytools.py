@@ -17,12 +17,12 @@ from pathlib import Path
 logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
 log = logging.getLogger("pynifly")
 log.setLevel(logging.INFO)
-    
+
 
 # ###################### FILE HANDLING ##################################
 
 def tmp_filepath(filepath, ext=None):
-    """Return a unique temporary filename. Name is based on the base name of 
+    """Return a unique temporary filename. Name is based on the base name of
     'filepath', with suffixes to make it unique, and given the extension 'ext'.
     """
     base_ext = os.path.basename(filepath)
@@ -40,11 +40,11 @@ def tmp_filepath(filepath, ext=None):
         fp = fpbase + iter + ext
         if not os.path.exists(fp): break
         i += 1
-    if i < 10000: 
+    if i < 10000:
         return fp
     else:
         raise Exception("Could not create temporary file")
-    
+
 
 def nospace_filepath(filepath, ext=None):
     """
@@ -95,14 +95,14 @@ def tmp_copy_nospace(filepath) -> str:
 
 def extend_filenames(root, separator, files=None):
     """ Extend the given relative path names with the portion of the root before the
-        separator. 
+        separator.
 
         If there are no files, just return the portion of the root before the separator.
-        
-        * root = absolute filepath 
+
+        * root = absolute filepath
         * separator = Folder within the filepath. The part before the separator is the
-          common directory path to use for the files. If None, use the entire root.  
-        * files = list of relative file paths 
+          common directory path to use for the files. If None, use the entire root.
+        * files = list of relative file paths
         """
     rootpath = Path(root)
     if separator:
@@ -118,7 +118,7 @@ def extend_filenames(root, separator, files=None):
         return [(str(sharedpart / f) if len(f) > 0 else "") for f in files]
     else:
         return str(sharedpart)
-    
+
 
 def find_referenced_file(filepath:str, nifpath:str, root='textures', alt_suffix=None, alt_path=None) -> str:
     """
@@ -133,7 +133,7 @@ def find_referenced_file(filepath:str, nifpath:str, root='textures', alt_suffix=
     # If relative, must start with "textures"
     if (not fp.is_absolute()) and fp.parts[0] != root:
         fp = Path(root) / fp
-    
+
     # If fp is absolute, check for DDS or PNG variant and return whichever exists
     if fp.is_absolute():
         if alt_suffix and fp.with_suffix(alt_suffix).exists():
@@ -152,7 +152,7 @@ def find_referenced_file(filepath:str, nifpath:str, root='textures', alt_suffix=
             return str(fullp.with_suffix(alt_suffix))
         if fullp.exists():
             return str(fullp)
-        
+
     # Not found, look in alternative texture directory
     if alt_path:
         bd = Path(alt_path.lower())
@@ -221,7 +221,7 @@ def find_tris(nif):
             trifiles.append(fchar)
 
     return trifiles
-        
+
 
 def find_trip(nif):
     """
@@ -236,7 +236,7 @@ def find_trip(nif):
             return fp
 
     return None
-        
+
 
 
 # ###################### OTHER STUFF ##################################
@@ -244,13 +244,13 @@ def find_trip(nif):
 def find_object(name, coll, fn=lambda x: x):
     """Find an object by name with the given list of objects
         name = name to find. Blocks in nifs aren't supposed to have the same
-            name but sometimes they do. Also, a Blend file might contain imports from several nifs. 
-            So we can't be sure the Blender name is exactly the name in the nif. Blender may have 
+            name but sometimes they do. Also, a Blend file might contain imports from several nifs.
+            So we can't be sure the Blender name is exactly the name in the nif. Blender may have
             appended .### to it, where ### is some number to make it unique.
         coll = list or dictionary of objects
         fn = function to return the name from an object in the collection. Default is for when
             the collection is just a list of names.
-        Return = object from list, or None. Object either has the exact name or the name followed 
+        Return = object from list, or None. Object either has the exact name or the name followed
             by .###
     """
     foundobj = None
@@ -337,7 +337,7 @@ def mesh_split_by_uv(verts, loops, norms, uvmap, weights, morphdict):
         (1) maps to 2 UV locations or (2) has split normals.
         verts = [(x, y, z), ...] vertex locations
         norms = [(x, y, z), ...] normals 1:1 with loops
-        loops = [int, ...] blender-style loops--elements are indices into verts. 
+        loops = [int, ...] blender-style loops--elements are indices into verts.
             Loops are already triangularized so they are in triples, tho the list is flat
         uvmap = [(u, v), ...] uvmap--matches 1:1 with loops
         weights = [dict[group-name: weight], ...] vertex weights, 1:1 with verts
@@ -345,7 +345,7 @@ def mesh_split_by_uv(verts, loops, norms, uvmap, weights, morphdict):
     Returns
         verts = extended with additional verts where splits were required
         norms = not changed. Future: If we decide to split the mesh on sharp edges, may be modified.
-        loops = modified to reference the new verts where needed 
+        loops = modified to reference the new verts where needed
         uvmap = not changed
         weights = extended to match verts
     """
@@ -384,7 +384,7 @@ def blender_basename(n):
     if m:
         return m[1]
     return n
-    
+
 class SkeletonBone:
     def __init__(self, blender_name, nif_name, parent=None, niftools_name=None):
         self.blender = blender_name
@@ -426,7 +426,7 @@ class BoneDict:
         for m in morph_list:
             self.morph_dic_game[m[0]] = m[1]
             self.morph_dic_blender[m[1]] = m[0]
-        
+
         if type(part_list) == dict:
             self.parts = part_list
         else:
@@ -460,7 +460,7 @@ class BoneDict:
             if nif_name in self.byNif:
                 return self.byNif[nif_name].blender
         return nif_name
-    
+
     def nif_name(self, blender_name):
         if blender_name in self.active_dict:
             return self.active_dict[blender_name].nif
@@ -506,7 +506,7 @@ class BoneDict:
         """ Return the subset of name_set that are valid FO4 expressions, either blender or native form """
         return name_set.intersection(self.expressions)
 
-    #def morph_to_game(self, morph_name): 
+    #def morph_to_game(self, morph_name):
     #    """ Translate a set of expression morphs with Blender names to morphs with game names """
     #    if type(name_set) == type(''):
 
@@ -529,7 +529,7 @@ class BoneDict:
             if bp.parentname == parent_name and bp.name not in print_list:
                 print(f"    {bp.name} [part={bp.id if bp.id < 256 else hex(bp.id)}, material={hex(bp.material)}]")
                 print_list.add(bp.name)
-            
+
     def dump(self):
         print_list = set()
         for k in sorted([bp.name for bp in fo4Dict.dismem.values() if bp.parentname == '']):
@@ -1164,59 +1164,59 @@ SkeletonBone('WeaponSwordSWP', 'WeaponSwordSWP', 'MOV WeaponSwordSWP', 'WeaponSw
 
 
 skyrimExpressions = [
-    ('Aah', 'Aah'), 
-    ('BigAah', 'BigAah'), 
-    ('Blink.L', 'BlinkLeft'), 
-    ('Blink.R', 'BlinkRight'), 
-    ('BMP', 'BMP'), 
-    ('BrowDown.L', 'BrowDownLeft'), 
-    ('BrowDown.R', 'BrowDownRight'), 
-    ('BrowIn.L', 'BrowInLeft'), 
-    ('BrowIn.R', 'BrowInRight'), 
-    ('BrowUp.L', 'BrowUpLeft'), 
-    ('BrowUp.R', 'BrowUpRight'), 
-    ('ChJSh', 'ChJSh'), 
-    ('CombatAnger', 'CombatAnger'), 
-    ('CombatShout', 'CombatShout'), 
-	('DialogueAnger', 'DialogueAnger'), 
-	('DialogueDisgusted', 'DialogueDisgusted'), 
-	('DialogueFear', 'DialogueFear'), 
-	('DialogueHappy', 'DialogueHappy'), 
-	('DialoguePuzzled', 'DialoguePuzzled'), 
-	('DialogueSad', 'DialogueSad'), 
-	('DialogueSurprise', 'DialogueSurprise'), 
-	('DST', 'DST'), 
-	('Eee', 'Eee'), 
-	('Eh', 'Eh'), 
-	('FV', 'FV'), 
-	('I', 'I'), 
-	('K', 'K'), 
-    ('LookDown', 'LookDown'), 
-	('Look.L', 'LookLeft'), 
-	('Look.R', 'LookRight'), 
-	('LookUp', 'LookUp'), 
-	('MoodAnger', 'MoodAnger'), 
-	('MoodDisgusted', 'MoodDisgusted'), 
-	('MoodFear', 'MoodFear'), 
-    ('MoodHappy', 'MoodHappy'), 
-	('MoodPuzzled', 'MoodPuzzled'), 
-	('MoodSad', 'MoodSad'), 
-	('MoodSurprise', 'MoodSurprise'), 
-	('N', 'N'), 
-	('Oh', 'Oh'), 
-	('OohQ', 'OohQ'), 
-	('R', 'R'), 
+    ('Aah', 'Aah'),
+    ('BigAah', 'BigAah'),
+    ('Blink.L', 'BlinkLeft'),
+    ('Blink.R', 'BlinkRight'),
+    ('BMP', 'BMP'),
+    ('BrowDown.L', 'BrowDownLeft'),
+    ('BrowDown.R', 'BrowDownRight'),
+    ('BrowIn.L', 'BrowInLeft'),
+    ('BrowIn.R', 'BrowInRight'),
+    ('BrowUp.L', 'BrowUpLeft'),
+    ('BrowUp.R', 'BrowUpRight'),
+    ('ChJSh', 'ChJSh'),
+    ('CombatAnger', 'CombatAnger'),
+    ('CombatShout', 'CombatShout'),
+	('DialogueAnger', 'DialogueAnger'),
+	('DialogueDisgusted', 'DialogueDisgusted'),
+	('DialogueFear', 'DialogueFear'),
+	('DialogueHappy', 'DialogueHappy'),
+	('DialoguePuzzled', 'DialoguePuzzled'),
+	('DialogueSad', 'DialogueSad'),
+	('DialogueSurprise', 'DialogueSurprise'),
+	('DST', 'DST'),
+	('Eee', 'Eee'),
+	('Eh', 'Eh'),
+	('FV', 'FV'),
+	('I', 'I'),
+	('K', 'K'),
+    ('LookDown', 'LookDown'),
+	('Look.L', 'LookLeft'),
+	('Look.R', 'LookRight'),
+	('LookUp', 'LookUp'),
+	('MoodAnger', 'MoodAnger'),
+	('MoodDisgusted', 'MoodDisgusted'),
+	('MoodFear', 'MoodFear'),
+    ('MoodHappy', 'MoodHappy'),
+	('MoodPuzzled', 'MoodPuzzled'),
+	('MoodSad', 'MoodSad'),
+	('MoodSurprise', 'MoodSurprise'),
+	('N', 'N'),
+	('Oh', 'Oh'),
+	('OohQ', 'OohQ'),
+	('R', 'R'),
 	('SkinnyMorph', 'SkinnyMorph'),
-    ('Squint.L', 'SquintLeft'), 
-	('Squint.R', 'SquintRight'), 
-	('Th', 'Th'), 
-	('W', 'W') #, 
+    ('Squint.L', 'SquintLeft'),
+	('Squint.R', 'SquintRight'),
+	('Th', 'Th'),
+	('W', 'W') #,
 	#('VampireMorph', 'VampireMorph')
 	]
 
 skyrimParts = [
     BodyPart(30, "SBP_30_HEAD"),
-    BodyPart(31, "SBP_31_HAIR"), 
+    BodyPart(31, "SBP_31_HAIR"),
     BodyPart(32, "SBP_32_BODY"),
     BodyPart(33, "SBP_33_HANDS"),
     BodyPart(34, "SBP_34_FOREARMS"),
@@ -1603,20 +1603,20 @@ fo4BoneIDs = {
     "Calf.R": 0x22324321,
     "Calf.L": 0x4630dac2,
     "Neck": 0x0155094f,
-    "Up Arm.R": 0xb2e2764f, 
+    "Up Arm.R": 0xb2e2764f,
     "Hand.R": 0xB1EC5379,
-    "Hand.L": 0xD5EECA9A, 
-    "Foot.L": 0xa3e42571, 
-    "Foot.R": 0xc7e6bc92, 
-    "Up Arm.L": 0xfc03dc25, 
-    "Thigh.L": 0x865d8d9e, 
-    "Thigh.R": 0xbf3a3cc5, 
-    "Ghoul Up Arm.R": 0x2a549ee1, 
-    "Ghoul Lo Arm.R": 0xf775131c, 
-    "Ghoul Hand.R": 0x85342e3c, 
+    "Hand.L": 0xD5EECA9A,
+    "Foot.L": 0xa3e42571,
+    "Foot.R": 0xc7e6bc92,
+    "Up Arm.L": 0xfc03dc25,
+    "Thigh.L": 0x865d8d9e,
+    "Thigh.R": 0xbf3a3cc5,
+    "Ghoul Up Arm.R": 0x2a549ee1,
+    "Ghoul Lo Arm.R": 0xf775131c,
+    "Ghoul Hand.R": 0x85342e3c,
     "Ghoul Up Arm.L": 0x4e560702,
     "Ghoul Lo Arm.L": 0x93778aff,
-    "Ghoul Hand.L": 0x5ae407df, 
+    "Ghoul Hand.L": 0x5ae407df,
     "Death Claw Neck": 0xc0f43cc3,
     "Death Claw Up Arm.R": 0xf2ba1077,
     "Death Claw Elbow.R": 0xf4e10d0d,
@@ -1897,8 +1897,19 @@ fo4Parts = {
     "Shield": 59,
     "Pipboy": 60,
     "FX": 61,
+    "Robot 65": 65,
+    "Robot 70": 70,
+    "Robot 75": 75,
+    "Robot 80": 80,
+    "Robot 85": 85,
+    "Robot 90": 90,
+    "Robot 95": 95,
     "Head Meatcap": 100,
-    "Body Meatcap": 101}
+    "Body Meatcap": 101,
+    "Gore 102": 102,
+    "Gore 103": 103,
+    "Pipboy Cap": 160
+    }
 
 fo4chargen_pat = re.compile("Type[0-9]+")
 
@@ -1950,11 +1961,11 @@ if __name__ == "__main__":
     #          4, 2, 0,
     #          1, 3, 5,
     #          4, 5, 2]
-    # norms = [(0.0, 0.0, 2.0), (0.0, 0.0, 6.0), (0.0, 0.0, 5.0), 
-    #          (0.0, 0.0, 5.0), (0.0, 0.0, 3.0), (0.0, 0.0, 1.0), 
+    # norms = [(0.0, 0.0, 2.0), (0.0, 0.0, 6.0), (0.0, 0.0, 5.0),
+    #          (0.0, 0.0, 5.0), (0.0, 0.0, 3.0), (0.0, 0.0, 1.0),
     #          (0.0, 0.0, 2.0), (0.0, 0.0, 4.0), (0.0, 0.0, 6.0),
     #          (0.0, 0.0, 5.0), (0.0, 0.0, 6.0), (0.0, 0.0, 3.0)]
-    # #norms = [(0.0, 0.0, 1.0), (0.0, 0.0, 2.0), (0.0, 0.0, 3.0), 
+    # #norms = [(0.0, 0.0, 1.0), (0.0, 0.0, 2.0), (0.0, 0.0, 3.0),
     # #         (0.0, 0.0, 4.0), (0.0, 0.0, 5.0), (0.0, 0.0, 6.0)
     # #         ]
     # uvs = [(0.9, 0.1), (0.6, 0.9), (0.6, 0.1),
@@ -1965,8 +1976,8 @@ if __name__ == "__main__":
     # morphdict = {}
     # morphdict["by2"] = [(v[0]*2, v[1]*2, v[2]*2) for v in verts]
     # morphdict["by3"] = [(v[0]*3, v[1]*3, v[2]*3) for v in verts]
-        
-    # # mesh_split_by_uv() splits the mesh along UV seams--any vert that has two 
+
+    # # mesh_split_by_uv() splits the mesh along UV seams--any vert that has two
     # # different UV locations needs to be split
     # mesh_split_by_uv(verts, norms, loops, uvs, weights, morphdict)
 
@@ -1998,7 +2009,7 @@ if __name__ == "__main__":
     assert gameSkeletons["SKYRIM"].blender_name('NPC L Finger20 [LF20]') == 'NPC Finger20.L', "Error: Name translation incorrect"
     assert gameSkeletons["SKYRIM"].nif_name('NPC Finger20.L') == 'NPC L Finger20 [LF20]', "Error: Name translation incorrect"
     assert gameSkeletons["FO4"].nif_name('FOOBAR') == 'FOOBAR', "Error: Name translation incorrect"
-    
+
 
     # ####################################################################################
     print(
@@ -2027,11 +2038,11 @@ File handling
                              r"textures\actors\character\male\MaleHead_sk.dds"])
     assert flst == ['C:\\mod\\textures\\actors\\character\\male\\MaleHead.dds',
                     'C:\\mod\\textures\\actors\\character\\male\\MaleHead_msn.dds',
-                    "", 
-                    "", 
+                    "",
+                    "",
                     'C:\\mod\\textures\\actors\\character\\male\\MaleHead_sk.dds'], \
         "Error: Extended filenames incorrect"
-    
+
     flst = extend_filenames(r"C:\Users\hughr\OneDrive\SkyrimDev\Textures\\",
                             "textures",
                             [r"textures\actors\character\male\MaleHead.dds",
@@ -2054,7 +2065,7 @@ File handling
     print ("""
         BoneDict expression_filter returns just the expression morphs for the given game
         BoneDict chargen_filter returns just the chargen morphs for the given game.
-            Note for FO4 these aren't predefined, but match *type#. 
+            Note for FO4 these aren't predefined, but match *type#.
         """)
     exprmorphs = set(['DialogueAnger', 'MoodFear', 'CombatShout', 'RUprLipDn', 'UprLidUp.R', 'RUprLidDn', 'Smile.L'])
     assert fo4Dict.expression_filter(exprmorphs) == set(['RUprLipDn', 'UprLidUp.R', 'RUprLidDn', 'Smile.L']), "ERROR: FO4 expression filter incorrect"
@@ -2066,4 +2077,4 @@ File handling
     assert fo4Dict.morph_dic_game['Smile.L'] == 'LSmile', "ERROR: Morph not translated correctly"
     assert fo4Dict.morph_dic_game['UprLidUp.R'] == 'RUprLidUp', "ERROR: Morph not translated correctly"
     assert fo4Dict.morph_dic_blender['LUprLidUp'] == 'UprLidUp.L', "ERROR: Morph not translated correctly"
-    
+
