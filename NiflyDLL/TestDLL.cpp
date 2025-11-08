@@ -2408,10 +2408,14 @@ namespace NiflyDLLTests
 
 		TEST_METHOD(impExpSE) {
 			void* shapes[10];
+			char nameBuf[128];
 			std::filesystem::path fileIn = testRoot / "SkyrimSE/malehead.nif";
 			std::filesystem::path fileOut = testRoot / "Out/testWrapper_impExpSE.nif";
 
 			void* nifhead = load(fileIn.u8string().c_str());
+
+			getRootName(nifhead, nameBuf, 128);
+			Assert::AreEqual("MaleHead.nif", nameBuf, "Original root name read correctly");
 			Assert::IsTrue(getShapes(nifhead, shapes, 10, 0) == 1, L"ERROR: Wrong number of shapes");
 			void* head = shapes[0];
 			TSanityCheckShape(nifhead, head);
@@ -2440,7 +2444,7 @@ namespace NiflyDLLTests
 
 			clearMessageLog();
 
-			void* nifOut = createNif("SKYRIMSE", "NiNode", "Scene Root");
+			void* nifOut = createNif("SKYRIMSE", "NiNode", nameBuf);
 			void* shapeOut = TCopyShape(nifOut, "MaleHeadIMF", nifhead, head, NifOptions(SEHeadPart));
 			TCopyShader(nifOut, shapeOut, nifhead, head);
 
@@ -2452,11 +2456,10 @@ namespace NiflyDLLTests
 			Assert::IsFalse(strstr(msgbuf, "ERROR:"), L"Error completed with errors");
 
 			// What we wrote is correct
+			getRootName(nifOut, nameBuf, 128);
+			Assert::AreEqual("MaleHead.nif", nameBuf, "Unique root node name preserved");
 
 			clearMessageLog();
-			//void* nifCheck = load(fileOut.u8string().c_str());
-			//void* shapesCheck[10];
-			//getShapes(nifCheck, shapesCheck, 10, 0);
 			Vector3 tV = Vector3(0.954437f, 4.977112f, -11.012909f);
 			TCheckAccuracy(fileIn, "MaleHeadIMF", fileOut, "MaleHeadIMF", tV, "NPC Spine2 [Spn2]");
 
@@ -2467,8 +2470,6 @@ namespace NiflyDLLTests
 			getBlock(nifOut, spine2ID, &buf);
 			Assert::AreEqual(14, int(buf.flags), L"Flags are correct");
 
-			//TCompareExtraData(nifhead, nullptr, nifCheck, nullptr);
-			//TCompareExtraData(nifhead, head, nifCheck, shapesCheck[0]);
 			loglen = getMessageLog(msgbuf, MSGBUFLEN);
 			Assert::IsFalse(strstr(msgbuf, "WARNING:"), L"Error completed with warnings");
 			Assert::IsFalse(strstr(msgbuf, "ERROR:"), L"Error completed with errors");

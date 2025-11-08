@@ -351,6 +351,9 @@ def TEST_IMP_EXP_SKY():
         impnif = pyn.NifFile(testfile)
         armorin = impnif.shape_dict['Armor']
 
+        root = next(n for n in bpy.data.objects if 'pynRoot' in n)
+        TT.assert_eq(root.name, 'Scene Root:ROOT', "Root node name")
+
         # Armor is in the right place.
         vmin, vmax = TTB.get_obj_bbox(armor)
         assert NT.VNearEqual(vmin, Vector([-30.32, -13.31, -90.03]), 0.1), f"Armor min is correct: {vmin}"
@@ -375,12 +378,16 @@ def TEST_IMP_EXP_SKY():
 
         ### EXPORT ###
 
+        root.name = "Armor"
+
         bpy.ops.object.select_all(action='DESELECT')
         armor.select_set(True)
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game=game, 
                                      use_blender_xf=blendxf, intuit_defaults=False)
 
         nifout = pyn.NifFile(outfile)
+        TT.assert_eq(nifout.rootNode.name, "Armor", "Root node name in output nif")
+
         armorout = nifout.shape_dict['Armor']
         assert nifout.game == game, f"Wrote correct game format: {nifout.game} == {game}"
         TTB.compare_shapes(armorin, armorout, armor, e=0.01)

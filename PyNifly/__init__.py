@@ -3686,28 +3686,19 @@ class NifExporter:
         NifFile.clear_log()
         self.nif = NifFile()
 
-        rt = "NiNode"
-        rn = "Scene Root"
-
         if self.objects:
             shape = next(iter(self.objects))
         else:
             shape = self.armature
 
+        rt = "NiNode"
+        rn = "Scene Root"
         if self.root_object:
-            try:
-                rt = self.root_object["pynBlockName"]
-            except:
-                rt = 'NiNode'
-            try:
-                rn = self.root_object["pynNodeName"]
-            except:
-                rn = 'Scene Root'
+            rt = self.root_object.get("pynBlockName", "NiNode")
+            rn = name_from_root(self.root_object)
         else:
-            if "pynRootNode_BlockType" in shape:
-                rt = shape["pynRootNode_BlockType"]
-            if "pynNodeName" in shape:
-                rn = shape["pynNodeName"]
+            rt = shape.get("pynRootNode_BlockType", "NiNode")
+            rn = nonunique_name(shape.name)
         
         self.nif.initialize(self.game, fpath, rt, rn)
         if self.root_object:

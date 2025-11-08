@@ -55,6 +55,12 @@ def nonunique_name(obj):
     return s
 
 
+def name_from_root(obj):
+    """Given a root object, returns a nif name"""
+    n = obj.name[0:-5] if obj.name.endswith(":ROOT") else obj.name
+    return nonunique_name(n)
+
+
 def ObjectSelect(objlist, deselect=True, active=False):
     """Select all the objects in the list"""
     try:

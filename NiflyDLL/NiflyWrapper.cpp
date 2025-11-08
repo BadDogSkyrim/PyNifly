@@ -265,7 +265,13 @@ void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, const char* rootType,
         auto rootNode = std::make_unique<NiControllerSequence>();
         rootNode->name.get() = name;
         hdr.AddBlock(std::move(rootNode));
-    }}
+    }
+    else {
+        auto& hdr = nif->GetHeader();
+        auto rootNode = hdr.GetBlock<NiNode>(0u);
+        rootNode->name.get() = name;
+    }
+}
 
 NIFLY_API void* createNif(const char* targetGameName, const char* rootType, const char* rootName) 
 /*
