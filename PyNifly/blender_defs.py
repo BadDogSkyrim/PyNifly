@@ -1,5 +1,6 @@
 """Common definitions for the Blender plugin"""
 
+from contextlib import contextmanager
 import os
 import shutil
 import tempfile
@@ -59,6 +60,39 @@ def name_from_root(obj):
     """Given a root object, returns a nif name"""
     n = obj.name[0:-5] if obj.name.endswith(":ROOT") else obj.name
     return nonunique_name(n)
+
+
+@contextmanager
+def stashed_animation(obj):
+    """Context manager that temporarily stashes and restores animation data on an object"""
+    saved_anim_action = saved_anim_slot = None
+    saved_mat_action = saved_mat_slot = None
+    # if obj.animation_data:
+    #     saved_anim_action = obj.animation_data.action
+    #     saved_anim_slot = obj.animation_data.action_slot
+    #     obj.animation_data_clear()
+
+    # if obj.active_material and obj.active_material.animation_data:
+    #     saved_mat_action = obj.active_material.animation_data.action
+    #     saved_mat_slot = obj.active_material.animation_data.action_slot
+    #     obj.active_material.animation_data_clear()
+    
+    try:
+        yield
+
+    finally:
+        # Restore the animation data
+        if saved_anim_action:
+            if not obj.animation_data:
+                obj.animation_data_create()
+            obj.animation_data.action = saved_anim_action
+            obj.animation_data.action_slot = saved_anim_slot
+
+        if saved_mat_action:
+            if not obj.active_material.animation_data:
+                obj.active_material.animation_data_create()
+            obj.active_material.animation_data.action = saved_mat_action
+            obj.active_material.animation_data.action_slot = saved_mat_slot
 
 
 def ObjectSelect(objlist, deselect=True, active=False):

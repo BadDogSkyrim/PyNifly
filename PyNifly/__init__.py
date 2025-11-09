@@ -3354,16 +3354,17 @@ class NifExporter:
 
     def export_node(self, obj:bpy_types.Object, parent:ReprObject=None) -> NiNode:
         """Export a NiNode for the given Blender object."""
-        xf = make_transformbuf(apply_scale_xf(obj.matrix_local, 1))
-        ninode = self.nif.add_node(obj.name, xf, parent.nifnode if parent else None)
-        if "pynNodeFlags" in obj:
-            try:
-                ninode.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
-            except Exception as e:
-                log.warn(f"Error setting pynNodeFlags for {obj.name}: {e}")
-        ref = ReprObject(obj, ninode) 
-        self.objs_written.add(ref) 
-        collision.CollisionHandler.export_collisions(self, obj)
+        with stashed_animation(obj):
+            xf = make_transformbuf(apply_scale_xf(obj.matrix_local, 1))
+            ninode = self.nif.add_node(obj.name, xf, parent.nifnode if parent else None)
+            if "pynNodeFlags" in obj:
+                try:
+                    ninode.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
+                except Exception as e:
+                    log.warn(f"Error setting pynNodeFlags for {obj.name}: {e}")
+            ref = ReprObject(obj, ninode) 
+            self.objs_written.add(ref) 
+            collision.CollisionHandler.export_collisions(self, obj)
         controller.ControllerHandler.export_animated_obj(self, obj)
         return ref
    
@@ -3519,113 +3520,114 @@ class NifExporter:
         self.active_obj = obj
         self.shape_bones = {}
 
-        # If there's a hierarchy, export parents (recursively) first
-        my_parent = self.export_shape_parents(obj)
+        with stashed_animation(obj):
+            # If there's a hierarchy, export parents (recursively) first
+            my_parent = self.export_shape_parents(obj)
 
-        retval = set()
+            retval = set()
 
-        # Prepare for reporting any bone weight errors
-        is_skinned = (arma is not None)
-        unweighted = []
-        if UNWEIGHTED_VERTEX_GROUP in obj.vertex_groups:
-            obj.vertex_groups.remove(obj.vertex_groups[UNWEIGHTED_VERTEX_GROUP])
-        if MULTIPLE_PARTITION_GROUP in obj.vertex_groups:
-            obj.vertex_groups.remove(obj.vertex_groups[MULTIPLE_PARTITION_GROUP])
-        if NO_PARTITION_GROUP in obj.vertex_groups:
-            obj.vertex_groups.remove(obj.vertex_groups[NO_PARTITION_GROUP])
-        
-        if is_skinned:
-            # Get unweighted bones before we muck up the list by splitting edges
-            unweighted = tag_unweighted(obj, arma.data.bones.keys())
-            if not expected_game(self.nif, arma.data.bones):
-                log.warning(f"Exporting to game that doesn't match armature: game={self.nif.game}, armature={arma.name}")
-                retval.add('GAME')
+            # Prepare for reporting any bone weight errors
+            is_skinned = (arma is not None)
+            unweighted = []
+            if UNWEIGHTED_VERTEX_GROUP in obj.vertex_groups:
+                obj.vertex_groups.remove(obj.vertex_groups[UNWEIGHTED_VERTEX_GROUP])
+            if MULTIPLE_PARTITION_GROUP in obj.vertex_groups:
+                obj.vertex_groups.remove(obj.vertex_groups[MULTIPLE_PARTITION_GROUP])
+            if NO_PARTITION_GROUP in obj.vertex_groups:
+                obj.vertex_groups.remove(obj.vertex_groups[NO_PARTITION_GROUP])
+            
+            if is_skinned:
+                # Get unweighted bones before we muck up the list by splitting edges
+                unweighted = tag_unweighted(obj, arma.data.bones.keys())
+                if not expected_game(self.nif, arma.data.bones):
+                    log.warning(f"Exporting to game that doesn't match armature: game={self.nif.game}, armature={arma.name}")
+                    retval.add('GAME')
 
-        # Collect key info about the mesh 
-        verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict, partitions, partition_map = \
-           self.extract_mesh_data(self.active_obj, arma, target_key)
+            # Collect key info about the mesh 
+            verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict, partitions, partition_map = \
+            self.extract_mesh_data(self.active_obj, arma, target_key)
 
-        is_headpart = obj.data.shape_keys \
-                and len(self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
+            is_headpart = obj.data.shape_keys \
+                    and len(self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
 
-        obj.data.update()
-        shaderexp = shader_io.ShaderExporter(obj, self.nif.game)
+            obj.data.update()
+            shaderexp = shader_io.ShaderExporter(obj, self.nif.game)
 
-        if shaderexp.is_obj_space:
-            norms_exp = None
-        else:
-            norms_exp = norms_new
+            if shaderexp.is_obj_space:
+                norms_exp = None
+            else:
+                norms_exp = norms_new
 
-        # Make the shape in the nif file. Use the shape's block type, or choose a
-        # reasonable default.
-        if 'pynBlockName' in obj:
-            blocktype = obj['pynBlockName']
-        elif is_headpart and self.game == 'SKYRIMSE':
-            blocktype = 'BSDynamicTriShape'
-        elif partitions and self.game == 'FO4':
-            blocktype = 'BSSubIndexTriShape' 
-        elif self.game == 'SKYRIM':
-            blocktype = 'NiTriShape' 
-        else:
-            blocktype = 'BSTriShape'
-        
-        blockclass = NiObject.block_types[blocktype]
-        props = blockclass.getbuf(obj)
+            # Make the shape in the nif file. Use the shape's block type, or choose a
+            # reasonable default.
+            if 'pynBlockName' in obj:
+                blocktype = obj['pynBlockName']
+            elif is_headpart and self.game == 'SKYRIMSE':
+                blocktype = 'BSDynamicTriShape'
+            elif partitions and self.game == 'FO4':
+                blocktype = 'BSSubIndexTriShape' 
+            elif self.game == 'SKYRIM':
+                blocktype = 'NiTriShape' 
+            else:
+                blocktype = 'BSTriShape'
+            
+            blockclass = NiObject.block_types[blocktype]
+            props = blockclass.getbuf(obj)
 
-        new_shape = self.nif.createShapeFromData(self.unique_name(obj), 
-                                                 verts, tris, uvmap_new, norms_exp,
-                                                 props=props,
-                                                 parent=my_parent.nifnode if my_parent else None)
-        if "pynNodeFlags" in obj:
-            try:
-                new_shape.flags = NiAVFlags.parse(obj['pynNodeFlags']).value
-            except Exception as e:
-                log.warn(f"Error setting pynNodeFlags for {obj.name}: pynNodeFlags={obj['pynNodeFlags']}")
-        if "pynVertexDesc" in obj and obj["pynVertexDesc"]:
-            try:
-                new_shape.properties.vertexDesc = VertexFlags.parse(obj['pynVertexDesc']).value
-            except Exception as e:
-                log.warn(f"Error setting pynVertexDesc for {obj.name}: pynVertexDesc={obj['pynVertexDesc']}")
+            new_shape = self.nif.createShapeFromData(self.unique_name(obj), 
+                                                    verts, tris, uvmap_new, norms_exp,
+                                                    props=props,
+                                                    parent=my_parent.nifnode if my_parent else None)
+            if "pynNodeFlags" in obj:
+                try:
+                    new_shape.flags = NiAVFlags.parse(obj['pynNodeFlags']).value
+                except Exception as e:
+                    log.warn(f"Error setting pynNodeFlags for {obj.name}: pynNodeFlags={obj['pynNodeFlags']}")
+            if "pynVertexDesc" in obj and obj["pynVertexDesc"]:
+                try:
+                    new_shape.properties.vertexDesc = VertexFlags.parse(obj['pynVertexDesc']).value
+                except Exception as e:
+                    log.warn(f"Error setting pynVertexDesc for {obj.name}: pynVertexDesc={obj['pynVertexDesc']}")
 
-        robj = ReprObject(obj, new_shape)
-        self.objs_written.add(robj)
+            robj = ReprObject(obj, new_shape)
+            self.objs_written.add(robj)
 
-        if colors_new:
-            new_shape.set_colors(colors_new)
+            if colors_new:
+                new_shape.set_colors(colors_new)
 
-        self.export_shape_data(robj)
-        
-        shaderexp.export(new_shape)
+            self.export_shape_data(robj)
+            
+            shaderexp.export(new_shape)
 
-        # Using local transform because the shapes will be parented in the nif
-        new_xform = obj.matrix_local * (1/self.scale) 
-        if not has_uniform_scale(obj):
-            # Non-uniform scales applied to verts, so just use 1.0 for the scale on the object
-            l, r, s = new_xform.decompose()
-            new_xform = MatrixLocRotScale(l, r, Vector((1,1,1))) 
-        elif  not NearEqual(self.scale, 1.0):
-            # Export scale factor applied to verts, so scale obj translation but not obj scale 
-            l, r, s = new_xform.decompose()
-            new_xform = MatrixLocRotScale(l, r, obj.matrix_local.to_scale()) 
-        
-        if is_skinned:
-            self.export_skin(self.active_obj, arma, new_shape, new_xform, weights_by_vert)
-            if len(unweighted) > 0:
-                create_group_from_verts(obj, UNWEIGHTED_VERTEX_GROUP, unweighted)
-                log.warning(f"Some vertices are not weighted to the armature in object {obj.name}")
-                self.objs_unweighted.add(obj)
+            # Using local transform because the shapes will be parented in the nif
+            new_xform = obj.matrix_local * (1/self.scale) 
+            if not has_uniform_scale(obj):
+                # Non-uniform scales applied to verts, so just use 1.0 for the scale on the object
+                l, r, s = new_xform.decompose()
+                new_xform = MatrixLocRotScale(l, r, Vector((1,1,1))) 
+            elif  not NearEqual(self.scale, 1.0):
+                # Export scale factor applied to verts, so scale obj translation but not obj scale 
+                l, r, s = new_xform.decompose()
+                new_xform = MatrixLocRotScale(l, r, obj.matrix_local.to_scale()) 
+            
+            if is_skinned:
+                self.export_skin(self.active_obj, arma, new_shape, new_xform, weights_by_vert)
+                if len(unweighted) > 0:
+                    create_group_from_verts(obj, UNWEIGHTED_VERTEX_GROUP, unweighted)
+                    log.warning(f"Some vertices are not weighted to the armature in object {obj.name}")
+                    self.objs_unweighted.add(obj)
 
-            if len(partitions) > 0:
-                if 'FO4_SEGMENT_FILE' in obj.keys():
-                    new_shape.segment_file = obj['FO4_SEGMENT_FILE']
+                if len(partitions) > 0:
+                    if 'FO4_SEGMENT_FILE' in obj.keys():
+                        new_shape.segment_file = obj['FO4_SEGMENT_FILE']
 
-                new_shape.set_partitions(
-                    [p for p in partitions.values() if p.id in partition_map], 
-                    partition_map)
+                    new_shape.set_partitions(
+                        [p for p in partitions.values() if p.id in partition_map], 
+                        partition_map)
 
-            collision.CollisionHandler.export_collisions(self, arma)
-        else:
-            new_shape.transform = make_transformbuf(new_xform)
+                collision.CollisionHandler.export_collisions(self, arma)
+            else:
+                new_shape.transform = make_transformbuf(new_xform)
 
         # Write other block types
         collision.CollisionHandler.export_collisions(self, obj)

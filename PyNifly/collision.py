@@ -711,7 +711,7 @@ class CollisionHandler():
 
         # Use any rotation on the collision shape relative to the target's rotation.
         targq = coll.matrix_local.to_quaternion() @ rot.inverted()
-        rv = ctr - targlocw
+        rv = ctr - targloc # targlocw
         rv.rotate(targqw.inverted())
         rv = rv * self.export_xf.to_scale()
 

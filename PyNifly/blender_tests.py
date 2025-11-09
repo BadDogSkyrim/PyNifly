@@ -16,7 +16,7 @@ import test_tools_bpy as TTB
 import niflytools as NT
 from nifdefs import NiAVFlags, ShaderFlags2, bhkCOFlags, SkyrimCollisionLayer, HSF, \
     SkyrimHavokMaterial, PynBufferTypes, CycleType, hkResponseType, BSLSPShaderType, \
-    BroadPhaseType, hkMotionType, hkSolverDeactivation, hkQualityType
+    BroadPhaseType, hkMotionType, hkSolverDeactivation, hkQualityType, HAVOC_SCALE_FACTOR
 import pynifly as pyn
 import xml.etree.ElementTree as xml
 import blender_defs as BD
@@ -5686,11 +5686,13 @@ def TEST_ANIM_CIGARETTE():
                        "Have Object003 in object palette")
 
 
-
-def TEST_ANIM_DWEMER_CHEST():
-    """Read and write the animation of chest opening and shutting."""
+def TEST_ANIM_COLL_DWEMER_CHEST():
+    """
+    Read and write the animation of chest opening and shutting. Also create a collision
+    object for the chest and esure it works.
+    """
     testfile = TTB.test_file(r"tests\Skyrim\dwechest01.nif")
-    outfile =TTB.test_file(r"tests/Out/TEST_ANIM_DWEMER_CHEST.nif")
+    outfile =TTB.test_file(r"tests/Out/TEST_ANIM_COLL_DWEMER_CHEST.nif")
 
     #### READ ####
 
@@ -5699,12 +5701,6 @@ def TEST_ANIM_DWEMER_CHEST():
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     lid = bpy.data.objects["Box01"]
-    # animations = ['ANIM|Close|Box01', 'ANIM|Close|Gear07', 'ANIM|Close|Gear08', 
-    #               'ANIM|Close|Gear09', 'ANIM|Close|Handle', 'ANIM|Close|Object01', 
-    #               'ANIM|Close|Object02', 'ANIM|Close|Object188', 'ANIM|Close|Object189',
-    #               'ANIM|Open|Box01', 'ANIM|Open|Gear07', 'ANIM|Open|Gear08', 
-    #               'ANIM|Open|Gear09', 'ANIM|Open|Handle', 'ANIM|Open|Object01', 
-    #               'ANIM|Open|Object02', 'ANIM|Open|Object188', 'ANIM|Open|Object189']
     animations = ['Close', 'Open']
     for anim in animations:
         TT.assert_contains(anim, bpy.data.actions, f"Animations")
@@ -5733,6 +5729,49 @@ def TEST_ANIM_DWEMER_CHEST():
 
     #### WRITE ####
 
+    # FOR NOW CLEAR ALL ANIMATION DATA 
+    for obj in bpy.context.scene.objects:
+        obj.animation_data_clear()
+        if obj.active_material:
+            obj.active_material.animation_data_clear()
+    bpy.context.view_layer.update()
+
+    # Create a collision object that can be exported
+    bpy.ops.mesh.primitive_cube_add(size=2, enter_editmode=False, align='WORLD', location=(0, 0, 0), scale=(1, 1, 1))
+    bpy.context.object.location[2] = -22.4467
+    collision_obj = bpy.context.object
+    for v in collision_obj.data.vertices:
+        if v.co.x < 0:
+            v.co.x = -55.9238
+        else:
+            v.co.x = 55.3899
+        if v.co.y < 0:
+            v.co.y = -25.9097
+        else:
+            v.co.y = 26.0875
+        if v.co.z < 0:
+            v.co.z = -0.5476
+        else:
+            v.co.z = 50.6816
+
+    collision_obj.name = "bhkBoxShape_Chest" 
+    collision_obj['pynCollisionFlags'] = "ACTIVE | SYNC_ON_UPDATE"
+    collision_obj['penetrationDepth'] = 0.1
+    collision_obj['motionSystem'] = hkMotionType.BOX_STABILIZED
+    collision_obj['qualityType'] = hkQualityType.INVALID
+    collision_obj['inertiaMatrix'] = "[0, 0, 0, 0, 0, 0, 0, 0, 0]"
+    collision_obj['rollingFrictionMult'] = 0.0
+    # collision_obj['capacityAndFlags'] = 2147483648
+
+    bpy.ops.rigidbody.object_add()
+    bpy.context.object.rigid_body.collision_shape = 'CONVEX_HULL'
+    collision_obj.rigid_body.linear_damping = 0.099609
+    collision_obj.rigid_body.angular_damping = 0.049805
+
+    BD.ObjectSelect([bpy.data.objects['DwarvenChest']], active=True)
+    bpy.ops.object.constraint_add(type='COPY_TRANSFORMS')
+    bpy.context.object.constraints["Copy Transforms"].target = collision_obj
+
     BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj],
                     active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile)
@@ -5740,6 +5779,8 @@ def TEST_ANIM_DWEMER_CHEST():
     #### CHECK ####
 
     nif2:pyn.NifFile = pyn.NifFile(outfile)
+
+    # Check controller structure
     cm2:pyn.NiControllerManager = nif2.root.controller
     mtt2:pyn.NiMultiTargetTransformController = cm2.next_controller
     # TT.assert_seteq([n.name for n in mtt2.extra_targets],
@@ -5750,6 +5791,29 @@ def TEST_ANIM_DWEMER_CHEST():
     open2:pyn.NiControllerSequence = cm2.sequences["Close"]
     openblk:pyn.ControllerLink = next(b for b in open2.controlled_blocks if b.node_name == "Object01")
     TT.assert_eq(openblk.controller.id, mtt2.id, "Controller IDs")
+
+    assert nif2.nodes['Gear07'].controller is None, "Gear07 has no controller"
+
+    # Check collision
+    assert nif2.nodes['DwarvenChest'].collision_object is not None, "Have collision object"
+    assert nif2.nodes['DwarvenChest'].collision_object.body is not None, "Have collision body"
+    assert nif2.nodes['DwarvenChest'].collision_object.body.shape is not None, "Have collision shape"
+
+    TT.assert_eq(nif2.nodes['DwarvenChest'].collision_object.properties.flags, 
+                 bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE,
+                 "Collision object flags")
+    TT.assert_equiv(nif2.nodes['DwarvenChest'].collision_object.body.properties.linearDamping, 
+                 0.099609,
+                 "Linear damping",
+                 e=0.01)
+
+    col_loc = Vector(nif2.nodes['DwarvenChest'].collision_object.body.properties.translation[0:3]) * HAVOC_SCALE_FACTOR
+    col_dim = Vector(nif2.nodes['DwarvenChest'].collision_object.body.shape.properties.bhkDimensions) * HAVOC_SCALE_FACTOR
+    col_bounds = (Vector(col_loc) - Vector(col_dim), Vector(col_loc) + Vector(col_dim),)
+    TT.assert_equiv(col_bounds, 
+                    (Vector((-55.9238, -25.9097, -0.5476)), Vector((55.3899, 26.0875, 50.6816)),), 
+                    "Collision bounds", e=0.1)
+
 
 
 def TEST_ANIM_ALDUIN():

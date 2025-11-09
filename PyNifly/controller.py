@@ -360,7 +360,8 @@ class ControllerHandler():
 
         # Single MultiTargetTransformController and ObjectPalette to use fo all controller
         # sequences in a ControllerManager
-        self.cm_controller = None 
+        self.controller_manager:NiControllerManager = None
+        self.multitarget_controller = None 
         self.controller_sequence:NiControllerSequence = None
         self.cm_obj_palette = None
         
@@ -942,7 +943,7 @@ class ControllerHandler():
         controlled.
         """
         interps_created = []
-        controller = None # self.cm_controller
+        controller = None # self.multitarget_controller
         ctlvar = ctlvar_cur = None
         ctlclass = ctlclass_cur = None
         self.action = anim.action
@@ -979,8 +980,8 @@ class ControllerHandler():
                         myinterp = interp
                         myparent = anim.target_obj.nifnode.shader
 
-                    if self.cm_controller and issubclass(ctlclass, NiTransformController):
-                        controller = self.cm_controller
+                    if self.multitarget_controller and issubclass(ctlclass, NiTransformController):
+                        controller = self.multitarget_controller
 
                     elif (ctlclass != NiTransformController): 
                         if mytarget.controller is None:
@@ -988,7 +989,7 @@ class ControllerHandler():
                                 file=self.nif,
                                 flags=TimeControllerFlags(
                                     cycle_type=(CycleType.LOOP if self.action.use_cyclic else CycleType.CLAMP),
-                                    manager_controlled=(self.cm_controller is not None)
+                                    manager_controlled=(self.multitarget_controller is not None)
                                 ).flags,
                                 target=mytarget,
                                 start_time=self.start_time,
@@ -1007,7 +1008,11 @@ class ControllerHandler():
 
             # Target has to point to the first controller in the chain (but the chain
             # was built from last to first).
-            if mytarget.properties.controllerID == NODEID_NONE and interps_created:
+            #
+            # Dwemer chest does not have controllers on each of the controlled nodes--just on
+            # the ControllerManager. Its target is the root node.
+            if mytarget.properties.controllerID == NODEID_NONE and interps_created \
+                    and self.controller_manager is None:
                 mytarget.controller = interps_created[-1][0]
                 
         except:
@@ -1048,24 +1053,31 @@ class ControllerHandler():
         self.accum_root = self.nif.rootNode
         self.controlled_objects = BD.ReprObjectCollection()
 
-        cm:NiControllerManager = None
+        self.controller_manager:NiControllerManager = None
 
         anim:BD.ReprObjectCollection = None
         for anim in all_named_animations(self.export_objs):
+            # Named animatins depend on Action Slots. Bail if it's an older Blender.
+            try:
+                t = bpy.types.ActionSlot
+            except:
+                log.warning("Action Slots not supported in this version of Blender. Cannot export named animations.")
+                return
+            
             # Don't create the nif container blocks until we need them.
-            if not self.cm_controller:
-                self.cm_controller = NiMultiTargetTransformController.New(
+            if not self.multitarget_controller:
+                self.multitarget_controller = NiMultiTargetTransformController.New(
                     file=self.nif, flags=108, target=self.nif.rootNode)
                 
-            if not cm:
-                cm = NiControllerManager.New(
+            if not self.controller_manager:
+                self.controller_manager = NiControllerManager.New(
                     file=self.parent.nif, 
                     flags=TimeControllerFlags(cycle_type=CycleType.CLAMP),
-                    next_controller=self.cm_controller,
+                    next_controller=self.multitarget_controller,
                     parent=self.accum_root)
 
             if not self.cm_obj_palette:
-                self.cm_obj_palette = NiDefaultAVObjectPalette.New(self.nif, self.nif.rootNode, parent=cm)
+                self.cm_obj_palette = NiDefaultAVObjectPalette.New(self.nif, self.nif.rootNode, parent=self.controller_manager)
 
             if (not self.controller_sequence) or (anim.name != self.controller_sequence.name):
                 self.controller_sequence:NiControllerSequence = NiControllerSequence.New(
@@ -1076,7 +1088,7 @@ class ControllerHandler():
                     stop_time=anim.stop_time,
                     cycle_type=anim.cycle_type,
                     frequency=anim.frequency,
-                    parent=cm
+                    parent=self.controller_manager
                 )
 
             self._export_anim_markers(self.controller_sequence, anim.markers)
@@ -1099,7 +1111,7 @@ class ControllerHandler():
                 )
             self.cm_obj_palette.add_object(anim.target_obj.nifnode.name, anim.target_obj.nifnode)
 
-        self._write_controlled_objects(cm)
+        self._write_controlled_objects(self.controller_manager)
 
 
     @classmethod

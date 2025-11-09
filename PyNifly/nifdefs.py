@@ -117,7 +117,7 @@ MATRIX4 = VECTOR4 * 4
 CHAR256 = c_char * 256
 
 pynBufferDefaults = {
-	'broadPhaseType': 'INVALID',
+	'broadPhaseType': 'ENTITY',
 	'collisionFilter_flags': 0,
 	'collisionFilter_group': 0,
 	'prop_data': 0, 
