@@ -1916,7 +1916,8 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
         # Save the directory path for next time
         if self.status == {'FINISHED'}:
-            context.window_manager.pynifly_last_import_path_nif = os.path.dirname(self.filepath)
+            wm = context.window_manager
+            wm.pynifly_last_import_path_nif = os.path.dirname(self.filepath)
 
         return self.status
 
@@ -2156,7 +2157,8 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
 
         # Save the directory path for next time
         if 'FINISHED' in self.status:
-            context.window_manager.pynifly_last_import_path_tri = os.path.dirname(self.filepath)
+            wm = context.window_manager
+            wm.pynifly_last_import_path_tri = os.path.dirname(self.filepath)
 
         return self.status.intersection({'FINISHED', 'CANCELLED'})
 
@@ -2267,7 +2269,8 @@ class ImportKF(bpy.types.Operator, ExportHelper):
 
         # Save the directory path for next time
         if 'CANCELLED' not in res:
-            context.window_manager.pynifly_last_import_path_kf = os.path.dirname(self.filepath)
+            wm = context.window_manager
+            wm.pynifly_last_import_path_kf = os.path.dirname(self.filepath)
             res.add('FINISHED')
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
@@ -2418,7 +2421,8 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
 
         # Save the directory path for next time
         if 'CANCELLED' not in res:
-            context.window_manager.pynifly_last_import_path_hkx = os.path.dirname(self.filepath)
+            wm = context.window_manager
+            wm.pynifly_last_import_path_hkx = os.path.dirname(self.filepath)
             res.add('FINISHED')
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
@@ -4064,6 +4068,12 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
         return True
 
+    def invoke(self, context, event):
+        # Set the default directory to the last used path if available
+        if context.window_manager.pynifly_last_export_path_nif:
+            self.filepath = context.window_manager.pynifly_last_export_path_nif
+        return super().invoke(context, event)
+
     def execute(self, context):
         res = set()
         selected_objs = context.selected_objects
@@ -4147,6 +4157,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         context.scene.frame_set(initial_frame)
         ObjectSelect(selected_objs)
         ObjectActive(active_obj)
+
+        # Save the directory path for next time
+        if 'CANCELLED' not in res:
+            wm = context.window_manager
+            wm.pynifly_last_export_path_nif = os.path.dirname(self.filepath)
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 
@@ -4249,6 +4264,12 @@ class ExportKF(bpy.types.Operator, ExportHelper):
                 self.do_rename_bones_niftools = arma['PYN_RENAME_BONES_NIFTOOLS']
 
 
+    def invoke(self, context, event):
+        # Set the default directory to the last used path if available
+        if context.window_manager.pynifly_last_export_path_kf:
+            self.filepath = context.window_manager.pynifly_last_export_path_kf
+        return super().invoke(context, event)
+
     def execute(self, context):
         self.context = context
         res = set()
@@ -4285,6 +4306,11 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             self.report({"INFO"}, "Export of KF completed successfully")
             res.add("SUCCESS")
             self.log_handler.finish("EXPORT", self.filepath)
+
+        # Save the directory path for next time
+        if 'CANCELLED' not in res:
+            wm = context.window_manager
+            wm.pynifly_last_export_path_kf = os.path.dirname(self.filepath)
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 
@@ -4338,7 +4364,13 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
             return False
 
         return True
-    
+
+
+    def invoke(self, context, event):
+        # Set the default directory to the last used path if available
+        if context.window_manager.pynifly_last_export_path_hkx:
+            self.filepath = context.window_manager.pynifly_last_export_path_hkx
+        return super().invoke(context, event)
 
     def generate_hkx(self, filepath):
         """Generates an HKX file from a KF file. Also generates an XML file."""
@@ -4485,6 +4517,11 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
         self.log_handler.finish("EXPORT", self.filepath)
 
+        # Save the directory path for next time
+        if 'CANCELLED' not in res:
+            wm = context.window_manager
+            wm.pynifly_last_export_path_hkx = os.path.dirname(self.filepath)
+
         return res.intersection({'CANCELLED'}, {'FINISHED'})
     
 
@@ -4511,6 +4548,12 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
         return True
 
 
+    def invoke(self, context, event):
+        # Set the default directory to the last used path if available
+        if context.window_manager.pynifly_last_export_path_skel_hkx:
+            self.filepath = context.window_manager.pynifly_last_export_path_skel_hkx
+        return super().invoke(context, event)
+
     def execute(self, context):
         self.log_handler = LogHandler.New(bl_info, "EXPORT SKELETON", "HKX")
 
@@ -4524,11 +4567,17 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
             xmltools.XMLFile.xml_to_hkx(self.filepath, out_filepath)
 
             status = {'FINISHED'}
+            # Save the directory path for next time
+            wm = context.window_manager
+            wm.pynifly_last_export_path_skel_hkx = os.path.dirname(
+                out_filepath)
             return status
         except:
             self.log_handler.log.exception("Import of HKX failed")
             status = {'CANCELLED'}
             self.log_handler.finish("IMPORT", out_filepath)
+
+        return status
 
 
 def nifly_menu_import_nif(self, context):
@@ -4586,6 +4635,12 @@ def unregister():
         del bpy.types.WindowManager.pynifly_last_import_path_tri
         del bpy.types.WindowManager.pynifly_last_import_path_kf
         del bpy.types.WindowManager.pynifly_last_import_path_hkx
+    # Unregister last export path properties
+    with suppress(AttributeError):
+        del bpy.types.WindowManager.pynifly_last_export_path_nif
+        del bpy.types.WindowManager.pynifly_last_export_path_kf
+        del bpy.types.WindowManager.pynifly_last_export_path_hkx
+        del bpy.types.WindowManager.pynifly_last_export_path_skel_hkx
     # 356
     # +900
 
@@ -4623,6 +4678,26 @@ def register():
     )
     bpy.types.WindowManager.pynifly_last_import_path_hkx = StringProperty(
         name="Last HKX Import Path",
+        subtype='DIR_PATH',
+        default=""
+    )
+    bpy.types.WindowManager.pynifly_last_export_path_nif = StringProperty(
+        name="Last NIF Export Path",
+        subtype='DIR_PATH',
+        default=""
+    )
+    bpy.types.WindowManager.pynifly_last_export_path_kf = StringProperty(
+        name="Last KF Export Path",
+        subtype='DIR_PATH',
+        default=""
+    )
+    bpy.types.WindowManager.pynifly_last_export_path_hkx = StringProperty(
+        name="Last HKX Export Path",
+        subtype='DIR_PATH',
+        default=""
+    )
+    bpy.types.WindowManager.pynifly_last_export_path_skel_hkx = StringProperty(
+        name="Last Skeleton HKX Export Path",
         subtype='DIR_PATH',
         default=""
     )
