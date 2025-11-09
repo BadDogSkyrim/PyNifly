@@ -292,8 +292,7 @@ def actionslot_fcurves(action, slot):
     return res
 
 
-def analyze_animation(anim:bpy.types.Action, slot:bpy.types.ActionSlot, 
-                      myscene, export_objs:BD.ReprObjectCollection) -> AnimationData:
+def analyze_animation(anim, slot, myscene, export_objs:BD.ReprObjectCollection) -> AnimationData:
     """
     Analyze the given action and slot but do not apply it. If it's exportable as an
     animation, return an AnimationData object. Otherwise return None.
@@ -1814,6 +1813,12 @@ NiControllerSequence.import_node = _import_controller_sequence
 def _import_controller_manager(cm:NiControllerManager, 
                                 importer:ControllerHandler, 
                                 interp=None):
+    try:
+        t = bpy.types.ActionSlot
+    except:
+        log.warn("Blender version does not support Action Slots; cannot import controller manager properly.")
+        return
+    
     a = None
     for seq in cm.sequences.values():
         seq.import_node(importer)

@@ -5691,6 +5691,12 @@ def TEST_ANIM_COLL_DWEMER_CHEST():
     Read and write the animation of chest opening and shutting. Also create a collision
     object for the chest and esure it works.
     """
+    try:
+        t = bpy.types.ActionSlot
+    except:
+        print("Skipping TEST_ANIM_COLL_DWEMER_CHEST: ActionSlot not available in this version of Blender")
+        return
+
     testfile = TTB.test_file(r"tests\Skyrim\dwechest01.nif")
     outfile =TTB.test_file(r"tests/Out/TEST_ANIM_COLL_DWEMER_CHEST.nif")
 
