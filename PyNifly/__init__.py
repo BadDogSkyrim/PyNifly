@@ -1822,6 +1822,13 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         return True
 
 
+    def invoke(self, context, event):
+        # Set the default directory to the last used path if available
+        if context.window_manager.pynifly_last_import_path_nif:
+            self.filepath = context.window_manager.pynifly_last_import_path_nif
+        return super().invoke(context, event)
+
+
     def execute(self, context):
         self.log_handler = LogHandler.New(bl_info, "IMPORT", "NIF")
 
@@ -1906,7 +1913,11 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         finally:
             self.log_handler.finish("IMPORT", fullfiles)
             self.context.scene.frame_set(self.initial_frame)
-                
+
+        # Save the directory path for next time
+        if self.status == {'FINISHED'}:
+            context.window_manager.pynifly_last_import_path_nif = os.path.dirname(self.filepath)
+
         return self.status
 
 
@@ -2092,6 +2103,12 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
             bpy.context.object.type == 'MESH'
         )
 
+    def invoke(self, context, event):
+        # Set the default directory to the last used path if available
+        if context.window_manager.pynifly_last_import_path_tri:
+            self.filepath = context.window_manager.pynifly_last_import_path_tri
+        return super().invoke(context, event)
+
     def execute(self, context):
         self.log_handler = LogHandler()
         self.log_handler.start(bl_info, "IMPORT", "TRI")
@@ -2133,10 +2150,14 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
             self.log_handler.log.exception("Import of tri failed")
             self.report({"ERROR"}, "Import of tri failed, see console window for details")
             self.status = {'CANCELLED'}
-        
+
         finally:
             self.log_handler.finish(imp, self.filepath)
-        
+
+        # Save the directory path for next time
+        if 'FINISHED' in self.status:
+            context.window_manager.pynifly_last_import_path_tri = os.path.dirname(self.filepath)
+
         return self.status.intersection({'FINISHED', 'CANCELLED'})
 
 
@@ -2190,12 +2211,19 @@ class ImportKF(bpy.types.Operator, ExportHelper):
         self.nif:NifFile = None
         self.armature = None
         self.import_flags = ImportSettings.import_anims
-    
+
         obj = bpy.context.object
         if obj and obj.type == 'ARMATURE':
             self.reference_skel = get_setting(obj, 'PYN_SKELETON_FILE', '')
             self.do_rename_bones = get_setting(obj, 'PYN_RENAME_BONES', RENAME_BONES_DEF)
             self.rename_bones_niftools = get_setting(obj, 'PYN_RENAME_BONES_NIFTOOLS', RENAME_BONES_NIFT_DEF)
+
+
+    def invoke(self, context, event):
+        # Set the default directory to the last used path if available
+        if context.window_manager.pynifly_last_import_path_kf:
+            self.filepath = context.window_manager.pynifly_last_import_path_kf
+        return super().invoke(context, event)
 
 
     def execute(self, context):
@@ -2232,9 +2260,15 @@ class ImportKF(bpy.types.Operator, ExportHelper):
         except Exception as e:
             self.log_handler.log.exception(f"Import of KF failed: {e}")
             self.report({"ERROR"}, "Import of KF failed, see console window for details.")
+            res.add('CANCELLED')
 
         finally:
             self.log_handler.finish("IMPORT", self.filepath)
+
+        # Save the directory path for next time
+        if 'CANCELLED' not in res:
+            context.window_manager.pynifly_last_import_path_kf = os.path.dirname(self.filepath)
+            res.add('FINISHED')
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
     
@@ -2315,7 +2349,14 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
             self.reference_skel = get_setting(obj, 'PYN_SKELETON_FILE', self.reference_skel)
             self.do_rename_bones = get_setting(obj, 'PYN_RENAME_BONES', self.do_rename_bones)
             self.rename_bones_niftools = get_setting(obj, 'PYN_RENAME_BONES_NIFTOOLS', self.rename_bones_niftools)
-    
+
+
+    def invoke(self, context, event):
+        # Set the default directory to the last used path if available
+        if context.window_manager.pynifly_last_import_path_hkx:
+            self.filepath = context.window_manager.pynifly_last_import_path_hkx
+        return super().invoke(context, event)
+
 
     def __str__(self):
         return f"""
@@ -2372,8 +2413,13 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
             log.error("Import of HKX failed, see console window for details")
             res.add('CANCELLED')
 
-        finally: 
+        finally:
             self.log_handler.finish("IMPORT", self.filepath)
+
+        # Save the directory path for next time
+        if 'CANCELLED' not in res:
+            context.window_manager.pynifly_last_import_path_hkx = os.path.dirname(self.filepath)
+            res.add('FINISHED')
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
     
@@ -4526,13 +4572,20 @@ def unregister():
                 bpy.types.TOPBAR_MT_file_import.remove(f)
             else:
                 bpy.types.TOPBAR_MT_file_export.remove(f)
-        except: 
+        except:
             pass
         with suppress(RuntimeError):
-            bpy.utils.unregister_class(c) 
+            bpy.utils.unregister_class(c)
 
     skeleton_hkx.unregister()
     controller.unregister()
+
+    # Unregister last import path properties
+    with suppress(AttributeError):
+        del bpy.types.WindowManager.pynifly_last_import_path_nif
+        del bpy.types.WindowManager.pynifly_last_import_path_tri
+        del bpy.types.WindowManager.pynifly_last_import_path_kf
+        del bpy.types.WindowManager.pynifly_last_import_path_hkx
     # 356
     # +900
 
@@ -4543,7 +4596,7 @@ def register():
         except:
             pass
         try:
-            if d == 'i': 
+            if d == 'i':
                 bpy.types.TOPBAR_MT_file_import.append(f)
             else:
                 bpy.types.TOPBAR_MT_file_export.append(f)
@@ -4552,10 +4605,32 @@ def register():
     skeleton_hkx.register()
     controller.register()
 
+    # Register properties to remember last import paths
+    bpy.types.WindowManager.pynifly_last_import_path_nif = StringProperty(
+        name="Last NIF Import Path",
+        subtype='DIR_PATH',
+        default=""
+    )
+    bpy.types.WindowManager.pynifly_last_import_path_tri = StringProperty(
+        name="Last TRI Import Path",
+        subtype='DIR_PATH',
+        default=""
+    )
+    bpy.types.WindowManager.pynifly_last_import_path_kf = StringProperty(
+        name="Last KF Import Path",
+        subtype='DIR_PATH',
+        default=""
+    )
+    bpy.types.WindowManager.pynifly_last_import_path_hkx = StringProperty(
+        name="Last HKX Import Path",
+        subtype='DIR_PATH',
+        default=""
+    )
+
     if nifly_path:
         log.info(f"Loading pyNifly version {bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}")
         log.debug(f"Running pyNifly DLL from {nifly_path}.")
-    else: 
+    else:
         log.error(f"Could not locate pyNifly DLL--pyNifly is disabled.")
     if hkxcmd_path:
         log.debug(f"Running hkxcmd from {hkxcmd_path}")
