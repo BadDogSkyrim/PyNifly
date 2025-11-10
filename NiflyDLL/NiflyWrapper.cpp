@@ -3699,7 +3699,8 @@ int addControlledBlock(void* nifref, const char* name, void* buffer, uint32_t pa
         = hdr->GetBlock<NiMultiTargetTransformController>(b->controllerID);
     if (mttc) {
         int targID = findBlockByName(nifref, cl.nodeName.get().c_str());
-        mttc->targetRefs.AddBlockRef(targID);
+        if (find(mttc->targetRefs.cbegin(), mttc->targetRefs.cend(), targID) == mttc->targetRefs.cend())
+            mttc->targetRefs.AddBlockRef(targID);
     }
 
     return cs->controlledBlocks.size();
@@ -3923,11 +3924,29 @@ int getMultiTargetTransformController(void* nifref, uint32_t mttcID, void* inbuf
     CheckID(mttc);
     CheckBuf(buf, BUFFER_TYPES::NiMultiTargetTransformControllerBufType, NiMultiTargetTransformControllerBuf);
 
+	buf->id = mttcID;
     getTimeController(nif, mttc, inbuf);
     buf->targetCount = mttc->targetRefs.GetSize();
 
     return 0;
 }
+
+
+NIFLY_API int getExtraTargets(
+    void* nifref, uint32_t mttcID, int buflen, uint32_t* targetIDs) 
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    NiMultiTargetTransformController* mttc 
+        = hdr.GetBlock<NiMultiTargetTransformController>(uint32_t(mttcID));
+    int i = 0;
+    for (auto& t : mttc->targetRefs) {
+        if (i >= buflen) break;
+        targetIDs[i++] = t.index;
+    }
+    return mttc->targetRefs.GetSize();
+}
+
 
 int addMultiTargetTransformController(void* nifref, const char* name, void* inbuf, uint32_t parentID) {
     NifFile* nif = static_cast<NifFile*>(nifref);

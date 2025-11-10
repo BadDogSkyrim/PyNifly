@@ -904,7 +904,7 @@ class ControllerHandler():
                 if ro: self._add_controlled_object(ro)
         
 
-    def _write_controlled_objects(self, cm:NiControllerManager):
+    def _write_controlled_objects(self):
         if len(self.controlled_objects) == 0: return
 
         for obj in self.controlled_objects:
@@ -1108,9 +1108,10 @@ class ControllerHandler():
                                         if ctlr.blockname != 'NiMultiTargetTransformController'
                                         else 'NiTransformController'),
                 )
-            self.cm_obj_palette.add_object(anim.target_obj.nifnode.name, anim.target_obj.nifnode)
+            # self.cm_obj_palette.add_object(anim.target_obj.nifnode.name, anim.target_obj.nifnode)
+            self._add_controlled_object(anim.target_obj)
 
-        self._write_controlled_objects(self.controller_manager)
+        self._write_controlled_objects()
 
 
     @classmethod

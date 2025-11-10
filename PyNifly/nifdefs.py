@@ -1930,6 +1930,7 @@ class NiMultiTargetTransformControllerBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
         ('bufType', c_uint16),
+        ('id', c_uint32),
         ("nextControllerID", c_uint32),
         ("flags", c_uint16),
         ("frequency", c_float),

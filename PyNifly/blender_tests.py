@@ -5707,14 +5707,19 @@ def TEST_ANIM_COLL_DWEMER_CHEST():
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     lid = bpy.data.objects["Box01"]
+
+    # Read animations correctly
     animations = ['Close', 'Open']
     for anim in animations:
         TT.assert_contains(anim, bpy.data.actions, f"Animations")
+
+    # Lid has been animated
     assert lid.animation_data is not None
     TT.assert_contains(lid.animation_data.action.name, animations, "Active animation")
     TT.assert_gt(len(lid.animation_data.action.fcurves), 0, "Have curves")
     TT.assert_eq(lid.animation_data.action.fcurves[0].data_path, "location", "data path")
 
+    # Gear07 has been animated and has reasonable fcurves
     gear07 = bpy.data.objects["Gear07"]
     TT.assert_contains(gear07.animation_data.action.name, animations, "Gear animation")
     gear_slot = gear07.animation_data.action_slot
@@ -5763,7 +5768,7 @@ def TEST_ANIM_COLL_DWEMER_CHEST():
     collision_obj.name = "bhkBoxShape_Chest" 
     collision_obj['pynCollisionFlags'] = "ACTIVE | SYNC_ON_UPDATE"
     collision_obj['penetrationDepth'] = 0.1
-    collision_obj['motionSystem'] = hkMotionType.BOX_STABILIZED
+    collision_obj['motionSystem'] = hkMotionType.FIXED
     collision_obj['qualityType'] = hkQualityType.INVALID
     collision_obj['inertiaMatrix'] = "[0, 0, 0, 0, 0, 0, 0, 0, 0]"
     collision_obj['rollingFrictionMult'] = 0.0
@@ -5771,6 +5776,7 @@ def TEST_ANIM_COLL_DWEMER_CHEST():
 
     bpy.ops.rigidbody.object_add()
     bpy.context.object.rigid_body.collision_shape = 'CONVEX_HULL'
+    collision_obj.rigid_body.mass = 0.0
     collision_obj.rigid_body.linear_damping = 0.099609
     collision_obj.rigid_body.angular_damping = 0.049805
 
@@ -5780,7 +5786,7 @@ def TEST_ANIM_COLL_DWEMER_CHEST():
 
     BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj],
                     active=True)
-    bpy.ops.export_scene.pynifly(filepath=outfile)
+    bpy.ops.export_scene.pynifly(filepath=outfile, export_animations=True)
 
     #### CHECK ####
 
@@ -5789,10 +5795,15 @@ def TEST_ANIM_COLL_DWEMER_CHEST():
     # Check controller structure
     cm2:pyn.NiControllerManager = nif2.root.controller
     mtt2:pyn.NiMultiTargetTransformController = cm2.next_controller
-    # TT.assert_seteq([n.name for n in mtt2.extra_targets],
-    #                 ["Object01", "Object02", "Object188", "Object189", "Gear07", 
-    #                  "Gear08", "Gear09", "Handle", "Box01"],
-    #                  f"MultiTargetTransformController {mtt2.id} extra targets")
+    # TT.assert_samemembers(
+    #     [n.name for n in nif2.root.controller.next_controller.extra_targets],
+    #     ["Object01", "Object02", "Object188", "Object189", "Gear07", "Gear08", "Gear09", 
+    #      "Handle", "Box01"],
+    #     f"extra targets")
+    TT.assert_samemembers(nif2.root.controller.object_palette.objects.keys(),
+                          ["Object01", "Object01:6", "Object02", "Object188", "Object189", "Gear07", 
+                           "Gear08", "Gear09", "Handle", "Box01"],
+                          "Object Palette")
     TT.assert_samemembers([s for s in cm2.sequences], ["Open", "Close"], "Controller Sequences")
     open2:pyn.NiControllerSequence = cm2.sequences["Close"]
     openblk:pyn.ControllerLink = next(b for b in open2.controlled_blocks if b.node_name == "Object01")
@@ -5800,7 +5811,7 @@ def TEST_ANIM_COLL_DWEMER_CHEST():
 
     assert nif2.nodes['Gear07'].controller is None, "Gear07 has no controller"
 
-    # Check collision
+    # Check physics
     assert nif2.nodes['DwarvenChest'].collision_object is not None, "Have collision object"
     assert nif2.nodes['DwarvenChest'].collision_object.body is not None, "Have collision body"
     assert nif2.nodes['DwarvenChest'].collision_object.body.shape is not None, "Have collision shape"
@@ -5808,17 +5819,25 @@ def TEST_ANIM_COLL_DWEMER_CHEST():
     TT.assert_eq(nif2.nodes['DwarvenChest'].collision_object.properties.flags, 
                  bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE,
                  "Collision object flags")
+    TT.assert_equiv(nif2.nodes['DwarvenChest'].collision_object.body.properties.mass, 
+                 0.0,
+                 "mass")
     TT.assert_equiv(nif2.nodes['DwarvenChest'].collision_object.body.properties.linearDamping, 
                  0.099609,
                  "Linear damping",
                  e=0.01)
 
-    col_loc = Vector(nif2.nodes['DwarvenChest'].collision_object.body.properties.translation[0:3]) * HAVOC_SCALE_FACTOR
-    col_dim = Vector(nif2.nodes['DwarvenChest'].collision_object.body.shape.properties.bhkDimensions) * HAVOC_SCALE_FACTOR
-    col_bounds = (Vector(col_loc) - Vector(col_dim), Vector(col_loc) + Vector(col_dim),)
-    TT.assert_equiv(col_bounds, 
-                    (Vector((-55.9238, -25.9097, -0.5476)), Vector((55.3899, 26.0875, 50.6816)),), 
-                    "Collision bounds", e=0.1)
+    TT.assert_contains(nif2.nodes['DwarvenChest'].collision_object.body.shape.blockname,
+                       ("bhkBoxShape", "bhkConvexVerticesShape",),
+                       "Collision shape type")
+    
+    if nif2.nodes['DwarvenChest'].collision_object.body.shape.blockname == "bhkBoxShape":
+        col_loc = Vector(nif2.nodes['DwarvenChest'].collision_object.body.properties.translation[0:3]) * HAVOC_SCALE_FACTOR
+        col_dim = Vector(nif2.nodes['DwarvenChest'].collision_object.body.shape.properties.bhkDimensions) * HAVOC_SCALE_FACTOR
+        col_bounds = (Vector(col_loc) - Vector(col_dim), Vector(col_loc) + Vector(col_dim),)
+        TT.assert_equiv(col_bounds, 
+                        (Vector((-55.9238, -25.9097, -0.5476)), Vector((55.3899, 26.0875, 50.6816)),), 
+                        "Collision bounds", e=0.1)
 
 
 

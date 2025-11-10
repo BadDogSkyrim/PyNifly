@@ -3668,6 +3668,7 @@ namespace NiflyDLLTests
 		};
 
 		struct DwemerChestData {
+			bool isOriginal;
 			NiControllerManagerBuf controllerManager;
 			NiMultiTargetTransformControllerBuf mttc;
 			NiControllerSequenceBuf ctlrSeq[2];
@@ -3686,22 +3687,23 @@ namespace NiflyDLLTests
 			NiNodeBuf rootbuf;
 			getBlock(nif, 0, &rootbuf);
 
-			// We can find controller blocks directly, by type.
-			//int ncmCount = findNodesByType(nif, root, "NiControllerManager", 1, &ncm);
-			//Assert::AreEqual(1, ncmCount, L"Found 1 controller manager");
-
+			// Controller manager is found through the root
 			getBlock(nif, rootbuf.controllerID, &data.controllerManager);
-
-			//getControllerManager(ncm, &controllerManager);
-			//getBlock(nif, "NiControllerManager", &controllerManager)
 			Assert::AreEqual(1.0f, data.controllerManager.frequency, L"Frequency value correct");
 
-			//// Better, perhaps, to find controller blocks through their parent.
-			//void* rc = getNodeController(nif, root, &controllerManager);
-			//Assert::AreEqual(1.0f, controllerManager.frequency, L"Frequency value correct");
-
+			// Multi-target transform controller is found through the controller manager
 			getBlock(nif, data.controllerManager.nextControllerID, &data.mttc);
 			Assert::AreEqual(108, int(data.mttc.flags), L"Flags are correct");
+
+			// Extra targets are available.
+			uint32_t extraTargets[10];
+			int numExtra = getExtraTargets(nif, data.mttc.id, 10, extraTargets);
+			if (data.isOriginal)
+				Assert::AreEqual(33, numExtra, L"Have right number of extra targets");
+			else
+				Assert::AreEqual(2, numExtra, L"Have right number of extra targets");
+
+			// Controller sequences available through controller manager
 			Assert::AreEqual(2, int(data.controllerManager.controllerSequenceCount), L"Have right number of controller sequences");
 
 			uint32_t* cs = new uint32_t[data.controllerManager.controllerSequenceCount];
@@ -3771,6 +3773,7 @@ namespace NiflyDLLTests
 			int strlen = getMaxStringLen(nif);
 
 			DwemerChestData data;
+			data.isOriginal = true;
 			TCheckDwemerChest(nif, data);
 
 			/* ********** export ******** */
@@ -3927,6 +3930,7 @@ namespace NiflyDLLTests
 			/* Check the results. */
 			DwemerChestData dataCheck;
 			void* nifcheck = load(outfile.u8string().c_str());
+			dataCheck.isOriginal = false;
 			TCheckDwemerChest(nifcheck, dataCheck);
 		};
 

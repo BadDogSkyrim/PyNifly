@@ -700,8 +700,10 @@ struct NiControllerManagerBuf {
 };
 
 struct NiMultiTargetTransformControllerBuf {
+	// NiTimeControllerBuf
 	uint16_t bufSize = sizeof(NiMultiTargetTransformControllerBuf);
 	uint16_t bufType = BUFFER_TYPES::NiMultiTargetTransformControllerBufType;
+	uint32_t id;
 	uint32_t nextControllerID;
 	uint16_t flags = 0x000C;
 	float frequency = 1.0f;
@@ -709,6 +711,7 @@ struct NiMultiTargetTransformControllerBuf {
 	float startTime = nifly::NiFloatMax;
 	float stopTime = nifly::NiFloatMin;
 	uint32_t targetID;
+	// NiMultiTargetTransformControllerBuf
 	uint16_t targetCount;
 };
 
@@ -762,6 +765,7 @@ struct NiPoint3InterpolatorBuf {
 struct NiTimeControllerBuf {
 	uint16_t bufSize;
 	uint16_t bufType;
+	uint32_t id;
 	uint32_t nextControllerID;
 	uint16_t flags;
 	float frequency;

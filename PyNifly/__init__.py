@@ -3365,7 +3365,9 @@ class NifExporter:
             ref = ReprObject(obj, ninode) 
             self.objs_written.add(ref) 
             collision.CollisionHandler.export_collisions(self, obj)
-        controller.ControllerHandler.export_animated_obj(self, obj)
+            
+        if self.export_animations:
+            controller.ControllerHandler.export_animated_obj(self, obj)
         return ref
    
 
@@ -3756,10 +3758,10 @@ class NifExporter:
             collision.CollisionHandler.export_collisions(self, self.root_object)
         self.export_extra_data()
         self.connect_points.export_all(self.nif)
-        controller.ControllerHandler.export_named_animations(
-            self, self.objs_written)
-        if self.armature:
-            controller.ControllerHandler.export_animated_armature(self, self.armature)
+        if self.export_animations:
+            controller.ControllerHandler.export_named_animations(self, self.objs_written)
+            if self.armature:
+                controller.ControllerHandler.export_animated_armature(self, self.armature)
 
         self.nif.save()
         log.info(f"..Wrote {fpath}")
