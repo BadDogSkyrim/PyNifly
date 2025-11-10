@@ -5801,9 +5801,11 @@ def TEST_ANIM_COLL_DWEMER_CHEST():
     #      "Handle", "Box01"],
     #     f"extra targets")
     TT.assert_samemembers(nif2.root.controller.object_palette.objects.keys(),
-                          ["Object01", "Object01:6", "Object02", "Object188", "Object189", "Gear07", 
-                           "Gear08", "Gear09", "Handle", "Box01"],
-                          "Object Palette")
+        ['Object02:5', 'Object189', 'Box01', 'Object188:5', 'Object01:3', 'Gear07', 
+         'Box01:5', 'Object01:5', 'Gear09', 'Handle', 'Handle:5', 'Gear09:7', 'Object189:0', 
+         'Object01:6', 'Object02', 'Object01:0', 'Object189:3', 'Gear07:7', 'Gear08:7', 
+         'Object189:6', 'Object188', 'Object01', 'Object189:5', 'Gear08'],
+        "Object Palette")
     TT.assert_samemembers([s for s in cm2.sequences], ["Open", "Close"], "Controller Sequences")
     open2:pyn.NiControllerSequence = cm2.sequences["Close"]
     openblk:pyn.ControllerLink = next(b for b in open2.controlled_blocks if b.node_name == "Object01")

@@ -3697,7 +3697,7 @@ namespace NiflyDLLTests
 
 			// Extra targets are available.
 			uint32_t extraTargets[10];
-			int numExtra = getExtraTargets(nif, data.mttc.id, 10, extraTargets);
+			int numExtra = getExtraTargets(nif, data.controllerManager.nextControllerID, 10, extraTargets);
 			if (data.isOriginal)
 				Assert::AreEqual(33, numExtra, L"Have right number of extra targets");
 			else
