@@ -639,9 +639,10 @@ class NiObjectNET(NiObject):
             buf = create_string_buffer(buflen)
             NifFile.nifly.getNodeName(self._handle, buf, buflen)
             self._name = buf.value.decode('utf-8')
+            if id == NODEID_NONE:
+                self.id = NifFile.nifly.getBlockID(self.file._handle, self._handle)
 
-        if self._name:
-            self.file.nodes[self._name] = self
+        self.file.register_node(self)
 
     @property
     def name(self):
@@ -1153,10 +1154,9 @@ class NiNode(NiAVObject):
     def parent(self):
         if self._parent is None and self.file._handle is not None:
             parent_handle = NifFile.nifly.getNodeParent(self.file._handle, self._handle)
-            if parent_handle is not None:
-                for n in self.file.nodes.values():
-                    if n._handle == parent_handle:
-                        self._parent = n
+            parent_id = NifFile.nifly.getBlockID(self.file._handle, parent_handle)
+            if parent_id != -1 and parent_id != NODEID_NONE:
+                self._parent = self.file.read_node(id=parent_id)
         return self._parent
 
     @property
@@ -3918,11 +3918,12 @@ class NifFile:
 
     def register_node(self, n):
         if n.name: self.nodes[n.name] = n
+        if n.id != NODEID_NONE: self.node_ids[n.id] = n
         if n.id == 0: self._root = n
 
     @property
     def nodes(self):
-        """Dictionary of nodes in the nif, indexed by node name"""
+        """Dictionary of nodes in the nif, indexed by node id"""
         if self._nodes is None:
             self._nodes = {}
             nodeCount = NifFile.nifly.getNodeCount(self._handle)
