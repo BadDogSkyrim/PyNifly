@@ -1008,11 +1008,24 @@ class ControllerHandler():
             # Target has to point to the first controller in the chain (but the chain
             # was built from last to first).
             #
-            # Dwemer chest does not have controllers on each of the controlled nodes--just on
-            # the ControllerManager. Its target is the root node.
-            if mytarget.properties.controllerID == NODEID_NONE and interps_created \
-                    and self.controller_manager is None:
-                mytarget.controller = interps_created[-1][0]
+            # Dwemer chest does not have controllers on each of the controlled nodes--just
+            # on the ControllerManager. It has a MultiTargetTransformController as the
+            # next_controller on the ControllerManager with the root node as target and
+            # the controlled nodes as extra targets.
+            #
+            # The FO4 glowing one does have controllers on the controlled shader nodes, 
+            # which are also referenced by the Controller Sequences.
+            # 
+            # The spriggans have controllers on their controlled shader nodes.
+            # 
+            # At a guess--if it's the Controller Manager's next controller, it doesn't
+            # need to be set on the controlled block.
+            #
+            if mytarget.properties.controllerID == NODEID_NONE and interps_created:
+                new_controller = interps_created[-1][0]
+                if self.controller_manager is None \
+                        or self.controller_manager.next_controller.id != new_controller.id:
+                    mytarget.controller = interps_created[-1][0]
                 
         except:
             log.exception(f"Error exporting fcurves to class {ctlclass} for {anim.name}")
@@ -1579,7 +1592,8 @@ def _import_alphatest_controller(ctlr:BSNiAlphaPropertyTestRefController,
     if not interp:
         interp = ctlr.interpolator
     if _ignore_interp(interp):
-        log.debug(f"No interpolator available for controller {ctlr.id}")
+        if interp is None:
+            log.debug(f"No interpolator available for controller {ctlr.id}")
         return
     
     td = interp.data
@@ -1602,7 +1616,8 @@ def _import_ESPFloat_controller(ctlr:BSEffectShaderPropertyFloatController,
     if not interp:
         interp = ctlr.interpolator
     if _ignore_interp(interp):
-        log.debug(f"Not importing interpolator {'None' if interp is None else interp.blockname} for controller {ctlr.id}")
+        if interp is not None and not interp.blockname.startswith('NiBlend'):
+            log.debug(f"Not importing interpolator {'None' if interp is None else interp.blockname} for controller {ctlr.id}")
         return
 
     if not importer.action_target:
@@ -1658,7 +1673,8 @@ def _import_ESPColor_controller(ctlr:BSEffectShaderPropertyColorController,
     if not interp:
         interp = ctlr.interpolator
     if _ignore_interp(interp):
-        log.debug(f"No interpolator available for controller {ctlr.id}")
+        if interp is None:
+            log.debug(f"No interpolator available for controller {ctlr.id}")
         return
     td = interp.data
     if td: 
@@ -1682,7 +1698,8 @@ def _import_LSPColorController(ctlr:BSLightingShaderPropertyColorController,
     if _ignore_interp(interp):
         # If no usable interpolator, just skip. This is part of a ControllerSequence and
         # we'll find it again when we load that.
-        log.debug(f"No interpolator available for controller {ctlr.id}")
+        if interp is None:
+            log.debug(f"No interpolator available for controller {ctlr.id}")
         return
 
     if not importer.action_target:
@@ -1726,7 +1743,8 @@ def _import_LSPFloatController(ctlr:BSLightingShaderPropertyFloatController,
     if _ignore_interp(interp):
         # If no usable interpolator, just skip. This is part of a ControllerSequence and
         # we'll find it again when we load that.
-        log.debug(f"No interpolator available for controller {ctlr.id}")
+        if interp is None:
+            log.debug(f"No interpolator available for controller {ctlr.id}")
         return
 
     if not importer.action_target:

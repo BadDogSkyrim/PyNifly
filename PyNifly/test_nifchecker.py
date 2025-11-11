@@ -138,8 +138,8 @@ def Check_noblechest01(nif:NifFile):
     # shapes in the nif. Blender export only includes the animated nodes. We think this is
     # ok.
     TT.assert_eq(nif.root.controller.object_palette.__class__.__name__, 'NiDefaultAVObjectPalette', "ObjectPalette class")
-    assert len(nif.root.controller.object_palette.objects) in (1, 4), f"Have correct ObjectPalette objects, found {len(nif.root.controller.object_palette.objects)}"
-    assert 'Lid01' in nif.root.controller.object_palette.objects, "Have Lid01 in ObjectPalette"
+    TT.assert_contains('Lid01', nif.root.controller.object_palette.objects, "ObjectPalette contents")
+    TT.assert_contains('Lid01:1', nif.root.controller.object_palette.objects, "ObjectPalette contents")
     TT.assert_eq(nif.root.controller.object_palette.objects['Lid01'].flags, 524430, "ObjectPalette Lid01 flags")
 
     TT.assert_eq(len(nif.root.controller.sequences), 2, "sequences count")

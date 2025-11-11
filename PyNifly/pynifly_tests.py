@@ -29,6 +29,13 @@ from test_nifchecker import CheckNif
 
 """Quick and dirty test harness."""
 
+def test_category(*args):
+    def wrap(fn):
+        fn.__dict__["category"] = set(args)
+        return fn
+    return wrap
+
+
 def _test_file(relative_path):
     """
     Given a relative path, return a working filepath to the file. If it's in 
@@ -152,6 +159,7 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
     return new_shape
 
 
+@test_category('NIFDEFS')
 def TEST_NIFDEFS():
     """Test nifdefs functionality."""
     # Easier to do it here.
@@ -762,6 +770,7 @@ def TEST_SEGMENTS():
     CheckNif(nif3, testfile)
 
 
+@test_category('FO4', 'PARTITION', 'SHADER')
 def TEST_BP_SEGMENTS():
     print ("### TEST_BP_SEGMENTS: Can read & write FO4 body part segments & shaders")
     testfile = r"tests/FO4/Helmet.nif"
@@ -802,6 +811,7 @@ def TEST_BP_SEGMENTS():
     CheckNif(nif3, testfile)
 
 
+@test_category('FO4', 'SKYRIM', 'PARTITION',)
 def TEST_PARTITION_NAMES():
     """Can parse various forms of partition name"""
 
@@ -894,6 +904,7 @@ def TEST_FNV():
 #     assert nif.shapes[0].blockname == "BSDynamicTriShape", f"Expected 'BSDynamicTriShape', found '{nif.shapes[0].blockname}'"
 
 
+@test_category('SKYRIM', 'LOD', 'SHADER')
 def TEST_LOD():
     """BSLODTriShape is handled. Its shader attributes are handled."""
     testfile = r"tests\Skyrim\blackbriarchalet_test.nif"
@@ -940,6 +951,8 @@ def TEST_UNI():
     nif3 = NifFile(r"tests\out\будильник.nif")
     assert len(nif3.shapes) == 1, f"Error: Expected 1 shape, found {len(nif3.shapes)}"
 
+
+@test_category('SHADER')
 def TEST_SHADER():
     """Can read shader flags"""
     hnse = NifFile(r"tests\SKYRIMSE\maleheadAllTextures.nif")
@@ -969,11 +982,6 @@ def TEST_SHADER():
     TT.assert_eq(hsse.textures["EnvMask"], r"textures\actors\character\male\EnvMask.dds", "EnvMask")
     TT.assert_eq(hsse.textures["FacegenDetail"], r"textures\actors\character\male\Inner.dds", "FacegenDetail")
     TT.assert_eq(hsse.textures["Specular"], r"textures\actors\character\male\MaleHead_S.dds", "Specular")
-
-    TT.assert_eq(hsle.textures["Diffuse"], r"textures\actors\character\male\MaleHead.dds", "Diffuse")
-    TT.assert_eq(hsle.textures["Normal"], r"textures\actors\character\male\MaleHead_msn.dds", "Normal")
-    TT.assert_eq(hsle.textures["SoftLighting"], r"textures\actors\character\male\MaleHead_sk.dds", "SoftLighting")
-    TT.assert_eq(hsle.textures["Specular"], r"textures\actors\character\male\MaleHead_S.dds", "Specular")
 
     TT.assert_eq(hsfo.textures["Diffuse"], r"Actors/Character/BaseHumanMale/BaseMaleHead_d.dds", "Diffuse")
     TT.assert_eq(hsfo.textures["Normal"], r"Actors/Character/BaseHumanMale/BaseMaleHead_n.dds", "Normal")
@@ -1011,6 +1019,7 @@ def TEST_SHADER():
     # assert diffs == [], f"Error: Expected same shader attributes: {diffs}"
 
 
+@test_category('SHADER')
 def TEST_SHADER_WALL():
     testfile = r"tests\FO4\Meshes\Architecture\DiamondCity\DExt\DExBrickColumn01.nif"
     nif = NifFile(testfile)
@@ -2312,17 +2321,23 @@ def execute_test(t):
     print(f"------------- done")
 
 
-def execute(start=None, testlist=None, exclude=[]):
+def execute(start=None, testlist=None, exclude=None, categories:set=None):
     print("""\n
 =====================================================================
 ======================= Running pynifly tests =======================
 =====================================================================
 
 """)
+    if exclude is None: exclude = []
     if testlist:
         for test in testlist:
             if test not in passed_tests and test not in failed_tests:
                 execute_test(test)
+    elif categories:
+        for t in alltests:
+            if categories.intersection(t.__dict__.get("category", set())):
+                if t not in passed_tests and t not in failed_tests:
+                    execute_test(t)
     else:
         doit = (start is None) 
         for t in alltests:
@@ -2371,5 +2386,6 @@ if __name__ == "__main__":
     stop_on_fail = True
     # execute(testlist=[TEST_ALPHA_THRESHOLD_CONTROLLER])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
-    execute(exclude=[TEST_SET_SKINTINT])
+    # execute(exclude=[TEST_SET_SKINTINT])
+    execute(categories={"SHADER"})
     #

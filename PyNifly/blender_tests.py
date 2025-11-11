@@ -38,6 +38,18 @@ log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
 
 
+test_categories = set((
+    'ANIMATION', # Animations, embedded in NIF files
+    'BODYPART', # meshes rigged for bodyparts
+    'FO4', # Fallout 4-specific tests
+    'HKX', # HKX and KF animations
+    'PHYSICS', # Object collisions and physics
+    'SHADER', # Shader properties and effects
+    'SKYRIM', # Skyrim-specific tests
+    )
+)
+
+
 class TestLogHandler(logging.Handler):
     def __init__(self):
         super().__init__()
@@ -319,6 +331,8 @@ def do_bodypart_alignment_fo4(create_bones, estimate_offset, use_pose):
                              epsilon=0.0001), \
             f"Translations don't match: {headCheck.get_shape_skin_to_bone(bn).translation[:]} != {bodyCheck.get_shape_skin_to_bone(bn).translation[:]}"
 
+
+@TT.category('FO4', 'BODYPART')
 def TEST_BODYPART_ALIGNMENT_FO4_1():
     """Read & write bodyparts and have the transforms match exactly, when estimating global-to-skin offset."""
     do_bodypart_alignment_fo4(create_bones=False, 
@@ -331,6 +345,7 @@ def TEST_BODYPART_ALIGNMENT_FO4_1():
 #     do_bodypart_alignment_fo4(create_bones=False, estimate_offset=False, use_pose=False)
 
 
+@TT.category('SKYRIM', 'BODYPART')
 def TEST_IMP_EXP_SKY():
     """Can read the armor nif and spit it back out"""
     # Round trip of ordinary Skyrim armor, with and without scale factor.
@@ -1768,6 +1783,7 @@ def TEST_PARTITIONS_EMPTY():
     assert set([p.id for p in head.partitions]) == set([130, 230]), "Have all head parts"
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_LE():
     """Shader attributes are read and turned into Blender shader nodes"""
 
@@ -1807,6 +1823,7 @@ def TEST_SHADER_LE():
         f"Shader properties correct: {checkattrs.compare(shaderAttrsLE)}"
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_SE():
     """Shader attributes are read and turned into Blender shader nodes"""
     # Basic test of texture paths on shaders.
@@ -1842,6 +1859,7 @@ def TEST_SHADER_SE():
     TT.assert_eq(bootcheck.has_alpha_property, False, "has_alpha_property")
 
 
+@TT.category('FO4', 'SHADER')
 def TEST_SHADER_FO4():
     """Shader attributes are read and turned into Blender shader nodes"""
     fileFO4 = TTB.test_file(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\basemalehead.nif")
@@ -1882,6 +1900,7 @@ def TEST_SHADER_FO4():
     assert shapecheck.name == shapeorig.name, f"Error: Shader name not preserved: '{shapecheck.shader_name}' != '{shapeorig.shader_name}'"
 
 
+@TT.category('FO4', 'SHADER')
 def TEST_SHADER_GRAYSCALE_COLOR():
     """Test that grayscale color is handled directly"""
     testfile = TTB.test_file(r"tests\FO4\FemaleHair25.nif")
@@ -1927,6 +1946,7 @@ def TEST_SHADER_GRAYSCALE_COLOR():
     TT.assert_eq(hair2.properties.hasVertexColors, hair1.properties.hasVertexColors, "Vertex colors")
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_SCALE():
     """UV offset and scale are preserved."""
     testfile = TTB.test_file(r"tests\SkyrimSE\maleorchair27.nif")
@@ -1940,6 +1960,7 @@ def TEST_SHADER_SCALE():
     assert hair.shader.properties.UV_Scale_U == 1.5, f"Have correct scale: {hair.shader.properties.UV_Scale_U}"
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_ALL():
     """Test that all texture slots are imported and exported correctly."""
     testfile = TTB.test_file(r"tests\SkyrimSE\maleheadAllTextures.nif")
@@ -1961,6 +1982,7 @@ def TEST_SHADER_ALL():
     TT.assert_eq(len(head.shader.textures), 8, "Head texture count")
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_EYE():
     """Test that all texture slots are imported and exported correctly."""
     testfile2 = TTB.test_file(r"tests\SkyrimSE\eyesmale.nif")
@@ -1973,6 +1995,7 @@ def TEST_SHADER_EYE():
     CheckNif(n, source=testfile2)
 
 
+@TT.category('FO4', 'SHADER')
 def TEST_SHADER_LIGHTBULB():
     """Test that effect shader imports correctly."""
     testfile = TTB.test_file(r"tests\FO4\WorkshopLightbulbHanging01.nif")
@@ -1992,6 +2015,7 @@ def TEST_SHADER_LIGHTBULB():
     TT.assert_contains('Bulb001:3', n.shape_dict, "bulb shape")
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_ANIM_SHADER_GLOW():
     """Glow shader elements and other extra attributes work correctly."""
     testfile = TTB.test_file(r"tests\SkyrimSE\meshes\armor\daedric\daedriccuirass_1.nif")
@@ -2034,6 +2058,7 @@ def TEST_ANIM_SHADER_GLOW():
     CheckNif(nout, source=testfile)
 
 
+@TT.category('SKYRIM', 'SHADER', 'ANIMATION')
 def TEST_ANIM_SHADER_BSLSP():
     """Controllers on BSLightingShaders work correctly."""
     testfile = TTB.test_file(r"tests\SkyrimSE\voidshade_1.nif")
@@ -2127,7 +2152,6 @@ def Spriggan_LeavesLandedLoop_Check(lllaction):
     TT.assert_equiv(lllfxbag.fcurves[0].keyframe_points[1].co[1], 70, "Second keyframe value")
     TT.assert_equiv(lllfxbag.fcurves[0].keyframe_points[2].co[1], 0, "Third keyframe value")
 
-
 def Spriggan_KillFX_Check(kfxaction):
     """Check that the KillFx animation sequence was imported correctly."""
     # KillFX has correct range
@@ -2199,12 +2223,12 @@ def Spriggan_KillFX_Check(kfxaction):
     # TT.assert_equiv(kfxfxbag.fcurves[0].keyframe_points[1].co[1], 0.000000, "KillFX SprigganBodyLeaves Second keyframe value")
     # TT.assert_equiv(kfxfxbag.fcurves[0].keyframe_points[2].co[1], 131.984894, "KillFX SprigganBodyLeaves Third keyframe value")
 
-
-def TEST_ANIM_SHADER_SPRIGGAN():
+@TT.category('SKYRIM', 'SHADER', 'ANIMATION')
+def TEST_SPRIGGAN():
     """Test that the special spriggan elements work correctly."""
     # Spriggan with limited controllers
     testfile = TTB.test_file(r"tests\Skyrim\spriggan.nif")
-    outfile = TTB.test_file(r"tests/Out/TEST_ANIM_SHADER_SPRIGGAN.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_SPRIGGAN.nif")
 
     ### READ ###
 
@@ -2282,7 +2306,7 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     
     ### WRITE ###
     
-    bpy.ops.export_scene.pynifly(filepath=outfile)
+    bpy.ops.export_scene.pynifly(filepath=outfile, export_animations=True)
     testnif = pyn.NifFile(testfile)
     testbod = testnif.shape_dict['SprigganFxTestUnified:0']
     nifout = pyn.NifFile(outfile)
@@ -2312,6 +2336,7 @@ def TEST_ANIM_SHADER_SPRIGGAN():
     isinstance(ctlr, pyn.BSNiAlphaPropertyTestRefController), f"Have alpha controller"
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_ALPHA():
     """Shader attributes are read and turned into Blender shader nodes"""
     # Alpha property is translated into equivalent Blender nodes.
@@ -2351,8 +2376,9 @@ def TEST_SHADER_ALPHA():
                  "Alpha flags")
     TT.assert_eq(checkfurshape.alpha_property.properties.threshold, furshape.alpha_property.properties.threshold, 
                  "Alpha threshold")
-    
 
+
+@TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_3_3():
     """Shader attributes are read and turned into Blender shader nodes"""
     # This older shader connects to the Principled BSDF "Subsurface" import port which
@@ -2384,6 +2410,7 @@ def TEST_SHADER_3_3():
         f"Error: Texture paths not preserved: '{shaderch.textures['Specular']}'"
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_EFFECT():
     """BSEffectShaderProperty attributes are read & written correctly."""
     testfile = TTB.test_file(r"tests\Skyrim\blackbriarchalet_test.nif")
@@ -2421,8 +2448,9 @@ def TEST_SHADER_EFFECT():
     # assert r"textures\architecture\riften\RiftenWindowInner01.dds" \
     #     == win.shader.textures['InnerLayer'] == wincheck.shader.textures['InnerLayer'], \
     #     f"Have correct InnerLayer: {wincheck.shader.textures['InnerLayer']}"
-    
 
+
+@TT.category('FO4', 'SHADER')
 def TEST_SHADER_EFFECT_GLOWINGONE():
     """BSEffectShaderProperty attributes are read & written correctly."""
     testfile = TTB.test_file(r"tests\FO4\glowingoneTEST.nif")
@@ -2436,9 +2464,11 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
 
     # Simplify.
     
+    ### EXPORT ###
+
     # # Have to export the root object for the flags to carry over.
     BD.ObjectSelect([o for o in bpy.context.scene.objects if 'pynRoot' in o], active=True)
-    bpy.ops.export_scene.pynifly(filepath=outfile)
+    bpy.ops.export_scene.pynifly(filepath=outfile, export_animations=True)
 
     nif = pyn.NifFile(testfile)
     nifcheck = pyn.NifFile(outfile)
@@ -2562,6 +2592,7 @@ def TEST_CAVE_GREEN():
         f"Have vertex colors: {rootscheck.shader.properties.shaderflags2_test(ShaderFlags2.VERTEX_COLORS)}"
 
 
+@TT.category('SKYRIM', 'SHADER', 'PHYSICS')
 def TEST_POT():
     """Test that pot shaders doesn't throw an error; also collisions"""
     testfile = TTB.test_file(r"tests\SkyrimSE\spitpotopen01.nif")
@@ -5614,11 +5645,11 @@ def TEST_FONV_BOD():
                    body)
 
 
-def TEST_ANIM_NOBLECHEST():
+def TEST_NOBLECHEST():
     """Read and write the animation of chest opening and shutting."""
     # The chest has two top-level named animations, Open and Close
     testfile = TTB.test_file(r"tests\Skyrim\noblechest01.nif")
-    outfile =TTB.test_file(r"tests/Out/TEST_ANIM_NOBLECHEST.nif")
+    outfile =TTB.test_file(r"tests/Out/TEST_NOBLECHEST.nif")
 
     #### READ ####
 
@@ -5645,7 +5676,7 @@ def TEST_ANIM_NOBLECHEST():
 
     chestroot = bpy.data.objects['NobleChest01:ROOT']
     BD.ObjectSelect([chestroot], active=True)
-    bpy.ops.export_scene.pynifly(filepath=outfile)
+    bpy.ops.export_scene.pynifly(filepath=outfile, export_animations=True)
 
     ### CHECK ###
 
@@ -5654,15 +5685,14 @@ def TEST_ANIM_NOBLECHEST():
     # Controller Manager
     CheckNif(nifcheck, testfile)
 
+TEST_NOBLECHEST.category = {'ANIMATION'}
 
-def TEST_ANIM_CIGARETTE():
+
+@TT.category('FO4', 'ANIMATION')
+def TEST_CIGARETTE():
     """Check we don't get extra objects in the object palette."""
-    # TODO: This mesh gets exported with duplicate extra targets in its
-    # NiMultiTargetTransformController. It's unclear if this is a problem, but the extra
-    # targets are down in the nifly layer and are not exposed by pyNifly. Need to figure
-    # out if this is a problem.
     testfile = TTB.test_file(r"tests\FO4\CigaretteMachine.nif")
-    outfile =TTB.test_file(r"tests/Out/TEST_ANIM_CIGARETTE.nif")
+    outfile =TTB.test_file(r"tests/Out/TEST_CIGARETTE.nif")
 
     #### READ ####
 
@@ -5676,7 +5706,7 @@ def TEST_ANIM_CIGARETTE():
 
     r = bpy.data.objects['Dummy001:ROOT']
     BD.ObjectSelect([r], active=True)
-    bpy.ops.export_scene.pynifly(filepath=outfile)
+    bpy.ops.export_scene.pynifly(filepath=outfile, export_animations=True)
 
     ### CHECK ###
 
@@ -5686,7 +5716,8 @@ def TEST_ANIM_CIGARETTE():
                        "Have Object003 in object palette")
 
 
-def TEST_ANIM_COLL_DWEMER_CHEST():
+@TT.category('SKYRIM', 'ANIMATION', 'PHYSICS')
+def TEST_DWEMER_CHEST():
     """
     Read and write the animation of chest opening and shutting. Also create a collision
     object for the chest and esure it works.
@@ -5694,11 +5725,11 @@ def TEST_ANIM_COLL_DWEMER_CHEST():
     try:
         t = bpy.types.ActionSlot
     except:
-        print("Skipping TEST_ANIM_COLL_DWEMER_CHEST: ActionSlot not available in this version of Blender")
+        print("Skipping TEST_DWEMER_CHEST: ActionSlot not available in this version of Blender")
         return
 
     testfile = TTB.test_file(r"tests\Skyrim\dwechest01.nif")
-    outfile =TTB.test_file(r"tests/Out/TEST_ANIM_COLL_DWEMER_CHEST.nif")
+    outfile =TTB.test_file(r"tests/Out/TEST_DWEMER_CHEST.nif")
 
     #### READ ####
 
@@ -5740,16 +5771,16 @@ def TEST_ANIM_COLL_DWEMER_CHEST():
 
     #### WRITE ####
 
-    # FOR NOW CLEAR ALL ANIMATION DATA 
-    for obj in bpy.context.scene.objects:
-        obj.animation_data_clear()
-        if obj.active_material:
-            obj.active_material.animation_data_clear()
-    bpy.context.view_layer.update()
+    # # FOR NOW CLEAR ALL ANIMATION DATA 
+    # for obj in bpy.context.scene.objects:
+    #     obj.animation_data_clear()
+    #     if obj.active_material:
+    #         obj.active_material.animation_data_clear()
+    # bpy.context.view_layer.update()
 
     # Create a collision object that can be exported
     bpy.ops.mesh.primitive_cube_add(size=2, enter_editmode=False, align='WORLD', location=(0, 0, 0), scale=(1, 1, 1))
-    bpy.context.object.location[2] = -22.4467
+    bpy.context.object.location[2] = 0
     collision_obj = bpy.context.object
     for v in collision_obj.data.vertices:
         if v.co.x < 0:
@@ -5761,15 +5792,16 @@ def TEST_ANIM_COLL_DWEMER_CHEST():
         else:
             v.co.y = 26.0875
         if v.co.z < 0:
-            v.co.z = -0.5476
+            v.co.z = -22.2872
         else:
-            v.co.z = 50.6816
+            v.co.z = 28.942
 
     collision_obj.name = "bhkBoxShape_Chest" 
+    collision_obj['collisionFilter_layer'] = SkyrimCollisionLayer.CLUTTER
     collision_obj['pynCollisionFlags'] = "ACTIVE | SYNC_ON_UPDATE"
     collision_obj['penetrationDepth'] = 0.1
-    collision_obj['motionSystem'] = hkMotionType.FIXED
-    collision_obj['qualityType'] = hkQualityType.INVALID
+    collision_obj['motionSystem'] = hkMotionType.BOX_INERTIA
+    collision_obj['qualityType'] = hkQualityType.MOVING
     collision_obj['inertiaMatrix'] = "[0, 0, 0, 0, 0, 0, 0, 0, 0]"
     collision_obj['rollingFrictionMult'] = 0.0
     # collision_obj['capacityAndFlags'] = 2147483648
@@ -5780,7 +5812,7 @@ def TEST_ANIM_COLL_DWEMER_CHEST():
     collision_obj.rigid_body.linear_damping = 0.099609
     collision_obj.rigid_body.angular_damping = 0.049805
 
-    BD.ObjectSelect([bpy.data.objects['DwarvenChest']], active=True)
+    BD.ObjectSelect([bpy.data.objects['DwarvenChest01:ROOT']], active=True)
     bpy.ops.object.constraint_add(type='COPY_TRANSFORMS')
     bpy.context.object.constraints["Copy Transforms"].target = collision_obj
 
@@ -5842,11 +5874,11 @@ def TEST_ANIM_COLL_DWEMER_CHEST():
                         "Collision bounds", e=0.1)
 
 
-
-def TEST_ANIM_ALDUIN():
+@TT.category('SKYRIM', 'ANIMATION')
+def TEST_ALDUIN():
     """Read and write animation using bones."""
     testfile = TTB.test_file(r"tests\SkyrimSE\loadscreenalduinwall.nif")
-    outfile = TTB.test_file(r"tests/Out/TEST_ANIM_ALDUIN.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_ALDUIN.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile,
                                  do_create_bones=False, 
@@ -5950,14 +5982,15 @@ def TEST_ANIM_ALDUIN():
     TT.assert_eq(neckdat.properties.zRotations.interpolation, pyn.NiKeyType.QUADRATIC_KEY, "Rotation type")
 
 
-def TEST_ANIM_KF():
+@TT.category('SKYRIM', 'HKX')
+def TEST_KF():
     """Read and write KF animation."""
     if bpy.app.version < (3, 5, 0): return
 
     testfile = TTB.test_file(r"tests\SkyrimSE\1hm_staggerbacksmallest.kf")
     testfile2 = TTB.test_file(r"tests\SkyrimSE\1hm_attackpowerright.kf")
     skelfile = TTB.test_file(r"tests\SkyrimSE\skeleton_vanilla.nif")
-    outfile2 = TTB.test_file(r"tests/Out/TEST_ANIM_KF.kf")
+    outfile2 = TTB.test_file(r"tests/Out/TEST_KF.kf")
 
     bpy.context.scene.render.fps = 30
 
@@ -6013,7 +6046,7 @@ def TEST_ANIM_KF():
     # The animation we wrote is correct
     kfout = pyn.NifFile(outfile2)
     csout = kfout.rootNode
-    TT.assert_eq(csout.name, 'TEST_ANIM_KF', "root node name")
+    TT.assert_eq(csout.name, 'TEST_KF', "root node name")
     TT.assert_eq(csout.blockname, 'NiControllerSequence', "block type")
     TT.assert_eq(csout.properties.cycleType, CycleType.CLAMP, "cycle type")
     TT.assert_equiv(csout.properties.stopTime, 1.166667, "stop time")
@@ -6069,13 +6102,14 @@ def TEST_ANIM_KF():
         f"Have reasonable number of frames: {td_foot_out.qrotations}"
 
 
-def TEST_ANIM_KF_RENAME():
+@TT.category('SKYRIM', 'HKX')
+def TEST_KF_RENAME():
     """Read and write KF animation with renamed bones."""
     if bpy.app.version < (3, 5, 0): return
 
     testfile = TTB.test_file(r"tests\Skyrim\sneakmtidle_original.kf")
     skelfile = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
-    outfile = TTB.test_file(r"tests\Out\TEST_ANIM_KF_RENAME.kf")
+    outfile = TTB.test_file(r"tests\Out\TEST_KF_RENAME.kf")
 
     bpy.context.scene.render.fps = 30
     # bpy.context.scene.frame_end = 665
@@ -6138,7 +6172,8 @@ def TEST_ANIM_KF_RENAME():
     assert BD.NearEqual(commin, commin_in), f"Max com movement {commin} == {commin_in}"
 
 
-def TEST_ANIM_HKX():
+@TT.category('SKYRIM', 'HKX')
+def TEST_HKX():
     """Can import and export a HKX animation."""
     if bpy.app.version < (3, 5, 0): return
 
@@ -6147,7 +6182,7 @@ def TEST_ANIM_HKX():
     # testfile2 = TTB.test_file(r"tests\Skyrim\1hm_attackpowerright.hkx")
     skelfile = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
     hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
-    outfile = TTB.test_file(r"tests/Out/created animations/TEST_ANIM_HKX.hkx")
+    outfile = TTB.test_file(r"tests/Out/created animations/TEST_HKX.hkx")
 
     Path(outfile).parent.mkdir(parents=True, exist_ok=True)
 
@@ -6175,7 +6210,8 @@ def TEST_ANIM_HKX():
     assert os.path.exists(outfile)
 
 
-def TEST_ANIM_HKX_2():
+@TT.category('SKYRIM', 'HKX')
+def TEST_HKX_2():
     """Can import and export a non-human HKX animation."""
     if bpy.app.version < (3, 5, 0): return
 
@@ -6183,7 +6219,7 @@ def TEST_ANIM_HKX_2():
     skelfile = TTB.test_file(r"tests\Skyrim\skeleton_troll.nif")
     hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton_troll.hkx")
     hkx_anim = TTB.test_file(r"tests\Skyrim\troll_h2hattackleftd.hkx")
-    outfile = TTB.test_file(r"tests/Out/created animations/TEST_ANIM_HKX_2.hkx")
+    outfile = TTB.test_file(r"tests/Out/created animations/TEST_HKX_2.hkx")
 
     Path(outfile).parent.mkdir(parents=True, exist_ok=True)
 
@@ -6228,14 +6264,15 @@ def TEST_ANIM_HKX_2():
     assert os.path.exists(outfile)
 
 
-def TEST_ANIM_AUXBONES():
+@TT.category('SKYRIM', 'HKX')
+def TEST_AUXBONES():
     """Can import and export an animation on an auxbones skeleton."""
     # SKIPPING
-    print("Skipping TEST_ANIM_AUXBONES")
+    print("Skipping TEST_AUXBONES")
     # testfile = TTB.test_file(r"tests\Skyrim\SOSFastErect.hkx")
     # skelfile = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
     # hkx_skel = TTB.test_file(r"tests\Skyrim\SOSskeleton.hkx")
-    # outfile = TTB.test_file(r"tests/Out/created animations/TEST_ANIM_AUXBONES.hkx")
+    # outfile = TTB.test_file(r"tests/Out/created animations/TEST_AUXBONES.hkx")
 
     # bpy.context.scene.render.fps = 60
 
@@ -6261,6 +6298,7 @@ def TEST_ANIM_AUXBONES():
     # assert os.path.exists(outfile)
 
 
+@TT.category('SKYRIM', 'HKX')
 def TEST_IMPORT_TAIL():
     """Regression: Import of a single bodypart onto a skeleton should work correctly."""
 
@@ -6268,7 +6306,7 @@ def TEST_IMPORT_TAIL():
     # testfile2 = TTB.test_file(r"tests\Skyrim\1hm_attackpowerright.hkx")
     skelfile = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
     hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
-    outfile = TTB.test_file(r"tests/Out/created animations/TEST_ANIM_HKX.hkx")
+    outfile = TTB.test_file(r"tests/Out/created animations/TEST_HKX.hkx")
 
     bpy.context.scene.render.fps = 60
 
@@ -6279,7 +6317,7 @@ def TEST_IMPORT_TAIL():
                                  do_import_collisions=False,
                                  do_import_animations=False,
                                  use_blender_xf=True)
-    
+
 
 def TEST_TEXTURE_CLAMP():
     """Make sure we don't lose texture clamp mode."""
@@ -6630,18 +6668,17 @@ def execute_test(t, passed_tests, failed_tests,stop_on_fail=True):
 
 def do_tests(
         target_tests=None,
-        run_all=True,
+        categories=None,
         stop_on_fail=False,
         startfrom=None,
-        exclude=[]):
+        exclude=()):
     """Do tests in testlist. Can pass in a single test."""
     if not target_tests: 
-        target_tests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]
-        assert TEST_ANIM_NOBLECHEST in target_tests, "Have test"
+        target_tests = [t for k, t in sys.modules[__name__].__dict__.items() 
+                        if k.startswith('TEST_') and k not in exclude]
     passed_tests = []
     failed_tests = []
 
-    failed_tests = []
     try:
         for t in target_tests:
             break
@@ -6652,14 +6689,18 @@ def do_tests(
     if startfrom:
         try:
             startindex = target_tests.index(startfrom)
+            target_tests = target_tests[startindex:]
         except:
             pass
-    for t in target_tests:
-        if t not in exclude and t not in passed_tests and t not in failed_tests:
-            execute_test(t, passed_tests, failed_tests, stop_on_fail=stop_on_fail)
-    if run_all:
+    
+    if categories:
         for t in target_tests:
-            if t not in exclude and t not in passed_tests and t not in failed_tests:
+            if categories.intersection(t.__dict__.get("category", set())):
+                if t not in passed_tests and t not in failed_tests:
+                    execute_test(t, passed_tests, failed_tests, stop_on_fail=stop_on_fail)
+    else:
+        for t in target_tests:
+            if t not in passed_tests and t not in failed_tests:
                 execute_test(t, passed_tests, failed_tests, stop_on_fail=stop_on_fail)
 
     print(f"\n\n===Succesful tests===")
@@ -6691,7 +6732,7 @@ def do_tests(
 
 
 def show_all_tests():
-    for t in alltests:
+    for t in [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]:
         print(f"{t.__name__:25}{t.__doc__}")
 
 

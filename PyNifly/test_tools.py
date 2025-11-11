@@ -20,6 +20,14 @@ PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimSEAssets\00 Vanilla Assets"
 PYNIFLY_TEXTURES_FO4 = r"C:\Modding\FalloutAssets\00 FO4 Assets"
 
 
+def category(*args):
+    """Decorator to classify tests by category."""
+    def wrap(fn):
+        fn.__dict__["category"] = set(args)
+        return fn
+    return wrap
+
+
 def remove_file(fn):
     if os.path.exists(fn):
         os.remove(fn)

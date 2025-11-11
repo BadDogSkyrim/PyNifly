@@ -23,9 +23,8 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 do_tests(
-    # target_tests=[ TEST_ANIM_COLL_DWEMER_CHEST, ], run_all=False, 
-    # target_tests=[ TEST_SKYRIM_XFORM, TEST_PARTITIONS, TEST_PIPBOY, ], run_all=False, stop_on_fail=True,
-    # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
+    target_tests=[ TEST_DWEMER_CHEST, ], 
+    # categories={'ANIMATION'},
     stop_on_fail=True
     )
 
