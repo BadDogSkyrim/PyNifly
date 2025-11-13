@@ -25,7 +25,7 @@ print("""
 do_tests(
     target_tests=[ TEST_DWEMER_CHEST, ], 
     # categories={'ANIMATION'},
-    stop_on_fail=True
+    stop_on_fail=False
     )
 
 

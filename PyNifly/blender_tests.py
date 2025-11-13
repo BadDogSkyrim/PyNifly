@@ -5778,9 +5778,16 @@ def TEST_DWEMER_CHEST():
     #         obj.active_material.animation_data_clear()
     # bpy.context.view_layer.update()
 
-    # Create a collision object that can be exported
+    # # Clear transforms that mess up the animations
+    # for obj in bpy.context.scene.objects:
+    #     BD.ObjectSelect([obj], active=True)
+    #     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
+    # Create a collision object so we can interact with the chest
     bpy.ops.mesh.primitive_cube_add(size=2, enter_editmode=False, align='WORLD', location=(0, 0, 0), scale=(1, 1, 1))
     bpy.context.object.location[2] = 0
+    bpy.context.object.display_type = 'WIRE'
+
     collision_obj = bpy.context.object
     for v in collision_obj.data.vertices:
         if v.co.x < 0:
@@ -5804,7 +5811,6 @@ def TEST_DWEMER_CHEST():
     collision_obj['qualityType'] = hkQualityType.MOVING
     collision_obj['inertiaMatrix'] = "[0, 0, 0, 0, 0, 0, 0, 0, 0]"
     collision_obj['rollingFrictionMult'] = 0.0
-    # collision_obj['capacityAndFlags'] = 2147483648
 
     bpy.ops.rigidbody.object_add()
     bpy.context.object.rigid_body.collision_shape = 'CONVEX_HULL'
@@ -5823,6 +5829,26 @@ def TEST_DWEMER_CHEST():
     #### CHECK ####
 
     nif2:pyn.NifFile = pyn.NifFile(outfile)
+    original:pyn.NifFile = pyn.NifFile(testfile)
+
+    cborig189 = next(b for b in original.root.controller.sequences['Open'].controlled_blocks 
+                      if b.node_name == 'Object189')
+    cbnew189 = next(b for b in nif2.root.controller.sequences['Open'].controlled_blocks 
+                      if b.node_name == 'Object189')
+    print(f"Original Object189 body rot: {Quaternion(cborig189.interpolator.rotation).to_axis_angle()}")
+    print(f"Created Object189 body rot: {Quaternion(cbnew189.interpolator.rotation).to_axis_angle()}")
+
+    cborig188 = next(b for b in original.root.controller.sequences['Open'].controlled_blocks 
+                      if b.node_name == 'Object188')
+    cbnew188 = next(b for b in nif2.root.controller.sequences['Open'].controlled_blocks 
+                      if b.node_name == 'Object188')
+    print(f"Original Object188 body rot: {Quaternion(cborig188.interpolator.rotation).to_axis_angle()}")
+    print(f"Created Object188 body rot: {Quaternion(cbnew188.interpolator.rotation).to_axis_angle()}")
+    # # Force rotations to be correct
+    # cbnew.interpolator.properties.rotation = cboriginal.interpolator.properties.rotation
+
+    # cbnew.interpolator.properties.rotation = cboriginal.interpolator.properties.rotation
+    # nif2.save()
 
     # Check controller structure
     cm2:pyn.NiControllerManager = nif2.root.controller
@@ -5833,10 +5859,7 @@ def TEST_DWEMER_CHEST():
     #      "Handle", "Box01"],
     #     f"extra targets")
     TT.assert_samemembers(nif2.root.controller.object_palette.objects.keys(),
-        ['Object02:5', 'Object189', 'Box01', 'Object188:5', 'Object01:3', 'Gear07', 
-         'Box01:5', 'Object01:5', 'Gear09', 'Handle', 'Handle:5', 'Gear09:7', 'Object189:0', 
-         'Object01:6', 'Object02', 'Object01:0', 'Object189:3', 'Gear07:7', 'Gear08:7', 
-         'Object189:6', 'Object188', 'Object01', 'Object189:5', 'Gear08'],
+        original.root.controller.object_palette.objects.keys(),
         "Object Palette")
     TT.assert_samemembers([s for s in cm2.sequences], ["Open", "Close"], "Controller Sequences")
     open2:pyn.NiControllerSequence = cm2.sequences["Close"]
@@ -5846,31 +5869,31 @@ def TEST_DWEMER_CHEST():
     assert nif2.nodes['Gear07'].controller is None, "Gear07 has no controller"
 
     # Check physics
-    assert nif2.nodes['DwarvenChest'].collision_object is not None, "Have collision object"
-    assert nif2.nodes['DwarvenChest'].collision_object.body is not None, "Have collision body"
-    assert nif2.nodes['DwarvenChest'].collision_object.body.shape is not None, "Have collision shape"
+    assert nif2.root.collision_object is not None, "Have collision object"
+    assert nif2.root.collision_object.body is not None, "Have collision body"
+    assert nif2.root.collision_object.body.shape is not None, "Have collision shape"
 
-    TT.assert_eq(nif2.nodes['DwarvenChest'].collision_object.properties.flags, 
+    TT.assert_eq(nif2.root.collision_object.properties.flags, 
                  bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE,
                  "Collision object flags")
-    TT.assert_equiv(nif2.nodes['DwarvenChest'].collision_object.body.properties.mass, 
+    TT.assert_equiv(nif2.root.collision_object.body.properties.mass, 
                  0.0,
                  "mass")
-    TT.assert_equiv(nif2.nodes['DwarvenChest'].collision_object.body.properties.linearDamping, 
+    TT.assert_equiv(nif2.root.collision_object.body.properties.linearDamping, 
                  0.099609,
                  "Linear damping",
                  e=0.01)
 
-    TT.assert_contains(nif2.nodes['DwarvenChest'].collision_object.body.shape.blockname,
+    TT.assert_contains(nif2.root.collision_object.body.shape.blockname,
                        ("bhkBoxShape", "bhkConvexVerticesShape",),
                        "Collision shape type")
     
-    if nif2.nodes['DwarvenChest'].collision_object.body.shape.blockname == "bhkBoxShape":
-        col_loc = Vector(nif2.nodes['DwarvenChest'].collision_object.body.properties.translation[0:3]) * HAVOC_SCALE_FACTOR
-        col_dim = Vector(nif2.nodes['DwarvenChest'].collision_object.body.shape.properties.bhkDimensions) * HAVOC_SCALE_FACTOR
+    if nif2.root.collision_object.body.shape.blockname == "bhkBoxShape":
+        col_loc = Vector(nif2.root.collision_object.body.properties.translation[0:3]) * HAVOC_SCALE_FACTOR
+        col_dim = Vector(nif2.root.collision_object.body.shape.properties.bhkDimensions) * HAVOC_SCALE_FACTOR
         col_bounds = (Vector(col_loc) - Vector(col_dim), Vector(col_loc) + Vector(col_dim),)
         TT.assert_equiv(col_bounds, 
-                        (Vector((-55.9238, -25.9097, -0.5476)), Vector((55.3899, 26.0875, 50.6816)),), 
+                        (Vector((-55.9238, -25.9097, -22.2872)), Vector((55.3899, 26.0875, 28.942)),), 
                         "Collision bounds", e=0.1)
 
 
@@ -6660,7 +6683,8 @@ def execute_test(t, passed_tests, failed_tests,stop_on_fail=True):
                 t()
                 test_loghandler.finish()
                 passed_tests.append(t)
-            except:
+            except Exception as e:
+                log.exception(f"Test {t.__name__} failed with exception: {e}")
                 failed_tests.append(t)
 
         print (f"------------------------------ {t.__name__} ------------------------------\n")

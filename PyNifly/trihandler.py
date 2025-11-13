@@ -391,10 +391,10 @@ class TriFile():
             return {'CANCELLED'}
 
         # version check
-        if tri.header.signature[0:5] != 'FRTRI' and tri.header.signature[0:4] != 'PRIT':
+        if tri.header.signature[0:5] != 'FRTRI' and tri.header.signature[0:4] != 'PIRT':
             # file.close()
             #raise ValueError(f"'{filepath}' is not formatted as a tri file. Format given as [{tri.header.signature}] when it should be [FRTRI003]")
-            log.warning(f"'{filepath}' is not formatted as a tri file. Format given as [{tri.header.signature}]")
+            log.warning(f"'{filepath}' is not marked as a tri file. Format given as [{tri.header.signature}]")
             #log.error(f"File is not of correct format. Format given as [{tri.header.signature}] when it should be [FRTRI003]")
             #return {'CANCELLED'}
 

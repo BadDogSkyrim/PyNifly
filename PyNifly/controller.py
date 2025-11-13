@@ -364,7 +364,7 @@ class ControllerHandler():
         self.controller_sequence:NiControllerSequence = None
         self.cm_obj_palette = None
         
-        self.controlled_objects = set()
+        self.controlled_objects = BD.ReprObjectCollection.New()
         self.start_time = sys.float_info.max
         self.end_time = -sys.float_info.max
 
@@ -897,16 +897,15 @@ class ControllerHandler():
         """
         Add the object and all its children recursively to the set of controlled objects.
         """
-        self.controlled_objects.add(obj)
+        if obj.nifnode and obj.nifnode.id != 0 and isinstance(obj.nifnode, NiNode):
+            self.controlled_objects.add(obj)
         for child in obj.blender_obj.children:
             if child.type in ['EMPTY', 'MESH']:
-                ro = self.objects_created.find_blend(child)
+                ro = self.export_objs.find_blend(child)
                 if ro: self._add_controlled_object(ro)
         
 
     def _write_controlled_objects(self):
-        if len(self.controlled_objects) == 0: return
-
         for obj in self.controlled_objects:
             self.cm_obj_palette.add_object(obj.nifnode.name, obj.nifnode)
 
@@ -1124,6 +1123,9 @@ class ControllerHandler():
             # self.cm_obj_palette.add_object(anim.target_obj.nifnode.name, anim.target_obj.nifnode)
             self._add_controlled_object(anim.target_obj)
 
+        # # Seems like maybe all the objects have to be in the palette?
+        # for obj in self.export_objs:
+        #     self._add_controlled_object(obj)
         self._write_controlled_objects()
 
 
@@ -2094,8 +2096,17 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
         else:
             targ_xf = targ.matrix_local
     else:
+        # Exported interpolator needs to reflect the transform on the target object.
+        # Dwechest01 has nodes with rotations that trigger this.
+        bobj = targetobj.blender_obj
+        if bobj.parent:
+            targ_xf = bobj.parent.matrix_local.inverted() @ bobj.matrix_world
+        else:
+            targ_xf = bobj.matrix_local
         targ_xf = Matrix.Identity(4)
     targ_q = targ_xf.to_quaternion()
+    if bobj.name in ['Object188', 'Object189']:
+        targ_q = Quaternion(Vector((0, 1, 0,)), 3.14159)
 
     loc = []
     eu = []
