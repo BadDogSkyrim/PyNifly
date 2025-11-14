@@ -1825,7 +1825,8 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
     def invoke(self, context, event):
         # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_import_path_nif:
-            self.filepath = context.window_manager.pynifly_last_import_path_nif
+            self.filepath = str(Path(context.window_manager.pynifly_last_import_path_nif)
+                                / Path(self.filepath))
         return super().invoke(context, event)
 
 
@@ -2107,7 +2108,8 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
     def invoke(self, context, event):
         # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_import_path_tri:
-            self.filepath = context.window_manager.pynifly_last_import_path_tri
+            self.filepath = str(Path(context.window_manager.pynifly_last_import_path_tri) 
+                                / Path(self.filepath))
         return super().invoke(context, event)
 
     def execute(self, context):
@@ -2224,7 +2226,8 @@ class ImportKF(bpy.types.Operator, ExportHelper):
     def invoke(self, context, event):
         # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_import_path_kf:
-            self.filepath = context.window_manager.pynifly_last_import_path_kf
+            self.filepath = str(Path(context.window_manager.pynifly_last_import_path_kf) 
+                                / Path(self.filepath))
         return super().invoke(context, event)
 
 
@@ -2357,7 +2360,8 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
     def invoke(self, context, event):
         # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_import_path_hkx:
-            self.filepath = context.window_manager.pynifly_last_import_path_hkx
+            self.filepath = str(Path(context.window_manager.pynifly_last_import_path_hkx) 
+                                / Path(self.filepath))
         return super().invoke(context, event)
 
 
@@ -4075,7 +4079,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     def invoke(self, context, event):
         # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_export_path_nif:
-            self.filepath = context.window_manager.pynifly_last_export_path_nif
+            self.filepath = str(Path(context.window_manager.pynifly_last_export_path_nif) 
+                                / Path(self.filepath))
         return super().invoke(context, event)
 
     def execute(self, context):
@@ -4167,7 +4172,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             wm = context.window_manager
             wm.pynifly_last_export_path_nif = os.path.dirname(self.filepath)
 
-        return res.intersection({'CANCELLED'}, {'FINISHED'})
+        return res.intersection({'CANCELLED', 'FINISHED'})
 
 
 ################################################################################
@@ -4271,7 +4276,8 @@ class ExportKF(bpy.types.Operator, ExportHelper):
     def invoke(self, context, event):
         # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_export_path_kf:
-            self.filepath = context.window_manager.pynifly_last_export_path_kf
+            self.filepath = str(Path(context.window_manager.pynifly_last_export_path_kf) 
+                                / Path(self.filepath))
         return super().invoke(context, event)
 
     def execute(self, context):
@@ -4373,7 +4379,8 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
     def invoke(self, context, event):
         # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_export_path_hkx:
-            self.filepath = context.window_manager.pynifly_last_export_path_hkx
+            self.filepath = str(Path(context.window_manager.pynifly_last_export_path_hkx) 
+                                / Path(self.filepath))
         return super().invoke(context, event)
 
     def generate_hkx(self, filepath):
@@ -4555,7 +4562,8 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
     def invoke(self, context, event):
         # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_export_path_skel_hkx:
-            self.filepath = context.window_manager.pynifly_last_export_path_skel_hkx
+            self.filepath = str(Path(context.window_manager.pynifly_last_export_path_skel_hkx) 
+                                / Path(self.filepath))
         return super().invoke(context, event)
 
     def execute(self, context):
