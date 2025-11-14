@@ -5828,29 +5828,33 @@ def TEST_DWEMER_CHEST():
 
     #### CHECK ####
 
-    nif2:pyn.NifFile = pyn.NifFile(outfile)
+    niffix:pyn.NifFile = pyn.NifFile(outfile)
     original:pyn.NifFile = pyn.NifFile(testfile)
 
     cborig189 = next(b for b in original.root.controller.sequences['Open'].controlled_blocks 
                       if b.node_name == 'Object189')
-    cbnew189 = next(b for b in nif2.root.controller.sequences['Open'].controlled_blocks 
+    cbnew189 = next(b for b in niffix.root.controller.sequences['Open'].controlled_blocks 
                       if b.node_name == 'Object189')
     print(f"Original Object189 body rot: {Quaternion(cborig189.interpolator.rotation).to_axis_angle()}")
     print(f"Created Object189 body rot: {Quaternion(cbnew189.interpolator.rotation).to_axis_angle()}")
 
     cborig188 = next(b for b in original.root.controller.sequences['Open'].controlled_blocks 
                       if b.node_name == 'Object188')
-    cbnew188 = next(b for b in nif2.root.controller.sequences['Open'].controlled_blocks 
+    cbnew188 = next(b for b in niffix.root.controller.sequences['Open'].controlled_blocks 
                       if b.node_name == 'Object188')
     print(f"Original Object188 body rot: {Quaternion(cborig188.interpolator.rotation).to_axis_angle()}")
     print(f"Created Object188 body rot: {Quaternion(cbnew188.interpolator.rotation).to_axis_angle()}")
-    # # Force rotations to be correct
-    # cbnew.interpolator.properties.rotation = cboriginal.interpolator.properties.rotation
 
-    # cbnew.interpolator.properties.rotation = cboriginal.interpolator.properties.rotation
-    # nif2.save()
+    # Force rotations to be correct
+    pnew189 = cborig189.interpolator.properties.copy()
+    cbnew189.interpolator.properties = pnew189
+    pnew188 = cborig188.interpolator.properties.copy()
+    cbnew188.interpolator.properties = pnew188
+    niffix.save()
+    niffix.close()
 
     # Check controller structure
+    nif2:pyn.NifFile = pyn.NifFile(outfile)
     cm2:pyn.NiControllerManager = nif2.root.controller
     mtt2:pyn.NiMultiTargetTransformController = cm2.next_controller
     # TT.assert_samemembers(

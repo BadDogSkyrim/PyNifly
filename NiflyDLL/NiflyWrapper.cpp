@@ -3727,6 +3727,35 @@ int getTransformInterpolator(void* nifref, uint32_t tiID, void* inbuf) {
     return 0;
 }
 
+int applyTransformInterpolator(NiTransformInterpolator* ti, NiTransformInterpolatorBuf* buf) {
+    for (int i = 0; i < 3; i++) 
+        ti->translation[i] = buf->translation[i];
+    ti->rotation.w = buf->rotation[0];
+    ti->rotation.x = buf->rotation[1];
+    ti->rotation.y = buf->rotation[2];
+    ti->rotation.z = buf->rotation[3];
+    ti->scale = buf->scale;
+    ti->dataRef.index = buf->dataID;
+    return 0;
+}
+
+int setTransformInterpolator(void* nifref, uint32_t id, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiTransformInterpolatorBuf* buf = static_cast<NiTransformInterpolatorBuf*>(inbuf);
+
+    CheckBuf(buf, BUFFER_TYPES::NiTransformInterpolatorBufType, NiTransformInterpolatorBuf);
+    
+    NiTransformInterpolator* ti = hdr->GetBlock<NiTransformInterpolator>(id);
+
+    if (!ti) {
+        niflydll::LogWriteEf("NiTransformInterpolator node %d not found", id);
+        return -1;
+    }
+    
+    return applyTransformInterpolator(ti, buf);
+}
+
 int addTransformInterpolator(void* nifref, const char* name, void* inbuf, uint32_t parentID) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
@@ -3734,17 +3763,14 @@ int addTransformInterpolator(void* nifref, const char* name, void* inbuf, uint32
 
     CheckBuf(buf, BUFFER_TYPES::NiTransformInterpolatorBufType, NiTransformInterpolatorBuf);
 
-    auto ti = std::make_unique<NiTransformInterpolator>();
+    auto tiNew = std::make_unique<NiTransformInterpolator>();
+    uint32_t id = hdr->AddBlock(std::move(tiNew));
+    NiTransformInterpolator* ti = hdr->GetBlock<NiTransformInterpolator>(id);
 
-    for (int i=0; i < 3; i++) ti->translation[i] = buf->translation[i];
-    ti->rotation.w = buf->rotation[0];
-    ti->rotation.x = buf->rotation[1];
-    ti->rotation.y = buf->rotation[2];
-    ti->rotation.z = buf->rotation[3];
-    ti->scale = buf->scale;
-    ti->dataRef.index = buf->dataID;
-
-    return hdr->AddBlock(std::move(ti));
+    if (applyTransformInterpolator(ti, buf) == 0)
+        return id;
+    else
+        return NIF_NPOS;
 }
 
 int getNiPoint3Interpolator(void* nifref, uint32_t tiID, void* inbuf) {
@@ -4854,7 +4880,7 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //bhkBoxShapeBufType,
     nullptr, //NiControllerManagerBufType,
     assignControllerSequence, //NiControllerSequenceBufType,
-    nullptr, //NiTransformInterpolatorBufType,
+    setTransformInterpolator, //NiTransformInterpolatorBufType,
     nullptr, //NiTransformDataBufType,
     nullptr, //NiControllerLinkBufType,
     nullptr, //BSInvMarkerBufType,
