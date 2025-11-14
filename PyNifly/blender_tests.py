@@ -5826,32 +5826,28 @@ def TEST_DWEMER_CHEST():
                     active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, export_animations=True)
 
-    #### CHECK ####
+    #### FIXUP ####
+    ## TODO: Figure this out. Looks okay in nifskope but not in game.
 
     niffix:pyn.NifFile = pyn.NifFile(outfile)
     original:pyn.NifFile = pyn.NifFile(testfile)
 
-    cborig189 = next(b for b in original.root.controller.sequences['Open'].controlled_blocks 
-                      if b.node_name == 'Object189')
-    cbnew189 = next(b for b in niffix.root.controller.sequences['Open'].controlled_blocks 
-                      if b.node_name == 'Object189')
-    print(f"Original Object189 body rot: {Quaternion(cborig189.interpolator.rotation).to_axis_angle()}")
-    print(f"Created Object189 body rot: {Quaternion(cbnew189.interpolator.rotation).to_axis_angle()}")
+    for anim in ('Open', 'Close',):
+        for nodename in ('Object188',): # ('Object189', 'Object188', 'Gear07', 'Gear08', 'Gear09',):
+            cborig = next(b for b in original.root.controller.sequences[anim].controlled_blocks 
+                            if b.node_name == nodename)
+            cbnew = next(b for b in niffix.root.controller.sequences[anim].controlled_blocks 
+                            if b.node_name == nodename)
+            print(f"Original {anim}/{nodename} body rot: {Quaternion(cborig.interpolator.rotation).to_axis_angle()}")
+            print(f"Created {anim}/{nodename} body rot: {Quaternion(cbnew.interpolator.rotation).to_axis_angle()}")
 
-    cborig188 = next(b for b in original.root.controller.sequences['Open'].controlled_blocks 
-                      if b.node_name == 'Object188')
-    cbnew188 = next(b for b in niffix.root.controller.sequences['Open'].controlled_blocks 
-                      if b.node_name == 'Object188')
-    print(f"Original Object188 body rot: {Quaternion(cborig188.interpolator.rotation).to_axis_angle()}")
-    print(f"Created Object188 body rot: {Quaternion(cbnew188.interpolator.rotation).to_axis_angle()}")
-
-    # Force rotations to be correct
-    pnew189 = cborig189.interpolator.properties.copy()
-    cbnew189.interpolator.properties = pnew189
-    pnew188 = cborig188.interpolator.properties.copy()
-    cbnew188.interpolator.properties = pnew188
+            # Force rotations to be correct
+            pnew = cbnew.interpolator.properties.copy()
+            pnew.rotation = cborig.interpolator.properties.rotation
+            cbnew.interpolator.properties = pnew
     niffix.save()
-    niffix.close()
+
+    #### CHECK ####
 
     # Check controller structure
     nif2:pyn.NifFile = pyn.NifFile(outfile)
