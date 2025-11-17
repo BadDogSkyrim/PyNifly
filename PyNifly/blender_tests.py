@@ -41,6 +41,7 @@ log.setLevel(logging.DEBUG)
 test_categories = set((
     'ANIMATION', # Animations, embedded in NIF files
     'BODYPART', # meshes rigged for bodyparts
+    'EXTRA_DATA', # Extra data attached to nodes
     'FO4', # Fallout 4-specific tests
     'HKX', # HKX and KF animations
     'PHYSICS', # Object collisions and physics
@@ -2764,6 +2765,7 @@ def TEST_PARTITION_ERRORS():
     assert BD.MULTIPLE_PARTITION_GROUP in bpy.data.objects["SynthMaleBody"].vertex_groups, "Error: Expected group to be created for tris in multiple partitions"
 
 
+@TT.category('SKYRIM', 'EXTRA_DATA')
 def TEST_SHEATH():
     """Extra data nodes are imported and exported"""
     # The sheath has extra data nodes for Havok. These are imported as Blender empty
@@ -2803,6 +2805,7 @@ def TEST_SHEATH():
     assert "HDT Skinned Mesh Physics Object" in strings, f"Error: Expected physics object in {strings}"
 
 
+@TT.category('SKYRIM', 'EXTRA_DATA')
 def TEST_FEET():
     """Extra data nodes are imported and exported"""
     # Feet have extra data nodes that are children of the feet mesh. This parent/child
@@ -2827,6 +2830,37 @@ def TEST_FEET():
     feetShape = nifCheck.shapes[0]
     assert feetShape.string_data[0][0] == 'SDTA', "String data name written correctly"
     assert feetShape.string_data[0][1].startswith('[{"name"'), "String data value written correctly"
+
+
+@TT.category('SKYRIM', 'EXTRA_DATA')
+def TEST_FEET_MULTI():
+    """Extra data nodes are exported only once"""
+    # These feet have multiple "shell" layers, each with its own extra data. Ensure the
+    # extra data is only written once.
+    testfile = TTB.test_file(r"tests/SkyrimSE/felinefuzzyfeet.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_FEET_MULTI.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    feet = bpy.data.objects['FootLowRes']
+    TT.assert_eq(len(feet.children), 1, "Feet children")
+    TT.assert_eq(feet.children[0]['NiStringExtraData_Name'], "SDTA", "extra data child name")
+    assert feet.children[0]['NiStringExtraData_Value'].startswith('[{"name"'), f"Feet have string data"
+
+    ### WRITE ###
+     
+    BD.ObjectSelect([root for root in bpy.context.scene.objects if root.get('pynRoot', False)], 
+                    active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    ### CHECK ###
+
+    nifCheck = pyn.NifFile(outfile)
+    TT.assert_eq(len(nifCheck.root.string_data), 0, "Root extra data count")
+    for shape in nifCheck.shapes:
+        TT.assert_eq(len(shape.string_data), 1, f"{shape.name} has one extra data")
+        assert shape.string_data[0][0] == 'SDTA', "String data name written correctly"
+        assert shape.string_data[0][1].startswith('[{"name"'), "String data value written correctly"
 
 
 def TEST_SCALING():

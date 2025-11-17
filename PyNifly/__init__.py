@@ -2958,7 +2958,8 @@ class NifExporter:
             if 'BSBehaviorGraphExtraData_Name' in obj.keys():
                 self.bg_data.add(obj)
 
-            elif 'NiStringExtraData_Name' in obj.keys():
+            elif 'NiStringExtraData_Name' in obj.keys() and obj.parent \
+                    and obj.parent.get('pynRoot', False):
                 self.str_data.add(obj)
 
             elif 'BSClothExtraData_Name' in obj.keys():
