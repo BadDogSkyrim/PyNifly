@@ -1278,10 +1278,10 @@ class ShaderImporter:
                 if 'Smooth Spec' in self.bsdf.inputs: 
                     self.link(simgnode.outputs['Color'], self.bsdf.inputs['Smooth Spec'])
                 else:
-                    if 'Specular Color' in self.bsdf.inputs:
-                        self.link(simgnode.outputs['Color'], self.bsdf.inputs['Specular Color'])
-                    else:
+                    if 'Specular' in self.bsdf.inputs:
                         self.link(simgnode.outputs['Color'], self.bsdf.inputs['Specular'])
+                    else:
+                        self.link(simgnode.outputs['Color'], self.bsdf.inputs['Specular Color'])
 
             for i, v in enumerate(self.shape.shader.properties.Spec_Color):
                 self.bsdf.inputs['Specular Color'].default_value[i] = v

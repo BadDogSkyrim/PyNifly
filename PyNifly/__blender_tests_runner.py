@@ -23,9 +23,9 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 do_tests(
-    target_tests=[ TEST_DWEMER_CHEST, ], 
+    target_tests=[ TEST_SHADER_LE, ], 
     # categories={'ANIMATION'},
-    stop_on_fail=False
+    stop_on_fail=True
     )
 
 

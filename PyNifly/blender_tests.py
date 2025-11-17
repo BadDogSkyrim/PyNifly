@@ -1787,40 +1787,46 @@ def TEST_PARTITIONS_EMPTY():
 def TEST_SHADER_LE():
     """Shader attributes are read and turned into Blender shader nodes"""
 
-    fileLE = TTB.test_file(r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\meshes\actors\character\character assets\malehead.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_SHADER_LE.nif")
-    bpy.ops.import_scene.pynifly(filepath=fileLE, use_blender_xf=True)
 
-    nifLE = pyn.NifFile(fileLE)
-    shaderAttrsLE = nifLE.shapes[0].shader.properties
-    headLE = bpy.context.object
-    shadernodes = headLE.active_material.node_tree.nodes
-    assert 'SkyrimShader:Face' in shadernodes, \
-        f"Shader nodes complete: {shadernodes.keys()}"
-    bsdf = shadernodes['SkyrimShader:Face']
-    assert 'Diffuse_Texture' in shadernodes, f"Shader nodes complete: {shadernodes.keys()}"
+    bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
+
+    headobj = bpy.context.object
+    TT.assert_contains('SkyrimShader:Face', headobj.active_material.node_tree.nodes, 
+        f"Have face shader")
+    bsdf = headobj.active_material.node_tree.nodes['SkyrimShader:Face']
+    assert bsdf.inputs['Diffuse'].is_linked, f"Have a base color"
+    diff_img = BD.find_node(bsdf.inputs['Diffuse'], "ShaderNodeTexImage")
+    TT.assert_gt(len(diff_img), 0, f"Have diffuse texture image node")
+    TT.assert_gt(len(diff_img[0].image.filepath), 0, f"Have diffuse texture filepath")
     assert bsdf.inputs['Normal'].is_linked, f"Have a normal map"
     assert bsdf.inputs['Diffuse'].is_linked, f"Have a base color"
-    g = bsdf.inputs['Glossiness'].default_value
-    assert round(g, 4) == 33, f"Glossiness not correct, value is {g}"
-    assert headLE.active_material['BSShaderTextureSet_SoftLighting'] == r"textures\actors\character\male\MaleHead_sk.dds", \
-        f"Expected stashed texture path, found {headLE.active_material['BSShaderTextureSet_2']}"
+    assert bsdf.inputs['Specular'].is_linked, f"Have specular"
+    assert not bsdf.inputs['Specular Color'].is_linked, f"Specular color not linked"
+    TT.assert_equiv(bsdf.inputs['Glossiness'].default_value, 33, f"Glossiness value")
+    TT.assert_patheq(headobj.active_material['BSShaderTextureSet_SoftLighting'], 
+                     r"textures\actors\character\male\MaleHead_sk.dds", 
+                     f"stashed texture path")
 
-    print("## Shader attributes are written on export")
+    ### WRITE ###
+
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
 
-    nifcheckLE = pyn.NifFile(outfile)
-    
-    check = nifcheckLE.shapes[0].textures
-    original = nifLE.shapes[0].textures
-    assert set(check.keys()) == set(original.keys()), f"Have same keys: {set(check.keys())}"
-    for k in check:
-        assert check[k].lower() == original[k].lower(), f"Value of {k} texture matches"
+    ### CHECK ###
 
-    checkattrs = nifcheckLE.shapes[0].shader.properties
-    assert not checkattrs.compare(shaderAttrsLE), \
-        f"Shader properties correct: {checkattrs.compare(shaderAttrsLE)}"
+    nif = pyn.NifFile(testfile)
+    head = nif.shapes[0]
+    nifcheck = pyn.NifFile(outfile)
+    headcheck = nifcheck.shapes[0]
+    
+    TT.assert_samemembers(headcheck.textures.keys(), head.textures.keys(), f"texture slots")
+    for k in headcheck.textures:
+        TT.assert_patheq(headcheck.textures[k], head.textures[k], f"{k} texture path")
+
+    assert not headcheck.shader.properties.compare(head.shader.properties), \
+        f"Shader properties correct: {headcheck.shader.properties.compare(head.shader.properties)}"
 
 
 @TT.category('SKYRIM', 'SHADER')
@@ -5672,6 +5678,48 @@ def TEST_NOBLECHEST():
     # assert math.isclose(
     #     bpy.data.actions["ANIM|Close|Lid01"]["pynMarkers"]["end"], 0.5, abs_tol=0.0001), f"Have markers on aactions"
 
+
+    ### ADD COLLISIONS ###
+    bpy.ops.mesh.primitive_cube_add(size=2, enter_editmode=False, align='WORLD', 
+                                    location=(0, 0, 0), scale=(1, 1, 1))
+    chestcol = bpy.context.object
+    chestcol.name = "bhkConvexVerticesShape_Chest"
+    chestcol.display_type = 'WIRE'
+    chestcol['collisionFilter_layer'] = SkyrimCollisionLayer.CLUTTER
+    chestcol['pynCollisionFlags'] = "ACTIVE | SYNC_ON_UPDATE"
+    chestcol['penetrationDepth'] = 0.1
+    chestcol['motionSystem'] = hkMotionType.BOX_INERTIA
+    chestcol['qualityType'] = hkQualityType.MOVING
+    chestcol['inertiaMatrix'] = "[0, 0, 0, 0, 0, 0, 0, 0, 0]"
+    chestcol['rollingFrictionMult'] = 0.0
+    for v in chestcol.data.vertices:
+        if v.co.x < 0:
+            v.co.x = -67.3575
+        else:
+            v.co.x = 67.3575
+        if v.co.y < 0 and v.co.z < 0:
+            v.co.y = -24.6112 
+        elif v.co.y < 0 and v.co.z >= 0:
+            v.co.y = -18.9388 
+        elif v.co.y >= 0 and v.co.z < 0:
+            v.co.y = 24.6112
+        else:
+            v.co.y = 18.9388
+        if v.co.z < 0:
+            v.co.z = 0 
+        else:
+            v.co.z = 27.6
+    bpy.ops.rigidbody.object_add()
+    chestcol.rigid_body.collision_shape = 'CONVEX_HULL'
+    chestcol.rigid_body.mass = 1.0
+    chestcol.rigid_body.linear_damping = 0.1
+    chestcol.rigid_body.angular_damping = 0.05
+
+    BD.ObjectSelect([bpy.data.objects['Chest01']], active=True)
+    bpy.ops.object.constraint_add(type='COPY_TRANSFORMS')
+    bpy.context.object.constraints["Copy Transforms"].target = chestcol
+
+    
     ### WRITE ###
 
     chestroot = bpy.data.objects['NobleChest01:ROOT']
@@ -5833,7 +5881,7 @@ def TEST_DWEMER_CHEST():
     original:pyn.NifFile = pyn.NifFile(testfile)
 
     for anim in ('Open', 'Close',):
-        for nodename in ('Object188',): # ('Object189', 'Object188', 'Gear07', 'Gear08', 'Gear09',):
+        for nodename in ('Object189', 'Object188', 'Gear07', 'Gear08', 'Gear09',):
             cborig = next(b for b in original.root.controller.sequences[anim].controlled_blocks 
                             if b.node_name == nodename)
             cbnew = next(b for b in niffix.root.controller.sequences[anim].controlled_blocks 
@@ -5844,6 +5892,7 @@ def TEST_DWEMER_CHEST():
             # Force rotations to be correct
             pnew = cbnew.interpolator.properties.copy()
             pnew.rotation = cborig.interpolator.properties.rotation
+            pnew.dataID = cbnew.interpolator.properties.dataID
             cbnew.interpolator.properties = pnew
     niffix.save()
 
