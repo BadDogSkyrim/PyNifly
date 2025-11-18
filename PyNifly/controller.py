@@ -1192,10 +1192,11 @@ class ControllerHandler():
 
 
     @classmethod
-    def export_animated_obj(cls, parent_handler, obj):
+    def export_animated_obj(cls, parent_handler, robj:BD.ReprObject):
         """
         Export an animated object.
         """
+        obj = robj.blender_obj
         if not obj.animation_data: return
         if not obj.animation_data.action: return
         if obj.animation_data.action.get('pynController', '') == 'NiControllerSequence':
@@ -1217,7 +1218,7 @@ class ControllerHandler():
                         break
 
         while curves:
-            targetnodename, ti = NiTransformController.fcurve_exporter(exporter, curves, obj)
+            targetnodename, ti = NiTransformController.fcurve_exporter(exporter, curves, robj)
             nifnodename = exporter.nif_name(targetnodename)
             # KF animation files have no controllers, so only create one if the target
             # bone exists in the nif.
@@ -2105,8 +2106,9 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
             targ_xf = bobj.matrix_local
         targ_xf = Matrix.Identity(4)
     targ_q = targ_xf.to_quaternion()
-    if bobj.name in ['Object188', 'Object189']:
-        targ_q = Quaternion(Vector((0, 1, 0,)), 3.14159)
+    ## Hacky fix when trying to figure out dwemer chest problems.
+    # if bobj.name in ['Object188', 'Object189']:
+    #     targ_q = Quaternion(Vector((0, 1, 0,)), 3.14159)
 
     loc = []
     eu = []

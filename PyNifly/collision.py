@@ -711,7 +711,15 @@ class CollisionHandler():
 
         # Use any rotation on the collision shape relative to the target's rotation.
         targq = coll.matrix_local.to_quaternion() @ rot.inverted()
-        rv = ctr - targloc # targlocw
+
+        # If the target is a pose bone, use its world location (glassbowskinned). 
+        # If it's a node (dwemer chest), use its local location.
+        # TODO: Clean this up. We check for a bone above, probably could use that.
+        if have_bone:
+            rv = ctr - targlocw 
+        else:
+            rv = ctr - targloc
+
         rv.rotate(targqw.inverted())
         rv = rv * self.export_xf.to_scale()
 

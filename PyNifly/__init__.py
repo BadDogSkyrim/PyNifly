@@ -7,7 +7,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 5, 0),
-    "version": (21, 1, 0),   
+    "version": (21, 2, 0),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -3409,6 +3409,7 @@ class NifExporter:
 
     def export_node(self, obj:bpy_types.Object, parent:ReprObject=None) -> NiNode:
         """Export a NiNode for the given Blender object."""
+        ref = None
         with stashed_animation(obj):
             xf = make_transformbuf(apply_scale_xf(obj.matrix_local, 1))
             ninode = self.nif.add_node(obj.name, xf, parent.nifnode if parent else None)
@@ -3422,7 +3423,7 @@ class NifExporter:
             collision.CollisionHandler.export_collisions(self, obj)
             
         if self.export_animations:
-            controller.ControllerHandler.export_animated_obj(self, obj)
+            controller.ControllerHandler.export_animated_obj(self, ref)
         return ref
    
 

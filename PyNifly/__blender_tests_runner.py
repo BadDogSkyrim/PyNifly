@@ -23,7 +23,7 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 do_tests(
-    target_tests=[ TEST_FEET_MULTI, ], 
+    # target_tests=[ TEST_SPRIGGAN, ], 
     # categories={'ANIMATION'},
     stop_on_fail=True
     )

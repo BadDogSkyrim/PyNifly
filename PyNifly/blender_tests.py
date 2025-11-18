@@ -40,13 +40,25 @@ log.setLevel(logging.DEBUG)
 
 test_categories = set((
     'ANIMATION', # Animations, embedded in NIF files
+    'ARMATURE', # Armature from nif bones
     'BODYPART', # meshes rigged for bodyparts
+    'CONNECTPOINT', # Connect points and properties
     'EXTRA_DATA', # Extra data attached to nodes
+    'FACEBONES', # Facebone animations and exports
+    'FACEGEN', # Facegen-specific tests
     'FO4', # Fallout 4-specific tests
+    'FURNITURE', # Furniture markers and properties
     'HKX', # HKX and KF animations
+    'INVENTORY_MARKER', # Inventory markers and properties
+    'PARTITIONS', # Body partitions and vertex groups
     'PHYSICS', # Object collisions and physics
+    'SCALING', # Tests of import/export scaling
+    'SETTINGS', # Tests of various import/export settings
     'SHADER', # Shader properties and effects
+    'SHAPEKEY', # Shape keys and morphs
     'SKYRIM', # Skyrim-specific tests
+    'TRI', # Tri file tests
+    'XFORM', # Tests of transforms
     )
 )
 
@@ -90,6 +102,7 @@ class TestLogHandler(logging.Handler):
 test_loghandler:TestLogHandler = TestLogHandler.New()
 
 
+@TT.category('SKYRIM', 'BODYPART')
 def TEST_BODYPART_SKY():
     """Basic test that a Skyrim bodypart is imported correctly. """
     # Verts are organized around the origin, but skin transform is put on the shape 
@@ -118,7 +131,8 @@ def TEST_BODYPART_SKY():
     minz = min([v.co.z for v in male_head.data.vertices])
     assert NT.NearEqual(minz, -11, epsilon=0.1), f"Min Z ~ -11: {minz}"
 
-    
+
+@TT.category('FO4', 'BODYPART')
 def TEST_BODYPART_FO4():
     """Basic test that a FO4 bodypart imports correctly. """
     # Verts are organized around the origin but the skin-to-bone transforms are 
@@ -134,6 +148,7 @@ def TEST_BODYPART_FO4():
     TT.assert_equiv(minz, -12.1, "Min Z", e=0.1)
 
 
+@TT.category('SKYRIM', 'BODYPART', 'XFORM')
 def TEST_BODYPART_XFORM():
     """Test the body can be brought in with extended skeleton and Blender transform."""
     # On import, a transform can be applied to make it convenient for handling in Blender.
@@ -167,7 +182,8 @@ def TEST_BODYPART_XFORM():
     spine1 = arma.data.bones['NPC Spine1']
     assert "CME Spine" == spine1.parent.name, f"Spine1 has correct parent."
 
-    
+
+@TT.category('SKYRIM', 'BODYPART', 'XFORM')    
 def TEST_SKYRIM_XFORM():
     """Can read & write the Skyrim shape transforms"""
     testfile = TTB.test_file(r"tests/Skyrim/malehead.nif")
@@ -185,6 +201,7 @@ def TEST_SKYRIM_XFORM():
     CheckNif(nifcheck, source=testfile)
 
 
+@TT.category('FO4', 'BODYPART', 'XFORM')
 def TEST_FO4_XFORM():
     """Can read & write FO4 shape transforms"""
     testfile = TTB.test_file(r"tests/FO4/BaseMaleHead.nif")
@@ -220,6 +237,7 @@ def TEST_FO4_XFORM():
     assert BD.MatNearEqual(xf0, xf1), f"Matrices are near equal: \n{xf0}\n=\n{xf1}"
 
 
+@TT.category('SKYRIM', 'BODYPART', 'XFORM')
 def TEST_SKIN_BONE_XFORM():
     """Skin-to-bone transforms work correctly"""
     # The Argonian head has no global-to-skin transform and the bone pose locations are
@@ -333,17 +351,12 @@ def do_bodypart_alignment_fo4(create_bones, estimate_offset, use_pose):
             f"Translations don't match: {headCheck.get_shape_skin_to_bone(bn).translation[:]} != {bodyCheck.get_shape_skin_to_bone(bn).translation[:]}"
 
 
-@TT.category('FO4', 'BODYPART')
+@TT.category('FO4', 'BODYPART', 'XFORM')
 def TEST_BODYPART_ALIGNMENT_FO4_1():
     """Read & write bodyparts and have the transforms match exactly, when estimating global-to-skin offset."""
     do_bodypart_alignment_fo4(create_bones=False, 
                               estimate_offset=True, 
                               use_pose=True)
-
-## Now useing a better calc for the transform--don't need "estimate_offset"
-# def TEST_BODYPART_ALIGNMENT_FO4_2():
-#     """Read & write bodyparts and have the transforms match exactly, when NOT estimating global-to-skin offset."""
-#     do_bodypart_alignment_fo4(create_bones=False, estimate_offset=False, use_pose=False)
 
 
 @TT.category('SKYRIM', 'BODYPART')
@@ -421,6 +434,7 @@ def TEST_IMP_EXP_SKY():
     do_test('SKYRIMSE', True)
         
 
+@TT.category('SKYRIM', 'BODYPART')
 def TEST_IMP_EXP_SKY_2():
     """Can read the armor nif with two shapes and spit it back out"""
     # Basic test that the import/export round trip works on nifs with multiple bodyparts. 
@@ -461,6 +475,7 @@ def TEST_IMP_EXP_SKY_2():
     assert "NPC R Hand [RHnd]" not in bpy.data.objects, f"Did not create extra nodes representing the bones"
         
 
+@TT.category('SKYRIMSE', 'SHADER')
 def TEST_CHILDHEAD():
     """The child head has face tint but tangent space normals. Check it exports correctly."""
 
@@ -476,6 +491,7 @@ def TEST_CHILDHEAD():
     CheckNif(nifout, source=testfile)
 
 
+@TT.category('FO4', 'BODYPART')
 def TEST_IMP_EXP_FO4():
     """Can read the body nif and spit it back out"""
 
@@ -504,6 +520,7 @@ def TEST_IMP_EXP_FO4():
     TTB.compare_shapes(bodyin, bodyout, body, e=0.001, ignore_translations=True)
 
 
+@TT.category('FO4', 'BODYPART')
 def TEST_IMP_EXP_FO4_2():
     """Can read the body armor with 2 parts"""
 
@@ -538,6 +555,7 @@ def TEST_IMP_EXP_FO4_2():
         TT.assert_patheq(bodyin.textures[tl], bodyout.textures[tl], f"{tl} textures match")
 
 
+@TT.category('FO4', 'BODYPART')
 def TEST_IMP_EXP_FO4_3():
     """Can read clothes + body and they come in sensibly"""
 
@@ -559,7 +577,7 @@ def TEST_IMP_EXP_FO4_3():
     assert robemin < bodymin, f"Robe extends below body: {robemin} < {bodymin}"
 
 
-
+@TT.category('SKYRIM', 'BODYPART')
 def TEST_ROUND_TRIP():
     """Can do the full round trip: nif -> blender -> nif -> blender"""
     testfile = TTB.test_file("tests/Skyrim/test.nif")
@@ -597,6 +615,7 @@ def TEST_ROUND_TRIP():
         assert -120 < v.co.z < 0, f"Vertices positioned below origin: {v.co}"
         
 
+@TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
 def TEST_BPY_PARENT_A():
     """Maintain armature structure"""
     testfile = TTB.test_file(r"tests\Skyrim\test.nif")
@@ -608,6 +627,7 @@ def TEST_BPY_PARENT_A():
     print(f"Found parent to hand: {obj.data.bones['NPC Hand.R'].parent.name}")
 
 
+@TT.category('FO4', 'BODYPART', 'ARMATURE')
 def TEST_BPY_PARENT_B():
     """Maintain armature structure"""
     testfile2 = TTB.test_file(r"tests\FO4\bear_tshirt_turtleneck.nif")
@@ -620,6 +640,7 @@ def TEST_BPY_PARENT_B():
     assert obj.data.bones['Arm_Hand.R'].parent.name == 'Arm_ForeArm3.R', "Error: Should find forearm as parent"
 
 
+@TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
 def TEST_RENAME():
     """Test that NOT renaming bones works correctly"""
     testfile = TTB.test_file(r"tests\Skyrim\femalebody_1.nif")
@@ -637,6 +658,7 @@ def TEST_RENAME():
     assert len(armxl) == 0, f"Expected no bones renamed in armature, got {armxl}"
 
 
+@TT.category('FO4', 'BODYPART', 'ARMATURE')
 def TEST_CONNECTED_SKEL():
     """Can import connected skeleton"""
     # Check that the bones of the armature are connected correctly.
@@ -673,6 +695,7 @@ def TEST_CONNECTED_SKEL():
 #     nifout = pyn.NifFile(outfile)
 
 
+@TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
 def TEST_DRAUGR_IMPORT_A():
     """Import hood, extend skeleton, non-vanilla pose"""
     # This nif uses the draugr skeleton, which has bones named like human bones but with
@@ -703,6 +726,7 @@ def TEST_DRAUGR_IMPORT_A():
     assert pose1.head.z > bone1.head.z+10, f"Pose well above bind positions"
     
 
+@TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
 def TEST_DRAUGR_IMPORT_B():
     """Import hood, don't extend skeleton, non-vanilla pose"""
     # This hood uses non-human bone node positions and we don't extend the skeleton, so
@@ -731,6 +755,7 @@ def TEST_DRAUGR_IMPORT_B():
         f"Pose position is not bind position: {pose1.matrix.translation} != {bone1.matrix_local.translation}"
     
 
+@TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
 def TEST_DRAUGR_IMPORT_C():
     """Import helm, don't extend skeleton"""
     # The helm has bones that are in the draugr's vanilla bind position.
@@ -754,6 +779,7 @@ def TEST_DRAUGR_IMPORT_C():
         f"Head bone not posed in vanilla position: {pose1.matrix_local.translation}"
 
 
+@TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
 def TEST_DRAUGR_IMPORT_D():
     """Import helm, do extend skeleton"""
     # Fo the helm, when we import WITH adding bones, we get a full draugr skeleton.
@@ -788,6 +814,7 @@ def TEST_DRAUGR_IMPORT_D():
         f"Spine bone has correct parent: {bone2.parent.name}"
     
 
+@TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
 def TEST_DRAUGR_IMPORT_E():
     """Import of this draugr mesh positions hood correctly"""
     # This nif has two shapes and the bind positions differ. The hood bind position is
@@ -871,6 +898,7 @@ def TEST_DRAUGR_IMPORT_E():
         f"Pose and bind locaations differ: {bone1.matrix_local.translation} != {pose1.matrix.translation}"
     
 
+@TT.category('SKYRIM', 'BODYPART', 'SCALING')
 def TEST_SCALING_BP():
     """Can scale bodyparts"""
 
@@ -921,6 +949,7 @@ def TEST_SCALING_BP():
     assert bodycheck.verts[228][1] > bodycheck.verts[713][1], f"Chest is in front of back: {bodycheck.verts[228][1]} > {bodycheck.verts[713][1]}"
 
 
+@TT.category('SKYRIM', 'BODYPART', 'SCALING')
 def TEST_IMP_EXP_SCALE_2():
     """Can read the body nif scaled"""
     # Regression: Making sure that the scale factor doesn't mess up importing under one
@@ -943,7 +972,8 @@ def TEST_IMP_EXP_SCALE_2():
     assert NT.VNearEqual((armor_arma.matrix_world @ armor.location), (-0.0, 0.15475, 12.03436)), \
         f"Armor is raised to match body: {armor.location}"
     
-    
+
+@TT.category('FO4', 'BODYPART', 'ARMATURE')
 def TEST_ARMATURE_EXTEND():
     """Can extend an armature with a second NIF"""
     # Can import a shape with an armature and then import another shape to the same armature. 
@@ -985,6 +1015,7 @@ def TEST_ARMATURE_EXTEND():
     assert TTB.MatNearEqual(head.matrix_world, body.matrix_world, epsilon=0.1), f"Shape transforms match"
 
 
+@TT.category('FO4', 'BODYPART', 'ARMATURE')
 def TEST_ARMATURE_EXTEND_BT():
     """Can extend an armature with a second NIF"""
     # The Bodytalk body has bind positions consistent with vanilla, but the skin 
@@ -1027,6 +1058,7 @@ def TEST_ARMATURE_EXTEND_BT():
     #assert TTB.MatNearEqual(head.matrix_world, body.matrix_world), f"Shape transforms match"
 
 
+@TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
 def TEST_EXPORT_WEIGHTS():
     """Import and export with weights"""
     # Simple test to see that when vertex groups are associated with bone weights they are
@@ -1073,6 +1105,7 @@ def TEST_EXPORT_WEIGHTS():
     assert len(bnif.shapes) == 1, f"Wrote one shape: {bnif.shape_dict.keys()}"
 
 
+@TT.category('FO4', 'BODYPART', 'ARMATURE')
 def TEST_WEIGHTS_EXPORT():
     """Exporting this head weights all verts correctly"""
     outfile = TTB.test_file(r"tests/Out/TEST_WEIGHTS_EXPORT.nif")
@@ -1097,7 +1130,7 @@ def TEST_WEIGHTS_EXPORT():
     assert min(vert_weights) == 1, f"Have a weight for every vertex"
 
 
-
+@TT.category('FO4', 'BODYPART', 'ARMATURE')
 def TEST_0_WEIGHTS():
     """Gives warning on export with 0 weights"""
     testfile = TTB.test_file(r"tests\Out\weight0.nif")
@@ -1112,6 +1145,7 @@ def TEST_0_WEIGHTS():
     assert BD.UNWEIGHTED_VERTEX_GROUP in baby.vertex_groups, "Unweighted vertex group captures vertices without weights"
 
 
+@TT.category('FO4', 'BODYPART', 'ARMATURE')
 def TEST_TIGER_EXPORT():
     """Tiger head exports without errors"""
     f = TTB.test_file(r"tests/Out/TEST_TIGER_EXPORT.nif")
@@ -1133,6 +1167,7 @@ def TEST_TIGER_EXPORT():
     assert os.path.exists(fchargen), "Chargen file created"
 
 
+@TT.category('SKYRIM', 'BODYPART', 'XFORM')
 def TEST_3BBB():
     """Test that this mesh imports with the right transforms"""
 
@@ -1153,6 +1188,7 @@ def TEST_3BBB():
     assert arma2.name == arma.name, f"Should have parented to same armature: {arma2.name} != {arma.name}"
 
 
+@TT.category('FO4', 'BODYPART', 'ARMATURE')
 def TEST_CONNECT_SKEL():
     """Can import and export FO4 skeleton file with no shapes"""
     def do_test(use_xf):
@@ -1209,6 +1245,7 @@ def TEST_CONNECT_SKEL():
     do_test(True)
 
 
+@TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
 def TEST_SKEL_SKY():
     """Can import and export Skyrim skeleton file with no shapes"""
     testfile = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
@@ -1234,6 +1271,7 @@ def TEST_SKEL_SKY():
     assert foot_col, "Have foot collision object"
 
 
+@TT.category('SKYRIMSE', 'BODYPART', 'TRI')
 def TEST_HEADPART():
     """Can read & write an SE head part"""
     # Tri files can be loaded up into a shape in blender as shape keys. On SE, when there
@@ -1286,6 +1324,7 @@ def TEST_HEADPART():
     assert len(head4.verts) < 300, f"Head has decimated verts: {head4.verts}"
 
 
+@TT.category('SKYRIM', 'BODYPART', 'TRI')
 def TEST_TRI_SIMPLE():
     """Can create and export a mesh with shapekeys to a tri file."""
     tricubenif = TTB.test_file(r"tests\Out\tricube01.nif")
@@ -1320,6 +1359,7 @@ def TEST_TRI_SIMPLE():
     assert "*Extra" not in cubechg.morphs, f"Error: '*Extra' should not be in chargen"
     
 
+@TT.category('FO4', 'TRI')
 def TEST_TRI():
     """Can load a tri file into an existing mesh"""
 
@@ -1368,12 +1408,14 @@ def TEST_TRI():
     print('### Tri and chargen export as expected')
 
 
+@TT.category('SKYRIM', 'TRI')
 def TEST_TRI_EYES():
     """Child eyes tris are odd--handle them correctly."""
     testfile = TTB.test_file(r"tests\Skyrim\eyeschild.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
 
+@TT.category('SKYRIMSE', 'TRI')
 def TEST_TRI_HIMBO():
     """HIMBO tris are odd."""
     testfile = TTB.test_file(r"tests\SkyrimSE\himbo.nif")
@@ -1383,6 +1425,7 @@ def TEST_TRI_HIMBO():
     bpy.ops.import_scene.pyniflytri(filepath=testfile2)
 
 
+@TT.category('FONV', 'TRI')
 def TEST_TRI_WILLOW():
     """Import tri file correctly"""
     testfile = TTB.test_file(r"tests\FONV\headfemale_willow.tri")
@@ -1390,6 +1433,7 @@ def TEST_TRI_WILLOW():
     assert bpy.context.object.name is not None, f"Imported tri file: {bpy.context.object.name}"
 
 
+@TT.category('FO4', 'TRI')
 def TEST_TRI_BASEMALEHEAD():
     """Import tri file correctly when the nif has more verts than the tri."""
     testfile = TTB.test_file(r"tests\FO4\basemalehead.nif")
@@ -1403,6 +1447,7 @@ def TEST_TRI_BASEMALEHEAD():
     assert len(mesh.data.shape_keys.key_blocks) > 5, f"Expected more than 5 shape keys, got {len(mesh.data.shape_keys.key_blocks)}"
 
 
+@TT.category('SKYRIMSE', 'BODYPART')
 def TEST_IMPORT_MULTI_OBJECTS():
     """Can import 2 meshes as objects"""
     # When two files are selected for import, they are connected into a single armature.
@@ -1425,6 +1470,7 @@ def TEST_IMPORT_MULTI_OBJECTS():
     assert invm[0].type == 'CAMERA', f"Inventory marker is a camera: {invm[0].type}"
 
 
+@TT.category('SKYRIMSE', 'SHAPEKEY')
 def TEST_IMPORT_AS_SHAPES():
     # When two files are selected for import, they are imported as shape keys if possible.
     """Can import 2 meshes as shape keys"""
@@ -1443,6 +1489,7 @@ def TEST_IMPORT_AS_SHAPES():
     assert len(armatures) == 1, f"Have 1 armature: {armatures}"
 
 
+@TT.category('FO4', 'BODYPART', 'SHAPEKEY')
 def TEST_IMPORT_MULT_SHAPES():
     """Can import >2 meshes as shape keys"""
     # When multiple files are selected for a single import, they are connected up as 
@@ -1466,6 +1513,7 @@ def TEST_IMPORT_MULT_SHAPES():
     assert len(armatures) == 1, f"Have 1 armature: {armatures}"
 
 
+@TT.category('FO4', 'BODYPART', 'SHAPEKEY')
 def TEST_EXP_SK_RENAMED():
     """Ensure renamed shape keys export properly"""
     if bpy.app.version[0] < 3: return
@@ -1519,6 +1567,7 @@ def TEST_EXP_SK_RENAMED():
     assert 'Smile.L' in obj.data.shape_keys.key_blocks, f"Expected key 'Smile.L' in {obj.data.shape_keys.key_blocks.keys()}"
 
 
+@TT.category('SKYRIMSE', 'BODYPART', 'SHAPEKEY')
 def TEST_SK_MULT():
     """Export multiple objects with only some shape keys"""
 
@@ -1548,6 +1597,7 @@ def TEST_SK_MULT():
     assert 'NPC L Clavicle [LClv]' in nif0.nodes, "Found clavicle in _0 file"
 
 
+@TT.category('SETTINGS')
 def TEST_NOSETTINGS():
     """Can import with all settings off (regression)."""
     testfile = TTB.test_file("tests\SkyrimSE\circlet_celebrimbor.nif")
@@ -1566,6 +1616,7 @@ def TEST_NOSETTINGS():
                                  do_import_pose=False,)                                                                                           
 
 
+@TT.category('SKYRIMSE')
 def TEST_CIRCLET():
     """This high-precision circlet imports correctly and can be exported as a ground object."""
     testfile = TTB.test_file("tests\SkyrimSE\circlet_celebrimbor.nif")
@@ -1591,6 +1642,7 @@ def TEST_CIRCLET():
     TT.assert_eq(TTB.find_vertex(obj.data, [0.0, 0.0, 0.0]), -1, "No vertex near origin")
 
 
+@TT.category('SKYRIM', 'TRI')
 def TEST_TRI2():
     """Regression: Test correct improt of tri"""
     testfile = TTB.test_file(r"tests/Skyrim/OtterMaleHead.nif")
@@ -1605,6 +1657,7 @@ def TEST_TRI2():
     assert v1.co[0] <= 30, "Shape keys not relative to current mesh"
 
 
+@TT.category('SKYRIM', 'TRI')
 def TEST_BAD_TRI():
     """Tris with messed up UVs can be imported"""
     # Tri files have UVs in them, but it's mostly not used, and some tris have messed up
@@ -1622,6 +1675,7 @@ def TEST_BAD_TRI():
     assert len(obj2.data.vertices) == 11254, f"Expected 11254 vertices, found {len(obj2.data.vertices)}"
 
 
+@TT.category('FO4', 'BODYPART', 'PARTITIONS')
 def TEST_SEGMENTS():
     """Can read FO4 segments"""
 
@@ -1647,6 +1701,7 @@ def TEST_SEGMENTS():
     CheckNif(nif2, testfile)
     
 
+@TT.category('FO4', 'BODYPART', 'PARTITIONS')
 def TEST_BP_SEGMENTS():
     """Can read FO4 bodypart segments"""
 
@@ -1690,6 +1745,7 @@ def TEST_BP_SEGMENTS():
     assert visor2.partitions[1].subsegments[0].user_slot == 30, "Visor has subsegment 30"
 
 
+@TT.category('FO4', 'BODYPART', 'PARTITIONS')
 def TEST_EXP_SEGMENTS_BAD():
     """Verts export in the correct segments"""
     # Game can get crashy if there are a bunch of empty segments at the end of the list.
@@ -1712,6 +1768,7 @@ def TEST_EXP_SEGMENTS_BAD():
     assert len([x for x in body.partition_tris if x != 3]) == 0, f"Regression: No tris in the last partition (or any other)--found {len([x for x in body.partition_tris if x != 3])}"
 
 
+@TT.category('FO4', 'BODYPART', 'PARTITIONS')
 def TEST_EXP_SEG_ORDER():
     """Segments export in numerical order"""
     if bpy.app.version[0] < 3: return 
@@ -1741,6 +1798,7 @@ def TEST_EXP_SEG_ORDER():
     assert len(body.partitions[3].subsegments) == 0, "Torso has no subsegments"
 
 
+@TT.category('SKYRIM', 'BODYPART', 'PARTITIONS')
 def TEST_PARTITIONS():
     """Can read Skyrim partions"""
     testfile = TTB.test_file(r"tests/Skyrim/malehead.nif")
@@ -1767,6 +1825,7 @@ def TEST_PARTITIONS():
     CheckNif(nif2, testfile)
 
 
+@TT.category('SKYRIM', 'PARTITIONS')
 def TEST_PARTITIONS_EMPTY():
     """Do not write empty partitions"""
     testfile = TTB.test_file(r"tests\SkyrimSE\Head_EmptyPartition.blend")
@@ -2113,7 +2172,7 @@ def TEST_ANIM_SHADER_BSLSP():
 def Spriggan_LeavesLandedLoop_Check(lllaction):
     # LeavesLandedLoop has correct range
     TT.assert_eq(lllaction.frame_range[0], 1, "Frame start")
-    TT.assert_equiv(lllaction.frame_range[1], 50, "Frame end", e=1)
+    TT.assert_equiv(lllaction.frame_range[1], 58, "Frame end", e=1)
 
     # Is controlling correct targets
     TT.assert_eq(len(lllaction.slots), 4, "LeavesLandedLoop requires 4 slots")
@@ -2163,7 +2222,7 @@ def Spriggan_KillFX_Check(kfxaction):
     """Check that the KillFx animation sequence was imported correctly."""
     # KillFX has correct range
     TT.assert_eq(kfxaction.frame_range[0], 1, "Frame start")
-    TT.assert_equiv(kfxaction.frame_range[1], 49, "Frame end", e=1)
+    TT.assert_equiv(kfxaction.frame_range[1], 57, "Frame end", e=1)
 
     # Is controlling correct targets
     TT.assert_eq(len(kfxaction.slots), 4, "KillFX requires 4 slots")
@@ -2298,7 +2357,7 @@ def TEST_SPRIGGAN():
     bpy.context.scene.frame_set(bpy.context.scene.frame_current)
     TT.assert_equiv(fxbody.active_material.node_tree.nodes["SkyrimShader:Default"]
                         .inputs["Emission Strength"].default_value,
-                    6,
+                    6.1,
                     "Emission Strength at frame 9",
                     e=0.1)
     bpy.context.scene.frame_current = 18
@@ -2306,7 +2365,7 @@ def TEST_SPRIGGAN():
     bpy.context.scene.frame_set(bpy.context.scene.frame_current)
     TT.assert_equiv(fxbody.active_material.node_tree.nodes["SkyrimShader:Default"]
                         .inputs["Emission Strength"].default_value,
-                    13.1765,
+                    12.0,
                     "Emission Strength at frame 18",
                     e=0.1)
 
@@ -2530,6 +2589,7 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
     TT.assert_equiv(dat1.backward[0], -0.151786, "Key 1 backward", e=0.1)
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_TEXTURE_PATHS():
     """Texture paths are correctly resolved"""
     testfile = TTB.test_file(r"tests\SkyrimSE\circletm1.nif")
@@ -2557,6 +2617,7 @@ def TEST_TEXTURE_PATHS():
     TT.assert_eq_nocase(Path(norm).name, 'Circlet_n.png', "normal texture path")
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_CAVE_GREEN():
     """Cave nif can be exported correctly"""
     # Regression: Make sure the transparency is exported on this nif.
@@ -2625,6 +2686,7 @@ def TEST_POT():
         assert v.co.z < 0, f"Hook verts all below hook anchor point: {v.co}"
 
 
+@TT.category('FO4', 'SHADER')
 def TEST_BRICKWALL():
     """FO4 brick wall with greyscale, wild UV."""
     testfile = TTB.test_file(r"tests\FO4\Meshes\Architecture\DiamondCity\DExt\DExBrickColumn01.nif")
@@ -2635,6 +2697,7 @@ def TEST_BRICKWALL():
     assert bpy.data.materials["DExBrickColumn01:0.Mat"].node_tree.nodes["Fallout 4 MTS - Greyscale To Palette Vector"], "Have palette node"
 
 
+@TT.category('FO4', 'ARMATURE')
 def TEST_NOT_FB():
     """Test that nif that looked like facebones skel can be imported"""
     # This nif has a body where the skin-to-bone transforms don't define a simple translation
@@ -2658,6 +2721,7 @@ def TEST_NOT_FB():
     assert minz > -130, f"Min z location not stretched: {minz}"
 
 
+@TT.category('FO4', 'ARMATURE')
 def TEST_MULTI_IMP():
     """Test that importing multiple hair parts doesn't mess up"""
     # Fact is, this DOES mess up. we can import more than one nif at a time, which 
@@ -2680,6 +2744,7 @@ def TEST_MULTI_IMP():
     assert h.location.z > 120, f"Hair fully imported: {h.location}"
 
 
+@TT.category('SKYRIMSE', 'ARMATURE')
 def TEST_WELWA():
     """Can read and write shape with unusual skeleton"""
     # The Welwa (bear skeleton) has bones similar to human bones--but they can't be
@@ -2711,6 +2776,7 @@ def TEST_WELWA():
     assert "NPC Pelvis [Pelv]" not in nifcheck.nodes, f"Human pelvis name not written: {nifcheck.nodes.keys()}"
 
 
+@TT.category('FO4')
 def TEST_MUTANT():
     """Test that the supermutant body imports correctly the *second* time"""
     testfile = TTB.test_file(r"tests/FO4/testsupermutantbody.nif")
@@ -2729,7 +2795,8 @@ def TEST_MUTANT():
     assert sm2 != sm1, f"Second import created second object: {sm2.name}"
     assert round(sm2.location[2]) == 140, f"Expect supermutant body at 140 Z, got {sm2.location[2]}"
 
-    
+
+@TT.category('FO4')    
 def TEST_EXPORT_HANDS():
     """Test that hand mesh doesn't throw an error"""
     # When there are problems with the mesh we don't want to crash and burn.
@@ -2744,6 +2811,7 @@ def TEST_EXPORT_HANDS():
     assert os.path.exists(outfile)
 
 
+@TT.category('FO4', 'PARTITIONS')
 def TEST_PARTITION_ERRORS():
     """Partitions with errors raise errors"""
     if bpy.app.version[0] < 3: return
@@ -2863,6 +2931,7 @@ def TEST_FEET_MULTI():
         assert shape.string_data[0][1].startswith('[{"name"'), "String data value written correctly"
 
 
+@TT.category('SKYRIM', 'SCALING')
 def TEST_SCALING():
     """Test that scale factors happen correctly"""
 
@@ -2898,6 +2967,7 @@ def TEST_SCALING():
     assert zmin < 15, f"basis3 is not scaled: {zmin} - {zmax}"
 
 
+@TT.category('SKYRIMSE', 'SCALING', 'FURNITURE')
 def TEST_SCALING_OBJ():
     """Can scale simple object with furniture markers"""
     testfile = TTB.test_file(r"tests\SkyrimSE\farmbench01.nif")
@@ -2937,6 +3007,7 @@ def TEST_SCALING_OBJ():
     assert fmcheck[0].offset[2] > 30, f"Furniture marker Z scaled up: {fmcheck[0].offset[2]}"
 
 
+@TT.category('SKYRIM', 'SCALING')
 def TEST_UNIFORM_SCALE():
     """Can export objects with uniform scaling"""
 
@@ -2955,6 +3026,7 @@ def TEST_UNIFORM_SCALE():
         assert NT.VNearEqual(map(abs, v), [1,1,1]), f"All vertices at unit position: {v}"
 
 
+@TT.category('SKYRIM', 'SCALING')
 def TEST_NONUNIFORM_SCALE():
     """Can export objects with non-uniform scaling"""
 
@@ -2973,6 +3045,7 @@ def TEST_NONUNIFORM_SCALE():
         assert not NT.VNearEqual(map(abs, v), [1,1,1]), f"All vertices scaled away from unit position: {v}"
 
 
+@TT.category('SKYRIMSE', 'EXTRA_DATA', 'TRI')
 def TEST_TRIP_SE():
     """Bodypart tri extra data and file are written on export"""
     # Special bodytri files allow for Bodyslide or FO4 body morphing.
@@ -3008,6 +3081,7 @@ def TEST_TRIP_SE():
     assert "CrotchBack" in bodymorphs.keys(), f"Found 'CrotchBack' in {bodymorphs.keys()}"
 
 
+@TT.category('FO4', 'BODYPART', 'TRI')
 def TEST_TRIP():
     """Body tri extra data and file are written on export"""
     outfile = TTB.test_file(r"tests/Out/TEST_TRIP.nif")
@@ -3040,6 +3114,7 @@ def TEST_TRIP():
     assert "BTShoulders" in bodymorphs.keys(), f"Found 'BTShoulders' in {bodymorphs.keys()}"
 
 
+@TT.category('FO4', 'SHADER')
 def TEST_COLORS():
     """Can read & write vertex colors"""
     # Blender's vertex color layers are used to define vertex colors in the nif.
@@ -3056,6 +3131,7 @@ def TEST_COLORS():
     assert cd[3] == (0.0, 0.0, 1.0, 1.0), f"Second vertex found: {cd[3]}"
 
 
+@TT.category('FO4', 'SHADER')
 def TEST_COLORS2():
     """Can read & write vertex colors"""
     testfile = TTB.test_file(r"tests/FO4/HeadGear1.nif")
@@ -3080,6 +3156,7 @@ def TEST_COLORS2():
     assert nif2.shapes[0].colors[561] == (0.0, 0.0, 0.0, 1.0), f"Color 561 not reread correctly: {nif2.shapes[0].colors[561]}"
 
 
+@TT.category('FO4', 'SHADER')
 def TEST_COLORS3():
     """Can read & write vertex colors & alpha"""
     testfile = TTB.test_file(r"tests\FO4\FemaleHair05_Hairline.nif")
@@ -3104,6 +3181,7 @@ def TEST_COLORS3():
         # assert colors[i] == colors2[i], f"Have correct colors, {colors[i]} == {colors2[i]}"
 
 
+@TT.category('SKYRIMSE', 'SHADER')
 def TEST_NEW_COLORS():
     """Can write vertex colors that were created in blender"""
     # Regression: There have been issues dealing with how Blender handles colors.
@@ -3122,6 +3200,7 @@ def TEST_NEW_COLORS():
         f"ShaderFlags2 vertex colors set: {pyn.ShaderFlags2(shape.shader.Shader_Flags_2).fullname}"
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_COLOR_CUBES():
     """Can write vertex colors that were created in blender"""
     # Two shapes with the same name, both with vertex colors. Exporter should not get
@@ -3153,6 +3232,7 @@ def TEST_COLOR_CUBES():
         assert c == (1, 0, 0, 1) or c == (0, 1, 0, 1), f"Color is red or green: {c}"
         
 
+@TT.category('FO4', 'SHADER')
 def TEST_NOTEXTURES():
     """Can read a nif with no texture paths."""
     testfile = TTB.test_file(r"tests/FO4/HeadGear1 - NoTextures.nif")
@@ -3168,6 +3248,7 @@ def TEST_NOTEXTURES():
     assert colordata[targetv].color[:] == (0.0, 0.0, 0.0, 1.0), f"Color for vert not read correctly: {colordata[targetv].color[:]}"
 
 
+@TT.category('FO4', 'SHADER')
 def TEST_VERTEX_COLOR_IO():
     """Vertex colors can be read and written"""
     # On heads, vertex alpha and diffuse alpha work together to determine the final
@@ -3212,6 +3293,7 @@ def TEST_VERTEX_COLOR_IO():
     assert max_a == 1, f"Max alpha is 1: {max_a}"
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_VERTEX_ALPHA_IO():
     """Import & export shape with vertex alpha values"""
     testfile = TTB.test_file(r"tests\SkyrimSE\meshes\actors\character\character assets\maleheadkhajiit.nif")
@@ -3252,6 +3334,7 @@ def TEST_VERTEX_ALPHA_IO():
     # assert not dif, f"Error: Shader attributes not preserved: {dif}"
 
 
+@TT.category('SKYRIMSE', 'ANIMATION', 'SHADER')
 def TEST_ALPHA_THRESHOLD_CHANGE():
     """Regression: Alpha threshold should not change on export."""
     testfile = TTB.test_file(r"tests\SkyrimSE\meshes\CRSTSkinKalaar.nif")
@@ -3269,7 +3352,7 @@ def TEST_ALPHA_THRESHOLD_CHANGE():
     alphanode = mat.node_tree.nodes['AlphaProperty']
     TT.assert_equiv(alphanode.inputs['Alpha Threshold'].default_value, 6.0, "Alpha Threshold pre-export")
 
-    bpy.ops.export_scene.pynifly(filepath=outfile1)
+    bpy.ops.export_scene.pynifly(filepath=outfile1, export_animations=True)
     TT.assert_equiv(alphanode.inputs['Alpha Threshold'].default_value, 6.0, "Alpha Threshold post-export")
 
     nifout = pyn.NifFile(outfile1)
@@ -3292,6 +3375,7 @@ def TEST_ALPHA_THRESHOLD_CHANGE():
     # TT.assert_eq(len(nifout.root.controller.next_controller.extra_targets), 1, "extra targets count")
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_VERTEX_ALPHA():
     """Export shape with vertex alpha values"""
     outfile = TTB.test_file(r"tests/Out/TEST_VERTEX_ALPHA.nif")
@@ -3351,6 +3435,7 @@ def TEST_VERTEX_ALPHA():
             TT.assert_equiv(c.color, (1.0, 1.0, 1.0, 1.0), "color value")
 
 
+@TT.category('SKYRIMSE', 'ARMATURE')
 def TEST_BONE_HIERARCHY():
     """Bone hierarchy can be written on export"""
     # This hair has a complex custom bone hierarchy which have moved with havok.
@@ -3415,6 +3500,7 @@ def TEST_BONE_HIERARCHY():
         f"Anna L3 skin-to-bone matches original: \n{sk2b}"
 
 
+@TT.category('FO4', 'FACEBONES', 'TRI')
 def TEST_FACEBONE_EXPORT():
     """Test can export facebones + regular nif; shapes with hidden verts export correctly"""
     # Facebones are exported along with the regular nif as long as either they are 
@@ -3480,6 +3566,7 @@ def TEST_FACEBONE_EXPORT():
     #assert len([x for x in nif4.nodes.keys() if x == "Neck"]) == 0, f"Expected no regular nodes in facebones nif file; found {nif4.nodes.keys()}"
 
 
+@TT.category('FO4', 'FACEBONES', 'TRI')
 def TEST_FACEBONE_EXPORT2():
     """Test can export facebones + regular nif; shapes with hidden verts export correctly"""
     # Regression. Test that facebones and regular mesh are both exported.
@@ -3502,6 +3589,7 @@ def TEST_FACEBONE_EXPORT2():
     assert len(outniffb.shapes) >= 1, f"Have shapes in facebones export file: {outniffb.shapes}"
 
 
+@TT.category('FO4', 'PARTITIONS')
 def TEST_HYENA_PARTITIONS():
     """Partitions export successfully, with warning"""
     # This Blender object has non-normalized weights--the weights for each vertex do 
@@ -3546,6 +3634,7 @@ def TEST_HYENA_PARTITIONS():
     #     assert NT.NearEqual(weight_total, 1.0), f"Weights should total to 1 for index {i}: {weight_total}"        
 
 
+@TT.category('SKYRIMSE', 'PARTITIONS')
 def TEST_MULT_PART():
     """Export shape with face that might fall into multiple partititions"""
     # Check that we DON'T throw a multiple-partitions error when it's not necessary.
@@ -3560,6 +3649,7 @@ def TEST_MULT_PART():
     assert "*MULTIPLE_PARTITIONS*" not in obj.vertex_groups, f"Exported without throwing *MULTIPLE_PARTITIONS* error"
 
 
+@TT.category('SKYRIM', 'ARMATURE')
 def TEST_BONE_XPORT_POS():
     """Vanilla bones coming from a different skeleton export correctly."""
     # Since we use a reference skeleton to make bones, we have to be able to handle
@@ -3606,6 +3696,7 @@ def TEST_BONE_XPORT_POS():
     TT.assert_equiv(spine2check.matrix_local.translation[2], 102.36, "Spine2 translation in blender", e=0.01)
 
 
+@TT.category('SKYRIMSE', 'INVENTORY_MARKER')
 def TEST_INV_MARKER():
     """Can handle inventory markers"""
     # Inventory markers are imported as cameras set up to reflect how the item will be
@@ -3740,6 +3831,7 @@ def TEST_INV_MARKER():
             ), f"Inventory matrix neutral: {im.matrix_world.to_euler()}"
 
 
+@TT.category('FO4')
 def TEST_TREE():
     """Can read and write FO4 tree"""
     # Trees in FO4 use a special root node and a special shape node.
@@ -3823,6 +3915,7 @@ def CheckBow(nif, nifcheck, bow):
     # assert round(bsinvcheck[4], 4) == 1.1273, f"Inventory marker zoom set: {bsinvcheck[4]}"
 
 
+@TT.category('SKYRIM', 'PHYSICS')
 def TEST_COLLISION_BOW_SCALE():
     """Collisions scale correctly on import and export"""
     # Collisions have to be scaled with everything else if the import/export
@@ -3844,32 +3937,30 @@ def TEST_COLLISION_BOW_SCALE():
     bow = TTB.find_shape("ElvenBowSkinned:0")
 
     # Check shape size
-    assert BD.VNearEqual(bow.scale, Vector((1,1,1))), "Have 1x scale"
+    TT.assert_equiv(bow.scale, Vector((1,1,1,)), "Bow scale")
     maxy = max(v.co.y for v in bow.data.vertices)
     miny = min(v.co.y for v in bow.data.vertices)
-    assert BD.NearEqual(maxy, 64.4891), f"Have correct max y: {maxy}"
-    assert BD.NearEqual(miny, -50.5509), f"Have correct min y: {miny}"
+    TT.assert_equiv(maxy, 64.4891, f"Max y")
+    TT.assert_equiv(miny, -50.5509, f"Min y")
 
     # Make sure the bone positions didn't get messed up by use_blender_xf.
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     mxbind = arma.data.bones['Bow_StringBone1'].matrix_local
     mxpose = arma.pose.bones['Bow_StringBone1'].matrix
-    assert BD.MatNearEqual(mxbind, mxpose), f"Bind position same as pose position"
+    TT.assert_equiv(mxbind, mxpose, f"Bind position vs pose position")
 
     # Check collision info
     midbone = arma.data.bones['Bow_MidBone']
     midbonew = arma.matrix_world @ midbone.matrix_local
     coll = arma.pose.bones['Bow_MidBone'].constraints[0].target
-    assert NT.VNearEqual(coll.matrix_world.translation, midbonew.translation), \
-        f"Collision positioned at target bone"
+    TT.assert_equiv(coll.matrix_world.translation, midbonew.translation, f"Collision position")
 
     q = coll.matrix_world.to_quaternion()
-    assert NT.VNearEqual(q, (0.7071, 0.0, 0.0, 0.7071)), \
-        f"Collision body rotation correct: {coll.rotation_quaternion}"
+    TT.assert_equiv(q, (0.7071, 0.0, 0.0, 0.7071,), f"Collision body rotation")
 
     # Scale factor applied to bow
     objmin, objmax = TTB.get_obj_bbox(bow, worldspace=True)
-    assert objmax.y - objmin.y < 12, f"Bow is properly scaled: {objmax - objmin}"
+    TT.assert_lt(objmax.y - objmin.y, 12, f"Bow scale")
 
     # Collision box bounds close to bow bounds.
     collbox = TTB.find_shape('bhkBoxShape')
@@ -3884,9 +3975,9 @@ def TEST_COLLISION_BOW_SCALE():
     assert dworld.y > dworld.x > dworld.z, f"Have correct rotation"
 
     # Centerpoint of collision box is just offset from origin
-    assert BD.VNearEqual(c, Vector((0.6402, 0.0143, 0.002))), f"Centerpoint correct: {c}"
+    TT.assert_equiv(c, Vector((0.6402, 0.0143, 0.002,)), f"Centerpoint")
 
-    print("--Testing export")
+    ### FIX ###
 
     # Move the edge of the collision box so it covers the bow better
     for v in collbox.data.vertices:
@@ -3899,7 +3990,7 @@ def TEST_COLLISION_BOW_SCALE():
     boxmin, boxmax = TTB.get_obj_bbox(collbox, worldspace=True)
     assert NT.VNearEqual(objmax, boxmax, epsilon=1.0), f"Collision just covers bow: {objmax} ~~ {boxmax}"
 
-    # ------- Export and Check Results --------
+    ### EXPORT ###
 
     # We want the special properties of the root node. 
     BD.ObjectSelect([obj for obj in bpy.data.objects if 'pynRoot' in obj], active=True)
@@ -3907,6 +3998,8 @@ def TEST_COLLISION_BOW_SCALE():
     # Depend on the defaults stored on the armature for scale factor
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', 
                                  preserve_hierarchy=True)
+
+    ### CHECK ###
 
     nif = pyn.NifFile(testfile)
     nifcheck = pyn.NifFile(outfile)
@@ -3916,19 +4009,18 @@ def TEST_COLLISION_BOW_SCALE():
                       bow)
 
     rootcheck = nifcheck.rootNode
-    assert rootcheck.name == "GlassBowSkinned.nif", f"Root node name incorrect: {rootcheck.name}"
-    assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
-    assert rootcheck.flags == 14, f"Root block flags set: {rootcheck.flags}"
+    TT.assert_eq(rootcheck.name, "GlassBowSkinned.nif", f"Root node name")
+    TT.assert_eq(rootcheck.blockname, "BSFadeNode", f"Root node type")
+    TT.assert_eq(rootcheck.flags, 14, f"Root block flags")
 
     midbowcheck = nifcheck.nodes["Bow_MidBone"]
     collcheck = midbowcheck.collision_object
-    assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
-    assert bhkCOFlags(collcheck.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+    TT.assert_eq(collcheck.blockname, "bhkCollisionObject", f"Collision node block")
+    TT.assert_eq(bhkCOFlags(collcheck.flags).fullname, "ACTIVE | SYNC_ON_UPDATE", f"Collision flags")
 
     # Full check of locations and rotations to make sure we got them right
     TTB.compare_bones('Bow_MidBone', nif, nifcheck, e=0.001)
     TTB.compare_bones('Bow_StringBone2', nif, nifcheck, e=0.001)
-
 
     # Re-import the nif to make sure collisions are right. Could test them in the nif
     # directly but the math is gnarly.
@@ -3943,12 +4035,13 @@ def TEST_COLLISION_BOW_SCALE():
     box = bone.constraints[0].target
     mina, maxa = TTB.get_obj_bbox(bow, worldspace=True)
     minb, maxb = TTB.get_obj_bbox(box, worldspace=True)
-    assert minb[0] < mina[0], f"Box min x less than bow min"
-    assert minb[1] < mina[1], f"Box min y less than bow min"
-    assert maxb[0] > maxa[0], f"Box max x greater than bow max"
-    assert maxb[1] > maxa[1], f"Box max y greater than bow max"
+    TT.assert_lt(minb[0], mina[0], f"Box min x")
+    TT.assert_lt(minb[1], mina[1], f"Box min y")
+    TT.assert_gt(maxb[0], maxa[0], f"Box max x")
+    TT.assert_gt(maxb[1], maxa[1], f"Box max y")
 
 
+@TT.category('SKYRIM', 'PHYSICS')
 def TEST_COLLISION_BOW():
     """Can read and write bow"""
     # The bow has a simple collision that we can import and export.
@@ -3965,78 +4058,80 @@ def TEST_COLLISION_BOW():
 
     # Check root info
     root = [o for o in bpy.data.objects if "pynRoot" in o][0]
-    assert root["pynBlockName"] == 'BSFadeNode', "pynRootNode_BlockType holds the type of root node for the given shape"
-    assert root["pynNodeName"] == "GlassBowSkinned.nif", "pynRootNode_Name holds the name for the root node"
-    assert root["pynNodeFlags"] == "SELECTIVE_UPDATE | SELECTIVE_UPDATE_TRANSF | SELECTIVE_UPDATE_CONTR", f"'pynNodeFlags' holds the flags on the root node: {root['pynRootNode_Flags']}"
-    assert len([c for c in root.children if c.type=='MESH']) == 1, f"Have one mesh"
-    
+    TT.assert_eq(root["pynBlockName"], 'BSFadeNode', "Root block type")
+    TT.assert_eq(root["pynNodeName"], "GlassBowSkinned.nif", "Root block name")
+    TT.assert_eq(root["pynNodeFlags"], 
+                 "SELECTIVE_UPDATE | SELECTIVE_UPDATE_TRANSF | SELECTIVE_UPDATE_CONTR", 
+                 "root node flags")
+    TT.assert_eq(len([c for c in root.children if c.type=='MESH']), 1, "Mesh count")
+
     # Check shape size
     bow = TTB.find_shape("ElvenBowSkinned:0")
     maxy = max(v.co.y for v in bow.data.vertices)
     miny = min(v.co.y for v in bow.data.vertices)
-    assert BD.NearEqual(maxy, 64.4891), f"Have correct max y: {maxy}"
-    assert BD.NearEqual(miny, -50.5509), f"Have correct min y: {miny}"
+    TT.assert_equiv(maxy, 64.4891, "max y")
+    TT.assert_equiv(miny, -50.5509, "min y")
 
     # Check armature
     arma = bow.modifiers['Armature'].object
-    assert len(arma.data.bones) == 7, f"Have right number of bones"
+    TT.assert_eq(len(arma.data.bones), 7, "Bone count")
     maxx = max(b.matrix_local.translation.x for b in arma.data.bones)
     minx = min(b.matrix_local.translation.x for b in arma.data.bones)
     maxy = max(b.matrix_local.translation.y for b in arma.data.bones)
     miny = min(b.matrix_local.translation.y for b in arma.data.bones)
-    assert maxx > 1.0, f"Armature bind position stretches wide enough"
-    assert miny < -10.0, f"Armature bind stretches low enough"
-    assert maxy > 50.0, f"Armature bind position stretches high enough"
-    assert miny < -50.0, f"Armature bind stretches low enough"
+    TT.assert_gt(maxx, 1.0, "max x")
+    TT.assert_lt(minx, -10.0, "min x")
+    TT.assert_gt(maxy, 50.0, "max y")
+    TT.assert_lt(miny, -50.0, "min y")
 
     # Check collision info
     coll = arma.pose.bones['Bow_MidBone'].constraints['bhkCollisionConstraint'].target
-    assert coll.name == 'bhkBoxShape', f"Collision shape is box"
-    assert coll['pynCollisionFlags'] == "ACTIVE | SYNC_ON_UPDATE", f"bhkCollisionShape represents a collision"
-    assert coll['collisionFilter_layer'] == SkyrimCollisionLayer.WEAPON.name, \
-        f"Collsion filter layer is loaded as string: {coll['collisionFilter_layer']}"
+    TT.assert_eq(coll.name, 'bhkBoxShape', "Collision shape")
+    TT.assert_eq(coll['pynCollisionFlags'], "ACTIVE | SYNC_ON_UPDATE", "bhkCollisionShape represents a collision")
+    TT.assert_eq(coll['collisionFilter_layer'], SkyrimCollisionLayer.WEAPON.name, 
+                 "Collsion filter layer")
 
     # Default collision response is 1 = SIMPLE_CONTACT, so no property for it.
     # assert coll["collisionResponse"] == hkResponseType.SIMPLE_CONTACT.name, f"Collision response loaded as string: {collbody['collisionResponse']}"
 
     # assert NT.VNearEqual(coll.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
 
-    assert coll['bhkMaterial'] == 'MATERIAL_BOWS_STAVES', f"Shape material is a custom property: {coll['bhkMaterial']}"
-    assert round(coll['bhkRadius'],4) == 0.0136, f"Radius property available as custom property: {coll['bhkRadius']}"
+    TT.assert_eq(coll['bhkMaterial'], 'MATERIAL_BOWS_STAVES', f"Shape material")
+    TT.assert_equiv(coll['bhkRadius'], 0.0136, f"Radius")
 
     # Covers the bow closely in the Y axis
     bowmax = max((bow.matrix_world @ v.co).y for v in bow.data.vertices)
     boxmax = max((coll.matrix_world @ v.co).y for v in coll.data.vertices)
-    assert BD.NearEqual(bowmax, boxmax, epsilon=0.1), f"Collision matches bow up"
+    TT.assert_equiv(bowmax, boxmax, "Collision max extent", e=0.1)
     bowmin = min((bow.matrix_world @ v.co).y for v in bow.data.vertices)
     boxmin = min((coll.matrix_world @ v.co).y for v in coll.data.vertices)
-    assert BD.NearEqual(bowmin, boxmin+0.25, epsilon=0.1), f"Collision matches bow down"
+    TT.assert_equiv(bowmin, boxmin+0.25, "Collision min extent", e=0.1)
 
     # Covers the bow badly in the X axis
     bowmax = max((bow.matrix_world @ v.co).x for v in bow.data.vertices)
     boxmax = max((coll.matrix_world @ v.co).x for v in coll.data.vertices)
-    assert BD.NearEqual(bowmax, boxmax+5.4, epsilon=0.1), f"Collision matches bow up"
+    TT.assert_equiv(bowmax, boxmax+5.4, "Collision max extent", e=0.1)
     bowmin = min((bow.matrix_world @ v.co).x for v in bow.data.vertices)
     boxmin = min((coll.matrix_world @ v.co).x for v in coll.data.vertices)
-    assert BD.NearEqual(bowmin, boxmin+1.25, epsilon=0.1), f"Collision matches bow down"
+    TT.assert_equiv(bowmin, boxmin+1.25, "Collision min extent", e=0.1)
 
     # Check extra data
     bged = TTB.find_shape("BSBehaviorGraphExtraData", type='EMPTY')
-    assert bged['BSBehaviorGraphExtraData_Value'] == "Weapons\Bow\BowProject.hkx", f"BGED node contains bow project: {bged['BSBehaviorGraphExtraData_Value']}"
+    TT.assert_eq(bged['BSBehaviorGraphExtraData_Value'], "Weapons\Bow\BowProject.hkx", "BGED node value")
 
     strd = TTB.find_shape("NiStringExtraData", type='EMPTY')
-    assert strd['NiStringExtraData_Value'] == "WeaponBow", f"Str ED node contains bow value: {strd['NiStringExtraData_Value']}"
+    TT.assert_eq(strd['NiStringExtraData_Value'], "WeaponBow", f"string extra data value")
 
     bsxf = TTB.find_shape("BSXFlags", type='EMPTY')
     root = [o for o in bpy.data.objects if "pynRoot" in o][0]
-    assert bsxf.parent == root, f"Extra data imported under root"
-    assert bsxf['BSXFlags_Name'] == "BSX", f"BSX Flags contain name BSX: {bsxf['BSXFlags_Name']}"
-    assert bsxf['BSXFlags_Value'] == "HAVOC | COMPLEX | DYNAMIC | ARTICULATED", "BSX Flags object contains correct flags: {bsxf['BSXFlags_Value']}"
+    TT.assert_eq(bsxf.parent, root, f"Extra data parent")
+    TT.assert_eq(bsxf['BSXFlags_Name'], "BSX", "BSX Flags name")
+    TT.assert_eq(bsxf['BSXFlags_Value'], "HAVOC | COMPLEX | DYNAMIC | ARTICULATED", "BSX Flags value")
 
     invm = TTB.find_shape("BSInvMarker", type='CAMERA')
-    assert invm['BSInvMarker_Name'] == "INV", f"Inventory marker shape has correct name: {invm['BSInvMarker_Name']}"
-    assert invm['BSInvMarker_RotX'] == 4712, f"Inventory marker rotation correct: {invm['BSInvMarker_RotX']}"
-    assert round(invm['BSInvMarker_Zoom'], 4) == 1.1273, f"Inventory marker zoom correct: {invm['BSInvMarker_Zoom']}"
+    TT.assert_eq(invm['BSInvMarker_Name'], "INV", "Inventory marker name")
+    TT.assert_eq(invm['BSInvMarker_RotX'], 4712, "Inventory marker x rotation")
+    TT.assert_equiv(invm['BSInvMarker_Zoom'], 1.1273, "Inventory marker zoom")
 
     # Check shape as deformed by armature
     BD.ObjectSelect([bow], active=True)
@@ -4047,26 +4142,31 @@ def TEST_COLLISION_BOW():
             bpy.ops.object.modifier_apply(modifier=m.name)
     maxy = max(v.co.y for v in bow.data.vertices)
     miny = min(v.co.y for v in bow.data.vertices)
-    assert BD.NearEqual(maxy, 64.4891), f"Have correct max y: {maxy}"
-    assert BD.NearEqual(miny, -50.5509), f"Have correct min y: {miny}"
-
-    # ------- Export --------
+    TT.assert_equiv(maxy, 64.4891, "Max y")
+    TT.assert_equiv(miny, -50.5509, "Min y")
+    
+    ### FIX ###
 
     # Move the edge of the collision box so it covers the bow better
     for v in coll.data.vertices:
         if v.co.y > 0:
             v.co.y += 5.4
 
+    ### EXPORT ###
+
     # Exporting the root object takes everything with it and sets root properties.
     BD.ObjectSelect([root], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', 
                                  preserve_hierarchy=True)
 
-    # ------- Check Results --------
+    ### CHECK ###
+
     nif = pyn.NifFile(testfile)
     nifcheck = pyn.NifFile(outfile)
     CheckBow(nif, nifcheck, bow)
 
+
+@TT.category('SKYRIM', 'PHYSICS')
 def TEST_COLLISION_BOW2():
     """Can modify collision shape location."""
 
@@ -4118,6 +4218,7 @@ def TEST_COLLISION_BOW2():
     # assert NT.VNearEqual(p.rotation[:], [0.0, 0.0, 0.707106, 0.707106]), f"Collision body rotation correct: {p.rotation[:]}"
 
 
+@TT.category('SKYRIM', 'PHYSICS')
 def TEST_COLLISION_BOW3():
     """Can modify collision shape type"""
     # We can change the collision by editing the Blender shapes. Collision shape has a
@@ -4174,6 +4275,7 @@ def TEST_COLLISION_BOW3():
     do_test('BLENDER')
 
 
+@TT.category('SKYRIM', 'PHYSICS')
 def TEST_COLLISION_HIER():
     """Can read and write hierarchy of nodes containing shapes"""
     # These leeks are two shapes collected under an NiNode, with the collision on the 
@@ -4237,6 +4339,7 @@ def TEST_COLLISION_HIER():
     assert NT.VNearEqual(shCheck.vertices[5], shOrig.vertices[5]), f"Collision vertices match 0: {shCheck.vertices[5][:]} == {shOrig.vertices[5][:]}"
 
 
+@TT.category('FO4', 'SHADER')
 def TEST_NORM():
     """Normals are read correctly"""
     testfile = TTB.test_file(r"tests/FO4/CheetahMaleHead.nif")
@@ -4258,6 +4361,7 @@ def TEST_NORM():
     #     f"Custom normal different from vertex normal: {custnormal}"
 
 
+@TT.category('FO4', 'SHADER')
 def TEST_SPLIT_NORMALS():
     """Mesh with wonky normals exports correctly"""
     # Custom split normals change the direction light bounces off an object. They may be
@@ -4303,6 +4407,7 @@ def TEST_SPLIT_NORMALS():
     assert found >= 0, "Triangle not in output mesh"
 
 
+@TT.category('SKYRIM', 'SHADER', 'SHAPEKEYS')
 def TEST_ROGUE02():
     """Shape keys export normals correctly"""
     # Shape keys and custom normals interfere with each other. If a shape key warps the
@@ -4324,6 +4429,7 @@ def TEST_ROGUE02():
     assert n == [0, 1, 0], f"Normal should point along y axis, instead: {n}"
 
 
+@TT.category('FO4', 'SHADER')
 def TEST_NORMAL_SEAM():
     """Normals on a split seam are seamless"""
     testfile = TTB.test_file(r"tests/Out/TEST_NORMAL_SEAM.nif")
@@ -4340,6 +4446,7 @@ def TEST_NORMAL_SEAM():
     assert NT.VNearEqual(shape2.normals[target_vert[0]], shape2.normals[target_vert[1]]), f"Normals should be equal: {shape2.normals[target_vert[0]]} != {shape2.normals[target_vert[1]]}" 
 
 
+@TT.category('SKYRIM', 'ARMATURE')
 def TEST_NIFTOOLS_NAMES():
     """Can import nif with niftools' naming convention"""
     # We allow renaming bones according to the NifTools format. Someday this may allow
@@ -4378,6 +4485,7 @@ def TEST_NIFTOOLS_NAMES():
         assert "NPC Calf [Clf].L" in body.vertex_groups, f"Vertex groups follow niftools naming convention: {body.vertex_groups.keys()}"
 
 
+@TT.category('SKYRIM', 'PHYSICS')
 def TEST_COLLISION_MULTI():
     """Can read and write shape with multiple collision shapes"""
 
@@ -4414,6 +4522,7 @@ def TEST_COLLISION_MULTI():
     assert l41.parent.name == "Leek04", f"Leek04:0 parent correct: {l41.parent.name}"
 
 
+@TT.category('SKYRIM', 'PHYSICS')
 def TEST_COLLISION_CONVEXVERT():
     """"Can read and write shape with convex verts collision shape at scale."""
     def do_test(bx):
@@ -4505,7 +4614,8 @@ def TEST_COLLISION_CONVEXVERT():
     do_test(True)
     do_test(False)
 
-    
+
+@TT.category('SKYRIM', 'PHYSICS')    
 def TEST_COLLISION_CAPSULE():
     """Can read and write shape with collision capsule shapes with and without Blender transforms"""
     # Note that the collision object is slightly offset from the shaft of the staff.
@@ -4567,6 +4677,7 @@ def TEST_COLLISION_CAPSULE():
     do_test(True)
 
 
+@TT.category('SKYRIM', 'PHYSICS')
 def TEST_COLLISION_CAPSULE2():
     """Can read and write shape with collision capsule shapes with and without Blender transforms."""
     # Note that the collision object is slightly offset from the shaft of the staff.
@@ -4615,6 +4726,7 @@ def TEST_COLLISION_CAPSULE2():
     do_test(True)
 
 
+@TT.category('SKYRIM', 'PHYSICS')
 def TEST_COLLISION_LIST():
     """
     Can read and write shape with collision list and collision transform shapes with and
@@ -4692,6 +4804,7 @@ def TEST_COLLISION_LIST():
     run_test('NATURAL')
 
 
+@TT.category('SKYRIM', 'PHYSICS')
 def TEST_COLLISION_BOW_CHANGE():
     """Changing collision type works correctly"""
 
@@ -4736,6 +4849,7 @@ def TEST_COLLISION_BOW_CHANGE():
     assert not bgedCheck[2], f"Extra data controls base skeleton: {bgedCheck}"
 
 
+@TT.category('SKYRIM', 'PHYSICS')
 def TEST_COLLISION_XFORM():
     """
     Can read and write shape with collision we build ourselves in Blender.
@@ -4810,7 +4924,8 @@ def TEST_COLLISION_XFORM():
         capminy = (capcts.transform[1][3] + capshape.properties.point1[1]) * BD.HSF
         assert BD.NearEqual(capminy, -73.4, epsilon=1.0), f"Capsule min y correct: {capminy}"
 
-        
+
+@TT.category('FO4', 'CONNECTPOINT')        
 def TEST_CONNECT_POINT():
     """Connect points import/export correctly"""
     # FO4 has a complex method of attaching shapes to other shapes in game, using
@@ -4871,6 +4986,7 @@ def TEST_CONNECT_POINT():
     assert sgcheck.blockname == 'BSTriShape', f"Have correct blockname: {sgcheck.blockname}"
 
 
+@TT.category('FO4', 'CONNECTPOINT')
 def TEST_CONNECT_POINT_MULT():
     """Regression: Blend file creates duplicate connect points."""
 
@@ -4909,6 +5025,7 @@ def TEST_CONNECT_POINT_MULT():
     assert sgcheck.blockname == 'BSTriShape', f"Have correct blockname: {sgcheck.blockname}"
 
 
+@TT.category('FO4', 'CONNECTPOINT')
 def TEST_CONNECT_WEAPON_PART():
     """Selected connect points used to parent new import"""
     # When a connect point is selected and then another part is imported that connects
@@ -4952,6 +5069,7 @@ def TEST_CONNECT_WEAPON_PART():
         f"Child connect point connected to parent connect point: {scopeccp.constraints['Copy Transforms'].target}"
     
 
+@TT.category('FO4', 'CONNECTPOINT')
 def TEST_CONNECT_IMPORT_MULT():
     """When multiple weapon parts are imported in one command, they are connected up"""
 
@@ -4970,6 +5088,7 @@ def TEST_CONNECT_IMPORT_MULT():
     assert len(barrelchild) == 1, f"Have a single barrel child {barrelchild}"
     
 
+@TT.category('FO4', 'CONNECTPOINT')
 def TEST_CONNECT_WORKSHOP():
     """Test meshes with many connect points, some with the same names."""
 
@@ -4999,6 +5118,7 @@ def TEST_CONNECT_WORKSHOP():
                      "Number of origin connect points")
     
 
+@TT.category('SKYRIMSE', 'FURNITUREMARKER')
 def TEST_FURN_MARKER1():
     """Furniture markers work"""
 
@@ -5029,6 +5149,7 @@ def TEST_FURN_MARKER1():
     assert len(fmcheck) == 2, f"Wrote the furniture marker correctly: {len(fmcheck)}"
 
 
+@TT.category('SKYRIMSE', 'FURNITUREMARKER')
 def TEST_FURN_MARKER2():
     """Furniture markers work"""
 
@@ -5056,6 +5177,7 @@ def TEST_FURN_MARKER2():
     assert fmcheck[0].entry_points == 13, f"Entry point data is correct: {fmcheck[0].entry_points}"
 
 
+@TT.category('FO4', 'FURNITUREMARKER')
 def TEST_FO4_CHAIR():
     """Furniture markers are imported and exported"""
 
@@ -5093,6 +5215,7 @@ def TEST_FO4_CHAIR():
     assert fmcheck[0].entry_points == 0, f"Entry point data is correct: {fmcheck[0].entry_points}"
 
 
+@TT.category('FO4', 'ANIMATION')
 def TEST_PIPBOY():
     """
     Test pipboy import/export. Very complex node hierarchy. Animations on multiple nodes
@@ -5110,14 +5233,19 @@ def TEST_PIPBOY():
     bpy.ops.import_scene.pynifly(filepath=testfile)
     TT.assert_true(bpy.data.objects['TapeDeckLid'].animation_data is not None, \
                    "TapeDeckLid animation data")
+    
+    # Animation has all keyframes.
     TT.assert_eq(max([fc.keyframe_points[-1].co[0] 
-                      for fc in BD.action_fcurves(bpy.data.objects['TapeDeckLid'].animation_data.action)]), 
-                      49, 
+                        for fc in BD.action_fcurves(bpy.data.objects['TapeDeckLid']
+                                                    .animation_data.action)]), 
+                      57, 
                       "Max keyframe")
-    TT.assert_eq(bpy.context.scene.frame_end, 49, "Scene end frame")
+    TT.assert_eq(bpy.context.scene.frame_end, 57, "Scene end frame")
 
     bpy.ops.object.select_all(action='SELECT')
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', preserve_hierarchy=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', 
+                                 preserve_hierarchy=True,
+                                 export_animations=True)
 
     nifcheck = pyn.NifFile(outfile)
     TT.assert_true(nifcheck.nodes.get("PipboyBody"), f"Exported PipboyBody")
@@ -5144,6 +5272,7 @@ def TEST_PIPBOY():
     assert nifcheck.nodes["TapeDeckLid"].controller is not None, "TapeDeckLid controller is not None"
 
 
+@TT.category('FO4', 'ARMATURE')
 def TEST_BABY():
     """Non-human skeleton, lots of shapes under one armature."""
     # Can intuit structure if it's not in the file
@@ -5167,6 +5296,7 @@ def TEST_BABY():
     assert testhead.blockname == "BSTriShape", f"Error: Expected BSTriShape on skinned shape, got {testhead.blockname}"
 
 
+@TT.category('SKYRIM', 'XFORM')
 def TEST_ROTSTATIC():
     """Test that statics are transformed according to the shape transform"""
     testfile = TTB.test_file(r"tests/Skyrim/rotatedbody.nif")
@@ -5188,6 +5318,7 @@ def TEST_ROTSTATIC():
     assert int(m.to_euler()[0]*180/math.pi) == 90, f"Expected 90deg rotation, got {m.to_euler()}"
 
 
+@TT.category('FO4', 'XFORM')
 def TEST_ROTSTATIC2():
     """Test that statics are transformed according to the shape transform"""
 
@@ -5200,6 +5331,7 @@ def TEST_ROTSTATIC2():
     assert round(glass.matrix_world[2][2], 4) == 0.9971, f"Rotation is incorrect, got {round(glass.matrix_world[2][2], 4)} != 59.2036"
 
 
+@TT.category('FO4', 'FACEBONES')
 def TEST_FACEBONES():
     """Can read and write facebones correctly"""
     # A few of the facebones have transforms that don't match the rest. The skin-to-bone
@@ -5269,6 +5401,7 @@ Transforms for output and input node {nm} match:
 {nifgood.nodes[nm].global_transform}
 """
 
+@TT.category('FO4', 'FACEBONES')
 def TEST_FACEBONES_RENAME():
     """Facebones are renamed from Blender to the game's names"""
 
@@ -5292,6 +5425,7 @@ def TEST_FACEBONES_RENAME():
     assert 'skin_bone_R_Dimple' in nif2.shapes[0].bone_names, f"Expected game bone names, got {nif2.shapes[0].bone_names[0:10]}"
     
 
+@TT.category('FO4', 'ANIMATION')
 def TEST_ANIM_ANIMATRON():
     """Can read a FO4 animatron nif"""
     # The animatrons are very complex and their pose and bind positions are different. The
@@ -5352,6 +5486,7 @@ def TEST_ANIM_ANIMATRON():
         f"Transforms are equal: \n{sp2_out.transform}\n==\n{sp2_in.transform}"
 
 
+@TT.category('FO4', 'ANIMATION')
 def TEST_ANIMATRON_2():
     """Can read the FO4 astronaut animatron nif"""
     # The animatrons are very complex and their pose and bind positions are different. The
@@ -5367,6 +5502,7 @@ def TEST_ANIMATRON_2():
                                  do_import_pose=True)
  
 
+@TT.category('FO4', 'ARMATURE')
 def TEST_CUSTOM_BONES():
     """Can handle custom bones correctly"""
     # These nifs have bones that are not part of the vanilla skeleton.
@@ -5387,6 +5523,7 @@ def TEST_CUSTOM_BONES():
     assert TTB.MatNearEqual(bone_in_xf, new_xf), f"Bone 'Bone_Cloth_H_003' preserved (new/original):\n{new_xf}\n==\n{bone_in_xf}"
         
 
+@TT.category('FO4', 'EXTRA_DATA')
 def TEST_COTH_DATA():
     """Can read and write cloth data"""
     # Cloth data is extra bones that are enabled by HDT-type physics. Since they aren't 
@@ -5411,6 +5548,7 @@ def TEST_COTH_DATA():
     assert len(nif1.cloth_data[0][1]) == 46257, f"Expected 46257 bytes of cloth data, found {len(nif1.cloth_data[0][1])}"
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_IMP_NORMALS():
     """Can import normals from nif shape"""
 
@@ -5428,6 +5566,7 @@ def TEST_IMP_NORMALS():
             assert round(abs(l.normal[i]), 3) == 0.577, f"Expected diagonal normal, got loop {l.index}/{i} = {l.normal[i]}"
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_UV_SPLIT():
     """Can split UVs properly"""
     filepath = TTB.test_file("tests/Out/TEST_UV_SPLIT.nif")
@@ -5443,6 +5582,7 @@ def TEST_UV_SPLIT():
     assert not NT.VNearEqual(obj.uvs[2], obj.uvs[10]), f"Split UV at different location {obj.uvs[2]}, {obj.uvs[10]}"
 
 
+@TT.category('SKYRIMSE', 'ARMATURE')
 def TEST_JIARAN():
     """Armature with no stashed transforms exports correctly"""
     outfile =TTB.test_file(r"tests/Out/TEST_JIARAN.nif")
@@ -5453,6 +5593,7 @@ def TEST_JIARAN():
     assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
 
 
+@TT.category('SKYRIM', 'HKX', 'ARMATURE')
 def TEST_SKEL_HKX_IMPORT():
     """Skeletons can be imported from HKX files."""
     testfile = TTB.test_file("tests/Skyrim/skeleton.hkx")
@@ -5481,6 +5622,7 @@ def TEST_SKEL_HKX_IMPORT():
     BD.ObjectSelect([arma], active=True)
 
 
+@TT.category('SKYRIM', 'HKX', 'ARMATURE')
 def TEST_SKEL_XML():
     """Can export selected bones as a skeleton XML file."""
     # TODO: Decide if this functionality is worth it, or whether we should turn this into 
@@ -5546,6 +5688,7 @@ def TEST_SKEL_XML():
     assert inhead.properties.transform.NearEqual(outhead.properties.transform), f"Have same tail transform"
 
 
+@TT.category('SKYRIM', 'HKX', 'ARMATURE')
 def TEST_SKEL_TAIL_HKX():
     """Can import and export a HKX skeleton file."""
     testfile = TTB.test_file(r"tests\Skyrim\tailskeleton.hkx")
@@ -5586,6 +5729,7 @@ def TEST_SKEL_TAIL_HKX():
         f"Have matching transforms."
 
 
+@TT.category('SKYRIM', 'HKX', 'ARMATURE')
 def TEST_AUXBONES_EXTRACT():
     """Can extract an auxbones skeleton from a full skeleton."""
     testfile = TTB.test_file(r"tests\Skyrim\skeletonbeast_vanilla.nif")
@@ -5621,6 +5765,7 @@ def TEST_AUXBONES_EXTRACT():
     assert hkx_check.root.transform.NearEqual(hkx_out.root.transform), f"Root transforms match"
 
 
+@TT.category('FONV')
 def TEST_FONV():
     """Basic FONV mesh import and export"""
     testfile = TTB.test_file("tests/FONV/9mmscp.nif")
@@ -5664,6 +5809,7 @@ def TEST_FONV():
     assert NT.NearEqual(maxzin, maxzout), f"Max collision shape bounds equal Z: {maxzin} == {maxzout}"
 
 
+@TT.category('FONV')
 def TEST_FONV_BOD():
     """Basic FONV body part import and export"""
     testfile = TTB.test_file(r"tests\FONV\outfitf_simple.nif")
@@ -5685,6 +5831,7 @@ def TEST_FONV_BOD():
                    body)
 
 
+@TT.category('SKYRIM', 'ANIMATION', 'PHYSICS')
 def TEST_NOBLECHEST():
     """Read and write the animation of chest opening and shutting."""
     # The chest has two top-level named animations, Open and Close
@@ -5853,18 +6000,6 @@ def TEST_DWEMER_CHEST():
 
     #### WRITE ####
 
-    # # FOR NOW CLEAR ALL ANIMATION DATA 
-    # for obj in bpy.context.scene.objects:
-    #     obj.animation_data_clear()
-    #     if obj.active_material:
-    #         obj.active_material.animation_data_clear()
-    # bpy.context.view_layer.update()
-
-    # # Clear transforms that mess up the animations
-    # for obj in bpy.context.scene.objects:
-    #     BD.ObjectSelect([obj], active=True)
-    #     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-
     # Create a collision object so we can interact with the chest
     bpy.ops.mesh.primitive_cube_add(size=2, enter_editmode=False, align='WORLD', location=(0, 0, 0), scale=(1, 1, 1))
     bpy.context.object.location[2] = 0
@@ -5908,27 +6043,28 @@ def TEST_DWEMER_CHEST():
                     active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, export_animations=True)
 
-    #### FIXUP ####
-    ## TODO: Figure this out. Looks okay in nifskope but not in game.
-
-    niffix:pyn.NifFile = pyn.NifFile(outfile)
     original:pyn.NifFile = pyn.NifFile(testfile)
 
-    for anim in ('Open', 'Close',):
-        for nodename in ('Object189', 'Object188', 'Gear07', 'Gear08', 'Gear09',):
-            cborig = next(b for b in original.root.controller.sequences[anim].controlled_blocks 
-                            if b.node_name == nodename)
-            cbnew = next(b for b in niffix.root.controller.sequences[anim].controlled_blocks 
-                            if b.node_name == nodename)
-            print(f"Original {anim}/{nodename} body rot: {Quaternion(cborig.interpolator.rotation).to_axis_angle()}")
-            print(f"Created {anim}/{nodename} body rot: {Quaternion(cbnew.interpolator.rotation).to_axis_angle()}")
+    # #### FIXUP ####
+    # ## TODO: Figure this out. Looks okay in nifskope but not in game.
 
-            # Force rotations to be correct
-            pnew = cbnew.interpolator.properties.copy()
-            pnew.rotation = cborig.interpolator.properties.rotation
-            pnew.dataID = cbnew.interpolator.properties.dataID
-            cbnew.interpolator.properties = pnew
-    niffix.save()
+    # niffix:pyn.NifFile = pyn.NifFile(outfile)
+
+    # for anim in ('Open', 'Close',):
+    #     for nodename in ('Object189', 'Object188', 'Gear07', 'Gear08', 'Gear09',):
+    #         cborig = next(b for b in original.root.controller.sequences[anim].controlled_blocks 
+    #                         if b.node_name == nodename)
+    #         cbnew = next(b for b in niffix.root.controller.sequences[anim].controlled_blocks 
+    #                         if b.node_name == nodename)
+    #         print(f"Original {anim}/{nodename} body rot: {Quaternion(cborig.interpolator.rotation).to_axis_angle()}")
+    #         print(f"Created {anim}/{nodename} body rot: {Quaternion(cbnew.interpolator.rotation).to_axis_angle()}")
+
+    #         # Force rotations to be correct
+    #         pnew = cbnew.interpolator.properties.copy()
+    #         pnew.rotation = cborig.interpolator.properties.rotation
+    #         pnew.dataID = cbnew.interpolator.properties.dataID
+    #         cbnew.interpolator.properties = pnew
+    # niffix.save()
 
     #### CHECK ####
 
@@ -5936,13 +6072,13 @@ def TEST_DWEMER_CHEST():
     nif2:pyn.NifFile = pyn.NifFile(outfile)
     cm2:pyn.NiControllerManager = nif2.root.controller
     mtt2:pyn.NiMultiTargetTransformController = cm2.next_controller
-    # TT.assert_samemembers(
-    #     [n.name for n in nif2.root.controller.next_controller.extra_targets],
-    #     ["Object01", "Object02", "Object188", "Object189", "Gear07", "Gear08", "Gear09", 
-    #      "Handle", "Box01"],
-    #     f"extra targets")
+
+    # We write just the parts that are animated to the object palette. Think that's correct.
     TT.assert_samemembers(nif2.root.controller.object_palette.objects.keys(),
-        original.root.controller.object_palette.objects.keys(),
+        ('Object01:3', 'Object01', 'Object01:0', 'Object189:0', 'Gear09:7', 'Object188', 
+         'Object02:5', 'Gear09', 'Gear08', 'Object189:3', 'Object01:5', 'Object189:5', 
+         'Gear07', 'Box01:5', 'Object02', 'Object189:6', 'Gear07:7', 'Object01:6', 
+         'Object188:5', 'Gear08:7', 'Handle:5', 'Object189', 'Handle', 'Box01'),
         "Object Palette")
     TT.assert_samemembers([s for s in cm2.sequences], ["Open", "Close"], "Controller Sequences")
     open2:pyn.NiControllerSequence = cm2.sequences["Close"]
@@ -6042,7 +6178,8 @@ def TEST_ALDUIN():
 
     BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile,
-                                 preserve_hierarchy=True,)
+                                 preserve_hierarchy=True,
+                                 export_animations=True)
 
     # No nodes are emitted more than once--no duplicate names.
     nifcheck = pyn.NifFile(outfile)
@@ -6425,6 +6562,7 @@ def TEST_IMPORT_TAIL():
                                  use_blender_xf=True)
 
 
+@TT.category('SKYRIM', 'SHADER')
 def TEST_TEXTURE_CLAMP():
     """Make sure we don't lose texture clamp mode."""
     testfile = TTB.test_file(r"tests\SkyrimSE\evergreen.nif")
@@ -6440,6 +6578,7 @@ def TEST_TEXTURE_CLAMP():
             "clamp mode")
 
 
+@TT.category('FO4', 'SHADER')
 def TEST_MISSING_MAT():
     """We import and export properly even when files are missing."""
     testfile = TTB.test_file(r"tests\FO4\malehandsalt.nif")
@@ -6461,6 +6600,7 @@ def TEST_MISSING_MAT():
         f"Preserved texture clamp mode: {nifout.shapes[0].shader.textureClampMode}"
 
 
+@TT.category('FO4', 'SHADER')
 def TEST_MISSING_FILES():
     """Write a good nif even if texture and materials files are missing."""
     blendfile = TTB.test_file(r"tests\FO4\Gloves.blend")
@@ -6499,6 +6639,7 @@ def TEST_MISSING_FILES():
         f"Have diffuse in texture list: {handsout.textures}"
 
 
+@TT.category('FO4', 'BODYPARTS')
 def TEST_FULL_PRECISION():
     """Can set full precision."""
     testfile = TTB.test_file(r"tests\FO4\OtterFemHead.nif")
@@ -6520,6 +6661,7 @@ def TEST_FULL_PRECISION():
         f"Has full precision: {nifout.shapes[0].properties.hasFullPrecision}"
 
 
+@TT.category('SKYRIM')
 def TEST_EMPTY_NODES():
     """Empty nodes export with the rest."""
     testfile = TTB.test_file(r"tests\Skyrim\farmhouse01.nif")
@@ -6534,6 +6676,7 @@ def TEST_EMPTY_NODES():
     assert "L2_Ivy" in nifout.nodes, f"Has empty node"
 
 
+@TT.category('SKYRIM')
 def TEST_EMPTY_FLAGS():
     """Empty pyNodeFlags doesn't cause an error."""
     testfile = TTB.test_file(r"tests\SkyrimSE\farmbench01.nif")
@@ -6552,6 +6695,7 @@ def TEST_EMPTY_FLAGS():
     assert nifout.nodes["FarmBench01:5"].properties.flags == 0, f"Has zero flags"
 
 
+@TT.category('SKYRIM', 'COLLISION')
 def TEST_COLLISION_PROPERTIES():
     """Test some specific collision property values."""
     testfile = TTB.test_file(r"tests\SkyrimSE\SteelDagger.nif")
@@ -6620,6 +6764,7 @@ def XXX_TEST_COLLISION_FO4():
     # assert body.properties.qualityType == hkQualityType.MOVING, "Have correct qualityType"
 
 
+@TT.category('FO4', 'FACEGEN')
 def TEST_FACEGEN():
     # FO4 facegen files are wonky. They have bones in the right positions, but without the
     # proper rotations. Fixing the rotations in the nif file shows the mesh undistorted.
