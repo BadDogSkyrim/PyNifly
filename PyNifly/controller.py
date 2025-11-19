@@ -1145,7 +1145,8 @@ class ControllerHandler():
         exporter._export_text_keys(exporter.action, exporter.controller_sequence)
 
         # Collect list of curves. They will be picked off in clumps until the list is empty.
-        curve_list = list(exporter.action.fcurves)
+        curve_list = [c for c in BD.action_fcurves(exporter.action)]
+
         while curve_list:
             bonename, ti = NiTransformController.fcurve_exporter(exporter, curve_list, arma)
             nifbonename = exporter.nif_name(bonename)
@@ -1170,7 +1171,7 @@ class ControllerHandler():
         exporter.action = arma.animation_data.action
         exporter.start_time=(exporter.action.curve_frame_range[0]-1)/exporter.fps
         exporter.stop_time=(exporter.action.curve_frame_range[1]-1)/exporter.fps
-        curves = list(exporter.action.fcurves)
+        curves = list(BD.action_fcurves(exporter.action))
         while curves:
             bonename, ti = NiTransformController.fcurve_exporter(exporter, curves, arma)
             nifbonename = exporter.nif_name(bonename)

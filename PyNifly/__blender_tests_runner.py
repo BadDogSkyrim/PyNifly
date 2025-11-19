@@ -25,8 +25,8 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 BT.do_tests(
-    target_tests=[ BT.TEST_HEADPART, ], # TEST_HEADPART, TEST_TRI2, TEST_SKEL_XML, TEST_SKEL_TAIL_HKX, TEST_AUXBONES_EXTRACT, TEST_DWEMER_CHEST, TEST_ALDUIN, TEST_KF, TEST_KF_RENAME, TEST_HKX, TEST_HKX_2
-    # categories={'ANIMATION'},
+    # target_tests=[ BT.TEST_ALDUIN, ], 
+    # categories={'HKX'},
     stop_on_fail=True
     )
 

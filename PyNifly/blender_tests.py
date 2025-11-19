@@ -1291,15 +1291,17 @@ def TEST_HEADPART():
     TT.assert_eq(obj.data.shape_keys.key_blocks[0].name, "Basis", "First key block name")
     TT.assert_contains('BigAah', [k.name for k in obj.data.shape_keys.key_blocks], "Has BigAah key")
     TT.assert_equiv(obj.data.shape_keys.key_blocks['BigAah'].value, 0.0, "BigAah value")
-    return
 
     ### EXPORT SIMPLE ###
+
     bpy.ops.export_scene.pynifly(filepath=testfileout, target_game='SKYRIMSE')
     
     nif2 = pyn.NifFile(testfileout)
     head2 = nif2.shapes[0]
-    assert len(nif2.shapes) == 1, f"Expected single shape, 1 != {len(nif2.shapes)}"
-    assert head2.blockname == "BSDynamicTriShape", f"Expected 'BSDynamicTriShape' != '{nif2.shapes[0].blockname}'"
+    TT.assert_eq(len(nif2.shapes), 1, "shape count")
+    TT.assert_eq(head2.blockname, "BSDynamicTriShape", "Block type")
+
+    ### EXPORT SHAPE KEY ###
 
     # We can export whatever shape is defined by the shape keys.
     obj.data.shape_keys.key_blocks['Blink.L'].value = 1
@@ -1311,12 +1313,11 @@ def TEST_HEADPART():
     head3 = nif3.shapes[0]
     eyelid = TTB.find_vertex(obj.data, [-2.52558, 7.31011, 124.389])
     mouth = TTB.find_vertex(obj.data, [1.8877, 7.50949, 118.859])
-    assert not NT.VNearEqual(head2.verts[eyelid], head3.verts[eyelid]), \
-        f"Verts have moved: {head2.verts[eyelid]} != {head3.verts[eyelid]}"
-    assert not NT.VNearEqual(head2.verts[mouth], head3.verts[mouth]), \
-        f"Verts have moved: {head2.verts[mouth]} != {head3.verts[mouth]}"
+    TT.assert_equiv_not(head2.verts[eyelid], head3.verts[eyelid], "vert position")
+    TT.assert_equiv_not(head2.verts[mouth], head3.verts[mouth], "vert position")
 
-    # We can export any modifiers
+    ### EXPORT WITH MODIFIER ###
+
     obj.data.shape_keys.key_blocks['Blink.L'].value = 0
     obj.data.shape_keys.key_blocks['MoodHappy'].value = 0
     mod = obj.modifiers.new("Decimate", 'DECIMATE')
@@ -1325,7 +1326,7 @@ def TEST_HEADPART():
                                  export_modifiers=True)
     nif4 = pyn.NifFile(testfileout3)
     head4 = nif4.shapes[0]
-    assert len(head4.verts) < 300, f"Head has decimated verts: {head4.verts}"
+    TT.assert_lt(len(head4.verts), 300, "Vert count")
 
 
 @TT.category('SKYRIM', 'BODYPART', 'TRI')
@@ -5640,7 +5641,11 @@ def TEST_SKEL_XML():
 
     bpy.ops.object.mode_set(mode='POSE')
     for b in arma.pose.bones:
-        b.bone.select = b.name.startswith('TailBone')
+        if hasattr(b.bone, 'select'):
+            b.bone.select = b.name.startswith('TailBone')
+        else:
+            # Blender >= 5.0
+            b.select = b.name.startswith('TailBone')
 
     bpy.ops.export_scene.skeleton_xml(filepath=outfile)
 
@@ -5710,7 +5715,11 @@ def TEST_SKEL_TAIL_HKX():
 
     bpy.ops.object.mode_set(mode='POSE')
     for b in arma.pose.bones:
-        b.bone.select = True
+        if hasattr(b.bone, 'select'):
+            b.bone.select = True
+        else:
+            # Blender >= 5.0
+            b.select = True
 
     bpy.ops.export_scene.skeleton_hkx(filepath=outfile)
 
@@ -5750,7 +5759,11 @@ def TEST_AUXBONES_EXTRACT():
 
     bpy.ops.object.mode_set(mode='POSE')
     for b in arma.pose.bones:
-        b.bone.select = ("TailBone" in b.name)
+        if hasattr(b.bone, 'select'):
+            b.bone.select = ("TailBone" in b.name)
+        else:
+            # Blender >= 5.0
+            b.select = ("TailBone" in b.name)
 
     bpy.ops.export_scene.skeleton_hkx(filepath=outfile)
 
@@ -5980,8 +5993,8 @@ def TEST_DWEMER_CHEST():
     # Lid has been animated
     assert lid.animation_data is not None
     TT.assert_contains(lid.animation_data.action.name, animations, "Active animation")
-    TT.assert_gt(len(lid.animation_data.action.fcurves), 0, "Have curves")
-    TT.assert_eq(lid.animation_data.action.fcurves[0].data_path, "location", "data path")
+    TT.assert_gt(len(list(BD.action_fcurves(lid.animation_data.action))), 0, "Have curves")
+    TT.assert_eq(next(BD.action_fcurves(lid.animation_data.action)).data_path, "location", "data path")
 
     # Gear07 has been animated and has reasonable fcurves
     gear07 = bpy.data.objects["Gear07"]
@@ -6143,7 +6156,7 @@ def TEST_ALDUIN():
     lcalf = arma.data.bones['NPC LLegCalf']
     lcalfp = arma.pose.bones['NPC LLegCalf']
     TT.assert_eq(lcalfp.rotation_mode, "QUATERNION", "L calf bone rotation mode")
-    lcalf_fc = [fc for fc in arma.animation_data.action.fcurves 
+    lcalf_fc = [fc for fc in BD.action_fcurves(arma.animation_data.action) 
                 if 'NPC LLegCalf' in fc.data_path and 'location' not in fc.data_path]
     TT.assert_seteq([fc.keyframe_points[5].interpolation for fc in lcalf_fc], ['LINEAR'], "Left calf keyframe interpolation")
 
@@ -6229,7 +6242,7 @@ def TEST_ALDUIN():
     TT.assert_eq(neckdat.properties.zRotations.interpolation, pyn.NiKeyType.QUADRATIC_KEY, "Rotation type")
 
 
-@TT.category('SKYRIM', 'HKX')
+@TT.category('SKYRIM', 'HKX', 'ANIMATION')
 def TEST_KF():
     """Read and write KF animation."""
     if bpy.app.version < (3, 5, 0): return
@@ -6254,8 +6267,10 @@ def TEST_KF():
     bpy.ops.import_scene.pynifly_kf(filepath=testfile)
 
     a = arma.animation_data.action
-    TT.assert_eq(a.name, "1hm_staggerbacksmallest", "action name")
-    TT.assert_gt(len(a.fcurves), 0, "fcurve count")
+    TT.assert_eq(arma.animation_data.action.name, "1hm_staggerbacksmallest", "action name")
+    TT.assert_gt(len(arma.animation_data.action.layers[0].strips[0].channelbags[0].fcurves), 
+                 0, 
+                 "fcurve count")
 
     # Check that the head moves over the course of the animation
     bpy.context.scene.frame_set(1)
@@ -6374,8 +6389,11 @@ def TEST_KF_RENAME():
     bpy.ops.import_scene.pynifly_kf(filepath=testfile)
 
     anim = arma.animation_data.action
-    assert len([fc for fc in anim.fcurves if 'NPC Pelvis' in fc.data_path]) > 0, f"Animating translated bone names"
-    translation_curve = [fc for fc in anim.fcurves if 'Foot.L' in fc.data_path and 'location' in fc.data_path][0]
+    TT.assert_gt(len([fc for fc in BD.action_fcurves(anim) if 'NPC Pelvis' in fc.data_path]), 
+                 0, 
+                 "Pelvis animated")
+    translation_curve = [fc for fc in BD.action_fcurves(anim) 
+                         if 'Foot.L' in fc.data_path and 'location' in fc.data_path][0]
     TT.assert_eq(translation_curve.keyframe_points[0].interpolation, 'LINEAR', "Keyframe point interpolation")
 
     ### Export ###
@@ -6449,8 +6467,10 @@ def TEST_HKX():
     bpy.ops.import_scene.pynifly_hkx(filepath=testfile, 
                                      reference_skel=hkx_skel)
 
-    assert len([fc for fc in arma.animation_data.action.fcurves if 'NPC Pelvis' in fc.data_path]) > 0, \
-        f"Animating translated bone names"
+    TT.assert_gt(len([fc for fc in BD.action_fcurves(arma.animation_data.action) 
+                      if 'NPC Pelvis' in fc.data_path]), 
+                 0, 
+                 "Pelvis animated")
 
     bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=hkx_skel)
 
@@ -6492,7 +6512,8 @@ def TEST_HKX_2():
     
     assert arma.animation_data.action is not None, f"Have animation loaded"
     act = arma.animation_data.action
-    clavcurv = [c for c in act.fcurves if c.data_path.startswith('pose.bones["NPC L Clavicle [LClv]"]')]
+    clavcurv = [c for c in BD.action_fcurves(act) 
+                if c.data_path.startswith('pose.bones["NPC L Clavicle [LClv]"]')]
     assert len(clavcurv) > 0, f"Have LClv curves"
 
     # # Create a simple pose animation

@@ -1952,6 +1952,7 @@ def read_morph(obj, base_verts, game_dict, game_morph_name, morph_verts, is_rel)
     if morph_name not in mesh.shape_keys.key_blocks:
         newsk = obj.shape_key_add()
         newsk.name = morph_name
+        newsk.value = 0
 
         obj.active_shape_key_index = len(mesh.shape_keys.key_blocks) - 1
             #This is a pointer, not a copy

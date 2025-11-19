@@ -330,7 +330,11 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
 
     def write_skel(self) -> None:
         arma = self.context.object
-        bones = [arma.data.bones[x.name] for x in arma.pose.bones if x.bone.select]
+        if hasattr(arma.pose.bones[0], 'select'):
+            # Blender >= 5.0
+            bones = [arma.data.bones[x.name] for x in arma.pose.bones if x.select]
+        else:
+            bones = [arma.data.bones[x.name] for x in arma.pose.bones if x.bone.select]
         self.export_bones = bones
         rootbone = self.find_root(bones)
         skel = xml.SubElement(self.section, 'hkobject')
@@ -407,8 +411,17 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
             log.debug("Must be in POSE Mode to export skeleton bones")
             return False
 
+        if len(context.object.data.bones) == 0:
+            log.debug("Active object must be an armature with bones to export.")
+            return False
+        
         try:
-            if len([x for x in context.object.pose.bones if x.bone.select]) == 0:
+            if hasattr(context.object.pose.bones[0], 'select'):
+                # Blender >= 5.0
+                n = len([x for x in context.object.pose.bones if x.select])
+            else:
+                n = len([x for x in context.object.pose.bones if x.bone.select])
+            if n == 0:
                 log.debug("Must select one or more bones in pose mode to export")
                 return False
         except:
