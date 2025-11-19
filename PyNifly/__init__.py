@@ -58,7 +58,7 @@ import xmltools
 
 # Blender libraries
 import bpy
-import bpy_types
+# import bpy_types
 from bpy.props import (
         BoolProperty,
         CollectionProperty,
@@ -335,7 +335,7 @@ def mesh_create_partition_groups(the_shape, the_object):
         the_object['FO4_SEGMENT_FILE'] = the_shape.segment_file
 
 
-def import_colors(mesh:bpy_types.Mesh, shape:NiShape):
+def import_colors(mesh:bpy.types.Mesh, shape:NiShape):
     try:
         use_vertex_colors = False
         use_vertex_alpha = False
@@ -405,6 +405,7 @@ class NifImporter():
                  chargen_ext=CHARGEN_EXT_DEF, # Extension for chargen tri files
                  animation_name=None, # Base name of animation being imported, if any
                  scale=1.0,
+                 anim_warn=False
                  ):
         
         self.filename_list = filename_list
@@ -417,6 +418,7 @@ class NifImporter():
         self.context = context
         self.chargen_ext = chargen_ext
         self.animation_name = animation_name
+        self.anim_warn = anim_warn
         self.scale = scale
 
         self.armature = None # Armature used for current shape import
@@ -738,7 +740,7 @@ class NifImporter():
             link_to_collection(self.collection, ed)
 
 
-    def import_extra(self, parent_obj:bpy_types.Object, n:NiNode):
+    def import_extra(self, parent_obj:bpy.types.Object, n:NiNode):
         """ Import any extra data from the node, and create corresponding shapes. 
             If n is None, get the extra data from the root.
         """
@@ -791,7 +793,7 @@ class NifImporter():
         elif ninode.file.game == "FO4" and ninode.name in fo4FaceDict.byNif:
             skelbone = fo4FaceDict.byNif[ninode.name]
 
-        if (skelbone and arma) or (parent and type(parent) == bpy_types.Bone):
+        if (skelbone and arma) or (parent and type(parent) == bpy.types.Bone):
             # IF have not created this as bone in an armature already AND it's a known
             # skeleton bone, AND we have an armature, OR if its parent is abone in the
             # armature THEN create it as an armature bone even tho it's not used in the
@@ -838,7 +840,7 @@ class NifImporter():
             obj.matrix_local = transform_to_matrix(ninode.transform)
 
         if parent:
-            if type(parent) == bpy_types.Object:
+            if type(parent) == bpy.types.Object:
                 obj.parent = parent
             else:
                 # Can't set a bone as parent, but get the node in the right position
@@ -863,7 +865,13 @@ class NifImporter():
             if self.root_object != obj and ninode.controller and self.is_set(ImportSettings.import_anims): 
                 # import animations if this isn't the root node. If it is, they may reference
                 # any of the root's children and so wait until those can be imported.
-                self.controller_mgr.import_controller(ninode.controller, arma if arma else obj, obj)
+                if self.anim_warn:
+                    self.warn(f"PyNifly does not support importing animations on Blender version {bpy.app.version} .")
+                    self.anim_warn = False
+                else:
+                    self.controller_mgr.import_controller(ninode.controller, 
+                                                          arma if arma else obj, 
+                                                          obj)
         except:
             log.exception(f"Error importing controllers {ninode.name}")
         
@@ -1364,7 +1372,7 @@ class NifImporter():
         arma.update_from_editmode()
 
 
-    def make_armature(self, the_coll: bpy_types.Collection, name_prefix=""):
+    def make_armature(self, the_coll: bpy.types.Collection, name_prefix=""):
         """Make a Blender armature from the given info. 
             
             Inputs:
@@ -1863,6 +1871,11 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                     targ_objs = [obj]
                     log.info(f"Active object is a mesh, will import as shape key if possible: {obj.name}")
 
+            give_anim_warning = False
+            if self.do_import_animations and not hasattr(bpy.types, 'ActionSlot'):
+                self.do_import_animations = False
+                give_anim_warning = True
+
             import_flags = ImportSettings(0)
             if self.do_create_bones: import_flags |= ImportSettings.create_bones
             if self.do_rename_bones: import_flags |= ImportSettings.rename_bones
@@ -1896,6 +1909,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 reference_skel=skel,
                 base_transform=xf,
                 context=context, 
+                anim_warn = give_anim_warning
                 )
             imp.execute()
 
@@ -3407,7 +3421,7 @@ class NifExporter:
             morphdict, partitions, partition_map
 
 
-    def export_node(self, obj:bpy_types.Object, parent:ReprObject=None) -> NiNode:
+    def export_node(self, obj:bpy.types.Object, parent:ReprObject=None) -> NiNode:
         """Export a NiNode for the given Blender object."""
         ref = None
         with stashed_animation(obj):
@@ -4115,7 +4129,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             exporter.write_bodytri = self.write_bodytri
             exporter.export_pose = self.export_pose
             exporter.export_modifiers = self.export_modifiers
-            exporter.export_animations = self.export_animations
+            if self.export_animations and not hasattr(bpy.types, 'ActionSlot'):
+                log.warning(f"pyNifly animation export not supported in Blender version {bpy.app.version_string}")
+                exporter.export_animations = False
+            else:
+                exporter.export_animations = self.export_animations
             exporter.export_colors = self.export_colors
             if self.use_blender_xf:
                 exporter.export_xf = blender_export_xf

@@ -3,7 +3,6 @@
 # Copyright © 2023, Bad Dog.
 
 import bpy
-import bpy_types
 from bpy.props import (
         BoolProperty,
         CollectionProperty,

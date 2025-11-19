@@ -1,6 +1,8 @@
 """ Quick and Dirty Test Harness """
 
-from blender_tests import *
+import importlib
+import blender_tests as BT
+importlib.reload(BT)
 
 print("""
 =============================================================================
@@ -22,8 +24,8 @@ print("""
 # All tests with collisions
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
-do_tests(
-    # target_tests=[ TEST_SPRIGGAN, ], 
+BT.do_tests(
+    target_tests=[ BT.TEST_HEADPART, ], # TEST_HEADPART, TEST_TRI2, TEST_SKEL_XML, TEST_SKEL_TAIL_HKX, TEST_AUXBONES_EXTRACT, TEST_DWEMER_CHEST, TEST_ALDUIN, TEST_KF, TEST_KF_RENAME, TEST_HKX, TEST_HKX_2
     # categories={'ANIMATION'},
     stop_on_fail=True
     )

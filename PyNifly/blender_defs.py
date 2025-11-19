@@ -8,7 +8,7 @@ from enum import IntFlag
 from mathutils import Matrix, Vector, Quaternion, Euler
 from mathutils import geometry
 import bpy
-import bpy_types
+# import bpy.types
 import re
 from nifdefs import *
 from pynifly import *
@@ -376,7 +376,7 @@ def find_armatures(obj):
     return arma, fb_arma
 
 
-def get_export_objects(ctxt:bpy_types.Context) -> list:
+def get_export_objects(ctxt:bpy.types.Context) -> list:
     """Collect list of objects to export from the given context. 
     
     * Any selected object is exported
