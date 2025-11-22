@@ -7,7 +7,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 5, 0),
-    "version": (21, 2, 0),   
+    "version": (21, 3, 0),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -2637,9 +2637,15 @@ def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0):
         
         weights.append(trim_to_four(vert_weights, arma))
     
-    if msk: # and target_key == '' 
+    if msk: 
+        # We return shape key locations for all interesting shape keys.
+        # sk specifies the base shape for this export. The other shape keys are relative
+        # to "basis", not sk. So if sk is provided, we need to adjust.
         for sk in msk.key_blocks:
-            morphdict[sk.name] = [(v.co * sf)[:] for v in sk.data]
+            
+            morphdict[sk.name] = [
+                ((vkey.co + (vtarg.co - vbase.co))*sf)[:] for vkey, vtarg, vbase 
+                in zip(sk.data, msk.key_blocks[target_key].data, sk.relative_key.data)]
 
     return verts, weights, morphdict
 
@@ -3618,7 +3624,7 @@ class NifExporter:
 
             # Collect key info about the mesh 
             verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict, partitions, partition_map = \
-            self.extract_mesh_data(self.active_obj, arma, target_key)
+                self.extract_mesh_data(self.active_obj, arma, target_key)
 
             is_headpart = obj.data.shape_keys \
                     and len(self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
