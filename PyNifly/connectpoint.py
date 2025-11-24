@@ -7,7 +7,7 @@ from mathutils import Matrix, Vector, Quaternion, Euler, geometry, Color
 import blender_defs as BD
 import nifdefs
 
-CONNECT_POINT_SCALE = 1.0
+CONNECT_POINT_SCALE = 15.0
 
 
 def connection_name_root(s): 
