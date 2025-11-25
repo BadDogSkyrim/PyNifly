@@ -1634,8 +1634,8 @@ class NifImporter():
            If filenames follow PyNifly's naming conventions, create a shape key for the 
            base shape and rename the shape keys appropriately.
         """
-        # Can name shape keys to our convention if they end with underscore-something and everything
-        # before the underscore is the same
+        # Can name shape keys to our convention if they end with underscore-something and
+        # everything before the underscore is the same
         fn_parts = filename.split('_')
         new_fn_parts = new_filename.split('_')
         rename_keys = len(fn_parts) > 1 and len(new_fn_parts) > 1 and fn_parts[0:-1] == new_fn_parts[0:-1]
@@ -1657,14 +1657,22 @@ class NifImporter():
 
             if rename_keys:
                 obj.data.shape_keys.key_blocks[-1].name = '_' + new_fn_parts[-1]
+            else:
+                obj.data.shape_keys.key_blocks[-1].name = '_' + new_fn_parts[-1]
 
 
     def execute(self):
         """Perform the import operation as previously defined"""
         NifFile.clear_log()
 
-        prior_vertcounts = []
+        prior_vertcounts = dict()
         prior_fn = ''
+        prior_shapes = None
+        if self.is_set(ImportSettings.import_shapekeys):
+            prior_shapes = set()
+            for obj in bpy.context.scene.objects:
+                if obj.select_get() and obj.type == 'MESH':
+                    prior_vertcounts[obj.name] = len(obj.data.vertices)
 
         log.info(str(self))
 
@@ -1680,24 +1688,32 @@ class NifImporter():
             if not self.reference_skel:
                 self.reference_skel = self.nif.reference_skel
 
-            prior_shapes = None
-            this_vertcounts = [len(s.verts) for s in self.nif.shapes]
+            # Determine whether the new shapes should be merged into existing shapes
+            this_vertcounts = None
             if self.is_set(ImportSettings.import_shapekeys):
-                if len(this_vertcounts) > 0 and this_vertcounts == prior_vertcounts:
-                    prior_shapes = self.loaded_meshes
-            
+                this_vertcounts = dict()
+                for nifobj in self.nif.shapes:
+                    this_vertcounts[nifobj.name] = len(nifobj.verts)
+
+                for name, vc in this_vertcounts.items():
+                    if name in prior_vertcounts:
+                        if vc == prior_vertcounts[name]:
+                            prior_shapes.add(bpy.context.scene.objects[name]) 
+
+            have_priors = (prior_shapes is not None and len(prior_shapes) > 0)
+            self.set_setting(ImportSettings.mesh_only, have_priors)
             self.loaded_meshes = []
-            self.set_setting(ImportSettings.mesh_only, (prior_shapes is not None))
             self.import_nif()
             if self.is_set(ImportSettings.import_tris):
                 self.import_tris()
 
-            if prior_shapes:
+            if have_priors:
                 self.merge_shapes(prior_fn, prior_shapes, fn, self.loaded_meshes)
-                self.loaded_meshes = prior_shapes
             else:
-                prior_vertcounts = this_vertcounts
                 prior_fn = fn
+                for m in self.loaded_meshes:
+                    prior_shapes.add(m)
+                prior_vertcounts = this_vertcounts
 
         # Connect up all the children loaded in this batch with all the parents loaded in this batch
         self.connect_points.connect_all()
@@ -2639,12 +2655,15 @@ def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0):
     
     if msk: 
         # We return shape key locations for all interesting shape keys.
-        # sk specifies the base shape for this export. The other shape keys are relative
-        # to "basis", not sk. So if sk is provided, we need to adjust.
-        for sk in msk.key_blocks:
-            
+        # target_key specifies the base shape for this export. The other shape keys are
+        # relative to "basis", not target_key. So if target_key is provided, we need to
+        # adjust.
+        if target_key == '': target_key = 0
+
+        for sk in msk.key_blocks:    
             morphdict[sk.name] = [
-                ((vkey.co + (vtarg.co - vbase.co))*sf)[:] for vkey, vtarg, vbase 
+                ((vkey.co + (vtarg.co - vbase.co))*sf)[:] 
+                for vkey, vtarg, vbase 
                 in zip(sk.data, msk.key_blocks[target_key].data, sk.relative_key.data)]
 
     return verts, weights, morphdict

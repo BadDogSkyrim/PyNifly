@@ -1485,13 +1485,31 @@ def TEST_IMPORT_AS_SHAPES():
     bpy.ops.import_scene.pynifly(files=testfiles)
 
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
-    assert len(meshes) == 2, f"Have 2 meshes: {meshes}"
+    TT.assert_eq(len(meshes), 2, f"mesh count")
     sknames0 = [sk.name for sk in meshes[0].data.shape_keys.key_blocks]
-    assert set(sknames0) == set(['Basis', '_0', '_1']), f"Shape keys are named correctly: {sknames0}"
+    TT.assert_samemembers(sknames0, ['Basis', '_0', '_1'], f"{meshes[0].name} Shape key names")
     sknames1 = [sk.name for sk in meshes[1].data.shape_keys.key_blocks]
-    assert set(sknames1) == set(['Basis', '_0', '_1']), f"Shape keys are named correctly: {sknames1}"
+    TT.assert_samemembers(sknames1, ['Basis', '_0', '_1'], f"{meshes[1].name} Shape keys names")
     armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
-    assert len(armatures) == 1, f"Have 1 armature: {armatures}"
+    TT.assert_eq(len(armatures), 1, f"armature count")
+
+
+@TT.category('SKYRIMSE', 'SHAPEKEY')
+def TEST_ADD_SHAPES():
+    # When an active shape matches a shape being imported, the second is imported as a shape key.
+
+    testfile1 = TTB.test_file(r"tests\SkyrimSE\femalefeet_0.nif")
+    testfile2 = TTB.test_file(r"tests\SkyrimSE\femalefeet_1.nif")
+    
+    bpy.ops.import_scene.pynifly(filepath=testfile1)
+
+    obj1 = bpy.context.object
+    assert obj1.data.shape_keys is None, "No shape keys yet"
+
+    bpy.ops.import_scene.pynifly(filepath=testfile2, do_import_shapes=True)
+
+    assert bpy.context.object == obj1, "Same object still active"
+    assert obj1.data.shape_keys is not None, "Now have shape keys"
 
 
 @TT.category('FO4', 'BODYPART', 'SHAPEKEY')
@@ -1538,16 +1556,21 @@ def TEST_EXP_SK_RENAMED():
     initial_keys = set(head.data.shape_keys.key_blocks.keys())
 
     pyn.NifFile.clear_log()
-    bpy.ops.object.select_all(action='SELECT')
-    bpy.context.view_layer.objects.active = bpy.data.objects["BaseFemaleHead:0"]
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
-    assert "ERROR" not in pyn.NifFile.message_log(), f"Error: Expected no error message, got: \n{pyn.NifFile.message_log()}---\n"
+    BD.ObjectSelect((bpy.data.objects["BaseFemaleHead:0"],), active=True)
 
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    
+    ### CHECK EXPORT ###
+
+    assert "ERROR" not in pyn.NifFile.message_log(), \
+        f"Error: Expected no error message, got: \n{pyn.NifFile.message_log()}---\n"
     assert not os.path.exists(chargenfile), f"Chargen file not created: {os.path.exists(chargenfile)}"
 
     nif1 = pyn.NifFile(outfile)
     assert len(nif1.shapes) == 1, f"Expected head nif"
 
+    ### CHECK TRI FILE ###
+    
     tri1 = TriFile.from_file(trifile)
     new_keys = set()
     d = BD.gameSkeletons["FO4"]
@@ -1560,16 +1583,25 @@ def TEST_EXP_SK_RENAMED():
     assert new_keys == initial_keys, f"Got same keys back as written: {new_keys - initial_keys} / {initial_keys - new_keys}"
     assert len(tri1.morphs) == 51, f"Expected 51 morphs, got {len(tri1.morphs)} morphs: {tri1.morphs.keys()}"
 
-    bpy.ops.object.select_all(action='DESELECT')
+    ### RE-IMPORT NIF ###
+
+    # Hide what we previously loaded so we can see what is imported
+    for obj in bpy.context.scene.objects:
+        obj.hide_set(True)
+
     bpy.ops.import_scene.pynifly(filepath=outfile)
     obj = bpy.context.object
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
 
+    ### RE-IMPORT TRI ###
+
     bpy.ops.import_scene.pyniflytri(filepath=trifile)
 
-    assert len(obj.data.shape_keys.key_blocks) == 51, f"Expected key blocks 51 != {len(obj.data.shape_keys.key_blocks)}"
-    assert 'Smile.L' in obj.data.shape_keys.key_blocks, f"Expected key 'Smile.L' in {obj.data.shape_keys.key_blocks.keys()}"
+    ### CHECK ###
+
+    TT.assert_eq(len(obj.data.shape_keys.key_blocks), 51, f"key block count")
+    TT.assert_contains('Smile.L', obj.data.shape_keys.key_blocks, f"Expected key")
 
 
 @TT.category('SKYRIMSE', 'BODYPART', 'SHAPEKEY')
