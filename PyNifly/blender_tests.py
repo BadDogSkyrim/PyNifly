@@ -4541,13 +4541,15 @@ def TEST_COLLISION_CONVEXVERT():
         bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=bx)
 
         # Check transform
-        cheese = TTB.find_shape('CheeseWedge')
-        assert NT.VNearEqual(cheese.location, (0,0,0)), f"Cheese wedge at right location: {cheese.location}"
-        assert NT.VNearEqual(cheese.rotation_euler, (0,0,0)), f"Cheese wedge not rotated: {cheese.rotation_euler}"
-        assert cheese.scale == Vector((1,1,1)), f"Cheese wedge scale 1"
+        cheese = bpy.data.objects["CheeseWedge01:0"]
+        TT.assert_equiv(cheese.location, (0,0,0,), "cheese location")
+        TT.assert_equiv(cheese.rotation_euler, (0,0,0,), "cheese rotation")
+        TT.assert_equiv(cheese.scale, Vector((1,1,1,)), "cheese scale")
 
         # Check collision info
         root = cheese.parent
+        assert hasattr(root, 'pynConstraintRef'), f"Root has reference to constraint"
+        assert root['pynConstraintRef'] == cheese, f"Root's constraint reference is cheese"
         constr = [c for c in root.constraints if c.type == 'COPY_TRANSFORMS']
         assert constr, f"Have constraints on root"
         coll = constr[0].target

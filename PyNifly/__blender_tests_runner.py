@@ -25,7 +25,7 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 BT.do_tests(
-    target_tests=[ BT.TEST_SCAFFOLD_FRAME, ], 
+    target_tests=[ BT.TEST_COLLISION_CONVEXVERT, ], 
     # categories={'HKX'},
     stop_on_fail=True
     )

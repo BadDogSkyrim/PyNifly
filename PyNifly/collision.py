@@ -395,12 +395,12 @@ class CollisionHandler():
             sh['pynRigidBody'] = cb.blockname
 
         try:
-            sh.rigid_body.mass = p.mass / HAVOC_SCALE_FACTOR
-            sh.rigid_body.friction = p.friction / HAVOC_SCALE_FACTOR
+            sh.rigid_body.mass = p.mass # / HAVOC_SCALE_FACTOR
+            sh.rigid_body.friction = p.friction # / HAVOC_SCALE_FACTOR
             sh.rigid_body.use_margin = True
-            sh.rigid_body.linear_damping = p.linearDamping / HAVOC_SCALE_FACTOR
-            sh.rigid_body.angular_damping = p.angularDamping / HAVOC_SCALE_FACTOR
-            sh.rigid_body.collision_margin = cb.shape.properties.bhkRadius 
+            sh.rigid_body.linear_damping = p.linearDamping # / HAVOC_SCALE_FACTOR
+            sh.rigid_body.angular_damping = p.angularDamping # / HAVOC_SCALE_FACTOR
+            sh.rigid_body.collision_margin = cb.shape.properties.bhkRadius / HAVOC_SCALE_FACTOR
         except:
             pass
             
@@ -591,7 +591,7 @@ class CollisionHandler():
 
         props = bhkConvexTransformShapeProps(s)
         if s.rigid_body.use_margin:
-            props.bhkRadius = s.rigid_body.collision_margin # / HAVOC_SCALE_FACTOR
+            props.bhkRadius = s.rigid_body.collision_margin * HAVOC_SCALE_FACTOR
 
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
         targlocw, targqw, targscalew = xform.decompose()
