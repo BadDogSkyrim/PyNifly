@@ -1020,6 +1020,13 @@ def TEST_SHADER():
 
 
 @test_category('SHADER')
+def TEST_SHADER_SCAFFOLD():
+    testfile = r"tests\FO4\ScaffFrame1x2Str01.nif"
+    nif = NifFile(testfile, materialsRoot=r"C:\Modding\FalloutAssets\00 FO4 Assets")
+    CheckNif(nif)
+
+
+@test_category('SHADER')
 def TEST_SHADER_WALL():
     testfile = r"tests\FO4\Meshes\Architecture\DiamondCity\DExt\DExBrickColumn01.nif"
     nif = NifFile(testfile)
@@ -2384,8 +2391,8 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = True
-    # execute(testlist=[TEST_ALPHA_THRESHOLD_CONTROLLER])
+    execute(testlist=[TEST_SHADER_SCAFFOLD])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
     # execute(exclude=[TEST_SET_SKINTINT])
-    execute(categories={"SHADER"})
+    # execute(categories={"SHADER"})
     #

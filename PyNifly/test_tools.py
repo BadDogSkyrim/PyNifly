@@ -76,7 +76,15 @@ def assert_equiv_not(actual, expected, msg, e=0.0001):
 def assert_patheq(actual, expected, msg):
     a = Path(actual)
     b = Path(expected)
-    assert a == b, f"Paths are equal for {msg}: {a} != {b}"
+    assert a == b, f"Paths are equal for {msg}: '{a}' != '{b}'"
+
+
+def assert_pathendswith(fullpath, relpath, msg):
+    a = Path(fullpath)
+    b = Path(relpath)
+    a1 = Path(*a.parts[-len(b.parts):])
+
+    assert a1 == b, f"Paths end the same for {msg}: '{a}' != '{b}'"
 
 
 def assert_eq(*args):

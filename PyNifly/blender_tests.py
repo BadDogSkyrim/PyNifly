@@ -5124,11 +5124,11 @@ def TEST_CONNECT_WORKSHOP():
     
 
 @TT.category('SKYRIMSE', 'FURNITUREMARKER')
-def TEST_FURN_MARKER1():
+def TEST_FARMBENCH():
     """Furniture markers work"""
 
     testfile = TTB.test_file(r"tests\SkyrimSE\farmbench01.nif")
-    outfile = TTB.test_file(r"tests\Out\TEST_FURN_MARKER1.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_FARMBENCH.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
@@ -5155,11 +5155,11 @@ def TEST_FURN_MARKER1():
 
 
 @TT.category('SKYRIMSE', 'FURNITUREMARKER')
-def TEST_FURN_MARKER2():
+def TEST_COMMONCHAIR():
     """Furniture markers work"""
 
     testfile = TTB.test_file(r"tests\SkyrimSE\commonchair01.nif")
-    outfile = TTB.test_file(r"tests\Out\TEST_FURN_MARKER2.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_COMMONCHAIR.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
@@ -6616,6 +6616,48 @@ def TEST_MISSING_MAT():
         f"Have correct materials: {mat['BS_Shader_Block_Name']}"
     # assert 'SKIN_TINT' in mat['Shader_Flags_1'], f"Have correct flags: {mat['Shader_Flags_1']}"
     assert mat['Shader_Type'] == 'Skin_Tint', f"Have correct shader type: {mat['Shader_Type']}"
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    nifin = pyn.NifFile(testfile)
+    nifout = pyn.NifFile(outfile)
+    assert (nifin.shapes[0].shader.properties.textureClampMode 
+            == nifout.shapes[0].shader.properties.textureClampMode), \
+        f"Preserved texture clamp mode: {nifout.shapes[0].shader.textureClampMode}"
+
+
+@TT.category('FO4', 'SHADER')
+def TEST_SCAFFOLD_FRAME():
+    """We truncate long filepaths to relative paths."""
+    testfile = TTB.test_file(r"tests\FO4\ScaffFrame1x2Str01.nif")
+    outfile = TTB.test_file(r"tests\out\TEST_SCAFFOLD_FRAME.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # Materiai nodes reasonably clustered
+    obj = bpy.context.object
+    mat = obj.active_material
+    node_bounds = (min((n.location.x for n in mat.node_tree.nodes)),
+                   max((n.location.x for n in mat.node_tree.nodes)),
+                   min((n.location.y for n in mat.node_tree.nodes)),
+                   max((n.location.y for n in mat.node_tree.nodes)),)
+    TT.assert_lt(node_bounds[1] - node_bounds[0], 2000, "Material node X bounds")
+    TT.assert_lt(node_bounds[3] - node_bounds[2], 2000, "Material node Y bounds")
+
+    # Material path read correctly
+    TT.assert_pathendswith(
+        mat['BSLSP_Shader_Name'], 
+        r"materials\Architecture\Quarry\QryCatwalksBluePaint.BGSM", 
+        "material path")
+    
+    # Image nodes exist
+    TT.assert_samemembers(
+        [Path(NT.truncate_filename(n.image.filepath, 'textures')) 
+            for n in obj.active_material.node_tree.nodes if n.type == 'TEX_IMAGE'],
+        [Path('architecture/quarry/qrycatwalksbluepaint_d.dds'), 
+            Path('architecture/quarry/qrycatwalksbluepaint_n.dds'), 
+            Path('architecture/quarry/qrycatwalksbluepaint_s.dds')],
+        "Image texture nodes")
+
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     nifin = pyn.NifFile(testfile)

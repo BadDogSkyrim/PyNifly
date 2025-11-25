@@ -2822,6 +2822,7 @@ class NiShaderFO4(NiShader):
         self.materials = None
         self._checked_for_materials = False
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._checked_for_materials = False
         
     def _load_properties_from_materials(self):
         """Load materials properties into shader properties so the rest of the world doesn't have to care."""

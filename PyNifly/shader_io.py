@@ -110,6 +110,8 @@ def relative_loc(nodelist, xpos=POS_RIGHT, vpos=POS_BOTTOM):
     Calculate a location relative to the given node list: to the right of the rightmost
     and at the same level as the lowest.
     """
+    if not nodelist: return Vector((0, 0,))
+
     maxx = -10000
     minx = 10000
     maxy = -10000
@@ -149,7 +151,8 @@ def reposition(node, vpos=POS_BOTTOM, xpos=POS_RIGHT, padding=Vector((0, 0)), re
         if inp.is_linked:
             fn = inp.links[0].from_node
             if fn != node: inputlist.append(fn)
-    node.location = relative_loc(inputlist, xpos=xpos, vpos=vpos) + padding
+    if inputlist:
+        node.location = relative_loc(inputlist, xpos=xpos, vpos=vpos) + padding
 
 
 def make_separator(nodetree, input, loc):

@@ -375,10 +375,21 @@ def Check_kalaar(nif:NifFile):
     TT.assert_ne(nif.shapes[0].alpha_property.properties.controllerID, NODEID_NONE, f"Have alpha property controller")
 
 
+def Check_ScaffoldFrame(nif:NifFile):
+    frame = nif.shape_dict['L1_ScaffFrame1x2Str01:5 - L2_ScaffFrame1x2Str01:5']
+    mat_path = Path(r"materials\Architecture\Quarry\QryCatwalksBluePaint.BGSM")
+    TT.assert_eq(Path(frame.shader.name).parts[-len(mat_path.parts):], mat_path.parts,
+                     "material path")
+    diff_path = Path(r"architecture/quarry/qrycatwalksbluepaint_d.dds")
+    TT.assert_eq(Path(frame.textures['Diffuse']).parts[-len(diff_path.parts):], diff_path.parts,
+                     "diffuse texture")
+
+
 test_files = {
     ("FO4", "DExBrickColumn01.nif"): Check_brickcolumn,
     ("FO4", "Helmet.nif"): Check_fo4Helmet,
     ("FO4", "VanillaMaleBody.nif"): Check_fo4MaleBody,
+    ("FO4", "ScaffFrame1x2Str01.nif"): Check_ScaffoldFrame,
     ("Skyrim", "blackbriarchalet_test.nif"): Check_blackbriarchalet,
     ("Skyrim", "malehead.nif"): Check_malehead,
     ("Skyrim", "noblechest01.nif"): Check_noblechest01,
