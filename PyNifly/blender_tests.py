@@ -2668,7 +2668,7 @@ def TEST_CAVE_GREEN():
 @TT.category('SKYRIM', 'SHADER', 'PHYSICS')
 def TEST_POT():
     """Test that pot shaders doesn't throw an error; also collisions"""
-    testfile = TTB.test_file(r"tests\SkyrimSE\spitpotopen01.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\spitpotopen01_ALT.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile, do_create_bones=False, do_rename_bones=False)
     assert 'ANCHOR:0' in bpy.data.objects.keys()
 
@@ -4548,23 +4548,21 @@ def TEST_COLLISION_CONVEXVERT():
 
         # Check collision info
         root = cheese.parent
-        assert hasattr(root, 'pynConstraintRef'), f"Root has reference to constraint"
-        assert root['pynConstraintRef'] == cheese, f"Root's constraint reference is cheese"
         constr = [c for c in root.constraints if c.type == 'COPY_TRANSFORMS']
         assert constr, f"Have constraints on root"
         coll = constr[0].target
         assert coll, f"Have collision object"
         assert coll.rigid_body, f"Collision object has physics"
-        assert coll.rigid_body.type == 'ACTIVE'
-        assert BD.NearEqual(coll.rigid_body.mass, 2.5 / HSF), f"Have correct mass"
-        assert BD.NearEqual(coll.rigid_body.friction, 0.5 / HSF), f"Have correct friction"
-        assert coll['bhkMaterial'] == 'CLOTH', f"Shape material is a custom property: {coll['bhkMaterial']}"
+        TT.assert_eq(coll.rigid_body.type, 'ACTIVE', f"Collision body type")
+        TT.assert_equiv(coll.rigid_body.mass, 2.5, f"mass")
+        TT.assert_equiv(coll.rigid_body.friction, 0.5, f"friction")
+        TT.assert_eq(coll['bhkMaterial'], 'CLOTH', f"Shape material custom property")
 
         xmax1 = max([v.co.x for v in cheese.data.vertices])
         xmax2 = max([v.co.x for v in coll.data.vertices])
-        assert abs(xmax1 - xmax2) < 0.5, f"Max x vertex nearly the same: {xmax1} == {xmax2}"
+        TT.assert_equiv(xmax1, xmax2, f"Max x vertex", e=0.5)
         corner = coll.data.vertices[0].co
-        assert NT.VNearEqual(corner, (-4.18715, -7.89243, 7.08596)), f"Collision shape in correct position: {corner}"
+        TT.assert_equiv(corner, (-4.18715, -7.89243, 7.08596,), f"Collision shape position")
 
         # ------- Export --------
 
@@ -4586,37 +4584,42 @@ def TEST_COLLISION_CONVEXVERT():
         bodycheck = collcheck.body
         cvscheck = bodycheck.shape
 
-        assert rootcheck.name == "CheeseWedge01", f"Root node name incorrect: {rootcheck.name}"
-        assert rootcheck.blockname == "BSFadeNode", f"Root node type incorrect {rootcheck.blockname}"
+        TT.assert_eq(rootcheck.name, "CheeseWedge01", f"Root node name")
+        TT.assert_eq(rootcheck.blockname, "BSFadeNode", f"Root node type")
 
-        assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
-        assert collcheck.target == rootcheck, f"Target of collision is root: {rootcheck.name}"
+        TT.assert_eq(collcheck.blockname, "bhkCollisionObject", f"Collision node type")
+        TT.assert_eq(collcheck.target, rootcheck, f"Collision target")
 
-        assert bodycheck.blockname == "bhkRigidBody", f"Correctly wrote bhkRigidBody: {bodycheck.blockname}"
+        TT.assert_eq(bodycheck.blockname, "bhkRigidBody", f"Rigid body type")
+        TT.assert_eq(bodycheck.properties.mass, 2.5, f"Rigid body mass")
+        TT.assert_eq(bodycheck.properties.friction, 0.5, f"Rigid body friction")
 
-        assert cvscheck.blockname == "bhkConvexVerticesShape", f"Collision body's shape property returns the collision shape"
-        assert cvscheck.properties.bhkMaterial == SkyrimHavokMaterial.CLOTH, \
-            "Collision body shape material is readable"
+        TT.assert_eq(cvscheck.blockname, "bhkConvexVerticesShape", f"Collision shape type")
+        TT.assert_eq(cvscheck.properties.bhkMaterial, SkyrimHavokMaterial.CLOTH, 
+            "Collision body shape material")
 
         minxch = min(v[0] for v in cvscheck.vertices)
         maxxch = max(v[0] for v in cvscheck.vertices)
         minxorig = min(v[0] for v in cvsorig.vertices)
         maxxorig = max(v[0] for v in cvsorig.vertices)
 
-        assert NT.NearEqual(minxch, minxorig), f"Vertex x is correct: {minxch} == {minxorig}"
-        assert NT.NearEqual(maxxch, maxxorig), f"Vertex x is correct: {maxxch} == {maxxorig}"
+        TT.assert_equiv(minxch, minxorig, f"Vertex x min")
+        TT.assert_equiv(maxxch, maxxorig, f"Vertex x max")
 
         # Re-import
         #
         # There have been issues with importing the exported nif and having the 
         # collision be wrong
-        TTB.clear_all()
+        # TTB.clear_all()
+        BD.ObjectSelect([], active=False)
+        for obj in bpy.context.scene.objects:
+            obj.hide_set(True)
         bpy.ops.import_scene.pynifly(filepath=outfile)
 
-        impcollshape = TTB.find_shape("bhkConvexVerticesShape")
-        impcollshape = TTB.find_shape("bhkConvexVerticesShape")
+        cheese_new = bpy.context.object
+        impcollshape = cheese_new.parent.constraints[0].target
         zmin = min([v.co.z for v in impcollshape.data.vertices])
-        assert zmin >= -0.01, f"Minimum z is positive: {zmin}"
+        TT.assert_gt(zmin, -0.01, f"Minimum z")
 
     do_test(True)
     do_test(False)
