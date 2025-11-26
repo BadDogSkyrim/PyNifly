@@ -25,8 +25,8 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 BT.do_tests(
-    # target_tests=[ BT.TEST_EXP_SK_RENAMED, ], 
-    categories={'SHAPEKEY'},
+    target_tests=[ BT.TEST_SHADER_LIGHTBULB, ], 
+    # categories={'SHAPEKEY'},
     stop_on_fail=True
     )
 

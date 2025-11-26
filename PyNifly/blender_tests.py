@@ -2098,24 +2098,43 @@ def TEST_SHADER_EYE():
     CheckNif(n, source=testfile2)
 
 
-@TT.category('FO4', 'SHADER')
+@TT.category('FO4', 'SHADER', 'ANIMATION')
 def TEST_SHADER_LIGHTBULB():
     """Test that effect shader imports correctly."""
     testfile = TTB.test_file(r"tests\FO4\WorkshopLightbulbHanging01.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_SHADER_LIGHTBULB.nif")
+    light_animations = ('On', 'Off', 'UnpoweredOn', 'UnpoweredOff', 'PoweringUpOn',
+        'PoweringUpOff', 'PoweringDownOn', 'PoweringDownOff',)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
+    # Shader correct
     obj = bpy.data.objects['BulbGlow:2']
     TT.assert_contains("Fallout 4 Effect", obj.active_material.node_tree.nodes, "Effect shader")
     TT.assert_eq(obj.active_material['BS_Shader_Block_Name'], "BSEffectShaderProperty", "Shader block name")
     assert obj.active_material.node_tree.nodes["Fallout 4 Effect"].inputs['Alpha Property'].is_linked, \
         "Alpha linked"
+    
+    # Animations loaded
+    TT.assert_samemembers([b.name for b in bpy.data.actions],
+                          light_animations,
+                          "Light animations")
 
-    bpy.ops.export_scene.pynifly(filepath=outfile)
+    ### EXPORT ###
+
+    bpy.ops.export_scene.pynifly(filepath=outfile, export_animations=True)
+
     n = pyn.NifFile(outfile)
     TT.assert_contains('BulbGlow:2', n.shape_dict, "glow shape")
     TT.assert_contains('Bulb001:3', n.shape_dict, "bulb shape")
+
+    TT.assert_samemembers(n.root.controller.sequences,
+                          light_animations,
+                          "exported light animations")
+
+    TT.assert_equiv(n.root.controller.sequences['On'].text_key_data.keys[1][0], 
+                    0.3333, 
+                    "End time tag", e=0.001)
 
 
 @TT.category('SKYRIM', 'SHADER', 'ANIMATION')

@@ -29,7 +29,7 @@ extern "C" NIFLY_API int getShapeBoneWeights(void* theNif, void* theShape, int b
 extern "C" NIFLY_API int getShapeSkinWeights(void* theNif, void* theShape, int boneIndex, BoneWeight * buf, int buflen);
 extern "C" NIFLY_API void addAllBonesToShape(void* nifref, void* shaperef, int boneCount, int* boneIDs);
 extern "C" NIFLY_API int getShapes(void* f, void** buf, int len, int start);
-void getShape(nifly::NiShape* theShape, NiShapeBuf* buf);
+void getShape(void* nifref, nifly::NiShape* theShape, NiShapeBuf* buf);
 extern "C" NIFLY_API int getShapeBlockName(void* theShape, char* buf, int buflen);
 extern "C" NIFLY_API int getVertsForShape(void* theNif, void* theShape, nifly::Vector3* buf, int len, int start);
 extern "C" NIFLY_API int getNormalsForShape(void* theNif, void* theShape, nifly::Vector3* buf, int len, int start);
@@ -66,7 +66,7 @@ extern "C" NIFLY_API int getBlockID(void* nifref, void* block);
 extern "C" NIFLY_API int addBlock(void* f, const char* name, void* buf, int parent);
 extern "C" NIFLY_API int getBlock(void* nifref, uint32_t blockID, void* buf);
 extern "C" NIFLY_API int setBlock(void* f, int id, void* buf);
-extern "C" NIFLY_API void getNode(void* node, NiNodeBuf * buf);
+extern "C" NIFLY_API void getNode(void* nifref, void* node, NiNodeBuf * buf);
 extern "C" NIFLY_API void* getNodeByID(void* theNif, uint32_t theID);
 extern "C" NIFLY_API void* findNodeByName(void* theNif, const char* nodeName);
 extern "C" NIFLY_API int findBlockByName(void* theNif, const char* nodeName);
@@ -130,6 +130,7 @@ extern "C" NIFLY_API void addCollListChild(void* nifref, const uint32_t id, uint
 extern "C" NIFLY_API void setCollConvexTransformShapeChild(void* nifref, const uint32_t id, uint32_t child_id);
 extern "C" NIFLY_API int getControllerManagerSequences(void* nifref, void* ncmref, int buflen, uint32_t* seqptrs);
 extern "C" NIFLY_API int getControllerManagerSeq(void* nifref, int ncmID, int buflen, uint32_t* seqptrs);
+extern "C" NIFLY_API int getControlledBlocks(void* nifref, uint32_t csID, int buflen, void* buf);
 extern "C" NIFLY_API int getExtraTargets(void* nifref, uint32_t mttcID, int buflen, uint32_t* targetIDs);
 extern "C" NIFLY_API void getAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyQuadXYZBuf * buf);
 extern "C" NIFLY_API void addAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, NiAnimKeyQuadXYZBuf * buf);

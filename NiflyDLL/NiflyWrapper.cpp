@@ -78,6 +78,15 @@ using namespace nifly;
     }
 
 
+#define CheckBuf8(buf, expectedType1, expectedType2, expectedType3, expectedType4, expectedType5, expectedType6, expectedType7, expectedType8, expectedBuf) \
+    if ((buf->bufType != expectedType1 && buf->bufType != expectedType2 && buf->bufType != expectedType3 \
+        && buf->bufType != expectedType4 && buf->bufType != expectedType5 && buf->bufType != expectedType6 \
+        && buf->bufType != expectedType7 && buf->bufType != expectedType8) || buf->bufSize != sizeof(expectedBuf)) { \
+    niflydll::LogWriteEf("%s called with bad buffer: type=%d, size=%d.", __FUNCTION__, buf->bufType, buf->bufSize); \
+    return 2; \
+    }
+
+
 void assignQ(float* dest, Quaternion source) {
     dest[0] = source.w;
     dest[1] = source.x;
@@ -402,8 +411,11 @@ NIFLY_API int getNodeBlockname(void* node, char* buf, int buflen)
     return int(name.length());
 }
 
-NIFLY_API void getNode(void* node, NiNodeBuf* buf) {
+NIFLY_API void getNode(void* nifref, void* node, NiNodeBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
     nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
+    buf->ID = hdr->GetBlockID(theNode);
     buf->nameID = theNode->name.GetIndex();
     buf->controllerID = theNode->controllerRef.index;
     buf->extraDataCount = theNode->extraDataRefs.GetSize();
@@ -427,7 +439,7 @@ int getNodeProperties(void* nifref, uint32_t id, void* inbuf) {
     CheckID(node);
     CheckBuf(buf, BUFFER_TYPES::NiNodeBufType, NiNodeBuf);
 
-    getNode(node, buf);
+    getNode(nifref, node, buf);
     return 0;
 }
 
@@ -450,7 +462,6 @@ int setNodeByID(void* nifref, uint32_t id, void* inbuf) {
     nifly::NiNode* theNode = hdr->GetBlock<NiNode>(id);
 
     CheckID(theNode);
-
     CheckBuf(buf, BUFFER_TYPES::NiNodeBufType, NiNodeBuf);
 
     theNode->name.SetIndex(buf->nameID);
@@ -724,7 +735,11 @@ int NIFLY_API getShapes(void* f, void** buf, int len, int start) {
     return int(shapes.size());
 }
 
-void getShape(NiShape* theShape, NiShapeBuf* buf) {
+void getShape(void* nifref, NiShape* theShape, NiShapeBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+
+    buf->ID = getBlockID(nifref, theShape);
     buf->nameID = theShape->name.GetIndex();
     buf->controllerID = theShape->controllerRef.index;
     buf->extraDataCount = theShape->extraDataRefs.GetSize();
@@ -780,7 +795,7 @@ int getNiShape(void* nifref, uint32_t id, void* buf) {
         return 2;
     }
 
-    getShape(node, b);
+    getShape(nifref, node, b);
 
     // Nifly doesn't always properly return the shader in ShaderPropertyRefs, so 
     // go hunt it on our own.
@@ -831,7 +846,7 @@ int getBSMeshLODTriShape(void* nifref, uint32_t id, void* buf) {
     CheckID(node);
     CheckBuf(shapebuf, BUFFER_TYPES::BSMeshLODTriShapeBufType, BSMeshLODTriShapeBuf);
 
-    getShape(node, shapebuf);
+    getShape(nifref, node, shapebuf);
     meshShapeBuf->lodSize0 = node->lodSize0;
     meshShapeBuf->lodSize1 = node->lodSize1;
     meshShapeBuf->lodSize2 = node->lodSize2;
@@ -849,7 +864,7 @@ int getBSLODTriShape(void* nifref, uint32_t id, void* buf) {
     CheckID(node);
     CheckBuf(shapebuf, BUFFER_TYPES::BSLODTriShapeBufType, BSLODTriShapeBuf);
 
-    getShape(node, shapebuf);
+    getShape(nifref, node, shapebuf);
     meshShapeBuf->level0 = node->level0;
     meshShapeBuf->level1 = node->level1;
     meshShapeBuf->level2 = node->level2;
@@ -3572,6 +3587,8 @@ NIFLY_API int getControllerManagerSeq(
     return ncm->controllerSequenceRefs.GetSize();
 }
 
+
+/* Return the sequences managed by a NiControllerManager, by ID. */
 NIFLY_API int getControllerManagerSequences(
     void* nifref,  void* ncmref, int buflen, uint32_t* seqptrs) 
 {
@@ -3586,6 +3603,8 @@ NIFLY_API int getControllerManagerSequences(
     return ncm->controllerSequenceRefs.GetSize();
 }
 
+
+/* Return a controller sequence by ID. */
 int getControllerSequence(void* nifref, uint32_t csID, void* inbuf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
@@ -3593,9 +3612,9 @@ int getControllerSequence(void* nifref, uint32_t csID, void* inbuf) {
     NiControllerSequenceBuf* buf = static_cast<NiControllerSequenceBuf*>(inbuf);
 
     CheckID(cs);
-
     CheckBuf(buf, BUFFER_TYPES::NiControllerSequenceBufType, NiControllerSequenceBuf);
 
+    buf->ID = csID;
     buf->nameID = cs->name.GetIndex();
     buf->arrayGrowBy = cs->arrayGrowBy;
     buf->controlledBlocksCount = cs->controlledBlocks.size();
@@ -3613,8 +3632,9 @@ int getControllerSequence(void* nifref, uint32_t csID, void* inbuf) {
     return 0;
 }
 
-int addControllerSequence(void* nifref, const char* name, void* inbuf, uint32_t parentID) 
+
 /* Add a ControllerSequence block */
+int addControllerSequence(void* nifref, const char* name, void* inbuf, uint32_t parentID) 
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
@@ -3637,12 +3657,17 @@ int addControllerSequence(void* nifref, const char* name, void* inbuf, uint32_t 
     return newid;
 }
 
-int getControlledBlocks(void* nifref, uint32_t csID, void* buf) {
-/* Return the "ControllerLink blocks, children of NiControllerSequence blocks. 
-    blocks = Pointer to an ARRAY of ControllerLinkBuf blocks. Caller must allocate as many as there 
+
+/* Return the "ControllerLink" blocks, children of NiControllerSequence blocks. 
+
+    buflen = number of allocated buffers in buf. May be 0.
+
+    buf = Pointer to an ARRAY of ControllerLinkBuf blocks. Caller must allocate as many as there 
     are blocks.
-    bufSize of first block must be set to the TOTAL length of the block array.
+
+    Returns number of controlled blocks actually owned by the ControlelerSequence.
 */
+int getControlledBlocks(void* nifref, uint32_t csID, int buflen, void* buf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     NiControllerSequence* cs = hdr->GetBlock<NiControllerSequence>(csID);
@@ -3650,13 +3675,15 @@ int getControlledBlocks(void* nifref, uint32_t csID, void* buf) {
 
     CheckID(cs);
 
-    if (blocks[0].bufSize < sizeof(ControllerLinkBuf) * cs->controlledBlocks.size()) {
-        niflydll::LogWrite("ERROR: ControllerLinkBuf buffer wrong size.");
-        return 2;
-    }
+    //if (blocks[0].bufSize < sizeof(ControllerLinkBuf) * cs->controlledBlocks.size()) {
+    //    niflydll::LogWrite("ERROR: ControllerLinkBuf buffer wrong size.");
+    //    return 2;
+    //}
 
     int i = 0;
     for (auto& cl : cs->controlledBlocks) {
+        if (i >= buflen) break;
+
         ControllerLinkBuf* b = &blocks[i];
         b->interpolatorID = cl.interpolatorRef.index;
         b->controllerID = cl.controllerRef.index;
@@ -3669,7 +3696,7 @@ int getControlledBlocks(void* nifref, uint32_t csID, void* buf) {
         i++;
     }
 
-    return 0;
+    return cs->controlledBlocks.size();
 }
 
 int addControlledBlock(void* nifref, const char* name, void* buffer, uint32_t parent) {
@@ -3827,6 +3854,36 @@ int addNiFloatInterpolator(void* nifref, const char* name, void* inbuf, uint32_t
     auto ti = std::make_unique<NiFloatInterpolator>();
 
     ti->floatValue = buf->value;
+    ti->dataRef.index = buf->dataID;
+
+    return hdr->AddBlock(std::move(ti));
+}
+
+int getNiBoolInterpolator(void* nifref, uint32_t tiID, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiBoolInterpolator* ti = hdr->GetBlock<NiBoolInterpolator>(tiID);
+    NiBoolInterpolatorBuf* buf = static_cast<NiBoolInterpolatorBuf*>(inbuf);
+
+    CheckID(ti);
+    CheckBuf(buf, BUFFER_TYPES::NiBoolInterpolatorBufType, NiBoolInterpolatorBuf);
+
+    buf->boolValue = ti->boolValue;
+    buf->dataID = ti->dataRef.index;
+
+    return 0;
+}
+
+int addNiBoolInterpolator(void* nifref, const char* name, void* inbuf, uint32_t parentID) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiBoolInterpolatorBuf* buf = static_cast<NiBoolInterpolatorBuf*>(inbuf);
+
+    CheckBuf(buf, BUFFER_TYPES::NiBoolInterpolatorBufType, NiBoolInterpolatorBuf);
+
+    auto ti = std::make_unique<NiBoolInterpolator>();
+
+    ti->boolValue = buf->boolValue;
     ti->dataRef.index = buf->dataID;
 
     return hdr->AddBlock(std::move(ti));
@@ -4568,13 +4625,15 @@ int addNiSingleInterpController(void* nifref, const char* name, void* b, uint32_
     NiHeader* hdr = &nif->GetHeader();
     NiSingleInterpControllerBuf* buf = static_cast<NiSingleInterpControllerBuf*>(b);
 
-    CheckBuf6(buf, 
+    CheckBuf8(buf, 
         BUFFER_TYPES::BSEffectShaderPropertyColorControllerBufType, 
         BUFFER_TYPES::BSEffectShaderPropertyFloatControllerBufType, 
         BUFFER_TYPES::BSLightingShaderPropertyColorControllerBufType, 
         BUFFER_TYPES::BSLightingShaderPropertyFloatControllerBufType,
         BUFFER_TYPES::BSNiAlphaPropertyTestRefControllerBufType,
         BUFFER_TYPES::NiTransformControllerBufType,
+        BUFFER_TYPES::NiBoolInterpControllerBufType,
+		BUFFER_TYPES::NiVisControllerBufType,
         NiSingleInterpControllerBuf);
 
     int newid;
@@ -4803,7 +4862,7 @@ BlockGetterFunction getterFunctions[] = {
     getControllerSequence,
     getTransformInterpolator,
     getTransformData,
-    getControlledBlocks, // NiControllerLinkBufType
+    nullptr, // NiControllerLinkBufType
     getInvMarker, // BSInvMarkerBufType
     getBSXFlags,
     getMultiTargetTransformController,
@@ -4846,6 +4905,9 @@ BlockGetterFunction getterFunctions[] = {
     getNiBlendInterpolator, 
     getNiBlendInterpolator, // NiBlendBoolInterpolator
     getNiBlendInterpolator, // NiBlendTransformInterpolator
+	getNiBoolInterpolator, // NiBoolInterpolator
+    getNiSingleInterpController, // NiBoolInterpController
+    getNiSingleInterpController, // NiVisController
     nullptr //END
 };
 
@@ -4924,6 +4986,7 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //NiBlendInterpolatorBufType,
     nullptr, //NiBlendBoolInterpolatorBufType,
     nullptr, //NiBlendTransformInterpolatorBufTYpe,
+	nullptr, // NiBoolInterpolatorBufType
     nullptr //END
 };
 
@@ -5001,6 +5064,9 @@ BlockCreatorFunction creatorFunctions[] = {
     nullptr, // NiBlendInterpolator abstract type
     addNiBlendInterpolator, // NiBlendBoolInterpolator
     addNiBlendInterpolator, // NiBlendTransformInterpolator
+	addNiBoolInterpolator, // NiBoolInterpolator
+    addNiSingleInterpController, // NiBoolInterpController
+    addNiSingleInterpController, // NiVisController
     nullptr //end
 };
 

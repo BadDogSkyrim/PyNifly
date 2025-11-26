@@ -81,6 +81,9 @@ enum BUFFER_TYPES : uint16_t {
 	NiBlendInterpolatorBufType,
 	NiBlendBoolInterpolatorBufType,
 	NiBlendTransformInterpolatorBufType,
+	NiBoolInterpolatorBufType,
+	NiBoolInterpControllerBufType,
+	NiVisControllerBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -332,6 +335,7 @@ struct BlockBuf {
 struct NiNodeBuf {
 	uint16_t bufSize = sizeof(NiNodeBuf);
 	uint16_t bufType = BUFFER_TYPES::NiNodeBufType;
+	uint32_t ID;
 	uint32_t nameID;
 	uint32_t controllerID;
 	uint16_t extraDataCount;
@@ -365,6 +369,7 @@ struct BSXFlagsBuf {
 struct NiShapeBuf {
 	uint16_t bufSize = sizeof(NiShapeBuf);
 	uint16_t bufType = BUFFER_TYPES::NiShapeBufType;
+	uint32_t ID;
 	uint32_t nameID;
 	uint32_t controllerID;
 	uint16_t extraDataCount;
@@ -718,6 +723,7 @@ struct NiMultiTargetTransformControllerBuf {
 struct NiControllerSequenceBuf {
 	uint16_t bufSize = sizeof(NiControllerSequenceBuf);
 	uint16_t bufType = BUFFER_TYPES::NiControllerSequenceBufType;
+	uint32_t ID = nifly::NIF_NPOS;
 	uint32_t nameID = nifly::NIF_NPOS;
 	uint32_t arrayGrowBy = 0;
 	uint16_t controlledBlocksCount = 0;
@@ -789,10 +795,22 @@ struct NiSingleInterpControllerBuf {
 	uint32_t controlledVariable;
 };
 
+/* NiBoolInterpControllerBuf same as NiSingleInterpControllerBuf */
+
+/* NiVisControllerBuf same as NiSingleInterpControllerBuf */
+
+
 struct NiFloatInterpolatorBuf {
 	uint16_t bufSize = sizeof(NiFloatInterpolatorBuf);
 	uint16_t bufType = BUFFER_TYPES::NiFloatInterpolatorBufType;
 	float value;
+	uint32_t dataID;
+};
+
+struct NiBoolInterpolatorBuf {
+	uint16_t bufSize = sizeof(NiBoolInterpolatorBuf);
+	uint16_t bufType = BUFFER_TYPES::NiBoolInterpolatorBufType;
+	uint8_t boolValue;
 	uint32_t dataID;
 };
 
