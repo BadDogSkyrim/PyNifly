@@ -84,6 +84,7 @@ enum BUFFER_TYPES : uint16_t {
 	NiBoolInterpolatorBufType,
 	NiBoolInterpControllerBufType,
 	NiVisControllerBufType,
+	BSValueNodeBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -347,6 +348,25 @@ struct NiNodeBuf {
 	uint32_t collisionID;
 	uint16_t childCount;
 	uint16_t effectCount;
+};
+
+struct BSValueNodeBuf {
+	uint16_t bufSize = sizeof(BSValueNodeBuf);
+	uint16_t bufType = BUFFER_TYPES::BSValueNodeBufType;
+	uint32_t ID;
+	uint32_t nameID;
+	uint32_t controllerID;
+	uint16_t extraDataCount;
+	uint32_t flags;
+	//MatTransform transform;
+	float translation[3];
+	float rotation[3][3];
+	float scale;
+	uint32_t collisionID;
+	uint16_t childCount;
+	uint16_t effectCount;
+	int32_t value;
+	uint8_t valueNodeFlags;
 };
 
 struct BSInvMarkerBuf {

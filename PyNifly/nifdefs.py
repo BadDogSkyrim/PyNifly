@@ -762,6 +762,11 @@ class ShaderFlags2FO4(PynIntFlag):
 	REFRACTION_WRITES_DEPTH = 1 << 31
 
 
+class BSValueNodeFlags(PynIntFlag):
+	BILLBOARDWORLD_Z = 1 << 0
+	USE_PLAYER_ADJUST = 1 << 1
+
+
 class bhkCOFlags(PynIntFlag):
     ACTIVE = 1
     NOTIFY = 1 << 2
@@ -1046,7 +1051,11 @@ class PynBufferTypes(IntEnum):
     NiBlendInterpolatorBufType = 53
     NiBlendBoolInterpolatorBufType = 54
     NiBlendTransformInterpolatorBufType = 55
-    COUNT = 56
+    NiBoolInterpolatorBufType = 56
+    NiBoolInterpControllerBufType = 57
+    NiVisControllerBufType = 58
+    BSValueNodeBufType = 59
+    COUNT = 60
 
 # bufferTypeList = [''] * PynBufferTypes.COUNT
 # blockBuffers = {}
@@ -1661,7 +1670,6 @@ class NiNodeBuf(pynStructure):
         ('bufSize', c_uint16),
         ('bufType', c_uint16),
         ('id', c_uint32),
-        ('id', c_uint32),
         ("nameID", c_uint32),
         ("controllerID", c_uint32),
         ("extraDataCount", c_uint16),
@@ -1675,6 +1683,29 @@ class NiNodeBuf(pynStructure):
         self.transform.set_identity()
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiNodeBufType
+        self.nameID = self.controllerID = self.collisionID = NODEID_NONE
+
+
+class BSValueNodeBuf(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ('id', c_uint32),
+        ("nameID", c_uint32),
+        ("controllerID", c_uint32),
+        ("extraDataCount", c_uint16),
+        ("flags", c_uint32),
+        ("transform", TransformBuf),
+        ("collisionID", c_uint32),
+        ("childCount", c_uint16),
+        ("effectCount", c_uint16),
+        ("value", c_int),
+        ("valueNodeFlags", c_uint8),
+    ]
+    def __init__(self, values=None):
+        self.transform.set_identity()
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BSValueNodeBufType
         self.nameID = self.controllerID = self.collisionID = NODEID_NONE
 
 
@@ -2051,12 +2082,12 @@ class NiSingleInterpControllerBuf(pynStructure):
         ("interpolatorID", c_uint32),
         ("controlledVariable", c_uint32),
     ]
-    def __init__(self, values=None):
+    def __init__(self, values=None, buftype=PynBufferTypes.NiSingleInterpControllerBufType):
         self.nextControllerID = NODEID_NONE
         self.targetID = NODEID_NONE
         self.interpolatorID = NODEID_NONE
         super().__init__(values=values)
-        self.bufType = PynBufferTypes.NiSingleInterpControllerBufType
+        self.bufType = buftype
 
     def copy(self, exclude=[]):
         c = super().copy(exclude=exclude)
@@ -2149,6 +2180,30 @@ class NiFloatInterpolatorBuf(pynStructure):
         self.dataID = NODEID_NONE
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiFloatInterpolatorBufType
+
+    def copy(self, exclude=[]):
+        c = super().copy(exclude=exclude)
+        c.dataID = NODEID_NONE
+        return c
+    
+    def copyto(self, other, exclude=[]):
+        c = super().copyto(other, exclude=exclude)
+        c.dataID = NODEID_NONE
+        return c
+
+
+class NiBoolInterpolatorBuf(pynStructure):
+    _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
+        ("value", c_float),
+        ("dataID", c_uint32),
+    ]
+    def __init__(self, values=None):
+        self.boolValue = -sys.float_info.max
+        self.dataID = NODEID_NONE
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.NiBoolInterpolatorBufType
 
     def copy(self, exclude=[]):
         c = super().copy(exclude=exclude)

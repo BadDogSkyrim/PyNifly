@@ -383,6 +383,33 @@ def Check_ScaffoldFrame(nif:NifFile):
     diff_path = Path(r"architecture/quarry/qrycatwalksbluepaint_d.dds")
     TT.assert_eq(Path(frame.textures['Diffuse']).parts[-len(diff_path.parts):], diff_path.parts,
                      "diffuse texture")
+    
+
+def Check_HighTechLight(nif:NifFile):
+    TT.assert_eq(len(nif.root.controller.sequences), 4, "sequence count")
+    on_sequence = nif.root.controller.sequences["On"]
+    TT.assert_eq(len(on_sequence.controlled_blocks), 3, "ON controlled block count")
+    TT.assert_eq(on_sequence.controlled_blocks[0].node_name, "AddOnNode211", 
+                 "ON first controlled block name")
+    TT.assert_eq(on_sequence.controlled_blocks[0].interpolator.blockname, 
+                 "NiBoolInterpolator", 
+                 "ON first controlled block interpolator type")
+    TT.assert_ne(on_sequence.controlled_blocks[0].interpolator.properties.value, 
+                 0, 
+                 "ON first controlled block interpolator value")
+    TT.assert_eq(on_sequence.controlled_blocks[0].controller.blockname,
+                 "NiVisController", "have vis controller")
+    TT.assert_eq(on_sequence.controlled_blocks[0].controller.properties.flags,
+                 108, "vis controller flags")
+    TT.assert_equiv(on_sequence.controlled_blocks[1].controller.properties.stopTime, 0.2333,
+                    "ON second controlled block stop time")
+    TT.assert_eq(on_sequence.controlled_blocks[0].controller.target.blockname,
+                 "BSValueNode", "vis controller target type")
+    TT.assert_eq(on_sequence.controlled_blocks[0].controller.target.name,
+                 "AddOnNode211", "vis controller target name")
+    TT.assert_eq(on_sequence.controlled_blocks[0].controller.target.properties.value,
+                 211, "vis controller target value")
+
 
 
 test_files = {
@@ -390,6 +417,7 @@ test_files = {
     ("FO4", "Helmet.nif"): Check_fo4Helmet,
     ("FO4", "VanillaMaleBody.nif"): Check_fo4MaleBody,
     ("FO4", "ScaffFrame1x2Str01.nif"): Check_ScaffoldFrame,
+    ("FO4", "Workshop_HighTechLightFloor05_On.nif"): Check_HighTechLight,
     ("Skyrim", "blackbriarchalet_test.nif"): Check_blackbriarchalet,
     ("Skyrim", "malehead.nif"): Check_malehead,
     ("Skyrim", "noblechest01.nif"): Check_noblechest01,

@@ -4397,6 +4397,8 @@ namespace NiflyDLLTests
 			getNodeBlockname(mttc, buf, 64);
 			Assert::IsTrue(strcmp(buf, "NiMultiTargetTransformController") == 0, L"Found block name");
 		};
+
+
 		TEST_METHOD(readCollisionFO4) {
 			void* nif = load((testRoot / "FO4/AlarmClock Convex Collision.nif").u8string().c_str());
 			int clock = findBlockByName(nif, "AlarmClock:1");
@@ -4424,6 +4426,8 @@ namespace NiflyDLLTests
 
 			Assert::AreEqual(11, int(boxbuf.vertsCount), L"Have correct vertices");
 		};
+
+
 		TEST_METHOD(readWriteKF) {
 			std::filesystem::path testfile = testRoot / "SkyrimSE/1hm_attackpowerright.kf";
 			std::filesystem::path outfile = testRoot / "SkyrimSE/readWriteKF.kf";
@@ -4724,7 +4728,7 @@ namespace NiflyDLLTests
 		TEST_METHOD(readHighTechLight)
 		{
 			/* Read some extra block types. */
-			std::filesystem::path testfile = testRoot / "FO4/Workshop_HighTechLightFloor07_On.nif";
+			std::filesystem::path testfile = testRoot / "FO4/Workshop_HighTechLightFloor05_On.nif";
 			void* nif = load(testfile.u8string().c_str());
 			
 			NiNodeBuf rootData;
@@ -4737,9 +4741,14 @@ namespace NiflyDLLTests
 
 			void* cm = getNodeByID(nif, rootData.controllerID);
 			uint32_t seqArray[4];
-			Assert::AreEqual(4,
-				getControllerManagerSequences(nif, cm, 4, seqArray), 
-				L"Have 4 sequences");
+			int seqCount = getControllerManagerSequences(nif, cm, 4, seqArray);
+			Assert::AreEqual(4, seqCount, L"Have 4 sequences");
+
+			for (int i : { 5, 17, 23, 29 }) {
+				int size = sizeof(seqArray) / sizeof(seqArray[0]);
+				Assert::IsTrue(std::find(seqArray, seqArray + size, i) != seqArray + size,
+					L"Have expected sequence ID");
+			}
 
 			NiControllerSequenceBuf seqOnData;
 			Assert::AreEqual(0,

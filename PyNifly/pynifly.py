@@ -19,7 +19,11 @@ import xmltools
 
 nifly = None
 
+
 def load_nifly(nifly_path):
+    global nifly
+    if nifly: return nifly
+
     nifly = cdll.LoadLibrary(nifly_path)
     nifly.addAnimKeyLinearTrans.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyLinearTransBuf)]
     nifly.addAnimKeyLinearTrans.restype = None
@@ -118,6 +122,8 @@ def load_nifly(nifly_path):
     nifly.getConnectPointParent.restype = c_int
     nifly.getControllerManagerSequences.argtypes = [c_void_p, c_void_p, c_int, POINTER(c_uint32)]
     nifly.getControllerManagerSequences.restype = c_int
+    nifly.getControlledBlocks.argtypes = [c_void_p, c_int, c_int, c_void_p]
+    nifly.getControlledBlocks.restype = c_int
     nifly.getExtraData.argtypes = [c_void_p, c_int, c_char_p]
     nifly.getExtraData.restype = c_uint32
     nifly.getFurnMarker.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
@@ -256,6 +262,28 @@ def load_nifly(nifly_path):
 
 
 # --- Helper Routines --- #
+
+def check_return(func, *args, **kwargs):
+    nifly.clearMessageLog()
+    try:
+        errval = func(*args, **kwargs)
+        if errval != 0:
+            raise Exception(f"Error calling nifly {func.__name__}: "
+                + (nifly.message_log() if nifly.message_log() else "(no message)"))
+    except Exception as e:
+        raise Exception(f"Error calling nifly {func.__name__}: {e}")
+
+
+def check_msg(func, *args, **kwargs):
+    nifly.clearMessageLog()
+    try:
+        retval = func(*args, **kwargs)
+        if NifFile.message_log():
+            raise Exception(f"Error calling nifly {func.__name__}: " + (NifFile.message_log()))
+    except Exception as e:
+        raise Exception(f"Error calling nifly {func.__name__}: {e}")
+    return retval
+
 
 def get_weights_by_bone(weights_by_vert, used_groups):
     """Given a list of weights 1-1 with vertices, return weights organized by bone. 
@@ -578,18 +606,17 @@ class NiObject:
             self._properties = self.getbuf()
             if self.id != NODEID_NONE and self.file._handle:
                 NifFile.clear_log()
-                err = NifFile.nifly.getBlock(
+                check_return(NifFile.nifly.getBlock,
                     self.file._handle, 
                     self.id, 
                     byref(self._properties))
-                if err != 0:
-                    raise Exception(NifFile.message_log())
         return self._properties
     
     @properties.setter
     def properties(self, value):
         self._properties = value.copy()
-        NifFile.nifly.setBlock(self.file._handle, self.id, byref(self._properties))
+        check_return(
+            NifFile.nifly.setBlock, self.file._handle, self.id, byref(self._properties))
 
     def register_subclasses():
         """Register all subclasses for easy finding."""
@@ -1246,8 +1273,14 @@ class BSRangeNode(NiNode):
 class BSTreeNode(NiNode):
     pass
 
+
 class BSValueNode(NiNode):
-    pass
+    buffer_type = PynBufferTypes.BSValueNodeBufType
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return BSValueNodeBuf(values)
+    
 
 class BSWeakReferenceNode(NiNode):
     pass
@@ -1701,13 +1734,34 @@ class NiFloatInterpolator(NiKeyBasedInterpolator):
                 None, 
                 byref(self.properties), 
                 parent.id if parent else NODEID_NONE)
-            self._handle = NifFile.nifly.getNodeByID(self.file._handle, self.id)
+            self._handle = check_msg(NifFile.nifly.getNodeByID,self.file._handle, self.id)
             if parent: parent.interpolator = self
         self._data = None
         
     @classmethod
     def getbuf(cls, values=None):
         return NiFloatInterpolatorBuf(values)
+
+
+class NiBoolInterpolator(NiKeyBasedInterpolator):
+    buffer_type = PynBufferTypes.NiBoolInterpolatorBufType
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        if self.id == NODEID_NONE and file and properties:
+            self.id = NifFile.nifly.addBlock(
+                self.file._handle, 
+                None, 
+                byref(self.properties), 
+                parent.id if parent else NODEID_NONE)
+            self._handle = check_msg(
+                NifFile.nifly.getNodeByID, self.file._handle, self.id)
+            if parent: parent.interpolator = self
+        self._data = None
+        
+    @classmethod
+    def getbuf(cls, values=None):
+        return NiBoolInterpolatorBuf(values)
 
 
 class NiPoint3Interpolator(NiKeyBasedInterpolator):
@@ -1963,6 +2017,19 @@ class NiFloatInterpController(NiSingleInterpController):
     pass
 
 
+class NiBoolInterpController(NiSingleInterpController):
+    pass
+
+
+class NiVisController(NiSingleInterpController):
+    buffer_type = PynBufferTypes.NiVisControllerBufType
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return NiSingleInterpControllerBuf(
+            values=values, buftype=PynBufferTypes.NiVisControllerBufType)
+
+
 class BSEffectShaderPropertyFloatController(NiFloatInterpController):
     buffer_type = PynBufferTypes.BSEffectShaderPropertyBufType
 
@@ -2161,16 +2228,26 @@ class NiSequence(NiObject):
     @property
     def controlled_blocks(self):
         if self._controlled_blocks is not None: return self._controlled_blocks
-
-        buf = (ControllerLinkBuf * self.properties.controlledBlocksCount)()
-        for i in range(0, self.properties.controlledBlocksCount):
-            buf[i].bufType = PynBufferTypes.NiControllerLinkBufType
-            buf[i].bufSize = sizeof(ControllerLinkBuf)
-        buf[0].bufSize = sizeof(ControllerLinkBuf) * self.properties.controlledBlocksCount
-        NifFile.nifly.getBlock(self.file._handle, self.id, byref(buf))
+        
         self._controlled_blocks = []
+        buf = (ControllerLinkBuf * self.properties.controlledBlocksCount)()
+        buf[0].bufSize = sizeof(ControllerLinkBuf) 
+        buf[0].bufType = PynBufferTypes.NiControllerLinkBufType
+        check_msg(
+            NifFile.nifly.getControlledBlocks,
+            self.file._handle, 
+            self.id, 
+            self.properties.controlledBlocksCount, 
+            byref(buf))
+        # buf = (ControllerLinkBuf * self.properties.controlledBlocksCount)()
+        # for i in range(0, self.properties.controlledBlocksCount):
+        #     buf[i].bufType = PynBufferTypes.NiControllerLinkBufType
+        #     buf[i].bufSize = sizeof(ControllerLinkBuf)
+        # buf[0].bufSize = sizeof(ControllerLinkBuf) * self.properties.controlledBlocksCount
+        # NifFile.nifly.getBlock(self.file._handle, self.id, byref(buf))
         for b in buf:
             self._controlled_blocks.append(ControllerLink(b, self))
+
         return self._controlled_blocks
 
     def add_controlled_block(self,
@@ -2359,7 +2436,8 @@ class NiControllerManager(NiTimeController):
         cms_count = NifFile.nifly.getControllerManagerSequences(
             self.file._handle, self._handle, 0, None)
         cmsids = (c_uint32 * cms_count)()
-        NifFile.nifly.getControllerManagerSequences(
+        check_msg(
+            NifFile.nifly.getControllerManagerSequences,
             self.file._handle, self._handle, cms_count, cmsids)
         
         self._controller_manager_sequences = {}
@@ -3746,7 +3824,7 @@ class NifFile:
     def get_string(self, string_id):
         buflen = self.max_string_len
         buf = (c_char * buflen)()
-        NifFile.nifly.getString(self._handle, string_id, buflen, buf)
+        check_msg(NifFile.nifly.getString, self._handle, string_id, buflen, buf)
         return buf.value.decode('utf-8')
 
 
@@ -4107,8 +4185,8 @@ class NifFile:
         if id in self.node_ids:
             return self.node_ids[id]
 
-        buf = (c_char * (128))()
-        NifFile.nifly.getBlockname(self._handle, id, buf, 128)
+        buf = (c_char * (self.max_string_len))()
+        check_msg(NifFile.nifly.getBlockname, self._handle, id, buf, self.max_string_len)
         bn = buf.value.decode('utf-8')
         if bn in NiObject.block_types:
             node = NiObject.block_types[bn](

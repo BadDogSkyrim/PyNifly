@@ -87,6 +87,17 @@ using namespace nifly;
     }
 
 
+#define CheckBuf9(buf, expectedType1, expectedType2, expectedType3, expectedType4, expectedType5, expectedType6, \
+    expectedType7, expectedType8, expectedType9, expectedBuf) \
+    if ((buf->bufType != expectedType1 && buf->bufType != expectedType2 && buf->bufType != expectedType3 \
+        && buf->bufType != expectedType4 && buf->bufType != expectedType5 && buf->bufType != expectedType6 \
+        && buf->bufType != expectedType7 && buf->bufType != expectedType8 && buf->bufType != expectedType9) \
+        || buf->bufSize != sizeof(expectedBuf)) { \
+    niflydll::LogWriteEf("%s called with bad buffer: type=%d, size=%d.", __FUNCTION__, buf->bufType, buf->bufSize); \
+    return 2; \
+    }
+
+
 void assignQ(float* dest, Quaternion source) {
     dest[0] = source.w;
     dest[1] = source.x;
@@ -443,6 +454,22 @@ int getNodeProperties(void* nifref, uint32_t id, void* inbuf) {
     return 0;
 }
 
+int getBSValueNode(void* nifref, uint32_t id, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiNodeBuf* nodebuf = static_cast<NiNodeBuf*>(inbuf);
+    BSValueNodeBuf* buf = static_cast<BSValueNodeBuf*>(inbuf);
+    nifly::BSValueNode* node = hdr->GetBlock<BSValueNode>(id);
+
+    CheckID(node);
+    CheckBuf(buf, BUFFER_TYPES::BSValueNodeBufType, BSValueNodeBuf);
+
+    getNode(nifref, node, nodebuf);
+	buf->value = node->value;
+	buf->valueNodeFlags = static_cast<uint8_t>(node->valueFlags);
+    return 0;
+}
+
 void setNode(NiNode* theNode, NiNodeBuf* buf) {
     theNode->name.SetIndex(buf->nameID);
     theNode->controllerRef.index = buf->controllerID;
@@ -576,6 +603,34 @@ int createNode(void* f, const char* name, void* properties, uint32_t parent) {
     return hdr->GetBlockID(theNode);
 }
 
+
+int addBSValueNode(void* f, const char* name, void* properties, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(f);
+    NiHeader* hdr = &nif->GetHeader();
+    NiNode* parentNode = hdr->GetBlock<NiNode>(parent);
+    BSValueNodeBuf* buf = static_cast<BSValueNodeBuf*>(properties);
+
+    CheckBuf(buf, BUFFER_TYPES::BSValueNodeBufType, BSValueNodeBuf);
+
+    MatTransform xf;
+    for (int i = 0; i < 3; i++) xf.translation[i] = buf->translation[i];
+    for (int i = 0; i < 3; i++) 
+        for (int j = 0; j < 3; j++) 
+            xf.rotation[i][j] = buf->rotation[i][j];
+
+    auto theNode = std::make_unique<BSValueNode>();
+    theNode->name.get() = name;
+    theNode->SetTransformToParent(xf);
+    theNode->flags = 14; // Clear the no anim sync flag by default
+	theNode->value = buf->value;
+	theNode->valueFlags = static_cast<BSValueNodeFlags>(buf->valueNodeFlags);
+    uint32_t newNodeId = hdr->AddBlock(std::move(theNode));
+    parentNode->childRefs.AddBlockRef(newNodeId);
+
+	return newNodeId;
+}
+
+
 int assignControllerSequence(void* f, uint32_t id, void* b) {
     NifFile* nif = static_cast<NifFile*>(f);
     NiHeader* hdr = &nif->GetHeader();
@@ -660,7 +715,7 @@ buffers conveniently.
 }
 
 NIFLY_API int getString(void* nifref, int strid, int buflen, char* buf) 
-/* Return a string from the NIF given its ID. */ 
+/* Return a string from the NIF given its ID. Returns its length. */ 
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
@@ -3674,6 +3729,7 @@ int getControlledBlocks(void* nifref, uint32_t csID, int buflen, void* buf) {
     ControllerLinkBuf* blocks = static_cast<ControllerLinkBuf*>(buf);
 
     CheckID(cs);
+    CheckBuf(blocks, BUFFER_TYPES::NiControllerLinkBufType, ControllerLinkBuf);
 
     //if (blocks[0].bufSize < sizeof(ControllerLinkBuf) * cs->controlledBlocks.size()) {
     //    niflydll::LogWrite("ERROR: ControllerLinkBuf buffer wrong size.");
@@ -4554,7 +4610,7 @@ int getNiSingleInterpController(void* nifref, uint32_t nodeIndex, void* inbuf)
     NiSingleInterpControllerBuf* buf = static_cast<NiSingleInterpControllerBuf*>(inbuf);
     NiSingleInterpController* ctl = hdr->GetBlock<NiSingleInterpController>(nodeIndex);
 
-    CheckBuf7(buf, 
+    CheckBuf9(buf, 
         BUFFER_TYPES::NiSingleInterpControllerBufType, 
         BUFFER_TYPES::BSEffectShaderPropertyColorControllerBufType,
         BUFFER_TYPES::BSEffectShaderPropertyFloatControllerBufType,
@@ -4562,6 +4618,8 @@ int getNiSingleInterpController(void* nifref, uint32_t nodeIndex, void* inbuf)
         BUFFER_TYPES::BSLightingShaderPropertyFloatControllerBufType,
         BUFFER_TYPES::BSNiAlphaPropertyTestRefControllerBufType,
         BUFFER_TYPES::NiTransformControllerBufType,
+        BUFFER_TYPES::NiBoolInterpControllerBufType,
+        BUFFER_TYPES::NiVisControllerBufType,
         NiSingleInterpControllerBuf);
 
     buf->flags = ctl->flags;
@@ -4908,6 +4966,7 @@ BlockGetterFunction getterFunctions[] = {
 	getNiBoolInterpolator, // NiBoolInterpolator
     getNiSingleInterpController, // NiBoolInterpController
     getNiSingleInterpController, // NiVisController
+    getBSValueNode, 
     nullptr //END
 };
 
@@ -4986,7 +5045,10 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //NiBlendInterpolatorBufType,
     nullptr, //NiBlendBoolInterpolatorBufType,
     nullptr, //NiBlendTransformInterpolatorBufTYpe,
-	nullptr, // NiBoolInterpolatorBufType
+	nullptr, //NiBoolInterpolatorBufType
+	nullptr, //NiBoolInterpControllerBufType,
+	nullptr, //NiVisControllerBufType
+    nullptr, //BSValueNodeBufType
     nullptr //END
 };
 
@@ -5067,6 +5129,7 @@ BlockCreatorFunction creatorFunctions[] = {
 	addNiBoolInterpolator, // NiBoolInterpolator
     addNiSingleInterpController, // NiBoolInterpController
     addNiSingleInterpController, // NiVisController
+	addBSValueNode, 
     nullptr //end
 };
 

@@ -1033,6 +1033,13 @@ def TEST_SHADER_WALL():
     CheckNif(nif)
 
 
+@test_category('CONTROLLER')
+def TEST_HIGHTECHLIGHT():
+    testfile = r"tests\FO4\Workshop_HighTechLightFloor05_On.nif"
+    nif = NifFile(testfile)
+    CheckNif(nif)
+
+
 def TEST_ALPHA():
     """Can read and write alpha property"""
     nif = NifFile(r"tests/Skyrim/meshes/actors/character/Lykaios/Tails/maletaillykaios.nif")
@@ -2391,7 +2398,7 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = True
-    execute(testlist=[TEST_SHADER_SCAFFOLD])
+    execute(testlist=[TEST_HIGHTECHLIGHT])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
     # execute(exclude=[TEST_SET_SKINTINT])
     # execute(categories={"SHADER"})
