@@ -48,6 +48,132 @@ def _test_file(relative_path):
     return relative_path
 
 
+def _export_interpolator(old_interp, new_nif):
+    """
+    Convenience routine to copy an interpolator from an old nif to a new one.
+    """
+    if isinstance(old_interp, NiFloatInterpolator):
+        new_data = NiFloatData(
+            file=new_nif,
+            properties=old_interp.data.properties.copy(),
+            keys=old_interp.data.keys
+        )
+        new_interp = NiFloatInterpolator.New(
+            file=new_nif,
+            data=new_data,
+            value=old_interp.properties.value
+        )
+        return new_interp
+    elif isinstance(old_interp, NiBoolInterpolator):
+        new_interp = NiBoolInterpolator.New(file=new_nif, value=old_interp.properties.value)
+        return new_interp
+    else:
+        raise NotImplementedError(f"Unhandled interpolator type: {type(old_interp)}")
+
+
+def _export_controller(old_ctlr, new_nif, new_interp, new_target):
+    """
+    Convenience routine to copy a controller from an old nif to a new one.
+    """
+    if isinstance(old_ctlr, NiVisController):
+        new_ctlr = NiVisController.New(
+            file=new_nif,
+            flags=old_ctlr.properties.flags,
+            start_time=old_ctlr.properties.startTime, 
+            stop_time=old_ctlr.properties.stopTime, 
+            frequency=old_ctlr.properties.frequency,
+            var=old_ctlr.properties.controlledVariable,
+            interpolator=new_interp,
+            target=new_target,
+        )
+        return new_ctlr
+    elif isinstance(old_ctlr, BSEffectShaderPropertyFloatController):
+        new_ctlr = BSEffectShaderPropertyFloatController.New(
+            file=new_nif,
+            flags=old_ctlr.properties.flags,
+            start_time=old_ctlr.properties.startTime, 
+            stop_time=old_ctlr.properties.stopTime, 
+            frequency=old_ctlr.properties.frequency,
+            interpolator=new_interp,
+            target=new_target,
+        )
+        return new_ctlr
+    else:
+        raise NotImplementedError(f"Unhandled controller type: {type(old_ctlr)}")
+
+
+def _export_node(old_node, new_nif:NifFile):
+    """
+    Convenience routine to copy a node from an old nif to a new one.
+    """
+    new_node = None
+    p = old_node.properties.copy()
+    new_node = new_nif.add_block(name=old_node.name, buf=p, parent=new_nif.rootNode)
+
+    return new_node
+
+
+def _export_controller_sequence(old_seq, new_cm):
+    """
+    Convenience routine to copy a controller sequence from an old controller
+    manager to a new one.
+    """
+    new_seq = NiControllerSequence.New(
+        file=new_cm.file,
+        name=old_seq.name, 
+        accum_root_name=old_seq.accum_root_name, 
+        frequency=old_seq.properties.frequency, 
+        start_time=old_seq.properties.startTime, 
+        stop_time=old_seq.properties.stopTime, 
+        cycle_type=CycleType(old_seq.properties.cycleType), 
+        weight=old_seq.properties.weight,
+        parent=new_cm
+    )
+
+    for cb in old_seq.controlled_blocks:
+        old_targ = cb.controller.target
+        new_targ = None
+        if old_targ is not None:
+            if isinstance(old_targ, NiShader):
+                old_shape_name = old_targ.parent.name
+                if old_shape_name in new_cm.file.shape_dict:
+                    new_shape = new_cm.file.shape_dict[old_shape_name]
+                    new_targ = new_shape.shader
+            else:
+                if old_targ.name in new_cm.file.nodes:
+                    new_targ = new_cm.file.nodes[old_targ.name]
+                else:
+                    new_targ = _export_node(old_targ, new_cm.file)
+        interp = _export_interpolator(cb.interpolator, new_cm.file)
+        ctlr = _export_controller(cb.controller, new_cm.file, interp, new_targ)
+
+        new_seq.add_controlled_block(
+            name=cb.node_name,
+            interpolator=interp,
+            controller=ctlr,
+            controller_type=(
+                ctlr.blockname if ctlr.blockname != 'NiMultiTargetTransformController'
+                    else 'NiTransformController'),
+        )
+
+
+def _export_controller_manager(old_node, new_node):
+    """
+    Convenience routine to copy controllers from an old node to a new node.
+    """
+    if not old_node.controller: return
+
+    if isinstance(old_node.controller, NiControllerManager):
+        new_cm = NiControllerManager.New(
+            file=new_node.file,
+            flags=TimeControllerFlags(old_node.controller.properties.flags),
+            parent=new_node
+        )
+
+        for seq in old_node.controller.sequences.values():
+            _export_controller_sequence(seq, new_cm)
+
+
 def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=None, parent=None):
     """ 
     Convenience routine to copy an existing shape from a source nif to a test file.
@@ -63,6 +189,7 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
         new_prop:NiShapeBuf = properties
     else:
         new_prop:NiShapeBuf = old_shape.properties.copy()
+
     new_prop.nameID = new_prop.conrollerID = new_prop.collisionID = NODEID_NONE
     new_prop.skinInstanceID = new_prop.shaderPropertyID = new_prop.alphaPropertyID = NODEID_NONE
     new_shape = new_nif.createShapeFromData(old_shape.name, 
@@ -96,8 +223,13 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
     # Copy shader property from the original nif. We have mucked with the properties 
     # because of handling materials files, so this ensures we get the original values.
     new_shape.shader.name = old_shape.shader.name
-    p = BSLightingShaderProperty.getbuf()
-    NifFile.nifly.getBlock(
+    if old_shape.shader.blockname == 'BSLightingShaderProperty':
+        p = BSLightingShaderProperty.getbuf()
+    elif old_shape.shader.blockname == 'BSEffectShaderProperty':
+        p = BSEffectShaderProperty.getbuf()
+    else:
+        raise Exception(f"Unhandled shader property type: {old_shape.shader.blockname}")
+    check_return(NifFile.nifly.getBlock,
             old_shape.file._handle, 
             old_shape.shader.id, 
             byref(p))
@@ -138,23 +270,24 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
             controller_prop.targetID = NODEID_NONE
             controller_prop.nextControllerID = NODEID_NONE
             interpolator_prop = old_controller.interpolator.properties.copy()
-            data_prop = old_controller.interpolator.data.properties.copy()
-            new_data = NiFloatData(
-                file=new_nif,
-                properties=data_prop,
-                keys=old_controller.interpolator.data.keys
-            )
-            interpolator_prop.dataID = new_data.id
-            new_interp = NiFloatInterpolator(
-                file=new_nif,
-                properties=interpolator_prop
-            )
-            controller_prop.interpolatorID = new_interp.id
-            new_controller = BSEffectShaderPropertyFloatController(
-                file=new_nif, 
-                properties=controller_prop, 
-                parent=new_shape.shader
-            )
+            if isinstance(old_controller.interpolator, NiInterpolator):
+                data_prop = old_controller.interpolator.data.properties.copy()
+                new_data = NiFloatData(
+                    file=new_nif,
+                    properties=data_prop,
+                    keys=old_controller.interpolator.data.keys
+                )
+                interpolator_prop.dataID = new_data.id
+                new_interp = NiFloatInterpolator(
+                    file=new_nif,
+                    properties=interpolator_prop
+                )
+                controller_prop.interpolatorID = new_interp.id
+                new_controller = BSEffectShaderPropertyFloatController(
+                    file=new_nif, 
+                    properties=controller_prop, 
+                    parent=new_shape.shader
+                )
     
     return new_shape
 
@@ -1038,6 +1171,17 @@ def TEST_HIGHTECHLIGHT():
     testfile = r"tests\FO4\Workshop_HighTechLightFloor05_On.nif"
     nif = NifFile(testfile)
     CheckNif(nif)
+
+    ### EXPORT ###
+
+    nifOut = NifFile()
+    nifOut.initialize('FO4', r"tests\out\TEST_HIGHTECHLIGHT.nif")
+    _export_shape(nif.shapes[0], nifOut)
+    _export_controller_manager(nif.root, nifOut.root)
+    nifOut.save()
+
+    nifTest = NifFile(r"tests\out\TEST_HIGHTECHLIGHT.nif")
+    CheckNif(nifTest, testfile)
 
 
 def TEST_ALPHA():

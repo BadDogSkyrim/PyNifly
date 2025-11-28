@@ -293,8 +293,8 @@ class pynStructure(Structure):
     def __init__(self, values=None, game='SKYRIM'):
         """Initialize structure from 'values'."""
         super().__init__()
-        if "bufSize" in [n for n, t in self._fields_]:
-            self.__setattr__("bufSize", sizeof(self))
+        if hasattr(self, "bufSize"):
+            self.bufSize = sizeof(self)
                 
         self.warnings = []
 
@@ -1685,6 +1685,13 @@ class NiNodeBuf(pynStructure):
         self.bufType = PynBufferTypes.NiNodeBufType
         self.nameID = self.controllerID = self.collisionID = NODEID_NONE
 
+    def copy(self, exclude=[]):
+        c = super().copy(exclude=exclude)
+        c.nameID = NODEID_NONE
+        c.controllerID = NODEID_NONE
+        c.collisionIDID = NODEID_NONE
+        return c
+
 
 class BSValueNodeBuf(pynStructure):
     _fields_ = [
@@ -1707,6 +1714,13 @@ class BSValueNodeBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSValueNodeBufType
         self.nameID = self.controllerID = self.collisionID = NODEID_NONE
+
+    def copy(self, exclude=[]):
+        c = super().copy(exclude=exclude)
+        c.nameID = NODEID_NONE
+        c.controllerID = NODEID_NONE
+        c.collisionIDID = NODEID_NONE
+        return c
 
 
 class BSXFlagsBuf(pynStructure):
@@ -1742,6 +1756,7 @@ class NiShapeBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
         ('bufType', c_uint16),
+        ("id", c_uint32),
         ("nameID", c_uint32),
         ("controllerID", c_uint32),
         ("extraDataCount", c_uint16),
@@ -2172,7 +2187,7 @@ class NiFloatInterpolatorBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
         ('bufType', c_uint16),
-        ("floatValue", c_float),
+        ("value", c_float),
         ("dataID", c_uint32),
     ]
     def __init__(self, values=None):

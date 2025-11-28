@@ -4727,10 +4727,19 @@ namespace NiflyDLLTests
 		};
 		TEST_METHOD(readHighTechLight)
 		{
-			/* Read some extra block types. */
+			/* Check that we can read some extra block types. Also there's a wierd thing with 
+				getting the vert count on this shape.
+				*/
 			std::filesystem::path testfile = testRoot / "FO4/Workshop_HighTechLightFloor05_On.nif";
 			void* nif = load(testfile.u8string().c_str());
-			
+
+			// Check the vert count
+			NiShapeBuf shapeProps;
+			int msg = getBlock(nif, 40, &shapeProps); // GlassGlow:1
+			Assert::AreEqual(0, msg, L"Have correct block for GlassGlow:1");
+			Assert::AreEqual(312, int(shapeProps.vertexCount), L"Have correct vertex count");			
+
+			// Check some controller blocks
 			NiNodeBuf rootData;
 			Assert::AreEqual(0,
 				getBlock(nif, 0, &rootData));

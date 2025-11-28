@@ -809,6 +809,7 @@ void getShape(void* nifref, NiShape* theShape, NiShapeBuf* buf) {
     buf->hasVertices = theShape->HasVertices();
     buf->hasNormals = theShape->HasNormals();
     buf->hasVertexColors = theShape->HasVertexColors();
+    buf->hasUV = theShape->HasUVs();
     for (int i=0; i < 3; i++) buf->boundingSphereCenter[i] = theShape->GetBounds().center[i];
     buf->boundingSphereRadius = theShape->GetBounds().radius;
     buf->vertexCount = theShape->GetNumVertices();
@@ -4730,7 +4731,15 @@ int addNiSingleInterpController(void* nifref, const char* name, void* b, uint32_
         newid = hdr->AddBlock(std::move(efc));
         sip = hdr->GetBlock<NiSingleInterpController>(newid);
     } 
-    if (!sip) return NIF_NPOS;
+    else if (buf->bufType == BUFFER_TYPES::NiVisControllerBufType) {
+        auto vc = std::make_unique<NiVisController>();
+        newid = hdr->AddBlock(std::move(vc));
+        sip = hdr->GetBlock<NiSingleInterpController>(newid);
+    } 
+    if (!sip) {
+        niflydll::LogWriteEf("NYI unimplemented block type: %d", buf->bufType);
+        return NIF_NPOS;
+    }
 
     sip->flags = buf->flags;
     sip->frequency = buf->frequency;

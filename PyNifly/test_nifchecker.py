@@ -386,6 +386,10 @@ def Check_ScaffoldFrame(nif:NifFile):
     
 
 def Check_HighTechLight(nif:NifFile):
+    # Something odd with vertex count.
+    TT.assert_eq(nif.shape_dict['GlassGlow:1'].properties.vertexCount, 312, "vertex count")
+
+    # Check that the ON sequence is read correctly
     TT.assert_eq(len(nif.root.controller.sequences), 4, "sequence count")
     on_sequence = nif.root.controller.sequences["On"]
     TT.assert_eq(len(on_sequence.controlled_blocks), 3, "ON controlled block count")

@@ -264,14 +264,15 @@ def load_nifly(nifly_path):
 # --- Helper Routines --- #
 
 def check_return(func, *args, **kwargs):
-    nifly.clearMessageLog()
+    NifFile.clear_log()
+    errval = 0
     try:
         errval = func(*args, **kwargs)
-        if errval != 0:
-            raise Exception(f"Error calling nifly {func.__name__}: "
-                + (nifly.message_log() if nifly.message_log() else "(no message)"))
     except Exception as e:
         raise Exception(f"Error calling nifly {func.__name__}: {e}")
+    if errval != 0:
+        raise Exception(f"Error calling nifly {func.__name__}: "
+            + (NifFile.message_log() if NifFile.message_log() else "(no message)"))
 
 
 def check_msg(func, *args, **kwargs):
@@ -281,7 +282,7 @@ def check_msg(func, *args, **kwargs):
         if NifFile.message_log():
             raise Exception(f"Error calling nifly {func.__name__}: " + (NifFile.message_log()))
     except Exception as e:
-        raise Exception(f"Error calling nifly {func.__name__}: {e}")
+        raise Exception(f"Error calling nifly {func.__name__}: {e}") from e
     return retval
 
 
@@ -579,9 +580,9 @@ class NiObject:
         self.file:NifFile = file
         self.id = id
         if handle is None and id != NODEID_NONE and file is not None:
-            self._handle = NifFile.nifly.getNodeByID(file._handle, id)
+            self._handle = check_msg(NifFile.nifly.getNodeByID,file._handle, id)
         if self.id == NODEID_NONE and handle is not None and file is not None:
-            self.id = NifFile.nifly.getBlockID(self.file._handle, self._handle)
+            self.id = check_msg(NifFile.nifly.getBlockID, self.file._handle, self._handle)
         self._parent = parent
         if properties:
             self._properties = properties
@@ -605,7 +606,6 @@ class NiObject:
         if not self._properties:
             self._properties = self.getbuf()
             if self.id != NODEID_NONE and self.file._handle:
-                NifFile.clear_log()
                 check_return(NifFile.nifly.getBlock,
                     self.file._handle, 
                     self.id, 
@@ -1211,10 +1211,7 @@ class NiNode(NiAVObject):
         if not self.file._handle: return None
         buf = BSXFlagsBuf()
         bsxf_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSXFlags")
-        if NifFile.nifly.getBlock(self.file._handle, bsxf_id, byref(buf)) == 0:
-            return ["BSX", buf.integerData]
-        else:
-            return None
+        check_return(NifFile.nifly.getBlock, self.file._handle, bsxf_id, byref(buf))
 
     @bsx_flags.setter
     def bsx_flags(self, val):
@@ -1231,8 +1228,8 @@ class NiNode(NiAVObject):
         namebuf = create_string_buffer(256)
         im_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSInvMarker")
         if im_id != NODEID_NONE:
-            NifFile.nifly.getBlock(self.file._handle, im_id, byref(buf))
-            NifFile.nifly.getString(self.file._handle, buf.nameID, 256, namebuf)
+            check_return(NifFile.nifly.getBlock, self.file._handle, im_id, byref(buf))
+            check_msg(NifFile.nifly.getString, self.file._handle, buf.nameID, 256, namebuf)
 
             return [namebuf.value.decode('utf-8'), buf.rot0, buf.rot1, buf.rot2, buf.zoom]
         else:
@@ -1655,7 +1652,7 @@ class NiTransformData(NiKeyFrameData):
 
 
 class NiInterpolator(NiObject):
-    buffer_type = PynBufferTypes.NiBlendInterpolatorBufType
+    buffer_type = -1  # Abstract class
 
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
@@ -1742,6 +1739,16 @@ class NiFloatInterpolator(NiKeyBasedInterpolator):
     def getbuf(cls, values=None):
         return NiFloatInterpolatorBuf(values)
 
+    @classmethod
+    def New(cls, file, data=None, value=None, parent=None):
+        p = cls.getbuf()
+        p.dataID = (data.id if data else NODEID_NONE)
+        p.floatValue = value if value is not None else 0.0
+        interp = file.add_block(None, p, parent)
+        if data:
+            interp._data = data
+        return interp
+
 
 class NiBoolInterpolator(NiKeyBasedInterpolator):
     buffer_type = PynBufferTypes.NiBoolInterpolatorBufType
@@ -1763,6 +1770,16 @@ class NiBoolInterpolator(NiKeyBasedInterpolator):
     def getbuf(cls, values=None):
         return NiBoolInterpolatorBuf(values)
 
+    @classmethod
+    def New(cls, file, data=None, value=None, parent=None):
+        p = cls.getbuf()
+        p.dataID = (data.id if data else NODEID_NONE)
+        p.value = value if value is not None else 0
+        interp = file.add_block(None, p, parent)
+        if data:
+            interp._data = data
+        return interp
+
 
 class NiPoint3Interpolator(NiKeyBasedInterpolator):
     buffer_type = PynBufferTypes.NiPoint3InterpolatorBufType
@@ -1780,17 +1797,17 @@ class NiBlendInterpolator(NiObject):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         if parent: parent.interpolator = self
         
-    @property
-    def data(self):
-        if self._data: return self._data
-        if self.properties.dataID == NODEID_NONE: return None
-        self._data = NiFloatData(file=self.file, id=self.properties.dataID)
-        return self._data
+    # @property
+    # def data(self):
+    #     if self._data: return self._data
+    #     if self.properties.dataID == NODEID_NONE: return None
+    #     self._data = NiFloatData(file=self.file, id=self.properties.dataID)
+    #     return self._data
 
-    @data.setter
-    def data(self, c):
-        self._data = c
-        self.properties.dataID = c.id
+    # @data.setter
+    # def data(self, c):
+    #     self._data = c
+    #     self.properties.dataID = c.id
 
     @classmethod
     def getbuf(cls, values=None):
@@ -1982,7 +1999,7 @@ class NiTransformController(NiKeyframeController):
             target=target, interpolator=interpolator)
         self._target = None
         self._properties = NiTransformControllerBuf()
-        NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
+        check_return(NifFile.nifly.getBlock, self.file._handle, self.id, byref(self._properties))
 
     @classmethod
     def getbuf(cls, values=None):
@@ -1997,7 +2014,7 @@ class NiMultiTargetTransformController(NiInterpController):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent,
                  target=target, interpolator=interpolator)
         self._properties = NiMultiTargetTransformControllerBuf()
-        NifFile.nifly.getBlock(self.file._handle, self.id, byref(self._properties))
+        check_return(NifFile.nifly.getBlock, self.file._handle, self.id, byref(self._properties))
 
     @classmethod
     def getbuf(cls, values=None):
@@ -2230,25 +2247,31 @@ class NiSequence(NiObject):
         if self._controlled_blocks is not None: return self._controlled_blocks
         
         self._controlled_blocks = []
-        buf = (ControllerLinkBuf * self.properties.controlledBlocksCount)()
-        buf[0].bufSize = sizeof(ControllerLinkBuf) 
-        buf[0].bufType = PynBufferTypes.NiControllerLinkBufType
-        check_msg(
-            NifFile.nifly.getControlledBlocks,
-            self.file._handle, 
-            self.id, 
-            self.properties.controlledBlocksCount, 
-            byref(buf))
-        # buf = (ControllerLinkBuf * self.properties.controlledBlocksCount)()
-        # for i in range(0, self.properties.controlledBlocksCount):
-        #     buf[i].bufType = PynBufferTypes.NiControllerLinkBufType
-        #     buf[i].bufSize = sizeof(ControllerLinkBuf)
-        # buf[0].bufSize = sizeof(ControllerLinkBuf) * self.properties.controlledBlocksCount
-        # NifFile.nifly.getBlock(self.file._handle, self.id, byref(buf))
-        for b in buf:
-            self._controlled_blocks.append(ControllerLink(b, self))
+        if self.properties.controlledBlocksCount > 0:
+            buf = (ControllerLinkBuf * self.properties.controlledBlocksCount)()
+            buf[0].bufSize = sizeof(ControllerLinkBuf) 
+            buf[0].bufType = PynBufferTypes.NiControllerLinkBufType
+            check_msg(
+                NifFile.nifly.getControlledBlocks,
+                self.file._handle, 
+                self.id, 
+                self.properties.controlledBlocksCount, 
+                byref(buf))
+            for b in buf:
+                self._controlled_blocks.append(ControllerLink(b, self))
 
         return self._controlled_blocks
+    
+    @property
+    def accum_root_name(self):
+        namebuf = (c_char * self.file.max_string_len)()
+        check_msg(
+            NifFile.nifly.getString,
+            self.file._handle, 
+            self.properties.accumRootNameID, 
+            self.file.max_string_len, 
+            namebuf)
+        return namebuf.value.decode('utf-8')
 
     def add_controlled_block(self,
                              name:str,
@@ -2424,9 +2447,10 @@ class NiControllerManager(NiTimeController):
         self._properties = NiControllerManagerBuf()
         self._controller_manager_sequences = None
         self._object_palette = None
-        NifFile.nifly.getBlock(self.file._handle, 
-                               self.id, 
-                               byref(self._properties))
+        check_return(NifFile.nifly.getBlock, 
+                     self.file._handle, 
+                     self.id, 
+                     byref(self._properties))
 
     @property
     def sequences(self):
@@ -3146,27 +3170,31 @@ class NiShape(NiNode):
             if id == NODEID_NONE:
                 id = NifFile.nifly.getBlockID(file._handle, handle)
             buf = create_string_buffer(128)
-            NifFile.nifly.getBlockname(file._handle, id, buf, 128)
+            check_msg(NifFile.nifly.getBlockname, file._handle, id, buf, 128)
             shapetype = buf.value.decode('utf-8')
         try:
             new_shape = False
             if not handle and id == NODEID_NONE:
                 new_shape = True
-                id = NifFile.nifly.addBlock(
+                id = check_msg(
+                    NifFile.nifly.addBlock,
                     file._handle, 
                     None, 
                     byref(properties), 
                     parent.id if parent else None)
             if not handle:
-                handle = NifFile.nifly.getBlockByID(id)
+                handle = check_msg(NifFile.nifly.getBlockByID, id)
             
             s = file.read_node(
                 handle=handle, id=id, parent=parent, properties=properties)
             if new_shape:
                 s._partitions = []
             return s
-        except:
+        except KeyError:
             NifFile.log.warning(f"Shape type is not implemented: {shapetype}")
+            return None
+        except Exception as e:
+            NifFile.log.error(f"Error creating shape of type {shapetype}: {e}")
             return None
 
     @classmethod
@@ -3306,7 +3334,7 @@ class NiShape(NiNode):
         if self._uvs is None:
             uvCount = self.properties.vertexCount
             buf = (c_float * 2 * uvCount)()
-            NifFile.nifly.getUVs(
+            check_msg(NifFile.nifly.getUVs,
                     self.file._handle, self._handle, buf, uvCount * 2, 0)
             self._uvs = [(uv[0], uv[1]) for uv in buf]
         return self._uvs
@@ -3833,13 +3861,12 @@ class NifFile:
         Add a block defined by the given buffer to the nif file, with error-checking.
         Returns the new object created.
         """
-        NifFile.clear_log()
-        id = NifFile.nifly.addBlock(
+        id = check_msg(NifFile.nifly.addBlock,
             self._handle, 
             (name.encode('utf-8') if name else None), 
             byref(buf), 
             parent.id if parent else NODEID_NONE)
-        if id == NODEID_NONE:
+        if id == NODEID_NONE or id == -1:
             raise Exception(f"Could not create node {buf.bufType}/{NiObject._buftype_name(buf.bufType)}, error: {NifFile.message_log()}")
         cls = NiObject.buffer_types[buf.bufType]
         blk = cls(file=self, id=id, properties=buf, parent=parent)
@@ -3919,6 +3946,7 @@ class NifFile:
         sh._partitions = []
         self._shapes.append(sh)
         sh._handle = shape_handle
+        self.shape_dict[sh.name] = sh
 
         return sh
 
