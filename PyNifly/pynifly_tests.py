@@ -227,6 +227,8 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
         p = BSLightingShaderProperty.getbuf()
     elif old_shape.shader.blockname == 'BSEffectShaderProperty':
         p = BSEffectShaderProperty.getbuf()
+    elif old_shape.shader.blockname == 'BSShaderPPLightingProperty':
+        p = BSShaderPPLightingProperty.getbuf()
     else:
         raise Exception(f"Unhandled shader property type: {old_shape.shader.blockname}")
     check_return(NifFile.nifly.getBlock,
@@ -1519,21 +1521,24 @@ def TEST_BOW():
     nif = NifFile(r"tests\SkyrimSE\meshes\weapons\glassbowskinned.nif")
 
     root = nif.rootNode
-    assert root.blockname == "BSFadeNode", f"Top level node should read as BSFadeNode, found '{root.blockname}'"
-    assert root.flags == 14, "Root node has flags"
-    assert VNearEqual(root.global_transform.translation, [0,0,0]), "Root node transform can be read"
-    assert VNearEqual(root.global_transform.rotation[0], [1,0,0]), "Root node transform can be read"
-    assert VNearEqual(root.global_transform.rotation[1], [0,1,0]), "Root node transform can be read"
-    assert VNearEqual(root.global_transform.rotation[2], [0,0,1]), "Root node transform can be read"
-    assert root.global_transform.scale == 1.0, "Root node transform can be read"
+    TT.assert_eq(root.blockname, "BSFadeNode", f"Top level BSFadeNode")
+    TT.assert_eq(root.flags, 14, "Root node flags")
+    TT.assert_equiv(root.global_transform.translation, [0,0,0], "Root node translation")
+    TT.assert_equiv(root.global_transform.rotation[0], [1,0,0], "Root node transform")
+    TT.assert_equiv(root.global_transform.rotation[1], [0,1,0], "Root node transform")
+    TT.assert_equiv(root.global_transform.rotation[2], [0,0,1], "Root node transform")
+    TT.assert_equiv(root.global_transform.scale, 1.0, "Root node scale")
 
-    assert root.behavior_graph_data == [('BGED', r"Weapons\Bow\BowProject.hkx", False)], f"Error: Expected behavior graph data, got {nif.behavior_graph_data}"
+    TT.assert_eq(root.behavior_graph_data[0][0], 'BGED', f"behavior graph data tag")
+    TT.assert_patheq(root.behavior_graph_data[0][1], r"Weapons\Bow\BowProject.hkx", 
+                     f"behavior graph hkx path")
+    TT.assert_eq(root.behavior_graph_data[0][2], False, f"behavior graph flag")
 
-    assert root.inventory_marker[0] == "INV"
-    assert root.inventory_marker[1:4] == [4712, 0, 785]
-    assert round(root.inventory_marker[4], 4) == 1.1273, "Inventory marker has rotation and zoom info"
+    TT.assert_eq(root.inventory_marker[0], "INV", f"inventory marker tag")
+    TT.assert_eq(root.inventory_marker[1:4], [4712, 0, 785], f"inventory marker data")
+    TT.assert_equiv(root.inventory_marker[4], 1.1273, f"inventory marker zoom")
 
-    assert root.bsx_flags == ['BSX', 202]
+    TT.assert_eq(root.bsx_flags, ['BSX', 202], f"bsx flags")
 
     bone = nif.nodes['Bow_MidBone']
     co = bone.collision_object
@@ -2463,6 +2468,8 @@ stop_on_fail = False
 
 
 def execute_test(t):
+    if t in passed_tests or t in failed_tests: return
+
     NifFile.clear_log()
     print(f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
     # the_test = __dict__[t]
@@ -2542,8 +2549,8 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = True
-    execute(testlist=[TEST_HIGHTECHLIGHT])
+    execute(testlist=[TEST_ANIMATION_NOBLECHEST])
+    execute(exclude=[TEST_SET_SKINTINT])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
-    # execute(exclude=[TEST_SET_SKINTINT])
     # execute(categories={"SHADER"})
     #

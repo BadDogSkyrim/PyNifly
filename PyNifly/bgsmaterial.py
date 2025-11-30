@@ -416,15 +416,15 @@ class BGEMaterial(MaterialFile):
             self.read_text('Glow')
         if self.version >= 10:
             self.read_to('environmentMappingMaskScale')
-        self.read_to('SoftDepth')
+        self.read_to('softDepth')
         if self.version >= 11:
-            self.read_to('EmittanceColor')
+            self.read_to('emittanceColor')
         if self.version >= 15:
-            self.read_to('AdaptativeEmissive_FinalExposureMax')
+            self.read_to('adaptativeEmissive_ExposureOffset')
         if self.version >= 16:
             self.read_to('glowmap')
         if self.version >= 20:
-            self.read_to('EffectPbrSpecular')
+            self.read_to('effectPbrSpecular')
 
 
 class TestModule:

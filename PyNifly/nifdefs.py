@@ -1821,6 +1821,7 @@ class BSMeshLODTriShapeBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
         ('bufType', c_uint16),
+        ("id", c_uint32),
         ("nameID", c_uint32),
         ("controllerID", c_uint32),
         ("extraDataCount", c_uint16),
@@ -1856,6 +1857,7 @@ class BSLODTriShapeBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
         ('bufType', c_uint16),
+        ("id", c_uint32),
         ("nameID", c_uint32),
         ("controllerID", c_uint32),
         ("extraDataCount", c_uint16),

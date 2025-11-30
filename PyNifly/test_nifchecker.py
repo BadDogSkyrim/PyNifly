@@ -294,9 +294,7 @@ def Check_fo4Helmet(nif:NifFile):
 def Check_blackbriarchalet(nif:NifFile):
         glow = nif.shape_dict['L2_WindowGlow']
         TT.assert_eq(glow.blockname, "BSLODTriShape", "shape type")
-        TT.assert_eq(NiAVFlags(glow.properties.flags).fullname, 
-                     'SELECTIVE_UPDATE | SELECTIVE_UPDATE_TRANSF | SELECTIVE_UPDATE_CONTR | NO_ANIM_SYNC_S | MESH_LOD_SKY',
-                     "shape flags")
+        TT.assert_eq(glow.properties.flags, 134742030, "shape flags")
         TT.assert_eq(glow.shader.blockname, "BSEffectShaderProperty", "shader type")
         TT.assert_eq(ShaderFlags1(glow.shader.properties.Shader_Flags_1).fullname,
                      'DECAL | DYNAMIC_DECAL | EXTERNAL_EMITTANCE | ZBUFFER_TEST',

@@ -217,7 +217,7 @@ def load_nifly(nifly_path):
     nifly.setBGExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
     nifly.setBGExtraData.restype = None
     nifly.setBlock.argtypes = [c_void_p, c_int, c_void_p] 
-    nifly.setBlock.restype = None
+    nifly.setBlock.restype = c_int
     nifly.setClothExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
     nifly.setClothExtraData.restype = None
     nifly.setCollConvexTransformShapeChild.argtypes = [c_void_p, c_uint32, c_uint32]
@@ -270,7 +270,10 @@ def check_return(func, *args, **kwargs):
         errval = func(*args, **kwargs)
     except Exception as e:
         raise Exception(f"Error calling nifly {func.__name__}: {e}")
-    if errval != 0:
+    if func.restype is None:
+        if NifFile.message_log():
+            raise Exception(f"Error calling nifly {func.__name__}: " + (NifFile.message_log()))
+    elif errval != 0:
         raise Exception(f"Error calling nifly {func.__name__}: "
             + (NifFile.message_log() if NifFile.message_log() else "(no message)"))
 
@@ -627,19 +630,6 @@ class NiObject:
             NiObject.buffer_types[sc.buffer_type] = sc
             subclasses = subclasses + sc.__subclasses__()
 
-    @property
-    def controller(self):
-        if self._controller: return self._controller
-        if self.properties.controllerID == NODEID_NONE: return None
-        self._controller = self.file.read_node(id=self.properties.controllerID, parent=self)
-        return self._controller
-    
-    @controller.setter
-    def controller(self, c):
-        self._controller = c
-        self.properties.controllerID = c.id
-        NifFile.nifly.setController(self.file._handle, self.id, c.id)
-    
     @classmethod
     def _buftype_name(cls, buftype):
         """Given a buffer type id, return the associated class name."""
@@ -685,6 +675,19 @@ class NiObjectNET(NiObject):
         self._name = value
         if self.file: self.file.register_node(self)
         
+    @property
+    def controller(self):
+        if self._controller: return self._controller
+        if self.properties.controllerID == NODEID_NONE: return None
+        self._controller = self.file.read_node(id=self.properties.controllerID, parent=self)
+        return self._controller
+    
+    @controller.setter
+    def controller(self, c):
+        self._controller = c
+        self.properties.controllerID = c.id
+        NifFile.nifly.setController(self.file._handle, self.id, c.id)
+    
     @property
     def behavior_graph_data(self):
         if self._bgdata is None:
@@ -1210,15 +1213,16 @@ class NiNode(NiAVObject):
         """ Returns bsx flags as [name, value] pair """
         if not self.file._handle: return None
         buf = BSXFlagsBuf()
-        bsxf_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSXFlags")
+        bsxf_id = check_msg(NifFile.nifly.getExtraData, self.file._handle, self.id, b"BSXFlags")
         check_return(NifFile.nifly.getBlock, self.file._handle, bsxf_id, byref(buf))
+        return ["BSX", buf.integerData]
 
     @bsx_flags.setter
     def bsx_flags(self, val):
         """ Sets BSX flags using [name, value] pair """
         buf = BSXFlagsBuf()
         buf.integerData = val[1]
-        NifFile.nifly.addBlock(self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
+        check_msg(NifFile.nifly.addBlock, self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
 
     @property
     def inventory_marker(self):
