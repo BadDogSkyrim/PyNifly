@@ -91,7 +91,7 @@ def assert_eq(*args):
     """Assert all elements but the last are equal. The last is the message to use."""
     msg = args[-1]
     values = args[0:-1]
-    assert values[0:-1] == values[1:], f"{msg} are equal: {values}"
+    assert values[0:-1] == values[1:], f"{msg} equal: {values}"
     # assert actual == expected, f"{msg} not the same: {actual} = {expected}"
 
 

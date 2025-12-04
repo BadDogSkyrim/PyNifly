@@ -813,6 +813,9 @@ class NifImporter():
         obj.name = ninode.name
         obj["pynBlockName"] = ninode.blockname
         obj["pynNodeName"] = ninode.name
+        if ninode.blockname == 'BSValueNode':
+            obj["pynValue"] = ninode.properties.value
+            obj["pynValueNodeFlags"] = BSValueNodeFlags(ninode.properties.valueNodeFlags).fullname
         try:
             # NiControllerSequence blocks don't have flags
             obj["pynNodeFlags"] = NiAVFlags(ninode.flags).fullname

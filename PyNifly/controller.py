@@ -16,6 +16,7 @@ from pynifly import *
 import blender_defs as BD
 from nifdefs import *
 import re
+import json
 
 
 ANIMATION_NAME_MARKER = "ANIM"
@@ -208,24 +209,41 @@ def all_obj_animations(export_objs:BD.ReprObjectCollection):
     for act in bpy.data.actions:
         for slot in act.slots:
             targ = elem = None
-            for reprobj in export_objs:
-                obj = reprobj.blender_obj
-                if slot.target_id_type == 'NODETREE':
-                    if obj.active_material and 'pynActionSlots' in obj.active_material.node_tree:
-                        for avail_actions in obj.active_material.node_tree['pynActionSlots'].split('||'):
-                            actionname, slotname = avail_actions.split('|')
+            if slot.target_id_type == 'NODETREE':
+                # Have to search for the object material that references this slot.
+                for reprobj in export_objs:
+                    obj = reprobj.blender_obj
+                    if obj.active_material and _has_actionslots(obj.active_material.node_tree):
+                        slotrefs = _get_actionslots(obj.active_material.node_tree)
+                        for actionname, slotname in slotrefs.items():
                             if actionname == act.name and slotname == slot.name_display:
                                 targ = reprobj
                                 elem = obj.active_material.node_tree
                                 yield act, slot, targ, elem
-                else: 
-                    if 'pynActionSlots' in obj:
-                        for avail_actions in obj['pynActionSlots'].split('||'):
-                            actionname, slotname = avail_actions.split('|')
-                            if actionname == act.name and slotname == slot.name_display:
-                                targ = reprobj
-                                elem = None
-                                yield act, slot, targ, elem
+            else:
+                reprobj = export_objs.blenderdict.get(slot.name_display)
+                if reprobj:
+                    targ = reprobj
+                    elem = None
+                    yield act, slot, targ, elem
+            # for reprobj in export_objs:
+            #     obj = reprobj.blender_obj
+            #     if slot.target_id_type == 'NODETREE':
+            #         if obj.active_material and _has_actionslots(obj.active_material.node_tree):
+            #             slotrefs = _get_actionslots(obj.active_material.node_tree)
+            #             for actionname, slotname in slotrefs.items():
+            #                 if actionname == act.name and slotname == slot.name_display:
+            #                     targ = reprobj
+            #                     elem = obj.active_material.node_tree
+            #                     yield act, slot, targ, elem
+            #     else: 
+            #         if _has_actionslots(obj):
+            #             slotrefs = _get_actionslots(obj)
+            #             for actionname, slotname in slotrefs.items():
+            #                 if actionname == act.name and slotname == slot.name_display:
+            #                     targ = reprobj
+            #                     elem = None
+            #                     yield act, slot, targ, elem
 
 
 def all_named_animations(export_objs:BD.ReprObjectCollection) -> Iterator[AnimationData]:
@@ -290,6 +308,34 @@ def actionslot_fcurves(action, slot):
             if cb:
                 res.extend(cb.fcurves)
     return res
+
+
+### ActionSlot recording, in one place cuz they might change.
+
+def _has_actionslots(target_obj):
+    """
+    Return TRUE if the target object has any action slots recorded in its
+    'pynActionSlots" property.
+    """
+    return target_obj.get('pynActionSlots', '') != ''
+
+
+def _add_actionslot(target_obj, action_name):
+    """
+    Add an action slot reference to the target object's 'pynActionSlots" property.
+    """
+    slots = json.loads(target_obj.get('pynActionSlots', '{}'))
+    slots[action_name] = target_obj.name
+    target_obj['pynActionSlots'] = json.dumps(slots)
+
+
+def _get_actionslots(target_obj):
+    """
+    Get the action slot references from the target object's 'pynActionSlots" property
+    as a dictionary {sequence name: target name}.
+    """
+    slots = json.loads(target_obj.get('pynActionSlots', '{}'))
+    return slots
 
 
 def analyze_animation(anim, slot, myscene, export_objs:BD.ReprObjectCollection) -> AnimationData:
@@ -581,17 +627,9 @@ class ControllerHandler():
 
         Also set the frame range to include these fcurves.
         """
+        _add_actionslot(self.action_target, self.action.name)
         if self.action_target.animation_data and self.action_target.animation_data.action_slot:
             s = self.action_target.animation_data.action_slot
-            val = f"{self.action.name}|{s.name_display}"
-            try:
-                if 'pynActionSlots' in self.action_target:
-                    if val not in self.action_target['pynActionSlots']:
-                        self.action_target['pynActionSlots'] = f"{self.action_target['pynActionSlots']}||{val}"
-                else:
-                    self.action_target['pynActionSlots'] = val
-            except Exception as e:
-                log.warn(f"Could not assign action slot for {self.action_target}: {e}")
 
             # Expand the action's frame range to cover these fcurves.
             mintime = min([
@@ -863,6 +901,24 @@ class ControllerHandler():
         return keys
 
 
+    def _get_curve_bool_values(self, curve):
+        """
+        Transform a blender curve into nif keys. 
+        Currently we don't support NiBoolData blocks, so we only support
+        NiBoolInterpolators with a fixed value. So we check that the fcurves defines a
+        flat value and return that.
+        """
+        val = None
+        for p in curve.keyframe_points:
+            if val is None:
+                val = p.co.y
+            elif not NearEqual(val, p.co.y):
+                raise Exception("Cannot export NiBoolInterpolator with changing values")
+        if val is None:
+            raise Exception("Cannot export NiBoolInterpolator with no keyframes")
+        return val
+
+
     def _get_curve_quad_vector(self, curvexyz, basexf=Matrix.Identity(4)):
         """
         Transform a blender curve into nif keys. 
@@ -918,6 +974,9 @@ class ControllerHandler():
         if (dp.startswith("location") or dp.startswith("rotation")):
             ctlclass = NiTransformController
             return ctlclass, None
+        elif dp == 'hide_viewport':
+            ctlclass = NiVisController
+            return ctlclass, 0
         elif dp.startswith("node"):
             fcurve_match = re.match(
                 r"""nodes\[['"]([^]]+)['"]\].(inputs|outputs)\[['"]([^]]+)['"]\]""", dp)
@@ -1068,14 +1127,14 @@ class ControllerHandler():
 
         anim:BD.ReprObjectCollection = None
         for anim in all_named_animations(self.export_objs):
-            # Named animatins depend on Action Slots. Bail if it's an older Blender.
+            # Named animations depend on Action Slots. Bail if it's an older Blender.
             try:
                 t = bpy.types.ActionSlot
             except:
                 log.warning("Action Slots not supported in this version of Blender. Cannot export named animations.")
                 return
             
-            # Don't create the nif container blocks until we need them.
+            # Don't create the controller blocks until we need them.
             if not self.multitarget_controller:
                 self.multitarget_controller = NiMultiTargetTransformController.New(
                     file=self.nif, flags=108, target=self.nif.rootNode)
@@ -1090,6 +1149,7 @@ class ControllerHandler():
             if not self.cm_obj_palette:
                 self.cm_obj_palette = NiDefaultAVObjectPalette.New(self.nif, self.nif.rootNode, parent=self.controller_manager)
 
+            # Create the controller sequence if it's new.
             if (not self.controller_sequence) or (anim.name != self.controller_sequence.name):
                 self.controller_sequence:NiControllerSequence = NiControllerSequence.New(
                     file=self.parent.nif,
@@ -1274,6 +1334,21 @@ class ControllerHandler():
 
 
 ### Handlers for importing different types of blocks
+
+def _import_fixed(importer:ControllerHandler, value):
+    """
+    Create a "fixed" fcurve for an interpolator that has no keys.
+    """
+    if not importer.path_name: return
+
+    curve = importer.action.fcurve_ensure_for_datablock(importer.action_target, importer.path_name)
+    frame = importer.start_time * importer.fps * ANIMATION_TIME_ADJUST + 1
+    kfp = curve.keyframe_points.insert(frame, value)
+    kfp.interpolation = 'CONSTANT'
+    frame = importer.end_time * importer.fps * ANIMATION_TIME_ADJUST + 1
+    kfp = curve.keyframe_points.insert(frame, value)
+    kfp.interpolation = 'CONSTANT'
+
 
 def _import_float_data(td, importer:ControllerHandler):
     if not importer.path_name: return
@@ -1482,6 +1557,22 @@ NiTransformData.import_node = _import_transform_data
 
 # #####################################
 # Importers for NiInterpolator blocks. 
+
+def _import_bool_interpolator(interp:NiBoolInterpolator, 
+                               importer:ControllerHandler, 
+                               ctlr:NiInterpController):
+    """
+    "ctlr" is the controller to use when this interpolator doesn't have one.
+    """
+    td = interp.data
+    if td: 
+        td.import_node(importer)
+    else:
+        # Bool interpolators can have no data block. They just force their value.
+        _import_fixed(importer, interp.properties.value)
+    
+NiBoolInterpolator.import_node = _import_bool_interpolator
+
 
 def _import_float_interpolator(fi:NiFloatInterpolator, 
                                importer:ControllerHandler, 
@@ -1778,6 +1869,37 @@ def _import_LSPFloatController(ctlr:BSLightingShaderPropertyFloatController,
             importer._record_slot()
     
 BSLightingShaderPropertyFloatController.import_node = _import_LSPFloatController
+
+
+def _import_VisController(ctlr:NiVisController, 
+                          importer:ControllerHandler,
+                          interp:NiInterpController=None):
+    """
+    Import NiVisController block. Visibility controllers seem to turn visibility
+    on and off, which we implement thorugh the 'hide_viewport' fcurve path.
+    """
+    if not interp:
+        interp = ctlr.interpolator
+    if _ignore_interp(interp):
+        # If no usable interpolator, just skip. This is part of a ControllerSequence and
+        # we'll find it again when we load that.
+        if interp is None:
+            log.debug(f"No interpolator available for controller {ctlr.id}")
+        return
+
+    if not importer.action_target:
+        raise Exception("No target object")
+
+    importer.action_group = "Visibility"
+    importer.path_name = 'hide_viewport'
+        
+    if not importer.action: importer._new_action()
+    importer._new_slot()
+    td = interp.data
+    if td: td.import_node(importer)
+    importer._record_slot()
+    
+NiVisController.import_node = _import_VisController
 
 
 def _import_multitarget_transform_controller( 
@@ -2241,6 +2363,28 @@ def _create_blend_float(exporter):
 BSLightingShaderPropertyFloatController.blend_interpolator = _create_blend_float
 BSEffectShaderPropertyFloatController.blend_interpolator = _create_blend_float
 BSNiAlphaPropertyTestRefController.blend_interpolator = _create_blend_float
+
+
+def _export_bool_curves(exporter, fcurves, target_obj=None):
+    """
+    Export a bool curve from the list to a NiBoolInterpolator/NiBoolData pair. 
+    The curve is picked off the list.
+
+    * Returns (group name, NiBoolInterpolator for the set of curves).
+    """
+    fc = fcurves.pop(0)
+    bip = NiBoolInterpolatorBuf()
+    bip.value = exporter._get_curve_bool_values(fc)
+    bi = NiBoolInterpolator(file=exporter.nif, properties=bip)
+    return target_obj.name, bi
+
+NiVisController.fcurve_exporter = _export_bool_curves
+
+
+def _create_blend_bool(exporter):
+    return NiBlendBoolInterpolator.New(exporter.nif)
+
+NiVisController.blend_interpolator = _create_blend_bool
 
 
 class AssignAnimPanel(bpy.types.Panel):

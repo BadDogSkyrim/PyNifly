@@ -4731,22 +4731,24 @@ namespace NiflyDLLTests
 				getting the vert count on this shape.
 				*/
 			std::filesystem::path testfile = testRoot / "FO4/Workshop_HighTechLightFloor05_On.nif";
+			std::filesystem::path outfile = testRoot / "Out/readHighTechLight.nif";
+			int v;
 			void* nif = load(testfile.u8string().c_str());
 
 			// Check the vert count
 			NiShapeBuf shapeProps;
-			int msg = getBlock(nif, 40, &shapeProps); // GlassGlow:1
-			Assert::AreEqual(0, msg, L"Have correct block for GlassGlow:1");
+			v = getBlock(nif, 40, &shapeProps); // GlassGlow:1
+			Assert::AreEqual(0, v, L"Have correct block for GlassGlow:1");
 			Assert::AreEqual(312, int(shapeProps.vertexCount), L"Have correct vertex count");			
 
 			// Check some controller blocks
 			NiNodeBuf rootData;
-			Assert::AreEqual(0,
-				getBlock(nif, 0, &rootData));
+			v = getBlock(nif, 0, &rootData);
+			Assert::AreEqual(0, v, L"Have correct block for rootData");
 
 			NiControllerManagerBuf cmData;
-			Assert::AreEqual(0,
-				getBlock(nif, rootData.controllerID, &cmData));
+			v = getBlock(nif, rootData.controllerID, &cmData);
+			Assert::AreEqual(0, v, L"Have correct block for cmData");
 
 			void* cm = getNodeByID(nif, rootData.controllerID);
 			uint32_t seqArray[4];
@@ -4760,15 +4762,15 @@ namespace NiflyDLLTests
 			}
 
 			NiControllerSequenceBuf seqOnData;
-			Assert::AreEqual(0,
-				getBlock(nif, seqArray[1], &seqOnData));
+			v = getBlock(nif, seqArray[1], &seqOnData);
+			Assert::AreEqual(0, v, L"Read controller sequence block");
 
 			ControllerLinkBuf controlledBlockArray[4];
 			int count = getControlledBlocks(nif, seqOnData.ID, 4, controlledBlockArray);
 			Assert::AreEqual(3,count, L"Have ON sequence blocks");
 
 			NiBoolInterpolatorBuf interpData;
-			int v = getBlock(nif, controlledBlockArray[0].interpolatorID, &interpData);
+			v = getBlock(nif, controlledBlockArray[0].interpolatorID, &interpData);
 			Assert::AreEqual(0, v, L"Read bool interpolator");
 			Assert::AreNotEqual(0, int(interpData.boolValue), L"Bool interpolator value");
 
@@ -4776,6 +4778,29 @@ namespace NiflyDLLTests
 			v = getBlock(nif, controlledBlockArray[0].controllerID, &visData);
 			Assert::AreEqual(0, v, L"Read vis controller");
 			Assert::AreEqual(108, int(visData.flags), L"Vis flags");
+
+			BSValueNodeBuf valNodeData;
+			v = getBlock(nif, 38, &valNodeData);
+			Assert::AreEqual(0, v, L"Read BSValueNode data");
+			Assert::AreEqual(211, valNodeData.value, L"Value node value");
+
+			// WRITE //
+
+			void* shapeOut[2];
+			void* nifOut = createNif("FO4", "NiNode", "readHighTechLight");
+
+			int newValNodeID = addBlock(nifOut, "AddOnNode211", &valNodeData, 0);
+			Assert::AreNotEqual(int(NIF_NPOS), newValNodeID, L"Added value node block");
+
+			saveNif(nifOut, outfile.u8string().c_str());
+
+			// CHECK //
+
+			void* nifCheck = load(outfile.u8string().c_str());
+			BSValueNodeBuf valNodeCheck;
+			v = getBlock(nifCheck, 1, &valNodeCheck);
+			Assert::AreEqual(0, v, L"Read BSValueNode data");
+			Assert::AreEqual(211, valNodeCheck.value, L"Value node value");
 
 		}
 		/* Hangs. It would be nice if it didn't. */

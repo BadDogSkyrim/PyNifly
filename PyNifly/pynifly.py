@@ -1213,7 +1213,9 @@ class NiNode(NiAVObject):
         """ Returns bsx flags as [name, value] pair """
         if not self.file._handle: return None
         buf = BSXFlagsBuf()
-        bsxf_id = check_msg(NifFile.nifly.getExtraData, self.file._handle, self.id, b"BSXFlags")
+        bsxf_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSXFlags")
+        if bsxf_id == NODEID_NONE:
+            return None
         check_return(NifFile.nifly.getBlock, self.file._handle, bsxf_id, byref(buf))
         return ["BSX", buf.integerData]
 
@@ -1979,7 +1981,9 @@ class NiSingleInterpController(NiInterpController):
         p.stopTime = stop_time
         p.frequency = frequency
         p.phase = phase
-        p.controlledVariable = var
+        if hasattr(p, 'controlledVariable'):
+            # Only the ShaderProperty subclasses have this field
+            p.controlledVariable = var
         if target: p.targetID = (target.id if target else NODEID_NONE)
         if interpolator: p.interpolatorID = (interpolator.id if interpolator else NODEID_NONE)
         c = file.add_block(None, p, parent)

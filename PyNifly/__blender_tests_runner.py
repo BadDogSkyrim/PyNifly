@@ -2,7 +2,10 @@
 
 import importlib
 import blender_tests as BT
+import controller
 importlib.reload(BT)
+importlib.reload(controller)
+
 
 print("""
 =============================================================================
@@ -25,7 +28,7 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 BT.do_tests(
-    target_tests=[ BT.TEST_SHADER_LIGHTBULB, ], 
+    target_tests=[ BT.TEST_HIGHTECH_FLOORLIGHT, ], 
     # categories={'SHAPEKEY'},
     stop_on_fail=True
     )

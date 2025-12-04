@@ -8,6 +8,7 @@ import sys
 import shutil 
 import math
 from pathlib import Path
+import json
 import bpy
 # import bpy.types
 from mathutils import Matrix, Vector, Quaternion, Euler
@@ -2178,6 +2179,47 @@ def TEST_ANIM_SHADER_GLOW():
     # n = pyn.NifFile(testfile)
     nout = pyn.NifFile(outfile)
     CheckNif(nout, source=testfile)
+
+
+@TT.category('ANIMATION', 'FO4')
+def TEST_HIGHTECH_FLOORLIGHT():
+    testfile = TTB.test_file(r"tests\FO4\Workshop_HighTechLightFloor05_On.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_HIGHTECH_FLOORLIGHT.nif")
+
+    ### READ ###
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_import_animations=True)
+
+    assert 'Workshop_HighTechLightFloor05_On:0' in bpy.context.scene.objects
+    light = bpy.context.scene.objects['Workshop_HighTechLightFloor05_On:0']
+
+    TT.assert_samemembers(bpy.data.actions.keys(), 
+                          ("On", "Off", "UnpoweredOn", "UnpoweredOff",),
+                          "Sequences")
+    
+
+    assert 'AddOnNode211' in bpy.context.scene.objects
+    addon = bpy.context.scene.objects['AddOnNode211']
+    TT.assert_eq(addon['pynBlockName'], 'BSValueNode', "Addon block name")
+    TT.assert_eq(addon['pynValue'], 211, "Addon value")
+    TT.assert_eq(addon['pynValueNodeFlags'], '', "Addon flags")
+    TT.assert_eq(json.loads(addon['pynActionSlots']), 
+                 json.loads('{"UnpoweredOn": "AddOnNode211", "On": "AddOnNode211", '
+                 '"Off": "AddOnNode211", "UnpoweredOff": "AddOnNode211"}'),
+                 "Addon action slots")
+
+
+    ### EXPORT ###
+
+    BD.ObjectSelect([obj for obj in bpy.context.scene.objects if obj.get('pynRoot', False)], 
+                    active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile,
+                                 export_animations=True)
+
+    ### CHECK ###
+
+    nif = pyn.NifFile(outfile)
+    CheckNif(nif, testfile)
 
 
 @TT.category('SKYRIM', 'SHADER', 'ANIMATION')
@@ -7015,7 +7057,7 @@ def testfrom(starttest):
     except:
         return alltests
 
-def execute_test(t, passed_tests, failed_tests, skipped_tests,stop_on_fail=True):
+def execute_test(t, passed_tests, failed_tests, skipped_tests, stop_on_fail=True):
         # t = sys.modules[__name__].__dict__[t.__name__]
         if not t: return
 
@@ -7024,7 +7066,7 @@ def execute_test(t, passed_tests, failed_tests, skipped_tests,stop_on_fail=True)
             print (f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
             print (f"SKIPPING {t.__name__}: requires Blender version {max(versions)}, have {bpy.app.version}\n")
             print (f"------------------------------ {t.__name__} ------------------------------\n")
-            skipped_tests.append(t)
+            skipped_tests.add(t)
             return
 
         print (f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
@@ -7036,15 +7078,15 @@ def execute_test(t, passed_tests, failed_tests, skipped_tests,stop_on_fail=True)
         if stop_on_fail:
             t()
             test_loghandler.finish()
-            passed_tests.append(t)
+            passed_tests.add(t)
         else:
             try:
                 t()
                 test_loghandler.finish()
-                passed_tests.append(t)
+                passed_tests.add(t)
             except Exception as e:
                 log.exception(f"Test {t.__name__} failed with exception: {e}")
-                failed_tests.append(t)
+                failed_tests.add(t)
 
         print (f"------------------------------ {t.__name__} ------------------------------\n")
 
@@ -7059,9 +7101,9 @@ def do_tests(
     if not target_tests: 
         target_tests = [t for k, t in sys.modules[__name__].__dict__.items() 
                         if k.startswith('TEST_') and k not in exclude]
-    passed_tests = []
-    failed_tests = []
-    skipped_tests = []
+    passed_tests = set()
+    failed_tests = set()
+    skipped_tests = set()
 
     try:
         for t in target_tests:
@@ -7080,12 +7122,12 @@ def do_tests(
     if categories:
         for t in target_tests:
             if categories.intersection(t.__dict__.get("category", set())):
-                if t not in passed_tests and t not in failed_tests:
+                if t not in passed_tests and t not in failed_tests and t not in skipped_tests:
                     execute_test(t, passed_tests, failed_tests, skipped_tests, 
                                  stop_on_fail=stop_on_fail)
     else:
         for t in target_tests:
-            if t not in passed_tests and t not in failed_tests:
+            if t not in passed_tests and t not in failed_tests and t not in skipped_tests:
                 execute_test(t, passed_tests, failed_tests, skipped_tests, 
                              stop_on_fail=stop_on_fail)
     print(f"\n\n===Succesful tests===")
