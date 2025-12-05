@@ -22,7 +22,8 @@ import pynifly as pyn
 import xml.etree.ElementTree as xml
 import blender_defs as BD
 from trihandler import *
-from test_nifchecker import CheckNif
+# from test_nifchecker import CheckNif
+import test_nifchecker as CHK
 
 import importlib
 import skeleton_hkx
@@ -34,6 +35,7 @@ importlib.reload(BD)
 importlib.reload(shader_io)
 importlib.reload(controller)
 importlib.reload(skeleton_hkx)
+importlib.reload(CHK)
 
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
@@ -199,7 +201,7 @@ def TEST_SKYRIM_XFORM():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
     
     nifcheck = pyn.NifFile(outfile)
-    CheckNif(nifcheck, source=testfile)
+    CHK.CheckNif(nifcheck, source=testfile)
 
 
 @TT.category('FO4', 'BODYPART', 'XFORM')
@@ -489,7 +491,7 @@ def TEST_CHILDHEAD():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIMSE")
 
     nifout = pyn.NifFile(outfile)
-    CheckNif(nifout, source=testfile)
+    CHK.CheckNif(nifout, source=testfile)
 
 
 @TT.category('FO4', 'BODYPART')
@@ -1736,7 +1738,7 @@ def TEST_SEGMENTS():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
     
     nif2 = pyn.NifFile(outfile)
-    CheckNif(nif2, testfile)
+    CHK.CheckNif(nif2, testfile)
     
 
 @TT.category('FO4', 'BODYPART', 'PARTITIONS')
@@ -1860,7 +1862,7 @@ def TEST_PARTITIONS():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
     
     nif2 = pyn.NifFile(outfile)
-    CheckNif(nif2, testfile)
+    CHK.CheckNif(nif2, testfile)
 
 
 @TT.category('SKYRIM', 'PARTITIONS')
@@ -1951,7 +1953,7 @@ def TEST_SHADER_SE():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
     nifcheckSE = pyn.NifFile(outfile)
-    CheckNif(nifcheckSE, fileSE)
+    CHK.CheckNif(nifcheckSE, fileSE)
     bootcheck = nifcheckSE.shapes[0]
     
     TT.assert_samemembers(bootcheck.textures.keys(), nifboots.textures.keys(), "Same textures")
@@ -2096,7 +2098,7 @@ def TEST_SHADER_EYE():
     bpy.ops.export_scene.pynifly(filepath=outfile2)
 
     n = pyn.NifFile(outfile2)
-    CheckNif(n, source=testfile2)
+    CHK.CheckNif(n, source=testfile2)
 
 
 @TT.category('FO4', 'SHADER', 'ANIMATION')
@@ -2178,7 +2180,7 @@ def TEST_ANIM_SHADER_GLOW():
 
     # n = pyn.NifFile(testfile)
     nout = pyn.NifFile(outfile)
-    CheckNif(nout, source=testfile)
+    CHK.CheckNif(nout, source=testfile)
 
 
 @TT.category('ANIMATION', 'FO4')
@@ -2201,7 +2203,7 @@ def TEST_HIGHTECH_FLOORLIGHT():
     assert 'AddOnNode211' in bpy.context.scene.objects
     addon = bpy.context.scene.objects['AddOnNode211']
     TT.assert_eq(addon['pynBlockName'], 'BSValueNode', "Addon block name")
-    TT.assert_eq(addon['pynValue'], 211, "Addon value")
+    TT.assert_eq(addon['value'], 211, "Addon value")
     TT.assert_eq(addon['pynValueNodeFlags'], '', "Addon flags")
     TT.assert_eq(json.loads(addon['pynActionSlots']), 
                  json.loads('{"UnpoweredOn": "AddOnNode211", "On": "AddOnNode211", '
@@ -2219,7 +2221,7 @@ def TEST_HIGHTECH_FLOORLIGHT():
     ### CHECK ###
 
     nif = pyn.NifFile(outfile)
-    CheckNif(nif, testfile)
+    CHK.CheckNif(nif, testfile)
 
 
 @TT.category('SKYRIM', 'SHADER', 'ANIMATION')
@@ -2264,7 +2266,7 @@ def TEST_ANIM_SHADER_BSLSP():
 
     # n = pyn.NifFile(testfile)
     nout = pyn.NifFile(outfile)
-    CheckNif(nout, source=testfile)
+    CHK.CheckNif(nout, source=testfile)
 
 
 def Spriggan_LeavesLandedLoop_Check(lllaction):
@@ -2585,7 +2587,7 @@ def TEST_SHADER_EFFECT():
 
     # nif = pyn.NifFile(testfile)
     nifcheck = pyn.NifFile(outfile)
-    CheckNif(nifcheck, source=testfile)
+    CHK.CheckNif(nifcheck, source=testfile)
     # glow = nif.shape_dict["L2_WindowGlow"]
     # glowcheck = nifcheck.shape_dict["L2_WindowGlow"]
 
@@ -3413,7 +3415,7 @@ def TEST_VERTEX_ALPHA_IO():
     # nif = pyn.NifFile(testfile)
     # head1 = nif.shapes[0]
     nif2 = pyn.NifFile(outfile)
-    CheckNif(nif2, testfile)
+    CHK.CheckNif(nif2, testfile)
     # head2 = nif2.shapes[0]
 
     # assert head2.has_alpha_property, f"Error: Did not write alpha property"
@@ -6027,7 +6029,7 @@ def TEST_NOBLECHEST():
     nifcheck = pyn.NifFile(outfile)
     
     # Controller Manager
-    CheckNif(nifcheck, testfile)
+    CHK.CheckNif(nifcheck, testfile)
 
 TEST_NOBLECHEST.category = {'ANIMATION'}
 

@@ -149,6 +149,7 @@ fo4_bodypart_xf = MatrixLocRotScale(Vector((0, -0.9342, 120.841,)),
 NISHAPE_IGNORE = [
     "bufSize", 
     'bufType',
+    "id", 
     "nameID", 
     "controllerID", 
     "extraDataCount", 
@@ -168,6 +169,7 @@ NISHAPE_IGNORE = [
     "alphaPropertyID", 
     "flags",
     "vertexFlags",
+    "pynValueNodeFlags",
     ]
 
 
@@ -813,14 +815,18 @@ class NifImporter():
         obj.name = ninode.name
         obj["pynBlockName"] = ninode.blockname
         obj["pynNodeName"] = ninode.name
-        if ninode.blockname == 'BSValueNode':
-            obj["pynValue"] = ninode.properties.value
+        if hasattr(ninode.properties, 'valueNodeFlags'):
             obj["pynValueNodeFlags"] = BSValueNodeFlags(ninode.properties.valueNodeFlags).fullname
-        try:
-            # NiControllerSequence blocks don't have flags
+        # if ninode.blockname == 'BSValueNode':
+        #     obj["pynValue"] = ninode.properties.value
+        #     obj["pynValueNodeFlags"] = BSValueNodeFlags(ninode.properties.valueNodeFlags).fullname
+        if hasattr(ninode, 'flags'):
             obj["pynNodeFlags"] = NiAVFlags(ninode.flags).fullname
-        except:
-            pass
+        #     # NiControllerSequence blocks don't have flags
+        #     obj["pynNodeFlags"] = NiAVFlags(ninode.flags).fullname
+        # except:
+        #     pass
+        ninode.properties.extract(obj, ignore=NISHAPE_IGNORE, game=ninode.file.game)
 
         # Only the root node gets the import transform. It gets applied to all children automatically.
         if ninode.name == self.nif.rootName: 
@@ -3454,13 +3460,20 @@ class NifExporter:
         """Export a NiNode for the given Blender object."""
         ref = None
         with stashed_animation(obj):
+            nodetype = obj.get('pynBlockName', 'NiNode')
+            props = NiObject.block_types[nodetype].getbuf(values=obj)
             xf = make_transformbuf(apply_scale_xf(obj.matrix_local, 1))
-            ninode = self.nif.add_node(obj.name, xf, parent.nifnode if parent else None)
-            if "pynNodeFlags" in obj:
-                try:
-                    ninode.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
-                except Exception as e:
-                    log.warn(f"Error setting pynNodeFlags for {obj.name}: {e}")
+            props.transform = xf
+            ninode = self.nif.add_block(
+                name=nonunique_name(obj.name), 
+                buf=props, 
+                parent=parent.nifnode if parent else None)
+            # ninode = self.nif.add_node(obj.name, xf, parent.nifnode if parent else None)
+            # if "pynNodeFlags" in obj:
+            #     try:
+            #         ninode.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
+            #     except Exception as e:
+            #         log.warn(f"Error setting pynNodeFlags for {obj.name}: {e}")
             ref = ReprObject(obj, ninode) 
             self.objs_written.add(ref) 
             collision.CollisionHandler.export_collisions(self, obj)

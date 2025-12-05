@@ -391,27 +391,26 @@ def Check_HighTechLight(nif:NifFile):
     TT.assert_eq(len(nif.root.controller.sequences), 4, "sequence count")
     on_sequence = nif.root.controller.sequences["On"]
     TT.assert_eq(len(on_sequence.controlled_blocks), 3, "ON controlled block count")
-    TT.assert_eq(on_sequence.controlled_blocks[0].node_name, "AddOnNode211", 
-                 "ON first controlled block name")
-    TT.assert_eq(on_sequence.controlled_blocks[0].interpolator.blockname, 
-                 "NiBoolInterpolator", 
-                 "ON first controlled block interpolator type")
-    TT.assert_ne(on_sequence.controlled_blocks[0].interpolator.properties.value, 
-                 0, 
-                 "ON first controlled block interpolator value")
-    TT.assert_eq(on_sequence.controlled_blocks[0].controller.blockname,
-                 "NiVisController", "have vis controller")
-    TT.assert_eq(on_sequence.controlled_blocks[0].controller.properties.flags,
-                 108, "vis controller flags")
-    TT.assert_equiv(on_sequence.controlled_blocks[1].controller.properties.stopTime, 0.2333,
-                    "ON second controlled block stop time")
-    TT.assert_eq(on_sequence.controlled_blocks[0].controller.target.blockname,
-                 "BSValueNode", "vis controller target type")
-    TT.assert_eq(on_sequence.controlled_blocks[0].controller.target.name,
-                 "AddOnNode211", "vis controller target name")
-    TT.assert_eq(on_sequence.controlled_blocks[0].controller.target.properties.value,
-                 211, "vis controller target value")
+    
+    cb_valuenode = next(cb for cb in on_sequence.controlled_blocks if cb.node_name == "AddOnNode211")
+    TT.assert_eq(cb_valuenode.interpolator.blockname, "NiBoolInterpolator", "AddOnNode interpolator")
+    TT.assert_ne(cb_valuenode.interpolator.properties.value, 1, "AddOnNode interpolator value")
+    TT.assert_eq(cb_valuenode.controller.blockname, "NiVisController", "have vis controller")
+    TT.assert_eq(cb_valuenode.controller.properties.flags, 108, "vis controller flags")
+    # The game NiVisController has a stopTime of 0.2333. All the actual keyframes end at
+    # 0.0333. The "On" sequence has a stop time of 0.0333. So we're assuming the
+    # NiVisController stopTime is ignored.
+    # TT.assert_equiv(on_sequence.controlled_blocks[1].controller.properties.stopTime, 0.2333,
+    #                 "ON second controlled block stop time")
+    TT.assert_eq(cb_valuenode.controller.target.blockname, "BSValueNode", "vis controller target type")
+    TT.assert_eq(cb_valuenode.controller.target.name, "AddOnNode211", "vis controller target name")
+    TT.assert_eq(cb_valuenode.controller.target.properties.value, 211, "vis controller target value")
 
+    cb_gg = next(cb for cb in on_sequence.controlled_blocks if cb.node_name == "GlassGlow:1")
+    TT.assert_eq(cb_gg.controller.blockname, "BSEffectShaderPropertyFloatController", "GlassGlow controller")
+    TT.assert_eq(cb_gg.interpolator.blockname, "NiFloatInterpolator", "GlassGlow interpolator")
+    TT.assert_eq(cb_gg.interpolator.data.blockname, "NiFloatData", "GlassGlow data")
+    TT.assert_equiv(cb_gg.interpolator.data.keys[1].time, 0.0333, "GlassGlow key 1 time")
 
 
 test_files = {

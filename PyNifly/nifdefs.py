@@ -187,6 +187,7 @@ class pynStructure(Structure):
         Load fields from the dictionary-like object 'shape'. 
         Return list of warnings if any fields can't be set. 
         """
+        if ignore is None: ignore = []
         self.warnings = []
         for f, t in self._fields_:
             v = None
@@ -392,11 +393,12 @@ class pynStructure(Structure):
                 # This happens when the top bit of a uint32 is set.
                 shape[fieldname] = repr(v)
 
-    def extract(self, shape, ignore=[], game='SKYRIM'):
+    def extract(self, shape, ignore=None, game='SKYRIM'):
         """
         Extract fields to the dictionary-like object 'shape'. Do not extract any ID
         fields. Do not extract fields that match their default values.
         """
+        if ignore is None: ignore = []
         defaults = self.__class__()
         for fn, t in self._fields_:
             if fn != 'bufType' and fn != 'bufSize' and fn[-2:] != 'ID' \
