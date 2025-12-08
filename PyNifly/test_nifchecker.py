@@ -391,17 +391,33 @@ def Check_HighTechLight(nif:NifFile):
     TT.assert_eq(len(nif.root.controller.sequences), 4, "sequence count")
     on_sequence = nif.root.controller.sequences["On"]
     TT.assert_eq(len(on_sequence.controlled_blocks), 3, "ON controlled block count")
+
+    # Check the ON sequence text key times
+    TT.assert_equiv(on_sequence.text_key_data.keys[0][0], 0.0, "ON text key 0 time")
+    TT.assert_equiv(on_sequence.text_key_data.keys[1][0], 0.0333, "ON text key 1 time")
     
     cb_valuenode = next(cb for cb in on_sequence.controlled_blocks if cb.node_name == "AddOnNode211")
     TT.assert_eq(cb_valuenode.interpolator.blockname, "NiBoolInterpolator", "AddOnNode interpolator")
     TT.assert_ne(cb_valuenode.interpolator.properties.value, 1, "AddOnNode interpolator value")
+
     TT.assert_eq(cb_valuenode.controller.blockname, "NiVisController", "have vis controller")
     TT.assert_eq(cb_valuenode.controller.properties.flags, 108, "vis controller flags")
-    # The game NiVisController has a stopTime of 0.2333. All the actual keyframes end at
-    # 0.0333. The "On" sequence has a stop time of 0.0333. So we're assuming the
-    # NiVisController stopTime is ignored.
+
+    # # Controllers that are part of a sequence have "blend" interpolators. In vanilla nifs,
+    # # these seem to always have default values which are probably ignored. Right now we
+    # # can't set them to vanilla because vanilla has a value of 2 and nifly.dll wants the
+    # # value to be boolean. So punt until we find out wheteher this matters.
+    # TT.assert_eq(cb_valuenode.controller.interpolator.blockname, "NiBlendBoolInterpolator", 
+    #              "vis controller interpolator")
+    # TT.assert_equiv(cb_valuenode.controller.interpolator.properties.weightThreshold, 0.0, "weightThreshold")
+    # TT.assert_eq(cb_valuenode.controller.interpolator.properties.boolValue, 2, "value")
+
+    # # The game NiVisController has a stopTime of 0.2333. All the actual keyframes end at
+    # # 0.0333. The "On" sequence has a stop time of 0.0333. So we're assuming the
+    # # NiVisController stopTime is ignored.
     # TT.assert_equiv(on_sequence.controlled_blocks[1].controller.properties.stopTime, 0.2333,
     #                 "ON second controlled block stop time")
+
     TT.assert_eq(cb_valuenode.controller.target.blockname, "BSValueNode", "vis controller target type")
     TT.assert_eq(cb_valuenode.controller.target.name, "AddOnNode211", "vis controller target name")
     TT.assert_eq(cb_valuenode.controller.target.properties.value, 211, "vis controller target value")
@@ -411,6 +427,12 @@ def Check_HighTechLight(nif:NifFile):
     TT.assert_eq(cb_gg.interpolator.blockname, "NiFloatInterpolator", "GlassGlow interpolator")
     TT.assert_eq(cb_gg.interpolator.data.blockname, "NiFloatData", "GlassGlow data")
     TT.assert_equiv(cb_gg.interpolator.data.keys[1].time, 0.0333, "GlassGlow key 1 time")
+
+    # Vanilla NiDefaultAVObjectPalette lists include all NiAVObjects, whether animated or
+    # not. Copy what they do because we don't know exactly how the list is used.
+    TT.assert_samemembers(nif.root.controller.object_palette.objects.keys(),
+                          {'AddOnNode211', 'GlassGlow', 'GlassGlow:1', 'Workshop_HighTechLightFloor05_On:0'},
+                          "object palette contents")
 
 
 test_files = {

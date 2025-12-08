@@ -1842,6 +1842,7 @@ class NiBlendBoolInterpolator(NiBlendInterpolator):
     def getbuf(cls, values=None):
         b = NiBlendInterpolatorBuf(values)
         b.bufType = PynBufferTypes.NiBlendBoolInterpolatorBufType
+        b.boolValue = 2 # Default as found in vanilla nifs
         return b
 
     

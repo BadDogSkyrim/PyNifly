@@ -2109,6 +2109,7 @@ def TEST_SHADER_LIGHTBULB():
     light_animations = ('On', 'Off', 'UnpoweredOn', 'UnpoweredOff', 'PoweringUpOn',
         'PoweringUpOff', 'PoweringDownOn', 'PoweringDownOff',)
 
+    bpy.context.scene.render.fps = 60
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     # Shader correct
@@ -2136,7 +2137,7 @@ def TEST_SHADER_LIGHTBULB():
                           "exported light animations")
 
     TT.assert_equiv(n.root.controller.sequences['On'].text_key_data.keys[1][0], 
-                    0.3333, 
+                    0.03333, 
                     "End time tag", e=0.001)
 
 
@@ -2189,6 +2190,9 @@ def TEST_HIGHTECH_FLOORLIGHT():
     outfile = TTB.test_file(r"tests\Out\TEST_HIGHTECH_FLOORLIGHT.nif")
 
     ### READ ###
+
+    # Higher fps means more precision on timeline markers.
+    bpy.context.scene.render.fps = 60
 
     bpy.ops.import_scene.pynifly(filepath=testfile, do_import_animations=True)
 
@@ -2324,9 +2328,6 @@ def Spriggan_KillFX_Check(kfxaction):
     TT.assert_eq(kfxaction.frame_range[0], 1, "Frame start")
     TT.assert_equiv(kfxaction.frame_range[1], 57, "Frame end", e=1)
 
-    # Is controlling correct targets
-    TT.assert_eq(len(kfxaction.slots), 4, "KillFX requires 4 slots")
-
     # Fcurve targets correct
     fcurve_targets = [fc.data_path for fc in BD.action_fcurves(kfxaction)]
     TT.assert_samemembers(
@@ -2339,6 +2340,9 @@ def Spriggan_KillFX_Check(kfxaction):
          'nodes["SkyrimShader:Default"].inputs["Emission Color"].default_value', 
          'nodes["SkyrimShader:Default"].inputs["Emission Strength"].default_value'],
         "fcurve data_path values")
+
+    # Is controlling correct targets
+    TT.assert_eq(len(kfxaction.slots), 4, "KillFX requires 4 slots")
 
     # Is controlling SprigganFxHandCovers correctly
     kfxhcbag = [cb for cb in kfxaction.layers[0].strips[0].channelbags

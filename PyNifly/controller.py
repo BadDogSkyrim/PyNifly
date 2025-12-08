@@ -1147,7 +1147,8 @@ class ControllerHandler():
                     parent=self.accum_root)
 
             if not self.cm_obj_palette:
-                self.cm_obj_palette = NiDefaultAVObjectPalette.New(self.nif, self.nif.rootNode, parent=self.controller_manager)
+                self.cm_obj_palette = NiDefaultAVObjectPalette.New(
+                    self.nif, self.nif.rootNode, parent=self.controller_manager)
 
             # Create the controller sequence if it's new.
             if (not self.controller_sequence) or (anim.name != self.controller_sequence.name):
@@ -1181,12 +1182,19 @@ class ControllerHandler():
                                         else 'NiTransformController'),
                 )
             # self.cm_obj_palette.add_object(anim.target_obj.nifnode.name, anim.target_obj.nifnode)
-            self._add_controlled_object(anim.target_obj)
+            # self._add_controlled_object(anim.target_obj)
 
         # # Seems like maybe all the objects have to be in the palette?
         # for obj in self.export_objs:
         #     self._add_controlled_object(obj)
-        self._write_controlled_objects()
+        # self._write_controlled_objects()
+
+        # Vanilla nifs list all AV objects in the object palette, animated or not. We 
+        # do the same.
+        if self.cm_obj_palette:
+            for obj in self.export_objs:
+                if isinstance(obj.nifnode, NiAVObject) and obj.nifnode.id != 0:
+                    self.cm_obj_palette.add_object(obj.nifnode.name, obj.nifnode)
 
 
     @classmethod
@@ -1353,7 +1361,23 @@ def _import_fixed(importer:ControllerHandler, value):
 def _import_float_data(td, importer:ControllerHandler):
     if not importer.path_name: return
 
-    curve = importer.action.fcurve_ensure_for_datablock(importer.action_target, importer.path_name)
+    # Seems like fcurve_ensure_for_datablock creates unnecessary slots.
+    s = None
+    curve = None
+    if importer.path_name.startswith('nodes'):
+        for s in importer.action.slots:
+            if s.name_display.startswith('Shader Nodetree'):
+                break
+        if s:
+            for lr in importer.action.layers:
+                for strip in lr.strips:
+                    for cb in strip.channelbags:
+                        if cb.slot == s:
+                            curve = cb.fcurves.new(importer.path_name)
+                            break
+
+    if not curve:
+        curve = importer.action.fcurve_ensure_for_datablock(importer.action_target, importer.path_name)
 
     if td.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY \
             or td.properties.keys.interpolation == NiKeyType.LINEAR_KEY:

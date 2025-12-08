@@ -118,6 +118,15 @@ def _export_controller_sequence(old_seq, new_cm):
     Convenience routine to copy a controller sequence from an old controller
     manager to a new one.
     """
+    tk_id = None
+    if old_seq.text_key_data:
+        new_text_keys = []
+        for t, s in old_seq.text_key_data.keys:
+            new_text_keys.append( (t, s,) )
+        tk_id = NiTextKeyExtraData.New(
+            file=new_cm.file,
+            keys=new_text_keys
+        )
     new_seq = NiControllerSequence.New(
         file=new_cm.file,
         name=old_seq.name, 
@@ -127,6 +136,7 @@ def _export_controller_sequence(old_seq, new_cm):
         stop_time=old_seq.properties.stopTime, 
         cycle_type=CycleType(old_seq.properties.cycleType), 
         weight=old_seq.properties.weight,
+        text_key_data=tk_id,
         parent=new_cm
     )
 
@@ -2549,8 +2559,8 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = True
-    execute(testlist=[TEST_ANIMATION_NOBLECHEST])
-    execute(exclude=[TEST_SET_SKINTINT])
+    execute(testlist=[TEST_HIGHTECHLIGHT])
+    # execute(exclude=[TEST_SET_SKINTINT])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
     # execute(categories={"SHADER"})
     #

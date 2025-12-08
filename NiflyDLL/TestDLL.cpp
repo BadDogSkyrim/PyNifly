@@ -4801,7 +4801,6 @@ namespace NiflyDLLTests
 			v = getBlock(nifCheck, 1, &valNodeCheck);
 			Assert::AreEqual(0, v, L"Read BSValueNode data");
 			Assert::AreEqual(211, valNodeCheck.value, L"Value node value");
-
 		}
 		/* Hangs. It would be nice if it didn't. */
 		//TEST_METHOD(readCorrupt) {
