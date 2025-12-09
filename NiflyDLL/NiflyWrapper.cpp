@@ -580,7 +580,7 @@ NIFLY_API void* addNode(void* f, const char* name, void* xf, void* parent) {
     NiNode* parentNode = static_cast<NiNode*>(parent);
     MatTransform* xfptr = static_cast<MatTransform*>(xf);
     NiNode* theNode = nif->AddNode(name, *xfptr, parentNode);
-    theNode->flags = 14; // Clear the no anim sync flag by default
+    // theNode->flags = 14; // Clear the no anim sync flag by default
     return theNode;
 }
 
