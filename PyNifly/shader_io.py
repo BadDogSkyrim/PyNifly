@@ -1432,7 +1432,7 @@ def set_object_textures(shape: NiShape, mat: bpy.types.Material):
 def get_image_filepath(node_input):
     try:
         nl = BD.find_node(node_input, 'ShaderNodeTexImage')
-        return nl[0].image.filepath
+        return bpy.path.abspath(nl[0].image.filepath)
     except:
         pass
     return ''
@@ -1660,7 +1660,7 @@ class ShaderExporter:
                     return
             try:
                 if imagenode.image:
-                    foundpath = imagenode.image.filepath
+                    foundpath = bpy.path.abspath(imagenode.image.filepath)
                     relpath = Path(foundpath)
             except:
                 pass
