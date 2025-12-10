@@ -580,7 +580,7 @@ NIFLY_API void* addNode(void* f, const char* name, void* xf, void* parent) {
     NiNode* parentNode = static_cast<NiNode*>(parent);
     MatTransform* xfptr = static_cast<MatTransform*>(xf);
     NiNode* theNode = nif->AddNode(name, *xfptr, parentNode);
-    // theNode->flags = 14; // Clear the no anim sync flag by default
+    theNode->flags = 14; // Clear the no anim sync flag by default
     return theNode;
 }
 
@@ -598,7 +598,7 @@ int createNode(void* f, const char* name, void* properties, uint32_t parent) {
         for (int j = 0; j < 3; j++) 
             xf.rotation[i][j] = buf->rotation[i][j];
     NiNode* theNode = nif->AddNode(name, xf, parentNode);
-    theNode->flags = 14; // Clear the no anim sync flag by default
+    theNode->flags = buf->flags;
     
     return hdr->GetBlockID(theNode);
 }
@@ -621,7 +621,7 @@ int addBSValueNode(void* f, const char* name, void* properties, uint32_t parent)
     auto theNode = std::make_unique<BSValueNode>();
     theNode->name.get() = name;
     theNode->SetTransformToParent(xf);
-    theNode->flags = buf->flags; // Clear the no anim sync flag by default
+    theNode->flags = buf->flags; 
 	theNode->value = buf->value;
 	theNode->valueFlags = static_cast<BSValueNodeFlags>(buf->valueNodeFlags);
     uint32_t newNodeId = hdr->AddBlock(std::move(theNode));

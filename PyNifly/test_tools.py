@@ -28,6 +28,24 @@ def category(*args):
     return wrap
 
 
+def error_level(errlevel):
+    """Decorator to set allowed error level of test."""
+    def wrap(fn):
+        fn.__dict__["error_level"] = errlevel
+        return fn
+    return wrap
+
+
+def expect_errors(errlist):
+    """
+    Decorator to set expected errors. errlist is a list of expected error messages.
+    """
+    def wrap(fn):
+        fn.__dict__["expected_errors"] = errlist
+        return fn
+    return wrap
+
+
 def remove_file(fn):
     if os.path.exists(fn):
         os.remove(fn)

@@ -1522,8 +1522,13 @@ class NifImporter():
             mnew.object = arma
     
 
-    def import_nif(self):
-        """Import a single file."""
+    def import_nif(self, priors=None):
+        """
+        Import a single file.
+
+        If the vert count of a new shape matches that of a shape in the "priors" list,
+        only import the mesh. It will be merged as a shape key later.
+        """
         log.info(f"Importing {self.nif.game} file {self.nif.filepath}")
 
         if self.is_set(ImportSettings.create_collection):
@@ -1549,17 +1554,22 @@ class NifImporter():
         # Import the root node
         self.import_ninode(None, self.nif.rootNode)
 
+        imp_mesh_only = self.is_set(ImportSettings.mesh_only)
+
         # Import shapes
         for s in self.nif.shapes:
             if self.nif.game in ['FO4', 'FO76'] and is_facebones(s.bone_names):
                 self.nif.dict = fo4FaceDict
             self.nif.dict.use_niftools = self.is_set(ImportSettings.rename_bones_nift)
             self.import_shape(s)
+            imp_mesh_only = (imp_mesh_only 
+                or (any(len(s.verts) == len(pc.data.vertices) for pc in priors) 
+                    if priors else False))
 
         orphan_shapes = set([o for o in self.objects_created.blender_objects()
                              if o.parent==None and not 'pynRoot' in o])
             
-        if self.is_set(ImportSettings.mesh_only):
+        if imp_mesh_only:
             for obj in self.loaded_meshes:
                 sh = self.nodes_loaded[obj.name]
                 self.set_object_xf(sh, obj)
@@ -1639,9 +1649,10 @@ class NifImporter():
 
 
     def merge_shapes(self, filename, obj_list, new_filename, new_obj_list):
-        """Merge new_obj_list into obj_list as shape keys. 
-           If filenames follow PyNifly's naming conventions, create a shape key for the 
-           base shape and rename the shape keys appropriately.
+        """
+        Merge new_obj_list into obj_list as shape keys. 
+        If filenames follow PyNifly's naming conventions, create a shape key for the
+        base shape and rename the shape keys appropriately.
         """
         # Can name shape keys to our convention if they end with underscore-something and
         # everything before the underscore is the same
@@ -1651,22 +1662,21 @@ class NifImporter():
         obj_shape_name = '_' + fn_parts[-1]
 
         for obj, newobj in zip(obj_list, new_obj_list):
-            ObjectSelect([obj, newobj])
-            ObjectActive(obj)
+            if len(obj.data.vertices) == len(newobj.data.vertices):
+                ObjectSelect([obj, newobj])
+                ObjectActive(obj)
 
-            if rename_keys:
-                if (not obj.data.shape_keys) or (not obj.data.shape_keys.key_blocks) \
-                        or (obj_shape_name not in [s.name for s in obj.data.shape_keys.key_blocks]):
-                    if not obj.data.shape_keys:
-                        obj.shape_key_add(name='Basis')
-                    obj.shape_key_add(name=obj_shape_name)
+                if rename_keys:
+                    if (not obj.data.shape_keys) or (not obj.data.shape_keys.key_blocks) \
+                            or (obj_shape_name not in [s.name for s in obj.data.shape_keys.key_blocks]):
+                        if not obj.data.shape_keys:
+                            obj.shape_key_add(name='Basis')
+                        obj.shape_key_add(name=obj_shape_name)
 
-            bpy.ops.object.join_shapes()
-            bpy.data.objects.remove(newobj)
+                bpy.ops.object.join_shapes()
+                self.objects_created.remove(newobj)
+                bpy.data.objects.remove(newobj)
 
-            if rename_keys:
-                obj.data.shape_keys.key_blocks[-1].name = '_' + new_fn_parts[-1]
-            else:
                 obj.data.shape_keys.key_blocks[-1].name = '_' + new_fn_parts[-1]
 
 
@@ -1710,15 +1720,15 @@ class NifImporter():
                             prior_shapes.add(bpy.context.scene.objects[name]) 
 
             have_priors = (prior_shapes is not None and len(prior_shapes) > 0)
-            self.set_setting(ImportSettings.mesh_only, have_priors)
+            # self.set_setting(ImportSettings.mesh_only, have_priors)
             self.loaded_meshes = []
-            self.import_nif()
+            self.import_nif(prior_shapes)
             if self.is_set(ImportSettings.import_tris):
                 self.import_tris()
 
             if have_priors:
                 self.merge_shapes(prior_fn, prior_shapes, fn, self.loaded_meshes)
-            else:
+            elif prior_shapes is not None:
                 prior_fn = fn
                 for m in self.loaded_meshes:
                     prior_shapes.add(m)
@@ -2640,6 +2650,7 @@ def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0):
     weights = []
     morphdict = {}
     msk = mesh.shape_keys
+    error_groups = set()
 
     sf = Vector((1,1,1))
     if not has_uniform_scale(obj):
@@ -2658,7 +2669,9 @@ def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0):
                 vgn = obj.vertex_groups[vg.group].name
                 vert_weights.append([vgn, vg.weight])
             except:
-                log.error(f"ERROR: Vertex #{v.index} references invalid group #{vg.group}")
+                if vg.group not in error_groups:
+                    log.error(f"Object {obj.name} vertex #{v.index} (and possibly others) references invalid group #{vg.group}")
+                error_groups.add(vg.group)
         
         weights.append(trim_to_four(vert_weights, arma))
     
@@ -3191,11 +3204,15 @@ class NifExporter:
             face_verts = [lp.vertex_index for lp in loops[face.loop_start:face.loop_start+face.loop_total]]
             if len(p) == 0:
                 self.warnings.add('NO_PARTITION')
+                if not self.objs_no_part:
+                    log.warning(f"Face {face.index} on object {self.active_obj.name} is in no partition")
                 self.objs_no_part.add(self.active_obj)
                 create_group_from_verts(self.active_obj, NO_PARTITION_GROUP, face_verts)
                 return None
             elif len(p) > 1:
                 self.warnings.add('MANY_PARITITON')
+                if not self.objs_mult_part:
+                    log.warning(f"Some faces have been assigned to more than one partition")
                 self.objs_mult_part.add(self.active_obj)
                 create_group_from_verts(self.active_obj, MULTIPLE_PARTITION_GROUP, face_verts)
                 None
@@ -3464,16 +3481,16 @@ class NifExporter:
             props = NiObject.block_types[nodetype].getbuf(values=obj)
             xf = make_transformbuf(apply_scale_xf(obj.matrix_local, 1))
             props.transform = xf
+            if "pynNodeFlags" in obj:
+                try:
+                    props.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
+                except Exception as e:
+                    log.warning(f"Error setting node flags for {obj.name}: {e}")
             ninode = self.nif.add_block(
                 name=nonunique_name(obj.name), 
                 buf=props, 
                 parent=parent.nifnode if parent else None)
             # ninode = self.nif.add_node(obj.name, xf, parent.nifnode if parent else None)
-            # if "pynNodeFlags" in obj:
-            #     try:
-            #         ninode.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
-            #     except Exception as e:
-            #         log.warn(f"Error setting pynNodeFlags for {obj.name}: {e}")
             ref = ReprObject(obj, ninode) 
             self.objs_written.add(ref) 
             collision.CollisionHandler.export_collisions(self, obj)

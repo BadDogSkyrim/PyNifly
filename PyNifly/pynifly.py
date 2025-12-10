@@ -2575,7 +2575,7 @@ class NiDefaultAVObjectPalette(NiObject):
 
 # --- Shaders -- #
 
-class NiAlphaProperty(NiObject):
+class NiAlphaProperty(NiProperty):
     @classmethod
     def getbuf(cls, values=None):
         return AlphaPropertyBuf(values)
@@ -3072,7 +3072,7 @@ class NiShaderFO4(NiShader):
             # Find and read the materials file if any. This is where the shader properties
             # will come from. Some FO4 nifs don't have materials files. Apparently (?)
             # they use the shader block attributes.
-            self._name = None
+            # self._name = None ## Think there's no reason to force re-read of name
             if self.name:
                 fullpath = find_referenced_file(self.name, self.file.filepath, root='materials', 
                                                 alt_path=self.file.materialsRoot)

@@ -1088,7 +1088,7 @@ class ShaderImporter:
             if self.diffuse:
                 self.link(self.diffuse.outputs['Alpha'], alpha.inputs['Alpha'])
             
-            if self.alphamap:
+            if self.alphamap and self.vertex_alpha:
                 self.link(self.vertex_alpha.outputs['Color'], alpha.inputs['Vertex Alpha'])
 
             self.material.alpha_threshold = 1 # Not using the material's alpha threshold
@@ -1496,8 +1496,9 @@ class ShaderExporter:
             return
         
         try:
-            if 'BSLSP_Shader_Name' in self.material and self.material['BSLSP_Shader_Name']:
-                shape.shader.name = self.material['BSLSP_Shader_Name']
+            if mn := self.material.get('BSLSP_Shader_Name', ""):
+            # if 'BSLSP_Shader_Name' in self.material and self.material['BSLSP_Shader_Name']:
+                shape.shader.name = mn
 
             shape.shader.properties.load(self.material, game=self.game)
             if 'BS_Shader_Block_Name' in self.material:

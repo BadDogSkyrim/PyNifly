@@ -2559,7 +2559,7 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = True
-    execute(testlist=[TEST_HIGHTECHLIGHT])
+    execute(testlist=[TEST_ANIMATION])
     # execute(exclude=[TEST_SET_SKINTINT])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
     # execute(categories={"SHADER"})

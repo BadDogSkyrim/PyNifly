@@ -320,13 +320,24 @@ def _has_actionslots(target_obj):
     return target_obj.get('pynActionSlots', '') != ''
 
 
-def _add_actionslot(target_obj, action_name):
+def _add_actionslot(target_obj, fcurve):
     """
     Add an action slot reference to the target object's 'pynActionSlots" property.
     """
-    slots = json.loads(target_obj.get('pynActionSlots', '{}'))
-    slots[action_name] = target_obj.name
-    target_obj['pynActionSlots'] = json.dumps(slots)
+    # if not slot: 
+    #     log.warning(f"Tried to add action slot for action {action_name} but slot is None")
+
+    for lay in target_obj.animation_data.action.layers:
+        for strip in lay.strips:
+            for cb in strip.channelbags:
+                if cb.fcurves.find(fcurve.data_path):
+                    slots = json.loads(target_obj.get('pynActionSlots', '{}'))
+                    slots[target_obj.animation_data.action.name] = cb.slot.name_display
+                    target_obj['pynActionSlots'] = json.dumps(slots)
+                    return
+
+    log.warning(
+f"fcurve not found in action {target_obj.animation_data.action.name} for {target_obj.name}")
 
 
 def _get_actionslots(target_obj):
@@ -627,7 +638,7 @@ class ControllerHandler():
 
         Also set the frame range to include these fcurves.
         """
-        _add_actionslot(self.action_target, self.action.name)
+        ## _add_actionslot(self.action_target, self.action.name, self.action_slot)
         if self.action_target.animation_data and self.action_target.animation_data.action_slot:
             s = self.action_target.animation_data.action_slot
 
@@ -1349,7 +1360,9 @@ def _import_fixed(importer:ControllerHandler, value):
     """
     if not importer.path_name: return
 
-    curve = importer.action.fcurve_ensure_for_datablock(importer.action_target, importer.path_name)
+    curve = importer.action.fcurve_ensure_for_datablock(
+        importer.action_target, importer.path_name)
+    _add_actionslot(importer.action_target, curve)
     frame = importer.start_time * importer.fps * ANIMATION_TIME_ADJUST + 1
     kfp = curve.keyframe_points.insert(frame, value)
     kfp.interpolation = 'CONSTANT'
@@ -1364,20 +1377,21 @@ def _import_float_data(td, importer:ControllerHandler):
     # Seems like fcurve_ensure_for_datablock creates unnecessary slots.
     s = None
     curve = None
-    if importer.path_name.startswith('nodes'):
-        for s in importer.action.slots:
-            if s.name_display.startswith('Shader Nodetree'):
-                break
-        if s:
-            for lr in importer.action.layers:
-                for strip in lr.strips:
-                    for cb in strip.channelbags:
-                        if cb.slot == s:
-                            curve = cb.fcurves.new(importer.path_name)
-                            break
+    # if importer.path_name.startswith('nodes'):
+    #     for s in importer.action.slots:
+    #         if s.name_display.startswith('Shader Nodetree'):
+    #             break
+    #     if s:
+    #         for lr in importer.action.layers:
+    #             for strip in lr.strips:
+    #                 for cb in strip.channelbags:
+    #                     if cb.slot == s:
+    #                         curve = cb.fcurves.new(importer.path_name)
+    #                         break
 
     if not curve:
         curve = importer.action.fcurve_ensure_for_datablock(importer.action_target, importer.path_name)
+        _add_actionslot(importer.action_target, curve)
 
     if td.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY \
             or td.properties.keys.interpolation == NiKeyType.LINEAR_KEY:
@@ -1408,7 +1422,8 @@ def _import_pos_data(td:NiPosData, importer:ControllerHandler):
 
     if td.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY:
         for i in range(0, 3):
-            curve = importer.action.fcurve_ensure_for_datablock(importer.action_target, importer.path_name, index=i)
+            curve = importer.action.fcurve_ensure_for_datablock(
+                importer.action_target, importer.path_name, index=i)
             keys = [None]
             keys.extend(td.keys)
             keys.append(None)
@@ -1422,6 +1437,7 @@ def _import_pos_data(td:NiPosData, importer:ControllerHandler):
                 importer.start_time = min(importer.start_time, keys[1].time)
                 importer.end_time = max(importer.end_time, keys[1].time)
                 keys.pop(0)
+            if i == 0: _add_actionslot(importer.action_target, curve)
     else:
         importer.warn(f"NYI: NiPosData type {td.properties.keys.interpolation}")
 
@@ -1456,6 +1472,7 @@ def _import_transform_data(td:NiTransformData,
             curveX = importer.action.fcurve_ensure_for_datablock(importer.action_target, path_prefix + "rotation_euler", index=0)
             curveY = importer.action.fcurve_ensure_for_datablock(importer.action_target, path_prefix + "rotation_euler", index=1)
             curveZ = importer.action.fcurve_ensure_for_datablock(importer.action_target, path_prefix + "rotation_euler", index=2)
+            _add_actionslot(importer.action_target, curveX)
 
             if all_equal([len(td.xrotations), len(td.yrotations), len(td.zrotations)]):
                 x_rot = ('LINEAR' if td.properties.xRotations.interpolation == NiKeyType.LINEAR_KEY
@@ -1524,8 +1541,10 @@ def _import_transform_data(td:NiTransformData,
             curveX = importer.action.fcurve_ensure_for_datablock(importer.action_target, path_prefix + "rotation_quaternion", index=1)
             curveY = importer.action.fcurve_ensure_for_datablock(importer.action_target, path_prefix + "rotation_quaternion", index=2)
             curveZ = importer.action.fcurve_ensure_for_datablock(importer.action_target, path_prefix + "rotation_quaternion", index=3)
+            _add_actionslot(importer.action_target, curveW)
         except:
             curveW = importer.action.fcurve_ensure_for_datablock(importer.action_target, path_prefix + "rotation_quaternion", index=0)
+            _add_actionslot(importer.action_target, curveW)
 
         for i, k in enumerate(td.qrotations):
             kq = Quaternion(k.value)
@@ -1560,6 +1579,7 @@ def _import_transform_data(td:NiTransformData,
         curveLocX = importer.action.fcurve_ensure_for_datablock(importer.action_target, path_prefix + "location", index=0)
         curveLocY = importer.action.fcurve_ensure_for_datablock(importer.action_target, path_prefix + "location", index=1)
         curveLocZ = importer.action.fcurve_ensure_for_datablock(importer.action_target, path_prefix + "location", index=2)
+        _add_actionslot(importer.action_target, curveLocX)
         for k in td.translations:
             v = Vector(k.value)
 

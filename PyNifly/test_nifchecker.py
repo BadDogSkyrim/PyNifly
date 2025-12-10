@@ -140,7 +140,8 @@ def Check_noblechest01(nif:NifFile):
     TT.assert_eq(nif.root.controller.object_palette.__class__.__name__, 'NiDefaultAVObjectPalette', "ObjectPalette class")
     TT.assert_contains('Lid01', nif.root.controller.object_palette.objects, "ObjectPalette contents")
     TT.assert_contains('Lid01:1', nif.root.controller.object_palette.objects, "ObjectPalette contents")
-    TT.assert_eq(nif.root.controller.object_palette.objects['Lid01'].flags, 524430, "ObjectPalette Lid01 flags")
+    TT.assert_eq(nif.root.controller.object_palette.objects['Lid01'].flags, 524430, 
+                 "ObjectPalette Lid01 flags")
 
     TT.assert_eq(len(nif.root.controller.sequences), 2, "sequences count")
     TT.assert_seteq(set(s for s in nif.root.controller.sequences), {'Close', 'Open'}, "sequences")

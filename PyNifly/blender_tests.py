@@ -71,7 +71,7 @@ class TestLogHandler(logging.Handler):
         super().__init__()
         self.log = logging.getLogger("pynifly")
         self.log.addHandler(self)
-        self.expect_error = logging.WARNING
+        self.expected_errors = None
         self.max_error = 0
 
     def __del__(self):
@@ -79,18 +79,21 @@ class TestLogHandler(logging.Handler):
             self.log.removeHandler(self)
 
     def emit(self, record):
+        if self.expected_errors:
+            if any([e in record.getMessage() for e in self.expected_errors]):
+                return # Expected error, ignore.
         self.max_error = max(self.max_error, record.levelno)
 
-    def start(self):
+    def start(self, expect_errors=None):
         """
         Start logging for an operation. Return the log and its handler.
         """
         self.max_error = 0
-        self.expect_error = logging.WARNING
+        self.expected_errors = expect_errors
         
     def check(self):
-        assert self.max_error <= self.expect_error, \
-            f"No errors reported during test {self.max_error} > {self.expect_error}"        
+        assert self.max_error <= logging.INFO, \
+            f"No errors reported during test {self.max_error} > INFO"        
 
     def finish(self):
         self.check()        
@@ -295,9 +298,9 @@ def TEST_SKIN_BONE_XFORM():
 
 def do_bodypart_alignment_fo4(create_bones, estimate_offset, use_pose):
     """Should be able to write bodyparts and have the transforms match exactly."""
-    headfile = TTB.test_file(r"tests\FO4\FoxFemaleHead.nif")
+    headfile = TTB.test_file(r"tests\FO4\Meshes\FoxFemaleHead.nif")
     skelfile = TTB.test_file(r"tests\FO4\skeleton.nif")
-    bodyfile = TTB.test_file(r"tests\FO4\CanineFemBody.nif")
+    bodyfile = TTB.test_file(r"tests\FO4\Meshes\CanineFemBody.nif")
     headout = TTB.test_file(r"tests\out\TEST_BODYPART_ALIGHMENT_FO4_head.nif", output=True)
     bodyout = TTB.test_file(r"tests\out\TEST_BODYPART_ALIGHMENT_FO4_body.nif", output=True)
 
@@ -355,6 +358,8 @@ def do_bodypart_alignment_fo4(create_bones, estimate_offset, use_pose):
 
 
 @TT.category('FO4', 'BODYPART', 'XFORM')
+@TT.expect_errors(("Unknown block type: bhkRagdollSystem",
+                   "Unknown block type: bhkPhysicsSystem",))
 def TEST_BODYPART_ALIGNMENT_FO4_1():
     """Read & write bodyparts and have the transforms match exactly, when estimating global-to-skin offset."""
     do_bodypart_alignment_fo4(create_bones=False, 
@@ -524,6 +529,8 @@ def TEST_IMP_EXP_FO4():
 
 
 @TT.category('FO4', 'BODYPART')
+@TT.expect_errors(("Some faces have been assigned to more than one partition",
+                   "in multiple partitions",))
 def TEST_IMP_EXP_FO4_2():
     """Can read the body armor with 2 parts"""
 
@@ -535,10 +542,10 @@ def TEST_IMP_EXP_FO4_2():
     body = TTB.find_shape('BaseMaleBody_03:0')
     armor = TTB.find_shape('Pack_UnderArmor_03_M:0')
     arma = next(x for x in bpy.data.objects if x.type == 'ARMATURE')
-    assert body.location.z > 120, f"Body has correct transform: {body.location}"
-    assert armor.location.z > 120, f"Armor has correct transform: {armor.location}"
-    assert arma.data.bones['Neck'].matrix_local.translation.z > 100, \
-        f"Neck has correct position: {arma.data.bones['Neck'].matrix_local.translation}"
+    TT.assert_gt(body.location.z, 120, f"Body transform")
+    TT.assert_gt(armor.location.z, 120, f"Armor transform")
+    TT.assert_gt(arma.data.bones['Neck'].matrix_local.translation.z, 100, f"Neck position")
+    assert armor.active_material, "Armor has material"
 
     bpy.ops.object.select_all(action='DESELECT')
     body.select_set(True)
@@ -562,7 +569,7 @@ def TEST_IMP_EXP_FO4_2():
 def TEST_IMP_EXP_FO4_3():
     """Can read clothes + body and they come in sensibly"""
 
-    testfile = TTB.test_file(r"tests\FO4\bathrobe.nif")
+    testfile = TTB.test_file(r"tests\FO4\meshes\bathrobe.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_IMP_EXP_FO4_3.nif")
 
     # Setting do_import_pose=False results in a good import but the 
@@ -631,9 +638,10 @@ def TEST_BPY_PARENT_A():
 
 
 @TT.category('FO4', 'BODYPART', 'ARMATURE')
+@TT.expect_errors(("Could not load diffuse texture", "Could not load normal texture",))
 def TEST_BPY_PARENT_B():
     """Maintain armature structure"""
-    testfile2 = TTB.test_file(r"tests\FO4\bear_tshirt_turtleneck.nif")
+    testfile2 = TTB.test_file(r"tests\FO4\meshes\bear_tshirt_turtleneck.nif")
     
     ## Can read structure if it comes from file
     bpy.ops.object.select_all(action='DESELECT')
@@ -646,7 +654,7 @@ def TEST_BPY_PARENT_B():
 @TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
 def TEST_RENAME():
     """Test that NOT renaming bones works correctly"""
-    testfile = TTB.test_file(r"tests\Skyrim\femalebody_1.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\Meshes\femalebody_1.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, do_rename_bones=False)
 
@@ -708,7 +716,7 @@ def TEST_DRAUGR_IMPORT_A():
     # those bind positions. 
 
     # ------- Load --------
-    testfile = TTB.test_file(r"tests\SkyrimSE\draugr lich01 hood.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\draugr lich01 hood.nif")
     skelfile = TTB.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_A.nif")
 
@@ -738,7 +746,7 @@ def TEST_DRAUGR_IMPORT_B():
     # shape.
 
     # ------- Load --------
-    testfile = TTB.test_file(r"tests\SkyrimSE\draugr lich01 hood.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\draugr lich01 hood.nif")
     skelfile = TTB.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_B.nif")
 
@@ -763,7 +771,7 @@ def TEST_DRAUGR_IMPORT_C():
     """Import helm, don't extend skeleton"""
     # The helm has bones that are in the draugr's vanilla bind position.
 
-    testfile = TTB.test_file(r"tests\SkyrimSE\draugr lich01 helm.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\draugr lich01 helm.nif")
     skelfile = TTB.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_C.nif")
 
@@ -788,7 +796,7 @@ def TEST_DRAUGR_IMPORT_D():
     # Fo the helm, when we import WITH adding bones, we get a full draugr skeleton.
 
     # ------- Load --------
-    testfile = TTB.test_file(r"tests\SkyrimSE\draugr lich01 helm.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\draugr lich01 helm.nif")
     skelfile = TTB.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_D.nif")
 
@@ -827,7 +835,7 @@ def TEST_DRAUGR_IMPORT_E():
     # to one armature.
 
     # ------- Load --------
-    testfile = TTB.test_file(r"tests\SkyrimSE\draugr lich01 simple.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\draugr lich01 simple.nif")
     skelfile = TTB.test_file(r"tests\SkyrimSE\skeleton_draugr.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_DRAUGR_IMPORT_E.nif")
 
@@ -1134,6 +1142,7 @@ def TEST_WEIGHTS_EXPORT():
 
 
 @TT.category('FO4', 'BODYPART', 'ARMATURE')
+@TT.expect_errors( ("Some vertices are not weighted to the armature",) )
 def TEST_0_WEIGHTS():
     """Gives warning on export with 0 weights"""
     testfile = TTB.test_file(r"tests\Out\weight0.nif")
@@ -1174,8 +1183,8 @@ def TEST_TIGER_EXPORT():
 def TEST_3BBB():
     """Test that this mesh imports with the right transforms"""
 
-    testfile = TTB.test_file(r"tests/SkyrimSE/3BBB_femalebody_1.nif")
-    testfile2 = TTB.test_file(r"tests/SkyrimSE/3BBB_femalehands_1.nif")
+    testfile = TTB.test_file(r"tests/SkyrimSE/meshes/3BBB_femalebody_1.nif")
+    testfile2 = TTB.test_file(r"tests/SkyrimSE/meshes/3BBB_femalehands_1.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     
     obj = bpy.context.object
@@ -1192,6 +1201,7 @@ def TEST_3BBB():
 
 
 @TT.category('FO4', 'BODYPART', 'ARMATURE')
+@TT.expect_errors( ("Unknown block type: bhkRagdollSystem", "Unknown block type: bhkPhysicsSystem") )
 def TEST_CONNECT_SKEL():
     """Can import and export FO4 skeleton file with no shapes"""
     def do_test(use_xf):
@@ -1371,9 +1381,9 @@ def TEST_TRI_SIMPLE():
 def TEST_TRI():
     """Can load a tri file into an existing mesh"""
 
-    testfile = TTB.test_file(r"tests\FO4\CheetahMaleHead.nif")
-    testtri2 = TTB.test_file(r"tests\FO4\CheetahMaleHead.tri")
-    testtri3 = TTB.test_file(r"tests\FO4\CheetahMaleHead.tri")
+    testfile = TTB.test_file(r"tests\FO4\meshes\CheetahMaleHead.nif")
+    testtri2 = TTB.test_file(r"tests\FO4\meshes\CheetahMaleHead.tri")
+    testtri3 = TTB.test_file(r"tests\FO4\meshes\CheetahMaleHead.tri")
     testout2 = TTB.test_file(r"tests\Out\CheetahMaleHead02.nif")
     testout2tri = TTB.test_file(r"tests\Out\CheetahMaleHead02.tri")
     testout2chg = TTB.test_file(r"tests\Out\CheetahMaleHead02chargen.tri")
@@ -1465,17 +1475,17 @@ def TEST_IMPORT_MULTI_OBJECTS():
     bpy.ops.import_scene.pynifly(files=testfiles)
 
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
-    assert len(meshes) == 3, f"Have 3 meshes: {meshes}"
+    TT.assert_eq(len(meshes), 3, f"mesh count")
     armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
-    assert len(armatures) == 1, f"Have 1 armature: {armatures}"
+    TT.assert_eq(len(armatures), 1, f"armature count")
     roots = [obj for obj in bpy.data.objects if 'pynRoot' in obj]
-    assert len(roots) == 2, f"Have 2 roots: {roots}"
+    TT.assert_eq(len(roots), 2, f"root count")
     for r in roots:
         assert r.parent == None, f"Roots do not have parents: {r}"
     bodyroot = next(obj for obj in roots if obj.name.startswith("Body"))
     invm = [obj for obj in bodyroot.children if 'InvMarker' in obj.name]
-    assert len(invm) == 1, f"Have an inventory marker: {invm}"
-    assert invm[0].type == 'CAMERA', f"Inventory marker is a camera: {invm[0].type}"
+    TT.assert_eq(len(invm), 1, f"inventory marker")
+    TT.assert_eq(invm[0].type, 'CAMERA', f"Inventory marker type")
 
 
 @TT.category('SKYRIMSE', 'SHAPEKEY')
@@ -1640,7 +1650,7 @@ def TEST_SK_MULT():
 @TT.category('SETTINGS')
 def TEST_NOSETTINGS():
     """Can import with all settings off (regression)."""
-    testfile = TTB.test_file("tests\SkyrimSE\circlet_celebrimbor.nif")
+    testfile = TTB.test_file("tests\SkyrimSE\Meshes\circlet_celebrimbor.nif")
     outfile = TTB.test_file(r"tests\Out\TEST_NOSETTINGS.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile,
@@ -1659,7 +1669,7 @@ def TEST_NOSETTINGS():
 @TT.category('SKYRIMSE')
 def TEST_CIRCLET():
     """This high-precision circlet imports correctly and can be exported as a ground object."""
-    testfile = TTB.test_file("tests\SkyrimSE\circlet_celebrimbor.nif")
+    testfile = TTB.test_file("tests\SkyrimSE\Meshes\circlet_celebrimbor.nif")
     outfile = TTB.test_file(r"tests\Out\TEST_CIRCLET.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile,
@@ -1685,8 +1695,8 @@ def TEST_CIRCLET():
 @TT.category('SKYRIM', 'TRI')
 def TEST_TRI2():
     """Regression: Test correct improt of tri"""
-    testfile = TTB.test_file(r"tests/Skyrim/OtterMaleHead.nif")
-    trifile = TTB.test_file(r"tests/Skyrim/OtterMaleHeadChargen.tri")
+    testfile = TTB.test_file(r"tests/Skyrim/Meshes/OtterMaleHead.nif")
+    trifile = TTB.test_file(r"tests/Skyrim/Meshes/OtterMaleHeadChargen.tri")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -1698,6 +1708,7 @@ def TEST_TRI2():
 
 
 @TT.category('SKYRIM', 'TRI')
+@TT.expect_errors( ('Number of verticies differs from number of UV coordinates',) )
 def TEST_BAD_TRI():
     """Tris with messed up UVs can be imported"""
     # Tri files have UVs in them, but it's mostly not used, and some tris have messed up
@@ -1716,6 +1727,7 @@ def TEST_BAD_TRI():
 
 
 @TT.category('FO4', 'BODYPART', 'PARTITIONS')
+@TT.expect_errors( ('Some faces have been assigned to more than one partition',) )
 def TEST_SEGMENTS():
     """Can read FO4 segments"""
 
@@ -1996,14 +2008,15 @@ def TEST_SHADER_FO4():
     
     shapecheck = nifcheckFO4.shapes[0]
 
-    assert set(shapecheck.textures.keys()) == set(shapeorig.textures.keys()), \
-        f"Have same keys: {shapecheck.textures.keys()} == {shapeorig.textures.keys()}"
-    for k in shapecheck.textures:
-        TT.assert_patheq(shapecheck.textures[k], shapeorig.textures[k], f"Texture {k} matches")
+    TT.assert_samemembers(shapecheck.textures.keys(), ('Diffuse', 'Normal', 'Specular',), 
+        f"texture slots")
+    TT.assert_patheq(shapecheck.textures['Diffuse'], f"Actors\Character\BaseHumanMale\BaseMaleHead_d.dds", f"diffuse")
+    TT.assert_patheq(shapecheck.textures['Normal'], f"Actors\Character\BaseHumanMale\BaseMaleHead_n.dds", f"normal")
+    TT.assert_patheq(shapecheck.textures['Specular'], f"Actors\Character\BaseHumanMale\BaseMaleHead_s.dds", f"specular")
 
     assert not shapecheck.properties.compare(shapeorig.properties), \
         f"Shader attributes preserved: {shapecheck.properties.compare(shapeorig.properties)}"
-    assert shapecheck.name == shapeorig.name, f"Error: Shader name not preserved: '{shapecheck.shader_name}' != '{shapeorig.shader_name}'"
+    TT.assert_eq(shapecheck.name, shapeorig.name, "shader name")
 
 
 @TT.category('FO4', 'SHADER')
@@ -2102,6 +2115,7 @@ def TEST_SHADER_EYE():
 
 
 @TT.category('FO4', 'SHADER', 'ANIMATION')
+@TT.expect_errors(('Unknown block type: bhkPhysicsSystem',))
 def TEST_SHADER_LIGHTBULB():
     """Test that effect shader imports correctly."""
     testfile = TTB.test_file(r"tests\FO4\WorkshopLightbulbHanging01.nif")
@@ -2185,6 +2199,7 @@ def TEST_ANIM_SHADER_GLOW():
 
 
 @TT.category('ANIMATION', 'FO4')
+@TT.expect_errors(('Unknown block type: bhkPhysicsSystem',))
 def TEST_HIGHTECH_FLOORLIGHT():
     testfile = TTB.test_file(r"tests\FO4\Workshop_HighTechLightFloor05_On.nif")
     outfile = TTB.test_file(r"tests\Out\TEST_HIGHTECH_FLOORLIGHT.nif")
@@ -2621,6 +2636,7 @@ def TEST_SHADER_EFFECT():
 
 
 @TT.category('FO4', 'SHADER', 'ANIMATION')
+@TT.expect_errors(('Some faces have been assigned to more than one partition',))
 def TEST_SHADER_EFFECT_GLOWINGONE():
     """BSEffectShaderProperty attributes are read & written correctly."""
     testfile = TTB.test_file(r"tests\FO4\glowingoneTEST.nif")
@@ -2696,7 +2712,7 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
 @TT.category('SKYRIM', 'SHADER')
 def TEST_TEXTURE_PATHS():
     """Texture paths are correctly resolved"""
-    testfile = TTB.test_file(r"tests\SkyrimSE\circletm1.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\circletm1.nif")
     txtdir = TTB.test_file(r"tests\SkyrimSE")
 
     # Use temp_override to redirect the texture directory
@@ -2722,6 +2738,7 @@ def TEST_TEXTURE_PATHS():
 
 
 @TT.category('SKYRIM', 'SHADER')
+@TT.expect_errors( ("Unknown block type: bhkMoppBvTreeShape", "unsupported collision shape"))
 def TEST_CAVE_GREEN():
     """Cave nif can be exported correctly"""
     # Regression: Make sure the transparency is exported on this nif.
@@ -2857,7 +2874,7 @@ def TEST_WELWA():
     # export.
 
     # ------- Load --------
-    testfile = TTB.test_file(r"tests\SkyrimSE\welwa.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\Meshes\welwa.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_WELWA.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, do_rename_bones=False, do_create_bones=False)
@@ -2901,6 +2918,7 @@ def TEST_MUTANT():
 
 
 @TT.category('FO4')    
+@TT.expect_errors( ("references invalid group"))
 def TEST_EXPORT_HANDS():
     """Test that hand mesh doesn't throw an error"""
     # When there are problems with the mesh we don't want to crash and burn.
@@ -2916,6 +2934,7 @@ def TEST_EXPORT_HANDS():
 
 
 @TT.category('FO4', 'PARTITIONS')
+@TT.expect_errors( ("Some faces have been assigned to more than one partition",))
 def TEST_PARTITION_ERRORS():
     """Partitions with errors raise errors"""
     if bpy.app.version[0] < 3: return
@@ -2943,7 +2962,7 @@ def TEST_SHEATH():
     # The sheath has extra data nodes for Havok. These are imported as Blender empty
     # objects, and can be exported again.
 
-    testfile = TTB.test_file(r"tests/Skyrim/sheath_p1_1.nif")
+    testfile = TTB.test_file(r"tests/Skyrim/Meshes/sheath_p1_1.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_SHEATH.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -2982,7 +3001,7 @@ def TEST_FEET():
     """Extra data nodes are imported and exported"""
     # Feet have extra data nodes that are children of the feet mesh. This parent/child
     # relationship must be preserved on import and export.
-    testfile = TTB.test_file(r"tests/SkyrimSE/caninemalefeet_1.nif")
+    testfile = TTB.test_file(r"tests/SkyrimSE/Meshes/caninemalefeet_1.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_FEET.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -3009,7 +3028,7 @@ def TEST_FEET_MULTI():
     """Extra data nodes are exported only once"""
     # These feet have multiple "shell" layers, each with its own extra data. Ensure the
     # extra data is only written once.
-    testfile = TTB.test_file(r"tests/SkyrimSE/felinefuzzyfeet.nif")
+    testfile = TTB.test_file(r"tests/SkyrimSE/Meshes/felinefuzzyfeet.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_FEET_MULTI.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -3036,10 +3055,11 @@ def TEST_FEET_MULTI():
 
 
 @TT.category('SKYRIM', 'SCALING')
+@TT.expect_errors( ("Unknown block type: bhkMoppBvTreeShape", "unsupported collision shape"))
 def TEST_SCALING():
     """Test that scale factors happen correctly"""
 
-    testfile = TTB.test_file(r"tests\Skyrim\statuechampion.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\Meshes\statuechampion.nif")
     testout = TTB.test_file(r"tests\Out\TEST_SCALING.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     
@@ -3072,6 +3092,7 @@ def TEST_SCALING():
 
 
 @TT.category('SKYRIMSE', 'SCALING', 'FURNITURE')
+@TT.expect_errors( ("Unknown block type: bhkMoppBvTreeShape", "unsupported collision shape"))
 def TEST_SCALING_OBJ():
     """Can scale simple object with furniture markers"""
     testfile = TTB.test_file(r"tests\SkyrimSE\farmbench01.nif")
@@ -3398,6 +3419,7 @@ def TEST_VERTEX_COLOR_IO():
 
 
 @TT.category('SKYRIM', 'SHADER')
+@TT.expect_errors( ("Some faces have been assigned to more than one partition",) )
 def TEST_VERTEX_ALPHA_IO():
     """Import & export shape with vertex alpha values"""
     testfile = TTB.test_file(r"tests\SkyrimSE\meshes\actors\character\character assets\maleheadkhajiit.nif")
@@ -3439,6 +3461,7 @@ def TEST_VERTEX_ALPHA_IO():
 
 
 @TT.category('SKYRIMSE', 'ANIMATION', 'SHADER')
+@TT.expect_errors( ("Some faces have been assigned to more than one partition",) )
 def TEST_ALPHA_THRESHOLD_CHANGE():
     """Regression: Alpha threshold should not change on export."""
     testfile = TTB.test_file(r"tests\SkyrimSE\meshes\CRSTSkinKalaar.nif")
@@ -3544,7 +3567,7 @@ def TEST_BONE_HIERARCHY():
     """Bone hierarchy can be written on export"""
     # This hair has a complex custom bone hierarchy which have moved with havok.
     # Turns out the bones must be exported in a hierarchy for that to work.
-    testfile = TTB.test_file(r"tests\SkyrimSE\Anna.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\Meshes\Anna.nif")
     outfile = TTB.test_file(r"tests/Out/TESTS_BONE_HIERARCHY.nif", output=1)
 
     bpy.ops.import_scene.pynifly(filepath=testfile, do_import_pose=0)
@@ -3694,8 +3717,10 @@ def TEST_FACEBONE_EXPORT2():
 
 
 @TT.category('FO4', 'PARTITIONS')
+@TT.expect_errors(('Wrote faces without partitions', 'Some faces are in multiple partitions',
+                   'in no partition'))
 def TEST_HYENA_PARTITIONS():
-    """Partitions export successfully, with warning"""
+    """Partitions export successfully, with warnings"""
     # This Blender object has non-normalized weights--the weights for each vertex do 
     # not always add up to 1. That turns out to screw up the rendering. So check that 
     # the export normalizes them. This isn't done by pynifly or the wrapper layers.
@@ -3754,6 +3779,7 @@ def TEST_MULT_PART():
 
 
 @TT.category('SKYRIM', 'ARMATURE')
+@TT.expect_errors( ("Some faces have been assigned to more than one partition",) )
 def TEST_BONE_XPORT_POS():
     """Vanilla bones coming from a different skeleton export correctly."""
     # Since we use a reference skeleton to make bones, we have to be able to handle
@@ -3936,6 +3962,7 @@ def TEST_INV_MARKER():
 
 
 @TT.category('FO4')
+@TT.expect_errors(('Unknown block type: bhkPhysicsSystem'))
 def TEST_TREE():
     """Can read and write FO4 tree"""
     # Trees in FO4 use a special root node and a special shape node.
@@ -4446,7 +4473,7 @@ def TEST_COLLISION_HIER():
 @TT.category('FO4', 'SHADER')
 def TEST_NORM():
     """Normals are read correctly"""
-    testfile = TTB.test_file(r"tests/FO4/CheetahMaleHead.nif")
+    testfile = TTB.test_file(r"tests/FO4/Meshes/CheetahMaleHead.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     head = TTB.find_shape("CheetahMaleHead")
@@ -5034,7 +5061,8 @@ def TEST_COLLISION_XFORM():
         assert BD.NearEqual(capminy, -73.4, epsilon=1.0), f"Capsule min y correct: {capminy}"
 
 
-@TT.category('FO4', 'CONNECTPOINT')        
+@TT.category('FO4', 'CONNECTPOINT')
+@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_CONNECT_POINT():
     """Connect points import/export correctly"""
     # FO4 has a complex method of attaching shapes to other shapes in game, using
@@ -5096,6 +5124,7 @@ def TEST_CONNECT_POINT():
 
 
 @TT.category('FO4', 'CONNECTPOINT')
+@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_CONNECT_POINT_MULT():
     """Regression: Blend file creates duplicate connect points."""
 
@@ -5135,6 +5164,7 @@ def TEST_CONNECT_POINT_MULT():
 
 
 @TT.category('FO4', 'CONNECTPOINT')
+@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_CONNECT_WEAPON_PART():
     """Selected connect points used to parent new import"""
     # When a connect point is selected and then another part is imported that connects
@@ -5179,6 +5209,7 @@ def TEST_CONNECT_WEAPON_PART():
     
 
 @TT.category('FO4', 'CONNECTPOINT')
+@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_CONNECT_IMPORT_MULT():
     """When multiple weapon parts are imported in one command, they are connected up"""
 
@@ -5198,6 +5229,7 @@ def TEST_CONNECT_IMPORT_MULT():
     
 
 @TT.category('FO4', 'CONNECTPOINT')
+@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_CONNECT_WORKSHOP():
     """Test meshes with many connect points, some with the same names."""
 
@@ -5228,6 +5260,7 @@ def TEST_CONNECT_WORKSHOP():
     
 
 @TT.category('SKYRIMSE', 'FURNITUREMARKER')
+@TT.expect_errors('Unknown block type: bhkMoppBvTreeShape')
 def TEST_FARMBENCH():
     """Furniture markers work"""
 
@@ -5259,6 +5292,7 @@ def TEST_FARMBENCH():
 
 
 @TT.category('SKYRIMSE', 'FURNITUREMARKER')
+@TT.expect_errors('Unknown block type: bhkMoppBvTreeShape')
 def TEST_COMMONCHAIR():
     """Furniture markers work"""
 
@@ -5287,6 +5321,7 @@ def TEST_COMMONCHAIR():
 
 
 @TT.category('FO4', 'FURNITUREMARKER')
+@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_FO4_CHAIR():
     """Furniture markers are imported and exported"""
 
@@ -5325,6 +5360,7 @@ def TEST_FO4_CHAIR():
 
 
 @TT.category('FO4', 'ANIMATION')
+@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_PIPBOY():
     """
     Test pipboy import/export. Very complex node hierarchy. Animations on multiple nodes
@@ -5382,6 +5418,7 @@ def TEST_PIPBOY():
 
 
 @TT.category('FO4', 'ARMATURE')
+@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_BABY():
     """Non-human skeleton, lots of shapes under one armature."""
     # Can intuit structure if it's not in the file
@@ -5406,9 +5443,10 @@ def TEST_BABY():
 
 
 @TT.category('SKYRIM', 'XFORM')
+@TT.expect_errors(('Unknown block type: bhkMoppBvTreeShape', 'has unsupported collision shape'))
 def TEST_ROTSTATIC():
     """Test that statics are transformed according to the shape transform"""
-    testfile = TTB.test_file(r"tests/Skyrim/rotatedbody.nif")
+    testfile = TTB.test_file(r"tests/Skyrim/Meshes/rotatedbody.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_ROTSTATIC.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -5428,6 +5466,7 @@ def TEST_ROTSTATIC():
 
 
 @TT.category('FO4', 'XFORM')
+@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_ROTSTATIC2():
     """Test that statics are transformed according to the shape transform"""
 
@@ -5535,6 +5574,7 @@ def TEST_FACEBONES_RENAME():
     
 
 @TT.category('FO4', 'ANIMATION')
+@TT.expect_errors(("Target of controller not found", "Unknown block type: bhkPhysicsSystem",))
 def TEST_ANIM_ANIMATRON():
     """Can read a FO4 animatron nif"""
     # The animatrons are very complex and their pose and bind positions are different. The
@@ -5596,6 +5636,8 @@ def TEST_ANIM_ANIMATRON():
 
 
 @TT.category('FO4', 'ANIMATION')
+@TT.expect_errors(("Target of controller not found", "Unknown block type: bhkPhysicsSystem",
+                   "Unknown block type: NiBoolData",))
 def TEST_ANIMATRON_2():
     """Can read the FO4 astronaut animatron nif"""
     # The animatrons are very complex and their pose and bind positions are different. The
@@ -5612,6 +5654,7 @@ def TEST_ANIMATRON_2():
  
 
 @TT.category('FO4', 'ARMATURE')
+@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_CUSTOM_BONES():
     """Can handle custom bones correctly"""
     # These nifs have bones that are not part of the vanilla skeleton.
@@ -5633,6 +5676,7 @@ def TEST_CUSTOM_BONES():
         
 
 @TT.category('FO4', 'EXTRA_DATA')
+@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_COTH_DATA():
     """Can read and write cloth data"""
     # Cloth data is extra bones that are enabled by HDT-type physics. Since they aren't 
@@ -5887,6 +5931,7 @@ def TEST_AUXBONES_EXTRACT():
 
 
 @TT.category('FONV')
+@TT.expect_errors(("Could not find image shader node",))
 def TEST_FONV():
     """Basic FONV mesh import and export"""
     testfile = TTB.test_file("tests/FONV/9mmscp.nif")
@@ -5931,6 +5976,7 @@ def TEST_FONV():
 
 
 @TT.category('FONV')
+@TT.expect_errors(("Could not find image shader node",))
 def TEST_FONV_BOD():
     """Basic FONV body part import and export"""
     testfile = TTB.test_file(r"tests\FONV\outfitf_simple.nif")
@@ -5953,6 +5999,7 @@ def TEST_FONV_BOD():
 
 
 @TT.category('SKYRIM', 'ANIMATION', 'PHYSICS')
+@TT.expect_errors(("Unknown block type: bhkMoppBvTreeShape", "unsupported collision shape",))
 def TEST_NOBLECHEST():
     """Read and write the animation of chest opening and shutting."""
     # The chest has two top-level named animations, Open and Close
@@ -6039,6 +6086,7 @@ TEST_NOBLECHEST.category = {'ANIMATION'}
 
 
 @TT.category('FO4', 'ANIMATION')
+@TT.expect_errors(("Unknown block type: bhkPhysicsSystem",))
 def TEST_CIGARETTE():
     """Check we don't get extra objects in the object palette."""
     testfile = TTB.test_file(r"tests\FO4\CigaretteMachine.nif")
@@ -6067,17 +6115,12 @@ def TEST_CIGARETTE():
 
 
 @TT.category('SKYRIM', 'ANIMATION', 'PHYSICS')
+@TT.expect_errors(("Unknown block type: bhkMoppBvTreeShape", "unsupported collision shape",))
 def TEST_DWEMER_CHEST():
     """
     Read and write the animation of chest opening and shutting. Also create a collision
     object for the chest and esure it works.
     """
-    try:
-        t = bpy.types.ActionSlot
-    except:
-        print("Skipping TEST_DWEMER_CHEST: ActionSlot not available in this version of Blender")
-        return
-
     testfile = TTB.test_file(r"tests\Skyrim\dwechest01.nif")
     outfile =TTB.test_file(r"tests/Out/TEST_DWEMER_CHEST.nif")
 
@@ -6196,10 +6239,12 @@ def TEST_DWEMER_CHEST():
 
     # We write just the parts that are animated to the object palette. Think that's correct.
     TT.assert_samemembers(nif2.root.controller.object_palette.objects.keys(),
-        ('Object01:3', 'Object01', 'Object01:0', 'Object189:0', 'Gear09:7', 'Object188', 
-         'Object02:5', 'Gear09', 'Gear08', 'Object189:3', 'Object01:5', 'Object189:5', 
-         'Gear07', 'Box01:5', 'Object02', 'Object189:6', 'Gear07:7', 'Object01:6', 
-         'Object188:5', 'Gear08:7', 'Handle:5', 'Object189', 'Handle', 'Box01'),
+        ('Object02', 'Object02:5', 'Object188:5', 'Handle', 'DwarvenChest:4', 'Object01:6', 
+         'Gear08:7', 'Object01:0', 'Object188', 'DwarvenChest:2', 'DwarvenChest:5', 
+         'Object189:0', 'Gear09:7', 'Box01', 'Gear09', 'Gear07', 'Object01:5', 'Object01:3', ''
+         'Gear08', 'Handle:5', 'Object189:3', 'Object189', 'DwarvenChest:3', 'Gear07:7', 
+         'Object189:5', 'Box01:5', 'DwarvenChest:6', 'Object01', 'Object189:6', 
+         'DwarvenChest:0', 'DwarvenChest:1', 'DwarvenChest'),
         "Object Palette")
     TT.assert_samemembers([s for s in cm2.sequences], ["Open", "Close"], "Controller Sequences")
     open2:pyn.NiControllerSequence = cm2.sequences["Close"]
@@ -6347,6 +6392,7 @@ def TEST_ALDUIN():
 
 
 @TT.category('SKYRIM', 'HKX', 'ANIMATION')
+@TT.expect_errors(("Controller target not found",))
 def TEST_KF():
     """Read and write KF animation."""
     if bpy.app.version < (3, 5, 0): return
@@ -6469,6 +6515,7 @@ def TEST_KF():
 
 
 @TT.category('SKYRIM', 'HKX')
+@TT.expect_errors(("Controller target not found",))
 def TEST_KF_RENAME():
     """Read and write KF animation with renamed bones."""
     if bpy.app.version < (3, 5, 0): return
@@ -6542,6 +6589,7 @@ def TEST_KF_RENAME():
 
 
 @TT.category('SKYRIM', 'HKX')
+@TT.expect_errors(("Controller target not found",))
 def TEST_HKX():
     """Can import and export a HKX animation."""
     if bpy.app.version < (3, 5, 0): return
@@ -6582,6 +6630,7 @@ def TEST_HKX():
 
 
 @TT.category('SKYRIM', 'HKX')
+@TT.expect_errors(("Controller target not found",))
 def TEST_HKX_2():
     """Can import and export a non-human HKX animation."""
     if bpy.app.version < (3, 5, 0): return
@@ -6708,6 +6757,7 @@ def TEST_TEXTURE_CLAMP():
 
 
 @TT.category('FO4', 'SHADER')
+@TT.expect_errors(('Could not load diffuse texture', 'Could not load normal texture',))
 def TEST_MISSING_MAT():
     """We import and export properly even when files are missing."""
     testfile = TTB.test_file(r"tests\FO4\malehandsalt.nif")
@@ -6730,6 +6780,7 @@ def TEST_MISSING_MAT():
 
 
 @TT.category('FO4', 'SHADER')
+@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_SCAFFOLD_FRAME():
     """We truncate long filepaths to relative paths."""
     testfile = TTB.test_file(r"tests\FO4\ScaffFrame1x2Str01.nif")
@@ -6813,7 +6864,7 @@ def TEST_MISSING_FILES():
 @TT.category('FO4', 'BODYPARTS')
 def TEST_FULL_PRECISION():
     """Can set full precision."""
-    testfile = TTB.test_file(r"tests\FO4\OtterFemHead.nif")
+    testfile = TTB.test_file(r"tests\FO4\Meshes\OtterFemHead.nif")
     outfile = TTB.test_file(r"tests\out\TEST_FULL_PRECISION.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, use_blender_xf=True)
@@ -6833,6 +6884,7 @@ def TEST_FULL_PRECISION():
 
 
 @TT.category('SKYRIM')
+@TT.expect_errors(("Unknown block type: bhkMoppBvTreeShape", "has unsupported collision shape"))
 def TEST_EMPTY_NODES():
     """Empty nodes export with the rest."""
     testfile = TTB.test_file(r"tests\Skyrim\farmhouse01.nif")
@@ -6848,6 +6900,8 @@ def TEST_EMPTY_NODES():
 
 
 @TT.category('SKYRIM')
+@TT.expect_errors(("Unknown block type: bhkMoppBvTreeShape", "has unsupported collision shape",
+                   "Error setting pynNodeFlags"))
 def TEST_EMPTY_FLAGS():
     """Empty pyNodeFlags doesn't cause an error."""
     testfile = TTB.test_file(r"tests\SkyrimSE\farmbench01.nif")
@@ -6944,7 +6998,7 @@ def TEST_FACEGEN():
     """
     FO4 facegen import works--imported head is not distorted.
     """
-    testfile = TTB.test_file(r"tests\FO4\facegen.nif")
+    testfile = TTB.test_file(r"tests\FO4\Meshes\facegen.nif")
 
     # Can't import pose locations for facegen files. This is testing that it works
     # correctly anyway.
@@ -7063,36 +7117,33 @@ def testfrom(starttest):
     except:
         return alltests
 
-def execute_test(t, passed_tests, failed_tests, skipped_tests, stop_on_fail=True):
+def execute_test(t, executed_tests, stop_on_fail=True):
         # t = sys.modules[__name__].__dict__[t.__name__]
         if not t: return
 
+        print (f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
+        
         versions = [test_categories.get(c, (0,0)) for c in t.__dict__.get("category", set())]
         if bpy.app.version < max(versions):
-            print (f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
             print (f"SKIPPING {t.__name__}: requires Blender version {max(versions)}, have {bpy.app.version}\n")
-            print (f"------------------------------ {t.__name__} ------------------------------\n")
-            skipped_tests.add(t)
-            return
-
-        print (f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
-
-        if t.__doc__: print (f"{t.__doc__}")
-        TTB.clear_all()
-
-        test_loghandler.start()
-        if stop_on_fail:
-            t()
-            test_loghandler.finish()
-            passed_tests.add(t)
+            executed_tests[t.__name__] = 'SKIP'
         else:
-            try:
+            if t.__doc__: print (f"{t.__doc__}")
+            TTB.clear_all()
+
+            test_loghandler.start(t.__dict__.get("expected_errors", None))
+            if stop_on_fail:
                 t()
                 test_loghandler.finish()
-                passed_tests.add(t)
-            except Exception as e:
-                log.exception(f"Test {t.__name__} failed with exception: {e}")
-                failed_tests.add(t)
+                executed_tests[t.__name__] = 'PASS'
+            else:
+                try:
+                    t()
+                    test_loghandler.finish()
+                    executed_tests[t.__name__] = 'PASS'
+                except Exception as e:
+                    log.exception(f"Test {t.__name__} failed with exception: {e}")
+                    executed_tests[t.__name__] = 'FAIL'
 
         print (f"------------------------------ {t.__name__} ------------------------------\n")
 
@@ -7102,46 +7153,44 @@ def do_tests(
         categories=None,
         stop_on_fail=False,
         startfrom=None,
+        test_all=False,
         exclude=()):
     """Do tests in testlist. Can pass in a single test."""
-    if not target_tests: 
-        target_tests = [t for k, t in sys.modules[__name__].__dict__.items() 
-                        if k.startswith('TEST_') and k not in exclude]
-    passed_tests = set()
-    failed_tests = set()
-    skipped_tests = set()
-
-    try:
-        for t in target_tests:
-            break
-    except:
-        target_tests = [target_tests]
+    active_tests = []
+    if target_tests: 
+        active_tests.extend(target_tests)
+    if categories:
+        for t in [t for k, t in sys.modules[__name__].__dict__.items() 
+                  if k.startswith('TEST_') and k not in exclude]:
+            if categories.intersection(t.__dict__.get("category", set())):
+                active_tests.append(t)
+    if (not active_tests) or test_all: 
+        active_tests.extend(t for k, t in sys.modules[__name__].__dict__.items() 
+                        if k.startswith('TEST_') and k not in exclude)
+    
+    executed_tests = {}
 
     startindex = 0
     if startfrom:
         try:
-            startindex = target_tests.index(startfrom)
-            target_tests = target_tests[startindex:]
+            startindex = active_tests.index(startfrom)
+            active_tests = active_tests[startindex:]
         except:
             pass
     
-    if categories:
-        for t in target_tests:
-            if categories.intersection(t.__dict__.get("category", set())):
-                if t not in passed_tests and t not in failed_tests and t not in skipped_tests:
-                    execute_test(t, passed_tests, failed_tests, skipped_tests, 
-                                 stop_on_fail=stop_on_fail)
-    else:
-        for t in target_tests:
-            if t not in passed_tests and t not in failed_tests and t not in skipped_tests:
-                execute_test(t, passed_tests, failed_tests, skipped_tests, 
-                             stop_on_fail=stop_on_fail)
+    for t in active_tests:
+        if t not in executed_tests:
+            execute_test(t, executed_tests, stop_on_fail=stop_on_fail)
+            
+    passed_tests = [t for t, v in executed_tests.items() if v == 'PASS']
+    failed_tests = [t for t, v in executed_tests.items() if v == 'FAIL']
+
     print(f"\n\n===Succesful tests===")
-    print(", ".join([t.__name__ for t in passed_tests]))
+    print(", ".join(passed_tests))
     print(f"\n\n===Failed tests===")
-    print(", ".join([t.__name__ for t in failed_tests]))
+    print(", ".join(failed_tests))
     print(f"\n\n===Skipped tests===")
-    print(", ".join([t.__name__ for t in skipped_tests]))
+    print(", ".join([tn for tn, v in executed_tests.items() if v == 'SKIP']))
     if not failed_tests:
         print(f"""
 
@@ -7159,8 +7208,6 @@ def do_tests(
 =============================================================================
 ===                                                                       ===
 ===                           TESTS FAILED                                ===
-===                                                                       ===
-{", ".join([t.__name__ for t in failed_tests])}
 ===                                                                       ===
 =============================================================================
 """)

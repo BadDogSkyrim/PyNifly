@@ -652,6 +652,30 @@ class ReprObjectCollection():
         self.add(ReprObject(obj, nifnode))
 
 
+    def remove(self, obj):
+        """
+        Remove obj from the collection. May be a ReprObject, blender object, or nif node.
+        """
+        if isinstance(obj, ReprObject):
+            self._collection.remove(obj)
+            del self.blenderdict[obj.blender_obj.name]
+            for fp, fd in self._filedict.items():
+                if obj.nifnode and obj.nifnode.id in fd:
+                    del fd[obj.nifnode.id]
+        else:
+            matches = [x for x in self._collection if x.blender_obj == obj or x.nifnode == obj]
+            for ro in matches:
+                self._collection.remove(ro)
+                if ro.blender_obj and ro.blender_obj.name in self.blenderdict:
+                    del self.blenderdict[ro.blender_obj.name]
+                if ro.nifnode:
+                    fp = ro.nifnode.file.filepath
+                    if fp in self._filedict:
+                        d = self._filedict[fp]
+                        if ro.nifnode.id in d:
+                            del d[ro.nifnode.id]
+
+
     def find_nifnode(self, nifnode):
         fp = nifnode.file.filepath
         if fp in self._filedict:
