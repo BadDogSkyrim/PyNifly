@@ -2320,7 +2320,7 @@ namespace NiflyDLLTests
 			int namelen, vallen;
 			uint16_t cbs;
 
-			void* nifsheath = load((testRoot / "Skyrim/sheath_p1_1.nif").u8string().c_str());
+			void* nifsheath = load((testRoot / "Skyrim/Meshes/sheath_p1_1.nif").u8string().c_str());
 			getShapes(nifsheath, shapes, 10, 0);
 			void* sheath = shapes[0];
 
@@ -2373,7 +2373,7 @@ namespace NiflyDLLTests
 			void* shapes[10];
 			int namelen, vallen;
 
-			void* niffeet = load((testRoot / "SkyrimSE/caninemalefeet_1.nif").u8string().c_str());
+			void* niffeet = load((testRoot / "SkyrimSE/Meshes/caninemalefeet_1.nif").u8string().c_str());
 			getShapes(niffeet, shapes, 10, 0);
 			void* feet = shapes[0];
 
@@ -2505,7 +2505,7 @@ namespace NiflyDLLTests
 		TEST_METHOD(transformRot) {
 			/* Test transforms with rotations */
 			void* shapes[10];
-			void* nif = load((testRoot / "Skyrim/rotatedbody.nif").u8string().c_str());
+			void* nif = load((testRoot / "Skyrim/Meshes/rotatedbody.nif").u8string().c_str());
 			getShapes(nif, shapes, 10, 0);
 
 			void* body = shapes[0];
@@ -3487,7 +3487,7 @@ namespace NiflyDLLTests
 			Assert::IsTrue(TApproxEqual(buf1.heading, 3.141593), L"Heading correct");
 		};
 		TEST_METHOD(readWelwa) {
-			void* nif = load((testRoot / "SkyrimSE/welwa.nif").u8string().c_str());
+			void* nif = load((testRoot / "SkyrimSE/Meshes/welwa.nif").u8string().c_str());
 
 			MatTransform buf;
 			getNodeTransformToGlobal(nif, "NPC Spine1", &buf);
@@ -3497,7 +3497,7 @@ namespace NiflyDLLTests
 
 		};
 		TEST_METHOD(writeBoneHierarchy) {
-			void* nif = load((testRoot / "SkyrimSE/anna.nif").u8string().c_str());
+			void* nif = load((testRoot / "SkyrimSE/Meshes/anna.nif").u8string().c_str());
 
 			void* shapes[10];
 			int shapeCount = getShapes(nif, shapes, 10, 0);
@@ -4703,7 +4703,7 @@ namespace NiflyDLLTests
 		TEST_METHOD(readFullPrecision)
 		{
 			/* Can read full-precision vertices. */
-			std::filesystem::path testfile = testRoot / "SkyrimSE/circlet_celebrimbor.nif";
+			std::filesystem::path testfile = testRoot / "SkyrimSE/Meshes/circlet_celebrimbor.nif";
 			void* shapes[2];
 			int shapeCount;
 			int shapeID;

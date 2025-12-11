@@ -183,6 +183,16 @@ def _export_controller_manager(old_node, new_node):
         for seq in old_node.controller.sequences.values():
             _export_controller_sequence(seq, new_cm)
 
+        op = NiDefaultAVObjectPalette.New(new_node.file, new_node.file.rootNode, parent=new_cm)
+        
+        for old_targ in old_node.controller.object_palette.objects.values():
+            new_targ = None
+            if old_targ.name in new_node.file.nodes:
+                new_targ = new_node.file.nodes[old_targ.name]
+            else:
+                new_targ = _export_node(old_targ, new_node.file)
+            op.add_object(new_targ.name, new_targ)
+
 
 def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=None, parent=None):
     """ 
@@ -789,7 +799,7 @@ def TEST_ROTATIONS():
 def TEST_PARENT():
     """Can handle nifs which show relationships between bones"""
 
-    testfile = r"tests\FO4\bear_tshirt_turtleneck.nif"
+    testfile = r"tests\FO4\Meshes\bear_tshirt_turtleneck.nif"
     f = NifFile(testfile)
     n = f.nodes['RArm_Hand']
     # System accurately parents bones to each other bsaed on nif or reference skeleton
@@ -1188,7 +1198,8 @@ def TEST_HIGHTECHLIGHT():
 
     nifOut = NifFile()
     nifOut.initialize('FO4', r"tests\out\TEST_HIGHTECHLIGHT.nif")
-    _export_shape(nif.shapes[0], nifOut)
+    for s in nif.shapes:
+        _export_shape(s, nifOut)
     _export_controller_manager(nif.root, nifOut.root)
     nifOut.save()
 
@@ -1228,7 +1239,7 @@ def TEST_ALPHA():
     
 def TEST_SHEATH():
     """Can read and write extra data"""
-    nif = NifFile(r"tests/Skyrim/sheath_p1_1.nif")
+    nif = NifFile(r"tests/Skyrim/meshes/sheath_p1_1.nif")
     
     # Extra data can be at the file level
     bg = nif.behavior_graph_data
@@ -1272,7 +1283,7 @@ def TEST_SHEATH():
 
 def TEST_FEET():
     """Can read and write extra data"""
-    nif = NifFile(r"tests/SkyrimSE/caninemalefeet_1.nif")
+    nif = NifFile(r"tests/SkyrimSE/meshes/caninemalefeet_1.nif")
     feet = nif.shapes[0]
     
     s = feet.string_data
@@ -1825,7 +1836,7 @@ def TEST_SKIN_BONE_XF():
 
 def TEST_WEIGHTS_BY_BONE():
     """Weights-by-bone helper works correctly"""
-    nif = NifFile(r"tests\SkyrimSE\Anna.nif")
+    nif = NifFile(r"tests\SkyrimSE\meshes\Anna.nif")
     allnodes = list(nif.nodes.keys())
     hair = nif.shape_dict["KSSMP_Anna"]
 
@@ -2404,7 +2415,7 @@ def TEST_DOCKSTEPSDOWNEND():
 
 def TEST_FULLPREC():
     """Test that we can set full precision on a shape."""
-    testfile = _test_file(r"tests\FO4\OtterFemHead.nif")
+    testfile = _test_file(r"tests\FO4\meshes\OtterFemHead.nif")
     outfile = _test_file(r"tests\out\TEST_FULLPREC.nif")
 
     print("------------- read")
@@ -2559,8 +2570,8 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = True
-    execute(testlist=[TEST_ANIMATION])
-    # execute(exclude=[TEST_SET_SKINTINT])
+    # execute(testlist=[TEST_ANIMATION])
+    execute(exclude=[TEST_SET_SKINTINT])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
     # execute(categories={"SHADER"})
     #

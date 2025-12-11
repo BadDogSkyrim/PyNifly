@@ -2008,15 +2008,16 @@ def TEST_SHADER_FO4():
     
     shapecheck = nifcheckFO4.shapes[0]
 
-    TT.assert_samemembers(shapecheck.textures.keys(), ('Diffuse', 'Normal', 'Specular',), 
+    assert TT.is_samemembers(shapecheck.textures.keys(), 
+        ('Wrinkles', 'RootMaterialPath', 'EnvMap', 'Specular', 'Normal', 'Diffuse',), 
         f"texture slots")
-    TT.assert_patheq(shapecheck.textures['Diffuse'], f"Actors\Character\BaseHumanMale\BaseMaleHead_d.dds", f"diffuse")
-    TT.assert_patheq(shapecheck.textures['Normal'], f"Actors\Character\BaseHumanMale\BaseMaleHead_n.dds", f"normal")
-    TT.assert_patheq(shapecheck.textures['Specular'], f"Actors\Character\BaseHumanMale\BaseMaleHead_s.dds", f"specular")
+    assert TT.is_patheq(shapecheck.textures['Diffuse'], f"Actors\Character\BaseHumanMale\BaseMaleHead_d.dds", f"diffuse")
+    assert TT.is_patheq(shapecheck.textures['Normal'], f"Actors\Character\BaseHumanMale\BaseMaleHead_n.dds", f"normal")
+    assert TT.is_patheq(shapecheck.textures['Specular'], f"Actors\Character\BaseHumanMale\BaseMaleHead_s.dds", f"specular")
 
     assert not shapecheck.properties.compare(shapeorig.properties), \
         f"Shader attributes preserved: {shapecheck.properties.compare(shapeorig.properties)}"
-    TT.assert_eq(shapecheck.name, shapeorig.name, "shader name")
+    assert TT.is_eq(shapecheck.name, shapeorig.name, "shader name")
 
 
 @TT.category('FO4', 'SHADER')

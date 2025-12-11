@@ -67,6 +67,27 @@ def assert_equiv(actual, expected, msg, e=0.0001):
         assert NT.NearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
 
 
+def is_equiv(actual, expected, msg, e=0.0001):
+    """Check two values are nearly equal. Values may be scalars, vectors, or matrices."""
+    if hasattr(actual, '__getitem__'):
+        if hasattr(actual[0], '__getitem__'):
+            if NT.MatNearEqual(actual, expected, epsilon=e):
+                return True
+            else:
+                log.error(f"Values are equal for {msg}: {actual} != {expected}")
+        else:
+            if NT.VNearEqual(actual[:], expected, epsilon=e):
+                return True
+            else:
+                log.error(f"Values are equal for {msg}: {actual[:]} != {expected}")
+    else:
+        if NT.NearEqual(actual, expected, epsilon=e):
+            return True
+        else:
+            log.error(f"Values are equal for {msg}: {actual} != {expected}")
+    return False
+
+
 def assert_equiv_not(actual, expected, msg, e=0.0001):
     """Assert two values are not nearly equal. Values may be scalars, vectors, or matrices."""
     if hasattr(actual, '__getitem__'):
@@ -97,6 +118,16 @@ def assert_patheq(actual, expected, msg):
     assert a == b, f"Paths are equal for {msg}: '{a}' != '{b}'"
 
 
+def is_patheq(actual, expected, msg):
+    a = Path(actual)
+    b = Path(expected)
+    if a == b:
+        return True
+    else:
+        log.error(f"Unequal filepaths for {msg}: '{a}' != '{b}'")
+        return False
+
+
 def assert_pathendswith(fullpath, relpath, msg):
     a = Path(fullpath)
     b = Path(relpath)
@@ -111,6 +142,16 @@ def assert_eq(*args):
     values = args[0:-1]
     assert values[0:-1] == values[1:], f"{msg} equal: {values}"
     # assert actual == expected, f"{msg} not the same: {actual} = {expected}"
+
+
+def is_eq(*args):
+    """Check all elements but the last are equal. The last is the message to use."""
+    msg = args[-1]
+    values = args[0:-1]
+    if values[0:-1] == values[1:]:
+        return True
+    else:
+        log.error(f"{msg} equal: {values}")
 
 
 def assert_eq_nocase(actual, expected, msg):
@@ -157,10 +198,38 @@ def assert_seteq(actual, expected, msg):
         f"{msg} not the same: {s1}\nvs\n{s2}\ndifference:\n{s1.symmetric_difference(s2)}"
 
 
+def is_seteq(actual, expected, msg):
+    """Check two lists have the same members. Members may be duplicated."""
+    if type(actual) == set:
+        s1 = actual
+    else:
+        s1 = set(actual)
+    if type(expected) == set:
+        s2 = expected
+    else:
+        s2 = set(expected)
+    if len(s1.symmetric_difference(s2)) == 0:
+        return True
+    else:
+        log.error(f"{msg} not the same: {s1}\nvs\n{s2}\ndifference:\n{s1.symmetric_difference(s2)}")
+    return False
+
+
 def assert_samemembers(actual, expected, msg):
     """Assert two lists have the same members, maybe not in the same order."""
     assert_seteq(actual, expected, msg)
     assert len(actual) == len(expected), f"{msg} not the same: {actual} == {expected}"
+
+
+def is_samemembers(actual, expected, msg):
+    """Check two lists have the same members, maybe not in the same order."""
+    if not is_seteq(actual, expected, msg):
+        return False
+    if len(actual) == len(expected):
+        return True
+    else:
+        log.error(f"{msg} not the same: {actual} == {expected}")
+        return False
 
 
 def assert_exists(objname):

@@ -379,39 +379,39 @@ def Check_ScaffoldFrame(nif:NifFile):
     mat_path = Path(r"materials\Architecture\Quarry\QryCatwalksBluePaint.BGSM")
     TT.assert_eq(Path(frame.shader.name).parts[-len(mat_path.parts):], mat_path.parts,
                      "material path")
-    diff_path = Path(r"architecture/quarry/qrycatwalksbluepaint_d.dds")
-    TT.assert_eq(Path(frame.textures['Diffuse']).parts[-len(diff_path.parts):], diff_path.parts,
-                     "diffuse texture")
+    assert TT.is_patheq(frame.textures['Diffuse'], 
+                        r"architecture/quarry/qrycatwalksbluepaint_d.dds", 
+                        "diffuse texture")
     
 
 def Check_HighTechLight(nif:NifFile):
     # Something odd with vertex count.
-    TT.assert_eq(nif.shape_dict['GlassGlow:1'].properties.vertexCount, 312, "vertex count")
+    assert TT.is_eq(nif.shape_dict['GlassGlow:1'].properties.vertexCount, 312, "vertex count")
 
     # Check that the ON sequence is read correctly
-    TT.assert_eq(len(nif.root.controller.sequences), 4, "sequence count")
+    assert TT.is_eq(len(nif.root.controller.sequences), 4, "sequence count")
     on_sequence = nif.root.controller.sequences["On"]
-    TT.assert_eq(len(on_sequence.controlled_blocks), 3, "ON controlled block count")
+    assert TT.is_eq(len(on_sequence.controlled_blocks), 3, "ON controlled block count")
 
     # Check the ON sequence text key times
     TT.assert_equiv(on_sequence.text_key_data.keys[0][0], 0.0, "ON text key 0 time")
     TT.assert_equiv(on_sequence.text_key_data.keys[1][0], 0.0333, "ON text key 1 time")
     
     cb_valuenode = next(cb for cb in on_sequence.controlled_blocks if cb.node_name == "AddOnNode211")
-    TT.assert_eq(cb_valuenode.interpolator.blockname, "NiBoolInterpolator", "AddOnNode interpolator")
+    assert TT.is_eq(cb_valuenode.interpolator.blockname, "NiBoolInterpolator", "AddOnNode interpolator")
     TT.assert_ne(cb_valuenode.interpolator.properties.value, 1, "AddOnNode interpolator value")
 
-    TT.assert_eq(cb_valuenode.controller.blockname, "NiVisController", "have vis controller")
-    TT.assert_eq(cb_valuenode.controller.properties.flags, 108, "vis controller flags")
+    assert TT.is_eq(cb_valuenode.controller.blockname, "NiVisController", "have vis controller")
+    assert TT.is_eq(cb_valuenode.controller.properties.flags, 108, "vis controller flags")
 
     # # Controllers that are part of a sequence have "blend" interpolators. In vanilla nifs,
     # # these seem to always have default values which are probably ignored. Right now we
     # # can't set them to vanilla because vanilla has a value of 2 and nifly.dll wants the
     # # value to be boolean. So punt until we find out wheteher this matters.
-    # TT.assert_eq(cb_valuenode.controller.interpolator.blockname, "NiBlendBoolInterpolator", 
+    # assert TT.is_eq(cb_valuenode.controller.interpolator.blockname, "NiBlendBoolInterpolator", 
     #              "vis controller interpolator")
     # TT.assert_equiv(cb_valuenode.controller.interpolator.properties.weightThreshold, 0.0, "weightThreshold")
-    # TT.assert_eq(cb_valuenode.controller.interpolator.properties.boolValue, 2, "value")
+    # assert TT.is_eq(cb_valuenode.controller.interpolator.properties.boolValue, 2, "value")
 
     # # The game NiVisController has a stopTime of 0.2333. All the actual keyframes end at
     # # 0.0333. The "On" sequence has a stop time of 0.0333. So we're assuming the
@@ -419,19 +419,19 @@ def Check_HighTechLight(nif:NifFile):
     # TT.assert_equiv(on_sequence.controlled_blocks[1].controller.properties.stopTime, 0.2333,
     #                 "ON second controlled block stop time")
 
-    TT.assert_eq(cb_valuenode.controller.target.blockname, "BSValueNode", "vis controller target type")
-    TT.assert_eq(cb_valuenode.controller.target.name, "AddOnNode211", "vis controller target name")
-    TT.assert_eq(cb_valuenode.controller.target.properties.value, 211, "vis controller target value")
+    assert TT.is_eq(cb_valuenode.controller.target.blockname, "BSValueNode", "vis controller target type")
+    assert TT.is_eq(cb_valuenode.controller.target.name, "AddOnNode211", "vis controller target name")
+    assert TT.is_eq(cb_valuenode.controller.target.properties.value, 211, "vis controller target value")
 
     cb_gg = next(cb for cb in on_sequence.controlled_blocks if cb.node_name == "GlassGlow:1")
-    TT.assert_eq(cb_gg.controller.blockname, "BSEffectShaderPropertyFloatController", "GlassGlow controller")
-    TT.assert_eq(cb_gg.interpolator.blockname, "NiFloatInterpolator", "GlassGlow interpolator")
-    TT.assert_eq(cb_gg.interpolator.data.blockname, "NiFloatData", "GlassGlow data")
-    TT.assert_equiv(cb_gg.interpolator.data.keys[1].time, 0.0333, "GlassGlow key 1 time")
+    assert TT.is_eq(cb_gg.controller.blockname, "BSEffectShaderPropertyFloatController", "GlassGlow controller")
+    assert TT.is_eq(cb_gg.interpolator.blockname, "NiFloatInterpolator", "GlassGlow interpolator")
+    assert TT.is_eq(cb_gg.interpolator.data.blockname, "NiFloatData", "GlassGlow data")
+    assert TT.is_equiv(cb_gg.interpolator.data.keys[1].time, 0.0333, "GlassGlow key 1 time")
 
     # Vanilla NiDefaultAVObjectPalette lists include all NiAVObjects, whether animated or
     # not. Copy what they do because we don't know exactly how the list is used.
-    TT.assert_samemembers(nif.root.controller.object_palette.objects.keys(),
+    assert TT.is_samemembers(nif.root.controller.object_palette.objects.keys(),
                           {'AddOnNode211', 'GlassGlow', 'GlassGlow:1', 'Workshop_HighTechLightFloor05_On:0'},
                           "object palette contents")
 
