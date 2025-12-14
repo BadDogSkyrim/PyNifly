@@ -30,7 +30,7 @@ print("""
 BT.do_tests(
     target_tests=[ BT.TEST_IMPORT_AS_SHAPES, ], 
     # categories={'ANIMATION'},
-    test_all=False,
+    test_all=True,
     stop_on_fail=True
     )
 
