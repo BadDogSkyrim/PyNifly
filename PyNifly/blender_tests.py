@@ -1510,13 +1510,13 @@ def TEST_IMPORT_AS_SHAPES():
     bpy.ops.import_scene.pynifly(files=testfiles)
 
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
-    TT.assert_eq(len(meshes), 2, f"mesh count")
+    assert TT.is_eq(len(meshes), 2, f"mesh count")
     sknames0 = [sk.name for sk in meshes[0].data.shape_keys.key_blocks]
-    TT.assert_samemembers(sknames0, ['Basis', '_0', '_1'], f"{meshes[0].name} Shape key names")
+    assert TT.is_samemembers(sknames0, ['Basis', '_0', '_1'], f"{meshes[0].name} Shape key names")
     sknames1 = [sk.name for sk in meshes[1].data.shape_keys.key_blocks]
-    TT.assert_samemembers(sknames1, ['Basis', '_0', '_1'], f"{meshes[1].name} Shape keys names")
+    assert TT.is_samemembers(sknames1, ['Basis', '_0', '_1'], f"{meshes[1].name} Shape keys names")
     armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
-    TT.assert_eq(len(armatures), 1, f"armature count")
+    assert TT.is_eq(len(armatures), 1, f"armature count")
 
 
 @TT.category('SKYRIMSE', 'SHAPEKEY')

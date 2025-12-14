@@ -1661,23 +1661,28 @@ class NifImporter():
         rename_keys = len(fn_parts) > 1 and len(new_fn_parts) > 1 and fn_parts[0:-1] == new_fn_parts[0:-1]
         obj_shape_name = '_' + fn_parts[-1]
 
-        for obj, newobj in zip(obj_list, new_obj_list):
-            if len(obj.data.vertices) == len(newobj.data.vertices):
-                ObjectSelect([obj, newobj])
-                ObjectActive(obj)
+        for newobj in new_obj_list:
+            if newobj.type == 'MESH':
+                matching_objs = [obj for obj in obj_list 
+                    if nonunique_name(obj.name) == nonunique_name(newobj.name)]
+                if len(matching_objs) > 0:
+                    obj = matching_objs[0]
+                    if len(obj.data.vertices) == len(newobj.data.vertices):
+                        ObjectSelect([obj, newobj])
+                        ObjectActive(obj)
 
-                if rename_keys:
-                    if (not obj.data.shape_keys) or (not obj.data.shape_keys.key_blocks) \
-                            or (obj_shape_name not in [s.name for s in obj.data.shape_keys.key_blocks]):
-                        if not obj.data.shape_keys:
-                            obj.shape_key_add(name='Basis')
-                        obj.shape_key_add(name=obj_shape_name)
+                        if rename_keys:
+                            if (not obj.data.shape_keys) or (not obj.data.shape_keys.key_blocks) \
+                                    or (obj_shape_name not in [s.name for s in obj.data.shape_keys.key_blocks]):
+                                if not obj.data.shape_keys:
+                                    obj.shape_key_add(name='Basis')
+                                obj.shape_key_add(name=obj_shape_name)
 
-                bpy.ops.object.join_shapes()
-                self.objects_created.remove(newobj)
-                bpy.data.objects.remove(newobj)
+                        bpy.ops.object.join_shapes()
+                        self.objects_created.remove(newobj)
+                        bpy.data.objects.remove(newobj)
 
-                obj.data.shape_keys.key_blocks[-1].name = '_' + new_fn_parts[-1]
+                        obj.data.shape_keys.key_blocks[-1].name = '_' + new_fn_parts[-1]
 
 
     def execute(self):
