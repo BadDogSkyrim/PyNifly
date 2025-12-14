@@ -330,11 +330,12 @@ def _add_actionslot(target_obj, fcurve):
     for lay in target_obj.animation_data.action.layers:
         for strip in lay.strips:
             for cb in strip.channelbags:
-                if cb.fcurves.find(fcurve.data_path):
-                    slots = json.loads(target_obj.get('pynActionSlots', '{}'))
-                    slots[target_obj.animation_data.action.name] = cb.slot.name_display
-                    target_obj['pynActionSlots'] = json.dumps(slots)
-                    return
+                for c in cb.fcurves:
+                    if c == fcurve:
+                        slots = json.loads(target_obj.get('pynActionSlots', '{}'))
+                        slots[target_obj.animation_data.action.name] = cb.slot.name_display
+                        target_obj['pynActionSlots'] = json.dumps(slots)
+                        return
 
     log.warning(
 f"fcurve not found in action {target_obj.animation_data.action.name} for {target_obj.name}")

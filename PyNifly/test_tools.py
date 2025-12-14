@@ -74,17 +74,17 @@ def is_equiv(actual, expected, msg, e=0.0001):
             if NT.MatNearEqual(actual, expected, epsilon=e):
                 return True
             else:
-                log.error(f"Values are equal for {msg}: {actual} != {expected}")
+                log.error(f"ASSERT FAIL: Values are equal for {msg}: {actual} != {expected}")
         else:
             if NT.VNearEqual(actual[:], expected, epsilon=e):
                 return True
             else:
-                log.error(f"Values are equal for {msg}: {actual[:]} != {expected}")
+                log.error(f"ASSERT FAIL: Values are equal for {msg}: {actual[:]} != {expected}")
     else:
         if NT.NearEqual(actual, expected, epsilon=e):
             return True
         else:
-            log.error(f"Values are equal for {msg}: {actual} != {expected}")
+            log.error(f"ASSERT FAIL: Values are equal for {msg}: {actual} != {expected}")
     return False
 
 
@@ -124,7 +124,7 @@ def is_patheq(actual, expected, msg):
     if a == b:
         return True
     else:
-        log.error(f"Unequal filepaths for {msg}: '{a}' != '{b}'")
+        log.error(f"ASSERT FAIL: Equal filepaths for {msg}: '{a}' != '{b}'")
         return False
 
 
@@ -151,7 +151,7 @@ def is_eq(*args):
     if values[0:-1] == values[1:]:
         return True
     else:
-        log.error(f"{msg} equal: {values}")
+        log.error(f"ASSERT FAIL: {msg} equal {values}")
 
 
 def assert_eq_nocase(actual, expected, msg):
@@ -184,6 +184,14 @@ def assert_contains(element, collection, message):
     assert element in collection, f"{message} {element} in {collection}"
 
 
+def is_contains(element, collection, message):
+    if element in collection:
+        return True
+    else:
+        log.error(f"ASSERT FAIL: {message} {element} in {collection}")
+        return False
+
+
 def assert_seteq(actual, expected, msg):
     """Assert two lists have the same members. Members may be duplicated."""
     if type(actual) == set:
@@ -211,7 +219,7 @@ def is_seteq(actual, expected, msg):
     if len(s1.symmetric_difference(s2)) == 0:
         return True
     else:
-        log.error(f"{msg} not the same: {s1}\nvs\n{s2}\ndifference:\n{s1.symmetric_difference(s2)}")
+        log.error(f"ASSERT FAIL: {msg} not the same: {s1}\nvs\n{s2}\ndifference:\n{s1.symmetric_difference(s2)}")
     return False
 
 
@@ -228,7 +236,7 @@ def is_samemembers(actual, expected, msg):
     if len(actual) == len(expected):
         return True
     else:
-        log.error(f"{msg} not the same: {actual} == {expected}")
+        log.error(f"ASSERT FAIL: {msg} not the same: {actual} == {expected}")
         return False
 
 
