@@ -6948,6 +6948,28 @@ def TEST_COLLISION_PROPERTIES():
     assert body.properties.qualityType == hkQualityType.MOVING, "Have correct qualityType"
 
 
+@TT.category('FO4')
+@TT.expect_errors(("Unknown block type: bhkPhysicsSystem",))
+def TEST_DUP_NAMES():
+    """Nifs with duplicate names import correctly."""
+    testfile = TTB.test_file(r"tests\FO4\Meshes\TerminalOn.nif")
+    outfile = TTB.test_file(r"tests\out\TEST_DUP_NAMES.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects if obj.get('pynRoot', False)]),
+                    1, "Root object count")
+    assert TT.is_eq(bpy.context.scene.objects['TerminalOn'].parent.name,
+                    'TerminalOn:ROOT', "Parent name")
+    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects 
+                         if obj.name.startswith('ScreenType:0')]),
+                    2, "ScreenType:0 count")
+    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects if obj.type == 'MESH']),
+                    7, "Mesh count")
+    assert TT.is_eq(len(bpy.context.scene.objects['TerminalOn'].children), 3, 
+                    "TerminaOn child count")
+
+
 def XXX_TEST_COLLISION_FO4():
     """
     FO4 collision export: Not working. Requires an update to Nifly to handle FO4-format

@@ -411,7 +411,6 @@ class NifImporter():
                  ):
         
         self.filename_list = filename_list
-        self.loaded_meshes = set(target_objects)
         self.target_armatures = set(target_armatures)
         self.collection = collection
         self.settings = import_settings
@@ -829,7 +828,7 @@ class NifImporter():
         ninode.properties.extract(obj, ignore=NISHAPE_IGNORE, game=ninode.file.game)
 
         # Only the root node gets the import transform. It gets applied to all children automatically.
-        if ninode.name == self.nif.rootName: 
+        if ninode.id == 0: 
             bpy.ops.object.mode_set(mode = 'OBJECT')
             obj.name = ninode.name + ":ROOT"
             obj["pynRoot"] = True

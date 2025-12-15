@@ -28,9 +28,9 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 BT.do_tests(
-    target_tests=[ BT.TEST_IMPORT_AS_SHAPES, ], 
+    target_tests=[ BT.TEST_DUP_NAMES, ], 
     # categories={'ANIMATION'},
-    test_all=True,
+    test_all=False,
     stop_on_fail=True
     )
 
