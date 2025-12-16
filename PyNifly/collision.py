@@ -785,20 +785,25 @@ class CollisionHandler():
 
         targobj = obj
         if obj.type == 'ARMATURE':
-            collisions = []
+            # For an armature, find collisions on the bones.
+            # collisions = []
             for pb in obj.pose.bones:
                 for c in pb.constraints:
                     if c.type == 'COPY_TRANSFORMS':
-                        collisions.append(c)
-                        targobj = pb
+                        exporter.export_collision_object(pb, c.target)
         else:
-            collisions = [x for x in obj.constraints if x.type == 'COPY_TRANSFORMS']
-        if not collisions: return
+            # For a regular object, find collisions on the object itself.
+            for c in obj.constraints:
+                if c.type == 'COPY_TRANSFORMS':
+                    exporter.export_collision_object(targobj, c.target)
 
-        collshape = collisions[0].target
-        if not collshape: return
-        if parent_handler.objs_written.find_blend(collshape): return 
+        #     collisions = [x for x in obj.constraints if x.type == 'COPY_TRANSFORMS']
+        # if not collisions: return
 
-        exporter.export_collision_object(targobj, collshape)
+        # collshape = collisions[0].target
+        # if not collshape: return
+        # if parent_handler.objs_written.find_blend(collshape): return 
+
+        # exporter.export_collision_object(targobj, collshape)
 
 

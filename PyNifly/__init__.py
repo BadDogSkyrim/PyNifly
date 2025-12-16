@@ -3582,7 +3582,7 @@ class NifExporter:
         elif bone_name not in self.writtenbones and (self.preserve_hierarchy or not shape):
             # Not a shape bone but needed for the hierarchy
             self.nif.add_node(nifname, tb, parname)
-        
+
         self.writtenbones[bone_name] = nifname
         
         return nifname
@@ -3809,6 +3809,7 @@ class NifExporter:
         """Export an armature with no shapes"""
         for b in arma.data.bones:
             self.write_bone(None, arma, b.name, arma.data.bones.keys())
+        collision.CollisionHandler.export_collisions(self, arma)
 
 
     def export_nif(self, fpath, suffix, sk):

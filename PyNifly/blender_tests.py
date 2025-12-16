@@ -1270,6 +1270,34 @@ def TEST_CONNECT_SKEL():
     do_test(True)
 
 
+@TT.category('SKYRIMSE', 'BODYPART', 'ARMATURE')
+def TEST_WOLF_SKEL():
+    """Can import and export the wolf skeleton with collisions"""
+    testname = "TEST_WOLF_SKEL"
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\actors\canine\character assets wolf\skeleton.nif")
+    outfile = TTB.test_file(r"tests/out/TEST_WOLF_SKEL.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                    do_create_bones=False, 
+                                    do_rename_bones=False)
+    
+    root = next(x for x in bpy.data.objects if 'pynRoot' in x)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    assert 'Canine_COM' in arma.data.bones, "Have COM bone"
+    assert arma.pose.bones['Canine_COM'].constraints, "Have COM constraints"
+
+    ### EXPORT ###
+
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', 
+                                 preserve_hierarchy=True)
+    
+    ### CHECK ###
+    nif2 = pyn.NifFile(outfile)
+    assert nif2.nodes['Canine_COM'], "Have COM node"
+    assert nif2.nodes['Canine_COM'].collision_object, "Have COM node collisions"
+
+
 @TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
 def TEST_SKEL_SKY():
     """Can import and export Skyrim skeleton file with no shapes"""
