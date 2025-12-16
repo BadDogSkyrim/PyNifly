@@ -85,6 +85,7 @@ enum BUFFER_TYPES : uint16_t {
 	NiBoolInterpControllerBufType,
 	NiVisControllerBufType,
 	BSValueNodeBufType,
+	BSBoundBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -384,6 +385,15 @@ struct BSXFlagsBuf {
 	uint32_t nameID;
 	uint16_t stringRefCount;
 	uint32_t integerData;
+};
+
+struct BSBoundBuf {
+	uint16_t bufSize = sizeof(BSBoundBuf);
+	uint16_t bufType = BUFFER_TYPES::BSBoundBufType;
+	uint32_t id;
+	uint32_t nameID;
+	float center[3];
+	float halfExtents[3];
 };
 
 struct NiShapeBuf {

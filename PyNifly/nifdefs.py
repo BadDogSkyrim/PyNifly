@@ -267,7 +267,7 @@ class pynStructure(Structure):
             elif t.__name__ == 'c_float_Array_2':
                 v = VECTOR2(*eval(shape[f]))
             elif t.__name__ == 'c_float_Array_3':
-                v = VECTOR3(*eval(shape[f]))
+                v = VECTOR3(*eval(shape[f])[0:3])
             elif t.__name__ == 'c_float_Array_4':
                 v = VECTOR4(*eval(shape[f]))
             elif t.__name__ == 'c_float_Array_12':
@@ -1057,7 +1057,8 @@ class PynBufferTypes(IntEnum):
     NiBoolInterpControllerBufType = 57
     NiVisControllerBufType = 58
     BSValueNodeBufType = 59
-    COUNT = 60
+    BSBoundBufType = 60
+    COUNT = 61
 
 # bufferTypeList = [''] * PynBufferTypes.COUNT
 # blockBuffers = {}
@@ -1736,6 +1737,20 @@ class BSXFlagsBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSXFlagsBufType
+
+
+class BSBoundBuf(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ("id", c_uint32),
+        ("nameID", c_uint32),
+        ("center", VECTOR3),
+        ("halfExtents", VECTOR3),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BSBoundBufType
 
 
 class BSInvMarkerBuf(pynStructure):

@@ -1285,6 +1285,7 @@ def TEST_WOLF_SKEL():
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     assert 'Canine_COM' in arma.data.bones, "Have COM bone"
     assert arma.pose.bones['Canine_COM'].constraints, "Have COM constraints"
+    assert TT.is_contains("BSBound:BBX", [obj.name for obj in root.children], "Have BBX collision object")
 
     ### EXPORT ###
 
@@ -1296,6 +1297,10 @@ def TEST_WOLF_SKEL():
     nif2 = pyn.NifFile(outfile)
     assert nif2.nodes['Canine_COM'], "Have COM node"
     assert nif2.nodes['Canine_COM'].collision_object, "Have COM node collisions"
+
+    assert nif2.root.bounds_extra, "Have BSBound"
+    assert TT.is_equiv(nif2.root.bounds_extra[1].center[:], (0, 0, 39.42), "BSBound center", e=0.01)
+    assert TT.is_equiv(nif2.root.bounds_extra[1].halfExtents[:], (20.11, 74.17, 39.42), "BSBound half_extents", e=0.01)
 
 
 @TT.category('SKYRIM', 'BODYPART', 'ARMATURE')

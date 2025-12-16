@@ -2616,6 +2616,50 @@ void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf, int con
     }
 };
 
+int getBSBound(void* nifref, uint32_t id, void* inbuf)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSBound* b = hdr->GetBlock<BSBound>(id);
+    BSBoundBuf* buf = static_cast<BSBoundBuf*>(inbuf);
+
+    if (!b) {
+        niflydll::LogWrite("getBSBound not passed a BSBound node");
+        return 1;
+    }
+    CheckBuf(buf, BUFFER_TYPES::BSBoundBufType, BSBoundBuf);
+	buf->id = id;
+	buf->nameID = b->name.GetIndex();
+    buf->center[0] = b->center[0];
+    buf->center[1] = b->center[1];
+    buf->center[2] = b->center[2];
+    buf->halfExtents[0] = b->halfExtents[0];
+    buf->halfExtents[1] = b->halfExtents[1];
+    buf->halfExtents[2] = b->halfExtents[2];
+
+    return 0;
+}
+
+int addBSBound(void* nifref, const char* name, void* properties, uint32_t parent)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSBoundBuf* buf = static_cast<BSBoundBuf*>(properties);
+	NiAVObject* parentObj = hdr->GetBlock<NiAVObject>(parent);
+
+    CheckBuf(buf, BUFFER_TYPES::BSBoundBufType, BSBoundBuf);
+    auto bsbound = std::make_unique<BSBound>();
+    bsbound->name.get() = name; 
+    bsbound->center[0] = buf->center[0];
+    bsbound->center[1] = buf->center[1];
+    bsbound->center[2] = buf->center[2];
+    bsbound->halfExtents[0] = buf->halfExtents[0];
+    bsbound->halfExtents[1] = buf->halfExtents[1];
+    bsbound->halfExtents[2] = buf->halfExtents[2];
+
+    return nif->AssignExtraData(parentObj, std::move(bsbound));
+}
+
 /* ********************* ERROR REPORTING ********************* */
 
 void clearMessageLog() {
@@ -4976,6 +5020,7 @@ BlockGetterFunction getterFunctions[] = {
     getNiSingleInterpController, // NiBoolInterpController
     getNiSingleInterpController, // NiVisController
     getBSValueNode, 
+	getBSBound,
     nullptr //END
 };
 
@@ -5058,6 +5103,7 @@ BlockSetterFunction setterFunctions[] = {
 	nullptr, //NiBoolInterpControllerBufType,
 	nullptr, //NiVisControllerBufType
     nullptr, //BSValueNodeBufType
+    nullptr, //BSBoundsBufType
     nullptr //END
 };
 
@@ -5139,6 +5185,7 @@ BlockCreatorFunction creatorFunctions[] = {
     addNiSingleInterpController, // NiBoolInterpController
     addNiSingleInterpController, // NiVisController
 	addBSValueNode, 
+    addBSBound,
     nullptr //end
 };
 

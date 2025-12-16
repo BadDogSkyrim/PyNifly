@@ -1227,6 +1227,25 @@ class NiNode(NiAVObject):
         check_msg(NifFile.nifly.addBlock, self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
 
     @property
+    def bounds_extra(self):
+        """ Returns bounds properties """
+        if not self.file._handle: return None
+        buf = BSBoundBuf()
+        bsxf_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSBound")
+        if bsxf_id == NODEID_NONE:
+            return None
+        check_return(NifFile.nifly.getBlock, self.file._handle, bsxf_id, byref(buf))
+        return ["BBX", buf]
+
+    @bounds_extra.setter
+    def bounds_extra(self, val:BSBoundBuf):
+        """Sets BSBound. val=(name, center, halfExtents)"""
+        buf = BSBoundBuf()
+        buf.center = val[1][:]
+        buf.halfExtents = val[2][:]
+        check_msg(NifFile.nifly.addBlock, self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
+
+    @property
     def inventory_marker(self):
         """ Reads BSInvMarker as [name, x, y, z, zoom] """
         if not self.file._handle: return []
@@ -1283,7 +1302,33 @@ class BSValueNode(NiNode):
     @classmethod
     def getbuf(cls, values=None):
         return BSValueNodeBuf(values)
+
+
+class BSBound(NiNode):
+    buffer_type = PynBufferTypes.BSBoundBufType
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return BSBoundBuf(values)
     
+    @property
+    def center(self):
+        return (self.properties.center[:])
+    
+    @center.setter
+    def center(self, value):
+        for i in range(0, 3):
+            self.properties.center[i] = value[i]
+
+    @property
+    def half_extents(self):
+        return (self.properties.halfExtents[:])
+    
+    @half_extents.setter
+    def half_extents(self, value):
+        for i in range(0, 3):
+            self.properties.halfExtents[i] = value[i]
+
 
 class BSWeakReferenceNode(NiNode):
     pass

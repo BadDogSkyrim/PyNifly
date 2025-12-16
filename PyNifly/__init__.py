@@ -625,6 +625,27 @@ class NifImporter():
 
     # -----------------------------  EXTRA DATA  -------------------------------
 
+    def import_bound(self, node, parent_obj):
+        b = node.bounds_extra
+        if b:
+            bpy.ops.mesh.primitive_cube_add(
+                size=1, 
+                enter_editmode=False, 
+                calc_uvs=False,
+                align='WORLD', 
+                location=b[1].center, 
+                scale=(b[1].halfExtents[0]*2, b[1].halfExtents[1]*2, b[1].halfExtents[2]*2))
+            bpy.context.object.display_type = 'WIRE'
+
+            ed = bpy.context.object
+            ed.name = "BSBound:" + b[0]
+            ed.show_name = True
+            b[1].extract(ed)
+            ed.parent = parent_obj
+            self.objects_created.add(ReprObject(blender_obj=ed))
+            link_to_collection(self.collection, ed)
+
+
     def import_bsx(self, node, parent_obj):
         b = node.bsx_flags
         if b:
@@ -636,7 +657,6 @@ class NifImporter():
             ed['BSXFlags_Name'] = b[0]
             ed['BSXFlags_Value'] = BSXFlags(b[1]).fullname
             ed.parent = parent_obj
-            # extradata.append(ed)
             self.objects_created.add(ReprObject(blender_obj=ed))
             link_to_collection(self.collection, ed)
 
@@ -748,6 +768,7 @@ class NifImporter():
         if not n: n = self.nif.rootNode
         if not parent_obj: parent_obj = self.root_object
 
+        self.import_bound(n, parent_obj)
         self.import_bsx(n, parent_obj)
         self.import_inventory_marker(n, parent_obj)
         self.import_furniture_markers(n, parent_obj)
@@ -2880,6 +2901,7 @@ class NifExporter:
         self.cloth_data = set()
         self.grouping_nodes = set()
         self.bsx_flag = None
+        self.bound = None
         self.inv_marker = None
         self.furniture_markers = set()
         self.connect_points = CP.ConnectPointCollection()
@@ -3006,13 +3028,17 @@ class NifExporter:
                 self.add_object(c)
 
         elif obj.type == 'MESH':
-            # Export the mesh, but use its parent and use any armature modifiers
-            self.objects.append(obj)
-            for mod in obj.modifiers:
-                if mod.type == 'ARMATURE' and mod.object:
-                    # Don't add any of the armature's other children unless they were
-                    # independently selected.
-                    self.add_armature(mod.object)
+            if not obj.name.startswith("BSBound:"):
+                # Export the mesh, but use its parent and use any armature modifiers
+                self.objects.append(obj)
+                for mod in obj.modifiers:
+                    if mod.type == 'ARMATURE' and mod.object:
+                        # Don't add any of the armature's other children unless they were
+                        # independently selected.
+                        self.add_armature(mod.object)
+            elif obj.name.startswith("BSBound:"):
+                self.bound = obj
+
 
         elif obj.type == 'CAMERA':
             self.inv_marker = obj
@@ -3171,6 +3197,15 @@ class NifExporter:
         if self.bsx_flag:
             self.nif.rootNode.bsx_flags = [self.bsx_flag['BSXFlags_Name'],
                                   BSXFlags.parse(self.bsx_flag['BSXFlags_Value'])]
+            self.objs_written.add(ReprObject(self.bsx_flag, self.nif.rootNode)) # [self.bsx_flag.name] = self.nif
+
+        if self.bound:
+            self.nif.rootNode.bounds_extra = [
+                nonunique_name(self.bound.name.split(":",1)[1]),
+                self.bound.location,
+                (max(v.co.x for v in self.bound.data.vertices),
+                 max(v.co.y for v in self.bound.data.vertices),
+                 max(v.co.z for v in self.bound.data.vertices)),]
             self.objs_written.add(ReprObject(self.bsx_flag, self.nif.rootNode)) # [self.bsx_flag.name] = self.nif
 
         if self.inv_marker:
