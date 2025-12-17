@@ -314,6 +314,17 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
     return new_shape
 
 
+def TEST_GETBLOCKBUF():
+    """Test getBlockBuf function in pynifly.py"""
+
+    testfile = r"tests\SkyrimSE\meshes\actors\canine\character assets wolf\skeleton.nif"
+    nif = NifFile(testfile)
+    blod_name, bonelod = nif.root.bone_lod_extra
+    assert TT.is_eq(blod_name, "BSBoneLOD", "bone LOD name")
+    assert TT.is_eq(len(bonelod), 3, "bone LOD level count")
+    assert TT.is_eq(bonelod[1], ('Canine_LFrontLegToe', 2200), "bone LOD level 1")
+
+
 @test_category('NIFDEFS')
 def TEST_NIFDEFS():
     """Test nifdefs functionality."""
@@ -2570,8 +2581,8 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = True
-    # execute(testlist=[TEST_ANIMATION])
-    execute(exclude=[TEST_SET_SKINTINT])
+    execute(testlist=[TEST_GETBLOCKBUF])
+    # execute(exclude=[TEST_SET_SKINTINT])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
     # execute(categories={"SHADER"})
     #

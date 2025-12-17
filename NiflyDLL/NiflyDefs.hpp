@@ -86,6 +86,7 @@ enum BUFFER_TYPES : uint16_t {
 	NiVisControllerBufType,
 	BSValueNodeBufType,
 	BSBoundBufType,
+	BSBoneLODExtraDataBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -220,6 +221,12 @@ enum class EffectShaderControlledVariable: uint32_t {
 	U_Scale,
 	V_Offset,
 	V_Scale
+};
+
+struct BufInfo {
+	uint16_t bufSize;
+	const char* bufType;
+	uint32_t id;
 };
 
 /* To make it simpler to deal with shaders, there's only one buffer for all of them.
@@ -394,6 +401,19 @@ struct BSBoundBuf {
 	uint32_t nameID;
 	float center[3];
 	float halfExtents[3];
+};
+
+struct BSBoneLODExtraDataBuf {
+	uint16_t bufSize = sizeof(BSBoneLODExtraDataBuf);
+	uint16_t bufType = BUFFER_TYPES::BSBoneLODExtraDataBufType;
+	uint32_t id;
+	uint32_t nameID;
+	uint32_t lodCount;
+};
+
+struct BSBoneLODInfoBuf {
+	uint32_t distance;
+	uint32_t nameID;
 };
 
 struct NiShapeBuf {

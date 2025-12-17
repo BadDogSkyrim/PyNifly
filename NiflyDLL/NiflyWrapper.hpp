@@ -164,3 +164,5 @@ extern "C" NIFLY_API int getNiTextKey(void* nifref, uint32_t tkedID, int keyinde
 
 extern "C" NIFLY_API int addTextKey(void* nifref, uint32_t tkedID, float time, const char* name);
 
+extern "C" NIFLY_API int getBoneLODInfo(void* nifref, uint32_t id, void* lodbuf, int bufLen);
+extern "C" NIFLY_API int setBoneLOD(void* nifref, int id, int buflen, BSBoneLODInfoBuf* buf);

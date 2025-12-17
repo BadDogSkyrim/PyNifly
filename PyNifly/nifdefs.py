@@ -1058,7 +1058,8 @@ class PynBufferTypes(IntEnum):
     NiVisControllerBufType = 58
     BSValueNodeBufType = 59
     BSBoundBufType = 60
-    COUNT = 61
+    BSBoneLODBufType = 61
+    COUNT = 62
 
 # bufferTypeList = [''] * PynBufferTypes.COUNT
 # blockBuffers = {}
@@ -1282,6 +1283,13 @@ class ALPHA_FLAG_MASK:
     NO_SORTER = 0x2000
     CLONE_UNIQUE = 0x4000
     EDITOR_ALPHA_THRESHOLD = 0x8000
+
+class BufInfo(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('blockName', POINTER(c_byte)),
+        ('id', c_uint32)
+    ]
 
 class AlphaPropertyBuf(pynStructure):
     _fields_ = [
@@ -1668,6 +1676,14 @@ class ConnectPointBuf(pynStructure):
         ("scale", c_float)]
     
 
+class NiObjectBuf(pynStructure):
+    _fields_ = [
+        ('blockSize', c_uint32),
+        ('groupID', c_uint16),
+        ('id', c_uint32),
+    ]
+
+
 class NiNodeBuf(pynStructure):
     _fields_ = [
         ('bufSize', c_uint16),
@@ -1752,6 +1768,24 @@ class BSBoundBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSBoundBufType
 
+
+class BSBoneLODBuf(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ("id", c_uint32),
+        ("nameID", c_uint32),
+        ("lodCount", c_uint32),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BSBoneLODBufType
+
+class BoneLODInfoBuf(pynStructure):
+    _fields_ = [
+        ("distance", c_uint32),
+        ("nameID", c_uint32),
+    ]
 
 class BSInvMarkerBuf(pynStructure):
     _fields_ = [

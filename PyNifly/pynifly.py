@@ -102,6 +102,8 @@ def load_nifly(nifly_path):
     nifly.getBlockID.restype = c_int
     nifly.getBlockname.argtypes = [c_void_p, c_int, c_char_p, c_int]
     nifly.getBlockname.restype = c_int
+    nifly.getBoneLODInfo.argtypes = [c_void_p, c_int, c_void_p, c_int]
+    nifly.getBoneLODInfo.restype = c_int
     nifly.getClothExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int]
     nifly.getClothExtraData.restype = c_int
     nifly.getClothExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
@@ -218,6 +220,8 @@ def load_nifly(nifly_path):
     nifly.setBGExtraData.restype = None
     nifly.setBlock.argtypes = [c_void_p, c_int, c_void_p] 
     nifly.setBlock.restype = c_int
+    nifly.setBoneLOD.argtypes = [c_void_p, c_int, c_int, c_void_p]
+    nifly.setBoneLOD.restype = c_int
     nifly.setClothExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_char_p, c_int]
     nifly.setClothExtraData.restype = None
     nifly.setCollConvexTransformShapeChild.argtypes = [c_void_p, c_uint32, c_uint32]
@@ -1244,6 +1248,46 @@ class NiNode(NiAVObject):
         buf.center = val[1][:]
         buf.halfExtents = val[2][:]
         check_msg(NifFile.nifly.addBlock, self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
+
+
+    @property
+    def bone_lod_extra(self):
+        """ Returns BSBoneLOD properties """
+        if not self.file._handle: return None
+        buf = BSBoneLODBuf()
+        id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSBoneLODExtraData")
+        if id == NODEID_NONE:
+            return None, []
+        check_return(NifFile.nifly.getBlock, self.file._handle, id, byref(buf))
+        
+        nm = create_string_buffer(256)
+        check_msg(NifFile.nifly.getString, self.file._handle, buf.nameID, 256, nm)
+
+        lodbuf = (BoneLODInfoBuf * buf.lodCount)()
+        check_msg(NifFile.nifly.getBoneLODInfo, self.file._handle, id, byref(lodbuf), buf.lodCount)
+        lods = []
+        for li in lodbuf:
+            tn = create_string_buffer(256)
+            check_msg(NifFile.nifly.getString, self.file._handle, li.nameID, 256, tn)
+            lods.append( (tn.value.decode('utf-8'), li.distance) )
+
+        return (nm.value.decode('utf-8'), lods)
+
+    @bone_lod_extra.setter
+    def bone_lod_extra(self, val):
+        """Sets bone LOD extra data. val=(name, ((lodname, distance), ...) )"""
+        buf = BSBoneLODBuf()
+        buf.lodCount = 0
+        name, lodlist = val
+        id = check_msg(NifFile.nifly.addBlock, 
+                       self.file._handle, name.encode('utf-8'), byref(buf), self.id)
+
+        lodbuf = (BoneLODInfoBuf * len(lodlist))()
+        for i, lod in enumerate(lodlist):
+            lodbuf[i].distance = lod[1]
+            lodbuf[i].nameID = NifFile.nifly.addString(self.file._handle, lod[0].encode('utf-8'))
+        check_return(NifFile.nifly.setBoneLOD, self.file._handle, id, len(lodlist), byref(lodbuf))
+
 
     @property
     def inventory_marker(self):

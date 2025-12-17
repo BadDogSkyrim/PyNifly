@@ -2660,6 +2660,77 @@ int addBSBound(void* nifref, const char* name, void* properties, uint32_t parent
     return nif->AssignExtraData(parentObj, std::move(bsbound));
 }
 
+int getBSBoneLODExtraData(void* nifref, uint32_t id, void* inbuf)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSBoneLODExtraData* b = hdr->GetBlock<BSBoneLODExtraData>(id);
+    BSBoneLODExtraDataBuf* buf = static_cast<BSBoneLODExtraDataBuf*>(inbuf);
+
+    if (!b) {
+        niflydll::LogWrite("getBSBoneLODExtraData not passed a BSBoneLODExtraData node");
+        return 1;
+    }
+    CheckBuf(buf, BUFFER_TYPES::BSBoneLODExtraDataBufType, BSBoneLODExtraDataBuf);
+	buf->id = id;
+	buf->nameID = b->name.GetIndex();
+    buf->lodCount = b->boneLODs.size();
+
+    return 0;
+}
+
+int getBoneLODInfo(void* nifref, uint32_t id, void* lodbuf, int bufLen)
+/* Read BSBoneLOD infos. Return the number of infos that actually exist. */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSBoneLODExtraData* b = hdr->GetBlock<BSBoneLODExtraData>(id);
+    BSBoneLODInfoBuf* buf = static_cast<BSBoneLODInfoBuf*>(lodbuf);
+    if (!b) {
+        niflydll::LogWrite("getBoneLODInfo not passed a BSBoneLODExtraData node");
+        return 1;
+    }
+    for (int i=0; i < bufLen && i < int(b->boneLODs.size()); i++) {
+        buf[i].distance = b->boneLODs[i].distance;
+        buf[i].nameID = b->boneLODs[i].boneName.GetIndex();
+	}
+    return b->boneLODs.size();
+}
+
+int addBSBoneLODExtraData(void* nifref, const char* name, void* properties, uint32_t parent)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSBoneLODExtraDataBuf* buf = static_cast<BSBoneLODExtraDataBuf*>(properties);
+	NiAVObject* parentObj = hdr->GetBlock<NiAVObject>(parent);
+
+    CheckBuf(buf, BUFFER_TYPES::BSBoneLODExtraDataBufType, BSBoneLODExtraDataBuf);
+    auto b = std::make_unique<BSBoneLODExtraData>();
+    b->name.get() = name; 
+
+    return nif->AssignExtraData(parentObj, std::move(b));
+}
+
+int setBoneLOD(void* nifref, int id, int buflen, BSBoneLODInfoBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+	NiHeader* hdr = &nif->GetHeader();
+	BSBoneLODExtraData* b = hdr->GetBlock<BSBoneLODExtraData>(id);
+
+    if (!b) {
+        niflydll::LogWrite("setBoneLOD not passed a BSBoneLODExtraData node");
+        return 1;
+	}
+
+    //auto lods = std::make_unique<NiSyncVector<BoneLOD>>();
+    for (int i = 0; i < buflen; i++) {
+		auto thisLOD = std::make_unique<BoneLOD>();
+		thisLOD->distance = buf[i].distance;
+		thisLOD->boneName = hdr->GetStringById(buf[i].nameID);
+		b->boneLODs.push_back(*thisLOD);
+    }
+    return 0;
+}
+
 /* ********************* ERROR REPORTING ********************* */
 
 void clearMessageLog() {
@@ -5021,6 +5092,7 @@ BlockGetterFunction getterFunctions[] = {
     getNiSingleInterpController, // NiVisController
     getBSValueNode, 
 	getBSBound,
+    getBSBoneLODExtraData,
     nullptr //END
 };
 
@@ -5104,6 +5176,7 @@ BlockSetterFunction setterFunctions[] = {
 	nullptr, //NiVisControllerBufType
     nullptr, //BSValueNodeBufType
     nullptr, //BSBoundsBufType
+    nullptr, //BSBoneLODExtraData
     nullptr //END
 };
 
@@ -5186,6 +5259,7 @@ BlockCreatorFunction creatorFunctions[] = {
     addNiSingleInterpController, // NiVisController
 	addBSValueNode, 
     addBSBound,
+    addBSBoneLODExtraData,
     nullptr //end
 };
 

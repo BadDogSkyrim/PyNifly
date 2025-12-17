@@ -23,6 +23,7 @@ import xml.etree.ElementTree as xml
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry, Color
 import codecs
 import importlib
+import json
 
 # Locate the DLL and other files we need either in their development or install locations.
 nifly_path = None
@@ -646,6 +647,19 @@ class NifImporter():
             link_to_collection(self.collection, ed)
 
 
+    def import_bone_lod(self, node, parent_obj):
+        nm, lod = node.bone_lod_extra
+        if lod:
+            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+            ed = bpy.context.object
+            ed.name = "BSBoneLOD:" + nm
+            ed.show_name = True
+            ed['pynBoneLOD'] = json.dumps(lod)
+            ed.parent = parent_obj
+            self.objects_created.add(ReprObject(blender_obj=ed))
+            link_to_collection(self.collection, ed)
+
+
     def import_bsx(self, node, parent_obj):
         b = node.bsx_flags
         if b:
@@ -769,6 +783,7 @@ class NifImporter():
         if not parent_obj: parent_obj = self.root_object
 
         self.import_bound(n, parent_obj)
+        self.import_bone_lod(n, parent_obj)
         self.import_bsx(n, parent_obj)
         self.import_inventory_marker(n, parent_obj)
         self.import_furniture_markers(n, parent_obj)
@@ -2901,6 +2916,7 @@ class NifExporter:
         self.cloth_data = set()
         self.grouping_nodes = set()
         self.bsx_flag = None
+        self.bone_lod = None
         self.bound = None
         self.inv_marker = None
         self.furniture_markers = set()
@@ -3060,6 +3076,9 @@ class NifExporter:
             elif 'BSXFlags_Name' in obj.keys():
                 self.bsx_flag = obj
 
+            elif 'pynBoneLOD' in obj.keys():
+                self.bone_lod = obj
+
             elif obj.name.startswith("BSFurnitureMarkerNode"):
                 self.furniture_markers.add(obj)
 
@@ -3198,6 +3217,12 @@ class NifExporter:
             self.nif.rootNode.bsx_flags = [self.bsx_flag['BSXFlags_Name'],
                                   BSXFlags.parse(self.bsx_flag['BSXFlags_Value'])]
             self.objs_written.add(ReprObject(self.bsx_flag, self.nif.rootNode)) # [self.bsx_flag.name] = self.nif
+
+        if self.bone_lod:
+            self.nif.rootNode.bone_lod_extra = [
+                self.bone_lod.name.split(":", 1)[1],
+                json.loads(self.bone_lod['pynBoneLOD'])]
+            self.objs_written.add(ReprObject(self.bone_lod, self.nif.rootNode)) # [self.bone_lod.name] = self.nif
 
         if self.bound:
             self.nif.rootNode.bounds_extra = [
