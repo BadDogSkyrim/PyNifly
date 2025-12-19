@@ -3,8 +3,10 @@
 import importlib
 import blender_tests as BT
 import controller
+import connectpoint
 importlib.reload(BT)
 importlib.reload(controller)
+importlib.reload(connectpoint)
 
 
 print("""
@@ -28,7 +30,7 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 BT.do_tests(
-    target_tests=[ BT.TEST_WOLF_SKEL, ], 
+    target_tests=[ BT.TEST_CONNECT_WORKSHOP2, ], 
     # categories={'ANIMATION'},
     test_all=False,
     stop_on_fail=True

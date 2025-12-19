@@ -114,6 +114,7 @@ IMPORT_COLLISIONS_DEF = True
 IMPORT_SHAPES_DEF = True
 IMPORT_TRIS_DEF = False
 IMPORT_POSE_DEF = False
+SMART_EDITOR_MARKERS_DEF = True
 IMPORT_COLLECTIONS_DEF = False
 ESTIMATE_OFFSET_DEF = True
 PRESERVE_HIERARCHY_DEF = False
@@ -132,7 +133,7 @@ class ImportSettings(PynIntFlag):
     import_shapekeys = 1<<5
     import_tris = 1<<6
     apply_skinning = 1<<7
-    import_pose = 1<<8
+    smart_editor_markers = 1<<8
     create_collection = 1<<9
     mesh_only = 1<<10
     import_collisions = 1<<11
@@ -952,10 +953,13 @@ class NifImporter():
                 original_bones.add(n)
 
         for nm, n in nif.nodes.items():
-            # If it's a bhk (collision) node, only consider it if we're importing
-            # collisions.
-            if ((not nm.startswith('bhk') or self.is_set(ImportSettings.import_collisions)) 
-                and not n.__class__.__name__.startswith('NiShader')): # isinstance not working somehow
+            if (# Isn't collision, or we are importing collisions
+                (not nm.startswith('bhk') or self.is_set(ImportSettings.import_collisions)) 
+                # Isn't a shader node, which are handled with their parent
+                and not n.__class__.__name__.startswith('NiShader')
+                # Isn't an editor marker, or we are importing editor markers
+                and (not CP.is_editor_marker(n) or not self.is_set(ImportSettings.smart_editor_markers)) 
+                ): 
                 p = self.import_node_parents(arma, n)
                 self.import_ninode(arma, n, p)
         
@@ -1593,6 +1597,12 @@ class NifImporter():
 
         # Import shapes
         for s in self.nif.shapes:
+            # Only import editor markers if we are importing connect points and not doing
+            # smart editor markers.
+            if CP.is_editor_marker(s):
+                if self.is_set(ImportSettings.smart_editor_markers):
+                    continue
+
             if self.nif.game in ['FO4', 'FO76'] and is_facebones(s.bone_names):
                 self.nif.dict = fo4FaceDict
             self.nif.dict.use_niftools = self.is_set(ImportSettings.rename_bones_nift)
@@ -1873,6 +1883,12 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         default=IMPORT_POSE_DEF
     ) # type: ignore
 
+    smart_editor_markers: bpy.props.BoolProperty(
+        name="Smart editor marker handling",
+        description="Do not create editor marker objects on import; recreate on export.",
+        default=SMART_EDITOR_MARKERS_DEF
+    ) # type: ignore
+
     do_create_collections: bpy.props.BoolProperty(
         name="Import to collections",
         description="Import each nif to its own new collection.",
@@ -1960,6 +1976,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             if self.do_import_collisions: import_flags |= ImportSettings.import_collisions
             if self.do_import_tris: import_flags |= ImportSettings.import_tris
             if self.do_apply_skinning: import_flags |= ImportSettings.apply_skinning
+            if self.smart_editor_markers: import_flags |= ImportSettings.smart_editor_markers
             if self.do_import_pose: import_flags |= ImportSettings.import_pose
             if self.do_create_collections: import_flags |= ImportSettings.create_collection
 

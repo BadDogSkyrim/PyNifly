@@ -5306,6 +5306,44 @@ def TEST_CONNECT_WORKSHOP():
                      "Number of origin connect points")
     
 
+@TT.category('FO4', 'CONNECTPOINT')
+@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
+def TEST_CONNECT_WORKSHOP2():
+    """Connect point editor markers have smart handling."""
+
+    testfile = TTB.test_file(r"tests\FO4\ShackPrefabMid01.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_CONNECT_WORKSHOP2.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+        do_rename_bones=False, do_create_bones=False, smart_editor_markers=True)
+
+    print('### Read ###')
+    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects 
+                        if obj.name.startswith('BSConnectPointParents')]), 
+                    17, 
+                    "Number of connect points")
+    # smart_edit_markers does not import editor markers.
+    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects 
+                        if obj.name.startswith('EditorMarker')]), 
+                    0, 
+                    "Number of editor markers")
+    
+    print('### Write ###')
+    BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj], active=True)    
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    print('### Check ###')
+    nif = pyn.NifFile(outfile)
+    assert TT.is_eq(len(nif.connect_points_parent), 17, "connect point count")
+    assert TT.is_eq(len([n for n in nif.nodes if n.name.startswith("EditorMarker")]), 
+                    17, 
+                    "editor marker count")
+    ccp_names = [c.name.decode('utf-8') for c in nif.connect_points_parent]
+    TT.assert_eq(len([c for c in ccp_names if c == 'P-Floor']), 4, 
+                     "Number of floor connect points")
+    TT.assert_eq(len([c for c in ccp_names if c == 'P-WS-Origin']), 1, 
+                     "Number of origin connect points")
+    
+
 @TT.category('SKYRIMSE', 'FURNITUREMARKER')
 @TT.expect_errors('Unknown block type: bhkMoppBvTreeShape')
 def TEST_FARMBENCH():

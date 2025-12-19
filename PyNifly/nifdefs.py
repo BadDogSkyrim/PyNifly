@@ -495,7 +495,6 @@ class TransformBuf(pynStructure):
     def __init__(self):
         self.set_identity()
 
-
     def set_identity(self):
         self.translation = VECTOR3(0, 0, 0)
         self.rotation = MATRIX3((1,0,0), (0,1,0), (0,0,1))
@@ -1674,7 +1673,7 @@ class ConnectPointBuf(pynStructure):
         ("rotation", VECTOR4),
         ("translation", VECTOR3),
         ("scale", c_float)]
-    
+
 
 class NiObjectBuf(pynStructure):
     _fields_ = [

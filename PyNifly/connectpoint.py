@@ -3,11 +3,48 @@
 
 import bpy
 import bpy.types
+import math
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry, Color
 import blender_defs as BD
 import nifdefs
 
 CONNECT_POINT_SCALE = 15.0
+
+
+def connectpoint_transform(cp, scale=1.0):
+    """Return a connect point's transform as a Matrix."""
+    return Matrix.LocRotScale(
+        Vector(cp.translation[:]) * scale,
+        Quaternion(cp.rotation[:]),
+        ((cp.scale * CONNECT_POINT_SCALE * scale),) * 3
+    )
+
+
+def is_match_connectpoint(nifnode, cp):
+    """
+    Check whether the nifnode's transform to matches the connect point cp: same position
+    and orientation.
+
+    Editor markers have their flat side oriented towards -X with a null rotation. The
+    matching connect point has a 90deg yaw.  
+    """
+    if not BD.VNearEqual(nifnode.transform.translation, cp.translation, epsilon=0.001):
+        return False
+    if not BD.NearEqual(nifnode.transform.scale, cp.scale, epsilon=0.001):
+        return False
+    nodeq = Matrix(nifnode.transform.rotation).to_quaternion()
+    cpq = Quaternion(cp.rotation)
+    cpq.rotate(Quaternion((0, 0, 1), math.radians(-90)))
+    delta = nodeq.rotation_difference(cpq).angle
+    return BD.NearEqual(delta, 0.0, epsilon=0.01)
+
+
+def is_editor_marker(nifnode):
+    """Determine whether the given nif node is an editor marker."""
+    if nifnode.name.startswith('EditorMarker'):
+        if any(c for c in nifnode.file.connect_points_parent if is_match_connectpoint(nifnode, c)):
+            return True
+    return False
 
 
 def connection_name_root(s): 
@@ -95,12 +132,8 @@ class ConnectPointParent():
         pcp.name = "BSConnectPointParents" + "::" + cpname
         pcp.show_name = True
         pcp.empty_display_type = 'ARROWS'
-        mx = Matrix.LocRotScale(
-            Vector(cp.translation[:]) * scale,
-            Quaternion(cp.rotation[:]),
-            ((cp.scale * CONNECT_POINT_SCALE * scale),) * 3
-        )
-        # pcp.matrix_world = parent.matrix_world @ mx
+        mx = connectpoint_transform(cp, scale)
+
         pcp.matrix_world = mx
         if parentobj:
             pcp.parent = parentobj 
