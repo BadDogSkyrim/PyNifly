@@ -366,6 +366,8 @@ NIFLY_API int saveNif(void* the_nif, const char8_t* filename) {
 /* ********************* NODE HANDLING ********************* */
 
 NIFLY_API int getNodeCount(void* theNif)
+/* Return the number of NiNodes in the nif. Anything not a subclass 
+of NiNode doesn't count.*/
 {
     NifFile* nif = static_cast<NifFile*>(theNif);
     return int(nif->GetNodes().size());
@@ -373,7 +375,8 @@ NIFLY_API int getNodeCount(void* theNif)
 
 NIFLY_API void getNodes(void* theNif, void** buf)
 /* 
-* Return all NiNodes in the nif. Includes the root node.
+* Return all NiNodes in the nif. Includes the root node. Note NiShapes
+* are not NiNodes.
 */
 {
     NifFile* nif = static_cast<NifFile*>(theNif);

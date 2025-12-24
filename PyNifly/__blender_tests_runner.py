@@ -4,9 +4,11 @@ import importlib
 import blender_tests as BT
 import controller
 import connectpoint
+import collision
 importlib.reload(BT)
 importlib.reload(controller)
 importlib.reload(connectpoint)
+importlib.reload(collision)
 
 
 print("""
@@ -30,7 +32,7 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 BT.do_tests(
-    target_tests=[ BT.TEST_CONNECT_WORKSHOP2, ], 
+    # target_tests=[ BT.TEST_SKEL_HKX_IMPORT, BT.TEST_SKEL_TAIL_HKX, BT.TEST_AUXBONES_EXTRACT, ], 
     # categories={'ANIMATION'},
     test_all=False,
     stop_on_fail=True

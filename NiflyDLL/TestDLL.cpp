@@ -3605,6 +3605,28 @@ namespace NiflyDLLTests
 			saveNif(nifOut, (testRoot / "Out/readConnectPoints.nif").u8string().c_str());
 
 		};
+		bool IdInBlockList(void* nif, void** refs, int targetID) {
+			bool found = 0;
+			for (; *refs != nullptr; refs++) {
+				found = (getBlockID(nif, *refs) == targetID);
+				if (found) break;
+			};
+			return found;
+		}
+		TEST_METHOD(readEditorMarkers) { 
+			void* nif = load((testRoot / "FO4/ShackPrefabMid01.nif").u8string().c_str());
+			int nodeCount = getNodeCount(nif);
+			Assert::AreEqual(6, nodeCount, L"Correct number of nodes");
+			void* nodeRefs[7];
+			getNodes(nif, nodeRefs);
+			nodeRefs[6] = nullptr;
+			Assert::IsTrue(IdInBlockList(nif, nodeRefs, 0));
+			Assert::IsTrue(IdInBlockList(nif, nodeRefs, 5));
+			Assert::IsTrue(IdInBlockList(nif, nodeRefs, 6));
+			Assert::IsTrue(IdInBlockList(nif, nodeRefs, 7));
+			Assert::IsTrue(IdInBlockList(nif, nodeRefs, 8));
+			Assert::IsTrue(IdInBlockList(nif, nodeRefs, 9));
+		};
 		TEST_METHOD(impExpSkinBone) {
 			void* shapes[10];
 

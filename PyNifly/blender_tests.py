@@ -320,7 +320,7 @@ def do_bodypart_alignment_fo4(create_bones, estimate_offset, use_pose):
     bpy.ops.import_scene.pynifly(filepath=skelfile, 
                                  do_create_bones=create_bones,
                                  do_import_pose=use_pose)
-    skel = [x for x in bpy.context.selected_objects if x.type == 'ARMATURE'][0]
+    skel = [x for x in bpy.context.scene.objects if x.type == 'ARMATURE'][0]
     assert skel.type == 'ARMATURE', f"Have armature"
     BD.ObjectSelect([skel], active=True)
     bpy.ops.import_scene.pynifly(filepath=bodyfile, 
@@ -5032,6 +5032,7 @@ def TEST_COLLISION_BOW_CHANGE():
     assert not bgedCheck[2], f"Extra data controls base skeleton: {bgedCheck}"
 
 
+@TT.min_version(4, 0, 0)
 @TT.category('SKYRIM', 'PHYSICS')
 def TEST_COLLISION_XFORM():
     """
@@ -5041,71 +5042,75 @@ def TEST_COLLISION_XFORM():
     # nifs never do that. So make a root node and attach the collision to that.
     #
     # Note we then have to export the root node or we don't get the collisions.
-    if bpy.app.version[0] > 3:
-        # Blender V2.x does not import the whole parent chain when appending an object from
-        # another file, so don't try to run this on that version.
 
-        # ------- Load --------
-        blendfile = TTB.test_file(r"tests/SkyrimSE/staff.blend")
-        outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_XFORM.nif")
-        
-        bpy.ops.object.add(radius=1.0, type='EMPTY')
-        root = bpy.context.object
-        root.name = 'Root'
+    # Blender V2.x does not import the whole parent chain when appending an object from
+    # another file, so don't try to run this on that version.
 
-        staff = TTB.append_from_file("Staff", True, blendfile, r"\Object", "Staff")
-        inv = TTB.append_from_file("BSInvMarker", True, blendfile, r"\Object", "BSInvMarker")
-        flg = TTB.append_from_file("BSXFlags", True, blendfile, r"\Object", "BSXFlags")
-        ext = TTB.append_from_file("NiStringExtraData", True, blendfile, r"\Object", "NiStringExtraData")
-        c1 = TTB.append_from_file("bhkCapsuleShape", True, blendfile, r"\Object", "bhkCapsuleShape")
-        c2 = TTB.append_from_file("bhkConvexVerticesShape", True, blendfile, r"\Object", "bhkConvexVerticesShape")
-        c3 = TTB.append_from_file("bhkConvexVerticesShape.001", True, blendfile, r"\Object", "bhkConvexVerticesShape.001")
-        c4 = TTB.append_from_file("bhkConvexVerticesShape.002", True, blendfile, r"\Object", "bhkConvexVerticesShape.002")
-        listcollision = TTB.append_from_file("bhkListShape", True, blendfile, r"\Object", "bhkListShape")
-        c1.parent = listcollision
-        c2.parent = listcollision
-        c3.parent = listcollision
-        c4.parent = listcollision
-        
-        # Append screwed positions up, so fix them.
-        for c in [c1, c2, c3, c4, listcollision]:
-            for v in c.data.vertices:
-                v.co = v.co + Vector((0, listcollision.location.y, 0))
+    # ------- Load --------
+    blendfile = TTB.test_file(r"tests/SkyrimSE/staff.blend")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_XFORM.nif")
+    
+    bpy.ops.object.add(radius=1.0, type='EMPTY')
+    root = bpy.context.object
+    root.name = 'Root'
 
-        if len(root.constraints) == 0: constr = root.constraints.new('COPY_TRANSFORMS')
-        root.constraints[0].target = listcollision
-        root['pynRoot'] = True
-        staff.parent = root
-        inv.parent = root
-        flg.parent = root
-        ext.parent = root
-        for obj in bpy.data.objects:
-            if obj.name.startswith('bhkListShape') and obj.name != 'bhkListShape':
-                BD.ObjectSelect([obj], active=True)
-                bpy.ops.object.delete()
+    staff = TTB.append_from_file("Staff", True, blendfile, r"\Object", "Staff")
+    inv = TTB.append_from_file("BSInvMarker", True, blendfile, r"\Object", "BSInvMarker")
+    flg = TTB.append_from_file("BSXFlags", True, blendfile, r"\Object", "BSXFlags")
+    ext = TTB.append_from_file("NiStringExtraData", True, blendfile, r"\Object", "NiStringExtraData")
+    c1 = TTB.append_from_file("bhkCapsuleShape", True, blendfile, r"\Object", "bhkCapsuleShape")
+    c2 = TTB.append_from_file("bhkConvexVerticesShape", True, blendfile, r"\Object", "bhkConvexVerticesShape")
+    c3 = TTB.append_from_file("bhkConvexVerticesShape.001", True, blendfile, r"\Object", "bhkConvexVerticesShape.001")
+    c4 = TTB.append_from_file("bhkConvexVerticesShape.002", True, blendfile, r"\Object", "bhkConvexVerticesShape.002")
+    listcollision = TTB.append_from_file("bhkListShape", True, blendfile, r"\Object", "bhkListShape")
+    c1.parent = listcollision
+    c2.parent = listcollision
+    c3.parent = listcollision
+    c4.parent = listcollision
 
-        # -------- Export --------
-        BD.ObjectSelect([root], active=True)
-        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+    # # Set up the collision target
+    # staff.constraints["Copy Transforms"].target = listcollision
+    
+    # Append screwed positions up, so fix them.
+    for c in [c1, c2, c3, c4, listcollision]:
+        for v in c.data.vertices:
+            v.co = v.co + Vector((0, listcollision.location.y, 0))
 
-        # ------- Check ---------
-        nifcheck = pyn.NifFile(outfile)
-        staffcheck = nifcheck.shape_dict["Staff"]
-        collcheck = nifcheck.rootNode.collision_object
-        rbcheck = collcheck.body
-        listcheck = rbcheck.shape
-        capsules = [c.child for c in listcheck.children if c.child.blockname == "bhkCapsuleShape"]
-        assert capsules[0].properties.point1[1] < 0 < capsules[0].properties.point2[1], \
-            f"Capsule crosses origin"
-        
-        capcts = listcheck.children[0] 
-        capshape = capcts.child
-        assert capshape.blockname == 'bhkCapsuleShape', f"Have the capsule"
-        capmaxy = (capcts.transform[1][3] + capshape.properties.point2[1]) * BD.HSF
-        assert BD.NearEqual(capmaxy, 67, epsilon=1.0), f"Capsule max y correct: {capmaxy}"
+    if len(root.constraints) == 0: 
+        constr = root.constraints.new('COPY_TRANSFORMS')
+    root.constraints['Copy Transforms'].target = listcollision
+    root['pynRoot'] = True
+    staff.parent = root
+    inv.parent = root
+    flg.parent = root
+    ext.parent = root
+    for obj in bpy.data.objects:
+        if obj.name.startswith('bhkListShape') and obj.name != 'bhkListShape':
+            BD.ObjectSelect([obj], active=True)
+            bpy.ops.object.delete()
 
-        capminy = (capcts.transform[1][3] + capshape.properties.point1[1]) * BD.HSF
-        assert BD.NearEqual(capminy, -73.4, epsilon=1.0), f"Capsule min y correct: {capminy}"
+    # -------- Export --------
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    # ------- Check ---------
+    nifcheck = pyn.NifFile(outfile)
+    staffcheck = nifcheck.shape_dict["Staff"]
+    collcheck = nifcheck.rootNode.collision_object
+    rbcheck = collcheck.body
+    listcheck = rbcheck.shape
+    capsules = [c.child for c in listcheck.children if c.child.blockname == "bhkCapsuleShape"]
+    assert capsules[0].properties.point1[1] < 0 < capsules[0].properties.point2[1], \
+        f"Capsule crosses origin"
+    
+    capcts = listcheck.children[0] 
+    capshape = capcts.child
+    assert capshape.blockname == 'bhkCapsuleShape', f"Have the capsule"
+    capmaxy = (capcts.transform[1][3] + capshape.properties.point2[1]) * BD.HSF
+    assert BD.NearEqual(capmaxy, 67, epsilon=1.0), f"Capsule max y correct: {capmaxy}"
+
+    capminy = (capcts.transform[1][3] + capshape.properties.point1[1]) * BD.HSF
+    assert BD.NearEqual(capminy, -73.4, epsilon=1.0), f"Capsule min y correct: {capminy}"
 
 
 @TT.category('FO4', 'CONNECTPOINT')
@@ -5333,15 +5338,27 @@ def TEST_CONNECT_WORKSHOP2():
 
     print('### Check ###')
     nif = pyn.NifFile(outfile)
+
+    # Have connect points
     assert TT.is_eq(len(nif.connect_points_parent), 17, "connect point count")
-    assert TT.is_eq(len([n for n in nif.nodes if n.name.startswith("EditorMarker")]), 
-                    17, 
-                    "editor marker count")
+
+    # Have editor markers created on export
+    emarkers = [n for id, n in nif.node_ids.items() if n.name.startswith("EditorMarker")]
+    assert TT.is_eq(len(emarkers), 16, "editor marker count")
     ccp_names = [c.name.decode('utf-8') for c in nif.connect_points_parent]
     TT.assert_eq(len([c for c in ccp_names if c == 'P-Floor']), 4, 
                      "Number of floor connect points")
     TT.assert_eq(len([c for c in ccp_names if c == 'P-WS-Origin']), 1, 
                      "Number of origin connect points")
+    
+    # Editor markers are distributed reasonably
+    assert TT.is_eq(len([em for em in emarkers if em.transform.translation[0] > 0.5]), 6, "X location")
+    assert TT.is_eq(len([em for em in emarkers if em.transform.translation[1] > 0.5]), 6, "Y location")
+    assert TT.is_eq(len([em for em in emarkers if em.transform.translation[2] > 0.5]), 4, "Z location")
+    assert TT.is_eq(len([em for em in emarkers 
+                            if BD.NearEqual(em.transform.translation[0], 0.0, epsilon=0.5)
+                                and BD.NearEqual(em.transform.translation[1], 0.0, epsilon=0.5)]),
+                    0, "Origin location")
     
 
 @TT.category('SKYRIMSE', 'FURNITUREMARKER')
@@ -7231,7 +7248,7 @@ def execute_test(t, executed_tests, stop_on_fail=True):
         print (f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
         
         versions = [test_categories.get(c, (0,0)) for c in t.__dict__.get("category", set())]
-        if bpy.app.version < max(versions):
+        if bpy.app.version < max(versions) or (bpy.app.version < t.__dict__.get("min_blender_version", (0,0))):
             print (f"SKIPPING {t.__name__}: requires Blender version {max(versions)}, have {bpy.app.version}\n")
             executed_tests[t.__name__] = 'SKIP'
         else:
@@ -7297,7 +7314,7 @@ def do_tests(
     print(f"\n\n===Failed tests===")
     print(", ".join(failed_tests))
     print(f"\n\n===Skipped tests===")
-    print(", ".join([tn for tn, v in executed_tests.items() if v == 'SKIP']))
+    print(", ".join([tn for tn, v in executed_tests.items() if v.startswith('SKIP')]))
     if not failed_tests:
         print(f"""
 

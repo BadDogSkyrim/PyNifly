@@ -794,7 +794,7 @@ class CollisionHandler():
         else:
             # For a regular object, find collisions on the object itself.
             for c in obj.constraints:
-                if c.type == 'COPY_TRANSFORMS':
+                if c.type == 'COPY_TRANSFORMS' and c.target:
                     exporter.export_collision_object(targobj, c.target)
 
         #     collisions = [x for x in obj.constraints if x.type == 'COPY_TRANSFORMS']

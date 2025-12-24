@@ -318,11 +318,20 @@ def TEST_GETBLOCKBUF():
     """Test getBlockBuf function in pynifly.py"""
 
     testfile = r"tests\SkyrimSE\meshes\actors\canine\character assets wolf\skeleton.nif"
-    nif = NifFile(testfile)
+    nif = NifFile(testfile)                                                                                                                                                             
     blod_name, bonelod = nif.root.bone_lod_extra
     assert TT.is_eq(blod_name, "BSBoneLOD", "bone LOD name")
     assert TT.is_eq(len(bonelod), 3, "bone LOD level count")
     assert TT.is_eq(bonelod[1], ('Canine_LFrontLegToe', 2200), "bone LOD level 1")
+
+
+def TEST_EDITORMARKERS():
+    """Test we can read editor markers, which all have the same names.                                                                                                                                                                      """
+
+    testfile = r"tests\FO4\ShackPrefabMid01.nif"
+    nif = NifFile(testfile)
+    markers = [n for n in nif.node_ids.values() if n.name.startswith('EditorMarker')]
+    assert TT.is_eq(len(markers), 20, "number of editor markers")
 
 
 @test_category('NIFDEFS')
@@ -2581,7 +2590,7 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = True
-    execute(testlist=[TEST_GETBLOCKBUF])
+    execute(testlist=[TEST_EDITORMARKERS])
     # execute(exclude=[TEST_SET_SKINTINT])
     # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
     # execute(categories={"SHADER"})

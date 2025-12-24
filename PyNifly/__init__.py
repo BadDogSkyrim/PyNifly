@@ -7,7 +7,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 5, 0),
-    "version": (22, 0, 0),   
+    "version": (22, 1, 0),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
@@ -137,6 +137,7 @@ class ImportSettings(PynIntFlag):
     create_collection = 1<<9
     mesh_only = 1<<10
     import_collisions = 1<<11
+    import_pose = 1<<12
 
 
 blender_import_xf = MatrixLocRotScale(Vector((0,0,0)),
@@ -649,6 +650,7 @@ class NifImporter():
 
 
     def import_bone_lod(self, node, parent_obj):
+        if not node.bone_lod_extra: return
         nm, lod = node.bone_lod_extra
         if lod:
             bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
@@ -958,7 +960,8 @@ class NifImporter():
                 # Isn't a shader node, which are handled with their parent
                 and not n.__class__.__name__.startswith('NiShader')
                 # Isn't an editor marker, or we are importing editor markers
-                and (not CP.is_editor_marker(n) or not self.is_set(ImportSettings.smart_editor_markers)) 
+                and ((not n.id in self.editor_markers) 
+                     or (not self.is_set(ImportSettings.smart_editor_markers))) 
                 ): 
                 p = self.import_node_parents(arma, n)
                 self.import_ninode(arma, n, p)
@@ -1577,6 +1580,8 @@ class NifImporter():
         if self.is_set(ImportSettings.import_anims):
             self.controller_mgr = controller.ControllerHandler(self)
 
+        self.editor_markers = CP.connectpoints_with_markers(self.nif)
+
         # Each file gets its own root object in Blender.
         self.root_object = None
 
@@ -1663,7 +1668,14 @@ class NifImporter():
 
             # Import nif-level elements
             self.connect_points.import_points(
-                self.nif, self.root_object, self.armature, self.objects_created, self.scale, self.next_loc())
+                nif=self.nif, 
+                root_object=self.root_object, 
+                armature=self.armature, 
+                objects_created=self.objects_created, 
+                scale=self.scale, 
+                next_loc=self.next_loc(), 
+                editor_markers=self.editor_markers,
+                smart_markers=self.is_set(ImportSettings.smart_editor_markers),)
         
             # Import top-level animations
             if self.controller_mgr and self.nif.rootNode.controller:
@@ -2006,7 +2018,8 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             imp.execute()
 
             # Cleanup. Select all shapes imported, except the root node.
-            objlist = [x for x in imp.objects_created.blender_objects() if x.type=='MESH']
+            objlist = [x for x in imp.objects_created.blender_objects() 
+                        if x.type=='MESH' and not x.name.endswith(':BBX')]
             if (not objlist) and imp.armature:
                 objlist = [imp.armature]
             highlight_objects(objlist, context)
@@ -3968,7 +3981,7 @@ class NifExporter:
         if self.root_object:
             collision.CollisionHandler.export_collisions(self, self.root_object)
         self.export_extra_data()
-        self.connect_points.export_all(self.nif)
+        self.connect_points.export_all(self.nif, asset_path)
         if self.export_animations:
             controller.ControllerHandler.export_named_animations(self, self.objs_written)
             if self.armature:

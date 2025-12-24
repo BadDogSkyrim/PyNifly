@@ -20,6 +20,14 @@ PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimSEAssets\00 Vanilla Assets"
 PYNIFLY_TEXTURES_FO4 = r"C:\Modding\FalloutAssets\00 FO4 Assets"
 
 
+def min_version(*args):
+    """Decorator to specify a minimum version supported by the test feature."""
+    def wrap(fn):
+        fn.__dict__["min_version"] = set(args)
+        return fn
+    return wrap
+
+
 def category(*args):
     """Decorator to classify tests by category."""
     def wrap(fn):
