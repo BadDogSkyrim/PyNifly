@@ -3924,9 +3924,6 @@ class NifExporter:
         if self.root_object:
             rt = self.root_object.get("pynBlockName", "NiNode")
             rn = name_from_root(self.root_object)
-        else:
-            rt = shape.get("pynRootNode_BlockType", "NiNode")
-            rn = nonunique_name(shape.name)
         
         self.nif.initialize(self.game, fpath, rt, rn)
         if self.root_object:
