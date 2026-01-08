@@ -665,6 +665,7 @@ class NiObjectNET(NiObject):
 
         self.file.register_node(self)
 
+
     @property
     def name(self):
         if self._name == None:
@@ -676,9 +677,18 @@ class NiObjectNET(NiObject):
     
     @name.setter
     def name(self, value):
+        if self.file: self.file.unregister_name(self)
         self._name = value
-        if self.file: self.file.register_node(self)
+        if self.file: 
+            if self.id != NODEID_NONE:
+                self.properties.nameID = NifFile.nifly.addString(
+                    self.file._handle, value.encode('utf-8'))
+                check_return(
+                    NifFile.nifly.setBlock, self.file._handle, self.id, byref(self._properties))
+
+            self.file.register_node(self)
         
+
     @property
     def controller(self):
         if self._controller: return self._controller
@@ -1285,7 +1295,8 @@ class NiNode(NiAVObject):
         lodbuf = (BoneLODInfoBuf * len(lodlist))()
         for i, lod in enumerate(lodlist):
             lodbuf[i].distance = lod[1]
-            lodbuf[i].nameID = NifFile.nifly.addString(self.file._handle, lod[0].encode('utf-8'))
+            lodbuf[i].nameID = check_msg(
+                NifFile.nifly.addString, self.file._handle, lod[0].encode('utf-8'))
         check_return(NifFile.nifly.setBoneLOD, self.file._handle, id, len(lodlist), byref(lodbuf))
 
 
@@ -2703,6 +2714,16 @@ class NiShader(NiProperty):
                     self._parent = sh
                     break 
         return self._parent
+    
+    # Names are handled simply, because they get written when the shader gets written.
+    @property
+    def name(self):
+        return super().name
+    
+    @name.setter
+    def name(self, val):
+        if val:
+            self._name = val
 
     def _readtexture(self, niffile, shape, layer):
         bufsize = 500
@@ -4045,7 +4066,7 @@ class NifFile:
         if self._shapes is None:
             self._shapes = []
         sh = NiShape(handle=shape_handle, file=self, parent=parent)
-        sh.name = shape_name
+        sh._name = shape_name
         sh._partitions = []
         self._shapes.append(sh)
         sh._handle = shape_handle
@@ -4126,14 +4147,22 @@ class NifFile:
                 return s
         return None
 
+
     def register_node(self, n):
         if n.name: self.nodes[n.name] = n
         if n.id != NODEID_NONE: self.node_ids[n.id] = n
         if n.id == 0: self._root = n
 
+
+    def unregister_name(self, n):
+        if n.name: del self.nodes[n.name]
+
+
     @property
     def nodes(self):
-        """Dictionary of nodes in the nif, indexed by node id"""
+        """Dictionary of nodes in the nif, indexed by node name."""
+        # Node names do not have to be unique, except in the case of skeleton bones. 
+        # nodes should not be used to find all nodes; use node_ids for that.
         if self._nodes is None:
             self._nodes = {}
             nodeCount = NifFile.nifly.getNodeCount(self._handle)

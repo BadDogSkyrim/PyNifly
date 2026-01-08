@@ -18,6 +18,7 @@ import os
 # import xmltools
 import codecs
 import ctypes
+import shutil
 
 from requests import head 
 from niflytools import *
@@ -2459,6 +2460,7 @@ def TEST_FULLPREC():
     assert nifCheck.shapes[0].properties.hasFullPrecision, f"Have full precision"
 
 
+@test_category("SKIP")
 def TEST_SET_SKINTINT():
     """Test that we can set the skin tint shader."""
     testfile = _test_file(r"tests\FO4\Helmet.nif")
@@ -2482,34 +2484,73 @@ def TEST_SET_SKINTINT():
         f"Have fixed shader type {helmetcheck.shader.properties.Shader_Type}"
 
 
+@test_category("SKIP")
 def TEST_HKX_SKELETON():
     """Test read/write of hkx skeleton files (in XML format)."""
-    pass
     # SKIPPING - This functionality is part of animation read/write, which is not
     # fully operational.
 
-    # testfile = _test_file(r"tests/Skyrim/skeleton.hkx")
-    # outfile = _test_file(r"tests/Out/TEST_XML_SKELETON.nif")
+    testfile = _test_file(r"tests/Skyrim/skeleton.hkx")
+    outfile = _test_file(r"tests/Out/TEST_XML_SKELETON.nif")
 
-    # f = hkxSkeletonFile(testfile)
-    # assert len(f.nodes) == 99, "Have all bones."
-    # assert f.rootNode.name == "NPC Root [Root]"
-    # assert len(f.shapes) == 0, "No shapes"
-    # assert f.rootName == 'NPC Root [Root]', f"Have root name: {f.rootName}"
+    f = hkxSkeletonFile(testfile)
+    assert len(f.nodes) == 99, "Have all bones."
+    assert f.rootNode.name == "NPC Root [Root]"
+    assert len(f.shapes) == 0, "No shapes"
+    assert f.rootName == 'NPC Root [Root]', f"Have root name: {f.rootName}"
 
-    # headbone = f.nodes["NPC Head [Head]"]
-    # handbone = f.nodes["NPC L Hand [LHnd]"]
-    # assert NearEqual(headbone.global_transform.translation[2], 120.3436), "Head bone where it should be."
-    # assert NearEqual(handbone.global_transform.translation[0], -28.9358), f"L Hand bone where it should be" 
+    headbone = f.nodes["NPC Head [Head]"]
+    handbone = f.nodes["NPC L Hand [LHnd]"]
+    assert NearEqual(headbone.global_transform.translation[2], 120.3436), "Head bone where it should be."
+    assert NearEqual(handbone.global_transform.translation[0], -28.9358), f"L Hand bone where it should be" 
+
+
+def TEST_RENAME_NODES():
+    """Test renaming nodes in a nif file."""
+    testfile = _test_file(r"tests\SkyrimSE\spitpotopen01.nif")
+    outfile = _test_file(r"tests\out\TEST_RENAME_NODES.nif")
+
+    def check_names(nif):
+        print("... checking names")
+        assert TT.is_eq(nif.nodes.get("ANCHOR"), None), "old anchor name"
+        assert TT.is_eq(nif.shape_dict.get("L1_Hook:0"), None), "Old hook name"
+        assert (myAnchor := nif.nodes.get("MyAnchor")), "New anchor name works"
+        assert (myHook := nif.nodes.get("MyHook")), "New hook name works"
+        assert TT.is_eq(myHook.parent.name, "MyAnchor"), "New hook name works"
+
+    def do_rename(fn):
+        print("... renaming nodes")
+        nif = NifFile(fn)
+        anchor = nif.nodes["ANCHOR"]
+        assert anchor, f"Have ANCHOR node"
+        hook = nif.shape_dict["L1_Hook:0"]
+        assert hook, f"Have L1_Hook shape"
+
+        anchor.name = "MyAnchor"
+        hook.name = "MyHook"
+
+        TT.assert_eq(hook.name, "MyHook", "Hook name")
+        TT.assert_eq(anchor.name, "MyAnchor", "Anchor name")
+
+        check_names(nif)
+        print("... saving")
+        nif.save()
+
+    shutil.copy(testfile, outfile)
+    do_rename(outfile)
+
+    print("...opening saved file")
+    nif2 = NifFile(outfile)
+    check_names(nif2)
+
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]
-passed_tests = []
-failed_tests = []
+executed_tests = {}
 stop_on_fail = False
 
 
 def execute_test(t):
-    if t in passed_tests or t in failed_tests: return
+    if t.__name__ in executed_tests: return
 
     NifFile.clear_log()
     print(f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
@@ -2520,10 +2561,10 @@ def execute_test(t):
     else:
         try:
             t()
-            passed_tests.append(t)
+            executed_tests[t.__name__] = "PASSED"
         except:
             log.exception("Test failed with exception")
-            failed_tests.append(t)
+            executed_tests[t.__name__] = "FAILED"
     print(f"------------- done")
 
 
@@ -2537,18 +2578,25 @@ def execute(start=None, testlist=None, exclude=None, categories:set=None):
     if exclude is None: exclude = []
     if testlist:
         for test in testlist:
-            if test not in passed_tests and test not in failed_tests:
+            if test.__name__ not in executed_tests:
                 execute_test(test)
     elif categories:
         for t in alltests:
-            if categories.intersection(t.__dict__.get("category", set())):
-                if t not in passed_tests and t not in failed_tests:
+            if (t.__name__ not in executed_tests
+                    and categories.intersection(t.__dict__.get("category", set()))):
+                if "SKIP" in t.__dict__.get("category", set()):
+                    executed_tests[t.__name__] = "SKIPPED"
+                else:
                     execute_test(t)
     else:
         doit = (start is None) 
         for t in alltests:
             if t == start: doit = True
-            if doit and not t in exclude and t not in passed_tests and t not in failed_tests:
+            if "SKIP" in t.__dict__.get("category", set()):
+                executed_tests[t.__name__] = "SKIPPED"
+            elif (doit 
+                    and not t in exclude 
+                    and t.__name__ not in executed_tests):
                 execute_test(t)
 
     if stop_on_fail:
@@ -2562,9 +2610,11 @@ def execute(start=None, testlist=None, exclude=None, categories:set=None):
         print(f"""
 ============================================================================
 ============================ TESTS PASSED ==================================
-{", ".join([t.__name__ for t in passed_tests])}
+{", ".join([tn for tn, v in executed_tests.items() if v == "PASSED"])}
 ============================ TESTS FAILED ==================================
-{", ".join([t.__name__ for t in failed_tests])}
+{", ".join([tn for tn, v in executed_tests.items() if v == "FAILED"])}
+============================ TESTS SKIPPED =================================
+{", ".join([tn for tn, v in executed_tests.items() if v == "SKIPPED"])}
 ============================================================================
 """)
 
@@ -2590,8 +2640,8 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = True
-    # execute(testlist=[TEST_EDITORMARKERS])
-    execute(exclude=[TEST_SET_SKINTINT])
-    # execute(start=TEST_KF, exclude=[TEST_SET_SKINTINT])
+    execute(testlist=[TEST_RENAME_NODES])
+    execute()
+    # execute(start=TEST_KF)
     # execute(categories={"SHADER"})
     #

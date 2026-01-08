@@ -427,15 +427,15 @@ def TEST_IMP_EXP_SKY():
 
         ### EXPORT ###
 
-        root.name = "Armor"
+        root.name = "ArmorRoot"
 
-        bpy.ops.object.select_all(action='DESELECT')
-        armor.select_set(True)
+        BD.ObjectSelect([armor], active=True)
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game=game, 
                                      use_blender_xf=blendxf, intuit_defaults=False)
 
         nifout = pyn.NifFile(outfile)
-        TT.assert_eq(nifout.rootNode.name, "Armor", "Root node name in output nif")
+        # Exported with the armor selected; gets a default root node nmae.
+        assert TT.is_eq(nifout.rootNode.name, "Scene Root"), "Root node name in output nif"
 
         armorout = nifout.shape_dict['Armor']
         assert nifout.game == game, f"Wrote correct game format: {nifout.game} == {game}"
@@ -7308,13 +7308,14 @@ def do_tests(
             
     passed_tests = [t for t, v in executed_tests.items() if v == 'PASS']
     failed_tests = [t for t, v in executed_tests.items() if v == 'FAIL']
+    skipped_tests = [t for t, v in executed_tests.items() if v == 'SKIP']
 
     print(f"\n\n===Succesful tests===")
     print(", ".join(passed_tests))
     print(f"\n\n===Failed tests===")
     print(", ".join(failed_tests))
     print(f"\n\n===Skipped tests===")
-    print(", ".join([tn for tn, v in executed_tests.items() if v.startswith('SKIP')]))
+    print(", ".join(skipped_tests))
     if not failed_tests:
         print(f"""
 

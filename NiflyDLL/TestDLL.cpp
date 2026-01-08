@@ -13,6 +13,8 @@
 #include <filesystem>
 #include <libloaderapi.h>
 #include <bitset>
+#include <codecvt>
+#include <locale>
 #include "CppUnitTest.h"
 #include "Object3d.hpp"
 #include "Anim.h"
@@ -39,6 +41,15 @@ DEFINE_ENUM_FLAG_OPERATORS(NifOptions)
 //std::filesystem::path testRoot(TEST_ROOT);
 std::filesystem::path testRoot = std::filesystem::current_path()
 	.parent_path().parent_path().parent_path().parent_path() / "PyNifly/Pynifly/tests/";
+
+
+void CheckReturn(int val) {
+	if (val != 0) {
+		char errbuf[1024];
+		getMessageLog(errbuf, 1024);
+		Assert::IsTrue(0, L"Function call failed: " + wchar_t(errbuf));
+	}
+}
 
 bool TApproxEqual(double first, double second, double epsilon=0.001) {
 	return abs(first - second) < epsilon;
@@ -1270,83 +1281,6 @@ namespace NiflyDLLTests
 			TCopyShape(nifOut, "Armor", nif, theArmor);
 			TCopyShape(nifOut, "MaleBody", nif, theBody);
 			saveNif(nifOut, outfile.u8string().c_str());
-
-			///* Read the armor */
-			//MatTransform armorSkinInst;
-			//getShapeGlobalToSkin(nif, theArmor, &armorSkinInst);
-			//MatTransform armorXform;
-			//getNodeTransform(theArmor, &armorXform);
-
-			//Vector3* aVerts = new Vector3[2500];
-			//Triangle* aTris = new Triangle[3500];
-			//Vector2* aUV = new Vector2[2500];
-			//Vector3* aNorms = new Vector3[2500];
-
-			//getVertsForShape(nif, theArmor, aVerts, 2500*3, 0);
-			//getTriangles(nif, theArmor, aTris, 3500*3, 0);
-			//getUVs(nif, theArmor, aUV, 2500*2, 0);
-			//getNormalsForShape(nif, theArmor, 2500*3, 0);
-
-			//char armorBones[500];
-			//int boneCount = getShapeBoneCount(nif, theArmor);
-			//int bonesLen = getShapeBoneNames(nif, theArmor, armorBones, 500);
-			//for (int i = 0; i < bonesLen; i++) if (armorBones[i] == '\n') armorBones[i] = '0';
-			//std::unordered_map<std::string, AnimWeight> armorWeights;
-			//for (int i = 0; i < boneCount; i++) {
-			//	AnimWeight w;
-			//	nif.GetShapeBoneWeights(theArmor, i, w.weights);
-			//	armorWeights[armorBones[i]] = w;
-			//};
-
-			///* Read the body */
-			//NiShape* theBody = nif.FindBlockByName<NiShape>("MaleBody");
-			//AnimInfo bodySkin;
-			//bodySkin.LoadFromNif(&nif, skelSkyrim);
-			//MatTransform bodySkinInst;
-			//nif.GetShapeTransformGlobalToSkin(theBody, bodySkinInst);
-
-			//std::vector < Vector3 > bVerts;
-			//std::vector<Triangle> bTris;
-			//const std::vector<Vector2>* bUV;
-			//const std::vector<Vector3>* bNorms;
-
-			//nif.GetVertsForShape(theBody, bVerts);
-			//theBody->GetTriangles(bTris);
-			//bUV = nif.GetUvsForShape(theBody);
-			//bNorms = nif.GetNormalsForShape(theBody);
-
-			//std::vector<std::string> bodyBones;
-			//nif.GetShapeBoneList(theBody, bodyBones);
-			//std::unordered_map<std::string, AnimWeight> bodyWeights;
-			//for (int i = 0; i < bodyBones.size(); i++) {
-			//	AnimWeight w;
-			//	nif.GetShapeBoneWeights(theBody, i, w.weights);
-			//	bodyWeights[bodyBones[i]] = w;
-			//};
-
-			///* Save the armor */
-			//NifFile newNif = NifFile();
-			//SetNifVersion(&newNif, TargetGame::SKYRIM);
-			//AnimInfo* newSkin = CreateSkinForNif(&newNif, TargetGame::SKYRIM);
-			//NiShape* newArmor = newNif.CreateShapeFromData("Armor", &aVerts, &aTris, aUV, aNorms);
-			//newNif.CreateSkinning(newArmor);
-			//newNif.SetShapeTransformGlobalToSkin(newArmor, armorXform);
-			//SetGlobalToSkinXform(newSkin, newArmor, armorSkinInst);
-			//for (auto w : armorWeights) {
-			//	AddBoneToShape(newSkin, newArmor, w.first);
-			//	SetShapeWeights(newSkin, newArmor, w.first, w.second);
-			//}
-
-			///* Save the body */
-			//NiShape* newBody = newNif.CreateShapeFromData("Body", &bVerts, &bTris, bUV, bNorms);
-			//newNif.CreateSkinning(newBody);
-			//SetGlobalToSkinXform(newSkin, newBody, bodySkinInst);
-			//for (auto w : bodyWeights) {
-			//	AddBoneToShape(newSkin, newBody, w.first);
-			//	SetShapeWeights(newSkin, newBody, w.first, w.second);
-			//}
-
-			//SaveNif(newSkin, (testRoot / "Out/TestMulti01.nif").string());
 
 			void* testNif = load(outfile.u8string().c_str());
 			void* testBody = findNodeByName(testNif, "MaleBody");
@@ -4747,6 +4681,89 @@ namespace NiflyDLLTests
 				Assert::IsFalse(TApproxEqual(verts[i], Vector3(0, 0, 0)), L"No vertices at origin");
 			}
 		};
+		void renameNodes(std::filesystem::path fn) {
+			void* shapes[10];
+			int shapeCount;
+			int anchorIdx = -1;
+			int hookIdx = -1;
+			void* nif = load(fn.u8string().c_str());
+			shapeCount = getShapes(nif, shapes, 10, 0);
+
+			for (int i = 0; i < shapeCount; i++) {
+				char name[128];
+				getShapeName(shapes[i], name, 128);
+				if (strcmp(name, "L1_Hook:0") == 0)
+					hookIdx = i;
+			}
+			Assert::AreNotEqual(-1, hookIdx, L"Found L1_Hook");
+
+			void* nodes[50];
+			getNodes(nif, nodes);
+			for (int i = 0; i < getNodeCount(nif); i++) {
+				char name[128];
+				getNodeName(nodes[i], name, 128);
+				if (strcmp(name, "ANCHOR") == 0)
+					anchorIdx = i;
+			}
+			Assert::AreNotEqual(-1, anchorIdx, L"Found ANCHOR");
+
+			int anchorID = getBlockID(nif, nodes[anchorIdx]);
+			NiNodeBuf anchorBuf;
+			CheckReturn(getBlock(nif, anchorID, &anchorBuf));
+			anchorBuf.nameID = addString(nif, "MyAnchor");
+			Assert::AreEqual(0, setBlock(nif, anchorID, &anchorBuf));
+
+			int hookID = getBlockID(nif, shapes[hookIdx]);
+			NiShapeBuf hookBuf;
+			hookBuf.bufType = BSTriShapeBufType;
+			Assert::AreEqual(0, getBlock(nif, hookID, &hookBuf));
+			hookBuf.nameID = addString(nif, "MyHook");
+			Assert::AreEqual(0, setBlock(nif, hookID, &hookBuf));
+
+			saveNif(nif, fn.u8string().c_str());
+		}
+		TEST_METHOD(renameNodes)
+		{
+			/* Can rename nodes in place. */
+			std::filesystem::path testfile = testRoot / "SkyrimSE/spitpotopen01.nif";
+			std::filesystem::path outfile = testRoot / "Out/renameNodes.nif";
+
+			try {
+				std::filesystem::copy_file(testfile, outfile, 
+					std::filesystem::copy_options::overwrite_existing);
+				std::cout << "Copied successfully\n";
+			}
+			catch (const std::filesystem::filesystem_error& e) {
+				std::cerr << "Error: " << e.what() << "\n";
+			}
+
+			renameNodes(outfile);
+
+			void* shapes[10];
+			void* nodes[50];
+			int shapeCount;
+			int anchorIdx = -1;
+			int hookIdx = -1;
+			void* nif = load(outfile.u8string().c_str());
+			shapeCount = getShapes(nif, shapes, 10, 0);
+			getNodes(nif, nodes);
+
+			for (int i = 0; i < shapeCount; i++) {
+				char name[128];
+				getShapeName(shapes[i], name, 128);
+				if (strcmp(name, "MyHook") == 0)
+					hookIdx = i;
+			}
+			for (int i = 0; i < getNodeCount(nif); i++) {
+				char name[128];
+				getNodeName(nodes[i], name, 128);
+				if (strcmp(name, "MyAnchor") == 0)
+					anchorIdx = i;
+			}
+			Assert::AreNotEqual(-1, anchorIdx, L"Found ANCHOR");
+			Assert::AreNotEqual(-1, hookIdx, L"Found MyHook");
+
+		}
 		TEST_METHOD(readHighTechLight)
 		{
 			/* Check that we can read some extra block types. Also there's a wierd thing with 

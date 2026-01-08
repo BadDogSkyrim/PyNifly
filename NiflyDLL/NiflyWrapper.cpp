@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 22, 1, 0 };
+const int NiflyDDLVersion[3] = { 22, 2, 0 };
  
 using namespace nifly; 
 
@@ -494,7 +494,8 @@ int setNodeByID(void* nifref, uint32_t id, void* inbuf) {
     CheckID(theNode);
     CheckBuf(buf, BUFFER_TYPES::NiNodeBufType, NiNodeBuf);
 
-    theNode->name.SetIndex(buf->nameID);
+    std::string nm = hdr->GetStringById(buf->nameID);
+    theNode->name.get() = nm;
     theNode->controllerRef.index = buf->controllerID;
     theNode->flags = buf->flags;
     for (int i = 0; i < 3; i++) theNode->transform.translation[i] = buf->translation[i];
@@ -1023,7 +1024,9 @@ NIFLY_API int getUVs(void* theNif, void* theShape, Vector2* buf, int len, int st
 int setShapeFromBuf(NifFile* nif, NiShape* theShape, NiShapeBuf* buf)
 /* Set the properties of the NiShape (or subclass) according to the given buffer. */
 {
-    theShape->name.SetIndex(buf->nameID);
+    NiHeader* hdr = &nif->GetHeader();
+    std::string nm = hdr->GetStringById(buf->nameID);
+    theShape->name.get() = nm;
     theShape->controllerRef.index = buf->controllerID;
     theShape->flags = buf->flags;
     for (int i = 0; i < 3; i++) theShape->transform.translation[i] = buf->translation[i];
@@ -1069,11 +1072,14 @@ int setNiShape(void* nifref, uint32_t id, void* inbuf)
     NiShape* theShape = hdr->GetBlock<NiShape>(id);
 
     CheckID(theShape);
-    CheckBuf3(buf,
+    CheckBuf6(buf,
         BUFFER_TYPES::NiShapeBufType,
         BUFFER_TYPES::BSMeshLODTriShapeBufType,
+        BUFFER_TYPES::BSDynamicTriShapeBufType,
+        BUFFER_TYPES::BSTriShapeBufType,
+        BUFFER_TYPES::NiTriShapeBufType,
         BUFFER_TYPES::BSLODTriShapeBufType,
-        NiNodeBuf);
+        NiShapeBuf);
 
     setShapeFromBuf(nif, theShape, buf);
 
@@ -1129,6 +1135,8 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     NiShape* newShape = PyniflyCreateShape(nif, shapeName,
             buf, &v, &t, &uv, &n, parent);
 
+    // Make sure we don't lose the shape name.
+	buf->nameID = nif->GetHeader().AddOrFindStringId(shapeName);
     setShapeFromBuf(nif, newShape, buf);
 
     return newShape;
