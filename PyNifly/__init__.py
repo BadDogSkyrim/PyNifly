@@ -2118,6 +2118,7 @@ def create_trip_shape_keys(obj, trip:trihandler.TripFile):
     for morph_name, morph_verts in sorted(offsetmorphs.items()):
         newsk = obj.shape_key_add()
         newsk.name = ">" + morph_name
+        newsk.value = 0
 
         obj.active_shape_key_index = len(mesh.shape_keys.key_blocks) - 1
         #This is a pointer, not a copy
