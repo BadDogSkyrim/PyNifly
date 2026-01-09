@@ -1602,11 +1602,12 @@ class NifImporter():
 
         # Import shapes
         for s in self.nif.shapes:
-            # Only import editor markers if we are importing connect points and not doing
-            # smart editor markers.
-            if CP.is_editor_marker(s):
-                if self.is_set(ImportSettings.smart_editor_markers):
-                    continue
+            ## Smart markers now imports the hemisphere as the connect point.
+            # # Only import editor markers if we are importing connect points and not doing
+            # # smart editor markers.
+            # if CP.is_editor_marker(s):
+            #     if self.is_set(ImportSettings.smart_editor_markers):
+            #         continue
 
             if self.nif.game in ['FO4', 'FO76'] and is_facebones(s.bone_names):
                 self.nif.dict = fo4FaceDict
@@ -3086,12 +3087,8 @@ class NifExporter:
             elif obj.name.startswith("BSBound:"):
                 self.bound = obj
 
-
         elif obj.type == 'CAMERA':
             self.inv_marker = obj
-
-        elif CP.is_connectpoint(obj):
-            self.connect_points.add(obj)
 
         elif obj.type == 'EMPTY':
             if 'BSBehaviorGraphExtraData_Name' in obj.keys():
@@ -3118,6 +3115,9 @@ class NifExporter:
                 for c in obj.children:
                     if not c.hide_get(): 
                         self.add_object(c)
+
+        if CP.is_connectpoint(obj):
+            self.connect_points.add(obj)
 
 
     def set_objects(self, objects:list):
@@ -3800,15 +3800,24 @@ class NifExporter:
             blockclass = NiObject.block_types[blocktype]
             props = blockclass.getbuf(obj)
 
-            new_shape = self.nif.createShapeFromData(self.unique_name(obj), 
-                                                    verts, tris, uvmap_new, norms_exp,
-                                                    props=props,
-                                                    parent=my_parent.nifnode if my_parent else None)
+            # If we're exporting a mesh that is a connect point, export the mesh as the 
+            # editor marker for that point. Exported editor markers are always parented
+            # to the root regardless of the connect point's target.
+            if CP.is_connectpoint(obj):
+                obj_name = "EditorMarker"
+                p = None
+            else:
+                obj_name = self.unique_name(obj)
+                p = my_parent.nifnode if my_parent else None
+            new_shape = self.nif.createShapeFromData(obj_name, 
+                                                     verts, tris, uvmap_new, norms_exp,
+                                                     props=props,
+                                                     parent=p)
             if "pynNodeFlags" in obj:
                 try:
                     new_shape.flags = NiAVFlags.parse(obj['pynNodeFlags']).value
                 except Exception as e:
-                    log.warn(f"Error setting pynNodeFlags for {obj.name}: pynNodeFlags={obj['pynNodeFlags']}")
+                    log.warning(f"Error setting pynNodeFlags for {obj.name}: pynNodeFlags={obj['pynNodeFlags']}")
             if "pynVertexDesc" in obj and obj["pynVertexDesc"]:
                 try:
                     new_shape.properties.vertexDesc = VertexFlags.parse(obj['pynVertexDesc']).value

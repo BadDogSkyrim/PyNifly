@@ -1015,6 +1015,9 @@ class ShaderImporter:
 
             self.bsdf.inputs['Emission Color'].default_value = shader.properties.Emissive_Color[:]
             self.bsdf.inputs['Emission Strength'].default_value = shader.properties.Emissive_Mult
+            if self.is_effect_shader:
+                self.bsdf.inputs['Diffuse'].default_value = shader.properties.Emissive_Color[:]
+                self.bsdf.inputs['Alpha Adjust'].default_value = shader.properties.Emissive_Color[-1]
 
             if (self.is_lighting_shader and 'Glossiness' in self.bsdf.inputs):
                 self.bsdf.inputs['Glossiness'].default_value = shader.properties.Glossiness

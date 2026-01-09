@@ -64,6 +64,9 @@ def connectpoints_with_markers(nif):
     """
     Return a dictionary of connect points in the nif that have matching editor markers.
     Returns {editor_marker_id: connect_point, ...}
+
+    There may be more than one editor marker for a connect point for unknown reasons; all
+    will be included.
     """
     d = {}
     markers = [n for n in nif.node_ids.values() if n.name.startswith('EditorMarker')]
@@ -71,7 +74,6 @@ def connectpoints_with_markers(nif):
         for em in markers:
             if is_match_connectpoint(em, cp):
                 d[em.id] = cp
-                break
     return d
 
 
@@ -106,7 +108,7 @@ def get_nifname(obj):
 def is_parent(obj):
     """Determine whether the given Blender object represets a parent connect point."""
     try:
-        return obj.type == "EMPTY" and obj.name.startswith("BSConnectPointParents")
+        return obj.name.startswith("BSConnectPointParents")
     except AttributeError:
         return False
     
@@ -122,7 +124,7 @@ def is_child(obj):
 def is_connectpoint(obj):
     """Determine whether the given Blender object represets a connect point."""
     try:
-        return obj.type == "EMPTY" and obj.name.startswith("BSConnectPoint")
+        return obj.name.startswith("BSConnectPoint")
     except AttributeError:
         return False
     
@@ -148,7 +150,7 @@ class ConnectPointParent():
         return self.obj.blender_obj
 
     @classmethod
-    def new(cls, scale, nif, cp, blendroot, blendarma, objectlist:BD.ReprObjectCollection):
+    def new(cls, scale, nif, cp, blendroot, blendarma, objectlist:BD.ReprObjectCollection, editor_markers):
         """
         Create a representation of a nif's parent connect point in Blender.
 
@@ -171,15 +173,36 @@ class ConnectPointParent():
                 if bonename in blendarma.data.bones:
                     parentobj = blendarma
 
-        # Create the connect point object
-        bpy.ops.object.add(radius=scale, type='EMPTY')
-        pcp = bpy.context.object
-        pcp.name = "BSConnectPointParents" + "::" + cpname
-        pcp.show_name = True
-        pcp.empty_display_type = 'ARROWS'
+        # Create the connect point object. Use the imported editor marker if any. If
+        # there's more than one, use one that's a mesh by preference.
+        pcp = None
+        # Get the editor markers for this connect point.
+        idlist = [id for id, c in editor_markers.items() if c is cp]
+        if idlist:
+            # Get the Blender objects for the editor markers
+            emlist = [emobj for emobj in objectlist if emobj.nifnode and emobj.nifnode.id in idlist]
+            if emlist:
+                meshlist = [em for em in emlist if em.blender_obj.type == 'MESH']
+                if meshlist:
+                    ro = meshlist[0]
+                else:
+                    ro = emlist[0]
+                pcp = ro.blender_obj
 
-        mx = connectpoint_transform(cp, scale)
-        pcp.matrix_world = mx
+        # Create an EMPTY if no editor marker
+        if not pcp:
+            bpy.ops.object.add(radius=scale, type='EMPTY')
+            pcp = bpy.context.object
+            pcp.show_name = True
+            pcp.empty_display_type = 'ARROWS'
+
+            mx = connectpoint_transform(cp, scale)
+            pcp.matrix_world = mx
+
+            ro = BD.ReprObject(blender_obj=pcp, nifnode=cp)
+
+        pcp.name = "BSConnectPointParents" + "::" + cpname
+
         if parentobj:
             pcp.parent = parentobj 
             if bonename: 
@@ -190,7 +213,6 @@ class ConnectPointParent():
 
         BD.link_to_collection(blendroot.users_collection[0], pcp)
 
-        ro = BD.ReprObject(blender_obj=pcp, nifnode=cp)
         return ConnectPointParent(cpname, ro)
 
 
@@ -286,17 +308,19 @@ class ConnectPointCollection():
         root_object: The Blender object representing the root node of the nif.
         armature: The Blender armature representing the nif's armature, if any.
         objects_created: The collection of imported objects. New connect points and editor marker
-            objects will be added to this collection.
+            objects are added to this collection.
         scale: The scale transform of the entire import.
         next_loc: The starting location to place empties that don't have natural locations.
-        editor_markers: Dictionary of connect points:editor markers as returned by 
+        editor_markers: Dictionary of {editor_marker_id: connect_point} as returned by 
             connectpoints_with_markers().
         smart_markers: Whether to use smart editor markers.
         """
         ccp = ConnectPointChild.new(scale, nif, next_loc, root_object.users_collection[0])
         if ccp: self.add(ccp)
+        
         for cp in nif.connect_points_parent:
-            cpp = ConnectPointParent.new(scale, nif, cp, root_object, armature, objects_created)
+            cpp = ConnectPointParent.new(
+                scale, nif, cp, root_object, armature, objects_created, editor_markers)
             self.add(cpp)
             if smart_markers:
                 cpp.obj.blender_obj["pynEditorMarker"] = (cp in editor_markers.values())
@@ -382,13 +406,16 @@ class ConnectPointCollection():
         for cp in self.parents:
             # Export the connect point
             obj = cp.obj.blender_obj
+            transl = obj.matrix_local.translation
+            rot = obj.matrix_local.to_quaternion()
+            scale = obj.matrix_local.to_scale()[0]
+            if obj.type == 'MESH':
+                rot.rotate(Quaternion((0, 0, 1), math.radians(90)))
             buf = ConnectPointBuf()
             buf.name = BD.nonunique_name(cp.name).encode('utf-8')
-            buf.translation[0], buf.translation[1], buf.translation[2] \
-                = obj.matrix_local.translation[:]
-            buf.rotation[0], buf.rotation[1], buf.rotation[2], buf.rotation[3] \
-                = obj.matrix_local.to_quaternion()[:]
-            buf.scale = obj.matrix_local.to_scale()[0] / CONNECT_POINT_SCALE
+            buf.translation[0], buf.translation[1], buf.translation[2] = transl[:]
+            buf.rotation[0], buf.rotation[1], buf.rotation[2], buf.rotation[3] = rot[:]
+            buf.scale = scale / CONNECT_POINT_SCALE
 
             if obj and obj.parent:
                 buf.parent = BD.nonunique_name(obj.parent).encode('utf-8')
@@ -398,17 +425,17 @@ class ConnectPointCollection():
             
             connect_par.append(buf)
 
-            # Export an editor marker, if wanted
-            if obj.get("pynEditorMarker", True):
-                if not nif_tpl:
-                    nif_tpl = NifFile(os.path.join(asset_path, "EditorMarker.nif"))
-                    shape_tpl = nif_tpl.shapes[0] 
-                if shape_tpl:
-                    self.construct_editor_marker(nif, obj, asset_path, shape_tpl)
-                elif not nif_tpl:
-                    log.warning("Failed to load EditorMarker.nif from asset path.")
-                    nif_tpl = -1 # Only warn once
-
+            ## No editor markers--they are exported as shapes
+            # # Export an editor marker, if wanted
+            # if obj.get("pynEditorMarker", True):
+            #     if not nif_tpl:
+            #         nif_tpl = NifFile(os.path.join(asset_path, "EditorMarker.nif"))
+            #         shape_tpl = nif_tpl.shapes[0] 
+            #     if shape_tpl:
+            #         self.construct_editor_marker(nif, obj, asset_path, shape_tpl)
+            #     elif not nif_tpl:
+            #         log.warning("Failed to load EditorMarker.nif from asset path.")
+            #         nif_tpl = -1 # Only warn once
 
         if connect_par:
             nif.connect_points_parent = connect_par

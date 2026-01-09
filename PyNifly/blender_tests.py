@@ -5287,15 +5287,16 @@ def TEST_CONNECT_WORKSHOP():
 
     testfile = TTB.test_file(r"tests\FO4\ShackPrefabMid01.nif")
     outfile = TTB.test_file(r"tests\Out\TEST_CONNECT_WORKSHOP.nif")
-    bpy.ops.import_scene.pynifly(filepath=testfile, do_rename_bones=False, do_create_bones=False)
+    bpy.ops.import_scene.pynifly(filepath=testfile, do_rename_bones=False, 
+                                 do_create_bones=False, smart_editor_markers=False)
 
     ### Read ###
-    TT.assert_eq(len([obj for obj in bpy.context.scene.objects 
-                      if obj.name.startswith('BSConnectPointParents')]), 17, 
-                     "Number of connect points")
-    TT.assert_eq(len([obj for obj in bpy.context.scene.objects 
-                      if obj.name.startswith('BSConnectPointParents::P-Floor')]), 4, 
-                     "Number of floor connect points")
+    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects 
+                      if obj.name.startswith('BSConnectPointParents')]), 17), \
+        "Number of connect points"
+    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects 
+                      if obj.name.startswith('BSConnectPointParents::P-Floor')]), 4), \
+        "Number of floor connect points"
     
     ### Write ###
     BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj], active=True)    
@@ -5303,12 +5304,10 @@ def TEST_CONNECT_WORKSHOP():
 
     ### Check ###
     nif = pyn.NifFile(outfile)
-    TT.assert_eq(len(nif.connect_points_parent), 17, "Number of connect points")
+    assert TT.is_eq(len(nif.connect_points_parent), 17), "Number of connect points"
     ccp_names = [c.name.decode('utf-8') for c in nif.connect_points_parent]
-    TT.assert_eq(len([c for c in ccp_names if c == 'P-Floor']), 4, 
-                     "Number of floor connect points")
-    TT.assert_eq(len([c for c in ccp_names if c == 'P-WS-Origin']), 1, 
-                     "Number of origin connect points")
+    assert TT.is_eq(len([c for c in ccp_names if c == 'P-Floor']), 4), "Number of floor connect points"
+    assert TT.is_eq(len([c for c in ccp_names if c == 'P-WS-Origin']), 1), "Number of origin connect points"
     
 
 @TT.category('FO4', 'CONNECTPOINT')
@@ -5326,7 +5325,7 @@ def TEST_CONNECT_WORKSHOP2():
                         if obj.name.startswith('BSConnectPointParents')]), 
                     17, 
                     "Number of connect points")
-    # smart_edit_markers does not import editor markers.
+    # smart_edit_markers uses the editor marker shape for connect points.
     assert TT.is_eq(len([obj for obj in bpy.context.scene.objects 
                         if obj.name.startswith('EditorMarker')]), 
                     0, 
@@ -5344,12 +5343,12 @@ def TEST_CONNECT_WORKSHOP2():
 
     # Have editor markers created on export
     emarkers = [n for id, n in nif.node_ids.items() if n.name.startswith("EditorMarker")]
-    assert TT.is_eq(len(emarkers), 16, "editor marker count")
+    assert TT.is_eq(len(emarkers), 16), "editor marker count"
     ccp_names = [c.name.decode('utf-8') for c in nif.connect_points_parent]
-    TT.assert_eq(len([c for c in ccp_names if c == 'P-Floor']), 4, 
-                     "Number of floor connect points")
-    TT.assert_eq(len([c for c in ccp_names if c == 'P-WS-Origin']), 1, 
-                     "Number of origin connect points")
+    assert TT.is_eq(len([c for c in ccp_names if c == 'P-Floor']), 4), \
+                     "Number of floor connect points"
+    assert TT.is_eq(len([c for c in ccp_names if c == 'P-WS-Origin']), 1), \
+                     "Number of origin connect points"
     
     # Editor markers are distributed reasonably
     assert TT.is_eq(len([em for em in emarkers if em.transform.translation[0] > 0.5]), 6, "X location")
@@ -7367,6 +7366,11 @@ if __name__ == "__main__":
 
         # All tests with collisions
         # do_tests([t for t in alltests if 'COLL' in t.__name__])
+
+        test_categories = set()
+        for t in [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]:
+            test_categories.update(t.__dict__.get("category", set()))
+        print(f"Test categories: {sorted(test_categories)}")
 
         do_tests(
             target_tests=[ TEST_ANIM_SHADER_BSLSP ], run_all=False, stop_on_fail=True,

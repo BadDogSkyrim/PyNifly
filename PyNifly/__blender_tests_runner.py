@@ -32,7 +32,7 @@ print("""
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
 BT.do_tests(
-    target_tests=[ BT.TEST_IMP_EXP_SKY, ], 
+    target_tests=[ BT.TEST_CONNECT_WORKSHOP, ], 
     # categories={'ANIMATION'},
     test_all=True,
     stop_on_fail=True
