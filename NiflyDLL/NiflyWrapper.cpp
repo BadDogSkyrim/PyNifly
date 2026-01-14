@@ -1742,54 +1742,15 @@ NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex,
     nif->SetTextureSlot(shape, texture, slotIndex);
 }
 
-int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
-    /* Create a shader for the shape "parent". Shaders must have a parent. */
-    NifFile* nif = static_cast<NifFile*>(nifref);
+int copyNiShader(NifFile* nif, BSShaderProperty* bssh, const char* name, NiShaderBuf* buf) {
+    /* Set the properties of an existing shader. */
     NiHeader* hdr = &nif->GetHeader();
-    NiShaderBuf* buf = static_cast<NiShaderBuf*>(buffer);
-    NiShape* shape;
-    NiShader* shader;
-    NiTexturingProperty* txtProp;
-    int new_id;
 
-    if (parent == NIF_NPOS) return NIF_NPOS;
-    shape = hdr->GetBlock<NiShape>(parent);
-    shader = nif->GetShader(shape);
-    txtProp = nif->GetTexturingProperty(shape);
+    BSLightingShaderProperty* bslsp = dynamic_cast<BSLightingShaderProperty*>(bssh);
+    BSEffectShaderProperty* bsesp = dynamic_cast<BSEffectShaderProperty*>(bssh);
+    BSShaderPPLightingProperty* bspp = dynamic_cast<BSShaderPPLightingProperty*>(bssh);
 
-    BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
-    BSLightingShaderProperty* bslsp = dynamic_cast<BSLightingShaderProperty*>(shader);
-    BSEffectShaderProperty* bsesp = dynamic_cast<BSEffectShaderProperty*>(shader);
-    BSShaderPPLightingProperty* bspp = dynamic_cast<BSShaderPPLightingProperty*>(shader);
-
-    // Set the shader to the type the caller wants.
-    new_id = NIF_NPOS;
-    if (buf->bufType == BSLightingShaderPropertyBufType && !bslsp) {
-        std::unique_ptr<BSLightingShaderProperty> sh = std::make_unique<BSLightingShaderProperty>();
-        new_id = hdr->AddBlock(std::move(sh));
-    }
-    else if (buf->bufType == BSEffectShaderPropertyBufType && !bsesp) {
-        std::unique_ptr<BSEffectShaderProperty> sh = std::make_unique<BSEffectShaderProperty>();
-        new_id = hdr->AddBlock(std::move(sh));
-    }
-    else if (buf->bufType == BSShaderPPLightingPropertyBufType && !bspp) {
-        std::unique_ptr<BSShaderPPLightingProperty> sh = std::make_unique<BSShaderPPLightingProperty>();
-        new_id = hdr->AddBlock(std::move(sh));
-    }
-    if (new_id != NIF_NPOS) {
-        shape->ShaderPropertyRef()->Clear();
-        shape->ShaderPropertyRef()->index = new_id;
-        shader = nif->GetShader(shape);
-        bssh = dynamic_cast<BSShaderProperty*>(shader);
-        bslsp = dynamic_cast<BSLightingShaderProperty*>(shader);
-        bsesp = dynamic_cast<BSEffectShaderProperty*>(shader);
-        bspp = dynamic_cast<BSShaderPPLightingProperty*>(shader);
-        new_id = hdr->GetBlockID(shader);
-    }
-    else
-        new_id = hdr->GetBlockID(bssh);
-
-    bssh->name.get() = name;
+    if (name) bssh->name.get() = name;
     bssh->bBSLightingShaderProperty = buf->bBSLightingShaderProperty;
     bssh->bslspShaderType = buf->bslspShaderType;
     bssh->controllerRef.index = buf->controllerID;
@@ -1916,7 +1877,81 @@ int setNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
         bspp->emissiveColor.a = buf->emissiveColor[3];
     };
 
+    return 0;
+};
+
+
+int addNiShader(void* nifref, const char* name, void* buffer, uint32_t parent) {
+    /* Create a shader for the shape "parent". Shaders must have a parent. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiShaderBuf* buf = static_cast<NiShaderBuf*>(buffer);
+    NiShape* shape;
+    NiShader* shader;
+    NiTexturingProperty* txtProp;
+    int new_id;
+
+    if (parent == NIF_NPOS) return NIF_NPOS;
+    shape = hdr->GetBlock<NiShape>(parent);
+    shader = nif->GetShader(shape);
+    txtProp = nif->GetTexturingProperty(shape);
+
+    BSShaderProperty* bssh = dynamic_cast<BSShaderProperty*>(shader);
+    BSLightingShaderProperty* bslsp = dynamic_cast<BSLightingShaderProperty*>(shader);
+    BSEffectShaderProperty* bsesp = dynamic_cast<BSEffectShaderProperty*>(shader);
+    BSShaderPPLightingProperty* bspp = dynamic_cast<BSShaderPPLightingProperty*>(shader);
+
+    // Set the shader to the type the caller wants.
+    new_id = NIF_NPOS;
+    if (buf->bufType == BSLightingShaderPropertyBufType && !bslsp) {
+        std::unique_ptr<BSLightingShaderProperty> sh = std::make_unique<BSLightingShaderProperty>();
+        new_id = hdr->AddBlock(std::move(sh));
+    }
+    else if (buf->bufType == BSEffectShaderPropertyBufType && !bsesp) {
+        std::unique_ptr<BSEffectShaderProperty> sh = std::make_unique<BSEffectShaderProperty>();
+        new_id = hdr->AddBlock(std::move(sh));
+    }
+    else if (buf->bufType == BSShaderPPLightingPropertyBufType && !bspp) {
+        std::unique_ptr<BSShaderPPLightingProperty> sh = std::make_unique<BSShaderPPLightingProperty>();
+        new_id = hdr->AddBlock(std::move(sh));
+    }
+    if (new_id != NIF_NPOS) {
+        shape->ShaderPropertyRef()->Clear();
+        shape->ShaderPropertyRef()->index = new_id;
+        shader = nif->GetShader(shape);
+        bssh = dynamic_cast<BSShaderProperty*>(shader);
+        bslsp = dynamic_cast<BSLightingShaderProperty*>(shader);
+        bsesp = dynamic_cast<BSEffectShaderProperty*>(shader);
+        bspp = dynamic_cast<BSShaderPPLightingProperty*>(shader);
+        new_id = hdr->GetBlockID(shader);
+    }
+    else
+        new_id = hdr->GetBlockID(bssh);
+
+	copyNiShader(nif, bssh, name, buf);
+
     return new_id;
+};
+
+
+int setNiShader(void* nifref, uint32_t blockID, void* buffer) {
+    /* Set properties for an existing shader. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+
+    NiShaderBuf* buf = static_cast<NiShaderBuf*>(buffer);
+    BSShaderProperty* bssh = hdr->GetBlock<BSShaderProperty>(blockID);
+
+    CheckID(bssh);
+    CheckBuf4(buf, 
+        BUFFER_TYPES::NiShaderBufType,
+        BUFFER_TYPES::BSLightingShaderPropertyBufType, 
+        BUFFER_TYPES::BSEffectShaderPropertyBufType, 
+        BUFFER_TYPES::BSShaderPPLightingPropertyBufType, 
+        NiShaderBuf);
+
+	return copyNiShader(nif, bssh, nullptr, buf);
+
 };
 
 
@@ -5155,15 +5190,15 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //bhkSimpleShapePhantomBufType
     nullptr, //bhkSphereShapeBufType
     setNiShape, //BSMeshLODTriShapeBufType
-    nullptr, //NiShaderBufType
+    setNiShader, //NiShaderBufType
     nullptr, //NiAlphaPropertyBufType
     setNiShape, //BSDynamicTriShapeBufType,
     setNiShape, //BSTriShapeBufType,
     nullptr, //BSSubIndexTriShape
     nullptr, //NiTriStripsBufType
     setNiShape, //BSLODTriShape
-    nullptr,  //BSLightingShaderProperty
-    nullptr,  //BSShaderPPLightingProperty
+    setNiShader,  //BSLightingShaderProperty
+    setNiShader,  //BSShaderPPLightingProperty
     setNiShape, //NiTriShape
     nullptr, //getEffectShaderPropertyColorController,
     nullptr, //NiPoint3InterpolatorBufType
@@ -5237,16 +5272,16 @@ BlockCreatorFunction creatorFunctions[] = {
     nullptr, //bhkSimpleShapePhantomBufType
     nullptr, //bhkSphereShapeBufType
     nullptr, // BSMeshLODTriShapeBufType
-    setNiShader,  //NiShaderBufType
+    addNiShader,  //NiShaderBufType
     setNiAlphaProperty, //NiAlphaPropertyBuf
     nullptr, //BSDynamicTriShapeBufType,
     nullptr, //BSTriShapeBufType,
     nullptr, //BSSubIndexTriShape
-    setNiShader, //BSEffectShaderProperty
+    addNiShader, //BSEffectShaderProperty
     nullptr, //NiTriStripsBufType
     nullptr, //BSLODTriShape
-    setNiShader,  //BSLightingShaderProperty
-    setNiShader,  //BSShaderPPLightingProperty
+    addNiShader,  //BSLightingShaderProperty
+    addNiShader,  //BSShaderPPLightingProperty
     nullptr, //NiTriShape
     addNiSingleInterpController, //EffectShaderPropertyColorController,
     addNiPoint3Interpolator, //NiPoint3InterpolatorBufType

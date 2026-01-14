@@ -624,6 +624,11 @@ class NiObject:
         self._properties = value.copy()
         check_return(
             NifFile.nifly.setBlock, self.file._handle, self.id, byref(self._properties))
+        
+    def write_properties(self):
+        """ Write current properties to the nif file. """
+        check_return(
+            NifFile.nifly.setBlock, self.file._handle, self.id, byref(self._properties))
 
     def register_subclasses():
         """Register all subclasses for easy finding."""

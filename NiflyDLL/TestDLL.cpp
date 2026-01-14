@@ -4841,6 +4841,43 @@ namespace NiflyDLLTests
 			Assert::AreEqual(0, v, L"Read BSValueNode data");
 			Assert::AreEqual(211, valNodeCheck.value, L"Value node value");
 		}
+		TEST_METHOD(modInPlace)
+		{
+			/* Check that we can modify shader properties in place. */
+			std::filesystem::path testfile = testRoot / "FO4/VaaMaleScarR04.nif";
+			std::filesystem::path outfile = testRoot / "Out/modInPlace.nif";
+			try {
+				std::filesystem::copy_file(testfile, outfile,
+					std::filesystem::copy_options::overwrite_existing);
+				std::cout << "Copied successfully\n";
+			}
+			catch (const std::filesystem::filesystem_error& e) {
+				std::cerr << "Error: " << e.what() << "\n";
+			}
+
+			void* shapes[10];
+			int shapeCount;
+			int scarIdx = -1;
+			void* nif = load(outfile.u8string().c_str());
+			shapeCount = getShapes(nif, shapes, 10, 0);
+			NiShapeBuf shapeBuf;
+			scarIdx = getBlockID(nif, shapes[0]);
+			getBlock(nif, scarIdx, &shapeBuf);
+			NiShaderBuf shaderBuf;
+			getBlock(nif, shapeBuf.shaderPropertyID, &shaderBuf);
+			Assert::AreEqual(0.0f, shaderBuf.Glossiness, L"Initial glossiness is 0.0");
+
+			shaderBuf.Glossiness = 21.3f;
+			Assert::AreEqual(0, setBlock(nif, shapeBuf.shaderPropertyID, &shaderBuf));
+			saveNif(nif, outfile.u8string().c_str());
+
+			void* nifCheck = load(outfile.u8string().c_str());
+			shapeCount = getShapes(nifCheck, shapes, 10, 0);
+			scarIdx = getBlockID(nifCheck, shapes[0]);
+			getBlock(nifCheck, scarIdx, &shapeBuf);
+			getBlock(nifCheck, shapeBuf.shaderPropertyID, &shaderBuf);
+			Assert::AreEqual(21.3f, shaderBuf.Glossiness, L"Modified glossiness is 21.3");
+		}
 		/* Hangs. It would be nice if it didn't. */
 		//TEST_METHOD(readCorrupt) {
 		//	std::filesystem::path testfile = testRoot / "FO4" / "Corrupt.nif";

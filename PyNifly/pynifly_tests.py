@@ -2544,6 +2544,30 @@ def TEST_RENAME_NODES():
     check_names(nif2)
 
 
+def TEST_SET_SHADER_PROPERTY():
+    """Test setting a shader property on a shape."""
+    testfile = _test_file(r"tests\FO4\VaaMaleScarR04.nif")
+    outfile = _test_file(r"tests\out\TEST_SET_SHADER_PROPERTY.nif")
+
+    print("------------- read")
+    shutil.copy(testfile, outfile)
+    nif = NifFile(outfile)
+    scar = nif.shapes[0]
+    assert TT.is_equiv(scar.shader.properties.Glossiness, 0.0, "initial glossiness")
+    scar.shader.properties.Glossiness = 123.4
+
+    print("------------- write")
+    scar.shader.write_properties()
+    nif.save()
+
+    print("------------- check")
+    nifCheck = NifFile(outfile)
+    scarcheck = nifCheck.shapes[0]
+    assert TT.is_equiv(scarcheck.shader.properties.Glossiness, 123.4, "glossiness")
+
+
+###################### Test execution framework #########################
+
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]
 executed_tests = {}
 stop_on_fail = False
@@ -2640,7 +2664,7 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = True
-    execute(testlist=[TEST_RENAME_NODES])
+    execute(testlist=[TEST_SET_SHADER_PROPERTY])
     execute()
     # execute(start=TEST_KF)
     # execute(categories={"SHADER"})

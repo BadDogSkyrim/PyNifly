@@ -9,11 +9,28 @@ from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 import blender_defs as BD
 
 
-COLLISION_BODY_IGNORE = ['rotation', 'translation', 'guard', 'unusedByte1', 
-                            'unusedInts1_0', 'unusedInts1_1', 'unusedInts1_2',
-                            'unusedBytes2_0', 'unusedBytes2_1', 'unusedBytes2_2',
-                            'bhkRadius', 'linearDamping', 'angularDamping',
-                            'friction', 'mass']
+COLLISION_BODY_IGNORE = [
+    'angularDamping',
+    'bhkRadius', 
+    'childCount',
+    'friction', 
+    'guard', 
+    'linearDamping', 
+    'mass',
+    'rotation', 
+    'translation', 
+    'unused2_1', 
+    'unused2_2', 
+    'unused2_3', 
+    'unused2_4',
+    'unusedByte1',
+    'unusedBytes2_0', 
+    'unusedBytes2_1', 
+    'unusedBytes2_2',
+    'unusedInts1_0', 
+    'unusedInts1_1', 
+    'unusedInts1_2',
+    ]
     
 
 BOX_SHAPE_IGNORE = ['bhkDimensions']

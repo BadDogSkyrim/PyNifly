@@ -1,7 +1,7 @@
 """ Modify nifs matching the given characteristics. """
 from pathlib import Path
 
-target_directory = (r"C:\Users\hughr\AppData\Roaming\Vortex\skyrimse\mods\Cat Races-44919-2-2-1611793835\meshes\YAS\Feline\Hair",
+target_directory = (r"C:\Users\hughr\AppData\Roaming\Vortex\skyrimse\mods\BD Canine Races\meshes",
                     )
 
 asset_dirs = (Path(r"C:\Users\hughr\AppData\Roaming\Vortex\skyrimse\mods\Cat Races-44919-2-2-1611793835\textures"),
@@ -27,7 +27,6 @@ replacers = (
 
 def all_files(directory):
     """Recursively returns all files in a directory and its subdirectories."""
-
     files = []
     for root, dirs, filenames in os.walk(directory):
         for filename in filenames:
@@ -53,16 +52,10 @@ def fix_nif(fn):
     nif = pynifly.NifFile(fn)
     modified = False
     for shape in nif.shapes:
-        if shape.textures:
-            for slot, tp in shape.textures.items():
-                for oldpath, newpath in replacers:
-                    if oldpath.lower() in tp.lower():
-                        tp = tp.replace(oldpath.lower(), newpath.lower())
-                        shape.set_texture(slot, tp)
-                        modified = True
-                if not path_exists(tp, asset_dirs):
-                    print(f"Missing texture: {tp} in nif {fn}")
-                
+        if shape.shader and -0.001 < shape.shader.properties.Glossiness < 0.001:
+            shape.shader.properties.Glossiness = 64
+            shape.shader.write_properties()
+            modified = True
 
     if modified:
         print(f"Modified {fn}")
