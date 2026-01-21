@@ -6841,6 +6841,27 @@ def TEST_IMPORT_TAIL():
                                  use_blender_xf=True)
 
 
+@TT.category('SKYRIM', 'HKX')
+@TT.expect_errors(('Target of fcurve not found', "Ignoring scale transforms"))
+def TEST_EXPORT_BOGUS():
+    """Export animation with bogus fcurves."""
+
+    testfile = TTB.test_file(r"tests\Skyrim\Pynifly_Issue_357.blend")
+    outfile = TTB.test_file(r"tests/Out/TEST_EXPORT_BOGUS.kf")
+
+    bpy.context.scene.render.fps = 60
+
+    with bpy.data.libraries.load(testfile) as (data_from, data_to):
+        data_to.objects = [obj for obj in data_from.objects]
+    for obj in data_to.objects:
+        bpy.context.scene.collection.objects.link(obj)
+    BD.ObjectSelect([obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE'], active=True)
+
+    bpy.ops.export_scene.pynifly_kf(filepath=outfile)
+
+    assert os.path.exists(outfile)
+
+
 @TT.category('SKYRIM', 'SHADER')
 def TEST_TEXTURE_CLAMP():
     """Make sure we don't lose texture clamp mode."""

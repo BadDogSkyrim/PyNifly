@@ -1229,13 +1229,14 @@ class ControllerHandler():
 
         while curve_list:
             bonename, ti = NiTransformController.fcurve_exporter(exporter, curve_list, arma)
-            nifbonename = exporter.nif_name(bonename)
+            if bonename:
+                nifbonename = exporter.nif_name(bonename)
 
-            exporter.controller_sequence.add_controlled_block(
-                name=nifbonename,
-                interpolator=ti,
-                controller_type="NiTransformController"
-            )
+                exporter.controller_sequence.add_controlled_block(
+                    name=nifbonename,
+                    interpolator=ti,
+                    controller_type="NiTransformController"
+                )
 
 
     @classmethod
@@ -2256,14 +2257,17 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
     # Bone target implies targetobj is an armature containing that bone. Else targetobj is
     # a ReprObject for a node being manipulated.
     targetname, curve_type = curve_bone_target(curve_list[0])
-    if targetname:
+    if targetobj.type == 'ARMATURE':
         if not targetname in targetobj.data.bones:
-            raise Exception(f"Target bone not found in armature: {targetobj.name}/{targetname}")
-        targ = targetobj.data.bones[targetname]
-        if targ.parent:
-            targ_xf = targ.parent.matrix_local.inverted() @ targ.matrix_local
+            log.warning(f"Target of fcurve not found in armature: {curve_list[0].data_path}")
+            curve_list.pop(0)
+            targ_xf = None
         else:
-            targ_xf = targ.matrix_local
+            targ = targetobj.data.bones[targetname]
+            if targ.parent:
+                targ_xf = targ.parent.matrix_local.inverted() @ targ.matrix_local
+            else:
+                targ_xf = targ.matrix_local
     else:
         # Exported interpolator needs to reflect the transform on the target object.
         # Dwechest01 has nodes with rotations that trigger this.
@@ -2273,6 +2277,9 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
         else:
             targ_xf = bobj.matrix_local
         targ_xf = Matrix.Identity(4)
+
+    if targ_xf is None: return None, None
+
     targ_q = targ_xf.to_quaternion()
     ## Hacky fix when trying to figure out dwemer chest problems.
     # if bobj.name in ['Object188', 'Object189']:

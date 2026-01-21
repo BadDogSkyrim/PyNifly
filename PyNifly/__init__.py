@@ -4489,14 +4489,14 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, "Export of KF failed, see console window for details")
             res.add("CANCELLED")
             self.log_handler.finish("EXPORT", self.filepath)
-        elif self.log_handler.max_error >= logging.WARNING:
-            self.report({"ERROR"}, "Export of KF completed with warnings, see console window for details")
-            res.add("CANCELLED")
-            self.log_handler.finish("EXPORT", self.filepath)
-        else:
-            self.report({"INFO"}, "Export of KF completed successfully")
-            res.add("SUCCESS")
-            self.log_handler.finish("EXPORT", self.filepath)
+        # elif self.log_handler.max_error >= logging.WARNING:
+        #     self.report({"ERROR"}, "Export of KF completed with warnings, see console window for details")
+        #     res.add("CANCELLED")
+        #     self.log_handler.finish("EXPORT", self.filepath)
+        # else:
+        #     self.report({"INFO"}, "Export of KF completed successfully")
+        #     res.add("SUCCESS")
+        #     self.log_handler.finish("EXPORT", self.filepath)
 
         # Save the directory path for next time
         if 'CANCELLED' not in res:

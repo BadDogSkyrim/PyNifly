@@ -592,6 +592,8 @@ def link_to_collection(coll, obj):
 
 class ReprObject():
     """Object that is represented in both nif and Blender"""
+    type = 'REPROBJ'
+    
     def __init__(self, blender_obj=None, nifnode=None):
         self.blender_obj = blender_obj
         self.nifnode = nifnode
