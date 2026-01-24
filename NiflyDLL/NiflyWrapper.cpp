@@ -153,14 +153,27 @@ NIFLY_API void* load(const char8_t* filename) {
     //    options.loadMaterials = true;
     //    options.projectRoot = std::string(filename, index);
     //}
-    int errval = nif->Load(std::filesystem::path(filename), options);
+    try
+    {
+        int errval = nif->Load(std::filesystem::path(filename), options);
 
-    if (errval == 0) return nif;
+        if (errval == 0) return nif;
 
-    if (errval == 1) niflydll::LogWrite("File does not exist or is not a nif");
-    if (errval == 2) niflydll::LogWrite("File is not a nif format we can read");
+        if (errval == 1) niflydll::LogWrite("File does not exist or is not a nif");
+        if (errval == 2) niflydll::LogWrite("File is not a nif format we can read");
 
-    return nullptr;
+        return nullptr;
+    }
+    catch (const std::exception& e)
+    {
+        niflydll::LogWrite("ERROR: " + std::string(e.what()));
+        return nullptr;
+    }
+    catch (...)
+    {
+		niflydll::LogWrite("ERROR: Unknown exception on file load");
+        return nullptr;
+    }
 }
 
 NIFLY_API void* getRoot(void* f) 

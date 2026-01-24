@@ -4878,6 +4878,19 @@ namespace NiflyDLLTests
 			getBlock(nifCheck, shapeBuf.shaderPropertyID, &shaderBuf);
 			Assert::AreEqual(21.3f, shaderBuf.Glossiness, L"Modified glossiness is 21.3");
 		}
+		TEST_METHOD(openBrokenNif)
+		{
+			/* Check that we can open an invalid nif. */
+			std::filesystem::path testfile = testRoot / "FO4/GhoulDeadLaying.nif";
+
+			void* shapes[21];
+			int shapeCount;
+			char msg[256];
+			void* nif = load(testfile.u8string().c_str());
+			Assert::IsNull(nif, L"broken nif");
+			getMessageLog(msg, 256);
+			Assert::AreNotEqual(0, int(strlen(msg)), L"Have error message");
+		}
 		/* Hangs. It would be nice if it didn't. */
 		//TEST_METHOD(readCorrupt) {
 		//	std::filesystem::path testfile = testRoot / "FO4" / "Corrupt.nif";

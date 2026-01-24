@@ -13,6 +13,7 @@ from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 import blender_defs as BD
 from nifdefs import ShaderFlags1, ShaderFlags2, ShaderFlags1FO4, ShaderFlags2FO4
 from niflytools import find_referenced_file
+import gamefinder
 
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 MSN_GROUP_NAME = "MSN_TRANSFORM"
@@ -1122,13 +1123,16 @@ class ShaderImporter:
         """
         Locate the textures referenced in the nif. Look for them in the nif's own filetree
         (if the nif is in a filetree). Otherwise look in Blender's texture directory if
-        defined. If the texture file exists with a PNG extension, use that in preference
-        to the DDS file.
+        defined. Finally look in the game directory, if available. If the texture file
+        exists with a PNG extension, use that in preference to the DDS file.
 
         * shape = shape to read for texture files
         * self.textures <- dictionary of filepaths to use.
         """
         self.textures = {}
+        altpaths = [bpy.context.preferences.filepaths.texture_directory]
+        if gamepath := gamefinder.find_game(self.game):
+            altpaths.append(gamepath)
 
         for k, t in shape.textures.items():
             if not t: continue
@@ -1138,13 +1142,13 @@ class ShaderImporter:
                     nifpath=shape.file.filepath, 
                     root='materials',
                     alt_suffix=None, 
-                    alt_path=bpy.context.preferences.filepaths.texture_directory)
+                    alt_pathlist=altpaths)
             else:
                 p = find_referenced_file(
                     t,
                     nifpath=shape.file.filepath, 
                     alt_suffix='.png', 
-                    alt_path=bpy.context.preferences.filepaths.texture_directory)
+                    alt_pathlist=altpaths)
             if p:
                 self.textures[k] = p
 

@@ -719,7 +719,7 @@ def action_fcurves(action):
                 for fc in cb.fcurves:
                     yield fc
 
-    
+
 def TEST_CAM():
     print('TEST_CAM')
     # Camera at [0, 100, 0] pointed back at origin. This is the default position. 

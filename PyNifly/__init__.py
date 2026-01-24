@@ -99,7 +99,6 @@ ARMATURE_BONE_GROUPS = ['NPC', 'CME']
 
 CAMERA_LENS = 80
 
-
 # Default values for import/export options
 APPLY_SKINNING_DEF = True
 BLENDER_XF_DEF = False

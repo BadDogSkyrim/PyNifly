@@ -120,7 +120,7 @@ def extend_filenames(root, separator, files=None):
         return str(sharedpart)
 
 
-def find_referenced_file(filepath:str, nifpath:str, root='textures', alt_suffix=None, alt_path=None) -> str:
+def find_referenced_file(filepath:str, nifpath:str, root='textures', alt_suffix=None, alt_pathlist=None) -> str:
     """
     Look for a texture file with either a PNG or DDS extension.
     filepath may or may not be absolute. If relative, may or may not start with "textures".
@@ -154,15 +154,17 @@ def find_referenced_file(filepath:str, nifpath:str, root='textures', alt_suffix=
             return str(fullp)
 
     # Not found, look in alternative texture directory
-    if alt_path:
-        bd = Path(alt_path.lower())
-        if root in bd.parts:
-            bd = Path(*bd.parts[:bd.parts.index(alt_suffix)-1])
-        fullp = bd / fp
-        if alt_suffix and fullp.with_suffix(alt_suffix).exists():
-            return str(fullp.with_suffix(alt_suffix))
-        if fullp.exists():
-            return str(fullp)
+    for alt_path in alt_pathlist or []:
+        if alt_path:
+            bd = Path(alt_path.lower())
+            if root in bd.parts:
+                bd = Path(*bd.parts[:bd.parts.index(alt_suffix)-1])
+            fullp = bd / fp
+            if alt_suffix and fullp.with_suffix(alt_suffix).exists():
+                return str(fullp.with_suffix(alt_suffix))
+            if fullp.exists():
+                return str(fullp)
+    
     return None
 
 
