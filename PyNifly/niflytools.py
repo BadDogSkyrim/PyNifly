@@ -157,8 +157,8 @@ def find_referenced_file(filepath:str, nifpath:str, root='textures', alt_suffix=
     for alt_path in alt_pathlist or []:
         if alt_path:
             bd = Path(alt_path.lower())
-            if root in bd.parts:
-                bd = Path(*bd.parts[:bd.parts.index(alt_suffix)-1])
+            if bd.name == 'textures':
+                bd = bd.parent
             fullp = bd / fp
             if alt_suffix and fullp.with_suffix(alt_suffix).exists():
                 return str(fullp.with_suffix(alt_suffix))

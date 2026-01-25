@@ -1132,7 +1132,7 @@ class ShaderImporter:
         self.textures = {}
         altpaths = [bpy.context.preferences.filepaths.texture_directory]
         if gamepath := gamefinder.find_game(self.game):
-            altpaths.append(gamepath)
+            altpaths.append(os.path.join(gamepath, 'data', 'textures'))
 
         for k, t in shape.textures.items():
             if not t: continue
