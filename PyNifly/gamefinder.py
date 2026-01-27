@@ -69,19 +69,22 @@ def find_fallout4_steam():
 # FO4: XBOX / GAME PASS
 # ------------------------------------------------------------
 def find_fallout4_xbox():
-    # Newer Xbox installs use C:\XboxGames\Fallout 4\
-    xbox_path = pathlib.Path("C:/XboxGames/Fallout 4")
-    if (xbox_path / F4_EXE).exists():
-        return str(xbox_path)
+    try:
+        # Newer Xbox installs use C:\XboxGames\Fallout 4\
+        xbox_path = pathlib.Path("C:/XboxGames/Fallout 4")
+        if (xbox_path / F4_EXE).exists():
+            return str(xbox_path)
 
-    # Older installs live in WindowsApps (restricted)
-    wa = pathlib.Path("C:/Program Files/WindowsApps")
-    if wa.exists():
-        for entry in wa.iterdir():
-            if entry.is_dir() and "Fallout4" in entry.name.replace(" ", ""):
-                exe = entry / F4_EXE
-                if exe.exists():
-                    return str(entry)
+        # Older installs live in WindowsApps (restricted)
+        wa = pathlib.Path("C:/Program Files/WindowsApps")
+        if wa.exists():
+            for entry in wa.iterdir():
+                if entry.is_dir() and "Fallout4" in entry.name.replace(" ", ""):
+                    exe = entry / F4_EXE
+                    if exe.exists():
+                        return str(entry)
+    except Exception:
+        pass
 
     return None
 
