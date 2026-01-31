@@ -17,7 +17,32 @@ from niflytools import *
 from nifdefs import *
 import xmltools
 
+
+# Locate the DLL and other files we need either in their development or install locations.
+nifly_path = None
+pynifly_dev_root = None
+pynifly_dev_path = None
+pynifly_addon_path = None
 nifly = None
+
+
+pynifly_addon_path = os.path.dirname(os.path.realpath(__file__))
+if 'PYNIFLY_DEV_ROOT' in os.environ:
+    pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
+    pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
+    nifly_path = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll")
+    logging.getLogger("pynifly").setLevel(logging.DEBUG)
+else:
+    logging.getLogger("pynifly").setLevel(logging.INFO)
+
+if nifly_path and os.path.exists(nifly_path):
+    if pynifly_dev_path not in sys.path:
+        sys.path.insert(0, pynifly_dev_path)
+else:
+    # Load from install location
+    if pynifly_addon_path not in sys.path:
+        sys.path.append(pynifly_addon_path)
+    nifly_path = os.path.join(pynifly_addon_path, "NiflyDLL.dll")
 
 
 def load_nifly(nifly_path):

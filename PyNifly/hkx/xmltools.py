@@ -1,8 +1,6 @@
 """Tools for manipulating XML files"""    
 
 import os
-import shutil
-import tempfile
 import subprocess
 import logging
 import xml.etree.ElementTree as xml

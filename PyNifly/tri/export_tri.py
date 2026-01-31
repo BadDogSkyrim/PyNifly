@@ -16,7 +16,7 @@
 # ***** END GPL LICENCE BLOCK *****
 # --------------------------------------------------------------------------
 """
-Imports & exports tri files and the Bodyslide variant of tri files.
+Exports tri files and the Bodyslide variant of tri files.
 
 This module has no Blender dependencies. It just pulls the data out of the file and puts it 
 in a python-friendly format.

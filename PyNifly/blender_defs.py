@@ -1,17 +1,25 @@
 """Common definitions for the Blender plugin"""
 
+bl_info = {
+    "name": "NIF format",
+    "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
+    "author": "Bad Dog",
+    "blender": (4, 5, 0),
+    "version": (22, 2, 0),   
+    "location": "File > Import-Export",
+    "support": "COMMUNITY",
+    "category": "Import-Export"
+}
+
 from contextlib import contextmanager
 import os
-import shutil
-import tempfile
 from enum import IntFlag
-from mathutils import Matrix, Vector, Quaternion, Euler
-from mathutils import geometry
-import bpy
-# import bpy.types
 import re
+from mathutils import Matrix, Vector, Quaternion, Euler
+import bpy
 from nifdefs import *
-from pynifly import *
+from niflytools import VNearEqual, NearEqual
+from pynifly import pynifly_dev_path, pynifly_addon_path, NiTransformData, NiShape, TransformBuf, MATRIX3
 
 import ctypes
 from ctypes import wintypes
@@ -19,13 +27,24 @@ _GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
 _GetShortPathNameW.argtypes = [wintypes.LPWSTR, wintypes.LPWSTR, wintypes.DWORD]
 _GetShortPathNameW.restype = wintypes.DWORD
 
+
+if pynifly_dev_path:
+    asset_path = os.path.join(pynifly_dev_path, "blender_assets")
+else:
+    asset_path = os.path.join(pynifly_addon_path, "blender_assets")
+
+
+log = logging.getLogger("pynifly")
+
+
 NO_PARTITION_GROUP = "*NO_PARTITIONS*"
 MULTIPLE_PARTITION_GROUP = "*MULTIPLE_PARTITIONS*"
 UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 GLOSS_SCALE = 100
 
-# Todo: Move these to some common header file
+
+# Import/export flags
 class pynFlags(IntFlag):
     CREATE_BONES = 1
     RENAME_BONES = 1 << 1
@@ -38,6 +57,31 @@ class pynFlags(IntFlag):
     KEEP_TMP_SKEL = 1 << 8 # for debugging
     RENAME_BONES_NIFTOOLS = 1 << 9
     EXPORT_POSE = 1 << 10
+
+# Default values for import/export options, consistent across modules
+APPLY_SKINNING_DEF = True
+BLENDER_XF_DEF = False
+CHARGEN_EXT_DEF = "chargen"
+CREATE_BONES_DEF = True
+EXPORT_MODIFIERS_DEF = False
+EXPORT_ANIMATIONS_DEF = False
+EXPORT_COLORS_DEF = True
+EXPORT_POSE_DEF = False
+IMPORT_ANIMS_DEF = True
+IMPORT_COLLISIONS_DEF = True
+IMPORT_SHAPES_DEF = True
+IMPORT_TRIS_DEF = False
+IMPORT_POSE_DEF = False
+SMART_EDITOR_MARKERS_DEF = True
+IMPORT_COLLECTIONS_DEF = False
+ESTIMATE_OFFSET_DEF = True
+PRESERVE_HIERARCHY_DEF = False
+RENAME_BONES_DEF = True
+RENAME_BONES_NIFT_DEF = False
+ROLL_BONES_NIFT_DEF = False
+SCALE_DEF = 1.0
+WRITE_BODYTRI_DEF = False
+
 
 name_pat = re.compile('(.+)\.\d\d\d')
 
@@ -95,7 +139,7 @@ def stashed_animation(obj):
             obj.active_material.animation_data.action_slot = saved_mat_slot
 
 
-def ObjectSelect(objlist, deselect=True, active=False):
+def ObjectSelect(objlist, deselect=True, active=True):
     """Select all the objects in the list"""
     try:
         bpy.ops.object.mode_set(mode = 'OBJECT')
@@ -341,6 +385,30 @@ def create_bone(armdata, bone_name, node_xf:Matrix, game:str, scale_factor, roll
     bone.roll += roll
 
     return bone
+
+
+def best_game_fit(bonelist):
+    """ Find the game that best matches the skeleton """
+    boneset = set([b.name for b in bonelist])
+    maxmatch = 0
+    matchgame = ""
+    for g, s in gameSkeletons.items():
+        n = s.matches(boneset)
+        if n > maxmatch:
+            maxmatch = n
+            matchgame = g
+    n = fo4FaceDict.matches(boneset)
+    if n > maxmatch:
+        matchgame = "FO4"
+    return matchgame
+
+
+def pack_xf_to_buf(xf, scale_factor: float):
+    """Pack a transform to a TransformBuf, applying a scale fator to translation"""
+    xf_loc, xf_rot, xf_scale = xf.decompose()
+    tb = TransformBuf()
+    tb.store(xf_loc/scale_factor, xf_rot.to_matrix(), xf_scale)
+    return tb
 
 
 def is_facebones(bone_names):
@@ -718,6 +786,18 @@ def action_fcurves(action):
             for cb in strip.channelbags:
                 for fc in cb.fcurves:
                     yield fc
+
+
+# Standard transformations to display things correctly in Blender
+
+blender_import_xf = MatrixLocRotScale(Vector((0,0,0)),
+                                      Quaternion(Vector((0,0,1)), pi),
+                                      (0.1, 0.1, 0.1))
+blender_export_xf = blender_import_xf.inverted()
+
+fo4_bodypart_xf = MatrixLocRotScale(Vector((0, -0.9342, 120.841,)),
+                                    Quaternion(),
+                                    (1, 1, 1,))
 
 
 def TEST_CAM():
