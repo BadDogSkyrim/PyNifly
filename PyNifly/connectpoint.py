@@ -13,7 +13,6 @@ import logging
 
 logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
 log = logging.getLogger("pynifly")
-log.setLevel(logging.INFO)
 
 CONNECT_POINT_SCALE = 15.0
 

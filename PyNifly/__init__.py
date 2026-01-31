@@ -24,6 +24,8 @@ from mathutils import Matrix, Vector, Quaternion, Euler, geometry, Color
 import codecs
 import importlib
 import json
+import logging
+from pathlib import Path
 
 # Locate the DLL and other files we need either in their development or install locations.
 nifly_path = None
@@ -38,6 +40,9 @@ if 'PYNIFLY_DEV_ROOT' in os.environ:
     nifly_path = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll")
     hkxcmd_path = os.path.join(pynifly_dev_path, "hkxcmd.exe")
     asset_path = os.path.join(pynifly_dev_path, "blender_assets")
+    logging.getLogger("pynifly").setLevel(logging.DEBUG)
+else:
+    logging.getLogger("pynifly").setLevel(logging.INFO)
 
 if nifly_path and os.path.exists(nifly_path):
     if pynifly_dev_path not in sys.path:
@@ -2466,9 +2471,10 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         self.kf:NifFile = None
         self.armature = None
         self.errors = set()
-        self.xml_filepath = None
         self.import_flags = ImportSettings(0)
         self.animation_name = None
+        self.hkx_filepath:Path = None
+        self.xml_filepath:Path = None
         self.kf_filepath:Path = None
 
         obj = bpy.context.object
@@ -2498,6 +2504,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
         res = set()
         self.context = context
         self.fps = context.scene.render.fps
+        self.hkx_filepath = Path(self.filepath)
 
         if self.do_rename_bones: 
             self.import_flags |= ImportSettings.rename_bones
@@ -2520,8 +2527,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
                     if ext.lower() != ".hkx":
                         log.error(f"Must have an HKX file to use as reference skeleton.")
                         return {'CANCELLED'}
-                    self.reference_skel_short = nospace_filepath(self.reference_skel)
-                    copyfile(self.reference_skel, self.reference_skel_short)
+                    self.reference_skel_short = tmp_copy_nospace(Path(self.reference_skel))
 
                 if not context.object:
                     log.error(f"Must have selected object for animation.")
@@ -2532,7 +2538,7 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
                 if self.reference_skel:
                     context.object['PYN_SKELETON_FILE'] = self.reference_skel
 
-                self.animation_name = os.path.splitext(os.path.basename(self.filepath))[0]
+                self.animation_name = self.hkx_filepath.stem
                 stat = self.import_animation()
                 res.add(stat)
 
@@ -2545,9 +2551,9 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
             self.log_handler.finish("IMPORT", self.filepath)
 
         # Save the directory path for next time
+        wm = context.window_manager
+        wm.pynifly_last_import_path_hkx = str(self.filepath)
         if 'CANCELLED' not in res:
-            wm = context.window_manager
-            wm.pynifly_last_import_path_hkx = os.path.dirname(self.filepath)
             res.add('FINISHED')
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
@@ -2607,25 +2613,26 @@ class ImportHKX(bpy.types.Operator, ExportHelper):
             return('FINISHED')
 
 
-    def make_kf(self, filepath_working:str, is_temp=False) -> NifFile:
+    def make_kf(self, filepath_working:Path, is_temp=False) -> NifFile:
         """
         Creates a kf file from a hkx file.  
         
         Returns 
         * KF file is opened and returned as a NifFile. 
         """
-        if is_temp:
-            self.kf_filepath = Path(filepath_working).with_suffix('.kf')
-        else:
-            self.kf_filepath = Path(tmp_filepath(filepath_working, ext=".kf"))
-
+        self.kf_filepath = Path(tmp_filepath(filepath_working, ext=".kf"))
         if not self.kf_filepath:
             raise RuntimeError(f"Could not create temporary file {self.kf_filepath}")
         
+        # Put the source file in the same folder as the kf because HKXCMD wants them together.
+        if filepath_working.parent != self.kf_filepath.parent:
+            filepath_working = tmp_copy(filepath_working)
+
+        log.debug(f"{hkxcmd_path} EXPORTKF {self.reference_skel_short} {filepath_working} {self.kf_filepath}")
         stat = subprocess.run([hkxcmd_path, 
                                "EXPORTKF", 
-                               self.reference_skel_short, 
-                               filepath_working, 
+                               str(self.reference_skel_short), 
+                               str(filepath_working), 
                                str(self.kf_filepath)], 
                                capture_output=True, check=True)
         if stat.stderr:
@@ -4662,9 +4669,11 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         res = set()
-        self.reference_skel_short = nospace_filepath(self.reference_skel, ext=".hkx")
-        copyfile(self.reference_skel, self.reference_skel_short)
-        self.filepath_short = nospace_filepath(self.filepath, ext=".hkx")
+        refskelpath = Path(self.reference_skel.strip('"'))
+        self.reference_skel_short = nospace_filepath(refskelpath)
+        if refskelpath != self.reference_skel_short:
+            copyfile(self.reference_skel, self.reference_skel_short)
+        self.filepath_short = nospace_filepath(Path(self.filepath))
         if self.reference_skel:
             context.object['PYN_SKELETON_FILE'] = self.reference_skel
 
@@ -4675,7 +4684,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         self.context = context
         self.fps = context.scene.render.fps
         self.has_markers = (len(context.scene.timeline_markers) > 0)
-        self.hkx_tmp_filepath = tmp_filepath(self.filepath, ext=".hkx")
+        self.hkx_tmp_filepath = tmp_filepath(Path(self.filepath), ext=".hkx")
         self.xml_filepath = None
         self.xml_filepath_out = None
         self.log_handler = LogHandler.New(bl_info, "EXPORT", "HKX")
@@ -4683,7 +4692,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         NifFile.clear_log()
 
         # Export whatever animation is attached to the active object.
-        self.kf_filepath = Path(tmp_filepath(self.filepath, ext=".kf"))
+        self.kf_filepath = Path(tmp_filepath(Path(self.filepath), ext=".kf"))
         try:
             KFExporter.Export(self.kf_filepath, context, fps=self.fps)
             log.info(f"Created temporary kf file: {self.kf_filepath}")
@@ -4751,23 +4760,23 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
 
         try:
             self.context = context
-            out_filepath = self.filepath
-            self.filepath = tmp_filepath(self.filepath, ".xml")
+            fp = Path(self.filepath)
+            out_filepath = fp
+            self.filepath = tmp_filepath(fp, ".xml")
             self.do_export()
 
             xmltools.XMLFile.SetPath(hkxcmd_path)
-            xmltools.XMLFile.xml_to_hkx(self.filepath, out_filepath)
+            xmltools.XMLFile.xml_to_hkx(fp, out_filepath)
 
             status = {'FINISHED'}
             # Save the directory path for next time
             wm = context.window_manager
-            wm.pynifly_last_export_path_skel_hkx = os.path.dirname(
-                out_filepath)
+            wm.pynifly_last_export_path_skel_hkx = str(out_filepath.parent)
             return status
         except:
             self.log_handler.log.exception("Import of HKX failed")
             status = {'CANCELLED'}
-            self.log_handler.finish("IMPORT", out_filepath)
+            self.log_handler.finish("IMPORT", str(out_filepath))
 
         return status
 

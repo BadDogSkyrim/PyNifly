@@ -4435,7 +4435,7 @@ class hkxSkeletonFile(NifFile):
             return
         
         if os.path.splitext(self.filepath)[1].upper() == ".HKX":
-            self.xml_filepath = xmltools.XMLFile.hkx_to_xml(self.filepath)
+            self.xml_filepath = xmltools.XMLFile.hkx_to_xml(Path(self.filepath))
         else:
             self.xml_filepath = self.filepath
     

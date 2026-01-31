@@ -16,28 +16,32 @@ from pathlib import Path
 
 logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
 log = logging.getLogger("pynifly")
-log.setLevel(logging.INFO)
 
 
 # ###################### FILE HANDLING ##################################
 
-def tmp_filepath(filepath, ext=None):
-    """Return a unique temporary filename. Name is based on the base name of
-    'filepath', with suffixes to make it unique, and given the extension 'ext'.
+def tmp_filepath(filepath:Path, ext=None) -> Path:
     """
-    base_ext = os.path.basename(filepath)
-    basename, extension = os.path.splitext(base_ext)
-    name = basename.replace(' ', '_')
-    if not name.startswith("tmp_"): name = "tmp_" + name
-    if not ext: ext = extension
+    Return a unique temporary filename with no embedded spaces. Name is based on the base
+    name of 'filepath', with suffixes to make it unique, and given the extension 'ext'.
+    """
+    newfp = filepath.with_stem(filepath.stem.replace(' ', '_'))
+    if not newfp.stem.startswith("tmp_"): 
+        newfp = newfp.with_stem("tmp_" + newfp.stem)
+    if ext:
+        newfp = newfp.with_suffix(ext)
 
-    fpbase = os.path.join(tempfile.gettempdir(), name)
+    fp = Path(tempfile.gettempdir()) / newfp.name
+    # Temp file doesn't exist, we can use it without disambiguation.
+    if not os.path.exists(fp):
+        return fp
+    
+    fpbase = fp.stem
     i = 0
     iter = ""
-    fp = ""
     while i < 10000:
         iter = f"_{(int(time.time()*1000) & 0xFFFFFF):06X}"
-        fp = fpbase + iter + ext
+        fp = fp.with_stem(fpbase + iter)
         if not os.path.exists(fp): break
         i += 1
     if i < 10000:
@@ -46,51 +50,40 @@ def tmp_filepath(filepath, ext=None):
         raise Exception("Could not create temporary file")
 
 
-def nospace_filepath(filepath, ext=None):
+def nospace_filepath(filepath:Path,) -> Path:
     """
     Return the input filepath if no spaces, else a new temp filepath.
     Also remove any surrounding quotes.
     """
-    fp = filepath.strip('"').strip("'")
-    try:
-        n = fp.index(' ')
-        return tmp_filepath(fp, ext=ext)
-    except ValueError:
-        pass
-
-    if ext is not None:
-        bn, e = os.path.splitext(fp)
-        if not e:
-            fp = bn + ext
-    return fp
+    # fp = filepath.strip('"').strip("'")
+    if ' ' in str(filepath):
+        return tmp_filepath(filepath)
+    else:
+        return filepath
 
 
 def copyfile(fin, fout):
-    fin_clean = fin.strip('"')
-    if fin_clean != fout:
-        shutil.copy(fin_clean, fout)
+    fin_clean = str(fin).strip('"')
+    if fin_clean != str(fout):
+        shutil.copy(fin_clean, str(fout))
 
 
-def tmp_copy(filepath) -> str:
+def tmp_copy(filepath:Path) -> Path:
     """Create a temporary copy of the file and return its filepath."""
     fp = tmp_filepath(filepath)
-    copyfile(filepath, fp)
+    copyfile(str(filepath), str(fp))
     return fp
 
 
-def tmp_copy_nospace(filepath) -> str:
+def tmp_copy_nospace(filepath:Path) -> Path:
     """
     If the filepath contains spaces, create a temporary copy of the file and return its
     filepath. Otherwise just return the original.
     """
-    try:
-        n = filepath.index(' ')
-        fp = tmp_filepath(filepath)
-        copyfile(filepath, fp)
-        return fp
-    except:
-        pass
-    return filepath
+    if ' ' in str(filepath):
+        return tmp_copy(filepath)
+    else:
+        return filepath
 
 
 def extend_filenames(root, separator, files=None):

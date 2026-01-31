@@ -31,37 +31,41 @@ def find_fallout4_steam():
     except OSError:
         return None
 
-    steam_path = pathlib.Path(steam_path)
-    library_file = steam_path / "steamapps" / "libraryfolders.vdf"
-    if not library_file.exists():
-        return None
+    try:
+        steam_path = pathlib.Path(steam_path)
+        library_file = steam_path / "steamapps" / "libraryfolders.vdf"
+        if not library_file.exists():
+            return None
 
-    # Parse libraryfolders.vdf (simple heuristic parser)
-    libraries = []
-    with open(library_file, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if '"' in line and "\\" in line:
-                parts = line.split('"')
-                if len(parts) >= 4:
-                    path = parts[3].replace("\\\\", "\\")
-                    if os.path.isdir(path):
-                        libraries.append(pathlib.Path(path) / "steamapps")
+        # Parse libraryfolders.vdf (simple heuristic parser)
+        libraries = []
+        with open(library_file, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if '"' in line and "\\" in line:
+                    parts = line.split('"')
+                    if len(parts) >= 4:
+                        path = parts[3].replace("\\\\", "\\")
+                        if os.path.isdir(path):
+                            libraries.append(pathlib.Path(path) / "steamapps")
 
-    # Always include default library
-    libraries.append(steam_path / "steamapps")
+        # Always include default library
+        libraries.append(steam_path / "steamapps")
 
-    # Look for Fallout 4 manifest
-    for lib in libraries:
-        manifest = lib / f"appmanifest_{F4_APPID}.acf"
-        if manifest.exists():
-            with open(manifest, encoding="utf-8") as f:
-                for line in f:
-                    if '"installdir"' in line:
-                        installdir = line.split('"')[-2]
-                        game_path = lib.parent / "common" / installdir
-                        if (game_path / F4_EXE).exists():
-                            return str(game_path)
+        # Look for Fallout 4 manifest
+        for lib in libraries:
+            manifest = lib / f"appmanifest_{F4_APPID}.acf"
+            if manifest.exists():
+                with open(manifest, encoding="utf-8") as f:
+                    for line in f:
+                        if '"installdir"' in line:
+                            installdir = line.split('"')[-2]
+                            game_path = lib.parent / "common" / installdir
+                            if (game_path / F4_EXE).exists():
+                                return str(game_path)
+    except:
+        pass
+
     return None
 
 
@@ -93,24 +97,27 @@ def find_fallout4_xbox():
 # FO4: EPIC GAMES
 # ------------------------------------------------------------
 def find_fallout4_epic():
-    # Epic default install path
-    epic_default = pathlib.Path("C:/Program Files/Epic Games/Fallout4")
-    if (epic_default / F4_EXE).exists():
-        return str(epic_default)
+    try:
+        # Epic default install path
+        epic_default = pathlib.Path("C:/Program Files/Epic Games/Fallout4")
+        if (epic_default / F4_EXE).exists():
+            return str(epic_default)
 
-    # Epic stores manifests in ProgramData
-    manifest_dir = pathlib.Path("C:/ProgramData/Epic/EpicGamesLauncher/Data/Manifests")
-    if manifest_dir.exists():
-        for mf in manifest_dir.glob("*.item"):
-            try:
-                data = json.loads(mf.read_text(encoding="utf-8"))
-            except Exception:
-                continue
+        # Epic stores manifests in ProgramData
+        manifest_dir = pathlib.Path("C:/ProgramData/Epic/EpicGamesLauncher/Data/Manifests")
+        if manifest_dir.exists():
+            for mf in manifest_dir.glob("*.item"):
+                try:
+                    data = json.loads(mf.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
 
-            if data.get("DisplayName", "").lower() == "fallout 4":
-                install_path = data.get("InstallLocation")
-                if install_path and (pathlib.Path(install_path) / F4_EXE).exists():
-                    return install_path
+                if data.get("DisplayName", "").lower() == "fallout 4":
+                    install_path = data.get("InstallLocation")
+                    if install_path and (pathlib.Path(install_path) / F4_EXE).exists():
+                        return install_path
+    except:
+        pass
 
     return None
 
@@ -129,58 +136,61 @@ def find_skyrim():
         r"Software\WOW6432Node\Valve\Steam",
     ]
 
-    steam_path = None
-    for key in steam_keys:
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as k:
-                steam_path = winreg.QueryValueEx(k, "SteamPath")[0]
-                break
-        except OSError:
-            continue
+    try:
+        steam_path = None
+        for key in steam_keys:
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as k:
+                    steam_path = winreg.QueryValueEx(k, "SteamPath")[0]
+                    break
+            except OSError:
+                continue
 
-    if not steam_path:
-        return None
+        if not steam_path:
+            return None
 
-    steam_path = pathlib.Path(steam_path)
-    library_file = steam_path / "steamapps" / "libraryfolders.vdf"
+        steam_path = pathlib.Path(steam_path)
+        library_file = steam_path / "steamapps" / "libraryfolders.vdf"
 
-    if not library_file.exists():
-        return None
+        if not library_file.exists():
+            return None
 
-    # Collect all Steam library paths
-    libraries = []
+        # Collect all Steam library paths
+        libraries = []
 
-    # Parse libraryfolders.vdf (simple heuristic parser)
-    with open(library_file, encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            line = line.strip()
-            if '"' in line and ":" in line:
-                try:
-                    parts = line.split('"')
-                    folder = parts[3].replace("\\\\", "\\")
-                    if os.path.isdir(folder):
-                        libraries.append(pathlib.Path(folder) / "steamapps")
-                except Exception:
-                    pass
+        # Parse libraryfolders.vdf (simple heuristic parser)
+        with open(library_file, encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if '"' in line and ":" in line:
+                    try:
+                        parts = line.split('"')
+                        folder = parts[3].replace("\\\\", "\\")
+                        if os.path.isdir(folder):
+                            libraries.append(pathlib.Path(folder) / "steamapps")
+                    except Exception:
+                        pass
 
-    # Always include the default Steam library
-    libraries.append(steam_path / "steamapps")
+        # Always include the default Steam library
+        libraries.append(steam_path / "steamapps")
 
-    # Search each library for Skyrim LE
-    for lib in libraries:
-        manifest = lib / f"appmanifest_{SKYRIM_LE_APPID}.acf"
-        if manifest.exists():
-            installdir = None
-            with open(manifest, encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    if '"installdir"' in line:
-                        installdir = line.split('"')[-2]
-                        break
+        # Search each library for Skyrim LE
+        for lib in libraries:
+            manifest = lib / f"appmanifest_{SKYRIM_LE_APPID}.acf"
+            if manifest.exists():
+                installdir = None
+                with open(manifest, encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        if '"installdir"' in line:
+                            installdir = line.split('"')[-2]
+                            break
 
-            if installdir:
-                game_path = lib.parent / "common" / installdir
-                if (game_path / SKYRIM_LE_EXE).exists():
-                    return str(game_path)
+                if installdir:
+                    game_path = lib.parent / "common" / installdir
+                    if (game_path / SKYRIM_LE_EXE).exists():
+                        return str(game_path)
+    except:
+        pass
 
     return None
 
@@ -198,50 +208,53 @@ def find_skyrimse() -> str | None:
 
     skyrim_appid = "489830"  # Skyrim Special Edition
 
-    for key_path in steam_keys:
-        try:
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
-                steam_path, _ = winreg.QueryValueEx(key, "InstallPath")
-                library_folders = [steam_path]
+    try:
+        for key_path in steam_keys:
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
+                    steam_path, _ = winreg.QueryValueEx(key, "InstallPath")
+                    library_folders = [steam_path]
 
-                # Parse libraryfolders.vdf for additional Steam libraries
-                vdf_path = os.path.join(steam_path, "steamapps", "libraryfolders.vdf")
-                if os.path.exists(vdf_path):
-                    with open(vdf_path, "r", encoding="utf-8", errors="ignore") as f:
-                        for line in f:
-                            line = line.strip()
-                            if '"' in line and ":" in line:
-                                try:
-                                    folder = line.split('"')[3]
-                                    if os.path.isdir(folder):
-                                        library_folders.append(folder)
-                                except Exception:
-                                    pass
+                    # Parse libraryfolders.vdf for additional Steam libraries
+                    vdf_path = os.path.join(steam_path, "steamapps", "libraryfolders.vdf")
+                    if os.path.exists(vdf_path):
+                        with open(vdf_path, "r", encoding="utf-8", errors="ignore") as f:
+                            for line in f:
+                                line = line.strip()
+                                if '"' in line and ":" in line:
+                                    try:
+                                        folder = line.split('"')[3]
+                                        if os.path.isdir(folder):
+                                            library_folders.append(folder)
+                                    except Exception:
+                                        pass
 
-                # Search each library for Skyrim SE
-                for lib in library_folders:
-                    candidate = os.path.join(lib, "steamapps", "common", "Skyrim Special Edition")
-                    if os.path.isdir(candidate):
-                        return candidate
+                    # Search each library for Skyrim SE
+                    for lib in library_folders:
+                        candidate = os.path.join(lib, "steamapps", "common", "Skyrim Special Edition")
+                        if os.path.isdir(candidate):
+                            return candidate
 
-        except FileNotFoundError:
-            pass
+            except FileNotFoundError:
+                pass
 
-    # 2. Bethesda Launcher installs (rare)
-    bethesda_keys = [
-        r"SOFTWARE\WOW6432Node\Bethesda Softworks\Skyrim Special Edition",
-        r"SOFTWARE\Bethesda Softworks\Skyrim Special Edition"
-    ]
+        # 2. Bethesda Launcher installs (rare)
+        bethesda_keys = [
+            r"SOFTWARE\WOW6432Node\Bethesda Softworks\Skyrim Special Edition",
+            r"SOFTWARE\Bethesda Softworks\Skyrim Special Edition"
+        ]
 
-    for key_path in bethesda_keys:
-        try:
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
-                path, _ = winreg.QueryValueEx(key, "Installed Path")
-                if os.path.isdir(path):
-                    return path
-        except FileNotFoundError:
-            pass
-
+        for key_path in bethesda_keys:
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
+                    path, _ = winreg.QueryValueEx(key, "Installed Path")
+                    if os.path.isdir(path):
+                        return path
+            except FileNotFoundError:
+                pass
+    except:
+        pass
+    
     return None
 
 
