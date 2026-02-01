@@ -4,9 +4,10 @@
 
 import bpy
 import bmesh
-from pynifly import *
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
-import blender_defs as BD
+from ..blender_defs import (MatrixLocRotScale, ObjectSelect, transform_to_matrix, 
+                            find_box_info, append_if_new, MatrixLocRotScale, ReprObject)
+from ..pyn.pynifly import *
 
 
 COLLISION_BODY_IGNORE = [
@@ -65,7 +66,7 @@ def RigidBodyXF(cb: bhkWorldObject):
         # position, in radians 
         q = Quaternion((p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2],))
         t = Vector(p.translation[0:3]) * HAVOC_SCALE_FACTOR
-        bodyxf = BD.MatrixLocRotScale(t, q, Vector((1,1,1)))
+        bodyxf = MatrixLocRotScale(t, q, Vector((1,1,1)))
 
     # bhkSimpleShapePhantom has a transform built in.
     # TODO: Should this be translated to nif units?
@@ -122,7 +123,7 @@ def find_capsule_ends(obj):
     UV spheres making the ends.
     Returns (point1, point2, radius), where the points are the centers of the opposite caps.
     """
-    BD.ObjectSelect([obj], active=True)
+    ObjectSelect([obj])
     bpy.ops.object.mode_set(mode='EDIT')
     bm = bmesh.from_edit_mesh(obj.data)
 
@@ -372,7 +373,7 @@ class CollisionHandler():
             self.warn(f"Found unimplemented collision shape: {cs.blockname}")
         
         if sh:
-            BD.ObjectSelect([sh], active=True)
+            ObjectSelect([sh])
             bpy.ops.rigidbody.object_add(type='ACTIVE')
 
             sh.color = COLLISION_COLOR
@@ -402,7 +403,7 @@ class CollisionHandler():
         bodyxf = RigidBodyXF(cb)
 
         sh = self.import_collision_shape(cb.shape, bodyxf)
-        BD.ObjectSelect([sh], active=True)
+        ObjectSelect([sh])
         bpy.ops.object.transform_apply()
         sh.matrix_world = targetxf.copy()
 
@@ -425,7 +426,7 @@ class CollisionHandler():
             rbtype = 'ACTIVE' if p.collisionFilter_layer in collision_active_layers else 'PASSIVE'
             sh.rigid_body.collision_shape = 'COMPOUND'
             for ch in sh.children:
-                BD.ObjectSelect([ch], active=True)
+                ObjectSelect([ch])
                 bpy.ops.rigidbody.object_add(type=rbtype)
                 
         return sh
@@ -457,7 +458,7 @@ class CollisionHandler():
         if not c.body: return None
 
         if bone:
-            xf = importer.import_xf @ BD.transform_to_matrix(bone.global_transform)
+            xf = importer.import_xf @ transform_to_matrix(bone.global_transform)
         else:
             xf = parentObj.matrix_world
 
@@ -540,7 +541,7 @@ class CollisionHandler():
 
             # Have to take the export scale factor into account.
             sf = (HAVOC_SCALE_FACTOR * game_collision_sf[self.game] * (1/self.export_xf.to_scale()[0]))
-            ctr, d, r = BD.find_box_info(box)
+            ctr, d, r = find_box_info(box)
             if len(d) == 3:
                 bhkDim = (d / sf) / 2
                 for i in range(0, 3):
@@ -583,7 +584,7 @@ class CollisionHandler():
             vintersect = geometry.distance_point_to_plane(
                 Vector((0,0,0)), facevert, face.normal)
             n = Vector((face.normal[0], face.normal[1], face.normal[2], vintersect/sf))
-            BD.append_if_new(norms, n, 0.1)
+            append_if_new(norms, n, 0.1)
         
         cshape = self.nif.add_shape(p, vertices=verts, normals=norms)
 
@@ -621,7 +622,7 @@ class CollisionHandler():
         childtransl = childtransl * self.export_xf.to_scale()
         childtransl = childtransl / sf
 
-        havocxf = BD.MatrixLocRotScale(childtransl, childrot, Vector((1,1,1,)))
+        havocxf = MatrixLocRotScale(childtransl, childrot, Vector((1,1,1,)))
         cshape = self.nif.add_shape(props, transform=havocxf)
         cshape.child = childnode
         return cshape, xform.translation, Quaternion()
@@ -674,7 +675,7 @@ class CollisionHandler():
         return None, None, Quaternion()
 
 
-    def export_collision_body(self, targobj, collpair:BD.ReprObject):
+    def export_collision_body(self, targobj, collpair:ReprObject):
         """ 
         Export the collision body for the given collision.
 
@@ -752,7 +753,7 @@ class CollisionHandler():
             props.translation[3] = 0
 
         elif props.bufType == PynBufferTypes.bhkSimpleShapePhantomBufType:
-            mx = BD.MatrixLocRotScale(rv/HAVOC_SCALE_FACTOR, targq, (1,1,1))
+            mx = MatrixLocRotScale(rv/HAVOC_SCALE_FACTOR, targq, (1,1,1))
             for i, r in enumerate(mx):
                 for j, v in enumerate(r):
                     props.transform[i][j] = v
@@ -782,7 +783,7 @@ class CollisionHandler():
             targnode = self.nif.nodes[targobj.name]
 
         colnode = targnode.add_collision(None, flags=flags)
-        collpair = BD.ReprObject(coll, colnode)
+        collpair = ReprObject(coll, colnode)
         self.objs_written.add(collpair)
 
         body = self.export_collision_body(targobj, collpair) 

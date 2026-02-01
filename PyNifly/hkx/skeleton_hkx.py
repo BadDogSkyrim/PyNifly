@@ -2,34 +2,26 @@
 
 # Copyright © 2023, Bad Dog.
 
+import re
+import logging
+from math import pi
+from pathlib import Path
 import bpy
 from bpy.props import (
-        BoolProperty,
         CollectionProperty,
-        EnumProperty,
-        FloatProperty,
         StringProperty,
         )
 from bpy_extras.io_utils import (
         ImportHelper,
         ExportHelper)
-from blender_defs import *
+from mathutils import Matrix, Vector, Quaternion
+from .. import blender_defs as bdefs
 import xml.etree.ElementTree as xml
 import hashlib
-from xmltools import XMLFile
+from .. import bl_info
 
 
-
-bl_info = {
-    "name": "NIF format",
-    "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
-    "author": "Bad Dog",
-    "blender": (3, 0, 0),
-    "version": (9, 6, 2),  
-    "location": "File > Import-Export",
-    "support": "COMMUNITY",
-    "category": "Import-Export"
-}
+log = logging.getLogger('pynifly')
 
 numseqpat = re.compile("[\d\.\s-]+")
 numberpat = re.compile("[\d\.-]+")
@@ -41,8 +33,7 @@ class SkeletonArmature():
         armdata = bpy.data.armatures.new(name)
         self.arma = bpy.data.objects.new(name, armdata)
         bpy.context.view_layer.active_layer_collection.collection.objects.link(self.arma)
-        ObjectActive(self.arma)
-        ObjectSelect([self.arma])
+        bdefs.ObjectSelect([self.arma])
 
 
     def addbone(self, bonename, xform):
@@ -100,12 +91,12 @@ class SkeletonArmature():
             else:
                 self.warn(f"Pose list does not have good scale at index {j}: {poselist[i+2]}")
             if loc and rot and scale:
-                mxlocal = MatrixLocRotScale(loc, rot, scale)
+                mxlocal = bdefs.MatrixLocRotScale(loc, rot, scale)
                 mx = mxlocal.copy()
                 if parent:
                     mx = mxWorld[parentIndices[j]] @ mxlocal
                 mxWorld[j] = mx
-                new_bone = create_bone(self.arma.data, 
+                new_bone = bdefs.create_bone(self.arma.data, 
                                        bonelist[j], 
                                        mx, 
                                        "SKYRIM", 1.0, 0)
@@ -136,7 +127,7 @@ class ImportSkel(bpy.types.Operator, ImportHelper):
     
 
     def execute(self, context):
-        self.log_handler = LogHandler.New(bl_info, "IMPORT SKELETON", "XML")
+        self.log_handler = bdefs.LogHandler.New(bl_info, "IMPORT SKELETON", "XML")
         log.info(f"Importing {self.filepath}")
         try:
             infile = xml.parse(self.filepath)
@@ -383,7 +374,7 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
     
 
     def execute(self, context):
-        self.log_handler = LogHandler.New(bl_info, "EXPORT SKELETON", "XML")
+        self.log_handler = bdefs.LogHandler.New(bl_info, "EXPORT SKELETON", "XML")
 
         try:
             self.context = context

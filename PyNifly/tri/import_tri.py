@@ -8,9 +8,10 @@ from typing import BinaryIO
 import bpy
 from bpy_extras.io_utils import ImportHelper
 import PyNifly.blender_defs as BD
-from PyNifly.niflytools import gameSkeletons
-from trifile import TriFile, is_tri
-from tripfile import TripFile, is_trip
+from ..pyn.niflytools import gameSkeletons
+from .. import bl_info
+from .trifile import TriFile, is_tri
+from .tripfile import TripFile, is_trip
 
 log = logging.getLogger("pynifly")
 
@@ -25,7 +26,7 @@ def open_tri(filepath:Path):
             tri = TriFile.from_file(file)
             return tri
         elif is_trip(file):
-            trip = TripFile.from_file()
+            trip = TripFile.from_file(file)
             return trip
 
 
@@ -204,7 +205,7 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
 
     def execute(self, context):
         self.log_handler = BD.LogHandler()
-        self.log_handler.start(BD.bl_info, "IMPORT", "TRI")
+        self.log_handler.start(bl_info, "IMPORT", "TRI")
         self.status = {'FINISHED'}
         self.file_path = Path(self.filepath)
 
@@ -247,6 +248,6 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
 
         # Save the directory path for next time
         wm = context.window_manager
-        wm.pynifly_last_import_path_tri = str(self.filepath.parent)
+        wm.pynifly_last_import_path_tri = str(self.file_path.parent)
 
         return self.status.intersection({'FINISHED', 'CANCELLED'})

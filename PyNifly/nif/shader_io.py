@@ -8,12 +8,14 @@ import logging
 import traceback
 from contextlib import suppress
 import bpy
-from pynifly import *
-from mathutils import Matrix, Vector, Quaternion, Euler, geometry
-import blender_defs as BD
-from nifdefs import ShaderFlags1, ShaderFlags2, ShaderFlags1FO4, ShaderFlags2FO4
-from niflytools import find_referenced_file
+from mathutils import Vector
+from .. import blender_defs as BD
+from ..pyn.nifdefs import ShaderFlags1, ShaderFlags2
+from ..pyn.niflytools import find_referenced_file
+from ..pyn.pynifly import NiShape, NiShader, AlphaPropertyBuf, BSLSPShaderType, PynBufferTypes
 import gamefinder
+
+log = logging.getLogger("pynifly")
 
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 MSN_GROUP_NAME = "MSN_TRANSFORM"

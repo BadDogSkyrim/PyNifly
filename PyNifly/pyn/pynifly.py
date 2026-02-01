@@ -5,17 +5,15 @@ Check the first test to see basic functionality exercised.
 """
 
 import os
-import struct
-from enum import Enum, IntFlag, IntEnum
-from math import asin, atan2, pi, sin, cos
+from enum import Enum
 import re
 import logging
 from ctypes import *
-from typing import ValuesView # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer, addressof
+from typing import ValuesView 
 import xml.etree.ElementTree as xml
-from niflytools import *
-from nifdefs import *
-import xmltools
+from .niflytools import *
+from .nifdefs import *
+from . import xmltools
 
 
 # Locate the DLL and other files we need either in their development or install locations.
@@ -3207,7 +3205,7 @@ class NiShaderFO4(NiShader):
             # they use the shader block attributes.
             if self.name:
                 fullpath = find_referenced_file(self.name, self.file.filepath, root='materials', 
-                                                alt_path=self.file.materialsRoot)
+                                                alt_pathlist=[self.file.materialsRoot])
                 if fullpath:
                     self._materials = bgsmaterial.MaterialFile.Open(fullpath)
                     self._load_properties_from_materials()

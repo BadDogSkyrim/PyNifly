@@ -11,12 +11,13 @@ import xml.etree.ElementTree as xml
 import bpy
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
-from PyNifly.nifdefs import PynIntFlag
-from PyNifly.niflytools import tmp_copy_nospace, tmp_copy, tmp_filepath
-from PyNifly.pynifly import nifly_path, pynifly_dev_path, pynifly_addon_path, NifFile
-from PyNifly.blender_defs import LogHandler, bl_info, blender_import_xf, highlight_objects
-import xmltools as xmltools
-from PyNifly.nif.import_nif import NifImporter
+from ..pyn.nifdefs import PynIntFlag
+from ..pyn.niflytools import tmp_copy_nospace, tmp_copy, tmp_filepath
+from ..pyn.pynifly import nifly_path, pynifly_dev_path, pynifly_addon_path, NifFile
+from .. import blender_defs as bdefs
+from .. import bl_info
+from ..pyn.xmltools import XMLFile
+from ..nif.import_nif import NifImporter
 
 
 class ImportSettingsHKX(PynIntFlag):
@@ -60,27 +61,27 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
     use_blender_xf: bpy.props.BoolProperty(
         name="Use Blender orientation",
         description="Use Blender's orientation and scale",
-        default=BLENDER_XF_DEF) # type: ignore
+        default=bdefs.BLENDER_XF_DEF) # type: ignore
 
     do_rename_bones: bpy.props.BoolProperty(
         name="Rename bones",
         description="Rename bones to conform to Blender's left/right conventions.",
-        default=RENAME_BONES_DEF) # type: ignore
+        default=bdefs.RENAME_BONES_DEF) # type: ignore
 
     do_import_animations: bpy.props.BoolProperty(
         name="Import animations",
         description="Import any animations embedded in the nif.",
-        default=IMPORT_ANIMS_DEF) # type: ignore
+        default=bdefs.IMPORT_ANIMS_DEF) # type: ignore
 
     do_import_collisions: bpy.props.BoolProperty(
         name="Import collisions",
         description="Import any collisions embedded in the nif.",
-        default=IMPORT_COLLISIONS_DEF) # type: ignore
+        default=bdefs.IMPORT_COLLISIONS_DEF) # type: ignore
 
     rename_bones_niftools: bpy.props.BoolProperty(
         name="Rename bones as per NifTools",
         description="Rename bones using NifTools' naming scheme to conform to Blender's left/right conventions.",
-        default=RENAME_BONES_NIFT_DEF) # type: ignore
+        default=bdefs.RENAME_BONES_NIFT_DEF) # type: ignore
     
     reference_skel: bpy.props.StringProperty(
         name="Reference skeleton",
@@ -144,11 +145,11 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
             self.import_flags |= ImportSettingsHKX.rename_bones_nift
 
         try:
-            self.log_handler = LogHandler.New(bl_info, "IMPORT", "HKX")
+            self.log_handler = bdefs.LogHandler.New(bl_info, "IMPORT", "HKX")
 
             NifFile.Load(nifly_path)
-            xmltools.XMLFile.SetPath(hkxcmd_path)
-            self.xmlfile = xmltools.XMLFile(self.filepath, self)
+            XMLFile.SetPath(hkxcmd_path)
+            self.xmlfile = XMLFile(self.filepath, self)
             if self.xmlfile.contains_skeleton:
                 self.import_skeleton()
 
@@ -216,12 +217,12 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         imp.do_import_collisions = False
         imp.do_apply_skinning = False
         if self.use_blender_xf:
-            imp.import_xf = blender_import_xf
+            imp.import_xf = bdefs.blender_import_xf
         imp.execute()
         objlist = [x for x in imp.objects_created.blender_objects() if x.type=='MESH']
         if imp.armature:
             objlist.append(imp.armature)
-        highlight_objects(objlist, self.context)
+        bdefs.highlight_objects(objlist, self.context)
 
 
     def import_animation(self):
@@ -240,7 +241,7 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
             imp.nif = kf_file
             imp.import_nif()
             self.import_annotations()
-            highlight_objects([imp.armature], self.context)
+            bdefs.highlight_objects([imp.armature], self.context)
             log.info('Import of HKX animation completed successfully')
             return('FINISHED')
 

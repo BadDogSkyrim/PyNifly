@@ -5,13 +5,13 @@ import os
 import importlib
 from contextlib import suppress
 import bpy
-from import_nif import ImportNIF
-from export_nif import ExportNIF
-import controller
-import shader_io
-import controller
-import collision
-import connectpoint
+from .import_nif import ImportNIF
+from .export_nif import ExportNIF
+from . import controller
+from . import shader_io
+from . import controller
+from . import collision
+from . import connectpoint
 
 
 if 'PYNIFLY_DEV_ROOT' in os.environ:
@@ -46,6 +46,9 @@ def unregister():
 def register():
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_nif)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_nif)
+    with suppress(RuntimeError):
+        bpy.utils.register_class(ImportNIF)
+        bpy.utils.register_class(ExportNIF)
 
     controller.register()
 

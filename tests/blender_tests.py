@@ -6,36 +6,33 @@ https://polynook.com/learn/set-up-blender-addon-development-environment-in-windo
 import os
 import sys
 import shutil 
+import logging
 import math
 from pathlib import Path
 import json
 import bpy
-# import bpy.types
 from mathutils import Matrix, Vector, Quaternion, Euler
-import test_tools as TT
-import test_tools_bpy as TTB
-import niflytools as NT
-from nifdefs import NiAVFlags, ShaderFlags2, bhkCOFlags, SkyrimCollisionLayer, HSF, \
+import PyNifly.pyn.niflytools as NT
+from PyNifly.pyn.nifdefs import NiAVFlags, ShaderFlags2, bhkCOFlags, SkyrimCollisionLayer, \
     SkyrimHavokMaterial, PynBufferTypes, CycleType, hkResponseType, BSLSPShaderType, \
     BroadPhaseType, hkMotionType, hkSolverDeactivation, hkQualityType, HAVOC_SCALE_FACTOR
-import pynifly as pyn
+import PyNifly.pyn.pynifly as pyn
 import xml.etree.ElementTree as xml
-import blender_defs as BD
-from trihandler import *
-# from test_nifchecker import CheckNif
-import test_nifchecker as CHK
+import PyNifly.blender_defs as BD
+from PyNifly.tri.trifile import TriFile
+from PyNifly.tri.tripfile import TripFile
+from . import test_tools as TT
+from . import test_tools_bpy as TTB
+from . import test_nifchecker as CHK
 
 import importlib
-import skeleton_hkx
-import shader_io
-import controller
-importlib.reload(pyn)
-importlib.reload(TT)
-importlib.reload(BD)
-importlib.reload(shader_io)
-importlib.reload(controller)
-importlib.reload(skeleton_hkx)
-importlib.reload(CHK)
+from PyNifly.nif import shader_io, controller
+# importlib.reload(pyn)
+# importlib.reload(TT)
+# importlib.reload(BD)
+# importlib.reload(shader_io)
+# importlib.reload(controller)
+# importlib.reload(CHK)
 
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
@@ -252,7 +249,7 @@ def TEST_FO4_XFORM():
     head0:pyn.NiShape = nif0.shapes[0]
     xf0 = BD.transform_to_matrix(head0.get_shape_skin_to_bone('Chest'))
 
-    assert BD.MatNearEqual(xf0, xf1), f"Matrices are near equal: \n{xf0}\n=\n{xf1}"
+    assert NT.MatNearEqual(xf0, xf1), f"Matrices are near equal: \n{xf0}\n=\n{xf1}"
 
 
 @TT.category('SKYRIM', 'BODYPART', 'XFORM')
@@ -1596,9 +1593,11 @@ def TEST_IMPORT_MULT_SHAPES():
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
     assert len(meshes) == 2, f"Have 2 meshes: {meshes}"
     sknames0 = [sk.name for sk in meshes[0].data.shape_keys.key_blocks]
-    assert set(sknames0) == set(['Basis', '_Cat', '_CatF', '_Horse', '_Hyena', '_LionLyk']), f"Shape keys are named correctly: {sknames0}"
+    assert set(sknames0) == set(['Basis', '_Cat', '_CatF', '_Horse', '_Hyena', '_LionLyk']), \
+        f"Shape keys are named correctly: {sknames0}"
     sknames1 = [sk.name for sk in meshes[1].data.shape_keys.key_blocks]
-    assert set(sknames1) == set(['Basis', '_Cat', '_CatF', '_Horse', '_Hyena', '_LionLyk']), f"Shape keys are named correctly: {sknames1}"
+    assert set(sknames1) == set(['Basis', '_Cat', '_CatF', '_Horse', '_Hyena', '_LionLyk']), \
+        f"Shape keys are named correctly: {sknames1}"
     armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
     assert len(armatures) == 1, f"Have 1 armature: {armatures}"
 
@@ -3212,7 +3211,8 @@ def TEST_NONUNIFORM_SCALE():
 
     nifcheck = pyn.NifFile(testfile)
     shapecheck = nifcheck.shapes[0]
-    assert NT.NearEqual(shapecheck.transform.scale, 1.0), f"Nonuniform scale exported in verts so scale is 1: {shapecheck.transform.scale}"
+    assert NT.NearEqual(shapecheck.transform.scale, 1.0), \
+        f"Nonuniform scale exported in verts so scale is 1: {shapecheck.transform.scale}"
     for v in shapecheck.verts:
         assert not NT.VNearEqual(map(abs, v), [1,1,1]), f"All vertices scaled away from unit position: {v}"
 

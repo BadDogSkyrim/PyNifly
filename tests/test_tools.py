@@ -1,13 +1,12 @@
 """Helper routines for tests"""
 
-import sys
 import os
 import os.path
 from pathlib import Path
 from collections.abc import Iterable
 import logging
-import niflytools as NT 
-import nifdefs as ND
+from pyn import niflytools as NT 
+from pyn import nifdefs as ND
 
 pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
 pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")

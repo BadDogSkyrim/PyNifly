@@ -27,8 +27,31 @@ Original author listed as:
 updated by anon (me) to work with newer blender ( version 2.63+), I hope
 """
 
+from contextlib import suppress
+import bpy
+from .import_tri import ImportTRI
 
 
 def nifly_menu_import_tri(self, context):
     self.layout.operator(ImportTRI.bl_idname, text="Tri file with pyNifly (.tri)")
 
+
+def register():
+    bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_tri)
+    bpy.utils.register_class(ImportTRI)
+
+    bpy.types.WindowManager.pynifly_last_import_path_tri = bpy.props.StringProperty(
+        name="Last TRI Import Path",
+        subtype='DIR_PATH',
+        default=""
+    )
+
+
+def unregister():
+    bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_tri)
+    with suppress(RuntimeError):
+        bpy.utils.unregister_class(ImportTRI)
+
+    # Unregister last import path properties
+    with suppress(AttributeError):
+        del bpy.types.WindowManager.pynifly_last_import_path_tri

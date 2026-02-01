@@ -11,19 +11,20 @@ import json
 from pathlib import Path
 import bpy
 from bpy_extras.io_utils import ExportHelper
-from PyNifly.tri import TriFile, TripFile
-from niflytools import NearEqual, mesh_split_by_uv
-from nifdefs import (FO4Subsegment, FO4Segment, SkyPartition, BSXFlags, NiAVFlags, 
-                     VertexFlags, fo4FaceDict)
-import PyNifly.blender_defs as BD
-from PyNifly.blender_defs import ReprObject, ReprObjectCollection, ObjectSelect, ObjectActive
-import PyNifly.pynifly as pynifly
-import shader_io 
-import controller 
-import collision 
-import connectpoint 
+from ..tri.trifile import TriFile
+from ..tri.tripfile import TripFile
+from ..pyn.niflytools import NearEqual, MatNearEqual, mesh_split_by_uv, fo4FaceDict
+from ..pyn.nifdefs import (BSXFlags, NiAVFlags, VertexFlags)
+from .. import blender_defs as BD
+from ..blender_defs import ReprObject, ReprObjectCollection, ObjectSelect, ObjectActive
+from ..pyn import pynifly
+from .. import bl_info
+from . import shader_io 
+from . import controller 
+from . import collision 
+from . import connectpoint 
 
-log = logging.get_logger("export_nif")
+log = logging.getLogger("pynifly")
 
 def clean_filename(fn):
     s = fn.strip()
@@ -155,13 +156,13 @@ def expected_game(nif, bonelist):
 
 def is_partition(name):
     """ Check whether <name> is a valid partition or segment name """
-    if SkyPartition.name_match(name) >= 0:
+    if pynifly.SkyPartition.name_match(name) >= 0:
         return True
 
-    if FO4Segment.name_match(name) >= 0:
+    if pynifly.FO4Segment.name_match(name) >= 0:
         return True
 
-    parent_name, subseg_id, material = FO4Subsegment.name_match(name)
+    parent_name, subseg_id, material = pynifly.FO4Subsegment.name_match(name)
     if parent_name:
         return True
 
@@ -179,26 +180,26 @@ def partitions_from_vert_groups(obj, game):
             vg = obj.vertex_groups[nm]
             skyid = -1
             if game in ['SKYRIM', 'SKYRIMSE']:
-                skyid = SkyPartition.name_match(vg.name)
+                skyid = pynifly.SkyPartition.name_match(vg.name)
             if skyid >= 0:
-                val[vg.name] = SkyPartition(part_id=skyid, flags=0, name=vg.name)
+                val[vg.name] = pynifly.SkyPartition(part_id=skyid, flags=0, name=vg.name)
             elif game in ['FO4', 'FO76', 'FO3' 'FONV']:
-                segid = FO4Segment.name_match(vg.name)
+                segid = pynifly.FO4Segment.name_match(vg.name)
                 if segid >= 0:
-                    val[vg.name] = FO4Segment(part_id=len(val), index=segid, name=vg.name)
+                    val[vg.name] = pynifly.FO4Segment(part_id=len(val), index=segid, name=vg.name)
                 else:
                     # Check if this is a subsegment. All segs sort before their subsegs, 
                     # so it will already have been created if it exists separately
-                    parent_name, subseg_id, material = FO4Subsegment.name_match(vg.name)
+                    parent_name, subseg_id, material = pynifly.FO4Subsegment.name_match(vg.name)
                     if parent_name:
                         if not parent_name in val:
                             # Create parent segments if not there
-                            val[parent_name] = FO4Segment(
+                            val[parent_name] = pynifly.FO4Segment(
                                 part_id=len(val), 
-                                index=FO4Segment.name_match(parent_name), 
+                                index=pynifly.FO4Segment.name_match(parent_name), 
                                 name=parent_name)
                         p = val[parent_name]
-                        val[vg.name] = FO4Subsegment(len(val), subseg_id, material, p, name=vg.name)
+                        val[vg.name] = pynifly.FO4Subsegment(len(val), subseg_id, material, p, name=vg.name)
     
     return val
 
@@ -263,7 +264,7 @@ def get_with_uscore(str_list):
 
 class NifExporter:
     """ Object that handles the export process independent of Blender's export class """
-    def __init__(self, filepath, game, export_flags=BD.RENAME_BONES, chargen="chargen", scale=1.0):
+    def __init__(self, filepath, game, export_flags=BD.RENAME_BONES_DEF, chargen="chargen", scale=1.0):
         self.filepath = filepath
         self.game = game
         self.nif = None
@@ -624,7 +625,7 @@ class NifExporter:
             buf.offset = (fm.location / self.scale)[:]
             buf.heading = fm.rotation_euler.z
             buf.animation_type = pynifly.FurnAnimationType.GetValue(fm['AnimationType'])
-            buf.entry_points = pynifly.pynifly.pynifly.NiObject.parse(fm['EntryPoints'])
+            buf.entry_points = pynifly.NiObject.parse(fm['EntryPoints'])
             fmklist.append(buf)
         
         if fmklist:
@@ -1022,7 +1023,7 @@ class NifExporter:
         return nifname
 
 
-    def write_bone_hierarchy(self, shape:pynifly.pynifly.NiShape, arma, used_bones:list):
+    def write_bone_hierarchy(self, shape:pynifly.NiShape, arma, used_bones:list):
         """Write the bone hierarchy to the nif. Do this first so that transforms 
         and parent/child relationships are correct. Do not assume that the skeleton is fully
         connected (do Blender armatures have to be fully connected?). 
@@ -1044,7 +1045,7 @@ class NifExporter:
         newxfi.invert()
         new_shape.set_global_to_skin(BD.make_transformbuf(newxfi))
     
-        weights_by_bone = BD.get_weights_by_bone(weights_by_vert, arma.data.bones.keys())
+        weights_by_bone = pynifly.get_weights_by_bone(weights_by_vert, arma.data.bones.keys())
 
         for bone_name in  weights_by_bone.keys():
             self.write_bone(new_shape, arma, bone_name, weights_by_bone.keys())
@@ -1229,7 +1230,7 @@ class NifExporter:
             new_shape.string_data = [('BODYTRI', BD.truncate_filename(self.trippath, "meshes"))]
 
         obj['PYN_GAME'] = self.game
-        obj['PYN_BLENDER_XF'] = BD.MatNearEqual(self.export_xf, BD.blender_export_xf)
+        obj['PYN_BLENDER_XF'] = MatNearEqual(self.export_xf, BD.blender_export_xf)
         if self.preserve_hierarchy != BD.PRESERVE_HIERARCHY_DEF:
             obj['PYN_PRESERVE_HIERARCHY'] = self.preserve_hierarchy 
         if arma:
@@ -1617,7 +1618,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, "No objects selected for export")
             return {'CANCELLED'}
 
-        self.log_handler = BD.LogHandler.New(BD.bl_info, "EXPORT", "NIF")
+        self.log_handler = BD.LogHandler.New(bl_info, "EXPORT", "NIF")
         pynifly.NifFile.Load(pynifly.nifly_path)
 
         try:

@@ -5,9 +5,10 @@ import bpy
 import bpy.types
 import math
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry, Color
-import blender_defs as BD
-from nifdefs import NiShapeBuf, AlphaPropertyBuf, ConnectPointBuf, NODEID_NONE
-from pynifly import NifFile, BSEffectShaderProperty, check_return
+from ..blender_defs import (VNearEqual, NearEqual, ReprObjectCollection, ReprObject,
+                            link_to_collection, nonunique_name)
+from ..pyn.nifdefs import NiShapeBuf, AlphaPropertyBuf, ConnectPointBuf, NODEID_NONE
+from ..pyn.pynifly import NifFile, BSEffectShaderProperty, check_return
 import os
 import logging
 
@@ -48,15 +49,15 @@ def is_match_connectpoint(nifnode, cp):
     Editor markers have their flat side oriented towards -X with a null rotation. The
     matching connect point has a 90deg yaw.  
     """
-    if not BD.VNearEqual(nifnode.transform.translation, cp.translation, epsilon=0.001):
+    if not VNearEqual(nifnode.transform.translation, cp.translation, epsilon=0.001):
         return False
-    if not BD.NearEqual(nifnode.transform.scale, cp.scale, epsilon=0.001):
+    if not NearEqual(nifnode.transform.scale, cp.scale, epsilon=0.001):
         return False
     nodeq = Matrix(nifnode.transform.rotation).to_quaternion()
     cpq = Quaternion(cp.rotation)
     cpq.rotate(Quaternion((0, 0, 1), math.radians(-90)))
     delta = nodeq.rotation_difference(cpq).angle
-    return BD.NearEqual(delta, 0.0, epsilon=0.01)
+    return NearEqual(delta, 0.0, epsilon=0.01)
 
 
 def connectpoints_with_markers(nif):
@@ -100,7 +101,6 @@ def connection_name_root(s):
 
 def get_nifname(obj):
     """Return the name for the nif. It may have a suffix like ".001"."""
-    # n = BD.nonunique_name(obj)
     return obj.name.split('::', 1)[-1]
 
 
@@ -149,7 +149,7 @@ class ConnectPointParent():
         return self.obj.blender_obj
 
     @classmethod
-    def new(cls, scale, nif, cp, blendroot, blendarma, objectlist:BD.ReprObjectCollection, editor_markers):
+    def new(cls, scale, nif, cp, blendroot, blendarma, objectlist:ReprObjectCollection, editor_markers):
         """
         Create a representation of a nif's parent connect point in Blender.
 
@@ -198,7 +198,7 @@ class ConnectPointParent():
             mx = connectpoint_transform(cp, scale)
             pcp.matrix_world = mx
 
-            ro = BD.ReprObject(blender_obj=pcp, nifnode=cp)
+            ro = ReprObject(blender_obj=pcp, nifnode=cp)
 
         pcp.name = "BSConnectPointParents" + "::" + cpname
 
@@ -210,7 +210,7 @@ class ConnectPointParent():
         else:
             pcp.parent = blendroot
 
-        BD.link_to_collection(blendroot.users_collection[0], pcp)
+        link_to_collection(blendroot.users_collection[0], pcp)
 
         return ConnectPointParent(cpname, ro)
 
@@ -243,9 +243,9 @@ class ConnectPointChild():
         obj['PYN_CONNECT_CHILD_SKINNED'] = nif.connect_pt_child_skinned
         for i, n in enumerate(nif.connect_points_child):
             obj[f'PYN_CONNECT_CHILD_{i}'] = n
-        BD.link_to_collection(coll, obj)
+        link_to_collection(coll, obj)
         
-        ro = BD.ReprObject(blender_obj=obj)
+        ro = ReprObject(blender_obj=obj)
         return ConnectPointChild(nif.connect_points_child, ro, nif=nif)
     
 
@@ -284,7 +284,7 @@ class ConnectPointCollection():
         elif is_parent(cp):
             n = get_nifname(cp)
             if not n in [p.name for p in self.parents]:
-                p = ConnectPointParent(n, BD.ReprObject(cp, None))
+                p = ConnectPointParent(n, ReprObject(cp, None))
                 self.add(p)
 
         elif is_child(cp):
@@ -296,7 +296,7 @@ class ConnectPointCollection():
                     skinned = bool(cp[k])
                 elif k.startswith('PYN_CONNECT_CHILD'):
                     names.add(cp[k])
-            c = ConnectPointChild(names, BD.ReprObject(cp, None), skinned=skinned)
+            c = ConnectPointChild(names, ReprObject(cp, None), skinned=skinned)
             self.add(c)
 
 
@@ -411,13 +411,13 @@ class ConnectPointCollection():
             if obj.type == 'MESH':
                 rot.rotate(Quaternion((0, 0, 1), math.radians(90)))
             buf = ConnectPointBuf()
-            buf.name = BD.nonunique_name(cp.name).encode('utf-8')
+            buf.name = nonunique_name(cp.name).encode('utf-8')
             buf.translation[0], buf.translation[1], buf.translation[2] = transl[:]
             buf.rotation[0], buf.rotation[1], buf.rotation[2], buf.rotation[3] = rot[:]
             buf.scale = scale / CONNECT_POINT_SCALE
 
             if obj and obj.parent:
-                buf.parent = BD.nonunique_name(obj.parent).encode('utf-8')
+                buf.parent = nonunique_name(obj.parent).encode('utf-8')
                 if obj.parent.type == 'ARMATURE' and obj.parent_type == 'BONE' and obj.parent_bone:
                     bonename = nif.nif_name(obj.parent_bone)
                     buf.parent = bonename.encode('utf-8')

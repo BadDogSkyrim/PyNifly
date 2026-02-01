@@ -1,3 +1,13 @@
+"""
+Exports tri files and the Bodyslide variant of tri files.
+
+This module has no Blender dependencies. It just pulls the data out of the file and puts it 
+in a python-friendly format.
+
+Code adapted by Bad Dog from tri export/importer
+Original author listed as "Core script by kapaer, modvertice support by deedes"
+updated by anon (me) to work with newer blender ( version 2.63+), I hope
+"""
 # ***** BEGIN GPL LICENSE BLOCK *****
 #
 #	This program is free software: you can redistribute it and/or modify
@@ -14,18 +24,12 @@
 #	along with this program.  If not, see <http://www.gnu.org/licenses/>
 #
 # ***** END GPL LICENCE BLOCK *****
+
+import os
+import logging
+from struct import (unpack, pack)
+
 # --------------------------------------------------------------------------
-"""
-Exports tri files and the Bodyslide variant of tri files.
-
-This module has no Blender dependencies. It just pulls the data out of the file and puts it 
-in a python-friendly format.
-
-Code adapted by Bad Dog from tri export/importer
-Original author listed as "Core script by kapaer, modvertice support by deedes"
-updated by anon (me) to work with newer blender ( version 2.63+), I hope
-
-"""
 
 # Tri File format https://facegen.com/dl/sdk/doc/manual/fileformats.html:
 # Header
@@ -59,10 +63,6 @@ updated by anon (me) to work with newer blender ( version 2.63+), I hope
 #   block length
 #   mod vert index * block length -- index of vertex affected; this list is 1:1 with mod vertices (maybe?) 
 
-
-import os
-import logging
-from struct import (unpack, pack)
 
 VERSION_STRING = 'FRTRI003'
 INT_LEN = 4

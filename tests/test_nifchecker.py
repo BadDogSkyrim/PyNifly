@@ -6,11 +6,11 @@ well. So a lot of the tests use direct function calls.
 """
 
 from pathlib import Path
-from pynifly import NifFile
-from nifdefs import NODEID_NONE, CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, \
+from PyNifly.pyn.pynifly import NifFile
+from PyNifly.pyn.nifdefs import NODEID_NONE, CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, \
     NiKeyType, CycleType, ShaderFlags1, ShaderFlags2, BSLSPShaderType, VertexFlags, NiAVFlags
-from niflytools import NearEqual, VNearEqual, MatNearEqual
-import test_tools as TT
+from PyNifly.pyn.niflytools import NearEqual, VNearEqual, MatNearEqual
+from . import test_tools as TT
 
 
 def Check_daedriccuirass(nif:NifFile):

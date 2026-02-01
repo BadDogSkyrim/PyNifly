@@ -12,13 +12,14 @@ import xml.etree.ElementTree as xml
 import bpy
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
-from PyNifly.nifdefs import PynIntFlag
-from PyNifly.niflytools import tmp_filepath, nospace_filepath, copyfile
-from PyNifly.pynifly import nifly_path, pynifly_dev_path, pynifly_addon_path, NifFile
-from PyNifly.blender_defs import LogHandler, bl_info
-import skeleton_hkx
-import xmltools as xmltools
-from PyNifly.kf.export_kf import KFExporter
+from ..pyn.nifdefs import PynIntFlag
+from ..pyn.niflytools import tmp_filepath, nospace_filepath, copyfile
+from ..pyn.pynifly import nifly_path, pynifly_dev_path, pynifly_addon_path, NifFile
+from ..blender_defs import LogHandler
+from .. import bl_info
+from . import skeleton_hkx
+from ..pyn.xmltools import XMLFile
+from ..kf.export_kf import KFExporter
 
 
 class ImportSettingsHKX(PynIntFlag):
@@ -292,8 +293,8 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
             self.filepath = tmp_filepath(fp, ".xml")
             self.do_export()
 
-            xmltools.XMLFile.SetPath(hkxcmd_path)
-            xmltools.XMLFile.xml_to_hkx(fp, out_filepath)
+            XMLFile.SetPath(hkxcmd_path)
+            XMLFile.xml_to_hkx(fp, out_filepath)
 
             status = {'FINISHED'}
             # Save the directory path for next time

@@ -6,9 +6,8 @@ HKX ANIMATION IMPORT/EXPORT
 from contextlib import suppress
 import logging
 import bpy
-from import_hkx import ImportHKX, hkxcmd_path
-from export_hkx import ExportHKX, ExportSkelHKX
-import skeleton_hkx
+from .import_hkx import ImportHKX, hkxcmd_path
+from .export_hkx import ExportHKX, ExportSkelHKX
 
 
 def nifly_menu_import_hkx(self, context):
@@ -23,14 +22,12 @@ def nifly_menu_export_skelhkx(self, context):
 
 def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_hkx)
-    bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_export_hkx)
-    bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_export_skelhkx)
+    bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export_hkx)
+    bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export_skelhkx)
     with suppress(RuntimeError):
         bpy.utils.unregister_class(ImportHKX)
         bpy.utils.unregister_class(ExportHKX)
         bpy.utils.unregister_class(ExportSkelHKX)
-
-    skeleton_hkx.unregister()
 
     # Unregister saved path properties
     with suppress(AttributeError):
@@ -43,7 +40,12 @@ def register():
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_hkx)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_hkx)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_skelhkx)
-    skeleton_hkx.register()
+    with suppress(RuntimeError):
+        bpy.utils.register_class(ImportHKX)
+    with suppress(RuntimeError):
+        bpy.utils.register_class(ExportHKX)
+    with suppress(RuntimeError):
+        bpy.utils.register_class(ExportSkelHKX)
 
     # Register properties to remember last import paths
     bpy.types.WindowManager.pynifly_last_import_path_hkx = bpy.props.StringProperty(
@@ -64,7 +66,7 @@ def register():
 
     log = logging.getLogger("pynifly")
     if hkxcmd_path:
-        log.debug(f"Running hkxcmd from {hkxcmd_path}")
+        log.debug(f"Found hkxcmd at {hkxcmd_path}")
     else:
         log.error(f"Could not locate hkxcmd in the pyNifly install. Animations cannot be exported to HKX format.")
 

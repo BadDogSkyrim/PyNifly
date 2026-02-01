@@ -1,15 +1,10 @@
 """ Quick and Dirty Test Harness """
 
-import importlib
-import blender_tests as BT
-import controller
-import connectpoint
-import collision
-importlib.reload(BT)
-importlib.reload(controller)
-importlib.reload(connectpoint)
-importlib.reload(collision)
+from pathlib import Path
 
+import importlib
+from . import blender_tests as BT
+importlib.reload(BT)
 
 print("""
 =============================================================================
@@ -31,11 +26,12 @@ print("""
 # All tests with collisions
 # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
-BT.do_tests(
-    # target_tests=[ BT.TEST_EXPORT_BOGUS, ], 
-    categories={'HKX'},
-    test_all=False,
-    stop_on_fail=True,
-    )
+def doit():
+    BT.do_tests(
+        target_tests=[ BT.TEST_HEADPART, ], 
+        # categories={'HKX'},
+        test_all=True,
+        stop_on_fail=True,
+        )
 
 

@@ -8,8 +8,8 @@ from enum import Enum, IntFlag, IntEnum
 import math
 import logging
 from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer, addressof
-import pynmathutils as PM
-import bgsmaterial
+from . import pynmathutils as PM
+from . import bgsmaterial
 
 
 def is_in_plane(plane, vert):

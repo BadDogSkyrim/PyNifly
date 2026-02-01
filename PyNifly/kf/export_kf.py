@@ -8,10 +8,11 @@ from pathlib import Path
 import bpy
 from bpy.props import StringProperty, CollectionProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
-from PyNifly.pynifly import nifly_path, pynifly_dev_path, pynifly_addon_path, NifFile
-from PyNifly.nifdefs import PynIntFlag
-import PyNifly.blender_defs as BD
-import PyNifly.nif.controller as controller
+from ..pyn.pynifly import nifly_path, pynifly_dev_path, pynifly_addon_path, NifFile
+from ..pyn.nifdefs import PynIntFlag
+from ..blender_defs import LogHandler
+from ..nif.controller import ControllerHandler
+from .. import bl_info
 
 log = logging.getLogger("pynifly")
 
@@ -58,7 +59,7 @@ class KFExporter():
         kfx.nif.initialize("SKYRIM", str(filepath), "NiControllerSequence", 
                             kfx.filename_base)
         
-        controller.ControllerHandler.export_animation(kfx, context.object)
+        ControllerHandler.export_animation(kfx, context.object)
 
         kfx.nif.save()
 
@@ -131,7 +132,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
     def execute(self, context):
         self.context = context
         res = set()
-        self.log_handler = BD.LogHandler.New(BD.bl_info, "EXPORT", "KF")
+        self.log_handler = LogHandler.New(bl_info, "EXPORT", "KF")
 
         if not self.poll(context):
             return {'CANCELLED'} 

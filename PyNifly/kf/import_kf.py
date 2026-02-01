@@ -11,11 +11,11 @@ from pathlib import Path
 import bpy
 from bpy.props import StringProperty, CollectionProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
-from PyNifly.pynifly import nifly_path, pynifly_dev_path, pynifly_addon_path, NifFile
-from PyNifly.nifdefs import PynIntFlag
-import PyNifly.blender_defs as BD
-import PyNifly.nif.controller as controller
-from PyNifly.nif.import_nif import NifImporter
+from ..pyn.pynifly import nifly_path, pynifly_dev_path, pynifly_addon_path, NifFile
+from ..pyn.nifdefs import PynIntFlag
+from ..blender_defs import RENAME_BONES_DEF, RENAME_BONES_NIFT_DEF, LogHandler
+from ..nif.import_nif import NifImporter
+from .. import bl_info
 
 log = logging.getLogger("pynifly")
 
@@ -73,8 +73,8 @@ class ImportKF(bpy.types.Operator, ImportHelper):
         obj = bpy.context.object
         if obj and obj.type == 'ARMATURE':
             self.reference_skel = obj.get('PYN_SKELETON_FILE', '')
-            self.do_rename_bones = obj.get('PYN_RENAME_BONES', BD.RENAME_BONES_DEF)
-            self.rename_bones_niftools = obj.get('PYN_RENAME_BONES_NIFTOOLS', BD.RENAME_BONES_NIFT_DEF)
+            self.do_rename_bones = obj.get('PYN_RENAME_BONES', RENAME_BONES_DEF)
+            self.rename_bones_niftools = obj.get('PYN_RENAME_BONES_NIFTOOLS', RENAME_BONES_NIFT_DEF)
 
 
     def invoke(self, context, event):
@@ -94,8 +94,8 @@ class ImportKF(bpy.types.Operator, ImportHelper):
             self.report({"ERROR"}, f"Cannot run importer--see system console for details")
             return {'CANCELLED'} 
 
-        self.log_handler = BD.LogHandler()
-        self.log_handler.start(BD.bl_info, "IMPORT", "KF")
+        self.log_handler = LogHandler()
+        self.log_handler.start(bl_info, "IMPORT", "KF")
 
         if self.do_rename_bones: 
             self.import_flags |= ImportSettingsKF.rename_bones

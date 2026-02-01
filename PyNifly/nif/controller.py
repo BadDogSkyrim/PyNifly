@@ -12,9 +12,9 @@ from collections.abc import Iterator
 import bpy
 import bpy.props 
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
-from pynifly import *
-import blender_defs as BD
-from nifdefs import *
+from ..pyn.pynifly import *
+from .. import blender_defs as BD
+# from ..pyn.nifdefs import NiAnimKeyLinearXYZBuf
 import re
 import json
 
@@ -880,13 +880,14 @@ class ControllerHandler():
         Transform a blender curve into nif keys. 
         Returns [[time, value]...] for each keyframe in the curve.
         """
-        keys = []
-        for k in curve.keyframe_points:
-            k = NiAnimKeyLinearXYZBuf()
-            k.time = (k.co.x-1) / ( self.fps * ANIMATION_TIME_ADJUST)
-            k.value = k.co.y
-            keys.append(k)
-        return keys
+        raise NotImplementedError("Linear keys not implemented yet")
+        # keys = []
+        # for k in curve.keyframe_points:
+        #     k = NiAnimKeyLinearXYZBuf()
+        #     k.time = (k.co.x-1) / ( self.fps * ANIMATION_TIME_ADJUST)
+        #     k.value = k.co.y
+        #     keys.append(k)
+        # return keys
 
 
     def _get_curve_quad_values(self, curve):

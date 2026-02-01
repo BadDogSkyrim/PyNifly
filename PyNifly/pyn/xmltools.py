@@ -4,7 +4,7 @@ import os
 import subprocess
 import logging
 import xml.etree.ElementTree as xml
-import niflytools
+from . import niflytools
 from pathlib import Path
 
 hkxcmd_path = ""
@@ -136,23 +136,3 @@ class XMLFile:
     def contains_animation(self):
         anim = self.root.find(".//*[@class='hkaSplineCompressedAnimation']")
         return anim is not None
-
-            
-# def execute(self, context):
-#         LogStart(bl_info, "IMPORT SKELETON", "XML")
-#         log.info(f"Importing {self.filepath}")
-#         infile = xml.parse(self.filepath)
-#         inroot = infile.getroot()
-#         log.debug(f"Root tag: {inroot.tag}")
-#         log.debug(f"Root attributes: {inroot.attrib}")
-#         log.debug(f"Children: {[x.attrib for x in inroot]}")
-#         sec1 = inroot[0]
-#         log.debug(f"First section: {sec1.attrib}")
-#         if inroot:
-#             arma = SkeletonArmature(Path(self.filepath).stem)
-#             arma.bones_from_xml(inroot)
-#             # arma.connect_armature(inroot)
-
-#         status = {'FINISHED'}
-
-#         return status

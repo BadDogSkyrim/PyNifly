@@ -21,11 +21,11 @@ import ctypes
 import shutil
 
 from requests import head 
-from niflytools import *
-from nifdefs import *
-import test_tools as TT
-from pynifly import *
-from test_nifchecker import CheckNif
+from PyNifly.pyn.niflytools import *
+from PyNifly.pyn.nifdefs import *
+from . import test_tools as TT
+from PyNifly.pyn.pynifly import *
+from .test_nifchecker import CheckNif
 
 
 """Quick and dirty test harness."""

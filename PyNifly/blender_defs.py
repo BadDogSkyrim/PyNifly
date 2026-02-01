@@ -1,25 +1,16 @@
 """Common definitions for the Blender plugin"""
 
-bl_info = {
-    "name": "NIF format",
-    "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
-    "author": "Bad Dog",
-    "blender": (4, 5, 0),
-    "version": (22, 2, 0),   
-    "location": "File > Import-Export",
-    "support": "COMMUNITY",
-    "category": "Import-Export"
-}
-
 from contextlib import contextmanager
 import os
 from enum import IntFlag
 import re
+import logging
 from mathutils import Matrix, Vector, Quaternion, Euler
 import bpy
-from nifdefs import *
-from niflytools import VNearEqual, NearEqual
-from pynifly import pynifly_dev_path, pynifly_addon_path, NiTransformData, NiShape, TransformBuf, MATRIX3
+from math import pi
+from .pyn.nifdefs import NiKeyType
+from .pyn.niflytools import VNearEqual, NearEqual, gameSkeletons, fo4FaceDict
+from .pyn.pynifly import pynifly_dev_path, pynifly_addon_path, NiTransformData, NiShape, TransformBuf, MATRIX3
 
 import ctypes
 from ctypes import wintypes
@@ -307,6 +298,57 @@ def find_box_info(box):
     ctr =  box.matrix_world @ (faces[0].center + (opposites[0].center - faces[0].center)/2)
 
     return ctr, box.matrix_world.to_scale() * dimv, rot
+
+
+# ------ Bone handling ------
+
+ROLL_ADJUST = 0 # -90 * pi / 180
+
+def apply_scale_xf(xf:Matrix, sf:float):
+    """Apply the scale factor sf to the matrix but NOT to the scale component of the matrix.
+    When importing with a scale factor, verts and other elements are scaled already by the scale factor
+    so it doesn't need to be part of the transform as well.
+    """
+    loc, rot, scale = (xf * sf).decompose()
+    return MatrixLocRotScale(loc, rot, xf.to_scale())
+
+
+def apply_scale_transl(xf:Matrix, sf:float) -> Matrix:
+    """Apply the scale factor sf to the translation component of the matrix only."""
+    loc, rot, scale = xf.decompose()
+    return MatrixLocRotScale(loc*sf, rot, scale)
+
+
+def get_pose_blender_xf(node_xf: Matrix, game: str, scale_factor):
+    """Take the given bone transform and add in the transform for a blender bone"""
+    return apply_scale_transl(node_xf, scale_factor) @ game_rotations[game_axes[game]][0]
+
+
+def get_bone_global_xf(arma, bone_name, game:str, use_pose) -> Matrix:
+    """ Return the global transform represented by the bone. """
+    # Scale applied at this level on import, but by callor on export. Should be here for
+    # cosistency? 
+    # TODO -- CHECK this fix, apply everyWHERE
+    if use_pose:
+        bmx = arma.pose.bones[bone_name].matrix @ game_rotations[game_axes[game]][1]
+    else:
+        bmx = arma.data.bones[bone_name].matrix_local @ game_rotations[game_axes[game]][1]
+    return bmx
+
+def get_bone_xform(arma, bone_name, game, preserve_hierarchy, use_pose) -> Matrix:
+    """Return the local or global transform represented by the bone"""
+    bonexf = get_bone_global_xf(arma, bone_name, game, use_pose)
+
+    if preserve_hierarchy:
+        bparent = arma.data.bones[bone_name].parent
+        if bparent:
+            # Calculate the relative transform from the parent
+            parent_xf = get_bone_global_xf(arma, bparent.name, game, use_pose)
+            loc_xf = parent_xf.inverted() @ bonexf
+
+            return loc_xf
+
+    return bonexf
 
 
 def bind_position(shape:NiShape, bone: str) -> Matrix:
