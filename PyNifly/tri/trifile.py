@@ -48,9 +48,10 @@ ROTATE_X90 = 0
 
 def is_tri(file):
     """ Peek at the file header to see if it is a TRIP file. """
-    data = file.read(4)
     file.seek(0)
-    return (data == b'PIRT')
+    data = file.read(len(VERSION_STRING))
+    file.seek(0)
+    return (data.decode("iso-8859-15") == VERSION_STRING)
 
 
 class TRIHeader:

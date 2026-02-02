@@ -1417,15 +1417,17 @@ def TEST_TRI_SIMPLE():
     assert os.path.exists(tricubeniftri), f"Error: Should have exported {tricubeniftri}"
     assert os.path.exists(tricubenifchg), f"Error: Should have exported {tricubenifchg}"
     
-    cubetri = TriFile.from_file(tricubeniftri)
-    assert "Aah" in cubetri.morphs, f"Error: 'Aah' should be in tri"
-    assert "BrowIn" not in cubetri.morphs, f"Error: 'BrowIn' should not be in tri"
-    assert "*Extra" not in cubetri.morphs, f"Error: '*Extra' should not be in tri"
+    with open(tricubeniftri, 'rb') as f:
+        cubetri = TriFile.from_file(f)
+        assert "Aah" in cubetri.morphs, f"Error: 'Aah' should be in tri"
+        assert "BrowIn" not in cubetri.morphs, f"Error: 'BrowIn' should not be in tri"
+        assert "*Extra" not in cubetri.morphs, f"Error: '*Extra' should not be in tri"
     
-    cubechg = TriFile.from_file(tricubenifchg)
-    assert "Aah" not in cubechg.morphs, f"Error: 'Aah' should not be in chargen"
-    assert "BrowIn" in cubechg.morphs, f"Error: 'BrowIn' should be in chargen"
-    assert "*Extra" not in cubechg.morphs, f"Error: '*Extra' should not be in chargen"
+    with open(tricubenifchg, 'rb') as f:
+        cubechg = TriFile.from_file(f)
+        assert "Aah" not in cubechg.morphs, f"Error: 'Aah' should not be in chargen"
+        assert "BrowIn" in cubechg.morphs, f"Error: 'BrowIn' should be in chargen"
+        assert "*Extra" not in cubechg.morphs, f"Error: '*Extra' should not be in chargen"
     
 
 @TT.category('FO4', 'TRI')

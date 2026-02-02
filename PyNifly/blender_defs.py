@@ -700,6 +700,19 @@ def link_to_collection(coll, obj):
     coll.objects.link(obj)
 
 
+def mesh_create_uv(the_mesh, uv_points):
+    """ Create UV in Blender to match UVpoints from Nif
+        uv_points = [(u, v)...] indexed by vertex index
+        """
+    new_uv = [(0,0)] * len(the_mesh.loops)
+    for lp_idx, lp in enumerate(the_mesh.loops):
+        vert_targeted = lp.vertex_index
+        new_uv[lp_idx] = (uv_points[vert_targeted][0], 1-uv_points[vert_targeted][1])
+    new_uvlayer = the_mesh.uv_layers.new(do_init=False)
+    for i, this_uv in enumerate(new_uv):
+        new_uvlayer.data[i].uv = this_uv
+
+
 class ReprObject():
     """Object that is represented in both nif and Blender"""
     type = 'REPROBJ'

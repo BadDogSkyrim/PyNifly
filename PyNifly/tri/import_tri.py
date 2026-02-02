@@ -210,21 +210,20 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
         self.file_path = Path(self.filepath)
 
         try:
-            trifile = open_tri(self.file_path)
-            if trifile:
-                if trifile.isinstance(TriFile):
-                    cobj = bpy.context.object
-                    obj = import_tri(trifile, 
-                                    (cobj if self.do_apply_active else None), 
-                                    allow_extra_verts=self.do_apply_active)
-                    if obj == cobj:
-                        log.info(f"Imported .tri file into {cobj.name}")
-                    else:
-                        log.info("Imported .tri file as new object")
+            tf = open_tri(self.file_path)
+            if tf and isinstance(tf, TriFile):
+                cobj = bpy.context.object
+                obj = import_tri(tf, 
+                                (cobj if self.do_apply_active else None), 
+                                allow_extra_verts=self.do_apply_active)
+                if obj == cobj:
+                    log.info(f"Imported .tri file into {cobj.name}")
                 else:
-                    import_trip(trifile, context.selected_objects)
-                    log.info("Imported Bodyslide .tri file containing {trifile.shapes.keys()} shapes" 
-                             + f" into selected objects {[o.name for o in context.selected_objects]}")
+                    log.info("Imported .tri file as new object")
+            else:
+                import_trip(tf, context.selected_objects)
+                log.info("Imported Bodyslide .tri file containing {tf.shapes.keys()} shapes" 
+                            + f" into selected objects {[o.name for o in context.selected_objects]}")
 
             try:   
                 for area in bpy.context.screen.areas:

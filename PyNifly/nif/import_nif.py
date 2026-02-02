@@ -149,18 +149,6 @@ def mesh_create_normals(the_mesh, normals):
         the_mesh.normals_split_custom_set_from_vertices([Vector(v).normalized() for v in normals])
 
 
-def mesh_create_uv(the_mesh, uv_points):
-    """ Create UV in Blender to match UVpoints from Nif
-        uv_points = [(u, v)...] indexed by vertex index
-        """
-    new_uv = [(0,0)] * len(the_mesh.loops)
-    for lp_idx, lp in enumerate(the_mesh.loops):
-        vert_targeted = lp.vertex_index
-        new_uv[lp_idx] = (uv_points[vert_targeted][0], 1-uv_points[vert_targeted][1])
-    new_uvlayer = the_mesh.uv_layers.new(do_init=False)
-    for i, this_uv in enumerate(new_uv):
-        new_uvlayer.data[i].uv = this_uv
-
 def mesh_create_partition_groups(the_shape, the_object):
     """ Create groups to capture partitions """
     mesh = the_object.data
@@ -885,7 +873,7 @@ class NifImporter():
                 if parent: # and parent != self.root_object: # and not the_shape.bone_names:
                     new_object.parent = parent
 
-                mesh_create_uv(new_object.data, the_shape.uvs)
+                BD.mesh_create_uv(new_object.data, the_shape.uvs)
                 self.mesh_create_bone_groups(the_shape, new_object)
                 mesh_create_partition_groups(the_shape, new_object)
                 for f in new_mesh.polygons:
@@ -1543,16 +1531,16 @@ class NifImporter():
     def import_tris(self):
         """Import any tri files associated with the nif."""
         imported_meshes = [x for x in self.objects_created.blender_objects() if x.type == 'MESH']
-        tripfile = find_trip(self.nif)
-        if tripfile:
-            import_trip(tripfile, imported_meshes)
+        tpf = find_trip(self.nif)
+        if tpf:
+            import_trip(tpf, imported_meshes)
         elif len(imported_meshes) == 1:
             # No tri files if there's a trip file; 
             # must be only a single mesh to have a tri file.
             trifiles = find_tris(self.nif)
             for tf in trifiles:
-                trifile = open_tri(tf)
-                if trifile and trifile.isinstance(TriFile):
+                tf = open_tri(tf)
+                if tf and isinstance(tf, TriFile):
                     import_tri(tf, imported_meshes[0])
 
 
