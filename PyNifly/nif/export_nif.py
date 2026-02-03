@@ -13,7 +13,8 @@ import bpy
 from bpy_extras.io_utils import ExportHelper
 from ..tri.trifile import TriFile
 from ..tri.tripfile import TripFile
-from ..pyn.niflytools import NearEqual, MatNearEqual, mesh_split_by_uv, fo4FaceDict
+from ..pyn.niflytools import (NearEqual, MatNearEqual, mesh_split_by_uv, fo4FaceDict, 
+                              truncate_filename)
 from ..pyn.nifdefs import (BSXFlags, NiAVFlags, VertexFlags)
 from .. import blender_defs as BD
 from ..blender_defs import ReprObject, ReprObjectCollection, ObjectSelect, ObjectActive
@@ -625,7 +626,7 @@ class NifExporter:
             buf.offset = (fm.location / self.scale)[:]
             buf.heading = fm.rotation_euler.z
             buf.animation_type = pynifly.FurnAnimationType.GetValue(fm['AnimationType'])
-            buf.entry_points = pynifly.NiObject.parse(fm['EntryPoints'])
+            buf.entry_points = pynifly.FurnEntryPoints.parse(fm['EntryPoints'])
             fmklist.append(buf)
         
         if fmklist:
@@ -1227,7 +1228,7 @@ class NifExporter:
         if self.write_bodytri \
             and self.game in ['SKYRIM', 'SKYRIMSE'] \
             and len(self.trip.shapes) > 0:
-            new_shape.string_data = [('BODYTRI', BD.truncate_filename(self.trippath, "meshes"))]
+            new_shape.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
 
         obj['PYN_GAME'] = self.game
         obj['PYN_BLENDER_XF'] = MatNearEqual(self.export_xf, BD.blender_export_xf)
@@ -1327,7 +1328,7 @@ class NifExporter:
                 and self.game in ['FO4', 'FO76'] \
                 and len(self.trip.shapes) > 0 \
                 and  not self.bodytri_written:
-            self.nif.string_data = [('BODYTRI', BD.truncate_filename(self.trippath, "meshes"))]
+            self.nif.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
 
         if self.root_object:
             collision.CollisionHandler.export_collisions(self, self.root_object)

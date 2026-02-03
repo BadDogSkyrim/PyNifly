@@ -170,9 +170,17 @@ class TripFile:
         finally:
             file.close()
 
+
     @classmethod
     def from_file(cls, file:BinaryIO):
         tri = TripFile(filepath=file.name)
         tri.read(file)
+        return tri
+    
+
+    @classmethod
+    def from_filepath(cls, filepath):
+        with open(filepath, 'rb') as file:
+            tri = TripFile.from_file(file)
         return tri
     

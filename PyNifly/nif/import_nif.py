@@ -17,7 +17,8 @@ from .. import bl_info
 from ..pyn.niflytools import fo4FaceDict, find_trip, find_tris, MatNearEqual
 from ..pyn.nifdefs import (ShaderFlags1, ShaderFlags2, BSXFlags, BSValueNodeFlags, 
                      NiAVFlags, VertexFlags, PynIntFlag)
-from ..pyn.pynifly import NiShape, FurnAnimationType, FurnEntryPoints, NiNode, NifFile, nifly_path
+from ..pyn.pynifly import (NiShape, FurnAnimationType, FurnEntryPoints, NiNode, NifFile, 
+                           nifly_path, hkxSkeletonFile)
 from .. import blender_defs as BD
 from . import shader_io 
 from . import controller 
@@ -1600,8 +1601,8 @@ class NifImporter():
 
             if fext.lower() == ".nif":
                 self.nif = NifFile(this_file)
-            # elif fext in [".hkx", ".xml"]:
-            #     self.nif = hkxSkeletonFile(this_file)
+            elif fext in [".hkx", ".xml"]:
+                self.nif = hkxSkeletonFile(this_file)
             else:
                 ValueError("Import file of unknown type.")
             if not self.reference_skel:

@@ -290,11 +290,11 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
             self.context = context
             fp = Path(self.filepath)
             out_filepath = fp
-            self.filepath = tmp_filepath(fp, ".xml")
+            self.filepath = str(tmp_filepath(fp, ".xml"))
             self.do_export()
 
             XMLFile.SetPath(hkxcmd_path)
-            XMLFile.xml_to_hkx(fp, out_filepath)
+            XMLFile.xml_to_hkx(Path(self.filepath), out_filepath)
 
             status = {'FINISHED'}
             # Save the directory path for next time

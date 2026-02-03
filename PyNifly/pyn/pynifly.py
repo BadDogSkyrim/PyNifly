@@ -3924,7 +3924,7 @@ class NifFile:
         self._game = None
         self._root = None
         if not filepath is None:
-            self._handle = NifFile.nifly.load(filepath.encode('utf-8'))
+            self._handle = NifFile.nifly.load(str(filepath).encode('utf-8'))
             if not self._handle:
                 raise Exception(f"Could not open '{filepath}' as nif")
         self._skin_handle = None

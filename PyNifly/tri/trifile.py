@@ -2,8 +2,8 @@
 .tri file handling
 """
 
-import os
 import logging
+from pathlib import Path
 from struct import (unpack, pack)
 from typing import BinaryIO
 
@@ -388,6 +388,16 @@ class TriFile():
             return None
 
         return tri
+    
+    @classmethod
+    def from_filepath(cls, filepath:Path):
+        """ 
+        Read tris from the given file path.
+        Returns a new TriFile with the file conents.
+        """
+        with open(filepath, 'rb') as file:
+            return cls.from_file(file)
+
 
    
     # ------------------- EXPORT ---------------------

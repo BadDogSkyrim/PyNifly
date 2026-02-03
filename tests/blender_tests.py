@@ -14,7 +14,7 @@ import bpy
 from mathutils import Matrix, Vector, Quaternion, Euler
 import PyNifly.pyn.niflytools as NT
 from PyNifly.pyn.nifdefs import NiAVFlags, ShaderFlags2, bhkCOFlags, SkyrimCollisionLayer, \
-    SkyrimHavokMaterial, PynBufferTypes, CycleType, hkResponseType, BSLSPShaderType, \
+    SkyrimHavokMaterial, PynBufferTypes, CycleType, hkResponseType, HSF, \
     BroadPhaseType, hkMotionType, hkSolverDeactivation, hkQualityType, HAVOC_SCALE_FACTOR
 import PyNifly.pyn.pynifly as pyn
 import xml.etree.ElementTree as xml
@@ -1417,67 +1417,62 @@ def TEST_TRI_SIMPLE():
     assert os.path.exists(tricubeniftri), f"Error: Should have exported {tricubeniftri}"
     assert os.path.exists(tricubenifchg), f"Error: Should have exported {tricubenifchg}"
     
-    with open(tricubeniftri, 'rb') as f:
-        cubetri = TriFile.from_file(f)
-        assert "Aah" in cubetri.morphs, f"Error: 'Aah' should be in tri"
-        assert "BrowIn" not in cubetri.morphs, f"Error: 'BrowIn' should not be in tri"
-        assert "*Extra" not in cubetri.morphs, f"Error: '*Extra' should not be in tri"
+    cubetri = TriFile.from_filepath(tricubeniftri)
+    assert "Aah" in cubetri.morphs, f"Error: 'Aah' should be in tri"
+    assert "BrowIn" not in cubetri.morphs, f"Error: 'BrowIn' should not be in tri"
+    assert "*Extra" not in cubetri.morphs, f"Error: '*Extra' should not be in tri"
     
-    with open(tricubenifchg, 'rb') as f:
-        cubechg = TriFile.from_file(f)
-        assert "Aah" not in cubechg.morphs, f"Error: 'Aah' should not be in chargen"
-        assert "BrowIn" in cubechg.morphs, f"Error: 'BrowIn' should be in chargen"
-        assert "*Extra" not in cubechg.morphs, f"Error: '*Extra' should not be in chargen"
+    cubechg = TriFile.from_filepath(tricubenifchg)
+    assert "Aah" not in cubechg.morphs, f"Error: 'Aah' should not be in chargen"
+    assert "BrowIn" in cubechg.morphs, f"Error: 'BrowIn' should be in chargen"
+    assert "*Extra" not in cubechg.morphs, f"Error: '*Extra' should not be in chargen"
     
 
 @TT.category('FO4', 'TRI')
-def TEST_TRI():
+def TEST_TRI_EXISTING():
     """Can load a tri file into an existing mesh"""
 
     testfile = TTB.test_file(r"tests\FO4\meshes\CheetahMaleHead.nif")
     testtri2 = TTB.test_file(r"tests\FO4\meshes\CheetahMaleHead.tri")
+
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    obj = bpy.context.object
+
+    # log.debug(f"Importing tri with {bpy.context.object.name} selected")
+    bpy.ops.import_scene.pyniflytri(filepath=testtri2)
+
+    assert TT.is_ge(len(obj.data.shape_keys.key_blocks), 47, "Shape key count")
+
+
+@TT.category('FO4', 'TRI')
+def TEST_TRI_STANDALONE():
+    """Can load a tri file as a new mesh"""
     testtri3 = TTB.test_file(r"tests\FO4\meshes\CheetahMaleHead.tri")
     testout2 = TTB.test_file(r"tests\Out\CheetahMaleHead02.nif")
     testout2tri = TTB.test_file(r"tests\Out\CheetahMaleHead02.tri")
     testout2chg = TTB.test_file(r"tests\Out\CheetahMaleHead02chargen.tri")
 
     bpy.ops.object.select_all(action='DESELECT')
-    bpy.ops.import_scene.pynifly(filepath=testfile)
-
-    obj = bpy.context.object
-    if obj.type == "ARMATURE":
-        obj = obj.children[0]
-        bpy.context.view_layer.objects.active = obj
-
-    log.debug(f"Importing tri with {bpy.context.object.name} selected")
-    bpy.ops.import_scene.pyniflytri(filepath=testtri2)
-
-    assert len(obj.data.shape_keys.key_blocks) >= 47, f"Error: {obj.name} should have enough keys ({obj.data.shape_keys.key_blocks.keys()})"
-
-    print("### Can import a simple tri file as its own object")
-
-    bpy.ops.object.select_all(action='DESELECT')
     bpy.context.view_layer.objects.active = None
     bpy.ops.import_scene.pyniflytri(filepath=testtri3)
     triobj = bpy.context.object
-    assert triobj.name.startswith("CheetahMaleHead.tri"), f"Error: Should be named like tri file, found {triobj.name}"
+    assert triobj.name.startswith("CheetahMaleHead"), f"Error: Should be named like tri file, found {triobj.name}"
     assert "LJaw" in triobj.data.shape_keys.key_blocks.keys(), "Error: Should be no keys missing"
     
-    print('### Can export a shape with tris')
+    ### Can export a shape with tris
 
     bpy.ops.export_scene.pynifly(filepath=testout2, target_game="FO4")
     
-    print('### Exported shape and tri match')
+    ### Check export
     nif2 = pyn.NifFile(testout2)
-    tri2 = TriFile.from_file(testout2tri)
+    tri2 = TriFile.from_filepath(testout2tri)
     assert not os.path.exists(testout2chg), f"{testout2chg} should not have been created"
-    assert len(nif2.shapes[0].verts) == len(tri2.vertices), f"Error vert count should match, {len(nif2.shapes[0].verts)} vs {len(tri2.vertices)}"
-    assert len(nif2.shapes[0].tris) == len(tri2.faces), f"Error vert count should match, {len(nif2.shapes[0].tris)} vs {len(tri2.faces)}"
-    assert tri2.header.morphNum == len(triobj.data.shape_keys.key_blocks)-1, \
-        f"Error: morph count should match, file={tri2.header.morphNum} vs {triobj.name}={len(triobj.data.shape_keys.key_blocks)}"
+    assert TT.is_eq(len(nif2.shapes[0].verts), len(tri2.vertices), "Vert count")
+    assert TT.is_eq(len(nif2.shapes[0].tris), len(tri2.faces), "Face count")
+    assert TT.is_eq(tri2.header.morphNum, len(triobj.data.shape_keys.key_blocks)-1, "morph count")
     
-    print('### Tri and chargen export as expected')
-
 
 @TT.category('SKYRIM', 'TRI')
 def TEST_TRI_EYES():
@@ -1639,7 +1634,7 @@ def TEST_EXP_SK_RENAMED():
 
     ### CHECK TRI FILE ###
     
-    tri1 = TriFile.from_file(trifile)
+    tri1 = TriFile.from_filepath(trifile)
     new_keys = set()
     d = BD.gameSkeletons["FO4"]
     for m in tri1.morphs.keys():
@@ -3248,7 +3243,7 @@ def TEST_TRIP_SE():
     assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
     assert sd[1].endswith("TEST_TRIP_SE.tri"), f"Found correct filename"
 
-    tripcheck = TripFile.from_file(outfiletrip)
+    tripcheck = TripFile.from_filepath(outfiletrip)
     assert len(tripcheck.shapes) == 1, f"Found shape"
     bodymorphs = tripcheck.shapes['Penis_CBBE']
     assert len(bodymorphs) == 27, f"Found enough morphs: {len(bodymorphs)}"
@@ -3281,7 +3276,7 @@ def TEST_TRIP():
     assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
     assert sd[1].endswith("TEST_TRIP.tri"), f"Found correct filename"
 
-    tripcheck = TripFile.from_file(outfiletrip)
+    tripcheck = TripFile.from_filepath(outfiletrip)
     assert len(tripcheck.shapes) == 1, f"Found shape"
     bodymorphs = tripcheck.shapes['BaseMaleBody']
     assert len(bodymorphs) > 30, f"Found enough morphs: {len(len(bodymorphs))}"
@@ -3712,9 +3707,9 @@ def TEST_FACEBONE_EXPORT():
     #assert len([x for x in nif1.nodes.keys() if x == "Neck"]) == 0, f"Expected no regular nodes in facebones nif file; found {nif2.nodes.keys()}"
 
     # Exporter generates a single tri file named after the normal file
-    tri1 = TriFile.from_file(outfile_tri)
+    tri1 = TriFile.from_filepath(outfile_tri)
     assert len(tri1.morphs) > 0
-    tri2 = TriFile.from_file(outfile_chargen)
+    tri2 = TriFile.from_filepath(outfile_chargen)
     assert len(tri2.morphs) > 0
 
     # Same behavior if the shape is parented to the facebones skeleton and the normal skeleton is 
@@ -3887,7 +3882,7 @@ def TEST_INV_MARKER():
                 (-0.0000, -0.0000, -1.0000, -100),
                 ( 0.0000,  1.0000, -0.0000,  0),
                 ( 0.0000,  0.0000,  0.0000,  1.0000)))
-    assert BD.MatNearEqual(mx, mx_face, epsilon=0.1), f"Inventory matrix is 180 around z: {mx.to_euler()}"
+    assert TTB.MatNearEqual(mx, mx_face, epsilon=0.1), f"Inventory matrix is 180 around z: {mx.to_euler()}"
 
     # ------- Load --------
     testfile = TTB.test_file(r"tests\SkyrimSE\Suzanne.nif")
@@ -3983,13 +3978,13 @@ def TEST_INV_MARKER():
     # First test had the camera at the neutral position (back of Suzanne's head).
     bpy.ops.import_scene.pynifly(filepath=outfile1)
     im = next(obj for obj in bpy.data.objects if obj.type=='CAMERA')
-    assert BD.MatNearEqual(im.matrix_world, BD.CAMERA_NEUTRAL), f"Inventory matrix neutral: {im.matrix_world.to_euler()}"
+    assert TTB.MatNearEqual(im.matrix_world, BD.CAMERA_NEUTRAL), f"Inventory matrix neutral: {im.matrix_world.to_euler()}"
 
     # Second test had the camera at the front of Suzanne's head.
     TTB.clear_all()
     bpy.ops.import_scene.pynifly(filepath=outfile2)
     im = next(obj for obj in bpy.data.objects if obj.type=='CAMERA')
-    assert BD.MatNearEqual(im.matrix_world, 
+    assert TTB.MatNearEqual(im.matrix_world, 
         Matrix((
             ( 1.0000, -0.0000, -0.0006,   -0.0593),
             (-0.0006, -0.0000, -1.0000, -100.0000),
@@ -4001,7 +3996,7 @@ def TEST_INV_MARKER():
     TTB.clear_all()
     bpy.ops.import_scene.pynifly(filepath=outfile3)
     im = next(obj for obj in bpy.data.objects if obj.type=='CAMERA')
-    assert BD.MatNearEqual(im.matrix_world, 
+    assert TTB.MatNearEqual(im.matrix_world, 
         Matrix((
             ( 0.0002, -0.0000, -1.0000, -100.0000),
             (-1.0000,  0.0000, -0.0002,   -0.0204),
@@ -4932,7 +4927,7 @@ def TEST_COLLISION_LIST():
         collshape = root.constraints[0].target
         assert collshape.name.startswith('bhkListShape'), "Have list shape"
         yvals = set(round(obj.location.y, 1) for obj in collshape.children)
-        expectedy = set(map(lambda x: round(x*BD.HSF, 1), [0.632, -0.19, 0.9]))
+        expectedy = set(map(lambda x: round(x*HSF, 1), [0.632, -0.19, 0.9]))
         assert yvals == expectedy, f"Have expected y vals: {yvals} == {expectedy}"
 
         assert collshape.name.startswith("bhkListShape"), f"Found list collision shape: {collshape.name}"
@@ -4940,7 +4935,8 @@ def TEST_COLLISION_LIST():
     
         # -------- Export --------
         BD.ObjectSelect([root], active=True)
-        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', 
+        bpy.ops.export_scene.pynifly(filepath=outfile, 
+                                     target_game='SKYRIM', 
                                      use_blender_xf=(bx=='BLENDER'))
 
         # ------- Check ---------
@@ -5108,10 +5104,10 @@ def TEST_COLLISION_XFORM():
     capcts = listcheck.children[0] 
     capshape = capcts.child
     assert capshape.blockname == 'bhkCapsuleShape', f"Have the capsule"
-    capmaxy = (capcts.transform[1][3] + capshape.properties.point2[1]) * BD.HSF
+    capmaxy = (capcts.transform[1][3] + capshape.properties.point2[1]) * HSF
     assert BD.NearEqual(capmaxy, 67, epsilon=1.0), f"Capsule max y correct: {capmaxy}"
 
-    capminy = (capcts.transform[1][3] + capshape.properties.point1[1]) * BD.HSF
+    capminy = (capcts.transform[1][3] + capshape.properties.point1[1]) * HSF
     assert BD.NearEqual(capminy, -73.4, epsilon=1.0), f"Capsule min y correct: {capminy}"
 
 
@@ -5988,7 +5984,7 @@ def TEST_SKEL_TAIL_HKX():
                                      do_import_collisions=False)
     
     armacheck = bpy.context.object
-    assert BD.MatNearEqual(arma.data.bones['TailBone01'].matrix_local, 
+    assert TTB.MatNearEqual(arma.data.bones['TailBone01'].matrix_local, 
                            armacheck.data.bones['TailBone01'].matrix_local), \
         f"Have matching transforms."
 
@@ -6815,7 +6811,7 @@ def TEST_AUXBONES():
 
     # baseb = arma.data.bones['NPC GenitalsBase [GenBase]']
     # poseb = arma.pose.bones['NPC GenitalsBase [GenBase]']
-    # assert BD.MatNearEqual(baseb.matrix_local, poseb.matrix), f"Starting from base bone position"
+    # assert TTB.MatNearEqual(baseb.matrix_local, poseb.matrix), f"Starting from base bone position"
 
     # bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=hkx_skel)
 
@@ -7339,12 +7335,14 @@ def do_tests(
     print(f"\n\n===Skipped tests===")
     print(", ".join(skipped_tests))
     if not failed_tests:
+        msg = (f"""{len(passed_tests):3d} test{"s" if len(passed_tests) != 1 else ""} """
+            + f"""passed{"" if len(passed_tests) != 1 else " "}""")
         print(f"""
 
 
 =============================================================================
 ===                                                                       ===
-===                      SUCCESS: {len(passed_tests):3d} test{"s" if len(passed_tests) != 1 else ""} passed{"" if len(passed_tests) != 1 else " "}                        ===
+===                      SUCCESS: {msg}                                   ===
 ===                                                                       ===
 =============================================================================
 """)

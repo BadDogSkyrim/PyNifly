@@ -80,12 +80,12 @@ class XMLFile:
         hkx_filepath = niflytools.tmp_filepath(filepath_out, ".hkx")
 
 
-        niflytools.log.info(f"HKXCMD CONVERT -V:WIN32 {xml_filepath} {hkx_filepath}")
+        niflytools.log.info(f"HKXCMD CONVERT -V:WIN32 {str(xml_filepath)} {str(hkx_filepath)}")
         stat = subprocess.run([cls._hkxcmd_path, 
                                 "CONVERT", 
                                "-V:WIN32",
-                                xml_filepath, 
-                                hkx_filepath], 
+                                str(xml_filepath), 
+                                str(hkx_filepath)], 
                                 capture_output=True, check=True)
         
         if stat.returncode:

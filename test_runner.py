@@ -31,8 +31,9 @@ PyNifly.register()
 import tests
 importlib.reload(tests)
 from tests.blender_tests import *
+
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_TRI, ], 
+    target_tests=[ TEST_KF, ], 
     # categories={'HKX'},
     test_all=True,
     stop_on_fail=True,
