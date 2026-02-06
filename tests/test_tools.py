@@ -213,6 +213,25 @@ def is_contains(element, collection, message):
         return False
 
 
+def is_notcontains(element, collection, message):
+    if element not in collection:
+        return True
+    else:
+        log.error(f"ASSERT FAIL: {message} {element} not in {collection}")
+        return False
+
+
+def is_matnearequal(m1, m2, message, epsilon=0.001):
+    """Compare matrices for near-equality.
+    Matrix must act like a list of lists.
+    """
+    if NT.MatNearEqual(m1, m2, epsilon=epsilon):
+        return True
+    else:
+        log.error(f"ASSERT FAIL: {message} Matrices not near equal: \n{m1} \n!= \n{m2}")
+        return False
+
+
 def assert_seteq(actual, expected, msg):
     """Assert two lists have the same members. Members may be duplicated."""
     if type(actual) == set:

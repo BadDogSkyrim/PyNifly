@@ -939,25 +939,30 @@ class ControllerHandler():
         curvexyz = List of 3 fcurves, holding the x, y, & z curves.
         Returns [NiAnimKeyQuadTransBuf, ...] for each keyframe in the curve.
         """
+        log.debug(f"Exporting {curvexyz[0].data_path} as quad vector")
         kx = self._get_curve_quad_values(curvexyz[0])
         ky = self._get_curve_quad_values(curvexyz[1])
         kz = self._get_curve_quad_values(curvexyz[2])
 
         out_list = []
         for x, y, z in zip(kx, ky, kz):
-            k = NiAnimKeyQuadTransBuf()
             if not all_NearEqual([x.time, y.time, z.time]):
                 raise Exception(f"Time values do not match")
+            
+            if isinstance(x, QuadScalarKey):
+                k = NiAnimKeyQuadTransBuf()
+                k.forward[0] = x.forward
+                k.forward[1] = y.forward
+                k.forward[2] = z.forward
+                k.backward[0] = x.backward
+                k.backward[1] = y.backward
+                k.backward[2] = z.backward
+            else:
+                k = NiAnimKeyLinearTransBuf()
             k.time = x.time
             k.value[0] = x.value + basexf.translation.x
             k.value[1] = y.value + basexf.translation.y
             k.value[2] = z.value + basexf.translation.z
-            k.forward[0] = x.forward
-            k.forward[1] = y.forward
-            k.forward[2] = z.forward
-            k.backward[0] = x.backward
-            k.backward[1] = y.backward
-            k.backward[2] = z.backward
             out_list.append(k)
         return out_list
 
@@ -1212,7 +1217,10 @@ class ControllerHandler():
 
     @classmethod
     def export_animation(cls, parent_handler, arma):
-        """Export one action to one animation KF file."""
+        """
+        Export one action to one animation KF file. KF animations are exported at 30 fps,
+        not keyframe by keyframe.
+        """
         exporter = ControllerHandler(parent_handler)
         exporter.nif = parent_handler.nif
         exporter.controller_sequence = exporter.nif.rootNode
@@ -1224,13 +1232,14 @@ class ControllerHandler():
         cp.frequency = 1.0
         exporter.controller_sequence.properties = cp
         exporter._export_text_keys(exporter.action, exporter.controller_sequence)
+        exporter.export_each_frame = True
 
         # Collect list of curves. They will be picked off in clumps until the list is empty.
         curve_list = [c for c in BD.action_fcurves(exporter.action)]
 
         while curve_list:
             bonename, ti = NiTransformController.fcurve_exporter(exporter, curve_list, arma)
-            if bonename:
+            if bonename and ti:
                 nifbonename = exporter.nif_name(bonename)
 
                 exporter.controller_sequence.add_controlled_block(
@@ -2076,8 +2085,9 @@ def _parse_transform_curves(exporter:ControllerHandler, curve_list):
         targetname = t1
     
     if len(loc) != 3 and len(eu) != 3 and len(quat) != 4:
-        raise Exception(f"No useable transforms in fcurves for {c.data_path}")
-
+        log.info(f"No useable transforms in fcurves for "
+            + f"{c.data_path[0:-6] if c.data_path.endswith('.scale') else c.data_path}")
+    
     if loc: 
         props.translations.interpolation = _get_interpolation_type(loc)
     if quat: 
@@ -2087,8 +2097,8 @@ def _parse_transform_curves(exporter:ControllerHandler, curve_list):
         props.xRotations.interpolation = _get_interpolation_type([eu[0]])
         props.yRotations.interpolation = _get_interpolation_type([eu[1]])
         props.zRotations.interpolation = _get_interpolation_type([eu[2]])
-    if scale:
-        props.scales.interpolation = _get_interpolation_type(scale)
+    # if scale:
+    #     props.scales.interpolation = _get_interpolation_type(scale)
 
     return props, loc, eu, quat, scale
 
@@ -2290,6 +2300,7 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
     eu = []
     quat = []
     scale = []
+    ti = None
 
     props, loc, eu, quat, scale = _parse_transform_curves(exporter, curve_list)
 
@@ -2298,27 +2309,28 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
             log.info(f"Ignoring scale transforms--not used in Skyrim")
             exporter.given_scale_warning = True
 
-    ti = NiTransformInterpolator.New(
-        file=exporter.nif,
-        translation=targ_xf.translation[:],
-        rotation=targ_q[:],
-        scale=1.0,
-    )
-    
-    td:NiTransformData = NiTransformData.New(
-        file=exporter.nif,
-        properties=props,
-        parent=ti,
-    )
+    if quat or eu or loc:
+        ti = NiTransformInterpolator.New(
+            file=exporter.nif,
+            translation=targ_xf.translation[:],
+            rotation=targ_q[:],
+            scale=1.0,
+        )
+        
+        td:NiTransformData = NiTransformData.New(
+            file=exporter.nif,
+            properties=props,
+            parent=ti,
+        )
 
-    if len(quat) == 4:
-        _export_quaterion_curves(exporter, td, quat, props.rotationType, targ_q)
+        if len(quat) == 4:
+            _export_quaterion_curves(exporter, td, quat, props.rotationType, targ_q)
 
-    if len(eu) == 3:
-        _export_euler_curves(exporter, td, eu, (targ_q if targetname else None))
-            
-    if len(loc) == 3:
-        _export_loc_curves(exporter, td, loc, targ_xf)
+        if len(eu) == 3:
+            _export_euler_curves(exporter, td, eu, (targ_q if targetname else None))
+                
+        if len(loc) == 3:
+            _export_loc_curves(exporter, td, loc, targ_xf)
 
     return (targetname if targetname else targetobj.name), ti
 

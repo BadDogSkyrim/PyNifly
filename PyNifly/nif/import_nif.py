@@ -54,6 +54,7 @@ class ImportSettings(PynIntFlag):
     mesh_only = 1<<10
     import_collisions = 1<<11
     import_pose = 1<<12
+    rotate_bones_pretty = 1<<13
 
 
 NISHAPE_IGNORE = [
@@ -324,12 +325,14 @@ class NifImporter():
         return l
     
     def nif_name(self, blender_name):
+        """Return the name to use in the nif for a bone."""
         if self.is_set(ImportSettings.rename_bones) or self.is_set(ImportSettings.rename_bones_nift):
             return self.nif.nif_name(blender_name)
         else:
             return blender_name
         
     def blender_name(self, nif_name):
+        """Return the name to use in Blender for a bone."""
         if self.is_facegen and nif_name == "Head":
             # Facegen nifs use a "Head" bone, which appears to be the "HEAD" bone misnamed.
             return "HEAD"  
@@ -1284,6 +1287,7 @@ class NifImporter():
 
         arma['PYN_BLENDER_XF'] = MatNearEqual(self.import_xf, BD.blender_import_xf)
         arma['PYN_RENAME_BONES'] = self.is_set(ImportSettings.rename_bones)
+        arma['PYN_ROTATE_BONES_PRETTY'] = self.is_set(ImportSettings.rotate_bones_pretty)
         if self.is_set(ImportSettings.rename_bones_nift) != BD.RENAME_BONES_NIFT_DEF:
             arma['PYN_RENAME_BONES_NIFTOOLS'] = self.is_set(ImportSettings.rename_bones_nift)
 
@@ -1596,6 +1600,11 @@ class NifImporter():
 
         log.info(str(self))
 
+        if self.is_set(ImportSettings.rotate_bones_pretty):
+            BD.game_rotations = BD.game_rotations_pretty
+        else:
+            BD.game_rotations = BD.game_rotations_none
+
         for this_file in self.filename_list:
             fn, fext = os.path.splitext(os.path.basename(this_file))
 
@@ -1718,6 +1727,11 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Rename bones using NifTools' naming scheme to conform to Blender's left/right conventions.",
         default=BD.RENAME_BONES_NIFT_DEF) # type: ignore
 
+    pretty_bone_rotations: bpy.props.BoolProperty(
+        name="Pretty bone orientation",
+        description="Orient bones to show structure.",
+        default=BD.ROTATE_BONES_PRETTY) # type: ignore
+
     do_import_shapes: bpy.props.BoolProperty(
         name="Import as shape keys",
         description="Import similar objects as shape keys where possible on multi-file imports.",
@@ -1759,6 +1773,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             self.use_blender_xf = arma.get('PYN_BLENDER_XF', BD.BLENDER_XF_DEF)
             self.do_rename_bones = arma.get('PYN_RENAME_BONES', BD.RENAME_BONES_DEF)
             self.rename_bones_niftools = arma.get('RENAME_BONES_NIFT_DEF', BD.RENAME_BONES_NIFT_DEF)
+            self.rotate_bones_pretty = arma.get('PYN_ROTATE_BONES_PRETTY', BD.ROTATE_BONES_PRETTY)
             # When loading into an armature, ignore the nif's bind position--use the
             # armature's.
             self.do_import_pose = True
@@ -1821,6 +1836,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             import_flags = ImportSettings(0)
             if self.do_create_bones: import_flags |= ImportSettings.create_bones
             if self.do_rename_bones: import_flags |= ImportSettings.rename_bones
+            if self.pretty_bone_rotations: import_flags |= ImportSettings.rotate_bones_pretty
             if self.rename_bones_niftools: import_flags |= ImportSettings.rename_bones_nift
             if self.do_import_shapes: import_flags |= ImportSettings.import_shapekeys
             if self.do_import_animations: import_flags |= ImportSettings.import_anims

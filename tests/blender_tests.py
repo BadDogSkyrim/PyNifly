@@ -1210,7 +1210,8 @@ def TEST_3BBB():
 
 
 @TT.category('FO4', 'BODYPART', 'ARMATURE')
-@TT.expect_errors( ("Unknown block type: bhkRagdollSystem", "Unknown block type: bhkPhysicsSystem") )
+@TT.expect_errors( ("Unknown block type: bhkRagdollSystem", 
+                    "Unknown block type: bhkPhysicsSystem") )
 def TEST_CONNECT_SKEL():
     """Can import and export FO4 skeleton file with no shapes"""
     def do_test(use_xf):
@@ -1225,43 +1226,40 @@ def TEST_CONNECT_SKEL():
                                      use_blender_xf=use_xf)
 
         arma = [a for a in bpy.data.objects if a.type == 'ARMATURE'][0]
-        assert 'Root' in arma.data.bones, "Have Root bone"
+        assert TT.is_contains('Root', arma.data.bones, "Root bone")
         rootbone = arma.data.bones['Root']
-        assert 'Leg_Thigh.L' in arma.data.bones, "Have left thigh bone"
-        assert 'RibHelper.L' in arma.data.bones, "Have rib helper bone"
-        assert 'L_RibHelper.L' not in arma.data.bones, "Do not have nif name for bone"
-        assert 'L_RibHelper' not in bpy.data.objects, "Do not have rib helper object"
-        assert arma.data.bones['RibHelper.L'].parent.name == 'Chest', \
-            f"Parent of ribhelper is chest: {arma.data.bones['RibHelper.L'].parent.name}"
+        assert TT.is_contains('Leg_Thigh.L', arma.data.bones, "Have left thigh bone")
+        assert TT.is_contains('RibHelper.L', arma.data.bones, "Have rib helper bone")
+        assert TT.is_notcontains('L_RibHelper.L', arma.data.bones, "Do not have nif name for bone")
+        assert TT.is_notcontains('L_RibHelper', bpy.data.objects, "Do not have rib helper object")
+        assert TT.is_eq(arma.data.bones['RibHelper.L'].parent.name, 'Chest', "ribhelper parent")
 
-        # COM bone's orientation matches that of the nif
+        # Root bone's orientation matches that of the nif
         nif = pyn.NifFile(testfile)
         rootnode = nif.nodes["Root"]
-        assert TTB.MatNearEqual(rootbone.matrix, BD.transform_to_matrix(rootnode.transform)), \
-            f"Bone transform matches nif: {rootbone.matrix}"
+        rbm = rootbone.matrix_local @ BD.game_rotations[BD.game_axes['FO4']][1]
+        assert TT.is_matnearequal(rbm, BD.transform_to_matrix(rootnode.transform), 
+                                  "Bone transform matches nif")
 
         # Parent connect points are children of the armature. Could also be children of the root
         # but they get transposed based on the armature bones' transforms.
         cp_lleg = bpy.data.objects['BSConnectPointParents::P-ArmorLleg']
-        assert cp_lleg.parent.type == 'ARMATURE', f"cp_lleg has armature as parent: {cp_lleg.parent}"
-        assert NT.NearEqual(cp_lleg.location[0], 33.745487), \
-            f"Armor left leg connect point at position: {cp_lleg.location}"
+        assert TT.is_eq(cp_lleg.parent.type, 'ARMATURE', f"P-ArmorLleg parent")
+        assert TT.is_equiv(cp_lleg.location[0], 33.745487, "P-ArmorLleg location")
 
-        BD.ObjectSelect([bpy.data.objects['skeleton.nif:ROOT']], active=True)
+        BD.ObjectSelect([bpy.data.objects['skeleton.nif:ROOT']])
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', 
                                      preserve_hierarchy=True, 
                                      use_blender_xf=use_xf)
 
         skel_in = pyn.NifFile(testfile)
         skel_out = pyn.NifFile(outfile)
-        assert "L_RibHelper" in skel_out.nodes, "Bones written to nif"
-        pb = skel_out.nodes["L_RibHelper"].parent
-        assert pb.name == "Chest", f"Have correct parent: {pb.name}"
+        assert TT.is_contains("L_RibHelper", skel_out.nodes, "Bones written to nif")
+        assert TT.is_eq(skel_out.nodes["L_RibHelper"].parent.name, "Chest", f"RibHelper parent")
         helm_cp_in = [x for x in skel_in.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
         helm_cp_out = [x for x in skel_out.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
-        assert helm_cp_out.parent.decode('utf-8') == 'HEAD', f"Parent is correct: {helm_cp_out.parent}"
-        assert NT.VNearEqual(helm_cp_in.translation, helm_cp_out.translation), \
-            f"Connect point locations correct: {Vector(helm_cp_in.translation)} == {Vector(helm_cp_out.translation)}"
+        assert TT.is_eq(helm_cp_out.parent.decode('utf-8'), 'HEAD', f"ArmorHelmet parent")
+        assert TT.is_equiv(helm_cp_in.translation, helm_cp_out.translation, "ArmorHelmet location")
         
     do_test(False)
     do_test(True)
@@ -7253,6 +7251,19 @@ def LOAD_RIG():
 
 # --- Quick and Dirty Test Harness ---
 
+def print_boxed(text, width=78):
+    inner_width = width - 6
+    top_bottom = "=" * width
+    empty_line = "===" + " " * (inner_width) + "==="
+    middle_line = f"==={text.center(inner_width)}==="
+
+    print(top_bottom)
+    print(empty_line)
+    print(middle_line)
+    print(empty_line)
+    print(top_bottom)
+    
+    
 def testfrom(starttest):
     try:
         return alltests[alltests.index(starttest):]
@@ -7298,6 +7309,8 @@ def do_tests(
         test_all=False,
         exclude=()):
     """Do tests in testlist. Can pass in a single test."""
+    print_boxed("TESTING")
+
     active_tests = []
     if target_tests: 
         active_tests.extend(target_tests)
@@ -7335,27 +7348,11 @@ def do_tests(
     print(f"\n\n===Skipped tests===")
     print(", ".join(skipped_tests))
     if not failed_tests:
-        msg = (f"""{len(passed_tests):3d} test{"s" if len(passed_tests) != 1 else ""} """
+        msg = (f"""SUCCESS: {len(passed_tests):3d} test{"s" if len(passed_tests) != 1 else ""} """
             + f"""passed{"" if len(passed_tests) != 1 else " "}""")
-        print(f"""
-
-
-=============================================================================
-===                                                                       ===
-===                      SUCCESS: {msg}                                   ===
-===                                                                       ===
-=============================================================================
-""")
+        print_boxed(msg)
     else:
-        print(f"""
-
-
-=============================================================================
-===                                                                       ===
-===                           TESTS FAILED                                ===
-===                                                                       ===
-=============================================================================
-""")
+        print_boxed("TESTS FAILED")
 
 
 def show_all_tests():
@@ -7364,13 +7361,7 @@ def show_all_tests():
 
 
 if __name__ == "__main__":
-    print("""
-=============================================================================
-===                                                                       ===
-===                               TESTING                                 ===
-===                                                                       ===
-=============================================================================
-""")
+    print_boxed("TESTING")
 
     if not bpy.data:
         # If running outside blender, just list tests.

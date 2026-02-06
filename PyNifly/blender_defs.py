@@ -7,7 +7,7 @@ import re
 import logging
 from mathutils import Matrix, Vector, Quaternion, Euler
 import bpy
-from math import pi
+from math import pi, radians
 from .pyn.nifdefs import NiKeyType
 from .pyn.niflytools import VNearEqual, NearEqual, gameSkeletons, fo4FaceDict
 from .pyn.pynifly import pynifly_dev_path, pynifly_addon_path, NiTransformData, NiShape, TransformBuf, MATRIX3
@@ -70,6 +70,7 @@ PRESERVE_HIERARCHY_DEF = False
 RENAME_BONES_DEF = True
 RENAME_BONES_NIFT_DEF = False
 ROLL_BONES_NIFT_DEF = False
+ROTATE_BONES_PRETTY = True
 SCALE_DEF = 1.0
 WRITE_BODYTRI_DEF = False
 
@@ -302,8 +303,6 @@ def find_box_info(box):
 
 # ------ Bone handling ------
 
-ROLL_ADJUST = 0 # -90 * pi / 180
-
 def apply_scale_xf(xf:Matrix, sf:float):
     """Apply the scale factor sf to the matrix but NOT to the scale component of the matrix.
     When importing with a scale factor, verts and other elements are scaled already by the scale factor
@@ -379,22 +378,21 @@ FACEBONE_LEN = 2
 # the modder but mucks up anything that depends on those rotations: FO4 connection points, 
 # QUADRATIC_KEY animation data, maybe collisions? 
 
-# game_rotations = {'X': (Quaternion(Vector((0,0,1)),
-#                         radians(-90)).to_matrix().to_4x4(), Quaternion(Vector((0,0,1)),
-#                   radians(-90)).inverted().to_matrix().to_4x4()), 'Z':
-#                         (Quaternion(Vector((1,0,0)), radians(90)).to_matrix().to_4x4(),
-# Quaternion(Vector((1,0,0)), radians(90)).inverted().to_matrix().to_4x4())} 
+game_rotations_pretty = {
+    'X': (Quaternion(Vector((0,0,1)), radians(-90)).to_matrix().to_4x4(), 
+          Quaternion(Vector((0,0,1)), radians(90)).to_matrix().to_4x4()), 
+    'Z': (Quaternion(Vector((1,0,0)), radians(90)).to_matrix().to_4x4(),
+          Quaternion(Vector((1,0,0)), radians(-90)).to_matrix().to_4x4())} 
 
 # What if we don't add a rotation--just use what the nif has. Not so pretty for the user
 # but arguably more correct?
-game_rotations = {'X': (Matrix.Identity(4),
-                        Matrix.Identity(4)),
-                  'Z': (Matrix.Identity(4),
-                        Matrix.Identity(4))}
+game_rotations_none = {'X': (Matrix.Identity(4), Matrix.Identity(4)),
+                       'Z': (Matrix.Identity(4), Matrix.Identity(4))}
+
+game_rotations = game_rotations_pretty
 
 bone_vectors = {'X': Vector((1,0,0)), 'Z': Vector((0,0,1))}
 game_axes = {'FO3': 'X', 'FO4': 'X', 'FO76': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
-
 
 def is_facebone(bname):
     return bname.startswith("skin_bone_")

@@ -108,13 +108,14 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
                                self.reference_skel_short, 
                                str(self.kf_filepath), 
                                filepath], 
-                               capture_output=True, check=True)
+                               capture_output=True, 
+                               check=False)
         if stat.returncode:
             s = stat.stderr.decode('utf-8').strip()
-            log.error(s)
+            log.error(f"HKXCMD failed with error: {s}")
             return None
         if not os.path.exists(filepath):
-            log.error(f"Failed to create {filepath}")
+            log.error(f"HKXCMD failed to create {filepath} with error {stat.stderr.decode('utf-8').strip()}")
             return None
         log.info(f"Created temporary HKX file: {filepath}")
 

@@ -33,8 +33,8 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_KF, ], 
+    target_tests=[ TEST_CONNECT_SKEL, ], 
     # categories={'HKX'},
-    test_all=True,
+    test_all=False,
     stop_on_fail=True,
     )
