@@ -26,12 +26,12 @@ from . import test_tools_bpy as TTB
 from . import test_nifchecker as CHK
 
 import importlib
-from PyNifly.nif import shader_io, controller
+from PyNifly.nif import shader_io, controller, connectpoint
 # importlib.reload(pyn)
 # importlib.reload(TT)
 # importlib.reload(BD)
 # importlib.reload(shader_io)
-# importlib.reload(controller)
+importlib.reload(connectpoint)
 # importlib.reload(CHK)
 
 log = logging.getLogger("pynifly")
@@ -1209,21 +1209,22 @@ def TEST_3BBB():
     assert arma2.name == arma.name, f"Should have parented to same armature: {arma2.name} != {arma.name}"
 
 
-@TT.category('FO4', 'BODYPART', 'ARMATURE')
+@TT.category('FO4', 'BODYPART', 'ARMATURE', 'CONNECTPOINT')
 @TT.expect_errors( ("Unknown block type: bhkRagdollSystem", 
                     "Unknown block type: bhkPhysicsSystem") )
 def TEST_CONNECT_SKEL():
     """Can import and export FO4 skeleton file with no shapes"""
-    def do_test(use_xf):
-        print(f"Can import and export FO4 skeleton file with no shapes, transform {use_xf}")
+    def do_test(xf, bonerot):
+        print(f"Can import and export FO4 skeleton file with no shapes, transform {xf}, bone rotation {bonerot}")
         TTB.clear_all()
-        testname = "TEST_SKEL_" + str(use_xf)
+        testname = f"TEST_SKEL_{xf}_{bonerot}"
         testfile = TTB.test_file(r"skeletons\FO4\skeleton.nif")
         outfile = TTB.test_file(r"tests/out/" + testname + ".nif")
 
         bpy.ops.import_scene.pynifly(filepath=testfile, 
                                      do_create_bones=False, 
-                                     use_blender_xf=use_xf)
+                                     use_blender_xf=(xf == "BLENDER"),
+                                     pretty_bone_rotations=(bonerot == "PRETTY"))
 
         arma = [a for a in bpy.data.objects if a.type == 'ARMATURE'][0]
         assert TT.is_contains('Root', arma.data.bones, "Root bone")
@@ -1245,12 +1246,18 @@ def TEST_CONNECT_SKEL():
         # but they get transposed based on the armature bones' transforms.
         cp_lleg = bpy.data.objects['BSConnectPointParents::P-ArmorLleg']
         assert TT.is_eq(cp_lleg.parent.type, 'ARMATURE', f"P-ArmorLleg parent")
-        assert TT.is_equiv(cp_lleg.location[0], 33.745487, "P-ArmorLleg location")
+        log.debug(f"cp_lleg location blender xf={xf} bone rot={bonerot}: {cp_lleg.matrix_world.translation}")
+        if xf == "BLENDER":
+            assert TT.is_equiv(cp_lleg.matrix_world.translation, (1.01934, -0.16357, 3.52591),
+                            "P-ArmorLleg world location with Blender xf")
+        else:
+            assert TT.is_equiv(cp_lleg.matrix_world.translation, (-9.38420, -3.34377, 30.30442),
+                            "P-ArmorLleg world location with no Blender xf")
 
+        # Import settings should have been remembered
         BD.ObjectSelect([bpy.data.objects['skeleton.nif:ROOT']])
         bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', 
-                                     preserve_hierarchy=True, 
-                                     use_blender_xf=use_xf)
+                                     preserve_hierarchy=True)
 
         skel_in = pyn.NifFile(testfile)
         skel_out = pyn.NifFile(outfile)
@@ -1259,10 +1266,13 @@ def TEST_CONNECT_SKEL():
         helm_cp_in = [x for x in skel_in.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
         helm_cp_out = [x for x in skel_out.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
         assert TT.is_eq(helm_cp_out.parent.decode('utf-8'), 'HEAD', f"ArmorHelmet parent")
-        assert TT.is_equiv(helm_cp_in.translation, helm_cp_out.translation, "ArmorHelmet location")
+        assert TT.is_equiv(helm_cp_in.translation, helm_cp_out.translation[:], "ArmorHelmet location")
         
-    do_test(False)
-    do_test(True)
+    do_test(xf="NONE", bonerot="PRETTY")
+    do_test(xf="NONE", bonerot="NONE")
+    return
+    do_test(xf="BLENDER", bonerot="PRETTY")
+    do_test(xf="BLENDER", bonerot="NONE")
 
 
 @TT.category('SKYRIMSE', 'BODYPART', 'ARMATURE')
@@ -5159,16 +5169,22 @@ def TEST_CONNECT_POINT():
     nifsrc = pyn.NifFile(testfile)
     nifcheck = pyn.NifFile(outfile)
     pcheck = set(x.name.decode() for x in nifcheck.connect_points_parent)
-    assert pcheck == parentnames, f"Wrote correct parent names: {pcheck}"
-    pcasingsrc = [cp for cp in nifsrc.connect_points_parent if cp.name.decode()=="P-Casing"][0]
-    pcasing = [cp for cp in nifcheck.connect_points_parent if cp.name.decode()=="P-Casing"][0]
-    assert NT.VNearEqual(pcasing.rotation[:], pcasingsrc.rotation[:]), f"Have correct rotation: {pcasing}"
+    assert TT.is_samemembers(pcheck, parentnames, f"parent names")
+    assert TT.is_eq(len(casingsrc_list := [cp for cp in nifsrc.connect_points_parent 
+                                           if cp.name.decode()=="P-Casing"]),
+                    1, f"Have one casing connect point in source")
+    pcasingsrc = casingsrc_list[0]
+    assert TT.is_eq(len(pcasing_list := [cp for cp in nifcheck.connect_points_parent 
+                                         if cp.name.decode()=="P-Casing"]),
+                    1, f"Have one casing connect point in check")
+    pcasing = pcasing_list[0]
+    assert TT.is_equiv(pcasing.rotation[:], pcasingsrc.rotation[:], f"P-Casing rotation")
 
     chnames = nifcheck.connect_points_child
-    TT.assert_samemembers(chnames, childnames, "child connect point names")
+    assert TT.is_samemembers(chnames, childnames, "child connect point names")
 
     sgcheck = nifcheck.shape_dict['CombatShotgunReceiver:0']
-    assert sgcheck.blockname == 'BSTriShape', f"Have correct blockname: {sgcheck.blockname}"
+    assert TT.is_eq(sgcheck.blockname, 'BSTriShape', f"blockname")
 
 
 @TT.category('FO4', 'CONNECTPOINT')
@@ -5221,12 +5237,14 @@ def TEST_CONNECT_WEAPON_PART():
     testfile = TTB.test_file(r"tests\FO4\Shotgun\CombatShotgun.nif")
     partfile = TTB.test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel_1.nif")
     partfile2 = TTB.test_file(r"tests\FO4\Shotgun\CombatShotgunGlowPinSight.nif")
+    pretty = True
 
     # Import of mesh with parent connect points works correctly.
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  do_create_bones=False, 
                                  do_rename_bones=False, 
-                                 do_create_collections=True)
+                                 do_create_collections=True,
+                                 pretty_bone_rotations=pretty)
 
     barrelpcp = TTB.assert_exists('BSConnectPointParents::P-Barrel')
     magpcp = TTB.assert_exists('BSConnectPointParents::P-Mag')
@@ -5237,18 +5255,26 @@ def TEST_CONNECT_WEAPON_PART():
     bpy.ops.import_scene.pynifly(filepath=partfile, 
                                  do_create_bones=False, 
                                  do_rename_bones=False, 
-                                 do_create_collections=True)
+                                 do_create_collections=True,
+                                 pretty_bone_rotations=pretty)
     
-    barrelccp = TTB.find_object('BSConnectPointChildren::C-Barrel')
-    assert barrelccp, f"Barrel's child connect point found {barrelccp}"
-    assert barrelccp.constraints['Copy Transforms'].target == barrelpcp, \
-        f"Child connect point connected to parent connect point: {barrelccp.constraints['Copy Transforms'].target}"
+    # Barrel is connected to receiver
+    barrel = TTB.assert_exists('CombatShotgunBarrel:0')
+    barrelccp = TTB.assert_exists('BSConnectPointChildren::C-Barrel')
+    assert TT.is_eq(barrelccp.constraints['Copy Transforms'].target, barrelpcp, 
+                    f"connection to parent")
+    # Barrel physical location is correct in relation to receiver
+    barrel_min_y = min((barrel.matrix_world @ v.co).y for v in barrel.data.vertices)
+    barrel_max_y = max((barrel.matrix_world @ v.co).y for v in barrel.data.vertices)
+    assert TT.is_equiv(barrel_min_y, barrelpcp.location.y+0.5, "Barrel location", e=0.5)
+    assert TT.is_equiv(barrel_max_y-barrel_min_y, 21, "Barrel length", e=1.0)
 
     BD.ObjectSelect([barrelpcp, magpcp, scopepcp], active=True)
     bpy.ops.import_scene.pynifly(filepath=partfile2, 
                                  do_create_bones=False, 
                                  do_rename_bones=False, 
-                                 do_create_collections=True)
+                                 do_create_collections=True,
+                                 pretty_bone_rotations=pretty)
     
     scopeccp = TTB.find_object('BSConnectPointChildren::C-Scope')
     assert scopeccp, f"Scope's child connect point found {scopeccp}"

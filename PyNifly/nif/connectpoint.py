@@ -2,19 +2,16 @@
 # Copyright © 2024, Bad Dog.
 
 import bpy
-import bpy.types
 import math
-from mathutils import Matrix, Vector, Quaternion, Euler, geometry, Color
-from . import blender_defs as BD
+from mathutils import Matrix, Vector, Quaternion, Color
+from .. import blender_defs as BD
 from ..pyn.nifdefs import NiShapeBuf, AlphaPropertyBuf, ConnectPointBuf, NODEID_NONE
-from ..pyn.pynifly import NifFile, BSEffectShaderProperty, check_return
-import os
 import logging
 
 logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
 log = logging.getLogger("pynifly")
 
-CONNECT_POINT_SCALE = 15.0
+CONNECT_POINT_SCALE = 5.0
 
 # P-WS-* don't get editor markers. Show them as emptys.
 EDITOR_MARKER_COLORS = {
@@ -35,7 +32,7 @@ def connectpoint_transform(cp, scale=1.0):
     return Matrix.LocRotScale(
         Vector(cp.translation[:]) * scale,
         Quaternion(cp.rotation[:]),
-        ((cp.scale * CONNECT_POINT_SCALE * scale),) * 3
+        ((cp.scale * scale),) * 3
     )
 
 
@@ -189,12 +186,15 @@ class ConnectPointParent():
 
         # Create an EMPTY if no editor marker
         if not pcp:
-            bpy.ops.object.add(radius=scale, type='EMPTY')
+            bpy.ops.object.add(type='EMPTY')
             pcp = bpy.context.object
             pcp.show_name = True
             pcp.empty_display_type = 'ARROWS'
+            pcp.empty_display_size = scale * CONNECT_POINT_SCALE
 
-            mx = connectpoint_transform(cp, scale) @ BD.game_rotations[nif.game][0]
+            mx = connectpoint_transform(cp, scale)
+            if bonename:
+                mx = BD.game_rotations[BD.game_axes[nif.game]][1] @ mx
             pcp.matrix_world = mx
 
             ro = BD.ReprObject(blender_obj=pcp, nifnode=cp)
@@ -233,11 +233,12 @@ class ConnectPointChild():
         """
         if not nif.connect_points_child: return
 
-        bpy.ops.object.add(radius=scale, type='EMPTY', location=location)
+        bpy.ops.object.add(type='EMPTY', location=location)
         obj = bpy.context.object
         obj.name = "BSConnectPointChildren::" + nif.connect_points_child[0]
         obj.show_name = True
         obj.empty_display_type = 'SPHERE'
+        obj.empty_display_size = scale * CONNECT_POINT_SCALE
         obj.location = (0,0,0)
         obj['PYN_CONNECT_CHILD_SKINNED'] = nif.connect_pt_child_skinned
         for i, n in enumerate(nif.connect_points_child):
