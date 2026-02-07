@@ -6,7 +6,8 @@ import bpy
 import bmesh
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 from ..blender_defs import (MatrixLocRotScale, ObjectSelect, transform_to_matrix, 
-                            find_box_info, append_if_new, MatrixLocRotScale, ReprObject)
+                            find_box_info, append_if_new, MatrixLocRotScale)
+from ..util.reprobj import ReprObject
 from ..pyn.pynifly import *
 
 

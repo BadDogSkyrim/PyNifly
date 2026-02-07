@@ -17,7 +17,8 @@ from ..pyn.niflytools import (NearEqual, MatNearEqual, mesh_split_by_uv, fo4Face
                               truncate_filename)
 from ..pyn.nifdefs import (BSXFlags, NiAVFlags, VertexFlags)
 from .. import blender_defs as BD
-from ..blender_defs import ReprObject, ReprObjectCollection, ObjectSelect, ObjectActive
+from ..blender_defs import ObjectSelect, ObjectActive, PYN_RENAME_BONES_PROP
+from ..util.reprobj import ReprObject, ReprObjectCollection
 from ..pyn import pynifly
 from .. import bl_info
 from . import shader_io 
@@ -328,6 +329,7 @@ class NifExporter:
         if self.export_colors: flags.append("EXPORT_COLORS")
         return f"""
         Exporting objects: {[o.name for o in self.objects]}
+            game: {self.game}
             flags: {'|'.join(flags)}
             string data: {self.str_data}
             BG data: {self.bg_data}
@@ -1235,7 +1237,7 @@ class NifExporter:
         if self.preserve_hierarchy != BD.PRESERVE_HIERARCHY_DEF:
             obj['PYN_PRESERVE_HIERARCHY'] = self.preserve_hierarchy 
         if arma:
-            arma['PYN_RENAME_BONES'] = self.do_rename_bones
+            arma[PYN_RENAME_BONES_PROP] = self.do_rename_bones
             if self.rename_bones_nift != BD.RENAME_BONES_NIFT_DEF:
                 arma['PYN_RENAME_BONES_NIFTOOLS'] = self.rename_bones_nift 
         if self.write_bodytri != BD.WRITE_BODYTRI_DEF:
@@ -1464,6 +1466,16 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         description="Rename bones from Blender conventions back to nif.",
         default=True) # type: ignore
 
+    pretty_bone_rotations: bpy.props.BoolProperty(
+        name="Pretty bone orientation",
+        description="Orient bones to show structure.",
+        default=BD.ROTATE_BONES_PRETTY) # type: ignore
+
+    rename_bones_niftools: bpy.props.BoolProperty(
+        name="Rename Bones as per NifTools",
+        description="Rename bones from NifTools' Blender conventions back to nif.",
+        default=False) # type: ignore
+
     rename_bones_niftools: bpy.props.BoolProperty(
         name="Rename Bones as per NifTools",
         description="Rename bones from NifTools' Blender conventions back to nif.",
@@ -1516,72 +1528,14 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        
         self.objects_to_export = bpy.context.selected_objects 
 
         if not self.objects_to_export:
             self.report({"ERROR"}, "No objects selected for export")
-            return
+            return {'CANCELLED'}
 
-        obj = self.objects_to_export[0]
-        if not self.filepath:
-            self.filepath = clean_filename(obj.name)
 
-        lst = [obj for obj in self.objects_to_export if "pynRoot" in obj]
-        obj_root = lst[0] if lst else None
-
-        export_armature = None
-        if obj.type == 'ARMATURE':
-            export_armature = obj
-        else:
-            export_armature, fb_arma = BD.find_armatures(obj)
-            if not export_armature:
-                export_armature = fb_arma
-
-        if self.intuit_defaults:
-            g = ""
-            if 'PYN_GAME' in obj:
-                g = obj['PYN_GAME']
-            else:
-                if export_armature:
-                    g = BD.best_game_fit(export_armature.data.bones)
-            if g != "":
-                self.target_game = g
-        
-            if obj_root and 'PYN_BLENDER_XF' in obj_root:
-                self.use_blender_xf = obj_root['PYN_BLENDER_XF']
-            elif obj and 'PYN_BLENDER_XF' in obj:
-                self.use_blender_xf = obj['PYN_BLENDER_XF']
-                
-            if export_armature and 'PYN_RENAME_BONES' in export_armature:
-                self.do_rename_bones = export_armature['PYN_RENAME_BONES']
-            else:
-                # User might have selected a root or an object, not an armature. Pick up
-                # the rename flag from whetever they did select.
-                objs = self.objects_to_export
-                i = 0
-                while i < len(objs):
-                    objs.extend(objs[i].children)
-                    i += 1
-                objs_flagged = [x for x in objs if 'PYN_RENAME_BONES' in x]
-                if objs_flagged:
-                    self.do_rename_bones = all(x['PYN_RENAME_BONES'] for x in objs_flagged)
-
-            if export_armature and 'PYN_RENAME_BONES_NIFTOOLS' in export_armature:
-                self.rename_bones_niftools = export_armature['PYN_RENAME_BONES_NIFTOOLS']
-
-            if obj and 'PYN_PRESERVE_HIERARCHY' in obj:
-                self.preserve_hierarchy = obj['PYN_PRESERVE_HIERARCHY']
-
-            if obj and 'PYN_WRITE_BODYTRI_ED' in obj:
-                self.write_bodytri = obj['PYN_WRITE_BODYTRI_ED']
-
-            if obj and 'PYN_EXPORT_POSE' in obj:
-                self.export_pose = obj['PYN_EXPORT_POSE']
-
-            if obj and 'PYN_CHARGEN_EXT' in obj:
-                self.chargen_ext = obj['PYN_CHARGEN_EXT']
-
-        
     @classmethod
     def poll(cls, context):
         if not pynifly.nifly_path:
@@ -1599,10 +1553,72 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         return True
 
     def invoke(self, context, event):
+        """
+        Set up default flags for the UI. Override the addon defaults with any settings
+        on the objects being exported.
+        """
         # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_export_path_nif:
             self.filepath = str(Path(context.window_manager.pynifly_last_export_path_nif) 
                                 / Path(self.filepath))
+            
+        obj = self.objects_to_export[0]
+        if not self.filepath:
+            self.filepath = clean_filename(obj.name)
+
+        lst = [obj for obj in self.objects_to_export if "pynRoot" in obj]
+        obj_root = lst[0] if lst else None
+
+        export_armature = None
+        if obj.type == 'ARMATURE':
+            export_armature = obj
+        else:
+            export_armature, fb_arma = BD.find_armatures(obj)
+            if not export_armature:
+                export_armature = fb_arma
+
+        pyniflyPrefs = bpy.context.preferences.addons["PyNifly"].preferences
+        self.use_blender_xf = pyniflyPrefs.blender_xf
+        self.do_rename_bones = pyniflyPrefs.rename_bones
+        self.rename_bones_niftools = pyniflyPrefs.rename_bones_nift
+        self.pretty_bone_rotations = pyniflyPrefs.rotate_bones_pretty
+        g = obj.get('PYN_GAME', "")
+        if not g:
+            if export_armature:
+                g = export_armature.get(
+                    'PYN_GAME', BD.best_game_fit(export_armature.data.bones))
+        if g:
+            self.target_game = g
+    
+        self.use_blender_xf = BD.get_setting_from(
+            'PYN_BLENDER_XF', 
+            (obj_root, obj, export_armature), 
+            default=pyniflyPrefs.blender_xf)
+        self.do_rename_bones = BD.get_setting_from(
+            PYN_RENAME_BONES_PROP,
+            [export_armature] + self.objects_to_export,
+            default=pyniflyPrefs.rename_bones)
+        self.rename_bones_niftools = BD.get_setting_from(
+            'PYN_RENAME_BONES_NIFTOOLS',
+            [export_armature] + self.objects_to_export,
+            default=pyniflyPrefs.rename_bones_nift)
+        self.pretty_bone_rotations = BD.get_setting_from(
+            'PYN_ROTATE_BONES_PRETTY',
+            [export_armature] + self.objects_to_export,
+            default=pyniflyPrefs.rotate_bones_pretty)
+            
+        if obj and 'PYN_PRESERVE_HIERARCHY' in obj:
+            self.preserve_hierarchy = obj['PYN_PRESERVE_HIERARCHY']
+
+        if obj and 'PYN_WRITE_BODYTRI_ED' in obj:
+            self.write_bodytri = obj['PYN_WRITE_BODYTRI_ED']
+
+        if obj and 'PYN_EXPORT_POSE' in obj:
+            self.export_pose = obj['PYN_EXPORT_POSE']
+
+        if obj and 'PYN_CHARGEN_EXT' in obj:
+            self.chargen_ext = obj['PYN_CHARGEN_EXT']
+
         return super().invoke(context, event)
 
     def execute(self, context):

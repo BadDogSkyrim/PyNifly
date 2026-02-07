@@ -20,6 +20,8 @@ from ..pyn.nifdefs import (ShaderFlags1, ShaderFlags2, BSXFlags, BSValueNodeFlag
 from ..pyn.pynifly import (NiShape, FurnAnimationType, FurnEntryPoints, NiNode, NifFile, 
                            nifly_path, hkxSkeletonFile)
 from .. import blender_defs as BD
+from ..blender_defs import PYN_RENAME_BONES_PROP
+from ..util.reprobj import ReprObject, ReprObjectCollection
 from . import shader_io 
 from . import controller 
 from . import collision 
@@ -269,7 +271,7 @@ class NifImporter():
         self.is_new_armature = True # Armature is derived from current nif; set false if adding to existing arma
         self.created_child_cp = None
         self.bones = set()
-        self.objects_created = BD.ReprObjectCollection() # Dictionary of objects created, indexed by node handle
+        self.objects_created = ReprObjectCollection() # Dictionary of objects created, indexed by node handle
                                   # (or object name, if no handle)
         self.nodes_loaded = {} # Dictionary of nodes from the nif file loaded, indexed by Blender name
         self.loaded_meshes = [] # Holds blender objects created from shapes in a nif
@@ -484,7 +486,7 @@ class NifImporter():
             ed.show_name = True
             b[1].extract(ed)
             ed.parent = parent_obj
-            self.objects_created.add(BD.ReprObject(blender_obj=ed))
+            self.objects_created.add(ReprObject(blender_obj=ed))
             BD.link_to_collection(self.collection, ed)
 
 
@@ -498,7 +500,7 @@ class NifImporter():
             ed.show_name = True
             ed['pynBoneLOD'] = json.dumps(lod)
             ed.parent = parent_obj
-            self.objects_created.add(BD.ReprObject(blender_obj=ed))
+            self.objects_created.add(ReprObject(blender_obj=ed))
             BD.link_to_collection(self.collection, ed)
 
 
@@ -513,7 +515,7 @@ class NifImporter():
             ed['BSXFlags_Name'] = b[0]
             ed['BSXFlags_Value'] = BSXFlags(b[1]).fullname
             ed.parent = parent_obj
-            self.objects_created.add(BD.ReprObject(blender_obj=ed))
+            self.objects_created.add(ReprObject(blender_obj=ed))
             BD.link_to_collection(self.collection, ed)
 
 
@@ -544,7 +546,7 @@ class NifImporter():
             ed['BSInvMarker_Zoom'] = invm[4]
 
             ed.parent = parent_obj
-            self.objects_created.add(BD.ReprObject(blender_obj=ed))
+            self.objects_created.add(ReprObject(blender_obj=ed))
             BD.link_to_collection(self.collection, ed)
 
             # Set up the render resolution to work for the inventory marker camera.
@@ -570,7 +572,7 @@ class NifImporter():
             obj['AnimationType'] = FurnAnimationType.GetName(fm.animation_type)
             obj['EntryPoints'] = FurnEntryPoints(fm.entry_points).fullname
             obj.parent = parent_obj
-            self.objects_created.add(BD.ReprObject(blender_obj=obj))
+            self.objects_created.add(ReprObject(blender_obj=obj))
             BD.link_to_collection(self.collection, obj)
 
 
@@ -584,7 +586,7 @@ class NifImporter():
             ed['NiStringExtraData_Name'] = s[0]
             ed['NiStringExtraData_Value'] = s[1]
             ed.parent = parent_obj
-            self.objects_created.add(BD.ReprObject(blender_obj=ed))
+            self.objects_created.add(ReprObject(blender_obj=ed))
             BD.link_to_collection(self.collection, ed)
 
 
@@ -599,7 +601,7 @@ class NifImporter():
             ed['BSBehaviorGraphExtraData_Value'] = s[1]
             ed['BSBehaviorGraphExtraData_CBS'] = s[2]
             ed.parent = parent_obj
-            self.objects_created.add(BD.ReprObject(blender_obj=ed))
+            self.objects_created.add(ReprObject(blender_obj=ed))
             BD.link_to_collection(self.collection, ed)
 
 
@@ -613,7 +615,7 @@ class NifImporter():
             ed['BSClothExtraData_Name'] = c[0]
             ed['BSClothExtraData_Value'] = codecs.encode(c[1], 'base64')
             ed.parent = parent_obj
-            self.objects_created.add(BD.ReprObject(blender_obj=ed))
+            self.objects_created.add(ReprObject(blender_obj=ed))
             BD.link_to_collection(self.collection, ed)
 
 
@@ -733,7 +735,7 @@ class NifImporter():
                 obj.matrix_local = BD.apply_scale_xf(
                     BD.transform_to_matrix(ninode.global_transform), self.scale) 
                 obj.parent = self.root_object
-        self.objects_created.add(BD.ReprObject(blender_obj=obj, nifnode=ninode))
+        self.objects_created.add(ReprObject(blender_obj=obj, nifnode=ninode))
         BD.link_to_collection(self.collection, obj)
 
         try:
@@ -866,7 +868,7 @@ class NifImporter():
             self.nodes_loaded[new_object.name] = the_shape
         
             if not self.is_set(ImportSettings.mesh_only):
-                self.objects_created.add(BD.ReprObject(new_object, the_shape))
+                self.objects_created.add(ReprObject(new_object, the_shape))
                 
                 import_colors(new_mesh, the_shape)
 
@@ -912,7 +914,7 @@ class NifImporter():
 
                 new_object['PYN_GAME'] = self.nif.game
                 new_object['PYN_BLENDER_XF'] = MatNearEqual(self.import_xf, BD.blender_import_xf)
-                new_object['PYN_RENAME_BONES'] = (
+                new_object[PYN_RENAME_BONES_PROP] = (
                     True if self.is_set(ImportSettings.rename_bones) else False)
                 if self.is_set(ImportSettings.rename_bones_nift) != BD.RENAME_BONES_NIFT_DEF:
                     new_object['PYN_RENAME_BONES_NIFT'] = self.is_set(ImportSettings.rename_bones_nift)
@@ -1286,7 +1288,7 @@ class NifImporter():
                 arm_data.niftools.axis_up = "-X"
 
         arma['PYN_BLENDER_XF'] = MatNearEqual(self.import_xf, BD.blender_import_xf)
-        arma['PYN_RENAME_BONES'] = self.is_set(ImportSettings.rename_bones)
+        arma[PYN_RENAME_BONES_PROP] = self.is_set(ImportSettings.rename_bones)
         arma['PYN_ROTATE_BONES_PRETTY'] = self.is_set(ImportSettings.rotate_bones_pretty)
         if self.is_set(ImportSettings.rename_bones_nift) != BD.RENAME_BONES_NIFT_DEF:
             arma['PYN_RENAME_BONES_NIFTOOLS'] = self.is_set(ImportSettings.rename_bones_nift)
@@ -1688,6 +1690,8 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         options={'HIDDEN'},
     ) # type: ignore
 
+    # At this point the PyNifly preferences have not been initialized. So we have to
+    # use the defaults here.
     files: CollectionProperty(
         type=bpy.types.OperatorFileListElement,
         options={'HIDDEN', 'SKIP_SAVE'},) # type: ignore
@@ -1767,16 +1771,6 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if bpy.context.object and bpy.context.object.select_get() and bpy.context.object.type == 'ARMATURE':
-            # We are loading into an existing armature. The various settings should match.
-            arma = bpy.context.object
-            self.use_blender_xf = arma.get('PYN_BLENDER_XF', BD.BLENDER_XF_DEF)
-            self.do_rename_bones = arma.get('PYN_RENAME_BONES', BD.RENAME_BONES_DEF)
-            self.rename_bones_niftools = arma.get('RENAME_BONES_NIFT_DEF', BD.RENAME_BONES_NIFT_DEF)
-            self.rotate_bones_pretty = arma.get('PYN_ROTATE_BONES_PRETTY', BD.ROTATE_BONES_PRETTY)
-            # When loading into an armature, ignore the nif's bind position--use the
-            # armature's.
-            self.do_import_pose = True
 
 
     @classmethod
@@ -1792,6 +1786,26 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         if context.window_manager.pynifly_last_import_path_nif:
             self.filepath = str(Path(context.window_manager.pynifly_last_import_path_nif)
                                 / Path(self.filepath))
+            
+        # Load defaults. Use the addon's defaults unless something about the current
+        # objects override them.
+        pyniflyPrefs = bpy.context.preferences.addons["PyNifly"].preferences
+        self.use_blender_xf = pyniflyPrefs.blender_xf
+        self.do_rename_bones = pyniflyPrefs.rename_bones
+        self.rename_bones_niftools = pyniflyPrefs.rename_bones_nift
+        self.pretty_bone_rotations = pyniflyPrefs.rotate_bones_pretty
+        self.do_import_tris = pyniflyPrefs.import_tris
+
+        if bpy.context.object and bpy.context.object.select_get() and bpy.context.object.type == 'ARMATURE':
+            # We are loading into an existing armature. The various settings should match.
+            arma = bpy.context.object
+            self.use_blender_xf = arma.get('PYN_BLENDER_XF', pyniflyPrefs.blender_xf)
+            self.do_rename_bones = arma.get(PYN_RENAME_BONES_PROP, pyniflyPrefs.rename_bones)
+            self.rename_bones_niftools = arma.get('PYN_RENAME_BONES_NIFTOOLS', pyniflyPrefs.rename_bones_nift)
+            self.pretty_bone_rotations = arma.get('PYN_ROTATE_BONES_PRETTY', pyniflyPrefs.rotate_bones_pretty)
+            # When loading into an armature, ignore the nif's bind position--use the
+            # armature's.
+            self.do_import_pose = True
         return super().invoke(context, event)
 
 

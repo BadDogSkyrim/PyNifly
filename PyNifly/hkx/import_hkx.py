@@ -19,7 +19,6 @@ from .. import bl_info
 from ..pyn.xmltools import XMLFile
 from ..nif.import_nif import NifImporter
 
-
 class ImportSettingsHKX(PynIntFlag):
     create_bones = 1
     rename_bones = 1<<1
@@ -110,12 +109,17 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         self.xml_filepath:Path = None
         self.kf_filepath:Path = None
 
+        pyniflyPrefs = bpy.context.preferences.addons["PyNifly"].preferences
+        self.do_rename_bones = pyniflyPrefs.rename_bones
+        self.rename_bones_niftools = pyniflyPrefs.rename_bones_nift
+        self.use_blender_xf = pyniflyPrefs.blender_xf
+
         obj = bpy.context.object
         if obj and obj.type == 'ARMATURE':
             self.reference_skel = obj.get('PYN_SKELETON_FILE', self.reference_skel)
             self.do_rename_bones = obj.get('PYN_RENAME_BONES', self.do_rename_bones)
             self.rename_bones_niftools = obj.get('PYN_RENAME_BONES_NIFTOOLS', self.rename_bones_niftools)
-
+            self.use_blender_xf = obj.get('PYN_BLENDER_XF', self.use_blender_xf)
 
     def invoke(self, context, event):
         # Set the default directory to the last used path if available

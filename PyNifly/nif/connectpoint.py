@@ -6,6 +6,7 @@ import math
 from mathutils import Matrix, Vector, Quaternion, Color
 from .. import blender_defs as BD
 from ..pyn.nifdefs import NiShapeBuf, AlphaPropertyBuf, ConnectPointBuf, NODEID_NONE
+from ..util.reprobj import ReprObject, ReprObjectCollection
 import logging
 
 logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
@@ -145,7 +146,7 @@ class ConnectPointParent():
         return self.obj.blender_obj
 
     @classmethod
-    def new(cls, scale, nif, cp, blendroot, blendarma, objectlist:BD.ReprObjectCollection, editor_markers):
+    def new(cls, scale, nif, cp, blendroot, blendarma, objectlist:ReprObjectCollection, editor_markers):
         """
         Create a representation of a nif's parent connect point in Blender.
 
@@ -197,7 +198,7 @@ class ConnectPointParent():
                 mx = BD.game_rotations[BD.game_axes[nif.game]][1] @ mx
             pcp.matrix_world = mx
 
-            ro = BD.ReprObject(blender_obj=pcp, nifnode=cp)
+            ro = ReprObject(blender_obj=pcp, nifnode=cp)
 
         pcp.name = "BSConnectPointParents" + "::" + cpname
 
@@ -245,7 +246,7 @@ class ConnectPointChild():
             obj[f'PYN_CONNECT_CHILD_{i}'] = n
         BD.link_to_collection(coll, obj)
         
-        ro = BD.ReprObject(blender_obj=obj)
+        ro = ReprObject(blender_obj=obj)
         return ConnectPointChild(nif.connect_points_child, ro, nif=nif)
     
 
@@ -284,7 +285,7 @@ class ConnectPointCollection():
         elif is_parent(cp):
             n = get_nifname(cp)
             if not n in [p.name for p in self.parents]:
-                p = ConnectPointParent(n, BD.ReprObject(cp, None))
+                p = ConnectPointParent(n, ReprObject(cp, None))
                 self.add(p)
 
         elif is_child(cp):
@@ -296,7 +297,7 @@ class ConnectPointCollection():
                     skinned = bool(cp[k])
                 elif k.startswith('PYN_CONNECT_CHILD'):
                     names.add(cp[k])
-            c = ConnectPointChild(names, BD.ReprObject(cp, None), skinned=skinned)
+            c = ConnectPointChild(names, ReprObject(cp, None), skinned=skinned)
             self.add(c)
 
 

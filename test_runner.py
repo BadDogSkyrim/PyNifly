@@ -33,8 +33,8 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_CONNECT_SKEL, ], 
+    target_tests=[ TEST_SKIN_BONE_XFORM, ], 
     # categories={'CONNECTPOINT'},
-    test_all=False,
+    test_all=True,
     stop_on_fail=True,
     )

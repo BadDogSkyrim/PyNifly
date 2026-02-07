@@ -262,7 +262,9 @@ def TEST_SKIN_BONE_XFORM():
     testfile = TTB.test_file(r"tests\SkyrimSE\maleheadargonian.nif")
     outfile = TTB.test_file(r"tests\out\TEST_SKIN_BONE_XF.nif", output=True)
 
-    bpy.ops.import_scene.pynifly(filepath=testfile)
+    bpy.ops.import_scene.pynifly(filepath=testfile,
+                                 pretty_bone_rotations=False)
+    
     head = TTB.find_object("_ArgonianMaleHead")
     assert NT.NearEqual(head.location.z, 120.344), f"Head is positioned at head position: {head.location}"
     minz = min(v[2] for v in head.bound_box)
@@ -295,9 +297,12 @@ def TEST_SKIN_BONE_XFORM():
     print_xf(head_nishape, "NPC Head [Head]")
     print_xf(head_nishape, "NPC Spine2 [Spn2]")
 
-    bpy.ops.object.select_all(action='DESELECT')
-    head.select_set(True)
+    # Export
+
+    BD.ObjectSelect([head], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIMSE")
+
+    # Check
 
     nifcheck = pyn.NifFile(outfile)
     headcheck = nifcheck.shapes[0]
@@ -1270,7 +1275,6 @@ def TEST_CONNECT_SKEL():
         
     do_test(xf="NONE", bonerot="PRETTY")
     do_test(xf="NONE", bonerot="NONE")
-    return
     do_test(xf="BLENDER", bonerot="PRETTY")
     do_test(xf="BLENDER", bonerot="NONE")
 
@@ -7305,6 +7309,9 @@ def execute_test(t, executed_tests, stop_on_fail=True):
         versions = [test_categories.get(c, (0,0)) for c in t.__dict__.get("category", set())]
         if bpy.app.version < max(versions) or (bpy.app.version < t.__dict__.get("min_blender_version", (0,0))):
             print (f"SKIPPING {t.__name__}: requires Blender version {max(versions)}, have {bpy.app.version}\n")
+            executed_tests[t.__name__] = 'SKIP'
+        elif t.__dict__.get("skip_test", None):
+            print (f"SKIPPING {t.__name__}: marked to skip\n")
             executed_tests[t.__name__] = 'SKIP'
         else:
             if t.__doc__: print (f"{t.__doc__}")

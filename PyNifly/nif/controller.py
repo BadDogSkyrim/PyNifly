@@ -14,7 +14,7 @@ import bpy.props
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 from ..pyn.pynifly import *
 from .. import blender_defs as BD
-# from ..pyn.nifdefs import NiAnimKeyLinearXYZBuf
+from ..util.reprobj import ReprObject, ReprObjectCollection
 import re
 import json
 
@@ -131,7 +131,7 @@ def make_action_name(animation_name=None, target_obj=None, target_elem=None):
         return "Animation"
 
 
-def current_animations(nif, refobjs:BD.ReprObjectCollection):
+def current_animations(nif, refobjs:ReprObjectCollection):
     """
     Find all exportable animations for objects in refobjs.
     Returns a dictionary: {animation_name: [Animation], ...}
@@ -156,7 +156,7 @@ def _animations_for_pulldown(self, context):
     """Find all animations and return them in a form suitable for a Blender pulldown."""
     _animation_pulldown_items = []
     found_names = set()
-    for act in all_named_animations(BD.ReprObjectCollection.New(bpy.context.scene.objects)):
+    for act in all_named_animations(ReprObjectCollection.New(bpy.context.scene.objects)):
         found_names.add(act.name)
 
     for f in sorted(found_names):
@@ -204,7 +204,7 @@ def all_actions():
             yield act, slot
 
 
-def all_obj_animations(export_objs:BD.ReprObjectCollection):
+def all_obj_animations(export_objs:ReprObjectCollection):
     """Iterator returning quads: (action, slot, target_obj, target_elem)"""
     for act in bpy.data.actions:
         for slot in act.slots:
@@ -246,7 +246,7 @@ def all_obj_animations(export_objs:BD.ReprObjectCollection):
             #                     yield act, slot, targ, elem
 
 
-def all_named_animations(export_objs:BD.ReprObjectCollection) -> Iterator[AnimationData]:
+def all_named_animations(export_objs:ReprObjectCollection) -> Iterator[AnimationData]:
     """
     Iterator returning all actions/slots that are exportable as named animations
     representable as controller sequences. They must have a target that is being exported
@@ -282,7 +282,7 @@ def apply_animation(anim_name, myscene):
     """
     act = None
     for act, slot, targobj, elem in all_obj_animations(
-            BD.ReprObjectCollection.New(myscene.objects)):
+            ReprObjectCollection.New(myscene.objects)):
         if act.name == anim_name:
             if elem:
                 targ = elem
@@ -350,7 +350,7 @@ def _get_actionslots(target_obj):
     return slots
 
 
-def analyze_animation(anim, slot, myscene, export_objs:BD.ReprObjectCollection) -> AnimationData:
+def analyze_animation(anim, slot, myscene, export_objs:ReprObjectCollection) -> AnimationData:
     """
     Analyze the given action and slot but do not apply it. If it's exportable as an
     animation, return an AnimationData object. Otherwise return None.
@@ -398,7 +398,7 @@ def curve_bone_target(curve):
 
 
 class ControllerHandler():
-    def __init__(self, parent_handler, objlist:BD.ReprObjectCollection=None):
+    def __init__(self, parent_handler, objlist:ReprObjectCollection=None):
         self.action = None
         self.action_group = ""
         self.action_name = ""
@@ -422,7 +422,7 @@ class ControllerHandler():
         self.controller_sequence:NiControllerSequence = None
         self.cm_obj_palette = None
         
-        self.controlled_objects = BD.ReprObjectCollection.New()
+        self.controlled_objects = ReprObjectCollection.New()
         self.start_time = sys.float_info.max
         self.end_time = -sys.float_info.max
 
@@ -442,9 +442,9 @@ class ControllerHandler():
             self.blender_name = parent_handler.blender_name
         self.objects_created = None
         if hasattr(parent_handler, "objects_created"):
-            self.objects_created:BD.ReprObjectCollection = parent_handler.objects_created
+            self.objects_created:ReprObjectCollection = parent_handler.objects_created
         if hasattr(parent_handler, "objs_written"):
-            self.objects_created:BD.ReprObjectCollection = parent_handler.objs_written
+            self.objects_created:ReprObjectCollection = parent_handler.objs_written
 
         self.export_each_frame = False
 
@@ -967,7 +967,7 @@ class ControllerHandler():
         return out_list
 
 
-    def _add_controlled_object(self, obj:BD.ReprObject):
+    def _add_controlled_object(self, obj:ReprObject):
         """
         Add the object and all its children recursively to the set of controlled objects.
         """
@@ -1139,11 +1139,11 @@ class ControllerHandler():
         Export any actions that represent named nif animations to the target nif.
         """
         self.accum_root = self.nif.rootNode
-        self.controlled_objects = BD.ReprObjectCollection()
+        self.controlled_objects = ReprObjectCollection()
 
         self.controller_manager:NiControllerManager = None
 
-        anim:BD.ReprObjectCollection = None
+        anim:ReprObjectCollection = None
         for anim in all_named_animations(self.export_objs):
             # Named animations depend on Action Slots. Bail if it's an older Blender.
             try:
@@ -1284,7 +1284,7 @@ class ControllerHandler():
 
 
     @classmethod
-    def export_animated_obj(cls, parent_handler, robj:BD.ReprObject):
+    def export_animated_obj(cls, parent_handler, robj:ReprObject):
         """
         Export an animated object.
         """
@@ -1330,7 +1330,7 @@ class ControllerHandler():
 
 
     @classmethod
-    def export_shader_controller(cls, parent_handler, activeobj:BD.ReprObject, activeelem):
+    def export_shader_controller(cls, parent_handler, activeobj:ReprObject, activeelem):
         """Export an obj that has an animated shader."""
 
         a = activeelem.animation_data.action
@@ -1342,7 +1342,7 @@ class ControllerHandler():
         # If the animation has multiple slots, don't export this one individually
         if len(a.slots) > 1: return
 
-        objcol = BD.ReprObjectCollection()
+        objcol = ReprObjectCollection()
         objcol.add(activeobj)
         s = activeelem.animation_data.action_slot
         dat = analyze_animation(a, s, bpy.context.scene, objcol)
@@ -1353,7 +1353,7 @@ class ControllerHandler():
 
 
     @classmethod
-    def export_named_animations(cls, parent_handler, object_dict:BD.ReprObjectCollection):
+    def export_named_animations(cls, parent_handler, object_dict:ReprObjectCollection):
         """
         Export a ControllerManager to manage all named animations (if any). 
         Only animations controlling objects in the given list count.

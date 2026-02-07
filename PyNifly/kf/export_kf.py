@@ -114,8 +114,13 @@ class ExportKF(bpy.types.Operator, ExportHelper):
 
         NifFile.Load(nifly_path)
 
+        pyniflyPrefs = bpy.context.preferences.addons["PyNifly"].preferences
+        self.do_rename_bones = pyniflyPrefs.rename_bones
+        self.rename_bones_niftools = pyniflyPrefs.rename_bones_nift
         if bpy.context.object and bpy.context.object.type == 'ARMATURE':
             arma = bpy.context.object
+            self.do_rename_bones = arma.get('PYN_RENAME_BONES', self.do_rename_bones)
+            self.do_rename_bones_niftools = arma.get('PYN_RENAME_BONES_NIFTOOLS', self.rename_bones_niftools)
             if 'PYN_RENAME_BONES' in arma:
                 self.do_rename_bones = arma['PYN_RENAME_BONES']
             if 'PYN_RENAME_BONES_NIFTOOLS' in arma:

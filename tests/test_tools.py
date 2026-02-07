@@ -35,6 +35,14 @@ def category(*args):
     return wrap
 
 
+def skip_test(*args):
+    """Decorator to skip a test."""
+    def wrap(fn):
+        fn.__dict__["skip_test"] = True
+        return fn
+    return wrap
+
+
 def error_level(errlevel):
     """Decorator to set allowed error level of test."""
     def wrap(fn):

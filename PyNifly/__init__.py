@@ -13,18 +13,116 @@ bl_info = {
     "category": "Import-Export"
 }
 
+from contextlib import suppress
+import bpy
+from bpy.types import AddonPreferences
+from bpy.props import StringProperty, BoolProperty
+from . import blender_defs as BD
+
 from . import nif
 from . import tri
 from . import hkx
 from . import kf
 
+class PyNiflyPreferences(AddonPreferences):
+    bl_idname = __package__   # critical: must match your add-on module name
+
+    sky_texture_path_1: StringProperty(
+        name="Skyrim Texture Path 1",
+        subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
+    sky_texture_path_2: StringProperty(
+        name="Skyrim Texture Path 2",
+        subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
+    sky_texture_path_3: StringProperty(
+        name="Skyrim Texture Path 3",
+        subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
+    fo4_texture_path_1: StringProperty(
+        name="Fallout Texture Path 1",
+        subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
+    fo4_texture_path_2: StringProperty(
+        name="Fallout Texture Path 2",
+        subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
+    fo4_texture_path_3: StringProperty(
+        name="Fallout Texture Path 3",
+        subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
+    rename_bones: BoolProperty(
+        name="Blender-friendly bone names",
+        description=("Renames bones according to Blender conventions, e.g. .L for left and" + 
+                     " .R for right. Disable if you need to match the game's bone names."),
+        default=BD.RENAME_BONES_DEF,
+    ) # type: ignore
+
+    rename_bones_nift: BoolProperty(
+        name="NifTools-friendly bone names",
+        description=("Renames bones to match the NifTools importer/exporter. Use if you " +
+                     "need interoperability with NifToos."),
+        default=BD.RENAME_BONES_NIFT_DEF
+    ) # type: ignore
+
+    rotate_bones_pretty: BoolProperty(
+        name="Bone orientation matches skeleton structure",
+        description=("Bone orientation matches limbs in humanoid skeletons. " +
+                     "Should have no other effect. Disable if you see problems."),
+        default=BD.ROTATE_BONES_PRETTY,
+    ) # type: ignore
+
+    import_tris: BoolProperty(
+        name="Import tri files when found",
+        description=("If importing a nif and a tri file is found with the same name, or the "
+            + "name + 'chargen', import the tri as well."),
+        default=BD.IMPORT_TRIS_DEF,
+    ) # type: ignore
+
+    blender_xf: BoolProperty(
+        name="Blender-friendly scene orientation",
+        description=("Rotates the scene 90 degrees around the Z axis and scale down to match Blender. " +
+                     "Disable to preserve the original orientation."),
+        default=BD.BLENDER_XF_DEF
+    ) # type: ignore
+
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "sky_texture_path_1")
+        layout.prop(self, "sky_texture_path_2")
+        layout.prop(self, "sky_texture_path_3")
+        layout.prop(self, "fo4_texture_path_1")
+        layout.prop(self, "fo4_texture_path_2")
+        layout.prop(self, "fo4_texture_path_3")
+        layout.prop(self, "rename_bones")
+        layout.prop(self, "rename_bones_nift")
+        layout.prop(self, "rotate_bones_pretty")
+        layout.prop(self, "import_tris")
+        layout.prop(self, "blender_xf")
+
 def register():
+    bpy.utils.register_class(PyNiflyPreferences)
     hkx.register()
     kf.register()
     nif.register()
     tri.register()
 
 def unregister():
+    with suppress(RuntimeError):
+        bpy.utils.unregister_class(PyNiflyPreferences)
     hkx.unregister()
     kf.unregister()
     nif.unregister()
