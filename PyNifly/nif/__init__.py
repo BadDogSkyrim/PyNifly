@@ -15,6 +15,10 @@ from . import connectpoint
 
 
 if 'PYNIFLY_DEV_ROOT' in os.environ:
+    from . import import_nif
+    from . import export_nif
+    importlib.reload(import_nif)
+    importlib.reload(export_nif)
     importlib.reload(shader_io)
     importlib.reload(controller)
     importlib.reload(collision)

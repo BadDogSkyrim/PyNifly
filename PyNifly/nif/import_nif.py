@@ -20,7 +20,13 @@ from ..pyn.nifdefs import (ShaderFlags1, ShaderFlags2, BSXFlags, BSValueNodeFlag
 from ..pyn.pynifly import (NiShape, FurnAnimationType, FurnEntryPoints, NiNode, NifFile, 
                            nifly_path, hkxSkeletonFile)
 from .. import blender_defs as BD
-from ..blender_defs import PYN_RENAME_BONES_PROP
+from ..util.settings import (ImportSettings, 
+    PYN_BLENDER_XF_PROP,
+    PYN_GAME_PROP,
+    PYN_RENAME_BONES_NIFTOOLS_PROP,
+    PYN_RENAME_BONES_PROP,
+    PYN_ROTATE_BONES_PRETTY_PROP,
+    )
 from ..util.reprobj import ReprObject, ReprObjectCollection
 from . import shader_io 
 from . import controller 
@@ -42,23 +48,7 @@ ARMATURE_BONE_GROUPS = ['NPC', 'CME']
 CAMERA_LENS = 80
 
 
-class ImportSettings(PynIntFlag):
-    create_bones = 1
-    rename_bones = 1<<1
-    import_anims = 1<<2
-    rename_bones_nift = 1<<3
-    roll_bones_nift = 1<<4
-    import_shapekeys = 1<<5
-    import_tris = 1<<6
-    apply_skinning = 1<<7
-    smart_editor_markers = 1<<8
-    create_collection = 1<<9
-    mesh_only = 1<<10
-    import_collisions = 1<<11
-    import_pose = 1<<12
-    rotate_bones_pretty = 1<<13
-
-
+# Properties that don't need to be remembered on imported objects.
 NISHAPE_IGNORE = [
     "bufSize", 
     'bufType',
@@ -103,7 +93,7 @@ def is_in_plane(plane, vert):
     v1 = plane[0] - plane[1]
     v2 = plane[2] - plane[1]
     normal = v1.cross(v2)
-    normal.normalize()
+    normal.normalize() 
 
     # Get vector from vertex to a point on the plane
     t = vert - plane[0]
@@ -296,24 +286,12 @@ class NifImporter():
     def __str__(self):
         return f"""
         Importing nif: {self.filename_list} {"(FACEGEN_FILE)" if self.is_facegen else ""}
-            flags: {self.settings.fullname} 
+            flags: {self.settings} 
             armature: {self.armature} 
             connect points: {[x.name for x in self.connect_points.parents]}, {[x.names for x in self.connect_points.child]} 
             mesh objects: {[obj.name for obj in self.loaded_meshes]}
         """
 
-    def is_set(self, setting):
-        """Return an import setting as a true/false value."""
-        return True if self.settings & setting else False
-    
-    def set_setting(self, setting, val):
-        """Set an import setting flag."""
-        if val:
-            self.settings |= setting
-        else:
-            self.settings &= ~setting
-
-    
     def warn(self, text:str):
         self.warnings.append(('WARNING', text))
         log.warning(text)
@@ -328,7 +306,7 @@ class NifImporter():
     
     def nif_name(self, blender_name):
         """Return the name to use in the nif for a bone."""
-        if self.is_set(ImportSettings.rename_bones) or self.is_set(ImportSettings.rename_bones_nift):
+        if self.settings.rename_bones or self.settings.rename_bones_niftools:
             return self.nif.nif_name(blender_name)
         else:
             return blender_name
@@ -338,7 +316,7 @@ class NifImporter():
         if self.is_facegen and nif_name == "Head":
             # Facegen nifs use a "Head" bone, which appears to be the "HEAD" bone misnamed.
             return "HEAD"  
-        elif self.is_set(ImportSettings.rename_bones) or self.is_set(ImportSettings.rename_bones_nift):
+        elif self.settings.rename_bones or self.settings.rename_bones_niftools:
             return self.nif.blender_name(nif_name)
         else:
             return nif_name
@@ -425,7 +403,7 @@ class NifImporter():
                     else:
                         offset_consistent = False
                         log.warning(f"Shape {the_shape.name} does not have consitent offset from reference skeleton {self.reference_skel.filepath}--can't use it to extend the armature.")
-                        self.settings &= ~ImportSettings.create_bones
+                        self.settings.create_bones = False
                         break
 
             if offset_consistent and offset_xf:
@@ -712,8 +690,8 @@ class NifImporter():
             bpy.ops.object.mode_set(mode = 'OBJECT')
             obj.name = ninode.name + ":ROOT"
             obj["pynRoot"] = True
-            obj["PYN_BLENDER_XF"] = MatNearEqual(self.import_xf, BD.blender_import_xf)
-            obj['PYN_GAME'] = self.nif.game
+            obj[PYN_BLENDER_XF_PROP] = MatNearEqual(self.import_xf, BD.blender_import_xf)
+            obj[PYN_GAME_PROP] = self.nif.game
             obj.empty_display_type = 'CONE'
 
             try:
@@ -739,7 +717,7 @@ class NifImporter():
         BD.link_to_collection(self.collection, obj)
 
         try:
-            if ninode.collision_object and self.is_set(ImportSettings.import_collisions):
+            if ninode.collision_object and self.settings.import_collisions:
                 collision.CollisionHandler.import_collision_obj(
                     self, ninode.collision_object, obj)
         except:
@@ -751,7 +729,7 @@ class NifImporter():
             log.exception(f"Error importing extra data {ninode.name}")
 
         try:
-            if self.root_object != obj and ninode.controller and self.is_set(ImportSettings.import_anims): 
+            if self.root_object != obj and ninode.controller and self.settings.import_animations: 
                 # import animations if this isn't the root node. If it is, they may reference
                 # any of the root's children and so wait until those can be imported.
                 if self.anim_warn:
@@ -798,13 +776,12 @@ class NifImporter():
 
         for nm, n in nif.nodes.items():
             if (# Isn't collision, or we are importing collisions
-                (not nm.startswith('bhk') or self.is_set(ImportSettings.import_collisions)) 
+                (not nm.startswith('bhk') or self.settings.import_collisions) 
                 # Isn't a shader node, which are handled with their parent
-                and not n.__class__.__name__.startswith('NiShader')
+                and (not n.__class__.__name__.startswith('NiShader'))
                 # Isn't an editor marker, or we are importing editor markers
                 and ((not n.id in self.editor_markers) 
-                     or (not self.is_set(ImportSettings.smart_editor_markers))) 
-                ): 
+                     or (not self.settings.smart_editor_markers))): 
                 p = self.import_node_parents(arma, n)
                 self.import_ninode(arma, n, p)
         
@@ -867,7 +844,7 @@ class NifImporter():
             self.loaded_meshes.append(new_object)
             self.nodes_loaded[new_object.name] = the_shape
         
-            if not self.is_set(ImportSettings.mesh_only):
+            if not self.settings.mesh_only:
                 self.objects_created.add(ReprObject(new_object, the_shape))
                 
                 import_colors(new_mesh, the_shape)
@@ -892,7 +869,7 @@ class NifImporter():
 
                 shader_io.ShaderImporter().import_material(new_object, the_shape, BD.asset_path)
 
-                if the_shape.collision_object and self.is_set(ImportSettings.import_collisions):
+                if the_shape.collision_object and self.settings.import_collisions:
                     collision.CollisionHandler.import_collision_obj(
                         self, the_shape.collision_object, new_object)
 
@@ -912,12 +889,10 @@ class NifImporter():
                     
                 self.import_extra(new_object, the_shape)
 
-                new_object['PYN_GAME'] = self.nif.game
-                new_object['PYN_BLENDER_XF'] = MatNearEqual(self.import_xf, BD.blender_import_xf)
-                new_object[PYN_RENAME_BONES_PROP] = (
-                    True if self.is_set(ImportSettings.rename_bones) else False)
-                if self.is_set(ImportSettings.rename_bones_nift) != BD.RENAME_BONES_NIFT_DEF:
-                    new_object['PYN_RENAME_BONES_NIFT'] = self.is_set(ImportSettings.rename_bones_nift)
+                new_object[PYN_GAME_PROP] = self.nif.game
+                new_object[PYN_BLENDER_XF_PROP] = MatNearEqual(self.import_xf, BD.blender_import_xf)
+                new_object[PYN_RENAME_BONES_PROP] = self.settings.rename_bones
+                new_object[PYN_RENAME_BONES_NIFTOOLS_PROP] = self.settings.rename_bones_niftools
 
             BD.link_to_collection(self.collection, new_object)
 
@@ -1006,7 +981,7 @@ class NifImporter():
         If do_estimate_offset is clear, return self.armature. If we aren't estimating the
         global-to-skin transform any armature will do.
 
-        if do_import_pose is set, we return self.armature. That's either the one selected
+        if import_pose is set, we return self.armature. That's either the one selected
         before import, or reflects bone NiNodes in the nif, so it's the one to use either
         way.
 
@@ -1026,7 +1001,7 @@ class NifImporter():
         """
         shape = self.nodes_loaded[obj.name]
 
-        if self.is_set(ImportSettings.import_pose):
+        if self.settings.import_pose:
             return self.armature, None
         else:
             for arma in armatures:
@@ -1052,7 +1027,7 @@ class NifImporter():
     
         # Use the transform from the reference skeleton if we're extending bones; 
         # otherwise use the one in the file.
-        if ((self.settings & ImportSettings.create_bones) and self.reference_skel 
+        if (self.settings.create_bones and self.reference_skel 
                 and nifname in self.reference_skel.nodes):
             bone_xform = BD.transform_to_matrix(self.reference_skel.nodes[nifname].global_transform)
             bone = BD.create_bone(armdata, bone_name, bone_xform, 
@@ -1151,7 +1126,7 @@ class NifImporter():
                             parentnifname = niparent.name
                         parentname = self.blender_name(niparent.name)
 
-                if (parentname is None and (self.settings & ImportSettings.create_bones) 
+                if (parentname is None and self.settings.create_bones
                         and not BD.is_facebone(bonename)):
                     if self.reference_skel and \
                         nifname in self.reference_skel.nodes and \
@@ -1179,7 +1154,7 @@ class NifImporter():
         self.set_all_bone_poses(arma, self.nif)
         bpy.ops.object.mode_set(mode='OBJECT')
 
-        if self.is_set(ImportSettings.import_collisions):
+        if self.settings.import_collisions:
             for bonenode in collisions:
                 collision.CollisionHandler.import_collision_obj(
                     self, bonenode.collision_object, arma, bonenode)
@@ -1287,11 +1262,10 @@ class NifImporter():
                 arm_data.niftools.axis_forward = "Z"
                 arm_data.niftools.axis_up = "-X"
 
-        arma['PYN_BLENDER_XF'] = MatNearEqual(self.import_xf, BD.blender_import_xf)
-        arma[PYN_RENAME_BONES_PROP] = self.is_set(ImportSettings.rename_bones)
-        arma['PYN_ROTATE_BONES_PRETTY'] = self.is_set(ImportSettings.rotate_bones_pretty)
-        if self.is_set(ImportSettings.rename_bones_nift) != BD.RENAME_BONES_NIFT_DEF:
-            arma['PYN_RENAME_BONES_NIFTOOLS'] = self.is_set(ImportSettings.rename_bones_nift)
+        arma[PYN_BLENDER_XF_PROP] = MatNearEqual(self.import_xf, BD.blender_import_xf)
+        arma[PYN_RENAME_BONES_PROP] = self.settings.rename_bones
+        arma[PYN_ROTATE_BONES_PRETTY_PROP] = self.settings.rotate_bones_pretty
+        arma[PYN_RENAME_BONES_NIFTOOLS_PROP] = self.settings.rename_bones_niftools
 
         return arma
 
@@ -1346,7 +1320,7 @@ class NifImporter():
         obj.matrix_local = unscaled_skin_xf.copy()
         skin_xf = unscaled_skin_xf.copy()
 
-        # Create bones. If do_import_pose, positions are the NiNode positions of the
+        # Create bones. If import_pose, positions are the NiNode positions of the
         # bone. Otherwise, they are the skin-to-bone transforms (bind position).
         BD.ObjectSelect([arma])
         new_bones = []
@@ -1362,7 +1336,7 @@ class NifImporter():
                     # skeleton instead.
                     bone_node = self.reference_skel.nodes['HEAD' if bn=='Head' else bn]
                     xf = BD.transform_to_matrix(bone_node.global_transform)
-                elif self.is_set(ImportSettings.import_pose): ### and not self.is_facegen:
+                elif self.settings.import_pose: ### and not self.is_facegen:
                     # Using nif locations of bones. 
                     bone_node = nif_shape.file.nodes[bn]
                     xf = BD.transform_to_matrix(bone_node.global_transform)
@@ -1375,7 +1349,7 @@ class NifImporter():
                 new_bones.append((bn, blname))
 
         # Do the pose in a separate pass so we don't have to flip between modes.
-        if not self.is_set(ImportSettings.import_pose):
+        if not self.settings.import_pose:
             bpy.ops.object.mode_set(mode = 'OBJECT')
             self.set_bone_poses(arma, self.nif, new_bones)
         bpy.ops.object.mode_set(mode = 'OBJECT')
@@ -1416,11 +1390,11 @@ class NifImporter():
         """
         log.info(f"Importing {self.nif.game} file {self.nif.filepath}")
 
-        if self.is_set(ImportSettings.create_collection):
+        if self.settings.create_collection:
             self.collection = bpy.data.collections.new(os.path.basename(self.nif.filepath))
             self.context.scene.collection.children.link(self.collection)
         
-        if self.is_set(ImportSettings.import_anims):
+        if self.settings.import_animations:
             self.controller_mgr = controller.ControllerHandler(self)
 
         self.editor_markers = connectpoint.connectpoints_with_markers(self.nif)
@@ -1437,24 +1411,18 @@ class NifImporter():
             return
 
         self.is_facegen = ("BSFaceGenNiNodeSkinned" in self.nif.nodes)
-        if self.is_facegen: self.set_setting(ImportSettings.import_pose, False)
+        if self.is_facegen: 
+            self.settings.import_pose = False
         # Import the root node
         self.import_ninode(None, self.nif.rootNode)
 
-        imp_mesh_only = self.is_set(ImportSettings.mesh_only)
+        imp_mesh_only = self.settings.mesh_only
 
         # Import shapes
         for s in self.nif.shapes:
-            ## Smart markers now imports the hemisphere as the connect point.
-            # # Only import editor markers if we are importing connect points and not doing
-            # # smart editor markers.
-            # if connectpoint.is_editor_marker(s):
-            #     if self.is_set(ImportSettings.smart_editor_markers):
-            #         continue
-
             if self.nif.game in ['FO4', 'FO76'] and BD.is_facebones(s.bone_names):
                 self.nif.dict = fo4FaceDict
-            self.nif.dict.use_niftools = self.is_set(ImportSettings.rename_bones_nift)
+            self.nif.dict.use_niftools = self.settings.rename_bones_niftools
             self.import_shape(s)
             imp_mesh_only = (imp_mesh_only 
                 or (any(len(s.verts) == len(pc.data.vertices) for pc in priors) 
@@ -1482,7 +1450,7 @@ class NifImporter():
                 if self.armature:
                     self.target_armatures.add(self.armature) 
 
-                if self.is_set(ImportSettings.apply_skinning):
+                if self.settings.apply_skinning:
                     for obj in self.loaded_meshes:
                         sh = self.nodes_loaded[obj.name]
                         self.ref_compat = self.is_compatible_skeleton(obj.matrix_local, sh, self.reference_skel)
@@ -1498,7 +1466,7 @@ class NifImporter():
                             orphan_shapes.discard(obj)
 
                 for arma in self.target_armatures:
-                    if (self.settings & ImportSettings.create_bones):
+                    if self.settings.create_bones:
                         bonenames = [n.name for n in self.nif.nodes.values()
                                      if n.blockname == 'NiNode']
                         self.add_bones_to_arma(arma, self.nif, bonenames)
@@ -1519,7 +1487,7 @@ class NifImporter():
                 scale=self.scale, 
                 next_loc=self.next_loc(), 
                 editor_markers=self.editor_markers,
-                smart_markers=self.is_set(ImportSettings.smart_editor_markers),)
+                smart_markers=self.settings.smart_editor_markers,)
         
             # Import top-level animations
             if self.controller_mgr and self.nif.rootNode.controller:
@@ -1594,7 +1562,7 @@ class NifImporter():
         prior_vertcounts = dict()
         prior_fn = ''
         prior_shapes = None
-        if self.is_set(ImportSettings.import_shapekeys):
+        if self.settings.import_shapekeys:
             prior_shapes = set()
             for obj in bpy.context.scene.objects:
                 if obj.select_get() and obj.type == 'MESH':
@@ -1602,7 +1570,7 @@ class NifImporter():
 
         log.info(str(self))
 
-        if self.is_set(ImportSettings.rotate_bones_pretty):
+        if self.settings.rotate_bones_pretty:
             BD.game_rotations = BD.game_rotations_pretty
         else:
             BD.game_rotations = BD.game_rotations_none
@@ -1621,7 +1589,7 @@ class NifImporter():
 
             # Determine whether the new shapes should be merged into existing shapes
             this_vertcounts = None
-            if self.is_set(ImportSettings.import_shapekeys):
+            if self.settings.import_shapekeys:
                 this_vertcounts = dict()
                 for nifobj in self.nif.shapes:
                     this_vertcounts[nifobj.name] = len(nifobj.verts)
@@ -1632,10 +1600,9 @@ class NifImporter():
                             prior_shapes.add(bpy.context.scene.objects[name]) 
 
             have_priors = (prior_shapes is not None and len(prior_shapes) > 0)
-            # self.set_setting(ImportSettings.mesh_only, have_priors)
             self.loaded_meshes = []
             self.import_nif(prior_shapes)
-            if self.is_set(ImportSettings.import_tris):
+            if self.settings.import_tris:
                 self.import_tris()
 
             if have_priors:
@@ -1696,81 +1663,80 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         type=bpy.types.OperatorFileListElement,
         options={'HIDDEN', 'SKIP_SAVE'},) # type: ignore
 
-    do_create_bones: bpy.props.BoolProperty(
+    create_bones: bpy.props.BoolProperty(
         name="Create bones",
         description="Create vanilla bones as needed to make skeleton complete.",
-        default=BD.CREATE_BONES_DEF) # type: ignore
+        default=ImportSettings.__dataclass_fields__["create_bones"].default) # type: ignore
+
+    rename_bones: bpy.props.BoolProperty(
+        name="Rename bones",
+        description="Rename bones to conform to Blender's left/right conventions.",
+        default=ImportSettings.__dataclass_fields__["rename_bones"].default) # type: ignore
+
+    rotate_bones_pretty: bpy.props.BoolProperty(
+        name="Pretty bone orientation",
+        description="Orient bones to show structure.",
+        default=ImportSettings.__dataclass_fields__["rotate_bones_pretty"].default) # type: ignore
 
     use_blender_xf: bpy.props.BoolProperty(
         name="Use Blender orientation",
         description="Use Blender's orientation and scale",
-        default=BD.BLENDER_XF_DEF) # type: ignore
+        default=ImportSettings.__dataclass_fields__["blender_xf"].default) # type: ignore
 
-    do_rename_bones: bpy.props.BoolProperty(
-        name="Rename bones",
-        description="Rename bones to conform to Blender's left/right conventions.",
-        default=BD.RENAME_BONES_DEF) # type: ignore
-
-    do_import_animations: bpy.props.BoolProperty(
+    import_animations: bpy.props.BoolProperty(
         name="Import animations",
         description="Import any animations embedded in the nif.",
-        default=BD.IMPORT_ANIMS_DEF) # type: ignore
+        default=ImportSettings.__dataclass_fields__["import_animations"].default) # type: ignore
 
-    do_import_collisions: bpy.props.BoolProperty(
+    import_collisions: bpy.props.BoolProperty(
         name="Import collisions",
         description="Import any collisions embedded in the nif.",
-        default=BD.IMPORT_COLLISIONS_DEF) # type: ignore
+        default=ImportSettings.__dataclass_fields__["import_collisions"].default) # type: ignore
 
-    do_import_tris: bpy.props.BoolProperty(
+    import_tris: bpy.props.BoolProperty(
         name="Import tri files",
         description="Import any tri files that appear to be associated with the nif.",
-        default=BD.IMPORT_COLLISIONS_DEF) # type: ignore
+        default=ImportSettings.__dataclass_fields__["import_tris"].default) # type: ignore
 
     rename_bones_niftools: bpy.props.BoolProperty(
         name="Rename bones as per NifTools",
         description="Rename bones using NifTools' naming scheme to conform to Blender's left/right conventions.",
-        default=BD.RENAME_BONES_NIFT_DEF) # type: ignore
+        default=ImportSettings.__dataclass_fields__["rename_bones_niftools"].default) # type: ignore
 
-    pretty_bone_rotations: bpy.props.BoolProperty(
-        name="Pretty bone orientation",
-        description="Orient bones to show structure.",
-        default=BD.ROTATE_BONES_PRETTY) # type: ignore
-
-    do_import_shapes: bpy.props.BoolProperty(
+    import_shapekeys: bpy.props.BoolProperty(
         name="Import as shape keys",
         description="Import similar objects as shape keys where possible on multi-file imports.",
-        default=BD.IMPORT_SHAPES_DEF) # type: ignore
+        default=ImportSettings.__dataclass_fields__["import_shapekeys"].default) # type: ignore
 
-    do_apply_skinning: bpy.props.BoolProperty(
+    apply_skinning: bpy.props.BoolProperty(
         name="Apply skin to mesh",
         description="Applies any transforms defined in shapes' partitions to the final mesh.",
-        default=BD.APPLY_SKINNING_DEF) # type: ignore
+        default=ImportSettings.__dataclass_fields__["apply_skinning"].default) # type: ignore
 
-    do_import_pose: bpy.props.BoolProperty(
+    import_pose: bpy.props.BoolProperty(
         name="Create armature from pose position",
         description="Creates any armature from the bone NiNode (pose) position.",
-        default=BD.IMPORT_POSE_DEF
-    ) # type: ignore
+        default=ImportSettings.__dataclass_fields__["import_pose"].default) # type: ignore
 
     smart_editor_markers: bpy.props.BoolProperty(
         name="Smart editor marker handling",
         description="Do not create editor marker objects on import; recreate on export.",
-        default=BD.SMART_EDITOR_MARKERS_DEF
-    ) # type: ignore
+        default=ImportSettings.__dataclass_fields__["smart_editor_markers"].default) # type: ignore
 
-    do_create_collections: bpy.props.BoolProperty(
+    create_collections: bpy.props.BoolProperty(
         name="Import to collections",
         description="Import each nif to its own new collection.",
-        default=BD.IMPORT_COLLECTIONS_DEF) # type: ignore
+        default=ImportSettings.__dataclass_fields__["create_collection"].default) # type: ignore
 
     reference_skel: bpy.props.StringProperty(
         name="Reference skeleton",
         description="Reference skeleton to use for the bone hierarchy",
-        default="") # type: ignore
+        default=ImportSettings.__dataclass_fields__["reference_skeleton"].default) # type: ignore
     
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.settings = ImportSettings()
 
 
     @classmethod
@@ -1782,6 +1748,9 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
 
     def invoke(self, context, event):
+        """
+        Get per-import settings for this import. Offer the PyNifly preferences as defaults.
+        """
         # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_import_path_nif:
             self.filepath = str(Path(context.window_manager.pynifly_last_import_path_nif)
@@ -1791,21 +1760,21 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         # objects override them.
         pyniflyPrefs = bpy.context.preferences.addons["PyNifly"].preferences
         self.use_blender_xf = pyniflyPrefs.blender_xf
-        self.do_rename_bones = pyniflyPrefs.rename_bones
-        self.rename_bones_niftools = pyniflyPrefs.rename_bones_nift
-        self.pretty_bone_rotations = pyniflyPrefs.rotate_bones_pretty
-        self.do_import_tris = pyniflyPrefs.import_tris
+        self.rename_bones = pyniflyPrefs.rename_bones
+        self.rename_bones_niftools = pyniflyPrefs.rename_bones_niftools
+        self.rotate_bones_pretty = pyniflyPrefs.rotate_bones_pretty
+        self.import_tris = pyniflyPrefs.import_tris
 
         if bpy.context.object and bpy.context.object.select_get() and bpy.context.object.type == 'ARMATURE':
             # We are loading into an existing armature. The various settings should match.
             arma = bpy.context.object
-            self.use_blender_xf = arma.get('PYN_BLENDER_XF', pyniflyPrefs.blender_xf)
-            self.do_rename_bones = arma.get(PYN_RENAME_BONES_PROP, pyniflyPrefs.rename_bones)
-            self.rename_bones_niftools = arma.get('PYN_RENAME_BONES_NIFTOOLS', pyniflyPrefs.rename_bones_nift)
-            self.pretty_bone_rotations = arma.get('PYN_ROTATE_BONES_PRETTY', pyniflyPrefs.rotate_bones_pretty)
+            self.use_blender_xf = arma.get(PYN_BLENDER_XF_PROP, pyniflyPrefs.blender_xf)
+            self.rename_bones = arma.get(PYN_RENAME_BONES_PROP, pyniflyPrefs.rename_bones)
+            self.rename_bones_niftools = arma.get(PYN_RENAME_BONES_NIFTOOLS_PROP, pyniflyPrefs.rename_bones_niftools)
+            self.rotate_bones_pretty = arma.get(PYN_ROTATE_BONES_PRETTY_PROP, pyniflyPrefs.rotate_bones_pretty)
             # When loading into an armature, ignore the nif's bind position--use the
             # armature's.
-            self.do_import_pose = True
+            self.import_pose = True
         return super().invoke(context, event)
 
 
@@ -1843,23 +1812,23 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                     log.info(f"Active object is a mesh, will import as shape key if possible: {obj.name}")
 
             give_anim_warning = False
-            if self.do_import_animations and not hasattr(bpy.types, 'ActionSlot'):
-                self.do_import_animations = False
+            if self.import_animations and not hasattr(bpy.types, 'ActionSlot'):
+                self.import_animations = False
                 give_anim_warning = True
 
-            import_flags = ImportSettings(0)
-            if self.do_create_bones: import_flags |= ImportSettings.create_bones
-            if self.do_rename_bones: import_flags |= ImportSettings.rename_bones
-            if self.pretty_bone_rotations: import_flags |= ImportSettings.rotate_bones_pretty
-            if self.rename_bones_niftools: import_flags |= ImportSettings.rename_bones_nift
-            if self.do_import_shapes: import_flags |= ImportSettings.import_shapekeys
-            if self.do_import_animations: import_flags |= ImportSettings.import_anims
-            if self.do_import_collisions: import_flags |= ImportSettings.import_collisions
-            if self.do_import_tris: import_flags |= ImportSettings.import_tris
-            if self.do_apply_skinning: import_flags |= ImportSettings.apply_skinning
-            if self.smart_editor_markers: import_flags |= ImportSettings.smart_editor_markers
-            if self.do_import_pose: import_flags |= ImportSettings.import_pose
-            if self.do_create_collections: import_flags |= ImportSettings.create_collection
+            import_settings = ImportSettings()
+            import_settings.create_bones = self.create_bones
+            import_settings.rename_bones = self.rename_bones
+            import_settings.rotate_bones_pretty = self.rotate_bones_pretty
+            import_settings.rename_bones_niftools = self.rename_bones_niftools
+            import_settings.import_shapekeys = self.import_shapekeys
+            import_settings.import_animations = self.import_animations
+            import_settings.import_collisions = self.import_collisions
+            import_settings.import_tris = self.import_tris
+            import_settings.apply_skinning = self.apply_skinning
+            import_settings.smart_editor_markers = self.smart_editor_markers
+            import_settings.import_pose = self.import_pose
+            import_settings.create_collection = self.create_collections
 
             skel = None
             if self.reference_skel:
@@ -1877,7 +1846,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 fullfiles, 
                 targ_objs, 
                 armatures, 
-                import_settings=import_flags, 
+                import_settings=import_settings, 
                 collection=coll, 
                 reference_skel=skel,
                 base_transform=xf,

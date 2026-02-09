@@ -27,29 +27,14 @@ else:
 
 log = logging.getLogger("pynifly")
 
-
-PYN_RENAME_BONES_PROP = "PYN_RENAME_BONES"
-
+# Magic vertex group names used to communicate issues
 NO_PARTITION_GROUP = "*NO_PARTITIONS*"
 MULTIPLE_PARTITION_GROUP = "*MULTIPLE_PARTITIONS*"
 UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
+
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 GLOSS_SCALE = 100
 
-
-# Import/export flags
-class pynFlags(IntFlag):
-    CREATE_BONES = 1
-    RENAME_BONES = 1 << 1
-    ROTATE_MODEL = 1 << 2
-    PRESERVE_HIERARCHY = 1 << 3
-    WRITE_BODYTRI = 1 << 4
-    IMPORT_SHAPES = 1 << 5
-    SHARE_ARMATURE = 1 << 6
-    APPLY_SKINNING = 1 << 7
-    KEEP_TMP_SKEL = 1 << 8 # for debugging
-    RENAME_BONES_NIFTOOLS = 1 << 9
-    EXPORT_POSE = 1 << 10
 
 # Default values for import/export options, consistent across modules
 APPLY_SKINNING_DEF = True
@@ -720,8 +705,8 @@ def get_setting_from(name, objlist, default):
     """
     for obj in objlist:
         if obj:
-            if 'PYN_BLENDER_XF' in obj:
-                return obj['PYN_BLENDER_XF']
+            if name in obj:
+                return obj[name]
     return default
 
 

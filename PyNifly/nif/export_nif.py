@@ -17,7 +17,18 @@ from ..pyn.niflytools import (NearEqual, MatNearEqual, mesh_split_by_uv, fo4Face
                               truncate_filename)
 from ..pyn.nifdefs import (BSXFlags, NiAVFlags, VertexFlags)
 from .. import blender_defs as BD
-from ..blender_defs import ObjectSelect, ObjectActive, PYN_RENAME_BONES_PROP
+from ..blender_defs import ObjectSelect, ObjectActive
+from ..util.settings import (ExportSettings,
+    PYN_BLENDER_XF_PROP,
+    PYN_GAME_PROP, 
+    PYN_PRESERVE_HIERARCHY_PROP,
+    PYN_RENAME_BONES_NIFTOOLS_PROP, 
+    PYN_RENAME_BONES_PROP, 
+    PYN_ROTATE_BONES_PRETTY_PROP,
+    PYN_WRITE_BODYTRI_ED_PROP,
+    PYN_EXPORT_POSE_PROP,
+    PYN_CHARGEN_EXT_PROP,
+    )
 from ..util.reprobj import ReprObject, ReprObjectCollection
 from ..pyn import pynifly
 from .. import bl_info
@@ -275,7 +286,7 @@ class NifExporter:
         self.armature = None
         self.facebones = None
         self.do_rename_bones = BD.RENAME_BONES_DEF
-        self.rename_bones_nift = BD.RENAME_BONES_NIFT_DEF
+        self.rename_bones_niftools = BD.RENAME_BONES_NIFT_DEF
         self.preserve_hierarchy = BD.PRESERVE_HIERARCHY_DEF
         self.write_bodytri = BD.WRITE_BODYTRI_DEF
         self.export_pose = BD.EXPORT_POSE_DEF
@@ -320,7 +331,7 @@ class NifExporter:
     def __str__(self):
         flags = []
         if self.do_rename_bones: flags.append("RENAME_BONES")
-        if self.rename_bones_nift: flags.append("RENAME_BONES_NIFT")
+        if self.rename_bones_niftools: flags.append("RENAME_BONES_NIFT")
         if self.preserve_hierarchy: flags.append("PRESERVE_HIERARCHY")
         if self.write_bodytri: flags.append("WRITE_BODYTRI")
         if self.export_pose: flags.append("EXPORT_POSE")
@@ -358,7 +369,7 @@ class NifExporter:
         return 1/self.export_xf.to_scale()[0]
     
     def nif_name(self, blender_name):
-        if self.do_rename_bones or self.rename_bones_nift:
+        if self.do_rename_bones or self.rename_bones_niftools:
             return self.nif.nif_name(blender_name)
         else:
             return blender_name
@@ -1232,14 +1243,14 @@ class NifExporter:
             and len(self.trip.shapes) > 0:
             new_shape.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
 
-        obj['PYN_GAME'] = self.game
-        obj['PYN_BLENDER_XF'] = MatNearEqual(self.export_xf, BD.blender_export_xf)
+        obj[PYN_GAME_PROP] = self.game
+        obj[PYN_BLENDER_XF_PROP] = MatNearEqual(self.export_xf, BD.blender_export_xf)
         if self.preserve_hierarchy != BD.PRESERVE_HIERARCHY_DEF:
-            obj['PYN_PRESERVE_HIERARCHY'] = self.preserve_hierarchy 
+            obj[PYN_PRESERVE_HIERARCHY_PROP] = self.preserve_hierarchy 
         if arma:
             arma[PYN_RENAME_BONES_PROP] = self.do_rename_bones
-            if self.rename_bones_nift != BD.RENAME_BONES_NIFT_DEF:
-                arma['PYN_RENAME_BONES_NIFTOOLS'] = self.rename_bones_nift 
+            if self.rename_bones_niftools != BD.RENAME_BONES_NIFT_DEF:
+                arma[PYN_RENAME_BONES_NIFTOOLS_PROP] = self.rename_bones_niftools 
         if self.write_bodytri != BD.WRITE_BODYTRI_DEF:
             obj['PYN_WRITE_BODYTRI_ED'] = self.write_bodytri 
         if self.export_pose != BD.EXPORT_POSE_DEF: obj['PYN_EXPORT_POSE'] = self.export_pose 
@@ -1294,7 +1305,7 @@ class NifExporter:
         if suffix == '_faceBones':
             self.nif.dict = fo4FaceDict
 
-        self.nif.dict.use_niftools = self.rename_bones_nift
+        self.nif.dict.use_niftools = self.rename_bones_niftools
         self.writtenbones = {}
 
         if self.objects:
@@ -1426,8 +1437,8 @@ def get_default_game_target(context):
     """Look at currently selected objects to determine game target."""
     g = "SKYRIM"
     obj = current_active_object(context)
-    if 'PYN_GAME' in obj:
-        g = obj['PYN_GAME']
+    if PYN_GAME_PROP in obj:
+        g = obj[PYN_GAME_PROP]
     else:
         selected_armatures = [a for a in context.selected_objects if a.type == 'ARMATURE']
         if selected_armatures:
@@ -1444,6 +1455,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
     filename_ext = ".nif"
 
+    # For the user. Set target game. Default value will be our best guess.
     target_game: bpy.props.EnumProperty(
             name="Target Game",
             items=(('SKYRIM', "Skyrim", ""),
@@ -1454,82 +1466,165 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ('FO3', "Fallout 3", ""),
                    ),
             ) # type: ignore
-
+    
     use_blender_xf: bpy.props.BoolProperty(
         name="Use Blender orientation",
         description="Use Blender's orientation and scale.",
-        default=BD.BLENDER_XF_DEF
+        default=ExportSettings.__dataclass_fields__["blender_xf"].default
         ) # type: ignore
     
     do_rename_bones: bpy.props.BoolProperty(
         name="Rename Bones",
         description="Rename bones from Blender conventions back to nif.",
-        default=True) # type: ignore
+        default=ExportSettings.__dataclass_fields__["rename_bones"].default) # type: ignore
 
     pretty_bone_rotations: bpy.props.BoolProperty(
         name="Pretty bone orientation",
         description="Orient bones to show structure.",
-        default=BD.ROTATE_BONES_PRETTY) # type: ignore
+        default=ExportSettings.__dataclass_fields__["rotate_bones_pretty"].default) # type: ignore
 
     rename_bones_niftools: bpy.props.BoolProperty(
         name="Rename Bones as per NifTools",
         description="Rename bones from NifTools' Blender conventions back to nif.",
-        default=False) # type: ignore
-
-    rename_bones_niftools: bpy.props.BoolProperty(
-        name="Rename Bones as per NifTools",
-        description="Rename bones from NifTools' Blender conventions back to nif.",
-        default=False) # type: ignore
+        default=ExportSettings.__dataclass_fields__["rename_bones_niftools"].default) # type: ignore
 
     preserve_hierarchy: bpy.props.BoolProperty(
         name="Preserve Bone Hierarchy",
         description="Preserve bone hierarchy in exported nif.",
-        default=False) # type: ignore
+        default=ExportSettings.__dataclass_fields__["preserve_hierarchy"].default) # type: ignore
 
     write_bodytri: bpy.props.BoolProperty(
         name="Export BODYTRI Extra Data",
         description="Write an extra data node pointing to the BODYTRI file, if there are any bodytri shape keys. Not needed if exporting for Bodyslide, because they write their own.",
-        default=True) # type: ignore
+        default=ExportSettings.__dataclass_fields__["write_bodytri"].default) # type: ignore
 
     export_pose: bpy.props.BoolProperty(
         name="Export pose position",
         description="Export bones in pose position.",
-        default=False) # type: ignore
+        default=ExportSettings.__dataclass_fields__["export_pose"].default) # type: ignore
     
     export_modifiers: bpy.props.BoolProperty(
         name="Export modifiers",
         description="Export all active modifiers (including shape keys)",
-        default=False) # type: ignore
+        default=ExportSettings.__dataclass_fields__["export_modifiers"].default) # type: ignore
 
     export_animations: bpy.props.BoolProperty(
         name="Export animations",
         description="Export animations embedded in the nif file",
-        default=False) # type: ignore
+        default=ExportSettings.__dataclass_fields__["export_animations"].default) # type: ignore
 
     export_colors: bpy.props.BoolProperty(
         name="Export vertex color/alpha",
         description="Use vertex color attributes as vertex color",
-        default=True) # type: ignore
+        default=ExportSettings.__dataclass_fields__["export_colors"].default) # type: ignore
 
     chargen_ext: bpy.props.StringProperty(
         name="Chargen extension",
         description="Extension to use for chargen files (not including file extension).",
-        default="chargen") # type: ignore
+        default=ExportSettings.__dataclass_fields__["chargen_extension"].default) # type: ignore
 
-    # For debugging. If False, use the properties passed in with the invocation. If invoked through
-    # the UI it will be true.
+    # For debugging. If True, try to set defaults from the current selection, just as they
+    # would be set for the user. If False, use whatever was passed in or the addon defaults. 
     intuit_defaults: bpy.props.BoolProperty(
         name="Intuit Defaults",
         description="Get defaults from current selection",
         default=True,
         options={'HIDDEN'},
     ) # type: ignore
+
+
+    def _discover_game(self, objlist):
+        """
+        Given objects being exported, return any game they specify. Saves the  
+        armatures it finds in self.armatures.
+        """
+        self.armatures = []
+        # Prefer the game specified by a selected armature.
+        for obj in objlist:
+            if obj.type == 'ARMATURE':
+                self.armatures.append(obj)
+                g = obj.get(PYN_GAME_PROP, "")
+                if g: 
+                    return g
+
+        # Then look for armatures controlling an object being exported.
+        for obj in objlist:
+            for m in obj.modifiers:
+                if m.type == 'ARMATURE' and m.object:
+                    self.armatures.append(m.object)
+                    g = m.object.get(PYN_GAME_PROP, "")
+                    if g: 
+                        return g
+
+        # Then look for a game specified by the object.
+        for obj in objlist:
+            g = obj.get(PYN_GAME_PROP, "")
+            if g: 
+                return g
+            
+        # Finally, if there are armatures but none specify a game, make a best guess based on the bones.
+        for arma in self.armatures:
+            g = BD.best_game_fit(arma.data.bones)
+            if g:
+                return g
+
+        return 'SKYRIM'
+    
+
+    def _discover_settings(self):
+        """
+        Given objects being exported, set any settings they specify.
+        """
+        try:
+            prefs = bpy.context.preferences.addons["PyNifly"].preferences
+        except KeyError:
+            prefs = ExportSettings()
+        
+        obj = self.objects_to_export[0]
+        lst = [obj for obj in self.objects_to_export if "pynRoot" in obj]
+        obj_root = lst[0] if lst else None
+
+        self.use_blender_xf = BD.get_setting_from(
+            PYN_BLENDER_XF_PROP, 
+            (obj_root, obj, self.export_armature), 
+            default=prefs.blender_xf)
+        self.do_rename_bones = BD.get_setting_from(
+            PYN_RENAME_BONES_PROP,
+            [self.export_armature] + self.objects_to_export,
+            default=prefs.rename_bones)
+        self.rename_bones_niftools = BD.get_setting_from(
+            PYN_RENAME_BONES_NIFTOOLS_PROP,
+            [self.export_armature] + self.objects_to_export,
+            default=prefs.rename_bones_niftools)
+        self.pretty_bone_rotations = BD.get_setting_from(
+            PYN_ROTATE_BONES_PRETTY_PROP,
+            [self.export_armature] + self.objects_to_export,
+            default=prefs.rotate_bones_pretty)
+        self.write_bodytri = BD.get_setting_from(
+            PYN_WRITE_BODYTRI_ED_PROP,
+            [obj],
+            default=ExportSettings.__dataclass_fields__["write_bodytri"].default)
+        self.preserve_hierarchy = BD.get_setting_from(
+            PYN_PRESERVE_HIERARCHY_PROP,
+            [obj],
+            default=ExportSettings.__dataclass_fields__["preserve_hierarchy"].default)
+        self.export_pose = BD.get_setting_from(
+            PYN_EXPORT_POSE_PROP,
+            [obj],
+            default=ExportSettings.__dataclass_fields__["export_pose"].default)
+        self.chargen_ext = BD.get_setting_from(
+            PYN_CHARGEN_EXT_PROP,
+            [obj],
+            default=ExportSettings.__dataclass_fields__["chargen_extension"].default)
     
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
+        self.log_handler = None
         self.objects_to_export = bpy.context.selected_objects 
+        self.armatures = None
+        self.export_armature = None
+        self.settings_from_ui = False
 
         if not self.objects_to_export:
             self.report({"ERROR"}, "No objects selected for export")
@@ -1557,6 +1652,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         Set up default flags for the UI. Override the addon defaults with any settings
         on the objects being exported.
         """
+        self.settings_from_ui = True
+
         # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_export_path_nif:
             self.filepath = str(Path(context.window_manager.pynifly_last_export_path_nif) 
@@ -1566,60 +1663,16 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         if not self.filepath:
             self.filepath = clean_filename(obj.name)
 
+        self.intuit_defaults = False
+        self.target_game = self._discover_game(self.objects_to_export)
+
         lst = [obj for obj in self.objects_to_export if "pynRoot" in obj]
         obj_root = lst[0] if lst else None
 
-        export_armature = None
-        if obj.type == 'ARMATURE':
-            export_armature = obj
-        else:
-            export_armature, fb_arma = BD.find_armatures(obj)
-            if not export_armature:
-                export_armature = fb_arma
-
-        pyniflyPrefs = bpy.context.preferences.addons["PyNifly"].preferences
-        self.use_blender_xf = pyniflyPrefs.blender_xf
-        self.do_rename_bones = pyniflyPrefs.rename_bones
-        self.rename_bones_niftools = pyniflyPrefs.rename_bones_nift
-        self.pretty_bone_rotations = pyniflyPrefs.rotate_bones_pretty
-        g = obj.get('PYN_GAME', "")
-        if not g:
-            if export_armature:
-                g = export_armature.get(
-                    'PYN_GAME', BD.best_game_fit(export_armature.data.bones))
-        if g:
-            self.target_game = g
-    
-        self.use_blender_xf = BD.get_setting_from(
-            'PYN_BLENDER_XF', 
-            (obj_root, obj, export_armature), 
-            default=pyniflyPrefs.blender_xf)
-        self.do_rename_bones = BD.get_setting_from(
-            PYN_RENAME_BONES_PROP,
-            [export_armature] + self.objects_to_export,
-            default=pyniflyPrefs.rename_bones)
-        self.rename_bones_niftools = BD.get_setting_from(
-            'PYN_RENAME_BONES_NIFTOOLS',
-            [export_armature] + self.objects_to_export,
-            default=pyniflyPrefs.rename_bones_nift)
-        self.pretty_bone_rotations = BD.get_setting_from(
-            'PYN_ROTATE_BONES_PRETTY',
-            [export_armature] + self.objects_to_export,
-            default=pyniflyPrefs.rotate_bones_pretty)
-            
-        if obj and 'PYN_PRESERVE_HIERARCHY' in obj:
-            self.preserve_hierarchy = obj['PYN_PRESERVE_HIERARCHY']
-
-        if obj and 'PYN_WRITE_BODYTRI_ED' in obj:
-            self.write_bodytri = obj['PYN_WRITE_BODYTRI_ED']
-
-        if obj and 'PYN_EXPORT_POSE' in obj:
-            self.export_pose = obj['PYN_EXPORT_POSE']
-
-        if obj and 'PYN_CHARGEN_EXT' in obj:
-            self.chargen_ext = obj['PYN_CHARGEN_EXT']
-
+        self._discover_settings()
+        
         return super().invoke(context, event)
+
 
     def execute(self, context):
         res = set()
@@ -1638,6 +1691,12 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         self.log_handler = BD.LogHandler.New(bl_info, "EXPORT", "NIF")
         pynifly.NifFile.Load(pynifly.nifly_path)
 
+        if self.intuit_defaults:
+            self.target_game = self._discover_game(self.objects_to_export)
+            self._discover_settings()
+
+        self.export_armature = self.armatures[0] if self.armatures else None
+
         try:
             context.scene.frame_set(1)
             exporter = NifExporter(self.filepath, 
@@ -1646,7 +1705,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
             exporter.context = context
             exporter.do_rename_bones = self.do_rename_bones
-            exporter.rename_bones_nift = self.rename_bones_niftools
+            exporter.rename_bones_niftools = self.rename_bones_niftools
             exporter.preserve_hierarchy = self.preserve_hierarchy
             exporter.write_bodytri = self.write_bodytri
             exporter.export_pose = self.export_pose

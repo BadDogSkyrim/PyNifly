@@ -35,12 +35,10 @@ def category(*args):
     return wrap
 
 
-def skip_test(*args):
+def skip_test(fn):
     """Decorator to skip a test."""
-    def wrap(fn):
-        fn.__dict__["skip_test"] = True
-        return fn
-    return wrap
+    fn.__dict__["skip_test"] = True
+    return fn
 
 
 def error_level(errlevel):
@@ -183,6 +181,15 @@ def assert_ne(actual, expected, msg):
 def assert_lt(actual, expected, msg, e=0.0001):
     """Assert actual is less than expected."""
     assert actual < expected, f"Values actual less than expected for {msg}: {actual} < {expected}"
+
+
+def is_lt(actual, expected, msg, e=0.0001):
+    """Assert actual is less than expected."""
+    if actual < expected:
+        return True
+    else:        
+        log.error(f"ASSERT FAIL: Values actual less than expected for {msg}: {actual} < {expected}")
+        return False
 
 
 def assert_le(actual, expected, msg, e=0.0001):
