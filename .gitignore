@@ -8,6 +8,30 @@
 /TestNifly/x64/Test
 /PyNifly/Tests/Out
 
+# -----------------------------------------------------------------------------
+# Python cache and build artifacts
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.dll
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# -----------------------------------------------------------------------------
+# Blender-specific
+# -----------------------------------------------------------------------------
+# Autosaves and temp files
+*.blend1
+*.blend2
+*.blend@
+*.blend~
+
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/
