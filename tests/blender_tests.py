@@ -1226,7 +1226,7 @@ def TEST_CONNECT_SKEL():
         bpy.ops.import_scene.pynifly(filepath=testfile, 
                                      create_bones=False, 
                                      blender_xf=(xf == "BLENDER"),
-                                    #  rotate_bones_pretty=(bonerot == "PRETTY"),
+                                     rotate_bones_pretty=(bonerot == "PRETTY"),
                                      )
 
         arma = [a for a in bpy.data.objects if a.type == 'ARMATURE'][0]
@@ -1253,12 +1253,12 @@ def TEST_CONNECT_SKEL():
         # TODO: Connect points are not at the right location and apparently never have
         # been. fix this.
 
-        # log.debug(f"cp_lleg location blender xf={xf} bone rot={bonerot}: {cp_lleg.matrix_world.translation}")
-        # expected_loc = Vector((10.1934, -1.6357, 35.2591))
-        # if xf == "BLENDER":
-        #     expected_loc = expected_loc * Vector((-0.1, -0.1, 0.1))
-        # assert TT.is_equiv(cp_lleg.matrix_world.translation, expected_loc,
-        #                    f"P-ArmorLleg world location with Blender xf {xf}")
+        log.debug(f"cp_lleg location blender xf={xf} bone rot={bonerot}: {cp_lleg.matrix_world.translation}")
+        expected_loc = Vector((10.1934, -1.6357, 35.2591))
+        if xf == "BLENDER":
+            expected_loc = expected_loc * Vector((-0.1, -0.1, 0.1))
+        assert TT.is_equiv(cp_lleg.matrix_world.translation, expected_loc,
+                           f"P-ArmorLleg world location with Blender xf {xf}")
 
         # Import settings should have been remembered
         BD.ObjectSelect([bpy.data.objects['skeleton.nif:ROOT']])
@@ -1274,10 +1274,10 @@ def TEST_CONNECT_SKEL():
         assert TT.is_eq(helm_cp_out.parent.decode('utf-8'), 'HEAD', f"ArmorHelmet parent")
         assert TT.is_equiv(helm_cp_in.translation, helm_cp_out.translation[:], "ArmorHelmet location")
         
-    # do_test(xf="NONE", bonerot="PRETTY")
-    do_test(xf="NONE", bonerot="NONE")
+    do_test(xf="NONE", bonerot="PRETTY")
+    # do_test(xf="NONE", bonerot="NONE")
     # do_test(xf="BLENDER", bonerot="PRETTY")
-    do_test(xf="BLENDER", bonerot="NONE")
+    # do_test(xf="BLENDER", bonerot="NONE")
 
 
 @TT.category('SKYRIMSE', 'BODYPART', 'ARMATURE')

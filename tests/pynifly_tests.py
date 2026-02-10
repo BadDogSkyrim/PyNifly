@@ -16,16 +16,28 @@ import os
 # from niflytools import *
 # from nifdefs import *
 # import xmltools
+import sys
 import codecs
 import ctypes
 import shutil
+from pathlib import Path
 
-from requests import head 
-from PyNifly.pyn.niflytools import *
-from PyNifly.pyn.nifdefs import *
-from . import test_tools as TT
-from PyNifly.pyn.pynifly import *
-from .test_nifchecker import CheckNif
+
+if 'PYNIFLY_DEV_ROOT' in os.environ:
+    root_path = Path(os.environ['PYNIFLY_DEV_ROOT'])
+    mod_path = root_path / 'PyNifly'
+    tests_path = root_path / 'tests'
+
+if str(mod_path) not in sys.path:
+    sys.path.append(str(mod_path / 'pynifly' ))
+    sys.path.append(str(tests_path))
+
+
+from pyn.niflytools import *
+from pyn.nifdefs import *
+import test_tools as TT
+from pyn.pynifly import *
+from test_nifchecker import CheckNif
 
 
 """Quick and dirty test harness."""

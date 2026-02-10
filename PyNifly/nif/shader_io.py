@@ -13,7 +13,7 @@ from .. import blender_defs as BD
 from ..pyn.nifdefs import ShaderFlags1, ShaderFlags2
 from ..pyn.niflytools import find_referenced_file
 from ..pyn.pynifly import NiShape, NiShader, AlphaPropertyBuf, BSLSPShaderType, PynBufferTypes
-import gamefinder
+from .. import gamefinder
 
 log = logging.getLogger("pynifly")
 

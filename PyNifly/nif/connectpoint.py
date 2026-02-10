@@ -193,10 +193,11 @@ class ConnectPointParent():
             pcp.empty_display_type = 'ARROWS'
             pcp.empty_display_size = scale * CONNECT_POINT_SCALE
 
-            mx = connectpoint_transform(cp, scale)
-            if bonename:
-                mx = BD.game_rotations[BD.game_axes[nif.game]][1] @ mx
-            pcp.matrix_world = mx
+            # mx = connectpoint_transform(cp, scale)
+            # if bonename:
+            #     mx = BD.game_rotations[BD.game_axes[nif.game]][1] @ mx
+            mx = BD.game_rotations[BD.game_axes[nif.game]][1] @ connectpoint_transform(cp, scale) 
+            pcp.matrix_basis = mx
 
             ro = ReprObject(blender_obj=pcp, nifnode=cp)
 
