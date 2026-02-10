@@ -459,7 +459,7 @@ def CheckNif(nif, source=None):
         p = Path(source)
     else:
         p = Path(nif.filepath)
-    k = (p.parts[p.parts.index('tests')+1], p.name)
+    k = (p.parts[p.parts.index('tests')+2], p.name)
     if k in test_files:
         print(f"Checking nif file {nif.filepath}")
         test_files[k](nif)

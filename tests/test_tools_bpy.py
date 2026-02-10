@@ -13,8 +13,9 @@ from PyNifly.pyn.niflytools import *
 import PyNifly.blender_defs as BD
 from PyNifly.pyn import pynifly as pyn
 
-pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
-pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
+_pynifly_dev_root = Path(os.environ['PYNIFLY_DEV_ROOT'])
+_pynifly_dev_path = Path(_pynifly_dev_root, "pynifly", "pynifly")
+_pynifly_test_path = Path(_pynifly_dev_root, "pynifly", "tests")
 
 
 log = logging.getLogger("pynifly")
@@ -95,10 +96,10 @@ def append_from_file(objname, with_parent, filepath, innerpath, targetobj):
             obj.parent.select_set(True)
         bpy.ops.object.delete() 
     
-    file_path = os.path.join(pynifly_dev_path, filepath)
+    file_path = _pynifly_test_path / filepath
     bpy.ops.object.select_all(action='DESELECT')
-    bpy.ops.wm.append(filepath=file_path,
-                        directory=file_path + innerpath,
+    bpy.ops.wm.append(filepath=str(file_path),
+                        directory=str(file_path) + innerpath,
                         filename=targetobj)
     obj = bpy.data.objects[objname]
     bpy.ops.object.select_all(action='DESELECT')
@@ -142,17 +143,21 @@ def remove_file(fn):
         os.remove(fn)
 
 
-def test_file(filename, output=False):
-    path = pathlib.Path(filename)
+def test_file(filename, output=False) -> str:
+    path = Path(filename)
+    if path.parts[0].lower() == "skeletons":
+        return str(_pynifly_dev_path / filename)
+    
     if path.parts[1] in ["Skyrim", "SkyrimSE"]:
         bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_SKYRIM
     elif path.parts[1] in ["FO4"]:
         bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_FO4
 
-    fullname = os.path.join(pynifly_dev_path, filename)
+    fullname = _pynifly_test_path / filename
     if path.parts[1].upper() == "OUT":
         remove_file(fullname)
-    return fullname
+
+    return str(fullname)
 
 
 def find_shape(name_prefix, collection=None, type='MESH'):

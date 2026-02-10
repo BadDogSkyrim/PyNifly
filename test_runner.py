@@ -26,8 +26,8 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_COLLISION_BOW_SCALE, ], 
+    target_tests=[ TEST_TEXTURE_PATHS, ], 
     # categories={'CONNECTPOINT'},
     test_all=True,
-    stop_on_fail=False,
+    stop_on_fail=True,
     )

@@ -22,18 +22,12 @@ import PyNifly.blender_defs as BD
 from PyNifly.tri.trifile import TriFile
 from PyNifly.tri.tripfile import TripFile
 from PyNifly.util.reprobj import ReprObject, ReprObjectCollection
+from PyNifly.nif import controller
+from PyNifly.nif import shader_io
 from . import test_tools as TT
 from . import test_tools_bpy as TTB
 from . import test_nifchecker as CHK
 
-import importlib
-from PyNifly.nif import shader_io, controller, connectpoint
-# importlib.reload(pyn)
-# importlib.reload(TT)
-# importlib.reload(BD)
-# importlib.reload(shader_io)
-importlib.reload(connectpoint)
-# importlib.reload(CHK)
 
 log = logging.getLogger("pynifly")
 log.setLevel(logging.DEBUG)
@@ -7379,13 +7373,22 @@ def do_tests(
     if target_tests: 
         active_tests.extend(target_tests)
     if categories:
-        for t in [t for k, t in sys.modules[__name__].__dict__.items() 
-                  if k.startswith('TEST_') and k not in exclude]:
-            if categories.intersection(t.__dict__.get("category", set())):
-                active_tests.append(t)
+        for k, t in sys.modules[__name__].__dict__.items():
+            if k.startswith('TEST_') and k not in exclude:
+                if categories.intersection(t.__dict__.get("category", set())):
+                    if t not in active_tests:
+                        active_tests.append(t)
     if (not active_tests) or test_all: 
-        active_tests.extend(t for k, t in sys.modules[__name__].__dict__.items() 
-                        if k.startswith('TEST_') and k not in exclude)
+        all_tests = [t for k, t in sys.modules[__name__].__dict__.items() 
+                        if k.startswith('TEST_') and k not in exclude]
+        if active_tests:
+            # Start with the requested tests then continue through the rest. This way when
+            # working thorugh breaking tests, you don't start from the beginning every
+            # time.
+            i = all_tests.index(active_tests[0])
+            for t in all_tests[i:] + all_tests[:i]:
+                if t not in active_tests and t not in exclude:
+                    active_tests.append(t)
     
     executed_tests = {}
 
