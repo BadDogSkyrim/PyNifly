@@ -16,15 +16,9 @@ from ..pyn.niflytools import tmp_copy_nospace, tmp_copy, tmp_filepath
 from ..pyn.pynifly import nifly_path, pynifly_dev_path, pynifly_addon_path, NifFile
 from .. import blender_defs as bdefs
 from .. import bl_info
+from ..util.settings import ImportSettings
 from ..pyn.xmltools import XMLFile
 from ..nif.import_nif import NifImporter
-
-class ImportSettingsHKX(PynIntFlag):
-    create_bones = 1
-    rename_bones = 1<<1
-    import_anims = 1<<2
-    rename_bones_nift = 1<<3
-    roll_bones_nift = 1<<4
 
 
 hkxcmd_path = None
@@ -57,30 +51,20 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         options={'HIDDEN'},
     ) # type: ignore
 
-    use_blender_xf: bpy.props.BoolProperty(
+    blender_xf: bpy.props.BoolProperty(
         name="Use Blender orientation",
         description="Use Blender's orientation and scale",
-        default=bdefs.BLENDER_XF_DEF) # type: ignore
+        default=ImportSettings.__dataclass_fields__["blender_xf"].default) # type: ignore
 
-    do_rename_bones: bpy.props.BoolProperty(
+    rename_bones: bpy.props.BoolProperty(
         name="Rename bones",
         description="Rename bones to conform to Blender's left/right conventions.",
-        default=bdefs.RENAME_BONES_DEF) # type: ignore
-
-    do_import_animations: bpy.props.BoolProperty(
-        name="Import animations",
-        description="Import any animations embedded in the nif.",
-        default=bdefs.IMPORT_ANIMS_DEF) # type: ignore
-
-    do_import_collisions: bpy.props.BoolProperty(
-        name="Import collisions",
-        description="Import any collisions embedded in the nif.",
-        default=bdefs.IMPORT_COLLISIONS_DEF) # type: ignore
+        default=ImportSettings.__dataclass_fields__["rename_bones"].default) # type: ignore
 
     rename_bones_niftools: bpy.props.BoolProperty(
         name="Rename bones as per NifTools",
         description="Rename bones using NifTools' naming scheme to conform to Blender's left/right conventions.",
-        default=bdefs.RENAME_BONES_NIFT_DEF) # type: ignore
+        default=ImportSettings.__dataclass_fields__["rename_bones_niftools"].default) # type: ignore
     
     reference_skel: bpy.props.StringProperty(
         name="Reference skeleton",
@@ -103,36 +87,40 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         self.kf:NifFile = None
         self.armature = None
         self.errors = set()
-        self.import_flags = ImportSettingsHKX(0)
+        self.import_flags = ImportSettings()
         self.animation_name = None
         self.hkx_filepath:Path = None
         self.xml_filepath:Path = None
         self.kf_filepath:Path = None
 
-        pyniflyPrefs = bpy.context.preferences.addons["PyNifly"].preferences
-        self.do_rename_bones = pyniflyPrefs.rename_bones
-        self.rename_bones_niftools = pyniflyPrefs.rename_bones_nift
-        self.use_blender_xf = pyniflyPrefs.blender_xf
-
-        obj = bpy.context.object
-        if obj and obj.type == 'ARMATURE':
-            self.reference_skel = obj.get('PYN_SKELETON_FILE', self.reference_skel)
-            self.do_rename_bones = obj.get('PYN_RENAME_BONES', self.do_rename_bones)
-            self.rename_bones_niftools = obj.get('PYN_RENAME_BONES_NIFTOOLS', self.rename_bones_niftools)
-            self.use_blender_xf = obj.get('PYN_BLENDER_XF', self.use_blender_xf)
 
     def invoke(self, context, event):
         # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_import_path_hkx:
             self.filepath = str(Path(context.window_manager.pynifly_last_import_path_hkx) 
                                 / Path(self.filepath))
+
+        # Override defaults with addon user preferences
+        pyniflyPrefs = bpy.context.preferences.addons["PyNifly"].preferences
+        self.rename_bones = pyniflyPrefs.rename_bones
+        self.rename_bones_niftools = pyniflyPrefs.rename_bones_niftools
+        self.blender_xf = pyniflyPrefs.blender_xf
+
+        # Override addon preferences with whatever the selected armature needs.
+        obj = bpy.context.object
+        if obj and obj.type == 'ARMATURE':
+            self.reference_skel = obj.get('PYN_SKELETON_FILE', self.reference_skel)
+            self.rename_bones = obj.get('PYN_RENAME_BONES', self.rename_bones)
+            self.rename_bones_niftools = obj.get('PYN_RENAME_BONES_NIFTOOLS', self.rename_bones_niftools)
+            self.blender_xf = obj.get('PYN_BLENDER_XF', self.blender_xf)
+
         return super().invoke(context, event)
 
 
     def __str__(self):
         return f"""
         Importing HXK: {self.filename_list} 
-            setings: {self.import_flags.fullname}
+            setings: {self.import_flags}
             armature: {self.armature} 
         """
 
@@ -143,10 +131,9 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         self.fps = context.scene.render.fps
         self.hkx_filepath = Path(self.filepath)
 
-        if self.do_rename_bones: 
-            self.import_flags |= ImportSettingsHKX.rename_bones
-        if self.rename_bones_niftools: 
-            self.import_flags |= ImportSettingsHKX.rename_bones_nift
+        self.import_flags.rename_bones = self.rename_bones
+        self.import_flags.rename_bones_niftools = self.rename_bones_niftools
+        self.import_flags.blender_xf = self.blender_xf
 
         try:
             self.log_handler = bdefs.LogHandler.New(bl_info, "IMPORT", "HKX")
@@ -210,17 +197,15 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
 
     def import_skeleton(self):
         """self.xmlfile has a skeleton in it. Import the skeleton."""
-        imp = NifImporter([self.xmlfile.xml_filepath], [], [], self.import_flags)
+        imp = NifImporter([self.xmlfile.xml_filepath], import_settings=self.import_flags)
         imp.context = self.context
         if self.context.view_layer.active_layer_collection: 
             imp.collection = self.context.view_layer.active_layer_collection.collection
         imp.do_create_bones = False
-        imp.do_rename_bones = self.do_rename_bones
-        imp.rename_bones_nift = self.rename_bones_niftools
-        imp.do_import_anims = self.do_import_animations
-        imp.do_import_collisions = False
-        imp.do_apply_skinning = False
-        if self.use_blender_xf:
+        imp.rename_bones = self.rename_bones
+        imp.rename_bones_niftools = self.rename_bones_niftools
+        imp.import_animations = True
+        if self.blender_xf:
             imp.import_xf = bdefs.blender_import_xf
         imp.execute()
         objlist = [x for x in imp.objects_created.blender_objects() if x.type=='MESH']
@@ -235,11 +220,9 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         if not kf_file:
             return('CANCELLED')
         else:
-            self.import_flags |= ImportSettingsHKX.import_anims
             imp = NifImporter(str(self.kf_filepath), 
-                              [], 
-                              [self.context.object],
-                              self.import_flags,
+                              target_armatures=[self.context.object],
+                              import_settings=self.import_flags,
                               animation_name=self.animation_name,)
             imp.context = self.context
             imp.nif = kf_file

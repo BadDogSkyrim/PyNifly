@@ -202,6 +202,14 @@ def assert_gt(actual, expected, msg, e=0.0001):
     assert actual > expected, f"Values actual greater than expected for {msg}: {actual} > {expected}"
 
 
+def is_gt(actual, expected, msg, e=0.0001):
+    """Assert actual is greater than expected."""
+    if actual > expected:
+        return True
+    else:
+        log.error(f"ASSERT FAIL: Values actual greater than expected for {msg}: {actual} > {expected}")
+        return False
+
 def assert_ge(actual, expected, msg, e=0.0001):
     """Assert actual is greater than expected."""
     assert actual >= expected, f"Values actual equal or greater than expected for {msg}: {actual} >= {expected}"

@@ -13,15 +13,9 @@ from ..pyn.nifdefs import PynIntFlag
 from ..blender_defs import LogHandler
 from ..nif.controller import ControllerHandler
 from .. import bl_info
+from ..util.settings import ExportSettings
 
 log = logging.getLogger("pynifly")
-
-class ImportSettingsKF(PynIntFlag):
-    create_bones = 1
-    rename_bones = 1<<1
-    import_anims = 1<<2
-    rename_bones_nift = 1<<3
-    roll_bones_nift = 1<<4
 
 
 ################################################################################
@@ -32,27 +26,24 @@ class ImportSettingsKF(PynIntFlag):
 
 class KFExporter():
     def __init__(self, filepath:Path, context, 
-                 fps=30, do_rename_bones=True, rename_bones_niftools=False):
+                 fps=30, settings=None):
         self.file_path = filepath
         self.context = context
         self.filename_base = self.file_path.stem
         self.fps = fps
-        self.do_rename_bones = do_rename_bones
-        self.rename_bones_niftools = rename_bones_niftools
+        self.settings = settings if settings else ExportSettings()
 
         
     def nif_name(self, blender_name):
-        if self.do_rename_bones or self.rename_bones_nift:
+        if self.settings.rename_bones or self.settings.rename_bones_niftools:
             return self.nif.nif_name(blender_name)
         else:
             return blender_name
 
 
     @classmethod
-    def Export(cls, filepath:Path, context,
-               fps=30, do_rename_bones=True, rename_bones_niftools=False):
-        kfx = KFExporter(filepath, context,
-            fps=30, do_rename_bones=True, rename_bones_niftools=False)
+    def Export(cls, filepath:Path, context, fps=30, settings=None):
+        kfx = KFExporter(filepath, context, fps=fps, settings=settings)
 
         # Export whatever animation is attached to the active object.
         kfx.nif = NifFile()
@@ -78,7 +69,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         description="Frames per second for export",
         default=30) # type: ignore
 
-    do_rename_bones: bpy.props.BoolProperty(
+    rename_bones: bpy.props.BoolProperty(
         name="Rename Bones",
         description="Rename bones from Blender conventions back to nif.",
         default=True) # type: ignore
@@ -112,29 +103,31 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         self.errors = set()
         self.given_scale_warning = False
 
-        NifFile.Load(nifly_path)
-
-        pyniflyPrefs = bpy.context.preferences.addons["PyNifly"].preferences
-        self.do_rename_bones = pyniflyPrefs.rename_bones
-        self.rename_bones_niftools = pyniflyPrefs.rename_bones_nift
-        if bpy.context.object and bpy.context.object.type == 'ARMATURE':
-            arma = bpy.context.object
-            self.do_rename_bones = arma.get('PYN_RENAME_BONES', self.do_rename_bones)
-            self.do_rename_bones_niftools = arma.get('PYN_RENAME_BONES_NIFTOOLS', self.rename_bones_niftools)
-            if 'PYN_RENAME_BONES' in arma:
-                self.do_rename_bones = arma['PYN_RENAME_BONES']
-            if 'PYN_RENAME_BONES_NIFTOOLS' in arma:
-                self.do_rename_bones_niftools = arma['PYN_RENAME_BONES_NIFTOOLS']
-
 
     def invoke(self, context, event):
         # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_export_path_kf:
             self.filepath = str(Path(context.window_manager.pynifly_last_export_path_kf) 
                                 / Path(self.filepath))
+
+        pyniflyPrefs = bpy.context.preferences.addons["PyNifly"].preferences
+        self.rename_bones = pyniflyPrefs.rename_bones
+        self.rename_bones_niftools = pyniflyPrefs.rename_bones_nift
+        if bpy.context.object and bpy.context.object.type == 'ARMATURE':
+            arma = bpy.context.object
+            self.rename_bones = arma.get('PYN_RENAME_BONES', self.rename_bones)
+            self.do_rename_bones_niftools = arma.get('PYN_RENAME_BONES_NIFTOOLS', self.rename_bones_niftools)
+            if 'PYN_RENAME_BONES' in arma:
+                self.rename_bones = arma['PYN_RENAME_BONES']
+            if 'PYN_RENAME_BONES_NIFTOOLS' in arma:
+                self.do_rename_bones_niftools = arma['PYN_RENAME_BONES_NIFTOOLS']
+
         return super().invoke(context, event)
 
+
     def execute(self, context):
+        NifFile.Load(nifly_path)
+
         self.context = context
         res = set()
         self.log_handler = LogHandler.New(bl_info, "EXPORT", "KF")
@@ -152,11 +145,11 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             self.filepath =  bpy.context.object.animation_data.action.name
         self.file_path = Path(self.filepath)
             
+        settings = ExportSettings()
+        settings.rename_bones = self.rename_bones
+        settings.rename_bones_niftools = self.rename_bones_niftools
         try:
-            KFExporter.Export(self.file_path, context,
-                fps=self.fps, 
-                do_rename_bones=self.do_rename_bones, 
-                rename_bones_niftools=self.rename_bones_niftools)
+            KFExporter.Export(self.file_path, context, fps=self.fps, settings=settings)
         except:
             log.exception("Export of KF failed")
 

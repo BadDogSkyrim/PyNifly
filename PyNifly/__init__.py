@@ -82,17 +82,18 @@ class PyNiflyPreferences(AddonPreferences):
         default=ImportSettings.__dataclass_fields__["rename_bones"].default,
     ) # type: ignore
 
-    rename_bones_nift: BoolProperty(
+    rename_bones_niftools: BoolProperty(
         name="NifTools-friendly bone names",
         description=("Renames bones to match the NifTools importer/exporter. Use if you " +
                      "need interoperability with NifToos."),
-        default=ImportSettings.__dataclass_fields__["rename_bones_nift"].default
+        default=ImportSettings.__dataclass_fields__["rename_bones_niftools"].default
     ) # type: ignore
 
     rotate_bones_pretty: BoolProperty(
         name="Bone orientation matches skeleton structure",
         description=("Bone orientation matches limbs in humanoid skeletons. " +
                      "Should have no other effect. Disable if you see problems."),
+        options={'HIDDEN'},
         default=ImportSettings.__dataclass_fields__["rotate_bones_pretty"].default,
     ) # type: ignore
 
@@ -122,7 +123,7 @@ class PyNiflyPreferences(AddonPreferences):
         layout.prop(self, "fo4_texture_path_3")
         layout.prop(self, "fo4_texture_path_4")
         layout.prop(self, "rename_bones")
-        layout.prop(self, "rename_bones_nift")
+        layout.prop(self, "rename_bones_niftools")
         layout.prop(self, "rotate_bones_pretty")
         layout.prop(self, "import_tris")
         layout.prop(self, "blender_xf")

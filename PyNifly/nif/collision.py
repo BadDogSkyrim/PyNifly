@@ -168,6 +168,7 @@ def find_capsule_ends(obj):
 
 class CollisionHandler():
     def __init__(self, parent_handler):
+        self.root_object = parent_handler.root_object
         self.blender_name = None
         self.collection = None
         self.export_xf = None
@@ -254,7 +255,13 @@ class CollisionHandler():
                         (0, 4, 7, 3), 
                         (5, 1, 2, 6)])
         obj = bpy.data.objects.new(cs.blockname, m)
+
+        # Set the transform first, then parent the object so any transforms on the root
+        # don't affect the collision transforms.
+        # TODO: Get this right.
         obj.matrix_world = parentxf.copy()
+        # obj.parent = self.root_object
+
         obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
         obj['bhkRadius'] = prop.bhkRadius * self.import_scale
 
@@ -541,7 +548,11 @@ class CollisionHandler():
             p.load(box, ignore=BOX_SHAPE_IGNORE)
 
             # Have to take the export scale factor into account.
-            sf = (HAVOC_SCALE_FACTOR * game_collision_sf[self.game] * (1/self.export_xf.to_scale()[0]))
+            sf = (HAVOC_SCALE_FACTOR 
+                  * game_collision_sf[self.game] 
+                  * (1/self.export_xf.to_scale()[0])
+                #   * box.parent.matrix_world.to_scale()[0] # to put collision shapes under the root
+                  )
             ctr, d, r = find_box_info(box)
             if len(d) == 3:
                 bhkDim = (d / sf) / 2

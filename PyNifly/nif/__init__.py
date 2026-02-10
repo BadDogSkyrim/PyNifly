@@ -5,8 +5,8 @@ import os
 import importlib
 from contextlib import suppress
 import bpy
-from .import_nif import ImportNIF
-from .export_nif import ExportNIF
+from . import import_nif 
+from . import export_nif
 from . import controller
 from . import shader_io
 from . import controller
@@ -14,30 +14,29 @@ from . import collision
 from . import connectpoint
 
 
-if 'PYNIFLY_DEV_ROOT' in os.environ:
-    from . import import_nif
-    from . import export_nif
-    importlib.reload(import_nif)
-    importlib.reload(export_nif)
-    importlib.reload(shader_io)
-    importlib.reload(controller)
-    importlib.reload(collision)
-    importlib.reload(connectpoint)
+def reload_all():
+    if 'PYNIFLY_DEV_ROOT' in os.environ:
+        importlib.reload(import_nif)
+        importlib.reload(export_nif)
+        importlib.reload(shader_io)
+        importlib.reload(controller)
+        importlib.reload(collision)
+        importlib.reload(connectpoint)
 
 
 def nifly_menu_import_nif(self, context):
-    self.layout.operator(ImportNIF.bl_idname, text="Nif file with pyNifly (.nif)")
+    self.layout.operator(import_nif.ImportNIF.bl_idname, text="Nif file with pyNifly (.nif)")
 
 def nifly_menu_export_nif(self, context):
-    self.layout.operator(ExportNIF.bl_idname, text="Nif file with pyNifly (.nif)")
+    self.layout.operator(export_nif.ExportNIF.bl_idname, text="Nif file with pyNifly (.nif)")
 
 
 def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_nif)
     bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export_nif)
     with suppress(RuntimeError):
-        bpy.utils.unregister_class(ImportNIF)
-        bpy.utils.unregister_class(ExportNIF)
+        bpy.utils.unregister_class(import_nif.ImportNIF)
+        bpy.utils.unregister_class(export_nif.ExportNIF)
 
     controller.unregister()
 
@@ -48,11 +47,13 @@ def unregister():
 
 
 def register():
+    reload_all()
+
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_nif)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_nif)
     with suppress(RuntimeError):
-        bpy.utils.register_class(ImportNIF)
-        bpy.utils.register_class(ExportNIF)
+        bpy.utils.register_class(import_nif.ImportNIF)
+        bpy.utils.register_class(export_nif.ExportNIF)
 
     controller.register()
 

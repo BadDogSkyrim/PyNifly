@@ -229,21 +229,21 @@ class NifImporter():
     """
     def __init__(self, 
                  filename_list, # Files may be combined into one Blender object
-                 target_objects, # Object to fold imported objects into, if possible
-                 target_armatures, # Armatures to use for imported objects
-                 import_settings, # Dictionary of settings
+                 target_objects=None, # Object to fold imported objects into, if possible
+                 target_armatures=None, # Armatures to use for imported objects
+                 import_settings=None, # Dictionary of settings
                  collection=None, # Collection to link objects into, null to create new collection 
                  reference_skel=None, # Reference skeleton for bone creation (NifFile)
                  base_transform=Matrix.Identity(4), # Transform to apply to root
                  context=bpy.context,
-                 chargen_ext=BD.CHARGEN_EXT_DEF, # Extension for chargen tri files
+                 chargen_ext="chargen", # Extension for chargen tri files
                  animation_name=None, # Base name of animation being imported, if any
                  scale=1.0,
                  anim_warn=False
                  ):
         
         self.filename_list = filename_list
-        self.target_armatures = set(target_armatures)
+        self.target_armatures = set(target_armatures) if target_armatures else set()
         self.collection = collection
         self.settings = import_settings
         self.reference_skel = reference_skel
@@ -1676,9 +1676,10 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
     rotate_bones_pretty: bpy.props.BoolProperty(
         name="Pretty bone orientation",
         description="Orient bones to show structure.",
+        options={'HIDDEN'},
         default=ImportSettings.__dataclass_fields__["rotate_bones_pretty"].default) # type: ignore
 
-    use_blender_xf: bpy.props.BoolProperty(
+    blender_xf: bpy.props.BoolProperty(
         name="Use Blender orientation",
         description="Use Blender's orientation and scale",
         default=ImportSettings.__dataclass_fields__["blender_xf"].default) # type: ignore
@@ -1717,13 +1718,18 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         name="Create armature from pose position",
         description="Creates any armature from the bone NiNode (pose) position.",
         default=ImportSettings.__dataclass_fields__["import_pose"].default) # type: ignore
+    
+    mesh_only: bpy.props.BoolProperty(
+        name="Import mesh only",
+        description="Import only the mesh, not armature or other elements.",
+        default=ImportSettings.__dataclass_fields__["mesh_only"].default) # type: ignore
 
     smart_editor_markers: bpy.props.BoolProperty(
         name="Smart editor marker handling",
         description="Do not create editor marker objects on import; recreate on export.",
         default=ImportSettings.__dataclass_fields__["smart_editor_markers"].default) # type: ignore
 
-    create_collections: bpy.props.BoolProperty(
+    create_collection: bpy.props.BoolProperty(
         name="Import to collections",
         description="Import each nif to its own new collection.",
         default=ImportSettings.__dataclass_fields__["create_collection"].default) # type: ignore
@@ -1759,7 +1765,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         # Load defaults. Use the addon's defaults unless something about the current
         # objects override them.
         pyniflyPrefs = bpy.context.preferences.addons["PyNifly"].preferences
-        self.use_blender_xf = pyniflyPrefs.blender_xf
+        self.blender_xf = pyniflyPrefs.blender_xf
         self.rename_bones = pyniflyPrefs.rename_bones
         self.rename_bones_niftools = pyniflyPrefs.rename_bones_niftools
         self.rotate_bones_pretty = pyniflyPrefs.rotate_bones_pretty
@@ -1768,7 +1774,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         if bpy.context.object and bpy.context.object.select_get() and bpy.context.object.type == 'ARMATURE':
             # We are loading into an existing armature. The various settings should match.
             arma = bpy.context.object
-            self.use_blender_xf = arma.get(PYN_BLENDER_XF_PROP, pyniflyPrefs.blender_xf)
+            self.blender_xf = arma.get(PYN_BLENDER_XF_PROP, pyniflyPrefs.blender_xf)
             self.rename_bones = arma.get(PYN_RENAME_BONES_PROP, pyniflyPrefs.rename_bones)
             self.rename_bones_niftools = arma.get(PYN_RENAME_BONES_NIFTOOLS_PROP, pyniflyPrefs.rename_bones_niftools)
             self.rotate_bones_pretty = arma.get(PYN_ROTATE_BONES_PRETTY_PROP, pyniflyPrefs.rotate_bones_pretty)
@@ -1816,26 +1822,26 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 self.import_animations = False
                 give_anim_warning = True
 
-            import_settings = ImportSettings()
-            import_settings.create_bones = self.create_bones
-            import_settings.rename_bones = self.rename_bones
-            import_settings.rotate_bones_pretty = self.rotate_bones_pretty
-            import_settings.rename_bones_niftools = self.rename_bones_niftools
-            import_settings.import_shapekeys = self.import_shapekeys
-            import_settings.import_animations = self.import_animations
-            import_settings.import_collisions = self.import_collisions
-            import_settings.import_tris = self.import_tris
-            import_settings.apply_skinning = self.apply_skinning
-            import_settings.smart_editor_markers = self.smart_editor_markers
-            import_settings.import_pose = self.import_pose
-            import_settings.create_collection = self.create_collections
+            # import_settings = ImportSettings()
+            # import_settings.create_bones = self.create_bones
+            # import_settings.rename_bones = self.rename_bones
+            # import_settings.rotate_bones_pretty = self.rotate_bones_pretty
+            # import_settings.rename_bones_niftools = self.rename_bones_niftools
+            # import_settings.import_shapekeys = self.import_shapekeys
+            # import_settings.import_animations = self.import_animations
+            # import_settings.import_collisions = self.import_collisions
+            # import_settings.import_tris = self.import_tris
+            # import_settings.apply_skinning = self.apply_skinning
+            # import_settings.smart_editor_markers = self.smart_editor_markers
+            # import_settings.import_pose = self.import_pose
+            # import_settings.create_collection = self.create_collection
 
             skel = None
             if self.reference_skel:
                 skel = NifFile(self.reference_skel)
             
             xf = Matrix.Identity(4)
-            if self.use_blender_xf:
+            if self.blender_xf:
                 xf = BD.blender_import_xf
 
             coll = None
@@ -1846,7 +1852,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 fullfiles, 
                 targ_objs, 
                 armatures, 
-                import_settings=import_settings, 
+                import_settings=self, 
                 collection=coll, 
                 reference_skel=skel,
                 base_transform=xf,

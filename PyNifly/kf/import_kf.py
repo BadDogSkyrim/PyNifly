@@ -11,20 +11,21 @@ from pathlib import Path
 import bpy
 from bpy.props import StringProperty, CollectionProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
-from ..pyn.pynifly import nifly_path, pynifly_dev_path, pynifly_addon_path, NifFile
+from ..pyn.pynifly import nifly_path, NifFile
 from ..pyn.nifdefs import PynIntFlag
-from ..blender_defs import RENAME_BONES_DEF, RENAME_BONES_NIFT_DEF, LogHandler
+from ..blender_defs import LogHandler
 from ..nif.import_nif import NifImporter
+from ..util.settings import ImportSettings
 from .. import bl_info
 
 log = logging.getLogger("pynifly")
 
-class ImportSettingsKF(PynIntFlag):
-    create_bones = 1
-    rename_bones = 1<<1
-    import_anims = 1<<2
-    rename_bones_nift = 1<<3
-    roll_bones_nift = 1<<4
+# class ImportSettingsKF(PynIntFlag):
+#     create_bones = 1
+#     rename_bones = 1<<1
+#     import_anims = 1<<2
+#     rename_bones_niftools = 1<<3
+#     roll_bones_nift = 1<<4
 
 
 class ImportKF(bpy.types.Operator, ImportHelper):
@@ -45,6 +46,21 @@ class ImportKF(bpy.types.Operator, ImportHelper):
         type=bpy.types.OperatorFileListElement,
     ) # type: ignore
 
+    blender_xf: bpy.props.BoolProperty(
+        name="Use Blender orientation",
+        description="Use Blender's orientation and scale",
+        default=ImportSettings.__dataclass_fields__["blender_xf"].default) # type: ignore
+
+    rename_bones: bpy.props.BoolProperty(
+        name="Rename bones",
+        description="Rename bones to conform to Blender's left/right conventions.",
+        default=ImportSettings.__dataclass_fields__["rename_bones"].default) # type: ignore
+
+    rename_bones_niftools: bpy.props.BoolProperty(
+        name="Rename bones as per NifTools",
+        description="Rename bones using NifTools' naming scheme to conform to Blender's left/right conventions.",
+        default=ImportSettings.__dataclass_fields__["rename_bones_niftools"].default) # type: ignore
+    
     directory: StringProperty() # type: ignore
 
     @classmethod
@@ -68,13 +84,6 @@ class ImportKF(bpy.types.Operator, ImportHelper):
         super().__init__(*args, **kwargs)
         self.nif:NifFile = None
         self.armature = None
-        self.import_flags = ImportSettingsKF.import_anims # KF file always imports animations
-
-        obj = bpy.context.object
-        if obj and obj.type == 'ARMATURE':
-            self.reference_skel = obj.get('PYN_SKELETON_FILE', '')
-            self.do_rename_bones = obj.get('PYN_RENAME_BONES', RENAME_BONES_DEF)
-            self.rename_bones_niftools = obj.get('PYN_RENAME_BONES_NIFTOOLS', RENAME_BONES_NIFT_DEF)
 
 
     def invoke(self, context, event):
@@ -82,6 +91,14 @@ class ImportKF(bpy.types.Operator, ImportHelper):
         if context.window_manager.pynifly_last_import_path_kf:
             self.filepath = str(Path(context.window_manager.pynifly_last_import_path_kf) 
                                 / Path(self.filepath))
+
+        obj = bpy.context.object
+        if obj and obj.type == 'ARMATURE':
+            self.reference_skel = obj.get('PYN_SKELETON_FILE', '')
+            self.blender_xf = obj.get('PYN_BLENDER_XF', self.blender_xf)
+            self.rename_bones = obj.get('PYN_RENAME_BONES', self.rename_bones)
+            self.rename_bones_niftools = obj.get('PYN_RENAME_BONES_NIFTOOLS', self.rename_bones_niftools)
+
         return super().invoke(context, event)
 
 
@@ -97,12 +114,15 @@ class ImportKF(bpy.types.Operator, ImportHelper):
         self.log_handler = LogHandler()
         self.log_handler.start(bl_info, "IMPORT", "KF")
 
-        if self.do_rename_bones: 
-            self.import_flags |= ImportSettingsKF.rename_bones
-        if self.rename_bones_niftools: 
-            self.import_flags |= ImportSettingsKF.rename_bones_nift
+        settings = ImportSettings()
+        settings.rename_bones = self.rename_bones
+        settings.rename_bones_niftools = self.rename_bones_niftools
+        settings.blender_xf = self.blender_xf
+        settings.import_animations = True # KF file always imports animations
+
         self.collection = bpy.data.collections.new(self.file_path.stem)
         context.scene.collection.children.link(self.collection)
+        
         try:
             NifFile.Load(nifly_path)
             folderpath = self.file_path.parent
@@ -113,7 +133,8 @@ class ImportKF(bpy.types.Operator, ImportHelper):
                 fullfiles = [self.file_path]
             for filename in fullfiles:
                 filepath = self.directory_path / filename
-                imp = NifImporter(filepath, [], [], self.import_flags,
+                imp = NifImporter(filepath, 
+                                  import_settings=settings,
                                   collection=self.collection)
                 imp.context = context
                 imp.armature = context.object

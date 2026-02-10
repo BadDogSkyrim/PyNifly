@@ -146,7 +146,7 @@ def find_referenced_file(filepath:str, nifpath:str, root='textures', alt_suffix=
         if fullp.exists():
             return str(fullp)
 
-    # Not found, look in alternative texture directory
+    # Not found, look in alternative texture directories
     for alt_path in alt_pathlist or []:
         if alt_path:
             bd = Path(alt_path.lower())

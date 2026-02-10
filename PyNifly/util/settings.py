@@ -16,7 +16,7 @@ class ImportSettings:
 
     # Rotate bones to match the limbs in humanoid skeletons. User preference. Export
     # should follow import of armature.
-    rotate_bones_pretty: bool = True
+    rotate_bones_pretty: bool = False
 
     # Use Blender's natural scale and coordinate system. User preference. Export should
     # follow import.

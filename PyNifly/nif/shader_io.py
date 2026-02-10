@@ -1131,8 +1131,20 @@ class ShaderImporter:
         * shape = shape to read for texture files
         * self.textures <- dictionary of filepaths to use.
         """
+        prefs = bpy.context.preferences.addons["PyNifly"].preferences
         self.textures = {}
         altpaths = [bpy.context.preferences.filepaths.texture_directory]
+        if self.game in ('SKYRIM', 'SKRYIMSE'):
+            altpaths.append(prefs.sky_texture_path_1)
+            altpaths.append(prefs.sky_texture_path_2)
+            altpaths.append(prefs.sky_texture_path_3)
+            altpaths.append(prefs.sky_texture_path_4)
+        else:
+            altpaths.append(prefs.fo4_texture_path_1)
+            altpaths.append(prefs.fo4_texture_path_2)
+            altpaths.append(prefs.fo4_texture_path_3)
+            altpaths.append(prefs.fo4_texture_path_4)
+
         if gamepath := gamefinder.find_game(self.game):
             altpaths.append(os.path.join(gamepath, 'data', 'textures'))
 
