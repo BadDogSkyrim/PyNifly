@@ -11,7 +11,7 @@ import bpy
 from mathutils import Vector
 from .. import blender_defs as BD
 from ..pyn.nifdefs import ShaderFlags1, ShaderFlags2
-from ..pyn.niflytools import find_referenced_file
+from ..pyn.niflytools import find_referenced_file, texture_path
 from ..pyn.pynifly import NiShape, NiShader, AlphaPropertyBuf, BSLSPShaderType, PynBufferTypes
 from .. import gamefinder
 
@@ -1135,18 +1135,18 @@ class ShaderImporter:
         self.textures = {}
         altpaths = [bpy.context.preferences.filepaths.texture_directory]
         if self.game in ('SKYRIM', 'SKRYIMSE'):
-            altpaths.append(prefs.sky_texture_path_1)
-            altpaths.append(prefs.sky_texture_path_2)
-            altpaths.append(prefs.sky_texture_path_3)
-            altpaths.append(prefs.sky_texture_path_4)
+            altpaths.append(texture_path(prefs.sky_texture_path_1))
+            altpaths.append(texture_path(prefs.sky_texture_path_2))
+            altpaths.append(texture_path(prefs.sky_texture_path_3))
+            altpaths.append(texture_path(prefs.sky_texture_path_4))
         else:
-            altpaths.append(prefs.fo4_texture_path_1)
-            altpaths.append(prefs.fo4_texture_path_2)
-            altpaths.append(prefs.fo4_texture_path_3)
-            altpaths.append(prefs.fo4_texture_path_4)
+            altpaths.append(texture_path(prefs.fo4_texture_path_1))
+            altpaths.append(texture_path(prefs.fo4_texture_path_2))
+            altpaths.append(texture_path(prefs.fo4_texture_path_3))
+            altpaths.append(texture_path(prefs.fo4_texture_path_4))
 
         if gamepath := gamefinder.find_game(self.game):
-            altpaths.append(os.path.join(gamepath, 'data', 'textures'))
+            altpaths.append(gamepath / 'data' / 'textures')
 
         for k, t in shape.textures.items():
             if not t: continue

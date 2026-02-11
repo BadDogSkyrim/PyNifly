@@ -1274,8 +1274,8 @@ def TEST_CONNECT_SKEL():
         assert TT.is_eq(helm_cp_out.parent.decode('utf-8'), 'HEAD', f"ArmorHelmet parent")
         assert TT.is_equiv(helm_cp_in.translation, helm_cp_out.translation[:], "ArmorHelmet location")
         
-    do_test(xf="NONE", bonerot="PRETTY")
-    # do_test(xf="NONE", bonerot="NONE")
+    # do_test(xf="NONE", bonerot="PRETTY")
+    do_test(xf="NONE", bonerot="NONE")
     # do_test(xf="BLENDER", bonerot="PRETTY")
     # do_test(xf="BLENDER", bonerot="NONE")
 

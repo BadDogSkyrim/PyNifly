@@ -3,7 +3,7 @@ import os
 
 import os
 import json
-import pathlib
+from pathlib import Path
 import winreg
 
 F4_APPID = "377160"   # Fallout 4 Steam AppID
@@ -32,7 +32,7 @@ def find_fallout4_steam():
         return None
 
     try:
-        steam_path = pathlib.Path(steam_path)
+        steam_path = Path(steam_path)
         library_file = steam_path / "steamapps" / "libraryfolders.vdf"
         if not library_file.exists():
             return None
@@ -47,7 +47,7 @@ def find_fallout4_steam():
                     if len(parts) >= 4:
                         path = parts[3].replace("\\\\", "\\")
                         if os.path.isdir(path):
-                            libraries.append(pathlib.Path(path) / "steamapps")
+                            libraries.append(Path(path) / "steamapps")
 
         # Always include default library
         libraries.append(steam_path / "steamapps")
@@ -60,9 +60,10 @@ def find_fallout4_steam():
                     for line in f:
                         if '"installdir"' in line:
                             installdir = line.split('"')[-2]
-                            game_path = lib.parent / "common" / installdir
+                            game_path = lib / "common" / installdir
+                            # game_path = lib.parent / "common" / installdir
                             if (game_path / F4_EXE).exists():
-                                return str(game_path)
+                                return game_path
     except:
         pass
 
@@ -75,18 +76,18 @@ def find_fallout4_steam():
 def find_fallout4_xbox():
     try:
         # Newer Xbox installs use C:\XboxGames\Fallout 4\
-        xbox_path = pathlib.Path("C:/XboxGames/Fallout 4")
+        xbox_path = Path("C:/XboxGames/Fallout 4")
         if (xbox_path / F4_EXE).exists():
             return str(xbox_path)
 
         # Older installs live in WindowsApps (restricted)
-        wa = pathlib.Path("C:/Program Files/WindowsApps")
+        wa = Path("C:/Program Files/WindowsApps")
         if wa.exists():
             for entry in wa.iterdir():
                 if entry.is_dir() and "Fallout4" in entry.name.replace(" ", ""):
                     exe = entry / F4_EXE
                     if exe.exists():
-                        return str(entry)
+                        return entry
     except Exception:
         pass
 
@@ -99,12 +100,12 @@ def find_fallout4_xbox():
 def find_fallout4_epic():
     try:
         # Epic default install path
-        epic_default = pathlib.Path("C:/Program Files/Epic Games/Fallout4")
+        epic_default = Path("C:/Program Files/Epic Games/Fallout4")
         if (epic_default / F4_EXE).exists():
-            return str(epic_default)
+            return epic_default
 
         # Epic stores manifests in ProgramData
-        manifest_dir = pathlib.Path("C:/ProgramData/Epic/EpicGamesLauncher/Data/Manifests")
+        manifest_dir = Path("C:/ProgramData/Epic/EpicGamesLauncher/Data/Manifests")
         if manifest_dir.exists():
             for mf in manifest_dir.glob("*.item"):
                 try:
@@ -114,8 +115,8 @@ def find_fallout4_epic():
 
                 if data.get("DisplayName", "").lower() == "fallout 4":
                     install_path = data.get("InstallLocation")
-                    if install_path and (pathlib.Path(install_path) / F4_EXE).exists():
-                        return install_path
+                    if install_path and (Path(install_path) / F4_EXE).exists():
+                        return Path(install_path)
     except:
         pass
 
@@ -149,7 +150,7 @@ def find_skyrim():
         if not steam_path:
             return None
 
-        steam_path = pathlib.Path(steam_path)
+        steam_path = Path(steam_path)
         library_file = steam_path / "steamapps" / "libraryfolders.vdf"
 
         if not library_file.exists():
@@ -167,7 +168,7 @@ def find_skyrim():
                         parts = line.split('"')
                         folder = parts[3].replace("\\\\", "\\")
                         if os.path.isdir(folder):
-                            libraries.append(pathlib.Path(folder) / "steamapps")
+                            libraries.append(Path(folder) / "steamapps")
                     except Exception:
                         pass
 
@@ -188,7 +189,7 @@ def find_skyrim():
                 if installdir:
                     game_path = lib.parent / "common" / installdir
                     if (game_path / SKYRIM_LE_EXE).exists():
-                        return str(game_path)
+                        return game_path
     except:
         pass
 
@@ -231,8 +232,8 @@ def find_skyrimse() -> str | None:
 
                     # Search each library for Skyrim SE
                     for lib in library_folders:
-                        candidate = os.path.join(lib, "steamapps", "common", "Skyrim Special Edition")
-                        if os.path.isdir(candidate):
+                        candidate = Path(lib) / "steamapps" / "common" / "Skyrim Special Edition"
+                        if candidate.is_dir():
                             return candidate
 
             except FileNotFoundError:
@@ -248,8 +249,9 @@ def find_skyrimse() -> str | None:
             try:
                 with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
                     path, _ = winreg.QueryValueEx(key, "Installed Path")
-                    if os.path.isdir(path):
-                        return path
+                    p = Path(path)
+                    if p.is_dir():
+                        return p
             except FileNotFoundError:
                 pass
     except:
@@ -265,7 +267,7 @@ game_finders = {
 }
 
 
-def find_game(game_name: str) -> str | None:
+def find_game(game_name: str) -> Path | None:
     """
     Returns the installation directory of the specified game,
     or None if it cannot be found.
@@ -280,4 +282,6 @@ def find_game(game_name: str) -> str | None:
 if __name__ == "__main__":
     path = find_game("SKYRIMSE")
     print("Skyrim SE found at:", path)
+    path = find_game("FO4")
+    print("Fallout 4 found at:", path)
     

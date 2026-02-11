@@ -10,7 +10,8 @@ from pyn.pynifly import NifFile
 from pyn.nifdefs import NODEID_NONE, CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, \
     NiKeyType, CycleType, ShaderFlags1, ShaderFlags2, BSLSPShaderType, VertexFlags, NiAVFlags
 from pyn.niflytools import NearEqual, VNearEqual, MatNearEqual
-import test_tools as TT
+from . import test_tools as TT
+from . import test_tools as TT
 
 
 def Check_daedriccuirass(nif:NifFile):

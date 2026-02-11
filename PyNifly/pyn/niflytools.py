@@ -20,6 +20,18 @@ log = logging.getLogger("pynifly")
 
 # ###################### FILE HANDLING ##################################
 
+def texture_path(filepath:str) -> Path:
+    """ 
+    Clean up the given texture filepath.
+    """
+    if not filepath: return None
+    fp = filepath.strip('"').strip("'")
+    p = Path(fp)
+    if p.parts[-1].lower() != 'textures':
+        return p / 'textures'
+    return p
+
+
 def tmp_filepath(filepath:Path, ext=None) -> Path:
     """
     Return a unique temporary filename with no embedded spaces. Name is based on the base
@@ -149,8 +161,8 @@ def find_referenced_file(filepath:str, nifpath:str, root='textures', alt_suffix=
     # Not found, look in alternative texture directories
     for alt_path in alt_pathlist or []:
         if alt_path:
-            bd = Path(alt_path.lower())
-            if bd.name == 'textures':
+            bd = Path(alt_path)
+            if bd.name.lower() == 'textures':
                 bd = bd.parent
             fullp = bd / fp
             if alt_suffix and fullp.with_suffix(alt_suffix).exists():
