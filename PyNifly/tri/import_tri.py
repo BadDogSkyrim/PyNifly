@@ -7,7 +7,7 @@ import logging
 from typing import BinaryIO
 import bpy
 from bpy_extras.io_utils import ImportHelper
-import PyNifly.blender_defs as BD
+from .. import blender_defs as BD
 from ..pyn.niflytools import gameSkeletons
 from .. import bl_info
 from .trifile import TriFile, is_tri

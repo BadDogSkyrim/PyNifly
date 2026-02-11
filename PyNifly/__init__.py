@@ -7,7 +7,7 @@ bl_info = {
     "description": "Nifly Import/Export for Skyrim, Skyrim SE, and Fallout 4 NIF files (*.nif)",
     "author": "Bad Dog",
     "blender": (4, 5, 0),
-    "version": (23, 0, 2),   
+    "version": (23, 0, 3),   
     "location": "File > Import-Export",
     "support": "COMMUNITY",
     "category": "Import-Export"
