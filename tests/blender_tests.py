@@ -12,18 +12,18 @@ from pathlib import Path
 import json
 import bpy
 from mathutils import Matrix, Vector, Quaternion, Euler
-import PyNifly.pyn.niflytools as NT
-from PyNifly.pyn.nifdefs import NiAVFlags, ShaderFlags2, bhkCOFlags, SkyrimCollisionLayer, \
+import io_scene_nifly.pyn.niflytools as NT
+from io_scene_nifly.pyn.nifdefs import NiAVFlags, ShaderFlags2, bhkCOFlags, SkyrimCollisionLayer, \
     SkyrimHavokMaterial, PynBufferTypes, CycleType, hkResponseType, HSF, \
     BroadPhaseType, hkMotionType, hkSolverDeactivation, hkQualityType, HAVOC_SCALE_FACTOR
-import PyNifly.pyn.pynifly as pyn
+import io_scene_nifly.pyn.pynifly as pyn
 import xml.etree.ElementTree as xml
-import PyNifly.blender_defs as BD
-from PyNifly.tri.trifile import TriFile
-from PyNifly.tri.tripfile import TripFile
-from PyNifly.util.reprobj import ReprObject, ReprObjectCollection
-from PyNifly.nif import controller
-from PyNifly.nif import shader_io
+import io_scene_nifly.blender_defs as BD
+from io_scene_nifly.tri.trifile import TriFile
+from io_scene_nifly.tri.tripfile import TripFile
+from io_scene_nifly.util.reprobj import ReprObject, ReprObjectCollection
+from io_scene_nifly.nif import controller
+from io_scene_nifly.nif import shader_io
 from . import test_tools as TT
 from . import test_tools_bpy as TTB
 from . import test_nifchecker as CHK
@@ -7389,6 +7389,8 @@ def do_tests(
             for t in all_tests[i:] + all_tests[:i]:
                 if t not in active_tests and t not in exclude:
                     active_tests.append(t)
+        else:
+            active_tests = all_tests
     
     executed_tests = {}
 

@@ -9,9 +9,9 @@ from contextlib import suppress
 import math
 import bpy
 from mathutils import Matrix, Vector, Quaternion, Euler
-from PyNifly.pyn.niflytools import *
-import PyNifly.blender_defs as BD
-from PyNifly.pyn import pynifly as pyn
+from io_scene_nifly.pyn.niflytools import *
+import io_scene_nifly.blender_defs as BD
+from io_scene_nifly.pyn import pynifly as pyn
 
 _pynifly_dev_root = Path(os.environ['PYNIFLY_DEV_ROOT'])
 _pynifly_dev_path = Path(_pynifly_dev_root, "pynifly", "pynifly")

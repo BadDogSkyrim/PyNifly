@@ -25,7 +25,7 @@ from pathlib import Path
 
 if 'PYNIFLY_DEV_ROOT' in os.environ:
     root_path = Path(os.environ['PYNIFLY_DEV_ROOT'])
-    mod_path = root_path / 'PyNifly'
+    mod_path = root_path / 'io_scene_nifly'
     tests_path = root_path / 'tests'
 
 if str(mod_path) not in sys.path:
