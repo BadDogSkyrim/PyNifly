@@ -40,7 +40,7 @@ DEFINE_ENUM_FLAG_OPERATORS(NifOptions)
 
 //std::filesystem::path testRoot(TEST_ROOT);
 std::filesystem::path testRoot = std::filesystem::current_path()
-	.parent_path().parent_path().parent_path().parent_path() / "PyNifly/Pynifly/tests/";
+	.parent_path().parent_path().parent_path().parent_path() / "PyNifly/tests/tests/";
 
 
 void CheckReturn(int val) {
