@@ -22,12 +22,12 @@ if str(mod_path) not in sys.path:
 
 import tests
 # importlib.reload(tests)
-# from tests.blender_tests import *
 importlib.reload(tests)
+from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    # target_tests=[ TEST_CONNECT_SKEL, ], 
+    target_tests=[ TEST_CONNECT_SKEL, ], 
     # categories={'TRI'},
-    test_all=True,
-    stop_on_fail=False,
+    test_all=False,
+    stop_on_fail=True,
     )

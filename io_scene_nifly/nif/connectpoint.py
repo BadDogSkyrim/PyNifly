@@ -14,19 +14,6 @@ log = logging.getLogger("pynifly")
 
 CONNECT_POINT_SCALE = 5.0
 
-# P-WS-* don't get editor markers. Show them as emptys.
-EDITOR_MARKER_COLORS = {
-    'P-Balcony01':      Color((1.0, 0.498, 0.0)),
-    'P-Ceiling':      Color((1.0, 0.0, 0.0)),
-    'P-Corner01':       Color((1.0, 0.0, 1.0)),
-    'P-Door':         Color((1.0, 1.0, 0.0)),
-    'P-Floor':        Color((0.0, 1.0, 0.0)),
-    'P-Wall':         Color((0.0, 0.0, 1.0)),
-    'P-WallFlatEnd01':  Color((0.549, 1.0, 0.718)),
-}
-EDITOR_MARKER_COLOR_DEFAULT = Color((0.8, 0.8, 0.8))
-EDITOR_MARKER_ALPHA = 0.750
-
 
 def connectpoint_transform(cp, scale=1.0):
     """Return a connect point's transform as a Matrix."""
@@ -159,6 +146,9 @@ class ConnectPointParent():
         parentobj = None
         parentname = cp.parent.decode('utf-8')
         bonename = None
+        cpx = connectpoint_transform(cp, scale)
+        mx = BD.game_rotations[BD.game_axes[nif.game]][1] @ cpx 
+
         if parentname:
             parentimp = objectlist.find_nifname(nif, parentname)
             if parentimp:
@@ -196,8 +186,12 @@ class ConnectPointParent():
             # mx = connectpoint_transform(cp, scale)
             # if bonename:
             #     mx = BD.game_rotations[BD.game_axes[nif.game]][1] @ mx
-            mx = BD.game_rotations[BD.game_axes[nif.game]][1] @ connectpoint_transform(cp, scale) 
-            pcp.matrix_basis = mx
+            # if bonename:
+            #     # The bone's transform is relative to the head, but child transforms are
+            #     # tail so we adjust by the bone's length.
+            #     bone = parentobj.pose.bones[bonename]
+            #     mx = Matrix.Translation(bone.head-bone.tail) @ mx
+            # pcp.matrix_basis = mx
 
             ro = ReprObject(blender_obj=pcp, nifnode=cp)
 
@@ -206,9 +200,12 @@ class ConnectPointParent():
         if parentobj:
             pcp.parent = parentobj 
             if bonename: 
+                bone = parentobj.pose.bones[bonename]
                 pcp.parent_type = 'BONE'
                 pcp.parent_bone = bonename
+                pcp.matrix_world = (parentobj.matrix_world @ bone.matrix @ mx)
         else:
+            pcp.matrix_basis = mx
             pcp.parent = blendroot
 
         BD.link_to_collection(blendroot.users_collection[0], pcp)
@@ -408,6 +405,13 @@ class ConnectPointCollection():
             # Export the connect point
             obj = cp.obj.blender_obj
             transl = obj.matrix_local.translation
+            if cp.obj.blender_obj.parent_type == 'BONE':
+                # If we're parented to a bone we have to get the local transform from
+                # bone to connect point.
+                bonename = cp.obj.blender_obj.parent_bone
+                arma = cp.obj.blender_obj.parent
+                bone = arma.pose.bones[bonename]
+                transl = ((arma.matrix_world @ bone.matrix).inverted() @ cp.obj.blender_obj.matrix_world).translation
             rot = obj.matrix_local.to_quaternion()
             scale = obj.matrix_local.to_scale()[0]
             if obj.type == 'MESH':

@@ -1254,7 +1254,7 @@ def TEST_CONNECT_SKEL():
         # been. fix this.
 
         log.debug(f"cp_lleg location blender xf={xf} bone rot={bonerot}: {cp_lleg.matrix_world.translation}")
-        expected_loc = Vector((10.1934, -1.6357, 35.2591))
+        expected_loc = Vector((-8.7480, -3.1508, 35.2600))
         if xf == "BLENDER":
             expected_loc = expected_loc * Vector((-0.1, -0.1, 0.1))
         assert TT.is_equiv(cp_lleg.matrix_world.translation, expected_loc,
@@ -1262,8 +1262,11 @@ def TEST_CONNECT_SKEL():
 
         # Import settings should have been remembered
         BD.ObjectSelect([bpy.data.objects['skeleton.nif:ROOT']])
-        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', 
-                                     preserve_hierarchy=True)
+        bpy.ops.export_scene.pynifly(filepath=outfile, 
+                                     target_game='FO4', 
+                                     blender_xf=(xf == "BLENDER"),
+                                     preserve_hierarchy=True,
+                                     intuit_defaults=False,)
 
         skel_in = pyn.NifFile(testfile)
         skel_out = pyn.NifFile(outfile)
@@ -1274,10 +1277,10 @@ def TEST_CONNECT_SKEL():
         assert TT.is_eq(helm_cp_out.parent.decode('utf-8'), 'HEAD', f"ArmorHelmet parent")
         assert TT.is_equiv(helm_cp_in.translation, helm_cp_out.translation[:], "ArmorHelmet location")
         
-    # do_test(xf="NONE", bonerot="PRETTY")
     do_test(xf="NONE", bonerot="NONE")
+    do_test(xf="BLENDER", bonerot="NONE")
+    # do_test(xf="NONE", bonerot="PRETTY")
     # do_test(xf="BLENDER", bonerot="PRETTY")
-    # do_test(xf="BLENDER", bonerot="NONE")
 
 
 @TT.category('SKYRIMSE', 'BODYPART', 'ARMATURE')

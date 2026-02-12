@@ -14,7 +14,7 @@ import io_scene_nifly.blender_defs as BD
 from io_scene_nifly.pyn import pynifly as pyn
 
 _pynifly_dev_root = Path(os.environ['PYNIFLY_DEV_ROOT'])
-_pynifly_dev_path = Path(_pynifly_dev_root, "pynifly", "pynifly")
+_pynifly_dev_path = Path(_pynifly_dev_root, "pynifly", "io_scene_nifly")
 _pynifly_test_path = Path(_pynifly_dev_root, "pynifly", "tests")
 
 
