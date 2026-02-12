@@ -25,18 +25,16 @@ from pathlib import Path
 
 if 'PYNIFLY_DEV_ROOT' in os.environ:
     root_path = Path(os.environ['PYNIFLY_DEV_ROOT'])
-    mod_path = root_path / 'io_scene_nifly'
-    tests_path = root_path / 'tests'
+    mod_path = root_path / 'pynifly' / 'io_scene_nifly' / 'pyn'
+    tests_path = root_path / 'pynifly' / 'tests'
 
 if str(mod_path) not in sys.path:
-    sys.path.append(str(mod_path / 'pynifly' ))
-    sys.path.append(str(tests_path))
+    sys.path.insert(0, str(root_path / 'pynifly'))
 
-
-from pyn.niflytools import *
-from pyn.nifdefs import *
+from io_scene_nifly.pyn.niflytools import *
+from io_scene_nifly.pyn.nifdefs import *
+from io_scene_nifly.pyn.pynifly import *
 import test_tools as TT
-from pyn.pynifly import *
 from test_nifchecker import CheckNif
 
 
