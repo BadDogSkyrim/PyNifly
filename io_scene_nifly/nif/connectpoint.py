@@ -183,27 +183,22 @@ class ConnectPointParent():
             pcp.empty_display_type = 'ARROWS'
             pcp.empty_display_size = scale * CONNECT_POINT_SCALE
 
-            # mx = connectpoint_transform(cp, scale)
-            # if bonename:
-            #     mx = BD.game_rotations[BD.game_axes[nif.game]][1] @ mx
-            # if bonename:
-            #     # The bone's transform is relative to the head, but child transforms are
-            #     # tail so we adjust by the bone's length.
-            #     bone = parentobj.pose.bones[bonename]
-            #     mx = Matrix.Translation(bone.head-bone.tail) @ mx
-            # pcp.matrix_basis = mx
-
             ro = ReprObject(blender_obj=pcp, nifnode=cp)
 
         pcp.name = "BSConnectPointParents" + "::" + cpname
 
         if parentobj:
-            pcp.parent = parentobj 
             if bonename: 
+                pcp.parent = parentobj 
                 bone = parentobj.pose.bones[bonename]
                 pcp.parent_type = 'BONE'
                 pcp.parent_bone = bonename
                 pcp.matrix_world = (parentobj.matrix_world @ bone.matrix @ mx)
+            else:
+                mx = connectpoint_transform(cp, scale)
+                pcp.matrix_basis = mx
+                pcp.parent = parentobj 
+
         else:
             pcp.matrix_basis = mx
             pcp.parent = blendroot

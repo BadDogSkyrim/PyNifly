@@ -376,80 +376,82 @@ def TEST_BODYPART_ALIGNMENT_FO4_1():
 
 
 @TT.category('SKYRIM', 'BODYPART')
-def TEST_IMP_EXP_SKY():
+@TT.parameterize(("game", "blendxf", "pretty"), 
+                 [('SKYRIMSE', "NATURAL", "NIF"),
+                  ('SKYRIM', "NATURAL", "NIF"),
+                  ('SKYRIM', "BLENDER", "NIF"),
+                  ('SKYRIMSE', "BLENDER", "NIF"),
+                  ('SKYRIMSE', "NATURAL", "PRETTY"),
+                  ('SKYRIMSE', "BLENDER", "PRETTY"),
+                  ])
+def TEST_IMP_EXP_SKY(game, blendxf, pretty):
     """Can read the armor nif and spit it back out"""
     # Round trip of ordinary Skyrim armor, with and without scale factor.
 
+    TTB.clear_all()
     testfile = TTB.test_file(r"tests/Skyrim/armor_only.nif")
+    outfile = TTB.test_file(f"tests/Out/TEST_IMP_EXP_SKY_{game}_{blendxf}_{pretty}.nif")
 
-    def do_test(game, blendxf):
-        ### IMPORT ###
+    ### IMPORT ###
 
-        TTB.clear_all()
-        xftext = '_XF' if blendxf else ''
-        print(f"---Testing {'with' if blendxf else 'without'} blender transform for {game}")
-        outfile = TTB.test_file(f"tests/Out/TEST_IMP_EXP_SKY_{game}{xftext}.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                 blender_xf=(blendxf=="BLENDER"),
+                                 rotate_bones_pretty=(pretty=="PRETTY"))
+    armor = [obj for obj in bpy.context.selected_objects if obj.name.startswith('Armor')][0]
 
-        bpy.ops.import_scene.pynifly(filepath=testfile, blender_xf=blendxf)
-        armor = [obj for obj in bpy.context.selected_objects if obj.name.startswith('Armor')][0]
+    impnif = pyn.NifFile(testfile)
+    armorin = impnif.shape_dict['Armor']
 
-        impnif = pyn.NifFile(testfile)
-        armorin = impnif.shape_dict['Armor']
+    root = next(n for n in bpy.data.objects if 'pynRoot' in n)
+    TT.assert_eq(root.name, 'Scene Root:ROOT', "Root node name")
 
-        root = next(n for n in bpy.data.objects if 'pynRoot' in n)
-        TT.assert_eq(root.name, 'Scene Root:ROOT', "Root node name")
+    # Armor is in the right place.
+    vmin, vmax = TTB.get_obj_bbox(armor)
+    assert NT.VNearEqual(vmin, Vector([-30.32, -13.31, -90.03]), 0.1), f"Armor min is correct: {vmin}"
+    assert NT.VNearEqual(vmax, Vector([30.32, 12.57, -4.23]), 0.1), f"Armor max is correct: {vmax}"
+    assert NT.NearEqual(armor.location.z, 120.34, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
 
-        # Armor is in the right place.
-        vmin, vmax = TTB.get_obj_bbox(armor)
-        assert NT.VNearEqual(vmin, Vector([-30.32, -13.31, -90.03]), 0.1), f"Armor min is correct: {vmin}"
-        assert NT.VNearEqual(vmax, Vector([30.32, 12.57, -4.23]), 0.1), f"Armor max is correct: {vmax}"
-        assert NT.NearEqual(armor.location.z, 120.34, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
+    # Armor has one body partition (even tho 2 partitions in the nif, both are 32).
+    TT.assert_contains("SBP_32_BODY", armor.vertex_groups, "Body partition")
+    bp = armor.vertex_groups["SBP_32_BODY"]
+    for i, v in enumerate(armor.data.vertices):
+            TT.assert_contains(bp.index, [vg.group for vg in v.groups], f"Vertex {i} groups")
 
-        # Armor has one body partition (even tho 2 partitions in the nif, both are 32).
-        TT.assert_contains("SBP_32_BODY", armor.vertex_groups, "Body partition")
-        bp = armor.vertex_groups["SBP_32_BODY"]
-        for i, v in enumerate(armor.data.vertices):
-                TT.assert_contains(bp.index, [vg.group for vg in v.groups], f"Vertex {i} groups")
+    # Armor has an armature.
+    arma = armor.modifiers["Armature"].object
+    assert arma.type == 'ARMATURE', f"armor has armature: {arma}"
 
-        # Armor has an armature.
-        arma = armor.modifiers["Armature"].object
-        assert arma.type == 'ARMATURE', f"armor has armature: {arma}"
+    pelvis = arma.data.bones['NPC Pelvis']
+    pelvis_pose = arma.pose.bones['NPC Pelvis'] 
+    assert pelvis.parent.name == 'CME LBody', f"Pelvis has correct parent: {pelvis.parent}"
+    assert NT.VNearEqual(pelvis.matrix_local.translation, pelvis_pose.matrix.translation), \
+        f"Pelvis pose position matches bone position: {pelvis.matrix_local.translation} == {pelvis_pose.matrix.translation}"
 
-        pelvis = arma.data.bones['NPC Pelvis']
-        pelvis_pose = arma.pose.bones['NPC Pelvis'] 
-        assert pelvis.parent.name == 'CME LBody', f"Pelvis has correct parent: {pelvis.parent}"
-        assert NT.VNearEqual(pelvis.matrix_local.translation, pelvis_pose.matrix.translation), \
-            f"Pelvis pose position matches bone position: {pelvis.matrix_local.translation} == {pelvis_pose.matrix.translation}"
+    ### EXPORT ###
 
-        ### EXPORT ###
+    root.name = "ArmorRoot"
 
-        root.name = "ArmorRoot"
+    BD.ObjectSelect([armor], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, 
+                                 target_game=game, 
+                                 blender_xf=(blendxf=="BLENDER"), 
+                                 rotate_bones_pretty=(pretty=="PRETTY"),
+                                 intuit_defaults=False)
 
-        BD.ObjectSelect([armor], active=True)
-        bpy.ops.export_scene.pynifly(filepath=outfile, 
-                                     target_game=game, 
-                                     blender_xf=blendxf, 
-                                     intuit_defaults=False)
+    nifout = pyn.NifFile(outfile)
+    # Exported with the armor selected; gets a default root node nmae.
+    assert TT.is_eq(nifout.rootNode.name, "Scene Root"), "Root node name in output nif"
 
-        nifout = pyn.NifFile(outfile)
-        # Exported with the armor selected; gets a default root node nmae.
-        assert TT.is_eq(nifout.rootNode.name, "Scene Root"), "Root node name in output nif"
+    armorout = nifout.shape_dict['Armor']
+    assert nifout.game == game, f"Wrote correct game format: {nifout.game} == {game}"
+    TTB.compare_shapes(armorin, armorout, armor, e=0.01)
+    TTB.check_unweighted_verts(armorout)
 
-        armorout = nifout.shape_dict['Armor']
-        assert nifout.game == game, f"Wrote correct game format: {nifout.game} == {game}"
-        TTB.compare_shapes(armorin, armorout, armor, e=0.01)
-        TTB.check_unweighted_verts(armorout)
-
-        TT.assert_eq(nifout.nodes['NPC Pelvis [Pelv]'].flags, 
-                     NiAVFlags.SELECTIVE_UPDATE 
-                     + NiAVFlags.SELECTIVE_UPDATE_TRANSF
-                     + NiAVFlags.SELECTIVE_UPDATE_CONTR,
-                     "bone flags")
-
-    do_test('SKYRIMSE', False)
-    do_test('SKYRIM', False)
-    do_test('SKYRIM', True)
-    do_test('SKYRIMSE', True)
+    TT.assert_eq(nifout.nodes['NPC Pelvis [Pelv]'].flags, 
+                    NiAVFlags.SELECTIVE_UPDATE 
+                    + NiAVFlags.SELECTIVE_UPDATE_TRANSF
+                    + NiAVFlags.SELECTIVE_UPDATE_CONTR,
+                    "bone flags")
         
 
 @TT.category('SKYRIM', 'BODYPART')
@@ -1253,9 +1255,6 @@ def TEST_CONNECT_SKEL(xf, bonerot):
     cp_lleg = bpy.data.objects['BSConnectPointParents::P-ArmorLleg']
     assert TT.is_eq(cp_lleg.parent.type, 'ARMATURE', f"P-ArmorLleg parent")
     
-    # TODO: Connect points are not at the right location and apparently never have
-    # been. fix this.
-
     log.debug(f"cp_lleg location blender xf={xf} bone rot={bonerot}: {cp_lleg.matrix_world.translation}")
     expected_loc = Vector((-8.7480, -3.1508, 35.2600))
     if xf == "BLENDER":
@@ -4421,60 +4420,57 @@ def TEST_COLLISION_BOW2():
 
 
 @TT.category('SKYRIM', 'PHYSICS')
-def TEST_COLLISION_BOW3():
+@TT.parameterize('bl', ['NATURAL', 'BLENDER'])
+def TEST_COLLISION_BOW3(bl):
     """Can modify collision shape type"""
     # We can change the collision by editing the Blender shapes. Collision shape has a
     # rotation and no scale. Check with and without Blender transform.
 
-    def do_test(bl):
-        # ------- Load --------
-        testfile = TTB.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
-        outfile3 = TTB.test_file(f"tests/Out/TEST_COLLISION_BOW3_{bl}.nif")
+    # ------- Load --------
+    testfile = TTB.test_file(r"tests/SkyrimSE/meshes/weapons/glassbowskinned.nif")
+    outfile3 = TTB.test_file(f"tests/Out/TEST_COLLISION_BOW3_{bl}.nif")
 
-        bpy.ops.import_scene.pynifly(filepath=testfile, blender_xf=(bl=='BLENDER'))
-        bow = bpy.context.object
-        root = bow.parent
-        arma = bow.modifiers['Armature'].object
-        coll = arma.pose.bones['Bow_MidBone'].constraints['bhkCollisionConstraint'].target
+    bpy.ops.import_scene.pynifly(filepath=testfile, blender_xf=(bl=='BLENDER'))
+    bow = bpy.context.object
+    root = bow.parent
+    arma = bow.modifiers['Armature'].object
+    coll = arma.pose.bones['Bow_MidBone'].constraints['bhkCollisionConstraint'].target
 
-        # ------- Export --------
+    # ------- Export --------
 
-        # Move the collision object 
-        for v in coll.data.vertices:
-            if NT.NearEqual(v.co.y, 3.3, epsilon=0.5):
-                v.co.y = 9.3
-                if v.co.x > 0:
-                    v.co.x = 30.6
-                else:
-                    v.co.x = -19.5
-        coll.name = "bhkConvexVerticesShape"
+    # Move the collision object 
+    for v in coll.data.vertices:
+        if NT.NearEqual(v.co.y, 3.3, epsilon=0.5):
+            v.co.y = 9.3
+            if v.co.x > 0:
+                v.co.x = 30.6
+            else:
+                v.co.x = -19.5
+    coll.name = "bhkConvexVerticesShape"
 
-        BD.ObjectSelect([root], active=True)
-        bpy.ops.export_scene.pynifly(filepath=outfile3, target_game='SKYRIMSE')
-        
-        # ------- Check Results 3 --------
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile3, target_game='SKYRIMSE')
+    
+    # ------- Check Results 3 --------
 
-        nifcheck3 = pyn.NifFile(outfile3)
+    nifcheck3 = pyn.NifFile(outfile3)
 
-        midbowcheck3 = nifcheck3.nodes["Bow_MidBone"]
-        collcheck3 = midbowcheck3.collision_object
-        assert collcheck3.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck3.blockname}"
-        assert bhkCOFlags(collcheck3.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
+    midbowcheck3 = nifcheck3.nodes["Bow_MidBone"]
+    collcheck3 = midbowcheck3.collision_object
+    assert collcheck3.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck3.blockname}"
+    assert bhkCOFlags(collcheck3.flags).fullname == "ACTIVE | SYNC_ON_UPDATE"
 
-        # Full check of locations and rotations to make sure we got them right
-        mbc_xf = nifcheck3.get_node_xform_to_global("Bow_MidBone")
-        assert NT.VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
-        m = BD.transform_to_matrix(mbc_xf).to_euler()
-        assert NT.VNearEqual(m, [0, 0, -math.pi/2]), f"Midbow rotation is correct: {m}"
+    # Full check of locations and rotations to make sure we got them right
+    mbc_xf = nifcheck3.get_node_xform_to_global("Bow_MidBone")
+    assert NT.VNearEqual(mbc_xf.translation, [1.3064, 6.3735, -0.0198]), f"Midbow in correct location: {str(mbc_xf.translation[:])}"
+    m = BD.transform_to_matrix(mbc_xf).to_euler()
+    assert NT.VNearEqual(m, [0, 0, -math.pi/2]), f"Midbow rotation is correct: {m}"
 
-        bodycheck3 = collcheck3.body
+    bodycheck3 = collcheck3.body
 
-        cshapecheck3 = bodycheck3.shape
-        assert cshapecheck3.blockname == "bhkConvexVerticesShape", f"Shape is convex vertices: {cshapecheck3.blockname}"
-        assert NT.VNearEqual(cshapecheck3.vertices[0], (-0.73, -0.267, 0.014, 0.0)), f"Convex shape is correct"
-
-    do_test('NATURAL')
-    do_test('BLENDER')
+    cshapecheck3 = bodycheck3.shape
+    assert cshapecheck3.blockname == "bhkConvexVerticesShape", f"Shape is convex vertices: {cshapecheck3.blockname}"
+    assert NT.VNearEqual(cshapecheck3.vertices[0], (-0.73, -0.267, 0.014, 0.0)), f"Convex shape is correct"
 
 
 @TT.category('SKYRIM', 'PHYSICS')
@@ -4725,291 +4721,279 @@ def TEST_COLLISION_MULTI():
 
 
 @TT.category('SKYRIM', 'PHYSICS')
-def TEST_COLLISION_CONVEXVERT():
+@TT.parameterize('bx', [True, False])
+def TEST_COLLISION_CONVEXVERT(bx):
     """"Can read and write shape with convex verts collision shape at scale."""
-    def do_test(bx):
-        print(f"<<<Can read and write shape with convex verts collision shape at scale {bx}>>>")
-        TTB.clear_all()
+    print(f"<<<Can read and write shape with convex verts collision shape at scale {bx}>>>")
+    TTB.clear_all()
 
-        # ------- Load --------
-        testfile = TTB.test_file(r"tests\Skyrim\cheesewedge01.nif")
-        outfile = TTB.test_file(f"tests/Out/TEST_COLLISION_CONVEXVERT.{'BL' if bx else 'NAT'}.nif")
+    # ------- Load --------
+    testfile = TTB.test_file(r"tests\Skyrim\cheesewedge01.nif")
+    outfile = TTB.test_file(f"tests/Out/TEST_COLLISION_CONVEXVERT.{'BL' if bx else 'NAT'}.nif")
 
-        bpy.ops.import_scene.pynifly(filepath=testfile, blender_xf=bx)
+    bpy.ops.import_scene.pynifly(filepath=testfile, blender_xf=bx)
 
-        # Check transform
-        cheese = bpy.data.objects["CheeseWedge01:0"]
-        TT.assert_equiv(cheese.location, (0,0,0,), "cheese location")
-        TT.assert_equiv(cheese.rotation_euler, (0,0,0,), "cheese rotation")
-        TT.assert_equiv(cheese.scale, Vector((1,1,1,)), "cheese scale")
+    # Check transform
+    cheese = bpy.data.objects["CheeseWedge01:0"]
+    TT.assert_equiv(cheese.location, (0,0,0,), "cheese location")
+    TT.assert_equiv(cheese.rotation_euler, (0,0,0,), "cheese rotation")
+    TT.assert_equiv(cheese.scale, Vector((1,1,1,)), "cheese scale")
 
-        # Check collision info
-        root = cheese.parent
-        constr = [c for c in root.constraints if c.type == 'COPY_TRANSFORMS']
-        assert constr, f"Have constraints on root"
-        coll = constr[0].target
-        assert coll, f"Have collision object"
-        assert coll.rigid_body, f"Collision object has physics"
-        TT.assert_eq(coll.rigid_body.type, 'ACTIVE', f"Collision body type")
-        TT.assert_equiv(coll.rigid_body.mass, 2.5, f"mass")
-        TT.assert_equiv(coll.rigid_body.friction, 0.5, f"friction")
-        TT.assert_eq(coll['bhkMaterial'], 'CLOTH', f"Shape material custom property")
+    # Check collision info
+    root = cheese.parent
+    constr = [c for c in root.constraints if c.type == 'COPY_TRANSFORMS']
+    assert constr, f"Have constraints on root"
+    coll = constr[0].target
+    assert coll, f"Have collision object"
+    assert coll.rigid_body, f"Collision object has physics"
+    TT.assert_eq(coll.rigid_body.type, 'ACTIVE', f"Collision body type")
+    TT.assert_equiv(coll.rigid_body.mass, 2.5, f"mass")
+    TT.assert_equiv(coll.rigid_body.friction, 0.5, f"friction")
+    TT.assert_eq(coll['bhkMaterial'], 'CLOTH', f"Shape material custom property")
 
-        xmax1 = max([v.co.x for v in cheese.data.vertices])
-        xmax2 = max([v.co.x for v in coll.data.vertices])
-        TT.assert_equiv(xmax1, xmax2, f"Max x vertex", e=0.5)
-        corner = coll.data.vertices[0].co
-        TT.assert_equiv(corner, (-4.18715, -7.89243, 7.08596,), f"Collision shape position")
+    xmax1 = max([v.co.x for v in cheese.data.vertices])
+    xmax2 = max([v.co.x for v in coll.data.vertices])
+    TT.assert_equiv(xmax1, xmax2, f"Max x vertex", e=0.5)
+    corner = coll.data.vertices[0].co
+    TT.assert_equiv(corner, (-4.18715, -7.89243, 7.08596,), f"Collision shape position")
 
-        # ------- Export --------
+    # ------- Export --------
 
-        BD.ObjectSelect([root], active=True)
-        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', 
-                                     blender_xf=bx)
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', 
+                                    blender_xf=bx)
 
-        # ------- Check Results --------
+    # ------- Check Results --------
 
-        niforig = pyn.NifFile(testfile)
-        rootorig = niforig.rootNode
-        collorig = rootorig.collision_object
-        bodyorig = collorig.body
-        cvsorig = bodyorig.shape
+    niforig = pyn.NifFile(testfile)
+    rootorig = niforig.rootNode
+    collorig = rootorig.collision_object
+    bodyorig = collorig.body
+    cvsorig = bodyorig.shape
 
-        nifcheck = pyn.NifFile(outfile)
-        rootcheck = nifcheck.rootNode
-        collcheck = rootcheck.collision_object
-        bodycheck = collcheck.body
-        cvscheck = bodycheck.shape
+    nifcheck = pyn.NifFile(outfile)
+    rootcheck = nifcheck.rootNode
+    collcheck = rootcheck.collision_object
+    bodycheck = collcheck.body
+    cvscheck = bodycheck.shape
 
-        TT.assert_eq(rootcheck.name, "CheeseWedge01", f"Root node name")
-        TT.assert_eq(rootcheck.blockname, "BSFadeNode", f"Root node type")
+    TT.assert_eq(rootcheck.name, "CheeseWedge01", f"Root node name")
+    TT.assert_eq(rootcheck.blockname, "BSFadeNode", f"Root node type")
 
-        TT.assert_eq(collcheck.blockname, "bhkCollisionObject", f"Collision node type")
-        TT.assert_eq(collcheck.target, rootcheck, f"Collision target")
+    TT.assert_eq(collcheck.blockname, "bhkCollisionObject", f"Collision node type")
+    TT.assert_eq(collcheck.target, rootcheck, f"Collision target")
 
-        TT.assert_eq(bodycheck.blockname, "bhkRigidBody", f"Rigid body type")
-        TT.assert_eq(bodycheck.properties.mass, 2.5, f"Rigid body mass")
-        TT.assert_eq(bodycheck.properties.friction, 0.5, f"Rigid body friction")
+    TT.assert_eq(bodycheck.blockname, "bhkRigidBody", f"Rigid body type")
+    TT.assert_eq(bodycheck.properties.mass, 2.5, f"Rigid body mass")
+    TT.assert_eq(bodycheck.properties.friction, 0.5, f"Rigid body friction")
 
-        TT.assert_eq(cvscheck.blockname, "bhkConvexVerticesShape", f"Collision shape type")
-        TT.assert_eq(cvscheck.properties.bhkMaterial, SkyrimHavokMaterial.CLOTH, 
-            "Collision body shape material")
+    TT.assert_eq(cvscheck.blockname, "bhkConvexVerticesShape", f"Collision shape type")
+    TT.assert_eq(cvscheck.properties.bhkMaterial, SkyrimHavokMaterial.CLOTH, 
+        "Collision body shape material")
 
-        minxch = min(v[0] for v in cvscheck.vertices)
-        maxxch = max(v[0] for v in cvscheck.vertices)
-        minxorig = min(v[0] for v in cvsorig.vertices)
-        maxxorig = max(v[0] for v in cvsorig.vertices)
+    minxch = min(v[0] for v in cvscheck.vertices)
+    maxxch = max(v[0] for v in cvscheck.vertices)
+    minxorig = min(v[0] for v in cvsorig.vertices)
+    maxxorig = max(v[0] for v in cvsorig.vertices)
 
-        TT.assert_equiv(minxch, minxorig, f"Vertex x min")
-        TT.assert_equiv(maxxch, maxxorig, f"Vertex x max")
+    TT.assert_equiv(minxch, minxorig, f"Vertex x min")
+    TT.assert_equiv(maxxch, maxxorig, f"Vertex x max")
 
-        # Re-import
-        #
-        # There have been issues with importing the exported nif and having the 
-        # collision be wrong
-        # TTB.clear_all()
-        BD.ObjectSelect([], active=False)
-        for obj in bpy.context.scene.objects:
-            obj.hide_set(True)
-        bpy.ops.import_scene.pynifly(filepath=outfile)
+    # Re-import
+    #
+    # There have been issues with importing the exported nif and having the 
+    # collision be wrong
+    # TTB.clear_all()
+    BD.ObjectSelect([], active=False)
+    for obj in bpy.context.scene.objects:
+        obj.hide_set(True)
+    bpy.ops.import_scene.pynifly(filepath=outfile)
 
-        cheese_new = bpy.context.object
-        impcollshape = cheese_new.parent.constraints[0].target
-        zmin = min([v.co.z for v in impcollshape.data.vertices])
-        TT.assert_gt(zmin, -0.01, f"Minimum z")
-
-    do_test(True)
-    do_test(False)
+    cheese_new = bpy.context.object
+    impcollshape = cheese_new.parent.constraints[0].target
+    zmin = min([v.co.z for v in impcollshape.data.vertices])
+    TT.assert_gt(zmin, -0.01, f"Minimum z")
 
 
-@TT.category('SKYRIM', 'PHYSICS')    
-def TEST_COLLISION_CAPSULE():
+@TT.category('SKYRIM', 'PHYSICS')
+@TT.parameterize('bx', [True, False])
+def TEST_COLLISION_CAPSULE(bx):
     """Can read and write shape with collision capsule shapes with and without Blender transforms"""
     # Note that the collision object is slightly offset from the shaft of the staff.
     # It might even be intentional, to give the staff a more irregular roll, since 
     # they didn't do a collision for the protrusions.
-    def do_test(bx):
-        print(f"<<<Can read and write shape with collision capsule shapes with Blender transforms {bx}>>>")
-        TTB.clear_all()
+    print(f"<<<Can read and write shape with collision capsule shapes with Blender transforms {bx}>>>")
+    TTB.clear_all()
 
-        # ------- Load --------
-        testfile = TTB.test_file(r"tests\Skyrim\staff04.nif")
-        outfile = TTB.test_file(f"tests/Out/TEST_COLLISION_CAPSULE.{'BL' if bx else 'NAT'}.nif")
+    # ------- Load --------
+    testfile = TTB.test_file(r"tests\Skyrim\staff04.nif")
+    outfile = TTB.test_file(f"tests/Out/TEST_COLLISION_CAPSULE.{'BL' if bx else 'NAT'}.nif")
 
-        bpy.ops.import_scene.pynifly(filepath=testfile, blender_xf=bx)
+    bpy.ops.import_scene.pynifly(filepath=testfile, blender_xf=bx)
 
-        staff = TTB.find_shape("3rdPersonStaff04")
-        coll = staff.parent.constraints[0].target
-        assert coll['bhkMaterial'] == 'SOLID_METAL', f"Have correct material"
-        strd = TTB.find_shape("NiStringExtraData", type="EMPTY")
-        bsxf = TTB.find_shape("BSXFlags", type="EMPTY")
-        invm = TTB.find_shape("BSInvMarker", type="EMPTY")
+    staff = TTB.find_shape("3rdPersonStaff04")
+    coll = staff.parent.constraints[0].target
+    assert coll['bhkMaterial'] == 'SOLID_METAL', f"Have correct material"
+    strd = TTB.find_shape("NiStringExtraData", type="EMPTY")
+    bsxf = TTB.find_shape("BSXFlags", type="EMPTY")
+    invm = TTB.find_shape("BSInvMarker", type="EMPTY")
 
-        # The staff has bits that stick out, so its bounding box is a bit larger than
-        # the collision's.
-        staffmin, staffmax = TTB.get_obj_bbox(staff, worldspace=True)
-        collmin, collmax = TTB.get_obj_bbox(coll, worldspace=True)
-        assert staffmax[0] > collmax[0], f"Staff surrounds collision: {staffmax}, {collmax}"
-        assert staffmax[1] > collmax[1], f"Staff surrounds collision: {staffmax}, {collmax}"
-        assert staffmax[2] > collmax[2], f"Staff surrounds collision: {staffmax}, {collmax}"
-        assert staffmin[0] < collmin[0], f"Staff surrounds collision: {staffmax}, {collmax}"
-        assert staffmin[1] < collmin[1], f"Staff surrounds collision: {staffmax}, {collmax}"
-        assert staffmin[2] < collmin[2], f"Staff surrounds collision: {staffmax}, {collmax}"
+    # The staff has bits that stick out, so its bounding box is a bit larger than
+    # the collision's.
+    staffmin, staffmax = TTB.get_obj_bbox(staff, worldspace=True)
+    collmin, collmax = TTB.get_obj_bbox(coll, worldspace=True)
+    assert staffmax[0] > collmax[0], f"Staff surrounds collision: {staffmax}, {collmax}"
+    assert staffmax[1] > collmax[1], f"Staff surrounds collision: {staffmax}, {collmax}"
+    assert staffmax[2] > collmax[2], f"Staff surrounds collision: {staffmax}, {collmax}"
+    assert staffmin[0] < collmin[0], f"Staff surrounds collision: {staffmax}, {collmax}"
+    assert staffmin[1] < collmin[1], f"Staff surrounds collision: {staffmax}, {collmax}"
+    assert staffmin[2] < collmin[2], f"Staff surrounds collision: {staffmax}, {collmax}"
 
-        # -------- Export --------
-        BD.ObjectSelect([o for o in bpy.data.objects if 'pynRoot' in o], active=True)
-        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', blender_xf=bx)
+    # -------- Export --------
+    BD.ObjectSelect([o for o in bpy.data.objects if 'pynRoot' in o], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', blender_xf=bx)
 
-        # ------- Check ---------
-        nifcheck = pyn.NifFile(outfile)
-        staffcheck = nifcheck.shape_dict["3rdPersonStaff04:1"]
-        collcheck = nifcheck.rootNode.collision_object
-        rbcheck = collcheck.body
-        shapecheck = rbcheck.shape
-        assert shapecheck.blockname == "bhkCapsuleShape", f"Got a capsule collision back {shapecheck.blockname}"
+    # ------- Check ---------
+    nifcheck = pyn.NifFile(outfile)
+    staffcheck = nifcheck.shape_dict["3rdPersonStaff04:1"]
+    collcheck = nifcheck.rootNode.collision_object
+    rbcheck = collcheck.body
+    shapecheck = rbcheck.shape
+    assert shapecheck.blockname == "bhkCapsuleShape", f"Got a capsule collision back {shapecheck.blockname}"
 
-        niforig = pyn.NifFile(testfile)
-        collorig = niforig.rootNode.collision_object
-        rborig = collorig.body
-        shapeorig = rborig.shape
-        assert NT.NearEqual(shapeorig.properties.radius1, shapecheck.properties.radius1), \
-            f"Wrote the correct radius: {shapecheck.properties.radius1}"
-        
-        assert NT.NearEqual(shapeorig.properties.point1[1], 
-                            shapecheck.properties.point1[1],
-                            epsilon=0.05), \
-            f"Wrote the correct radius: {shapecheck.properties.point1[1]}"
-
-    do_test(False)
-    do_test(True)
+    niforig = pyn.NifFile(testfile)
+    collorig = niforig.rootNode.collision_object
+    rborig = collorig.body
+    shapeorig = rborig.shape
+    assert NT.NearEqual(shapeorig.properties.radius1, shapecheck.properties.radius1), \
+        f"Wrote the correct radius: {shapecheck.properties.radius1}"
+    
+    assert NT.NearEqual(shapeorig.properties.point1[1], 
+                        shapecheck.properties.point1[1],
+                        epsilon=0.05), \
+        f"Wrote the correct radius: {shapecheck.properties.point1[1]}"
 
 
 @TT.category('SKYRIM', 'PHYSICS')
-def TEST_COLLISION_CAPSULE2():
+@TT.parameterize('bx', [True, False])
+def TEST_COLLISION_CAPSULE2(bx):
     """Can read and write shape with collision capsule shapes with and without Blender transforms."""
     # Note that the collision object is slightly offset from the shaft of the staff.
     # It might even be intentional, to give the staff a more irregular roll, since 
     # they didn't do a collision for the protrusions.
-    def do_test(bx):
-        print(f"<<<Can read and write shape with collision capsule shapes with Blender transforms {bx}>>>")
-        TTB.clear_all()
+    print(f"<<<Can read and write shape with collision capsule shapes with Blender transforms {bx}>>>")
+    TTB.clear_all()
 
-        # ------- Load --------
-        testfile = TTB.test_file(r"tests\Skyrim\staff04-collision.nif")
-        outfile = TTB.test_file(
-            f"tests/Out/TEST_COLLISION_CAPSULE2.{'BL' if bx else 'NAT'}.nif")
+    # ------- Load --------
+    testfile = TTB.test_file(r"tests\Skyrim\staff04-collision.nif")
+    outfile = TTB.test_file(
+        f"tests/Out/TEST_COLLISION_CAPSULE2.{'BL' if bx else 'NAT'}.nif")
 
-        bpy.ops.import_scene.pynifly(filepath=testfile, blender_xf=bx)
+    bpy.ops.import_scene.pynifly(filepath=testfile, blender_xf=bx)
 
-        staff = TTB.find_shape("3rdPersonStaff04")
-        root = staff.parent
-        collshape = root.constraints[0].target
+    staff = TTB.find_shape("3rdPersonStaff04")
+    root = staff.parent
+    collshape = root.constraints[0].target
 
-        # -------- Export --------
-        BD.ObjectSelect([root], active=True)
-        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', blender_xf=bx)
+    # -------- Export --------
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM', blender_xf=bx)
 
-        # ------- Check ---------
-        nifcheck = pyn.NifFile(outfile)
-        staffcheck = nifcheck.shape_dict["3rdPersonStaff04:1"]
-        collcheck = nifcheck.rootNode.collision_object
-        rbcheck = collcheck.body
-        shapecheck = rbcheck.shape
-        assert shapecheck.blockname == "bhkCapsuleShape", f"Got a capsule collision back {shapecheck.blockname}"
+    # ------- Check ---------
+    nifcheck = pyn.NifFile(outfile)
+    staffcheck = nifcheck.shape_dict["3rdPersonStaff04:1"]
+    collcheck = nifcheck.rootNode.collision_object
+    rbcheck = collcheck.body
+    shapecheck = rbcheck.shape
+    assert shapecheck.blockname == "bhkCapsuleShape", f"Got a capsule collision back {shapecheck.blockname}"
 
-        niforig = pyn.NifFile(testfile)
-        collorig = niforig.rootNode.collision_object
-        rborig = collorig.body
-        shapeorig = rborig.shape
-        assert NT.NearEqual(shapeorig.properties.radius1, shapecheck.properties.radius1), \
-            f"Wrote the correct radius: {shapecheck.properties.radius1}"
-        
-        assert NT.NearEqual(shapeorig.properties.point1[1], 
-                            shapecheck.properties.point1[1],
-                            epsilon=0.002), \
-            f"Wrote the correct point location: {shapecheck.properties.point1[1]}"
-
-    do_test(False)
-    do_test(True)
+    niforig = pyn.NifFile(testfile)
+    collorig = niforig.rootNode.collision_object
+    rborig = collorig.body
+    shapeorig = rborig.shape
+    assert NT.NearEqual(shapeorig.properties.radius1, shapecheck.properties.radius1), \
+        f"Wrote the correct radius: {shapecheck.properties.radius1}"
+    
+    assert NT.NearEqual(shapeorig.properties.point1[1], 
+                        shapecheck.properties.point1[1],
+                        epsilon=0.002), \
+        f"Wrote the correct point location: {shapecheck.properties.point1[1]}"
 
 
 @TT.category('SKYRIM', 'PHYSICS')
-def TEST_COLLISION_LIST():
+@TT.parameterize('bx', ['BLENDER', 'NATURAL'])
+def TEST_COLLISION_LIST(bx):
     """
     Can read and write shape with collision list and collision transform shapes with and
     without Blender transform.
     """
-    def run_test(bx):
-        print(f"<<<Can read and write shape with collision list and collision transform shapes with Blender transform {bx}>>>")
-        TTB.clear_all()
+    print(f"<<<Can read and write shape with collision list and collision transform shapes with Blender transform {bx}>>>")
+    TTB.clear_all()
 
-        # ------- Load --------
-        testfile = TTB.test_file(r"tests\Skyrim\falmerstaff.nif")
-        outfile = TTB.test_file(f"tests/Out/TEST_COLLISION_LIST_{bx}.nif")
+    # ------- Load --------
+    testfile = TTB.test_file(r"tests\Skyrim\falmerstaff.nif")
+    outfile = TTB.test_file(f"tests/Out/TEST_COLLISION_LIST_{bx}.nif")
 
-        bpy.ops.import_scene.pynifly(filepath=testfile, blender_xf=(bx=='BLENDER'))
+    bpy.ops.import_scene.pynifly(filepath=testfile, blender_xf=(bx=='BLENDER'))
 
-        staff = TTB.find_shape("Staff3rdPerson:0")
-        root = staff.parent
-        collshape = root.constraints[0].target
-        assert collshape.name.startswith('bhkListShape'), "Have list shape"
-        yvals = set(round(obj.location.y, 1) for obj in collshape.children)
-        expectedy = set(map(lambda x: round(x*HSF, 1), [0.632, -0.19, 0.9]))
-        assert yvals == expectedy, f"Have expected y vals: {yvals} == {expectedy}"
+    staff = TTB.find_shape("Staff3rdPerson:0")
+    root = staff.parent
+    collshape = root.constraints[0].target
+    assert collshape.name.startswith('bhkListShape'), "Have list shape"
+    yvals = set(round(obj.location.y, 1) for obj in collshape.children)
+    expectedy = set(map(lambda x: round(x*HSF, 1), [0.632, -0.19, 0.9]))
+    assert yvals == expectedy, f"Have expected y vals: {yvals} == {expectedy}"
 
-        assert collshape.name.startswith("bhkListShape"), f"Found list collision shape: {collshape.name}"
-        assert len(collshape.children) == 3, f" Collision shape has children"
-    
-        # -------- Export --------
-        BD.ObjectSelect([root], active=True)
-        bpy.ops.export_scene.pynifly(filepath=outfile, 
-                                     target_game='SKYRIM', 
-                                     blender_xf=(bx=='BLENDER'))
+    assert collshape.name.startswith("bhkListShape"), f"Found list collision shape: {collshape.name}"
+    assert len(collshape.children) == 3, f" Collision shape has children"
 
-        # ------- Check ---------
-        niforig = pyn.NifFile(testfile)
-        stafforig = niforig.shape_dict["Staff3rdPerson:0"]
-        collorig = niforig.rootNode.collision_object
-        listorig = collorig.body.shape
-        xfshapesorig = listorig.children[:]
-        xfshapematorig = [s.properties.bhkMaterial for s in xfshapesorig]
+    # -------- Export --------
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, 
+                                    target_game='SKYRIM', 
+                                    blender_xf=(bx=='BLENDER'))
 
-        nifcheck = pyn.NifFile(outfile)
-        staffcheck = nifcheck.shape_dict["Staff3rdPerson:0"]
-        collcheck = nifcheck.rootNode.collision_object
-        listcheck = collcheck.body.shape
-        xfshapescheck = listcheck.children[:]
-        xfshapematcheck = [s.properties.bhkMaterial for s in xfshapescheck]
+    # ------- Check ---------
+    niforig = pyn.NifFile(testfile)
+    stafforig = niforig.shape_dict["Staff3rdPerson:0"]
+    collorig = niforig.rootNode.collision_object
+    listorig = collorig.body.shape
+    xfshapesorig = listorig.children[:]
+    xfshapematorig = [s.properties.bhkMaterial for s in xfshapesorig]
 
-        assert xfshapematcheck == xfshapematorig, \
-            f"Materials written to ConvexTransformShape: {xfshapematcheck} == {xfshapematorig}"
+    nifcheck = pyn.NifFile(outfile)
+    staffcheck = nifcheck.shape_dict["Staff3rdPerson:0"]
+    collcheck = nifcheck.rootNode.collision_object
+    listcheck = collcheck.body.shape
+    xfshapescheck = listcheck.children[:]
+    xfshapematcheck = [s.properties.bhkMaterial for s in xfshapescheck]
 
-        assert listcheck.blockname == "bhkListShape", f"Got a list collision back {listcheck.blockname}"
-        assert len(listcheck.children) == 3, f"Got our list elements back: {len(listcheck.children)}"
+    assert xfshapematcheck == xfshapematorig, \
+        f"Materials written to ConvexTransformShape: {xfshapematcheck} == {xfshapematorig}"
 
-        convex_xf_shape = listcheck.children[0]
-        convex_xf = Matrix(convex_xf_shape.properties.transform)
-        assert convex_xf.to_scale()[0] == 1.0, f"Have the correct scale: {convex_xf.to_scale()}"
+    assert listcheck.blockname == "bhkListShape", f"Got a list collision back {listcheck.blockname}"
+    assert len(listcheck.children) == 3, f"Got our list elements back: {len(listcheck.children)}"
 
-        assert convex_xf_shape.child.blockname == "bhkBoxShape", f"Found the box shape"
+    convex_xf_shape = listcheck.children[0]
+    convex_xf = Matrix(convex_xf_shape.properties.transform)
+    assert convex_xf.to_scale()[0] == 1.0, f"Have the correct scale: {convex_xf.to_scale()}"
 
-        # Check that the ConvexTransforms put the collision shapes in the right place,
-        # no matter what order they're written.
-        xflist = set(round(xfs.transform[1][3], 3) for xfs in xfshapesorig)
-        xfcheck = set(round(xfs.transform[1][3], 3) for xfs in xfshapescheck)
-        assert xflist == xfcheck, f"Have same transforms in both files"
+    assert convex_xf_shape.child.blockname == "bhkBoxShape", f"Found the box shape"
 
-        cts45check = None
-        for cts in listcheck.children:
-            erot = Matrix(cts.transform).to_euler()
-            theta = round(math.degrees(erot.x))
-            if NT.NearEqual(theta % 45, 0): # Is some multiple of 45
-                cts45check = cts
-        boxdiag = cts45check.child
-        assert NT.NearEqual(boxdiag.properties.bhkDimensions[1], 0.170421), f"Diagonal box has correct size: {boxdiag.properties.bhkDimensions[1]}"
+    # Check that the ConvexTransforms put the collision shapes in the right place,
+    # no matter what order they're written.
+    xflist = set(round(xfs.transform[1][3], 3) for xfs in xfshapesorig)
+    xfcheck = set(round(xfs.transform[1][3], 3) for xfs in xfshapescheck)
+    assert xflist == xfcheck, f"Have same transforms in both files"
 
-    # run_test('BLENDER')
-    run_test('NATURAL')
+    cts45check = None
+    for cts in listcheck.children:
+        erot = Matrix(cts.transform).to_euler()
+        theta = round(math.degrees(erot.x))
+        if NT.NearEqual(theta % 45, 0): # Is some multiple of 45
+            cts45check = cts
+    boxdiag = cts45check.child
+    assert NT.NearEqual(boxdiag.properties.bhkDimensions[1], 0.170421), f"Diagonal box has correct size: {boxdiag.properties.bhkDimensions[1]}"
 
 
 @TT.category('SKYRIM', 'PHYSICS')
@@ -5175,12 +5159,16 @@ def TEST_CONNECT_POINT():
     assert cpcasing.parent.name == "CombatShotgunReceiver", f"Casing has correct parent {cpcasing.parent.name}"
 
     # Shapes remember their block type
-    shotgun['pynBlockName'] == 'BSTriShape'
+    assert TT.is_eq(shotgun['pynBlockName'], 'BSTriShape', f"blockname")
 
-    # Remove it so we can test the default is correct.
-    del shotgun['pynBlockName']
+    proj_node = TTB.find_shape("ProjectileNode", type="EMPTY")
+    barrel_cp = TTB.find_shape("BSConnectPointParents::P-Barrel", type="EMPTY")
+    assert TT.is_equiv(proj_node.matrix_world, barrel_cp.matrix_world, f"Projectile node and barrel cp transform")
 
     # -------- Export --------
+    # Testing intuited defaults
+    # Remove blockname so we can test the default is correct.
+    del shotgun['pynBlockName']
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
@@ -6717,7 +6705,7 @@ def TEST_KF_RENAME():
     # no interpolations. But it only has 2 keyframes for the Lft translations, which just
     # serve to hold it in place. Currently the exporter writes out every keyframe for
     # everything.
-    # TODO: Maybe fix this? 
+    # TODO: Maybe fix this? What are the criteria for not writing every frame?
     #
     footcb:pyn.ControllerLink = next(x for x in nifcheck.rootNode.controlled_blocks if x.node_name == 'NPC L Foot [Lft ]')
     assert TT.is_eq(footcb.controller_type, 'NiTransformController', "Controller Type")

@@ -26,8 +26,8 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_CONNECT_SKEL, ], 
-    # categories={'TRI'},
+    target_tests=[ TEST_COLLISION_BOW3, ], 
+    # categories={'CONNECTPOINT'},
     test_all=False,
     stop_on_fail=True,
     )

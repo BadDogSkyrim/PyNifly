@@ -117,7 +117,7 @@ def is_equiv(actual, expected, msg, e=0.0001):
             if NT.MatNearEqual(actual, expected, epsilon=e):
                 return True
             else:
-                log.error(f"ASSERT FAIL: Values are equal for {msg}: {actual} != {expected}")
+                log.error(f"ASSERT FAIL: Values are equal for {msg}: \n{actual} \n!= \n{expected}")
         else:
             if NT.VNearEqual(actual[:], expected, epsilon=e):
                 return True
