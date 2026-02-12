@@ -255,7 +255,7 @@
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /y/s/i $(ProjectDir)..\pynifly\skeletons $(OutDir)skeletons</Command>
+      <Command>xcopy /y/s/i $(ProjectDir)..\io_scene_nifly\skeletons $(OutDir)skeletons</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Package|x64'">
