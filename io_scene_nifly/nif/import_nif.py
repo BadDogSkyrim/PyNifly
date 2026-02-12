@@ -1676,7 +1676,6 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
     rotate_bones_pretty: bpy.props.BoolProperty(
         name="Pretty bone orientation",
         description="Orient bones to show structure.",
-        options={'HIDDEN'},
         default=ImportSettings.__dataclass_fields__["rotate_bones_pretty"].default) # type: ignore
 
     blender_xf: bpy.props.BoolProperty(

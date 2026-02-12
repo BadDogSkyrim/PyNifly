@@ -1474,10 +1474,9 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         description="Rename bones from Blender conventions back to nif.",
         default=ExportSettings.__dataclass_fields__["rename_bones"].default) # type: ignore
 
-    pretty_bone_rotations: bpy.props.BoolProperty(
+    rotate_bones_pretty: bpy.props.BoolProperty(
         name="Pretty bone orientation",
         description="Orient bones to show structure.",
-        options={'HIDDEN'},
         default=ExportSettings.__dataclass_fields__["rotate_bones_pretty"].default) # type: ignore
 
     rename_bones_niftools: bpy.props.BoolProperty(
@@ -1593,7 +1592,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             PYN_RENAME_BONES_NIFTOOLS_PROP,
             [self.export_armature] + self.objects_to_export,
             default=prefs.rename_bones_niftools)
-        self.pretty_bone_rotations = BD.get_setting_from(
+        self.rotate_bones_pretty = BD.get_setting_from(
             PYN_ROTATE_BONES_PRETTY_PROP,
             [self.export_armature] + self.objects_to_export,
             default=prefs.rotate_bones_pretty)
@@ -1620,7 +1619,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 f"blender_xf={self.blender_xf}, "
                 f"rename_bones={self.rename_bones}, "
                 f"rename_bones_niftools={self.rename_bones_niftools}, "
-                f"pretty_bone_rotations={self.pretty_bone_rotations}, "
+                f"rotate_bones_pretty={self.rotate_bones_pretty}, "
                 f"preserve_hierarchy={self.preserve_hierarchy}, "
                 f"write_bodytri={self.write_bodytri}, "
                 f"export_pose={self.export_pose}, "

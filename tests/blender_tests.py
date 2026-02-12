@@ -1266,6 +1266,7 @@ def TEST_CONNECT_SKEL():
                                      target_game='FO4', 
                                      blender_xf=(xf == "BLENDER"),
                                      preserve_hierarchy=True,
+                                     rotate_bones_pretty=(bonerot == "PRETTY"),
                                      intuit_defaults=False,)
 
         skel_in = pyn.NifFile(testfile)
@@ -1277,10 +1278,10 @@ def TEST_CONNECT_SKEL():
         assert TT.is_eq(helm_cp_out.parent.decode('utf-8'), 'HEAD', f"ArmorHelmet parent")
         assert TT.is_equiv(helm_cp_in.translation, helm_cp_out.translation[:], "ArmorHelmet location")
         
+    do_test(xf="NONE", bonerot="PRETTY")
     do_test(xf="NONE", bonerot="NONE")
     do_test(xf="BLENDER", bonerot="NONE")
-    # do_test(xf="NONE", bonerot="PRETTY")
-    # do_test(xf="BLENDER", bonerot="PRETTY")
+    do_test(xf="BLENDER", bonerot="PRETTY")
 
 
 @TT.category('SKYRIMSE', 'BODYPART', 'ARMATURE')
@@ -1291,8 +1292,8 @@ def TEST_WOLF_SKEL():
     outfile = TTB.test_file(r"tests/out/TEST_WOLF_SKEL.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, 
-                                    create_bones=False, 
-                                    rename_bones=False)
+                                 create_bones=False, 
+                                 rename_bones=False)
     
     root = next(x for x in bpy.data.objects if 'pynRoot' in x)
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
@@ -1304,8 +1305,10 @@ def TEST_WOLF_SKEL():
     ### EXPORT ###
 
     BD.ObjectSelect([root], active=True)
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', 
-                                 preserve_hierarchy=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, 
+                                 target_game='SKYRIMSE', 
+                                 preserve_hierarchy=True,
+                                 intuit_defaults=False,)
     
     ### CHECK ###
     nif2 = pyn.NifFile(outfile)

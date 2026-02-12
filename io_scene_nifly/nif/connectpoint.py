@@ -405,14 +405,18 @@ class ConnectPointCollection():
             # Export the connect point
             obj = cp.obj.blender_obj
             transl = obj.matrix_local.translation
+            rot = obj.matrix_local.to_quaternion()
             if cp.obj.blender_obj.parent_type == 'BONE':
                 # If we're parented to a bone we have to get the local transform from
                 # bone to connect point.
                 bonename = cp.obj.blender_obj.parent_bone
                 arma = cp.obj.blender_obj.parent
                 bone = arma.pose.bones[bonename]
-                transl = ((arma.matrix_world @ bone.matrix).inverted() @ cp.obj.blender_obj.matrix_world).translation
-            rot = obj.matrix_local.to_quaternion()
+                game_xf = BD.game_rotations[BD.game_axes[nif.game]][1]
+                bone_xf_natural = bone.matrix @ game_xf
+                localxf = (arma.matrix_world @ bone_xf_natural).inverted() @ cp.obj.blender_obj.matrix_world
+                transl = localxf.translation
+                rot = localxf.to_quaternion()
             scale = obj.matrix_local.to_scale()[0]
             if obj.type == 'MESH':
                 rot.rotate(Quaternion((0, 0, 1), math.radians(90)))
