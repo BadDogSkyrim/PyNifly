@@ -1214,75 +1214,73 @@ def TEST_3BBB():
 @TT.category('FO4', 'BODYPART', 'ARMATURE', 'CONNECTPOINT')
 @TT.expect_errors( ("Unknown block type: bhkRagdollSystem", 
                     "Unknown block type: bhkPhysicsSystem") )
-def TEST_CONNECT_SKEL():
+@TT.parameterize(("xf", "bonerot"), [("NONE", "NONE"),
+                                     ("BLENDER", "NONE"),
+                                     ("NONE", "PRETTY"),
+                                     ("BLENDER", "PRETTY")])
+def TEST_CONNECT_SKEL(xf, bonerot):
     """Can import and export FO4 skeleton file with no shapes"""
-    def do_test(xf, bonerot):
-        print(f"Can import and export FO4 skeleton file with no shapes, transform {xf}, bone rotation {bonerot}")
-        TTB.clear_all()
-        testname = f"TEST_SKEL_{xf}_{bonerot}"
-        testfile = TTB.test_file(r"skeletons\FO4\skeleton.nif")
-        outfile = TTB.test_file(r"tests/out/" + testname + ".nif")
+    print(f"Can import and export FO4 skeleton file with no shapes, transform {xf}, bone rotation {bonerot}")
+    TTB.clear_all()
+    testname = f"TEST_SKEL_{xf}_{bonerot}"
+    testfile = TTB.test_file(r"skeletons\FO4\skeleton.nif")
+    outfile = TTB.test_file(r"tests/out/" + testname + ".nif")
 
-        bpy.ops.import_scene.pynifly(filepath=testfile, 
-                                     create_bones=False, 
-                                     blender_xf=(xf == "BLENDER"),
-                                     rotate_bones_pretty=(bonerot == "PRETTY"),
-                                     )
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                    create_bones=False, 
+                                    blender_xf=(xf == "BLENDER"),
+                                    rotate_bones_pretty=(bonerot == "PRETTY"),
+                                    )
 
-        arma = [a for a in bpy.data.objects if a.type == 'ARMATURE'][0]
-        assert TT.is_contains('Root', arma.data.bones, "Root bone")
-        rootbone = arma.data.bones['Root']
-        assert TT.is_contains('Leg_Thigh.L', arma.data.bones, "Have left thigh bone")
-        assert TT.is_contains('RibHelper.L', arma.data.bones, "Have rib helper bone")
-        assert TT.is_notcontains('L_RibHelper.L', arma.data.bones, "Do not have nif name for bone")
-        assert TT.is_notcontains('L_RibHelper', bpy.data.objects, "Do not have rib helper object")
-        assert TT.is_eq(arma.data.bones['RibHelper.L'].parent.name, 'Chest', "ribhelper parent")
+    arma = [a for a in bpy.data.objects if a.type == 'ARMATURE'][0]
+    assert TT.is_contains('Root', arma.data.bones, "Root bone")
+    rootbone = arma.data.bones['Root']
+    assert TT.is_contains('Leg_Thigh.L', arma.data.bones, "Have left thigh bone")
+    assert TT.is_contains('RibHelper.L', arma.data.bones, "Have rib helper bone")
+    assert TT.is_notcontains('L_RibHelper.L', arma.data.bones, "Do not have nif name for bone")
+    assert TT.is_notcontains('L_RibHelper', bpy.data.objects, "Do not have rib helper object")
+    assert TT.is_eq(arma.data.bones['RibHelper.L'].parent.name, 'Chest', "ribhelper parent")
 
-        # Root bone's orientation matches that of the nif
-        nif = pyn.NifFile(testfile)
-        rootnode = nif.nodes["Root"]
-        rbm = rootbone.matrix_local @ BD.game_rotations[BD.game_axes['FO4']][1]
-        assert TT.is_matnearequal(rbm, BD.transform_to_matrix(rootnode.transform), 
-                                  "Bone transform matches nif")
+    # Root bone's orientation matches that of the nif
+    nif = pyn.NifFile(testfile)
+    rootnode = nif.nodes["Root"]
+    rbm = rootbone.matrix_local @ BD.game_rotations[BD.game_axes['FO4']][1]
+    assert TT.is_matnearequal(rbm, BD.transform_to_matrix(rootnode.transform), 
+                                "Bone transform matches nif")
 
-        # Parent connect points are children of the armature. Could also be children of the root
-        # but they get transposed based on the armature bones' transforms.
-        cp_lleg = bpy.data.objects['BSConnectPointParents::P-ArmorLleg']
-        assert TT.is_eq(cp_lleg.parent.type, 'ARMATURE', f"P-ArmorLleg parent")
+    # Parent connect points are children of the armature. Could also be children of the root
+    # but they get transposed based on the armature bones' transforms.
+    cp_lleg = bpy.data.objects['BSConnectPointParents::P-ArmorLleg']
+    assert TT.is_eq(cp_lleg.parent.type, 'ARMATURE', f"P-ArmorLleg parent")
+    
+    # TODO: Connect points are not at the right location and apparently never have
+    # been. fix this.
+
+    log.debug(f"cp_lleg location blender xf={xf} bone rot={bonerot}: {cp_lleg.matrix_world.translation}")
+    expected_loc = Vector((-8.7480, -3.1508, 35.2600))
+    if xf == "BLENDER":
+        expected_loc = expected_loc * Vector((-0.1, -0.1, 0.1))
+    assert TT.is_equiv(cp_lleg.matrix_world.translation, expected_loc,
+                        f"P-ArmorLleg world location with Blender xf {xf}")
+
+    # Import settings should have been remembered
+    BD.ObjectSelect([bpy.data.objects['skeleton.nif:ROOT']])
+    bpy.ops.export_scene.pynifly(filepath=outfile, 
+                                    target_game='FO4', 
+                                    blender_xf=(xf == "BLENDER"),
+                                    preserve_hierarchy=True,
+                                    rotate_bones_pretty=(bonerot == "PRETTY"),
+                                    intuit_defaults=False,)
+
+    skel_in = pyn.NifFile(testfile)
+    skel_out = pyn.NifFile(outfile)
+    assert TT.is_contains("L_RibHelper", skel_out.nodes, "Bones written to nif")
+    assert TT.is_eq(skel_out.nodes["L_RibHelper"].parent.name, "Chest", f"RibHelper parent")
+    helm_cp_in = [x for x in skel_in.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
+    helm_cp_out = [x for x in skel_out.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
+    assert TT.is_eq(helm_cp_out.parent.decode('utf-8'), 'HEAD', f"ArmorHelmet parent")
+    assert TT.is_equiv(helm_cp_in.translation, helm_cp_out.translation[:], "ArmorHelmet location")
         
-        # TODO: Connect points are not at the right location and apparently never have
-        # been. fix this.
-
-        log.debug(f"cp_lleg location blender xf={xf} bone rot={bonerot}: {cp_lleg.matrix_world.translation}")
-        expected_loc = Vector((-8.7480, -3.1508, 35.2600))
-        if xf == "BLENDER":
-            expected_loc = expected_loc * Vector((-0.1, -0.1, 0.1))
-        assert TT.is_equiv(cp_lleg.matrix_world.translation, expected_loc,
-                           f"P-ArmorLleg world location with Blender xf {xf}")
-
-        # Import settings should have been remembered
-        BD.ObjectSelect([bpy.data.objects['skeleton.nif:ROOT']])
-        bpy.ops.export_scene.pynifly(filepath=outfile, 
-                                     target_game='FO4', 
-                                     blender_xf=(xf == "BLENDER"),
-                                     preserve_hierarchy=True,
-                                     rotate_bones_pretty=(bonerot == "PRETTY"),
-                                     intuit_defaults=False,)
-
-        skel_in = pyn.NifFile(testfile)
-        skel_out = pyn.NifFile(outfile)
-        assert TT.is_contains("L_RibHelper", skel_out.nodes, "Bones written to nif")
-        assert TT.is_eq(skel_out.nodes["L_RibHelper"].parent.name, "Chest", f"RibHelper parent")
-        helm_cp_in = [x for x in skel_in.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
-        helm_cp_out = [x for x in skel_out.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
-        assert TT.is_eq(helm_cp_out.parent.decode('utf-8'), 'HEAD', f"ArmorHelmet parent")
-        assert TT.is_equiv(helm_cp_in.translation, helm_cp_out.translation[:], "ArmorHelmet location")
-        
-    do_test(xf="NONE", bonerot="PRETTY")
-    do_test(xf="NONE", bonerot="NONE")
-    do_test(xf="BLENDER", bonerot="NONE")
-    do_test(xf="BLENDER", bonerot="PRETTY")
-
 
 @TT.category('SKYRIMSE', 'BODYPART', 'ARMATURE')
 def TEST_WOLF_SKEL():

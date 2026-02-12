@@ -59,6 +59,36 @@ def expect_errors(errlist):
     return wrap
 
 
+from functools import wraps
+
+def parameterize(names, values):
+    """
+    Decorator to run a test multiple times with different parameters. 
+    names: a string or a tuple of strings
+    values: list of values or tuples/dicts
+    """
+    if isinstance(names, str):
+        names = (names,)
+
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            results = []
+            for v in values:
+                if isinstance(v, dict):
+                    call_kwargs = v
+                elif isinstance(v, tuple):
+                    call_kwargs = dict(zip(names, v))
+                else:
+                    # single value for single name
+                    call_kwargs = {names[0]: v}
+
+                results.append(fn(**call_kwargs))
+            return results
+        return wrapper
+    return decorator
+
+
 def remove_file(fn):
     if os.path.exists(fn):
         os.remove(fn)
