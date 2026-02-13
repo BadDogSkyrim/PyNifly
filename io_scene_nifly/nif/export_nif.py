@@ -1774,8 +1774,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         ObjectActive(active_obj)
 
         # Save the directory path for next time
-        if 'CANCELLED' not in res:
-            wm = context.window_manager
-            wm.pynifly_last_export_path_nif = os.path.dirname(self.filepath)
+        wm = context.window_manager
+        wm.pynifly_last_export_path_nif = self.filepath
 
         return res.intersection({'CANCELLED', 'FINISHED'})

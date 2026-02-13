@@ -247,6 +247,6 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
 
         # Save the directory path for next time
         wm = context.window_manager
-        wm.pynifly_last_import_path_tri = str(self.file_path.parent)
+        wm.pynifly_last_import_path_tri = str(self.file_path)
 
         return self.status.intersection({'FINISHED', 'CANCELLED'})

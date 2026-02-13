@@ -159,9 +159,8 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             self.log_handler.finish("EXPORT", str(self.file_path))
 
         # Save the directory path for next time
-        if 'CANCELLED' not in res:
-            wm = context.window_manager
-            wm.pynifly_last_export_path_kf = str(self.file_path.parent)
+        wm = context.window_manager
+        wm.pynifly_last_export_path_kf = str(self.file_path)
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
 

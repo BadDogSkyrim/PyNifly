@@ -238,9 +238,8 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         self.log_handler.finish("EXPORT", self.filepath)
 
         # Save the directory path for next time
-        if 'CANCELLED' not in res:
-            wm = context.window_manager
-            wm.pynifly_last_export_path_hkx = os.path.dirname(self.filepath)
+        wm = context.window_manager
+        wm.pynifly_last_export_path_hkx = self.filepath
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
     
@@ -291,7 +290,7 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
             status = {'FINISHED'}
             # Save the directory path for next time
             wm = context.window_manager
-            wm.pynifly_last_export_path_skel_hkx = str(out_filepath.parent)
+            wm.pynifly_last_export_path_skel_hkx = str(out_filepath)
             return status
         except:
             self.log_handler.log.exception("Import of HKX failed")

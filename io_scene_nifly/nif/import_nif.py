@@ -1878,9 +1878,8 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             self.context.scene.frame_set(self.initial_frame)
 
         # Save the directory path for next time
-        if self.status == {'FINISHED'}:
-            wm = context.window_manager
-            wm.pynifly_last_import_path_nif = os.path.dirname(self.filepath)
+        wm = context.window_manager
+        wm.pynifly_last_import_path_nif = self.filepath
 
         return self.status
 

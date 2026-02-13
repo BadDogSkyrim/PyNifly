@@ -150,9 +150,9 @@ class ImportKF(bpy.types.Operator, ImportHelper):
             self.log_handler.finish("IMPORT", self.filepath)
 
         # Save the directory path for next time
+        wm = context.window_manager
+        wm.pynifly_last_import_path_kf = self.filepath
         if 'CANCELLED' not in res:
-            wm = context.window_manager
-            wm.pynifly_last_import_path_kf = os.path.dirname(self.filepath)
             res.add('FINISHED')
 
         return res.intersection({'CANCELLED'}, {'FINISHED'})
