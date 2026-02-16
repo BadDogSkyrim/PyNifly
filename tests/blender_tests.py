@@ -2771,10 +2771,17 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
 
 
 @TT.category('SKYRIM', 'SHADER')
-def TEST_TEXTURE_PATHS():
-    """Texture paths are correctly resolved"""
-    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\circletm1.nif")
-    txtdir = TTB.test_file(r"tests\SkyrimSE")
+@TT.parameterize("txtdir", ["tests\SkyrimSE", "xyzzy"])
+def TEST_TEXTURE_PATHS(txtdir):
+    """
+    Texture paths are correctly resolved. Tests when file should be found using Blender's
+    texture directory and when it can only be found relative to the nif.
+    """
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\circletm1_test.nif")
+    diffuse_file = TTB.test_file(r"tests\SkyrimSE\textures\test\circlet.dds")
+    normal_file = TTB.test_file(r"tests\SkyrimSE\textures\test\circlet_n.dds")
+
+    print(f"Testing with texture directory: {txtdir}")
 
     # Use temp_override to redirect the texture directory
     assert type(bpy.context) == bpy.types.Context, f"Context type is expected :{type(bpy.context)}"
@@ -2782,10 +2789,10 @@ def TEST_TEXTURE_PATHS():
     if hasattr(bpy.context, 'temp_override'):
         # Blender 3.5
         with bpy.context.temp_override():
-            bpy.context.preferences.filepaths.texture_directory = txtdir
+            bpy.context.preferences.filepaths.texture_directory = TTB.test_file(txtdir)
             bpy.ops.import_scene.pynifly(filepath=testfile)
     else:
-            bpy.context.preferences.filepaths.texture_directory = txtdir
+            bpy.context.preferences.filepaths.texture_directory = TTB.test_file(txtdir)
             bpy.ops.import_scene.pynifly(filepath=testfile)
     
     # Should have found the texture files
@@ -2793,9 +2800,9 @@ def TEST_TEXTURE_PATHS():
     mat = circlet.active_material
     bsdf = mat.node_tree.nodes['Material Output'].inputs['Surface'].links[0].from_node
     diffuse = shader_io.get_image_filepath(bsdf.inputs['Diffuse'])
-    TT.assert_eq_nocase(Path(diffuse).name, 'Circlet.dds', f"diffuse texture path")
+    assert TT.is_patheq(Path(diffuse), diffuse_file, f"diffuse texture path")
     norm = shader_io.get_image_filepath(bsdf.inputs['Normal'])
-    TT.assert_eq_nocase(Path(norm).name, 'Circlet_n.png', "normal texture path")
+    assert TT.is_patheq(Path(norm), normal_file, "normal texture path")
 
 
 @TT.category('SKYRIM', 'SHADER')

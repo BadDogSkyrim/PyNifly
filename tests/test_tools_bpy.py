@@ -148,6 +148,9 @@ def test_file(filename, output=False) -> str:
     if path.parts[0].lower() == "skeletons":
         return str(_pynifly_dev_path / filename)
     
+    if len(path.parts) < 2:
+        return filename
+    
     if path.parts[1] in ["Skyrim", "SkyrimSE"]:
         bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_SKYRIM
     elif path.parts[1] in ["FO4"]:

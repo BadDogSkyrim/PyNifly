@@ -1,4 +1,6 @@
 """
+DEPRECIATED: Tried this approch, but in the end don't like it as well.
+
 Check any of our test NIFs for correctness.
 
 assert_property is a convenient shortcut, but it doesn't demonstrate the use of pyNifly as
@@ -6,11 +8,11 @@ well. So a lot of the tests use direct function calls.
 """
 
 from pathlib import Path
-from pyn.pynifly import NifFile
-from pyn.nifdefs import NODEID_NONE, CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, \
+from io_scene_nifly.pyn.pynifly import NifFile
+from io_scene_nifly.pyn.nifdefs import NODEID_NONE, CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, \
     NiKeyType, CycleType, ShaderFlags1, ShaderFlags2, BSLSPShaderType, VertexFlags, NiAVFlags
-from pyn.niflytools import NearEqual, VNearEqual, MatNearEqual
-import test_tools as TT
+from io_scene_nifly.pyn.niflytools import NearEqual, VNearEqual, MatNearEqual
+from . import test_tools as TT
 
 
 def Check_daedriccuirass(nif:NifFile):

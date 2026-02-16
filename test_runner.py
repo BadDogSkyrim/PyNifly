@@ -4,6 +4,7 @@ import sys
 import importlib
 
 
+
 if 'PYNIFLY_DEV_ROOT' in os.environ:
     root_path = Path(os.environ['PYNIFLY_DEV_ROOT']) / 'PyNifly'
     mod_path = root_path / 'io_scene_nifly'
@@ -26,8 +27,8 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_COLLISION_BOW3, ], 
+    target_tests=[ TEST_TEXTURE_PATHS, ], 
     # categories={'CONNECTPOINT'},
-    test_all=True,
-    stop_on_fail=False,
+    test_all=False,
+    stop_on_fail=True,
     )

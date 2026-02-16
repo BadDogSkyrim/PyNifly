@@ -5,8 +5,8 @@ import os.path
 from pathlib import Path
 from collections.abc import Iterable
 import logging
-from pyn import niflytools as NT 
-from pyn import nifdefs as ND
+from io_scene_nifly.pyn import niflytools as NT 
+from io_scene_nifly.pyn import nifdefs as ND
 
 pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
 pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
