@@ -6070,6 +6070,100 @@ def TEST_AUXBONES_EXTRACT():
     assert hkx_check.root.transform.NearEqual(hkx_out.root.transform), f"Root transforms match"
 
 
+@TT.category('SKYRIMSE', 'HKX', 'ARMATURE')  
+def TEST_HKX_SKELETON_ROUNDTRIP():
+    """Test HKX skeleton export/import round-trip maintains correct transforms."""
+    TTB.clear_all()
+    
+    # Create collection for original NIF import
+    original_collection = bpy.data.collections.new("Original_NIF")
+    bpy.context.scene.collection.children.link(original_collection)
+    
+    # Set original collection as active and ensure it's enabled
+    original_layer_collection = bpy.context.view_layer.layer_collection.children[original_collection.name]
+    original_layer_collection.exclude = False  # Make sure it's not excluded
+    bpy.context.view_layer.active_layer_collection = original_layer_collection
+    
+    # Import original NIF skeleton
+    testfile = TTB.test_file(r"tests\Skyrim\skeever_skeleton.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_HKX_SKELETON_ROUNDTRIP.hkx")
+    
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                 blender_xf=False, 
+                                 rename_bones=False,
+                                 rename_bones_niftools=False, 
+                                 import_collisions=False)
+    
+    original_arma = bpy.context.object
+    assert original_arma and original_arma.type=='ARMATURE', f"Loaded original armature: {original_arma}"
+    
+    # Store original bone transforms for comparison
+    original_transforms = {}
+    original_parents = {}
+    for bone in original_arma.data.bones:
+        original_transforms[bone.name] = bone.matrix_local.copy()
+        original_parents[bone.name] = bone.parent.name if bone.parent else None
+    
+    # Export as HKX skeleton - select all bones
+    bpy.ops.object.mode_set(mode='POSE')
+    for b in original_arma.pose.bones:
+        if hasattr(b, 'select'):
+            # Blender >= 5.0
+            b.select = True
+        else:
+            b.bone.select = True
+    
+    bpy.ops.export_scene.skeleton_hkx(filepath=outfile)
+    
+    # Hide original collection and create new collection for reimport
+    original_layer_collection.hide_viewport = True
+    
+    # Create new collection for HKX import
+    reimport_collection = bpy.data.collections.new("HKX_Reimport")
+    bpy.context.scene.collection.children.link(reimport_collection)
+    
+    # Set new collection as active and ensure it's enabled
+    layer_collection = bpy.context.view_layer.layer_collection.children[reimport_collection.name]
+    layer_collection.exclude = False  # Make sure it's not excluded
+    bpy.context.view_layer.active_layer_collection = layer_collection
+    
+    # Import from HKX into new collection - disable bone renaming and coordinate transforms
+    bpy.ops.import_scene.pynifly_hkx(filepath=outfile, 
+                                      rename_bones=False,
+                                      rename_bones_niftools=False,
+                                      blender_xf=False)
+    
+    # Find the reimported armature in the new collection
+    reimported_arma = None
+    for obj in reimport_collection.objects:
+        if obj.type == 'ARMATURE':
+            reimported_arma = obj
+            break
+    
+    assert reimported_arma, "Failed to reimport armature from HKX"
+    
+    # Verify bone count matches
+    original_bone_names = set(original_transforms.keys())
+    reimported_bone_names = set(bone.name for bone in reimported_arma.data.bones)
+    assert original_bone_names == reimported_bone_names, \
+        f"Bone names differ: Original {original_bone_names} vs Reimported {reimported_bone_names}"
+    
+    # Verify transforms match using TT.is_equiv
+    for bone in reimported_arma.data.bones:
+        original_mx = original_transforms[bone.name]
+        reimported_mx = bone.matrix_local
+        
+        # Check full matrix with more lenient tolerance for HKX round-trip
+        assert TT.is_equiv(reimported_mx, original_mx, f"Bone {bone.name} matrix", e=0.001), \
+            f"Bone {bone.name} matrix differs"
+        
+        # Check parent relationships
+        original_parent = original_parents[bone.name]
+        reimported_parent = bone.parent.name if bone.parent else None
+        assert original_parent == reimported_parent, \
+            f"Bone {bone.name} parent differs: Original {original_parent} vs Reimported {reimported_parent}"
+
+
 @TT.category('FONV')
 @TT.expect_errors(("Could not find image shader node",))
 def TEST_FONV():

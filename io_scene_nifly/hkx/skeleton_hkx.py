@@ -80,6 +80,7 @@ class SkeletonArmature():
             # rotlist = [float(x) for x in numseq[i*3+1].split()]
             rotlist = poselist[i+1].strip(' ()\t\n').split()
             if len(rotlist) == 4:
+                # Import quaternion from (x, y, z, w) format 
                 rot = Quaternion((float(rotlist[3]), float(rotlist[0]), float(rotlist[1]), float(rotlist[2])))
                 rot.normalize()
             else:
@@ -312,7 +313,8 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
             q = mx.to_quaternion()
             qax = q.axis
             qax.rotate(adjust_mx)
-            txt += "({0:0.6f} {1:0.6f} {2:0.6f} {3:0.6f})".format(-q[1], q[3], -q[2], -q[0])
+            # Export quaternion in format that import expects: (x, y, z, w)
+            txt += "({0:0.6f} {1:0.6f} {2:0.6f} {3:0.6f})".format(q.x, q.y, q.z, q.w)
             s = mx.to_scale()
             txt += "({0:0.6f} {1:0.6f} {2:0.6f})\n".format(*s)
 

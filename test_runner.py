@@ -27,8 +27,8 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_TEXTURE_PATHS, ], 
-    # categories={'CONNECTPOINT'},
+    target_tests=[ TEST_HKX_SKELETON_ROUNDTRIP, ], 
+    categories={'HKX'},
     test_all=False,
     stop_on_fail=True,
     )

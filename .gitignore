@@ -7,6 +7,8 @@
 /PyNifly/__pycache__
 /TestNifly/x64/Test
 /PyNifly/Tests/Out
+tests/Out/
+tests/out/
 
 # -----------------------------------------------------------------------------
 # Python cache and build artifacts
