@@ -27,7 +27,7 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_NOBLECHEST, ], 
+    target_tests=[ TEST_WORKSHOP_DOOR_CONNECT_POINTS, ], 
     # categories={'HKX'},
     test_all=False,
     stop_on_fail=True,

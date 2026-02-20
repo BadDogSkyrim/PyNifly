@@ -5404,10 +5404,17 @@ def TEST_WORKSHOP_DOOR_CONNECT_POINTS():
     testfile = TTB.test_file(r"tests\FO4\Workshop_BldWoodPDoor02.nif")
     outfile = TTB.test_file(r"tests\Out\TEST_WORKSHOP_DOOR_CONNECT_POINTS.nif")
     
+    # Set FPS to 30
+    bpy.context.scene.render.fps = 30
+    
     # Import the workshop door
     bpy.ops.import_scene.pynifly(filepath=testfile, 
                                  rename_bones=False, 
                                  create_bones=False)
+    
+    # Check frame range after import
+    TT.assert_eq(bpy.context.scene.frame_start, 1, "Frame start should be 1")
+    TT.assert_eq(bpy.context.scene.frame_end, 37, "Frame end should be 37")
     
     # Find parent connect points
     cp_parents = [obj for obj in bpy.context.scene.objects 
@@ -5441,6 +5448,17 @@ def TEST_WORKSHOP_DOOR_CONNECT_POINTS():
     TT.assert_eq(len(nif_exported.connect_points_parent), 
                  len(nif_original.connect_points_parent),
                  "Connect point count should match")
+    
+    # Check that all exported animation keys have end time of 1.2
+    for seq_name, seq in nif_exported.root.controller.sequences.items():
+        for cb in seq.controlled_blocks:
+            if cb.interpolator and hasattr(cb.interpolator, 'keys'):
+                for key_group in cb.interpolator.keys:
+                    if key_group and len(key_group.keys) > 0:
+                        last_key = key_group.keys[-1]
+                        TT.assert_equiv(last_key.time, 1.2, 
+                            f"Animation key end time for {seq_name}:{cb.target_name}", 
+                            e=0.001)
     
     # Check each parent connect point position
     for cp_orig in nif_original.connect_points_parent:
