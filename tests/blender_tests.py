@@ -5396,6 +5396,82 @@ def TEST_CONNECT_WORKSHOP2():
                     0, "Origin location")
     
 
+@TT.category('FO4', 'CONNECTPOINT')
+@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
+def TEST_WORKSHOP_DOOR_CONNECT_POINTS():
+    """Workshop door connect points positioned correctly on export."""
+    
+    testfile = TTB.test_file(r"tests\FO4\Workshop_BldWoodPDoor02.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_WORKSHOP_DOOR_CONNECT_POINTS.nif")
+    
+    # Import the workshop door
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                 rename_bones=False, 
+                                 create_bones=False)
+    
+    # Find parent connect points
+    cp_parents = [obj for obj in bpy.context.scene.objects 
+                  if obj.name.startswith('BSConnectPointParents')]
+    
+    TT.assert_eq(len(cp_parents), 2, "Workshop door should have 2 parent connect points")
+    
+    # Store original positions for comparison
+    original_positions = {}
+    for cp in cp_parents:
+        cp_name = cp.name.split("::")[1] if "::" in cp.name else cp.name
+        original_positions[cp_name] = cp.matrix_world.translation.copy()
+        log.info(f"Original {cp_name} position: {cp.matrix_world.translation}")
+    
+    # Export back out
+    root_obj = next(o for o in bpy.context.scene.objects if 'pynRoot' in o)
+    bpy.ops.object.select_all(action='DESELECT')
+    root_obj.select_set(True)
+    bpy.context.view_layer.objects.active = root_obj
+    
+    bpy.ops.export_scene.pynifly(filepath=outfile, 
+                                  target_game='FO4',
+                                  intuit_defaults=False,
+                                  rename_bones=False)
+    
+    # Load and check the exported NIF
+    nif_original = pyn.NifFile(testfile)
+    nif_exported = pyn.NifFile(outfile)
+    
+    # Should have same number of parent connect points
+    TT.assert_eq(len(nif_exported.connect_points_parent), 
+                 len(nif_original.connect_points_parent),
+                 "Connect point count should match")
+    
+    # Check each parent connect point position
+    for cp_orig in nif_original.connect_points_parent:
+        cp_name = cp_orig.name.decode('utf-8')
+        
+        # Find matching connect point in exported file
+        cp_exported = None
+        for cp in nif_exported.connect_points_parent:
+            if cp.name.decode('utf-8') == cp_name:
+                cp_exported = cp
+                break
+        
+        TT.assert_ne(cp_exported, None, f"Connect point {cp_name} should exist in exported file")
+        
+        # Check translation (position)
+        orig_trans = cp_orig.translation
+        exp_trans = cp_exported.translation
+        
+        TT.assert_equiv(exp_trans, orig_trans, 
+                        f"Connect point {cp_name} translation", e=0.001)
+        
+        # Check rotation 
+        orig_rot = cp_orig.rotation
+        exp_rot = cp_exported.rotation
+        
+        TT.assert_equiv(exp_rot, orig_rot, 
+                        f"Connect point {cp_name} rotation", e=0.001)
+        
+        log.info(f"Connect point {cp_name} positioning verified - translation: {exp_trans}, rotation: {exp_rot}")
+
+
 @TT.category('SKYRIMSE', 'FURNITUREMARKER')
 @TT.expect_errors('Unknown block type: bhkMoppBvTreeShape')
 def TEST_FARMBENCH():
@@ -6315,6 +6391,25 @@ def TEST_NOBLECHEST():
     
     # Controller Manager
     CHK.CheckNif(nifcheck, testfile)
+    
+    # Check that NiControllerSequence "Open" has controlled block targeting "Lid01" with blank Property Type
+    open_sequence = None
+    for seq_name, seq in nifcheck.root.controller.sequences.items():
+        if seq_name == "Open":
+            open_sequence = seq
+            break
+    
+    assert open_sequence is not None, "NiControllerSequence 'Open' should exist"
+    
+    lid_controlled_block = None
+    for cb in open_sequence.controlled_blocks:
+        if cb.node_name == "Lid01":
+            lid_controlled_block = cb
+            break
+    
+    assert lid_controlled_block is not None, "Controlled block targeting 'Lid01' should exist in Open sequence"
+    assert lid_controlled_block.property_type == "" or lid_controlled_block.property_type is None, \
+        f"Property Type should be blank for Lid01 controlled block, but was: '{lid_controlled_block.property_type}'"
 
 TEST_NOBLECHEST.category = {'ANIMATION'}
 

@@ -2443,7 +2443,7 @@ class NiSequence(NiObject):
         buf.nodeName = NifFile.nifly.addString(
             self.file._handle, node_name.encode('utf-8'))
 
-        if controller: 
+        if controller and not isinstance(controller.target, NiNode): 
             prop_type = controller.target.blockname
             buf.propType = NifFile.nifly.addString(
                 self.file._handle, prop_type.encode('utf-8'))
