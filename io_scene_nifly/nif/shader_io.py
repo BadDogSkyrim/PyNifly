@@ -1133,21 +1133,26 @@ class ShaderImporter:
         """
         prefs = bpy.context.preferences.addons["io_scene_nifly"].preferences
         self.textures = {}
-        altpaths = [bpy.context.preferences.filepaths.texture_directory]
-        if self.game in ('SKYRIM', 'SKRYIMSE'):
-            altpaths.append(texture_path(prefs.sky_texture_path_1))
-            altpaths.append(texture_path(prefs.sky_texture_path_2))
-            altpaths.append(texture_path(prefs.sky_texture_path_3))
-            altpaths.append(texture_path(prefs.sky_texture_path_4))
+        altpaths = []
+        
+        # Add Blender's texture directory if not empty
+        if bpy.context.preferences.filepaths.texture_directory:
+            altpaths.append(bpy.context.preferences.filepaths.texture_directory)
+        
+        if self.game in ('SKYRIM', 'SKYRIMSE'):
+            for i, path_pref in enumerate([prefs.sky_texture_path_1, prefs.sky_texture_path_2, 
+                             prefs.sky_texture_path_3, prefs.sky_texture_path_4], 1):
+                if path_pref and (cleaned_path := texture_path(path_pref)):
+                    altpaths.append(cleaned_path)
         else:
-            altpaths.append(texture_path(prefs.fo4_texture_path_1))
-            altpaths.append(texture_path(prefs.fo4_texture_path_2))
-            altpaths.append(texture_path(prefs.fo4_texture_path_3))
-            altpaths.append(texture_path(prefs.fo4_texture_path_4))
+            for i, path_pref in enumerate([prefs.fo4_texture_path_1, prefs.fo4_texture_path_2, 
+                             prefs.fo4_texture_path_3, prefs.fo4_texture_path_4], 1):
+                if path_pref and (cleaned_path := texture_path(path_pref)):
+                    altpaths.append(cleaned_path)
 
         if gamepath := gamefinder.find_game(self.game):
             altpaths.append(gamepath / 'data' / 'textures')
-
+        
         for k, t in shape.textures.items():
             if not t: continue
             if k == 'RootMaterialPath':
@@ -1165,6 +1170,8 @@ class ShaderImporter:
                     alt_pathlist=altpaths)
             if p:
                 self.textures[k] = p
+            else:
+                log.warning(f"Could not find texture {k}: '{t}'")
 
 
     def link(self, a, b):

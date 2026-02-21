@@ -32,6 +32,18 @@ def texture_path(filepath:str) -> Path:
     return p
 
 
+def materials_path(filepath:str) -> Path:
+    """ 
+    Clean up the given materials filepath.
+    """
+    if not filepath: return None
+    fp = filepath.strip('"').strip("'")
+    p = Path(fp)
+    if p.parts[-1].lower() != 'materials':
+        return p / 'materials'
+    return p
+
+
 def tmp_filepath(filepath:Path, ext=None) -> Path:
     """
     Return a unique temporary filename with no embedded spaces. Name is based on the base

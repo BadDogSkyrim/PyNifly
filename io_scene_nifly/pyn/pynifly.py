@@ -11,9 +11,14 @@ import logging
 from ctypes import *
 from typing import ValuesView 
 import xml.etree.ElementTree as xml
+from pathlib import Path
 from .niflytools import *
 from .nifdefs import *
 from . import xmltools
+
+
+# Set up logging
+log = logging.getLogger("pynifly")
 
 
 # Locate the DLL and other files we need either in their development or install locations.
@@ -1194,11 +1199,9 @@ class NiNode(NiAVObject):
     def getbuf(cls, values=None):
         return NiNodeBuf(values)
     
-    @property
     def blender_name(self, nif_name):
         return self.file.dict.blender_name(nif_name)
 
-    @property
     def nif_name(self, blender_name):
         return self.file.dict.nif_name(blender_name)
     
@@ -3205,8 +3208,51 @@ class NiShaderFO4(NiShader):
             # will come from. Some FO4 nifs don't have materials files. Apparently (?)
             # they use the shader block attributes.
             if self.name:
+                # Build comprehensive search paths like texture search
+                altpaths = []
+                
+                # Add the nif's own materials root first
+                if self.file.materialsRoot:
+                    altpaths.append(self.file.materialsRoot)
+                
+                # Try to add Blender and game-specific paths if available
+                try:
+                    import bpy
+                    from .. import gamefinder
+                    
+                    # Add Blender's texture directory converted to materials
+                    if bpy.context.preferences.filepaths.texture_directory:
+                        tex_dir = Path(bpy.context.preferences.filepaths.texture_directory)
+                        # Convert texture directory to materials directory
+                        if tex_dir.name.lower() == 'textures':
+                            materials_dir = tex_dir.parent / 'materials'
+                        else:
+                            materials_dir = tex_dir / 'materials'
+                        altpaths.append(materials_dir)
+                    
+                    # Add game-specific preference paths converted to materials
+                    prefs = bpy.context.preferences.addons["io_scene_nifly"].preferences
+                    if self.game in ('SKYRIM', 'SKYRIMSE'):
+                        for path_pref in [prefs.sky_texture_path_1, prefs.sky_texture_path_2, 
+                                         prefs.sky_texture_path_3, prefs.sky_texture_path_4]:
+                            if path_pref and (cleaned_path := materials_path(path_pref)):
+                                altpaths.append(cleaned_path)
+                    else:
+                        for path_pref in [prefs.fo4_texture_path_1, prefs.fo4_texture_path_2, 
+                                         prefs.fo4_texture_path_3, prefs.fo4_texture_path_4]:
+                            if path_pref and (cleaned_path := materials_path(path_pref)):
+                                altpaths.append(cleaned_path)
+
+                    # Add game directory materials path
+                    if gamepath := gamefinder.find_game(self.game):
+                        altpaths.append(gamepath / 'data' / 'materials')
+                        
+                except ImportError:
+                    # If Blender modules aren't available, just use the basic path
+                    pass
+                
                 fullpath = find_referenced_file(self.name, self.file.filepath, root='materials', 
-                                                alt_pathlist=[self.file.materialsRoot])
+                                                alt_pathlist=altpaths)
                 if fullpath:
                     self._materials = bgsmaterial.MaterialFile.Open(fullpath)
                     self._load_properties_from_materials()
