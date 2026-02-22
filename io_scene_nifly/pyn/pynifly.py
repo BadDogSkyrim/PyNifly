@@ -1357,6 +1357,23 @@ class NiNode(NiAVObject):
         buf.zoom = val[4]
         NifFile.nifly.addBlock(self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
 
+    def get_integer_extra_data(self, name):
+        """Get integer extra data by name. Returns the integer value or None if not found."""
+        if not self.file._handle: 
+            return None
+        buf = NiIntegerExtraDataBuf()
+        extra_id = NifFile.nifly.getExtraData(self.file._handle, self.id, name.encode('utf-8'))
+        if extra_id == NODEID_NONE:
+            return None
+        check_return(NifFile.nifly.getBlock, self.file._handle, extra_id, byref(buf))
+        return buf.integerData
+
+    def set_integer_extra_data(self, name, value):
+        """Set integer extra data by name. Creates a new block if it doesn't exist."""
+        buf = NiIntegerExtraDataBuf()
+        buf.integerData = value
+        check_msg(NifFile.nifly.addBlock, self.file._handle, name.encode('utf-8'), byref(buf), self.id)
+
 
 class BSFaceGenNiNode(NiNode):
     pass
@@ -2516,6 +2533,39 @@ class NiTextKeyExtraData(NiObject):
         for t, v in keys:
             tk.add_key(t, v)
         return tk
+
+
+class NiIntegerExtraData(NiObject):
+    buffer_type = PynBufferTypes.NiIntegerExtraDataBufType
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+
+    @classmethod 
+    def getbuf(cls, values=None):
+        return NiIntegerExtraDataBuf(values)
+
+    @property 
+    def integer_data(self):
+        """
+        Integer value stored in this extra data block.
+        """
+        return self.properties.integerData
+    
+    @integer_data.setter
+    def integer_data(self, value):
+        """
+        Set the integer value for this extra data block.
+        """
+        self.properties.integerData = value
+        if self.file and self.id != NODEID_NONE:
+            check_return(NifFile.nifly.setBlock, self.file._handle, self.id, byref(self.properties))
+
+    @classmethod
+    def New(cls, file, name='', integer_value=0, parent=None):
+        p = NiIntegerExtraDataBuf()
+        p.integerData = integer_value
+        return file.add_block(name, p, parent)
 
 
 class NiControllerSequence(NiSequence):

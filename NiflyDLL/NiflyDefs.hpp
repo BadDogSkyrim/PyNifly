@@ -87,6 +87,7 @@ enum BUFFER_TYPES : uint16_t {
 	BSValueNodeBufType,
 	BSBoundBufType,
 	BSBoneLODExtraDataBufType,
+	NiIntegerExtraDataBufType, 
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -416,6 +417,12 @@ struct BSBoneLODInfoBuf {
 	uint32_t nameID;
 };
 
+struct NiIntegerExtraDataBuf {
+	uint16_t bufSize = sizeof(NiIntegerExtraDataBuf);
+	uint16_t bufType = BUFFER_TYPES::NiIntegerExtraDataBufType;
+	uint32_t nameID = nifly::NIF_NPOS;
+	uint32_t integerData = 0; 
+}; 
 struct NiShapeBuf {
 	uint16_t bufSize = sizeof(NiShapeBuf);
 	uint16_t bufType = BUFFER_TYPES::NiShapeBufType;

@@ -2576,6 +2576,22 @@ def TEST_SET_SHADER_PROPERTY():
     assert TT.is_equiv(scarcheck.shader.properties.Glossiness, 123.4, "glossiness")
 
 
+@test_category("EXTRA_DATA")
+def TEST_SKELETON_DEER():
+    """Test reading SkeletonID integer extra data from deer skeleton"""
+    testfile = r"tests\SkyrimSE\deer_skeleton.nif"
+    nif = NifFile(testfile)
+    
+    # Get the root node
+    root = nif.root
+    
+    # Get the SkeletonID integer extra data through the root node
+    skeleton_id_value = root.get_integer_extra_data("NiIntegerExtraData")
+    
+    assert skeleton_id_value is not None, "SkeletonID extra data found"
+    assert TT.is_eq(skeleton_id_value, 178509022, "SkeletonID value correct")
+
+
 ###################### Test execution framework #########################
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]
@@ -2674,8 +2690,8 @@ if __name__ == "__main__":
 
     # ############## TESTS TO RUN #############
     stop_on_fail = True
-    execute(testlist=[TEST_SET_SHADER_PROPERTY])
-    execute()
+    execute(testlist=[TEST_SKELETON_DEER])
+    # execute()
     # execute(start=TEST_KF)
     # execute(categories={"SHADER"})
     #

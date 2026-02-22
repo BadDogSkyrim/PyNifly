@@ -1285,7 +1285,8 @@ def TEST_CONNECT_SKEL(xf, bonerot):
 def TEST_WOLF_SKEL():
     """Can import and export the wolf skeleton with collisions"""
     testname = "TEST_WOLF_SKEL"
-    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\actors\canine\character assets wolf\skeleton.nif")
+    testfile = TTB.test_file(
+        r"tests\SkyrimSE\meshes\actors\canine\character assets wolf\skeleton.nif")
     outfile = TTB.test_file(r"tests/out/TEST_WOLF_SKEL.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile, 
@@ -1322,6 +1323,58 @@ def TEST_WOLF_SKEL():
     assert TT.is_eq(len(lod_levels), 3, "BSBoneLOD level count")
     assert TT.is_eq(lod_levels[1][0], "Canine_LFrontLegToe", "BSBoneLOD level 1 target")
     assert TT.is_eq(lod_levels[1][1], 2200, "BSBoneLOD level 1 value")
+    
+
+@TT.category('SKYRIMSE', 'BODYPART', 'ARMATURE')
+def TEST_DEER_SKEL():
+    """
+    Can import and export the deer skeleton with collisions. This one tends to create
+    circular dependencies in the collisions.
+    """
+    testfile = TTB.test_file(
+        r"tests\SkyrimSE\deer_skeleton.nif")
+    outfile = TTB.test_file(r"tests/out/TEST_DEER_SKEL.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, 
+                                 create_bones=False, 
+                                 rename_bones=False)
+    
+    root = next(x for x in bpy.data.objects if 'pynRoot' in x)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    assert 'Elk_COM' in arma.data.bones, "Have COM bone"
+    assert arma.pose.bones['Elk_COM'].constraints, "Have COM constraints"
+    assert TT.is_contains("BSBound:BBX", [obj.name for obj in root.children], "Have BBX object")
+    assert TT.is_contains("BSBoneLOD:BSBoneLOD", [obj.name for obj in root.children], "Have Bone LOD object")
+    
+    # Check for SkeletonID 
+    skel_id_obj = next((obj for obj in root.children if obj.name == "NiInteger:SkeletonID"), None)
+    assert skel_id_obj is not None, "Have SkeletonID object"
+    assert 'Data' in skel_id_obj, "SkeletonID has Data property"
+    assert TT.is_eq(skel_id_obj['Data'], 178509022, "SkeletonID Data value")
+
+    ### EXPORT ###
+
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, 
+                                 target_game='SKYRIMSE', 
+                                 preserve_hierarchy=True,
+                                 intuit_defaults=False,)
+    
+    ### CHECK ###
+    nif2 = pyn.NifFile(outfile)
+    assert nif2.nodes['Elk_COM'], "Have COM node"
+    assert nif2.nodes['Elk_COM'].collision_object, "Have COM node collisions"
+
+    assert nif2.root.bounds_extra, "Have BSBound"
+    assert TT.is_equiv(nif2.root.bounds_extra[1].center[:], (0, 0, 39.42), "BSBound center", e=0.01)
+    assert TT.is_equiv(nif2.root.bounds_extra[1].halfExtents[:], (20.11, 74.17, 39.42), "BSBound half_extents", e=0.01)
+
+    lod_name, lod_levels = nif2.root.bone_lod_extra
+    assert lod_levels, "Have BSBoneLOD"
+    assert TT.is_eq(lod_name, "BSBoneLOD", "BSBoneLOD name")
+    assert TT.is_eq(len(lod_levels), 3, "BSBoneLOD level count")
+    assert TT.is_eq(lod_levels[1][0], "ElkLRearHoof", "BSBoneLOD level 1 target")
+    assert TT.is_eq(lod_levels[1][1], 2048, "BSBoneLOD level 1 value")
     
 
 

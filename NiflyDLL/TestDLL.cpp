@@ -4899,5 +4899,39 @@ namespace NiflyDLLTests
 		//	char root[100];
 		//	getRootName(nif, root, 100);
 		//};
+		TEST_METHOD(readIntegerExtraData)
+		{
+			std::filesystem::path testfile = testRoot / "SkyrimSE/deer_skeleton.nif";
+			void* nif = load(testfile.u8string().c_str());
+			Assert::IsNotNull(nif, L"NIF file loaded");
+
+			void* root = getRoot(nif);
+			Assert::IsNotNull(root, L"Has root");
+
+			// Get root node properties to verify it has extra data
+			NiNodeBuf rootBuf;
+			rootBuf.bufType = NiNodeBufType;
+			Assert::AreEqual(0, getBlock(nif, 0, &rootBuf), L"Got root node data");
+			Assert::AreEqual(int(rootBuf.extraDataCount), 4, L"Root has extra data");
+
+			// Find the NiIntegerExtraData block ID using getExtraData
+			int integerExtraDataID = getExtraData(nif, 0, "NiIntegerExtraData");
+			Assert::AreNotEqual(NIF_NPOS, uint32_t(integerExtraDataID), L"Found NiIntegerExtraData on root");
+
+			// Read the integer extra data block
+			NiIntegerExtraDataBuf intDataBuf;
+			intDataBuf.bufType = NiIntegerExtraDataBufType;
+			Assert::AreEqual(0, getBlock(nif, integerExtraDataID, &intDataBuf), L"Got integer extra data");
+
+			// Check the name string
+			char nameBuffer[256];
+			int nameLen = getString(nif, intDataBuf.nameID, sizeof(nameBuffer), nameBuffer);
+			Assert::AreEqual("SkeletonID", nameBuffer, L"Name is SkeletonID");
+
+			// Check the integer value
+			Assert::AreEqual((uint32_t)178509022, intDataBuf.integerData, L"Integer value is 178509022");
+
+			destroy(nif);
+		}
 	};
 }

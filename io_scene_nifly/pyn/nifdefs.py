@@ -289,7 +289,7 @@ class pynStructure(Structure):
             #     except Exception as e:
             #         self.warn(f"Error setting property {f} <- {shape[f]}")
                 except Exception as e:
-                    raise Exception(f"Error setting property {f} <- {shape[f]}")
+                    raise Exception(f"Error setting property {f} <- {shape[f]}") from e
 
     def __init__(self, values=None, game='SKYRIM'):
         """Initialize structure from 'values'."""
@@ -373,7 +373,7 @@ class pynStructure(Structure):
     
     def extract_field(self, shape, fieldname, fieldtype, game='SKYRIM'):
         """
-        Extract a single field from the beffer and set as a key/value pair on the
+        Extract a single field from the buffer and set as a key/value pair on the
         dictionary-like "shape". Subclasses can override this for special handling
         on fields that are interpreted for the user.
         """
@@ -1058,7 +1058,8 @@ class PynBufferTypes(IntEnum):
     BSValueNodeBufType = 59
     BSBoundBufType = 60
     BSBoneLODBufType = 61
-    COUNT = 62
+    NiIntegerExtraDataBufType = 62
+    COUNT = 63
 
 # bufferTypeList = [''] * PynBufferTypes.COUNT
 # blockBuffers = {}
@@ -2469,6 +2470,17 @@ class NiTextKeyExtraDataBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiTextKeyExtraDataBufType
+
+class NiIntegerExtraDataBuf(pynStructure):
+    _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
+        ("nameID", c_uint32),
+        ("integerData", c_uint32),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.NiIntegerExtraDataBufType
 
 class TextKeyBuf(pynStructure):
     _fields_ = [

@@ -197,6 +197,14 @@ def is_eq(*args):
         log.error(f"ASSERT FAIL: {msg} equal {values}")
 
 
+def is_neq(actual, expected, msg):
+    """Check that actual is not equal to expected."""
+    if actual != expected:
+        return True
+    else:
+        log.error(f"ASSERT FAIL: {msg} not equal: {actual} == {expected}")
+
+
 def assert_eq_nocase(actual, expected, msg):
     """Assert all elements but the last are equal. The last is the message to use."""
     assert actual.lower() == expected.lower(), f"{msg} are equal: {actual} != {expected}"

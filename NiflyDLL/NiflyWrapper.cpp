@@ -2442,6 +2442,69 @@ int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namele
     return 0;
 };
 
+// Block getter function for NiIntegerExtraData (for getBlock() API)
+int getNiIntegerExtraData(void* nifref, uint32_t blockID, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiIntegerExtraData* ied = hdr->GetBlock<NiIntegerExtraData>(blockID);
+    NiIntegerExtraDataBuf* buf = static_cast<NiIntegerExtraDataBuf*>(inbuf);
+
+    if (!ied) {
+        niflydll::LogWrite("getNiIntegerExtraDataBlock not passed a NiIntegerExtraData node");
+        return 1;
+    }
+
+    CheckBuf(buf, BUFFER_TYPES::NiIntegerExtraDataBufType, NiIntegerExtraDataBuf);
+
+    buf->nameID = ied->name.GetIndex();
+    buf->integerData = ied->integerData;
+
+    return 0;
+}
+
+// Convenience setter function (mirrors setStringExtraData pattern)  
+void setIntegerExtraData(void* nifref, void* shaperef, char* name, uint32_t value) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiAVObject* target = nullptr;
+    if (shaperef)
+        target = static_cast<NiAVObject*>(shaperef);
+    else
+        target = nif->GetRootNode();
+
+    if (target) {
+        auto intdata = std::make_unique<NiIntegerExtraData>();
+        intdata->name.get() = name;
+        intdata->integerData = value;
+        nif->AssignExtraData(target, std::move(intdata));
+    }
+}
+
+// Creator function (for addBlock() API)
+int addNiIntegerExtraData(void* nifref, const char* name, void* b, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiIntegerExtraDataBuf* buf = static_cast<NiIntegerExtraDataBuf*>(b);
+
+    CheckBuf(buf, BUFFER_TYPES::NiIntegerExtraDataBufType, NiIntegerExtraDataBuf);
+
+    auto intData = std::make_unique<NiIntegerExtraData>();
+    if (name) intData->name.get() = name;
+    intData->integerData = buf->integerData;
+
+    uint32_t newid = NIF_NPOS;
+    if (parent != NIF_NPOS) {
+        NiAVObject* p = hdr->GetBlock<NiAVObject>(parent);
+        if (p) {
+            newid = nif->AssignExtraData(p, std::move(intData));
+            return newid;
+        }
+    }
+
+    // No parent supplied (or parent invalid) -> just add the block to header
+    newid = hdr->AddBlock(std::move(intData));
+    return newid;
+}
+
 int getInvMarker(void* nifref, uint32_t id, void* inbuf)
 /* 
 * Returns the InvMarker node data, if any. Assumes there is only one.
@@ -5152,6 +5215,7 @@ BlockGetterFunction getterFunctions[] = {
     getBSValueNode, 
 	getBSBound,
     getBSBoneLODExtraData,
+    getNiIntegerExtraData,
     nullptr //END
 };
 
@@ -5236,6 +5300,7 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //BSValueNodeBufType
     nullptr, //BSBoundsBufType
     nullptr, //BSBoneLODExtraData
+	nullptr, //NiIntegerExtraData
     nullptr //END
 };
 
@@ -5319,6 +5384,7 @@ BlockCreatorFunction creatorFunctions[] = {
 	addBSValueNode, 
     addBSBound,
     addBSBoneLODExtraData,
+    addNiIntegerExtraData, 
     nullptr //end
 };
 
