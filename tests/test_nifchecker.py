@@ -29,7 +29,7 @@ from io_scene_nifly.pyn.pynifly import NifFile
 from io_scene_nifly.pyn.nifdefs import NODEID_NONE, CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, \
     NiKeyType, CycleType, ShaderFlags1, ShaderFlags2, BSLSPShaderType, VertexFlags, NiAVFlags
 from io_scene_nifly.pyn.niflytools import NearEqual, VNearEqual, MatNearEqual
-import test_tools as TT
+from . import test_tools as TT
 
 
 def Check_daedriccuirass(nif:NifFile):

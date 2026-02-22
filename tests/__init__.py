@@ -1,5 +1,11 @@
+import os
 from importlib import reload
-from . import blender_tests
 from . import test_tools
-reload(blender_tests)
 reload(test_tools)
+
+def running_in_blender():
+    return "BLENDER_SYSTEM_SCRIPTS" in os.environ
+
+if running_in_blender():
+    from . import blender_tests
+    reload(blender_tests)

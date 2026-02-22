@@ -34,8 +34,8 @@ if str(mod_path) not in sys.path:
 from io_scene_nifly.pyn.niflytools import *
 from io_scene_nifly.pyn.nifdefs import *
 from io_scene_nifly.pyn.pynifly import *
-import test_tools as TT
-from test_nifchecker import CheckNif
+from . import test_tools as TT
+from .test_nifchecker import CheckNif
 
 
 """Quick and dirty test harness."""
