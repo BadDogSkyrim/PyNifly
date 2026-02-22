@@ -154,7 +154,8 @@ extern "C" NIFLY_API int getTransformDataValues(void* nifref, int nodeIndex,
 	NiAnimationKeyFloatBuf * scaleBuf
 );
 extern "C" NIFLY_API int setController(void* nifref, uint32_t id, uint32_t controller_id);
-extern "C" NIFLY_API int getExtraData(void* nifref, uint32_t id, const char* extraDataName);
+extern "C" NIFLY_API int getExtraData(void* nifref, uint32_t id,
+	const char* extraDataBlockType, const char* extraDataName, uint32_t targetIndex);
 extern "C" NIFLY_API int getAVObjectPaletteObject(
 	void* nifref, uint32_t paletteID, int objindex, int namesize, char* name, uint32_t& objid);
 

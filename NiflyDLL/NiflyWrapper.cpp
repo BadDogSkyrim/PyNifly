@@ -5003,24 +5003,32 @@ NIFLY_API int setController(void* nifref, uint32_t id, uint32_t controller_id) {
 }
 
 
-NIFLY_API int getExtraData(void* nifref, uint32_t id, const char* extraDataBlockType) {
+NIFLY_API int getExtraData(void* nifref, uint32_t id,
+    const char* extraDataBlockType, const char* extraDataName, uint32_t targetIndex) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiObjectNET* node = hdr->GetBlock<NiObjectNET>(id);
 
+    int i = 0;
     if (!node) {
         niflydll::LogWrite("Node ID does not exist");
         return NIF_NPOS;
     }
     for (auto& ed : node->extraDataRefs) {
         NiExtraData* edBlock = hdr->GetBlock<NiExtraData>(ed.index);
-        if (edBlock && (strcmp(edBlock->GetBlockName(), extraDataBlockType) == 0))
-            return ed.index;
+        if (!edBlock) {
+            niflydll::LogWrite("Extra block type " + std::string(extraDataBlockType)
+                + " not associated with node " + std::to_string(id));
+            return NIF_NPOS;
+        };
+        if ((!extraDataBlockType || (strcmp(edBlock->GetBlockName(), extraDataBlockType) == 0))
+                && (!extraDataName || (edBlock->name.get() == extraDataName))) {
+            if (targetIndex == i) {
+                return ed.index;
+            };
+            targetIndex++;
+        }
     }
-
-    niflydll::LogWrite("Extra block type " + std::string(extraDataBlockType) 
-        + " not associated with node " + std::to_string(id));
-    return NIF_NPOS;
 }
 
 int getAVObjectPalette(void* nifref, uint32_t id, void* inbuf) {

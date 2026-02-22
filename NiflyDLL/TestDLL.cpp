@@ -3025,14 +3025,14 @@ namespace NiflyDLLTests
 			//float zoomcheck;
 			BSInvMarkerBuf invmBuf;
 			char invMarkerName[32];
-			int invMarkerID = getExtraData(nifcheck, 0, "BSInvMarker");
+			int invMarkerID = getExtraData(nifcheck, 0, "BSInvMarker", nullptr, 0);
 			getBlock(nifcheck, invMarkerID, &invmBuf);
 			getString(nifcheck, invmBuf.nameID, 32, invMarkerName);
 			Assert::IsTrue(strcmp(invMarkerName, "INV") == 0, L"BSInvMarker name is set");
 			Assert::IsTrue(invmBuf.rot[0] == 4712, L"BSInvMarker rotation is set");
 
 			//int bsxflagscheck;
-			int bsxFlagsID = getExtraData(nifcheck, 0, "BSXFlags");
+			int bsxFlagsID = getExtraData(nifcheck, 0, "BSXFlags", nullptr, 0);
 			getBlock(nifcheck, bsxFlagsID, &bsxBuf);
 			Assert::IsTrue(bsxBuf.integerData == 202, L"BSX Flags correct");
 
@@ -4915,7 +4915,7 @@ namespace NiflyDLLTests
 			Assert::AreEqual(int(rootBuf.extraDataCount), 4, L"Root has extra data");
 
 			// Find the NiIntegerExtraData block ID using getExtraData
-			int integerExtraDataID = getExtraData(nif, 0, "NiIntegerExtraData");
+			int integerExtraDataID = getExtraData(nif, 0, "NiIntegerExtraData", nullptr, 0);
 			Assert::AreNotEqual(NIF_NPOS, uint32_t(integerExtraDataID), L"Found NiIntegerExtraData on root");
 
 			// Read the integer extra data block
