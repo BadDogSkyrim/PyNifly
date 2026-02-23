@@ -90,6 +90,7 @@ enum BUFFER_TYPES : uint16_t {
 	NiIntegerExtraDataBufType, 
 	BSBehaviorGraphExtraDataBufType,
 	NiStringExtraDataBufType,
+	BSClothExtraDataBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -439,6 +440,15 @@ struct NiStringExtraDataBuf {
 	uint16_t bufType = BUFFER_TYPES::NiStringExtraDataBufType;
 	uint32_t nameID = nifly::NIF_NPOS;
 	uint32_t stringDataID = nifly::NIF_NPOS;
+};
+
+struct BSClothExtraDataBuf {
+	uint16_t bufSize = sizeof(BSClothExtraDataBuf);
+	uint16_t bufType = BUFFER_TYPES::BSClothExtraDataBufType;
+	uint32_t ID = nifly::NIF_NPOS;
+	uint32_t nameID = nifly::NIF_NPOS;
+	uint32_t dataSize = 0;  // Size of the binary cloth data
+	// Note: The actual binary data is stored separately and accessed via functions
 };
 
 struct NiShapeBuf {

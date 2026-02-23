@@ -803,41 +803,71 @@ void TCopyShader(void* targetNif, void* targetShape, void* sourceNif, void* sour
 };
 
 void TCompareExtraData(void* nif1, void* shape1, void* nif2, void* shape2) {
-	int namelen, valuelen; 
-	uint16_t cbs;
+	// Compare NiStringExtraData blocks
+	int sourceID1 = shape1 ? getBlockID(nif1, shape1) : 0;
+	int sourceID2 = shape2 ? getBlockID(nif2, shape2) : 0;
 
-	for (int i = 0; getStringExtraDataLen(nif1, shape1, i, &namelen, &valuelen); i++) {
-		char* namebuf1 = new char[namelen + 1];
-		char* valuebuf1 = new char[valuelen + 1];
-		getStringExtraData(nif1, shape1, i, namebuf1, namelen + 1, valuebuf1, valuelen + 1);
+	for (int i = 0; ; i++) {
+		int stringExtraDataID1 = getExtraData(nif1, sourceID1, "NiStringExtraData", nullptr, i);
+		if (stringExtraDataID1 == NIF_NPOS) break;
 
-		Assert::IsTrue(getStringExtraDataLen(nif2, shape2, i, &namelen, &valuelen));
-		char* namebuf2 = new char[namelen + 1];
-		char* valuebuf2 = new char[valuelen + 1];
-		getStringExtraData(nif2, shape2, i, namebuf2, namelen + 1, valuebuf2, valuelen + 1);
+		int stringExtraDataID2 = getExtraData(nif2, sourceID2, "NiStringExtraData", nullptr, i);
+		Assert::AreNotEqual(NIF_NPOS, uint32_t(stringExtraDataID2), L"Found matching NiStringExtraData");
 
-		Assert::IsTrue(strcmp(namebuf1, namebuf2) == 0, L"Error: String names not the same");
-		Assert::IsTrue(strcmp(valuebuf1, valuebuf2) == 0, L"Error: String values not the same");
-	};
-	for (int i = 0; getBGExtraDataLen(nif1, shape1, i, &namelen, &valuelen); i++) {
-		char* namebuf1 = new char[namelen + 1];
-		char* valuebuf1 = new char[valuelen + 1];
-		getBGExtraData(nif1, shape1, i, 
-			namebuf1, namelen + 1, 
-			valuebuf1, valuelen + 1, 
-			&cbs);
+		NiStringExtraDataBuf strDataBuf1, strDataBuf2;
+		strDataBuf1.bufType = NiStringExtraDataBufType;
+		strDataBuf2.bufType = NiStringExtraDataBufType;
 
-		Assert::IsTrue(getBGExtraDataLen(nif2, shape2, i, &namelen, &valuelen));
-		char* namebuf2 = new char[namelen + 1];
-		char* valuebuf2 = new char[valuelen + 1];
-		getBGExtraData(nif2, shape2, i, 
-			namebuf2, namelen + 1, 
-			valuebuf2, valuelen + 1, 
-			&cbs);
+		Assert::AreEqual(0, getBlock(nif1, stringExtraDataID1, &strDataBuf1), L"Got first string extra data");
+		Assert::AreEqual(0, getBlock(nif2, stringExtraDataID2, &strDataBuf2), L"Got second string extra data");
 
-		Assert::IsTrue(strcmp(namebuf1, namebuf2) == 0, L"Error: String names not the same");
-		Assert::IsTrue(strcmp(valuebuf1, valuebuf2) == 0, L"Error: String values not the same");
-	};
+		// Read and compare the name strings
+		char nameBuffer1[256];
+		char nameBuffer2[256];
+		getString(nif1, strDataBuf1.nameID, sizeof(nameBuffer1), nameBuffer1);
+		getString(nif2, strDataBuf2.nameID, sizeof(nameBuffer2), nameBuffer2);
+		Assert::IsTrue(strcmp(nameBuffer1, nameBuffer2) == 0, L"Error: String names not the same");
+
+		// Read and compare the value strings
+		char valueBuffer1[2048];
+		char valueBuffer2[2048];
+		getString(nif1, strDataBuf1.stringDataID, sizeof(valueBuffer1), valueBuffer1);
+		getString(nif2, strDataBuf2.stringDataID, sizeof(valueBuffer2), valueBuffer2);
+		Assert::IsTrue(strcmp(valueBuffer1, valueBuffer2) == 0, L"Error: String values not the same");
+	}
+
+	// Compare BSBehaviorGraphExtraData blocks
+	for (int i = 0; ; i++) {
+		int bgExtraDataID1 = getExtraData(nif1, sourceID1, "BSBehaviorGraphExtraData", nullptr, i);
+		if (bgExtraDataID1 == NIF_NPOS) break;
+
+		int bgExtraDataID2 = getExtraData(nif2, sourceID2, "BSBehaviorGraphExtraData", nullptr, i);
+		Assert::AreNotEqual(NIF_NPOS, uint32_t(bgExtraDataID2), L"Found matching BSBehaviorGraphExtraData");
+
+		BSBehaviorGraphExtraDataBuf bgDataBuf1, bgDataBuf2;
+		bgDataBuf1.bufType = BSBehaviorGraphExtraDataBufType;
+		bgDataBuf2.bufType = BSBehaviorGraphExtraDataBufType;
+
+		Assert::AreEqual(0, getBlock(nif1, bgExtraDataID1, &bgDataBuf1), L"Got first behavior graph extra data");
+		Assert::AreEqual(0, getBlock(nif2, bgExtraDataID2, &bgDataBuf2), L"Got second behavior graph extra data");
+
+		// Read and compare the name strings
+		char nameBuffer1[256];
+		char nameBuffer2[256];
+		getString(nif1, bgDataBuf1.nameID, sizeof(nameBuffer1), nameBuffer1);
+		getString(nif2, bgDataBuf2.nameID, sizeof(nameBuffer2), nameBuffer2);
+		Assert::IsTrue(strcmp(nameBuffer1, nameBuffer2) == 0, L"Error: String names not the same");
+
+		// Read and compare the behavior graph file strings
+		char bgFileBuffer1[256];
+		char bgFileBuffer2[256];
+		getString(nif1, bgDataBuf1.behaviorGraphFileID, sizeof(bgFileBuffer1), bgFileBuffer1);
+		getString(nif2, bgDataBuf2.behaviorGraphFileID, sizeof(bgFileBuffer2), bgFileBuffer2);
+		Assert::IsTrue(strcmp(bgFileBuffer1, bgFileBuffer2) == 0, L"Error: String values not the same");
+
+		// Compare controls base skeleton flag
+		Assert::AreEqual(bgDataBuf1.controlsBaseSkeleton, bgDataBuf2.controlsBaseSkeleton, L"Error: Controls base skeleton flags not the same");
+	}
 };
 
 void TSanityCheckShape(void* nif, void* shape) {
@@ -2266,19 +2296,31 @@ namespace NiflyDLLTests
 
 		TEST_METHOD(extraDataBody) {
 			void* shapes[10];
-			int namelen, vallen;
 
 			void* nifbody = load((testRoot / "FO4/BTMaleBody.nif").u8string().c_str());
 			getShapes(nifbody, shapes, 10, 0);
 			void* body = shapes[0];
 
-			getStringExtraDataLen(nifbody, nullptr, 0, &namelen, &vallen);
-			char* bodytri = new char[namelen+1L];
-			char* bodypath = new char[vallen+1L];
-			getStringExtraData(nifbody, nullptr, 0, bodytri, namelen+1, bodypath, vallen+1);
+			// Find the NiStringExtraData block using getExtraData
+			int stringExtraDataID = getExtraData(nifbody, 0, "NiStringExtraData", nullptr, 0);
+			Assert::AreNotEqual(NIF_NPOS, uint32_t(stringExtraDataID), L"Found NiStringExtraData on root");
+
+			// Read the string extra data block
+			NiStringExtraDataBuf strDataBuf;
+			strDataBuf.bufType = NiStringExtraDataBufType;
+			Assert::AreEqual(0, getBlock(nifbody, stringExtraDataID, &strDataBuf), L"Got string extra data");
+
+			// Check the name and value strings
+			char bodytri[256];
+			char bodypath[2048];
+			getString(nifbody, strDataBuf.nameID, sizeof(bodytri), bodytri);
+			getString(nifbody, strDataBuf.stringDataID, sizeof(bodypath), bodypath);
+
 			Assert::IsTrue(strcmp(bodytri, "BODYTRI") == 0, L"Error: Extradata name wrong");
 			Assert::IsTrue(strcmp(bodypath, "actors\\character\\characterassets\\MaleBody.tri") == 0, L"Error: Extradata value wrong");
 		};
+
+
 		TEST_METHOD(extraDataSheath) {
 			void* shapes[10];
 			int namelen, vallen;
@@ -2370,16 +2412,27 @@ namespace NiflyDLLTests
 
 		TEST_METHOD(extraDataFeet) {
 			void* shapes[10];
-			int namelen, vallen;
 
 			void* niffeet = load((testRoot / "SkyrimSE/Meshes/caninemalefeet_1.nif").u8string().c_str());
 			getShapes(niffeet, shapes, 10, 0);
 			void* feet = shapes[0];
 
-			getStringExtraDataLen(niffeet, feet, 0, &namelen, &vallen);
-			char* dataname = new char[namelen + 1L];
-			char* dataval = new char[vallen + 1L];
-			getStringExtraData(niffeet, feet, 0, dataname, namelen + 1, dataval, vallen + 1);
+			// Find the NiStringExtraData block using getExtraData
+			int feetID = getBlockID(niffeet, feet);
+			int stringExtraDataID = getExtraData(niffeet, feetID, "NiStringExtraData", nullptr, 0);
+			Assert::AreNotEqual(NIF_NPOS, uint32_t(stringExtraDataID), L"Found NiStringExtraData on feet shape");
+
+			// Read the string extra data block
+			NiStringExtraDataBuf strDataBuf;
+			strDataBuf.bufType = NiStringExtraDataBufType;
+			Assert::AreEqual(0, getBlock(niffeet, stringExtraDataID, &strDataBuf), L"Got string extra data");
+
+			// Check the name and value strings
+			char dataname[256];
+			char dataval[2048];
+			getString(niffeet, strDataBuf.nameID, sizeof(dataname), dataname);
+			getString(niffeet, strDataBuf.stringDataID, sizeof(dataval), dataval);
+
 			Assert::IsTrue(strcmp(dataname, "SDTA") == 0, L"Error: Extradata name wrong");
 			Assert::IsTrue(strncmp(dataval, "[{\"name\":", 9) == 0, L"Error: Extradata value wrong");
 
@@ -2589,6 +2642,7 @@ namespace NiflyDLLTests
 			Assert::IsTrue(TApproxEqual(xfcheck.translation.z, 102.3579),
 				L"Bone at expected location when re-read");
 		};
+
 		TEST_METHOD(readClothExtraData) {
 			/* Test we can read BSClothExtraData */
 			void* shapes[10];
