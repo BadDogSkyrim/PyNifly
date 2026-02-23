@@ -68,6 +68,10 @@ def load_nifly(nifly_path):
     nifly.addAnimKeyQuadXYZ.restype = None
     nifly.addAVObjectPaletteObject.argtypes = [c_void_p, c_uint32, c_char_p, c_uint32]
     nifly.addAVObjectPaletteObject.restype = c_int
+    nifly.addAllBonesToShape.argtypes = [c_void_p, c_void_p, c_int, POINTER(c_int)]
+    nifly.addAllBonesToShape.restype = None
+    nifly.addFurnitureMarkerPosition.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerDataBuf)]
+    nifly.addFurnitureMarkerPosition.restype = c_int
     nifly.addBoneToNifShape.argtypes = [c_void_p, c_void_p, c_char_p, POINTER(TransformBuf), c_char_p]
     nifly.addBoneToNifShape.restype = c_void_p
     nifly.addBlock.argtypes = [c_void_p, c_char_p, c_void_p, c_int]
@@ -99,6 +103,8 @@ def load_nifly(nifly_path):
     nifly.createNifShapeFromData.restype = c_void_p
     nifly.destroy.argtypes = [c_void_p]
     nifly.destroy.restype = None
+    nifly.findBlockByName.argtypes = [c_void_p, c_char_p]
+    nifly.findBlockByName.restype = c_int
     nifly.findNodeByName.argtypes = [c_void_p, c_char_p]
     nifly.findNodeByName.restype = c_void_p
     nifly.findNodesByType.argtypes = [c_void_p, c_void_p, c_char_p, c_int, c_void_p]
@@ -153,14 +159,22 @@ def load_nifly(nifly_path):
     nifly.getConnectPointParent.restype = c_int
     nifly.getControllerManagerSequences.argtypes = [c_void_p, c_void_p, c_int, POINTER(c_uint32)]
     nifly.getControllerManagerSequences.restype = c_int
+    nifly.getControllerManagerSeq.argtypes = [c_void_p, c_int, c_int, POINTER(c_uint32)]
+    nifly.getControllerManagerSeq.restype = c_int
     nifly.getControlledBlocks.argtypes = [c_void_p, c_int, c_int, c_void_p]
     nifly.getControlledBlocks.restype = c_int
+    nifly.getExtraTargets.argtypes = [c_void_p, c_uint32, c_int, POINTER(c_uint32)]
+    nifly.getExtraTargets.restype = c_int
+    nifly.getTransformDataValues.argtypes = [c_void_p, c_int, c_void_p, c_void_p, c_void_p, c_void_p, c_void_p, c_void_p]
+    nifly.getTransformDataValues.restype = c_int
     nifly.getExtraData.argtypes = [c_void_p, c_int, c_char_p, c_char_p, c_int]
     nifly.getExtraData.restype = c_uint32
-    nifly.getFurnMarker.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
-    nifly.getFurnMarker.restype = c_int
+    nifly.getFurnitureMarkerPosition.argtypes = [c_void_p, c_int, c_int, POINTER(FurnitureMarkerDataBuf)]
+    nifly.getFurnitureMarkerPosition.restype = c_int
     nifly.getGameName.argtypes = [c_void_p, c_char_p, c_int]
     nifly.getGameName.restype = c_int
+    nifly.getVersion.argtypes = []
+    nifly.getVersion.restype = POINTER(c_int)
     nifly.getMaxStringLen.argtypes = [c_void_p]
     nifly.getMaxStringLen.restype = c_int
     nifly.getMessageLog.argtypes = [c_char_p, c_int]
@@ -173,8 +187,12 @@ def load_nifly(nifly_path):
     nifly.getNodeBlockname.restype = c_int
     nifly.getNodeByID.argtypes = [c_void_p, c_int]
     nifly.getNodeByID.restype = c_void_p
+    nifly.getNodeChildren.argtypes = [c_void_p, c_int, c_int, POINTER(c_int)]
+    nifly.getNodeChildren.restype = c_int
     nifly.getNodeCount.argtypes = [c_void_p]
     nifly.getNodeCount.restype = c_int
+    nifly.getNodeFlags.argtypes = [c_void_p]
+    nifly.getNodeFlags.restype = c_int
     nifly.getNodeName.argtypes = [c_void_p, c_void_p, c_int]
     nifly.getNodeName.restype = c_int
     nifly.getNodeParent.argtypes = [c_void_p, c_void_p]
@@ -183,6 +201,8 @@ def load_nifly(nifly_path):
     nifly.getNodes.restype = None
     nifly.getNodeTransformToGlobal.argtypes = [c_void_p, c_char_p, POINTER(TransformBuf)]
     nifly.getNodeTransformToGlobal.restype = c_int
+    nifly.getNodeTransform.argtypes = [c_void_p, POINTER(TransformBuf)]
+    nifly.getNodeTransform.restype = None
     nifly.getNormalsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
     nifly.getNormalsForShape.restype = c_int
     nifly.getPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
@@ -203,8 +223,8 @@ def load_nifly(nifly_path):
     nifly.getSegments.restype = c_int
     nifly.getShaderTextureSlot.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int]
     nifly.getShaderTextureSlot.restype = c_int
-    nifly.getShapeBlockName.argtypes = [c_void_p, c_void_p, c_int]
-    nifly.getShapeBlockName.restypes = c_int
+    nifly.getShapeBlockName.argtypes = [c_void_p, c_char_p, c_int]
+    nifly.getShapeBlockName.restype = c_int
     nifly.getShapeBoneCount.argtypes = [c_void_p, c_void_p]
     nifly.getShapeBoneCount.restype = c_int
     nifly.getShapeBoneIDs.argtypes = [c_void_p, c_void_p, c_void_p, c_int]
@@ -213,6 +233,8 @@ def load_nifly(nifly_path):
     nifly.getShapeBoneNames.restype = c_int
     nifly.getShapeBoneWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
     nifly.getShapeBoneWeights.restype = c_int
+    nifly.getShapeSkinWeights.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
+    nifly.getShapeSkinWeights.restype = c_int
     nifly.getShapeBoneWeightsCount.argtypes = [c_void_p, c_void_p, c_int]
     nifly.getShapeBoneWeightsCount.restype = c_int
     nifly.getShapeGlobalToSkin.argtypes = [c_void_p, c_void_p, POINTER(TransformBuf)]
@@ -241,6 +263,8 @@ def load_nifly(nifly_path):
     nifly.hasSkinInstance.restype = c_int
     nifly.load.argtypes = [c_char_p]
     nifly.load.restype = c_void_p
+    nifly.loadShapeNames.argtypes = [c_char_p, c_char_p, c_int]
+    nifly.loadShapeNames.restype = c_int
     nifly.saveNif.argtypes = [c_void_p, c_char_p]
     nifly.saveNif.restype = c_int
     nifly.segmentCount.argtypes = [c_void_p, c_void_p]
@@ -265,8 +289,8 @@ def load_nifly(nifly_path):
     nifly.setConnectPointsParent.restype = None
     nifly.setController.argtypes = [c_void_p, c_int, c_int]
     nifly.setController.restype = c_int
-    nifly.setFurnMarkers.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
-    nifly.setFurnMarkers.restype = None
+    nifly.setIntegerExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_uint32]
+    nifly.setIntegerExtraData.restype = None
     nifly.setNodeFlags.argtypes = [c_void_p, c_int]
     nifly.setNodeFlags.restype = None
     nifly.setPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int]
@@ -531,71 +555,71 @@ class ExtraDataType(Enum):
     InvMarker = 4
     BSXFlags = 5
 
-def _read_extra_data(nifHandle, shapeHandle, edtype):
-    ed = []
-    if not nifHandle: return ed
+# def _read_extra_data(nifHandle, shapeHandle, edtype):
+#     ed = []
+#     if not nifHandle: return ed
 
-    namelen = c_int()
-    valuelen = c_int()
+#     namelen = c_int()
+#     valuelen = c_int()
 
-    if edtype == ExtraDataType.BehaviorGraph:
-        len_func = NifFile.nifly.getBGExtraDataLen
-        get_func = NifFile.nifly.getBGExtraData
-    elif edtype == ExtraDataType.String:
-        len_func = NifFile.nifly.getStringExtraDataLen
-        get_func = NifFile.nifly.getStringExtraData
-    elif edtype == ExtraDataType.Cloth:
-        len_func = NifFile.nifly.getClothExtraDataLen
-        get_func = NifFile.nifly.getClothExtraData
+#     if edtype == ExtraDataType.BehaviorGraph:
+#         len_func = NifFile.nifly.getBGExtraDataLen
+#         get_func = NifFile.nifly.getBGExtraData
+#     elif edtype == ExtraDataType.String:
+#         len_func = NifFile.nifly.getStringExtraDataLen
+#         get_func = NifFile.nifly.getStringExtraData
+#     elif edtype == ExtraDataType.Cloth:
+#         len_func = NifFile.nifly.getClothExtraDataLen
+#         get_func = NifFile.nifly.getClothExtraData
 
-    for i in range(0, 1000):
-        exists = len_func(nifHandle, shapeHandle, 
-                          i,
-                          byref(namelen),
-                          byref(valuelen))
-        if not exists:
-            break
+#     for i in range(0, 1000):
+#         exists = len_func(nifHandle, shapeHandle, 
+#                           i,
+#                           byref(namelen),
+#                           byref(valuelen))
+#         if not exists:
+#             break
 
-        name = (c_char * (namelen.value+1))()
-        val = (c_char * (valuelen.value+1))()
+#         name = (c_char * (namelen.value+1))()
+#         val = (c_char * (valuelen.value+1))()
                
-        if edtype == ExtraDataType.BehaviorGraph:
-            controlsBaseSkel = c_uint16()
-            get_func(nifHandle, shapeHandle,
-                     i,
-                     name, namelen.value+1,
-                     val, valuelen.value+1,
-                     byref(controlsBaseSkel))
-        else:
-            get_func(nifHandle, shapeHandle,
-                     i,
-                     name, namelen.value+1,
-                     val, valuelen.value+1)
+#         if edtype == ExtraDataType.BehaviorGraph:
+#             controlsBaseSkel = c_uint16()
+#             get_func(nifHandle, shapeHandle,
+#                      i,
+#                      name, namelen.value+1,
+#                      val, valuelen.value+1,
+#                      byref(controlsBaseSkel))
+#         else:
+#             get_func(nifHandle, shapeHandle,
+#                      i,
+#                      name, namelen.value+1,
+#                      val, valuelen.value+1)
                 
-        if edtype == ExtraDataType.Cloth:
-            ed.append((name.value.decode('utf-8'), val.raw))
-        elif edtype == ExtraDataType.BehaviorGraph:
-            ed.append((name.value.decode('utf-8'), val.value.decode('utf-8'), (controlsBaseSkel.value != 0)))
-        else:
-            ed.append((name.value.decode('utf-8'), val.value.decode('utf-8')))
+#         if edtype == ExtraDataType.Cloth:
+#             ed.append((name.value.decode('utf-8'), val.raw))
+#         elif edtype == ExtraDataType.BehaviorGraph:
+#             ed.append((name.value.decode('utf-8'), val.value.decode('utf-8'), (controlsBaseSkel.value != 0)))
+#         else:
+#             ed.append((name.value.decode('utf-8'), val.value.decode('utf-8')))
     
-    return ed
+#     return ed
 
-def _write_extra_data(nifhandle, shapehandle, edtype, val):
-    if edtype == ExtraDataType.Cloth:
-        set_func = NifFile.nifly.setClothExtraData
-    elif edtype == ExtraDataType.BehaviorGraph:
-        set_func = NifFile.nifly.setBGExtraData
-    else:
-        set_func = NifFile.nifly.setStringExtraData
+# def _write_extra_data(nifhandle, shapehandle, edtype, val):
+#     if edtype == ExtraDataType.Cloth:
+#         set_func = NifFile.nifly.setClothExtraData
+#     elif edtype == ExtraDataType.BehaviorGraph:
+#         set_func = NifFile.nifly.setBGExtraData
+#     else:
+#         set_func = NifFile.nifly.setStringExtraData
 
-    for s in val:
-        if edtype == ExtraDataType.Cloth:
-            set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1], len(s[1])-1)
-        elif edtype == ExtraDataType.BehaviorGraph:
-            set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1].encode('utf-8'), s[2])
-        else:
-            set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1].encode('utf-8'))
+#     for s in val:
+#         if edtype == ExtraDataType.Cloth:
+#             set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1], len(s[1])-1)
+#         elif edtype == ExtraDataType.BehaviorGraph:
+#             set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1].encode('utf-8'), s[2])
+#         else:
+#             set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1].encode('utf-8'))
 
 
 # --- NiObject -- #
@@ -736,31 +760,31 @@ class NiObjectNET(NiObject):
         self.properties.controllerID = c.id
         NifFile.nifly.setController(self.file._handle, self.id, c.id)
     
-    @property
-    def behavior_graph_data(self):
-        if self._bgdata is None:
-            self._bgdata = _read_extra_data(self.file._handle, self._handle,
-                                           ExtraDataType.BehaviorGraph)
-        return self._bgdata
+    # @property
+    # def behavior_graph_data(self):
+    #     if self._bgdata is None:
+    #         self._bgdata = _read_extra_data(self.file._handle, self._handle,
+    #                                        ExtraDataType.BehaviorGraph)
+    #     return self._bgdata
 
-    @behavior_graph_data.setter
-    def behavior_graph_data(self, val):
-        self._bgdata = val
-        _write_extra_data(self.file._handle, self._handle, 
-                         ExtraDataType.BehaviorGraph, self._bgdata)
+    # @behavior_graph_data.setter
+    # def behavior_graph_data(self, val):
+    #     self._bgdata = val
+    #     _write_extra_data(self.file._handle, self._handle, 
+    #                      ExtraDataType.BehaviorGraph, self._bgdata)
 
-    @property
-    def string_data(self):
-        if self._strdata is None:
-            self._strdata = _read_extra_data(self.file._handle, self._handle,
-                                           ExtraDataType.String)
-        return self._strdata
+    # @property
+    # def string_data(self):
+    #     if self._strdata is None:
+    #         self._strdata = _read_extra_data(self.file._handle, self._handle,
+    #                                        ExtraDataType.String)
+    #     return self._strdata
 
-    @string_data.setter
-    def string_data(self, val):
-        self._strdata = val
-        _write_extra_data(self.file._handle, self._handle, 
-                         ExtraDataType.String, self._strdata)
+    # @string_data.setter
+    # def string_data(self, val):
+    #     self._strdata = val
+    #     _write_extra_data(self.file._handle, self._handle, 
+    #                      ExtraDataType.String, self._strdata)
 
     @property
     def cloth_data(self):
@@ -1247,6 +1271,7 @@ class NiNode(NiAVObject):
         
         return self.parent.global_transform * self.transform
     
+    
     @property
     def collision_object(self):
         if self.properties.collisionID != NODEID_NONE:
@@ -1254,8 +1279,14 @@ class NiNode(NiAVObject):
         else:
             return None
 
+
     def get_extra_data(self, blockname=None, name=None, target_index=0):
-        """Search for the target extra data."""
+        """
+        Search for the target extra data. 
+        blockname = the type of extra data to find. May be omitted.
+        name = the name of the extra data to find. May be omitted.
+        target_index = The index of the extra data, starting from 0.
+        """
         ex_id = NifFile.nifly.getExtraData(self.file._handle, self.id, 
                                            blockname.encode('utf-8') if blockname else None, 
                                            name.encode('utf-8') if name else None,
@@ -1263,6 +1294,17 @@ class NiNode(NiAVObject):
         if ex_id == NODEID_NONE:
             return None
         return self.file.read_node(id=ex_id, parent=self)
+
+
+    def extra_data(self, blockname=None, name=None):
+        """Convenience routine to walk all extra data on a node."""
+        i = 0
+        while True:
+            ed = self.get_extra_data(blockname=blockname, name=name, target_index=i)
+            if not ed:
+                break
+            yield ed
+            i += 1
 
 
     # @property
@@ -1417,32 +1459,6 @@ class BSValueNode(NiNode):
     @classmethod
     def getbuf(cls, values=None):
         return BSValueNodeBuf(values)
-
-
-class BSBound(NiNode):
-    buffer_type = PynBufferTypes.BSBoundBufType
-
-    @classmethod
-    def getbuf(cls, values=None):
-        return BSBoundBuf(values)
-    
-    @property
-    def center(self):
-        return (self.properties.center[:])
-    
-    @center.setter
-    def center(self, value):
-        for i in range(0, 3):
-            self.properties.center[i] = value[i]
-
-    @property
-    def half_extents(self):
-        return (self.properties.halfExtents[:])
-    
-    @half_extents.setter
-    def half_extents(self, value):
-        for i in range(0, 3):
-            self.properties.halfExtents[i] = value[i]
 
 
 class BSWeakReferenceNode(NiNode):
@@ -2526,6 +2542,132 @@ class NiExtraData(NiObject):
             check_return(NifFile.nifly.setBlock, self.file._handle, self.id, byref(self.properties))
 
 
+class BSBound(NiExtraData):
+    buffer_type = PynBufferTypes.BSBoundBufType
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return BSBoundBuf(values)
+    
+    @property
+    def center(self):
+        return (self.properties.center[:])
+    
+    @center.setter
+    def center(self, value):
+        for i in range(0, 3):
+            self.properties.center[i] = value[i]
+
+    @property
+    def half_extents(self):
+        return (self.properties.halfExtents[:])
+    
+    @half_extents.setter
+    def half_extents(self, value):
+        for i in range(0, 3):
+            self.properties.halfExtents[i] = value[i]
+
+
+class BSFurnitureMarkerNode(NiExtraData):
+    buffer_type = PynBufferTypes.BSFurnitureMarkerNodeBufType
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._furniture_markers = None
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return BSFurnitureMarkerNodeBuf(values)
+    
+    @property
+    def position_count(self):
+        """
+        Number of furniture marker positions.
+        """
+        return self.properties.position_count
+    
+    @property
+    def furniture_markers(self):
+        """
+        Get furniture marker data as list of FurnitureMarkerDataBuf objects.
+        """
+        if self._furniture_markers is None:
+            self._furniture_markers = []
+            if self.properties.position_count > 0:
+                # Get each furniture marker position individually
+                for i in range(self.properties.position_count):
+                    marker = FurnitureMarkerDataBuf()
+                    result = NifFile.nifly.getFurnitureMarkerPosition(
+                        self.file._handle, self.id, i, byref(marker))
+                    if result == 0:
+                        # Create a copy of the marker data
+                        marker_copy = FurnitureMarkerDataBuf()
+                        marker_copy.offset[0] = marker.offset[0]
+                        marker_copy.offset[1] = marker.offset[1]
+                        marker_copy.offset[2] = marker.offset[2]
+                        marker_copy.heading = marker.heading
+                        marker_copy.animation_type = marker.animation_type
+                        marker_copy.entry_points = marker.entry_points
+                        self._furniture_markers.append(marker_copy)
+        return self._furniture_markers
+    
+    @furniture_markers.setter
+    def furniture_markers(self, value):
+        """
+        Set furniture marker data from list of FurnitureMarkerDataBuf objects.
+        """
+        self._furniture_markers = value
+        self.properties.position_count = len(value)
+        if self.file and self.id != NODEID_NONE:
+            # Update the position count first
+            check_return(NifFile.nifly.setBlock, self.file._handle, self.id, byref(self.properties))
+            
+            # Add each furniture marker position
+            if value:
+                for marker in value:
+                    marker_buf = FurnitureMarkerDataBuf()
+                    marker_buf.offset[0] = float(marker.offset[0])
+                    marker_buf.offset[1] = float(marker.offset[1])
+                    marker_buf.offset[2] = float(marker.offset[2])
+                    marker_buf.heading = float(marker.heading)
+                    marker_buf.animation_type = int(marker.animation_type)
+                    marker_buf.entry_points = int(marker.entry_points)
+                    check_return(NifFile.nifly.addFurnitureMarkerPosition, 
+                                self.file._handle, self.id, byref(marker_buf))
+
+    @classmethod
+    def New(cls, file, name='', furniture_markers=None, parent=None):
+        """
+        Create a new BSFurnitureMarkerNode.
+        
+        Args:
+            file: NifFile to add the node to
+            name: Name for the node
+            furniture_markers: List of FurnitureMarkerDataBuf objects
+            parent: Parent node
+        """
+        if furniture_markers is None:
+            furniture_markers = []
+        p = BSFurnitureMarkerNodeBuf()
+        fm_node = file.add_block(name, p, parent)
+        
+        # Add each furniture marker position directly
+        if furniture_markers:
+            for marker in furniture_markers:
+                marker_buf = FurnitureMarkerDataBuf()
+                marker_buf.offset[0] = float(marker.offset[0])
+                marker_buf.offset[1] = float(marker.offset[1])
+                marker_buf.offset[2] = float(marker.offset[2])
+                marker_buf.heading = float(marker.heading)
+                marker_buf.animation_type = int(marker.animation_type)
+                marker_buf.entry_points = int(marker.entry_points)
+                check_return(NifFile.nifly.addFurnitureMarkerPosition, 
+                            file._handle, fm_node.id, byref(marker_buf))
+        return fm_node
+
+    
+
+
 class NiTextKeyExtraData(NiExtraData):
     buffer_type = PynBufferTypes.NiTextKeyExtraDataBufType
 
@@ -2823,11 +2965,11 @@ class BSXFlags(NiExtraData):
         return BSXFlagsBuf(values)
 
     @property 
-    def flags(self):
+    def flags(self) -> BSXFlagsValues:
         """
         BSX flags integer value.
         """
-        return self.properties.integerData
+        return BSXFlagsValues(self.properties.integerData)
     
     @flags.setter
     def flags(self, value):
@@ -4582,62 +4724,89 @@ class NifFile:
 
     @property
     def cloth_data(self):
+        """Get cloth extra data as list of (name, binary_data) tuples"""
         if self._clothdata is None:
-            self._clothdata = _read_extra_data(self._handle, 
-                                               None,
-                                               ExtraDataType.Cloth)
+            self._clothdata = []
+            if not self._handle: 
+                return self._clothdata
+
+            # Find all cloth extra data using the direct C API
+            namelen = c_int()
+            valuelen = c_int()
+
+            for i in range(0, 1000):
+                exists = NifFile.nifly.getClothExtraDataLen(self._handle, None, 
+                                              i,
+                                              byref(namelen),
+                                              byref(valuelen))
+                if not exists:
+                    break
+
+                name = (c_char * (namelen.value+1))()
+                val = (c_char * (valuelen.value+1))()
+                       
+                NifFile.nifly.getClothExtraData(self._handle, None,
+                                 i,
+                                 name, namelen.value+1,
+                                 val, valuelen.value+1)
+                        
+                self._clothdata.append((name.value.decode('utf-8'), val.raw))
+        
         return self._clothdata
 
     @cloth_data.setter
     def cloth_data(self, val):
+        """Set cloth extra data from list of (name, binary_data) tuples"""
         self._clothdata = val
-        _write_extra_data(self._handle, None, 
-                         ExtraDataType.Cloth, self._clothdata)
+        # Write cloth extra data using the direct C API
+        for s in val:
+            NifFile.nifly.setClothExtraData(self._handle, None, 
+                                           s[0].encode('utf-8'), s[1], len(s[1])-1)
 
-    @property
-    def behavior_graph_data(self):
-        if self._bgdata is None:
-            self._bgdata = _read_extra_data(self._handle, None,
-                                           ExtraDataType.BehaviorGraph)
-        return self._bgdata
+    # @property
+    # def behavior_graph_data(self):
+    #     if self._bgdata is None:
+    #         self._bgdata = _read_extra_data(self._handle, None,
+    #                                        ExtraDataType.BehaviorGraph)
+    #     return self._bgdata
 
-    @behavior_graph_data.setter
-    def behavior_graph_data(self, val):
-        self._bgdata = val
-        _write_extra_data(self._handle, None, 
-                         ExtraDataType.BehaviorGraph, self._bgdata)
+    # @behavior_graph_data.setter
+    # def behavior_graph_data(self, val):
+    #     self._bgdata = val
+    #     _write_extra_data(self._handle, None, 
+    #                      ExtraDataType.BehaviorGraph, self._bgdata)
 
-    @property
-    def string_data(self):
-        if self._strdata is None:
-            self._strdata = _read_extra_data(self._handle, None,
-                                           ExtraDataType.String)
-        return self._strdata
+    # @property
+    # def string_data(self):
+    #     if self._strdata is None:
+    #         self._strdata = _read_extra_data(self._handle, None,
+    #                                        ExtraDataType.String)
+    #     return self._strdata
 
-    @string_data.setter
-    def string_data(self, val):
-        self._strdata = val
-        _write_extra_data(self._handle, None, 
-                         ExtraDataType.String, self._strdata)
+    # @string_data.setter
+    # def string_data(self, val):
+    #     self._strdata = val
+    #     _write_extra_data(self._handle, None, 
+    #                      ExtraDataType.String, self._strdata)
 
-    @property
-    def furniture_markers(self):
-        if not self._furniture_markers:
-            self._furniture_markers = []
-            if self._handle:
-                for i in range(0, 100):
-                    buf = FurnitureMarkerBuf()
-                    if not NifFile.nifly.getFurnMarker(self._handle, i, buf):
-                        break
-                    self._furniture_markers.append(buf)
-        return self._furniture_markers
+    # @property
+    # def furniture_markers(self):
+    #     if not self._furniture_markers:
+    #         self._furniture_markers = []
+    #         if self._handle:
+    #             for i in range(0, 100):
+    #                 buf = FurnitureMarkerBuf()
+    #                 if not NifFile.nifly.getFurnMarker(self._handle, i, buf):
+    #                     break
+    #                 self._furniture_markers.append(buf)
+    #     return self._furniture_markers
 
-    @furniture_markers.setter
-    def furniture_markers(self, value):
-        bufs = (FurnitureMarkerBuf * len(value))()
-        for i, v in enumerate(value):
-            bufs[i] = v
-        NifFile.nifly.setFurnMarkers(self._handle, len(value), bufs)
+    # @furniture_markers.setter
+    # def furniture_markers(self, value):
+    #     bufs = (FurnitureMarkerBuf * len(value))()
+    #     for i, v in enumerate(value):
+    #         bufs[i] = v
+    #     NifFile.nifly.setFurnMarkers(self._handle, len(value), bufs)
 
 
     @property

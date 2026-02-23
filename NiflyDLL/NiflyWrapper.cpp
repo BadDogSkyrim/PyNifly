@@ -2630,46 +2630,78 @@ void setConnectPointsChild(void* nifref, int isSkinned, int buflen, const char* 
     nif->AssignExtraData(nif->GetRootNode(), std::move(cplist));
 }
 
-int getFurnMarker(void* nifref, int index, FurnitureMarkerBuf* buf) {
+int getBSFurnitureMarkerNode(void* nifref, uint32_t id, void* inbuf)
+{
     NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
-    NiAVObject* source = nif->GetRootNode();
+    NiHeader* hdr = &nif->GetHeader();
+    BSFurnitureMarkerNode* fm = hdr->GetBlock<BSFurnitureMarkerNode>(id);
+    BSFurnitureMarkerNodeBuf* buf = static_cast<BSFurnitureMarkerNodeBuf*>(inbuf);
 
-    int c = 0;
+    if (!fm) {
+        niflydll::LogWrite("getBSFurnitureMarkerNode not passed a BSFurnitureMarkerNode node");
+        return 1;
+    }
+    CheckBuf(buf, BUFFER_TYPES::BSFurnitureMarkerNodeBufType, BSFurnitureMarkerNodeBuf);
 
-    for (auto& ed : source->extraDataRefs) {
-        BSFurnitureMarker* fm = hdr.GetBlock<BSFurnitureMarker>(ed);
-        if (fm) {
-            for (auto& pos : fm->positions) {
-                if (c == index) {
-                    for (int i = 0; i < 3; i++) buf->offset[i] = pos.offset[i];
-                    buf->heading = pos.heading;
-                    buf->animationType = pos.animationType;
-                    buf->entryPoints = pos.entryPoints;
+    buf->nameID = fm->name.GetIndex();
+    buf->position_count = fm->positions.size();
 
-                    return 1;
-                }
-                c++;
-            };
-        };
-    };
     return 0;
 }
 
-void setFurnMarkers(void* nifref, int buflen, FurnitureMarkerBuf* buf) {
+int addBSFurnitureMarkerNode(void* nifref, const char* name, void* properties, uint32_t parent)
+{
     NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSFurnitureMarkerNodeBuf* buf = static_cast<BSFurnitureMarkerNodeBuf*>(properties);
+    NiAVObject* parentObj = hdr->GetBlock<NiAVObject>(parent);
+
+    CheckBuf(buf, BUFFER_TYPES::BSFurnitureMarkerNodeBufType, BSFurnitureMarkerNodeBuf);
 
     auto fm = std::make_unique<BSFurnitureMarkerNode>();
-    
-    for (int i=0; i < buflen; i++) {
-        FurniturePosition pos;
-        for (int j = 0; j < 3; j++) pos.offset[j] = buf[i].offset[j];
-        pos.heading = buf[i].heading;
-        pos.animationType = buf[i].animationType;
-        pos.entryPoints = buf[i].entryPoints;
-        fm->positions.push_back(pos);
+    fm->name.get() = name ? name : "";
+
+    int newid = nif->AssignExtraData(parentObj, std::move(fm));
+    return newid;
+}
+
+NIFLY_API int getFurnitureMarkerPosition(void* nifref, int id, int index, FurnitureMarkerDataBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSFurnitureMarkerNode* fm = hdr->GetBlock<BSFurnitureMarkerNode>(id);
+
+    if (!fm || index < 0 || index >= int(fm->positions.size())) {
+        niflydll::LogWrite("getFurnitureMarkerPosition: Invalid node or index");
+        return 1;
     }
-    nif->AssignExtraData(nif->GetRootNode(), std::move(fm));
+
+    auto& pos = fm->positions[index];
+    for (int i = 0; i < 3; i++) buf->offset[i] = pos.offset[i];
+    buf->heading = pos.heading;
+    buf->animationType = pos.animationType;
+    buf->entryPoints = pos.entryPoints;
+
+    return 0;
+}
+
+NIFLY_API int addFurnitureMarkerPosition(void* nifref, int id, FurnitureMarkerDataBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSFurnitureMarkerNode* fm = hdr->GetBlock<BSFurnitureMarkerNode>(id);
+
+    if (!fm) {
+        niflydll::LogWrite("addFurnitureMarkerPosition: Invalid node");
+        return 1;
+    }
+
+    FurniturePosition pos;
+    for (int i = 0; i < 3; i++) pos.offset[i] = buf->offset[i];
+    pos.heading = buf->heading;
+    pos.animationType = buf->animationType;
+    pos.entryPoints = buf->entryPoints;
+
+    fm->positions.push_back(pos);
+    return 0;
 }
 
 int setInvMarker(void* nifref, const char* name, void* buffer, uint32_t parent)
@@ -5320,6 +5352,8 @@ BlockGetterFunction getterFunctions[] = {
     getNiIntegerExtraData,
     getBSBehaviorGraphExtraData,
     getNiStringExtraData,
+    nullptr, // BSClothExtraDataBufType
+    getBSFurnitureMarkerNode,
     nullptr //END
 };
 
@@ -5407,6 +5441,8 @@ BlockSetterFunction setterFunctions[] = {
 	nullptr, //NiIntegerExtraData
 	nullptr, //BSBehaviorGraphExtraData
     nullptr, //NiStringExtraData
+    nullptr, //BSClothExtraDataBufType
+    nullptr, //BSFurnitureMarkerNodeBufType
     nullptr //END
 };
 
@@ -5493,6 +5529,8 @@ BlockCreatorFunction creatorFunctions[] = {
     addNiIntegerExtraData, 
 	addBSBehaviorGraphExtraData,
     addNiStringExtraData,
+    nullptr, //BSClothExtraDataBufType
+    addBSFurnitureMarkerNode,
     nullptr //end
 };
 

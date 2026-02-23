@@ -396,9 +396,18 @@ class NifExporter:
                 self.objs_written.add(ReprObject(ch, None)) # [ch.name] = shape
         
         if len(strlist) > 0:
-            robj.nifnode.string_data = strlist
+            # Create NiStringExtraData objects using new class
+            for name, value in strlist:
+                from ..pyn.pynifly import NiStringExtraData
+                NiStringExtraData.New(robj.nifnode.file, name=name, string_value=value, parent=robj.nifnode)
         if len(edlist) > 0:
-            robj.nifnode.behavior_graph_data = edlist
+            # Create BSBehaviorGraphExtraData objects using new class
+            for name, file_path, controls_skeleton in edlist:
+                from ..pyn.pynifly import BSBehaviorGraphExtraData
+                BSBehaviorGraphExtraData.New(robj.nifnode.file, name=name, 
+                                            behavior_graph_file=file_path, 
+                                            controls_base_skeleton=controls_skeleton, 
+                                            parent=robj.nifnode)
 
 
     def add_armature(self, arma):
@@ -575,7 +584,10 @@ class NifExporter:
                 self.bodytri_written |= (st['NiStringExtraData_Name'] == 'BODYTRI')
 
         if len(sdlist) > 0:
-            self.nif.string_data = sdlist
+            # Create NiStringExtraData objects using new class
+            for name, value in sdlist:
+                from ..pyn.pynifly import NiStringExtraData
+                NiStringExtraData.New(self.nif, name=name, string_value=value, parent=self.nif.root)
         
         bglist = []
         for bg in self.bg_data: 
@@ -585,7 +597,13 @@ class NifExporter:
             self.objs_written.add(ReprObject(bg, self.nif.rootNode)) # [bg.name] = self.nif
 
         if len(bglist) > 0:
-            self.nif.behavior_graph_data = bglist 
+            # Create BSBehaviorGraphExtraData objects using new class
+            for name, file_path, controls_skeleton in bglist:
+                from ..pyn.pynifly import BSBehaviorGraphExtraData
+                BSBehaviorGraphExtraData.New(self.nif, name=name, 
+                                            behavior_graph_file=file_path, 
+                                            controls_base_skeleton=controls_skeleton, 
+                                            parent=self.nif.root) 
 
         cdlist = []
         for cd in self.cloth_data:
@@ -597,15 +615,18 @@ class NifExporter:
             self.nif.cloth_data = cdlist 
 
         if self.bsx_flag:
-            self.nif.rootNode.bsx_flags = [self.bsx_flag['BSXFlags_Name'],
-                                  BSXFlagsValues.parse(self.bsx_flag['BSXFlags_Value'])]
-            self.objs_written.add(ReprObject(self.bsx_flag, self.nif.rootNode)) # [self.bsx_flag.name] = self.nif
+            from ..pyn.pynifly import BSXFlagsExtraData
+            BSXFlagsExtraData.New(self.nif, name=self.bsx_flag['BSXFlags_Name'],
+                                  flags=BSXFlagsValues.parse(self.bsx_flag['BSXFlags_Value']),
+                                  parent=self.nif.rootNode)
+            self.objs_written.add(ReprObject(self.bsx_flag, self.nif.rootNode))
 
         if self.bone_lod:
-            self.nif.rootNode.bone_lod_extra = [
-                self.bone_lod.name.split(":", 1)[1],
-                json.loads(self.bone_lod['pynBoneLOD'])]
-            self.objs_written.add(ReprObject(self.bone_lod, self.nif.rootNode)) # [self.bone_lod.name] = self.nif
+            from ..pyn.pynifly import BSBoneLODExtraData
+            BSBoneLODExtraData.New(self.nif, name=self.bone_lod.name.split(":", 1)[1],
+                                   lod_data=json.loads(self.bone_lod['pynBoneLOD']),
+                                   parent=self.nif.rootNode)
+            self.objs_written.add(ReprObject(self.bone_lod, self.nif.rootNode))
 
         if self.bound:
             self.nif.rootNode.bounds_extra = [
@@ -619,25 +640,28 @@ class NifExporter:
         if self.inv_marker:
             inv_rot, inv_zoom = BD.cam_to_inv(self.inv_marker.matrix_world, self.inv_marker.data.lens)
 
-            self.nif.rootNode.inventory_marker = [
-                self.inv_marker['BSInvMarker_Name'], 
-                inv_rot[0],
-                inv_rot[1],
-                inv_rot[2],
-                inv_zoom]
-            self.objs_written.add(ReprObject(self.inv_marker, self.nif.rootNode)) # [self.inv_marker.name] = self.nif
+            from ..pyn.pynifly import BSInvMarker
+            BSInvMarker.New(self.nif, name=self.inv_marker['BSInvMarker_Name'],
+                            rotation=(inv_rot[0], inv_rot[1], inv_rot[2]),
+                            zoom=inv_zoom, parent=self.nif.rootNode)
+            self.objs_written.add(ReprObject(self.inv_marker, self.nif.rootNode))
 
-        fmklist = []
+        furniture_markers = []
         for fm in self.furniture_markers:
-            buf = pynifly.FurnitureMarkerBuf()
-            buf.offset = (fm.location / self.scale)[:]
-            buf.heading = fm.rotation_euler.z
-            buf.animation_type = pynifly.FurnAnimationType.GetValue(fm['AnimationType'])
-            buf.entry_points = pynifly.FurnEntryPoints.parse(fm['EntryPoints'])
-            fmklist.append(buf)
+            marker = pynifly.FurnitureMarkerDataBuf()
+            marker.offset[0] = (fm.location / self.scale)[0]
+            marker.offset[1] = (fm.location / self.scale)[1]
+            marker.offset[2] = (fm.location / self.scale)[2]
+            marker.heading = fm.rotation_euler.z
+            marker.animation_type = pynifly.FurnAnimationType.GetValue(fm['AnimationType'])
+            marker.entry_points = pynifly.FurnEntryPoints.parse(fm['EntryPoints'])
+            furniture_markers.append(marker)
         
-        if fmklist:
-            self.nif.furniture_markers = fmklist
+        if furniture_markers:
+            pynifly.BSFurnitureMarkerNode.New(
+                self.nif, name='BSFurnitureMarker', 
+                furniture_markers=furniture_markers, 
+                parent=self.nif.rootNode)
 
 
     def get_loop_partitions(self, face, loops, weights):
@@ -1235,7 +1259,10 @@ class NifExporter:
         if self.settings.write_bodytri \
             and self.game in ['SKYRIM', 'SKYRIMSE'] \
             and len(self.trip.shapes) > 0:
-            new_shape.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
+            from ..pyn.pynifly import NiStringExtraData
+            NiStringExtraData.New(new_shape.file, name='BODYTRI', 
+                                  string_value=truncate_filename(self.trippath, "meshes"),
+                                  parent=new_shape)
 
         defaults = ExportSettings()
         obj[PYN_GAME_PROP] = self.game
@@ -1337,7 +1364,10 @@ class NifExporter:
                 and self.game in ['FO4', 'FO76'] \
                 and len(self.trip.shapes) > 0 \
                 and  not self.bodytri_written:
-            self.nif.string_data = [('BODYTRI', truncate_filename(self.trippath, "meshes"))]
+            from ..pyn.pynifly import NiStringExtraData
+            NiStringExtraData.New(self.nif, name='BODYTRI', 
+                                  string_value=truncate_filename(self.trippath, "meshes"),
+                                  parent=self.nif.root)
 
         if self.root_object:
             collision.CollisionHandler.export_collisions(self, self.root_object)

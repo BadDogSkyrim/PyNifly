@@ -29,7 +29,7 @@ mylog.setLevel(logging.DEBUG)
 
 # ############## TESTS TO RUN #############
 execute(
-    # testlist=[TEST_RENAME_NODES],
+    # testlist=[TEST_FURNITURE_MARKER],
     stop_on_fail=True,
     )
 # execute()

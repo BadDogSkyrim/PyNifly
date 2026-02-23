@@ -1841,11 +1841,111 @@ def TEST_COLLISION_CAPSULE():
     assert collshape.blockname == "bhkCapsuleShape", f"Have capsule shape: {collshape.blockname}"
 
 
+@test_category('SKYRIMSE', 'EXTRA_DATA', 'FURNITURE')
 def TEST_FURNITURE_MARKER():
-    """Can read and write furniture markers"""
+    """Can read and write furniture markers using the new BSFurnitureMarkerNode API"""
     nif = NifFile(r"tests/SkyrimSE/farmbench01.nif")
+    root = nif.root
 
-    assert len(nif.furniture_markers) == 2, f"Found the furniture markers"
+    # Test reading existing furniture markers
+    furniture_node = root.get_extra_data(blockname='BSFurnitureMarkerNode')
+    assert furniture_node, "BSFurnitureMarker extra data exists"
+    assert TT.is_eq(furniture_node.name, 'FRN', f"furniture marker node name")
+    assert TT.is_eq(furniture_node.position_count, 2, f"furniture marker count")
+    
+    markers = furniture_node.furniture_markers
+    assert len(markers) == 2, f"Found expected number of furniture markers: {len(markers)}"
+    
+    # Test first marker properties
+    marker1 = markers[0]
+    assert isinstance(marker1, FurnitureMarkerDataBuf), "First marker is FurnitureMarkerDataBuf"
+    assert TT.is_equiv(marker1.offset, (30.0, 0.0, 33.84), f"First marker offset", e=0.001)
+    assert TT.is_equiv(marker1.heading, 3.14159, f"First marker heading", e=0.001)
+    assert TT.is_eq(marker1.animation_type, FurnAnimationType.SIT, f"First marker animation type")
+    assert TT.is_eq(marker1.entry_points, FurnEntryPoints.FRONT | FurnEntryPoints.BEHIND, f"First marker entry points")
+    
+    # Test second marker properties
+    marker2 = markers[1]
+    assert isinstance(marker2, FurnitureMarkerDataBuf), "Second marker is FurnitureMarkerDataBuf"
+    assert TT.is_equiv(marker2.offset, (-30.0, 0.0, 33.84), f"Second marker offset", e=0.001)
+    assert TT.is_equiv(marker2.heading, 3.14159, f"Second marker heading", e=0.001)
+    assert TT.is_eq(marker2.animation_type, FurnAnimationType.SIT, f"Second marker animation type")
+    assert TT.is_eq(marker2.entry_points, FurnEntryPoints.FRONT | FurnEntryPoints.BEHIND, f"Second marker entry points")
+
+    # WRITE NEW NIF WITH FURNITURE MARKERS
+    nifOut = NifFile()
+    nifOut.initialize('SKYRIMSE', r"tests\out\TEST_FURNITURE_MARKER.nif", "NiNode", "TestBench")
+    
+    # Create new furniture marker data
+    new_markers = []
+    
+    # Create first furniture marker
+    marker1_new = FurnitureMarkerDataBuf()
+    marker1_new.offset[0] = 10.0
+    marker1_new.offset[1] = 5.0
+    marker1_new.offset[2] = 2.0
+    marker1_new.heading = 1.57  # 90 degrees in radians
+    marker1_new.animation_type = FurnAnimationType.SIT
+    marker1_new.entry_points = FurnEntryPoints.FRONT
+    new_markers.append(marker1_new)
+    
+    # Create second furniture marker
+    marker2_new = FurnitureMarkerDataBuf()
+    marker2_new.offset[0] = -10.0
+    marker2_new.offset[1] = -5.0
+    marker2_new.offset[2] = 2.0
+    marker2_new.heading = -1.57  # -90 degrees in radians
+    marker2_new.animation_type = FurnAnimationType.SLEEP
+    marker2_new.entry_points = FurnEntryPoints.BEHIND | FurnEntryPoints.LEFT
+    new_markers.append(marker2_new)
+    
+    # Add furniture markers to new nif using new API
+    BSFurnitureMarkerNode.New(nifOut, name='BSFurnitureMarker', 
+                              furniture_markers=new_markers, parent=nifOut.root)
+    
+    nifOut.save()
+
+    # READ BACK AND VERIFY
+    nifCheck = NifFile(r"tests\out\TEST_FURNITURE_MARKER.nif")
+    rootCheck = nifCheck.root
+    
+    furniture_check = rootCheck.get_extra_data(blockname='BSFurnitureMarkerNode', name='BSFurnitureMarker')
+    assert furniture_check, "Written furniture marker node exists"
+    assert TT.is_eq(furniture_check.position_count, 2, f"Written furniture marker count correct")
+    
+    markers_check = furniture_check.furniture_markers
+    assert len(markers_check) == 2, f"Written furniture markers count correct: {len(markers_check)}"
+    
+    # Test written first marker
+    marker1_check = markers_check[0]
+    assert TT.is_equiv(marker1_check.offset, (10.0, 5.0, 2.0), f"First written marker offset")
+    assert TT.is_equiv(marker1_check.heading, 1.57, f"First written marker heading")
+    assert TT.is_eq(marker1_check.animation_type, FurnAnimationType.SIT, f"First written marker animation type")
+    assert TT.is_eq(marker1_check.entry_points, FurnEntryPoints.FRONT, f"First written marker entry points")
+    
+    # Test written second marker
+    marker2_check = markers_check[1]
+    assert TT.is_equiv(marker2_check.offset, (-10.0, -5.0, 2.0), f"Second written marker offset")
+    assert TT.is_equiv(marker2_check.heading, -1.57, f"Second written marker heading")
+    assert TT.is_eq(marker2_check.animation_type, FurnAnimationType.SLEEP, f"Second written marker animation type")
+    assert TT.is_eq(marker2_check.entry_points, FurnEntryPoints.BEHIND | FurnEntryPoints.LEFT, f"Second written marker entry points")
+
+    # Test empty furniture markers
+    nifEmpty = NifFile()
+    nifEmpty.initialize('SKYRIMSE', r"tests\out\TEST_FURNITURE_MARKER_EMPTY.nif", "NiNode", "EmptyBench")
+    
+    # Create furniture marker node with no markers
+    BSFurnitureMarkerNode.New(nifEmpty, name='BSFurnitureMarker', 
+                              furniture_markers=[], parent=nifEmpty.root)
+    
+    nifEmpty.save()
+    
+    # Verify empty markers
+    nifEmptyCheck = NifFile(r"tests\out\TEST_FURNITURE_MARKER_EMPTY.nif")
+    empty_furniture = nifEmptyCheck.root.get_extra_data(blockname='BSFurnitureMarkerNode', name='BSFurnitureMarker')
+    assert empty_furniture, "Empty furniture marker node exists"
+    assert TT.is_eq(empty_furniture.position_count, 0, f"Empty furniture marker count is zero")
+    assert TT.is_eq(len(empty_furniture.furniture_markers), 0, f"Empty furniture markers list is empty")
 
 
 def TEST_MANY_SHAPES():
@@ -2757,27 +2857,4 @@ def execute(start=None, testlist=None, exclude=None, categories:set=None, stop_o
 
 if __name__ == "__main__":
 
-    # Load from install location
-    py_addon_path = os.path.dirname(os.path.realpath(__file__))
-    #log.debug(f"PyNifly addon path: {py_addon_path}")
-    if py_addon_path not in sys.path:
-        sys.path.append(py_addon_path)
-    dev_path = os.path.join(py_addon_path, "NiflyDLL.dll")
-    hkxcmd_path = os.path.join(py_addon_path, "hkxcmd.exe")
-    xmltools.XMLFile.SetPath(hkxcmd_path)
-    os.chdir(py_addon_path)
-
-    dev_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
-    NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], dev_path))
-
-    mylog = logging.getLogger("pynifly")
-    logging.basicConfig()
-    mylog.setLevel(logging.DEBUG)
-
-    # ############## TESTS TO RUN #############
-    stop_on_fail = True
-    execute(testlist=[TEST_SKELETON_DEER])
-    # execute()
-    # execute(start=TEST_KF)
-    # execute(categories={"SHADER"})
-    #
+    print("Pynifly test file. Run tests with ../pynifly_test_runner.py")

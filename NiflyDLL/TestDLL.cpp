@@ -3528,17 +3528,64 @@ namespace NiflyDLLTests
 			//getCollBoxShapeProps(nifCheck, box0Check, &box0PropsCheck);
 			//Assert::IsTrue(TApproxEqual(box0PropsCheck.dimensions_x, 0.009899), L"Got the right value back");
 		};
+
 		TEST_METHOD(readFurnitureMarker) {
 			void* nif = load((testRoot / "SkyrimSE/farmbench01.nif").u8string().c_str());
 
-			FurnitureMarkerBuf buf1, buf2, buf3;
-			Assert::IsTrue(getFurnMarker(nif, 0, &buf1), L"Have one marker");
-			Assert::IsTrue(getFurnMarker(nif, 1, &buf2), L"Have second marker");
-			Assert::IsFalse(getFurnMarker(nif, 2, &buf3), L"Do not have third");
+			// Find the BSFurnitureMarkerNode using getExtraData
+			int fmNodeID = getExtraData(nif, 0, "BSFurnitureMarkerNode", nullptr, 0);
+			Assert::AreNotEqual(NIF_NPOS, uint32_t(fmNodeID), L"Found BSFurnitureMarkerNode on root");
 
-			Assert::IsTrue(TApproxEqual(buf1.offset[2], 33.8406), L"Offset correct");
-			Assert::IsTrue(TApproxEqual(buf1.heading, 3.141593), L"Heading correct");
+			// Read the furniture marker node block
+			BSFurnitureMarkerNodeBuf fmNodeBuf;
+			fmNodeBuf.bufType = BSFurnitureMarkerNodeBufType;
+			Assert::AreEqual(0, getBlock(nif, fmNodeID, &fmNodeBuf), L"Got furniture marker node data");
+
+			// Check we have positions
+			Assert::AreEqual(2, int(fmNodeBuf.position_count), L"Have two markers");
+
+			// Get individual furniture positions
+			FurnitureMarkerDataBuf pos1, pos2, pos3;
+			Assert::AreEqual(0, getFurnitureMarkerPosition(nif, fmNodeID, 0, &pos1), L"Got first position");
+			Assert::AreEqual(0, getFurnitureMarkerPosition(nif, fmNodeID, 1, &pos2), L"Got second position");
+			Assert::AreNotEqual(0, getFurnitureMarkerPosition(nif, fmNodeID, 2, &pos3), L"No third position");
+
+			Assert::IsTrue(TApproxEqual(pos1.offset[2], 33.8406f), L"Offset correct");
+			Assert::IsTrue(TApproxEqual(pos1.heading, 3.141593f), L"Heading correct");
+
+			// Test writing furniture markers
+			std::filesystem::path outfile = testRoot / "Out/readFurnitureMarker.nif";
+
+			void* nifOut = createNif("SKYRIMSE", "NiNode", "Scene Root");
+
+			// Create a new furniture marker node
+			BSFurnitureMarkerNodeBuf fmNodeOutBuf;
+			fmNodeOutBuf.nameID = addString(nifOut, "BSFurnitureMarker");
+			int fmNodeOutID = addBlock(nifOut, "BSFurnitureMarker", &fmNodeOutBuf, 0);
+			Assert::AreNotEqual(NIF_NPOS, uint32_t(fmNodeOutID), L"Created furniture marker node");
+
+			// Add the positions
+			Assert::AreEqual(0, addFurnitureMarkerPosition(nifOut, fmNodeOutID, &pos1), L"Added first position");
+			Assert::AreEqual(0, addFurnitureMarkerPosition(nifOut, fmNodeOutID, &pos2), L"Added second position");
+
+			saveNif(nifOut, outfile.u8string().c_str());
+
+			// Verify what we wrote
+			void* nifCheck = load(outfile.u8string().c_str());
+			int fmNodeCheckID = getExtraData(nifCheck, 0, "BSFurnitureMarkerNode", nullptr, 0);
+			Assert::AreNotEqual(NIF_NPOS, uint32_t(fmNodeCheckID), L"Found written BSFurnitureMarkerNode");
+
+			BSFurnitureMarkerNodeBuf fmNodeCheckBuf;
+			fmNodeCheckBuf.bufType = BSFurnitureMarkerNodeBufType;
+			Assert::AreEqual(0, getBlock(nifCheck, fmNodeCheckID, &fmNodeCheckBuf), L"Read back furniture marker node");
+			Assert::AreEqual(2, int(fmNodeCheckBuf.position_count), L"Have two markers in output");
+
+			FurnitureMarkerDataBuf posCheck1;
+			Assert::AreEqual(0, getFurnitureMarkerPosition(nifCheck, fmNodeCheckID, 0, &posCheck1), L"Got first position back");
+			Assert::IsTrue(TApproxEqual(posCheck1.offset[2], 33.8406f), L"Written offset correct");
+			Assert::IsTrue(TApproxEqual(posCheck1.heading, 3.141593f), L"Written heading correct");
 		};
+
 		TEST_METHOD(readWelwa) {
 			void* nif = load((testRoot / "SkyrimSE/Meshes/welwa.nif").u8string().c_str());
 

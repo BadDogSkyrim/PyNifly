@@ -91,6 +91,7 @@ enum BUFFER_TYPES : uint16_t {
 	BSBehaviorGraphExtraDataBufType,
 	NiStringExtraDataBufType,
 	BSClothExtraDataBufType,
+	BSFurnitureMarkerNodeBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -388,6 +389,20 @@ struct BSInvMarkerBuf {
 	uint16_t stringRefCount;
 	uint16_t rot[3];
 	float zoom = 1.0f;
+};
+
+struct BSFurnitureMarkerNodeBuf {
+	uint16_t bufSize = sizeof(BSFurnitureMarkerNodeBuf);
+	uint16_t bufType = BUFFER_TYPES::BSFurnitureMarkerNodeBufType;  // Need to add this to enum
+	uint32_t nameID;
+	uint32_t position_count;
+};
+
+struct FurnitureMarkerDataBuf {
+	float offset[3];
+	float heading;
+	uint16_t animationType;
+	uint16_t entryPoints;
 };
 
 struct BSXFlagsBuf {
@@ -757,13 +772,6 @@ struct bhkRagdollConstraintBuf {
 	// bhkSpringDamperConstraintMotor motorSpringDamper;
 	float springDamp_springConstant = 0.0f;
 	float springDamp_springDamping = 0.0f;
-};
-
-struct FurnitureMarkerBuf {
-	float offset[3];
-	float heading;
-	uint16_t animationType;
-	uint16_t entryPoints;
 };
 
 struct ConnectPointBuf {

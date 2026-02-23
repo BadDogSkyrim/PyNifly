@@ -101,6 +101,7 @@ extern "C" NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int
 //extern "C" NIFLY_API void setAlphaProperty(void* nifref, void* shaperef, AlphaPropertyBuf* bufptr);
 
 /* ********************* EXTRA DATA ********************* */
+/* ********************* EXTRA DATA ********************* */
 extern "C" NIFLY_API int getStringExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen);
 extern "C" NIFLY_API int getStringExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen);
 extern "C" NIFLY_API void setStringExtraData(void* nifref, void* shaperef, char* name, char* buf);
@@ -110,10 +111,9 @@ extern "C" NIFLY_API int getConnectPointParent(void* nifref, int index, ConnectP
 extern "C" NIFLY_API void setConnectPointsParent(void* nifref, int buflen, ConnectPointBuf* buf);
 extern "C" NIFLY_API int getConnectPointChild(void* nifref, int index, char* buf);
 extern "C" NIFLY_API void setConnectPointsChild(void* nifref, int isSkinned, int buflen, const char* buf);
-extern "C" NIFLY_API int getFurnMarker(void* nifref, int index, FurnitureMarkerBuf* buf);
-extern "C" NIFLY_API void setFurnMarkers(void* nifref, int buflen, FurnitureMarkerBuf * buf);
+extern "C" NIFLY_API int getFurnitureMarkerPosition(void* nifref, int id, int index, FurnitureMarkerDataBuf* buf);
+extern "C" NIFLY_API int addFurnitureMarkerPosition(void* nifref, int id, FurnitureMarkerDataBuf* buf);
 extern "C" NIFLY_API void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf, int controlsBaseSkel);
-
 /* ********************* ERROR REPORTING ********************* */
 extern "C" NIFLY_API void clearMessageLog();
 extern "C" NIFLY_API int getMessageLog(char* buf, int buflen);

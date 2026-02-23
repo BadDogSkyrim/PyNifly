@@ -17,8 +17,9 @@ from .. import bl_info
 from ..pyn.niflytools import fo4FaceDict, find_trip, find_tris, MatNearEqual
 from ..pyn.nifdefs import (ShaderFlags1, ShaderFlags2, BSXFlagsValues, BSValueNodeFlags, 
                      NiAVFlags, VertexFlags, PynIntFlag)
-from ..pyn.pynifly import (NiShape, FurnAnimationType, FurnEntryPoints, NiNode, NifFile, 
-                           nifly_path, hkxSkeletonFile)
+# from ..pyn.pynifly import (P.NiShape, FurnAnimationType, FurnEntryPoints, P.NiNode, P.NifFile, 
+#                            P.nifly_path, P.hkxSkeletonFile)
+from ..pyn import pynifly as P
 from .. import blender_defs as BD
 from ..util.settings import (ImportSettings, 
     PYN_BLENDER_XF_PROP,
@@ -169,7 +170,7 @@ def mesh_create_partition_groups(the_shape, the_object):
         the_object['FO4_SEGMENT_FILE'] = the_shape.segment_file
 
 
-def import_colors(mesh:bpy.types.Mesh, shape:NiShape):
+def import_colors(mesh:bpy.types.Mesh, shape:P.P.NiShape):
     try:
         use_vertex_colors = False
         use_vertex_alpha = False
@@ -233,7 +234,7 @@ class NifImporter():
                  target_armatures=None, # Armatures to use for imported objects
                  import_settings=None, # Dictionary of settings
                  collection=None, # Collection to link objects into, null to create new collection 
-                 reference_skel=None, # Reference skeleton for bone creation (NifFile)
+                 reference_skel=None, # Reference skeleton for bone creation (P.NifFile)
                  base_transform=Matrix.Identity(4), # Transform to apply to root
                  context=bpy.context,
                  chargen_ext="chargen", # Extension for chargen tri files
@@ -274,7 +275,7 @@ class NifImporter():
         self.loaded_parent_cp = {}
         self.loaded_child_cp = {}
         
-        self.nif = None # NifFile(filename)
+        self.nif = None # P.NifFile(filename)
         self.loc = Vector((0, 0, 0))   # location for new objects 
         self.warnings = []
         self.root_object = None  # Blender representation of root object
@@ -321,7 +322,7 @@ class NifImporter():
         else:
             return nif_name
 
-    def calc_obj_transform(self, the_shape:NiShape, scale_factor=1.0) -> Matrix:
+    def calc_obj_transform(self, the_shape:P.NiShape, scale_factor=1.0) -> Matrix:
         """
         Returns location of the_shape ready for blender as a transform.
 
@@ -447,171 +448,177 @@ class NifImporter():
 
     # -----------------------------  EXTRA DATA  -------------------------------
 
-    def import_bound(self, node, parent_obj):
-        b = node.bounds_extra
-        if b:
-            bpy.ops.mesh.primitive_cube_add(
-                size=1, 
-                enter_editmode=False, 
-                calc_uvs=False,
-                align='WORLD', 
-                location=b[1].center, 
-                scale=(b[1].halfExtents[0]*2, b[1].halfExtents[1]*2, b[1].halfExtents[2]*2))
-            bpy.context.object.display_type = 'WIRE'
+    def import_bound(self, node, parent_obj, extblock:P.BSBound):
+        bpy.ops.mesh.primitive_cube_add(
+            size=1, 
+            enter_editmode=False, 
+            calc_uvs=False,
+            align='WORLD', 
+            location=extblock.center, 
+            scale=(extblock.halfExtents[0]*2, 
+                   extblock.halfExtents[1]*2, 
+                   extblock.halfExtents[2]*2))
+        bpy.context.object.display_type = 'WIRE'
 
-            ed = bpy.context.object
-            ed.name = "BSBound:" + b[0]
-            ed.show_name = True
-            b[1].extract(ed)
-            ed.parent = parent_obj
-            self.objects_created.add(ReprObject(blender_obj=ed))
-            BD.link_to_collection(self.collection, ed)
-
-
-    def import_bone_lod(self, node, parent_obj):
-        if not node.bone_lod_extra: return
-        nm, lod = node.bone_lod_extra
-        if lod:
-            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
-            ed = bpy.context.object
-            ed.name = "BSBoneLOD:" + nm
-            ed.show_name = True
-            ed['pynBoneLOD'] = json.dumps(lod)
-            ed.parent = parent_obj
-            self.objects_created.add(ReprObject(blender_obj=ed))
-            BD.link_to_collection(self.collection, ed)
+        ed = bpy.context.object
+        ed.name = "BSBound:" + extblock.name
+        ed.show_name = True
+        ed.parent = parent_obj
+        self.objects_created.add(ReprObject(blender_obj=ed))
+        BD.link_to_collection(self.collection, ed)
 
 
-    def import_bsx(self, node, parent_obj):
-        b = node.bsx_flags
-        if b:
-            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
-            ed = bpy.context.object
-            ed.name = "BSXFlags"
-            ed.show_name = True
-            ed.empty_display_type = 'SPHERE'
-            ed['BSXFlags_Name'] = b[0]
-            ed['BSXFlags_Value'] = BSXFlagsValues(b[1]).fullname
-            ed.parent = parent_obj
-            self.objects_created.add(ReprObject(blender_obj=ed))
-            BD.link_to_collection(self.collection, ed)
+    def import_bone_lod(self, node, parent_obj, extblock:P.BSBoneLODExtraData):
+        bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+        ed = bpy.context.object
+        ed.name = "BSBoneLOD:" + extblock.name
+        ed.show_name = True
+        ed['pynBoneLOD'] = json.dumps(extblock.lod_data)
+        ed.parent = parent_obj
+        self.objects_created.add(ReprObject(blender_obj=ed))
+        BD.link_to_collection(self.collection, ed)
 
 
-    def import_inventory_marker(self, node, parent_obj):
-        invm = node.inventory_marker
-        if invm:
-            bpy.ops.object.add(type='CAMERA', 
-                               location=[0, 100, 0],
-                               rotation=[-pi/2, pi, 0])
-            ed = bpy.context.object
-            ed.name = "BSInvMarker:" + invm[0]
-            ed.show_name = True 
+    def import_bsx(self, node, parent_obj, extblock:P.BSXFlags):
+        bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+        ed = bpy.context.object
+        ed.name = "BSXFlags"
+        ed.show_name = True
+        ed.empty_display_type = 'SPHERE'
+        ed['BSXFlags_Name'] = extblock.name
+        ed['BSXFlags_Value'] = extblock.flags.fullname
+        ed.parent = parent_obj
+        self.objects_created.add(ReprObject(blender_obj=ed))
+        BD.link_to_collection(self.collection, ed)
 
-            neut = BD.MatrixLocRotScale((0, 100, 0),
-                                     Euler((-pi/2, pi, 0), 'XYZ'),
-                                     (1,1,1))
-            mx = BD.MatrixLocRotScale((0,0,0), 
-                                   Euler(Vector(invm[1:4])/1000, 'XYZ'),
-                                   (1,1,1))
-            ed.matrix_world = mx @ neut
-            mx, focal_len = BD.inv_to_cam(invm[1:4], invm[4])
-            ed.data.lens = focal_len
 
-            ed['BSInvMarker_Name'] = invm[0]
-            ed['BSInvMarker_RotX'] = invm[1]
-            ed['BSInvMarker_RotY'] = invm[2]
-            ed['BSInvMarker_RotZ'] = invm[3]
-            ed['BSInvMarker_Zoom'] = invm[4]
+    def import_inventory_marker(self, node, parent_obj, invm:P.BSInvMarker):
+        bpy.ops.object.add(type='CAMERA', 
+                            location=[0, 100, 0],
+                            rotation=[-pi/2, pi, 0])
+        ed = bpy.context.object
+        ed.name = "BSInvMarker:" + invm.name
+        ed.show_name = True 
 
-            ed.parent = parent_obj
-            self.objects_created.add(ReprObject(blender_obj=ed))
-            BD.link_to_collection(self.collection, ed)
+        neut = BD.MatrixLocRotScale((0, 100, 0),
+                                    Euler((-pi/2, pi, 0), 'XYZ'),
+                                    (1,1,1))
+        mx = BD.MatrixLocRotScale((0,0,0), 
+                                Euler(Vector(invm.rotation)/1000, 'XYZ'),
+                                (1,1,1))
+        ed.matrix_world = mx @ neut
+        mx, focal_len = BD.inv_to_cam(invm[1:4], invm[4])
+        ed.data.lens = focal_len
 
-            # Set up the render resolution to work for the inventory marker camera.
-            self.context.scene.render.resolution_x = 1400
-            self.context.scene.render.resolution_y = 1200
+        ed['BSInvMarker_Name'] = invm[0]
+        ed['BSInvMarker_RotX'] = invm[1]
+        ed['BSInvMarker_RotY'] = invm[2]
+        ed['BSInvMarker_RotZ'] = invm[3]
+        ed['BSInvMarker_Zoom'] = invm[4]
 
-    def import_furniture_markers(self, node, parent_obj):
+        ed.parent = parent_obj
+        self.objects_created.add(ReprObject(blender_obj=ed))
+        BD.link_to_collection(self.collection, ed)
+
+        # Set up the render resolution to work for the inventory marker camera.
+        self.context.scene.render.resolution_x = 1400
+        self.context.scene.render.resolution_y = 1200
+
+
+    def import_furniture_markers(self, node, parent_obj, fm:P.BSFurnitureMarkerNode):
         """
-        In theory furniture markers can be on any node, but they really apply 
-        to the whole nif.
+        Import furniture markers from BSFurnitureMarkerNode.
+        Creates a Blender empty object for each furniture marker position.
         """
-        if node.parent: return
-
-        for fm in self.nif.furniture_markers:
+        # Import each furniture marker as a separate Blender object
+        for i, marker in enumerate(fm.furniture_markers):
             bpy.ops.object.add(radius=1.0, type='EMPTY')
             obj = bpy.context.object
-            obj.name = "BSFurnitureMarkerNode"
+            obj.name = f"BSFurnitureMarkerNode.{i:03d}"
             obj.show_name = True
             obj.empty_display_type = 'SINGLE_ARROW'
-            obj.location = Vector(fm.offset[:]) * self.scale
-            obj.rotation_euler = (-pi/2, 0, fm.heading)
+            obj.location = Vector(marker.offset[:]) * self.scale
+            obj.rotation_euler = (-pi/2, 0, marker.heading)
             obj.scale = Vector((40,10,10)) * self.scale
-            obj['AnimationType'] = FurnAnimationType.GetName(fm.animation_type)
-            obj['EntryPoints'] = FurnEntryPoints(fm.entry_points).fullname
+            obj['AnimationType'] = marker.animation_type
+            obj['EntryPoints'] = marker.entry_points
             obj.parent = parent_obj
             self.objects_created.add(ReprObject(blender_obj=obj))
             BD.link_to_collection(self.collection, obj)
 
 
-    def import_stringdata(self, node, parent_obj):
-        for s in node.string_data:
-            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
-            ed = bpy.context.object
-            ed.name = "NiStringExtraData"
-            ed.show_name = True
-            ed.empty_display_type = 'SPHERE'
-            ed['NiStringExtraData_Name'] = s[0]
-            ed['NiStringExtraData_Value'] = s[1]
-            ed.parent = parent_obj
-            self.objects_created.add(ReprObject(blender_obj=ed))
-            BD.link_to_collection(self.collection, ed)
+    def import_stringdata(self, node, parent_obj, stringdata:P.NiStringExtraData):
+        bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+        ed = bpy.context.object
+        ed.name = "NiStringExtraData"
+        ed.show_name = True
+        ed.empty_display_type = 'SPHERE'
+        ed['NiStringExtraData_Name'] = stringdata.name
+        ed['NiStringExtraData_Value'] = stringdata.string_data
+        ed.parent = parent_obj
+        self.objects_created.add(ReprObject(blender_obj=ed))
+        BD.link_to_collection(self.collection, ed)
 
 
-    def import_behavior_graph_data(self, node, parent_obj):
-        for s in node.behavior_graph_data:
-            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
-            ed = bpy.context.object
-            ed.name = "BSBehaviorGraphExtraData"
-            ed.show_name = True
-            ed.empty_display_type = 'SPHERE'
-            ed['BSBehaviorGraphExtraData_Name'] = s[0]
-            ed['BSBehaviorGraphExtraData_Value'] = s[1]
-            ed['BSBehaviorGraphExtraData_CBS'] = s[2]
-            ed.parent = parent_obj
-            self.objects_created.add(ReprObject(blender_obj=ed))
-            BD.link_to_collection(self.collection, ed)
+    def import_behavior_graph_data(self, node, parent_obj, behavior:P.BSBehaviorGraphExtraData):
+        bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+        ed = bpy.context.object
+        ed.name = "BSBehaviorGraphExtraData"
+        ed.show_name = True
+        ed.empty_display_type = 'SPHERE'
+        ed['BSBehaviorGraphExtraData_Name'] = behavior.name
+        ed['BSBehaviorGraphExtraData_Value'] = behavior.behavior_graph_file
+        ed['BSBehaviorGraphExtraData_CBS'] = behavior.controls_base_skeleton
+        ed.parent = parent_obj
+        self.objects_created.add(ReprObject(blender_obj=ed))
+        BD.link_to_collection(self.collection, ed)
 
 
-    def import_cloth_data(self, node, parent_obj):
-        for c in node.cloth_data: 
-            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
-            ed = bpy.context.object
-            ed.name = "BSClothExtraData"
-            ed.show_name = True
-            ed.empty_display_type = 'SPHERE'
-            ed['BSClothExtraData_Name'] = c[0]
-            ed['BSClothExtraData_Value'] = codecs.encode(c[1], 'base64')
-            ed.parent = parent_obj
-            self.objects_created.add(ReprObject(blender_obj=ed))
-            BD.link_to_collection(self.collection, ed)
+    def import_cloth_data(self, node, parent_obj, clothdata:P.BSClothExtraData):
+        bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+        ed = bpy.context.object
+        ed.name = "BSClothExtraData"
+        ed.show_name = True
+        ed.empty_display_type = 'SPHERE'
+        ed['BSClothExtraData_Name'] = clothdata.name
+        ed['BSClothExtraData_Value'] = codecs.encode(clothdata.data, 'base64')
+        ed.parent = parent_obj
+        self.objects_created.add(ReprObject(blender_obj=ed))
+        BD.link_to_collection(self.collection, ed)
 
 
-    def import_extra(self, parent_obj:bpy.types.Object, n:NiNode):
+    extra_data_handlers = {
+        'BSBound': import_bound,
+        'BSBoneLODExtraData': import_bone_lod,
+        'BSXFlags': import_bsx,
+        'BSInvMarker': import_inventory_marker,
+        'BSFurnitureMarkerNode': import_furniture_markers,
+        'NiStringExtraData': import_stringdata,
+        'BSBehaviorGraphExtraData': import_behavior_graph_data,
+        'BSClothExtraData': import_cloth_data,}
+
+    def import_extra(self, parent_obj:bpy.types.Object, n:P.NiNode):
         """ Import any extra data from the node, and create corresponding shapes. 
             If n is None, get the extra data from the root.
         """
         if not n: n = self.nif.rootNode
         if not parent_obj: parent_obj = self.root_object
 
-        self.import_bound(n, parent_obj)
-        self.import_bone_lod(n, parent_obj)
-        self.import_bsx(n, parent_obj)
-        self.import_inventory_marker(n, parent_obj)
-        self.import_furniture_markers(n, parent_obj)
-        self.import_stringdata(n, parent_obj)
-        self.import_behavior_graph_data(n, parent_obj)
-        self.import_cloth_data(n, parent_obj)
+        for extradata in n.extra_data:
+            handler = self.extra_data_handlers.get(extradata.blockname)
+            if handler:
+                handler(n, parent_obj, extradata)
+            else:
+                log.warning(f"Unknown extra data block {extradata.blockname} on node {n.name}") 
+        
+        # self.import_bound(n, parent_obj)
+        # self.import_bone_lod(n, parent_obj)
+        # self.import_bsx(n, parent_obj)
+        # self.import_inventory_marker(n, parent_obj)
+        # self.import_furniture_markers(n, parent_obj)
+        # self.import_stringdata(n, parent_obj)
+        # self.import_behavior_graph_data(n, parent_obj)
+        # self.import_cloth_data(n, parent_obj)
 
 
     def bone_in_armatures(self, bone_name):
@@ -624,7 +631,7 @@ class NifImporter():
         return None
 
 
-    def import_ninode(self, arma, ninode:NiNode, parent=None):
+    def import_ninode(self, arma, ninode:P.NiNode, parent=None):
         """Create Blender representation of an NiNode
 
         Don't import the node if (1) it's already been imported, (2) it's been imported as
@@ -745,7 +752,7 @@ class NifImporter():
         return obj
 
 
-    def import_node_parents(self, arma, node: NiNode):
+    def import_node_parents(self, arma, node: P.NiNode):
         """Import the chain of parents of the given node all the way up to the root"""
         # Get list of parents of the given node from the list, bottom-up. 
         parents = []
@@ -812,14 +819,14 @@ class NifImporter():
             new_object.matrix_world = mx
             
 
-    def import_shape(self, the_shape: NiShape):
+    def import_shape(self, the_shape: P.NiShape):
         """ Import the shape to a Blender object, translating bone names if requested
             
         * self.objects_created = List of objects created, extended with objects associated
           with this shape. Might be more than one because of extra data nodes.
         * self.loaded_meshes = List of Blender objects created that represent meshes,
           extended with this shape.
-        * self.nodes_loaded = Dictionary mapping blender name : NiShape from nif
+        * self.nodes_loaded = Dictionary mapping blender name : P.NiShape from nif
         """
         try:
             v = the_shape.verts
@@ -1044,16 +1051,16 @@ class NifImporter():
         return bone
     
 
-    def set_bone_poses(self, arma, nif:NifFile, bonelist:list):
+    def set_bone_poses(self, arma, nif:P.NifFile, bonelist:list):
         """
         Set the pose transform of all the given bones. Pose transform is the transform on
-        the NiNode in the nif being imported.
+        the P.NiNode in the nif being imported.
         *   bonelist = [(nif-name, blender-name), ...]
         """
         for bn, blname in bonelist:
             if bn in nif.nodes and blname in arma.pose.bones:
                 nif_bone = nif.nodes[bn]
-                if nif_bone.blockname == "NiNode" and nif_bone.name != nif.rootName:
+                if isinstance(nif_bone, P.NiNode) and nif_bone.name != nif.rootName:
                     bone_xf = BD.transform_to_matrix(nif_bone.global_transform)
 
                     if self.is_facegen:
@@ -1074,7 +1081,7 @@ class NifImporter():
                     bpy.context.view_layer.update()
 
 
-    def set_all_bone_poses(self, arma, nif:NifFile):
+    def set_all_bone_poses(self, arma, nif:P.NifFile):
         """Set all bone pose transforms based on the nif. No reason not to do it once at
         the end.
         """
@@ -1270,7 +1277,7 @@ class NifImporter():
         return arma
 
 
-    def is_compatible_skeleton(self, skin_xf:Matrix, shape:NiShape, skel:NifFile) -> bool:
+    def is_compatible_skeleton(self, skin_xf:Matrix, shape:P.NiShape, skel:P.NifFile) -> bool:
         """Determine whether the given skeleton file is compatible with the shape. 
 
         It's compatible if the shape's bones' bind positions are the same as the
@@ -1293,7 +1300,7 @@ class NifImporter():
         return True
 
 
-    def set_parent_arma(self, arma, obj, nif_shape:NiShape, s2a_xf:Matrix):
+    def set_parent_arma(self, arma, obj, nif_shape:P.NiShape, s2a_xf:Matrix):
         """Set the given armature as controller for the given object. Ensures all the
         bones referenced by the shape are in the armature.
         
@@ -1320,7 +1327,7 @@ class NifImporter():
         obj.matrix_local = unscaled_skin_xf.copy()
         skin_xf = unscaled_skin_xf.copy()
 
-        # Create bones. If import_pose, positions are the NiNode positions of the
+        # Create bones. If import_pose, positions are the P.NiNode positions of the
         # bone. Otherwise, they are the skin-to-bone transforms (bind position).
         BD.ObjectSelect([arma])
         new_bones = []
@@ -1468,7 +1475,7 @@ class NifImporter():
                 for arma in self.target_armatures:
                     if self.settings.create_bones:
                         bonenames = [n.name for n in self.nif.nodes.values()
-                                     if n.blockname == 'NiNode']
+                                     if n.blockname == 'P.NiNode']
                         self.add_bones_to_arma(arma, self.nif, bonenames)
                     self.connect_armature(arma)
                     self.group_bones(arma)
@@ -1557,7 +1564,7 @@ class NifImporter():
 
     def execute(self):
         """Perform the import operation as previously defined"""
-        NifFile.clear_log()
+        P.NifFile.clear_log()
 
         prior_vertcounts = dict()
         prior_fn = ''
@@ -1579,9 +1586,9 @@ class NifImporter():
             fn, fext = os.path.splitext(os.path.basename(this_file))
 
             if fext.lower() == ".nif":
-                self.nif = NifFile(this_file)
+                self.nif = P.NifFile(this_file)
             elif fext in [".hkx", ".xml"]:
-                self.nif = hkxSkeletonFile(this_file)
+                self.nif = P.hkxSkeletonFile(this_file)
             else:
                 ValueError("Import file of unknown type.")
             if not self.reference_skel:
@@ -1715,7 +1722,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
     import_pose: bpy.props.BoolProperty(
         name="Create armature from pose position",
-        description="Creates any armature from the bone NiNode (pose) position.",
+        description="Creates any armature from the bone P.NiNode (pose) position.",
         default=ImportSettings.__dataclass_fields__["import_pose"].default) # type: ignore
     
     mesh_only: bpy.props.BoolProperty(
@@ -1746,7 +1753,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
     @classmethod
     def poll(cls, context):
-        if not nifly_path:
+        if not P.nifly_path:
             log.error("pyNifly DLL not found--pyNifly disabled")
             return False
         return True
@@ -1793,7 +1800,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         try:
             context.scene.frame_set(1)
 
-            NifFile.Load(nifly_path)
+            P.NifFile.Load(P.nifly_path)
 
             folderpath = os.path.dirname(self.filepath)
             filenames = [f.name for f in self.files]
@@ -1837,7 +1844,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
             skel = None
             if self.reference_skel:
-                skel = NifFile(self.reference_skel)
+                skel = P.NifFile(self.reference_skel)
             
             xf = Matrix.Identity(4)
             if self.blender_xf:

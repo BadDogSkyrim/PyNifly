@@ -1061,7 +1061,10 @@ class PynBufferTypes(IntEnum):
     NiIntegerExtraDataBufType = 62
     BSBehaviorGraphExtraDataBufType = 63
     NiStringExtraDataBufType = 64
-    COUNT = 65
+    BSClothExtraDataBufType = 65
+    BSFurnitureMarkerNodeBufType = 66
+    FurnitureMarkerDataBufType = 67
+    COUNT = 68
 
 # bufferTypeList = [''] * PynBufferTypes.COUNT
 # blockBuffers = {}
@@ -1661,12 +1664,27 @@ class bhkRagdollConstraintBuf(pynStructure):
         self.bufType = PynBufferTypes.bhkRagdollConstraintBufType
 
 
-class FurnitureMarkerBuf(pynStructure):
+class BSFurnitureMarkerNodeBuf(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ("nameID", c_uint32),
+        ("position_count", c_uint32) ]
+
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BSFurnitureMarkerNodeBufType
+
+
+class FurnitureMarkerDataBuf(pynStructure):
     _fields_ = [
         ("offset", VECTOR3),
         ("heading", c_float),
         ("animation_type", c_uint16),
         ("entry_points", c_uint16) ]
+
+    def __init__(self, values=None):
+        super().__init__(values=values)
 
 
 class ConnectPointBuf(pynStructure):
