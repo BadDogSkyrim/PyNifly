@@ -1273,8 +1273,10 @@ def TEST_SHEATH():
     nif = NifFile(r"tests/Skyrim/meshes/sheath_p1_1.nif")
     
     # Extra data can be at the file level
-    bg = nif.behavior_graph_data
-    assert bg == [('BGED', r"AuxBones\SOS\SOSMale.hkx", True)], f"Error: Expected behavior graph data, got {bg}"
+    bg = nif.root.get_extra_data(name='BGED')
+    assert bg, "BGED exists"
+    assert TT.is_eq(bg.name, 'BGED'), "BGED name"
+    assert TT.is_patheq(bg.behavior_graph_file, r"AuxBones\SOS\SOSMale.hkx"), "BGED behavior graph file"
 
     s = nif.string_data
     assert len(s) == 2, f"Error: Expected two string data records"

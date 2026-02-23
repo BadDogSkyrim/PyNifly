@@ -5016,19 +5016,112 @@ NIFLY_API int getExtraData(void* nifref, uint32_t id,
     }
     for (auto& ed : node->extraDataRefs) {
         NiExtraData* edBlock = hdr->GetBlock<NiExtraData>(ed.index);
-        if (!edBlock) {
-            niflydll::LogWrite("Extra block type " + std::string(extraDataBlockType)
-                + " not associated with node " + std::to_string(id));
-            return NIF_NPOS;
-        };
-        if ((!extraDataBlockType || (strcmp(edBlock->GetBlockName(), extraDataBlockType) == 0))
+        if (edBlock
+                && (!extraDataBlockType || (strcmp(edBlock->GetBlockName(), extraDataBlockType) == 0))
                 && (!extraDataName || (edBlock->name.get() == extraDataName))) {
             if (targetIndex == i) {
                 return ed.index;
             };
-            targetIndex++;
+            i++;
         }
     }
+    return NIF_NPOS;
+}
+
+// Add after the existing getBGExtraData function (around line 3700)
+
+// Block getter function for BSBehaviorGraphExtraData (for getBlock() API)
+int getBSBehaviorGraphExtraData(void* nifref, uint32_t blockID, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSBehaviorGraphExtraData* bgData = hdr->GetBlock<BSBehaviorGraphExtraData>(blockID);
+    BSBehaviorGraphExtraDataBuf* buf = static_cast<BSBehaviorGraphExtraDataBuf*>(inbuf);
+
+    if (!bgData) {
+        niflydll::LogWrite("getBSBehaviorGraphExtraData not passed a BSBehaviorGraphExtraData node");
+        return 1;
+    }
+
+    CheckBuf(buf, BUFFER_TYPES::BSBehaviorGraphExtraDataBufType, BSBehaviorGraphExtraDataBuf);
+
+    buf->nameID = bgData->name.GetIndex();
+    buf->behaviorGraphFileID = bgData->behaviorGraphFile.GetIndex();
+    buf->controlsBaseSkeleton = bgData->controlsBaseSkel;
+
+    return 0;
+}
+
+// Creator function (for addBlock() API)
+int addBSBehaviorGraphExtraData(void* nifref, const char* name, void* b, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSBehaviorGraphExtraDataBuf* buf = static_cast<BSBehaviorGraphExtraDataBuf*>(b);
+
+    CheckBuf(buf, BUFFER_TYPES::BSBehaviorGraphExtraDataBufType, BSBehaviorGraphExtraDataBuf);
+
+    auto bgData = std::make_unique<BSBehaviorGraphExtraData>();
+    if (name) bgData->name.get() = name;
+    bgData->behaviorGraphFile = hdr->GetStringById(buf->behaviorGraphFileID);
+    bgData->controlsBaseSkel = buf->controlsBaseSkeleton;
+
+    uint32_t newid = NIF_NPOS;
+    if (parent != NIF_NPOS) {
+        NiAVObject* p = hdr->GetBlock<NiAVObject>(parent);
+        if (p) {
+            newid = nif->AssignExtraData(p, std::move(bgData));
+            return newid;
+        }
+    }
+
+    // No parent supplied (or parent invalid) -> just add the block to header
+    newid = hdr->AddBlock(std::move(bgData));
+    return newid;
+}
+
+// Block getter function for NiStringExtraData (for getBlock() API)
+int getNiStringExtraData(void* nifref, uint32_t blockID, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiStringExtraData* strData = hdr->GetBlock<NiStringExtraData>(blockID);
+    NiStringExtraDataBuf* buf = static_cast<NiStringExtraDataBuf*>(inbuf);
+
+    if (!strData) {
+        niflydll::LogWrite("getNiStringExtraData not passed a NiStringExtraData node");
+        return 1;
+    }
+
+    CheckBuf(buf, BUFFER_TYPES::NiStringExtraDataBufType, NiStringExtraDataBuf);
+
+    buf->nameID = strData->name.GetIndex();
+    buf->stringDataID = strData->stringData.GetIndex();
+
+    return 0;
+}
+
+// Creator function (for addBlock() API)
+int addNiStringExtraData(void* nifref, const char* name, void* b, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiStringExtraDataBuf* buf = static_cast<NiStringExtraDataBuf*>(b);
+
+    CheckBuf(buf, BUFFER_TYPES::NiStringExtraDataBufType, NiStringExtraDataBuf);
+
+    auto strData = std::make_unique<NiStringExtraData>();
+    if (name) strData->name.get() = name;
+    strData->stringData = hdr->GetStringById(buf->stringDataID);
+
+    uint32_t newid = NIF_NPOS;
+    if (parent != NIF_NPOS) {
+        NiAVObject* p = hdr->GetBlock<NiAVObject>(parent);
+        if (p) {
+            newid = nif->AssignExtraData(p, std::move(strData));
+            return newid;
+        }
+    }
+
+    // No parent supplied (or parent invalid) -> just add the block to header
+    newid = hdr->AddBlock(std::move(strData));
+    return newid;
 }
 
 int getAVObjectPalette(void* nifref, uint32_t id, void* inbuf) {
@@ -5224,6 +5317,8 @@ BlockGetterFunction getterFunctions[] = {
 	getBSBound,
     getBSBoneLODExtraData,
     getNiIntegerExtraData,
+    getBSBehaviorGraphExtraData,
+    getNiStringExtraData,
     nullptr //END
 };
 
@@ -5309,6 +5404,8 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //BSBoundsBufType
     nullptr, //BSBoneLODExtraData
 	nullptr, //NiIntegerExtraData
+	nullptr, //BSBehaviorGraphExtraData
+    nullptr, //NiStringExtraData
     nullptr //END
 };
 
@@ -5393,6 +5490,8 @@ BlockCreatorFunction creatorFunctions[] = {
     addBSBound,
     addBSBoneLODExtraData,
     addNiIntegerExtraData, 
+	addBSBehaviorGraphExtraData,
+    addNiStringExtraData,
     nullptr //end
 };
 

@@ -88,6 +88,8 @@ enum BUFFER_TYPES : uint16_t {
 	BSBoundBufType,
 	BSBoneLODExtraDataBufType,
 	NiIntegerExtraDataBufType, 
+	BSBehaviorGraphExtraDataBufType,
+	NiStringExtraDataBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -423,6 +425,22 @@ struct NiIntegerExtraDataBuf {
 	uint32_t nameID = nifly::NIF_NPOS;
 	uint32_t integerData = 0; 
 }; 
+
+struct BSBehaviorGraphExtraDataBuf {
+	uint16_t bufSize = sizeof(BSBehaviorGraphExtraDataBuf);
+	uint16_t bufType = BUFFER_TYPES::BSBehaviorGraphExtraDataBufType;
+	uint32_t nameID = nifly::NIF_NPOS;
+	uint32_t behaviorGraphFileID = nifly::NIF_NPOS;
+	uint8_t controlsBaseSkeleton = 0;
+}; 
+
+struct NiStringExtraDataBuf {
+	uint16_t bufSize = sizeof(NiStringExtraDataBuf);
+	uint16_t bufType = BUFFER_TYPES::NiStringExtraDataBufType;
+	uint32_t nameID = nifly::NIF_NPOS;
+	uint32_t stringDataID = nifly::NIF_NPOS;
+};
+
 struct NiShapeBuf {
 	uint16_t bufSize = sizeof(NiShapeBuf);
 	uint16_t bufType = BUFFER_TYPES::NiShapeBufType;

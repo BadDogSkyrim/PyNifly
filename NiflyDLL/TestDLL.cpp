@@ -377,24 +377,54 @@ void TCopyWeights(void* targetNif, void* targetShape,
 };
 
 void TCopyExtraData(void* targetNif, void* targetShape, void* sourceNif, void* sourceShape) {
-	int namelen, valuelen;
-	uint16_t cbs;
+	// Copy NiStringExtraData blocks
+	int sourceID = sourceShape? getBlockID(sourceNif, sourceShape) : 0;
+	for (int i = 0; ; i++) {
+		int stringExtraDataID = getExtraData(sourceNif, sourceID, "NiStringExtraData", nullptr, i);
+		if (stringExtraDataID == NIF_NPOS) break;
 
-	for (int i = 0; getStringExtraDataLen(sourceNif, sourceShape, i, &namelen, &valuelen); i++) {
-		char* namebuf = new char[namelen + 1];
-		char* valuebuf = new char[valuelen + 1];
-		getStringExtraData(sourceNif, sourceShape, i, namebuf, namelen + 1, valuebuf, valuelen + 1);
-		setStringExtraData(targetNif, targetShape, namebuf, valuebuf);
-	};
-	for (int i = 0; 
-		getBGExtraDataLen(sourceNif, sourceShape, i, &namelen, &valuelen); 
-		i++) {
-		char* namebuf = new char[namelen + 1];
-		char* valuebuf = new char[valuelen + 1];
-		getBGExtraData(sourceNif, sourceShape, i, namebuf, namelen + 1, 
-			valuebuf, valuelen + 1,
-			&cbs);
-		setBGExtraData(targetNif, targetShape, namebuf, valuebuf, cbs);
+		NiStringExtraDataBuf strDataBuf;
+		strDataBuf.bufType = NiStringExtraDataBufType;
+		if (getBlock(sourceNif, stringExtraDataID, &strDataBuf) != 0) continue;
+
+		// Read the name and string data
+		char nameBuffer[256];
+		char valueBuffer[2048];
+		getString(sourceNif, strDataBuf.nameID, sizeof(nameBuffer), nameBuffer);
+		getString(sourceNif, strDataBuf.stringDataID, sizeof(valueBuffer), valueBuffer);
+
+		// Create new string extra data in target
+		NiStringExtraDataBuf newStrBuf;
+		newStrBuf.nameID = addString(targetNif, nameBuffer);
+		newStrBuf.stringDataID = addString(targetNif, valueBuffer);
+
+		int targetParentID = (targetShape == nullptr) ? 0 : getBlockID(targetNif, targetShape);
+		addBlock(targetNif, nameBuffer, &newStrBuf, targetParentID);
+	}
+
+	// Copy BSBehaviorGraphExtraData blocks
+	for (int i = 0; ; i++) {
+		int bgExtraDataID = getExtraData(sourceNif, sourceID, "BSBehaviorGraphExtraData", nullptr, i);
+		if (bgExtraDataID == NIF_NPOS) break;
+
+		BSBehaviorGraphExtraDataBuf bgDataBuf;
+		bgDataBuf.bufType = BSBehaviorGraphExtraDataBufType;
+		if (getBlock(sourceNif, bgExtraDataID, &bgDataBuf) != 0) continue;
+
+		// Read the name and behavior graph file strings
+		char nameBuffer[256];
+		char bgFileBuffer[256];
+		getString(sourceNif, bgDataBuf.nameID, sizeof(nameBuffer), nameBuffer);
+		getString(sourceNif, bgDataBuf.behaviorGraphFileID, sizeof(bgFileBuffer), bgFileBuffer);
+
+		// Create new behavior graph extra data in target
+		BSBehaviorGraphExtraDataBuf newBgBuf;
+		newBgBuf.nameID = addString(targetNif, nameBuffer);
+		newBgBuf.behaviorGraphFileID = addString(targetNif, bgFileBuffer);
+		newBgBuf.controlsBaseSkeleton = bgDataBuf.controlsBaseSkeleton;
+
+		int targetParentID = (targetShape == nullptr) ? 0 : getBlockID(targetNif, targetShape);
+		addBlock(targetNif, nameBuffer, &newBgBuf, targetParentID);
 	}
 };
 
@@ -2258,29 +2288,64 @@ namespace NiflyDLLTests
 			getShapes(nifsheath, shapes, 10, 0);
 			void* sheath = shapes[0];
 
-			getStringExtraDataLen(nifsheath, nullptr, 0, &namelen, &vallen);
-			char* namepath1 = new char[namelen + 1L];
-			char* path1 = new char[vallen + 1L];
-			getStringExtraData(nifsheath, nullptr, 0, namepath1, namelen+1, path1, vallen+1);
+			// Find the first NiStringExtraData block using getExtraData
+			int stringExtraDataID1 = getExtraData(nifsheath, 0, "NiStringExtraData", nullptr, 0);
+			Assert::AreNotEqual(NIF_NPOS, uint32_t(stringExtraDataID1), L"Found first NiStringExtraData on root");
+
+			// Read the first string extra data block
+			NiStringExtraDataBuf strDataBuf1;
+			strDataBuf1.bufType = NiStringExtraDataBufType;
+			Assert::AreEqual(0, getBlock(nifsheath, stringExtraDataID1, &strDataBuf1), L"Got first string extra data");
+
+			// Check the first name and value strings
+			char namepath1[256];
+			char path1[256];
+			getString(nifsheath, strDataBuf1.nameID, sizeof(namepath1), namepath1);
+			getString(nifsheath, strDataBuf1.stringDataID, sizeof(path1), path1);
 			Assert::IsTrue(strcmp(namepath1, "HDT Havok Path") == 0, L"Error: Extradata name wrong");
 			Assert::IsTrue(strcmp(path1, "SKSE\\Plugins\\hdtm_baddog.xml") == 0, L"Error: Extradata value wrong");
 
-			getStringExtraDataLen(nifsheath, nullptr, 1, &namelen, &vallen);
-			char* namepath2 = new char[namelen + 1L];
-			char* path2 = new char[vallen + 1L];
-			getStringExtraData(nifsheath, nullptr, 1, namepath2, namelen+1, path2, vallen+1);
-			Assert::IsTrue(strcmp(namepath2, "HDT Skinned Mesh Physics Object") == 0, L"Error: Extradata name wrong");
-			Assert::IsTrue(strcmp(path2, "SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml") == 0, L"Error: Extradata value wrong");
+			// Find the second NiStringExtraData block using getExtraData
+			int stringExtraDataID2 = getExtraData(nifsheath, 0, "NiStringExtraData", nullptr, 1);
+			Assert::AreNotEqual(NIF_NPOS, uint32_t(stringExtraDataID2), L"Found second NiStringExtraData on root");
 
-			getBGExtraDataLen(nifsheath, nullptr, 0, &namelen, &vallen);
-			char* edname= new char[namelen + 1L];
-			char* edtxt = new char[vallen + 1L];
-			getBGExtraData(nifsheath, nullptr, 0, 
-				edname, namelen+1, 
-				edtxt, vallen+1, 
-				&cbs);
+			// Read the second string extra data block
+			NiStringExtraDataBuf strDataBuf2;
+			strDataBuf2.bufType = NiStringExtraDataBufType;
+			Assert::AreEqual(0, getBlock(nifsheath, stringExtraDataID2, &strDataBuf2), 
+				L"Got second string extra data");
+
+			// Check the second name and value strings
+			char namepath2[256];
+			char path2[256];
+			getString(nifsheath, strDataBuf2.nameID, sizeof(namepath2), namepath2);
+			getString(nifsheath, strDataBuf2.stringDataID, sizeof(path2), path2);
+			Assert::IsTrue(strcmp(namepath2, "HDT Skinned Mesh Physics Object") == 0, 
+				L"Error: Extradata name wrong");
+			Assert::IsTrue(strcmp(path2, "SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml") == 0, 
+				L"Error: Extradata value wrong");
+
+			// Find the BSBehaviorGraphExtraData block using getExtraData
+			int bgExtraDataID = getExtraData(nifsheath, 0, "BSBehaviorGraphExtraData", nullptr, 0);
+			Assert::AreNotEqual(NIF_NPOS, uint32_t(bgExtraDataID), L"Found BSBehaviorGraphExtraData on root");
+
+			// Read the behavior graph extra data block
+			BSBehaviorGraphExtraDataBuf bgDataBuf;
+			bgDataBuf.bufType = BSBehaviorGraphExtraDataBufType;
+			Assert::AreEqual(0, getBlock(nifsheath, bgExtraDataID, &bgDataBuf), L"Got behavior graph extra data");
+
+			// Check the name string
+			char edname[256];
+			int nameLen = getString(nifsheath, bgDataBuf.nameID, sizeof(edname), edname);
 			Assert::IsTrue(strcmp(edname, "BGED") == 0, L"Error: Extradata name wrong");
+
+			// Check the behavior graph file string
+			char edtxt[256];
+			int dataLen = getString(nifsheath, bgDataBuf.behaviorGraphFileID, sizeof(edtxt), edtxt);
 			Assert::IsTrue(strcmp(edtxt, "AuxBones\\SOS\\SOSMale.hkx") == 0, L"Error: Extradata value wrong");
+
+			// Check controls base skeleton flag
+			Assert::IsTrue(bgDataBuf.controlsBaseSkeleton, L"Error: Expected controls base skeleton flag to be set");
 
 			// ### Can wrie the mesh back out
 

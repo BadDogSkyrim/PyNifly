@@ -155,7 +155,7 @@ def load_nifly(nifly_path):
     nifly.getControllerManagerSequences.restype = c_int
     nifly.getControlledBlocks.argtypes = [c_void_p, c_int, c_int, c_void_p]
     nifly.getControlledBlocks.restype = c_int
-    nifly.getExtraData.argtypes = [c_void_p, c_int, c_char_p]
+    nifly.getExtraData.argtypes = [c_void_p, c_int, c_char_p, c_char_p, c_int]
     nifly.getExtraData.restype = c_uint32
     nifly.getFurnMarker.argtypes = [c_void_p, c_int, POINTER(FurnitureMarkerBuf)]
     nifly.getFurnMarker.restype = c_int
@@ -1254,125 +1254,136 @@ class NiNode(NiAVObject):
         else:
             return None
 
-    @property
-    def bsx_flags(self):
-        """ Returns bsx flags as [name, value] pair """
-        if not self.file._handle: return None
-        buf = BSXFlagsBuf()
-        bsxf_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSXFlags")
-        if bsxf_id == NODEID_NONE:
+    def get_extra_data(self, blockname=None, name=None, target_index=0):
+        """Search for the target extra data."""
+        ex_id = NifFile.nifly.getExtraData(self.file._handle, self.id, 
+                                           blockname.encode('utf-8') if blockname else None, 
+                                           name.encode('utf-8') if name else None,
+                                           target_index)
+        if ex_id == NODEID_NONE:
             return None
-        check_return(NifFile.nifly.getBlock, self.file._handle, bsxf_id, byref(buf))
-        return ["BSX", buf.integerData]
-
-    @bsx_flags.setter
-    def bsx_flags(self, val):
-        """ Sets BSX flags using [name, value] pair """
-        buf = BSXFlagsBuf()
-        buf.integerData = val[1]
-        check_msg(NifFile.nifly.addBlock, self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
-
-    @property
-    def bounds_extra(self):
-        """ Returns bounds properties """
-        if not self.file._handle: return None
-        buf = BSBoundBuf()
-        bsxf_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSBound")
-        if bsxf_id == NODEID_NONE:
-            return None
-        check_return(NifFile.nifly.getBlock, self.file._handle, bsxf_id, byref(buf))
-        return ["BBX", buf]
-
-    @bounds_extra.setter
-    def bounds_extra(self, val:BSBoundBuf):
-        """Sets BSBound. val=(name, center, halfExtents)"""
-        buf = BSBoundBuf()
-        buf.center = val[1][:]
-        buf.halfExtents = val[2][:]
-        check_msg(NifFile.nifly.addBlock, self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
+        return self.file.read_node(id=ex_id, parent=self)
 
 
-    @property
-    def bone_lod_extra(self):
-        """ Returns BSBoneLOD properties """
-        if not self.file._handle: return None
-        buf = BSBoneLODBuf()
-        id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSBoneLODExtraData")
-        if id == NODEID_NONE:
-            return None, []
-        check_return(NifFile.nifly.getBlock, self.file._handle, id, byref(buf))
+    # @property
+    # def bsx_flags(self):
+    #     """ Returns bsx flags as [name, value] pair """
+    #     if not self.file._handle: return None
+    #     buf = BSXFlagsBuf()
+    #     bsxf_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSXFlags")
+    #     if bsxf_id == NODEID_NONE:
+    #         return None
+    #     check_return(NifFile.nifly.getBlock, self.file._handle, bsxf_id, byref(buf))
+    #     return ["BSX", buf.integerData]
+
+    # @bsx_flags.setter
+    # def bsx_flags(self, val):
+    #     """ Sets BSX flags using [name, value] pair """
+    #     buf = BSXFlagsBuf()
+    #     buf.integerData = val[1]
+    #     check_msg(NifFile.nifly.addBlock, self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
+
+    # @property
+    # def bounds_extra(self):
+    #     """ Returns bounds properties """
+    #     if not self.file._handle: return None
+    #     buf = BSBoundBuf()
+    #     bsxf_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSBound")
+    #     if bsxf_id == NODEID_NONE:
+    #         return None
+    #     check_return(NifFile.nifly.getBlock, self.file._handle, bsxf_id, byref(buf))
+    #     return ["BBX", buf]
+
+    # @bounds_extra.setter
+    # def bounds_extra(self, val:BSBoundBuf):
+    #     """Sets BSBound. val=(name, center, halfExtents)"""
+    #     buf = BSBoundBuf()
+    #     buf.center = val[1][:]
+    #     buf.halfExtents = val[2][:]
+    #     check_msg(NifFile.nifly.addBlock, self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
+
+
+    # @property
+    # def bone_lod_extra(self):
+    #     """ Returns BSBoneLOD properties """
+    #     if not self.file._handle: return None
+    #     buf = BSBoneLODBuf()
+    #     id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSBoneLODExtraData")
+    #     if id == NODEID_NONE:
+    #         return None, []
+    #     check_return(NifFile.nifly.getBlock, self.file._handle, id, byref(buf))
         
-        nm = create_string_buffer(256)
-        check_msg(NifFile.nifly.getString, self.file._handle, buf.nameID, 256, nm)
+    #     nm = create_string_buffer(256)
+    #     check_msg(NifFile.nifly.getString, self.file._handle, buf.nameID, 256, nm)
 
-        lodbuf = (BoneLODInfoBuf * buf.lodCount)()
-        check_msg(NifFile.nifly.getBoneLODInfo, self.file._handle, id, byref(lodbuf), buf.lodCount)
-        lods = []
-        for li in lodbuf:
-            tn = create_string_buffer(256)
-            check_msg(NifFile.nifly.getString, self.file._handle, li.nameID, 256, tn)
-            lods.append( (tn.value.decode('utf-8'), li.distance) )
+    #     lodbuf = (BoneLODInfoBuf * buf.lodCount)()
+    #     check_msg(NifFile.nifly.getBoneLODInfo, self.file._handle, id, byref(lodbuf), buf.lodCount)
+    #     lods = []
+    #     for li in lodbuf:
+    #         tn = create_string_buffer(256)
+    #         check_msg(NifFile.nifly.getString, self.file._handle, li.nameID, 256, tn)
+    #         lods.append( (tn.value.decode('utf-8'), li.distance) )
 
-        return (nm.value.decode('utf-8'), lods)
+    #     return (nm.value.decode('utf-8'), lods)
 
-    @bone_lod_extra.setter
-    def bone_lod_extra(self, val):
-        """Sets bone LOD extra data. val=(name, ((lodname, distance), ...) )"""
-        buf = BSBoneLODBuf()
-        buf.lodCount = 0
-        name, lodlist = val
-        id = check_msg(NifFile.nifly.addBlock, 
-                       self.file._handle, name.encode('utf-8'), byref(buf), self.id)
+    # @bone_lod_extra.setter
+    # def bone_lod_extra(self, val):
+    #     """Sets bone LOD extra data. val=(name, ((lodname, distance), ...) )"""
+    #     buf = BSBoneLODBuf()
+    #     buf.lodCount = 0
+    #     name, lodlist = val
+    #     id = check_msg(NifFile.nifly.addBlock, 
+    #                    self.file._handle, name.encode('utf-8'), byref(buf), self.id)
 
-        lodbuf = (BoneLODInfoBuf * len(lodlist))()
-        for i, lod in enumerate(lodlist):
-            lodbuf[i].distance = lod[1]
-            lodbuf[i].nameID = check_msg(
-                NifFile.nifly.addString, self.file._handle, lod[0].encode('utf-8'))
-        check_return(NifFile.nifly.setBoneLOD, self.file._handle, id, len(lodlist), byref(lodbuf))
+    #     lodbuf = (BoneLODInfoBuf * len(lodlist))()
+    #     for i, lod in enumerate(lodlist):
+    #         lodbuf[i].distance = lod[1]
+    #         lodbuf[i].nameID = check_msg(
+    #             NifFile.nifly.addString, self.file._handle, lod[0].encode('utf-8'))
+    #     check_return(NifFile.nifly.setBoneLOD, self.file._handle, id, len(lodlist), byref(lodbuf))
 
 
-    @property
-    def inventory_marker(self):
-        """ Reads BSInvMarker as [name, x, y, z, zoom] """
-        if not self.file._handle: return []
-        buf = BSInvMarkerBuf()
-        namebuf = create_string_buffer(256)
-        im_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSInvMarker")
-        if im_id != NODEID_NONE:
-            check_return(NifFile.nifly.getBlock, self.file._handle, im_id, byref(buf))
-            check_msg(NifFile.nifly.getString, self.file._handle, buf.nameID, 256, namebuf)
+    # @property
+    # def inventory_marker(self):
+    #     """ Reads BSInvMarker as [name, x, y, z, zoom] """
+    #     if not self.file._handle: return []
+    #     buf = BSInvMarkerBuf()
+    #     namebuf = create_string_buffer(256)
+    #     im_id = NifFile.nifly.getExtraData(self.file._handle, self.id, b"BSInvMarker")
+    #     if im_id != NODEID_NONE:
+    #         check_return(NifFile.nifly.getBlock, self.file._handle, im_id, byref(buf))
+    #         check_msg(NifFile.nifly.getString, self.file._handle, buf.nameID, 256, namebuf)
 
-            return [namebuf.value.decode('utf-8'), buf.rot0, buf.rot1, buf.rot2, buf.zoom]
-        else:
-            return []
+    #         return [namebuf.value.decode('utf-8'), buf.rot0, buf.rot1, buf.rot2, buf.zoom]
+    #     else:
+    #         return []
 
-    @inventory_marker.setter
-    def inventory_marker(self, val):
-        """ WRites BSInvMarker as [name, x, y, z, zoom] """
-        buf = BSInvMarkerBuf()
-        buf.rot0 = val[1]
-        buf.rot1 = val[2]
-        buf.rot2 = val[3]
-        buf.zoom = val[4]
-        NifFile.nifly.addBlock(self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
+    # @inventory_marker.setter
+    # def inventory_marker(self, val):
+    #     """ WRites BSInvMarker as [name, x, y, z, zoom] """
+    #     buf = BSInvMarkerBuf()
+    #     buf.rot0 = val[1]
+    #     buf.rot1 = val[2]
+    #     buf.rot2 = val[3]
+    #     buf.zoom = val[4]
+    #     NifFile.nifly.addBlock(self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
 
-    def get_integer_extra_data(self, name):
-        """Get integer extra data by name. Returns the integer value or None if not found."""
-        if not self.file._handle: 
-            return None
-        buf = NiIntegerExtraDataBuf()
-        extra_id = NifFile.nifly.getExtraData(self.file._handle, self.id, name.encode('utf-8'))
-        if extra_id == NODEID_NONE:
-            return None
-        check_return(NifFile.nifly.getBlock, self.file._handle, extra_id, byref(buf))
-        return buf.integerData
+    # def get_integer_extra_data(self, name):
+    #     """Get integer extra data by name. Returns the integer value or None if not found."""
+    #     if not self.file._handle: 
+    #         return None
+    #     buf = NiIntegerExtraDataBuf()
+    #     extra_id = NifFile.nifly.getExtraData(self.file._handle, self.id, name.encode('utf-8'))
+    #     if extra_id == NODEID_NONE:
+    #         return None
+    #     check_return(NifFile.nifly.getBlock, self.file._handle, extra_id, byref(buf))
+    #     return buf.integerData
 
-    def set_integer_extra_data(self, name, value):
-        """Set integer extra data by name. Creates a new block if it doesn't exist."""
-        buf = NiIntegerExtraDataBuf()
-        buf.integerData = value
-        check_msg(NifFile.nifly.addBlock, self.file._handle, name.encode('utf-8'), byref(buf), self.id)
+    # def set_integer_extra_data(self, name, value):
+    #     """Set integer extra data by name. Creates a new block if it doesn't exist."""
+    #     buf = NiIntegerExtraDataBuf()
+    #     buf.integerData = value
+    #     check_msg(NifFile.nifly.addBlock, self.file._handle, name.encode('utf-8'), byref(buf), self.id)
 
 
 class BSFaceGenNiNode(NiNode):

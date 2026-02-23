@@ -161,13 +161,13 @@ def assert_patheq(actual, expected, msg):
     assert a == b, f"Paths are equal for {msg}: '{a}' != '{b}'"
 
 
-def is_patheq(actual, expected, msg):
+def is_patheq(actual, expected, msg=""):
     a = Path(actual)
     b = Path(expected)
     if a == b:
         return True
     else:
-        log.error(f"ASSERT FAIL: Equal filepaths for {msg}: '{a}' != '{b}'")
+        log.error(f"ASSERT FAIL: Equal filepaths{' for ' + msg if msg else ''}: '{a}' != '{b}'")
         return False
 
 
@@ -189,7 +189,7 @@ def assert_eq(*args):
 
 def is_eq(*args):
     """Check all elements but the last are equal. The last is the message to use."""
-    msg = args[-1]
+    msg = args[-1] if len(args) > 2 else ""
     values = args[0:-1]
     if values[0:-1] == values[1:]:
         return True
