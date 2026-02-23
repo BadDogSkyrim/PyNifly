@@ -2703,6 +2703,7 @@ int getBSXFlags(void* nifref, uint32_t id, void* inbuf)
 
     CheckBuf(buf, BUFFER_TYPES::BSXFlagsBufType, BSXFlagsBuf);
 
+	buf->nameID = f->name.GetIndex();
     buf->integerData = f->integerData;
     return 0;
 }

@@ -2755,6 +2755,96 @@ class BSBoneLODExtraData(NiExtraData):
         return bone_lod
 
 
+class BSInvMarker(NiExtraData):
+    buffer_type = PynBufferTypes.BSInvMarkerBufType
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+
+    @classmethod 
+    def getbuf(cls, values=None):
+        return BSInvMarkerBuf(values)
+
+    @property 
+    def rotation(self):
+        """
+        Rotation values for inventory marker as (x, y, z) tuple.
+        """
+        return (self.properties.rot0, self.properties.rot1, self.properties.rot2)
+    
+    @rotation.setter
+    def rotation(self, value):
+        """
+        Set the rotation values for inventory marker.
+        value: (x, y, z) tuple
+        """
+        if len(value) != 3:
+            raise ValueError("Rotation tuple must have exactly 3 values (x, y, z)")
+        self.properties.rot0 = int(value[0])
+        self.properties.rot1 = int(value[1])
+        self.properties.rot2 = int(value[2])
+        if self.file and self.id != NODEID_NONE:
+            NifFile.nifly.setBlock(self.file._handle, self.id, byref(self.properties))
+
+    @property 
+    def zoom(self):
+        """
+        Zoom value for inventory marker.
+        """
+        return self.properties.zoom
+    
+    @zoom.setter
+    def zoom(self, value):
+        """
+        Set the zoom value for inventory marker.
+        """
+        self.properties.zoom = float(value)
+        if self.file and self.id != NODEID_NONE:
+            NifFile.nifly.setBlock(self.file._handle, self.id, byref(self.properties))
+
+    @classmethod
+    def New(cls, file, name='INV', rotation=(0, 0, 0), zoom=1.0, parent=None):
+        p = BSInvMarkerBuf()
+        p.rot0 = int(rotation[0])
+        p.rot1 = int(rotation[1])
+        p.rot2 = int(rotation[2])
+        p.zoom = float(zoom)
+        return file.add_block(name, p, parent)
+
+
+class BSXFlags(NiExtraData):
+    buffer_type = PynBufferTypes.BSXFlagsBufType
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+
+    @classmethod 
+    def getbuf(cls, values=None):
+        return BSXFlagsBuf(values)
+
+    @property 
+    def flags(self):
+        """
+        BSX flags integer value.
+        """
+        return self.properties.integerData
+    
+    @flags.setter
+    def flags(self, value):
+        """
+        Set the BSX flags integer value.
+        """
+        self.properties.integerData = int(value)
+        if self.file and self.id != NODEID_NONE:
+            NifFile.nifly.setBlock(self.file._handle, self.id, byref(self.properties))
+
+    @classmethod
+    def New(cls, file, name='BSX', flags=0, parent=None):
+        p = BSXFlagsBuf()
+        p.integerData = int(flags)
+        return file.add_block(name, p, parent)
+
+
 class NiControllerSequence(NiSequence):
     buffer_type = PynBufferTypes.NiControllerSequenceBufType
     
@@ -4436,10 +4526,14 @@ class NifFile:
         if n.name: self.nodes[n.name] = n
         if n.id != NODEID_NONE: self.node_ids[n.id] = n
         if n.id == 0: self._root = n
+        if isinstance(n, NiShape) and n.name:
+            self._shape_dict[n.name] = n
 
 
     def unregister_name(self, n):
         if n.name: del self.nodes[n.name]
+        if isinstance(n, NiShape) and n.name in self._shape_dict:
+            del self._shape_dict[n.name]
 
 
     @property

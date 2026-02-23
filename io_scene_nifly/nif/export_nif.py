@@ -15,7 +15,7 @@ from ..tri.trifile import TriFile
 from ..tri.tripfile import TripFile
 from ..pyn.niflytools import (NearEqual, MatNearEqual, mesh_split_by_uv, fo4FaceDict, 
                               truncate_filename)
-from ..pyn.nifdefs import (BSXFlags, NiAVFlags, VertexFlags)
+from ..pyn.nifdefs import (BSXFlagsValues, NiAVFlags, VertexFlags)
 from .. import blender_defs as BD
 from ..blender_defs import ObjectSelect, ObjectActive
 from ..util.settings import (ExportSettings,
@@ -598,7 +598,7 @@ class NifExporter:
 
         if self.bsx_flag:
             self.nif.rootNode.bsx_flags = [self.bsx_flag['BSXFlags_Name'],
-                                  BSXFlags.parse(self.bsx_flag['BSXFlags_Value'])]
+                                  BSXFlagsValues.parse(self.bsx_flag['BSXFlags_Value'])]
             self.objs_written.add(ReprObject(self.bsx_flag, self.nif.rootNode)) # [self.bsx_flag.name] = self.nif
 
         if self.bone_lod:

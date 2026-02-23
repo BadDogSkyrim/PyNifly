@@ -15,7 +15,7 @@ from bpy.props import CollectionProperty, StringProperty
 from bpy_extras.io_utils import ImportHelper
 from .. import bl_info
 from ..pyn.niflytools import fo4FaceDict, find_trip, find_tris, MatNearEqual
-from ..pyn.nifdefs import (ShaderFlags1, ShaderFlags2, BSXFlags, BSValueNodeFlags, 
+from ..pyn.nifdefs import (ShaderFlags1, ShaderFlags2, BSXFlagsValues, BSValueNodeFlags, 
                      NiAVFlags, VertexFlags, PynIntFlag)
 from ..pyn.pynifly import (NiShape, FurnAnimationType, FurnEntryPoints, NiNode, NifFile, 
                            nifly_path, hkxSkeletonFile)
@@ -491,7 +491,7 @@ class NifImporter():
             ed.show_name = True
             ed.empty_display_type = 'SPHERE'
             ed['BSXFlags_Name'] = b[0]
-            ed['BSXFlags_Value'] = BSXFlags(b[1]).fullname
+            ed['BSXFlags_Value'] = BSXFlagsValues(b[1]).fullname
             ed.parent = parent_obj
             self.objects_created.add(ReprObject(blender_obj=ed))
             BD.link_to_collection(self.collection, ed)

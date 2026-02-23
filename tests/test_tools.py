@@ -188,13 +188,18 @@ def assert_eq(*args):
 
 
 def is_eq(*args):
-    """Check all elements but the last are equal. The last is the message to use."""
-    msg = args[-1] if len(args) > 2 else ""
-    values = args[0:-1]
+    """Check all elements but the last are equal. The last is the message to use (optional)."""
+    if len(args) > 2:
+        msg = args[-1] + " are equal "
+        values = args[0:-1]
+    else:
+        msg = ""
+        values = args
+
     if values[0:-1] == values[1:]:
         return True
     else:
-        log.error(f"ASSERT FAIL: {msg} equal {values}")
+        log.error(f"ASSERT FAIL: {msg}{values}")
 
 
 def is_neq(actual, expected, msg):

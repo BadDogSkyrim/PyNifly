@@ -588,7 +588,7 @@ class NiAVFlags(PynIntFlag):
     MESH_LOD_SKY = 1 << 27
     UNKNOWN_28 = 1 << 28
 
-class BSXFlags(PynIntFlag):
+class BSXFlagsValues(PynIntFlag):
     ANIMATED = 1
     HAVOC = 1 << 1
     RAGDOLL = 1 << 2

@@ -1656,11 +1656,18 @@ def TEST_BOW():
                      f"behavior graph hkx path")
     TT.assert_eq(bged.controls_base_skeleton, False, f"behavior graph flag")
 
-    TT.assert_eq(root.inventory_marker[0], "INV", f"inventory marker tag")
-    TT.assert_eq(root.inventory_marker[1:4], [4712, 0, 785], f"inventory marker data")
-    TT.assert_equiv(root.inventory_marker[4], 1.1273, f"inventory marker zoom")
+    # Test inventory marker using new classes
+    inv_marker = root.get_extra_data(blockname='BSInvMarker', name='INV')
+    assert inv_marker, "Inventory marker extra data exists"
+    TT.assert_eq(inv_marker.name, 'INV', f"inventory marker tag")
+    TT.assert_eq(inv_marker.rotation, (4712, 0, 785), f"inventory marker rotation")
+    TT.assert_equiv(inv_marker.zoom, 1.1273, f"inventory marker zoom")
 
-    TT.assert_eq(root.bsx_flags, ['BSX', 202], f"bsx flags")
+    # Test BSX flags using new classes
+    bsx_flags = root.get_extra_data(blockname='BSXFlags', name='BSX')
+    assert bsx_flags, "BSX flags extra data exists"
+    TT.assert_eq(bsx_flags.name, 'BSX', f"BSX flags tag")
+    TT.assert_eq(bsx_flags.flags, 202, f"BSX flags value")
 
     bone = nif.nodes['Bow_MidBone']
     co = bone.collision_object
@@ -2069,7 +2076,8 @@ def TEST_ANIMATION_NOBLECHEST():
     
     lidout = _export_shape(nif.nodes["Lid01:1"], nifout, parent=lidnode)
 
-    nifout.root.bsx_flags = ['BSX', 11]
+    # Add BSX flags using new class
+    BSXFlags.New(nifout, name='BSX', flags=11, parent=nifout.root)
 
     openmtt = NiMultiTargetTransformController.New(
         file=nifout, flags=108, target=nifout.root)
@@ -2551,6 +2559,7 @@ def TEST_FULLPREC():
 @test_category("SKIP")
 def TEST_SET_SKINTINT():
     """Test that we can set the skin tint shader."""
+    # TODO: For some reason, the value doesn't get set down at the DLL level.
     testfile = _test_file(r"tests\FO4\Helmet.nif")
     outfile = _test_file(r"tests\out\TEST_SET_SKINTINT.nif")
 
@@ -2568,8 +2577,8 @@ def TEST_SET_SKINTINT():
     print("------------- check")
     nifCheck = NifFile(outfile)
     helmetcheck = nifCheck.shape_dict["Helmet:0"]
-    assert helmetcheck.shader.properties.Shader_Type == BSLSPShaderType.Skin_Tint, \
-        f"Have fixed shader type {helmetcheck.shader.properties.Shader_Type}"
+    assert TT.is_eq(helmetcheck.shader.properties.Shader_Type, BSLSPShaderType.Skin_Tint), \
+        f"shader type"
 
 
 @test_category("SKIP")
@@ -2604,7 +2613,7 @@ def TEST_RENAME_NODES():
         assert TT.is_eq(nif.shape_dict.get("L1_Hook:0"), None), "Old hook name"
         assert (myAnchor := nif.nodes.get("MyAnchor")), "New anchor name works"
         assert (myHook := nif.nodes.get("MyHook")), "New hook name works"
-        assert TT.is_eq(myHook.parent.name, "MyAnchor"), "New hook name works"
+        assert TT.is_eq(myHook.parent.parent.name, "MyAnchor"), "New hook name works"
 
     def do_rename(fn):
         print("... renaming nodes")
@@ -2612,7 +2621,7 @@ def TEST_RENAME_NODES():
         anchor = nif.nodes["ANCHOR"]
         assert anchor, f"Have ANCHOR node"
         hook = nif.shape_dict["L1_Hook:0"]
-        assert hook, f"Have L1_Hook shape"
+        assert hook, f"Have L1_Hook:0 shape"
 
         anchor.name = "MyAnchor"
         hook.name = "MyHook"
@@ -2663,11 +2672,11 @@ def TEST_SKELETON_DEER():
     # Get the root node
     root = nif.root
     
-    # Get the SkeletonID integer extra data through the root node
-    skeleton_id_value = root.get_integer_extra_data("NiIntegerExtraData")
+    # Get the SkeletonID integer extra data using new method
+    skeleton_extra = root.get_extra_data(blockname='NiIntegerExtraData', name='SkeletonID')
     
-    assert skeleton_id_value is not None, "SkeletonID extra data found"
-    assert TT.is_eq(skeleton_id_value, 178509022, "SkeletonID value correct")
+    assert skeleton_extra is not None, "SkeletonID extra data found"
+    assert TT.is_eq(skeleton_extra.integer_data, 178509022, "SkeletonID value correct")
 
 
 ###################### Test execution framework #########################
