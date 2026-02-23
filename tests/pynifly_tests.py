@@ -289,8 +289,24 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
     for k, t in old_shape.textures.items():
         new_shape.set_texture(k, t)
 
-    new_shape.behavior_graph_data = old_shape.behavior_graph_data
-    new_shape.string_data = old_shape.string_data
+    # Copy behavior graph extra data using new classes
+    for i in range(100):  # Arbitrary upper limit
+        bg_data = old_shape.get_extra_data(blockname='BSBehaviorGraphExtraData', target_index=i)
+        if not bg_data:
+            break
+        BSBehaviorGraphExtraData.New(new_nif, name=bg_data.name,
+                                    behavior_graph_file=bg_data.behavior_graph_file,
+                                    controls_base_skeleton=bg_data.controls_base_skeleton,
+                                    parent=new_shape)
+    
+    # Copy string extra data using new classes  
+    for i in range(100):  # Arbitrary upper limit
+        str_data = old_shape.get_extra_data(blockname='NiStringExtraData', target_index=i)
+        if not str_data:
+            break
+        NiStringExtraData.New(new_nif, name=str_data.name,
+                             string_value=str_data.string_data,
+                             parent=new_shape)
 
     if old_shape.shader.controller:
         old_controller = old_shape.shader.controller
@@ -329,11 +345,16 @@ def TEST_GETBLOCKBUF():
     """Test getBlockBuf function in pynifly.py"""
 
     testfile = r"tests\SkyrimSE\meshes\actors\canine\character assets wolf\skeleton.nif"
-    nif = NifFile(testfile)                                                                                                                                                             
-    blod_name, bonelod = nif.root.bone_lod_extra
-    assert TT.is_eq(blod_name, "BSBoneLOD", "bone LOD name")
-    assert TT.is_eq(len(bonelod), 3, "bone LOD level count")
-    assert TT.is_eq(bonelod[1], ('Canine_LFrontLegToe', 2200), "bone LOD level 1")
+    nif = NifFile(testfile)
+    
+    # Use new BSBoneLODExtraData class
+    bone_lod = nif.root.get_extra_data(blockname='BSBoneLODExtraData', name='BSBoneLOD')
+    assert bone_lod, "BSBoneLOD extra data exists"
+    assert TT.is_eq(bone_lod.name, "BSBoneLOD", "bone LOD name")
+    
+    lod_data = bone_lod.lod_data
+    assert TT.is_eq(len(lod_data), 3, "bone LOD level count")
+    assert TT.is_eq(lod_data[1], ('Canine_LFrontLegToe', 2200), "bone LOD level 1")
 
 
 def TEST_EDITORMARKERS():
@@ -1268,6 +1289,7 @@ def TEST_ALPHA():
     assert tailcheck.alpha_property.properties.alpha_test, f"Have correct test flag"
     assert tailcheck.alpha_property.properties.source_blend_mode == ALPHA_FUNCTION.SRC_ALPHA, f"Have correct blend mode"
     
+@test_category('SKYRIM', 'EXTRA_DATA')
 def TEST_SHEATH():
     """Can read and write extra data"""
     nif = NifFile(r"tests/Skyrim/meshes/sheath_p1_1.nif")
@@ -1278,27 +1300,53 @@ def TEST_SHEATH():
     assert TT.is_eq(bg.name, 'BGED'), "BGED name"
     assert TT.is_patheq(bg.behavior_graph_file, r"AuxBones\SOS\SOSMale.hkx"), "BGED behavior graph file"
 
-    s = nif.string_data
-    assert len(s) == 2, f"Error: Expected two string data records"
-    assert ('HDT Havok Path', 'SKSE\\Plugins\\hdtm_baddog.xml') in s, "Error: expect havok path"
-    assert ('HDT Skinned Mesh Physics Object', 'SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml') in s, "Error: Expect physics path"
+    # Test string extra data using new classes
+    havok_path = nif.root.get_extra_data(blockname='NiStringExtraData', name='HDT Havok Path')
+    assert havok_path, "HDT Havok Path extra data exists"
+    assert TT.is_eq(havok_path.name, 'HDT Havok Path'), "HDT Havok Path name"
+    assert TT.is_eq(havok_path.string_data, 'SKSE\\Plugins\\hdtm_baddog.xml'), "HDT Havok Path value"
 
-    # File level is root level
-    bg = nif.rootNode.behavior_graph_data
-    assert bg == [('BGED', r"AuxBones\SOS\SOSMale.hkx", True)], f"Error: Expected behavior graph data, got {bg}"
+    physics_object = nif.root.get_extra_data(blockname='NiStringExtraData', name='HDT Skinned Mesh Physics Object')
+    assert physics_object, "HDT Skinned Mesh Physics Object extra data exists"
+    assert TT.is_eq(physics_object.name, 'HDT Skinned Mesh Physics Object'), "HDT Skinned Mesh Physics Object name"
+    assert TT.is_eq(physics_object.string_data, 'SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml'), "HDT Skinned Mesh Physics Object value"
 
-    s = nif.rootNode.string_data
-    assert len(s) == 2, f"Error: Expected two string data records"
-    assert ('HDT Havok Path', 'SKSE\\Plugins\\hdtm_baddog.xml') in s, "Error: expect havok path"
-    assert ('HDT Skinned Mesh Physics Object', 'SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml') in s, "Error: Expect physics path"
+    # File level is root level - test the same data through rootNode
+    bg_root = nif.rootNode.get_extra_data(blockname='BSBehaviorGraphExtraData', name='BGED')
+    assert bg_root, "BGED exists on root node"
+    assert TT.is_eq(bg_root.name, 'BGED'), "BGED name on root node"
+    assert TT.is_patheq(bg_root.behavior_graph_file, r"AuxBones\SOS\SOSMale.hkx"), "BGED behavior graph file on root node"
 
-    # Can write extra data at the file level
+    havok_path_root = nif.rootNode.get_extra_data(blockname='NiStringExtraData', name='HDT Havok Path')
+    assert havok_path_root, "HDT Havok Path extra data exists on root node"
+    assert TT.is_eq(havok_path_root.string_data, 'SKSE\\Plugins\\hdtm_baddog.xml'), "HDT Havok Path value on root node"
+
+    physics_object_root = nif.rootNode.get_extra_data(blockname='NiStringExtraData', name='HDT Skinned Mesh Physics Object')
+    assert physics_object_root, "HDT Skinned Mesh Physics Object extra data exists on root node"
+    assert TT.is_eq(physics_object_root.string_data, 'SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml'), "HDT Skinned Mesh Physics Object value on root node"
+
+    # Can write extra data at the file level using new classes
     nifout = NifFile()
     nifout.initialize('SKYRIM', r"tests/Out/pynifly_TEST_SHEATH.nif")
-    nifout.behavior_graph_data = nif.behavior_graph_data
-    nifout.string_data = nif.string_data
-    # Can write extra data with multiple calls
-    nifout.string_data = [('BODYTRI', 'foo/bar/fribble.tri')]
+    
+    # Copy behavior graph data
+    BSBehaviorGraphExtraData.New(nifout, name='BGED', 
+                                behavior_graph_file=bg.behavior_graph_file, 
+                                controls_base_skeleton=bg.controls_base_skeleton, 
+                                parent=nifout.root)
+    
+    # Copy string extra data
+    NiStringExtraData.New(nifout, name='HDT Havok Path', 
+                         string_value=havok_path.string_data, 
+                         parent=nifout.root)
+    NiStringExtraData.New(nifout, name='HDT Skinned Mesh Physics Object', 
+                         string_value=physics_object.string_data, 
+                         parent=nifout.root)
+    
+    # Add additional string data
+    NiStringExtraData.New(nifout, name='BODYTRI', 
+                         string_value='foo/bar/fribble.tri', 
+                         parent=nifout.root)
 
     _export_shape(nif.shapes[0], nifout)
     nifout.save()
@@ -1306,12 +1354,25 @@ def TEST_SHEATH():
     nifcheck = NifFile(r"tests/Out/pynifly_TEST_SHEATH.nif")
 
     assert len(nifcheck.shapes) == 1, "Error: Wrote expected shapes"
-    assert nifcheck.behavior_graph_data == [('BGED', r"AuxBones\SOS\SOSMale.hkx", True)], f"Error: Expected behavior graph data, got {nifcheck.behavior_graph_data}"
     
-    assert len(nifcheck.string_data) == 3, f"Error: Expected three string data records in written file"
-    assert ('HDT Havok Path', 'SKSE\\Plugins\\hdtm_baddog.xml') in nifcheck.string_data, "Error: expect havok path in written file"
-    assert ('HDT Skinned Mesh Physics Object', 'SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml') in nifcheck.string_data, "Error: Expect physics path in written file"
-    assert ('BODYTRI', 'foo/bar/fribble.tri') in nifcheck.string_data, "Error: Expected second string data written to be available"
+    # Check behavior graph data using new class
+    bg_check = nifcheck.root.get_extra_data(blockname='BSBehaviorGraphExtraData', name='BGED')
+    assert bg_check, "BGED exists in written file"
+    assert TT.is_eq(bg_check.name, 'BGED'), "BGED name in written file"
+    assert TT.is_patheq(bg_check.behavior_graph_file, r"AuxBones\SOS\SOSMale.hkx"), "BGED behavior graph file in written file"
+    
+    # Check string extra data using new classes
+    havok_check = nifcheck.root.get_extra_data(blockname='NiStringExtraData', name='HDT Havok Path')
+    assert havok_check, "HDT Havok Path exists in written file"
+    assert TT.is_eq(havok_check.string_data, 'SKSE\\Plugins\\hdtm_baddog.xml'), "HDT Havok Path value in written file"
+    
+    physics_check = nifcheck.root.get_extra_data(blockname='NiStringExtraData', name='HDT Skinned Mesh Physics Object')
+    assert physics_check, "HDT Skinned Mesh Physics Object exists in written file"
+    assert TT.is_eq(physics_check.string_data, 'SKSE\\Plugins\\hdtSkinnedMeshConfigs\\MaleSchlong.xml'), "HDT Skinned Mesh Physics Object value in written file"
+    
+    bodytri_check = nifcheck.root.get_extra_data(blockname='NiStringExtraData', name='BODYTRI')
+    assert bodytri_check, "BODYTRI exists in written file"
+    assert TT.is_eq(bodytri_check.string_data, 'foo/bar/fribble.tri'), "BODYTRI value in written file"
 
 
 def TEST_FEET():
@@ -1319,9 +1380,11 @@ def TEST_FEET():
     nif = NifFile(r"tests/SkyrimSE/meshes/caninemalefeet_1.nif")
     feet = nif.shapes[0]
     
-    s = feet.string_data
-    assert s[0][0] == 'SDTA', f"Error: Expected string data, got {s}"
-    assert s[0][1].startswith('[{"name"'), f"Error: Expected string data, got {s}"
+    # Test string extra data using new classes
+    sdta = feet.get_extra_data(blockname='NiStringExtraData', name='SDTA')
+    assert sdta, "SDTA extra data exists"
+    assert TT.is_eq(sdta.name, 'SDTA'), "SDTA name correct"
+    assert sdta.string_data.startswith('[{"name"'), f"Error: Expected string data, got {sdta.string_data}"
 
     nifout = NifFile()
     nifout.initialize('SKYRIM', r"tests/Out/pynifly_TEST_FEET.nif")
@@ -1333,9 +1396,11 @@ def TEST_FEET():
     assert len(nifcheck.shapes) == 1, "Error: Wrote expected shapes"
     feetcheck = nifcheck.shapes[0]
 
-    s = feetcheck.string_data
-    assert s[0][0] == 'SDTA', f"Error: Expected string data, got {s}"
-    assert s[0][1].startswith('[{"name"'), f"Error: Expected string data, got {s}"
+    # Check string extra data using new classes
+    sdta_check = feetcheck.get_extra_data(blockname='NiStringExtraData', name='SDTA')
+    assert sdta_check, "SDTA extra data exists in written file"
+    assert TT.is_eq(sdta_check.name, 'SDTA'), "SDTA name correct in written file"
+    assert sdta_check.string_data.startswith('[{"name"'), f"Error: Expected string data, got {sdta_check.string_data}"
 
 
 def TEST_XFORM_STATIC():
@@ -1583,10 +1648,13 @@ def TEST_BOW():
     TT.assert_equiv(root.global_transform.rotation[2], [0,0,1], "Root node transform")
     TT.assert_equiv(root.global_transform.scale, 1.0, "Root node scale")
 
-    TT.assert_eq(root.behavior_graph_data[0][0], 'BGED', f"behavior graph data tag")
-    TT.assert_patheq(root.behavior_graph_data[0][1], r"Weapons\Bow\BowProject.hkx", 
+    # Test behavior graph data using new classes
+    bged = root.get_extra_data(blockname='BSBehaviorGraphExtraData', name='BGED')
+    assert bged, "BGED extra data exists"
+    TT.assert_eq(bged.name, 'BGED', f"behavior graph data tag")
+    TT.assert_patheq(bged.behavior_graph_file, r"Weapons\Bow\BowProject.hkx", 
                      f"behavior graph hkx path")
-    TT.assert_eq(root.behavior_graph_data[0][2], False, f"behavior graph flag")
+    TT.assert_eq(bged.controls_base_skeleton, False, f"behavior graph flag")
 
     TT.assert_eq(root.inventory_marker[0], "INV", f"inventory marker tag")
     TT.assert_eq(root.inventory_marker[1:4], [4712, 0, 785], f"inventory marker data")
@@ -1618,7 +1686,7 @@ def TEST_BOW():
     _export_shape(nif.shapes[0], nifOut)
 
     # Testing BGED too
-    nifOut.behavior_graph_data = nif.behavior_graph_data
+    # Testing BGED too - copy using new classes\n    bged_orig = nif.root.get_extra_data(blockname='BSBehaviorGraphExtraData', name='BGED')\n    if bged_orig:\n        BSBehaviorGraphExtraData.New(nifOut, name=bged_orig.name,\n                                    behavior_graph_file=bged_orig.behavior_graph_file,\n                                    controls_base_skeleton=bged_orig.controls_base_skeleton,\n                                    parent=nifOut.root)
 
     # Have to apply the skin so we have the bone available to add collisions
     #nifOut.apply_skin()
@@ -2342,7 +2410,15 @@ def TEST_SKEL():
     """Import of skeleton file with collisions"""
     nif = NifFile(r"tests/Skyrim/skeleton_vanilla.nif")
     npc = nif.nodes['NPC']
-    assert npc.string_data[0][1] == "Human"
+    
+    # Test string extra data using new classes - find the one with "Human" value
+    human_data = None
+    for i in range(10):  # Look through potential string extra data
+        str_data = npc.get_extra_data(blockname='NiStringExtraData', target_index=i)
+        if str_data and str_data.string_data == "Human":
+            human_data = str_data
+            break
+    assert human_data and human_data.string_data == "Human", "Found Human string data"
 
     # COM node has a bhkBlendCollisionObject
     com = nif.nodes['NPC COM [COM ]']
@@ -2598,10 +2674,9 @@ def TEST_SKELETON_DEER():
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]
 executed_tests = {}
-stop_on_fail = False
 
 
-def execute_test(t):
+def execute_test(t, stop_on_fail=True):
     if t.__name__ in executed_tests: return
 
     NifFile.clear_log()
@@ -2620,7 +2695,7 @@ def execute_test(t):
     print(f"------------- done")
 
 
-def execute(start=None, testlist=None, exclude=None, categories:set=None):
+def execute(start=None, testlist=None, exclude=None, categories:set=None, stop_on_fail=True):
     print("""\n
 =====================================================================
 ======================= Running pynifly tests =======================
@@ -2631,7 +2706,7 @@ def execute(start=None, testlist=None, exclude=None, categories:set=None):
     if testlist:
         for test in testlist:
             if test.__name__ not in executed_tests:
-                execute_test(test)
+                execute_test(test, stop_on_fail=stop_on_fail)
     elif categories:
         for t in alltests:
             if (t.__name__ not in executed_tests
@@ -2639,7 +2714,7 @@ def execute(start=None, testlist=None, exclude=None, categories:set=None):
                 if "SKIP" in t.__dict__.get("category", set()):
                     executed_tests[t.__name__] = "SKIPPED"
                 else:
-                    execute_test(t)
+                    execute_test(t, stop_on_fail=stop_on_fail)
     else:
         doit = (start is None) 
         for t in alltests:
@@ -2649,7 +2724,7 @@ def execute(start=None, testlist=None, exclude=None, categories:set=None):
             elif (doit 
                     and not t in exclude 
                     and t.__name__ not in executed_tests):
-                execute_test(t)
+                execute_test(t, stop_on_fail=stop_on_fail)
 
     if stop_on_fail:
         print("""

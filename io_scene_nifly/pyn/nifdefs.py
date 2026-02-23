@@ -1059,7 +1059,9 @@ class PynBufferTypes(IntEnum):
     BSBoundBufType = 60
     BSBoneLODBufType = 61
     NiIntegerExtraDataBufType = 62
-    COUNT = 63
+    BSBehaviorGraphExtraDataBufType = 63
+    NiStringExtraDataBufType = 64
+    COUNT = 65
 
 # bufferTypeList = [''] * PynBufferTypes.COUNT
 # blockBuffers = {}
@@ -2481,6 +2483,29 @@ class NiIntegerExtraDataBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiIntegerExtraDataBufType
+
+class BSBehaviorGraphExtraDataBuf(pynStructure):
+    _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
+        ("nameID", c_uint32),
+        ("behaviorGraphFileID", c_uint32),
+        ("controlsBaseSkeleton", c_uint8),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BSBehaviorGraphExtraDataBufType
+
+class NiStringExtraDataBuf(pynStructure):
+    _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
+        ("nameID", c_uint32),
+        ("stringDataID", c_uint32),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.NiStringExtraDataBufType
 
 class TextKeyBuf(pynStructure):
     _fields_ = [

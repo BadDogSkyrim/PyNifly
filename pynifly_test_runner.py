@@ -29,7 +29,8 @@ mylog.setLevel(logging.DEBUG)
 
 # ############## TESTS TO RUN #############
 execute(
-    testlist=[TEST_SHEATH]
+    testlist=[TEST_BOW, TEST_MANY_SHAPES, TEST_CONNECT_POINTS, TEST_TREE, TEST_FULLPREC, TEST_SKELETON_DEER],
+    stop_on_fail=True
     )
 # execute()
 # execute(start=TEST_KF)

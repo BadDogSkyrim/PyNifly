@@ -2503,7 +2503,30 @@ class NiSequence(NiObject):
     import_node = _default_import_func
 
 
-class NiTextKeyExtraData(NiObject):
+class NiExtraData(NiObject):
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._name = None
+
+    @property
+    def name(self):
+        if self._name == None:
+            namebuf = (c_char * self.file.max_string_len)()
+            NifFile.nifly.getString(
+                self.file._handle, self.properties.nameID, self.file.max_string_len, namebuf)
+            self._name = namebuf.value.decode('utf-8')
+        return self._name
+    
+    @name.setter
+    def name(self, value):
+        self._name = value
+        if self.file and self.id != NODEID_NONE:
+            self.properties.nameID = NifFile.nifly.addString(
+                self.file._handle, value.encode('utf-8'))
+            check_return(NifFile.nifly.setBlock, self.file._handle, self.id, byref(self.properties))
+
+
+class NiTextKeyExtraData(NiExtraData):
     buffer_type = PynBufferTypes.NiTextKeyExtraDataBufType
 
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
@@ -2546,7 +2569,7 @@ class NiTextKeyExtraData(NiObject):
         return tk
 
 
-class NiIntegerExtraData(NiObject):
+class NiIntegerExtraData(NiExtraData):
     buffer_type = PynBufferTypes.NiIntegerExtraDataBufType
 
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
@@ -2577,6 +2600,159 @@ class NiIntegerExtraData(NiObject):
         p = NiIntegerExtraDataBuf()
         p.integerData = integer_value
         return file.add_block(name, p, parent)
+
+
+class BSBehaviorGraphExtraData(NiExtraData):
+    buffer_type = PynBufferTypes.BSBehaviorGraphExtraDataBufType
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+
+    @classmethod 
+    def getbuf(cls, values=None):
+        return BSBehaviorGraphExtraDataBuf(values)
+
+    @property 
+    def behavior_graph_file(self):
+        """
+        Behavior graph file path stored in this extra data block.
+        """
+        if self.properties.behaviorGraphFileID == NODEID_NONE:
+            return ""
+        namebuf = (c_char * self.file.max_string_len)()
+        NifFile.nifly.getString(
+            self.file._handle, self.properties.behaviorGraphFileID, self.file.max_string_len, namebuf)
+        return namebuf.value.decode('utf-8')
+    
+    @behavior_graph_file.setter
+    def behavior_graph_file(self, value):
+        """
+        Set the behavior graph file path for this extra data block.
+        """
+        self.properties.behaviorGraphFileID = NifFile.nifly.addString(
+            self.file._handle, value.encode('utf-8'))
+        if self.file and self.id != NODEID_NONE:
+            check_return(NifFile.nifly.setBlock, self.file._handle, self.id, byref(self.properties))
+
+    @property 
+    def controls_base_skeleton(self):
+        """
+        Boolean flag indicating whether this behavior graph controls the base skeleton.
+        """
+        return bool(self.properties.controlsBaseSkeleton)
+    
+    @controls_base_skeleton.setter
+    def controls_base_skeleton(self, value):
+        """
+        Set the controls base skeleton flag for this extra data block.
+        """
+        self.properties.controlsBaseSkeleton = 1 if value else 0
+        if self.file and self.id != NODEID_NONE:
+            check_return(NifFile.nifly.setBlock, self.file._handle, self.id, byref(self.properties))
+
+    @classmethod
+    def New(cls, file, name='', behavior_graph_file='', controls_base_skeleton=False, parent=None):
+        p = BSBehaviorGraphExtraDataBuf()
+        p.behaviorGraphFileID = NifFile.nifly.addString(file._handle, behavior_graph_file.encode('utf-8'))
+        p.controlsBaseSkeleton = 1 if controls_base_skeleton else 0
+        return file.add_block(name, p, parent)
+
+
+class NiStringExtraData(NiExtraData):
+    buffer_type = PynBufferTypes.NiStringExtraDataBufType
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+
+    @classmethod 
+    def getbuf(cls, values=None):
+        return NiStringExtraDataBuf(values)
+
+    @property 
+    def string_data(self):
+        """
+        String value stored in this extra data block.
+        """
+        if self.properties.stringDataID == NODEID_NONE:
+            return ""
+        namebuf = (c_char * self.file.max_string_len)()
+        NifFile.nifly.getString(
+            self.file._handle, self.properties.stringDataID, self.file.max_string_len, namebuf)
+        return namebuf.value.decode('utf-8')
+    
+    @string_data.setter
+    def string_data(self, value):
+        """
+        Set the string value for this extra data block.
+        """
+        self.properties.stringDataID = NifFile.nifly.addString(
+            self.file._handle, value.encode('utf-8'))
+        if self.file and self.id != NODEID_NONE:
+            check_return(NifFile.nifly.setBlock, self.file._handle, self.id, byref(self.properties))
+
+    @classmethod
+    def New(cls, file, name='', string_value='', parent=None):
+        p = NiStringExtraDataBuf()
+        p.stringDataID = NifFile.nifly.addString(file._handle, string_value.encode('utf-8'))
+        return file.add_block(name, p, parent)
+
+
+class BSBoneLODExtraData(NiExtraData):
+    buffer_type = PynBufferTypes.BSBoneLODBufType
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._lod_data = None
+
+    @classmethod 
+    def getbuf(cls, values=None):
+        return BSBoneLODBuf(values)
+
+    @property 
+    def lod_data(self):
+        """
+        LOD data returned as [(bone_name, distance), ...]
+        """
+        if self._lod_data is None:
+            self._lod_data = []
+            if self.properties.lodCount > 0:
+                lodbuf = (BoneLODInfoBuf * self.properties.lodCount)()
+                check_msg(NifFile.nifly.getBoneLODInfo, self.file._handle, self.id, byref(lodbuf), self.properties.lodCount)
+                for li in lodbuf:
+                    tn = create_string_buffer(256)
+                    check_msg(NifFile.nifly.getString, self.file._handle, li.nameID, 256, tn)
+                    self._lod_data.append((tn.value.decode('utf-8'), li.distance))
+        return self._lod_data
+    
+    @lod_data.setter
+    def lod_data(self, value):
+        """
+        Set the LOD data for this extra data block.
+        value: [(bone_name, distance), ...]
+        """
+        self._lod_data = value
+        self.properties.lodCount = len(value)
+        if self.file and self.id != NODEID_NONE:
+            check_return(NifFile.nifly.setBlock, self.file._handle, self.id, byref(self.properties))
+            
+            # Set the LOD info array
+            lodbuf = (BoneLODInfoBuf * len(value))()
+            for i, (bone_name, distance) in enumerate(value):
+                lodbuf[i].distance = distance
+                lodbuf[i].nameID = check_msg(
+                    NifFile.nifly.addString, self.file._handle, bone_name.encode('utf-8'))
+            check_return(NifFile.nifly.setBoneLOD, self.file._handle, self.id, len(value), byref(lodbuf))
+
+    @classmethod
+    def New(cls, file, name='', lod_data=None, parent=None):
+        if lod_data is None:
+            lod_data = []
+        p = BSBoneLODBuf()
+        p.lodCount = len(lod_data)
+        bone_lod = file.add_block(name, p, parent)
+        if lod_data:
+            bone_lod.lod_data = lod_data
+        return bone_lod
 
 
 class NiControllerSequence(NiSequence):
@@ -3269,48 +3445,20 @@ class NiShaderFO4(NiShader):
             # will come from. Some FO4 nifs don't have materials files. Apparently (?)
             # they use the shader block attributes.
             if self.name:
-                # Build comprehensive search paths like texture search
+                # Build search paths starting with the nif's own materials root
                 altpaths = []
                 
                 # Add the nif's own materials root first
                 if self.file.materialsRoot:
                     altpaths.append(self.file.materialsRoot)
                 
-                # Try to add Blender and game-specific paths if available
-                try:
-                    import bpy
-                    from .. import gamefinder
-                    
-                    # Add Blender's texture directory converted to materials
-                    if bpy.context.preferences.filepaths.texture_directory:
-                        tex_dir = Path(bpy.context.preferences.filepaths.texture_directory)
-                        # Convert texture directory to materials directory
-                        if tex_dir.name.lower() == 'textures':
-                            materials_dir = tex_dir.parent / 'materials'
-                        else:
-                            materials_dir = tex_dir / 'materials'
-                        altpaths.append(materials_dir)
-                    
-                    # Add game-specific preference paths converted to materials
-                    prefs = bpy.context.preferences.addons["io_scene_nifly"].preferences
-                    if self.game in ('SKYRIM', 'SKYRIMSE'):
-                        for path_pref in [prefs.sky_texture_path_1, prefs.sky_texture_path_2, 
-                                         prefs.sky_texture_path_3, prefs.sky_texture_path_4]:
-                            if path_pref and (cleaned_path := materials_path(path_pref)):
-                                altpaths.append(cleaned_path)
+                # Add any additional paths provided via alternate_paths attribute
+                alternate_paths = getattr(self, 'alternate_paths', None)
+                if alternate_paths:
+                    if isinstance(alternate_paths, (list, tuple)):
+                        altpaths.extend(alternate_paths)
                     else:
-                        for path_pref in [prefs.fo4_texture_path_1, prefs.fo4_texture_path_2, 
-                                         prefs.fo4_texture_path_3, prefs.fo4_texture_path_4]:
-                            if path_pref and (cleaned_path := materials_path(path_pref)):
-                                altpaths.append(cleaned_path)
-
-                    # Add game directory materials path
-                    if gamepath := gamefinder.find_game(self.game):
-                        altpaths.append(gamepath / 'data' / 'materials')
-                        
-                except ImportError:
-                    # If Blender modules aren't available, just use the basic path
-                    pass
+                        altpaths.append(alternate_paths)
                 
                 fullpath = find_referenced_file(self.name, self.file.filepath, root='materials', 
                                                 alt_pathlist=altpaths)

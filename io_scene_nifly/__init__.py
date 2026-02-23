@@ -13,16 +13,15 @@ bl_info = {
     "category": "Import-Export"
 }
 
+import os
+
+BLENDER_AVAILABLE = ("BLENDER_SYSTEM_SCRIPTS" in os.environ)
+
 from contextlib import suppress
-try:
+if BLENDER_AVAILABLE:
     import bpy
     from bpy.types import AddonPreferences
     from bpy.props import StringProperty, BoolProperty
-    BLENDER_AVAILABLE = True
-except:
-    BLENDER_AVAILABLE = False
-
-if BLENDER_AVAILABLE:
     class PyNiflyPreferences(AddonPreferences):
         bl_idname = "io_scene_nifly"   # critical: must match your add-on module name
 
