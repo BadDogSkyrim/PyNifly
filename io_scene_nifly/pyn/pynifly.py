@@ -4424,6 +4424,7 @@ class NifFile:
     """ NifFile represents the file itself. Corresponds approximately to a NifFile in the 
         Nifly layer, but we've hidden the AnimInfo object in here too.
         """
+    has_extra_data = True
     nifly = None
     log = logging.getLogger("pynifly")
 
@@ -4978,6 +4979,7 @@ class hkxSkeletonFile(NifFile):
     Represents a hkx skeleton file. Extends and replaces NifFile's functionality to
     read a XML file instead of a nif. 
     """
+    has_extra_data = False
 
     def __init__(self, filepath=None):
         super().__init__(filepath=None)
