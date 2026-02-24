@@ -102,7 +102,7 @@ if py_addon_path not in sys.path:
 dev_path = os.path.join(py_addon_path, "NiflyDLL.dll")
 
 dev_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
-pynifly.NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], dev_path))
+# No need to call NifFile.Load() anymore
 
 FixNifs(targetFolder)
 

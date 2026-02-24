@@ -6,8 +6,8 @@ if __name__ == "__main__":
     import codecs
     # import quickhull
 
-    nifly_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
-    NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], nifly_path))
+    # Library is automatically loaded when pynifly is imported
+    # No need to call NifFile.Load() anymore
 
     i = 0
     walkroot = r"C:\Modding\Fallout4\mods\00 FO4 Assets\Meshes"

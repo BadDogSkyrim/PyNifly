@@ -262,7 +262,7 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
         p = BSShaderPPLightingProperty.getbuf()
     else:
         raise Exception(f"Unhandled shader property type: {old_shape.shader.blockname}")
-    check_return(NifFile.nifly.getBlock,
+    check_return(nifly.getBlock,
             old_shape.file._handle, 
             old_shape.shader.id, 
             byref(p))
@@ -312,7 +312,7 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
         old_controller = old_shape.shader.controller
         if isinstance(old_controller, NiFloatInterpController):
             blkname = ctypes.create_string_buffer(128)
-            NifFile.nifly.getBlockname(new_nif._handle, new_shape.shader.id, blkname, 128)
+            nifly.getBlockname(new_nif._handle, new_shape.shader.id, blkname, 128)
             name = blkname.value.decode('utf-8') 
             
             controller_prop = old_controller.properties.copy()

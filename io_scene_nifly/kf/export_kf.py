@@ -8,7 +8,8 @@ from pathlib import Path
 import bpy
 from bpy.props import StringProperty, CollectionProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
-from ..pyn.pynifly import nifly_path, pynifly_dev_path, pynifly_addon_path, NifFile
+from ..pyn.pynifly import NifFile
+from ..pyn.niflydll import nifly_path, pynifly_dev_path, pynifly_addon_path
 from ..pyn.nifdefs import PynIntFlag
 from ..blender_defs import LogHandler
 from ..nif.controller import ControllerHandler
@@ -126,7 +127,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
 
 
     def execute(self, context):
-        NifFile.Load(nifly_path)
+        # No need to call NifFile.Load() anymore
 
         self.context = context
         res = set()

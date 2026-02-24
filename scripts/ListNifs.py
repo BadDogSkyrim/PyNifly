@@ -9,7 +9,7 @@ import os
 import pynifly
 
 dev_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
-pynifly.NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], dev_path))
+# No need to call NifFile.Load() anymore
 
 
 def all_files(directory):

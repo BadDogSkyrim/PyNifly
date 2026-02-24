@@ -13,8 +13,8 @@ import math
 import os
 import pynifly
 
-dev_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
-pynifly.NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], dev_path))
+# Library is automatically loaded when pynifly is imported
+# No need to call NifFile.Load() anymore
 
 replacers = (
     (r"textures\actors\character\lykaios\hair", r"textures\YAS\Hair"),

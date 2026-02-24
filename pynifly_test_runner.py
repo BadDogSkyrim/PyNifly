@@ -18,8 +18,8 @@ xmltools.XMLFile.SetPath(hkxcmd_path)
 from io_scene_nifly.pyn.pynifly import NifFile
 from tests.pynifly_tests import *
 
-dev_path = r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
-NifFile.Load(os.path.join(os.environ['PYNIFLY_DEV_ROOT'], dev_path))
+# Library is automatically loaded when pynifly is imported
+# No need to call NifFile.Load() anymore
 
 mylog = logging.getLogger("pynifly")
 logging.basicConfig()

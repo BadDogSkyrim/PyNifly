@@ -1828,7 +1828,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         try:
             context.scene.frame_set(1)
 
-            P.NifFile.Load(P.nifly_path)
+            # Library is automatically loaded when pynifly is imported
 
             folderpath = os.path.dirname(self.filepath)
             filenames = [f.name for f in self.files]

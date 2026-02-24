@@ -1794,7 +1794,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             return {'CANCELLED'}
 
         self.log_handler = BD.LogHandler.New(bl_info, "EXPORT", "NIF")
-        pynifly.NifFile.Load(pynifly.nifly_path)
+        # Library is automatically loaded when pynifly is imported
 
         if self.intuit_defaults:
             self.target_game = self._discover_game(self.objects_to_export)

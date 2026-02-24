@@ -11,7 +11,8 @@ from pathlib import Path
 import bpy
 from bpy.props import StringProperty, CollectionProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
-from ..pyn.pynifly import nifly_path, NifFile
+from ..pyn.pynifly import NifFile
+from ..pyn.niflydll import nifly_path
 from ..pyn.nifdefs import PynIntFlag
 from ..blender_defs import LogHandler
 from ..nif.import_nif import NifImporter
@@ -124,7 +125,7 @@ class ImportKF(bpy.types.Operator, ImportHelper):
         context.scene.collection.children.link(self.collection)
         
         try:
-            NifFile.Load(nifly_path)
+            # No need to call NifFile.Load() anymore
             folderpath = self.file_path.parent
             filenames = [f.name for f in self.files]
             if filenames:

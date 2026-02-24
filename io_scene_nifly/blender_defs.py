@@ -10,7 +10,8 @@ import bpy
 from math import pi, radians
 from .pyn.nifdefs import NiKeyType
 from .pyn.niflytools import VNearEqual, NearEqual, gameSkeletons, fo4FaceDict
-from .pyn.pynifly import pynifly_dev_path, pynifly_addon_path, NiTransformData, NiShape, TransformBuf, MATRIX3
+from .pyn.niflydll import pynifly_dev_path, pynifly_addon_path
+from .pyn.pynifly import NiTransformData, NiShape, TransformBuf, MATRIX3
 
 import ctypes
 from ctypes import wintypes

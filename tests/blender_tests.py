@@ -7620,12 +7620,6 @@ def print_boxed(text, width=78):
     print(top_bottom)
     
     
-def testfrom(starttest):
-    try:
-        return alltests[alltests.index(starttest):]
-    except:
-        return alltests
-
 def execute_test(t, executed_tests, stop_on_fail=True):
         # t = sys.modules[__name__].__dict__[t.__name__]
         if not t: return

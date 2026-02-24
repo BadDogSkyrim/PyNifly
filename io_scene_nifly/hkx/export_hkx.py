@@ -14,7 +14,8 @@ from bpy.props import StringProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from ..pyn.nifdefs import PynIntFlag
 from ..pyn.niflytools import tmp_filepath, nospace_filepath, copyfile
-from ..pyn.pynifly import nifly_path, pynifly_dev_path, pynifly_addon_path, NifFile
+from ..pyn.pynifly import NifFile
+from ..pyn.niflydll import nifly_path, pynifly_dev_path, pynifly_addon_path
 from ..blender_defs import LogHandler
 from .. import bl_info
 from . import skeleton_hkx
@@ -208,7 +209,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         self.xml_filepath = None
         self.xml_filepath_out = None
         self.log_handler = LogHandler.New(bl_info, "EXPORT", "HKX")
-        NifFile.Load(nifly_path)
+        # No need to call NifFile.Load() anymore
         NifFile.clear_log()
 
         # Export whatever animation is attached to the active object.

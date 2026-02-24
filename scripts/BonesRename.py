@@ -3,8 +3,8 @@ import struct
 from niflytools import *
 from pynifly import *
 
-nifly_path = r"C:\Users\User\OneDrive\Dev\PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll"
-NifFile.Load(nifly_path)
+# Library is automatically loaded when pynifly is imported
+# No need to call NifFile.Load() anymore
 NifFile.log.setLevel(logging.DEBUG)
 
 def ParentName(n):

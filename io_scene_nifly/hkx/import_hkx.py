@@ -13,7 +13,8 @@ from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
 from ..pyn.nifdefs import PynIntFlag
 from ..pyn.niflytools import tmp_copy_nospace, tmp_copy, tmp_filepath
-from ..pyn.pynifly import nifly_path, pynifly_dev_path, pynifly_addon_path, NifFile
+from ..pyn.niflydll import nifly_path, pynifly_dev_path, pynifly_addon_path
+from ..pyn.pynifly import NifFile
 from .. import blender_defs as bdefs
 from .. import bl_info
 from ..util.settings import ImportSettings
@@ -137,7 +138,7 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         try:
             self.log_handler = bdefs.LogHandler.New(bl_info, "IMPORT", "HKX")
 
-            NifFile.Load(nifly_path)
+            # Library is automatically loaded when pynifly is imported
             XMLFile.SetPath(hkxcmd_path)
             self.xmlfile = XMLFile(self.filepath, self)
             if self.xmlfile.contains_skeleton:
