@@ -1,3 +1,4 @@
+import logging 
 import os
 from importlib import reload
 from . import test_tools
@@ -9,3 +10,5 @@ def running_in_blender():
 if running_in_blender():
     from . import blender_tests
     reload(blender_tests)
+    log = logging.getLogger('pynifly')
+    log.info("Reloaded blender_tests")

@@ -200,12 +200,13 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         imp.context = self.context
         if self.context.view_layer.active_layer_collection: 
             imp.collection = self.context.view_layer.active_layer_collection.collection
-        imp.do_create_bones = False
-        imp.rename_bones = self.rename_bones
-        imp.rename_bones_niftools = self.rename_bones_niftools
-        imp.import_animations = True
+        imp.settings.create_bones = False
+        imp.settings.rename_bones = self.rename_bones
+        imp.settings.rename_bones_niftools = self.rename_bones_niftools
+        imp.settings.import_animations = True
+        imp.settings.import_tris = False
         if self.blender_xf:
-            imp.import_xf = bdefs.blender_import_xf
+            imp.settings.blender_xf = bdefs.blender_import_xf
         imp.execute()
         objlist = [x for x in imp.objects_created.blender_objects() if x.type=='MESH']
         if imp.armature:

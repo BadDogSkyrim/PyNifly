@@ -110,24 +110,24 @@ def assert_equiv(actual, expected, msg, e=0.0001):
         assert NT.NearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
 
 
-def is_equiv(actual, expected, msg, e=0.0001):
+def is_equiv(actual, expected, msg=None, e=0.0001):
     """Check two values are nearly equal. Values may be scalars, vectors, or matrices."""
     if hasattr(actual, '__getitem__'):
         if hasattr(actual[0], '__getitem__'):
             if NT.MatNearEqual(actual, expected, epsilon=e):
                 return True
             else:
-                log.error(f"ASSERT FAIL: Values are equal for {msg}: \n{actual} \n!= \n{expected}")
+                log.error(f"ASSERT FAIL: {msg + ': ' if msg else ''}\n{actual} \n!= \n{expected}")
         else:
             if NT.VNearEqual(actual[:], expected, epsilon=e):
                 return True
             else:
-                log.error(f"ASSERT FAIL: Values are equal for {msg}: {actual[:]} != {expected}")
+                log.error(f"ASSERT FAIL: {msg + ': ' if msg else ''}{actual[:]} != {expected}")
     else:
         if NT.NearEqual(actual, expected, epsilon=e):
             return True
         else:
-            log.error(f"ASSERT FAIL: Values are equal for {msg}: {actual} != {expected}")
+            log.error(f"ASSERT FAIL: {msg + ': ' if msg else ''}{actual} != {expected}")
     return False
 
 
@@ -226,12 +226,12 @@ def assert_lt(actual, expected, msg, e=0.0001):
     assert actual < expected, f"Values actual less than expected for {msg}: {actual} < {expected}"
 
 
-def is_lt(actual, expected, msg, e=0.0001):
+def is_lt(actual, expected, msg=None, e=0.0001):
     """Assert actual is less than expected."""
     if actual < expected:
         return True
     else:        
-        log.error(f"ASSERT FAIL: Values actual less than expected for {msg}: {actual} < {expected}")
+        log.error(f"ASSERT FAIL: {msg + ': ' if msg else ''}{actual} < {expected}")
         return False
 
 
@@ -245,12 +245,12 @@ def assert_gt(actual, expected, msg, e=0.0001):
     assert actual > expected, f"Values actual greater than expected for {msg}: {actual} > {expected}"
 
 
-def is_gt(actual, expected, msg, e=0.0001):
+def is_gt(actual, expected, msg=None, e=0.0001):
     """Assert actual is greater than expected."""
     if actual > expected:
         return True
     else:
-        log.error(f"ASSERT FAIL: Values actual greater than expected for {msg}: {actual} > {expected}")
+        log.error(f"ASSERT FAIL: {msg + ': ' if msg else ''}{actual} > {expected}")
         return False
 
 def assert_ge(actual, expected, msg, e=0.0001):

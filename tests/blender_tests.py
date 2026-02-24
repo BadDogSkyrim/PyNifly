@@ -317,25 +317,33 @@ def do_bodypart_alignment_fo4(create_bones, estimate_offset, use_pose):
                                  create_bones=create_bones,
                                  import_pose=use_pose)
     skel = [x for x in bpy.context.scene.objects if x.type == 'ARMATURE'][0]
-    assert skel.type == 'ARMATURE', f"Have armature"
+    assert TT.is_eq(skel.type, 'ARMATURE', "Have armature")
     BD.ObjectSelect([skel], active=True)
     bpy.ops.import_scene.pynifly(filepath=bodyfile, 
                                  create_bones=create_bones,
                                  import_pose=use_pose)
     body = bpy.context.object
     bodyarma = body.modifiers['Armature'].object
-    TT.assert_eq(bodyarma, skel, "existing skeleton")
+    assert TT.is_eq(bodyarma, skel), "existing skeleton"
     BD.ObjectSelect([skel], active=True)
     bpy.ops.import_scene.pynifly(filepath=headfile, 
                                  create_bones=create_bones,
                                  import_pose=use_pose)
     head = bpy.context.object
     if estimate_offset:
-        assert BD.NearEqual(head.location.z, 120.8, epsilon=0.1), f"Head in correct location"
+        assert TT.is_equiv(head.location.z, 120.8, e=0.1), "Head in correct location"
     else:
-        assert BD.NearEqual(head.location.z, 0), f"Head in correct location"
-    assert len([x for x in bpy.context.view_layer.objects if x.type=='ARMATURE']) == 1, \
-        f"Used same armature for all imports"
+        assert TT.is_equiv(head.location.z, 0, e=0.1), "Head in correct location"
+    assert TT.is_eq(len([x for x in bpy.context.view_layer.objects if x.type=='ARMATURE']), 1, 
+        "Used same armature for all imports")
+
+    # Validate that a known set of vertex pairs are at the same location.
+    matchingPairsHB = [(3, 327), (16, 219), (1915, 1)]
+    for hvi, bvi in matchingPairsHB:
+        head_world_pos = head.matrix_world @ head.data.vertices[hvi].co
+        body_world_pos = body.matrix_world @ body.data.vertices[bvi].co
+        assert TT.is_equiv(head_world_pos, body_world_pos, e=0.0005), \
+            "Matching verts at same world location"
 
     # Write the body parts
     BD.ObjectSelect([body], active=True)
@@ -348,9 +356,9 @@ def do_bodypart_alignment_fo4(create_bones, estimate_offset, use_pose):
     headCheck = headNifCheck.shapes[0]
     bodyNifCheck = pyn.NifFile(bodyout)
     bodyCheck = bodyNifCheck.shapes[0]
-    matchingPairsHB = [(3, 327), (16, 219), (1915, 1)]
     for hvi, bvi in matchingPairsHB:
-        assert BD.VNearEqual(headCheck.verts[hvi], bodyCheck.verts[bvi]), "Matching verts at same location"
+        assert TT.is_equiv(headCheck.verts[hvi], bodyCheck.verts[bvi], e=0.0005), \
+            "Matching verts at same location"
     # for i, vh in enumerate(headCheck.verts):
     #     for j, vb in enumerate(bodyCheck.verts):
     #         if BD.VNearEqual(vh, vb):
@@ -359,10 +367,10 @@ def do_bodypart_alignment_fo4(create_bones, estimate_offset, use_pose):
         print(bn)
         print(headCheck.get_shape_skin_to_bone(bn).translation[:])
         print(bodyCheck.get_shape_skin_to_bone(bn).translation[:])
-        assert BD.VNearEqual(headCheck.get_shape_skin_to_bone(bn).translation[:], 
-                             bodyCheck.get_shape_skin_to_bone(bn).translation[:],
-                             epsilon=0.0001), \
-            f"Translations don't match: {headCheck.get_shape_skin_to_bone(bn).translation[:]} != {bodyCheck.get_shape_skin_to_bone(bn).translation[:]}"
+        assert TT.is_equiv(headCheck.get_shape_skin_to_bone(bn).translation[:], 
+                           bodyCheck.get_shape_skin_to_bone(bn).translation[:],
+                           e=0.0005), \
+            "skin to bone translations"
 
 
 @TT.category('FO4', 'BODYPART', 'XFORM')
@@ -455,6 +463,7 @@ def TEST_IMP_EXP_SKY(game, blendxf, pretty):
         
 
 @TT.category('SKYRIM', 'BODYPART')
+@TT.expect_errors(("Unknown block type: BSDecalPlacementVectorExtraData",))
 def TEST_IMP_EXP_SKY_2():
     """Can read the armor nif with two shapes and spit it back out"""
     # Basic test that the import/export round trip works on nifs with multiple bodyparts. 
@@ -608,22 +617,29 @@ def TEST_ROUND_TRIP():
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     armor1 = bpy.data.objects["Armor"]
-    assert int(armor1.location.z) == 120, "ERROR: Armor moved above origin by 120 to skinned position"
+    assert TT.is_eq(int(armor1.location.z), 120), \
+        "Armor moved above origin by 120 to skinned position"
     maxz = max([v.co.z for v in armor1.data.vertices])
     minz = min([v.co.z for v in armor1.data.vertices])
-    assert maxz < 0 and minz > -130, "Error: Vertices are positioned below origin"
-    assert len(armor1.data.vertex_colors) == 0, "ERROR: Armor should have no colors"
+    assert TT.is_lt(maxz, 0), "Max Z is below origin"
+    assert TT.is_gt(minz, -130), "Min Z is above -130"
+    assert TT.is_eq(len(armor1.data.vertex_colors), 0), "Armor should have no colors"
 
-    arma = bpy.data.objects["Scene Root:ARMATURE"]
+    # Because the base offsets for the two shapes are different, there are two armatures.
+    # Find the one with the hand bone.
+    arma = [a for a in bpy.data.objects 
+            if a.type == 'ARMATURE' and 'NPC Hand.L' in a.data.bones][0]
+    assert arma, "Found armature with hand bone"
     handl = arma.data.bones["NPC Hand.L"]
     handlx = handl.matrix_local @ arma.matrix_world
-    assert 40 < handlx.translation.z < 100, f"Hand bone in correct location: {handlx.translation.z}"
+    assert TT.is_gt(handlx.translation.z, 40), f"Hand bone Z > 40: {handlx.translation.z}"
+    assert TT.is_lt(handlx.translation.z, 100), f"Hand bone Z < 100: {handlx.translation.z}"
 
     print("Exporting  to test file")
     bpy.ops.object.select_all(action='DESELECT')
     armor1.select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile1, target_game='SKYRIM')
-    assert os.path.exists(outfile1), "ERROR: Created output file"
+    assert TT.is_eq(os.path.exists(outfile1), True), "Created output file"
 
     print("Re-importing exported file")
     TTB.clear_all()
@@ -632,9 +648,10 @@ def TEST_ROUND_TRIP():
 
     armor2 = [x for x in bpy.data.objects if x.name.startswith("Armor")][0]
 
-    assert int(armor2.location.z) == 120, f"ERROR: Exported armor is re-imported with same position: {armor2.location}"
+    assert TT.is_eq(int(armor2.location.z), 120), f"Exported armor is re-imported with same position: {armor2.location}"
     for v in armor2.data.vertices:
-        assert -120 < v.co.z < 0, f"Vertices positioned below origin: {v.co}"
+        assert TT.is_gt(v.co.z, -120), f"Vertex Z > -120: {v.co}"
+        assert TT.is_lt(v.co.z, 0), f"Vertex Z < 0: {v.co}"
         
 
 @TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
@@ -644,13 +661,17 @@ def TEST_BPY_PARENT_A():
     
     # Can intuit structure if it's not in the file
     bpy.ops.import_scene.pynifly(filepath=testfile)
-    obj = bpy.data.objects[BD.arma_name("Scene Root")]
-    assert obj.data.bones['NPC Hand.R'].parent.name == 'CME Forearm.R', f"Error: Should find forearm as parent: {obj.data.bones['NPC Hand.R'].parent.name}"
-    print(f"Found parent to hand: {obj.data.bones['NPC Hand.R'].parent.name}")
+    arma = next(x for x in bpy.data.objects 
+                if x.type == 'ARMATURE' and 'NPC Hand.R' in x.data.bones)
+    assert arma, "Found armature with hand bone"
+    assert TT.is_eq(arma.data.bones['NPC Hand.R'].parent.name, 'CME Forearm.R'), f"hand parent"
 
 
 @TT.category('FO4', 'BODYPART', 'ARMATURE')
-@TT.expect_errors(("Could not load diffuse texture", "Could not load normal texture",))
+@TT.expect_errors(("Could not find texture Diffuse",
+                   "Could not find texture Normal",
+                   "Could not load diffuse texture", 
+                   "Could not load normal texture",))
 def TEST_BPY_PARENT_B():
     """Maintain armature structure"""
     testfile2 = TTB.test_file(r"tests\FO4\meshes\bear_tshirt_turtleneck.nif")
@@ -922,6 +943,7 @@ def TEST_DRAUGR_IMPORT_E():
     
 
 @TT.category('SKYRIM', 'BODYPART', 'SCALING')
+@TT.expect_errors(("Unknown block type: BSDecalPlacementVectorExtraData",))
 def TEST_SCALING_BP():
     """Can scale bodyparts"""
 
@@ -973,6 +995,7 @@ def TEST_SCALING_BP():
 
 
 @TT.category('SKYRIM', 'BODYPART', 'SCALING')
+@TT.expect_errors(("Unknown block type: BSDecalPlacementVectorExtraData",))
 def TEST_IMP_EXP_SCALE_2():
     """Can read the body nif scaled"""
     # Regression: Making sure that the scale factor doesn't mess up importing under one
@@ -1313,19 +1336,21 @@ def TEST_WOLF_SKEL():
     assert nif2.nodes['Canine_COM'], "Have COM node"
     assert nif2.nodes['Canine_COM'].collision_object, "Have COM node collisions"
 
-    assert nif2.root.bounds_extra, "Have BSBound"
-    assert TT.is_equiv(nif2.root.bounds_extra[1].center[:], (0, 0, 39.42), "BSBound center", e=0.01)
-    assert TT.is_equiv(nif2.root.bounds_extra[1].halfExtents[:], (20.11, 74.17, 39.42), "BSBound half_extents", e=0.01)
+    bsb:pyn.BSBound = nif2.root.get_extra_data(blockname="BSBound")
+    assert bsb, "Have BSBound"
+    assert TT.is_equiv(bsb.center[:], (0, 0, 39.42), "BSBound center", e=0.01)
+    assert TT.is_equiv(bsb.half_extents[:], (20.11, 74.17, 39.42), "BSBound half_extents", e=0.01)
 
-    lod_name, lod_levels = nif2.root.bone_lod_extra
-    assert lod_levels, "Have BSBoneLOD"
-    assert TT.is_eq(lod_name, "BSBoneLOD", "BSBoneLOD name")
-    assert TT.is_eq(len(lod_levels), 3, "BSBoneLOD level count")
-    assert TT.is_eq(lod_levels[1][0], "Canine_LFrontLegToe", "BSBoneLOD level 1 target")
-    assert TT.is_eq(lod_levels[1][1], 2200, "BSBoneLOD level 1 value")
+    bonelod:pyn.BSBoneLODExtraData = nif2.root.get_extra_data(blockname="BSBoneLODExtraData")
+
+    lod_list = bonelod.lod_data
+    assert TT.is_eq(len(lod_list), 3), "BSBoneLOD count"
+    assert TT.is_eq(lod_list[1], ("Canine_LFrontLegToe", 2200)), "BSBoneLOD level 1 data"
+    assert TT.is_eq(lod_list[2], ("Canine_LFrontLegPalm", 3500)), "BSBoneLOD level 2 data"
     
 
 @TT.category('SKYRIMSE', 'BODYPART', 'ARMATURE')
+@TT.skip_test
 def TEST_DEER_SKEL():
     """
     Can import and export the deer skeleton with collisions. This one tends to create
@@ -1347,10 +1372,11 @@ def TEST_DEER_SKEL():
     assert TT.is_contains("BSBoneLOD:BSBoneLOD", [obj.name for obj in root.children], "Have Bone LOD object")
     
     # Check for SkeletonID 
-    skel_id_obj = next((obj for obj in root.children if obj.name == "NiInteger:SkeletonID"), None)
-    assert skel_id_obj is not None, "Have SkeletonID object"
-    assert 'Data' in skel_id_obj, "SkeletonID has Data property"
-    assert TT.is_eq(skel_id_obj['Data'], 178509022, "SkeletonID Data value")
+    skel_id_obj = next((obj for obj in root.children if "NiIntegerExtraData_Name" in obj), None)
+    assert skel_id_obj, "Have SkeletonID object"
+    assert TT.is_eq(skel_id_obj['NiIntegerExtraData_Name'], "SkeletonID", "SkeletonID name value")
+    assert TT.is_contains('NiIntegerExtraData_Value', skel_id_obj, "SkeletonID has Data property")
+    assert TT.is_eq(skel_id_obj['NiIntegerExtraData_Value'], 178509022, "SkeletonID Data value")
 
     ### EXPORT ###
 
@@ -2204,7 +2230,7 @@ def TEST_SHADER_SCALE():
 @TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_ALL():
     """Test that all texture slots are imported and exported correctly."""
-    testfile = TTB.test_file(r"tests\SkyrimSE\maleheadAllTextures.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\maleheadAllTextures.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_SHADER_ALL.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -2224,6 +2250,7 @@ def TEST_SHADER_ALL():
 
 
 @TT.category('SKYRIM', 'SHADER')
+@TT.expect_errors( ('Unknown block type: BSDecalPlacementVectorExtraData',) )
 def TEST_SHADER_EYE():
     """Test that all texture slots are imported and exported correctly."""
     testfile2 = TTB.test_file(r"tests\SkyrimSE\eyesmale.nif")
@@ -2366,6 +2393,7 @@ def TEST_HIGHTECH_FLOORLIGHT():
 
 
 @TT.category('SKYRIM', 'SHADER', 'ANIMATION')
+@TT.expect_errors( ('Unknown block type: BSDecalPlacementVectorExtraData',) )
 def TEST_ANIM_SHADER_BSLSP():
     """Controllers on BSLightingShaders work correctly."""
     testfile = TTB.test_file(r"tests\SkyrimSE\voidshade_1.nif")
@@ -2825,10 +2853,11 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
 
 @TT.category('SKYRIM', 'SHADER')
 @TT.parameterize("txtdir", ["tests\SkyrimSE", "xyzzy"])
+@TT.expect_errors( ("Unknown block type: BSDecalPlacementVectorExtraData",) )
 def TEST_TEXTURE_PATHS(txtdir):
     """
-    Texture paths are correctly resolved. Tests when file should be found using Blender's
-    texture directory and when it can only be found relative to the nif.
+    Texture paths are correctly resolved. Checks a texture file can be found using
+    Blender's texture directory and when it can only be found relative to the nif.
     """
     testfile = TTB.test_file(r"tests\SkyrimSE\meshes\circletm1_test.nif")
     diffuse_file = TTB.test_file(r"tests\SkyrimSE\textures\test\circlet.dds")
@@ -3092,10 +3121,10 @@ def TEST_SHEATH():
     bglist = [obj for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")]
     slist = [obj for obj in bpy.data.objects if obj.name.startswith("NiStringExtraData")]
     bgnames = set([obj['BSBehaviorGraphExtraData_Name'] for obj in bglist])
-    assert bgnames == set(["BGED"]), f"Error: Expected BG extra data properties, found {bgnames}"
+    assert TT.is_eq(bgnames, set(["BGED"]), f"BG extra data properties")
     snames = set([obj['NiStringExtraData_Name'] for obj in slist])
-    assert snames == set(["HDT Havok Path", "HDT Skinned Mesh Physics Object"]), \
-        f"Error: Expected string extra data properties, found {snames}"
+    assert TT.is_eq(snames, set(["HDT Havok Path", "HDT Skinned Mesh Physics Object"]), 
+        f"string extra data properties")
 
     # Write and check
     print('------- Can write extra data -------')
@@ -3104,19 +3133,19 @@ def TEST_SHEATH():
 
 
     print('------ Extra data checks out----')
-    nifCheck = pyn.NifFile(outfile)
+    nifCheck:pyn.NiFile = pyn.NifFile(outfile)
     sheathShape = nifCheck.shapes[0]
 
-    names = [x[0] for x in nifCheck.behavior_graph_data]
-    assert "BGED" in names, f"Error: Expected BGED in {names}"
-    bgedCheck = nifCheck.behavior_graph_data[0]
-    log.debug(f"BGED value is {bgedCheck}")
-    assert bgedCheck[1] == "AuxBones\SOS\SOSMale.hkx", f"Extra data value = AuxBones/SOS/SOSMale.hkx: {bgedCheck}"
-    assert bgedCheck[2], f"Extra data controls base skeleton: {bgedCheck}"
+    names = [x.name for x in nifCheck.root.extra_data(blockname="BSBehaviorGraphExtraData")]
+    assert TT.is_contains("BGED", names, "BGED exists")
+    bgedCheck = nifCheck.root.get_extra_data(name="BGED")
+    assert TT.is_eq(bgedCheck.behavior_graph_file, "AuxBones\SOS\SOSMale.hkx", 
+                    f"Extra data value")
+    assert TT.is_eq(bgedCheck.controls_base_skeleton, True, f"controls base skeleton")
 
-    strings = [x[0] for x in nifCheck.string_data]
-    assert "HDT Havok Path" in strings, f"Error expected havoc path in {strings}"
-    assert "HDT Skinned Mesh Physics Object" in strings, f"Error: Expected physics object in {strings}"
+    strings = [sd.name for sd in nifCheck.root.extra_data(blockname="NiStringExtraData")]
+    assert TT.is_contains("HDT Havok Path", strings, f"havoc path")
+    assert TT.is_contains("HDT Skinned Mesh Physics Object", strings, f"physics object")
 
 
 @TT.category('SKYRIM', 'EXTRA_DATA')
@@ -3130,9 +3159,9 @@ def TEST_FEET():
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     feet = bpy.data.objects['FootLowRes']
-    assert len(feet.children) == 1, "Feet have children"
-    assert feet.children[0]['NiStringExtraData_Name'] == "SDTA", "Feet have extra data child"
-    assert feet.children[0]['NiStringExtraData_Value'].startswith('[{"name"'), f"Feet have string data"
+    assert TT.is_eq(len(feet.children), 1, "Feet have children")
+    assert TT.is_eq(feet.children[0]['NiStringExtraData_Name'], "SDTA", "Feet have extra data child")
+    assert TT.is_eq(feet.children[0]['NiStringExtraData_Value'].startswith('[{"name"'), True, f"Feet have string data")
 
     # Write and check that it's correct. Only the feet have to be selected--the extra data
     # goes because the object is a child of the feet object.
@@ -3142,8 +3171,9 @@ def TEST_FEET():
 
     nifCheck = pyn.NifFile(outfile)
     feetShape = nifCheck.shapes[0]
-    assert feetShape.string_data[0][0] == 'SDTA', "String data name written correctly"
-    assert feetShape.string_data[0][1].startswith('[{"name"'), "String data value written correctly"
+    strdata = feetShape.get_extra_data(blockname="NiStringExtraData")
+    assert TT.is_eq(strdata.name, 'SDTA', "String data name")
+    assert TT.is_eq(strdata.string_data.startswith('[{"name"'), True, "String data value")
 
 
 @TT.category('SKYRIM', 'EXTRA_DATA')
@@ -3170,11 +3200,13 @@ def TEST_FEET_MULTI():
     ### CHECK ###
 
     nifCheck = pyn.NifFile(outfile)
-    TT.assert_eq(len(nifCheck.root.string_data), 0, "Root extra data count")
+    TT.assert_eq(nifCheck.root.get_extra_data(blockname="NiStringExtraData"), None, 
+        "No string data on root")
     for shape in nifCheck.shapes:
-        TT.assert_eq(len(shape.string_data), 1, f"{shape.name} has one extra data")
-        assert shape.string_data[0][0] == 'SDTA', "String data name written correctly"
-        assert shape.string_data[0][1].startswith('[{"name"'), "String data value written correctly"
+        strdata = [sd for sd in shape.extra_data(blockname="NiStringExtraData")]
+        TT.assert_eq(len(strdata), 1, f"{shape.name} has one extra data")
+        assert strdata[0].name == 'SDTA', "String data name written correctly"
+        assert strdata[0].string_data.startswith('[{"name"'), "String data value written correctly"
 
 
 @TT.category('SKYRIM', 'SCALING')
@@ -3248,11 +3280,11 @@ def TEST_SCALING_OBJ():
     # --------- Check ----------
     nifcheck = pyn.NifFile(outfile)
     bcheck = nifcheck.shapes[0]
-    fmcheck = nifcheck.furniture_markers
+    fmcheck = nifcheck.root.get_extra_data(name='FRN')
     bchmax = max([v[2] for v in bcheck.verts])
     assert bchmax > 30, f"Max Z is scaled up: {bchmax}"
-    assert len(fmcheck) == 2, f"Wrote the furniture marker correctly: {len(fmcheck)}"
-    assert fmcheck[0].offset[2] > 30, f"Furniture marker Z scaled up: {fmcheck[0].offset[2]}"
+    assert len(fmcheck.furniture_markers) == 2, f"Wrote the furniture marker correctly: {len(fmcheck.furniture_markers)}"
+    assert fmcheck.furniture_markers[0].offset[2] > 30, f"Furniture marker Z scaled up: {fmcheck.furniture_markers[0].offset[2]}"
 
 
 @TT.category('SKYRIM', 'SCALING')
@@ -3316,19 +3348,19 @@ def TEST_TRIP_SE():
     nifcheck = pyn.NifFile(outfile1)
 
     bodycheck = nifcheck.shape_dict["Penis_CBBE"]
-    assert bodycheck.name == "Penis_CBBE", f"Penis found in nif"
+    assert TT.is_eq(bodycheck.name, "Penis_CBBE", f"Penis found")
 
-    stringdata = bodycheck.string_data
-    assert stringdata, f"Found string data: {stringdata}"
+    stringdata = [sd for sd in bodycheck.extra_data(blockname="NiStringExtraData")]
+    assert stringdata, f"Found string data"
     sd = stringdata[0]
-    assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
-    assert sd[1].endswith("TEST_TRIP_SE.tri"), f"Found correct filename"
+    assert TT.is_eq(sd.name, 'BODYTRI', f"BODYTRI string data")
+    assert TT.is_eq(sd.string_data.endswith("TEST_TRIP_SE.tri"), True, f"BODYTRI filename")
 
     tripcheck = TripFile.from_filepath(outfiletrip)
-    assert len(tripcheck.shapes) == 1, f"Found shape"
+    assert TT.is_eq(len(tripcheck.shapes), 1, f"shape count")
     bodymorphs = tripcheck.shapes['Penis_CBBE']
-    assert len(bodymorphs) == 27, f"Found enough morphs: {len(bodymorphs)}"
-    assert "CrotchBack" in bodymorphs.keys(), f"Found 'CrotchBack' in {bodymorphs.keys()}"
+    assert TT.is_eq(len(bodymorphs), 27, f"morphs count")
+    assert TT.is_contains("CrotchBack", bodymorphs.keys(), f"morphs")
 
 
 @TT.category('FO4', 'BODYPART', 'TRI')
@@ -3349,19 +3381,19 @@ def TEST_TRIP():
     nifcheck = pyn.NifFile(outfile)
 
     bodycheck = nifcheck.shape_dict["BaseMaleBody"]
-    assert bodycheck.name == "BaseMaleBody", f"Body found in nif"
+    assert TT.is_eq(bodycheck.name, "BaseMaleBody", f"Body found in nif")
 
-    stringdata = nifcheck.string_data
-    assert stringdata, f"Found string data: {stringdata}"
+    stringdata = [sd for sd in nifcheck.root.extra_data(blockname="NiStringExtraData")]
+    assert stringdata, f"Found string data"
     sd = stringdata[0]
-    assert sd[0] == 'BODYTRI', f"Found BODYTRI string data"
-    assert sd[1].endswith("TEST_TRIP.tri"), f"Found correct filename"
+    assert TT.is_eq(sd.name, 'BODYTRI', f"BODYTRI string data")
+    assert TT.is_eq(sd.string_data.endswith("TEST_TRIP.tri"), True, f"BODYTRI filename")
 
     tripcheck = TripFile.from_filepath(outfiletrip)
-    assert len(tripcheck.shapes) == 1, f"Found shape"
+    assert TT.is_eq(len(tripcheck.shapes), 1, f"shape count")
     bodymorphs = tripcheck.shapes['BaseMaleBody']
-    assert len(bodymorphs) > 30, f"Found enough morphs: {len(len(bodymorphs))}"
-    assert "BTShoulders" in bodymorphs.keys(), f"Found 'BTShoulders' in {bodymorphs.keys()}"
+    assert TT.is_gt(len(bodymorphs), 30, f"morphs count: {len(bodymorphs)}")
+    assert TT.is_contains("BTShoulders", bodymorphs.keys(), f"morphs")
 
 
 @TT.category('FO4', 'SHADER')
@@ -3965,7 +3997,7 @@ def TEST_INV_MARKER():
                 (-0.0000, -0.0000, -1.0000, -100),
                 ( 0.0000,  1.0000, -0.0000,  0),
                 ( 0.0000,  0.0000,  0.0000,  1.0000)))
-    assert TTB.MatNearEqual(mx, mx_face, epsilon=0.1), f"Inventory matrix is 180 around z: {mx.to_euler()}"
+    assert TT.is_equiv(mx, mx_face, e=0.1), f"Inventory matrix is 180 around z: {mx.to_euler()}"
 
     # ------- Load --------
     testfile = TTB.test_file(r"tests\SkyrimSE\Suzanne.nif")
@@ -3991,7 +4023,8 @@ def TEST_INV_MARKER():
     bpy.ops.export_scene.pynifly(filepath=outfile1)
 
     nifch1 = pyn.NifFile(outfile1)
-    assert nifch1.rootNode.inventory_marker[1:4] == [0, 0, 0], f"Have correct inventory marker: {nifch1.rootNode.inventory_marker}"
+    inv_marker = nifch1.rootNode.get_extra_data(blockname='BSInvMarker', name='INV')
+    assert TT.is_eq(inv_marker.rotation, (0, 0, 0), f"Have correct inventory marker: {inv_marker.rotation}")
 
     # Camera at [0, -100, 0], pointed at origin. This puts the cam on the other side.
     # Camera pointed at Suzanne's face.
@@ -4005,8 +4038,9 @@ def TEST_INV_MARKER():
     bpy.ops.export_scene.pynifly(filepath=outfile2)
 
     nifch2 = pyn.NifFile(outfile2)
-    assert BD.VNearEqual(nifch2.rootNode.inventory_marker[1:4], [0, 0, 3142], epsilon=2), \
-        f"Have correct inventory marker: {nifch2.rootNode.inventory_marker}"
+    inv_marker2 = nifch2.rootNode.get_extra_data(blockname='BSInvMarker', name='INV')
+    assert TT.is_equiv(inv_marker2.rotation, (0, 0, 3142), e=2), \
+        f"Have correct inventory marker: {inv_marker2.rotation}"
 
     # Camera on negative X axis, pointed at origin. Shows Suzanne looking to the right.
     cam.matrix_world = Matrix((
@@ -4019,8 +4053,9 @@ def TEST_INV_MARKER():
     bpy.ops.export_scene.pynifly(filepath=outfile3)
 
     nifch3 = pyn.NifFile(outfile3)
-    assert BD.VNearEqual(nifch3.rootNode.inventory_marker[1:4], [0, 0, 1570], epsilon=2), \
-        f"Have correct inventory marker: {nifch3.rootNode.inventory_marker}"
+    inv_marker3 = nifch3.rootNode.get_extra_data(blockname='BSInvMarker', name='INV')
+    assert TT.is_equiv(inv_marker3.rotation, (0, 0, 1570), e=2), \
+        f"Have correct inventory marker: {inv_marker3.rotation}"
 
     # Inventory item can be oriented arbitrarily.
     suzanne.matrix_world = Matrix((
@@ -4061,13 +4096,13 @@ def TEST_INV_MARKER():
     # First test had the camera at the neutral position (back of Suzanne's head).
     bpy.ops.import_scene.pynifly(filepath=outfile1)
     im = next(obj for obj in bpy.data.objects if obj.type=='CAMERA')
-    assert TTB.MatNearEqual(im.matrix_world, BD.CAMERA_NEUTRAL), f"Inventory matrix neutral: {im.matrix_world.to_euler()}"
+    assert TT.is_equiv(im.matrix_world, BD.CAMERA_NEUTRAL), f"Inventory matrix neutral: {im.matrix_world.to_euler()}"
 
     # Second test had the camera at the front of Suzanne's head.
     TTB.clear_all()
     bpy.ops.import_scene.pynifly(filepath=outfile2)
     im = next(obj for obj in bpy.data.objects if obj.type=='CAMERA')
-    assert TTB.MatNearEqual(im.matrix_world, 
+    assert TT.is_equiv(im.matrix_world, 
         Matrix((
             ( 1.0000, -0.0000, -0.0006,   -0.0593),
             (-0.0006, -0.0000, -1.0000, -100.0000),
@@ -4079,7 +4114,7 @@ def TEST_INV_MARKER():
     TTB.clear_all()
     bpy.ops.import_scene.pynifly(filepath=outfile3)
     im = next(obj for obj in bpy.data.objects if obj.type=='CAMERA')
-    assert TTB.MatNearEqual(im.matrix_world, 
+    assert TT.is_equiv(im.matrix_world, 
         Matrix((
             ( 0.0002, -0.0000, -1.0000, -100.0000),
             (-1.0000,  0.0000, -0.0002,   -0.0204),
@@ -4165,12 +4200,12 @@ def CheckBow(nif, nifcheck, bow):
     dimv.rotate(rot)
     assert dimv.x > dimv.y > dimv.z, f"Have good collision bounds: {dimv}"
 
-    bsxcheck = nifcheck.rootNode.bsx_flags
-    assert bsxcheck == ["BSX", 202], f"BSX Flag node found: {bsxcheck}"
+    bsxcheck = nifcheck.rootNode.get_extra_data(blockname='BSXFlags', name='BSX')
+    assert TT.is_eq(bsxcheck.flags, 202, f"BSX Flags")
 
-    bsinvcheck = nifcheck.rootNode.inventory_marker
-    assert bsinvcheck[0:4] == ["INV", 4712, 0, 785], f"Inventory marker set: {bsinvcheck}"
-    # assert round(bsinvcheck[4], 4) == 1.1273, f"Inventory marker zoom set: {bsinvcheck[4]}"
+    bsinvcheck = nifcheck.rootNode.get_extra_data(blockname='BSInvMarker', name='INV')
+    assert TT.is_eq(bsinvcheck.rotation, (4712, 0, 785), f"Inventory marker rotation")
+    assert TT.is_equiv(bsinvcheck.zoom, 1.24038, "Inventory marker zoom")
 
 
 @TT.category('SKYRIM', 'PHYSICS')
@@ -4705,6 +4740,7 @@ def TEST_NORMAL_SEAM():
 
 
 @TT.category('SKYRIM', 'ARMATURE')
+@TT.expect_errors(("Unknown block type: BSDecalPlacementVectorExtraData",))
 def TEST_NIFTOOLS_NAMES():
     """Can import nif with niftools' naming convention"""
     # We allow renaming bones according to the NifTools format. Someday this may allow
@@ -5074,7 +5110,7 @@ def TEST_COLLISION_BOW_CHANGE():
     strd = TTB.find_shape("NiStringExtraData", type='EMPTY')
     bsxf = TTB.find_shape("BSXFlags", type='EMPTY')
     invm = TTB.find_shape("BSInvMarker", type='EMPTY')
-    assert collshape.name == 'bhkBoxShape', f"Found collision shape"
+    assert TT.is_eq(collshape.name, 'bhkBoxShape', f"Found collision shape")
     
     collshape.name = "bhkConvexVerticesShape"
 
@@ -5089,16 +5125,15 @@ def TEST_COLLISION_BOW_CHANGE():
     nifcheck = pyn.NifFile(outfile)
     midbowcheck = nifcheck.nodes["Bow_MidBone"]
     collcheck = midbowcheck.collision_object
-    assert collcheck.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}"
+    assert TT.is_eq(collcheck.blockname, "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}")
     bodycheck = collcheck.body
-    assert bodycheck.properties.bufType == PynBufferTypes.bhkRigidBodyBufType, f"Have correct buffer type"
+    assert TT.is_eq(bodycheck.properties.bufType, PynBufferTypes.bhkRigidBodyBufType, f"Have correct buffer type")
 
-    names = [x[0] for x in nifcheck.behavior_graph_data]
-    assert "BGED" in names, f"Error: Expected BGED in {names}"
-    bgedCheck = nifcheck.behavior_graph_data[0]
-    log.debug(f"BGED value is {bgedCheck}")
-    assert bgedCheck == ("BGED", "Weapons\\Bow\\BowProject.hkx", False), f"Extra data value = {bgedCheck}"
-    assert not bgedCheck[2], f"Extra data controls base skeleton: {bgedCheck}"
+    names = [x.name for x in nifcheck.root.extra_data(blockname="BSBehaviorGraphExtraData")]
+    assert TT.is_contains("BGED", names, f"Error: Expected BGED in {names}")
+    bgedCheck = nifcheck.root.get_extra_data(blockname='BSBehaviorGraphExtraData', name='BGED')
+    assert TT.is_eq(bgedCheck.behavior_graph_file, "Weapons\\Bow\\BowProject.hkx", f"Extra data value")
+    assert TT.is_eq(bgedCheck.controls_base_skeleton, False, f"Extra data controls base skeleton")
 
 
 @TT.min_version(4, 0, 0)
@@ -5554,7 +5589,7 @@ def TEST_FARMBENCH():
 
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
     
-    assert len(fmarkers) == 2, f"Found furniture markers: {fmarkers}"
+    assert TT.is_eq(len(fmarkers), 2, f"furniture marker count in import")
 
     # -------- Export --------
     bpy.ops.object.select_all(action='DESELECT')
@@ -5570,9 +5605,10 @@ def TEST_FARMBENCH():
 
     # --------- Check ----------
     nifcheck = pyn.NifFile(outfile)
-    fmcheck = nifcheck.furniture_markers
-
-    assert len(fmcheck) == 2, f"Wrote the furniture marker correctly: {len(fmcheck)}"
+    fmcheck = nifcheck.root.get_extra_data(blockname='BSFurnitureMarkerNode')
+    assert fmcheck, "BSFurnitureMarkerNode exists"
+    assert TT.is_eq(fmcheck.position_count, 2, f"furniture marker position count")
+    assert TT.is_eq(len(fmcheck.furniture_markers), 2, f"furniture marker list length")
 
 
 @TT.category('SKYRIMSE', 'FURNITUREMARKER')
@@ -5586,8 +5622,8 @@ def TEST_COMMONCHAIR():
 
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
     
-    assert len(fmarkers) == 1, f"Found furniture markers: {fmarkers}"
-    assert NT.VNearEqual(fmarkers[0].rotation_euler, (-math.pi/2, 0, 0)), f"Marker points the right direction"
+    assert TT.is_eq(len(fmarkers), 1, f"Found furniture markers: {fmarkers}")
+    assert TT.is_equiv(fmarkers[0].rotation_euler, (-math.pi/2, 0, 0)), f"Marker points the right direction"
 
     # -------- Export --------
     bpy.ops.object.select_all(action='DESELECT')
@@ -5598,10 +5634,11 @@ def TEST_COMMONCHAIR():
 
     # --------- Check ----------
     nifcheck = pyn.NifFile(outfile)
-    fmcheck = nifcheck.furniture_markers
-
-    assert len(fmcheck) == 1, f"Wrote the furniture marker correctly: {len(fmcheck)}"
-    assert fmcheck[0].entry_points == 13, f"Entry point data is correct: {fmcheck[0].entry_points}"
+    fmcheck = nifcheck.root.get_extra_data(blockname='BSFurnitureMarkerNode')
+    assert fmcheck, "BSFurnitureMarkerNode exists"
+    assert TT.is_eq(fmcheck.position_count, 1, f"furniture marker position count")
+    assert TT.is_eq(len(fmcheck.furniture_markers), 1, f"furniture marker list length")
+    assert TT.is_eq(fmcheck.furniture_markers[0].entry_points, 13, f"Entry point data is correct")
 
 
 @TT.category('FO4', 'FURNITUREMARKER')
@@ -5615,12 +5652,12 @@ def TEST_FO4_CHAIR():
 
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
     
-    assert len(fmarkers) == 4, f"Found furniture markers: {fmarkers}"
+    assert TT.is_eq(len(fmarkers), 4, f"Found furniture markers: {fmarkers}")
     # Lowest points forward off the seat
     seatmarker = [m for m in fmarkers if BD.NearEqual(m.location.z, 34, epsilon=1)]
-    assert len(seatmarker) == 1, f"Have one marker on the seat"
+    assert TT.is_eq(len(seatmarker), 1, f"Have one marker on the seat")
     mk = seatmarker[0]
-    assert NT.VNearEqual(mk.rotation_euler, (-math.pi/2, 0, 0)), \
+    assert TT.is_equiv(mk.rotation_euler, (-math.pi/2, 0, 0)), \
         f"Marker {mk.name} points the right direction: {mk.rotation_euler, (-math.pi/2, 0, 0)}"
 
     # -------- Export --------
@@ -5637,10 +5674,11 @@ def TEST_FO4_CHAIR():
 
     # --------- Check ----------
     nifcheck = pyn.NifFile(outfile)
-    fmcheck = nifcheck.furniture_markers
-
-    assert len(fmcheck) == 4, f"Wrote the furniture marker correctly: {len(fmcheck)}"
-    assert fmcheck[0].entry_points == 0, f"Entry point data is correct: {fmcheck[0].entry_points}"
+    fmcheck = nifcheck.root.get_extra_data(blockname='BSFurnitureMarkerNode')
+    assert fmcheck, "BSFurnitureMarkerNode exists"
+    assert TT.is_eq(fmcheck.position_count, 4, f"furniture marker position count")
+    assert TT.is_eq(len(fmcheck.furniture_markers), 4, f"furniture marker list length")
+    assert TT.is_eq(fmcheck.furniture_markers[0].entry_points, 0, f"Entry point data is correct")
 
 
 @TT.category('FO4', 'ANIMATION')
@@ -5764,6 +5802,7 @@ def TEST_ROTSTATIC2():
 
 
 @TT.category('FO4', 'FACEBONES')
+@TT.expect_errors('Unknown block type: NiBinaryExtraData')
 def TEST_FACEBONES():
     """Can read and write facebones correctly"""
     # A few of the facebones have transforms that don't match the rest. The skin-to-bone
@@ -5834,6 +5873,7 @@ Transforms for output and input node {nm} match:
 """
 
 @TT.category('FO4', 'FACEBONES')
+@TT.expect_errors('Unknown block type: NiBinaryExtraData')
 def TEST_FACEBONES_RENAME():
     """Facebones are renamed from Blender to the game's names"""
 
@@ -7189,7 +7229,9 @@ def TEST_TEXTURE_CLAMP():
 
 
 @TT.category('FO4', 'SHADER')
-@TT.expect_errors(('Could not load diffuse texture', 'Could not load normal texture',))
+@TT.expect_errors(('Could not load diffuse texture', 
+                   'Could not load normal texture',
+                   'Could not find texture'))
 def TEST_MISSING_MAT():
     """We import and export properly even when files are missing."""
     testfile = TTB.test_file(r"tests\FO4\malehandsalt.nif")

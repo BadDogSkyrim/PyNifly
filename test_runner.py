@@ -27,7 +27,7 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_DEER_SKEL, ], 
+    target_tests=[ TEST_MISSING_MAT, ], 
     # categories={'HKX'},
     test_all=False,
     stop_on_fail=True,

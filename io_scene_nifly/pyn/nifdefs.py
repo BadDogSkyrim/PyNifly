@@ -1686,6 +1686,42 @@ class FurnitureMarkerDataBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
 
+    @property
+    def animation_type_name(self) -> str:
+        try:
+            return FurnAnimationType(self.animation_type).name
+        except:
+            return str(self.animation_type)
+    
+    @animation_type_name.setter
+    def animation_type_name(self, val):
+        try:
+            self.animation_type = FurnAnimationType[val].value
+        except:
+            self.animation_type = int(val, 0)
+
+    @property
+    def entry_points_list(self) -> str:
+        lst = []
+        for i in range(16):
+            if (self.entry_points & (1 << i)) != 0:
+                try:
+                    lst.append(FurnEntryPoints(self.entry_points & (1 << i)).name)
+                except:
+                    lst.append(str(self.entry_points & (1 << i)))
+        return "|".join(lst)
+    
+    @entry_points_list.setter
+    def entry_points_list(self, val):
+        lst = val.split("|")
+        self.entry_points = 0
+        for e in lst:
+            if e:
+                try:
+                    self.entry_points |= FurnEntryPoints[e].value
+                except:
+                    self.entry_points |= int(e, 0)
+
 
 class ConnectPointBuf(pynStructure):
     _fields_ = [

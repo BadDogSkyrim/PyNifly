@@ -14,8 +14,13 @@ bl_info = {
 }
 
 import os
+from importlib import reload 
+import logging
+log = logging.getLogger('pynifly')
 
-BLENDER_AVAILABLE = ("BLENDER_SYSTEM_SCRIPTS" in os.environ)
+
+BLENDER_AVAILABLE = True # ("BLENDER_SYSTEM_SCRIPTS" in os.environ)
+DEBUGGING = ('PYNIFLY_DEV_ROOT' in os.environ)
 
 from contextlib import suppress
 if BLENDER_AVAILABLE:
@@ -83,7 +88,7 @@ if BLENDER_AVAILABLE:
         rename_bones_niftools: BoolProperty(
             name="NifTools-friendly bone names",
             description=("Renames bones to match the NifTools importer/exporter. Use if you " +
-                        "need interoperability with NifToos."),
+                        "need interoperability with NifTools."),
             default=False
         ) # type: ignore
 
@@ -136,10 +141,19 @@ def register():
     from . import hkx
     from . import kf
 
+    if DEBUGGING:
+        log.setLevel(logging.DEBUG)
+        reload(nif)
+        reload(tri)
+        reload(hkx)
+        reload(kf)
+
     hkx.register()
     kf.register()
     nif.register()
     tri.register()
+
+    log.info(f"PyNifly {'.'.join(map(str, bl_info['version']))} registered")
 
 def unregister():
     if not BLENDER_AVAILABLE: return

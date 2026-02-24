@@ -9,7 +9,7 @@ from enum import Enum
 import re
 import logging
 from ctypes import *
-from typing import ValuesView 
+from typing import ValuesView, List 
 import xml.etree.ElementTree as xml
 from pathlib import Path
 from .niflytools import *
@@ -1223,11 +1223,13 @@ class NiNode(NiAVObject):
     def getbuf(cls, values=None):
         return NiNodeBuf(values)
     
-    def blender_name(self, nif_name):
-        return self.file.dict.blender_name(nif_name)
+    @property
+    def blender_name(self):
+        return self.file.dict.blender_name(self.name)
 
-    def nif_name(self, blender_name):
-        return self.file.dict.nif_name(blender_name)
+    @property
+    def nif_name(self):
+        return self.file.dict.nif_name(self.name)
     
     @property
     def transform(self):
@@ -1245,10 +1247,6 @@ class NiNode(NiAVObject):
     def flags(self, value):
         self.properties.flags = value
         NifFile.nifly.setNodeFlags(self._handle, value)
-
-    @property
-    def blender_name(self):
-        return self.file.blender_name(self.name)
 
     @property
     def parent(self):
@@ -1287,6 +1285,8 @@ class NiNode(NiAVObject):
         name = the name of the extra data to find. May be omitted.
         target_index = The index of the extra data, starting from 0.
         """
+        if not self.file._handle: return None
+        
         ex_id = NifFile.nifly.getExtraData(self.file._handle, self.id, 
                                            blockname.encode('utf-8') if blockname else None, 
                                            name.encode('utf-8') if name else None,
@@ -2567,6 +2567,14 @@ class BSBound(NiExtraData):
         for i in range(0, 3):
             self.properties.halfExtents[i] = value[i]
 
+    @classmethod
+    def New(cls, file, name='', center=(0, 0, 0), half_extents=(0, 0, 0), parent=None):
+        p = BSBoundBuf()
+        for i in range(0, 3):
+            p.center[i] = center[i]
+            p.halfExtents[i] = half_extents[i]
+        return file.add_block(name, p, parent)
+
 
 class BSFurnitureMarkerNode(NiExtraData):
     buffer_type = PynBufferTypes.BSFurnitureMarkerNodeBufType
@@ -2587,7 +2595,7 @@ class BSFurnitureMarkerNode(NiExtraData):
         return self.properties.position_count
     
     @property
-    def furniture_markers(self):
+    def furniture_markers(self) -> List[FurnitureMarkerDataBuf]:
         """
         Get furniture marker data as list of FurnitureMarkerDataBuf objects.
         """
@@ -2612,7 +2620,7 @@ class BSFurnitureMarkerNode(NiExtraData):
         return self._furniture_markers
     
     @furniture_markers.setter
-    def furniture_markers(self, value):
+    def furniture_markers(self, value: List[FurnitureMarkerDataBuf]):
         """
         Set furniture marker data from list of FurnitureMarkerDataBuf objects.
         """
@@ -2886,14 +2894,19 @@ class BSBoneLODExtraData(NiExtraData):
             check_return(NifFile.nifly.setBoneLOD, self.file._handle, self.id, len(value), byref(lodbuf))
 
     @classmethod
-    def New(cls, file, name='', lod_data=None, parent=None):
-        if lod_data is None:
-            lod_data = []
+    def New(cls, file, name='', lodlist=None, parent=None):
+        if lodlist is None:
+            lodlist = []
         p = BSBoneLODBuf()
-        p.lodCount = len(lod_data)
+        p.lodCount = len(lodlist)
         bone_lod = file.add_block(name, p, parent)
-        if lod_data:
-            bone_lod.lod_data = lod_data
+        lodbuf = (BoneLODInfoBuf * len(lodlist))()
+        for i, lod in enumerate(lodlist):
+            lodbuf[i].distance = lod[1]
+            lodbuf[i].nameID = check_msg(
+                NifFile.nifly.addString, file._handle, lod[0].encode('utf-8'))
+        check_return(NifFile.nifly.setBoneLOD, 
+                     file._handle, bone_lod.id, len(lodlist), byref(lodbuf))
         return bone_lod
 
 
@@ -2985,6 +2998,23 @@ class BSXFlags(NiExtraData):
         p = BSXFlagsBuf()
         p.integerData = int(flags)
         return file.add_block(name, p, parent)
+    
+
+class BSConnectPointParents(NiExtraData):
+    """
+    These are a type of extra data but they get special handling. So this definition 
+    is a dummy so that reading extra data doesn't trip over them.
+    TODO: Handle them like furniture markers.
+    """
+    buffer_type = PynBufferTypes.NiNodeBufType
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+        self._parents = None
+
+    @classmethod 
+    def getbuf(cls, values=None):
+        return NiNodeBuf(values)
 
 
 class NiControllerSequence(NiSequence):
@@ -4895,6 +4925,7 @@ class NifFile:
         buf = (c_char * (self.max_string_len))()
         check_msg(NifFile.nifly.getBlockname, self._handle, id, buf, self.max_string_len)
         bn = buf.value.decode('utf-8')
+        if bn == "BSConnectPoint::Parents": bn = "BSConnectPointParents"
         if bn in NiObject.block_types:
             node = NiObject.block_types[bn](
                 id=id, file=self, handle=handle, properties=properties, parent=parent)

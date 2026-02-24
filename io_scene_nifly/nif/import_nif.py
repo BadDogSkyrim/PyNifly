@@ -170,7 +170,7 @@ def mesh_create_partition_groups(the_shape, the_object):
         the_object['FO4_SEGMENT_FILE'] = the_shape.segment_file
 
 
-def import_colors(mesh:bpy.types.Mesh, shape:P.P.NiShape):
+def import_colors(mesh:bpy.types.Mesh, shape:P.NiShape):
     try:
         use_vertex_colors = False
         use_vertex_alpha = False
@@ -455,9 +455,9 @@ class NifImporter():
             calc_uvs=False,
             align='WORLD', 
             location=extblock.center, 
-            scale=(extblock.halfExtents[0]*2, 
-                   extblock.halfExtents[1]*2, 
-                   extblock.halfExtents[2]*2))
+            scale=(extblock.half_extents[0]*2, 
+                   extblock.half_extents[1]*2, 
+                   extblock.half_extents[2]*2))
         bpy.context.object.display_type = 'WIRE'
 
         ed = bpy.context.object
@@ -482,11 +482,24 @@ class NifImporter():
     def import_bsx(self, node, parent_obj, extblock:P.BSXFlags):
         bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
         ed = bpy.context.object
-        ed.name = "BSXFlags"
+        ed.name = "BSXFlags:" + extblock.name
         ed.show_name = True
         ed.empty_display_type = 'SPHERE'
         ed['BSXFlags_Name'] = extblock.name
         ed['BSXFlags_Value'] = extblock.flags.fullname
+        ed.parent = parent_obj
+        self.objects_created.add(ReprObject(blender_obj=ed))
+        BD.link_to_collection(self.collection, ed)
+
+
+    def import_integer(self, node, parent_obj, extblock:P.NiIntegerExtraData):
+        bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+        ed = bpy.context.object
+        ed.name = "NiIntegerExtraData:" + extblock.name
+        ed.show_name = True
+        ed.empty_display_type = 'SPHERE'
+        ed['NiIntegerExtraData_Name'] = extblock.name
+        ed['NiIntegerExtraData_Value'] = extblock.integer_data
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
         BD.link_to_collection(self.collection, ed)
@@ -507,14 +520,14 @@ class NifImporter():
                                 Euler(Vector(invm.rotation)/1000, 'XYZ'),
                                 (1,1,1))
         ed.matrix_world = mx @ neut
-        mx, focal_len = BD.inv_to_cam(invm[1:4], invm[4])
+        mx, focal_len = BD.inv_to_cam(invm.rotation, invm.zoom)
         ed.data.lens = focal_len
 
-        ed['BSInvMarker_Name'] = invm[0]
-        ed['BSInvMarker_RotX'] = invm[1]
-        ed['BSInvMarker_RotY'] = invm[2]
-        ed['BSInvMarker_RotZ'] = invm[3]
-        ed['BSInvMarker_Zoom'] = invm[4]
+        ed['BSInvMarker_Name'] = invm.name
+        ed['BSInvMarker_RotX'] = invm.rotation[0]
+        ed['BSInvMarker_RotY'] = invm.rotation[1]
+        ed['BSInvMarker_RotZ'] = invm.rotation[2]
+        ed['BSInvMarker_Zoom'] = invm.zoom
 
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
@@ -534,14 +547,14 @@ class NifImporter():
         for i, marker in enumerate(fm.furniture_markers):
             bpy.ops.object.add(radius=1.0, type='EMPTY')
             obj = bpy.context.object
-            obj.name = f"BSFurnitureMarkerNode.{i:03d}"
+            obj.name = "BSFurnitureMarkerNode:" + fm.name
             obj.show_name = True
             obj.empty_display_type = 'SINGLE_ARROW'
             obj.location = Vector(marker.offset[:]) * self.scale
             obj.rotation_euler = (-pi/2, 0, marker.heading)
             obj.scale = Vector((40,10,10)) * self.scale
-            obj['AnimationType'] = marker.animation_type
-            obj['EntryPoints'] = marker.entry_points
+            obj['AnimationType'] = marker.animation_type_name
+            obj['EntryPoints'] = marker.entry_points_list
             obj.parent = parent_obj
             self.objects_created.add(ReprObject(blender_obj=obj))
             BD.link_to_collection(self.collection, obj)
@@ -550,7 +563,7 @@ class NifImporter():
     def import_stringdata(self, node, parent_obj, stringdata:P.NiStringExtraData):
         bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
         ed = bpy.context.object
-        ed.name = "NiStringExtraData"
+        ed.name = "NiStringExtraData:" + stringdata.name
         ed.show_name = True
         ed.empty_display_type = 'SPHERE'
         ed['NiStringExtraData_Name'] = stringdata.name
@@ -563,7 +576,7 @@ class NifImporter():
     def import_behavior_graph_data(self, node, parent_obj, behavior:P.BSBehaviorGraphExtraData):
         bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
         ed = bpy.context.object
-        ed.name = "BSBehaviorGraphExtraData"
+        ed.name = "BSBehaviorGraphExtraData:" + behavior.name
         ed.show_name = True
         ed.empty_display_type = 'SPHERE'
         ed['BSBehaviorGraphExtraData_Name'] = behavior.name
@@ -574,28 +587,36 @@ class NifImporter():
         BD.link_to_collection(self.collection, ed)
 
 
-    def import_cloth_data(self, node, parent_obj, clothdata:P.BSClothExtraData):
-        bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
-        ed = bpy.context.object
-        ed.name = "BSClothExtraData"
-        ed.show_name = True
-        ed.empty_display_type = 'SPHERE'
-        ed['BSClothExtraData_Name'] = clothdata.name
-        ed['BSClothExtraData_Value'] = codecs.encode(clothdata.data, 'base64')
-        ed.parent = parent_obj
-        self.objects_created.add(ReprObject(blender_obj=ed))
-        BD.link_to_collection(self.collection, ed)
+    def import_cloth_data(self, node, parent_obj):
+        for cd in self.nif.cloth_data:
+            bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+            ed = bpy.context.object
+            ed.name = "BSClothExtraData"
+            ed.show_name = True
+            ed.empty_display_type = 'SPHERE'
+            ed['BSClothExtraData_Name'] = cd[0]
+            ed['BSClothExtraData_Value'] = codecs.encode(cd[1], 'base64')
+            ed.parent = parent_obj
+            self.objects_created.add(ReprObject(blender_obj=ed))
+            BD.link_to_collection(self.collection, ed)
+
+
+    def import_skip(self, node, parent_obj, extblock):
+        """Dummy import for extra data handled elsewhere."""
+        pass
 
 
     extra_data_handlers = {
         'BSBound': import_bound,
         'BSBoneLODExtraData': import_bone_lod,
         'BSXFlags': import_bsx,
+        'NiIntegerExtraData': import_integer,
         'BSInvMarker': import_inventory_marker,
         'BSFurnitureMarkerNode': import_furniture_markers,
         'NiStringExtraData': import_stringdata,
         'BSBehaviorGraphExtraData': import_behavior_graph_data,
-        'BSClothExtraData': import_cloth_data,}
+        'BSConnectPoint::Parents': import_skip,
+        }
 
     def import_extra(self, parent_obj:bpy.types.Object, n:P.NiNode):
         """ Import any extra data from the node, and create corresponding shapes. 
@@ -604,13 +625,20 @@ class NifImporter():
         if not n: n = self.nif.rootNode
         if not parent_obj: parent_obj = self.root_object
 
-        for extradata in n.extra_data:
+        for extradata in n.extra_data():
             handler = self.extra_data_handlers.get(extradata.blockname)
             if handler:
-                handler(n, parent_obj, extradata)
+                try:
+                    handler(self, n, parent_obj, extradata)
+                except Exception as e:
+                    log.exception(f"Error importing extra data block {extradata.blockname} on node {n.name}")
             else:
                 log.warning(f"Unknown extra data block {extradata.blockname} on node {n.name}") 
         
+        # Cloth data is BSExtraData not NiExtraData, so find it separately.
+        if n == self.nif.rootNode:
+            self.import_cloth_data(n, parent_obj)
+
         # self.import_bound(n, parent_obj)
         # self.import_bone_lod(n, parent_obj)
         # self.import_bsx(n, parent_obj)

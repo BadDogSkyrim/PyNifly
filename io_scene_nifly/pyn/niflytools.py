@@ -248,7 +248,10 @@ def find_trip(nif):
     """
     fp = Path(nif.filepath)
 
-    for v in [s[1] for s in nif.string_data if s[0] == 'BODYTRI']:
+    # Look for BODYTRI string extra data on the root node
+    ed = nif.rootNode.get_extra_data(name='BODYTRI', blockname='NiStringExtraData')
+    if ed:
+        v = ed.string_data
         f = extend_filenames(nif.filepath, 'meshes', [os.path.join('meshes', v)])
         fp = Path(f[0])
         if fp.exists():
