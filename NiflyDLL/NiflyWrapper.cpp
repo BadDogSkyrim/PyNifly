@@ -3473,6 +3473,11 @@ void addCollisionChild(NifFile* nif, uint32_t parent, uint32_t childID) {
         wo->shapeRef.index = childID;
     }
 
+    bhkNiCollisionObject* co = hdr->GetBlock<bhkNiCollisionObject>(parent);
+    if (co) {
+        co->bodyRef.index = childID;
+    }
+
     bhkConvexTransformShape* cts = hdr->GetBlock<bhkConvexTransformShape>(parent);
     if (cts) {
         cts->shapeRef.index = childID;
@@ -3484,7 +3489,6 @@ void addCollisionChild(NifFile* nif, uint32_t parent, uint32_t childID) {
         ls->subShapeRefs.AddBlockRef(childID);
         return;
     }
-
 }
 
 NIFLY_API int getCollConvexVertsShapeProps(void* nifref, uint32_t nodeIndex, void* buffer)
@@ -3723,6 +3727,115 @@ NIFLY_API void addCollListChild(void* nifref, const uint32_t id, uint32_t child_
 
    collList->subShapeRefs.AddBlockRef(child_id);
 };
+
+int addSimpleShapePhantom(void* nifref, const char* name, void* buffer, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkSimpleShapePhantomBuf* buf = static_cast<bhkSimpleShapePhantomBuf*>(buffer);
+
+    CheckBuf(buf, BUFFER_TYPES::bhkSimpleShapePhantomBufType, bhkSimpleShapePhantomBuf);
+
+    auto sh = std::make_unique<bhkSimpleShapePhantom>();
+    sh->shapeRef.index = buf->shapeID;
+    sh->collisionFilter.layer = buf->collisionFilter_layer;
+    sh->collisionFilter.flagsAndParts = buf->collisionFilter_flags;
+    sh->collisionFilter.group = buf->collisionFilter_group;
+    sh->broadPhaseType = buf->broadPhaseType;
+    sh->prop.data = buf->prop_data;
+    sh->prop.size = buf->prop_size;
+    sh->prop.capacityAndFlags = buf->prop_flags;
+    sh->transform = buf->transform;
+
+    int newid = hdr->AddBlock(std::move(sh));
+    addCollisionChild(nif, parent, newid);
+
+    return newid;
+}
+
+int addCollSphereShape(void* nifref, const char* name, void* buffer, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkSphereShapeBuf* buf = static_cast<bhkSphereShapeBuf*>(buffer);
+
+    CheckBuf(buf, BUFFER_TYPES::bhkSphereShapeBufType, bhkSphereShapeBuf);
+
+    auto sh = std::make_unique<bhkSphereShape>();
+    sh->SetMaterial(buf->material);
+    sh->radius = buf->radius;
+
+    int newid = hdr->AddBlock(std::move(sh));
+    addCollisionChild(nif, parent, newid);
+
+    return newid;
+}
+
+int addBlendCollisionObject(void* nifref, const char* name, void* buffer, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkBlendCollisionObjectBuf* buf = static_cast<bhkBlendCollisionObjectBuf*>(buffer);
+
+    CheckBuf(buf, BUFFER_TYPES::bhkBlendCollisionObjectBufType, bhkBlendCollisionObjectBuf);
+
+    auto c = std::make_unique<bhkBlendCollisionObject>();
+    c->bodyRef.index = buf->bodyID;
+    c->targetRef.index = (parent != NIF_NPOS) ? parent : buf->targetID;
+    c->flags = buf->flags;
+    c->heirGain = buf->heirGain;
+    c->velGain = buf->velGain;
+
+    int newid = hdr->AddBlock(std::move(c));
+
+    if (parent != NIF_NPOS) {
+        NiNode* theTarget = hdr->GetBlock<NiNode>(parent);
+        if (theTarget) theTarget->collisionRef.index = newid;
+    }
+
+    return newid;
+}
+
+int addRagdollConstraint(void* nifref, const char* name, void* buffer, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkRagdollConstraintBuf* buf = static_cast<bhkRagdollConstraintBuf*>(buffer);
+
+    CheckBuf(buf, BUFFER_TYPES::bhkRagdollConstraintBufType, bhkRagdollConstraintBuf);
+
+    auto rd = std::make_unique<bhkRagdollConstraint>();
+    rd->priority = buf->priority;
+    rd->ragdoll.twistA = buf->twistA;
+    rd->ragdoll.planeA = buf->planeA;
+    rd->ragdoll.motorA = buf->motorA;
+    rd->ragdoll.pivotA = buf->pivotA;
+    rd->ragdoll.twistB = buf->twistB;
+    rd->ragdoll.planeB = buf->planeB;
+    rd->ragdoll.motorB = buf->motorB;
+    rd->ragdoll.pivotB = buf->pivotB;
+    rd->ragdoll.coneMaxAngle = buf->coneMaxAngle;
+    rd->ragdoll.planeMinAngle = buf->planeMinAngle;
+    rd->ragdoll.planeMaxAngle = buf->planeMaxAngle;
+    rd->ragdoll.twistMinAngle = buf->twistMinAngle;
+    rd->ragdoll.twistMaxAngle = buf->twistMaxAngle;
+    rd->ragdoll.maxFriction = buf->maxFriction;
+    rd->ragdoll.motorDesc.motorType = MotorType(buf->motorType);
+    rd->ragdoll.motorDesc.motorPosition.tau = buf->positionConstraint_tau;
+    rd->ragdoll.motorDesc.motorPosition.damping = buf->positionConstraint_damping;
+    rd->ragdoll.motorDesc.motorPosition.proportionalRecoveryVelocity = buf->positionConstraint_propRV;
+    rd->ragdoll.motorDesc.motorPosition.constantRecoveryVelocity = buf->positionConstraint_constRV;
+    rd->ragdoll.motorDesc.motorVelocity.tau = buf->velocityConstraint_tau;
+    rd->ragdoll.motorDesc.motorVelocity.velocityTarget = buf->velocityConstraint_velocityTarget;
+    rd->ragdoll.motorDesc.motorVelocity.useVelocityTargetFromConstraintTargets = buf->velocityConstraint_useVTFromCT;
+    rd->ragdoll.motorDesc.motorSpringDamper.springConstant = buf->springDamp_springConstant;
+    rd->ragdoll.motorDesc.motorSpringDamper.springDamping = buf->springDamp_springDamping;
+
+    int newid = hdr->AddBlock(std::move(rd));
+
+    if (parent != NIF_NPOS) {
+        bhkRigidBody* rb = hdr->GetBlock<bhkRigidBody>(parent);
+        if (rb) rb->constraintRefs.AddBlockRef(newid);
+    }
+
+    return newid;
+}
 
 int getCollConvexTransformShapeProps(
     void* nifref, uint32_t nodeIndex, void* buffer)
@@ -5487,10 +5600,10 @@ BlockCreatorFunction creatorFunctions[] = {
     addCollConvexTransformShape, //bhkConvexTransformShapeBufType,
     addCollConvexVertsShape, //bhkConvexVerticesShapeBufType,
     addCollListShape, //bhkListShapeBufTYpe
-    nullptr, //bhkBlendCollisionObjectBufType
-    nullptr, //bhkRagdollConstraintBufType
-    nullptr, //bhkSimpleShapePhantomBufType
-    nullptr, //bhkSphereShapeBufType
+    addBlendCollisionObject, //bhkBlendCollisionObjectBufType
+    addRagdollConstraint, //bhkRagdollConstraintBufType
+    addSimpleShapePhantom, //bhkSimpleShapePhantomBufType
+    addCollSphereShape, //bhkSphereShapeBufType
     nullptr, // BSMeshLODTriShapeBufType
     addNiShader,  //NiShaderBufType
     setNiAlphaProperty, //NiAlphaPropertyBuf
@@ -5520,19 +5633,20 @@ BlockCreatorFunction creatorFunctions[] = {
     nullptr, // NiBlendInterpolator abstract type
     addNiBlendInterpolator, // NiBlendBoolInterpolator
     addNiBlendInterpolator, // NiBlendTransformInterpolator
-	addNiBoolInterpolator, // NiBoolInterpolator
+    addNiBoolInterpolator, // NiBoolInterpolator
     addNiSingleInterpController, // NiBoolInterpController
     addNiSingleInterpController, // NiVisController
-	addBSValueNode, 
+    addBSValueNode,
     addBSBound,
     addBSBoneLODExtraData,
-    addNiIntegerExtraData, 
-	addBSBehaviorGraphExtraData,
+    addNiIntegerExtraData,
+    addBSBehaviorGraphExtraData,
     addNiStringExtraData,
     nullptr, //BSClothExtraDataBufType
     addBSFurnitureMarkerNode,
     nullptr //end
 };
+
 
 NIFLY_API int addBlock(void* f, const char* name, void* buf, int parent) {
     /* Add a block to the nif, type defined in the buffer.

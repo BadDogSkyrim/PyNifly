@@ -274,6 +274,8 @@ class pynStructure(Structure):
                 v = VECTOR12(*eval(shape[f]))
             elif t.__name__ == 'c_ushort_Array_6':
                 v = VECTOR6_SHORT(*eval(shape[f]))
+            elif t.__name__ == 'c_float_Array_4_Array_4':
+                v = MATRIX4(*[VECTOR4(*eval(shape[f])[i]) for i in range(4)])
             elif t.__name__ == 'c_float':
                 v = float(shape[f])
             elif t.__name__ in ['c_ubyte', 'c_ulong', 'c_uint8', 'c_uint16', 'c_uint32', 'c_ulong', 'c_ulonglong']:
@@ -403,7 +405,8 @@ class pynStructure(Structure):
         for fn, t in self._fields_:
             if fn != 'bufType' and fn != 'bufSize' and fn[-2:] != 'ID' \
                 and (fn not in ignore) \
-                and not (fn == 'Shader_Type' and self.bufType == PynBufferTypes.BSEffectShaderPropertyBufType):
+                and not (fn == 'Shader_Type' 
+                         and self.bufType == PynBufferTypes.BSEffectShaderPropertyBufType):
 
                 if '_Array_' in t.__name__:
                     v1 = [x for x in self.__getattribute__(fn)]
@@ -891,67 +894,100 @@ class hkQualityType(IntEnum):
     KEYFRAMED_REPORT = 9
 
 class SkyrimHavokMaterial(IntEnum):
-    BARREL = 732141076
-    BOTTLE = 493553910
-    BROKEN_STONE = 131151687
-    CLOTH = 3839073443
-    DIRT = 3106094762
-    DRAGON = 2518321175
-    GLASS = 3739830338
-    GRASS = 1848600814
-    GRAVEL = 428587608
-    HEAVY_METAL = 2229413539
-    HEAVY_STONE = 1570821952
-    HEAVY_WOOD = 3070783559
-    ICE = 873356572
-    LIGHT_WOOD = 365420259
-    MATERIAL_ARMOR_HEAVY = 3708432437
-    MATERIAL_ARMOR_LIGHT = 3424720541
-    MATERIAL_ARROW = 3725505938
-    MATERIAL_AXE_1HAND = 1305674443
-    MATERIAL_BASKET = 790784366
-    MATERIAL_BLADE_1HAND = 1060167844
-    MATERIAL_BLADE_1HAND_SMALL = 2617944780
-    MATERIAL_BLADE_2HAND = 2022742644
-    MATERIAL_BLUNT_2HAND = 3969592277
-    MATERIAL_BONE = 3049421844
-    MATERIAL_BOOK = 1264672850
-    MATERIAL_BOTTLE_SMALL = 2025794648
-    MATERIAL_BOULDER_LARGE = 1885326971
-    MATERIAL_BOULDER_MEDIUM = 4283869410
-    MATERIAL_BOULDER_SMALL = 1550912982
-    MATERIAL_BOWS_STAVES = 1607128641
-    MATERIAL_CARPET = 1286705471
-    MATERIAL_CERAMIC_MEDIUM = 781661019
-    MATERIAL_CHAIN = 3074114406
-    MATERIAL_CHAIN_METAL = 438912228
-    MATERIAL_COIN = 3589100606
-    MATERIAL_SHIELD_HEAVY = 3702389584
-    MATERIAL_SHIELD_LIGHT = 3448167928
-    MATERIAL_SKIN_LARGE = 2965929619
-    MATERIAL_SKIN_SMALL = 2632367422
-    MATERIAL_STONE_AS_STAIRS = 1886078335
-    MATERIAL_WOOD_AS_STAIRS = 1803571212
-    MUD = 1486385281
-    ORGANIC = 2974920155
-    SAND = 2168343821
-    SKIN = 591247106
-    SNOW = 398949039
-    SOLID_METAL = 1288358971
-    STAIRS_BROKEN_STONE = 2892392795
-    STAIRS_SNOW = 1560365355
-    STAIRS_STONE = 899511101
-    STAIRS_WOOD = 1461712277
-    STONE = 3741512247
-    UNKNOWN_1028101969 = 1028101969
-    UNKNOWN_1440721808 = 1440721808
-    UNKNOWN_1574477864 = 1574477864
-    UNKNOWN_1591009235 = 1591009235
-    UNKNOWN_2290050264 = 2290050264
-    UNKNOWN_4239621792 = 4239621792
-    UNKNOWN_617099282 = 617099282
-    WATER = 1024582599
-    WOOD = 500811281
+    # From nif.xml with a SKY_HAV_MAT_ prefix.
+    NONE = 0 # Invalid Material
+    BROKEN_STONE = 131151687 # Broken Stone
+    MATERIAL_BLOCK_BLADE_1HAND = 165778930 # Material Block Blade 1Hand
+    MATERIAL_MEAT = 220124585 # Material Meat
+    MATERIAL_CARRIAGE_WHEEL = 322207473 # Material Carriage Wheel
+    MATERIAL_METAL_LIGHT = 346811165 # Material Metal Light
+    LIGHT_WOOD = 365420259 # Light Wood
+    SNOW = 398949039 # Snow
+    GRAVEL = 428587608 # Gravel
+    MATERIAL_CHAIN_METAL = 438912228 # Material Chain Metal
+    BOTTLE = 493553910 # Bottle
+    WOOD = 500811281 # Wood
+    MATERIAL_ASH = 534864873 # Material Ash
+    SKIN = 591247106 # Skin
+    MATERIAL_BLOCK_BLUNT = 593401068 # Material Block Blunt
+    MATERIAL_CLOTH = 617099282 # Material Cloth
+    INSECT = 668408902 # Insect
+    BARREL = 732141076 # Barrel
+    MATERIAL_CERAMIC_MEDIUM = 781661019 # Material Ceramic Medium
+    MATERIAL_BASKET = 790784366 # Material Basket
+    ICE = 873356572 # Ice
+    STAIRS_GLASS = 880200008 # Stairs Glass
+    STAIRS_STONE = 899511101 # Stairs Stone
+    WATER = 1024582599 # Water
+    MATERIAL_BONE_ACTOR = 1028101969 # Material Bone Actor
+    MATERIAL_BLADE_1HAND = 1060167844 # Material Blade 1Hand
+    MATERIAL_BOOK = 1264672850 # Material Book
+    MATERIAL_CARPET = 1286705471 # Material Carpet
+    SOLID_METAL = 1288358971 # Solid Metal
+    MATERIAL_AXE_1HAND = 1305674443 # Material Axe 1Hand
+    MATERIAL_BLOCK_BLADE_2HAND = 1312943906 # Material Block Blade 2Hand
+    ORGANIC_LARGE = 1322093133 # Organic Large
+    CHAIN_METAL = 1440721808 # Chain Metal
+    STAIRS_WOOD = 1461712277 # Stairs Wood
+    MUD = 1486385281 # Mud
+    MATERIAL_BOULDER_SMALL = 1550912982 # Material Boulder Small
+    STAIRS_SNOW = 1560365355 # Stairs Snow
+    HEAVY_STONE = 1570821952 # Heavy Stone
+    CHARACTER_BUMPER = 1574477864 # Character Bumper
+    TRAP = 1591009235 # Unknown in Creation Kit v1.6.89.0. Found in trap objects or clutter\displaycases\displaycaselgangled01.nif or actors\deer\character assets\skeleton.nif.
+    MATERIAL_BOWS_STAVES = 1607128641 # Material Bows Staves
+    MATERIAL_SOLID_METAL = 1668849266 # Material Solid Metal
+    ALDUIN = 1730220269 # Alduin
+    MATERIAL_WOOD_MEDIUM = 1734341287 # Material Wood Medium
+    MATERIAL_BLOCK_BOWS_STAVES = 1763418903 # Material Block Bows Staves
+    MATERIAL_WOOD_AS_STAIRS = 1803571212 # Material Wood As Stairs
+    MATERIAL_BLADE_2HAND_ = 1820198263 # Material Blade 2Hand 
+    GRASS = 1848600814 # Grass
+    MATERIAL_BOULDER_LARGE = 1885326971 # Material Boulder Large
+    MATERIAL_STONE_AS_STAIRS = 1886078335 # Material Stone As Stairs
+    MATERIAL_BLADE_2HAND = 2022742644 # Material Blade 2Hand
+    MATERIAL_BOTTLE_SMALL = 2025794648 # Material Bottle Small
+    BONE_ACTOR = 2058949504 # Bone Actor
+    SAND = 2168343821 # Sand
+    HEAVY_METAL = 2229413539 # Heavy Metal
+    MATERIAL_WOOD_HEAVY = 2290050264 # Material Wood Heavy
+    MATERIAL_ICE_FORM = 2431524493 # Material Ice Form
+    DRAGON = 2518321175 # Dragon
+    MATERIAL_BLADE_1HAND_SMALL = 2617944780 # Material Blade 1Hand Small
+    MATERIAL_SKIN_SMALL = 2632367422 # Material Skin Small
+    MATERIAL_POTS_PANS = 2742858142 # Material Pots Pans
+    MATERIAL_STAIRS_WOOD = 2794252627 # Material Stairs Wood
+    MATERIAL_SKIN_SKELETON = 2821299363 # Material Skin Skeleton
+    MATERIAL_BLUNT_1HAND = 2872791301 # Material Blunt 1Hand
+    STAIRS_BROKEN_STONE = 2892392795 # Stairs Broken Stone
+    MATERIAL_SKIN_LARGE = 2965929619 # Material Skin Large
+    ORGANIC = 2974920155 # Organic
+    MATERIAL_BONE = 3049421844 # Material Bone
+    HEAVY_WOOD = 3070783559 # Heavy Wood
+    MATERIAL_CHAIN = 3074114406 # Material Chain
+    DIRT = 3106094762 # Dirt
+    GHOST = 3312543676 # Ghost
+    MATERIAL_SKIN_METAL_LARGE = 3387452107 # Material Skin Metal Large
+    MATERIAL_BLOCK_AXE = 3400476823 # Material Block Axe
+    MATERIAL_ARMOR_LIGHT = 3424720541 # Material Armor Light
+    MATERIAL_SHIELD_LIGHT = 3448167928 # Material Shield Light
+    MATERIAL_COIN = 3589100606 # Material Coin
+    MATERIAL_BLOCK_BLUNT_2HAND = 3662306947 # Material Block Blunt 2Hand
+    MATERIAL_SHIELD_HEAVY = 3702389584 # Material Shield Heavy
+    MATERIAL_ARMOR_HEAVY = 3708432437 # Material Armor Heavy
+    MATERIAL_ARROW = 3725505938 # Material Arrow
+    GLASS = 3739830338 # Glass
+    STONE = 3741512247 # Stone
+    MATERIAL_WATER_PUDDLE = 3764646153 # Material Water Puddle
+    CLOTH = 3839073443 # Cloth
+    MATERIAL_SKIN_METAL_SMALL = 3855001958 # Material Skin Metal Small
+    WARD = 3895166727 # Ward
+    WEB = 3934839107 # Web
+    MATERIAL_BLADE_1HAND_ = 3941234649 # Material Blade 1Hand 
+    MATERIAL_BLUNT_2HAND = 3969592277 # Material Blunt 2Hand
+    STAIRS_METAL = 3974071006 # Stairs Metal
+    DLC1_SWINGING_BRIDGE = 4239621792 # Unknown in Creation Kit v1.9.32.0. Found in Dawnguard DLC in meshes\dlc01\prototype\dlc1protoswingingbridge.nif.
+    MATERIAL_BOULDER_MEDIUM = 4283869410 # Material Boulder Medium
 
     @classmethod
     def get_name(cls, val):
@@ -1609,9 +1645,18 @@ class bhkListShapeProps(pynStructure):
         ('childFilter_size', c_uint32),
         ('childFilter_flags', c_uint32),
         ('childCount', c_uint32) ]
+    
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkListShapeBufType
+
+    def extract_field(self, shape, fieldname, fieldtype, game='SKYRIM'):
+        """Extract a single field value to the shape."""
+        if fieldname == 'bhkMaterial':
+            shape[fieldname] = SkyrimHavokMaterial(self.bhkMaterial).name
+        else:
+            super().extract_field(shape, fieldname, fieldtype, game=game)
+
 
 class bhkConvexTransformShapeProps(pynStructure):
     _fields_ = [

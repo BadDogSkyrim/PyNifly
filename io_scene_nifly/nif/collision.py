@@ -220,7 +220,7 @@ class CollisionHandler():
         cshape = bpy.context.object
         cshape.name = 'bhkListShape'
         cshape.show_name = True
-        cshape['bhkMaterial'] = SkyrimHavokMaterial.get_name(cs.properties.bhkMaterial)
+        # cshape['bhkMaterial'] = SkyrimHavokMaterial.get_name(cs.properties.bhkMaterial)
         cshape.matrix_world = parentxf.copy()
 
         # children = []
@@ -363,20 +363,19 @@ class CollisionHandler():
         return obj
 
 
+    collision_shape_importers = {
+        "bhkBoxShape": import_bhkBoxShape,
+        "bhkConvexVerticesShape": import_bhkConvexVerticesShape,
+        "bhkListShape": import_bhkListShape,
+        "bhkConvexTransformShape": import_bhkConvexTransformShape,
+        "bhkCapsuleShape": import_bhkCapsuleShape,
+        "bhkSphereShape": import_bhkSphereShape,
+    }
+
     def import_collision_shape(self, cs:bhkShape, parentxf):
         sh = None
-        if cs.blockname == "bhkBoxShape":
-            sh = self.import_bhkBoxShape(cs, parentxf)
-        elif cs.blockname == "bhkConvexVerticesShape":
-            sh = self.import_bhkConvexVerticesShape(cs, parentxf)
-        elif cs.blockname == "bhkListShape":
-            sh = self.import_bhkListShape(cs, parentxf)
-        elif cs.blockname == "bhkConvexTransformShape":
-            sh = self.import_bhkConvexTransformShape(cs, parentxf)
-        elif cs.blockname == "bhkCapsuleShape":
-            sh = self.import_bhkCapsuleShape(cs, parentxf)
-        elif cs.blockname == "bhkSphereShape":
-            sh = self.import_bhkSphereShape(cs, parentxf)
+        if cs.blockname in self.collision_shape_importers:
+            sh = self.collision_shape_importers[cs.blockname](self, cs, parentxf)
         else:
             self.warn(f"Found unimplemented collision shape: {cs.blockname}")
         
@@ -415,9 +414,10 @@ class CollisionHandler():
         bpy.ops.object.transform_apply()
         sh.matrix_world = targetxf.copy()
 
-        p = cb.properties
+        p = cb.shape.properties
         p.extract(sh, ignore=COLLISION_BODY_IGNORE)
         if not cb.blockname.startswith('bhkRigidBody'):
+            # Shape's parent wasn't a rigidbody. Remember what it was for export.
             sh['pynRigidBody'] = cb.blockname
 
         try:
@@ -431,7 +431,9 @@ class CollisionHandler():
             pass
             
         if sh.name.split('.')[0] == 'bhkListShape':
-            rbtype = 'ACTIVE' if p.collisionFilter_layer in collision_active_layers else 'PASSIVE'
+            # No collisionFilter_layer on bhkListShape
+            rbtype = 'ACTIVE'
+            # rbtype = 'ACTIVE' if p.collisionFilter_layer in collision_active_layers else 'PASSIVE'
             sh.rigid_body.collision_shape = 'COMPOUND'
             for ch in sh.children:
                 ObjectSelect([ch])
@@ -794,7 +796,11 @@ class CollisionHandler():
         else:
             targnode = self.nif.nodes[targobj.name]
 
-        colnode = targnode.add_collision(None, flags=flags)
+        colnode = targnode.add_collision(
+            None, flags=flags,
+            collision_type=PynBufferTypes.bhkSPCollisionObjectBufType
+                if coll.get('pynRigidBody') == 'bhkSimpleShapePhantom' 
+                else None)
         collpair = ReprObject(coll, colnode)
         self.objs_written.add(collpair)
 

@@ -1350,7 +1350,6 @@ def TEST_WOLF_SKEL():
     
 
 @TT.category('SKYRIMSE', 'BODYPART', 'ARMATURE')
-@TT.skip_test
 def TEST_DEER_SKEL():
     """
     Can import and export the deer skeleton with collisions. This one tends to create
@@ -1390,17 +1389,38 @@ def TEST_DEER_SKEL():
     nif2 = pyn.NifFile(outfile)
     assert nif2.nodes['Elk_COM'], "Have COM node"
     assert nif2.nodes['Elk_COM'].collision_object, "Have COM node collisions"
+    
+    # Check Elk_COM collision structure
+    elk_collision = nif2.nodes['Elk_COM'].collision_object
+    assert TT.is_eq(elk_collision.blockname, "bhkCollisionObject", "Elk_COM collision object type")
+    assert elk_collision.body, "Elk_COM collision has body"
+    assert TT.is_eq(elk_collision.body.blockname, "bhkRigidBody", "Elk_COM collision body type")
+    assert TT.is_eq(elk_collision.body.properties.collisionFilter_layer, SkyrimCollisionLayer.BIPED, 
+                    "Elk_COM collision layer is BIPED")
 
-    assert nif2.root.bounds_extra, "Have BSBound"
-    assert TT.is_equiv(nif2.root.bounds_extra[1].center[:], (0, 0, 39.42), "BSBound center", e=0.01)
-    assert TT.is_equiv(nif2.root.bounds_extra[1].halfExtents[:], (20.11, 74.17, 39.42), "BSBound half_extents", e=0.01)
+    assert (bnd := nif2.root.get_extra_data(blockname="BSBound")), "Have BSBound"
+    assert TT.is_equiv(bnd.center[:], (0, 0, 89.930107), "BSBound center", e=0.0001)
+    assert TT.is_equiv(bnd.half_extents[:], (38.973213, 105.170235, 89.930107), \
+                       "BSBound half_extents", e=0.01)
 
-    lod_name, lod_levels = nif2.root.bone_lod_extra
-    assert lod_levels, "Have BSBoneLOD"
-    assert TT.is_eq(lod_name, "BSBoneLOD", "BSBoneLOD name")
-    assert TT.is_eq(len(lod_levels), 3, "BSBoneLOD level count")
-    assert TT.is_eq(lod_levels[1][0], "ElkLRearHoof", "BSBoneLOD level 1 target")
-    assert TT.is_eq(lod_levels[1][1], 2048, "BSBoneLOD level 1 value")
+    assert (bonelod := nif2.root.get_extra_data(blockname="BSBoneLODExtraData")), "Have BSBoneLOD"
+    assert TT.is_eq(bonelod.name, "BSBoneLOD", "BSBoneLOD name")
+    assert TT.is_eq(len(bonelod.lod_data), 1, "BSBoneLOD level count")
+    assert TT.is_eq(bonelod.lod_data[0][0], "ElkLRearHoof", "BSBoneLOD level 1 target")
+    assert TT.is_eq(bonelod.lod_data[0][1], 2048, "BSBoneLOD level 1 value")
+    
+    # Check Character Controller collision properties
+    char_controller = nif2.nodes.get("Character Controller")
+    assert char_controller, "Have Character Controller node"
+    assert char_controller.collision_object, "Character Controller has collision"
+    assert TT.is_eq(char_controller.collision_object.blockname, "bhkSPCollisionObject", 
+                    "Character Controller collision type")
+    assert char_controller.collision_object.body, "Character Controller has collision body"
+    assert TT.is_eq(char_controller.collision_object.body.blockname, "bhkSimpleShapePhantom", 
+                    "Character Controller collision body")
+    assert char_controller.collision_object.body.shape, "Character Controller collision body has shape"
+    assert TT.is_eq(char_controller.collision_object.body.shape.blockname, "bhkListShape", 
+                    "Character Controller collision body shape")
     
 
 

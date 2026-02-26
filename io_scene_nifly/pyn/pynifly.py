@@ -53,6 +53,17 @@ def check_msg(func, *args, **kwargs):
     return retval
 
 
+def check_id(func, *args, **kwargs):
+    nifly.clearMessageLog()
+    try:
+        retval = func(*args, **kwargs)
+        if (retval or 0xFFFFFFFF) == NODEID_NONE:
+            raise Exception(f"Error calling nifly {func.__name__}: " + (NifFile.message_log()))
+    except Exception as e:
+        raise Exception(f"Error calling nifly {func.__name__}: {NifFile.message_log()}") from e
+    return retval
+
+
 def get_weights_by_bone(weights_by_vert, used_groups):
     """Given a list of weights 1-1 with vertices, return weights organized by bone. 
         weights_by_vert = [dict[group-name: weight], ...] 1-1 with verts
@@ -854,9 +865,9 @@ class NiCollisionObject(NiObject):
 
     def add_body(self, properties):
         """ Create a rigid body for this collision object """
-        rb_index = nifly.addBlock(
-            self.file._handle, None, byref(properties), self.id)
-        self._body = bhkWorldObject(id=rb_index, file=self.file, parent=self, properties=properties)
+        # rb_index = check_id(nifly.addBlock,
+        #     self.file._handle, None, byref(properties), self.id)
+        self._body = bhkWorldObject.New(file=self.file, parent=self, properties=properties)
         return self._body
 
 
@@ -902,17 +913,21 @@ class bhkBlendCollisionObject(bhkCollisionObject):
 
 
 class NiAVObject(NiObjectNET):
-    def add_collision(self, body, flags=None):
-        buf = bhkCollisionObjectBuf()
+    def add_collision(self, body, flags=None, collision_type=None):
+        if collision_type == PynBufferTypes.bhkSPCollisionObjectBufType:
+            buf = bhkSPCollisionObjectBuf()
+        elif collision_type == PynBufferTypes.bhkPCollisionObjectBufType:
+            buf = bhkPCollisionObjectBuf()
+        elif collision_type == PynBufferTypes.bhkNiCollisionObjectBufType:
+            buf = bhkNiCollisionObjectBuf()
+        else:
+            buf = bhkCollisionObjectBuf()
         if flags is not None: buf.flags = flags
         buf.bodyID = NODEID_NONE
         if body: buf.bodyID = body.id
         buf.targetID = self.id
-        new_coll_id = nifly.addBlock(self.file._handle, None, byref(buf), self.id)
-        new_coll = NiCollisionObject(file=self.file, 
-                                   id=new_coll_id, 
-                                   properties=buf, 
-                                   parent=self)
+        # new_coll_id = nifly.addBlock(self.file._handle, None, byref(buf), self.id)
+        new_coll = NiCollisionObject.New(file=self.file, properties=buf, parent=self)
         return new_coll
     
 

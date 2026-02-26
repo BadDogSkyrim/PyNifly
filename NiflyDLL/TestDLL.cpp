@@ -5099,5 +5099,145 @@ namespace NiflyDLLTests
 
 			destroy(nif);
 		}
+		TEST_METHOD(readWriteDeerSkel) {
+			/* Test we can read and write bhkSPCollisionObject with bhkSimpleShapePhantom and bhkListShape */
+			std::filesystem::path testfile = testRoot / "SkyrimSE/deer_skeleton.nif";
+			std::filesystem::path outfile = testRoot / "Out/readWriteDeerSkel.nif";
+
+			void* nif = load(testfile.u8string().c_str());
+			Assert::IsNotNull(nif, L"NIF file loaded");
+
+			// Find the "Character Controller" node
+			void* charController = findNodeByName(nif, "Character Controller");
+			Assert::IsNotNull(charController, L"Found Character Controller node");
+
+			// Get the node block and check it has a collision
+			int charControllerID = getBlockID(nif, charController);
+			NiNodeBuf charControllerBuf;
+			getBlock(nif, charControllerID, &charControllerBuf);
+			Assert::AreNotEqual(NIF_NPOS, charControllerBuf.collisionID, L"Character Controller has collision");
+
+			// Check the collision object is bhkSPCollisionObject
+			char collBlockName[128];
+			getBlockname(nif, charControllerBuf.collisionID, collBlockName, 128);
+			Assert::AreEqual("bhkSPCollisionObject", collBlockName, L"Collision is bhkSPCollisionObject");
+
+			// Read the collision object properties
+			bhkSPCollisionObjectBuf coBuf;
+			coBuf.bufType = BUFFER_TYPES::bhkSPCollisionObjectBufType;
+			Assert::AreEqual(0, getBlock(nif, charControllerBuf.collisionID, &coBuf), L"Read collision object");
+
+			// Check the body is bhkSimpleShapePhantom
+			char bodyBlockName[128];
+			getBlockname(nif, coBuf.bodyID, bodyBlockName, 128);
+			Assert::AreEqual("bhkSimpleShapePhantom", bodyBlockName, L"Body is bhkSimpleShapePhantom");
+
+			// Read the phantom body properties
+			bhkSimpleShapePhantomBuf phantomBuf;
+			phantomBuf.bufType = BUFFER_TYPES::bhkSimpleShapePhantomBufType;
+			Assert::AreEqual(0, getBlock(nif, coBuf.bodyID, &phantomBuf), L"Read phantom body");
+
+			// Check the shape is bhkListShape
+			char shapeBlockName[128];
+			getBlockname(nif, phantomBuf.shapeID, shapeBlockName, 128);
+			Assert::AreEqual("bhkListShape", shapeBlockName, L"Shape is bhkListShape");
+
+			// Read the list shape properties
+			BHKListShapeBuf listShapeBuf;
+			listShapeBuf.bufType = BUFFER_TYPES::bhkListShapeBufType;
+			Assert::AreEqual(0, getBlock(nif, phantomBuf.shapeID, &listShapeBuf), L"Read list shape");
+			Assert::IsTrue(listShapeBuf.childCount > 0, L"List shape has children");
+
+			// Get list shape children
+			uint32_t listChildren[10];
+			int childCount = getCollListShapeChildren(nif, phantomBuf.shapeID, listChildren, 10);
+			Assert::AreEqual(int(listShapeBuf.childCount), childCount, L"Retrieved all list shape children");
+
+			// ============= Can write collisions =======
+
+			void* nifOut = createNif("SKYRIMSE", "NiNode", "Scene Root");
+
+			// Copy the skeleton nodes
+			TCopyBones(nifOut, nif);
+
+			// Create the collision structure
+			bhkSPCollisionObjectBuf coOutBuf = coBuf;
+			coOutBuf.targetID = NIF_NPOS;
+			coOutBuf.bodyID = NIF_NPOS;
+			int charControllerOutID = findBlockByName(nifOut, "Character Controller");
+			int coOutID = addBlock(nifOut, nullptr, &coOutBuf, charControllerOutID);
+
+			bhkSimpleShapePhantomBuf phantomOutBuf = phantomBuf;
+			phantomOutBuf.shapeID = NIF_NPOS;
+			int phantomOutID = addBlock(nifOut, nullptr, &phantomOutBuf, coOutID);
+
+			BHKListShapeBuf listOutBuf = listShapeBuf;
+			listOutBuf.childCount = 0;
+			int listOutID = addBlock(nifOut, nullptr, &listOutBuf, phantomOutID);
+
+			// Copy list shape children (capsule shapes)
+			for (int i = 0; i < childCount; i++) {
+				char childBlockName[128];
+				getBlockname(nif, listChildren[i], childBlockName, 128);
+
+				if (strcmp(childBlockName, "bhkCapsuleShape") == 0) {
+					BHKCapsuleShapeBuf capsuleBuf;
+					capsuleBuf.bufType = BUFFER_TYPES::bhkCapsuleShapeBufType;
+					getBlock(nif, listChildren[i], &capsuleBuf);
+					addBlock(nifOut, nullptr, &capsuleBuf, listOutID);
+				}
+			}
+
+			saveNif(nifOut, outfile.u8string().c_str());
+
+			// ============= Check results =======
+
+			void* nifCheck = load(outfile.u8string().c_str());
+			Assert::IsNotNull(nifCheck, L"Output NIF file loaded");
+
+			// Find the Character Controller node in output
+			void* charControllerCheck = findNodeByName(nifCheck, "Character Controller");
+			Assert::IsNotNull(charControllerCheck, L"Found Character Controller node in output");
+
+			// Get the node block and check it has a collision
+			int charControllerCheckID = getBlockID(nifCheck, charControllerCheck);
+			NiNodeBuf charControllerCheckBuf;
+			getBlock(nifCheck, charControllerCheckID, &charControllerCheckBuf);
+			Assert::AreNotEqual(NIF_NPOS, charControllerCheckBuf.collisionID, L"Character Controller has collision in output");
+
+			// Check the collision object is bhkSPCollisionObject
+			char collCheckBlockName[128];
+			getBlockname(nifCheck, charControllerCheckBuf.collisionID, collCheckBlockName, 128);
+			Assert::AreEqual("bhkSPCollisionObject", collCheckBlockName, L"Collision is bhkSPCollisionObject in output");
+
+			// Read the collision object properties
+			bhkSPCollisionObjectBuf coCheckBuf;
+			coCheckBuf.bufType = BUFFER_TYPES::bhkSPCollisionObjectBufType;
+			Assert::AreEqual(0, getBlock(nifCheck, charControllerCheckBuf.collisionID, &coCheckBuf), L"Read collision object from output");
+
+			// Check the body is bhkSimpleShapePhantom
+			char bodyCheckBlockName[128];
+			getBlockname(nifCheck, coCheckBuf.bodyID, bodyCheckBlockName, 128);
+			Assert::AreEqual("bhkSimpleShapePhantom", bodyCheckBlockName, L"Body is bhkSimpleShapePhantom in output");
+
+			// Read the phantom body properties
+			bhkSimpleShapePhantomBuf phantomCheckBuf;
+			phantomCheckBuf.bufType = BUFFER_TYPES::bhkSimpleShapePhantomBufType;
+			Assert::AreEqual(0, getBlock(nifCheck, coCheckBuf.bodyID, &phantomCheckBuf), L"Read phantom body from output");
+
+			// Check the shape is bhkListShape
+			char shapeCheckBlockName[128];
+			getBlockname(nifCheck, phantomCheckBuf.shapeID, shapeCheckBlockName, 128);
+			Assert::AreEqual("bhkListShape", shapeCheckBlockName, L"Shape is bhkListShape in output");
+
+			// Read the list shape properties
+			BHKListShapeBuf listCheckShapeBuf;
+			listCheckShapeBuf.bufType = BUFFER_TYPES::bhkListShapeBufType;
+			Assert::AreEqual(0, getBlock(nifCheck, phantomCheckBuf.shapeID, &listCheckShapeBuf), L"Read list shape from output");
+			Assert::AreEqual(int(listShapeBuf.childCount), int(listCheckShapeBuf.childCount), L"List shape has same number of children in output");
+
+			destroy(nif);
+			destroy(nifCheck);
+		};
 	};
 }
