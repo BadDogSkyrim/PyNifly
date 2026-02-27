@@ -2,9 +2,13 @@
 
 # Copyright © 2024, Bad Dog.
 
+import math
 import bpy
 import bmesh
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
+from ..pyn.nifconstants import (
+    HAVOC_SCALE_FACTOR, game_collision_sf, SkyrimCollisionLayer, SkyrimHavokMaterial,
+    bhkCOFlags)
 from ..blender_defs import (MatrixLocRotScale, ObjectSelect, transform_to_matrix, 
                             find_box_info, append_if_new, MatrixLocRotScale)
 from ..util.reprobj import ReprObject
@@ -21,6 +25,7 @@ COLLISION_BODY_IGNORE = [
     'mass',
     'rotation', 
     'translation', 
+    'transform', # on bhkSimpleShapePhantom
     'unused2_1', 
     'unused2_2', 
     'unused2_3', 
@@ -414,7 +419,9 @@ class CollisionHandler():
         bpy.ops.object.transform_apply()
         sh.matrix_world = targetxf.copy()
 
-        p = cb.shape.properties
+        # We don't have a separate Blender object for rigid body properties, so store them
+        # on the shape.
+        p = cb.properties
         p.extract(sh, ignore=COLLISION_BODY_IGNORE)
         if not cb.blockname.startswith('bhkRigidBody'):
             # Shape's parent wasn't a rigidbody. Remember what it was for export.
@@ -576,7 +583,7 @@ class CollisionHandler():
         Export a convex vertices shape that wraps around whatever the import shape
         is.
         """
-        p = bhkConvexVerticesShapeProps(s)
+        p = bhkConvexVerticesShapeProps(s, game=self.game)
         bm = bmesh.new()
         bm.from_mesh(s.data)
         bmesh.ops.convex_hull(bm, input=bm.verts, use_existing_faces=True)

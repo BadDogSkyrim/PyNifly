@@ -26,13 +26,12 @@ logging.basicConfig()
 mylog.setLevel(logging.DEBUG)
 
 
-
 # ############## TESTS TO RUN #############
 execute(
-    # testlist=[TEST_FURNITURE_MARKER],
+    testlist=[TEST_BOW],
     stop_on_fail=True,
     )
-# execute()
+execute()
 # execute(start=TEST_KF)
 # execute(categories={"SHADER"})
 #

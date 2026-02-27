@@ -6,7 +6,7 @@
 import os
 from pathlib import Path
 import logging
-import traceback
+import math
 from dataclasses import dataclass
 from collections.abc import Iterator
 import bpy

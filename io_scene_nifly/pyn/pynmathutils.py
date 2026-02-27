@@ -39,7 +39,66 @@
 
 
 import logging
-import operator
+from ctypes import (c_char, c_uint16, c_float)
+
+VECTOR2 = c_float * 2
+VECTOR3 = c_float * 3
+VECTOR4 = c_float * 4
+VECTOR6_SHORT = c_uint16 * 6
+VECTOR12 = c_float * 12
+MATRIX3 = VECTOR3 * 3
+MATRIX4 = VECTOR4 * 4
+CHAR256 = c_char * 256
+
+
+class pynMatrix:
+    def __init__(self, v):
+        if type(v) == list:
+            self._array = v
+        elif type(v) == VECTOR3:
+            self._array = [[1, 0, 0, v[0]], [0, 1, 0, v[1]], [0, 0, 1, v[2]], [0, 0, 0, 1]]
+        elif type(v) == VECTOR4:
+            self._array = [[1, 0, 0, v[0]], [0, 1, 0, v[1]], [0, 0, 1, v[2]], [0, 0, 0, v[3]]]
+
+    def __mul__(self, other):
+        return pynMatrix([[sum(a*b for a, b in zip(X_row, Y_col)) for Y_col in zip(*other._array)] for X_row in self._array])
+
+    def __str__(self):
+        return str(self._array)
+
+    def __eq__(self, other):
+        return self._array == other._array
+
+    def to_vector4(self):
+        """ Return the translation part of the matrix """
+        return VECTOR4(self._array[0][3], self._array[1][3], self._array[2][3], self._array[3][3])
+
+    def to_vector3(self):
+        return VECTOR3(self._array[0][3], self._array[1][3], self._array[2][3])
+
+
+def quaternion_to_matrix(q):
+    """
+    Convert a quaternion to a 3x3 rotation matrix.
+    
+    :param q: A quaternion in the format (w, x, y, z)
+    :return: The corresponding 3x3 rotation matrix
+    """
+    w, x, y, z = q
+    q_norm = (w**2 + x**2 + y**2 + z**2)**0.5
+    if q_norm == 0:
+        raise ValueError("Quaternion cannot have zero norm.")
+    
+    q = (w/q_norm, x/q_norm, y/q_norm, z/q_norm)
+    
+    q0, q1, q2, q3 = q
+    matrix = [
+        [1 - 2*q2**2 - 2*q3**2, 2*q1*q2 - 2*q0*q3, 2*q1*q3 + 2*q0*q2],
+        [2*q1*q2 + 2*q0*q3, 1 - 2*q1**2 - 2*q3**2, 2*q2*q3 - 2*q0*q1],
+        [2*q1*q3 - 2*q0*q2, 2*q2*q3 + 2*q0*q1, 1 - 2*q1**2 - 2*q2**2]
+    ]
+    
+    return matrix
 
 def float_to_int(value):
     """Convert float to integer, rounding and handling nan and inf

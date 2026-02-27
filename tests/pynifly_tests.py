@@ -20,8 +20,9 @@ import sys
 import codecs
 import ctypes
 import shutil
+import math
 from pathlib import Path
-
+from io_scene_nifly.pyn.nifconstants import bhkCOFlags
 
 if 'PYNIFLY_DEV_ROOT' in os.environ:
     root_path = Path(os.environ['PYNIFLY_DEV_ROOT'])
@@ -369,31 +370,35 @@ def TEST_EDITORMARKERS():
 @test_category('NIFDEFS')
 def TEST_NIFDEFS():
     """Test nifdefs functionality."""
-    # Easier to do it here.
-
     # The different shape buffers initialize their ID values, but can also be set from
     # a dictionary object.
-    b = NiShapeBuf({"flags": 24, "collisionID": 4})
-    assert b.flags == 24, f"Flags are correct"
-    assert b.collisionID == 4, f"collisionID is set"
-    assert b.shaderPropertyID == NODEID_NONE, f"shaderPropertyID is not set"
+    b = NiShapeBuf({
+        "flags": "SELECTIVE_UPDATE|SELECTIVE_UPDATE_TRANSF|SELECTIVE_UPDATE_CONTR", 
+        "collisionID": 4, })
+    assert TT.is_eq(b.flags, 14, "Flags are correct")
+    assert TT.is_eq(b.collisionID, 4, "collisionID is set")
+    assert TT.is_eq(b.shaderPropertyID, NODEID_NONE, "shaderPropertyID is not set")
 
-    b = BSLODTriShapeBuf({"flags": 24, "collisionID": 4})
-    assert b.flags == 24, f"Flags are correct"
-    assert b.collisionID == 4, f"collisionID is set"
-    assert b.shaderPropertyID == NODEID_NONE, f"shaderPropertyID is not set"
+    b = NiTriShapeBuf({
+        "flags": "SELECTIVE_UPDATE|SELECTIVE_UPDATE_TRANSF|SELECTIVE_UPDATE_CONTR", 
+        "collisionID": 4})
+    assert TT.is_eq(b.flags, 14, "Flags are correct")
+    assert TT.is_eq(b.collisionID, 4, "collisionID is set")
+    assert TT.is_eq(b.shaderPropertyID, NODEID_NONE, "shaderPropertyID is not set")
 
-    b = BSLODTriShapeBuf({"flags": 24, "collisionID": 4})
-    assert b.flags == 24, f"Flags are correct"
-    assert b.collisionID == 4, f"collisionID is set"
-    assert b.shaderPropertyID == NODEID_NONE, f"shaderPropertyID is not set"
+    b = BSLODTriShapeBuf({
+        "flags": "SELECTIVE_UPDATE|SELECTIVE_UPDATE_TRANSF|SELECTIVE_UPDATE_CONTR", 
+        "collisionID": 4})
+    assert TT.is_eq(b.flags, 14, "Flags are correct")
+    assert TT.is_eq(b.collisionID, 4, "collisionID is set")
+    assert TT.is_eq(b.shaderPropertyID, NODEID_NONE, "shaderPropertyID is not set")
 
     # Can read and store shader property values.
     # Regression: parallaxInnerLayerTextureScale gave problems
-    b = NiShaderBuf({"Shader_Type": BSLSPShaderType.Face_Tint, 
+    b = NiShaderBuf({"Shader_Type": 'Face_Tint', 
                         "parallaxInnerLayerTextureScale": "[0.949999988079071, 0.949999988079071]"})
-    assert b.Shader_Type == BSLSPShaderType.Face_Tint, f"Have correct face tint"
-    assert VNearEqual(b.parallaxInnerLayerTextureScale[:], [0.95, 0.95]), "Have correct parallaxInnerLayerTextureScale"
+    assert TT.is_eq(b.Shader_Type, BSLSPShaderType.Face_Tint, "face tint")
+    assert TT.is_equiv(b.parallaxInnerLayerTextureScale[:], [0.95, 0.95], "parallaxInnerLayerTextureScale")
 
 
 def TEST_READ():
@@ -476,6 +481,7 @@ def TEST_SHAPE_QUERY():
     assert round(verts[685][0], 4) == -64.4469, "ERROR: Last vert wrong"
     assert round(verts[685][1], 4) == -16.3246, "ERROR: Last vert wrong"
     assert round(verts[685][2], 4) == 26.4362, "ERROR: Last vert wrong"
+    assert len(verts) == 686, "ERROR: Did not import 686 verts"
 
     # Normals follow the verts
     assert len(f2.shapes[0].normals) == 686, "ERROR: Expected 686 normals"
@@ -1086,7 +1092,7 @@ def TEST_COLORS():
     assert nif4.shapes[1].name == "Armor", "Have the right shape"
     assert len(nif4.shapes[1].verts) > 0, "Get the verts from the shape"
     assert len(nif4.shapes[1].colors) == 0, f"Should have no colors, 0 != {len(nif4.shapes[1].colors)}"
-    
+
 
 def TEST_FNV():
     """Can load and save FNV nifs"""
@@ -1158,11 +1164,34 @@ def TEST_UNI():
     nif3 = NifFile(r"tests\out\будильник.nif")
     assert len(nif3.shapes) == 1, f"Error: Expected 1 shape, found {len(nif3.shapes)}"
 
+# These shader properties will be represented in shader nodes, so they don't need to be
+# extracted.
+shader_props = set((
+    'baseColor',
+    'baseColorScale',
+    'bslspShaderType',
+    'bufSize', 
+    'bufType', 
+    'bBSLightingShaderProperty',
+    'Emissive_Color',
+    'Emissive_Mult',
+    'Glossiness',
+    'greyscaleTexture',
+    'sourceTexture',
+    'Spec_Color',
+    'Spec_Str',
+    'subsurfaceColor',
+    'UV_Offset_U',
+    'UV_Offset_V',
+    'UV_Scale_U',
+    'UV_Scale_V',
+    'textureClampMode',
+))
 
 @test_category('SHADER')
 def TEST_SHADER():
     """Can read shader flags"""
-    hnse = NifFile(r"tests\SKYRIMSE\maleheadAllTextures.nif")
+    hnse = NifFile(r"tests\SKYRIMSE\meshes\maleheadAllTextures.nif")
     hsse = hnse.shapes[0]
     TT.assert_eq(hsse.shader.properties.Shader_Type, 4, "Shader_Type")
     TT.assert_eq(hsse.shader.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), True, "MODEL_SPACE_NORMALS")
@@ -1198,10 +1227,11 @@ def TEST_SHADER():
 
     print("------------- Extract non-default values")
     v = {}
-    hsse.shader.properties.extract(v)
+    hsse.shader.properties.extract(v, ignore=shader_props)
     print(v)
     assert 'Shader_Flags_1' in v
-    assert 'Glossiness' in v
+    assert 'Env_Map_Scale' not in v # Default value
+    assert 'Glossiness' not in v # in the ignore list
     assert 'UV_Scale_U' not in v
 
     """Can read and write shader"""
@@ -2314,7 +2344,7 @@ def TEST_ANIMATION_SHADER():
 
 def TEST_ANIMATION_SHADER_BSLSP():
     """Embedded animations on BSLightingShaderProperty shaders"""
-    testfile = r"tests/SkyrimSE\voidshade_1.nif"
+    testfile = r"tests\SkyrimSE\voidshade_1.nif"
     outfile = r"tests\out\TEST_ANIMATION_SHADER_BSLSP.nif"
 
     nif = NifFile(testfile)

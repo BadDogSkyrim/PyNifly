@@ -13,9 +13,11 @@ import json
 import bpy
 from mathutils import Matrix, Vector, Quaternion, Euler
 import io_scene_nifly.pyn.niflytools as NT
-from io_scene_nifly.pyn.nifdefs import NiAVFlags, ShaderFlags2, bhkCOFlags, SkyrimCollisionLayer, \
-    SkyrimHavokMaterial, PynBufferTypes, CycleType, hkResponseType, HSF, \
-    BroadPhaseType, hkMotionType, hkSolverDeactivation, hkQualityType, HAVOC_SCALE_FACTOR
+from io_scene_nifly.pyn.nifdefs import PynBufferTypes
+from io_scene_nifly.pyn.nifconstants import (
+    NiAVFlags, ShaderFlags2, bhkCOFlags, SkyrimCollisionLayer, SkyrimHavokMaterial, 
+    CycleType, hkResponseType, BroadPhaseType, hkMotionType, 
+    hkSolverDeactivation, hkQualityType, HAVOC_SCALE_FACTOR)
 import io_scene_nifly.pyn.pynifly as pyn
 import xml.etree.ElementTree as xml
 import io_scene_nifly.blender_defs as BD
@@ -5057,7 +5059,7 @@ def TEST_COLLISION_LIST(bx):
     collshape = root.constraints[0].target
     assert collshape.name.startswith('bhkListShape'), "Have list shape"
     yvals = set(round(obj.location.y, 1) for obj in collshape.children)
-    expectedy = set(map(lambda x: round(x*HSF, 1), [0.632, -0.19, 0.9]))
+    expectedy = set(map(lambda x: round(x*HAVOC_SCALE_FACTOR, 1), [0.632, -0.19, 0.9]))
     assert yvals == expectedy, f"Have expected y vals: {yvals} == {expectedy}"
 
     assert collshape.name.startswith("bhkListShape"), f"Found list collision shape: {collshape.name}"
@@ -5230,10 +5232,10 @@ def TEST_COLLISION_XFORM():
     capcts = listcheck.children[0] 
     capshape = capcts.child
     assert capshape.blockname == 'bhkCapsuleShape', f"Have the capsule"
-    capmaxy = (capcts.transform[1][3] + capshape.properties.point2[1]) * HSF
+    capmaxy = (capcts.transform[1][3] + capshape.properties.point2[1]) * HAVOC_SCALE_FACTOR
     assert BD.NearEqual(capmaxy, 67, epsilon=1.0), f"Capsule max y correct: {capmaxy}"
 
-    capminy = (capcts.transform[1][3] + capshape.properties.point1[1]) * HSF
+    capminy = (capcts.transform[1][3] + capshape.properties.point1[1]) * HAVOC_SCALE_FACTOR
     assert BD.NearEqual(capminy, -73.4, epsilon=1.0), f"Capsule min y correct: {capminy}"
 
 
@@ -7657,9 +7659,18 @@ def execute_test(t, executed_tests, stop_on_fail=True):
             if t.__doc__: print (f"{t.__doc__}")
             TTB.clear_all()
 
+            if 'FO4' in t.__dict__.get("category", set()):
+                bpy.context.preferences.filepaths.texture_directory = TTB.PYNIFLY_TEXTURES_FO4
+            else:
+                bpy.context.preferences.filepaths.texture_directory = TTB.PYNIFLY_TEXTURES_SKYRIM
+
             test_loghandler.start(t.__dict__.get("expected_errors", None))
             if stop_on_fail:
-                t()
+                try:
+                    t()
+                except AssertionError:
+                    breakpoint()
+                    raise
                 test_loghandler.finish()
                 executed_tests[t.__name__] = 'PASS'
             else:
@@ -7667,6 +7678,9 @@ def execute_test(t, executed_tests, stop_on_fail=True):
                     t()
                     test_loghandler.finish()
                     executed_tests[t.__name__] = 'PASS'
+                except AssertionError:
+                    breakpoint()
+                    executed_tests[t.__name__] = 'FAIL'
                 except Exception as e:
                     log.exception(f"Test {t.__name__} failed with exception: {e}")
                     executed_tests[t.__name__] = 'FAIL'

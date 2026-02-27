@@ -16,13 +16,11 @@ from .niflytools import *
 from .nifdefs import *
 from . import xmltools
 from .niflydll import nifly, nifly_path
+from .nifconstants import BSXFlagsValues
 
 
 # Set up logging
 log = logging.getLogger("pynifly")
-
-
-
 
 
 # --- Helper Routines --- #
@@ -133,7 +131,7 @@ class Partition:
         return self.name >= other.name
 
 class SkyPartition(Partition):
-    skymatch = re.compile('SBP_([0-9]+)_\w+')
+    skymatch = re.compile(r'SBP_([0-9]+)_\w+')
 
     def __init__(self, part_id=0, flags=0, namedict=None, name=None):
         super().__init__(part_id, namedict, name)
@@ -154,8 +152,8 @@ class SkyPartition(Partition):
             return -1
 
 class FO4Segment(Partition):
-    fo4segmatch = re.compile('FO4\w+ \#*([0-9]+)\Z')
-    fo4segmatch1 = re.compile('FO4 Seg +([0-9]+)\Z')
+    fo4segmatch = re.compile(r'FO4\w+ \#*([0-9]+)\Z')
+    fo4segmatch1 = re.compile(r'FO4 Seg +([0-9]+)\Z')
 
     def __init__(self, part_id=0, index=0, subsegments=0, namedict=fo4Dict, name=None):
         super().__init__(part_id, namedict=namedict, name=name)
@@ -344,9 +342,9 @@ class ExtraDataType(Enum):
 class NiObject:
     """ Represents any block in a nif file. """
     
-    # These are the types of blocks we can create from an ID. Eventaully should probably
-    # be all of them. This could be done with reflection but we're keeping things simple.
+    # These are the types of blocks we can create from an ID. {classname: class, ...}
     block_types = {}
+    # This is an array indexed by buffer type, containing the associated classes.
     buffer_types = [None] * PynBufferTypes.COUNT
 
     # Buffer used to pass properties across the DLL layer. Overridden by subtypes.
@@ -796,6 +794,8 @@ class bhkRigidBody(bhkWorldObject):
 
 
 class bhkRigidBodyT(bhkRigidBody):
+    buffer_type = PynBufferTypes.bhkRigidBodyTBufType
+
     @classmethod
     def getbuf(cls, values=None):
         buf = bhkRigidBodyProps(values)
@@ -4775,7 +4775,7 @@ class hkxSkeletonFile(NifFile):
             rotlist = poselist[i+1].strip(' ()\t\n').split()
             if len(rotlist) == 4:
                 # Note this quaternion may not be normalized
-                rot = quaternion_to_matrix(
+                rot = PM.quaternion_to_matrix(
                     [float(rotlist[3]), float(rotlist[0]), float(rotlist[1]), float(rotlist[2])])
             else:
                 self.warn(f"Pose list does not have good rotation at index {j}: {poselist[i+1]}")
