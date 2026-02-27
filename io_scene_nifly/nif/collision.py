@@ -840,13 +840,3 @@ class CollisionHandler():
                 if c.type == 'COPY_TRANSFORMS' and c.target:
                     exporter.export_collision_object(targobj, c.target)
 
-        #     collisions = [x for x in obj.constraints if x.type == 'COPY_TRANSFORMS']
-        # if not collisions: return
-
-        # collshape = collisions[0].target
-        # if not collshape: return
-        # if parent_handler.objs_written.find_blend(collshape): return 
-
-        # exporter.export_collision_object(targobj, collshape)
-
-

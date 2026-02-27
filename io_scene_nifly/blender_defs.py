@@ -65,15 +65,6 @@ def stashed_animation(obj):
     """Context manager that temporarily stashes and restores animation data on an object"""
     saved_anim_action = saved_anim_slot = None
     saved_mat_action = saved_mat_slot = None
-    # if obj.animation_data:
-    #     saved_anim_action = obj.animation_data.action
-    #     saved_anim_slot = obj.animation_data.action_slot
-    #     obj.animation_data_clear()
-
-    # if obj.active_material and obj.active_material.animation_data:
-    #     saved_mat_action = obj.active_material.animation_data.action
-    #     saved_mat_slot = obj.active_material.animation_data.action_slot
-    #     obj.active_material.animation_data_clear()
     
     try:
         yield
@@ -239,15 +230,7 @@ def find_box_info(box):
     dimv = Vector([
         (f2.center-f1.center).length for f1, f2 in zip(faces, opposites)
     ])
-    # for f1, f2 in zip(faces, opposites):
-    #     # Get the width/height/depth
-    #     p1 = box.matrix_world @ box.data.vertices[f1.vertices[0]].co
-    #     p2 = box.matrix_world @ box.data.vertices[f2.vertices[0]].co
-    #     n2 = box.matrix_world @ f2.normal
-    #     d = abs(geometry.distance_point_to_plane(p1, p2, n2))
-    #     dimensions.append(d)
-
-    # dimv = Vector(dimensions)
+    
     # In an unrotated cube, the first face points along -X.
     xrot = Vector((-1, 0, 0,)).rotation_difference(faces[0].normal)
     # Second face points to +Y, so rotate around X to fix it.

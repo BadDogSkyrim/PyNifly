@@ -654,12 +654,6 @@ class NifExporter:
                               max(v.co.y for v in self.bound.data.vertices),
                               max(v.co.z for v in self.bound.data.vertices)),
                 parent=self.nif.rootNode)
-            # self.nif.rootNode.bounds_extra = [
-            #     BD.nonunique_name(self.bound.name.split(":",1)[1]),
-            #     self.bound.location,
-            #     (max(v.co.x for v in self.bound.data.vertices),
-            #      max(v.co.y for v in self.bound.data.vertices),
-            #      max(v.co.z for v in self.bound.data.vertices)),]
             self.objs_written.add(ReprObject(self.bound, bnd)) 
 
 

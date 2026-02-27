@@ -429,18 +429,6 @@ class ConnectPointCollection():
             
             connect_par.append(buf)
 
-            ## No editor markers--they are exported as shapes
-            # # Export an editor marker, if wanted
-            # if obj.get("pynEditorMarker", True):
-            #     if not nif_tpl:
-            #         nif_tpl = NifFile(os.path.join(asset_path, "EditorMarker.nif"))
-            #         shape_tpl = nif_tpl.shapes[0] 
-            #     if shape_tpl:
-            #         self.construct_editor_marker(nif, obj, asset_path, shape_tpl)
-            #     elif not nif_tpl:
-            #         log.warning("Failed to load EditorMarker.nif from asset path.")
-            #         nif_tpl = -1 # Only warn once
-
         if connect_par:
             nif.connect_points_parent = connect_par
 

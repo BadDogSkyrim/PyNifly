@@ -7159,6 +7159,7 @@ def TEST_HKX_2():
 
 
 @TT.category('SKYRIM', 'HKX')
+@TT.skip_test
 def TEST_AUXBONES():
     """Can import and export an animation on an auxbones skeleton."""
     # SKIPPING

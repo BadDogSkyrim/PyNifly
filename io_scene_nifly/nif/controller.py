@@ -226,24 +226,6 @@ def all_obj_animations(export_objs:ReprObjectCollection):
                     targ = reprobj
                     elem = None
                     yield act, slot, targ, elem
-            # for reprobj in export_objs:
-            #     obj = reprobj.blender_obj
-            #     if slot.target_id_type == 'NODETREE':
-            #         if obj.active_material and _has_actionslots(obj.active_material.node_tree):
-            #             slotrefs = _get_actionslots(obj.active_material.node_tree)
-            #             for actionname, slotname in slotrefs.items():
-            #                 if actionname == act.name and slotname == slot.name_display:
-            #                     targ = reprobj
-            #                     elem = obj.active_material.node_tree
-            #                     yield act, slot, targ, elem
-            #     else: 
-            #         if _has_actionslots(obj):
-            #             slotrefs = _get_actionslots(obj)
-            #             for actionname, slotname in slotrefs.items():
-            #                 if actionname == act.name and slotname == slot.name_display:
-            #                     targ = reprobj
-            #                     elem = None
-            #                     yield act, slot, targ, elem
 
 
 def all_named_animations(export_objs:ReprObjectCollection) -> Iterator[AnimationData]:
@@ -881,13 +863,6 @@ class ControllerHandler():
         Returns [[time, value]...] for each keyframe in the curve.
         """
         raise NotImplementedError("Linear keys not implemented yet")
-        # keys = []
-        # for k in curve.keyframe_points:
-        #     k = NiAnimKeyLinearXYZBuf()
-        #     k.time = (k.co.x-1) / ( self.fps * ANIMATION_TIME_ADJUST)
-        #     k.value = k.co.y
-        #     keys.append(k)
-        # return keys
 
 
     def _get_curve_quad_values(self, curve):
@@ -1199,13 +1174,6 @@ class ControllerHandler():
                                         if ctlr.blockname != 'NiMultiTargetTransformController'
                                         else 'NiTransformController'),
                 )
-            # self.cm_obj_palette.add_object(anim.target_obj.nifnode.name, anim.target_obj.nifnode)
-            # self._add_controlled_object(anim.target_obj)
-
-        # # Seems like maybe all the objects have to be in the palette?
-        # for obj in self.export_objs:
-        #     self._add_controlled_object(obj)
-        # self._write_controlled_objects()
 
         # Vanilla nifs list all AV objects in the object palette, animated or not. We 
         # do the same.
@@ -1388,22 +1356,8 @@ def _import_float_data(td, importer:ControllerHandler):
 
     # Seems like fcurve_ensure_for_datablock creates unnecessary slots.
     s = None
-    curve = None
-    # if importer.path_name.startswith('nodes'):
-    #     for s in importer.action.slots:
-    #         if s.name_display.startswith('Shader Nodetree'):
-    #             break
-    #     if s:
-    #         for lr in importer.action.layers:
-    #             for strip in lr.strips:
-    #                 for cb in strip.channelbags:
-    #                     if cb.slot == s:
-    #                         curve = cb.fcurves.new(importer.path_name)
-    #                         break
-
-    if not curve:
-        curve = importer.action.fcurve_ensure_for_datablock(importer.action_target, importer.path_name)
-        _add_actionslot(importer.action_target, curve)
+    curve = importer.action.fcurve_ensure_for_datablock(importer.action_target, importer.path_name)
+    _add_actionslot(importer.action_target, curve)
 
     if td.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY \
             or td.properties.keys.interpolation == NiKeyType.LINEAR_KEY:

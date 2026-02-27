@@ -381,113 +381,6 @@ class pynStructure(Structure):
                     except Exception as e:
                         raise Exception(f"Error setting property {f} <- {v}: {e}") from e
 
-            # v = None
-            # # try:
-            # if f in ignore:
-            #     pass
-            # elif not (f in shape.keys()):
-            #     pass
-            # elif f in _value_setters:
-            #     try:
-            #         v = _value_from_store[f](shape[f], game)
-            #     except Exception as e:
-            #         raise Exception(f"Error setting property {f} <- {shape[f]}") from e
-            # # elif f == 'Shader_Flags_1':
-            # #     if not shape[f]:
-            # #         v = 0
-            # #     elif game in ['SKYRIM', 'SKYRIMSE']:
-            # #         v = ShaderFlags1.parse(shape[f]).value
-            # #     else:
-            # #         v = ShaderFlags1FO4.parse(shape[f]).value
-            # elif f == 'Shader_Flags_2':
-            #     if not shape[f]:
-            #         v = 0
-            #     elif game in ['SKYRIM', 'SKYRIMSE']:
-            #         v = ShaderFlags2.parse(shape[f]).value
-            #     else:
-            #         v = ShaderFlags2FO4.parse(shape[f]).value
-            # elif f == 'Shader_Type':
-            #     if not shape[f]:
-            #         v = 0
-            #     elif type(shape[f]) == BSLSPShaderType:
-            #         v = shape[f].value
-            #     elif type(shape[f]) == str:
-            #         mykey = str(shape[f])
-            #         myenum = BSLSPShaderType[mykey]
-            #         myval = myenum.value
-            #         v = myval
-            #     else:
-            #         v = int(shape[f])
-            # elif f in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
-            #     try:
-            #         v = SkyrimCollisionLayer[shape[f]].value
-            #     except:
-            #         v = int(shape[f])
-            # elif f == 'broadPhaseType':
-            #     try:
-            #         v = BroadPhaseType[shape[f]].value
-            #     except:
-            #         v = int(shape[f])
-            # elif f in ['collisionResponse', 'collisionResponse2']:
-            #     try:
-            #         v = hkResponseType[shape[f]].value
-            #     except:
-            #         v = int(shape[f])
-            # elif f == 'motionSystem':
-            #     try:
-            #         v = hkMotionType[shape[f]].value
-            #     except:
-            #         v = int(shape[f])
-            # elif f == 'deactivatorType':
-            #     try:
-            #         v = hkDeactivatorType[shape[f]].value
-            #     except:
-            #         v = int(shape[f])
-            # elif f == 'solverDeactivation': 
-            #     try:
-            #         v = hkSolverDeactivation[shape[f]].value
-            #     except:
-            #         v = int(shape[f])
-            # elif f == 'qualityType':
-            #     try:
-            #         v = hkQualityType[shape[f]].value
-            #     except:
-            #         v = int(shape[f])
-            # elif f == 'bhkMaterial':
-            #     try:
-            #         v = SkyrimHavokMaterial[shape[f]].value
-            #     except:
-            #         v = int(shape[f])
-            # elif t.__name__ == 'c_char_Array_256':
-            #     v = shape[f].encode('utf-8')
-            # elif t.__name__ == 'c_float_Array_2':
-            #     v = VECTOR2(*eval(shape[f]))
-            # elif t.__name__ == 'c_float_Array_3':
-            #     v = VECTOR3(*eval(shape[f])[0:3])
-            # elif t.__name__ == 'c_float_Array_4':
-            #     v = VECTOR4(*eval(shape[f]))
-            # elif t.__name__ == 'c_float_Array_12':
-            #     v = VECTOR12(*eval(shape[f]))
-            # elif t.__name__ == 'c_ushort_Array_6':
-            #     v = VECTOR6_SHORT(*eval(shape[f]))
-            # elif t.__name__ == 'c_float_Array_4_Array_4':
-            #     v = MATRIX4(*[VECTOR4(*eval(shape[f])[i]) for i in range(4)])
-            # elif t.__name__ == 'c_float':
-            #     v = float(shape[f])
-            # elif t.__name__ in ['c_ubyte', 'c_ulong', 'c_uint8', 'c_uint16', 'c_uint32', 'c_ulong', 'c_ulonglong']:
-            #     v = int(shape[f])
-            # else:
-            #     v = shape[f]
-            # if v is not None:
-            #     try:
-            #         self.__setattr__(f, v)
-            # # except KeyError as e:
-            # #     try:
-            # #         self.__setattr__(f, int(shape[f]))
-            # #     except Exception as e:
-            # #         self.warn(f"Error setting property {f} <- {shape[f]}")
-            #     except Exception as e:
-            #         raise Exception(f"Error setting property {f} <- {shape[f]}") from e
 
     def _value_from_buf(self, fieldname, game='SKYRIM'):
         """Get the value of a field, converting it to a user-friendly representation if possible."""
@@ -507,6 +400,7 @@ class pynStructure(Structure):
         else:
             return v
         
+
     def extract_field(self, shape, fieldname, fieldtype, game='SKYRIM'):
         """
         Extract a single field from the buffer and set as a key/value pair on the
@@ -522,21 +416,6 @@ class pynStructure(Structure):
         except OverflowError as e:
             shape[fieldname] = repr(v)
 
-        # if fieldtype.__name__ == 'c_char_Array_256':
-        #     v = self.__getattribute__(fieldname).decode()
-        # elif '_Array_' in fieldtype.__name__:
-        #     v = [x for x in self.__getattribute__(fieldname)]
-        # else:
-        #     v = self.__getattribute__(fieldname)
-        # if type(v) == list:
-        #     shape[fieldname] = repr(v)
-        # else:
-        #     try:
-        #         shape[fieldname] = v
-        #     except Exception as e:
-        #         # If the value can't be stored natively, store it as a string.
-        #         # This happens when the top bit of a uint32 is set.
-        #         shape[fieldname] = repr(v)
 
     def extract(self, shape, ignore=None, game='SKYRIM'):
         """

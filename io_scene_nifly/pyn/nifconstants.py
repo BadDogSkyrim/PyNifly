@@ -1,7 +1,7 @@
 """
 Magic constants and data structures used in nif files.
 """
-from ..util.pynenum import PynIntFlag, PynIntEnum
+from .pynenum import PynIntFlag, PynIntEnum
 
 
 NODEID_NONE = 4294967295
@@ -482,3 +482,10 @@ class CycleType(PynIntEnum):
     REVERSE = 1
     CLAMP = 2
 
+
+class ExtraDataType(PynIntEnum):
+    BehaviorGraph = 1
+    String = 2
+    Cloth = 3
+    InvMarker = 4
+    BSXFlags = 5
