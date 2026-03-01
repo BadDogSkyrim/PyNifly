@@ -5245,9 +5245,10 @@ def TEST_COLLISION_FO4_CAPSULE_STAIRS():
     testfile = TTB.test_file(r"tests\FO4\CapsuleExtStairsFree01.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    # Two nodes (root + StairHelper03) each have a bhkNPCollisionObject
+    # root + StairHelper03 both reference the same bhkPhysicsSystem block;
+    # it should be imported exactly once.
     physics_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
-    assert TT.is_eq(len(physics_shapes), 2, "Two bhkPhysicsSystem collision meshes imported")
+    assert TT.is_eq(len(physics_shapes), 1, "Shared bhkPhysicsSystem imported exactly once")
 
     # Get world-space bounds of the visual mesh
     mesh_obj = bpy.data.objects["CapsuleExtStairsFree01:1"]

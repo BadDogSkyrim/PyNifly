@@ -182,6 +182,10 @@ class CollisionHandler():
         self.nif = parent_handler.nif
         self.objs_written = None
         self.logger = logging.getLogger("pynifly")
+        # Shared cache so the same bhkPhysicsSystem block is only imported once
+        if not hasattr(parent_handler, '_physics_system_cache'):
+            parent_handler._physics_system_cache = {}
+        self._physics_system_cache = parent_handler._physics_system_cache
     
 
     def warn(self, msg):
@@ -381,6 +385,11 @@ class CollisionHandler():
         if ps is None:
             return None
 
+        # Return the existing Blender object if this physics system block was
+        # already imported (multiple collision objects may share one block).
+        if ps.id in self._physics_system_cache:
+            return self._physics_system_cache[ps.id]
+
         raw = ps.data
         if not raw:
             return None  # DLL not updated yet or block has no data; skip silently
@@ -409,6 +418,7 @@ class CollisionHandler():
         obj.color = COLLISION_COLOR
         obj.display_type = 'WIRE'
         obj['pynRigidBody'] = 'bhkPhysicsSystem'
+        self._physics_system_cache[ps.id] = obj
 
         return obj
 
