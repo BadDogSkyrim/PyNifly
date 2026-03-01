@@ -2919,6 +2919,24 @@ def TEST_FO4_CAPSULE_PHYSICS():
     assert TT.is_equiv(min(phys_zs), min(mesh_zs), "Min Z Section_0 close to mesh", e=2.0)
     assert TT.is_equiv(max(phys_zs), max(mesh_zs), "Max Z Section_0 close to mesh", e=2.0)
 
+    # StairHelper03 has its own collision; its Section_0 should match the same BSTriShape
+    stair_node = nif.nodes["StairHelper03"]
+    stair_c = stair_node.collision_object
+    assert TT.is_eq(stair_c.blockname, "bhkNPCollisionObject",
+                    "StairHelper03 collision is bhkNPCollisionObject")
+    stair_verts, stair_faces = stair_c.physics_system.geometry
+    stair_idx = {i for face, g in stair_faces if g == "Section_0" for i in face}
+    stair_sec0 = [stair_verts[i] for i in stair_idx]
+    sv_xs = [v[0] * sf for v in stair_sec0]
+    sv_ys = [v[1] * sf for v in stair_sec0]
+    sv_zs = [v[2] * sf for v in stair_sec0]
+    assert TT.is_equiv(min(sv_xs), min(mesh_xs), "StairHelper03 Min X close to mesh", e=2.0)
+    assert TT.is_equiv(max(sv_xs), max(mesh_xs), "StairHelper03 Max X close to mesh", e=2.0)
+    assert TT.is_equiv(min(sv_ys), min(mesh_ys), "StairHelper03 Min Y close to mesh", e=2.0)
+    assert TT.is_equiv(max(sv_ys), max(mesh_ys), "StairHelper03 Max Y close to mesh", e=2.0)
+    assert TT.is_equiv(min(sv_zs), min(mesh_zs), "StairHelper03 Min Z close to mesh", e=2.0)
+    assert TT.is_equiv(max(sv_zs), max(mesh_zs), "StairHelper03 Max Z close to mesh", e=2.0)
+
 
 ###################### Test execution framework #########################
 

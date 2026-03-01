@@ -524,7 +524,11 @@ class CollisionHandler():
             xf = parentObj.matrix_world
 
         if c.blockname == "bhkNPCollisionObject":
-            sh = importer.import_bhkNPCollisionObject(c, xf)
+            # Physics verts from parse_bytes are already in NIF world space (body
+            # transforms baked in), so only the global import transform applies —
+            # not the individual node's world matrix.
+            np_xf = importer.import_xf
+            sh = importer.import_bhkNPCollisionObject(c, np_xf)
             if not sh: return None  # DLL not ready or no data; skip silently
         else:
             if not c.body: return None

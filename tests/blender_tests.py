@@ -5240,6 +5240,38 @@ def TEST_COLLISION_XFORM():
 
 
 @TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_CAPSULE_STAIRS():
+    """FO4 bhkPhysicsSystem: both collision shapes overlap the visual mesh bounds"""
+    testfile = TTB.test_file(r"tests\FO4\CapsuleExtStairsFree01.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # Two nodes (root + StairHelper03) each have a bhkNPCollisionObject
+    physics_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    assert TT.is_eq(len(physics_shapes), 2, "Two bhkPhysicsSystem collision meshes imported")
+
+    # Get world-space bounds of the visual mesh
+    mesh_obj = bpy.data.objects["CapsuleExtStairsFree01:1"]
+    mxf = mesh_obj.matrix_world
+    mesh_xs = [(mxf @ v.co).x for v in mesh_obj.data.vertices]
+    mesh_ys = [(mxf @ v.co).y for v in mesh_obj.data.vertices]
+    mesh_zs = [(mxf @ v.co).z for v in mesh_obj.data.vertices]
+
+    for ps_obj in physics_shapes:
+        pxf = ps_obj.matrix_world
+        cxs = [(pxf @ v.co).x for v in ps_obj.data.vertices]
+        cys = [(pxf @ v.co).y for v in ps_obj.data.vertices]
+        czs = [(pxf @ v.co).z for v in ps_obj.data.vertices]
+        name = ps_obj.name
+        # Collision bbox must overlap mesh bbox on every axis (within 5 units)
+        assert TT.is_gt(max(cxs), min(mesh_xs) - 5, f"{name} X max overlaps mesh X min")
+        assert TT.is_lt(min(cxs), max(mesh_xs) + 5, f"{name} X min overlaps mesh X max")
+        assert TT.is_gt(max(cys), min(mesh_ys) - 5, f"{name} Y max overlaps mesh Y min")
+        assert TT.is_lt(min(cys), max(mesh_ys) + 5, f"{name} Y min overlaps mesh Y max")
+        assert TT.is_gt(max(czs), min(mesh_zs) - 5, f"{name} Z max overlaps mesh Z min")
+        assert TT.is_lt(min(czs), max(mesh_zs) + 5, f"{name} Z min overlaps mesh Z max")
+
+
+@TT.category('FO4', 'PHYSICS')
 def TEST_COLLISION_FO4_PHYSICS_SYSTEM():
     """FO4 bhkNPCollisionObject imports bhkPhysicsSystem geometry as a Blender mesh"""
     testfile = TTB.test_file(r"tests\FO4\InsFloorMat01.nif")
