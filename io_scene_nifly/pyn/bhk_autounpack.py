@@ -885,12 +885,18 @@ def extract_compound_polytopes(
     standalone = [(rel, cls) for rel, cls in objects
                   if "ConvexPolytopeShape" in cls and rel not in compound_shape_rels]
 
+    _IDENTITY = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+    _ZERO = (0.0, 0.0, 0.0)
+
     for shape_rel, shape_cls in standalone:
         shape_abs = data_start + shape_rel
         result = parse_convex_polytope(data, shape_abs)
         if result is None:
             continue
         local_verts, local_tris = result
+        body = body_transforms.get(shape_rel)
+        if body is not None:
+            local_verts = apply_transform(local_verts, _IDENTITY, _ZERO, body=body)
         base_idx = len(all_verts)
         all_verts.extend(local_verts)
         group = f"Polytope_standalone_{shape_rel:#x}"
