@@ -22,7 +22,7 @@ import ctypes
 import shutil
 import math
 from pathlib import Path
-from io_scene_nifly.pyn.nifconstants import bhkCOFlags
+from pyn.nifconstants import bhkCOFlags, HAVOC_SCALE_FACTOR, game_collision_sf
 
 if 'PYNIFLY_DEV_ROOT' in os.environ:
     root_path = Path(os.environ['PYNIFLY_DEV_ROOT'])
@@ -32,9 +32,9 @@ if 'PYNIFLY_DEV_ROOT' in os.environ:
 if str(mod_path) not in sys.path:
     sys.path.insert(0, str(root_path / 'pynifly'))
 
-from io_scene_nifly.pyn.niflytools import *
-from io_scene_nifly.pyn.nifdefs import *
-from io_scene_nifly.pyn.pynifly import *
+from pyn.niflytools import *
+from pyn.nifdefs import *
+from pyn.pynifly import *
 from . import test_tools as TT
 from .test_nifchecker import CheckNif
 
@@ -2807,6 +2807,117 @@ def TEST_SKELETON_DEER():
     
     assert skeleton_extra is not None, "SkeletonID extra data found"
     assert TT.is_eq(skeleton_extra.integer_data, 178509022, "SkeletonID value correct")
+
+
+@test_category("FO4")
+def TEST_FO4_PHYSICS_SYSTEM():
+    """bhkPhysicsSystem binary data can be read and decoded into collision geometry."""
+    nif = NifFile(r"tests/FO4/InsFloorMat01.nif")
+
+    root = nif.root
+    c = root.collision_object
+    assert c is not None, "Root has a collision object"
+    assert c.blockname == "bhkNPCollisionObject", \
+        f"Collision is bhkNPCollisionObject, got: {c.blockname}"
+
+    ps = c.physics_system
+    assert ps is not None, "bhkNPCollisionObject references a bhkPhysicsSystem"
+
+    raw = ps.data
+    assert len(raw) > 0, f"Physics system has data: {len(raw)} bytes"
+
+    verts, faces = ps.geometry
+    assert len(verts) > 0, f"Got {len(verts)} vertices from physics system"
+    assert len(faces) > 0, f"Got {len(faces)} faces from physics system"
+
+    # Collision bounds should be close to the floor tile mesh bounds (inset by ~0.7 NIF units)
+    sf = HAVOC_SCALE_FACTOR * game_collision_sf["FO4"]
+    phys_xs = [v[0] * sf for v in verts]
+    phys_ys = [v[1] * sf for v in verts]
+    phys_zs = [v[2] * sf for v in verts]
+
+    shape = nif.shape_dict["InsFloorMat01:4"]
+    xf = shape.global_transform
+    rot = xf.rotation; sc = xf.scale; t = xf.translation
+    world_verts = []
+    for v in shape.verts:
+        x, y, z = v
+        rx = rot[0][0]*x + rot[0][1]*y + rot[0][2]*z
+        ry = rot[1][0]*x + rot[1][1]*y + rot[1][2]*z
+        rz = rot[2][0]*x + rot[2][1]*y + rot[2][2]*z
+        world_verts.append((rx*sc + t[0], ry*sc + t[1], rz*sc + t[2]))
+    mesh_xs = [v[0] for v in world_verts]
+    mesh_ys = [v[1] for v in world_verts]
+    mesh_zs = [v[2] for v in world_verts]
+
+    assert TT.is_equiv(min(phys_xs), min(mesh_xs), "Min X collision close to mesh", e=1.0)
+    assert TT.is_equiv(max(phys_xs), max(mesh_xs), "Max X collision close to mesh", e=1.0)
+    assert TT.is_equiv(min(phys_ys), min(mesh_ys), "Min Y collision close to mesh", e=1.0)
+    assert TT.is_equiv(max(phys_ys), max(mesh_ys), "Max Y collision close to mesh", e=1.0)
+    assert TT.is_equiv(min(phys_zs), min(mesh_zs), "Min Z collision close to mesh", e=1.0)
+    assert TT.is_equiv(max(phys_zs), max(mesh_zs), "Max Z collision close to mesh", e=1.0)
+
+
+@test_category("FO4")
+def TEST_FO4_CAPSULE_PHYSICS():
+    """FO4 bhkPhysicsSystem with two shapes; collision bounds match mesh world-space bounds."""
+    nif = NifFile(r"tests/FO4/CapsuleExtStairsFree01.nif")
+
+    root = nif.root
+    c:bhkNPCollisionObject = root.collision_object
+    assert c is not None, "Root has a collision object"
+    assert TT.is_eq(c.blockname, "bhkNPCollisionObject",
+                    f"Collision type is bhkNPCollisionObject")
+
+    ps = c.physics_system
+    assert ps is not None, "bhkNPCollisionObject references a bhkPhysicsSystem"
+
+    verts, faces = ps.geometry
+    assert TT.is_gt(len(verts), 0, "Physics system has vertices")
+    assert TT.is_gt(len(faces), 0, "Physics system has faces")
+    assert TT.is_eq(set(g for _, g in faces), set(('Polytope_standalone_0x7e0', 'Section_0')),
+                    "groups on root collision faces")
+
+    # Verify two distinct collision shapes
+    shape_prefixes = {g.split('_')[0] for _, g in faces}
+    assert TT.is_eq(len(shape_prefixes), 2,
+                    f"Two distinct collision shapes (got prefixes: {shape_prefixes})")
+
+    # Collect vertex indices used by Section_0 faces only
+    section0_idx = {i for face, g in faces if g == "Section_0" for i in face}
+
+    sf = HAVOC_SCALE_FACTOR * game_collision_sf["FO4"]
+    sec0_verts = [verts[i] for i in section0_idx]
+    phys_xs = [v[0] * sf for v in sec0_verts]
+    phys_ys = [v[1] * sf for v in sec0_verts]
+    phys_zs = [v[2] * sf for v in sec0_verts]
+
+    # Transform mesh shape verts to world space
+    shape = nif.shape_dict["CapsuleExtStairsFree01:1"]
+    xf = shape.global_transform
+    rot = xf.rotation
+    sc = xf.scale
+    t = xf.translation
+
+    world_verts = []
+    for v in shape.verts:
+        x, y, z = v
+        rx = rot[0][0]*x + rot[0][1]*y + rot[0][2]*z
+        ry = rot[1][0]*x + rot[1][1]*y + rot[1][2]*z
+        rz = rot[2][0]*x + rot[2][1]*y + rot[2][2]*z
+        world_verts.append((rx*sc + t[0], ry*sc + t[1], rz*sc + t[2]))
+
+    mesh_xs = [v[0] for v in world_verts]
+    mesh_ys = [v[1] for v in world_verts]
+    mesh_zs = [v[2] for v in world_verts]
+
+    # Section_0 collision bounds should be close to the BSTriShape bounds (inset ~1.4 NIF units)
+    assert TT.is_equiv(min(phys_xs), min(mesh_xs), "Min X Section_0 close to mesh", e=2.0)
+    assert TT.is_equiv(max(phys_xs), max(mesh_xs), "Max X Section_0 close to mesh", e=2.0)
+    assert TT.is_equiv(min(phys_ys), min(mesh_ys), "Min Y Section_0 close to mesh", e=2.0)
+    assert TT.is_equiv(max(phys_ys), max(mesh_ys), "Max Y Section_0 close to mesh", e=2.0)
+    assert TT.is_equiv(min(phys_zs), min(mesh_zs), "Min Z Section_0 close to mesh", e=2.0)
+    assert TT.is_equiv(max(phys_zs), max(mesh_zs), "Max Z Section_0 close to mesh", e=2.0)
 
 
 ###################### Test execution framework #########################

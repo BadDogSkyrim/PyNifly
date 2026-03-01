@@ -87,8 +87,8 @@ class PynBufferTypes(IntEnum):
     NiStringExtraDataBufType = 64
     BSClothExtraDataBufType = 65
     BSFurnitureMarkerNodeBufType = 66
-    FurnitureMarkerDataBufType = 67
-    COUNT = 68
+    bhkNPCollisionObjectBufType = 67
+    COUNT = 69
 
 
 class NiShaderBuf(pynStructure):
@@ -453,6 +453,18 @@ class bhkSPCollisionObjectBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkSPCollisionObjectBufType
+
+class bhkNPCollisionObjectBuf(pynStructure):
+    _fields_ = [
+	    ('bufSize', c_uint16),
+	    ('bufType', c_uint16),
+        ('targetID', c_uint32),
+        ('flags', c_uint16),
+        ('dataID', c_uint32),     # ID of the bhkPhysicsSystem block
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.bhkNPCollisionObjectBufType
 
 class bhkRigidBodyProps(pynStructure):
     _fields_ = [

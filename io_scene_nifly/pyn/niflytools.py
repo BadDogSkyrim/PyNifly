@@ -402,7 +402,7 @@ def mesh_split_by_uv(verts, loops, norms, uvmap, weights, morphdict):
 # ----------------------- Game-specific Skeleton Dictionaries ---------------------------
 
 def blender_basename(n):
-    m = re.match("(.+)\.\d+\Z", n)
+    m = re.match(r"(.+)\.\d+\Z", n)
     if m:
         return m[1]
     return n

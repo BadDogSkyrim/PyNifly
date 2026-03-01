@@ -5239,5 +5239,46 @@ namespace NiflyDLLTests
 			destroy(nif);
 			destroy(nifCheck);
 		};
+
+		TEST_METHOD(readWriteInsFloorMat) {
+			/* Test we can read bhkPhysicsSystem binary data from FO4 collision */
+			std::filesystem::path testfile = testRoot / "FO4/InsFloorMat01.nif";
+
+			void* nif = load(testfile.u8string().c_str());
+			Assert::IsNotNull(nif, L"NIF file loaded");
+
+			// Get the root node
+			NiNodeBuf rootBuf;
+			getBlock(nif, 0, &rootBuf);
+			Assert::AreNotEqual(NIF_NPOS, rootBuf.collisionID, L"Root has collision");
+
+			// Check it's a bhkNPCollisionObject
+			char blockname[128];
+			getBlockname(nif, rootBuf.collisionID, blockname, 128);
+			Assert::AreEqual("bhkNPCollisionObject", blockname, L"Collision is bhkNPCollisionObject");
+
+			// Read the collision object to get the data ID
+			bhkNPCollisionObjectBuf coBuf;
+			coBuf.bufType = bhkNPCollisionObjectBufType;
+			int coResult = getBlock(nif, rootBuf.collisionID, &coBuf);
+			Assert::AreEqual(0, coResult, L"Read collision object");
+			Assert::AreNotEqual(uint32_t(NIF_NPOS), coBuf.dataID, L"Collision has data reference");
+
+			// Check the data block is bhkPhysicsSystem
+			char dataBlockName[128];
+			getBlockname(nif, coBuf.dataID, dataBlockName, 128);
+			Assert::AreEqual("bhkPhysicsSystem", dataBlockName, L"Data block is bhkPhysicsSystem");
+
+			// Get the physics system binary data length
+			int dataLen = getPhysicsSystemDataLen(nif, coBuf.dataID);
+			Assert::AreEqual(2736, dataLen, L"Physics system data length is 2736 bytes");
+
+			// Verify we can actually read the data
+			std::vector<char> data(dataLen);
+			int bytesRead = getPhysicsSystemData(nif, coBuf.dataID, data.data(), dataLen);
+			Assert::AreEqual(2736, bytesRead, L"Read 2736 bytes of physics system data");
+
+			destroy(nif);
+		};
 	};
 }

@@ -25,11 +25,11 @@ else:
 if str(root_path) not in sys.path:
     sys.path.insert(0, str(root_path))
 
-from io_scene_nifly.pyn.pynifly import NifFile
-from io_scene_nifly.pyn.nifdefs import (
+from pyn.pynifly import NifFile
+from pyn.nifdefs import (
     NODEID_NONE, CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, 
     NiKeyType, CycleType, ShaderFlags1, ShaderFlags2, BSLSPShaderType,)
-from io_scene_nifly.pyn.nifconstants import VertexFlags
+from pyn.nifconstants import VertexFlags
 
 from . import test_tools as TT
 

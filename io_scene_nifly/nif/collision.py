@@ -368,6 +368,51 @@ class CollisionHandler():
         return obj
 
 
+    def import_bhkNPCollisionObject(self, c, parentxf: Matrix):
+        """Import FO4 native-physics collision from bhkPhysicsSystem binary data.
+
+        Reads the raw Havok packfile bytes from the bhkPhysicsSystem block,
+        decodes them into triangle geometry, and creates a Blender mesh.
+        Returns None silently if the DLL functions are not yet available.
+        """
+        from ..pyn.bhk_autounpack import parse_bytes
+
+        ps = c.physics_system
+        if ps is None:
+            return None
+
+        raw = ps.data
+        if not raw:
+            return None  # DLL not updated yet or block has no data; skip silently
+
+        try:
+            verts, faces = parse_bytes(raw)
+        except RuntimeError as e:
+            self.warn(f"bhkPhysicsSystem decode failed: {e}")
+            return None
+
+        sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
+        scaled_verts = [[x * sf, y * sf, z * sf] for x, y, z in verts]
+        tri_faces = [face for face, _ in faces]
+
+        m = bpy.data.meshes.new("bhkPhysicsSystem")
+        m.from_pydata(scaled_verts, [], tri_faces)
+        m.update()
+
+        obj = bpy.data.objects.new("bhkPhysicsSystem", m)
+        obj.matrix_world = parentxf.copy()
+        self.collection.objects.link(obj)
+
+        ObjectSelect([obj])
+        bpy.ops.rigidbody.object_add(type='PASSIVE')
+        obj.rigid_body.collision_shape = 'MESH'
+        obj.color = COLLISION_COLOR
+        obj.display_type = 'WIRE'
+        obj['pynRigidBody'] = 'bhkPhysicsSystem'
+
+        return obj
+
+
     collision_shape_importers = {
         "bhkBoxShape": import_bhkBoxShape,
         "bhkConvexVerticesShape": import_bhkConvexVerticesShape,
@@ -465,24 +510,28 @@ class CollisionHandler():
         importer.collection = parent_handler.collection
 
         bpy.ops.object.mode_set(mode='OBJECT')
-        if c.blockname not in ["bhkCollisionObject", 
-                           "bhkSPCollisionObject", 
-                           "bhkNPCollisionObject", 
+        if c.blockname not in ["bhkCollisionObject",
+                           "bhkSPCollisionObject",
+                           "bhkNPCollisionObject",
                            "bhkPCollisionObject",
                            "bhkBlendCollisionObject"]:
             importer.warn(f"Found an unknown type of collision: {c.blockname}")
             return None
-        if not c.body: return None
 
         if bone:
             xf = importer.import_xf @ transform_to_matrix(bone.global_transform)
         else:
             xf = parentObj.matrix_world
 
-        sh = importer.import_collision_body(c.body, xf)
-        if not sh:
-            importer.warn(f"{parentObj.name} has unsupported collision shape")
-            return
+        if c.blockname == "bhkNPCollisionObject":
+            sh = importer.import_bhkNPCollisionObject(c, xf)
+            if not sh: return None  # DLL not ready or no data; skip silently
+        else:
+            if not c.body: return None
+            sh = importer.import_collision_body(c.body, xf)
+            if not sh:
+                importer.warn(f"{parentObj.name} has unsupported collision shape")
+                return
         
         sh['pynCollisionFlags'] = bhkCOFlags(c.flags).fullname
 

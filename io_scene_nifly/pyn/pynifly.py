@@ -757,8 +757,62 @@ class NiCollisionObject(NiObject):
         return self._body
 
 
+class bhkPhysicsSystem(NiObject):
+    """FO4 native-physics collision data — wraps a raw Havok packfile blob."""
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        # Skip getNodeByID — bhkPhysicsSystem data is accessed directly via block id.
+        self._handle = handle
+        self._controller = None
+        self.file = file
+        self.id = id
+        self._parent = parent
+        self._properties = properties
+        self._blockname = None
+
+    @classmethod
+    def getbuf(cls, values=None):
+        raise AssertionError("bhkPhysicsSystem has no DLL buffer; use .data property")
+
+    @property
+    def data(self) -> bytes:
+        """Return the raw Havok packfile bytes stored in this block.
+        Returns b"" if the DLL functions are not yet available.
+        """
+        if nifly.getPhysicsSystemDataLen is None:
+            return b""
+        n = nifly.getPhysicsSystemDataLen(self.file._handle, self.id)
+        if n <= 0:
+            return b""
+        buf = (c_char * n)()
+        nifly.getPhysicsSystemData(self.file._handle, self.id, buf, n)
+        return bytes(buf.raw)
+
+    @property
+    def geometry(self):
+        """Return (verts, faces) decoded from the Havok packfile.
+
+        verts: list of (x, y, z) float tuples in Havok space.
+        faces: list of ((i0, i1, ...), group_name) tuples.
+        """
+        from .bhk_autounpack import parse_bytes
+        return parse_bytes(self.data)
+
+
 class bhkNPCollisionObject(NiCollisionObject):
-    pass
+    buffer_type = PynBufferTypes.bhkNPCollisionObjectBufType
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return bhkNPCollisionObjectBuf(values)
+
+    @property
+    def physics_system(self) -> bhkPhysicsSystem:
+        """Return the bhkPhysicsSystem block referenced by this collision object."""
+        data_id = self.properties.dataID
+        if data_id == NODEID_NONE:
+            return None
+        return self.file.read_node(id=data_id)
 
 
 class bhkNiCollisionObject(NiCollisionObject):

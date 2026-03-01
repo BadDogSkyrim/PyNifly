@@ -5239,6 +5239,38 @@ def TEST_COLLISION_XFORM():
     assert BD.NearEqual(capminy, -73.4, epsilon=1.0), f"Capsule min y correct: {capminy}"
 
 
+@TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_PHYSICS_SYSTEM():
+    """FO4 bhkNPCollisionObject imports bhkPhysicsSystem geometry as a Blender mesh"""
+    testfile = TTB.test_file(r"tests\FO4\InsFloorMat01.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # The root node's bhkNPCollisionObject should produce a bhkPhysicsSystem mesh
+    physics_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    assert TT.is_gt(len(physics_shapes), 0, "bhkPhysicsSystem collision mesh was imported")
+
+    ps_obj = physics_shapes[0]
+    assert TT.is_eq(ps_obj.type, 'MESH', "Collision object is a mesh")
+    assert TT.is_gt(len(ps_obj.data.vertices), 0, "Collision mesh has vertices")
+    assert TT.is_gt(len(ps_obj.data.polygons), 0, "Collision mesh has polygons")
+    assert TT.is_eq(ps_obj.display_type, 'WIRE', "Collision mesh displayed as wire")
+    assert TT.is_eq(ps_obj['pynRigidBody'], 'bhkPhysicsSystem', "Collision mesh tagged as bhkPhysicsSystem")
+
+    xs = [v.co.x for v in ps_obj.data.vertices]
+    assert TT.is_lt(min(xs), 0, "Collision mesh extends past origin on negative x")
+    assert TT.is_gt(max(xs), 0, "Collision mesh extends past origin on positive x")
+
+    ys = [v.co.y for v in ps_obj.data.vertices]
+    assert TT.is_lt(min(ys), 0, "Collision mesh extends past origin on negative y")
+    assert TT.is_gt(max(ys), 0, "Collision mesh extends past origin on positive y")
+
+    zs = [v.co.z for v in ps_obj.data.vertices]
+    height = max(zs) - min(zs)
+    assert TT.is_gt(height, 0.5, "Collision mesh height greater than 0.5")
+    assert TT.is_lt(height, 1.0, "Collision mesh height less than 1.0")
+
+
 @TT.category('FO4', 'CONNECTPOINT')
 @TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_CONNECT_POINT():
