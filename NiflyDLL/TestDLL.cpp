@@ -1242,7 +1242,7 @@ namespace NiflyDLLTests
 		TEST_METHOD(UnkownBones) {
 			/* We can deal with bones that aren't part of the standard skeleton */
 
-			std::filesystem::path testfile = testRoot / "FO4" / "VulpineInariTailPhysics.nif";
+			std::filesystem::path testfile = testRoot / "FO4" / "Meshes" / "VulpineInariTailPhysics.nif";
 			std::filesystem::path testfileOut = testRoot / "Out" / "UnkownBones.nif";
 			/* Shapes have bones that aren't known in the skeleton */
 			void* nif = load( testfile.u8string().c_str());
