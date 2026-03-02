@@ -210,41 +210,6 @@ _field_override_fo4 = {
     'Shader_Flags_1': ShaderFlags1FO4,
     'Shader_Flags_2': ShaderFlags2FO4,
 }
-    
-# _value_getters = {
-#     'broadPhaseType': lambda x: BroadPhaseType(x).name,
-#     'collisionFilter_layer': lambda x: SkyrimCollisionLayer(x).name,
-#     'collisionFilterCopy_layer': lambda x: SkyrimCollisionLayer(x).name,
-#     'collisionResponse': lambda x: hkResponseType(x).name,
-#     'collisionResponse2': lambda x: hkResponseType(x).name,
-#     'deactivatorType': lambda x: hkDeactivatorType(x).name,
-#     'motionSystem': lambda x: hkMotionType(x).name,
-#     'solverDeactivation': lambda x: hkSolverDeactivation(x).name,
-#     'qualityType': lambda x: hkQualityType(x).name,
-#     'Shader_Flags_1': lambda x: ShaderFlags1(x).name if x in ShaderFlags1._value2member_map_ else ShaderFlags1FO4(x).name if x in ShaderFlags1FO4._value2member_map_ else str(x),
-#     'Shader_Flags_2': lambda x: ShaderFlags2(x).name if x in ShaderFlags2._value2member_map_ else ShaderFlags2FO4(x).name if x in ShaderFlags2FO4._value2member_map_ else str(x),
-#     'Shader_Type': lambda x: BSLSPShaderType(x).name if x in BSLSPShaderType._value2member_map_ else str(x),
-#     'bhkMaterial': lambda x: SkyrimHavokMaterial(x).name if x in SkyrimHavokMaterial._value2member_map_ else str(x),
-# }
-
-# _value_from_store = {
-#     'broadPhaseType': lambda x: BroadPhaseType(x).name,
-#     'collisionFilter_layer': lambda x: SkyrimCollisionLayer(x).name,
-#     'collisionFilterCopy_layer': lambda x: SkyrimCollisionLayer(x).name,
-#     'collisionResponse': lambda x: hkResponseType(x).name,
-#     'collisionResponse2': lambda x: hkResponseType(x).name,
-#     'deactivatorType': lambda x: hkDeactivatorType(x).name,
-#     'motionSystem': lambda x: hkMotionType(x).name,
-#     'solverDeactivation': lambda x: hkSolverDeactivation(x).name,
-#     'qualityType': lambda x: hkQualityType(x).name,
-#     'Shader_Flags_1': lambda x, g: 
-#         ShaderFlags1(x).name if x in ShaderFlags1._value2member_map_ 
-#             else ShaderFlags1FO4(x).name if x in ShaderFlags1FO4._value2member_map_ else str(x),
-#     'Shader_Flags_2': lambda x: ShaderFlags2(x).name if x in ShaderFlags2._value2member_map_ else ShaderFlags2FO4(x).name if x in ShaderFlags2FO4._value2member_map_ else str(x),
-#     'Shader_Type': lambda x: BSLSPShaderType(x).name if x in BSLSPShaderType._value2member_map_ else str(x),
-#     'bhkMaterial': lambda x: SkyrimHavokMaterial(x).name if x in SkyrimHavokMaterial._value2member_map_ else str(x),
-# }
-
 
 def _get_from_store(store, fieldname, typename, game='SKYRIM'):
     """Reads the given field value from its representation in the dictionary-like store."""

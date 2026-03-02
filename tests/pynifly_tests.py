@@ -831,7 +831,7 @@ def TEST_2_TAILS():
 def TEST_ROTATIONS():
     """Can handle rotations"""
 
-    testfile = r"tests\FO4\VulpineInariTailPhysics.nif"
+    testfile = r"tests\FO4\Meshes\VulpineInariTailPhysics.nif"
     f = NifFile(testfile)
     n = f.nodes['Bone_Cloth_H_002']
     assert VNearEqual(n.transform.translation, (-2.5314, -11.4114, 65.6487)), f"Translation is correct: {n.transform.translation}"
@@ -2809,7 +2809,7 @@ def TEST_SKELETON_DEER():
     assert TT.is_eq(skeleton_extra.integer_data, 178509022, "SkeletonID value correct")
 
 
-@test_category("FO4")
+@test_category("FO4", "PHYSICS")
 def TEST_FO4_PHYSICS_SYSTEM():
     """bhkPhysicsSystem binary data can be read and decoded into collision geometry."""
     nif = NifFile(r"tests/FO4/InsFloorMat01.nif")
@@ -2822,9 +2822,6 @@ def TEST_FO4_PHYSICS_SYSTEM():
 
     ps = c.physics_system
     assert ps is not None, "bhkNPCollisionObject references a bhkPhysicsSystem"
-
-    raw = ps.data
-    assert len(raw) > 0, f"Physics system has data: {len(raw)} bytes"
 
     verts, faces = ps.geometry
     assert len(verts) > 0, f"Got {len(verts)} vertices from physics system"
@@ -2857,8 +2854,44 @@ def TEST_FO4_PHYSICS_SYSTEM():
     assert TT.is_equiv(min(phys_zs), min(mesh_zs), "Min Z collision close to mesh", e=1.0)
     assert TT.is_equiv(max(phys_zs), max(mesh_zs), "Max Z collision close to mesh", e=1.0)
 
+    # ---- write back from geometry and verify round-trip ----
+    outfile = r"tests/Out/TEST_FO4_PHYSICS_SYSTEM.nif"
+    outnif = NifFile()
+    outnif.initialize("FO4", outfile)
 
-@test_category("FO4")
+    src_shape = nif.shape_dict["InsFloorMat01:4"]
+    out_shape = outnif.createShapeFromData(
+        "InsFloorMat01:4",
+        src_shape.verts,
+        src_shape.tris,
+        src_shape.uvs,
+        src_shape.normals,
+        use_type=PynBufferTypes.BSTriShapeBufType,
+        parent=outnif.root,
+    )
+    out_shape.transform.scale = src_shape.transform.scale
+
+    coll = outnif.root.add_collision(
+        None, flags=c.properties.flags,
+        collision_type=PynBufferTypes.bhkNPCollisionObjectBufType)
+    face_lists = [list(f) for f, _ in faces]
+    bhkPhysicsSystem.New(outnif, verts=verts, faces=face_lists, parent=coll)
+    outnif.save()
+
+    check_nif = NifFile(outfile)
+    check_ps = check_nif.root.collision_object.physics_system
+    assert check_ps is not None, "Reloaded nif has a bhkPhysicsSystem"
+
+    check_verts, check_faces = check_ps.geometry
+    assert TT.is_eq(len(check_verts), len(verts), "Written physics has same vertex count")
+    assert TT.is_eq(len(check_faces), len(faces), "Written physics has same face count")
+
+    max_err = max(max(abs(v[i] - d[i]) for i in range(3))
+                  for v, d in zip(verts, check_verts))
+    assert TT.is_lt(max_err, 1e-4, f"Round-trip max vertex error {max_err:.2e}")
+
+
+@test_category("FO4", "PHYSICS")
 def TEST_FO4_CAPSULE_PHYSICS():
     """FO4 bhkPhysicsSystem with two shapes; collision bounds match mesh world-space bounds."""
     nif = NifFile(r"tests/FO4/CapsuleExtStairsFree01.nif")
@@ -2936,6 +2969,36 @@ def TEST_FO4_CAPSULE_PHYSICS():
     assert TT.is_equiv(max(sv_ys), max(mesh_ys), "StairHelper03 Max Y close to mesh", e=2.0)
     assert TT.is_equiv(min(sv_zs), min(mesh_zs), "StairHelper03 Min Z close to mesh", e=2.0)
     assert TT.is_equiv(max(sv_zs), max(mesh_zs), "StairHelper03 Max Z close to mesh", e=2.0)
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_PHYSICS_PACK_BOX():
+    """bhk_autopack.pack_convex_polytope round-trips a synthetic unit box."""
+    from pyn.bhk_autopack import pack_convex_polytope
+    from pyn.bhk_autounpack import parse_bytes
+
+    box_verts = [
+        (-0.5, -0.5, -0.5), ( 0.5, -0.5, -0.5),
+        ( 0.5,  0.5, -0.5), (-0.5,  0.5, -0.5),
+        (-0.5, -0.5,  0.5), ( 0.5, -0.5,  0.5),
+        ( 0.5,  0.5,  0.5), (-0.5,  0.5,  0.5),
+    ]
+    box_faces = [
+        [0, 3, 2, 1], [4, 5, 6, 7],
+        [0, 1, 5, 4], [2, 3, 7, 6],
+        [0, 4, 7, 3], [1, 2, 6, 5],
+    ]
+    box_data = pack_convex_polytope(box_verts, box_faces)
+    assert TT.is_gt(len(box_data), 0, "pack_convex_polytope produces non-empty bytes")
+
+    dec_verts, dec_faces = parse_bytes(box_data)
+    assert TT.is_eq(len(dec_verts), len(box_verts), "Box round-trip: vertex count")
+    assert TT.is_eq(len(dec_faces), len(box_faces), "Box round-trip: face count")
+
+    max_err = max(max(abs(v[i] - d[i]) for i in range(3))
+                  for v, d in zip(box_verts, dec_verts))
+    assert TT.is_lt(max_err, 1e-5, f"Box round-trip: max vertex error {max_err:.2e}")
+
 
 
 ###################### Test execution framework #########################

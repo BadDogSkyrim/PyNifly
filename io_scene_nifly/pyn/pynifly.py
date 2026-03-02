@@ -760,6 +760,8 @@ class NiCollisionObject(NiObject):
 class bhkPhysicsSystem(NiObject):
     """FO4 native-physics collision data — wraps a raw Havok packfile blob."""
 
+    buffer_type = PynBufferTypes.bhkPhysicsSystemBufType
+
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         # Skip getNodeByID — bhkPhysicsSystem data is accessed directly via block id.
         self._handle = handle
@@ -772,7 +774,7 @@ class bhkPhysicsSystem(NiObject):
 
     @classmethod
     def getbuf(cls, values=None):
-        raise AssertionError("bhkPhysicsSystem has no DLL buffer; use .data property")
+        return bhkPhysicsSystemBuf(values)
 
     @property
     def data(self) -> bytes:
@@ -787,6 +789,31 @@ class bhkPhysicsSystem(NiObject):
         buf = (c_char * n)()
         nifly.getPhysicsSystemData(self.file._handle, self.id, buf, n)
         return bytes(buf.raw)
+
+    def write_data(self, data: bytes):
+        """Write raw Havok packfile bytes into this block."""
+        if nifly.setPhysicsSystemData is None:
+            raise RuntimeError("setPhysicsSystemData not available in this DLL version")
+        nifly.setPhysicsSystemData(self.file._handle, self.id, data, len(data))
+
+    @classmethod
+    def New(cls, file, data: bytes = None, verts=None, faces=None, parent=None):
+        """Create a new bhkPhysicsSystem block in *file*.
+
+        Pass either *data* (raw Havok packfile bytes) or *verts*/*faces* geometry.
+        When geometry is given, bhk_autopack.pack_convex_polytope is called internally.
+        """
+        if data is None:
+            from .bhk_autopack import pack_convex_polytope
+            data = pack_convex_polytope(verts, faces)
+        buf = bhkPhysicsSystemBuf()
+        buf.dataSize = len(data)
+        id = check_msg(nifly.addBlock,
+                       file._handle, None, byref(buf),
+                       parent.id if parent else NODEID_NONE)
+        ps = cls(file=file, id=id, properties=buf, parent=parent)
+        ps.write_data(data)
+        return ps
 
     @property
     def geometry(self):
@@ -860,13 +887,15 @@ class NiAVObject(NiObjectNET):
             buf = bhkPCollisionObjectBuf()
         elif collision_type == PynBufferTypes.bhkNiCollisionObjectBufType:
             buf = bhkNiCollisionObjectBuf()
+        elif collision_type == PynBufferTypes.bhkNPCollisionObjectBufType:
+            buf = bhkNPCollisionObjectBuf()
         else:
             buf = bhkCollisionObjectBuf()
         if flags is not None: buf.flags = flags
-        buf.bodyID = NODEID_NONE
-        if body: buf.bodyID = body.id
         buf.targetID = self.id
-        # new_coll_id = nifly.addBlock(self.file._handle, None, byref(buf), self.id)
+        if collision_type != PynBufferTypes.bhkNPCollisionObjectBufType:
+            buf.bodyID = NODEID_NONE
+            if body: buf.bodyID = body.id
         new_coll = NiCollisionObject.New(file=self.file, properties=buf, parent=self)
         return new_coll
     
@@ -2531,7 +2560,7 @@ class BSXFlags(NiExtraData):
 
 class BSConnectPointParents(NiExtraData):
     """
-    These are a type of extra data but they get special handling. So this definition 
+    These are a type of extra data but they get special handling. So this definition
     is a dummy so that reading extra data doesn't trip over them.
     TODO: Handle them like furniture markers.
     """
@@ -2540,6 +2569,11 @@ class BSConnectPointParents(NiExtraData):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._parents = None
+
+
+class BSConnectPointChildren(NiExtraData):
+    """Dummy class so BSConnectPoint::Children blocks are recognised and silently skipped."""
+    buffer_type = PynBufferTypes.NiNodeBufType
 
     @classmethod 
     def getbuf(cls, values=None):
@@ -4409,6 +4443,7 @@ class NifFile:
         check_msg(nifly.getBlockname, self._handle, id, buf, self.max_string_len)
         bn = buf.value.decode('utf-8')
         if bn == "BSConnectPoint::Parents": bn = "BSConnectPointParents"
+        if bn == "BSConnectPoint::Children": bn = "BSConnectPointChildren"
         if bn in NiObject.block_types:
             node = NiObject.block_types[bn](
                 id=id, file=self, handle=handle, properties=properties, parent=parent)

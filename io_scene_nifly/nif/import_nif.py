@@ -616,7 +616,9 @@ class NifImporter():
         'NiStringExtraData': import_stringdata,
         'BSBehaviorGraphExtraData': import_behavior_graph_data,
         'BSConnectPoint::Parents': import_skip,
+        'BSConnectPoint::Children': import_skip,
         }
+
 
     def import_extra(self, parent_obj:bpy.types.Object, n:P.NiNode):
         """ Import any extra data from the node, and create corresponding shapes. 

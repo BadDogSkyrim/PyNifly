@@ -437,7 +437,8 @@ class NifExporter:
                 self.add_object(c)
 
         elif obj.type == 'MESH':
-            if not obj.name.startswith("BSBound:"):
+            if not obj.name.startswith("BSBound:") \
+                    and obj.get('pynRigidBody') != 'bhkPhysicsSystem':
                 # Export the mesh, but use its parent and use any armature modifiers
                 self.objects.append(obj)
                 for mod in obj.modifiers:

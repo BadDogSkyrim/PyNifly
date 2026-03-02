@@ -397,7 +397,7 @@ class CollisionHandler():
         try:
             verts, faces = parse_bytes(raw)
         except RuntimeError as e:
-            self.warn(f"bhkPhysicsSystem decode failed: {e}")
+            self.warn(f"bhkPhysicsSystem decode failed: {e}") 
             return None
 
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
@@ -561,7 +561,13 @@ class CollisionHandler():
             else:
                 constr = parentObj.constraints.new('COPY_TRANSFORMS')
                 constr.target = sh
-            constr.name = ('bhkCollisionConstraint')
+                # For bhkNPCollisionObject the physics mesh sits at world origin
+                # and is independent of the target node.  Keep the constraint so
+                # the exporter can discover the collision, but zero its influence
+                # so it does not pull parentObj to origin.
+                if c.blockname == "bhkNPCollisionObject":
+                    constr.influence = 0.0
+            constr.name = 'bhkCollisionConstraint'
 
         return sh
     
@@ -866,15 +872,27 @@ class CollisionHandler():
         else:
             targnode = self.nif.nodes[targobj.name]
 
+        if coll.get('pynRigidBody') == 'bhkPhysicsSystem':
+            sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game]
+            world_mat = self.export_xf @ coll.matrix_world
+            verts = [(*(world_mat @ v.co / sf),) for v in coll.data.vertices]
+            faces = [list(p.vertices) for p in coll.data.polygons]
+            coll_node = targnode.add_collision(
+                None, flags=flags or 0,
+                collision_type=PynBufferTypes.bhkNPCollisionObjectBufType)
+            bhkPhysicsSystem.New(self.nif, verts=verts, faces=faces, parent=coll_node)
+            self.objs_written.add(ReprObject(coll, targnode))
+            return
+
         colnode = targnode.add_collision(
             None, flags=flags,
             collision_type=PynBufferTypes.bhkSPCollisionObjectBufType
-                if coll.get('pynRigidBody') == 'bhkSimpleShapePhantom' 
+                if coll.get('pynRigidBody') == 'bhkSimpleShapePhantom'
                 else None)
         collpair = ReprObject(coll, colnode)
         self.objs_written.add(collpair)
 
-        body = self.export_collision_body(targobj, collpair) 
+        body = self.export_collision_body(targobj, collpair)
 
 
     @classmethod

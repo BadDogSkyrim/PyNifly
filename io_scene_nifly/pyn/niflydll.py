@@ -131,9 +131,13 @@ try:
     nifly.getPhysicsSystemData.argtypes = [c_void_p, c_int, c_char_p, c_int]
     nifly.getPhysicsSystemData.restype = c_int
 except AttributeError:
-    # DLL not updated yet; bhkPhysicsSystem.data will return b"" until it is.
     nifly.getPhysicsSystemDataLen = None
     nifly.getPhysicsSystemData = None
+try:
+    nifly.setPhysicsSystemData.argtypes = [c_void_p, c_int, c_char_p, c_int]
+    nifly.setPhysicsSystemData.restype = c_int
+except AttributeError:
+    nifly.setPhysicsSystemData = None
 nifly.getClothExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
 nifly.getClothExtraDataLen.restype = c_int
 nifly.getCollListShapeChildren.argtypes = [c_void_p, c_int, c_void_p, c_int]
