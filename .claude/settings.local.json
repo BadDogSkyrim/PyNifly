@@ -4,7 +4,8 @@
       "Bash(wc:*)",
       "Bash(python -c \":*)",
       "Bash(python pynifly_test_runner.py TEST_FO4_PHYSICS_PACK)",
-      "Bash(python pynifly_test_runner.py)"
+      "Bash(python pynifly_test_runner.py)",
+      "Read(//c/Users/hughr/Downloads/**)"
     ]
   }
 }

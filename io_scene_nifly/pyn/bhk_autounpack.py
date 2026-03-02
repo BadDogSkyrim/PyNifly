@@ -3,22 +3,19 @@
 """
 bhk_autounpack.py
 -----------------
-Extract collision mesh from bhkPhysicsSystem Havok packfile BIN -> OBJ.
+Extract collision mesh from FO4 bhkPhysicsSystem Havok packfile bytes.
 
-Run:
-  python bhk_autounpack.py <input.bin>
-  Output .obj is written next to the input file (same name, .obj).
+Can be run standalone against a .nif file:
+  python bhk_autounpack.py <input.nif>
+  Output is written to bhk_autounpack.obj next to this script.
 
 Config flags (edit in this file):
-  POLY_BEVEL_ENABLED   - enable/disable bevel for ConvexPolytopeShape
-  POLY_BEVEL_WIDTH     - bevel width (units of the file)
-  POLY_BEVEL_SEGMENTS  - bevel segments
   TRIANGULATE_OUTPUT   - triangulate polytopes (compressed mesh is always triangulated)
 
 Notes:
-  Primitive extraction is still in progress, as is the bevel component.
-  TODO: parse physical properties (mass/inertia, friction, restitution) from
-        hknpShapeMassProperties / hknpBSMaterialProperties / PhysicsSystemData.
+  Convex polytopes are returned as the raw inner hull (no Minkowski expansion applied
+  here).  The convexRadius per shape is returned alongside the geometry so the caller
+  can apply expansion (e.g. Blender Displace + Bevel modifiers) at a higher level.
 
 Pure packfile parsing — no heuristics, no buffer scoring, no guessing.
 Uses local/virtual fixups and known hknpCompressedMeshShapeData layout.
@@ -49,6 +46,13 @@ Section struct (stride 0x60):
 Packed vertex: u32 -> 11-bit X | 11-bit Y | 10-bit Z
 Quad: 4x u8 indices (or 4x u16 for large meshes)
 Axis: OBJ writes (x, z, -y) for Creation Engine orientation.
+
+hknpConvexPolytopeShape layout (hk_2014.1.0):
+  +0x14: float convexRadius  — Minkowski expansion radius
+  +0x30: [u16 numVertices, u16 verticesOffset]   base = +0x30
+  +0x40: [u16 numFaces,    u16 planesOffset]     base = +0x40
+  +0x44: [u16 numPlanes,   u16 facesOffset]      base = +0x44
+  +0x48: [u16 numFVI,      u16 fviOffset]        base = +0x48
 """
 
 import struct
@@ -56,6 +60,7 @@ import sys
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 import math
+from pathlib import Path
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -67,6 +72,9 @@ def u16(data: bytes, off: int) -> int:
 
 def u32(data: bytes, off: int) -> int:
     return struct.unpack_from("<I", data, off)[0]
+
+def i32(data: bytes, off: int) -> int:
+    return struct.unpack_from("<i", data, off)[0]
 
 def u64(data: bytes, off: int) -> int:
     return struct.unpack_from("<Q", data, off)[0]
@@ -87,14 +95,8 @@ Mat3 = Tuple[Tuple[float, float, float],
              Tuple[float, float, float],
              Tuple[float, float, float]]
 
-# Fixed bevel settings for convex polytopes (edge bevel)
-POLY_BEVEL_ENABLED = False
-POLY_BEVEL_WIDTH = 0.01
-POLY_BEVEL_SEGMENTS = 2
-
 # Output triangulation toggle (polytopes only; compressed mesh stays triangulated)
 TRIANGULATE_OUTPUT = False
-
 
 
 def quat_to_matrix(qx: float, qy: float, qz: float, qw: float) -> Mat3:
@@ -239,6 +241,8 @@ def parse_global_fixups(data: bytes, hdr: SectionHdr) -> Dict[int, Tuple[int, in
 class BodyTransform:
     position: Vert3
     rotation: Mat3  # from quaternion
+    body_index: int = -1
+    class_name: str = ""
 
 
 def parse_body_transforms(
@@ -258,6 +262,7 @@ def parse_body_transforms(
     """
     result: Dict[int, BodyTransform] = {}
 
+    obj_map = {rel: cls for rel, cls in objects}
     psd_list = [(rel, cls) for rel, cls in objects if "hknpPhysicsSystemData" in cls]
     if not psd_list:
         return result
@@ -291,7 +296,12 @@ def parse_body_transforms(
                    f32(data, body_abs + BODY_POS_OFF + 8))
             q = vec4(data, body_abs + BODY_QUAT_OFF)
             rot = quat_to_matrix(q[0], q[1], q[2], q[3])
-            bt = BodyTransform(position=pos, rotation=rot)
+            bt = BodyTransform(
+                position=pos,
+                rotation=rot,
+                body_index=i,
+                class_name=obj_map.get(shape_rel, ""),
+            )
             result[shape_rel] = bt
 
             # Also map sub-objects (e.g. CompressedMeshShape -> ShapeData)
@@ -490,282 +500,93 @@ def write_obj(path: str, verts: List[Vert3],
 
 # ── convex polytope extraction ───────────────────────────────────────────────
 
-def parse_convex_polytope(data: bytes, shape_abs: int) -> Optional[Tuple[List[Vert3], List[Face]]]:
-    """Parse an hknpConvexPolytopeShape and return (vertices, faces).
+def parse_convex_polytope(data: bytes, shape_abs: int) -> Optional[Tuple[List[Vert3], List[Face], float]]:
+    """Parse an hknpConvexPolytopeShape and return (vertices, faces, convex_radius).
 
-    Layout (inline shape, hk_2014.1.0):
-      +0x30: numVertices (u16), verticesOffset (u16, from +0x30)
-      +0x40: numVerts2 (u16), planesOff (u16), numPlanes (u16),
-             facesOff (u16), numFaceVtxIndices (u16), faceVtxOff (u16)
-      +0x50: vertices begin at +0x30 + verticesOffset (vec4 each, w = packed idx)
-      faces: each 4 bytes: firstVtxIdx (u16), numVtx (u8), flags (u8)
-      faceVtxIndices: u8 array of vertex indices per face
+    Layout (hk_2014.1.0, all offsets relative to shape_abs):
+      +0x14: float convexRadius  — Minkowski expansion radius; returned to caller
+      +0x30: [u16 numVertices, u16 verticesOffset]   base = +0x30
+      +0x40: [u16 numFaces,    u16 planesOffset]     base = +0x40
+      +0x44: [u16 numPlanes,   u16 facesOffset]      base = +0x44
+      +0x48: [u16 numFVI,      u16 fviOffset]        base = +0x48
+
+    The returned vertices are the raw inner hull vertices (not Minkowski-expanded).
+    The caller is responsible for applying convex_radius (e.g. via Blender modifiers).
     """
-    num_verts = u16(data, shape_abs + 0x30)
-    vert_offset = u16(data, shape_abs + 0x32)
+    if shape_abs + 0x50 > len(data):
+        return None
 
-    header40 = [u16(data, shape_abs + 0x40 + i * 2) for i in range(6)]
-    planes_off = header40[1]  # offset from +0x40
-    num_planes = header40[2]
-    faces_off  = header40[3]  # offset from +0x40
-    num_fvi    = header40[4]  # total face vertex indices
-    fvi_off    = header40[5]  # offset from +0x40
+    num_verts   = u16(data, shape_abs + 0x30)
+    vert_offset = u16(data, shape_abs + 0x32)
+    num_planes  = u16(data, shape_abs + 0x44)
+    faces_off   = u16(data, shape_abs + 0x46)
+    num_fvi     = u16(data, shape_abs + 0x48)
+    fvi_off     = u16(data, shape_abs + 0x4A)
 
     if num_verts == 0 or num_planes == 0:
         return None
 
-    # Read vertices (vec4 each, ignore w)
-    vert_start = shape_abs + 0x30 + vert_offset
-    verts: List[Vert3] = []
+    vert_start  = shape_abs + 0x30 + vert_offset
+    faces_start = shape_abs + 0x44 + faces_off
+    fvi_start   = shape_abs + 0x48 + fvi_off
+
+    # Read inner vertices (vec4 each, w component ignored)
+    inner_verts: List[Vert3] = []
     for i in range(num_verts):
-        v = vec4(data, vert_start + i * 16)
-        verts.append((v[0], v[1], v[2]))
-
-    # Read face vertex indices
-    fvi_start = shape_abs + 0x40 + fvi_off
-    fvi_bytes = data[fvi_start:fvi_start + num_fvi]
-
-    def triangulate_faces_from_indices() -> List[Tri]:
-        faces_start = shape_abs + 0x40 + faces_off
-        out: List[Tri] = []
-        for fi in range(num_planes):
-            fo = faces_start + fi * 4
-            first = u16(data, fo)
-            count = u8(data, fo + 2)
-            if count < 3:
-                continue
-            if first + count > len(fvi_bytes):
-                continue
-            face_indices = [fvi_bytes[first + j] for j in range(count)]
-            # Skip clearly degenerate faces
-            if len(set(face_indices)) < 3:
-                continue
-            for j in range(1, len(face_indices) - 1):
-                a, b, c = face_indices[0], face_indices[j], face_indices[j + 1]
-                if max(a, b, c) < num_verts:
-                    out.append((a, b, c))
-        return out
-
-    def triangulate_faces_from_planes(verts_in: List[Vert3],
-                                      planes_in: List[Tuple[float, float, float, float]]) -> List[Tri]:
-        planes = planes_in
-        out: List[Tri] = []
-        eps = 1e-4
-
-        for nx, ny, nz, d in planes:
-            # Collect vertices on this plane
-            on_plane: List[int] = []
-            for vi, (x, y, z) in enumerate(verts_in):
-                dist = nx * x + ny * y + nz * z + d
-                if abs(dist) <= eps:
-                    on_plane.append(vi)
-            if len(on_plane) < 3:
-                continue
-
-            # Build local 2D basis on the plane
-            n_len = math.sqrt(nx * nx + ny * ny + nz * nz)
-            if n_len == 0.0:
-                continue
-            nxn, nyn, nzn = nx / n_len, ny / n_len, nz / n_len
-            # Choose a reference axis not parallel to the normal
-            if abs(nxn) < 0.9:
-                rx, ry, rz = 1.0, 0.0, 0.0
-            else:
-                rx, ry, rz = 0.0, 1.0, 0.0
-            # u = normalize(cross(n, ref))
-            ux, uy, uz = (nyn * rz - nzn * ry,
-                          nzn * rx - nxn * rz,
-                          nxn * ry - nyn * rx)
-            u_len = math.sqrt(ux * ux + uy * uy + uz * uz)
-            if u_len == 0.0:
-                continue
-            ux, uy, uz = ux / u_len, uy / u_len, uz / u_len
-            # v = cross(n, u)
-            vx, vy, vz = (nyn * uz - nzn * uy,
-                          nzn * ux - nxn * uz,
-                          nxn * uy - nyn * ux)
-
-            # centroid
-            cx = sum(verts_in[i][0] for i in on_plane) / len(on_plane)
-            cy = sum(verts_in[i][1] for i in on_plane) / len(on_plane)
-            cz = sum(verts_in[i][2] for i in on_plane) / len(on_plane)
-
-            # sort by angle around normal
-            def angle(i: int) -> float:
-                px, py, pz = verts_in[i]
-                dx, dy, dz = px - cx, py - cy, pz - cz
-                x2 = dx * ux + dy * uy + dz * uz
-                y2 = dx * vx + dy * vy + dz * vz
-                return math.atan2(y2, x2)
-
-            ring = sorted(on_plane, key=angle)
-            # triangulate fan
-            for j in range(1, len(ring) - 1):
-                out.append((ring[0], ring[j], ring[j + 1]))
-        return out
-
-    def build_faces_from_planes(verts_in: List[Vert3],
-                                planes_in: List[Tuple[float, float, float, float]]) -> List[Face]:
-        planes = planes_in
-        out: List[Face] = []
-        eps = 1e-4
-
-        for nx, ny, nz, d in planes:
-            on_plane: List[int] = []
-            for vi, (x, y, z) in enumerate(verts_in):
-                dist = nx * x + ny * y + nz * z + d
-                if abs(dist) <= eps:
-                    on_plane.append(vi)
-            if len(on_plane) < 3:
-                continue
-
-            n_len = math.sqrt(nx * nx + ny * ny + nz * nz)
-            if n_len == 0.0:
-                continue
-            nxn, nyn, nzn = nx / n_len, ny / n_len, nz / n_len
-            if abs(nxn) < 0.9:
-                rx, ry, rz = 1.0, 0.0, 0.0
-            else:
-                rx, ry, rz = 0.0, 1.0, 0.0
-            ux, uy, uz = (nyn * rz - nzn * ry,
-                          nzn * rx - nxn * rz,
-                          nxn * ry - nyn * rx)
-            u_len = math.sqrt(ux * ux + uy * uy + uz * uz)
-            if u_len == 0.0:
-                continue
-            ux, uy, uz = ux / u_len, uy / u_len, uz / u_len
-            vx, vy, vz = (nyn * uz - nzn * uy,
-                          nzn * ux - nxn * uz,
-                          nxn * uy - nyn * ux)
-
-            cx = sum(verts_in[i][0] for i in on_plane) / len(on_plane)
-            cy = sum(verts_in[i][1] for i in on_plane) / len(on_plane)
-            cz = sum(verts_in[i][2] for i in on_plane) / len(on_plane)
-
-            def angle(i: int) -> float:
-                px, py, pz = verts_in[i]
-                dx, dy, dz = px - cx, py - cy, pz - cz
-                x2 = dx * ux + dy * uy + dz * uz
-                y2 = dx * vx + dy * vy + dz * vz
-                return math.atan2(y2, x2)
-
-            ring = sorted(on_plane, key=angle)
-            if len(ring) >= 3:
-                out.append(tuple(ring))
-        return out
-
-    def intersect_planes(p1, p2, p3) -> Optional[Vert3]:
-        (a1, b1, c1, d1) = p1
-        (a2, b2, c2, d2) = p2
-        (a3, b3, c3, d3) = p3
-        det = (a1 * (b2 * c3 - b3 * c2)
-               - b1 * (a2 * c3 - a3 * c2)
-               + c1 * (a2 * b3 - a3 * b2))
-        if abs(det) < 1e-8:
+        vo = vert_start + i * 16
+        if vo + 16 > len(data):
             return None
-        dx = (-d1 * (b2 * c3 - b3 * c2)
-              + b1 * (-d2 * c3 + d3 * c2)
-              - c1 * (-d2 * b3 + d3 * b2))
-        dy = (a1 * (-d2 * c3 + d3 * c2)
-              - (-d1) * (a2 * c3 - a3 * c2)
-              + c1 * (a2 * (-d3) - a3 * (-d2)))
-        dz = (a1 * (b2 * (-d3) - b3 * (-d2))
-              - b1 * (a2 * (-d3) - a3 * (-d2))
-              + (-d1) * (a2 * b3 - a3 * b2))
-        return (dx / det, dy / det, dz / det)
+        v = vec4(data, vo)
+        inner_verts.append((v[0], v[1], v[2]))
 
-    def unique_points(points: List[Vert3], eps: float = 1e-5) -> List[Vert3]:
-        out: List[Vert3] = []
-        eps2 = eps * eps
-        for p in points:
-            keep = True
-            for q in out:
-                dx = p[0] - q[0]
-                dy = p[1] - q[1]
-                dz = p[2] - q[2]
-                if dx * dx + dy * dy + dz * dz <= eps2:
-                    keep = False
-                    break
-            if keep:
-                out.append(p)
-        return out
+    if fvi_start + num_fvi > len(data):
+        return None
 
-    planes_start = shape_abs + 0x40 + planes_off
-    base_planes_raw = [vec4(data, planes_start + i * 16) for i in range(num_planes)]
-    base_planes: List[Tuple[float, float, float, float]] = []
-    for nx, ny, nz, d in base_planes_raw:
-        n_len = math.sqrt(nx * nx + ny * ny + nz * nz)
-        if n_len == 0.0:
+    # Read face records (polygon winding per face)
+    face_polys: List[List[int]] = []
+    for fi in range(num_planes):
+        fo = faces_start + fi * 4
+        if fo + 4 > len(data):
+            break
+        first = u16(data, fo)
+        cnt = u8(data, fo + 2)
+        if cnt < 3 or first + cnt > num_fvi:
+            face_polys.append([])
             continue
-        base_planes.append((nx / n_len, ny / n_len, nz / n_len, d / n_len))
+        poly: List[int] = []
+        ok = True
+        for k in range(cnt):
+            idx = u8(data, fvi_start + first + k)
+            if idx >= num_verts:
+                ok = False
+                break
+            poly.append(idx)
+        face_polys.append(poly if ok and len(set(poly)) >= 3 else [])
 
-    # Edge bevel: add planes between adjacent face planes
-    if POLY_BEVEL_ENABLED and POLY_BEVEL_WIDTH > 0.0 and POLY_BEVEL_SEGMENTS > 0 and len(base_planes) >= 4:
-        eps = 1e-4
-        plane_verts: List[set] = []
-        for nx, ny, nz, d in base_planes:
-            on_plane = set()
-            for vi, (x, y, z) in enumerate(verts):
-                if abs(nx * x + ny * y + nz * z + d) <= eps:
-                    on_plane.add(vi)
-            plane_verts.append(on_plane)
+    # Read convexRadius — stored per-shape at +0x14
+    convex_radius = f32(data, shape_abs + 0x14) if shape_abs + 0x18 <= len(data) else 0.0
 
-        bevel_planes: List[Tuple[float, float, float, float]] = []
-        for i in range(len(base_planes)):
-            n1x, n1y, n1z, d1 = base_planes[i]
-            c1 = -d1
-            for j in range(i + 1, len(base_planes)):
-                n2x, n2y, n2z, d2 = base_planes[j]
-                c2 = -d2
-                shared = plane_verts[i].intersection(plane_verts[j])
-                if len(shared) < 2:
-                    continue
-                sx, sy, sz = (n1x + n2x, n1y + n2y, n1z + n2z)
-                s_len = math.sqrt(sx * sx + sy * sy + sz * sz)
-                if s_len < 1e-6:
-                    continue
-                mx, my, mz = sx / s_len, sy / s_len, sz / s_len
-                for s in range(1, POLY_BEVEL_SEGMENTS + 1):
-                    w = POLY_BEVEL_WIDTH * (s / (POLY_BEVEL_SEGMENTS + 1))
-                    c_m = (c1 + c2 - 2.0 * w) / s_len
-                    d_m = -c_m
-                    bevel_planes.append((mx, my, mz, d_m))
+    # Emit the raw inner polytope faces (no Minkowski expansion).
+    # convex_radius is returned to the caller for application at a higher level.
+    verts = list(inner_verts)
+    tris: List[Face] = []
+    tri_set: set = set()
 
-        all_planes = base_planes + bevel_planes
-        candidates: List[Vert3] = []
-        for a in range(len(all_planes)):
-            for b in range(a + 1, len(all_planes)):
-                for c in range(b + 1, len(all_planes)):
-                    p = intersect_planes(all_planes[a], all_planes[b], all_planes[c])
-                    if p is None:
-                        continue
-                    x, y, z = p
-                    inside = True
-                    for nx, ny, nz, d in all_planes:
-                        if nx * x + ny * y + nz * z + d > eps:
-                            inside = False
-                            break
-                    if inside:
-                        candidates.append(p)
-        beveled_verts = unique_points(candidates)
-        if beveled_verts:
-            if TRIANGULATE_OUTPUT:
-                tris = triangulate_faces_from_planes(beveled_verts, all_planes)
-                return (beveled_verts, tris) if tris else None
-            faces = build_faces_from_planes(beveled_verts, all_planes)
-            return (beveled_verts, faces) if faces else None
+    def add_tri(a: int, b: int, c: int) -> None:
+        if a == b or b == c or a == c:
+            return
+        key = tuple(sorted((a, b, c)))
+        if key not in tri_set:
+            tri_set.add(key)
+            tris.append((a, b, c))
 
-    tris = triangulate_faces_from_indices()
-    plane_tris = triangulate_faces_from_planes(verts, base_planes)
-    if len(plane_tris) > len(tris):
-        tris = plane_tris
+    for poly in face_polys:
+        for k in range(1, len(poly) - 1):
+            add_tri(poly[0], poly[k], poly[k + 1])
 
     if not tris:
         return None
-    if TRIANGULATE_OUTPUT:
-        return (verts, tris)
-    faces = build_faces_from_planes(verts, base_planes)
-    return (verts, faces) if faces else (verts, tris)
+    return (verts, tris, convex_radius)
 
 
 def apply_transform(verts: List[Vert3],
@@ -795,11 +616,14 @@ def extract_compound_polytopes(
         gfixups: Dict[int, Tuple[int, int]],
         objects: List[Tuple[int, str]],
         body_transforms: Dict[int, BodyTransform],
-) -> Tuple[List[Vert3], List[Tuple[Face, str]]]:
-    """Extract convex polytope shapes from hknpDynamicCompoundShape instances."""
+) -> Tuple[List[Vert3], List[Tuple[Face, str]], float]:
+    """Extract convex polytope shapes from hknpDynamicCompoundShape instances.
 
+    Returns (verts, faces, max_convex_radius).
+    """
     all_verts: List[Vert3] = []
     all_tris: List[Tuple[Face, str]] = []
+    max_radius: float = 0.0
 
     # Build a map from rel_offset -> class name for quick lookup
     obj_map = {rel: cls for rel, cls in objects}
@@ -808,7 +632,7 @@ def extract_compound_polytopes(
     compounds = [(rel, cls) for rel, cls in objects if "DynamicCompoundShape" in cls
                  and "Data" not in cls]
 
-    for comp_rel, comp_cls in compounds:
+    for comp_rel, _ in compounds:
         comp_abs = data_start + comp_rel
 
         # Look up body transform for this compound shape
@@ -858,8 +682,27 @@ def extract_compound_polytopes(
             if result is None:
                 continue
 
-            local_verts, local_tris = result
-            transformed = apply_transform(local_verts, rot, trans, body=body)
+            local_verts, local_tris, convex_radius = result
+            max_radius = max(max_radius, convex_radius)
+
+            transformed: List[Vert3] = []
+            for x, y, z in local_verts:
+                # Instance transform (same convention as C++ transform_point_instance).
+                rx = rot[0][0] * x + rot[1][0] * y + rot[2][0] * z + trans[0]
+                ry = rot[0][1] * x + rot[1][1] * y + rot[2][1] * z + trans[1]
+                rz = rot[0][2] * x + rot[1][2] * y + rot[2][2] * z + trans[2]
+                if body is not None:
+                    if body.body_index == 0:
+                        # Matches C++: body0 compound children are translation-only in body space.
+                        rx += body.position[0]
+                        ry += body.position[1]
+                        rz += body.position[2]
+                    else:
+                        bx = body.rotation[0][0] * rx + body.rotation[0][1] * ry + body.rotation[0][2] * rz + body.position[0]
+                        by = body.rotation[1][0] * rx + body.rotation[1][1] * ry + body.rotation[1][2] * rz + body.position[1]
+                        bz = body.rotation[2][0] * rx + body.rotation[2][1] * ry + body.rotation[2][2] * rz + body.position[2]
+                        rx, ry, rz = bx, by, bz
+                transformed.append((rx, ry, rz))
 
             base_idx = len(all_verts)
             all_verts.extend(transformed)
@@ -885,35 +728,55 @@ def extract_compound_polytopes(
     standalone = [(rel, cls) for rel, cls in objects
                   if "ConvexPolytopeShape" in cls and rel not in compound_shape_rels]
 
-    _IDENTITY = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
-    _ZERO = (0.0, 0.0, 0.0)
-
     for shape_rel, shape_cls in standalone:
         shape_abs = data_start + shape_rel
         result = parse_convex_polytope(data, shape_abs)
         if result is None:
             continue
-        local_verts, local_tris = result
-        body = body_transforms.get(shape_rel)
-        if body is not None:
-            local_verts = apply_transform(local_verts, _IDENTITY, _ZERO, body=body)
+        local_verts, local_tris, convex_radius = result
+        max_radius = max(max_radius, convex_radius)
+        poly_body = body_transforms.get(shape_rel)
+        if poly_body is not None:
+            transformed_s: List[Vert3] = []
+            for x, y, z in local_verts:
+                bx = poly_body.rotation[0][0] * x + poly_body.rotation[0][1] * y + poly_body.rotation[0][2] * z + poly_body.position[0]
+                by = poly_body.rotation[1][0] * x + poly_body.rotation[1][1] * y + poly_body.rotation[1][2] * z + poly_body.position[1]
+                bz = poly_body.rotation[2][0] * x + poly_body.rotation[2][1] * y + poly_body.rotation[2][2] * z + poly_body.position[2]
+                transformed_s.append((bx, by, bz))
+            local_verts = transformed_s
         base_idx = len(all_verts)
         all_verts.extend(local_verts)
         group = f"Polytope_standalone_{shape_rel:#x}"
         all_tris.extend(((tuple(idx + base_idx for idx in face)), group)
                         for face in local_tris)
-    return all_verts, all_tris
+
+    return all_verts, all_tris, max_radius
 
 
 # ── main extraction ──────────────────────────────────────────────────────────
 
-def parse_bytes(data: bytes) -> Tuple[List[Vert3], List[Tuple[Face, str]]]:
-    """Parse a raw Havok packfile and return (verts, faces).
+def extract_bhk_physics_system(
+        in_path: Optional[str] = None,
+        out_path: Optional[str] = None,
+        raw_data: Optional[bytes] = None,
+) -> Tuple[List[Vert3], List[Tuple[Face, str]], float]:
+    """Extract all collision geometry from a raw Havok packfile blob.
 
-    verts: list of (x, y, z) float tuples in Havok space.
-    faces: list of ((i0, i1, ...), group_name) tuples.
-    Raises RuntimeError if the data is not a valid packfile or yields no geometry.
+    Returns (verts, faces, convex_radius) where convex_radius is the maximum
+    convexRadius found across all ConvexPolytopeShapes in the packfile.
+    Compressed mesh shapes always have convexRadius 0.
+
+    Args:
+        in_path:  Path to a raw packfile .bin (optional; use raw_data instead).
+        out_path: If given, writes an OBJ file at this path.
+        raw_data: Raw packfile bytes (preferred when called from pynifly).
     """
+    if raw_data is not None:
+        data = raw_data
+    else:
+        if in_path is None:
+            raise RuntimeError("in_path or raw_data must be provided")
+        data = open(in_path, "rb").read()
     use_shared = True
 
     # ── parse packfile ──
@@ -992,24 +855,29 @@ def parse_bytes(data: bytes) -> Tuple[List[Vert3], List[Tuple[Face, str]]]:
                     comb_trans = inst_trans
 
                 is_identity_rot = all(
-                    abs(comb_rot[i][j] - (1.0 if i == j else 0.0)) < 1e-6
-                    for i in range(3) for j in range(3))
+                    abs(comb_rot[ii][jj] - (1.0 if ii == jj else 0.0)) < 1e-6
+                    for ii in range(3) for jj in range(3))
                 is_zero_trans = all(abs(c) < 1e-6 for c in comb_trans)
 
                 if not (is_identity_rot and is_zero_trans):
                     body_transforms[child_data_rel] = BodyTransform(
-                        position=comb_trans, rotation=comb_rot)
+                        position=comb_trans,
+                        rotation=comb_rot,
+                        body_index=(comp_body.body_index if comp_body is not None else -1),
+                        class_name="hknpDynamicCompoundInstance",
+                    )
 
     all_verts: List[Vert3] = []
     all_tris: List[Tuple[Face, str]] = []
+    max_convex_radius: float = 0.0
 
     # ── extract compressed mesh shapes ──
     shapes = [(rel, cls) for rel, cls in objects
               if "hknpCompressedMeshShapeData" in cls]
 
-    for shape_idx, (obj_rel, cls_name) in enumerate(shapes):
+    for shape_idx, (obj_rel, _) in enumerate(shapes):
         obj_abs = data_start + obj_rel
-        parse_bytes._large_cache = {}
+        extract_bhk_physics_system._large_cache = {}
 
         mesh_body = body_transforms.get(obj_rel)
 
@@ -1059,13 +927,13 @@ def parse_bytes(data: bytes) -> Tuple[List[Vert3], List[Tuple[Face, str]]]:
 
             shared_verts: List[Vert3] = []
             if use_shared and shared_abs is not None and num_sh > 0:
-                if not hasattr(parse_bytes, '_large_cache'):
-                    parse_bytes._large_cache = {}
+                if not hasattr(extract_bhk_physics_system, '_large_cache'):
+                    extract_bhk_physics_system._large_cache = {}
                 cache_key = (shared_abs, total_shared)
-                if cache_key not in parse_bytes._large_cache:
-                    parse_bytes._large_cache[cache_key] = decode_large_vertices(
+                if cache_key not in extract_bhk_physics_system._large_cache:
+                    extract_bhk_physics_system._large_cache[cache_key] = decode_large_vertices(
                         data, shared_abs, total_shared, obj_bb_min, obj_bb_max)
-                global_large = parse_bytes._large_cache[cache_key]
+                global_large = extract_bhk_physics_system._large_cache[cache_key]
 
                 if shidx_abs is not None and total_shidx > 0:
                     for k in range(num_sh):
@@ -1098,7 +966,7 @@ def parse_bytes(data: bytes) -> Tuple[List[Vert3], List[Tuple[Face, str]]]:
 
             base_idx = len(all_verts)
             combined = local_verts + shared_verts
-            if mesh_body is not None:
+            if mesh_body is not None and mesh_body.class_name == "hknpDynamicCompoundInstance":
                 transformed: List[Vert3] = []
                 for x, y, z in combined:
                     bx = mesh_body.rotation[0][0]*x + mesh_body.rotation[0][1]*y + mesh_body.rotation[0][2]*z + mesh_body.position[0]
@@ -1113,8 +981,9 @@ def parse_bytes(data: bytes) -> Tuple[List[Vert3], List[Tuple[Face, str]]]:
                             for a, b, c in tris)
 
     # ── extract convex polytope shapes ──
-    poly_verts, poly_tris = extract_compound_polytopes(
+    poly_verts, poly_tris, poly_radius = extract_compound_polytopes(
         data, data_start, fixups, gfixups, objects, body_transforms)
+    max_convex_radius = max(max_convex_radius, poly_radius)
 
     if poly_verts:
         base_idx = len(all_verts)
@@ -1125,21 +994,217 @@ def parse_bytes(data: bytes) -> Tuple[List[Vert3], List[Tuple[Face, str]]]:
     if not all_verts or not all_tris:
         raise RuntimeError("No geometry decoded.")
 
-    return all_verts, all_tris
+    if out_path is not None:
+        write_obj(out_path, all_verts, all_tris)
+
+    return all_verts, all_tris, max_convex_radius
 
 
-def extract_bhk_physics_system(in_path: str, out_path: str) -> None:
-    data = open(in_path, "rb").read()
-    all_verts, all_tris = parse_bytes(data)
-    write_obj(out_path, all_verts, all_tris)
+# ── pynifly compatibility wrapper ────────────────────────────────────────────
+
+def parse_bytes(data: bytes) -> Tuple[List[Vert3], List[Tuple[Face, str]], float]:
+    """Parse a raw Havok packfile and return (verts, faces, convex_radius).
+
+    This is the primary entry point used by bhkPhysicsSystem.geometry in pynifly.
+    convex_radius is the maximum convexRadius across all ConvexPolytopeShapes
+    in the packfile (0.0 for compressed mesh shapes).
+    """
+    return extract_bhk_physics_system(raw_data=data)
+
+
+# ── NIF-level entry point ─────────────────────────────────────────────────────
+
+HAVOK_MAGIC = bytes((0x57, 0xE0, 0xE0, 0x57, 0x10, 0xC0, 0xC0, 0x10))
+
+
+def _read_len_u8_string(data: bytes, off: int) -> Tuple[str, int]:
+    ln = u8(data, off)
+    off += 1
+    s = data[off:off + ln].decode("utf-8", errors="replace")
+    off += ln
+    if s.endswith("\x00"):
+        s = s[:-1]
+    return s, off
+
+
+def _extract_ninode_transform(block: bytes, num_blocks: int) -> dict:
+    def score(t_off: int) -> float:
+        if t_off + 0x34 + 4 > len(block):
+            return -1e9
+        r = [f32(block, t_off + 0x0C + i * 4) for i in range(9)]
+        s = f32(block, t_off + 0x30)
+        score_v = 0.0
+        if not all(math.isfinite(x) for x in (r + [s])):
+            score_v -= 1e6
+        else:
+            l0 = math.sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2])
+            l1 = math.sqrt(r[3] * r[3] + r[4] * r[4] + r[5] * r[5])
+            l2 = math.sqrt(r[6] * r[6] + r[7] * r[7] + r[8] * r[8])
+            d01 = r[0] * r[3] + r[1] * r[4] + r[2] * r[5]
+            d02 = r[0] * r[6] + r[1] * r[7] + r[2] * r[8]
+            d12 = r[3] * r[6] + r[4] * r[7] + r[5] * r[8]
+            score_v -= abs(l0 - 1.0) + abs(l1 - 1.0) + abs(l2 - 1.0)
+            score_v -= abs(d01) + abs(d02) + abs(d12)
+            score_v -= abs(s - 1.0)
+        co = i32(block, t_off + 0x34)
+        if not (co == -1 or (0 <= co < num_blocks)):
+            score_v -= 500.0
+        nchild = i32(block, t_off + 0x38) if t_off + 0x3C <= len(block) else -1
+        if nchild < 0 or nchild > 4096:
+            score_v -= 500.0
+        return score_v
+
+    t_off = max((0x10, 0x14, 0x18, 0x1C), key=score)
+    tx, ty, tz = f32(block, t_off + 0x00), f32(block, t_off + 0x04), f32(block, t_off + 0x08)
+    rot: Mat3 = (
+        (f32(block, t_off + 0x0C), f32(block, t_off + 0x10), f32(block, t_off + 0x14)),
+        (f32(block, t_off + 0x18), f32(block, t_off + 0x1C), f32(block, t_off + 0x20)),
+        (f32(block, t_off + 0x24), f32(block, t_off + 0x28), f32(block, t_off + 0x2C)),
+    )
+    scale = f32(block, t_off + 0x30)
+    co = i32(block, t_off + 0x34)
+    nchild = i32(block, t_off + 0x38) if t_off + 0x3C <= len(block) else 0
+    children: List[int] = []
+    cl_off = t_off + 0x3C
+    if 0 <= nchild <= 4096 and cl_off + nchild * 4 <= len(block):
+        for i in range(nchild):
+            children.append(i32(block, cl_off + i * 4))
+    return {"t": (tx, ty, tz), "r": rot, "s": scale if math.isfinite(scale) else 1.0, "co": co, "children": children}
+
+
+def _parse_nif_blocks(nif_data: bytes) -> Tuple[List[dict], int]:
+    nl = nif_data.find(b"\n")
+    if nl < 0:
+        raise RuntimeError("NIF header newline not found")
+    off = nl + 1
+    file_version = u32(nif_data, off)
+    off += 4
+    if file_version != 0x14020007:
+        raise RuntimeError("Only FO4 NIF version 0x14020007 is supported")
+    off += 1  # endian flag
+    off += 4  # user version
+    num_blocks = u32(nif_data, off)
+    off += 4
+    off += 4  # user version2
+    for _ in range(4):
+        _, off = _read_len_u8_string(nif_data, off)
+
+    num_block_types = u16(nif_data, off)
+    off += 2
+    block_types: List[str] = []
+    for _ in range(num_block_types):
+        ln = u32(nif_data, off)
+        off += 4
+        block_types.append(nif_data[off:off + ln].decode("utf-8", errors="replace"))
+        off += ln
+    block_type_index = [u16(nif_data, off + i * 2) for i in range(num_blocks)]
+    off += num_blocks * 2
+    block_sizes = [u32(nif_data, off + i * 4) for i in range(num_blocks)]
+    off += num_blocks * 4
+    num_strings = u32(nif_data, off)
+    off += 4
+    off += 4  # max_string_len
+    strings: List[str] = []
+    for _ in range(num_strings):
+        ln = u32(nif_data, off)
+        off += 4
+        strings.append(nif_data[off:off + ln].decode("utf-8", errors="replace"))
+        off += ln
+    num_groups = u32(nif_data, off)
+    off += 4
+    for _ in range(num_groups):
+        n = u32(nif_data, off)
+        off += 4 + n * 4
+
+    cur = off
+    blocks: List[dict] = []
+    for i in range(num_blocks):
+        btype = block_types[block_type_index[i]]
+        sz = block_sizes[i]
+        blob = nif_data[cur:cur + sz]
+        info = {"id": i, "type": btype, "offset": cur, "size": sz, "blob": blob, "transform": None}
+        if btype == "NiNode" and len(blob) >= 0x44:
+            info["transform"] = _extract_ninode_transform(blob, num_blocks)
+        blocks.append(info)
+        cur += sz
+    return blocks, num_blocks
+
+
+def _resolve_collision_physics_pairs(blocks: List[dict]) -> List[Tuple[int, int]]:
+    pairs: List[Tuple[int, int]] = []
+    for b in blocks:
+        if b["type"] != "NiNode" or b["transform"] is None:
+            continue
+        co = b["transform"]["co"]
+        if not (0 <= co < len(blocks)):
+            continue
+        if blocks[co]["type"] != "bhkNPCollisionObject":
+            continue
+        co_blob: bytes = blocks[co]["blob"]
+        phys = set()
+        for o in range(0, max(0, len(co_blob) - 3)):
+            v = i32(co_blob, o)
+            if 0 <= v < len(blocks) and blocks[v]["type"] == "bhkPhysicsSystem":
+                phys.add(v)
+        for pid in sorted(phys):
+            pairs.append((b["id"], pid))
+    return pairs
+
+
+def extract_havok_from_nif(in_path: str, out_path: str) -> None:
+    """Standalone entry point: read a .nif, extract all collision geometry, write OBJ."""
+    nif_data = Path(in_path).read_bytes()
+    blocks, _ = _parse_nif_blocks(nif_data)
+    pairs = _resolve_collision_physics_pairs(blocks)
+    if not pairs:
+        raise RuntimeError("No NiNode->bhkNPCollisionObject->bhkPhysicsSystem links found.")
+
+    # Same bhkPhysicsSystem can be referenced by several NiNodes.
+    # Decode each only once.
+    phys_ids: List[int] = []
+    seen_phys = set()
+    for _, phys_id in pairs:
+        if phys_id not in seen_phys:
+            seen_phys.add(phys_id)
+            phys_ids.append(phys_id)
+
+    all_verts: List[Vert3] = []
+    all_faces: List[Tuple[Face, str]] = []
+    decoded = 0
+
+    for phys_id in phys_ids:
+        blob: bytes = blocks[phys_id]["blob"]
+        if blob.startswith(HAVOK_MAGIC):
+            hk = blob
+        elif len(blob) >= 12 and blob[4:12] == HAVOK_MAGIC:
+            hk = blob[4:]
+        else:
+            continue
+
+        verts, faces, _radius = extract_bhk_physics_system(raw_data=hk)
+
+        base = len(all_verts)
+        all_verts.extend(verts)
+        prefix = f"phys_{phys_id}"
+        for face, group in faces:
+            all_faces.append((tuple(idx + base for idx in face), f"{prefix}_{group}"))
+        decoded += 1
+
+    if decoded == 0 or not all_verts or not all_faces:
+        raise RuntimeError("No embedded Havok payloads decoded from linked bhkPhysicsSystem blocks.")
+    write_obj(out_path, all_verts, all_faces)
+
 
 def _main() -> int:
     if len(sys.argv) != 2:
-        print("Usage: python bhk_autounpack.py <input.bin>")
+        print("Usage: python bhk_autounpack.py <input.nif>")
         return 1
     in_path = sys.argv[1]
-    out_path = in_path.rsplit(".", 1)[0] + ".obj" if "." in in_path else in_path + ".obj"
-    extract_bhk_physics_system(in_path, out_path)
+    if not in_path.lower().endswith(".nif"):
+        print("Input must be a .nif file.")
+        return 1
+    out_path = str((Path(__file__).resolve().parent / "bhk_autounpack.obj"))
+    extract_havok_from_nif(in_path, out_path)
     print(out_path)
     return 0
 
