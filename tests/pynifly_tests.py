@@ -20,8 +20,9 @@ import sys
 import codecs
 import ctypes
 import shutil
+import math
 from pathlib import Path
-
+from pyn.nifconstants import bhkCOFlags, HAVOC_SCALE_FACTOR, game_collision_sf
 
 if 'PYNIFLY_DEV_ROOT' in os.environ:
     root_path = Path(os.environ['PYNIFLY_DEV_ROOT'])
@@ -31,9 +32,9 @@ if 'PYNIFLY_DEV_ROOT' in os.environ:
 if str(mod_path) not in sys.path:
     sys.path.insert(0, str(root_path / 'pynifly'))
 
-from io_scene_nifly.pyn.niflytools import *
-from io_scene_nifly.pyn.nifdefs import *
-from io_scene_nifly.pyn.pynifly import *
+from pyn.niflytools import *
+from pyn.nifdefs import *
+from pyn.pynifly import *
 from . import test_tools as TT
 from .test_nifchecker import CheckNif
 
@@ -369,31 +370,35 @@ def TEST_EDITORMARKERS():
 @test_category('NIFDEFS')
 def TEST_NIFDEFS():
     """Test nifdefs functionality."""
-    # Easier to do it here.
-
     # The different shape buffers initialize their ID values, but can also be set from
     # a dictionary object.
-    b = NiShapeBuf({"flags": 24, "collisionID": 4})
-    assert b.flags == 24, f"Flags are correct"
-    assert b.collisionID == 4, f"collisionID is set"
-    assert b.shaderPropertyID == NODEID_NONE, f"shaderPropertyID is not set"
+    b = NiShapeBuf({
+        "flags": "SELECTIVE_UPDATE|SELECTIVE_UPDATE_TRANSF|SELECTIVE_UPDATE_CONTR", 
+        "collisionID": 4, })
+    assert TT.is_eq(b.flags, 14, "Flags are correct")
+    assert TT.is_eq(b.collisionID, 4, "collisionID is set")
+    assert TT.is_eq(b.shaderPropertyID, NODEID_NONE, "shaderPropertyID is not set")
 
-    b = BSLODTriShapeBuf({"flags": 24, "collisionID": 4})
-    assert b.flags == 24, f"Flags are correct"
-    assert b.collisionID == 4, f"collisionID is set"
-    assert b.shaderPropertyID == NODEID_NONE, f"shaderPropertyID is not set"
+    b = NiTriShapeBuf({
+        "flags": "SELECTIVE_UPDATE|SELECTIVE_UPDATE_TRANSF|SELECTIVE_UPDATE_CONTR", 
+        "collisionID": 4})
+    assert TT.is_eq(b.flags, 14, "Flags are correct")
+    assert TT.is_eq(b.collisionID, 4, "collisionID is set")
+    assert TT.is_eq(b.shaderPropertyID, NODEID_NONE, "shaderPropertyID is not set")
 
-    b = BSLODTriShapeBuf({"flags": 24, "collisionID": 4})
-    assert b.flags == 24, f"Flags are correct"
-    assert b.collisionID == 4, f"collisionID is set"
-    assert b.shaderPropertyID == NODEID_NONE, f"shaderPropertyID is not set"
+    b = BSLODTriShapeBuf({
+        "flags": "SELECTIVE_UPDATE|SELECTIVE_UPDATE_TRANSF|SELECTIVE_UPDATE_CONTR", 
+        "collisionID": 4})
+    assert TT.is_eq(b.flags, 14, "Flags are correct")
+    assert TT.is_eq(b.collisionID, 4, "collisionID is set")
+    assert TT.is_eq(b.shaderPropertyID, NODEID_NONE, "shaderPropertyID is not set")
 
     # Can read and store shader property values.
     # Regression: parallaxInnerLayerTextureScale gave problems
-    b = NiShaderBuf({"Shader_Type": BSLSPShaderType.Face_Tint, 
+    b = NiShaderBuf({"Shader_Type": 'Face_Tint', 
                         "parallaxInnerLayerTextureScale": "[0.949999988079071, 0.949999988079071]"})
-    assert b.Shader_Type == BSLSPShaderType.Face_Tint, f"Have correct face tint"
-    assert VNearEqual(b.parallaxInnerLayerTextureScale[:], [0.95, 0.95]), "Have correct parallaxInnerLayerTextureScale"
+    assert TT.is_eq(b.Shader_Type, BSLSPShaderType.Face_Tint, "face tint")
+    assert TT.is_equiv(b.parallaxInnerLayerTextureScale[:], [0.95, 0.95], "parallaxInnerLayerTextureScale")
 
 
 def TEST_READ():
@@ -476,6 +481,7 @@ def TEST_SHAPE_QUERY():
     assert round(verts[685][0], 4) == -64.4469, "ERROR: Last vert wrong"
     assert round(verts[685][1], 4) == -16.3246, "ERROR: Last vert wrong"
     assert round(verts[685][2], 4) == 26.4362, "ERROR: Last vert wrong"
+    assert len(verts) == 686, "ERROR: Did not import 686 verts"
 
     # Normals follow the verts
     assert len(f2.shapes[0].normals) == 686, "ERROR: Expected 686 normals"
@@ -825,7 +831,7 @@ def TEST_2_TAILS():
 def TEST_ROTATIONS():
     """Can handle rotations"""
 
-    testfile = r"tests\FO4\VulpineInariTailPhysics.nif"
+    testfile = r"tests\FO4\Meshes\VulpineInariTailPhysics.nif"
     f = NifFile(testfile)
     n = f.nodes['Bone_Cloth_H_002']
     assert VNearEqual(n.transform.translation, (-2.5314, -11.4114, 65.6487)), f"Translation is correct: {n.transform.translation}"
@@ -1086,7 +1092,7 @@ def TEST_COLORS():
     assert nif4.shapes[1].name == "Armor", "Have the right shape"
     assert len(nif4.shapes[1].verts) > 0, "Get the verts from the shape"
     assert len(nif4.shapes[1].colors) == 0, f"Should have no colors, 0 != {len(nif4.shapes[1].colors)}"
-    
+
 
 def TEST_FNV():
     """Can load and save FNV nifs"""
@@ -1158,11 +1164,34 @@ def TEST_UNI():
     nif3 = NifFile(r"tests\out\будильник.nif")
     assert len(nif3.shapes) == 1, f"Error: Expected 1 shape, found {len(nif3.shapes)}"
 
+# These shader properties will be represented in shader nodes, so they don't need to be
+# extracted.
+shader_props = set((
+    'baseColor',
+    'baseColorScale',
+    'bslspShaderType',
+    'bufSize', 
+    'bufType', 
+    'bBSLightingShaderProperty',
+    'Emissive_Color',
+    'Emissive_Mult',
+    'Glossiness',
+    'greyscaleTexture',
+    'sourceTexture',
+    'Spec_Color',
+    'Spec_Str',
+    'subsurfaceColor',
+    'UV_Offset_U',
+    'UV_Offset_V',
+    'UV_Scale_U',
+    'UV_Scale_V',
+    'textureClampMode',
+))
 
 @test_category('SHADER')
 def TEST_SHADER():
     """Can read shader flags"""
-    hnse = NifFile(r"tests\SKYRIMSE\maleheadAllTextures.nif")
+    hnse = NifFile(r"tests\SKYRIMSE\meshes\maleheadAllTextures.nif")
     hsse = hnse.shapes[0]
     TT.assert_eq(hsse.shader.properties.Shader_Type, 4, "Shader_Type")
     TT.assert_eq(hsse.shader.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS), True, "MODEL_SPACE_NORMALS")
@@ -1198,10 +1227,11 @@ def TEST_SHADER():
 
     print("------------- Extract non-default values")
     v = {}
-    hsse.shader.properties.extract(v)
+    hsse.shader.properties.extract(v, ignore=shader_props)
     print(v)
     assert 'Shader_Flags_1' in v
-    assert 'Glossiness' in v
+    assert 'Env_Map_Scale' not in v # Default value
+    assert 'Glossiness' not in v # in the ignore list
     assert 'UV_Scale_U' not in v
 
     """Can read and write shader"""
@@ -2314,7 +2344,7 @@ def TEST_ANIMATION_SHADER():
 
 def TEST_ANIMATION_SHADER_BSLSP():
     """Embedded animations on BSLightingShaderProperty shaders"""
-    testfile = r"tests/SkyrimSE\voidshade_1.nif"
+    testfile = r"tests\SkyrimSE\voidshade_1.nif"
     outfile = r"tests\out\TEST_ANIMATION_SHADER_BSLSP.nif"
 
     nif = NifFile(testfile)
@@ -2777,6 +2807,198 @@ def TEST_SKELETON_DEER():
     
     assert skeleton_extra is not None, "SkeletonID extra data found"
     assert TT.is_eq(skeleton_extra.integer_data, 178509022, "SkeletonID value correct")
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_PHYSICS_SYSTEM():
+    """bhkPhysicsSystem binary data can be read and decoded into collision geometry."""
+    nif = NifFile(r"tests/FO4/InsFloorMat01.nif")
+
+    root = nif.root
+    c = root.collision_object
+    assert c is not None, "Root has a collision object"
+    assert c.blockname == "bhkNPCollisionObject", \
+        f"Collision is bhkNPCollisionObject, got: {c.blockname}"
+
+    ps = c.physics_system
+    assert ps is not None, "bhkNPCollisionObject references a bhkPhysicsSystem"
+
+    verts, faces = ps.geometry
+    assert len(verts) > 0, f"Got {len(verts)} vertices from physics system"
+    assert len(faces) > 0, f"Got {len(faces)} faces from physics system"
+
+    # Collision bounds should be close to the floor tile mesh bounds (inset by ~0.7 NIF units)
+    sf = HAVOC_SCALE_FACTOR * game_collision_sf["FO4"]
+    phys_xs = [v[0] * sf for v in verts]
+    phys_ys = [v[1] * sf for v in verts]
+    phys_zs = [v[2] * sf for v in verts]
+
+    shape = nif.shape_dict["InsFloorMat01:4"]
+    xf = shape.global_transform
+    rot = xf.rotation; sc = xf.scale; t = xf.translation
+    world_verts = []
+    for v in shape.verts:
+        x, y, z = v
+        rx = rot[0][0]*x + rot[0][1]*y + rot[0][2]*z
+        ry = rot[1][0]*x + rot[1][1]*y + rot[1][2]*z
+        rz = rot[2][0]*x + rot[2][1]*y + rot[2][2]*z
+        world_verts.append((rx*sc + t[0], ry*sc + t[1], rz*sc + t[2]))
+    mesh_xs = [v[0] for v in world_verts]
+    mesh_ys = [v[1] for v in world_verts]
+    mesh_zs = [v[2] for v in world_verts]
+
+    assert TT.is_equiv(min(phys_xs), min(mesh_xs), "Min X collision close to mesh", e=1.0)
+    assert TT.is_equiv(max(phys_xs), max(mesh_xs), "Max X collision close to mesh", e=1.0)
+    assert TT.is_equiv(min(phys_ys), min(mesh_ys), "Min Y collision close to mesh", e=1.0)
+    assert TT.is_equiv(max(phys_ys), max(mesh_ys), "Max Y collision close to mesh", e=1.0)
+    assert TT.is_equiv(min(phys_zs), min(mesh_zs), "Min Z collision close to mesh", e=1.0)
+    assert TT.is_equiv(max(phys_zs), max(mesh_zs), "Max Z collision close to mesh", e=1.0)
+
+    # ---- write back from geometry and verify round-trip ----
+    outfile = r"tests/Out/TEST_FO4_PHYSICS_SYSTEM.nif"
+    outnif = NifFile()
+    outnif.initialize("FO4", outfile)
+
+    src_shape = nif.shape_dict["InsFloorMat01:4"]
+    out_shape = outnif.createShapeFromData(
+        "InsFloorMat01:4",
+        src_shape.verts,
+        src_shape.tris,
+        src_shape.uvs,
+        src_shape.normals,
+        use_type=PynBufferTypes.BSTriShapeBufType,
+        parent=outnif.root,
+    )
+    out_shape.transform.scale = src_shape.transform.scale
+
+    coll = outnif.root.add_collision(
+        None, flags=c.properties.flags,
+        collision_type=PynBufferTypes.bhkNPCollisionObjectBufType)
+    face_lists = [list(f) for f, _ in faces]
+    bhkPhysicsSystem.New(outnif, verts=verts, faces=face_lists, parent=coll)
+    outnif.save()
+
+    check_nif = NifFile(outfile)
+    check_ps = check_nif.root.collision_object.physics_system
+    assert check_ps is not None, "Reloaded nif has a bhkPhysicsSystem"
+
+    check_verts, check_faces = check_ps.geometry
+    assert TT.is_eq(len(check_verts), len(verts), "Written physics has same vertex count")
+    assert TT.is_eq(len(check_faces), len(faces), "Written physics has same face count")
+
+    max_err = max(max(abs(v[i] - d[i]) for i in range(3))
+                  for v, d in zip(verts, check_verts))
+    assert TT.is_lt(max_err, 1e-4, f"Round-trip max vertex error {max_err:.2e}")
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_CAPSULE_PHYSICS():
+    """FO4 bhkPhysicsSystem with two shapes; collision bounds match mesh world-space bounds."""
+    nif = NifFile(r"tests/FO4/CapsuleExtStairsFree01.nif")
+
+    root = nif.root
+    c:bhkNPCollisionObject = root.collision_object
+    assert c is not None, "Root has a collision object"
+    assert TT.is_eq(c.blockname, "bhkNPCollisionObject",
+                    f"Collision type is bhkNPCollisionObject")
+
+    ps = c.physics_system
+    assert ps is not None, "bhkNPCollisionObject references a bhkPhysicsSystem"
+
+    verts, faces = ps.geometry
+    assert TT.is_gt(len(verts), 0, "Physics system has vertices")
+    assert TT.is_gt(len(faces), 0, "Physics system has faces")
+    assert TT.is_eq(set(g for _, g in faces), set(('Polytope_standalone_0x7e0', 'Section_0')),
+                    "groups on root collision faces")
+
+    # Verify two distinct collision shapes
+    shape_prefixes = {g.split('_')[0] for _, g in faces}
+    assert TT.is_eq(len(shape_prefixes), 2,
+                    f"Two distinct collision shapes (got prefixes: {shape_prefixes})")
+
+    # Collect vertex indices used by Section_0 faces only
+    section0_idx = {i for face, g in faces if g == "Section_0" for i in face}
+
+    sf = HAVOC_SCALE_FACTOR * game_collision_sf["FO4"]
+    sec0_verts = [verts[i] for i in section0_idx]
+    phys_xs = [v[0] * sf for v in sec0_verts]
+    phys_ys = [v[1] * sf for v in sec0_verts]
+    phys_zs = [v[2] * sf for v in sec0_verts]
+
+    # Transform mesh shape verts to world space
+    shape = nif.shape_dict["CapsuleExtStairsFree01:1"]
+    xf = shape.global_transform
+    rot = xf.rotation
+    sc = xf.scale
+    t = xf.translation
+
+    world_verts = []
+    for v in shape.verts:
+        x, y, z = v
+        rx = rot[0][0]*x + rot[0][1]*y + rot[0][2]*z
+        ry = rot[1][0]*x + rot[1][1]*y + rot[1][2]*z
+        rz = rot[2][0]*x + rot[2][1]*y + rot[2][2]*z
+        world_verts.append((rx*sc + t[0], ry*sc + t[1], rz*sc + t[2]))
+
+    mesh_xs = [v[0] for v in world_verts]
+    mesh_ys = [v[1] for v in world_verts]
+    mesh_zs = [v[2] for v in world_verts]
+
+    # Section_0 collision bounds should be close to the BSTriShape bounds (inset ~1.4 NIF units)
+    assert TT.is_equiv(min(phys_xs), min(mesh_xs), "Min X Section_0 close to mesh", e=2.0)
+    assert TT.is_equiv(max(phys_xs), max(mesh_xs), "Max X Section_0 close to mesh", e=2.0)
+    assert TT.is_equiv(min(phys_ys), min(mesh_ys), "Min Y Section_0 close to mesh", e=2.0)
+    assert TT.is_equiv(max(phys_ys), max(mesh_ys), "Max Y Section_0 close to mesh", e=2.0)
+    assert TT.is_equiv(min(phys_zs), min(mesh_zs), "Min Z Section_0 close to mesh", e=2.0)
+    assert TT.is_equiv(max(phys_zs), max(mesh_zs), "Max Z Section_0 close to mesh", e=2.0)
+
+    # StairHelper03 has its own collision; its Section_0 should match the same BSTriShape
+    stair_node = nif.nodes["StairHelper03"]
+    stair_c = stair_node.collision_object
+    assert TT.is_eq(stair_c.blockname, "bhkNPCollisionObject",
+                    "StairHelper03 collision is bhkNPCollisionObject")
+    stair_verts, stair_faces = stair_c.physics_system.geometry
+    stair_idx = {i for face, g in stair_faces if g == "Section_0" for i in face}
+    stair_sec0 = [stair_verts[i] for i in stair_idx]
+    sv_xs = [v[0] * sf for v in stair_sec0]
+    sv_ys = [v[1] * sf for v in stair_sec0]
+    sv_zs = [v[2] * sf for v in stair_sec0]
+    assert TT.is_equiv(min(sv_xs), min(mesh_xs), "StairHelper03 Min X close to mesh", e=2.0)
+    assert TT.is_equiv(max(sv_xs), max(mesh_xs), "StairHelper03 Max X close to mesh", e=2.0)
+    assert TT.is_equiv(min(sv_ys), min(mesh_ys), "StairHelper03 Min Y close to mesh", e=2.0)
+    assert TT.is_equiv(max(sv_ys), max(mesh_ys), "StairHelper03 Max Y close to mesh", e=2.0)
+    assert TT.is_equiv(min(sv_zs), min(mesh_zs), "StairHelper03 Min Z close to mesh", e=2.0)
+    assert TT.is_equiv(max(sv_zs), max(mesh_zs), "StairHelper03 Max Z close to mesh", e=2.0)
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_PHYSICS_PACK_BOX():
+    """bhk_autopack.pack_convex_polytope round-trips a synthetic unit box."""
+    from pyn.bhk_autopack import pack_convex_polytope
+    from pyn.bhk_autounpack import parse_bytes
+
+    box_verts = [
+        (-0.5, -0.5, -0.5), ( 0.5, -0.5, -0.5),
+        ( 0.5,  0.5, -0.5), (-0.5,  0.5, -0.5),
+        (-0.5, -0.5,  0.5), ( 0.5, -0.5,  0.5),
+        ( 0.5,  0.5,  0.5), (-0.5,  0.5,  0.5),
+    ]
+    box_faces = [
+        [0, 3, 2, 1], [4, 5, 6, 7],
+        [0, 1, 5, 4], [2, 3, 7, 6],
+        [0, 4, 7, 3], [1, 2, 6, 5],
+    ]
+    box_data = pack_convex_polytope(box_verts, box_faces)
+    assert TT.is_gt(len(box_data), 0, "pack_convex_polytope produces non-empty bytes")
+
+    dec_verts, dec_faces = parse_bytes(box_data)
+    assert TT.is_eq(len(dec_verts), len(box_verts), "Box round-trip: vertex count")
+    assert TT.is_eq(len(dec_faces), len(box_faces), "Box round-trip: face count")
+
+    max_err = max(max(abs(v[i] - d[i]) for i in range(3))
+                  for v, d in zip(box_verts, dec_verts))
+    assert TT.is_lt(max_err, 1e-5, f"Box round-trip: max vertex error {max_err:.2e}")
+
 
 
 ###################### Test execution framework #########################

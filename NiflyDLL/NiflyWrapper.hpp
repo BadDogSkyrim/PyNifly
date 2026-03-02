@@ -86,6 +86,9 @@ extern "C" NIFLY_API int getPartitions(void* nifref, void* shaperef, uint16_t* p
 extern "C" NIFLY_API int getPartitionTris(void* nifref, void* shaperef, uint16_t* tris, int triLen);
 extern "C" NIFLY_API void setPartitions(void* nifref, void* shaperef, uint16_t * partData, int partDataLen, uint16_t * tris, int triLen);
 extern "C" NIFLY_API void setSegments(void* nifref, void* shaperef, uint16_t * segData, int segDataLen, uint32_t * subsegData, int subsegDataLen, uint16_t * tris, int triLen, const char* filename);
+extern "C" NIFLY_API int getPhysicsSystemDataLen(void* nifref, int blockID);
+extern "C" NIFLY_API int getPhysicsSystemData(void* nifref, int blockID, char* buf, int buflen);
+extern "C" NIFLY_API int setPhysicsSystemData(void* nifref, int blockID, const char* buf, int buflen);
 extern "C" NIFLY_API int getColorsForShape(void* nifref, void* shaperef, nifly::Color4* colors, int colorLen);
 extern "C" NIFLY_API void setColorsForShape(void* nifref, void* shaperef, nifly::Color4* colors, int colorLen);
 extern "C" NIFLY_API int getClothExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen);

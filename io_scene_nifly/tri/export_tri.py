@@ -442,27 +442,7 @@ class TriFile():
        
         self.header.signature = VERSION_STRING
 
-        ### NOT WORKING because I have to pass in loops ###
-        #Mapping for re-order of verts to  match a 'sequential face list' index = vertex index, value = index to remap to
-        #verts_reorder_mapping will be referenced everwhere in the script, just that only if re-rdering is selcted is the mapping not v#:v#
-        if False: # self.reorder_verts:
-            # verts_reorder_mapping = [-1] * len(self._vertices)
-            # current_v_position = 0
-            # for f_index, f in enumerate(self._faces):
-            #     #f_vert is the 1st, 2nd, or 3rd index of the face
-            #     for f_vert, loop_index in enumerate(f.loop_indices):
-            #         if f_vert > 2:
-            #             self.write_error(f"Error exporting tris from {ob.name}: Mesh has faces with more than 3 verts")
-            #             raise ValueError("Error creating tri file")
-
-            #         vert_idx = mesh.loops[loop_index].vertex_index
-            #         #if this vertex has not already been remapped, remap it
-            #         if verts_reorder_mapping[vert_idx] == -1:
-            #             verts_reorder_mapping[vert_idx] = current_v_position
-            #             current_v_position = current_v_position + 1
-            pass
-        else:
-            verts_reorder_mapping = range(len(self._vertices)) # [v_idx for v_idx, v in enumerate(verts)]
+        verts_reorder_mapping = range(len(self._vertices)) # [v_idx for v_idx, v in enumerate(verts)]
 
         #Not a good idea to pack long strings repeatedly
         modHeaderArrayToPack = []

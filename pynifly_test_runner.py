@@ -6,16 +6,15 @@ import logging
 # Load from install location
 py_addon_path = Path(__file__).parent
 if py_addon_path not in sys.path:
-    sys.path.append(str(py_addon_path))
+    sys.path.append(str(py_addon_path / "io_scene_nifly"))
 dev_path = py_addon_path / "NiflyDLL" / "x64" / "debug" / "NiflyDLL.dll"
 hkxcmd_path = py_addon_path / "hkxcmd.exe"
 
 # Set working directory to tests folder
 os.chdir(py_addon_path / "tests")
 
-from io_scene_nifly.pyn import xmltools
+from pyn import xmltools
 xmltools.XMLFile.SetPath(hkxcmd_path)
-from io_scene_nifly.pyn.pynifly import NifFile
 from tests.pynifly_tests import *
 
 # Library is automatically loaded when pynifly is imported
@@ -26,13 +25,12 @@ logging.basicConfig()
 mylog.setLevel(logging.DEBUG)
 
 
-
 # ############## TESTS TO RUN #############
 execute(
-    # testlist=[TEST_FURNITURE_MARKER],
+    testlist=[TEST_FO4_PHYSICS_SYSTEM],
     stop_on_fail=True,
     )
-# execute()
+execute()
 # execute(start=TEST_KF)
 # execute(categories={"SHADER"})
 #

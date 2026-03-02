@@ -437,7 +437,8 @@ class NifExporter:
                 self.add_object(c)
 
         elif obj.type == 'MESH':
-            if not obj.name.startswith("BSBound:"):
+            if not obj.name.startswith("BSBound:") \
+                    and obj.get('pynRigidBody') != 'bhkPhysicsSystem':
                 # Export the mesh, but use its parent and use any armature modifiers
                 self.objects.append(obj)
                 for mod in obj.modifiers:
@@ -654,12 +655,6 @@ class NifExporter:
                               max(v.co.y for v in self.bound.data.vertices),
                               max(v.co.z for v in self.bound.data.vertices)),
                 parent=self.nif.rootNode)
-            # self.nif.rootNode.bounds_extra = [
-            #     BD.nonunique_name(self.bound.name.split(":",1)[1]),
-            #     self.bound.location,
-            #     (max(v.co.x for v in self.bound.data.vertices),
-            #      max(v.co.y for v in self.bound.data.vertices),
-            #      max(v.co.z for v in self.bound.data.vertices)),]
             self.objs_written.add(ReprObject(self.bound, bnd)) 
 
 

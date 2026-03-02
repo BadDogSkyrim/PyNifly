@@ -25,10 +25,12 @@ else:
 if str(root_path) not in sys.path:
     sys.path.insert(0, str(root_path))
 
-from io_scene_nifly.pyn.pynifly import NifFile
-from io_scene_nifly.pyn.nifdefs import NODEID_NONE, CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, \
-    NiKeyType, CycleType, ShaderFlags1, ShaderFlags2, BSLSPShaderType, VertexFlags, NiAVFlags
-from io_scene_nifly.pyn.niflytools import NearEqual, VNearEqual, MatNearEqual
+from pyn.pynifly import NifFile
+from pyn.nifdefs import (
+    NODEID_NONE, CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, 
+    NiKeyType, CycleType, ShaderFlags1, ShaderFlags2, BSLSPShaderType,)
+from pyn.nifconstants import VertexFlags
+
 from . import test_tools as TT
 
 
@@ -377,15 +379,15 @@ def Check_eye(nif:NifFile):
 
 def Check_childhead(nif:NifFile):
     head = nif.shape_dict['ChildHead']
-    TT.assert_eq(head.blockname, "BSDynamicTriShape", "shader type") # has tri morphs
-    TT.assert_eq(head.shader.blockname, "BSLightingShaderProperty", "shader type")
-    TT.assert_eq(head.shader.properties.Shader_Type, BSLSPShaderType.Face_Tint, "shader type")
-    TT.assert_eq(head.shader.flag_vertex_alpha, False, "vertex alpha flag")
-    TT.assert_eq(head.shader.flag_model_space_normals, False, "model space normals flag")
-    TT.assert_eq(head.shader.properties.Glossiness, 80, "glossiness")
-    TT.assert_equiv(head.shader.properties.Spec_Color, [1.0, 1.0, 1.0], "spec color", e=0.01)
-    TT.assert_patheq(head.shader.textures['Diffuse'], r"textures\actors\character\malechild\HeadHuman.dds", "Diffuse texture")
-    TT.assert_patheq(head.shader.textures['Normal'], r"textures\actors\character\malechild\HeadHuman_n.dds", "Normal texture")
+    assert TT.is_eq(head.blockname, "BSDynamicTriShape", "shader type") # has tri morphs
+    assert TT.is_eq(head.shader.blockname, "BSLightingShaderProperty", "shader type")
+    assert TT.is_eq(head.shader.properties.Shader_Type, BSLSPShaderType.Face_Tint, "shader type")
+    assert TT.is_eq(head.shader.flag_vertex_alpha, False, "vertex alpha flag")
+    assert TT.is_eq(head.shader.flag_model_space_normals, False, "model space normals flag")
+    assert TT.is_eq(head.shader.properties.Glossiness, 80, "glossiness")
+    assert TT.is_equiv(head.shader.properties.Spec_Color, [1.0, 1.0, 1.0], "spec color", e=0.01)
+    assert TT.is_patheq(head.shader.textures['Diffuse'], r"textures\actors\character\malechild\HeadHuman.dds", "Diffuse texture")
+    assert TT.is_patheq(head.shader.textures['Normal'], r"textures\actors\character\malechild\HeadHuman_n.dds", "Normal texture")
 
 
 def Check_kalaar(nif:NifFile):

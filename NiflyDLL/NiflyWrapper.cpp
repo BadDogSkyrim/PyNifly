@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 24, 0, 0 };
+const int NiflyDDLVersion[3] = { 25, 0, 0 };
  
 using namespace nifly; 
 
@@ -2185,6 +2185,182 @@ NIFLY_API void setSegments(void* nifref, void* shaperef,
     }
 }
 
+NIFLY_API int getPhysicsSystemDataLen(void* nifref, int blockID)
+/* Return the length of binary data in a bhkPhysicsSystem block.
+   Returns 0 if block not found or has no data.
+*/
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    bhkPhysicsSystem* physSys = hdr.GetBlock<bhkPhysicsSystem>(blockID);
+
+    if (!physSys) {
+        niflydll::LogWrite("getPhysicsSystemDataLen: Block not found or wrong type");
+        return 0;
+    }
+
+    return int(physSys->data.size());
+}
+
+NIFLY_API int getPhysicsSystemData(void* nifref, int blockID, char* buf, int buflen)
+/* Copy binary data from a bhkPhysicsSystem block into the provided buffer.
+   blockID = block index of the bhkPhysicsSystem
+   buf = buffer to receive the data
+   buflen = size of buffer in bytes
+   Returns number of bytes copied, or 0 if block not found
+*/
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    bhkPhysicsSystem* physSys = hdr.GetBlock<bhkPhysicsSystem>(blockID);
+
+    if (!physSys) {
+        niflydll::LogWrite("getPhysicsSystemData: Block not found or wrong type");
+        return 0;
+    }
+
+    if (!buf || buflen <= 0) {
+        return 0;
+    }
+
+    uint32_t copySize = std::min(static_cast<uint32_t>(buflen), static_cast<uint32_t>(physSys->data.size()));
+    if (copySize > 0) {
+        memcpy(buf, physSys->data.data(), copySize);
+    }
+
+    return int(copySize);
+}
+
+NIFLY_API int setPhysicsSystemData(void* nifref, int blockID, const char* buf, int buflen) {
+    /* Set binary data in a bhkPhysicsSystem block.
+       blockID = block index of the bhkPhysicsSystem
+       buf = buffer containing the data
+       buflen = size of buffer in bytes
+       Returns number of bytes set, or 0 if block not found or error
+    */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkPhysicsSystem* physSys = hdr->GetBlock<bhkPhysicsSystem>(blockID);
+
+    if (!physSys) {
+        niflydll::LogWrite("setPhysicsSystemData: Block not found or wrong type");
+        return 0;
+    }
+
+    if (!buf || buflen <= 0) {
+        niflydll::LogWrite("setPhysicsSystemData: Invalid buffer or size");
+        return 0;
+    }
+
+    try {
+        physSys->data.clear();
+        physSys->data.resize(buflen);
+        memcpy(physSys->data.data(), buf, buflen);
+        return buflen;
+    }
+    catch (const std::exception& e) {
+        niflydll::LogWriteEf("setPhysicsSystemData: Exception - %s", e.what());
+        return 0;
+    }
+}
+int setbhkNPCollisionObject(void* nifref, uint32_t blockID, void* buffer) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkNPCollisionObjectBuf* buf = static_cast<bhkNPCollisionObjectBuf*>(buffer);
+    bhkNPCollisionObject* co = hdr->GetBlock<bhkNPCollisionObject>(blockID);
+
+    CheckID(co);
+    CheckBuf(buf, BUFFER_TYPES::bhkNPCollisionObjectBufType, bhkNPCollisionObjectBuf);
+
+    co->targetRef.index = buf->targetID;
+    co->flags = buf->flags;
+    co->bodyRef.index = buf->dataID;  // In bhkNPCollisionObject, bodyRef points to bhkPhysicsSystem
+
+    return 0;
+}
+
+int addbhkNPCollisionObject(void* nifref, const char* name, void* buffer, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkNPCollisionObjectBuf* buf = static_cast<bhkNPCollisionObjectBuf*>(buffer);
+    uint32_t targetIndex = NIF_NPOS;
+
+    CheckBuf(buf, BUFFER_TYPES::bhkNPCollisionObjectBufType, bhkNPCollisionObjectBuf);
+
+    if (parent != NIF_NPOS) {
+        targetIndex = parent;
+    }
+    else if (buf->targetID != NIF_NPOS) {
+        targetIndex = buf->targetID;
+    }
+    else {
+        targetIndex = 0;
+    }
+
+    auto c = std::make_unique<bhkNPCollisionObject>();
+    c->targetRef.index = targetIndex;
+    c->flags = buf->flags;
+    c->bodyRef.index = buf->dataID;
+
+    uint32_t newid = hdr->AddBlock(std::move(c));
+
+    if (targetIndex != NIF_NPOS) {
+        NiNode* theTarget = hdr->GetBlock<NiNode>(targetIndex);
+        if (theTarget) theTarget->collisionRef.index = newid;
+    }
+
+    return newid;
+}
+
+int getbhkPhysicsSystem(void* nifref, uint32_t blockID, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkPhysicsSystemBuf* buf = static_cast<bhkPhysicsSystemBuf*>(inbuf);
+    bhkPhysicsSystem* ps = hdr->GetBlock<bhkPhysicsSystem>(blockID);
+
+    CheckID(ps);
+    CheckBuf(buf, BUFFER_TYPES::bhkPhysicsSystemBufType, bhkPhysicsSystemBuf);
+
+    buf->dataSize = ps->data.size();
+
+    return 0;
+}
+
+int setbhkPhysicsSystem(void* nifref, uint32_t blockID, void* buffer) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkPhysicsSystemBuf* buf = static_cast<bhkPhysicsSystemBuf*>(buffer);
+    bhkPhysicsSystem* ps = hdr->GetBlock<bhkPhysicsSystem>(blockID);
+
+    CheckID(ps);
+    CheckBuf(buf, BUFFER_TYPES::bhkPhysicsSystemBufType, bhkPhysicsSystemBuf);
+
+    // Note: The actual binary data would be set separately using 
+    // setPhysicsSystemData, not through this buffer
+
+    return 0;
+}
+
+int addbhkPhysicsSystem(void* nifref, const char* name, void* buffer, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkPhysicsSystemBuf* buf = static_cast<bhkPhysicsSystemBuf*>(buffer);
+
+    CheckBuf(buf, BUFFER_TYPES::bhkPhysicsSystemBufType, bhkPhysicsSystemBuf);
+
+    auto ps = std::make_unique<bhkPhysicsSystem>(buf->dataSize);
+
+    uint32_t newid = hdr->AddBlock(std::move(ps));
+
+    if (parent != NIF_NPOS) {
+        bhkNPCollisionObject* co = hdr->GetBlock<bhkNPCollisionObject>(parent);
+        if (co) co->bodyRef.index = newid;
+    }
+
+    return newid;
+}
+
+
 /* ************************ VERTEX COLORS AND ALPHA ********************* */
 
 NIFLY_API int getColorsForShape(void* nifref, void* shaperef, Color4* colors, int colorLen) {
@@ -3352,6 +3528,26 @@ int getRigidBodyProps(void* nifref, uint32_t nodeIndex, void* inbuf)
     return 0;
 }
 
+int getbhkNPCollisionObject(void* nifref, uint32_t blockID, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    bhkNPCollisionObjectBuf* coBuf = static_cast<bhkNPCollisionObjectBuf*>(inbuf);
+    bhkNPCollisionObject* node = hdr->GetBlock<bhkNPCollisionObject>(blockID);
+
+    CheckID(node);
+
+    if (coBuf->bufSize < sizeof(bhkNPCollisionObjectBuf)) {
+        niflydll::LogWrite("ERROR: bhkNPCollisionObjectBuf buffer wrong size.");
+        return 2;
+    }
+
+    coBuf->targetID = node->targetRef.index;
+    coBuf->flags = node->flags;
+    coBuf->dataID = node->bodyRef.index;  // In bhkNPCollisionObject, bodyRef actually points to bhkPhysicsSystem data
+
+    return 0;
+}
+
 int getSimpleShapePhantom(void* nifref, uint32_t nodeIndex, void* inbuf)
 /*
     Return the rigid body details. Return value = 1 if the node is a rigid body, 0 if not
@@ -3380,7 +3576,6 @@ int getSimpleShapePhantom(void* nifref, uint32_t nodeIndex, void* inbuf)
 
     return 0;
 }
-
 
 
 NIFLY_API int getRigidBodyConstraints(void* nifref, uint32_t nodeIndex, uint32_t* idList, int buflen)
@@ -5467,6 +5662,8 @@ BlockGetterFunction getterFunctions[] = {
     getNiStringExtraData,
     nullptr, // BSClothExtraDataBufType
     getBSFurnitureMarkerNode,
+    getbhkNPCollisionObject,
+    getbhkPhysicsSystem,
     nullptr //END
 };
 
@@ -5556,6 +5753,8 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //NiStringExtraData
     nullptr, //BSClothExtraDataBufType
     nullptr, //BSFurnitureMarkerNodeBufType
+    setbhkNPCollisionObject,
+    setbhkPhysicsSystem,
     nullptr //END
 };
 
@@ -5644,6 +5843,8 @@ BlockCreatorFunction creatorFunctions[] = {
     addNiStringExtraData,
     nullptr, //BSClothExtraDataBufType
     addBSFurnitureMarkerNode,
+    addbhkNPCollisionObject,
+    addbhkPhysicsSystem,
     nullptr //end
 };
 

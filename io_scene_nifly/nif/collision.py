@@ -2,9 +2,13 @@
 
 # Copyright © 2024, Bad Dog.
 
+import math
 import bpy
 import bmesh
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
+from ..pyn.nifconstants import (
+    HAVOC_SCALE_FACTOR, game_collision_sf, SkyrimCollisionLayer, SkyrimHavokMaterial,
+    bhkCOFlags)
 from ..blender_defs import (MatrixLocRotScale, ObjectSelect, transform_to_matrix, 
                             find_box_info, append_if_new, MatrixLocRotScale)
 from ..util.reprobj import ReprObject
@@ -21,6 +25,7 @@ COLLISION_BODY_IGNORE = [
     'mass',
     'rotation', 
     'translation', 
+    'transform', # on bhkSimpleShapePhantom
     'unused2_1', 
     'unused2_2', 
     'unused2_3', 
@@ -177,6 +182,10 @@ class CollisionHandler():
         self.nif = parent_handler.nif
         self.objs_written = None
         self.logger = logging.getLogger("pynifly")
+        # Shared cache so the same bhkPhysicsSystem block is only imported once
+        if not hasattr(parent_handler, '_physics_system_cache'):
+            parent_handler._physics_system_cache = {}
+        self._physics_system_cache = parent_handler._physics_system_cache
     
 
     def warn(self, msg):
@@ -363,6 +372,57 @@ class CollisionHandler():
         return obj
 
 
+    def import_bhkNPCollisionObject(self, c, parentxf: Matrix):
+        """Import FO4 native-physics collision from bhkPhysicsSystem binary data.
+
+        Reads the raw Havok packfile bytes from the bhkPhysicsSystem block,
+        decodes them into triangle geometry, and creates a Blender mesh.
+        Returns None silently if the DLL functions are not yet available.
+        """
+        from ..pyn.bhk_autounpack import parse_bytes
+
+        ps = c.physics_system
+        if ps is None:
+            return None
+
+        # Return the existing Blender object if this physics system block was
+        # already imported (multiple collision objects may share one block).
+        if ps.id in self._physics_system_cache:
+            return self._physics_system_cache[ps.id]
+
+        raw = ps.data
+        if not raw:
+            return None  # DLL not updated yet or block has no data; skip silently
+
+        try:
+            verts, faces = parse_bytes(raw)
+        except RuntimeError as e:
+            self.warn(f"bhkPhysicsSystem decode failed: {e}") 
+            return None
+
+        sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
+        scaled_verts = [[x * sf, y * sf, z * sf] for x, y, z in verts]
+        tri_faces = [face for face, _ in faces]
+
+        m = bpy.data.meshes.new("bhkPhysicsSystem")
+        m.from_pydata(scaled_verts, [], tri_faces)
+        m.update()
+
+        obj = bpy.data.objects.new("bhkPhysicsSystem", m)
+        obj.matrix_world = parentxf.copy()
+        self.collection.objects.link(obj)
+
+        ObjectSelect([obj])
+        bpy.ops.rigidbody.object_add(type='PASSIVE')
+        obj.rigid_body.collision_shape = 'MESH'
+        obj.color = COLLISION_COLOR
+        obj.display_type = 'WIRE'
+        obj['pynRigidBody'] = 'bhkPhysicsSystem'
+        self._physics_system_cache[ps.id] = obj
+
+        return obj
+
+
     collision_shape_importers = {
         "bhkBoxShape": import_bhkBoxShape,
         "bhkConvexVerticesShape": import_bhkConvexVerticesShape,
@@ -414,7 +474,9 @@ class CollisionHandler():
         bpy.ops.object.transform_apply()
         sh.matrix_world = targetxf.copy()
 
-        p = cb.shape.properties
+        # We don't have a separate Blender object for rigid body properties, so store them
+        # on the shape.
+        p = cb.properties
         p.extract(sh, ignore=COLLISION_BODY_IGNORE)
         if not cb.blockname.startswith('bhkRigidBody'):
             # Shape's parent wasn't a rigidbody. Remember what it was for export.
@@ -458,24 +520,32 @@ class CollisionHandler():
         importer.collection = parent_handler.collection
 
         bpy.ops.object.mode_set(mode='OBJECT')
-        if c.blockname not in ["bhkCollisionObject", 
-                           "bhkSPCollisionObject", 
-                           "bhkNPCollisionObject", 
+        if c.blockname not in ["bhkCollisionObject",
+                           "bhkSPCollisionObject",
+                           "bhkNPCollisionObject",
                            "bhkPCollisionObject",
                            "bhkBlendCollisionObject"]:
             importer.warn(f"Found an unknown type of collision: {c.blockname}")
             return None
-        if not c.body: return None
 
         if bone:
             xf = importer.import_xf @ transform_to_matrix(bone.global_transform)
         else:
             xf = parentObj.matrix_world
 
-        sh = importer.import_collision_body(c.body, xf)
-        if not sh:
-            importer.warn(f"{parentObj.name} has unsupported collision shape")
-            return
+        if c.blockname == "bhkNPCollisionObject":
+            # Physics verts from parse_bytes are already in NIF world space (body
+            # transforms baked in), so only the global import transform applies —
+            # not the individual node's world matrix.
+            np_xf = importer.import_xf
+            sh = importer.import_bhkNPCollisionObject(c, np_xf)
+            if not sh: return None  # DLL not ready or no data; skip silently
+        else:
+            if not c.body: return None
+            sh = importer.import_collision_body(c.body, xf)
+            if not sh:
+                importer.warn(f"{parentObj.name} has unsupported collision shape")
+                return
         
         sh['pynCollisionFlags'] = bhkCOFlags(c.flags).fullname
 
@@ -491,7 +561,13 @@ class CollisionHandler():
             else:
                 constr = parentObj.constraints.new('COPY_TRANSFORMS')
                 constr.target = sh
-            constr.name = ('bhkCollisionConstraint')
+                # For bhkNPCollisionObject the physics mesh sits at world origin
+                # and is independent of the target node.  Keep the constraint so
+                # the exporter can discover the collision, but zero its influence
+                # so it does not pull parentObj to origin.
+                if c.blockname == "bhkNPCollisionObject":
+                    constr.influence = 0.0
+            constr.name = 'bhkCollisionConstraint'
 
         return sh
     
@@ -576,7 +652,7 @@ class CollisionHandler():
         Export a convex vertices shape that wraps around whatever the import shape
         is.
         """
-        p = bhkConvexVerticesShapeProps(s)
+        p = bhkConvexVerticesShapeProps(s, game=self.game)
         bm = bmesh.new()
         bm.from_mesh(s.data)
         bmesh.ops.convex_hull(bm, input=bm.verts, use_existing_faces=True)
@@ -796,15 +872,27 @@ class CollisionHandler():
         else:
             targnode = self.nif.nodes[targobj.name]
 
+        if coll.get('pynRigidBody') == 'bhkPhysicsSystem':
+            sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game]
+            world_mat = self.export_xf @ coll.matrix_world
+            verts = [(*(world_mat @ v.co / sf),) for v in coll.data.vertices]
+            faces = [list(p.vertices) for p in coll.data.polygons]
+            coll_node = targnode.add_collision(
+                None, flags=flags or 0,
+                collision_type=PynBufferTypes.bhkNPCollisionObjectBufType)
+            bhkPhysicsSystem.New(self.nif, verts=verts, faces=faces, parent=coll_node)
+            self.objs_written.add(ReprObject(coll, targnode))
+            return
+
         colnode = targnode.add_collision(
             None, flags=flags,
             collision_type=PynBufferTypes.bhkSPCollisionObjectBufType
-                if coll.get('pynRigidBody') == 'bhkSimpleShapePhantom' 
+                if coll.get('pynRigidBody') == 'bhkSimpleShapePhantom'
                 else None)
         collpair = ReprObject(coll, colnode)
         self.objs_written.add(collpair)
 
-        body = self.export_collision_body(targobj, collpair) 
+        body = self.export_collision_body(targobj, collpair)
 
 
     @classmethod
@@ -832,14 +920,4 @@ class CollisionHandler():
             for c in obj.constraints:
                 if c.type == 'COPY_TRANSFORMS' and c.target:
                     exporter.export_collision_object(targobj, c.target)
-
-        #     collisions = [x for x in obj.constraints if x.type == 'COPY_TRANSFORMS']
-        # if not collisions: return
-
-        # collshape = collisions[0].target
-        # if not collshape: return
-        # if parent_handler.objs_written.find_blend(collshape): return 
-
-        # exporter.export_collision_object(targobj, collshape)
-
 

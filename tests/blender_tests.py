@@ -13,9 +13,11 @@ import json
 import bpy
 from mathutils import Matrix, Vector, Quaternion, Euler
 import io_scene_nifly.pyn.niflytools as NT
-from io_scene_nifly.pyn.nifdefs import NiAVFlags, ShaderFlags2, bhkCOFlags, SkyrimCollisionLayer, \
-    SkyrimHavokMaterial, PynBufferTypes, CycleType, hkResponseType, HSF, \
-    BroadPhaseType, hkMotionType, hkSolverDeactivation, hkQualityType, HAVOC_SCALE_FACTOR
+from io_scene_nifly.pyn.nifdefs import PynBufferTypes
+from io_scene_nifly.pyn.nifconstants import (
+    NiAVFlags, ShaderFlags2, bhkCOFlags, SkyrimCollisionLayer, SkyrimHavokMaterial, 
+    CycleType, hkResponseType, BroadPhaseType, hkMotionType, 
+    hkSolverDeactivation, hkQualityType, HAVOC_SCALE_FACTOR)
 import io_scene_nifly.pyn.pynifly as pyn
 import xml.etree.ElementTree as xml
 import io_scene_nifly.blender_defs as BD
@@ -304,7 +306,12 @@ def TEST_SKIN_BONE_XFORM():
     assert NT.NearEqual(sk2b_spine.translation[2], 29.419632), f"Have correct z: {sk2b_spine.translation[2]}"
 
 
-def do_bodypart_alignment_fo4(create_bones, estimate_offset, use_pose):
+@TT.category('FO4', 'BODYPART', 'XFORM')
+@TT.expect_errors(("bhkPhysicsSystem decode failed", 
+                   "Unknown block type: bhkRagdollSystem",))
+@TT.parameterize(("create_bones",   "estimate_offset",  "use_pose",), 
+                 [(False,           True,               True),])
+def TEST_BODYPART_ALIGNMENT_FO4_1(create_bones, estimate_offset, use_pose):
     """Should be able to write bodyparts and have the transforms match exactly."""
     headfile = TTB.test_file(r"tests\FO4\Meshes\FoxFemaleHead.nif")
     skelfile = TTB.test_file(r"tests\FO4\skeleton.nif")
@@ -373,24 +380,14 @@ def do_bodypart_alignment_fo4(create_bones, estimate_offset, use_pose):
             "skin to bone translations"
 
 
-@TT.category('FO4', 'BODYPART', 'XFORM')
-@TT.expect_errors(("Unknown block type: bhkRagdollSystem",
-                   "Unknown block type: bhkPhysicsSystem",))
-def TEST_BODYPART_ALIGNMENT_FO4_1():
-    """Read & write bodyparts and have the transforms match exactly, when estimating global-to-skin offset."""
-    do_bodypart_alignment_fo4(create_bones=False, 
-                              estimate_offset=True, 
-                              use_pose=True)
-
-
 @TT.category('SKYRIM', 'BODYPART')
-@TT.parameterize(("game", "blendxf", "pretty"), 
-                 [('SKYRIMSE', "NATURAL", "NIF"),
-                  ('SKYRIM', "NATURAL", "NIF"),
-                  ('SKYRIM', "BLENDER", "NIF"),
-                  ('SKYRIMSE', "BLENDER", "NIF"),
-                  ('SKYRIMSE', "NATURAL", "PRETTY"),
-                  ('SKYRIMSE', "BLENDER", "PRETTY"),
+@TT.parameterize(("game",       "blendxf",  "pretty"), 
+                 [('SKYRIMSE',  "NATURAL",  "NIF"),
+                  ('SKYRIM',    "NATURAL",  "NIF"),
+                  ('SKYRIM',    "BLENDER",  "NIF"),
+                  ('SKYRIMSE',  "BLENDER",  "NIF"),
+                  ('SKYRIMSE',  "NATURAL",  "PRETTY"),
+                  ('SKYRIMSE',  "BLENDER",  "PRETTY"),
                   ])
 def TEST_IMP_EXP_SKY(game, blendxf, pretty):
     """Can read the armor nif and spit it back out"""
@@ -1237,8 +1234,8 @@ def TEST_3BBB():
 
 
 @TT.category('FO4', 'BODYPART', 'ARMATURE', 'CONNECTPOINT')
-@TT.expect_errors( ("Unknown block type: bhkRagdollSystem", 
-                    "Unknown block type: bhkPhysicsSystem") )
+@TT.expect_errors( ("Unknown block type: bhkRagdollSystem",
+                    "bhkPhysicsSystem decode failed: No geometry decoded") )
 @TT.parameterize(("xf", "bonerot"), [("NONE", "NONE"),
                                      ("BLENDER", "NONE"),
                                      ("NONE", "PRETTY"),
@@ -2284,7 +2281,6 @@ def TEST_SHADER_EYE():
 
 
 @TT.category('FO4', 'SHADER', 'ANIMATION')
-@TT.expect_errors(('Unknown block type: bhkPhysicsSystem',))
 def TEST_SHADER_LIGHTBULB():
     """Test that effect shader imports correctly."""
     testfile = TTB.test_file(r"tests\FO4\WorkshopLightbulbHanging01.nif")
@@ -2368,7 +2364,7 @@ def TEST_ANIM_SHADER_GLOW():
 
 
 @TT.category('ANIMATION', 'FO4')
-@TT.expect_errors(('Unknown block type: bhkPhysicsSystem',))
+@TT.expect_errors( ('bhkPhysicsSystem decode failed: No geometry decoded',) )
 def TEST_HIGHTECH_FLOORLIGHT():
     testfile = TTB.test_file(r"tests\FO4\Workshop_HighTechLightFloor05_On.nif")
     outfile = TTB.test_file(r"tests\Out\TEST_HIGHTECH_FLOORLIGHT.nif")
@@ -4144,7 +4140,6 @@ def TEST_INV_MARKER():
 
 
 @TT.category('FO4')
-@TT.expect_errors(('Unknown block type: bhkPhysicsSystem'))
 def TEST_TREE():
     """Can read and write FO4 tree"""
     # Trees in FO4 use a special root node and a special shape node.
@@ -4157,10 +4152,6 @@ def TEST_TREE():
     root = next(obj for obj in bpy.data.objects if 'pynRoot' in obj)
     assert root['pynBlockName'] == "BSLeafAnimNode", f"Have correct root type: {root['pynBlockName']}"
     
-    # We don't do collisions for FO4
-    assert len([obj for obj in bpy.data.objects if obj.name.startswith('bhk')]) == 0, \
-        f"Have no collision objects."
-
     tree = next(obj for obj in bpy.data.objects if obj.name.startswith("Tree") and obj.type == 'MESH')
     assert 'TREE_ANIM' in tree.active_material['Shader_Flags_2'], f"Have shader flags"
     assert tree['pynBlockName'] == "BSMeshLODTriShape", f"Have correct block type: {tree['pynBlockName']}"
@@ -5057,7 +5048,7 @@ def TEST_COLLISION_LIST(bx):
     collshape = root.constraints[0].target
     assert collshape.name.startswith('bhkListShape'), "Have list shape"
     yvals = set(round(obj.location.y, 1) for obj in collshape.children)
-    expectedy = set(map(lambda x: round(x*HSF, 1), [0.632, -0.19, 0.9]))
+    expectedy = set(map(lambda x: round(x*HAVOC_SCALE_FACTOR, 1), [0.632, -0.19, 0.9]))
     assert yvals == expectedy, f"Have expected y vals: {yvals} == {expectedy}"
 
     assert collshape.name.startswith("bhkListShape"), f"Found list collision shape: {collshape.name}"
@@ -5230,15 +5221,107 @@ def TEST_COLLISION_XFORM():
     capcts = listcheck.children[0] 
     capshape = capcts.child
     assert capshape.blockname == 'bhkCapsuleShape', f"Have the capsule"
-    capmaxy = (capcts.transform[1][3] + capshape.properties.point2[1]) * HSF
+    capmaxy = (capcts.transform[1][3] + capshape.properties.point2[1]) * HAVOC_SCALE_FACTOR
     assert BD.NearEqual(capmaxy, 67, epsilon=1.0), f"Capsule max y correct: {capmaxy}"
 
-    capminy = (capcts.transform[1][3] + capshape.properties.point1[1]) * HSF
+    capminy = (capcts.transform[1][3] + capshape.properties.point1[1]) * HAVOC_SCALE_FACTOR
     assert BD.NearEqual(capminy, -73.4, epsilon=1.0), f"Capsule min y correct: {capminy}"
 
 
+@TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_CAPSULE_STAIRS():
+    """FO4 bhkPhysicsSystem: both collision shapes overlap the visual mesh bounds"""
+    testfile = TTB.test_file(r"tests\FO4\CapsuleExtStairsFree01.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # root + StairHelper03 both reference the same bhkPhysicsSystem block;
+    # it should be imported exactly once.
+    physics_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    assert TT.is_eq(len(physics_shapes), 1, "Shared bhkPhysicsSystem imported exactly once")
+
+    # Get world-space bounds of the visual mesh
+    mesh_obj = bpy.data.objects["CapsuleExtStairsFree01:1"]
+    mxf = mesh_obj.matrix_world
+    mesh_xs = [(mxf @ v.co).x for v in mesh_obj.data.vertices]
+    mesh_ys = [(mxf @ v.co).y for v in mesh_obj.data.vertices]
+    mesh_zs = [(mxf @ v.co).z for v in mesh_obj.data.vertices]
+
+    for ps_obj in physics_shapes:
+        pxf = ps_obj.matrix_world
+        cxs = [(pxf @ v.co).x for v in ps_obj.data.vertices]
+        cys = [(pxf @ v.co).y for v in ps_obj.data.vertices]
+        czs = [(pxf @ v.co).z for v in ps_obj.data.vertices]
+        name = ps_obj.name
+        # Collision bbox must overlap mesh bbox on every axis (within 5 units)
+        assert TT.is_gt(max(cxs), min(mesh_xs) - 5, f"{name} X max overlaps mesh X min")
+        assert TT.is_lt(min(cxs), max(mesh_xs) + 5, f"{name} X min overlaps mesh X max")
+        assert TT.is_gt(max(cys), min(mesh_ys) - 5, f"{name} Y max overlaps mesh Y min")
+        assert TT.is_lt(min(cys), max(mesh_ys) + 5, f"{name} Y min overlaps mesh Y max")
+        assert TT.is_gt(max(czs), min(mesh_zs) - 5, f"{name} Z max overlaps mesh Z min")
+        assert TT.is_lt(min(czs), max(mesh_zs) + 5, f"{name} Z min overlaps mesh Z max")
+
+
+@TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_PHYSICS_SYSTEM():
+    """FO4 bhkNPCollisionObject: import, export from mesh geometry, reimport and verify"""
+    testfile = TTB.test_file(r"tests\FO4\InsFloorMat01.nif")
+    outfile  = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_PHYSICS_SYSTEM.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # The root node's bhkNPCollisionObject should produce a bhkPhysicsSystem mesh
+    physics_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    assert TT.is_gt(len(physics_shapes), 0, "bhkPhysicsSystem collision mesh was imported")
+
+    ps_obj = physics_shapes[0]
+    assert TT.is_eq(ps_obj.type, 'MESH', "Collision object is a mesh")
+    assert TT.is_gt(len(ps_obj.data.vertices), 0, "Collision mesh has vertices")
+    assert TT.is_gt(len(ps_obj.data.polygons), 0, "Collision mesh has polygons")
+    assert TT.is_eq(ps_obj.display_type, 'WIRE', "Collision mesh displayed as wire")
+    assert TT.is_eq(ps_obj['pynRigidBody'], 'bhkPhysicsSystem', "Collision mesh tagged as bhkPhysicsSystem")
+
+    orig_nvert = len(ps_obj.data.vertices)
+    orig_npoly = len(ps_obj.data.polygons)
+    orig_xs = [(ps_obj.matrix_world @ v.co).x for v in ps_obj.data.vertices]
+    orig_ys = [(ps_obj.matrix_world @ v.co).y for v in ps_obj.data.vertices]
+    orig_zs = [(ps_obj.matrix_world @ v.co).z for v in ps_obj.data.vertices]
+
+    assert TT.is_lt(min(orig_xs), 0, "Collision mesh extends past origin on negative x")
+    assert TT.is_gt(max(orig_xs), 0, "Collision mesh extends past origin on positive x")
+    height = max(orig_zs) - min(orig_zs)
+    assert TT.is_gt(height, 0.5, "Collision mesh height greater than 0.5")
+    assert TT.is_lt(height, 1.0, "Collision mesh height less than 1.0")
+
+    # Export everything; the exporter skips bhkPhysicsSystem objects as direct shapes
+    # and exports them only through the constraint on the root.
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    # Reimport and verify the bhkPhysicsSystem geometry survived the round-trip
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete()
+
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+
+    chk_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    assert TT.is_gt(len(chk_shapes), 0, "Exported nif has bhkPhysicsSystem collision mesh")
+
+    chk = chk_shapes[0]
+    assert TT.is_eq(len(chk.data.vertices), orig_nvert, "Vertex count preserved after export")
+    assert TT.is_eq(len(chk.data.polygons), orig_npoly, "Polygon count preserved after export")
+
+    chk_xs = [(chk.matrix_world @ v.co).x for v in chk.data.vertices]
+    chk_ys = [(chk.matrix_world @ v.co).y for v in chk.data.vertices]
+    chk_zs = [(chk.matrix_world @ v.co).z for v in chk.data.vertices]
+    assert TT.is_equiv(min(chk_xs), min(orig_xs), "X min preserved", e=0.1)
+    assert TT.is_equiv(max(chk_xs), max(orig_xs), "X max preserved", e=0.1)
+    assert TT.is_equiv(min(chk_ys), min(orig_ys), "Y min preserved", e=0.1)
+    assert TT.is_equiv(max(chk_ys), max(orig_ys), "Y max preserved", e=0.1)
+    assert TT.is_equiv(min(chk_zs), min(orig_zs), "Z min preserved", e=0.1)
+    assert TT.is_equiv(max(chk_zs), max(orig_zs), "Z max preserved", e=0.1)
+
+
 @TT.category('FO4', 'CONNECTPOINT')
-@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_CONNECT_POINT():
     """Connect points import/export correctly"""
     # FO4 has a complex method of attaching shapes to other shapes in game, using
@@ -5310,7 +5393,6 @@ def TEST_CONNECT_POINT():
 
 
 @TT.category('FO4', 'CONNECTPOINT')
-@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_CONNECT_POINT_MULT():
     """Regression: Blend file creates duplicate connect points."""
 
@@ -5353,7 +5435,6 @@ def TEST_CONNECT_POINT_MULT():
 
 
 @TT.category('FO4', 'CONNECTPOINT')
-@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_CONNECT_WEAPON_PART():
     """Selected connect points used to parent new import"""
     # When a connect point is selected and then another part is imported that connects
@@ -5405,7 +5486,6 @@ def TEST_CONNECT_WEAPON_PART():
     
 
 @TT.category('FO4', 'CONNECTPOINT')
-@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_CONNECT_IMPORT_MULT():
     """When multiple weapon parts are imported in one command, they are connected up"""
 
@@ -5414,7 +5494,8 @@ def TEST_CONNECT_IMPORT_MULT():
                  {"name": TTB.test_file(r"tests\FO4\Shotgun\Stock.nif")} ]
     bpy.ops.import_scene.pynifly(files=testfiles, rename_bones=False, create_bones=False)
 
-    meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
+    meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH'
+              and obj.get("pynRigidBody", "") != 'bhkPhysicsSystem']
     assert len(meshes) == 5, f"Have 5 meshes: {meshes}"
     barrelparent = [obj for obj in bpy.data.objects if obj.name == 'BSConnectPointParents::P-Barrel']
     assert len(barrelparent) == 1, f"Have barrel parent connect point {barrelparent}"
@@ -5425,7 +5506,6 @@ def TEST_CONNECT_IMPORT_MULT():
     
 
 @TT.category('FO4', 'CONNECTPOINT')
-@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_CONNECT_WORKSHOP():
     """Test meshes with many connect points, some with the same names."""
 
@@ -5455,7 +5535,6 @@ def TEST_CONNECT_WORKSHOP():
     
 
 @TT.category('FO4', 'CONNECTPOINT')
-@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_CONNECT_WORKSHOP2():
     """Connect point editor markers have smart handling."""
 
@@ -5505,7 +5584,6 @@ def TEST_CONNECT_WORKSHOP2():
     
 
 @TT.category('FO4', 'CONNECTPOINT')
-@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_WORKSHOP_DOOR_CONNECT_POINTS():
     """Workshop door connect points positioned correctly on export."""
     
@@ -5662,7 +5740,6 @@ def TEST_COMMONCHAIR():
 
 
 @TT.category('FO4', 'FURNITUREMARKER')
-@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_FO4_CHAIR():
     """Furniture markers are imported and exported"""
 
@@ -5702,7 +5779,6 @@ def TEST_FO4_CHAIR():
 
 
 @TT.category('FO4', 'ANIMATION')
-@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_PIPBOY():
     """
     Test pipboy import/export. Very complex node hierarchy. Animations on multiple nodes
@@ -5760,7 +5836,6 @@ def TEST_PIPBOY():
 
 
 @TT.category('FO4', 'ARMATURE')
-@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_BABY():
     """Non-human skeleton, lots of shapes under one armature."""
     # Can intuit structure if it's not in the file
@@ -5808,7 +5883,6 @@ def TEST_ROTSTATIC():
 
 
 @TT.category('FO4', 'XFORM')
-@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_ROTSTATIC2():
     """Test that statics are transformed according to the shape transform"""
 
@@ -5918,7 +5992,7 @@ def TEST_FACEBONES_RENAME():
     
 
 @TT.category('FO4', 'ANIMATION')
-@TT.expect_errors(("Target of controller not found", "Unknown block type: bhkPhysicsSystem",))
+@TT.expect_errors(("Target of controller not found",))
 def TEST_ANIM_ANIMATRON():
     """Can read a FO4 animatron nif"""
     # The animatrons are very complex and their pose and bind positions are different. The
@@ -5985,8 +6059,7 @@ def TEST_ANIM_ANIMATRON():
 
 
 @TT.category('FO4', 'ANIMATION')
-@TT.expect_errors(("Target of controller not found", "Unknown block type: bhkPhysicsSystem",
-                   "Unknown block type: NiBoolData",))
+@TT.expect_errors(("Target of controller not found", "Unknown block type: NiBoolData",))
 def TEST_ANIMATRON_2():
     """Can read the FO4 astronaut animatron nif"""
     # The animatrons are very complex and their pose and bind positions are different. The
@@ -6003,13 +6076,12 @@ def TEST_ANIMATRON_2():
  
 
 @TT.category('FO4', 'ARMATURE')
-@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_CUSTOM_BONES():
     """Can handle custom bones correctly"""
     # These nifs have bones that are not part of the vanilla skeleton.
 
-    testfile = TTB.test_file(r"tests\FO4\VulpineInariTailPhysics.nif")
-    testfile = TTB.test_file(r"tests\FO4\BrushTail_Male_Simple.nif")
+    testfile = TTB.test_file(r"tests\FO4\Meshes\VulpineInariTailPhysics.nif")
+    testfile = TTB.test_file(r"tests\FO4\Meshes\BrushTail_Male_Simple.nif")
     outfile = TTB.test_file(r"tests\Out\TEST_CUSTOM_BONES.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     nifimp = pyn.NifFile(testfile)
@@ -6025,7 +6097,6 @@ def TEST_CUSTOM_BONES():
         
 
 @TT.category('FO4', 'EXTRA_DATA')
-@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_COTH_DATA():
     """Can read and write cloth data"""
     # Cloth data is extra bones that are enabled by HDT-type physics. Since they aren't 
@@ -6546,7 +6617,6 @@ TEST_NOBLECHEST.category = {'ANIMATION'}
 
 
 @TT.category('FO4', 'ANIMATION')
-@TT.expect_errors(("Unknown block type: bhkPhysicsSystem",))
 def TEST_CIGARETTE():
     """Check we don't get extra objects in the object palette."""
     testfile = TTB.test_file(r"tests\FO4\CigaretteMachine.nif")
@@ -7157,6 +7227,7 @@ def TEST_HKX_2():
 
 
 @TT.category('SKYRIM', 'HKX')
+@TT.skip_test
 def TEST_AUXBONES():
     """Can import and export an animation on an auxbones skeleton."""
     # SKIPPING
@@ -7274,7 +7345,6 @@ def TEST_MISSING_MAT():
 
 
 @TT.category('FO4', 'SHADER')
-@TT.expect_errors('Unknown block type: bhkPhysicsSystem')
 def TEST_SCAFFOLD_FRAME():
     """We truncate long filepaths to relative paths."""
     testfile = TTB.test_file(r"tests\FO4\ScaffFrame1x2Str01.nif")
@@ -7438,7 +7508,6 @@ def TEST_COLLISION_PROPERTIES():
 
 
 @TT.category('FO4')
-@TT.expect_errors(("Unknown block type: bhkPhysicsSystem",))
 def TEST_DUP_NAMES():
     """Nifs with duplicate names import correctly."""
     testfile = TTB.test_file(r"tests\FO4\Meshes\TerminalOn.nif")
@@ -7453,7 +7522,8 @@ def TEST_DUP_NAMES():
     assert TT.is_eq(len([obj for obj in bpy.context.scene.objects 
                          if obj.name.startswith('ScreenType:0')]),
                     2, "ScreenType:0 count")
-    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects if obj.type == 'MESH']),
+    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects if obj.type == 'MESH'
+                         and obj.get('pynRigidBody', '') != 'bhkPhysicsSystem']),
                     7, "Mesh count")
     assert TT.is_eq(len(bpy.context.scene.objects['TerminalOn'].children), 3, 
                     "TerminaOn child count")
@@ -7657,9 +7727,18 @@ def execute_test(t, executed_tests, stop_on_fail=True):
             if t.__doc__: print (f"{t.__doc__}")
             TTB.clear_all()
 
+            if 'FO4' in t.__dict__.get("category", set()):
+                bpy.context.preferences.filepaths.texture_directory = TTB.PYNIFLY_TEXTURES_FO4
+            else:
+                bpy.context.preferences.filepaths.texture_directory = TTB.PYNIFLY_TEXTURES_SKYRIM
+
             test_loghandler.start(t.__dict__.get("expected_errors", None))
             if stop_on_fail:
-                t()
+                try:
+                    t()
+                except AssertionError:
+                    breakpoint()
+                    raise
                 test_loghandler.finish()
                 executed_tests[t.__name__] = 'PASS'
             else:
@@ -7667,6 +7746,9 @@ def execute_test(t, executed_tests, stop_on_fail=True):
                     t()
                     test_loghandler.finish()
                     executed_tests[t.__name__] = 'PASS'
+                except AssertionError:
+                    breakpoint()
+                    executed_tests[t.__name__] = 'FAIL'
                 except Exception as e:
                     log.exception(f"Test {t.__name__} failed with exception: {e}")
                     executed_tests[t.__name__] = 'FAIL'

@@ -1,3 +1,6 @@
 {
-    "cmake.sourceDirectory": "${workspaceFolder}/NiflyDLL"
+    "cmake.sourceDirectory": "${workspaceFolder}/NiflyDLL",
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/io_scene_nifly"
+    ]
 }

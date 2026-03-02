@@ -125,6 +125,19 @@ nifly.getBoneLODInfo.argtypes = [c_void_p, c_int, c_void_p, c_int]
 nifly.getBoneLODInfo.restype = c_int
 nifly.getClothExtraData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int, c_char_p, c_int]
 nifly.getClothExtraData.restype = c_int
+try:
+    nifly.getPhysicsSystemDataLen.argtypes = [c_void_p, c_int]
+    nifly.getPhysicsSystemDataLen.restype = c_int
+    nifly.getPhysicsSystemData.argtypes = [c_void_p, c_int, c_char_p, c_int]
+    nifly.getPhysicsSystemData.restype = c_int
+except AttributeError:
+    nifly.getPhysicsSystemDataLen = None
+    nifly.getPhysicsSystemData = None
+try:
+    nifly.setPhysicsSystemData.argtypes = [c_void_p, c_int, c_char_p, c_int]
+    nifly.setPhysicsSystemData.restype = c_int
+except AttributeError:
+    nifly.setPhysicsSystemData = None
 nifly.getClothExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
 nifly.getClothExtraDataLen.restype = c_int
 nifly.getCollListShapeChildren.argtypes = [c_void_p, c_int, c_void_p, c_int]

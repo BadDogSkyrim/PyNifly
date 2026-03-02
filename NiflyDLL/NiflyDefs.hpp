@@ -92,6 +92,8 @@ enum BUFFER_TYPES : uint16_t {
 	NiStringExtraDataBufType,
 	BSClothExtraDataBufType,
 	BSFurnitureMarkerNodeBufType,
+	bhkNPCollisionObjectBufType,
+	bhkPhysicsSystemBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -581,6 +583,20 @@ struct bhkSPCollisionObjectBuf {
 	uint16_t flags;
 	uint32_t bodyID;
 	uint16_t childCount;
+};
+
+struct bhkNPCollisionObjectBuf {
+	uint16_t bufSize = sizeof(bhkNPCollisionObjectBuf);
+	uint16_t bufType = BUFFER_TYPES::bhkNPCollisionObjectBufType;
+	uint32_t targetID;
+	uint16_t flags;
+	uint32_t dataID;     // ID of the bhkPhysicsSystem block
+}; 
+
+struct bhkPhysicsSystemBuf {
+	uint16_t bufSize = sizeof(bhkPhysicsSystemBuf);
+	uint16_t bufType = BUFFER_TYPES::bhkPhysicsSystemBufType;
+	uint32_t dataSize;
 };
 
 struct bhkRigidBodyBuf {

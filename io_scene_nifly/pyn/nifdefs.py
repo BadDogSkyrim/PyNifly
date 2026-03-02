@@ -4,1032 +4,20 @@
 """
 
 import sys
-from enum import Enum, IntFlag, IntEnum
-import math
-import logging
-from ctypes import * # c_void_p, c_int, c_bool, c_char_p, c_wchar_p, c_float, c_uint8, c_uint16, c_uint32, create_string_buffer, Structure, cdll, pointer, addressof
+from enum import IntEnum
+from ctypes import (Structure, POINTER, byref, c_byte, c_int, c_float, c_uint16, c_char, 
+                    c_uint8, c_uint32, c_uint64)
 from . import pynmathutils as PM
 from . import bgsmaterial
+from .pynmathutils import (CHAR256, VECTOR2, VECTOR3, VECTOR4, VECTOR12, MATRIX3, MATRIX4)
+from .structs import (pynStructure, TransformBuf)
+from .nifconstants import (
+    PynIntFlag, PynIntEnum, NODEID_NONE,
+    NiAVFlags, BSXFlagsValues, BSValueNodeFlags, VertexFlags, EffectShaderControlledVariable,
+    SkyrimCollisionLayer, BroadPhaseType, hkResponseType, hkMotionType, hkDeactivatorType,
+    hkSolverDeactivation, hkQualityType, ShaderFlags1, ShaderFlags2, ShaderFlags1FO4,
+    ShaderFlags2FO4, BSLSPShaderType, SkyrimHavokMaterial, AnimType, CycleType)
 
-
-def is_in_plane(plane, vert):
-    """ Test whether vert is in the plane defined by the three vectors in plane """
-    #find the plane's normal. p0, p1, and p2 are simply points on the plane (in world space)
- 
-    # Get vector normal to plane
-    v1 = PM.vecSub(plane[0], plane[1])
-    v2 = PM.vecSub(plane[2], plane[1])
-    normal = PM.vecCrossProduct(v1, v2)
-    normal = PM.vecNormalized(normal)
-
-    # Get vector from vertex to a point on the plane
-    t = PM.vecNormalized(PM.vecSub(vert, plane[0]))
-
-    # If the dot product is 0, point is on plane
-    dp = PM.vecDotProduct(normal, t)
-
-    return round(dp, 4) == 0.0
-
-
-def multiply_transforms(transform1, transform2):
-    """
-    Combine transform 1 with trnasform 2. Rotations are a 3x3 matrix.
-    """
-    # Extract location, rotation, and scale components from the input transforms
-    loc1, rot1, scale1 = transform1
-    loc2, rot2, scale2 = transform2
-    
-    # Compute the new location by applying rotation and scale to the first location
-    new_loc = [loc1[0] + (rot1[0][0] * scale1[0] * loc2[0]) + (rot1[0][1] * scale1[1] * loc2[1]) + (rot1[0][2] * scale1[2] * loc2[2]),
-               loc1[1] + (rot1[1][0] * scale1[0] * loc2[0]) + (rot1[1][1] * scale1[1] * loc2[1]) + (rot1[1][2] * scale1[2] * loc2[2]),
-               loc1[2] + (rot1[2][0] * scale1[0] * loc2[0]) + (rot1[2][1] * scale1[1] * loc2[1]) + (rot1[2][2] * scale1[2] * loc2[2])]
-    
-    # Compute the new rotation by multiplying rotation matrices
-    new_rot = [[0.0, 0.0, 0.0],
-               [0.0, 0.0, 0.0],
-               [0.0, 0.0, 0.0]]
-    
-    for i in range(3):
-        for j in range(3):
-            new_rot[i][j] = (rot1[i][0] * rot2[0][j]) + (rot1[i][1] * rot2[1][j]) + (rot1[i][2] * rot2[2][j])
-    
-    # Compute the new scale by element-wise multiplication
-    new_scale = [scale1[0] * scale2[0], scale1[1] * scale2[1], scale1[2] * scale2[2]]
-    
-    return new_loc, new_rot, new_scale
-
-
-# We do not actually support all these versions
-game_versions = ["FO3", "FONV", "SKYRIM", "FO4", "SKYRIMSE", "FO4VR", "SKYRIMVR", "FO76"]
-
-
-class PynIntFlag(IntFlag):
-    @property
-    def fullname(self):
-        s = []
-        for f in type(self):
-            if f in self:
-                s.append(f)
-        return " | ".join(list(map(lambda x: x.name, s)))
-
-    @classmethod
-    def parse(cls, value):
-        if len(value) == 0:
-            return 0
-        valuelist = value.split("|")
-        flags = 0
-        for v in valuelist:
-            have_val = False
-            try:
-                flags |= cls[v.strip()]
-                have_val = True
-            except:
-                pass
-            if not have_val:
-                flags |= int(v, 0)
-
-        return flags
-
-class PynIntEnum(IntEnum):
-    @classmethod
-    def GetName(cls, i):
-        try:
-            return cls(i).name
-        except:
-            return str(i)
-
-    @classmethod
-    def GetValue(cls, nm):
-        try:
-            return cls[nm].value
-        except:
-            return int(nm, 0)
-
-NODEID_NONE = 4294967295
-
-VECTOR2 = c_float * 2
-VECTOR3 = c_float * 3
-VECTOR4 = c_float * 4
-VECTOR6_SHORT = c_uint16 * 6
-VECTOR12 = c_float * 12
-MATRIX3 = VECTOR3 * 3
-MATRIX4 = VECTOR4 * 4
-CHAR256 = c_char * 256
-
-pynBufferDefaults = {
-	'broadPhaseType': 'ENTITY',
-	'collisionFilter_flags': 0,
-	'collisionFilter_group': 0,
-	'prop_data': 0, 
-	'prop_flags': 0,
-	'prop_size': 0,
-    'angularDamping': 0.05,
-    'angularVelocity': "(0, 0, 0, 0)",
-    'autoRemoveLevel': 0,
-    'bodyFlags': 0,
-    'bodyFlagsInt': 0,
-    'bodyID' : NODEID_NONE,
-    'center': "(0, 0, 0, 0)",
-    'childCount': 0,
-    'collisionFilter_layer': "STATIC",
-    'collisionFilterCopy_flags': 0,
-    'collisionFilterCopy_group': 0,
-    'collisionFilterCopy_layer': 'STATIC',
-    'collisionResponse': 'SIMPLE_CONTACT',
-    'collisionResponse2': 'SIMPLE_CONTACT',
-    'controllerID' : NODEID_NONE,
-    'ctrlID' : NODEID_NONE,
-    'ctrlType': NODEID_NONE,
-    'deactivatorType': 'NEVER',
-    'envMapMinLOD': 0,
-    'forceCollideOntoPpu': 0,
-    'friction': 0.5,
-    'gravityFactor': 1.0,
-    'inertiaMatrix': "[1, 0, 0, 0, 1, 0, 0, 0, 1]",
-    'interpID' : NODEID_NONE,
-    'interpolatorID' : NODEID_NONE,
-    'lightingInfluence' : 255,
-    'linearDamping': 0.1,
-    'linearVelocity': "(0, 0, 0, 0)",
-    'mass': 1.0,
-    'maxAngularVelocity': 31.57, 
-    'maxLinearVelocity': 104.4, 
-    'motionSystem': 'DYNAMIC',
-    'nameID' : NODEID_NONE,
-    'nodeName': NODEID_NONE,
-    'normalsCount': 0,
-    'numShapeKeysInContactPointProps': 0, 
-    'penetrationDepth': 0.15,
-    'processContactCallbackDelay': 0xFFFF,
-    'propType': NODEID_NONE,
-    'qualityType': 'FIXED',
-    'responseModifierFlag': 0,
-    'restitution': 0.4, 
-    'rollingFrictionMult': 1.0,
-    'shapeID' : NODEID_NONE,
-    'solverDeactivation': 'OFF', 
-    'targetID': NODEID_NONE,
-    'timeFactor': 1.0,
-    'vertsCount': 0,
-    }
-
-
-class pynStructure(Structure):
-    nifly = None
-    logger = None
-
-    def warn(self, msg):
-        if pynStructure.logger: pynStructure.logger.warning(msg)
-        self.warnings.append(msg)
-
-    def load(self, shape, ignore=[], game='SKYRIM'):
-        """
-        Load fields from the dictionary-like object 'shape'. 
-        Return list of warnings if any fields can't be set. 
-        """
-        if ignore is None: ignore = []
-        self.warnings = []
-        for f, t in self._fields_:
-            v = None
-            # try:
-            if f in ignore:
-                pass
-            elif not (f in shape.keys()):
-                pass
-            elif f == 'Shader_Flags_1':
-                if not shape[f]:
-                    v = 0
-                elif game in ['SKYRIM', 'SKYRIMSE']:
-                    v = ShaderFlags1.parse(shape[f]).value
-                else:
-                    v = ShaderFlags1FO4.parse(shape[f]).value
-            elif f == 'Shader_Flags_2':
-                if not shape[f]:
-                    v = 0
-                elif game in ['SKYRIM', 'SKYRIMSE']:
-                    v = ShaderFlags2.parse(shape[f]).value
-                else:
-                    v = ShaderFlags2FO4.parse(shape[f]).value
-            elif f == 'Shader_Type':
-                if not shape[f]:
-                    v = 0
-                elif type(shape[f]) == BSLSPShaderType:
-                    v = shape[f].value
-                elif type(shape[f]) == str:
-                    mykey = str(shape[f])
-                    myenum = BSLSPShaderType[mykey]
-                    myval = myenum.value
-                    v = myval
-                else:
-                    v = int(shape[f])
-            elif f in ['collisionFilter_layer', 'collisionFilterCopy_layer']:
-                try:
-                    v = SkyrimCollisionLayer[shape[f]].value
-                except:
-                    v = int(shape[f])
-            elif f == 'broadPhaseType':
-                try:
-                    v = BroadPhaseType[shape[f]].value
-                except:
-                    v = int(shape[f])
-            elif f in ['collisionResponse', 'collisionResponse2']:
-                try:
-                    v = hkResponseType[shape[f]].value
-                except:
-                    v = int(shape[f])
-            elif f == 'motionSystem':
-                try:
-                    v = hkMotionType[shape[f]].value
-                except:
-                    v = int(shape[f])
-            elif f == 'deactivatorType':
-                try:
-                    v = hkDeactivatorType[shape[f]].value
-                except:
-                    v = int(shape[f])
-            elif f == 'solverDeactivation': 
-                try:
-                    v = hkSolverDeactivation[shape[f]].value
-                except:
-                    v = int(shape[f])
-            elif f == 'qualityType':
-                try:
-                    v = hkQualityType[shape[f]].value
-                except:
-                    v = int(shape[f])
-            elif f == 'bhkMaterial':
-                try:
-                    v = SkyrimHavokMaterial[shape[f]].value
-                except:
-                    v = int(shape[f])
-            elif t.__name__ == 'c_char_Array_256':
-                v = shape[f].encode('utf-8')
-            elif t.__name__ == 'c_float_Array_2':
-                v = VECTOR2(*eval(shape[f]))
-            elif t.__name__ == 'c_float_Array_3':
-                v = VECTOR3(*eval(shape[f])[0:3])
-            elif t.__name__ == 'c_float_Array_4':
-                v = VECTOR4(*eval(shape[f]))
-            elif t.__name__ == 'c_float_Array_12':
-                v = VECTOR12(*eval(shape[f]))
-            elif t.__name__ == 'c_ushort_Array_6':
-                v = VECTOR6_SHORT(*eval(shape[f]))
-            elif t.__name__ == 'c_float_Array_4_Array_4':
-                v = MATRIX4(*[VECTOR4(*eval(shape[f])[i]) for i in range(4)])
-            elif t.__name__ == 'c_float':
-                v = float(shape[f])
-            elif t.__name__ in ['c_ubyte', 'c_ulong', 'c_uint8', 'c_uint16', 'c_uint32', 'c_ulong', 'c_ulonglong']:
-                v = int(shape[f])
-            else:
-                v = shape[f]
-            if v is not None:
-                try:
-                    self.__setattr__(f, v)
-            # except KeyError as e:
-            #     try:
-            #         self.__setattr__(f, int(shape[f]))
-            #     except Exception as e:
-            #         self.warn(f"Error setting property {f} <- {shape[f]}")
-                except Exception as e:
-                    raise Exception(f"Error setting property {f} <- {shape[f]}") from e
-
-    def __init__(self, values=None, game='SKYRIM'):
-        """Initialize structure from 'values'."""
-        super().__init__()
-        if hasattr(self, "bufSize"):
-            self.bufSize = sizeof(self)
-                
-        self.warnings = []
-
-        self.load(pynBufferDefaults, game=game)
-        if values:
-            self.load(values, game=game)
-
-    def __str__(self):
-        s = ""
-        for attr in self._fields_:
-            if len(s) > 0:
-                s = s + "\n"
-            v = getattr(self, attr[0])
-            if type(v) in [VECTOR3, VECTOR4, VECTOR12]:
-                vals = []
-                for n in v:
-                    vals.append( f"{n:.4f}" )
-                s += f"\t{attr[0]} = [{', '.join(vals)}]"
-                
-            elif type(v) == MATRIX3:
-                rows = []
-                for r in v:
-                    cols = []
-                    for c in r:
-                        cols.append(f"{c:.4f}")
-                    rows.append(f"\t[{', '.join(cols)}]")
-                s += f"\t{attr[0]} = \n" + '\n'.join(rows)
-            elif type(v) == float:
-                s += f"\t{attr[0]} = {v:.4f}"
-            else:
-                s += f"\t{attr[0]} = {v}"
-        return s
-
-    def __eq__(self, other):
-        """
-        Compare two structures to see if their values are equal. ID fields are not
-        compared because they are not expected to be equal across nifs.
-        """
-        if not self or not other:
-            return False
-        for fn, t in self._fields_:
-            if fn[-2:] != 'ID':
-                if '_Array_' in t.__name__:
-                    for x, y in zip(self.__getattribute__(fn), other.__getattribute__(fn)):
-                        if type(x) == float and type(y) == float:
-                            if not math.isclose(x, y, abs_tol=10**-5):
-                                return False
-                        elif x != y:
-                            return False
-                else:
-                    x = self.__getattribute__(fn)
-                    y = other.__getattribute__(fn)
-                    if type(x) == float and type(y) == float:
-                        if not math.isclose(x, y, abs_tol=10**-5):
-                            return False
-                    elif x != y:
-                        return False
-        return True
-    
-    def compare(self, other):
-        """
-        Compare two structures, returning any differences in a list.
-        """
-        diffs = []
-        for fn, t in self._fields_:
-            if fn[-2:] != 'ID':
-                if '_Array_' in t.__name__:
-                    for x, y in zip(self.__getattribute__(fn), other.__getattribute__(fn)):
-                        if x != y:
-                            return diffs.append((fn, x, y,))
-                else:
-                    if self.__getattribute__(fn) != other.__getattribute__(fn):
-                        diffs.append((fn, self.__getattribute__(fn), other.__getattribute__(fn)))
-        return diffs
-    
-    def extract_field(self, shape, fieldname, fieldtype, game='SKYRIM'):
-        """
-        Extract a single field from the buffer and set as a key/value pair on the
-        dictionary-like "shape". Subclasses can override this for special handling
-        on fields that are interpreted for the user.
-        """
-        if fieldtype.__name__ == 'c_char_Array_256':
-            v = self.__getattribute__(fieldname).decode()
-        elif '_Array_' in fieldtype.__name__:
-            v = [x for x in self.__getattribute__(fieldname)]
-        else:
-            v = self.__getattribute__(fieldname)
-        if type(v) == list:
-            shape[fieldname] = repr(v)
-        else:
-            try:
-                shape[fieldname] = v
-            except Exception as e:
-                # If the value can't be stored natively, store it as a string.
-                # This happens when the top bit of a uint32 is set.
-                shape[fieldname] = repr(v)
-
-    def extract(self, shape, ignore=None, game='SKYRIM'):
-        """
-        Extract fields to the dictionary-like object 'shape'. Do not extract any ID
-        fields. Do not extract fields that match their default values.
-        """
-        if ignore is None: ignore = []
-        defaults = self.__class__()
-        for fn, t in self._fields_:
-            if fn != 'bufType' and fn != 'bufSize' and fn[-2:] != 'ID' \
-                and (fn not in ignore) \
-                and not (fn == 'Shader_Type' 
-                         and self.bufType == PynBufferTypes.BSEffectShaderPropertyBufType):
-
-                if '_Array_' in t.__name__:
-                    v1 = [x for x in self.__getattribute__(fn)]
-                    v2 = [x for x in defaults.__getattribute__(fn)]
-                else:
-                    v1 = self.__getattribute__(fn) 
-                    v2 = defaults.__getattribute__(fn)
-                
-                if (type(v2) == float and not math.isclose(v1, v2, abs_tol=10**-5)) \
-                        or (v1 != v2):
-                    try:
-                        self.extract_field(shape, fn, t, game=game)
-                    except:
-                        shape[fn] = repr(t)
-
-    def copy(self, exclude=[]):
-        """ Return a copy of the object """
-        n = self.__class__()
-        for f, t in self._fields_:
-            if not f in exclude:
-                n.__setattr__(f, self.__getattribute__(f))
-        return n
-
-    def copyto(self, other, exclude=[]):
-        """ Copy the object's fields to another object """
-        for f, t in self._fields_:
-            if not f in exclude:
-                other.__setattr__(f, self.__getattribute__(f))
-        return other
-    
-
-# ------ Little bit of matrix math for debugging ----
-#   Real code uses Blender's functions
-
-def quaternion_to_matrix(q):
-    """
-    Convert a quaternion to a 3x3 rotation matrix.
-    
-    :param q: A quaternion in the format (w, x, y, z)
-    :return: The corresponding 3x3 rotation matrix
-    """
-    w, x, y, z = q
-    q_norm = (w**2 + x**2 + y**2 + z**2)**0.5
-    if q_norm == 0:
-        raise ValueError("Quaternion cannot have zero norm.")
-    
-    q = (w/q_norm, x/q_norm, y/q_norm, z/q_norm)
-    
-    q0, q1, q2, q3 = q
-    matrix = [
-        [1 - 2*q2**2 - 2*q3**2, 2*q1*q2 - 2*q0*q3, 2*q1*q3 + 2*q0*q2],
-        [2*q1*q2 + 2*q0*q3, 1 - 2*q1**2 - 2*q3**2, 2*q2*q3 - 2*q0*q1],
-        [2*q1*q3 - 2*q0*q2, 2*q2*q3 + 2*q0*q1, 1 - 2*q1**2 - 2*q2**2]
-    ]
-    
-    return matrix
-
-class pynMatrix:
-    def __init__(self, v):
-        if type(v) == list:
-            self._array = v
-        elif type(v) == VECTOR3:
-            self._array = [[1, 0, 0, v[0]], [0, 1, 0, v[1]], [0, 0, 1, v[2]], [0, 0, 0, 1]]
-        elif type(v) == VECTOR4:
-            self._array = [[1, 0, 0, v[0]], [0, 1, 0, v[1]], [0, 0, 1, v[2]], [0, 0, 0, v[3]]]
-
-    def __mul__(self, other):
-        return pynMatrix([[sum(a*b for a, b in zip(X_row, Y_col)) for Y_col in zip(*other._array)] for X_row in self._array])
-
-    def __str__(self):
-        return str(self._array)
-
-    def __eq__(self, other):
-        return self._array == other._array
-
-    def to_vector4(self):
-        """ Return the translation part of the matrix """
-        return VECTOR4(self._array[0][3], self._array[1][3], self._array[2][3], self._array[3][3])
-
-    def to_vector3(self):
-        return VECTOR3(self._array[0][3], self._array[1][3], self._array[2][3])
-
-class TransformBuf(pynStructure):
-    _fields_ = [
-        ('translation', VECTOR3),
-        ('rotation', MATRIX3),
-        ('scale', c_float) ]
-    
-    def __init__(self):
-        self.set_identity()
-
-    def set_identity(self):
-        self.translation = VECTOR3(0, 0, 0)
-        self.rotation = MATRIX3((1,0,0), (0,1,0), (0,0,1))
-        self.scale = 1
-        return self
-
-    def store(self, transl, rot, scale):
-        """ Fill buffer from translation, rotation, scale """
-        self.translation[0] = transl[0]
-        self.translation[1] = transl[1]
-        self.translation[2] = transl[2]
-        self.rotation = MATRIX3(VECTOR3(*rot[0]), VECTOR3(*rot[1]), VECTOR3(*rot[2]))
-        self.scale = max(scale)
-
-    def read(self):
-        """ Return translation buffer as translation, rotation, scale """
-        return (self.translation, self.rotation, [self.scale]*3)
-
-    def to_matrix(self):
-        v0 = list(self.rotation[0])
-        v0.append(self.translation[0])
-        v1 = list(self.rotation[1])
-        v1.append(self.translation[1])
-        v2 = list(self.rotation[2])
-        v2.append(self.translation[2])
-        return pynMatrix([v0, v1, v2, [0,0,0,1]])
-
-    def NearEqual(self, other, epsilon=0.0001):
-        for n, m in zip(self.translation[:], other.translation[:]):
-            if abs(n-m) > epsilon:
-                return False
-        for v1, v2 in zip(self.rotation, other.rotation):
-            for n, m in zip(v1, v2):
-                if abs(n-m) > epsilon:
-                    return False
-        if abs(self.scale-other.scale) > epsilon:
-            return False
-        return True
-
-    @classmethod
-    def from_matrix(cls, m):
-        buf = TransformBuf()
-        buf.translation = VECTOR3(m._array[0][3], m._array[1][3], m._array[2][3])
-        buf.rotation = MATRIX3(VECTOR3(*m._array[0][0:3]), VECTOR3(*m._array[1][0:3]), VECTOR3(*m._array[2][0:3]))
-        buf.scale = 1
-        return buf
-
-    def __mul__(self, other):
-        """ Compose this transform with the other """
-        if type(other) == TransformBuf:
-            return TransformBuf.from_matrix(self.to_matrix() * other.to_matrix())
-        elif type(other) == VECTOR4:
-            return (self.to_matrix() * pynMatrix(other)).to_vector4()
-        elif type(other) == VECTOR3:
-            return (self.to_matrix() * pynMatrix(other)).to_vector3()
-        
-
-
-# Types of root nodes
-RT_NINODE = 0
-RT_BSFADENODE = 1
-
-class NiAVFlags(PynIntFlag):
-    HIDDEN = 1
-    SELECTIVE_UPDATE = 1 << 1
-    SELECTIVE_UPDATE_TRANSF = 1 << 2
-    SELECTIVE_UPDATE_CONTR = 1 << 3
-    SELECTIVE_UPDATE_RIGID = 1 << 4
-    DISPLAY_OBJECT = 1 << 5
-    DISABLE_SORTING = 1 << 6
-    SEL_UPD_TRANSF_OVERRIDE = 1 << 7
-    UNKNOWN_8 = 1 << 8
-    SAVE_EXT_GEOM_DATA = 1 << 9
-    NO_DECALS = 1 << 10
-    ALWAYS_DRAW = 1 << 11
-    MESH_LOD = 1 << 12
-    FIXED_BOUND = 1 << 13
-    TOP_FADE_NODE = 1 << 14
-    IGNORE_FADE = 1 << 15
-    NO_ANIM_SYNC_X = 1 << 16
-    NO_ANIM_SYNC_Y = 1 << 17
-    NO_ANIM_SYNC_Z = 1 << 18
-    NO_ANIM_SYNC_S = 1 << 19
-    NO_DISMEMBER = 1 << 20
-    NO_DISMEMBER_VALIDITY = 1 << 21
-    RENDER_USE = 1 << 22
-    MATERIALS_APPLIED = 1 << 23
-    HIGH_DETAIL = 1 << 24
-    FORCE_UPDATE = 1 << 25
-    PREPROCESSED_NODE = 1 << 26
-    MESH_LOD_SKY = 1 << 27
-    UNKNOWN_28 = 1 << 28
-
-class BSXFlagsValues(PynIntFlag):
-    ANIMATED = 1
-    HAVOC = 1 << 1
-    RAGDOLL = 1 << 2
-    COMPLEX = 1 << 3
-    ADDON = 1 << 4
-    EDITOR_MARKER = 1 << 5
-    DYNAMIC = 1 << 6
-    ARTICULATED = 1 << 7
-    NEEDS_XFORM_UPDATES = 1 << 8
-    EXTERNAL_EMIT = 1 << 9
-    MAGIC_SHADER_PARTICLES = 1 << 10
-    LIGHTS = 1 << 11
-    BREAKABLE = 1 << 12
-
-class BSLSPShaderType(IntFlag):
-    Default = 0
-    Environment_Map = 1
-    Glow_Shader = 2
-    Parallax = 3
-    Face_Tint = 4
-    Skin_Tint = 5
-    Hair_Tint = 6
-    Parallax_Occ = 7
-    Multitexture_Landscape = 8
-    LOD_Landscape = 9
-    Snow = 10
-    MultiLayer_Parallax = 11
-    Tree_Anim = 12
-    LOD_Objects = 13
-    Sparkle_Snow = 14
-    LOD_Objects_HD = 15
-    Eye_Envmap = 16
-    Cloud = 17
-    LOD_Landscape_Noise = 18
-    Multitexture_Landscape_LOD_Blend = 19
-    FO4_Dismemberment = 20
-
-class ShaderFlags1(PynIntFlag):
-    SPECULAR = 1 << 0
-    SKINNED = 1 << 1
-    TEMP_REFRACTION = 1 << 2
-    VERTEX_ALPHA = 1 << 3
-    GREYSCALE_COLOR = 1 << 4
-    GREYSCALE_ALPHA = 1 << 5
-    USE_FALLOFF = 1 << 6
-    ENVIRONMENT_MAPPING = 1 << 7
-    RECEIVE_SHADOWS = 1 << 8
-    CAST_SHADOWS = 1 << 9
-    FACEGEN_DETAIL_MAP = 1 << 10
-    PARALLAX = 1 << 11
-    MODEL_SPACE_NORMALS = 1 << 12
-    NON_PROJECTIVE_SHADOWS = 1 << 13
-    LANDSCAPE = 1 << 14
-    REFRACTION = 1 << 15
-    FIRE_REFRACTION = 1 << 16
-    EYE_ENVIRONMENT_MAPPING = 1 << 17
-    HAIR_SOFT_LIGHTING = 1 << 18
-    SCREENDOOR_ALPHA_FADE = 1 << 19
-    LOCALMAP_HIDE_SECRET = 1 << 20
-    FACEGEN_RGB_TINT = 1 << 21
-    OWN_EMIT = 1 << 22
-    PROJECTED_UV = 1 << 23
-    MULTIPLE_TEXTURES = 1 << 24
-    REMAPPABLE_TEXTURES = 1 << 25
-    DECAL = 1 << 26
-    DYNAMIC_DECAL = 1 << 27
-    PARALLAX_OCCLUSION = 1 << 28
-    EXTERNAL_EMITTANCE = 1 << 29
-    SOFT_EFFECT = 1 << 30
-    ZBUFFER_TEST = 1 << 31
-
-class ShaderFlags2(PynIntFlag):
-    ZBUFFER_WRITE = 1
-    LOD_LANDSCAPE = 1 << 1
-    LOD_OBJECTS = 1 << 2
-    NO_FADE = 1 << 3
-    DOUBLE_SIDED = 1 << 4
-    VERTEX_COLORS = 1 << 5
-    GLOW_MAP = 1 << 6
-    ASSUME_SHADOWMASK = 1 << 7
-    PACKED_TANGENT = 1 << 8
-    MULTI_INDEX_SNOW = 1 << 9
-    VERTEX_LIGHTING = 1 << 10
-    UNIFORM_SCALE = 1 << 11
-    FIT_SLOPE = 1 << 12
-    BILLBOARD = 1 << 13
-    NO_LOD_LAND_BLEND = 1 << 14
-    ENVMAP_LIGHT_FADE = 1 << 15
-    WIREFRAME = 1 << 16
-    WEAPON_BLOOD = 1 << 17
-    HIDE_ON_LOCAL_MAP = 1 << 18 
-    PREMULT_ALPHA = 1 << 19
-    CLOUD_LOD = 1 << 20
-    ANISOTROPIC_LIGHTING = 1 << 21
-    NO_TRANSPARENCY_MULTISAMPLING = 1 << 22
-    UNUSED01 = 1 << 23
-    MULTI_LAYER_PARALLAX = 1 << 24
-    SOFT_LIGHTING = 1 << 25
-    RIM_LIGHTING = 1 << 26
-    BACK_LIGHTING = 1 << 27
-    UNUSED02 = 1 << 28
-    TREE_ANIM = 1 << 29
-    EFFECT_LIGHTING = 1 << 30
-    HD_LOD_OBJECTS = 1 << 31
-    
-class ShaderFlags1FO4(PynIntFlag):
-	SPECULAR = 1 << 0
-	SKINNED = 1 << 1
-	TEMP_REFRACTION = 1 << 2
-	VERTEX_ALPHA = 1 << 3
-	GREYSCALETOPALETTE_COLOR = 1 << 4
-	GREYSCALETOPALETTE_ALPHA = 1 << 5
-	USE_FALLOFF = 1 << 6
-	ENVIRONMENT_MAPPING = 1 << 7
-	RGB_FALLOFF = 1 << 8
-	CAST_SHADOWS = 1 << 9
-	FACE = 1 << 10
-	UI_MASK_RECTS = 1 << 11
-	MODEL_SPACE_NORMALS = 1 << 12
-	NON_PROJECTIVE_SHADOWS = 1 << 13
-	LANDSCAPE = 1 << 14
-	REFRACTION = 1 << 15
-	FIRE_REFRACTION = 1 << 16
-	EYE_ENVIRONMENT_MAPPING = 1 << 17
-	HAIR = 1 << 18
-	SCREENDOOR_ALPHA_FADE = 1 << 19
-	LOCALMAP_HIDE_SECRET = 1 << 20
-	SKIN_TINT = 1 << 21
-	OWN_EMIT = 1 << 22
-	PROJECTED_UV = 1 << 23
-	MULTIPLE_TEXTURES = 1 << 24
-	TESSELLATE = 1 << 25
-	DECAL = 1 << 26
-	DYNAMIC_DECAL = 1 << 27
-	CHARACTER_LIGHTING = 1 << 28
-	EXTERNAL_EMITTANCE = 1 << 29
-	SOFT_EFFECT = 1 << 30
-	ZBUFFER_TEST = 1 << 31
-
-class ShaderFlags2FO4(PynIntFlag):
-	ZBUFFER_WRITE = 1 << 0
-	LOD_LANDSCAPE = 1 << 1
-	LOD_OBJECTS = 1 << 2
-	NO_FADE = 1 << 3
-	DOUBLE_SIDED = 1 << 4
-	VERTEX_COLORS = 1 << 5
-	GLOW_MAP = 1 << 6
-	TRANSFORM_CHANGED = 1 << 7
-	DISMEMBERMENT_MEATCUFF = 1 << 8
-	TINT = 1 << 9
-	GRASS_VERTEX_LIGHTING = 1 << 10
-	GRASS_UNIFORM_SCALE = 1 << 11
-	GRASS_FIT_SLOPE = 1 << 12
-	GRASS_BILLBOARD = 1 << 13
-	NO_LOD_LAND_BLEND = 1 << 14
-	DISMEMBERMENT = 1 << 15
-	WIREFRAME = 1 << 16
-	WEAPON_BLOOD = 1 << 17
-	HIDE_ON_LOCAL_MAP = 1 << 18
-	PREMULT_ALPHA = 1 << 19
-	VATS_TARGET = 1 << 20
-	ANISOTROPIC_LIGHTING = 1 << 21
-	SKEW_SPECULAR_ALPHA = 1 << 22
-	MENU_SCREEN = 1 << 23
-	MULTI_LAYER_PARALLAX = 1 << 24
-	ALPHA_TEST = 1 << 25
-	GRADIENT_REMAP = 1 << 26
-	VATS_TARGET_DRAW_ALL = 1 << 27
-	PIPBOY_SCREEN = 1 << 28
-	TREE_ANIM = 1 << 29
-	EFFECT_LIGHTING = 1 << 30
-	REFRACTION_WRITES_DEPTH = 1 << 31
-
-
-class BSValueNodeFlags(PynIntFlag):
-	BILLBOARDWORLD_Z = 1 << 0
-	USE_PLAYER_ADJUST = 1 << 1
-
-
-class bhkCOFlags(PynIntFlag):
-    ACTIVE = 1
-    NOTIFY = 1 << 2
-    SET_LOCAL = 1 << 3
-    DBG_DISPLAY = 1 << 4
-    USE_VEL = 1 << 5
-    RESET = 1 << 6
-    SYNC_ON_UPDATE = 1 << 7
-    ANIM_TARGETED = 1 << 10
-    DISMEMBERED_LIMB = 1 << 11
-
-class hkResponseType(IntEnum):
-    INVALID = 0
-    SIMPLE_CONTACT = 1
-    REPORTING = 2
-    NONE = 3
-
-class BroadPhaseType(IntEnum):
-    INVALID = 0
-    ENTITY =  1
-    PHANTOM = 2
-    BORDER = 3
-
-class hkMotionType(IntEnum):
-    INVALID = 0,
-    DYNAMIC = 1,
-    SPHERE_INERTIA = 2,
-    SPHERE_STABILIZED = 3,
-    BOX_INERTIA = 4,
-    BOX_STABILIZED = 5, 
-    KEYFRAMED = 6,
-    FIXED = 7,
-    THIN_BOX = 8,
-    CHARACTER = 9
-
-class SkyrimCollisionLayer(IntEnum):
-    UNIDENTIFIED = 0
-    STATIC = 1
-    ANIMSTATIC = 2
-    TRANSPARENT = 3
-    CLUTTER = 4
-    WEAPON = 5
-    PROJECTILE = 6
-    SPELL = 7
-    BIPED = 8
-    TREES = 9
-    PROPS = 10
-    WATER = 11
-    TRIGGER = 12
-    TERRAIN = 13
-    TRAP = 14
-    NONCOLLIDABLE = 15
-    CLOUD_TRAP = 16
-    GROUND = 17
-    PORTAL = 18
-    DEBRIS_SMALL = 19
-    DEBRIS_LARGE = 20
-    ACOUSTIC_SPACE = 21
-    ACTORZONE = 22
-    PROJECTILEZONE = 23
-    GASTRAP = 24
-    SHELLCASING = 25
-    TRANSPARENT_SMALL = 26
-    INVISIBLE_WALL = 27
-    TRANSPARENT_SMALL_ANIM = 28
-    WARD = 29
-    CHARCONTROLLER = 30
-    STAIRHELPER = 31
-    DEADBIP = 32
-    BIPED_NO_CC = 33
-    AVOIDBOX = 34
-    COLLISIONBOX = 35
-    CAMERASHPERE = 36
-    DOORDETECTION = 37
-    CONEPROJECTILE = 38
-    CAMERAPICK = 39
-    ITEMPICK = 40
-    LINEOFSIGHT = 41
-    PATHPICK = 42
-    CUSTOMPICK1 = 43
-    CUSTOMPICK2 = 44
-    SPELLEXPLOSION = 45
-    DROPPINGPICK = 46
-    NULL = 47
-
-class hkQualityType(IntEnum):
-    INVALID = 0
-    FIXED = 1
-    KEYFRAMED = 2
-    DEBRIS = 3
-    MOVING = 4
-    CRITICAL = 5
-    BULLET = 6
-    USER = 7
-    CHARACTER = 8
-    KEYFRAMED_REPORT = 9
-
-class hkDeactivatorType(IntEnum):
-    INVALID = 0
-    NEVER = 1
-    SPATIAL = 2
-
-class hkSolverDeactivation(IntEnum):
-    INVALID = 0
-    OFF = 1
-    LOW = 2
-    MEDIUM = 3
-    HIGH = 4
-    MAX = 5
-
-class hkQualityType(IntEnum):
-    INVALID = 0
-    FIXED = 1
-    KEYFRAMED = 2
-    DEBRIS = 3
-    MOVING = 4
-    CRITICAL = 5
-    BULLET = 6
-    USER = 7
-    CHARACTER = 8
-    KEYFRAMED_REPORT = 9
-
-class SkyrimHavokMaterial(IntEnum):
-    # From nif.xml with a SKY_HAV_MAT_ prefix.
-    NONE = 0 # Invalid Material
-    BROKEN_STONE = 131151687 # Broken Stone
-    MATERIAL_BLOCK_BLADE_1HAND = 165778930 # Material Block Blade 1Hand
-    MATERIAL_MEAT = 220124585 # Material Meat
-    MATERIAL_CARRIAGE_WHEEL = 322207473 # Material Carriage Wheel
-    MATERIAL_METAL_LIGHT = 346811165 # Material Metal Light
-    LIGHT_WOOD = 365420259 # Light Wood
-    SNOW = 398949039 # Snow
-    GRAVEL = 428587608 # Gravel
-    MATERIAL_CHAIN_METAL = 438912228 # Material Chain Metal
-    BOTTLE = 493553910 # Bottle
-    WOOD = 500811281 # Wood
-    MATERIAL_ASH = 534864873 # Material Ash
-    SKIN = 591247106 # Skin
-    MATERIAL_BLOCK_BLUNT = 593401068 # Material Block Blunt
-    MATERIAL_CLOTH = 617099282 # Material Cloth
-    INSECT = 668408902 # Insect
-    BARREL = 732141076 # Barrel
-    MATERIAL_CERAMIC_MEDIUM = 781661019 # Material Ceramic Medium
-    MATERIAL_BASKET = 790784366 # Material Basket
-    ICE = 873356572 # Ice
-    STAIRS_GLASS = 880200008 # Stairs Glass
-    STAIRS_STONE = 899511101 # Stairs Stone
-    WATER = 1024582599 # Water
-    MATERIAL_BONE_ACTOR = 1028101969 # Material Bone Actor
-    MATERIAL_BLADE_1HAND = 1060167844 # Material Blade 1Hand
-    MATERIAL_BOOK = 1264672850 # Material Book
-    MATERIAL_CARPET = 1286705471 # Material Carpet
-    SOLID_METAL = 1288358971 # Solid Metal
-    MATERIAL_AXE_1HAND = 1305674443 # Material Axe 1Hand
-    MATERIAL_BLOCK_BLADE_2HAND = 1312943906 # Material Block Blade 2Hand
-    ORGANIC_LARGE = 1322093133 # Organic Large
-    CHAIN_METAL = 1440721808 # Chain Metal
-    STAIRS_WOOD = 1461712277 # Stairs Wood
-    MUD = 1486385281 # Mud
-    MATERIAL_BOULDER_SMALL = 1550912982 # Material Boulder Small
-    STAIRS_SNOW = 1560365355 # Stairs Snow
-    HEAVY_STONE = 1570821952 # Heavy Stone
-    CHARACTER_BUMPER = 1574477864 # Character Bumper
-    TRAP = 1591009235 # Unknown in Creation Kit v1.6.89.0. Found in trap objects or clutter\displaycases\displaycaselgangled01.nif or actors\deer\character assets\skeleton.nif.
-    MATERIAL_BOWS_STAVES = 1607128641 # Material Bows Staves
-    MATERIAL_SOLID_METAL = 1668849266 # Material Solid Metal
-    ALDUIN = 1730220269 # Alduin
-    MATERIAL_WOOD_MEDIUM = 1734341287 # Material Wood Medium
-    MATERIAL_BLOCK_BOWS_STAVES = 1763418903 # Material Block Bows Staves
-    MATERIAL_WOOD_AS_STAIRS = 1803571212 # Material Wood As Stairs
-    MATERIAL_BLADE_2HAND_ = 1820198263 # Material Blade 2Hand 
-    GRASS = 1848600814 # Grass
-    MATERIAL_BOULDER_LARGE = 1885326971 # Material Boulder Large
-    MATERIAL_STONE_AS_STAIRS = 1886078335 # Material Stone As Stairs
-    MATERIAL_BLADE_2HAND = 2022742644 # Material Blade 2Hand
-    MATERIAL_BOTTLE_SMALL = 2025794648 # Material Bottle Small
-    BONE_ACTOR = 2058949504 # Bone Actor
-    SAND = 2168343821 # Sand
-    HEAVY_METAL = 2229413539 # Heavy Metal
-    MATERIAL_WOOD_HEAVY = 2290050264 # Material Wood Heavy
-    MATERIAL_ICE_FORM = 2431524493 # Material Ice Form
-    DRAGON = 2518321175 # Dragon
-    MATERIAL_BLADE_1HAND_SMALL = 2617944780 # Material Blade 1Hand Small
-    MATERIAL_SKIN_SMALL = 2632367422 # Material Skin Small
-    MATERIAL_POTS_PANS = 2742858142 # Material Pots Pans
-    MATERIAL_STAIRS_WOOD = 2794252627 # Material Stairs Wood
-    MATERIAL_SKIN_SKELETON = 2821299363 # Material Skin Skeleton
-    MATERIAL_BLUNT_1HAND = 2872791301 # Material Blunt 1Hand
-    STAIRS_BROKEN_STONE = 2892392795 # Stairs Broken Stone
-    MATERIAL_SKIN_LARGE = 2965929619 # Material Skin Large
-    ORGANIC = 2974920155 # Organic
-    MATERIAL_BONE = 3049421844 # Material Bone
-    HEAVY_WOOD = 3070783559 # Heavy Wood
-    MATERIAL_CHAIN = 3074114406 # Material Chain
-    DIRT = 3106094762 # Dirt
-    GHOST = 3312543676 # Ghost
-    MATERIAL_SKIN_METAL_LARGE = 3387452107 # Material Skin Metal Large
-    MATERIAL_BLOCK_AXE = 3400476823 # Material Block Axe
-    MATERIAL_ARMOR_LIGHT = 3424720541 # Material Armor Light
-    MATERIAL_SHIELD_LIGHT = 3448167928 # Material Shield Light
-    MATERIAL_COIN = 3589100606 # Material Coin
-    MATERIAL_BLOCK_BLUNT_2HAND = 3662306947 # Material Block Blunt 2Hand
-    MATERIAL_SHIELD_HEAVY = 3702389584 # Material Shield Heavy
-    MATERIAL_ARMOR_HEAVY = 3708432437 # Material Armor Heavy
-    MATERIAL_ARROW = 3725505938 # Material Arrow
-    GLASS = 3739830338 # Glass
-    STONE = 3741512247 # Stone
-    MATERIAL_WATER_PUDDLE = 3764646153 # Material Water Puddle
-    CLOTH = 3839073443 # Cloth
-    MATERIAL_SKIN_METAL_SMALL = 3855001958 # Material Skin Metal Small
-    WARD = 3895166727 # Ward
-    WEB = 3934839107 # Web
-    MATERIAL_BLADE_1HAND_ = 3941234649 # Material Blade 1Hand 
-    MATERIAL_BLUNT_2HAND = 3969592277 # Material Blunt 2Hand
-    STAIRS_METAL = 3974071006 # Stairs Metal
-    DLC1_SWINGING_BRIDGE = 4239621792 # Unknown in Creation Kit v1.9.32.0. Found in Dawnguard DLC in meshes\dlc01\prototype\dlc1protoswingingbridge.nif.
-    MATERIAL_BOULDER_MEDIUM = 4283869410 # Material Boulder Medium
-
-    @classmethod
-    def get_name(cls, val):
-        """Turns the material enum into a string--if not found, just returns the input."""
-        try:
-            return SkyrimHavokMaterial(val).name
-        except:
-            return str(val)
-        
-class VertexFlags(PynIntFlag):
-    VERTEX = 1 << 0
-    UV = 1 << 1
-    UV_2 = 1 << 2
-    NORMAL = 1 << 3
-    TANGENT = 1 << 4
-    COLORS = 1 << 5
-    SKINNED = 1 << 6
-    LANDDATA = 1 << 7
-    EYEDATA = 1 << 8
-    INSTANCE = 1 << 9
-    FULLPREC = 1 << 10
-
-    @classmethod
-    def get_name(cls, val):
-        """Turns the material enum into a string--if not found, just returns the input."""
-        try:
-            return VertexFlags(val).name
-        except:
-            return str(val)
-
-
-class EffectShaderControlledVariable(IntEnum):
-	Emissive_Multiple = 0
-	Falloff_Start_Angle = 1
-	Falloff_Stop_Angle = 2
-	Falloff_Start_Opacity = 3
-	Falloff_Stop_Opacity = 4
-	Alpha_Transparency = 5
-	U_Offset = 6
-	U_Scale = 7
-	V_Offset = 8
-	V_Scale = 9
 
 class PynBufferTypes(IntEnum):
     NiNodeBufType = 0
@@ -1099,11 +87,10 @@ class PynBufferTypes(IntEnum):
     NiStringExtraDataBufType = 64
     BSClothExtraDataBufType = 65
     BSFurnitureMarkerNodeBufType = 66
-    FurnitureMarkerDataBufType = 67
-    COUNT = 68
+    bhkNPCollisionObjectBufType = 67
+    bhkPhysicsSystemBufType = 68
+    COUNT = 69
 
-# bufferTypeList = [''] * PynBufferTypes.COUNT
-# blockBuffers = {}
 
 class NiShaderBuf(pynStructure):
     _fields_ = [
@@ -1206,12 +193,16 @@ class NiShaderBuf(pynStructure):
         ]
     
     def __init__(self, values=None, game='SKYRIM'):
-        super().__init__()
+        super().__init__(values=values, game=game)
         self.bufType = PynBufferTypes.NiShaderBufType
-        if pynStructure.nifly:
-            pynStructure.nifly.getBlock(None, NODEID_NONE, byref(self))
-        if values:
-            self.load(values, game=game)
+        if values: self.load(values, game=game)
+
+        # TODO: Getting defaults from niflyDLL. Resurrect this and make it consistent
+        # or get rid of it.
+        # if pynStructure.nifly:
+        #     pynStructure.nifly.getBlock(None, NODEID_NONE, byref(self))
+        # if values:
+        #     self.load(values, game=game)
 
     def __str__(self):
         s = ""
@@ -1464,6 +455,28 @@ class bhkSPCollisionObjectBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkSPCollisionObjectBufType
 
+class bhkNPCollisionObjectBuf(pynStructure):
+    _fields_ = [
+	    ('bufSize', c_uint16),
+	    ('bufType', c_uint16),
+        ('targetID', c_uint32),
+        ('flags', c_uint16),
+        ('dataID', c_uint32),     # ID of the bhkPhysicsSystem block
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.bhkNPCollisionObjectBufType
+
+class bhkPhysicsSystemBuf(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ('dataSize', c_uint32),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.bhkPhysicsSystemBufType
+
 class bhkRigidBodyProps(pynStructure):
     _fields_ = [
         ('bufSize', c_uint16),
@@ -1473,9 +486,9 @@ class bhkRigidBodyProps(pynStructure):
 	    ('collisionFilter_flags', c_uint8),
 	    ('collisionFilter_group', c_uint16),
 	    ('broadPhaseType', c_uint8),
-	    ('prop_data', c_uint32),    
-	    ('prop_size', c_uint32),
-	    ('prop_flags', c_uint32),
+	    ('worldObjData', c_uint32),    
+	    ('worldObjSize', c_uint32),
+	    ('worldObjCapFlags', c_uint32),
         ('childCount', c_uint16),
         ('collisionResponse', c_uint8),
         ('processContactCallbackDelay', c_uint16),
@@ -1568,9 +581,9 @@ class bhkSimpleShapePhantomBuf(pynStructure):
 	    ('collisionFilter_flags', c_uint8),
 	    ('collisionFilter_group', c_uint16),
 	    ('broadPhaseType', c_uint8),
-	    ('prop_data', c_uint32),    
-	    ('prop_size', c_uint32),
-	    ('prop_flags', c_uint32),
+	    ('worldObjData', c_uint32),    
+	    ('worldObjSize', c_uint32),
+	    ('worldObjCapFlags', c_uint32),
         ('childCount', c_uint16),
         ('transform', MATRIX4),
         ]
@@ -1629,8 +642,8 @@ class bhkConvexVerticesShapeProps(pynStructure):
 	    ('vertsCount', c_uint32),
 	    ('normalsCount', c_uint32),
           ]
-    def __init__(self, values=None):
-        super().__init__(values=values)
+    def __init__(self, values=None, game='SKYRIM'):
+        super().__init__(values=values, game=game)
         self.bufType = PynBufferTypes.bhkConvexVerticesShapeBufType
 
 class bhkListShapeProps(pynStructure):
@@ -1646,8 +659,8 @@ class bhkListShapeProps(pynStructure):
         ('childFilter_flags', c_uint32),
         ('childCount', c_uint32) ]
     
-    def __init__(self, values=None):
-        super().__init__(values=values)
+    def __init__(self, values=None, game='SKYRIM'):
+        super().__init__(values=values, game=game)
         self.bufType = PynBufferTypes.bhkListShapeBufType
 
     def extract_field(self, shape, fieldname, fieldtype, game='SKYRIM'):
@@ -1809,7 +822,7 @@ class NiNodeBuf(pynStructure):
         c = super().copy(exclude=exclude)
         c.nameID = NODEID_NONE
         c.controllerID = NODEID_NONE
-        c.collisionIDID = NODEID_NONE
+        c.collisionID = NODEID_NONE
         return c
 
 
@@ -1839,7 +852,7 @@ class BSValueNodeBuf(pynStructure):
         c = super().copy(exclude=exclude)
         c.nameID = NODEID_NONE
         c.controllerID = NODEID_NONE
-        c.collisionIDID = NODEID_NONE
+        c.collisionID = NODEID_NONE
         return c
 
 
@@ -2041,15 +1054,6 @@ class BSLODTriShapeBuf(pynStructure):
         self.bufType = PynBufferTypes.BSLODTriShapeBufType
         
 
-class AnimType(PynIntEnum):
-    APP_TIME = 0
-    APP_INIT = 1
-
-class CycleType(PynIntEnum):
-    LOOP = 0
-    REVERSE = 1
-    CLAMP = 2
-
 class TimeControllerFlags:
     # <bitfield name="TimeControllerFlags" storage="ushort">
     #     Flags for NiTimeController
@@ -2205,18 +1209,6 @@ class ControllerLinkBuf(pynStructure):
         self.ctrlID = NODEID_NONE
         self.interpID = NODEID_NONE
 
-
-class EffectShaderControlledVariable(PynIntEnum):
-	Emissive_Multiple = 0
-	Falloff_Start_Angle = 1
-	Falloff_Stop_Angle = 2
-	Falloff_Start_Opacity = 3
-	Falloff_Stop_Opacity = 4
-	Alpha_Transparency = 5
-	U_Offset = 6
-	U_Scale = 7
-	V_Offset = 8
-	V_Scale = 9
 
 class LightingShaderControlledVariable(PynIntEnum):
     Refraction_Strength = 0
@@ -2472,18 +1464,6 @@ class NiTransformDataBuf(pynStructure):
         self.bufType = PynBufferTypes.NiTransformDataBufType
 
 
-class NiPoint3InterpolatorBuf(pynStructure):
-    _fields_ = [
-        ("bufSize", c_uint16),
-        ('bufType', c_uint16),
-        ("value", VECTOR3), 
-        ("dataID", c_uint32),
-    ]
-    def __init__(self, values=None):
-        super().__init__(values=values)
-        self.bufType = PynBufferTypes.NiPoint3InterpolatorBufType
-
-
 class NiPosDataBuf(pynStructure):
     _fields_ = [
         ("bufSize", c_uint16),
@@ -2635,151 +1615,3 @@ class FurnEntryPoints(PynIntFlag):
 class VERTEX_WEIGHT_PAIR(Structure):
     _fields_ = [("vertex", c_uint16),
                 ("weight", c_float)]
-
-#class MAT_TRANSFORM(Structure):
-#    _fields_ = [("translation", VECTOR3),
-#                ("rotation", MATRIX3),
-#                ("scale", c_float)]
-
-# There are 64 Skyrim units in a yard and havok works in metres, so:
-HAVOC_SCALE_FACTOR = HSF = 69.99125
-
-# FONV collisions seem to be 10X what we'd expect. Dunno why.
-["FO3", "FONV", "SKYRIM", "FO4", "SKYRIMSE", "FO4VR", "SKYRIMVR", "FO76"]
-game_collision_sf = {"FONV": 0.1, "FO3": 0.1, "FO4": 1.0, "FO4VR": 10, "FO76": 1.0,
-                     "SKYRIM": 1.0, "SKYRIMSE": 1.0, "SKYRIMVR": 1.0}
-
-class ModuleTest:
-    """Quick and dirty test harness."""
-
-    @property
-    def all_tests(self):
-        return [k for k in ModuleTest.__dict__.keys() if k.startswith('TEST_')]
-
-        
-    def execute_test(self, t):
-        print(f"\n------------- {t} -------------")
-        the_test = ModuleTest.__dict__[t]
-        print(the_test.__doc__)
-        the_test()
-        print(f"------------- done")
-
-    
-    def execute(self, start=None, test=None):
-        print("""\n
-=====================================================================
-======================= Running nifdefs tests =======================
-=====================================================================
-
-""")
-        if test:
-            self.execute_test(test)
-        else:
-            doit = (start is None) 
-            for name in self.all_tests:
-                if name == start: doit = True
-                if doit:
-                    self.execute_test(name)
-
-        print("""
-
-============================================================================
-======================= TESTS COMPLETED SUCCESSFULLY =======================
-============================================================================
-""")
-
-
-    def TEST_ENUM():
-        class ImportSettings(PynIntFlag):
-            create_bones = 1
-            rename_bones = 1<<1
-            import_anims = 1<<2
-            rename_bones_nift = 1<<3
-
-        flags = ImportSettings.create_bones | ImportSettings.rename_bones
-        print(f"flags = {flags}")
-        print(f"Fullname = {flags.fullname}")
-
-
-    def TEST_FIELDS():
-        print("--- Verifying what we can do with fields ---")
-        class TestFields:
-            _fields_ = [
-                ('field1', c_uint16),
-                ('field2', VECTOR3),
-                ('field3', CHAR256),
-            ]
-
-
-    def TEST_MATRICES():
-        print("--- Testing matrix and transform math")
-        m1 = pynMatrix([[12,7,3],
-                    [4 ,5,6],
-                    [7 ,8,9]])
-        m2 = pynMatrix([[5,8,1,2],
-                    [6,7,3,0],
-                    [4,5,9,1]])
-        assert m1 * m2 == pynMatrix([[114, 160, 60, 27], 
-                                [74, 97, 73, 14], 
-                                [119, 157, 112, 23]]), f"Can multiply arrays"
-
-        xb1 = TransformBuf()
-        xb1.translation = VECTOR3(1, 2, 3)
-        xb1.rotation = MATRIX3((1,0,0),(0,1,0),(0,0,1))
-        xb1.scale = 1
-        assert xb1.to_matrix() == pynMatrix([[1,0,0,1], [0,1,0,2], [0,0,1,3], [0,0,0,1]]), f"Can convert to matrix"
-
-        xb2 = TransformBuf()
-        xb2.translation = VECTOR3(4, 5, 6)
-        xb2.rotation = MATRIX3((1,0,0),(0,1,0),(0,0,1))
-        xb2.scale = 1
-
-        xbm = xb1 * xb2
-        assert list(xbm.translation) == [5, 7, 9], f"TransformBuf operations are correct"
-
-        xv = xb1 * VECTOR3(8, 9, 10)
-        assert list(xv) == [9, 11, 13], f"Multiplying transform buf by vector produces a transformed vector {list(xv)}"
-
-
-    def TEST_STRUCTURES():
-        print("--- Testing structures")
-        p = bhkRigidBodyProps({"maxLinearVelocity": 555})
-        assert round(p.maxLinearVelocity, 4) == 555, f"Expected 555, found {p.maxLinearVelocity}"
-
-        p = bhkRigidBodyProps()
-        assert round(p.maxLinearVelocity, 4) == 104.4, f"Expected default value 104.4, found {p.maxLinearVelocity}"
-        assert p.collisionFilter_layer == SkyrimCollisionLayer.STATIC.value
-
-        s = {"prop_size": 10,
-            "collisionFilter_layer": "WEAPON"}
-
-        p.load(s)
-
-        assert p.prop_size == 10
-        assert p.collisionFilter_layer == 5
-
-        print("--- Testing that properties report warnings when missing or incomprehensible")
-        p1 = bhkConvexVerticesShapeProps({"bhkMaterial": "BROKEN_STONE"})
-        assert len(p1.warnings) == 0, f"No warnings reported"
-
-        p2 = bhkConvexVerticesShapeProps({"bhkMaterial": "26"})
-        assert len(p2.warnings) == 0, f"Warnings are reported"
-        assert p2.bhkMaterial == 26, f"Material value is correct: {p2.bhkMaterial}"
-
-        try:
-            p3 = bhkConvexVerticesShapeProps({"bhkRadius": "FOO"})
-            assert False, "Should have thrown an error"
-        except:
-            pass
-
-        print("---Testing that getting a material name always works")
-        assert SkyrimHavokMaterial.get_name(3049421844) == "MATERIAL_BONE", f"Material correct: {SkyrimHavokMaterial.get_name(3049421844)}"
-        assert SkyrimHavokMaterial.get_name(53) == "53", f"Material correct: {SkyrimHavokMaterial.get_name(53)}"
-
-
-if __name__ == "__main__":
-    pynStructure.logger = logging.getLogger("pynifly")
-    logging.basicConfig()
-    pynStructure.logger.setLevel(logging.DEBUG)
-    ModuleTest().execute()
-

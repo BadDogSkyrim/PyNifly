@@ -16,13 +16,11 @@ from .niflytools import *
 from .nifdefs import *
 from . import xmltools
 from .niflydll import nifly, nifly_path
+from .nifconstants import BSXFlagsValues
 
 
 # Set up logging
 log = logging.getLogger("pynifly")
-
-
-
 
 
 # --- Helper Routines --- #
@@ -133,7 +131,7 @@ class Partition:
         return self.name >= other.name
 
 class SkyPartition(Partition):
-    skymatch = re.compile('SBP_([0-9]+)_\w+')
+    skymatch = re.compile(r'SBP_([0-9]+)_\w+')
 
     def __init__(self, part_id=0, flags=0, namedict=None, name=None):
         super().__init__(part_id, namedict, name)
@@ -154,8 +152,8 @@ class SkyPartition(Partition):
             return -1
 
 class FO4Segment(Partition):
-    fo4segmatch = re.compile('FO4\w+ \#*([0-9]+)\Z')
-    fo4segmatch1 = re.compile('FO4 Seg +([0-9]+)\Z')
+    fo4segmatch = re.compile(r'FO4\w+ \#*([0-9]+)\Z')
+    fo4segmatch1 = re.compile(r'FO4 Seg +([0-9]+)\Z')
 
     def __init__(self, part_id=0, index=0, subsegments=0, namedict=fo4Dict, name=None):
         super().__init__(part_id, namedict=namedict, name=name)
@@ -266,87 +264,13 @@ class FO4Subsegment(FO4Segment):
         else:
             return ("", -1, mat)
 
-class ExtraDataType(Enum):
-    BehaviorGraph = 1
-    String = 2
-    Cloth = 3
-    InvMarker = 4
-    BSXFlags = 5
-
-# def _read_extra_data(nifHandle, shapeHandle, edtype):
-#     ed = []
-#     if not nifHandle: return ed
-
-#     namelen = c_int()
-#     valuelen = c_int()
-
-#     if edtype == ExtraDataType.BehaviorGraph:
-#         len_func = nifly.getBGExtraDataLen
-#         get_func = nifly.getBGExtraData
-#     elif edtype == ExtraDataType.String:
-#         len_func = nifly.getStringExtraDataLen
-#         get_func = nifly.getStringExtraData
-#     elif edtype == ExtraDataType.Cloth:
-#         len_func = nifly.getClothExtraDataLen
-#         get_func = nifly.getClothExtraData
-
-#     for i in range(0, 1000):
-#         exists = len_func(nifHandle, shapeHandle, 
-#                           i,
-#                           byref(namelen),
-#                           byref(valuelen))
-#         if not exists:
-#             break
-
-#         name = (c_char * (namelen.value+1))()
-#         val = (c_char * (valuelen.value+1))()
-               
-#         if edtype == ExtraDataType.BehaviorGraph:
-#             controlsBaseSkel = c_uint16()
-#             get_func(nifHandle, shapeHandle,
-#                      i,
-#                      name, namelen.value+1,
-#                      val, valuelen.value+1,
-#                      byref(controlsBaseSkel))
-#         else:
-#             get_func(nifHandle, shapeHandle,
-#                      i,
-#                      name, namelen.value+1,
-#                      val, valuelen.value+1)
-                
-#         if edtype == ExtraDataType.Cloth:
-#             ed.append((name.value.decode('utf-8'), val.raw))
-#         elif edtype == ExtraDataType.BehaviorGraph:
-#             ed.append((name.value.decode('utf-8'), val.value.decode('utf-8'), (controlsBaseSkel.value != 0)))
-#         else:
-#             ed.append((name.value.decode('utf-8'), val.value.decode('utf-8')))
-    
-#     return ed
-
-# def _write_extra_data(nifhandle, shapehandle, edtype, val):
-#     if edtype == ExtraDataType.Cloth:
-#         set_func = nifly.setClothExtraData
-#     elif edtype == ExtraDataType.BehaviorGraph:
-#         set_func = nifly.setBGExtraData
-#     else:
-#         set_func = nifly.setStringExtraData
-
-#     for s in val:
-#         if edtype == ExtraDataType.Cloth:
-#             set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1], len(s[1])-1)
-#         elif edtype == ExtraDataType.BehaviorGraph:
-#             set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1].encode('utf-8'), s[2])
-#         else:
-#             set_func(nifhandle, shapehandle, s[0].encode('utf-8'), s[1].encode('utf-8'))
-
-
 # --- NiObject -- #
 class NiObject:
     """ Represents any block in a nif file. """
     
-    # These are the types of blocks we can create from an ID. Eventaully should probably
-    # be all of them. This could be done with reflection but we're keeping things simple.
+    # These are the types of blocks we can create from an ID. {classname: class, ...}
     block_types = {}
+    # This is an array indexed by buffer type, containing the associated classes.
     buffer_types = [None] * PynBufferTypes.COUNT
 
     # Buffer used to pass properties across the DLL layer. Overridden by subtypes.
@@ -478,46 +402,6 @@ class NiObjectNET(NiObject):
         self.properties.controllerID = c.id
         nifly.setController(self.file._handle, self.id, c.id)
     
-    # @property
-    # def behavior_graph_data(self):
-    #     if self._bgdata is None:
-    #         self._bgdata = _read_extra_data(self.file._handle, self._handle,
-    #                                        ExtraDataType.BehaviorGraph)
-    #     return self._bgdata
-
-    # @behavior_graph_data.setter
-    # def behavior_graph_data(self, val):
-    #     self._bgdata = val
-    #     _write_extra_data(self.file._handle, self._handle, 
-    #                      ExtraDataType.BehaviorGraph, self._bgdata)
-
-    # @property
-    # def string_data(self):
-    #     if self._strdata is None:
-    #         self._strdata = _read_extra_data(self.file._handle, self._handle,
-    #                                        ExtraDataType.String)
-    #     return self._strdata
-
-    # @string_data.setter
-    # def string_data(self, val):
-    #     self._strdata = val
-    #     _write_extra_data(self.file._handle, self._handle, 
-    #                      ExtraDataType.String, self._strdata)
-
-    # @property
-    # def cloth_data(self):
-    #     if self._clothdata is None:
-    #         self._clothdata = _read_extra_data(self.file._handle, 
-    #                                            self._handle,
-    #                                            ExtraDataType.Cloth)
-    #     return self._clothdata
-
-    # @cloth_data.setter
-    # def cloth_data(self, val):
-    #     self._clothdata = val
-    #     _write_extra_data(self.file._handle, self._handle, 
-    #                      ExtraDataType.Cloth, self._clothdata)
-
 
 class NiProperty(NiObjectNET):
     pass
@@ -796,6 +680,8 @@ class bhkRigidBody(bhkWorldObject):
 
 
 class bhkRigidBodyT(bhkRigidBody):
+    buffer_type = PynBufferTypes.bhkRigidBodyTBufType
+
     @classmethod
     def getbuf(cls, values=None):
         buf = bhkRigidBodyProps(values)
@@ -871,8 +757,89 @@ class NiCollisionObject(NiObject):
         return self._body
 
 
+class bhkPhysicsSystem(NiObject):
+    """FO4 native-physics collision data — wraps a raw Havok packfile blob."""
+
+    buffer_type = PynBufferTypes.bhkPhysicsSystemBufType
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        # Skip getNodeByID — bhkPhysicsSystem data is accessed directly via block id.
+        self._handle = handle
+        self._controller = None
+        self.file = file
+        self.id = id
+        self._parent = parent
+        self._properties = properties
+        self._blockname = None
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return bhkPhysicsSystemBuf(values)
+
+    @property
+    def data(self) -> bytes:
+        """Return the raw Havok packfile bytes stored in this block.
+        Returns b"" if the DLL functions are not yet available.
+        """
+        if nifly.getPhysicsSystemDataLen is None:
+            return b""
+        n = nifly.getPhysicsSystemDataLen(self.file._handle, self.id)
+        if n <= 0:
+            return b""
+        buf = (c_char * n)()
+        nifly.getPhysicsSystemData(self.file._handle, self.id, buf, n)
+        return bytes(buf.raw)
+
+    def write_data(self, data: bytes):
+        """Write raw Havok packfile bytes into this block."""
+        if nifly.setPhysicsSystemData is None:
+            raise RuntimeError("setPhysicsSystemData not available in this DLL version")
+        nifly.setPhysicsSystemData(self.file._handle, self.id, data, len(data))
+
+    @classmethod
+    def New(cls, file, data: bytes = None, verts=None, faces=None, parent=None):
+        """Create a new bhkPhysicsSystem block in *file*.
+
+        Pass either *data* (raw Havok packfile bytes) or *verts*/*faces* geometry.
+        When geometry is given, bhk_autopack.pack_convex_polytope is called internally.
+        """
+        if data is None:
+            from .bhk_autopack import pack_convex_polytope
+            data = pack_convex_polytope(verts, faces)
+        buf = bhkPhysicsSystemBuf()
+        buf.dataSize = len(data)
+        id = check_msg(nifly.addBlock,
+                       file._handle, None, byref(buf),
+                       parent.id if parent else NODEID_NONE)
+        ps = cls(file=file, id=id, properties=buf, parent=parent)
+        ps.write_data(data)
+        return ps
+
+    @property
+    def geometry(self):
+        """Return (verts, faces) decoded from the Havok packfile.
+
+        verts: list of (x, y, z) float tuples in Havok space.
+        faces: list of ((i0, i1, ...), group_name) tuples.
+        """
+        from .bhk_autounpack import parse_bytes
+        return parse_bytes(self.data)
+
+
 class bhkNPCollisionObject(NiCollisionObject):
-    pass
+    buffer_type = PynBufferTypes.bhkNPCollisionObjectBufType
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return bhkNPCollisionObjectBuf(values)
+
+    @property
+    def physics_system(self) -> bhkPhysicsSystem:
+        """Return the bhkPhysicsSystem block referenced by this collision object."""
+        data_id = self.properties.dataID
+        if data_id == NODEID_NONE:
+            return None
+        return self.file.read_node(id=data_id)
 
 
 class bhkNiCollisionObject(NiCollisionObject):
@@ -920,13 +887,15 @@ class NiAVObject(NiObjectNET):
             buf = bhkPCollisionObjectBuf()
         elif collision_type == PynBufferTypes.bhkNiCollisionObjectBufType:
             buf = bhkNiCollisionObjectBuf()
+        elif collision_type == PynBufferTypes.bhkNPCollisionObjectBufType:
+            buf = bhkNPCollisionObjectBuf()
         else:
             buf = bhkCollisionObjectBuf()
         if flags is not None: buf.flags = flags
-        buf.bodyID = NODEID_NONE
-        if body: buf.bodyID = body.id
         buf.targetID = self.id
-        # new_coll_id = nifly.addBlock(self.file._handle, None, byref(buf), self.id)
+        if collision_type != PynBufferTypes.bhkNPCollisionObjectBufType:
+            buf.bodyID = NODEID_NONE
+            if body: buf.bodyID = body.id
         new_coll = NiCollisionObject.New(file=self.file, properties=buf, parent=self)
         return new_coll
     
@@ -1027,127 +996,6 @@ class NiNode(NiAVObject):
                 break
             yield ed
             i += 1
-
-
-    # @property
-    # def bsx_flags(self):
-    #     """ Returns bsx flags as [name, value] pair """
-    #     if not self.file._handle: return None
-    #     buf = BSXFlagsBuf()
-    #     bsxf_id = nifly.getExtraData(self.file._handle, self.id, b"BSXFlags")
-    #     if bsxf_id == NODEID_NONE:
-    #         return None
-    #     check_return(nifly.getBlock, self.file._handle, bsxf_id, byref(buf))
-    #     return ["BSX", buf.integerData]
-
-    # @bsx_flags.setter
-    # def bsx_flags(self, val):
-    #     """ Sets BSX flags using [name, value] pair """
-    #     buf = BSXFlagsBuf()
-    #     buf.integerData = val[1]
-    #     check_msg(nifly.addBlock, self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
-
-    # @property
-    # def bounds_extra(self):
-    #     """ Returns bounds properties """
-    #     if not self.file._handle: return None
-    #     buf = BSBoundBuf()
-    #     bsxf_id = nifly.getExtraData(self.file._handle, self.id, b"BSBound")
-    #     if bsxf_id == NODEID_NONE:
-    #         return None
-    #     check_return(nifly.getBlock, self.file._handle, bsxf_id, byref(buf))
-    #     return ["BBX", buf]
-
-    # @bounds_extra.setter
-    # def bounds_extra(self, val:BSBoundBuf):
-    #     """Sets BSBound. val=(name, center, halfExtents)"""
-    #     buf = BSBoundBuf()
-    #     buf.center = val[1][:]
-    #     buf.halfExtents = val[2][:]
-    #     check_msg(nifly.addBlock, self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
-
-
-    # @property
-    # def bone_lod_extra(self):
-    #     """ Returns BSBoneLOD properties """
-    #     if not self.file._handle: return None
-    #     buf = BSBoneLODBuf()
-    #     id = nifly.getExtraData(self.file._handle, self.id, b"BSBoneLODExtraData")
-    #     if id == NODEID_NONE:
-    #         return None, []
-    #     check_return(nifly.getBlock, self.file._handle, id, byref(buf))
-        
-    #     nm = create_string_buffer(256)
-    #     check_msg(nifly.getString, self.file._handle, buf.nameID, 256, nm)
-
-    #     lodbuf = (BoneLODInfoBuf * buf.lodCount)()
-    #     check_msg(nifly.getBoneLODInfo, self.file._handle, id, byref(lodbuf), buf.lodCount)
-    #     lods = []
-    #     for li in lodbuf:
-    #         tn = create_string_buffer(256)
-    #         check_msg(nifly.getString, self.file._handle, li.nameID, 256, tn)
-    #         lods.append( (tn.value.decode('utf-8'), li.distance) )
-
-    #     return (nm.value.decode('utf-8'), lods)
-
-    # @bone_lod_extra.setter
-    # def bone_lod_extra(self, val):
-    #     """Sets bone LOD extra data. val=(name, ((lodname, distance), ...) )"""
-    #     buf = BSBoneLODBuf()
-    #     buf.lodCount = 0
-    #     name, lodlist = val
-    #     id = check_msg(nifly.addBlock, 
-    #                    self.file._handle, name.encode('utf-8'), byref(buf), self.id)
-
-    #     lodbuf = (BoneLODInfoBuf * len(lodlist))()
-    #     for i, lod in enumerate(lodlist):
-    #         lodbuf[i].distance = lod[1]
-    #         lodbuf[i].nameID = check_msg(
-    #             nifly.addString, self.file._handle, lod[0].encode('utf-8'))
-    #     check_return(nifly.setBoneLOD, self.file._handle, id, len(lodlist), byref(lodbuf))
-
-
-    # @property
-    # def inventory_marker(self):
-    #     """ Reads BSInvMarker as [name, x, y, z, zoom] """
-    #     if not self.file._handle: return []
-    #     buf = BSInvMarkerBuf()
-    #     namebuf = create_string_buffer(256)
-    #     im_id = nifly.getExtraData(self.file._handle, self.id, b"BSInvMarker")
-    #     if im_id != NODEID_NONE:
-    #         check_return(nifly.getBlock, self.file._handle, im_id, byref(buf))
-    #         check_msg(nifly.getString, self.file._handle, buf.nameID, 256, namebuf)
-
-    #         return [namebuf.value.decode('utf-8'), buf.rot0, buf.rot1, buf.rot2, buf.zoom]
-    #     else:
-    #         return []
-
-    # @inventory_marker.setter
-    # def inventory_marker(self, val):
-    #     """ WRites BSInvMarker as [name, x, y, z, zoom] """
-    #     buf = BSInvMarkerBuf()
-    #     buf.rot0 = val[1]
-    #     buf.rot1 = val[2]
-    #     buf.rot2 = val[3]
-    #     buf.zoom = val[4]
-    #     nifly.addBlock(self.file._handle, val[0].encode('utf-8'), byref(buf), self.id)
-
-    # def get_integer_extra_data(self, name):
-    #     """Get integer extra data by name. Returns the integer value or None if not found."""
-    #     if not self.file._handle: 
-    #         return None
-    #     buf = NiIntegerExtraDataBuf()
-    #     extra_id = nifly.getExtraData(self.file._handle, self.id, name.encode('utf-8'))
-    #     if extra_id == NODEID_NONE:
-    #         return None
-    #     check_return(nifly.getBlock, self.file._handle, extra_id, byref(buf))
-    #     return buf.integerData
-
-    # def set_integer_extra_data(self, name, value):
-    #     """Set integer extra data by name. Creates a new block if it doesn't exist."""
-    #     buf = NiIntegerExtraDataBuf()
-    #     buf.integerData = value
-    #     check_msg(nifly.addBlock, self.file._handle, name.encode('utf-8'), byref(buf), self.id)
 
 
 class BSFaceGenNiNode(NiNode):
@@ -1701,18 +1549,6 @@ class NiBlendInterpolator(NiObject):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         if parent: parent.interpolator = self
         
-    # @property
-    # def data(self):
-    #     if self._data: return self._data
-    #     if self.properties.dataID == NODEID_NONE: return None
-    #     self._data = NiFloatData(file=self.file, id=self.properties.dataID)
-    #     return self._data
-
-    # @data.setter
-    # def data(self, c):
-    #     self._data = c
-    #     self.properties.dataID = c.id
-
     @classmethod
     def getbuf(cls, values=None):
         return NiBlendInterpolatorBuf(values)
@@ -2724,7 +2560,7 @@ class BSXFlags(NiExtraData):
 
 class BSConnectPointParents(NiExtraData):
     """
-    These are a type of extra data but they get special handling. So this definition 
+    These are a type of extra data but they get special handling. So this definition
     is a dummy so that reading extra data doesn't trip over them.
     TODO: Handle them like furniture markers.
     """
@@ -2733,6 +2569,11 @@ class BSConnectPointParents(NiExtraData):
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
         self._parents = None
+
+
+class BSConnectPointChildren(NiExtraData):
+    """Dummy class so BSConnectPoint::Children blocks are recognised and silently skipped."""
+    buffer_type = PynBufferTypes.NiNodeBufType
 
     @classmethod 
     def getbuf(cls, values=None):
@@ -4515,51 +4356,6 @@ class NifFile:
             nifly.setClothExtraData(self._handle, None, 
                                            s[0].encode('utf-8'), s[1], len(s[1])-1)
 
-    # @property
-    # def behavior_graph_data(self):
-    #     if self._bgdata is None:
-    #         self._bgdata = _read_extra_data(self._handle, None,
-    #                                        ExtraDataType.BehaviorGraph)
-    #     return self._bgdata
-
-    # @behavior_graph_data.setter
-    # def behavior_graph_data(self, val):
-    #     self._bgdata = val
-    #     _write_extra_data(self._handle, None, 
-    #                      ExtraDataType.BehaviorGraph, self._bgdata)
-
-    # @property
-    # def string_data(self):
-    #     if self._strdata is None:
-    #         self._strdata = _read_extra_data(self._handle, None,
-    #                                        ExtraDataType.String)
-    #     return self._strdata
-
-    # @string_data.setter
-    # def string_data(self, val):
-    #     self._strdata = val
-    #     _write_extra_data(self._handle, None, 
-    #                      ExtraDataType.String, self._strdata)
-
-    # @property
-    # def furniture_markers(self):
-    #     if not self._furniture_markers:
-    #         self._furniture_markers = []
-    #         if self._handle:
-    #             for i in range(0, 100):
-    #                 buf = FurnitureMarkerBuf()
-    #                 if not nifly.getFurnMarker(self._handle, i, buf):
-    #                     break
-    #                 self._furniture_markers.append(buf)
-    #     return self._furniture_markers
-
-    # @furniture_markers.setter
-    # def furniture_markers(self, value):
-    #     bufs = (FurnitureMarkerBuf * len(value))()
-    #     for i, v in enumerate(value):
-    #         bufs[i] = v
-    #     nifly.setFurnMarkers(self._handle, len(value), bufs)
-
 
     @property
     def connect_points_parent(self):
@@ -4647,6 +4443,7 @@ class NifFile:
         check_msg(nifly.getBlockname, self._handle, id, buf, self.max_string_len)
         bn = buf.value.decode('utf-8')
         if bn == "BSConnectPoint::Parents": bn = "BSConnectPointParents"
+        if bn == "BSConnectPoint::Children": bn = "BSConnectPointChildren"
         if bn in NiObject.block_types:
             node = NiObject.block_types[bn](
                 id=id, file=self, handle=handle, properties=properties, parent=parent)
@@ -4775,7 +4572,7 @@ class hkxSkeletonFile(NifFile):
             rotlist = poselist[i+1].strip(' ()\t\n').split()
             if len(rotlist) == 4:
                 # Note this quaternion may not be normalized
-                rot = quaternion_to_matrix(
+                rot = PM.quaternion_to_matrix(
                     [float(rotlist[3]), float(rotlist[0]), float(rotlist[1]), float(rotlist[2])])
             else:
                 self.warn(f"Pose list does not have good rotation at index {j}: {poselist[i+1]}")

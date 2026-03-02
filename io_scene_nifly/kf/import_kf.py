@@ -21,13 +21,6 @@ from .. import bl_info
 
 log = logging.getLogger("pynifly")
 
-# class ImportSettingsKF(PynIntFlag):
-#     create_bones = 1
-#     rename_bones = 1<<1
-#     import_anims = 1<<2
-#     rename_bones_niftools = 1<<3
-#     roll_bones_nift = 1<<4
-
 
 class ImportKF(bpy.types.Operator, ImportHelper):
     """Import Blender animation to an armature"""
