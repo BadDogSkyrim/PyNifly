@@ -14,7 +14,13 @@
       "Bash(python scripts/CollisionReport.py \"tests/FO4/Shotgun\")",
       "Bash(python scripts/CollisionReport.py \"tests/FO4/Shotgun/Stock.nif\")",
       "Bash(python scripts/CollisionReport.py \"tests/tests/FO4/Shotgun\")",
-      "Bash(python -:*)"
+      "Bash(python -:*)",
+      "Bash(python tests/pynifly_tests.py TEST_FO4_MULTI_POLYTOPE_ROUNDTRIP)",
+      "Bash(python pynifly_test_runner.py TEST_FO4_MULTI_POLYTOPE_ROUNDTRIP)",
+      "Read(//c/Users/hughr/.claude/projects/c--Modding-PyNifly/memory/**)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\hughr\\.claude\\projects\\c--Modding-PyNifly\\memory"
     ]
   }
 }

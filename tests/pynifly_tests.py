@@ -3038,6 +3038,70 @@ def TEST_FO4_PHYSICS_PACK_BOX():
     assert TT.is_lt(max_err, 1e-5, f"Box round-trip: max vertex error {max_err:.2e}")
 
 
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_MULTI_POLYTOPE_ROUNDTRIP():
+    """pack_multi_polytope round-trips the two polytopes from DrumMag compound."""
+    from pyn.bhk_autopack import pack_shapes
+    from pyn.bhk_autounpack import parse_bytes, CollisionShape
+
+    testfile = r"tests/FO4/Shotgun/DrumMag.nif"
+    nif = NifFile(testfile)
+
+    # Get the raw physics system bytes and decode them.
+    c = nif.root.collision_object
+    assert c is not None, "DrumMag has a collision object"
+    ps = c.physics_system
+    assert ps is not None, "Collision object has a bhkPhysicsSystem"
+
+    raw_shapes = parse_bytes(ps.data)
+
+    # Flatten compound → leaf polytopes (same as import_bhkNPCollisionObject _collect).
+    leaf_shapes = []
+    def _collect(shape_list):
+        for s in shape_list:
+            if s.shape_type == 'compound':
+                _collect(s.children)
+            else:
+                leaf_shapes.append(s)
+    _collect(raw_shapes)
+
+    assert TT.is_eq(len(leaf_shapes), 2, "DrumMag has 2 leaf shapes")
+    assert TT.is_eq(leaf_shapes[0].shape_type, 'polytope', "Shape 0 is polytope")
+    assert TT.is_eq(leaf_shapes[1].shape_type, 'polytope', "Shape 1 is polytope")
+
+    # Apply instance transforms (as import_bhkNPCollisionObject does).
+    def apply_transform(shape):
+        if shape.transform is not None:
+            p, r = shape.transform.position, shape.transform.rotation
+            xverts = [
+                (r[0][0]*v[0]+r[0][1]*v[1]+r[0][2]*v[2]+p[0],
+                 r[1][0]*v[0]+r[1][1]*v[1]+r[1][2]*v[2]+p[1],
+                 r[2][0]*v[0]+r[2][1]*v[1]+r[2][2]*v[2]+p[2])
+                for v in shape.verts
+            ]
+        else:
+            xverts = list(shape.verts)
+        return CollisionShape(
+            shape_type=shape.shape_type,
+            name=shape.name,
+            transform=None,
+            verts=xverts,
+            faces=shape.faces,
+            convex_radius=shape.convex_radius,
+            children=[],
+        )
+
+    export_shapes = [apply_transform(s) for s in leaf_shapes]
+
+    # Pack and re-parse.
+    packed = pack_shapes(export_shapes)
+    assert TT.is_gt(len(packed), 0, "pack_shapes produced non-empty bytes")
+
+    reimported = parse_bytes(packed)
+    assert TT.is_eq(len(reimported), 2, "Re-parsed packfile has 2 shapes")
+    assert TT.is_eq(reimported[0].shape_type, 'polytope', "Reimported shape 0 is polytope")
+    assert TT.is_eq(reimported[1].shape_type, 'polytope', "Reimported shape 1 is polytope")
+
 
 ###################### Test execution framework #########################
 

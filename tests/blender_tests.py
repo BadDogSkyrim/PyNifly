@@ -5380,6 +5380,27 @@ def TEST_COLLISION_FO4_DRUMAG():
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
+    # Check the exported NIF directly at pynifly level before reimporting in Blender.
+    from pyn.pynifly import NifFile as PynNifFile
+    from pyn.bhk_autounpack import parse_bytes as _parse_bytes
+    _chk_nif = PynNifFile(outfile)
+    _chk_coll = _chk_nif.root.collision_object
+    assert TT.is_neq(_chk_coll, None, "Exported NIF has a collision object")
+    _chk_ps = _chk_coll.physics_system
+    assert TT.is_neq(_chk_ps, None, "Exported NIF has a bhkPhysicsSystem")
+    _chk_raw = _chk_ps.data
+    assert TT.is_gt(len(_chk_raw), 0, "Exported bhkPhysicsSystem has non-empty data")
+    _chk_decoded = _parse_bytes(_chk_raw)
+    _chk_leaf = []
+    def _chk_collect(sl):
+        for s in sl:
+            if s.shape_type == 'compound':
+                _chk_collect(s.children)
+            else:
+                _chk_leaf.append(s)
+    _chk_collect(_chk_decoded)
+    assert TT.is_eq(len(_chk_leaf), 2, "Exported packfile decodes to 2 leaf shapes")
+
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete()
 

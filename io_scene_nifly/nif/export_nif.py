@@ -453,7 +453,10 @@ class NifExporter:
             self.inv_marker = obj
 
         elif obj.type == 'EMPTY':
-            if 'BSBehaviorGraphExtraData_Name' in obj.keys():
+            if obj.get('pynRigidBody') == 'bhkPhysicsSystem':
+                pass  # Multi-shape collision container: exported via COPY_TRANSFORMS on target
+
+            elif 'BSBehaviorGraphExtraData_Name' in obj.keys():
                 self.bg_data.add(obj)
 
             elif 'NiStringExtraData_Name' in obj.keys() and obj.parent \

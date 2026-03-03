@@ -12,7 +12,7 @@ import logging
 logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
 log = logging.getLogger("pynifly")
 
-CONNECT_POINT_SCALE = 5.0
+CONNECT_POINT_SCALE = 1.0
 
 
 def connectpoint_transform(cp, scale=1.0):
