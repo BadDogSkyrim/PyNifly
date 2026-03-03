@@ -797,15 +797,21 @@ class bhkPhysicsSystem(NiObject):
         nifly.setPhysicsSystemData(self.file._handle, self.id, data, len(data))
 
     @classmethod
-    def New(cls, file, data: bytes = None, verts=None, faces=None, parent=None):
+    def New(cls, file, data: bytes = None, shapes=None, verts=None, faces=None, parent=None):
         """Create a new bhkPhysicsSystem block in *file*.
 
-        Pass either *data* (raw Havok packfile bytes) or *verts*/*faces* geometry.
-        When geometry is given, bhk_autopack.pack_convex_polytope is called internally.
+        Pass one of:
+          *data*   — raw Havok packfile bytes
+          *shapes* — List[CollisionShape] from bhk_autounpack; packed via pack_shapes()
+          *verts* + *faces* — raw geometry; packed via pack_convex_polytope()
         """
         if data is None:
-            from .bhk_autopack import pack_convex_polytope
-            data = pack_convex_polytope(verts, faces)
+            if shapes is not None:
+                from .bhk_autopack import pack_shapes
+                data = pack_shapes(shapes)
+            else:
+                from .bhk_autopack import pack_convex_polytope
+                data = pack_convex_polytope(verts, faces)
         buf = bhkPhysicsSystemBuf()
         buf.dataSize = len(data)
         id = check_msg(nifly.addBlock,
@@ -817,10 +823,16 @@ class bhkPhysicsSystem(NiObject):
 
     @property
     def geometry(self):
-        """Return (verts, faces) decoded from the Havok packfile.
+        """Return a list of CollisionShape objects decoded from the Havok packfile.
 
-        verts: list of (x, y, z) float tuples in Havok space.
-        faces: list of ((i0, i1, ...), group_name) tuples.
+        Each CollisionShape has:
+          shape_type: str — "polytope", "compressed_mesh", or "compound"
+          name: str — suggested Blender object name
+          transform: Optional[BodyTransform] — body position/rotation (None = identity)
+          verts: List[Vert3] — (x, y, z) float tuples in Havok space
+          faces: List[Face] — vertex index tuples (empty for compound shapes)
+          convex_radius: float — Minkowski expansion radius (0.0 for mesh/compound)
+          children: List[CollisionShape] — non-empty only for compound shapes
         """
         from .bhk_autounpack import parse_bytes
         return parse_bytes(self.data)

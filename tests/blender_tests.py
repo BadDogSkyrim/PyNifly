@@ -5230,35 +5230,164 @@ def TEST_COLLISION_XFORM():
 
 @TT.category('FO4', 'PHYSICS')
 def TEST_COLLISION_FO4_CAPSULE_STAIRS():
-    """FO4 bhkPhysicsSystem: both collision shapes overlap the visual mesh bounds"""
+    """FO4 bhkPhysicsSystem: compressed_mesh and polytope imported as separate objects.
+
+    CapsuleExtStairsFree01.nif contains a single bhkPhysicsSystem shared by the
+    root node and StairHelper03.  That system holds two bodies: one compressed-mesh
+    stair shape and one convex-polytope bounding hull.
+
+    Expected import result:
+      - Exactly two shape objects (one per body), both named bhkPhysicsSystem_*.
+      - The shared physics system is imported only once despite two referencing nodes.
+      - The polytope object has Push (GN) and Bevel modifiers for its convex radius.
+      - Combined collision bounds overlap the visual mesh on every axis.
+
+    Expected export/round-trip:
+      - Both shape types are preserved after export -> reimport.
+    """
     testfile = TTB.test_file(r"tests\FO4\CapsuleExtStairsFree01.nif")
+    outfile  = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_CAPSULE_STAIRS.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    # root + StairHelper03 both reference the same bhkPhysicsSystem block;
-    # it should be imported exactly once.
     physics_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
-    assert TT.is_eq(len(physics_shapes), 1, "Shared bhkPhysicsSystem imported exactly once")
 
-    # Get world-space bounds of the visual mesh
+    # Separate by shape type.
+    cm_shapes   = [o for o in physics_shapes
+                   if o.get('pynCollisionShapeType') == 'compressed_mesh']
+    poly_shapes = [o for o in physics_shapes
+                   if o.get('pynCollisionShapeType') == 'polytope']
+
+    # The shared physics system must be imported exactly once (not once per node).
+    # With 2 bodies per system and 1 system, expect exactly 2 shape objects total.
+    assert TT.is_eq(len(cm_shapes),   1, "One compressed_mesh shape imported")
+    assert TT.is_eq(len(poly_shapes), 1, "One polytope shape imported")
+
+    # Polytope should have Push (GN) and Bevel modifiers for the convex radius.
+    poly_obj   = poly_shapes[0]
+    push_mods  = [m for m in poly_obj.modifiers if m.name == 'bhkPush']
+    bevel_mods = [m for m in poly_obj.modifiers if m.name == 'bhkBevel']
+    assert TT.is_gt(len(push_mods),  0, "Polytope has a Push modifier")
+    assert TT.is_gt(len(bevel_mods), 0, "Polytope has a Bevel modifier")
+
+    # Combined bounds of all shapes must overlap the visual mesh on every axis.
     mesh_obj = bpy.data.objects["CapsuleExtStairsFree01:1"]
     mxf = mesh_obj.matrix_world
     mesh_xs = [(mxf @ v.co).x for v in mesh_obj.data.vertices]
     mesh_ys = [(mxf @ v.co).y for v in mesh_obj.data.vertices]
     mesh_zs = [(mxf @ v.co).z for v in mesh_obj.data.vertices]
 
-    for ps_obj in physics_shapes:
+    all_cxs, all_cys, all_czs = [], [], []
+    for ps_obj in cm_shapes + poly_shapes:
         pxf = ps_obj.matrix_world
-        cxs = [(pxf @ v.co).x for v in ps_obj.data.vertices]
-        cys = [(pxf @ v.co).y for v in ps_obj.data.vertices]
-        czs = [(pxf @ v.co).z for v in ps_obj.data.vertices]
-        name = ps_obj.name
-        # Collision bbox must overlap mesh bbox on every axis (within 5 units)
-        assert TT.is_gt(max(cxs), min(mesh_xs) - 5, f"{name} X max overlaps mesh X min")
-        assert TT.is_lt(min(cxs), max(mesh_xs) + 5, f"{name} X min overlaps mesh X max")
-        assert TT.is_gt(max(cys), min(mesh_ys) - 5, f"{name} Y max overlaps mesh Y min")
-        assert TT.is_lt(min(cys), max(mesh_ys) + 5, f"{name} Y min overlaps mesh Y max")
-        assert TT.is_gt(max(czs), min(mesh_zs) - 5, f"{name} Z max overlaps mesh Z min")
-        assert TT.is_lt(min(czs), max(mesh_zs) + 5, f"{name} Z min overlaps mesh Z max")
+        all_cxs.extend((pxf @ v.co).x for v in ps_obj.data.vertices)
+        all_cys.extend((pxf @ v.co).y for v in ps_obj.data.vertices)
+        all_czs.extend((pxf @ v.co).z for v in ps_obj.data.vertices)
+
+    assert TT.is_gt(max(all_cxs), min(mesh_xs) - 5, "Collision X max overlaps mesh X min")
+    assert TT.is_lt(min(all_cxs), max(mesh_xs) + 5, "Collision X min overlaps mesh X max")
+    assert TT.is_gt(max(all_cys), min(mesh_ys) - 5, "Collision Y max overlaps mesh Y min")
+    assert TT.is_lt(min(all_cys), max(mesh_ys) + 5, "Collision Y min overlaps mesh Y max")
+    assert TT.is_gt(max(all_czs), min(mesh_zs) - 5, "Collision Z max overlaps mesh Z min")
+    assert TT.is_lt(min(all_czs), max(mesh_zs) + 5, "Collision Z min overlaps mesh Z max")
+
+    # ---- Export and round-trip verify ----------------------------------------
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete()
+
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+
+    chk_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    chk_cm     = [o for o in chk_shapes if o.get('pynCollisionShapeType') == 'compressed_mesh']
+    chk_poly   = [o for o in chk_shapes if o.get('pynCollisionShapeType') == 'polytope']
+    assert TT.is_eq(len(chk_cm),   1, "Round-trip preserves compressed_mesh shape")
+    assert TT.is_eq(len(chk_poly), 1, "Round-trip preserves polytope shape")
+
+
+@TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_DRUMAG():
+    """FO4 bhkPhysicsSystem: compound with multiple polytope children.
+
+    tests/tests/FO4/Shotgun/DrumMag.nif has a single bhkNPCollisionObject on
+    CombatShotgunDrumMagazine.  Its bhkPhysicsSystem contains one
+    hknpDynamicCompoundShape whose children are two convex polytopes
+    (each 8 verts / 12 faces).
+
+    Expected import result:
+      - Two polytope objects (compound children flattened to leaves).
+      - Both tagged pynCollisionShapeType='polytope'.
+      - Both have Push (GN) and Bevel modifiers (convex_radius > 0 for each).
+
+    Expected export/round-trip:
+      - pack_shapes dispatches to pack_multi_polytope (two-body all-polytope).
+      - Reimport recovers exactly two polytope shapes.
+    """
+    testfile = TTB.test_file(r"tests\FO4\Shotgun\DrumMag.nif")
+    outfile  = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_DRUMAG.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    physics_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    poly_shapes    = [o for o in physics_shapes
+                      if o.get('pynCollisionShapeType') == 'polytope']
+
+    # Compound has 2 polytope children → 2 separate Blender objects.
+    assert TT.is_eq(len(poly_shapes), 2, "Two polytope shapes imported from compound")
+
+    # Each should have Push (GN) and Bevel modifiers (both children have convex_radius>0).
+    for ps_obj in poly_shapes:
+        push_mods  = [m for m in ps_obj.modifiers if m.name == 'bhkPush']
+        bevel_mods = [m for m in ps_obj.modifiers if m.name == 'bhkBevel']
+        assert TT.is_gt(len(push_mods),  0, f"{ps_obj.name} has Push modifier")
+        assert TT.is_gt(len(bevel_mods), 0, f"{ps_obj.name} has Bevel modifier")
+
+    # ---- Bounds check: shell-matching polytope vs ShotgunShell004:0 mesh ------
+    shell_obj = bpy.data.objects.get('ShotgunShell004:0')
+    assert TT.is_neq(shell_obj, None, "ShotgunShell004:0 mesh exists")
+
+    def obj_world_bounds(ob):
+        vs = [ob.matrix_world @ v.co for v in ob.data.vertices]
+        xs = [v.x for v in vs]; ys = [v.y for v in vs]; zs = [v.z for v in vs]
+        return min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
+
+    sx0, sx1, sy0, sy1, sz0, sz1 = obj_world_bounds(shell_obj)
+    sy_span = sy1 - sy0  # ≈ 6.148 Blender units
+
+    # The shell-matching polytope is the smaller one (shell collision << drum magazine collision).
+    def bbox_volume(ob):
+        b = obj_world_bounds(ob)
+        return (b[1]-b[0]) * (b[3]-b[2]) * (b[5]-b[4])
+
+    shell_poly = min(poly_shapes, key=bbox_volume)
+    px0, px1, py0, py1, pz0, pz1 = obj_world_bounds(shell_poly)
+
+    # y-span should be within 2 Blender units of the shell mesh y-span (≈6.15 vs ≈5.47).
+    assert TT.is_lt(abs((py1 - py0) - sy_span), 2.0,
+                    "Shell polytope y-span close to shell mesh y-span")
+
+    # x and y extents should overlap with the shell mesh.
+    assert TT.is_lt(px0, sx1, "Shell polytope x-min < shell mesh x-max (x extents overlap)")
+    assert TT.is_lt(sy0, py1, "Shell mesh y-min < shell polytope y-max (y extents overlap)")
+
+    # z-center of collision polytope is offset below the shell mesh z-center.
+    pz_center = (pz0 + pz1) / 2
+    sz_center = (sz0 + sz1) / 2
+    assert TT.is_lt(pz_center, sz_center,
+                    "Shell polytope z-center is offset below shell mesh z-center")
+
+    # ---- Export and round-trip verify ----------------------------------------
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete()
+
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+
+    chk_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    chk_poly   = [o for o in chk_shapes if o.get('pynCollisionShapeType') == 'polytope']
+    assert TT.is_eq(len(chk_poly), 2, "Round-trip preserves both polytope shapes")
 
 
 @TT.category('FO4', 'PHYSICS')

@@ -44,6 +44,40 @@ BOX_SHAPE_IGNORE = ['bhkDimensions']
 CAPSULE_SHAPE_IGNORE = ['point1', 'point2']
 
 COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5) # Default color
+
+
+def _get_or_create_push_nodegroup():
+    """Return a Geometry Nodes group that expands a convex hull by Radius.
+
+    Pipeline: Extrude Mesh (individual faces, offset=Radius) → Convex Hull.
+
+    Extrude Mesh pushes each face outward by exactly Radius along its own normal.
+    Convex Hull then wraps all the resulting vertices, which places each corner
+    vertex at the intersection of the three adjacent offset face planes — the
+    mathematically correct Minkowski expansion vertex.  The triangular facets
+    the hull adds at original corners approximate the sphere caps.
+    The node group is created once and reused for all polytope collision objects.
+    """
+    name = 'bhkPushOut'
+    if name in bpy.data.node_groups:
+        return bpy.data.node_groups[name]
+    ng = bpy.data.node_groups.new(name, 'GeometryNodeTree')
+    # Blender 4.0+ / 5.0 uses ng.interface rather than ng.inputs/outputs
+    ng.interface.new_socket('Geometry', in_out='INPUT',  socket_type='NodeSocketGeometry')
+    ng.interface.new_socket('Geometry', in_out='OUTPUT', socket_type='NodeSocketGeometry')
+    ng.interface.new_socket('Radius',   in_out='INPUT',  socket_type='NodeSocketFloat')
+    gin  = ng.nodes.new('NodeGroupInput')
+    gout = ng.nodes.new('NodeGroupOutput')
+    ext  = ng.nodes.new('GeometryNodeExtrudeMesh')
+    ext.mode = 'FACES'
+    ext.inputs['Individual'].default_value = True
+    hull = ng.nodes.new('GeometryNodeConvexHull')
+    lnk  = ng.links.new
+    lnk(gin.outputs['Geometry'], ext.inputs['Mesh'])
+    lnk(gin.outputs['Radius'],   ext.inputs['Offset Scale'])
+    lnk(ext.outputs['Mesh'],     hull.inputs['Geometry'])
+    lnk(hull.outputs['Convex Hull'], gout.inputs['Geometry'])
+    return ng
 COLLISION_COLOR_MAP = {'bhkRigidBody': (0.0, 0.8, 0.2, 0.3),
                        'bhkRigidBodyT': (0, 1.0, 0, 0.3),
                        'bhkSimpleShapePhantom': (0.8, 0.8, 0, 0.3),}
@@ -375,8 +409,20 @@ class CollisionHandler():
     def import_bhkNPCollisionObject(self, c, parentxf: Matrix):
         """Import FO4 native-physics collision from bhkPhysicsSystem binary data.
 
-        Reads the raw Havok packfile bytes from the bhkPhysicsSystem block,
-        decodes them into triangle geometry, and creates a Blender mesh.
+        Creates one Blender mesh object per leaf shape decoded from the packfile.
+        Compound shapes are recursed so their children become individual objects.
+
+        Single-shape systems: the shape object itself is returned as the constraint
+        target (backward-compatible).
+
+        Multi-shape systems: an Empty named "bhkPhysicsSystem" is created as the
+        constraint target; all shape objects are parented to it as siblings.
+
+        For polytope shapes with a non-zero convex radius, a Geometry Nodes Push
+        modifier and a Bevel modifier are added to visualise the Minkowski expansion.
+        The base mesh vertices (before modifiers) are the raw inner hull; the
+        convex radius is stored in pynCollisionRadius for use at export time.
+
         Returns None silently if the DLL functions are not yet available.
         """
         from ..pyn.bhk_autounpack import parse_bytes
@@ -395,32 +441,109 @@ class CollisionHandler():
             return None  # DLL not updated yet or block has no data; skip silently
 
         try:
-            verts, faces = parse_bytes(raw)
+            shapes = parse_bytes(raw)
         except RuntimeError as e:
-            self.warn(f"bhkPhysicsSystem decode failed: {e}") 
+            self.warn(f"bhkPhysicsSystem decode failed: {e}")
+            return None
+
+        # Collect leaf shapes, recursing into any compound containers.
+        leaf_shapes = []
+        def _collect(shape_list):
+            for s in shape_list:
+                if s.shape_type == 'compound':
+                    _collect(s.children)
+                else:
+                    leaf_shapes.append(s)
+        _collect(shapes)
+
+        if not leaf_shapes:
             return None
 
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
-        scaled_verts = [[x * sf, y * sf, z * sf] for x, y, z in verts]
-        tri_faces = [face for face, _ in faces]
+        multi = len(leaf_shapes) > 1
 
-        m = bpy.data.meshes.new("bhkPhysicsSystem")
-        m.from_pydata(scaled_verts, [], tri_faces)
-        m.update()
+        # For multi-shape systems use an Empty as the constraint-target container so
+        # all shape objects are siblings in the outliner rather than parent→child.
+        if multi:
+            container = bpy.data.objects.new("bhkPhysicsSystem", None)
+            container.matrix_world = parentxf.copy()
+            container.empty_display_type = 'PLAIN_AXES'
+            container.empty_display_size = 0.1
+            container['pynRigidBody'] = 'bhkPhysicsSystem'
+            self.collection.objects.link(container)
+            anchor = container
+        else:
+            container = None
+            anchor = None  # will be set to the single shape object
 
-        obj = bpy.data.objects.new("bhkPhysicsSystem", m)
-        obj.matrix_world = parentxf.copy()
-        self.collection.objects.link(obj)
+        for i, s in enumerate(leaf_shapes):
+            # Apply body transform then scale to Blender units.
+            if s.transform is not None:
+                p, r = s.transform.position, s.transform.rotation
+                xverts = [
+                    (r[0][0]*v[0]+r[0][1]*v[1]+r[0][2]*v[2]+p[0],
+                     r[1][0]*v[0]+r[1][1]*v[1]+r[1][2]*v[2]+p[1],
+                     r[2][0]*v[0]+r[2][1]*v[1]+r[2][2]*v[2]+p[2])
+                    for v in s.verts
+                ]
+            else:
+                xverts = list(s.verts)
 
-        ObjectSelect([obj])
-        bpy.ops.rigidbody.object_add(type='PASSIVE')
-        obj.rigid_body.collision_shape = 'MESH'
-        obj.color = COLLISION_COLOR
-        obj.display_type = 'WIRE'
-        obj['pynRigidBody'] = 'bhkPhysicsSystem'
-        self._physics_system_cache[ps.id] = obj
+            scaled_verts = [[x*sf, y*sf, z*sf] for x, y, z in xverts]
 
-        return obj
+            # Name: single-shape systems keep the legacy name; multi-shape use
+            # a type suffix so compressed_mesh and polytope are distinguishable.
+            if len(leaf_shapes) == 1:
+                name = "bhkPhysicsSystem"
+            elif s.shape_type == 'compressed_mesh':
+                name = "bhkPhysicsSystem_cm"
+            else:
+                name = "bhkPhysicsSystem_poly"
+
+            m = bpy.data.meshes.new(name)
+            m.from_pydata(scaled_verts, [], list(s.faces))
+            m.update()
+
+            obj = bpy.data.objects.new(name, m)
+            obj.matrix_world = parentxf.copy()
+            self.collection.objects.link(obj)
+
+            ObjectSelect([obj])
+            bpy.ops.rigidbody.object_add(type='PASSIVE')
+            obj.rigid_body.collision_shape = 'MESH'
+            obj.color = COLLISION_COLOR
+            obj.display_type = 'WIRE'
+            obj['pynRigidBody'] = 'bhkPhysicsSystem'
+            obj['pynCollisionShapeType'] = s.shape_type
+
+            # For polytopes, store the convex radius and add visualisation modifiers.
+            if s.shape_type == 'polytope' and s.convex_radius > 0.0:
+                radius_bl = s.convex_radius * sf
+                obj['pynCollisionRadius'] = radius_bl
+                # Push + Convex Hull: expands faces outward by radius_bl, then
+                # wraps with a convex hull to place corner vertices at the exact
+                # intersection of the offset face planes (Minkowski expansion).
+                ng = _get_or_create_push_nodegroup()
+                push = obj.modifiers.new('bhkPush', 'NODES')
+                push.node_group = ng
+                for item in ng.interface.items_tree:
+                    if getattr(item, 'in_out', None) == 'INPUT' and item.name == 'Radius':
+                        push[item.identifier] = radius_bl
+                        break
+                # Bevel: rounds the hull edges to approximate the Minkowski sphere.
+                bev = obj.modifiers.new('bhkBevel', 'BEVEL')
+                bev.width = radius_bl
+                bev.limit_method = 'NONE'
+                bev.segments = 2
+
+            if container is not None:
+                obj.parent = container
+                obj.matrix_local = Matrix.Identity(4)
+            else:
+                anchor = obj  # single shape: the shape itself is the anchor
+
+        self._physics_system_cache[ps.id] = anchor
+        return anchor
 
 
     collision_shape_importers = {
@@ -534,9 +657,8 @@ class CollisionHandler():
             xf = parentObj.matrix_world
 
         if c.blockname == "bhkNPCollisionObject":
-            # Physics verts from parse_bytes are already in NIF world space (body
-            # transforms baked in), so only the global import transform applies —
-            # not the individual node's world matrix.
+            # Body transforms from the Havok packfile are applied during flatten;
+            # only the global import transform applies here.
             np_xf = importer.import_xf
             sh = importer.import_bhkNPCollisionObject(c, np_xf)
             if not sh: return None  # DLL not ready or no data; skip silently
@@ -873,14 +995,53 @@ class CollisionHandler():
             targnode = self.nif.nodes[targobj.name]
 
         if coll.get('pynRigidBody') == 'bhkPhysicsSystem':
+            from ..pyn.bhk_autounpack import CollisionShape
             sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game]
-            world_mat = self.export_xf @ coll.matrix_world
-            verts = [(*(world_mat @ v.co / sf),) for v in coll.data.vertices]
-            faces = [list(p.vertices) for p in coll.data.polygons]
+
+            # Collect the main collision object and any children that carry
+            # pynCollisionShapeType (set during import for multi-shape systems).
+            shape_objs = []
+            if coll.get('pynCollisionShapeType') in ('compressed_mesh', 'polytope'):
+                shape_objs.append(coll)
+            for ch in coll.children:
+                if ch.get('pynCollisionShapeType') in ('compressed_mesh', 'polytope'):
+                    shape_objs.append(ch)
+
             coll_node = targnode.add_collision(
                 None, flags=flags or 0,
                 collision_type=PynBufferTypes.bhkNPCollisionObjectBufType)
-            bhkPhysicsSystem.New(self.nif, verts=verts, faces=faces, parent=coll_node)
+
+            if shape_objs:
+                # Build CollisionShape objects from Blender mesh data and pack
+                # using the appropriate packer (polytope, compressed_mesh, or mixed).
+                shapes = []
+                for obj in shape_objs:
+                    world_mat = self.export_xf @ obj.matrix_world
+                    verts = [tuple(world_mat @ v.co / sf) for v in obj.data.vertices]
+                    faces = [list(p.vertices) for p in obj.data.polygons]
+                    shape_type = obj['pynCollisionShapeType']
+                    # convex_radius is stored in Blender units; convert back to Havok.
+                    radius = obj.get('pynCollisionRadius', 0.0) / sf
+                    shapes.append(CollisionShape(
+                        shape_type=shape_type,
+                        name=obj.name,
+                        transform=None,
+                        verts=verts,
+                        faces=faces,
+                        convex_radius=radius,
+                        children=[],
+                    ))
+                # pack_shapes requires compressed_mesh before polytope.
+                shapes.sort(key=lambda s: 0 if s.shape_type == 'compressed_mesh' else 1)
+                bhkPhysicsSystem.New(self.nif, shapes=shapes, parent=coll_node)
+            else:
+                # Legacy path: no pynCollisionShapeType tag — treat the whole
+                # mesh as a single convex polytope (pre-existing behaviour).
+                world_mat = self.export_xf @ coll.matrix_world
+                verts = [(*(world_mat @ v.co / sf),) for v in coll.data.vertices]
+                faces = [list(p.vertices) for p in coll.data.polygons]
+                bhkPhysicsSystem.New(self.nif, verts=verts, faces=faces, parent=coll_node)
+
             self.objs_written.add(ReprObject(coll, targnode))
             return
 

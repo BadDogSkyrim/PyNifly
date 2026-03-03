@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(py -c \":*)",
+      "Bash(py pynifly_test_runner.py TEST_FO4_PHYSICS)",
+      "Bash(py -c \"import io_scene_nifly.pyn.bhk_autopack as p; print\\(''CM_SHAPE_HDR len:'', len\\(p._CM_SHAPE_HDR\\)\\); print\\(''0x90:'', hex\\(p._CM_SHAPE_HDR[0x90]\\)\\)\")",
+      "Bash(py -c \"import bhk_autopack as p; print\\(''CM_SHAPE_HDR len:'', len\\(p._CM_SHAPE_HDR\\), hex\\(len\\(p._CM_SHAPE_HDR\\)\\)\\); print\\(''byte at 0x90:'', hex\\(p._CM_SHAPE_HDR[0x90]\\)\\)\")",
+      "Bash(py pynifly_test_runner.py TEST_FO4_PHYSICS_PACK_BOX)",
+      "Bash(py bhk_autounpack.py)",
+      "Bash(python scripts/CollisionReport.py tests/FO4)",
+      "Bash(python scripts/CollisionReport.py tests\\\\FO4)",
+      "Bash(python scripts/CollisionReport.py tests/tests/FO4)",
+      "Bash(python -c \":*)",
+      "Bash(python scripts/CollisionReport.py \"tests/FO4/Shotgun\")",
+      "Bash(python scripts/CollisionReport.py \"tests/FO4/Shotgun/Stock.nif\")",
+      "Bash(python scripts/CollisionReport.py \"tests/tests/FO4/Shotgun\")",
+      "Bash(python -:*)"
+    ]
+  }
+}

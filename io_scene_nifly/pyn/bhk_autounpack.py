@@ -241,8 +241,28 @@ def parse_global_fixups(data: bytes, hdr: SectionHdr) -> Dict[int, Tuple[int, in
 class BodyTransform:
     position: Vert3
     rotation: Mat3  # from quaternion
-    body_index: int = -1
-    class_name: str = ""
+
+
+@dataclass
+class CollisionShape:
+    """A single decoded collision shape from a Havok packfile.
+
+    shape_type values:
+      "compressed_mesh" — hknpCompressedMeshShapeData (triangle mesh)
+      "polytope"        — hknpConvexPolytopeShape (convex hull)
+      "compound"        — hknpDynamicCompoundShape container; geometry in children
+
+    transform holds the body/instance position+rotation from the packfile.
+    Vertices are in local (untransformed) space; the caller applies transform.
+    convex_radius is the Minkowski expansion radius (0.0 for non-polytope shapes).
+    """
+    shape_type: str
+    name: str
+    transform: Optional[BodyTransform]      # None = identity
+    verts: List[Vert3]                      # empty for compound
+    faces: List[Face]                       # indices into verts; empty for compound
+    convex_radius: float                    # 0.0 for compressed_mesh and compound
+    children: List['CollisionShape']        # non-empty only for compound
 
 
 def parse_body_transforms(
@@ -262,7 +282,6 @@ def parse_body_transforms(
     """
     result: Dict[int, BodyTransform] = {}
 
-    obj_map = {rel: cls for rel, cls in objects}
     psd_list = [(rel, cls) for rel, cls in objects if "hknpPhysicsSystemData" in cls]
     if not psd_list:
         return result
@@ -296,12 +315,7 @@ def parse_body_transforms(
                    f32(data, body_abs + BODY_POS_OFF + 8))
             q = vec4(data, body_abs + BODY_QUAT_OFF)
             rot = quat_to_matrix(q[0], q[1], q[2], q[3])
-            bt = BodyTransform(
-                position=pos,
-                rotation=rot,
-                body_index=i,
-                class_name=obj_map.get(shape_rel, ""),
-            )
+            bt = BodyTransform(position=pos, rotation=rot)
             result[shape_rel] = bt
 
             # Also map sub-objects (e.g. CompressedMeshShape -> ShapeData)
@@ -482,20 +496,30 @@ def read_sections(data: bytes, sections_abs: int, count: int,
 
 # ── OBJ writer ───────────────────────────────────────────────────────────────
 
-def write_obj(path: str, verts: List[Vert3],
-              faces: List[Tuple[Face, str]]) -> None:
+def write_obj(path: str, shapes: List[CollisionShape]) -> None:
+    def _flat(ss: List[CollisionShape]) -> List[CollisionShape]:
+        out: List[CollisionShape] = []
+        for s in ss:
+            if s.shape_type == "compound":
+                out.extend(_flat(s.children))
+            elif s.verts:
+                out.append(s)
+        return out
+
+    flat = _flat(shapes)
+    total_v = sum(len(s.verts) for s in flat)
+    total_f = sum(len(s.faces) for s in flat)
     with open(path, "w", encoding="utf-8") as f:
         f.write("# bhkPhysicsSystem collision mesh\n")
-        f.write(f"# verts={len(verts)} faces={len(faces)}\n\n")
-        f.write("o CollisionMesh\n")
-        for x, y, z in verts:
-            f.write(f"v {x:.6f} {z:.6f} {-y:.6f}\n")
-        cur_group = None
-        for face, g in faces:
-            if g != cur_group:
-                f.write(f"\ng {g}\n")
-                cur_group = g
-            f.write("f " + " ".join(str(i + 1) for i in face) + "\n")
+        f.write(f"# verts={total_v} faces={total_f}\n\n")
+        vert_base = 1
+        for s in flat:
+            f.write(f"\no {s.name}\ng {s.name}\n")
+            for x, y, z in s.verts:
+                f.write(f"v {x:.6f} {z:.6f} {-y:.6f}\n")
+            for face in s.faces:
+                f.write("f " + " ".join(str(i + vert_base) for i in face) + "\n")
+            vert_base += len(s.verts)
 
 
 # ── convex polytope extraction ───────────────────────────────────────────────
@@ -589,26 +613,6 @@ def parse_convex_polytope(data: bytes, shape_abs: int) -> Optional[Tuple[List[Ve
     return (verts, tris, convex_radius)
 
 
-def apply_transform(verts: List[Vert3],
-                    rot: Mat3,
-                    trans: Tuple[float, float, float],
-                    body: Optional[BodyTransform] = None) -> List[Vert3]:
-    """Apply instance rotation+translation, then optional body rotation+translation."""
-    result: List[Vert3] = []
-    for x, y, z in verts:
-        # Instance transform
-        rx = rot[0][0] * x + rot[1][0] * y + rot[2][0] * z + trans[0]
-        ry = rot[0][1] * x + rot[1][1] * y + rot[2][1] * z + trans[1]
-        rz = rot[0][2] * x + rot[1][2] * y + rot[2][2] * z + trans[2]
-        # Body transform
-        if body is not None:
-            bx = body.rotation[0][0]*rx + body.rotation[0][1]*ry + body.rotation[0][2]*rz + body.position[0]
-            by = body.rotation[1][0]*rx + body.rotation[1][1]*ry + body.rotation[1][2]*rz + body.position[1]
-            bz = body.rotation[2][0]*rx + body.rotation[2][1]*ry + body.rotation[2][2]*rz + body.position[2]
-            rx, ry, rz = bx, by, bz
-        result.append((rx, ry, rz))
-    return result
-
 
 def extract_compound_polytopes(
         data: bytes, data_start: int,
@@ -616,104 +620,93 @@ def extract_compound_polytopes(
         gfixups: Dict[int, Tuple[int, int]],
         objects: List[Tuple[int, str]],
         body_transforms: Dict[int, BodyTransform],
-) -> Tuple[List[Vert3], List[Tuple[Face, str]], float]:
+) -> List[CollisionShape]:
     """Extract convex polytope shapes from hknpDynamicCompoundShape instances.
 
-    Returns (verts, faces, max_convex_radius).
-    """
-    all_verts: List[Vert3] = []
-    all_tris: List[Tuple[Face, str]] = []
-    max_radius: float = 0.0
+    Returns a list of CollisionShape objects.  Each hknpDynamicCompoundShape
+    becomes a "compound" CollisionShape (no geometry) whose children are
+    "polytope" CollisionShapes carrying local-space verts and their instance
+    transforms.  Standalone ConvexPolytopeShapes (not part of any compound)
+    are returned as top-level "polytope" CollisionShapes.
 
-    # Build a map from rel_offset -> class name for quick lookup
+    Transforms are NOT applied to vertices; they are stored on each shape so
+    the caller (e.g. Blender) can set object location/rotation accordingly.
+    """
+    result: List[CollisionShape] = []
+
     obj_map = {rel: cls for rel, cls in objects}
 
-    # Find DynamicCompoundShape objects
     compounds = [(rel, cls) for rel, cls in objects if "DynamicCompoundShape" in cls
                  and "Data" not in cls]
 
-    for comp_rel, _ in compounds:
+    for comp_idx, (comp_rel, _) in enumerate(compounds):
         comp_abs = data_start + comp_rel
-
-        # Look up body transform for this compound shape
         body = body_transforms.get(comp_rel)
 
-        # hkArray of instances at +0x60
         inst_arr_ptr = fixups.get(comp_rel + 0x60)
         inst_count = u32(data, comp_abs + 0x60 + 8) & 0x3FFFFFFF
-
         if inst_arr_ptr is None or inst_count == 0:
             continue
 
         inst_arr_abs = data_start + inst_arr_ptr
-
         INST_STRIDE = 0x80
+
+        comp_name = "Compound" if len(compounds) == 1 else f"Compound_{comp_idx}"
+        compound_shape = CollisionShape(
+            shape_type="compound",
+            name=comp_name,
+            transform=body,
+            verts=[],
+            faces=[],
+            convex_radius=0.0,
+            children=[],
+        )
 
         for i in range(inst_count):
             inst_abs = inst_arr_abs + i * INST_STRIDE
             inst_rel = inst_abs - data_start
 
-            # Rotation matrix (3 rows of vec4, xyz used)
             r0 = vec4(data, inst_abs + 0x00)
             r1 = vec4(data, inst_abs + 0x10)
             r2 = vec4(data, inst_abs + 0x20)
-            rot = ((r0[0], r0[1], r0[2]),
-                   (r1[0], r1[1], r1[2]),
-                   (r2[0], r2[1], r2[2]))
-
-            # Translation
+            # Havok stores the rotation as three column vectors (hkRotation column-major).
+            # Transpose to row-major so standard M*v multiplication works correctly.
+            rot: Mat3 = ((r0[0], r1[0], r2[0]),
+                         (r0[1], r1[1], r2[1]),
+                         (r0[2], r1[2], r2[2]))
             t = vec4(data, inst_abs + 0x30)
             trans = (t[0], t[1], t[2])
 
-            # Shape reference via global fixup at +0x50
-            shape_ptr_rel = inst_rel + 0x50
-            gf = gfixups.get(shape_ptr_rel)
+            gf = gfixups.get(inst_rel + 0x50)
             if gf is None:
                 continue
-
             shape_rel = gf[1]
             shape_abs = data_start + shape_rel
-            shape_cls = obj_map.get(shape_rel, "?")
-
-            if "ConvexPolytopeShape" not in shape_cls:
+            if "ConvexPolytopeShape" not in obj_map.get(shape_rel, ""):
                 continue
 
-            result = parse_convex_polytope(data, shape_abs)
-            if result is None:
+            parsed = parse_convex_polytope(data, shape_abs)
+            if parsed is None:
                 continue
+            local_verts, local_tris, convex_radius = parsed
 
-            local_verts, local_tris, convex_radius = result
-            max_radius = max(max_radius, convex_radius)
+            inst_transform = BodyTransform(position=trans, rotation=rot)
+            compound_shape.children.append(CollisionShape(
+                shape_type="polytope",
+                name=f"Polytope_{i}",
+                transform=inst_transform,
+                verts=local_verts,
+                faces=local_tris,
+                convex_radius=convex_radius,
+                children=[],
+            ))
 
-            transformed: List[Vert3] = []
-            for x, y, z in local_verts:
-                # Instance transform (same convention as C++ transform_point_instance).
-                rx = rot[0][0] * x + rot[1][0] * y + rot[2][0] * z + trans[0]
-                ry = rot[0][1] * x + rot[1][1] * y + rot[2][1] * z + trans[1]
-                rz = rot[0][2] * x + rot[1][2] * y + rot[2][2] * z + trans[2]
-                if body is not None:
-                    if body.body_index == 0:
-                        # Matches C++: body0 compound children are translation-only in body space.
-                        rx += body.position[0]
-                        ry += body.position[1]
-                        rz += body.position[2]
-                    else:
-                        bx = body.rotation[0][0] * rx + body.rotation[0][1] * ry + body.rotation[0][2] * rz + body.position[0]
-                        by = body.rotation[1][0] * rx + body.rotation[1][1] * ry + body.rotation[1][2] * rz + body.position[1]
-                        bz = body.rotation[2][0] * rx + body.rotation[2][1] * ry + body.rotation[2][2] * rz + body.position[2]
-                        rx, ry, rz = bx, by, bz
-                transformed.append((rx, ry, rz))
+        if compound_shape.children:
+            result.append(compound_shape)
 
-            base_idx = len(all_verts)
-            all_verts.extend(transformed)
-
-            group = f"Polytope_{i}"
-            all_tris.extend(((tuple(idx + base_idx for idx in face)), group)
-                            for face in local_tris)
-
-    # Also extract standalone ConvexPolytopeShape objects (not part of a compound)
-    compound_shape_rels = set()
-    for comp_rel, comp_cls in compounds:
+    # Collect all polytope rels that belong to a compound instance
+    compound_shape_rels: set = set()
+    for comp_rel, _ in compounds:
         comp_abs = data_start + comp_rel
         inst_arr_ptr = fixups.get(comp_rel + 0x60)
         inst_count = u32(data, comp_abs + 0x60 + 8) & 0x3FFFFFFF
@@ -728,29 +721,23 @@ def extract_compound_polytopes(
     standalone = [(rel, cls) for rel, cls in objects
                   if "ConvexPolytopeShape" in cls and rel not in compound_shape_rels]
 
-    for shape_rel, shape_cls in standalone:
+    for shape_rel, _ in standalone:
         shape_abs = data_start + shape_rel
-        result = parse_convex_polytope(data, shape_abs)
-        if result is None:
+        parsed = parse_convex_polytope(data, shape_abs)
+        if parsed is None:
             continue
-        local_verts, local_tris, convex_radius = result
-        max_radius = max(max_radius, convex_radius)
-        poly_body = body_transforms.get(shape_rel)
-        if poly_body is not None:
-            transformed_s: List[Vert3] = []
-            for x, y, z in local_verts:
-                bx = poly_body.rotation[0][0] * x + poly_body.rotation[0][1] * y + poly_body.rotation[0][2] * z + poly_body.position[0]
-                by = poly_body.rotation[1][0] * x + poly_body.rotation[1][1] * y + poly_body.rotation[1][2] * z + poly_body.position[1]
-                bz = poly_body.rotation[2][0] * x + poly_body.rotation[2][1] * y + poly_body.rotation[2][2] * z + poly_body.position[2]
-                transformed_s.append((bx, by, bz))
-            local_verts = transformed_s
-        base_idx = len(all_verts)
-        all_verts.extend(local_verts)
-        group = f"Polytope_standalone_{shape_rel:#x}"
-        all_tris.extend(((tuple(idx + base_idx for idx in face)), group)
-                        for face in local_tris)
+        local_verts, local_tris, convex_radius = parsed
+        result.append(CollisionShape(
+            shape_type="polytope",
+            name=f"Polytope_standalone_{shape_rel:#x}",
+            transform=body_transforms.get(shape_rel),
+            verts=local_verts,
+            faces=local_tris,
+            convex_radius=convex_radius,
+            children=[],
+        ))
 
-    return all_verts, all_tris, max_radius
+    return result
 
 
 # ── main extraction ──────────────────────────────────────────────────────────
@@ -759,12 +746,12 @@ def extract_bhk_physics_system(
         in_path: Optional[str] = None,
         out_path: Optional[str] = None,
         raw_data: Optional[bytes] = None,
-) -> Tuple[List[Vert3], List[Tuple[Face, str]], float]:
+) -> List[CollisionShape]:
     """Extract all collision geometry from a raw Havok packfile blob.
 
-    Returns (verts, faces, convex_radius) where convex_radius is the maximum
-    convexRadius found across all ConvexPolytopeShapes in the packfile.
-    Compressed mesh shapes always have convexRadius 0.
+    Returns a list of CollisionShape objects.  Vertices are in local space;
+    each shape carries its own transform (body or instance position/rotation)
+    so the caller can apply it at the object level.
 
     Args:
         in_path:  Path to a raw packfile .bin (optional; use raw_data instead).
@@ -819,9 +806,10 @@ def extract_bhk_physics_system(
             r0 = vec4(data, inst_abs + 0x00)
             r1 = vec4(data, inst_abs + 0x10)
             r2 = vec4(data, inst_abs + 0x20)
-            inst_rot: Mat3 = ((r0[0], r0[1], r0[2]),
-                              (r1[0], r1[1], r1[2]),
-                              (r2[0], r2[1], r2[2]))
+            # Havok stores columns; transpose to row-major.
+            inst_rot: Mat3 = ((r0[0], r1[0], r2[0]),
+                              (r0[1], r1[1], r2[1]),
+                              (r0[2], r1[2], r2[2]))
 
             t = vec4(data, inst_abs + 0x30)
             inst_trans = (t[0], t[1], t[2])
@@ -863,19 +851,15 @@ def extract_bhk_physics_system(
                     body_transforms[child_data_rel] = BodyTransform(
                         position=comb_trans,
                         rotation=comb_rot,
-                        body_index=(comp_body.body_index if comp_body is not None else -1),
-                        class_name="hknpDynamicCompoundInstance",
                     )
 
-    all_verts: List[Vert3] = []
-    all_tris: List[Tuple[Face, str]] = []
-    max_convex_radius: float = 0.0
+    all_shapes: List[CollisionShape] = []
 
     # ── extract compressed mesh shapes ──
-    shapes = [(rel, cls) for rel, cls in objects
-              if "hknpCompressedMeshShapeData" in cls]
+    mesh_shapes = [(rel, cls) for rel, cls in objects
+                   if "hknpCompressedMeshShapeData" in cls]
 
-    for shape_idx, (obj_rel, _) in enumerate(shapes):
+    for shape_idx, (obj_rel, _) in enumerate(mesh_shapes):
         obj_abs = data_start + obj_rel
         extract_bhk_physics_system._large_cache = {}
 
@@ -908,7 +892,10 @@ def extract_bhk_physics_system(
         secs = read_sections(data, sections_abs, sections_count,
                              total_verts, total_quads, total_shared, total_shidx)
 
-        for si, sec in enumerate(secs):
+        shape_verts: List[Vert3] = []
+        shape_faces: List[Face] = []
+
+        for sec in secs:
             first_v   = sec["first_vertex"]
             num_v     = sec["num_vertices"]
             num_q     = sec["num_quads"]
@@ -953,10 +940,7 @@ def extract_bhk_physics_system(
                         else:
                             shared_verts.append((0.0, 0.0, 0.0))
 
-            total_local = len(local_verts)
-            total_sh_actual = len(shared_verts)
-            idx_limit = total_local + total_sh_actual
-
+            idx_limit = len(local_verts) + len(shared_verts)
             q_buf = quads_abs + first_q * quad_stride
 
             if idx_fmt == "u16":
@@ -964,50 +948,45 @@ def extract_bhk_physics_system(
             else:
                 tris = decode_quads_u8(data, q_buf, num_q, idx_limit)
 
-            base_idx = len(all_verts)
-            combined = local_verts + shared_verts
-            if mesh_body is not None and mesh_body.class_name == "hknpDynamicCompoundInstance":
-                transformed: List[Vert3] = []
-                for x, y, z in combined:
-                    bx = mesh_body.rotation[0][0]*x + mesh_body.rotation[0][1]*y + mesh_body.rotation[0][2]*z + mesh_body.position[0]
-                    by = mesh_body.rotation[1][0]*x + mesh_body.rotation[1][1]*y + mesh_body.rotation[1][2]*z + mesh_body.position[1]
-                    bz = mesh_body.rotation[2][0]*x + mesh_body.rotation[2][1]*y + mesh_body.rotation[2][2]*z + mesh_body.position[2]
-                    transformed.append((bx, by, bz))
-                combined = transformed
-            all_verts.extend(combined)
+            # Face indices are relative to this shape's local vertex list
+            base_idx = len(shape_verts)
+            shape_verts.extend(local_verts + shared_verts)
+            shape_faces.extend((a + base_idx, b + base_idx, c + base_idx)
+                               for a, b, c in tris)
 
-            group = f"Mesh{shape_idx}_Section_{si}" if len(shapes) > 1 else f"Section_{si}"
-            all_tris.extend((((a + base_idx, b + base_idx, c + base_idx)), group)
-                            for a, b, c in tris)
+        if shape_verts and shape_faces:
+            mesh_name = "CompressedMesh" if len(mesh_shapes) == 1 else f"CompressedMesh_{shape_idx}"
+            all_shapes.append(CollisionShape(
+                shape_type="compressed_mesh",
+                name=mesh_name,
+                transform=mesh_body,
+                verts=shape_verts,
+                faces=shape_faces,
+                convex_radius=0.0,
+                children=[],
+            ))
 
     # ── extract convex polytope shapes ──
-    poly_verts, poly_tris, poly_radius = extract_compound_polytopes(
-        data, data_start, fixups, gfixups, objects, body_transforms)
-    max_convex_radius = max(max_convex_radius, poly_radius)
+    all_shapes.extend(extract_compound_polytopes(
+        data, data_start, fixups, gfixups, objects, body_transforms))
 
-    if poly_verts:
-        base_idx = len(all_verts)
-        all_verts.extend(poly_verts)
-        all_tris.extend(((tuple(idx + base_idx for idx in face)), g)
-                        for face, g in poly_tris)
-
-    if not all_verts or not all_tris:
+    if not all_shapes:
         raise RuntimeError("No geometry decoded.")
 
     if out_path is not None:
-        write_obj(out_path, all_verts, all_tris)
+        write_obj(out_path, all_shapes)
 
-    return all_verts, all_tris, max_convex_radius
+    return all_shapes
 
 
 # ── pynifly compatibility wrapper ────────────────────────────────────────────
 
-def parse_bytes(data: bytes) -> Tuple[List[Vert3], List[Tuple[Face, str]], float]:
-    """Parse a raw Havok packfile and return (verts, faces, convex_radius).
+def parse_bytes(data: bytes) -> List[CollisionShape]:
+    """Parse a raw Havok packfile and return a list of CollisionShape objects.
 
     This is the primary entry point used by bhkPhysicsSystem.geometry in pynifly.
-    convex_radius is the maximum convexRadius across all ConvexPolytopeShapes
-    in the packfile (0.0 for compressed mesh shapes).
+    Each shape carries local-space geometry and a transform (position/rotation)
+    that the caller should apply at the object level.
     """
     return extract_bhk_physics_system(raw_data=data)
 
@@ -1168,8 +1147,7 @@ def extract_havok_from_nif(in_path: str, out_path: str) -> None:
             seen_phys.add(phys_id)
             phys_ids.append(phys_id)
 
-    all_verts: List[Vert3] = []
-    all_faces: List[Tuple[Face, str]] = []
+    all_shapes: List[CollisionShape] = []
     decoded = 0
 
     for phys_id in phys_ids:
@@ -1181,18 +1159,16 @@ def extract_havok_from_nif(in_path: str, out_path: str) -> None:
         else:
             continue
 
-        verts, faces, _radius = extract_bhk_physics_system(raw_data=hk)
-
-        base = len(all_verts)
-        all_verts.extend(verts)
+        shapes = extract_bhk_physics_system(raw_data=hk)
         prefix = f"phys_{phys_id}"
-        for face, group in faces:
-            all_faces.append((tuple(idx + base for idx in face), f"{prefix}_{group}"))
+        for s in shapes:
+            s.name = f"{prefix}_{s.name}"
+        all_shapes.extend(shapes)
         decoded += 1
 
-    if decoded == 0 or not all_verts or not all_faces:
+    if decoded == 0 or not all_shapes:
         raise RuntimeError("No embedded Havok payloads decoded from linked bhkPhysicsSystem blocks.")
-    write_obj(out_path, all_verts, all_faces)
+    write_obj(out_path, all_shapes)
 
 
 def _main() -> int:

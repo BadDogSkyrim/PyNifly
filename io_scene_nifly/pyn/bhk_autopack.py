@@ -60,6 +60,34 @@ _CLASS_ENTRIES: List[Tuple[int, str]] = [
     (0xE9191728, 'hknpShapeMassProperties'),
 ]
 
+# Class entries for compressed mesh packfiles (different shape classes).
+_CM_CLASS_ENTRIES: List[Tuple[int, str]] = [
+    (0x33D42383, 'hkClass'),
+    (0xB0EFA719, 'hkClassMember'),
+    (0x8A3609CF, 'hkClassEnum'),
+    (0xCE6F8A6C, 'hkClassEnumItem'),
+    (0xB857718B, 'hknpPhysicsSystemData'),
+    (0x5F60D536, 'hknpCompressedMeshShape'),
+    (0xA2BDFC59, 'hknpCompressedMeshShapeData'),
+    (0x7C574867, 'hkRefCountedProperties'),
+    (0xA3E47A9A, 'hknpBSMaterialProperties'),
+]
+
+# Class entries for two-body mixed packfiles (CM body + polytope body).
+_MIXED_CLASS_ENTRIES: List[Tuple[int, str]] = [
+    (0x33D42383, 'hkClass'),
+    (0xB0EFA719, 'hkClassMember'),
+    (0x8A3609CF, 'hkClassEnum'),
+    (0xCE6F8A6C, 'hkClassEnumItem'),
+    (0xB857718B, 'hknpPhysicsSystemData'),
+    (0x5F60D536, 'hknpCompressedMeshShape'),
+    (0xA2BDFC59, 'hknpCompressedMeshShapeData'),
+    (0x7C574867, 'hkRefCountedProperties'),
+    (0xA3E47A9A, 'hknpBSMaterialProperties'),
+    (0x3CE9B3E3, 'hknpConvexPolytopeShape'),
+    (0xE9191728, 'hknpShapeMassProperties'),
+]
+
 # ── Fixed blob data (from InsFloorMat01.nif reference) ───────────────────────
 
 # body_properties (rel 0x0080, 0x50 bytes) — physics material/quality data.
@@ -156,6 +184,69 @@ _CONVEX_HDR = bytes([
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # zeros
 ])
 assert len(_CONVEX_HDR) == 0x30
+
+# hknpCompressedMeshShape header (0xC0 bytes).
+# Global fixups at +0x20 (→ hkRefCountedProperties) and +0x60 (→ ShapeData)
+# patch those pointer fields at load time; they are left as zeros here.
+_CM_SHAPE_HDR = bytes([
+    # +0x00: vtable ptr (null, runtime-patched)
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    # +0x08: parent class ptr (null)
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    # +0x10: type flags
+    0x04,0x02,0x07,0x02, 0x00,0x00,0x00,0x00,
+    # +0x18: version hash
+    0x15,0x7d,0x06,0x26, 0x00,0x00,0x00,0x00,
+    # +0x20: hkRefCountedProperties ptr (null, global fixup)
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    # +0x28: zeros
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    # +0x30: sentinel 0xFFFFFFFF + 12 zeros
+    0xff,0xff,0xff,0xff, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    # +0x40..+0x5F: zeros
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    # +0x60: ShapeData ptr (null, global fixup)
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    # +0x68..+0x8F: zeros (5 rows × 8 bytes = 40 bytes)
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    # +0x90: 0x44 byte + 15 zeros
+    0x44,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    # +0xA0..+0xBF: zeros
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+])
+assert len(_CM_SHAPE_HDR) == 0xC0
+
+# hknpBSMaterialProperties (0x50 bytes, extracted from CapsuleExtStairsFree01.nif).
+_BS_MAT_PROPS = bytes([
+    # +0x00: zeros
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    # +0x10
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x02,0x00,0x00,0x00, 0x02,0x00,0x00,0x80,
+    # +0x20: zeros
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    # +0x30
+    0x01,0x00,0x00,0x00, 0xd4,0x03,0x40,0x06,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    # +0x40
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x01,0x00,0x00,0x00, 0x3d,0x62,0xeb,0xc0,
+])
+assert len(_BS_MAT_PROPS) == 0x50
 
 
 # ── Low-level pack helpers ────────────────────────────────────────────────────
@@ -265,18 +356,27 @@ def _build_convex_polytope_shape(verts: List[Vert3],
     faces_off     = planes_off + planes_size + _GAP_PLANES
     fvi_off       = faces_off  + faces_size  + _GAP_FACES
 
+    # The decoder reads faces_off and fvi_off relative to their own field positions:
+    #   faces_off → field at +0x44, so decoder computes shape_abs + 0x44 + faces_off_stored
+    #   fvi_off   → field at +0x48, so decoder computes shape_abs + 0x48 + fvi_off_stored
+    # We store offsets so that the decoder lands at the right position:
+    #   faces_off_stored = faces_off - 4   (0x44 - 0x40 = 4)
+    #   fvi_off_stored   = fvi_off   - 8   (0x48 - 0x40 = 8)
+    faces_off_stored = faces_off - 4
+    fvi_off_stored   = fvi_off   - 8
+
     # +0x30 block: numVertices, verticesOffset=0x20, 12 zeros.
     block_30 = _w_u16(nv) + _w_u16(0x20) + bytes(12)
 
     # +0x40 block: header40[6], 4 zeros.
     block_40 = (
-        _w_u16(nv)          +   # numVerts2
-        _w_u16(planes_off)  +   # planesOff (from header40 base)
-        _w_u16(nf)          +   # numPlanes
-        _w_u16(faces_off)   +   # facesOff
-        _w_u16(n_fvi)       +   # numFaceVtxIndices
-        _w_u16(fvi_off)     +   # fviOff
-        bytes(4)                # padding
+        _w_u16(nv)               +   # numVerts2
+        _w_u16(planes_off)       +   # planesOff (from header40 base +0x40)
+        _w_u16(nf)               +   # numPlanes
+        _w_u16(faces_off_stored) +   # facesOff (relative to +0x44 field position)
+        _w_u16(n_fvi)            +   # numFaceVtxIndices
+        _w_u16(fvi_off_stored)   +   # fviOff (relative to +0x48 field position)
+        bytes(4)                     # padding
     )
     assert len(block_30) == 0x10
     assert len(block_40) == 0x10
@@ -467,6 +567,395 @@ def _build_data_section(verts: List[Vert3], faces: List[Face],
     return bytes(data), fx
 
 
+# ── Compressed-mesh data section builder ─────────────────────────────────────
+
+def _build_cm_data_section(verts: List[Vert3], tris: List[Face],
+                            name_offs: Dict[str, int]) -> Tuple[bytes, '_FixupBuilder']:
+    """Build the full __data__ section for a single-section compressed mesh packfile.
+
+    Layout:
+      rel 0x0000: hknpPhysicsSystemData   (0x80)
+      rel 0x0080: body_properties         (0x50)
+      rel 0x00D0: BodyCInfo               (0x60)
+      rel 0x0130: ShapeEntry              (0x10)
+      rel 0x0140: hknpCompressedMeshShape (0xC0)
+      rel 0x0200: hkRefCountedProperties  (0x20)
+      rel 0x0220: hknpBSMaterialProperties (0x50, padded to 16)
+      rel 0x0270: hknpCompressedMeshShapeData header (0xA0)
+      then: section struct (0x60), quads (nt×4 bytes), packed verts (nv×4 bytes)
+
+    Vertices are quantized with 11-11-10 bits (qx, qy: 0..2047; qz: 0..1023)
+    using the bounding box of the input vertex set as the quantization range.
+    Each triangle (a,b,c) is stored as a degenerate quad [a,b,c,c].
+
+    Constraints: nv ≤ 255, nt ≤ 255 (single-section limitation).
+    """
+    nv = len(verts)
+    nt = len(tris)
+    assert nv > 0 and nt > 0
+    assert nv <= 255, f"pack_compressed_mesh: max 255 verts per section (got {nv})"
+    assert nt <= 255, f"pack_compressed_mesh: max 255 quads per section (got {nt})"
+
+    fx = _FixupBuilder()
+    data = bytearray()
+
+    def rel() -> int:
+        return len(data)
+
+    def write(b: bytes) -> int:
+        off = rel()
+        data.extend(b)
+        return off
+
+    # ── hknpPhysicsSystemData (0x80 bytes) ─────────────────────────────────
+    psd_rel = rel()
+    fx.add_virtual(psd_rel, 0, name_offs['hknpPhysicsSystemData'])
+
+    write(_hkarray(0))              # +0x00 empty
+    arr10_off = write(_hkarray(1))  # +0x10 body_props array
+    write(_hkarray(0))              # +0x20 empty
+    write(_hkarray(0))              # +0x30 empty
+    arr40_off = write(_hkarray(1))  # +0x40 BodyCInfo array
+    write(_hkarray(0))              # +0x50 empty
+    arr60_off = write(_hkarray(1))  # +0x60 ShapeEntry array
+    write(bytes(16))                # +0x70 zeros
+    assert rel() == psd_rel + 0x80
+
+    # ── body_properties (0x50 bytes) ───────────────────────────────────────
+    body_props_rel = rel()
+    write(_BODY_PROPS)
+    fx.add_local(arr10_off, body_props_rel)
+    assert rel() == psd_rel + 0xD0
+
+    # ── BodyCInfo (0x60 bytes) ─────────────────────────────────────────────
+    body_cinfo_rel = rel()
+    write(_BODY_CINFO)
+    fx.add_local(arr40_off, body_cinfo_rel)
+    assert rel() == psd_rel + 0x130
+
+    # ── ShapeEntry (0x10 bytes) ────────────────────────────────────────────
+    shape_entry_rel = rel()
+    write(bytes(16))
+    fx.add_local(arr60_off, shape_entry_rel)
+    assert rel() == psd_rel + 0x140
+
+    # ── hknpCompressedMeshShape (0xC0 bytes) ───────────────────────────────
+    shape_rel = rel()
+    write(_CM_SHAPE_HDR)
+    assert rel() == shape_rel + 0xC0
+
+    fx.add_virtual(shape_rel, 0, name_offs['hknpCompressedMeshShape'])
+    fx.add_global(body_cinfo_rel + 0x00, 2, shape_rel)
+    fx.add_global(shape_entry_rel + 0x00, 2, shape_rel)
+    shape_refprop_ptr_rel = shape_rel + 0x20   # → hkRefCountedProperties
+    shape_data_ptr_rel    = shape_rel + 0x60   # → hknpCompressedMeshShapeData
+
+    # ── hkRefCountedProperties (0x20 bytes) ───────────────────────────────
+    refprop_rel = rel()
+    write(_REF_COUNTED_PROPS)
+    fx.add_virtual(refprop_rel, 0, name_offs['hkRefCountedProperties'])
+    fx.add_local(refprop_rel + 0x00, refprop_rel + 0x10)
+    fx.add_global(shape_refprop_ptr_rel, 2, refprop_rel)
+    while rel() % 16:
+        data.append(0)
+
+    # ── hknpBSMaterialProperties (0x50 bytes) ─────────────────────────────
+    bs_mat_rel = rel()
+    write(_BS_MAT_PROPS)
+    fx.add_global(refprop_rel + 0x10, 2, bs_mat_rel)
+    fx.add_virtual(bs_mat_rel, 0, name_offs['hknpBSMaterialProperties'])
+    while rel() % 16:
+        data.append(0)
+
+    # ── Vertex AABB and quantization scales ────────────────────────────────
+    xs = [v[0] for v in verts]
+    ys = [v[1] for v in verts]
+    zs = [v[2] for v in verts]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    min_z, max_z = min(zs), max(zs)
+
+    def _safe_scale(mn: float, mx: float, max_q: int) -> float:
+        return (mx - mn) / max_q if mx > mn else 1.0
+
+    sx = _safe_scale(min_x, max_x, 2047)
+    sy = _safe_scale(min_y, max_y, 2047)
+    sz = _safe_scale(min_z, max_z, 1023)
+
+    # ── Encode vertices as 11-11-10 packed u32 ─────────────────────────────
+    packed_verts: List[int] = []
+    for x, y, z in verts:
+        qx = min(2047, max(0, round((x - min_x) / sx))) if sx != 1.0 or min_x != max_x else 0
+        qy = min(2047, max(0, round((y - min_y) / sy))) if sy != 1.0 or min_y != max_y else 0
+        qz = min(1023, max(0, round((z - min_z) / sz))) if sz != 1.0 or min_z != max_z else 0
+        packed_verts.append(qx | (qy << 11) | (qz << 22))
+
+    # ── Encode triangles as degenerate quads [a,b,c,c] ────────────────────
+    quad_bytes = b''
+    for face in tris:
+        a, b, c = int(face[0]), int(face[1]), int(face[2])
+        quad_bytes += bytes([a, b, c, c])
+
+    # ── Compute array positions for local fixups ───────────────────────────
+    sd_rel           = rel()          # start of ShapeData header
+    sections_data_rel = sd_rel + 0xA0           # immediately after 0xA0 header
+    quads_data_rel    = sections_data_rel + 0x60  # after 1 section struct
+    verts_data_rel    = quads_data_rel + len(quad_bytes)
+
+    # ── hknpCompressedMeshShapeData header (0xA0 bytes) ───────────────────
+    fx.add_virtual(sd_rel, 0, name_offs['hknpCompressedMeshShapeData'])
+    fx.add_global(shape_data_ptr_rel, 2, sd_rel)
+
+    sd_hdr = bytearray(0xA0)
+    struct.pack_into('<QII', sd_hdr, 0x00, 0, 0, 0x80000000)  # empty hkArray
+    struct.pack_into('<QII', sd_hdr, 0x10, 0, 0, 0x80000000)  # hkArray<Section*> (empty)
+    struct.pack_into('<ffff', sd_hdr, 0x20, min_x, min_y, min_z, 0.0)  # aabb_min
+    struct.pack_into('<ffff', sd_hdr, 0x30, max_x, max_y, max_z, 0.0)  # aabb_max
+    struct.pack_into('<QII', sd_hdr, 0x40, 0, 0, 0x80000000)  # unknown (zeros)
+    struct.pack_into('<QII', sd_hdr, 0x50, 0, 1, 1 | 0x80000000)       # sections (count=1)
+    struct.pack_into('<QII', sd_hdr, 0x60, 0, nt, nt | 0x80000000)     # quads (count=nt)
+    struct.pack_into('<QII', sd_hdr, 0x70, 0, 0, 0x80000000)           # shidx (empty)
+    struct.pack_into('<QII', sd_hdr, 0x80, 0, nv, nv | 0x80000000)     # verts (count=nv)
+    struct.pack_into('<QII', sd_hdr, 0x90, 0, 0, 0x80000000)           # sharedVerts (empty)
+    write(bytes(sd_hdr))
+    assert rel() == sd_rel + 0xA0
+
+    # Local fixups: ptr fields of the three populated hkArrays
+    fx.add_local(sd_rel + 0x50, sections_data_rel)
+    fx.add_local(sd_rel + 0x60, quads_data_rel)
+    fx.add_local(sd_rel + 0x80, verts_data_rel)
+
+    # ── Section struct (0x60 bytes) ────────────────────────────────────────
+    sec = bytearray(0x60)
+    struct.pack_into('<QII', sec, 0x00, 0, 0, 0x80000000)       # treeNodes (empty)
+    struct.pack_into('<ffff', sec, 0x10, min_x, min_y, min_z, 0.0)  # aabb_min
+    struct.pack_into('<ffff', sec, 0x20, max_x, max_y, max_z, 0.0)  # aabb_max
+    struct.pack_into('<fff',  sec, 0x30, min_x, min_y, min_z)       # base
+    struct.pack_into('<fff',  sec, 0x3C, sx, sy, sz)                # scale X/Y/Z
+    struct.pack_into('<I',    sec, 0x48, 0)                         # firstPackedVertex
+    struct.pack_into('<I',    sec, 0x4C, nv)   # (0 << 8) | nv — firstShidx=0, numPacked=nv
+    struct.pack_into('<I',    sec, 0x50, nt)   # (0 << 8) | nt — firstQuad=0, numQuads=nt
+    write(bytes(sec))
+    assert rel() == sections_data_rel + 0x60
+
+    # ── Quad data ──────────────────────────────────────────────────────────
+    write(quad_bytes)
+    assert rel() == verts_data_rel
+
+    # ── Packed vertex data ─────────────────────────────────────────────────
+    for pv in packed_verts:
+        data.extend(struct.pack('<I', pv))
+
+    while rel() % 16:
+        data.append(0)
+
+    return bytes(data), fx
+
+
+# ── Two-body mixed data section builder ──────────────────────────────────────
+
+def _build_mixed_data_section(
+        cm_verts: List[Vert3], cm_tris: List[Face],
+        poly_verts: List[Vert3], poly_faces: List[Face],
+        name_offs: Dict[str, int]) -> Tuple[bytes, '_FixupBuilder']:
+    """Build __data__ section for a two-body packfile: CM body + polytope body.
+
+    Layout:
+      rel 0x0000: hknpPhysicsSystemData (0x80) — body/shape counts = 2
+      rel 0x0080: body_props[0] (0x50) — CM body material
+      rel 0x00D0: body_props[1] (0x50) — polytope body material
+      rel 0x0120: BodyCInfo[0] (0x60)  — shape ptr → CM shape
+      rel 0x0180: BodyCInfo[1] (0x60)  — shape ptr → polytope shape
+      rel 0x01E0: ShapeEntry[0] (0x10) — ptr → CM shape
+      rel 0x01F0: ShapeEntry[1] (0x10) — ptr → polytope shape
+      rel 0x0200: hknpCompressedMeshShape (0xC0)
+      then: hkRefCountedProperties for CM (0x20, padded to 16)
+      then: hknpBSMaterialProperties (0x50, padded to 16)
+      then: hknpCompressedMeshShapeData header (0xA0) + section (0x60)
+            + quads + packed verts (padded to 16)
+      then: hknpConvexPolytopeShape (variable, padded to 16)
+      then: hkRefCountedProperties for polytope (0x20, padded to 16)
+      then: hknpShapeMassProperties (0x30, padded to 16)
+    """
+    nv_cm = len(cm_verts)
+    nt_cm = len(cm_tris)
+    assert nv_cm > 0 and nt_cm > 0
+    assert nv_cm <= 255, f"pack_mixed CM: max 255 verts per section (got {nv_cm})"
+    assert nt_cm <= 255, f"pack_mixed CM: max 255 quads per section (got {nt_cm})"
+
+    fx = _FixupBuilder()
+    data = bytearray()
+
+    def rel() -> int:
+        return len(data)
+
+    def write(b: bytes) -> int:
+        off = rel()
+        data.extend(b)
+        return off
+
+    # ── hknpPhysicsSystemData (0x80 bytes) ───────────────────────────────────
+    psd_rel = rel()   # = 0
+    fx.add_virtual(psd_rel, 0, name_offs['hknpPhysicsSystemData'])
+
+    write(_hkarray(0))              # +0x00 empty
+    arr10_off = write(_hkarray(2))  # +0x10 body_props array (count=2)
+    write(_hkarray(0))              # +0x20 empty
+    write(_hkarray(0))              # +0x30 empty
+    arr40_off = write(_hkarray(2))  # +0x40 BodyCInfo array (count=2)
+    write(_hkarray(0))              # +0x50 empty
+    arr60_off = write(_hkarray(2))  # +0x60 ShapeEntry array (count=2)
+    write(bytes(16))                # +0x70 zeros
+    assert rel() == psd_rel + 0x80
+
+    # ── body_props[0] + body_props[1] (2 × 0x50 = 0xA0 bytes) ───────────────
+    body_props_rel = rel()          # = 0x0080; array ptr points here
+    write(_BODY_PROPS)              # body[0] — CM
+    write(_BODY_PROPS)              # body[1] — polytope
+    fx.add_local(arr10_off, body_props_rel)
+    assert rel() == psd_rel + 0x120
+
+    # ── BodyCInfo[0] + BodyCInfo[1] (2 × 0x60 = 0xC0 bytes) ─────────────────
+    body_cinfo_rel = rel()          # = 0x0120; array ptr points here
+    write(_BODY_CINFO)              # BodyCInfo[0] — CM body
+    write(_BODY_CINFO)              # BodyCInfo[1] — polytope body
+    fx.add_local(arr40_off, body_cinfo_rel)
+    assert rel() == psd_rel + 0x1E0
+
+    # ── ShapeEntry[0] + ShapeEntry[1] (2 × 0x10 = 0x20 bytes) ───────────────
+    shape_entry_rel = rel()         # = 0x01E0; array ptr points here
+    write(bytes(16))                # ShapeEntry[0] ptr → CM shape (global fixup)
+    write(bytes(16))                # ShapeEntry[1] ptr → polytope shape (global fixup)
+    fx.add_local(arr60_off, shape_entry_rel)
+    assert rel() == psd_rel + 0x200
+
+    # ── hknpCompressedMeshShape (0xC0 bytes) ─────────────────────────────────
+    cm_shape_rel = rel()            # = 0x0200
+    write(_CM_SHAPE_HDR)
+    assert rel() == cm_shape_rel + 0xC0
+
+    fx.add_virtual(cm_shape_rel, 0, name_offs['hknpCompressedMeshShape'])
+    fx.add_global(body_cinfo_rel + 0x00, 2, cm_shape_rel)          # BodyCInfo[0] shape ptr
+    fx.add_global(shape_entry_rel + 0x00, 2, cm_shape_rel)         # ShapeEntry[0] ptr
+    cm_refprop_ptr_rel  = cm_shape_rel + 0x20
+    cm_shapedata_ptr_rel = cm_shape_rel + 0x60
+
+    # ── hkRefCountedProperties for CM (0x20 bytes) ───────────────────────────
+    cm_refprop_rel = rel()
+    write(_REF_COUNTED_PROPS)
+    fx.add_virtual(cm_refprop_rel, 0, name_offs['hkRefCountedProperties'])
+    fx.add_local(cm_refprop_rel + 0x00, cm_refprop_rel + 0x10)
+    fx.add_global(cm_refprop_ptr_rel, 2, cm_refprop_rel)
+    while rel() % 16:
+        data.append(0)
+
+    # ── hknpBSMaterialProperties (0x50 bytes) ────────────────────────────────
+    bs_mat_rel = rel()
+    write(_BS_MAT_PROPS)
+    fx.add_global(cm_refprop_rel + 0x10, 2, bs_mat_rel)
+    fx.add_virtual(bs_mat_rel, 0, name_offs['hknpBSMaterialProperties'])
+    while rel() % 16:
+        data.append(0)
+
+    # ── CM ShapeData: quantise and encode ─────────────────────────────────────
+    xs = [v[0] for v in cm_verts]
+    ys = [v[1] for v in cm_verts]
+    zs = [v[2] for v in cm_verts]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    min_z, max_z = min(zs), max(zs)
+    sx = (max_x - min_x) / 2047 if max_x > min_x else 1.0
+    sy = (max_y - min_y) / 2047 if max_y > min_y else 1.0
+    sz = (max_z - min_z) / 1023 if max_z > min_z else 1.0
+
+    packed_verts_cm: List[int] = []
+    for x, y, z in cm_verts:
+        qx = min(2047, max(0, round((x - min_x) / sx))) if sx != 1.0 or min_x != max_x else 0
+        qy = min(2047, max(0, round((y - min_y) / sy))) if sy != 1.0 or min_y != max_y else 0
+        qz = min(1023, max(0, round((z - min_z) / sz))) if sz != 1.0 or min_z != max_z else 0
+        packed_verts_cm.append(qx | (qy << 11) | (qz << 22))
+
+    quad_bytes = b''
+    for face in cm_tris:
+        a, b, c = int(face[0]), int(face[1]), int(face[2])
+        quad_bytes += bytes([a, b, c, c])
+
+    sd_rel            = rel()
+    sections_data_rel = sd_rel + 0xA0
+    quads_data_rel    = sections_data_rel + 0x60
+    verts_data_rel    = quads_data_rel + len(quad_bytes)
+
+    fx.add_virtual(sd_rel, 0, name_offs['hknpCompressedMeshShapeData'])
+    fx.add_global(cm_shapedata_ptr_rel, 2, sd_rel)
+
+    sd_hdr = bytearray(0xA0)
+    struct.pack_into('<QII', sd_hdr, 0x00, 0, 0, 0x80000000)
+    struct.pack_into('<QII', sd_hdr, 0x10, 0, 0, 0x80000000)
+    struct.pack_into('<ffff', sd_hdr, 0x20, min_x, min_y, min_z, 0.0)
+    struct.pack_into('<ffff', sd_hdr, 0x30, max_x, max_y, max_z, 0.0)
+    struct.pack_into('<QII', sd_hdr, 0x40, 0, 0, 0x80000000)
+    struct.pack_into('<QII', sd_hdr, 0x50, 0, 1, 1 | 0x80000000)
+    struct.pack_into('<QII', sd_hdr, 0x60, 0, nt_cm, nt_cm | 0x80000000)
+    struct.pack_into('<QII', sd_hdr, 0x70, 0, 0, 0x80000000)
+    struct.pack_into('<QII', sd_hdr, 0x80, 0, nv_cm, nv_cm | 0x80000000)
+    struct.pack_into('<QII', sd_hdr, 0x90, 0, 0, 0x80000000)
+    write(bytes(sd_hdr))
+    assert rel() == sd_rel + 0xA0
+
+    fx.add_local(sd_rel + 0x50, sections_data_rel)
+    fx.add_local(sd_rel + 0x60, quads_data_rel)
+    fx.add_local(sd_rel + 0x80, verts_data_rel)
+
+    sec = bytearray(0x60)
+    struct.pack_into('<QII', sec, 0x00, 0, 0, 0x80000000)
+    struct.pack_into('<ffff', sec, 0x10, min_x, min_y, min_z, 0.0)
+    struct.pack_into('<ffff', sec, 0x20, max_x, max_y, max_z, 0.0)
+    struct.pack_into('<fff',  sec, 0x30, min_x, min_y, min_z)
+    struct.pack_into('<fff',  sec, 0x3C, sx, sy, sz)
+    struct.pack_into('<I',    sec, 0x48, 0)
+    struct.pack_into('<I',    sec, 0x4C, nv_cm)
+    struct.pack_into('<I',    sec, 0x50, nt_cm)
+    write(bytes(sec))
+
+    write(quad_bytes)
+    assert rel() == verts_data_rel
+
+    for pv in packed_verts_cm:
+        data.extend(struct.pack('<I', pv))
+    while rel() % 16:
+        data.append(0)
+
+    # ── hknpConvexPolytopeShape (variable) ───────────────────────────────────
+    poly_shape_rel = rel()
+    write(_build_convex_polytope_shape(poly_verts, poly_faces))
+    while rel() % 16:
+        data.append(0)
+
+    fx.add_virtual(poly_shape_rel, 0, name_offs['hknpConvexPolytopeShape'])
+    fx.add_global(body_cinfo_rel + 0x60, 2, poly_shape_rel)         # BodyCInfo[1] shape ptr
+    fx.add_global(shape_entry_rel + 0x10, 2, poly_shape_rel)        # ShapeEntry[1] ptr
+    poly_refprop_ptr_rel = poly_shape_rel + 0x20
+
+    # ── hkRefCountedProperties for polytope (0x20 bytes) ─────────────────────
+    poly_refprop_rel = rel()
+    write(_REF_COUNTED_PROPS)
+    fx.add_virtual(poly_refprop_rel, 0, name_offs['hkRefCountedProperties'])
+    fx.add_local(poly_refprop_rel + 0x00, poly_refprop_rel + 0x10)
+    fx.add_global(poly_refprop_ptr_rel, 2, poly_refprop_rel)
+    while rel() % 16:
+        data.append(0)
+
+    # ── hknpShapeMassProperties (0x30 bytes) ─────────────────────────────────
+    massprop_rel = rel()
+    write(_SHAPE_MASS_PROPS)
+    fx.add_global(poly_refprop_rel + 0x10, 2, massprop_rel)
+    fx.add_virtual(massprop_rel, 0, name_offs['hknpShapeMassProperties'])
+    while rel() % 16:
+        data.append(0)
+
+    return bytes(data), fx
+
+
 # ── Classnames section ────────────────────────────────────────────────────────
 
 def _build_classnames() -> Tuple[bytes, Dict[str, int]]:
@@ -482,6 +971,28 @@ def _build_classnames() -> Tuple[bytes, Dict[str, int]]:
         name_offs[name] = len(data) + 5   # 4-byte hash + 1-byte flag
         data += struct.pack('<IB', hash_val, 0x09) + name.encode('ascii') + b'\x00'
     # Pad to 16-byte boundary with 0xFF.
+    data = _pad16(data, fill=0xFF)
+    return data, name_offs
+
+
+def _build_classnames_cm() -> Tuple[bytes, Dict[str, int]]:
+    """Build __classnames__ section for a compressed mesh packfile."""
+    data = b''
+    name_offs: Dict[str, int] = {}
+    for hash_val, name in _CM_CLASS_ENTRIES:
+        name_offs[name] = len(data) + 5   # 4-byte hash + 1-byte flag
+        data += struct.pack('<IB', hash_val, 0x09) + name.encode('ascii') + b'\x00'
+    data = _pad16(data, fill=0xFF)
+    return data, name_offs
+
+
+def _build_classnames_mixed() -> Tuple[bytes, Dict[str, int]]:
+    """Build __classnames__ section for a two-body (CM + polytope) packfile."""
+    data = b''
+    name_offs: Dict[str, int] = {}
+    for hash_val, name in _MIXED_CLASS_ENTRIES:
+        name_offs[name] = len(data) + 5   # 4-byte hash + 1-byte flag
+        data += struct.pack('<IB', hash_val, 0x09) + name.encode('ascii') + b'\x00'
     data = _pad16(data, fill=0xFF)
     return data, name_offs
 
@@ -539,6 +1050,325 @@ def _file_header(cn_name_off: int) -> bytes:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
+def pack_compressed_mesh(verts: List[Vert3], tris: List[Face]) -> bytes:
+    """Build Havok packfile bytes from a triangle mesh using hknpCompressedMeshShape.
+
+    Vertices are quantized with 11-11-10 bits relative to the mesh bounding box.
+    Each triangle (a, b, c) is stored as a degenerate quad [a, b, c, c].
+
+    Args:
+        verts: List of (x, y, z) tuples in Havok space.  Maximum 255.
+        tris:  List of (a, b, c) triangle index tuples.  Maximum 255.
+
+    Returns:
+        Raw bytes of a valid hk_2014.1.0 packfile containing an
+        hknpPhysicsSystemData with one static body carrying the
+        hknpCompressedMeshShape/hknpCompressedMeshShapeData.
+    """
+    cn_data, name_offs = _build_classnames_cm()
+    cn_name_off = name_offs['hknpPhysicsSystemData']
+
+    obj_data, fx = _build_cm_data_section(verts, tris, name_offs)
+
+    local_tbl  = fx.build_local_table()
+    global_tbl = fx.build_global_table()
+    virt_tbl   = fx.build_virtual_table()
+
+    data_section = obj_data + local_tbl + global_tbl + virt_tbl
+
+    cn_start   = 0x100
+    cn_end     = cn_start + len(cn_data)
+    data_start = cn_end
+
+    local_fix_abs  = data_start + len(obj_data)
+    global_fix_abs = local_fix_abs  + len(local_tbl)
+    virt_fix_abs   = global_fix_abs + len(global_tbl)
+    data_end       = virt_fix_abs   + len(virt_tbl)
+
+    hdr = _file_header(cn_name_off)
+
+    shdr0 = _section_header(
+        '__classnames__', cn_start,
+        local_fix=cn_start + len(cn_data),
+        global_fix=cn_start + len(cn_data),
+        virt_fix=cn_start + len(cn_data),
+        exports=cn_start + len(cn_data),
+    )
+    shdr1 = _section_header(
+        '__types__', cn_end,
+        local_fix=cn_end, global_fix=cn_end,
+        virt_fix=cn_end,  exports=cn_end,
+    )
+    shdr2 = _section_header(
+        '__data__', data_start,
+        local_fix=local_fix_abs,
+        global_fix=global_fix_abs,
+        virt_fix=virt_fix_abs,
+        exports=data_end,
+    )
+
+    return hdr + shdr0 + shdr1 + shdr2 + cn_data + data_section
+
+
+def pack_mixed(cm_shape, poly_shape) -> bytes:
+    """Build Havok packfile bytes for two bodies: one CM + one convex polytope.
+
+    Args:
+        cm_shape:   CollisionShape with shape_type=="compressed_mesh".
+        poly_shape: CollisionShape with shape_type=="polytope".
+
+    Returns:
+        Raw bytes of a valid hk_2014.1.0 packfile with hknpPhysicsSystemData
+        containing two static bodies (CM body + polytope body).
+    """
+    cn_data, name_offs = _build_classnames_mixed()
+    cn_name_off = name_offs['hknpPhysicsSystemData']
+
+    obj_data, fx = _build_mixed_data_section(
+        cm_shape.verts, cm_shape.faces,
+        poly_shape.verts, poly_shape.faces,
+        name_offs)
+
+    local_tbl  = fx.build_local_table()
+    global_tbl = fx.build_global_table()
+    virt_tbl   = fx.build_virtual_table()
+
+    data_section = obj_data + local_tbl + global_tbl + virt_tbl
+
+    cn_start   = 0x100
+    cn_end     = cn_start + len(cn_data)
+    data_start = cn_end
+
+    local_fix_abs  = data_start + len(obj_data)
+    global_fix_abs = local_fix_abs  + len(local_tbl)
+    virt_fix_abs   = global_fix_abs + len(global_tbl)
+    data_end       = virt_fix_abs   + len(virt_tbl)
+
+    hdr = _file_header(cn_name_off)
+
+    shdr0 = _section_header(
+        '__classnames__', cn_start,
+        local_fix=cn_start + len(cn_data),
+        global_fix=cn_start + len(cn_data),
+        virt_fix=cn_start + len(cn_data),
+        exports=cn_start + len(cn_data),
+    )
+    shdr1 = _section_header(
+        '__types__', cn_end,
+        local_fix=cn_end, global_fix=cn_end,
+        virt_fix=cn_end, exports=cn_end,
+    )
+    shdr2 = _section_header(
+        '__data__', data_start,
+        local_fix=local_fix_abs,
+        global_fix=global_fix_abs,
+        virt_fix=virt_fix_abs,
+        exports=data_end,
+    )
+
+    return hdr + shdr0 + shdr1 + shdr2 + cn_data + data_section
+
+
+# ── Multi-body polytope data section builder ─────────────────────────────────
+
+def _build_multi_poly_data_section(
+        poly_pairs: List[Tuple[List[Vert3], List[Face]]],
+        name_offs: Dict[str, int]) -> Tuple[bytes, '_FixupBuilder']:
+    """Build the full __data__ section for an N-body all-polytope packfile.
+
+    Each element of poly_pairs is a (verts, faces) tuple for one body.
+    Layout:
+      rel 0x0000:            hknpPhysicsSystemData (0x80)
+      rel 0x0080:            body_props[0..N-1]   (N × 0x50)
+      rel 0x0080+N*0x50:     BodyCInfo[0..N-1]    (N × 0x60)
+      rel 0x0080+N*0xB0:     ShapeEntry[0..N-1]   (N × 0x10)
+      rel 0x0080+N*0xC0:     shape[0] (variable) + RefCountedProps + MassProps
+      ...                    shape[1] chain, ...
+    """
+    N = len(poly_pairs)
+    assert N >= 1
+
+    fx = _FixupBuilder()
+    data = bytearray()
+
+    def rel() -> int:
+        return len(data)
+
+    def write(b: bytes) -> int:
+        off = rel()
+        data.extend(b)
+        return off
+
+    # ── hknpPhysicsSystemData (0x80) ─────────────────────────────────────────
+    psd_rel = rel()
+    fx.add_virtual(psd_rel, 0, name_offs['hknpPhysicsSystemData'])
+    write(_hkarray(0))              # +0x00: empty
+    arr10_off = rel()
+    write(_hkarray(N))              # +0x10: body_props (count=N)
+    write(_hkarray(0))              # +0x20: empty
+    write(_hkarray(0))              # +0x30: empty
+    arr40_off = rel()
+    write(_hkarray(N))              # +0x40: BodyCInfo (count=N)
+    write(_hkarray(0))              # +0x50: empty
+    arr60_off = rel()
+    write(_hkarray(N))              # +0x60: ShapeEntry (count=N)
+    write(bytes(16))                # +0x70: zeros
+    assert rel() == psd_rel + 0x80
+
+    # ── body_props[0..N-1] ───────────────────────────────────────────────────
+    body_props_rel = rel()
+    fx.add_local(arr10_off, body_props_rel)
+    for _ in range(N):
+        write(_BODY_PROPS)
+
+    # ── BodyCInfo[0..N-1] ────────────────────────────────────────────────────
+    body_arr_rel = rel()
+    fx.add_local(arr40_off, body_arr_rel)
+    body_cinfo_rels = []
+    for _ in range(N):
+        bc_rel = rel()
+        body_cinfo_rels.append(bc_rel)
+        write(_BODY_CINFO)
+
+    # ── ShapeEntry[0..N-1] ───────────────────────────────────────────────────
+    shape_arr_rel = rel()
+    fx.add_local(arr60_off, shape_arr_rel)
+    shape_entry_rels = []
+    for _ in range(N):
+        se_rel = rel()
+        shape_entry_rels.append(se_rel)
+        write(bytes(16))  # ptr=0 (patched by global fixup), 8 zeros
+
+    # ── Per-body polytope chains ──────────────────────────────────────────────
+    for i, (verts, faces) in enumerate(poly_pairs):
+        # hknpConvexPolytopeShape (variable size, aligned to 16)
+        shape_rel = rel()
+        write(_build_convex_polytope_shape(verts, faces))
+        while rel() % 16:
+            data.append(0)
+
+        fx.add_virtual(shape_rel, 0, name_offs['hknpConvexPolytopeShape'])
+        fx.add_global(body_cinfo_rels[i] + 0x00, 2, shape_rel)
+        fx.add_global(shape_entry_rels[i] + 0x00, 2, shape_rel)
+
+        # hkRefCountedProperties (0x20)
+        refprop_rel = rel()
+        write(_REF_COUNTED_PROPS)
+        fx.add_virtual(refprop_rel, 0, name_offs['hkRefCountedProperties'])
+        fx.add_local(refprop_rel + 0x00, refprop_rel + 0x10)
+        fx.add_global(shape_rel + 0x20, 2, refprop_rel)
+        while rel() % 16:
+            data.append(0)
+
+        # hknpShapeMassProperties (0x30)
+        massprop_rel = rel()
+        write(_SHAPE_MASS_PROPS)
+        fx.add_global(refprop_rel + 0x10, 2, massprop_rel)
+        fx.add_virtual(massprop_rel, 0, name_offs['hknpShapeMassProperties'])
+        while rel() % 16:
+            data.append(0)
+
+    return bytes(data), fx
+
+
+def pack_multi_polytope(poly_shapes) -> bytes:
+    """Pack N convex polytopes into a single Havok packfile (N-body system).
+
+    Each body in the packfile carries one hknpConvexPolytopeShape.
+    Uses the same __classnames__ as a single-polytope packfile.
+
+    Args:
+        poly_shapes: list of CollisionShape objects with shape_type='polytope'.
+    Returns:
+        Raw Havok packfile bytes.
+    """
+    cn_data, name_offs = _build_classnames()
+    cn_name_off = name_offs['hknpPhysicsSystemData']
+
+    poly_pairs = [(s.verts, s.faces) for s in poly_shapes]
+    obj_data, fx = _build_multi_poly_data_section(poly_pairs, name_offs)
+
+    local_tbl  = fx.build_local_table()
+    global_tbl = fx.build_global_table()
+    virt_tbl   = fx.build_virtual_table()
+
+    data_section = obj_data + local_tbl + global_tbl + virt_tbl
+
+    cn_start   = 0x100
+    cn_end     = cn_start + len(cn_data)
+    data_start = cn_end
+    local_fix_abs  = data_start + len(obj_data)
+    global_fix_abs = local_fix_abs  + len(local_tbl)
+    virt_fix_abs   = global_fix_abs + len(global_tbl)
+    data_end       = virt_fix_abs   + len(virt_tbl)
+
+    hdr = _file_header(cn_name_off)
+
+    shdr0 = _section_header(
+        '__classnames__', cn_start,
+        local_fix=cn_start + len(cn_data),
+        global_fix=cn_start + len(cn_data),
+        virt_fix=cn_start + len(cn_data),
+        exports=cn_start + len(cn_data),
+    )
+    shdr1 = _section_header(
+        '__types__', cn_end,
+        local_fix=cn_end, global_fix=cn_end,
+        virt_fix=cn_end,  exports=cn_end,
+    )
+    shdr2 = _section_header(
+        '__data__', data_start,
+        local_fix=local_fix_abs,
+        global_fix=global_fix_abs,
+        virt_fix=virt_fix_abs,
+        exports=data_end,
+    )
+
+    return hdr + shdr0 + shdr1 + shdr2 + cn_data + data_section
+
+
+def pack_shapes(shapes) -> bytes:
+    """Pack a list of CollisionShape objects into Havok packfile bytes.
+
+    Supported shape compositions (matching what the decoder can produce):
+      [compressed_mesh]             → pack_compressed_mesh (11-11-10 quantised)
+      [polytope]                    → pack_convex_polytope (single body)
+      [polytope, ...]               → pack_multi_polytope (N-body all-polytope)
+      [compressed_mesh, polytope]   → pack_mixed (two-body)
+
+    Combinations not listed above are not yet implemented and raise
+    NotImplementedError rather than silently producing incorrect output.
+
+    Args:
+        shapes: List of CollisionShape objects (from bhk_autounpack).
+    Returns:
+        Raw Havok packfile bytes suitable for bhkPhysicsSystem.data.
+    Raises:
+        NotImplementedError: for unsupported shape combinations.
+    """
+    if len(shapes) == 1:
+        s = shapes[0]
+        if s.shape_type == "compressed_mesh":
+            return pack_compressed_mesh(s.verts, s.faces)
+        if s.shape_type == "polytope":
+            return pack_convex_polytope(s.verts, s.faces)
+
+    cm_list   = [s for s in shapes if s.shape_type == "compressed_mesh"]
+    poly_list = [s for s in shapes if s.shape_type == "polytope"]
+
+    if len(cm_list) == 0 and len(poly_list) == len(shapes):
+        return pack_multi_polytope(poly_list)
+
+    if len(cm_list) == 1 and len(poly_list) == 1 and len(shapes) == 2:
+        return pack_mixed(cm_list[0], poly_list[0])
+
+    types = [s.shape_type for s in shapes]
+    raise NotImplementedError(
+        f"pack_shapes: unsupported shape combination {types}; "
+        f"mixed CM+multi-polytope packing is not yet implemented"
+    )
+
 
 def pack_convex_polytope(verts: List[Vert3], faces: List[Face]) -> bytes:
     """Build Havok packfile bytes from a convex polytope mesh.

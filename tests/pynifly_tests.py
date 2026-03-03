@@ -2809,6 +2809,16 @@ def TEST_SKELETON_DEER():
     assert TT.is_eq(skeleton_extra.integer_data, 178509022, "SkeletonID value correct")
 
 
+def _shape_world_verts(shape):
+    """Return shape.verts with the body transform applied (if any)."""
+    if shape.transform is None:
+        return list(shape.verts)
+    p, r = shape.transform.position, shape.transform.rotation
+    return [(r[0][0]*v[0]+r[0][1]*v[1]+r[0][2]*v[2]+p[0],
+             r[1][0]*v[0]+r[1][1]*v[1]+r[1][2]*v[2]+p[1],
+             r[2][0]*v[0]+r[2][1]*v[1]+r[2][2]*v[2]+p[2]) for v in shape.verts]
+
+
 @test_category("FO4", "PHYSICS")
 def TEST_FO4_PHYSICS_SYSTEM():
     """bhkPhysicsSystem binary data can be read and decoded into collision geometry."""
@@ -2823,15 +2833,20 @@ def TEST_FO4_PHYSICS_SYSTEM():
     ps = c.physics_system
     assert ps is not None, "bhkNPCollisionObject references a bhkPhysicsSystem"
 
-    verts, faces = ps.geometry
-    assert len(verts) > 0, f"Got {len(verts)} vertices from physics system"
-    assert len(faces) > 0, f"Got {len(faces)} faces from physics system"
+    shapes = ps.geometry
+    assert TT.is_gt(len(shapes), 0, "Physics system has collision shapes")
+    s0 = shapes[0]
+    verts = s0.verts
+    faces = s0.faces
+    assert TT.is_gt(len(verts), 0, "Physics system has vertices")
+    assert TT.is_gt(len(faces), 0, "Physics system has faces")
 
     # Collision bounds should be close to the floor tile mesh bounds (inset by ~0.7 NIF units)
     sf = HAVOC_SCALE_FACTOR * game_collision_sf["FO4"]
-    phys_xs = [v[0] * sf for v in verts]
-    phys_ys = [v[1] * sf for v in verts]
-    phys_zs = [v[2] * sf for v in verts]
+    wv = _shape_world_verts(s0)
+    phys_xs = [v[0] * sf for v in wv]
+    phys_ys = [v[1] * sf for v in wv]
+    phys_zs = [v[2] * sf for v in wv]
 
     shape = nif.shape_dict["InsFloorMat01:4"]
     xf = shape.global_transform
@@ -2874,21 +2889,23 @@ def TEST_FO4_PHYSICS_SYSTEM():
     coll = outnif.root.add_collision(
         None, flags=c.properties.flags,
         collision_type=PynBufferTypes.bhkNPCollisionObjectBufType)
-    face_lists = [list(f) for f, _ in faces]
-    bhkPhysicsSystem.New(outnif, verts=verts, faces=face_lists, parent=coll)
+    bhkPhysicsSystem.New(outnif, shapes=shapes, parent=coll)
     outnif.save()
 
     check_nif = NifFile(outfile)
     check_ps = check_nif.root.collision_object.physics_system
     assert check_ps is not None, "Reloaded nif has a bhkPhysicsSystem"
 
-    check_verts, check_faces = check_ps.geometry
+    check_shapes = check_ps.geometry
+    check_verts = [v for s in check_shapes for v in s.verts]
+    check_faces = [f for s in check_shapes for f in s.faces]
     assert TT.is_eq(len(check_verts), len(verts), "Written physics has same vertex count")
     assert TT.is_eq(len(check_faces), len(faces), "Written physics has same face count")
 
     max_err = max(max(abs(v[i] - d[i]) for i in range(3))
                   for v, d in zip(verts, check_verts))
-    assert TT.is_lt(max_err, 1e-4, f"Round-trip max vertex error {max_err:.2e}")
+    # Compressed-mesh uses 11-11-10 quantisation; allow up to ~1% of AABB range.
+    assert TT.is_lt(max_err, 1e-2, f"Round-trip max vertex error {max_err:.2e}")
 
 
 @test_category("FO4", "PHYSICS")
@@ -2905,25 +2922,26 @@ def TEST_FO4_CAPSULE_PHYSICS():
     ps = c.physics_system
     assert ps is not None, "bhkNPCollisionObject references a bhkPhysicsSystem"
 
-    verts, faces = ps.geometry
-    assert TT.is_gt(len(verts), 0, "Physics system has vertices")
-    assert TT.is_gt(len(faces), 0, "Physics system has faces")
-    assert TT.is_eq(set(g for _, g in faces), set(('Polytope_standalone_0x7e0', 'Section_0')),
-                    "groups on root collision faces")
+    shapes = ps.geometry
+    assert TT.is_gt(len(shapes), 0, "Physics system has collision shapes")
+    assert TT.is_gt(sum(len(s.verts) for s in shapes), 0, "Physics system has vertices")
+    assert TT.is_gt(sum(len(s.faces) for s in shapes), 0, "Physics system has faces")
+    shape_names = {s.name for s in shapes}
+    assert TT.is_eq(shape_names, {'Polytope_standalone_0x7e0', 'CompressedMesh'},
+                    "shape names on root collision")
 
     # Verify two distinct collision shapes
-    shape_prefixes = {g.split('_')[0] for _, g in faces}
-    assert TT.is_eq(len(shape_prefixes), 2,
-                    f"Two distinct collision shapes (got prefixes: {shape_prefixes})")
+    assert TT.is_eq(len(shapes), 2,
+                    f"Two distinct collision shapes (got: {shape_names})")
 
-    # Collect vertex indices used by Section_0 faces only
-    section0_idx = {i for face, g in faces if g == "Section_0" for i in face}
+    # Get the compressed mesh shape for bounds check
+    mesh_shape = next(s for s in shapes if s.shape_type == "compressed_mesh")
 
     sf = HAVOC_SCALE_FACTOR * game_collision_sf["FO4"]
-    sec0_verts = [verts[i] for i in section0_idx]
-    phys_xs = [v[0] * sf for v in sec0_verts]
-    phys_ys = [v[1] * sf for v in sec0_verts]
-    phys_zs = [v[2] * sf for v in sec0_verts]
+    wv_mesh = _shape_world_verts(mesh_shape)
+    phys_xs = [v[0] * sf for v in wv_mesh]
+    phys_ys = [v[1] * sf for v in wv_mesh]
+    phys_zs = [v[2] * sf for v in wv_mesh]
 
     # Transform mesh shape verts to world space
     shape = nif.shape_dict["CapsuleExtStairsFree01:1"]
@@ -2944,31 +2962,46 @@ def TEST_FO4_CAPSULE_PHYSICS():
     mesh_ys = [v[1] for v in world_verts]
     mesh_zs = [v[2] for v in world_verts]
 
-    # Section_0 collision bounds should be close to the BSTriShape bounds (inset ~1.4 NIF units)
-    assert TT.is_equiv(min(phys_xs), min(mesh_xs), "Min X Section_0 close to mesh", e=2.0)
-    assert TT.is_equiv(max(phys_xs), max(mesh_xs), "Max X Section_0 close to mesh", e=2.0)
-    assert TT.is_equiv(min(phys_ys), min(mesh_ys), "Min Y Section_0 close to mesh", e=2.0)
-    assert TT.is_equiv(max(phys_ys), max(mesh_ys), "Max Y Section_0 close to mesh", e=2.0)
-    assert TT.is_equiv(min(phys_zs), min(mesh_zs), "Min Z Section_0 close to mesh", e=2.0)
-    assert TT.is_equiv(max(phys_zs), max(mesh_zs), "Max Z Section_0 close to mesh", e=2.0)
+    # Compressed mesh collision bounds should be close to the BSTriShape bounds (inset ~1.4 NIF units)
+    assert TT.is_equiv(min(phys_xs), min(mesh_xs), "Min X CompressedMesh close to mesh", e=2.0)
+    assert TT.is_equiv(max(phys_xs), max(mesh_xs), "Max X CompressedMesh close to mesh", e=2.0)
+    assert TT.is_equiv(min(phys_ys), min(mesh_ys), "Min Y CompressedMesh close to mesh", e=2.0)
+    assert TT.is_equiv(max(phys_ys), max(mesh_ys), "Max Y CompressedMesh close to mesh", e=2.0)
+    assert TT.is_equiv(min(phys_zs), min(mesh_zs), "Min Z CompressedMesh close to mesh", e=2.0)
+    assert TT.is_equiv(max(phys_zs), max(mesh_zs), "Max Z CompressedMesh close to mesh", e=2.0)
 
-    # StairHelper03 has its own collision; its Section_0 should match the same BSTriShape
-    stair_node = nif.nodes["StairHelper03"]
-    stair_c = stair_node.collision_object
-    assert TT.is_eq(stair_c.blockname, "bhkNPCollisionObject",
-                    "StairHelper03 collision is bhkNPCollisionObject")
-    stair_verts, stair_faces = stair_c.physics_system.geometry
-    stair_idx = {i for face, g in stair_faces if g == "Section_0" for i in face}
-    stair_sec0 = [stair_verts[i] for i in stair_idx]
-    sv_xs = [v[0] * sf for v in stair_sec0]
-    sv_ys = [v[1] * sf for v in stair_sec0]
-    sv_zs = [v[2] * sf for v in stair_sec0]
-    assert TT.is_equiv(min(sv_xs), min(mesh_xs), "StairHelper03 Min X close to mesh", e=2.0)
-    assert TT.is_equiv(max(sv_xs), max(mesh_xs), "StairHelper03 Max X close to mesh", e=2.0)
-    assert TT.is_equiv(min(sv_ys), min(mesh_ys), "StairHelper03 Min Y close to mesh", e=2.0)
-    assert TT.is_equiv(max(sv_ys), max(mesh_ys), "StairHelper03 Max Y close to mesh", e=2.0)
-    assert TT.is_equiv(min(sv_zs), min(mesh_zs), "StairHelper03 Min Z close to mesh", e=2.0)
-    assert TT.is_equiv(max(sv_zs), max(mesh_zs), "StairHelper03 Max Z close to mesh", e=2.0)
+    # ---- write back two shapes (CM + polytope) and verify round-trip ----
+    outfile = r"tests/Out/TEST_FO4_CAPSULE_PHYSICS.nif"
+    outnif = NifFile()
+    outnif.initialize("FO4", outfile)
+
+    src_shape = nif.shape_dict["CapsuleExtStairsFree01:1"]
+    out_shape = outnif.createShapeFromData(
+        "CapsuleExtStairsFree01:1",
+        src_shape.verts,
+        src_shape.tris,
+        src_shape.uvs,
+        src_shape.normals,
+        use_type=PynBufferTypes.BSTriShapeBufType,
+        parent=outnif.root,
+    )
+    out_shape.transform.scale = src_shape.transform.scale
+
+    coll = outnif.root.add_collision(
+        None, flags=c.properties.flags,
+        collision_type=PynBufferTypes.bhkNPCollisionObjectBufType)
+    bhkPhysicsSystem.New(outnif, shapes=shapes, parent=coll)
+    outnif.save()
+
+    check_nif = NifFile(outfile)
+    check_ps = check_nif.root.collision_object.physics_system
+    assert check_ps is not None, "Reloaded nif has a bhkPhysicsSystem"
+
+    check_shapes = check_ps.geometry
+    check_types = {s.shape_type for s in check_shapes}
+    assert TT.is_eq(len(check_shapes), 2, "Round-trip has exactly two shapes")
+    assert TT.is_eq(check_types, {"compressed_mesh", "polytope"},
+                    "Round-trip preserves one compressed_mesh and one polytope")
 
 
 @test_category("FO4", "PHYSICS")
@@ -2991,12 +3024,17 @@ def TEST_FO4_PHYSICS_PACK_BOX():
     box_data = pack_convex_polytope(box_verts, box_faces)
     assert TT.is_gt(len(box_data), 0, "pack_convex_polytope produces non-empty bytes")
 
-    dec_verts, dec_faces = parse_bytes(box_data)
-    assert TT.is_eq(len(dec_verts), len(box_verts), "Box round-trip: vertex count")
-    assert TT.is_eq(len(dec_faces), len(box_faces), "Box round-trip: face count")
+    shapes = parse_bytes(box_data)
+    assert TT.is_gt(len(shapes), 0, "parse_bytes returns at least one shape")
+    dec_shape = shapes[0]
+    assert TT.is_eq(len(dec_shape.verts), len(box_verts), "Box round-trip: vertex count")
+    # Decoder triangulates polygon faces; each n-gon becomes (n-2) triangles.
+    # 6 quads (4-gons) → 6*(4-2)=12 triangles.
+    expected_tris = sum(len(f) - 2 for f in box_faces)
+    assert TT.is_eq(len(dec_shape.faces), expected_tris, "Box round-trip: face count")
 
     max_err = max(max(abs(v[i] - d[i]) for i in range(3))
-                  for v, d in zip(box_verts, dec_verts))
+                  for v, d in zip(box_verts, dec_shape.verts))
     assert TT.is_lt(max_err, 1e-5, f"Box round-trip: max vertex error {max_err:.2e}")
 
 
