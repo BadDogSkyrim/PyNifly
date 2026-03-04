@@ -57,7 +57,7 @@ def _shape_summary(s) -> str:
     return f"{s.shape_type} '{s.name}': {len(s.verts)}v / {len(s.faces)}f"
 
 
-def _report_node(node_name: str, node, seen_ps_ids: set) -> list:
+def _report_node(filename: str, node_name: str, node, seen_ps_ids: set) -> list:
     """Return report lines for one node's collision, or [] if none."""
     try:
         coll = node.collision_object
@@ -72,7 +72,7 @@ def _report_node(node_name: str, node, seen_ps_ids: set) -> list:
     if ctype == "bhkNPCollisionObject":
         ps = coll.physics_system
         if ps is None:
-            lines.append(f"  {node_name}: {ctype} -> (no physics system)")
+            lines.append(f"{filename}\t{node_name}\t{ctype}\t(no physics system)")
             return lines
 
         # A single bhkPhysicsSystem may be shared across several nodes.
@@ -80,7 +80,7 @@ def _report_node(node_name: str, node, seen_ps_ids: set) -> list:
         ps_id = ps.id
         if ps_id in seen_ps_ids:
             lines.append(
-                f"  {node_name}: {ctype} -> (shares physics system #{ps_id})"
+                f"{filename}\t{node_name}\t{ctype}\t(shares physics system #{ps_id})"
             )
             return lines
         seen_ps_ids.add(ps_id)
@@ -88,15 +88,15 @@ def _report_node(node_name: str, node, seen_ps_ids: set) -> list:
         try:
             shapes = ps.geometry
         except Exception as exc:
-            lines.append(f"  {node_name}: {ctype} -> ERROR decoding geometry: {exc}")
+            lines.append(f"{filename}\t{node_name}\t{ctype}\tERROR decoding geometry: {exc}")
             return lines
 
         if not shapes:
-            lines.append(f"  {node_name}: {ctype} -> (empty physics system)")
+            lines.append(f"{filename}\t{node_name}\t{ctype}\t(empty physics system)")
         else:
-            lines.append(f"  {node_name}: {ctype} -> {len(shapes)} shape(s)")
+            # lines.append(f"{filename}\t{node_name}\t{ctype}\t{len(shapes)} shape(s)")
             for s in shapes:
-                lines.append(f"    {_shape_summary(s)}")
+                lines.append(f"{filename}\t{node_name}\t{ctype}\t{_shape_summary(s)}")
 
     else:
         # Older-style collision (bhkCollisionObject, bhkNiCollisionObject, etc.)
@@ -132,10 +132,10 @@ def report_nif(nif_path: Path) -> bool:
     seen_ps_ids = set()
     output_lines = []
     for node_name, node in candidates:
-        output_lines.extend(_report_node(node_name, node, seen_ps_ids))
+        output_lines.extend(_report_node(nif_path, node_name, node, seen_ps_ids))
 
     if output_lines:
-        _print(str(nif_path))
+        # _print(str(nif_path))
         for line in output_lines:
             _print(line)
         return True

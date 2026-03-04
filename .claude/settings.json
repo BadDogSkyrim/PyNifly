@@ -17,7 +17,8 @@
       "Bash(python -:*)",
       "Bash(python tests/pynifly_tests.py TEST_FO4_MULTI_POLYTOPE_ROUNDTRIP)",
       "Bash(python pynifly_test_runner.py TEST_FO4_MULTI_POLYTOPE_ROUNDTRIP)",
-      "Read(//c/Users/hughr/.claude/projects/c--Modding-PyNifly/memory/**)"
+      "Read(//c/Users/hughr/.claude/projects/c--Modding-PyNifly/memory/**)",
+      "Bash(python pynifly_test_runner.py --list)"
     ],
     "additionalDirectories": [
       "c:\\Users\\hughr\\.claude\\projects\\c--Modding-PyNifly\\memory"

@@ -478,7 +478,10 @@ class CollisionHandler():
 
         for i, s in enumerate(leaf_shapes):
             # Apply body transform then scale to Blender units.
-            if s.transform is not None:
+            # compressed_mesh vertices are already in world space (the AABB is absolute);
+            # the body transform is the Havok centre-of-mass and must NOT be re-applied.
+            # Polytope vertices are in body-local space and DO need the transform.
+            if s.transform is not None and s.shape_type != 'compressed_mesh':
                 p, r = s.transform.position, s.transform.rotation
                 xverts = [
                     (r[0][0]*v[0]+r[0][1]*v[1]+r[0][2]*v[2]+p[0],

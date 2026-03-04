@@ -7,7 +7,8 @@
       "Bash(python pynifly_test_runner.py)",
       "Read(//c/Users/hughr/Downloads/**)",
       "Bash(py -c \":*)",
-      "Bash(py pynifly_test_runner.py)"
+      "Bash(py pynifly_test_runner.py)",
+      "Bash(ls tests/FO4/*.nif)"
     ]
   }
 }

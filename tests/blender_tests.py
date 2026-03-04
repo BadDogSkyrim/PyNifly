@@ -5412,6 +5412,80 @@ def TEST_COLLISION_FO4_DRUMAG():
 
 
 @TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_VAULT_SHELF():
+    """FO4 bhkPhysicsSystem: single compressed_mesh whose bounds match the visual mesh.
+
+    Vault_Shelf_02.nif has a bhkNPCollisionObject on the root node whose
+    bhkPhysicsSystem stores a single hknpCompressedMeshShape.  The shape's
+    AABB and vertices are already in world space — the Havok body transform
+    (z ≈ 0.73 Havok units ≈ 51 Blender units) is the centre-of-mass position
+    and must NOT be added to the vertices a second time.
+
+    Expected import result:
+      - One compressed_mesh collision object named bhkPhysicsSystem.
+      - Its world-space bounds are within 5 Blender units of the visual mesh
+        bounds on every axis (the shelf spans ≈ ±74 x, ±39 y, 0..113 z).
+
+    Expected export/round-trip:
+      - Collision is preserved after export → reimport with the same bounds.
+    """
+    testfile = TTB.test_file(r"tests\FO4\Meshes\Vault_Shelf_02.nif")
+    outfile  = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_VAULT_SHELF.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    physics_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    cm_shapes = [o for o in physics_shapes
+                 if o.get('pynCollisionShapeType') == 'compressed_mesh']
+    assert TT.is_eq(len(cm_shapes), 1, "One compressed_mesh shape imported")
+
+    coll_obj = cm_shapes[0]
+
+    # Visual mesh — use the larger of the two mesh objects (the shelf body)
+    mesh_obj = bpy.data.objects.get('Vault_Shelf_02:1 - L2_Vault_Shelf_02:1')
+    assert TT.is_neq(mesh_obj, None, "Visual mesh Vault_Shelf_02:1 - L2_Vault_Shelf_02:1 exists")
+
+    def world_bounds(ob):
+        vs = [ob.matrix_world @ v.co for v in ob.data.vertices]
+        xs = [v.x for v in vs]; ys = [v.y for v in vs]; zs = [v.z for v in vs]
+        return min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
+
+    mx0, mx1, my0, my1, mz0, mz1 = world_bounds(mesh_obj)
+    cx0, cx1, cy0, cy1, cz0, cz1 = world_bounds(coll_obj)
+
+    tol = 5.0  # Blender units
+    assert TT.is_lt(abs(cx0 - mx0), tol, "Collision x-min close to mesh x-min")
+    assert TT.is_lt(abs(cx1 - mx1), tol, "Collision x-max close to mesh x-max")
+    assert TT.is_lt(abs(cy0 - my0), tol, "Collision y-min close to mesh y-min")
+    assert TT.is_lt(abs(cy1 - my1), tol, "Collision y-max close to mesh y-max")
+    assert TT.is_lt(abs(cz0 - mz0), tol, "Collision z-min close to mesh z-min")
+    assert TT.is_lt(abs(cz1 - mz1), tol, "Collision z-max close to mesh z-max")
+
+    # ---- Export and round-trip verify ----------------------------------------
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete()
+
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+
+    chk_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    chk_cm = [o for o in chk_shapes if o.get('pynCollisionShapeType') == 'compressed_mesh']
+    assert TT.is_eq(len(chk_cm), 1, "Round-trip preserves compressed_mesh shape")
+
+    chk_mesh = [o for o in bpy.data.objects if o.name.startswith('Vault_Shelf_02')]
+    chk_mesh = [o for o in chk_mesh if o.type == 'MESH' and not o.name.startswith('bhkPhysicsSystem')]
+    assert TT.is_gt(len(chk_mesh), 0, "Round-trip preserves visual mesh")
+
+    rt_coll = chk_cm[0]
+    rt_mesh = max(chk_mesh, key=lambda o: len(o.data.vertices))
+    *_, rc_zmin, rc_zmax = world_bounds(rt_coll)
+    *_, rm_zmin, rm_zmax = world_bounds(rt_mesh)
+    assert TT.is_lt(abs(rc_zmin - rm_zmin), tol, "Round-trip collision z-min close to mesh z-min")
+    assert TT.is_lt(abs(rc_zmax - rm_zmax), tol, "Round-trip collision z-max close to mesh z-max")
+
+
+@TT.category('FO4', 'PHYSICS')
 def TEST_COLLISION_FO4_PHYSICS_SYSTEM():
     """FO4 bhkNPCollisionObject: import, export from mesh geometry, reimport and verify"""
     testfile = TTB.test_file(r"tests\FO4\InsFloorMat01.nif")
