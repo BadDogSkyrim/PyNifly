@@ -5617,9 +5617,9 @@ def TEST_COLLISION_FO4_POOLBALL():
     assert TT.is_eq(coll_obj.rigid_body.collision_shape, 'SPHERE',
                      "Rigid body collision shape is SPHERE")
 
-    # Sphere radius should be stored and the mesh should approximate it.
-    havok_radius = coll_obj.get('pynSphereRadius', 0.0)
-    assert TT.is_gt(havok_radius, 0.01, "Havok sphere radius is positive")
+    # Sphere mesh dimensions encode the radius; check it's reasonable.
+    orig_dim = max(coll_obj.dimensions)
+    assert TT.is_gt(orig_dim, 0.1, "Sphere collision mesh has positive size")
 
     # Visual mesh should exist.
     mesh_obj = bpy.data.objects.get('Poolball_Cue:0')
@@ -5641,9 +5641,9 @@ def TEST_COLLISION_FO4_POOLBALL():
     assert TT.is_eq(chk_obj.get('pynCollisionShapeType'), 'sphere',
                      "Round-trip shape is still a sphere")
 
-    chk_radius = chk_obj.get('pynSphereRadius', 0.0)
-    assert TT.is_equiv(chk_radius, havok_radius,
-                        "Sphere radius preserved after round-trip")
+    chk_dim = max(chk_obj.dimensions)
+    assert TT.is_equiv(chk_dim, orig_dim,
+                        "Sphere size preserved after round-trip")
 
 
 @TT.category('FO4', 'PHYSICS')

@@ -244,6 +244,20 @@ class BodyTransform:
 
 
 @dataclass
+class PhysicsProps:
+    """Per-body physics properties from dyn_inertia / body_props arrays.
+
+    Present only for dynamic bodies (is_dynamic=True).
+    Static bodies have is_dynamic=False and all other fields at defaults.
+    """
+    is_dynamic: bool = False
+    mass: float = 0.0                       # from dyn_inertia +0x04 (stored as 1/mass)
+    density: float = 0.0                    # from dyn_inertia +0x08 (mass / collision_volume)
+    inertia: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # (Ixx, Iyy, Izz) from +0x20..+0x28
+    body_props_raw: bytes = b""             # 16 bytes of body_props +0x10..+0x1F (material)
+
+
+@dataclass
 class CollisionShape:
     """A single decoded collision shape from a Havok packfile.
 
@@ -257,6 +271,7 @@ class CollisionShape:
     Vertices are in local (untransformed) space; the caller applies transform.
     convex_radius is the Minkowski expansion radius (0.0 for non-polytope shapes).
     sphere_radius is set only for shape_type="sphere" (Havok-space radius).
+    physics holds mass/inertia/material data (None for shapes that haven't been parsed yet).
     """
     shape_type: str
     name: str
@@ -266,6 +281,7 @@ class CollisionShape:
     convex_radius: float                    # 0.0 for compressed_mesh and compound
     children: List['CollisionShape']        # non-empty only for compound
     sphere_radius: float = 0.0             # Havok-space radius for sphere shapes
+    physics: Optional[PhysicsProps] = None  # per-body physics data
 
 
 def parse_body_transforms(
@@ -328,6 +344,60 @@ def parse_body_transforms(
                     result[sub_gf[1]] = bt
 
     return result
+
+
+def parse_physics_props(
+        data: bytes, data_start: int,
+        fixups: Dict[int, int],
+        objects: List[Tuple[int, str]],
+) -> Optional[PhysicsProps]:
+    """Parse physics properties (mass, inertia, density, material) from PSD arrays.
+
+    Returns a single PhysicsProps for the first hknpPhysicsSystemData found,
+    or None if no PSD exists.
+    """
+    psd_list = [(rel, cls) for rel, cls in objects if "hknpPhysicsSystemData" in cls]
+    if not psd_list:
+        return None
+
+    psd_rel = psd_list[0][0]
+    psd_abs = data_start + psd_rel
+
+    # body_props at PSD+0x10
+    bp_dst = fixups.get(psd_rel + 0x10)
+    body_props_raw = b"\x00" * 16
+    if bp_dst is not None:
+        bp_abs = data_start + bp_dst
+        body_props_raw = bytes(data[bp_abs + 0x10 : bp_abs + 0x20])
+
+    # Check for dynamic arrays (dyn_motion at +0x20, dyn_inertia at +0x30)
+    has_dyn = fixups.get(psd_rel + 0x20) is not None
+    if not has_dyn:
+        return PhysicsProps(
+            is_dynamic=False,
+            body_props_raw=body_props_raw,
+        )
+
+    # dyn_inertia at PSD+0x30
+    di_dst = fixups.get(psd_rel + 0x30)
+    if di_dst is None:
+        return PhysicsProps(is_dynamic=True, body_props_raw=body_props_raw)
+
+    di_abs = data_start + di_dst
+    inv_mass = f32(data, di_abs + 0x04)
+    mass = 1.0 / inv_mass if inv_mass != 0 else 0.0
+    density = f32(data, di_abs + 0x08)
+    ixx = f32(data, di_abs + 0x20)
+    iyy = f32(data, di_abs + 0x24)
+    izz = f32(data, di_abs + 0x28)
+
+    return PhysicsProps(
+        is_dynamic=True,
+        mass=mass,
+        density=density,
+        inertia=(ixx, iyy, izz),
+        body_props_raw=body_props_raw,
+    )
 
 
 # ── hkArray read helpers ─────────────────────────────────────────────────────
@@ -782,8 +852,9 @@ def extract_bhk_physics_system(
     gfixups = parse_global_fixups(data, data_hdr)
     objects = parse_virtual_fixups(data, data_hdr, cn_start)
 
-    # ── parse body transforms from PhysicsSystemData ──
+    # ── parse body transforms and physics properties from PhysicsSystemData ──
     body_transforms = parse_body_transforms(data, data_start, fixups, gfixups, objects)
+    physics_props = parse_physics_props(data, data_start, fixups, objects)
 
     # ── propagate compound instance transforms to child mesh data objects ──
     obj_map = {rel: cls for rel, cls in objects}
@@ -994,6 +1065,11 @@ def extract_bhk_physics_system(
 
     if not all_shapes:
         raise RuntimeError("No geometry decoded.")
+
+    # Attach physics properties to all top-level shapes
+    if physics_props is not None:
+        for s in all_shapes:
+            s.physics = physics_props
 
     if out_path is not None:
         write_obj(out_path, all_shapes)

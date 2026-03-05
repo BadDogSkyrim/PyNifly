@@ -428,7 +428,6 @@ class CollisionHandler():
             for p in obj.data.polygons:
                 p.use_smooth = True
             obj.data.update()
-            obj['pynSphereRadius'] = s.sphere_radius
             return obj
 
         # Mesh-based shapes: apply body transform then scale to Blender units.
@@ -596,6 +595,14 @@ class CollisionHandler():
             obj.display_type = 'WIRE'
             obj['pynRigidBody'] = 'bhkPhysicsSystem'
             obj['pynCollisionShapeType'] = s.shape_type
+
+            # Store physics properties (mass, inertia, material) from packfile.
+            if s.physics is not None:
+                obj['pynPhysDynamic'] = s.physics.is_dynamic
+                if s.physics.is_dynamic:
+                    obj['pynPhysMass'] = s.physics.mass
+                    obj['pynPhysInertia'] = list(s.physics.inertia)
+                obj['pynPhysMaterial'] = s.physics.body_props_raw.hex()
 
             # For polytopes, store the convex radius and add visualisation modifiers.
             if s.shape_type == 'polytope' and s.convex_radius > 0.0:
@@ -1075,7 +1082,7 @@ class CollisionHandler():
             targnode = self.nif.nodes[targobj.name]
 
         if coll.get('pynRigidBody') == 'bhkPhysicsSystem':
-            from ..pyn.bhk_autounpack import CollisionShape
+            from ..pyn.bhk_autounpack import CollisionShape, PhysicsProps
             sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game]
 
             _SHAPE_TYPES = ('compressed_mesh', 'polytope', 'sphere')
@@ -1093,13 +1100,32 @@ class CollisionHandler():
                 collision_type=PynBufferTypes.bhkNPCollisionObjectBufType)
 
             if shape_objs:
+                # Build physics properties from the first shape object's
+                # custom properties (all shapes in one system share the same body).
+                ref = shape_objs[0]
+                is_dyn = ref.get('pynPhysDynamic', False)
+                if is_dyn:
+                    physics = PhysicsProps(
+                        is_dynamic=True,
+                        mass=ref.get('pynPhysMass', 0.0),
+                        inertia=tuple(ref.get('pynPhysInertia', [0.0, 0.0, 0.0])),
+                        body_props_raw=bytes.fromhex(ref.get('pynPhysMaterial', '00ff003f003fcd3e01024c3deeff7f7f')),
+                    )
+                else:
+                    mat_hex = ref.get('pynPhysMaterial', '00ff003f003fcd3e01024c3deeff7f7f')
+                    physics = PhysicsProps(
+                        is_dynamic=False,
+                        body_props_raw=bytes.fromhex(mat_hex),
+                    )
+
                 # Build CollisionShape objects from Blender mesh data and pack
                 # using the appropriate packer (polytope, compressed_mesh, mixed, or sphere).
                 shapes = []
                 for obj in shape_objs:
                     shape_type = obj['pynCollisionShapeType']
                     if shape_type == 'sphere':
-                        sphere_r = obj.get('pynSphereRadius', 0.0)
+                        # Derive Havok radius from the Blender mesh dimensions.
+                        sphere_r = max(obj.dimensions) / 2.0 / sf
                         shapes.append(CollisionShape(
                             shape_type='sphere',
                             name=obj.name,
@@ -1109,6 +1135,7 @@ class CollisionHandler():
                             convex_radius=0.0,
                             children=[],
                             sphere_radius=sphere_r,
+                            physics=physics,
                         ))
                     else:
                         world_mat = self.export_xf @ obj.matrix_world
@@ -1124,7 +1151,19 @@ class CollisionHandler():
                             faces=faces,
                             convex_radius=radius,
                             children=[],
+                            physics=physics,
                         ))
+                # Compute density for dynamic bodies from geometry.
+                if is_dyn and physics.mass > 0:
+                    from ..pyn.bhk_autopack import compute_density
+                    # Use the first shape's geometry to compute density.
+                    s0 = shapes[0] if shapes else None
+                    if s0 is not None:
+                        physics.density = compute_density(
+                            physics.mass, s0.verts, s0.faces,
+                            s0.convex_radius, s0.shape_type,
+                            s0.sphere_radius)
+
                 # pack_shapes requires compressed_mesh before polytope.
                 shapes.sort(key=lambda s: 0 if s.shape_type == 'compressed_mesh' else 1)
                 bhkPhysicsSystem.New(self.nif, shapes=shapes, parent=coll_node)

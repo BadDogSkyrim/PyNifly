@@ -41,6 +41,207 @@ from typing import Dict, List, Optional, Tuple
 Vert3 = Tuple[float, float, float]
 Face  = List[int]
 
+# ── Collision volume helpers (for density computation) ────────────────────────
+
+def _cross(a, b):
+    return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
+
+def _dot(a, b):
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
+
+def _sub(a, b):
+    return (a[0]-b[0], a[1]-b[1], a[2]-b[2])
+
+def _face_normal(verts, face):
+    """Compute outward unit normal for a convex face (CCW winding from outside)."""
+    v0, v1, v2 = verts[face[0]], verts[face[1]], verts[face[2]]
+    n = _cross(_sub(v1, v0), _sub(v2, v0))
+    length = math.sqrt(_dot(n, n))
+    if length < 1e-12:
+        return (0, 0, 1)
+    return (n[0]/length, n[1]/length, n[2]/length)
+
+def _solve3x3(A, b):
+    """Solve 3×3 linear system Ax=b via Cramer's rule. Returns None if singular."""
+    a0, a1, a2 = A
+    det = (a0[0]*(a1[1]*a2[2]-a1[2]*a2[1])
+         - a0[1]*(a1[0]*a2[2]-a1[2]*a2[0])
+         + a0[2]*(a1[0]*a2[1]-a1[1]*a2[0]))
+    if abs(det) < 1e-15:
+        return None
+    inv = 1.0 / det
+    x = ((b[0]*(a1[1]*a2[2]-a1[2]*a2[1])
+        - a0[1]*(b[1]*a2[2]-a1[2]*b[2])
+        + a0[2]*(b[1]*a2[1]-a1[1]*b[2])) * inv)
+    y = ((a0[0]*(b[1]*a2[2]-a1[2]*b[2])
+        - b[0]*(a1[0]*a2[2]-a1[2]*a2[0])
+        + a0[2]*(a1[0]*b[2]-b[1]*a2[0])) * inv)
+    z = ((a0[0]*(a1[1]*b[2]-b[1]*a2[1])
+        - a0[1]*(a1[0]*b[2]-b[1]*a2[0])
+        + b[0]*(a1[0]*a2[1]-a1[1]*a2[0])) * inv)
+    return (x, y, z)
+
+def _polytope_face_offset_volume(verts: List[Vert3], faces: List[Face],
+                                  convex_radius: float) -> float:
+    """Compute volume of the face-offset polytope.
+
+    Each face plane is moved outward by convex_radius. The new polytope vertices
+    are found by intersecting triples of offset planes. Only vertices inside all
+    planes are kept. Volume is computed via the divergence theorem.
+    """
+    if not verts or not faces or convex_radius <= 0:
+        # Without convex_radius, use raw hull volume
+        return _raw_hull_volume(verts, faces)
+
+    # Build unique face planes from the input faces.
+    # Group coplanar faces by normal direction (dot > 0.999).
+    planes = []  # list of (nx, ny, nz, d) where nx*x+ny*y+nz*z <= d
+    for face in faces:
+        n = _face_normal(verts, face)
+        d = _dot(n, verts[face[0]]) + convex_radius  # offset outward
+        # Check if this plane is already in the list (coplanar face)
+        dup = False
+        for pn, pd in [(p[:3], p[3]) for p in planes]:
+            if abs(_dot(n, pn) - 1.0) < 0.001 and abs(d - pd) < 1e-6:
+                dup = True
+                break
+        if not dup:
+            planes.append((n[0], n[1], n[2], d))
+
+    if len(planes) < 4:
+        return _raw_hull_volume(verts, faces)
+
+    # Find vertices by intersecting all triples of planes
+    offset_verts = []
+    np = len(planes)
+    for i in range(np):
+        for j in range(i+1, np):
+            for k in range(j+1, np):
+                A = (planes[i][:3], planes[j][:3], planes[k][:3])
+                b = (planes[i][3], planes[j][3], planes[k][3])
+                pt = _solve3x3(A, b)
+                if pt is None:
+                    continue
+                # Check that this vertex satisfies all plane inequalities
+                inside = True
+                for p in planes:
+                    if _dot(p[:3], pt) > p[3] + 1e-6:
+                        inside = False
+                        break
+                if inside:
+                    offset_verts.append(pt)
+
+    if len(offset_verts) < 4:
+        return _raw_hull_volume(verts, faces)
+
+    # Compute volume using signed tetrahedra from origin
+    # For a convex hull, use each offset plane's face as a fan.
+    # Simpler: compute centroid, then sum signed tet volumes.
+    cx = sum(v[0] for v in offset_verts) / len(offset_verts)
+    cy = sum(v[1] for v in offset_verts) / len(offset_verts)
+    cz = sum(v[2] for v in offset_verts) / len(offset_verts)
+
+    # Build convex hull faces from offset vertices by projecting each plane's
+    # vertices into 2D and sorting by angle.
+    vol = 0.0
+    for p in planes:
+        n = p[:3]
+        d = p[3]
+        # Collect vertices on this plane
+        face_verts = []
+        for vi, v in enumerate(offset_verts):
+            if abs(_dot(n, v) - d) < 1e-5:
+                face_verts.append(v)
+        if len(face_verts) < 3:
+            continue
+        # Sort by angle in the plane
+        fc = (sum(v[0] for v in face_verts)/len(face_verts),
+              sum(v[1] for v in face_verts)/len(face_verts),
+              sum(v[2] for v in face_verts)/len(face_verts))
+        # Build local 2D frame on the plane
+        u = _sub(face_verts[0], fc)
+        ulen = math.sqrt(_dot(u, u))
+        if ulen < 1e-12:
+            continue
+        u = (u[0]/ulen, u[1]/ulen, u[2]/ulen)
+        w = _cross(n, u)
+        angles = []
+        for v in face_verts:
+            dv = _sub(v, fc)
+            angles.append(math.atan2(_dot(dv, w), _dot(dv, u)))
+        sorted_verts = [v for _, v in sorted(zip(angles, face_verts))]
+        # Fan triangulation from sorted_verts[0]
+        for ti in range(1, len(sorted_verts)-1):
+            a = sorted_verts[0]
+            b = sorted_verts[ti]
+            c = sorted_verts[ti+1]
+            # Signed volume of tetrahedron (centroid, a, b, c)
+            ab = _sub(b, a)
+            ac = _sub(c, a)
+            ad = _sub((cx, cy, cz), a)
+            vol += _dot(_cross(ab, ac), ad) / 6.0
+
+    return abs(vol)
+
+
+def _raw_hull_volume(verts: List[Vert3], faces: List[Face]) -> float:
+    """Compute volume of a convex hull from its vertices and face indices.
+
+    Uses the signed tetrahedron method from the origin.
+    """
+    vol = 0.0
+    for face in faces:
+        if len(face) < 3:
+            continue
+        v0 = verts[face[0]]
+        for i in range(1, len(face) - 1):
+            v1 = verts[face[i]]
+            v2 = verts[face[i+1]]
+            vol += _dot(v0, _cross(v1, v2)) / 6.0
+    return abs(vol)
+
+
+def compute_collision_volume(verts: List[Vert3], faces: List[Face],
+                              convex_radius: float,
+                              shape_type: str,
+                              sphere_radius: float = 0.0) -> float:
+    """Compute the collision volume for density calculation.
+
+    For polytopes, this is the face-offset polytope volume.
+    For spheres, this is 4/3 π r³.
+    For compressed meshes, uses expanded AABB.
+    """
+    if shape_type == 'sphere':
+        return (4.0 / 3.0) * math.pi * sphere_radius ** 3
+
+    if shape_type == 'compressed_mesh':
+        if not verts:
+            return 1.0
+        xs = [v[0] for v in verts]
+        ys = [v[1] for v in verts]
+        zs = [v[2] for v in verts]
+        dx = max(xs) - min(xs) + 2 * convex_radius
+        dy = max(ys) - min(ys) + 2 * convex_radius
+        dz = max(zs) - min(zs) + 2 * convex_radius
+        return dx * dy * dz
+
+    # Polytope
+    return _polytope_face_offset_volume(verts, faces, convex_radius)
+
+
+def compute_density(mass: float, verts: List[Vert3], faces: List[Face],
+                    convex_radius: float, shape_type: str,
+                    sphere_radius: float = 0.0) -> float:
+    """Compute density = mass / collision_volume."""
+    if mass <= 0:
+        return 0.0
+    vol = compute_collision_volume(verts, faces, convex_radius,
+                                    shape_type, sphere_radius)
+    if vol < 1e-12:
+        return 0.0
+    return mass / vol
+
+
 # ── File header constants ─────────────────────────────────────────────────────
 _MAGIC           = b'\x57\xE0\xE0\x57\x10\xC0\xC0\x10'
 _FILE_VERSION    = 11       # hk_2014.1.0
@@ -149,6 +350,122 @@ _BODY_CINFO = bytes([
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
 ])
 assert len(_BODY_CINFO) == 0x60
+
+# dyn_motion (0x40 bytes) — identical engine defaults for all dynamic bodies.
+_DYN_MOTION = bytes([
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x00: zeros
+    0x00,0x00,0x80,0x3F, 0x00,0x00,0x80,0x3F,  # +0x08: 1.0, 1.0
+    0x00,0xC0,0xD0,0x42, 0x00,0x90,0xFC,0x41,  # +0x10: 104.375, 31.570
+    0x00,0x00,0xCD,0x3D, 0x00,0x00,0x4D,0x3D,  # +0x18: 0.100, 0.050
+    0x7B,0x14,0x2E,0x3E, 0xD2,0x22,0xFB,0x3E,  # +0x20: 0.170, 0.4905
+    0x0B,0xD7,0x23,0x3B, 0x0B,0xD7,0x23,0x3B,  # +0x28: 0.0025, 0.0025
+    0x00,0x00,0x80,0x3F, 0x00,0x00,0x00,0x00,  # +0x30: 1.0, pad
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x38: pad
+])
+assert len(_DYN_MOTION) == 0x40
+
+# dyn_inertia template (0x40 bytes) — fields that vary are patched at write time.
+_DYN_INERTIA_TEMPLATE = bytes([
+    0x00,0x00,0x01,0x00,                        # +0x00: flags (0x0000, 0x0100)
+    0x00,0x00,0x80,0x3F,                        # +0x04: inv_mass (1.0 = placeholder)
+    0x00,0x00,0x80,0x3F,                        # +0x08: density (1.0 = placeholder)
+    0xF0,0xFF,0x7F,0x5F,                        # +0x0C: sentinel
+    0xF0,0xFF,0x7F,0x5F,                        # +0x10: sentinel
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x14: zeros
+    0x00,0x00,0x00,0x00,                        # +0x1C: zeros
+    0x00,0x00,0x80,0x3F,                        # +0x20: Ixx (1.0 = placeholder)
+    0x00,0x00,0x80,0x3F,                        # +0x24: Iyy (1.0 = placeholder)
+    0x00,0x00,0x80,0x3F,                        # +0x28: Izz (1.0 = placeholder)
+    0x00,0x00,0x80,0x3F,                        # +0x2C: 1.0 (scale)
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x30: position (0,0,0)
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x38: pad
+])
+assert len(_DYN_INERTIA_TEMPLATE) == 0x40
+
+
+def _build_body_props(physics) -> bytes:
+    """Build 0x50 bytes of body_props, patching material from PhysicsProps."""
+    buf = bytearray(_BODY_PROPS)
+    if physics is not None and physics.body_props_raw and len(physics.body_props_raw) == 16:
+        buf[0x10:0x20] = physics.body_props_raw
+    return bytes(buf)
+
+
+def _build_dyn_inertia(physics) -> bytes:
+    """Build 0x40 bytes of dyn_inertia from PhysicsProps."""
+    buf = bytearray(_DYN_INERTIA_TEMPLATE)
+    if physics is not None and physics.mass != 0:
+        inv_mass = 1.0 / physics.mass
+        struct.pack_into('<f', buf, 0x04, inv_mass)
+        struct.pack_into('<f', buf, 0x08, physics.density)
+        struct.pack_into('<f', buf, 0x20, physics.inertia[0])
+        struct.pack_into('<f', buf, 0x24, physics.inertia[1])
+        struct.pack_into('<f', buf, 0x28, physics.inertia[2])
+    return bytes(buf)
+
+
+def _build_psd_prefix(data: bytearray, fx: '_FixupBuilder', psd_name_off: int,
+                      physics=None, num_bodies: int = 1):
+    """Write PSD + body_props + [dyn_motion + dyn_inertia] + BodyCInfo + ShapeEntry.
+
+    Returns (body_cinfo_rel, shape_entry_rel) so the caller can add global fixups.
+    For multi-body, writes `num_bodies` copies of body_props/BodyCInfo/ShapeEntry.
+    """
+    is_dyn = physics is not None and physics.is_dynamic
+
+    def rel():
+        return len(data)
+    def write(b):
+        off = len(data)
+        data.extend(b)
+        return off
+
+    # ── hknpPhysicsSystemData  (0x80 bytes) ──
+    psd_rel = rel()
+    fx.add_virtual(psd_rel, 0, psd_name_off)
+
+    write(_hkarray(0))                          # +0x00: unused
+    arr10_off = write(_hkarray(num_bodies))     # +0x10: body_props
+    arr20_off = write(_hkarray(1 if is_dyn else 0))  # +0x20: dyn_motion
+    arr30_off = write(_hkarray(1 if is_dyn else 0))  # +0x30: dyn_inertia
+    arr40_off = write(_hkarray(num_bodies))     # +0x40: BodyCInfo
+    write(_hkarray(0))                          # +0x50: unused
+    arr60_off = write(_hkarray(num_bodies))     # +0x60: ShapeEntry
+    write(bytes(16))                            # +0x70: pad
+    assert rel() == psd_rel + 0x80
+
+    # ── body_props (0x50 × num_bodies) ──
+    body_props_rel = rel()
+    for _ in range(num_bodies):
+        write(_build_body_props(physics))
+    fx.add_local(arr10_off, body_props_rel)
+
+    # ── dyn_motion (0x40, dynamic only) ──
+    if is_dyn:
+        dyn_motion_rel = rel()
+        write(_DYN_MOTION)
+        fx.add_local(arr20_off, dyn_motion_rel)
+
+    # ── dyn_inertia (0x40, dynamic only) ──
+    if is_dyn:
+        dyn_inertia_rel = rel()
+        write(_build_dyn_inertia(physics))
+        fx.add_local(arr30_off, dyn_inertia_rel)
+
+    # ── BodyCInfo (0x60 × num_bodies) ──
+    body_cinfo_rel = rel()
+    for _ in range(num_bodies):
+        write(_BODY_CINFO)
+    fx.add_local(arr40_off, body_cinfo_rel)
+
+    # ── ShapeEntry (0x10 × num_bodies) ──
+    shape_entry_rel = rel()
+    for _ in range(num_bodies):
+        write(bytes(16))
+    fx.add_local(arr60_off, shape_entry_rel)
+
+    return body_cinfo_rel, shape_entry_rel
+
 
 # hkRefCountedProperties (rel varies, 0x20 bytes)
 # +0x00: hkArray ptr (local fixup -> internal entry at +0x10)
@@ -469,7 +786,8 @@ class _FixupBuilder:
 
 
 def _build_data_section(verts: List[Vert3], faces: List[Face],
-                         name_offs: Dict[str, int]) -> Tuple[bytes, _FixupBuilder]:
+                         name_offs: Dict[str, int],
+                         physics=None) -> Tuple[bytes, '_FixupBuilder']:
     """Build the full __data__ section (object data only, without fixup tables).
 
     Returns (section_bytes, fixup_builder).
@@ -481,62 +799,18 @@ def _build_data_section(verts: List[Vert3], faces: List[Face],
     data = bytearray()
 
     def rel() -> int:
-        """Current write offset = relative position from data section start."""
         return len(data)
 
     def write(b: bytes) -> int:
-        """Append bytes and return the start offset."""
         off = rel()
         data.extend(b)
         return off
 
-    # ── hknpPhysicsSystemData  (rel=0x0000, 0x80 bytes) ──────────────────────
-    psd_rel = rel()
-    fx.add_virtual(psd_rel, 0, name_offs['hknpPhysicsSystemData'])
+    # ── PSD prefix: PSD + body_props + [dyn_motion + dyn_inertia] + BodyCInfo + ShapeEntry
+    body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
+        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics)
 
-    # +0x00: empty hkArray
-    write(_hkarray(0))
-    # +0x10: hkArray<body_props*> count=1 → local fixup to rel=0x0080
-    arr10_off = rel()
-    write(_hkarray(1))
-    # +0x20, +0x30: empty
-    write(_hkarray(0))
-    write(_hkarray(0))
-    # +0x40: hkArray<BodyCInfo> count=1 → local fixup to rel=0x00D0
-    arr40_off = rel()
-    write(_hkarray(1))
-    # +0x50: empty
-    write(_hkarray(0))
-    # +0x60: hkArray<ShapeEntry> count=1 → local fixup to rel=0x0130
-    arr60_off = rel()
-    write(_hkarray(1))
-    # +0x70: zeros (8 bytes ptr + 8 bytes other)
-    write(bytes(16))
-    assert rel() == psd_rel + 0x80
-
-    # ── body_properties  (rel=0x0080, 0x50 bytes) ─────────────────────────────
-    body_props_rel = rel()
-    write(_BODY_PROPS)
-    assert rel() == psd_rel + 0xD0
-
-    # Now record local fixup: hknpPhysicsSystemData+0x10 ptr → body_props_rel
-    fx.add_local(arr10_off, body_props_rel)
-
-    # ── BodyCInfo  (rel=0x00D0, 0x60 bytes) ──────────────────────────────────
-    body_cinfo_rel = rel()
-    write(_BODY_CINFO)
-    assert rel() == psd_rel + 0x130
-
-    fx.add_local(arr40_off, body_cinfo_rel)
-
-    # ── ShapeEntry  (rel=0x0130, 0x10 bytes) ──────────────────────────────────
-    shape_entry_rel = rel()
-    write(bytes(16))  # ptr=0 (global fixup), plus 8 zeros
-    assert rel() == psd_rel + 0x140
-
-    fx.add_local(arr60_off, shape_entry_rel)
-
-    # ── hknpConvexPolytopeShape  (rel=0x0140, variable) ───────────────────────
+    # ── hknpConvexPolytopeShape  (variable rel) ─────────────────────────────
     shape_rel = rel()
     shape_bytes = _build_convex_polytope_shape(verts, faces)
     write(shape_bytes)
@@ -580,19 +854,9 @@ def _build_data_section(verts: List[Vert3], faces: List[Face],
 # ── Compressed-mesh data section builder ─────────────────────────────────────
 
 def _build_cm_data_section(verts: List[Vert3], tris: List[Face],
-                            name_offs: Dict[str, int]) -> Tuple[bytes, '_FixupBuilder']:
+                            name_offs: Dict[str, int],
+                            physics=None) -> Tuple[bytes, '_FixupBuilder']:
     """Build the full __data__ section for a single-section compressed mesh packfile.
-
-    Layout:
-      rel 0x0000: hknpPhysicsSystemData   (0x80)
-      rel 0x0080: body_properties         (0x50)
-      rel 0x00D0: BodyCInfo               (0x60)
-      rel 0x0130: ShapeEntry              (0x10)
-      rel 0x0140: hknpCompressedMeshShape (0xC0)
-      rel 0x0200: hkRefCountedProperties  (0x20)
-      rel 0x0220: hknpBSMaterialProperties (0x50, padded to 16)
-      rel 0x0270: hknpCompressedMeshShapeData header (0xA0)
-      then: section struct (0x60), quads (nt×4 bytes), packed verts (nv×4 bytes)
 
     Vertices are quantized with 11-11-10 bits (qx, qy: 0..2047; qz: 0..1023)
     using the bounding box of the input vertex set as the quantization range.
@@ -617,37 +881,9 @@ def _build_cm_data_section(verts: List[Vert3], tris: List[Face],
         data.extend(b)
         return off
 
-    # ── hknpPhysicsSystemData (0x80 bytes) ─────────────────────────────────
-    psd_rel = rel()
-    fx.add_virtual(psd_rel, 0, name_offs['hknpPhysicsSystemData'])
-
-    write(_hkarray(0))              # +0x00 empty
-    arr10_off = write(_hkarray(1))  # +0x10 body_props array
-    write(_hkarray(0))              # +0x20 empty
-    write(_hkarray(0))              # +0x30 empty
-    arr40_off = write(_hkarray(1))  # +0x40 BodyCInfo array
-    write(_hkarray(0))              # +0x50 empty
-    arr60_off = write(_hkarray(1))  # +0x60 ShapeEntry array
-    write(bytes(16))                # +0x70 zeros
-    assert rel() == psd_rel + 0x80
-
-    # ── body_properties (0x50 bytes) ───────────────────────────────────────
-    body_props_rel = rel()
-    write(_BODY_PROPS)
-    fx.add_local(arr10_off, body_props_rel)
-    assert rel() == psd_rel + 0xD0
-
-    # ── BodyCInfo (0x60 bytes) ─────────────────────────────────────────────
-    body_cinfo_rel = rel()
-    write(_BODY_CINFO)
-    fx.add_local(arr40_off, body_cinfo_rel)
-    assert rel() == psd_rel + 0x130
-
-    # ── ShapeEntry (0x10 bytes) ────────────────────────────────────────────
-    shape_entry_rel = rel()
-    write(bytes(16))
-    fx.add_local(arr60_off, shape_entry_rel)
-    assert rel() == psd_rel + 0x140
+    # ── PSD prefix
+    body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
+        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics)
 
     # ── hknpCompressedMeshShape (0xC0 bytes) ───────────────────────────────
     shape_rel = rel()
@@ -767,26 +1003,9 @@ def _build_cm_data_section(verts: List[Vert3], tris: List[Face],
 def _build_mixed_data_section(
         cm_verts: List[Vert3], cm_tris: List[Face],
         poly_verts: List[Vert3], poly_faces: List[Face],
-        name_offs: Dict[str, int]) -> Tuple[bytes, '_FixupBuilder']:
-    """Build __data__ section for a two-body packfile: CM body + polytope body.
-
-    Layout:
-      rel 0x0000: hknpPhysicsSystemData (0x80) — body/shape counts = 2
-      rel 0x0080: body_props[0] (0x50) — CM body material
-      rel 0x00D0: body_props[1] (0x50) — polytope body material
-      rel 0x0120: BodyCInfo[0] (0x60)  — shape ptr → CM shape
-      rel 0x0180: BodyCInfo[1] (0x60)  — shape ptr → polytope shape
-      rel 0x01E0: ShapeEntry[0] (0x10) — ptr → CM shape
-      rel 0x01F0: ShapeEntry[1] (0x10) — ptr → polytope shape
-      rel 0x0200: hknpCompressedMeshShape (0xC0)
-      then: hkRefCountedProperties for CM (0x20, padded to 16)
-      then: hknpBSMaterialProperties (0x50, padded to 16)
-      then: hknpCompressedMeshShapeData header (0xA0) + section (0x60)
-            + quads + packed verts (padded to 16)
-      then: hknpConvexPolytopeShape (variable, padded to 16)
-      then: hkRefCountedProperties for polytope (0x20, padded to 16)
-      then: hknpShapeMassProperties (0x30, padded to 16)
-    """
+        name_offs: Dict[str, int],
+        physics=None) -> Tuple[bytes, '_FixupBuilder']:
+    """Build __data__ section for a two-body packfile: CM body + polytope body."""
     nv_cm = len(cm_verts)
     nt_cm = len(cm_tris)
     assert nv_cm > 0 and nt_cm > 0
@@ -804,43 +1023,13 @@ def _build_mixed_data_section(
         data.extend(b)
         return off
 
-    # ── hknpPhysicsSystemData (0x80 bytes) ───────────────────────────────────
-    psd_rel = rel()   # = 0
-    fx.add_virtual(psd_rel, 0, name_offs['hknpPhysicsSystemData'])
-
-    write(_hkarray(0))              # +0x00 empty
-    arr10_off = write(_hkarray(2))  # +0x10 body_props array (count=2)
-    write(_hkarray(0))              # +0x20 empty
-    write(_hkarray(0))              # +0x30 empty
-    arr40_off = write(_hkarray(2))  # +0x40 BodyCInfo array (count=2)
-    write(_hkarray(0))              # +0x50 empty
-    arr60_off = write(_hkarray(2))  # +0x60 ShapeEntry array (count=2)
-    write(bytes(16))                # +0x70 zeros
-    assert rel() == psd_rel + 0x80
-
-    # ── body_props[0] + body_props[1] (2 × 0x50 = 0xA0 bytes) ───────────────
-    body_props_rel = rel()          # = 0x0080; array ptr points here
-    write(_BODY_PROPS)              # body[0] — CM
-    write(_BODY_PROPS)              # body[1] — polytope
-    fx.add_local(arr10_off, body_props_rel)
-    assert rel() == psd_rel + 0x120
-
-    # ── BodyCInfo[0] + BodyCInfo[1] (2 × 0x60 = 0xC0 bytes) ─────────────────
-    body_cinfo_rel = rel()          # = 0x0120; array ptr points here
-    write(_BODY_CINFO)              # BodyCInfo[0] — CM body
-    write(_BODY_CINFO)              # BodyCInfo[1] — polytope body
-    fx.add_local(arr40_off, body_cinfo_rel)
-    assert rel() == psd_rel + 0x1E0
-
-    # ── ShapeEntry[0] + ShapeEntry[1] (2 × 0x10 = 0x20 bytes) ───────────────
-    shape_entry_rel = rel()         # = 0x01E0; array ptr points here
-    write(bytes(16))                # ShapeEntry[0] ptr → CM shape (global fixup)
-    write(bytes(16))                # ShapeEntry[1] ptr → polytope shape (global fixup)
-    fx.add_local(arr60_off, shape_entry_rel)
-    assert rel() == psd_rel + 0x200
+    # ── PSD prefix: PSD + body_props×2 + [dyn arrays] + BodyCInfo×2 + ShapeEntry×2
+    body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
+        data, fx, name_offs['hknpPhysicsSystemData'],
+        physics=physics, num_bodies=2)
 
     # ── hknpCompressedMeshShape (0xC0 bytes) ─────────────────────────────────
-    cm_shape_rel = rel()            # = 0x0200
+    cm_shape_rel = rel()
     write(_CM_SHAPE_HDR)
     assert rel() == cm_shape_rel + 0xC0
 
@@ -1072,7 +1261,8 @@ def _file_header(cn_name_off: int) -> bytes:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def pack_compressed_mesh(verts: List[Vert3], tris: List[Face]) -> bytes:
+def pack_compressed_mesh(verts: List[Vert3], tris: List[Face],
+                         physics=None) -> bytes:
     """Build Havok packfile bytes from a triangle mesh using hknpCompressedMeshShape.
 
     Vertices are quantized with 11-11-10 bits relative to the mesh bounding box.
@@ -1081,16 +1271,17 @@ def pack_compressed_mesh(verts: List[Vert3], tris: List[Face]) -> bytes:
     Args:
         verts: List of (x, y, z) tuples in Havok space.  Maximum 255.
         tris:  List of (a, b, c) triangle index tuples.  Maximum 255.
+        physics: Optional PhysicsProps for mass/inertia/material.
 
     Returns:
         Raw bytes of a valid hk_2014.1.0 packfile containing an
-        hknpPhysicsSystemData with one static body carrying the
+        hknpPhysicsSystemData with one body carrying the
         hknpCompressedMeshShape/hknpCompressedMeshShapeData.
     """
     cn_data, name_offs = _build_classnames_cm()
     cn_name_off = name_offs['hknpPhysicsSystemData']
 
-    obj_data, fx = _build_cm_data_section(verts, tris, name_offs)
+    obj_data, fx = _build_cm_data_section(verts, tris, name_offs, physics=physics)
 
     local_tbl  = fx.build_local_table()
     global_tbl = fx.build_global_table()
@@ -1132,16 +1323,17 @@ def pack_compressed_mesh(verts: List[Vert3], tris: List[Face]) -> bytes:
     return hdr + shdr0 + shdr1 + shdr2 + cn_data + data_section
 
 
-def pack_mixed(cm_shape, poly_shape) -> bytes:
+def pack_mixed(cm_shape, poly_shape, physics=None) -> bytes:
     """Build Havok packfile bytes for two bodies: one CM + one convex polytope.
 
     Args:
         cm_shape:   CollisionShape with shape_type=="compressed_mesh".
         poly_shape: CollisionShape with shape_type=="polytope".
+        physics:    Optional PhysicsProps for material/dynamics.
 
     Returns:
         Raw bytes of a valid hk_2014.1.0 packfile with hknpPhysicsSystemData
-        containing two static bodies (CM body + polytope body).
+        containing two bodies (CM body + polytope body).
     """
     cn_data, name_offs = _build_classnames_mixed()
     cn_name_off = name_offs['hknpPhysicsSystemData']
@@ -1149,7 +1341,7 @@ def pack_mixed(cm_shape, poly_shape) -> bytes:
     obj_data, fx = _build_mixed_data_section(
         cm_shape.verts, cm_shape.faces,
         poly_shape.verts, poly_shape.faces,
-        name_offs)
+        name_offs, physics=physics)
 
     local_tbl  = fx.build_local_table()
     global_tbl = fx.build_global_table()
@@ -1195,17 +1387,11 @@ def pack_mixed(cm_shape, poly_shape) -> bytes:
 
 def _build_multi_poly_data_section(
         poly_pairs: List[Tuple[List[Vert3], List[Face]]],
-        name_offs: Dict[str, int]) -> Tuple[bytes, '_FixupBuilder']:
+        name_offs: Dict[str, int],
+        physics=None) -> Tuple[bytes, '_FixupBuilder']:
     """Build the full __data__ section for an N-body all-polytope packfile.
 
     Each element of poly_pairs is a (verts, faces) tuple for one body.
-    Layout:
-      rel 0x0000:            hknpPhysicsSystemData (0x80)
-      rel 0x0080:            body_props[0..N-1]   (N × 0x50)
-      rel 0x0080+N*0x50:     BodyCInfo[0..N-1]    (N × 0x60)
-      rel 0x0080+N*0xB0:     ShapeEntry[0..N-1]   (N × 0x10)
-      rel 0x0080+N*0xC0:     shape[0] (variable) + RefCountedProps + MassProps
-      ...                    shape[1] chain, ...
     """
     N = len(poly_pairs)
     assert N >= 1
@@ -1221,45 +1407,14 @@ def _build_multi_poly_data_section(
         data.extend(b)
         return off
 
-    # ── hknpPhysicsSystemData (0x80) ─────────────────────────────────────────
-    psd_rel = rel()
-    fx.add_virtual(psd_rel, 0, name_offs['hknpPhysicsSystemData'])
-    write(_hkarray(0))              # +0x00: empty
-    arr10_off = rel()
-    write(_hkarray(N))              # +0x10: body_props (count=N)
-    write(_hkarray(0))              # +0x20: empty
-    write(_hkarray(0))              # +0x30: empty
-    arr40_off = rel()
-    write(_hkarray(N))              # +0x40: BodyCInfo (count=N)
-    write(_hkarray(0))              # +0x50: empty
-    arr60_off = rel()
-    write(_hkarray(N))              # +0x60: ShapeEntry (count=N)
-    write(bytes(16))                # +0x70: zeros
-    assert rel() == psd_rel + 0x80
+    # ── PSD prefix: PSD + body_props×N + [dyn arrays] + BodyCInfo×N + ShapeEntry×N
+    body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
+        data, fx, name_offs['hknpPhysicsSystemData'],
+        physics=physics, num_bodies=N)
 
-    # ── body_props[0..N-1] ───────────────────────────────────────────────────
-    body_props_rel = rel()
-    fx.add_local(arr10_off, body_props_rel)
-    for _ in range(N):
-        write(_BODY_PROPS)
-
-    # ── BodyCInfo[0..N-1] ────────────────────────────────────────────────────
-    body_arr_rel = rel()
-    fx.add_local(arr40_off, body_arr_rel)
-    body_cinfo_rels = []
-    for _ in range(N):
-        bc_rel = rel()
-        body_cinfo_rels.append(bc_rel)
-        write(_BODY_CINFO)
-
-    # ── ShapeEntry[0..N-1] ───────────────────────────────────────────────────
-    shape_arr_rel = rel()
-    fx.add_local(arr60_off, shape_arr_rel)
-    shape_entry_rels = []
-    for _ in range(N):
-        se_rel = rel()
-        shape_entry_rels.append(se_rel)
-        write(bytes(16))  # ptr=0 (patched by global fixup), 8 zeros
+    # Compute per-body offsets from the base returned by _build_psd_prefix
+    body_cinfo_rels = [body_cinfo_rel + i * 0x60 for i in range(N)]
+    shape_entry_rels = [shape_entry_rel + i * 0x10 for i in range(N)]
 
     # ── Per-body polytope chains ──────────────────────────────────────────────
     for i, (verts, faces) in enumerate(poly_pairs):
@@ -1293,7 +1448,7 @@ def _build_multi_poly_data_section(
     return bytes(data), fx
 
 
-def pack_multi_polytope(poly_shapes) -> bytes:
+def pack_multi_polytope(poly_shapes, physics=None) -> bytes:
     """Pack N convex polytopes into a single Havok packfile (N-body system).
 
     Each body in the packfile carries one hknpConvexPolytopeShape.
@@ -1301,6 +1456,7 @@ def pack_multi_polytope(poly_shapes) -> bytes:
 
     Args:
         poly_shapes: list of CollisionShape objects with shape_type='polytope'.
+        physics:     Optional PhysicsProps for material/dynamics.
     Returns:
         Raw Havok packfile bytes.
     """
@@ -1308,7 +1464,8 @@ def pack_multi_polytope(poly_shapes) -> bytes:
     cn_name_off = name_offs['hknpPhysicsSystemData']
 
     poly_pairs = [(s.verts, s.faces) for s in poly_shapes]
-    obj_data, fx = _build_multi_poly_data_section(poly_pairs, name_offs)
+    obj_data, fx = _build_multi_poly_data_section(poly_pairs, name_offs,
+                                                   physics=physics)
 
     local_tbl  = fx.build_local_table()
     global_tbl = fx.build_global_table()
@@ -1369,23 +1526,25 @@ def pack_shapes(shapes) -> bytes:
     Raises:
         NotImplementedError: for unsupported shape combinations.
     """
+    physics = shapes[0].physics if shapes else None
+
     if len(shapes) == 1:
         s = shapes[0]
         if s.shape_type == "compressed_mesh":
-            return pack_compressed_mesh(s.verts, s.faces)
+            return pack_compressed_mesh(s.verts, s.faces, physics=physics)
         if s.shape_type == "polytope":
-            return pack_convex_polytope(s.verts, s.faces)
+            return pack_convex_polytope(s.verts, s.faces, physics=physics)
         if s.shape_type == "sphere":
-            return pack_sphere(s.sphere_radius)
+            return pack_sphere(s.sphere_radius, physics=physics)
 
     cm_list   = [s for s in shapes if s.shape_type == "compressed_mesh"]
     poly_list = [s for s in shapes if s.shape_type == "polytope"]
 
     if len(cm_list) == 0 and len(poly_list) == len(shapes):
-        return pack_multi_polytope(poly_list)
+        return pack_multi_polytope(poly_list, physics=physics)
 
     if len(cm_list) == 1 and len(poly_list) == 1 and len(shapes) == 2:
-        return pack_mixed(cm_list[0], poly_list[0])
+        return pack_mixed(cm_list[0], poly_list[0], physics=physics)
 
     types = [s.shape_type for s in shapes]
     raise NotImplementedError(
@@ -1394,7 +1553,7 @@ def pack_shapes(shapes) -> bytes:
     )
 
 
-def pack_sphere(radius: float) -> bytes:
+def pack_sphere(radius: float, physics=None) -> bytes:
     """Build Havok packfile bytes for a single hknpSphereShape.
 
     The sphere packfile is simpler than polytope — it has no
@@ -1402,10 +1561,11 @@ def pack_sphere(radius: float) -> bytes:
 
     Args:
         radius: Sphere radius in Havok space.
+        physics: Optional PhysicsProps for mass/inertia/material.
 
     Returns:
         Raw bytes of a valid hk_2014.1.0 packfile containing an
-        hknpPhysicsSystemData with one static body carrying the sphere shape.
+        hknpPhysicsSystemData with one body carrying the sphere shape.
     """
     # ── Classnames section ──
     cn_data, name_offs = _build_classnames_sphere()
@@ -1422,34 +1582,9 @@ def pack_sphere(radius: float) -> bytes:
         data.extend(b)
         return off
 
-    # ── hknpPhysicsSystemData (0x80 bytes) ──
-    psd_rel = rel()
-    fx.add_virtual(psd_rel, 0, name_offs['hknpPhysicsSystemData'])
-
-    write(_hkarray(0))              # +0x00 empty
-    arr10_off = write(_hkarray(1))  # +0x10 body_props array
-    write(_hkarray(0))              # +0x20 empty
-    write(_hkarray(0))              # +0x30 empty
-    arr40_off = write(_hkarray(1))  # +0x40 BodyCInfo array
-    write(_hkarray(0))              # +0x50 empty
-    arr60_off = write(_hkarray(1))  # +0x60 ShapeEntry array
-    write(bytes(16))                # +0x70 zeros
-    assert rel() == psd_rel + 0x80
-
-    # ── body_properties (0x50 bytes) ──
-    body_props_rel = rel()
-    write(_BODY_PROPS)
-    fx.add_local(arr10_off, body_props_rel)
-
-    # ── BodyCInfo (0x60 bytes) ──
-    body_cinfo_rel = rel()
-    write(_BODY_CINFO)
-    fx.add_local(arr40_off, body_cinfo_rel)
-
-    # ── ShapeEntry (0x10 bytes) ──
-    shape_entry_rel = rel()
-    write(bytes(16))
-    fx.add_local(arr60_off, shape_entry_rel)
+    # ── PSD prefix: PSD + body_props + [dyn arrays] + BodyCInfo + ShapeEntry
+    body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
+        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics)
 
     # ── hknpSphereShape (0x50 bytes) ──
     # Layout from reference (Poolball_Cue.nif):
@@ -1512,7 +1647,8 @@ def pack_sphere(radius: float) -> bytes:
     return hdr + shdr0 + shdr1 + shdr2 + cn_data + data_section
 
 
-def pack_convex_polytope(verts: List[Vert3], faces: List[Face]) -> bytes:
+def pack_convex_polytope(verts: List[Vert3], faces: List[Face],
+                         physics=None) -> bytes:
     """Build Havok packfile bytes from a convex polytope mesh.
 
     Args:
@@ -1521,17 +1657,18 @@ def pack_convex_polytope(verts: List[Vert3], faces: List[Face]) -> bytes:
                whose vertices are ordered CCW when viewed from outside.
                All vertex indices reference the verts list.
                Maximum 255 vertices.
+        physics: Optional PhysicsProps for mass/inertia/material.
 
     Returns:
         Raw bytes of a valid hk_2014.1.0 packfile containing an
-        hknpPhysicsSystemData with one static body carrying the shape.
+        hknpPhysicsSystemData with one body carrying the shape.
     """
     # ── Classnames section ──
     cn_data, name_offs = _build_classnames()
     cn_name_off = name_offs['hknpPhysicsSystemData']
 
     # ── Data section (object bytes only) ──
-    obj_data, fx = _build_data_section(verts, faces, name_offs)
+    obj_data, fx = _build_data_section(verts, faces, name_offs, physics=physics)
 
     # ── Fixup tables ──
     local_tbl  = fx.build_local_table()

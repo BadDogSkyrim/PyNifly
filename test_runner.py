@@ -28,6 +28,6 @@ from tests.blender_tests import *
 tests.blender_tests.do_tests(
     target_tests=[ TEST_COLLISION_FO4_POOLBALL  ],
     # categories={'HKX'},
-    test_all=False,
+    test_all=True,
     stop_on_fail=False,
     )
