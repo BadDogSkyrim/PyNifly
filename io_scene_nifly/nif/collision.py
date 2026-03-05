@@ -78,6 +78,21 @@ def _get_or_create_push_nodegroup():
     lnk(ext.outputs['Mesh'],     hull.inputs['Geometry'])
     lnk(hull.outputs['Convex Hull'], gout.inputs['Geometry'])
     return ng
+
+def _add_collision_radius_modifiers(obj, radius_bl: float):
+    """Add push + bevel modifiers to visualise convex radius expansion."""
+    ng = _get_or_create_push_nodegroup()
+    push = obj.modifiers.new('bhkPush', 'NODES')
+    push.node_group = ng
+    for item in ng.interface.items_tree:
+        if getattr(item, 'in_out', None) == 'INPUT' and item.name == 'Radius':
+            push[item.identifier] = radius_bl
+            break
+    bev = obj.modifiers.new('bhkBevel', 'BEVEL')
+    bev.width = radius_bl
+    bev.limit_method = 'NONE'
+    bev.segments = 2
+
 COLLISION_COLOR_MAP = {'bhkRigidBody': (0.0, 0.8, 0.2, 0.3),
                        'bhkRigidBodyT': (0, 1.0, 0, 0.3),
                        'bhkSimpleShapePhantom': (0.8, 0.8, 0, 0.3),}
@@ -310,8 +325,13 @@ class CollisionHandler():
 
         self.collection.objects.link(obj)
 
+        # Visualise the convex radius with push + bevel modifiers.
+        radius_bl = prop.bhkRadius * self.import_scale
+        if radius_bl > 0:
+            _add_collision_radius_modifiers(obj, radius_bl)
+
         return obj
-        
+
     def import_bhkCapsuleShape(self, cs:bhkShape, parentxf:Matrix):
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
         prop = cs.properties
@@ -399,6 +419,11 @@ class CollisionHandler():
             self.warn(f"Unknown havok material: {prop.bhkMaterial}")
             obj['bhkMaterial'] = str(prop.bhkMaterial)
         obj['bhkRadius'] = prop.bhkRadius * self.import_scale
+
+        # Visualise the convex radius with push + bevel modifiers.
+        radius_bl = prop.bhkRadius * self.import_scale
+        if radius_bl > 0:
+            _add_collision_radius_modifiers(obj, radius_bl)
 
         q = parentxf.to_quaternion()
         q.invert()
@@ -608,21 +633,7 @@ class CollisionHandler():
             if s.shape_type == 'polytope' and s.convex_radius > 0.0:
                 radius_bl = s.convex_radius * sf
                 obj['pynCollisionRadius'] = radius_bl
-                # Push + Convex Hull: expands faces outward by radius_bl, then
-                # wraps with a convex hull to place corner vertices at the exact
-                # intersection of the offset face planes (Minkowski expansion).
-                ng = _get_or_create_push_nodegroup()
-                push = obj.modifiers.new('bhkPush', 'NODES')
-                push.node_group = ng
-                for item in ng.interface.items_tree:
-                    if getattr(item, 'in_out', None) == 'INPUT' and item.name == 'Radius':
-                        push[item.identifier] = radius_bl
-                        break
-                # Bevel: rounds the hull edges to approximate the Minkowski sphere.
-                bev = obj.modifiers.new('bhkBevel', 'BEVEL')
-                bev.width = radius_bl
-                bev.limit_method = 'NONE'
-                bev.segments = 2
+                _add_collision_radius_modifiers(obj, radius_bl)
 
             if container is not None:
                 obj.parent = container
