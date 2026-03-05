@@ -5570,6 +5570,14 @@ def TEST_COLLISION_FO4_CANDLE_BOTTLE():
     # Collision z-max must be near the mesh z-max (~29 BU), not shifted up.
     assert TT.is_lt(abs(cz1 - mz1), 5.0, "Collision z-max near mesh z-max")
 
+    # Flame:0 has an alpha property with alpha_test=False but threshold=128.
+    # The threshold must survive the round-trip even when alpha_test is off.
+    flame_obj = bpy.data.objects.get('Flame:0')
+    assert TT.is_neq(flame_obj, None, "Flame:0 exists")
+    flame_mat = flame_obj.data.materials[0]
+    assert TT.is_eq(flame_mat['NiAlphaProperty_threshold'], 128,
+                     "Flame:0 alpha threshold imported as 128")
+
     # ---- Export and round-trip verify ----------------------------------------
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
@@ -5583,6 +5591,59 @@ def TEST_COLLISION_FO4_CANDLE_BOTTLE():
     assert TT.is_gt(len(chk_shapes), 0, "Round-trip preserves collision shape")
     _, _, _, _, rz0, rz1 = world_bounds(chk_shapes[0])
     assert TT.is_lt(abs(rz0 - mz0), 5.0, "Round-trip collision z-min near mesh z-min")
+
+    # Check Flame:0 alpha threshold survived the round-trip.
+    chk_flame = bpy.data.objects.get('Flame:0')
+    assert TT.is_neq(chk_flame, None, "Flame:0 exists after round-trip")
+    chk_mat = chk_flame.data.materials[0]
+    assert TT.is_eq(chk_mat['NiAlphaProperty_threshold'], 128,
+                     "Flame:0 alpha threshold preserved after round-trip")
+
+
+@TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_POOLBALL():
+    """FO4 bhkPhysicsSystem: sphere collision shape import, export, round-trip."""
+    testfile = TTB.test_file(r"tests\FO4\Meshes\Poolball_Cue.nif")
+    outfile  = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_POOLBALL.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # A sphere collision shape should be created.
+    physics_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    assert TT.is_eq(len(physics_shapes), 1, "One collision shape imported")
+
+    coll_obj = physics_shapes[0]
+    assert TT.is_eq(coll_obj.get('pynCollisionShapeType'), 'sphere',
+                     "Shape is a sphere")
+    assert TT.is_eq(coll_obj.rigid_body.collision_shape, 'SPHERE',
+                     "Rigid body collision shape is SPHERE")
+
+    # Sphere radius should be stored and the mesh should approximate it.
+    havok_radius = coll_obj.get('pynSphereRadius', 0.0)
+    assert TT.is_gt(havok_radius, 0.01, "Havok sphere radius is positive")
+
+    # Visual mesh should exist.
+    mesh_obj = bpy.data.objects.get('Poolball_Cue:0')
+    assert TT.is_neq(mesh_obj, None, "Visual mesh Poolball_Cue:0 exists")
+
+    # ---- Export and round-trip verify ----------------------------------------
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete()
+
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+
+    chk_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    assert TT.is_eq(len(chk_shapes), 1, "Round-trip preserves one collision shape")
+
+    chk_obj = chk_shapes[0]
+    assert TT.is_eq(chk_obj.get('pynCollisionShapeType'), 'sphere',
+                     "Round-trip shape is still a sphere")
+
+    chk_radius = chk_obj.get('pynSphereRadius', 0.0)
+    assert TT.is_equiv(chk_radius, havok_radius,
+                        "Sphere radius preserved after round-trip")
 
 
 @TT.category('FO4', 'PHYSICS')

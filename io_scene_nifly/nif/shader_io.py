@@ -1739,13 +1739,17 @@ class ShaderExporter:
             alpha.alpha_test = bool(alphanode.inputs['Alpha Test'].default_value)
             if alpha.alpha_test:
                 alpha.threshold = int(alphanode.inputs['Alpha Threshold'].default_value)
+            elif 'NiAlphaProperty_threshold' in self.material:
+                alpha.threshold = int(self.material['NiAlphaProperty_threshold'])
             alpha.alpha_blend = bool(alphanode.inputs['Alpha Blend'].default_value)
             alpha.source_blend_mode = alphanode.inputs['Source Blend Mode'].default_value
             alpha.dst_blend_mode = alphanode.inputs['Destination Blend Mode'].default_value
         except:
             if 'NiAlphaProperty_flags' in self.material:
                 shape.alpha_property.properties.flags = self.material['NiAlphaProperty_flags']
-            else:
+            if 'NiAlphaProperty_threshold' in self.material:
+                shape.alpha_property.properties.threshold = int(self.material['NiAlphaProperty_threshold'])
+            if 'NiAlphaProperty_flags' not in self.material:
                 log.warning(f"Shader nodes not set up for alpha on {shape.name}")
 
         shape.save_alpha_property()

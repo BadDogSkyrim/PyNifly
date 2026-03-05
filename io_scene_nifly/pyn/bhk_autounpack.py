@@ -250,19 +250,22 @@ class CollisionShape:
     shape_type values:
       "compressed_mesh" — hknpCompressedMeshShapeData (triangle mesh)
       "polytope"        — hknpConvexPolytopeShape (convex hull)
+      "sphere"          — hknpSphereShape (radius-based sphere)
       "compound"        — hknpDynamicCompoundShape container; geometry in children
 
     transform holds the body/instance position+rotation from the packfile.
     Vertices are in local (untransformed) space; the caller applies transform.
     convex_radius is the Minkowski expansion radius (0.0 for non-polytope shapes).
+    sphere_radius is set only for shape_type="sphere" (Havok-space radius).
     """
     shape_type: str
     name: str
     transform: Optional[BodyTransform]      # None = identity
-    verts: List[Vert3]                      # empty for compound
-    faces: List[Face]                       # indices into verts; empty for compound
+    verts: List[Vert3]                      # empty for compound and sphere
+    faces: List[Face]                       # indices into verts; empty for compound and sphere
     convex_radius: float                    # 0.0 for compressed_mesh and compound
     children: List['CollisionShape']        # non-empty only for compound
+    sphere_radius: float = 0.0             # Havok-space radius for sphere shapes
 
 
 def parse_body_transforms(
@@ -969,6 +972,25 @@ def extract_bhk_physics_system(
     # ── extract convex polytope shapes ──
     all_shapes.extend(extract_compound_polytopes(
         data, data_start, fixups, gfixups, objects, body_transforms))
+
+    # ── extract sphere shapes ──
+    sphere_objects = [(rel, cls) for rel, cls in objects
+                      if "hknpSphereShape" in cls]
+    for shape_idx, (obj_rel, _) in enumerate(sphere_objects):
+        obj_abs = data_start + obj_rel
+        radius = f32(data, obj_abs + 0x14)
+        sphere_body = body_transforms.get(obj_rel)
+        name = "SphereShape" if len(sphere_objects) == 1 else f"SphereShape_{shape_idx}"
+        all_shapes.append(CollisionShape(
+            shape_type="sphere",
+            name=name,
+            transform=sphere_body,
+            verts=[],
+            faces=[],
+            convex_radius=0.0,
+            children=[],
+            sphere_radius=radius,
+        ))
 
     if not all_shapes:
         raise RuntimeError("No geometry decoded.")

@@ -406,6 +406,66 @@ class CollisionHandler():
         return obj
 
 
+    def _create_physics_shape_object(self, s, name, sf, parentxf, body_offset,
+                                      single_body, all_standalone):
+        """Create a Blender object for one leaf collision shape from a Havok packfile.
+
+        For mesh-based shapes (polytope, compressed_mesh) the shape's vertices are
+        transformed and scaled into Blender space.  For primitive shapes (sphere,
+        and future capsule/box) a Blender primitive mesh is created instead.
+
+        Returns the created Blender object (not yet linked to rigid body system).
+        """
+        if s.shape_type == 'sphere':
+            radius_bl = s.sphere_radius * sf
+            bpy.ops.mesh.primitive_uv_sphere_add(
+                segments=16, ring_count=8, radius=radius_bl,
+                calc_uvs=False, location=(0, 0, 0))
+            obj = bpy.context.object
+            obj.name = name
+            obj.data.name = name
+            obj.matrix_world = parentxf.copy()
+            for p in obj.data.polygons:
+                p.use_smooth = True
+            obj.data.update()
+            obj['pynSphereRadius'] = s.sphere_radius
+            return obj
+
+        # Mesh-based shapes: apply body transform then scale to Blender units.
+        # Single-body systems: shape vertices are in world space; the body
+        # transform is just the centre-of-mass and must NOT be applied.
+        # Multi-body systems: vertices are body-local; the body transform
+        # places each shape in world space.
+        # Compound children always need their instance transform applied
+        # (single_body is True for compounds since they're one top-level shape).
+        apply_xform = (s.transform is not None
+                       and s.shape_type != 'compressed_mesh'
+                       and not (single_body and all_standalone))
+
+        if apply_xform:
+            p, r = s.transform.position, s.transform.rotation
+            tp = (p[0]+body_offset[0], p[1]+body_offset[1], p[2]+body_offset[2])
+            xverts = [
+                (r[0][0]*v[0]+r[0][1]*v[1]+r[0][2]*v[2]+tp[0],
+                 r[1][0]*v[0]+r[1][1]*v[1]+r[1][2]*v[2]+tp[1],
+                 r[2][0]*v[0]+r[2][1]*v[1]+r[2][2]*v[2]+tp[2])
+                for v in s.verts
+            ]
+        else:
+            xverts = list(s.verts)
+
+        scaled_verts = [[x*sf, y*sf, z*sf] for x, y, z in xverts]
+
+        m = bpy.data.meshes.new(name)
+        m.from_pydata(scaled_verts, [], list(s.faces))
+        m.update()
+
+        obj = bpy.data.objects.new(name, m)
+        obj.matrix_world = parentxf.copy()
+        self.collection.objects.link(obj)
+        return obj
+
+
     def import_bhkNPCollisionObject(self, c, parentxf: Matrix):
         """Import FO4 native-physics collision from bhkPhysicsSystem binary data.
 
@@ -515,52 +575,23 @@ class CollisionHandler():
             anchor = None  # will be set to the single shape object
 
         for i, (s, body_offset) in enumerate(leaf_shapes):
-            # Apply leaf transform then scale to Blender units.
-            # Single-body systems: shape vertices are in world space; the body
-            # transform is just the centre-of-mass and must NOT be applied.
-            # Multi-body systems: vertices are body-local; the body transform
-            # places each shape in world space.
-            # Compound children always need their instance transform applied
-            # (single_body is True for compounds since they're one top-level shape).
-            # body_offset is any accumulated sub-compound offset within this body.
-            apply_xform = (s.transform is not None
-                           and s.shape_type != 'compressed_mesh'
-                           and not (single_body and all_standalone))
-
-            if apply_xform:
-                p, r = s.transform.position, s.transform.rotation
-                tp = (p[0]+body_offset[0], p[1]+body_offset[1], p[2]+body_offset[2])
-                xverts = [
-                    (r[0][0]*v[0]+r[0][1]*v[1]+r[0][2]*v[2]+tp[0],
-                     r[1][0]*v[0]+r[1][1]*v[1]+r[1][2]*v[2]+tp[1],
-                     r[2][0]*v[0]+r[2][1]*v[1]+r[2][2]*v[2]+tp[2])
-                    for v in s.verts
-                ]
-            else:
-                xverts = list(s.verts)
-
-            scaled_verts = [[x*sf, y*sf, z*sf] for x, y, z in xverts]
-
             # Name: single-shape systems keep the legacy name; multi-shape use
-            # a type suffix so compressed_mesh and polytope are distinguishable.
+            # a type suffix so the shape types are distinguishable.
+            _SUFFIXES = {'compressed_mesh': '_cm', 'sphere': '_sphere',
+                         'polytope': '_poly'}
             if len(leaf_shapes) == 1:
                 name = "bhkPhysicsSystem"
-            elif s.shape_type == 'compressed_mesh':
-                name = "bhkPhysicsSystem_cm"
             else:
-                name = "bhkPhysicsSystem_poly"
+                name = "bhkPhysicsSystem" + _SUFFIXES.get(s.shape_type, f'_{s.shape_type}')
 
-            m = bpy.data.meshes.new(name)
-            m.from_pydata(scaled_verts, [], list(s.faces))
-            m.update()
-
-            obj = bpy.data.objects.new(name, m)
-            obj.matrix_world = parentxf.copy()
-            self.collection.objects.link(obj)
+            obj = self._create_physics_shape_object(
+                s, name, sf, parentxf, body_offset,
+                single_body=single_body, all_standalone=all_standalone)
 
             ObjectSelect([obj])
             bpy.ops.rigidbody.object_add(type='PASSIVE')
-            obj.rigid_body.collision_shape = 'MESH'
+            rb_shape = {'sphere': 'SPHERE'}.get(s.shape_type, 'MESH')
+            obj.rigid_body.collision_shape = rb_shape
             obj.color = COLLISION_COLOR
             obj.display_type = 'WIRE'
             obj['pynRigidBody'] = 'bhkPhysicsSystem'
@@ -1047,13 +1078,14 @@ class CollisionHandler():
             from ..pyn.bhk_autounpack import CollisionShape
             sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game]
 
+            _SHAPE_TYPES = ('compressed_mesh', 'polytope', 'sphere')
             # Collect the main collision object and any children that carry
             # pynCollisionShapeType (set during import for multi-shape systems).
             shape_objs = []
-            if coll.get('pynCollisionShapeType') in ('compressed_mesh', 'polytope'):
+            if coll.get('pynCollisionShapeType') in _SHAPE_TYPES:
                 shape_objs.append(coll)
             for ch in coll.children:
-                if ch.get('pynCollisionShapeType') in ('compressed_mesh', 'polytope'):
+                if ch.get('pynCollisionShapeType') in _SHAPE_TYPES:
                     shape_objs.append(ch)
 
             coll_node = targnode.add_collision(
@@ -1062,24 +1094,37 @@ class CollisionHandler():
 
             if shape_objs:
                 # Build CollisionShape objects from Blender mesh data and pack
-                # using the appropriate packer (polytope, compressed_mesh, or mixed).
+                # using the appropriate packer (polytope, compressed_mesh, mixed, or sphere).
                 shapes = []
                 for obj in shape_objs:
-                    world_mat = self.export_xf @ obj.matrix_world
-                    verts = [tuple(world_mat @ v.co / sf) for v in obj.data.vertices]
-                    faces = [list(p.vertices) for p in obj.data.polygons]
                     shape_type = obj['pynCollisionShapeType']
-                    # convex_radius is stored in Blender units; convert back to Havok.
-                    radius = obj.get('pynCollisionRadius', 0.0) / sf
-                    shapes.append(CollisionShape(
-                        shape_type=shape_type,
-                        name=obj.name,
-                        transform=None,
-                        verts=verts,
-                        faces=faces,
-                        convex_radius=radius,
-                        children=[],
-                    ))
+                    if shape_type == 'sphere':
+                        sphere_r = obj.get('pynSphereRadius', 0.0)
+                        shapes.append(CollisionShape(
+                            shape_type='sphere',
+                            name=obj.name,
+                            transform=None,
+                            verts=[],
+                            faces=[],
+                            convex_radius=0.0,
+                            children=[],
+                            sphere_radius=sphere_r,
+                        ))
+                    else:
+                        world_mat = self.export_xf @ obj.matrix_world
+                        verts = [tuple(world_mat @ v.co / sf) for v in obj.data.vertices]
+                        faces = [list(p.vertices) for p in obj.data.polygons]
+                        # convex_radius is stored in Blender units; convert back to Havok.
+                        radius = obj.get('pynCollisionRadius', 0.0) / sf
+                        shapes.append(CollisionShape(
+                            shape_type=shape_type,
+                            name=obj.name,
+                            transform=None,
+                            verts=verts,
+                            faces=faces,
+                            convex_radius=radius,
+                            children=[],
+                        ))
                 # pack_shapes requires compressed_mesh before polytope.
                 shapes.sort(key=lambda s: 0 if s.shape_type == 'compressed_mesh' else 1)
                 bhkPhysicsSystem.New(self.nif, shapes=shapes, parent=coll_node)

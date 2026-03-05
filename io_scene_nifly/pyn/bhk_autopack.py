@@ -60,6 +60,16 @@ _CLASS_ENTRIES: List[Tuple[int, str]] = [
     (0xE9191728, 'hknpShapeMassProperties'),
 ]
 
+# Class entries for sphere shape packfiles.
+_SPHERE_CLASS_ENTRIES: List[Tuple[int, str]] = [
+    (0x33D42383, 'hkClass'),
+    (0xB0EFA719, 'hkClassMember'),
+    (0x8A3609CF, 'hkClassEnum'),
+    (0xCE6F8A6C, 'hkClassEnumItem'),
+    (0xB857718B, 'hknpPhysicsSystemData'),
+    (0x741E9012, 'hknpSphereShape'),
+]
+
 # Class entries for compressed mesh packfiles (different shape classes).
 _CM_CLASS_ENTRIES: List[Tuple[int, str]] = [
     (0x33D42383, 'hkClass'),
@@ -997,6 +1007,17 @@ def _build_classnames_mixed() -> Tuple[bytes, Dict[str, int]]:
     return data, name_offs
 
 
+def _build_classnames_sphere() -> Tuple[bytes, Dict[str, int]]:
+    """Build __classnames__ section for a sphere shape packfile."""
+    data = b''
+    name_offs: Dict[str, int] = {}
+    for hash_val, name in _SPHERE_CLASS_ENTRIES:
+        name_offs[name] = len(data) + 5
+        data += struct.pack('<IB', hash_val, 0x09) + name.encode('ascii') + b'\x00'
+    data = _pad16(data, fill=0xFF)
+    return data, name_offs
+
+
 # ── Section header builder ────────────────────────────────────────────────────
 
 def _section_header(name: str, abs_start: int,
@@ -1336,6 +1357,7 @@ def pack_shapes(shapes) -> bytes:
       [polytope]                    → pack_convex_polytope (single body)
       [polytope, ...]               → pack_multi_polytope (N-body all-polytope)
       [compressed_mesh, polytope]   → pack_mixed (two-body)
+      [sphere]                      → pack_sphere (single sphere body)
 
     Combinations not listed above are not yet implemented and raise
     NotImplementedError rather than silently producing incorrect output.
@@ -1353,6 +1375,8 @@ def pack_shapes(shapes) -> bytes:
             return pack_compressed_mesh(s.verts, s.faces)
         if s.shape_type == "polytope":
             return pack_convex_polytope(s.verts, s.faces)
+        if s.shape_type == "sphere":
+            return pack_sphere(s.sphere_radius)
 
     cm_list   = [s for s in shapes if s.shape_type == "compressed_mesh"]
     poly_list = [s for s in shapes if s.shape_type == "polytope"]
@@ -1368,6 +1392,124 @@ def pack_shapes(shapes) -> bytes:
         f"pack_shapes: unsupported shape combination {types}; "
         f"mixed CM+multi-polytope packing is not yet implemented"
     )
+
+
+def pack_sphere(radius: float) -> bytes:
+    """Build Havok packfile bytes for a single hknpSphereShape.
+
+    The sphere packfile is simpler than polytope — it has no
+    hkRefCountedProperties or hknpShapeMassProperties objects.
+
+    Args:
+        radius: Sphere radius in Havok space.
+
+    Returns:
+        Raw bytes of a valid hk_2014.1.0 packfile containing an
+        hknpPhysicsSystemData with one static body carrying the sphere shape.
+    """
+    # ── Classnames section ──
+    cn_data, name_offs = _build_classnames_sphere()
+
+    # ── Data section ──
+    fx = _FixupBuilder()
+    data = bytearray()
+
+    def rel() -> int:
+        return len(data)
+
+    def write(b: bytes) -> int:
+        off = rel()
+        data.extend(b)
+        return off
+
+    # ── hknpPhysicsSystemData (0x80 bytes) ──
+    psd_rel = rel()
+    fx.add_virtual(psd_rel, 0, name_offs['hknpPhysicsSystemData'])
+
+    write(_hkarray(0))              # +0x00 empty
+    arr10_off = write(_hkarray(1))  # +0x10 body_props array
+    write(_hkarray(0))              # +0x20 empty
+    write(_hkarray(0))              # +0x30 empty
+    arr40_off = write(_hkarray(1))  # +0x40 BodyCInfo array
+    write(_hkarray(0))              # +0x50 empty
+    arr60_off = write(_hkarray(1))  # +0x60 ShapeEntry array
+    write(bytes(16))                # +0x70 zeros
+    assert rel() == psd_rel + 0x80
+
+    # ── body_properties (0x50 bytes) ──
+    body_props_rel = rel()
+    write(_BODY_PROPS)
+    fx.add_local(arr10_off, body_props_rel)
+
+    # ── BodyCInfo (0x60 bytes) ──
+    body_cinfo_rel = rel()
+    write(_BODY_CINFO)
+    fx.add_local(arr40_off, body_cinfo_rel)
+
+    # ── ShapeEntry (0x10 bytes) ──
+    shape_entry_rel = rel()
+    write(bytes(16))
+    fx.add_local(arr60_off, shape_entry_rel)
+
+    # ── hknpSphereShape (0x50 bytes) ──
+    # Layout from reference (Poolball_Cue.nif):
+    #   +0x00: 16 bytes zeros (vtable/parent)
+    #   +0x10: flags 0x01000111, radius (float), hash, zeros
+    #   +0x20: 16 bytes zeros
+    #   +0x30: flags 0x00100004, 12 bytes zeros
+    #   +0x40: 12 bytes zeros, float 0.5
+    shape_rel = rel()
+    sphere_data = bytearray(0x50)
+    struct.pack_into('<I', sphere_data, 0x10, 0x01000111)
+    struct.pack_into('<f', sphere_data, 0x14, radius)
+    struct.pack_into('<I', sphere_data, 0x30, 0x00100004)
+    struct.pack_into('<f', sphere_data, 0x4C, 0.5)
+    write(bytes(sphere_data))
+
+    fx.add_virtual(shape_rel, 0, name_offs['hknpSphereShape'])
+    fx.add_global(body_cinfo_rel + 0x00, 2, shape_rel)
+    fx.add_global(shape_entry_rel + 0x00, 2, shape_rel)
+
+    # Align to 16 bytes
+    while rel() % 16:
+        data.append(0)
+
+    obj_data = bytes(data)
+
+    # ── Fixup tables ──
+    local_tbl  = fx.build_local_table()
+    global_tbl = fx.build_global_table()
+    virt_tbl   = fx.build_virtual_table()
+
+    data_section = obj_data + local_tbl + global_tbl + virt_tbl
+
+    # ── Compute absolute offsets ──
+    cn_start   = 0x100
+    cn_end     = cn_start + len(cn_data)
+    data_start = cn_end
+    cn_name_off = name_offs['hknpPhysicsSystemData']
+
+    local_fix_abs  = data_start + len(obj_data)
+    global_fix_abs = local_fix_abs  + len(local_tbl)
+    virt_fix_abs   = global_fix_abs + len(global_tbl)
+    data_end       = virt_fix_abs   + len(virt_tbl)
+
+    hdr = _file_header(cn_name_off)
+    shdr0 = _section_header('__classnames__', cn_start,
+                            local_fix=cn_start + len(cn_data),
+                            global_fix=cn_start + len(cn_data),
+                            virt_fix=cn_start + len(cn_data),
+                            exports=cn_start + len(cn_data))
+    shdr1 = _section_header('__types__', cn_end,
+                            local_fix=cn_end, global_fix=cn_end,
+                            virt_fix=cn_end, exports=cn_end)
+    shdr2 = _section_header('__data__', data_start,
+                            local_fix=local_fix_abs,
+                            global_fix=global_fix_abs,
+                            virt_fix=virt_fix_abs,
+                            exports=data_end)
+
+    return hdr + shdr0 + shdr1 + shdr2 + cn_data + data_section
 
 
 def pack_convex_polytope(verts: List[Vert3], faces: List[Face]) -> bytes:
