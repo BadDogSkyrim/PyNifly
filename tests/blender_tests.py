@@ -5530,6 +5530,62 @@ def TEST_COLLISION_FO4_VAULT_SHELF():
 
 
 @TT.category('FO4', 'PHYSICS')
+@TT.expect_errors( ("Could not find texture",
+                    "Could not load normal texture", 
+                    "Could not load diffuse texture"))
+def TEST_COLLISION_FO4_CANDLE_BOTTLE():
+    """FO4 bhkPhysicsSystem: standalone polytope with world-space vertices.
+
+    CandleBottleLit01.nif has a single standalone convex polytope (no compound
+    wrapper).  The BodyCInfo position equals the vertex centroid, meaning the
+    verts are stored in world space and the body transform must NOT be applied.
+
+    The visual mesh sits on the z=0 plane (Z: 0..29 BU).  The collision must
+    sit in the same region, not shifted upward by the body COM offset.
+    """
+    testfile = TTB.test_file(r"tests\FO4\Meshes\CandleBottleLit01.nif")
+    outfile  = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_CANDLE_BOTTLE.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    physics_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    assert TT.is_eq(len(physics_shapes), 1, "One collision shape imported")
+
+    coll_obj = physics_shapes[0]
+    assert TT.is_eq(coll_obj.get('pynCollisionShapeType'), 'polytope',
+                     "Shape is a polytope")
+
+    mesh_obj = bpy.data.objects.get('CandleBottle01:0')
+    assert TT.is_neq(mesh_obj, None, "Visual mesh CandleBottle01:0 exists")
+
+    def world_bounds(ob):
+        vs = [ob.matrix_world @ v.co for v in ob.data.vertices]
+        xs = [v.x for v in vs]; ys = [v.y for v in vs]; zs = [v.z for v in vs]
+        return min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
+
+    _, _, _, _, mz0, mz1 = world_bounds(mesh_obj)
+    _, _, _, _, cz0, cz1 = world_bounds(coll_obj)
+
+    # Collision z-min must be near the mesh z-min (both near z=0).
+    assert TT.is_lt(abs(cz0 - mz0), 5.0, "Collision z-min near mesh z-min")
+    # Collision z-max must be near the mesh z-max (~29 BU), not shifted up.
+    assert TT.is_lt(abs(cz1 - mz1), 5.0, "Collision z-max near mesh z-max")
+
+    # ---- Export and round-trip verify ----------------------------------------
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete()
+
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+
+    chk_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    assert TT.is_gt(len(chk_shapes), 0, "Round-trip preserves collision shape")
+    _, _, _, _, rz0, rz1 = world_bounds(chk_shapes[0])
+    assert TT.is_lt(abs(rz0 - mz0), 5.0, "Round-trip collision z-min near mesh z-min")
+
+
+@TT.category('FO4', 'PHYSICS')
 def TEST_COLLISION_FO4_PHYSICS_SYSTEM():
     """FO4 bhkNPCollisionObject: import, export from mesh geometry, reimport and verify"""
     testfile = TTB.test_file(r"tests\FO4\InsFloorMat01.nif")

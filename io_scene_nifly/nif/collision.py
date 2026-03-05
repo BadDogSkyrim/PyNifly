@@ -473,6 +473,12 @@ class CollisionHandler():
         #     references to the same physics system are silently skipped.
         #   Compound-multi-body (e.g. BOSRadarDish): top-level shapes are compound
         #     bodies; each NIF-node reference gets the next compound body in order.
+        #
+        # Single-body systems store shape vertices in world space; the body
+        # transform is just the centre-of-mass and must NOT be applied.
+        # Multi-body systems store body-local vertices; each body's transform
+        # places its shape in world space.
+        single_body = len(shapes) == 1
         all_standalone = all(s.shape_type != 'compound' for s in shapes)
         if all_standalone:
             if body_idx > 0:
@@ -510,11 +516,18 @@ class CollisionHandler():
 
         for i, (s, body_offset) in enumerate(leaf_shapes):
             # Apply leaf transform then scale to Blender units.
-            # compressed_mesh vertices are already in world space (the AABB is absolute);
-            # its body transform is the Havok centre-of-mass and must NOT be re-applied.
-            # Polytope vertices are in body-local space and DO need their own transform.
+            # Single-body systems: shape vertices are in world space; the body
+            # transform is just the centre-of-mass and must NOT be applied.
+            # Multi-body systems: vertices are body-local; the body transform
+            # places each shape in world space.
+            # Compound children always need their instance transform applied
+            # (single_body is True for compounds since they're one top-level shape).
             # body_offset is any accumulated sub-compound offset within this body.
-            if s.transform is not None and s.shape_type != 'compressed_mesh':
+            apply_xform = (s.transform is not None
+                           and s.shape_type != 'compressed_mesh'
+                           and not (single_body and all_standalone))
+
+            if apply_xform:
                 p, r = s.transform.position, s.transform.rotation
                 tp = (p[0]+body_offset[0], p[1]+body_offset[1], p[2]+body_offset[2])
                 xverts = [

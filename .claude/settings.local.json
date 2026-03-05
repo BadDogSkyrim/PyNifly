@@ -15,7 +15,8 @@
       "Bash(ls /c/Modding/PyNifly/tests/*.py)",
       "Bash(ls /c/Modding/PyNifly/*.bat)",
       "Bash(ls /c/Modding/PyNifly/*.ps1)",
-      "Bash(ls /c/Modding/PyNifly/run_blender*)"
+      "Bash(ls /c/Modding/PyNifly/run_blender*)",
+      "Bash"
     ]
   }
 }

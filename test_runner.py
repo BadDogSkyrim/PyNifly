@@ -26,8 +26,8 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_COLLISION_FO4_PHYSICS_SYSTEM ],
+    target_tests=[ TEST_COLLISION_FO4_CAPSULE_STAIRS  ],
     # categories={'HKX'},
-    test_all=True,
+    test_all=False,
     stop_on_fail=False,
     )
