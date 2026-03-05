@@ -2410,7 +2410,7 @@ NIFLY_API int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf) {
     sh->radius2 = buf->radius2;
     for (int i = 0; i < 3; i++) sh->point1[i] = buf->point1[i];
     for (int i = 0; i < 3; i++) sh->point2[i] = buf->point2[i];
-    
+
     int newid = nif->GetHeader().AddBlock(std::move(sh));
     return newid;
 };

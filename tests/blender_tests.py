@@ -2904,7 +2904,6 @@ def TEST_TEXTURE_PATHS(txtdir):
 
 
 @TT.category('SKYRIM', 'SHADER')
-@TT.expect_errors( ("Unknown block type: bhkMoppBvTreeShape", "unsupported collision shape"))
 def TEST_CAVE_GREEN():
     """Cave nif can be exported correctly"""
     # Regression: Make sure the transparency is exported on this nif.
@@ -3226,7 +3225,6 @@ def TEST_FEET_MULTI():
 
 
 @TT.category('SKYRIM', 'SCALING')
-@TT.expect_errors( ("Unknown block type: bhkMoppBvTreeShape", "unsupported collision shape"))
 def TEST_SCALING():
     """Test that scale factors happen correctly"""
 
@@ -3263,7 +3261,6 @@ def TEST_SCALING():
 
 
 @TT.category('SKYRIMSE', 'SCALING', 'FURNITURE')
-@TT.expect_errors( ("Unknown block type: bhkMoppBvTreeShape", "unsupported collision shape"))
 def TEST_SCALING_OBJ():
     """Can scale simple object with furniture markers"""
     testfile = TTB.test_file(r"tests\SkyrimSE\farmbench01.nif")
@@ -6062,7 +6059,6 @@ def TEST_WORKSHOP_DOOR_CONNECT_POINTS():
 
 
 @TT.category('SKYRIMSE', 'FURNITUREMARKER')
-@TT.expect_errors('Unknown block type: bhkMoppBvTreeShape')
 def TEST_FARMBENCH():
     """Furniture markers work"""
 
@@ -6095,7 +6091,6 @@ def TEST_FARMBENCH():
 
 
 @TT.category('SKYRIMSE', 'FURNITUREMARKER')
-@TT.expect_errors('Unknown block type: bhkMoppBvTreeShape')
 def TEST_COMMONCHAIR():
     """Furniture markers work"""
 
@@ -6245,7 +6240,6 @@ def TEST_BABY():
 
 
 @TT.category('SKYRIM', 'XFORM')
-@TT.expect_errors(('Unknown block type: bhkMoppBvTreeShape', 'has unsupported collision shape'))
 def TEST_ROTSTATIC():
     """Test that statics are transformed according to the shape transform"""
     testfile = TTB.test_file(r"tests/Skyrim/Meshes/rotatedbody.nif")
@@ -6896,7 +6890,6 @@ def TEST_FONV_BOD():
 
 
 @TT.category('SKYRIM', 'ANIMATION', 'PHYSICS')
-@TT.expect_errors(("Unknown block type: bhkMoppBvTreeShape", "unsupported collision shape",))
 def TEST_NOBLECHEST():
     """Read and write the animation of chest opening and shutting."""
     # The chest has two top-level named animations, Open and Close
@@ -7030,7 +7023,6 @@ def TEST_CIGARETTE():
 
 
 @TT.category('SKYRIM', 'ANIMATION', 'PHYSICS')
-@TT.expect_errors(("Unknown block type: bhkMoppBvTreeShape", "unsupported collision shape",))
 def TEST_DWEMER_CHEST():
     """
     Read and write the animation of chest opening and shutting. Also create a collision
@@ -7833,7 +7825,6 @@ def TEST_FULL_PRECISION():
 
 
 @TT.category('SKYRIM')
-@TT.expect_errors(("Unknown block type: bhkMoppBvTreeShape", "has unsupported collision shape"))
 def TEST_EMPTY_NODES():
     """Empty nodes export with the rest."""
     testfile = TTB.test_file(r"tests\Skyrim\farmhouse01.nif")
@@ -7849,8 +7840,7 @@ def TEST_EMPTY_NODES():
 
 
 @TT.category('SKYRIM')
-@TT.expect_errors(("Unknown block type: bhkMoppBvTreeShape", "has unsupported collision shape",
-                   "Error setting pynNodeFlags"))
+@TT.expect_errors(("Error setting pynNodeFlags",))
 def TEST_EMPTY_FLAGS():
     """Empty pyNodeFlags doesn't cause an error."""
     testfile = TTB.test_file(r"tests\SkyrimSE\farmbench01.nif")

@@ -138,6 +138,22 @@ try:
     nifly.setPhysicsSystemData.restype = c_int
 except AttributeError:
     nifly.setPhysicsSystemData = None
+try:
+    nifly.getCollPackedStripsShapeVerts.argtypes = [c_void_p, c_int, c_void_p, c_int]
+    nifly.getCollPackedStripsShapeVerts.restype = c_int
+    nifly.getCollPackedStripsShapeTris.argtypes = [c_void_p, c_int, c_void_p, c_int]
+    nifly.getCollPackedStripsShapeTris.restype = c_int
+except AttributeError:
+    nifly.getCollPackedStripsShapeVerts = None
+    nifly.getCollPackedStripsShapeTris = None
+try:
+    nifly.getCollCompressedMeshShapeVerts.argtypes = [c_void_p, c_int, c_void_p, c_int]
+    nifly.getCollCompressedMeshShapeVerts.restype = c_int
+    nifly.getCollCompressedMeshShapeTris.argtypes = [c_void_p, c_int, c_void_p, c_int]
+    nifly.getCollCompressedMeshShapeTris.restype = c_int
+except AttributeError:
+    nifly.getCollCompressedMeshShapeVerts = None
+    nifly.getCollCompressedMeshShapeTris = None
 nifly.getClothExtraDataLen.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p]
 nifly.getClothExtraDataLen.restype = c_int
 nifly.getCollListShapeChildren.argtypes = [c_void_p, c_int, c_void_p, c_int]

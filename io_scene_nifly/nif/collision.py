@@ -644,6 +644,49 @@ class CollisionHandler():
         return anchor
 
 
+    def import_bhkMoppBvTreeShape(self, cs:bhkShape, parentxf:Matrix):
+        """Import a MOPP BVH tree shape by delegating to its child shape."""
+        child = cs.child
+        if child is None:
+            self.warn("bhkMoppBvTreeShape has no child shape")
+            return None
+        if child.blockname in self.collision_shape_importers:
+            return self.collision_shape_importers[child.blockname](self, child, parentxf)
+        self.warn(f"bhkMoppBvTreeShape: unimplemented child shape: {child.blockname}")
+        return None
+
+    def import_bhkPackedNiTriStripsShape(self, cs:bhkShape, parentxf:Matrix):
+        """Import a packed triangle strips collision shape as a mesh."""
+        sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
+        verts = [(v[0]*sf, v[1]*sf, v[2]*sf) for v in cs.vertices]
+        tris = cs.triangles
+        if not verts or not tris:
+            self.warn("bhkPackedNiTriStripsShape has no geometry")
+            return None
+        m = bpy.data.meshes.new(cs.blockname)
+        m.from_pydata(verts, [], tris)
+        obj = bpy.data.objects.new(cs.blockname, m)
+        obj.matrix_world = parentxf.copy()
+        self.collection.objects.link(obj)
+        obj['bhkRadius'] = cs.properties.radius * self.import_scale
+        return obj
+
+    def import_bhkCompressedMeshShape(self, cs:bhkShape, parentxf:Matrix):
+        """Import a compressed mesh collision shape (Skyrim SE) as a mesh."""
+        sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
+        verts = [(v[0]*sf, v[1]*sf, v[2]*sf) for v in cs.vertices]
+        tris = cs.triangles
+        if not verts or not tris:
+            self.warn("bhkCompressedMeshShape has no geometry")
+            return None
+        m = bpy.data.meshes.new(cs.blockname)
+        m.from_pydata(verts, [], tris)
+        obj = bpy.data.objects.new(cs.blockname, m)
+        obj.matrix_world = parentxf.copy()
+        self.collection.objects.link(obj)
+        obj['bhkRadius'] = cs.properties.radius * self.import_scale
+        return obj
+
     collision_shape_importers = {
         "bhkBoxShape": import_bhkBoxShape,
         "bhkConvexVerticesShape": import_bhkConvexVerticesShape,
@@ -651,6 +694,9 @@ class CollisionHandler():
         "bhkConvexTransformShape": import_bhkConvexTransformShape,
         "bhkCapsuleShape": import_bhkCapsuleShape,
         "bhkSphereShape": import_bhkSphereShape,
+        "bhkMoppBvTreeShape": import_bhkMoppBvTreeShape,
+        "bhkPackedNiTriStripsShape": import_bhkPackedNiTriStripsShape,
+        "bhkCompressedMeshShape": import_bhkCompressedMeshShape,
     }
 
     def import_collision_shape(self, cs:bhkShape, parentxf):

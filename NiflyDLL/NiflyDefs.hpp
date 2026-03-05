@@ -94,6 +94,9 @@ enum BUFFER_TYPES : uint16_t {
 	BSFurnitureMarkerNodeBufType,
 	bhkNPCollisionObjectBufType,
 	bhkPhysicsSystemBufType,
+	bhkMoppBvTreeShapeBufType,
+	bhkPackedNiTriStripsShapeBufType,
+	bhkCompressedMeshShapeBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -788,6 +791,27 @@ struct bhkRagdollConstraintBuf {
 	// bhkSpringDamperConstraintMotor motorSpringDamper;
 	float springDamp_springConstant = 0.0f;
 	float springDamp_springDamping = 0.0f;
+};
+
+struct BHKMoppBvTreeShapeBuf {
+	uint16_t bufSize = sizeof(BHKMoppBvTreeShapeBuf);
+	uint16_t bufType = BUFFER_TYPES::bhkMoppBvTreeShapeBufType;
+	uint32_t shapeID;	// child shape block ID
+};
+
+struct BHKPackedNiTriStripsShapeBuf {
+	uint16_t bufSize = sizeof(BHKPackedNiTriStripsShapeBuf);
+	uint16_t bufType = BUFFER_TYPES::bhkPackedNiTriStripsShapeBufType;
+	uint32_t material;
+	float radius;
+	uint32_t dataID;	// hkPackedNiTriStripsData block ID
+};
+
+struct BHKCompressedMeshShapeBuf {
+	uint16_t bufSize = sizeof(BHKCompressedMeshShapeBuf);
+	uint16_t bufType = BUFFER_TYPES::bhkCompressedMeshShapeBufType;
+	float radius;
+	uint32_t dataID;	// bhkCompressedMeshShapeData block ID
 };
 
 struct ConnectPointBuf {

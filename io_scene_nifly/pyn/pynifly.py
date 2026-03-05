@@ -585,6 +585,129 @@ class bhkConvexTransformShape(bhkShape):
                                                        value.id)
 
 
+class bhkMoppBvTreeShape(bhkShape):
+    """MOPP BVH tree wrapping a child collision shape (bhkPackedNiTriStripsShape or bhkCompressedMeshShape)."""
+    buffer_type = PynBufferTypes.bhkMoppBvTreeShapeBufType
+    needsTransform = False
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return bhkMoppBvTreeShapeBuf(values)
+
+    def __init__(self, handle=None, id=NODEID_NONE, file=None, parent=None, properties=None):
+        super().__init__(handle=handle, id=id, file=file, parent=parent, properties=properties)
+        self._child = None
+
+    @property
+    def child(self):
+        if self._child is None:
+            self._child = bhkShape.New(
+                id=self.properties.shapeID, file=self.file, parent=self)
+        return self._child
+
+
+class bhkPackedNiTriStripsShape(bhkShape):
+    """Packed triangle strips shape (Skyrim LE). Child of bhkMoppBvTreeShape."""
+    buffer_type = PynBufferTypes.bhkPackedNiTriStripsShapeBufType
+    needsTransform = False
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return bhkPackedNiTriStripsShapeBuf(values)
+
+    def __init__(self, handle=None, id=NODEID_NONE, file=None, parent=None, properties=None):
+        super().__init__(handle=handle, id=id, file=file, parent=parent, properties=properties)
+        self._vertices = None
+        self._triangles = None
+
+    @property
+    def vertices(self):
+        if self._vertices is None:
+            if nifly.getCollPackedStripsShapeVerts is None:
+                self._vertices = []
+                return self._vertices
+            count = nifly.getCollPackedStripsShapeVerts(
+                self.file._handle, self.properties.dataID, None, 0)
+            if count > 0:
+                buf = (c_float * (count * 3))()
+                nifly.getCollPackedStripsShapeVerts(
+                    self.file._handle, self.properties.dataID, buf, count)
+                self._vertices = [(buf[i*3], buf[i*3+1], buf[i*3+2])
+                                  for i in range(count)]
+            else:
+                self._vertices = []
+        return self._vertices
+
+    @property
+    def triangles(self):
+        if self._triangles is None:
+            if nifly.getCollPackedStripsShapeTris is None:
+                self._triangles = []
+                return self._triangles
+            count = nifly.getCollPackedStripsShapeTris(
+                self.file._handle, self.properties.dataID, None, 0)
+            if count > 0:
+                buf = (c_uint16 * (count * 3))()
+                nifly.getCollPackedStripsShapeTris(
+                    self.file._handle, self.properties.dataID, buf, count)
+                self._triangles = [(buf[i*3], buf[i*3+1], buf[i*3+2])
+                                   for i in range(count)]
+            else:
+                self._triangles = []
+        return self._triangles
+
+
+class bhkCompressedMeshShape(bhkShape):
+    """Compressed mesh shape (Skyrim SE). Child of bhkMoppBvTreeShape."""
+    buffer_type = PynBufferTypes.bhkCompressedMeshShapeBufType
+    needsTransform = False
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return bhkCompressedMeshShapeBuf(values)
+
+    def __init__(self, handle=None, id=NODEID_NONE, file=None, parent=None, properties=None):
+        super().__init__(handle=handle, id=id, file=file, parent=parent, properties=properties)
+        self._vertices = None
+        self._triangles = None
+
+    @property
+    def vertices(self):
+        if self._vertices is None:
+            if nifly.getCollCompressedMeshShapeVerts is None:
+                self._vertices = []
+                return self._vertices
+            count = nifly.getCollCompressedMeshShapeVerts(
+                self.file._handle, self.properties.dataID, None, 0)
+            if count > 0:
+                buf = (c_float * (count * 3))()
+                nifly.getCollCompressedMeshShapeVerts(
+                    self.file._handle, self.properties.dataID, buf, count)
+                self._vertices = [(buf[i*3], buf[i*3+1], buf[i*3+2])
+                                  for i in range(count)]
+            else:
+                self._vertices = []
+        return self._vertices
+
+    @property
+    def triangles(self):
+        if self._triangles is None:
+            if nifly.getCollCompressedMeshShapeTris is None:
+                self._triangles = []
+                return self._triangles
+            count = nifly.getCollCompressedMeshShapeTris(
+                self.file._handle, self.properties.dataID, None, 0)
+            if count > 0:
+                buf = (c_uint16 * (count * 3))()
+                nifly.getCollCompressedMeshShapeTris(
+                    self.file._handle, self.properties.dataID, buf, count)
+                self._triangles = [(buf[i*3], buf[i*3+1], buf[i*3+2])
+                                   for i in range(count)]
+            else:
+                self._triangles = []
+        return self._triangles
+
+
 class bhkConstraint(NiObject):
     buffer_type = PynBufferTypes.bhkRagdollConstraintBufType
     @classmethod

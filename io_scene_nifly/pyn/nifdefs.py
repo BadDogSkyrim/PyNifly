@@ -89,7 +89,10 @@ class PynBufferTypes(IntEnum):
     BSFurnitureMarkerNodeBufType = 66
     bhkNPCollisionObjectBufType = 67
     bhkPhysicsSystemBufType = 68
-    COUNT = 69
+    bhkMoppBvTreeShapeBufType = 69
+    bhkPackedNiTriStripsShapeBufType = 70
+    bhkCompressedMeshShapeBufType = 71
+    COUNT = 72
 
 
 class NiShaderBuf(pynStructure):
@@ -476,6 +479,39 @@ class bhkPhysicsSystemBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.bhkPhysicsSystemBufType
+
+class bhkMoppBvTreeShapeBuf(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ('shapeID', c_uint32),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.bhkMoppBvTreeShapeBufType
+
+class bhkPackedNiTriStripsShapeBuf(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ('material', c_uint32),
+        ('radius', c_float),
+        ('dataID', c_uint32),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.bhkPackedNiTriStripsShapeBufType
+
+class bhkCompressedMeshShapeBuf(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ('radius', c_float),
+        ('dataID', c_uint32),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.bhkCompressedMeshShapeBufType
 
 class bhkRigidBodyProps(pynStructure):
     _fields_ = [

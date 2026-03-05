@@ -3799,9 +3799,221 @@ NIFLY_API int getCollShapeNormals(void* nifref, int nodeIndex, float* buf, int b
         return 0;
 }
 
+// ── bhkMoppBvTreeShape ──────────────────────────────────────────────────────
+
+int getCollMoppShapeProps(void* nifref, uint32_t nodeIndex, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    auto* sh = hdr->GetBlock<bhkMoppBvTreeShape>(nodeIndex);
+    BHKMoppBvTreeShapeBuf* buf = static_cast<BHKMoppBvTreeShapeBuf*>(inbuf);
+
+    CheckBuf(buf, BUFFER_TYPES::bhkMoppBvTreeShapeBufType, BHKMoppBvTreeShapeBuf);
+    CheckID(sh);
+
+    buf->shapeID = sh->shapeRef.index;
+    return 0;
+}
+
+// ── bhkPackedNiTriStripsShape ───────────────────────────────────────────────
+
+int getCollPackedStripsShapeProps(void* nifref, uint32_t nodeIndex, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    auto* sh = hdr->GetBlock<bhkPackedNiTriStripsShape>(nodeIndex);
+    BHKPackedNiTriStripsShapeBuf* buf = static_cast<BHKPackedNiTriStripsShapeBuf*>(inbuf);
+
+    CheckBuf(buf, BUFFER_TYPES::bhkPackedNiTriStripsShapeBufType, BHKPackedNiTriStripsShapeBuf);
+    CheckID(sh);
+
+    buf->radius = sh->radius;
+    buf->dataID = sh->dataRef.index;
+    buf->material = sh->subPartData.size() > 0 ? sh->subPartData[0].material : 0;
+    return 0;
+}
+
+NIFLY_API int getCollPackedStripsShapeVerts(void* nifref, int dataIndex, float* buf, int buflen) {
+    /* Return verts from hkPackedNiTriStripsData. Returns vertex count; buf may be null.
+       buflen = number of verts the buffer can receive, so buf must be 3x this size. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader& hdr = nif->GetHeader();
+    auto* data = hdr.GetBlock<hkPackedNiTriStripsData>(dataIndex);
+    if (!data) return 0;
+
+    int count = (int)data->compressedVertData.size();
+    if (buf) {
+        for (int i = 0, j = 0; i < count && j < buflen * 3; i++) {
+            buf[j++] = data->compressedVertData[i].x;
+            buf[j++] = data->compressedVertData[i].y;
+            buf[j++] = data->compressedVertData[i].z;
+        }
+    }
+    return count;
+}
+
+NIFLY_API int getCollPackedStripsShapeTris(void* nifref, int dataIndex, uint16_t* buf, int buflen) {
+    /* Return triangles from hkPackedNiTriStripsData. Returns triangle count; buf may be null.
+       buflen = number of tris the buffer can receive, so buf must be 3x this size. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader& hdr = nif->GetHeader();
+    auto* data = hdr.GetBlock<hkPackedNiTriStripsData>(dataIndex);
+    if (!data) return 0;
+
+    int count;
+    if (data->triNormData.size() > 0) {
+        count = (int)data->triNormData.size();
+        if (buf) {
+            for (int i = 0, j = 0; i < count && j < buflen * 3; i++) {
+                buf[j++] = data->triNormData[i].tri.p1;
+                buf[j++] = data->triNormData[i].tri.p2;
+                buf[j++] = data->triNormData[i].tri.p3;
+            }
+        }
+    }
+    else {
+        count = (int)data->triData.size();
+        if (buf) {
+            for (int i = 0, j = 0; i < count && j < buflen * 3; i++) {
+                buf[j++] = data->triData[i].tri.p1;
+                buf[j++] = data->triData[i].tri.p2;
+                buf[j++] = data->triData[i].tri.p3;
+            }
+        }
+    }
+    return count;
+}
+
+// ── bhkCompressedMeshShape (Skyrim SE) ──────────────────────────────────────
+
+int getCollCompressedMeshShapeProps(void* nifref, uint32_t nodeIndex, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    auto* sh = hdr->GetBlock<bhkCompressedMeshShape>(nodeIndex);
+    BHKCompressedMeshShapeBuf* buf = static_cast<BHKCompressedMeshShapeBuf*>(inbuf);
+
+    CheckBuf(buf, BUFFER_TYPES::bhkCompressedMeshShapeBufType, BHKCompressedMeshShapeBuf);
+    CheckID(sh);
+
+    buf->radius = sh->radius;
+    buf->dataID = sh->dataRef.index;
+    return 0;
+}
+
+NIFLY_API int getCollCompressedMeshShapeVerts(void* nifref, int dataIndex, float* buf, int buflen) {
+    /* Return verts from bhkCompressedMeshShapeData (bigVerts + chunk verts).
+       Returns total vertex count; buf may be null.
+       BigVerts come first as x,y,z triples, then chunk verts (dequantised). */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader& hdr = nif->GetHeader();
+    auto* data = hdr.GetBlock<bhkCompressedMeshShapeData>(dataIndex);
+    if (!data) return 0;
+
+    int total = (int)data->bigVerts.size();
+    for (auto& chunk : data->chunks)
+        total += (int)chunk.verts.size() / 3;
+
+    if (!buf) return total;
+
+    int j = 0;
+    // BigVerts (already float Vector4, use xyz)
+    for (auto& v : data->bigVerts) {
+        if (j + 3 > buflen * 3) break;
+        buf[j++] = v.x;
+        buf[j++] = v.y;
+        buf[j++] = v.z;
+    }
+    // Chunk verts: dequantise from uint16 using chunk translation
+    for (auto& chunk : data->chunks) {
+        int nv = (int)chunk.verts.size() / 3;
+        for (int i = 0; i < nv; i++) {
+            if (j + 3 > buflen * 3) break;
+            float x = chunk.verts[i * 3 + 0] / 1000.0f + chunk.translation.x;
+            float y = chunk.verts[i * 3 + 1] / 1000.0f + chunk.translation.y;
+            float z = chunk.verts[i * 3 + 2] / 1000.0f + chunk.translation.z;
+            buf[j++] = x;
+            buf[j++] = y;
+            buf[j++] = z;
+        }
+    }
+    return total;
+}
+
+NIFLY_API int getCollCompressedMeshShapeTris(void* nifref, int dataIndex, uint16_t* buf, int buflen) {
+    /* Return triangles from bhkCompressedMeshShapeData.
+       BigTris come first, then chunk tris (decomposed from triangle strips).
+       Chunk tris use indices offset by (bigVertCount + prior chunk verts). */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader& hdr = nif->GetHeader();
+    auto* data = hdr.GetBlock<bhkCompressedMeshShapeData>(dataIndex);
+    if (!data) return 0;
+
+    // Count triangles: bigTris + chunk strip tris
+    int numBigTris = (int)data->bigTris.size();
+    int numChunkTris = 0;
+    for (auto& chunk : data->chunks) {
+        int idx = 0;
+        for (int s = 0; s < (int)chunk.strips.size(); s++) {
+            int stripLen = chunk.strips[s];
+            if (stripLen >= 3)
+                numChunkTris += stripLen - 2;
+            idx += stripLen;
+        }
+        // Any remaining indices after strips are flat triangles
+        int remaining = (int)chunk.indices.size() - idx;
+        if (remaining > 0)
+            numChunkTris += remaining / 3;
+    }
+    int total = numBigTris + numChunkTris;
+
+    if (!buf) return total;
+
+    int j = 0;
+    for (auto& bt : data->bigTris) {
+        if (j + 3 > buflen * 3) break;
+        buf[j++] = bt.triangle1;
+        buf[j++] = bt.triangle2;
+        buf[j++] = bt.triangle3;
+    }
+    int vertOffset = (int)data->bigVerts.size();
+    for (auto& chunk : data->chunks) {
+        int nv = (int)chunk.verts.size() / 3;
+        int idx = 0;
+        // Decompose triangle strips
+        for (int s = 0; s < (int)chunk.strips.size(); s++) {
+            int stripLen = chunk.strips[s];
+            for (int k = 0; k + 2 < stripLen; k++) {
+                if (j + 3 > buflen * 3) break;
+                uint16_t a = chunk.indices[idx + k];
+                uint16_t b = chunk.indices[idx + k + 1];
+                uint16_t c = chunk.indices[idx + k + 2];
+                if (k & 1) {
+                    // Odd triangle: flip winding
+                    buf[j++] = a + vertOffset;
+                    buf[j++] = c + vertOffset;
+                    buf[j++] = b + vertOffset;
+                } else {
+                    buf[j++] = a + vertOffset;
+                    buf[j++] = b + vertOffset;
+                    buf[j++] = c + vertOffset;
+                }
+            }
+            idx += stripLen;
+        }
+        // Any remaining indices after strips are flat triangles
+        int remaining = (int)chunk.indices.size() - idx;
+        for (int i = 0; i + 2 < remaining; i += 3) {
+            if (j + 3 > buflen * 3) break;
+            buf[j++] = chunk.indices[idx + i] + vertOffset;
+            buf[j++] = chunk.indices[idx + i + 1] + vertOffset;
+            buf[j++] = chunk.indices[idx + i + 2] + vertOffset;
+        }
+        vertOffset += nv;
+    }
+    return total;
+}
+
 int getCollBoxShapeProps(void* nifref, uint32_t nodeIndex, void* inbuf)
 /*
-    Return the collision shape details. Return value = 1 if the node is a known collision shape, 
+    Return the collision shape details. Return value = 1 if the node is a known collision shape,
     0 if not
     */
 {
@@ -5664,6 +5876,9 @@ BlockGetterFunction getterFunctions[] = {
     getBSFurnitureMarkerNode,
     getbhkNPCollisionObject,
     getbhkPhysicsSystem,
+    getCollMoppShapeProps, //bhkMoppBvTreeShapeBufType
+    getCollPackedStripsShapeProps, //bhkPackedNiTriStripsShapeBufType
+    getCollCompressedMeshShapeProps, //bhkCompressedMeshShapeBufType
     nullptr //END
 };
 
@@ -5755,6 +5970,9 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //BSFurnitureMarkerNodeBufType
     setbhkNPCollisionObject,
     setbhkPhysicsSystem,
+    nullptr, //bhkMoppBvTreeShapeBufType
+    nullptr, //bhkPackedNiTriStripsShapeBufType
+    nullptr, //bhkCompressedMeshShapeBufType
     nullptr //END
 };
 
@@ -5845,6 +6063,9 @@ BlockCreatorFunction creatorFunctions[] = {
     addBSFurnitureMarkerNode,
     addbhkNPCollisionObject,
     addbhkPhysicsSystem,
+    nullptr, //bhkMoppBvTreeShapeBufType
+    nullptr, //bhkPackedNiTriStripsShapeBufType
+    nullptr, //bhkCompressedMeshShapeBufType
     nullptr //end
 };
 

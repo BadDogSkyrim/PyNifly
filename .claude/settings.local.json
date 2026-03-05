@@ -17,7 +17,8 @@
       "Bash(ls /c/Modding/PyNifly/*.ps1)",
       "Bash(ls /c/Modding/PyNifly/run_blender*)",
       "Bash",
-      "Read(//c/Modding/Tools/NifSkope/**)"
+      "Read(//c/Modding/Tools/NifSkope/**)",
+      "Read(//c/Modding/Nifly/include/**)"
     ]
   }
 }
