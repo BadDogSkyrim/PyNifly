@@ -5412,6 +5412,50 @@ def TEST_COLLISION_FO4_DRUMAG():
 
 
 @TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_BOSRADARDISH():
+    """FO4 bhkPhysicsSystem with two compound bodies (Main + Swivel).
+
+    The physics system has 2 bodies — one per NIF node (Main, Swivel).  Each
+    NIF node should get its own bhkPhysicsSystem container in Blender so that
+    COPY_TRANSFORMS constraints target only the correct shapes.
+
+    Main → 4 polytopes covering the dish base (z ≈ 0..170 Bl).
+    Swivel → 2 polytopes covering the rotating head (z ≈ 169..276 Bl).
+    """
+    testfile = TTB.test_file(r"tests\FO4\Meshes\BOSRadarDish.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    polys = [o for o in bpy.data.objects if o.get('pynCollisionShapeType') == 'polytope']
+    assert TT.is_eq(len(polys), 6, "Six polytope shapes imported total")
+
+    # Two separate bhkPhysicsSystem containers (one for Main, one for Swivel).
+    containers = [o for o in bpy.data.objects if o.get('pynRigidBody') == 'bhkPhysicsSystem'
+                  and o.type == 'EMPTY']
+    assert TT.is_eq(len(containers), 2, "Two bhkPhysicsSystem containers (one per NIF node)")
+
+    swivel = bpy.data.objects.get('Swivel:0')
+    assert TT.is_neq(swivel, None, "Swivel:0 mesh exists")
+
+    def world_z_bounds(ob):
+        vs = [ob.matrix_world @ v.co for v in ob.data.vertices]
+        return min(v.z for v in vs), max(v.z for v in vs)
+
+    sw_zmin, sw_zmax = world_z_bounds(swivel)
+
+    # Swivel's container holds 2 polytopes whose centroids fall in Swivel:0's world z range.
+    swivel_polys = [
+        p for p in polys
+        if sw_zmin - 20 < sum(world_z_bounds(p)) / 2 < sw_zmax + 20
+    ]
+    assert TT.is_eq(len(swivel_polys), 2, "Two polytopes cover the Swivel region")
+
+    all_z = [z for p in swivel_polys for z in world_z_bounds(p)]
+    tol = 15.0
+    assert TT.is_lt(abs(min(all_z) - sw_zmin), tol, "Swivel polytopes bottom near Swivel:0 bottom")
+    assert TT.is_lt(abs(max(all_z) - sw_zmax), tol, "Swivel polytopes top near Swivel:0 top")
+
+
+@TT.category('FO4', 'PHYSICS')
 def TEST_COLLISION_FO4_VAULT_SHELF():
     """FO4 bhkPhysicsSystem: single compressed_mesh whose bounds match the visual mesh.
 

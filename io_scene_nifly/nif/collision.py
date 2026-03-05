@@ -412,11 +412,13 @@ class CollisionHandler():
         Creates one Blender mesh object per leaf shape decoded from the packfile.
         Compound shapes are recursed so their children become individual objects.
 
-        Single-shape systems: the shape object itself is returned as the constraint
-        target (backward-compatible).
+        Single-body systems: the shape object itself (or a container Empty for
+        multi-leaf single bodies) is returned as the constraint target.
 
-        Multi-shape systems: an Empty named "bhkPhysicsSystem" is created as the
-        constraint target; all shape objects are parented to it as siblings.
+        Multi-body systems (N compound bodies, N NIF nodes referencing the same
+        physics-system block): each call picks the next compound body in order,
+        creating a separate container per NIF node.  This ensures each node's
+        COPY_TRANSFORMS constraint targets only its own collision shapes.
 
         For polytope shapes with a non-zero convex radius, a Geometry Nodes Push
         modifier and a Bevel modifier are added to visualise the Minkowski expansion.
@@ -431,30 +433,60 @@ class CollisionHandler():
         if ps is None:
             return None
 
-        # Return the existing Blender object if this physics system block was
-        # already imported (multiple collision objects may share one block).
+        # Multi-body support: each NIF-node reference picks the next body in order.
+        # Cache stores (parsed_shapes, next_body_index) so parsing happens only once.
         if ps.id in self._physics_system_cache:
-            return self._physics_system_cache[ps.id]
+            shapes, body_idx = self._physics_system_cache[ps.id]
+            self._physics_system_cache[ps.id] = (shapes, body_idx + 1)
+        else:
+            raw = ps.data
+            if not raw:
+                return None  # DLL not updated yet or block has no data; skip silently
+            try:
+                shapes = parse_bytes(raw)
+            except RuntimeError as e:
+                self.warn(f"bhkPhysicsSystem decode failed: {e}")
+                return None
+            body_idx = 0
+            self._physics_system_cache[ps.id] = (shapes, 1)
 
-        raw = ps.data
-        if not raw:
-            return None  # DLL not updated yet or block has no data; skip silently
+        # Collect leaf shapes.
+        # body.transform holds the body's world position; _collect accumulates it as
+        # the initial offset so all vertices end up in Havok world space before scaling.
+        # Nested sub-compounds (if any) accumulate their own offsets on top.
+        leaf_shapes = []  # list of (CollisionShape, sub_compound_offset_havok)
+        def _collect(s, offset=(0.0, 0.0, 0.0)):
+            if s.shape_type == 'compound':
+                body_pos = s.transform.position if s.transform else (0.0, 0.0, 0.0)
+                new_offset = (offset[0]+body_pos[0],
+                              offset[1]+body_pos[1],
+                              offset[2]+body_pos[2])
+                for child in s.children:
+                    _collect(child, new_offset)
+            else:
+                leaf_shapes.append((s, offset))
 
-        try:
-            shapes = parse_bytes(raw)
-        except RuntimeError as e:
-            self.warn(f"bhkPhysicsSystem decode failed: {e}")
-            return None
-
-        # Collect leaf shapes, recursing into any compound containers.
-        leaf_shapes = []
-        def _collect(shape_list):
-            for s in shape_list:
-                if s.shape_type == 'compound':
-                    _collect(s.children)
-                else:
-                    leaf_shapes.append(s)
-        _collect(shapes)
+        # Three packfile layouts share this importer:
+        #   Flat/shared (e.g. CapsuleExtStairs, pack_multi_polytope output): all
+        #     top-level shapes are standalone (no compound wrapper).  Every shape
+        #     belongs to the single first-referencing NIF node; subsequent NIF-node
+        #     references to the same physics system are silently skipped.
+        #   Compound-multi-body (e.g. BOSRadarDish): top-level shapes are compound
+        #     bodies; each NIF-node reference gets the next compound body in order.
+        all_standalone = all(s.shape_type != 'compound' for s in shapes)
+        if all_standalone:
+            if body_idx > 0:
+                # Shared physics system — already imported by the first reference.
+                return None
+            for s in shapes:
+                _collect(s)
+            self._physics_system_cache[ps.id] = (shapes, len(shapes))
+        else:
+            # Compound format: sequential one-body-per-call.
+            if body_idx >= len(shapes):
+                self.warn("bhkPhysicsSystem has more NIF-node references than bodies; skipping")
+                return None
+            _collect(shapes[body_idx])
 
         if not leaf_shapes:
             return None
@@ -476,17 +508,19 @@ class CollisionHandler():
             container = None
             anchor = None  # will be set to the single shape object
 
-        for i, s in enumerate(leaf_shapes):
-            # Apply body transform then scale to Blender units.
+        for i, (s, body_offset) in enumerate(leaf_shapes):
+            # Apply leaf transform then scale to Blender units.
             # compressed_mesh vertices are already in world space (the AABB is absolute);
-            # the body transform is the Havok centre-of-mass and must NOT be re-applied.
-            # Polytope vertices are in body-local space and DO need the transform.
+            # its body transform is the Havok centre-of-mass and must NOT be re-applied.
+            # Polytope vertices are in body-local space and DO need their own transform.
+            # body_offset is any accumulated sub-compound offset within this body.
             if s.transform is not None and s.shape_type != 'compressed_mesh':
                 p, r = s.transform.position, s.transform.rotation
+                tp = (p[0]+body_offset[0], p[1]+body_offset[1], p[2]+body_offset[2])
                 xverts = [
-                    (r[0][0]*v[0]+r[0][1]*v[1]+r[0][2]*v[2]+p[0],
-                     r[1][0]*v[0]+r[1][1]*v[1]+r[1][2]*v[2]+p[1],
-                     r[2][0]*v[0]+r[2][1]*v[1]+r[2][2]*v[2]+p[2])
+                    (r[0][0]*v[0]+r[0][1]*v[1]+r[0][2]*v[2]+tp[0],
+                     r[1][0]*v[0]+r[1][1]*v[1]+r[1][2]*v[2]+tp[1],
+                     r[2][0]*v[0]+r[2][1]*v[1]+r[2][2]*v[2]+tp[2])
                     for v in s.verts
                 ]
             else:
@@ -545,7 +579,6 @@ class CollisionHandler():
             else:
                 anchor = obj  # single shape: the shape itself is the anchor
 
-        self._physics_system_cache[ps.id] = anchor
         return anchor
 
 

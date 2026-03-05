@@ -8,7 +8,14 @@
       "Read(//c/Users/hughr/Downloads/**)",
       "Bash(py -c \":*)",
       "Bash(py pynifly_test_runner.py)",
-      "Bash(ls tests/FO4/*.nif)"
+      "Bash(ls tests/FO4/*.nif)",
+      "Bash(1:*)",
+      "Bash(python pynifly_test_runner.py TEST_COLLISION_FO4_BOSRADARDISH)",
+      "Bash(python pynifly_test_runner.py --help)",
+      "Bash(ls /c/Modding/PyNifly/tests/*.py)",
+      "Bash(ls /c/Modding/PyNifly/*.bat)",
+      "Bash(ls /c/Modding/PyNifly/*.ps1)",
+      "Bash(ls /c/Modding/PyNifly/run_blender*)"
     ]
   }
 }
