@@ -7577,6 +7577,46 @@ def TEST_HKX():
     assert TT.is_eq(output_anim.transform_tracks_count, input_anim.transform_tracks_count,
                     "Transform track count matches")
 
+    # Compare bone transforms at first and last frames
+    action = arma.animation_data.action
+    frame_start = int(action.frame_range[0])
+    frame_end = int(action.frame_range[1])
+    test_bones = ['NPC Pelvis', 'NPC Spine2 [Spn2]', 'NPC Head [Head]']
+
+    # Capture poses from current (input) animation
+    input_poses = {}
+    for frame in [frame_start, frame_end]:
+        bpy.context.scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        input_poses[frame] = {}
+        for bname in test_bones:
+            if bname in arma.pose.bones:
+                input_poses[frame][bname] = arma.pose.bones[bname].matrix.copy()
+
+    # Clear and re-import the exported HKX to compare
+    # Remove the existing action so we can load the exported one
+    old_action = arma.animation_data.action
+    arma.animation_data.action = None
+    bpy.data.actions.remove(old_action)
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=outfile,
+                                      reference_skel=hkx_skel)
+
+    # Compare poses at same frames
+    for frame in [frame_start, frame_end]:
+        bpy.context.scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        for bname in test_bones:
+            if bname in arma.pose.bones and bname in input_poses[frame]:
+                out_mat = arma.pose.bones[bname].matrix
+                in_mat = input_poses[frame][bname]
+                for r in range(4):
+                    for c in range(4):
+                        assert TT.is_equiv(out_mat[r][c], in_mat[r][c],
+                            f"Bone {bname} frame {frame} mat[{r}][{c}]",
+                            epsilon=0.1)
+
 
 @TT.category('SKYRIM', 'HKX')
 @TT.expect_errors(("Controller target not found",))
