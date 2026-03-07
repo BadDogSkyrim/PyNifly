@@ -7561,6 +7561,22 @@ def TEST_HKX():
 
     assert os.path.exists(outfile)
 
+    # Compare input and output animation metadata
+    from io_scene_nifly.pyn.xmltools import XMLFile
+    from io_scene_nifly.animation import HKAAnimation
+
+    input_xml = XMLFile(testfile)
+    output_xml = XMLFile(outfile)
+    input_anim = HKAAnimation.find(input_xml.root)
+    output_anim = HKAAnimation.find(output_xml.root)
+    assert input_anim is not None, "Input HKX has animation data"
+    assert output_anim is not None, "Output HKX has animation data"
+
+    assert TT.is_eq(output_anim.frames_count, input_anim.frames_count, "Frame count matches")
+    assert TT.is_equiv(output_anim.duration, input_anim.duration, "Duration matches")
+    assert TT.is_eq(output_anim.transform_tracks_count, input_anim.transform_tracks_count,
+                    "Transform track count matches")
+
 
 @TT.category('SKYRIM', 'HKX')
 @TT.expect_errors(("Controller target not found",))
